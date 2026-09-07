@@ -100,7 +100,8 @@ export class WelcomeView {
     const brand = document.createElement("div");
     brand.className = "wc-brand";
     brand.innerHTML = '<span class="brand brand-red">Micro</span>' +
-                      '<span class="brand brand-white">tone</span>';
+                      '<span class="brand brand-white">tone</span>' +
+                      '<span class="brand brand-tm"></span>';
     const tag = document.createElement("p");
     tag.className = "wc-tagline";
     tag.textContent = t("welcome.tagline");

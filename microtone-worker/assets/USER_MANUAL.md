@@ -1,6 +1,6 @@
 # Microtone User Manual
 
-**Microtone** is a microtonal music tracker for the TSVM **Taud** format that
+***Microtone™*** is a microtonal music tracker for the TSVM **Taud** format that
 runs entirely in your browser. There is no server component: your files never
 leave your machine, projects are stored in the browser's private storage, and
 even MIDI/module conversion happens locally. The audio engine is a faithful

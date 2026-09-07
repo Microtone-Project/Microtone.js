@@ -19,7 +19,7 @@ export function showAbout() {
         `<li><b>${esc(n)}</b>${note ? ` — ${esc(note)}` : ""}</li>`).join("")}</ul>`
     : `<p class="dim">${esc(t("about.thanksEmpty"))}</p>`;
   dlg.innerHTML = `
-    <h3 class="brand-container"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand-dim">.js</span></h3>
+    <h3 class="brand-container"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span></h3>
     <p>${esc(t("about.blurb1"))}</p>
     <p>${esc(t("about.blurb2"))}</p>
     <p>${esc(t("about.blurb3"))}</p>

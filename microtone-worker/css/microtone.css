@@ -506,6 +506,8 @@ select, input[type="range"] {
 .brand-red { color: var(--brand); }
 .brand-white { color: var(--brand2); }
 .brand-dim { margin-left: 0.14rem; color: var(--dim); font-weight: 400; font-style: normal; font-size: 1.222rem; }
+.brand-tm { margin-left: 0.14rem; color: var(--dim); font-weight: 700; font-style: normal; font-size: 0.25em; position: relative; top: -2em }
+.brand-tm::after { content: "TM" }
 
 .transport-controls { display: flex; gap: 0.3rem; align-items: center; }
 .chk { color: var(--dim); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem; }
