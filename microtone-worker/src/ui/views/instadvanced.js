@@ -13,7 +13,9 @@
 // SNam realignment payload into the same op, so pool-order names survive.
 
 import { setInstPatchesOp } from "../../doc/ops.js";
-import { writePatchesBlob, makeInstPatch, patchVibratoInherits } from "../../engine/inst.js";
+import {
+  writePatchesBlob, makeInstPatch, patchVibratoInherits, baseStereoPatchIndex,
+} from "../../engine/inst.js";
 import { TOTAL_VOICES } from "../../engine/constants.js";
 import { encodeNameTable } from "../../doc/cleanup.js";
 import { envPresent, envCarry } from "../../engine/envelope.js";
@@ -160,6 +162,15 @@ export class AdvancedZoneEditor {
     const inst = this.inst;
     const patches = this.patches();
     this.selIdx = clampN(this.selIdx, 0, patches.length); // patches.length = base row
+    // The base stereo patch (item 90/180) isn't a real zone — it exists only
+    // to add channels to the instrument's OWN base sample, and its rectangle
+    // always wins over the base record, so hand-editing it here as if it were
+    // an ordinary zone is exactly how it goes stale. Hide it from the list,
+    // the map and selection; it stays reachable (kept in sync) through the
+    // base instrument's own Sample section instead.
+    this.shadowIdx = baseStereoPatchIndex(inst);
+    if (this.selIdx === this.shadowIdx) this.selIdx = patches.length;
+    const visibleCount = patches.length - (this.shadowIdx >= 0 ? 1 : 0);
     this._census = doc.sampleList();
     this._liveSig = "~";
 
@@ -172,7 +183,7 @@ export class AdvancedZoneEditor {
     title.className = "adv-title";
     const nm = unescapeName(doc.instrumentName(this.slot) || "");
     title.textContent = `${t("adv.title")} — $${this.slot.toString(16).toUpperCase().padStart(2, "0")}` +
-      `${nm ? " " + nm : ""} — ${patches.length === 1 ? t("adv.patch1") : t("adv.patches", { n: patches.length })}`;
+      `${nm ? " " + nm : ""} — ${visibleCount === 1 ? t("adv.patch1") : t("adv.patches", { n: visibleCount })}`;
     const spacer = document.createElement("span");
     spacer.className = "adv-spacer";
     const sel = this.selIdx < patches.length ? this.selIdx : -1;
@@ -232,10 +243,13 @@ export class AdvancedZoneEditor {
   }
 
   /** True when patch `i`'s rectangle intersects an EARLIER patch's (spec Note
-   *  1: overlapping zones are invalid — first match wins at trigger time). */
+   *  1: overlapping zones are invalid — first match wins at trigger time).
+   *  The hidden base stereo patch (item 180) is excluded — it isn't a real
+   *  zone, so it can't make a genuine one "overlap". */
   overlapsEarlier(patches, i) {
     const p = patches[i];
     for (let j = 0; j < i; j++) {
+      if (j === this.shadowIdx) continue;
       const q = patches[j];
       if (p.pitchStart <= q.pitchEnd && q.pitchStart <= p.pitchEnd &&
           p.volumeStart <= q.volumeEnd && q.volumeStart <= p.volumeEnd) return true;
@@ -263,6 +277,7 @@ export class AdvancedZoneEditor {
       this.listRows.push({ el: row, idx: i });
     };
     patches.forEach((p, i) => {
+      if (i === this.shadowIdx) return; // item 180 — not a real zone
       mkRow(i, this.sampleLabel(p.samplePtr, p.sampleLength) +
         (p.hasChanBlock && p.chanCount > 1 ? ` [${t("smp.stereoTag")}]` : ""),
         `${rangeToStr(p.pitchStart, p.pitchEnd)} · ${p.volumeStart}‥${p.volumeEnd}`,
@@ -275,13 +290,17 @@ export class AdvancedZoneEditor {
 
   // ── zone map ───────────────────────────────────────────────────────────────
 
-  /** Pitch extent: union of patch rectangles (taut fallback 0x1000..0x9000). */
+  /** Pitch extent: union of VISIBLE patch rectangles (taut fallback
+   *  0x1000..0x9000) — the hidden base stereo patch (item 180) is always
+   *  full-range and would otherwise zoom every stereo instrument's map out to
+   *  the whole keyboard regardless of its real zones. */
   mapRange() {
     let lo = Infinity, hi = -Infinity;
-    for (const p of this.patches()) {
+    this.patches().forEach((p, i) => {
+      if (i === this.shadowIdx) return;
       if (p.pitchStart < lo) lo = p.pitchStart;
       if (p.pitchEnd > hi) hi = p.pitchEnd;
-    }
+    });
     if (!isFinite(lo)) { lo = 0x1000; hi = 0x9000; }
     if (hi <= lo) hi = lo + 1;
     return { lo, hi };
@@ -346,6 +365,7 @@ export class AdvancedZoneEditor {
     }
 
     patches.forEach((p, i) => {
+      if (i === this.shadowIdx) return; // item 180 — not a real zone
       const x = g.X(p.pitchStart);
       const y = g.Y(p.volumeEnd);
       const pw = Math.max(g.X(p.pitchEnd) - x, 2);
@@ -390,6 +410,7 @@ export class AdvancedZoneEditor {
     const patches = this.patches();
     let hit = patches.length; // base backdrop
     for (let i = 0; i < patches.length; i++) {
+      if (i === this.shadowIdx) continue; // item 180 — not a real zone, not clickable
       const p = patches[i];
       const px = g.X(p.pitchStart);
       const py = g.Y(p.volumeEnd);

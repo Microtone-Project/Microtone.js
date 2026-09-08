@@ -119,6 +119,31 @@
         for (let i = 0; i < entry.len; i++) if (bin[l.ptr + i] !== bin[r.ptr + i]) diff++;
         ok(diff > entry.len * 0.5, `t6f the pooled channels differ (${diff}/${entry.len})`);
 
+        // ── the base stereo patch (item 90/180) isn't a real zone ───────────
+        // This instrument's only patch is the full-range one that carries the
+        // 's' block for its OWN base sample — neither the basic Zones tab nor
+        // the Advanced Zone Editor should present it as an editable zone.
+        const iv = win.__microtone.instrumentsView;
+        iv.selected = res.firstSlot;
+        iv.tab = "zones";
+        iv.show();
+        iv.renderPanel();
+        ok(iv.panel.querySelector(".detail-info").textContent.startsWith("0 "),
+          `t6g the Zones tab counts zero real zones (got "${iv.panel.querySelector(".detail-info").textContent}")`);
+        ok(store.doc.instruments[res.firstSlot].extraPatches.length === 1,
+          "t6h the shadow patch itself is still there, just not counted");
+
+        iv.openAdvanced();
+        // buildList always renders one unconditional "base fallback" row too
+        // (same .adv-row class) — the shadow patch being hidden means that is
+        // the ONLY row here, not zero rows overall.
+        const advRows = [...iv.panel.querySelectorAll(".adv-row")];
+        ok(advRows.length === 1 && advRows[0].querySelector(".idx").textContent === "base",
+          `t6i the Advanced editor's zone list has only the base fallback row (got ${advRows.length}: ${advRows.map((r) => r.querySelector(".idx").textContent)})`);
+        ok(iv.panel.querySelector(".adv-title").textContent.includes("0 patches"),
+          `t6j the Advanced editor's header reads zero patches too (got "${iv.panel.querySelector(".adv-title").textContent}")`);
+        iv.closeAdvanced();
+
         // ── it plays, and it plays in stereo ─────────────────────────────────
         await win.__microtone.ensureAudio?.();
         const audio = store.audio;

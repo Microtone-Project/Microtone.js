@@ -79,6 +79,39 @@ export function patchIsStereo(patch) {
   return patch.hasChanBlock && patch.chanCount === 2 && patch.chanPtrs.length >= 1;
 }
 
+/** Base-record field name → the Ixmp patch field it is duplicated into, for
+ *  the sample geometry every patch record carries independently (spec §9.11:
+ *  "Loop mode ... identical to base record byte 14"). Used to keep a base
+ *  stereo patch (below) in sync when the instrument's own sample fields are
+ *  edited (item 180). */
+export const BASE_TO_PATCH_FIELD = {
+  samplePtr: "samplePtr", sampleLength: "sampleLength", samplingRate: "samplingRate",
+  samplePlayStart: "playStart", sampleLoopStart: "loopStart", sampleLoopEnd: "loopEnd",
+  sampleDetune: "sampleDetune", loopMode: "loopMode",
+};
+
+/**
+ * Index of the Ixmp patch that exists ONLY to add channels to this
+ * instrument's OWN base sample (item 90/180): a base record cannot itself
+ * carry the 's' block, so a stereo canonical sample gets one extra,
+ * full-range patch that duplicates the base record's sample geometry and adds
+ * the 's' block. Matched by sample identity (same samplePtr/sampleLength as
+ * the base record) plus `hasChanBlock`, not by rectangle bounds — that is the
+ * same condition `Document.sampleList()` uses to decide a base record and a
+ * patch describe "the same sample" (its `chanPtrs` merge rule), so an
+ * ordinary same-sample zone that carries no 's' block is never matched here.
+ * Because its rectangle is the whole keyboard, this patch always wins patch
+ * selection, so the base record's own copy of these fields is otherwise dead
+ * for playback — it must be kept in sync, not edited independently. -1 when
+ * the instrument has none.
+ */
+export function baseStereoPatchIndex(inst) {
+  const patches = inst.extraPatches;
+  if (!patches) return -1;
+  return patches.findIndex((p) => p.hasChanBlock && p.chanCount > 1 &&
+    p.samplePtr === inst.samplePtr && p.sampleLength === inst.sampleLength);
+}
+
 /**
  * True when the patch says nothing about auto-vibrato and the base record's
  * block should be used whole (item 170). The wire has one sentinel for five

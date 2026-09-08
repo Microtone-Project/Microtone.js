@@ -6,6 +6,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-09
 
+Editing a stereo instrument now keeps its stereo pairing in sync.
+
+- Fixed: editing a stereo instrument's loop points, play start, sample rate or detune — or picking a different sample for it — could leave its stereo pairing out of sync with what you had just set, and in the worst case leave it silently playing the sample you had just switched away from.
+- The internal record that carries a stereo instrument's second channel no longer shows up as an editable zone in the Zones tab or the Advanced Zone Editor, where deleting or hand-editing it caused exactly that kind of desync.
+
 Metainstruments now glide correctly under tone portamento (`G`).
 
 - Fixed: gliding through a chain of tied notes (`G`) on a metainstrument whose layers carry their own pitch offset could keep sliding well past where it should have arrived, so the next slide in the chain cut it off before it ever settled — a bend that looked like it never stopped. It now lands exactly where a plain instrument's would.

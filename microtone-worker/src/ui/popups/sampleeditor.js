@@ -9,7 +9,7 @@
 // modal only moves the markers of the slot it was opened on, which is per
 // instrument and therefore not something the Lab can own.
 
-import { setInstBytesOp } from "../../doc/ops.js";
+import { setInstBytesOp, syncBaseStereoPatchOp, compositeOp } from "../../doc/ops.js";
 import { resolveLoopRegion, residualDb, LOOP_POLICIES } from "../../doc/looptune.js";
 import { themeColors } from "../theme.js";
 import { unescapeName } from "../names.js";
@@ -194,7 +194,15 @@ export function openInstSampleEditor(store, slot) {
         [12, f.loopEnd & 0xff], [13, (f.loopEnd >>> 8) & 0xff],
         [14, modeByte],
       ];
-      store.undo.apply(setInstBytesOp(slot, pairs, gestureId));
+      const bytesOp = setInstBytesOp(slot, pairs, gestureId);
+      // Item 180: these bytes are the base record's copy of the sample's own
+      // geometry — for a stereo instrument the base stereo patch's duplicate
+      // copy is what actually plays, so it must move with the markers too.
+      const sync = syncBaseStereoPatchOp(doc, slot, {
+        samplePlayStart: f.playStart, sampleLoopStart: f.loopStart,
+        sampleLoopEnd: f.loopEnd, loopMode: modeByte,
+      }, gestureId);
+      store.undo.apply(sync ? compositeOp([bytesOp, sync], gestureId) : bytesOp);
       paint();
     }
 

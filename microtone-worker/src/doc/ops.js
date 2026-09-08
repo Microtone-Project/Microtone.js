@@ -8,7 +8,9 @@
 //           | {kind:"ixmp", slot} | {kind:"section", fourcc} | {kind:"resync", song}
 
 import { applyPlan, captureBankState, restoreBankState, buildIxmpSection } from "./bankmerge.js";
-import { parsePatchesBlob } from "../engine/inst.js";
+import {
+  parsePatchesBlob, writePatchesBlob, makeInstPatch, baseStereoPatchIndex, BASE_TO_PATCH_FIELD,
+} from "../engine/inst.js";
 import { TaudPlayData } from "../engine/state.js";
 import { CUE_EMPTY, MAX_VOICES, NUM_CUES, NUM_CUES_64 } from "../format/taud-const.js";
 
@@ -925,6 +927,80 @@ export function setInstPatchesOp(slot, blob, snam = undefined, gestureId = null)
     },
     dirty: () => [{ kind: "ixmp", slot: slot & 0x3ff }],
   };
+}
+
+/**
+ * When an edit changes one of an instrument's OWN base sample-geometry
+ * fields, mirror the same fields into its base stereo patch (item 180,
+ * `baseStereoPatchIndex`) if it has one — that patch's rectangle always wins
+ * over the base record, so its own duplicate copy of these fields is what
+ * actually plays, and leaving it stale (or, after a re-bind, pointing at a
+ * different sample entirely) is the "invalid state" this closes.
+ *
+ * `changes` is {instFieldName: newValue} using TaudInst property names (see
+ * `BASE_TO_PATCH_FIELD`). Returns a setInstPatchesOp mirroring the matching
+ * subset into the patch, or null when the instrument has no base stereo patch
+ * or none of `changes` touches a mirrored field.
+ *
+ * Mirroring these scalar fields never changes the sample census's (ptr,len)
+ * key set — the base record's own ptr/len is already in the census
+ * unconditionally (`Document.sampleList()`) — so `snam` is left untouched.
+ */
+export function syncBaseStereoPatchOp(doc, slot, changes, gestureId = null) {
+  const inst = doc.instruments[slot & 0x3ff];
+  const idx = baseStereoPatchIndex(inst);
+  if (idx < 0) return null;
+  let touched = false;
+  const patches = inst.extraPatches.map((p, i) => {
+    if (i !== idx) return p;
+    const q = { ...p };
+    for (const [instKey, patchKey] of Object.entries(BASE_TO_PATCH_FIELD)) {
+      if (instKey in changes) { q[patchKey] = changes[instKey]; touched = true; }
+    }
+    return q;
+  });
+  return touched ? setInstPatchesOp(slot, writePatchesBlob(patches), undefined, gestureId) : null;
+}
+
+/**
+ * Rebind an instrument's base stereo patch (item 180, `baseStereoPatchIndex`)
+ * after re-pointing its base record at a DIFFERENT sample (e.g. the
+ * Instruments view's Sample picker, `adoptSample`): upserts a full-range patch
+ * mirroring `fields` plus the new channel pointers when the newly-adopted
+ * sample is itself stereo, or drops the existing one when it is not — an
+ * instrument re-bound to a mono sample has nothing left for a patch to add.
+ *
+ * Without this, re-binding away from a stereo sample left the OLD full-range
+ * patch pointing at the OLD sample, which keeps winning every trigger (its
+ * rectangle covers everything), so the instrument kept silently playing the
+ * sample it was just switched away from.
+ *
+ * `fields` is the full mirrored geometry for the newly-adopted sample, using
+ * PATCH field names (samplePtr, sampleLength, playStart, loopStart, loopEnd,
+ * samplingRate, sampleDetune, loopMode — see `BASE_TO_PATCH_FIELD`).
+ * `chanPtrs`/`chanMode` come straight from the census entry
+ * (`Document.sampleList()`); an empty `chanPtrs` means the adopted sample is
+ * mono. Returns a setInstPatchesOp, or null when there is nothing to do
+ * (adopted a mono sample and the instrument had no shadow patch already).
+ */
+export function rebindBaseStereoPatchOp(doc, slot, fields, chanPtrs, chanMode = 0) {
+  const inst = doc.instruments[slot & 0x3ff];
+  const idx = baseStereoPatchIndex(inst);
+  if (chanPtrs.length > 0) {
+    const mirrored = {
+      ...fields, hasChanBlock: true, chanCount: 1 + chanPtrs.length,
+      chanMode, chanPtrs: [...chanPtrs],
+    };
+    const patches = idx >= 0
+      ? inst.extraPatches.map((p, i) => (i === idx ? { ...p, ...mirrored } : p))
+      : [...(inst.extraPatches ?? []), makeInstPatch({
+          pitchStart: 0, pitchEnd: 0xffff, volumeStart: 0, volumeEnd: 63, ...mirrored,
+        })];
+    return setInstPatchesOp(slot, writePatchesBlob(patches), undefined);
+  }
+  if (idx < 0) return null;
+  const patches = inst.extraPatches.filter((_, i) => i !== idx);
+  return setInstPatchesOp(slot, patches.length ? writePatchesBlob(patches) : null, undefined);
 }
 
 function captureIxmpState(doc) {

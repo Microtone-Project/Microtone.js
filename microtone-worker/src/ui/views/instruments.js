@@ -8,7 +8,7 @@
 import {
   setInstFieldOp, setInstBytesOp, setEnvDragOp, setEnvPointOp, setEnvArrayOp,
   setMetaRecordOp, setSectionOp, renumberInstrumentOp, deleteInstrumentOp,
-  importBankOp, compositeOp,
+  importBankOp, compositeOp, syncBaseStereoPatchOp, rebindBaseStereoPatchOp,
 } from "../../doc/ops.js";
 import {
   metaLayers, metaRecordOf, metaFlags, metaRecordWithFlags,
@@ -54,6 +54,7 @@ import { parseFieldValue } from "../../doc/patternquery.js";
 import { themeColors } from "../theme.js";
 import { unescapeName, escapeNonAscii } from "../names.js";
 import { isStereoSample } from "../../doc/document.js";
+import { baseStereoPatchIndex } from "../../engine/inst.js";
 import {
   annHex2, annFilter, annFadeout, annSfCutoff, annSfReso, azimuthLabel, elevationLabel,
   SEG_MINIFLOAT_MAP,
@@ -345,8 +346,15 @@ export class InstrumentsView {
     else if (this.tab === "metaopts") this.renderMetaOptions(inst);
   }
 
+  /** A base-record field edit. When `key` is one of the sample-geometry
+   *  fields a base stereo patch duplicates (item 180 — that patch's rectangle
+   *  always wins over the base record, so its own copy is what actually
+   *  plays), the same value is mirrored into it in the SAME undo step. */
   setField(key, value) {
-    this.store.undo.apply(setInstFieldOp(this.selected, key, value));
+    const sync = syncBaseStereoPatchOp(this.store.doc, this.selected, { [key]: value });
+    this.store.undo.apply(sync
+      ? compositeOp([setInstFieldOp(this.selected, key, value), sync])
+      : setInstFieldOp(this.selected, key, value));
   }
 
   /** Editable instrument-name row (INam), shown atop every tab so it's reachable
@@ -826,22 +834,43 @@ export class InstrumentsView {
   }
 
   /** Point the selected instrument at `e` (a census row, or a region window):
-   *  pointer, length, rate and loop in ONE undo step. */
+   *  pointer, length, rate and loop in ONE undo step. Also keeps the
+   *  instrument's base stereo patch (item 90/180) correct: upserted when `e`
+   *  is stereo, dropped when it is not — without this, re-binding away from a
+   *  stereo sample left the old full-range patch pointing at the OLD sample,
+   *  which keeps winning every trigger, so the instrument silently kept
+   *  playing the sample you just switched away from. */
   adoptSample(inst, e) {
     const slot = this.selected;
-    this.store.undo.apply(compositeOp([
+    const newLen = e.len & 0xffff;
+    const newRate = Math.max(1, Math.min(0xffff, e.rate | 0));
+    const newLoopStart = e.loopStart & 0xffff;
+    const newLoopEnd = e.loopEnd & 0xffff;
+    // Loop mode and sustain come from the sample; the percussion bit is the
+    // INSTRUMENT's own and stays where it was.
+    const newLoopMode = (inst.loopMode & ~0x17) | (e.loopMode & 0x17);
+    // A play start past the new length would play nothing at all.
+    const newPlayStart = inst.samplePlayStart >= newLen ? 0 : inst.samplePlayStart;
+
+    const ops = [
       setInstFieldOp(slot, "samplePtr", e.ptr),
-      setInstFieldOp(slot, "sampleLength", e.len & 0xffff),
-      setInstFieldOp(slot, "samplingRate", Math.max(1, Math.min(0xffff, e.rate | 0))),
-      setInstFieldOp(slot, "sampleLoopStart", e.loopStart & 0xffff),
-      setInstFieldOp(slot, "sampleLoopEnd", e.loopEnd & 0xffff),
-      // Loop mode and sustain come from the sample; the percussion bit is the
-      // INSTRUMENT's own and stays where it was.
-      setInstFieldOp(slot, "loopMode", (inst.loopMode & ~0x17) | (e.loopMode & 0x17)),
-      // A play start past the new length would play nothing at all.
-      ...(inst.samplePlayStart >= (e.len & 0xffff)
-        ? [setInstFieldOp(slot, "samplePlayStart", 0)] : []),
-    ]));
+      setInstFieldOp(slot, "sampleLength", newLen),
+      setInstFieldOp(slot, "samplingRate", newRate),
+      setInstFieldOp(slot, "sampleLoopStart", newLoopStart),
+      setInstFieldOp(slot, "sampleLoopEnd", newLoopEnd),
+      setInstFieldOp(slot, "loopMode", newLoopMode),
+      ...(newPlayStart !== inst.samplePlayStart
+        ? [setInstFieldOp(slot, "samplePlayStart", newPlayStart)] : []),
+    ];
+
+    const rebind = rebindBaseStereoPatchOp(this.store.doc, slot, {
+      samplePtr: e.ptr, sampleLength: newLen, playStart: newPlayStart,
+      loopStart: newLoopStart, loopEnd: newLoopEnd, samplingRate: newRate,
+      sampleDetune: inst.sampleDetune, loopMode: newLoopMode,
+    }, e.chanPtrs ?? [], e.chanMode ?? 0);
+    if (rebind) ops.push(rebind);
+
+    this.store.undo.apply(compositeOp(ops));
     this.renderPanel();
   }
 
@@ -903,7 +932,13 @@ export class InstrumentsView {
       `$${(v & 0xffff).toString(16).toUpperCase().padStart(4, "0")} · ` +
       `${((v * 1200) / 4096).toFixed(1)} cents, 4096-TET`;
     return this.sliderRow(t("inst.detune"), value, min, max,
-      (v, gid) => this.applyQuiet(setInstFieldOp(this.selected, "sampleDetune", v & 0xffff, gid)),
+      (v, gid) => {
+        const nv = v & 0xffff;
+        const sync = syncBaseStereoPatchOp(this.store.doc, this.selected, { sampleDetune: nv }, gid);
+        this.applyQuiet(sync
+          ? compositeOp([setInstFieldOp(this.selected, "sampleDetune", nv, gid), sync], gid)
+          : setInstFieldOp(this.selected, "sampleDetune", nv, gid));
+      },
       { ann, wide: true, signedLog: true });
   }
 
@@ -1487,9 +1522,13 @@ export class InstrumentsView {
     const head = document.createElement("div");
     head.className = "detail-info";
     const patches = inst.extraPatches ?? [];
-    head.textContent = patches.length === 1
+    // The base stereo patch (item 90/180) isn't a real zone — it exists only
+    // to add channels to the instrument's OWN base sample — so it is left out
+    // of the count and off the map below (drawZones).
+    const visibleCount = patches.length - (baseStereoPatchIndex(inst) >= 0 ? 1 : 0);
+    head.textContent = visibleCount === 1
       ? t("inst.zonesInfo1")
-      : t("inst.zonesInfoN", { n: patches.length });
+      : t("inst.zonesInfoN", { n: visibleCount });
     this.panel.appendChild(head);
     const canvas = document.createElement("canvas");
     canvas.className = "wave-canvas";
@@ -1514,6 +1553,7 @@ export class InstrumentsView {
     ctx.fillStyle = C.cvBg;
     ctx.fillRect(0, 0, w, h);
     const patches = inst.extraPatches ?? [];
+    const shadowIdx = baseStereoPatchIndex(inst);
     const X = (noteVal) => (noteVal / 0xffff) * w;
     const Y = (vol) => h - (vol / 63) * h;
 
@@ -1528,6 +1568,7 @@ export class InstrumentsView {
     }
 
     patches.forEach((p, i) => {
+      if (i === shadowIdx) return; // item 180 — not a real zone
       const x = X(p.pitchStart);
       const y = Y(p.volumeEnd);
       const pw = Math.max(X(p.pitchEnd) - x, 2);
@@ -2201,7 +2242,14 @@ function metaTabKey(inst) {
 function instKindBadge(inst) {
   if (inst.isFm) return `FM·${inst.metaLayers.length}`;
   if (inst.isMeta) return "META";
-  return inst.extraPatches ? `IXMP·${inst.extraPatches.length}` : "";
+  const patches = inst.extraPatches;
+  if (!patches) return "";
+  // The base stereo patch (item 90/180) isn't a real zone, so an instrument
+  // whose only patch is that one reads as plain stereo ("ST"), not "IXMP·1".
+  const shadowIdx = baseStereoPatchIndex(inst);
+  const visible = patches.length - (shadowIdx >= 0 ? 1 : 0);
+  if (visible > 0) return `IXMP·${visible}`;
+  return shadowIdx >= 0 ? t("smp.stereoTag") : "";
 }
 
 // Meta layer detune is a signed 4096-TET offset; the Layers tab shows cents.

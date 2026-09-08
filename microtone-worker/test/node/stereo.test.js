@@ -24,7 +24,11 @@ import { fileURLToPath } from "node:url";
 import { parseTaud } from "../../src/format/taud-parse.js";
 import { Document, sampleSpans, isStereoSample } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
-import { importBankOp, multiSampleBytesOp } from "../../src/doc/ops.js";
+import {
+  importBankOp, multiSampleBytesOp, compositeOp, setInstFieldOp,
+  syncBaseStereoPatchOp, rebindBaseStereoPatchOp,
+} from "../../src/doc/ops.js";
+import { baseStereoPatchIndex } from "../../src/engine/inst.js";
 import { planMultiSampleImport, planImport } from "../../src/doc/bankmerge.js";
 import { planBankCleanup } from "../../src/doc/cleanup.js";
 import { applyChannels, normalise, reverse } from "../../src/doc/sampledsp.js";
@@ -415,4 +419,153 @@ test("downmixChannels averages, and is identity for one channel", () => {
   const one = downmixChannels([l]);
   assert.deepEqual([...one], [...l]);
   assert.notEqual(one, l, "returns a copy");
+});
+
+// ── item 180: the base stereo patch (a full-range Ixmp patch that exists
+// only to add channels to an instrument's OWN base sample, since the base
+// record has no room for the 's' block) must track the base record's own
+// sample-geometry edits, and stay out of the zone-editing UI ────────────────
+
+/** Import one stereo (or mono, when `pcmR` is omitted) take via
+ *  planMultiSampleImport/importBankOp — the same shape the "importing a
+ *  stereo take" test above builds by hand — and return {doc, undo, slot}. */
+function importTake(pcm, pcmR) {
+  const doc = new Document(parseTaud(readFileSync(corpusDir + "WHEN.taud")));
+  const undo = new UndoStack(doc);
+  const plan = planMultiSampleImport(doc, [{
+    nameBytes: new TextEncoder().encode("take"), pcm, pcmR, rate: 32000, loop: true,
+  }]);
+  assert.equal(plan.error, undefined, plan.error);
+  undo.apply(importBankOp(plan));
+  return { doc, undo, slot: plan.insts[0].destSlot };
+}
+
+const N = 300;
+const pcmL = Uint8Array.from({ length: N }, (_, i) => 128 + Math.round(60 * Math.sin(i / 9)));
+const pcmR = Uint8Array.from({ length: N }, (_, i) => 128 + Math.round(40 * Math.sin(i / 5)));
+
+test("baseStereoPatchIndex finds the importer's shadow patch, and only that", () => {
+  const { doc, slot } = importTake(pcmL, pcmR);
+  const inst = doc.instruments[slot];
+  assert.equal(inst.extraPatches.length, 1);
+  assert.equal(baseStereoPatchIndex(inst), 0);
+
+  // A mono import gets no patch at all.
+  const { doc: monoDoc, slot: monoSlot } = importTake(pcmL, null);
+  assert.equal(monoDoc.instruments[monoSlot].extraPatches, null);
+  assert.equal(baseStereoPatchIndex(monoDoc.instruments[monoSlot]), -1);
+
+  // A genuine zone that happens to reuse the base sample, but carries no 's'
+  // block, is not the shadow patch — only hasChanBlock makes it one.
+  const plain = makeInstPatch({
+    pitchStart: 0, pitchEnd: 0xffff, volumeStart: 0, volumeEnd: 63,
+    samplePtr: inst.samplePtr, sampleLength: inst.sampleLength,
+  });
+  const withPlainZone = { ...inst, extraPatches: [plain] };
+  assert.equal(baseStereoPatchIndex(withPlainZone), -1);
+});
+
+test("syncBaseStereoPatchOp mirrors a base sample-geometry edit into the shadow patch", () => {
+  const { doc, undo, slot } = importTake(pcmL, pcmR);
+  const before = doc.instruments[slot].extraPatches[0];
+  const beforeChanPtrs = [...before.chanPtrs];
+  const beforeDefaultPan = before.defaultPan;
+  const origLoopStart = doc.instruments[slot].sampleLoopStart;
+  const origDetune = doc.instruments[slot].sampleDetune;
+
+  const sync = syncBaseStereoPatchOp(doc, slot, { sampleLoopStart: 12, sampleDetune: 99 });
+  assert.notEqual(sync, null);
+  undo.apply(compositeOp([
+    setInstFieldOp(slot, "sampleLoopStart", 12),
+    setInstFieldOp(slot, "sampleDetune", 99),
+    sync,
+  ]));
+
+  const patch = doc.instruments[slot].extraPatches[0];
+  assert.equal(patch.loopStart, 12, "the mirrored field followed the base edit");
+  assert.equal(patch.sampleDetune, 99);
+  // Everything else on the patch — including the 's' block — is untouched.
+  assert.deepEqual(patch.chanPtrs, beforeChanPtrs);
+  assert.equal(patch.defaultPan, beforeDefaultPan);
+  assert.equal(patch.loopEnd, before.loopEnd);
+
+  // Round-trips through the file and back with the synced value intact.
+  const reloaded = new Document(parseTaud(doc.toBytes()));
+  assert.equal(reloaded.instruments[slot].extraPatches[0].loopStart, 12);
+  assert.equal(reloaded.instruments[slot].sampleLoopStart, 12);
+
+  // Undo restores both the base record and the patch together (one step).
+  undo.undo();
+  assert.equal(doc.instruments[slot].sampleLoopStart, origLoopStart);
+  assert.equal(doc.instruments[slot].sampleDetune, origDetune);
+  const afterUndo = doc.instruments[slot].extraPatches[0];
+  assert.equal(afterUndo.loopStart, before.loopStart);
+  assert.equal(afterUndo.sampleDetune, before.sampleDetune);
+});
+
+test("syncBaseStereoPatchOp is a no-op without a shadow patch or a mirrored field", () => {
+  const { doc: monoDoc, slot: monoSlot } = importTake(pcmL, null);
+  assert.equal(syncBaseStereoPatchOp(monoDoc, monoSlot, { sampleLoopStart: 5 }), null);
+
+  const { doc, slot } = importTake(pcmL, pcmR);
+  // instrumentFlag is a base-record field, but not one a patch duplicates.
+  assert.equal(syncBaseStereoPatchOp(doc, slot, { instrumentFlag: 5 }), null);
+});
+
+test("rebindBaseStereoPatchOp re-points the shadow patch at a NEW stereo sample", () => {
+  const { doc, undo, slot } = importTake(pcmL, pcmR);
+  const oldPatch = doc.instruments[slot].extraPatches[0];
+
+  // A second, different stereo take lands new pool spans in the same doc.
+  const pcm2 = Uint8Array.from({ length: N }, (_, i) => 128 + Math.round(50 * Math.cos(i / 7)));
+  const pcm2R = Uint8Array.from({ length: N }, (_, i) => 128 + Math.round(30 * Math.cos(i / 4)));
+  const plan2 = planMultiSampleImport(doc, [{
+    nameBytes: new TextEncoder().encode("other take"), pcm: pcm2, pcmR: pcm2R, rate: 22050, loop: false,
+  }]);
+  undo.apply(importBankOp(plan2));
+  const newInst = doc.instruments[plan2.insts[0].destSlot];
+  const entry = doc.sampleList().find((e) => e.ptr === newInst.samplePtr);
+  assert.equal(isStereoSample(entry), true);
+
+  const rebind = rebindBaseStereoPatchOp(doc, slot, {
+    samplePtr: entry.ptr, sampleLength: entry.len, playStart: 0,
+    loopStart: entry.loopStart, loopEnd: entry.loopEnd, samplingRate: entry.rate,
+    sampleDetune: 0, loopMode: entry.loopMode,
+  }, entry.chanPtrs, entry.chanMode);
+  assert.notEqual(rebind, null);
+  undo.apply(compositeOp([
+    setInstFieldOp(slot, "samplePtr", entry.ptr),
+    setInstFieldOp(slot, "sampleLength", entry.len),
+    rebind,
+  ]));
+
+  const patches = doc.instruments[slot].extraPatches;
+  assert.equal(patches.length, 1, "updated in place, not appended");
+  assert.equal(patches[0].samplePtr, entry.ptr);
+  assert.deepEqual(patches[0].chanPtrs, entry.chanPtrs);
+  assert.notEqual(patches[0].samplePtr, oldPatch.samplePtr,
+    "no longer points at the sample it was switched away from");
+
+  const reloaded = new Document(parseTaud(doc.toBytes()));
+  const rePatch = reloaded.instruments[slot].extraPatches[0];
+  assert.equal(rePatch.samplePtr, entry.ptr);
+  assert.deepEqual(rePatch.chanPtrs, entry.chanPtrs);
+});
+
+test("rebindBaseStereoPatchOp drops the shadow patch when re-binding to a mono sample", () => {
+  // `fields` is unused on this path (an empty chanPtrs means "adopted a mono
+  // sample" — there is nothing left for a patch to add).
+  const { doc, undo, slot } = importTake(pcmL, pcmR);
+  const drop = rebindBaseStereoPatchOp(doc, slot, {}, []);
+  assert.notEqual(drop, null);
+  undo.apply(drop);
+  assert.equal(doc.instruments[slot].extraPatches, null);
+
+  const reloaded = new Document(parseTaud(doc.toBytes()));
+  assert.equal(reloaded.instruments[slot].extraPatches, null);
+});
+
+test("rebindBaseStereoPatchOp is a no-op adopting mono with no existing shadow patch", () => {
+  const { doc, slot } = importTake(pcmL, null);
+  assert.equal(rebindBaseStereoPatchOp(doc, slot, {}, []), null);
 });
