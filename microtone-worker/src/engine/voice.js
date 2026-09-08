@@ -145,6 +145,13 @@ export class Voice {
     this.pitchEnvOn = true;
     this.filterEnvOn = true;
     this.metaForeground = false;
+    // How far THIS voice's own noteVal sits from the raw note it was
+    // triggered at — layer 0's (or the FM rack's operator 0's) own detune,
+    // the same quantity layerRelDetune measures for a CHILD relative to layer
+    // 0. A subsequent tone-portamento row's target is a raw pattern note, so
+    // it needs the same offset applied before it means anything against this
+    // voice's own (detuned) noteVal coordinate (row.js, item 176).
+    this.metaForegroundDetune = 0;
     this.noteFading = false;
 
     // ── FM operator rack (Metainstrument type 4, item 159) ──
@@ -445,6 +452,23 @@ export class Voice {
     // This voice's resolved view of the instrument's region — the fractions cut
     // against the loop THIS voice is sounding. Rebuilt only when either moves.
     this.modGeom = new ModGeom();
+
+    // Extended $102/$12x (funk repeat / funk repeat, jittered — item 173
+    // follow-up): the SAME "hop the sounding loop window through the sample"
+    // trick Z $Ffxx's funkWindow/funkPos/funkXfade* are, on this command's own
+    // clock and state (inst.modFunkWalk/modFunkPos), never Z's. Per the formal
+    // Funk Repeat spec ("add replen to repeat"), the walked window is NOT
+    // bounded to $se's resolved region the way ROL/JUMP/SCATTER are — it moves
+    // the loop itself, replen (= the resolved region's own length) at a time,
+    // anywhere the physical sample has room. So this is applied at the loop
+    // WRAP (sampler.js advanceSamplePos), exactly where Z's own hop lands, not
+    // as a per-byte address transform — a funk'd voice's samplePos, once
+    // windowed, simply IS somewhere else in the sample; nothing has to move
+    // where each byte is read from once it gets there.
+    this.modFunkWindow = -1;  // this voice's own latched restart point, -1 = never windowed
+    this.modFunkXfade = 0;
+    this.modFunkXfadeLen = 1;
+    this.modFunkXfadeOffset = 0;
 
     // Pattern loop (S$Bx).
     this.loopStartRow = 0;

@@ -206,7 +206,20 @@ export function applyTrackerRow(eng, ts, playhead) {
     } else {
       if (toneG && voice.active) {
         // Tone porta: target the note, do not retrigger sample.
-        voice.tonePortaTarget = note;
+        //
+        // `note` is the pattern's raw note word, but a metainstrument's
+        // foreground voice does not sound it directly — triggerMetaOrNote /
+        // triggerFmRack seed voice.noteVal from `note + layer0's own detune`
+        // (or, when layer 0 is fixed-pitch, from a pitch that ignores `note`
+        // entirely), so the target has to cross into that same coordinate or
+        // the glide chases a point that is a whole detune away from where it
+        // actually needs to land — arriving late if at all, so the NEXT G row
+        // retargets it before it gets there and the bend never seems to stop
+        // (item 176). An ordinary instrument's foreground carries no such
+        // offset (metaForegroundDetune stays 0), so this is a no-op for it.
+        voice.tonePortaTarget = voice.metaForeground && voice.layerFixedNote >= 0
+          ? -1 // layer 0 is fixed-pitch: its note never tracked the trigger, so there is nothing to glide to
+          : clamp(note + voice.metaForegroundDetune, 0x20, 0xffff);
         // Inst byte on a porta row reloads the default volume + clears fade state
         // without retriggering (Schism csf_instrument_change semantics), and
         // RE-ATTACKS the envelopes: the instrument byte is what makes a porta

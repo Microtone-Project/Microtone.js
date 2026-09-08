@@ -293,11 +293,20 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   const l0Elevation = l0HasPan ? notePanSeedBox[1] : 0;
   voice.layerMixGain = META_MIX_GAIN[l0.mixOctet & 0xff];
   voice.layerRelDetune = 0;
-  voice.layerFixedNote = -1;
+  // Layer 0 itself may be the fixed-pitch one (item 179's third consequence,
+  // explicitly anticipated by the spec): its sounding note is then its own
+  // field, not the trigger's, exactly as pitchOf(l0) already read it above —
+  // recorded the same way a fixed-pitch CHILD is, so a later portamento row
+  // (row.js) knows this voice's note does not track the pattern at all.
+  voice.layerFixedNote = l0.fixedPitch ? pitchOf(l0) : -1;
   voice.layerRelPan = 0;
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
   voice.metaForeground = true;
+  // How far this voice's own noteVal sits from the raw trigger note — layer
+  // 0's detune, exactly as layerRelDetune measures it for a child (item 176:
+  // a subsequent G row's target has to cross into this same coordinate).
+  voice.metaForegroundDetune = l0.detune;
   for (let k = 1; k < layers.length; k++) {
     const lk = layers[k];
     const child = new Voice();
@@ -404,6 +413,11 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
   voice.metaForeground = true;
+  // Same coordinate-shift bookkeeping as the layered path, for operator 0's
+  // own detune (item 176) — a rack's operators never carry the fixed-pitch
+  // flag (it is reserved outside the Layered kind), so no layerFixedNote
+  // handling belongs here.
+  voice.metaForegroundDetune = ops[0].detune;
   voice.fmRig = rig;
   rig.voices[0] = voice;
 
@@ -536,6 +550,13 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   voice.funkPos = -1;
   voice.funkWindow = -1;
   voice.funkXfade = 0;
+  // Extended $102/$12x's own window (item 173 follow-up): same rule, this
+  // voice's restart point goes back to the sample's own loop. The walk
+  // itself (inst.modFunkWalk/modFunkPos) is the INSTRUMENT's, shared by
+  // every voice sounding it, so a fresh trigger on this one voice must not
+  // touch it — exactly as a fresh trigger never touches inst.modRot.
+  voice.modFunkWindow = -1;
+  voice.modFunkXfade = 0;
   // Random vol/pan swing biases — seeded once per trigger.
   voice.randomVolBias = inst.volumeSwing !== 0
     ? Math.trunc(random() * (2 * inst.volumeSwing + 1)) - inst.volumeSwing : 0;
@@ -639,6 +660,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   voice.pitchEnvOn = true;
   voice.filterEnvOn = true;
   voice.metaForeground = false; // triggerMetaOrNote re-sets for the meta path
+  voice.metaForegroundDetune = 0;
   // A rack belongs to the note that built it, so ANY fresh trigger drops it —
   // including the ones that never go through triggerMetaOrNote (the audition
   // path, a layer child). triggerFmRack re-hangs it after this returns.
@@ -827,6 +849,7 @@ export function ghostVoice(src, channel) {
   v.pitchEnvOn = src.pitchEnvOn;
   v.filterEnvOn = src.filterEnvOn;
   v.metaForeground = src.metaForeground;
+  v.metaForegroundDetune = src.metaForegroundDetune;
   v.noteFading = src.noteFading;
   v.layerMixGain = src.layerMixGain;
   v.layerRelPan = src.layerRelPan;
@@ -851,6 +874,10 @@ export function ghostVoice(src, channel) {
   // position is INSIDE that window — but the walk itself does not: the pointer
   // is the channel's, and a ghost is no longer addressable from the pattern.
   v.funkWindow = src.funkWindow;
+  // Same rule for extended $102/$12x's own window (item 173 follow-up): the
+  // ghost's sample position is inside it, but inst.modFunkWalk/modFunkPos
+  // stay with the instrument, not the ghost.
+  v.modFunkWindow = src.modFunkWindow;
   v.activeVibratoSpeed = src.activeVibratoSpeed;
   v.activeVibratoSweep = src.activeVibratoSweep;
   v.activeVibratoDepth = src.activeVibratoDepth;

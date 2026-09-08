@@ -483,7 +483,19 @@ const EffectOp = Object.freeze({
   OP_M: 0x16, OP_N: 0x17, OP_O: 0x18, OP_P: 0x19, OP_Q: 0x1a, OP_R: 0x1b,
   OP_S: 0x1c, OP_T: 0x1d, OP_U: 0x1e, OP_V: 0x1f, OP_W: 0x20, OP_X: 0x21,
   OP_Y: 0x22, OP_Z: 0x23,
+  // ── ASCII-symbol space (item 162): the base-36 range above is full, so a
+  //    symbol effect's on-disk opcode is its ASCII code + $80 ($A0..$FE);
+  //    the in-memory value is that same byte, no translation table needed.
+  OP_COLON: 0xba, // ':' — argument extension, Format 3 only (TAUD_NOTE_EFFECTS.md)
 });
+
+/** Which opcodes read `:`'s argument when paired with it (effects.js's `ext`
+ *  parameter) — J, O and the sample-mod pair. Shared with the UI so the
+ *  pattern grid's "this pairing needs a second look" highlight (see
+ *  glyphs.js paintFxCell) agrees with what the engine actually does. */
+const EXT_CAPABLE_OPS = Object.freeze(new Set([
+  EffectOp.OP_J, EffectOp.OP_O, EffectOp.OP_2, EffectOp.OP_3,
+]));
 
 // ── Metainstrument mix-gain: "Perceptually Significant Octet to Decibel Table"
 //    as linear amplitude (1480-1513). Octet 0 = silence, 159 = unity, 255 = +24 dB.
@@ -2637,6 +2649,228 @@ function modAddress(g, i, rot, scatter, seed) {
   return g.ds + k;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Argument extension (item 162) — notefx 2/3 paired with `:`. Base behaviour
+// above is untouched; everything below is new, parallel machinery reached
+// only when an instrument's modOpExt is non-zero (mutually exclusive with the
+// classic 4-bit modOp — writing one clears the other, see inst.js
+// setModOpExt/setModOp). Spec: TAUD_NOTE_EFFECTS.md "`:` $xxxx — Argument
+// extension" and its "Extended" subsections under 2/3, J and O.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── $f — sub-range modifier, layered on top of $se's already-resolved extent ──
+//
+// $1..$9 are STATIC further cuts of the extent (same shape as $se's own
+// $10/$20..$32 rows, just measured against [es,ee) instead of the domain).
+// $A..$D ALTERNATE between two such cuts, one step at a time — which, because
+// the two halves/quarters of an alternating pair are exactly a comb's even and
+// odd chunks, is nothing more than a 2- or 4-way comb whose `odd` flips with
+// the step counter (`voice.modStepIndex`) rather than staying fixed. $E/$F are
+// a fixed BYTE-count comb (4-of-8, 1-of-2) rather than a fraction of the
+// extent, for when the extent itself is too short for $se's own comb ladder to
+// bite.
+const F_STATIC_RANGE = Object.freeze({
+  0x1: [0, 1 / 2], 0x2: [1 / 2, 1],
+  0x3: [0, 1 / 3], 0x7: [1 / 3, 2 / 3], 0x8: [2 / 3, 1],
+  0x4: [0, 1 / 4], 0x5: [1 / 2, 3 / 4], 0x6: [1 / 4, 3 / 4], 0x9: [3 / 4, 1],
+});
+
+/**
+ * Does `$f` (0..$F) keep sample byte `i`, given the extent [es,ee) $se already
+ * resolved and this instrument's step counter (for the $A-$D alternation)?
+ * Called ANDed with the ordinary extent+comb test — a byte must clear both.
+ */
+function fModTouches(f, i, es, ee, stepIndex) {
+  if (f === 0) return true;
+  const len = ee - es;
+  if (len < 1) return true;
+  const rel = i - es;
+  const range = F_STATIC_RANGE[f];
+  if (range !== undefined) {
+    const lo = es + Math.round(len * range[0]);
+    const hi = es + Math.round(len * range[1]);
+    return i >= lo && i < hi;
+  }
+  if (f >= 0xa && f <= 0xd) {
+    const n = f >= 0xc ? 4 : 2; // A/B halves, C/D quarters
+    const chunk = Math.min(Math.floor((rel * n) / len), n - 1);
+    const startOdd = (f === 0xb || f === 0xd) ? 1 : 0; // B/D open on the "second" piece
+    return (chunk & 1) === ((stepIndex + startOdd) & 1);
+  }
+  if (f === 0xe) return (rel & 7) < 4;   // 1234----
+  if (f === 0xf) return (rel & 1) === 0; // 1-3-5-
+  return true;
+}
+
+// ── $xuu — the extended operation table (0x000..0xFFF) ──
+const EXT_OP_NOOP = 0x100;
+const EXT_OP_INVERT = 0x101;
+const EXT_OP_FUNK = 0x102;
+const EXT_OP_SIMPLE_INVERT = 0x103;
+const EXT_OP_REVERSE = 0x104;
+
+/** True for `$102` and `$12x` — the funk-repeat kinds, checked from
+ *  sampler.js's per-output-sample loop-wrap test, so it must not allocate
+ *  the way decodeExtOp's `{kind, param}` object does. */
+function isExtFunkOp(code) {
+  return code === EXT_OP_FUNK || (code >= 0x120 && code <= 0x12f);
+}
+
+/** Quantised-jump / bounded-jitter N-table, indexed by the code's low nibble
+ *  (16 entries) — shared by $13x/$14x/$15x. */
+const EXT_JUMP_N = Object.freeze([2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 18, 21, 24, 32]);
+
+/** Jitter reach as a fraction of the domain for $11x/$12x's low nibble:
+ *  ±100/2^(15-x) %, i.e. 2^(x-15) — a 16-rung geometric ladder from ~0.003%
+ *  to 100%. */
+function extJitterFrac(x) { return Math.pow(2, (x & 0xf) - 15); }
+
+/** Scatter reach ladder for $161..$16F (16 levels, finer than the base
+ *  command's 3): 1/16384 at $1 down to "fully" (reach = whole domain) at $F. */
+const EXT_SCATTER_FRAC = Object.freeze([
+  0, 1 / 16384, 1 / 8192, 1 / 4096, 1 / 2048, 1 / 1024, 1 / 512, 1 / 256,
+  1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1,
+]);
+
+// Bit-permutation table for $920..$927 — each entry is a byte->byte LUT.
+// Built from three involutions (reverse the 8 bits, swap the two nibbles,
+// swap each adjacent bit pair) whose compositions match the TODO's worked
+// examples exactly (abcdefgh -> ... for each of the eight codes):
+//   920 NOT              921 reverse            922 swap nibbles
+//   923 reverse+nibbles  924 swap twobits        925 reverse+twobits
+//   926 nibbles+twobits  927 all three (commute)
+function revBits8(b) {
+  b = ((b & 0xf0) >> 4) | ((b & 0x0f) << 4);
+  b = ((b & 0xcc) >> 2) | ((b & 0x33) << 2);
+  b = ((b & 0xaa) >> 1) | ((b & 0x55) << 1);
+  return b & 0xff;
+}
+const swapNibbles8 = (b) => ((b & 0xf0) >> 4) | ((b & 0x0f) << 4);
+const swapTwobits8 = (b) => ((b & 0xaa) >> 1) | ((b & 0x55) << 1);
+
+function buildBitpermLUT(fn) {
+  const t = new Uint8Array(256);
+  for (let b = 0; b < 256; b++) t[b] = fn(b);
+  return t;
+}
+/** [920, 921, ..., 927] -> Uint8Array(256) LUT, indexed by (code & 7). */
+const EXT_BITPERM_LUT = Object.freeze([
+  buildBitpermLUT((b) => b ^ 0xff),                                  // 920 NOT
+  buildBitpermLUT(revBits8),                                          // 921
+  buildBitpermLUT(swapNibbles8),                                      // 922
+  buildBitpermLUT((b) => swapNibbles8(revBits8(b))),                  // 923
+  buildBitpermLUT(swapTwobits8),                                      // 924
+  buildBitpermLUT((b) => swapTwobits8(revBits8(b))),                  // 925
+  buildBitpermLUT((b) => swapTwobits8(swapNibbles8(b))),              // 926
+  buildBitpermLUT((b) => swapTwobits8(swapNibbles8(revBits8(b)))),    // 927
+]);
+
+/**
+ * Classify a 12-bit $xuu code into a step-function KIND plus its numeric
+ * parameter — the one place that knows the table's shape, so the stepper
+ * (tick.js advanceSampleModExtended) and nothing else has to.
+ */
+function decodeExtOp(code) {
+  if (code === 0 || code === EXT_OP_NOOP) return { kind: "noop", param: 0 };
+  if (code === EXT_OP_INVERT) return { kind: "invert", param: 0 };
+  if (code === EXT_OP_FUNK) return { kind: "funk", param: 0 };
+  if (code === EXT_OP_SIMPLE_INVERT) return { kind: "xor", param: 0xff };
+  if (code === EXT_OP_REVERSE) return { kind: "mirror", param: 0 };
+  if (code >= 0x110 && code <= 0x11f) return { kind: "invertJit", param: code & 0xf };
+  if (code >= 0x120 && code <= 0x12f) return { kind: "funkJit", param: code & 0xf };
+  // $13x "no domain restriction" and $14x "restricted to $se+$f" land in the
+  // same wrap domain either way — this command's architecture already scopes
+  // every address transform to the resolved extent (g.ds/g.dl), so the two
+  // codes are the same jump under it; see TAUD_NOTE_EFFECTS.md's note on this.
+  if (code >= 0x130 && code <= 0x14f) return { kind: "jumpN", param: EXT_JUMP_N[code & 0xf] };
+  if (code >= 0x150 && code <= 0x15f) return { kind: "jumpNBounded", param: EXT_JUMP_N[code & 0xf] };
+  if (code === 0x160) return { kind: "swap", param: 0 };
+  if (code >= 0x161 && code <= 0x16f) return { kind: "scatter", param: EXT_SCATTER_FRAC[code & 0xf] };
+  if (code >= 0x200 && code <= 0x2ff) return { kind: "rol", param: code & 0xff };
+  if (code >= 0x300 && code <= 0x3ff) return { kind: "rol", param: -(code & 0xff) };
+  if (code >= 0x400 && code <= 0x4ff) return { kind: "rol", param: (code & 0xff) * 256 };
+  if (code >= 0x500 && code <= 0x5ff) return { kind: "rol", param: -(code & 0xff) * 256 };
+  if (code >= 0x600 && code <= 0x6ff) return { kind: "sub", param: code & 0xff };
+  if (code >= 0x700 && code <= 0x7ff) return { kind: "sub", param: -(code & 0xff) };
+  if (code >= 0x800 && code <= 0x8ff) return { kind: "xor", param: code & 0xff };
+  if (code >= 0x900 && code <= 0x90f) return { kind: "bitrot", param: code & 0xf };
+  if (code >= 0x910 && code <= 0x91f) return { kind: "bitrot", param: -(code & 0xf) };
+  if (code >= 0x920 && code <= 0x927) return { kind: "bitperm", param: code & 0x7 };
+  return { kind: "noop", param: 0 };
+}
+
+// ── $yk — extended speed ──
+//
+// $y = 0x0..0xE: period (ticks) = y + k/16 — the linear formula the TODO
+// gives for y=0,1,2 simply continues through the whole fine ladder, 1/16-tick
+// resolution from 0 up to ~14.94 ticks. $00 is the one exception: "stop"
+// (frozen), not "period 0". $y = 0xF: the TODO's own coarse ladder, for
+// periods the fine ladder's ~15-tick ceiling can't reach.
+const EXT_YK_COARSE = Object.freeze([15, 16, 18, 20, 22, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64]);
+
+/** $yk -> period in TICKS (float), or 0 = frozen ($00 only). */
+function extYkPeriodTicks(yk) {
+  const y = (yk >>> 4) & 0xf;
+  const k = yk & 0xf;
+  if (yk === 0) return 0;
+  if (y === 0xf) return EXT_YK_COARSE[k];
+  return y + k / 16;
+}
+
+/**
+ * Where a touched byte is read from, for the address-transform kinds only
+ * (`rol`/jump family reuse the classic accumulator via `modAddress`; `mirror`
+ * and `swap` need their own map). Level-transform kinds (`sub`/`xor`/`bitrot`/
+ * `bitperm`) don't move the address — see applyExtLevel below.
+ */
+function modAddressExt(g, i, inst) {
+  if (inst.modExtSwapA >= 0) {
+    if (i === inst.modExtSwapA) return inst.modExtSwapB;
+    if (i === inst.modExtSwapB) return inst.modExtSwapA;
+    return i;
+  }
+  if (inst.modExtMirror) {
+    const dl = g.dl;
+    if (dl < 2) return i;
+    let k = (i - g.ds) % dl;
+    if (k < 0) k += dl;
+    return g.ds + (dl - 1 - k);
+  }
+  return modAddress(g, i, inst.modRot, inst.modScatter, inst.modSeed);
+}
+
+/** Rotate the low 3 bits of `amt` worth of bit-rotation into byte `b` (left
+ *  for amt>0, right for amt<0 — modBitRot is stored net-left, mod 8). */
+function bitRotate8(b, amt) {
+  const n = ((amt % 8) + 8) % 8;
+  if (n === 0) return b;
+  return ((b << n) | (b >>> (8 - n))) & 0xff;
+}
+
+/** Apply the CURRENT extended level transform (sub/add share `modSub`'s
+ *  accumulator — see inst.js; xor/103/920 share `modXor`'s). */
+function applyExtLevel(inst, b) {
+  if (inst.modSub !== 0) b = (b - inst.modSub) & 0xff;
+  if (inst.modXor !== 0) b ^= inst.modXor;
+  if (inst.modBitRot !== 0) b = bitRotate8(b, inst.modBitRot);
+  if (inst.modBitPermOn) b = EXT_BITPERM_LUT[inst.modBitPermIdx][b];
+  return b;
+}
+
+/** Apply the PREVIOUS step's level transform, for the crossfade — only the
+ *  kinds that get one (sub/add, xor/103/920) carry a Prev snapshot. */
+function applyExtLevelPrev(inst, b) {
+  if (inst.modPrevSub !== 0) b = (b - inst.modPrevSub) & 0xff;
+  if (inst.modPrevXor !== 0) b ^= inst.modPrevXor;
+  return b;
+}
+
+/** modTouches, ANDed with $f's further narrowing — the one gate both the
+ *  extended read path and the INVERT-family walk test against. */
+function extModTouches(g, invert, f, stepIndex, i) {
+  return modTouches(g, invert, i) && fModTouches(f, i, g.es, g.ee, stepIndex);
+}
+
 // ══ src/engine/inst.js ══
 // Taud instrument data model — port of AudioAdapter.kt TaudInstEnvPoint (5246),
 // TaudInstPatch (5261), MetaLayer (5312), TaudInst (5378-5766).
@@ -3199,6 +3433,43 @@ class TaudInst {
     this.modPrevSub = 0;
     this.modPrevScatter = 0;
     this.modPrevSeed = 0;
+
+    // Argument extension (item 162): notefx 2/3 paired with `:`. Mutually
+    // exclusive with modOp above — writing either clears the other (see
+    // setModOp/setModOpExt) — so every field below is only ever live while
+    // modOpExt is non-zero. $se's own extent/comb (modFrom/modTo/modCombBits)
+    // is shared with the classic path; everything here is the extended-only
+    // remainder: $f's sub-range, the step counter it alternates on, and the
+    // wider operation table's own accumulators. modRot/modSub/modScatter/
+    // modSeed above are reused as-is for the extended rotate/jump/scatter/
+    // sub/add kinds (see samplemod.js decodeExtOp) rather than duplicated.
+    this.modOpExt = 0;            // 0x000..0xFFF, 0 = off ($xuu)
+    this.modF = 0;                 // $f sub-range modifier
+    this.modStepIndex = 0;        // counts steps, for $f's A-D alternation
+    this.modXor = 0;               // xor / "simply invert" (103) / NOT (920) accumulator
+    this.modPrevXor = 0;
+    this.modBitRot = 0;            // 90x/91x: net bit-rotation, mod 8 (no crossfade)
+    this.modBitPermIdx = 0;        // 921-927: which permutation (920 folds into modXor)
+    this.modBitPermOn = false;     // toggled each step (an involution applied twice is identity)
+    this.modExtSwapA = -1;         // 160: swapped byte-pair addresses (no crossfade)
+    this.modExtSwapB = -1;
+    this.modExtMirror = false;     // 104: reverse, toggled each step (no crossfade)
+    // 102/12x: this instrument's own funk-repeat walk — an ABSOLUTE SAMPLE
+    // BYTE POSITION (like Z $Ffxx's voice.funkWalk/funkPos, -1 = never
+    // walked), NOT bounded to the resolved region: the formal Funk Repeat
+    // spec moves the loop itself through the whole physical sample, replen
+    // (the region's own length) at a time. modFunkWalk is the deterministic
+    // grid position; modFunkPos is this step's pointer WITH $12x's jitter
+    // added — latched into a sounding voice's own modFunkWindow only when
+    // that voice's loop actually wraps (sampler.js advanceSamplePos), same
+    // as Z's funkPos -> funkWindow latch.
+    this.modFunkWalk = -1;
+    this.modFunkPos = -1;
+    this.modFunkLen = 0;          // this step's window width (= dl, the resolved
+                                   // region's own length) — stashed here because
+                                   // sampler.js's advanceSamplePos runs on the
+                                   // per-sample clock and must not re-resolve
+                                   // modGeom itself to find it
   }
 
   get sampleLoopSustain() { return (this.loopMode & 0x04) !== 0; }
@@ -3391,12 +3662,28 @@ class TaudInst {
 
   /** Select the operation and which side of the region it works on. Changing
    *  either starts the new operation from scratch — a rotation offset means
-   *  nothing to a subtract. */
+   *  nothing to a subtract. Classic and extended ($xuu, item 162) are mutually
+   *  exclusive, so writing the classic op also turns any extended one off. */
   setModOp(op, invert) {
-    if (this.modOp === op && this.modInvert === invert) return false;
+    if (this.modOp === op && this.modInvert === invert && this.modOpExt === 0) return false;
     this.modOp = op;
     this.modInvert = invert;
+    this.modOpExt = 0;
+    this.modF = 0;
     this.modEpoch++;   // the inversion decides the wrap domain, so it is geometry
+    this.clearModState();
+    return true;
+  }
+
+  /** Extended counterpart of setModOp (item 162): a 12-bit $xuu code plus the
+   *  $f sub-range modifier, mutually exclusive with the classic modOp. */
+  setModOpExt(code, invert, f) {
+    if (this.modOpExt === code && this.modInvert === invert && this.modF === f && this.modOp === 0) return false;
+    this.modOp = 0;
+    this.modOpExt = code;
+    this.modInvert = invert;
+    this.modF = f;
+    this.modEpoch++;
     this.clearModState();
     return true;
   }
@@ -3413,6 +3700,18 @@ class TaudInst {
     this.modPrevSub = 0;
     this.modPrevScatter = 0;
     this.modPrevSeed = 0;
+    this.modStepIndex = 0;
+    this.modXor = 0;
+    this.modPrevXor = 0;
+    this.modBitRot = 0;
+    this.modBitPermIdx = 0;
+    this.modBitPermOn = false;
+    this.modExtSwapA = -1;
+    this.modExtSwapB = -1;
+    this.modExtMirror = false;
+    this.modFunkWalk = -1;
+    this.modFunkPos = -1;
+    this.modFunkLen = 0;
   }
 
   /** Remember what the next step is replacing, for the crossfade that covers
@@ -3422,11 +3721,14 @@ class TaudInst {
     this.modPrevSub = this.modSub;
     this.modPrevScatter = this.modScatter;
     this.modPrevSeed = this.modSeed;
+    this.modPrevXor = this.modXor;
   }
 
   /** $x = 0 — the modification, region and all. */
   resetMod() {
     this.modOp = 0;
+    this.modOpExt = 0;
+    this.modF = 0;
     this.modInvert = false;
     this.modFrom = 0;
     this.modTo = 1;
@@ -3629,7 +3931,10 @@ class MemorySlots {
     this.d = 0;
     this.i = 0;
     this.j = 0;
+    this.jExt1 = 0;      // item 162: J extended by `:` — private, different units to `j`
+    this.jExt2 = 0;
     this.o = 0;
+    this.oExt = 0;       // item 162: O extended by `:` — 32-bit offset, private, different units to `o`
     this.q = 0;
     this.tslide = 0;
     this.w = 0;
@@ -3750,6 +4055,13 @@ class Voice {
     this.pitchEnvOn = true;
     this.filterEnvOn = true;
     this.metaForeground = false;
+    // How far THIS voice's own noteVal sits from the raw note it was
+    // triggered at — layer 0's (or the FM rack's operator 0's) own detune,
+    // the same quantity layerRelDetune measures for a CHILD relative to layer
+    // 0. A subsequent tone-portamento row's target is a raw pattern note, so
+    // it needs the same offset applied before it means anything against this
+    // voice's own (detuned) noteVal coordinate (row.js, item 176).
+    this.metaForegroundDetune = 0;
     this.noteFading = false;
 
     // ── FM operator rack (Metainstrument type 4, item 159) ──
@@ -4035,9 +4347,38 @@ class Voice {
     // Countdown of the anti-click crossfade between the mapping the last step
     // replaced and the one it installed (item 153.5), in output samples.
     this.modXfade = 0;
+    // Argument extension (item 162): a `:`-paired 2/3 clocks itself in SAMPLES
+    // rather than whole ticks, since $yk reaches periods under one tick —
+    // modExtended picks which clock owns this voice's step (mixer.js's
+    // per-sample accumulator vs tick.js's per-tick one; never both).
+    this.modExtended = false;
+    this.modStepTicks = 0;        // period in TICKS (float, may be < 1) — tempo-
+                                   // independent, like modPeriod; mixer.js turns
+                                   // it into samples fresh every sample (spt
+                                   // itself is recomputed there every sample,
+                                   // for T-slide correctness) rather than baking
+                                   // a stale sample count in at row-apply time.
+    this.modSamplesIntoStep = 0;
     // This voice's resolved view of the instrument's region — the fractions cut
     // against the loop THIS voice is sounding. Rebuilt only when either moves.
     this.modGeom = new ModGeom();
+
+    // Extended $102/$12x (funk repeat / funk repeat, jittered — item 173
+    // follow-up): the SAME "hop the sounding loop window through the sample"
+    // trick Z $Ffxx's funkWindow/funkPos/funkXfade* are, on this command's own
+    // clock and state (inst.modFunkWalk/modFunkPos), never Z's. Per the formal
+    // Funk Repeat spec ("add replen to repeat"), the walked window is NOT
+    // bounded to $se's resolved region the way ROL/JUMP/SCATTER are — it moves
+    // the loop itself, replen (= the resolved region's own length) at a time,
+    // anywhere the physical sample has room. So this is applied at the loop
+    // WRAP (sampler.js advanceSamplePos), exactly where Z's own hop lands, not
+    // as a per-byte address transform — a funk'd voice's samplePos, once
+    // windowed, simply IS somewhere else in the sample; nothing has to move
+    // where each byte is read from once it gets there.
+    this.modFunkWindow = -1;  // this voice's own latched restart point, -1 = never windowed
+    this.modFunkXfade = 0;
+    this.modFunkXfadeLen = 1;
+    this.modFunkXfadeOffset = 0;
 
     // Pattern loop (S$Bx).
     this.loopStartRow = 0;
@@ -4615,6 +4956,8 @@ class Playhead {
       it.funkPos = -1;
       it.funkWindow = -1;
       it.funkXfade = 0;
+      it.modFunkWindow = -1;
+      it.modFunkXfade = 0;
       it.modPeriod = 0;
       it.modTickCount = 0;
       it.modWritePos = 0;
@@ -4623,6 +4966,7 @@ class Playhead {
       it.nnaOverride = -1;
       it.volEnvOn = true; it.panEnvOn = true; it.pitchEnvOn = true; it.filterEnvOn = true;
       it.metaForeground = false;
+      it.metaForegroundDetune = 0;
       it.noteFading = false;
       it.layerMixGain = 1.0; it.isLayerChild = false; it.layerRelDetune = 0;
       it.layerFixedNote = -1;
@@ -4688,6 +5032,8 @@ class Playhead {
         it.funkPos = -1;
         it.funkWindow = -1;
         it.funkXfade = 0;
+        it.modFunkWindow = -1;
+        it.modFunkXfade = 0;
         it.modPeriod = 0;
         it.modTickCount = 0;
         it.modWritePos = 0;
@@ -4762,32 +5108,56 @@ function readSamplePoint(eng, voice, inst, idx, sampleLen, binMax,
   const i0 = Math.min(Math.max(idx, 0), sampleLen - 1);
   const ls = voice.activeSampleLoopStart;
   const le = voice.activeSampleLoopEnd;
+  const extended = inst.modOpExt !== 0;
   // Nothing live and nothing fading out: the plain fetch. `modOn` alone is not
   // the guard, because a step that lands on the identity mapping (a jump that
   // throws to zero) still has the PREVIOUS one to fade out of.
-  if (inst.modOp === MOD_OFF || (!inst.modOn && voice.modXfade === 0)) {
+  if ((inst.modOp === MOD_OFF && !extended) || (!inst.modOn && voice.modXfade === 0)) {
     return (poolByte(eng, voice, inst, i0, binMax, basePtr, ls, le) - 127.5) / 127.5;
   }
   const g = resolveModGeom(voice.modGeom, inst, ls, le, sampleLen);
   // The touch test is evaluated at the byte's ORIGINAL position — that is where
   // the region and its comb are defined — and it does not move under a step, so
-  // both sides of the crossfade agree on which bytes are in play.
-  if (!g.live || !modTouches(g, inst.modInvert, i0)) {
+  // both sides of the crossfade agree on which bytes are in play. Extended mode
+  // ANDs in $f's further narrowing (item 162) — same idea, one more gate.
+  const touches = extended
+    ? extModTouches(g, inst.modInvert, inst.modF, inst.modStepIndex, i0)
+    : modTouches(g, inst.modInvert, i0);
+  if (!g.live || !touches) {
     return (poolByte(eng, voice, inst, i0, binMax, basePtr, ls, le) - 127.5) / 127.5;
   }
   // ONE operation is live at a time, so an address transform and an INVERT/SUB
   // value transform never meet.
-  const i = modAddress(g, i0, inst.modRot, inst.modScatter, inst.modSeed);
+  const i = extended ? modAddressExt(g, i0, inst) : modAddress(g, i0, inst.modRot, inst.modScatter, inst.modSeed);
   let b = poolByte(eng, voice, inst, i, binMax, basePtr, ls, le);
-  if (inst.modMask !== null) { if (inst.modBit(i)) b = b ^ 0xff; }
+  if (extended) {
+    // $101/$11x (invert, invertJit) accumulate through the SAME modMask
+    // toggleModBit already fills for the classic form — applyExtLevel only
+    // knows about the OTHER extended level kinds (sub/add, xor, bit-rotate,
+    // bit-permute) and never reads the mask, so without this the state kept
+    // toggling correctly (samples.js's overlay, which reads modMask
+    // directly, showed it right) while playback never heard it at all.
+    if (inst.modMask !== null) { if (inst.modBit(i)) b ^= 0xff; }
+    b = applyExtLevel(inst, b);
+  } else if (inst.modMask !== null) { if (inst.modBit(i)) b = b ^ 0xff; }
   else if (inst.modSub !== 0) b = (b - inst.modSub) & 0xff;
   if (voice.modXfade > 0) {
     // Anti-click crossfade (item 153.5): the mapping the last step replaced,
     // read through the same geometry, mixed in on a falling weight. Costs one
-    // extra pool read per tap for 2 ms after each step.
+    // extra pool read per tap for 2 ms after each step. Extended mode's
+    // address-transform kinds (rol/jump/scatter) reuse the same modPrevRot/
+    // modPrevScatter/modPrevSeed fields the classic path snapshots, so this
+    // read is unchanged; its own level-transform kinds (sub/add, xor) read
+    // applyExtLevelPrev instead. The kinds that don't get a crossfade (bit
+    // rotate, bit permutation, mirror, swap, invert) never arm voice.modXfade
+    // in the first place, so this block simply never runs for them.
+    // Only rot/scatter kinds (classic or extended) ever arm the crossfade, and
+    // both share modPrevRot/modPrevScatter/modPrevSeed, so one formula covers
+    // both sides regardless of `extended`.
     const j = modAddress(g, i0, inst.modPrevRot, inst.modPrevScatter, inst.modPrevSeed);
     let p = poolByte(eng, voice, inst, j, binMax, basePtr, ls, le);
-    if (inst.modMask !== null) { if (inst.modBit(j)) p = p ^ 0xff; }
+    if (extended) p = applyExtLevelPrev(inst, p);
+    else if (inst.modMask !== null) { if (inst.modBit(j)) p = p ^ 0xff; }
     else if (inst.modPrevSub !== 0) p = (p - inst.modPrevSub) & 0xff;
     const w = voice.modXfade / MOD_XFADE_SAMPLES;
     b = p * w + b * (1.0 - w);
@@ -4900,6 +5270,20 @@ function armFunkXfade(voice, offset, windowLen) {
   voice.funkXfadeOffset = offset;
 }
 
+/** Same seam crossfade as `armFunkXfade`, on extended $102/$12x's own
+ *  independent window (`voice.modFunkWindow`/`modFunkXfade*`) — a separate
+ *  ghost channel because the two commands "do not share state"
+ *  (TAUD_NOTE_EFFECTS.md) and can be live on one voice at once. */
+function armModFunkXfade(voice, offset, windowLen) {
+  if (offset === 0) return;
+  const rate = Math.abs(voice.currentPlaybackRate);
+  const grain = rate > 0 ? Math.floor(windowLen / rate) : FUNK_XFADE_SAMPLES;
+  const len = Math.min(FUNK_XFADE_SAMPLES, Math.max(1, grain));
+  voice.modFunkXfade = len;
+  voice.modFunkXfadeLen = len;
+  voice.modFunkXfadeOffset = offset;
+}
+
 /**
  * One channel read through the window the hop replaced. The position is the
  * live one shifted back, so it follows the voice's own rate and direction for
@@ -4910,6 +5294,18 @@ function funkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax, baseP
   const keepPos = voice.samplePos;
   const keepDpcm = st.nesDpcmCounter;
   voice.samplePos = keepPos + voice.funkXfadeOffset;
+  const g = interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, basePtr, st);
+  voice.samplePos = keepPos;
+  st.nesDpcmCounter = keepDpcm;
+  return g;
+}
+
+/** `funkGhostChannel`, reading through extended $102/$12x's own
+ *  `modFunkXfadeOffset` instead of Z's `funkXfadeOffset`. */
+function modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax, basePtr, st) {
+  const keepPos = voice.samplePos;
+  const keepDpcm = st.nesDpcmCounter;
+  voice.samplePos = keepPos + voice.modFunkXfadeOffset;
   const g = interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, basePtr, st);
   voice.samplePos = keepPos;
   st.nesDpcmCounter = keepDpcm;
@@ -4941,8 +5337,16 @@ function fetchTrackerSampleStereo(eng, voice, inst, interpMode, out) {
       voice.activeChanPtr2, voice.right) * w + out[1] * (1.0 - w);
     voice.funkXfade--;
   }
+  if (voice.modFunkXfade > 0) {
+    const w = voice.modFunkXfade / voice.modFunkXfadeLen;
+    out[0] = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + out[0] * (1.0 - w);
+    out[1] = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeChanPtr2, voice.right) * w + out[1] * (1.0 - w);
+    voice.modFunkXfade--;
+  }
   if (voice.modXfade > 0) voice.modXfade--;
-  if (voice.rampOutSamples <= 0) advanceSamplePos(voice, sampleLen);
+  if (voice.rampOutSamples <= 0) advanceSamplePos(voice, inst, sampleLen);
   return out;
 }
 
@@ -4994,6 +5398,12 @@ function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) {
       voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
     voice.funkXfade--;
   }
+  if (voice.modFunkXfade > 0) {
+    const w = voice.modFunkXfade / voice.modFunkXfadeLen;
+    sample = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
+    voice.modFunkXfade--;
+  }
   if (posOffset !== 0) voice.samplePos = keepPos;
 
   // The crossfades run on the OUTPUT clock, once per sample however many taps
@@ -5001,7 +5411,7 @@ function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) {
   if (voice.modXfade > 0) voice.modXfade--;
   // While ramping out at sample end, hold position (mixer emits with decaying gain).
   if (voice.rampOutSamples > 0) return sample;
-  advanceSamplePos(voice, sampleLen);
+  advanceSamplePos(voice, inst, sampleLen);
   return sample;
 }
 
@@ -5015,16 +5425,39 @@ function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) {
  * pointer when the loop restarts, so the block being played always finishes
  * first. Until the walk has stepped once (`funkPos < 0`) this is the same
  * arithmetic on the same numbers it has always been.
+ *
+ * Extended `2`/`3 $102`/`$12x` (item 173 follow-up) is the SAME trick on its
+ * own independent window (`voice.modFunkWindow`/`inst.modFunkWalk`/
+ * `modFunkPos`) — "walks the region the way `Z $Ffxx` walks a loop"
+ * (TAUD_NOTE_EFFECTS.md): the resolved region (`inst.modFunkLen`, stashed by
+ * tick.js's stepExtendedModOnce, since re-resolving modGeom here on every
+ * output sample would be wasteful) is the hop, and the physical sample —
+ * not the region — is where it may land, exactly like Z searching past its
+ * own declared loop for room. The two commands "do not share state"
+ * (TAUD_NOTE_EFFECTS.md's implementation notes) — they are independent
+ * windows, so when both are live on one voice the extended one (this note's
+ * own row) is what the voice actually sounds; Z's own walk keeps running
+ * underneath, ready the moment the row's `2`/`3` stops overriding it.
  */
-function advanceSamplePos(voice, sampleLen) {
+function advanceSamplePos(voice, inst, sampleLen) {
   // An NNA ghost inherits the window without inheriting the walk, so either
   // half of the pair on its own means the voice is sounding a moved loop.
-  const windowed = voice.funkPos >= 0 || voice.funkWindow >= 0;
-  const loopStart = voice.funkWindow >= 0
-    ? voice.funkWindow : voice.activeSampleLoopStart;
-  const loopEnd = windowed
-    ? loopStart + Math.max(voice.activeSampleLoopEnd - voice.activeSampleLoopStart, 1.0)
+  const zWindowed = voice.funkPos >= 0 || voice.funkWindow >= 0;
+  const zLoopStart = voice.funkWindow >= 0 ? voice.funkWindow : voice.activeSampleLoopStart;
+  const zLoopEnd = zWindowed
+    ? zLoopStart + Math.max(voice.activeSampleLoopEnd - voice.activeSampleLoopStart, 1.0)
     : Math.max(voice.activeSampleLoopEnd, 1.0);
+
+  const extFunkLive = isExtFunkOp(inst.modOpExt);
+  const extWindowed = extFunkLive && (inst.modFunkPos >= 0 || voice.modFunkWindow >= 0);
+  const extLoopStart = extWindowed && voice.modFunkWindow >= 0
+    ? voice.modFunkWindow : voice.activeSampleLoopStart;
+  const extLoopEnd = extWindowed
+    ? extLoopStart + Math.max(inst.modFunkLen, 1.0)
+    : zLoopEnd;
+
+  const loopStart = extWindowed ? extLoopStart : zLoopStart;
+  const loopEnd = extWindowed ? extLoopEnd : zLoopEnd;
   if (voice.forward) {
     voice.samplePos += voice.currentPlaybackRate;
     // Sustain bit set + key-off ⇒ escape the loop (loopMode 0 semantics).
@@ -5039,13 +5472,20 @@ function advanceSamplePos(voice, sampleLen) {
         break;
       case 1:
         if (voice.samplePos >= loopEnd) {
-          if (windowed) {
+          const overshoot = voice.samplePos - loopEnd;
+          if (extWindowed) {
             // The restart is where the walk's pointer has got to by now, and
-            // the seam it opens is crossfaded (item 163.2).
-            const prevWindow = loopStart;
+            // the seam it opens is crossfaded (item 163.2), on this command's
+            // OWN ghost channel.
+            const prevWindow = extLoopStart;
+            if (inst.modFunkPos >= 0) voice.modFunkWindow = inst.modFunkPos;
+            armModFunkXfade(voice, prevWindow - voice.modFunkWindow, loopEnd - loopStart);
+            voice.samplePos = voice.modFunkWindow + overshoot;
+          } else if (zWindowed) {
+            const prevWindow = zLoopStart;
             if (voice.funkPos >= 0) voice.funkWindow = voice.funkPos;
             armFunkXfade(voice, prevWindow - voice.funkWindow, loopEnd - loopStart);
-            voice.samplePos = voice.funkWindow + (voice.samplePos - loopEnd);
+            voice.samplePos = voice.funkWindow + overshoot;
           } else {
             voice.samplePos -= Math.max(loopEnd - loopStart, 1.0);
           }
@@ -5066,8 +5506,13 @@ function advanceSamplePos(voice, sampleLen) {
   } else {
     voice.samplePos -= voice.currentPlaybackRate;
     if (voice.samplePos < loopStart) {
-      if (windowed) {
-        const prevWindow = loopStart;
+      if (extWindowed) {
+        const prevWindow = extLoopStart;
+        if (inst.modFunkPos >= 0) voice.modFunkWindow = inst.modFunkPos;
+        armModFunkXfade(voice, prevWindow - voice.modFunkWindow, loopEnd - loopStart);
+        voice.samplePos = voice.modFunkWindow;
+      } else if (zWindowed) {
+        const prevWindow = zLoopStart;
         if (voice.funkPos >= 0) voice.funkWindow = voice.funkPos;
         armFunkXfade(voice, prevWindow - voice.funkWindow, loopEnd - loopStart);
         voice.samplePos = voice.funkWindow;
@@ -6219,11 +6664,20 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
   const l0Elevation = l0HasPan ? notePanSeedBox[1] : 0;
   voice.layerMixGain = META_MIX_GAIN[l0.mixOctet & 0xff];
   voice.layerRelDetune = 0;
-  voice.layerFixedNote = -1;
+  // Layer 0 itself may be the fixed-pitch one (item 179's third consequence,
+  // explicitly anticipated by the spec): its sounding note is then its own
+  // field, not the trigger's, exactly as pitchOf(l0) already read it above —
+  // recorded the same way a fixed-pitch CHILD is, so a later portamento row
+  // (row.js) knows this voice's note does not track the pattern at all.
+  voice.layerFixedNote = l0.fixedPitch ? pitchOf(l0) : -1;
   voice.layerRelPan = 0;
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
   voice.metaForeground = true;
+  // How far this voice's own noteVal sits from the raw trigger note — layer
+  // 0's detune, exactly as layerRelDetune measures it for a child (item 176:
+  // a subsequent G row's target has to cross into this same coordinate).
+  voice.metaForegroundDetune = l0.detune;
   for (let k = 1; k < layers.length; k++) {
     const lk = layers[k];
     const child = new Voice();
@@ -6330,6 +6784,11 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
   voice.metaForeground = true;
+  // Same coordinate-shift bookkeeping as the layered path, for operator 0's
+  // own detune (item 176) — a rack's operators never carry the fixed-pitch
+  // flag (it is reserved outside the Layered kind), so no layerFixedNote
+  // handling belongs here.
+  voice.metaForegroundDetune = ops[0].detune;
   voice.fmRig = rig;
   rig.voices[0] = voice;
 
@@ -6462,6 +6921,13 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   voice.funkPos = -1;
   voice.funkWindow = -1;
   voice.funkXfade = 0;
+  // Extended $102/$12x's own window (item 173 follow-up): same rule, this
+  // voice's restart point goes back to the sample's own loop. The walk
+  // itself (inst.modFunkWalk/modFunkPos) is the INSTRUMENT's, shared by
+  // every voice sounding it, so a fresh trigger on this one voice must not
+  // touch it — exactly as a fresh trigger never touches inst.modRot.
+  voice.modFunkWindow = -1;
+  voice.modFunkXfade = 0;
   // Random vol/pan swing biases — seeded once per trigger.
   voice.randomVolBias = inst.volumeSwing !== 0
     ? Math.trunc(random() * (2 * inst.volumeSwing + 1)) - inst.volumeSwing : 0;
@@ -6565,6 +7031,7 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   voice.pitchEnvOn = true;
   voice.filterEnvOn = true;
   voice.metaForeground = false; // triggerMetaOrNote re-sets for the meta path
+  voice.metaForegroundDetune = 0;
   // A rack belongs to the note that built it, so ANY fresh trigger drops it —
   // including the ones that never go through triggerMetaOrNote (the audition
   // path, a layer child). triggerFmRack re-hangs it after this returns.
@@ -6753,6 +7220,7 @@ function ghostVoice(src, channel) {
   v.pitchEnvOn = src.pitchEnvOn;
   v.filterEnvOn = src.filterEnvOn;
   v.metaForeground = src.metaForeground;
+  v.metaForegroundDetune = src.metaForegroundDetune;
   v.noteFading = src.noteFading;
   v.layerMixGain = src.layerMixGain;
   v.layerRelPan = src.layerRelPan;
@@ -6777,6 +7245,10 @@ function ghostVoice(src, channel) {
   // position is INSIDE that window — but the walk itself does not: the pointer
   // is the channel's, and a ghost is no longer addressable from the pattern.
   v.funkWindow = src.funkWindow;
+  // Same rule for extended $102/$12x's own window (item 173 follow-up): the
+  // ghost's sample position is inside it, but inst.modFunkWalk/modFunkPos
+  // stay with the instrument, not the ghost.
+  v.modFunkWindow = src.modFunkWindow;
   v.activeVibratoSpeed = src.activeVibratoSpeed;
   v.activeVibratoSweep = src.activeVibratoSweep;
   v.activeVibratoDepth = src.activeVibratoDepth;
@@ -6956,9 +7428,17 @@ const spatialArg = new Float64Array(2);
 /** Resolve a non-zero argument or recall from cohort memory. */
 function resolveArg(arg, mem) { return arg !== 0 ? arg : mem; }
 
-function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg) {
+/**
+ * `ext` (item 162): the argument of a `:` sharing this row with `op`, or null
+ * when there isn't one (any Format 1/2 row, or a Format 3 row where `op`
+ * isn't paired). Only OP_J / OP_O / OP_2 / OP_3 read it; every other case
+ * ignores it, and a colon reaching this switch in its OWN slot (unpaired, or
+ * paired with another colon) hits OP_COLON's bare `break` — a genuine no-op.
+ */
+function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
   switch (op) {
     case EffectOp.OP_NONE: break;
+    case EffectOp.OP_COLON: break; // argument extension — a modifier, never a command of its own
     case EffectOp.OP_7:
       // Pattern Ditto marker — consumed by applyTrackerRow's row-time expansion.
       break;
@@ -6969,8 +7449,8 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg) {
       break;
     }
     // 2 spares the region it names; 3 modifies it. Same command otherwise.
-    case EffectOp.OP_2: applySampleModEffect(eng, ts, voice, vi, rawArg, true); break;
-    case EffectOp.OP_3: applySampleModEffect(eng, ts, voice, vi, rawArg, false); break;
+    case EffectOp.OP_2: applySampleModEffect(eng, ts, voice, vi, rawArg, true, ext); break;
+    case EffectOp.OP_3: applySampleModEffect(eng, ts, voice, vi, rawArg, false, ext); break;
     case EffectOp.OP_5: applyFilterParamEffect(eng, ts, voice, vi, rawArg, false); break;
     case EffectOp.OP_6: applyFilterParamEffect(eng, ts, voice, vi, rawArg, true); break;
     case EffectOp.OP_8: {
@@ -7108,11 +7588,24 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg) {
       break;
     }
     case EffectOp.OP_J: {
-      const arg = resolveArg(rawArg, voice.mem.j);
-      if (rawArg !== 0) voice.mem.j = arg;
       voice.arpActive = true;
-      voice.arpOff1 = (arg >>> 8) & 0xff;
-      voice.arpOff2 = arg & 0xff;
+      if (ext !== null) {
+        // Extended (item 162): both bytes become full 16-bit 4096-TET deltas
+        // instead of <<8-scaled ones — off1 is J's own arg, off2 the paired
+        // colon's, order-independent. Private memory, separate from classic
+        // J's (the units don't agree, so one must never recall the other).
+        const off1 = resolveArg(rawArg, voice.mem.jExt1);
+        const off2 = resolveArg(ext, voice.mem.jExt2);
+        if (rawArg !== 0) voice.mem.jExt1 = off1;
+        if (ext !== 0) voice.mem.jExt2 = off2;
+        voice.arpOff1 = off1;
+        voice.arpOff2 = off2;
+      } else {
+        const arg = resolveArg(rawArg, voice.mem.j);
+        if (rawArg !== 0) voice.mem.j = arg;
+        voice.arpOff1 = ((arg >>> 8) & 0xff) << 8;
+        voice.arpOff2 = (arg & 0xff) << 8;
+      }
       break;
     }
     case EffectOp.OP_K: {
@@ -7181,9 +7674,20 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg) {
     }
     case EffectOp.OP_O: {
       // Sample offset — clamps into the active sample's loop region.
-      const arg = resolveArg(rawArg, voice.mem.o);
-      if (rawArg !== 0) voice.mem.o = arg;
-      let off = arg;
+      let off;
+      if (ext !== null) {
+        // Extended (item 162): O's own arg is the high word, the paired
+        // colon's is the low word — a 32-bit offset. Combined ARITHMETICALLY,
+        // never with `<<16`: that overflows into JS's signed 32-bit bitwise
+        // domain the moment rawArg's top bit is set. Private memory, since a
+        // 32-bit value doesn't fit where the classic 16-bit recall lives.
+        const combined = rawArg * 65536 + ext;
+        off = combined !== 0 ? combined : voice.mem.oExt;
+        if (combined !== 0) voice.mem.oExt = combined;
+      } else {
+        off = resolveArg(rawArg, voice.mem.o);
+        if (rawArg !== 0) voice.mem.o = off;
+      }
       if ((voice.activeLoopMode & 3) !== 0 &&
           voice.activeSampleLoopEnd > voice.activeSampleLoopStart &&
           off > voice.activeSampleLoopEnd) {
@@ -7422,7 +7926,11 @@ function applySEffect(eng, ts, voice, vi, arg) {
  * driving it to the CHANNEL. A reserved region is ignored WHOLE, speed and all,
  * so a typo cannot drive a modification the writer never named.
  */
-function applySampleModEffect(eng, ts, voice, vi, rawArg, invert) {
+function applySampleModEffect(eng, ts, voice, vi, rawArg, invert, ext = null) {
+  if (ext !== null) {
+    applySampleModEffectExt(eng, ts, voice, vi, rawArg, invert, ext);
+    return;
+  }
   const op = (rawArg >>> 4) & 0xf;
   // A metainstrument is one note made of several instruments, so the command
   // reaches all of them — otherwise only layer 0's sample would ever be
@@ -7440,6 +7948,7 @@ function applySampleModEffect(eng, ts, voice, vi, rawArg, invert) {
       v.modPeriod = 0;
       v.modTickCount = 0;
       v.modWritePos = 0;
+      v.modExtended = false;
       return;
     }
     const code = decodeSampleRegion((rawArg >>> 8) & 0xff, regionScratch);
@@ -7456,6 +7965,51 @@ function applySampleModEffect(eng, ts, voice, vi, rawArg, invert) {
       v.modWritePos = 0;
     }
     v.modPeriod = modStepPeriod(rawArg & 0xf);
+    v.modExtended = false;
+  });
+}
+
+/**
+ * Extended notefx 2/3 (item 162, `2`/`3 $sexy : $fuuk`): `$se` region as
+ * above, `$f` a further sub-range (samplemod.js fModTouches), `$xuu` a 12-bit
+ * operation replacing `$x`'s 4-bit one, `$yk` a two-digit speed replacing
+ * `$y`'s one-digit ladder, clocked in samples rather than whole ticks (see
+ * voice.modStepTicks / mixer.js's per-sample accumulator).
+ */
+function applySampleModEffectExt(eng, ts, voice, vi, rawArg, invert, ext) {
+  const f = (ext >>> 12) & 0xf;
+  const xuu = (((rawArg >>> 4) & 0xf) << 8) | ((ext >>> 4) & 0xff);
+  const yk = ((rawArg & 0xf) << 4) | (ext & 0xf);
+  const seen = new Set();
+  forEachLayerTarget(ts, voice, vi, (v) => {
+    const inst = eng.instruments[v.instrumentId];
+    const dup = seen.has(v.instrumentId);
+    seen.add(v.instrumentId);
+    if (xuu === 0) {
+      if (!dup) inst.resetMod();
+      v.modPeriod = 0;
+      v.modTickCount = 0;
+      v.modWritePos = 0;
+      v.modExtended = false;
+      v.modStepTicks = 0;
+      v.modSamplesIntoStep = 0;
+      return;
+    }
+    const code = decodeSampleRegion((rawArg >>> 8) & 0xff, regionScratch);
+    if (code === REGION_NONE) return;
+    if (dup) { v.modPeriod = 0; v.modExtended = false; return; }
+    const moved = code === REGION_COMB
+      ? inst.setModComb(regionScratch[2], regionScratch[3] !== 0)
+      : inst.setModRegion(regionScratch[0], regionScratch[1]);
+    const swapped = inst.setModOpExt(xuu, invert, f);
+    if (moved || swapped) {
+      v.modTickCount = 0;
+      v.modWritePos = 0;
+      v.modSamplesIntoStep = 0;
+    }
+    v.modPeriod = 0;
+    v.modExtended = true;
+    v.modStepTicks = extYkPeriodTicks(yk);
   });
 }
 
@@ -7754,7 +8308,20 @@ function applyTrackerRow(eng, ts, playhead) {
     } else {
       if (toneG && voice.active) {
         // Tone porta: target the note, do not retrigger sample.
-        voice.tonePortaTarget = note;
+        //
+        // `note` is the pattern's raw note word, but a metainstrument's
+        // foreground voice does not sound it directly — triggerMetaOrNote /
+        // triggerFmRack seed voice.noteVal from `note + layer0's own detune`
+        // (or, when layer 0 is fixed-pitch, from a pitch that ignores `note`
+        // entirely), so the target has to cross into that same coordinate or
+        // the glide chases a point that is a whole detune away from where it
+        // actually needs to land — arriving late if at all, so the NEXT G row
+        // retargets it before it gets there and the bend never seems to stop
+        // (item 176). An ordinary instrument's foreground carries no such
+        // offset (metaForegroundDetune stays 0), so this is a no-op for it.
+        voice.tonePortaTarget = voice.metaForeground && voice.layerFixedNote >= 0
+          ? -1 // layer 0 is fixed-pitch: its note never tracked the trigger, so there is nothing to glide to
+          : clamp(note + voice.metaForegroundDetune, 0x20, 0xffff);
         // Inst byte on a porta row reloads the default volume + clears fade state
         // without retriggering (Schism csf_instrument_change semantics), and
         // RE-ATTACKS the envelopes: the instrument byte is what makes a porta
@@ -7802,9 +8369,24 @@ function applyTrackerRow(eng, ts, playhead) {
     // ── Effect columns ──
     // A wide cell carries two, applied in order, so the second lands last where
     // both write the same channel state.
-    applyEffectRow(eng, ts, playhead, voice, vi, row.effect, row.effectArg);
+    //
+    // Argument extension (item 162): a `:` in either slot is a modifier, not a
+    // command of its own — it hands its argument to whichever OTHER effect
+    // shares the row, order-independent ("J : " reads the same as ": J").
+    // Format 1/2 has no second slot, so pairing is structurally impossible
+    // there — the no-op the TODO requires falls out for free rather than
+    // needing a format-version check inside every consumer.
+    let ext1 = null, ext2 = null;
+    if (ts.wideCells) {
+      if (row.effect === EffectOp.OP_COLON && row.effect2 !== EffectOp.OP_COLON) {
+        ext2 = row.effectArg;
+      } else if (row.effect2 === EffectOp.OP_COLON && row.effect !== EffectOp.OP_COLON) {
+        ext1 = row.effectArg2;
+      }
+    }
+    applyEffectRow(eng, ts, playhead, voice, vi, row.effect, row.effectArg, ext1);
     if (ts.wideCells && row.effect2 !== 0) {
-      applyEffectRow(eng, ts, playhead, voice, vi, row.effect2, row.effectArg2);
+      applyEffectRow(eng, ts, playhead, voice, vi, row.effect2, row.effectArg2, ext2);
     }
   }
 }
@@ -8030,6 +8612,22 @@ const spatialStep = new Float64Array(2);
 // diffuses into the widest, and every rung of the ladder ends up the same
 // effect with a different rise time. A jittery walk is still a walk.
 const FUNK_JITTER_DIVISOR = 16;   // `$8`-`$B` throw within ±1/16 of the territory
+
+/**
+ * Extended $102/$12x's own funk-repeat walk (item 173 follow-up) — literally
+ * `Z $Ffxx`'s walk, reused: "walks the region the way `Z $Ffxx` walks a loop"
+ * (TAUD_NOTE_EFFECTS.md) means the resolved region (`g.ds`, `dl`) plays the
+ * part `Z`'s declared loop plays for it — `dl` is the hop ("add replen to
+ * repeat", the formal Funk Repeat spec's own wording: the loop's OWN length
+ * is the step, not a boundary) — while the SEARCH SPACE is `sampleLen`, the
+ * true physical sample, exactly as `Z` searches past its loop for room. A
+ * region that already spans the whole sample (no loop, §8.4's domain test)
+ * is simply a walk with `dl === sampleLen` and nowhere to go, same as `Z`
+ * pointed at an unlooped instrument — not a special case, the same formula.
+ * This command has no `$f` hop-selector of its own (§"Implementation notes"),
+ * so it always walks forward at the grid's smallest hop (`Z`'s `$f = 3`).
+ */
+const EXT_FUNK_MODE = 3; // forward, hop = dl >> 3 — the only setting this command exposes
 
 /** The hop, in bytes: the loop length shifted by `$f`'s low two bits. */
 function funkHop(funkMode, loopLen) {
@@ -8340,10 +8938,13 @@ function applyTrackerTick(eng, ts, playhead) {
       voice.panbrelloOffset = 0;
     }
 
-    // Arpeggio (J) — overrides pitchToMixer for this tick.
+    // Arpeggio (J) — overrides pitchToMixer for this tick. arpOff1/arpOff2
+    // are stored as full pitch deltas already (item 162's extension writes
+    // its two 4096-TET units straight in; classic J pre-scales its bytes by
+    // <<8 at write time — see effects.js OP_J), so no shift belongs here.
     if (voice.arpActive) {
       const voiceIdx = ts.tickInRow % 3;
-      const arpDelta = voiceIdx === 1 ? voice.arpOff1 << 8 : voiceIdx === 2 ? voice.arpOff2 << 8 : 0;
+      const arpDelta = voiceIdx === 1 ? voice.arpOff1 : voiceIdx === 2 ? voice.arpOff2 : 0;
       pitchToMixer = clamp(voice.basePitch + arpDelta, 0x20, 0xffff);
       voice.lastArpVoice = voiceIdx;
     }
@@ -8611,7 +9212,10 @@ function applyTrackerTick(eng, ts, playhead) {
  * (item 154) — the clock is the voice's, the operation the instrument's.
  */
 function advanceSampleMod(eng, ts, voice) {
-  if (voice.modPeriod === 0 || !voice.active) return;
+  // Argument extension (item 162): an extended voice clocks itself in samples
+  // via advanceSampleModExtended (mixer.js's per-sample loop), never here —
+  // the two clocks never touch the same voice's step count.
+  if (voice.modPeriod === 0 || !voice.active || voice.modExtended) return;
   const inst = eng.instruments[voice.instrumentId];
   if (inst.modOp === MOD_OFF) return;
   const sampleLen = Math.max(voice.activeSampleLength, 1);
@@ -8660,6 +9264,177 @@ function advanceSampleMod(eng, ts, voice) {
     inst.modOn = inst.modSub !== 0;
   }
   armModXfade(ts, voice.instrumentId);
+}
+
+/**
+ * Argument-extension counterpart of advanceSampleMod (item 162): same shape
+ * — resolve the geometry, wait out the period, step once — but clocked in
+ * SAMPLES (voice.modStepTicks may be under 1 tick) rather than whole ticks,
+ * which is why it is called from mixer.js's per-sample loop instead of the
+ * per-tick one. `spt` is that loop's own samples-per-tick, recomputed fresh
+ * every sample there (T-slide correctness) and threaded straight through
+ * rather than cached, so a mid-row tempo change retimes this the same way it
+ * retimes the tick clock itself.
+ */
+function advanceSampleModExtended(eng, ts, voice, spt) {
+  if (!voice.modExtended || !voice.active) return;
+  const inst = eng.instruments[voice.instrumentId];
+  if (inst.modOpExt === 0 || voice.modStepTicks <= 0) return;
+  const sampleLen = Math.max(voice.activeSampleLength, 1);
+  const g = resolveModGeom(voice.modGeom, inst, voice.activeSampleLoopStart,
+    voice.activeSampleLoopEnd, sampleLen);
+  if (!g.live) return;
+  voice.modSamplesIntoStep += 1.0;
+  const periodSamples = voice.modStepTicks * spt;
+  if (periodSamples <= 0 || voice.modSamplesIntoStep < periodSamples) return;
+  voice.modSamplesIntoStep -= periodSamples;
+  stepExtendedModOnce(ts, voice, inst, g, sampleLen);
+}
+
+/**
+ * One step of an extended (`:`-paired) 2/3, dispatched on the decoded $xuu
+ * kind — see samplemod.js decodeExtOp for the code table this switches on and
+ * the design note on 920's fold into `xor`, 13x/14x's shared `jumpN`, and
+ * which kinds get the anti-click crossfade (rot/sub/xor family: the same
+ * accumulate-and-replace shape the base command's ROL/SUB/JUMP/SCATTER get)
+ * versus which don't (bit-rotate, bit-permutation, mirror, swap, invert — all
+ * either a single-byte flip like classic INVERT, or a toggle between two
+ * states, neither of which clicks the way replacing a whole mapping does).
+ */
+function stepExtendedModOnce(ts, voice, inst, g, sampleLen) {
+  inst.modStepIndex++; // $f's A-D alternation reads this
+  const { kind, param } = decodeExtOp(inst.modOpExt);
+  const dl = Math.max(g.dl, 1);
+  switch (kind) {
+    case "noop":
+      break;
+    case "invert": {
+      for (let n = 0; n < MOD_WALK_SCAN; n++) {
+        voice.modWritePos = (voice.modWritePos + 1) % dl;
+        const i = g.ds + voice.modWritePos;
+        if (extModTouches(g, inst.modInvert, inst.modF, inst.modStepIndex, i)) {
+          inst.toggleModBit(i, sampleLen);
+          break;
+        }
+      }
+      break;
+    }
+    case "invertJit": {
+      const reach = Math.max(1, Math.round(extJitterFrac(param) * dl));
+      for (let n = 0; n < MOD_WALK_SCAN; n++) {
+        const jitter = Math.floor(random() * (2 * reach + 1)) - reach;
+        voice.modWritePos = (((voice.modWritePos + 1 + jitter) % dl) + dl) % dl;
+        const i = g.ds + voice.modWritePos;
+        if (extModTouches(g, inst.modInvert, inst.modF, inst.modStepIndex, i)) {
+          inst.toggleModBit(i, sampleLen);
+          break;
+        }
+      }
+      break;
+    }
+    case "funk":
+    case "funkJit": {
+      // Whole-physical-sample domain (see EXT_FUNK_MODE above): `g.ds`/`dl`
+      // stand in for Z's loopStart/loopLen, `sampleLen` is the true sample —
+      // NOT `dl`. This is a loop-window relocation, not an address remap:
+      // it never touches inst.modOn/modRot/armModXfade (those drive
+      // readSamplePoint's per-byte transform and its shared crossfade,
+      // neither of which this kind uses — §"the anti-click crossfade... does
+      // NOT cover... $102/$12x funk"). The actual relocation happens at the
+      // voice's own loop wrap (sampler.js advanceSamplePos), which reads
+      // inst.modFunkWalk/modFunkPos the same way it already reads Z's own
+      // voice.funkWalk/funkPos.
+      inst.modFunkLen = dl;
+      inst.modFunkWalk = funkWalkStep(EXT_FUNK_MODE, inst.modFunkWalk, g.ds, dl, sampleLen);
+      let pos = inst.modFunkWalk;
+      if (kind === "funkJit") {
+        const hop = funkHop(EXT_FUNK_MODE, dl);
+        const K = funkGridTop(hop, g.ds, dl, sampleLen);
+        if (K > 0) {
+          const reach = Math.max(1, Math.round(extJitterFrac(param) * (K + 1)));
+          const n = funkGridIndex(inst.modFunkWalk, hop, g.ds, K);
+          const thrown = n + uniformInt(2 * reach + 1) - reach;
+          pos = g.ds + Math.min(Math.max(thrown, 0), K) * hop;
+        }
+      }
+      inst.modFunkPos = pos;
+      break;
+    }
+    case "mirror": {
+      inst.modExtMirror = !inst.modExtMirror;
+      inst.modOn = inst.modExtMirror;
+      break;
+    }
+    case "swap": {
+      if (dl >= 2) {
+        const a = g.ds + Math.floor(random() * dl);
+        let b2 = g.ds + Math.floor(random() * dl);
+        if (b2 === a) b2 = g.ds + ((a - g.ds + 1) % dl);
+        inst.modExtSwapA = a;
+        inst.modExtSwapB = b2;
+        inst.modOn = true;
+      }
+      break;
+    }
+    case "rol": {
+      inst.snapshotModState();
+      inst.modRot = ((inst.modRot + param) % dl + dl) % dl;
+      inst.modOn = inst.modRot !== 0;
+      armModXfade(ts, voice.instrumentId);
+      break;
+    }
+    case "jumpN": {
+      inst.snapshotModState();
+      const slice = Math.max(1, Math.round(dl / param));
+      const idx = Math.min(Math.floor(random() * param), param - 1);
+      inst.modRot = (idx * slice) % dl;
+      inst.modOn = true;
+      armModXfade(ts, voice.instrumentId);
+      break;
+    }
+    case "jumpNBounded": {
+      inst.snapshotModState();
+      const reach = Math.max(1, Math.round(dl / param));
+      const thrown = Math.floor(random() * (2 * reach + 1)) - reach;
+      inst.modRot = ((thrown % dl) + dl) % dl;
+      inst.modOn = true;
+      armModXfade(ts, voice.instrumentId);
+      break;
+    }
+    case "scatter": {
+      inst.snapshotModState();
+      inst.modScatter = Math.max(1, Math.min(Math.round(dl * param), dl));
+      inst.modSeed = scatterSeed();
+      inst.modOn = inst.modScatter > 0;
+      armModXfade(ts, voice.instrumentId);
+      break;
+    }
+    case "sub": {
+      inst.snapshotModState();
+      inst.modSub = (inst.modSub + param) & 0xff;
+      inst.modOn = inst.modSub !== 0;
+      armModXfade(ts, voice.instrumentId);
+      break;
+    }
+    case "xor": {
+      inst.snapshotModState();
+      inst.modXor = (inst.modXor ^ param) & 0xff;
+      inst.modOn = inst.modXor !== 0;
+      armModXfade(ts, voice.instrumentId);
+      break;
+    }
+    case "bitrot": {
+      inst.modBitRot = (((inst.modBitRot + param) % 8) + 8) % 8;
+      inst.modOn = inst.modBitRot !== 0;
+      break;
+    }
+    case "bitperm": {
+      inst.modBitPermIdx = param;
+      inst.modBitPermOn = !inst.modBitPermOn;
+      inst.modOn = inst.modBitPermOn;
+      break;
+    }
+  }
 }
 
 /**
@@ -8889,6 +9664,11 @@ function generateTrackerAudio(eng, playhead, out) {
         continue;
       }
       const voiceInst = eng.instruments[voice.instrumentId];
+      // Argument extension (item 162): an extended 2/3's clock runs in
+      // samples, not ticks, so it steps HERE rather than in applyTrackerTick
+      // — same per-sample-accumulator shape ts.samplesIntoTick uses above,
+      // scoped to this one voice's instrument.
+      advanceSampleModExtended(eng, ts, voice, spt);
       renderVoicePair(eng, ts, voice, voiceInst, ts.interpolationMode, spt, stereoPair);
       const sL = stereoPair[0];
       const sR = stereoPair[1];
@@ -8974,6 +9754,10 @@ function generateTrackerAudio(eng, playhead, out) {
       const bgFader = srcVoice && srcVoice.fader > bg.fader ? srcVoice.fader : bg.fader;
       if (!bg.active || bgFader === 255) continue;
       const bgInst = eng.instruments[bg.instrumentId];
+      // A metainstrument's layer children carry the sample-mod clock too
+      // (item 154) — mirrors applyTrackerTick's own `if (bg.isLayerChild)`
+      // gate on advanceSampleMod, just at sample instead of tick rate.
+      if (bg.isLayerChild) advanceSampleModExtended(eng, ts, bg, spt);
       renderVoicePair(eng, ts, bg, bgInst, ts.interpolationMode, spt, stereoPair);
       const sL = stereoPair[0];
       const sR = stereoPair[1];
@@ -9257,6 +10041,15 @@ class TaudEngine {
 
   clearInstrumentPatches(slot) {
     this.instruments[slot & 0x3ff].extraPatches = null;
+  }
+
+  /** Deallocate pattern slot back to unallocated (patternRead then falls back
+   *  to emptyPattern, same as a slot that was never written) — used to blank
+   *  the persistent pattern store's stale tail when a shorter song loads over
+   *  a longer one (item 174), the same trouble uploadDocument's cue high-water
+   *  blanking already covers for the cue sheet. */
+  clearPattern(slot) {
+    this.playdata[slot & 0x7fff] = null;
   }
 
   /** Upload 512 bytes (64 rows × 8) defining pattern slot. */
@@ -9715,9 +10508,12 @@ class TaudEngine {
    * accumulated. Plain numbers — the reply crosses a postMessage. The MOD_INVERT
    * bit-mask travels with it as `modMask`.
    *
-   * Field names are the instrument's own, so the reply can be handed straight
-   * to resolveModGeom / modTouches: the view draws the modification through the
-   * engine's geometry rather than a re-implementation of it.
+   * Field names are the instrument's own, so the reply can be handed straight to
+   * resolveModGeom / modTouches / extModTouches / modAddressExt / applyExtLevel:
+   * the view draws the modification through the engine's own geometry and
+   * argument-extension machinery (item 162) rather than a re-implementation of
+   * it. The `modOpExt`-and-after fields are only ever live while `modOpExt` is
+   * non-zero (see inst.js setModOpExt/clearModState) — harmless to always send.
    */
   getInstrumentSampleMod(slot) {
     const inst = this.instruments[slot & 0x3ff];
@@ -9727,6 +10523,11 @@ class TaudEngine {
       modCombBits: inst.modCombBits, modCombOdd: inst.modCombOdd,
       modRot: inst.modRot, modSub: inst.modSub, modOn: inst.modOn,
       modScatter: inst.modScatter, modSeed: inst.modSeed, modEpoch: inst.modEpoch,
+      modOpExt: inst.modOpExt, modF: inst.modF, modStepIndex: inst.modStepIndex,
+      modXor: inst.modXor, modBitRot: inst.modBitRot,
+      modBitPermIdx: inst.modBitPermIdx, modBitPermOn: inst.modBitPermOn,
+      modExtSwapA: inst.modExtSwapA, modExtSwapB: inst.modExtSwapB,
+      modExtMirror: inst.modExtMirror,
     };
   }
 
@@ -9803,6 +10604,7 @@ const CMD = Object.freeze({
   CLEAR_INSTRUMENT_PATCHES: "clearInstrumentPatches",   // {slot}
   UPLOAD_PATTERN: "uploadPattern",                 // {slot, bytes: ArrayBuffer}
   UPLOAD_PATTERNS: "uploadPatterns",               // {slots: int[], blob: ArrayBuffer} (bulk, 512 B each)
+  CLEAR_PATTERN: "clearPattern",                   // {slot} — blank a stale pattern slot (item 174)
   UPLOAD_CUE: "uploadCue",                         // {idx, bytes: ArrayBuffer}
   SET_64CH: "set64ChannelMode",                    // {on}
   SET_CELL_FORMAT: "setCellFormat",                // {wide} — format v3's 16-byte cell
@@ -10243,6 +11045,7 @@ function applyAudioCommand(eng, m) {
       }
       return true;
     }
+    case CMD.CLEAR_PATTERN: eng.clearPattern(m.slot); return true;
     case CMD.UPLOAD_CUE: eng.uploadCue(m.idx, new Uint8Array(m.bytes)); return true;
     case CMD.SET_64CH: eng.set64ChannelMode(m.on); return true;
     case CMD.SET_CELL_FORMAT: eng.setCellFormat(m.wide); return true;

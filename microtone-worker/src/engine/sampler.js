@@ -15,7 +15,7 @@ import {
 import { sincTap, SNES_GAUSS } from "./tables.js";
 import {
   MOD_OFF, MOD_XFADE_SAMPLES, modTouches, modAddress, resolveModGeom,
-  extModTouches, modAddressExt, applyExtLevel, applyExtLevelPrev,
+  extModTouches, modAddressExt, applyExtLevel, applyExtLevelPrev, isExtFunkOp,
 } from "./samplemod.js";
 
 /**
@@ -89,8 +89,16 @@ export function readSamplePoint(eng, voice, inst, idx, sampleLen, binMax,
   // value transform never meet.
   const i = extended ? modAddressExt(g, i0, inst) : modAddress(g, i0, inst.modRot, inst.modScatter, inst.modSeed);
   let b = poolByte(eng, voice, inst, i, binMax, basePtr, ls, le);
-  if (extended) b = applyExtLevel(inst, b);
-  else if (inst.modMask !== null) { if (inst.modBit(i)) b = b ^ 0xff; }
+  if (extended) {
+    // $101/$11x (invert, invertJit) accumulate through the SAME modMask
+    // toggleModBit already fills for the classic form — applyExtLevel only
+    // knows about the OTHER extended level kinds (sub/add, xor, bit-rotate,
+    // bit-permute) and never reads the mask, so without this the state kept
+    // toggling correctly (samples.js's overlay, which reads modMask
+    // directly, showed it right) while playback never heard it at all.
+    if (inst.modMask !== null) { if (inst.modBit(i)) b ^= 0xff; }
+    b = applyExtLevel(inst, b);
+  } else if (inst.modMask !== null) { if (inst.modBit(i)) b = b ^ 0xff; }
   else if (inst.modSub !== 0) b = (b - inst.modSub) & 0xff;
   if (voice.modXfade > 0) {
     // Anti-click crossfade (item 153.5): the mapping the last step replaced,
@@ -221,6 +229,20 @@ function armFunkXfade(voice, offset, windowLen) {
   voice.funkXfadeOffset = offset;
 }
 
+/** Same seam crossfade as `armFunkXfade`, on extended $102/$12x's own
+ *  independent window (`voice.modFunkWindow`/`modFunkXfade*`) — a separate
+ *  ghost channel because the two commands "do not share state"
+ *  (TAUD_NOTE_EFFECTS.md) and can be live on one voice at once. */
+function armModFunkXfade(voice, offset, windowLen) {
+  if (offset === 0) return;
+  const rate = Math.abs(voice.currentPlaybackRate);
+  const grain = rate > 0 ? Math.floor(windowLen / rate) : FUNK_XFADE_SAMPLES;
+  const len = Math.min(FUNK_XFADE_SAMPLES, Math.max(1, grain));
+  voice.modFunkXfade = len;
+  voice.modFunkXfadeLen = len;
+  voice.modFunkXfadeOffset = offset;
+}
+
 /**
  * One channel read through the window the hop replaced. The position is the
  * live one shifted back, so it follows the voice's own rate and direction for
@@ -231,6 +253,18 @@ function funkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax, baseP
   const keepPos = voice.samplePos;
   const keepDpcm = st.nesDpcmCounter;
   voice.samplePos = keepPos + voice.funkXfadeOffset;
+  const g = interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, basePtr, st);
+  voice.samplePos = keepPos;
+  st.nesDpcmCounter = keepDpcm;
+  return g;
+}
+
+/** `funkGhostChannel`, reading through extended $102/$12x's own
+ *  `modFunkXfadeOffset` instead of Z's `funkXfadeOffset`. */
+function modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax, basePtr, st) {
+  const keepPos = voice.samplePos;
+  const keepDpcm = st.nesDpcmCounter;
+  voice.samplePos = keepPos + voice.modFunkXfadeOffset;
   const g = interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, basePtr, st);
   voice.samplePos = keepPos;
   st.nesDpcmCounter = keepDpcm;
@@ -262,8 +296,16 @@ export function fetchTrackerSampleStereo(eng, voice, inst, interpMode, out) {
       voice.activeChanPtr2, voice.right) * w + out[1] * (1.0 - w);
     voice.funkXfade--;
   }
+  if (voice.modFunkXfade > 0) {
+    const w = voice.modFunkXfade / voice.modFunkXfadeLen;
+    out[0] = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + out[0] * (1.0 - w);
+    out[1] = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeChanPtr2, voice.right) * w + out[1] * (1.0 - w);
+    voice.modFunkXfade--;
+  }
   if (voice.modXfade > 0) voice.modXfade--;
-  if (voice.rampOutSamples <= 0) advanceSamplePos(voice, sampleLen);
+  if (voice.rampOutSamples <= 0) advanceSamplePos(voice, inst, sampleLen);
   return out;
 }
 
@@ -315,6 +357,12 @@ export function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) 
       voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
     voice.funkXfade--;
   }
+  if (voice.modFunkXfade > 0) {
+    const w = voice.modFunkXfade / voice.modFunkXfadeLen;
+    sample = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
+    voice.modFunkXfade--;
+  }
   if (posOffset !== 0) voice.samplePos = keepPos;
 
   // The crossfades run on the OUTPUT clock, once per sample however many taps
@@ -322,7 +370,7 @@ export function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) 
   if (voice.modXfade > 0) voice.modXfade--;
   // While ramping out at sample end, hold position (mixer emits with decaying gain).
   if (voice.rampOutSamples > 0) return sample;
-  advanceSamplePos(voice, sampleLen);
+  advanceSamplePos(voice, inst, sampleLen);
   return sample;
 }
 
@@ -336,16 +384,39 @@ export function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) 
  * pointer when the loop restarts, so the block being played always finishes
  * first. Until the walk has stepped once (`funkPos < 0`) this is the same
  * arithmetic on the same numbers it has always been.
+ *
+ * Extended `2`/`3 $102`/`$12x` (item 173 follow-up) is the SAME trick on its
+ * own independent window (`voice.modFunkWindow`/`inst.modFunkWalk`/
+ * `modFunkPos`) — "walks the region the way `Z $Ffxx` walks a loop"
+ * (TAUD_NOTE_EFFECTS.md): the resolved region (`inst.modFunkLen`, stashed by
+ * tick.js's stepExtendedModOnce, since re-resolving modGeom here on every
+ * output sample would be wasteful) is the hop, and the physical sample —
+ * not the region — is where it may land, exactly like Z searching past its
+ * own declared loop for room. The two commands "do not share state"
+ * (TAUD_NOTE_EFFECTS.md's implementation notes) — they are independent
+ * windows, so when both are live on one voice the extended one (this note's
+ * own row) is what the voice actually sounds; Z's own walk keeps running
+ * underneath, ready the moment the row's `2`/`3` stops overriding it.
  */
-function advanceSamplePos(voice, sampleLen) {
+function advanceSamplePos(voice, inst, sampleLen) {
   // An NNA ghost inherits the window without inheriting the walk, so either
   // half of the pair on its own means the voice is sounding a moved loop.
-  const windowed = voice.funkPos >= 0 || voice.funkWindow >= 0;
-  const loopStart = voice.funkWindow >= 0
-    ? voice.funkWindow : voice.activeSampleLoopStart;
-  const loopEnd = windowed
-    ? loopStart + Math.max(voice.activeSampleLoopEnd - voice.activeSampleLoopStart, 1.0)
+  const zWindowed = voice.funkPos >= 0 || voice.funkWindow >= 0;
+  const zLoopStart = voice.funkWindow >= 0 ? voice.funkWindow : voice.activeSampleLoopStart;
+  const zLoopEnd = zWindowed
+    ? zLoopStart + Math.max(voice.activeSampleLoopEnd - voice.activeSampleLoopStart, 1.0)
     : Math.max(voice.activeSampleLoopEnd, 1.0);
+
+  const extFunkLive = isExtFunkOp(inst.modOpExt);
+  const extWindowed = extFunkLive && (inst.modFunkPos >= 0 || voice.modFunkWindow >= 0);
+  const extLoopStart = extWindowed && voice.modFunkWindow >= 0
+    ? voice.modFunkWindow : voice.activeSampleLoopStart;
+  const extLoopEnd = extWindowed
+    ? extLoopStart + Math.max(inst.modFunkLen, 1.0)
+    : zLoopEnd;
+
+  const loopStart = extWindowed ? extLoopStart : zLoopStart;
+  const loopEnd = extWindowed ? extLoopEnd : zLoopEnd;
   if (voice.forward) {
     voice.samplePos += voice.currentPlaybackRate;
     // Sustain bit set + key-off ⇒ escape the loop (loopMode 0 semantics).
@@ -360,13 +431,20 @@ function advanceSamplePos(voice, sampleLen) {
         break;
       case 1:
         if (voice.samplePos >= loopEnd) {
-          if (windowed) {
+          const overshoot = voice.samplePos - loopEnd;
+          if (extWindowed) {
             // The restart is where the walk's pointer has got to by now, and
-            // the seam it opens is crossfaded (item 163.2).
-            const prevWindow = loopStart;
+            // the seam it opens is crossfaded (item 163.2), on this command's
+            // OWN ghost channel.
+            const prevWindow = extLoopStart;
+            if (inst.modFunkPos >= 0) voice.modFunkWindow = inst.modFunkPos;
+            armModFunkXfade(voice, prevWindow - voice.modFunkWindow, loopEnd - loopStart);
+            voice.samplePos = voice.modFunkWindow + overshoot;
+          } else if (zWindowed) {
+            const prevWindow = zLoopStart;
             if (voice.funkPos >= 0) voice.funkWindow = voice.funkPos;
             armFunkXfade(voice, prevWindow - voice.funkWindow, loopEnd - loopStart);
-            voice.samplePos = voice.funkWindow + (voice.samplePos - loopEnd);
+            voice.samplePos = voice.funkWindow + overshoot;
           } else {
             voice.samplePos -= Math.max(loopEnd - loopStart, 1.0);
           }
@@ -387,8 +465,13 @@ function advanceSamplePos(voice, sampleLen) {
   } else {
     voice.samplePos -= voice.currentPlaybackRate;
     if (voice.samplePos < loopStart) {
-      if (windowed) {
-        const prevWindow = loopStart;
+      if (extWindowed) {
+        const prevWindow = extLoopStart;
+        if (inst.modFunkPos >= 0) voice.modFunkWindow = inst.modFunkPos;
+        armModFunkXfade(voice, prevWindow - voice.modFunkWindow, loopEnd - loopStart);
+        voice.samplePos = voice.modFunkWindow;
+      } else if (zWindowed) {
+        const prevWindow = zLoopStart;
         if (voice.funkPos >= 0) voice.funkWindow = voice.funkPos;
         armFunkXfade(voice, prevWindow - voice.funkWindow, loopEnd - loopStart);
         voice.samplePos = voice.funkWindow;

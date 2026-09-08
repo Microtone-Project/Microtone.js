@@ -149,7 +149,7 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
         <span class="cv-val">
           <select class="cv-ji">${jiOptions}</select>
           <input type="number" class="cv-step" step="1" title="${esc(t("chord.stepTitle"))}">
-          <input type="number" class="cv-ratio" step="0.0001" min="0.0625" max="16">
+          <input type="text" inputmode="decimal" class="cv-ratio" title="${esc(t("chord.ratioTitle"))}">
           <input type="text" class="cv-units" title="${esc(t("chord.unitsTitle"))}">
         </span>
         <label class="cv-oct-l">${esc(t("chord.oct"))}
@@ -171,8 +171,8 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       q(".cv-ji").addEventListener("change", () => { v().ji = q(".cv-ji").value; touch(); });
       q(".cv-step").addEventListener("input", () => { v().step = parseInt(q(".cv-step").value, 10) || 0; touch(); });
       q(".cv-ratio").addEventListener("input", () => {
-        const r = Number(q(".cv-ratio").value);
-        v().ratio = Number.isFinite(r) && r > 0 ? r : 1;
+        const r = parseRatio(q(".cv-ratio").value);
+        v().ratio = r ?? 1;
         touch();
       });
       q(".cv-units").addEventListener("input", () => { v().units = parseUnits(q(".cv-units").value); touch(); });
@@ -184,6 +184,18 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       });
     }
 
+    /** "1.5", "3:2", "3/2" — a ratio, or the two notations that name one
+     *  without doing the division by hand (item 172). */
+    function parseRatio(str) {
+      const s = String(str).trim();
+      const m = s.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
+      if (m) {
+        const n = Number(m[1]), d = Number(m[2]);
+        return n > 0 && d > 0 ? n / d : null;
+      }
+      const n = Number(s);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
     /** "0x100", "256", "-100" — hex is how the note words themselves read. */
     function parseUnits(str) {
       const s = String(str).trim();

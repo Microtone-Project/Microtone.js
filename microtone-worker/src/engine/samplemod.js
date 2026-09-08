@@ -442,6 +442,13 @@ export const EXT_OP_FUNK = 0x102;
 export const EXT_OP_SIMPLE_INVERT = 0x103;
 export const EXT_OP_REVERSE = 0x104;
 
+/** True for `$102` and `$12x` — the funk-repeat kinds, checked from
+ *  sampler.js's per-output-sample loop-wrap test, so it must not allocate
+ *  the way decodeExtOp's `{kind, param}` object does. */
+export function isExtFunkOp(code) {
+  return code === EXT_OP_FUNK || (code >= 0x120 && code <= 0x12f);
+}
+
 /** Quantised-jump / bounded-jitter N-table, indexed by the code's low nibble
  *  (16 entries) — shared by $13x/$14x/$15x. */
 export const EXT_JUMP_N = Object.freeze([2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 18, 21, 24, 32]);

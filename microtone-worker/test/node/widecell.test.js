@@ -18,6 +18,7 @@ import { TaudPlayData } from "../../src/engine/state.js";
 import { EffectOp } from "../../src/engine/tables.js";
 import { applyEffectRow } from "../../src/engine/effects.js";
 import { SURROUND_PLANAR, SURROUND_SPATIAL } from "../../src/engine/spatial.js";
+import { readSamplePoint } from "../../src/engine/sampler.js";
 
 // Pinned to the Kotlin engine's 32 kHz (item 108 moved the web default to
 // 48 kHz): the expectations below are sample counts and reference renders
@@ -941,4 +942,172 @@ test("2/3 extended: the classic per-tick clock never runs for an extended voice"
   render(eng, 1);
   assert.equal(voice0(eng).modExtended, true);
   assert.equal(voice0(eng).modPeriod, 0, "the tick-count clock stays parked");
+});
+
+/** Instrument slot 1, sampleLen bytes, with a loop [0, loopEnd) — or NO loop
+ *  at all when loopEnd is 0 (loopMode left off), matching how an Ixmp patch
+ *  can clear an instrument's loop entirely (item 173 follow-up repro,
+ *  "samplemodtest_widecell.taud": inst 1's patch has loopStart=loopEnd=0). */
+/**
+ * `physLen` is the size of the underlying sample DATA (the funk walk's true
+ * search space); `loopEnd` is the instrument's own declared loop [0, loopEnd)
+ * — the "replen" that becomes the hop. `physLen` may exceed `loopEnd` to give
+ * the walk room, exactly the way a Z $Ffxx instrument needs slack past its
+ * own loop.
+ */
+function makeFunkTestEngine(physLen, loopEnd) {
+  const eng = makeWideEngine();
+  for (let i = 0; i < physLen; i++) eng.sampleBin[i] = 128 + ((i % 100) - 50);
+  const rec = new Uint8Array(256);
+  const w16 = (o, v) => { rec[o] = v & 0xff; rec[o + 1] = (v >> 8) & 0xff; };
+  w16(4, physLen); w16(6, 32000); w16(12, loopEnd);
+  rec[14] = loopEnd > 0 ? 1 : 0; // forward loop, or no loop at all
+  rec[21] = 0x3f; rec[171] = 255; rec[196] = 255;
+  eng.uploadInstrument(1, rec);
+  return eng;
+}
+
+test("2/3 extended: $102 funk repeat walks the WHOLE SAMPLE, replen (the loop's own length) a hop at a time", () => {
+  // The corrected model (item 173 follow-up, "funking must be done on the
+  // entire sample as the domain... the 'loop' interpreted by funking... is
+  // 'add replen to repeat'"): $se's resolved region (here the declared
+  // 4000-byte loop) is the HOP, not a boundary the walk wraps inside of — the
+  // walk instead searches the true physical sample (8000 bytes: 4000 of loop
+  // plus 4000 of slack past it) for room, exactly like Z $Ffxx does. Finest
+  // hop = loopLen>>3 = 500 bytes; room = physLen - loopLen - loopStart = 4000,
+  // so the grid has 8 hops of headroom before it wraps home.
+  const eng = makeFunkTestEngine(8000, 4000);
+  // $se = $0F (whole domain = the loop), $x = 1, uu = $02 ($102 = funk
+  // repeat), yk = $10 -> y=1,k=0 -> exactly 1 tick/step.
+  loadWideSong(eng, [
+    { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_3, arg: 0x0f11,
+      effect2: EffectOp.OP_COLON, arg2: 0x0020 },
+  ]);
+  const inst = eng.instruments[1];
+  const walks = [];
+  for (let r = 1; r <= 9; r++) { render(eng, 1); walks.push(inst.modFunkWalk); }
+  assert.equal(inst.modOpExt, 0x102);
+  // Reaches all the way to 4000 — deep into the slack PAST the declared
+  // loop, which is exactly what a domain-bounded walk (the old, wrong model)
+  // could never do — before wrapping home on the 9th step.
+  assert.deepEqual(walks, [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 0],
+    "an even 500-byte grid walk through the physical sample, reaching past the declared loop");
+});
+
+test("2/3 extended: $102 funk repeat is inert when the loop already fills the whole sample, same as Z $Ffxx", () => {
+  // A loop with no room to move keeps 1.0C's inert behaviour (the rule Z
+  // $Ffxx already follows) — this is no longer a special case this command
+  // routes around, it is the SAME formula: replen (4000) leaves zero slack
+  // in a 4000-byte physical sample.
+  const eng = makeFunkTestEngine(4000, 4000);
+  loadWideSong(eng, [
+    { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_3, arg: 0x0f11,
+      effect2: EffectOp.OP_COLON, arg2: 0x0020 },
+  ]);
+  const inst = eng.instruments[1];
+  const walks = [];
+  for (let r = 1; r <= 9; r++) { render(eng, 1); walks.push(inst.modFunkWalk); }
+  assert.deepEqual(walks, [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "no room past the domain -> permanently at the loop start, exactly Z's own rule");
+});
+
+test("2/3 extended: $12x funk-jittered rides a jitter ON TOP OF the same grid walk, not in place of it", () => {
+  const eng = makeFunkTestEngine(8000, 4000);
+  // $xuu = $120 (funk repeat, jittered, reach rung 0 — the narrowest), same
+  // region and clock as above.
+  loadWideSong(eng, [
+    { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_3, arg: 0x0f11,
+      effect2: EffectOp.OP_COLON, arg2: 0x0200 },
+  ]);
+  const inst = eng.instruments[1];
+  for (let r = 1; r <= 8; r++) {
+    render(eng, 1);
+    // The jittered pointer (modFunkPos) must stay close to the SAME
+    // deterministic walk (modFunkWalk) it is measured from every step, not
+    // wander off on its own — reach rung 0 is at most one 500-byte hop away.
+    assert.ok(Math.abs(inst.modFunkPos - inst.modFunkWalk) <= 500,
+      `step ${r}: modFunkPos ${inst.modFunkPos} must stay near modFunkWalk ${inst.modFunkWalk} (a jitter, not a free throw)`);
+  }
+  assert.equal(inst.modOpExt, 0x120);
+});
+
+test("2/3 extended: $102 funk repeat relocates the voice's OWN loop window at the wrap, like Z $Ffxx", () => {
+  // The engine-level regression this whole rewrite is about: a funk'd voice
+  // must actually be heard playing past the declared loop once its window
+  // has walked there, not stay stuck reading the same small loop forever.
+  const eng = makeFunkTestEngine(8000, 4000);
+  loadWideSong(eng, [
+    { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_3, arg: 0x0f11,
+      effect2: EffectOp.OP_COLON, arg2: 0x0020 },
+  ]);
+  const v = voice0(eng);
+  render(eng, 1); // one step: inst.modFunkWalk/modFunkPos -> 500, but the
+                   // voice has not WRAPPED its loop yet, so it is not windowed.
+  assert.equal(v.modFunkWindow, -1, "no wrap yet -> the voice has not latched a window");
+  // Run long enough for the loop (4000 bytes at rate ~1) to wrap several
+  // times, latching the walked window each time.
+  render(eng, 40);
+  assert.ok(v.modFunkWindow > 0,
+    `after several wraps the voice should be sounding a relocated window, got ${v.modFunkWindow}`);
+  assert.ok(v.samplePos >= v.modFunkWindow && v.samplePos < v.modFunkWindow + 4000,
+    "the voice's own read position must sit INSIDE the window it latched");
+});
+
+test("2/3 extended: $101 invert toggles the byte in what the voice actually PLAYS, not just its own mask", () => {
+  // Regression (item 173 follow-up, user report: "11x-touched samples are
+  // not read by the engine; engine still reads pre-modified samples"):
+  // readSamplePoint's extended branch ran applyExtLevel (which only knows
+  // about the sub/xor/bit-rotate/bit-permute kinds) and never consulted
+  // inst.modMask at all — so $101/$11x kept the mask itself correct
+  // (toggleModBit, and the sample view's overlay, which reads modMask
+  // directly) while the actual audio fetch silently played the UNMODIFIED
+  // byte every time.
+  const eng = makeWideEngine();
+  // $se = $0F (whole domain), $x = 1, uu = $01 ($101 = invert), yk = $10 ->
+  // 1 tick/step, so several bytes are toggled well within one row.
+  loadWideSong(eng, [
+    { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_3, arg: 0x0f11,
+      effect2: EffectOp.OP_COLON, arg2: 0x0010 },
+  ]);
+  render(eng, 6);
+  const inst = eng.instruments[1];
+  const voice = voice0(eng);
+  assert.equal(inst.modOpExt, 0x101);
+  assert.ok(inst.modMask !== null, "the walk toggled at least one bit");
+  let toggled = -1;
+  for (let k = 0; k < inst.modMask.length * 8 && k < 1000; k++) {
+    if ((inst.modMask[k >>> 3] >>> (k & 7)) & 1) { toggled = k; break; }
+  }
+  assert.ok(toggled >= 0, "found a toggled byte to check");
+  const raw = eng.sampleBin[voice.activeSamplePtr + toggled];
+  const played = readSamplePoint(eng, voice, inst, toggled, 1000,
+    eng.sampleBin.length - 1, voice.activeSamplePtr);
+  const expected = ((raw ^ 0xff) - 127.5) / 127.5;
+  assert.ok(Math.abs(played - expected) < 1e-9,
+    `byte ${toggled}: engine must PLAY the inverted byte (raw ${raw}), got ${played} not ${expected}`);
+});
+
+test("2/3 extended: $11x (invert, jittered) is audible the same way $101 is", () => {
+  const eng = makeWideEngine();
+  // $xuu = $110 (invertJit, reach rung 0 — the narrowest jitter), same clock.
+  loadWideSong(eng, [
+    { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_3, arg: 0x0f11,
+      effect2: EffectOp.OP_COLON, arg2: 0x0100 },
+  ]);
+  render(eng, 6);
+  const inst = eng.instruments[1];
+  const voice = voice0(eng);
+  assert.equal(inst.modOpExt, 0x110);
+  assert.ok(inst.modMask !== null, "the jittered walk toggled at least one bit");
+  let toggled = -1;
+  for (let k = 0; k < inst.modMask.length * 8 && k < 1000; k++) {
+    if ((inst.modMask[k >>> 3] >>> (k & 7)) & 1) { toggled = k; break; }
+  }
+  assert.ok(toggled >= 0, "found a toggled byte to check");
+  const raw = eng.sampleBin[voice.activeSamplePtr + toggled];
+  const played = readSamplePoint(eng, voice, inst, toggled, 1000,
+    eng.sampleBin.length - 1, voice.activeSamplePtr);
+  const expected = ((raw ^ 0xff) - 127.5) / 127.5;
+  assert.ok(Math.abs(played - expected) < 1e-9,
+    `byte ${toggled}: engine must PLAY the inverted byte (raw ${raw}), got ${played} not ${expected}`);
 });

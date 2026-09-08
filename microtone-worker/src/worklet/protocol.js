@@ -18,6 +18,7 @@ export const CMD = Object.freeze({
   CLEAR_INSTRUMENT_PATCHES: "clearInstrumentPatches",   // {slot}
   UPLOAD_PATTERN: "uploadPattern",                 // {slot, bytes: ArrayBuffer}
   UPLOAD_PATTERNS: "uploadPatterns",               // {slots: int[], blob: ArrayBuffer} (bulk, 512 B each)
+  CLEAR_PATTERN: "clearPattern",                   // {slot} — blank a stale pattern slot (item 174)
   UPLOAD_CUE: "uploadCue",                         // {idx, bytes: ArrayBuffer}
   SET_64CH: "set64ChannelMode",                    // {on}
   SET_CELL_FORMAT: "setCellFormat",                // {wide} — format v3's 16-byte cell

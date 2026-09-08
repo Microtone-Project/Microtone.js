@@ -4,6 +4,46 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-09
+
+Metainstruments now glide correctly under tone portamento (`G`).
+
+- Fixed: gliding through a chain of tied notes (`G`) on a metainstrument whose layers carry their own pitch offset could keep sliding well past where it should have arrived, so the next slide in the chain cut it off before it ever settled — a bend that looked like it never stopped. It now lands exactly where a plain instrument's would.
+- A layer that always sounds its own single pitch, whatever key struck it, now correctly ignores a portamento row instead of trying to bend a note it was never tracking in the first place.
+- FM rack instruments — built from an operator algorithm rather than a stack of samples — glide correctly under the same fix, since their principal operator carries the same kind of pitch offset a layered metainstrument's first layer does.
+
+The extended `2 $sexy : $fuuk` / `3 $sexy : $fuuk` command's funk-repeat operations (`$xuu` 102 and 12x) now actually repeat, instead of sitting stuck in place or throwing across the whole sample.
+
+- Fixed: funk repeat stayed pinned inside the region it was pointed at instead of hopping the region itself through the rest of the sample, so on a short loop it read as a stuck jitter rather than a repeat. It now hops a whole region-length at a time, the same way `Z`'s own funk repeat does, reaching as far into the sample as there is room to move.
+- An instrument whose loop already spans the entire sample correctly stays silent under funk repeat — there is nowhere left to hop to, the same rule `Z`'s funk repeat has always followed.
+
+The extended `2 $sexy : $fuuk` / `3 $sexy : $fuuk` command's invert operations (`$xuu` 101 and 11x) are now actually audible.
+
+- Fixed: invert and jittered invert flipped the bytes they meant to in their own bookkeeping — the sample view's overlay showed it correctly — but the sound you actually heard was the untouched sample the whole time, on both channels of a stereo sample and on a mono one alike.
+
+## 2026-09-08
+
+Paint Waveform gained the eight OPL3 chip waveforms as ready-made presets.
+
+- A new **OPL3 waveforms** row sits below the usual shapes: Sine, Half sine, Abs sine, Pulse sine, Sine ×2, Abs sine ×2, Square and Log saw — the same eight waveforms an OPL3 FM chip can generate.
+
+Loading a new song now clears the previous one's patterns fully, not just its cues.
+
+- Fixed: opening a shorter song after a longer one could leave a channel still playing pattern data from the song you just closed, wherever a cue reached a pattern slot the new song never rewrote.
+
+A Mastering Strip scope panel added with the + button now has something in its dropdown.
+
+- Fixed: the scope-view dropdown on a freshly added panel was empty and could not be used to pick a view.
+
+The chord maker's ratio field now reads `N:M` and `N/M` notation, not just a decimal.
+
+- Type `3:2` or `3/2` for a perfect fifth, `5/4` for a major third — the field still takes a plain number too.
+
+The sample view's live modification overlay now draws what the extended `2 $sexy : $fuuk` / `3 $sexy : $fuuk` command actually does, not just its classic form.
+
+- Fixed: the sub-range an extended command narrows itself to was drawn as if the narrowing weren't there.
+- Fixed: byte-pair swap, mirror, XOR, bit-rotate and bit-permute operations showed no change on the waveform at all, even though they were audible.
+
 ## 2026-09-05
 
 Every play-indicator lamp in the app — the instrument lookup panel's own numbers, and the Instruments and Samples tabs' row dots — now brightens with how loud it's actually playing, instead of a flat on/off.

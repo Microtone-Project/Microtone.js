@@ -66,6 +66,22 @@ const spatialStep = new Float64Array(2);
 // effect with a different rise time. A jittery walk is still a walk.
 const FUNK_JITTER_DIVISOR = 16;   // `$8`-`$B` throw within ±1/16 of the territory
 
+/**
+ * Extended $102/$12x's own funk-repeat walk (item 173 follow-up) — literally
+ * `Z $Ffxx`'s walk, reused: "walks the region the way `Z $Ffxx` walks a loop"
+ * (TAUD_NOTE_EFFECTS.md) means the resolved region (`g.ds`, `dl`) plays the
+ * part `Z`'s declared loop plays for it — `dl` is the hop ("add replen to
+ * repeat", the formal Funk Repeat spec's own wording: the loop's OWN length
+ * is the step, not a boundary) — while the SEARCH SPACE is `sampleLen`, the
+ * true physical sample, exactly as `Z` searches past its loop for room. A
+ * region that already spans the whole sample (no loop, §8.4's domain test)
+ * is simply a walk with `dl === sampleLen` and nowhere to go, same as `Z`
+ * pointed at an unlooped instrument — not a special case, the same formula.
+ * This command has no `$f` hop-selector of its own (§"Implementation notes"),
+ * so it always walks forward at the grid's smallest hop (`Z`'s `$f = 3`).
+ */
+const EXT_FUNK_MODE = 3; // forward, hop = dl >> 3 — the only setting this command exposes
+
 /** The hop, in bytes: the loop length shifted by `$f`'s low two bits. */
 function funkHop(funkMode, loopLen) {
   return Math.max(1, loopLen >> (funkMode & 3));
@@ -771,17 +787,30 @@ function stepExtendedModOnce(ts, voice, inst, g, sampleLen) {
     }
     case "funk":
     case "funkJit": {
-      inst.snapshotModState();
-      inst.modFunkWalk = funkWalkStep(0, inst.modFunkWalk, g.ds, dl, sampleLen);
-      const pointer = funkWalkPointer(0, inst.modFunkWalk, g.ds, dl, sampleLen);
-      let rot = (((pointer - g.ds) % dl) + dl) % dl;
+      // Whole-physical-sample domain (see EXT_FUNK_MODE above): `g.ds`/`dl`
+      // stand in for Z's loopStart/loopLen, `sampleLen` is the true sample —
+      // NOT `dl`. This is a loop-window relocation, not an address remap:
+      // it never touches inst.modOn/modRot/armModXfade (those drive
+      // readSamplePoint's per-byte transform and its shared crossfade,
+      // neither of which this kind uses — §"the anti-click crossfade... does
+      // NOT cover... $102/$12x funk"). The actual relocation happens at the
+      // voice's own loop wrap (sampler.js advanceSamplePos), which reads
+      // inst.modFunkWalk/modFunkPos the same way it already reads Z's own
+      // voice.funkWalk/funkPos.
+      inst.modFunkLen = dl;
+      inst.modFunkWalk = funkWalkStep(EXT_FUNK_MODE, inst.modFunkWalk, g.ds, dl, sampleLen);
+      let pos = inst.modFunkWalk;
       if (kind === "funkJit") {
-        const reach = Math.max(1, Math.round(extJitterFrac(param) * dl));
-        rot = ((rot + Math.floor(random() * (2 * reach + 1)) - reach) % dl + dl) % dl;
+        const hop = funkHop(EXT_FUNK_MODE, dl);
+        const K = funkGridTop(hop, g.ds, dl, sampleLen);
+        if (K > 0) {
+          const reach = Math.max(1, Math.round(extJitterFrac(param) * (K + 1)));
+          const n = funkGridIndex(inst.modFunkWalk, hop, g.ds, K);
+          const thrown = n + uniformInt(2 * reach + 1) - reach;
+          pos = g.ds + Math.min(Math.max(thrown, 0), K) * hop;
+        }
       }
-      inst.modRot = rot;
-      inst.modOn = true;
-      armModXfade(ts, voice.instrumentId);
+      inst.modFunkPos = pos;
       break;
     }
     case "mirror": {

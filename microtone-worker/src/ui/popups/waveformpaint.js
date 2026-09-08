@@ -102,6 +102,19 @@ function openPaintModal(opts) {
           <button data-shape="flat">${esc(t("wave.clear"))}</button>
         </span>
       </div>
+      <div class="wave-row">
+        <span class="wave-opl-label dim">${esc(t("wave.oplLabel"))}</span>
+        <span class="wave-shapes">
+          <button data-shape="opl0" title="${esc(t("wave.opl0Title"))}">${esc(t("wave.opl0"))}</button>
+          <button data-shape="opl1" title="${esc(t("wave.opl1Title"))}">${esc(t("wave.opl1"))}</button>
+          <button data-shape="opl2" title="${esc(t("wave.opl2Title"))}">${esc(t("wave.opl2"))}</button>
+          <button data-shape="opl3" title="${esc(t("wave.opl3Title"))}">${esc(t("wave.opl3"))}</button>
+          <button data-shape="opl4" title="${esc(t("wave.opl4Title"))}">${esc(t("wave.opl4"))}</button>
+          <button data-shape="opl5" title="${esc(t("wave.opl5Title"))}">${esc(t("wave.opl5"))}</button>
+          <button data-shape="opl6" title="${esc(t("wave.opl6Title"))}">${esc(t("wave.opl6"))}</button>
+          <button data-shape="opl7" title="${esc(t("wave.opl7Title"))}">${esc(t("wave.opl7"))}</button>
+        </span>
+      </div>
       <canvas class="wave-paint" width="${cssMaxW - 48}" height="${LANE_H * bufs.length}"></canvas>
       <p class="wave-hint">${esc(t("wave.hint"))}${bufs.length > 1 ? " · " + esc(t("wave.stereoHint")) : ""}</p>
       ${opts.showName ? `<div class="wave-row"><label>${esc(t("wave.name"))} <input type="text" class="wave-name" value="${esc(t("wave.defaultName"))}"></label></div>` : ""}
@@ -203,6 +216,30 @@ function openPaintModal(opts) {
           case "square": v = p < 0.5 ? 255 : 0; break;
           case "triangle": v = p < 0.5 ? 510 * p : 510 * (1 - p); break;
           case "noise": v = Math.random() * 255; break;
+          // OPL3's eight-entry waveform table (item 177) — closed forms derived
+          // from the phase-generator algebra in Nuked-OPL3's EnvelopeCalcSinN
+          // (opl3.c), the reference already vendored for opl2taud.py, rather
+          // than the chip's own fixed-point log/exp ROMs: this is a paint
+          // preset, not a cycle-accurate emulation, so the continuous curve is
+          // enough. Furnace's oplWaveformsStandard names the eight in this
+          // order (Sine, Half Sine, Absolute Sine, Pulse Sine, Sine/AbsSine at
+          // even periods, Square, Derived Square).
+          case "opl0": v = 128 + 127 * Math.sin(2 * Math.PI * p); break;
+          case "opl1": v = 128 + 127 * Math.max(0, Math.sin(2 * Math.PI * p)); break;
+          case "opl2": v = 128 + 127 * Math.abs(Math.sin(2 * Math.PI * p)); break;
+          case "opl3": {
+            const q = p % 0.5;
+            v = q < 0.25 ? 128 + 127 * Math.sin(2 * Math.PI * q) : 128;
+            break;
+          }
+          case "opl4": v = p < 0.5 ? 128 + 127 * Math.sin(4 * Math.PI * p) : 128; break;
+          case "opl5": v = p < 0.5 ? 128 + 127 * Math.abs(Math.sin(4 * Math.PI * p)) : 128; break;
+          case "opl6": v = p < 0.5 ? 255 : 0; break;
+          case "opl7":
+            v = p < 0.5
+              ? 128 + 127 * Math.pow(2, -32 * p)
+              : 128 - 127 * Math.pow(2, -32 * (1 - p));
+            break;
           case "flat": default: v = 128; break;
         }
         const q = Math.min(255, Math.max(0, Math.round(v)));

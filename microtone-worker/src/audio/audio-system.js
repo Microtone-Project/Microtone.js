@@ -50,6 +50,9 @@ export class AudioSystem {
     this._cueHighWater = 0;     // highest cue index+1 ever uploaded to the engine
                                 // (the cueSheet persists across loads — blank the
                                 // stale tail when a shorter song loads over it)
+    this._patternHighWater = 0; // highest pattern slot+1 ever uploaded (item 174):
+                                // the engine's pattern store is just as persistent
+                                // as the cueSheet — same stale-tail trouble, same fix
     this.engineTarget = null;   // where engine commands go: worklet port or the worker
     this.invertMasks = new Map(); // slot → Uint8Array (latest queried S$Fx invert mask)
     this.sampleMods = new Map(); // slot → notefx 2/3 modification state (item 130)
@@ -218,6 +221,16 @@ export class AudioSystem {
       slots[p] = p;
     }
     this._post({ t: CMD.UPLOAD_PATTERNS, slots, blob: blob.buffer }, [blob.buffer]);
+    // Blank any patterns left over from a longer previously-loaded song (the
+    // engine's playdata store is just as persistent as the cueSheet below) —
+    // without this, a cue whose own song only reaches pattern nPats-1 could
+    // still land on a HIGHER slot that a prior, longer song had populated and
+    // never had reset out from under it, and play that song's rows instead
+    // (item 174: the "random low notes" a stale slot leaves behind).
+    for (let p = nPats; p < this._patternHighWater; p++) {
+      this._post({ t: CMD.CLEAR_PATTERN, slot: p });
+    }
+    this._patternHighWater = nPats;
 
     const chans = doc.is64Channel ? 64 : 32;
     for (let c = 0; c < song.cues.length; c++) {
@@ -301,9 +314,16 @@ export class AudioSystem {
   setVoiceMute(ph, voice, muted) { this._post({ t: CMD.SET_VOICE_MUTE, ph, voice, muted }); }
   setVoiceFader(ph, voice, fader) { this._post({ t: CMD.SET_VOICE_FADER, ph, voice, fader }); }
   uploadPattern(slot, bytes) {
+    if (slot + 1 > this._patternHighWater) this._patternHighWater = slot + 1;
     const buf = bytes.slice().buffer;
     this._post({ t: CMD.UPLOAD_PATTERN, slot, bytes: buf }, [buf]);
   }
+  /** Highest pattern slot+1 the engine's persistent pattern store has ever been
+   *  given — same trouble as cueHighWater, and the same reason to track it. */
+  get patternHighWater() { return this._patternHighWater; }
+  /** Blank pattern slot back to unallocated (item 174) — used on the stale tail
+   *  a shorter song leaves behind in the engine's persistent pattern store. */
+  clearPattern(slot) { this._post({ t: CMD.CLEAR_PATTERN, slot }); }
   /** Highest cue index+1 the engine's persistent cueSheet has ever been given.
    *  A resync after the cue list SHRANK (a row delete, item 136.2) has to run
    *  out to here to blank what it left behind. */

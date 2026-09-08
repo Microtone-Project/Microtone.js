@@ -642,7 +642,13 @@ export class MasterStrip {
     this._kindsSig = sig;
     for (let p = 0; p < this.drawn; p++) {
       const sel = this.scopeSel[p];
-      if (rebuild) {
+      // `rebuild` alone once left a freshly-added panel's <select> with no
+      // <option>s at all: it only fires when the KINDS signature changes, but
+      // a panel's own chooser is built once, in the constructor, with none —
+      // "+"-ing a new panel into an unchanged model skipped it forever (item
+      // 175). A panel with nothing in it yet always needs the fill, whatever
+      // the signature did.
+      if (rebuild || sel.options.length === 0) {
         sel.innerHTML = "";
         for (const k of [...kinds, SCOPE_HIDE]) {
           const o = document.createElement("option");

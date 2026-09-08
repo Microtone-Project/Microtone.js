@@ -281,6 +281,13 @@ function painted(cv) {
   masterStrip.addScope();
   await sleep(120);
   check(masterStrip.panelCount() === 2, "+ adds a panel back", String(masterStrip.panelCount()));
+  // Regression (item 175): the new panel's own chooser is built empty in the
+  // constructor and only ever filled by syncChoosers's model-signature-driven
+  // rebuild — which a "+" into an UNCHANGED model never trips, so the fresh
+  // panel's <select> stayed empty and nothing could be picked from it.
+  check(masterStrip.scopeSel[1].options.length > 0,
+    "the newly added panel's scope dropdown is populated",
+    String(masterStrip.scopeSel[1].options.length));
 
   // "+" follows the MODEL as well as the room — the ceiling is one panel per
   // view the song has, not a fixed number. (Regression: changing the model

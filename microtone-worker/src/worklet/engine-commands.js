@@ -54,6 +54,7 @@ export function applyAudioCommand(eng, m) {
       }
       return true;
     }
+    case CMD.CLEAR_PATTERN: eng.clearPattern(m.slot); return true;
     case CMD.UPLOAD_CUE: eng.uploadCue(m.idx, new Uint8Array(m.bytes)); return true;
     case CMD.SET_64CH: eng.set64ChannelMode(m.on); return true;
     case CMD.SET_CELL_FORMAT: eng.setCellFormat(m.wide); return true;

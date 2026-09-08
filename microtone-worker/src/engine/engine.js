@@ -160,6 +160,15 @@ export class TaudEngine {
     this.instruments[slot & 0x3ff].extraPatches = null;
   }
 
+  /** Deallocate pattern slot back to unallocated (patternRead then falls back
+   *  to emptyPattern, same as a slot that was never written) — used to blank
+   *  the persistent pattern store's stale tail when a shorter song loads over
+   *  a longer one (item 174), the same trouble uploadDocument's cue high-water
+   *  blanking already covers for the cue sheet. */
+  clearPattern(slot) {
+    this.playdata[slot & 0x7fff] = null;
+  }
+
   /** Upload 512 bytes (64 rows × 8) defining pattern slot. */
   uploadPattern(slot, bytes) {
     const pat = this.patternFor(slot & 0x7fff);
@@ -616,9 +625,12 @@ export class TaudEngine {
    * accumulated. Plain numbers — the reply crosses a postMessage. The MOD_INVERT
    * bit-mask travels with it as `modMask`.
    *
-   * Field names are the instrument's own, so the reply can be handed straight
-   * to resolveModGeom / modTouches: the view draws the modification through the
-   * engine's geometry rather than a re-implementation of it.
+   * Field names are the instrument's own, so the reply can be handed straight to
+   * resolveModGeom / modTouches / extModTouches / modAddressExt / applyExtLevel:
+   * the view draws the modification through the engine's own geometry and
+   * argument-extension machinery (item 162) rather than a re-implementation of
+   * it. The `modOpExt`-and-after fields are only ever live while `modOpExt` is
+   * non-zero (see inst.js setModOpExt/clearModState) — harmless to always send.
    */
   getInstrumentSampleMod(slot) {
     const inst = this.instruments[slot & 0x3ff];
@@ -628,6 +640,11 @@ export class TaudEngine {
       modCombBits: inst.modCombBits, modCombOdd: inst.modCombOdd,
       modRot: inst.modRot, modSub: inst.modSub, modOn: inst.modOn,
       modScatter: inst.modScatter, modSeed: inst.modSeed, modEpoch: inst.modEpoch,
+      modOpExt: inst.modOpExt, modF: inst.modF, modStepIndex: inst.modStepIndex,
+      modXor: inst.modXor, modBitRot: inst.modBitRot,
+      modBitPermIdx: inst.modBitPermIdx, modBitPermOn: inst.modBitPermOn,
+      modExtSwapA: inst.modExtSwapA, modExtSwapB: inst.modExtSwapB,
+      modExtMirror: inst.modExtMirror,
     };
   }
 

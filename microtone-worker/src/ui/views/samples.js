@@ -16,6 +16,7 @@ import { TOTAL_VOICES } from "../../engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import {
   ModGeom, resolveModGeom, modTouches, modAddress,
+  extModTouches, modAddressExt, applyExtLevel,
 } from "../../engine/samplemod.js";
 import { encodeU8Wav } from "../../audio/wavwrite.js";
 import { download } from "../../storage/import-export.js";
@@ -879,7 +880,14 @@ export class SamplesView {
     const modGeom = new ModGeom();
     if (mod) resolveModGeom(modGeom, mod, s.loopStart, s.loopEnd, s.len);
     const modLive = mod !== null && modGeom.live;
-    const touches = (p) => modTouches(modGeom, mod.modInvert, p);
+    // Argument extension (item 162, `2`/`3 $sexy : $fuuk`): the wider $xuu
+    // table plus $f's sub-range narrowing replace the classic $x/$se-only test
+    // and address transform whenever an instrument's modOpExt is non-zero (the
+    // two are mutually exclusive — inst.js setModOp/setModOpExt).
+    const extended = mod !== null && mod.modOpExt !== 0;
+    const touches = extended
+      ? (p) => extModTouches(modGeom, mod.modInvert, mod.modF, mod.modStepIndex, p)
+      : (p) => modTouches(modGeom, mod.modInvert, p);
     // A mask sized for a shorter sample than the one on screen (the engine
     // grows it lazily) stops where the bits do.
     const invertEnd = invertMask
@@ -888,8 +896,14 @@ export class SamplesView {
       let src = p;
       const hit = modLive && touches(p);
       // The scatter throws every byte its own way, so the picture has to be
-      // drawn through the engine's own mapping rather than one offset.
-      if (hit) src = modAddress(modGeom, p, mod.modRot, mod.modScatter, mod.modSeed);
+      // drawn through the engine's own mapping rather than one offset. The
+      // extended table adds its own address transforms (mirror, byte-pair
+      // swap) that the classic modAddress knows nothing about.
+      if (hit) {
+        src = extended
+          ? modAddressExt(modGeom, p, mod)
+          : modAddress(modGeom, p, mod.modRot, mod.modScatter, mod.modSeed);
+      }
       let v = bin[base + src];
       let flipped = src !== p;
       // The legacy mask is tested against the byte actually READ, exactly as
@@ -901,6 +915,12 @@ export class SamplesView {
       if (hit) {
         if (modMask && modMask.length) {
           if ((modMask[src >>> 3] >>> (src & 7)) & 1) { v ^= 0xff; flipped = true; }
+        } else if (extended) {
+          // xor / sub-add / bit-rotate / bit-permute (item 162's level-only
+          // transforms) — only ever one live at a time, same as the classic
+          // form's own modSub, so applying all four unconditionally is safe.
+          const lv = applyExtLevel(mod, v);
+          if (lv !== v) { v = lv; flipped = true; }
         } else if (mod.modSub) { v = (v - mod.modSub) & 0xff; flipped = true; }
       }
       return { v, flipped };

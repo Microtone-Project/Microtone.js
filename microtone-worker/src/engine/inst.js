@@ -580,7 +580,22 @@ export class TaudInst {
     this.modExtSwapA = -1;         // 160: swapped byte-pair addresses (no crossfade)
     this.modExtSwapB = -1;
     this.modExtMirror = false;     // 104: reverse, toggled each step (no crossfade)
-    this.modFunkWalk = 0;          // 102/12x: this instrument's own funk-repeat walk position
+    // 102/12x: this instrument's own funk-repeat walk — an ABSOLUTE SAMPLE
+    // BYTE POSITION (like Z $Ffxx's voice.funkWalk/funkPos, -1 = never
+    // walked), NOT bounded to the resolved region: the formal Funk Repeat
+    // spec moves the loop itself through the whole physical sample, replen
+    // (the region's own length) at a time. modFunkWalk is the deterministic
+    // grid position; modFunkPos is this step's pointer WITH $12x's jitter
+    // added — latched into a sounding voice's own modFunkWindow only when
+    // that voice's loop actually wraps (sampler.js advanceSamplePos), same
+    // as Z's funkPos -> funkWindow latch.
+    this.modFunkWalk = -1;
+    this.modFunkPos = -1;
+    this.modFunkLen = 0;          // this step's window width (= dl, the resolved
+                                   // region's own length) — stashed here because
+                                   // sampler.js's advanceSamplePos runs on the
+                                   // per-sample clock and must not re-resolve
+                                   // modGeom itself to find it
   }
 
   get sampleLoopSustain() { return (this.loopMode & 0x04) !== 0; }
@@ -820,7 +835,9 @@ export class TaudInst {
     this.modExtSwapA = -1;
     this.modExtSwapB = -1;
     this.modExtMirror = false;
-    this.modFunkWalk = 0;
+    this.modFunkWalk = -1;
+    this.modFunkPos = -1;
+    this.modFunkLen = 0;
   }
 
   /** Remember what the next step is replacing, for the crossfade that covers

@@ -528,6 +528,8 @@ export class Playhead {
       it.funkPos = -1;
       it.funkWindow = -1;
       it.funkXfade = 0;
+      it.modFunkWindow = -1;
+      it.modFunkXfade = 0;
       it.modPeriod = 0;
       it.modTickCount = 0;
       it.modWritePos = 0;
@@ -536,6 +538,7 @@ export class Playhead {
       it.nnaOverride = -1;
       it.volEnvOn = true; it.panEnvOn = true; it.pitchEnvOn = true; it.filterEnvOn = true;
       it.metaForeground = false;
+      it.metaForegroundDetune = 0;
       it.noteFading = false;
       it.layerMixGain = 1.0; it.isLayerChild = false; it.layerRelDetune = 0;
       it.layerFixedNote = -1;
@@ -601,6 +604,8 @@ export class Playhead {
         it.funkPos = -1;
         it.funkWindow = -1;
         it.funkXfade = 0;
+        it.modFunkWindow = -1;
+        it.modFunkXfade = 0;
         it.modPeriod = 0;
         it.modTickCount = 0;
         it.modWritePos = 0;
