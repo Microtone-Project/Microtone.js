@@ -21,6 +21,7 @@ The extended `2 $sexy : $fuuk` / `3 $sexy : $fuuk` command's funk-repeat operati
 
 - Fixed: funk repeat stayed pinned inside the region it was pointed at instead of hopping the region itself through the rest of the sample, so on a short loop it read as a stuck jitter rather than a repeat. It now hops a whole region-length at a time, the same way `Z`'s own funk repeat does, reaching as far into the sample as there is room to move.
 - An instrument whose loop already spans the entire sample correctly stays silent under funk repeat — there is nowhere left to hop to, the same rule `Z`'s funk repeat has always followed.
+- The Samples tab's funk-repeat status line and waveform band now show this command's own walk, not just `Z`'s — a moving band and a "loop at … — step … of …" readout wherever it is walking, exactly as `Z $Fxxx` has always gotten.
 
 The extended `2 $sexy : $fuuk` / `3 $sexy : $fuuk` command's invert operations (`$xuu` 101 and 11x) are now actually audible.
 

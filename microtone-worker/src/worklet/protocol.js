@@ -117,7 +117,15 @@ export const SNAP_V_FUNK_LEN = 20;
 // the low two bits, so a half- or eighth-block walk is stepped through at the
 // spacing it really uses instead of the loop length.
 export const SNAP_V_FUNK_MODE = 21;
-export const SNAP_VOICE_STRIDE = 22;
+// Extended `2`/`3 $sexy : $fuuk`'s own funk repeat (`$xuu` 102/12x, item 173
+// follow-up): a SEPARATE window from Z's above — the two "do not share state"
+// (TAUD_NOTE_EFFECTS.md) and can be live on one voice at once. Only the
+// voice's own latched restart point needs a snapshot slot; the walk's
+// pending target and window WIDTH are the instrument's (inst.modFunkPos/
+// modFunkLen), already carried by the invert-mask query reply
+// (engine.js getInstrumentSampleMod) the Samples view already polls.
+export const SNAP_V_MOD_FUNK_WINDOW = 22;
+export const SNAP_VOICE_STRIDE = 23;
 
 // Every PHYSICAL voice, so the jam bank (item 140) is visible to the views that
 // follow a sounding audition — the Instruments/Samples editors scan the block

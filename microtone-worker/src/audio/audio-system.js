@@ -17,6 +17,7 @@ import {
   SNAP_V_ENV_PITCH_IDX, SNAP_V_ENV_PITCH_TIME, SNAP_V_ENV_FILTER_IDX, SNAP_V_ENV_FILTER_TIME,
   SNAP_VOICE_STRIDE, SNAP_FLOATS, SNAP_SAB_BYTES, SNAP_GLOBAL_VOLUME,
   SNAP_V_FUNK_WINDOW, SNAP_V_FUNK_POS, SNAP_V_FUNK_LEN, SNAP_V_FUNK_MODE,
+  SNAP_V_MOD_FUNK_WINDOW,
   SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD,
   SNAP_AN_CORR_LL, SNAP_AN_CORR_RR, SNAP_AN_CORR_LR, SNAP_AN_RING_WRITE,
   SNAP_METER_BASE, SNAP_METER_STRIDE,
@@ -405,6 +406,12 @@ export class AudioSystem {
   /** Which walk is hopping the window (item 163's `$f` nibble): the low two
    *  bits are the hop size (loop length >> them), the high two the family. */
   getVoiceFunkMode(vi) { return this._v(vi, SNAP_V_FUNK_MODE); }
+  /** Extended `2`/`3 $sexy : $fuuk`'s own funk repeat (`$xuu` 102/12x, item 173
+   *  follow-up) — a SEPARATE window from Z's above. The walk's pending target
+   *  and window width live on the instrument instead (getSampleMod's
+   *  modFunkPos/modFunkLen), since that state is shared by every voice
+   *  sounding the instrument rather than per-voice like Z's own. */
+  getVoiceModFunkWindow(vi) { return this._v(vi, SNAP_V_MOD_FUNK_WINDOW); }
   getVoiceEnvVolIndex(vi) { return this._v(vi, SNAP_V_ENV_VOL_IDX); }
   getVoiceEnvVolTime(vi) { return this._v(vi, SNAP_V_ENV_VOL_TIME); }
   getVoiceEnvPanIndex(vi) { return this._v(vi, SNAP_V_ENV_PAN_IDX); }

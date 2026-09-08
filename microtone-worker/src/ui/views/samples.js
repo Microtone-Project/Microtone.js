@@ -16,7 +16,7 @@ import { TOTAL_VOICES } from "../../engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import {
   ModGeom, resolveModGeom, modTouches, modAddress,
-  extModTouches, modAddressExt, applyExtLevel,
+  extModTouches, modAddressExt, applyExtLevel, isExtFunkOp,
 } from "../../engine/samplemod.js";
 import { encodeU8Wav } from "../../audio/wavwrite.js";
 import { download } from "../../storage/import-export.js";
@@ -696,27 +696,30 @@ export class SamplesView {
    */
   updateFunkReadout() {
     const s = this.selRegion < 0 ? this.list[this.selected] : null;
-    const fws = s ? collectFunkWindows(this.store.audio, s) : [];
+    const fws = s
+      ? [...collectFunkWindows(this.store.audio, s), ...collectExtFunkWindows(this.store.audio, s)]
+      : [];
     if (!fws.length) {
       if (this.funkInfo.textContent !== "") this.funkInfo.textContent = "";
       return;
     }
     const fw = fws[0];
-    const home = (s.loopMode & 3) !== 0 ? s.loopStart : 0;
     // The walk's grid is the HOP's, not the window's (item 163): a half- or
     // eighth-block walk visits four or eight times as many positions over the
     // same sample, and counting them in loop lengths would say "step 3 of 7"
-    // while the band was plainly somewhere else.
+    // while the band was plainly somewhere else. `fw.home` is the walk's own
+    // domain start — Z's declared loop, or (extended funk) the resolved
+    // region, which is not always the same thing.
     const hop = funkHopSize(fw);
-    const blocks = Math.max(1, Math.floor((s.len - fw.len - home) / hop) + 1);
-    const at = Math.min(Math.max(Math.round((fw.window - home) / hop), 0), blocks - 1) + 1;
+    const blocks = Math.max(1, Math.floor((s.len - fw.len - fw.home) / hop) + 1);
+    const at = Math.min(Math.max(Math.round((fw.window - fw.home) / hop), 0), blocks - 1) + 1;
     // The pending hop is only worth a clause while it differs from the window:
     // right after a restart latches it the two are equal, and printing the same
     // number twice reads as a bug rather than as "it has just landed".
     const next = fw.pending >= 0 && fw.pending !== fw.window
       ? t("smp.funkReadoutNext", { next: fw.pending }) : "";
     this.funkInfo.textContent =
-      t("smp.funkReadout", { f: funkSpelling(fw), at: fw.window, k: at, n: blocks }) + next;
+      t("smp.funkReadout", { f: funkLabel(fw), at: fw.window, k: at, n: blocks }) + next;
   }
 
   updateInfo() {
@@ -809,14 +812,21 @@ export class SamplesView {
       ctx.fillRect((s.loopStart / s.len) * w, 0, ((s.loopEnd - s.loopStart) / s.len) * w, h);
     }
 
-    // Funk repeat (Z $F0xx, item 161) — where the loop has been walked TO.
-    // The shading above is the loop the sample declares; this is the window the
+    // Funk repeat (Z $F0xx, item 161; and extended notefx 2/3's own `$xuu`
+    // 102/12x, item 173 follow-up) — where the loop has been walked TO. The
+    // shading above is the loop the sample declares; this is the window the
     // voice is actually sounding, which the walk hops through the sample a whole
     // loop length at a time. Two marks per sounding voice: a filled band for the
     // window under the playhead, and an outline one block on for where the next
     // loop restart will jump. Identical windows are drawn once, so two voices
-    // sitting on the same block do not stack into a brighter band.
-    const funkWindows = collectFunkWindows(this.store.audio, s);
+    // sitting on the same block do not stack into a brighter band. The two
+    // commands "do not share state" (TAUD_NOTE_EFFECTS.md) and can both be
+    // live on one voice at once, so both lists are drawn — the caption on
+    // each band says which command owns it.
+    const funkWindows = [
+      ...collectFunkWindows(this.store.audio, s),
+      ...collectExtFunkWindows(this.store.audio, s),
+    ];
     if (funkWindows.length) {
       const xOf = (byte) => (byte / s.len) * w;
       for (const fw of funkWindows) {
@@ -848,7 +858,7 @@ export class SamplesView {
           ctx.fillStyle = C.waveFunk;
           ctx.globalAlpha = 0.9;
           ctx.font = "10px sans-serif";
-          ctx.fillText(`Z ${funkSpelling(fw)}xx`, xOf(fw.window) + 4, h - 4);
+          ctx.fillText(funkLabel(fw), xOf(fw.window) + 4, h - 4);
           ctx.globalAlpha = 1;
         }
       }
@@ -1049,6 +1059,20 @@ function funkSpelling(fw) {
   return `$F${(fw.mode & 0xf).toString(16).toUpperCase()}`;
 }
 
+/** Extended funk repeat's own spelling — the exact `$xuu` code (`$102`,
+ *  `$123`, …), unlike Z's template above: there is no separate speed byte to
+ *  fold away, `modOpExt` already names this one instance exactly. */
+function extFunkSpelling(fw) {
+  return `$${fw.opExt.toString(16).toUpperCase().padStart(3, "0")}`;
+}
+
+/** The caption for either kind of funk window, from `collectFunkWindows`
+ *  (`Z $Fxxx`, a template — `fw.mode` present, `fw.opExt` is not) or
+ *  `collectExtFunkWindows` (`fw.opExt`, the exact extended code). */
+function funkLabel(fw) {
+  return fw.opExt !== undefined ? extFunkSpelling(fw) : `Z ${funkSpelling(fw)}xx`;
+}
+
 /**
  * The distinct funk-repeat windows live on `s` right now, newest state per
  * frame: `{ window, pending, len }` in bytes plus the walk's `mode` (item
@@ -1062,6 +1086,7 @@ function funkSpelling(fw) {
 function collectFunkWindows(audio, s) {
   const out = [];
   if (!audio || !s) return out;
+  const home = (s.loopMode & 3) !== 0 ? s.loopStart : 0;
   for (let vi = 0; vi < TOTAL_VOICES; vi++) {
     if (!audio.getVoiceActive(vi)) continue;
     if (audio.getVoiceSamplePtr(vi) !== s.ptr) continue;
@@ -1072,7 +1097,44 @@ function collectFunkWindows(audio, s) {
     const mode = audio.getVoiceFunkMode(vi) | 0;
     if (out.some((o) => o.window === window && o.len === len
       && o.pending === pending && o.mode === mode)) continue;
-    out.push({ window, pending, len, mode });
+    out.push({ window, pending, len, mode, home });
+  }
+  return out;
+}
+
+/**
+ * Extended `2`/`3 $sexy : $fuuk`'s own funk repeat (`$xuu` 102/12x, item 173
+ * follow-up) — the SAME idea as `collectFunkWindows` above, but this walk is
+ * the INSTRUMENT's (shared by every voice sounding it), not the voice's own,
+ * and its window is a SEPARATE latch from Z's (the two "do not share state"
+ * and may be live on one voice at once). The window's pending target and
+ * width therefore come from the instrument's queried mod state
+ * (`audio.getSampleMod`, the same reply the invert/rotate overlay below
+ * already polls via `s.users`) rather than a voice snapshot field; only the
+ * voice's own latched restart point (`getVoiceModFunkWindow`) is per-voice.
+ * `home` is the resolved region's own start — the "loop" this walk's hop is
+ * measured from — which is not always the sample's declared loop the way
+ * Z's is (`$se`/`$f` can narrow further, or there may be no loop at all).
+ */
+function collectExtFunkWindows(audio, s) {
+  const out = [];
+  if (!audio || !s) return out;
+  const modGeom = new ModGeom();
+  for (let vi = 0; vi < TOTAL_VOICES; vi++) {
+    if (!audio.getVoiceActive(vi)) continue;
+    if (audio.getVoiceSamplePtr(vi) !== s.ptr) continue;
+    const instSlot = audio.getVoiceInstrument(vi);
+    const mod = audio.getSampleMod(instSlot);
+    if (!mod || !isExtFunkOp(mod.modOpExt)) continue;
+    const len = mod.modFunkLen;
+    const window = audio.getVoiceModFunkWindow(vi);
+    if (!(len > 0) || window < 0 || window + len > s.len) continue;
+    const pending = mod.modFunkPos;
+    resolveModGeom(modGeom, mod, s.loopStart, s.loopEnd, s.len);
+    const home = modGeom.live ? modGeom.ds : 0;
+    if (out.some((o) => o.window === window && o.len === len
+      && o.pending === pending && o.opExt === mod.modOpExt)) continue;
+    out.push({ window, pending, len, mode: 3, opExt: mod.modOpExt, home });
   }
   return out;
 }

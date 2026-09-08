@@ -645,6 +645,10 @@ export class TaudEngine {
       modBitPermIdx: inst.modBitPermIdx, modBitPermOn: inst.modBitPermOn,
       modExtSwapA: inst.modExtSwapA, modExtSwapB: inst.modExtSwapB,
       modExtMirror: inst.modExtMirror,
+      // 102/12x: the instrument's own funk-repeat walk (item 173 follow-up),
+      // for the Samples view's overlay — same idea as SNAP_V_FUNK_POS/LEN
+      // above, but this state is the INSTRUMENT's, not a voice's.
+      modFunkWalk: inst.modFunkWalk, modFunkPos: inst.modFunkPos, modFunkLen: inst.modFunkLen,
     };
   }
 

@@ -16,6 +16,7 @@ import {
   SNAP_V_AZIMUTH, SNAP_V_ELEVATION,
   SNAP_VOICE_STRIDE, SNAP_MAX_VOICES, SNAP_GLOBAL_VOLUME,
   SNAP_V_FUNK_WINDOW, SNAP_V_FUNK_POS, SNAP_V_FUNK_LEN, SNAP_V_FUNK_MODE,
+  SNAP_V_MOD_FUNK_WINDOW,
   SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD,
   SNAP_AN_CORR_LL, SNAP_AN_CORR_RR, SNAP_AN_CORR_LR, SNAP_AN_RING_WRITE,
   SNAP_METER_BASE, SNAP_METER_STRIDE,
@@ -161,6 +162,7 @@ export function fillSnapshotInto(eng, playhead, f) {
       f[o + SNAP_V_FUNK_POS] = v.funkPos;
       f[o + SNAP_V_FUNK_LEN] = v.activeSampleLoopEnd - v.activeSampleLoopStart;
       f[o + SNAP_V_FUNK_MODE] = v.funkMode;
+      f[o + SNAP_V_MOD_FUNK_WINDOW] = v.modFunkWindow;
     } else {
       for (let k = 1; k < SNAP_VOICE_STRIDE; k++) f[o + k] = 0;
       f[o + SNAP_V_EFF_PAN] = 128;
@@ -173,6 +175,7 @@ export function fillSnapshotInto(eng, playhead, f) {
       f[o + SNAP_V_ENV_FILTER_IDX] = -1;
       f[o + SNAP_V_FUNK_WINDOW] = -1;
       f[o + SNAP_V_FUNK_POS] = -1;
+      f[o + SNAP_V_MOD_FUNK_WINDOW] = -1;
     }
   }
   fillAnalysisInto(ts, f);
