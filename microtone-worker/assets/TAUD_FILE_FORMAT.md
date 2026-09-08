@@ -197,7 +197,7 @@ A song's pattern bin decompresses to `numPatterns × 64 × cellSize` bytes: one 
 | 2 | `U8` | Instrument, 0…255; 0 = no instrument change |
 | 3 | `U8` | Volume column: bits 0…5 value, bits 6…7 selector |
 | 4 | `U8` | Panning column: bits 0…5 value, bits 6…7 selector |
-| 5 | `U8` | Effect opcode — a base-36 digit value (`0`…`9` = `$00`…`$09`, `A`…`Z` = `$0A`…`$23`), OR, in `$A0`…`$FE`, an ASCII-symbol opcode (item 162): the byte minus `$80` is the effect's own character, e.g. `:` (`$3A`) is `$BA` |
+| 5 | `U8` | Effect opcode — a base-36 digit value (`0`…`9` = `$00`…`$09`, `A`…`Z` = `$0A`…`$23`), OR, in `$A0`…`$FE`, an ASCII-symbol opcode: the byte minus `$80` is the effect's own character, e.g. `:` (`$3A`) is `$BA` |
 | 6 | `U16` | Effect argument |
 
 Rendered by a tracker's display, one row reads:

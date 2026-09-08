@@ -173,7 +173,7 @@ Every other memory-carrying effect (D, I, J, K, L, N, O, P, Q, and others) has a
 
 Opcodes are single base-36 digits (0-9, then A-Z); arguments are 16-bit hexadecimal values prefixed with `$`. A cell is notated `OPCODE $HHLL` where HH is the high byte and LL is the low byte. Where an effect partitions its argument into sub-fields (for instance, H's speed and depth), the split is spelled out in the command description.
 
-The base-36 space (`$00`…`$23`) is fully assigned. An effect introduced after it filled lives in a second, ASCII-symbol space instead: on-disk opcode bytes `$A0`…`$FE` decode as `opcode − $80`, the effect's own ASCII character — `:` (item 162) is `$3A`, so its on-disk opcode is `$BA`. An editor renders such an opcode as that character, exactly as it renders a base-36 opcode as its digit or letter; nothing else about the format changes.
+The base-36 space (`$00`…`$23`) is fully assigned. An effect introduced after it filled lives in a second, ASCII-symbol space instead: on-disk opcode bytes `$A0`…`$FE` decode as `opcode − $80`, the effect's own ASCII character — `:` is `$3A`, so its on-disk opcode is `$BA`. An editor renders such an opcode as that character, exactly as it renders a base-36 opcode as its digit or letter; nothing else about the format changes.
 
 # The effects
 
@@ -481,7 +481,7 @@ on every tick:
 The `tick_within_row mod 3` counter resets every row start (so every row begins at `base_pitch`). A subsequent E/F slide after a J row resumes from the last arpeggiated voice's pitch, not from `base_pitch` — this mirrors ST3's `kST3PortaAfterArpeggio` quirk and is deliberately preserved.
 
 
-**Extended (paired with `:`, item 162).** `J $xxxx : $yyyy` replaces the two <<8-scaled BYTE offsets above with two full 16-bit 4096-TET offsets: `off1` is J's own argument verbatim, `off2` the paired `:`'s argument verbatim, order-independent as every pairing is. Where the base form reaches 256 discrete intervals at $0100 ($0100 ≈ 0.75 semitone) per step, the extended form reaches the full 65536-step resolution E and F already have — arpeggios can be as microtonal as any other pitch effect. Memory is private and separate from the base form's (the two are different units, so a row using one form **MUST NOT** recall the other's last value): `off1` recalls when J's own argument is `$0000`, `off2` when the paired `:`'s argument is `$0000`, independently.
+**Extended (paired with `:`).** `J $xxxx : $yyyy` replaces the two <<8-scaled BYTE offsets above with two full 16-bit 4096-TET offsets: `off1` is J's own argument verbatim, `off2` the paired `:`'s argument verbatim, order-independent as every pairing is. Where the base form reaches 256 discrete intervals at $0100 ($0100 ≈ 0.75 semitone) per step, the extended form reaches the full 65536-step resolution E and F already have — arpeggios can be as microtonal as any other pitch effect. Memory is private and separate from the base form's (the two are different units, so a row using one form **MUST NOT** recall the other's last value): `off1` recalls when J's own argument is `$0000`, `off2` when the paired `:`'s argument is `$0000`, independently.
 
 ## K $xy00 — Dual: vibrato continuation and volume slide $xy
 
@@ -640,7 +640,7 @@ The mixer reads `channel_pan` (8-bit) through the same path as `S $80xx`, and s
 **Implementation.** On the row start, set the sample playhead to `arg` (in bytes, relative to the sample's start). Apply the loop-wrap calculation if the sample has loop points and `arg > loop_end`: `arg = loop_start + ((arg - loop_start) mod loop_length)`. The O command does not retrigger the sample; it only relocates the playhead for an already-triggered note.
 
 
-**Extended (paired with `:`, item 162).** `O $abcd : $efgh` combines both arguments into a 32-bit offset, `$abcdefgh` — O's own argument is the HIGH word, the paired `:`'s the LOW word — reaching samples past the 64 KB the base form's 16 bits address. Loop-wrap and the rest of the base form's behaviour are unchanged, just against the wider value. An implementation **MUST** combine the two arithmetically (`high × 65536 + low`, or the 64-bit-widened equivalent) rather than with a 32-bit shift-and-OR: shifting a 16-bit value 16 bits left overflows a 32-bit SIGNED integer the moment its top bit is set, in Kotlin's `Int` as much as in a JS bitwise op. Memory is private and separate from the base form's 16-bit one (same reasoning as J's), recalling the last 32-bit value when the combined argument is `$00000000`.
+**Extended (paired with `:`).** `O $abcd : $efgh` combines both arguments into a 32-bit offset, `$abcdefgh` — O's own argument is the HIGH word, the paired `:`'s the LOW word — reaching samples past the 64 KB the base form's 16 bits address. Loop-wrap and the rest of the base form's behaviour are unchanged, just against the wider value. An implementation **MUST** combine the two arithmetically (`high × 65536 + low`, or the 64-bit-widened equivalent) rather than with a 32-bit shift-and-OR: shifting a 16-bit value 16 bits left overflows a 32-bit SIGNED integer the moment its top bit is set, in Kotlin's `Int` as much as in a JS bitwise op. Memory is private and separate from the base form's 16-bit one (same reasoning as J's), recalling the last 32-bit value when the combined argument is `$00000000`.
 
 ## Q $xy00 — Retrigger note every $y ticks with volume modifier $x
 
@@ -915,7 +915,7 @@ Because the ladder is written in **bristles** rather than in bytes, it means the
 It may look strange compared with conventional effects such as chorus or phaser, but sample-domain manipulation is very much in the tradition of tracker and programmable-sound synthesis: the waveform itself becomes part of the instrument's performance. Between them the operations perform the three things a sample has — its **content** (Invert Loop flips the bytes), its **level** (Subtraction slides them) and its **order** (the rotations step it, Jump throws it whole, Scatter shuffles it apart) — with nothing written to the pool and nothing to undo when the song stops.
 
 
-**Extended (paired with `:`, item 162).** `2 $sexy : $fuuk` and `3 $sexy : $fuuk` — `$se` is unchanged (the region, exactly as above); `$x` and `$y` no longer stand alone, each widened by nibbles borrowed from the paired `:`'s own argument `$fuuk`:
+**Extended (paired with `:`).** `2 $sexy : $fuuk` and `3 $sexy : $fuuk` — `$se` is unchanged (the region, exactly as above); `$x` and `$y` no longer stand alone, each widened by nibbles borrowed from the paired `:`'s own argument `$fuuk`:
 
 | Field | Width | Made of | Meaning |
 |---|---|---|---|
