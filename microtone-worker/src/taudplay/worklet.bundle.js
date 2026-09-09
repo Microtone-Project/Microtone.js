@@ -1,5 +1,6 @@
-// GENERATED FILE — do not edit. Rebuild with: node tools/make-worklet-bundle.js
-// Single-file concat of src/engine/* + src/worklet/* for non-module AudioWorklets.
+// GENERATED FILE — do not edit. Rebuild with: node tools/make-taudplay.js
+// Single-file concat of the Taud engine + taudplay's worklet, for browsers
+// whose AudioWorklet cannot import ES modules.
 "use strict";
 
 // ══ src/engine/constants.js ══
@@ -12454,254 +12455,6 @@ class TaudEngine {
   }
 }
 
-// ══ src/worklet/protocol.js ══
-// Message protocol shared by the AudioWorklet processor and the main thread.
-// The master-strip block's geometry comes from the analysis tap itself, so the
-// wire layout cannot drift from what fills it.
-//
-// Commands (main → worklet) are plain {t, ...} messages, deliberately
-// isomorphic to the TSVM `audio.*` calls taut.js makes; bulk payloads ride as
-// transferred ArrayBuffers. Snapshots (worklet → main) are recycled
-// Float32Array buffers with the fixed layout below.
-
-
-
-
-const CMD = Object.freeze({
-  INIT: "init",
-  UPLOAD_SAMPLE_INST_BLOB: "uploadSampleInstBlob", // {image: ArrayBuffer} (decompressed)
-  UPLOAD_INSTRUMENT: "uploadInstrument",           // {slot, bytes: ArrayBuffer}
-  UPLOAD_INSTRUMENT_PATCHES: "uploadInstrumentPatches", // {slot, bytes: ArrayBuffer}
-  CLEAR_INSTRUMENT_PATCHES: "clearInstrumentPatches",   // {slot}
-  UPLOAD_PATTERN: "uploadPattern",                 // {slot, bytes: ArrayBuffer}
-  UPLOAD_PATTERNS: "uploadPatterns",               // {slots: int[], blob: ArrayBuffer} (bulk, 512 B each)
-  CLEAR_PATTERN: "clearPattern",                   // {slot} — blank a stale pattern slot (item 174)
-  UPLOAD_CUE: "uploadCue",                         // {idx, bytes: ArrayBuffer}
-  SET_64CH: "set64ChannelMode",                    // {on}
-  SET_CELL_FORMAT: "setCellFormat",                // {wide} — format v3's 16-byte cell
-  SET_BPM: "setBPM",                               // {ph, bpm}
-  SET_TICK_RATE: "setTickRate",                    // {ph, rate}
-  SET_TUNING: "setTuning",                         // {ph, baseNote, freq} — song tuning (item 77)
-  SET_SONG_GLOBAL_VOLUME: "setSongGlobalVolume",   // {ph, volume}
-  SET_SONG_MIXING_VOLUME: "setSongMixingVolume",   // {ph, volume}
-  SET_MASTER_VOLUME: "setMasterVolume",            // {ph, volume}
-  SET_MASTER_PAN: "setMasterPan",                  // {ph, pan}
-  SET_TRACKER_MIXER_FLAGS: "setTrackerMixerFlags", // {ph, flags}
-  SET_SURROUND_MODEL: "setSurroundModel",          // {ph, model} — #998 song flag
-  SET_MONITOR_MODE: "setMonitorMode",              // {ph, mode} — #998.3 fold / binaural
-  SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
-  SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
-  SET_MASTER_METER: "setMasterMeter",              // {ph, on} — item 178 Mastering-view tap
-  PLAY: "play",                                    // {ph}
-  STOP: "stop",                                    // {ph}
-  SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
-  SET_TRACKER_ROW: "setTrackerRow",                // {ph, row}
-  RESET_PARAMS: "resetParams",                     // {ph}
-  RESET_SAMPLE_FX_STATE: "resetSampleFxState",     // {ph} — invert masks, funk windows, notefx 2/3
-  JAM_NOTE: "jamNote",                             // {ph, voice, note, inst}
-  JAM_SAMPLE: "jamSample",                         // {ph, voice, note, spec} — raw pooled-sample preview
-  JAM_STOP: "jamStop",                             // {ph} — every voice (panic)
-  JAM_STOP_VOICE: "jamStopVoice",                  // {ph, voice} — one audition voice; voice < 0 = the whole jam bank
-  SET_VOICE_MUTE: "setVoiceMute",                  // {ph, voice, muted}
-  SET_VOICE_FADER: "setVoiceFader",                // {ph, voice, fader}
-  QUERY_INVERT_MASK: "queryInvertMask",            // {slot} → MSG.INVERT_MASK
-  SNAPSHOT_RETURN: "snapshotReturn",               // {buffer: ArrayBuffer} (recycle)
-  USE_SAB: "useSab",                               // {sab: SharedArrayBuffer} — switch to shared-memory snapshots
-  USE_AUDIO_SAB: "useAudioSab",                    // {sab: SharedArrayBuffer} — Tier 2 audio ring (worklet consumes; worker produces)
-});
-
-const MSG = Object.freeze({
-  SNAPSHOT: "snapshot", // {buffer: ArrayBuffer} — Float32Array, layout below
-  // {slot, mask: ArrayBuffer, mod} — S $F0xx / notefx 2 invert-loop bit mask, plus
-  // the instrument's notefx 2/3 region geometry (engine getInstrumentSampleMod).
-  INVERT_MASK: "invertMask",
-  READY: "ready",
-  PROFILE: "profile",   // {cpuFrac, renderFrac, ...} — dev profiler, ~1/s (opt-in)
-});
-
-// ── Snapshot layout (Float32Array; integers are exact in f32 up to 2^24) ──
-const SNAP_CUE_POS = 0;
-const SNAP_ROW_INDEX = 1;
-const SNAP_TICK_IN_ROW = 2;
-const SNAP_BPM = 3;
-const SNAP_TICK_RATE = 4;
-const SNAP_FLAGS = 5;          // bit0 isPlaying, bit1 jamActive
-const SNAP_INTERRUPT_MASK = 6; // drained latch (edge-triggered)
-const SNAP_CHANNEL_COUNT = 7;
-// Song global volume (0..255). Effects V and W move it DURING playback, which
-// is what the master fader follows (item 98).
-const SNAP_GLOBAL_VOLUME = 8;
-// ── Master-strip analysis (item 98) ──
-// All of these are zero while the tap is off. The meter/correlation figures are
-// sums over SNAP_AN_FRAMES samples — one snapshot interval — and the UI owns
-// the ballistics.
-const SNAP_AN_METERS = 9;      // metered channel count (0 = tap off)
-const SNAP_AN_FRAMES = 10;     // samples integrated since the last snapshot
-const SNAP_AN_FIELD = 11;      // Σ (W²+X²+Y²+Z²)/2 — acoustic energy density
-const SNAP_AN_CORR_LL = 12;    // Σ L², Σ R², Σ L·R of the stereo (decode)
-const SNAP_AN_CORR_RR = 13;
-const SNAP_AN_CORR_LR = 14;
-const SNAP_AN_RING_WRITE = 15; // next frame index in the scope ring
-// ── Mastering meter (item 178) ──
-// Zero while the Mastering view's own tap is off. Gain reduction is the peak
-// over the interval, in dB and never positive; the histogram total is what the
-// normalised bins below are fractions of.
-const SNAP_MM_FRAMES = 16;     // samples integrated since the last snapshot (0 = tap off)
-const SNAP_MM_COMP_GR = 17;    // compressor gain reduction, dB (≤ 0)
-const SNAP_MM_LIM_GR = 18;     // limiter gain reduction, dB (≤ 0)
-const SNAP_MM_HIST_TOTAL = 19; // samples binned into the histogram so far
-const SNAP_MM_SPEC_WRITE = 20; // next frame index in the spectrum rings
-// Bit usage, computed by the engine over the FULL code census (65536 entries at
-// 16 bits) — an exact `used` and `span` cannot be recovered from the 256
-// buckets the wire carries, so the figures travel beside the picture.
-const SNAP_MM_HIST_DEPTH = 21;   // bits per sample the census was taken at
-const SNAP_MM_HIST_USED = 22;    // codes that occur at all
-const SNAP_MM_HIST_MIN = 23;     // lowest and highest code seen
-const SNAP_MM_HIST_MAX = 24;
-const SNAP_MM_HIST_ENTROPY = 25; // Shannon entropy of the distribution, bits
-const SNAP_HEADER_SIZE = 26;
-
-// Per-voice block, stride SNAP_VOICE_STRIDE, SNAP_MAX_VOICES blocks.
-const SNAP_V_ACTIVE = 0;
-const SNAP_V_EFF_VOL = 1;      // 0..1 (getVoiceEffectiveVolume)
-const SNAP_V_EFF_PAN = 2;      // 0..255 (getVoiceEffectivePan)
-const SNAP_V_NOTE = 3;      // per-tick sounding pitch (renderPitch; follows slides/arp/vibrato)
-const SNAP_V_INST = 4;
-const SNAP_V_SAMPLE_POS = 5;
-const SNAP_V_SAMPLE_PTR = 6;
-const SNAP_V_SAMPLE_LEN = 7;
-const SNAP_V_ENV_VOL_IDX = 8;
-const SNAP_V_ENV_VOL_TIME = 9;
-const SNAP_V_ENV_PAN_IDX = 10;
-const SNAP_V_ENV_PAN_TIME = 11;
-const SNAP_V_ENV_PITCH_IDX = 12;
-const SNAP_V_ENV_PITCH_TIME = 13;
-const SNAP_V_ENV_FILTER_IDX = 14;
-const SNAP_V_ENV_FILTER_TIME = 15;
-const SNAP_V_AZIMUTH = 16;     // #998: 512-unit angle (0 left, 128 front, CLOCKWISE)
-const SNAP_V_ELEVATION = 17;   // #998: signed, 128 units = 90° (always 0 in a stereo song)
-// Funk repeat (item 161), for the Samples view's window overlay: where the
-// voice's loop actually IS (-1 = the sample's own), where the walk will put it
-// at the next restart (-1 = it has not stepped), and how wide the window is —
-// the voice's ACTIVE loop length, which an Ixmp patch can change under it, so
-// the overlay cannot get the width from the document and be right (item 116).
-const SNAP_V_FUNK_WINDOW = 18;
-const SNAP_V_FUNK_POS = 19;
-const SNAP_V_FUNK_LEN = 20;
-// …and which walk is hopping it (item 163's `$f`): the overlay names the
-// command it is drawing, and the hop's SIZE is the loop length shifted right by
-// the low two bits, so a half- or eighth-block walk is stepped through at the
-// spacing it really uses instead of the loop length.
-const SNAP_V_FUNK_MODE = 21;
-// Extended `2`/`3 $sexy : $fuuk`'s own funk repeat (`$xuu` 102/12x, item 173
-// follow-up): a SEPARATE window from Z's above — the two "do not share state"
-// (TAUD_NOTE_EFFECTS.md) and can be live on one voice at once. Only the
-// voice's own latched restart point needs a snapshot slot; the walk's
-// pending target and window WIDTH are the instrument's (inst.modFunkPos/
-// modFunkLen), already carried by the invert-mask query reply
-// (engine.js getInstrumentSampleMod) the Samples view already polls.
-const SNAP_V_MOD_FUNK_WINDOW = 22;
-const SNAP_VOICE_STRIDE = 23;
-
-// Every PHYSICAL voice, so the jam bank (item 140) is visible to the views that
-// follow a sounding audition — the Instruments/Samples editors scan the block
-// looking for the voice their preview landed on, and it no longer lands on a
-// song channel.
-const SNAP_MAX_VOICES = TOTAL_VOICES;
-
-// ── Master-strip blocks (item 98), after the voice array ──
-// Per metered channel: peak, true peak (4× oversampled), mean square over the
-// interval, and the number of samples that hit full scale.
-const SNAP_METER_BASE = SNAP_HEADER_SIZE + SNAP_MAX_VOICES * SNAP_VOICE_STRIDE;
-const SNAP_M_PEAK = 0;
-const SNAP_M_TRUE_PEAK = 1;
-const SNAP_M_MEAN_SQUARE = 2;
-const SNAP_M_CLIP = 3;
-const SNAP_METER_STRIDE = 4;
-
-// The vectorscope ring: SCOPE_FRAMES frames of first-order B-format, frame
-// interleaved (W, Y, Z, X), written continuously and read backwards from
-// SNAP_AN_RING_WRITE. See src/engine/analysis.js for why the scopes are always
-// B-format whatever the metering target is.
-const SNAP_SCOPE_BASE = SNAP_METER_BASE + ANALYSIS_MAX_METERS * SNAP_METER_STRIDE;
-
-// ── Mastering meter blocks (item 178), after the scope ring ──
-// Two stages — pre-chain then post-chain — each carrying the K-weighted energy
-// the loudness figures are built from and, per channel, the same four numbers
-// the strip's meters use. Measuring BOTH sides every chunk is what makes the
-// view's pre/post toggle instant and its two readings describe one moment.
-const SNAP_MM_BASE = SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS;
-const SNAP_MM_SUM_Z = 0;        // Σ (K-weighted L² + K-weighted R²)
-const SNAP_MM_CH = 1;           // …then 2 channels of:
-const SNAP_MM_C_PEAK = 0;
-const SNAP_MM_C_TRUE_PEAK = 1;
-const SNAP_MM_C_MEAN_SQUARE = 2;
-const SNAP_MM_C_CLIP = 3;
-const SNAP_MM_C_STRIDE = 4;
-const SNAP_MM_STAGE_STRIDE = SNAP_MM_CH + 2 * SNAP_MM_C_STRIDE;
-const SNAP_MM_STAGES = 2;
-
-// Delivered 8-bit code histogram (item 178.4's "bit usage"). Shipped NORMALISED
-// — each bin is its share of SNAP_MM_HIST_TOTAL — because a raw count passes
-// 2^24 after about six minutes on one bin and stops being exact in a float32.
-const SNAP_HIST_BASE = SNAP_MM_BASE + SNAP_MM_STAGES * SNAP_MM_STAGE_STRIDE;
-const SNAP_HIST_BINS = HIST_BUCKETS;
-
-// Two mono rings — the mix going into the chain and the master coming out —
-// for the Mastering view's live spectrometer. Written continuously and read
-// backwards from SNAP_MM_SPEC_WRITE, exactly like the scope ring above. 16 KiB
-// on the wire, and only while that view is on screen.
-const SNAP_SPEC_BASE = SNAP_HIST_BASE + SNAP_HIST_BINS;
-const SNAP_SPEC_FRAMES = SPEC_FRAMES;
-const SNAP_SPEC_STAGES = TAP_STAGES;
-
-const SNAP_FLOATS = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
-
-// SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
-// float snapshot region plus a trailing Int32 interrupt-latch cell that the
-// worklet ORs into (Atomics.or) and the main thread drains
-// (Atomics.exchange 0). The float SNAP_INTERRUPT_MASK slot is only used by
-// the postMessage fallback.
-const SNAP_SAB_BYTES = SNAP_FLOATS * 4 + 4;
-
-// ══ src/audio/audio-ring.js ══
-// SharedArrayBuffer audio ring for Tier 2 (off-audio-thread rendering).
-//
-// A render Worker (producer) fills engine-rate float L/R frames; the AudioWorklet
-// (consumer) reads them with a fractional resample cursor and copies to output.
-// Single-producer / single-consumer, so the two absolute frame counters
-// (AR_WRITE by the worker, AR_READ by the worklet) need only be published with
-// Atomics.store / read with Atomics.load — no locks. AR_EPOCH is bumped by the
-// worker on a transport reset (play / seek / stop) so the worklet drops the
-// stale buffered tail instead of playing ~one ring of old audio.
-//
-// This module is imported by BOTH the module worker and the AudioWorklet, so it
-// must stay bundle-safe (plain export forms, unique top-level names) — it goes
-// into tools/make-worklet-bundle.js for the non-module-worklet fallback.
-
-const AR_FRAMES = 8192;            // ring capacity in frames (power of two) — 171 ms @ 48 kHz
-const AR_MASK = AR_FRAMES - 1;
-const AR_CTRL_LEN = 6;             // Int32 control slots
-const AR_WRITE = 0;                // absolute frames produced (worker → worklet), Int32-wrapping
-const AR_READ = 1;                 // absolute frames consumed (worklet → worker), Int32-wrapping
-const AR_STATE = 2;                // bit0: producer active (playing/jam) — informational
-const AR_EPOCH = 3;                // transport-reset generation (worker bumps; worklet re-syncs)
-const AR_FLUSH_POS = 4;            // write frame at the last flush — the worklet jumps its read cursor here,
-                                          //   dropping the stale tail (counters stay monotonic; no reset race)
-// Target ring occupancy the worker keeps buffered. 1024 frames ≈ 21 ms @ 48 kHz
-// = the jam-latency / cursor-lead / underrun-safety knob (user-chosen balanced).
-const AR_HIGH_WATER = 1024;
-const AR_SAB_BYTES = AR_CTRL_LEN * 4 + AR_FRAMES * 4 * 2;
-
-/** Map Int32 control + Float32 L/R views over an audio-ring SharedArrayBuffer. */
-function audioRingViews(sab) {
-  const ctrl = new Int32Array(sab, 0, AR_CTRL_LEN);
-  const floatBase = AR_CTRL_LEN * 4;
-  const L = new Float32Array(sab, floatBase, AR_FRAMES);
-  const R = new Float32Array(sab, floatBase + AR_FRAMES * 4, AR_FRAMES);
-  return { ctrl, L, R };
-}
-
 // ══ src/audio/resampler.js ══
 // Kaiser-windowed-sinc resampling — the ONE interpolator every rate conversion
 // in the app goes through:
@@ -12935,291 +12688,370 @@ class StreamResampler {
   }
 }
 
-// ══ src/worklet/engine-commands.js ══
-// Engine command dispatch + snapshot fill, shared by the AudioWorklet
-// (render-mode fallback) and the Tier 2 render Worker. Both host a TaudEngine
-// and speak the same audio.*-shaped CMD protocol, so this keeps the mutation
-// path in one place (no drift between the two hosts). Bundle-safe (plain export
-// forms, unique names) — included in tools/make-worklet-bundle.js.
+// ══ src/audio/offline-render.js ══
+// Offline rendering — pure engine, runs identically in Node (tools/
+// render-taud.js) and the browser (WAV export). Mirrors the JVM oracle's
+// upload sequence exactly (taud.mjs uploadTaudFile order).
 
 
 
 
 
+/** Load a parsed .taud (or Document-adapted) song into a fresh engine. */
+function loadIntoEngine(eng, doc, songIndex = 0) {
+  const song = doc.songs[songIndex];
+  if (!song) throw new Error("songIndex out of range");
 
-/** Reused drain targets — the snapshot path never allocates. */
-const analysisReadout = makeAnalysisReadout();
-const masterMeterReadout = makeMasterMeterReadout();
-/** …and the scratch [azimuth, elevation] the position readout writes into. */
-const angleBox = new Float64Array(2);
+  eng.set64ChannelMode(doc.is64Channel);
+  // Before any pattern upload: it decides how those bytes are read (§5.5).
+  eng.setCellFormat(doc.wideCells ?? (doc.fmtVer ?? 2) >= 3);
+  if (doc.sampleInstImage) eng.uploadSampleInstBlob(doc.sampleInstImage);
+
+  for (let p = 0; p < song.patterns.length; p++) eng.uploadPattern(p, song.patterns[p]);
+
+  const chans = doc.is64Channel ? MAX_VOICES : NUM_VOICES;
+  const cueBytes = new Uint8Array(chans * 2);
+  for (let c = 0; c < song.cues.length; c++) {
+    const words = song.cues[c];
+    for (let ch = 0; ch < chans; ch++) {
+      cueBytes[ch * 2] = words[ch] & 0xff;
+      cueBytes[ch * 2 + 1] = (words[ch] >>> 8) & 0xff;
+    }
+    eng.uploadCue(c, cueBytes);
+  }
+
+  eng.setTrackerMode(0);
+  eng.setBPM(0, song.bpm);
+  eng.setTickRate(0, song.tickRate > 0 ? song.tickRate : 6);
+  eng.setTuning(0, song.tuningBaseNote, song.tuningFreq);
+  eng.setTrackerMixerFlags(0, song.globalFlags);
+  eng.setSurroundModel(0, song.surroundModel ?? 0);
+  eng.setSongGlobalVolume(0, song.globalVolume);
+  eng.setSongMixingVolume(0, song.mixingVolume);
+  eng.setMasterVolume(0, 255);
+  // The song's mastering chain (item 178). An exported file is exactly what a
+  // conforming player would produce, so the chain belongs on every render path,
+  // not only on the one the editor listens to.
+  eng.setMastering(0, song.mastering ?? doc.meta?.mastering?.[songIndex] ?? null);
+
+  for (const entry of doc.ixmp) eng.uploadInstrumentPatches(entry.instId, entry.blob);
+}
+
+/** Render up to `seconds`; returns U8 device output + f32 mix-bus tap. */
+function renderSong(eng, seconds) {
+  const maxFrames = seconds * SAMPLING_RATE;
+  const nChunks = Math.ceil(maxFrames / TRACKER_CHUNK);
+  const u8out = new Uint8Array(nChunks * TRACKER_CHUNK * 2);
+  const f32out = new Float32Array(nChunks * TRACKER_CHUNK * 2);
+  const chunk = new Uint8Array(TRACKER_CHUNK * 2);
+  const ts = eng.playheads[0].trackerState;
+
+  eng.setCuePosition(0, 0);
+  eng.play(0);
+
+  let frames = 0;
+  let chunkIdx = 0;
+  let halted = false;
+  while (frames < maxFrames) {
+    if (!eng.isPlaying(0)) { halted = true; break; }
+    if (eng.renderChunk(0, chunk) === null) { halted = true; break; }
+    u8out.set(chunk, chunkIdx * TRACKER_CHUNK * 2);
+    for (let n = 0; n < TRACKER_CHUNK; n++) {
+      f32out[(chunkIdx * TRACKER_CHUNK + n) * 2] = ts.mixLeft[n];
+      f32out[(chunkIdx * TRACKER_CHUNK + n) * 2 + 1] = ts.mixRight[n];
+    }
+    frames += TRACKER_CHUNK;
+    chunkIdx++;
+  }
+
+  return {
+    u8: u8out.subarray(0, chunkIdx * TRACKER_CHUNK * 2),
+    f32: f32out.subarray(0, chunkIdx * TRACKER_CHUNK * 2),
+    frames,
+    halted,
+  };
+}
 
 /**
- * Apply an engine-mutating command to `eng`. Returns true if handled here.
- * Transport/reply commands (INIT, USE_SAB, USE_AUDIO_SAB, SNAPSHOT_RETURN,
- * QUERY_INVERT_MASK) return false — each host handles those itself.
- */
-function applyAudioCommand(eng, m) {
-  switch (m.t) {
-    case CMD.UPLOAD_SAMPLE_INST_BLOB: eng.uploadSampleInstBlob(new Uint8Array(m.image)); return true;
-    case CMD.UPLOAD_INSTRUMENT: eng.uploadInstrument(m.slot, new Uint8Array(m.bytes)); return true;
-    case CMD.UPLOAD_INSTRUMENT_PATCHES: eng.uploadInstrumentPatches(m.slot, new Uint8Array(m.bytes)); return true;
-    case CMD.CLEAR_INSTRUMENT_PATCHES: eng.clearInstrumentPatches(m.slot); return true;
-    case CMD.UPLOAD_PATTERN: eng.uploadPattern(m.slot, new Uint8Array(m.bytes)); return true;
-    case CMD.UPLOAD_PATTERNS: {
-      const blob = new Uint8Array(m.blob);
-      // Stride follows the file's cell layout, which SET_CELL_FORMAT installed
-      // before the first pattern was ever sent.
-      const size = eng.getCellFormat() ? PATTERN_BYTES_WIDE : PATTERN_BYTES;
-      for (let i = 0; i < m.slots.length; i++) {
-        eng.uploadPattern(m.slots[i], blob.subarray(i * size, (i + 1) * size));
-      }
-      return true;
+ * Same as renderSong but batched + async: yields to the event loop every
+ * `yieldMs` of wall time so a progress UI can paint (the render is otherwise a
+ * multi-second main-thread block). `onProgress(frac 0..1)` is called at each
+ * yield; `signal` (AbortSignal) stops early. Bit-identical output to renderSong
+ * for the same input (chunk granularity is decoupled from timing). */
+async function renderSongAsync(eng, seconds, { onProgress = null, signal = null, yieldMs = 60 } = {}) {
+  const maxFrames = seconds * SAMPLING_RATE;
+  const nChunks = Math.ceil(maxFrames / TRACKER_CHUNK);
+  const u8out = new Uint8Array(nChunks * TRACKER_CHUNK * 2);
+  const f32out = new Float32Array(nChunks * TRACKER_CHUNK * 2);
+  const chunk = new Uint8Array(TRACKER_CHUNK * 2);
+  const ts = eng.playheads[0].trackerState;
+
+  eng.setCuePosition(0, 0);
+  eng.play(0);
+
+  let frames = 0;
+  let chunkIdx = 0;
+  let halted = false;
+  let aborted = false;
+  let lastYield = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  while (frames < maxFrames) {
+    if (signal?.aborted) { aborted = true; break; }
+    if (!eng.isPlaying(0)) { halted = true; break; }
+    if (eng.renderChunk(0, chunk) === null) { halted = true; break; }
+    u8out.set(chunk, chunkIdx * TRACKER_CHUNK * 2);
+    for (let n = 0; n < TRACKER_CHUNK; n++) {
+      f32out[(chunkIdx * TRACKER_CHUNK + n) * 2] = ts.mixLeft[n];
+      f32out[(chunkIdx * TRACKER_CHUNK + n) * 2 + 1] = ts.mixRight[n];
     }
-    case CMD.CLEAR_PATTERN: eng.clearPattern(m.slot); return true;
-    case CMD.UPLOAD_CUE: eng.uploadCue(m.idx, new Uint8Array(m.bytes)); return true;
-    case CMD.SET_64CH: eng.set64ChannelMode(m.on); return true;
-    case CMD.SET_CELL_FORMAT: eng.setCellFormat(m.wide); return true;
-    case CMD.SET_BPM: eng.setBPM(m.ph, m.bpm); return true;
-    case CMD.SET_TUNING: eng.setTuning(m.ph, m.baseNote, m.freq); return true;
-    case CMD.SET_TICK_RATE: eng.setTickRate(m.ph, m.rate); return true;
-    case CMD.SET_SONG_GLOBAL_VOLUME: eng.setSongGlobalVolume(m.ph, m.volume); return true;
-    case CMD.SET_SONG_MIXING_VOLUME: eng.setSongMixingVolume(m.ph, m.volume); return true;
-    case CMD.SET_MASTER_VOLUME: eng.setMasterVolume(m.ph, m.volume); return true;
-    case CMD.SET_MASTER_PAN: eng.setMasterPan(m.ph, m.pan); return true;
-    case CMD.SET_TRACKER_MIXER_FLAGS: eng.setTrackerMixerFlags(m.ph, m.flags); return true;
-    case CMD.SET_SURROUND_MODEL: eng.setSurroundModel(m.ph, m.model); return true;
-    case CMD.SET_MONITOR_MODE: eng.setMonitorMode(m.ph, m.mode); return true;
-    case CMD.SET_ANALYSIS: eng.setAnalysis(m.ph, m.target); return true;
-    case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
-    case CMD.SET_MASTER_METER:
-      eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth); return true;
-    case CMD.PLAY: eng.play(m.ph); return true;
-    case CMD.STOP: eng.stop(m.ph); return true;
-    case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
-    case CMD.SET_TRACKER_ROW: eng.setTrackerRow(m.ph, m.row); return true;
-    case CMD.RESET_PARAMS: eng.resetParams(m.ph); return true;
-    case CMD.RESET_SAMPLE_FX_STATE: eng.resetSampleFxState(m.ph); return true;
-    case CMD.JAM_NOTE: eng.jamNote(m.ph, m.voice, m.note, m.inst, m.audition); return true;
-    case CMD.JAM_SAMPLE: eng.jamSample(m.ph, m.voice, m.note, m.spec); return true;
-    case CMD.JAM_STOP: eng.jamStop(m.ph); return true;
-    case CMD.JAM_STOP_VOICE: eng.jamStopVoice(m.ph, m.voice); return true;
-    case CMD.SET_VOICE_MUTE: eng.setVoiceMute(m.ph, m.voice, m.muted); return true;
-    case CMD.SET_VOICE_FADER: eng.setVoiceFader(m.ph, m.voice, m.fader); return true;
-    default: return false;
+    frames += TRACKER_CHUNK;
+    chunkIdx++;
+
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    if (now - lastYield >= yieldMs) {
+      lastYield = now;
+      onProgress?.(Math.min(frames / maxFrames, 1));
+      await new Promise((r) => setTimeout(r, 0));
+    }
   }
+  onProgress?.(1);
+
+  return {
+    u8: u8out.subarray(0, chunkIdx * TRACKER_CHUNK * 2),
+    f32: f32out.subarray(0, chunkIdx * TRACKER_CHUNK * 2),
+    frames,
+    halted,
+    aborted,
+  };
 }
 
-/** True for the transport commands that reset the play position (worker mode
- *  must flush the audio ring so no stale buffered tail plays after them). */
-function isTransportReset(t) {
-  return t === CMD.PLAY || t === CMD.STOP ||
-    t === CMD.SET_CUE_POSITION || t === CMD.SET_TRACKER_ROW || t === CMD.RESET_PARAMS;
+/** Encode a rendered f32 mix bus (engine rate) as a 16-bit stereo WAV at
+ *  `outRate`; the 48 kHz default needs no resampling at all (item 108).
+ *  Exported for taudplay (item 179), whose renderer writes the same files. */
+function encodeWav(f32, outRate = 48000) {
+  const pcm = resampleInterleaved(f32, 2, SAMPLING_RATE, outRate);
+  const numSamples = pcm.length; // interleaved stereo samples
+  const dataBytes = numSamples * 2;
+  const buf = new ArrayBuffer(44 + dataBytes);
+  const dv = new DataView(buf);
+  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  wstr(0, "RIFF");
+  dv.setUint32(4, 36 + dataBytes, true);
+  wstr(8, "WAVE");
+  wstr(12, "fmt ");
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);           // PCM
+  dv.setUint16(22, 2, true);           // stereo
+  dv.setUint32(24, outRate, true);
+  dv.setUint32(28, outRate * 4, true); // byte rate (16-bit stereo)
+  dv.setUint16(32, 4, true);           // block align
+  dv.setUint16(34, 16, true);          // bits
+  wstr(36, "data");
+  dv.setUint32(40, dataBytes, true);
+  for (let i = 0; i < numSamples; i++) {
+    const v = Math.max(-1, Math.min(1, pcm[i]));
+    dv.setInt16(44 + i * 2, Math.round(v * 32767), true);
+  }
+  return new Uint8Array(buf);
 }
 
-/** Detached copy of instrument `slot`'s S$Fx invert-loop bit mask (reply payload). */
-function invertMaskBuffer(eng, slot) {
-  const mask = eng.getInstrumentInvertMask(slot);
-  return mask.buffer.slice(mask.byteOffset, mask.byteOffset + mask.byteLength);
+/**
+ * Stereo downmix mode for the exports (#998.3). "fold" is the pan-law fold the
+ * device has always used; "binaural" runs the surround song through the head
+ * model, so an ordinary stereo file carries the height and front/back the
+ * composer heard. A stereo SONG has no object bus, so it ignores this.
+ */
+function applyMonitor(eng, monitor) {
+  if (monitor === "binaural") eng.setMonitorMode(0, MONITOR_BINAURAL);
 }
 
-/** Detached copy of notefx 2/3's inversion mask for `slot` (item 130). */
-function modMaskBuffer(eng, slot) {
-  const mask = eng.getInstrumentModMask(slot);
-  return mask.buffer.slice(mask.byteOffset, mask.byteOffset + mask.byteLength);
+/** Offline-render a Document's song to a 16-bit stereo WAV, resampled to
+ *  `outRate` (default 48 kHz), taken from the pre-dither float mix bus (no
+ *  dithering). Returns {bytes, seconds, halted}. */
+function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold") {
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, docLike, songIndex);
+  applyMonitor(eng, monitor);
+  const r = renderSong(eng, maxSeconds);
+  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted };
 }
 
-/** Write every snapshot field except the interrupt latch into `f`. */
-function fillSnapshotInto(eng, playhead, f) {
-  const ph = eng.playheads[playhead];
-  const ts = ph.trackerState;
-  f[SNAP_CUE_POS] = ts.cuePos;
-  f[SNAP_ROW_INDEX] = ts.rowIndex;
-  f[SNAP_TICK_IN_ROW] = ts.tickInRow;
-  f[SNAP_BPM] = ph.bpm;
-  f[SNAP_TICK_RATE] = ph.tickRate;
-  f[SNAP_FLAGS] = (ph.isPlaying ? 1 : 0) | (ph.jamActive ? 2 : 0);
-  f[SNAP_CHANNEL_COUNT] = eng.channelCount();
-  f[SNAP_GLOBAL_VOLUME] = ph.globalVolume;
-  for (let vi = 0; vi < SNAP_MAX_VOICES; vi++) {
-    const v = ts.voices[vi];
-    const o = SNAP_HEADER_SIZE + vi * SNAP_VOICE_STRIDE;
-    const active = v.active;
-    f[o + SNAP_V_ACTIVE] = active ? 1 : 0;
-    if (active) {
-      const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
-      const faderGain = (255 - v.fader) / 255.0;
-      let ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
-      f[o + SNAP_V_EFF_VOL] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
-      // Where the channel SOUNDS — the same sum the mixer pans by (pan swing
-      // included, item 155), and for a metainstrument the mix-weighted mean of
-      // its layers rather than layer 0's own position (item 155.1).
-      f[o + SNAP_V_EFF_PAN] = displayPanByte(ts, vi, v);
-      // Spatial position (#998). EFF_PAN above stays the stereo meters' 0..255
-      // value — in a surround song that is where the monitor downmix puts the
-      // voice, which is what those meters are drawing.
-      if (ts.surroundModel !== SURROUND_STEREO) {
-        displayAngles(ts, vi, v, angleBox);
-        f[o + SNAP_V_EFF_PAN] = Math.round(foldAzimuthToPan(angleBox[0]));
-        f[o + SNAP_V_AZIMUTH] = angleBox[0];
-        f[o + SNAP_V_ELEVATION] = angleBox[1];
-      } else {
-        f[o + SNAP_V_AZIMUTH] = f[o + SNAP_V_EFF_PAN];
-        f[o + SNAP_V_ELEVATION] = 0;
-      }
-      f[o + SNAP_V_NOTE] = (v.renderPitch > 0 ? v.renderPitch : v.noteVal) & 0xffff;
-      // Show the pattern-level instrument (a meta's slot), not the resolved
-      // layer child; fall back to instrumentId before the first meta/plain trigger.
-      f[o + SNAP_V_INST] = (v.displayInst || v.instrumentId) & 0x3ff;
-      f[o + SNAP_V_SAMPLE_POS] = v.samplePos;
-      f[o + SNAP_V_SAMPLE_PTR] = v.activeSamplePtr;
-      f[o + SNAP_V_SAMPLE_LEN] = v.activeSampleLength;
-      f[o + SNAP_V_ENV_VOL_IDX] = v.envIndex;
-      f[o + SNAP_V_ENV_VOL_TIME] = v.envTimeSec;
-      f[o + SNAP_V_ENV_PAN_IDX] = v.envPanIndex;
-      f[o + SNAP_V_ENV_PAN_TIME] = v.envPanTimeSec;
-      f[o + SNAP_V_ENV_PITCH_IDX] = v.envPitchIndex;
-      f[o + SNAP_V_ENV_PITCH_TIME] = v.envPitchTimeSec;
-      f[o + SNAP_V_ENV_FILTER_IDX] = v.envFilterIndex;
-      f[o + SNAP_V_ENV_FILTER_TIME] = v.envFilterTimeSec;
-      f[o + SNAP_V_FUNK_WINDOW] = v.funkWindow;
-      f[o + SNAP_V_FUNK_POS] = v.funkPos;
-      f[o + SNAP_V_FUNK_LEN] = v.activeSampleLoopEnd - v.activeSampleLoopStart;
-      f[o + SNAP_V_FUNK_MODE] = v.funkMode;
-      f[o + SNAP_V_MOD_FUNK_WINDOW] = v.modFunkWindow;
+/** Async twin of renderToWav — yields to the event loop so a progress UI can
+ *  paint (`onProgress(frac)`) and `signal` can cancel. Returns the same shape,
+ *  plus `aborted`; `bytes` is null when aborted. */
+async function renderToWavAsync(docLike, songIndex, maxSeconds,
+                                       { outRate = 48000, onProgress = null, signal = null,
+                                         monitor = "fold" } = {}) {
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, docLike, songIndex);
+  applyMonitor(eng, monitor);
+  const r = await renderSongAsync(eng, maxSeconds, { onProgress, signal });
+  if (r.aborted) return { bytes: null, seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: true };
+  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: false };
+}
+
+// ══ src/taudplay/protocol.js ══
+// taudplay wire protocol — main thread ⇄ AudioWorklet.
+//
+// Deliberately tiny next to Microtone's own (src/worklet/protocol.js): that one
+// carries everything an EDITOR wants to see — per-voice envelope cursors, sample
+// read positions, funk windows, the master analysis field, loudness histograms,
+// spectra. A player wants none of it. What is left is the transport, and two
+// numbers per voice: how loud it is and where it sits.
+//
+// Snapshots travel by postMessage on a recycled pair of ArrayBuffers (~16 ms).
+// There is no SharedArrayBuffer path and no render-worker tier: 848 bytes every
+// 16 ms is 53 kB/s of structured clone, which is not worth a COOP/COEP deploy
+// requirement to avoid. Dropping both is most of why this file is short.
+
+/** Commands the main thread sends to the worklet. */
+const CMD = {
+  LOAD: "load",            // {doc, songIndex} — parsed .taud, worklet keeps it
+  SELECT_SONG: "song",     // {songIndex} — re-upload from the retained doc
+  PLAY: "play",            // {}
+  STOP: "stop",            // {}
+  SEEK_CUE: "seekCue",     // {cue}
+  SET_VOLUME: "volume",    // {volume} 0..255 master
+  SET_MONITOR: "monitor",  // {mode} 0 = fold, 1 = binaural (surround songs)
+  SET_FADER: "fader",      // {voice, value, samples} — value 0..255, ramped over `samples`
+  SNAPSHOT_RETURN: "snapRet", // {buffer} — hand a snapshot buffer back for reuse
+};
+
+/** Messages the worklet sends back. */
+const MSG = {
+  READY: "ready",
+  SNAPSHOT: "snapshot",
+  LOADED: "loaded",  // {songIndex, channelCount} — the upload finished
+};
+
+// ── snapshot layout (Float32Array) ──
+const SNAP_PLAYING = 0;       // 0 | 1
+const SNAP_CUE = 1;
+const SNAP_ROW = 2;
+const SNAP_BPM = 3;
+const SNAP_TICK_RATE = 4;
+const SNAP_CHANNELS = 5;      // 32 or 64
+const SNAP_SONG_INDEX = 6;
+const SNAP_HEADER = 8;        // voice block starts here (padded to 8)
+
+/** Per-voice block: the two probes plus the gate that says whether to believe
+ *  them. `active` is not a third probe — it is what tells a meter to fall to
+ *  zero rather than hold the last note's level. */
+const SNAP_V_ACTIVE = 0;
+const SNAP_V_VOLUME = 1;      // 0..1
+const SNAP_V_PAN = 2;         // 0..1, 0.5 = centre
+const SNAP_V_STRIDE = 3;
+
+/** Voices reported. 64 is the format's maximum channel count; the jam bank
+ *  above it does not exist here, because this library cannot jam. */
+const SNAP_VOICES = 64;
+const SNAP_FLOATS = SNAP_HEADER + SNAP_VOICES * SNAP_V_STRIDE;
+
+// ══ src/taudplay/faders.js ══
+// The library's one group of knobs: a ramped fader per voice.
+//
+// The engine's `Voice.fader` is a plain 0..255 attenuation byte read straight
+// into the gain — no smoothing anywhere, because in the tracker it only ever
+// changes when a human clicks mute. A game moving it every animation frame
+// would step the gain 60 times a second, and on a sustained note that steps
+// audibly. So the ramp lives here, above the engine: the caller says "voice 4
+// to a third over two seconds" once, and the bank walks the byte there in
+// whatever increments the render is already using.
+//
+// Shared by both hosts (the worklet and the offline renderer) so a fade sounds
+// the same whether it is played or written to a file.
+
+
+class FaderBank {
+  constructor() {
+    this.now = new Float64Array(MAX_VOICES);    // current attenuation, 0..255
+    this.target = new Float64Array(MAX_VOICES);
+    this.step = new Float64Array(MAX_VOICES);   // per frame
+    this.remain = new Float64Array(MAX_VOICES); // frames left in the ramp
+    this.dirty = true;                          // something to write out
+  }
+
+  /** Aim voice `v` at attenuation `value` (0 = open, 255 = silent) over
+   *  `samples` frames. `samples <= 0` snaps. */
+  set(v, value, samples) {
+    if (v < 0 || v >= MAX_VOICES) return;
+    const target = value < 0 ? 0 : value > 255 ? 255 : value;
+    this.target[v] = target;
+    if (samples <= 0) {
+      this.now[v] = target;
+      this.remain[v] = 0;
+      this.step[v] = 0;
     } else {
-      for (let k = 1; k < SNAP_VOICE_STRIDE; k++) f[o + k] = 0;
-      f[o + SNAP_V_EFF_PAN] = 128;
-      f[o + SNAP_V_AZIMUTH] = 128; // centre/front, matching EFF_PAN's rest value
-      f[o + SNAP_V_SAMPLE_POS] = -1;
-      f[o + SNAP_V_SAMPLE_PTR] = -1;
-      f[o + SNAP_V_ENV_VOL_IDX] = -1;
-      f[o + SNAP_V_ENV_PAN_IDX] = -1;
-      f[o + SNAP_V_ENV_PITCH_IDX] = -1;
-      f[o + SNAP_V_ENV_FILTER_IDX] = -1;
-      f[o + SNAP_V_FUNK_WINDOW] = -1;
-      f[o + SNAP_V_FUNK_POS] = -1;
-      f[o + SNAP_V_MOD_FUNK_WINDOW] = -1;
+      this.step[v] = (target - this.now[v]) / samples;
+      this.remain[v] = samples;
+    }
+    this.dirty = true;
+  }
+
+  /** Step every live ramp by `frames`. */
+  advance(frames) {
+    for (let v = 0; v < MAX_VOICES; v++) {
+      const left = this.remain[v];
+      if (left <= 0) continue;
+      if (left <= frames) {
+        this.now[v] = this.target[v];
+        this.remain[v] = 0;
+      } else {
+        this.now[v] += this.step[v] * frames;
+        this.remain[v] = left - frames;
+      }
+      this.dirty = true;
     }
   }
-  fillAnalysisInto(ts, f);
-  fillMasterMeterInto(ts, f);
-}
 
-/**
- * Mastering-meter block (item 178). Drains the view's own tap — the K-weighted
- * energy, the per-channel peak/true-peak/mean-square/clip figures on BOTH sides
- * of the chain, the chain's gain reduction, and the delivered 8-bit code
- * histogram. With the tap off only the "no frames" marker is written.
- */
-function fillMasterMeterInto(ts, f) {
-  const tap = ts.masterMeter;
-  if (tap === null) {
-    f[SNAP_MM_FRAMES] = 0;
-    f[SNAP_MM_COMP_GR] = 0;
-    f[SNAP_MM_LIM_GR] = 0;
-    f[SNAP_MM_HIST_TOTAL] = 0;
-    f[SNAP_MM_SPEC_WRITE] = 0;
-    f[SNAP_MM_HIST_DEPTH] = 0;
-    f[SNAP_MM_HIST_USED] = 0;
-    f[SNAP_MM_HIST_MIN] = 0;
-    f[SNAP_MM_HIST_MAX] = 0;
-    f[SNAP_MM_HIST_ENTROPY] = 0;
-    return;
-  }
-  const r = tap.drain(masterMeterReadout);
-  f[SNAP_MM_FRAMES] = r.frames;
-  f[SNAP_MM_COMP_GR] = r.compGrDb;
-  f[SNAP_MM_LIM_GR] = r.limGrDb;
-  for (let s = 0; s < SNAP_MM_STAGES; s++) {
-    const o = SNAP_MM_BASE + s * SNAP_MM_STAGE_STRIDE;
-    f[o + SNAP_MM_SUM_Z] = r.sumZ[s];
-    for (let c = 0; c < 2; c++) {
-      const co = o + SNAP_MM_CH + c * SNAP_MM_C_STRIDE;
-      const i = s * 2 + c;
-      f[co + SNAP_MM_C_PEAK] = r.peak[i];
-      f[co + SNAP_MM_C_TRUE_PEAK] = r.truePeak[i];
-      f[co + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
-      f[co + SNAP_MM_C_CLIP] = r.clip[i];
+  /**
+   * Push the bytes into a TrackerState's voices.
+   *
+   * Not through `TaudEngine.setVoiceFader`, which clamps the voice index to
+   * NUM_VOICES-1 (32) because the TSVM delegate clamps its readbacks there. A
+   * fader is a host control rather than a device readback, and a 64-channel
+   * song has 64 channels to fade, so the byte goes to the voice directly.
+   */
+  writeInto(ts) {
+    if (!this.dirty) return;
+    this.dirty = false;
+    for (let v = 0; v < MAX_VOICES; v++) {
+      const b = Math.round(this.now[v]) & 255;
+      if (ts.voices[v].fader !== b) ts.voices[v].fader = b;
     }
   }
-  // Normalised buckets (see protocol.js): a raw count leaves float32's exact
-  // integer range after a few minutes on one code. The FIGURES come from the
-  // full-resolution census the tap kept, not from these.
-  const bits = r.bits;
-  const total = bits.total;
-  f[SNAP_MM_HIST_TOTAL] = total;
-  f[SNAP_MM_HIST_DEPTH] = r.bitDepth;
-  f[SNAP_MM_HIST_USED] = bits.used;
-  f[SNAP_MM_HIST_MIN] = bits.minCode;
-  f[SNAP_MM_HIST_MAX] = bits.maxCode;
-  f[SNAP_MM_HIST_ENTROPY] = bits.entropyBits;
-  const inv = total > 0 ? 1 / total : 0;
-  for (let i = 0; i < SNAP_HIST_BINS; i++) f[SNAP_HIST_BASE + i] = r.buckets[i] * inv;
-  f[SNAP_MM_SPEC_WRITE] = r.specWrite;
-  for (let s = 0; s < SNAP_MM_STAGES; s++) {
-    f.set(r.spec[s], SNAP_SPEC_BASE + s * SNAP_SPEC_FRAMES);
-  }
 }
 
-/**
- * Master-strip block (item 98). Drains the analysis tap — meters, correlation
- * sums, field energy and the B-format scope ring — into the snapshot. With the
- * tap off, only the "no meters" marker is written; the ring keeps whatever it
- * last held, which nothing reads.
- */
-function fillAnalysisInto(ts, f) {
-  const tap = ts.analysis;
-  if (tap === null) {
-    f[SNAP_AN_METERS] = 0;
-    f[SNAP_AN_FRAMES] = 0;
-    f[SNAP_AN_FIELD] = 0;
-    f[SNAP_AN_CORR_LL] = 0;
-    f[SNAP_AN_CORR_RR] = 0;
-    f[SNAP_AN_CORR_LR] = 0;
-    return;
-  }
-  const r = tap.drain(analysisReadout);
-  f[SNAP_AN_METERS] = r.meterCount;
-  f[SNAP_AN_FRAMES] = r.frames;
-  f[SNAP_AN_FIELD] = r.fieldEnergy;
-  f[SNAP_AN_CORR_LL] = r.corrLL;
-  f[SNAP_AN_CORR_RR] = r.corrRR;
-  f[SNAP_AN_CORR_LR] = r.corrLR;
-  f[SNAP_AN_RING_WRITE] = r.ringWrite;
-  for (let c = 0; c < ANALYSIS_MAX_METERS; c++) {
-    const o = SNAP_METER_BASE + c * SNAP_METER_STRIDE;
-    const live = c < r.meterCount;
-    f[o + SNAP_M_PEAK] = live ? r.peak[c] : 0;
-    f[o + SNAP_M_TRUE_PEAK] = live ? r.truePeak[c] : 0;
-    f[o + SNAP_M_MEAN_SQUARE] = live ? r.meanSquare[c] : 0;
-    f[o + SNAP_M_CLIP] = live ? r.clip[c] : 0;
-  }
-  f.set(tap.ring, SNAP_SCOPE_BASE);
+/** Gain (1 = as written, 0 = silent) → the engine's attenuation byte. */
+function gainToFader(gain) {
+  const g = gain < 0 ? 0 : gain > 1 ? 1 : gain;
+  return Math.round((1 - g) * 255);
 }
 
-// ══ src/worklet/taud-processor.js ══
-// TaudProcessor — AudioWorkletProcessor with two modes:
+/** …and back. A gain read out is the byte-quantised one — 256 steps over the
+ *  range, which is the resolution the mix actually has. */
+function faderToGain(fader) {
+  return (255 - fader) / 255;
+}
+
+// ══ src/taudplay/worklet.js ══
+// taudplay's AudioWorkletProcessor — the whole audio side of the library.
 //
-//   RENDER mode (non-isolated fallback): hosts the TaudEngine and renders
-//     engine-rate U8/float chunks into a local FIFO ring, reading them back
-//     with a fractional resample cursor. This is the original single-thread path.
+// It hosts a TaudEngine, renders engine-rate frames into a look-ahead ring and
+// reads them back through a fractional cursor, exactly as Microtone's own
+// render mode does; the resampler is a no-op at a 48 kHz context, which is what
+// the library asks for. What it does NOT have is Microtone's second tier: no
+// SharedArrayBuffer, no render Worker, no COOP/COEP requirement. One thread on
+// any host that can open an AudioContext — and for a host whose AudioWorklet
+// cannot import ES modules, the generated single-file concat of this exact
+// graph (worklet.bundle.js) instead.
 //
-//   CONSUME mode (Tier 2, crossOriginIsolated): the engine lives in a separate
-//     render Worker that fills a SharedArrayBuffer audio ring; process() only
-//     resamples + copies from that ring, so it can never overrun. Entered on
-//     CMD.USE_AUDIO_SAB; no engine commands are routed here in this mode.
-//
-// The engine renders at SAMPLING_RATE — 48 kHz since item 108, which is the
-// rate audio-system.js asks the AudioContext for, so the common case reads the
-// ring back one frame at a time with no interpolation at all (step === 1: a
-// straight copy, not even a kernel). A context that insists on another rate
-// (44.1 kHz hardware) is served by a fractional cursor reading through the
-// Kaiser-windowed sinc in audio/resampler.js — the same kernel the exporters
-// and the sample Lab use. That kernel needs `lead` frames AHEAD of the cursor,
-// so both modes buffer that much extra look-ahead. Loaded via
-// audioWorklet.addModule() as an ES module; the committed single-file concat
-// (taud-processor.bundle.js) is the non-module-worklet fallback — regenerate
-// with tools/make-worklet-bundle.js after any change here.
+// The one piece of machinery that is here and NOT in Microtone is the fader
+// ramp. The engine's per-voice fader is a plain byte applied straight to the
+// gain, so a game moving it every animation frame would step the gain 60 times
+// a second and zipper audibly. Ramping it here — once per rendered chunk, which
+// is every 2.7 ms at 48 kHz — makes "fade this voice out over two seconds" a
+// single call that sounds like a fade instead of a staircase, and it costs the
+// engine nothing: the byte the mixer reads is still just a byte.
 
 
 
@@ -13227,144 +13059,109 @@ function fillAnalysisInto(ts, f) {
 
 
 
-const RING_FRAMES = 4096; // power of two (render-mode local ring)
 
-class TaudProcessor extends AudioWorkletProcessor {
+const RING_FRAMES = 4096; // power of two
+
+class TaudPlayProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     this.engine = new TaudEngine();
-    this.playhead = 0; // the browser player drives playhead 0
+    this.doc = null;
+    this.songIndex = 0;
 
-    this.chunk = new Uint8Array(TRACKER_CHUNK * 2);
+    this.chunk = new Uint8Array(TRACKER_CHUNK * 2); // the engine's U8 output, unused
     this.ringL = new Float32Array(RING_FRAMES);
     this.ringR = new Float32Array(RING_FRAMES);
-    this.ringWrite = 0;      // absolute frame counter (wraps via mask)
-    this.ringReadPos = 0.0;  // fractional absolute read cursor
-    this.ringFloor = 0;      // oldest frame the kernel may read (flush barrier)
-    this.step = SAMPLING_RATE / sampleRate; // 1.0 at a 48 kHz context
-    // null at a matching context rate — then a frame is a frame and the read
-    // loops copy. Otherwise the sinc kernel both read cursors run through.
+    this.ringWrite = 0;     // absolute frame counter (wraps via mask)
+    this.ringReadPos = 0.0; // fractional absolute read cursor
+    this.ringFloor = 0;     // oldest frame the kernel may read (flush barrier)
+    this.step = SAMPLING_RATE / sampleRate;
     this.rs = this.step === 1.0 ? null : kaiserKernel(SAMPLING_RATE, sampleRate);
 
-    // CONSUME mode (Tier 2): audio-ring SAB views + wrap-safe read cursor.
-    this.audioRing = null;
-    this.arEpoch = -1;       // forces a re-sync on the first callback
-    this.arReadBase = 0;     // Int32-wrapping integer read frame
-    this.arReadFrac = 0.0;   // 0..1 fractional accumulator
-    this.arFloor = 0;        // ditto, on the SAB ring's wrapping counter
+    this.faders = new FaderBank();
 
     const opts = options?.processorOptions ?? {};
     this.snapshotIntervalFrames =
       Math.max(1, Math.round(((opts.snapshotIntervalMs ?? 16) / 1000) * sampleRate));
     this.framesSinceSnapshot = 0;
-    // Recycled snapshot buffers (transferred out, posted back via SNAPSHOT_RETURN).
     this.snapshotPool = [
       new ArrayBuffer(SNAP_FLOATS * 4),
       new ArrayBuffer(SNAP_FLOATS * 4),
     ];
-    // SAB fast path (CMD.USE_SAB): write snapshots straight into shared memory.
-    this.sabF32 = null;
-    this.sabI32 = null;
-
-    // ── dev profiler (opt-in via processorOptions.profile; zero cost when off) ──
-    // Times the whole process() callback (the true xrun predictor) AND the
-    // engine.renderChunk DSP alone. In CONSUME mode renderChunk is never called,
-    // so renderCount≈0 — which is exactly the point: the audio thread stops
-    // rendering. Reports rolling stats to the main thread ≈ once per second.
-    this.profiling = !!opts.profile;
-    // AudioWorkletGlobalScope does not reliably expose performance.now on older
-    // iPad Safari — feature-detect and fall back to the 1 ms-resolution
-    // Date.now, reporting which clock is live so the numbers stay interpretable.
-    const hasPerf = (typeof performance !== "undefined" && typeof performance.now === "function");
-    this.clockNow = hasPerf ? () => performance.now() : () => Date.now();
-    this.hiResClock = hasPerf;
-    this.clockResMs = hasPerf ? 0.005 : 1; // nominal resolution
-    this.profileIntervalFrames = Math.max(1, Math.round(sampleRate)); // ≈ 1 s window
-    this.pfReset();
 
     this.port.onmessage = (e) => this.onCommand(e.data);
     this.port.postMessage({ t: MSG.READY });
   }
 
-  pfReset() {
-    this.pfFrames = 0;
-    this.pfProcBusy = 0; this.pfProcMax = 0; this.pfProcCount = 0; this.pfXruns = 0;
-    this.pfRenderBusy = 0; this.pfRenderMax = 0; this.pfRenderCount = 0;
-    this.pfPeakVoices = 0;
-    this.pfUnderruns = 0; // CONSUME mode: callbacks starved while the producer was active
-  }
-
   onCommand(m) {
-    // Enter CONSUME mode: the worker owns the engine now; free ours (~8 MB).
-    if (m.t === CMD.USE_AUDIO_SAB) {
-      this.audioRing = audioRingViews(m.sab);
-      this.engine = null;
-      return;
-    }
-    if (this.audioRing) return; // consume mode: no engine commands routed here
-
     const eng = this.engine;
-    if (applyAudioCommand(eng, m)) {
-      // Transport reset (play/seek/stop): drop the local look-ahead ring's
-      // buffered tail, or a block rendered against the OLD tracker state
-      // leaks into the new playback (item 96) — render.worker.js's
-      // flushRing/AR_EPOCH does the same job for the Tier 2 SAB path; this
-      // mode never had the equivalent, since applyAudioCommand only touches
-      // `eng`, not the processor's own ring pointers.
-      if (isTransportReset(m.t)) this.flushRing();
-      return;
-    }
     switch (m.t) {
-      case CMD.INIT:
-        if (m.snapshotIntervalMs) {
-          this.snapshotIntervalFrames =
-            Math.max(1, Math.round((m.snapshotIntervalMs / 1000) * sampleRate));
-        }
+      case CMD.LOAD:
+        this.doc = m.doc;
+        this.uploadSong(m.songIndex | 0);
         break;
-      case CMD.QUERY_INVERT_MASK: {
-        const buf = invertMaskBuffer(eng, m.slot);
-        const modBuf = modMaskBuffer(eng, m.slot);
-        this.port.postMessage({
-          t: MSG.INVERT_MASK, slot: m.slot, mask: buf,
-          mod: eng.getInstrumentSampleMod(m.slot), modMask: modBuf,
-        }, [buf, modBuf]);
+      case CMD.SELECT_SONG:
+        this.uploadSong(m.songIndex | 0);
         break;
-      }
+      case CMD.PLAY:
+        eng.resetSampleFxState(0);
+        eng.setCuePosition(0, 0);
+        eng.setTrackerRow(0, 0);
+        eng.play(0);
+        this.flushRing();
+        break;
+      case CMD.STOP:
+        eng.stop(0);
+        this.flushRing();
+        break;
+      case CMD.SEEK_CUE:
+        eng.setCuePosition(0, Math.max(0, m.cue | 0));
+        eng.setTrackerRow(0, 0);
+        this.flushRing();
+        break;
+      case CMD.SET_VOLUME:
+        eng.setMasterVolume(0, m.volume & 255);
+        break;
+      case CMD.SET_MONITOR:
+        eng.setMonitorMode(0, m.mode | 0);
+        break;
+      case CMD.SET_FADER:
+        this.faders.set(m.voice | 0, m.value, m.samples | 0);
+        this.faders.writeInto(eng.playheads[0].trackerState);
+        break;
       case CMD.SNAPSHOT_RETURN:
         if (this.snapshotPool.length < 2) this.snapshotPool.push(m.buffer);
         break;
-      case CMD.USE_SAB:
-        this.sabF32 = new Float32Array(m.sab, 0, SNAP_FLOATS);
-        this.sabI32 = new Int32Array(m.sab, SNAP_FLOATS * 4, 1);
-        break;
     }
   }
 
-  /** Discard whatever look-ahead audio is still queued (not yet read out) —
-   *  it was rendered against the tracker state from BEFORE this transport
-   *  reset. renderAndPlay re-fills from the current (already-reset) engine
-   *  state starting exactly at the read cursor, so nothing is left to leak. */
+  /** Re-run the whole upload sequence for `songIndex` off the retained doc.
+   *  Faders survive a song switch — a game's mix is its own state, not the
+   *  file's — so they are re-applied to the freshly loaded voices. */
+  uploadSong(songIndex) {
+    if (this.doc === null) return;
+    if (songIndex < 0 || songIndex >= this.doc.songs.length) return;
+    this.songIndex = songIndex;
+    this.engine.stop(0);
+    loadIntoEngine(this.engine, this.doc, songIndex);
+    this.faders.dirty = true; // a fresh upload zeroed the voices' faders
+    this.faders.writeInto(this.engine.playheads[0].trackerState);
+    this.flushRing();
+    this.port.postMessage({
+      t: MSG.LOADED, songIndex, channelCount: this.engine.channelCount(),
+    });
+  }
+
+  /** Drop look-ahead rendered against the pre-seek tracker state. */
   flushRing() {
     this.ringReadPos = this.ringWrite;
-    // …and the sinc's history taps must not reach back across the cut either:
-    // those frames are the discarded tail, and half a kernel of it would be
-    // mixed into the first frames of the new playback.
     this.ringFloor = this.ringWrite;
   }
 
   renderIntoRing() {
-    const t0 = this.profiling ? this.clockNow() : 0;
-    const out = this.engine.renderChunk(this.playhead, this.chunk);
-    if (this.profiling) {
-      const dt = this.clockNow() - t0;
-      this.pfRenderBusy += dt;
-      if (dt > this.pfRenderMax) this.pfRenderMax = dt;
-      this.pfRenderCount++;
-      const ts0 = this.engine.playheads[this.playhead].trackerState;
-      let nv = ts0.backgroundVoices.length;
-      for (let i = 0; i < ts0.voices.length; i++) if (ts0.voices[i].active) nv++;
-      if (nv > this.pfPeakVoices) this.pfPeakVoices = nv;
-    }
+    this.faders.advance(TRACKER_CHUNK);
+    this.faders.writeInto(this.engine.playheads[0].trackerState);
+    const out = this.engine.renderChunk(0, this.chunk);
     const mask = RING_FRAMES - 1;
     if (out === null) {
       for (let n = 0; n < TRACKER_CHUNK; n++) {
@@ -13373,10 +13170,9 @@ class TaudProcessor extends AudioWorkletProcessor {
         this.ringR[w] = 0;
       }
     } else {
-      // Feed the pre-dither Float32 mix bus directly — clean output, no 8-bit
-      // dithering. (renderChunk still fills the dithered U8 `out` so the engine
-      // stays bit-exact for the JVM-oracle conformance tests; playback ignores it.)
-      const ts = this.engine.playheads[this.playhead].trackerState;
+      // The pre-dither Float32 mix bus, not the dithered U8 the device would
+      // emit: the 8-bit character belongs to the hardware, not to a web player.
+      const ts = this.engine.playheads[0].trackerState;
       const mL = ts.mixLeft;
       const mR = ts.mixRight;
       for (let n = 0; n < TRACKER_CHUNK; n++) {
@@ -13389,33 +13185,55 @@ class TaudProcessor extends AudioWorkletProcessor {
   }
 
   assembleSnapshot() {
-    if (this.sabF32 !== null) {
-      // Shared-memory path: fill in place; interrupts accumulate in the
-      // trailing Int32 cell until the main thread drains it atomically.
-      fillSnapshotInto(this.engine, this.playhead, this.sabF32);
-      this.sabF32[SNAP_INTERRUPT_MASK] = 0;
-      const drained = this.engine.playheads[this.playhead].trackerState.drainInterrupts();
-      if (drained !== 0) Atomics.or(this.sabI32, 0, drained);
-      return;
-    }
     const buffer = this.snapshotPool.pop();
-    if (!buffer) return; // main thread slow returning — skip, never allocate
+    if (!buffer) return; // main thread slow returning one — skip, never allocate
     const f = new Float32Array(buffer);
-    fillSnapshotInto(this.engine, this.playhead, f);
-    f[SNAP_INTERRUPT_MASK] = this.engine.playheads[this.playhead].trackerState.drainInterrupts();
+    const ph = this.engine.playheads[0];
+    const ts = ph.trackerState;
+    f[SNAP_PLAYING] = ph.isPlaying ? 1 : 0;
+    f[SNAP_CUE] = ts.cuePos;
+    f[SNAP_ROW] = ts.rowIndex;
+    f[SNAP_BPM] = ph.bpm;
+    f[SNAP_TICK_RATE] = ph.tickRate;
+    f[SNAP_CHANNELS] = this.engine.channelCount();
+    f[SNAP_SONG_INDEX] = this.songIndex;
+    for (let vi = 0; vi < SNAP_VOICES; vi++) {
+      const v = ts.voices[vi];
+      const o = SNAP_HEADER + vi * SNAP_V_STRIDE;
+      if (!v.active) {
+        f[o + SNAP_V_ACTIVE] = 0;
+        f[o + SNAP_V_VOLUME] = 0;
+        f[o + SNAP_V_PAN] = 0.5;
+        continue;
+      }
+      f[o + SNAP_V_ACTIVE] = 1;
+      // The gain the mixer actually applies, fader included — which is the
+      // point: a game fading a voice out watches its own fade on this probe.
+      const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
+      const faderGain = (255 - v.fader) / 255.0;
+      const ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
+      f[o + SNAP_V_VOLUME] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
+      // Where it SOUNDS in the stereo image: a surround voice reports where the
+      // monitor downmix puts it, and a metainstrument the mix-weighted mean of
+      // its layers rather than layer 0's position.
+      f[o + SNAP_V_PAN] = displayPanByte(ts, vi, v) / 255.0;
+    }
     this.port.postMessage({ t: MSG.SNAPSHOT, buffer }, [buffer]);
   }
 
-  // RENDER mode: keep the local ring one chunk ahead, then read it out resampled.
-  renderAndPlay(outL, outR, frames) {
-    const ph = this.engine.playheads[this.playhead];
+  process(_inputs, outputs) {
+    const out = outputs[0];
+    const outL = out[0];
+    const outR = out.length > 1 ? out[1] : out[0];
+    const frames = outL.length;
+    const ph = this.engine.playheads[0];
     const mask = RING_FRAMES - 1;
     const rs = this.rs;
-    if (ph.isPlaying || ph.jamActive || this.ringReadPos < this.ringWrite) {
-      // The last output frame's newest tap sits `lead` frames past its cursor.
+
+    if (ph.isPlaying || this.ringReadPos < this.ringWrite) {
       const lead = (rs === null ? 0 : rs.lead) + 2;
       while (this.ringWrite < this.ringReadPos + frames * this.step + lead) {
-        if (ph.isPlaying || ph.jamActive) {
+        if (ph.isPlaying) {
           this.renderIntoRing();
         } else {
           const w = this.ringWrite & mask;
@@ -13433,6 +13251,8 @@ class TaudProcessor extends AudioWorkletProcessor {
         }
         this.ringReadPos = i0 + frames;
       } else {
+        // Phase-interpolated Kaiser sinc — the same read Microtone's worklet
+        // does, tap for tap, so a 44.1 kHz host hears the same thing here.
         const { rows, deltas, phases, history, nTaps } = rs;
         const floor = this.ringFloor;
         for (let n = 0; n < frames; n++) {
@@ -13466,127 +13286,8 @@ class TaudProcessor extends AudioWorkletProcessor {
       this.framesSinceSnapshot = 0;
       this.assembleSnapshot();
     }
-  }
-
-  // CONSUME mode: read the worker's SAB ring resampled to the context rate.
-  consumeFromRing(outL, outR, frames) {
-    const { ctrl, L, R } = this.audioRing;
-    // A transport reset (play/seek/stop) bumps the epoch and publishes a flush
-    // mark — jump the read cursor there, dropping the stale buffered tail.
-    const rs = this.rs;
-    const epoch = Atomics.load(ctrl, AR_EPOCH) | 0;
-    if (epoch !== this.arEpoch) {
-      this.arEpoch = epoch;
-      this.arReadBase = Atomics.load(ctrl, AR_FLUSH_POS) | 0;
-      this.arReadFrac = 0;
-      this.arFloor = this.arReadBase; // no history taps into the dropped tail
-    }
-    const write = Atomics.load(ctrl, AR_WRITE) | 0;
-    const avail = (write - this.arReadBase) | 0;
-    // …+ the frames the kernel's newest tap needs beyond the last read cursor.
-    const need = Math.ceil(frames * this.step) + (rs === null ? 0 : rs.lead) + 2;
-    if (avail < need) {
-      // Silence, hold the cursor. If the PRODUCER is active (playing/jam) this
-      // is a real dropout — the worker isn't refilling the ring in time; that is
-      // the Tier 2 glitch signal the audio-thread xrun counter can no longer see.
-      if (this.profiling && Atomics.load(ctrl, AR_STATE)) this.pfUnderruns++;
-      outL.fill(0);
-      if (outR !== outL) outR.fill(0);
-      Atomics.store(ctrl, AR_READ, this.arReadBase);
-      return;
-    }
-    let base = this.arReadBase, frac = this.arReadFrac;
-    const step = this.step;
-    if (rs === null) {
-      for (let n = 0; n < frames; n++) {
-        const a = base & AR_MASK;
-        outL[n] = L[a];
-        outR[n] = R[a];
-        base = (base + 1) | 0;
-      }
-    } else {
-      const { rows, deltas, phases, history, nTaps } = rs;
-      const floor = this.arFloor;
-      for (let n = 0; n < frames; n++) {
-        const fp = frac * phases;
-        const p = fp | 0;
-        const g = fp - p;
-        const row = rows[p], dRow = deltas[p];
-        const first = (base - history) | 0;
-        let l = 0.0, r = 0.0;
-        for (let t = 0; t < nTaps; t++) {
-          // Counters are Int32-wrapping, so "older than the floor" is a signed
-          // DIFFERENCE, never a plain <.
-          const src = (first + t) | 0;
-          const a = (((src - floor) | 0) < 0 ? floor : src) & AR_MASK;
-          const w = row[t] + dRow[t] * g;
-          l += L[a] * w;
-          r += R[a] * w;
-        }
-        outL[n] = l;
-        outR[n] = r;
-        frac += step;
-        while (frac >= 1) { frac -= 1; base = (base + 1) | 0; }
-      }
-    }
-    this.arReadBase = base;
-    this.arReadFrac = frac;
-    Atomics.store(ctrl, AR_READ, base);
-  }
-
-  emitProfile(quantumMs) {
-    const audioMs = this.pfFrames / sampleRate * 1000;
-    this.port.postMessage({
-      t: MSG.PROFILE,
-      cpuFrac: audioMs > 0 ? this.pfProcBusy / audioMs : 0,
-      renderFrac: audioMs > 0 ? this.pfRenderBusy / audioMs : 0,
-      procMeanMs: this.pfProcCount ? this.pfProcBusy / this.pfProcCount : 0,
-      procMaxMs: this.pfProcMax,
-      renderMeanMs: this.pfRenderCount ? this.pfRenderBusy / this.pfRenderCount : 0,
-      renderMaxMs: this.pfRenderMax,
-      quantumMs,
-      xruns: this.pfXruns,
-      underruns: this.pfUnderruns,
-      procCount: this.pfProcCount,
-      renderCount: this.pfRenderCount,
-      peakVoices: this.pfPeakVoices,
-      windowMs: audioMs,
-      sampleRate,
-      step: this.step,
-      sab: this.sabF32 !== null || this.audioRing !== null,
-      workerRender: this.audioRing !== null,
-      hiResClock: this.hiResClock,
-      clockResMs: this.clockResMs,
-    });
-    this.pfReset();
-  }
-
-  process(_inputs, outputs) {
-    const t0 = this.profiling ? this.clockNow() : 0;
-    const outL = outputs[0][0];
-    const outR = outputs[0].length > 1 ? outputs[0][1] : outputs[0][0];
-    const frames = outL.length;
-
-    if (this.audioRing) {
-      this.consumeFromRing(outL, outR, frames);
-    } else {
-      this.renderAndPlay(outL, outR, frames);
-    }
-
-    if (this.profiling) {
-      // Measure the whole callback — the work the audio thread must finish
-      // within one quantum. The report post itself is excluded (dt before emit).
-      const dt = this.clockNow() - t0;
-      this.pfProcBusy += dt;
-      if (dt > this.pfProcMax) this.pfProcMax = dt;
-      this.pfProcCount++;
-      const quantumMs = frames / sampleRate * 1000;
-      if (dt > quantumMs) this.pfXruns++;
-      this.pfFrames += frames;
-      if (this.pfFrames >= this.profileIntervalFrames) this.emitProfile(quantumMs);
-    }
     return true;
   }
 }
 
-registerProcessor("taud-processor", TaudProcessor);
+registerProcessor("taudplay-processor", TaudPlayProcessor);

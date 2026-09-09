@@ -1455,18 +1455,26 @@ actually found: it drives the limiter, which is what holds the ceiling. The
 output gain is the last thing in the chain and stays yours — nothing writes it
 for you.
 
-**One click is one step.** Make-up sits before the compressor's own curve and
-before the limiter, so moving it does not move the master by its own decibels —
-the limiter eats some of it, and how much depends on the music. So the analysis
-goes stale the moment a button lands, the panel says so, and the two make-up
-buttons switch off until you run it again. That is deliberate: clicking a second
-time on a measurement of the old chain would just add the same distance twice
-over. Analyse, set, analyse again.
+**Clicking twice does nothing.** Each button works out a whole make-up value
+rather than a nudge: it takes the make-up the *analysis* was rendered at, adds
+the distance that render missed your target by, and writes the result. Whatever
+is in the box at the time is simply overwritten, so a second click computes the
+same number and changes nothing at all. The buttons stay available.
 
-The **Set input trim** button is not affected, and stays available: the pre
-reading it works from sits upstream of the whole chain, so no chain edit can
-invalidate it. The make-up buttons also need the compressor to be switched on —
-writing make-up into a bypassed stage would do nothing.
+**One click may not be enough, though.** Make-up sits before the compressor's
+own curve and before the limiter, so moving it does not move the master by its
+own decibels — the limiter eats some of it, and how much depends on the music.
+One click gets you most of the way; if the target matters to the decimal, run
+the analysis again and click again, and it converges. The panel marks the
+figures as behind as soon as any edit lands, which is your cue.
+
+Any other edit *does* retire the two make-up buttons until you re-run the
+analysis, and that is the honest answer rather than a limitation: the numbers
+were measured through a chain that no longer exists, and no arithmetic can
+carry them across a threshold change. The **Set input trim** button is never
+retired — the pre reading it works from sits upstream of the whole chain, so no
+chain edit can invalidate it. The make-up buttons also need the compressor to be
+switched on, since writing make-up into a bypassed stage would do nothing.
 
 ### What the chain reaches
 

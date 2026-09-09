@@ -938,6 +938,25 @@ export class MasteringView {
       !masteringEqual(this.analysisParams, this.params);
   }
 
+  /**
+   * …and the narrower question the two make-up buttons ask, which is NOT the
+   * same one.
+   *
+   * They answer with an absolute make-up value derived from the analysis: the
+   * make-up the render was made at, plus the distance the render missed its
+   * target by. So the one field they write is the one field whose drift they
+   * already account for — after a click, their answer is the number that is
+   * already in the box, and clicking again is a no-op rather than a second
+   * helping. Any OTHER difference does invalidate them, because the
+   * measurement was taken through a chain that no longer exists.
+   */
+  get makeupStale() {
+    if (this.analysis === null || this.analysisParams === null) return false;
+    const live = cloneMastering(this.params);
+    live.compMakeupDb = this.analysisParams.compMakeupDb;
+    return !masteringEqual(this.analysisParams, live);
+  }
+
   refreshOffline() {
     if (!this.runBtn) return;
     this.runBtn.textContent = t(this.analysing ? "mst.cancel" : "mst.analyse");
@@ -946,16 +965,21 @@ export class MasteringView {
       : (this.analysis ? t("mst.analysedFor", { s: this.analysis.seconds.toFixed(1) }) : "");
     const a = this.analysis;
     const stale = this.stale;
+    const makeupStale = this.makeupStale;
     const compOff = !this.params.compOn;
     for (const b of this.autoButtons ?? []) {
-      // The two POST buttons need a fresh analysis AND a compressor to write
-      // into; the PRE one (the input trim) needs neither, because the pre tap
-      // sits upstream of the whole chain and no chain edit can invalidate it.
+      // The two POST buttons need an analysis of THIS chain and a compressor to
+      // write into. "This chain" is `makeupStale`, not `stale`: their own edit
+      // moves the make-up and nothing else, and their answer is anchored to the
+      // make-up the analysis was rendered at, so it survives that edit
+      // unchanged. The PRE one (the input trim) needs neither, because the pre
+      // tap sits upstream of the whole chain and no chain edit can invalidate
+      // it.
       const needsPost = b.dataset.needs === "post";
       b.disabled = !a || this.analysing ||
-        (needsPost && (stale || compOff));
+        (needsPost && (makeupStale || compOff));
       b.title = t(!a ? "mst.needAnalysis"
-        : needsPost && stale ? "mst.needReanalysis"
+        : needsPost && makeupStale ? "mst.needReanalysis"
         : needsPost && compOff ? "mst.needComp"
         : b.dataset.help);
     }
@@ -997,29 +1021,40 @@ export class MasteringView {
    *
    * Make-up is where a master's level is found in practice — it drives the
    * limiter, which is what holds the ceiling — while the output gain is the
-   * last thing in the chain and belongs to the composer's own hand. Because
-   * make-up sits UPSTREAM of the compressor's own curve and of the limiter, one
-   * click is one step of an iteration rather than a closed form: the analysis
-   * goes stale the moment it lands, and the button asks for another pass rather
-   * than adding the same distance again (which is what used to happen).
+   * last thing in the chain and belongs to the composer's own hand.
+   *
+   * Each answers with ONE ABSOLUTE NUMBER, and the anchor is what makes that
+   * work: `analysisParams.compMakeupDb` is the make-up the analysis was
+   * RENDERED at, so "that, plus the distance the render missed by" is a
+   * property of the measurement alone. The live value is not consulted and is
+   * simply overwritten. Click it twice and the second click computes the same
+   * number, which `edit` then discards as a no-op — no compounding, and no
+   * button that goes dead after one use. (Anchoring on the LIVE make-up is what
+   * used to compound, and disabling the button was the wrong half of the fix.)
+   *
+   * The chain is not linear, so one click does not guarantee the target is met
+   * exactly — the compressor's curve and the limiter both sit downstream of
+   * make-up. Re-analysing and clicking again converges; the amber line says
+   * when the numbers on screen no longer describe the chain.
    */
   applyMakeupForTruePeak(target) {
-    if (this.stale || !this.params.compOn) return;
-    const v = gainForTruePeak(this.analysis, target, this.params.compMakeupDb);
+    if (!this.analysis || this.makeupStale || !this.params.compOn) return;
+    const v = gainForTruePeak(this.analysis, target, this.analysisParams.compMakeupDb);
     if (v === null) return;
     this.edit((p) => { p.on = true; p.compMakeupDb = v; });
     this.refreshValues();
   }
 
   applyMakeupForLoudness(target) {
-    if (this.stale || !this.params.compOn) return;
-    const v = gainForLoudness(this.analysis, target, this.params.compMakeupDb);
+    if (!this.analysis || this.makeupStale || !this.params.compOn) return;
+    const v = gainForLoudness(this.analysis, target, this.analysisParams.compMakeupDb);
     if (v === null) return;
     this.edit((p) => { p.on = true; p.compMakeupDb = v; });
     this.refreshValues();
   }
 
   applyTrimForLoudness(target) {
+    if (!this.analysis) return;
     const v = trimForLoudness(this.analysis, target);
     if (v === null) return;
     this.edit((p) => { p.on = true; p.trimDb = v; });

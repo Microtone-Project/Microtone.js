@@ -180,25 +180,45 @@ function painted(cv) {
     "…and the render now lands on the target",
     `${check2.post.truePeakDb.toFixed(3)} dBTP`);
 
-  // …and it CANNOT be clicked again on the same measurement, which is what used
-  // to compound the value on every click.
-  check(view.stale, "the edit left the analysis stale");
+  // …and the button answers with an ABSOLUTE value anchored to the make-up the
+  // analysis was rendered at, so clicking it again is a no-op rather than a
+  // second helping — and it does NOT go dead after one use.
+  check(view.stale, "the edit left the plotted figures stale");
+  check(!view.makeupStale,
+    "…but not the make-up buttons: their own edit is the one they account for");
   // The view's own three action buttons — NOT every button under .mst-auto,
   // which also holds each number field's step-group arrows (item 156).
   const autoBtns = view.autoButtons;
-  check(autoBtns[0].disabled && autoBtns[1].disabled,
-    "…so both make-up buttons are refused until it is re-run",
+  check(!autoBtns[0].disabled && !autoBtns[1].disabled,
+    "…so both make-up buttons stay live",
     autoBtns.map((b) => (b.disabled ? "off" : "on")).join(","));
   check(!autoBtns[2].disabled,
-    "…but the input trim still works: the pre tap is upstream of the whole chain");
+    "…as does the input trim: the pre tap is upstream of the whole chain");
   const held = store.doc.mastering(0).compMakeupDb;
   view.applyMakeupForTruePeak(-1);
   await sleep(60);
   check(store.doc.mastering(0).compMakeupDb === held,
-    "a second click on a stale analysis changes nothing",
+    "a second click lands on the same number instead of compounding",
     `${held} → ${store.doc.mastering(0).compMakeupDb}`);
   check(/changed since this analysis/.test(view.summaryEl.textContent),
-    "…and the panel says why");
+    "…and the panel still says the plotted figures are behind");
+
+  // Any OTHER edit DOES retire them: that measurement was taken through a chain
+  // which no longer exists, and no arithmetic here can carry it across.
+  view.edit((p) => { p.compThreshDb = -30; }, null);
+  await sleep(60);
+  check(view.makeupStale, "a threshold change retires the make-up buttons");
+  check(autoBtns[0].disabled && autoBtns[1].disabled,
+    "…and they are refused until it is re-run",
+    autoBtns.map((b) => (b.disabled ? "off" : "on")).join(","));
+  const parked = store.doc.mastering(0).compMakeupDb;
+  view.applyMakeupForTruePeak(-1);
+  await sleep(60);
+  check(store.doc.mastering(0).compMakeupDb === parked,
+    "…including by hand", `${parked} → ${store.doc.mastering(0).compMakeupDb}`);
+  view.edit((p) => { p.compThreshDb = -24; }, null);
+  await sleep(60);
+  check(!view.makeupStale, "…and putting it back brings them straight back");
 
   // ── 7. the spectral distribution, and clearing on a document change ──────
   const bands = view.analysis.post.bandCount;
@@ -268,5 +288,8 @@ function painted(cv) {
   doc.getElementById("stopBtn")?.click();
 
   log(fails === 0 ? "\nALL PASS" : `\n${fails} FAILURE(S)`);
+  // …and the marker tools/browser-smoke.js polls for, so the run ends on the
+  // verdict instead of burning its whole budget.
+  log(`FAILURES: ${fails}`);
 })();
 </script>

@@ -1,0 +1,133 @@
+<!doctype html><meta charset="utf-8"><title>taudplay (item 179)</title>
+<pre id="out">running… (needs a real audio-capable browser; ~12s)</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../player.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
+<script type="module">
+// Drives player.html, which is the reference consumer of src/taudplay/: the
+// standalone player library. What this proves is that the cut-down surface is
+// enough to BE a player — transport, one fader per voice, and the two probes —
+// and that the fades the library adds on top of the engine's raw fader byte
+// actually land where they say they will.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; console.log("TAUDPLAY: " + s); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+/** Any pixel that is not the flat background → the canvas actually drew. */
+function painted(cv) {
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+  const r0 = d[0], g0 = d[1], b0 = d[2];
+  for (let i = 4; i < d.length; i += 4) {
+    if (d[i] !== r0 || d[i + 1] !== g0 || d[i + 2] !== b0) return true;
+  }
+  return false;
+}
+
+/** The loudest voice right now, as [index, volume]. */
+function loudest(p, chans) {
+  let bi = -1, bv = 0;
+  for (let i = 0; i < chans; i++) {
+    const v = p.getVoiceVolume(i);
+    if (v > bv) { bv = v; bi = i; }
+  }
+  return [bi, bv];
+}
+
+(async () => {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  const doc = win.document;
+  for (let i = 0; i < 200 && !win.__taudplay?.doc; i++) await sleep(50);
+  const p = win.__taudplay;
+  if (!p?.doc) { log("FAIL no player / no file loaded"); out.textContent += "\nFAILURES: 1"; return; }
+
+  // ── 1. the file made it through the library, not the editor's doc model ──
+  check(p.songs.length === 4, "song list came back from load()", `${p.songs.length} songs`);
+  check(p.info.title === "When the heavens fall", "file title", String(p.info.title));
+  check(p.info.channels === 32 && p.info.formatVersion >= 1, "format facts",
+    `v${p.info.formatVersion} ${p.info.channels}ch`);
+  check(!doc.getElementById("transport").hidden, "transport revealed");
+  check(doc.getElementById("song").options.length === 4, "song chooser populated");
+  check(doc.getElementById("binauralWrap").hidden, "no binaural control for a stereo song");
+
+  // ── 2. transport ────────────────────────────────────────────────────────
+  doc.getElementById("play").click();
+  for (let i = 0; i < 100 && !p.playing; i++) await sleep(50);
+  check(p.playing, "playing after Play");
+  await sleep(1500);
+  check(p.bpm === 134, "BPM probe", String(p.bpm));
+  check(p.speed > 0, "speed probe", String(p.speed));
+  const row0 = p.row, cue0 = p.cue;
+  await sleep(900);
+  check(p.row !== row0 || p.cue !== cue0, "the song advanced", `row ${row0}→${p.row} cue ${cue0}→${p.cue}`);
+  check(painted(doc.getElementById("meters")), "meters canvas drew");
+
+  // ── 3. the two probes ───────────────────────────────────────────────────
+  let [vi, vol] = loudest(p, p.channelCount);
+  for (let i = 0; i < 40 && vi < 0; i++) { await sleep(50); [vi, vol] = loudest(p, p.channelCount); }
+  check(vi >= 0 && vol > 0, "a voice reports a volume", `voice ${vi} at ${vol.toFixed(3)}`);
+  const pan = p.getVoicePan(vi);
+  check(pan >= 0 && pan <= 1, "…and a pan in 0..1", pan.toFixed(3));
+  let panned = false;
+  for (let i = 0; i < p.channelCount; i++) {
+    if (p.getVoiceVolume(i) > 0 && Math.abs(p.getVoicePan(i) - 0.5) > 0.02) panned = true;
+  }
+  check(panned, "at least one sounding voice is off centre");
+
+  // ── 4. the knob: a fader silences ONE voice and nothing else ────────────
+  const before = [];
+  for (let i = 0; i < p.channelCount; i++) before.push(p.getVoiceVolume(i));
+  const target = before.findIndex((v) => v > 0.02);
+  p.setVoiceGain(target, 0);
+  await sleep(300);
+  check(p.getVoiceVolume(target) === 0, `voice ${target} silenced by its fader`,
+    p.getVoiceVolume(target).toFixed(4));
+  let othersAlive = 0;
+  for (let i = 0; i < p.channelCount; i++) if (i !== target && p.getVoiceVolume(i) > 0) othersAlive++;
+  check(othersAlive > 0, "the other voices kept playing", `${othersAlive} still sounding`);
+  check(p.getVoiceGain(target) === 0, "getVoiceGain reads the knob back");
+  p.setVoiceGain(target, 1);
+  await sleep(300);
+
+  // ── 5. …and a FADE is a ramp, not a jump ────────────────────────────────
+  p.setVoiceGain(target, 0, 2000);
+  await sleep(1000);
+  const mid = p.getVoiceGain(target);
+  check(mid > 0.2 && mid < 0.8, "half-way through a 2 s fade the gain is half-way", mid.toFixed(3));
+  await sleep(1400);
+  check(p.getVoiceGain(target) === 0, "…and it lands on silence", p.getVoiceGain(target).toFixed(3));
+
+  // ── 6. song switch keeps the mix ────────────────────────────────────────
+  p.selectSong(1);
+  await sleep(400);
+  check(p.songIndex === 1, "switched song");
+  check(p.getVoiceGain(target) === 0, "the fader survived the song switch");
+
+  doc.getElementById("stopBtn").click();
+  await sleep(300);
+  check(!p.playing, "stopped");
+
+  // ── 7. …and the same thing again through the single-file classic worklet ──
+  // That concat is what a browser with no module-worklet support loads, and
+  // this page is the only place it is ever actually run by a browser.
+  const { TaudPlayer } = await import("../../src/taudplay/index.js");
+  const bundleUrl = new URL("../../src/taudplay/worklet.bundle.js", location.href).href;
+  const p2 = new TaudPlayer();
+  await p2.init({ workletUrl: bundleUrl });
+  await p2.resume();
+  await p2.load(new Uint8Array(await (await fetch("../corpus/WHEN.taud")).arrayBuffer()));
+  p2.play();
+  for (let i = 0; i < 60 && !p2.playing; i++) await sleep(50);
+  check(p2.playing, "the classic-script bundle worklet plays too");
+  await sleep(1200);
+  let bundleVoices = 0;
+  for (let i = 0; i < p2.channelCount; i++) if (p2.getVoiceVolume(i) > 0) bundleVoices++;
+  check(bundleVoices > 0, "…and its probes report through the same snapshot",
+    `${bundleVoices} sounding`);
+  await p2.close();
+
+  out.textContent += `\n\nFAILURES: ${fails}`;
+})();
+</script>

@@ -6,6 +6,22 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-09
 
+Playback got about twice as fast, and not one sample of it sounds different.
+
+- The mixer was doing a lot of work per channel per output sample that did not depend on the sample. The equal-energy pan law recomputed a cosine and a sine for channels that were not moving anywhere, and the sample reader re-asked "is a sample modification running on this instrument?" separately for every tap of the interpolation kernel — six or seven times over, for every channel, forty-eight thousand times a second. Both answers are worked out once now and reused.
+- Every channel was also filling a waveform ring buffer on every sample, sounding or not, for all sixty-four slots. Nothing in the web build reads it, so it is only filled when something asks for it.
+- Measured on the demo songs, offline rendering went from around 5.5× real time to around 10.5× on the heavy ones, and from 19× to 37× on the light ones. On a device that was close to the edge — a tablet, an older phone — that is the difference between the occasional crackle and none.
+- The output is bit-for-bit what it was. Every song in the demo set renders to exactly the same samples as before, so nothing you have written sounds any different for having got cheaper to play.
+
+The Taud player page now runs on a small standalone library — one you can drop into your own page or game.
+
+- **taudplay** is the playback half of Microtone with the tracker taken off: a transport, one fader per channel, and two read-outs per channel — how loud it is right now, and where it sits in the stereo image. It plays in a browser tab and it renders under Node.
+- It is the same engine, so a song sounds the same wherever it is played, and a file the library bounces is byte-for-byte the file the app's own export writes.
+- The faders are what make it worth having. A tracker song is thirty-two or sixty-four channels that were written together, so a game can duck the lead going into a cave and bring the drums up in a fight — contextual scoring out of one file, rather than a folder of stems that have to be kept in step. Fades are smoothed inside the audio thread, so a slow one is a fade and not a staircase, and a channel's note-off tails and metainstrument layers fade with it.
+- It carries no editor at all: no patterns, no instruments, no undo, no import, no metering beyond those two numbers. That is the whole point of it — the part that plays is a fraction of the part that edits.
+- It is licensed under the LGPL, so it can be linked into a closed-source game. Microtone itself stays GPL.
+- The player page is its first user. The channel meters and the transport read-out you see there come from exactly those two numbers per channel, which is how the cut was decided: whatever the page still needed, the library kept.
+
 The mastering chain now reaches the surround and ambisonic exports as well, as a multichannel master.
 
 - A quadraphonic, 5.1, 7.1 or ambisonic export used to be written from the sound field itself, upstream of the chain, so the file carried the mix rather than the master. It carries the master now.
@@ -31,7 +47,7 @@ Microtone has a Mastering tab: the chain a song is delivered through, and enough
 - …including a **spectral distribution** over the song's own time axis: one column per 100 ms with the five bands stacked as their share of that moment's energy, in the same colours. A bass-heavy passage is a tall salmon band, a bright one a tall violet one, and a mix that changes character halfway through says so at a glance.
 - The gap between the plain crest and the phase-scrambled one is a direct reading of how much peak the processing has eaten: a fraction of a decibel on clean material, several decibels on something hard-clipped.
 - Three measure-and-set buttons read the analysis and write one number each: the compressor's make-up for a true-peak target, its make-up for a loudness target, and the input trim so the mix reaches the compressor at the same level on every song. Make-up is where a master's level is actually found — it drives the limiter, which holds the ceiling — and the output gain stays yours; nothing writes it for you. They are arithmetic, not advice, and each lands as one ordinary undoable edit.
-- Because make-up goes through the compressor and the limiter, one click is one step rather than a closed form: the analysis goes stale the moment a button lands, the panel says so, and the two make-up buttons switch off until you run it again. Analyse, set, analyse again. (The input trim button is unaffected — the reading it works from sits upstream of the whole chain.)
+- Each of them writes a whole value rather than a nudge — the make-up the analysis was rendered at, plus the distance that render missed your target by — so clicking a second time computes the same number and changes nothing. Make-up goes through the compressor and the limiter, so one click may land a little short of an exact target; analyse and click again and it converges. Any *other* edit does retire the two make-up buttons until you re-run the analysis, because those numbers were measured through a chain that no longer exists. (The input trim button is never retired — the reading it works from sits upstream of the whole chain.)
 - The tab makes no judgements at all. Nothing in it looks at your music and decides anything; that is the bargain the meters are there to keep.
 - Fixed: the offline analysis stayed on screen after switching song or opening another project, describing music that was no longer loaded. It is emptied with the document now.
 - **The File tab has moved to F9.** Project takes F7, and F8 still splits the screen.

@@ -58,7 +58,7 @@ let out = `// GENERATED FILE — do not edit. Rebuild with: node tools/make-work
 for (const rel of FILES) {
   let src = await readFile(root + rel, "utf8");
   src = src.replace(/^import\s[\s\S]*?from\s*"[^"]+";\s*$/gm, "");
-  src = src.replace(/^export\s+(function|const|class|let|var)/gm, "$1");
+  src = src.replace(/^export\s+(async\s+function|function|const|class|let|var)/gm, "$1");
   out += `\n// ══ ${rel} ══\n${src}`;
 }
 

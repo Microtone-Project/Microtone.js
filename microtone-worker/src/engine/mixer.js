@@ -154,6 +154,14 @@ export function generateTrackerAudio(eng, playhead, out) {
   const analysis = ts.analysis;
   const abus = analysis === null ? null : analysis.bus;
   if (analysis !== null) analysis.begin();
+  // Per-voice soundscope ring (item 179): the Kotlin device fills it on every
+  // sample because a TSVM guest can read the window at any instant; here
+  // nothing can, so it is filled only for a host that asked. Two stores per
+  // voice per sample — 80 voices' worth, active or not — for a buffer no one
+  // is looking at is the single cheapest thing in the mix loop to not do.
+  const scopeOn = ts.scopeOn;
+  const voices = ts.voices;
+  const nVoices = voices.length;
 
   if (advancing && ts.firstRow) {
     ts.firstRow = false;
@@ -194,12 +202,16 @@ export function generateTrackerAudio(eng, playhead, out) {
     let mixR = 0.0;
     const gvol = playhead.globalVolume / 255.0;
     const mvol = playhead.mixingVolume / 255.0;
-    for (let vi = 0; vi < ts.voices.length; vi++) {
-      const voice = ts.voices[vi];
+    // Loop-invariant across the voice loop: every voice is scaled by it, and
+    // nothing inside the loop can change it.
+    const globalGain = (gvol * mvol * playhead.masterVolume) / 255.0;
+    for (let vi = 0; vi < nVoices; vi++) {
+      const voice = voices[vi];
       if (!voice.active || voice.fader === 255) {
-        // Keep the soundscope flat between notes / while muted.
-        voice.scopeBuffer[voice.scopeWritePos] = 0;
-        voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
+        if (scopeOn) { // keep the soundscope flat between notes / while muted
+          voice.scopeBuffer[voice.scopeWritePos] = 0;
+          voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
+        }
         continue;
       }
       const voiceInst = eng.instruments[voice.instrumentId];
@@ -223,7 +235,6 @@ export function generateTrackerAudio(eng, playhead, out) {
       const faderGain = (255 - voice.fader) / 255.0;
       const perVoiceGain = effEnvVol * voice.fadeoutVolume * voice.currentMixVolume *
         swingScale * instGv * faderGain * voice.layerMixGain * voice.activeAttenGain;
-      const globalGain = (gvol * mvol * playhead.masterVolume) / 255.0;
       const vol = perVoiceGain * globalGain;
       // ONE pan ramp, above the branch, because both paths smooth the same
       // composed number: every input to it moves once a TICK while the pan law
@@ -233,10 +244,17 @@ export function generateTrackerAudio(eng, playhead, out) {
       let lGain = 0.0;
       let rGain = 0.0;
       if (spatial === null) {
+        // equal-energy pan law, memoised on the pan itself (item 179): two
+        // transcendentals per voice per sample is a lot to pay for a number
+        // that only moves while something is actually panning the voice.
         const pan = advancePanRamp(voice, voicePanByte(voice));
-        // equal-energy pan law
-        lGain = Math.cos((Math.PI * pan) / 512.0);
-        rGain = Math.sin((Math.PI * pan) / 512.0);
+        if (pan !== voice.panLawPan) {
+          voice.panLawPan = pan;
+          voice.panLawL = Math.cos((Math.PI * pan) / 512.0);
+          voice.panLawR = Math.sin((Math.PI * pan) / 512.0);
+        }
+        lGain = voice.panLawL;
+        rGain = voice.panLawR;
       } else {
         advancePanRamp(voice, voiceAzimuth(voice), true);
       }
@@ -257,8 +275,10 @@ export function generateTrackerAudio(eng, playhead, out) {
         rampGain *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
         voice.attackRampSamples--;
       }
-      voice.scopeBuffer[voice.scopeWritePos] = sScope * perVoiceGain * rampGain;
-      voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
+      if (scopeOn) {
+        voice.scopeBuffer[voice.scopeWritePos] = sScope * perVoiceGain * rampGain;
+        voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
+      }
       if (stems !== null) stems.add(voice, vi, n, sScope * vol * rampGain);
       if (spatial === null) {
         mixL += sL * vol * lGain * rampGain;
@@ -289,7 +309,7 @@ export function generateTrackerAudio(eng, playhead, out) {
       // Muting a channel must also silence the NNA ghosts and layer children it
       // spawned (item 45): fold the source channel's fader into the bg voice's
       // own, so a channel mute/solo covers everything that came from it.
-      const srcVoice = ts.voices[bg.sourceChannel];
+      const srcVoice = voices[bg.sourceChannel];
       const bgFader = srcVoice && srcVoice.fader > bg.fader ? srcVoice.fader : bg.fader;
       if (!bg.active || bgFader === 255) continue;
       const bgInst = eng.instruments[bg.instrumentId];
@@ -314,8 +334,13 @@ export function generateTrackerAudio(eng, playhead, out) {
       let rGain = 0.0;
       if (spatial === null) {
         const pan = advancePanRamp(bg, voicePanByte(bg));
-        lGain = Math.cos((Math.PI * pan) / 512.0);
-        rGain = Math.sin((Math.PI * pan) / 512.0);
+        if (pan !== bg.panLawPan) {
+          bg.panLawPan = pan;
+          bg.panLawL = Math.cos((Math.PI * pan) / 512.0);
+          bg.panLawR = Math.sin((Math.PI * pan) / 512.0);
+        }
+        lGain = bg.panLawL;
+        rGain = bg.panLawR;
       } else {
         advancePanRamp(bg, voiceAzimuth(bg), true);
       }

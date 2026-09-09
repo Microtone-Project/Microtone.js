@@ -628,6 +628,15 @@ export class TaudEngine {
 
   getVoiceActive(ph, vi) { return this._voice(ph, vi).active; }
 
+  /**
+   * Fill the per-voice soundscope rings (`Voice.scopeBuffer`) or not. Off by
+   * default: the Kotlin device has no such switch because a TSVM guest can read
+   * the scope window through MMIO at any instant, whereas here a host that
+   * wants waveforms has to ask for them — and the two stores per voice per
+   * sample the ring costs are charged over all 80 voice slots, sounding or not.
+   */
+  setVoiceScopeTap(ph, on) { this.playheads[ph].trackerState.scopeOn = !!on; }
+
   getActiveNoteCounts(ph) {
     const counts = new Int32Array(1024);
     const ts = this.playheads[ph].trackerState;

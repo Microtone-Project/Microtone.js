@@ -1,10 +1,14 @@
 // Minimal Taud player (M4 artefact) — the browser twin of TSVM's playtaud.js:
-// load a .taud, play/stop/seek by cue, live per-voice VU + pan meters from
-// worklet snapshots.
+// load a .taud, play/stop/seek by cue, live per-voice VU + pan meters.
+//
+// This page is the reference consumer of `src/taudplay/` (item 179): it drives
+// the standalone player library, not the editor's AudioSystem. Everything it
+// needs is the transport, one fader group and two probes, which is exactly
+// what that library exposes — so if the page can still do its job, the cut is
+// the right size. (The faders are what the *editor* uses for mute/solo; here
+// nothing touches them, and the meters read the same voices regardless.)
 
-import { parseTaud } from "../format/taud-parse.js";
-import { AudioSystem } from "../audio/audio-system.js";
-import { SAMPLING_RATE } from "../engine/constants.js";
+import { TaudPlayer } from "../taudplay/index.js";
 import { applyIcons } from "./icons.js";
 import { startControlEnhancer } from "./widgets/spinner.js";
 
@@ -13,26 +17,27 @@ const $ = (id) => document.getElementById(id);
 applyIcons(document); // vector transport symbols (item 107)
 startControlEnhancer(); // …and the song chooser as a step-button group (item 156)
 
-const audio = new AudioSystem();
+const player = new TaudPlayer();
 let audioReady = false;
-let doc = null;
-let songIndex = 0;
+
+// The page's handle on the library, for the browser smoke test (and for anyone
+// poking at it from the console) — the same idea as the editor's `__microtone`.
+window.__taudplay = player;
 
 async function ensureAudio() {
   if (!audioReady) {
-    await audio.init();
+    await player.init();
     audioReady = true;
-    if (audio.usedBundleFallback) console.info("worklet: using single-file bundle fallback");
   }
-  await audio.resume();
+  await player.resume();
   updateAudioBadge();
 }
 
 function updateAudioBadge() {
   const el = $("audioState");
-  if (audio.running) {
-    const rate = audio.context.sampleRate;
-    el.textContent = `audio on @ ${rate} Hz${rate !== SAMPLING_RATE ? " (resampled)" : ""}`;
+  if (player.running) {
+    const rate = player.sampleRate;
+    el.textContent = `audio on @ ${rate} Hz${rate !== 48000 ? " (resampled)" : ""}`;
     el.classList.add("on");
   }
 }
@@ -43,36 +48,31 @@ for (const ev of ["pointerdown", "keydown"]) {
 }
 
 async function loadBytes(name, bytes) {
+  let songs;
   try {
-    doc = parseTaud(bytes);
+    songs = await player.load(bytes);
   } catch (err) {
-    $("fileinfo").textContent = `parse error: ${err.message}`;
-    return;
-  }
-  if (doc.kind !== "taud") {
-    $("fileinfo").textContent = `.${doc.kind} loaded — only full .taud files are playable here`;
+    $("fileinfo").textContent = `${err.message}`;
     return;
   }
 
   const sel = $("song");
   sel.innerHTML = "";
-  doc.songs.forEach((song, i) => {
+  songs.forEach((song) => {
     const opt = document.createElement("option");
-    const sm = doc.meta.songMeta[i];
-    opt.value = i;
-    opt.textContent = `${i}: ${sm?.name || "song " + i} (${song.patterns.length} pats, ${song.bpm} BPM)`;
+    opt.value = song.index;
+    opt.textContent = `${song.index}: ${song.name} (${song.patterns} pats, ${song.bpm} BPM)`;
     sel.appendChild(opt);
   });
 
+  const info = player.info;
   $("fileinfo").textContent =
-    `${name} — ${doc.meta.projectName ?? "untitled"} · ${doc.songs.length} ${doc.songs.length === 1 ? "song" : "songs"} · ` +
-    `format v${doc.fmtVer} · ${doc.is64Channel ? 64 : 32}ch` +
-    (doc.ixmp.length ? ` · Ixmp on ${doc.ixmp.length} inst` : "");
+    `${name} — ${info.title ?? "untitled"} · ${info.songCount} ${info.songCount === 1 ? "song" : "songs"} · ` +
+    `format v${info.formatVersion} · ${info.channels}ch` +
+    (info.patchedInstruments ? ` · Ixmp on ${info.patchedInstruments} inst` : "");
   $("transport").hidden = false;
 
   await ensureAudio();
-  songIndex = 0;
-  audio.loadDocument(doc, songIndex);
   refreshBinaural();
 }
 
@@ -84,9 +84,9 @@ async function loadFile(file) {
  *  control appears with one. On by default, as in the editor — a fold cannot
  *  render height, and this player is where someone LISTENS to a spatial song. */
 function refreshBinaural() {
-  const surround = (doc?.songs[songIndex]?.surroundModel ?? 0) !== 0;
+  const surround = player.songs[player.songIndex]?.surround ?? false;
   $("binauralWrap").hidden = !surround;
-  audio.setMonitorMode(0, $("binaural").checked ? 1 : 0);
+  player.setBinaural($("binaural").checked);
 }
 $("binaural").addEventListener("change", () => refreshBinaural());
 
@@ -102,30 +102,19 @@ drop.addEventListener("drop", (e) => {
   if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
 });
 
-$("song").addEventListener("change", async (e) => {
-  songIndex = parseInt(e.target.value, 10);
-  audio.stop(0);
-  audio.loadDocument(doc, songIndex); // song switch re-uploads patterns/cues
-  refreshBinaural();                  // …and the next song may not be surround
+$("song").addEventListener("change", (e) => {
+  player.selectSong(parseInt(e.target.value, 10));
+  refreshBinaural(); // …and the next song may not be surround
 });
 
 $("play").addEventListener("click", async () => {
   await ensureAudio();
-  audio.resetSampleFxState(0);
-  audio.setCuePosition(0, 0);
-  audio.setTrackerRow(0, 0);
-  audio.play(0);
+  player.play();
 });
-$("stopBtn").addEventListener("click", () => audio.stop(0));
-$("prevCue").addEventListener("click", () => {
-  audio.setCuePosition(0, Math.max(0, audio.getCuePosition() - 1));
-  audio.setTrackerRow(0, 0);
-});
-$("nextCue").addEventListener("click", () => {
-  audio.setCuePosition(0, audio.getCuePosition() + 1);
-  audio.setTrackerRow(0, 0);
-});
-$("vol").addEventListener("input", (e) => audio.setMasterVolume(0, parseInt(e.target.value, 10)));
+$("stopBtn").addEventListener("click", () => player.stop());
+$("prevCue").addEventListener("click", () => player.seekCue(Math.max(0, player.cue - 1)));
+$("nextCue").addEventListener("click", () => player.seekCue(player.cue + 1));
+$("vol").addEventListener("input", (e) => player.setVolume(parseInt(e.target.value, 10) / 255));
 
 // ── meters ──
 const canvas = $("meters");
@@ -148,7 +137,7 @@ function drawMeters() {
   ctx.fillStyle = COL.bg;
   ctx.fillRect(0, 0, W, H);
 
-  const chans = audio.channelCount();
+  const chans = player.channelCount || 32;
   const colW = W / chans;
   const barW = Math.max(2, colW - 4);
   const meterH = H - 40;
@@ -160,7 +149,7 @@ function drawMeters() {
     // VU bar
     ctx.fillStyle = COL.barBg;
     ctx.fillRect(x, 10, barW, meterH);
-    const vol = audio.getVoiceActive(vi) ? audio.getVoiceEffectiveVolume(vi) : 0;
+    const vol = player.getVoiceVolume(vi);
     peaks[vi] = Math.max(peaks[vi] * 0.94, vol);
     const h = Math.round(vol * meterH);
     ctx.fillStyle = COL.bar;
@@ -171,7 +160,7 @@ function drawMeters() {
       ctx.fillRect(x, 10 + meterH - ph - 1, barW, 2);
     }
     // pan tick
-    const pan = audio.getVoiceEffectivePan(vi) / 255;
+    const pan = player.getVoicePan(vi);
     ctx.fillStyle = COL.pan;
     ctx.fillRect(x + pan * (barW - 3), H - 24, 3, 8);
     // channel number
@@ -179,10 +168,10 @@ function drawMeters() {
     ctx.fillText(String(vi + 1), x + barW / 2, H - 4);
   }
 
-  $("cue").textContent = "$" + audio.getCuePosition().toString(16).toUpperCase();
-  $("rowIdx").textContent = "$" + audio.getTrackerRow().toString(16).toUpperCase().padStart(2, "0");
-  $("bpm").textContent = audio.getBPM() || "—";
-  $("speed").textContent = audio.getTickRate() || "—";
+  $("cue").textContent = "$" + player.cue.toString(16).toUpperCase();
+  $("rowIdx").textContent = "$" + player.row.toString(16).toUpperCase().padStart(2, "0");
+  $("bpm").textContent = player.bpm || "—";
+  $("speed").textContent = player.speed || "—";
   requestAnimationFrame(drawMeters);
 }
 requestAnimationFrame(drawMeters);

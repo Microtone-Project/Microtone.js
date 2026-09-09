@@ -250,6 +250,11 @@ export class TrackerState {
     // for one. Independent of the strip's tap: different signal, different
     // question, and both are opt-in.
     this.masterMeter = null;
+    // Per-voice soundscope ring, ditto (item 179). The Kotlin device fills
+    // `Voice.scopeBuffer` unconditionally because a TSVM guest can read the
+    // scope window through MMIO whenever it likes; nothing here can, so the
+    // ring is filled only while a host has asked for it (setVoiceScopeTap).
+    this.scopeOn = false;
 
     // Song tuning as a playback-rate multiplier (item 77) — mirrored down from
     // the playhead by setTuning, like toneMode/interpolationMode are from the

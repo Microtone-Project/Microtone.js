@@ -64,16 +64,46 @@ function poolByte(eng, voice, inst, i, binMax, basePtr, ls, le) {
  */
 export function readSamplePoint(eng, voice, inst, idx, sampleLen, binMax,
                                 basePtr = voice.activeSamplePtr) {
+  // The plain fetch is taken HERE rather than inside the body below, so this
+  // function stays small enough for the JIT to inline it into a caller's tap
+  // loop — the sinc interpolator takes seven of these per output sample per
+  // channel, and inlining is most of what makes that affordable.
+  if (plainFetchOnly(voice, inst)) return poolPoint(eng, sampleLen, binMax, basePtr, idx);
+  return readModifiedSamplePoint(eng, voice, inst, idx, sampleLen, binMax, basePtr);
+}
+
+/**
+ * True when every read of this (voice, instrument) pair reduces to the plain
+ * pool fetch of spec §8.1 — no live sample modification, no crossfade tail left
+ * by the one before it, no invert-loop mask. `modOn` alone is not the guard,
+ * because a step that lands on the identity mapping (a jump that throws to
+ * zero) still has the PREVIOUS one to fade out of.
+ *
+ * It is a property of the PAIR, not of the index, so an interpolator can test
+ * it once and then read the pool directly for all of its taps.
+ */
+export function plainFetchOnly(voice, inst) {
+  return inst.invertMask === null &&
+    ((inst.modOp === MOD_OFF && inst.modOpExt === 0) || (!inst.modOn && voice.modXfade === 0));
+}
+
+/** The plain fetch alone: clamp to the sample, clamp to the pool, scale to
+ *  [-1,1] — exactly what readSamplePoint → poolByte compute when
+ *  `plainFetchOnly` holds, written small so it inlines. */
+export function poolPoint(eng, sampleLen, binMax, basePtr, idx) {
+  const hi = sampleLen - 1;
+  const i = idx < 0 ? 0 : idx > hi ? hi : idx;
+  const p = basePtr + i;
+  return (eng.sampleBin[p > binMax ? binMax : p] - 127.5) / 127.5;
+}
+
+/** readSamplePoint's slow half — reached only while a sample modification is
+ *  live, is fading out, or an invert-loop mask is installed. */
+function readModifiedSamplePoint(eng, voice, inst, idx, sampleLen, binMax, basePtr) {
   const i0 = Math.min(Math.max(idx, 0), sampleLen - 1);
   const ls = voice.activeSampleLoopStart;
   const le = voice.activeSampleLoopEnd;
   const extended = inst.modOpExt !== 0;
-  // Nothing live and nothing fading out: the plain fetch. `modOn` alone is not
-  // the guard, because a step that lands on the identity mapping (a jump that
-  // throws to zero) still has the PREVIOUS one to fade out of.
-  if ((inst.modOp === MOD_OFF && !extended) || (!inst.modOn && voice.modXfade === 0)) {
-    return (poolByte(eng, voice, inst, i0, binMax, basePtr, ls, le) - 127.5) / 127.5;
-  }
   const g = resolveModGeom(voice.modGeom, inst, ls, le, sampleLen);
   // The touch test is evaluated at the byte's ORIGINAL position — that is where
   // the region and its comb are defined — and it does not move under a step, so
@@ -146,10 +176,36 @@ function pcmTo15Bit(x) {
 function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, basePtr, st) {
   const i0 = Math.min(Math.max(Math.trunc(voice.samplePos), 0), sampleLen - 1);
   const frac = voice.samplePos - i0;
+  // Whether the reads reduce to the plain pool fetch is a property of the
+  // (voice, instrument) pair, not of the tap — so it is decided ONCE here and
+  // the tap loop below reads the pool straight out. Every branch this hoists
+  // used to be re-walked seven times per output sample per channel.
+  const plain = plainFetchOnly(voice, inst);
 
   switch (interpMode) {
     case INTERP_DEFAULT: {
       let acc = 0.0;
+      if (plain) {
+        // Interior kernel: when the whole 2·SINC_WIDTH+1 window sits inside
+        // both the sample and the pool, every clamp poolPoint would apply is
+        // the identity, so the taps become plain indexed loads off one base.
+        // That is the case for all but the first and last few frames of a
+        // sample, which is to say almost always.
+        const base = basePtr + i0;
+        if (i0 >= SINC_WIDTH && i0 + SINC_WIDTH <= sampleLen - 1 && base + SINC_WIDTH <= binMax) {
+          const bin = eng.sampleBin;
+          for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
+            const coeff = sincTap(frac, j);
+            if (coeff !== 0.0) acc += ((bin[base + j] - 127.5) / 127.5) * coeff;
+          }
+          return acc;
+        }
+        for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
+          const coeff = sincTap(frac, j);
+          if (coeff !== 0.0) acc += poolPoint(eng, sampleLen, binMax, basePtr, i0 + j) * coeff;
+        }
+        return acc;
+      }
       for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
         const coeff = sincTap(frac, j);
         if (coeff !== 0.0) acc += readSamplePoint(eng, voice, inst, i0 + j, sampleLen, binMax, basePtr) * coeff;
@@ -160,10 +216,14 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
       // SNES BRR 4-tap gaussian, with the hardware's partial overflow handling
       // preserved: of the three additions the 2nd WRAPS (the gauss "chirp") and
       // only the 3rd saturates (fullsnes §snesapudspbrrpitch).
-      const oldest = pcmTo15Bit(readSamplePoint(eng, voice, inst, i0 - 1, sampleLen, binMax, basePtr));
-      const olders = pcmTo15Bit(readSamplePoint(eng, voice, inst, i0, sampleLen, binMax, basePtr));
-      const olds = pcmTo15Bit(readSamplePoint(eng, voice, inst, i0 + 1, sampleLen, binMax, basePtr));
-      const news = pcmTo15Bit(readSamplePoint(eng, voice, inst, i0 + 2, sampleLen, binMax, basePtr));
+      const oldest = pcmTo15Bit(plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0 - 1)
+        : readSamplePoint(eng, voice, inst, i0 - 1, sampleLen, binMax, basePtr));
+      const olders = pcmTo15Bit(plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0)
+        : readSamplePoint(eng, voice, inst, i0, sampleLen, binMax, basePtr));
+      const olds = pcmTo15Bit(plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0 + 1)
+        : readSamplePoint(eng, voice, inst, i0 + 1, sampleLen, binMax, basePtr));
+      const news = pcmTo15Bit(plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0 + 2)
+        : readSamplePoint(eng, voice, inst, i0 + 2, sampleLen, binMax, basePtr));
       const offset = Math.min(Math.max(Math.trunc(frac * 256.0), 0), 255);
       let out = (SNES_GAUSS[0xff - offset] * oldest) >> 10;
       out += (SNES_GAUSS[0x1ff - offset] * olders) >> 10;   // 1st add: cannot overflow
@@ -175,7 +235,8 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
     }
     case INTERP_NES_DPCM: {
       // NES 2A03 DMC 1-bit sigma-delta simulation (±2 slew on a 7-bit counter).
-      const target = readSamplePoint(eng, voice, inst, i0, sampleLen, binMax, basePtr);
+      const target = plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0)
+        : readSamplePoint(eng, voice, inst, i0, sampleLen, binMax, basePtr);
       const targetLevel = Math.min(Math.max(Math.trunc((target + 1.0) * 63.5), 0), 127);
       if (targetLevel > st.nesDpcmCounter && st.nesDpcmCounter <= 125) {
         st.nesDpcmCounter += 2;
@@ -189,7 +250,8 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
     case INTERP_A1200:
     default:
       // Paula-style ZOH; aliasing removed by the post-mix Amiga LPFs.
-      return readSamplePoint(eng, voice, inst, i0, sampleLen, binMax, basePtr);
+      return plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0)
+        : readSamplePoint(eng, voice, inst, i0, sampleLen, binMax, basePtr);
   }
 }
 

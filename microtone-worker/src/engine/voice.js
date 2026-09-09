@@ -509,6 +509,14 @@ export class Voice {
 
     this.mem = new MemorySlots();
 
+    // Equal-energy pan-law memo (item 179). `advancePanRamp` returns a pan that
+    // is CONSTANT whenever the voice is not being moved — it lands exactly on
+    // its target and stays there — so the cosine and sine the law needs are
+    // computed on a change and reused on every sample in between. NaN so the
+    // first comparison always misses.
+    this.panLawPan = NaN;
+    this.panLawL = 0.0;
+    this.panLawR = 0.0;
     // Soundscope ring buffer (visualisation only).
     this.scopeBuffer = new Float32Array(SCOPE_BUFFER_SIZE);
     this.scopeWritePos = 0;

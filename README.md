@@ -26,12 +26,35 @@ npm run serve            # python3 -m http.server 8737
 #           http://localhost:8737/player.html (minimal player)
 ```
 
+## taudplay
+
+`src/taudplay/` is a standalone **player** library built out of the same engine:
+a transport, one fader per voice, and two probes per voice (current volume and
+pan), for pages and games that want to *play* a .taud rather than edit one.
+`player.html` is its reference consumer. Regenerate the separate LGPL-3.0 repo
+(and the committed single-file worklet the fallback path loads) with:
+
+```sh
+node tools/make-taudplay.js [outDir]   # default ../../../microtone-taudplay (a sibling checkout)
+```
+
+The engine there is a copy of this one, so **re-run it after any engine
+change** — otherwise the library and the tracker stop agreeing about what a
+song sounds like. Its own suite (`test/taudplay/`) travels with it and asserts
+exactly that.
+
 ## Testing
 
 Requires Node ≥ 22.
 
 ```sh
-node --test        # discovers test/node/*.test.js
+node --test        # discovers test/node/*.test.js and test/taudplay/*.test.js
+```
+
+Browser smoke pages under `test/browser/` are driven headlessly over CDP:
+
+```sh
+node tools/browser-smoke.js test/browser/taudplay-smoke.html
 ```
 
 Engine conformance is verified against PCM dumps rendered by the real JVM
@@ -49,6 +72,7 @@ node tools/compare-pcm.js out.pcm reference.pcm
 | `src/engine/` | Taud engine port (worklet- and Node-safe, no imports outside itself) |
 | `src/format/` | .taud/.tsii/.tpif parser + serialiser (gzip/zstd via `vendor/`) |
 | `src/worklet/` | AudioWorkletProcessor + message protocol |
+| `src/taudplay/` | the standalone player library (see above) |
 | `src/audio/` | main-thread audio system (context lifecycle, snapshots) |
 | `src/doc/` | canonical document model, invertible ops, undo, worklet sync |
 | `src/ui/` | tracker application (vanilla ES modules, canvas + DOM) |
@@ -56,7 +80,7 @@ node tools/compare-pcm.js out.pcm reference.pcm
 | `vendor/` | vendored single-file ESM deps (see `vendor/VENDOR-VERSIONS.md`) |
 | `test/corpus/` | .taud conformance/demo corpus (from the TSVM repo) |
 | `test/fixtures/` | file formats built rather than committed (the .ims/.bnk pair) |
-| `tools/` | Node CLIs: render, compare, inspect, worklet-bundle |
+| `tools/` | Node CLIs: render, compare, inspect, worklet-bundle, taudplay, browser tests |
 
 ## Provenance
 

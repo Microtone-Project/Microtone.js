@@ -135,8 +135,9 @@ export async function renderSongAsync(eng, seconds, { onProgress = null, signal 
 }
 
 /** Encode a rendered f32 mix bus (engine rate) as a 16-bit stereo WAV at
- *  `outRate`; the 48 kHz default needs no resampling at all (item 108). */
-function encodeWav(f32, outRate) {
+ *  `outRate`; the 48 kHz default needs no resampling at all (item 108).
+ *  Exported for taudplay (item 179), whose renderer writes the same files. */
+export function encodeWav(f32, outRate = 48000) {
   const pcm = resampleInterleaved(f32, 2, SAMPLING_RATE, outRate);
   const numSamples = pcm.length; // interleaved stereo samples
   const dataBytes = numSamples * 2;

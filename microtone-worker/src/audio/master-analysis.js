@@ -246,8 +246,14 @@ export async function analyseSongAsync(docLike, songIndex, maxSeconds, {
 }
 
 /**
- * What output gain would put the render's true peak exactly at `targetDb`
- * dBTP — the arithmetic behind the "set gain for −1 dBTP" button.
+ * What gain would put the render's true peak exactly at `targetDb` dBTP — the
+ * arithmetic behind the "set make-up for −1 dBTP" button.
+ *
+ * `atGainDb` is the gain THIS ANALYSIS WAS RENDERED AT, not whatever is set
+ * now. That distinction is the whole contract: the answer is then an absolute
+ * value derived from the measurement alone, so applying it twice is applying it
+ * once. Hand it the live value instead and every click adds the same distance
+ * again.
  *
  * It is deliberately an arithmetic answer to an arithmetic question, offered as
  * a number the user then applies: nothing here decides that −1 dBTP is the
@@ -255,17 +261,17 @@ export async function analyseSongAsync(docLike, songIndex, maxSeconds, {
  *
  * Returns null when the render was silent (nothing to measure against).
  */
-export function gainForTruePeak(analysis, targetDb, currentGainDb = 0) {
+export function gainForTruePeak(analysis, targetDb, atGainDb = 0) {
   const peak = analysis.post.truePeakDb;
   if (!Number.isFinite(peak) || peak <= -144) return null;
-  return currentGainDb + (targetDb - peak);
+  return atGainDb + (targetDb - peak);
 }
 
 /** …and the same for a loudness target, in LUFS. */
-export function gainForLoudness(analysis, targetLufs, currentGainDb = 0) {
+export function gainForLoudness(analysis, targetLufs, atGainDb = 0) {
   const i = analysis.post.integratedLufs;
   if (!Number.isFinite(i)) return null;
-  return currentGainDb + (targetLufs - i);
+  return atGainDb + (targetLufs - i);
 }
 
 /**
