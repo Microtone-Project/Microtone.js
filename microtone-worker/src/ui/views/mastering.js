@@ -138,6 +138,12 @@ export class MasteringView {
     this._wasPlaying = false;
     /** The last offline analysis, and the state of a running one. */
     this.analysis = null;
+    /** The chain the analysis was rendered THROUGH. Every measure-and-set
+     *  answer is "move this control by the distance between what I measured and
+     *  what you asked for" — which is only true while the control still holds
+     *  what it held during the render. Comparing against this is what stops a
+     *  second click adding the same distance a second time. */
+    this.analysisParams = null;
     this.analysing = false;
     this.analysisProgress = 0;
     this.analysisAbort = null;
@@ -182,7 +188,11 @@ export class MasteringView {
       // Undo/redo of a mastering edit has to move the controls back. Values
       // only — REBUILDING here would tear the DOM out from under whatever
       // slider is being dragged, since a drag is a stream of edits.
-      if (this.visible && tags?.some((x) => x.kind === "mastering")) this.refreshValues();
+      if (this.visible && tags?.some((x) => x.kind === "mastering")) {
+        this.refreshValues();
+        // …and the offline figures may no longer describe the chain.
+        this.refreshOffline();
+      }
     });
   }
 
@@ -690,9 +700,46 @@ export class MasteringView {
     const box = this.scope("mst.levels", { note: "mst.levelsNote" });
     this.levelCanvas = document.createElement("canvas");
     this.levelCanvas.className = "mst-canvas mst-levels";
+    // Clicking a lit over-scale tip acknowledges it. The latch is a claim about
+    // the take ("this clipped"), so the way to put it out is to say you have
+    // seen it — the alternative, waiting for the next take, means a clip you
+    // have already fixed keeps accusing you.
+    //
+    // One click clears EVERY channel, and both sides of the chain, rather than
+    // the band under the pointer: the gesture means "noted", and having to
+    // chase each lit band separately — or find a fifth one waiting behind the
+    // pre/post switch — would make an acknowledgement feel like a chore.
+    this.levelCanvas.addEventListener("click", (e) => {
+      if (this.tipAt(e) < 0) return;
+      this.clipLatched.fill(false);
+      this.clipUntil.fill(0);
+    });
+    this.levelCanvas.addEventListener("pointermove", (e) => {
+      this.levelCanvas.style.cursor = this.tipAt(e) >= 0 ? "pointer" : "";
+    });
+    this.levelCanvas.addEventListener("pointerleave", () => {
+      this.levelCanvas.style.cursor = "";
+    });
     box.body.append(this.levelCanvas);
     this.levelBox = box;
     return box;
+  }
+
+  /** Which channel's LIT over-scale tip a pointer event is over, or −1. The
+   *  geometry has to agree with drawLevels, so both read it from here. */
+  tipAt(e) {
+    const geom = this.levelGeom;
+    if (!geom) return -1;
+    const r = this.levelCanvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    if (x < geom.tipX || x > geom.right) return -1;
+    for (let c = 0; c < 2; c++) {
+      const i = this.stage * 2 + c;
+      const top = geom.top + c * (geom.barH + 3);
+      if (this.clipLatched[i] && y >= top && y <= top + geom.barH) return i;
+    }
+    return -1;
   }
 
   scopeReduction() {
@@ -813,11 +860,13 @@ export class MasteringView {
     const lu = mkTarget("mst.targetLufs", -14, 0.5, -40, 0);
     const inTrim = mkTarget("mst.targetTrim", -18, 0.5, -40, 0);
 
-    const row = (target, btnKey, titleKey, run) => {
+    const row = (target, btnKey, titleKey, needs, run) => {
       const line = document.createElement("div");
       line.className = "mst-autorow";
       const b = document.createElement("button");
       b.textContent = t(btnKey);
+      b.dataset.needs = needs;
+      b.dataset.help = titleKey;
       b.title = t(titleKey);
       b.addEventListener("click", () => run(parseFloat(target.inp.value)));
       line.append(target.lab, b);
@@ -826,9 +875,9 @@ export class MasteringView {
     };
     this.autoButtons = [];
     auto.append(
-      row(tp, "mst.setGain", "mst.setGainTitle", (v) => this.applyGainForTruePeak(v)),
-      row(lu, "mst.setGainLufs", "mst.setGainLufsTitle", (v) => this.applyGainForLoudness(v)),
-      row(inTrim, "mst.setTrim", "mst.setTrimTitle", (v) => this.applyTrimForLoudness(v)),
+      row(tp, "mst.setGain", "mst.setGainTitle", "post", (v) => this.applyMakeupForTruePeak(v)),
+      row(lu, "mst.setGainLufs", "mst.setGainLufsTitle", "post", (v) => this.applyMakeupForLoudness(v)),
+      row(inTrim, "mst.setTrim", "mst.setTrimTitle", "pre", (v) => this.applyTrimForLoudness(v)),
     );
 
     box.body.append(bar, this.summaryEl, pick, this.plotCanvas, auto);
@@ -845,6 +894,7 @@ export class MasteringView {
     this.analysisAbort = new AbortController();
     this.refreshOffline();
     try {
+      this.analysisParams = cloneMastering(this.params);
       this.analysis = await analyseSongAsync(
         doc.toRenderable(this.store.songIndex), this.store.songIndex, this.analysisCap, {
           onProgress: (f) => { this.analysisProgress = f; this.refreshOffline(); },
@@ -867,9 +917,25 @@ export class MasteringView {
   clearAnalysis() {
     this.analysisAbort?.abort();
     this.analysis = null;
+    this.analysisParams = null;
     this.analysisProgress = 0;
     this._plotW = -1;
     if (this.runBtn) this.refreshOffline();
+  }
+
+  /**
+   * Does the analysis still describe the chain that is set up now?
+   *
+   * Every POST figure was measured through the chain as it stood during the
+   * render, so any edit at all — including one a measure-and-set button just
+   * made — leaves those numbers describing something else. The chain is not
+   * linear either (a compressor and a limiter both bite), so there is no
+   * correcting for it arithmetically: the honest move is to say so and ask for
+   * another pass.
+   */
+  get stale() {
+    return this.analysis !== null && this.analysisParams !== null &&
+      !masteringEqual(this.analysisParams, this.params);
   }
 
   refreshOffline() {
@@ -879,7 +945,20 @@ export class MasteringView {
       ? `${Math.round(this.analysisProgress * 100)}%`
       : (this.analysis ? t("mst.analysedFor", { s: this.analysis.seconds.toFixed(1) }) : "");
     const a = this.analysis;
-    for (const b of this.autoButtons ?? []) b.disabled = !a || this.analysing;
+    const stale = this.stale;
+    const compOff = !this.params.compOn;
+    for (const b of this.autoButtons ?? []) {
+      // The two POST buttons need a fresh analysis AND a compressor to write
+      // into; the PRE one (the input trim) needs neither, because the pre tap
+      // sits upstream of the whole chain and no chain edit can invalidate it.
+      const needsPost = b.dataset.needs === "post";
+      b.disabled = !a || this.analysing ||
+        (needsPost && (stale || compOff));
+      b.title = t(!a ? "mst.needAnalysis"
+        : needsPost && stale ? "mst.needReanalysis"
+        : needsPost && compOff ? "mst.needComp"
+        : b.dataset.help);
+    }
     if (!a) { this.summaryEl.textContent = ""; return; }
     const g = (side) => a[side];
     const line = (key, side) => {
@@ -892,6 +971,12 @@ export class MasteringView {
     for (const [key, side] of [["mst.pre", "pre"], ["mst.post", "post"]]) {
       const p = document.createElement("div");
       p.textContent = line(key, side);
+      this.summaryEl.appendChild(p);
+    }
+    if (stale) {
+      const p = document.createElement("div");
+      p.className = "mst-warn";
+      p.textContent = t("mst.stale");
       this.summaryEl.appendChild(p);
     }
     if (a.aborted) {
@@ -907,17 +992,30 @@ export class MasteringView {
     }
   }
 
-  applyGainForTruePeak(target) {
-    const v = gainForTruePeak(this.analysis, target, this.params.outGainDb);
+  /**
+   * The two POST helpers write the COMPRESSOR's make-up, not the output gain.
+   *
+   * Make-up is where a master's level is found in practice — it drives the
+   * limiter, which is what holds the ceiling — while the output gain is the
+   * last thing in the chain and belongs to the composer's own hand. Because
+   * make-up sits UPSTREAM of the compressor's own curve and of the limiter, one
+   * click is one step of an iteration rather than a closed form: the analysis
+   * goes stale the moment it lands, and the button asks for another pass rather
+   * than adding the same distance again (which is what used to happen).
+   */
+  applyMakeupForTruePeak(target) {
+    if (this.stale || !this.params.compOn) return;
+    const v = gainForTruePeak(this.analysis, target, this.params.compMakeupDb);
     if (v === null) return;
-    this.edit((p) => { p.on = true; p.outGainDb = v; });
+    this.edit((p) => { p.on = true; p.compMakeupDb = v; });
     this.refreshValues();
   }
 
-  applyGainForLoudness(target) {
-    const v = gainForLoudness(this.analysis, target, this.params.outGainDb);
+  applyMakeupForLoudness(target) {
+    if (this.stale || !this.params.compOn) return;
+    const v = gainForLoudness(this.analysis, target, this.params.compMakeupDb);
     if (v === null) return;
-    this.edit((p) => { p.on = true; p.outGainDb = v; });
+    this.edit((p) => { p.on = true; p.compMakeupDb = v; });
     this.refreshValues();
   }
 
@@ -1096,6 +1194,8 @@ export class MasteringView {
       // clipped" and stays, because a clip thirty seconds ago is still in the
       // file. Both are cleared when the transport starts a fresh take.
       const zero = 22 + meterFrac(0) * span;
+      // Published for tipAt, so the click target and the paint cannot drift.
+      this.levelGeom = { top, barH, tipX: zero, right: 22 + span };
       if (this.clipLatched[i]) {
         ctx.fillStyle = C.errFg;
         ctx.fillRect(zero, y, 22 + span - zero, barH);

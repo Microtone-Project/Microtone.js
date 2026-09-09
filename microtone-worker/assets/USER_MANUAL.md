@@ -1411,7 +1411,7 @@ levels, the crest and the bit usage are all untouched by it.
 ### The instruments
 
 - **Loudness** — ITU-R BS.1770 / EBU R 128. **M** is the 400 ms momentary reading, **S** the 3 s short-term one, **I** the gated integrated loudness of the current playback (it restarts with the transport). **LRA** is the loudness range in LU: how far the quiet and loud passages sit apart. **PLR** is the headroom the peaks keep above the integrated level, and it falls as a master is squashed. The bar draws the short-term reading with the momentary one as a bright tick over it.
-- **Levels** — bars are RMS, the blue line is the true peak, the amber line is its falling hold. Two clip indicators, and they answer different questions: the **channel letter lights up** while clipping is actually happening and goes out again a moment later, and the **red tip past 0 dBFS** latches — once this take has clipped at all it stays lit until the transport starts another, because a clip thirty seconds ago is still in the file.
+- **Levels** — bars are RMS, the blue line is the true peak, the amber line is its falling hold. Two clip indicators, and they answer different questions: the **channel letter lights up** while clipping is actually happening and goes out again a moment later, and the **red tip past 0 dBFS** latches — once this take has clipped at all it stays lit until the transport starts another, because a clip thirty seconds ago is still in the file. **Click a lit red tip to clear it**, once you have seen it and dealt with it. One click clears every channel, and both sides of the chain — the gesture means "noted", not "noted, on this one bar".
 - **Gain reduction** — how hard the compressor and the limiter are working. The bars grow leftward, because they are eating into the signal.
 - **Bit usage** — which output codes the delivered file actually touches. A mix that peaks 12 dB down throws two of its bits away before any dither gets a say, and shows up here as a narrow spike instead of a spread. The centre line is digital silence. **Effective bits** is the span the signal swings over; **entropy bits** is how many bits the distribution is really carrying, and is always the smaller of the two.
   - The chooser in the panel's header picks **which delivery you mean**. *16-bit · WAV export* is the default and describes the stereo WAV: that export takes the mix bus straight to 16 bits and never touches the 8-bit stage at all. *8-bit · Taud device* describes what a conforming player delivers instead, dither and all — and at that depth the census is taken from the dithered output itself rather than by re-quantising the bus, because at eight bits the dither is most of the point.
@@ -1442,13 +1442,31 @@ described that music, not this.
 
 Three buttons under the plot read the analysis and write one number each:
 
-- **Set gain from peak** — moves the output gain so the render's true peak lands on your target in dBTP.
-- **Set gain from loudness** — moves the output gain so the integrated loudness lands on your target in LUFS.
+- **Set make-up from peak** — moves the compressor's make-up so the render's true peak lands on your target in dBTP.
+- **Set make-up from loudness** — moves the compressor's make-up so the integrated loudness lands on your target in LUFS.
 - **Set input trim** — moves the input trim so the mix reaches the EQ and the compressor at the target loudness. This is how one threshold setting comes to mean the same thing on every song.
 
 They are arithmetic, not advice: each one reads a measurement, does a
 subtraction, and lands as an ordinary undoable edit you can see and change.
 Nothing here decides whether the target was right for the song.
+
+**Why make-up and not the output gain.** Make-up is where a master's level is
+actually found: it drives the limiter, which is what holds the ceiling. The
+output gain is the last thing in the chain and stays yours — nothing writes it
+for you.
+
+**One click is one step.** Make-up sits before the compressor's own curve and
+before the limiter, so moving it does not move the master by its own decibels —
+the limiter eats some of it, and how much depends on the music. So the analysis
+goes stale the moment a button lands, the panel says so, and the two make-up
+buttons switch off until you run it again. That is deliberate: clicking a second
+time on a measurement of the old chain would just add the same distance twice
+over. Analyse, set, analyse again.
+
+The **Set input trim** button is not affected, and stays available: the pre
+reading it works from sits upstream of the whole chain, so no chain edit can
+invalidate it. The make-up buttons also need the compressor to be switched on —
+writing make-up into a bypassed stage would do nothing.
 
 ### What the chain reaches
 

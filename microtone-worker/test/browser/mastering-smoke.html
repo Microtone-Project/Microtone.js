@@ -157,16 +157,48 @@ function painted(cv) {
     String(view.analysis?.post.shortTermLufs.length));
   check(painted(view.plotCanvas) || view.plotCanvas.clientWidth === 0,
     "the plot painted");
-  const beforeGain = store.doc.mastering(0).outGainDb;
-  view.applyGainForTruePeak(-1);
+  // Measure-and-set writes the COMPRESSOR's make-up, and only with the
+  // compressor in circuit; the output gain is left to the composer.
+  // The limiter comes OUT for this leg: with it in, the peak is pinned at the
+  // ceiling whatever the make-up does, which is correct and untestable.
+  view.edit((p) => {
+    p.on = true; p.compOn = true; p.compRatio = 2; p.compThreshDb = -24; p.limOn = false;
+  }, null);
+  view.rebuild();
+  await view.runAnalysis();
+  const gainBefore = store.doc.mastering(0).outGainDb;
+  const before = store.doc.mastering(0).compMakeupDb;
+  view.applyMakeupForTruePeak(-1);
   await sleep(60);
-  const afterGain = store.doc.mastering(0).outGainDb;
-  check(afterGain !== beforeGain, "the measure-and-set button moved the output gain",
-    `${beforeGain} → ${afterGain}`);
+  const after = store.doc.mastering(0).compMakeupDb;
+  check(after !== before, "the measure-and-set button moved the compressor's make-up",
+    `${before} → ${after}`);
+  check(store.doc.mastering(0).outGainDb === gainBefore,
+    "…and left the output gain alone", String(store.doc.mastering(0).outGainDb));
   const check2 = await analyseSongAsync(store.doc.toRenderable(0), 0, 12);
-  check(Math.abs(check2.post.truePeakDb - (-1)) < 0.35,
+  check(Math.abs(check2.post.truePeakDb - (-1)) < 0.5,
     "…and the render now lands on the target",
     `${check2.post.truePeakDb.toFixed(3)} dBTP`);
+
+  // …and it CANNOT be clicked again on the same measurement, which is what used
+  // to compound the value on every click.
+  check(view.stale, "the edit left the analysis stale");
+  // The view's own three action buttons — NOT every button under .mst-auto,
+  // which also holds each number field's step-group arrows (item 156).
+  const autoBtns = view.autoButtons;
+  check(autoBtns[0].disabled && autoBtns[1].disabled,
+    "…so both make-up buttons are refused until it is re-run",
+    autoBtns.map((b) => (b.disabled ? "off" : "on")).join(","));
+  check(!autoBtns[2].disabled,
+    "…but the input trim still works: the pre tap is upstream of the whole chain");
+  const held = store.doc.mastering(0).compMakeupDb;
+  view.applyMakeupForTruePeak(-1);
+  await sleep(60);
+  check(store.doc.mastering(0).compMakeupDb === held,
+    "a second click on a stale analysis changes nothing",
+    `${held} → ${store.doc.mastering(0).compMakeupDb}`);
+  check(/changed since this analysis/.test(view.summaryEl.textContent),
+    "…and the panel says why");
 
   // ── 7. the spectral distribution, and clearing on a document change ──────
   const bands = view.analysis.post.bandCount;
@@ -206,6 +238,28 @@ function painted(cv) {
   await sleep(400);
   check(view.clipLatched.some(Boolean),
     "…and it stays lit after the take ends, not just while it is over");
+  // Clicking a lit tip acknowledges it. Hit-test through the same geometry the
+  // paint publishes, so the click target cannot drift from the red band.
+  const litIdx = view.clipLatched.findIndex((v, k) => v && (k >> 1) === view.stage);
+  const g = view.levelGeom;
+  const cr = view.levelCanvas.getBoundingClientRect();
+  const cy = cr.top + g.top + (litIdx % 2) * (g.barH + 3) + g.barH / 2;
+  const cx = cr.left + (g.tipX + g.right) / 2;
+  check(view.tipAt({ clientX: cx, clientY: cy }) === litIdx,
+    "the red band hit-tests to its own channel", `${view.tipAt({ clientX: cx, clientY: cy })}`);
+  view.levelCanvas.dispatchEvent(new win.MouseEvent("click",
+    { clientX: cx, clientY: cy, bubbles: true }));
+  await sleep(80);
+  check(!view.clipLatched.some(Boolean),
+    "clicking the red band clears EVERY channel, not just the one clicked",
+    view.clipLatched.map((v) => (v ? "1" : "0")).join(""));
+  // …and a click that misses every lit band does nothing.
+  view.clipLatched[litIdx] = true;
+  view.levelCanvas.dispatchEvent(new win.MouseEvent("click",
+    { clientX: cr.left + 2, clientY: cy, bubbles: true }));
+  await sleep(80);
+  check(view.clipLatched[litIdx], "…and a click away from the band leaves it alone");
+  view.clipLatched.fill(false);
   // A fresh take is what clears it.
   doc.getElementById("playSong")?.click();
   await sleep(300);
