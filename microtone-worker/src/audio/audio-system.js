@@ -23,6 +23,13 @@ import {
   SNAP_METER_BASE, SNAP_METER_STRIDE,
   SNAP_M_PEAK, SNAP_M_TRUE_PEAK, SNAP_M_MEAN_SQUARE, SNAP_M_CLIP,
   SNAP_SCOPE_BASE,
+  SNAP_MM_FRAMES, SNAP_MM_COMP_GR, SNAP_MM_LIM_GR, SNAP_MM_HIST_TOTAL,
+  SNAP_MM_BASE, SNAP_MM_SUM_Z, SNAP_MM_CH, SNAP_MM_C_PEAK, SNAP_MM_C_TRUE_PEAK,
+  SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
+  SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
+  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
+  SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
+  SNAP_MM_HIST_ENTROPY,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -30,6 +37,7 @@ import {
 } from "../engine/constants.js";
 import { AR_SAB_BYTES } from "./audio-ring.js";
 import { ANALYSIS_OFF, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
+import { DEFAULT_BIT_DEPTH } from "../engine/loudness.js";
 
 const WORKLET_MODULE = new URL("../worklet/taud-processor.js", import.meta.url);
 const WORKLET_BUNDLE = new URL("../worklet/taud-processor.bundle.js", import.meta.url);
@@ -61,6 +69,8 @@ export class AudioSystem {
     this.wideCells = false; // format v3's 16-byte cell (set by loadDocument)
     this.monitorMode = 0;   // #998.3 fold/binaural — re-sent on every song load
     this.analysisTarget = ANALYSIS_OFF; // item 98 master-strip tap; the strip owns it
+    this.masterMeterOn = false; // item 178 Mastering-view tap; that view owns it
+    this.masterMeterDepth = DEFAULT_BIT_DEPTH; // …and which output its census describes
     this.profile = null;    // latest worklet profiler report (opt-in; null when off)
     this.onProfile = null;  // optional callback(profile) when a report arrives
   }
@@ -263,6 +273,14 @@ export class AudioSystem {
     this.setSongGlobalVolume(0, song.globalVolume);
     this.setSongMixingVolume(0, song.mixingVolume);
     this.setMasterVolume(0, 255);
+    // The song's mastering chain (item 178) — one of the three Project-Data
+    // sections a player has to honour, so it is pushed on every load whether
+    // the file declares one or not: the reset above left the chain neutral, and
+    // a song that declares none is meant to stay that way.
+    this.setMastering(0, song.mastering ?? null);
+    // …and the Mastering view's tap survives a context rebuild the way the
+    // monitor mode does.
+    if (this.masterMeterOn) this.setMasterMeter(0, true, this.masterMeterDepth);
 
     for (const entry of doc.ixmp) {
       const bytes = entry.blob.slice().buffer;
@@ -298,6 +316,21 @@ export class AudioSystem {
   setAnalysis(ph, target) {
     if (ph === 0) this.analysisTarget = target;
     this._post({ t: CMD.SET_ANALYSIS, ph, target });
+  }
+  /**
+   * Item 178: install the song's mastering chain. `params` may be null (a song
+   * with no `sMst` section), which installs the neutral chain — and a neutral
+   * chain is not merely transparent, it is skipped entirely.
+   */
+  setMastering(ph, params) { this._post({ t: CMD.SET_MASTERING, ph, params }); }
+  /** Item 178: install (or drop) the Mastering view's own metering tap. Costs
+   *  nothing while off, so the view turns it off the moment it is hidden. */
+  setMasterMeter(ph, on, bitDepth = undefined) {
+    if (ph === 0) {
+      this.masterMeterOn = !!on;
+      if (bitDepth !== undefined) this.masterMeterDepth = bitDepth;
+    }
+    this._post({ t: CMD.SET_MASTER_METER, ph, on: !!on, bitDepth: this.masterMeterDepth });
   }
   resetParams(ph = 0) { this._post({ t: CMD.RESET_PARAMS, ph }); }
   resetSampleFxState(ph = 0) { this._post({ t: CMD.RESET_SAMPLE_FX_STATE, ph }); }
@@ -460,5 +493,52 @@ export class AudioSystem {
    *  be part way through rewriting it, which costs a scope trace at worst. */
   scopeRing() {
     return this.snapshot.subarray(SNAP_SCOPE_BASE, SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS);
+  }
+
+  /**
+   * Item 178: drain the Mastering view's metering block. Both stages every
+   * time — the chain's input and its output — so the view's pre/post toggle
+   * costs nothing and the two readings describe the same moment.
+   * `frames` is 0 while the tap is off.
+   */
+  readMasterMeter(out) {
+    const f = this.snapshot;
+    out.frames = f[SNAP_MM_FRAMES];
+    out.compGrDb = f[SNAP_MM_COMP_GR];
+    out.limGrDb = f[SNAP_MM_LIM_GR];
+    out.histTotal = f[SNAP_MM_HIST_TOTAL];
+    out.specWrite = f[SNAP_MM_SPEC_WRITE] | 0;
+    out.histDepth = f[SNAP_MM_HIST_DEPTH] | 0;
+    out.histUsed = f[SNAP_MM_HIST_USED];
+    out.histMin = f[SNAP_MM_HIST_MIN] | 0;
+    out.histMax = f[SNAP_MM_HIST_MAX] | 0;
+    out.histEntropy = f[SNAP_MM_HIST_ENTROPY];
+    for (let s = 0; s < SNAP_MM_STAGES; s++) {
+      const o = SNAP_MM_BASE + s * SNAP_MM_STAGE_STRIDE;
+      out.sumZ[s] = f[o + SNAP_MM_SUM_Z];
+      for (let c = 0; c < 2; c++) {
+        const co = o + SNAP_MM_CH + c * SNAP_MM_C_STRIDE;
+        const i = s * 2 + c;
+        out.peak[i] = f[co + SNAP_MM_C_PEAK];
+        out.truePeak[i] = f[co + SNAP_MM_C_TRUE_PEAK];
+        out.meanSquare[i] = f[co + SNAP_MM_C_MEAN_SQUARE];
+        out.clip[i] = f[co + SNAP_MM_C_CLIP];
+      }
+    }
+    return out;
+  }
+
+  /** The delivered 8-bit code histogram, as fractions of readMasterMeter()'s
+   *  `histTotal`. A live view into the snapshot, like scopeRing(). */
+  bitHistogram() {
+    return this.snapshot.subarray(SNAP_HIST_BASE, SNAP_HIST_BASE + SNAP_HIST_BINS);
+  }
+
+  /** One stage's mono spectrum ring (0 = into the chain, 1 = the master), a
+   *  power-of-two ring read backwards from readMasterMeter().specWrite. A live
+   *  view into the snapshot, like scopeRing(). */
+  masterSpectrumRing(stage) {
+    const o = SNAP_SPEC_BASE + (stage & 1) * SNAP_SPEC_FRAMES;
+    return this.snapshot.subarray(o, o + SNAP_SPEC_FRAMES);
   }
 }

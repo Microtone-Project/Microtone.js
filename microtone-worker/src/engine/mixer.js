@@ -25,6 +25,7 @@ import {
   spatialVoiceGains, analysisVoiceGains, voiceAzimuth, voicePanByte,
 } from "./spatial.js";
 import { applyTrackerRow, advanceRow } from "./row.js";
+import { TAP_PRE, TAP_POST } from "./loudness.js";
 import { applyTrackerTick, advanceSampleModExtended } from "./tick.js";
 
 const fround = Math.fround;
@@ -395,18 +396,49 @@ export function generateTrackerAudio(eng, playhead, out) {
       }
     }
 
-    // Double → Float32 (like Kotlin .toFloat()), then clamp in float space.
-    const fl = fround(mixL);
-    const fr = fround(mixR);
-    ts.mixLeft[n] = fl < -1.0 ? -1.0 : fl > 1.0 ? 1.0 : fl;
-    ts.mixRight[n] = fr < -1.0 ? -1.0 : fr > 1.0 ? 1.0 : fr;
+    // Double → Float32 (like Kotlin .toFloat()). The clamp that used to sit
+    // here now runs below, after the mastering chain — clamping first would
+    // hand the limiter a signal whose peaks had already been destroyed. With
+    // no chain installed the two forms are identical: `fl` is stored to a
+    // Float32Array either way, so the clamp reads back exactly the value it
+    // used to compare.
+    ts.mixLeft[n] = fround(mixL);
+    ts.mixRight[n] = fround(mixR);
+  }
+
+  // ── Output stage (TAUD_ENGINE_SPEC.md §12) ──
+  // Mastering (item 178) acts here: after the mix has narrowed to binary32 and
+  // before it is clamped and dithered. `master` is null unless the song's own
+  // `sMst` chain would actually change a sample.
+  const master = ts.mastering;
+  const meter = ts.masterMeter;
+  // The meter reads the same buffer twice — once now, once after the chain —
+  // so the "pre" figures cost no copy of the mix.
+  if (meter !== null) meter.push(TAP_PRE, ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
+  if (master !== null) master.process(ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
+  for (let n = 0; n < TRACKER_CHUNK; n++) {
+    const fl = ts.mixLeft[n];
+    const fr = ts.mixRight[n];
+    if (fl < -1.0) ts.mixLeft[n] = -1.0; else if (fl > 1.0) ts.mixLeft[n] = 1.0;
+    if (fr < -1.0) ts.mixRight[n] = -1.0; else if (fr > 1.0) ts.mixRight[n] = 1.0;
   }
 
   // Meters/scopes read the FINISHED pair (post fold/binaural, post Amiga
-  // filter, post clamp) and, for a surround target, the analysis bus above.
+  // filter, post mastering, post clamp) and, for a surround target, the
+  // analysis bus above.
   if (analysis !== null) analysis.finish(TRACKER_CHUNK, ts.mixLeft, ts.mixRight);
+  if (meter !== null) {
+    meter.push(TAP_POST, ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
+    meter.compGrDb = master === null ? 0 : master.compGrDb;
+    meter.limGrDb = master === null ? 0 : master.limGrDb;
+  }
 
   pcm32fToPcm8(eng, ts.mixLeft, ts.mixRight, TRACKER_CHUNK, out);
+  // Bit usage is a question about the DELIVERED codes, and which those are
+  // depends on what the file is going to be — the device's dithered 8-bit
+  // output, or the 16 bits a stereo WAV export writes off this same float bus.
+  // The tap is given both and bins whichever its depth names.
+  if (meter !== null) meter.binOutput(out, ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
 
   // A halt cue (row.js) clears isPlaying mid-chunk — the transport's OTHER
   // stop, bypassing TaudEngine.stop and its silencing. The rest of THIS chunk

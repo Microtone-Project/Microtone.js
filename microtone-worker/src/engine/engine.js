@@ -326,6 +326,15 @@ export class TaudEngine {
       v.volEnvOn = true; v.panEnvOn = true; v.pitchEnvOn = true; v.filterEnvOn = true;
     }
     ts.backgroundVoices.length = 0; // drop lingering NNA ghosts from a prior play
+    // The mastering chain (item 178) is per-PLAY transient in exactly the sense
+    // the ghost pool is: a compressor still holding six decibels of reduction
+    // from before the seek, and a look-ahead buffer still holding two
+    // milliseconds of the previous playback, both bleed the old take into the
+    // new one. Its PARAMETERS are the song's and are left alone, like the tempo.
+    ts.mastering?.reset();
+    // …and the meter's integration describes one playback, so it starts again
+    // with it — including the bit histogram, which is cumulative by design.
+    ts.masterMeter?.resetAll();
     // Re-arm any Pattern-Ditto (effect 7) region that a mid-pattern start lands
     // inside, so a ghosted (repeated) row sounds when you play from it (item 81).
     reconstructDittoState(this, ts, ts.rowIndex);
@@ -381,6 +390,26 @@ export class TaudEngine {
    */
   setAnalysis(ph, target) { this.playheads[ph].trackerState.setAnalysis(target); }
   getAnalysis(ph) { return this.playheads[ph].trackerState.analysisTarget; }
+
+  /**
+   * The song's mastering chain (item 178, TAUD_ENGINE_SPEC.md §12.1). `params`
+   * is the decoded `sMst` record; a neutral one costs nothing at all, so this
+   * is safe to push on every load whether the song declares a chain or not.
+   *
+   * A conforming player MUST call this with what the file declares — the
+   * chain is part of how the song sounds, not an editor preference.
+   */
+  setMastering(ph, params) { this.playheads[ph].trackerState.setMastering(params); }
+  getMastering(ph) { return this.playheads[ph].trackerState.masteringParams; }
+
+  /**
+   * Install (or drop) the Mastering view's metering tap (loudness.js). Like the
+   * strip's analysis tap this costs nothing while off, so a host turns it on
+   * only while the view that reads it is on screen.
+   */
+  setMasterMeter(ph, on, scramble = false, bitDepth = undefined) {
+    this.playheads[ph].trackerState.setMasterMeter(on, scramble, bitDepth);
+  }
 
   setSongGlobalVolume(ph, volume) { this.playheads[ph].globalVolume = volume & 255; }
   getSongGlobalVolume(ph) { return this.playheads[ph].globalVolume; }

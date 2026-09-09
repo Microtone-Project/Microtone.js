@@ -39,6 +39,10 @@ export function loadIntoEngine(eng, doc, songIndex = 0) {
   eng.setSongGlobalVolume(0, song.globalVolume);
   eng.setSongMixingVolume(0, song.mixingVolume);
   eng.setMasterVolume(0, 255);
+  // The song's mastering chain (item 178). An exported file is exactly what a
+  // conforming player would produce, so the chain belongs on every render path,
+  // not only on the one the editor listens to.
+  eng.setMastering(0, song.mastering ?? doc.meta?.mastering?.[songIndex] ?? null);
 
   for (const entry of doc.ixmp) eng.uploadInstrumentPatches(entry.instId, entry.blob);
 }

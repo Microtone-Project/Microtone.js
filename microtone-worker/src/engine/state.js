@@ -3,13 +3,15 @@
 
 import {
   MAX_VOICES, TOTAL_VOICES, JAM_VOICE_BASE, PATTERN_EMPTY, NUM_CUES, TRACKER_CHUNK,
-  INTERP_DEFAULT, VOLUME_MAX, VOLUME_MAX_WIDE, VOLUME_STEP_WIDE,
+  INTERP_DEFAULT, VOLUME_MAX, VOLUME_MAX_WIDE, VOLUME_STEP_WIDE, SAMPLING_RATE,
 } from "./constants.js";
 import { Voice } from "./voice.js";
 import { startCutRamp } from "./sampler.js";
 import { SURROUND_STEREO, SURROUND_SPATIAL, SpatialBus, StereoRenderer } from "./spatial.js";
 import { MONITOR_FOLD, MONITOR_BINAURAL, BinauralRenderer } from "./binaural.js";
 import { ANALYSIS_OFF, AnalysisTap } from "./analysis.js";
+import { MasterChain, defaultMastering, masteringEngaged } from "./mastering.js";
+import { MasterMeterTap, DEFAULT_BIT_DEPTH } from "./loudness.js";
 
 // ── PlayInstruction (4484-4494) — tagged objects ──
 export const INST_NOP = 0;
@@ -238,6 +240,16 @@ export class TrackerState {
     // Master-strip analysis tap (item 98) — null unless a host asked for one.
     this.analysis = null;
     this.analysisTarget = ANALYSIS_OFF;
+    // Mastering chain (item 178) — the song's own, uploaded from its `sMst`
+    // section. `mastering` is null whenever the chain would not change a
+    // sample, which is what keeps the untouched output path bit-exact; the
+    // PARAMETERS are kept either way so a readback returns what was uploaded.
+    this.masteringParams = defaultMastering();
+    this.mastering = null;
+    // …and its metering tap (loudness.js), null unless the Mastering view asked
+    // for one. Independent of the strip's tap: different signal, different
+    // question, and both are opt-in.
+    this.masterMeter = null;
 
     // Song tuning as a playback-rate multiplier (item 77) — mirrored down from
     // the playhead by setTuning, like toneMode/interpolationMode are from the
@@ -319,6 +331,36 @@ export class TrackerState {
     this.analysis = (target === ANALYSIS_OFF || target === undefined)
       ? null
       : new AnalysisTap(target, this.surroundModel);
+  }
+
+  /**
+   * Install the song's mastering chain (item 178). A parameter set that would
+   * not change a sample installs NOTHING — the mixer then keeps the plain
+   * narrow-and-clamp it has always had, so every song that predates the
+   * Mastering tab still renders bit-for-bit as it did.
+   *
+   * Reconfiguring a chain that is already up keeps its delay lines, so moving a
+   * control while the song plays does not click.
+   */
+  setMastering(params) {
+    this.masteringParams = params;
+    if (!masteringEngaged(params)) { this.mastering = null; return; }
+    if (this.mastering === null) this.mastering = new MasterChain(params);
+    else this.mastering.setParams(params);
+  }
+
+  /** Install (or drop) the Mastering view's metering tap. `scramble` adds the
+   *  phase-scrambled crest measurement, which only the offline analyser asks
+   *  for (loudness.js explains why it is not on the live path); `bitDepth`
+   *  picks which delivered format the bit-usage census describes. */
+  setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH) {
+    if (!on) { this.masterMeter = null; return; }
+    const depth = bitDepth === 8 ? 8 : 16;
+    if (this.masterMeter === null || this.masterMeter.scramble !== !!scramble ||
+        this.masterMeter.bitDepth !== depth) {
+      this.masterMeter = new MasterMeterTap(SAMPLING_RATE,
+        { scramble: !!scramble, bitDepth: depth });
+    }
   }
 
   drainInterrupts() {
@@ -479,6 +521,12 @@ export class Playhead {
     ts.ledFilterOn = false;
     ts.amigaLPStateL = 0.0; ts.amigaLPStateR = 0.0;
     ts.amigaLEDStateL.fill(0.0); ts.amigaLEDStateR.fill(0.0);
+    // Mastering (item 178) goes back to neutral for the same reason the tuning
+    // does: nothing in a fresh document describes the chain the previous one
+    // left installed, and a full reset is what a host performs before uploading
+    // one. The song's own `sMst` parameters are pushed straight after.
+    ts.setMastering(defaultMastering());
+    ts.masterMeter?.resetAll();
     for (const it of ts.voices) {
       it.active = false;
       it.noteVolume = ts.volMax;

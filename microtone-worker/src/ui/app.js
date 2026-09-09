@@ -15,6 +15,7 @@ import { PatternView, FX2_BASE_STEP } from "./views/pattern.js";
 import { FilesView } from "./views/files.js";
 import { SamplesView } from "./views/samples.js";
 import { InstrumentsView } from "./views/instruments.js";
+import { MasteringView } from "./views/mastering.js";
 import { ProjectView } from "./views/project.js";
 import { WelcomeView } from "./views/welcome.js";
 import { MasterStrip } from "./views/masterstrip.js";
@@ -311,6 +312,7 @@ function updateHint() {
       case "cues": key = "status.hint.cues"; break;
       case "samples": key = "status.hint.samples"; break;
       case "instruments": key = "status.hint.instruments"; break;
+      case "mastering": key = "status.hint.mastering"; break;
       case "project": key = "status.hint.project"; break;
       case "files": key = "status.hint.files"; break;
     }
@@ -737,6 +739,10 @@ const VIEW_SPEC = {
     host: { id: "instrumentsHost" },
     make: (el) => new InstrumentsView(store, el, jam),
   },
+  mastering: {
+    host: { id: "masteringHost" },
+    make: (el) => new MasteringView(store, el),
+  },
   project: {
     host: { id: "projectHost" },
     make: (el) => new ProjectView(store, el, {
@@ -860,7 +866,7 @@ function adoptPaneView(from, to, name) {
 
 /** The copy of `name` the keyboard is talking to: the focused pane's when that
  *  pane is showing it, else the other pane's, else the first copy (which
- *  always exists — pane 0 builds all seven at boot, so the smoke tests can
+ *  always exists — pane 0 builds all eight at boot, so the smoke tests can
  *  drive a view that is not on screen). */
 function viewNamed(name) {
   for (const i of [split.focus, 1 - split.focus]) {
@@ -885,7 +891,7 @@ function invalidateGrids() {
   for (const name of ["timeline", "cues", "pattern"]) eachView(name, (v) => v.invalidate());
 }
 
-// Pane 0 gets all seven up front, the way the shell always built them: the
+// Pane 0 gets all eight up front, the way the shell always built them: the
 // hosts are in index.html already, several views are driven before they are
 // first shown (the smoke tests, the language switch), and it keeps "the first
 // copy" a fixed, predictable thing.
@@ -1032,6 +1038,8 @@ onLangChange(() => {
   for (const name of ["samples", "instruments", "project", "files"]) {
     eachOpenView(name, (v) => v.refresh());
   }
+  // The Mastering view's labels are all built at rebuild time (item 178).
+  eachOpenView("mastering", (v) => v.rebuild());
   updateStatus();
 });
 
@@ -1287,9 +1295,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (!store.doc) {
-    // The welcome screen (F1) and the File tab (F7) stay reachable before
+    // The welcome screen (F1) and the File tab (F9) stay reachable before
     // anything is loaded — and so does the way back (item 104.1).
-    if ((e.code === "F1" || e.code === "F7") && !e.ctrlKey && !e.metaKey && !e.altKey &&
+    if ((e.code === "F1" || e.code === "F9") && !e.ctrlKey && !e.metaKey && !e.altKey &&
         !isTypingTarget(e.target) && !e.target.closest?.("dialog")) {
       e.preventDefault();
       showView(e.code === "F1" ? "timeline" : "files");
@@ -1398,6 +1406,10 @@ window.addEventListener("keydown", (e) => {
     }
     case "BracketLeft": e.preventDefault(); handleBracket(-1, e.shiftKey); return;
     case "BracketRight": e.preventDefault(); handleBracket(1, e.shiftKey); return;
+    // Fn goes to the nth TAB, which is the rule the strip has always followed —
+    // so the Mastering tab (item 178) taking the sixth place moved Project to
+    // F7 and pushed the File tab off the run entirely. It lands on F9 rather
+    // than displacing the split binding below.
     case "F1": case "F2": case "F3": case "F4": case "F5": case "F6": case "F7": {
       e.preventDefault();
       showView(VIEWS[parseInt(e.code.slice(1), 10) - 1]);
@@ -1410,6 +1422,11 @@ window.addEventListener("keydown", (e) => {
       if (e.shiftKey) split.setFocus(1 - split.focus);
       else if (split.isSplit) split.close(split.focus);
       else split.split();
+      return;
+    }
+    case "F9": {
+      e.preventDefault();
+      showView("files");
       return;
     }
   }
@@ -1434,9 +1451,9 @@ window.addEventListener("keydown", (e) => {
     if (jam.down(e.code, e.repeat)) { e.preventDefault(); return; }
     return;
   }
-  // Cues / Project / File never jam — piano keys are inert there (item 24).
-  // (Cues returns above; Project + File fall through to no-op.)
-  if (store.view === "project" || store.view === "files") return;
+  // Cues / Mastering / Project / File never jam — piano keys are inert there
+  // (item 24). (Cues returns above; the rest fall through to no-op.)
+  if (store.view === "mastering" || store.view === "project" || store.view === "files") return;
 
   if (store.view === "timeline") {
     const timeline = viewNamed("timeline"); // the focused pane's copy
@@ -1614,11 +1631,13 @@ if (bootParams.has("load")) {
 // single instance they always did.
 window.__microtone = {
   store, jam, instLookup, masterStrip, split, loadBytes, playCursor, paneViews, findBar,
+  __VIEWS: VIEWS,
   get timeline() { return viewNamed("timeline"); },
   get cuesView() { return viewNamed("cues"); },
   get patternView() { return viewNamed("pattern"); },
   get samplesView() { return viewNamed("samples"); },
   get instrumentsView() { return viewNamed("instruments"); },
+  get masteringView() { return viewNamed("mastering"); },
   get projectView() { return viewNamed("project"); },
   get filesView() { return viewNamed("files"); },
   get welcomeView() { return paneViews[split.focus].get("timeline")?.welcome ?? paneViews[0].get("timeline").welcome; },

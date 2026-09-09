@@ -856,10 +856,11 @@ If your samples are already pre-tuned for your system, leave the project's tunin
 
 ### 9.8 Reading Project Data on a device that ignores it
 
-Nothing in Project Data is required to play a song correctly, with two exceptions that a conforming *player* **MUST** honour:
+Nothing in Project Data is required to play a song correctly, with three exceptions that a conforming *player* **MUST** honour:
 
 - `xHDR`, because it changes the cue stride.
 - `Ixmp`, because it changes which samples an instrument plays.
+- `sMst`, because it is the chain the song is delivered through ([§9.12](#9-12-smst-song-mastering)).
 
 Everything else is naming, display and editor state.
 
@@ -1012,6 +1013,71 @@ Stereo (`cccc` = 1) is the only case implemented today. In discrete mode with or
 
 Readers other than the reference web engine currently *skip* the `s` block rather than play it; a stereo sample then sounds as its first channel.
 
+### 9.12 `sMst` — song mastering
+
+The delivery chain a song is mastered through: the last thing that touches the mix before it narrows to 8 bits. Its behaviour is specified in full in the **Engine Specification** §12.1; this section is only the byte layout.
+
+Song-scoped, like `sMet`: a `.taud` may hold several songs and each is its own delivery, so each carries its own chain. This is the third of the three Project-Data sections a conforming *player* **MUST** honour ([§9.8](#9-8-reading-project-data-on-a-device-that-ignores-it)) — a song mastered to sit at −14 LUFS under a −1 dBTP ceiling does not sound like the same song without it.
+
+The payload is a repetition of per-song entries:
+
+| Type | Field |
+|---|---|
+| `U8` | Song index |
+| `U32` | Size of the remainder of this entry |
+| `Byte[*]` | Parameter block |
+
+A reader **MUST** skip an entry whose size it cannot account for, and **MUST** ignore an entry naming a song the file does not have. An entry whose parameter block declares a record version this reader does not know **MUST** be dropped rather than partially interpreted: a chain read half-right is worse than no chain, and the neutral chain is a defined thing to fall back to.
+
+A song whose chain is the untouched default **SHOULD** contribute no entry, and a file in which no song declares a chain **SHOULD** carry no `sMst` section at all: an absent section and a section full of defaults mean the same thing, and the shorter one is what a project that has never opened the Mastering tab should carry.
+
+#### The version-1 parameter block
+
+160 bytes. Every parameter is an IEEE **binary32**, little-endian, and a reader **MUST** clamp each to the range named below rather than reject the file — a chain that sounds wrong is recoverable, a file that will not open is not.
+
+| Offset | Type | Field |
+|---|---|---|
+| 0 | `U8` | Record version — 1 |
+| 1 | `U8` | Chain flags: bit 0 = chain enabled |
+| 2 | `U16` | **RESERVED** |
+| 4 | `F32` | Input trim, dB — −24…+24 |
+| 8 | `U8` | High-pass flags: bit 0 = enabled, bit 1 = 24 dB/oct (clear = 12) |
+| 9 | `Byte[3]` | **RESERVED** |
+| 12 | `F32` | High-pass corner, Hz — 10…500 |
+| 16 | `U8` | Equaliser flags: bit 0 = enabled |
+| 17 | `Byte[3]` | **RESERVED** |
+| 20 | `Band × 4` | Four 16-byte band records, below |
+| 84 | `U8` | Compressor flags: bit 0 = enabled, bit 1 = RMS detector (clear = peak) |
+| 85 | `Byte[3]` | **RESERVED** |
+| 88 | `F32` | Threshold, dBFS — −60…0 |
+| 92 | `F32` | Ratio — 1…20 |
+| 96 | `F32` | Attack, ms — 0.1…300 |
+| 100 | `F32` | Release, ms — 5…3000 |
+| 104 | `F32` | Knee width, dB — 0…24 |
+| 108 | `F32` | Make-up gain, dB — −12…+24 |
+| 112 | `U8` | Stereo-width flags: bit 0 = enabled |
+| 113 | `Byte[3]` | **RESERVED** |
+| 116 | `F32` | Width — 0…2, where 1 is the identity |
+| 120 | `U8` | Limiter flags: bit 0 = enabled, bit 1 = true-peak ceiling |
+| 121 | `Byte[3]` | **RESERVED** |
+| 124 | `F32` | Ceiling, dBTP — −24…0 |
+| 128 | `F32` | Release, ms — 1…1000 |
+| 132 | `F32` | Output gain, dB — −24…+24 |
+| 136 | `Byte[24]` | **RESERVED** |
+
+Each band record is:
+
+| Offset | Type | Field |
+|---|---|---|
+| +0 | `U8` | Band flags: bit 0 = enabled |
+| +1 | `U8` | Shape — 0 low shelf, 1 bell, 2 high shelf |
+| +2 | `U16` | **RESERVED** |
+| +4 | `F32` | Frequency, Hz — 20…20000 |
+| +8 | `F32` | Gain, dB — −18…+18 |
+| +12 | `F32` | Q — 0.1…12 |
+
+Only band 1 may declare a low shelf and only band 4 a high shelf; a shelf shape on band 2 or 3 **MUST** be read as a bell. Storing the parameters as binary32 is what lets an editor hold exactly what the file will hold, so a save-and-reload cannot drift the chain a fraction of a decibel at a time.
+
 ## 10. Validity checklist
 
 A writer producing a file that any conforming reader will accept must satisfy all of the following.
@@ -1024,6 +1090,7 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Each song's cue sheet decompresses to a whole number of cues at the stride implied by `xHDR`.
 - No pattern number in a cue exceeds `$7FFE` except the `$7FFF` sentinel.
 - Every `Ixmp` entry names a distinct instrument, and no two patches of one instrument have overlapping rectangles.
+- Every `sMst` entry names a distinct song, and its parameter block is at least as long as the record version it declares.
 - Every Metainstrument layer index resolves to an ordinary instrument in `$001`…`$3FF`.
 - Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.6](#7-6-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
@@ -1048,3 +1115,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-09-04 | Metainstrument type-0 layers: the **fixed-pitch** flag (entry byte +9, bit 6), which reads the detune field as an absolute unsigned note word |
 | 2026-08-28 | Metainstrument type 4 — FM operator racks: the layer table read as operators, with an RPN algorithm packed after it |
 | 2026-09-03 | `SRgn` — sample-pool regions: long recordings living in the pool that no instrument claims |
+| 2026-09-09 | `sMst` — song mastering: the delivery chain, and the third Project-Data section a player must honour |

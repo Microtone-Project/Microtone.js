@@ -199,8 +199,12 @@ export class FilesView {
     const song = doc.songs[songIndex];
     const surroundModel = song?.surroundModel ?? 0;
     const { showExportAudio } = await import("../popups/exportaudio.js");
+    const { masteringEngaged } = await import("../../engine/mastering.js");
     const choice = await showExportAudio({
       surroundModel,
+      // A multichannel target is written from the object bus, upstream of the
+      // mastering chain — worth saying, but only to someone who has one.
+      mastered: masteringEngaged(doc.mastering(songIndex)),
       defaults: {
         format: this._lastExport?.format ?? (surroundModel === 2 ? "ambix3" : surroundModel === 1 ? "5.1" : "stereo"),
         outRate: this._lastExport?.outRate ?? 48000,

@@ -85,7 +85,7 @@ unless you save it yourself.
 
 A demo is a whole project, samples and all — open it, play it, and take it
 apart. The composer's own note on the piece is usually in the project
-**Message**, in the [Project](#project-f6) view.
+**Message**, in the [Project](#project-f7) view.
 
 Demo songs are included with the permission of their composers and keep their
 own copyright; they are not covered by Microtone's licence.
@@ -113,7 +113,7 @@ without pressing Play.
 From top to bottom:
 
 - **Top bar** — transport, record toggle, undo/redo, octave / instrument / speed displays (hover and use the mouse wheel to change them), song selector, file buttons, language / theme / help buttons. Click the **Microtone** logo for the About box.
-- **Tabs** — the seven views, on **F1**–**F7**. The strip belongs to the pane below it, so a split screen has one per pane, each ending in the button that splits the view (**⊞**) or closes that pane (**✕**).
+- **Tabs** — the eight views, on **F1**–**F7** and **F9**. The strip belongs to the pane below it, so a split screen has one per pane, each ending in the button that splits the view (**⊞**) or closes that pane (**✕**).
 - **Toolbox** (Timeline and Patterns only) — **Retune…**, the **Raw** hex-note toggle and the quick **Instruments** lookup panel.
 - **The main view.**
 - **Command palette** — a context strip above the status bar showing the actions and documentation for the column under the cursor while recording.
@@ -128,8 +128,9 @@ From top to bottom:
 | **F3** | Patterns | Single-pattern editor with bulk tools |
 | **F4** | Samples | The sample pool: waveforms, DSP editing |
 | **F5** | Instruments | The instrument bank: envelopes, zones, layers |
-| **F6** | Project | Song properties, tuning, song list |
-| **F7** | File | Browser storage, import/export |
+| **F6** | Mastering | The delivery chain and its meters |
+| **F7** | Project | Song properties, tuning, song list |
+| **F9** | File | Browser storage, import/export |
 
 ### Value controls
 
@@ -147,14 +148,14 @@ Every number field and dropdown in the panels is a value between two buttons:
 ### Two views at once
 
 **F8** (or the **⊞** button at the end of the tab strip) splits the screen in
-two, and every pane carries its own set of the seven tabs — Timeline against
+two, and every pane carries its own set of the eight tabs — Timeline against
 Patterns, a pattern against the instrument it plays, the Cues list against the
 song it orders.
 
 - Which way it splits follows the shape of the screen: side by side while it is wider than tall, one above the other otherwise. Turning a tablet on its side re-splits it the other way by itself.
 - **Drag the seam** between the panes to give one more room; double-click it to even them up again.
 - The pane you last clicked in has the keyboard — its active tab is the one in the accent colour. **Shift+F8** moves to the other pane.
-- **Both panes can show the same view**: two Timelines scrolled to different bars of the song, two Patterns views, two of anything. Each is a copy of its own, with its own scroll position and its own selection, and both edit the one document — a change in either shows up in the other at once. (**F1**–**F7** never open a second copy of something already on screen: they take you to the pane that has it. Clicking the tab is how you ask for a second one.)
+- **Both panes can show the same view**: two Timelines scrolled to different bars of the song, two Patterns views, two of anything. Each is a copy of its own, with its own scroll position and its own selection, and both edit the one document — a change in either shows up in the other at once. (**F1**–**F7** and **F9** never open a second copy of something already on screen: they take you to the pane that has it. Clicking the tab is how you ask for a second one.)
 - **F8** again, or the pane's **✕**, closes it; the view in the other pane keeps the screen — including which bar it was scrolled to, so closing the pane you are working in leaves you where you were.
 - The master strip (see [Timeline](#timeline-f1)) stays where it is down the right-hand edge, beside both panes, and is on screen whenever *either* pane shows the Timeline.
 
@@ -324,7 +325,7 @@ leaves every bit of sharing alone.
 **Row highlights** are the song's own **rows per beat** and **rows per bar**,
 4 and 16 unless the file says otherwise. They only decide how the Timeline and
 Patterns grids are banded; nothing about playback reads them. The same two
-numbers are on the [Project](#project-f6) tab.
+numbers are on the [Project](#project-f7) tab.
 
 ### Picking up an instrument
 
@@ -338,6 +339,12 @@ The panel down the right-hand edge of the Timeline is where you check the mix as
 a whole: a stack of vectorscopes over a meter and a fader. It is shown by
 default; the **Master** toolbox button (and the ✕ in its corner) hides the whole
 strip, and while it is hidden it costs no processing at all.
+
+It answers a different question from the [Mastering](#mastering-f6) tab. The
+strip asks *where is the energy in the room?* while you write, and follows the
+song's surround model; the tab asks *what is going into the file, and what did
+the chain do to it?* and is about delivery. They are separate panels with
+separate meters, and both are only on while you are looking at them.
 
 **The panels.** A scope panel is a fixed size — its chooser, a square dial and a
 correlation bar — so how many of them you get is a question about your screen:
@@ -1337,7 +1344,129 @@ An instrument may carry a list of **Ixmp patches**: per-zone sample bindings ove
 
 Jamming on the piano keys while the panel is open auditions the instrument live; the map, list and envelope graphs all follow the sounding voices. **‹ Back** returns to the normal tabs.
 
-## Project (F6)
+## Mastering (F6)
+
+Everything else in Microtone is about writing the music. This tab is about
+delivering it: how loud the song ends up, whether it clips, how much of the
+8-bit code space it actually uses, and what the chain did to get there.
+
+The chain is part of the SONG, not of the editor. It is saved in the file, and
+anything that plays that file correctly plays it through the same chain — so
+what you hear here is what everyone hears. Each song in a multi-song project
+carries its own.
+
+**The tab makes no judgements.** Nothing here looks at your music and decides
+anything about it. Every stage is a textbook block with the control it says on
+the tin, in a fixed order; in exchange you get an unusual number of meters, so
+that if the tool will not tell you what is wrong you can see it yourself.
+
+### The rack
+
+Seven stages, in signal order, each with its own switch and one more for the
+chain as a whole. With everything off the chain is not merely transparent — it
+is absent, and the song renders exactly as it did before you opened the tab.
+
+1. **Input trim** — level going into everything below. Set it once so the compressor threshold means the same thing from song to song.
+2. **High-pass** — removes rumble and DC offset below the corner, at 12 or 24 dB/octave. Nothing musical lives down there, and what does live there eats headroom.
+3. **Equaliser** — four bands with the response curve drawn above them, over a live spectrum of the music. All four start switched on at 0 dB, where an EQ band is exactly the identity, so turning the equaliser on and reaching for a gain slider does what it looks like it should. Band 1 can be a low shelf or a bell, band 4 a high shelf or a bell; the middle two are always bells.
+4. **Compressor** — one band, with a soft knee. The detector is *linked* across the pair, so the stereo image stays where the mixer put it. **Peak** follows transients; **RMS** follows programme level over a 10 ms window and is the slower, gentler reading.
+5. **Stereo width** — scales the side signal against the middle. 100% leaves the mix exactly as it was; 0% is mono; above 100% pushes it wider, and the Levels meters will show you what that costs the mono sum.
+6. **Limiter** — a look-ahead brickwall. The ceiling is a promise, not a target: it is arranged so that nothing can overshoot it, on any material. Tick **True-peak ceiling** and it holds that promise against the 4× oversampled peak instead of the sample peak, so the file is still under the ceiling after a resample or a lossy encode. The limiter costs 2 ms of latency while it is on.
+7. **Output gain** — the last thing in the chain, which means it sits *after* the limiter and can push the signal back over the ceiling. That is deliberate: it is the control the measure-and-set buttons write, and the meters will tell you if you have gone too far.
+
+Every control is one undo step per gesture — a whole slider drag is one Ctrl+Z.
+
+### Pre and post
+
+The **pre / post** switch at the top decides which side of the chain the meters
+read. *Post* is the master: what the file will hold. *Pre* is the mix arriving
+at the chain — the untouched sum of your channels — so the two together are a
+proper A/B of what the mastering did.
+
+Both are measured every block, so switching is instant and the two readings
+always describe the same moment. The input trim is inside the chain, so the pre
+reading does not move with it.
+
+### The spectrum behind the curve
+
+The equaliser's graph draws the live spectrum of whichever side of the chain the
+pre / post switch is on, filled from the bottom, with the response curve over
+it. It is coloured **by band**, in the same five inks the Radiation and Cloud
+scopes use — salmon, yellow, green, cyan, violet, low to high — so the same
+frequencies wear the same colour wherever in the app you meet them.
+
+Each column shows the loudest bin that falls in it, snaps up and falls away
+slowly, which is what makes a spectrum readable rather than a flicker.
+
+**It is tilted +3 dB per octave**, pivoting at 1 kHz. Real music is not flat —
+its energy falls away with frequency at close to that rate — so an untilted
+analyser hands most of its height to the bass and the top octaves, where a good
+deal of what you are EQ-ing lives, never get to say anything. Tilting by the
+slope the music already has makes a balanced mix read as roughly level, and
+pink noise come out flat, which is what makes 3 dB/octave the standard choice.
+The **spectral distribution** in the offline analysis is tilted the same way and
+says so in its key. Nothing that is *measured* is tilted: the loudness, the
+levels, the crest and the bit usage are all untouched by it.
+
+### The instruments
+
+- **Loudness** — ITU-R BS.1770 / EBU R 128. **M** is the 400 ms momentary reading, **S** the 3 s short-term one, **I** the gated integrated loudness of the current playback (it restarts with the transport). **LRA** is the loudness range in LU: how far the quiet and loud passages sit apart. **PLR** is the headroom the peaks keep above the integrated level, and it falls as a master is squashed. The bar draws the short-term reading with the momentary one as a bright tick over it.
+- **Levels** — bars are RMS, the blue line is the true peak, the amber line is its falling hold. The channel letter lights up on a clip.
+- **Gain reduction** — how hard the compressor and the limiter are working. The bars grow leftward, because they are eating into the signal.
+- **Bit usage** — which output codes the delivered file actually touches. A mix that peaks 12 dB down throws two of its bits away before any dither gets a say, and shows up here as a narrow spike instead of a spread. The centre line is digital silence. **Effective bits** is the span the signal swings over; **entropy bits** is how many bits the distribution is really carrying, and is always the smaller of the two.
+  - The chooser in the panel's header picks **which delivery you mean**. *16-bit · WAV export* is the default and describes the stereo WAV: that export takes the mix bus straight to 16 bits and never touches the 8-bit stage at all. *8-bit · Taud device* describes what a conforming player delivers instead, dither and all — and at that depth the census is taken from the dithered output itself rather than by re-quantising the bus, because at eight bits the dither is most of the point.
+  - At 16 bits, **codes used** against the **code span** is a second reading: a dense span is a signal that has really been worked at that depth, and a gappy one is a coarser source blown up to fit.
+
+### Offline analysis
+
+Live meters tell you what is happening *now*. **Analyse song** renders the whole
+song as fast as the machine can and measures it every 100 ms, on both sides of
+the chain at once, so a sag in the middle eight or a limiter working three times
+as hard in the last chorus becomes something you can point at.
+
+The summary lines give the whole-song figures for pre and post; the plot below
+draws one measurement over the song's time axis, **dashed for pre and solid for
+post**:
+
+- **Loudness** — short-term LUFS through the song.
+- **True peak** — the highest inter-sample peak in each 100 ms.
+- **Crest** — peak over RMS, in dB. Low crest means a dense, flat waveform.
+- **Phase-scrambled crest** — the same measurement after the signal has been run through an all-pass cascade that scatters its phases while leaving its spectrum alone. A clipped waveform has flat tops, and a flat top has an artificially *low* crest; scrambling the phases turns those tops back into peaks. So the **gap** between this reading and the plain crest is a direct measure of how much peak the processing has eaten — a fraction of a decibel on clean material, several decibels on something that has been hard-clipped. The summary prints the gap as a number for each side.
+- **Spectral distribution** — where the energy was sitting, through the song. One column per 100 ms, the five bands stacked as their *share* of that column's energy, in the same colours as the spectrum behind the EQ curve and with the same +3 dB/octave tilt (its key says so). A bass-heavy passage is a tall salmon band, a bright one a tall violet one, and a mix that changes character halfway through says so. It is a distribution rather than a level, so a quiet passage reads the same as a loud one with the same balance — the column's opacity carries the level instead, and a silent tail fades out rather than showing the shape of its own noise floor. This one draws the side the pre / post switch is on rather than a pre/post pair.
+
+The analysis stops at the length cap beside the button and says so when it does,
+and it is thrown away when you switch song or open another project — it
+described that music, not this.
+
+### Measure and set
+
+Three buttons under the plot read the analysis and write one number each:
+
+- **Set gain from peak** — moves the output gain so the render's true peak lands on your target in dBTP.
+- **Set gain from loudness** — moves the output gain so the integrated loudness lands on your target in LUFS.
+- **Set input trim** — moves the input trim so the mix reaches the EQ and the compressor at the target loudness. This is how one threshold setting comes to mean the same thing on every song.
+
+They are arithmetic, not advice: each one reads a measurement, does a
+subtraction, and lands as an ordinary undoable edit you can see and change.
+Nothing here decides whether the target was right for the song.
+
+### What the chain reaches
+
+The chain acts on the stereo pair the engine delivers, which means it reaches
+playback, the stereo WAV export, and anything that plays your `.taud` correctly.
+
+The two deliveries are not the same depth. A **stereo WAV export is native
+16-bit**: it takes the finished mix bus and writes it out directly, so the
+engine's 8-bit stage — and its dither — never enter into it. The `.taud` file
+itself is 8-bit, because that is what the format's own player produces. The Bit
+usage panel can describe either.
+
+It does **not** reach a multichannel or ambisonic export: those are written from
+the sound field itself, upstream of the chain, so the file carries the mix
+rather than the master. The export dialog says so when your song has a chain.
+Stems are likewise per-channel and by definition pre-master.
+
+## Project (F7)
 
 The tab opens with the **project's** own three strings — **Project name**,
 **Author** and **Copyright** — followed by a **Message** box for whatever the
@@ -1456,7 +1585,7 @@ everyone gets who never touches the surround controls. The fold mirrors what is
 behind you onto the front (two speakers cannot do front and back), leaves left
 and right where they are, and pulls height toward the centre.
 
-**Getting it out.** **Export audio…** on the Files tab (F7) offers the whole
+**Getting it out.** **Export audio…** on the Files tab (F9) offers the whole
 range — stereo, quadraphonic, 5.1, 7.1 and ambisonic B-format — with a picture
 of each channel layout; see [Import and export](#import-and-export).
 
@@ -1551,9 +1680,9 @@ if you want them changed too.
 - **Transpose** — the [Patterns](#patterns-f3) tab's Transpose applied song-wide: the same notation-aware fine/coarse units, and the same skipping of sentinels and percussion instruments.
 - **Change instrument** — changes every note referencing one instrument to another.
 
-## File (F7)
+## File (F9)
 
-The File view works even before anything is loaded (**F7** from the empty
+The File view works even before anything is loaded (**F9** from the empty
 screen).
 
 ### Browser storage (OPFS)
@@ -1820,7 +1949,7 @@ hear, exactly as if you had played through the arming row.
 |---|---|
 | Enter | Play from cursor / stop |
 | Shift+Enter | Play from start |
-| F1…F7 | Switch views |
+| F1…F7 · F9 | Switch views |
 | F8 · Shift+F8 | Split the view in two / close the pane · the other pane |
 | Space | Record mode on/off |
 | [ ] | Octave down / up |

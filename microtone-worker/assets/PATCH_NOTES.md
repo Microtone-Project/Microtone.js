@@ -6,6 +6,27 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-09
 
+Microtone has a Mastering tab: the chain a song is delivered through, and enough meters to see what it did.
+
+- The new **Mastering** tab sits on **F6**, between Instruments and Project. Everything else in the app is about writing the music; this is about delivering it.
+- Seven stages in signal order, each with its own switch: input trim, high-pass, a four-band equaliser, a compressor, stereo width, a look-ahead limiter, and output gain. With everything off the chain is not merely transparent — it is absent, and the song renders exactly as it did before.
+- The equaliser draws its response curve over a **live spectrum** of the music, coloured by band in the same five inks the Radiation and Cloud scopes use — so the same frequencies wear the same colour wherever you meet them. All four bands start switched on at 0 dB, where a band is exactly the identity, so turning the equaliser on and reaching for a gain slider does what it looks like it should.
+- Both spectral displays are tilted **+3 dB per octave**, the pink slope music already has, so a balanced mix reads roughly level and the top octaves are legible instead of being a sliver under the bass. Display only — the loudness, levels, crest and bit-usage figures are untouched by it, and the tilt is written on the spectral distribution's own key.
+- The chain belongs to the SONG, not to the editor. It is saved in the file, each song in a multi-song project carries its own, and anything that plays the file correctly plays it through the same chain — so what you hear is what everyone hears.
+- The limiter's ceiling is a promise rather than a target: nothing can overshoot it, on any material. Tick **True-peak ceiling** and it holds against the 4× oversampled peak instead, so the file is still under the ceiling after a resample or a lossy encode.
+- A **pre / post** switch decides which side of the chain every meter reads. Both sides are measured every block, so switching is instant and the two readings always describe the same moment.
+- Loudness to EBU R 128: momentary, short-term, gated integrated, loudness range and peak-to-loudness ratio, over a bar that draws the short-term reading with the momentary one ticked over it.
+- Levels with an RMS bar, a true-peak line, a falling hold and a clip lamp per channel; gain-reduction meters for the compressor and the limiter.
+- A **bit usage** histogram: which output codes the delivered file actually touches, with the code span, the effective bits and the entropy the distribution really carries. A mix that peaks 12 dB down throws two of its bits away before any dither gets a say, and it shows up here as a narrow spike.
+- The panel's chooser picks which delivery it describes. **16-bit · WAV export** is the default: a stereo WAV takes the mix bus straight to 16 bits and never touches the 8-bit stage, so that is what the census counts. **8-bit · Taud device** describes what a conforming player produces instead, binned from the dithered output itself. At 16 bits, codes used against the code span is a second reading — a gappy span is a coarser source blown up to fit.
+- **Analyse song** renders the whole thing as fast as the machine can and plots a measurement every 100 ms — loudness, true peak, crest, and crest after a phase-scrambling all-pass cascade — for both sides of the chain at once, dashed for pre and solid for post. A sag in the middle eight or a limiter working three times as hard in the last chorus becomes something you can point at.
+- …including a **spectral distribution** over the song's own time axis: one column per 100 ms with the five bands stacked as their share of that moment's energy, in the same colours. A bass-heavy passage is a tall salmon band, a bright one a tall violet one, and a mix that changes character halfway through says so at a glance.
+- The gap between the plain crest and the phase-scrambled one is a direct reading of how much peak the processing has eaten: a fraction of a decibel on clean material, several decibels on something hard-clipped.
+- Three measure-and-set buttons read the analysis and write one number each: output gain for a true-peak target, output gain for a loudness target, and input trim so the mix reaches the compressor at the same level on every song. They are arithmetic, not advice, and each lands as one ordinary undoable edit.
+- The tab makes no judgements at all. Nothing in it looks at your music and decides anything; that is the bargain the meters are there to keep.
+- Fixed: the offline analysis stayed on screen after switching song or opening another project, describing music that was no longer loaded. It is emptied with the document now.
+- **The File tab has moved to F9.** Project takes F7, and F8 still splits the screen.
+
 Editing a stereo instrument now keeps its stereo pairing in sync.
 
 - Fixed: editing a stereo instrument's loop points, play start, sample rate or detune — or picking a different sample for it — could leave its stereo pairing out of sync with what you had just set, and in the worst case leave it silently playing the sample you had just switched away from.

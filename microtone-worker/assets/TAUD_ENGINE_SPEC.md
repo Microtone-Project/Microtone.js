@@ -50,7 +50,7 @@ A host whose output is at another rate **MAY** run the engine at that rate inste
 
 Rate is the one thing that is an implementation's own choice. Nothing else in this document is: a render at another rate **MUST** still reach the same row at the same moment, and the same voice at the same pitch, as the 32 kHz reference — which is what makes conformance testable against a 32 kHz oracle by running the implementation at 32 kHz.
 
-Internally the mix bus is floating point, and the quantisation to 8 bits happens once per chunk in a defined, deterministic way ([§12](#12-output-stage)).
+Internally the mix bus is floating point, it passes through the song's mastering chain, and the quantisation to 8 bits happens once per chunk in a defined, deterministic way ([§12](#12-output-stage)).
 
 ## 2. Time base
 
@@ -928,7 +928,58 @@ One scalar calibrates the set so that a source dead ahead leaves the head carryi
 
 ## 12. Output stage
 
-The mix accumulates in binary64 and then passes through a defined narrowing:
+The mix accumulates in binary64, narrows to binary32, passes through the song's mastering chain, is clamped, and is dithered to 8 bits. The order matters: a chain downstream of the clamp would have nothing left to work on, and a chain upstream of the Amiga filter ([§10.4](#10-4-the-post-mix-amiga-chain)) would be shaping a signal the device never delivers.
+
+### 12.1 The mastering chain
+
+The chain is declared per song in the `sMst` Project-Data section (**Taud File Format** §9.12) and a conforming player **MUST** honour it: it is part of how the song sounds, not editor state. A song that declares no chain, or declares one with every stage switched off, renders exactly as it would without this section — implementations **SHOULD** skip the stage entirely in that case, which is also what keeps such a song bit-identical to a render made before this section existed.
+
+Parameters are stored as binary32 and coefficients are computed from them in binary64. Every stage has its own on/off switch, plus one for the chain as a whole, and the order is FIXED:
+
+```
+trim → high-pass → equaliser → compressor → stereo width → limiter → output gain
+```
+
+**Trim** and **output gain** are plain multiplications by `10^(dB ÷ 20)`. The output gain is applied AFTER the limiter, so it can push the signal back over the ceiling; that is deliberate and is the composer's decision to make.
+
+**High-pass** is a Butterworth response at the declared corner: one RBJ high-pass section at Q = 0.7071 for the 12 dB/octave slope, or two cascaded at Q = 0.5411961001461969 and Q = 1.3065629648763766 for 24 dB/octave.
+
+**Equaliser** is four cascaded RBJ cookbook sections, Direct Form I, normalised to `a0`, with an independent delay line per channel. Band 1 may be a low shelf or a bell, band 4 a high shelf or a bell; bands 2 and 3 are always bells. A band that is switched off is not in the cascade at all.
+
+**Compressor** is feed-forward with a quadratic soft knee, computed and smoothed in decibels. The detector is **linked** across the pair — one envelope drives both channels, so the stereo image does not move — and reads either the frame's peak, `max(|L|, |R|)`, or its RMS through a 10 ms one-pole average of `(L² + R²) ÷ 2`. With `over = level_dB − threshold` and a knee width `W`:
+
+```
+reduction_dB = 0                                             over ≤ −W/2
+             = −(1 − 1/ratio) · (over + W/2)² ÷ (2W)         |over| < W/2
+             = −over · (1 − 1/ratio)                          over ≥ W/2
+```
+
+The running reduction chases that target through a one-pole whose coefficient is `1 − e^(−1 ÷ (ms ÷ 1000 × rate))`, using the attack time when the target is lower than the current reduction and the release time otherwise. The make-up gain multiplies the result. A detector level below −120 dBFS reads as −120 dB.
+
+**Stereo width** scales the side signal: `M = (L + R) ÷ 2`, `S = (L − R) ÷ 2 × width`, then `L = M + S`, `R = M − S`. A width of exactly 1 **MUST** be the identity rather than that round trip.
+
+**Limiter** is a look-ahead brickwall over a window of `D = round(0.001 × rate)` samples, and the construction is normative because the ceiling is a guarantee rather than a target:
+
+1. For each frame compute the gain it would need to sit at the ceiling: `g = ceiling ÷ peak` when `peak > ceiling`, else 1. `peak` is `max(|L|, |R|)`, or — when the true-peak flag is set — the largest magnitude among the frame and the four points the 4× oversampler below interpolates around it, over both channels.
+2. Take the sliding **minimum** of `g` over the last `2D + 1` frames.
+3. Rate-limit that envelope's RISE with the release one-pole (falls are instantaneous).
+4. Take the moving **average** of the result over the last `D + 1` frames.
+5. Apply it to the audio delayed by `2D`.
+
+Steps 2 and 4 together are what make overshoot impossible: every minimum the average covers is taken over a window that still contains the frame being emitted, so the mean can never exceed that frame's required gain, and the rise limit only lowers it further. A moving average alone does not have that property. The chain's latency is therefore `2D` frames whenever the limiter is on, and zero otherwise.
+
+The true-peak oversampler is a 32-tap Hann-windowed sinc split into four 8-tap polyphase branches, each normalised to unity DC gain on its own:
+
+```
+h[i] = sinc((i − 15.5) ÷ 4) · (0.5 − 0.5 cos(2πi ÷ 31)),   i = 0…31
+branch p uses h[4k + p], k = 0…7, divided by Σ_k h[4k + p]
+```
+
+A transport reset clears every delay line and envelope in the chain — see [§15](#15-transport-reset).
+
+### 12.2 Narrowing and dither
+
+After the chain:
 
 1. Convert each channel's frame to **binary32**, then clamp to ±1.0 **in binary32 space**. Clamping before narrowing gives different results at the boundary.
 2. Store into a binary32 mix bus.
@@ -971,15 +1022,15 @@ Interrupts are how a song drives something outside itself: lighting cues, subtit
 
 A transport reset restores a well-defined starting state, and getting its scope right prevents a family of "mysteriously lingering" bugs.
 
-A **full reset** sets BPM 125, tick rate 6, global and mixing volume `$80`, clears the tuning, restores the tone and interpolation modes from the file's global behaviour flags, re-installs the surround model, clears the Amiga filter states, deactivates every voice, empties the background pool, clears every per-voice effect and envelope state (funk repeat's loop window among it), and clears the per-instrument runtime state (invert-loop masks and filter overrides).
+A **full reset** sets BPM 125, tick rate 6, global and mixing volume `$80`, clears the tuning, restores the tone and interpolation modes from the file's global behaviour flags, re-installs the surround model, clears the Amiga filter states, returns the mastering chain to neutral, deactivates every voice, empties the background pool, clears every per-voice effect and envelope state (funk repeat's loop window among it), and clears the per-instrument runtime state (invert-loop masks and filter overrides).
 
-A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-channel pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, and returns every channel to its song-start position, volume and colouring (the bitcrusher and the overdrive among it) — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo.
+A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-channel pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, returns every channel to its song-start position, volume and colouring (the bitcrusher and the overdrive among it), and clears the mastering chain's delay lines and envelopes — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo. The chain's PARAMETERS are the song's and survive, like the tempo; its STATE is per-play, like the ghost pool. A compressor still holding six decibels of reduction from before a seek, and a look-ahead buffer still holding two milliseconds of the previous playback, are both the lingering-state bug this section exists to prevent.
 
 Returning the CHANNELS is not the same thing as leaving the playhead's tempo alone, and both halves matter. Channel volume and every panning axis (channel position and elevation, the note axis, the spherical slide target), glissando, the bitcrusher and overdrive settings (`8 $xyzz` and `9 $x0zz`, the clipper they share included) and the `S $7x` per-note overrides are all written by the song's own effects and reset by nothing else — a trigger deliberately leaves them, since they belong to the channel rather than the note — so a play that does not clear them starts wherever the last one finished. What a reset **MUST NOT** touch is the host's own mixer: per-channel mute and fader levels belong to whoever is listening, not to the song, and a replay that silently unmutes a channel is its own bug.
 
 Emptying the background pool is the part that is easy to omit and audible when omitted: a stop leaves ghosts active, and a replay resumes them.
 
-A host loading a new document **MUST** perform a full reset before uploading it. Nothing in a file describes the channel state the previous song left behind, so a document loaded on top of another inherits its panning and channel volumes otherwise.
+A host loading a new document **MUST** perform a full reset before uploading it, and **MUST** then upload the song's own mastering chain — or the neutral one when the file declares none. Nothing in a file describes the channel state the previous song left behind, so a document loaded on top of another inherits its panning, its channel volumes and its mastering otherwise.
 
 ## 16. Effects
 
@@ -1016,4 +1067,6 @@ An implementation conforms when all of the following hold.
 - A fresh trigger separately fades `ramp_gain` in from silence over a ~⅔ ms half-cosine attack ramp, inherited by an NNA ghost spawned mid-ramp.
 - Pitch glides toward the tick's target on an (interval × time) budget, so a vibrato is smoothed across the tick while an arpeggio step or a fast portamento arrival still lands at once.
 - A planar or spatial song that uses only ordinary pan renders bit-identically to the stereo model.
+- The mastering chain runs between the narrowing and the clamp, in the order §12.1 fixes, and a song that declares none renders as though the stage did not exist.
+- The limiter's ceiling is never exceeded, on any material, in either peak mode.
 - The output stage narrows to binary32 before clamping, and runs the dither loop entirely in binary32 against a seeded generator.

@@ -27,6 +27,7 @@ export class DocSync {
           globalVolume: s.globalVolume, mixingVolume: s.mixingVolume,
           tuningBaseNote: s.tuningBaseNote, tuningFreq: s.tuningFreq,
           surroundModel: s.surroundModel,
+          mastering: this.doc.mastering(this.songIndex),
           patterns: s.patterns.map((_, p) => this.doc.patternBytes(this.songIndex, p)),
           cues: s.cues,
         } : null),
@@ -60,6 +61,12 @@ export class DocSync {
           break;
         case "scalar":
           this.pushScalar(tag.key);
+          break;
+        case "mastering":
+          // Eager, like the scalars: the chain is part of how the song sounds,
+          // so a control moved during playback has to be audible at once —
+          // that is the whole point of having the meters on screen beside it.
+          this.audio.setMastering(0, this.doc.mastering(this.songIndex));
           break;
         case "inst":
           // Instruments sync eagerly — jam must always hear the current edit.

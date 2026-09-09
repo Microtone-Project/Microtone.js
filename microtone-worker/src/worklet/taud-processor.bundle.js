@@ -2042,6 +2042,34 @@ class TruePeakDetector {
   clearPeaks() { this.peaks.fill(0.0); }
 }
 
+/**
+ * The same oversampler, one channel at a time, reporting the instantaneous
+ * inter-sample peak instead of accumulating one.
+ *
+ * The mastering limiter (mastering.js) uses this for its true-peak mode, which
+ * is why it lives here beside the detector rather than being written out again
+ * over there: a limiter and a meter that disagree about what "true peak" means
+ * would make the ceiling a suggestion.
+ */
+class TruePeakProbe {
+  constructor() { this.hist = new Float64Array(TP_TAPS); }
+  reset() { this.hist.fill(0.0); }
+  /** Largest magnitude among `v` and the four points interpolated around it. */
+  push(v) {
+    const h = this.hist;
+    for (let k = TP_TAPS - 1; k > 0; k--) h[k] = h[k - 1];
+    h[0] = v;
+    let hi = v < 0 ? -v : v;
+    for (let p = 0; p < TP_PHASES; p++) {
+      let acc = 0.0;
+      for (let k = 0; k < TP_TAPS; k++) acc += h[k] * TP_COEF[k * TP_PHASES + p];
+      const a = acc < 0 ? -acc : acc;
+      if (a > hi) hi = a;
+    }
+    return hi;
+  }
+}
+
 // ── The analysis render target ──────────────────────────────────────────────
 
 /**
@@ -2262,6 +2290,1453 @@ function makeAnalysisReadout() {
     truePeak: new Float64Array(ANALYSIS_MAX_METERS),
     meanSquare: new Float64Array(ANALYSIS_MAX_METERS),
     clip: new Float64Array(ANALYSIS_MAX_METERS),
+  };
+}
+
+// ══ src/engine/mastering.js ══
+// Master-bus mastering chain (item 178) — the last thing that touches the mix
+// before it narrows to 8 bits.
+//
+// It sits inside the output stage: the voices sum in binary64, the Amiga chain
+// runs, the pair narrows to binary32 — and THEN this runs, before the clamp and
+// the dither. That position is the whole point. A limiter downstream of the
+// clamp would have nothing left to do, and a chain upstream of the Amiga filter
+// would be mastering a signal the device never delivers.
+//
+// ── What it is not ──
+// It makes no judgements. Every stage is a textbook block with the parameter it
+// says on the tin, in a FIXED order, and nothing here looks at the music and
+// decides anything. That is a design constraint, not a shortcoming: the meters
+// (loudness.js) tell you what the song is doing, and you decide.
+//
+//     trim → high-pass → 4-band EQ → compressor → width → limiter → gain
+//
+// Every stage has its own on/off; the chain as a whole has one more. With
+// nothing engaged the chain is not merely transparent, it is ABSENT —
+// masteringEngaged() returns false and the mixer keeps the untouched legacy
+// path, so a song that has never been near this tab still renders bit-for-bit
+// as it did before the tab existed.
+//
+// Not a port: the Kotlin engine has no mastering stage, so this file — like
+// spatial.js, binaural.js and analysis.js — IS the reference implementation.
+// See TAUD_ENGINE_SPEC.md §12.1 for the normative description and
+// TAUD_FILE_FORMAT.md §9.12 for the `sMst` section that carries the parameters.
+//
+// DETERMINISM: coefficients are computed in binary64 from binary32 parameters
+// (the section stores f32), and the per-sample maths is binary64 like the rest
+// of the mix bus. The narrowing to binary32 still happens exactly once, after
+// this, where it always did.
+
+
+// The limiter's true-peak mode reads the same 4× polyphase oversampler the
+// master-strip meters do (analysis.js) — one kernel, so the ceiling the limiter
+// holds and the number the meter reports are the same measurement.
+
+// ── Parameter model ─────────────────────────────────────────────────────────
+
+/** EQ band shapes. The value is the wire form (`sMst` band type byte). */
+const EQ_LOW_SHELF = 0;
+const EQ_PEAKING = 1;
+const EQ_HIGH_SHELF = 2;
+/** Bands in the EQ. Fixed: four is enough to be useful and few enough to read. */
+const EQ_BANDS = 4;
+
+/** Compressor detector. Peak is what a limiter-ish setting wants; RMS is what a
+ *  levelling setting wants. Both are LINKED across the pair — a detector per
+ *  channel moves the stereo image whenever one side is louder, which is a thing
+ *  no one has ever asked a mastering compressor to do. */
+const COMP_PEAK = 0;
+const COMP_RMS = 1;
+
+/** High-pass slopes, in dB/octave. 12 is one Butterworth section, 24 is two. */
+const HP_SLOPE_12 = 0;
+const HP_SLOPE_24 = 1;
+
+/**
+ * Look-ahead, in milliseconds, of the limiter's gain computer — and therefore
+ * the chain's latency whenever the limiter is on (twice this: see LimiterStage
+ * for why the delay is two windows and not one). Fixed rather than exposed:
+ * it is the one number in here whose value is a trade against latency rather
+ * than against sound, and 1 ms of it is enough to turn every attack into a
+ * ramp at every tempo.
+ */
+const LIMITER_LOOKAHEAD_MS = 1.0;
+
+/** Parameter ranges, as the UI and the codec both clamp them. */
+const RANGE = Object.freeze({
+  trimDb: [-24, 24],
+  hpFreq: [10, 500],
+  eqFreq: [20, 20000],
+  eqGainDb: [-18, 18],
+  eqQ: [0.1, 12],
+  compThreshDb: [-60, 0],
+  compRatio: [1, 20],
+  compAttackMs: [0.1, 300],
+  compReleaseMs: [5, 3000],
+  compKneeDb: [0, 24],
+  compMakeupDb: [-12, 24],
+  width: [0, 2],
+  limCeilingDb: [-24, 0],
+  limReleaseMs: [1, 1000],
+  outGainDb: [-24, 24],
+});
+
+/**
+ * Clamp to a control's range AND narrow to binary32.
+ *
+ * The narrowing is not incidental: `sMst` stores every parameter as an IEEE
+ * binary32, so a value the editor holds in binary64 would come back from a save
+ * as something very slightly different and the chain would drift a hair on
+ * every round trip. Rounding here makes the document hold exactly what the file
+ * will hold, which is also what lets a saved song be compared byte-for-byte
+ * with the one still on screen.
+ */
+const clampRange = (v, key, fallback) => {
+  const [lo, hi] = RANGE[key];
+  // A field the caller left out (or a NaN a corrupt file produced) falls back
+  // to the stage's own resting value, NOT to the bottom of its range: a partial
+  // record is "these are the parts I care about", and reading the rest as
+  // −24 dB of trim would silently rebuild the chain around it.
+  if (!Number.isFinite(v)) return Math.fround(fallback);
+  return Math.fround(v < lo ? lo : v > hi ? hi : v);
+};
+
+/**
+ * The neutral chain. Every stage off, every control at the value it would rest
+ * at — so turning a stage on changes nothing until you move something, which is
+ * what makes A/B against the untouched mix mean anything.
+ */
+function defaultMastering() {
+  // Narrowed to binary32 like everything else that reaches the chain (see
+  // clampRange): the default record has to be a FIXED POINT of
+  // normaliseMastering, or "is this chain untouched?" — which decides whether
+  // the file carries an `sMst` section at all — is false for a project nobody
+  // has been near.
+  return f32Record({
+    on: false,
+    trimDb: 0,
+    hpOn: false, hpFreq: 20, hpSlope: HP_SLOPE_12,
+    eqOn: false,
+    // The four bands start ENGAGED. At 0 dB an RBJ section is the identity
+    // (A = 1 makes its numerator and denominator the same three numbers), so a
+    // live band that nobody has moved changes nothing — and switching the
+    // equaliser on then dragging a gain slider does what it looks like it
+    // should, instead of doing nothing until you find the band's own switch.
+    // The unit switch above is still off, so an untouched chain is still
+    // entirely absent.
+    eq: [
+      { on: true, type: EQ_LOW_SHELF, freq: 100, gainDb: 0, q: 0.707 },
+      { on: true, type: EQ_PEAKING, freq: 400, gainDb: 0, q: 1.0 },
+      { on: true, type: EQ_PEAKING, freq: 2500, gainDb: 0, q: 1.0 },
+      { on: true, type: EQ_HIGH_SHELF, freq: 8000, gainDb: 0, q: 0.707 },
+    ],
+    compOn: false, compDetector: COMP_PEAK,
+    compThreshDb: -18, compRatio: 2, compAttackMs: 20, compReleaseMs: 200,
+    compKneeDb: 6, compMakeupDb: 0,
+    widthOn: false, width: 1,
+    limOn: false, limTruePeak: false, limCeilingDb: -1, limReleaseMs: 100,
+    outGainDb: 0,
+  });
+}
+
+/** Narrow every number in a parameter record (its EQ bands included) to f32. */
+function f32Record(p) {
+  for (const k of Object.keys(p)) {
+    if (typeof p[k] === "number") p[k] = Math.fround(p[k]);
+  }
+  for (const b of p.eq) {
+    for (const k of Object.keys(b)) {
+      if (typeof b[k] === "number") b[k] = Math.fround(b[k]);
+    }
+  }
+  return p;
+}
+
+/** Fill in what a partial record leaves out and clamp what it declares, so
+ *  anything downstream (the DSP, the codec, the UI) reads a complete object. */
+function normaliseMastering(p) {
+  const d = defaultMastering();
+  if (!p || typeof p !== "object") return d;
+  const eq = [];
+  for (let i = 0; i < EQ_BANDS; i++) {
+    const b = p.eq?.[i] ?? d.eq[i];
+    const type = b.type === EQ_LOW_SHELF || b.type === EQ_HIGH_SHELF ? b.type : EQ_PEAKING;
+    eq.push({
+      on: !!b.on,
+      // Only the outer bands may be shelves; a shelf in the middle of the
+      // stack is legal maths and an unreadable control surface.
+      type: i === 0 || i === EQ_BANDS - 1 ? type : EQ_PEAKING,
+      freq: clampRange(+b.freq, "eqFreq", d.eq[i].freq),
+      gainDb: clampRange(+b.gainDb, "eqGainDb", d.eq[i].gainDb),
+      q: clampRange(+b.q, "eqQ", d.eq[i].q),
+    });
+  }
+  return {
+    on: !!p.on,
+    trimDb: clampRange(+p.trimDb, "trimDb", d.trimDb),
+    hpOn: !!p.hpOn,
+    hpFreq: clampRange(+p.hpFreq, "hpFreq", d.hpFreq),
+    hpSlope: p.hpSlope === HP_SLOPE_24 ? HP_SLOPE_24 : HP_SLOPE_12,
+    eqOn: !!p.eqOn,
+    eq,
+    compOn: !!p.compOn,
+    compDetector: p.compDetector === COMP_RMS ? COMP_RMS : COMP_PEAK,
+    compThreshDb: clampRange(+p.compThreshDb, "compThreshDb", d.compThreshDb),
+    compRatio: clampRange(+p.compRatio, "compRatio", d.compRatio),
+    compAttackMs: clampRange(+p.compAttackMs, "compAttackMs", d.compAttackMs),
+    compReleaseMs: clampRange(+p.compReleaseMs, "compReleaseMs", d.compReleaseMs),
+    compKneeDb: clampRange(+p.compKneeDb, "compKneeDb", d.compKneeDb),
+    compMakeupDb: clampRange(+p.compMakeupDb, "compMakeupDb", d.compMakeupDb),
+    widthOn: !!p.widthOn,
+    width: clampRange(+p.width, "width", d.width),
+    limOn: !!p.limOn,
+    limTruePeak: !!p.limTruePeak,
+    limCeilingDb: clampRange(+p.limCeilingDb, "limCeilingDb", d.limCeilingDb),
+    limReleaseMs: clampRange(+p.limReleaseMs, "limReleaseMs", d.limReleaseMs),
+    outGainDb: clampRange(+p.outGainDb, "outGainDb", d.outGainDb),
+  };
+}
+
+/**
+ * Would this chain change ANY sample? Off, or on with nothing engaged and both
+ * gains at unity, is not "transparent" — it is skipped outright, which is what
+ * keeps the legacy render path bit-exact for every song that does not use the
+ * feature. A stage counts as engaged when its switch is on, whatever its
+ * settings say: an EQ band flat at 0 dB still costs a biquad, and pretending
+ * otherwise would make the chain's latency depend on a gain value.
+ */
+function masteringEngaged(p) {
+  if (!p || !p.on) return false;
+  return p.trimDb !== 0 || p.outGainDb !== 0 ||
+    p.hpOn || p.eqOn || p.compOn || p.limOn || (p.widthOn && p.width !== 1);
+}
+
+/** Deep copy — params travel over postMessage and into undo records. */
+function cloneMastering(p) {
+  const n = normaliseMastering(p);
+  n.eq = n.eq.map((b) => ({ ...b }));
+  return n;
+}
+
+/** Structural equality, for "did this edit change anything?" checks. */
+function masteringEqual(a, b) {
+  const x = normaliseMastering(a), y = normaliseMastering(b);
+  for (const k of Object.keys(x)) {
+    if (k === "eq") continue;
+    if (x[k] !== y[k]) return false;
+  }
+  for (let i = 0; i < EQ_BANDS; i++) {
+    for (const k of ["on", "type", "freq", "gainDb", "q"]) {
+      if (x.eq[i][k] !== y.eq[i][k]) return false;
+    }
+  }
+  return true;
+}
+
+const dbToGain = (db) => 10 ** (db / 20);
+const gainToDb = (g) => (g > 0 ? 20 * Math.log10(g) : -Infinity);
+
+// ── Biquad ──────────────────────────────────────────────────────────────────
+// RBJ cookbook sections, Direct Form I, normalised to a0. Coefficients live in
+// the section; the delay line is per channel, so one section serves the pair.
+
+class Biquad {
+  constructor() {
+    this.b0 = 1; this.b1 = 0; this.b2 = 0; this.a1 = 0; this.a2 = 0;
+    this.x1 = new Float64Array(2); this.x2 = new Float64Array(2);
+    this.y1 = new Float64Array(2); this.y2 = new Float64Array(2);
+  }
+
+  reset() {
+    this.x1.fill(0); this.x2.fill(0); this.y1.fill(0); this.y2.fill(0);
+  }
+
+  /** One sample of channel `c`. */
+  run(c, x) {
+    const y = this.b0 * x + this.b1 * this.x1[c] + this.b2 * this.x2[c] -
+      this.a1 * this.y1[c] - this.a2 * this.y2[c];
+    this.x2[c] = this.x1[c]; this.x1[c] = x;
+    this.y2[c] = this.y1[c]; this.y1[c] = y;
+    return y;
+  }
+
+  _set(b0, b1, b2, a0, a1, a2) {
+    const inv = 1 / a0;
+    this.b0 = b0 * inv; this.b1 = b1 * inv; this.b2 = b2 * inv;
+    this.a1 = a1 * inv; this.a2 = a2 * inv;
+  }
+
+  highPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set((1 + cw) / 2, -(1 + cw), (1 + cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  peaking(freq, gainDb, q, rate) {
+    const A = 10 ** (gainDb / 40);
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1 + alpha * A, -2 * cw, 1 - alpha * A,
+              1 + alpha / A, -2 * cw, 1 - alpha / A);
+  }
+
+  lowShelf(freq, gainDb, q, rate) {
+    const A = 10 ** (gainDb / 40);
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    const tsa = 2 * Math.sqrt(A) * alpha;
+    this._set(A * ((A + 1) - (A - 1) * cw + tsa),
+              2 * A * ((A - 1) - (A + 1) * cw),
+              A * ((A + 1) - (A - 1) * cw - tsa),
+              (A + 1) + (A - 1) * cw + tsa,
+              -2 * ((A - 1) + (A + 1) * cw),
+              (A + 1) + (A - 1) * cw - tsa);
+  }
+
+  highShelf(freq, gainDb, q, rate) {
+    const A = 10 ** (gainDb / 40);
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    const tsa = 2 * Math.sqrt(A) * alpha;
+    this._set(A * ((A + 1) + (A - 1) * cw + tsa),
+              -2 * A * ((A - 1) + (A + 1) * cw),
+              A * ((A + 1) + (A - 1) * cw - tsa),
+              (A + 1) - (A - 1) * cw + tsa,
+              2 * ((A - 1) - (A + 1) * cw),
+              (A + 1) - (A - 1) * cw - tsa);
+  }
+}
+
+// ── Sliding-window minimum ──────────────────────────────────────────────────
+// A monotonic deque over a fixed window, O(1) amortised. The limiter's whole
+// no-overshoot guarantee rests on this: see LimiterStage.
+
+class SlidingMin {
+  /** Rebase point for the sample counter: an Int32 index would wrap after
+   *  about twelve hours of continuous playback, and a worklet does run for
+   *  days. Every stored index is shifted down when the counter reaches this. */
+  static REBASE = 0x20000000;
+
+  constructor(width) {
+    this.width = width;
+    // The deque can hold `width` candidates at once, and head === tail means
+    // empty — so the ring needs one spare slot to tell "full" from "empty".
+    this.cap = width + 1;
+    this.val = new Float64Array(this.cap);  // ring of candidate values
+    this.at = new Int32Array(this.cap);     // …and the index each arrived at
+    this.head = 0; this.tail = 0;           // [head, tail), tail = newest end
+    this.n = 0;                             // samples pushed so far
+    this.reset();
+  }
+
+  reset(fill = 1.0) {
+    // Prime with one candidate dated far enough back that it retires as soon
+    // as the window has rolled past it — so the very first outputs read `fill`
+    // (silence needs no gain reduction) instead of an empty deque's nothing.
+    this.n = 0;
+    this.val[0] = fill; this.at[0] = 0;
+    this.head = 0; this.tail = 1;
+  }
+
+  /** Push `v`, return the minimum over the last `width` samples. */
+  push(v) {
+    const i = this.n++;
+    const cap = this.cap;
+    // Drop candidates this sample dominates: anything ≥ v can never be the
+    // minimum again while v is in the window.
+    while (this.tail !== this.head) {
+      const prev = (this.tail - 1 + cap) % cap;
+      if (this.val[prev] >= v) this.tail = prev; else break;
+    }
+    this.val[this.tail] = v; this.at[this.tail] = i;
+    this.tail = (this.tail + 1) % cap;
+    // …and retire the front once it has fallen out of the window.
+    while (this.at[this.head] <= i - this.width) this.head = (this.head + 1) % cap;
+    if (this.n >= SlidingMin.REBASE) {
+      for (let k = this.head; k !== this.tail; k = (k + 1) % cap) {
+        this.at[k] -= SlidingMin.REBASE;
+      }
+      this.n -= SlidingMin.REBASE;
+    }
+    return this.val[this.head];
+  }
+}
+
+// ── The stages ──────────────────────────────────────────────────────────────
+
+/** Two Butterworth sections' worth of high-pass; the 12 dB/oct slope uses one. */
+class HighPassStage {
+  constructor() { this.s1 = new Biquad(); this.s2 = new Biquad(); this.two = false; }
+  configure(p, rate) {
+    this.two = p.hpSlope === HP_SLOPE_24;
+    if (this.two) {
+      // Cascaded Butterworth 4th order: the two section Qs of a normalised
+      // Butterworth quartic, 1/(2 cos(π/8)) and 1/(2 cos(3π/8)).
+      this.s1.highPass(p.hpFreq, 0.5411961001461969, rate);
+      this.s2.highPass(p.hpFreq, 1.3065629648763766, rate);
+    } else {
+      this.s1.highPass(p.hpFreq, Math.SQRT1_2, rate);
+    }
+  }
+  reset() { this.s1.reset(); this.s2.reset(); }
+  run(c, x) {
+    const y = this.s1.run(c, x);
+    return this.two ? this.s2.run(c, y) : y;
+  }
+}
+
+/** Four cascaded RBJ sections; a band that is off is simply not in the list. */
+class EqStage {
+  constructor() {
+    this.sections = [];
+    for (let i = 0; i < EQ_BANDS; i++) this.sections.push(new Biquad());
+    this.live = [];
+  }
+  configure(p, rate) {
+    this.live = [];
+    for (let i = 0; i < EQ_BANDS; i++) {
+      const b = p.eq[i];
+      if (!b.on) continue;
+      const s = this.sections[i];
+      if (b.type === EQ_LOW_SHELF) s.lowShelf(b.freq, b.gainDb, b.q, rate);
+      else if (b.type === EQ_HIGH_SHELF) s.highShelf(b.freq, b.gainDb, b.q, rate);
+      else s.peaking(b.freq, b.gainDb, b.q, rate);
+      this.live.push(s);
+    }
+  }
+  reset() { for (const s of this.sections) s.reset(); }
+  run(c, x) {
+    let y = x;
+    for (let i = 0; i < this.live.length; i++) y = this.live[i].run(c, y);
+    return y;
+  }
+}
+
+/**
+ * Feed-forward compressor with a quadratic soft knee, computed in dB and
+ * smoothed in dB — the arrangement that gives a ratio the meaning the label
+ * claims at every level, instead of one that drifts with the detector.
+ *
+ * The detector is LINKED (one envelope drives both channels), which is the only
+ * arrangement that leaves the stereo image where the mixer put it.
+ */
+class CompressorStage {
+  constructor() {
+    this.grDb = 0;        // current gain reduction, dB (negative)
+    this.rms = 0;         // RMS detector's mean-square state
+    this.rmsCoef = 0;
+    this.attackCoef = 0; this.releaseCoef = 0;
+    this.thresh = 0; this.ratio = 1; this.knee = 0; this.makeup = 1;
+    this.peakMode = true;
+  }
+  configure(p, rate) {
+    this.peakMode = p.compDetector !== COMP_RMS;
+    this.thresh = p.compThreshDb;
+    this.ratio = p.compRatio;
+    this.knee = p.compKneeDb;
+    this.makeup = dbToGain(p.compMakeupDb);
+    this.attackCoef = onePole(p.compAttackMs, rate);
+    this.releaseCoef = onePole(p.compReleaseMs, rate);
+    // A 10 ms window is the usual "programme level" compromise: long enough to
+    // ignore a single cycle of a bass note, short enough to follow a phrase.
+    this.rmsCoef = onePole(10, rate);
+  }
+  reset() { this.grDb = 0; this.rms = 0; }
+
+  /** Update the envelope from the frame's linked detector and return the
+   *  linear gain to apply (makeup folded in). */
+  step(l, r) {
+    let level;
+    if (this.peakMode) {
+      const al = l < 0 ? -l : l;
+      const ar = r < 0 ? -r : r;
+      level = al > ar ? al : ar;
+    } else {
+      const ms = (l * l + r * r) * 0.5;
+      this.rms += (ms - this.rms) * this.rmsCoef;
+      level = Math.sqrt(this.rms);
+    }
+    // −120 dBFS floor: below it the gain computer has nothing to say and the
+    // logarithm has nowhere to go.
+    const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
+    const over = levelDb - this.thresh;
+    const half = this.knee * 0.5;
+    let targetDb;
+    if (this.knee > 0 && over > -half && over < half) {
+      const t = over + half;
+      targetDb = -((1 - 1 / this.ratio) * t * t) / (2 * this.knee);
+    } else if (over > 0) {
+      targetDb = -over * (1 - 1 / this.ratio);
+    } else {
+      targetDb = 0;
+    }
+    // More reduction is an ATTACK, less is a RELEASE.
+    const coef = targetDb < this.grDb ? this.attackCoef : this.releaseCoef;
+    this.grDb += (targetDb - this.grDb) * coef;
+    return dbToGain(this.grDb) * this.makeup;
+  }
+}
+
+/**
+ * Look-ahead brickwall limiter.
+ *
+ * The construction is the one that CANNOT overshoot, which matters more here
+ * than anywhere else in the chain: this is the stage whose only job is a
+ * promise about the ceiling.
+ *
+ *   1. `g[n]` — the gain sample n would need to sit at the ceiling.
+ *   2. A sliding MINIMUM of g over 2D+1 samples.
+ *   3. A rise-rate limit (the release), which can only push the gain lower.
+ *   4. A moving AVERAGE over D+1 samples, which turns every step into a ramp.
+ *   5. The audio, delayed by 2D.
+ *
+ * Steps 2 and 4 are what buy the guarantee. Every value the average at time n
+ * covers is a minimum over a window that still contains sample n−2D, so every
+ * term is ≤ g[n−2D] and so is their mean — and the rise limit only ever lowers
+ * it further. A moving average alone (the common shortcut) does not have that
+ * property and lets transients through by a decibel or so.
+ *
+ * The cost is 2D of latency, which is why D is one millisecond and not ten.
+ */
+class LimiterStage {
+  constructor() {
+    this.d = 0;
+    this.delayL = null; this.delayR = null; this.dpos = 0;
+    this.min = null;
+    this.avg = null; this.avgSum = 0; this.apos = 0;
+    this.env = 1;
+    this.releaseCoef = 0;
+    this.ceiling = 1;
+    this.truePeak = false;
+    this.probeL = new TruePeakProbe();
+    this.probeR = new TruePeakProbe();
+    this.grDb = 0; // most recent reduction, dB (negative), for the meter
+  }
+
+  configure(p, rate) {
+    const d = Math.max(1, Math.round((LIMITER_LOOKAHEAD_MS / 1000) * rate));
+    const geometryChanged = d !== this.d;
+    if (geometryChanged) {
+      this.d = d;
+      this.delayL = new Float64Array(2 * d);
+      this.delayR = new Float64Array(2 * d);
+      this.min = new SlidingMin(2 * d + 1);
+      this.avg = new Float64Array(d + 1);
+    }
+    this.ceiling = dbToGain(p.limCeilingDb);
+    this.truePeak = !!p.limTruePeak;
+    this.releaseCoef = onePole(p.limReleaseMs, rate);
+    // New buffers hold nothing; existing ones hold audio that is still on its
+    // way out, and dropping it mid-drag is a click for every knob turn.
+    if (geometryChanged) this.reset();
+  }
+
+  /** Total latency in samples — what the rest of the chain has to declare. */
+  get latency() { return this.d === 0 ? 0 : 2 * this.d; }
+
+  reset() {
+    if (this.d === 0) return;
+    this.delayL.fill(0); this.delayR.fill(0); this.dpos = 0;
+    this.min.reset(1.0);
+    this.avg.fill(1.0); this.avgSum = this.avg.length; this.apos = 0;
+    this.env = 1;
+    this.probeL.reset(); this.probeR.reset();
+    this.grDb = 0;
+  }
+
+  /** Feed one frame, get the delayed and limited frame back in `out`. */
+  step(l, r, out) {
+    const pl = this.truePeak ? this.probeL.push(l) : (l < 0 ? -l : l);
+    const pr = this.truePeak ? this.probeR.push(r) : (r < 0 ? -r : r);
+    const peak = pl > pr ? pl : pr;
+    const need = peak > this.ceiling ? this.ceiling / peak : 1;
+
+    const m = this.min.push(need);
+    // Rise limit = release. A fall is instantaneous; the sliding minimum has
+    // already moved it D samples early, and step 4 turns that into a ramp.
+    this.env = m < this.env ? m : this.env + (m - this.env) * this.releaseCoef;
+
+    const w = this.avg.length;
+    this.avgSum += this.env - this.avg[this.apos];
+    this.avg[this.apos] = this.env;
+    this.apos = this.apos + 1 === w ? 0 : this.apos + 1;
+    const gain = this.avgSum / w;
+
+    const dl = this.delayL[this.dpos];
+    const dr = this.delayR[this.dpos];
+    this.delayL[this.dpos] = l;
+    this.delayR[this.dpos] = r;
+    this.dpos = this.dpos + 1 === this.delayL.length ? 0 : this.dpos + 1;
+
+    if (gain < 1) {
+      const db = 20 * Math.log10(gain);
+      if (db < this.grDb) this.grDb = db;
+    }
+    out[0] = dl * gain;
+    out[1] = dr * gain;
+  }
+}
+
+/** One-pole smoothing coefficient for a time constant in milliseconds. */
+function onePole(ms, rate) {
+  const n = (ms / 1000) * rate;
+  return n <= 0 ? 1 : 1 - Math.exp(-1 / n);
+}
+
+// ── The chain ───────────────────────────────────────────────────────────────
+
+/**
+ * The whole thing, stateful, one instance per playhead. `process` runs over a
+ * block of the mix bus in place; the block size is irrelevant to the result
+ * (everything is per-sample state), which is what keeps a render at one chunk
+ * size identical to a render at another.
+ */
+class MasterChain {
+  constructor(params = null, rate = SAMPLING_RATE) {
+    this.rate = rate;
+    this.hp = new HighPassStage();
+    this.eq = new EqStage();
+    this.comp = new CompressorStage();
+    this.lim = new LimiterStage();
+    this.params = defaultMastering();
+    this._pair = [0, 0];
+    /** Peak gain reduction over the block just processed, dB (≤ 0). Drained by
+     *  the metering tap; the UI owns the ballistics, as everywhere else. */
+    this.compGrDb = 0;
+    this.limGrDb = 0;
+    // Always, even for a null argument: `engaged` and the two gain scalars are
+    // set here and nowhere else, so a chain that skipped it would read them as
+    // undefined on its first block.
+    this.setParams(params ?? this.params);
+  }
+
+  /** Install a parameter set. Coefficients are recomputed; the DELAY LINES are
+   *  not cleared, so dragging a knob while the song plays does not click. */
+  setParams(params) {
+    const p = normaliseMastering(params);
+    this.params = p;
+    this.trimGain = dbToGain(p.trimDb);
+    this.outGain = dbToGain(p.outGainDb);
+    this.width = p.width;
+    if (p.hpOn) this.hp.configure(p, this.rate);
+    if (p.eqOn) this.eq.configure(p, this.rate);
+    if (p.compOn) this.comp.configure(p, this.rate);
+    if (p.limOn) this.lim.configure(p, this.rate);
+    this.engaged = masteringEngaged(p);
+  }
+
+  /** Latency this chain adds, in samples (the limiter's look-ahead, or zero). */
+  get latency() { return this.params.limOn ? this.lim.latency : 0; }
+
+  /** Clear every delay line and envelope. A transport reset owes the chain
+   *  this: a compressor still holding 6 dB of reduction from before a seek, or
+   *  a look-ahead buffer still holding two milliseconds of the previous
+   *  playback, is exactly the class of lingering state §15 of the engine spec
+   *  is about. */
+  reset() {
+    this.hp.reset();
+    this.eq.reset();
+    this.comp.reset();
+    this.lim.reset();
+    this.compGrDb = 0;
+    this.limGrDb = 0;
+  }
+
+  /**
+   * Process `frames` of the mix bus in place. `left`/`right` are the binary32
+   * mix buffers; the maths runs in binary64 and the result is stored back,
+   * narrowing once, exactly as an unmastered mix narrows once.
+   */
+  process(left, right, frames) {
+    const p = this.params;
+    if (!this.engaged) return;
+    const trim = this.trimGain;
+    const out = this.outGain;
+    const doHp = p.hpOn, doEq = p.eqOn, doComp = p.compOn;
+    const doWidth = p.widthOn && this.width !== 1;
+    const doLim = p.limOn;
+    const w = this.width;
+    const pair = this._pair;
+    let compGr = 0;
+    this.lim.grDb = 0;
+
+    for (let n = 0; n < frames; n++) {
+      let l = left[n] * trim;
+      let r = right[n] * trim;
+      if (doHp) { l = this.hp.run(0, l); r = this.hp.run(1, r); }
+      if (doEq) { l = this.eq.run(0, l); r = this.eq.run(1, r); }
+      if (doComp) {
+        const g = this.comp.step(l, r);
+        l *= g; r *= g;
+        if (this.comp.grDb < compGr) compGr = this.comp.grDb;
+      }
+      if (doWidth) {
+        const m = (l + r) * 0.5;
+        const s = (l - r) * 0.5 * w;
+        l = m + s; r = m - s;
+      }
+      if (doLim) {
+        this.lim.step(l, r, pair);
+        l = pair[0]; r = pair[1];
+      }
+      left[n] = l * out;
+      right[n] = r * out;
+    }
+    this.compGrDb = compGr;
+    this.limGrDb = this.lim.grDb;
+  }
+
+  /**
+   * The chain's magnitude response at `freq`, in dB — the static stages only
+   * (trim, high-pass, EQ, output gain), which is exactly what an EQ curve is
+   * supposed to draw. The dynamics stages are deliberately absent: a
+   * compressor has no frequency response, and drawing its makeup into the
+   * curve would be a lie about what the line means.
+   */
+  responseDb(freq) {
+    const p = this.params;
+    if (!p.on) return 0;
+    let db = p.trimDb + p.outGainDb;
+    if (p.hpOn) {
+      db += biquadDb(this.hp.s1, freq, this.rate);
+      if (this.hp.two) db += biquadDb(this.hp.s2, freq, this.rate);
+    }
+    if (p.eqOn) {
+      for (let i = 0; i < EQ_BANDS; i++) {
+        if (p.eq[i].on) db += biquadDb(this.eq.sections[i], freq, this.rate);
+      }
+    }
+    return db;
+  }
+}
+
+/** |H(e^{jw})| of one configured section, in dB. */
+function biquadDb(s, freq, rate) {
+  const w = (2 * Math.PI * freq) / rate;
+  const cw = Math.cos(w), sw = Math.sin(w);
+  const c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+  const nr = s.b0 + s.b1 * cw + s.b2 * c2;
+  const ni = -(s.b1 * sw + s.b2 * s2);
+  const dr = 1 + s.a1 * cw + s.a2 * c2;
+  const di = -(s.a1 * sw + s.a2 * s2);
+  const num = nr * nr + ni * ni;
+  const den = dr * dr + di * di;
+  if (den === 0 || num === 0) return -120;
+  return 10 * Math.log10(num / den);
+}
+
+/** A configured chain's response curve over `n` log-spaced points from `lo` to
+ *  `hi` Hz — what the EQ display plots. Returns {freq, db} Float64Arrays. */
+function responseCurve(chain, lo = 20, hi = 20000, n = 256) {
+  const freq = new Float64Array(n);
+  const db = new Float64Array(n);
+  const k = Math.log(hi / lo) / (n - 1);
+  for (let i = 0; i < n; i++) {
+    freq[i] = lo * Math.exp(k * i);
+    db[i] = chain.responseDb(freq[i]);
+  }
+  return { freq, db };
+}
+
+// ══ src/engine/loudness.js ══
+// Loudness and delivery metering (item 178) — the numbers the Mastering view
+// draws, and the numbers its measure-and-set buttons act on.
+//
+// The split here follows the same rule the master-strip tap (analysis.js)
+// follows: the ENGINE ships sums, the caller owns the windows and the look. So
+// this file holds two kinds of thing —
+//
+//   * the per-sample filters a loudness measurement needs (K-weighting, the
+//     phase-scrambling all-pass cascade), which run on the audio thread inside
+//     the metering tap; and
+//   * the integrators and gates that turn a stream of per-interval sums into
+//     LUFS, LRA, crest and a bit histogram, which run wherever the caller is —
+//     the UI for the live meters, the offline analyser for the time plots.
+//
+// Nothing in here is a judgement. A number is reported, its units are named,
+// and what it means for the music is the composer's business.
+//
+// ── References ──
+// Loudness is ITU-R BS.1770-4 / EBU R 128: K-weighted mean square, −0.691 dB
+// offset, 400 ms momentary and 3 s short-term windows, and the two-stage gate
+// (absolute −70 LUFS, then relative at −10 LU) for the integrated figure. LRA
+// is EBU Tech 3342: 3 s windows, a −20 LU relative gate, and the span from the
+// 10th to the 95th percentile.
+//
+// The all-pass cascade is NOT from a standard. It is this project's own, and it
+// is spelled out in TAUD_ENGINE_SPEC.md so a second implementation can produce
+// the same figure; see PHASE_SCRAMBLE_HZ for what it is for.
+
+
+// ── K-weighting (BS.1770) ───────────────────────────────────────────────────
+// Two sections: a high-frequency shelf standing in for the head's acoustics,
+// then the RLB high-pass. The standard tabulates coefficients at 48 kHz only,
+// so they are DERIVED here from the analogue prototype and the bilinear
+// transform — that way 32 kHz (the engine's other rate) is measured properly
+// rather than with 48 kHz numbers used out of place.
+
+/** Shelf prototype: corner, gain and Q of BS.1770's stage 1. */
+const KW_SHELF_F0 = 1681.974450955533;
+const KW_SHELF_G = 3.999843853973347;
+const KW_SHELF_Q = 0.7071752369554196;
+/** …and the exponent relating the shelf's mid gain to its high gain. */
+const KW_SHELF_VB_EXP = 0.4996667741545416;
+/** RLB high-pass prototype: corner and Q of BS.1770's stage 2. */
+const KW_HP_F0 = 38.13547087602444;
+const KW_HP_Q = 0.5003270373238773;
+
+/** The −0.691 dB offset BS.1770 applies so a reference signal reads its own level. */
+const LUFS_OFFSET_DB = -0.691;
+/** Absolute gate, in LUFS: blocks quieter than this never count. */
+const GATE_ABSOLUTE_LUFS = -70;
+/** Relative gate for the integrated figure, in LU below the ungated mean. */
+const GATE_RELATIVE_LU = -10;
+/** …and the wider one LRA uses. */
+const LRA_RELATIVE_LU = -20;
+
+/**
+ * BS.1770 stage 1 + stage 2 coefficients for `rate`, as two
+ * {b0,b1,b2,a1,a2} records normalised to a0.
+ */
+function kWeightingCoefficients(rate) {
+  // Stage 1 — high-frequency shelf.
+  const k1 = Math.tan((Math.PI * KW_SHELF_F0) / rate);
+  const vh = 10 ** (KW_SHELF_G / 20);
+  const vb = vh ** KW_SHELF_VB_EXP;
+  const d1 = 1 + k1 / KW_SHELF_Q + k1 * k1;
+  const shelf = {
+    b0: (vh + (vb * k1) / KW_SHELF_Q + k1 * k1) / d1,
+    b1: (2 * (k1 * k1 - vh)) / d1,
+    b2: (vh - (vb * k1) / KW_SHELF_Q + k1 * k1) / d1,
+    a1: (2 * (k1 * k1 - 1)) / d1,
+    a2: (1 - k1 / KW_SHELF_Q + k1 * k1) / d1,
+  };
+  // Stage 2 — RLB high-pass. Its numerator is the ideal (1, −2, 1).
+  const k2 = Math.tan((Math.PI * KW_HP_F0) / rate);
+  const d2 = 1 + k2 / KW_HP_Q + k2 * k2;
+  const hp = {
+    b0: 1, b1: -2, b2: 1,
+    a1: (2 * (k2 * k2 - 1)) / d2,
+    a2: (1 - k2 / KW_HP_Q + k2 * k2) / d2,
+  };
+  return [shelf, hp];
+}
+
+/** One channel's K-weighting filter pair, Direct Form I. */
+class KWeighting {
+  constructor(rate) {
+    const [shelf, hp] = kWeightingCoefficients(rate);
+    this.s = shelf;
+    this.h = hp;
+    this.reset();
+  }
+
+  reset() {
+    this.x1 = 0; this.x2 = 0; this.y1 = 0; this.y2 = 0;   // stage 1
+    this.u1 = 0; this.u2 = 0; this.v1 = 0; this.v2 = 0;   // stage 2
+  }
+
+  /** Feed one sample, get the K-weighted sample back. */
+  run(x) {
+    const s = this.s;
+    const y = s.b0 * x + s.b1 * this.x1 + s.b2 * this.x2 - s.a1 * this.y1 - s.a2 * this.y2;
+    this.x2 = this.x1; this.x1 = x;
+    this.y2 = this.y1; this.y1 = y;
+    const h = this.h;
+    const v = h.b0 * y + h.b1 * this.u1 + h.b2 * this.u2 - h.a1 * this.v1 - h.a2 * this.v2;
+    this.u2 = this.u1; this.u1 = y;
+    this.v2 = this.v1; this.v1 = v;
+    return v;
+  }
+}
+
+/** LUFS from a K-weighted mean square summed over the channels of a pair. */
+function lufsFromMeanSquare(sumOfChannelMeanSquares) {
+  if (!(sumOfChannelMeanSquares > 0)) return -Infinity;
+  return LUFS_OFFSET_DB + 10 * Math.log10(sumOfChannelMeanSquares);
+}
+
+// ── Phase-scrambling all-pass cascade ───────────────────────────────────────
+//
+// WHY: a clipped or hard-limited mix has flat tops, and a flat top has a LOW
+// crest factor — the peak has been carved off while the energy stayed. Run the
+// same signal through a cascade of all-pass sections and the magnitude spectrum
+// is untouched while the phases are scattered; the flat tops become peaks again
+// and the crest factor jumps back up. The GAP between the two crest figures is
+// therefore a direct reading of how much peak the processing has eaten, which
+// is the measurement MasVis made famous.
+//
+// The cascade below is this project's own definition, not MasVis's: eight
+// second-order all-pass sections at octave spacing from 31.25 Hz to 4 kHz, all
+// at Q = 0.5. Octave spacing puts a phase rotation in every part of the band a
+// mix has energy in, and Q = 0.5 makes each rotation broad rather than local.
+
+const PHASE_SCRAMBLE_HZ = Object.freeze([31.25, 62.5, 125, 250, 500, 1000, 2000, 4000]);
+const PHASE_SCRAMBLE_Q = 0.5;
+
+/** The cascade, one channel, Direct Form I. */
+class PhaseScrambler {
+  constructor(rate) {
+    const n = PHASE_SCRAMBLE_HZ.length;
+    this.n = n;
+    this.b0 = new Float64Array(n);
+    this.b1 = new Float64Array(n);
+    this.a1 = new Float64Array(n);
+    this.a2 = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const w = (2 * Math.PI * Math.min(PHASE_SCRAMBLE_HZ[i], rate * 0.49)) / rate;
+      const alpha = Math.sin(w) / (2 * PHASE_SCRAMBLE_Q);
+      const a0 = 1 + alpha;
+      // All-pass: b = (1−α, −2cos w, 1+α), a = (1+α, −2cos w, 1−α). Normalised,
+      // b2 is 1 and a1 mirrors b1, so only three numbers need storing.
+      this.b0[i] = (1 - alpha) / a0;
+      this.b1[i] = (-2 * Math.cos(w)) / a0;
+      this.a1[i] = (-2 * Math.cos(w)) / a0;
+      this.a2[i] = (1 - alpha) / a0;
+    }
+    this.x1 = new Float64Array(n); this.x2 = new Float64Array(n);
+    this.y1 = new Float64Array(n); this.y2 = new Float64Array(n);
+    this.reset();
+  }
+
+  reset() { this.x1.fill(0); this.x2.fill(0); this.y1.fill(0); this.y2.fill(0); }
+
+  run(x) {
+    let v = x;
+    for (let i = 0; i < this.n; i++) {
+      const y = this.b0[i] * v + this.b1[i] * this.x1[i] + this.x2[i] -
+        this.a1[i] * this.y1[i] - this.a2[i] * this.y2[i];
+      this.x2[i] = this.x1[i]; this.x1[i] = v;
+      this.y2[i] = this.y1[i]; this.y1[i] = y;
+      v = y;
+    }
+    return v;
+  }
+}
+
+// ── dB helpers ──────────────────────────────────────────────────────────────
+
+/** Amplitude → dBFS, with a floor rather than −Infinity so a bar can draw it. */
+function dbfs(x, floor = -144) {
+  const a = x < 0 ? -x : x;
+  return a > 0 ? Math.max(20 * Math.log10(a), floor) : floor;
+}
+
+/** Crest factor of a block, in dB: peak over RMS. Zero for silence. */
+function crestDb(peak, meanSquare) {
+  if (!(meanSquare > 0) || !(peak > 0)) return 0;
+  return 20 * Math.log10(peak / Math.sqrt(meanSquare));
+}
+
+// ── Integration ─────────────────────────────────────────────────────────────
+
+/** Length of one accumulation frame, in seconds. Every window this file
+ *  reports is a whole number of these: 400 ms momentary is four, 3 s short-term
+ *  is thirty, and the gated figures hop by one. */
+const FRAME_SEC = 0.1;
+
+/**
+ * Turns a stream of per-interval sums into every loudness figure the view
+ * shows. Feed it whatever intervals you have — a 16 ms snapshot, a 128-frame
+ * render chunk — and it packs them into 100 ms frames itself, so the reading
+ * does not depend on how the audio arrived.
+ *
+ * `capFrames` bounds the frame history a live meter accumulates (the integrated
+ * figure needs all of it). The default is a bit over five hours, which is long
+ * enough that no session reaches it and short enough that nothing leaks.
+ */
+class LoudnessIntegrator {
+  constructor(rate, { capFrames = 200000 } = {}) {
+    this.rate = rate;
+    this.frameSamples = Math.max(1, Math.round(FRAME_SEC * rate));
+    this.capFrames = capFrames;
+    /** Per-frame K-weighted mean square, channel-summed (the BS.1770 `z`). */
+    this.frames = [];
+    /** …and the same frames' plain (unweighted) mean square and peak, which is
+     *  what the crest and PLR readings are built from. */
+    this.framePeak = [];
+    this.frameMs = [];
+    this.reset();
+  }
+
+  reset() {
+    this.frames.length = 0;
+    this.framePeak.length = 0;
+    this.frameMs.length = 0;
+    this._accZ = 0;
+    this._accMs = 0;
+    this._accPeak = 0;
+    this._accN = 0;
+    this.truePeak = 0;
+    this.samplePeak = 0;
+  }
+
+  /**
+   * Add one interval.
+   * @param sumZ  Σ over the interval of (K-weighted L² + K-weighted R²)
+   * @param sumSq Σ over the interval of (L² + R²) — unweighted
+   * @param peak  largest |sample| in the interval, either channel
+   * @param truePeak  largest 4×-oversampled magnitude, or 0 if not measured
+   * @param n     samples in the interval
+   */
+  push(sumZ, sumSq, peak, truePeak, n) {
+    if (!(n > 0)) return;
+    if (peak > this.samplePeak) this.samplePeak = peak;
+    if (truePeak > this.truePeak) this.truePeak = truePeak;
+    this._accZ += sumZ;
+    this._accMs += sumSq;
+    if (peak > this._accPeak) this._accPeak = peak;
+    this._accN += n;
+    while (this._accN >= this.frameSamples) {
+      // The interval that completes a frame usually overruns it. Splitting the
+      // sums proportionally is the honest reading — they are sums of squares,
+      // so a share of the samples is a share of the energy.
+      const share = this.frameSamples / this._accN;
+      const z = this._accZ * share;
+      const ms = this._accMs * share;
+      this._pushFrame(z / this.frameSamples, ms / this.frameSamples, this._accPeak);
+      this._accZ -= z;
+      this._accMs -= ms;
+      this._accN -= this.frameSamples;
+      // The peak is not divisible; it belongs to both frames it straddles.
+    }
+    if (this._accN === 0) this._accPeak = 0;
+  }
+
+  _pushFrame(z, ms, peak) {
+    if (this.frames.length >= this.capFrames) {
+      this.frames.shift(); this.frameMs.shift(); this.framePeak.shift();
+    }
+    this.frames.push(z);
+    this.frameMs.push(ms);
+    this.framePeak.push(peak);
+  }
+
+  /** Mean of the last `sec` seconds of frames as LUFS; −Infinity when there is
+   *  not a whole window yet, so a meter can say "—" rather than a wrong number. */
+  window(sec) {
+    const need = Math.round(sec / FRAME_SEC);
+    const n = this.frames.length;
+    if (n < need) return -Infinity;
+    let s = 0;
+    for (let i = n - need; i < n; i++) s += this.frames[i];
+    return lufsFromMeanSquare(s / need);
+  }
+
+  /** 400 ms window (BS.1770 momentary). */
+  get momentary() { return this.window(0.4); }
+  /** 3 s window (BS.1770 short-term). */
+  get shortTerm() { return this.window(3); }
+
+  /** Every 400 ms block on a 100 ms hop, as LUFS. */
+  blocks(sec = 0.4) {
+    const need = Math.round(sec / FRAME_SEC);
+    const out = [];
+    if (this.frames.length < need) return out;
+    let s = 0;
+    for (let i = 0; i < need; i++) s += this.frames[i];
+    out.push(lufsFromMeanSquare(s / need));
+    for (let i = need; i < this.frames.length; i++) {
+      s += this.frames[i] - this.frames[i - need];
+      out.push(lufsFromMeanSquare(s / need));
+    }
+    return out;
+  }
+
+  /**
+   * Gated integrated loudness (BS.1770 / R 128). Two passes: drop everything
+   * below −70 LUFS, take the mean of what is left, then drop everything more
+   * than 10 LU below THAT and take the mean again.
+   */
+  get integrated() {
+    const need = Math.round(0.4 / FRAME_SEC);
+    const n = this.frames.length;
+    if (n < need) return -Infinity;
+    const zs = [];
+    let s = 0;
+    for (let i = 0; i < need; i++) s += this.frames[i];
+    zs.push(s / need);
+    for (let i = need; i < n; i++) { s += this.frames[i] - this.frames[i - need]; zs.push(s / need); }
+    return gatedMean(zs, GATE_RELATIVE_LU);
+  }
+
+  /** Loudness range (EBU Tech 3342), in LU. */
+  get range() {
+    const need = Math.round(3 / FRAME_SEC);
+    const n = this.frames.length;
+    if (n < need) return 0;
+    const zs = [];
+    let s = 0;
+    for (let i = 0; i < need; i++) s += this.frames[i];
+    zs.push(s / need);
+    for (let i = need; i < n; i++) { s += this.frames[i] - this.frames[i - need]; zs.push(s / need); }
+    return loudnessRange(zs);
+  }
+
+  /** Peak-to-loudness ratio, in LU: how much headroom the peaks keep over the
+   *  integrated level. Falls as a master is squashed, which is exactly what
+   *  makes it worth watching. */
+  get plr() {
+    const i = this.integrated;
+    if (!Number.isFinite(i)) return NaN;
+    const p = this.truePeak > 0 ? this.truePeak : this.samplePeak;
+    if (!(p > 0)) return NaN;
+    return 20 * Math.log10(p) - i;
+  }
+}
+
+/** The two-pass gate, over an array of block mean squares. */
+function gatedMean(zs, relativeLu) {
+  const absolute = 10 ** ((GATE_ABSOLUTE_LUFS - LUFS_OFFSET_DB) / 10);
+  let sum = 0, count = 0;
+  for (const z of zs) if (z > absolute) { sum += z; count++; }
+  if (count === 0) return -Infinity;
+  const relative = (sum / count) * 10 ** (relativeLu / 10);
+  const gate = Math.max(absolute, relative);
+  sum = 0; count = 0;
+  for (const z of zs) if (z > gate) { sum += z; count++; }
+  if (count === 0) return -Infinity;
+  return lufsFromMeanSquare(sum / count);
+}
+
+/** EBU Tech 3342 loudness range from an array of 3 s block mean squares. */
+function loudnessRange(zs) {
+  const absolute = 10 ** ((GATE_ABSOLUTE_LUFS - LUFS_OFFSET_DB) / 10);
+  let sum = 0, count = 0;
+  for (const z of zs) if (z > absolute) { sum += z; count++; }
+  if (count === 0) return 0;
+  const gate = Math.max(absolute, (sum / count) * 10 ** (LRA_RELATIVE_LU / 10));
+  const kept = [];
+  for (const z of zs) if (z > gate) kept.push(lufsFromMeanSquare(z));
+  if (kept.length < 2) return 0;
+  kept.sort((a, b) => a - b);
+  return percentile(kept, 0.95) - percentile(kept, 0.10);
+}
+
+/** Linear-interpolated percentile of a SORTED array. */
+function percentile(sorted, p) {
+  if (sorted.length === 0) return -Infinity;
+  const i = p * (sorted.length - 1);
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
+
+// ── Bit usage ───────────────────────────────────────────────────────────────
+
+/**
+ * How much of the delivered code space a render actually touches.
+ *
+ * "How many codes did this song use?" is a real question about the FILE rather
+ * than a curiosity: a mix that peaks at −12 dBFS throws away two of its bits
+ * before any dither gets a say, and the histogram shows it as a narrow spike
+ * instead of a spread. At 16 bits `used` against `span` is a second reading —
+ * a dense span is a signal that has really been processed at that depth, and a
+ * gappy one is a coarser source blown up to fit.
+ *
+ * @param hist  a census of length 2^depth, indexed by the delivered code
+ * @param depth bits per sample the census was taken at
+ * @returns {{used, span, effectiveBits, entropyBits, total, peakCode, minCode, maxCode}}
+ *   `used` counts codes that occur at all, `span` is max−min+1 (the range the
+ *   signal swings over), `effectiveBits` is log2 of that span, and
+ *   `entropyBits` is the Shannon entropy of the code distribution — the honest
+ *   "how many bits is this actually carrying" figure, always ≤ effectiveBits.
+ */
+function bitUsage(hist, depth = 8) {
+  const codes = 1 << depth;
+  const mid = codes >> 1;
+  let total = 0, used = 0, minCode = -1, maxCode = -1, peakCode = 0, peakCount = -1;
+  for (let i = 0; i < codes; i++) {
+    const c = hist[i];
+    if (c > 0) {
+      used++;
+      if (minCode < 0) minCode = i;
+      maxCode = i;
+      total += c;
+      if (c > peakCount) { peakCount = c; peakCode = i; }
+    }
+  }
+  if (total === 0) {
+    return { used: 0, span: 0, effectiveBits: 0, entropyBits: 0, total: 0,
+             peakCode: mid, minCode: mid, maxCode: mid };
+  }
+  let h = 0;
+  for (let i = 0; i < codes; i++) {
+    const c = hist[i];
+    if (c > 0) { const p = c / total; h -= p * Math.log2(p); }
+  }
+  const span = maxCode - minCode + 1;
+  return {
+    used, span, total, peakCode, minCode, maxCode,
+    effectiveBits: Math.log2(span),
+    entropyBits: h,
+  };
+}
+
+/** Display depths the bit-usage census can be taken at. 16 is what a stereo
+ *  WAV export writes (straight off the float bus); 8 is what the Taud device
+ *  itself delivers, dither and all. */
+const BIT_DEPTHS = Object.freeze([16, 8]);
+const DEFAULT_BIT_DEPTH = 16;
+/** Buckets the census is downsampled to for the wire and the picture. At 8 bits
+ *  a bucket IS a code; at 16 it is the code's top eight bits, which is the same
+ *  shape drawn at the same width. */
+const HIST_BUCKETS = 256;
+
+// ── The metering tap ────────────────────────────────────────────────────────
+
+/** Tap stages. The view shows one at a time; the tap always measures both, so
+ *  the toggle is instant and the two figures describe the SAME moment. */
+const TAP_PRE = 0;
+const TAP_POST = 1;
+const TAP_STAGES = 2;
+
+/**
+ * Frames of mono audio the tap keeps per stage, for whoever wants a SPECTRUM
+ * rather than a level.
+ *
+ * 2048 is one analysis window at the sizes fft.js uses — 43 ms at 48 kHz, 23 Hz
+ * a bin — which is all a live spectrometer needs, and it is what the offline
+ * analyser reads its samples out of a chunk at a time. Mono (the L+R sum): a
+ * spectrum display asks where the energy is, not which side it came from, and
+ * one ring is half the wire and half the transform.
+ */
+const SPEC_FRAMES = 2048;
+
+/**
+ * Everything the Mastering view's live readouts need, measured on the device
+ * stereo pair on both sides of the chain.
+ *
+ * It is deliberately NOT the master strip's tap (analysis.js). That one answers
+ * "where is the energy in the room?" and follows the song's surround model;
+ * this one answers "what is going into the file, and what did the chain do to
+ * it?", which is a question about two specific points in the signal path and
+ * about the pair that gets dithered. Running both at once costs a few biquads
+ * and buys an A/B that needs no re-render.
+ *
+ * Per stage, per channel: sample peak, true peak (4× oversampled), mean square
+ * and a clip count. Per stage: the K-weighted energy the loudness figures are
+ * built from. Post only: the histogram of the delivered 8-bit codes, because
+ * "bit usage" is a question about the file and the pre-chain signal is not one.
+ *
+ * COST: opt-in, like every other tap here. It exists only while the Mastering
+ * view is on screen.
+ */
+class MasterMeterTap {
+  /**
+   * @param rate      engine sampling rate
+   * @param scramble  also measure the phase-scrambled peak and energy, for the
+   *                  crest-gap reading. OFF for the live meters: eight biquads
+   *                  per channel per stage is real work for a figure whose
+   *                  whole point is a comparison over a WHOLE song, which is
+   *                  the offline analyser's job.
+   */
+  constructor(rate, { scramble = false, bitDepth = DEFAULT_BIT_DEPTH } = {}) {
+    this.rate = rate;
+    this.scramble = scramble;
+    /** Which delivered format the bit-usage census describes. See binOutput. */
+    this.bitDepth = bitDepth === 8 ? 8 : 16;
+    this.kw = [];
+    this.tp = [];
+    this.ap = [];
+    for (let s = 0; s < TAP_STAGES; s++) {
+      this.kw.push([new KWeighting(rate), new KWeighting(rate)]);
+      this.tp.push(new TruePeakDetector(2));
+      this.ap.push(scramble ? [new PhaseScrambler(rate), new PhaseScrambler(rate)] : null);
+    }
+    /** Phase-scrambled peak and Σ x², per stage (channel-summed). */
+    this.apPeak = new Float64Array(TAP_STAGES);
+    this.apSumSq = new Float64Array(TAP_STAGES);
+    this.sumZ = new Float64Array(TAP_STAGES);        // channel-summed K-weighted
+    this.sumSq = new Float64Array(TAP_STAGES * 2);   // [stage][channel]
+    this.peak = new Float64Array(TAP_STAGES * 2);
+    this.clip = new Float64Array(TAP_STAGES * 2);
+    // A census of the delivered CODE, at the chosen depth: 256 entries for the
+    // device's 8-bit output, 65536 for a 16-bit WAV. Never shipped whole — the
+    // drain downsamples it to HIST_BUCKETS for the picture and computes the
+    // figures from the full-resolution original.
+    this.hist = new Float64Array(1 << this.bitDepth);
+    this.buckets = new Float64Array(HIST_BUCKETS);
+    /** Per-stage mono ring + its shared write cursor (both stages advance
+     *  together, since they see the same block). Read backwards from
+     *  `specWrite`, exactly like the strip's scope ring. */
+    this.spec = [];
+    for (let s = 0; s < TAP_STAGES; s++) this.spec.push(new Float32Array(SPEC_FRAMES));
+    this.specWrite = 0;
+    this.frames = 0;
+    this.compGrDb = 0;
+    this.limGrDb = 0;
+  }
+
+  /** Clear the filters AND the accumulators — what a transport reset owes a
+   *  meter whose integration is supposed to describe one playback. */
+  resetAll() {
+    for (const pair of this.kw) for (const k of pair) k.reset();
+    for (const d of this.tp) d.reset();
+    for (const pair of this.ap) if (pair) for (const a of pair) a.reset();
+    this.sumZ.fill(0); this.sumSq.fill(0); this.peak.fill(0); this.clip.fill(0);
+    this.apPeak.fill(0); this.apSumSq.fill(0);
+    this.hist.fill(0);
+    for (const r of this.spec) r.fill(0);
+    this.specWrite = 0;
+    this.frames = 0;
+    this.compGrDb = 0;
+    this.limGrDb = 0;
+  }
+
+  /**
+   * Fold one rendered block in at `stage`. Called twice per chunk with the SAME
+   * buffer — once before the chain runs over it and once after — so no copy of
+   * the pre-chain mix is ever made.
+   */
+  push(stage, left, right, frames) {
+    const kw = this.kw[stage];
+    const tp = this.tp[stage];
+    const so = stage * 2;
+    let z = this.sumZ[stage];
+    let sqL = this.sumSq[so], sqR = this.sumSq[so + 1];
+    let pkL = this.peak[so], pkR = this.peak[so + 1];
+    let clL = this.clip[so], clR = this.clip[so + 1];
+    for (let n = 0; n < frames; n++) {
+      const l = left[n];
+      const r = right[n];
+      const zl = kw[0].run(l);
+      const zr = kw[1].run(r);
+      z += zl * zl + zr * zr;
+      sqL += l * l; sqR += r * r;
+      const al = l < 0 ? -l : l;
+      const ar = r < 0 ? -r : r;
+      if (al > pkL) pkL = al;
+      if (ar > pkR) pkR = ar;
+      // At and above full scale the delivered sample is a clipped one: the mix
+      // bus is hard-clamped, so the pre-chain signal reaching ±1 is exactly the
+      // material the chain is there to catch.
+      if (al >= 1) clL += 1;
+      if (ar >= 1) clR += 1;
+      tp.push(0, l);
+      tp.push(1, r);
+    }
+    if (this.scramble) {
+      const ap = this.ap[stage];
+      let apk = this.apPeak[stage];
+      let asq = this.apSumSq[stage];
+      for (let n = 0; n < frames; n++) {
+        const sl = ap[0].run(left[n]);
+        const sr = ap[1].run(right[n]);
+        const a = Math.abs(sl) > Math.abs(sr) ? Math.abs(sl) : Math.abs(sr);
+        if (a > apk) apk = a;
+        asq += sl * sl + sr * sr;
+      }
+      this.apPeak[stage] = apk;
+      this.apSumSq[stage] = asq;
+    }
+    // The mono ring. The write cursor belongs to the POST pass, which is the
+    // second of the two and therefore the one that has seen a whole block —
+    // PRE writes at the same positions on the way past.
+    const ring = this.spec[stage];
+    let w = this.specWrite;
+    for (let n = 0; n < frames; n++) {
+      ring[w] = (left[n] + right[n]) * 0.5;
+      w = w + 1 === SPEC_FRAMES ? 0 : w + 1;
+    }
+    if (stage === TAP_POST) this.specWrite = w;
+
+    this.sumZ[stage] = z;
+    this.sumSq[so] = sqL; this.sumSq[so + 1] = sqR;
+    this.peak[so] = pkL; this.peak[so + 1] = pkR;
+    this.clip[so] = clL; this.clip[so + 1] = clR;
+    if (stage === TAP_POST) this.frames += frames;
+  }
+
+  /**
+   * Bin one block of delivered output. Both channels go into ONE census — the
+   * question is what codes the file uses, not which side used them.
+   *
+   * The two depths come from two different places, deliberately:
+   *
+   *   * 8 bits is the DEVICE's output, so it is binned from the dithered,
+   *     noise-shaped U8 buffer the engine actually produced. Re-quantising the
+   *     float would miss the dither, which at eight bits is most of the point.
+   *   * 16 bits is what a stereo WAV export writes, and that path takes the
+   *     PRE-DITHER float bus straight to `round(clamp(x) × 32767)` — so the
+   *     census repeats exactly that. (An export resampled to another rate
+   *     re-quantises after the resampler; at the default 48 kHz, which is the
+   *     engine's own rate, the codes are identical.)
+   */
+  binOutput(u8, left, right, frames) {
+    const h = this.hist;
+    if (this.bitDepth === 8) {
+      for (let i = 0; i < frames * 2; i++) h[u8[i]] += 1;
+      return;
+    }
+    for (let n = 0; n < frames; n++) {
+      const l = left[n], r = right[n];
+      h[(Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff] += 1;
+      h[(Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff] += 1;
+    }
+  }
+
+  /** Snapshot readout; resets the per-interval accumulators. The histogram is
+   *  cumulative and is NOT reset here — it describes the playback so far, and
+   *  the host clears it when playback restarts. */
+  drain(out) {
+    out.frames = this.frames;
+    for (let s = 0; s < TAP_STAGES; s++) {
+      out.sumZ[s] = this.sumZ[s];
+      for (let c = 0; c < 2; c++) {
+        const i = s * 2 + c;
+        const tp = this.tp[s].peaks[c];
+        out.peak[i] = this.peak[i];
+        out.truePeak[i] = tp > this.peak[i] ? tp : this.peak[i];
+        out.meanSquare[i] = this.frames > 0 ? this.sumSq[i] / this.frames : 0;
+        out.clip[i] = this.clip[i];
+      }
+    }
+    for (let s = 0; s < TAP_STAGES; s++) {
+      out.apPeak[s] = this.apPeak[s];
+      out.apSumSq[s] = this.apSumSq[s];
+    }
+    out.compGrDb = this.compGrDb;
+    out.limGrDb = this.limGrDb;
+    out.hist = this.hist;
+    out.bitDepth = this.bitDepth;
+    // The figures come from the FULL census — an exact `used` and `span` at 16
+    // bits cannot be recovered from 256 buckets — and only the buckets go on
+    // the wire. One walk does both.
+    out.bits = bitUsage(this.hist, this.bitDepth);
+    const shift = this.bitDepth - 8;
+    this.buckets.fill(0);
+    if (shift === 0) this.buckets.set(this.hist);
+    else for (let i = 0; i < this.hist.length; i++) this.buckets[i >> shift] += this.hist[i];
+    out.buckets = this.buckets;
+    out.spec = this.spec;
+    out.specWrite = this.specWrite;
+    this.sumZ.fill(0); this.sumSq.fill(0); this.peak.fill(0); this.clip.fill(0);
+    this.apPeak.fill(0); this.apSumSq.fill(0);
+    for (const d of this.tp) d.clearPeaks();
+    this.frames = 0;
+    this.compGrDb = 0;
+    this.limGrDb = 0;
+    return out;
+  }
+}
+
+/** A drain target, so the snapshot fill allocates nothing. */
+function makeMasterMeterReadout() {
+  return {
+    frames: 0, compGrDb: 0, limGrDb: 0, hist: null, histTotal: 0,
+    buckets: null, bits: null, bitDepth: DEFAULT_BIT_DEPTH,
+    spec: null, specWrite: 0,
+    sumZ: new Float64Array(TAP_STAGES),
+    apPeak: new Float64Array(TAP_STAGES),
+    apSumSq: new Float64Array(TAP_STAGES),
+    peak: new Float64Array(TAP_STAGES * 2),
+    truePeak: new Float64Array(TAP_STAGES * 2),
+    meanSquare: new Float64Array(TAP_STAGES * 2),
+    clip: new Float64Array(TAP_STAGES * 2),
   };
 }
 
@@ -4472,6 +5947,8 @@ class Voice {
 
 
 
+
+
 // ── PlayInstruction (4484-4494) — tagged objects ──
 const INST_NOP = 0;
 const INST_GOBACK = 1;
@@ -4699,6 +6176,16 @@ class TrackerState {
     // Master-strip analysis tap (item 98) — null unless a host asked for one.
     this.analysis = null;
     this.analysisTarget = ANALYSIS_OFF;
+    // Mastering chain (item 178) — the song's own, uploaded from its `sMst`
+    // section. `mastering` is null whenever the chain would not change a
+    // sample, which is what keeps the untouched output path bit-exact; the
+    // PARAMETERS are kept either way so a readback returns what was uploaded.
+    this.masteringParams = defaultMastering();
+    this.mastering = null;
+    // …and its metering tap (loudness.js), null unless the Mastering view asked
+    // for one. Independent of the strip's tap: different signal, different
+    // question, and both are opt-in.
+    this.masterMeter = null;
 
     // Song tuning as a playback-rate multiplier (item 77) — mirrored down from
     // the playhead by setTuning, like toneMode/interpolationMode are from the
@@ -4780,6 +6267,36 @@ class TrackerState {
     this.analysis = (target === ANALYSIS_OFF || target === undefined)
       ? null
       : new AnalysisTap(target, this.surroundModel);
+  }
+
+  /**
+   * Install the song's mastering chain (item 178). A parameter set that would
+   * not change a sample installs NOTHING — the mixer then keeps the plain
+   * narrow-and-clamp it has always had, so every song that predates the
+   * Mastering tab still renders bit-for-bit as it did.
+   *
+   * Reconfiguring a chain that is already up keeps its delay lines, so moving a
+   * control while the song plays does not click.
+   */
+  setMastering(params) {
+    this.masteringParams = params;
+    if (!masteringEngaged(params)) { this.mastering = null; return; }
+    if (this.mastering === null) this.mastering = new MasterChain(params);
+    else this.mastering.setParams(params);
+  }
+
+  /** Install (or drop) the Mastering view's metering tap. `scramble` adds the
+   *  phase-scrambled crest measurement, which only the offline analyser asks
+   *  for (loudness.js explains why it is not on the live path); `bitDepth`
+   *  picks which delivered format the bit-usage census describes. */
+  setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH) {
+    if (!on) { this.masterMeter = null; return; }
+    const depth = bitDepth === 8 ? 8 : 16;
+    if (this.masterMeter === null || this.masterMeter.scramble !== !!scramble ||
+        this.masterMeter.bitDepth !== depth) {
+      this.masterMeter = new MasterMeterTap(SAMPLING_RATE,
+        { scramble: !!scramble, bitDepth: depth });
+    }
   }
 
   drainInterrupts() {
@@ -4940,6 +6457,12 @@ class Playhead {
     ts.ledFilterOn = false;
     ts.amigaLPStateL = 0.0; ts.amigaLPStateR = 0.0;
     ts.amigaLEDStateL.fill(0.0); ts.amigaLEDStateR.fill(0.0);
+    // Mastering (item 178) goes back to neutral for the same reason the tuning
+    // does: nothing in a fresh document describes the chain the previous one
+    // left installed, and a full reset is what a host performs before uploading
+    // one. The song's own `sMst` parameters are pushed straight after.
+    ts.setMastering(defaultMastering());
+    ts.masterMeter?.resetAll();
     for (const it of ts.voices) {
       it.active = false;
       it.noteVolume = ts.volMax;
@@ -9522,6 +11045,7 @@ function restartVoice(v) {
 
 
 
+
 const fround = Math.fround;
 
 /** Scratch pair for fetchTrackerSampleStereo — one voice is mixed at a time. */
@@ -9890,18 +11414,49 @@ function generateTrackerAudio(eng, playhead, out) {
       }
     }
 
-    // Double → Float32 (like Kotlin .toFloat()), then clamp in float space.
-    const fl = fround(mixL);
-    const fr = fround(mixR);
-    ts.mixLeft[n] = fl < -1.0 ? -1.0 : fl > 1.0 ? 1.0 : fl;
-    ts.mixRight[n] = fr < -1.0 ? -1.0 : fr > 1.0 ? 1.0 : fr;
+    // Double → Float32 (like Kotlin .toFloat()). The clamp that used to sit
+    // here now runs below, after the mastering chain — clamping first would
+    // hand the limiter a signal whose peaks had already been destroyed. With
+    // no chain installed the two forms are identical: `fl` is stored to a
+    // Float32Array either way, so the clamp reads back exactly the value it
+    // used to compare.
+    ts.mixLeft[n] = fround(mixL);
+    ts.mixRight[n] = fround(mixR);
+  }
+
+  // ── Output stage (TAUD_ENGINE_SPEC.md §12) ──
+  // Mastering (item 178) acts here: after the mix has narrowed to binary32 and
+  // before it is clamped and dithered. `master` is null unless the song's own
+  // `sMst` chain would actually change a sample.
+  const master = ts.mastering;
+  const meter = ts.masterMeter;
+  // The meter reads the same buffer twice — once now, once after the chain —
+  // so the "pre" figures cost no copy of the mix.
+  if (meter !== null) meter.push(TAP_PRE, ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
+  if (master !== null) master.process(ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
+  for (let n = 0; n < TRACKER_CHUNK; n++) {
+    const fl = ts.mixLeft[n];
+    const fr = ts.mixRight[n];
+    if (fl < -1.0) ts.mixLeft[n] = -1.0; else if (fl > 1.0) ts.mixLeft[n] = 1.0;
+    if (fr < -1.0) ts.mixRight[n] = -1.0; else if (fr > 1.0) ts.mixRight[n] = 1.0;
   }
 
   // Meters/scopes read the FINISHED pair (post fold/binaural, post Amiga
-  // filter, post clamp) and, for a surround target, the analysis bus above.
+  // filter, post mastering, post clamp) and, for a surround target, the
+  // analysis bus above.
   if (analysis !== null) analysis.finish(TRACKER_CHUNK, ts.mixLeft, ts.mixRight);
+  if (meter !== null) {
+    meter.push(TAP_POST, ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
+    meter.compGrDb = master === null ? 0 : master.compGrDb;
+    meter.limGrDb = master === null ? 0 : master.limGrDb;
+  }
 
   pcm32fToPcm8(eng, ts.mixLeft, ts.mixRight, TRACKER_CHUNK, out);
+  // Bit usage is a question about the DELIVERED codes, and which those are
+  // depends on what the file is going to be — the device's dithered 8-bit
+  // output, or the 16 bits a stereo WAV export writes off this same float bus.
+  // The tap is given both and bins whichever its depth names.
+  if (meter !== null) meter.binOutput(out, ts.mixLeft, ts.mixRight, TRACKER_CHUNK);
 
   // A halt cue (row.js) clears isPlaying mid-chunk — the transport's OTHER
   // stop, bypassing TaudEngine.stop and its silencing. The rest of THIS chunk
@@ -10242,6 +11797,15 @@ class TaudEngine {
       v.volEnvOn = true; v.panEnvOn = true; v.pitchEnvOn = true; v.filterEnvOn = true;
     }
     ts.backgroundVoices.length = 0; // drop lingering NNA ghosts from a prior play
+    // The mastering chain (item 178) is per-PLAY transient in exactly the sense
+    // the ghost pool is: a compressor still holding six decibels of reduction
+    // from before the seek, and a look-ahead buffer still holding two
+    // milliseconds of the previous playback, both bleed the old take into the
+    // new one. Its PARAMETERS are the song's and are left alone, like the tempo.
+    ts.mastering?.reset();
+    // …and the meter's integration describes one playback, so it starts again
+    // with it — including the bit histogram, which is cumulative by design.
+    ts.masterMeter?.resetAll();
     // Re-arm any Pattern-Ditto (effect 7) region that a mid-pattern start lands
     // inside, so a ghosted (repeated) row sounds when you play from it (item 81).
     reconstructDittoState(this, ts, ts.rowIndex);
@@ -10297,6 +11861,26 @@ class TaudEngine {
    */
   setAnalysis(ph, target) { this.playheads[ph].trackerState.setAnalysis(target); }
   getAnalysis(ph) { return this.playheads[ph].trackerState.analysisTarget; }
+
+  /**
+   * The song's mastering chain (item 178, TAUD_ENGINE_SPEC.md §12.1). `params`
+   * is the decoded `sMst` record; a neutral one costs nothing at all, so this
+   * is safe to push on every load whether the song declares a chain or not.
+   *
+   * A conforming player MUST call this with what the file declares — the
+   * chain is part of how the song sounds, not an editor preference.
+   */
+  setMastering(ph, params) { this.playheads[ph].trackerState.setMastering(params); }
+  getMastering(ph) { return this.playheads[ph].trackerState.masteringParams; }
+
+  /**
+   * Install (or drop) the Mastering view's metering tap (loudness.js). Like the
+   * strip's analysis tap this costs nothing while off, so a host turns it on
+   * only while the view that reads it is on screen.
+   */
+  setMasterMeter(ph, on, scramble = false, bitDepth = undefined) {
+    this.playheads[ph].trackerState.setMasterMeter(on, scramble, bitDepth);
+  }
 
   setSongGlobalVolume(ph, volume) { this.playheads[ph].globalVolume = volume & 255; }
   getSongGlobalVolume(ph) { return this.playheads[ph].globalVolume; }
@@ -10633,6 +12217,7 @@ class TaudEngine {
 
 
 
+
 const CMD = Object.freeze({
   INIT: "init",
   UPLOAD_SAMPLE_INST_BLOB: "uploadSampleInstBlob", // {image: ArrayBuffer} (decompressed)
@@ -10656,6 +12241,8 @@ const CMD = Object.freeze({
   SET_SURROUND_MODEL: "setSurroundModel",          // {ph, model} — #998 song flag
   SET_MONITOR_MODE: "setMonitorMode",              // {ph, mode} — #998.3 fold / binaural
   SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
+  SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
+  SET_MASTER_METER: "setMasterMeter",              // {ph, on} — item 178 Mastering-view tap
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
@@ -10706,7 +12293,24 @@ const SNAP_AN_CORR_LL = 12;    // Σ L², Σ R², Σ L·R of the stereo (decode)
 const SNAP_AN_CORR_RR = 13;
 const SNAP_AN_CORR_LR = 14;
 const SNAP_AN_RING_WRITE = 15; // next frame index in the scope ring
-const SNAP_HEADER_SIZE = 16;
+// ── Mastering meter (item 178) ──
+// Zero while the Mastering view's own tap is off. Gain reduction is the peak
+// over the interval, in dB and never positive; the histogram total is what the
+// normalised bins below are fractions of.
+const SNAP_MM_FRAMES = 16;     // samples integrated since the last snapshot (0 = tap off)
+const SNAP_MM_COMP_GR = 17;    // compressor gain reduction, dB (≤ 0)
+const SNAP_MM_LIM_GR = 18;     // limiter gain reduction, dB (≤ 0)
+const SNAP_MM_HIST_TOTAL = 19; // samples binned into the histogram so far
+const SNAP_MM_SPEC_WRITE = 20; // next frame index in the spectrum rings
+// Bit usage, computed by the engine over the FULL code census (65536 entries at
+// 16 bits) — an exact `used` and `span` cannot be recovered from the 256
+// buckets the wire carries, so the figures travel beside the picture.
+const SNAP_MM_HIST_DEPTH = 21;   // bits per sample the census was taken at
+const SNAP_MM_HIST_USED = 22;    // codes that occur at all
+const SNAP_MM_HIST_MIN = 23;     // lowest and highest code seen
+const SNAP_MM_HIST_MAX = 24;
+const SNAP_MM_HIST_ENTROPY = 25; // Shannon entropy of the distribution, bits
+const SNAP_HEADER_SIZE = 26;
 
 // Per-voice block, stride SNAP_VOICE_STRIDE, SNAP_MAX_VOICES blocks.
 const SNAP_V_ACTIVE = 0;
@@ -10772,7 +12376,37 @@ const SNAP_METER_STRIDE = 4;
 // B-format whatever the metering target is.
 const SNAP_SCOPE_BASE = SNAP_METER_BASE + ANALYSIS_MAX_METERS * SNAP_METER_STRIDE;
 
-const SNAP_FLOATS = SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS;
+// ── Mastering meter blocks (item 178), after the scope ring ──
+// Two stages — pre-chain then post-chain — each carrying the K-weighted energy
+// the loudness figures are built from and, per channel, the same four numbers
+// the strip's meters use. Measuring BOTH sides every chunk is what makes the
+// view's pre/post toggle instant and its two readings describe one moment.
+const SNAP_MM_BASE = SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS;
+const SNAP_MM_SUM_Z = 0;        // Σ (K-weighted L² + K-weighted R²)
+const SNAP_MM_CH = 1;           // …then 2 channels of:
+const SNAP_MM_C_PEAK = 0;
+const SNAP_MM_C_TRUE_PEAK = 1;
+const SNAP_MM_C_MEAN_SQUARE = 2;
+const SNAP_MM_C_CLIP = 3;
+const SNAP_MM_C_STRIDE = 4;
+const SNAP_MM_STAGE_STRIDE = SNAP_MM_CH + 2 * SNAP_MM_C_STRIDE;
+const SNAP_MM_STAGES = 2;
+
+// Delivered 8-bit code histogram (item 178.4's "bit usage"). Shipped NORMALISED
+// — each bin is its share of SNAP_MM_HIST_TOTAL — because a raw count passes
+// 2^24 after about six minutes on one bin and stops being exact in a float32.
+const SNAP_HIST_BASE = SNAP_MM_BASE + SNAP_MM_STAGES * SNAP_MM_STAGE_STRIDE;
+const SNAP_HIST_BINS = HIST_BUCKETS;
+
+// Two mono rings — the mix going into the chain and the master coming out —
+// for the Mastering view's live spectrometer. Written continuously and read
+// backwards from SNAP_MM_SPEC_WRITE, exactly like the scope ring above. 16 KiB
+// on the wire, and only while that view is on screen.
+const SNAP_SPEC_BASE = SNAP_HIST_BASE + SNAP_HIST_BINS;
+const SNAP_SPEC_FRAMES = SPEC_FRAMES;
+const SNAP_SPEC_STAGES = TAP_STAGES;
+
+const SNAP_FLOATS = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 interrupt-latch cell that the
@@ -11063,8 +12697,10 @@ class StreamResampler {
 
 
 
-/** Reused drain target — the snapshot path never allocates. */
+
+/** Reused drain targets — the snapshot path never allocates. */
 const analysisReadout = makeAnalysisReadout();
+const masterMeterReadout = makeMasterMeterReadout();
 /** …and the scratch [azimuth, elevation] the position readout writes into. */
 const angleBox = new Float64Array(2);
 
@@ -11105,6 +12741,9 @@ function applyAudioCommand(eng, m) {
     case CMD.SET_SURROUND_MODEL: eng.setSurroundModel(m.ph, m.model); return true;
     case CMD.SET_MONITOR_MODE: eng.setMonitorMode(m.ph, m.mode); return true;
     case CMD.SET_ANALYSIS: eng.setAnalysis(m.ph, m.target); return true;
+    case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
+    case CMD.SET_MASTER_METER:
+      eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
@@ -11214,6 +12853,63 @@ function fillSnapshotInto(eng, playhead, f) {
     }
   }
   fillAnalysisInto(ts, f);
+  fillMasterMeterInto(ts, f);
+}
+
+/**
+ * Mastering-meter block (item 178). Drains the view's own tap — the K-weighted
+ * energy, the per-channel peak/true-peak/mean-square/clip figures on BOTH sides
+ * of the chain, the chain's gain reduction, and the delivered 8-bit code
+ * histogram. With the tap off only the "no frames" marker is written.
+ */
+function fillMasterMeterInto(ts, f) {
+  const tap = ts.masterMeter;
+  if (tap === null) {
+    f[SNAP_MM_FRAMES] = 0;
+    f[SNAP_MM_COMP_GR] = 0;
+    f[SNAP_MM_LIM_GR] = 0;
+    f[SNAP_MM_HIST_TOTAL] = 0;
+    f[SNAP_MM_SPEC_WRITE] = 0;
+    f[SNAP_MM_HIST_DEPTH] = 0;
+    f[SNAP_MM_HIST_USED] = 0;
+    f[SNAP_MM_HIST_MIN] = 0;
+    f[SNAP_MM_HIST_MAX] = 0;
+    f[SNAP_MM_HIST_ENTROPY] = 0;
+    return;
+  }
+  const r = tap.drain(masterMeterReadout);
+  f[SNAP_MM_FRAMES] = r.frames;
+  f[SNAP_MM_COMP_GR] = r.compGrDb;
+  f[SNAP_MM_LIM_GR] = r.limGrDb;
+  for (let s = 0; s < SNAP_MM_STAGES; s++) {
+    const o = SNAP_MM_BASE + s * SNAP_MM_STAGE_STRIDE;
+    f[o + SNAP_MM_SUM_Z] = r.sumZ[s];
+    for (let c = 0; c < 2; c++) {
+      const co = o + SNAP_MM_CH + c * SNAP_MM_C_STRIDE;
+      const i = s * 2 + c;
+      f[co + SNAP_MM_C_PEAK] = r.peak[i];
+      f[co + SNAP_MM_C_TRUE_PEAK] = r.truePeak[i];
+      f[co + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
+      f[co + SNAP_MM_C_CLIP] = r.clip[i];
+    }
+  }
+  // Normalised buckets (see protocol.js): a raw count leaves float32's exact
+  // integer range after a few minutes on one code. The FIGURES come from the
+  // full-resolution census the tap kept, not from these.
+  const bits = r.bits;
+  const total = bits.total;
+  f[SNAP_MM_HIST_TOTAL] = total;
+  f[SNAP_MM_HIST_DEPTH] = r.bitDepth;
+  f[SNAP_MM_HIST_USED] = bits.used;
+  f[SNAP_MM_HIST_MIN] = bits.minCode;
+  f[SNAP_MM_HIST_MAX] = bits.maxCode;
+  f[SNAP_MM_HIST_ENTROPY] = bits.entropyBits;
+  const inv = total > 0 ? 1 / total : 0;
+  for (let i = 0; i < SNAP_HIST_BINS; i++) f[SNAP_HIST_BASE + i] = r.buckets[i] * inv;
+  f[SNAP_MM_SPEC_WRITE] = r.specWrite;
+  for (let s = 0; s < SNAP_MM_STAGES; s++) {
+    f.set(r.spec[s], SNAP_SPEC_BASE + s * SNAP_SPEC_FRAMES);
+  }
 }
 
 /**

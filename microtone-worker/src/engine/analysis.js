@@ -207,6 +207,34 @@ export class TruePeakDetector {
   clearPeaks() { this.peaks.fill(0.0); }
 }
 
+/**
+ * The same oversampler, one channel at a time, reporting the instantaneous
+ * inter-sample peak instead of accumulating one.
+ *
+ * The mastering limiter (mastering.js) uses this for its true-peak mode, which
+ * is why it lives here beside the detector rather than being written out again
+ * over there: a limiter and a meter that disagree about what "true peak" means
+ * would make the ceiling a suggestion.
+ */
+export class TruePeakProbe {
+  constructor() { this.hist = new Float64Array(TP_TAPS); }
+  reset() { this.hist.fill(0.0); }
+  /** Largest magnitude among `v` and the four points interpolated around it. */
+  push(v) {
+    const h = this.hist;
+    for (let k = TP_TAPS - 1; k > 0; k--) h[k] = h[k - 1];
+    h[0] = v;
+    let hi = v < 0 ? -v : v;
+    for (let p = 0; p < TP_PHASES; p++) {
+      let acc = 0.0;
+      for (let k = 0; k < TP_TAPS; k++) acc += h[k] * TP_COEF[k * TP_PHASES + p];
+      const a = acc < 0 ? -acc : acc;
+      if (a > hi) hi = a;
+    }
+    return hi;
+  }
+}
+
 // ── The analysis render target ──────────────────────────────────────────────
 
 /**

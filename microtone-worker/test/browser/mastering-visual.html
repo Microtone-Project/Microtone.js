@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Mastering view visual harness (screenshot / layout tuning)</title>
+</head>
+<body>
+  <!-- Leaves the Mastering tab (item 178) on screen with a chain dialled in,
+       an offline analysis already run and the song playing, so the rack, the
+       live instruments and the time plot are all painted at once:
+         chromium --headless=new --window-size=1600,1000 --screenshot=/tmp/mst.png \
+           --autoplay-policy=no-user-gesture-required --timeout=30000 \
+           "http://localhost:8932/test/browser/mastering-visual.html"
+       ?theme=light|dim for the other themes (the app's own URL parameter);
+       ?stage=pre reads the mix going into the chain instead of the master;
+       ?bottom=1 scrolls the instrument column to the offline analysis;
+       ?cap= sets the analysis length in seconds (default 25). -->
+  <img src="/hang" hidden>
+  <iframe id="app" style="width:1580px;height:960px;border:0"></iframe>
+  <script type="module">
+    (async () => {
+      const q = new URLSearchParams(location.search);
+      const frame = document.getElementById("app");
+      frame.src = "../../index.html?load=test/corpus/flourish.taud" +
+        (q.get("theme") ? `&theme=${q.get("theme")}` : "");
+      const win = await new Promise((resolve) => {
+        const poll = setInterval(() => {
+          const w = frame.contentWindow;
+          if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+        }, 100);
+      });
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const doc = win.document;
+      // A profile that has been here before offers to recover its autosave.
+      await sleep(500);
+      for (const b of doc.querySelectorAll("dialog button")) {
+        if (/cancel/i.test(b.textContent)) { b.click(); break; }
+      }
+      doc.querySelector('[data-view="mastering"]').click();
+      await sleep(300);
+      const view = win.__microtone.masteringView;
+      view.edit((p) => {
+        p.on = true;
+        p.hpOn = true; p.hpFreq = 30;
+        p.eqOn = true;
+        p.eq[0].on = true; p.eq[0].gainDb = 2.5;
+        p.eq[2].on = true; p.eq[2].freq = 3000; p.eq[2].gainDb = 1.5;
+        p.eq[3].on = true; p.eq[3].gainDb = -1.5;
+        p.compOn = true; p.compThreshDb = -16; p.compRatio = 2.5; p.compMakeupDb = 2;
+        p.widthOn = true; p.width = 1.15;
+        p.limOn = true; p.limTruePeak = true; p.limCeilingDb = -1;
+      }, null);
+      view.rebuild();
+      if (q.get("stage") === "pre") doc.querySelectorAll(".mst-seg button")[0].click();
+      view.analysisCap = Number(q.get("cap") ?? 25);
+      await view.runAnalysis();
+      await win.__microtoneEnsureAudio?.();
+      doc.getElementById("playSong")?.click();
+      await sleep(2500);
+      if (q.get("bottom")) {
+        const panel = doc.querySelector(".mst-panel");
+        panel.scrollTop = panel.scrollHeight;
+        await sleep(500);
+      }
+    })();
+  </script>
+</body>
+</html>

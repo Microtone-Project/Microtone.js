@@ -22,14 +22,23 @@ import {
   SNAP_METER_BASE, SNAP_METER_STRIDE,
   SNAP_M_PEAK, SNAP_M_TRUE_PEAK, SNAP_M_MEAN_SQUARE, SNAP_M_CLIP,
   SNAP_SCOPE_BASE,
+  SNAP_MM_FRAMES, SNAP_MM_COMP_GR, SNAP_MM_LIM_GR, SNAP_MM_HIST_TOTAL,
+  SNAP_MM_BASE, SNAP_MM_SUM_Z, SNAP_MM_CH, SNAP_MM_C_PEAK, SNAP_MM_C_TRUE_PEAK,
+  SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
+  SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
+  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
+  SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
+  SNAP_MM_HIST_ENTROPY,
 } from "./protocol.js";
 import {
   SURROUND_STEREO, foldAzimuthToPan, displayPanByte, displayAngles,
 } from "../engine/spatial.js";
 import { ANALYSIS_MAX_METERS, makeAnalysisReadout } from "../engine/analysis.js";
+import { makeMasterMeterReadout } from "../engine/loudness.js";
 
-/** Reused drain target — the snapshot path never allocates. */
+/** Reused drain targets — the snapshot path never allocates. */
 const analysisReadout = makeAnalysisReadout();
+const masterMeterReadout = makeMasterMeterReadout();
 /** …and the scratch [azimuth, elevation] the position readout writes into. */
 const angleBox = new Float64Array(2);
 
@@ -70,6 +79,9 @@ export function applyAudioCommand(eng, m) {
     case CMD.SET_SURROUND_MODEL: eng.setSurroundModel(m.ph, m.model); return true;
     case CMD.SET_MONITOR_MODE: eng.setMonitorMode(m.ph, m.mode); return true;
     case CMD.SET_ANALYSIS: eng.setAnalysis(m.ph, m.target); return true;
+    case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
+    case CMD.SET_MASTER_METER:
+      eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
@@ -179,6 +191,63 @@ export function fillSnapshotInto(eng, playhead, f) {
     }
   }
   fillAnalysisInto(ts, f);
+  fillMasterMeterInto(ts, f);
+}
+
+/**
+ * Mastering-meter block (item 178). Drains the view's own tap — the K-weighted
+ * energy, the per-channel peak/true-peak/mean-square/clip figures on BOTH sides
+ * of the chain, the chain's gain reduction, and the delivered 8-bit code
+ * histogram. With the tap off only the "no frames" marker is written.
+ */
+function fillMasterMeterInto(ts, f) {
+  const tap = ts.masterMeter;
+  if (tap === null) {
+    f[SNAP_MM_FRAMES] = 0;
+    f[SNAP_MM_COMP_GR] = 0;
+    f[SNAP_MM_LIM_GR] = 0;
+    f[SNAP_MM_HIST_TOTAL] = 0;
+    f[SNAP_MM_SPEC_WRITE] = 0;
+    f[SNAP_MM_HIST_DEPTH] = 0;
+    f[SNAP_MM_HIST_USED] = 0;
+    f[SNAP_MM_HIST_MIN] = 0;
+    f[SNAP_MM_HIST_MAX] = 0;
+    f[SNAP_MM_HIST_ENTROPY] = 0;
+    return;
+  }
+  const r = tap.drain(masterMeterReadout);
+  f[SNAP_MM_FRAMES] = r.frames;
+  f[SNAP_MM_COMP_GR] = r.compGrDb;
+  f[SNAP_MM_LIM_GR] = r.limGrDb;
+  for (let s = 0; s < SNAP_MM_STAGES; s++) {
+    const o = SNAP_MM_BASE + s * SNAP_MM_STAGE_STRIDE;
+    f[o + SNAP_MM_SUM_Z] = r.sumZ[s];
+    for (let c = 0; c < 2; c++) {
+      const co = o + SNAP_MM_CH + c * SNAP_MM_C_STRIDE;
+      const i = s * 2 + c;
+      f[co + SNAP_MM_C_PEAK] = r.peak[i];
+      f[co + SNAP_MM_C_TRUE_PEAK] = r.truePeak[i];
+      f[co + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
+      f[co + SNAP_MM_C_CLIP] = r.clip[i];
+    }
+  }
+  // Normalised buckets (see protocol.js): a raw count leaves float32's exact
+  // integer range after a few minutes on one code. The FIGURES come from the
+  // full-resolution census the tap kept, not from these.
+  const bits = r.bits;
+  const total = bits.total;
+  f[SNAP_MM_HIST_TOTAL] = total;
+  f[SNAP_MM_HIST_DEPTH] = r.bitDepth;
+  f[SNAP_MM_HIST_USED] = bits.used;
+  f[SNAP_MM_HIST_MIN] = bits.minCode;
+  f[SNAP_MM_HIST_MAX] = bits.maxCode;
+  f[SNAP_MM_HIST_ENTROPY] = bits.entropyBits;
+  const inv = total > 0 ? 1 / total : 0;
+  for (let i = 0; i < SNAP_HIST_BINS; i++) f[SNAP_HIST_BASE + i] = r.buckets[i] * inv;
+  f[SNAP_MM_SPEC_WRITE] = r.specWrite;
+  for (let s = 0; s < SNAP_MM_STAGES; s++) {
+    f.set(r.spec[s], SNAP_SPEC_BASE + s * SNAP_SPEC_FRAMES);
+  }
 }
 
 /**

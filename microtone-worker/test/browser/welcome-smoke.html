@@ -147,17 +147,18 @@
         await sleep(150);
         const cameBackOk = win.__microtone.store.view === "timeline" && !host.hidden &&
           doc.getElementById("filesHost").hidden;
-        // …and the same round trip on the keyboard (F7 / F1)
+        // …and the same round trip on the keyboard (F9 / F1 — the File tab moved
+        // off F7 when the Mastering tab took the sixth place, item 178)
         const key = (code) => win.dispatchEvent(new win.KeyboardEvent("keydown", { code, bubbles: true }));
-        key("F7");
+        key("F9");
         await sleep(200);
-        const f7Ok = win.__microtone.store.view === "files";
+        const f9Ok = win.__microtone.store.view === "files";
         key("F1");
         await sleep(150);
         const f1Ok = win.__microtone.store.view === "timeline" && !host.hidden;
         log(`no-doc tabs: dead ends disabled ${disabledOk}, to File ${wentOk}, ` +
-            `back ${cameBackOk}, F7 ${f7Ok}, F1 ${f1Ok}: ` +
-            `${disabledOk && wentOk && cameBackOk && f7Ok && f1Ok ? "ok" : "FAIL"}`);
+            `back ${cameBackOk}, F9 ${f9Ok}, F1 ${f1Ok}: ` +
+            `${disabledOk && wentOk && cameBackOk && f9Ok && f1Ok ? "ok" : "FAIL"}`);
 
         // ── live language change re-renders the panels ──
         const i18n = await win.eval('import("/src/ui/i18n.js")');

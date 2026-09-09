@@ -8,6 +8,7 @@
 // Float32Array buffers with the fixed layout below.
 
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
+import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
 import { TOTAL_VOICES } from "../engine/constants.js";
 
 export const CMD = Object.freeze({
@@ -33,6 +34,8 @@ export const CMD = Object.freeze({
   SET_SURROUND_MODEL: "setSurroundModel",          // {ph, model} — #998 song flag
   SET_MONITOR_MODE: "setMonitorMode",              // {ph, mode} — #998.3 fold / binaural
   SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
+  SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
+  SET_MASTER_METER: "setMasterMeter",              // {ph, on} — item 178 Mastering-view tap
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
@@ -83,7 +86,24 @@ export const SNAP_AN_CORR_LL = 12;    // Σ L², Σ R², Σ L·R of the stereo (
 export const SNAP_AN_CORR_RR = 13;
 export const SNAP_AN_CORR_LR = 14;
 export const SNAP_AN_RING_WRITE = 15; // next frame index in the scope ring
-export const SNAP_HEADER_SIZE = 16;
+// ── Mastering meter (item 178) ──
+// Zero while the Mastering view's own tap is off. Gain reduction is the peak
+// over the interval, in dB and never positive; the histogram total is what the
+// normalised bins below are fractions of.
+export const SNAP_MM_FRAMES = 16;     // samples integrated since the last snapshot (0 = tap off)
+export const SNAP_MM_COMP_GR = 17;    // compressor gain reduction, dB (≤ 0)
+export const SNAP_MM_LIM_GR = 18;     // limiter gain reduction, dB (≤ 0)
+export const SNAP_MM_HIST_TOTAL = 19; // samples binned into the histogram so far
+export const SNAP_MM_SPEC_WRITE = 20; // next frame index in the spectrum rings
+// Bit usage, computed by the engine over the FULL code census (65536 entries at
+// 16 bits) — an exact `used` and `span` cannot be recovered from the 256
+// buckets the wire carries, so the figures travel beside the picture.
+export const SNAP_MM_HIST_DEPTH = 21;   // bits per sample the census was taken at
+export const SNAP_MM_HIST_USED = 22;    // codes that occur at all
+export const SNAP_MM_HIST_MIN = 23;     // lowest and highest code seen
+export const SNAP_MM_HIST_MAX = 24;
+export const SNAP_MM_HIST_ENTROPY = 25; // Shannon entropy of the distribution, bits
+export const SNAP_HEADER_SIZE = 26;
 
 // Per-voice block, stride SNAP_VOICE_STRIDE, SNAP_MAX_VOICES blocks.
 export const SNAP_V_ACTIVE = 0;
@@ -149,7 +169,37 @@ export const SNAP_METER_STRIDE = 4;
 // B-format whatever the metering target is.
 export const SNAP_SCOPE_BASE = SNAP_METER_BASE + ANALYSIS_MAX_METERS * SNAP_METER_STRIDE;
 
-export const SNAP_FLOATS = SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS;
+// ── Mastering meter blocks (item 178), after the scope ring ──
+// Two stages — pre-chain then post-chain — each carrying the K-weighted energy
+// the loudness figures are built from and, per channel, the same four numbers
+// the strip's meters use. Measuring BOTH sides every chunk is what makes the
+// view's pre/post toggle instant and its two readings describe one moment.
+export const SNAP_MM_BASE = SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS;
+export const SNAP_MM_SUM_Z = 0;        // Σ (K-weighted L² + K-weighted R²)
+export const SNAP_MM_CH = 1;           // …then 2 channels of:
+export const SNAP_MM_C_PEAK = 0;
+export const SNAP_MM_C_TRUE_PEAK = 1;
+export const SNAP_MM_C_MEAN_SQUARE = 2;
+export const SNAP_MM_C_CLIP = 3;
+export const SNAP_MM_C_STRIDE = 4;
+export const SNAP_MM_STAGE_STRIDE = SNAP_MM_CH + 2 * SNAP_MM_C_STRIDE;
+export const SNAP_MM_STAGES = 2;
+
+// Delivered 8-bit code histogram (item 178.4's "bit usage"). Shipped NORMALISED
+// — each bin is its share of SNAP_MM_HIST_TOTAL — because a raw count passes
+// 2^24 after about six minutes on one bin and stops being exact in a float32.
+export const SNAP_HIST_BASE = SNAP_MM_BASE + SNAP_MM_STAGES * SNAP_MM_STAGE_STRIDE;
+export const SNAP_HIST_BINS = HIST_BUCKETS;
+
+// Two mono rings — the mix going into the chain and the master coming out —
+// for the Mastering view's live spectrometer. Written continuously and read
+// backwards from SNAP_MM_SPEC_WRITE, exactly like the scope ring above. 16 KiB
+// on the wire, and only while that view is on screen.
+export const SNAP_SPEC_BASE = SNAP_HIST_BASE + SNAP_HIST_BINS;
+export const SNAP_SPEC_FRAMES = SPEC_FRAMES;
+export const SNAP_SPEC_STAGES = TAP_STAGES;
+
+export const SNAP_FLOATS = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 interrupt-latch cell that the

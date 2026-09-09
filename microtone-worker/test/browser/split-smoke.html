@@ -44,11 +44,16 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     "the second pane starts closed", `${panes.length} panes`);
   check(!split.isSplit && store.views.length === 1 && store.view === "timeline",
     "one pane, showing the Timeline", store.views.join());
+  // The strip is whatever VIEWS says it is (item 178 made it eight), and both
+  // panes carry the same set.
+  const nTabs = M.__VIEWS?.length ?? 8;
   check(panes[0].querySelector(".tabs").id === "tabs" &&
-    panes[0].querySelector(".tabs").children.length === 7,
-    "pane 0 keeps the seven tabs (#tabs)");
-  check(panes[1].querySelector(".tabs").children.length === 7,
-    "…and the closed pane carries its own seven");
+    panes[0].querySelector(".tabs").children.length === nTabs,
+    "pane 0 keeps the whole tab strip (#tabs)",
+    String(panes[0].querySelector(".tabs").children.length));
+  check(panes[1].querySelector(".tabs").children.length === nTabs,
+    "…and the closed pane carries its own copy",
+    String(panes[1].querySelector(".tabs").children.length));
   check(!$("splitHost").classList.contains("is-split") && split.divider.hidden,
     "no seam while there is one pane");
 

@@ -13,6 +13,10 @@ import {
 import { emptyPatternBytes } from "./patterntools.js";
 import { widenPattern } from "./upgrade.js";
 import { parseNotaPayload, defToPreset, slotForNotationValue } from "./notation.js";
+import {
+  MASTERING_FOURCC, parseMasteringSection, buildMasteringSection,
+} from "../format/mastering-section.js";
+import { defaultMastering } from "../engine/mastering.js";
 import { parseRegionPayload } from "./sampleregions.js";
 import { cueInstructionWords } from "../format/taud-parse.js";
 import { writeTaud } from "../format/taud-write.js";
@@ -369,6 +373,36 @@ export class Document {
     return this._srgnCache.regions;
   }
 
+  /**
+   * Every song's mastering chain (item 178, §9.12), as `{songIndex: params}`.
+   * Cached by payload identity like customNotations() — undo/redo swaps the
+   * payload ref, which invalidates naturally.
+   */
+  masteringMap() {
+    const sec = this.projSections.find((s) => s.fourcc === MASTERING_FOURCC);
+    const payload = sec ? sec.payload : null;
+    if (!this._smstCache || this._smstCache.payload !== payload) {
+      this._smstCache = { payload, map: payload ? parseMasteringSection(payload) : {} };
+    }
+    return this._smstCache.map;
+  }
+
+  /**
+   * One song's mastering chain, never null: a song that declares none gets the
+   * neutral chain, which is defined to change nothing. Callers therefore never
+   * have to ask whether the section exists.
+   */
+  mastering(songIndex = 0) {
+    return this.masteringMap()[songIndex] ?? defaultMastering();
+  }
+
+  /** The `sMst` payload this document WOULD carry with `params` installed on
+   *  `songIndex` — null when that would leave every song neutral, which is how
+   *  the section disappears again when a chain is reset. */
+  masteringPayloadWith(songIndex, params) {
+    return buildMasteringSection({ ...this.masteringMap(), [songIndex]: params });
+  }
+
   /** Custom notation definitions from the "nota" section, cached by payload
    *  identity — undo/redo swaps the payload ref, invalidating naturally. */
   customNotations() {
@@ -640,6 +674,9 @@ export class Document {
         // render falls back to the tracker default and every exported note is
         // off against what playback just sounded.
         tuningBaseNote: s.tuningBaseNote, tuningFreq: s.tuningFreq,
+        // …and so does the mastering chain (item 178): an exported file is what
+        // a conforming player would produce, and the chain is part of that.
+        mastering: this.mastering(songIndex),
         patterns: s.patterns.map((_, p) => this.patternBytes(songIndex, p)),
         cues: s.cues,
       } : null),

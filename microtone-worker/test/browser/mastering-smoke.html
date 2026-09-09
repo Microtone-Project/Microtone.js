@@ -1,0 +1,189 @@
+<!doctype html><meta charset="utf-8"><title>mastering tab (item 178)</title>
+<pre id="out">running… (needs a real audio-capable browser; ~14s)</pre>
+<img src="/hang" hidden>
+<!-- Wide and tall: the view is a two-column grid and both columns scroll, so a
+     short frame would hide the instruments the checks below read. -->
+<iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1500px;height:1200px"></iframe>
+<script type="module">
+// Drives the REAL app: the Mastering tab's rack writing the song's sMst section
+// through ops (one undo step per gesture), the engine picking the chain up, the
+// metering tap living and dying with the view, the live instruments painting,
+// and the offline analysis + its measure-and-set buttons. The DSP maths behind
+// all of it is unit-tested in test/node/mastering.test.js.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; console.log("MST: " + s); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+/** Any pixel that is not the flat background → the canvas actually drew. */
+function painted(cv) {
+  if (!cv.width || !cv.height) return false;
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+  const r0 = d[0], g0 = d[1], b0 = d[2];
+  for (let i = 4; i < d.length; i += 4) {
+    if (d[i] !== r0 || d[i + 1] !== g0 || d[i + 2] !== b0) return true;
+  }
+  return false;
+}
+
+(async () => {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone?.store.doc; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); return; }
+  const doc = win.document;
+  const { store } = M;
+  const pickBtns = () => doc.querySelectorAll(".mst-serieseg button");
+
+  // ── 1. the tab is there, in front of Project ─────────────────────────────
+  const tabs = [...doc.querySelectorAll("#tabs button")].map((b) => b.dataset.view);
+  check(tabs.join() === "timeline,cues,pattern,samples,instruments,mastering,project,files",
+    "the Mastering tab sits before Project", tabs.join());
+
+  doc.querySelector('[data-view="mastering"]').click();
+  await sleep(300);
+  const view = M.masteringView;
+  check(store.view === "mastering", "the tab opens");
+  check(!!doc.querySelector(".mastering-view .mst-rack"), "the rack is built");
+  check(doc.querySelectorAll(".mastering-view .mst-unit").length === 7,
+    "seven rack units", String(doc.querySelectorAll(".mastering-view .mst-unit").length));
+
+  // ── 2. the tap follows the view ──────────────────────────────────────────
+  check(store.audio === null || store.audio.masterMeterOn === true,
+    "the metering tap is on while the view is", String(store.audio?.masterMeterOn));
+  doc.querySelector('[data-view="project"]').click();
+  await sleep(120);
+  check(store.audio === null || store.audio.masterMeterOn === false,
+    "…and off again when it is hidden", String(store.audio?.masterMeterOn));
+  doc.querySelector('[data-view="mastering"]').click();
+  await sleep(200);
+
+  // ── 3. editing writes sMst, through one undo step ────────────────────────
+  const undoBefore = store.undo.undoStack.length;
+  const sec = () => store.doc.projSections.find((s) => s.fourcc === "sMst") ?? null;
+  check(sec() === null, "a fresh project carries no sMst section");
+  view.edit((p) => { p.on = true; p.limOn = true; p.limCeilingDb = -1.5; }, null);
+  await sleep(60);
+  check(sec() !== null, "an edit creates the section");
+  check(store.doc.mastering(0).limCeilingDb === -1.5, "…carrying the value",
+    String(store.doc.mastering(0).limCeilingDb));
+  check(store.undo.undoStack.length === undoBefore + 1, "one undo step",
+    `${undoBefore} → ${store.undo.undoStack.length}`);
+  store.undo.undo();
+  await sleep(60);
+  check(sec() === null, "undo removes the section again");
+  store.undo.redo();
+  await sleep(60);
+  check(store.doc.mastering(0).limOn === true, "redo puts it back");
+
+  // A neutral chain writes NO section: absent and all-default mean the same.
+  view.edit((p) => { p.on = false; p.limOn = false; p.limCeilingDb = -1; }, null);
+  await sleep(60);
+  check(sec() === null, "resetting every stage drops the section again");
+
+  // ── 4. the chain reaches the engine and changes the sound ────────────────
+  const { analyseSongAsync } = await import("../../src/audio/master-analysis.js");
+  const plain = await analyseSongAsync(store.doc.toRenderable(0), 0, 12); // no chain yet
+  view.edit((p) => {
+    p.on = true; p.limOn = true; p.limTruePeak = true; p.limCeilingDb = -3;
+    p.trimDb = 6;
+  }, null);
+  await sleep(60);
+  const limited = await analyseSongAsync(store.doc.toRenderable(0), 0, 12);
+  check(Math.abs(limited.post.truePeakDb - (-3)) < 0.01, "the limiter holds the ceiling",
+    `${limited.post.truePeakDb.toFixed(3)} dBTP`);
+  // …and it had work to do: +6 dB of trim puts this mix's own peak above it.
+  check(plain.post.truePeakDb + 6 > -3 + 0.5,
+    "…on a signal the trim had pushed over it",
+    `${(plain.post.truePeakDb + 6).toFixed(2)} vs the −3 ceiling`);
+  // The pre tap sits upstream of the WHOLE chain, the input trim included —
+  // which is what makes it a clean A/B against the finished master.
+  check(Math.abs(plain.pre.integratedLufs - limited.pre.integratedLufs) < 0.05,
+    "the pre-chain tap reads the mix, whatever the chain is set to",
+    `${plain.pre.integratedLufs.toFixed(2)} vs ${limited.pre.integratedLufs.toFixed(2)}`);
+  check(limited.post.integratedLufs > limited.pre.integratedLufs,
+    "…and +6 dB of trim came out louder than the mix went in",
+    `${limited.pre.integratedLufs.toFixed(2)} → ${limited.post.integratedLufs.toFixed(2)}`);
+
+  // ── 5. live instruments paint while the song plays ───────────────────────
+  await win.__microtoneEnsureAudio?.();
+  doc.getElementById("playSong")?.click();
+  await sleep(2500);
+  const canvases = [...doc.querySelectorAll(".mastering-view .mst-canvas")]
+    .filter((c) => !c.classList.contains("mst-plot"));
+  check(canvases.length >= 4, "the instrument canvases exist", String(canvases.length));
+  check(canvases.every(painted), "every live instrument painted",
+    canvases.map((c) => (painted(c) ? "y" : "n")).join(""));
+  check(painted(doc.querySelector(".mst-eq-curve")), "the EQ response curve painted");
+  // The live spectrometer fills the same canvas from the bottom, so its columns
+  // must have moved off the floor while the song is sounding.
+  const specFloor = view.specCols && [...view.specCols].some((v) => v > -96 + 6);
+  check(!!specFloor, "the live spectrometer read the signal",
+    view.specCols ? Math.max(...view.specCols).toFixed(1) + " dB" : "no columns");
+  check(view.readout.specWrite > 0, "…from the tap's own ring",
+    String(view.readout.specWrite));
+  const readout = view.readout;
+  check(readout.frames > 0, "the tap delivered frames", String(readout.frames));
+  check(Number.isFinite(view.loud[1].momentary),
+    "momentary loudness reads a number", String(view.loud[1].momentary));
+  check(readout.histTotal > 0, "the bit histogram filled", String(readout.histTotal));
+  check(readout.histDepth === 16, "…at the stereo WAV export's own 16 bits",
+    String(readout.histDepth));
+  check(readout.histUsed > 256, "…so it sees more than 256 distinct codes",
+    String(readout.histUsed));
+  // Switching the panel to the device's depth re-takes the census there.
+  const depthSel = doc.querySelector(".mst-depth");
+  depthSel.value = "8";
+  depthSel.dispatchEvent(new win.Event("change"));
+  await sleep(1200);
+  check(view.readout.histDepth === 8, "the depth chooser re-takes the census",
+    String(view.readout.histDepth));
+  check(view.readout.histUsed > 0 && view.readout.histUsed <= 256,
+    "…over the 8-bit code space", String(view.readout.histUsed));
+  depthSel.value = "16";
+  depthSel.dispatchEvent(new win.Event("change"));
+  await sleep(600);
+  doc.getElementById("stopBtn")?.click();
+  await sleep(200);
+
+  // ── 6. offline analysis + measure-and-set ────────────────────────────────
+  view.analysisCap = 12;
+  await view.runAnalysis();
+  check(view.analysis !== null, "the offline analysis ran");
+  check(view.analysis.post.shortTermLufs.length > 20, "…and produced a series",
+    String(view.analysis?.post.shortTermLufs.length));
+  check(painted(view.plotCanvas) || view.plotCanvas.clientWidth === 0,
+    "the plot painted");
+  const beforeGain = store.doc.mastering(0).outGainDb;
+  view.applyGainForTruePeak(-1);
+  await sleep(60);
+  const afterGain = store.doc.mastering(0).outGainDb;
+  check(afterGain !== beforeGain, "the measure-and-set button moved the output gain",
+    `${beforeGain} → ${afterGain}`);
+  const check2 = await analyseSongAsync(store.doc.toRenderable(0), 0, 12);
+  check(Math.abs(check2.post.truePeakDb - (-1)) < 0.35,
+    "…and the render now lands on the target",
+    `${check2.post.truePeakDb.toFixed(3)} dBTP`);
+
+  // ── 7. the spectral distribution, and clearing on a document change ──────
+  const bands = view.analysis.post.bandCount;
+  check(bands === 5 && view.analysis.post.bandSeries.length === bands * view.analysis.post.peakSeriesDb.length,
+    "the analysis carries a spectral column per frame",
+    `${view.analysis.post.bandSeries.length / bands} columns`);
+  [...pickBtns()].find((b) => b.textContent === "Spectral distribution")?.click();
+  await sleep(200);
+  check(painted(view.plotCanvas), "the spectral distribution plot painted");
+
+  // Switching song throws the analysis away rather than leaving a stale one up.
+  view.analysis = view.analysis ?? null;
+  store.emit("doc");
+  await sleep(200);
+  check(view.analysis === null, "a document change empties the offline analysis");
+  check(!view.summaryEl.textContent, "…and its summary with it");
+
+  log(fails === 0 ? "\nALL PASS" : `\n${fails} FAILURE(S)`);
+})();
+</script>

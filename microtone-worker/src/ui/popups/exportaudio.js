@@ -40,10 +40,10 @@ export function targetKindFor(formatId, surroundModel) {
 }
 
 /**
- * @param opts {surroundModel, fileName, defaults}
+ * @param opts {surroundModel, mastered, fileName, defaults}
  * @returns Promise<null | {format, outRate, cap, monitor}>
  */
-export function showExportAudio({ surroundModel = 0, defaults = {} } = {}) {
+export function showExportAudio({ surroundModel = 0, mastered = false, defaults = {} } = {}) {
   return new Promise((resolve) => {
     let format = defaults.format ?? "stereo";
     let outRate = defaults.outRate ?? 48000;
@@ -131,6 +131,14 @@ export function showExportAudio({ surroundModel = 0, defaults = {} } = {}) {
     capLab.appendChild(capInp);
     opts.appendChild(capLab);
 
+    // The mastering chain (item 178) acts on the stereo pair, which is what
+    // the output stage delivers — a multichannel target is written from the
+    // object bus, upstream of it. Say so where the choice is made rather than
+    // letting someone find out by comparing files.
+    const masterHint = document.createElement("p");
+    masterHint.className = "dim export-hint";
+    masterHint.textContent = t("export.masteringHint");
+
     const size = document.createElement("p");
     size.className = "dim export-hint";
 
@@ -142,7 +150,7 @@ export function showExportAudio({ surroundModel = 0, defaults = {} } = {}) {
     cancel.textContent = t("common.cancel");
     row.append(ok, cancel);
 
-    dlg.append(h, intro, cards, opts, monitorHint, size, row);
+    dlg.append(h, intro, cards, opts, monitorHint, masterHint, size, row);
     document.body.appendChild(dlg);
 
     function refresh() {
@@ -153,6 +161,8 @@ export function showExportAudio({ surroundModel = 0, defaults = {} } = {}) {
       const foldable = f.kind === "stereo" && surroundModel !== SURROUND_STEREO;
       monitorField.hidden = !foldable;
       monitorHint.hidden = !foldable;
+      // Only worth saying when the song HAS a chain and the target would miss it.
+      masterHint.hidden = f.kind === "stereo" || !mastered;
       // …and a rough idea of what is about to land in the downloads folder.
       const bytes = cap * outRate * f.channels * (f.bits >> 3);
       size.textContent = t("export.sizeHint", {

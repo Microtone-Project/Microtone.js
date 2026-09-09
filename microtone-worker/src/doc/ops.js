@@ -6,6 +6,7 @@
 // Dirty tags: {kind:"pattern", song, pat} | {kind:"cue", song, cue}
 //           | {kind:"scalar", song, key} | {kind:"inst", slot} | {kind:"bank"}
 //           | {kind:"ixmp", slot} | {kind:"section", fourcc} | {kind:"resync", song}
+//           | {kind:"mastering", song}
 
 import { applyPlan, captureBankState, restoreBankState, buildIxmpSection } from "./bankmerge.js";
 import {
@@ -882,6 +883,35 @@ export function setProjectStringOp(fourcc, payload, gestureId = null) {
       return setProjectStringOp(fourcc, prev, gestureId);
     },
     dirty: () => [{ kind: "section", fourcc }],
+  };
+}
+
+/**
+ * Replace one song's mastering chain (item 178, §9.12) as one invertible step.
+ *
+ * It goes through the SECTION rather than through a per-song field because that
+ * is where the chain lives: `sMst` holds every song's, so an edit rebuilds the
+ * whole payload and the inverse restores the exact previous bytes (or removes
+ * the section, which is what resetting the last non-neutral chain does).
+ *
+ * `coalesceKey` is per song AND per control, so dragging one knob is one undo
+ * step while moving two different ones is two — the same bargain the project
+ * strings and the song scalars strike. `control` is any stable name the caller
+ * picks for the gesture; null never coalesces.
+ */
+export function setMasteringOp(song, payload, control = null, gestureId = null) {
+  return {
+    type: "setMastering",
+    song, payload, control, gestureId,
+    coalesceKey: control === null ? null : `mastering:${song}:${control}`,
+    apply(doc) {
+      const i = doc.projSections.findIndex((s) => s.fourcc === "sMst");
+      const prev = i >= 0 ? doc.projSections[i].payload : null;
+      doc.setSection("sMst", payload);
+      doc.dirty = true;
+      return setMasteringOp(song, prev, control, gestureId);
+    },
+    dirty: () => [{ kind: "mastering", song }],
   };
 }
 

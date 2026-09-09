@@ -58,6 +58,12 @@
 import {
   SCOPE_CHANNELS, SCOPE_FRAMES, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X,
 } from "../engine/analysis.js";
+import { Fft, SPECTRUM_BANDS } from "../engine/fft.js";
+
+// The FFT moved to src/engine/fft.js when the Mastering view (item 178) and the
+// offline spectral analysis needed it too — same class, same numbers. Re-exported
+// so cloud.js and the tests keep importing it from here.
+export { Fft };
 
 // ── the bands ─────────────────────────────────────────────────────────────
 
@@ -71,13 +77,9 @@ import {
  * psychoacoustic — the display answers "where is the bass sitting", not "how
  * loud is it in Bark 12".
  */
-export const RAD_BANDS = Object.freeze([
-  Object.freeze({ lo: 20, hi: 200, ink: "fxOp", label: "20–200 Hz" }),
-  Object.freeze({ lo: 200, hi: 800, ink: "fxA1", label: "200–800 Hz" }),
-  Object.freeze({ lo: 800, hi: 2000, ink: "fxA2", label: "800 Hz–2 kHz" }),
-  Object.freeze({ lo: 2000, hi: 8000, ink: "fxA3", label: "2–8 kHz" }),
-  Object.freeze({ lo: 8000, hi: 20000, ink: "colPan", label: "8–20 kHz" }),
-]);
+export const RAD_INKS = Object.freeze(["fxOp", "fxA1", "fxA2", "fxA3", "colPan"]);
+export const RAD_BANDS = Object.freeze(SPECTRUM_BANDS.map((b, i) =>
+  Object.freeze({ lo: b.lo, hi: b.hi, ink: RAD_INKS[i], label: b.label })));
 export const RAD_NBANDS = RAD_BANDS.length;
 
 /**
@@ -334,60 +336,6 @@ export function radScale(peak, level) {
   if (!(peak > 1e-12)) return 0;
   const shrink = level >= RAD_SILENCE ? 1 : level / RAD_SILENCE;
   return (RAD_FILL / peak) * shrink;
-}
-
-// ── FFT ───────────────────────────────────────────────────────────────────
-
-/** Iterative radix-2 complex FFT with precomputed twiddles and bit reversal. */
-export class Fft {
-  constructor(n) {
-    if ((n & (n - 1)) !== 0) throw new Error("Fft: size must be a power of two");
-    this.n = n;
-    const bits = Math.round(Math.log2(n));
-    this.rev = new Uint32Array(n);
-    for (let i = 0; i < n; i++) {
-      let r = 0;
-      for (let b = 0; b < bits; b++) if (i & (1 << b)) r |= 1 << (bits - 1 - b);
-      this.rev[i] = r;
-    }
-    this.cos = new Float64Array(n >> 1);
-    this.sin = new Float64Array(n >> 1);
-    for (let i = 0; i < n >> 1; i++) {
-      this.cos[i] = Math.cos((-2 * Math.PI * i) / n);
-      this.sin[i] = Math.sin((-2 * Math.PI * i) / n);
-    }
-  }
-
-  /** In place, decimation in time. */
-  run(re, im) {
-    const n = this.n;
-    const rev = this.rev;
-    for (let i = 0; i < n; i++) {
-      const j = rev[i];
-      if (j > i) {
-        let t = re[i]; re[i] = re[j]; re[j] = t;
-        t = im[i]; im[i] = im[j]; im[j] = t;
-      }
-    }
-    for (let len = 2; len <= n; len <<= 1) {
-      const half = len >> 1;
-      const step = n / len;
-      for (let i = 0; i < n; i += len) {
-        for (let j = 0, t = 0; j < half; j++, t += step) {
-          const wr = this.cos[t];
-          const wi = this.sin[t];
-          const a = i + j;
-          const b = a + half;
-          const xr = re[b] * wr - im[b] * wi;
-          const xi = re[b] * wi + im[b] * wr;
-          re[b] = re[a] - xr;
-          im[b] = im[a] - xi;
-          re[a] += xr;
-          im[a] += xi;
-        }
-      }
-    }
-  }
 }
 
 // ── the field ─────────────────────────────────────────────────────────────

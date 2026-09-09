@@ -2947,3 +2947,207 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   text-align: justify;
   hyphens: auto;
 }
+
+/* ── Mastering view (item 178) ────────────────────────────────────────────
+   The rack on the left, the instruments on the right. Both columns scroll on
+   their own, because the rack is long and the instruments are the reason you
+   are here — one scrollbar for the pair would put the meters off screen the
+   moment you reached for the compressor. */
+.mastering-view {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 3fr) minmax(320px, 4fr);
+  grid-template-rows: auto 1fr;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  overflow: hidden;
+}
+.mastering-view .mst-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.mst-title { font-weight: 600; letter-spacing: 0.02em; }
+.mst-rack, .mst-panel {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  padding-right: 0.2rem;
+}
+
+/* One rack unit. A bypassed unit fades rather than hiding its controls: what
+   the stage is SET to is as much a part of reading the chain as whether it is
+   in circuit. */
+.mst-unit, .mst-scope {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.mst-unit-head, .mst-scope-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 6px 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--dim);
+}
+.mst-unit-name { flex: 1; color: var(--fg); font-weight: 600; }
+.mst-scope-head span:first-child { flex: 1; color: var(--fg); font-weight: 600; }
+.mst-stagetag {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+.mst-unit-body, .mst-scope-body {
+  padding: 0.4rem 0.5rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.mst-unit.mst-off .mst-unit-body { opacity: 0.42; }
+.mst-hint {
+  margin: 0 0 0.15rem;
+  color: var(--dim);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+/* label · number · unit · slider. The number column has to hold a step-button
+   group (item 156 wraps every number input in one), so it is sized to .mt-spin
+   rather than to the digits — a narrower column clips "3000" to "300". */
+.mst-row {
+  display: grid;
+  grid-template-columns: 5.6rem 7rem 1.9rem minmax(56px, 1fr);
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--dim);
+  font-size: 0.82rem;
+}
+.mst-row-choice, .mst-row-check { grid-template-columns: 5.6rem 1fr; }
+/* …and only inside a row: the loose number fields in the offline panel keep
+   the step group's own width. */
+.mst-row .mt-spin, .mst-row .mt-pick { width: 100%; }
+.mst-lab { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mst-ann { color: var(--dim); font-size: 0.75rem; }
+.mst-num, .mst-cap {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.mst-cap { width: 5rem; }
+.mst-range { width: 100%; }
+.mst-row select { width: 100%; padding: 0.1rem 0.3rem; font-size: 0.82rem; }
+
+.mst-switch, .mst-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--dim);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.mst-power { color: var(--fg); }
+
+.mst-band {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.mst-band-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+.mst-eq-curve { width: 100%; display: block; margin-bottom: 0.3rem; }
+
+/* A segmented switch: pre/post, and the plot's series picker. */
+.mst-seg { display: inline-flex; }
+.mst-seg button {
+  border-radius: 0;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.82rem;
+}
+.mst-seg button:first-child { border-radius: 4px 0 0 4px; }
+.mst-seg button:last-child { border-radius: 0 4px 4px 0; }
+.mst-seg button + button { border-left: none; }
+.mst-seg button.active { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); }
+.mst-serieseg { align-self: flex-start; margin-top: 0.2rem; }
+
+.mst-canvas { width: 100%; display: block; }
+.mst-readouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 0.3rem;
+}
+.mst-readout {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.3rem;
+  text-align: center;
+}
+.mst-readout b {
+  display: block;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+.mst-readout span { color: var(--dim); font-size: 0.7rem; }
+
+.mst-offbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.mst-caplab {
+  color: var(--dim);
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+.mst-progress { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 0.8rem; }
+.mst-summary { color: var(--dim); font-size: 0.78rem; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.mst-warn { color: var(--accent); }
+.mst-auto { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.3rem; }
+.mst-autorow { display: flex; align-items: center; gap: 0.4rem; }
+.mst-autorow button { font-size: 0.82rem; padding: 0.15rem 0.5rem; }
+
+/* Stacked panes and narrow viewports: one column, both halves still scrollable. */
+@media (max-width: 900px) {
+  .mastering-view {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr;
+    overflow-y: auto;
+  }
+  .mst-rack, .mst-panel { overflow: visible; }
+}
+
+/* The Bit usage panel's delivery-format chooser, in its header beside the title. */
+.mst-depth {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  padding: 0 0.2rem;
+}

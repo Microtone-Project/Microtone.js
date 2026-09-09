@@ -17,6 +17,7 @@ import {
   ixmpPatchLen,
 } from "./taud-const.js";
 import { decomp } from "./compress.js";
+import { parseMasteringSection } from "./mastering-section.js";
 
 function u16(b, o) { return b[o] | (b[o + 1] << 8); }
 function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16)) + b[o + 3] * 0x1000000; }
@@ -135,7 +136,8 @@ export function parseSMetSection(payload) {
  *             cues: Uint16Array(64)[] }],        // raw u16 channel words (pattern | sign bit)
  *   projSections: [{fourcc, payload: Uint8Array}],  // verbatim, in file order
  *   ixmp: [{instId, count, blob}],               // decoded view of the Ixmp section
- *   meta: { projectName, songMeta: {idx: {...}} } // decoded views of PNam / sMet
+ *   meta: { projectName, songMeta: {idx: {...}},  // decoded views of PNam / sMet
+ *           mastering: {idx: {...}} }             // …and of sMst (§9.12)
  * }
  */
 export function parseTaud(file) {
@@ -257,9 +259,17 @@ export function parseTaud(file) {
   const ixmp = ixmpSec ? parseIxmpSection(ixmpSec.payload) : [];
   const pnamSec = findSec("PNam");
   const smetSec = findSec("sMet");
+  const smstSec = findSec("sMst");
+  // Mastering (item 178, §9.12) is one of the three Project-Data sections a
+  // PLAYER has to honour, so it is decoded here rather than left to the editor:
+  // it also rides on each song record, which is what makes a bare parsed file
+  // enough for audio-system.loadDocument and the offline renderer.
+  const mastering = smstSec ? parseMasteringSection(smstSec.payload) : {};
+  for (let i = 0; i < songs.length; i++) songs[i].mastering = mastering[i] ?? null;
   const meta = {
     projectName: pnamSec ? strNul(pnamSec.payload, 0, pnamSec.payload.length).str : null,
     songMeta: smetSec ? parseSMetSection(smetSec.payload) : {},
+    mastering,
   };
 
   return { kind, fmtVer, is64Channel, signature, sampleInstImage, songs, projSections, ixmp, meta };

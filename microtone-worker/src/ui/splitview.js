@@ -1,7 +1,7 @@
 // Two-pane split of the view area (item 148).
 //
 // The editor shows one pane or two, and each pane carries its own copy of the
-// seven tabs plus one button: "split this in two" while there is a single
+// eight tabs plus one button: "split this in two" while there is a single
 // pane, "close this pane" once there are two. Which WAY it splits is not a
 // setting — it follows the shape of the area being split, so the same button
 // gives you columns on a desktop and rows on a tablet held upright.
@@ -15,8 +15,10 @@
 import { setIconLabel } from "./icons.js";
 import { applyDom, t } from "./i18n.js";
 
-/** Tab order, which is also the F1..F7 order in app.js. */
-export const VIEWS = ["timeline", "cues", "pattern", "samples", "instruments", "project", "files"];
+/** Tab order, which is also the F1..F8 order in app.js. */
+export const VIEWS = [
+  "timeline", "cues", "pattern", "samples", "instruments", "mastering", "project", "files",
+];
 
 /** At or above this width/height ratio the panes sit side by side; below it
  *  they stack. Slightly over 1 rather than exactly 1: a canvas that is only
