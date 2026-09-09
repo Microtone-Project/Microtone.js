@@ -56,6 +56,7 @@ import {
 } from "../../audio/master-analysis.js";
 import { setMasteringOp } from "../../doc/ops.js";
 import { themeColors } from "../theme.js";
+import { parseInk } from "./masterstrip.js";
 import { t } from "../i18n.js";
 
 /** Metering scale for the level bars, in dBFS. */
@@ -68,8 +69,10 @@ const LUFS_MAX = 0;
 const GR_MAX_DB = 24;
 /** Peak-hold fall rate, dB per second — the classic 20 dB/1.7 s. */
 const PEAK_FALL_DB_S = 11.8;
-/** How long a clip lamp stays lit after the last over, in ms. */
+/** How long a clip lamp stays lit after the last over, in ms… */
 const CLIP_HOLD_MS = 1600;
+/** …of which this last fraction is the fade. Before that it is at full. */
+const CLIP_FADE_FRACTION = 0.25;
 /** Spectrometer scale, in dBFS — what the EQ graph's analyser draws between. */
 const SPEC_MIN_DB = -96;
 const SPEC_MAX_DB = -6;
@@ -88,6 +91,28 @@ const fmtLufs = (v) => (Number.isFinite(v) ? v.toFixed(1) : "—");
 /** Code counts get big at 16 bits — group them so they can be read at a glance. */
 const fmtCount = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString() : "—");
 
+/** Blend two theme inks, `t` of the way from `a` to `b`. The canvas twin of the
+ *  `color-mix()` the DOM lamps use, so a lamp drawn here lights like one drawn
+ *  there rather than snapping between two states. */
+function mixInk(a, b, t) {
+  const x = parseInk(a);
+  const y = parseInk(b);
+  const k = clamp(t, 0, 1);
+  return `rgb(${Math.round(x[0] + (y[0] - x[0]) * k)},${
+    Math.round(x[1] + (y[1] - x[1]) * k)},${Math.round(x[2] + (y[2] - x[2]) * k)})`;
+}
+
+/** A rounded rectangle, falling back to a square one where roundRect is absent. */
+function roundedRect(ctx, x, y, w, h, r) {
+  if (typeof ctx.roundRect === "function") {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fill();
+  } else {
+    ctx.fillRect(x, y, w, h);
+  }
+}
+
 /** dB → 0..1 across the meter scale. */
 const meterFrac = (db) => clamp((db - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB), 0, 1);
 
@@ -104,6 +129,10 @@ export class MasteringView {
     this.loud = [new LoudnessIntegrator(SAMPLING_RATE), new LoudnessIntegrator(SAMPLING_RATE)];
     this.peakHoldDb = [-144, -144, -144, -144];
     this.clipUntil = [0, 0, 0, 0];
+    /** …and the LATCH: once anything has gone over full scale in this take, the
+     *  meter's over-scale tip stays lit until the transport starts a new one.
+     *  A clip that happened thirty seconds ago is still a clip in the file. */
+    this.clipLatched = [false, false, false, false];
     this.grComp = 0;
     this.grLim = 0;
     this._wasPlaying = false;
@@ -926,7 +955,10 @@ export class MasteringView {
         for (let i = 0; i < 4; i++) {
           const db = dbfs(r.truePeak[i]);
           if (db > this.peakHoldDb[i]) this.peakHoldDb[i] = db;
-          if (r.clip[i] > 0) this.clipUntil[i] = now + CLIP_HOLD_MS;
+          if (r.clip[i] > 0) {
+            this.clipUntil[i] = now + CLIP_HOLD_MS;
+            this.clipLatched[i] = true;
+          }
         }
         this.grComp = r.compGrDb;
         this.grLim = r.limGrDb;
@@ -955,6 +987,7 @@ export class MasteringView {
     for (const l of this.loud) l.reset();
     this.peakHoldDb.fill(-144);
     this.clipUntil.fill(0);
+    this.clipLatched.fill(false);
   }
 
   // ── painting ──
@@ -1058,16 +1091,37 @@ export class MasteringView {
       const span = w - 30;
       ctx.fillStyle = C.meter;
       ctx.fillRect(22, y, meterFrac(rms) * span, barH);
-      // The true-peak line, and the falling hold above it.
+      // The over-scale TIP: everything past 0 dBFS, lit red and LATCHED. The
+      // lamp below says "clipping now" and goes out; this says "this take
+      // clipped" and stays, because a clip thirty seconds ago is still in the
+      // file. Both are cleared when the transport starts a fresh take.
+      const zero = 22 + meterFrac(0) * span;
+      if (this.clipLatched[i]) {
+        ctx.fillStyle = C.errFg;
+        ctx.fillRect(zero, y, 22 + span - zero, barH);
+      }
+      // 0 dBFS rule — the wall the file cannot go past.
+      ctx.fillStyle = C.border;
+      ctx.fillRect(zero, y, 1, barH);
+      // The true-peak line and its falling hold go on LAST, so they still read
+      // where they matter most: inside the tip, on a take that went over.
       ctx.fillStyle = C.accent2;
       ctx.fillRect(22 + meterFrac(peakDb) * span - 1, y, 2, barH);
       ctx.fillStyle = C.accent;
       ctx.fillRect(22 + meterFrac(this.peakHoldDb[i]) * span - 1, y, 2, barH);
-      // 0 dBFS rule — the wall the file cannot go past.
-      ctx.fillStyle = C.border;
-      ctx.fillRect(22 + meterFrac(0) * span, y, 1, barH);
-      ctx.fillStyle = now < this.clipUntil[i] ? C.accent : C.dim;
-      ctx.fillText(labels[c], 4, y + barH - 6);
+      // The channel letter is a blinkenlight, backing and all (lamp.js's look,
+      // drawn on canvas): a colour change alone on two thin glyphs was not
+      // something you could catch out of the corner of your eye.
+      // Full brightness for most of the hold, then a quick fade — a lamp that
+      // starts dimming immediately is a lamp you miss.
+      const left = clamp((this.clipUntil[i] - now) / CLIP_HOLD_MS, 0, 1);
+      const lit = clamp(left / CLIP_FADE_FRACTION, 0, 1);
+      if (lit > 0) {
+        ctx.fillStyle = mixInk(C.meterBg, C.errFg, lit);
+        roundedRect(ctx, 2, y + barH / 2 - 8, 17, 16, 3);
+      }
+      ctx.fillStyle = lit > 0 ? mixInk(C.dim, C.bg, lit) : C.dim;
+      ctx.fillText(labels[c], 7, y + barH - 6);
     }
     // Numeric peak readout under the bars.
     ctx.fillStyle = C.dim;

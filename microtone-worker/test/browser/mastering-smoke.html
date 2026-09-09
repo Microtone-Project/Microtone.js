@@ -184,6 +184,35 @@ function painted(cv) {
   check(view.analysis === null, "a document change empties the offline analysis");
   check(!view.summaryEl.textContent, "…and its summary with it");
 
+  // ── 8. the clip lamp and the latched over-scale tip ──────────────────────
+  // Drive it deliberately: +24 dB of trim with no limiter puts the master hard
+  // against the clamp, which is exactly what the meter is there to catch.
+  view.edit((p) => {
+    p.on = true; p.trimDb = 24; p.limOn = false; p.outGainDb = 0;
+  }, null);
+  view.rebuild();
+  view.resetIntegration();
+  await sleep(100);
+  check(!view.clipLatched.some(Boolean), "the latch starts clear");
+  doc.getElementById("playSong")?.click();
+  await sleep(2500);
+  check(view.clipLatched[1 /* TAP_POST */ * 2] || view.clipLatched[3],
+    "a clipping take latches the over-scale tip",
+    view.clipLatched.map((v) => (v ? "1" : "0")).join(""));
+  check(view.readout.clip[2] > 0 || view.readout.clip[3] > 0,
+    "…because the tap counted the overs",
+    `${view.readout.clip[2]} / ${view.readout.clip[3]}`);
+  doc.getElementById("stopBtn")?.click();
+  await sleep(400);
+  check(view.clipLatched.some(Boolean),
+    "…and it stays lit after the take ends, not just while it is over");
+  // A fresh take is what clears it.
+  doc.getElementById("playSong")?.click();
+  await sleep(300);
+  check(!view.clipLatched[0] || view.readout.clip[0] > 0,
+    "a new take starts the latch again");
+  doc.getElementById("stopBtn")?.click();
+
   log(fails === 0 ? "\nALL PASS" : `\n${fails} FAILURE(S)`);
 })();
 </script>

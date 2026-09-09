@@ -1573,7 +1573,7 @@ export default {
   "mst.crest": "Crest",
   "mst.crestTitle": "Peak over RMS, dB, right now",
   "mst.levels": "Levels",
-  "mst.levelsNote": "Bars are RMS, the blue line is the true peak, the amber line is its falling hold. The channel letter lights on a clip.",
+  "mst.levelsNote": "Bars are RMS, the blue line is the true peak, the amber line is its falling hold. The channel letter lights while a clip is happening; the red tip past 0 dBFS stays lit once this take has clipped at all, until the transport starts another.",
   "mst.reduction": "Gain reduction",
   "mst.reductionNote": "How hard each dynamics stage is working. Bars grow leftward — they are eating the signal.",
   "mst.bits": "Bit usage",
