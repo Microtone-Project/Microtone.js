@@ -1470,8 +1470,11 @@ writing make-up into a bypassed stage would do nothing.
 
 ### What the chain reaches
 
-The chain acts on the stereo pair the engine delivers, which means it reaches
-playback, the stereo WAV export, and anything that plays your `.taud` correctly.
+The chain is part of the song, not editor state, so it reaches every delivery:
+playback, the stereo WAV export, the multichannel and ambisonic exports, and
+anything that plays your `.taud` correctly. What it acts *on* differs — the
+stereo pair for the first three, the sound field's own channels for the fourth
+— and the rest of this section is that difference.
 
 The two deliveries are not the same depth. A **stereo WAV export is native
 16-bit**: it takes the finished mix bus and writes it out directly, so the
@@ -1479,10 +1482,26 @@ engine's 8-bit stage — and its dither — never enter into it. The `.taud` fil
 itself is 8-bit, because that is what the format's own player produces. The Bit
 usage panel can describe either.
 
-It does **not** reach a multichannel or ambisonic export: those are written from
-the sound field itself, upstream of the chain, so the file carries the mix
-rather than the master. The export dialog says so when your song has a chain.
-Stems are likewise per-channel and by definition pre-master.
+A **multichannel or ambisonic export** gets the chain too, but as a
+*multichannel master*, because those files are written from the sound field
+rather than from the pair. Same parameters, one chain as wide as the file:
+the trim, the high-pass, the EQ and the output gain go on every channel with
+exactly the same settings, the compressor and the limiter each run **one**
+detector reading all the channels at once, and the stereo width is skipped —
+mid/side has no meaning across six speaker feeds, and forcing it would swing
+the sound field about rather than widen it.
+
+One consequence is worth knowing before you trust a meter. The linked detectors
+mean the compressor and the limiter are looking at a different signal from the
+one the Mastering tab shows you: the tab meters the stereo pair, and the
+multichannel file's dynamics react to its loudest channel. The filters, the
+trim and the gain do carry over exactly — those are the same numbers whichever
+way the song is folded — but a limiter that never moves on the stereo master
+can still be working on the 5.1 one. The limiter's ceiling holds on every
+channel of the file it writes; it is not a promise about what somebody's
+decoder does with those channels afterwards.
+
+Stems are per-channel and by definition pre-master.
 
 ## Project (F7)
 
@@ -1728,6 +1747,7 @@ should use **Export** to keep your work.
   - **Stereo** — 16-bit, the ordinary file. For a surround song you also choose how it comes down to two channels: **Fold** (the safe choice for speakers) or **Binaural** (keeps height and front/back, for headphones).
   - **Quadraphonic / 5.1 / 7.1** — 24-bit speaker feeds at ITU angles, with the channel mask and ADM metadata a DAW needs to know which channel is which. The LFE is left silent; there is no bass management here, and a mastering engineer will want to do that themselves.
   - **Ambisonic 1st / 2nd / 3rd order** — 24-bit AmbiX B-format (ACN order, SN3D normalisation) with ADM HOA metadata, saved as `<name>.ambix.wav`. This is the only export that keeps the full sphere: the listener's own decoder places it on whatever they have, headphones included. Higher orders are sharper and larger — third order is sixteen channels.
+  - Your [mastering chain](#mastering-f6) comes with every one of these. Stereo gets the master you hear; a multichannel target gets a *multichannel master* instead — identical filtering and gain on every channel, one compressor and one limiter linked across all of them, no stereo width. The dialog says so when the song has a chain.
   - Height only survives into B-format. A speaker layout spreads an overhead source evenly around the ring (it has nowhere else to go), and stereo folds it toward the centre. A stereo song can still be exported to any of these; it is simply promoted to the planar model first, which sounds the same for ordinary panning.
 - **Export stems…** — render the song into one 24-bit 48 kHz mono WAV per track, delivered as a single ZIP. A filename prefix is required; tracks come out as `<prefix>_01_<name>.wav`. Choose how they are arranged:
   - **Per instrument** (default) — one track per instrument as it appears in the pattern. A percussion instrument is split further, one track per kit piece, so kicks, snares and hats arrive separately; a drum layered from several sub-instruments stays on one track.

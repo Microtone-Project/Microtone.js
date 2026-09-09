@@ -1015,7 +1015,7 @@ Readers other than the reference web engine currently *skip* the `s` block rathe
 
 ### 9.12 `sMst` — song mastering
 
-The delivery chain a song is mastered through: the last thing that touches the mix before it narrows to 8 bits. Its behaviour is specified in full in the **Engine Specification** §12.1; this section is only the byte layout.
+The delivery chain a song is mastered through: the last thing that touches the mix before it narrows to 8 bits. Its behaviour is specified in full in the **Engine Specification** §12.1, and §12.3 there says what the same parameters mean where a delivery has more than two channels; this section is only the byte layout.
 
 Song-scoped, like `sMet`: a `.taud` may hold several songs and each is its own delivery, so each carries its own chain. This is the third of the three Project-Data sections a conforming *player* **MUST** honour ([§9.8](#9-8-reading-project-data-on-a-device-that-ignores-it)) — a song mastered to sit at −14 LUFS under a −1 dBTP ceiling does not sound like the same song without it.
 

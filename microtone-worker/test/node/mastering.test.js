@@ -951,3 +951,204 @@ test("the offline analysis declares the tilt it drew with", async () => {
   assert.equal(a.post.bandTiltDbPerOct, SPECTRUM_TILT_DB_PER_OCT);
   setRandomSource(null);
 });
+
+// ── the multichannel master (item 178.1) ────────────────────────────────────
+// The same chain, as wide as the delivery. Everything below is a statement out
+// of engine spec §12.3 turned into a measurement.
+
+/** `nch` channels of decorrelated dense material, channel-major, Float64. */
+function planarSignal(nch, frames, gain = 1) {
+  const d = new Float64Array(nch * frames);
+  for (let c = 0; c < nch; c++) {
+    const sig = testSignal(frames, gain);
+    // Detune each channel so the linked detector has something to disagree
+    // about — identical channels would make every test below trivially true.
+    const k = 1 + c * 0.37;
+    for (let n = 0; n < frames; n++) d[c * frames + n] = sig[n] * (0.4 + 0.15 * c) * k;
+  }
+  return d;
+}
+
+/** A chain with the static stages doing real work and no dynamics. */
+function staticParams() {
+  const p = defaultMastering();
+  p.on = true;
+  p.trimDb = -3.5;
+  p.outGainDb = 2.25;
+  p.hpOn = true; p.hpFreq = 60; p.hpSlope = HP_SLOPE_24;
+  p.eqOn = true;
+  p.eq[0] = { on: true, type: EQ_LOW_SHELF, freq: 120, gainDb: 4, q: 0.7 };
+  p.eq[1] = { on: true, type: EQ_PEAKING, freq: 800, gainDb: -5, q: 1.4 };
+  p.eq[2] = { on: false, type: EQ_PEAKING, freq: 3000, gainDb: 0, q: 1 };
+  p.eq[3] = { on: true, type: EQ_HIGH_SHELF, freq: 9000, gainDb: 3, q: 0.7 };
+  return normaliseMastering(p);
+}
+
+test("a multichannel master filters every channel identically", () => {
+  const p = staticParams();
+  const nch = 6, frames = 4096;
+  const bus = planarSignal(nch, frames);
+  const want = Float64Array.from(bus);
+
+  new MasterChain(p, SAMPLING_RATE, nch).processPlanar(bus, frames, frames);
+  // The claim is not "similar": one channel through a one-channel chain has to
+  // be the SAME arithmetic, because identical coefficients on independent
+  // delay lines is all the wide chain is.
+  for (let c = 0; c < nch; c++) {
+    const one = want.slice(c * frames, (c + 1) * frames);
+    new MasterChain(p, SAMPLING_RATE, 1).processPlanar(one, frames, frames);
+    for (let n = 0; n < frames; n++) {
+      assert.equal(bus[c * frames + n], one[n], `channel ${c}, frame ${n}`);
+    }
+  }
+});
+
+test("…and its result does not depend on how the bus arrives", () => {
+  const p = staticParams();
+  p.compOn = true; p.compThreshDb = -18; p.compRatio = 4; p.compKneeDb = 6;
+  p.limOn = true; p.limCeilingDb = -1;
+  const nch = 4, frames = 2048;
+  const src = planarSignal(nch, frames, 1.6);
+
+  const runBlocked = (block) => {
+    const bus = Float64Array.from(src);
+    const chain = new MasterChain(p, SAMPLING_RATE, nch);
+    // A block-at-a-time run over a channel-major buffer is a run over the
+    // sub-buffer at each offset, with the stride unchanged.
+    for (let o = 0; o < frames; o += block) {
+      const n = Math.min(block, frames - o);
+      chain.processPlanar(bus.subarray(o), n, frames);
+    }
+    return bus;
+  };
+  const whole = runBlocked(frames);
+  for (const block of [128, 512, 37]) {
+    const got = runBlocked(block);
+    for (let i = 0; i < got.length; i++) {
+      assert.equal(got[i], whole[i], `block ${block}, sample ${i}`);
+    }
+  }
+});
+
+test("the stereo width stage is skipped on a multichannel bus", () => {
+  const p = defaultMastering();
+  p.on = true; p.widthOn = true; p.width = 2;
+  assert.equal(masteringEngaged(p), true, "width alone still engages the chain");
+
+  // On the pair it is the whole point of the stage…
+  const src = testSignal(512);
+  const other = testSignal(512, 0.6);
+  const { l, r } = runChain(p, src, other);
+  let moved = 0;
+  for (let i = 0; i < src.length; i++) moved = Math.max(moved, Math.abs(l[i] - src[i]));
+  assert.ok(moved > 0.01, `the pair widened: ${moved}`);
+  assert.ok(r.some((v, i) => v !== other[i]));
+
+  // …and on a bus it is not defined, so the chain has nothing left to do.
+  for (const nch of [2, 4, 6, 16]) {
+    const bus = planarSignal(nch, 512);
+    const want = Float64Array.from(bus);
+    new MasterChain(p, SAMPLING_RATE, nch).processPlanar(bus, 512, 512);
+    for (let i = 0; i < bus.length; i++) {
+      assert.equal(bus[i], want[i], `${nch} channels, sample ${i}`);
+    }
+  }
+});
+
+test("one detector drives the whole sound field", () => {
+  // Two channels that are the same signal 6 dB apart. Only linked dynamics
+  // keep them 6 dB apart: a detector per channel would compress the loud one
+  // harder and the ratio between them would move — which, on a speaker layout,
+  // is the image walking across the room.
+  const p = defaultMastering();
+  p.on = true; p.trimDb = 6;
+  p.compOn = true; p.compThreshDb = -24; p.compRatio = 8;
+  p.compAttackMs = 2; p.compReleaseMs = 80; p.compKneeDb = 6;
+  // Make-up puts back what the ratio took, which is what leaves the limiter
+  // something to do — without it the compressor alone ducks under the ceiling.
+  p.compMakeupDb = 12;
+  p.limOn = true; p.limCeilingDb = -0.5; p.limReleaseMs = 40;
+
+  const frames = 8192;
+  const loud = testSignal(frames, 1.4);
+  const bus = new Float64Array(2 * frames);
+  for (let n = 0; n < frames; n++) {
+    bus[n] = loud[n];
+    bus[frames + n] = loud[n] * 0.5; // exact: a power of two
+  }
+  const chain = new MasterChain(normaliseMastering(p), SAMPLING_RATE, 2);
+  chain.processPlanar(bus, frames, frames);
+
+  let touched = false;
+  for (let n = 0; n < frames; n++) {
+    assert.equal(bus[frames + n], bus[n] * 0.5, `frame ${n} lost the ratio`);
+    if (bus[n] !== loud[n] * dbToGain(6)) touched = true;
+  }
+  assert.ok(touched, "the dynamics did have work to do");
+  assert.ok(chain.compGrDb < -1, `the compressor moved: ${chain.compGrDb}`);
+  assert.ok(chain.limGrDb < 0, `the limiter moved: ${chain.limGrDb}`);
+});
+
+test("the limiter's ceiling holds on every channel of a multichannel bus", () => {
+  for (const truePeak of [false, true]) {
+    for (const nch of [4, 6, 16]) {
+      const p = defaultMastering();
+      p.on = true;
+      p.trimDb = 18;           // drive it hard enough that the promise matters
+      p.limOn = true; p.limCeilingDb = -1; p.limReleaseMs = 50;
+      p.limTruePeak = truePeak;
+      const frames = 8192;
+      const bus = planarSignal(nch, frames, 1.0);
+      // …plus a bare transient on one channel: a step into full scale is what
+      // a moving average alone would let through.
+      for (let n = 2000; n < 2200; n++) bus[2 * frames + n] = n % 2 ? 0.98 : -0.98;
+
+      const chain = new MasterChain(normaliseMastering(p), SAMPLING_RATE, nch);
+      chain.processPlanar(bus, frames, frames);
+
+      const ceiling = dbToGain(-1);
+      let worst = 0;
+      for (let i = 0; i < bus.length; i++) worst = Math.max(worst, Math.abs(bus[i]));
+      assert.ok(worst <= ceiling + 1e-12,
+        `${nch}ch truePeak=${truePeak}: ${worst} over ${ceiling}`);
+      assert.ok(worst > ceiling * 0.5, "…and the material really did reach for it");
+    }
+  }
+});
+
+test("a multichannel chain declares the same latency as the pair", () => {
+  const p = defaultMastering();
+  p.on = true; p.limOn = true;
+  const d = Math.round((LIMITER_LOOKAHEAD_MS / 1000) * SAMPLING_RATE);
+  for (const nch of [1, 2, 6, 16]) {
+    const chain = new MasterChain(normaliseMastering(p), SAMPLING_RATE, nch);
+    assert.equal(chain.latency, 2 * d, `${nch} channels`);
+  }
+  // …and every channel is delayed by it, not just the first.
+  const nch = 6, frames = 1024;
+  const bus = new Float64Array(nch * frames);
+  for (let c = 0; c < nch; c++) bus[c * frames + 100] = 0.25;
+  new MasterChain(normaliseMastering(p), SAMPLING_RATE, nch)
+    .processPlanar(bus, frames, frames);
+  for (let c = 0; c < nch; c++) {
+    assert.equal(bus[c * frames + 100 + 2 * d], 0.25, `channel ${c} arrival`);
+    assert.equal(bus[c * frames + 100], 0, `channel ${c} left nothing behind`);
+  }
+});
+
+test("process() refuses a bus that is not the pair", () => {
+  const p = defaultMastering();
+  p.on = true; p.trimDb = -3;
+  const chain = new MasterChain(normaliseMastering(p), SAMPLING_RATE, 6);
+  assert.throws(() => chain.process(new Float32Array(8), new Float32Array(8), 8),
+    /processPlanar/);
+});
+
+test("a neutral chain is skipped on a multichannel bus too", () => {
+  const chain = new MasterChain(defaultMastering(), SAMPLING_RATE, 6);
+  assert.equal(chain.engaged, false);
+  const bus = planarSignal(6, 256);
+  const want = Float64Array.from(bus);
+  chain.processPlanar(bus, 256, 256);
+  for (let i = 0; i < bus.length; i++) assert.equal(bus[i], want[i]);
+});

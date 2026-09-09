@@ -6,6 +6,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-09
 
+The mastering chain now reaches the surround and ambisonic exports as well, as a multichannel master.
+
+- A quadraphonic, 5.1, 7.1 or ambisonic export used to be written from the sound field itself, upstream of the chain, so the file carried the mix rather than the master. It carries the master now.
+- It is a *multichannel* master, and the difference is worth knowing: the trim, the high-pass, the equaliser and the output gain go on every channel with exactly the same settings, the compressor and the limiter each run **one** detector reading all the channels at once — so a loud moment in one direction never walks the sound field across the room — and the stereo width stage is skipped, because mid/side has no meaning across six speaker feeds.
+- The limiter's ceiling is still a promise rather than a target, now on every channel of the file it writes. It is not a promise about what somebody else's decoder makes of those channels afterwards, and nothing can make it one.
+- The Mastering tab still meters the stereo pair, since that is what playback delivers. The filters, the trim and the gain carry over to a multichannel file exactly, but the dynamics are reacting to its loudest channel — so a limiter that never moves on the stereo master can still be working on the 5.1 one. The export dialog says so when your song has a chain, and the manual spells out the rest.
+
 Microtone has a Mastering tab: the chain a song is delivered through, and enough meters to see what it did.
 
 - The new **Mastering** tab sits on **F6**, between Instruments and Project. Everything else in the app is about writing the music; this is about delivering it.

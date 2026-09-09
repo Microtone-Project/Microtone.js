@@ -20,6 +20,7 @@ import { encodeWavBuffer, quantisePcm } from "../../src/audio/wavwrite.js";
 import { acnOrderDegree, buildChna, buildAdmXml, hoaChannelSpecs } from "../../src/audio/adm.js";
 import { SPEAKER_LAYOUTS } from "../../src/engine/speakers.js";
 import { SAMPLING_RATE } from "../../src/engine/constants.js";
+import { defaultMastering, normaliseMastering } from "../../src/engine/mastering.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const loadSong = (name) => new Document(parseTaud(readFileSync(corpusDir + name))).toRenderable(0);
@@ -370,4 +371,82 @@ test("every listed format renders and lands in a container", async () => {
     assert.equal(adm.before.length, 1, `${f.id}: chna`);
     assert.equal(adm.after.length, 1, `${f.id}: axml`);
   }
+});
+
+// ── the mastering chain reaches these files too (item 178.1) ────────────────
+// engine spec §12.3. The stereo chain acts on the pair, which is not this
+// file's signal; a multichannel target masters the object bus instead.
+
+/** Every channel of a 24-bit export, as floats in channel-major order. */
+function decode24(bytes, channels) {
+  const data = riffChunks(bytes).get("data");
+  const frames = data.size / (channels * 3);
+  const out = new Float64Array(channels * frames);
+  for (let n = 0; n < frames; n++) {
+    for (let c = 0; c < channels; c++) {
+      const o = data.offset + (n * channels + c) * 3;
+      let v = bytes[o] | (bytes[o + 1] << 8) | (bytes[o + 2] << 16);
+      if (v & 0x800000) v -= 0x1000000;
+      out[c * frames + n] = v / 8388607;
+    }
+  }
+  return { out, frames };
+}
+
+/** A song's renderable with a mastering chain bolted on. */
+function masteredSong(name, patch) {
+  const doc = loadSong(name);
+  doc.songs[0].mastering = normaliseMastering({ ...defaultMastering(), on: true, ...patch });
+  return doc;
+}
+
+test("a multichannel export carries the song's chain", async () => {
+  const opts = { format: "5.1", outRate: SAMPLING_RATE, title: "WHEN" };
+  const plain = await renderMultichannelAsync(loadSong("WHEN.taud"), 0, 2, opts);
+  assert.equal(plain.mastered, false, "no chain, nothing to do");
+
+  // A chain that is nothing but a scalar: at matching rates the resampler is a
+  // copy, so the two files must differ by exactly that scalar on every channel.
+  const quiet = await renderMultichannelAsync(
+    masteredSong("WHEN.taud", { trimDb: -6 }), 0, 2, opts);
+  assert.equal(quiet.mastered, true);
+
+  const a = decode24(flatten(plain.blocks), 6);
+  const b = decode24(flatten(quiet.blocks), 6);
+  assert.equal(a.frames, b.frames);
+  const g = 10 ** (-6 / 20);
+  let worst = 0, moved = 0;
+  for (let i = 0; i < a.out.length; i++) {
+    worst = Math.max(worst, Math.abs(b.out[i] - a.out[i] * g));
+    moved = Math.max(moved, Math.abs(b.out[i] - a.out[i]));
+  }
+  assert.ok(moved > 0.01, `the file did not change at all (${moved})`);
+  assert.ok(worst < 1e-6, `off the declared trim by ${worst} — more than 24-bit rounding`);
+});
+
+test("…on every channel of an ambisonic export, and with the ceiling held", async () => {
+  const opts = { format: "ambix1", outRate: SAMPLING_RATE };
+  const doc = masteredSong("WHEN.taud", {
+    trimDb: 24, limOn: true, limCeilingDb: -3, limReleaseMs: 60,
+  });
+  const r = await renderMultichannelAsync(doc, 0, 3, opts);
+  assert.equal(r.mastered, true);
+  const { out } = decode24(flatten(r.blocks), 4);
+
+  const ceiling = 10 ** (-3 / 20);
+  let peak = 0;
+  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
+  // 24-bit quantisation is the only thing allowed to poke through.
+  assert.ok(peak <= ceiling + 1e-6, `${peak} over a ${ceiling} ceiling`);
+  assert.ok(peak > ceiling * 0.9, `+24 dB of trim never reached the ceiling (${peak})`);
+});
+
+test("a chain whose only stage is width leaves a multichannel file alone", async () => {
+  const opts = { format: "quad", outRate: SAMPLING_RATE };
+  const plain = flatten((await renderMultichannelAsync(loadSong("WHEN.taud"), 0, 1, opts)).blocks);
+  const wide = await renderMultichannelAsync(
+    masteredSong("WHEN.taud", { widthOn: true, width: 2 }), 0, 1, opts);
+  // The chain IS installed — it just has nothing that means anything here.
+  assert.equal(wide.mastered, true);
+  assert.deepEqual(flatten(wide.blocks), plain);
 });

@@ -326,7 +326,7 @@ export default {
   "export.downmixHint": "바이노럴은 높이와 앞뒤를 유지하며 헤드폰용입니다. 스피커에는 폴드가 안전합니다.",
   "export.rate": "샘플링 레이트",
   "export.cap": "최대 길이 (초)",
-  "export.masteringHint": "이 곡에는 마스터링 체인이 있습니다. 체인은 스테레오 페어에 작용하므로, 멀티채널 파일은 체인 앞의 사운드 필드에서 직접 기록됩니다. 마스터를 들으려면 스테레오로 내보내세요.",
+  "export.masteringHint": "이 곡에는 마스터링 체인이 있으며, 멀티채널 파일에는 멀티채널 마스터로 적용됩니다: 모든 채널에 동일한 트림·필터·게인, 전 채널을 묶는 컴프레서와 리미터 하나, 스테레오 폭은 건너뜁니다.",
   "export.sizeHint": "상한 기준 약 {mb} MiB ({n}채널).",
   "export.render": "렌더",
   "files.exportStems": "스템 내보내기…",

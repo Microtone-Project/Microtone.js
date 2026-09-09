@@ -977,6 +977,8 @@ branch p uses h[4k + p], k = 0…7, divided by Σ_k h[4k + p]
 
 A transport reset clears every delay line and envelope in the chain — see [§15](#15-transport-reset).
 
+Everything above describes the chain acting on the **stereo pair** the output stage delivers. [§12.3](#12-3-multichannel-delivery) defines what the same chain means where the delivery has more channels than that.
+
 ### 12.2 Narrowing and dither
 
 After the chain:
@@ -998,6 +1000,22 @@ e[n]     = shaped − q ÷ 127.5
 Every arithmetic step in this loop **MUST** be evaluated in binary32, and the dither source **MUST** be the engine's own seeded generator, not the host's. Together those two rules are what make 8-bit output reproducible across implementations.
 
 The uniform values are drawn as `(xorshift32() & $FFFFFF) ÷ 16777216`, which is exact in binary32.
+
+### 12.3 Multichannel delivery
+
+A file with more than two channels is not written from the pair of [§12.1](#12-1-the-mastering-chain): it is written from the channel bus of [§11](#11-the-spatial-model) — a speaker layout's feeds, or an ambisonic scene. An implementation that offers such a target and honours `sMst` **MUST** master it there, as a **multichannel master**: one chain, as wide as the bus, carrying the song's own parameters. This section is what that means. Everything not named here is exactly [§12.1](#12-1-the-mastering-chain).
+
+**Trim, high-pass, equaliser and output gain** apply to every channel with the **identical** coefficients, each channel keeping its own delay lines. Identical is not a convenience: a listener's decoder is a fixed linear matrix, so filtering the channels and then decoding gives the same result as decoding and then filtering. A per-channel difference would be a filter on the *direction* rather than on the programme, which is a thing the parameters do not say.
+
+**The compressor** runs one detector over **all** channels. In peak mode the frame's level is `max |x_c|` over every channel `c`; in RMS mode it is the one-pole average of `Σ x_c² ÷ N`. The resulting gain multiplies every channel. A per-channel envelope would pull the sound field about whenever one direction got loud — the same objection as the stereo detector's, and a louder one when the channels are speakers.
+
+**Stereo width is skipped.** It is defined on a pair and has no meaning off one; a mid/side round trip over any two channels of a speaker layout or an ambisonic basis would shear the field rather than widen it. A chain whose only engaged stage is width therefore leaves a multichannel file untouched.
+
+**The limiter** is the construction of [§12.1](#12-1-the-mastering-chain) with `peak` taken as the largest magnitude over **all** channels — over every channel's oversampled points when the true-peak flag is set — and its gain applied to every channel. So the ceiling is a promise about the samples **in the delivered file**. It is not a promise about any particular decode of them: a decoder that sums channels may exceed it, and an ambisonic file's decoded speaker feeds routinely will. The latency is `2D` frames on every channel, as before.
+
+**Numerically**, the channel bus carries binary64 throughout — [§12.2](#12-2-narrowing-and-dither)'s narrowing exists for the 8-bit device, which a multichannel file is not. The chain runs in binary64 and the samples narrow **once**, where the file is written, at whatever depth it is written in. No clamp is defined here; saturation is the writer's quantiser's business.
+
+A multichannel master is **not** the multichannel form of the stereo master, and an implementation **MUST NOT** present it as one. The static stages do agree — identical linear filters commute with the fold of [§11.3](#11-3-the-stereo-renderer) — but the dynamics cannot: the pair's detector reads the fold, the bus's detector reads the channels, and the two disagree wherever the fold is quieter or louder than the loudest channel. No single set of dynamics serves both deliveries. What a device **plays** is unaffected either way: that is still the pair.
 
 ## 13. Determinism
 
@@ -1069,4 +1087,5 @@ An implementation conforms when all of the following hold.
 - A planar or spatial song that uses only ordinary pan renders bit-identically to the stereo model.
 - The mastering chain runs between the narrowing and the clamp, in the order §12.1 fixes, and a song that declares none renders as though the stage did not exist.
 - The limiter's ceiling is never exceeded, on any material, in either peak mode.
+- A multichannel delivery masters the channel bus per §12.3: identical filtering on every channel, the dynamics detectors linked across all of them, and no stereo width.
 - The output stage narrows to binary32 before clamping, and runs the dither loop entirely in binary32 against a seeded generator.

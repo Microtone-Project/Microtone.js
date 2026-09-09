@@ -131,10 +131,11 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
     capLab.appendChild(capInp);
     opts.appendChild(capLab);
 
-    // The mastering chain (item 178) acts on the stereo pair, which is what
-    // the output stage delivers — a multichannel target is written from the
-    // object bus, upstream of it. Say so where the choice is made rather than
-    // letting someone find out by comparing files.
+    // The mastering chain (item 178) reaches a multichannel target too, but as
+    // a MULTICHANNEL master (item 178.1): identical filtering per channel, the
+    // dynamics linked across all of them, no stereo width. That is a different
+    // signal from the pair the Mastering tab meters, so say so where the choice
+    // is made rather than letting someone find out by comparing files.
     const masterHint = document.createElement("p");
     masterHint.className = "dim export-hint";
     masterHint.textContent = t("export.masteringHint");

@@ -23,9 +23,19 @@
 // model for the render, which is bit-identical for ordinary pan (#998.0) and
 // differs only in that a pan SLIDE wraps round the circle instead of stopping
 // at the ends.
+//
+// ── The mastering chain ──
+// The song's chain (item 178) reaches these files too, as a MULTICHANNEL master
+// (item 178.1, engine spec §12.3): one `MasterChain` as wide as the bus, run
+// over the object bus after each chunk, before the resampler. That is the only
+// place it can go — the stereo pair the mixer folds down to is not this file's
+// signal — and it is why the pair chain is switched off for the render: the
+// device output a multichannel export produces is thrown away, and mastering it
+// as well would be work nobody would ever hear.
 
 import { TaudEngine } from "../engine/engine.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
+import { MasterChain, masteringEngaged, defaultMastering } from "../engine/mastering.js";
 import {
   SURROUND_STEREO, SURROUND_PLANAR, AmbisonicRenderer, AMBISONIC_ORDER_MAX,
 } from "../engine/spatial.js";
@@ -105,7 +115,7 @@ export function admChunksFor(id, { title, sampleRate, bitDepth }) {
  * BLOCKS — a five-minute third-order export is half a gigabyte, and it is never
  * held twice.
  *
- * @returns {blocks, channels, frames, seconds, halted, aborted}
+ * @returns {blocks, channels, frames, seconds, halted, aborted, mastered}
  */
 export async function renderMultichannelAsync(docLike, songIndex, maxSeconds, {
   format, outRate = 48000, title = "", onProgress = null, signal = null, yieldMs = 60,
@@ -122,6 +132,15 @@ export async function renderMultichannelAsync(docLike, songIndex, maxSeconds, {
 
   const channels = renderer.numChannels;
   const ts = eng.playheads[0].trackerState;
+
+  // The chain, moved off the pair and onto the bus (see the header). Read the
+  // parameters BEFORE clearing the engine's own chain — `getMastering` is where
+  // loadIntoEngine put whatever the song declared.
+  const masterParams = eng.getMastering(0);
+  const master = masteringEngaged(masterParams)
+    ? new MasterChain(masterParams, SAMPLING_RATE, channels)
+    : null;
+  if (master !== null) eng.setMastering(0, defaultMastering());
   const writer = new WavWriter({
     channels, sampleRate: outRate, bits: f.bits,
     mask: f.kind === "speakers" ? SPEAKER_LAYOUTS[f.layout].mask : 0,
@@ -144,6 +163,7 @@ export async function renderMultichannelAsync(docLike, songIndex, maxSeconds, {
     if (!eng.isPlaying(0)) { halted = true; break; }
     if (eng.renderChunk(0, device) === null) { halted = true; break; }
     const bus = ts.spatial.data; // channel-major, one chunk deep
+    if (master !== null) master.processPlanar(bus, TRACKER_CHUNK, TRACKER_CHUNK);
     for (let n = 0; n < TRACKER_CHUNK; n++) {
       for (let c = 0; c < channels; c++) inter[n * channels + c] = bus[c * TRACKER_CHUNK + n];
     }
@@ -158,7 +178,12 @@ export async function renderMultichannelAsync(docLike, songIndex, maxSeconds, {
     }
   }
   onProgress?.(1);
-  if (aborted) return { blocks: null, channels, frames, seconds: frames / SAMPLING_RATE, halted, aborted };
+  if (aborted) {
+    return {
+      blocks: null, channels, frames, seconds: frames / SAMPLING_RATE,
+      halted, aborted, mastered: master !== null,
+    };
+  }
   // The sinc kernel holds a few frames back waiting for their look-ahead; drain
   // them or the file ends half a millisecond early.
   writer.push(out, resampler.flush(out));
@@ -171,5 +196,6 @@ export async function renderMultichannelAsync(docLike, songIndex, maxSeconds, {
     seconds: frames / SAMPLING_RATE,
     halted,
     aborted: false,
+    mastered: master !== null,
   };
 }

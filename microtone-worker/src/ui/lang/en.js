@@ -335,7 +335,7 @@ export default {
   "export.downmixHint": "Binaural keeps height and front/back, for headphones. Fold is the safe choice for speakers.",
   "export.rate": "Sample rate",
   "export.cap": "Max seconds",
-  "export.masteringHint": "This song has a mastering chain. It acts on the stereo pair, so a multichannel file is written from the sound field itself — before the chain. Export stereo to hear the master.",
+  "export.masteringHint": "This song has a mastering chain, and a multichannel file gets it as a multichannel master: the same trim, filters and gain on every channel, one compressor and limiter linked across all of them, and stereo width skipped.",
   "export.sizeHint": "About {mb} MiB at the cap ({n} channels).",
   "export.render": "Render",
   "files.exportStems": "Export stems…",
