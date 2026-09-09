@@ -7,6 +7,7 @@ Usage:
                          [--rpb N] [--speed N] [--fadeout N]
                          [--bend-epsilon CENTS] [--drum-keyoff]
                          [--loop] [--loop-at-eot] [--no-dedup-patterns]
+                         [--realign-tempo BPM] [--quantise GRID]
                          [-v] [--no-project-data]
 
     # Batch / directory mode (terranmon.txt:3342-3401):
@@ -92,6 +93,17 @@ Behaviour (per midi2taud.md):
     set-tempo above 280 BPM); channel volume /
     expression (CC7 × CC11) map to M $xx00 channel-volume effects so they
     never disturb the velocity-driven patch selection axis.
+  * A MIDI whose declared tempo does not describe its own events — the beat is
+    1.2 or 1.35 quarter notes long, so bar lines fall mid-phrase and rows per
+    beat means nothing — can be put back on a sane grid with --realign-tempo.
+    Every tick and every tempo is multiplied by one factor, so the performance
+    is untouched in real time and the music's own beat becomes one quarter note;
+    the file then declares the tempo it actually plays at. Pass the real tempo
+    in BPM, or bare --realign-tempo to infer it from the onsets (an IOI comb
+    for the grid period, a coherence sweep to sharpen it, then the metrical
+    level from the accents and the plausibility of the tempo — it reports what
+    it chose and the other readings of the same grid). Nothing is snapped by
+    this: --quantise is a separate, later step, and the two compose.
   * Cues are broken at every time-signature change, and each section is packed
     into whole-bar cues (the largest multiple of its bar length that fits in 64
     rows) so the tracker's bar/beat highlighting (sMet beat divisions) lines up
@@ -125,6 +137,7 @@ Behaviour (per midi2taud.md):
 import argparse
 import array
 import bisect
+import cmath
 import copy
 import math
 import os
@@ -769,6 +782,405 @@ def quantise_notes(song: Song, rpb: int, speed: int, denom: int,
         song.notes.sort(key=lambda n: (n.start_ft, n.ch, n.key))
         song.end_ft = max(song.end_ft, max(n.end_ft for n in song.notes))
     return moved, worst, (total / moved if moved else 0.0), trimmed, collapsed
+
+
+# ── Tempo realignment (OFF unless --realign-tempo is passed) ──────────────────
+#
+# The problem this solves: a MIDI whose tempo metadata does not describe the
+# music in it. The events are internally consistent — the piece was written on
+# SOME grid — but that grid is not the file's quarter note, so a beat is 1.2 or
+# 1.35 quarters instead of one and NOTHING downstream lines up: rows per beat is
+# meaningless, bar lines fall mid-phrase, and the tracker's beat highlighting
+# lands wherever it lands. It is common in MIDIs whose ticks are really a fixed
+# clock (a tempo of 60 at 240 PPQ is 240 ticks per SECOND, not a musical tempo)
+# and in files typed in against the wrong project tempo.
+#
+# The fix is a rescale, not a rewrite of the performance: multiply every event
+# tick AND every tempo by the same factor r. Wall-clock timing is then EXACTLY
+# preserved (a tick is r times shorter and there are r times as many of them),
+# and r is chosen so the music's own beat becomes one quarter note. The file
+# then declares the tempo it actually plays at, and everything downstream — the
+# fine-tick grid, rows per beat, the bar packing, --quantise — is measuring the
+# right thing. Nothing is snapped and no note moves relative to any other; pass
+# --quantise as well if the timing itself wants tightening.
+#
+# r comes from one of two places. --realign-tempo BPM takes the user's word for
+# the real tempo (r = BPM / declared), which is the only thing that can help a
+# file whose grid is fine and whose tempo NUMBER is simply wrong — that case
+# leaves no evidence in the event positions at all. --realign-tempo auto infers
+# the beat from the onsets, below.
+
+_REALIGN_MIN_ONSETS   = 12      # fewer onset clusters than this: nothing to fit
+_REALIGN_BPM_LO       = 30.0    # plausible range for the REAL beat, searched
+_REALIGN_BPM_HI       = 400.0   #   both as the grid range and as the answer
+_REALIGN_SUBDIV_MAX   = 8       # the grid unit may be this fine a division of a beat
+_REALIGN_FINEST_MS    = 40.0    # ... but never finer than this in real time
+_REALIGN_CLUSTER_MS   = 50.0    # cap on the near-simultaneous onset window
+_REALIGN_LAG_BEATS    = 8.0     # widest inter-onset gap the histogram collects
+_REALIGN_BINS_PER_BEAT = 96     # IOI histogram resolution
+_REALIGN_PAIR_CAP     = 32      # successors each onset is paired with
+_REALIGN_COMB_K       = 8       # harmonics summed by the comb
+_REALIGN_SWEEP_STEPS  = 1500    # log-spaced comb candidates
+_REALIGN_COARSE_BAND  = 0.02    # the comb locates a period to about this
+_REALIGN_SPAN0        = 32      # periods in the first refinement stage...
+_REALIGN_SPAN_GROWTH  = 4.0     # ... and how fast the span grows after it
+# Beat = grid unit × one of these. A beat is a whole number of grid units, so
+# the level is what turns "the onsets are 92 ms apart" into a tempo.
+_REALIGN_LEVELS       = (1, 2, 3, 4, 6, 8, 12, 16)
+# Straight subdivision is far commoner than triplet subdivision as a whole
+# piece's finest grid, and the two readings are often close on every other
+# count, so a binary level starts ahead...
+_REALIGN_BINARY       = (1, 2, 4, 8, 16)
+_REALIGN_TERNARY_PEN  = 0.8     # ... so a ternary one has to score 1.25x as well
+# Tempo prior: the metrical level is genuinely ambiguous from timing alone
+# (81 BPM in eighths and 162 BPM in sixteenths are the same event stream), so
+# the level is scored against how ordinary its tempo is, in octaves from 120.
+_REALIGN_PRIOR_BPM    = 120.0
+_REALIGN_SIGMA_TEMPO  = 1.1
+# ... and against how far it moves the file from what it claims. A wrong tempo
+# is usually wrong by a modest factor: the author typed something plausible and
+# the GRID is what came out wrong. This is also what keeps a healthy file still:
+# when the beat already IS the quarter note, r = 1 wins outright.
+_REALIGN_SIGMA_RATIO  = 0.75
+# Beat-accent evidence: the share of onset weight landing on the level's own
+# grid, over the 1/m a level-less stream would give. Square-rooted and capped
+# because it is a tie-breaker, not the answer — dense music saturates it.
+_REALIGN_EXCESS_CAP   = 4.0
+_REALIGN_EXCESS_POW   = 0.5
+# A ratio inside this many octaves of 1 is not worth rewriting the file for.
+_REALIGN_NOOP_TOL     = 0.004
+# Below this the onsets are not on any single grid (a rubato performance, or a
+# file that really is that ragged) and auto has nothing to stand on.
+_REALIGN_COHERENCE_MIN = 0.30
+# Coherence difference below which two candidate grids are called equally good,
+# and the COARSER one wins. Every grid is also a grid at half and a third of
+# itself — a stream of quarter notes sits perfectly on an eighth-note grid too —
+# so on a tie the finer reading is the same answer needing twice the metrical
+# level to express, and the level search is finite.
+_REALIGN_COHERENCE_TIE = 0.02
+
+
+def _declared_bpm0(merged) -> float:
+    """The tempo in force at the first note-on — the number the file claims to
+    play at, and what auto_timing's own bpm0 reads."""
+    tempos = sorted((tick, ev[1]) for (tick, _s, ev) in merged if ev[0] == 'tempo')
+    if not tempos:
+        return 120.0
+    first_on = next((tick for (tick, _s, ev) in merged if ev[0] == 'on'), 0)
+    i = bisect.bisect_right([t for t, _ in tempos], first_on) - 1
+    return tempos[i][1] if i >= 0 else tempos[0][1]
+
+
+def _onset_clusters(merged, window):
+    """[(tick, weight)] — note-ons within `window` of each other are ONE
+    musical onset, at their mean tick and carrying their count as weight.
+
+    Two things need this. A chord written by a sequencer that spreads its notes
+    over a few ticks would otherwise put a huge false peak at that spread in the
+    IOI histogram (measured: 780 pairs at 4 ticks in Temjin.mid, more than any
+    real interval). And the weight is the accent evidence the metrical level is
+    chosen on: a downbeat carrying a kick, a bass note and a chord is worth more
+    than a passing note, and deduplicating the tick would throw exactly that
+    away."""
+    ons = sorted(tick for (tick, _s, ev) in merged if ev[0] == 'on')
+    out = []
+    i, n = 0, len(ons)
+    while i < n:
+        j = i + 1
+        while j < n and ons[j] - ons[i] <= window:
+            j += 1
+        grp = ons[i:j]
+        out.append((sum(grp) / len(grp), float(len(grp))))
+        i = j
+    return out
+
+
+def _ioi_histogram(times, lag_max, bin_w):
+    """Smoothed histogram of inter-onset intervals up to `lag_max`.
+
+    Pairs, not just adjacent onsets: a grid shows up at every multiple of
+    itself, which is what makes the comb below work. Intervals are local, so
+    unlike absolute positions this says nothing about phase and cannot be
+    thrown off by a song that is thousands of beats long."""
+    nbins = int(lag_max / bin_w) + 3
+    hist = [0.0] * nbins
+    n = len(times)
+    for i in range(n):
+        ti = times[i]
+        for j in range(i + 1, min(n, i + 1 + _REALIGN_PAIR_CAP)):
+            d = times[j] - ti
+            if d > lag_max:
+                break
+            hist[int(d / bin_w + 0.5)] += 1.0
+    sm = [0.0] * nbins                        # 1-2-3-2-1 taper over ±2 bins
+    for i in range(nbins):
+        acc = 3.0 * hist[i]
+        if i >= 1:          acc += 2.0 * hist[i - 1]
+        if i >= 2:          acc += 1.0 * hist[i - 2]
+        if i + 1 < nbins:   acc += 2.0 * hist[i + 1]
+        if i + 2 < nbins:   acc += 1.0 * hist[i + 2]
+        sm[i] = acc / 9.0
+    return sm
+
+
+def _comb_periods(hist, bin_w, lag_max, p_lo, p_hi, keep=4):
+    """Candidate grid periods: the best local maxima of a harmonic comb over the
+    IOI histogram. Score is the 1/k-weighted MEAN of the histogram at k·p, not
+    the sum — a sum would simply reward the smallest period for having the most
+    harmonics to add up."""
+    ratio = (p_hi / p_lo) ** (1.0 / _REALIGN_SWEEP_STEPS)
+    nbins = len(hist)
+    scored = []
+    p = p_lo
+    for _ in range(_REALIGN_SWEEP_STEPS + 1):
+        kmax = min(_REALIGN_COMB_K, int(lag_max / p))
+        if kmax >= 2:
+            acc = wsum = 0.0
+            for k in range(1, kmax + 1):
+                b = int(k * p / bin_w + 0.5)
+                if b < nbins:
+                    acc += hist[b] / k
+                    wsum += 1.0 / k
+            scored.append((p, acc / wsum if wsum > 0.0 else 0.0))
+        p *= ratio
+    peaks = [scored[i] for i in range(1, len(scored) - 1)
+             if scored[i][1] >= scored[i - 1][1] and scored[i][1] > scored[i + 1][1]]
+    peaks.sort(key=lambda ps: -ps[1])
+    out = []
+    for p, _s in peaks:
+        if all(abs(math.log(p / q, 2)) > 0.03 for q in out):
+            out.append(p)
+        if len(out) >= keep:
+            break
+    return out
+
+
+def _grid_coherence(times, weights, period):
+    """(|R|, phase) — how tightly the onsets sit on a grid of `period`.
+
+    The Rayleigh statistic: every onset is a unit vector at the angle of its
+    position within the period, and |R| is the length of their weighted mean.
+    1.0 is a perfect grid, 0.0 is no grid at all, and the argument gives the
+    grid's offset for free. It needs no tolerance and no phase guess, which is
+    why the fit is done with this rather than by least squares — a least-squares
+    fit over a long song locks onto a period a hundredth of a percent off and
+    reports the resulting drift as if the music were ragged."""
+    acc = 0j
+    w = 0.0
+    k = 2.0 * math.pi / period
+    for t, wt in zip(times, weights):
+        acc += wt * cmath.exp(1j * k * t)
+        w += wt
+    return abs(acc) / w, cmath.phase(acc) / (2.0 * math.pi) * period
+
+
+def _refine_grid_period(times, weights, p, band):
+    """Sharpen a coarse period into the exact one by maximising the coherence.
+
+    The peak is one Rayleigh cell wide — a relative width of one period in the
+    span being measured — so sweeping a whole song at that resolution would take
+    hundreds of passes over every onset. Instead the span starts at a few dozen
+    periods, where the peak is broad and the comb's ±2% band is only a couple of
+    cells, and quadruples each round: each stage's estimate is what makes the
+    next stage's band narrow enough to stay cheap. The parabolic vertex at the
+    end of each sweep is what keeps the phase from walking: a quarter-cell error
+    is invisible over 32 periods and half a beat by the end of 3000."""
+    t0, t_end = times[0], times[-1]
+    total = t_end - t0
+    span = min(_REALIGN_SPAN0 * p, total)
+    while True:
+        m = 0
+        while m < len(times) and times[m] - t0 <= span:
+            m += 1
+        sub, sw = times[:max(m, 8)], weights[:max(m, 8)]
+        cell = p / max(4.0 * p, span)          # one Rayleigh cell, relative
+        band = max(band, 3.0 * cell)
+        half = min(200, max(16, int(3.0 * band / cell)))
+        step = band / half
+        rs = [_grid_coherence(sub, sw, p * (1.0 + step * j))[0]
+              for j in range(-half, half + 1)]
+        b = max(range(len(rs)), key=rs.__getitem__)
+        off = 0.0
+        if 0 < b < len(rs) - 1:
+            y0, y1, y2 = rs[b - 1], rs[b], rs[b + 1]
+            den = y0 - 2.0 * y1 + y2
+            if den < 0.0:
+                off = max(-0.5, min(0.5, 0.5 * (y0 - y2) / den))
+        p *= 1.0 + step * (b - half + off)
+        band = 2.0 * cell
+        if span >= total:
+            break
+        span = min(span * _REALIGN_SPAN_GROWTH, total)
+    r, phase = _grid_coherence(times, weights, p)
+    return p, phase, r
+
+
+def _grid_deviation(times, weights, period, phase):
+    """Mean distance from a grid point, in grid steps (0 = exact, 0.25 = none)."""
+    tot = w = 0.0
+    for t, wt in zip(times, weights):
+        x = (t - phase) / period
+        tot += wt * abs(x - round(x))
+        w += wt
+    return tot / w
+
+
+def _realign_axes(division, merged):
+    """(q, bpm0) — the tick count the file calls a quarter note, and the tempo
+    it claims at the first note. SMPTE division has no musical tick at all, so
+    it borrows the 120 BPM-equivalent quarter extract_song pins its grid to."""
+    if division[0] == 'ppq':
+        return float(division[1]), _declared_bpm0(merged)
+    _, fps, tpf = division
+    return max(1.0, float(fps * tpf)) / 2.0, 120.0
+
+
+def detect_musical_grid(division, merged):
+    """Infer the beat the events are actually written on.
+
+    Returns a dict (grid period and its coherence, the chosen beat, the tempo it
+    implies, the rescale ratio that would make it a quarter note, and the runner-
+    up readings) or None when there is nothing to measure. Three stages:
+
+      1. cluster the note-ons, so a spread chord is one onset with weight;
+      2. an IOI comb picks candidate grid periods, and the coherence sweep
+         sharpens each into an exact one — the winner is the period the onsets
+         sit on most tightly;
+      3. the beat is a whole number of those grid units, and which number is
+         chosen by how ordinary the resulting tempo is, how far it moves the
+         file from what it declares, and whether the onsets are actually
+         accented on that level.
+
+    Stage 3 is a judgement, not a measurement — a stream of eighths at 162 BPM
+    and one of sixteenths at 81 are the same set of onsets, and no amount of
+    timing analysis separates them. `cands` carries the alternatives so the
+    caller can print them; --realign-tempo BPM is how the user overrules it."""
+    q, bpm0 = _realign_axes(division, merged)
+    tick_ms = 60000.0 / max(1e-9, bpm0 * q)
+    beat_lo = q * bpm0 / _REALIGN_BPM_HI
+    beat_hi = q * bpm0 / _REALIGN_BPM_LO
+    p_lo = max(beat_lo / _REALIGN_SUBDIV_MAX, _REALIGN_FINEST_MS / tick_ms)
+    if p_lo >= beat_hi:
+        return None
+    clusters = _onset_clusters(merged, min(p_lo / 2.0,
+                                           _REALIGN_CLUSTER_MS / tick_ms))
+    if len(clusters) < _REALIGN_MIN_ONSETS:
+        return None
+    times = [t for t, _w in clusters]
+    weights = [w for _t, w in clusters]
+
+    lag_max = _REALIGN_LAG_BEATS * beat_hi
+    bin_w = max(beat_lo / _REALIGN_BINS_PER_BEAT, 1e-6)
+    hist = _ioi_histogram(times, lag_max, bin_w)
+    fits = []
+    tried = []
+    for p0 in _comb_periods(hist, bin_w, lag_max, p_lo, beat_hi):
+        # A comb peak can land on the second or third harmonic of the real
+        # grid, so each one is tested divided down as well.
+        for j in (1, 2, 3):
+            g0 = p0 / j
+            if g0 < p_lo * 0.6 or any(abs(math.log(g0 / t, 2)) < 0.015 for t in tried):
+                continue
+            tried.append(g0)
+            fits.append(_refine_grid_period(times, weights, g0,
+                                            _REALIGN_COARSE_BAND))
+    if not fits:
+        return None
+    fits.sort(key=lambda f: (-int(f[2] / _REALIGN_COHERENCE_TIE), -f[0]))
+    grid, phase, coherence = fits[0]
+    dev = _grid_deviation(times, weights, grid, phase)
+
+    ks = [round((t - phase) / grid) for t in times]
+    wsum = sum(weights)
+    cands = []
+    for m in _REALIGN_LEVELS:
+        beat = grid * m
+        bpm = bpm0 * q / beat
+        if not (_REALIGN_BPM_LO <= bpm <= _REALIGN_BPM_HI):
+            continue
+        counts = [0.0] * m
+        for k, wt in zip(ks, weights):
+            counts[k % m] += wt
+        cover = max(counts) / wsum
+        ratio = q / beat
+        score = (math.exp(-0.5 * (math.log(bpm / _REALIGN_PRIOR_BPM, 2)
+                                  / _REALIGN_SIGMA_TEMPO) ** 2)
+                 * math.exp(-0.5 * (math.log(ratio, 2)
+                                    / _REALIGN_SIGMA_RATIO) ** 2)
+                 * min(cover * m, _REALIGN_EXCESS_CAP) ** _REALIGN_EXCESS_POW
+                 * (1.0 if m in _REALIGN_BINARY else _REALIGN_TERNARY_PEN))
+        cands.append((score, m, beat, bpm, cover, ratio))
+    if not cands:
+        return None
+    cands.sort(reverse=True)
+    _s, level, beat, bpm, cover, ratio = cands[0]
+    return {'grid': grid, 'coherence': coherence, 'deviation': dev,
+            'beat': beat, 'bpm': bpm, 'level': level, 'cover': cover,
+            'ratio': ratio, 'bpm0': bpm0, 'quarter': q,
+            'clusters': len(times), 'cands': cands}
+
+
+def realign_tempo(division, merged, spec):
+    """Rewrite `merged` onto the grid of the real tempo. Returns the new event
+    list (the division is untouched — the rescale lives in the ticks, so the
+    file's PPQ still means what it says).
+
+    `spec` is 'auto' or a BPM. Every tick and every tempo is multiplied by the
+    same ratio, which leaves the performance identical in real time and makes
+    one quarter note one beat of the music. A file with no tempo event at all
+    gets one, since 'the same as before' is now a different number."""
+    q, bpm0 = _realign_axes(division, merged)
+    if spec == 'auto':
+        found = detect_musical_grid(division, merged)
+        if found is None:
+            vprint("  realign: too few onsets to infer a grid — left alone")
+            return merged
+        vprint(f"  realign: grid {found['grid']:.4f} tick(s) over "
+               f"{found['clusters']} onset(s), coherence {found['coherence']:.2f}, "
+               f"mean deviation {found['deviation'] * 100:.1f}% of a grid step")
+        if found['coherence'] < _REALIGN_COHERENCE_MIN:
+            print(f"warning: --realign-tempo auto found no consistent grid in this "
+                  f"MIDI (coherence {found['coherence']:.2f}) — the timeline was "
+                  f"left alone. Pass --realign-tempo BPM if you know the tempo.",
+                  file=sys.stderr)
+            return merged
+        if abs(math.log(found['ratio'], 2)) <= _REALIGN_NOOP_TOL:
+            vprint(f"  realign: the beat already IS the quarter note "
+                   f"({found['bpm']:.2f} BPM) — nothing to realign")
+            return merged
+        ratio = found['ratio']
+        alts = ", ".join(f"{c[3]:.2f}" for c in found['cands'][1:4])
+        print(f"note: --realign-tempo auto read this MIDI as {found['bpm']:.2f} BPM "
+              f"(it declares {bpm0:.2f}) and rewrote its timeline to match — the "
+              f"beat was {found['beat'] / q:.3f} quarter notes. Other readings of "
+              f"the same grid: {alts} BPM; pass --realign-tempo BPM to pick one.",
+              file=sys.stderr)
+        vprint(f"  realign: beat {found['beat']:.3f} tick(s) = {found['level']} "
+               f"grid unit(s), {found['cover'] * 100:.0f}% of the onset weight on it")
+    else:
+        ratio = float(spec) / bpm0
+        vprint(f"  realign: {bpm0:.2f} BPM declared, {float(spec):.2f} BPM asked for")
+
+    # Ticks stay FRACTIONAL. Rounding them to integers would be tidier to look
+    # at and would silently merge events a hair apart — which for a two-tick
+    # drum note means a note-on and a note-off on one tick, i.e. the note
+    # extract_song drops as zero-length in the source. Every consumer of these
+    # ticks divides them into fine ticks and rounds once, at the end.
+    out = []
+    have_tempo = False
+    for tick, seq, ev in merged:
+        if ev[0] == 'tempo':
+            ev = ('tempo', ev[1] * ratio)
+            have_tempo = True
+        out.append((tick * ratio, seq, ev))
+    if not have_tempo:
+        # The file was riding the 120 BPM default, which is no longer the
+        # tempo this timeline plays at.
+        out.append((0.0, -1, ('tempo', 120.0 * ratio)))
+        out.sort(key=lambda e: (e[0], e[1]))
+    vprint(f"  realign: ticks x{ratio:.5f}, tempo {bpm0:.2f} -> {bpm0 * ratio:.2f} BPM "
+           f"(the performance keeps its real-time timing exactly)")
+    return out
 
 
 # ── Auto timing (Tickspeed + RPB) ──────────────────────────────────────────────
@@ -3824,6 +4236,22 @@ def assemble_tpif(sections: list, args) -> bytes:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _realign_target(text: str):
+    """--realign-tempo VALUE: 'auto', or the real tempo in BPM."""
+    t = text.strip().lower()
+    if t == 'auto':
+        return t
+    try:
+        v = float(t)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected auto or a tempo in BPM, got {text!r}")
+    if not (_REALIGN_BPM_LO / 2.0 <= v <= _REALIGN_BPM_HI * 2.0):
+        raise argparse.ArgumentTypeError(
+            f"tempo must be {_REALIGN_BPM_LO / 2.0:g}..{_REALIGN_BPM_HI * 2.0:g} BPM, got {v:g}")
+    return v
+
+
 def _quantise_grid(text: str):
     """--quantise GRID: 'auto', 'row', or a beat subdivision from QUANTISE_GRIDS."""
     t = text.strip().lower()
@@ -3938,6 +4366,22 @@ def main():
                          'of mixing them down to mono. Doubles the pool cost of '
                          'every stereo instrument, so a large bank may end up '
                          'resampled harder to fit the 8 MB budget')
+    ap.add_argument('--realign-tempo', '--realign', nargs='?', const='auto',
+                    default=None, type=_realign_target, metavar='BPM',
+                    dest='realign_tempo',
+                    help='Rewrite the timeline onto the grid of the tempo the '
+                         'music is REALLY written in, for a MIDI whose declared '
+                         'tempo does not describe its events (a beat that is 1.2 '
+                         'or 1.35 quarter notes long, so nothing lines up with a '
+                         'bar). Every tick and every tempo is scaled by the same '
+                         'factor, which keeps the performance identical in real '
+                         'time and makes the music\'s own beat one quarter note. '
+                         'Give the real tempo in BPM if you know it; bare '
+                         '--realign-tempo (or auto) infers it from the note '
+                         'onsets and says what it chose. OFF by default. Nothing '
+                         'is snapped to the new grid — add --quantise for that. '
+                         'Auto leaves the file alone when the beat already is the '
+                         'quarter note, or when the onsets sit on no grid at all')
     ap.add_argument('--quantise', '--quantize', nargs='?', const='auto',
                     default=None, type=_quantise_grid, metavar='GRID',
                     help='Snap notes onto a beat grid, both ends (OFF by default). '
@@ -4007,6 +4451,12 @@ def load_midi_song(path: str, sf: SF2, args):
     the MIDI carries no playable notes."""
     vprint(f"parsing MIDI '{path}'…")
     division, merged, channel_names = parse_midi(path)
+
+    # Tempo realignment — opt-in, and FIRST: it rewrites the tick timeline the
+    # rest of this function measures, so auto_timing's subdivision analysis and
+    # every tempo below must see the corrected grid rather than the declared one.
+    if args.realign_tempo is not None:
+        merged = realign_tempo(division, merged, args.realign_tempo)
 
     # Resolve the Taud grid (Tickspeed + RPB) before mapping ticks to fine-ticks.
     # A pinned --rpb/--speed fixes that axis; the rest is auto-fit.

@@ -66,6 +66,7 @@ function convert(fileName, opts = {}) {
       bankPaths, outPath: "/out.taud",
       rpb: opts.rpb ?? null, trimPatches: opts.trimPatches === true,
       keepDuplicatePatterns: opts.keepDuplicatePatterns === true,
+      realign: opts.realign ?? null,
       quantise: opts.quantise ?? null,
       quantiseStrength: opts.quantiseStrength ?? 100,
     }),
@@ -180,6 +181,66 @@ test("buildArgv opts IN to quantisation only when asked (item 168)", () => {
                                quantise: "auto" }),
     ["/in.mod", "/out.taud", "-v"]);
 });
+
+test("buildArgv opts IN to tempo realignment only when asked (item 183)", () => {
+  const base = { isMidi: true, inPath: "/in.mid", sf2Path: "/sf.sf2", outPath: "/out.taud" };
+  // Default: NO flag — the file's own declared tempo is believed.
+  assert.deepEqual(buildArgv(base), ["/in.mid", "/sf.sf2", "/out.taud", "-v"]);
+  assert.deepEqual(buildArgv({ ...base, realign: null }),
+    ["/in.mid", "/sf.sf2", "/out.taud", "-v"]);
+  assert.deepEqual(buildArgv({ ...base, realign: "off" }),
+    ["/in.mid", "/sf.sf2", "/out.taud", "-v"]);
+  assert.deepEqual(buildArgv({ ...base, realign: "auto" }),
+    ["/in.mid", "/sf.sf2", "/out.taud", "-v", "--realign-tempo", "auto"]);
+  // A punched-in tempo goes through as the number it is, fractions included.
+  assert.deepEqual(buildArgv({ ...base, realign: 81 }),
+    ["/in.mid", "/sf.sf2", "/out.taud", "-v", "--realign-tempo", "81"]);
+  assert.deepEqual(buildArgv({ ...base, realign: 83.5 }),
+    ["/in.mid", "/sf.sf2", "/out.taud", "-v", "--realign-tempo", "83.5"]);
+  // Realignment precedes quantisation on the command line as in the pipeline:
+  // the grid has to be right before anything is snapped onto it.
+  assert.deepEqual(buildArgv({ ...base, rpb: 8, trimPatches: true, stereoSamples: true,
+                               keepDuplicatePatterns: true, realign: "auto", quantise: "row" }),
+    ["/in.mid", "/sf.sf2", "/out.taud", "-v", "--rpb", "8", "--trim-unused-patches",
+     "--stereo-samples", "--no-dedup-patterns", "--realign-tempo", "auto",
+     "--quantise", "row"]);
+  // A tempo map is a MIDI concern — tracker argv never carries it.
+  assert.deepEqual(buildArgv({ isMidi: false, inPath: "/in.mod", outPath: "/out.taud",
+                               realign: "auto" }),
+    ["/in.mod", "/out.taud", "-v"]);
+});
+
+/** Drive midi2taud\'s tempo-realignment entry points on a synthetic event list.
+ *  These need neither a soundfont nor a MIDI file: the functions under test take
+ *  the (division, merged) pair parse_midi produces, and building one by hand is
+ *  what makes the grid under test visible in the test itself. `body` runs with
+ *  `M` bound to the module and must leave its result in `out`; stderr (where the
+ *  converter puts the decision it made) comes back alongside it. */
+function realignProbe(body) {
+  const src = `
+import contextlib, io, json, sys
+sys.path.insert(0, "/converters")
+import midi2taud as M
+
+def events(tpq, bpm, onsets, tempo=True):
+    """(division, merged) for note-ons at \`onsets\`, each a tenth of a beat long."""
+    merged = []
+    seq = 0
+    if tempo:
+        merged.append((0, seq, ('tempo', float(bpm)))); seq += 1
+    for t in onsets:
+        merged.append((t, seq, ('on', 0, 60, 100))); seq += 1
+        merged.append((t + 10, seq, ('off', 0, 60))); seq += 1
+    merged.sort(key=lambda e: (e[0], e[1]))
+    return ('ppq', tpq), merged
+
+_err = io.StringIO()
+with contextlib.redirect_stderr(_err):
+${body.split("\n").map((l) => "    " + l).join("\n")}
+json.dumps({"out": out, "stderr": _err.getvalue()})
+`;
+  return JSON.parse(py.runPython(src));
+}
 
 /** A minimal 4-channel "M.K." module: one pattern, one note per row, each a
  *  period straight out of ProTracker's table. Synthesised rather than shipped
@@ -740,6 +801,114 @@ test("midi2taud --quantise puts every onset on a row (item 168; skips without th
     // …and strength 0 is a no-op, which is what makes the strength dial safe.
     assert.equal(subRowDelays(convert("M_E1M1.mid", { quantise: "row", quantiseStrength: 0 })),
       played, "strength 0 moves nothing");
+  });
+
+test("midi2taud infers the grid a mis-tempoed MIDI is really written on (item 183)", () => {
+  // The canonical shape of the fault: PPQ 480 and a declared 100 BPM, but the
+  // music's beat is 576 ticks — 1.2 quarter notes — so nothing in the file lines
+  // up with a bar. The beat is really 0.72 s, i.e. 83⅓ BPM, and the rescale that
+  // makes it one quarter note is x5/6.
+  const r = realignProbe(`
+ons = []
+for bar in range(24):
+    for b in range(4):
+        t = (bar * 4 + b) * 576
+        ons.append(t)
+        if b % 2 == 0:
+            ons.append(t + 288)
+div, merged = events(480, 100, ons)
+d = M.detect_musical_grid(div, merged)
+out = {"bpm": d["bpm"], "ratio": d["ratio"], "beat": d["beat"],
+       "coherence": d["coherence"], "deviation": d["deviation"]}
+`).out;
+  assert.ok(Math.abs(r.bpm - 250 / 3) < 0.01, `detected ${r.bpm} BPM, want 83.33`);
+  assert.ok(Math.abs(r.ratio - 5 / 6) < 1e-4, `ratio ${r.ratio}, want 0.8333`);
+  assert.ok(Math.abs(r.beat - 576) < 0.05, `beat ${r.beat} ticks, want 576`);
+  // An exactly-gridded input has nothing for the fit to be uncertain about.
+  assert.ok(r.coherence > 0.99, `coherence ${r.coherence}`);
+  assert.ok(r.deviation < 0.01, `deviation ${r.deviation}`);
+});
+
+test("midi2taud realignment is inert on a MIDI already on its own grid (item 183)", () => {
+  // The safety property the auto mode lives or dies by: a healthy file must come
+  // out of --realign-tempo auto untouched, not rescaled by 0.99-something.
+  const r = realignProbe(`
+div, merged = events(480, 120, [i * 240 for i in range(200)])
+d = M.detect_musical_grid(div, merged)
+same = M.realign_tempo(div, merged, 'auto')
+out = {"bpm": d["bpm"], "ratio": d["ratio"], "unchanged": same == merged}
+`);
+  assert.ok(Math.abs(r.out.bpm - 120) < 0.01, `detected ${r.out.bpm} BPM, want 120`);
+  // The coherence sweep lands on the grid to within its own float noise, so the
+  // ratio is 1 to about seven digits rather than exactly — orders of magnitude
+  // inside the tolerance that decides there is nothing to do.
+  assert.ok(Math.abs(r.out.ratio - 1) < 1e-5, `ratio ${r.out.ratio}, want 1`);
+  assert.ok(r.out.unchanged, "a file already on the grid must not be rewritten");
+  // The converter's own -v diagnostics share this stream; what must NOT be here
+  // is the line that announces a rewrite to somebody who did not ask for -v.
+  assert.ok(!/^note:/m.test(r.stderr), `it claimed to act: ${r.stderr}`);
+});
+
+test("midi2taud --realign-tempo BPM rescales ticks and tempo together (item 183)", () => {
+  // Both halves move by the same factor, which is what keeps the performance
+  // where it was in real time: the last event lands at the same second.
+  const r = realignProbe(`
+div, merged = events(480, 100, [i * 480 for i in range(11)])
+before = merged[-1][0] / 480 * 60.0 / 100.0
+out2 = M.realign_tempo(div, merged, 150.0)
+tempo = [e[2][1] for e in out2 if e[2][0] == 'tempo']
+after = out2[-1][0] / 480 * 60.0 / tempo[0]
+out = {"lastTick": out2[-1][0], "wasLastTick": merged[-1][0], "tempo": tempo,
+       "before": before, "after": after}
+`).out;
+  assert.deepEqual(r.tempo, [150]);
+  assert.equal(r.lastTick, r.wasLastTick * 1.5);
+  assert.ok(Math.abs(r.before - r.after) < 1e-9,
+    `${r.before}s became ${r.after}s — the rescale must preserve real time`);
+});
+
+test("midi2taud realignment gives a tempo-less MIDI the tempo it now plays at (item 183)", () => {
+  // Nothing to scale means nothing declares the new timeline's speed, so the
+  // 120 BPM the file was riding by default has to be written down, scaled.
+  const r = realignProbe(`
+div, merged = events(480, 120, [i * 480 for i in range(11)], tempo=False)
+out2 = M.realign_tempo(div, merged, 90.0)
+out = {"tempos": [(e[0], e[2][1]) for e in out2 if e[2][0] == 'tempo'],
+       "firstIsTempo": out2[0][2][0] == 'tempo'}
+`).out;
+  assert.deepEqual(r.tempos, [[0, 90]]);
+  assert.ok(r.firstIsTempo, "the inserted tempo must sort ahead of the notes it governs");
+});
+
+test("midi2taud realignment refuses a MIDI with no grid at all (item 183)", () => {
+  // Onsets at random intervals are not a mis-tempoed grid, they are no grid.
+  // Auto has to say so and leave the timeline alone rather than invent a beat.
+  const r = realignProbe(`
+import random
+random.seed(3)
+t = 0
+ons = []
+for _ in range(300):
+    t += random.randint(37, 611)
+    ons.append(t)
+div, merged = events(480, 120, ons)
+d = M.detect_musical_grid(div, merged)
+same = M.realign_tempo(div, merged, 'auto')
+out = {"coherence": d["coherence"], "unchanged": same == merged}
+`);
+  assert.ok(r.out.coherence < 0.3, `coherence ${r.out.coherence} should be far from a grid`);
+  assert.ok(r.out.unchanged, "a gridless MIDI must be left exactly as it was");
+  assert.match(r.stderr, /no consistent grid/);
+});
+
+test("midi2taud --realign-tempo auto leaves a well-formed MIDI byte-identical (item 183; skips without the SF2)",
+  { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" }, () => {
+    // The end of the same safety property, through the whole converter: E1M1
+    // declares 220 BPM and means it, so asking for realignment must produce the
+    // very same file as not asking.
+    assert.deepEqual(convert("M_E1M1.mid", { realign: "auto" }),
+                     convert("M_E1M1.mid"),
+      "--realign-tempo auto must be a no-op on a MIDI whose beat IS its quarter note");
   });
 
 test("midi2taud --no-dedup-patterns unshares patterns without changing the song (skips without the SF2)",

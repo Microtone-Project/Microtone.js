@@ -46,6 +46,10 @@ function ensureWorker() {
  *                          (item 75; off = keep each preset's full zone map)
  * @param opts.keepDuplicatePatterns  MIDI: give every cue×voice cell its own
  *                          pattern instead of pooling identical ones
+ * @param opts.realign  MIDI (item 183): null/"off" trusts the file's tempo;
+ *                      "auto" infers the tempo the events are really written
+ *                      in, a number IS that tempo in BPM. Rescales the whole
+ *                      timeline onto that grid without moving anything in time.
  * @param opts.quantise  MIDI (item 168): null/"off" keeps the performance's own
  *                          timing; "auto" / "row" / a beat subdivision snaps
  *                          note onsets onto that grid
@@ -55,14 +59,15 @@ function ensureWorker() {
 export function convertToTaud(fileName, bytes,
                               { sf2 = null, banks = null, rpb = null, trimPatches = false,
                                 stereoSamples = false, keepDuplicatePatterns = false,
-                                quantise = null, quantiseStrength = 100,
+                                realign = null, quantise = null, quantiseStrength = 100,
                                 onStatus = null } = {}) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     pending.set(id, { resolve, reject, onStatus });
     const buf = bytes.slice().buffer;
     const msg = { t: "convert", id, fileName, bytes: buf, rpb, trimPatches,
-                  stereoSamples, keepDuplicatePatterns, quantise, quantiseStrength };
+                  stereoSamples, keepDuplicatePatterns, realign,
+                  quantise, quantiseStrength };
     const transfer = [buf];
     if (sf2) {
       const sfBuf = sf2.bytes.slice().buffer;

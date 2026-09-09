@@ -4,6 +4,17 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-10
+
+MIDI import can now put a file back on the grid it was really written on, for the ones whose declared tempo is a work of fiction.
+
+- Some MIDIs play at the right speed but are written against the wrong beat. A beat comes out 1.2 or 1.35 quarter notes long, so bar lines land mid-phrase, the row highlighting bands against nothing, and no **Rows/beat** setting rescues it — the grid itself is wrong, not the resolution. It is what you get when a file's ticks are really a fixed clock rather than a musical tempo, and when a part was typed in against the wrong project tempo.
+- **Realign tempo grid** on the **Import MIDI…** dialog fixes it by rescaling the whole timeline onto the real tempo. Nothing plays faster or slower and no note moves against another: only the grid underneath them changes, so the song arrives with bars and beats where the music has bars and beats.
+- *Detect it from the note timing* works the tempo out from where the notes actually fall. The import log says which tempo it settled on and lists the other readings of the same grid, since a stream of eighths at 162 BPM and one of sixteenths at 81 are the same notes and only you know which one the piece is.
+- **…or the real tempo** takes the number straight from you and overrules the detector. It is also the only thing that can help when the timing is fine and the tempo *number* alone is wrong — that mistake leaves nothing in the notes for a detector to find.
+- A MIDI that is already on its own grid is left completely alone, and one whose notes sit on no grid at all — a freely played performance — is refused rather than guessed at, and says so.
+- Realignment fixes where the grid is; **Quantise timing** tidies how tightly the notes sit on it. They are separate settings and work together, in that order.
+
 ## 2026-09-09
 
 Playback got about twice as fast, and not one sample of it sounds different.

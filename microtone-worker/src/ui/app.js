@@ -120,7 +120,7 @@ ensureAudio({ resume: false }).catch((e) => console.warn("APP: eager audio warmu
 async function convertImport(name, bytes, { sf2: sf2Override = null, bank = null,
                                             rpb = null,
                                             trimPatches = false, stereoSamples = false,
-                                            keepDuplicatePatterns = false,
+                                            keepDuplicatePatterns = false, realign = null,
                                             quantise = null, quantiseStrength = 100 } = {}) {
   let sf2 = sf2Override;
   const conv = converterFor(name);
@@ -145,7 +145,7 @@ async function convertImport(name, bytes, { sf2: sf2Override = null, bank = null
   try {
     const out = await convertToTaud(name, bytes,
       { sf2, banks, rpb, trimPatches, stereoSamples, keepDuplicatePatterns,
-        quantise, quantiseStrength, onStatus: progress.log });
+        realign, quantise, quantiseStrength, onStatus: progress.log });
     progress.done();
     return out;
   } catch (err) {
@@ -161,13 +161,13 @@ async function convertImport(name, bytes, { sf2: sf2Override = null, bank = null
 async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = false,
                                         rpb = null,
                                         trimPatches = false, stereoSamples = false,
-                                        keepDuplicatePatterns = false,
+                                        keepDuplicatePatterns = false, realign = null,
                                         quantise = null, quantiseStrength = 100 } = {}) {
   let converted = false;
   if (converterFor(name)) {
     bytes = await convertImport(name, bytes,
       { sf2, bank, rpb, trimPatches, stereoSamples, keepDuplicatePatterns,
-        quantise, quantiseStrength });
+        realign, quantise, quantiseStrength });
     if (bytes === null) return;
     name = name.replace(/\.[^.]+$/, "") + ".taud";
     converted = true;
@@ -488,6 +488,27 @@ async function importMidiInteractive({ toOpfs = false } = {}) {
         ...[2, 4, 8, 16, 32, 64].map((n) => ({ value: String(n), label: String(n) })),
       ],
     }, {
+      // Item 183: for a MIDI whose declared tempo does not describe its own
+      // events — a beat that is 1.2 or 1.35 quarter notes long, so bar lines
+      // fall mid-phrase and rows/beat means nothing. The converter rescales
+      // every tick AND every tempo by one factor, so the performance keeps its
+      // real-time timing and the music's own beat becomes the quarter note.
+      // "Detect" reads the grid off the note onsets and is inert on a file
+      // that is already aligned; the BPM box below overrules it.
+      name: "realign", label: t("midi.realign"), type: "select", value: "off",
+      hint: t("midi.realignHint"),
+      options: [
+        { value: "off", label: t("midi.realignOff") },
+        { value: "auto", label: t("midi.realignAuto") },
+      ],
+    }, {
+      // The punch-in half of the same setting, and the only thing that can help
+      // a file whose GRID is fine and whose tempo NUMBER is simply wrong — that
+      // case leaves no trace in the event positions for detection to find.
+      name: "realignBpm", label: t("midi.realignBpm"), type: "number",
+      value: "", min: 15, max: 800, placeholder: t("midi.realignBpmPlaceholder"),
+      hint: t("midi.realignBpmHint"),
+    }, {
       // Item 168: quantisation is OFF by default, and the hint says what it
       // costs — this is the one import option that rewrites the performance
       // rather than how it is encoded, and a MIDI that was PLAYED (rather than
@@ -529,6 +550,18 @@ async function importMidiInteractive({ toOpfs = false } = {}) {
     okLabel: t("common.import"),
   });
   if (!choice) return;
+  // A typed BPM outranks the select: it is the more specific answer, and it is
+  // the only one that helps when the events carry no evidence of the mistake.
+  let realign = choice.realign === "auto" ? "auto" : null;
+  const typedBpm = String(choice.realignBpm ?? "").trim();
+  if (typedBpm !== "") {
+    const bpm = Number(typedBpm);
+    if (!Number.isFinite(bpm) || bpm < 15 || bpm > 800) {
+      $("stFile").textContent = t("midi.realignBadBpm", { bpm: typedBpm });
+      return;
+    }
+    realign = bpm;
+  }
   const sf2 = choice.sf === "bundled" ? await getBundledSoundfont() : await pickUserSoundfont();
   if (!sf2) { $("stFile").textContent = t("midi.cancelled"); return; }
   await loadBytes(file.name, new Uint8Array(await file.arrayBuffer()),
@@ -537,6 +570,7 @@ async function importMidiInteractive({ toOpfs = false } = {}) {
       trimPatches: choice.trim === true,
       stereoSamples: choice.stereo === true,
       keepDuplicatePatterns: choice.nodedup === true,
+      realign,
       quantise: choice.quantise,
     });
 }

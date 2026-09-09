@@ -68,6 +68,7 @@ function jobSpec(m) {
         rpb: m.rpb ?? null, trimPatches: m.trimPatches === true,
         stereoSamples: m.stereoSamples === true,
         keepDuplicatePatterns: m.keepDuplicatePatterns === true,
+        realign: m.realign ?? null,
         quantise: m.quantise ?? null, quantiseStrength: m.quantiseStrength ?? 100,
       }),
       inputs,

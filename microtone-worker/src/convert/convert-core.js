@@ -129,6 +129,12 @@ except SystemExit as e:
  *  `keepDuplicatePatterns` (MIDI only) opts IN to --no-dedup-patterns: every
  *  cue×voice cell gets its own pattern instead of sharing one copy of each
  *  distinct bar, so editing a repeat can't change the other occurrences.
+ *  `realign` (MIDI only, item 183) opts IN to --realign-tempo, for a MIDI whose
+ *  declared tempo does not describe its own events: null/"off" trusts the file,
+ *  "auto" infers the real tempo from the note onsets, and a NUMBER is that tempo
+ *  in BPM. Every tick and every tempo is scaled by one factor, so the
+ *  performance keeps its real-time timing and the music's beat becomes one
+ *  quarter note. Auto is inert on a file that is already aligned.
  *  `quantise` (MIDI only, item 168) opts IN to --quantise: null/"off" leaves
  *  the performance's own timing alone, which is the default; "auto" snaps notes
  *  to the subdivision the onsets already use, "row" to the Taud row grid, and a
@@ -141,7 +147,7 @@ except SystemExit as e:
 export function buildArgv({ isMidi, needsBank = false, inPath, sf2Path,
                             bankPaths = [], outPath, rpb = null,
                             trimPatches = false, stereoSamples = false,
-                            keepDuplicatePatterns = false,
+                            keepDuplicatePatterns = false, realign = null,
                             quantise = null, quantiseStrength = 100 }) {
   if (needsBank) {
     // The song's own bank first, then the general one: patch names resolve
@@ -156,6 +162,9 @@ export function buildArgv({ isMidi, needsBank = false, inPath, sf2Path,
   if (trimPatches) argv.push("--trim-unused-patches");
   if (stereoSamples) argv.push("--stereo-samples");
   if (keepDuplicatePatterns) argv.push("--no-dedup-patterns");
+  // Realignment before quantisation on the command line as in the pipeline:
+  // the grid has to be right before anything is snapped to it.
+  if (realign != null && realign !== "off") argv.push("--realign-tempo", String(realign));
   if (quantise != null && quantise !== "off") {
     argv.push("--quantise", String(quantise));
     if (quantiseStrength !== 100) argv.push("--quantise-strength", String(quantiseStrength));
