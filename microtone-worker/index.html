@@ -3,6 +3,38 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+  (function () {
+    "use strict";
+    // ── PHONE → PLAYER ────────────────────────────────────────────────────
+    // The tracker is a grid-and-keyboard application: it wants a physical
+    // keyboard and a screen wide enough for a pattern. On a phone it is not
+    // merely cramped, it is unusable — so a phone lands on the standalone
+    // player instead, with the query string carried across so a `?load=` deep
+    // link still opens its song.
+    //
+    // Only PHONES. "Android" without "Mobile" is a tablet, and an iPad reports
+    // itself as a Mac, so both keep the tracker (rightly: a tablet in landscape
+    // can drive it). Anything this test gets wrong is undone by the player's
+    // "Open the tracker" link, which comes back here with `tracker=1` — and
+    // that choice is remembered, so a false positive costs one tap, once.
+    //
+    // Runs first thing in <head>, ahead of the stylesheet and the splash, so a
+    // redirected phone never pays for a boot it is not going to finish.
+    var ua = navigator.userAgent || "";
+    if (!(/iPhone|iPod/.test(ua) || (/Android/.test(ua) && /Mobile/.test(ua)))) return;
+    var stay = /[?&]tracker=1(&|$)/.test(location.search);
+    try {
+      if (stay) localStorage.setItem("microtone-tracker-on-phone", "1");
+      else stay = localStorage.getItem("microtone-tracker-on-phone") === "1";
+    } catch (e) { /* private mode — the URL parameter alone still overrides */ }
+    if (stay) return;
+    // Tells player.html it was arrived at rather than asked for, so it can say
+    // so. Session-scoped: it is a fact about this navigation, not a setting.
+    try { sessionStorage.setItem("microtone-phone-redirect", "1"); } catch (e) {}
+    location.replace("player.html" + location.search + location.hash);
+  })();
+  </script>
   <link rel="icon" type="image/png" href="icon-192.png"><!-- Website favicon -->
   <link rel="apple-touch-icon" type="image/png" href="icon-192.png"> <!-- Apple favicon -->
   <title>Microtone</title>

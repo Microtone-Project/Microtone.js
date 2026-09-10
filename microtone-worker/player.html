@@ -9,37 +9,63 @@
   <link rel="stylesheet" href="css/microtone.css" />
 </head>
 <body class="player-page">
+  <!-- Two children, because in landscape they are the two HALVES (see the
+       landscape block in css/microtone.css): everything you touch on the left,
+       the visualiser on the right. The split is symmetric about the page
+       centre, which on a folding screen is where the crease is — so the hinge
+       separates the controls from the meters instead of cutting through one of
+       them. Stacked in portrait, which is the same order. -->
   <main class="player">
-    <div style="padding: 0.7rem 0">
-      <div class="brand-container">
-        <span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span>
+    <div class="player-col">
+      <div class="player-head">
+        <div>
+          <div class="brand-container">
+            <span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span>
+          </div>
+          <span class="sub">Taud player</span>
+        </div>
+        <a id="trackerLink" class="tracker-link" href="index.html?tracker=1" data-icon="arrowRight" data-icon-after>Open the tracker</a>
       </div>
-      <span class="sub">Taud player</span>
+
+      <!-- Shown only when index.html sent us here on a phone UA, so the page
+           can account for itself instead of looking like the wrong link. -->
+      <p id="phoneNote" class="phone-note" hidden>
+        This looks like a phone, so Microtone opened the player rather than the tracker — the tracker needs a keyboard and a wide screen. Not a phone? <a id="trackerLink2" href="index.html?tracker=1">Open the tracker anyway</a> and it will stop asking.
+      </p>
+
+      <section id="drop" class="drop">
+        <p><strong>Drop a .taud file</strong> or <label class="filebtn">browse<input id="file" type="file" accept=".taud,.tsii,.tpif" /></label></p>
+        <p id="fileinfo" class="dim">no file loaded</p>
+      </section>
+
+      <section class="transport" id="transport" hidden>
+        <div class="row">
+          <button id="play" class="big" data-icon="play">Play</button>
+          <button id="stopBtn" class="big" data-icon="stop">Stop</button>
+          <label>Song <select id="song"></select></label>
+          <button id="prevCue" data-icon="prevCue">cue</button>
+          <button id="nextCue" data-icon="nextCue" data-icon-after>cue</button>
+          <label>Vol <input id="vol" type="range" min="0" max="255" value="255" /></label>
+          <label id="binauralWrap" hidden title="Monitor a surround song through a head model — height and front/back become audible on headphones"><input id="binaural" type="checkbox" checked /> Binaural</label>
+        </div>
+        <div class="row status">
+          <span>Cue <b id="cue">0</b></span>
+          <span>Row <b id="rowIdx">0</b></span>
+          <span>BPM <b id="bpm">125</b></span>
+          <span>Speed <b id="speed">6</b></span>
+          <span id="audioState" class="badge">audio off — press any key</span>
+        </div>
+      </section>
     </div>
 
-    <section id="drop" class="drop">
-      <p><strong>Drop a .taud file</strong> or <label class="filebtn">browse<input id="file" type="file" accept=".taud,.tsii,.tpif" /></label></p>
-      <p id="fileinfo" class="dim">no file loaded</p>
-    </section>
-
-    <section class="transport" id="transport" hidden>
-      <div class="row">
-        <button id="play" class="big" data-icon="play">Play</button>
-        <button id="stopBtn" class="big" data-icon="stop">Stop</button>
-        <label>Song <select id="song"></select></label>
-        <button id="prevCue" data-icon="prevCue">cue</button>
-        <button id="nextCue" data-icon="nextCue" data-icon-after>cue</button>
-        <label>Vol <input id="vol" type="range" min="0" max="255" value="255" /></label>
-        <label id="binauralWrap" hidden title="Monitor a surround song through a head model — height and front/back become audible on headphones"><input id="binaural" type="checkbox" checked /> Binaural</label>
-      </div>
-      <div class="row status">
-        <span>Cue <b id="cue">0</b></span>
-        <span>Row <b id="rowIdx">0</b></span>
-        <span>BPM <b id="bpm">125</b></span>
-        <span>Speed <b id="speed">6</b></span>
-        <span id="audioState" class="badge">audio off — press any key</span>
-      </div>
-      <canvas id="meters" width="1024" height="260"></canvas>
+    <!-- The other half. Its own section rather than the tail of the transport,
+         because in landscape it is the RIGHT COLUMN — and because it is the
+         one thing on this page that wants every pixel it can get. The canvas
+         has no intrinsic size worth keeping: player.js sizes its backing store
+         to the box in device pixels and picks the layout to match the shape it
+         has been given (channels across, or channels down). -->
+    <section class="player-vis" id="visualiser" hidden>
+      <canvas id="meters"></canvas>
     </section>
   </main>
   <script type="module" src="src/ui/player.js"></script>

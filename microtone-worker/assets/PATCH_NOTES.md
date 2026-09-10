@@ -6,6 +6,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-10
 
+Open Microtone on a phone and you now land on the player rather than on a tracker you cannot use, and the player itself lays out in two columns when the screen is turned sideways or unfolded.
+
+- The tracker wants a keyboard and a wide screen. On a phone it was never really usable, so a phone now opens the stand-alone player instead — with the link's query string carried across, so a link to a particular song still opens that song.
+- Tablets are left alone: an iPad or an Android tablet still gets the full tracker, which in landscape it can drive perfectly well.
+- **Open the tracker** sits at the top of the player, for when the guess is wrong or you simply want the tracker anyway. Taking it is remembered, so it is one tap once rather than one tap every visit, and if you were sent to the player the page says so and offers the same way out.
+- Turned sideways — a phone in landscape, a Samsung fold opened out — the player splits into two equal halves: everything you touch on the left, the channel meters on the right. On a folding screen that puts the crease between the controls and the meters rather than through the middle of either, and the meters get a whole half of the screen instead of a strip at the bottom.
+- The meters now follow the shape of the space they are given: channels left to right across a wide panel, channels top to bottom down a tall one — which is what the right-hand half of an unfolded phone is. They are drawn at the screen's real resolution now too, so the bars and the channel numbers are sharp rather than scaled up from a fixed picture.
+
 MIDI import can now put a file back on the grid it was really written on, for the ones whose declared tempo is a work of fiction.
 
 - Some MIDIs play at the right speed but are written against the wrong beat. A beat comes out 1.2 or 1.35 quarter notes long, so bar lines land mid-phrase, the row highlighting bands against nothing, and no **Rows/beat** setting rescues it — the grid itself is wrong, not the resolution. It is what you get when a file's ticks are really a fixed clock rather than a musical tempo, and when a part was typed in against the wrong project tempo.
