@@ -57,7 +57,13 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
     if (!m) return false;
     for (const [name, v] of Object.entries(values)) {
       const input = m.querySelector(`[name="${name}"]`);
-      if (input) { input.value = String(v); input.dispatchEvent(new win.Event("input", { bubbles: true })); }
+      if (!input) continue;
+      if (input.type === "checkbox") input.checked = !!v;
+      else input.value = String(v);
+      // Selects answer to `change`, which is also what modal.js's enabledWhen
+      // listens for — an `input` alone leaves a dependent field stale.
+      input.dispatchEvent(new win.Event("input", { bubbles: true }));
+      input.dispatchEvent(new win.Event("change", { bubbles: true }));
     }
     m.querySelector(".modal-buttons button").click();
     await sleep(140);
@@ -68,12 +74,27 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   timeline.sel = null;
   let dlg = await menuAt(charX(0, COL_X.note), rowY(0));
   check(rows(dlg).length === 2, "the menu now has two rows", String(rows(dlg).length));
-  check(rows(dlg)[1].join() === "transpose,findchange", "note column → Transpose", rows(dlg)[1].join());
+  check(rows(dlg)[1].join() === "transpose,findchange", "note column → Transpose (no block, so no Interpolate)", rows(dlg)[1].join());
   await dismiss(dlg);
 
   dlg = await menuAt(charX(0, COL_X.inst), rowY(0));
   check(rows(dlg)[1].join() === "instrument,findchange", "instrument column → Instrument", rows(dlg)[1].join());
   await dismiss(dlg);
+
+  // With a BLOCK selected, Interpolate joins every column it can fill — but
+  // never the instrument column, where nothing sits halfway between 3 and 7.
+  timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_NOTE, row: 3, ch: 0, sub: E.SUB_NOTE };
+  dlg = await menuAt(charX(0, COL_X.note), rowY(1));
+  check(rows(dlg)[1].join() === "transpose,interpolate,findchange",
+    "a note block → Transpose and Interpolate", rows(dlg)[1].join());
+  await dismiss(dlg);
+
+  timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_INST, row: 3, ch: 0, sub: E.SUB_INST };
+  dlg = await menuAt(charX(0, COL_X.inst), rowY(1));
+  check(rows(dlg)[1].join() === "instrument,findchange",
+    "an instrument block → no Interpolate", rows(dlg)[1].join());
+  await dismiss(dlg);
+  timeline.sel = null;
 
   dlg = await menuAt(charX(0, COL_X.vol), rowY(0));
   check(rows(dlg)[1].join() === "volume,findchange", "volume column → Volume", rows(dlg)[1].join());
@@ -103,13 +124,20 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_PAN, row: 3, ch: 0, sub: E.SUB_FX_ARG };
   dlg = await menuAt(charX(0, COL_X.pan), rowY(1));
   check(rows(dlg)[1].join() === "pan,findchange",
-    "pan + effects selected → only the pan tool", rows(dlg)[1].join());
+    "pan + effects selected → only the pan tool, and no Interpolate", rows(dlg)[1].join());
+  await dismiss(dlg);
+
+  // …but volume AND panning together is the one band that DOES offer it.
+  timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_VOL, row: 3, ch: 0, sub: E.SUB_PAN };
+  dlg = await menuAt(charX(0, COL_X.vol), rowY(1));
+  check(rows(dlg)[1].join() === "volume,pan,interpolate,findchange",
+    "volume + panning → one Interpolate for the pair", rows(dlg)[1].join());
   await dismiss(dlg);
 
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_NOTE, row: 3, ch: 0, sub: E.SUB_FX_ARG };
   dlg = await menuAt(charX(0, COL_X.note), rowY(1));
   check(rows(dlg)[1].join() === "transpose,instrument,volume,pan,findchange",
-    "the whole cell selected → all four, effects still excluded", rows(dlg)[1].join());
+    "the whole cell selected → all four, effects and Interpolate excluded", rows(dlg)[1].join());
   await dismiss(dlg);
 
   // ── 4. the tools act on the BLOCK, not the whole pattern ───────────────
@@ -269,8 +297,9 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   // With a selection, both rows are there.
   pane.sel = { aRow: 2, row: 5, aSub: E.SUB_VOL, sub: E.SUB_VOL };
   dlg = await pMenu(9, 3);
-  check(JSON.stringify(rows(dlg)) === '[["copy","cut"],["volume","findchange"]]',
-    "…and with a block selected, the clipboard row joins it", JSON.stringify(rows(dlg)));
+  check(JSON.stringify(rows(dlg)) === '[["copy","cut"],["volume","interpolate","findchange"]]',
+    "…and with a block selected, the clipboard row joins it — and Interpolate appears",
+    JSON.stringify(rows(dlg)));
   await dismiss(dlg);
 
   pane.sel = null;
@@ -296,6 +325,97 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   store.undo.undo();
   await sleep(60);
   store.undo.undo();
+  await sleep(60);
+  pane.sel = null;
+
+  // ── 7b. Interpolate fills the gaps between the numbers already there ──
+  const { compositeOp } = await import("../../src/doc/ops.js");
+  // Blank the volume column over rows 0..12, then put a control point at each
+  // end of it: two values, twelve rows apart, nothing in between.
+  const seed = [];
+  for (let r = 0; r <= 12; r++) {
+    seed.push(setCellOp(0, pane.patIdx, r,
+      r === 0 ? { volume: 0, volumeEff: 0 }
+      : r === 12 ? { volume: 48, volumeEff: 0 }
+      : { volume: 0, volumeEff: 3 }));
+  }
+  store.undo.apply(compositeOp(seed));
+  await sleep(80);
+
+  pane.sel = { aRow: 0, row: 12, aSub: E.SUB_VOL, sub: E.SUB_VOL };
+  dlg = await pMenu(9, 0);
+  check(!!cell(dlg, "interpolate"), "Interpolate is offered on a volume block");
+  const depthI = store.undo.undoStack.length;
+  cell(dlg, "interpolate").click();
+  check(await runModal({ shape: "linear", dither: false }), "the Interpolate dialog opened");
+  check(pCell(6).volume === 24 && pCell(6).volumeEff === 0,
+    "…and drew a straight ramp between the two", `${pCell(6).volume}/${pCell(6).volumeEff}`);
+  check(pCell(3).volume === 12 && pCell(9).volume === 36, "…all the way along it",
+    `${pCell(3).volume}/${pCell(9).volume}`);
+  check(pCell(0).volume === 0 && pCell(12).volume === 48,
+    "…leaving the control points exactly as they were");
+  check(store.undo.undoStack.length === depthI + 1, "…in one undo step");
+  store.undo.undo();
+  await sleep(80);
+  check(pCell(6).volumeEff === 3, "…which undoes");
+
+  // The note column's dialog carries the pitch-mode row, and picking glissando
+  // greys the dither out (modal.js enabledWhen).
+  const noteSeed = [];
+  for (let r = 0; r <= 12; r++) {
+    noteSeed.push(setCellOp(0, pane.patIdx, r,
+      r === 0 ? { note: 0x5000 } : r === 12 ? { note: 0x6000 } : { note: 0 }));
+  }
+  store.undo.apply(compositeOp(noteSeed));
+  await sleep(80);
+  pane.sel = { aRow: 0, row: 12, aSub: E.SUB_NOTE, sub: E.SUB_NOTE };
+  dlg = await pMenu(1, 0);
+  cell(dlg, "interpolate").click();
+  let imodal = null;
+  for (let i = 0; i < 100 && !imodal; i++) { imodal = doc.querySelector("dialog.modal"); await sleep(30); }
+  check(!!imodal?.querySelector('[name="pitchMode"]'),
+    "the note column's dialog offers Continuous / Glissando");
+  const dith = imodal?.querySelector('[name="dither"]');
+  check(!!dith && !dith.disabled, "dither starts available");
+
+  // The curve names alone are the option text; the sentence describing the
+  // chosen one lives in the hint under the field, so the closed dropdown is
+  // only as wide as "Hermite" (modal.js `hints`).
+  const shape = imodal?.querySelector('[name="shape"]');
+  const shapeHint = shape?.closest(".modal-field")?.nextElementSibling;
+  check(!!shape && [...shape.options].every((o) => !/[—:(]/.test(o.textContent)),
+    "curve options are bare names", [...(shape?.options ?? [])].map((o) => o.textContent).join("/"));
+  check(!!shapeHint && shapeHint.classList.contains("modal-hint") &&
+    /straight ramp/.test(shapeHint.textContent),
+    "…with the chosen curve described underneath", shapeHint?.textContent);
+  if (shape && shapeHint) {
+    shape.value = "hermite";
+    shape.dispatchEvent(new win.Event("change", { bubbles: true }));
+    await sleep(40);
+    check(/overshoot/.test(shapeHint.textContent),
+      "…and the description follows the selection", shapeHint.textContent);
+    shape.value = "linear";
+    shape.dispatchEvent(new win.Event("change", { bubbles: true }));
+    await sleep(40);
+  }
+  const pmode = imodal?.querySelector('[name="pitchMode"]');
+  if (pmode && dith) {
+    pmode.value = "glissando";
+    pmode.dispatchEvent(new win.Event("change", { bubbles: true }));
+    await sleep(50);
+    check(dith.disabled, "…and glissando greys it out");
+    check(dith.closest(".modal-field").classList.contains("modal-disabled"),
+      "…dimming the row with it");
+    pmode.value = "continuous";
+    pmode.dispatchEvent(new win.Event("change", { bubbles: true }));
+    await sleep(50);
+    check(!dith.disabled, "…and back again when continuous is chosen");
+  }
+  imodal?.querySelectorAll(".modal-buttons button")[1].click(); // Cancel
+  await sleep(80);
+  store.undo.undo();  // drop the note seed
+  await sleep(60);
+  store.undo.undo();  // drop the volume seed
   await sleep(60);
   pane.sel = null;
 

@@ -1505,6 +1505,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    hit; its caption then takes the rest of the row and may wrap. */
 .modal-check > input[type="checkbox"] { flex: 0 0 auto; margin: 0; }
 .modal-check > .modal-label { flex: 1 1 auto; color: var(--fg); }
+/* A field another field's answer has made meaningless (modal.js `enabledWhen`).
+   The row is dimmed rather than hidden: what is on offer should not move about
+   under the pointer just because a select above it changed. */
+.modal-field.modal-disabled { opacity: 0.45; }
+.modal-field.modal-disabled > .modal-label { color: var(--dim); }
 /* The explanation that used to live in brackets inside the label. Indented to
    clear the checkbox column so it reads as belonging to the field above it. */
 .modal .modal-hint {

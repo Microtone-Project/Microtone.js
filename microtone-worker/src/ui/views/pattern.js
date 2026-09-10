@@ -267,8 +267,10 @@ class PatternPane {
     // selection's column band or at the single column under the pointer.
     const cells = this.toolCells(hit);
     const surround = (store.doc.songs[store.songIndex]?.surroundModel ?? 0) !== 0;
+    const cols = this.hasSelection() ? this.selCols() : [subToCol(hit.sub)];
     const tools = this.pattern() && cells.length > 0
-      ? blockToolItems(this.hasSelection() ? this.selCols() : [subToCol(hit.sub)], { surround })
+      ? blockToolItems(cols, { surround, wide: store.doc.wideCells === true,
+          block: this.hasSelection() })
       : [];
 
     const pick = await showContextMenu(e.clientX, e.clientY, [items, tools]);
@@ -277,7 +279,8 @@ class PatternPane {
         pat: this.patIdx, row: cells[0].row,
         channel: this.cursor.ch ?? 0, rowLabel: String(cells[0].row),
       };
-      if (await runBlockTool(pick, { store, cells, anchor, scope: this.toolScope() })) {
+      if (await runBlockTool(pick, { store, cells, cols, lanes: [cells], anchor,
+        scope: this.toolScope() })) {
         this.refreshHeader();
         this.invalidate();
       }
@@ -299,7 +302,8 @@ class PatternPane {
   }
 
   /** [{pat, row}] the second row's tools act on: the row-range selection, else
-   *  the single row under the pointer. */
+   *  the single row under the pointer. Already in row order and already one
+   *  channel's worth, so it doubles as the interpolation's single LANE. */
   toolCells(hit) {
     const b = this.selRowBounds();
     const rows = b ? [b.r0, b.r1] : [hit.row, hit.row];

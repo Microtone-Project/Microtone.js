@@ -248,6 +248,11 @@ column you clicked (or, with a block selected, at the columns the block covers):
 | Panning | **Panning** — widen / narrow / shift; in a surround song a **Panner** cell sits beside it, opening the same dial as the toolbox button |
 | Effect | the eight most-used effect commands: **S** Special, **D** Volume slide, **G** Tone portamento, **H** Vibrato, **E** / **F** Pitch slide down / up, **O** Sample offset, **A** Set tick rate. Picking one writes the opcode and leaves the argument alone; everything else is in the command palette at the foot of the screen. |
 
+**Interpolate** appears whenever the columns in play are ones it can fill in —
+one of note / volume / panning / effect, or volume and panning together — and
+draws a curve between the values the block already holds. See
+[Interpolate](#interpolate).
+
 **Find & Change** closes that row whatever column you opened it on — it is the
 general case of the tools beside it and has no column of its own. See
 [Find & Change](#find-change-advanced-pattern-edit).
@@ -828,6 +833,94 @@ conditions ANDed, alternatives ORed, ranges, *every fourth row* — the
 half; the bar then reports what it is holding rather than showing you half of
 it. The criteria are shared with Find & Change, so *find these* and then
 *change the ones I just found* is one thought and not two typings.
+
+### Interpolate
+
+Any column of a pattern is, underneath, a column of numbers with holes in it.
+**Interpolate** fills the holes: the values you have already written are
+**control points**, and a curve carries each gap between two of them from one
+value to the next. Write the start and the end of a move, select the rows in
+between, and the move gets drawn for you.
+
+It sits in the right-click menu's tool row in the **Timeline** and **Patterns**
+grids, and appears when the block covers **one** column it can speak for — the
+note, volume, panning, or either effect column — or **volume and panning
+together**, which it then interpolates in one pass, each between its own control
+points. A wider band offers no *Interpolate*: a selection that merely happens to
+include the note column is not a request to rewrite the tune.
+
+Two control points is the floor. With fewer it says so rather than opening a
+dialog that could only end in nothing happening.
+
+**The curve** decides how the value travels between one control point and the
+next:
+
+| Curve | Shape |
+|---|---|
+| **Linear** | A straight ramp — equal steps all the way |
+| **Cosine** | Eases out of each point and into the next; the same journey with the corners taken off |
+| **Concave** | Hangs back, then rushes. This is SoundFont's own attack curve, so a fade written with it matches the shape an instrument's envelope would have drawn |
+| **Convex** | Concave's mirror: moves at once, then settles |
+| **Hermite** | One smooth line threaded through **every** control point at once, carrying its slope across each of them. Three or more points give a flowing shape rather than a chain of separate ramps — and it may overshoot past a point on its way out, which is usually the reason to pick it |
+
+**Pitch** has a second choice of its own. *Continuous* writes a note on every
+row, which is a true glide but retriggers the instrument each time. *Glissando*
+snaps the curve onto the song's **own notation** and writes a row only where the
+degree actually changes, so the glide reads as the notes it passes through — in
+a 19-TET song it steps in 19-TET. (Raw notation has no grid to step on, so
+glissando there behaves as continuous.)
+
+**Dither** rounds each row up or down at random, in proportion to where it falls
+between the two whole numbers either side of it. A ramp too shallow to move a
+whole step per row — a long, gentle fade — then follows the true line *on
+average* instead of laying down a staircase of its own. It is unavailable for a
+glissando, which lands on the notation's degrees and has nothing left to round
+towards.
+
+**Nothing is ever stamped over a command.** A row carrying something
+interpolation cannot speak for is left exactly as it is, and is not treated as a
+control point either:
+
+- note sentinels — key off, note cut, note fade, fast fade, the interrupt markers — so a glide with a key-off in the middle keeps the key-off and runs either side of it;
+- volume and panning **slides** and **fine** deltas, which are moves rather than levels: there is no number there for a curve to pass through;
+- effects whose argument is not a quantity (see below), and any row whose effect is simply a different one from the control points around it.
+
+**Effect arguments** are interpolated one effect at a time: a block holding a
+vibrato and then a tremolo gets a curve for each and nothing across the join.
+The arguments that can be ramped are the ones where a value halfway between two
+of them still means something:
+
+| Effect | What ramps |
+|---|---|
+| `E $xxxx` `F $xxxx` `G $xxxx` | The slide rate / portamento speed — an accelerating slide |
+| `H $xxyy` `U $xxyy` `R $xxyy` `Y $xxyy` | Speed and depth, as two independent bytes |
+| `I $xxyy` `J $xxyy` | The two on/off times; the two arpeggio offsets |
+| `O $xxxx` | The sample offset — a sweep down a recording |
+| `M $xx00` `V $xx00` | Channel volume; global volume |
+| `A $xx00` `T $xx00` | Tick speed; tempo, plain set form only |
+| `5 $xxxx` `6 $xxxx` | Filter cutoff; filter resonance |
+| `8 $xyzz` `9 $x0zz` | Bit depth and sample skip; overdrive amount — the shared clipping mode rides along unchanged |
+| `S $80xx` | Channel pan position |
+| `X $eeaa` `4 $eeaa` | Azimuth and elevation, elevation read as signed so a move across the horizon takes the short way |
+
+Everything else stays out. The nibble-packed slide pairs — `D`, `K`, `L`, `N`,
+`P`, `Q`, `W` — pack "up by *x*" and "down by *y*" into one argument, so a value
+halfway between two of them is a *different* command rather than a middle one.
+An argument of `$0000` on an effect that recalls its last one means "carry on
+with what you had", not the number zero, so it is not read as a control point.
+
+**Smoothing a staircase.** A fade written by hand often has no gaps left in it
+at all — thirteen rows of `24`, then thirteen of `20`, and so on down. There is
+nothing there for the ordinary rule to fill, and the numbers you actually want
+smoothed are the **steps**. When a block is almost entirely full and its values
+sit in runs like that, *Interpolate* says so first and offers to treat **the
+start of each step** as a control point and ramp the flat stretches between
+them. That rewrites cells that already have values, which is why it asks; it is
+one **Ctrl+Z** like everything else here.
+
+The control points themselves are never rewritten, so interpolating the same
+block twice changes nothing the second time. A block spanning several patterns
+and both of its columns is still one **Ctrl+Z**.
 
 ### Find & Change (advanced pattern edit)
 

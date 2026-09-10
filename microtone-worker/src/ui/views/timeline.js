@@ -546,16 +546,19 @@ export class TimelineView {
     // than only when there happens to be nothing for the tools to act on.
     const onHeader = y < this.headerH();
     const cells = onHeader ? [] : this.toolCells(hit, ch);
+    const cols = onHeader ? [] : this.toolCols(hit);
     const second = onHeader
       ? [...muteItems(store, ch), ...fx2Items(store, ch)]
       : (cells.length > 0
-          ? blockToolItems(this.toolCols(hit), { surround: surroundModel !== 0 })
+          ? blockToolItems(cols, { surround: surroundModel !== 0,
+              wide: store.doc.wideCells === true, block: this.hasSelection() })
           : []);
 
     const pick = await showContextMenu(e.clientX, e.clientY, [items, second]);
     if (isBlockTool(pick)) {
       const anchor = this.toolAnchor(hit, ch);
-      if (await runBlockTool(pick, { store, cells, anchor, scope: this.toolScope(cells) })) {
+      if (await runBlockTool(pick, { store, cells, cols, lanes: this.toolLanes(hit, ch),
+        anchor, scope: this.toolScope(cells) })) {
         this.invalidate();
       }
       return;
@@ -647,6 +650,34 @@ export class TimelineView {
       push(this.cellAt(hit.row, ch));
     }
     return [...seen.values()];
+  }
+
+  /**
+   * The same cells as toolCells, but kept as ONE LANE PER CHANNEL in song-row
+   * order — what an interpolation runs down.
+   *
+   * A song row this channel has no pattern on becomes a `null` rather than
+   * being left out, because the lane's SPACING is the curve's x axis: drop the
+   * holes and a ramp written across a gap in the song arrives at the wrong
+   * slope on the far side of it.
+   */
+  toolLanes(hit, ch) {
+    const b = this.selBounds();
+    const lanes = [];
+    if (b) {
+      for (let c = b.c0; c <= b.c1; c++) {
+        const lane = [];
+        for (let r = b.r0; r <= b.r1; r++) {
+          const t0 = this.cellAt(r, c);
+          lane.push(t0 ? { pat: t0.pat, row: t0.rowInCue } : null);
+        }
+        lanes.push(lane);
+      }
+    } else if (hit) {
+      const t0 = this.cellAt(hit.row, ch);
+      if (t0) lanes.push([{ pat: t0.pat, row: t0.rowInCue }]);
+    }
+    return lanes;
   }
 
   /** The cell a tool reads its STARTING state from (the panner's dial): the

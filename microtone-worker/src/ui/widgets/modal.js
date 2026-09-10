@@ -29,6 +29,7 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
     const form = document.createElement("div");
     form.className = "modal-form";
     const inputs = {};
+    const deps = [];
     for (const f of fields) {
       const label = document.createElement("label");
       label.className = "modal-field";
@@ -68,16 +69,45 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
       if (f.type === "checkbox") label.append(input, caption);
       else label.append(caption, input);
       form.appendChild(label);
+      // `enabledWhen: {field, is?, not?}` greys a control out while another
+      // field's answer makes it meaningless — pitch glissando quantises onto
+      // the notation's grid, so there is nothing left for a dither to round.
+      // A disabled control still RESOLVES (its value is simply ignored by the
+      // caller), so nothing downstream has to learn about the dependency.
+      if (f.enabledWhen) deps.push({ label, input, on: f.enabledWhen });
       // `hint` is the explanation that used to be crammed into the label in
       // brackets. Under the field and dimmed, it can be a whole sentence
       // without pushing the control off to the right or drowning the name of
       // the setting in it.
-      if (f.hint) {
+      //
+      // `hints` is the same place, keyed by the field's OWN value: a select
+      // whose options each need a sentence describes the chosen one here
+      // rather than carrying the sentence in the option text, which would set
+      // the width of the closed dropdown to the longest of them.
+      if (f.hint || f.hints) {
         const hint = document.createElement("p");
         hint.className = "modal-hint";
-        hint.textContent = f.hint;
+        const text = () => (f.hints ? f.hints[input.value] ?? f.hint ?? "" : f.hint);
+        hint.textContent = text();
         form.appendChild(hint);
+        if (f.hints) {
+          const sync = () => { hint.textContent = text(); };
+          input.addEventListener("change", sync);
+          input.addEventListener("input", sync);
+        }
       }
+    }
+    for (const d of deps) {
+      const src = inputs[d.on.field];
+      if (!src) continue;
+      const sync = () => {
+        const v = src.type === "checkbox" ? src.checked : src.value;
+        const on = d.on.is !== undefined ? v === d.on.is : v !== d.on.not;
+        d.input.disabled = !on;
+        d.label.classList.toggle("modal-disabled", !on);
+      };
+      src.addEventListener("change", sync);
+      sync();
     }
     dlg.appendChild(form);
     const row = document.createElement("div");

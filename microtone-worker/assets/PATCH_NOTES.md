@@ -4,6 +4,19 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-11
+
+Write the start and the end of a move, select the rows in between, and **Interpolate** draws the rest of it for you.
+
+- It is a new cell in the right-click menu's tool row, in both the **Timeline** and the **Patterns** grid. The values already in the block are the control points; the empty rows between them get filled in with a curve. It appears when the selection covers one column it can fill — the note, volume, panning or effect column — or volume and panning together, which it then does in one pass and one undo step.
+- Five curves. **Linear** is a straight ramp and **Cosine** is the same journey with the corners taken off. **Concave** hangs back and then rushes, **Convex** does the opposite; both are SoundFont's own curves, so a fade drawn with one matches the shape an instrument's envelope would have drawn. **Hermite** threads a single smooth line through every control point at once, so three or more of them flow rather than reading as a chain of separate ramps.
+- Pitch gets a second choice. **Continuous** writes a note on every row — a true glide, retriggered each row. **Glissando** snaps the curve onto the song's own notation and writes only where the degree actually changes, so the glide reads as the notes it passes through; in a 19-TET song it steps in 19-TET.
+- **Dither** rounds each row up or down at random, in proportion to where it really falls between the two whole numbers either side. A fade too gentle to move a whole step per row then follows the true line on average, instead of laying down a staircase of its own.
+- Nothing is ever stamped over a command. A key off, a note cut or a fade in the middle of a glide stays exactly where it is and the glide runs either side of it; so do volume and panning slides, which are moves rather than levels and have no value for a curve to pass through.
+- Effect arguments interpolate one effect at a time, so a block holding a vibrato and then a tremolo gets a curve for each and nothing across the join. What can be ramped is anything that is a real quantity — slide rates and portamento speed, the LFO speeds and depths of **H**, **U**, **R** and **Y**, tremor times, arpeggio offsets, sample offset, channel and global volume, tick speed and tempo, filter cutoff and resonance, bitcrusher depth and skip, overdrive amount, channel pan, and the spherical azimuth and elevation. The nibble-packed slide pairs stay out: a value halfway between "up by 4" and "down by 2" is a different command, not a middle one.
+- A fade you already stepped in by hand can be smoothed too. When a block is almost entirely full and its values sit in flat runs, Interpolate offers to treat the start of each step as a control point and ramp the stretches between them — it asks first, because unlike everything else here that rewrites cells which already have values.
+- Re-running it on the same block changes nothing the second time: the control points themselves are never rewritten.
+
 ## 2026-09-10
 
 Open Microtone on a phone and you now land on the player rather than on a tracker you cannot use, and the player itself lays out in two columns when the screen is turned sideways or unfolded.

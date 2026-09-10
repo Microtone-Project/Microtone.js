@@ -168,6 +168,15 @@ export const ICON = {
   findchange: SVG(
     '<path d="M2.5 4.5h11l-4.2 5v6.8l-2.6 1.6V9.5z"/>' +
     '<path d="M14.5 12h6"/><path d="M18 9.2 20.8 12 18 14.8"/>'),
+  /** Interpolate: the two numbers a block already had, filled in between —
+   *  solid ends (the control points), hollow ones on the curve (what the tool
+   *  writes). */
+  interpolate: SVG(
+    '<path d="M3.5 19.5C8 19.5 9 5 14 5c3.4 0 4.8 3.4 6.5 5.5"/>' +
+    '<circle cx="8.6" cy="12.3" r="1.4"/>' +
+    '<circle cx="17.9" cy="7" r="1.4"/>' +
+    '<circle cx="3.5" cy="19.5" r="2.2" fill="currentColor" stroke="none"/>' +
+    '<circle cx="20.5" cy="10.5" r="2.2" fill="currentColor" stroke="none"/>'),
   /** Panner: the surround dial seen from above — listener at the centre, front
    *  tick at the top, a source placed off to one side. */
   panner: SVG(
