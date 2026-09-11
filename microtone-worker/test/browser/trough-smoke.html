@@ -87,8 +87,8 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   if (!dlg) { log(`\n${fails} FAILED`); return; }
   check(rowIds(dlg, 1).join() === "rowsAbove,rowsBelow,rowsDelete",
     "first row: the three row commands", rowIds(dlg, 1).join());
-  check(rowIds(dlg, 2).join() === "patsAbove,patsBelow",
-    "second row: the empty-pattern inserts", rowIds(dlg, 2).join());
+  check(rowIds(dlg, 2).join() === "patsAbove,patsBelow,patsSplit,patsCut",
+    "second row: the cue-grid commands", rowIds(dlg, 2).join());
   check(rowIds(dlg, 3).join() === "beats", "third row: the row highlights",
     rowIds(dlg, 3).join());
   check(cell(dlg, "rowsDelete").title.includes("4"),
@@ -160,6 +160,51 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "z", code: "KeyZ", ctrlKey: true, bubbles: true }));
   await sleep(200);
   check(totalRows() === before && cues() === wasCues, "undo removes it again");
+
+  // ── split a cue in two ──
+  // Cue 0 is 16 rows, so row 20 is four rows into cue 1. The song must read
+  // exactly as it did: the split moves a boundary, not the music.
+  const keys = [];
+  for (let r = 0; r < 40; r++) keys.push(rowKey(r));
+  dlg = await menuAt(TROUGH_X, rowY(20));
+  check(cell(dlg, "patsSplit").disabled === false, "split is offered inside a cue");
+  cell(dlg, "patsSplit").click();
+  await sleep(200);
+  check(cues() === wasCues + 1, "the split is one more cue", `${wasCues} → ${cues()}`);
+  check(totalRows() === before, "…and the song is exactly as long as it was",
+    `${before} → ${totalRows()}`);
+  check(limits().slice(0, 3).join() === "16,4,60", "cue 1 became 4 + 60 rows",
+    limits().slice(0, 3).join());
+  check(keys.every((k, r) => rowKey(r) === k), "every row still reads the same");
+
+  win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "z", code: "KeyZ", ctrlKey: true, bubbles: true }));
+  await sleep(200);
+  check(cues() === wasCues && limits()[1] === 64, "undo puts the cue back together");
+
+  dlg = await menuAt(TROUGH_X, rowY(16)); // cue 1 starts here
+  check(cell(dlg, "patsSplit").disabled === true,
+    "…and it is greyed on a row that is already a cue boundary");
+  check(cell(dlg, "patsCut").disabled === true, "…as is the cut beside it");
+  await dismiss(dlg);
+
+  // ── cut a cue and re-bar the song below it ──
+  // Same boundary as the split, but the cue below takes cue 1's full 64 rows and
+  // the grid under it keeps its own, so the last cue is 4 rows shorter instead.
+  dlg = await menuAt(TROUGH_X, rowY(20));
+  cell(dlg, "patsCut").click();
+  await sleep(400);
+  check(cues() === wasCues + 1, "the cut is one more cue too", `${wasCues} → ${cues()}`);
+  check(totalRows() === before, "…and the song is still exactly as long",
+    `${before} → ${totalRows()}`);
+  check(limits().slice(0, 3).join() === "16,4,64", "the cue below the cut is full length",
+    limits().slice(0, 3).join());
+  check(limits().pop() === wasLimits[wasLimits.length - 1] - 4,
+    "…and the song's last cue absorbs the difference", String(limits().pop()));
+  check(keys.every((k, r) => rowKey(r) === k), "every row still reads the same");
+
+  win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "z", code: "KeyZ", ctrlKey: true, bubbles: true }));
+  await sleep(300);
+  check(cues() === wasCues && limits()[1] === 64, "undo puts the grid back");
 
   // ── row highlights (item 136.1) ──
   const was = store.beats();

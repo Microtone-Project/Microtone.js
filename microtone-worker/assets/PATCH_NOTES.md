@@ -6,6 +6,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-12
 
+**Split here** and **Cut here** put a new bar line inside a cue, wherever you point at it, without moving a note of the song.
+
+- Both are new cells on the row trough's right-click menu in the **Timeline**, beside **Patterns above / below**. Right-click the row number you want the new cue to start on: the cue you clicked keeps the rows above it, and the rest begin a fresh cue right after it.
+- **Split here** gives that new cue exactly what was left over — a 64-row cue split at row `$20` becomes a cue of `$20` followed by one of `$20` — and touches nothing below it.
+- **Cut here** gives it the cut cue's full length instead and re-bars the whole song below it: `$20`, then a full `$40`, then `$40`, with the song's last cue `$20` shorter to make up the difference. It is the one to reach for when the music turns out to be written a few rows out of step with the bar lines and you want it re-barred from that point on.
+- Neither moves or loses a single row. The song stays exactly as long, every row plays exactly where and when it did, and all that changes is where the bar lines of the cue grid fall.
+- Patterns are untangled as carefully as **Delete rows** does it: a pattern another cue still plays whole is copied rather than written over, channels playing the same music go on sharing one copy, and the pattern numbers a rebuilt cue lets go of are used again instead of left behind. A **halt** or a jump written on the cue moves down to the cue that now ends where it used to, so playback flow still points at the same music.
+- On a row that already starts a cue both cells are greyed — the bar line you would be asking for is the one already there. One **Ctrl+Z** undoes either.
+
 A song can now call out to the program playing it: sixteen **interrupts**, written on the note column, firing exactly in time with the music.
 
 - Press **b** on the note column to place a marker, then **[** / **]** or the mouse wheel to choose which of the sixteen it is — `I·0` through `I·F`. The command palette carries a button for each number.

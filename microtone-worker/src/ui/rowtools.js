@@ -16,7 +16,10 @@
 import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
 import { showModal } from "./widgets/modal.js";
-import { planInsertRows, planDeleteRows, planInsertCue } from "../doc/songrows.js";
+import {
+  planInsertRows, planDeleteRows, planInsertCue, planSplitCue, planCutCue,
+  splitPointAt,
+} from "../doc/songrows.js";
 import { remapPatternsOp } from "../doc/ops.js";
 import { encodeNameTable } from "../doc/cleanup.js";
 import { NUM_CUES, NUM_CUES_64 } from "../format/taud-const.js";
@@ -39,22 +42,38 @@ export function rowBandItems(rows) {
 }
 
 /**
- * The second row: whole EMPTY PATTERN rows — a blank cue — above or below the
- * cue the click landed in.
+ * The second row: the CUE GRID itself. Two of them put a whole empty pattern row
+ * — a blank cue — above or below the cue the click landed in; the other two put
+ * a new cue boundary INSIDE it, at the clicked row.
  *
  * The row commands above shift the music through a fixed cue grid, which rewrites
- * every pattern below the edit. These two add or make room WITHOUT moving
- * anything: pure order-list surgery, every pattern and all of its sharing left
- * exactly as it was. When what you want is a blank bar rather than four blank
- * rows, this is the one that costs nothing.
+ * every pattern below the edit. These four move the GRID instead and leave the
+ * music exactly where it is: the song plays the same afterwards, whichever you
+ * pick. Split and Cut differ only in what the grid below the new boundary does —
+ * Split leaves it alone and costs a pattern or two, Cut re-bars the whole song
+ * from there and rebuilds every pattern below it.
+ *
+ * `canSplit` is false on a row that already IS a cue boundary — there the
+ * boundary they would add is the one that is there — so both cells are offered
+ * greyed rather than silently doing nothing.
  */
-export function cueItems() {
+export function cueItems(canSplit = true) {
   return [
     { id: "patsAbove", label: t("ctx.patsAbove"), icon: ICON.patsAbove,
       title: t("ctx.patsAboveTitle") },
     { id: "patsBelow", label: t("ctx.patsBelow"), icon: ICON.patsBelow,
       title: t("ctx.patsBelowTitle") },
+    { id: "patsSplit", label: t("ctx.patsSplit"), icon: ICON.patsSplit,
+      title: t("ctx.patsSplitTitle"), disabled: !canSplit },
+    { id: "patsCut", label: t("ctx.patsCut"), icon: ICON.patsCut,
+      title: t("ctx.patsCutTitle"), disabled: !canSplit },
   ];
+}
+
+/** Whether "Split here" / "Cut here" have anything to do at absolute song row
+ *  `row` — the view asks before it builds the menu. */
+export function canSplitAt(song, row) {
+  return !!song && splitPointAt(song, row) !== null;
 }
 
 /** …and its third: the beat/bar divisions (item 136.1). The Project tab has the
@@ -64,7 +83,8 @@ export function beatItems() {
   return [{ id: "beats", label: t("ctx.beats"), icon: ICON.beats, title: t("ctx.beatsTitle") }];
 }
 
-const ROW_TOOLS = ["rowsAbove", "rowsBelow", "rowsDelete", "patsAbove", "patsBelow", "beats"];
+const ROW_TOOLS = ["rowsAbove", "rowsBelow", "rowsDelete",
+  "patsAbove", "patsBelow", "patsSplit", "patsCut", "beats"];
 
 /** True when `id` came from one of the three rows above. */
 export function isRowTool(id) { return ROW_TOOLS.includes(id); }
@@ -80,6 +100,8 @@ export async function runRowTool(id, ctx) {
     case "rowsDelete": return deleteRows(ctx);
     case "patsAbove": return insertCue(ctx, ctx.row0, true);
     case "patsBelow": return insertCue(ctx, ctx.row1, false);
+    case "patsSplit": return splitCue(ctx);
+    case "patsCut": return cutCue(ctx);
     case "beats": return beatsDialog(ctx.store);
   }
   return false;
@@ -148,6 +170,32 @@ function deleteRows(ctx) {
 function insertCue(ctx, row, before) {
   const { store } = ctx;
   return applyPlan(store, planInsertCue(store.song, row, before, planOpts(store)), "rows.noRoom");
+}
+
+/**
+ * Cut the cue at the top of the band in two: it keeps the rows above the split,
+ * and the rest move to the top of a new cue below it. No dialog and no confirm —
+ * nothing about the song moves, the boundary is all that changes, and a wrong
+ * click is one Ctrl+Z away.
+ */
+function splitCue(ctx) {
+  const { store, row0 } = ctx;
+  if (!canSplitAt(store.song, row0)) return false; // the split is already there
+  return applyPlan(store, planSplitCue(store.song, row0, planOpts(store)), "rows.noRoom");
+}
+
+/**
+ * The same cut, then the song below re-barred through it: the new cue takes the
+ * cut cue's own full length and every cue under it keeps the length it had, so
+ * the music slides up through the grid and every pattern from here down is
+ * rebuilt. Nothing is moved and nothing is lost — it is the expensive half of
+ * the pair, and it is what you want when the music turns out to be written a few
+ * rows out of step with the bar lines.
+ */
+function cutCue(ctx) {
+  const { store, row0 } = ctx;
+  if (!canSplitAt(store.song, row0)) return false; // the boundary is already there
+  return applyPlan(store, planCutCue(store.song, row0, planOpts(store)), "rows.noRoom");
 }
 
 /**

@@ -34,7 +34,7 @@ import {
   muteItems, runMuteItem, fx2Items, runFx2Item,
 } from "../gridmenu.js";
 import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
-import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool } from "../rowtools.js";
+import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
 import { t } from "../i18n.js";
 
 const FONT_PX = 13; // family comes from --cv-font via fonts.js
@@ -613,7 +613,7 @@ export class TimelineView {
     }
     const n = band.row1 - band.row0 + 1;
     const pick = await showContextMenu(e.clientX, e.clientY,
-      [rowBandItems(n), cueItems(), beatItems()]);
+      [rowBandItems(n), cueItems(canSplitAt(store.song, band.row0)), beatItems()]);
     if (!isRowTool(pick)) return;
     if (await runRowTool(pick, { store, ...band })) {
       // The order list may be a different shape now: drop the selection, put

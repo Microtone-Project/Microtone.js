@@ -120,6 +120,14 @@ export const ICON = {
   patsAbove: SVG(patSlot(2.5) + patRow(10) + patRow(17)),
   /** …and BELOW it. */
   patsBelow: SVG(patRow(2) + patRow(9) + patSlot(16.5)),
+  /** Split the cue here: two rows of patterns with the new boundary — dashed,
+   *  like every slot in this family — drawn between them. */
+  patsSplit: SVG(patRow(3) + '<path d="M2.5 12.5h19" stroke-dasharray="3 2.4"/>' +
+    patRow(16)),
+  /** …and cut it there: the same new boundary, with the song below pulled up
+   *  through the gap in it — the one thing the split does not do. */
+  patsCut: SVG(patRow(2) + '<path d="M2.5 12.5h6M15.5 12.5h6" stroke-dasharray="3 2.4"/>' +
+    '<path d="M12 16.5v-8M9.5 11 12 8.5l2.5 2.5"/>' + patRow(17)),
   /** Row highlights: the beat and bar banding the trough is read against. */
   beats: SVG(
     '<rect x="2.5" y="2.5" width="19" height="4" rx="1.2" fill="currentColor" stroke="none"/>' +

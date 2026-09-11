@@ -32,6 +32,23 @@
 // leave every pattern and all of their sharing untouched, which is also what the
 // menu's "Patterns above/below" does on purpose.
 //
+// planSplitCue and planCutCue are the odd ones out: they move a cue BOUNDARY
+// without moving any music, so the song reads exactly the same top to bottom and
+// every row keeps the absolute position it had. They differ in what the grid
+// BELOW the new boundary does.
+//   SPLIT gives the cut cue's tail a cue of its own, exactly as long as the tail
+//     is, and stops. The cue after it is the next one along, untouched: nothing
+//     below the split is rebuilt at all.
+//   CUT hands the same tail a full-length cue — the cut cue's own original
+//     length — and re-lays the whole song below it onto the lengths that were
+//     already there. Every cue from the cut down then holds a different stretch
+//     of music (its events pulled up, its end topped up from the cue after it)
+//     and has to be rebuilt, and the song's LAST cue comes out shorter by
+//     exactly what the head kept. Same music, same total rows, new bar lines.
+// Both build the head the same way: its outline entry carries one extra flag,
+// `noEnd`, which hands the cue's HALT and flow instruction down to the cue below
+// — that is where the cue's end now is.
+//
 // Cue instruction words follow: the row limit tracks the cue's new length,
 // absolute jumps (JMP) are remapped through the old→new cue map and the relative
 // pair (BAK/FWD) re-measured against it, so flow still points at the same music
@@ -197,6 +214,91 @@ export function planInsertCue(song, atRow, before = true, opts = {}) {
   const at = before ? i : i + 1;
   const grown = [...head.slice(0, at), blankCue(head[i].limit), ...head.slice(at)];
   return planRowOutline(song, [...grown, ...tail], opts);
+}
+
+/**
+ * Where a split at absolute song row `row` would fall: the cue holding it, its
+ * index in the song map, and how far into that cue the row lands. Null when
+ * there is nothing to split — the row is off the end of the song, or it IS a cue
+ * boundary, where the split this would make is the one already there.
+ */
+export function splitPointAt(song, row) {
+  const map = song.songMap();
+  const index = map.entries.findIndex(
+    (e) => row >= e.startRow && row < e.startRow + e.rowLimit);
+  if (index < 0) return null;
+  const entry = map.entries[index];
+  const local = row - entry.startRow;
+  return local > 0 ? { index, entry, local } : null;
+}
+
+/**
+ * Split the cue holding absolute row `row` in two THERE: it keeps the rows above
+ * the split, and a new cue below it holds the rest. The song is not moved — it
+ * reads exactly the same top to bottom, every row at the absolute position it
+ * was already at — so this is the one command here that changes where the cue
+ * boundaries are instead of what plays through them.
+ *
+ * The head keeps the cue's own patterns, sharing and all: its music is already
+ * at the top of them and a shorter cue just stops reading earlier, so nothing
+ * another cue still plays whole is touched. Only the TAIL needs patterns of its
+ * own — its rows have to start at row 0 of one — and that is the untangling:
+ * channels whose tails read the same rows out of the same pattern go on sharing
+ * one copy, and a pattern the head (or anybody else) still plays is never
+ * written over.
+ *
+ * What happens at the END of a cue goes with the tail, which is where that end
+ * now is: its HALT and its flow instruction move down, and the head is left
+ * carrying nothing but its new length.
+ */
+export function planSplitCue(song, row, opts = {}) {
+  const at = splitPointAt(song, row);
+  if (!at) return null;
+  const { head, tail } = baseOutline(song);
+  const { index, entry, local } = at;
+  const first = { ...head[index], limit: local, rows: null, noEnd: true };
+  const second = {
+    inherit: entry.cue,
+    limit: entry.rowLimit - local,
+    srcLimit: entry.rowLimit,
+    start: entry.startRow + local,
+    rows: range(entry.startRow + local, entry.startRow + entry.rowLimit),
+  };
+  return planRowOutline(song,
+    [...head.slice(0, index), first, second, ...head.slice(index + 1), ...tail], opts);
+}
+
+/**
+ * Cut the cue holding absolute row `row` there, and RE-BAR everything below it:
+ * the cue keeps the rows above the cut, the rows below them start a cue of the
+ * cut cue's own full length, and the rest of the song is laid back onto the cue
+ * lengths that were already there — so a $40-row cue cut at row $20 leaves a cue
+ * of $20 followed by a full $40, not the $20 + $20 a split would leave.
+ *
+ * No music moves and none is lost: the song reads exactly the same top to bottom
+ * and is exactly as long as it was. What moves is the GRID, and because it moves
+ * under every cue below the cut, every one of them ends up holding a different
+ * stretch of music — its events pulled up by the size of the head, its own end
+ * topped up out of the cue after it — and each is rebuilt. The song's last cue
+ * absorbs the difference and comes out that much shorter.
+ *
+ * That is the whole difference from planSplitCue, which stops at the tail and
+ * touches nothing below it. This one is the expensive half of the pair, and the
+ * one to reach for when the music turns out to be written a few rows out of step
+ * with the bar lines: it re-bars the song from here on instead of adding a short
+ * cue and leaving the step in.
+ */
+export function planCutCue(song, row, opts = {}) {
+  const at = splitPointAt(song, row);
+  if (!at) return null;
+  const { head, tail, map } = baseOutline(song);
+  const { index, entry, local } = at;
+  const first = { ...head[index], limit: local, rows: null, noEnd: true };
+  // The cue lengths from the cut cue down, re-used in order for the rows that
+  // are left. There are exactly `local` fewer rows than slots to hold them, so
+  // nothing spills — the shortfall lands in the last cue.
+  const below = layOntoCues(head.slice(index), range(entry.startRow + local, map.totalRows));
+  return planRowOutline(song, [...head.slice(0, index), first, ...below, ...tail], opts);
 }
 
 /**
@@ -405,6 +507,10 @@ export function planRowOutline(song, outline, {
  * place in the order list even when the music running through it has moved.
  */
 function rewriteInstructions(song, o, newIdx, newOf) {
+  // The HEAD of a split cue is not where that cue ends any more, so everything
+  // that happens at a cue's end — its HALT, its flow instruction — belongs to
+  // the half below it and this one says only how long it is.
+  if (o.noEnd) return [encLen(o.limit), 0];
   const info = cueInfo(song.cues[o.inherit]);
   const src = cueInstructionWords(song.cues[o.inherit]);
   // A cue whose length is unchanged keeps its words byte-for-byte — the rebuild

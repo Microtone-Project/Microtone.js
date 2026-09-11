@@ -294,6 +294,8 @@ channel (**Shift+click** extends one); right-click it for the row commands:
 | **Rows above** / **Rows below** | Insert blank rows before or after the band, asking how many first — the whole song below slides down |
 | **Delete rows** | Take the selected rows out of the song; the whole song below slides up to close the gap |
 | **Patterns above** / **Patterns below** | Insert an empty pattern on every channel — a blank cue as long as the one you clicked — without moving anything |
+| **Split here** | Cut the cue in two at the clicked row, without moving a note of the song |
+| **Cut here** | The same cut, with the whole song below it re-barred to follow |
 | **Row highlights** | How many rows to a beat and to a bar |
 
 Insert and delete act on the **whole song**, every channel at once, in one
@@ -326,6 +328,42 @@ from one cue boundary to another) simply drops them from the order list, and
 pattern. **Patterns above / below** is the third of them, and the one to reach
 for when what you want is a blank bar: it costs nothing, changes no pattern, and
 leaves every bit of sharing alone.
+
+**Split here** is the other direction: it puts a cue boundary where there wasn't
+one. The cue you clicked keeps the rows above the split, and everything below
+them moves to the top of a new cue right after it — so a 64-row cue split at row
+20 becomes a cue of 20 rows followed by one of 44. Nothing is moved and nothing
+is lost: the song is the same length and every row plays exactly where and when
+it did. What changes is the grid, which is what you want when a section really
+begins part-way through a pattern, or when a 64-row cue has grown into two ideas
+that want their own bar lines, their own lengths and their own jumps.
+
+The rows above the split keep the cue's own patterns, sharing and all — a shorter
+cue simply stops reading them earlier — so a pattern another cue still plays
+whole is never disturbed. Only the rows below it need patterns of their own,
+since they now have to start at row 0 of one; channels that were sharing a
+pattern go on sharing the copy. Anything the cue did at its END — a **halt**, or
+a jump — moves down to the new cue, because that is where the end of the music
+now is. Splitting on a row that already is a cue boundary is offered greyed: the
+split you are asking for is the one already there.
+
+**Cut here** makes the same boundary, then **re-bars everything below it**. The
+new cue takes the cut cue's own full length rather than just what was left over,
+the cue after it keeps the length it had, and so on down the song — so a song of
+64-row cues cut at row 20 reads 20, then 64, then 64, with the song's last cue
+20 rows shorter to make up the difference. Nothing is moved and nothing is lost
+here either: the music plays exactly when it did, and the cue count grows by one
+just as a split's does. What changes is where every bar line below the cut falls.
+
+That makes it the expensive one. Each cue under the cut now holds a different
+stretch of music — its events pulled up, its end topped up out of the cue after
+it — so every pattern from the cut to the end of the song is rebuilt, under the
+same sharing rules as **Delete rows**: a pattern another cue still plays whole is
+copied rather than moved, channels playing the same music go on sharing one, and
+the numbers the rebuilt cues let go of are used again. Reach for **Cut here**
+when the music turns out to be written a few rows out of step with the bar lines
+and you want the whole song re-barred from that point; reach for **Split here**
+when you only want one section to end early.
 
 **Row highlights** are the song's own **rows per beat** and **rows per bar**,
 4 and 16 unless the file says otherwise. They only decide how the Timeline and
