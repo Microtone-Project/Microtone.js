@@ -4,7 +4,7 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
-## 2026-09-11
+## 2026-09-12
 
 A song can now call out to the program playing it: sixteen **interrupts**, written on the note column, firing exactly in time with the music.
 
@@ -13,8 +13,11 @@ A song can now call out to the program playing it: sixteen **interrupts**, writt
 - Put a `:` effect on the same row to hand the listening program a **number**, anywhere from `$0000` to `$FFFF` — which lamp, which line of dialogue, how hard to shake the screen. It means whatever the two of you agree it means. A marker with no `:` beside it sends `0`.
 - In a wide song a row has two effect slots. A `:` in both means the left one is the argument and the right one is painted **red**, to say out loud that it is being ignored.
 - A marker can also land part-way through a row: `S $Dx00` delays it by `x` ticks, exactly as it delays a note or a key-off. At the default tempo that is 20 ms a tick, which is the difference between a flash that hits with the music and one that does not.
+- **Fixed:** in a wide song, a note delay written in the SECOND effect column did nothing at all — the note, key-off or marker on that row fired immediately instead of waiting. Either column carries it now; with one in each, the left one is used and the right one ignored.
 - The same `:` can still extend a `J`, `O`, `2` or `3` sharing the row — the interrupt reads it without taking it away.
 - **taudplay**, the player library, answers them with one callback per interrupt, so a game can flash a light, drop a subtitle or spawn a wave on the beat without ever guessing where the beat is. Markers are saved in the file like any other note, so a song carries its cues with it.
+
+## 2026-09-11
 
 Write the start and the end of a move, select the rows in between, and **Interpolate** draws the rest of it for you.
 

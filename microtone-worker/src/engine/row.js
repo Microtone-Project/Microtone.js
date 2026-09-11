@@ -36,22 +36,50 @@ function interruptArgOf(ts, row) {
   return 0;
 }
 
+/**
+ * This row's `S $Dxny` argument, or -1 when the row does not carry one.
+ *
+ * Every other `S` sub-command rides the ordinary per-slot dispatch, so a wide
+ * cell's second effect slot reaches it for free. The note delay cannot: it has
+ * to be known BEFORE the note branch runs, which is before either slot
+ * dispatches, so it is scanned here instead — and a scan that only looked at
+ * the first slot is what made `S $Dx` silently inert in the second one.
+ *
+ * A row naming it TWICE resolves the way the interrupt argument does and the
+ * way a conforming player is required to: **the first slot wins, the second is
+ * discarded** (TAUD_NOTE_EFFECTS.md, "S $Dxny"). Note that "the first slot
+ * holds some OTHER S command" is not a claim on the delay — `S $80xx` beside
+ * `S $D200` leaves the delay to the second slot, because the first one never
+ * named one.
+ */
+function sDelayArg(ts, row) {
+  if (row.effect === EffectOp.OP_S && ((row.effectArg >>> 12) & 0xf) === 0xd) {
+    return row.effectArg;
+  }
+  if (ts.wideCells && row.effect2 === EffectOp.OP_S &&
+      ((row.effectArg2 >>> 12) & 0xf) === 0xd) {
+    return row.effectArg2;
+  }
+  return -1;
+}
+
 /** S $Dxny (item 94, extended item 97): schedule the $n follow-up action at
  *  absolute tick $x+$y within the row (independent of whichever note-event
  *  branch deferred the trigger by $x, or fired it immediately when $x is 0,
  *  or — on a note-less row — deferred nothing at all, see the `note === 0`
- *  caller). No-op unless $y is nonzero — a zero $y never carries an action
- *  (TAUD_NOTE_EFFECTS.md "S $Dxny" table: "If $y is zero" has no action row).
- *  A schedule past the row's tick count self-discards: tick.js only fires on
- *  an exact tickInRow match, and row entry unconditionally resets
- *  noteActionTick to -1 before the next row's ticks can reach it — the same
- *  trick sDelayTick relies on. */
-function scheduleDxnyAction(voice, row, delayTick) {
-  if (row.effect !== EffectOp.OP_S || ((row.effectArg >>> 12) & 0xf) !== 0xd) return;
-  const y = row.effectArg & 0xf;
+ *  caller). `sArg` is sDelayArg's resolved argument, so the $n and $y come
+ *  from whichever slot won the delay. No-op unless $y is nonzero — a zero $y
+ *  never carries an action (TAUD_NOTE_EFFECTS.md "S $Dxny" table: "If $y is
+ *  zero" has no action row). A schedule past the row's tick count
+ *  self-discards: tick.js only fires on an exact tickInRow match, and row
+ *  entry unconditionally resets noteActionTick to -1 before the next row's
+ *  ticks can reach it — the same trick sDelayTick relies on. */
+function scheduleDxnyAction(voice, sArg, delayTick) {
+  if (sArg < 0) return;
+  const y = sArg & 0xf;
   if (y === 0) return;
   voice.noteActionTick = delayTick + y;
-  voice.delayedAction = (row.effectArg >>> 4) & 0xf;
+  voice.delayedAction = (sArg >>> 4) & 0xf;
 }
 
 export function applyTrackerRow(eng, ts, playhead) {
@@ -154,8 +182,8 @@ export function applyTrackerRow(eng, ts, playhead) {
     // OP_L also takes a porta target without retriggering (continues a G porta).
     const toneG = row.effect === EffectOp.OP_G || row.effect === EffectOp.OP_L;
     const note = row.note;
-    const sDelayTick = row.effect === EffectOp.OP_S && ((row.effectArg >>> 12) & 0xf) === 0xd
-      ? (row.effectArg >>> 8) & 0xf : 0;
+    const sArg = sDelayArg(ts, row);
+    const sDelayTick = sArg < 0 ? 0 : (sArg >>> 8) & 0xf;
 
     if (note === 0x0000) {
       const pitchFx = row.effect === EffectOp.OP_E || row.effect === EffectOp.OP_F ||
@@ -183,7 +211,7 @@ export function applyTrackerRow(eng, ts, playhead) {
       // follow-up action still applies to whatever voice is already sounding
       // (TAUD_NOTE_EFFECTS.md: FastTracker Kxx → S $D00xx, OpenMPT :xy →
       // S $Dx1y — both act on the current note without a note column entry).
-      scheduleDxnyAction(voice, row, sDelayTick);
+      scheduleDxnyAction(voice, sArg, sDelayTick);
     } else if (note === 0x0001) {
       // Key-off (sub-row delay via S$Dx defers it).
       if (sDelayTick > 0) {
@@ -193,7 +221,7 @@ export function applyTrackerRow(eng, ts, playhead) {
         voice.keyOff = true;
         applyKeyLift(voice, eng.instruments[voice.instrumentId]);
       }
-      scheduleDxnyAction(voice, row, sDelayTick);
+      scheduleDxnyAction(voice, sArg, sDelayTick);
     } else if (note === 0x0002) {
       if (sDelayTick > 0) {
         voice.noteDelayTick = sDelayTick; voice.delayedNote = 0x0002;
@@ -202,7 +230,7 @@ export function applyTrackerRow(eng, ts, playhead) {
         startCutRamp(voice);
         cutLayerChildren(ts, vi);
       }
-      scheduleDxnyAction(voice, row, sDelayTick);
+      scheduleDxnyAction(voice, sArg, sDelayTick);
     } else if (note === 0x0004) {
       // Fast note-fade (SF2 exclusiveClass choke).
       if (sDelayTick > 0) {
@@ -211,7 +239,7 @@ export function applyTrackerRow(eng, ts, playhead) {
       } else {
         startFastFade(voice, playhead);
       }
-      scheduleDxnyAction(voice, row, sDelayTick);
+      scheduleDxnyAction(voice, sArg, sDelayTick);
     } else if (note === 0x0003) {
       // IT-style note fade: fadeout without sustain release.
       if (sDelayTick > 0) {
@@ -220,7 +248,7 @@ export function applyTrackerRow(eng, ts, playhead) {
       } else {
         voice.noteFading = true;
       }
-      scheduleDxnyAction(voice, row, sDelayTick);
+      scheduleDxnyAction(voice, sArg, sDelayTick);
     } else if (note >= 0x0005 && note <= 0x000f) {
       // reserved sentinel range, no engine handler
     } else if (note >= 0x0010 && note <= 0x001f) {
@@ -284,20 +312,20 @@ export function applyTrackerRow(eng, ts, playhead) {
             narrowVolAxis(ts, voice.noteVolume));
           applyInstrumentChange(eng, ts, voice, newInst, newPatch, true, mayCarry);
         }
-      } else if (row.effect === EffectOp.OP_S && ((row.effectArg >>> 12) & 0xf) === 0xd) {
+      } else if (sArg >= 0) {
         // Note delay: defer trigger; NNA fires when the deferred trigger executes.
-        voice.noteDelayTick = (row.effectArg >>> 8) & 0xf;
+        voice.noteDelayTick = sDelayTick;
         voice.delayedNote = note;
         voice.delayedInst = row.instrment;
         // Only a SEL_SET vol cell is an override on the deferred trigger.
         voice.delayedVol = row.volumeEff === 0 ? row.volume : -1;
-        scheduleDxnyAction(voice, row, sDelayTick);
+        scheduleDxnyAction(voice, sArg, sDelayTick);
       } else {
         applyDuplicateCheck(eng, ts, vi, row.instrment, note);
         maybeSpawnBackgroundForNNA(eng, ts, voice, vi);
         const trigVol = row.volumeEff === 0 ? row.volume : -1;
         triggerMetaOrNote(eng, ts, voice, vi, note, row.instrment, trigVol);
-        scheduleDxnyAction(voice, row, sDelayTick);
+        scheduleDxnyAction(voice, sArg, sDelayTick);
       }
     }
 

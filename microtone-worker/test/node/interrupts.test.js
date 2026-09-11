@@ -341,17 +341,74 @@ test("Format 1/2: `S $Dx` takes the only effect slot, so a delayed marker says 0
   assert.equal(eng.interruptArg(0, 1), 0);
 });
 
-test("the delay comes from the FIRST effect slot, as it does for every note event", () => {
-  // Engine-wide and pre-existing (the `S $Dx` scan reads slot 1 only), not an
-  // interrupt rule — but it is the trap this feature walks into, since `S` and
-  // `:` want the two slots of one row. Reversed, the marker fires at tick 0.
+test("a wide cell's SECOND effect slot can carry the delay too", () => {
+  // It could not, until this was asked for: the `S $Dx` scan ran on slot 1
+  // alone, so `: $xxxx` `S $Dx00` — the spelling that puts the interrupt's
+  // argument first — fired the marker undelayed at tick 0 and said nothing
+  // about it. Every other `S` sub-command already reached slot 2 for free.
   const eng = makeEngine(true);
   loadSong(eng, [[
     { row: 0, note: INT(6), effect: COLON, arg: 0x0777, effect2: EffectOp.OP_S, arg2: 0xd300 },
   ]], { wide: true });
-  tickStepper(eng)();
-  assert.equal(eng.pollTrackerInterrupts(0), 1 << 6, "tick 0, undelayed");
+  const tick = tickStepper(eng);
+  tick();
+  assert.equal(eng.pollTrackerInterrupts(0), 0, "tick 0: the second slot's delay counts");
+  for (let t = 0; t < 6; t++) tick();
+  assert.equal(eng.pollTrackerInterrupts(0), 1 << 6, "…and it arrives inside the row");
   assert.equal(eng.interruptArg(0, 6), 0x0777);
+});
+
+test("a delay in the second slot works for an ordinary note, not just a marker", () => {
+  // The scan is shared, so the fix is not interrupt-specific and should not be
+  // pinned as though it were.
+  const eng = makeEngine(true);
+  loadSong(eng, [[
+    { row: 0, note: C4, inst: 1, effect: EffectOp.OP_M, arg: 0x2000,
+      effect2: EffectOp.OP_S, arg2: 0xd300 },
+  ]], { wide: true });
+  const tick = tickStepper(eng);
+  tick();
+  assert.equal(ts(eng).voices[0].active, false, "tick 0: the note is still waiting");
+  for (let t = 0; t < 6; t++) tick();
+  assert.equal(ts(eng).voices[0].active, true, "…and triggers later in the row");
+});
+
+test("two `S $Dx` on one row: the FIRST slot wins and the second is discarded", () => {
+  const eng = makeEngine(true);
+  loadSong(eng, [
+    // ch0 and ch1 are the two references — a delayed key-off at $D1 and at $D5.
+    [{ row: 0, note: 0x0001, effect: EffectOp.OP_S, arg: 0xd100 }],
+    [{ row: 0, note: 0x0001, effect: EffectOp.OP_S, arg: 0xd500 }],
+    // ch2 names BOTH. $D1 is on the left, so $D1 is what happens.
+    [{ row: 0, note: INT(6), effect: EffectOp.OP_S, arg: 0xd100,
+       effect2: EffectOp.OP_S, arg2: 0xd500 }],
+  ], { wide: true });
+  const out = new Uint8Array(TRACKER_CHUNK * 2);
+  let early = -1, late = -1, fired = -1;
+  for (let c = 0; c < ROW_CHUNKS; c++) {
+    eng.renderChunk(0, out);
+    if (early < 0 && ts(eng).voices[0].keyOff) early = c;
+    if (late < 0 && ts(eng).voices[1].keyOff) late = c;
+    if (fired < 0 && ts(eng).pendingInterrupts !== 0) fired = c;
+  }
+  assert.ok(early > 0 && late > early, "the two references are distinguishable");
+  assert.equal(fired, early, "the first slot's $D1 is the delay that ran");
+  assert.notEqual(fired, late, "…and the second slot's $D5 was discarded");
+});
+
+test("an S in the first slot that is NOT a delay leaves the delay to the second", () => {
+  // "First slot wins" is a claim about the $Dx COMMAND, not about the S opcode:
+  // `S $80xx` never named a delay, so it cannot be the one that wins.
+  const eng = makeEngine(true);
+  loadSong(eng, [[
+    { row: 0, note: INT(6), effect: EffectOp.OP_S, arg: 0x8040,
+      effect2: EffectOp.OP_S, arg2: 0xd300 },
+  ]], { wide: true });
+  const tick = tickStepper(eng);
+  tick();
+  assert.equal(eng.pollTrackerInterrupts(0), 0, "the second slot's delay still applies");
+  for (let t = 0; t < 6; t++) tick();
+  assert.equal(eng.pollTrackerInterrupts(0), 1 << 6);
 });
 
 // ── the drain contract ─────────────────────────────────────────────────────
