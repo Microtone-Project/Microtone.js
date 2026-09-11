@@ -211,6 +211,15 @@ export function applyTrackerTick(eng, ts, playhead) {
           startFastFade(voice, playhead);
           break;
         default:
+          if (voice.delayedNote >= 0x0010 && voice.delayedNote <= 0x001f) {
+            // Delayed Int0..IntF (item 181). Alone among the cases here it
+            // touches no voice state at all — the marker sounds nothing; it
+            // only latches, carrying the `:` argument row.js parked on the
+            // voice because a note word has no room for a second number.
+            ts.pendingInterrupts |= 1 << (voice.delayedNote - 0x0010);
+            ts.interruptArgs[voice.delayedNote - 0x0010] = voice.delayedInterruptArg;
+            break;
+          }
           applyDuplicateCheck(eng, ts, vi, voice.delayedInst, voice.delayedNote);
           maybeSpawnBackgroundForNNA(eng, ts, voice, vi);
           triggerMetaOrNote(eng, ts, voice, vi, voice.delayedNote, voice.delayedInst, voice.delayedVol);

@@ -219,7 +219,7 @@ Notes are **4096 tone-equal temperament**: 4096 steps to the octave, with `$1000
 | `$0003` | Note fade | Begin the fadeout without releasing sustain |
 | `$0004` | Fast fade | Fast fadeout (~0.3 s) — the SoundFont *exclusiveClass* choke |
 | `$0005`–`$000F` | — | **RESERVED** |
-| `$0010`–`$001F` | Int0…IntF | Interrupt markers 0…15: produce no sound, latch a host-visible flag carrying the row's `: $xxxx` as its 0…65535 argument ([Engine Spec §14](TAUD_ENGINE_SPEC.md#14-interrupts-and-the-host-interface)) |
+| `$0010`–`$001F` | Int0…IntF | Interrupt markers 0…15: produce no sound, latch a host-visible flag carrying the row's `: $xxxx` as its 0…65535 argument ([Engine Spec §14](TAUD_ENGINE_SPEC.md#14-interrupts-and-the-host-interface)) |
 
 Actual sounding pitch also depends on the instrument's sampling rate and detune; the note word alone is not a frequency. See the Engine Specification.
 

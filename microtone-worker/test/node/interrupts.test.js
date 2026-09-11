@@ -101,14 +101,28 @@ function loadSong(eng, patterns, { wide = false } = {}) {
 // which is where a host polls.
 const ROW_CHUNKS = (SAMPLING_RATE * 2.5 / 125 * 6) / TRACKER_CHUNK;
 
+const TICK_CHUNKS = ROW_CHUNKS / 6;
+
 /** Advance the song one row at a time, stopping just after that row's events
  *  have run and before the next row's. The first step is one chunk, because
  *  the very first renderChunk is what processes row 0. */
-function rowStepper(eng) {
+function rowStepper(eng) { return stepper(eng, ROW_CHUNKS); }
+
+/** The same, one TICK at a time — for the sub-row events (`S $Dx`). */
+function tickStepper(eng) { return stepper(eng, TICK_CHUNKS); }
+
+/** Raw block advance, for the sub-row events a row-at-a-time stepper steps
+ *  straight past. */
+function renderChunks(eng, n) {
+  const out = new Uint8Array(TRACKER_CHUNK * 2);
+  for (let i = 0; i < n; i++) eng.renderChunk(0, out);
+}
+
+function stepper(eng, chunks) {
   const out = new Uint8Array(TRACKER_CHUNK * 2);
   let started = false;
   return () => {
-    const n = started ? ROW_CHUNKS : 1;
+    const n = started ? chunks : 1;
     started = true;
     for (let i = 0; i < n; i++) eng.renderChunk(0, out);
   };
@@ -240,6 +254,104 @@ test("a `:` doing double duty still extends the J it shares the row with", () =>
   assert.equal(v.arpActive, true, "…and so did the arpeggio");
   assert.equal(v.arpOff1, 0x0155);
   assert.equal(v.arpOff2, 0x02aa, "J's second offset is the same `:` argument");
+});
+
+// ── the note delay ─────────────────────────────────────────────────────────
+// `S $Dx` defers a marker exactly as it defers a key-off or a cut. A tick is
+// 20 ms at the default tempo, which a cue can be seen to miss, so "close
+// enough to fire at tick 0" was not good enough.
+
+test("`S $Dx` defers the marker into the row, argument and all", () => {
+  const eng = makeEngine(true);
+  loadSong(eng, [[
+    // S in the FIRST slot (the engine reads the delay from that slot only),
+    // the interrupt's `:` in the second.
+    { row: 0, note: INT(6), effect: EffectOp.OP_S, arg: 0xd300, effect2: COLON, arg2: 0x0777 },
+  ]], { wide: true });
+  const tick = tickStepper(eng);
+  tick();
+  assert.equal(eng.pollTrackerInterrupts(0), 0, "tick 0: not yet");
+  for (let t = 0; t < 6; t++) tick();          // the rest of the row
+  assert.equal(eng.pollTrackerInterrupts(0), 1 << 6, "…but before the row is out");
+  assert.equal(eng.interruptArg(0, 6), 0x0777, "the argument waited with it");
+});
+
+test("a delayed marker lands on the same sample as a delayed key-off would", () => {
+  // The phase of the engine's tick pass is its own business and predates this
+  // (a delayed event fires from applyTrackerTick, not from the row pass). What
+  // item 181 owes is that `S $Dx` means the same instant for a marker as for
+  // every other note event — so this pins them against each other rather than
+  // hard-coding a chunk number that belongs to the tick clock.
+  const eng = makeEngine();
+  loadSong(eng, [
+    [{ row: 0, note: C4, inst: 1 },
+     { row: 1, note: 0x0001, effect: EffectOp.OP_S, arg: 0xd300 }],   // delayed key-off
+    [{ row: 1, note: INT(6), effect: EffectOp.OP_S, arg: 0xd300 }],   // delayed marker
+  ]);
+  const out = new Uint8Array(TRACKER_CHUNK * 2);
+  let keyOffAt = -1, interruptAt = -1;
+  for (let c = 0; c < ROW_CHUNKS * 2 && (keyOffAt < 0 || interruptAt < 0); c++) {
+    eng.renderChunk(0, out);
+    if (keyOffAt < 0 && ts(eng).voices[0].keyOff) keyOffAt = c;
+    if (interruptAt < 0 && ts(eng).pendingInterrupts !== 0) interruptAt = c;
+  }
+  assert.ok(keyOffAt > 0, "the key-off did fire");
+  assert.equal(interruptAt, keyOffAt, "…and the marker fired with it");
+});
+
+test("a delayed marker still leaves the channel completely alone", () => {
+  const eng = makeEngine();
+  loadSong(eng, [[
+    { row: 0, note: C4, inst: 1 },
+    { row: 1, note: INT(0), inst: 1, effect: EffectOp.OP_S, arg: 0xd200 },
+  ]]);
+  const step = rowStepper(eng);
+  step();
+  const posBefore = ts(eng).voices[0].samplePos;
+  step();
+  renderChunks(eng, ROW_CHUNKS); // …and on past the tick the delay named
+  assert.equal(eng.pollTrackerInterrupts(0), 1, "fired somewhere inside the row");
+  assert.equal(ts(eng).voices[0].active, true, "the note is still sounding");
+  assert.ok(ts(eng).voices[0].samplePos !== posBefore, "…and was never retriggered or cut");
+});
+
+test("a delay at or past the speed discards the marker, and it never arrives late", () => {
+  const eng = makeEngine(); // tick rate 6
+  loadSong(eng, [[
+    { row: 0, note: INT(2), effect: EffectOp.OP_S, arg: 0xd800 }, // delay 8 >= speed 6
+    { row: 1 },
+    { row: 2 },
+  ]]);
+  const step = rowStepper(eng);
+  step();
+  assert.equal(eng.pollTrackerInterrupts(0), 0, "the row it was written on: discarded");
+  step();
+  assert.equal(eng.pollTrackerInterrupts(0), 0, "…and it does not leak into the next row");
+  step();
+  assert.equal(eng.pollTrackerInterrupts(0), 0);
+});
+
+test("Format 1/2: `S $Dx` takes the only effect slot, so a delayed marker says 0", () => {
+  // Not a special rule — there is simply nowhere left to write the `:`. A song
+  // that wants both a delay AND an argument needs the wide cell.
+  const eng = makeEngine();
+  loadSong(eng, [[{ row: 0, note: INT(1), effect: EffectOp.OP_S, arg: 0xd200 }]]);
+  renderChunks(eng, ROW_CHUNKS); // the whole row, delay included
+  assert.equal(eng.pollTrackerInterrupts(0), 1 << 1);
+  assert.equal(eng.interruptArg(0, 1), 0);
+});
+
+test("the delay comes from the FIRST effect slot, as it does for every note event", () => {
+  // Engine-wide and pre-existing (the `S $Dx` scan reads slot 1 only), not an
+  // interrupt rule — but it is the trap this feature walks into, since `S` and
+  // `:` want the two slots of one row. Reversed, the marker fires at tick 0.
+  const eng = makeEngine(true);
+  loadSong(eng, [[
+    { row: 0, note: INT(6), effect: COLON, arg: 0x0777, effect2: EffectOp.OP_S, arg2: 0xd300 },
+  ]], { wide: true });
+  tickStepper(eng)();
+  assert.equal(eng.pollTrackerInterrupts(0), 1 << 6, "tick 0, undelayed");
+  assert.equal(eng.interruptArg(0, 6), 0x0777);
 });
 
 // ── the drain contract ─────────────────────────────────────────────────────

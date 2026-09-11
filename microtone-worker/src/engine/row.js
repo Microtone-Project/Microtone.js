@@ -229,8 +229,22 @@ export function applyTrackerRow(eng, ts, playhead) {
       // no sound and touches no voice state; every other column on the row —
       // instrument, volume, panning, a second effect — is the interrupt's
       // business not at all, and still does whatever it would ordinarily do.
-      ts.pendingInterrupts |= 1 << (note - 0x0010);
-      ts.interruptArgs[note - 0x0010] = interruptArgOf(ts, row);
+      //
+      // A sub-row `S $Dx` defers it exactly as it defers a key-off or a cut:
+      // a tick is 20 ms at the default tempo, which is well inside what a
+      // lighting or animation cue can be heard to miss. `x >= speed` therefore
+      // discards the marker with the rest of the row's note event (the row
+      // reset above clears noteDelayTick, so it cannot leak into the next row
+      // either) — a delay that never arrives fires nothing, which is what the
+      // same argument says for a note that never sounds.
+      if (sDelayTick > 0) {
+        voice.noteDelayTick = sDelayTick; voice.delayedNote = note;
+        voice.delayedInst = 0; voice.delayedVol = -1;
+        voice.delayedInterruptArg = interruptArgOf(ts, row);
+      } else {
+        ts.pendingInterrupts |= 1 << (note - 0x0010);
+        ts.interruptArgs[note - 0x0010] = interruptArgOf(ts, row);
+      }
     } else {
       if (toneG && voice.active) {
         // Tone porta: target the note, do not retrigger sample.

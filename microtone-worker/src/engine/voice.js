@@ -389,6 +389,10 @@ export class Voice {
     this.delayedNote = 0;
     this.delayedInst = 0;
     this.delayedVol = -1;
+    // The argument a DELAYED Int0..IntF marker is holding (item 181).
+    // `delayedNote` carries the marker itself, but a note word has no room for
+    // a second 16-bit number, so the argument needs its own slot.
+    this.delayedInterruptArg = 0;
     this.noteActionTick = -1; // absolute tick-in-row for the S$Dxny follow-up ($x+$y)
     this.delayedAction = -1;  // the $n value (0..4), or -1 = none scheduled
 

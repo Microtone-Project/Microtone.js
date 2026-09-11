@@ -659,6 +659,12 @@ other's way. In a wide (version 3) song a row has two effect slots: if you put
 a `:` in **both**, the left one is the argument and the right one is painted
 **red** to say it is being ignored.
 
+A marker can land part-way through a row like any other note event: put
+`S $Dx00` on it and it fires `x` ticks in, which at the default tempo is 20 ms
+a tick — enough to matter when something on screen is meant to hit with the
+music. The delay is read from the first effect slot, so write `S` first and the
+`:` beside it.
+
 The player library — `taudplay`, the same engine without the editor — answers
 them with `setInterrupt(n, fn)`:
 

@@ -12,6 +12,7 @@ A song can now call out to the program playing it: sixteen **interrupts**, writt
 - A marker makes no sound and disturbs nothing on its channel: a note already ringing there carries on ringing, and the instrument, volume and panning columns beside it do exactly what they always do.
 - Put a `:` effect on the same row to hand the listening program a **number**, anywhere from `$0000` to `$FFFF` — which lamp, which line of dialogue, how hard to shake the screen. It means whatever the two of you agree it means. A marker with no `:` beside it sends `0`.
 - In a wide song a row has two effect slots. A `:` in both means the left one is the argument and the right one is painted **red**, to say out loud that it is being ignored.
+- A marker can also land part-way through a row: `S $Dx00` delays it by `x` ticks, exactly as it delays a note or a key-off. At the default tempo that is 20 ms a tick, which is the difference between a flash that hits with the music and one that does not.
 - The same `:` can still extend a `J`, `O`, `2` or `3` sharing the row — the interrupt reads it without taking it away.
 - **taudplay**, the player library, answers them with one callback per interrupt, so a game can flash a light, drop a subtitle or spawn a wave on the beat without ever guessing where the beat is. Markers are saved in the file like any other note, so a song carries its cues with it.
 

@@ -5949,6 +5949,10 @@ class Voice {
     this.delayedNote = 0;
     this.delayedInst = 0;
     this.delayedVol = -1;
+    // The argument a DELAYED Int0..IntF marker is holding (item 181).
+    // `delayedNote` carries the marker itself, but a note word has no room for
+    // a second 16-bit number, so the argument needs its own slot.
+    this.delayedInterruptArg = 0;
     this.noteActionTick = -1; // absolute tick-in-row for the S$Dxny follow-up ($x+$y)
     this.delayedAction = -1;  // the $n value (0..4), or -1 = none scheduled
 
@@ -10115,8 +10119,22 @@ function applyTrackerRow(eng, ts, playhead) {
       // no sound and touches no voice state; every other column on the row —
       // instrument, volume, panning, a second effect — is the interrupt's
       // business not at all, and still does whatever it would ordinarily do.
-      ts.pendingInterrupts |= 1 << (note - 0x0010);
-      ts.interruptArgs[note - 0x0010] = interruptArgOf(ts, row);
+      //
+      // A sub-row `S $Dx` defers it exactly as it defers a key-off or a cut:
+      // a tick is 20 ms at the default tempo, which is well inside what a
+      // lighting or animation cue can be heard to miss. `x >= speed` therefore
+      // discards the marker with the rest of the row's note event (the row
+      // reset above clears noteDelayTick, so it cannot leak into the next row
+      // either) — a delay that never arrives fires nothing, which is what the
+      // same argument says for a note that never sounds.
+      if (sDelayTick > 0) {
+        voice.noteDelayTick = sDelayTick; voice.delayedNote = note;
+        voice.delayedInst = 0; voice.delayedVol = -1;
+        voice.delayedInterruptArg = interruptArgOf(ts, row);
+      } else {
+        ts.pendingInterrupts |= 1 << (note - 0x0010);
+        ts.interruptArgs[note - 0x0010] = interruptArgOf(ts, row);
+      }
     } else {
       if (toneG && voice.active) {
         // Tone porta: target the note, do not retrigger sample.
@@ -10570,6 +10588,15 @@ function applyTrackerTick(eng, ts, playhead) {
           startFastFade(voice, playhead);
           break;
         default:
+          if (voice.delayedNote >= 0x0010 && voice.delayedNote <= 0x001f) {
+            // Delayed Int0..IntF (item 181). Alone among the cases here it
+            // touches no voice state at all — the marker sounds nothing; it
+            // only latches, carrying the `:` argument row.js parked on the
+            // voice because a note word has no room for a second number.
+            ts.pendingInterrupts |= 1 << (voice.delayedNote - 0x0010);
+            ts.interruptArgs[voice.delayedNote - 0x0010] = voice.delayedInterruptArg;
+            break;
+          }
           applyDuplicateCheck(eng, ts, vi, voice.delayedInst, voice.delayedNote);
           maybeSpawnBackgroundForNNA(eng, ts, voice, vi);
           triggerMetaOrNote(eng, ts, voice, vi, voice.delayedNote, voice.delayedInst, voice.delayedVol);
