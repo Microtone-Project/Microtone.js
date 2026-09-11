@@ -231,7 +231,7 @@ Everything else — note volume, channel volume, pan, envelope positions, LFO ph
 | `$0003` | **Note fade** — begin the fadeout without releasing sustain |
 | `$0004` | **Fast fade** — begin a ≈ 0.3 s fadeout (below) |
 | `$0005`…`$000F` | Reserved; no handler |
-| `$0010`…`$001F` | **Interrupt** *n* — latch bit *n* of the pending-interrupt mask; no sound |
+| `$0010`…`$001F` | **Interrupt** *n* — latch bit *n* of the pending-interrupt mask, with the row's `:` as its argument ([§14](#14-interrupts-and-the-host-interface)); no sound |
 | `$0020`…`$FFFF` | A pitch — trigger, or retarget a portamento |
 
 **Fast fade** exists to reproduce SoundFont *exclusiveClass* choking (a closed hi-hat silencing a ringing open one). It sets note-fading and overrides the voice's fadeout step so the decay completes in ≈ 0.3 s regardless of the instrument's own fadeout:
@@ -1030,11 +1030,15 @@ Under those conditions, and with the numeric rules of [§12](#12-output-stage), 
 
 ## 14. Interrupts and the host interface
 
-Note words `$0010`…`$001F` are **interrupt markers**: they produce no sound and have no built-in behaviour. Processing one latches bit *n* in the playhead's pending-interrupt mask.
+Note words `$0010`…`$001F` are **interrupt markers**: they produce no sound and have no built-in behaviour. Processing one latches bit *n* in the playhead's pending-interrupt mask, together with a 16-bit **argument** the song chose.
 
-The host drains the mask with a **read-to-acknowledge** call that returns and clears it. Latching accumulates, so no fire is lost between drains, but repeated fires of the same interrupt between two drains collapse into one bit — the semantics are edge-triggered and level-collapsed. A host dispatches its own callbacks from the drained mask.
+The argument is the `:` effect on the marker's own row ([Note Effects](TAUD_NOTE_EFFECTS.md#-xxxx--interrupt-argument-and-argument-extension)), read but not consumed — the same `:` still extends a `J`, `O`, `2` or `3` sharing the row. A row with no `:` fires with argument `0`. Where a Format 3 row holds a `:` in **both** effect slots, the engine **MUST** take the first slot's and ignore the second's; with only one `:` the slot it sits in makes no difference. Nothing else on the marker's row is the interrupt's business — the instrument byte, the volume and panning columns and any other effect are ignored by it, and still do their own work.
 
-Interrupts are how a song drives something outside itself: lighting cues, subtitle timing, game events.
+An engine **MUST** keep one argument per interrupt, not one per fire. The host drains the mask with a **read-to-acknowledge** call that returns and clears it, and reads the arguments beside it; only the words whose bit the drain returned mean anything. Latching accumulates, so no fire is lost between drains, but repeated fires of the same interrupt between two drains collapse into one bit **carrying the last argument** — the semantics are edge-triggered and level-collapsed, on the argument exactly as on the bit. A host dispatches its own callbacks from the drained mask.
+
+A transport reset clears the mask **and** the arguments ([§15](#15-transport-reset)); a stale argument outliving its bit would otherwise be delivered with the next fire that carries none.
+
+Interrupts are how a song drives something outside itself: lighting cues, subtitle timing, game events. The reference host binding is taudplay's `setInterrupt(n, fn)`, which calls `fn(argument)`.
 
 ## 15. Transport reset
 
@@ -1058,7 +1062,7 @@ Opcodes are base-36 digit values: `0`…`9` are `$00`…`$09` and `A`…`Z` are 
 
 | Opcode | Scope | Engine effect |
 |---|---|---|
-| `:` | Row | Argument extension — hands its argument to whichever other effect shares the row, resolved once per row before either slot dispatches ([Note Effects](TAUD_NOTE_EFFECTS.md#-xxxx--argument-extension-format-3-only)); a bare no-op outside Format 3 |
+| `:` | Row | On an interrupt row, that interrupt's argument ([§14](#14-interrupts-and-the-host-interface)); otherwise argument extension — hands its argument to whichever other effect shares the row, resolved once per row before either slot dispatches ([Note Effects](TAUD_NOTE_EFFECTS.md#-xxxx--interrupt-argument-and-argument-extension)), and a bare no-op outside Format 3 |
 | `1` | Playhead | Set the global behaviour flags — tone mode and interpolation — from the argument's high byte |
 | `5` / `6` | Instrument | Cutoff / resonance override, `$FFFF` to clear |
 | `7` | Channel, row-time | Pattern Ditto ([§5.9](#5-9-pattern-ditto)) |

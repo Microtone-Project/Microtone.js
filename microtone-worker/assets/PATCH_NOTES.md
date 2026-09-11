@@ -6,6 +6,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-11
 
+A song can now call out to the program playing it: sixteen **interrupts**, written on the note column, firing exactly in time with the music.
+
+- Press **b** on the note column to place a marker, then **[** / **]** or the mouse wheel to choose which of the sixteen it is — `I·0` through `I·F`. The command palette carries a button for each number.
+- A marker makes no sound and disturbs nothing on its channel: a note already ringing there carries on ringing, and the instrument, volume and panning columns beside it do exactly what they always do.
+- Put a `:` effect on the same row to hand the listening program a **number**, anywhere from `$0000` to `$FFFF` — which lamp, which line of dialogue, how hard to shake the screen. It means whatever the two of you agree it means. A marker with no `:` beside it sends `0`.
+- In a wide song a row has two effect slots. A `:` in both means the left one is the argument and the right one is painted **red**, to say out loud that it is being ignored.
+- The same `:` can still extend a `J`, `O`, `2` or `3` sharing the row — the interrupt reads it without taking it away.
+- **taudplay**, the player library, answers them with one callback per interrupt, so a game can flash a light, drop a subtitle or spawn a wave on the beat without ever guessing where the beat is. Markers are saved in the file like any other note, so a song carries its cues with it.
+
 Write the start and the end of a move, select the rows in between, and **Interpolate** draws the rest of it for you.
 
 - It is a new cell in the right-click menu's tool row, in both the **Timeline** and the **Patterns** grid. The values already in the block are the control points; the empty rows between them get filled in with a curve. It appears when the selection covers one column it can fill — the note, volume, panning or effect column — or volume and panning together, which it then does in one pass and one undo step.

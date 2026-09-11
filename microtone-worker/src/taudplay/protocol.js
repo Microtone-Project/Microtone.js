@@ -7,8 +7,8 @@
 // numbers per voice: how loud it is and where it sits.
 //
 // Snapshots travel by postMessage on a recycled pair of ArrayBuffers (~16 ms).
-// There is no SharedArrayBuffer path and no render-worker tier: 848 bytes every
-// 16 ms is 53 kB/s of structured clone, which is not worth a COOP/COEP deploy
+// There is no SharedArrayBuffer path and no render-worker tier: 864 bytes every
+// 16 ms is 54 kB/s of structured clone, which is not worth a COOP/COEP deploy
 // requirement to avoid. Dropping both is most of why this file is short.
 
 /** Commands the main thread sends to the worklet. */
@@ -39,7 +39,13 @@ export const SNAP_BPM = 3;
 export const SNAP_TICK_RATE = 4;
 export const SNAP_CHANNELS = 5;      // 32 or 64
 export const SNAP_SONG_INDEX = 6;
-export const SNAP_HEADER = 8;        // voice block starts here (padded to 8)
+/** Interrupts (item 181): the drained Int0..IntF latch, then the argument each
+ *  one fired with. Edge-triggered — a bit set here is one or more fires since
+ *  the previous snapshot, and the player turns it into callbacks. */
+export const SNAP_INT_MASK = 7;
+export const SNAP_INT_ARGS = 8;      // 16 words, Int0..IntF
+export const SNAP_INT_COUNT = 16;
+export const SNAP_HEADER = 24;       // voice block starts here
 
 /** Per-voice block: the two probes plus the gate that says whether to believe
  *  them. `active` is not a third probe — it is what tells a meter to fall to

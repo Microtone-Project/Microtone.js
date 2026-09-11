@@ -9,6 +9,8 @@ import {
   CMD,
   SNAP_CUE_POS, SNAP_ROW_INDEX, SNAP_TICK_IN_ROW, SNAP_BPM, SNAP_TICK_RATE,
   SNAP_FLAGS, SNAP_CHANNEL_COUNT, SNAP_HEADER_SIZE,
+  SNAP_INTERRUPT_MASK, SNAP_INTERRUPT_ARGS,
+  SNAP_SAB_I32_MASK, SNAP_SAB_I32_ARGS,
   SNAP_V_ACTIVE, SNAP_V_EFF_VOL, SNAP_V_EFF_PAN, SNAP_V_NOTE, SNAP_V_INST,
   SNAP_V_SAMPLE_POS, SNAP_V_SAMPLE_PTR, SNAP_V_SAMPLE_LEN,
   SNAP_V_ENV_VOL_IDX, SNAP_V_ENV_VOL_TIME, SNAP_V_ENV_PAN_IDX, SNAP_V_ENV_PAN_TIME,
@@ -115,6 +117,36 @@ export function invertMaskBuffer(eng, slot) {
 export function modMaskBuffer(eng, slot) {
   const mask = eng.getInstrumentModMask(slot);
   return mask.buffer.slice(mask.byteOffset, mask.byteOffset + mask.byteLength);
+}
+
+/**
+ * Drain the playhead's interrupt latch into whichever wire this host uses, and
+ * with it the argument each Int carried (item 181).
+ *
+ * `i32` is the shared buffer's Int32 tail on a SAB deploy and null on the
+ * postMessage fallback. The two differ in more than storage: the shared cells
+ * ACCUMULATE (the main thread drains them on its own clock, so an OR is the
+ * only way no fire is lost between two reads), while a posted snapshot is a
+ * fresh message the main thread merges itself. Arguments are stored before the
+ * mask bit that makes them readable, so a reader that sees the bit sees the
+ * word that came with it.
+ */
+export function drainInterruptsInto(eng, playhead, f, i32 = null) {
+  const ts = eng.playheads[playhead].trackerState;
+  const mask = ts.drainInterrupts();
+  if (i32 !== null) {
+    f[SNAP_INTERRUPT_MASK] = 0; // the float slot is the fallback's, not this path's
+    if (mask === 0) return;
+    for (let n = 0; n < 16; n++) {
+      if (mask & (1 << n)) Atomics.store(i32, SNAP_SAB_I32_ARGS + n, ts.interruptArg(n));
+    }
+    Atomics.or(i32, SNAP_SAB_I32_MASK, mask);
+    return;
+  }
+  f[SNAP_INTERRUPT_MASK] = mask;
+  for (let n = 0; n < 16; n++) {
+    if (mask & (1 << n)) f[SNAP_INTERRUPT_ARGS + n] = ts.interruptArg(n);
+  }
 }
 
 /** Write every snapshot field except the interrupt latch into `f`. */

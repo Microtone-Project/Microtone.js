@@ -197,3 +197,4 @@ export const NOTE_FADE = 0x0003;
 export const NOTE_FAST_FADE = 0x0004;
 export const NOTE_INT_FIRST = 0x0010; // Int0..IntF interrupt notes
 export const NOTE_INT_LAST = 0x001f;
+export const NUM_INTERRUPTS = 16;

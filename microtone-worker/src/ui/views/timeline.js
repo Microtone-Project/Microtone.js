@@ -8,13 +8,12 @@ import {
   AZIMUTH_TURN, ELEVATION_QUARTER, SURROUND_SPATIAL, lateralProjection,
 } from "../../engine/spatial.js";
 import { hex2, hex4, fxColonWarns } from "../notenames.js";
-import { stepNoteInTable } from "../pitchtables.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
 import {
   interpretEditKey, interpretBracketKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
   subPositions, subCharPos, charToSub, CELL_CHARS, CELL_CHARS_WIDE, CELL_CHARS_WIDE_FX2,
-  lookahead, wheelStep,
+  lookahead, wheelStep, stepNoteCell,
   colsForSubs, subToCol, ALL_COLS, colCharRange, subIsEmpty,
   volPanStep, volPanState, elevationStep,
 } from "../edit.js";
@@ -993,7 +992,7 @@ export class TimelineView {
 
     let fields = null;
     switch (hit.sub) {
-      case SUB_NOTE: fields = { note: stepNoteInTable(cell.note, store.pitchPreset, dir) }; break;
+      case SUB_NOTE: fields = { note: stepNoteCell(cell.note, store.pitchPreset, dir) }; break;
       case SUB_INST: fields = { instrment: clampInt(cell.instrment + dir, 0, 255) }; break;
       // vol/pan: a fine slide steps its SIGNED delta (item 87), everything else
       // the plain value; neither ever steps into the no-op sentinel.
@@ -1435,20 +1434,21 @@ export class TimelineView {
           // On the sphere, ear level is a stated position, not an absent one.
           spatial: (store.doc?.songs[store.songIndex]?.surroundModel ?? 0) === SURROUND_SPATIAL });
         // Effect column: one shade of amber per argument field (item 120), or
-        // — when this row's `:` pairing needs a second look (fxColonWarns:
-        // `:` on the first slot, or paired with a command that ignores it) —
-        // the whole cell in red for BOTH slots. A `:` correctly on the
-        // second slot, paired with something that reads it, colours normally.
-        const paired = wide && fxColonWarns(cell.effect, cell.effect2);
+        // — when this row's `:` needs a second look (fxColonWarns: `:` on the
+        // first slot, paired with a command that ignores it, or a second `:`
+        // behind the one an interrupt row is reading) — that cell in red. The
+        // flag is per SLOT, so an interrupt row can redden the losing `:` and
+        // leave the winning one painting normally.
+        const warn = wide ? fxColonWarns(cell.effect, cell.effect2, ghost?.note ?? cell.note) : 0;
         const fx = ghost?.fx ?? [cell.effect, cell.effectArg];
         paintFxCell(ctx, fx[0], fx[1], x + 2 + (wide ? 19 : 16) * CHAR_W, y, CHAR_W, ROW_H,
-          ghost?.fx ? dittoPal : fxPal, paired, cell.effect2);
+          ghost?.fx ? dittoPal : fxPal, (warn & 1) !== 0, cell.effect2);
         // …and the second effect in the same inks, since it is the same column
         // twice (§5.5). Ditto never reaches it: effect 7 repeats the SOURCE
         // row's first effect, and the ghost map has no second slot to fill.
         if (fx2) {
           paintFxCell(ctx, cell.effect2, cell.effectArg2,
-            x + 2 + 25 * CHAR_W, y, CHAR_W, ROW_H, fxPal, paired, cell.effect);
+            x + 2 + 25 * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect);
         }
       }
     }

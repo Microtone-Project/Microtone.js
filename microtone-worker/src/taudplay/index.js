@@ -11,6 +11,7 @@
 //   player.play();
 //   player.setVoiceGain(3, 0, 1500);   // fade channel 4 out over 1.5 s
 //   player.getVoiceVolume(3);          // …and watch it go
+//   player.setInterrupt(0, (arg) => flash(arg));  // …and let the song call you
 //
 // Copyright (C) 2026 CuriousTorvald. Licensed under the GNU Lesser General
 // Public License version 3 or later — see COPYING.LESSER.

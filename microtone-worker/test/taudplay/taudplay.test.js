@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
 
 import { TaudRenderer, TaudPlayer, encodeWav, gainToFader, faderToGain }
   from "../../src/taudplay/index.js";
+import { makeInterruptBank, setInterruptIn, fireInterrupts }
+  from "../../src/taudplay/interrupts.js";
 import { TaudEngine } from "../../src/engine/engine.js";
 import { parseTaud } from "../../src/format/taud-parse.js";
 import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
@@ -198,6 +200,90 @@ test("encodeWav is the tracker's own encoder", () => {
   assert.equal(dv.getInt16(46, true), Math.round(0.5 * 32767));
   assert.equal(dv.getInt16(50, true), 32767);
   assert.equal(dv.getInt16(52, true), -32767);
+});
+
+// ── interrupts: the song calling out (item 181) ─────────────────────────────
+
+/** Patch pattern-row 0 of whichever pattern cue 0 gives channel 0 into an
+ *  interrupt marker carrying `arg`, and re-upload. A corpus song has no
+ *  markers of its own — the point here is the LIBRARY's path from a latched
+ *  interrupt to a callback, not the engine's row decoding, which
+ *  test/node/interrupts.test.js pins on patterns built for it. */
+function armInterrupt(r, n, arg) {
+  const song = r.doc.songs[0];
+  const pat = song.patterns[song.cues[0][0] & 0x7fff];
+  pat[0] = (0x0010 + n) & 0xff; pat[1] = 0;   // note word = IntN
+  pat[5] = 0xba;                              // `:`
+  pat[6] = arg & 0xff; pat[7] = (arg >>> 8) & 0xff;
+  r.selectSong(0);
+  return r;
+}
+
+test("a marker in the song calls the registered callback, with its argument", () => {
+  const r = armInterrupt(new TaudRenderer(SLUMBER), 5, 0x1234);
+  const seen = [];
+  r.setInterrupt(5, (arg) => seen.push(arg));
+  r.play();
+  r.renderChunk();
+  assert.deepEqual(seen, [0x1234]);
+  // Read-to-acknowledge: the next block does not report it again.
+  r.renderChunk();
+  assert.deepEqual(seen, [0x1234]);
+});
+
+test("an unregistered interrupt is a song event nobody is listening for", () => {
+  const r = armInterrupt(new TaudRenderer(SLUMBER), 5, 0x1234);
+  let other = 0;
+  r.setInterrupt(4, () => { other++; });
+  r.play();
+  r.renderChunk();
+  assert.equal(other, 0, "Int5 fired, Int4 did not");
+});
+
+test("setInterrupt(n, null) unregisters, and clearInterrupts drops the lot", () => {
+  const r = armInterrupt(new TaudRenderer(SLUMBER), 5, 0x0001);
+  let hits = 0;
+  r.setInterrupt(5, () => { hits++; });
+  r.play();
+  r.renderChunk();
+  assert.equal(hits, 1);
+  r.setInterrupt(5, null);
+  armInterrupt(r, 5, 0x0001); r.play(); r.renderChunk();
+  assert.equal(hits, 1, "unregistered");
+  r.setInterrupt(5, () => { hits++; });
+  r.clearInterrupts();
+  armInterrupt(r, 5, 0x0001); r.play(); r.renderChunk();
+  assert.equal(hits, 1, "cleared");
+});
+
+test("out-of-range interrupt numbers are ignored, not thrown at", () => {
+  const r = new TaudRenderer(SLUMBER);
+  assert.doesNotThrow(() => { r.setInterrupt(-1, () => {}); r.setInterrupt(16, () => {}); });
+});
+
+test("a throwing callback does not take the block, or its neighbours, with it", () => {
+  const bank = makeInterruptBank();
+  const seen = [];
+  setInterruptIn(bank, 1, () => { throw new Error("boom"); });
+  setInterruptIn(bank, 2, (arg) => seen.push(arg));
+  const errors = [];
+  const realError = console.error;
+  console.error = (...a) => errors.push(a);
+  try {
+    assert.doesNotThrow(() => fireInterrupts(bank, 0b110, (n) => n * 10));
+  } finally {
+    console.error = realError;
+  }
+  assert.deepEqual(seen, [20], "Int2 still ran");
+  assert.equal(errors.length, 1, "…and Int1's throw was reported");
+});
+
+test("the interrupt surface is one setter, one clear — nothing per-voice", () => {
+  for (const Cls of [TaudPlayer, TaudRenderer]) {
+    const names = Object.getOwnPropertyNames(Cls.prototype);
+    assert.ok(names.includes("setInterrupt"), `${Cls.name}.setInterrupt exists`);
+    assert.ok(names.includes("clearInterrupts"), `${Cls.name}.clearInterrupts exists`);
+  }
 });
 
 test("the surface is the surface — nothing else leaked out", () => {

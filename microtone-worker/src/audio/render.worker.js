@@ -12,9 +12,10 @@
 
 import { TaudEngine } from "../engine/engine.js";
 import { TRACKER_CHUNK } from "../engine/constants.js";
-import { CMD, MSG, SNAP_FLOATS, SNAP_INTERRUPT_MASK } from "../worklet/protocol.js";
+import { CMD, MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "../worklet/protocol.js";
 import {
   applyAudioCommand, isTransportReset, invertMaskBuffer, modMaskBuffer, fillSnapshotInto,
+  drainInterruptsInto,
 } from "../worklet/engine-commands.js";
 import {
   audioRingViews, AR_FRAMES, AR_MASK,
@@ -74,9 +75,7 @@ function maybeSnapshot(force) {
   if (!force && t - lastSnapshotMs < snapshotIntervalMs) return;
   lastSnapshotMs = t;
   fillSnapshotInto(engine, PLAYHEAD, snapF32);
-  snapF32[SNAP_INTERRUPT_MASK] = 0;
-  const drained = engine.playheads[PLAYHEAD].trackerState.drainInterrupts();
-  if (drained !== 0 && snapI32) Atomics.or(snapI32, 0, drained);
+  drainInterruptsInto(engine, PLAYHEAD, snapF32, snapI32);
 }
 
 function tick() {
@@ -98,7 +97,7 @@ self.onmessage = (e) => {
       break;
     case CMD.USE_SAB:
       snapF32 = new Float32Array(m.sab, 0, SNAP_FLOATS);
-      snapI32 = new Int32Array(m.sab, SNAP_FLOATS * 4, 1);
+      snapI32 = new Int32Array(m.sab, SNAP_FLOATS * 4, SNAP_SAB_I32_CELLS);
       break;
     case CMD.USE_AUDIO_SAB:
       ring = audioRingViews(m.sab);

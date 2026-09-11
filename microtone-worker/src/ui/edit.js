@@ -111,13 +111,16 @@ export function lastSub(fx2 = false) { return fx2 ? SUB_FX2_ARG : SUB_FX_ARG; }
  * skips empty sub-columns, so a wheel tick over a dot only scrolls the view and
  * never conjures a value out of nothing. The dot conditions mirror the painters
  * (timeline.js / pattern.js) and the *ToStr helpers in notenames.js.
- *   note: only a pitched note (>= 0x20) is wheel-steppable — 0, sentinels,
- *         reserved and interrupt words all count as "nothing to step" here.
+ *   note: a pitched note (>= 0x20) is wheel-steppable, and so is an interrupt
+ *         marker ($0010..$001F), whose number is a value like any other (item
+ *         181). 0, the key-off/cut/fade sentinels and the reserved words are
+ *         "nothing to step": they are commands, not quantities, and nudging
+ *         one into a pitch would be a silent, surprising edit.
  *   fx  : the opcode + arg share one visual column, empty only when both are 0.
  */
 export function subIsEmpty(sub, cell) {
   switch (sub) {
-    case SUB_NOTE: return cell.note < 0x20;
+    case SUB_NOTE: return cell.note < 0x0010; // below the Int markers: 0 and the command sentinels
     case SUB_INST: return cell.instrment === 0;
     case SUB_VOL: return cell.volumeEff === 3 && cell.volume === 0;
     case SUB_PAN:
@@ -506,6 +509,27 @@ function stepInstSlot(cur, step, slots) {
 }
 
 /**
+ * One step of the note column, for the two controls that nudge a cell in place
+ * — the mouse wheel and the bracket keys.
+ *
+ * Three kinds of note word behave differently, and only one of them is a pitch:
+ * an interrupt marker (item 181) walks Int0…IntF and clamps at both ends, so a
+ * stray step cannot tip it into the reserved space below or a pitch above; a
+ * real note steps by one degree of the active pitch table; every other
+ * sentinel holds still, since stepping "key-off" by a degree means nothing.
+ * Both callers already refuse the third case (subIsEmpty gates the wheel, and
+ * the bracket keys return early), so that branch is belt and braces — but it
+ * is what keeps this function safe to call on any cell.
+ */
+export function stepNoteCell(note, preset, dir) {
+  if (note >= 0x0010 && note <= 0x001f) {
+    return Math.min(Math.max(note + dir, 0x0010), 0x001f);
+  }
+  if (note < 0x20) return note;
+  return stepNoteInTable(note, preset, dir);
+}
+
+/**
  * Contextual bracket-key edit (items 47.2 + 47.6). `dir` is -1 for '[' / +1 for
  * ']'; `shift` selects the '{' / '}' variant. This handles ONLY the record-mode,
  * cursor-on-a-column edits; the not-record global bindings ([ ] octave, { }
@@ -523,7 +547,14 @@ export function interpretBracketKey(dir, shift, sub, cell, ctx) {
   const clampV = (v) => (v < 0 ? 0 : v > 0x3f ? 0x3f : v);
   switch (sub) {
     case SUB_NOTE: {
-      if (cell.note < 0x20) return null; // sentinel / empty: no pitch to nudge
+      // Interrupt markers are the one sentinel with a VALUE in it (item 181):
+      // `[`/`]` walk Int0…IntF, and Shift does the same, since the number has
+      // no coarse and fine axis to tell apart.
+      if (cell.note >= 0x0010 && cell.note <= 0x001f) {
+        const note = stepNoteCell(cell.note, ctx.preset, dir);
+        return note === cell.note ? null : { fields: { note } };
+      }
+      if (cell.note < 0x20) return null; // other sentinels / empty: no pitch to nudge
       const interval = ctx.preset?.interval || 0x1000;
       const note = shift
         ? stepNoteInTable(cell.note, ctx.preset, dir)                        // semitone/step
@@ -630,6 +661,13 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
       case "KeyX": return { fields: { note: 0x0002 }, advanceRow: true };    // note cut
       case "KeyC": return { fields: { note: 0x0003 }, advanceRow: true };    // note fade
       case "KeyV": return { fields: { note: 0x0004 }, advanceRow: true };    // fast fade
+      // Interrupt marker (item 181), next key along from the sentinel run:
+      // `b` places Int0 and the bracket keys step it to IntF, the same pair
+      // that nudges a pitch. The song fires it, the host answers it; nothing
+      // about it is audible, so it does not advance the row like a note —
+      // an interrupt usually shares its row with the note above it, and
+      // stepping the number is the next thing the hand wants to do.
+      case "KeyB": return { fields: { note: 0x0010 } };
       case "Delete": case "Backspace": case "Period":
         return { fields: { note: 0, instrment: 0 }, advanceRow: true };
     }

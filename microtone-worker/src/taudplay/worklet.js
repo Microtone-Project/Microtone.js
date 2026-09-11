@@ -26,7 +26,7 @@ import { kaiserKernel } from "../audio/resampler.js";
 import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,
-  SNAP_SONG_INDEX, SNAP_HEADER,
+  SNAP_SONG_INDEX, SNAP_INT_MASK, SNAP_INT_ARGS, SNAP_INT_COUNT, SNAP_HEADER,
   SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
   SNAP_VOICES, SNAP_FLOATS,
 } from "./protocol.js";
@@ -168,6 +168,16 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
     f[SNAP_TICK_RATE] = ph.tickRate;
     f[SNAP_CHANNELS] = this.engine.channelCount();
     f[SNAP_SONG_INDEX] = this.songIndex;
+    // Interrupts (item 181): drain the latch into the snapshot the main thread
+    // is about to get. Read-to-acknowledge, so every fire is reported exactly
+    // once — and the drain sits AFTER the pool check above on purpose: a
+    // snapshot that could not be served would otherwise swallow the fires it
+    // never delivered, instead of leaving them latched for the next one.
+    const mask = ts.drainInterrupts();
+    f[SNAP_INT_MASK] = mask;
+    for (let n = 0; n < SNAP_INT_COUNT; n++) {
+      if (mask & (1 << n)) f[SNAP_INT_ARGS + n] = ts.interruptArg(n);
+    }
     for (let vi = 0; vi < SNAP_VOICES; vi++) {
       const v = ts.voices[vi];
       const o = SNAP_HEADER + vi * SNAP_V_STRIDE;

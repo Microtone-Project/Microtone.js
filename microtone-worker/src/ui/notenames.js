@@ -168,27 +168,43 @@ export function fxOpChar(effect) {
 }
 
 /**
- * Does this row's `:` pairing need flagging (item 162.1)? Only the two cases
- * that would actually mislead a reader — everything else renders through the
- * ordinary per-field colouring (fxArgFields), same as any other row:
+ * Which effect slots of this row should be flagged red (item 162.1, widened by
+ * item 181)? Returns a bitmask — bit 0 for the first slot, bit 1 for the
+ * second — so a row can flag ONE cell and leave the other painting normally.
  *
- *   1. `:` sits in the FIRST effect slot. Functionally identical to the
- *      second-slot spelling, but the TODO's own worry was a human reader
- *      expecting `:` second and reading the row wrong when it isn't.
+ * The single rule underneath is *this `:` argument reaches nobody*, plus one
+ * house-style warning about where a reader expects to find it:
+ *
+ *   1. `:` sits in the FIRST effect slot while extending a command in the
+ *      second. Functionally identical to the second-slot spelling, but the
+ *      TODO's own worry was a human reader expecting `:` second and reading
+ *      the row wrong when it isn't. Both cells flag.
  *   2. `:` is paired with a command that does not read its argument at all
  *      (EXT_CAPABLE_OPS) — the pairing is a no-op, which is worth a flag
- *      exactly because it LOOKS like it should do something.
+ *      exactly because it LOOKS like it should do something. Both cells flag.
+ *   3. `:` in BOTH slots: neither extends anything, so both flag.
  *
- * False whenever the row isn't paired at all (neither slot is `:`, or both
- * are — nothing to extend either way): that is not a warning, just an
- * ordinary unpaired `:` or command, and paints normally.
+ * An **interrupt row** (an `Int0`…`IntF` marker in the note column) changes
+ * all three, because there the `:` is not an extension at all — it is the
+ * interrupt's argument, and the format says the FIRST one wins whichever slot
+ * it sits in ([Note Effects](../../assets/TAUD_NOTE_EFFECTS.md), engine side
+ * `src/engine/row.js` interruptArgOf). So on such a row the winning `:` is
+ * doing its job and never flags, whatever shares the row with it; only a
+ * SECOND `:` behind it does, since that one is read by nobody.
+ *
+ * Zero whenever the row has no `:` at all: that is not a warning, just an
+ * ordinary command, and paints through fxArgFields like any other row.
  */
-export function fxColonWarns(effect, effect2) {
+export function fxColonWarns(effect, effect2, note = 0) {
   const colon1 = effect === EffectOp.OP_COLON;
   const colon2 = effect2 === EffectOp.OP_COLON;
-  if (colon1 === colon2) return false; // not paired: neither, or both
-  if (colon1) return true; // rule 1
-  return !EXT_CAPABLE_OPS.has(effect); // rule 2
+  if (!colon1 && !colon2) return 0;
+  if (note >= 0x0010 && note <= 0x001f) {
+    // Interrupt row: the leftmost `:` is the argument, so only a loser flags.
+    return colon1 && colon2 ? 2 : 0;
+  }
+  if (colon1) return 3;             // rules 1 and 3 — both flag the whole row
+  return EXT_CAPABLE_OPS.has(effect) ? 0 : 3; // rule 2
 }
 
 /**

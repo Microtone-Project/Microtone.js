@@ -105,44 +105,75 @@ test("every effect number yields four fields, and the last is never the opcode's
   }
 });
 
-// ── item 162.1: the red "this `:` pairing needs a second look" flag ────────
-// Only two arrangements warrant it; the correct-and-supported case (and
-// anything that isn't actually a pairing) paints through the ordinary
-// per-field colours above like any other row.
+// ── item 162.1 + 181: the red "this `:` needs a second look" flag ──────────
+// A per-SLOT mask now: bit 0 flags the first effect cell, bit 1 the second, so
+// an interrupt row can redden the `:` that lost and leave the winner alone.
+// The correct-and-supported arrangements (and anything that isn't a `:` at
+// all) paint through the ordinary per-field colours above like any other row.
+
+const NOTE_INT3 = 0x0013;
 
 test("`:` correctly on the second slot, paired with something that reads it: no warning", () => {
   for (const op of [EffectOp.OP_J, EffectOp.OP_O, EffectOp.OP_2, EffectOp.OP_3]) {
-    assert.equal(fxColonWarns(op, EffectOp.OP_COLON), false, `op ${op}`);
+    assert.equal(fxColonWarns(op, EffectOp.OP_COLON), 0, `op ${op}`);
   }
 });
 
 test("`:` on the FIRST slot warns, even paired with a command that reads it", () => {
   for (const op of [EffectOp.OP_J, EffectOp.OP_O, EffectOp.OP_2, EffectOp.OP_3]) {
-    assert.equal(fxColonWarns(EffectOp.OP_COLON, op), true, `op ${op}`);
+    assert.equal(fxColonWarns(EffectOp.OP_COLON, op), 3, `op ${op}`);
   }
 });
 
 test("`:` paired with a command that ignores it warns, regardless of slot", () => {
-  assert.equal(fxColonWarns(EffectOp.OP_H, EffectOp.OP_COLON), true, "H does not read `:`");
-  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_H), true, "still `:` on the first slot too");
+  assert.equal(fxColonWarns(EffectOp.OP_H, EffectOp.OP_COLON), 3, "H does not read `:`");
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_H), 3, "still `:` on the first slot too");
 });
 
 test("no `:` in either slot: never warns, whatever the row otherwise says", () => {
-  assert.equal(fxColonWarns(EffectOp.OP_J, 0), false, "unpaired J");
-  assert.equal(fxColonWarns(0, 0), false, "empty row");
+  assert.equal(fxColonWarns(EffectOp.OP_J, 0), 0, "unpaired J");
+  assert.equal(fxColonWarns(0, 0), 0, "empty row");
+  assert.equal(fxColonWarns(EffectOp.OP_J, 0, NOTE_INT3), 0, "…nor on an interrupt row");
 });
 
 test("`:` alone in a slot still hits rule 1 or rule 2 — the row is still wrong to read", () => {
   // First slot: rule 1 fires on POSITION alone, empty second slot or not.
-  assert.equal(fxColonWarns(EffectOp.OP_COLON, 0), true, "`:` first, nothing to extend");
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, 0), 3, "`:` first, nothing to extend");
   // Second slot with nothing in front of it: rule 2 fires too — $00 (OP_NONE)
   // is not in EXT_CAPABLE_OPS, so it reads exactly like any other command
   // that doesn't consume the argument.
-  assert.equal(fxColonWarns(0, EffectOp.OP_COLON), true, "`:` second, nothing in front of it");
+  assert.equal(fxColonWarns(0, EffectOp.OP_COLON), 3, "`:` second, nothing in front of it");
 });
 
-test("`:` in BOTH slots is symmetric — neither position is more \"wrong\" than the other", () => {
-  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_COLON), false);
+test("`:` in BOTH slots flags BOTH — neither of them extends anything", () => {
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_COLON), 3);
+});
+
+// ── item 181: on an interrupt row the `:` is the interrupt's ARGUMENT ───────
+
+test("an interrupt row's lone `:` is doing its job in either slot — no warning", () => {
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, 0, NOTE_INT3), 0, "first slot");
+  assert.equal(fxColonWarns(0, EffectOp.OP_COLON, NOTE_INT3), 0, "second slot");
+  // …including beside a command that has nothing to do with it. The `:` is the
+  // interrupt's, not that command's, so rule 2 has nothing to say here.
+  assert.equal(fxColonWarns(EffectOp.OP_H, EffectOp.OP_COLON, NOTE_INT3), 0);
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_H, NOTE_INT3), 0);
+  // …and beside one that DOES read it: the same colon feeds both.
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_J, NOTE_INT3), 0);
+});
+
+test("two `:` on an interrupt row: the first wins, only the second reddens", () => {
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_COLON, NOTE_INT3), 2);
+});
+
+test("every interrupt marker reads the same, and its neighbours do not", () => {
+  for (let n = 0; n < 16; n++) {
+    assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_COLON, 0x0010 + n), 2, `Int${n}`);
+  }
+  // $000F is the last reserved sentinel and $0020 the lowest playable note —
+  // neither is an interrupt, so both fall back to the ordinary rules.
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_COLON, 0x000f), 3);
+  assert.equal(fxColonWarns(EffectOp.OP_COLON, EffectOp.OP_COLON, 0x0020), 3);
 });
 
 // ── contextual field colouring for a correctly-paired `:` (fxArgFields'

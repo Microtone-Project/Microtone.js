@@ -16,6 +16,7 @@ import {
   SNAP_V_ENV_VOL_IDX, SNAP_V_ENV_VOL_TIME, SNAP_V_ENV_PAN_IDX, SNAP_V_ENV_PAN_TIME,
   SNAP_V_ENV_PITCH_IDX, SNAP_V_ENV_PITCH_TIME, SNAP_V_ENV_FILTER_IDX, SNAP_V_ENV_FILTER_TIME,
   SNAP_VOICE_STRIDE, SNAP_FLOATS, SNAP_SAB_BYTES, SNAP_GLOBAL_VOLUME,
+  SNAP_INTERRUPT_ARGS, SNAP_SAB_I32_MASK, SNAP_SAB_I32_ARGS, SNAP_SAB_I32_CELLS,
   SNAP_V_FUNK_WINDOW, SNAP_V_FUNK_POS, SNAP_V_FUNK_LEN, SNAP_V_FUNK_MODE,
   SNAP_V_MOD_FUNK_WINDOW,
   SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD,
@@ -33,7 +34,7 @@ import {
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
-  PATTERN_BYTES, PATTERN_BYTES_WIDE,
+  PATTERN_BYTES, PATTERN_BYTES_WIDE, NUM_INTERRUPTS,
 } from "../engine/constants.js";
 import { AR_SAB_BYTES } from "./audio-ring.js";
 import { ANALYSIS_OFF, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
@@ -50,6 +51,10 @@ export class AudioSystem {
     this.snapshot = new Float32Array(SNAP_FLOATS);
     this.snapshot[SNAP_CHANNEL_COUNT] = NUM_VOICES;
     this.interruptMask = 0; // accumulated between pollTrackerInterrupts calls
+    // …and the argument each of those interrupts carried (item 181). Copied out
+    // of every snapshot that reports the bit, so a drain reads the word that
+    // came with the fire rather than whatever is in the buffer by then.
+    this.interruptArgs = new Uint16Array(NUM_INTERRUPTS);
     this.onSnapshot = null; // optional callback(snapshot Float32Array; postMessage path only)
     this.usedBundleFallback = false;
     this.usingSab = false;  // shared-memory snapshots (crossOriginIsolated deploys)
@@ -123,7 +128,7 @@ export class AudioSystem {
       const view = new Float32Array(snapSab, 0, SNAP_FLOATS);
       view.set(this.snapshot); // carry the pre-init defaults (channel count)
       this.snapshot = view;
-      this.sabI32 = new Int32Array(snapSab, SNAP_FLOATS * 4, 1);
+      this.sabI32 = new Int32Array(snapSab, SNAP_FLOATS * 4, SNAP_SAB_I32_CELLS);
       this.usingSab = true;
 
       try {
@@ -157,7 +162,11 @@ export class AudioSystem {
       const f = new Float32Array(m.buffer);
       // A snapshot posted before a USE_SAB switch landed must not clobber the
       // live shared view — but its latched interrupts still count.
-      this.interruptMask |= f[SNAP_INTERRUPT_MASK];
+      const posted = f[SNAP_INTERRUPT_MASK];
+      this.interruptMask |= posted;
+      for (let n = 0; posted >>> n; n++) {
+        if (posted & (1 << n)) this.interruptArgs[n] = f[SNAP_INTERRUPT_ARGS + n];
+      }
       if (!this.usingSab) {
         this.snapshot.set(f);
         if (this.onSnapshot) this.onSnapshot(this.snapshot);
@@ -410,9 +419,23 @@ export class AudioSystem {
   pollTrackerInterrupts() {
     let m = this.interruptMask;
     this.interruptMask = 0;
-    if (this.sabI32 !== null) m |= Atomics.exchange(this.sabI32, 0, 0);
+    if (this.sabI32 !== null) {
+      const shared = Atomics.exchange(this.sabI32, SNAP_SAB_I32_MASK, 0);
+      for (let n = 0; shared >>> n; n++) {
+        if (shared & (1 << n)) {
+          this.interruptArgs[n] = Atomics.load(this.sabI32, SNAP_SAB_I32_ARGS + n);
+        }
+      }
+      m |= shared;
+    }
     return m;
   }
+
+  /** The argument Int `n` fired with (item 181) — read beside the mask the poll
+   *  above returned, and only for the bits it set. An interrupt that fired more
+   *  than once in the window reports the LAST argument, the same collapsing the
+   *  mask itself does. */
+  getInterruptArg(n) { return this.interruptArgs[n & (NUM_INTERRUPTS - 1)]; }
 
   _v(vi, field) {
     const v = Math.min(Math.max(vi, 0), TOTAL_VOICES - 1);

@@ -58,6 +58,24 @@ test("O's extended hint names it the HIGH word; `:`'s names the low word", () =>
   assert.match(fxArgHint(EffectOp.OP_COLON, EffectOp.OP_O), /low word/i);
 });
 
+test("on an interrupt row, `:` reads as the interrupt's argument, not an extension", () => {
+  const INT3 = 0x0013;
+  const plain = fxArgHint(EffectOp.OP_COLON, 0);
+  const onInt = fxArgHint(EffectOp.OP_COLON, 0, INT3);
+  assert.notEqual(onInt, plain, "the row's note changes what the cell means");
+  assert.match(onInt, /interrupt/i);
+  // Even paired with something that DOES extend: the same colon feeds both,
+  // and the interrupt is the reading the composer put the marker there for.
+  assert.equal(fxArgHint(EffectOp.OP_COLON, EffectOp.OP_J, INT3), onInt);
+  // The neighbouring words are not markers, so they read as before.
+  assert.equal(fxArgHint(EffectOp.OP_COLON, 0, 0x000f), plain);
+  assert.equal(fxArgHint(EffectOp.OP_COLON, 0, 0x0020), plain);
+  // …and a note changes nothing for any OTHER opcode.
+  assert.equal(fxArgHint(EffectOp.OP_H, 0, INT3), fxArgHint(EffectOp.OP_H, 0));
+  assert.equal(fxArgHint(EffectOp.OP_J, EffectOp.OP_COLON, INT3),
+               fxArgHint(EffectOp.OP_J, EffectOp.OP_COLON), "J still reads as extended");
+});
+
 test("every fxArgHint output is prefixed \"<letter> <name>: \", like the plain fxArg path", () => {
   for (const op of [EffectOp.OP_J, EffectOp.OP_O, EffectOp.OP_2, EffectOp.OP_3, EffectOp.OP_COLON]) {
     const info = FX_INFO[op];

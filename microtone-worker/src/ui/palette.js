@@ -53,7 +53,8 @@ export const FX_INFO = {
   0x23: { l: "Z" },
   // Item 162: the ASCII-symbol opcode space opened once base-36 filled.
   // `:`'s own name/argument text (pal.fx.:.n/.a) is the UNPAIRED / not-yet-
-  // extending-anything description — see fxArgHint below for the paired one.
+  // extending-anything description — see fxArgHint below for the paired one,
+  // and for the interrupt-argument reading an Int row gives it (item 181).
   0xba: { l: ":" },
 };
 
@@ -64,18 +65,25 @@ export const fxArg = (info) => t(`pal.fx.${info.l}.a`);
 
 /**
  * The SUB_FX_ARG/SUB_FX2_ARG hint for opcode `cur`, given `other` — the
- * OTHER effect slot on the same row (item 162). Everywhere but the two
- * `:` pairings this reduces to the plain `fxArg` text; those two read the
- * CONTEXTUAL description instead of "unknown opcode" / the base command's
- * isolated one, matching the field colouring notenames.fxArgFields already
- * gives the same pairings. Pure (no DOM) — testable directly.
+ * OTHER effect slot on the same row (item 162) — and `note`, the row's note
+ * word (item 181). Everywhere but the `:` readings this reduces to the plain
+ * `fxArg` text; those read the CONTEXTUAL description instead of "unknown
+ * opcode" / the base command's isolated one, matching the field colouring
+ * notenames.fxArgFields already gives the same pairings.
+ *
+ * The note matters because on an interrupt row a `:` is not an extension at
+ * all — it is that interrupt's argument, which is a different sentence to put
+ * under the cell even when the same colon ALSO extends a J beside it. Pure
+ * (no DOM) — testable directly.
  */
-export function fxArgHint(cur, other) {
+export function fxArgHint(cur, other, note = 0) {
   const info = FX_INFO[cur];
   if (!info) return cur === 0 ? t("pal.noEffect") : t("pal.unknownOpcode");
+  const onInterrupt = note >= 0x0010 && note <= 0x001f;
   let desc;
   if (cur === EffectOp.OP_COLON) {
-    if (other === EffectOp.OP_J) desc = t("pal.fx.:.aJ");
+    if (onInterrupt) desc = t("pal.fx.:.aInt");
+    else if (other === EffectOp.OP_J) desc = t("pal.fx.:.aJ");
     else if (other === EffectOp.OP_O) desc = t("pal.fx.:.aO");
     else if (other === EffectOp.OP_2 || other === EffectOp.OP_3) desc = t("pal.fx.:.aMod");
     else desc = fxArg(info);
@@ -110,7 +118,12 @@ export class CommandPalette {
     // Item 162: effect2 has to be in the key too — a `:` pairing's hint and
     // colouring depend on the OTHER slot, so editing it must re-render this
     // one even though ctx.sub and ctx.cell.effect haven't moved.
-    const key = `${ctx.sub}:${ctx.cell?.effect ?? -1}:${ctx.cell?.effect2 ?? -1}:${wide}:` +
+    // Item 181: which INTERRUPT the note column holds (and only that — an
+    // ordinary note changes nothing on this bar, so putting the whole note word
+    // in the key would rebuild 21 buttons on every cursor step down a column).
+    const intNote = ctx.cell && ctx.cell.note >= 0x0010 && ctx.cell.note <= 0x001f
+      ? ctx.cell.note : -1;
+    const key = `${ctx.sub}:${ctx.cell?.effect ?? -1}:${ctx.cell?.effect2 ?? -1}:${wide}:${intNote}:` +
       `${ctx.cell ? volPanOp(ctx.cell.volume, ctx.cell.volumeEff, false, wide) : ""}:` +
       `${ctx.cell ? volPanOp(panVal, ctx.cell.panEff, true, wide) : ""}`;
     if (key === this.lastKey && !this.host.hidden) return; // avoid re-render churn
@@ -148,6 +161,14 @@ export class CommandPalette {
         btn(t("pal.sentFade"), t("pal.sentFadeTitle"), () => ctx.apply({ note: 0x0003 }));
         btn(t("pal.sentFastFade"), t("pal.sentFastFadeTitle"), () => ctx.apply({ note: 0x0004 }));
         btn(t("pal.clear"), t("pal.clearNoteTitle"), () => ctx.apply({ note: 0, instrment: 0 }));
+        // Interrupt markers (item 181). Sixteen of them, so they get their own
+        // label and a row of bare hex digits rather than sixteen "Int n"
+        // buttons — the fx chooser next door already reads this way.
+        label(t("pal.interrupt"));
+        for (let n = 0; n < 16; n++) {
+          btn(n.toString(16).toUpperCase(), t("pal.interruptTitle"),
+            () => ctx.apply({ note: 0x0010 + n }), ctx.cell?.note === 0x0010 + n);
+        }
         hint(t("pal.noteHint"));
         break;
       case SUB_INST:
@@ -207,7 +228,7 @@ export class CommandPalette {
         const cur = second ? ctx.cell.effect2 : ctx.cell.effect;
         const other = second ? ctx.cell.effect : ctx.cell.effect2;
         label(t("pal.argument"));
-        hint(fxArgHint(cur, other));
+        hint(fxArgHint(cur, other, ctx.cell?.note ?? 0));
         break;
       }
     }

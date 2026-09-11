@@ -30,6 +30,7 @@ export function showHelp() {
     ["W E · T Y U · O P", t("help.blackKeys")],
     ["Q · R · I", t("help.microKeys")],
     ["z x c v · `", t("help.sentinels")],
+    ["b", t("help.interrupt")],
     ["0-9 A-F", t("help.hexEntry")],
     ["0-Z", t("help.fxOpcode")],
     ["^ v < > u d l r", t("help.slideSel")],

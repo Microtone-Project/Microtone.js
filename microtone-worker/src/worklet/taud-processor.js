@@ -23,9 +23,10 @@
 
 import { TaudEngine } from "../engine/engine.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
-import { CMD, MSG, SNAP_INTERRUPT_MASK, SNAP_FLOATS } from "./protocol.js";
+import { CMD, MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "./protocol.js";
 import {
   applyAudioCommand, isTransportReset, invertMaskBuffer, modMaskBuffer, fillSnapshotInto,
+  drainInterruptsInto,
 } from "./engine-commands.js";
 import {
   audioRingViews, AR_MASK, AR_WRITE, AR_READ, AR_STATE, AR_EPOCH, AR_FLUSH_POS,
@@ -140,7 +141,7 @@ class TaudProcessor extends AudioWorkletProcessor {
         break;
       case CMD.USE_SAB:
         this.sabF32 = new Float32Array(m.sab, 0, SNAP_FLOATS);
-        this.sabI32 = new Int32Array(m.sab, SNAP_FLOATS * 4, 1);
+        this.sabI32 = new Int32Array(m.sab, SNAP_FLOATS * 4, SNAP_SAB_I32_CELLS);
         break;
     }
   }
@@ -198,16 +199,14 @@ class TaudProcessor extends AudioWorkletProcessor {
       // Shared-memory path: fill in place; interrupts accumulate in the
       // trailing Int32 cell until the main thread drains it atomically.
       fillSnapshotInto(this.engine, this.playhead, this.sabF32);
-      this.sabF32[SNAP_INTERRUPT_MASK] = 0;
-      const drained = this.engine.playheads[this.playhead].trackerState.drainInterrupts();
-      if (drained !== 0) Atomics.or(this.sabI32, 0, drained);
+      drainInterruptsInto(this.engine, this.playhead, this.sabF32, this.sabI32);
       return;
     }
     const buffer = this.snapshotPool.pop();
     if (!buffer) return; // main thread slow returning — skip, never allocate
     const f = new Float32Array(buffer);
     fillSnapshotInto(this.engine, this.playhead, f);
-    f[SNAP_INTERRUPT_MASK] = this.engine.playheads[this.playhead].trackerState.drainInterrupts();
+    drainInterruptsInto(this.engine, this.playhead, f);
     this.port.postMessage({ t: MSG.SNAPSHOT, buffer }, [buffer]);
   }
 

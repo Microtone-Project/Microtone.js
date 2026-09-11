@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   interpretEditKey, interpretBracketKey, lookahead, rawNoteView, semiToNote, semiToNoteInTable,
-  subIsEmpty, subCharPos, charToSub, subToCol, SUB_POSITIONS, SUB_NIBBLES,
+  subIsEmpty, subCharPos, charToSub, subToCol, SUB_POSITIONS, SUB_NIBBLES, stepNoteCell,
   volPanOp, volPanArg, volPanStep, fineSigned, fineValue, JAM_SEMIS,
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
 } from "../../src/ui/edit.js";
@@ -205,6 +205,48 @@ test("note column: taut z/x/c/v sentinels, inserted not auditioned", () => {
   }
 });
 
+test("note column: `b` places an interrupt marker, and does NOT advance the row", () => {
+  const cell = new TaudPlayData();
+  const a = interpretEditKey({ code: "KeyB", key: "b" }, SUB_NOTE, 0, cell, ctx);
+  assert.deepEqual(a.fields, { note: 0x0010 }, "Int0");
+  assert.ok(!a.advanceRow, "the number is the next thing the hand wants, not the next row");
+  assert.equal(a.jamNote, undefined, "nothing to audition — it makes no sound");
+  // It does not stamp the current instrument the way a note does: the marker
+  // ignores the instrument column, so writing one there would be a lie.
+  assert.equal(a.fields.instrment, undefined);
+});
+
+test("raw hex entry still wins over `b` on the note column", () => {
+  const cell = new TaudPlayData();
+  const raw = interpretEditKey({ code: "KeyB", key: "b" }, SUB_NOTE, 0, cell,
+    { ...ctx, rawHex: true });
+  assert.equal(raw.fields.note, 0x000b, "raw hex reads `b` as the digit $B, not a marker");
+});
+
+test("bracket keys walk an interrupt marker Int0…IntF and clamp at both ends", () => {
+  const cell = new TaudPlayData();
+  cell.note = 0x0010;
+  assert.equal(interpretBracketKey(-1, false, SUB_NOTE, cell, ctx), null, "Int0 is the floor");
+  assert.equal(interpretBracketKey(+1, false, SUB_NOTE, cell, ctx).fields.note, 0x0011);
+  // Shift ({ }) is the same step: the number has no coarse and fine axis.
+  assert.equal(interpretBracketKey(+1, true, SUB_NOTE, cell, ctx).fields.note, 0x0011);
+  cell.note = 0x001f;
+  assert.equal(interpretBracketKey(+1, false, SUB_NOTE, cell, ctx), null, "IntF is the ceiling");
+  assert.equal(interpretBracketKey(-1, false, SUB_NOTE, cell, ctx).fields.note, 0x001e);
+});
+
+test("stepNoteCell: markers walk, other sentinels hold still, notes step by a degree", () => {
+  for (let n = 0; n < 16; n++) {
+    assert.equal(stepNoteCell(0x0010 + n, null, +1), 0x0010 + Math.min(n + 1, 15));
+    assert.equal(stepNoteCell(0x0010 + n, null, -1), 0x0010 + Math.max(n - 1, 0));
+  }
+  for (const sentinel of [0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x000f]) {
+    assert.equal(stepNoteCell(sentinel, null, +1), sentinel, `$${sentinel.toString(16)} holds`);
+    assert.equal(stepNoteCell(sentinel, null, -1), sentinel);
+  }
+  assert.equal(stepNoteCell(MIDDLE_C, null, +1), MIDDLE_C + 1, "a note is still a note");
+});
+
 test("inst column: two-nibble hex entry", () => {
   const cell = new TaudPlayData();
   const hi = interpretEditKey({ code: "Digit2", key: "2" }, SUB_INST, 0, cell, ctx);
@@ -232,11 +274,18 @@ test("subIsEmpty: a wheel over a dotted sub-column only scrolls (no edit)", () =
     assert.equal(subIsEmpty(sub, blank), true);
   }
 
-  // note: only a pitched note (>= 0x20) is steppable; sentinels count as empty.
+  // note: a pitched note (>= 0x20) is steppable, and so is an interrupt marker
+  // (item 181) — its number is a value. The other sentinels count as empty.
   const note = new TaudPlayData(); note.note = MIDDLE_C;
   assert.equal(subIsEmpty(SUB_NOTE, note), false);
   note.note = 0x0001; // key-off sentinel
   assert.equal(subIsEmpty(SUB_NOTE, note), true);
+  note.note = 0x000f; // last reserved sentinel
+  assert.equal(subIsEmpty(SUB_NOTE, note), true);
+  for (let n = 0; n < 16; n++) {
+    note.note = 0x0010 + n;
+    assert.equal(subIsEmpty(SUB_NOTE, note), false, `Int${n} is steppable`);
+  }
 
   // Each filled sub-column is editable independently of the others.
   const cell = new TaudPlayData();

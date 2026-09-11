@@ -9,7 +9,7 @@
 
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
-import { TOTAL_VOICES } from "../engine/constants.js";
+import { TOTAL_VOICES, NUM_INTERRUPTS } from "../engine/constants.js";
 
 export const CMD = Object.freeze({
   INIT: "init",
@@ -103,7 +103,12 @@ export const SNAP_MM_HIST_USED = 22;    // codes that occur at all
 export const SNAP_MM_HIST_MIN = 23;     // lowest and highest code seen
 export const SNAP_MM_HIST_MAX = 24;
 export const SNAP_MM_HIST_ENTROPY = 25; // Shannon entropy of the distribution, bits
-export const SNAP_HEADER_SIZE = 26;
+// ── Interrupt arguments (item 181) ──
+// 16 words, one per Int0..IntF, carrying the `:` argument the marker row named.
+// Only the entries whose SNAP_INTERRUPT_MASK bit is set mean anything. Written
+// on the postMessage path only; the SAB path carries them in its Int32 tail.
+export const SNAP_INTERRUPT_ARGS = 26;
+export const SNAP_HEADER_SIZE = SNAP_INTERRUPT_ARGS + NUM_INTERRUPTS;
 
 // Per-voice block, stride SNAP_VOICE_STRIDE, SNAP_MAX_VOICES blocks.
 export const SNAP_V_ACTIVE = 0;
@@ -202,8 +207,12 @@ export const SNAP_SPEC_STAGES = TAP_STAGES;
 export const SNAP_FLOATS = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
-// float snapshot region plus a trailing Int32 interrupt-latch cell that the
-// worklet ORs into (Atomics.or) and the main thread drains
-// (Atomics.exchange 0). The float SNAP_INTERRUPT_MASK slot is only used by
+// float snapshot region plus a trailing Int32 block — cell 0 is the interrupt
+// latch the worklet ORs into (Atomics.or) and the main thread drains
+// (Atomics.exchange 0), cells 1..16 the argument each Int carried (item 181).
+// The float SNAP_INTERRUPT_MASK / SNAP_INTERRUPT_ARGS slots are only used by
 // the postMessage fallback.
-export const SNAP_SAB_BYTES = SNAP_FLOATS * 4 + 4;
+export const SNAP_SAB_I32_MASK = 0;
+export const SNAP_SAB_I32_ARGS = 1;
+export const SNAP_SAB_I32_CELLS = SNAP_SAB_I32_ARGS + NUM_INTERRUPTS;
+export const SNAP_SAB_BYTES = SNAP_FLOATS * 4 + SNAP_SAB_I32_CELLS * 4;

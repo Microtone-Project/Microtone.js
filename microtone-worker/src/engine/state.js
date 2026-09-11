@@ -4,6 +4,7 @@
 import {
   MAX_VOICES, TOTAL_VOICES, JAM_VOICE_BASE, PATTERN_EMPTY, NUM_CUES, TRACKER_CHUNK,
   INTERP_DEFAULT, VOLUME_MAX, VOLUME_MAX_WIDE, VOLUME_STEP_WIDE, SAMPLING_RATE,
+  NUM_INTERRUPTS,
 } from "./constants.js";
 import { Voice } from "./voice.js";
 import { startCutRamp } from "./sampler.js";
@@ -285,6 +286,11 @@ export class TrackerState {
     // inside the worklet; the drain happens in snapshot assembly (edge-triggered,
     // level-collapsed semantics preserved).
     this.pendingInterrupts = 0;
+    // …and the argument each pending Int carried (item 181): the `:` on the same
+    // row, or 0 where the row has none. Only the words whose mask bit is set
+    // mean anything; a bit that fires twice before the host drains it keeps the
+    // LAST argument, which is the same level-collapsing the mask already does.
+    this.interruptArgs = new Uint16Array(NUM_INTERRUPTS);
 
     // Pre-allocated mix buffers (Float32 — matches the Kotlin FloatArray mix bus).
     this.mixLeft = new Float32Array(TRACKER_CHUNK);
@@ -373,6 +379,11 @@ export class TrackerState {
     this.pendingInterrupts = 0;
     return m;
   }
+
+  /** The argument latched with Int `n` (item 181). Meaningful only for a bit
+   *  the matching drain returned — the words outlive the mask, so reading one
+   *  for an interrupt that did not fire yields whatever fired last. */
+  interruptArg(n) { return this.interruptArgs[n & (NUM_INTERRUPTS - 1)]; }
 }
 
 // ── Playhead (4949-5207), tracker-mode-only port ──
@@ -520,6 +531,7 @@ export class Playhead {
     ts.sexWinningChannel = -1;
     ts.finePatternDelayExtra = 0;
     ts.pendingInterrupts = 0;
+    ts.interruptArgs.fill(0);
     ts.toneMode = this.initialGlobalFlags & 3;
     ts.interpolationMode = (this.initialGlobalFlags >>> 2) & 7;
     this.applySurroundModel();

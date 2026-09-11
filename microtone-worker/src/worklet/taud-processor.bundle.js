@@ -202,6 +202,7 @@ const NOTE_FADE = 0x0003;
 const NOTE_FAST_FADE = 0x0004;
 const NOTE_INT_FIRST = 0x0010; // Int0..IntF interrupt notes
 const NOTE_INT_LAST = 0x001f;
+const NUM_INTERRUPTS = 16;
 
 // ══ src/engine/minifloat.js ══
 // ThreeFiveMiniUfloat — port of tsvm_core/src/net/torvald/tsvm/ThreeFiveMinifloat.kt.
@@ -6369,6 +6370,11 @@ class TrackerState {
     // inside the worklet; the drain happens in snapshot assembly (edge-triggered,
     // level-collapsed semantics preserved).
     this.pendingInterrupts = 0;
+    // …and the argument each pending Int carried (item 181): the `:` on the same
+    // row, or 0 where the row has none. Only the words whose mask bit is set
+    // mean anything; a bit that fires twice before the host drains it keeps the
+    // LAST argument, which is the same level-collapsing the mask already does.
+    this.interruptArgs = new Uint16Array(NUM_INTERRUPTS);
 
     // Pre-allocated mix buffers (Float32 — matches the Kotlin FloatArray mix bus).
     this.mixLeft = new Float32Array(TRACKER_CHUNK);
@@ -6457,6 +6463,11 @@ class TrackerState {
     this.pendingInterrupts = 0;
     return m;
   }
+
+  /** The argument latched with Int `n` (item 181). Meaningful only for a bit
+   *  the matching drain returned — the words outlive the mask, so reading one
+   *  for an interrupt that did not fire yields whatever fired last. */
+  interruptArg(n) { return this.interruptArgs[n & (NUM_INTERRUPTS - 1)]; }
 }
 
 // ── Playhead (4949-5207), tracker-mode-only port ──
@@ -6604,6 +6615,7 @@ class Playhead {
     ts.sexWinningChannel = -1;
     ts.finePatternDelayExtra = 0;
     ts.pendingInterrupts = 0;
+    ts.interruptArgs.fill(0);
     ts.toneMode = this.initialGlobalFlags & 3;
     ts.interpolationMode = (this.initialGlobalFlags >>> 2) & 7;
     this.applySurroundModel();
@@ -9886,6 +9898,29 @@ function applyRetrigVolMod(vol, x, step = 1, max = 0x3f) {
 
 
 
+/**
+ * The argument an Int0..IntF marker on this row carries (item 181): the `:`
+ * sharing the row, or 0 when there is none — an interrupt with nothing to say
+ * still fires, it just says 0.
+ *
+ * Which `:`, when a wide cell holds two, is the one rule the format needs
+ * here: **the first slot wins**. A row carrying only one `:` means the same
+ * thing in either slot, so a composer never has to think about column order;
+ * a row carrying two has to resolve somehow, and "the left one" is the rule a
+ * reader can apply at a glance (the editor paints the losing cell red —
+ * src/ui/notenames.js fxColonWarns). Format 1/2 has no second slot, so the
+ * question cannot arise there and the first slot is simply the only slot.
+ *
+ * This reads the `:` WITHOUT consuming it: the same colon still extends a
+ * J / O / 2 / 3 sharing the row, exactly as it would on a row with no
+ * interrupt marker on it.
+ */
+function interruptArgOf(ts, row) {
+  if (row.effect === EffectOp.OP_COLON) return row.effectArg & 0xffff;
+  if (ts.wideCells && row.effect2 === EffectOp.OP_COLON) return row.effectArg2 & 0xffff;
+  return 0;
+}
+
 /** S $Dxny (item 94, extended item 97): schedule the $n follow-up action at
  *  absolute tick $x+$y within the row (independent of whichever note-event
  *  branch deferred the trigger by $x, or fired it immediately when $x is 0,
@@ -10074,8 +10109,13 @@ function applyTrackerRow(eng, ts, playhead) {
     } else if (note >= 0x0005 && note <= 0x000f) {
       // reserved sentinel range, no engine handler
     } else if (note >= 0x0010 && note <= 0x001f) {
-      // Int0..IntF: latch the interrupt for the host to drain.
+      // Int0..IntF: latch the interrupt, and the argument a `:` on the same row
+      // hands it (item 181), for the host to drain. The marker itself produces
+      // no sound and touches no voice state; every other column on the row —
+      // instrument, volume, panning, a second effect — is the interrupt's
+      // business not at all, and still does whatever it would ordinarily do.
       ts.pendingInterrupts |= 1 << (note - 0x0010);
+      ts.interruptArgs[note - 0x0010] = interruptArgOf(ts, row);
     } else {
       if (toneG && voice.active) {
         // Tone porta: target the note, do not retrigger sample.
@@ -11991,6 +12031,7 @@ class TaudEngine {
     ts.sexWinningChannel = -1;
     ts.finePatternDelayExtra = 0;
     ts.pendingInterrupts = 0;
+    ts.interruptArgs.fill(0);
     for (const v of ts.voices) {
       v.active = false;
       // Clear per-voice pattern-loop (S$Bx) + Ditto (effect 7) memory so a replay
@@ -12140,6 +12181,12 @@ class TaudEngine {
   /** Drain the pending interrupt latch (read-to-acknowledge, edge-triggered). */
   pollTrackerInterrupts(ph) {
     return this.playheads[ph].trackerState.drainInterrupts();
+  }
+
+  /** Argument that fired with Int `n` (item 181) — read alongside the mask the
+   *  drain above returned, and only for the bits it actually set. */
+  interruptArg(ph, n) {
+    return this.playheads[ph].trackerState.interruptArg(n);
   }
 
   // ── jam / audition (AudioAdapter.kt:4322-4337) ──
@@ -12559,7 +12606,12 @@ const SNAP_MM_HIST_USED = 22;    // codes that occur at all
 const SNAP_MM_HIST_MIN = 23;     // lowest and highest code seen
 const SNAP_MM_HIST_MAX = 24;
 const SNAP_MM_HIST_ENTROPY = 25; // Shannon entropy of the distribution, bits
-const SNAP_HEADER_SIZE = 26;
+// ── Interrupt arguments (item 181) ──
+// 16 words, one per Int0..IntF, carrying the `:` argument the marker row named.
+// Only the entries whose SNAP_INTERRUPT_MASK bit is set mean anything. Written
+// on the postMessage path only; the SAB path carries them in its Int32 tail.
+const SNAP_INTERRUPT_ARGS = 26;
+const SNAP_HEADER_SIZE = SNAP_INTERRUPT_ARGS + NUM_INTERRUPTS;
 
 // Per-voice block, stride SNAP_VOICE_STRIDE, SNAP_MAX_VOICES blocks.
 const SNAP_V_ACTIVE = 0;
@@ -12658,11 +12710,15 @@ const SNAP_SPEC_STAGES = TAP_STAGES;
 const SNAP_FLOATS = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
-// float snapshot region plus a trailing Int32 interrupt-latch cell that the
-// worklet ORs into (Atomics.or) and the main thread drains
-// (Atomics.exchange 0). The float SNAP_INTERRUPT_MASK slot is only used by
+// float snapshot region plus a trailing Int32 block — cell 0 is the interrupt
+// latch the worklet ORs into (Atomics.or) and the main thread drains
+// (Atomics.exchange 0), cells 1..16 the argument each Int carried (item 181).
+// The float SNAP_INTERRUPT_MASK / SNAP_INTERRUPT_ARGS slots are only used by
 // the postMessage fallback.
-const SNAP_SAB_BYTES = SNAP_FLOATS * 4 + 4;
+const SNAP_SAB_I32_MASK = 0;
+const SNAP_SAB_I32_ARGS = 1;
+const SNAP_SAB_I32_CELLS = SNAP_SAB_I32_ARGS + NUM_INTERRUPTS;
+const SNAP_SAB_BYTES = SNAP_FLOATS * 4 + SNAP_SAB_I32_CELLS * 4;
 
 // ══ src/audio/audio-ring.js ══
 // SharedArrayBuffer audio ring for Tier 2 (off-audio-thread rendering).
@@ -13028,6 +13084,36 @@ function modMaskBuffer(eng, slot) {
   return mask.buffer.slice(mask.byteOffset, mask.byteOffset + mask.byteLength);
 }
 
+/**
+ * Drain the playhead's interrupt latch into whichever wire this host uses, and
+ * with it the argument each Int carried (item 181).
+ *
+ * `i32` is the shared buffer's Int32 tail on a SAB deploy and null on the
+ * postMessage fallback. The two differ in more than storage: the shared cells
+ * ACCUMULATE (the main thread drains them on its own clock, so an OR is the
+ * only way no fire is lost between two reads), while a posted snapshot is a
+ * fresh message the main thread merges itself. Arguments are stored before the
+ * mask bit that makes them readable, so a reader that sees the bit sees the
+ * word that came with it.
+ */
+function drainInterruptsInto(eng, playhead, f, i32 = null) {
+  const ts = eng.playheads[playhead].trackerState;
+  const mask = ts.drainInterrupts();
+  if (i32 !== null) {
+    f[SNAP_INTERRUPT_MASK] = 0; // the float slot is the fallback's, not this path's
+    if (mask === 0) return;
+    for (let n = 0; n < 16; n++) {
+      if (mask & (1 << n)) Atomics.store(i32, SNAP_SAB_I32_ARGS + n, ts.interruptArg(n));
+    }
+    Atomics.or(i32, SNAP_SAB_I32_MASK, mask);
+    return;
+  }
+  f[SNAP_INTERRUPT_MASK] = mask;
+  for (let n = 0; n < 16; n++) {
+    if (mask & (1 << n)) f[SNAP_INTERRUPT_ARGS + n] = ts.interruptArg(n);
+  }
+}
+
 /** Write every snapshot field except the interrupt latch into `f`. */
 function fillSnapshotInto(eng, playhead, f) {
   const ph = eng.playheads[playhead];
@@ -13335,7 +13421,7 @@ class TaudProcessor extends AudioWorkletProcessor {
         break;
       case CMD.USE_SAB:
         this.sabF32 = new Float32Array(m.sab, 0, SNAP_FLOATS);
-        this.sabI32 = new Int32Array(m.sab, SNAP_FLOATS * 4, 1);
+        this.sabI32 = new Int32Array(m.sab, SNAP_FLOATS * 4, SNAP_SAB_I32_CELLS);
         break;
     }
   }
@@ -13393,16 +13479,14 @@ class TaudProcessor extends AudioWorkletProcessor {
       // Shared-memory path: fill in place; interrupts accumulate in the
       // trailing Int32 cell until the main thread drains it atomically.
       fillSnapshotInto(this.engine, this.playhead, this.sabF32);
-      this.sabF32[SNAP_INTERRUPT_MASK] = 0;
-      const drained = this.engine.playheads[this.playhead].trackerState.drainInterrupts();
-      if (drained !== 0) Atomics.or(this.sabI32, 0, drained);
+      drainInterruptsInto(this.engine, this.playhead, this.sabF32, this.sabI32);
       return;
     }
     const buffer = this.snapshotPool.pop();
     if (!buffer) return; // main thread slow returning — skip, never allocate
     const f = new Float32Array(buffer);
     fillSnapshotInto(this.engine, this.playhead, f);
-    f[SNAP_INTERRUPT_MASK] = this.engine.playheads[this.playhead].trackerState.drainInterrupts();
+    drainInterruptsInto(this.engine, this.playhead, f);
     this.port.postMessage({ t: MSG.SNAPSHOT, buffer }, [buffer]);
   }
 

@@ -13,9 +13,11 @@ import { SAMPLING_RATE } from "../engine/constants.js";
 import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,
+  SNAP_INT_MASK, SNAP_INT_ARGS,
   SNAP_HEADER, SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
   SNAP_VOICES, SNAP_FLOATS,
 } from "./protocol.js";
+import { makeInterruptBank, setInterruptIn, dispatchInterrupts } from "./interrupts.js";
 import { gainToFader, faderToGain } from "./faders.js";
 
 const MODULE_WORKLET = new URL("./worklet.js", import.meta.url);
@@ -34,6 +36,9 @@ export class TaudPlayer {
     this.onSnapshot = null;
     /** Called after a load or song switch completes in the worklet. */
     this.onLoaded = null;
+    /** Int0..IntF callbacks (setInterrupt). Sparse on purpose: an unset slot
+     *  is a song event nobody is listening for, which costs nothing. */
+    this._interrupts = makeInterruptBank();
     this._pendingUpload = false; // load() before init(): upload on init
     this.usedBundleFallback = false; // the module worklet was refused (Firefox)
     // Fader ramp mirror. The ramp itself runs in the worklet; this side keeps
@@ -235,6 +240,26 @@ export class TaudPlayer {
     return v >= 0 && v < 64 ? faderToGain(Math.round(this._liveFader(v))) : 1;
   }
 
+  // ── interrupts: the song calling out ──
+
+  /**
+   * Register the callback for interrupt `n` (0…15) — `fn(arg)`, where `arg` is
+   * the 0…65535 the song's `:` named on the marker row (0 where it named none).
+   * Pass `null` to unregister. Callbacks run on the main thread, from the
+   * snapshot that reported the fire (≈ every 16 ms), so they may do anything a
+   * normal event handler may: start an animation, swap a sprite, print a line.
+   *
+   * A song fires an interrupt by putting `Int0`…`IntF` in a NOTE column. It
+   * makes no sound and disturbs no channel — it is the song saying something to
+   * the program that is playing it, in time with the music. An interrupt that
+   * fires more than once inside one snapshot window arrives once, carrying the
+   * last argument.
+   */
+  setInterrupt(n, fn) { setInterruptIn(this._interrupts, n, fn); }
+
+  /** Drop every registered interrupt callback. */
+  clearInterrupts() { this._interrupts.fill(null); }
+
   // ── the probes: two per voice ──
 
   /** How loud voice `v` is RIGHT NOW, 0..1 — envelope, fadeout, volume column
@@ -272,6 +297,10 @@ export class TaudPlayer {
       case MSG.SNAPSHOT: {
         this.snapshot.set(new Float32Array(m.buffer));
         this.node.port.postMessage({ t: CMD.SNAPSHOT_RETURN, buffer: m.buffer }, [m.buffer]);
+        // Before onSnapshot: an interrupt is a song EVENT, and a listener that
+        // reads the transport in the same frame should see the world the event
+        // already happened in.
+        dispatchInterrupts(this._interrupts, this.snapshot, SNAP_INT_MASK, SNAP_INT_ARGS);
         this.onSnapshot?.(this);
         break;
       }

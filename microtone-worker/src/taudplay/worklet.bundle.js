@@ -203,6 +203,7 @@ const NOTE_FADE = 0x0003;
 const NOTE_FAST_FADE = 0x0004;
 const NOTE_INT_FIRST = 0x0010; // Int0..IntF interrupt notes
 const NOTE_INT_LAST = 0x001f;
+const NUM_INTERRUPTS = 16;
 
 // ══ src/engine/minifloat.js ══
 // ThreeFiveMiniUfloat — port of tsvm_core/src/net/torvald/tsvm/ThreeFiveMinifloat.kt.
@@ -6370,6 +6371,11 @@ class TrackerState {
     // inside the worklet; the drain happens in snapshot assembly (edge-triggered,
     // level-collapsed semantics preserved).
     this.pendingInterrupts = 0;
+    // …and the argument each pending Int carried (item 181): the `:` on the same
+    // row, or 0 where the row has none. Only the words whose mask bit is set
+    // mean anything; a bit that fires twice before the host drains it keeps the
+    // LAST argument, which is the same level-collapsing the mask already does.
+    this.interruptArgs = new Uint16Array(NUM_INTERRUPTS);
 
     // Pre-allocated mix buffers (Float32 — matches the Kotlin FloatArray mix bus).
     this.mixLeft = new Float32Array(TRACKER_CHUNK);
@@ -6458,6 +6464,11 @@ class TrackerState {
     this.pendingInterrupts = 0;
     return m;
   }
+
+  /** The argument latched with Int `n` (item 181). Meaningful only for a bit
+   *  the matching drain returned — the words outlive the mask, so reading one
+   *  for an interrupt that did not fire yields whatever fired last. */
+  interruptArg(n) { return this.interruptArgs[n & (NUM_INTERRUPTS - 1)]; }
 }
 
 // ── Playhead (4949-5207), tracker-mode-only port ──
@@ -6605,6 +6616,7 @@ class Playhead {
     ts.sexWinningChannel = -1;
     ts.finePatternDelayExtra = 0;
     ts.pendingInterrupts = 0;
+    ts.interruptArgs.fill(0);
     ts.toneMode = this.initialGlobalFlags & 3;
     ts.interpolationMode = (this.initialGlobalFlags >>> 2) & 7;
     this.applySurroundModel();
@@ -9887,6 +9899,29 @@ function applyRetrigVolMod(vol, x, step = 1, max = 0x3f) {
 
 
 
+/**
+ * The argument an Int0..IntF marker on this row carries (item 181): the `:`
+ * sharing the row, or 0 when there is none — an interrupt with nothing to say
+ * still fires, it just says 0.
+ *
+ * Which `:`, when a wide cell holds two, is the one rule the format needs
+ * here: **the first slot wins**. A row carrying only one `:` means the same
+ * thing in either slot, so a composer never has to think about column order;
+ * a row carrying two has to resolve somehow, and "the left one" is the rule a
+ * reader can apply at a glance (the editor paints the losing cell red —
+ * src/ui/notenames.js fxColonWarns). Format 1/2 has no second slot, so the
+ * question cannot arise there and the first slot is simply the only slot.
+ *
+ * This reads the `:` WITHOUT consuming it: the same colon still extends a
+ * J / O / 2 / 3 sharing the row, exactly as it would on a row with no
+ * interrupt marker on it.
+ */
+function interruptArgOf(ts, row) {
+  if (row.effect === EffectOp.OP_COLON) return row.effectArg & 0xffff;
+  if (ts.wideCells && row.effect2 === EffectOp.OP_COLON) return row.effectArg2 & 0xffff;
+  return 0;
+}
+
 /** S $Dxny (item 94, extended item 97): schedule the $n follow-up action at
  *  absolute tick $x+$y within the row (independent of whichever note-event
  *  branch deferred the trigger by $x, or fired it immediately when $x is 0,
@@ -10075,8 +10110,13 @@ function applyTrackerRow(eng, ts, playhead) {
     } else if (note >= 0x0005 && note <= 0x000f) {
       // reserved sentinel range, no engine handler
     } else if (note >= 0x0010 && note <= 0x001f) {
-      // Int0..IntF: latch the interrupt for the host to drain.
+      // Int0..IntF: latch the interrupt, and the argument a `:` on the same row
+      // hands it (item 181), for the host to drain. The marker itself produces
+      // no sound and touches no voice state; every other column on the row —
+      // instrument, volume, panning, a second effect — is the interrupt's
+      // business not at all, and still does whatever it would ordinarily do.
       ts.pendingInterrupts |= 1 << (note - 0x0010);
+      ts.interruptArgs[note - 0x0010] = interruptArgOf(ts, row);
     } else {
       if (toneG && voice.active) {
         // Tone porta: target the note, do not retrigger sample.
@@ -11992,6 +12032,7 @@ class TaudEngine {
     ts.sexWinningChannel = -1;
     ts.finePatternDelayExtra = 0;
     ts.pendingInterrupts = 0;
+    ts.interruptArgs.fill(0);
     for (const v of ts.voices) {
       v.active = false;
       // Clear per-voice pattern-loop (S$Bx) + Ditto (effect 7) memory so a replay
@@ -12141,6 +12182,12 @@ class TaudEngine {
   /** Drain the pending interrupt latch (read-to-acknowledge, edge-triggered). */
   pollTrackerInterrupts(ph) {
     return this.playheads[ph].trackerState.drainInterrupts();
+  }
+
+  /** Argument that fired with Int `n` (item 181) — read alongside the mask the
+   *  drain above returned, and only for the bits it actually set. */
+  interruptArg(ph, n) {
+    return this.playheads[ph].trackerState.interruptArg(n);
   }
 
   // ── jam / audition (AudioAdapter.kt:4322-4337) ──
@@ -12899,8 +12946,8 @@ async function renderToWavAsync(docLike, songIndex, maxSeconds,
 // numbers per voice: how loud it is and where it sits.
 //
 // Snapshots travel by postMessage on a recycled pair of ArrayBuffers (~16 ms).
-// There is no SharedArrayBuffer path and no render-worker tier: 848 bytes every
-// 16 ms is 53 kB/s of structured clone, which is not worth a COOP/COEP deploy
+// There is no SharedArrayBuffer path and no render-worker tier: 864 bytes every
+// 16 ms is 54 kB/s of structured clone, which is not worth a COOP/COEP deploy
 // requirement to avoid. Dropping both is most of why this file is short.
 
 /** Commands the main thread sends to the worklet. */
@@ -12931,7 +12978,13 @@ const SNAP_BPM = 3;
 const SNAP_TICK_RATE = 4;
 const SNAP_CHANNELS = 5;      // 32 or 64
 const SNAP_SONG_INDEX = 6;
-const SNAP_HEADER = 8;        // voice block starts here (padded to 8)
+/** Interrupts (item 181): the drained Int0..IntF latch, then the argument each
+ *  one fired with. Edge-triggered — a bit set here is one or more fires since
+ *  the previous snapshot, and the player turns it into callbacks. */
+const SNAP_INT_MASK = 7;
+const SNAP_INT_ARGS = 8;      // 16 words, Int0..IntF
+const SNAP_INT_COUNT = 16;
+const SNAP_HEADER = 24;       // voice block starts here
 
 /** Per-voice block: the two probes plus the gate that says whether to believe
  *  them. `active` is not a third probe — it is what tells a meter to fall to
@@ -13197,6 +13250,16 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
     f[SNAP_TICK_RATE] = ph.tickRate;
     f[SNAP_CHANNELS] = this.engine.channelCount();
     f[SNAP_SONG_INDEX] = this.songIndex;
+    // Interrupts (item 181): drain the latch into the snapshot the main thread
+    // is about to get. Read-to-acknowledge, so every fire is reported exactly
+    // once — and the drain sits AFTER the pool check above on purpose: a
+    // snapshot that could not be served would otherwise swallow the fires it
+    // never delivered, instead of leaving them latched for the next one.
+    const mask = ts.drainInterrupts();
+    f[SNAP_INT_MASK] = mask;
+    for (let n = 0; n < SNAP_INT_COUNT; n++) {
+      if (mask & (1 << n)) f[SNAP_INT_ARGS + n] = ts.interruptArg(n);
+    }
     for (let vi = 0; vi < SNAP_VOICES; vi++) {
       const v = ts.voices[vi];
       const o = SNAP_HEADER + vi * SNAP_V_STRIDE;

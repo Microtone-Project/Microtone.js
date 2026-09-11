@@ -492,17 +492,17 @@ export function paintVolPanCell(ctx, value, sel, isPan, x, y, charW, rowH, palet
  * reads as one token, and reserved nibbles dim because the engine ignores them.
  *
  * palette: {op, a1, a2, a3, dim, ext} — monoPalette() collapses all six for
- * the pattern-ditto ghosts. `paired` (item 162, caller decides via
- * notenames.fxColonWarns): true only for the two `:` pairings worth a second
- * look — `:` sitting on the FIRST effect slot (functionally fine, but not
- * where a reader expects it), or `:` paired with a command that does not
- * read it at all (a silent no-op). A `:` correctly on the second slot,
- * paired with something that reads it, is the unremarkable common case and
- * paints through the ordinary per-field colours below like any other row.
- * When `paired` IS true, the whole 5-character cell paints in `palette.ext`
- * instead — the argument-field ramp doesn't describe this cell meaningfully
- * once it's flagged, and both the `:` and the command it's paired with get
- * the same treatment so the pairing itself reads at a glance.
+ * the pattern-ditto ghosts. `paired` (item 162, widened by item 181; the
+ * caller decides via notenames.fxColonWarns, which returns one flag per SLOT):
+ * true only for the `:` arrangements worth a second look — `:` sitting on the
+ * FIRST effect slot (functionally fine, but not where a reader expects it),
+ * `:` paired with a command that does not read it at all (a silent no-op), or
+ * the SECOND `:` on an interrupt row, whose argument the first one has already
+ * won. A `:` correctly on the second slot, paired with something that reads
+ * it, is the unremarkable common case and paints through the ordinary
+ * per-field colours below like any other row. When `paired` IS true, the whole
+ * 5-character cell paints in `palette.ext` instead — the argument-field ramp
+ * doesn't describe this cell meaningfully once it's flagged.
  *
  * `pairedOp` (item 162): the OTHER effect slot on this row — passed through
  * to notenames.fxArgFields so an UNflagged (`paired` false) correctly-paired

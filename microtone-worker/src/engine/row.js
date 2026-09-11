@@ -13,6 +13,29 @@ import { applyKeyLift, envPresent, envCarry, seedPfRole, pfIdxBox, pfTimeBox } f
 import { startFastFade, startCutRamp } from "./sampler.js";
 import { applyEffectRow } from "./effects.js";
 
+/**
+ * The argument an Int0..IntF marker on this row carries (item 181): the `:`
+ * sharing the row, or 0 when there is none — an interrupt with nothing to say
+ * still fires, it just says 0.
+ *
+ * Which `:`, when a wide cell holds two, is the one rule the format needs
+ * here: **the first slot wins**. A row carrying only one `:` means the same
+ * thing in either slot, so a composer never has to think about column order;
+ * a row carrying two has to resolve somehow, and "the left one" is the rule a
+ * reader can apply at a glance (the editor paints the losing cell red —
+ * src/ui/notenames.js fxColonWarns). Format 1/2 has no second slot, so the
+ * question cannot arise there and the first slot is simply the only slot.
+ *
+ * This reads the `:` WITHOUT consuming it: the same colon still extends a
+ * J / O / 2 / 3 sharing the row, exactly as it would on a row with no
+ * interrupt marker on it.
+ */
+function interruptArgOf(ts, row) {
+  if (row.effect === EffectOp.OP_COLON) return row.effectArg & 0xffff;
+  if (ts.wideCells && row.effect2 === EffectOp.OP_COLON) return row.effectArg2 & 0xffff;
+  return 0;
+}
+
 /** S $Dxny (item 94, extended item 97): schedule the $n follow-up action at
  *  absolute tick $x+$y within the row (independent of whichever note-event
  *  branch deferred the trigger by $x, or fired it immediately when $x is 0,
@@ -201,8 +224,13 @@ export function applyTrackerRow(eng, ts, playhead) {
     } else if (note >= 0x0005 && note <= 0x000f) {
       // reserved sentinel range, no engine handler
     } else if (note >= 0x0010 && note <= 0x001f) {
-      // Int0..IntF: latch the interrupt for the host to drain.
+      // Int0..IntF: latch the interrupt, and the argument a `:` on the same row
+      // hands it (item 181), for the host to drain. The marker itself produces
+      // no sound and touches no voice state; every other column on the row —
+      // instrument, volume, panning, a second effect — is the interrupt's
+      // business not at all, and still does whatever it would ordinarily do.
       ts.pendingInterrupts |= 1 << (note - 0x0010);
+      ts.interruptArgs[note - 0x0010] = interruptArgOf(ts, row);
     } else {
       if (toneG && voice.active) {
         // Tone porta: target the note, do not retrigger sample.

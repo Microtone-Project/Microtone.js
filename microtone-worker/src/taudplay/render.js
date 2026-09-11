@@ -15,6 +15,7 @@ import { MONITOR_BINAURAL, MONITOR_FOLD } from "../engine/binaural.js";
 import { displayPanByte } from "../engine/spatial.js";
 import { loadIntoEngine, encodeWav } from "../audio/offline-render.js";
 import { FaderBank, gainToFader, faderToGain } from "./faders.js";
+import { makeInterruptBank, setInterruptIn, dispatchInterruptsFromState } from "./interrupts.js";
 
 /** One rendered block of interleaved stereo float, reused between calls. */
 const CHUNK_FLOATS = TRACKER_CHUNK * 2;
@@ -33,6 +34,7 @@ export class TaudRenderer {
     this.doc = doc;
     this.engine = new TaudEngine();
     this.faders = new FaderBank();
+    this._interrupts = makeInterruptBank();
     this.monitor = binaural ? MONITOR_BINAURAL : MONITOR_FOLD;
     this.songIndex = -1;
     this._u8 = new Uint8Array(CHUNK_FLOATS);   // the engine's dithered output
@@ -102,6 +104,22 @@ export class TaudRenderer {
    *  The browser half reports the same thing off its own ramp mirror. */
   getVoiceGain(v) { return faderToGain(Math.round(this.faders.now[v])); }
 
+  // ── interrupts: the song calling out ──
+
+  /**
+   * Register the callback for interrupt `n` (0…15) — `fn(arg)`, where `arg` is
+   * the 0…65535 the song's `:` named on the marker row. `null` unregisters.
+   *
+   * Here the callbacks fire from `renderChunk()`, on the calling thread, once
+   * per rendered block — so a bounce that wants a cue sheet gets one at block
+   * resolution (2.7 ms at 48 kHz) rather than the browser's ~16 ms, and gets it
+   * deterministically: the same file renders the same cues every time.
+   */
+  setInterrupt(n, fn) { setInterruptIn(this._interrupts, n, fn); }
+
+  /** Drop every registered interrupt callback. */
+  clearInterrupts() { this._interrupts.fill(null); }
+
   // ── the probes ──
 
   /** How loud voice `v` was at the end of the last chunk, 0..1. */
@@ -135,6 +153,10 @@ export class TaudRenderer {
     this.faders.writeInto(this._ts());
     if (this.engine.renderChunk(0, this._u8) === null) return null;
     const ts = this._ts();
+    // The block just rendered is the block the interrupts fired in, so they are
+    // dispatched before it is handed over — a caller writing a cue sheet as it
+    // bounces stamps them at the right frame.
+    dispatchInterruptsFromState(this._interrupts, ts);
     const out = this._out;
     for (let n = 0; n < TRACKER_CHUNK; n++) {
       out[n * 2] = ts.mixLeft[n];

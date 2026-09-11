@@ -280,6 +280,7 @@ export class TaudEngine {
     ts.sexWinningChannel = -1;
     ts.finePatternDelayExtra = 0;
     ts.pendingInterrupts = 0;
+    ts.interruptArgs.fill(0);
     for (const v of ts.voices) {
       v.active = false;
       // Clear per-voice pattern-loop (S$Bx) + Ditto (effect 7) memory so a replay
@@ -429,6 +430,12 @@ export class TaudEngine {
   /** Drain the pending interrupt latch (read-to-acknowledge, edge-triggered). */
   pollTrackerInterrupts(ph) {
     return this.playheads[ph].trackerState.drainInterrupts();
+  }
+
+  /** Argument that fired with Int `n` (item 181) — read alongside the mask the
+   *  drain above returned, and only for the bits it actually set. */
+  interruptArg(ph, n) {
+    return this.playheads[ph].trackerState.interruptArg(n);
   }
 
   // ── jam / audition (AudioAdapter.kt:4322-4337) ──

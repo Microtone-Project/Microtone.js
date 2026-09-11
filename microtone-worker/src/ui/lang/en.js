@@ -1321,10 +1321,12 @@ export default {
   "pal.sentFadeTitle": "note word 0003 (c)",
   "pal.sentFastFade": "fast-fade ~^~",
   "pal.sentFastFadeTitle": "note word 0004 (v)",
+  "pal.interrupt": "interrupt",
+  "pal.interruptTitle": "note words 0010..001F — silent marker the player answers (b, then [ ])",
   "pal.clear": "clear",
   "pal.clearNoteTitle": "Delete",
   "pal.noopTitle": "no-op sentinel",
-  "pal.noteHint": "A S D F G H J K L ; piano · W E T Y U O P black · Q R I half-sharp · [ ] octave · wheel = ±1 degree",
+  "pal.noteHint": "A S D F G H J K L ; piano · W E T Y U O P black · Q R I half-sharp · [ ] octave · wheel = ±1 degree · b = interrupt marker, then [ ] or wheel for its number",
   "pal.instHint": "hex 00..FF · Enter = pick up from cell · wheel ±1 · Instruments tab selects the jam instrument",
   "pal.hexHint": "hex digits set the value · wheel ±1",
   "pal.volHint": "symbol cell: ^/u up · v/d down · +/= fine up · − fine down · . set · hex digits set the value · wheel ±1",
@@ -1436,8 +1438,9 @@ export default {
   // .a is shown when `:` isn't (yet) paired with something that reads it;
   // .aJ/.aO/.aMod are the CONTEXTUAL descriptions once it is — see palette.js
   // fxArgHint, which picks between them by looking at the row's other slot.
-  "pal.fx.:.n": "Argument extension",
-  "pal.fx.:.a": "$xxxx — Format 3 only. Hands this argument to the OTHER effect on the row (J, O, 2 or 3), which reads it as the rest of a wider argument. Expected on the SECOND effect slot; does nothing paired with anything else, or alone",
+  "pal.fx.:.n": "Interrupt argument / extension",
+  "pal.fx.:.a": "$xxxx — on an interrupt row (I·0..I·F), the number handed to the program playing the song. Otherwise Format 3 only: hands this argument to the OTHER effect on the row (J, O, 2 or 3), which reads it as the rest of a wider argument. Expected on the SECOND effect slot; does nothing paired with anything else, or alone",
+  "pal.fx.:.aInt": "$xxxx — the 0..65535 this row's interrupt marker hands the program playing the song. With two of these on one row the LEFT one wins",
   "pal.fx.:.aJ": "$yyyy — paired with J: the arpeggio's SECOND offset, full-resolution 4096-TET units (J's own argument here is the first)",
   "pal.fx.:.aO": "$efgh — paired with O: the LOW word of a 32-bit sample offset (O's own argument here is the high word)",
   "pal.fx.:.aMod": "$fuuk — paired with 2/3: f narrows the region further, uu extends the operation to 12 bits, k extends the speed to two digits",
@@ -1672,6 +1675,7 @@ export default {
   "help.whiteKeys": "piano white keys (C D E F G A B C D E) — hold several to chord when record is off",
   "help.microKeys": "half-sharps where a piano has no black key (Bt Et Bt)",
   "help.sentinels": "note column: key-off ===, cut ^^^, fade ~~~, fast-fade ~^~",
+  "help.interrupt": "note column: interrupt marker I·0 (then [ ] for its number)",
   "help.hexEntry": "hex entry (inst / vol / pan / fx arg)",
   "help.fxOpcode": "effect opcode",
   "help.slideSel": "vol/pan symbol cell: slide up/down, left/right",

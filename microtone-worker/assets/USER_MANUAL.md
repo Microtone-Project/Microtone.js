@@ -52,7 +52,7 @@ home. If not, here is the vocabulary this manual uses:
 Every note is a 16-bit word on a grid of **4096 steps per octave** — fine
 enough to represent any practical tuning. `0x5000` is middle C (C4) and each
 `0x1000` is one octave. Values `0x0000`–`0x001F` are reserved for sentinels
-(key-off, note cut, fades) and interrupts.
+(key-off, note cut, fades) and [interrupts](#interrupts).
 
 You almost never type raw note words. Instead each song carries a **pitch
 table** (a notation preset such as 12-TET, 19-TET, 31-TET, Bohlen-Pierce…)
@@ -175,7 +175,7 @@ Each cell is five columns:
 └note┘└inst┘└vol┘└pan┘└─fx─┘
 ```
 
-- **Note** — the pitch in the song's notation (or a sentinel symbol: `===` key-off, `^^^` cut, `~~~` fade, `~^~` fast fade). Notes that don't sit on the current pitch table are shown snapped to the nearest degree and painted **yellow**. The toolbox **Raw** toggle switches to 4-digit hex words.
+- **Note** — the pitch in the song's notation (or a sentinel symbol: `===` key-off, `^^^` cut, `~~~` fade, `~^~` fast fade, `I·0`–`I·F` interrupt marker). Notes that don't sit on the current pitch table are shown snapped to the nearest degree and painted **yellow**. The toolbox **Raw** toggle switches to 4-digit hex words.
 - **Instrument** — two hex digits, `01`–`FF`.
 - **Volume** — a **symbol** cell + two hex digits. The symbol says what the column *does*; the digits are its argument.
 - **Pan** — the same shape, with sideways symbols (00 = left, 20 = centre, 3F = right). It pans the *note*, not the channel — see [Note volume vs channel volume, note pan vs channel pan](#note-volume-vs-channel-volume-note-pan-vs-channel-pan).
@@ -628,10 +628,46 @@ degree of a larger table, enter a nearby note and step it with the mouse wheel
 | **x** | `0002` | `^^^` | Note cut — stop immediately |
 | **c** | `0003` | `~~~` | Note fade — fade out at the instrument's fade rate |
 | **v** | `0004` | `~^~` | Fast fade |
+| **b** | `0010`–`001F` | `I·0`–`I·F` | Interrupt marker — see [Interrupts](#interrupts) |
 | **Delete**, **Backspace** or **.** | — | | Clear the note (and instrument) |
 
 **Delete**, **Backspace** and **.** are interchangeable everywhere on the
 pattern grids: whichever one you reach for erases the column under the caret.
+
+### Interrupts
+
+An **interrupt** is the song calling out to whatever program is playing it —
+in time with the music, without that program having to guess where the beat is.
+A lighting cue on the downbeat, a subtitle that lands with the line, an enemy
+wave that arrives on the fill: the composer places them, the game answers them.
+
+Press **b** on the note column to place `I·0`, then **[** / **]** or the mouse
+wheel to pick which of the sixteen it is, `I·0` through `I·F`. The marker makes
+no sound at all and disturbs nothing on its channel — a note already ringing
+there carries on ringing. The command palette has a button for each number.
+
+To hand the program a **number** with it, put a `:` effect on the same row and
+type the value: anything from `$0000` to `$FFFF`. Which lamp, which line of
+dialogue, how hard to shake the screen — it means whatever the two of you agree
+it means. A marker with no `:` beside it sends `0`.
+
+Everything else on the row is the interrupt's business not at all. The
+instrument, volume and panning columns, and any other effect, are ignored by
+the marker and still do exactly what they always do — so an interrupt can share
+a row with a channel-volume change or a pan slide without either getting in the
+other's way. In a wide (version 3) song a row has two effect slots: if you put
+a `:` in **both**, the left one is the argument and the right one is painted
+**red** to say it is being ignored.
+
+The player library — `taudplay`, the same engine without the editor — answers
+them with `setInterrupt(n, fn)`:
+
+```js
+player.setInterrupt(3, (arg) => flashLight(arg));
+```
+
+Interrupts are saved in the file like any other note, so a song carries its
+cues with it.
 
 ### Instrument, volume and pan columns
 
@@ -2057,6 +2093,7 @@ sidebar (also at [Note Effects](#effects)).
 | X | Spatial panning | `$eeaa` — elevation, azimuth |
 | Y | Panbrello | `$xxyy` — speed, depth |
 | Z | Special 2 | `$0xxx` spatial slide · `$Ffxx` funk repeat: hop the loop through the sample, `$f` = the hop |
+| : | Interrupt argument / argument extension | `$xxxx` — the number an interrupt marker on the same row hands the player; on any other row, extra argument for the second effect beside it |
 
 ### Ditto ghosts
 
@@ -2110,6 +2147,7 @@ hear, exactly as if you had played through the arming row.
 | W E · T Y U · O P | Piano black keys |
 | Q · R · I | Half-sharps where a piano has no black key |
 | z x c v | Key-off `===` · cut `^^^` · fade `~~~` · fast-fade `~^~` |
+| b | Interrupt marker `I·0` — `[` `]` or the wheel pick its number |
 | 0–9 A–F | Hex entry (instrument / volume / pan / fx argument) |
 | 1–Z | Effect opcode (base-36) |
 | ^ v / u d | Volume symbol cell: slide up / down |
