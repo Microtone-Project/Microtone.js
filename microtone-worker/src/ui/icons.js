@@ -64,6 +64,12 @@ export const ICON = {
     '<rect x="2.5" y="2.5" width="12" height="19" rx="1.5"/>' +
     '<path d="M5.5 7.5h6M5.5 12h6M5.5 16.5h3.5"/>' +
     '<path d="M18.5 13v7.5M14.75 16.75h7.5"/>'),
+  /** Delete the pattern in this slot: the same card, struck out — the cross the
+   *  row commands use for "this one goes away", where patternNew has its plus. */
+  patternDelete: SVG(
+    '<rect x="2.5" y="2.5" width="12" height="19" rx="1.5"/>' +
+    '<path d="M5.5 7.5h6M5.5 12h6M5.5 16.5h3.5"/>' +
+    '<path d="M15.8 14 21.2 19.4M21.2 14 15.8 19.4"/>'),
   /** Move this slot's pattern one channel LEFT, into the empty slot there. */
   moveLeft: SVG(slot(2) + '<path d="M15.5 12h-7M11 9.5 8.5 12l2.5 2.5"/>' + bar(18)),
   /** Move this slot's pattern one channel RIGHT. */

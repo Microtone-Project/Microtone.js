@@ -83,6 +83,8 @@ export default {
   "ctx.duplicate": "복제",
   "ctx.duplicateTitle": "이 칸이 패턴의 새 사본을 가리키게 합니다. 이제 이 칸을 편집해도 같은 패턴을 쓰는 다른 큐는 바뀌지 않습니다",
   "ctx.duplicateBlockTitle": "선택한 모든 칸에 각자의 패턴 사본을 만듭니다. 이제 이 칸들을 편집해도 같은 패턴을 쓰는 다른 큐는 바뀌지 않습니다",
+  "ctx.delPattern": "패턴 삭제",
+  "ctx.delPatternTitle": "이 선택이 덮는 {n}개 칸을 비웁니다. 곡의 다른 어디에서도 재생하지 않는 패턴은 내용까지 함께 삭제되고, 다른 큐가 함께 쓰는 패턴은 그대로 남습니다",
   "ctx.solo": "솔로",
   "ctx.soloTitle": "{ch}번 채널만 듣기 (헤더 Ctrl+클릭) — 다시 솔로하면 전체 음소거가 해제됩니다",
   "ctx.mute": "음소거",

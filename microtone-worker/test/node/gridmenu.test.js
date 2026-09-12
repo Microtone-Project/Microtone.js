@@ -1,6 +1,7 @@
 // The grid context menu's slot actions (item 103): moving a filled cue slot
-// sideways, duplicating the pattern it points at, and the channel header's
-// mute row. Plus the two ops underneath — compositeOp and createPatternOp.
+// sideways, duplicating the pattern it points at, deleting it, and the channel
+// header's mute row. Plus the ops underneath — compositeOp, createPatternOp and
+// deletePatternOp.
 //
 // Same load-bearing invariant as channelops.test.js: bit 15 of a cue word
 // belongs to the channel POSITION (it spells the cue's instruction words), so
@@ -13,9 +14,11 @@ import { fileURLToPath } from "node:url";
 
 import {
   canMoveSlots, patternSlotItems, isPatternSlotItem, moveSlots, duplicateSlots,
-  muteItems, runMuteItem,
+  deleteSlots, orphanedPatterns, muteItems, runMuteItem,
 } from "../../src/ui/gridmenu.js";
-import { compositeOp, createPatternOp, setCueWordOp, setCellOp } from "../../src/doc/ops.js";
+import {
+  compositeOp, createPatternOp, deletePatternOp, setCueWordOp, setCellOp,
+} from "../../src/doc/ops.js";
 import { CUE_EMPTY } from "../../src/format/taud-const.js";
 import { parseTaud, cueInstructionWords } from "../../src/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
@@ -215,17 +218,138 @@ test("duplicateSlots: empty slots are not duplicated", () => {
   assert.equal(pat(store, 0, 1), free);
 });
 
+// ── delete (the slot, and the pattern when it was the last user) ──
+
+test("orphanedPatterns: only the ones the selection is the last user of", () => {
+  const store = loadStore();
+  const song = store.song;
+  // Park every cue on patterns of its own so the fixture's own sharing cannot
+  // colour the counting, then share 0x11 between two cues.
+  song.cues.forEach((w) => { for (let ch = 0; ch < 64; ch++) w[ch] = (w[ch] & 0x8000) | CUE_EMPTY; });
+  song.patterns[0x11] = song.patterns[0] ?? null;
+  seed(store, 0, 0, [0x11, 0x12]);
+  seed(store, 1, 0, [0x11]);
+  song.patterns[0x12] = song.patterns[0] ?? null;
+  assert.deepEqual(orphanedPatterns(song, [{ cue: 0, ch: 0 }]), [],
+    "cue 1 still plays 0x11");
+  assert.deepEqual(orphanedPatterns(song, [{ cue: 0, ch: 1 }]), [0x12],
+    "nothing else plays 0x12");
+  assert.deepEqual(orphanedPatterns(song, [{ cue: 0, ch: 0 }, { cue: 1, ch: 0 }]), [0x11],
+    "…both of its users are in the selection");
+});
+
+test("orphanedPatterns: a pattern the selection names twice loses both at once", () => {
+  const store = loadStore();
+  const song = store.song;
+  song.cues.forEach((w) => { for (let ch = 0; ch < 64; ch++) w[ch] = (w[ch] & 0x8000) | CUE_EMPTY; });
+  song.patterns[0x11] = song.patterns[0] ?? null;
+  seed(store, 0, 0, [0x11, 0x11]);
+  assert.deepEqual(orphanedPatterns(song, [{ cue: 0, ch: 0 }]), [], "the other slot still plays it");
+  assert.deepEqual(orphanedPatterns(song, [{ cue: 0, ch: 0 }, { cue: 0, ch: 1 }]), [0x11]);
+});
+
+test("orphanedPatterns: an index referenced but never written to has nothing to delete", () => {
+  const store = loadStore();
+  const song = store.song;
+  song.cues.forEach((w) => { for (let ch = 0; ch < 64; ch++) w[ch] = (w[ch] & 0x8000) | CUE_EMPTY; });
+  const gap = song.patterns.length + 2; // past the end: referenced, unmaterialised
+  seed(store, 0, 0, [gap]);
+  assert.deepEqual(orphanedPatterns(song, [{ cue: 0, ch: 0 }]), []);
+});
+
+test("deleteSlots: the slot empties and the position's command bit stays", () => {
+  const store = loadStore();
+  seed(store, 0, 0, [0x11, 0x12]);
+  const cmd = cmdBit(store, 0, 0);
+  const before = insts(store);
+  assert.equal(deleteSlots(store, [{ cue: 0, ch: 0 }]), true);
+  assert.equal(pat(store, 0, 0), CUE_EMPTY, "the slot is the empty sentinel");
+  assert.equal(cmdBit(store, 0, 0), cmd, "…carrying the same command bit");
+  assert.equal(pat(store, 0, 1), 0x12, "the slot beside it is untouched");
+  assert.deepEqual(insts(store), before, "no cue's instruction words moved");
+});
+
+test("deleteSlots: a pattern nothing else plays goes with it", () => {
+  const store = loadStore();
+  const song = store.song;
+  song.cues.forEach((w) => { for (let ch = 0; ch < 64; ch++) w[ch] = (w[ch] & 0x8000) | CUE_EMPTY; });
+  const alive = song.patterns.findIndex((p, i) => p && i > 0);
+  seed(store, 0, 0, [alive]);
+  assert.ok(song.patterns[alive], "fixture: it is materialised");
+  deleteSlots(store, [{ cue: 0, ch: 0 }]);
+  assert.equal(song.patterns[alive] ?? null, null, "the pattern is a gap now");
+  assert.equal(song.usedPatternNumbers().has(alive), false, "…and its number is free again");
+});
+
+test("deleteSlots: a pattern another cue still plays keeps its content", () => {
+  const store = loadStore();
+  const song = store.song;
+  song.cues.forEach((w) => { for (let ch = 0; ch < 64; ch++) w[ch] = (w[ch] & 0x8000) | CUE_EMPTY; });
+  const shared = song.patterns.findIndex((p, i) => p && i > 0);
+  seed(store, 0, 0, [shared]);
+  seed(store, 1, 0, [shared]);
+  const bytes = store.doc.patternBytes(0, shared);
+  deleteSlots(store, [{ cue: 0, ch: 0 }]);
+  assert.equal(pat(store, 0, 0), CUE_EMPTY, "the slot still empties");
+  assert.equal(pat(store, 1, 0), shared, "the other cue still points at it");
+  assert.deepEqual(store.doc.patternBytes(0, shared), bytes, "…and it is byte-identical");
+});
+
+test("deleteSlots: over a block, empty slots are skipped and shares decided per pattern", () => {
+  const store = loadStore();
+  const song = store.song;
+  song.cues.forEach((w) => { for (let ch = 0; ch < 64; ch++) w[ch] = (w[ch] & 0x8000) | CUE_EMPTY; });
+  const [a, b] = [1, 2].map((k) => song.patterns.findIndex((p, i) => p && i >= k));
+  assert.ok(a !== b && a > 0 && b > 0, "fixture: two materialised patterns");
+  seed(store, 0, 0, [a, null, b]);
+  seed(store, 1, 0, [b]); // b survives; a does not
+  const slots = [{ cue: 0, ch: 0 }, { cue: 0, ch: 1 }, { cue: 0, ch: 2 }];
+  assert.equal(deleteSlots(store, slots), true);
+  assert.equal(pat(store, 0, 0), CUE_EMPTY);
+  assert.equal(pat(store, 0, 2), CUE_EMPTY);
+  assert.equal(song.patterns[a] ?? null, null, "a lost its last user");
+  assert.ok(song.patterns[b], "b is still played by cue 1");
+});
+
+test("deleteSlots: an empty slot has nothing to delete", () => {
+  const store = loadStore();
+  seed(store, 0, 0, [null]);
+  const bytes = store.doc.toBytes();
+  assert.equal(deleteSlots(store, [{ cue: 0, ch: 0 }]), false);
+  assert.equal(deleteSlots(store, []), false);
+  assert.deepEqual(store.doc.toBytes(), bytes, "nothing was written");
+});
+
+test("deleteSlots: one undo step, byte-exact undo", () => {
+  const store = loadStore();
+  const song = store.song;
+  const alive = song.patterns.findIndex((p, i) => p && i > 0);
+  seed(store, 0, 0, [alive, alive]);
+  const bytes = store.doc.toBytes();
+  const depth = store.undo.undoStack.length;
+  deleteSlots(store, [{ cue: 0, ch: 0 }, { cue: 0, ch: 1 }]);
+  assert.notDeepEqual(store.doc.toBytes(), bytes);
+  assert.equal(store.undo.undoStack.length, depth + 1,
+    "the cue words and the pattern delete are one step");
+  store.undo.undo();
+  assert.deepEqual(store.doc.toBytes(), bytes);
+  store.undo.redo();
+  store.undo.undo();
+  assert.deepEqual(store.doc.toBytes(), bytes, "redo then undo returns to the original");
+});
+
 // ── the menu cells ──
 
 test("patternSlotItems: only the moves that are possible are offered", () => {
   const store = loadStore();
   seed(store, 0, 0, [0x11, null, 0x22, 0x33]);
-  assert.equal(ids(patternSlotItems(store, [{ cue: 0, ch: 0 }])), "movRight,dupPat",
+  assert.equal(ids(patternSlotItems(store, [{ cue: 0, ch: 0 }])), "movRight,dupPat,delPat",
     "channel 0 has nowhere to go left");
-  assert.equal(ids(patternSlotItems(store, [{ cue: 0, ch: 2 }])), "movLeft,dupPat",
+  assert.equal(ids(patternSlotItems(store, [{ cue: 0, ch: 2 }])), "movLeft,dupPat,delPat",
     "channel 2 is boxed in on the right by channel 3");
   seed(store, 0, 0, [null, 0x11, null]);
-  assert.equal(ids(patternSlotItems(store, [{ cue: 0, ch: 1 }])), "movLeft,movRight,dupPat");
+  assert.equal(ids(patternSlotItems(store, [{ cue: 0, ch: 1 }])),
+    "movLeft,movRight,dupPat,delPat");
 });
 
 test("patternSlotItems: an empty slot gets no cells at all", () => {
@@ -235,8 +359,10 @@ test("patternSlotItems: an empty slot gets no cells at all", () => {
   assert.deepEqual(patternSlotItems(store, []), []);
 });
 
-test("isPatternSlotItem recognises exactly the three cells", () => {
-  for (const id of ["movLeft", "movRight", "dupPat"]) assert.equal(isPatternSlotItem(id), true);
+test("isPatternSlotItem recognises exactly the four cells", () => {
+  for (const id of ["movLeft", "movRight", "dupPat", "delPat"]) {
+    assert.equal(isPatternSlotItem(id), true);
+  }
   for (const id of ["insLeft", "newPat", "paste", null]) assert.equal(isPatternSlotItem(id), false);
 });
 
@@ -319,6 +445,36 @@ test("createPatternOp: materialises any number, and its inverse restores the gap
   inverse.apply(doc);
   assert.equal(song.patterns[gap], null, "the gap is a gap again");
   assert.equal(song.patterns.length, lenBefore);
+});
+
+test("deletePatternOp: the index becomes a gap, and the inverse puts it back", () => {
+  const store = loadStore();
+  const doc = store.doc;
+  const song = store.song;
+  const at = song.patterns.findIndex((p, i) => p && i > 0 && i < song.patterns.length - 1);
+  assert.ok(at > 0, "fixture: an interior materialised pattern");
+  const bytes = doc.patternBytes(0, at);
+  const lenBefore = song.patterns.length;
+  const inverse = deletePatternOp(0, at).apply(doc);
+  assert.equal(song.patterns[at], null, "it is a gap now");
+  assert.equal(song.patterns.length, lenBefore, "an interior delete does not shrink the array");
+  inverse.apply(doc);
+  assert.deepEqual(doc.patternBytes(0, at), bytes);
+  assert.equal(song.patterns.length, lenBefore);
+});
+
+test("deletePatternOp: deleting the LAST pattern pops the trailing gap", () => {
+  const store = loadStore();
+  const doc = store.doc;
+  const song = store.song;
+  let at = song.patterns.length - 1;
+  while (at > 0 && !song.patterns[at]) at--;
+  const bytes = doc.patternBytes(0, at);
+  const inverse = deletePatternOp(0, at).apply(doc);
+  assert.ok(song.patterns.length <= at, "the array does not end in nulls");
+  inverse.apply(doc);
+  assert.equal(song.patterns.length, at + 1, "…and the inverse pads it back out");
+  assert.deepEqual(doc.patternBytes(0, at), bytes);
 });
 
 test("createPatternOp past the end: undo pops the padding it added", () => {

@@ -8,8 +8,9 @@ import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
 import {
   insertChannelOp, channelHasContent, setCuesOp, createPatternOp, compositeOp,
+  deletePatternOp,
 } from "../doc/ops.js";
-import { CUE_EMPTY } from "../format/taud-const.js";
+import { CUE_EMPTY, MAX_VOICES } from "../format/taud-const.js";
 
 // A cue word is `pattern (15 bits) | command bit`, and bit 15 belongs to the
 // channel POSITION rather than to the pattern sitting in it (ops.js says why),
@@ -52,10 +53,11 @@ export function newPatternItem() {
 }
 
 // ── item 103.1: what a FILLED slot can do ──
-// The three cells a slot holding a pattern gets on top of the channel inserts.
-// They act on the same `[{cue, ch}]` slot list the New-pattern cell does — the
-// block's slots, or the one that was clicked — so a block of patterns walks
-// sideways as a unit.
+// The cells a slot holding a pattern gets on top of the channel inserts: move it
+// sideways, unshare it, or take it out of the song. They act on the same
+// `[{cue, ch}]` slot list the New-pattern cell does — the block's slots, or the
+// one that was clicked — so a block of patterns walks sideways, copies or goes
+// as a unit.
 
 /** A slot's cue word. Rows past the stored cue list read as empty: the Cues
  *  view addresses the whole cue space, and writing one materialises it. */
@@ -71,6 +73,35 @@ function filledSlots(song, slots) {
 }
 
 const slotKey = (cue, ch) => `${cue}:${ch}`;
+
+/**
+ * The patterns that would be left with NO user at all if every filled slot in
+ * `slots` were emptied — "unique to the selection", the ones a delete takes the
+ * content of as well as the reference to.
+ *
+ * Counting is per REFERENCE, not per pattern: a pattern three cues play and two
+ * of them are selected still has a user afterwards, and a pattern the selection
+ * names twice loses both at once. Only materialised patterns are returned —
+ * an index referenced without ever having been written to (item 48) has nothing
+ * to delete.
+ */
+export function orphanedPatterns(song, slots) {
+  const going = new Map();
+  for (const s of filledSlots(song, slots)) {
+    const p = wordAt(song, s.cue, s.ch) & PAT_MASK;
+    going.set(p, (going.get(p) ?? 0) + 1);
+  }
+  const users = new Map();
+  for (const words of song.cues) {
+    for (let ch = 0; ch < MAX_VOICES; ch++) {
+      const p = words[ch] & PAT_MASK;
+      if (going.has(p)) users.set(p, (users.get(p) ?? 0) + 1);
+    }
+  }
+  return [...going.keys()]
+    .filter((p) => song.patterns[p] && users.get(p) === going.get(p))
+    .sort((a, b) => a - b);
+}
 
 /**
  * Can every filled slot shift one channel in `dir` (-1 left / +1 right)?
@@ -98,7 +129,8 @@ export function canMoveSlots(song, slots, dir, chans) {
  * The cells a filled slot (or a block containing one) adds to the first row.
  * Move is offered only when it is possible — a blocked or off-the-end move is
  * not a state worth showing greyed out, it is simply not one of the things you
- * can do here.
+ * can do here. Delete always is: there is always a pattern here to take out,
+ * which is what made the row worth offering in the first place.
  */
 export function patternSlotItems(store, slots) {
   const song = store.song;
@@ -118,13 +150,15 @@ export function patternSlotItems(store, slots) {
     items.push({ id: "dupPat", label: t("ctx.duplicate"), icon: ICON.duplicate,
       title: t(filled.length > 1 ? "ctx.duplicateBlockTitle" : "ctx.duplicateTitle") });
   }
+  items.push({ id: "delPat", label: t("ctx.delPattern"), icon: ICON.patternDelete,
+    title: t("ctx.delPatternTitle", { n: filled.length }) });
   return items;
 }
 
+const SLOT_ITEMS = ["movLeft", "movRight", "dupPat", "delPat"];
+
 /** True when `id` is one of the filled-slot cells. */
-export function isPatternSlotItem(id) {
-  return id === "movLeft" || id === "movRight" || id === "dupPat";
-}
+export function isPatternSlotItem(id) { return SLOT_ITEMS.includes(id); }
 
 /**
  * Shift every filled slot one channel along, in ONE undo step. Pure cue-word
@@ -178,6 +212,38 @@ export function duplicateSlots(store, slots) {
     writes.push({ cue: s.cue, ch: s.ch, value: (word & CMD_BIT) | (nums[i] & PAT_MASK) });
   });
   ops.push(setCuesOp(store.songIndex, writes));
+  store.undo.apply(compositeOp(ops));
+  return true;
+}
+
+/**
+ * Take the patterns in `slots` out of the song: every filled slot's cue word
+ * goes back to the empty sentinel, and any pattern that loses its LAST user in
+ * the process has its content deleted too.
+ *
+ * Emptying the slot is the primary act — that is what "there is no pattern here
+ * any more" means, and it is all that can be said about a pattern other cues
+ * still play. Deleting the content is the tidy-up that follows from it: a
+ * pattern nothing references is unreachable, and leaving it materialised would
+ * only carry dead music in the file and hold its number against the next New
+ * pattern. Sharing is therefore what decides, exactly as it does everywhere
+ * else in this file.
+ *
+ * One composite undo step, cue words FIRST so the deletes unwind after the
+ * references come back.
+ */
+export function deleteSlots(store, slots) {
+  const song = store.song;
+  const filled = filledSlots(song, slots);
+  if (filled.length === 0) return false;
+  const writes = filled.map((s) => ({
+    cue: s.cue, ch: s.ch,
+    value: (wordAt(song, s.cue, s.ch) & CMD_BIT) | CUE_EMPTY,
+  }));
+  const ops = [setCuesOp(store.songIndex, writes)];
+  for (const p of orphanedPatterns(song, slots)) {
+    ops.push(deletePatternOp(store.songIndex, p));
+  }
   store.undo.apply(compositeOp(ops));
   return true;
 }

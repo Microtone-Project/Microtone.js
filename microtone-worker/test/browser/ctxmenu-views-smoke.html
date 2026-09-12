@@ -231,6 +231,29 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   await sleep(60);
   check(cuePat(3, 2) === 0x0022, "…and the duplicate undoes");
 
+  // Delete: the slot goes back to the empty sentinel, and a pattern nothing
+  // else in the song plays goes with it. Duplicating first is what makes that
+  // second half certain — a fresh copy has exactly one user, this slot.
+  dlg = await menuOn(cueCv, cueX(2), cueY(3));
+  cell(dlg, "dupPat").click();
+  await sleep(100);
+  const lone = cuePat(3, 2);
+  check(!!store.song.patterns[lone], "the duplicate materialised a pattern of its own",
+    `$${lone.toString(16)}`);
+  dlg = await menuOn(cueCv, cueX(2), cueY(3));
+  cell(dlg, "delPat").click();
+  await sleep(100);
+  check(cuePat(3, 2) === 0x7fff, "Delete pattern empties the slot",
+    `$${cuePat(3, 2).toString(16)}`);
+  check(!store.song.patterns[lone], "…and deletes the pattern nothing else played");
+  check(cuePat(3, 0) === 0x0011, "the slots beside it are untouched");
+  store.undo.undo();
+  await sleep(80);
+  check(cuePat(3, 2) === lone && !!store.song.patterns[lone],
+    "…and one undo brings back both the slot and the pattern");
+  store.undo.undo(); // drop the duplicate
+  await sleep(60);
+
   // The empty slot between them offers neither.
   dlg = await menuOn(cueCv, cueX(1), cueY(3));
   check(!ids(dlg).includes("movLeft") && !ids(dlg).includes("movRight") &&

@@ -6,6 +6,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-12
 
+**Delete pattern** takes a pattern out of the song from the grid you are looking at.
+
+- It is a new cell on the right-click menu of any cue slot that has a pattern in it, in both the **Timeline** and the **Cues** view, beside **Duplicate**. It empties the slot — that cue plays nothing on that channel now — and over a selection it empties every filled slot the block covers, skipping the empty ones, in one **Ctrl+Z**.
+- The pattern itself goes only when it has nobody left: one other cues still play is kept exactly as it was, and one the selection was the last user of is deleted with the slot, which frees its number for the next **New pattern**. Nothing else is renumbered, so every other cue goes on playing what it always did.
+- Undo brings back the slot *and* the pattern's music, note for note.
+
 **Split here** and **Cut here** put a new bar line inside a cue, wherever you point at it, without moving a note of the song.
 
 - Both are new cells on the row trough's right-click menu in the **Timeline**, beside **Patterns above / below**. Right-click the row number you want the new cue to start on: the cue you clicked keeps the rows above it, and the rest begin a fresh cue right after it.

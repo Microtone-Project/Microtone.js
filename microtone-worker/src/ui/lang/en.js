@@ -86,6 +86,8 @@ export default {
   "ctx.duplicate": "Duplicate",
   "ctx.duplicateTitle": "Point this slot at a fresh copy of its pattern, so editing it no longer changes the other cues that share it",
   "ctx.duplicateBlockTitle": "Give every slot in the selection a fresh copy of its pattern, so editing them no longer changes the other cues that share them",
+  "ctx.delPattern": "Delete pattern",
+  "ctx.delPatternTitle": "Empty the {n} slot(s) this covers. A pattern nothing else in the song still plays is deleted with them; one another cue shares is left where it is",
   "ctx.solo": "Solo",
   "ctx.soloTitle": "Hear channel {ch} alone (Ctrl+click the header) — solo it again to unmute everything",
   "ctx.mute": "Mute",

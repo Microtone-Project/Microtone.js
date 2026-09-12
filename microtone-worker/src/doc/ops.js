@@ -685,6 +685,35 @@ function dropPatternOp(song, pat, prev, oldLen, gestureId = null) {
   };
 }
 
+/**
+ * Delete pattern `pat`'s content, leaving the index UNMATERIALISED — item 48's
+ * gap, which is what an index nothing has written to has always looked like.
+ * Numbers are not renumbered (that is Clean up's job): the ones above this keep
+ * theirs, so every cue word in the song goes on meaning what it meant.
+ *
+ * Trailing gaps are popped, since an array ending in nulls would serialise them
+ * as blank patterns. The inverse is createPatternOp, which pads the array back
+ * out to `pat` — so the length comes back exactly as it was.
+ */
+export function deletePatternOp(song, pat, gestureId = null) {
+  return {
+    type: "deletePattern",
+    song, pat, gestureId,
+    coalesceKey: `mkpat:${song}:${pat}`,
+    apply(doc) {
+      const pats = doc.songs[song].patterns;
+      const bytes = doc.patternBytes(song, pat); // captured for the inverse
+      pats[pat] = null;
+      while (pats.length && !pats[pats.length - 1]) pats.pop();
+      doc.dirty = true;
+      return createPatternOp(song, pat, bytes, gestureId);
+    },
+    // post-apply: patternBytes serves the empty image for `pat` now, so the
+    // sync flush blanks the worklet's copy of it
+    dirty: () => [{ kind: "pattern", song, pat }],
+  };
+}
+
 /** Bulk note edit driven by a mutator: `fn(songObj)` changes cell notes and
  *  returns [{pat, row, prev}] (the retuneAllPatterns contract). Transpose
  *  uses this; the inverse is a plain note restore. */

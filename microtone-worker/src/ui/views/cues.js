@@ -14,7 +14,7 @@ import { showModal } from "../widgets/modal.js";
 import { showContextMenu } from "../widgets/contextmenu.js";
 import {
   clipboardItems, channelItems, newPatternItem, insertChannelAt,
-  patternSlotItems, isPatternSlotItem, moveSlots, duplicateSlots,
+  patternSlotItems, isPatternSlotItem, moveSlots, duplicateSlots, deleteSlots,
 } from "../gridmenu.js";
 import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
@@ -395,17 +395,18 @@ export class CuesView {
     if (insertChannelAt(this.store, at)) this.invalidate();
   }
 
-  /** Move / duplicate the patterns in `slots` (item 103.1). A move carries the
+  /** Move / duplicate / delete the patterns in `slots` (item 103.1). A move carries the
    *  selection along so the block can be walked channel by channel — clamped,
    *  because only the block's FILLED slots had to have somewhere to go, and a
    *  selection can reach past them into empty channels. */
   runSlotItem(id, slots) {
     const dir = id === "movLeft" ? -1 : 1;
-    const ok = id === "dupPat"
-      ? duplicateSlots(this.store, slots)
+    const moving = id === "movLeft" || id === "movRight";
+    const ok = id === "dupPat" ? duplicateSlots(this.store, slots)
+      : id === "delPat" ? deleteSlots(this.store, slots)
       : moveSlots(this.store, slots, dir);
     if (!ok) return;
-    if (id !== "dupPat" && this.sel) {
+    if (moving && this.sel) {
       const last = this.store.doc.channelCount - 1;
       this.sel = {
         ...this.sel,

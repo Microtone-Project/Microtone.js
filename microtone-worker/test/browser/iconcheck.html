@@ -4,7 +4,7 @@
 <script type="module">
 import { ICON } from "./src/ui/icons.js";
 const r = document.getElementById("r");
-for (const k of ["moveLeft","moveRight","duplicate","solo","mute","unmute","unmuteAll","channelLeft","channelRight","copy"]) {
+for (const k of ["moveLeft","moveRight","duplicate","patternNew","patternDelete","patsSplit","patsCut","solo","mute","unmute","unmuteAll","channelLeft","channelRight","copy"]) {
   const b = document.createElement("button");
   b.className = "ctx-cell"; b.type = "button";
   b.innerHTML = `<span class="ctx-icon">${ICON[k]}</span><span class="ctx-name">${k}</span>`;

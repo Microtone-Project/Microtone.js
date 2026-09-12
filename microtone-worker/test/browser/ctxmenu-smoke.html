@@ -170,6 +170,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     "a slot with a pattern and an empty clipboard offers no clipboard and no New pattern",
     ids(dlg).join());
   check(ids(dlg).includes("dupPat"), "…but it can be duplicated", ids(dlg).join());
+  check(ids(dlg).includes("delPat"), "…or deleted", ids(dlg).join());
   await dismiss(dlg);
 
   // ── 8. the gutter is not a channel — it is the ROW menu (item 136) ───────

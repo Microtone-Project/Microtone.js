@@ -236,6 +236,7 @@ palette of icon buttons:
 | **Channel left** | Insert an empty channel *before* this one |
 | **Channel right** | Insert an empty channel *after* this one |
 | **New pattern** | Where the cue leaves a channel empty: point the slot at the lowest unused pattern number and put the cursor there. Over a block it fills **every** empty slot the block covers, one fresh pattern each, leaving the slots that already have one alone |
+| **Delete pattern** | Where the cue has one: empty the slot — and delete the pattern itself when nothing else in the song still plays it |
 
 A **second row** underneath carries the Patterns-view edit tools, aimed at the
 column you clicked (or, with a block selected, at the columns the block covers):
@@ -247,6 +248,15 @@ column you clicked (or, with a block selected, at the columns the block covers):
 | Volume | **Volume** — rescale volumes |
 | Panning | **Panning** — widen / narrow / shift; in a surround song a **Panner** cell sits beside it, opening the same dial as the toolbox button |
 | Effect | the eight most-used effect commands: **S** Special, **D** Volume slide, **G** Tone portamento, **H** Vibrato, **E** / **F** Pitch slide down / up, **O** Sample offset, **A** Set tick rate. Picking one writes the opcode and leaves the argument alone; everything else is in the command palette at the foot of the screen. |
+
+**Delete pattern** empties the slot: this cue simply has no pattern on that
+channel any more. Over a block it empties every filled slot the block covers and
+skips the empty ones. What becomes of the pattern *itself* is decided by
+**sharing** — one other cues still play is left exactly as it was, and one the
+selection was the last user of is deleted with the slot, freeing its number for
+the next **New pattern**. Nothing is renumbered, so every other cue in the song
+goes on meaning what it meant, and one **Ctrl+Z** brings back both the slot and
+the pattern.
 
 **Interpolate** appears whenever the columns in play are ones it can fill in —
 one of note / volume / panning / effect, or volume and panning together — and
