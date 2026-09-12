@@ -1375,13 +1375,25 @@ window.addEventListener("keydown", (e) => {
       return;
     }
   }
-  // Ctrl/Cmd+A — block-select the whole column (Timeline: the cursor's single
-  // voice; Patterns: the active pane's pattern). Item 47.5.
+  // Ctrl/Cmd+A — block-select the whole column (Timeline / Cues: the cursor's
+  // single voice; Patterns: the active pane's pattern). Item 47.5.
   if ((e.ctrlKey || e.metaKey) && e.key === "a") {
     const v = selView();
     if (v?.selectColumn) {
       e.preventDefault();
       v.selectColumn();
+      updateStatus();
+      return;
+    }
+  }
+  // Ctrl/Cmd+←/→ — grow that column block sideways, a whole voice at a time.
+  // Only the two channel-column grids have a neighbouring column to reach: a
+  // Taud pattern is one channel, so the Patterns view leaves the keys alone.
+  if ((e.ctrlKey || e.metaKey) && (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
+    const v = selView();
+    if (v?.extendColumn) {
+      e.preventDefault();
+      v.extendColumn(e.code === "ArrowLeft" ? -1 : 1);
       updateStatus();
       return;
     }

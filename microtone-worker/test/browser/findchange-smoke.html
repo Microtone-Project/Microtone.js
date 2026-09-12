@@ -249,14 +249,27 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   check(/pattern 0003/i.test(dlg.querySelector("h3").textContent),
     "…titled with the pattern it will act on", dlg.querySelector("h3").textContent);
   const scopeOpts = opts(dlg.querySelector(".fc-scope"));
-  check(scopeOpts.join() === "here,song",
-    "…and offers the song-wide scope the toolbar tools offer", scopeOpts.join());
+  // Toolbar with nothing selected: the caller's cells ARE the whole pattern, so
+  // that first option is named as the pattern and not offered a second time.
+  check(scopeOpts.join() === "here,column,song",
+    "…and offers the wider scopes beside it", scopeOpts.join());
+  const scopeLabels = [...dlg.querySelector(".fc-scope").options].map((o) => o.textContent.trim());
+  check(/whole pattern \(0003\)/.test(scopeLabels[0]),
+    "…the first named as the pattern it will act on", scopeLabels[0]);
+  check(/whole column \(31 patterns\)/.test(scopeLabels[1]),
+    "…the column counted (pattern 0003 plays on voice 4 alone)", scopeLabels[1]);
+  check(/whole song \(428 patterns\)/.test(scopeLabels[2]),
+    "…and the song counted", scopeLabels[2]);
   const hereCount = /of (\d+) cells/.exec(countText())?.[1];
   check(hereCount === "64", "the pattern scope is its 64 rows", countText());
+  pick(dlg.querySelector(".fc-scope"), "column");
+  await sleep(60);
+  const colCount = +/of (\d+) cells/.exec(countText())[1];
+  check(colCount === 31 * 64, "the column scope is every pattern that voice plays", String(colCount));
   pick(dlg.querySelector(".fc-scope"), "song");
   await sleep(60);
   const songCount = +/of (\d+) cells/.exec(countText())[1];
-  check(songCount > 64 && songCount % 64 === 0,
+  check(songCount === 428 * 64,
     "…and the song scope is every materialised pattern", String(songCount));
 
   // A change-instrument $11 → $1A over the pattern, the kind of thing this

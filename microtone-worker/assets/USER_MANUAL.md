@@ -831,6 +831,7 @@ Timeline and Patterns support rectangular selections:
 
 - **Drag** with the mouse to select rows × channels. A drag also records which *columns* (note / instrument / volume / pan / effect) it covers, so a narrow drag lets you copy just volumes, or just notes. Any drag counts, including one that stays inside a single row or a single column — "just the panning of this row" is a selection you can copy.
 - **Shift+arrows** (and **Shift+PageUp/Down/Home/End**) extend a whole-cell selection from the cursor.
+- **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single voice, top to bottom; in Patterns the pattern you are looking at. **Ctrl+←** and **Ctrl+→** then widen that selection a whole voice at a time (a Taud pattern is one channel, so they do nothing in Patterns). The voice you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this voice and the next.
 - **Ctrl+C / Ctrl+X / Ctrl+V** copy, cut and paste. A paste lands on the **start of the selection** when there is one — the corner you began the drag from, not the cursor, which sits wherever the drag ended — and on the cursor when there is not. Pasting across views clips to what fits; a column-limited block overwrites only its columns.
 - **Right-click** for the same three as buttons: *Copy* and *Cut* while a block is selected, *Paste* on any cell that can take one. See [the right-click menu](#the-right-click-menu); the Cues view carries the same clipboard cells over its cue words.
 - **Delete / Backspace** blanks the selection, **Esc** clears it.
@@ -867,7 +868,9 @@ and cue 2000 with nothing between, all 2001 cues are stored (gzip keeps that
 cheap).
 
 **Block copy/paste.** Select a rectangle of channel cells by dragging with the
-mouse, or with **Shift+arrows**; then **Ctrl+C** / **Ctrl+X** / **Ctrl+V** copy,
+mouse, with **Shift+arrows**, or a whole voice column at a time with **Ctrl+A**
+and **Ctrl+←/→** (the column runs to the end of the cue list, not to the end of
+the address space you can scroll into); then **Ctrl+C** / **Ctrl+X** / **Ctrl+V** copy,
 cut and paste, **Delete**/**Backspace** blank the block, and **Esc** clears the
 selection. Paste lands with its top-left corner at the cursor, so you can move a
 group of voices onto different channels, onto other cues, or onto the blank row
@@ -1024,8 +1027,24 @@ can express.
 
 It opens from two places, and is the same dialog either way:
 
-- the **Find & Change…** button on the Patterns toolbar, which acts on the selected rows (or the whole pattern with nothing selected), and offers **all patterns in this song** beside that;
+- the **Find & Change…** button on the Patterns toolbar, which acts on the selected rows (or the whole pattern with nothing selected);
 - the last cell of the right-click menu's tool row in the **Timeline** and **Patterns** grids, which acts on the selected block — on the Timeline that may cross channels and patterns — or on the single cell you clicked. (The Cues grid holds pattern numbers rather than note cells, so it has no tool row at all.)
+
+**Apply to** names how far the edit reaches, and each of the wider answers is
+counted so you know what you are agreeing to before you agree to it:
+
+| Scope | What it covers |
+|---|---|
+| the cells you came in with | the selected rows or block — named **whole pattern (nnnn)** when they happen to be one whole pattern |
+| **whole pattern (nnnn)** | all 64 rows of the pattern those cells sit in |
+| **whole column (nn patterns)** | every pattern that one voice column plays, in full |
+| **whole song (nnn patterns)** | every pattern the song has, in full |
+
+A scope is only offered when it means something: the pattern one when the cells
+sit in a single pattern, the column one when the voice is known — a Timeline
+block knows the column it was drawn in, and elsewhere it is the column that
+plays this pattern, when only one does. Unwritten pattern numbers are left out
+of the counts and out of the edit; the whole of it is still one **Ctrl+Z**.
 
 **Conditions and terms.** A *term* is one test on one column. The terms inside a
 *condition* must **all** hold; **any one** condition matching is enough. So
@@ -2188,6 +2207,8 @@ hear, exactly as if you had played through the arming row.
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+S | Save to browser storage |
 | Ctrl+G | Go to cue:row |
+| Ctrl+A | Select the whole column (Timeline / Cues: one voice; Patterns: the pattern) |
+| Ctrl+← / Ctrl+→ | Timeline / Cues: widen (or narrow) that column selection by one voice |
 | Shift+arrows · drag | Extend a block selection |
 | Ctrl+C / X / V | Copy / cut / paste the block |
 | Esc · Delete / Backspace | Clear the selection · blank the block |

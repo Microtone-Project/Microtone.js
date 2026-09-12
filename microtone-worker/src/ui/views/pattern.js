@@ -657,10 +657,11 @@ class PatternPane {
    * Find & Change (item 132) — the advanced edit, on this pane's pattern.
    *
    * It takes the same row span the other bulk tools do (the selection, else
-   * the whole pattern) and offers the song-wide scope beside it, exactly as
+   * the whole pattern) and offers the wider scopes beside it, exactly as
    * Change instrument does: the toolbar acts on a pattern you have named, so
-   * "and every other one too" is a question worth asking here. The dialog owns
-   * the commit.
+   * "and every other one too" is a question worth asking here. Which column
+   * that pattern belongs to is a question the dialog answers for itself, off
+   * the cue list. The dialog owns the commit.
    */
   async findChangeOp() {
     if (!this.pattern()) return;
@@ -670,7 +671,7 @@ class PatternPane {
     for (let r = r0; r <= r1; r++) cells.push({ pat: this.patIdx, row: r });
     const { showFindChange } = await import("../popups/findchange.js");
     const changed = await showFindChange(this.store,
-      { cells, scope, titleArg: this._titlePat(), allowSong: true });
+      { cells, scope, titleArg: this._titlePat() });
     if (changed) { this.refreshHeader(); this.invalidate(); }
   }
 

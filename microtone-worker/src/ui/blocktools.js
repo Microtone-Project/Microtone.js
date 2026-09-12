@@ -174,14 +174,17 @@ function applyCellBytes(ctx, fn) {
 /**
  * Run one second-row action.
  *
- * `ctx` is `{ store, cells, cols, lanes, scope, anchor }` — `cells` a DEDUPED
- * `[{pat, row}]` list (the view builds it from its selection, or from the one
- * clicked cell), `cols` the logical columns in play, `lanes` the same cells
- * kept in READING ORDER and split per channel (which is what an interpolation
- * runs down, and what a deduped set cannot say), `scope` the human label the
- * modals put in their body text, and `anchor` the `{pat, row, channel,
- * rowLabel}` the panner reads its starting position off. Resolves true when the
- * document changed.
+ * `ctx` is `{ store, cells, cols, lanes, scope, anchor, column }` — `cells` a
+ * DEDUPED `[{pat, row}]` list (the view builds it from its selection, or from
+ * the one clicked cell), `cols` the logical columns in play, `lanes` the same
+ * cells kept in READING ORDER and split per channel (which is what an
+ * interpolation runs down, and what a deduped set cannot say), `scope` the
+ * human label the modals put in their body text, `anchor` the `{pat, row,
+ * channel, rowLabel}` the panner reads its starting position off, and `column`
+ * the voice the block sits in when the view HAS voices — a Taud pattern is one
+ * channel, so the Patterns view leaves it out and Find & Change works the
+ * column out from the cue list instead. Resolves true when the document
+ * changed.
  */
 export async function runBlockTool(id, ctx) {
   if (id.startsWith("fx2:")) return applyQuickFx(ctx, parseInt(id.slice(4), 10), true);
@@ -206,7 +209,9 @@ async function findChangeTool(ctx) {
   const { showFindChange } = await import("./popups/findchange.js");
   // No pattern number in the title: a block on the Timeline crosses patterns,
   // and naming one of them would be a lie about what Apply is going to touch.
-  return showFindChange(ctx.store, { cells: ctx.cells, scope: ctx.scope });
+  // The column, though, IS known here — that is what the block was drawn in.
+  return showFindChange(ctx.store,
+    { cells: ctx.cells, scope: ctx.scope, channel: ctx.column ?? null });
 }
 
 /**

@@ -557,7 +557,7 @@ export class TimelineView {
     if (isBlockTool(pick)) {
       const anchor = this.toolAnchor(hit, ch);
       if (await runBlockTool(pick, { store, cells, cols, lanes: this.toolLanes(hit, ch),
-        anchor, scope: this.toolScope(cells) })) {
+        anchor, column: ch, scope: this.toolScope(cells) })) {
         this.invalidate();
       }
       return;
@@ -780,6 +780,40 @@ export class TimelineView {
     const ch = this.store.cursor.ch;
     this.sel = { aRow: 0, aCh: ch, aSub: 0, row: map.totalRows - 1, ch,
       sub: lastSub(this.fx2On(ch)) };
+    this.invalidate();
+    this.store.emit("cursor");
+  }
+
+  /**
+   * Ctrl+←/→ — the move Ctrl+A asks for next: widen (or narrow) the block by
+   * one whole VOICE column.
+   *
+   * The channel the block was anchored on stays put and the far edge walks, so
+   * ← after a → takes the last column back off again rather than jumping the
+   * anchor about — the same anchor-and-edge rule Shift+arrows follow. What it
+   * selects is always WHOLE columns: every row of the song and every
+   * sub-column the edge channel shows, whatever the block looked like before.
+   * With nothing selected it starts from Ctrl+A's block, so Ctrl+→ on its own
+   * takes this column and the one beside it.
+   */
+  extendColumn(dir) {
+    const map = this.getMap();
+    if (!map) return;
+    if (!this.sel) this.selectColumn();
+    const s = this.sel;
+    if (!s) return;
+    const ch = clampInt(s.ch + dir, 0, this.store.doc.channelCount - 1);
+    s.ch = ch;
+    s.aRow = 0; s.row = map.totalRows - 1;
+    // The edge channel's own last sub-column: a hidden second effect stays
+    // outside the block here exactly as it does everywhere else.
+    s.aSub = 0; s.sub = lastSub(this.fx2On(ch));
+    // The cursor rides the moving edge — that is what scrolls the new column
+    // into view, and what the status line reads.
+    const c = this.store.cursor;
+    c.ch = ch;
+    this.clampCursorSub();
+    this.keepCursorVisible();
     this.invalidate();
     this.store.emit("cursor");
   }

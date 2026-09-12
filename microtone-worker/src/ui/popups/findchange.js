@@ -30,11 +30,11 @@ import {
   fieldById, fieldsFor, fieldDigits, termOpsFor, actionOpsFor, operandIsMultiplier,
   parseFieldValue, parseMultiplier, formatFieldValue,
   defaultTerm, defaultAction, defaultQuery, compileQuery, runPatternQuery,
-  conditionCounts,
+  conditionCounts, queryScopes,
 } from "../../doc/patternquery.js";
 import { setCellsBytesOp } from "../../doc/ops.js";
 import { cellToBytes } from "../../doc/clipboard.js";
-import { noteToStr } from "../notenames.js";
+import { noteToStr, hex4 } from "../notenames.js";
 import { FX_INFO, fxName, fxArg } from "../palette.js";
 import { t } from "../i18n.js";
 import { icon } from "../icons.js";
@@ -61,8 +61,9 @@ const clone = (q) => JSON.parse(JSON.stringify(q));
  *        range, or the one cell that was right-clicked
  * @param scope human label for those cells ("selected rows 0–15")
  * @param titleArg what the title names (the pattern number, usually)
- * @param allowSong offer "every pattern in this song" as a second scope —
- *        the Patterns toolbar does, a right-click on a block does not
+ * @param channel the voice column those cells belong to, when the caller knows
+ *        it (a Timeline block does; the Patterns view works it out from the
+ *        cue list) — it names the "whole column" scope
  * @returns Promise<boolean> — true when the document changed
  */
 export function showFindChange(store, opts) {
@@ -83,7 +84,7 @@ export function showFindQuery(store, opts) {
 }
 
 function openQueryDialog(store, {
-  cells, scope, titleArg = "", allowSong = false, mode = "change", predicate = null,
+  cells, scope, titleArg = "", channel = null, mode = "change", predicate = null,
 }) {
   const findOnly = mode === "find";
   return new Promise((resolve) => {
@@ -95,6 +96,28 @@ function openQueryDialog(store, {
           actions: [] }
       : (lastQuery ? clone(lastQuery) : defaultQuery());
     let target = "here";
+
+    // ── the scopes on offer ─────────────────────────────────────────────────
+    // "And everywhere else?" — queryScopes answers it (narrowest first, and
+    // only where an answer exists); all that belongs here is naming them. Each
+    // wider one is named with what it will COST, because the number of
+    // patterns is the whole difference between an edit you meant and one you
+    // did not.
+    const scopes = findOnly
+      ? [] : queryScopes(doc.songs[store.songIndex], doc.channelCount, cells, channel);
+    const nPats = (n) => (n === 1 ? t("find.pats1") : t("find.pats", { n }));
+    const scopeName = (s) => {
+      // "here" carries a pattern number when the caller's cells ARE one whole
+      // pattern (the toolbar with nothing selected): name it as the pattern
+      // rather than list the same 64 rows twice under two different names.
+      if (s.id === "here") {
+        return s.pat === undefined
+          ? t("find.scopeHere", { scope }) : t("find.scopePattern", { pat: hex4(s.pat) });
+      }
+      if (s.id === "pattern") return t("find.scopePattern", { pat: hex4(s.pat) });
+      if (s.id === "column") return t("find.scopeColumn", { pats: nPats(s.patterns.length) });
+      return t("find.scopeSong", { pats: nPats(s.patterns.length) });
+    };
 
     const dlg = document.createElement("dialog");
     dlg.className = "modal findchange-modal";
@@ -122,8 +145,8 @@ function openQueryDialog(store, {
         ${findOnly ? `<span class="dim fc-scope-l">${esc(t("find.scopeIs", { scope }))}</span>`
           : `<label class="fc-scope-l">${esc(t("find.scope"))}
           <select class="fc-scope">
-            <option value="here">${esc(t("find.scopeHere", { scope }))}</option>
-            ${allowSong ? `<option value="song">${esc(t("find.scopeSong"))}</option>` : ""}
+            ${scopes.map((s) =>
+              `<option value="${s.id}">${esc(scopeName(s))}</option>`).join("")}
           </select></label>`}
         <span class="fc-count"></span>
       </div>
@@ -146,20 +169,19 @@ function openQueryDialog(store, {
     function scopeCells() {
       if (cache.has(target)) return cache.get(target);
       const list = [];
-      if (target === "song") {
-        const song = doc.songs[store.songIndex];
-        for (let p = 0; p < (song?.patterns.length ?? 0); p++) {
-          const rows = song.patterns[p];
-          if (!rows) continue; // an unmaterialised number holds nothing to change
-          for (let r = 0; r < 64; r++) list.push({ pat: p, row: r, bytes: cellToBytes(rows[r], wide) });
-        }
-      } else {
-        // An arbitrary-number pattern that has never been edited (item 48) has
-        // no object yet, and the grid shows it as the shared empty pattern —
-        // so read that, exactly as the pane does. A change that writes to it
-        // materialises it: setCellsBytesOp ensurePattern()s each cell it
-        // touches.
-        const blank = doc.emptyPattern();
+      // An arbitrary-number pattern that has never been edited (item 48) has no
+      // object yet, and the grid shows it as the shared empty pattern — so read
+      // that, exactly as the pane does. A change that writes to it materialises
+      // it: setCellsBytesOp ensurePattern()s each cell it touches.
+      const blank = doc.emptyPattern();
+      const wholePattern = (pat) => {
+        const rows = doc.patternAt(store.songIndex, pat) ?? blank;
+        for (let r = 0; r < 64; r++) list.push({ pat, row: r, bytes: cellToBytes(rows[r], wide) });
+      };
+      const sc = scopes.find((s) => s.id === target);
+      if (sc?.patterns) sc.patterns.forEach(wholePattern);
+      else if (sc?.id === "pattern") wholePattern(sc.pat);
+      else {
         for (const { pat, row } of cells) {
           const cell = (doc.patternAt(store.songIndex, pat) ?? blank)[row];
           if (cell) list.push({ pat, row, bytes: cellToBytes(cell, wide) });

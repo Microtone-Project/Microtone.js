@@ -44,6 +44,7 @@
 // module deals in ids and numbers, and is therefore Node-testable on its own.
 
 import { MIDDLE_C } from "../engine/constants.js";
+import { CUE_EMPTY } from "../format/taud-const.js";
 import {
   cellStride, readVol, writeVol, writeVolSel, readPan, writePan, writePanSel,
   readElev, writeElev,
@@ -513,6 +514,69 @@ export function runPatternQuery(cells, query, wide) {
     if (applyActions(bytes, wide, actions)) writes.push({ pat: cell.pat, row: cell.row, bytes });
   }
   return { total: cells.length, matched, perCondition, writes };
+}
+
+/**
+ * The scopes a Find & Change can offer over `cells`, narrowest first — the
+ * question "and everywhere else?", answered only where an answer exists.
+ *
+ *   {id: "here"}              the caller's own cells; carries `pat` when they
+ *                             happen to BE one whole pattern, so the dialog can
+ *                             name it as the pattern rather than list it twice
+ *   {id: "pattern", pat}      all 64 rows of the pattern those cells sit in
+ *   {id: "column", ch, patterns}  every pattern one voice column plays
+ *   {id: "song", patterns}    every pattern the song has
+ *
+ * Only MATERIALISED patterns are listed (item 48): an index a cue names but
+ * nothing has ever been written to holds nothing to change, and conjuring a
+ * hundred empty patterns into the file to write nothing into them is not what
+ * a wide scope means. The caller's own cells are left alone — a pattern you
+ * have named and can type into is a different thing from a hundred you have
+ * not.
+ *
+ * `channel` is the voice the cells belong to when the caller knows it (a
+ * Timeline block does); without it the column is DERIVED — the sole voice
+ * whose cue words name this pattern, since one shared by several columns names
+ * none of them.
+ */
+export function queryScopes(song, channelCount, cells, channel = null) {
+  const isReal = (p) => !!song?.patterns[p];
+  const list = cells ?? [];
+  const onePat = list.length && list.every((c) => c.pat === list[0].pat) ? list[0].pat : null;
+  const hereIsPattern = onePat !== null && list.length === 64;
+  const out = [hereIsPattern ? { id: "here", pat: onePat } : { id: "here" }];
+  if (onePat !== null && !hereIsPattern) out.push({ id: "pattern", pat: onePat });
+
+  const ch = channel ?? soleColumnFor(song, channelCount, onePat);
+  if (ch !== null) {
+    const seen = new Set();
+    for (const words of song?.cues ?? []) {
+      const p = words[ch] & 0x7fff;
+      if (p !== CUE_EMPTY) seen.add(p);
+    }
+    const patterns = [...seen].filter(isReal);
+    if (patterns.length) out.push({ id: "column", ch, patterns });
+  }
+
+  const patterns = [];
+  for (let p = 0; p < (song?.patterns.length ?? 0); p++) if (isReal(p)) patterns.push(p);
+  if (patterns.length) out.push({ id: "song", patterns });
+  return out;
+}
+
+/** The one voice column whose cue words name `pat`, or null when several do,
+ *  none do, or there is no pattern to ask about. */
+export function soleColumnFor(song, channelCount, pat) {
+  if (pat === null || pat === undefined || !song) return null;
+  let found = null;
+  for (const words of song.cues) {
+    for (let ch = 0; ch < channelCount; ch++) {
+      if ((words[ch] & 0x7fff) !== pat) continue;
+      if (found !== null && found !== ch) return null;
+      found = ch;
+    }
+  }
+  return found;
 }
 
 /** Pull a pattern IMAGE apart into the per-cell records runPatternQuery takes.

@@ -205,13 +205,64 @@ export class CuesView {
   }
 
   // Lookahead-scroll: keep the cursor in the central 64% of the view (item 42).
+  // Sideways too, on the same rule the Timeline uses — a column selection walks
+  // the cursor across channels, and a block growing into voices nobody can see
+  // is a block nobody can judge.
   keepCursorVisible() {
     this.scrollCue = lookahead(this.cursor.cue, this.scrollCue, this.visibleRows(), this.maxScrollCue());
+    if (this.cursor.col >= 2) {
+      this.scrollCh = lookahead(this.cursor.col - 2, this.scrollCh, this.visibleChans(),
+        this.maxScrollCh());
+    }
+  }
+
+  /** Whole channel columns the canvas shows, and the leftmost channel that
+   *  still fills it — the sideways pair of visibleRows/maxScrollCue. */
+  visibleChans() {
+    // `dpr` is only set once the size observer has fired; 1 until then, so a
+    // keystroke that arrives first scrolls by a sane number rather than by NaN.
+    return Math.max(1, Math.floor((this.canvas.width / (this.dpr || 1) - this.chanX(0)) / COL_W));
+  }
+  maxScrollCh() {
+    return Math.max(0, (this.store.doc?.channelCount ?? 0) - this.visibleChans());
   }
 
   // ── block selection + cue clipboard ──
   hasSelection() { return this.sel !== null; }
   clearSelection() { if (this.sel) { this.sel = null; this.invalidate(); } }
+
+  /** The last cue row a whole-column selection reaches: the end of the CUE
+   *  LIST, not of the address space the grid lets you scroll into. Selecting
+   *  8192 mostly-imaginary rows would make one paste materialise the lot. */
+  lastCue() { return Math.max(0, this.numCues() - 1); }
+
+  /** Ctrl+A — select the whole column of the cursor's channel: every cue the
+   *  song has, one voice. The Cmd words belong to the cue rather than to any
+   *  channel (the selection is channel space, like the clipboard it feeds), so
+   *  a cursor parked on one has no column to select. */
+  selectColumn() {
+    const c = this.cursor;
+    if (c.col < 2) return;
+    const ch = c.col - 2;
+    this.sel = { aCue: 0, aCh: ch, cue: this.lastCue(), ch };
+    this.invalidate();
+  }
+
+  /** Ctrl+←/→ — widen (or narrow) that column block by one voice, anchor
+   *  channel staying put and the far edge walking, exactly as the Timeline
+   *  does it. With nothing selected it starts from Ctrl+A's block. */
+  extendColumn(dir) {
+    if (!this.sel) this.selectColumn();
+    const s = this.sel;
+    if (!s) return;
+    const ch = clampInt(s.ch + dir, 0, this.store.doc.channelCount - 1);
+    s.ch = ch;
+    s.aCue = 0; s.cue = this.lastCue();
+    this.cursor.col = ch + 2;
+    this.cursor.nib = 0;
+    this.keepCursorVisible();
+    this.invalidate();
+  }
 
   /** Normalised inclusive bounds {r0,r1,c0,c1} (cue rows × channels), or null. */
   selBounds() {

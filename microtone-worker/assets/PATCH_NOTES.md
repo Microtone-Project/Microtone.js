@@ -4,6 +4,22 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-13
+
+**Ctrl+A** now grows sideways: **Ctrl+←** and **Ctrl+→** widen a column selection a whole voice at a time, in the **Timeline** and now in **Cues** too.
+
+- **Ctrl+A** takes the whole column the cursor is in — one voice, top to bottom — and **Ctrl+←** / **Ctrl+→** add the column beside it, again for as many voices as you want. The voice you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column back off; carry on and the block grows out the other side instead.
+- With nothing selected the arrows start from the cursor's column, so **Ctrl+→** on its own selects this voice and the next.
+- The **Cues** view gets the same pair for the first time. Its columns run to the end of the cue list rather than to the end of the address space you can scroll into, so selecting a column and pasting it somewhere never conjures thousands of empty cues into the file.
+- The Cues grid also follows the cursor sideways now: walking a selection into voices past the right-hand edge scrolls them into view instead of growing a block you cannot see.
+
+**Find & Change** can now reach past the cells you opened it on, and says what that will cost before you agree to it.
+
+- **Apply to** offers **whole pattern (nnnn)**, **whole column (nn patterns)** and **whole song (nnn patterns)** beside the selection you came in with. Each is counted, so *whole column (31 patterns)* tells you the size of the edit you are about to make.
+- **Whole column** is every pattern one voice plays: change the second effect on a whole bass line without hunting down each of its patterns. Opened from a **Timeline** block it is the column the block was drawn in; from the **Patterns** toolbar it is the column that plays this pattern, when only one does.
+- The wider scopes are offered from the right-click menu's **Find & Change** too, not just the Patterns toolbar. A scope that would mean nothing is not offered at all, and pattern numbers nothing has ever been written to stay out of both the counts and the edit.
+- However far it reaches, the whole edit is still one **Ctrl+Z**.
+
 ## 2026-09-12
 
 **Delete pattern** takes a pattern out of the song from the grid you are looking at.

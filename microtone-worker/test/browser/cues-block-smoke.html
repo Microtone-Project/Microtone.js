@@ -153,6 +153,35 @@
         const kbOk = kb && kb.r0 === 0 && kb.r1 === 1 && kb.c0 === 2 && kb.c1 === 3;
         log(`keyboard shift-select: ${kbOk}`);
 
+        // ── 8b. Ctrl+A takes the whole voice column, Ctrl+←/→ walk its edge ──
+        // The column stops at the end of the CUE LIST, not at the end of the
+        // address space: selecting 8192 imaginary rows would make one paste
+        // materialise the lot.
+        cuesView.clearSelection();
+        const lastCue = song.cues.length - 1;
+        cuesView.cursor = { cue: 3, col: 2 + 5, nib: 0 };
+        key(win, "KeyA", "a", { ctrlKey: true });
+        let cc = cuesView.selBounds();
+        const colWholeOk = cc && cc.r0 === 0 && cc.r1 === lastCue && cc.c0 === 5 && cc.c1 === 5;
+        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
+        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
+        cc = cuesView.selBounds();
+        const colWidenOk = cc.c0 === 5 && cc.c1 === 7 && cc.r1 === lastCue &&
+          cuesView.cursor.col === 2 + 7; // the cursor rides the moving edge
+        key(win, "ArrowLeft", "ArrowLeft", { ctrlKey: true });
+        const colNarrowOk = cuesView.selBounds().c1 === 6;
+        key(win, "KeyC", "c", { ctrlKey: true });
+        const colClipOk = store.cueClipboard.rows === lastCue + 1 && store.cueClipboard.chans === 2;
+        // A cursor on a Cmd word has no column to select — those belong to the
+        // cue, not to a voice.
+        cuesView.clearSelection();
+        cuesView.cursor = { cue: 0, col: 0, nib: 0 };
+        key(win, "KeyA", "a", { ctrlKey: true });
+        const cmdNoOp = !cuesView.hasSelection();
+        const colOk = colWholeOk && colWidenOk && colNarrowOk && colClipOk && cmdNoOp;
+        log(`cues Ctrl+A column: whole=${colWholeOk} widen=${colWidenOk} narrow=${colNarrowOk} clip=${colClipOk} cmdNoOp=${cmdNoOp}`);
+        cuesView.clearSelection();
+
         // ── 9. draw() renders the phantom row + a selection without throwing ──
         let drawOk = true;
         try {
@@ -165,8 +194,8 @@
 
         const pass = editRowsOk && grew && materialised && shrankBack && noBloat && grewFar &&
           farUndo && selOk && clipOk && pasteOk && anchorOk && grewOnPaste && undoGrow && delBlanked &&
-          cmdKept && escOk && kbOk && drawOk;
-        log(pass ? "RESULT: PASS" : `RESULT: FAIL edit=${editRowsOk}/${grew}/${materialised} undo=${shrankBack} noBloat=${noBloat} grewFar=${grewFar}/${farUndo} sel=${selOk} clip=${clipOk} paste=${pasteOk} anchor=${anchorOk} growPaste=${grewOnPaste}/${undoGrow} del=${delBlanked}/${cmdKept} esc=${escOk} kb=${kbOk} draw=${drawOk}`);
+          cmdKept && escOk && kbOk && colOk && drawOk;
+        log(pass ? "RESULT: PASS" : `RESULT: FAIL edit=${editRowsOk}/${grew}/${materialised} undo=${shrankBack} noBloat=${noBloat} grewFar=${grewFar}/${farUndo} sel=${selOk} clip=${clipOk} paste=${pasteOk} anchor=${anchorOk} growPaste=${grewOnPaste}/${undoGrow} del=${delBlanked}/${cmdKept} esc=${escOk} kb=${kbOk} col=${colOk} draw=${drawOk}`);
       } catch (err) {
         log(`RESULT: ERROR ${err.message}\n${err.stack}`);
       }

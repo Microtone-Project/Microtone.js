@@ -21,6 +21,7 @@ export function showHelp() {
     ["Ctrl+S", t("help.save")],
     ["Ctrl+G", t("help.goto")],
     ["Ctrl+A", t("help.selectCol")],
+    ["Ctrl+← →", t("help.selectColMore")],
     ["Shift+" + t("help.arrowsDrag"), t("help.selExtend")],
     ["Ctrl+C / X / V", t("help.clipboard")],
     ["Esc · Delete", t("help.selClear")],

@@ -14,6 +14,7 @@ import {
   writeField, applyAction, applyActions, runPatternQuery, cellsFromPattern,
   parseNoteName, parseFieldValue, parseMultiplier, formatFieldValue,
   defaultQuery, compileQuery, conditionCounts, operandIsMultiplier,
+  queryScopes, soleColumnFor,
 } from "../../src/doc/patternquery.js";
 import { emptyCellBytes, cellSize } from "../../src/doc/clipboard.js";
 import { emptyPatternBytes } from "../../src/doc/patterntools.js";
@@ -509,4 +510,79 @@ test("compileQuery drops the half-typed rows so the readout can run live", () =>
   assert.deepEqual(fresh.predicate, []);
   assert.deepEqual(fresh.actions, []);
   assert.equal(runPatternQuery([{ pat: 0, row: 0, bytes: narrowCell() }], fresh, false).matched, 1);
+});
+
+// ── the scopes the dialog offers (the "Apply to" list) ─────────────────────
+
+/** A song stub in the two shapes queryScopes reads: cue words per channel and
+ *  a sparse pattern list (a hole = an index nothing has been written to). */
+function scopeSong(cueRows, patternIndices) {
+  const patterns = [];
+  for (const p of patternIndices) patterns[p] = new Array(64).fill(null);
+  return {
+    patterns,
+    cues: cueRows.map((row) => {
+      const w = new Uint16Array(64).fill(CUE_EMPTY_WORD);
+      row.forEach((p, ch) => { w[ch] = p; });
+      return w;
+    }),
+  };
+}
+const CUE_EMPTY_WORD = 0x7fff;
+const cellsOf = (pat, r0, r1) => {
+  const out = [];
+  for (let r = r0; r <= r1; r++) out.push({ pat, row: r });
+  return out;
+};
+
+test("queryScopes: the caller's cells, then pattern, column and song", () => {
+  // voice 0 plays patterns 1 and 2; voice 1 plays 3 (and 9, unwritten).
+  const song = scopeSong([[1, 3], [2, 9], [1, 3]], [1, 2, 3, 5]);
+  const scopes = queryScopes(song, 2, cellsOf(1, 4, 8));
+  assert.deepEqual(scopes.map((s) => s.id), ["here", "pattern", "column", "song"]);
+  assert.equal(scopes[0].pat, undefined); // a row range is not a whole pattern
+  assert.equal(scopes[1].pat, 1);
+  // Pattern 1 is played by voice 0 alone, so the column is derivable from it.
+  assert.equal(scopes[2].ch, 0);
+  assert.deepEqual(scopes[2].patterns, [1, 2]);
+  // Pattern 5 is materialised but unplaced; 9 is placed but unwritten.
+  assert.deepEqual(scopes[3].patterns, [1, 2, 3, 5]);
+});
+
+test("queryScopes: cells that ARE one whole pattern name the first option", () => {
+  const song = scopeSong([[1, 3]], [1, 3]);
+  const scopes = queryScopes(song, 2, cellsOf(1, 0, 63));
+  // No separate "pattern" scope — the same 64 rows are not offered twice.
+  assert.deepEqual(scopes.map((s) => s.id), ["here", "column", "song"]);
+  assert.equal(scopes[0].pat, 1);
+});
+
+test("queryScopes: a block across patterns has no pattern scope, and takes the caller's column", () => {
+  const song = scopeSong([[1, 3], [2, 4]], [1, 2, 3, 4]);
+  const across = [{ pat: 1, row: 0 }, { pat: 2, row: 0 }];
+  assert.deepEqual(queryScopes(song, 2, across).map((s) => s.id), ["here", "song"]);
+  // …unless the caller says which column the block was drawn in.
+  const told = queryScopes(song, 2, across, 1);
+  assert.deepEqual(told.map((s) => s.id), ["here", "column", "song"]);
+  assert.deepEqual(told[1].patterns, [3, 4]);
+});
+
+test("queryScopes: a pattern several voices play names no column", () => {
+  const song = scopeSong([[7, 7]], [7]);
+  assert.deepEqual(queryScopes(song, 2, cellsOf(7, 0, 3)).map((s) => s.id),
+    ["here", "pattern", "song"]);
+  assert.equal(soleColumnFor(song, 2, 7), null);
+  assert.equal(soleColumnFor(song, 2, 8), null); // nothing plays it
+  assert.equal(soleColumnFor(song, 2, null), null);
+});
+
+test("queryScopes: nothing materialised, nothing wider to offer", () => {
+  const song = scopeSong([[0x7fff, 0x7fff]], []);
+  assert.deepEqual(queryScopes(song, 2, [{ pat: 4, row: 0 }]).map((s) => s.id),
+    ["here", "pattern"]);
+  // An empty column is not offered either: the voice plays only unwritten
+  // numbers, so "every pattern it plays" is nothing at all.
+  const sparse = scopeSong([[6, 0x7fff]], [8]);
+  assert.deepEqual(queryScopes(sparse, 2, [{ pat: 6, row: 0 }], 0).map((s) => s.id),
+    ["here", "pattern", "song"]);
 });

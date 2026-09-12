@@ -102,6 +102,32 @@
         log(`timeline keyboard sub-column select: rows=${tRowsOk} volOnly=${tVolOnly} widened=${tWidened} copyCols=${tCopyCols}`);
         timeline.clearSelection();
 
+        // ── Ctrl+A takes the whole voice column, Ctrl+←/→ walk its far edge ──
+        const totalRows = store.song.songMap().totalRows;
+        store.cursor = { row: 4, ch: 3, sub: SUB_VOL, nib: 0 };
+        key(win, "KeyA", "a", { ctrlKey: true });
+        let cb = timeline.selBounds();
+        const colWholeOk = cb && cb.r0 === 0 && cb.r1 === totalRows - 1 && cb.c0 === 3 && cb.c1 === 3 &&
+          timeline.selCols()[0] === 0 && timeline.selCols().at(-1) >= 4; // note … effect
+        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
+        cb = timeline.selBounds();
+        const colWidenOk = cb.c0 === 3 && cb.c1 === 4 && cb.r0 === 0 && cb.r1 === totalRows - 1 &&
+          store.cursor.ch === 4; // the cursor rides the moving edge
+        key(win, "ArrowLeft", "ArrowLeft", { ctrlKey: true }); // back off again…
+        const colNarrowOk = eq([timeline.selBounds().c0, timeline.selBounds().c1], [3, 3]);
+        key(win, "ArrowLeft", "ArrowLeft", { ctrlKey: true }); // …and out the other side
+        const colCrossOk = eq([timeline.selBounds().c0, timeline.selBounds().c1], [2, 3]);
+        key(win, "KeyC", "c", { ctrlKey: true });
+        const colClipOk = store.clipboard.rows === totalRows && store.clipboard.chans === 2;
+        // With nothing selected the pair starts from Ctrl+A's block.
+        timeline.clearSelection();
+        store.cursor = { row: 0, ch: 1, sub: 0, nib: 0 };
+        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
+        const colSeedOk = eq([timeline.selBounds().c0, timeline.selBounds().c1], [1, 2]);
+        const colOk = colWholeOk && colWidenOk && colNarrowOk && colCrossOk && colClipOk && colSeedOk;
+        log(`timeline Ctrl+A column: whole=${colWholeOk} widen=${colWidenOk} narrow=${colNarrowOk} cross=${colCrossOk} clip=${colClipOk} seed=${colSeedOk}`);
+        timeline.clearSelection();
+
         // ── Pattern view: row-range copy → paste ──
         store.view = "pattern";
         // find a pattern with a real note in the first rows
@@ -236,8 +262,8 @@
         const escOk = !patternView.hasSelection();
         log(`escape cleared pattern selection: ${escOk}`);
 
-        const pass = blockOk && pasteOk && cutCleared && tKbOk && patPasteOk && colsOk && subOk && kbOk && escOk && anchorOk && degenerateOk;
-        log(pass ? "RESULT: PASS" : `RESULT: FAIL block=${blockOk} paste=${pasteOk} cut=${cutCleared} tKb=${tKbOk} patPaste=${patPasteOk} cols=${colsOk} sub=${subOk} kb=${kbOk} esc=${escOk} anchor=${anchorOk} degenerate=${degenerateOk}`);
+        const pass = blockOk && pasteOk && cutCleared && tKbOk && colOk && patPasteOk && colsOk && subOk && kbOk && escOk && anchorOk && degenerateOk;
+        log(pass ? "RESULT: PASS" : `RESULT: FAIL block=${blockOk} paste=${pasteOk} cut=${cutCleared} tKb=${tKbOk} col=${colOk} patPaste=${patPasteOk} cols=${colsOk} sub=${subOk} kb=${kbOk} esc=${escOk} anchor=${anchorOk} degenerate=${degenerateOk}`);
       } catch (err) {
         log(`RESULT: ERROR ${err.message}\n${err.stack}`);
       }
