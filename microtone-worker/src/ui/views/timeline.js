@@ -1134,9 +1134,10 @@ export class TimelineView {
     if (!target) return false;
     const c = store.cursor;
     const action = interpretEditKey(
-      { code: e.code, key: e.key, repeat: e.repeat }, c.sub, c.nib, target.cell,
+      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, c.sub, c.nib, target.cell,
       { octave: jam.octave, currentInst: jam.currentInst, preset: store.pitchPreset,
         rawHex: rawNoteView(store.rawNoteView, store.pitchPreset),
+        keymap: store.keymap, quoteKey: store.quoteKey,
         wideCells: store.doc?.wideCells === true });
     if (!action) return false;
 

@@ -9,6 +9,7 @@ import {
   volPanOp, volPanSelect,
 } from "./edit.js";
 import { t } from "./i18n.js";
+import { PIANO_KEYMAP } from "./keymap.js";
 import { EffectOp, EXT_CAPABLE_OPS } from "../engine/tables.js";
 
 // Effect reference (TAUD_NOTE_EFFECTS.md digest): opcode → button label (l).
@@ -123,9 +124,13 @@ export class CommandPalette {
     // in the key would rebuild 21 buttons on every cursor step down a column).
     const intNote = ctx.cell && ctx.cell.note >= 0x0010 && ctx.cell.note <= 0x001f
       ? ctx.cell.note : -1;
+    // Item 187: the note column's hint names the keys of the ACTIVE layout, so
+    // switching layout has to re-render this bar even though nothing about the
+    // cell or the cursor has moved.
     const key = `${ctx.sub}:${ctx.cell?.effect ?? -1}:${ctx.cell?.effect2 ?? -1}:${wide}:${intNote}:` +
       `${ctx.cell ? volPanOp(ctx.cell.volume, ctx.cell.volumeEff, false, wide) : ""}:` +
-      `${ctx.cell ? volPanOp(panVal, ctx.cell.panEff, true, wide) : ""}`;
+      `${ctx.cell ? volPanOp(panVal, ctx.cell.panEff, true, wide) : ""}:` +
+      `${ctx.keymap?.name ?? ""}`;
     if (key === this.lastKey && !this.host.hidden) return; // avoid re-render churn
     this.lastKey = key;
     this.host.hidden = false;
@@ -169,7 +174,14 @@ export class CommandPalette {
           btn(n.toString(16).toUpperCase(), t("pal.interruptTitle"),
             () => ctx.apply({ note: 0x0010 + n }), ctx.cell?.note === 0x0010 + n);
         }
-        hint(t("pal.noteHint"));
+        // The hint describes the KEYBOARD, so it has to follow the active
+        // layout: the piano rows it names are only true of the piano layout
+        // (item 187). Asked of PIANO_KEYMAP rather than of whatever is default,
+        // so shipping a different default cannot turn this into a lie; and by
+        // identity, so a user layout called "Piano" is correctly not it.
+        hint(ctx.keymap && ctx.keymap !== PIANO_KEYMAP
+          ? t("pal.noteHintKeymap", { name: ctx.keymap.name })
+          : t("pal.noteHint"));
         break;
       case SUB_INST:
         label(t("pal.instrument"));

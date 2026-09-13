@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>keymap tab smoke</title></head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- real-time recipe: /hang keeps the load event pending so the app boots in
+       REAL time (under virtual time the audio worklet never finishes). Run with:
+         python3 tools/test-server.py
+         chromium --headless=new --disable-gpu --no-sandbox \
+           --autoplay-policy=no-user-gesture-required --dump-dom --timeout=45000 \
+           http://localhost:8932/test/browser/keymap-smoke.html -->
+  <img src="http://localhost:8932/hang" hidden>
+  <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1280px;height:760px"></iframe>
+  <script type="module">
+    // Item 187: the Keymap tab, driven through the real app.
+    //
+    // Three properties make a keymap what it is, and each is checked here:
+    // the tab is reachable and paints; a degree-unit layout ENTERS degrees the
+    // old semitone keyboard could never reach; and a layout that claims the Z
+    // row displaces the note-column sentinels onto Shift rather than eating
+    // them. The last one is the one that would quietly cost someone their
+    // note-offs, so it is checked against the real grid, not the pure model.
+    import { keymapNote, normaliseKeymap } from "../../src/ui/keymap.js";
+
+    const out = [];
+    const log = (l) => { out.push(l); console.log("SMOKE: " + l); document.getElementById("out").textContent = out.join("\n"); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let failures = 0;
+    const ok = (cond, what) => { log(`${cond ? "PASS" : "FAIL"} ${what}`); if (!cond) failures++; };
+
+    const frame = document.getElementById("app");
+    const win = await new Promise((resolve) => {
+      const poll = setInterval(() => {
+        const w = frame.contentWindow;
+        if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+      }, 100);
+    });
+    const M = win.__microtone;
+    const { store, jam, timeline } = M;
+    const keyDown = (code, opts = {}) =>
+      win.dispatchEvent(new win.KeyboardEvent("keydown", { code, key: opts.key ?? "a", bubbles: true, ...opts }));
+    const keyUp = (code) =>
+      win.dispatchEvent(new win.KeyboardEvent("keyup", { code, key: "a", bubbles: true }));
+    const tap = (code, opts) => { keyDown(code, opts); keyUp(code); };
+    const cellAt = (t) => store.song.patterns[t.pat][t.rowInCue];
+
+    log("app loaded, doc ready");
+
+    // ── the tab exists, opens and paints ──
+    ok(M.__VIEWS.indexOf("keymap") === M.__VIEWS.indexOf("files") + 1, "the tab sits right after File");
+    tap("F9", { shiftKey: true, key: "F9" });
+    await sleep(250);
+    ok(store.view === "keymap", "Shift+F9 opens the Keymap tab");
+    const view = M.keymapView;
+    ok(view.visible, "the view is showing");
+    ok(view.canvas.width > 0 && view.canvas.height > 0, "the board painted");
+    ok(view._layout.size >= 20, `every cap is hit-testable (${view._layout.size})`);
+
+    // ── the library ──
+    const lib = M.keymapLib;
+    const names = lib.entries().map((e) => e.name);
+    ok(names[0] === "Piano", `Piano leads the library (${names.length} layouts)`);
+    ok(names.includes("Harmonic Table") && names.includes("Bosanquet–Wilson"),
+       "the Lumatone layouts ship");
+
+    // A piano key both sounds and selects, so the view is never in a mode.
+    keyDown("KeyG");
+    await sleep(60);
+    ok(view.selected === "KeyG", "pressing a key selects its cap");
+    ok(view.held.has("KeyG"), "…and lights it while it is down");
+    keyUp("KeyG");
+    await sleep(60);
+    ok(!view.held.has("KeyG"), "the light goes out on release");
+
+    // ── a degree layout enters the tuning's own degrees ──
+    const preset = store.pitchPreset;
+    log(`tuning: ${preset?.name} — ${preset?.table?.length} degrees per period`);
+    view._choose(lib.entries().find((e) => e.name === "Chromatic run"));
+    await sleep(120);
+    ok(store.keymap.name === "Chromatic run", "choosing a layout makes it active");
+
+    const codes = ["KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL", "Semicolon"];
+    const notes = codes.map((c) => keymapNote(store.keymap, c, jam.octave, preset));
+    ok(new Set(notes).size === codes.length,
+       `ten adjacent keys, ten distinct notes (${new Set(notes).size})`);
+    const pianoNotes = codes.map((c) => keymapNote(lib.find("Piano"), c, jam.octave, preset));
+    ok(JSON.stringify(notes) !== JSON.stringify(pianoNotes),
+       "and they are not the notes the piano layout gives");
+
+    // Now ENTER one on the real grid and read the cell back.
+    win.__microtone.store.view; // (view switch below goes through the shell)
+    M.split.reveal("timeline");
+    await sleep(150);
+    store.record = true;
+    store.cursor = { row: 1, ch: 0, sub: 0, nib: 0 };
+    let target = timeline.cursorCell();
+    tap("KeyD");
+    await sleep(60);
+    ok(cellAt(target).note === keymapNote(store.keymap, "KeyD", jam.octave, preset),
+       "the grid entered the degree the layout says");
+
+    // ── the Z row, and what it costs ──
+    lib.setActive(normaliseKeymap({
+      name: "Z row test", unit: "deg", rows: ["N", "Q", "A", "Z"],
+      origin: { code: "KeyA", value: 0 }, x: 1, y: 10,
+    }));
+    await sleep(80);
+    ok(store.keymap.rows.includes("Z"), "a four-row layout is active");
+
+    store.cursor = { row: 2, ch: 0, sub: 0, nib: 0 };
+    target = timeline.cursorCell();
+    tap("KeyX");
+    await sleep(60);
+    ok(cellAt(target).note >= 0x20, "x is a piano key now, not the cut sentinel");
+
+    store.cursor = { row: 3, ch: 0, sub: 0, nib: 0 };
+    target = timeline.cursorCell();
+    tap("KeyX", { shiftKey: true, key: "X" });
+    await sleep(60);
+    ok(cellAt(target).note === 0x0002, "Shift+X still writes note cut");
+
+    store.cursor = { row: 4, ch: 0, sub: 0, nib: 0 };
+    target = timeline.cursorCell();
+    tap("Backquote", { key: "`" });
+    await sleep(60);
+    ok(cellAt(target).note === 0x0001, "the backtick is key-off whatever the layout does");
+
+    // ── the Quote key ──
+    for (const [action, expected] of [["cut", 0x0002], ["off", 0x0001], ["clear", 0]]) {
+      lib.setQuoteKey(action);
+      store.cursor = { row: 5, ch: 0, sub: 0, nib: 0 };
+      target = timeline.cursorCell();
+      tap("Quote", { key: "'" });
+      await sleep(50);
+      ok(cellAt(target).note === expected, `the ' key set to "${action}" writes 0x${expected.toString(16)}`);
+    }
+
+    store.record = false;
+
+    // ── the strip under the grids ──
+    const bar = M.keymapBar;
+    lib.setActive(lib.find("Chromatic run"));
+    M.split.reveal("timeline");
+    await sleep(150);
+    // The setting persists across sessions, so start from a known state rather
+    // than from whatever this browser profile happens to remember.
+    if (bar.visible) bar.toggle();
+    await sleep(100);
+    ok(bar.el.hidden, "the strip stays out of the way while it is off");
+    bar.toggle();
+    await sleep(200);
+    ok(!bar.el.hidden, "toggling it on shows it over a grid");
+    ok(bar.canvas.width > 0 && bar.canvas.height > 0, "and it paints");
+    ok(bar._layout.size === 30, `it draws every key of the layout (${bar._layout.size})`);
+    ok(bar.el.parentElement.classList.contains("pane"),
+       "docked in the pane, below the whole view stage");
+
+    // It follows the layout and the octave without being told twice.
+    const hBefore = bar.canvas.height;
+    lib.setActive(normaliseKeymap({
+      name: "four", unit: "deg", rows: ["N", "Q", "A", "Z"],
+      origin: { code: "KeyA", value: 0 }, x: 1, y: 10,
+    }));
+    bar.frame();
+    await sleep(120);
+    ok(bar._layout.size === 40, "a four-row layout puts forty keys on the strip");
+    ok(bar.canvas.height > hBefore, "…and the strip grows a row to fit them");
+
+    M.split.reveal("keymap");
+    await sleep(180);
+    ok(bar.el.hidden, "it goes away where the letter keys are not notes");
+    M.split.reveal("pattern");
+    await sleep(250);
+    ok(!bar.el.hidden, "and comes back on the Patterns grid");
+    bar.toggle();
+    await sleep(100);
+    ok(bar.el.hidden, "toggling it off hides it again");
+
+    // ── ortholinear drawing (app configuration, like the ' key) ──
+    lib.setActive(lib.find("Bosanquet–Wilson"));
+    M.split.reveal("keymap");
+    await sleep(200);
+    const kv = M.keymapView;
+    lib.setOrtho(false);
+    kv.refresh();
+    const staggered = new Map([...kv._layout].map(([c, p]) => [c, { ...p }]));
+    lib.setOrtho(true);
+    kv.refresh();
+    await sleep(120);
+    ok(M.store.keymapOrtho === true, "the ortholinear setting is on");
+    ok(kv._layout.get("KeyQ").x === kv._layout.get("KeyA").x,
+       "columns line up: Q sits directly over A");
+    ok(staggered.get("KeyQ").x !== staggered.get("KeyA").x,
+       "…where staggered they did not");
+    ok(kv._layout.size === staggered.size, "and every key is still on the board");
+    lib.setOrtho(false);
+    kv.refresh();
+    await sleep(80);
+    ok(kv._layout.get("KeyQ").x !== kv._layout.get("KeyA").x, "and the stagger comes back");
+
+    // ── setting every key by hand ──
+    const manualName = lib.uniqueName("smoke manual");
+    await lib.save({ ...lib.find("Chromatic run"), name: manualName });
+    await lib.refresh();
+    kv._choose(lib.entries().find((e) => e.name === manualName));
+    await sleep(120);
+    kv._manual();
+    await sleep(300);
+    const dlg = document.querySelector("dialog.keymanual-modal")
+      ?? win.document.querySelector("dialog.keymanual-modal");
+    ok(!!dlg, "the Set-every-key dialog opens");
+    if (dlg) {
+      const inputs = [...dlg.querySelectorAll(".keymanual-cell input")];
+      ok(inputs.length === 30, `one field per key (${inputs.length})`);
+      ok([...dlg.querySelectorAll(".keymanual-note")].every((n) => n.textContent.length > 0),
+         "each one shows the note it would play");
+      // Place two keys by hand and apply.
+      inputs[0].value = "7";
+      inputs[1].value = "-3";
+      inputs[2].value = "";          // cleared = this key plays nothing
+      inputs[0].dispatchEvent(new win.Event("input", { bubbles: true }));
+      await sleep(60);
+      const offCell = inputs[2].closest(".keymanual-cell");
+      ok(offCell.classList.contains("off"), "an emptied field reads as silent");
+      ok(offCell.querySelector(".keymanual-note").textContent.length > 0,
+         "…and says so rather than going blank");
+      dlg.querySelectorAll("button")[0].click();
+      await sleep(400);
+      const spec = store.keymap;
+      ok(spec.x === 0 && spec.y === 0, "applying clears the generator");
+      ok(Object.keys(spec.overrides).length === 30, "and writes every key as its own value");
+      ok(spec.overrides.Digit1 === 7 || spec.overrides.KeyA === 7,
+         `the hand-typed value landed (${JSON.stringify(spec.overrides).slice(0, 60)}…)`);
+      const silenced = Object.entries(spec.overrides).find(([, v]) => v === null);
+      ok(!!silenced, "the cleared key was saved as silent");
+      if (silenced) {
+        ok(!M.jam.down(silenced[0], false), "a silenced key is not a piano key at all");
+        M.jam.up(silenced[0]);
+      }
+      await lib.remove(manualName);
+    }
+
+    // ── "/" and "'" belong to the app, not to the browser's quick-find ──
+    // preventDefault only registers on a cancelable event, which the helper
+    // above does not make — these legs need their own.
+    const press = (code, key, opts = {}) => {
+      const ev = new win.KeyboardEvent("keydown",
+        { code, key, bubbles: true, cancelable: true, ...opts });
+      win.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    M.split.reveal("timeline");
+    lib.setActive(lib.find("Piano"));   // a layout that claims NEITHER key
+    await sleep(150);
+    ok(press("Slash", "/"), "\"/\" is swallowed under a layout that does not claim it");
+    ok(press("Quote", "'"), "…and so is the ' key");
+    ok(!press("Slash", "/", { ctrlKey: true }), "but Ctrl+/ is left to the browser");
+    lib.setActive(normaliseKeymap({
+      name: "Z press", unit: "deg", rows: ["N", "Q", "A", "Z"],
+      origin: { code: "KeyA", value: 0 }, x: 1, y: 10,
+    }));
+    await sleep(100);
+    ok(press("Slash", "/"), "and it stays swallowed when a layout DOES claim it");
+
+    // ── the shipped Shi'er lü layout volunteers for its own tuning ──
+    const pt = await import("../../src/ui/pitchtables.js");
+    lib.setActive(lib.find("Piano"));               // an explicit, unbound choice
+    store.pitchPreset = pt.pitchTablePresets[10123];
+    lib.applyForPreset(store.pitchPreset, 10123);   // what a song load does
+    await sleep(150);
+    ok(store.keymap.notation === 10123,
+       `opening a Shi'er lü song brings up its layout (${store.keymap.name})`);
+    ok(store.keymap.rows.includes("Z"), "…the four-row one it ships as");
+    ok(!M.jam.down("KeyA", false), "a key it leaves silent stays silent");
+    M.jam.up("KeyA");
+    ok(M.jam.down("KeyQ", false), "…while a placed key plays");
+    M.jam.up("KeyQ");
+    // …and it does not follow you to a song in some other tuning.
+    store.pitchPreset = pt.pitchTablePresets[120];
+    lib.applyForPreset(store.pitchPreset, 120);
+    await sleep(120);
+    ok(store.keymap.notation !== 10123, "and it stands down for a 12-TET song");
+
+    log(failures === 0 ? "ALL OK" : `${failures} FAILURE(S)`);
+    document.title = failures === 0 ? "keymap-smoke: ok" : "keymap-smoke: FAIL";
+  </script>
+</body>
+</html>

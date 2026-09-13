@@ -15,9 +15,12 @@
 // selection highlight alike. `fx2` is meaningless without `wide`: the 8-byte
 // cell has no second effect to show.
 
-import { MIDDLE_C } from "../engine/constants.js";
 import { EffectOp } from "../engine/tables.js";
-import { stepNoteInTable, isAbsolute, snapToAbsoluteDegree } from "./pitchtables.js";
+import { stepNoteInTable, semiToNote, semiToNoteInTable } from "./pitchtables.js";
+import {
+  DEFAULT_KEYMAP, keymapHas, keymapNote, keymapClaimsZRow,
+  quoteKeyFields, QUOTE_DEFAULT,
+} from "./keymap.js";
 
 export const SUB_NOTE = 0;
 export const SUB_INST = 1;
@@ -451,47 +454,11 @@ export function rawNoteView(rawToggle, preset) {
   return !!rawToggle || !preset || preset.table.length === 0;
 }
 
-/** 12-EDO note word for semitone offset from C at `octave` (C4 = MIDDLE_C). */
-export function semiToNote(octave, semi) {
-  const val = MIDDLE_C + (octave - 4) * 4096 + Math.round((semi * 4096) / 12);
-  return Math.min(Math.max(val, 0x20), 0xffff);
-}
-
-/**
- * Notation-aware jam note: map a 12-EDO semitone (-0.5..16 across the two jam
- * rows) to a note word in the active pitch table by snapping the semitone's
- * fractional period position to the NEAREST table degree — the port of taut.js
- * semitoneToNote. So a non-12-TET song's keyboard plays that tuning's degrees
- * (CDEFGAB… mapped into its grid) instead of fixed 12-EDO. The Raw preset
- * (empty table) and 12-TET fall back to the exact 12-EDO note.
- */
-export function semiToNoteInTable(octave, semi, preset) {
-  if (!preset || preset.table.length === 0 || preset.index === 120) {
-    return semiToNote(octave, semi);
-  }
-  // An absolute (`interval: 0`) table — e.g. ProTracker pitch — has no period
-  // lattice, so the period-wrap loop below would spin forever (pos -= 0). Map
-  // the jam key to its 12-EDO pitch and snap to the nearest expressible degree.
-  if (isAbsolute(preset)) {
-    return snapToAbsoluteDegree(semiToNote(octave, semi), preset);
-  }
-  const interval = preset.interval;
-  const table = preset.table;
-  let pos = Math.round((semi / 12) * interval);
-  let carry = 0;
-  while (pos >= interval) { pos -= interval; carry++; } // semitone 12 wraps to next period root
-  while (pos < 0) { pos += interval; carry--; }         // q (semitone -0.5) borrows from the period below
-  let bestIdx = 0, bestDist = Infinity;
-  for (let i = 0; i < table.length; i++) {
-    const d = Math.abs(table[i] - pos);
-    if (d < bestDist) { bestDist = d; bestIdx = i; }
-  }
-  // The next period's root (one interval up) can be the true nearest degree.
-  let off = table[bestIdx], periodAdj = carry;
-  if (interval - pos < bestDist) { off = table[0]; periodAdj = carry + 1; }
-  const val = MIDDLE_C + (octave - 4) * interval + periodAdj * interval + off;
-  return Math.min(Math.max(val, 0x20), 0xffff);
-}
+// semiToNote / semiToNoteInTable live in pitchtables.js, beside noteForDegree
+// and the rest of the note-word arithmetic — keymap.js needs them and must not
+// import this module (edit.js imports keymap.js). Re-exported here because the
+// jam map has always been reachable from the edit interpreter.
+export { semiToNote, semiToNoteInTable };
 
 /** Next/previous selectable instrument slot from `cur`, stepping by `step`
  *  (+1 = up, -1 = down) through the ascending `slots` list. Off-list current
@@ -602,6 +569,27 @@ function isClearKey(code) {
   return code === "Delete" || code === "Backspace" || code === "Period";
 }
 
+/**
+ * The note-column sentinels that live on the Z row — taut's z/x/c/v plus the
+ * interrupt marker — as an edit action, or null for any other key.
+ *
+ * They are reached two ways: on their own keys while no keymap claims the Z
+ * row, and on Shift+<same letter> once one does (interpretEditKey). The
+ * interrupt is the odd one out and does NOT advance the row (item 181): it
+ * usually shares a row with the note above it, and stepping its number with
+ * the bracket keys is the next thing the hand wants to do.
+ */
+function zRowSentinel(code) {
+  switch (code) {
+    case "KeyZ": return { fields: { note: 0x0001 }, advanceRow: true }; // key-off
+    case "KeyX": return { fields: { note: 0x0002 }, advanceRow: true }; // note cut
+    case "KeyC": return { fields: { note: 0x0003 }, advanceRow: true }; // note fade
+    case "KeyV": return { fields: { note: 0x0004 }, advanceRow: true }; // fast fade
+    case "KeyB": return { fields: { note: 0x0010 } };                   // interrupt Int0
+    default: return null;
+  }
+}
+
 function base36Digit(key) {
   if (key.length !== 1) return -1;
   const c = key.toLowerCase().charCodeAt(0);
@@ -641,33 +629,51 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
       if (d < 0) return { consumed: true }; // swallow (no jam / no sentinel), no edit
       return { fields: { note: ((cell.note << 4) | d) & 0xffff } };
     }
-    if (code in JAM_SEMIS) {
+    const keymap = ctx.keymap ?? DEFAULT_KEYMAP;
+    const zRow = keymapClaimsZRow(keymap);
+
+    // Backquote is key-off whatever the keymap is doing — no map can claim it,
+    // so it is the one sentinel that never needs relocating.
+    if (code === "Backquote") return { fields: { note: 0x0001 }, advanceRow: true };
+
+    // While a keymap holds the Z row, z/x/c/v/b are piano keys and the
+    // sentinels that live there answer to Shift instead. This has to be tested
+    // BEFORE the piano branch, or the keymap would swallow Shift+X as a note.
+    if (zRow && ev.shiftKey) {
+      const relocated = zRowSentinel(code);
+      if (relocated) return relocated;
+    }
+
+    if (keymapHas(keymap, code)) {
       // Hardware autorepeat is not a new keypress: a held piano key is ONE
       // note, like a piano. Swallowed (no retrigger, no cell write, no row
       // advance) — the keyup still ends it.
       if (ev.repeat) return { consumed: true };
-      const note = semiToNoteInTable(ctx.octave, JAM_SEMIS[code], ctx.preset);
+      const note = keymapNote(keymap, code, ctx.octave, ctx.preset);
       const fields = { note };
       // Current-instrument auto-adopt (taut behaviour): note entry stamps the
       // active instrument unless the cell already carries one.
       if (ctx.currentInst > 0) fields.instrment = ctx.currentInst;
       return { fields, jamNote: note, advanceRow: true };
     }
+
+    // The Quote key: one user-definable sentinel, app configuration rather than
+    // part of the keymap. It sits one key past where the A row ends, so no map
+    // can claim it — which is the point, since a map that claims the Z row
+    // takes the sentinels below with it.
+    if (code === "Quote") {
+      const fields = quoteKeyFields(ctx.quoteKey ?? QUOTE_DEFAULT);
+      return fields ? { fields, advanceRow: true } : null;
+    }
+
+    // The sentinels on their own keys, while the Z row is nobody's. (Under a
+    // Z-row keymap the keys above already answered as notes, and the sentinels
+    // were reached through Shift at the top of this branch.)
+    if (!zRow) {
+      const plain = zRowSentinel(code);
+      if (plain) return plain;
+    }
     switch (code) {
-      // Sentinels: taut z/x/c/v (and ` for key-off), inserted not auditioned.
-      // Digit 1/2/3 were removed (item 47.3): they clashed with hex input on the
-      // note column; ` is kept because other trackers use it for key-off.
-      case "Backquote": case "KeyZ": return { fields: { note: 0x0001 }, advanceRow: true }; // key-off
-      case "KeyX": return { fields: { note: 0x0002 }, advanceRow: true };    // note cut
-      case "KeyC": return { fields: { note: 0x0003 }, advanceRow: true };    // note fade
-      case "KeyV": return { fields: { note: 0x0004 }, advanceRow: true };    // fast fade
-      // Interrupt marker (item 181), next key along from the sentinel run:
-      // `b` places Int0 and the bracket keys step it to IntF, the same pair
-      // that nudges a pitch. The song fires it, the host answers it; nothing
-      // about it is audible, so it does not advance the row like a note —
-      // an interrupt usually shares its row with the note above it, and
-      // stepping the number is the next thing the hand wants to do.
-      case "KeyB": return { fields: { note: 0x0010 } };
       case "Delete": case "Backspace": case "Period":
         return { fields: { note: 0, instrment: 0 }, advanceRow: true };
     }

@@ -13,6 +13,7 @@ import { TimelineView } from "./views/timeline.js";
 import { CuesView } from "./views/cues.js";
 import { PatternView, FX2_BASE_STEP } from "./views/pattern.js";
 import { FilesView } from "./views/files.js";
+import { KeymapView } from "./views/keymap.js";
 import { SamplesView } from "./views/samples.js";
 import { InstrumentsView } from "./views/instruments.js";
 import { MasteringView } from "./views/mastering.js";
@@ -43,6 +44,9 @@ import { getSoundfont, getBundledSoundfont, pickUserSoundfont } from "./soundfon
 import { resolveBanks, rememberBank } from "./adlibbank.js";
 import { decodeHandoff, handoffArmed } from "./handoff.js";
 import { presetForNotation } from "./pitchtables.js";
+import { keymapClaimsZRow } from "./keymap.js";
+import { KeymapLibrary } from "./keymaplib.js";
+import { KeymapBar } from "./keymapbar.js";
 import { initTheme, toggleTheme, onThemeChange, currentTheme, isThemeName, WARMTH } from "./theme.js";
 import { initI18n, applyDom, t, LANGS, changeLang, onLangChange, currentLang } from "./i18n.js";
 import { escapeNonAscii, unescapeName } from "./names.js";
@@ -251,6 +255,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   store.songIndex = 0;
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
   store.pitchPreset = presetForNotation(store.doc.meta.songMeta[0]?.notation ?? 120, store.doc);
+  keymapLib.applyForPreset(store.pitchPreset, store.doc.meta.songMeta[0]?.notation ?? 120);
   store.undo = new UndoStack(store.doc, (dirty) => {
     store.sync?.onDirty(dirty);
     // A channel insert shifts the mute array along with the patterns; the tag
@@ -301,14 +306,23 @@ function updateStatus() {
 
 /** Contextual status-bar hint (item 78): text follows the active view — and,
  *  on the grid views, the record mode. No doc → a "get started" prompt. */
+/** "status.hint.<view>Rec", or its Shift-sentinel variant under a Z-row map. */
+function recHintKey(view) {
+  return keymapClaimsZRow(store.keymap)
+    ? `status.hint.${view}RecZ`
+    : `status.hint.${view}Rec`;
+}
+
 function updateHint() {
   const el = $("stHint");
   if (!el) return;
   let key = "status.hint"; // generic / no-doc prompt
   if (store.doc || store.view === "files") {
     switch (store.view) {
-      case "timeline": key = store.record ? "status.hint.timelineRec" : "status.hint.timeline"; break;
-      case "pattern":  key = store.record ? "status.hint.patternRec" : "status.hint.pattern"; break;
+      // A layout that has claimed the bottom row moves the sentinels onto
+      // Shift, so the hint that names them has to say the same thing.
+      case "timeline": key = store.record ? recHintKey("timeline") : "status.hint.timeline"; break;
+      case "pattern":  key = store.record ? recHintKey("pattern") : "status.hint.pattern"; break;
       case "cues": key = "status.hint.cues"; break;
       case "samples": key = "status.hint.samples"; break;
       case "instruments": key = "status.hint.instruments"; break;
@@ -420,6 +434,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   store.songIndex = 0;
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
   store.pitchPreset = presetForNotation(result.notation, store.doc);
+  keymapLib.applyForPreset(store.pitchPreset, result.notation);
   store.undo = new UndoStack(store.doc, (dirty) => {
     store.sync?.onDirty(dirty);
     // A channel insert shifts the mute array along with the patterns; the tag
@@ -625,6 +640,8 @@ function selectSong(index) {
   store.clearFx2();
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
   store.pitchPreset = presetForNotation(store.doc.meta.songMeta[store.songIndex]?.notation ?? 120, store.doc);
+  keymapLib.applyForPreset(store.pitchPreset,
+    store.doc.meta.songMeta[store.songIndex]?.notation ?? 120);
   if (store.audio) {
     store.audio.stop(0);
     store.sync = new DocSync(store.audio, store.doc, store.songIndex);
@@ -679,6 +696,10 @@ store.on("edit", refreshToolbox);
 // singleton any more: the shell builds a view through VIEW_SPEC, once per
 // pane that asks for it, and reaches copies through viewNamed/eachView.
 const jam = new JamKeyboard(store);
+// The jam keyboard's layout library (item 187). An app preference, so it is
+// built before any view and restored from storage at boot — the keyboard has
+// to play the right notes from the first keystroke, document or no document.
+const keymapLib = new KeymapLibrary(store);
 window.__microtoneEnsureAudio = ensureAudio; // pattern preview needs lazy audio
 
 /** New instrument from a pooled sample (item 40): adopt it + jump to it. */
@@ -795,12 +816,18 @@ const VIEW_SPEC = {
       openDemo: (entry) => loadDemo(entry),
     }),
   },
+  keymap: {
+    host: { id: "keymapHost" },
+    make: (el) => new KeymapView(store, el, keymapLib, jam),
+  },
 };
 
 // Fixtures that stay single whatever the split does: the instrument lookup is
 // one panel the shell docks to the left of whichever pane holds a grid (item
 // 168), and the master strip sits beside the whole split.
 const instLookup = new InstLookup(store, jam, $("instLookup"), () => updateStatus());
+// The active layout, drawn under whichever pane holds a grid (item 187).
+const keymapBar = new KeymapBar(store, jam, $("keymapBar"));
 const masterStrip = new MasterStrip(store, $("masterStrip"));
 masterStrip.onToggle = () => refreshToolbox();
 
@@ -825,10 +852,12 @@ function refreshToolbox() {
 }
 
 // The views that mean something with nothing loaded: the Timeline (which is
-// where the welcome screen lives) and the File tab (browse OPFS, import
-// something). Item 104.1 — before this, going to the File tab with no document
-// was a one-way trip, because the Timeline tab was as inert as the rest.
-const NO_DOC_VIEWS = ["timeline", "files"];
+// where the welcome screen lives), the File tab (browse OPFS, import
+// something) and the Keymap tab, which edits a preference rather than a song
+// and previews against 12-TET until one is open. Item 104.1 — before this,
+// going to the File tab with no document was a one-way trip, because the
+// Timeline tab was as inert as the rest.
+const NO_DOC_VIEWS = ["timeline", "files", "keymap"];
 
 /** Is this view reachable at all right now? (The dead-end tabs say so rather
  *  than silently swallowing the click — item 104.1.) */
@@ -983,7 +1012,12 @@ function applyViews() {
   if (gridPane >= 0) {
     const dockHost = split.dockHost(gridPane);
     if ($("instLookup").parentElement !== dockHost) dockHost.prepend($("instLookup"));
+    // …and the keymap strip under the whole of that pane, so it spans the grid
+    // rather than taking width off its side.
+    const paneRoot = split.paneRoot(gridPane);
+    if ($("keymapBar").parentElement !== paneRoot) paneRoot.append($("keymapBar"));
   }
+  keymapBar.applyVisibility();
 
   $("toolbox").hidden = !(has("timeline") || has("pattern")) || noDoc;
   refreshToolbox();
@@ -1063,13 +1097,14 @@ $("langBtn").addEventListener("click", async () => {
 onLangChange(() => {
   $("langBtn").textContent = currentLang().toUpperCase();
   $("tbRaw").textContent = t(store.rawNoteView ? "toolbox.rawOn" : "toolbox.rawOff");
+  refreshKeymapBarBtn();
   split.refresh();  // the panes' split/close button titles (item 148)
   refreshToolbox(); // the other imperatively-labelled toolbox buttons
   eachView("pattern", (v) => v.buildBar());
   palette.refresh();
   instLookup.render();
   if (store.doc) rebuildSongList();
-  for (const name of ["samples", "instruments", "project", "files"]) {
+  for (const name of ["samples", "instruments", "project", "files", "keymap"]) {
     eachOpenView(name, (v) => v.refresh());
   }
   // The Mastering view's labels are all built at rebuild time (item 178).
@@ -1157,6 +1192,18 @@ $("tbMaster").addEventListener("click", () => {
   refreshToolbox();
 });
 // Quick instrument lookup toggle (persists per session).
+// Keymap strip (item 187) — the layout drawn under the grid, off by default.
+function refreshKeymapBarBtn() {
+  const on = keymapBar.visible;
+  $("tbKeymapBar").textContent = t(on ? "toolbox.keymapBarOn" : "toolbox.keymapBarOff");
+  $("tbKeymapBar").classList.toggle("active", on);
+}
+refreshKeymapBarBtn();
+$("tbKeymapBar").addEventListener("click", () => {
+  keymapBar.toggle();
+  refreshKeymapBarBtn();
+});
+
 $("tbInstList").classList.toggle("active", instLookup.visible);
 $("tbInstList").addEventListener("click", () => {
   $("tbInstList").classList.toggle("active", instLookup.toggle());
@@ -1185,7 +1232,7 @@ function stepCurrentInst(dir) {
   updateStatus();
   store.emit("instsel");
 }
-onWheelCtl("octCtl", (dir) => { jam.octaveDelta(dir); updateStatus(); });
+onWheelCtl("octCtl", (dir) => { jam.octaveDelta(dir); keymapBar.invalidate(); updateStatus(); });
 onWheelCtl("instCtl", (dir) => stepCurrentInst(dir));
 
 /** The bracket-key scheme (items 47.2 + 47.6). `dir` = -1 for '[' / +1 for ']';
@@ -1197,7 +1244,7 @@ function handleBracket(dir, shift) {
     if (viewNamed(store.view).bracketEdit(dir, shift)) { updateStatus(); return; }
   }
   if (shift) stepCurrentInst(dir);                       // { } = instrument down/up
-  else { jam.octaveDelta(dir); updateStatus(); }         // [ ] = octave down/up
+  else { jam.octaveDelta(dir); keymapBar.invalidate(); updateStatus(); } // [ ] = octave
 }
 onWheelCtl("spdCtl", (dir) => {
   // live playback speed tweak (device only — the A effect can still override)
@@ -1246,10 +1293,14 @@ function cursorCellTarget() {
 }
 
 function editContext() {
-  return store.record ? cursorCellTarget() : null;
+  if (!store.record) return null;
+  const ctx = cursorCellTarget();
+  // The note column's hint names actual keys, so the palette needs to know
+  // which layout those keys are following (item 187).
+  return ctx ? { ...ctx, keymap: store.keymap } : null;
 }
 const palette = new CommandPalette($("cmdPalette"), editContext);
-for (const topic of ["cursor", "edit", "view", "doc"]) {
+for (const topic of ["cursor", "edit", "view", "doc", "keymap"]) {
   store.on(topic, () => palette.refresh());
 }
 
@@ -1327,6 +1378,24 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     if (store.doc) viewNamed("files").save();
     return;
+  }
+  // Firefox binds "/" to Quick Find and "'" to Quick Find (links only), and
+  // both fire the moment the key is pressed — so a stray "/" while editing puts
+  // a search box over the tracker and swallows everything typed after it. They
+  // are the app's keys: "'" is the user-definable sentinel (item 187) and "/"
+  // is a piano key under any layout that claims the bottom row. Suppressed
+  // unconditionally rather than only when a layout happens to claim them,
+  // because a key that steals focus on some layouts and not others is worse
+  // than one that never works. Tested on e.key (what the browser acts on) as
+  // well as e.code (what a keymap binds), and left alone under a modifier so
+  // the browser's own Ctrl chords still work.
+  //
+  // NOT returning: the key still has to reach the handlers below — Shift+/ is
+  // the "?" help popup, and "/" is a note on a Z-row layout.
+  if ((e.key === "/" || e.key === "'" || e.code === "Slash" || e.code === "Quote") &&
+      !e.ctrlKey && !e.metaKey && !e.altKey &&
+      !isTypingTarget(e.target) && !e.target.closest?.("dialog")) {
+    e.preventDefault();
   }
   if (!store.doc) {
     // The welcome screen (F1) and the File tab (F9) stay reachable before
@@ -1470,9 +1539,12 @@ window.addEventListener("keydown", (e) => {
       else split.split();
       return;
     }
+    // F9 is the File tab (bumped off the Fn run when Mastering took sixth
+    // place); the Keymap tab is the tenth and has no number left, so it sits
+    // on Shift+F9 beside the other tab that configures rather than composes.
     case "F9": {
       e.preventDefault();
-      showView("files");
+      showView(e.shiftKey ? "keymap" : "files");
       return;
     }
   }
@@ -1495,6 +1567,20 @@ window.addEventListener("keydown", (e) => {
   if (store.view === "samples" || store.view === "instruments") {
     // Instrument/sample DOM views audition through the piano keys.
     if (jam.down(e.code, e.repeat)) { e.preventDefault(); return; }
+    return;
+  }
+
+  // The Keymap tab is the one non-grid view that MUST take the piano keys:
+  // pressing a key has to sound it and light its cap. Its own editor keys go
+  // first, then everything the active layout claims falls through to the jam.
+  if (store.view === "keymap") {
+    const km = viewNamed("keymap");
+    if (km.processKey(e)) { e.preventDefault(); return; }
+    if (jam.down(e.code, e.repeat)) {
+      km.onJamKey(e.code);
+      e.preventDefault();
+      return;
+    }
     return;
   }
   // Cues / Mastering / Project / File never jam — piano keys are inert there
@@ -1537,13 +1623,18 @@ window.addEventListener("keydown", (e) => {
         return;
       }
       // Mute/solo on the cursor channel — navigate mode only, like taut
-      // (in record mode M and N stay piano keys).
+      // (in record mode M and N stay piano keys). A keymap that claims the Z
+      // row makes them piano keys in navigate mode too, so they move to Shift
+      // there, the same relocation the note-column sentinels get.
       case "KeyM":
-        if (!store.record) { e.preventDefault(); store.toggleMute(store.cursor.ch); return; }
-        break;
-      case "KeyN":
-        if (!store.record) { e.preventDefault(); store.toggleSolo(store.cursor.ch); return; }
-        break;
+      case "KeyN": {
+        if (store.record) break;
+        if (keymapClaimsZRow(store.keymap) && !e.shiftKey) break;
+        e.preventDefault();
+        if (e.code === "KeyM") store.toggleMute(store.cursor.ch);
+        else store.toggleSolo(store.cursor.ch);
+        return;
+      }
     }
     if (store.record && timeline.processEditKey(e, jam)) {
       e.preventDefault();
@@ -1567,6 +1658,7 @@ window.addEventListener("keyup", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (isTypingTarget(e.target) || e.target.closest?.("dialog")) return;
   jam.up(e.code);
+  if (store.view === "keymap") viewNamed("keymap").onJamKeyUp(e.code);
 });
 // Focus loss eats the keyup, which would leave the audition sounding for ever.
 window.addEventListener("blur", () => jam.allUp());
@@ -1675,8 +1767,15 @@ if (bootParams.has("load")) {
 // of a view, and the one that matters is the one the keyboard is on (item
 // 148.1). Unsplit — which is how the smoke tests run — they answer exactly the
 // single instance they always did.
+// Restore the jam layout and the Quote-key setting, then redraw the tab if it
+// is already on screen (?view=keymap boots straight into it).
+keymapLib.init(store.pitchPreset).then(() => {
+  eachOpenView("keymap", (v) => v.refresh());
+});
+
 window.__microtone = {
   store, jam, instLookup, masterStrip, split, loadBytes, playCursor, paneViews, findBar,
+  keymapLib, keymapBar,
   __VIEWS: VIEWS,
   get timeline() { return viewNamed("timeline"); },
   get cuesView() { return viewNamed("cues"); },
@@ -1686,6 +1785,7 @@ window.__microtone = {
   get masteringView() { return viewNamed("mastering"); },
   get projectView() { return viewNamed("project"); },
   get filesView() { return viewNamed("files"); },
+  get keymapView() { return viewNamed("keymap"); },
   get welcomeView() { return paneViews[split.focus].get("timeline")?.welcome ?? paneViews[0].get("timeline").welcome; },
 };
 
@@ -1712,6 +1812,7 @@ function frame() {
   }
   if (store.viewOpen("timeline")) masterStrip.frame();
   instLookup.frame(); // play-indicator lamps (item 169); no-ops while hidden
+  keymapBar.frame();  // held-key highlight (item 187); no-ops while hidden
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

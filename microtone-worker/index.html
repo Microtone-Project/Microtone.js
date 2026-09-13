@@ -227,6 +227,7 @@
     <button id="tbRetune" data-i18n="toolbox.retune">Retune…</button>
     <button id="tbRaw" data-i18n-title="toolbox.rawTitle">Raw: off</button>
     <button id="tbInstList" data-i18n="toolbox.instList" data-i18n-title="toolbox.instListTitle">Instruments</button>
+    <button id="tbKeymapBar" data-i18n-title="toolbox.keymapBarTitle">Keys: off</button>
     <button id="tbPanner" data-i18n="toolbox.panner" data-i18n-title="toolbox.pannerTitle" hidden>Panner…</button>
     <button id="tbRadar" data-i18n-title="toolbox.radarTitle" hidden>Radar: off</button>
     <button id="tbFx2" data-i18n-title="toolbox.fx2Title" hidden>2nd FX: off</button>
@@ -251,6 +252,7 @@
             <button data-view="mastering" data-i18n="tab.mastering">Mastering</button>
             <button data-view="project" data-i18n="tab.project">Project</button>
             <button data-view="files" data-i18n="tab.files">File</button>
+            <button data-view="keymap" data-i18n="tab.keymap">Keymap</button>
           </nav>
           <button class="icon-btn pane-btn"></button>
         </div>
@@ -266,9 +268,11 @@
             <div id="masteringHost" class="view-dom" hidden></div>
             <div id="projectHost" class="view-dom" hidden></div>
             <div id="filesHost" class="files-host" hidden></div>
+            <div id="keymapHost" class="view-dom" hidden></div>
             <div id="placeholder" class="empty-state" hidden></div>
           </div>
         </div>
+        <aside id="keymapBar" class="keymap-bar" hidden></aside>
       </section>
     </div>
     <aside id="masterStrip" class="master-strip" hidden></aside>

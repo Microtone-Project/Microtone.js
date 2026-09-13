@@ -2,7 +2,7 @@
 // jam bank, releasing a key stops the voice it took. Chording where the piano
 // auditions, last-key-wins on one voice where it ENTERS notes (item 140.1).
 
-import { JAM_SEMIS, semiToNoteInTable } from "./edit.js";
+import { DEFAULT_KEYMAP, keymapHas, keymapNote } from "./keymap.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../engine/constants.js";
 
 // Hosts that deliver hardware autorepeat as a keyup+keydown PAIR (X11 without
@@ -67,9 +67,14 @@ export class JamKeyboard {
     return false;
   }
 
+  /** The active keymap — which keys are piano keys and what they play. A store
+   *  that never set one (tests, boot) gets the shipped Piano map, i.e. exactly
+   *  the keyboard this class has always had. */
+  get keymap() { return this.store.keymap ?? DEFAULT_KEYMAP; }
+
   /** keydown → true when consumed (a piano key). */
   down(code, repeat) {
-    if (!(code in JAM_SEMIS)) return false;
+    if (!keymapHas(this.keymap, code)) return false;
     // The keydown half of a phantom repeat pair: the note never stopped, so
     // calling the pending release off is the whole job.
     this._cancelRelease(code);
@@ -80,7 +85,7 @@ export class JamKeyboard {
     this.held.set(code, voice);
     const audio = this.store.audio;
     if (audio) {
-      const note = semiToNoteInTable(this.octave, JAM_SEMIS[code], this.store.pitchPreset);
+      const note = keymapNote(this.keymap, code, this.octave, this.store.pitchPreset);
       // Pure audition on the DOM views (Instruments/Samples) may snap a strict
       // metainstrument to a note it can actually sound (item 51); note-entry
       // views keep the exact pitch.
@@ -99,17 +104,18 @@ export class JamKeyboard {
    * there.
    */
   hold(code, note) {
+    const mine = keymapHas(this.keymap, code);
     let voice = this.held.get(code);
     if (voice === undefined) {
       voice = this._takeVoice();
-      if (code in JAM_SEMIS) this.held.set(code, voice);
+      if (mine) this.held.set(code, voice);
     }
-    if (code in JAM_SEMIS) this._cancelRelease(code);
+    if (mine) this._cancelRelease(code);
     this.store.audio?.jamNote(0, voice, note, this.currentInst);
   }
 
   up(code) {
-    if (!(code in JAM_SEMIS)) return false;
+    if (!keymapHas(this.keymap, code)) return false;
     if (!this.held.has(code)) {
       // Not ours to release (a jam issued by some other path): keep the old
       // safety net so its voice can never be left sounding. Only the BANK is

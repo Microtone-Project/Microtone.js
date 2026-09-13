@@ -3263,3 +3263,156 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-size: 0.75rem;
   padding: 0 0.2rem;
 }
+
+/* ── keymap tab (item 187) ───────────────────────────────────────────────
+ * Three columns: the layout library, the board, and the generator panel. The
+ * board is a canvas so it can reuse the grid's own glyph painter — a cap shows
+ * the note in the song's notation, which is the whole point of drawing it.
+ * Narrow viewports drop the panel under the board rather than squeezing all
+ * three, since the board is the part you read. */
+.keymap-view {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr) 17rem;
+  gap: 0;
+  overflow: hidden;
+}
+.keymap-library, .keymap-panel {
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 0.6rem;
+}
+.keymap-panel { border-right: none; border-left: 1px solid var(--border); }
+.keymap-head { color: var(--dim); font-size: 0.8rem; margin-bottom: 0.4rem; }
+.keymap-list { list-style: none; margin: 0 0 0.6rem; padding: 0; }
+.keymap-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.keymap-item:hover { background: var(--panel-2); }
+.keymap-item.active { background: var(--accent); color: var(--bg); }
+.keymap-item.builtin .keymap-item-name { font-style: italic; }
+.keymap-item-tag { color: var(--dim); font-size: 0.72rem; }
+.keymap-item.active .keymap-item-tag { color: inherit; opacity: 0.75; }
+.keymap-libactions { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.keymap-btn { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
+
+.keymap-stage { position: relative; overflow: hidden; }
+.keymap-board { display: block; }
+.keymap-hint {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  padding: 0.35rem 0.6rem;
+  color: var(--dim);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
+.keymap-section { margin-bottom: 0.9rem; }
+.keymap-section h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: normal;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.keymap-section-body { display: flex; flex-direction: column; gap: 0.3rem; }
+.keymap-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+.keymap-field input[type="number"] { width: 5rem; }
+.keymap-field select { max-width: 9.5rem; }
+.keymap-rows { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; }
+.keymap-rows label { display: flex; align-items: center; gap: 0.15rem; font-size: 0.75rem; }
+.keymap-sub { color: var(--dim); font-size: 0.74rem; }
+.keymap-readout {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+.keymap-readout span { color: var(--dim); }
+.keymap-readout.warn strong { color: var(--err-fg); }
+.keymap-warn {
+  color: var(--err-fg);
+  font-size: 0.74rem;
+  line-height: 1.35;
+  margin-top: 0.2rem;
+}
+
+@media (max-width: 60rem) {
+  .keymap-view { grid-template-columns: 11rem minmax(0, 1fr); grid-template-rows: 1fr auto; }
+  .keymap-panel {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 40%;
+  }
+  .keymap-panel-inner { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.8rem; }
+}
+
+/* The keymap strip (item 187) — the active layout under a grid pane. A child of
+   .pane (the flex COLUMN), below .view-stage, so it spans the grid's full width
+   including under the instrument lookup, rather than taking width off the side
+   the way that panel and the master strip do. It moves between panes as a whole
+   DOM node; `hidden` hands the height straight back. */
+.keymap-bar {
+  flex: 0 0 auto;
+  position: relative;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+.keymap-bar-canvas { display: block; width: 100%; }
+.keymap-bar-label {
+  position: absolute;
+  left: 0.5rem;
+  top: 0.2rem;
+  font-size: 0.68rem;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* "Set every key" (item 187) — the whole board as one number per key, laid out
+   the way the keyboard is, so the grid can be read like the thing it describes
+   rather than like a list of settings. */
+.keymanual-modal { max-width: min(96vw, 68rem); }
+.keymanual-grid { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.6rem 0; }
+.keymanual-row { display: flex; gap: 0.35rem; }
+.keymanual-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.25rem 0.15rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.keymanual-cell input {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.keymanual-legend { color: var(--dim); font-size: 0.7rem; }
+.keymanual-note { color: var(--accent); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+/* A silenced key in "Set every key": it keeps its place on the board (it is
+   still a physical key) but plays nothing, so it reads as absent rather than
+   as holding a value. */
+.keymanual-cell.off { opacity: 0.55; }
+.keymanual-cell.off .keymanual-note { color: var(--dim); font-style: italic; }

@@ -744,9 +744,10 @@ class PatternPane {
     const c = this.cursor;
     const cell = pattern[c.row];
     const action = interpretEditKey(
-      { code: e.code, key: e.key, repeat: e.repeat }, c.sub, c.nib, cell,
+      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, c.sub, c.nib, cell,
       { octave: this.jam.octave, currentInst: this.jam.currentInst, preset: this.store.pitchPreset,
         rawHex: rawNoteView(this.store.rawNoteView, this.store.pitchPreset),
+        keymap: this.store.keymap, quoteKey: this.store.quoteKey,
         wideCells: this.store.doc?.wideCells === true });
     if (!action) return false;
     if (action.fields) {

@@ -131,6 +131,7 @@ From top to bottom:
 | **F6** | Mastering | The delivery chain and its meters |
 | **F7** | Project | Song properties, tuning, song list |
 | **F9** | File | Browser storage, import/export |
+| **Shift+F9** | Keymap | What the jam keys play — the isomorphic keyboard |
 
 ### Value controls
 
@@ -148,7 +149,7 @@ Every number field and dropdown in the panels is a value between two buttons:
 ### Two views at once
 
 **F8** (or the **⊞** button at the end of the tab strip) splits the screen in
-two, and every pane carries its own set of the eight tabs — Timeline against
+two, and every pane carries its own set of the nine tabs — Timeline against
 Patterns, a pattern against the instrument it plays, the Cues list against the
 song it orders.
 
@@ -1964,6 +1965,124 @@ should use **Export** to keep your work.
   - **Per voice** — one track per channel. Note-off ghosts and layered notes follow the channel that spawned them.
 - Stem tracks are **dry**: every volume is baked in (note and channel volume, envelopes, fadeout, instrument volume, song global/mixing/master volume) but panning is not, so a hard-panned part arrives at full level and you re-pan it in your DAW. Because panning is left out, the tracks do not sum back to the stereo mix, and the Amiga post-mix filter (a mix-stage effect) is not applied to them. Nothing is dithered — 24 bits sit well below the engine's own noise floor.
 
+## Keymap (Shift+F9)
+
+The letter keys play notes. On a 12-note tuning they are laid out like a piano,
+which is what most people want and what Microtone has always done — but a piano
+has twelve keys to the octave and 41-TET has forty-one, so on a fine tuning that
+layout can only reach a fraction of the notes the song can hold. The Keymap tab
+is where you change what the keys play.
+
+A **keymap** is a lattice: pick how far one key to the right moves, and how far
+one row up moves, and every key follows from those two numbers. Move the same
+shape anywhere on the board and it is the same interval — which is what makes a
+chord one hand shape in every key, and what a Lumatone or a Wicki–Hayden
+concertina gives you. Microtone does it on the keyboard you already own.
+
+A keymap belongs to **you**, not to the song. It is never saved into a `.taud`,
+it survives opening a different piece, and you can carry one between machines as
+a **`.taudkey`** file — a small text file you can also just read and edit.
+
+### The board
+
+The middle of the tab is your keyboard drawn as hexagons, bottom row nearest
+you. Each key shows the note it plays **in the song's own notation** — Kite
+arrows on 41-TET, the CJK names on Shi'er lü — with its cents offset underneath
+when it lands between the marked degrees, and a colour per degree so the
+repeating pattern of the layout is visible at a glance.
+
+- **Press a key** to hear it and pick it out; **`−`** and **`=`**, or the wheel over a key, nudge that one key a degree either way, and **Delete** puts it back.
+- **`[`** and **`]`** shift the whole board an octave, as they do everywhere else.
+- **Ortholinear keyboard** in the settings squares the picture up: keys in true columns and rectangular caps, for the boards whose keys really are in columns rather than typewriter-staggered. Like the **`'`** key it describes your hardware, so it belongs to the app rather than to any one layout.
+
+### Seeing it while you work
+
+The Keymap tab is where a layout is built, but the place you need it is the
+grid you are typing into. **Keys** in the toolbox (above the Timeline and
+Patterns) puts the same board along the bottom of the view, a third of the
+height and without the editing furniture.
+
+- It shows the active layout in the song's notation, and **keys light up as they sound** — whatever played them, the letter keys or a click on the board itself.
+- Clicking a key on the strip plays it, so it is a small instrument as well as a reminder.
+- It is off until you ask for it, stays off until you do, and is only on screen where the letter keys are notes — the Timeline and Patterns.
+
+### Choosing a layout
+
+Six come with Microtone, and they are read-only — **Duplicate** one to get a
+copy you can change.
+
+| Layout | Sideways | Up a row | Good for |
+|---|---|---|---|
+| Piano | — | — | The familiar one. 12-note tunings |
+| Bosanquet–Wilson | whole tone | semitone | The classic generalised keyboard |
+| Wicki–Hayden | whole tone | fourth | Fifths and fourths under one hand |
+| Harmonic Table | minor third | major third | Triads as a single shape |
+| Octave rows | one degree | one octave | 5-, 7- and other small tunings |
+| Chromatic run | one degree | ten degrees | Reaching *every* degree of a big tuning |
+| Shi'er lü (十二律) | — | — | Placed by hand for that tuning; comes up with it |
+
+The panel on the right is where a layout is built, and the readout below it is
+the part worth reading:
+
+- **Degrees reached** — how many of the tuning's notes the board can play. `12 of 12` is a layout you can write anything in; `9 of 12` means three notes you cannot type at all.
+- **Span** — the lowest and highest note on the board.
+- **Sideways** and **Between rows** — what each axis is worth, in cents and as the nearest plain interval, so a layout can be thought about as fifths and thirds rather than degree counts.
+- **Doubled keys** — keys that repeat a note another key already plays. Wasteful on a small board; on a big one it is the thing that lets you play the same chord in several hand positions.
+
+**Use for** ties a layout to one tuning. Open a song written in that tuning and
+the layout comes up by itself, so the 41-TET song brings the 41-TET keyboard
+without you going to fetch it. The shipped **Shi'er lü** layout works that way:
+it is placed by hand across four rows for that tuning's twelve unequal degrees,
+with the keys it has nothing to put under left silent. Leave that tuning and the
+keyboard goes back to the layout you chose — a layout only volunteers for its
+own songs, and never displaces a choice you made.
+
+### Unequal temperaments
+
+A lattice is the right way to describe a keyboard for an **equal** tuning: one
+step sideways is worth the same interval wherever you are, so two numbers
+describe the whole board. An unequal temperament — Shi'er lü, a Pythagorean
+tuning, anything imported from a Scala file with steps of different sizes —
+breaks that. "Up two degrees" is a different interval in each part of the scale,
+so no pair of steps gives a board worth playing, and the layout has to be placed
+note by note by someone who knows which notes they want under which fingers.
+
+**Set every key…** opens the whole board as one number per key, laid out the way
+the keyboard is, each showing the note it would play **in that tuning's own
+notation**. It starts from the layout you already have — build a plain run or a
+lattice first, then hand-tune it — and saving replaces all thirty keys (forty
+with the bottom row) and clears the generator, since once every key is placed
+there is no lattice left for it to describe.
+
+**Clear a field to leave that key silent.** The key keeps its place on the board
+— it is still a physical key — but plays nothing at all. That is what you want
+when a scale has fewer notes than the board has keys, or where a gap under the
+fingers is part of the shape you are playing: better a bare key than an
+arbitrary note under it.
+
+### The bottom row
+
+By default the bottom row — **z x c v b** and the keys beside it — stays the
+note-column's own: key-off, cut, fade, fast fade and the interrupt marker. Tick
+**Z…/** and a layout takes that row too, which buys ten more keys: four full
+rows is forty keys, near enough a whole period of 41-TET under both hands at
+once.
+
+What it costs is spelled out on the panel when you tick it: key-off, cut, fade
+and the interrupt move to **Shift** plus the same letter, and so do **mute** and
+**solo**. The backtick stays key-off whatever happens, and **Delete** still
+clears a cell.
+
+### The `'` key
+
+The **`'`** key sits just past the end of the letter rows, where no layout can
+claim it, so it always does the same thing no matter which keyboard you are on.
+Set it to whichever of key-off, note cut, note fade, fast fade or *clear the
+cell* you reach for most — it is under your little finger and it never moves.
+
+That setting belongs to the app rather than to a layout: it stays put when you
+switch keymaps, and it is not written into an exported `.taudkey`.
+
 ## Importing music
 
 All conversion runs **inside your browser** — the canonical Taud converter
@@ -2199,11 +2318,11 @@ hear, exactly as if you had played through the arming row.
 |---|---|
 | Enter | Play from cursor / stop |
 | Shift+Enter | Play from start |
-| F1…F7 · F9 | Switch views |
+| F1…F7 · F9 · Shift+F9 | Switch views (Shift+F9 is the Keymap tab) |
 | F8 · Shift+F8 | Split the view in two / close the pane · the other pane |
 | Space | Record mode on/off |
 | [ ] | Octave down / up |
-| M / N | Mute / solo the cursor channel (navigate mode) |
+| M / N | Mute / solo the cursor channel (navigate mode; Shift+M / Shift+N under a bottom-row layout) |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+S | Save to browser storage |
 | Ctrl+G | Go to cue:row |
@@ -2221,7 +2340,11 @@ hear, exactly as if you had played through the arming row.
 | A S D F G H J K L ; | Piano white keys (C D E F G A B C D E) |
 | W E · T Y U · O P | Piano black keys |
 | Q · R · I | Half-sharps where a piano has no black key |
+| 1…0 · z…/ | Two more rows of notes, on a layout that asks for them (see [Keymap](#keymap-shift-f9)) |
 | z x c v | Key-off `===` · cut `^^^` · fade `~~~` · fast-fade `~^~` |
+| Shift+z x c v b | The same, on a layout that has taken the bottom row |
+| ` | Key-off, whatever the layout does |
+| ' | Whichever sentinel you set it to on the Keymap tab |
 | b | Interrupt marker `I·0` — `[` `]` or the wheel pick its number |
 | 0–9 A–F | Hex entry (instrument / volume / pan / fx argument) |
 | 1–Z | Effect opcode (base-36) |

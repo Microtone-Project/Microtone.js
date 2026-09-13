@@ -67,6 +67,54 @@ export async function removeAutosave(name) {
   } catch { /* absent is fine */ }
 }
 
+// ── keymap dir (.taudkey jam layouts) ──
+//
+// A keymap is a PERFORMER preference, not project data, so it lives in its own
+// directory and never appears in the File tab's song list. Text in, text out —
+// .taudkey is a text format, unlike everything else stored here.
+
+const KEYMAP_DIR = "keymaps";
+
+export async function writeKeymap(name, text) {
+  const dir = await projectsDir(true, KEYMAP_DIR);
+  const bytes = new TextEncoder().encode(text);
+  const handle = await dir.getFileHandle(name, { create: true });
+  if (typeof handle.createWritable === "function") {
+    const w = await handle.createWritable();
+    await w.write(bytes);
+    await w.close();
+  } else {
+    await workerWrite(name, bytes, KEYMAP_DIR);
+  }
+}
+
+export async function listKeymaps() {
+  try {
+    const dir = await projectsDir(false, KEYMAP_DIR);
+    const out = [];
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "file") out.push(name);
+    }
+    out.sort((a, b) => a.localeCompare(b));
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+export async function readKeymap(name) {
+  const dir = await projectsDir(false, KEYMAP_DIR);
+  const f = await (await dir.getFileHandle(name)).getFile();
+  return f.text();
+}
+
+export async function removeKeymap(name) {
+  try {
+    const dir = await projectsDir(false, KEYMAP_DIR);
+    await dir.removeEntry(name);
+  } catch { /* absent is fine */ }
+}
+
 export async function list() {
   try {
     const dir = await projectsDir(false);

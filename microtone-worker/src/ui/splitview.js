@@ -1,7 +1,7 @@
 // Two-pane split of the view area (item 148).
 //
 // The editor shows one pane or two, and each pane carries its own copy of the
-// eight tabs plus one button: "split this in two" while there is a single
+// nine tabs plus one button: "split this in two" while there is a single
 // pane, "close this pane" once there are two. Which WAY it splits is not a
 // setting — it follows the shape of the area being split, so the same button
 // gives you columns on a desktop and rows on a tablet held upright.
@@ -18,6 +18,7 @@ import { applyDom, t } from "./i18n.js";
 /** Tab order, which is also the F1..F8 order in app.js. */
 export const VIEWS = [
   "timeline", "cues", "pattern", "samples", "instruments", "mastering", "project", "files",
+  "keymap",
 ];
 
 /** At or above this width/height ratio the panes sit side by side; below it
@@ -130,6 +131,10 @@ export class SplitView {
   /** Pane `i`'s OUTER .view-stage — stage(i)'s flex row, the same one the
    *  instrument lookup (item 168) docks into as a sibling of stage(i). */
   dockHost(i) { return this.panes[i].stage.parentElement; }
+  /** Pane `i`'s whole .pane section — the flex COLUMN over the tab strip and
+   *  the view stage. The keymap strip docks here, below both, so it spans the
+   *  grid's full width rather than taking width off its side. */
+  paneRoot(i) { return this.panes[i].stage.parentElement.parentElement; }
 
   setFocus(i) {
     if (this.focus === i || this.panes[i].view === null) return;

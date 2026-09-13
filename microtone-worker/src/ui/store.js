@@ -4,6 +4,7 @@
 import {
   SharedSlot, encodeBlock, decodeBlock, encodeCueBlock, decodeCueBlock,
 } from "./clipshare.js";
+import { DEFAULT_KEYMAP, QUOTE_DEFAULT } from "./keymap.js";
 
 /** Panes the Patterns view can hold — the fx2 flags are kept per pane INDEX so
  *  they survive the pane churn a viewport resize causes (pattern.js MAX_PANES).
@@ -27,6 +28,14 @@ export class Store {
     /** #998.3: monitor surround songs through the binaural head model. Default
      *  on — the stereo fold cannot render height at all. Stereo songs ignore it. */
     this.binaural = true;
+    // The jam keyboard's layout, and the Quote key's action — app preferences,
+    // not song state: they outlive the document, are never written to the
+    // .taud, and keymaplib.js restores both from storage at boot.
+    this.keymap = DEFAULT_KEYMAP;
+    this.quoteKey = QUOTE_DEFAULT;
+    /** Draw the keyboard in true columns rather than typewriter-staggered —
+     *  for the ortholinear boards whose keys really are in columns. */
+    this.keymapOrtho = false;
     this.cursor = { row: 0, ch: 0 }; // absolute song row + channel
     this.voiceMutes = new Array(64).fill(false); // per-channel mute (UI + engine)
     // Format v3's SECOND effect column (§5.5), exposed per channel (Timeline)

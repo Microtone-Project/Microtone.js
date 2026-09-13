@@ -11,6 +11,7 @@ import { volToStr, panToStr, rangeToStr, noteCentsOff } from "../../src/ui/noten
 import { TaudPlayData } from "../../src/engine/state.js";
 import { MIDDLE_C } from "../../src/engine/constants.js";
 import { pitchTablePresets } from "../../src/ui/pitchtables.js";
+import { normaliseKeymap } from "../../src/ui/keymap.js";
 
 const ctx = { octave: 4, currentInst: 0x12 };
 
@@ -583,4 +584,93 @@ test("rangeToStr: open bounds collapse to ~note / note~ / whole range (item 91)"
   assert.equal(rangeToStr(0x0020, 0xffff), "whole range");
   assert.equal(rangeToStr(0x0000, 0xffff), "whole range");
   assert.equal(rangeToStr(MIDDLE_C, MIDDLE_C + 4096), "C-4‥C-5", "both bounds real notes");
+});
+
+// ── keymaps on the note column: the Z row, and the Quote key ──
+
+const zRowMap = normaliseKeymap({
+  name: "four rows", unit: "deg", rows: ["N", "Q", "A", "Z"],
+  origin: { code: "KeyA", value: 0 }, x: 1, y: 10,
+});
+
+test("note column: a three-row keymap leaves every sentinel where it was", () => {
+  const cell = new TaudPlayData();
+  const threeRow = { ...ctx, keymap: normaliseKeymap({ rows: ["N", "Q", "A"], x: 1, y: 10 }) };
+  for (const [code, note] of [["KeyZ", 1], ["KeyX", 2], ["KeyC", 3], ["KeyV", 4], ["KeyB", 0x10]]) {
+    const a = interpretEditKey({ code, key: code.slice(-1).toLowerCase() }, SUB_NOTE, 0, cell, threeRow);
+    assert.equal(a.fields.note, note, code);
+    assert.equal(a.jamNote, undefined, `${code} is inserted, not auditioned`);
+  }
+  assert.equal(interpretEditKey({ code: "Period", key: "." }, SUB_NOTE, 0, cell, threeRow).fields.note, 0);
+});
+
+test("note column: a Z-row keymap turns the sentinel keys into notes", () => {
+  const cell = new TaudPlayData();
+  const c = { ...ctx, keymap: zRowMap };
+  for (const code of ["KeyZ", "KeyX", "KeyC", "KeyV", "KeyB", "Period"]) {
+    const a = interpretEditKey({ code, key: "x" }, SUB_NOTE, 0, cell, c);
+    assert.ok(a.fields.note >= 0x20, `${code} plays a pitch, not a sentinel`);
+    assert.equal(a.jamNote, a.fields.note, `${code} auditions what it writes`);
+  }
+});
+
+test("note column: a Z-row keymap moves the sentinels onto Shift", () => {
+  const cell = new TaudPlayData();
+  const c = { ...ctx, keymap: zRowMap };
+  for (const [code, note] of [["KeyZ", 1], ["KeyX", 2], ["KeyC", 3], ["KeyV", 4], ["KeyB", 0x10]]) {
+    const a = interpretEditKey({ code, key: "x", shiftKey: true }, SUB_NOTE, 0, cell, c);
+    assert.equal(a.fields.note, note, `Shift+${code}`);
+    assert.equal(a.jamNote, undefined, "still inserted, not auditioned");
+  }
+  // The interrupt keeps its "don't advance" rule wherever it is reached from.
+  assert.ok(!interpretEditKey({ code: "KeyB", key: "b", shiftKey: true }, SUB_NOTE, 0, cell, c).advanceRow);
+  // Shift on a three-row map changes nothing — the keys never moved.
+  const plain = interpretEditKey({ code: "KeyX", key: "x", shiftKey: true }, SUB_NOTE, 0, cell, ctx);
+  assert.equal(plain.fields.note, 2);
+});
+
+test("note column: Backquote and Delete are never relocated", () => {
+  const cell = new TaudPlayData();
+  for (const c of [ctx, { ...ctx, keymap: zRowMap }]) {
+    assert.equal(interpretEditKey({ code: "Backquote", key: "`" }, SUB_NOTE, 0, cell, c).fields.note, 1);
+    assert.deepEqual(
+      interpretEditKey({ code: "Delete", key: "Delete" }, SUB_NOTE, 0, cell, c).fields,
+      { note: 0, instrment: 0 },
+    );
+  }
+});
+
+test("note column: the Quote key writes whatever it is configured to", () => {
+  const cell = new TaudPlayData();
+  const press = (quoteKey) =>
+    interpretEditKey({ code: "Quote", key: "'" }, SUB_NOTE, 0, cell, { ...ctx, quoteKey });
+  assert.equal(press("off").fields.note, 0x0001);
+  assert.equal(press("cut").fields.note, 0x0002);
+  assert.equal(press("fade").fields.note, 0x0003);
+  assert.equal(press("fastfade").fields.note, 0x0004);
+  assert.deepEqual(press("clear").fields, { note: 0, instrment: 0 });
+  assert.equal(press("none"), null, "inert, and the key falls through to nothing");
+  assert.ok(press("cut").advanceRow, "it behaves like the sentinel it writes");
+  assert.equal(press("cut").jamNote, undefined, "inserted, not auditioned");
+  // The default applies when nothing was configured, under any keymap.
+  assert.equal(interpretEditKey({ code: "Quote", key: "'" }, SUB_NOTE, 0, cell, ctx).fields.note, 0x0002);
+  assert.equal(
+    interpretEditKey({ code: "Quote", key: "'" }, SUB_NOTE, 0, cell, { ...ctx, keymap: zRowMap }).fields.note,
+    0x0002,
+    "no keymap can claim Quote, which is the point of it",
+  );
+});
+
+test("note column: a deg keymap enters the tuning's own degrees", () => {
+  const cell = new TaudPlayData();
+  const p41 = pitchTablePresets[410];
+  const run = normaliseKeymap({
+    name: "run", unit: "deg", rows: ["A"], origin: { code: "KeyA", value: 0 }, x: 1, y: 1,
+  });
+  const c = { octave: 4, currentInst: 0, preset: p41, keymap: run };
+  // Ten adjacent keys, ten ADJACENT degrees of 41 — the thing the old
+  // semitone-snapping keyboard could not do.
+  const notes = ["KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL", "Semicolon"]
+    .map((code) => interpretEditKey({ code, key: "a" }, SUB_NOTE, 0, cell, c).fields.note);
+  assert.deepEqual(notes, p41.table.slice(0, 10).map((off) => MIDDLE_C + off));
 });

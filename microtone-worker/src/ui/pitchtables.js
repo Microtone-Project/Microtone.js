@@ -21,6 +21,8 @@
 //               '3' triple sharp · 'T' triple flat · '4' quadruple sharp
 // Shi'er lü uses single CJK tokens rendered with a conventional font.
 
+import { MIDDLE_C } from "../engine/constants.js";
+
 export const ANCHOR_NOTE = 0x5000; // C4 — fixed reference for all periods
 
 const SYM_12 = [" C-", " C#", " D-", " D#", " E-", " F-", " F#", " G-", " G#", " A-", " A#", " B-"];
@@ -98,7 +100,7 @@ export const pitchTablePresets = {
   960: { index: 960, name: "96-TET (Kite)", table: (() => { const t = []; for (let i = 0; i < 96; i++) t.push(Math.round((i * 0x1000) / 96)); return t; })(), interval: 0x1000, t: "m", sym: SYM_96 },
   10121: { index: 10121, name: "Pythagorean dim. 5th", table: [0x0, 0x134, 0x2b8, 0x3ec, 0x570, 0x6a4, 0x7d8, 0x95c, 0xa90, 0xc14, 0xd48, 0xecc], interval: 0x1000, t: "d", sym: SYM_12 },
   10122: { index: 10122, name: "Pythagorean aug. 4th", table: [0x0, 0x134, 0x2b8, 0x3ec, 0x570, 0x6a4, 0x828, 0x95c, 0xa90, 0xc14, 0xd48, 0xecc], interval: 0x1000, t: "d", sym: SYM_12 },
-  10123: { index: 10123, name: "Shi'er lü", table: [0x0, 0x184, 0x2b8, 0x43c, 0x570, 0x6f4, 0x828, 0x95c, 0xae0, 0xc14, 0xd98, 0xecc], interval: 0x1000, t: "d", sym: ["\u9EC3", "\u5927", "\u592A", "\u5936", "\u59D1", "\u4EF2", "\u8564", "\u6797", "\u5937", "\u5357", "\u7121", "\u61C9"] },
+  10123: { index: 10123, name: "Shi'er lü", table: [0x0, 0x184, 0x2b8, 0x43c, 0x570, 0x6f4, 0x828, 0x95c, 0xae0, 0xc14, 0xd98, 0xecc], interval: 0x1000, t: "d", sym: ["\u9EC3", "\u5927", "\u592A", "\u593E", "\u59D1", "\u4EF2", "\u8564", "\u6797", "\u5937", "\u5357", "\u7121", "\u61C9"] },
   35130: { index: 35130, name: "Equal-Tempered Bohlen-Pierce", table: [0x0, 0x1f3, 0x3e7, 0x5da, 0x7ce, 0x9c1, 0xbb4, 0xda8, 0xf9b, 0x118e, 0x1382, 0x1575, 0x1769], interval: 0x195c, t: "M", sym: [" C-", " C#", " D-", " E-", " F-", " F#", " G-", " H-", " H#", " J-", " A-", " A#", " B-"] },
 };
 
@@ -178,6 +180,32 @@ export function noteDegreeLabel(note, preset) {
   return best.toString(36).toUpperCase().padStart(2, "0") + octave;
 }
 
+/**
+ * Which degree of `preset` a note sits on, wrap-aware and with no tolerance
+ * gate: `{index, period}` where index is 0..table.length-1 and period counts
+ * whole intervals from C4 (so the note is period·interval + table[index], give
+ * or take the rounding that put it off the grid). Unlike noteDegreeLabel this
+ * never returns null for an off-grid note — it answers "nearest", which is what
+ * a keymap needs to colour a key by its degree and to count coverage.
+ * Absolute tables report period 0, since they have no lattice to count.
+ */
+export function nearestDegreeIndex(note, preset) {
+  if (!preset || preset.table.length === 0) return { index: 0, period: 0 };
+  if (isAbsolute(preset)) return { index: nearestAbsIndex(note, preset), period: 0 };
+  const table = preset.table;
+  const rel = note - ANCHOR_NOTE;
+  let period = Math.floor(rel / preset.interval);
+  const inPeriod = rel - period * preset.interval;
+  let index = 0, bestD = Infinity;
+  for (let i = 0; i < table.length; i++) {
+    const d = Math.abs(table[i] - inPeriod);
+    if (d < bestD) { bestD = d; index = i; }
+  }
+  // The next period's root can be nearer than the top entry of this one.
+  if (preset.interval - inPeriod < bestD) { index = 0; period += 1; }
+  return { index, period };
+}
+
 /** How far off a degree (in 4096-TET units) a note may sit and still read as in
  *  tune. Beyond this it paints yellow, and surveyTuning counts it out of tune —
  *  one constant so the warning can never disagree with what the user sees. */
@@ -221,6 +249,86 @@ export function resolveNoteSymbol(note, preset) {
   const token = preset.sym[best];
   if (token.length === 1) return { cjk: token, octave, offGrid };
   return { tick: token[0], letter: token[1], acc: token[2], octave, offGrid };
+}
+
+/** 12-EDO note word for semitone offset from C at `octave` (C4 = MIDDLE_C). */
+export function semiToNote(octave, semi) {
+  const val = MIDDLE_C + (octave - 4) * 4096 + Math.round((semi * 4096) / 12);
+  return Math.min(Math.max(val, 0x20), 0xffff);
+}
+
+/**
+ * Notation-aware jam note: map a 12-EDO semitone (-0.5..16 across the two jam
+ * rows) to a note word in the active pitch table by snapping the semitone's
+ * fractional period position to the NEAREST table degree — the port of taut.js
+ * semitoneToNote. So a non-12-TET song's keyboard plays that tuning's degrees
+ * (CDEFGAB… mapped into its grid) instead of fixed 12-EDO. The Raw preset
+ * (empty table) and 12-TET fall back to the exact 12-EDO note.
+ *
+ * This is what a `semi`-unit keymap resolves through (keymap.js); a `deg`-unit
+ * one goes to noteForDegree below instead, which is the difference between a
+ * keyboard that APPROXIMATES a tuning and one that plays its actual degrees.
+ */
+export function semiToNoteInTable(octave, semi, preset) {
+  if (!preset || preset.table.length === 0 || preset.index === 120) {
+    return semiToNote(octave, semi);
+  }
+  // An absolute (`interval: 0`) table — e.g. ProTracker pitch — has no period
+  // lattice, so the period-wrap loop below would spin forever (pos -= 0). Map
+  // the jam key to its 12-EDO pitch and snap to the nearest expressible degree.
+  if (isAbsolute(preset)) {
+    return snapToAbsoluteDegree(semiToNote(octave, semi), preset);
+  }
+  const interval = preset.interval;
+  const table = preset.table;
+  let pos = Math.round((semi / 12) * interval);
+  let carry = 0;
+  while (pos >= interval) { pos -= interval; carry++; } // semitone 12 wraps to next period root
+  while (pos < 0) { pos += interval; carry--; }         // q (semitone -0.5) borrows from the period below
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i = 0; i < table.length; i++) {
+    const d = Math.abs(table[i] - pos);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  // The next period's root (one interval up) can be the true nearest degree.
+  let off = table[bestIdx], periodAdj = carry;
+  if (interval - pos < bestDist) { off = table[0]; periodAdj = carry + 1; }
+  const val = MIDDLE_C + (octave - 4) * interval + periodAdj * interval + off;
+  return Math.min(Math.max(val, 0x20), 0xffff);
+}
+
+/**
+ * Note word for degree `d` of `preset` at `octave` — the resolution an
+ * isomorphic keymap needs, and the reason one integer per key is enough.
+ *
+ * `d` is unbounded in both directions: it wraps through periods by floor
+ * division, so degree 41 of 41-TET is the period root an octave up and degree
+ * -1 is the top degree of the period below. That is what lets a single spec
+ * ("one degree per key, six per row") work on 5-TET and 96-TET alike, with no
+ * per-tuning special-casing — the tuning's own cardinality does the wrapping.
+ *
+ * An absolute table (`interval: 0`, e.g. ProTracker pitch) has no lattice to
+ * wrap through: it is a finite list of every note the notation can express, so
+ * the degree indexes it directly and CLAMPS at both ends, exactly as
+ * stepNoteInTable does. `octave` shifts it by whole octaves of pitch first,
+ * then the result re-snaps onto the nearest expressible note.
+ */
+export function noteForDegree(octave, d, preset) {
+  if (!preset || preset.table.length === 0) {
+    // Raw (no table): a degree is one 4096-TET unit, anchored at the octave.
+    return Math.min(Math.max(MIDDLE_C + (octave - 4) * 0x1000 + d, 0x20), 0xffff);
+  }
+  const table = preset.table;
+  if (isAbsolute(preset)) {
+    const i = Math.min(Math.max(d, 0), table.length - 1);
+    const val = presetBase(preset) + table[i] + (octave - 4) * 0x1000;
+    return snapToAbsoluteDegree(Math.min(Math.max(val, 0x20), 0xffff), preset);
+  }
+  const n = table.length;
+  const period = Math.floor(d / n);
+  const idx = d - period * n; // floored modulo: always 0..n-1
+  const val = MIDDLE_C + (octave - 4) * preset.interval + period * preset.interval + table[idx];
+  return Math.min(Math.max(val, 0x20), 0xffff);
 }
 
 /**
