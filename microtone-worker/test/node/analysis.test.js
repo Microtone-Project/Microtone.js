@@ -22,7 +22,7 @@ import { parseTaud } from "../../src/format/taud-parse.js";
 import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
 import {
   dbfs, meterFrac, correlation, availableScopes, effectiveScopes, SCOPE_KINDS,
-  scopeAxes, scopeLabels, blobView, radView, MeterBallistics,
+  scopeAxes, scopeLabels, blobView, radView, MeterBallistics, RMS_SLOW_MS,
   scopePanelHeight, scopePanelsThatFit, parseInk,
   slewTowards, integrateCorrelation, SCOPE_GAIN_SLEW_MS, CORR_INTEGRATE_MS,
   scopeAutoGain, SCOPE_GAIN_FILL, SCOPE_GAIN_HEADROOM, SCOPE_GAIN_MAX,
@@ -469,6 +469,23 @@ test("meter ballistics: RMS integrates, the peak holds then falls", () => {
   assert.equal(m.clipping(), false);
   m.update(0, 1, true, 16);
   assert.equal(m.clipping(), true);
+});
+
+test("…on the window BOTH meters read from, so the two views cannot drift", () => {
+  // The Mastering tab's Levels bars run the same leaky integrator over the same
+  // constant; a bar that said a different thing in two places would be worse
+  // than a bar in only one of them. So the constant is pinned to its behaviour:
+  // one time constant reaches 1 − 1/e of a step.
+  assert.equal(RMS_SLOW_MS, 300);
+  const m = new MeterBallistics();
+  const step = 0.25;                       // −6 dB
+  const dt = 5;
+  for (let t = 0; t < RMS_SLOW_MS; t += dt) m.update(step, 0, false, dt);
+  assert.ok(Math.abs(m.rms / step - (1 - 1 / Math.E)) < 0.01, `reached ${m.rms / step}`);
+  // …and it is frame-rate independent: the same wall time, one big step.
+  const coarse = new MeterBallistics();
+  coarse.update(step, 0, false, RMS_SLOW_MS);
+  assert.ok(Math.abs(coarse.rms - m.rms) < 1e-9, `${coarse.rms} vs ${m.rms}`);
 });
 
 test("the clip lamp latches until the next take", () => {

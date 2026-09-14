@@ -365,6 +365,14 @@ export function scopeAxes(kind, stereoSong) {
 }
 
 /**
+ * The SLOW RMS window, in ms — the one this strip has always shown, and the
+ * one the Mastering tab's Levels bars now draw beside their fast reading. It
+ * is exported so the two views cannot drift apart: a bar that says a different
+ * thing in two places is worse than a bar in only one of them.
+ */
+export const RMS_SLOW_MS = 300;
+
+/**
  * Meter ballistics — one channel's moving state. The engine ships sums per
  * snapshot interval; the LOOK (integration, peak hold and fall, clip hold) is
  * the display's business and lives here.
@@ -390,7 +398,7 @@ export class MeterBallistics {
    */
   update(meanSquare, peak, clipped, dtMs) {
     // ~300 ms RMS window, frame-rate independent.
-    const a = 1 - Math.exp(-dtMs / 300);
+    const a = 1 - Math.exp(-dtMs / RMS_SLOW_MS);
     this.rms += (meanSquare - this.rms) * a;
     const db = dbfs(peak);
     if (db >= this.peakDb) {

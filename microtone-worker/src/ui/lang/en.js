@@ -1624,7 +1624,7 @@ export default {
   "mst.crest": "Crest",
   "mst.crestTitle": "Peak over RMS, dB, right now",
   "mst.levels": "Levels",
-  "mst.levelsNote": "Bars are RMS. The two amber lines bracket where the level has spent the last three seconds — its 5th and 95th percentile — and the blue line is the true peak, which holds for three seconds and then falls. The channel letter lights while a clip is happening; the red tip past 0 dBFS stays lit once this take has clipped at all, until the transport starts another — or until you click it, which clears every channel at once.",
+  "mst.levelsNote": "Each bar carries two RMS readings: the bright body is the slow one — the same 300 ms window the Timeline's master strip shows — and the dimmer rails above and below it are the fast one, so whichever runs past the other, the step between them is the crest of the moment. The two amber lines bracket where the level has spent the last three seconds — its 5th and 95th percentile — and the blue line is the true peak, which holds for three seconds and then falls. The channel letter lights while a clip is happening; the red tip past 0 dBFS stays lit once this take has clipped at all, until the transport starts another — or until you click it, which clears every channel at once.",
   "mst.reduction": "Gain reduction",
   "mst.reductionNote": "How hard each dynamics stage is working. Bars grow leftward — they are eating the signal.",
   "mst.bits": "Bit usage",

@@ -6,8 +6,9 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-14
 
-The Mastering tab's two meters now draw the statistics they were only ever hinting at: the Levels bars bracket where the level has actually been, and the Loudness bar shows the loudness range as a band rather than only as a number.
+The Mastering tab's two meters now draw the statistics they were only ever hinting at: the Levels bars carry both RMS readings and bracket where the level has actually been, and the Loudness bar shows the loudness range as a band rather than only as a number.
 
+- **Each Levels bar now carries two RMS readings at once.** The bright **body** is the slow one — the same 300 ms window the Timeline's master strip has always shown — and the dimmer **rails** above and below it are the fast one. On steady material they sit flush and the bar reads as one block; otherwise one overhangs the other, and that step is the crest of the moment: rails past the body on a transient, body past the rails through a decay. It also settles the bar down, since only the rails jitter now rather than the whole thing.
 - **The Levels bars carry three marks instead of a tick chasing itself.** The **two amber lines** are the 5th and 95th percentile of the last three seconds, joined by a rule: they bracket the level the mix is really working at, and the gap between them is its short-term dynamic range, read straight off the bar. A peak reading redrawn sixty times a second was never a line anyway — it was a blur with two edges, and now the edges are drawn.
 - **The blue line is the true peak, and it holds.** It sits still for three seconds before falling away, and any peak louder than where it has fallen to takes it back up and starts the three seconds again — so the tallest thing that has happened recently stays where you can read it.
 - **The numeric true-peak figure under the bars follows that same held value**, so the number and the blue line finally say the same thing. It used to report the instant, which changed too fast to read.

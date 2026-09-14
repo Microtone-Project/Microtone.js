@@ -56,7 +56,7 @@ import {
 } from "../../audio/master-analysis.js";
 import { setMasteringOp } from "../../doc/ops.js";
 import { themeColors } from "../theme.js";
-import { parseInk } from "./masterstrip.js";
+import { parseInk, RMS_SLOW_MS } from "./masterstrip.js";
 import { t } from "../i18n.js";
 
 /** Metering scale for the level bars, in dBFS. */
@@ -67,6 +67,26 @@ const LUFS_MIN = -40;
 const LUFS_MAX = 0;
 /** Gain-reduction meter span, in dB. */
 const GR_MAX_DB = 24;
+/**
+ * How one level bar is divided between its two RMS readings.
+ *
+ * The SLOW reading (RMS_SLOW_MS, the same window the Timeline's master strip
+ * has always shown) is the body: it is the one you judge level by, so it gets
+ * the area. The FAST one — the tap's own ~16 ms interval, which is what this
+ * bar used to draw on its own — becomes a thin rail above and below it.
+ *
+ * On steady material the two agree and the rails sit flush with the body, so
+ * the bar reads as one block. Otherwise one overhangs the other and the step
+ * between them IS the crest of the moment, drawn rather than computed: rails
+ * past the body on a transient, body past the rails through a decay. It costs
+ * the bar nothing when there is nothing to say.
+ *
+ * The important half of the win is what does NOT move any more. The fast
+ * reading jitters by a decibel or two at every frame; confining it to two thin
+ * rails leaves the bulk of the bar sitting still at the slow reading, instead
+ * of the whole bar shimmering the way it did when fast was all there was.
+ */
+const RMS_RAIL_H = 4;
 /** Peak-hold fall rate, dB per second — the classic 20 dB/1.7 s. */
 export const PEAK_FALL_DB_S = 11.8;
 /** …and how long the hold sits still before that fall begins. */
@@ -210,6 +230,10 @@ export class MasteringView {
     /** …and the amber marks' population, one window per metered channel. */
     this.levelStats = [new LevelStats(), new LevelStats(), new LevelStats(), new LevelStats()];
     this._statOut = [NaN, NaN];
+    /** The SLOW RMS, leaky-integrated here rather than in the engine, as mean
+     *  square — one per metered channel. The fast one needs no state: it is
+     *  whatever the last snapshot measured. */
+    this.rmsSlow = [0, 0, 0, 0];
     this.clipUntil = [0, 0, 0, 0];
     /** …and the LATCH: once anything has gone over full scale in this take, the
      *  meter's over-scale tip stays lit until the transport starts a new one.
@@ -1187,6 +1211,17 @@ export class MasteringView {
         this.grComp = r.compGrDb;
         this.grLim = r.limGrDb;
       }
+      // The slow RMS follows the strip's rule exactly (masterstrip.js): take
+      // the reading when one arrived, fall away towards silence once the
+      // transport has stopped, and HOLD when playing but nothing rendered —
+      // off-thread engines top their ring up in bursts, and reading an empty
+      // window as silence made the bars dip a few times a second.
+      const a = 1 - Math.exp(-dt / RMS_SLOW_MS);
+      if (r.frames > 0) {
+        for (let i = 0; i < 4; i++) this.rmsSlow[i] += (r.meanSquare[i] - this.rmsSlow[i]) * a;
+      } else if (!playing) {
+        for (let i = 0; i < 4; i++) this.rmsSlow[i] -= this.rmsSlow[i] * a;
+      }
       // Peak holds always fall, whether or not this interval carried frames —
       // once they have sat still for their hold.
       const fall = (PEAK_FALL_DB_S * dt) / 1000;
@@ -1214,6 +1249,7 @@ export class MasteringView {
   resetIntegration() {
     for (const l of this.loud) l.reset();
     for (const w of this.levelStats) w.reset();
+    this.rmsSlow.fill(0);
     this.peakHoldDb.fill(-144);
     this.peakHoldUntil.fill(0);
     this.clipUntil.fill(0);
@@ -1345,10 +1381,23 @@ export class MasteringView {
     for (let c = 0; c < 2; c++) {
       const i = this.stage * 2 + c;
       const y = top + c * (barH + 3);
-      const rms = r.meanSquare[i] > 0 ? 10 * Math.log10(r.meanSquare[i]) : -144;
       const span = w - 30;
+      // TWO readings, one bar (see RMS_RAIL_H): the slow RMS is the body, the
+      // fast one a rail above and below it. The rails are a dimmer green so the
+      // bar says which reading is which even when the two agree and the notch
+      // that would otherwise distinguish them is closed.
+      const msFast = r.meanSquare[i];
+      const msSlow = this.rmsSlow[i];
+      const fastDb = msFast > 0 ? 10 * Math.log10(msFast) : -144;
+      const slowDb = msSlow > 0 ? 10 * Math.log10(msSlow) : -144;
+      const bodyY = y + RMS_RAIL_H;
+      const bodyH = barH - RMS_RAIL_H * 2;
+      ctx.fillStyle = mixInk(C.meterBg, C.meter, 0.7);
+      const fastW = meterFrac(fastDb) * span;
+      ctx.fillRect(22, y, fastW, RMS_RAIL_H);
+      ctx.fillRect(22, y + barH - RMS_RAIL_H, fastW, RMS_RAIL_H);
       ctx.fillStyle = C.meter;
-      ctx.fillRect(22, y, meterFrac(rms) * span, barH);
+      ctx.fillRect(22, bodyY, meterFrac(slowDb) * span, bodyH);
       // The over-scale TIP: everything past 0 dBFS, lit red and LATCHED. The
       // lamp below says "clipping now" and goes out; this says "this take
       // clipped" and stays, because a clip thirty seconds ago is still in the
