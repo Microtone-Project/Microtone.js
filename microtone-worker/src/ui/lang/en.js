@@ -1608,7 +1608,7 @@ export default {
   "mst.bypassed": "bypassed",
 
   "mst.loudness": "Loudness",
-  "mst.loudnessNote": "ITU-R BS.1770 / EBU R 128. The bar is short-term; the bright tick is momentary.",
+  "mst.loudnessNote": "ITU-R BS.1770 / EBU R 128. The bar is short-term, the amber tick is momentary, and the blue band lying over them is the loudness range — where the quiet passages sit, where the loud ones do, and LRA is how far apart that is.",
   "mst.momentary": "M (400 ms)",
   "mst.momentaryTitle": "Momentary loudness, LUFS",
   "mst.shortTerm": "S (3 s)",
@@ -1624,7 +1624,7 @@ export default {
   "mst.crest": "Crest",
   "mst.crestTitle": "Peak over RMS, dB, right now",
   "mst.levels": "Levels",
-  "mst.levelsNote": "Bars are RMS, the blue line is the true peak, the amber line is its falling hold. The channel letter lights while a clip is happening; the red tip past 0 dBFS stays lit once this take has clipped at all, until the transport starts another — or until you click it, which clears every channel at once.",
+  "mst.levelsNote": "Bars are RMS. The two amber lines bracket where the level has spent the last three seconds — its 5th and 95th percentile — and the blue line is the true peak, which holds for three seconds and then falls. The channel letter lights while a clip is happening; the red tip past 0 dBFS stays lit once this take has clipped at all, until the transport starts another — or until you click it, which clears every channel at once.",
   "mst.reduction": "Gain reduction",
   "mst.reductionNote": "How hard each dynamics stage is working. Bars grow leftward — they are eating the signal.",
   "mst.bits": "Bit usage",

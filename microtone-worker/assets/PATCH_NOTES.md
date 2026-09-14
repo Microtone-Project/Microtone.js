@@ -4,6 +4,15 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-14
+
+The Mastering tab's two meters now draw the statistics they were only ever hinting at: the Levels bars bracket where the level has actually been, and the Loudness bar shows the loudness range as a band rather than only as a number.
+
+- **The Levels bars carry three marks instead of a tick chasing itself.** The **two amber lines** are the 5th and 95th percentile of the last three seconds, joined by a rule: they bracket the level the mix is really working at, and the gap between them is its short-term dynamic range, read straight off the bar. A peak reading redrawn sixty times a second was never a line anyway — it was a blur with two edges, and now the edges are drawn.
+- **The blue line is the true peak, and it holds.** It sits still for three seconds before falling away, and any peak louder than where it has fallen to takes it back up and starts the three seconds again — so the tallest thing that has happened recently stays where you can read it.
+- **The numeric true-peak figure under the bars follows that same held value**, so the number and the blue line finally say the same thing. It used to report the instant, which changed too fast to read.
+- **The Loudness bar draws LRA where it actually sits.** A blue band lies across the bar from the quiet passages to the loud ones, on the same LUFS axis as everything else there. **LRA** is only how *wide* that band is, which could never tell you whether a mix with 9 LU of range is sitting at −20 or at −11 — the band's two ends do. Hover the **LRA** readout for both of them as figures.
+
 ## 2026-09-13
 
 The letter keys can now be laid out as an isomorphic keyboard, so a fine tuning is playable instead of merely writable — there is a new **Keymap** tab (**Shift+F9**) to build one in, and layouts travel between machines as `.taudkey` files.

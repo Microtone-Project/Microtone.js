@@ -321,16 +321,24 @@ export class LoudnessIntegrator {
   }
 
   /** Loudness range (EBU Tech 3342), in LU. */
-  get range() {
+  get range() { return this.rangeBounds.range; }
+
+  /**
+   * …and WHERE it sits: the 10th and 95th percentile themselves, in LUFS, so a
+   * meter can draw the range on its own axis instead of only printing its
+   * width. `range` is `high - low`, and both are -Infinity when there is not
+   * enough gated material to have a range at all.
+   */
+  get rangeBounds() {
     const need = Math.round(3 / FRAME_SEC);
     const n = this.frames.length;
-    if (n < need) return 0;
+    if (n < need) return EMPTY_RANGE;
     const zs = [];
     let s = 0;
     for (let i = 0; i < need; i++) s += this.frames[i];
     zs.push(s / need);
     for (let i = need; i < n; i++) { s += this.frames[i] - this.frames[i - need]; zs.push(s / need); }
-    return loudnessRange(zs);
+    return loudnessRangeBounds(zs);
   }
 
   /** Peak-to-loudness ratio, in LU: how much headroom the peaks keep over the
@@ -359,18 +367,33 @@ export function gatedMean(zs, relativeLu) {
   return lufsFromMeanSquare(sum / count);
 }
 
-/** EBU Tech 3342 loudness range from an array of 3 s block mean squares. */
-export function loudnessRange(zs) {
+/** What `loudnessRangeBounds` answers when there is no range to speak of. */
+const EMPTY_RANGE = Object.freeze({ low: -Infinity, high: -Infinity, range: 0 });
+
+/**
+ * EBU Tech 3342 loudness range from an array of 3 s block mean squares, as the
+ * two percentiles it is the distance BETWEEN: `{low, high, range}` in LUFS and
+ * LU. The standard only ever names the distance, but a meter that draws the
+ * range needs to know where to put it.
+ */
+export function loudnessRangeBounds(zs) {
   const absolute = 10 ** ((GATE_ABSOLUTE_LUFS - LUFS_OFFSET_DB) / 10);
   let sum = 0, count = 0;
   for (const z of zs) if (z > absolute) { sum += z; count++; }
-  if (count === 0) return 0;
+  if (count === 0) return EMPTY_RANGE;
   const gate = Math.max(absolute, (sum / count) * 10 ** (LRA_RELATIVE_LU / 10));
   const kept = [];
   for (const z of zs) if (z > gate) kept.push(lufsFromMeanSquare(z));
-  if (kept.length < 2) return 0;
+  if (kept.length < 2) return EMPTY_RANGE;
   kept.sort((a, b) => a - b);
-  return percentile(kept, 0.95) - percentile(kept, 0.10);
+  const low = percentile(kept, 0.10);
+  const high = percentile(kept, 0.95);
+  return { low, high, range: high - low };
+}
+
+/** …and the figure on its own, in LU. */
+export function loudnessRange(zs) {
+  return loudnessRangeBounds(zs).range;
 }
 
 /** Linear-interpolated percentile of a SORTED array. */

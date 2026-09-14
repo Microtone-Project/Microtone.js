@@ -1543,7 +1543,7 @@ export default {
   "mst.bypassed": "바이패스",
 
   "mst.loudness": "라우드니스",
-  "mst.loudnessNote": "ITU-R BS.1770 / EBU R 128. 막대는 단기값, 밝은 눈금은 순간값입니다.",
+  "mst.loudnessNote": "ITU-R BS.1770 / EBU R 128. 막대는 단기값, 호박색 눈금은 순간값이며, 그 위에 걸친 파란 띠는 라우드니스 레인지입니다 — 조용한 대목과 큰 대목이 각각 어디에 있는지를 보여 주고, LRA는 그 간격입니다.",
   "mst.momentary": "M (400 ms)",
   "mst.momentaryTitle": "순간 라우드니스, LUFS",
   "mst.shortTerm": "S (3 s)",
@@ -1559,7 +1559,7 @@ export default {
   "mst.crest": "크레스트",
   "mst.crestTitle": "지금 이 순간의 피크 대 RMS, dB",
   "mst.levels": "레벨",
-  "mst.levelsNote": "막대는 RMS, 파란 선은 트루 피크, 호박색 선은 떨어지는 홀드입니다. 클립이 나는 동안 채널 글자에 불이 들어오고, 0 dBFS 너머의 빨간 끝부분은 이번 재생에서 한 번이라도 클립이 나면 다음 재생을 시작할 때까지 켜져 있고, 한 번 누르면 모든 채널이 함께 꺼집니다.",
+  "mst.levelsNote": "막대는 RMS입니다. 호박색 선 두 개는 최근 3초 동안 레벨이 머무른 구간을 묶어 주고(5·95 백분위수), 파란 선은 트루 피크로 3초간 멈췄다가 떨어집니다. 클립이 나는 동안 채널 글자에 불이 들어오고, 0 dBFS 너머의 빨간 끝부분은 이번 재생에서 한 번이라도 클립이 나면 다음 재생을 시작할 때까지 켜져 있고, 한 번 누르면 모든 채널이 함께 꺼집니다.",
   "mst.reduction": "게인 리덕션",
   "mst.reductionNote": "각 다이내믹스 단이 얼마나 일하고 있는지. 막대는 왼쪽으로 자랍니다 — 신호를 깎아 들어가는 중입니다.",
   "mst.bits": "비트 사용량",

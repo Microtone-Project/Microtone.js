@@ -22,9 +22,13 @@ import {
 import {
   KWeighting, kWeightingCoefficients, LoudnessIntegrator, PhaseScrambler,
   MasterMeterTap, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
-  bitUsage, crestDb, dbfs, gatedMean, loudnessRange, percentile, FRAME_SEC,
+  bitUsage, crestDb, dbfs, gatedMean, loudnessRange, loudnessRangeBounds,
+  percentile, FRAME_SEC,
   BIT_DEPTHS, DEFAULT_BIT_DEPTH, HIST_BUCKETS,
 } from "../../src/engine/loudness.js";
+import {
+  LevelStats, LEVEL_STAT_MS, LEVEL_STAT_LO, LEVEL_STAT_HI,
+} from "../../src/ui/views/mastering.js";
 import {
   MASTERING_FOURCC, MASTERING_BLOCK_SIZE, parseMasteringBlock,
   buildMasteringBlock, parseMasteringSection, buildMasteringSection,
@@ -349,6 +353,101 @@ test("loudness range spans the 10th to 95th percentile", () => {
   assert.ok(lra > 12 && lra < 20, `${lra}`);
   assert.equal(loudnessRange([z(-20)]), 0, "one block has no range");
   assert.equal(percentile([1, 2, 3, 4], 0.5), 2.5);
+});
+
+test("…and reports WHERE that span sits, not only how wide it is", () => {
+  const z = (lufs) => 10 ** ((lufs + 0.691) / 10);
+  const blocks = [];
+  for (let i = 0; i < 100; i++) blocks.push(z(-30 + i * 0.2)); // −30 … −10.2 LUFS
+  const b = loudnessRangeBounds(blocks);
+  assert.ok(Math.abs(b.range - (b.high - b.low)) < 1e-9, "the width IS the two ends");
+  assert.equal(b.range, loudnessRange(blocks), "…and agrees with the figure on its own");
+  assert.ok(b.low < b.high, `${b.low} … ${b.high}`);
+  // Both ends inside the material, and each near the percentile it names.
+  assert.ok(b.low >= -30 && b.high <= -10.2, `${b.low} … ${b.high}`);
+  assert.ok(b.high > -12 && b.high < -10.2, `95th percentile ${b.high}`);
+  assert.ok(Math.abs(b.low - (-28.02)) < 0.05, `10th percentile ${b.low}`);
+  // …and the −20 LU relative gate moves the LOW end, which is the whole reason
+  // the bounds cannot be read off the block list directly: thirty blocks of
+  // near-silence are not where the quiet passages are.
+  const gated = loudnessRangeBounds([...blocks, ...Array(30).fill(z(-75))]);
+  assert.ok(Math.abs(gated.low - b.low) < 0.4, `silence moved the low end: ${gated.low}`);
+  assert.ok(Math.abs(gated.high - b.high) < 0.4, `…or the high one: ${gated.high}`);
+  // Nothing to range over is −Infinity at both ends, not a pair of zeroes.
+  const empty = loudnessRangeBounds([z(-20)]);
+  assert.equal(empty.range, 0);
+  assert.equal(empty.low, -Infinity);
+  assert.equal(empty.high, -Infinity);
+});
+
+test("the integrator hands its LRA over as a pair of LUFS bounds", () => {
+  const li = measureTone(-23, 20);
+  const b = li.rangeBounds;
+  assert.equal(li.range, b.range, "the getter is the bounds' width");
+  // A steady tone has no range, and both ends land on the tone.
+  assert.ok(b.range < 0.1, `LRA ${b.range}`);
+  assert.ok(Math.abs(b.low - (-23)) < 0.2, `low ${b.low}`);
+  assert.ok(Math.abs(b.high - (-23)) < 0.2, `high ${b.high}`);
+  // Too short to have a 3 s block at all: −Infinity, so a meter draws nothing.
+  const fresh = new LoudnessIntegrator(SAMPLING_RATE);
+  assert.equal(fresh.rangeBounds.range, 0);
+  assert.equal(fresh.rangeBounds.low, -Infinity);
+});
+
+// ── The level bars' statistical marks (item 178) ────────────────────────────
+
+test("the level window brackets its readings at the 5th and 95th percentile", () => {
+  const w = new LevelStats();
+  const out = [NaN, NaN];
+  // Nothing in it yet: NaN, so the meter draws no marks rather than marks at
+  // the bottom of the scale.
+  w.bounds(1000, out);
+  assert.ok(Number.isNaN(out[0]) && Number.isNaN(out[1]));
+  // 101 readings spread over −100 … 0 dB, one every 10 ms.
+  for (let i = 0; i <= 100; i++) w.push(-100 + i, i * 10);
+  w.bounds(1000, out);
+  assert.ok(Math.abs(out[0] - (-95)) < 0.01, `5th ${out[0]}`);
+  assert.ok(Math.abs(out[1] - (-5)) < 0.01, `95th ${out[1]}`);
+  assert.equal(LEVEL_STAT_LO, 0.05);
+  assert.equal(LEVEL_STAT_HI, 0.95);
+});
+
+test("…over a window bounded by TIME, so the frame rate cannot change it", () => {
+  const answer = (hz) => {
+    const w = new LevelStats();
+    const step = 1000 / hz;
+    // Six seconds of a level that steps from −40 to −10 halfway through: only
+    // the last LEVEL_STAT_MS of it may count.
+    for (let t = 0; t <= 6000; t += step) w.push(t < 3000 ? -40 : -10, t);
+    const out = [NaN, NaN];
+    w.bounds(6000, out);
+    return out;
+  };
+  for (const hz of [30, 60, 144]) {
+    const [lo, hi] = answer(hz);
+    assert.ok(Math.abs(lo - (-10)) < 0.001, `${hz} Hz low ${lo}`);
+    assert.ok(Math.abs(hi - (-10)) < 0.001, `${hz} Hz high ${hi}`);
+  }
+  // …and the stale half is genuinely gone, not merely outvoted.
+  const w = new LevelStats();
+  for (let t = 0; t <= 6000; t += 16) w.push(t < 3000 ? -40 : -10, t);
+  const out = [NaN, NaN];
+  w.bounds(6000 + LEVEL_STAT_MS + 1, out);
+  assert.ok(Number.isNaN(out[0]), "a window whose every reading has aged out says nothing");
+});
+
+test("…and it survives more readings than it has room for", () => {
+  const w = new LevelStats();
+  // 4096 readings is four times the ring's capacity; the newest three seconds
+  // must still be what comes back.
+  for (let i = 0; i < 4096; i++) w.push(i < 4000 ? -60 : -12, i);
+  const out = [NaN, NaN];
+  w.bounds(4095, out);
+  assert.ok(out[0] > -61 && out[1] <= -12, `${out[0]} … ${out[1]}`);
+  assert.ok(Math.abs(out[1] - (-12)) < 0.01, `the newest reading is in there: ${out[1]}`);
+  w.reset();
+  w.bounds(4095, out);
+  assert.ok(Number.isNaN(out[0]), "reset empties it");
 });
 
 test("the integrator packs arbitrary intervals into the same 100 ms frames", () => {

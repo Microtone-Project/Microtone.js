@@ -43,7 +43,7 @@ import {
 } from "../../engine/mastering.js";
 import {
   LoudnessIntegrator, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
-  crestDb, dbfs, BIT_DEPTHS, DEFAULT_BIT_DEPTH,
+  crestDb, dbfs, percentile, BIT_DEPTHS, DEFAULT_BIT_DEPTH,
 } from "../../engine/loudness.js";
 import {
   Fft, hannWindow, spectrumDb, tiltDbAt, SPECTRUM_BANDS, SPECTRUM_NBANDS,
@@ -68,7 +68,30 @@ const LUFS_MAX = 0;
 /** Gain-reduction meter span, in dB. */
 const GR_MAX_DB = 24;
 /** Peak-hold fall rate, dB per second — the classic 20 dB/1.7 s. */
-const PEAK_FALL_DB_S = 11.8;
+export const PEAK_FALL_DB_S = 11.8;
+/** …and how long the hold sits still before that fall begins. */
+export const PEAK_HOLD_MS = 3000;
+/**
+ * The level bars' STATISTICAL window, in ms, and the two percentiles of it the
+ * amber marks stand at.
+ *
+ * A peak reading redrawn sixty times a second is not a line, it is a cloud:
+ * the eye stops resolving the individual positions and sees the edges of where
+ * it has been. So the meter draws those edges honestly instead of leaving them
+ * to be inferred — 5% and 95% of the last three seconds bracket the level the
+ * programme is actually working at, and the distance between them is its
+ * short-term dynamic range, read off the bar without a second instrument.
+ *
+ * Three seconds is the same window the short-term loudness reading uses, and
+ * the same time the true-peak mark holds for: everything on this screen that
+ * says "recently" means the same recently.
+ */
+export const LEVEL_STAT_MS = 3000;
+export const LEVEL_STAT_LO = 0.05;
+export const LEVEL_STAT_HI = 0.95;
+/** How many readings one window holds. The window is bounded by TIME, not by
+ *  this — 1024 is simply enough room for three seconds of a 340 Hz display. */
+const LEVEL_STAT_CAP = 1024;
 /** How long a clip lamp stays lit after the last over, in ms… */
 const CLIP_HOLD_MS = 1600;
 /** …of which this last fraction is the fade. Before that it is at full. */
@@ -116,6 +139,60 @@ function roundedRect(ctx, x, y, w, h, r) {
 /** dB → 0..1 across the meter scale. */
 const meterFrac = (db) => clamp((db - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB), 0, 1);
 
+/** Scratch for LevelStats.bounds — one sort buffer serves every channel, since
+ *  no two of them are ever being sorted at the same moment. */
+const _statSort = new Float64Array(LEVEL_STAT_CAP);
+
+/**
+ * A rolling window of one channel's peak readings, in dB, that can be asked
+ * for the percentiles of its last LEVEL_STAT_MS.
+ *
+ * It is sampled at DISPLAY rate rather than once per audio snapshot, which is
+ * what makes the answer frame-rate independent AND what makes it the right
+ * answer: the population is the last three seconds of what was ON SCREEN, so
+ * "the 95th percentile" reads as "the level the mark stayed under for all but
+ * a twentieth of those three seconds" — a statement about what the eye saw.
+ *
+ * Readings are pushed in time order, so ageing the window out is a walk
+ * backwards from the newest that stops at the first stale entry.
+ */
+export class LevelStats {
+  constructor() {
+    this.db = new Float64Array(LEVEL_STAT_CAP);
+    this.at = new Float64Array(LEVEL_STAT_CAP);
+    this.head = 0;   // where the next reading goes
+    this.count = 0;
+  }
+
+  reset() { this.head = 0; this.count = 0; }
+
+  push(db, now) {
+    this.db[this.head] = db;
+    this.at[this.head] = now;
+    this.head = (this.head + 1) % LEVEL_STAT_CAP;
+    if (this.count < LEVEL_STAT_CAP) this.count++;
+  }
+
+  /** Fill `out` with the window's low and high percentile, or leave it NaN
+   *  when nothing in it is current — a meter with nothing to say draws
+   *  nothing rather than a mark at the bottom of the scale. */
+  bounds(now, out) {
+    out[0] = out[1] = NaN;
+    const cutoff = now - LEVEL_STAT_MS;
+    let n = 0;
+    for (let k = 0; k < this.count; k++) {
+      const i = (this.head - 1 - k + LEVEL_STAT_CAP * 2) % LEVEL_STAT_CAP;
+      if (this.at[i] < cutoff) break;
+      _statSort[n++] = this.db[i];
+    }
+    if (n === 0) return;
+    const sorted = _statSort.subarray(0, n);
+    sorted.sort();
+    out[0] = percentile(sorted, LEVEL_STAT_LO);
+    out[1] = percentile(sorted, LEVEL_STAT_HI);
+  }
+}
+
 export class MasteringView {
   constructor(store, host) {
     this.store = store;
@@ -127,7 +204,12 @@ export class MasteringView {
     this.readout = makeMasterMeterReadout();
     this.readout.histTotal = 0;
     this.loud = [new LoudnessIntegrator(SAMPLING_RATE), new LoudnessIntegrator(SAMPLING_RATE)];
+    /** The blue mark's VISUAL position, and when it may start falling again. */
     this.peakHoldDb = [-144, -144, -144, -144];
+    this.peakHoldUntil = [0, 0, 0, 0];
+    /** …and the amber marks' population, one window per metered channel. */
+    this.levelStats = [new LevelStats(), new LevelStats(), new LevelStats(), new LevelStats()];
+    this._statOut = [NaN, NaN];
     this.clipUntil = [0, 0, 0, 0];
     /** …and the LATCH: once anything has gone over full scale in this take, the
      *  meter's over-scale tip stays lit until the transport starts a new one.
@@ -1087,7 +1169,16 @@ export class MasteringView {
         }
         for (let i = 0; i < 4; i++) {
           const db = dbfs(r.truePeak[i]);
-          if (db > this.peakHoldDb[i]) this.peakHoldDb[i] = db;
+          // peakHoldDb IS the mark's visual position, decay included, so this
+          // one comparison is the whole rule: a peak taller than where the
+          // mark has fallen to takes it there and starts the hold over. One
+          // that is not stays hidden under a mark that is still describing
+          // something louder, which is what a peak hold is for.
+          if (db > this.peakHoldDb[i]) {
+            this.peakHoldDb[i] = db;
+            this.peakHoldUntil[i] = now + PEAK_HOLD_MS;
+          }
+          this.levelStats[i].push(db, now);
           if (r.clip[i] > 0) {
             this.clipUntil[i] = now + CLIP_HOLD_MS;
             this.clipLatched[i] = true;
@@ -1096,9 +1187,13 @@ export class MasteringView {
         this.grComp = r.compGrDb;
         this.grLim = r.limGrDb;
       }
-      // Peak holds always fall, whether or not this interval carried frames.
+      // Peak holds always fall, whether or not this interval carried frames —
+      // once they have sat still for their hold.
       const fall = (PEAK_FALL_DB_S * dt) / 1000;
-      for (let i = 0; i < 4; i++) this.peakHoldDb[i] = Math.max(this.peakHoldDb[i] - fall, -144);
+      for (let i = 0; i < 4; i++) {
+        if (now < this.peakHoldUntil[i]) continue;
+        this.peakHoldDb[i] = Math.max(this.peakHoldDb[i] - fall, -144);
+      }
     }
 
     const C = themeColors();
@@ -1118,7 +1213,9 @@ export class MasteringView {
 
   resetIntegration() {
     for (const l of this.loud) l.reset();
+    for (const w of this.levelStats) w.reset();
     this.peakHoldDb.fill(-144);
+    this.peakHoldUntil.fill(0);
     this.clipUntil.fill(0);
     this.clipLatched.fill(false);
   }
@@ -1157,7 +1254,19 @@ export class MasteringView {
     cells.m.textContent = fmtLufs(l.momentary);
     cells.s.textContent = fmtLufs(l.shortTerm);
     cells.i.textContent = fmtLufs(l.integrated);
-    cells.lra.textContent = l.range > 0 ? l.range.toFixed(1) : "—";
+    // Asked for ONCE: the bounds cost a pass over every frame of the take, and
+    // the bar below needs the same answer the readout prints.
+    const lra = l.rangeBounds;
+    cells.lra.textContent = lra.range > 0 ? lra.range.toFixed(1) : "—";
+    // The readout can only ever be a width, so the two ends go in its tooltip
+    // for anyone who wants the figures rather than the picture.
+    const lraCell = cells.lra.parentElement;
+    if (lraCell) {
+      const title = lra.range > 0
+        ? `${t("mst.lraTitle")} — ${fmtLufs(lra.low)} … ${fmtLufs(lra.high)} LUFS`
+        : t("mst.lraTitle");
+      if (lraCell.title !== title) lraCell.title = title;
+    }
     cells.tp.textContent = l.truePeak > 0 ? fmtDb(dbfs(l.truePeak)) : "—";
     cells.plr.textContent = Number.isFinite(l.plr) ? l.plr.toFixed(1) : "—";
     cells.crest.textContent = ms > 0 ? crestDb(peak, ms).toFixed(1) : "—";
@@ -1175,6 +1284,23 @@ export class MasteringView {
     if (Number.isFinite(st)) {
       ctx.fillStyle = C.meter;
       ctx.fillRect(0, top, frac(st) * w, h - top);
+    }
+    // The LOUDNESS RANGE, drawn rather than only printed: a slim band lying
+    // over the bar from the 10th to the 95th percentile of the take. The
+    // readout gives its WIDTH, which is what LRA means — but a width alone
+    // cannot say whether a mix with 9 LU of range is sitting at −20 or at −11,
+    // and that is usually the thing being asked. The band's two ends answer it
+    // on the same axis as everything else on this bar.
+    if (lra.range > 0 && Number.isFinite(lra.low)) {
+      const xLo = frac(lra.low) * w;
+      const xHi = frac(lra.high) * w;
+      const bandH = 8;
+      const by = top + (h - top - bandH) / 2;
+      ctx.fillStyle = mixInk(C.meterBg, C.accent2, 0.7);
+      roundedRect(ctx, xLo, by, Math.max(xHi - xLo, 2), bandH, 2);
+      ctx.fillStyle = C.accent2;
+      ctx.fillRect(xLo, top, 1, h - top);
+      ctx.fillRect(xHi - 1, top, 1, h - top);
     }
     const mo = l.momentary;
     if (Number.isFinite(mo)) {
@@ -1220,7 +1346,6 @@ export class MasteringView {
       const i = this.stage * 2 + c;
       const y = top + c * (barH + 3);
       const rms = r.meanSquare[i] > 0 ? 10 * Math.log10(r.meanSquare[i]) : -144;
-      const peakDb = dbfs(r.peak[i]);
       const span = w - 30;
       ctx.fillStyle = C.meter;
       ctx.fillRect(22, y, meterFrac(rms) * span, barH);
@@ -1238,11 +1363,25 @@ export class MasteringView {
       // 0 dBFS rule — the wall the file cannot go past.
       ctx.fillStyle = C.border;
       ctx.fillRect(zero, y, 1, barH);
-      // The true-peak line and its falling hold go on LAST, so they still read
-      // where they matter most: inside the tip, on a take that went over.
+      // The marks go on LAST, so they still read where they matter most:
+      // inside the tip, on a take that went over.
+      //
+      // AMBER is the working range — the 5th and 95th percentile of the last
+      // three seconds, bracketed by the rule between them. BLUE is the true
+      // peak, held and then falling. Together they say where the programme is
+      // and how far the loudest thing in it sticks out of that, which is the
+      // reading a level bar is actually consulted for.
+      this.levelStats[i].bounds(now, this._statOut);
+      if (!Number.isNaN(this._statOut[0])) {
+        const xLo = 22 + meterFrac(this._statOut[0]) * span;
+        const xHi = 22 + meterFrac(this._statOut[1]) * span;
+        ctx.fillStyle = mixInk(C.meterBg, C.accent, 0.45);
+        ctx.fillRect(xLo, y + barH / 2 - 1, Math.max(xHi - xLo, 1), 2);
+        ctx.fillStyle = C.accent;
+        ctx.fillRect(xLo - 1, y, 2, barH);
+        ctx.fillRect(xHi - 1, y, 2, barH);
+      }
       ctx.fillStyle = C.accent2;
-      ctx.fillRect(22 + meterFrac(peakDb) * span - 1, y, 2, barH);
-      ctx.fillStyle = C.accent;
       ctx.fillRect(22 + meterFrac(this.peakHoldDb[i]) * span - 1, y, 2, barH);
       // The channel letter is a blinkenlight, backing and all (lamp.js's look,
       // drawn on canvas): a colour change alone on two thin glyphs was not
@@ -1258,11 +1397,14 @@ export class MasteringView {
       ctx.fillStyle = lit > 0 ? mixInk(C.dim, C.bg, lit) : C.dim;
       ctx.fillText(labels[c], 7, y + barH - 6);
     }
-    // Numeric peak readout under the bars.
+    // Numeric peak readout under the bars — the HELD figure, so it says the
+    // same thing the blue mark does and stays still long enough to be read. A
+    // snapshot's own peak changes sixty times a second and is only a number in
+    // the sense that a blur is.
     ctx.fillStyle = C.dim;
     ctx.textAlign = "left";
-    const pl = dbfs(r.truePeak[this.stage * 2]);
-    const pr = dbfs(r.truePeak[this.stage * 2 + 1]);
+    const pl = this.peakHoldDb[this.stage * 2];
+    const pr = this.peakHoldDb[this.stage * 2 + 1];
     ctx.fillText(`${t("mst.truePeakRead")}  L ${fmtDb(pl)}  R ${fmtDb(pr)} dBTP`, 22, h - 2);
   }
 
