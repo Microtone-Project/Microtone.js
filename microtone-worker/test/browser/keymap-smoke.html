@@ -281,6 +281,94 @@
     await sleep(120);
     ok(store.keymap.notation !== 10123, "and it stands down for a 12-TET song");
 
+    // ── renaming a saved layout ──
+    const oldName = lib.uniqueName("rename me");
+    await lib.save({ ...lib.find("Chromatic run"), name: oldName });
+    await lib.refresh();
+    kv._choose(lib.entries().find((e) => e.name === oldName));
+    await sleep(120);
+    ok(lib.chosenName === oldName, "the layout is the chosen one");
+
+    const btnLabel = (b) => b.textContent;
+    const actions = () => [...win.document.querySelectorAll(".keymap-libactions button")];
+    ok(actions().some((b) => /Rename/.test(btnLabel(b))), "the bar has a Rename button");
+    ok(!actions().find((b) => /Rename/.test(btnLabel(b))).disabled,
+       "…live on a saved layout");
+    kv._choose(lib.entries().find((e) => e.builtin));
+    await sleep(120);
+    ok(actions().find((b) => /Rename/.test(btnLabel(b))).disabled,
+       "…and dead on a built-in, which must be duplicated first");
+    ok(actions().find((b) => /Delete/.test(btnLabel(b))).disabled,
+       "as is Delete, which used to just silently do nothing");
+    kv._choose(lib.entries().find((e) => e.name === oldName));
+    await sleep(120);
+
+    const newName = lib.uniqueName("renamed");
+    const renamed = await lib.rename(oldName, newName);
+    await sleep(150);
+    ok(renamed?.name === newName, "rename returns the layout under its new name");
+    ok(!lib.find(oldName), "the old name is gone from the library");
+    ok(!!lib.find(newName), "…and the new one is there");
+    ok(lib.chosenName === newName,
+       "the remembered choice followed it (or the next launch loses the layout)");
+    ok(localStorage.getItem("microtone-keymap") === newName ||
+       win.localStorage.getItem("microtone-keymap") === newName,
+       "…including the stored preference");
+    // It survives a reload of the library from storage, i.e. the FILE moved too.
+    await lib.refresh();
+    ok(!!lib.find(newName) && !lib.find(oldName), "the file on disk moved with it");
+
+    // A built-in cannot be renamed, and shadowing one deliberately is allowed.
+    ok(!(await lib.rename("Piano", "nope")), "built-ins refuse to be renamed");
+    ok(!lib.savedNameTaken("Harmonic Table"), "shadowing a built-in's name is allowed");
+    const clash = lib.uniqueName("clash");
+    await lib.save({ ...lib.find("Chromatic run"), name: clash });
+    ok(lib.savedNameTaken(clash, newName), "but another SAVED layout's name is refused");
+    ok(!lib.savedNameTaken(newName, newName), "…and a layout never clashes with itself");
+    await lib.remove(clash);
+    await lib.remove(newName);
+
+    // ── the board keeps up with the world around it ──
+    M.split.reveal("keymap");
+    lib.setActive(lib.find("Chromatic run"));
+    await sleep(250);
+    const board = kv.canvas;
+
+    // 1. Resizing. The stage is what the board is measured against, so a
+    //    narrower frame has to give a narrower canvas.
+    const wBefore = board.width;
+    frame.style.width = "900px";
+    await sleep(500);   // ResizeObserver + repaint
+    ok(board.width !== wBefore, `resizing repaints the board (${wBefore} → ${board.width})`);
+    frame.style.width = "1280px";
+    await sleep(500);
+    ok(board.width === wBefore, "…and going back restores it");
+
+    // 2. The octave. The caps NAME notes, so the names have to follow it.
+    const noteAt = () => {
+      const c = board.getContext("2d");
+      return c.getImageData(0, 0, board.width, board.height).data.join(",").length;
+    };
+    const octBefore = jam.octave;
+    const paintBefore = noteAt();
+    tap("BracketRight", { key: "]" });
+    await sleep(300);
+    ok(jam.octave === octBefore + 1, "the bracket key moved the octave");
+    ok(noteAt() !== paintBefore, "…and the board repainted with the new notes");
+    tap("BracketLeft", { key: "[" });
+    await sleep(300);
+
+    // 3. The tuning, changed from the Project tab rather than by loading a song.
+    const projected = M.projectView;
+    projected.changeNotation(10123);
+    await sleep(400);
+    ok(store.pitchPreset.index === 10123, "the notation changed");
+    ok(store.keymap.notation === 10123,
+       `and the layout bound to it came up (${store.keymap.name})`);
+    projected.changeNotation(120);
+    await sleep(300);
+    ok(store.keymap.notation !== 10123, "…and stood down again");
+
     log(failures === 0 ? "ALL OK" : `${failures} FAILURE(S)`);
     document.title = failures === 0 ? "keymap-smoke: ok" : "keymap-smoke: FAIL";
   </script>

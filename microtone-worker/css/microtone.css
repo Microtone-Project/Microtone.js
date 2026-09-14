@@ -3301,8 +3301,23 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .keymap-item.builtin .keymap-item-name { font-style: italic; }
 .keymap-item-tag { color: var(--dim); font-size: 0.72rem; }
 .keymap-item.active .keymap-item-tag { color: inherit; opacity: 0.75; }
-.keymap-libactions { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-.keymap-btn { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
+/* Two rows of three, the same treatment the Instruments and Samples toolbars
+   get (.side-toolbar-inst): "New / Duplicate / Rename" over "Delete / Import /
+   Export". Six buttons never fitted on one line here, and left to wrap they
+   made a ragged pile of six different widths — equal columns give the bar an
+   edge to line up on, and the two rows group making a layout over moving one. */
+.keymap-libactions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3rem;
+}
+.keymap-btn {
+  padding: 0.2rem 0.3rem;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .keymap-stage { position: relative; overflow: hidden; }
 .keymap-board { display: block; }
@@ -3361,6 +3376,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
     max-height: 40%;
   }
   .keymap-panel-inner { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.8rem; }
+  /* The rail narrows to 11rem here, where a third of it no longer holds
+     "Duplicate": two columns of three rather than an ellipsis on every button. */
+  .keymap-libactions { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* The keymap strip (item 187) — the active layout under a grid pane. A child of

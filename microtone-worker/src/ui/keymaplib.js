@@ -52,6 +52,19 @@ export class KeymapLibrary {
      *  be answered — see applyForPreset. */
     this._ready = false;
     this._pending = null;
+
+    // The song's tuning can change WITHOUT a song being loaded — the Project
+    // tab's notation picker, a retune, the Notation Maker. All three announce
+    // it the same way, so the rule lives here once rather than at each call
+    // site: whenever the tuning moves, re-fit the layout and let one bound to
+    // the new tuning volunteer.
+    store.on("doc", () => this.applyForPreset(store.pitchPreset, this.songNotation()));
+  }
+
+  /** The notation the open song is written in, or null when there is none. */
+  songNotation() {
+    const sm = this.store.doc?.meta?.songMeta?.[this.store.songIndex];
+    return Number.isFinite(sm?.notation) ? sm.notation : null;
   }
 
   /** Built-ins then saved layouts, each tagged with whether it can be edited. */
@@ -107,6 +120,38 @@ export class KeymapLibrary {
   async remove(name) {
     this.user.delete(name);
     if (this.available) await opfs.removeKeymap(keymapFileName(name));
+  }
+
+  /**
+   * Is `name` already used by a SAVED layout other than `except`? Built-ins are
+   * deliberately NOT consulted: a saved layout shadowing one of them is a
+   * feature (see find), so renaming yours to "Harmonic Table" is allowed.
+   */
+  savedNameTaken(name, except = null) {
+    return this.user.has(name) && name !== except;
+  }
+
+  /**
+   * Rename a saved layout, moving its file with it. Built-ins cannot be
+   * renamed — duplicate one first, which is what the button offers.
+   *
+   * The two preferences key on the NAME, so a rename of the layout you are on
+   * has to carry them along or the next launch would look for a layout that no
+   * longer exists and quietly fall back to the default.
+   */
+  async rename(oldName, newName) {
+    const spec = this.user.get(oldName);
+    const name = String(newName ?? "").trim();
+    if (!spec || !name || name === oldName) return null;
+    const next = normaliseKeymap({ ...spec, name });
+    await this.remove(oldName);
+    await this.save(next);
+    if (this.activeName === oldName) this.activeName = name;
+    if (this.chosenName === oldName) {
+      this.chosenName = name;
+      savePref(KEYMAP_PREF, name);
+    }
+    return next;
   }
 
   /** A name nothing else in the library is using. */

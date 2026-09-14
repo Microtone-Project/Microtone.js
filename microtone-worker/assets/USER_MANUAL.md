@@ -2008,8 +2008,10 @@ height and without the editing furniture.
 
 ### Choosing a layout
 
-Six come with Microtone, and they are read-only — **Duplicate** one to get a
-copy you can change.
+Seven come with Microtone, and they are read-only — **Duplicate** one to get a
+copy you can change, which is also the only way to rename or delete one of them.
+Your own layouts can be renamed, deleted and exported freely; a saved layout may
+take a built-in's name, and then it is the one you get.
 
 | Layout | Sideways | Up a row | Good for |
 |---|---|---|---|

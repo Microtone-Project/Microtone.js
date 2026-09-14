@@ -55,6 +55,13 @@ export class KeymapView {
     host.appendChild(this.root);
     this._build();
     onThemeChange(() => this.paint());
+    // What the caps SAY comes from outside this view: the song's tuning (a load
+    // or a notation change) and the jam octave, which the bracket keys and the
+    // toolbar stepper move. The readouts are computed from both too, so these
+    // refresh rather than merely repaint.
+    store.on("doc", () => { if (this.visible) this.refresh(); });
+    store.on("keymap", () => { if (this.visible) this.refresh(); });
+    store.on("octave", () => { if (this.visible) this.refresh(); });
     this._loadLegends();
   }
 
@@ -72,7 +79,14 @@ export class KeymapView {
   }
 
   resize() { if (this.visible) this.paint(); }
-  rehost() { this.resize(); }
+
+  /** The view can be moved between split panes (item 148) — point the size
+   *  observer at the stage it landed in and measure that one. */
+  rehost() {
+    this._ro.disconnect();
+    this._ro.observe(this.canvas.parentElement);
+    this.resize();
+  }
 
   /** The tuning the board previews against — 12-TET when no song is loaded,
    *  since the tab is reachable before anything is open. */
@@ -102,16 +116,30 @@ export class KeymapView {
 
     this.canvas.addEventListener("pointerdown", (e) => this._onPointer(e));
     this.canvas.addEventListener("wheel", (e) => this._onWheel(e), { passive: false });
+
+    // The board is sized from its stage, so it has to be told when the stage
+    // changes — a window resize, the pane divider being dragged, the split
+    // opening or closing. Every other canvas view here owns an observer for the
+    // same reason; this one was missing hers.
+    this._ro = new ResizeObserver(() => this.resize());
+    this._ro.observe(this.canvas.parentElement);
   }
 
   /** The rail's fixed furniture. Rebuilt on every refresh rather than once, so
    *  a language change relabels it along with everything else. */
   _renderActions() {
     this.root.querySelector(".keymap-head").textContent = t("keymap.layouts");
+    // Rename and Delete act on the SAVED layout in hand, so they are dead on a
+    // built-in — shown disabled rather than silently doing nothing, which is
+    // what Delete used to do.
+    const rename = mkBtn(t("keymap.rename"), () => this._rename());
+    const del = mkBtn(t("keymap.delete"), () => this._delete());
+    rename.disabled = del.disabled = this.draftIsBuiltin;
     this.libActions.replaceChildren(
       mkBtn(t("keymap.new"), () => this._new()),
       mkBtn(t("keymap.duplicate"), () => this._duplicate()),
-      mkBtn(t("keymap.delete"), () => this._delete()),
+      rename,
+      del,
       mkBtn(t("keymap.import"), () => this._import()),
       mkBtn(t("keymap.export"), () => this._export()),
     );
@@ -314,6 +342,30 @@ export class KeymapView {
     const name = this.lib.uniqueName(`${this.draft.name} ${t("keymap.copySuffix")}`);
     this.draft = normaliseKeymap({ ...this.draft, name });
     this.draftIsBuiltin = false;
+    await this._commit();
+  }
+
+  /** Rename the layout in hand. Refuses a name another SAVED layout already
+   *  has rather than renumbering it, so nothing is silently written over — the
+   *  same bargain the File tab's rename makes. */
+  async _rename() {
+    if (this.draftIsBuiltin) return;
+    const old = this.draft.name;
+    const result = await showModal({
+      title: t("keymap.renameTitle", { name: old }),
+      fields: [{ name: "name", label: t("files.name"), value: old }],
+      okLabel: t("common.rename"),
+    });
+    if (!result) return;
+    const name = (result.name || "").trim();
+    if (!name || name === old) return;
+    if (this.lib.savedNameTaken(name, old)) {
+      await showModal({ title: t("keymap.renameExists", { name }), okLabel: t("common.ok") });
+      return;
+    }
+    const next = await this.lib.rename(old, name);
+    if (!next) return;
+    this.draft = next;
     await this._commit();
   }
 

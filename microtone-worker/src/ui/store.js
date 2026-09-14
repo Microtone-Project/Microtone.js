@@ -1,5 +1,6 @@
 // App state + tiny event emitter. Topics: "doc" (loaded/replaced),
-// "edit" (dirty tags), "view", "cursor", "transport", "mutes", "fx2".
+// "edit" (dirty tags), "view", "cursor", "transport", "mutes", "fx2",
+// "keymap" (the jam layout or its settings), "octave" (the jam octave).
 
 import {
   SharedSlot, encodeBlock, decodeBlock, encodeCueBlock, decodeCueBlock,

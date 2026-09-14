@@ -57,7 +57,12 @@ export class KeymapBar {
     store.on("view", () => this.applyVisibility());
     store.on("keymap", () => this.invalidate());
     store.on("doc", () => this.invalidate());
+    store.on("octave", () => this.invalidate());
     onThemeChange(() => this.invalidate());
+    // The strip is sized from its own width, which the repaint key cannot see —
+    // a window resize or a pane drag would otherwise leave the old canvas
+    // stretched across the new width.
+    new ResizeObserver(() => this.invalidate()).observe(el);
     this._layout = new Map();
   }
 
@@ -93,7 +98,7 @@ export class KeymapBar {
     const held = new Set(this.jam.held.keys());
     const sig = [...held].sort().join(",");
     const key = `${this.spec.name}|${this.spec.rows}|${this.jam.octave}|${this.preset?.index}` +
-      `|${this.store.keymapOrtho}|${sig}`;
+      `|${this.store.keymapOrtho}|${this.el.clientWidth}|${sig}`;
     if (key === this._paintedFor) return;
     this._paintedFor = key;
     this._heldSig = sig;

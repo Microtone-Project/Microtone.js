@@ -1232,7 +1232,7 @@ function stepCurrentInst(dir) {
   updateStatus();
   store.emit("instsel");
 }
-onWheelCtl("octCtl", (dir) => { jam.octaveDelta(dir); keymapBar.invalidate(); updateStatus(); });
+onWheelCtl("octCtl", (dir) => { jam.octaveDelta(dir); store.emit("octave"); updateStatus(); });
 onWheelCtl("instCtl", (dir) => stepCurrentInst(dir));
 
 /** The bracket-key scheme (items 47.2 + 47.6). `dir` = -1 for '[' / +1 for ']';
@@ -1244,7 +1244,7 @@ function handleBracket(dir, shift) {
     if (viewNamed(store.view).bracketEdit(dir, shift)) { updateStatus(); return; }
   }
   if (shift) stepCurrentInst(dir);                       // { } = instrument down/up
-  else { jam.octaveDelta(dir); keymapBar.invalidate(); updateStatus(); } // [ ] = octave
+  else { jam.octaveDelta(dir); store.emit("octave"); updateStatus(); } // [ ] = octave
 }
 onWheelCtl("spdCtl", (dir) => {
   // live playback speed tweak (device only — the A effect can still override)
