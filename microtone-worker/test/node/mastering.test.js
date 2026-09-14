@@ -27,7 +27,7 @@ import {
   BIT_DEPTHS, DEFAULT_BIT_DEPTH, HIST_BUCKETS,
 } from "../../src/engine/loudness.js";
 import {
-  LevelStats, LEVEL_STAT_MS, LEVEL_STAT_LO, LEVEL_STAT_HI,
+  LevelStats, LEVEL_STAT_MS, LEVEL_STAT_LO, LEVEL_STAT_HI, CrestTrail,
 } from "../../src/ui/views/mastering.js";
 import {
   MASTERING_FOURCC, MASTERING_BLOCK_SIZE, parseMasteringBlock,
@@ -392,6 +392,67 @@ test("the integrator hands its LRA over as a pair of LUFS bounds", () => {
   const fresh = new LoudnessIntegrator(SAMPLING_RATE);
   assert.equal(fresh.rangeBounds.range, 0);
   assert.equal(fresh.rangeBounds.low, -Infinity);
+});
+
+// ── The Crest readout's 100 ms window (item 178) ────────────────────────────
+
+test("the crest readout is one 100 ms window, peak and RMS over the same samples", () => {
+  const c = new CrestTrail(SAMPLING_RATE);
+  const f = c.frameSamples;
+  assert.equal(f, Math.round(FRAME_SEC * SAMPLING_RATE));
+  assert.ok(Number.isNaN(c.latest), "nothing to show until a window completes");
+  assert.equal(c.count, 0);
+  // A full-scale sine: peak 1, mean square 1/2 — the textbook 3.01 dB.
+  c.push(1, 0.5, f);
+  assert.ok(Math.abs(c.latest - 3.0103) < 1e-3, `${c.latest}`);
+  assert.equal(c.count, 1);
+  // …and arriving in render-chunk pieces instead makes no difference, which is
+  // the whole point of packing intervals into a fixed frame.
+  const d = new CrestTrail(SAMPLING_RATE);
+  for (let n = 0; n < f; n += 128) d.push(1, 0.5, Math.min(128, f - n));
+  assert.ok(Math.abs(d.latest - c.latest) < 1e-9, `${d.latest} vs ${c.latest}`);
+});
+
+test("…and a transient belongs to its window, never to the ones after it", () => {
+  const c = new CrestTrail(SAMPLING_RATE);
+  const f = c.frameSamples;
+  // One window with a full-scale spike over a −40 dB bed: 40 dB of crest.
+  c.push(1.0, 1e-4, f);
+  assert.ok(Math.abs(c.latest - 40) < 0.01, `the spike's own window ${c.latest}`);
+  // The bed alone is a square wave at its own level: peak == RMS, 0 dB. The
+  // spike must not still be in the numerator.
+  c.push(0.01, 1e-4, f);
+  assert.ok(Math.abs(c.latest) < 0.01, `the window after it ${c.latest}`);
+  // The case that matters: intervals that do NOT divide the window evenly, so
+  // every window is completed by one that straddles its boundary. Carrying the
+  // peak (LoudnessIntegrator's convention, where nothing reads it back) would
+  // make this monotonic and leave 40 dB on screen for the rest of the take.
+  const d = new CrestTrail(SAMPLING_RATE);
+  d.push(1.0, 1e-4, 512);
+  for (let i = 0; i < Math.ceil((f * 6) / 512); i++) d.push(0.01, 1e-4, 512);
+  assert.ok(d.count >= 6, `${d.count} windows`);
+  assert.ok(Math.abs(d.latest) < 0.01, `six windows after the spike ${d.latest}`);
+});
+
+test("the crest trail keeps the recent windows, newest first", () => {
+  const c = new CrestTrail(SAMPLING_RATE);
+  const f = c.frameSamples;
+  // peak 1 against a mean square of 10^(-d/10) is exactly d dB of crest.
+  const want = [4, 8, 12, 16];
+  for (const d of want) c.push(1, 10 ** (-d / 10), f);
+  assert.equal(c.count, want.length);
+  for (let k = 0; k < want.length; k++) {
+    assert.ok(Math.abs(c.at(k) - want[want.length - 1 - k]) < 1e-9, `at(${k}) = ${c.at(k)}`);
+  }
+  assert.ok(Number.isNaN(c.at(want.length)), "past the end");
+  assert.ok(Number.isNaN(c.at(-1)));
+  // Bounded: a long take still reads back the newest windows, not the first.
+  for (let i = 0; i < 1000; i++) c.push(1, 10 ** (-(i % 20) / 10), f);
+  assert.equal(c.count, c.hist.length);
+  assert.ok(Math.abs(c.at(0) - 19) < 1e-9, `newest ${c.at(0)}`);
+  c.reset();
+  assert.equal(c.count, 0);
+  assert.ok(Number.isNaN(c.latest));
 });
 
 // ── The level bars' statistical marks (item 178) ────────────────────────────

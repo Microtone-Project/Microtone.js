@@ -43,7 +43,7 @@ import {
 } from "../../engine/mastering.js";
 import {
   LoudnessIntegrator, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
-  crestDb, dbfs, percentile, BIT_DEPTHS, DEFAULT_BIT_DEPTH,
+  crestDb, dbfs, percentile, FRAME_SEC, BIT_DEPTHS, DEFAULT_BIT_DEPTH,
 } from "../../engine/loudness.js";
 import {
   Fft, hannWindow, spectrumDb, tiltDbAt, SPECTRUM_BANDS, SPECTRUM_NBANDS,
@@ -112,6 +112,21 @@ export const LEVEL_STAT_HI = 0.95;
 /** How many readings one window holds. The window is bounded by TIME, not by
  *  this — 1024 is simply enough room for three seconds of a 340 Hz display. */
 const LEVEL_STAT_CAP = 1024;
+/**
+ * The Crest readout's trail: how many completed windows it remembers, the span
+ * its bars are drawn against, and their geometry in the cell.
+ *
+ * CREST_TRAIL_MAX_DB anchors the bars at 0 dB — a square wave — and tops out at
+ * 24, which no music reaches. Nothing is autoscaled: a trail whose own scale
+ * moved would say "this got peakier" when the quiet bit merely ended.
+ */
+const CREST_TRAIL_CAP = 256;
+const CREST_TRAIL_MAX_DB = 24;
+const CREST_TRAIL_BAR = 2;
+const CREST_TRAIL_GAP = 1;
+/** Height of the strip it occupies at the top of the cell, in CSS px. Must
+ *  agree with the `.mst-trail` rule, which reserves the same band. */
+const CREST_TRAIL_H = 13;
 /** How long a clip lamp stays lit after the last over, in ms… */
 const CLIP_HOLD_MS = 1600;
 /** …of which this last fraction is the fade. Before that it is at full. */
@@ -213,6 +228,89 @@ export class LevelStats {
   }
 }
 
+/**
+ * The Crest readout's 100 ms window, and the trail of the ones before it.
+ *
+ * Crest is a RATIO of two measurements, so it only means anything when both are
+ * taken over the SAME window — and the window the tap happens to deliver is
+ * neither long enough nor even fixed (it is whatever the worklet last
+ * rendered). One kick inside 16 ms reads 18 dB, the gap after it reads 3, and
+ * the number on screen is a blur whose average you could have guessed.
+ *
+ * So intervals are packed into 100 ms frames — the grid every loudness figure
+ * here already lands on — with the peak and the mean square of each frame taken
+ * over exactly the same samples. The readout is the last completed frame; the
+ * trail keeps the recent ones to draw behind it.
+ *
+ * Unlike LoudnessIntegrator, the peak is cleared after every frame rather than
+ * carried while an interval straddles the boundary. That convention is sound
+ * where the peak is never read back (`framePeak` is written and nothing looks
+ * at it), but here it is the numerator of every number displayed, and carrying
+ * it makes `_peak` monotonically non-decreasing whenever the intervals do not
+ * divide the frame evenly — which is always. Crediting a straddling interval's
+ * peak to the frame it completed misplaces it by at most one interval; carrying
+ * it smears one transient across the rest of the take.
+ */
+export class CrestTrail {
+  constructor(rate) {
+    this.frameSamples = Math.max(1, Math.round(FRAME_SEC * rate));
+    this.hist = new Float64Array(CREST_TRAIL_CAP);
+    this.head = 0;        // where the next completed frame goes
+    this.count = 0;
+    /** The last completed frame's crest, in dB, or NaN before there is one. */
+    this.latest = NaN;
+    this._peak = 0;
+    this._sumSq = 0;
+    this._n = 0;
+  }
+
+  reset() {
+    this.head = 0;
+    this.count = 0;
+    this.latest = NaN;
+    this._peak = 0;
+    this._sumSq = 0;
+    this._n = 0;
+  }
+
+  /**
+   * Fold one drained interval in.
+   * @param peak       largest |sample| over it, either channel
+   * @param meanSquare the PAIR's mean square over it
+   * @param n          samples in it
+   */
+  push(peak, meanSquare, n) {
+    if (!(n > 0)) return;
+    if (peak > this._peak) this._peak = peak;
+    this._sumSq += meanSquare * n;
+    this._n += n;
+    while (this._n >= this.frameSamples) {
+      // Energy splits proportionally when an interval overruns the frame it
+      // completes — it is a sum of squares, so a share of the samples is a
+      // share of it. The peak does not divide (see above).
+      const share = this.frameSamples / this._n;
+      const sq = this._sumSq * share;
+      this._emit(crestDb(this._peak, sq / this.frameSamples));
+      this._sumSq -= sq;
+      this._n -= this.frameSamples;
+      this._peak = 0;
+    }
+  }
+
+  _emit(db) {
+    this.latest = db;
+    this.hist[this.head] = db;
+    this.head = (this.head + 1) % CREST_TRAIL_CAP;
+    if (this.count < CREST_TRAIL_CAP) this.count++;
+  }
+
+  /** The `k`th most recent completed frame (0 = newest), or NaN past the end. */
+  at(k) {
+    if (k < 0 || k >= this.count) return NaN;
+    return this.hist[(this.head - 1 - k + CREST_TRAIL_CAP * 2) % CREST_TRAIL_CAP];
+  }
+}
+
 export class MasteringView {
   constructor(store, host) {
     this.store = store;
@@ -224,6 +322,7 @@ export class MasteringView {
     this.readout = makeMasterMeterReadout();
     this.readout.histTotal = 0;
     this.loud = [new LoudnessIntegrator(SAMPLING_RATE), new LoudnessIntegrator(SAMPLING_RATE)];
+    this.crest = [new CrestTrail(SAMPLING_RATE), new CrestTrail(SAMPLING_RATE)];
     /** The blue mark's VISUAL position, and when it may start falling again. */
     this.peakHoldDb = [-144, -144, -144, -144];
     this.peakHoldUntil = [0, 0, 0, 0];
@@ -763,12 +862,14 @@ export class MasteringView {
     return box;
   }
 
-  /** A grid of big numbers with small captions. */
+  /** A grid of big numbers with small captions. A field may ask for a `trail`,
+   *  which lays a canvas over the top band of its cell — the number still sits
+   *  in front of it, so the cell is exactly as tall as every other one. */
   readoutGrid(fields) {
     const grid = document.createElement("div");
     grid.className = "mst-readouts";
     const cells = {};
-    for (const [key, labelKey, titleKey] of fields) {
+    for (const [key, labelKey, titleKey, trail] of fields) {
       const cell = document.createElement("div");
       cell.className = "mst-readout";
       const v = document.createElement("b");
@@ -776,6 +877,12 @@ export class MasteringView {
       const l = document.createElement("span");
       l.textContent = t(labelKey);
       if (titleKey) cell.title = t(titleKey);
+      if (trail) {
+        const cv = document.createElement("canvas");
+        cv.className = "mst-trail";
+        cell.appendChild(cv);
+        cells[key + "Trail"] = cv;
+      }
       cell.append(v, l);
       grid.appendChild(cell);
       cells[key] = v;
@@ -792,7 +899,7 @@ export class MasteringView {
       ["lra", "mst.lra", "mst.lraTitle"],
       ["tp", "mst.truePeakRead", "mst.truePeakReadTitle"],
       ["plr", "mst.plr", "mst.plrTitle"],
-      ["crest", "mst.crest", "mst.crestTitle"],
+      ["crest", "mst.crest", "mst.crestTitle", true],
     ]);
     this.loudCells = cells;
     this.loudCanvas = document.createElement("canvas");
@@ -1186,10 +1293,14 @@ export class MasteringView {
       const r = audio.readMasterMeter(this.readout);
       if (r.frames > 0) {
         for (let s = 0; s < 2; s++) {
-          const sq = (r.meanSquare[s * 2] + r.meanSquare[s * 2 + 1]) * 0.5 * r.frames;
-          this.loud[s].push(r.sumZ[s], sq * 2,
-            Math.max(r.peak[s * 2], r.peak[s * 2 + 1]),
+          // The PAIR's mean square — the mean of the two, which is what an RMS
+          // reading of a stereo programme means.
+          const msPair = (r.meanSquare[s * 2] + r.meanSquare[s * 2 + 1]) * 0.5;
+          const peak = Math.max(r.peak[s * 2], r.peak[s * 2 + 1]);
+          this.loud[s].push(r.sumZ[s], msPair * 2 * r.frames, peak,
             Math.max(r.truePeak[s * 2], r.truePeak[s * 2 + 1]), r.frames);
+          // Both halves of the crest ratio, over the same samples.
+          this.crest[s].push(peak, msPair, r.frames);
         }
         for (let i = 0; i < 4; i++) {
           const db = dbfs(r.truePeak[i]);
@@ -1248,6 +1359,7 @@ export class MasteringView {
 
   resetIntegration() {
     for (const l of this.loud) l.reset();
+    for (const c of this.crest) c.reset();
     for (const w of this.levelStats) w.reset();
     this.rmsSlow.fill(0);
     this.peakHoldDb.fill(-144);
@@ -1283,10 +1395,6 @@ export class MasteringView {
     const cells = this.loudCells;
     if (!cells) return;
     if (this.loudBox) this.loudBox.stageTag.textContent = this.stageLabel();
-    const i = this.stage * 2;
-    const r = this.readout;
-    const peak = Math.max(r.peak[i], r.peak[i + 1]);
-    const ms = (r.meanSquare[i] + r.meanSquare[i + 1]) * 0.5;
     cells.m.textContent = fmtLufs(l.momentary);
     cells.s.textContent = fmtLufs(l.shortTerm);
     cells.i.textContent = fmtLufs(l.integrated);
@@ -1305,7 +1413,9 @@ export class MasteringView {
     }
     cells.tp.textContent = l.truePeak > 0 ? fmtDb(dbfs(l.truePeak)) : "—";
     cells.plr.textContent = Number.isFinite(l.plr) ? l.plr.toFixed(1) : "—";
-    cells.crest.textContent = ms > 0 ? crestDb(peak, ms).toFixed(1) : "—";
+    const crest = this.crest[this.stage];
+    cells.crest.textContent = Number.isFinite(crest.latest) ? crest.latest.toFixed(1) : "—";
+    this.drawCrestTrail(C, crest);
 
     const box = this.ctxFor(this.loudCanvas, 38);
     if (!box) return;
@@ -1352,6 +1462,40 @@ export class MasteringView {
       const x = frac(v) * w;
       ctx.fillRect(x, top - 4, 1, 4);
       ctx.fillText(String(v), clamp(x, 12, w - 12), top - 5);
+    }
+  }
+
+  /**
+   * The Crest cell's trail: one bar per completed 100 ms window, newest at the
+   * right, laid over the top band of the cell with the number in front of it.
+   *
+   * It is a TEXTURE, not a chart. There is no axis and no scale on it because
+   * the number above it IS the reading; all this adds is whether that number
+   * has been steady, climbing, or collapsing — which is the one thing a single
+   * figure can never tell you, and the reason a crest reading is worth watching
+   * at all rather than glancing at.
+   *
+   * The bars HANG from the cell's top edge rather than rising from the strip's
+   * baseline, and that is about the number rather than about the data. Rising
+   * bars put their mass in the middle of the strip, which is exactly where the
+   * digits are; hanging them keeps a typical reading up against the border and
+   * clear of everything but the tops of the glyphs. The border is a real line
+   * to hang an axis off, too.
+   */
+  drawCrestTrail(C, trail) {
+    const cv = this.loudCells?.crestTrail;
+    if (!cv) return;
+    const box = this.ctxFor(cv, CREST_TRAIL_H);
+    if (!box) return;
+    const { ctx, w, h } = box;
+    const step = CREST_TRAIL_BAR + CREST_TRAIL_GAP;
+    const n = Math.min(Math.floor(w / step), trail.count);
+    ctx.fillStyle = mixInk(C.panel2, C.dim, 0.5);
+    for (let k = 0; k < n; k++) {
+      const db = trail.at(k);
+      if (!(db > 0)) continue;
+      const bh = Math.max(1, Math.round(clamp(db / CREST_TRAIL_MAX_DB, 0, 1) * h));
+      ctx.fillRect(w - (k + 1) * step + CREST_TRAIL_GAP, 0, CREST_TRAIL_BAR, bh);
     }
   }
 

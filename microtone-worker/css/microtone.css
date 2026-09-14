@@ -3218,6 +3218,26 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border-radius: 4px;
   padding: 0.2rem 0.3rem;
   text-align: center;
+  position: relative;
+}
+/* The Crest cell's 100 ms trail (item 178). It lies OVER the top band of the
+   cell rather than above it, so one readout carrying a trail cannot make the
+   whole row taller and leave the other six with dead space. The number keeps
+   its place in front — hence the position on b/span, which is all it takes for
+   later-in-DOM to win. Height must agree with CREST_TRAIL_H. */
+.mst-trail {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  /* DEFINITE, not `right: 1px`. A canvas is a replaced element: with `width:
+     auto` it takes its own `width` ATTRIBUTE as its intrinsic width and the
+     `right` offset is dropped as over-constrained — so the size the 2D context
+     was last given becomes the size the box is laid out at, and one early
+     narrow layout locks it there for good. */
+  width: calc(100% - 2px);
+  height: 13px;
+  display: block;
+  pointer-events: none;
 }
 .mst-readout b {
   display: block;
@@ -3225,8 +3245,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-variant-numeric: tabular-nums;
   font-size: 1.05rem;
   line-height: 1.2;
+  position: relative;
 }
-.mst-readout span { color: var(--dim); font-size: 0.7rem; }
+.mst-readout span { color: var(--dim); font-size: 0.7rem; position: relative; }
 
 .mst-offbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .mst-caplab {
