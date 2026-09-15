@@ -12,6 +12,7 @@ import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
 import { Voice } from "../../src/engine/voice.js";
 import {
   envPoint, buildMetaRecord, makeMetaLayer, makeInstPatch, writePatchesBlob,
+  TaudInst,
 } from "../../src/engine/inst.js";
 import { ghostVoice } from "../../src/engine/trigger.js";
 import { advancePitchRamp } from "../../src/engine/sampler.js";
@@ -1336,4 +1337,42 @@ test("item 116: the invert loop follows the patch's loop, not the base record's"
   assert.equal(inst.invertMask.length, (patchLoopLen + 7) >> 3,
     "sized to the PATCH's 300-byte loop, not the base record's 1000");
   assert.ok(v.invertWritePos < patchLoopLen, "the write head wraps on the patch's loop");
+});
+
+// ── byte 186: the New Note Action is FIVE values, not four and a flag ────────
+
+test("New Note Action is one five-value field, key lift included", () => {
+  const nnaOf = (flag) => {
+    const inst = new TaudInst(1);
+    inst.instrumentFlag = flag;
+    return [inst.newNoteAction, inst.nnaKeyLift];
+  };
+  // 0..3 sit in bits 0-1 with bit 5 clear; 4 — KEY LIFT — is bit 5 with those
+  // two at 0, which is the value a writer means by 0b100_000.
+  assert.deepEqual(nnaOf(0x00), [0, false], "note off");
+  assert.deepEqual(nnaOf(0x01), [1, false], "note cut");
+  assert.deepEqual(nnaOf(0x02), [2, false], "continue");
+  assert.deepEqual(nnaOf(0x03), [3, false], "note fade");
+  assert.deepEqual(nnaOf(0x20), [4, true], "key lift");
+
+  // The auto-vibrato waveform sits BETWEEN the halves and must not leak in.
+  assert.deepEqual(nnaOf(0x1c), [0, false], "waveform 7, note off");
+  assert.deepEqual(nnaOf(0x3c), [4, true], "waveform 7, key lift");
+
+  // Key lift is an ACTION, so it cannot also be a cut: `Nnn` 5..7 are
+  // undefined and read as note off rather than minting "cut with key lift".
+  assert.deepEqual(nnaOf(0x21), [0, false], "Nnn=5 is undefined");
+  assert.deepEqual(nnaOf(0x22), [0, false], "Nnn=6 is undefined");
+  assert.deepEqual(nnaOf(0x23), [0, false], "Nnn=7 is undefined");
+});
+
+test("key lift is the question every key-off asks", () => {
+  // applyKeyLift reads the instrument, and the instrument's answer is simply
+  // "is my New Note Action 4?" — so it follows the field and nothing else.
+  const lift = new TaudInst(1);
+  lift.instrumentFlag = 0x20;
+  const cut = new TaudInst(2);
+  cut.instrumentFlag = 0x01;
+  assert.equal(lift.nnaKeyLift, true);
+  assert.equal(cut.nnaKeyLift, false);
 });

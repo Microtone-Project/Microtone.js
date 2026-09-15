@@ -652,9 +652,27 @@ export class TaudInst {
     const b = this.reserved[3] & 0xff; // byte 254 → reserved[254 − 251]
     return b >= 0x80 ? b - 256 : b;
   }
-  get nnaKeyLift() { return ((this.instrumentFlag >>> 5) & 1) !== 0; }
-  /** 0=note off, 1=note cut, 2=continue, 3=note fade. */
-  get newNoteAction() { return this.instrumentFlag & 0x03; }
+  /**
+   * New Note Action — the FIVE-value `Nnn` field of byte 186, bits 0-1 with
+   * bit 5 as its high bit (TAUD_FILE_FORMAT §byte 186):
+   *
+   *   0 = note off · 1 = note cut · 2 = continue · 3 = note fade · 4 = KEY LIFT
+   *
+   * Key lift is Taud's own fifth action beside ImpulseTracker's four — a note
+   * off that releases the envelope the way a MIDI key release does — and it is
+   * **NOT a flag on the other four**. Reading bit 5 separately mints
+   * combinations the format does not define ("note cut with key lift"), which
+   * an editor cannot show and a writer has no way to mean. Values 5…7 are
+   * undefined and read as note off, the same answer the field's zero gives.
+   */
+  get newNoteAction() {
+    const n = (this.instrumentFlag & 0x03) | (((this.instrumentFlag >>> 5) & 1) << 2);
+    return n <= 4 ? n : 0;
+  }
+  /** Key lift is New Note Action 4, and this is the question every key-off
+   *  asks — the pattern's key-off word, an NNA ghost's release, a Duplicate
+   *  Check note-off, past-note off (spec §7.3). */
+  get nnaKeyLift() { return this.newNoteAction === 4; }
   /** 0=sine, 1=ramp-down, 2=square, 3=random, 4=ramp-up (FT2). */
   get vibratoWaveform() { return (this.instrumentFlag >>> 2) & 0x07; }
   get sampleDetuneSigned() {

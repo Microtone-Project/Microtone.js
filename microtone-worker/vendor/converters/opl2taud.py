@@ -653,6 +653,10 @@ def vibrato_fields(bpm: float):
 
 META_TYPE_FM = 0x40
 META_PERCUSSION = 0x02
+# New Note Action is a FIVE-value field, not four plus a flag (TAUD_FILE_FORMAT
+# byte 186): key lift is its own action, a note off that releases the envelope
+# the way a MIDI key release does, and it therefore EXCLUDES the other four.
+NNA_NOTE_CUT = 1          # the next note on the channel takes it outright
 NNA_KEY_LIFT = 4          # key-off jumps to the sustain node: a MIDI key release
 
 FM_ADD, FM_MUL, FM_NEG, FM_DUP, FM_SWAP, FM_END = (
@@ -666,7 +670,8 @@ def build_instrument_record(*, sample_ptr, sample_length, rate, loop_start=0,
                             loop_end=0, loop_mode=0, detune=0,
                             vol_env=None, sustain_word=0,
                             atten_octet=0, percussion=False,
-                            vib_speed=0, vib_depth=0, name_pan=0x80) -> bytes:
+                            vib_speed=0, vib_depth=0, name_pan=0x80,
+                            nna=NNA_KEY_LIFT) -> bytes:
     """One 256-byte ordinary instrument record (TAUD_FILE_FORMAT.md §7.1)."""
     r = bytearray(INST_RECORD_SIZE)
     struct.pack_into('<I', r, 0, sample_ptr)
@@ -698,7 +703,7 @@ def build_instrument_record(*, sample_ptr, sample_length, rate, loop_start=0,
     struct.pack_into('<h', r, 184, max(-32768, min(32767, detune)))
     # Byte 186 packs the NNA as bits 0-1 plus bit 5, with the auto-vibrato
     # waveform between them: key lift (4) is 0b100_000, not 0b100.
-    r[186] = (NNA_KEY_LIFT & 3) | (((NNA_KEY_LIFT >> 2) & 1) << 5)
+    r[186] = (nna & 3) | (((nna >> 2) & 1) << 5)
     r[187] = vib_depth & 0xFF
     r[188] = 0
     struct.pack_into('<H', r, 189, sustain_word)
@@ -879,7 +884,21 @@ class BankBuilder:
 
     # -- operators ------------------------------------------------------------
     def _operator_instrument(self, op, wave, rep_note, name):
-        """One key band of one OPL operator, as an ordinary Taud instrument."""
+        """One key band of one OPL operator, as an ordinary Taud instrument.
+
+        NNA = Note Cut, because an OPL channel is MONOPHONIC: keying a note on
+        it replaces whatever it was playing, with no tail.  Operator 0 is the
+        rack's principal, so its New Note Action is the whole rack's — and Note
+        Off, which is what the field's zero encodes, would leave a ghost of the
+        entire rack ringing behind every note in the song.  There is no fadeout
+        to end one either (bytes 172/173 are 0 here, because on this chip the
+        ENVELOPE is what ends a note), so a sustaining patch would ring until
+        the song did.  Same answer TAUD_CONVERSION_NOTES already gives for
+        sample-mode instruments, and for the same reason.
+
+        The cost is key lift, which is the FIFTH NNA value and so cannot be had
+        alongside Note Cut: a pattern key-off now walks the rest of the
+        envelope instead of jumping to the sustain-end node."""
         ksr_off, _ = operator_keying(op, rep_note)
         points, sustain = opl_envelope(op, ksr_off)
         loop_word, sustain_word, nodes = points_to_env_block(points, sustain)
@@ -889,7 +908,7 @@ class BankBuilder:
             rate=OSC_RATE, loop_start=0, loop_end=WAVE_LEN, loop_mode=1,
             detune=OSC_DETUNE,
             vol_env=(loop_word, nodes), sustain_word=sustain_word,
-            vib_speed=vib_speed, vib_depth=vib_depth)
+            vib_speed=vib_speed, vib_depth=vib_depth, nna=NNA_NOTE_CUT)
         return self._add_aux(rec, name), points, sustain
 
     def _gate_instrument(self, hold_seconds: float, name: str) -> int:
@@ -908,7 +927,7 @@ class BankBuilder:
         rec = build_instrument_record(
             sample_ptr=self.dc_ptr, sample_length=DC_LEN, rate=OSC_RATE,
             loop_start=0, loop_end=DC_LEN, loop_mode=1,
-            vol_env=(1 << 13, nodes), sustain_word=(1 << 5))
+            vol_env=(1 << 13, nodes), sustain_word=(1 << 5), nna=NNA_NOTE_CUT)
         return self._add_aux(rec, name)
 
     def _constant_instrument(self, name: str) -> int:
@@ -917,7 +936,7 @@ class BankBuilder:
         rec = build_instrument_record(
             sample_ptr=self.dc_ptr, sample_length=DC_LEN, rate=OSC_RATE,
             loop_start=0, loop_end=DC_LEN, loop_mode=1,
-            vol_env=(1 << 13, [(63, 0)]), sustain_word=0)
+            vol_env=(1 << 13, [(63, 0)]), sustain_word=0, nna=NNA_NOTE_CUT)
         return self._add_aux(rec, name)
 
     # -- racks ----------------------------------------------------------------

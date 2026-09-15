@@ -6,6 +6,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-16
 
+
 `S $73`–`S $76` now work on a metainstrument, so the pattern can say how a layered kit or an FM Rack should end its note.
 
 - **Fixed: a New Note Action override written on a metainstrument's channel did nothing at all.** It was rejected along with the past-note commands `S $70`–`S $72`, which really do have to stay out — a layered kit's own layers live in the same background pool those commands empty. The override has no such problem: it only arms what happens to the note when the *next* one displaces it.
@@ -19,6 +20,10 @@ An FM Rack is no longer monophonic: operator 0's New Note Action, key lift and D
 - **A released rack rings on whole.** The modulators go with the note they were shaping rather than being cut out from under it, so what you hear ringing is the patch and not operator 0's bare waveform — and the next note's own operators are untouched by it.
 - **Duplicate Check reaches a rack at all now.** It asks about what the note will actually sound, so a rack set to *Duplicate Check: Instrument* takes out its own previous note as a sampled instrument would. Previously no Duplicate Check on a rack ever fired.
 - **A ringing rack costs what a rack costs** — one voice per sounding operator — for as long as its tail lasts, so a slow fadeout on a big rack is worth watching on the voice count. *Note Cut* is still exactly as cheap as it was.
+- **AdLib songs and banks import with their instruments set to cut, so an `.ims` sounds like the chip it was written for.** An OPL channel plays one note at a time and stops it dead when the next arrives, but converted patches were set to *Note Off* — so with the FM Rack fix old conversions are giving racks a tail at last, a sustaining patch would ring until the song ended. Every operator a `.ims` or `.bnk` import builds is now set to **Note Cut**, which is what the chip does.
+- **It applies to both doors in**: converting an `.ims` song, and importing patches straight from a `.bnk` bank.
+- **One thing goes with it.** *Key lift* is a New Note Action in its own right, so an instrument can be set to cut or to lift but not both — an imported AdLib note released early now plays out the rest of its attack before releasing, where before it released at once. Cut is the right trade when the alternative is a song that never stops, and you can still set any instrument back to *Key lift* by hand on the Instruments tab.
+- **Key lift is now handled as the fifth New Note Action everywhere it is read**, rather than as a modifier that could be combined with the other four. Nothing you have set changes — every instrument that says *Key lift* still lifts, and every one that says cut, continue, off or fade is untouched. It was described as fifth NNA since the inception but the implementation had been disagreeing.
 
 ## 2026-09-15
 

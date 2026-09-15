@@ -234,7 +234,10 @@ export function releaseLayerChildren(eng, ts, vi) {
       ? override
       : eng.instruments[bg.instrumentId].newNoteAction;
     switch (nna) {
+      // 0 note off and 4 KEY LIFT are the same release; applyKeyLift is what
+      // tells them apart, since it asks the instrument which of the two it is.
       case 0:
+      case 4:
         if (!bg.keyOff) { bg.keyOff = true; applyKeyLift(bg, eng.instruments[bg.instrumentId]); }
         break;
       case 1: bg.active = false; break; // note cut
@@ -856,7 +859,7 @@ export function maybeSpawnBackgroundForNNA(eng, ts, voice, channel) {
   }
 
   const bg = ghostRig(ts, voice, channel);
-  if (nna === 0) { // Note Off
+  if (nna === 0 || nna === 4) { // Note Off, or its key-lift variant
     bg.keyOff = true;
     applyKeyLift(bg, eng.instruments[bg.instrumentId]);
   } else if (nna === 3) { // Note Fade

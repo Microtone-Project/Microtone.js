@@ -429,10 +429,13 @@ On a metainstrument the override reaches **the whole note**: the foreground voic
 
 | NNA | Behaviour |
 |---|---|
-| 0 — Note Off | The ghost gets key-off (and key lift), releasing sustain into its release stage |
-| 1 — Note Cut | No ghost is spawned at all; the voice simply stops |
+| 0 — Note Off | The ghost gets key-off, releasing sustain into its release stage |
+| 1 — Note Cut | The voice stops. The ghost exists only long enough to ramp out ([§8.7](#8-7-the-attack-ramp)) — the incoming note is fading in over the same span, so the pair is a crossfade rather than a splice |
 | 2 — Continue | The ghost keeps playing unchanged |
 | 3 — Note Fade | The ghost begins its fadeout immediately |
+| 4 — Key Lift | Note Off, and the release starts **now**: the volume envelope playhead jumps straight to the sustain-end node rather than walking the remaining pre-sustain nodes ([File Format §byte 186](TAUD_FILE_FORMAT.md)) |
+
+**There are five actions, not four and a modifier.** Key lift is Taud's own beside ImpulseTracker's four, and an instrument choosing it is choosing *against* cutting, continuing and fading — it cannot cut and lift. The field is one three-bit number whose high bit happens to sit at bit 5 of the record byte; reading that bit separately produces actions the format does not define. The instrument's key-lift answer is consulted wherever a key-off is delivered — the pattern's key-off word, this ghost's release, a Duplicate Check note-off, past-note off — and it is the same question in all four places: *is this instrument's New Note Action 4?*
 
 The ghost copy **MUST** carry the full playback state: both active views, both filter topologies' coefficients *and* delay lines, all four envelope playheads, the fadeout multiplier, the swing biases, the auto-vibrato phase, the spatial position and the stereo channel's own DSP history. A partial copy produces a click or a wrong-sounding tail at every NNA event; copying the filter but not its history is the classic instance. On a voice sounding an FM rack the state to copy is the **rack**, operands and feedback taps included, and the action read is operator 0's — [§5.5.1](#5-5-1-type-4-fm-racks) has that case in full.
 
