@@ -8139,11 +8139,11 @@ function jumpToSustainEnd(voice) {
 }
 
 /**
- * "Key Lift" (instrument flag bit 5): MIDI-exact key release — jump the volume
- * envelope playhead straight to the sustain-end node on key-off so the release
- * nodes play immediately. Applies wherever key-off is delivered: pattern
- * KEY_OFF (0x0001), the NNA ghost spawned on a new note, DCA Note Off, and
- * past-note S $71 (terranmon.txt instrument-flag byte 186).
+ * "Key Lift" — New Note Action 4, the fifth of them (TAUD_FILE_FORMAT byte 186):
+ * a MIDI-exact key release, jumping the volume envelope playhead straight to
+ * the sustain-end node on key-off so the release nodes play immediately.
+ * Applies wherever key-off is delivered: pattern KEY_OFF (0x0001), the NNA
+ * ghost spawned on a new note, DCA Note Off, and past-note S $71.
  */
 function applyKeyLift(voice, inst) {
   if (!inst.nnaKeyLift) return;
@@ -10968,6 +10968,15 @@ function applyTrackerTick(eng, ts, playhead) {
         case 4: // Key lift — forced, bypasses the instrument's own flag.
           voice.keyOff = true;
           forceKeyLift(voice);
+          // …and it bypasses it for the WHOLE note, exactly as the note cut
+          // above reaches every child: a metainstrument is one note, so a
+          // forced lift written on its channel has to lift all of it. The
+          // per-tick sync cannot do this one — it hands each child its own
+          // instrument's applyKeyLift, which is the flag this command exists
+          // to override (item 191.3).
+          for (const bg of ts.backgroundVoices) {
+            if (isSoundingChild(ts, bg, vi)) { bg.keyOff = true; forceKeyLift(bg); }
+          }
           break;
       }
       voice.noteActionTick = -1;

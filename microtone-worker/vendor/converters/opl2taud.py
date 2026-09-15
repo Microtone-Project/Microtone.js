@@ -387,6 +387,43 @@ def _thin(points, keep, limit=ENV_NODE_MAX):
     return [p for _, p in out], index_map
 
 
+#: The engine's Volume Fadeout is LINEAR IN AMPLITUDE (fadeoutVolume drops 1→0
+#: by fadeStep/1024 per tick) while the chip's release ramps ATTENUATION linearly
+#: — amplitude decays exponentially, 96 dB over the release.  Matching the two on
+#: "time to the floor" makes the linear fade sound far longer: it is still at
+#: −6 dB at half its length and −20 dB only at 90%, by which time the chip is
+#: silent.  A tail is perceived to end around −18…−24 dB, and completing the
+#: linear fade in a QUARTER of the chip's release time is what puts the two
+#: there together.  Same constant, and the same reasoning, as midi2taud's
+#: _RELEASE_PERCEPTUAL_SCALE for SoundFont releases — where it has been measured
+#: against FluidSynth and sounds right.
+RELEASE_PERCEPTUAL_SCALE = 0.25
+
+
+def release_fadeout(steps_per_sample: float, bpm: float) -> int:
+    """Volume Fadeout step for an operator whose release runs at
+    `steps_per_sample`, as the record's 12-bit field.
+
+    THE FADEOUT IS THE RELEASE, and that is the whole point of using it.  A Taud
+    key-off only lets the volume envelope's sustain LOOP go, so a playhead still
+    in the attack or the decay has to walk the rest of those nodes before it
+    reaches any release node — a note the chip would have dropped in 20 ms takes
+    a third of a second.  The fadeout has no playhead: it drains from wherever
+    the note had got to, at a fixed rate, exactly as the chip switches to its
+    release RATE wherever its envelope had got to.
+
+    A release RATE of 0 is not "slow" but "never" (§3-1-5), so such an operator
+    gets no fadeout and rings until something retriggers it — the chip's own
+    behaviour, and the one case where a key-off really does nothing."""
+    if steps_per_sample <= 0.0:
+        return 0
+    full = ENV_MAX / steps_per_sample / NATIVE_RATE     # 0 → −96 dB, as the chip runs it
+    fade_sec = max(0.02, RELEASE_PERCEPTUAL_SCALE * full)
+    # The engine subtracts fadeStep/1024 of unit volume per TICK, and there are
+    # bpm·2/5 ticks a second.
+    return max(1, min(0xFFF, round(2560.0 / (fade_sec * bpm))))
+
+
 def opl_envelope(op: dict, ksr_off: int):
     """OPL ADSR at one key -> (points, sustain_index).
 
@@ -421,6 +458,13 @@ def opl_envelope(op: dict, ksr_off: int):
         hold_env = sl
         sustain_index = len(points) - 1 if sustaining else None
 
+    # The envelope keeps its release nodes even though the key-off fadeout
+    # (release_fadeout) is what usually ends a released note.  They are not
+    # redundant: they are the whole of a DIMINISHING sound's decay past the
+    # sustain level, they are what `envelope_tail_seconds` measures when a gate
+    # operator has to be told how long to hold open for, and a voice whose
+    # release RATE is 0 gets no fadeout at all and is left holding by them.
+    # Where both do run the faster wins, which is the fadeout by construction.
     if sr > 0.0 and round(63.0 * env_amplitude(hold_env)) > 0:
         base_t = points[-1][0]
         for env in _decay_envs(hold_env, ENV_MAX):
@@ -671,7 +715,7 @@ def build_instrument_record(*, sample_ptr, sample_length, rate, loop_start=0,
                             vol_env=None, sustain_word=0,
                             atten_octet=0, percussion=False,
                             vib_speed=0, vib_depth=0, name_pan=0x80,
-                            nna=NNA_KEY_LIFT) -> bytes:
+                            nna=NNA_KEY_LIFT, fadeout=0) -> bytes:
     """One 256-byte ordinary instrument record (TAUD_FILE_FORMAT.md §7.1)."""
     r = bytearray(INST_RECORD_SIZE)
     struct.pack_into('<I', r, 0, sample_ptr)
@@ -693,8 +737,11 @@ def build_instrument_record(*, sample_ptr, sample_length, rate, loop_start=0,
         r[o + 1] = mf & 0xFF
         o += 2
     r[171] = 0xFF                                          # instrument global vol
-    r[172] = 0                                             # no fadeout: the
-    r[173] = 0                                             # envelope ends the note
+    # Volume Fadeout IS the key-off release here — see release_fadeout.  Zero
+    # leaves the envelope to end the note on its own, which is what a gate, a
+    # constant and a rendered drum want.
+    r[172] = fadeout & 0xFF
+    r[173] = (fadeout >> 8) & 0x0F
     r[175] = vib_speed & 0xFF
     r[176] = 0                                             # no vibrato sweep
     r[177] = name_pan & 0xFF
@@ -908,7 +955,9 @@ class BankBuilder:
             rate=OSC_RATE, loop_start=0, loop_end=WAVE_LEN, loop_mode=1,
             detune=OSC_DETUNE,
             vol_env=(loop_word, nodes), sustain_word=sustain_word,
-            vib_speed=vib_speed, vib_depth=vib_depth, nna=NNA_NOTE_CUT)
+            vib_speed=vib_speed, vib_depth=vib_depth, nna=NNA_NOTE_CUT,
+            fadeout=release_fadeout(
+                eg_steps_per_sample(op['release'] & 15, ksr_off), self.bpm))
         return self._add_aux(rec, name), points, sustain
 
     def _gate_instrument(self, hold_seconds: float, name: str) -> int:

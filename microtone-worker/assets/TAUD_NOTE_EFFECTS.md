@@ -1366,6 +1366,10 @@ The background pool is reaped when a ghost's `fadeoutVolume` drops to zero or it
 
 `S $73..$76` write the per-voice NNA override on the **currently active foreground voice** so that *its* next NNA event uses the overridden action. The override is cleared on every fresh trigger. On a metainstrument's channel it commands every voice sounding the note, not the foreground alone — see the metainstrument note at the end of this section.
 
+`S $Dxn1` with `$n` = 4 is the **forced key lift**: it performs the sustain-end jump for this note whatever the instrument's own New Note Action says. That matters because key lift is the fifth NNA and so excludes the other four — an instrument that must be **Note Cut** when displaced cannot also be Key Lift, and this is how a pattern gives one note of it a MIDI-shaped release anyway. Being a command about the note, it **MUST** reach every voice sounding it, layer children and rack operands included: handing each child its own instrument's answer instead is handing it the very answer the command overrides. `$y` cannot be 0 (a zero `$y` carries no action), so the earliest a lift can land is one tick after the row.
+
+For an instrument that wants that release on **every** note rather than on one, the Volume Fadeout is the better tool and needs no effect column: it has no playhead, so on key-off it drains from wherever the note had got to, at a rate the record states. That is what [TAUD_CONVERSION_NOTES §7.5 and §8.2](TAUD_CONVERSION_NOTES.md) use to carry a SoundFont's and an OPL patch's release.
+
 `S $77..$7E` toggle an envelope on the currently active voice. The engine **MUST** keep **four independent gates** — volume, panning, pitch, filter — so the four pairs act on disjoint state:
 
 - `$77 / $78` — volume envelope off / on.

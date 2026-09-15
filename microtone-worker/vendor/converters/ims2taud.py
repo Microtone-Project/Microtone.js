@@ -401,6 +401,12 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
                     sounding[v] = True
             elif released[v]:
                 cell.note = NOTE_KEYOFF
+                # The release itself is the instrument's Volume Fadeout, not
+                # anything written here — see opl2taud.release_fadeout.  An
+                # earlier version of this converter forced a key lift from the
+                # pattern (`S $D041`) instead; the fadeout models the chip
+                # better, needs no effect column, and works the same when a
+                # bank instrument is played by hand rather than from a row.
                 sounding[v] = False
 
             level = level_of.get((patch[v], role), 0)

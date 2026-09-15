@@ -11,6 +11,7 @@ import { TaudEngine } from "../../src/engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../src/engine/constants.js";
 import { EffectOp } from "../../src/engine/tables.js";
 import { buildMetaRecord, makeMetaLayer } from "../../src/engine/inst.js";
+import { minifloatFromDouble } from "../../src/engine/minifloat.js";
 import { MOD_OFF, MOD_ROL1 } from "../../src/engine/samplemod.js";
 
 setSamplingRate(32000);
@@ -314,4 +315,69 @@ test("the override is the OUTGOING note's, and one note only", () => {
   render(eng, 1);
   assert.equal(released(eng).length, 2,
     "row 1's note was cut by its own NNA; only row 0's two voices are left");
+});
+
+/** A ramp instrument whose volume envelope has a real SUSTAIN region — key
+ *  lift is a no-op without one, since there is no release boundary to jump to.
+ *  Nodes 0…3 fall slowly to the sustain at node 3, then 4…5 are the release. */
+function uploadSustaining(eng, slot, nna) {
+  const rec = new Uint8Array(256);
+  const w16 = (o, v) => { rec[o] = v & 0xff; rec[o + 1] = (v >> 8) & 0xff; };
+  w16(4, 1000); w16(6, 32000); w16(12, 1000);
+  rec[14] = 1;
+  w16(15, 1 << 13);                       // vol env LOOP word: present, no loop
+  const slow = minifloatFromDouble(0.25); // a long walk to the sustain …
+  const fast = minifloatFromDouble(0.02); // … and a short release past it
+  const nodes = [[63, slow], [50, slow], [40, slow], [32, fast], [16, fast], [0, 0]];
+  nodes.forEach(([v, off], i) => { rec[21 + i * 2] = v; rec[22 + i * 2] = off; });
+  w16(189, (3 << 8) | (1 << 5) | 3);      // sustain: single node 3, enabled
+  rec[171] = 255;
+  rec[186] = nna & 0x03;
+  rec[196] = 255;
+  eng.uploadInstrument(slot, rec);
+}
+
+function makeLiftEngine(nna) {
+  const eng = new TaudEngine();
+  for (let i = 0; i < 1000; i++) eng.sampleBin[i] = 128 + ((i % 100) - 50);
+  uploadSustaining(eng, 1, nna);
+  uploadSustaining(eng, 2, nna);
+  eng.uploadInstrument(3, buildMetaRecord([
+    makeMetaLayer(1, 159, 0, 0x0000, 0xffff, 0, 63),
+    makeMetaLayer(2, 159, 0, 0x0000, 0xffff, 0, 63),
+  ]));
+  return eng;
+}
+
+test("S $D0n1 key lift is forced on EVERY layer, not the foreground alone", () => {
+  // A forced lift exists to bypass the instrument's own New Note Action, so it
+  // has to bypass each LAYER's too — the per-tick sync cannot carry this one,
+  // because all it hands a child is that child's own applyKeyLift, which is
+  // exactly the answer this command overrides (item 191.3).
+  const susEnd = (v) => v.activeVolEnvSustain & 0x1f;
+  const run = (arg) => {
+    // Layers say Note Cut, so neither of them lifts on its own account.
+    const eng = loadSong(makeLiftEngine(1), [
+      { row: 0, note: 0x5000, inst: 3 },
+      arg === null ? { row: 1, note: 0x0001 }
+                   : { row: 1, note: 0x0001, effect: EffectOp.OP_S, arg },
+    ]);
+    render(eng, 6);          // row 0 holds for one row — still in the walk down …
+    render(eng, 2);          // … then row 1's key-off and the scheduled tick
+    return [voice0(eng), ...ts0(eng).backgroundVoices.filter((v) => v.active)];
+  };
+
+  const plain = run(null);
+  assert.equal(plain.length, 2, "premise: the meta is sounding two voices");
+  for (const v of plain) {
+    assert.ok(v.keyOff, "the key-off reached it");
+    assert.ok(v.envIndex < susEnd(v), "…but nothing lifted it");
+  }
+
+  const lifted = run(0xd041);
+  assert.equal(lifted.length, 2);
+  for (const v of lifted) {
+    assert.ok(v.keyOff);
+    assert.equal(v.envIndex, susEnd(v), "the forced lift reached this layer");
+  }
 });

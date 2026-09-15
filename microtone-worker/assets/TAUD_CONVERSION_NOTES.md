@@ -470,7 +470,28 @@ Two of those need saying properly.
 
 **Every operator gets NNA = Note Cut**, and this is the one field where a wrong answer is not a shade of timbre but a song that never stops. An OPL channel is monophonic: keying a note on it replaces whatever it was playing, with no tail at all. Operator 0 is the rack's principal, so its New Note Action is the whole rack's ([Engine Spec §5.5.1](TAUD_ENGINE_SPEC.md#5-5-1-type-4-fm-racks)) — and Note Off, which is what the field's zero encodes, leaves a ghost of the entire rack ringing behind every note the song plays. There is no fadeout to end one either, because on this chip the **envelope** is what ends a note, so a sustaining patch rings until the song does. It is the same answer §5.3 gives for sample-mode instruments, and for the same reason.
 
-**The cost is key lift**, which is the fifth New Note Action and therefore a choice *against* Note Cut ([File Format §byte 186](TAUD_FILE_FORMAT.md)). `.ims` does emit note-offs, and without key lift one arriving during a note's attack or decay walks the rest of those nodes before releasing instead of releasing at once. Note Cut is still the right trade: the alternative is every note of the song ringing forever, and an engine cannot be asked to do both.
+**The key-off release is the Volume Fadeout's, not the envelope's.** This is the field that decides whether a converted AdLib song sounds right, and getting it from the envelope is not possible.
+
+On the chip a key-off switches the envelope to its RELEASE RATE **wherever it had got to**. A Taud key-off only lets the sustain LOOP go, so a playhead still in the attack or the decay has to walk the rest of those nodes before it reaches any release node — and a note the chip would have dropped in 20 ms takes a third of a second. Key lift is the format's answer to exactly that, but it is the fifth New Note Action ([File Format §byte 186](TAUD_FILE_FORMAT.md)) and so a choice *against* Note Cut, which the operators need for the monophony above. The two cannot both be had.
+
+The **fadeout** can, because it has no playhead: on key-off it drains from wherever the note had got to, at a fixed rate — structurally the same thing the chip does. So each operator carries a fadeout derived from its own OPL release rate, and the envelope's release nodes become the fallback rather than the mechanism.
+
+The conversion is the one `midi2taud` uses for SoundFont releases, and for the same reason. **The engine's fadeout is linear in AMPLITUDE; the chip's release is linear in dB**, 96 dB of it — which is also the span of a SoundFont release, so the two problems are the same problem. Matching them on time-to-the-floor makes the linear fade sound far longer, because it is still at −6 dB at half its length and −20 dB only at 90%, by which point the chip is silent. A tail is perceived to end around −18…−24 dB, so the linear fade is made to complete in a **quarter** of the chip's release time, which puts the two there together. Then `fadeStep = 2560 ÷ (fade_sec × bpm)`, the fadeout being per tick and ticks being tempo-relative — which is why a bank is compiled against a destination tempo.
+
+Measured against a reference OPL2 (same patch both sides, one isolated note, time to fall 10 dB after a key-off). Released from **full sustain**, where the envelope's own release nodes were already doing a reasonable job:
+
+| Carrier release | Chip | Taud |
+|---|---|---|
+| `R 1` | 1.083 s | 1.270 s |
+| `R 3` | 0.275 s | 0.240 s |
+| `R 7` | 0.040 s | 0.032 s |
+| `R 10` and faster | 8 ms and under | 20 ms |
+
+The case this is really for is a key-off arriving **before** the envelope has reached sustain, which is most of them — over 35 patch shapes released 120 ms in, the tail went from a median of 6.3× the chip's length to **2.0×**, and the worst case from 916× to 10×. That worst case is the honest shape of the old failure: a patch the chip drops in 2 ms took **1.8 seconds**, because the note had to walk out an attack and a decay it had barely started.
+
+The 20 ms floor is deliberate: it is the shortest fade worth writing, and below it one instant release is not distinguishable from another. A release RATE of 0 is not "slow" but "never" (§3-1-5), so such an operator gets **no** fadeout and rings until something retriggers it — the chip's own behaviour, and the one case where a key-off really does nothing.
+
+Two things this does not need, and that is the point of it: no effect column (an earlier version of this converter forced a key lift from the pattern with `S $D041` on every key-off row), and no pattern at all — a `.bnk` instrument played by hand off the keyboard releases exactly as one in a converted song does.
 
 ### 8.3 Key scaling becomes key bands
 

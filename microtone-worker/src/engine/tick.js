@@ -251,6 +251,15 @@ export function applyTrackerTick(eng, ts, playhead) {
         case 4: // Key lift — forced, bypasses the instrument's own flag.
           voice.keyOff = true;
           forceKeyLift(voice);
+          // …and it bypasses it for the WHOLE note, exactly as the note cut
+          // above reaches every child: a metainstrument is one note, so a
+          // forced lift written on its channel has to lift all of it. The
+          // per-tick sync cannot do this one — it hands each child its own
+          // instrument's applyKeyLift, which is the flag this command exists
+          // to override (item 191.3).
+          for (const bg of ts.backgroundVoices) {
+            if (isSoundingChild(ts, bg, vi)) { bg.keyOff = true; forceKeyLift(bg); }
+          }
           break;
       }
       voice.noteActionTick = -1;

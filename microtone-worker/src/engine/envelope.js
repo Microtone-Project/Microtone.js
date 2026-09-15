@@ -73,11 +73,11 @@ function jumpToSustainEnd(voice) {
 }
 
 /**
- * "Key Lift" (instrument flag bit 5): MIDI-exact key release — jump the volume
- * envelope playhead straight to the sustain-end node on key-off so the release
- * nodes play immediately. Applies wherever key-off is delivered: pattern
- * KEY_OFF (0x0001), the NNA ghost spawned on a new note, DCA Note Off, and
- * past-note S $71 (terranmon.txt instrument-flag byte 186).
+ * "Key Lift" — New Note Action 4, the fifth of them (TAUD_FILE_FORMAT byte 186):
+ * a MIDI-exact key release, jumping the volume envelope playhead straight to
+ * the sustain-end node on key-off so the release nodes play immediately.
+ * Applies wherever key-off is delivered: pattern KEY_OFF (0x0001), the NNA
+ * ghost spawned on a new note, DCA Note Off, and past-note S $71.
  */
 export function applyKeyLift(voice, inst) {
   if (!inst.nnaKeyLift) return;
