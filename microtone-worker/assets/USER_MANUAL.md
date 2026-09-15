@@ -1478,6 +1478,15 @@ rack starts wired as a plain chain — the last operator modulates the one befor
 it, all the way down into operator 0 — and the **FM** tab is where that is
 changed.
 
+Everything about **how long the note lasts** is operator 0's too: its New Note
+Action, its key lift and its Duplicate Check settings are the whole rack's, and
+the other operators are never asked. So a rack of bells set to *Note Fade* rings
+on over the next row exactly as a sampled bell would, whole — the modulators go
+with the note they were shaping rather than being cut out from under it — and a
+rack set to *Note Cut* stops dead. It is the one place a rack's operator 0
+settings reach past its own oscillator, and it is why the principal is worth
+picking first rather than reordering later.
+
 An operator's **loop is its cycle**, and that is the one thing worth knowing
 before picking instruments. A single-cycle looped waveform gives textbook FM,
 with the operator's *level* reading as a modulation index: at 0 dB the modulator

@@ -4,6 +4,22 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-16
+
+`S $73`–`S $76` now work on a metainstrument, so the pattern can say how a layered kit or an FM Rack should end its note.
+
+- **Fixed: a New Note Action override written on a metainstrument's channel did nothing at all.** It was rejected along with the past-note commands `S $70`–`S $72`, which really do have to stay out — a layered kit's own layers live in the same background pool those commands empty. The override has no such problem: it only arms what happens to the note when the *next* one displaces it.
+- **The override commands the whole note.** A metainstrument is one note, so `S $74` holds every layer of a kit rather than the first one while the rest cut, and on an FM Rack it releases the rack whole, modulators included. It replaces each layer's own New Note Action for that one note, and the next note clears it as it always has.
+- **A released note is out of the pattern's reach, as it always was.** A rack left ringing in the background takes no effect written on the rows that follow it — a crusher or a filter change lands on the note being played, not the one that is fading away.
+
+An FM Rack is no longer monophonic: operator 0's New Note Action, key lift and Duplicate Check now govern the whole rack, so a rack of bells rings on over the next row.
+
+- **Fixed: an FM Rack was cut dead by the next note on its channel**, whatever its operator 0 was set to — the rack could not hand a note to the background, so every rack behaved as though it were set to *Note Cut*. A rack meant to ring, as a bell or a pad is, lost its tail at every row that followed it.
+- **Operator 0 is the principal, and the note's lifetime is now its business too** — its New Note Action, its key lift and its Duplicate Check Type and Action are the whole rack's, alongside the envelope, fadeout and sample ending it already governed. The other operators are never asked: an operand has no life apart from the note it is shaping.
+- **A released rack rings on whole.** The modulators go with the note they were shaping rather than being cut out from under it, so what you hear ringing is the patch and not operator 0's bare waveform — and the next note's own operators are untouched by it.
+- **Duplicate Check reaches a rack at all now.** It asks about what the note will actually sound, so a rack set to *Duplicate Check: Instrument* takes out its own previous note as a sampled instrument would. Previously no Duplicate Check on a rack ever fired.
+- **A ringing rack costs what a rack costs** — one voice per sounding operator — for as long as its tail lasts, so a slow fadeout on a big rack is worth watching on the voice count. *Note Cut* is still exactly as cheap as it was.
+
 ## 2026-09-15
 
 A four-row keymap can now be split between your two hands, and a project can carry the keyboard it was written for.

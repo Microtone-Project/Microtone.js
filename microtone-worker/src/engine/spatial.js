@@ -25,6 +25,7 @@
 // ("Spatial panning effects" + S $80xx), terranmon.txt (song flag `ss`).
 
 import { clamp } from "./tables.js";
+import { isSoundingChild } from "./voice.js";
 
 /** Song-immutable surround model (terranmon.txt song table, `ss` bits). */
 export const SURROUND_STEREO = 0;
@@ -503,7 +504,7 @@ function forEachSoundingLayer(ts, vi, voice, fn) {
   fn(voice, displayWeight(voice));
   if (!voice.metaForeground) return;
   for (const bg of ts.backgroundVoices) {
-    if (bg.active && bg.isLayerChild && bg.sourceChannel === vi) fn(bg, displayWeight(bg));
+    if (bg.active && isSoundingChild(ts, bg, vi)) fn(bg, displayWeight(bg));
   }
 }
 

@@ -14,6 +14,7 @@ import {
   MOD_OFF, modStepPeriod, extYkPeriodTicks,
 } from "./samplemod.js";
 import { patchAt } from "./inst.js";
+import { isSoundingChild } from "./voice.js";
 import { applyPastNoteAction } from "./trigger.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL,
@@ -443,17 +444,27 @@ export function applySEffect(eng, ts, voice, vi, arg) {
     case 0x5: voice.panbrelloWave = x & 3; voice.panbrelloRetrig = (x & 4) === 0; break;
     case 0x6: ts.finePatternDelayExtra += x; break;
     case 0x7: {
-      // S$7x — Note/Instrument actions. $0..$6 are no-ops on a metainstrument;
+      // S$7x — Note/Instrument actions. $0..$2 are no-ops on a metainstrument;
       // $7..$E fan out across the meta's constituents (forEachLayerTarget).
+      //
+      // $0..$2 are PAST-note actions, and a live meta's layer children are
+      // themselves background voices — so on a meta's channel they would cull
+      // the very layers making up the sounding note. That hazard is theirs
+      // alone. $3..$6 only arm what the note's NEXT displacement does to it,
+      // and a metainstrument is ONE note, so the pattern gets to say what
+      // happens to all of it (item 191.1). The override is written on the
+      // channel's own voice and read from there by both halves of the release:
+      // maybeSpawnBackgroundForNNA for the foreground, releaseLayerChildren
+      // for the children.
       const isMeta = voice.metaForeground;
       switch (x) {
         case 0x0: if (!isMeta) applyPastNoteAction(eng, ts, vi, 0); break;
         case 0x1: if (!isMeta) applyPastNoteAction(eng, ts, vi, 1); break;
         case 0x2: if (!isMeta) applyPastNoteAction(eng, ts, vi, 2); break;
-        case 0x3: if (!isMeta) voice.nnaOverride = 1; break; // NNA Note Cut
-        case 0x4: if (!isMeta) voice.nnaOverride = 2; break; // NNA Note Continue
-        case 0x5: if (!isMeta) voice.nnaOverride = 0; break; // NNA Note Off
-        case 0x6: if (!isMeta) voice.nnaOverride = 3; break; // NNA Note Fade
+        case 0x3: voice.nnaOverride = 1; break; // NNA Note Cut
+        case 0x4: voice.nnaOverride = 2; break; // NNA Note Continue
+        case 0x5: voice.nnaOverride = 0; break; // NNA Note Off
+        case 0x6: voice.nnaOverride = 3; break; // NNA Note Fade
         case 0x7: forEachLayerTarget(ts, voice, vi, (v) => { v.volEnvOn = false; }); break;
         case 0x8: forEachLayerTarget(ts, voice, vi, (v) => { v.volEnvOn = true; }); break;
         case 0x9: forEachLayerTarget(ts, voice, vi, (v) => { v.panEnvOn = false; }); break;
@@ -622,7 +633,7 @@ function applySampleModEffectExt(eng, ts, voice, vi, rawArg, invert, ext) {
 export function forEachLayerTarget(ts, voice, vi, action) {
   action(voice);
   for (const bg of ts.backgroundVoices) {
-    if (bg.isLayerChild && bg.sourceChannel === vi) action(bg);
+    if (isSoundingChild(ts, bg, vi)) action(bg);
   }
 }
 
@@ -634,7 +645,7 @@ export function applyFilterParamEffect(eng, ts, voice, vi, rawArg, isResonance) 
   const targets = new Set();
   targets.add(voice.instrumentId);
   for (const bg of ts.backgroundVoices) {
-    if (bg.isLayerChild && bg.sourceChannel === vi) targets.add(bg.instrumentId);
+    if (isSoundingChild(ts, bg, vi)) targets.add(bg.instrumentId);
   }
 
   for (const id of targets) {

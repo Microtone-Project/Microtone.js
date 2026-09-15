@@ -1363,7 +1363,7 @@ The background pool is reaped when a ghost's `fadeoutVolume` drops to zero or it
 
 `S $70..$72` (Past Note Cut/Off/Fade) operate on every ghost whose `sourceChannel` matches the issuing channel: $70 drops them outright, $71 sets key-off on each, $72 begins fadeout on each.
 
-`S $73..$76` write the per-voice NNA override on the **currently active foreground voice** so that *its* next NNA event uses the overridden action. The override is cleared on every fresh trigger.
+`S $73..$76` write the per-voice NNA override on the **currently active foreground voice** so that *its* next NNA event uses the overridden action. The override is cleared on every fresh trigger. On a metainstrument's channel it commands every voice sounding the note, not the foreground alone — see the metainstrument note at the end of this section.
 
 `S $77..$7E` toggle an envelope on the currently active voice. The engine **MUST** keep **four independent gates** — volume, panning, pitch, filter — so the four pairs act on disjoint state:
 
@@ -1376,7 +1376,15 @@ While a gate is disabled the corresponding envelope is frozen (no advancement) a
 
 Because the engine resolves the byte-19 and byte-197 envelope slots into explicit pitch and filter roles at trigger time (by reading each slot's `m`-bit — the slot order is undefined: on some songs offset 19 is the pitch env, on others it is the filter env), the `$7B`/`$7C` vs `$7D`/`$7E` dispatch reads those resolved roles directly and does not re-inspect the `m`-bits per event.
 
-Effect $7..$E applies to ordinary instruments. When used on a metainstrument, the effect **MUST** be applied onto the constituent instruments all at once — the reference engine fans the toggle out across the foreground layer plus every layer-child voice sounding on the channel. Effect $0..$6 is a **no-op** on metainstruments: a live meta's layer-child voices are themselves background ghosts, so a Past-Note action ($70..$72) would otherwise cull the very layers that make up the sounding note.
+Effect $7..$E applies to ordinary instruments. When used on a metainstrument, the effect **MUST** be applied onto the constituent instruments all at once — the reference engine fans the toggle out across the foreground layer plus every layer-child voice sounding on the channel.
+
+Effect $0..$2 is a **no-op** on metainstruments: a live meta's layer-child voices are themselves background voices, so a Past-Note action would otherwise cull the very layers that make up the sounding note.
+
+**$3..$6 are not**, and an engine that lumps them in with the past-note actions has made the pattern unable to say anything about how a metainstrument's note ends. They arm nothing but what the note's NEXT displacement does to it, and a metainstrument is ONE note — so the override the pattern writes **MUST** command the whole of it: the foreground voice and every layer child, in place of each one's own instrument NNA. `S $74` that reached layer 0 alone would hold half a kit and cut the rest, which is not a reading of "continue". The override is per-note as always, cleared by the next fresh trigger, and a voice released while it stood keeps whatever it was given.
+
+On an **FM rack** the same words reach the principal, which is the channel's own voice, and the rack is then released whole — operands included ([TAUD_ENGINE_SPEC §5.5.1](TAUD_ENGINE_SPEC.md)).
+
+**Which voices count as "sounding this note"** matters here and in every fan-out above: the foreground voice, its layer children, and a live rack's operands. A rack that has already been released and is ringing in the background is **NOT** one of them, even though its operands still name the channel that spawned them — a background voice takes no row-driven effect, and a crusher written on the next row reaching back into a note the pattern has let go is the bug that rule prevents.
 
 ## S $80xx — Set channel pan position
 

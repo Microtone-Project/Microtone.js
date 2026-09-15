@@ -163,6 +163,15 @@ export class Voice {
     // sound of its own. The tick pass maintains it like a layer child; the
     // mixer skips it, because the rack's own render is what reads it.
     this.fmOperator = false;
+    // …and THIS is the voice whose rack it belongs to — the one carrying the
+    // `fmRig` that reads it. A live rack's operators point at the channel's
+    // foreground voice; an NNA ghost of a rack (item 191) is a whole rig
+    // copied into the background pool, so its operators point at the ghost
+    // instead. Everything that acts on "the channel's rack" — the per-tick
+    // sync, dropFmOperators, a pattern note cut — asks this rather than
+    // sourceChannel, which the ghost's operands still share with the channel
+    // that spawned them.
+    this.fmParent = null;
 
     // Two-axis volume AND pan model (TAUD_NOTE_EFFECTS.md §3). Both axes work
     // the same way on either side: the instrument seeds the NOTE axis and the
@@ -529,4 +538,20 @@ export class Voice {
   get activeSampleLoopSustain() { return (this.activeLoopMode & 0x04) !== 0; }
   /** True when this voice renders a stereo pair (see activeChanCount). */
   get isStereo() { return this.activeChanCount === 2; }
+}
+
+/**
+ * Is background voice `bg` part of the note channel `vi` is sounding RIGHT NOW?
+ *
+ * A layer child is, and so is a live FM operand — that is what makes a command
+ * written on the channel reach the whole metainstrument instead of layer 0
+ * alone (item 154). A GHOSTED rack's operands (item 191) are NOT: they share
+ * the channel with the note that displaced them, but they belong to a note the
+ * pattern has already let go, and a background voice takes no row-driven
+ * effect. Every channel-scoped walk over the children asks this, so the four
+ * of them cannot drift apart.
+ */
+export function isSoundingChild(ts, bg, vi) {
+  if (!bg.isLayerChild || bg.sourceChannel !== vi) return false;
+  return !bg.fmOperator || bg.fmParent === ts.voices[vi];
 }

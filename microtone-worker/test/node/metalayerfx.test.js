@@ -16,7 +16,7 @@ import { MOD_OFF, MOD_ROL1 } from "../../src/engine/samplemod.js";
 setSamplingRate(32000);
 
 /** A looping ramp instrument in `slot`, one sample per byte at the engine rate. */
-function uploadRamp(eng, slot) {
+function uploadRamp(eng, slot, { nna = 0 } = {}) {
   const rec = new Uint8Array(256);
   const w16 = (o, v) => { rec[o] = v & 0xff; rec[o + 1] = (v >> 8) & 0xff; };
   w16(4, 1000);   // sampleLength
@@ -25,6 +25,7 @@ function uploadRamp(eng, slot) {
   rec[14] = 1;    // forward loop
   rec[21] = 0x3f; // vol env node 0 = full
   rec[171] = 255; // instGlobalVolume
+  rec[186] = nna & 0x03; // instrument flag: New Note Action
   rec[196] = 255; // defaultNoteVolume
   eng.uploadInstrument(slot, rec);
 }
@@ -235,4 +236,82 @@ test("Q retriggers the whole metainstrument, layers together", () => {
   assert.ok(child.samplePos <= 1,
     `the layer child restarted with the foreground voice, got ${child.samplePos}`);
   assert.ok(voice0(eng).samplePos <= 1, "…and so did the foreground voice");
+});
+
+// ── item 191.1: the per-note NNA override reaches the whole metainstrument ───
+
+/** A two-layer meta over slots 1 and 2, both layers at `nna`. */
+function makeNnaEngine(nna) {
+  const eng = new TaudEngine();
+  for (let i = 0; i < 1000; i++) eng.sampleBin[i] = 128 + ((i % 100) - 50);
+  uploadRamp(eng, 1, { nna });
+  uploadRamp(eng, 2, { nna });
+  eng.uploadInstrument(3, buildMetaRecord([
+    makeMetaLayer(1, 159, 0, 0x0000, 0xffff, 0, 63),
+    makeMetaLayer(2, 159, 0, 0x0000, 0xffff, 0, 63),
+  ]));
+  return eng;
+}
+
+/** Voices released by an earlier note — a detached layer child drops the flag,
+ *  so this is everything still ringing that the pattern can no longer reach. */
+const released = (eng) => ts0(eng).backgroundVoices.filter(
+  (v) => v.active && !v.isLayerChild);
+
+test("S $74 holds EVERY layer of a metainstrument, not layer 0 alone", () => {
+  // Both layer instruments say Note Cut, so nothing of the first note survives
+  // on its own account: whatever is still ringing is the override's doing, and
+  // "continue" that reached layer 0 alone would leave exactly one voice.
+  const run = (rows) => {
+    const eng = loadSong(makeNnaEngine(1), rows);
+    render(eng, 6); // row 0 …
+    render(eng, 1); // … then row 1's trigger
+    return released(eng);
+  };
+  assert.equal(run([
+    { row: 0, note: 0x5000, inst: 3 },
+    { row: 1, note: 0x5400, inst: 3 },
+  ]).length, 0, "premise: Note Cut on both layers leaves nothing behind");
+
+  const held = run([
+    { row: 0, note: 0x5000, inst: 3, effect: EffectOp.OP_S, arg: 0x7400 },
+    { row: 1, note: 0x5400, inst: 3 },
+  ]);
+  assert.equal(held.length, 2, "the whole note carried on — layer 0 AND layer 1");
+  for (const v of held) assert.ok(!v.keyOff && !v.noteFading, "…unreleased, as Continue says");
+});
+
+test("S $75 / S $76 release the whole metainstrument too", () => {
+  const run = (sub) => {
+    const eng = loadSong(makeNnaEngine(2), [ // layers say Continue on their own
+      { row: 0, note: 0x5000, inst: 3, effect: EffectOp.OP_S, arg: sub },
+      { row: 1, note: 0x5400, inst: 3 },
+    ]);
+    render(eng, 6);
+    render(eng, 1);
+    return released(eng);
+  };
+  const off = run(0x7500); // Note Off
+  assert.equal(off.length, 2);
+  for (const v of off) assert.ok(v.keyOff, "every layer took the key-off");
+
+  const fade = run(0x7600); // Note Fade
+  assert.equal(fade.length, 2);
+  for (const v of fade) assert.ok(v.noteFading, "every layer began fading");
+});
+
+test("the override is the OUTGOING note's, and one note only", () => {
+  // It is written after the row-0 trigger and read by the row-1 one, which
+  // then clears it — so the note started on row 1 is back on its own NNA.
+  const eng = loadSong(makeNnaEngine(1), [
+    { row: 0, note: 0x5000, inst: 3, effect: EffectOp.OP_S, arg: 0x7400 },
+    { row: 1, note: 0x5400, inst: 3 },
+    { row: 2, note: 0x5800, inst: 3 },
+  ]);
+  render(eng, 6);
+  render(eng, 6);
+  assert.equal(voice0(eng).nnaOverride, -1, "the fresh trigger cleared it");
+  render(eng, 1);
+  assert.equal(released(eng).length, 2,
+    "row 1's note was cut by its own NNA; only row 0's two voices are left");
 });

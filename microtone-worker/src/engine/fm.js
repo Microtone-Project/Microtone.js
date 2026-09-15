@@ -52,6 +52,25 @@ export class FmRig {
 }
 
 /**
+ * Copy a rack's non-voice state onto a fresh rig — the algorithm, the mix
+ * gains and the feedback taps, but not the voices, which the caller re-hangs.
+ *
+ * This is what lets a rack be GHOSTED (item 191). A New Note Action on a rack
+ * has to carry the whole arrangement into the background pool, operands
+ * included, or the ghost sounds operator 0's bare sample instead of the patch
+ * that was playing; and `last` travels with it so a rack closing a feedback
+ * loop keeps its loop closed across the hand-over rather than restarting it
+ * from silence mid-note.
+ */
+export function cloneFmRig(src) {
+  const rig = new FmRig(src.count);
+  rig.program = src.program;
+  rig.gain.set(src.gain);
+  rig.last.set(src.last);
+  return rig;
+}
+
+/**
  * Which operators the algorithm actually reads, as a boolean per slot.
  *
  * Only `$00xx` and `$04xx` count. A `$08xx` feedback tap reads what an operator
@@ -220,17 +239,24 @@ export function renderFmVoice(eng, ts, voice, interpMode, spt) {
 }
 
 /**
- * Detach and silence every operator voice channel `vi` is driving. Called where
- * a layered meta releases its children — but an orphaned operator is not a
- * sound that should be allowed to finish: on its own it is a modulator nobody
- * is reading, so it is cut rather than released.
+ * Detach and silence every operator the FOREGROUND voice of channel `vi` is
+ * driving. Called where a layered meta releases its children — but an orphaned
+ * operator is not a sound that should be allowed to finish: on its own it is a
+ * modulator nobody is reading, so it is cut rather than released.
+ *
+ * The operands of a rack that has already been GHOSTED (item 191) share the
+ * channel but not the rack, so the test is the parent voice and not
+ * `sourceChannel`: the ghost is still reading them, and cutting them here
+ * would strip the modulators off a note that is meant to ring on.
  */
 export function dropFmOperators(ts, vi) {
+  const fg = ts.voices[vi];
   for (let i = ts.backgroundVoices.length - 1; i >= 0; i--) {
     const bg = ts.backgroundVoices[i];
-    if (bg.fmOperator && bg.sourceChannel === vi) {
+    if (bg.fmOperator && bg.fmParent === fg) {
       bg.active = false;
       bg.fmOperator = false;
+      bg.fmParent = null;
       bg.isLayerChild = false;
       ts.backgroundVoices.splice(i, 1);
     }

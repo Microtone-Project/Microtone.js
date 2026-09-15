@@ -20,6 +20,7 @@ import {
   META_TYPE_FM, META_TYPE_LAYERED,
 } from "../../src/engine/inst.js";
 import { fmReferencedOperators } from "../../src/engine/fm.js";
+import { EffectOp } from "../../src/engine/tables.js";
 
 setSamplingRate(32000);
 
@@ -27,8 +28,10 @@ const op = (slot, mix = 159, detune = 0, lo = 0x0000, hi = 0xffff, vlo = 0, vhi 
   makeMetaLayer(slot, mix, detune, lo, hi, vlo, vhi);
 
 /** A 256-frame looping sine in `slot` — a single-cycle waveform, which is what
- *  makes the modulation index read as "cycles" the way §7.6 says it does. */
-function uploadCycle(eng, slot, ptr) {
+ *  makes the modulation index read as "cycles" the way §7.6 says it does.
+ *  `nna` / `dct` / `dca` / `fadeout` are the voice-lifetime fields item 191 is
+ *  about: on an operator 0 they are the RACK's. */
+function uploadCycle(eng, slot, ptr, { nna = 0, dct = 0, dca = 0, fadeout = 0 } = {}) {
   for (let i = 0; i < 256; i++) {
     eng.sampleBin[ptr + i] = 128 + Math.round(120 * Math.sin((2 * Math.PI * i) / 256));
   }
@@ -41,6 +44,10 @@ function uploadCycle(eng, slot, ptr) {
   rec[14] = 1;    // forward loop
   rec[21] = 0x3f; // vol env node 0 = full
   rec[171] = 255; // instGlobalVolume
+  rec[172] = fadeout & 0xff;              // volume fadeout, low byte
+  rec[173] = (fadeout >> 8) & 0x0f;       // …and its high nibble
+  rec[186] = nna & 0x03;                  // instrument flag: New Note Action
+  rec[195] = (dct & 3) | ((dca & 3) << 2); // Duplicate Check type + action
   rec[196] = 255; // defaultNoteVolume
   eng.uploadInstrument(slot, rec);
 }
@@ -60,6 +67,11 @@ function loadSong(eng, rows) {
     if (c.note !== undefined) { pat[o] = c.note & 0xff; pat[o + 1] = (c.note >>> 8) & 0xff; }
     if (c.inst !== undefined) pat[o + 2] = c.inst;
     if (c.vol !== undefined) pat[o + 3] = c.vol & 0x3f;   // selector 0 = SET
+    if (c.effect !== undefined) {
+      pat[o + 5] = c.effect;
+      pat[o + 6] = c.arg & 0xff;
+      pat[o + 7] = (c.arg >>> 8) & 0xff;
+    }
   }
   eng.uploadPattern(0, pat);
   const cue = new Uint8Array(64);
@@ -87,6 +99,11 @@ function render(eng, chunks) {
 const ts0 = (eng) => eng.playheads[0].trackerState;
 const voice0 = (eng) => ts0(eng).voices[0];
 const operators = (eng) => ts0(eng).backgroundVoices.filter((v) => v.fmOperator);
+/** …the ones the CHANNEL is driving, as against a ghosted rack's (item 191). */
+const liveOperators = (eng) => operators(eng).filter((v) => v.fmParent === voice0(eng));
+/** Every rack still sounding in the background — one per ghosted note. */
+const ghostRacks = (eng) =>
+  ts0(eng).backgroundVoices.filter((v) => v.fmRig !== null && v.active);
 
 /** Peak deflection from the U8 midpoint over one rendered chunk. */
 function peak(out) {
@@ -278,8 +295,11 @@ test("a rack with no verifiable algorithm is silent", () => {
   assert.equal(voice0(eng).active, false);
 });
 
-test("retriggering the channel takes the whole rack with it", () => {
+test("retriggering the channel takes the live rack with it", () => {
   const eng = makeEngine();
+  // Operator 0 at Note Cut, so the outgoing rack leaves nothing behind and
+  // what is left is purely what the CHANNEL is still driving.
+  uploadCycle(eng, 1, 0, { nna: 1 });
   eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_FM }));
   uploadCycle(eng, 5, 1024);
   loadSong(eng, [
@@ -288,7 +308,7 @@ test("retriggering the channel takes the whole rack with it", () => {
   ]);
   render(eng, CHUNKS_PER_TICK * 6 + 1);
   assert.equal(voice0(eng).fmRig, null, "the plain note dropped the rack");
-  assert.equal(operators(eng).length, 0, "…and its operands went with it");
+  assert.equal(liveOperators(eng).length, 0, "…and its operands went with it");
 });
 
 test("a rack's operators die with the note rather than ageing on", () => {
@@ -303,24 +323,94 @@ test("a rack's operators die with the note rather than ageing on", () => {
   assert.equal(ts0(eng).backgroundVoices.length, 0, "…and nothing was left behind");
 });
 
-test("a rack does not leave an NNA ghost behind", () => {
-  // A ghost of a rack would sound operator 0's bare sample — not the note that
-  // was playing, and not a sound the patch can make.
+// ── the principal's voice lifetime (item 191) ───────────────────────────────
+
+test("operator 0's New Note Action is the rack's", () => {
+  // Operator 0 is the principal, so the note's lifetime is its business —
+  // which is what makes a rack of bells polyphonic. A rack that could not
+  // ghost was monophonic whatever its instrument said: the next row cut it.
+  const racksAfterSecondNote = (nna) => {
+    const eng = makeEngine();
+    uploadCycle(eng, 1, 0, { nna, fadeout: 8 });
+    eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_FM }));
+    loadSong(eng, [
+      { row: 0, note: 0x5000, inst: 3 },
+      { row: 1, note: 0x5400, inst: 3 },
+    ]);
+    render(eng, CHUNKS_PER_TICK * 6 + 1);
+    return ghostRacks(eng);
+  };
+  assert.equal(racksAfterSecondNote(1).length, 0, "Note Cut leaves nothing behind");
+  const fading = racksAfterSecondNote(3);
+  assert.equal(fading.length, 1, "Note Fade rings the old note on");
+  assert.ok(fading[0].noteFading, "…fading, as the instrument asked");
+  const off = racksAfterSecondNote(0);
+  assert.equal(off.length, 1, "Note Off releases it");
+  assert.ok(off[0].keyOff);
+});
+
+test("a ghosted rack keeps its operands, and keeps them to itself", () => {
   const eng = makeEngine();
-  const nna = new Uint8Array(256);
-  const w16 = (o, v) => { nna[o] = v & 0xff; nna[o + 1] = (v >> 8) & 0xff; };
-  w16(4, 256); w16(6, 32000); w16(12, 256);
-  nna[14] = 1; nna[21] = 0x3f; nna[171] = 255; nna[196] = 255;
-  nna[186] = 0x02; // instrument flag: New Note Action = continue
-  eng.uploadInstrument(1, nna);
+  uploadCycle(eng, 1, 0, { nna: 2 }); // Continue
   eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_FM }));
   loadSong(eng, [
     { row: 0, note: 0x5000, inst: 3 },
     { row: 1, note: 0x5400, inst: 3 },
   ]);
   render(eng, CHUNKS_PER_TICK * 6 + 1);
-  assert.equal(operators(eng).length, 1, "the new rack's operand, and only it");
-  assert.equal(ts0(eng).backgroundVoices.length, 1, "no ghost of the old rack");
+  const ghosts = ghostRacks(eng);
+  assert.equal(ghosts.length, 1);
+  const ghost = ghosts[0];
+  assert.equal(ghost.fmRig.voices[0], ghost, "the ghost IS its own operator 0");
+  const mine = operators(eng).filter((v) => v.fmParent === ghost);
+  assert.equal(mine.length, 1, "the modulator was ghosted beside its carrier");
+  assert.equal(ghost.fmRig.voices[1], mine[0], "…and re-hung on the ghost's own rig");
+  assert.equal(liveOperators(eng).length, 1, "the incoming rack has its own, untouched");
+  assert.equal(ts0(eng).backgroundVoices.length, 3);
+});
+
+test("a ghosted rack still sounds the PATCH, not operator 0's bare sample", () => {
+  // Operator 0's rectangle covers the first note only, so the SECOND row's
+  // rack is silent and everything left in the mix belongs to the ghost. Turn
+  // the modulator's level down and the remaining signal changes — which it
+  // could only do if the ghost is still reading a modulator.
+  const run = (modMix) => {
+    const eng = makeEngine();
+    uploadCycle(eng, 1, 0, { nna: 2 });
+    eng.uploadInstrument(3, buildMetaRecord([
+      op(1, 159, 0, 0x0000, 0x5200), op(2, modMix, 4096),
+    ], { type: META_TYPE_FM }));
+    loadSong(eng, [
+      { row: 0, note: 0x5000, inst: 3 },
+      { row: 1, note: 0x5400, inst: 3 },
+    ]);
+    render(eng, CHUNKS_PER_TICK * 6 + 1);
+    assert.equal(voice0(eng).active, false, "premise: the new note sounds nothing");
+    return render(eng, 2);
+  };
+  const modulated = run(200);
+  assert.ok(peak(modulated) > 2, "the ghost of the first note is still sounding");
+  assert.notDeepEqual([...modulated], [...run(0)],
+    "…and it is the patch, not the carrier on its own");
+});
+
+test("operator 0's Duplicate Check is the rack's", () => {
+  // The rack's own slot is never what a voice is playing — a metainstrument is
+  // not a sample — so a check asked about it answers "no" every time and no
+  // rack was ever duplicate-checked at all. It is asked about the principal.
+  const racksAfterSecondNote = (dct) => {
+    const eng = makeEngine();
+    uploadCycle(eng, 1, 0, { nna: 2, dct, dca: 0 }); // …and Duplicate Check → Note Cut
+    eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_FM }));
+    loadSong(eng, [
+      { row: 0, note: 0x5000, inst: 3 },
+      { row: 1, note: 0x5400, inst: 3 },
+    ]);
+    render(eng, CHUNKS_PER_TICK * 6 + 1);
+    return ghostRacks(eng).length;
+  };
+  assert.equal(racksAfterSecondNote(0), 1, "with the check off, the old rack rings on");
+  assert.equal(racksAfterSecondNote(3), 0, "DCT 3 takes it out before the NNA can ghost it");
 });
 
 test("the ADD word sums two carriers", () => {
@@ -395,4 +485,52 @@ test("an operator's level is its modulation index, not the note's volume", () =>
   // collapses by more than half.
   assert.ok(Math.abs(quiet.colour - loud.colour) < 0.1 * loud.colour,
     `modulation index moved with the volume column: ${loud.colour} → ${quiet.colour}`);
+});
+
+test("S $73..$76 reaches a rack: the pattern can override its principal's NNA", () => {
+  // Operator 0 says Note Cut, so the rack leaves nothing behind on its own —
+  // and a per-note override is the pattern's way of saying otherwise, which on
+  // a metainstrument's channel used to be a no-op (item 191.1).
+  const run = (rows) => {
+    const eng = makeEngine();
+    uploadCycle(eng, 1, 0, { nna: 1, fadeout: 8 });
+    eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_FM }));
+    loadSong(eng, rows);
+    render(eng, CHUNKS_PER_TICK * 6 + 1);
+    return ghostRacks(eng);
+  };
+  assert.equal(run([
+    { row: 0, note: 0x5000, inst: 3 },
+    { row: 1, note: 0x5400, inst: 3 },
+  ]).length, 0, "premise: the principal's own NNA cuts it");
+
+  const fading = run([
+    { row: 0, note: 0x5000, inst: 3, effect: EffectOp.OP_S, arg: 0x7600 },
+    { row: 1, note: 0x5400, inst: 3 },
+  ]);
+  assert.equal(fading.length, 1, "S $76 rang the whole rack on instead");
+  assert.ok(fading[0].noteFading);
+  assert.notEqual(fading[0].fmRig.voices[1], null, "…whole, modulator included");
+});
+
+test("a ghosted rack takes no row-driven effect — it is a background voice", () => {
+  // The ghost's operands share the channel with the note that displaced them,
+  // so every channel-scoped walk has to tell them apart from the LIVE rack's
+  // (isSoundingChild) or a crusher written on the next row would reach back
+  // into a note the pattern has already let go.
+  const eng = makeEngine();
+  uploadCycle(eng, 1, 0, { nna: 2 }); // Continue, so the first rack rings on
+  eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_FM }));
+  loadSong(eng, [
+    { row: 0, note: 0x5000, inst: 3 },
+    { row: 1, note: 0x5400, inst: 3, effect: EffectOp.OP_8, arg: 0x1304 },
+  ]);
+  render(eng, CHUNKS_PER_TICK * 6 + 1);
+  const ghost = ghostRacks(eng)[0];
+  assert.ok(ghost, "premise: the first rack is still ringing");
+  assert.equal(voice0(eng).bitcrusherDepth, 3, "the live rack was crushed");
+  assert.equal(liveOperators(eng)[0].bitcrusherDepth, 3, "…its operand too");
+  assert.equal(ghost.bitcrusherDepth, 0, "the ghost was not");
+  const ghostOp = operators(eng).find((v) => v.fmParent === ghost);
+  assert.equal(ghostOp.bitcrusherDepth, 0, "…and neither was its operand");
 });
