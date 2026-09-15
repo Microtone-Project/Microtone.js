@@ -48,16 +48,34 @@ export function blockCell(block, r, c) {
 }
 
 // ── Cue-block clipboard (Cues view) ──
-// A cue block is a rows×chans grid of pattern-index words (low 15 bits). The
-// per-cue command sign bits are NOT carried: they are bit-packed across the
-// channels of one cue, so a rectangular copy that moves channels around would
-// scramble them. Paste therefore preserves each destination cell's own command
-// bit and overlays only the pasted pattern index.
+// A cue block is a rows×chans grid of 16-bit words cut from the Cues grid, in
+// ONE of its two spaces — never both, because the two do not hold the same kind
+// of thing and a rectangle straddling the boundary would mean nothing:
+//
+//   PATTERN blocks (`cmd` false): the columns are CHANNELS and each word is a
+//     pattern index (low 15 bits). The per-cue command sign bits are NOT
+//     carried: they are bit-packed across the channels of one cue, so a
+//     rectangular copy that moves channels around would scramble them. Paste
+//     therefore preserves each destination cell's own command bit and overlays
+//     only the pasted pattern index.
+//
+//   COMMAND blocks (`cmd` true): the columns are the two Cmd word SLOTS — at
+//     most two of them — and each word is a whole instruction (LEN/HALT/BAK/
+//     FWD/JMP as the engine decodes it). Pasting one rewrites the sign bits of
+//     channels 0-15 / 16-31 and leaves every pattern index alone, which is the
+//     exact mirror of the above.
+//
+// `chans` is the block's column count either way; on a command block it counts
+// Cmd slots rather than voices.
 import { CUE_EMPTY } from "../format/taud-const.js";
 
-/** Allocate a rows×chans cue block pre-filled with empty pattern words. */
-export function makeCueBlock(rows, chans) {
-  return { rows, chans, words: new Uint16Array(rows * chans).fill(CUE_EMPTY) };
+/** Allocate a rows×chans cue block pre-filled with "nothing here": an empty
+ *  pattern index, or — for a command block — the NOP instruction word. */
+export function makeCueBlock(rows, chans, cmd = false) {
+  return {
+    rows, chans, cmd,
+    words: new Uint16Array(rows * chans).fill(cmd ? 0 : CUE_EMPTY),
+  };
 }
 
 /** Flat index of cue-block cell (r, c) into block.words (row-major). */

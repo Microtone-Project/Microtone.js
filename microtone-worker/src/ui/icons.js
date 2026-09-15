@@ -134,6 +134,13 @@ export const ICON = {
    *  through the gap in it — the one thing the split does not do. */
   patsCut: SVG(patRow(2) + '<path d="M2.5 12.5h6M15.5 12.5h6" stroke-dasharray="3 2.4"/>' +
     '<path d="M12 16.5v-8M9.5 11 12 8.5l2.5 2.5"/>' + patRow(17)),
+  /** Fill the selected Cmd words with one command: three cue rows that have
+   *  all ended up carrying the same tag. */
+  cmdFill: SVG(
+    [3, 9.25, 15.5].map((y) =>
+      `<rect x="2.5" y="${y}" width="19" height="5.5" rx="1.5"/>` +
+      `<rect x="4.7" y="${y + 1.75}" width="8" height="2" rx="1" ` +
+      `fill="currentColor" stroke="none"/>`).join("")),
   /** Row highlights: the beat and bar banding the trough is read against. */
   beats: SVG(
     '<rect x="2.5" y="2.5" width="19" height="4" rx="1.2" fill="currentColor" stroke="none"/>' +

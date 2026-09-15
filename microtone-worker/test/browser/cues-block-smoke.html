@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>cues: grow-past-HALT + block selection + clipboard smoke</title>
+  <title>cues: grow-past-HALT + block selection + clipboard + command-fill smoke</title>
 </head>
 <body>
   <pre id="out">running…</pre>
@@ -25,6 +25,22 @@
       win.dispatchEvent(new win.KeyboardEvent("keyup", { code, key: k, bubbles: true, ...opts }));
     };
     const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+    /** Answer the command popup the view has just opened (showModal builds a
+     *  plain <dialog> with one named control per field and OK first). */
+    const answerCmd = async (win, kind, argHex) => {
+      // By the command field, not by the class: an autosave-recovery dialog
+      // from a previous session can be sitting on the page as well.
+      const find = () => [...win.document.querySelectorAll("dialog.modal")]
+        .find((d) => d.querySelector("[name=kind]")) ?? null;
+      let dlg = null;
+      for (let i = 0; i < 100 && !dlg; i++) { await tick(10); dlg = find(); }
+      if (!dlg) throw new Error("the command popup never opened");
+      dlg.querySelector("[name=kind]").value = kind;
+      dlg.querySelector("[name=arg]").value = argHex;
+      dlg.querySelector(".modal-buttons button").click();
+      await tick(10);
+    };
 
     (async () => {
       try {
@@ -172,30 +188,128 @@
         const colNarrowOk = cuesView.selBounds().c1 === 6;
         key(win, "KeyC", "c", { ctrlKey: true });
         const colClipOk = store.cueClipboard.rows === lastCue + 1 && store.cueClipboard.chans === 2;
-        // A cursor on a Cmd word has no column to select — those belong to the
-        // cue, not to a voice.
+        // A cursor on a Cmd word selects THAT command column: the commands are
+        // a column too, they just belong to the cue rather than to a voice.
         cuesView.clearSelection();
         cuesView.cursor = { cue: 0, col: 0, nib: 0 };
         key(win, "KeyA", "a", { ctrlKey: true });
-        const cmdNoOp = !cuesView.hasSelection();
-        const colOk = colWholeOk && colWidenOk && colNarrowOk && colClipOk && cmdNoOp;
-        log(`cues Ctrl+A column: whole=${colWholeOk} widen=${colWidenOk} narrow=${colNarrowOk} clip=${colClipOk} cmdNoOp=${cmdNoOp}`);
+        let cmdCol = cuesView.selBounds();
+        const cmdColOk = cmdCol && cmdCol.cmd === true && cmdCol.r0 === 0 &&
+          cmdCol.r1 === lastCue && cmdCol.c0 === 0 && cmdCol.c1 === 0;
+        // …and Ctrl+→ reaches Cmd2 and stops: there is no third command word.
+        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
+        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
+        cmdCol = cuesView.selBounds();
+        const cmdWidenOk = cmdCol.cmd === true && cmdCol.c0 === 0 && cmdCol.c1 === 1 &&
+          cuesView.cursor.col === 1;
+        const colOk = colWholeOk && colWidenOk && colNarrowOk && colClipOk &&
+          cmdColOk && cmdWidenOk;
+        log(`cues Ctrl+A column: whole=${colWholeOk} widen=${colWidenOk} narrow=${colNarrowOk} clip=${colClipOk} cmdCol=${cmdColOk} cmdWiden=${cmdWidenOk}`);
+        cuesView.clearSelection();
+
+        // ── 8c. The Cmd columns are a block space of their own: fill ──
+        const { cueInfo } = await import("../../src/doc/document.js");
+        const { INST_PATLEN, INST_NOP } = await import("../../src/engine/state.js");
+        const instOf = (cue, slot) => {
+          const i = cueInfo(song.cues[cue]);
+          return slot === 0 ? i.inst0 : i.inst1;
+        };
+        // Pattern numbers under the block — a command edit must not touch them.
+        const seedPats = [0x0101, 0x0102, 0x0103, 0x0104];
+        store.undo.apply(setCuesOp(0, seedPats.map((value, cue) => ({ cue, ch: 0, value }))));
+        const patsIntact = () => seedPats.every((p, c) => (song.cues[c][0] & 0x7fff) === p);
+        cuesView.cursor = { cue: 0, col: 0, nib: 0 };
+        for (let i = 0; i < 3; i++) key(win, "ArrowDown", "ArrowDown", { shiftKey: true });
+        const cmdSel = cuesView.selBounds();
+        const cmdSelOk = cmdSel && cmdSel.cmd === true && cmdSel.r0 === 0 && cmdSel.r1 === 3 &&
+          cmdSel.c0 === 0 && cmdSel.c1 === 0;
+        key(win, "Space", " ");                     // Space opens the popup…
+        await answerCmd(win, "len", "1E");          // …and LEN $1E fills the block
+        const filledOk = [0, 1, 2, 3].every((c) => {
+          const i = instOf(c, 0);
+          return i.type === INST_PATLEN && i.arg === 30;
+        });
+        const fillKeptPats = patsIntact();
+        log(`fill cues 0..3 Cmd1 with LEN $1E: sel=${cmdSelOk} filled=${filledOk} patternsKept=${fillKeptPats}`);
+        key(win, "KeyZ", "z", { ctrlKey: true });
+        const fillUndoOk = [0, 1, 2, 3].every((c) => instOf(c, 0).type === INST_NOP);
+        key(win, "KeyY", "y", { ctrlKey: true });   // redo — put the LEN back
+        const fillRedoOk = instOf(3, 0).arg === 30;
+        log(`the whole fill is one undo step: undo=${fillUndoOk} redo=${fillRedoOk}`);
+
+        // ── 8d. Copy a command block and paste it over other cues ──
+        cuesView.cursor = { cue: 0, col: 0, nib: 0 };
+        cuesView.sel = { aCue: 0, aCh: 0, cue: 1, ch: 0, cmd: true };
+        key(win, "KeyC", "c", { ctrlKey: true });
+        const cmdClip = store.cueClipboard;
+        const cmdClipOk = cmdClip && cmdClip.cmd === true && cmdClip.rows === 2 &&
+          cmdClip.chans === 1 && eq([...cmdClip.words], [0x021d, 0x021d]);
+        cuesView.clearSelection();
+        const patAt6 = song.cues[6][0] & 0x7fff;
+        cuesView.cursor = { cue: 6, col: 0, nib: 0 };
+        key(win, "KeyV", "v", { ctrlKey: true });
+        const cmdPasteOk = instOf(6, 0).arg === 30 && instOf(7, 0).arg === 30 &&
+          (song.cues[6][0] & 0x7fff) === patAt6;
+        log(`copy/paste command words: clip=${cmdClipOk} paste=${cmdPasteOk} patternKept=${(song.cues[6][0] & 0x7fff) === patAt6}`);
+        key(win, "KeyZ", "z", { ctrlKey: true });
+
+        // ── 8e. Delete blanks the commands and leaves the patterns alone ──
+        // Cue 0 is left out of the block, so it also shows the delete stopping
+        // at the block's edge rather than taking the whole column.
+        cuesView.cursor = { cue: 1, col: 0, nib: 0 };
+        cuesView.sel = { aCue: 1, aCh: 0, cue: 3, ch: 0, cmd: true };
+        key(win, "Delete", "Delete");
+        const cmdDelOk = [1, 2, 3].every((c) => instOf(c, 0).type === INST_NOP) &&
+          instOf(0, 0).arg === 30 && patsIntact();
+        log(`delete clears commands, keeps patterns: ${cmdDelOk}`);
+
+        // ── 8f. The two spaces never straddle ──
+        cuesView.clearSelection();
+        cuesView.cursor = { cue: 0, col: 1, nib: 0 };
+        key(win, "ArrowRight", "ArrowRight", { shiftKey: true });
+        let sp = cuesView.selBounds();
+        const noStraddleOut = sp.cmd === true && sp.c1 === 1 && cuesView.cursor.col === 1;
+        cuesView.clearSelection();
+        cuesView.cursor = { cue: 0, col: 2, nib: 0 };
+        key(win, "ArrowLeft", "ArrowLeft", { shiftKey: true });
+        sp = cuesView.selBounds();
+        const noStraddleIn = sp.cmd === false && sp.c0 === 0 && cuesView.cursor.col === 2;
+        // A command block is not something a channel cell can receive: with the
+        // cursor on a voice it still lands on that cue's Cmd1, and no pattern
+        // number is touched.
+        cuesView.clearSelection();
+        cuesView.cursor = { cue: 0, col: 0, nib: 0 };
+        cuesView.sel = { aCue: 0, aCh: 0, cue: 0, ch: 0, cmd: true }; // cue 0 still holds LEN $1E
+        key(win, "KeyC", "c", { ctrlKey: true });
+        const decoyPat = song.cues[9][4] & 0x7fff;
+        cuesView.clearSelection();
+        cuesView.cursor = { cue: 9, col: 2 + 4, nib: 0 }; // …the cursor is on a voice
+        key(win, "KeyV", "v", { ctrlKey: true });
+        const spaceSafeOk = (song.cues[9][4] & 0x7fff) === decoyPat &&
+          instOf(9, 0).type === INST_PATLEN && instOf(9, 0).arg === 30;
+        key(win, "KeyZ", "z", { ctrlKey: true });
+        const cmdOk = cmdSelOk && filledOk && fillKeptPats && fillUndoOk && fillRedoOk &&
+          cmdClipOk && cmdPasteOk && cmdDelOk && noStraddleOut && noStraddleIn && spaceSafeOk;
+        log(`command space: straddleOut=${noStraddleOut} straddleIn=${noStraddleIn} crossPaste=${spaceSafeOk}`);
         cuesView.clearSelection();
 
         // ── 9. draw() renders the phantom row + a selection without throwing ──
         let drawOk = true;
         try {
           cuesView.cursor = { cue: song.cues.length, col: 2 + 0, nib: 0 }; // phantom row
-          cuesView.sel = { aCue: 0, aCh: 2, cue: 3, ch: 6 };
+          cuesView.sel = { aCue: 0, aCh: 2, cue: 3, ch: 6, cmd: false };
           cuesView.resize();
           cuesView.draw();
+          cuesView.cursor = { cue: 0, col: 1, nib: 0 };
+          cuesView.sel = { aCue: 0, aCh: 0, cue: 5, ch: 1, cmd: true }; // a command block
+          cuesView.draw();
         } catch (err) { drawOk = false; log(`  draw threw: ${err.message}`); }
-        log(`draw phantom row + selection: ${drawOk}`);
+        log(`draw phantom row + both kinds of selection: ${drawOk}`);
 
         const pass = editRowsOk && grew && materialised && shrankBack && noBloat && grewFar &&
           farUndo && selOk && clipOk && pasteOk && anchorOk && grewOnPaste && undoGrow && delBlanked &&
-          cmdKept && escOk && kbOk && colOk && drawOk;
-        log(pass ? "RESULT: PASS" : `RESULT: FAIL edit=${editRowsOk}/${grew}/${materialised} undo=${shrankBack} noBloat=${noBloat} grewFar=${grewFar}/${farUndo} sel=${selOk} clip=${clipOk} paste=${pasteOk} anchor=${anchorOk} growPaste=${grewOnPaste}/${undoGrow} del=${delBlanked}/${cmdKept} esc=${escOk} kb=${kbOk} col=${colOk} draw=${drawOk}`);
+          cmdKept && escOk && kbOk && colOk && cmdOk && drawOk;
+        log(pass ? "RESULT: PASS" : `RESULT: FAIL edit=${editRowsOk}/${grew}/${materialised} undo=${shrankBack} noBloat=${noBloat} grewFar=${grewFar}/${farUndo} sel=${selOk} clip=${clipOk} paste=${pasteOk} anchor=${anchorOk} growPaste=${grewOnPaste}/${undoGrow} del=${delBlanked}/${cmdKept} esc=${escOk} kb=${kbOk} col=${colOk} cmd=${cmdOk} draw=${drawOk}`);
       } catch (err) {
         log(`RESULT: ERROR ${err.message}\n${err.stack}`);
       }

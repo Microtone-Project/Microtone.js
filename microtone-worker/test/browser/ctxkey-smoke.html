@@ -238,12 +238,19 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   check(cueIds.includes("insLeft"), "…the channel menu again", cueIds.join());
   await dismiss(dlg);
 
-  // A Cmd column belongs to the cue, not to a channel, and offers nothing —
-  // so the key must not conjure an empty menu there either.
+  // A Cmd column belongs to the cue rather than to a channel, so it gets its
+  // own menu: the cue clipboard over the command words, plus the command
+  // editor — and none of the channel cells.
   cuesView.cursor = { cue: 1, col: 0, nib: 0 };
-  key("Backslash");
-  await sleep(120);
-  check(!doc.querySelector("dialog.ctxmenu"), "on a Cmd column the key offers nothing, like the right button");
+  cuesView.sel = null;
+  cuesView.invalidate();
+  await sleep(60);
+  dlg = await menuKey();
+  check(!!dlg, "\\ opens a menu on a Cmd column too");
+  const cmdIds = cells(dlg).map((c) => c.dataset.id);
+  check(cmdIds.includes("cmdFill"), "…with the command editor on it", cmdIds.join());
+  check(!cmdIds.includes("insLeft"), "…and none of the channel cells", cmdIds.join());
+  await dismiss(dlg);
 
   // ══════════════════ PATTERNS (F3) ══════════════════
   key("F3");

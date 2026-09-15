@@ -72,13 +72,34 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
     "a filled slot with nothing selected = the two channel inserts", ids(dlg).join());
   await dismiss(dlg);
 
-  // The command columns belong to the cue, not to a channel: no menu there.
-  cueCv.dispatchEvent(new win.MouseEvent("contextmenu", {
-    clientX: cueCv.getBoundingClientRect().left + CUE_G + 10,
-    clientY: cueCv.getBoundingClientRect().top + cueY(0),
-    bubbles: true, cancelable: true, button: 2 }));
+  // The command columns belong to the cue rather than to a channel, so they get
+  // a menu of their own: the cue clipboard over the command words plus the
+  // command editor, and none of the channel cells.
+  dlg = await menuOn(cueCv, CUE_G + 10, cueY(0));
+  check(!!dlg, "the Cmd1 column opens its own menu");
+  check(ids(dlg).join() === "cmdFill",
+    "with nothing selected and nothing copied, only the command editor", ids(dlg).join());
+  await dismiss(dlg);
+  // …and over a command BLOCK it turns into the fill, with Copy and Cut beside it.
+  cuesView.sel = { aCue: 0, aCh: 0, cue: 3, ch: 1, cmd: true };
+  dlg = await menuOn(cueCv, CUE_G + 10, cueY(0));
+  check(ids(dlg).join() === "copy,cut,cmdFill",
+    "a command block adds Copy and Cut", ids(dlg).join());
+  cell(dlg, "copy").click();
   await sleep(80);
-  check(!doc.querySelector("dialog.ctxmenu"), "no menu over the Cmd1/Cmd2 columns");
+  check(store.cueClipboard?.cmd === true && store.cueClipboard?.rows === 4 &&
+    store.cueClipboard?.chans === 2, "the Copy cell took the command words",
+    `${store.cueClipboard?.rows}×${store.cueClipboard?.chans} cmd=${store.cueClipboard?.cmd}`);
+  // A command block is not something a channel cell can paste…
+  dlg = await menuOn(cueCv, cueX(2), cueY(0));
+  check(!ids(dlg).includes("paste"), "…which the channel menu will not offer", ids(dlg).join());
+  await dismiss(dlg);
+  // …but the command column will.
+  dlg = await menuOn(cueCv, CUE_G + CMD_W + 10, cueY(0));
+  check(ids(dlg).includes("paste"), "…and the Cmd2 column will", ids(dlg).join());
+  await dismiss(dlg);
+  cuesView.sel = null;
+  store.cueClipboard = null;
 
   // Channel insert, straight from the Cues view.
   const c2 = cuePat(0, 2), c3 = cuePat(0, 3);

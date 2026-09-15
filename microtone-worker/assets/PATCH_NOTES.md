@@ -6,6 +6,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-16
 
+The Cmd1/Cmd2 columns of the Cues list are now block-selectable, so a run of cues can be given one command in a single step.
+
+- **Select command words the way you select anything else** — drag across them, **Shift+arrows**, or **Ctrl+A** for the whole column with **Ctrl+←/→** to reach the other one. **Esc** clears the block and **Delete** blanks the commands in it, leaving every pattern number under them alone.
+- **Fill a whole run of cues with one command.** Select the command words and press **Space**: the popup opens on the block's first cell, and what you pick — **LEN** 30 rows, a **HALT**, a **JMP** — is written to every word in the block, in one **Ctrl+Z**. It is also on the right-click menu as *Fill with command…*.
+- **Copy and paste commands.** **Ctrl+C** / **Ctrl+X** / **Ctrl+V** carry whole instructions, arguments included, so an intro's set of cue lengths can be pasted onto the reprise. A paste rewrites only the commands and leaves every pattern number where it was — the mirror of a channel-cell paste, which has always left the commands alone.
+- **The Cmd columns have a right-click menu at last**, with *Copy*, *Cut*, *Paste* and the command editor on it. Previously they offered nothing.
+- **Delete** on a single command word clears it, as it empties a pattern slot.
+- A selection is either channel cells or command words, never both: the arrows stop at the boundary rather than crossing it, and a copied block pastes back into the space it came from.
+
 `S $73`–`S $76` now work on a metainstrument, so the pattern can say how a layered kit or an FM Rack should end its note.
 
 - **Fixed: a New Note Action override written on a metainstrument's channel did nothing at all.** It was rejected along with the past-note commands `S $70`–`S $72`, which really do have to stay out — a layered kit's own layers live in the same background pool those commands empty. The override has no such problem: it only arms what happens to the note when the *next* one displaces it.

@@ -284,7 +284,8 @@ happens to include the effect column is never what was meant.
 The **Cues** view has the same menu — a column there is a channel too — except
 that *Paste* needs no pattern under it, because a cue cell holds the pattern
 *number*. The Cmd1/Cmd2 columns belong to the cue rather than to any channel, so
-right-clicking them offers nothing. The **Patterns** editor has the clipboard
+they have a menu of their own: the clipboard over the command words, and *Set
+command…* — *Fill with command…* once a block of them is selected. The **Patterns** editor has the clipboard
 half only: a Taud pattern is a single channel, so there is no channel to insert
 one beside. There, right-clicking focuses the column you pointed at first, which
 is what lets you *Copy* in one column and *Paste* into another. Its second row
@@ -846,7 +847,7 @@ Timeline and Patterns support rectangular selections:
 
 - **Drag** with the mouse to select rows × channels. A drag also records which *columns* (note / instrument / volume / pan / effect) it covers, so a narrow drag lets you copy just volumes, or just notes. Any drag counts, including one that stays inside a single row or a single column — "just the panning of this row" is a selection you can copy.
 - **Shift+arrows** (and **Shift+PageUp/Down/Home/End**) extend a whole-cell selection from the cursor.
-- **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single voice, top to bottom; in Patterns the pattern you are looking at. **Ctrl+←** and **Ctrl+→** then widen that selection a whole voice at a time (a Taud pattern is one channel, so they do nothing in Patterns). The voice you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this voice and the next.
+- **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single voice, top to bottom (in Cues, with the cursor on **Cmd1** or **Cmd2**, that command word all the way down instead); in Patterns the pattern you are looking at. **Ctrl+←** and **Ctrl+→** then widen that selection a whole voice at a time (a Taud pattern is one channel, so they do nothing in Patterns; on a Cues command column there is only the other command word to reach). The voice you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this voice and the next.
 - **Ctrl+C / Ctrl+X / Ctrl+V** copy, cut and paste. A paste lands on the **start of the selection** when there is one — the corner you began the drag from, not the cursor, which sits wherever the drag ended — and on the cursor when there is not. Pasting across views clips to what fits; a column-limited block overwrites only its columns.
 - **Right-click** for the same three as buttons: *Copy* and *Cut* while a block is selected, *Paste* on any cell that can take one. See [the right-click menu](#the-right-click-menu); the Cues view carries the same clipboard cells over its cue words.
 - **Delete / Backspace** blanks the selection, **Esc** clears it.
@@ -860,7 +861,7 @@ that cue.
 
 - Type **hex digits** to enter a pattern number (`0000`–`7FFE`).
 - **Delete** / **.** empties the slot.
-- **Space** opens the command popup for the cell. Commands occupy the slot instead of a pattern:
+- **Space** (or a double-click) opens the command popup for the cell — over a selected block of command words it fills every one of them at once. Commands occupy the slot instead of a pattern:
 
 | Command | Meaning |
 |---|---|
@@ -892,6 +893,27 @@ group of voices onto different channels, onto other cues, or onto the blank row
 to grow the order list. Only the pattern numbers move — each destination cell
 keeps its own flow command. (The Cues clipboard is separate from the
 Timeline/Patterns cell clipboard.)
+
+**The Cmd1/Cmd2 columns are a block space of their own**, with the same drag,
+**Shift+arrows**, **Ctrl+A** and **Ctrl+←/→**, and the same **Ctrl+C** /
+**Ctrl+X** / **Ctrl+V**, **Delete** and **Esc**. Two things it is for:
+
+- **Copying commands around.** A copied block carries the whole instruction —
+  **LEN**, **HALT**, **BAK**, **FWD**, **JMP** and their arguments — so an intro's set of
+  cue lengths can be pasted onto the reprise. Pasting rewrites only the
+  commands: every pattern number under the block stays exactly where it was,
+  which is the mirror of a channel-cell paste leaving the flow commands alone.
+- **Filling a run of cues with one command.** Select the command words —
+  **Ctrl+A** on **Cmd1** takes the whole column — and press **Space**: the popup
+  opens on the block's first cell, and what you pick is written to every word in
+  it, in one **Ctrl+Z**. That is how a whole section gets **LEN** 30 rows without
+  thirty visits to the popup.
+
+A block never straddles the two spaces: a selection is either channel cells or
+command words, and the arrows stop at the boundary rather than crossing it. The
+one clipboard holds whichever kind you copied last, and it pastes back into the
+space it came from — a command block dropped with the cursor on a voice lands on
+that cue's **Cmd1**, not on the voice.
 
 ## Patterns (F3)
 
@@ -2401,8 +2423,8 @@ hear, exactly as if you had played through the arming row.
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+S | Save to browser storage |
 | Ctrl+G | Go to cue:row |
-| Ctrl+A | Select the whole column (Timeline / Cues: one voice; Patterns: the pattern) |
-| Ctrl+← / Ctrl+→ | Timeline / Cues: widen (or narrow) that column selection by one voice |
+| Ctrl+A | Select the whole column (Timeline / Cues: one voice, or one command word; Patterns: the pattern) |
+| Ctrl+← / Ctrl+→ | Timeline / Cues: widen (or narrow) that column selection by one voice — on a Cues command column, to the other command word |
 | Shift+arrows · drag | Extend a block selection |
 | Ctrl+C / X / V | Copy / cut / paste the block |
 | Esc · Delete / Backspace | Clear the selection · blank the block |

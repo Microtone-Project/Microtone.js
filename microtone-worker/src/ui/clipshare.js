@@ -121,12 +121,15 @@ export function decodeBlock(d) {
 }
 
 export function encodeCueBlock(b) {
-  return { rows: b.rows, chans: b.chans, words: Array.from(b.words) };
+  return {
+    rows: b.rows, chans: b.chans, cmd: b.cmd === true,
+    words: Array.from(b.words),
+  };
 }
 
 export function decodeCueBlock(d) {
   return {
-    rows: d.rows | 0, chans: d.chans | 0,
+    rows: d.rows | 0, chans: d.chans | 0, cmd: d.cmd === true,
     words: Uint16Array.from(d.words ?? []),
   };
 }

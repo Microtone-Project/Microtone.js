@@ -1521,9 +1521,10 @@ window.addEventListener("keydown", (e) => {
     case "Space": {
       if (store.audio?.isPlaying())
         store.audio.stop(0);
-      else if (store.view === "cues" && viewNamed("cues").cursor.col <= 1) {
-        // Space on a Cmd column opens the command popup, like Enter — the
-        // record toggle is meaningless on the command words.
+      else if (store.view === "cues" && viewNamed("cues").cmdEditable()) {
+        // Space on a Cmd column opens the command popup — over a command block
+        // it fills every word in it. The record toggle is meaningless on the
+        // command words, which hold no digits to type.
         e.preventDefault();
         viewNamed("cues").openCmdEditor();
       } else

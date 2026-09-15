@@ -99,7 +99,25 @@ test("cue blocks travel too, pattern words intact", () => {
   const got = tabB.get();
   assert.equal(got.rows, 2);
   assert.equal(got.chans, 3);
+  assert.equal(got.cmd, false, "a pattern block says so, so the other tab pastes it as one");
   assert.ok(got.words instanceof Uint16Array, "still a word array, not a plain list");
+  assert.deepEqual([...got.words], [...src.words]);
+  removeStorage();
+});
+
+test("a COMMAND block keeps its flag, so the other tab pastes it into the Cmd words", () => {
+  installStorage();
+  const tabA = cueSlot(), tabB = cueSlot();
+  const src = makeCueBlock(3, 2, true);
+  assert.deepEqual([...src.words], [0, 0, 0, 0, 0, 0], "a blank command word is NOP, not CUE_EMPTY");
+  src.words[cueBlockIndex(src, 0, 0)] = 0x021d; // LEN 30
+  src.words[cueBlockIndex(src, 2, 1)] = 0xf007; // JMP 7
+  tabA.set(src);
+
+  const got = tabB.get();
+  assert.equal(got.rows, 3);
+  assert.equal(got.chans, 2, "the two Cmd slots, not two voices");
+  assert.equal(got.cmd, true, "…and the flag that says which space those columns are in");
   assert.deepEqual([...got.words], [...src.words]);
   removeStorage();
 });

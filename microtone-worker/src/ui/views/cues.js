@@ -12,6 +12,7 @@ import { lookahead } from "../edit.js";
 import { makeCueBlock, cueBlockIndex, mergeCueWord } from "../../doc/clipboard.js";
 import { showModal } from "../widgets/modal.js";
 import { showContextMenu } from "../widgets/contextmenu.js";
+import { ICON } from "../icons.js";
 import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";
 import {
   clipboardItems, channelItems, newPatternItem, insertChannelAt,
@@ -65,8 +66,13 @@ export class CuesView {
     this.scrollCue = 0;
     this.scrollCh = 0;
     this.cursor = { cue: 0, col: 0, nib: 0 }; // col: 0/1 = cmd words, 2+ = channel-2
-    this.sel = null;   // block selection {aCue, aCh, cue, ch} (channel space)
-    this._drag = null; // active pointer-drag anchor {aCue, aCh}
+    // Block selection {aCue, aCh, cue, ch, cmd}. The grid has TWO spaces and a
+    // block lives in exactly one of them: `cmd` true makes aCh/ch the Cmd word
+    // SLOT (0 = Cmd1, 1 = Cmd2), false makes them channel indices. Nothing
+    // straddles the two — an instruction word and a pattern number are not the
+    // same kind of thing, so a rectangle across the boundary would mean nothing.
+    this.sel = null;
+    this._drag = null; // active pointer-drag anchor {aCue, aCh, cmd}
     this.needsRedraw = true;
 
     store.on("doc", () => { this.cursor = { cue: 0, col: 0, nib: 0 }; this.sel = null; this.scrollCue = 0; this.invalidate(); });
@@ -132,15 +138,35 @@ export class CuesView {
    *  but a cue is only materialised into the document when you write to it, so
    *  scrolling never bloats the save. Editing far down fills the gap in between
    *  (the accepted "cue 0 and 8191 ⇒ serialise 0..8191" caveat). */
-  editRows() {
-    return this.store.doc?.is64Channel ? NUM_CUES_64 : NUM_CUES;
-  }
+  editRows() { return this.cueLimit(); }
   /** Top scroll position that still shows the last row (no scrolling into void). */
   maxScrollCue() { return Math.max(0, this.editRows() - this.visibleRows()); }
   /** Word for cue/ch, or CUE_EMPTY for an unmaterialised row past the cue list. */
   wordAt(cue, ch) {
     const words = this.store.song?.cues[cue];
     return words ? words[ch] : CUE_EMPTY;
+  }
+
+  /** The cue's two instruction words [Cmd1, Cmd2] — 0 (NOP) on a row the song
+   *  has not materialised, which is exactly what its absence says. */
+  instWordsAt(cue) {
+    const words = this.store.song?.cues[cue];
+    return words ? cueInstructionWords(words) : [0, 0];
+  }
+
+  /** Channel writes that put instruction `word` in cue `cue`'s Cmd `slot`,
+   *  leaving every channel's pattern index alone. The word IS the sign bits of
+   *  channels 0-15 / 16-31 (taud-parse cueInstructionWords), so setting one
+   *  command is sixteen one-bit edits — and the two slots never collide,
+   *  because they own different channels. */
+  cmdWrites(cue, slot, word) {
+    const base = slot * 16;
+    const out = [];
+    for (let i = 0; i < 16; i++) {
+      const ch = base + i;
+      out.push({ cue, ch, value: (this.wordAt(cue, ch) & 0x7fff) | (((word >> i) & 1) << 15) });
+    }
+    return out;
   }
 
   /** Canvas-relative x → {col} (0/1 = Cmd words, 2+ = channel-2), or -1 off-grid. */
@@ -164,18 +190,23 @@ export class CuesView {
     if (cue >= this.editRows()) return;
     const col = this.hitCol(x);
     if (col < 0) return;
-    if (e.shiftKey && col >= 2) {
-      // Shift+click extends a channel block from the current cursor cell.
+    const cmd = col < 2;              // the Cmd words are a space of their own
+    const idx = cmd ? col : col - 2;  // slot, or channel
+    if (e.shiftKey) {
+      // Shift+click extends a block from the cursor cell — but only inside the
+      // space the cursor is already in, since no block straddles the two. From
+      // the other space it does nothing rather than something arbitrary.
       const c = this.cursor;
-      const aCh = c.col >= 2 ? c.col - 2 : 0;
-      if (!this.sel) this.sel = { aCue: c.cue, aCh, cue, ch: col - 2 };
-      else { this.sel.cue = cue; this.sel.ch = col - 2; }
+      if ((c.col < 2) === cmd) {
+        const aIdx = cmd ? c.col : c.col - 2;
+        if (!this.sel || this.sel.cmd !== cmd) {
+          this.sel = { aCue: c.cue, aCh: aIdx, cue, ch: idx, cmd };
+        } else { this.sel.cue = cue; this.sel.ch = idx; }
+      }
     } else {
       this.sel = null;
-      if (col >= 2) {
-        this._drag = { aCue: cue, aCh: col - 2 };
-        this.canvas.setPointerCapture?.(e.pointerId);
-      }
+      this._drag = { aCue: cue, aCh: idx, cmd };
+      this.canvas.setPointerCapture?.(e.pointerId);
     }
     this.cursor = { cue, col, nib: 0 };
     this.invalidate();
@@ -192,14 +223,17 @@ export class CuesView {
     const y = e.clientY - rect.top;
     const cue = clampInt(this.scrollCue + Math.floor((y - HEADER_H) / ROW_H), 0, this.editRows() - 1);
     const col = this.hitCol(x);
-    if (col < 2) return;
-    const chans = this.store.doc.channelCount;
-    const ch = clampInt(col - 2, 0, chans - 1);
+    const d = this._drag;
+    // The drag keeps the space it started in: dragging a command block off the
+    // side of the Cmd columns pins it to Cmd1/Cmd2 rather than turning into a
+    // channel block halfway across.
+    const idx = d.cmd ? clampInt(col, 0, 1)
+      : clampInt(col - 2, 0, this.store.doc.channelCount - 1);
     // Any drag is a block, single-cell ones included (same rule as the other
     // two grids). A plain click fires no pointermove, so that is still how you
     // end up with no selection.
-    this.sel = { aCue: this._drag.aCue, aCh: this._drag.aCh, cue, ch };
-    this.cursor = { cue, col: ch + 2, nib: 0 };
+    this.sel = { aCue: d.aCue, aCh: d.aCh, cue, ch: idx, cmd: d.cmd };
+    this.cursor = { cue, col: d.cmd ? idx : idx + 2, nib: 0 };
     this.invalidate();
   }
 
@@ -220,9 +254,16 @@ export class CuesView {
     const cue = this.scrollCue + Math.floor((y - HEADER_H) / ROW_H);
     const col = this.hitCol(x);
     if (cue >= this.editRows() || col < 0) return null;
-    if (col < 2) return this.slotRect(cue, cue, GUTTER_W + col * CMD_W, CMD_W);
+    const sb = this.selBounds();
+    if (col < 2) {
+      const cb = sb?.cmd ? sb : null;
+      const in2 = cb && cue >= cb.r0 && cue <= cb.r1 && col >= cb.c0 && col <= cb.c1;
+      const [s0, s1] = in2 ? [cb.c0, cb.c1] : [col, col];
+      return this.slotRect(in2 ? cb.r0 : cue, in2 ? cb.r1 : cue,
+        GUTTER_W + s0 * CMD_W, (s1 - s0 + 1) * CMD_W);
+    }
     const ch = col - 2;
-    const b = this.selBounds();
+    const b = sb && !sb.cmd ? sb : null;
     const inside = b && cue >= b.r0 && cue <= b.r1 && ch >= b.c0 && ch <= b.c1;
     const [c0, c1] = inside ? [b.c0, b.c1] : [ch, ch];
     // Clipped to the columns actually on screen at both ends, so a block that
@@ -295,6 +336,9 @@ export class CuesView {
 
   // ── block selection + cue clipboard ──
   hasSelection() { return this.sel !== null; }
+  /** …and specifically one in the space `cmd` names — what the two context
+   *  menus ask, since neither can act on a block from the other one. */
+  hasSelectionIn(cmd) { return this.sel !== null && (this.sel.cmd === true) === cmd; }
   clearSelection() { if (this.sel) { this.sel = null; this.invalidate(); } }
 
   /** The last cue row a whole-column selection reaches: the end of the CUE
@@ -302,61 +346,69 @@ export class CuesView {
    *  8192 mostly-imaginary rows would make one paste materialise the lot. */
   lastCue() { return Math.max(0, this.numCues() - 1); }
 
-  /** Ctrl+A — select the whole column of the cursor's channel: every cue the
-   *  song has, one voice. The Cmd words belong to the cue rather than to any
-   *  channel (the selection is channel space, like the clipboard it feeds), so
-   *  a cursor parked on one has no column to select. */
+  /** Ctrl+A — select the whole column the cursor is in: every cue the song has,
+   *  one voice — or, on a Cmd word, that command slot all the way down. The
+   *  commands ARE a column; they just belong to the cue rather than to a voice. */
   selectColumn() {
     const c = this.cursor;
-    if (c.col < 2) return;
-    const ch = c.col - 2;
-    this.sel = { aCue: 0, aCh: ch, cue: this.lastCue(), ch };
+    const cmd = c.col < 2;
+    const idx = cmd ? c.col : c.col - 2;
+    this.sel = { aCue: 0, aCh: idx, cue: this.lastCue(), ch: idx, cmd };
     this.invalidate();
   }
 
   /** Ctrl+←/→ — widen (or narrow) that column block by one voice, anchor
    *  channel staying put and the far edge walking, exactly as the Timeline
-   *  does it. With nothing selected it starts from Ctrl+A's block. */
+   *  does it. With nothing selected it starts from Ctrl+A's block. On a command
+   *  column there is exactly one neighbour, so it reaches Cmd1+Cmd2 and stops. */
   extendColumn(dir) {
     if (!this.sel) this.selectColumn();
     const s = this.sel;
     if (!s) return;
-    const ch = clampInt(s.ch + dir, 0, this.store.doc.channelCount - 1);
-    s.ch = ch;
+    const idx = clampInt(s.ch + dir, 0, s.cmd ? 1 : this.store.doc.channelCount - 1);
+    s.ch = idx;
     s.aCue = 0; s.cue = this.lastCue();
-    this.cursor.col = ch + 2;
+    this.cursor.col = s.cmd ? idx : idx + 2;
     this.cursor.nib = 0;
     this.keepCursorVisible();
     this.invalidate();
   }
 
-  /** Normalised inclusive bounds {r0,r1,c0,c1} (cue rows × channels), or null. */
+  /** Normalised inclusive bounds {r0,r1,c0,c1,cmd} — cue rows × whichever
+   *  columns the block's own space names — or null. */
   selBounds() {
     const s = this.sel;
     if (!s) return null;
     return {
       r0: Math.min(s.aCue, s.cue), r1: Math.max(s.aCue, s.cue),
       c0: Math.min(s.aCh, s.ch), c1: Math.max(s.aCh, s.ch),
+      cmd: s.cmd === true,
     };
   }
 
   _ensureSel() {
     const c = this.cursor;
-    if (!this.sel && c.col >= 2) {
-      this.sel = { aCue: c.cue, aCh: c.col - 2, cue: c.cue, ch: c.col - 2 };
-    }
+    if (this.sel) return;
+    const cmd = c.col < 2;
+    const idx = cmd ? c.col : c.col - 2;
+    this.sel = { aCue: c.cue, aCh: idx, cue: c.cue, ch: idx, cmd };
   }
 
-  /** Shift+arrows: grow the channel block, moving the cursor with it. Selection
-   *  is channel-only, so it seeds nothing when the cursor sits on a Cmd column. */
+  /** Shift+arrows: grow the block, moving the cursor with it. Sideways growth
+   *  stays inside the block's own space — a command block reaches Cmd2 and
+   *  stops, a channel block stops at channel 1 rather than falling into the
+   *  commands. */
   extendSelection(dCue, dCol) {
-    this._ensureSel();
-    if (!this.sel) return;
     const c = this.cursor;
+    // A block from the OTHER space is not one these arrows can grow — the
+    // cursor is what the keyboard is holding, so it re-seeds from there.
+    if (this.sel && (this.sel.cmd === true) !== (c.col < 2)) this.sel = null;
+    this._ensureSel();
+    const s = this.sel;
     const chans = this.store.doc.channelCount;
     c.cue = clampInt(c.cue + dCue, 0, this.editRows() - 1);
-    c.col = clampInt(c.col + dCol, 2, chans + 1);
-    this.sel.cue = c.cue; this.sel.ch = c.col - 2;
+    c.col = s.cmd ? clampInt(c.col + dCol, 0, 1) : clampInt(c.col + dCol, 2, chans + 1);
+    s.cue = c.cue; s.ch = s.cmd ? c.col : c.col - 2;
     this.keepCursorVisible();
     this.invalidate();
   }
@@ -364,12 +416,16 @@ export class CuesView {
   copySelection() {
     const b = this.selBounds();
     if (!b) return false;
-    const rows = b.r1 - b.r0 + 1, chans = b.c1 - b.c0 + 1;
-    const block = makeCueBlock(rows, chans);
+    const rows = b.r1 - b.r0 + 1, cols = b.c1 - b.c0 + 1;
+    const block = makeCueBlock(rows, cols, b.cmd);
     for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < chans; c++) {
-        // carry the pattern index only (strip the command sign bit)
-        block.words[cueBlockIndex(block, r, c)] = this.wordAt(b.r0 + r, b.c0 + c) & 0x7fff;
+      const inst = b.cmd ? this.instWordsAt(b.r0 + r) : null;
+      for (let c = 0; c < cols; c++) {
+        block.words[cueBlockIndex(block, r, c)] = b.cmd
+          // a whole instruction word …
+          ? inst[b.c0 + c]
+          // … or the pattern index only (strip the command sign bit)
+          : this.wordAt(b.r0 + r, b.c0 + c) & 0x7fff;
       }
     }
     this.store.cueClipboard = block;
@@ -389,16 +445,24 @@ export class CuesView {
     return true;
   }
 
-  /** Blank the pattern index of every cell in bounds, keeping command bits.
-   *  Rows past the real cue list (unmaterialised) are skipped so a delete
-   *  never materialises an empty cue. */
+  /** Blank every cell in bounds — the pattern index, keeping the command bits,
+   *  or (over a command block) the instruction, keeping every pattern index.
+   *  Rows past the real cue list (unmaterialised) are skipped so a delete never
+   *  materialises an empty cue. */
   clearRegion(b) {
-    const chans = this.store.doc.channelCount;
     const nCues = this.numCues();
+    const last = Math.min(b.r1, nCues - 1);
     const writes = [];
-    for (let cue = b.r0; cue <= Math.min(b.r1, nCues - 1); cue++) {
-      for (let ch = b.c0; ch <= Math.min(b.c1, chans - 1); ch++) {
-        writes.push({ cue, ch, value: (this.wordAt(cue, ch) & 0x8000) | 0x7fff });
+    if (b.cmd) {
+      for (let cue = b.r0; cue <= last; cue++) {
+        for (let slot = b.c0; slot <= b.c1; slot++) writes.push(...this.cmdWrites(cue, slot, 0));
+      }
+    } else {
+      const chans = this.store.doc.channelCount;
+      for (let cue = b.r0; cue <= last; cue++) {
+        for (let ch = b.c0; ch <= Math.min(b.c1, chans - 1); ch++) {
+          writes.push({ cue, ch, value: (this.wordAt(cue, ch) & 0x8000) | 0x7fff });
+        }
       }
     }
     if (writes.length) {
@@ -408,21 +472,30 @@ export class CuesView {
   }
 
   /** Where a paste lands: the top-left of the block selection when there is
-   *  one — the corner the drag started from, not the cursor, which ends up
-   *  wherever the drag stopped — otherwise the cursor. Same rule as the other
-   *  two grids. */
-  pasteAnchor() {
+   *  one IN THE CLIPBOARD'S OWN SPACE — the corner the drag started from, not
+   *  the cursor, which ends up wherever the drag stopped — otherwise the
+   *  cursor. Same rule as the other two grids. A command block pasted with the
+   *  cursor parked on a channel has no slot to read off it, so it takes Cmd1. */
+  pasteAnchor(cmd = false) {
     const b = this.selBounds();
     const c = this.cursor;
-    return b ? { cue: b.r0, ch: b.c0 } : { cue: c.cue, ch: Math.max(0, c.col - 2) };
+    if (b && b.cmd === cmd) return { cue: b.r0, ch: b.c0 };
+    if (cmd) return { cue: c.cue, ch: c.col < 2 ? c.col : 0 };
+    return { cue: c.cue, ch: Math.max(0, c.col - 2) };
   }
 
+  /** Paste the cue clipboard, into whichever space the block came from — the
+   *  two are never interchangeable. */
   paste() {
     const block = this.store.cueClipboard;
     if (!block) return false;
-    const a = this.pasteAnchor();
+    return block.cmd ? this.pasteCmd(block) : this.pastePatterns(block);
+  }
+
+  pastePatterns(block) {
+    const a = this.pasteAnchor(false);
     const chans = this.store.doc.channelCount;
-    const limit = this.store.doc.is64Channel ? NUM_CUES_64 : NUM_CUES;
+    const limit = this.cueLimit();
     const writes = [];
     for (let r = 0; r < block.rows; r++) {
       const cue = a.cue + r;
@@ -437,7 +510,7 @@ export class CuesView {
     if (!writes.length) return false;
     this.store.undo.apply(setCuesOp(this.store.songIndex, writes));
     this.sel = {
-      aCue: a.cue, aCh: a.ch,
+      aCue: a.cue, aCh: a.ch, cmd: false,
       cue: Math.min(a.cue + block.rows - 1, limit - 1),
       ch: Math.min(a.ch + block.chans - 1, chans - 1),
     };
@@ -445,13 +518,48 @@ export class CuesView {
     return true;
   }
 
+  /** Paste a command block: whole instruction words into the Cmd slots, every
+   *  pattern index left exactly where it was. A row past the end of the cue
+   *  list is materialised, as typing a command there would — except by a NOP,
+   *  which is already what an absent cue says, so pasting blank commands past
+   *  the end grows nothing. */
+  pasteCmd(block) {
+    const a = this.pasteAnchor(true);
+    const limit = this.cueLimit();
+    const nCues = this.numCues();
+    const writes = [];
+    for (let r = 0; r < block.rows; r++) {
+      const cue = a.cue + r;
+      if (cue >= limit) break;
+      for (let c = 0; c < block.chans; c++) {
+        const slot = a.ch + c;
+        if (slot > 1) break; // clip past Cmd2
+        const w = block.words[cueBlockIndex(block, r, c)];
+        if (w === 0 && cue >= nCues) continue;
+        writes.push(...this.cmdWrites(cue, slot, w));
+      }
+    }
+    if (!writes.length) return false;
+    this.store.undo.apply(setCuesOp(this.store.songIndex, writes));
+    this.sel = {
+      aCue: a.cue, aCh: a.ch, cmd: true,
+      cue: Math.min(a.cue + block.rows - 1, limit - 1),
+      ch: Math.min(a.ch + block.chans - 1, 1),
+    };
+    this.invalidate();
+    return true;
+  }
+
+  /** The cue address space's hard end — one past the last index that exists. */
+  cueLimit() { return this.store.doc?.is64Channel ? NUM_CUES_64 : NUM_CUES; }
+
   // ── right-click context menu ──
 
   /**
    * The same palette the Timeline shows, over the order list: the clipboard
    * cells, the two channel inserts (a Cues column IS a channel), and a fresh
    * pattern for an empty slot. The Cmd1/Cmd2 columns belong to the cue rather
-   * than to any channel, so a right-click there offers nothing.
+   * than to any channel, so they get a menu of their own (cmdContextMenu).
    */
   async onContextMenu(e) {
     e.preventDefault();
@@ -462,12 +570,13 @@ export class CuesView {
     const y = e.clientY - rect.top;
     if (y < HEADER_H) return;
     const col = this.hitCol(x);
-    if (col < 2) return; // gutter or a command word — not a channel
+    if (col < 0) return; // the gutter
+    const cue = this.scrollCue + Math.floor((y - HEADER_H) / ROW_H);
+    if (cue >= this.editRows()) return;
+    if (col < 2) { await this.cmdContextMenu(e, cue, col); return; }
     const chans = store.doc.channelCount;
     const ch = col - 2;
     if (ch >= chans) return;
-    const cue = this.scrollCue + Math.floor((y - HEADER_H) / ROW_H);
-    if (cue >= this.editRows()) return;
     // An unmaterialised row past the cue list reads as empty, which is exactly
     // what "no pattern here" means — writing to it materialises the cue. Over a
     // block, "New pattern" fills every empty slot it covers, so the cell is
@@ -476,11 +585,14 @@ export class CuesView {
     const emptySlots = slots.filter((s) => (this.wordAt(s.cue, s.ch) & 0x7fff) === CUE_EMPTY);
     const emptySlot = emptySlots.length > 0;
 
+    // Only a PATTERN block belongs here — a command block copied off Cmd1/Cmd2
+    // has no meaning over a channel, and pastes from its own menu instead.
+    const hasSel = this.hasSelectionIn(false);
     const items = [
       ...clipboardItems({
-        hasSelection: this.hasSelection(),
-        canPaste: !!store.cueClipboard,
-        selAnchored: this.hasSelection(),
+        hasSelection: hasSel,
+        canPaste: store.cueClipboard?.cmd === false,
+        selAnchored: hasSel,
       }),
       ...channelItems(ch, chans),
     ];
@@ -498,14 +610,51 @@ export class CuesView {
       case "copy": this.copySelection(); break;
       case "cut": this.cutSelection(); break;
       case "paste":
-        // No selection: paste where the menu was opened, not wherever the
-        // cursor happens to be sitting.
-        if (!this.hasSelection()) { this.cursor = { cue, col, nib: 0 }; }
+        // No block for it to anchor on: paste where the menu was opened, not
+        // wherever the cursor happens to be sitting.
+        if (!hasSel) { this.cursor = { cue, col, nib: 0 }; }
         this.paste();
         break;
       case "insLeft": this.insertChannel(ch); break;
       case "insRight": this.insertChannel(ch + 1); break;
       case "newPat": this.createPattern(cue, ch, emptySlots); break;
+    }
+  }
+
+  /**
+   * The Cmd columns' own menu: the cue clipboard over the command space, plus
+   * the command editor — which over a block fills every Cmd word it covers with
+   * the one instruction, so a run of cues gets its `LEN` in a single step.
+   *
+   * The channel cells' own palette is deliberately absent: an instruction word
+   * belongs to the cue, so inserting a channel or making a pattern has nothing
+   * to do here.
+   */
+  async cmdContextMenu(e, cue, slot) {
+    const store = this.store;
+    const hasSel = this.hasSelectionIn(true);
+    const items = [
+      ...clipboardItems({
+        hasSelection: hasSel,
+        canPaste: store.cueClipboard?.cmd === true,
+        selAnchored: hasSel,
+      }),
+      { id: "cmdFill", label: t(hasSel ? "ctx.cmdFill" : "ctx.cmdSet"),
+        icon: ICON.cmdFill,
+        title: t(hasSel ? "ctx.cmdFillTitle" : "ctx.cmdSetTitle") },
+    ];
+    const pick = await showContextMenu(e.clientX, e.clientY, [items],
+      { keyboard: e.fromKeyboard === true });
+    // Without a block, both actions work on the cell the menu was opened over,
+    // not on wherever the cursor happens to be sitting.
+    if ((pick === "paste" || pick === "cmdFill") && !hasSel) {
+      this.cursor = { cue, col: slot, nib: 0 };
+    }
+    switch (pick) {
+      case "copy": this.copySelection(); break;
+      case "cut": this.cutSelection(); break;
+      case "paste": this.paste(); break;
+      case "cmdFill": this.openCmdEditor(); break;
     }
   }
 
@@ -524,7 +673,7 @@ export class CuesView {
       : id === "delPat" ? deleteSlots(this.store, slots)
       : moveSlots(this.store, slots, dir);
     if (!ok) return;
-    if (moving && this.sel) {
+    if (moving && this.sel && !this.sel.cmd) {
       const last = this.store.doc.channelCount - 1;
       this.sel = {
         ...this.sel,
@@ -541,7 +690,7 @@ export class CuesView {
   slotsInBlock(cue, ch) {
     const chans = this.store.doc.channelCount;
     const b = this.selBounds();
-    if (!b) return [{ cue, ch }];
+    if (!b || b.cmd) return [{ cue, ch }]; // a command block covers no slots
     const out = [];
     for (let c = b.r0; c <= Math.min(b.r1, this.editRows() - 1); c++) {
       for (let v = b.c0; v <= Math.min(b.c1, chans - 1); v++) out.push({ cue: c, ch: v });
@@ -582,7 +731,19 @@ export class CuesView {
       case "PageDown": e.shiftKey ? this.extendSelection(16, 0) : this.moveCursor(16, 0); return true;
       case "Enter": this.openCmdEditor(); return true;
     }
-    if (!store.record || c.col < 2) return false;
+    if (!store.record) return false;
+    if (c.col < 2) {
+      // A Cmd word holds no digits to type, so Delete is the only key that
+      // applies: it clears the command, exactly as it empties a pattern slot.
+      if (e.code === "Delete" || e.code === "Period") {
+        if (c.cue < this.numCues()) { // nothing to clear on the phantom row
+          store.undo.apply(setCuesOp(store.songIndex, this.cmdWrites(c.cue, c.col, 0)));
+        }
+        this.moveCursor(1, 0);
+        return true;
+      }
+      return false;
+    }
     const ch = c.col - 2;
     if (e.code === "Delete" || e.code === "Period") {
       if (c.cue < this.numCues()) { // nothing to delete on the phantom row
@@ -610,18 +771,36 @@ export class CuesView {
     return true;
   }
 
-  /** CueCmd popup: choose word slot's instruction (Cmd1/Cmd2). */
+  /** Is there a Cmd word for the popup to act on — the cursor's own, or a
+   *  whole command block? What the Space key asks before claiming the key. */
+  cmdEditable() { return this.cursor.col <= 1 || this.selBounds()?.cmd === true; }
+
+  /**
+   * CueCmd popup: choose the instruction for a Cmd word slot (Cmd1/Cmd2) — and
+   * over a command block, FILL every Cmd word it covers with that one
+   * instruction, which is how a run of cues gets its `LEN` in one step.
+   *
+   * The block wins over the cursor when there is one, so the fill acts on what
+   * is highlighted rather than on whichever cell the drag happened to stop in.
+   */
   async openCmdEditor() {
     const store = this.store;
     const c = this.cursor;
-    if (c.col > 1) return;
-    const word = c.col; // 0 or 1
-    const existing = store.song.cues[c.cue]; // undefined on the phantom row
+    const sb = this.selBounds();
+    const b = sb?.cmd ? sb
+      : c.col <= 1 ? { r0: c.cue, r1: c.cue, c0: c.col, c1: c.col }
+      : null;
+    if (!b) return;
+    const cells = (b.r1 - b.r0 + 1) * (b.c1 - b.c0 + 1);
+    const hex4 = (n) => n.toString(16).toUpperCase().padStart(4, "0");
+    // Seeded from the block's top-left cell — the corner the drag started from.
+    const existing = store.song.cues[b.r0]; // undefined on the phantom row
     const info = cueInfo(existing ?? new Uint16Array(MAX_VOICES).fill(CUE_EMPTY));
-    const current = word === 0 ? info.inst0 : info.inst1;
+    const current = b.c0 === 0 ? info.inst0 : info.inst1;
     const result = await showModal({
-      title: t("cue.cmdTitle", {
-        cue: c.cue.toString(16).toUpperCase().padStart(4, "0"), word: word + 1 }),
+      title: cells > 1
+        ? t("cue.cmdFillTitle", { from: hex4(b.r0), to: hex4(b.r1), n: cells })
+        : t("cue.cmdTitle", { cue: hex4(b.r0), word: b.c0 + 1 }),
       body: t("cue.cmdBody"),
       fields: [
         { name: "kind", label: t("cue.command"), type: "select", value: kindOf(current), options: [
@@ -641,21 +820,17 @@ export class CuesView {
     if (!result) return;
     const arg = Math.min(0xfff, Math.max(0, parseInt(result.arg || "0", 16) || 0));
     const newWord = encodeInstWord(result.kind, arg);
-    // Repack: sign bits of ch 0-15 = word0, ch 16-31 = word1.
-    const words = existing ? Uint16Array.from(existing)
-      : new Uint16Array(MAX_VOICES).fill(CUE_EMPTY);
-    const [w0, w1] = cueInstructionWords(words);
-    const w = word === 0 ? newWord : w0;
-    const w2 = word === 1 ? newWord : w1;
-    for (let ch = 0; ch < 16; ch++) {
-      words[ch] = (words[ch] & 0x7fff) | (((w >> ch) & 1) << 15);
-      words[16 + ch] = (words[16 + ch] & 0x7fff) | (((w2 >> ch) & 1) << 15);
-    }
-    // Write through the growable cue op so a command on the phantom row
+    // Written through the growable cue op so a command on the phantom row
     // materialises the cue (edit past HALT).
-    const chans = store.doc.channelCount;
+    const nCues = this.numCues();
     const writes = [];
-    for (let ch = 0; ch < chans; ch++) writes.push({ cue: c.cue, ch, value: words[ch] });
+    for (let cue = b.r0; cue <= b.r1; cue++) {
+      // …but writing "no command" to a cue the song does not have yet would
+      // materialise a row only to say nothing, which its absence already says.
+      if (newWord === 0 && cue >= nCues) continue;
+      for (let slot = b.c0; slot <= b.c1; slot++) writes.push(...this.cmdWrites(cue, slot, newWord));
+    }
+    if (!writes.length) return;
     store.undo.apply(setCuesOp(store.songIndex, writes));
     this.invalidate();
   }
@@ -686,8 +861,17 @@ export class CuesView {
     // header
     ctx.fillStyle = C.dim;
     ctx.fillText("cue", 6, HEADER_H / 2);
-    ctx.fillText("Cmd1", GUTTER_W + 4, HEADER_H / 2);
-    ctx.fillText("Cmd2", GUTTER_W + CMD_W + 4, HEADER_H / 2);
+    // The Cmd headers light up with the cursor the same way the voice headers
+    // do below — they are columns you can select now, so they read as columns.
+    for (let slot = 0; slot < 2; slot++) {
+      const selected = this.cursor.col === slot;
+      if (selected) {
+        ctx.fillStyle = C.cursor;
+        ctx.fillRect(GUTTER_W + slot * CMD_W, 0, CMD_W - 2, HEADER_H);
+      }
+      ctx.fillStyle = selected ? C.fg : C.dim;
+      ctx.fillText(`Cmd${slot + 1}`, GUTTER_W + slot * CMD_W + 4, HEADER_H / 2);
+    }
     const visCh = Math.min(Math.floor((W - this.chanX(0)) / COL_W) + 1, chans - this.scrollCh);
     for (let i = 0; i < visCh; i++) {
       const ch = this.scrollCh + i;
@@ -720,13 +904,17 @@ export class CuesView {
         ctx.fillStyle = C.panel;
         ctx.fillRect(0, y, W, ROW_H);
       }
-      // block selection highlight (channel columns only)
+      // block selection highlight, over whichever space the block belongs to
       if (sb && cueIdx >= sb.r0 && cueIdx <= sb.r1) {
-        for (let i = 0; i < visCh; i++) {
-          const ch = this.scrollCh + i;
-          if (ch >= sb.c0 && ch <= sb.c1) {
-            ctx.fillStyle = C.sel;
-            ctx.fillRect(this.chanX(i) - 2, y, COL_W - 2, ROW_H);
+        ctx.fillStyle = C.sel;
+        if (sb.cmd) {
+          for (let slot = sb.c0; slot <= sb.c1; slot++) {
+            ctx.fillRect(GUTTER_W + slot * CMD_W, y, CMD_W - 2, ROW_H);
+          }
+        } else {
+          for (let i = 0; i < visCh; i++) {
+            const ch = this.scrollCh + i;
+            if (ch >= sb.c0 && ch <= sb.c1) ctx.fillRect(this.chanX(i) - 2, y, COL_W - 2, ROW_H);
           }
         }
       }
