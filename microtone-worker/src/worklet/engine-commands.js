@@ -83,7 +83,7 @@ export function applyAudioCommand(eng, m) {
     case CMD.SET_ANALYSIS: eng.setAnalysis(m.ph, m.target); return true;
     case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
     case CMD.SET_MASTER_METER:
-      eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth); return true;
+      eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;

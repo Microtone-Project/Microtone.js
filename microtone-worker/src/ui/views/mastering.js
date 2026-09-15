@@ -44,6 +44,7 @@ import {
 import {
   LoudnessIntegrator, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
   crestDb, dbfs, percentile, FRAME_SEC, BIT_DEPTHS, DEFAULT_BIT_DEPTH,
+  HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT, HIST_SPAN_SEC,
 } from "../../engine/loudness.js";
 import {
   Fft, hannWindow, spectrumDb, tiltDbAt, SPECTRUM_BANDS, SPECTRUM_NBANDS,
@@ -148,6 +149,10 @@ const fmtDb = (v, digits = 1) =>
 const fmtLufs = (v) => (Number.isFinite(v) ? v.toFixed(1) : "—");
 /** Code counts get big at 16 bits — group them so they can be read at a glance. */
 const fmtCount = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString() : "—");
+/** A census span, in whichever unit reads as a whole number: "3 s", "400 ms".
+ *  Sub-second windows in decimal seconds ("0.4 s") read as a measurement error
+ *  rather than as a choice. */
+const fmtSpan = (sec) => (sec >= 1 ? `${sec} s` : `${Math.round(sec * 1000)} ms`);
 
 /** Blend two theme inks, `t` of the way from `a` to `b`. The canvas twin of the
  *  `color-mix()` the DOM lamps use, so a lamp drawn here lights like one drawn
@@ -357,6 +362,9 @@ export class MasteringView {
     /** Which delivered format the bit-usage census describes: 16 bits is what
      *  a stereo WAV export writes, 8 is what the Taud device itself plays. */
     this.bitDepth = DEFAULT_BIT_DEPTH;
+    /** …and over how much of the take: the whole thing, or one of the two
+     *  rolling windows (HIST_SPAN_*, item 188). */
+    this.histSpan = HIST_SPAN_ALL;
     /** A response-curve chain, kept off the audio path purely to draw with. */
     this.curveChain = new MasterChain(defaultMastering(), SAMPLING_RATE);
     /** The live spectrometer drawn behind the EQ curve: one transform of the
@@ -425,8 +433,9 @@ export class MasteringView {
     const audio = this.store.audio;
     if (!audio) return;
     const want = this.store.viewOpen("mastering") && !!this.store.doc;
-    if (audio.masterMeterOn !== want || audio.masterMeterDepth !== this.bitDepth) {
-      audio.setMasterMeter(0, want, this.bitDepth);
+    if (audio.masterMeterOn !== want || audio.masterMeterDepth !== this.bitDepth ||
+        audio.masterMeterSpan !== this.histSpan) {
+      audio.setMasterMeter(0, want, this.bitDepth, this.histSpan);
     }
   }
 
@@ -983,7 +992,35 @@ export class MasteringView {
       // A census taken at another depth is a census of something else.
       this.syncTap();
     });
-    box.querySelector(".mst-scope-head").insertBefore(depth, box.stageTag);
+    // …and over how much of the take (item 188). The whole take answers "what
+    // does this file use" and is the figure you quote; the two rolling windows
+    // answer "what is this passage using", which is the one you can act on — a
+    // cumulative census is dominated within seconds by the loudest thing that
+    // has happened so far, and never comes back down. They are the same two
+    // windows the loudness readings use, so 3 s is a passage and 400 ms is a
+    // hit, and the figures on this screen all describe the same stretch.
+    const span = document.createElement("select");
+    span.className = "mst-depth";
+    for (const value of [HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT]) {
+      const o = document.createElement("option");
+      o.value = String(value);
+      o.textContent = value === HIST_SPAN_ALL
+        ? t("mst.histAll")
+        : t("mst.histWindow", { span: fmtSpan(HIST_SPAN_SEC[value]) });
+      span.appendChild(o);
+    }
+    span.value = String(this.histSpan);
+    span.title = t("mst.histSpanTitle", {
+      long: fmtSpan(HIST_SPAN_SEC[HIST_SPAN_LONG]),
+      short: fmtSpan(HIST_SPAN_SEC[HIST_SPAN_SHORT]),
+    });
+    span.addEventListener("change", () => {
+      this.histSpan = Number(span.value);
+      this.syncTap();
+    });
+    const head = box.querySelector(".mst-scope-head");
+    head.insertBefore(depth, box.stageTag);
+    head.insertBefore(span, box.stageTag);
 
     this.histCanvas = document.createElement("canvas");
     this.histCanvas.className = "mst-canvas mst-hist";

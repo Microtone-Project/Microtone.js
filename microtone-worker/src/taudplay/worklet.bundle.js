@@ -3650,6 +3650,26 @@ const DEFAULT_BIT_DEPTH = 16;
  *  a bucket IS a code; at 16 it is the code's top eight bits, which is the same
  *  shape drawn at the same width. */
 const HIST_BUCKETS = 256;
+/**
+ * The three spans the census can be taken over (item 188).
+ *
+ * The integrated one answers "what does this FILE use". It is cumulative and
+ * therefore only ever grows, which makes it useless for finding WHERE the
+ * headroom goes: thirty seconds into a take every figure it reports is about
+ * the loudest thing that has happened so far, and `used` can only climb.
+ *
+ * The two rolling ones answer "what is this PASSAGE using", which is the
+ * question you can act on. They are deliberately the SAME windows the loudness
+ * readings use — 3 s short-term and 400 ms momentary — so a bit-usage figure
+ * and a loudness figure on this screen describe the same stretch of music: 3 s
+ * is a passage, 400 ms is a hit.
+ */
+const HIST_SPAN_ALL = 0;
+const HIST_SPAN_LONG = 1;
+const HIST_SPAN_SHORT = 2;
+/** Seconds each span looks back, indexed by HIST_SPAN_*. The cumulative entry
+ *  is 0, which is not a window at all — hence the null in `histWin`. */
+const HIST_SPAN_SEC = Object.freeze([0, 3, 0.4]);
 
 // ── The metering tap ────────────────────────────────────────────────────────
 
@@ -3724,6 +3744,34 @@ class MasterMeterTap {
     // drain downsamples it to HIST_BUCKETS for the picture and computes the
     // figures from the full-resolution original.
     this.hist = new Float64Array(1 << this.bitDepth);
+    // …and the same census over each rolling span. Expiry is EXACT rather than
+    // decayed: `used` counts codes that occur AT ALL, so a code whose count
+    // merely tends towards zero would go on being counted for ever and the
+    // headline figure would never come down — which would make the whole mode
+    // a lie. That needs the codes themselves kept.
+    //
+    // ONE ring serves both windows, because the short one is a SUFFIX of the
+    // long one: the ring is as long as HIST_SPAN_LONG, the long census evicts
+    // the entry about to be overwritten, and the short census evicts the entry
+    // `shortLag` places behind the write cursor. Two tails, one tape.
+    //
+    // Every census is maintained ALWAYS, whichever one `drain` is reporting. A
+    // window that only starts filling when you ask for it takes its own length
+    // to say anything, which reads as a broken control rather than as a window.
+    const codes = (sec) => Math.max(1, Math.round(sec * rate)) * 2;
+    // Indexed by HIST_SPAN_*, so the cumulative slot is a hole.
+    this.histWin = [
+      null,
+      new Float64Array(1 << this.bitDepth),
+      new Float64Array(1 << this.bitDepth),
+    ];
+    this.codeRing = new Uint16Array(codes(HIST_SPAN_SEC[HIST_SPAN_LONG]));
+    this.shortLag = Math.min(codes(HIST_SPAN_SEC[HIST_SPAN_SHORT]), this.codeRing.length);
+    this.ringWrite = 0;
+    this.ringFull = false;
+    /** Which census `drain` reports (HIST_SPAN_*). A REPORTING choice, nothing
+     *  more — see TrackerState.setMasterMeter. */
+    this.histSpan = HIST_SPAN_ALL;
     this.buckets = new Float64Array(HIST_BUCKETS);
     /** Per-stage mono ring + its shared write cursor (both stages advance
      *  together, since they see the same block). Read backwards from
@@ -3745,6 +3793,9 @@ class MasterMeterTap {
     this.sumZ.fill(0); this.sumSq.fill(0); this.peak.fill(0); this.clip.fill(0);
     this.apPeak.fill(0); this.apSumSq.fill(0);
     this.hist.fill(0);
+    for (const h of this.histWin) if (h !== null) h.fill(0);
+    this.ringWrite = 0;
+    this.ringFull = false;
     for (const r of this.spec) r.fill(0);
     this.specWrite = 0;
     this.frames = 0;
@@ -3833,15 +3884,58 @@ class MasterMeterTap {
    */
   binOutput(u8, left, right, frames) {
     const h = this.hist;
+    const hl = this.histWin[HIST_SPAN_LONG];
+    const hs = this.histWin[HIST_SPAN_SHORT];
+    const ring = this.codeRing;
+    const cap = ring.length;
+    const lag = this.shortLag;
+    let w = this.ringWrite;
+    let full = this.ringFull;
+    // One code through all three censuses, written out rather than factored
+    // into a helper: this runs per delivered SAMPLE, and a closure over `w` and
+    // `full` would move both off the stack and onto the heap.
+    //
+    // `w` is where the code is about to land, so ring[w] is the oldest entry
+    // the LONG window still holds and ring[w - lag] the oldest the SHORT one
+    // does; both are read before `w` advances. Before the ring has wrapped, `w`
+    // is also the COUNT of codes written, so it doubles as the "is there
+    // anything to evict yet" test for the short window.
     if (this.bitDepth === 8) {
-      for (let i = 0; i < frames * 2; i++) h[u8[i]] += 1;
+      for (let i = 0; i < frames * 2; i++) {
+        const code = u8[i];
+        h[code] += 1;
+        if (full) hl[ring[w]] -= 1;
+        if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;
+        ring[w] = code;
+        hl[code] += 1;
+        hs[code] += 1;
+        if (++w === cap) { w = 0; full = true; }
+      }
+      this.ringWrite = w;
+      this.ringFull = full;
       return;
     }
     for (let n = 0; n < frames; n++) {
       const l = left[n], r = right[n];
-      h[(Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff] += 1;
-      h[(Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff] += 1;
+      const cl = (Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff;
+      const cr = (Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff;
+      h[cl] += 1;
+      if (full) hl[ring[w]] -= 1;
+      if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;
+      ring[w] = cl;
+      hl[cl] += 1;
+      hs[cl] += 1;
+      if (++w === cap) { w = 0; full = true; }
+      h[cr] += 1;
+      if (full) hl[ring[w]] -= 1;
+      if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;
+      ring[w] = cr;
+      hl[cr] += 1;
+      hs[cr] += 1;
+      if (++w === cap) { w = 0; full = true; }
     }
+    this.ringWrite = w;
+    this.ringFull = full;
   }
 
   /** Snapshot readout; resets the per-interval accumulators. The histogram is
@@ -3866,16 +3960,21 @@ class MasterMeterTap {
     }
     out.compGrDb = this.compGrDb;
     out.limGrDb = this.limGrDb;
-    out.hist = this.hist;
+    // ONE of the three censuses, never all of them: the walk below is the most
+    // expensive thing this drain does at 16 bits, and the view can only draw
+    // one of them at a time anyway.
+    const census = this.histWin[this.histSpan] ?? this.hist;
+    out.hist = census;
     out.bitDepth = this.bitDepth;
+    out.histSpan = this.histSpan;
     // The figures come from the FULL census — an exact `used` and `span` at 16
     // bits cannot be recovered from 256 buckets — and only the buckets go on
     // the wire. One walk does both.
-    out.bits = bitUsage(this.hist, this.bitDepth);
+    out.bits = bitUsage(census, this.bitDepth);
     const shift = this.bitDepth - 8;
     this.buckets.fill(0);
-    if (shift === 0) this.buckets.set(this.hist);
-    else for (let i = 0; i < this.hist.length; i++) this.buckets[i >> shift] += this.hist[i];
+    if (shift === 0) this.buckets.set(census);
+    else for (let i = 0; i < census.length; i++) this.buckets[i >> shift] += census[i];
     out.buckets = this.buckets;
     out.spec = this.spec;
     out.specWrite = this.specWrite;
@@ -3893,7 +3992,7 @@ class MasterMeterTap {
 function makeMasterMeterReadout() {
   return {
     frames: 0, compGrDb: 0, limGrDb: 0, hist: null, histTotal: 0,
-    buckets: null, bits: null, bitDepth: DEFAULT_BIT_DEPTH,
+    buckets: null, bits: null, bitDepth: DEFAULT_BIT_DEPTH, histSpan: HIST_SPAN_ALL,
     spec: null, specWrite: 0,
     sumZ: new Float64Array(TAP_STAGES),
     apPeak: new Float64Array(TAP_STAGES),
@@ -6475,8 +6574,9 @@ class TrackerState {
   /** Install (or drop) the Mastering view's metering tap. `scramble` adds the
    *  phase-scrambled crest measurement, which only the offline analyser asks
    *  for (loudness.js explains why it is not on the live path); `bitDepth`
-   *  picks which delivered format the bit-usage census describes. */
-  setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH) {
+   *  picks which delivered format the bit-usage census describes, and
+   *  `histSpan` (HIST_SPAN_*) over how much of the take it is taken. */
+  setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH, histSpan = HIST_SPAN_ALL) {
     if (!on) { this.masterMeter = null; return; }
     const depth = bitDepth === 8 ? 8 : 16;
     if (this.masterMeter === null || this.masterMeter.scramble !== !!scramble ||
@@ -6484,6 +6584,12 @@ class TrackerState {
       this.masterMeter = new MasterMeterTap(SAMPLING_RATE,
         { scramble: !!scramble, bitDepth: depth });
     }
+    // The span is a REPORTING choice and must not rebuild the tap: asking for
+    // the last few seconds would otherwise throw away the take's census — and
+    // the window itself — in order to answer.
+    const span = histSpan | 0;
+    this.masterMeter.histSpan =
+      span === HIST_SPAN_LONG || span === HIST_SPAN_SHORT ? span : HIST_SPAN_ALL;
   }
 
   drainInterrupts() {
@@ -12238,8 +12344,8 @@ class TaudEngine {
    * strip's analysis tap this costs nothing while off, so a host turns it on
    * only while the view that reads it is on screen.
    */
-  setMasterMeter(ph, on, scramble = false, bitDepth = undefined) {
-    this.playheads[ph].trackerState.setMasterMeter(on, scramble, bitDepth);
+  setMasterMeter(ph, on, scramble = false, bitDepth = undefined, histSpan = 0) {
+    this.playheads[ph].trackerState.setMasterMeter(on, scramble, bitDepth, histSpan);
   }
 
   setSongGlobalVolume(ph, volume) { this.playheads[ph].globalVolume = volume & 255; }

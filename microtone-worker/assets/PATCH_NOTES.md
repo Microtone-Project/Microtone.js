@@ -4,6 +4,15 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-15
+
+Bit usage can now be asked about a passage, or about a single moment, rather than only about the whole take.
+
+- **The Bit usage panel has a second chooser: Whole take, Last 3 s, or Last 400 ms.** The whole take is the figure you would quote for the file, and it is the one you have always had — but it is cumulative, so within seconds it is dominated by the loudest passage so far and never comes back down. The two rolling windows answer the question you can actually act on: what is *this* part of the song using?
+- **They are the same two windows the loudness readings use**, so everything on the screen describes the same stretch of music: **3 s** is a passage, the way short-term loudness is, and **400 ms** is a hit, the way momentary is. Switching between all three is instant, and every span keeps running whichever one you are looking at.
+- **All four figures follow the choice**, and so does the histogram under them — **Code span**, **Codes used**, **Effective bits** and **Entropy bits** all describe whichever span you picked.
+- **Codes used is the one to watch.** On the whole take it can only climb; on a rolling window it rises and falls with the music, so a passage that is throwing bits away says so while you are listening to it rather than being averaged into everything that came before.
+
 ## 2026-09-14
 
 The Mastering tab's two meters now draw the statistics they were only ever hinting at: the Levels bars carry both RMS readings and bracket where the level has actually been, and the Loudness bar shows the loudness range as a band rather than only as a number.

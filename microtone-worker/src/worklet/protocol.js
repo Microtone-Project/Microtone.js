@@ -35,7 +35,7 @@ export const CMD = Object.freeze({
   SET_MONITOR_MODE: "setMonitorMode",              // {ph, mode} — #998.3 fold / binaural
   SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
   SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
-  SET_MASTER_METER: "setMasterMeter",              // {ph, on} — item 178 Mastering-view tap
+  SET_MASTER_METER: "setMasterMeter",              // {ph, on, bitDepth, histSpan} — item 178 Mastering-view tap
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}

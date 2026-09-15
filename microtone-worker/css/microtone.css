@@ -3283,6 +3283,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border-radius: 4px;
   font-size: 0.75rem;
   padding: 0 0.2rem;
+  /* The Bit usage header carries TWO of these (depth and span, item 188) beside
+     a title that already takes `flex: 1`, and the view can be half a split
+     pane. Let them shrink rather than push the row wider than the panel. */
+  min-width: 0;
 }
 
 /* ── keymap tab (item 187) ───────────────────────────────────────────────

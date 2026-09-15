@@ -76,6 +76,7 @@ export class AudioSystem {
     this.analysisTarget = ANALYSIS_OFF; // item 98 master-strip tap; the strip owns it
     this.masterMeterOn = false; // item 178 Mastering-view tap; that view owns it
     this.masterMeterDepth = DEFAULT_BIT_DEPTH; // …and which output its census describes
+    this.masterMeterSpan = 0;                  // …over the whole take (HIST_SPAN_*), or a rolling window of it
     this.profile = null;    // latest worklet profiler report (opt-in; null when off)
     this.onProfile = null;  // optional callback(profile) when a report arrives
   }
@@ -289,7 +290,9 @@ export class AudioSystem {
     this.setMastering(0, song.mastering ?? null);
     // …and the Mastering view's tap survives a context rebuild the way the
     // monitor mode does.
-    if (this.masterMeterOn) this.setMasterMeter(0, true, this.masterMeterDepth);
+    if (this.masterMeterOn) {
+      this.setMasterMeter(0, true, this.masterMeterDepth, this.masterMeterSpan);
+    }
 
     for (const entry of doc.ixmp) {
       const bytes = entry.blob.slice().buffer;
@@ -334,12 +337,16 @@ export class AudioSystem {
   setMastering(ph, params) { this._post({ t: CMD.SET_MASTERING, ph, params }); }
   /** Item 178: install (or drop) the Mastering view's own metering tap. Costs
    *  nothing while off, so the view turns it off the moment it is hidden. */
-  setMasterMeter(ph, on, bitDepth = undefined) {
+  setMasterMeter(ph, on, bitDepth = undefined, histSpan = undefined) {
     if (ph === 0) {
       this.masterMeterOn = !!on;
       if (bitDepth !== undefined) this.masterMeterDepth = bitDepth;
+      if (histSpan !== undefined) this.masterMeterSpan = histSpan | 0;
     }
-    this._post({ t: CMD.SET_MASTER_METER, ph, on: !!on, bitDepth: this.masterMeterDepth });
+    this._post({
+      t: CMD.SET_MASTER_METER, ph, on: !!on,
+      bitDepth: this.masterMeterDepth, histSpan: this.masterMeterSpan,
+    });
   }
   resetParams(ph = 0) { this._post({ t: CMD.RESET_PARAMS, ph }); }
   resetSampleFxState(ph = 0) { this._post({ t: CMD.RESET_SAMPLE_FX_STATE, ph }); }

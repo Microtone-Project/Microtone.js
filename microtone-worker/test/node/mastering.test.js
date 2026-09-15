@@ -24,6 +24,7 @@ import {
   MasterMeterTap, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
   bitUsage, crestDb, dbfs, gatedMean, loudnessRange, loudnessRangeBounds,
   percentile, FRAME_SEC,
+  HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT, HIST_SPAN_SEC,
   BIT_DEPTHS, DEFAULT_BIT_DEPTH, HIST_BUCKETS,
 } from "../../src/engine/loudness.js";
 import {
@@ -39,6 +40,7 @@ import {
   SPECTRUM_TILT_DB_PER_OCT, SPECTRUM_TILT_PIVOT_HZ, tiltDbAt, tiltWeights,
 } from "../../src/engine/fft.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../../src/engine/constants.js";
+import { TrackerState } from "../../src/engine/state.js";
 import { TaudEngine } from "../../src/engine/engine.js";
 import { parseTaud } from "../../src/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
@@ -392,6 +394,159 @@ test("the integrator hands its LRA over as a pair of LUFS bounds", () => {
   const fresh = new LoudnessIntegrator(SAMPLING_RATE);
   assert.equal(fresh.rangeBounds.range, 0);
   assert.equal(fresh.rangeBounds.low, -Infinity);
+});
+
+// ── The bit census, whole take vs rolling window (item 188) ─────────────────
+
+/** A tap at a rate short enough that its windows are countable. At 100 Hz
+ *  stereo the long span is 600 codes and the short one 80. */
+function windowedTap(bitDepth) {
+  const tap = new MasterMeterTap(100, { bitDepth });
+  assert.equal(tap.codeRing.length, Math.round(HIST_SPAN_SEC[HIST_SPAN_LONG] * 100) * 2);
+  assert.equal(tap.shortLag, Math.round(HIST_SPAN_SEC[HIST_SPAN_SHORT] * 100) * 2);
+  assert.ok(tap.shortLag < tap.codeRing.length, "the short window is a suffix of the long one");
+  return tap;
+}
+
+/** Sum of a census — what `bits.total` reports. */
+function censusTotal(h) {
+  let s = 0;
+  for (const v of h) s += v;
+  return s;
+}
+
+test("the three census spans are the whole take and two rolling windows", () => {
+  const tap = windowedTap(8);
+  const long = tap.codeRing.length;
+  const short = tap.shortLag;
+  const hl = tap.histWin[HIST_SPAN_LONG];
+  const hs = tap.histWin[HIST_SPAN_SHORT];
+  const feed = (code, codes) => {
+    tap.binOutput(new Uint8Array(codes).fill(code), null, null, codes / 2);
+  };
+
+  feed(10, long);
+  assert.equal(tap.hist[10], long);
+  assert.equal(hl[10], long, "one long window's worth fills the long window");
+  assert.equal(hs[10], short, "…and the short one holds only its own share");
+  assert.equal(tap.ringFull, true);
+
+  // Half the SHORT window of something else: the short census has already
+  // half turned over while the long one has barely moved.
+  feed(200, short / 2);
+  assert.equal(hs[200], short / 2);
+  assert.equal(hs[10], short / 2);
+  assert.equal(hl[200], short / 2);
+  assert.equal(hl[10], long - short / 2, "the long window has hardly noticed");
+
+  // The rest of the short window rolls the first code out of it entirely,
+  // while the long one still holds plenty. This is the point of keeping the
+  // codes rather than decaying their counts: `used` counts codes that occur AT
+  // ALL, so a count that merely tends to zero never stops being counted.
+  feed(200, short / 2);
+  assert.equal(hs[10], 0, "gone from the moment");
+  assert.equal(hs[200], short);
+  assert.ok(hl[10] > 0, "…but still in the passage");
+  assert.equal(tap.hist[10], long, "…and the take remembers all of it");
+  assert.equal(censusTotal(hl), long, "a full long window is exactly the ring");
+  assert.equal(censusTotal(hs), short, "…and the short one is exactly its lag");
+
+  const out = makeMasterMeterReadout();
+  tap.histSpan = HIST_SPAN_ALL;
+  tap.drain(out);
+  assert.equal(out.histSpan, HIST_SPAN_ALL);
+  assert.equal(out.bits.used, 2, "the take used two codes");
+  assert.equal(out.bits.total, long + short);
+  tap.histSpan = HIST_SPAN_LONG;
+  tap.drain(out);
+  assert.equal(out.bits.used, 2, "the passage still holds both");
+  assert.equal(out.bits.total, long);
+  tap.histSpan = HIST_SPAN_SHORT;
+  tap.drain(out);
+  assert.equal(out.histSpan, HIST_SPAN_SHORT);
+  assert.equal(out.bits.used, 1, "…the moment uses one");
+  assert.equal(out.bits.total, short);
+  // The picture follows the figures, not the other way round.
+  assert.equal(out.buckets[200], short);
+  assert.equal(out.buckets[10], 0);
+
+  tap.resetAll();
+  assert.equal(censusTotal(hl), 0);
+  assert.equal(censusTotal(hs), 0);
+  assert.equal(censusTotal(tap.hist), 0);
+  assert.equal(tap.ringFull, false);
+  assert.equal(tap.ringWrite, 0);
+});
+
+test("…and both windows are exact on the 16-bit path too", () => {
+  const tap = windowedTap(16);
+  const long = tap.codeRing.length;
+  const short = tap.shortLag;
+  const feed = (v, codes) => {
+    const buf = new Float64Array(codes / 2).fill(v);
+    tap.binOutput(null, buf, buf, codes / 2);
+  };
+  const codeOf = (v) => (Math.round(v * 32767) + 32768) & 0xffff;
+  feed(0.5, long);
+  assert.equal(tap.histWin[HIST_SPAN_LONG][codeOf(0.5)], long);
+  assert.equal(tap.histWin[HIST_SPAN_SHORT][codeOf(0.5)], short);
+  feed(-0.5, short);
+  assert.equal(tap.histWin[HIST_SPAN_SHORT][codeOf(0.5)], 0, "rolled out of the moment");
+  assert.ok(tap.histWin[HIST_SPAN_LONG][codeOf(0.5)] > 0, "…still in the passage");
+  assert.equal(censusTotal(tap.histWin[HIST_SPAN_LONG]), long);
+  assert.equal(censusTotal(tap.histWin[HIST_SPAN_SHORT]), short);
+  // No count can go negative, whatever order the codes arrive in — each window
+  // only ever decrements a code it put in itself.
+  for (const h of tap.histWin) {
+    if (h === null) continue;
+    for (const v of h) assert.ok(v >= 0);
+  }
+});
+
+test("…and neither depends on how the blocks are cut up", () => {
+  const whole = windowedTap(8);
+  const piecemeal = windowedTap(8);
+  // 1..250 as codes, once as one block and once in awkward 7-frame pieces.
+  // 1008 codes is 72 whole pieces, and more than the 600-code ring, so the
+  // comparison spans a wrap.
+  const codes = new Uint8Array(1008);
+  for (let i = 0; i < codes.length; i++) codes[i] = 1 + (i % 250);
+  whole.binOutput(codes, null, null, codes.length / 2);
+  for (let i = 0; i < codes.length; i += 14) {
+    piecemeal.binOutput(codes.subarray(i, i + 14), null, null, 7);
+  }
+  assert.equal(piecemeal.ringWrite, whole.ringWrite);
+  for (const span of [HIST_SPAN_LONG, HIST_SPAN_SHORT]) {
+    for (let c = 0; c < 256; c++) {
+      assert.equal(piecemeal.histWin[span][c], whole.histWin[span][c], `span ${span} code ${c}`);
+    }
+  }
+});
+
+test("the span is a REPORTING choice: asking for it keeps the take's census", () => {
+  const ts = new TrackerState();
+  ts.setMasterMeter(true, false, 8, HIST_SPAN_ALL);
+  const tap = ts.masterMeter;
+  tap.binOutput(new Uint8Array(64).fill(7), null, null, 32);
+  assert.equal(tap.hist[7], 64);
+  // Switching to a window must not build a new tap — that would throw away both
+  // the take's census and the window it is being asked for.
+  ts.setMasterMeter(true, false, 8, HIST_SPAN_SHORT);
+  assert.equal(ts.masterMeter, tap, "same tap");
+  assert.equal(tap.histSpan, HIST_SPAN_SHORT);
+  assert.equal(tap.hist[7], 64, "the take's census survived");
+  assert.equal(tap.histWin[HIST_SPAN_SHORT][7], 64, "…and so did the window's");
+  ts.setMasterMeter(true, false, 8, HIST_SPAN_LONG);
+  assert.equal(ts.masterMeter, tap);
+  assert.equal(tap.histSpan, HIST_SPAN_LONG);
+  // Anything that is not a span at all falls back to the whole take rather than
+  // indexing a hole in `histWin`.
+  ts.setMasterMeter(true, false, 8, 99);
+  assert.equal(tap.histSpan, HIST_SPAN_ALL);
+  // A DEPTH change is a different measurement and does rebuild it.
+  ts.setMasterMeter(true, false, 16, HIST_SPAN_LONG);
+  assert.notEqual(ts.masterMeter, tap);
+  assert.equal(ts.masterMeter.histSpan, HIST_SPAN_LONG, "the choice carries over");
 });
 
 // ── The Crest readout's 100 ms window (item 178) ────────────────────────────

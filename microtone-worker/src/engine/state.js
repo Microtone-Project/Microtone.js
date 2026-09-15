@@ -12,7 +12,10 @@ import { SURROUND_STEREO, SURROUND_SPATIAL, SpatialBus, StereoRenderer } from ".
 import { MONITOR_FOLD, MONITOR_BINAURAL, BinauralRenderer } from "./binaural.js";
 import { ANALYSIS_OFF, AnalysisTap } from "./analysis.js";
 import { MasterChain, defaultMastering, masteringEngaged } from "./mastering.js";
-import { MasterMeterTap, DEFAULT_BIT_DEPTH } from "./loudness.js";
+import {
+  MasterMeterTap, DEFAULT_BIT_DEPTH,
+  HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT,
+} from "./loudness.js";
 
 // ── PlayInstruction (4484-4494) — tagged objects ──
 export const INST_NOP = 0;
@@ -363,8 +366,9 @@ export class TrackerState {
   /** Install (or drop) the Mastering view's metering tap. `scramble` adds the
    *  phase-scrambled crest measurement, which only the offline analyser asks
    *  for (loudness.js explains why it is not on the live path); `bitDepth`
-   *  picks which delivered format the bit-usage census describes. */
-  setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH) {
+   *  picks which delivered format the bit-usage census describes, and
+   *  `histSpan` (HIST_SPAN_*) over how much of the take it is taken. */
+  setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH, histSpan = HIST_SPAN_ALL) {
     if (!on) { this.masterMeter = null; return; }
     const depth = bitDepth === 8 ? 8 : 16;
     if (this.masterMeter === null || this.masterMeter.scramble !== !!scramble ||
@@ -372,6 +376,12 @@ export class TrackerState {
       this.masterMeter = new MasterMeterTap(SAMPLING_RATE,
         { scramble: !!scramble, bitDepth: depth });
     }
+    // The span is a REPORTING choice and must not rebuild the tap: asking for
+    // the last few seconds would otherwise throw away the take's census — and
+    // the window itself — in order to answer.
+    const span = histSpan | 0;
+    this.masterMeter.histSpan =
+      span === HIST_SPAN_LONG || span === HIST_SPAN_SHORT ? span : HIST_SPAN_ALL;
   }
 
   drainInterrupts() {

@@ -408,8 +408,8 @@ export class TaudEngine {
    * strip's analysis tap this costs nothing while off, so a host turns it on
    * only while the view that reads it is on screen.
    */
-  setMasterMeter(ph, on, scramble = false, bitDepth = undefined) {
-    this.playheads[ph].trackerState.setMasterMeter(on, scramble, bitDepth);
+  setMasterMeter(ph, on, scramble = false, bitDepth = undefined, histSpan = 0) {
+    this.playheads[ph].trackerState.setMasterMeter(on, scramble, bitDepth, histSpan);
   }
 
   setSongGlobalVolume(ph, volume) { this.playheads[ph].globalVolume = volume & 255; }
