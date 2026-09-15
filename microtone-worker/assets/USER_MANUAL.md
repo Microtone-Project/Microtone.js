@@ -228,7 +228,10 @@ and cleared when a file loads.
 ### The right-click menu
 
 Right-clicking a channel — its header, or any row down its column — opens a
-palette of icon buttons:
+palette of icon buttons. The mouse is not the only way in: **`\`** opens the
+same menu over the cell the **cursor** is on, and on a touch screen **pressing
+and holding** opens it under your finger. See
+[Opening it without a right button](#opening-it-without-a-right-button).
 
 | Item | Action |
 |---|---|
@@ -287,6 +290,17 @@ one beside. There, right-clicking focuses the column you pointed at first, which
 is what lets you *Copy* in one column and *Paste* into another. Its second row
 is the same as the Timeline's. The Cues grid has no second row at all — it holds
 pattern numbers, not note cells.
+
+#### Opening it without a right button
+
+A touch screen has no second mouse button, and neither does a keyboard — so the
+menu has two other doors, and both open the same one:
+
+- **`\`** opens it over the **cursor**, not over wherever the pointer was left. The cells are walked with **←** and **→** (and **Home** / **End**), **↑** and **↓** step between the menu's two rows, and **Enter** picks the one with the ring round it. **Esc** closes it. Boards with a dedicated **menu key** can use that instead, and so does **Shift+F10**.
+- **Press and hold** opens it under your finger. A ring travels round what the menu will be about — the block you pressed inside, or the single cell, row band or channel header you pressed on — and the menu opens when the ring closes. Slide your finger before then and the press goes back to being a drag, which is how a block is selected on a touch screen; let go early and nothing happens.
+
+Holding the **left mouse button** deliberately does nothing: the button that
+opens the menu is right there, and a held click is how a block is dragged out.
 
 Inserting slides the channel and everything to its right one place along. The
 song's channel count is fixed at 32 or 64, so the last channel falls off the
@@ -1979,9 +1993,11 @@ shape anywhere on the board and it is the same interval — which is what makes 
 chord one hand shape in every key, and what a Lumatone or a Wicki–Hayden
 concertina gives you. Microtone does it on the keyboard you already own.
 
-A keymap belongs to **you**, not to the song. It is never saved into a `.taud`,
-it survives opening a different piece, and you can carry one between machines as
-a **`.taudkey`** file — a small text file you can also just read and edit.
+A keymap belongs to **you**, not to the song: it survives opening a different
+piece, and you can carry one between machines as a **`.taudkey`** file — a small
+text file you can also just read and edit. A *project* may carry one too, when
+the piece needs a particular keyboard to be editable at all; see
+[Sending a layout with the song](#sending-a-layout-with-the-song).
 
 ### The board
 
@@ -2029,6 +2045,7 @@ the part worth reading:
 - **Degrees reached** — how many of the tuning's notes the board can play. `12 of 12` is a layout you can write anything in; `9 of 12` means three notes you cannot type at all.
 - **Span** — the lowest and highest note on the board.
 - **Sideways** and **Between rows** — what each axis is worth, in cents and as the nearest plain interval, so a layout can be thought about as fifths and thirds rather than degree counts.
+- **Between hands** — the same measurement for the split, and only shown once there is one. See [Two hands, two registers](#two-hands-two-registers).
 - **Doubled keys** — keys that repeat a note another key already plays. Wasteful on a small board; on a big one it is the thing that lets you play the same chord in several hand positions.
 
 **Use for** ties a layout to one tuning. Open a song written in that tuning and
@@ -2061,6 +2078,53 @@ there is no lattice left for it to describe.
 when a scale has fewer notes than the board has keys, or where a gap under the
 fingers is part of the shape you are playing: better a bare key than an
 arbitrary note under it.
+
+### Two hands, two registers
+
+Four rows of a plain lattice are four rows of the *same* lattice, and on a small
+tuning that is a waste of twenty keys: nine degrees to the octave over four rows
+of ten puts your left hand and your right hand in nearly the same register,
+playing nearly the same notes.
+
+**Upper rows, extra** splits the board in two. The top two rows — the numbers
+and **Q…P** on a four-row layout — play that many degrees above the bottom two,
+so each hand gets a keyboard of its own and the two together run through twice
+the range. Set it to the number of degrees the lower pair already covers and the
+board becomes one continuous run across all forty keys; set it to a period and
+the right hand plays the octave above the left.
+
+The rows keep their lattice: every interval inside a hand is exactly what
+**Sideways** and **Between rows** say it is, and only the step *between* the two
+hands is the extra one. **Between hands** in the readout names what that step is
+worth, in cents and as the nearest plain interval, exactly as the two axes are
+named.
+
+It needs at least three rows to mean anything — on a two-row layout the top two
+rows *are* the whole board, and moving the whole board is what **Origin value**
+already does — so the field only appears once there are three, and the layout
+remembers the number if you untick a row and tick it back.
+
+A layout using the split is written as a version-2 `.taudkey`; everything else
+still writes version 1, so a file only becomes unreadable to an older build when
+it actually uses something that build has no word for.
+
+### Sending a layout with the song
+
+A keymap is a performer preference, and usually that is the end of it. But a
+piece written in a nine-note unequal temperament on a split four-row board
+cannot really be *edited* on whatever keyboard the person opening it happens to
+have — so the project is allowed to carry its own.
+
+**Embed in project** puts a copy of the layout in hand into the `.taud`. Open
+that file anywhere and the layout is there in the list, marked **In project**,
+already on the keyboard — and it outranks both the layout you chose and any
+layout bound to the tuning, because it is the more specific statement of the
+three. Close the project and your own layout comes back.
+
+- It is a **copy**, taken when you press the button. Go on editing the layout afterwards and the song keeps the version it was given, which is why the button reads **Embed in project** again as soon as the two differ — press it once more to bring the song's copy up to date.
+- It is a **document edit**, so it is one **Ctrl+Z**, and the file is unsaved until you save it. **Remove from project** takes it back out, and that undoes too.
+- The embedded layout is read-only in the list: **Duplicate** it to get one you can change, exactly as with the built-ins.
+- Nothing about playback changes. A player ignores it completely, and so does the TSVM device — a keymap decides which key on *your* keyboard types which degree, and it cannot reach the sound.
 
 ### The bottom row
 
@@ -2333,6 +2397,7 @@ hear, exactly as if you had played through the arming row.
 | Shift+arrows · drag | Extend a block selection |
 | Ctrl+C / X / V | Copy / cut / paste the block |
 | Esc · Delete / Backspace | Clear the selection · blank the block |
+| `\` · menu key · Shift+F10 | Context menu at the cursor — arrows walk it, Enter picks ([more](#opening-it-without-a-right-button)) |
 | ? | Keyboard help popup |
 
 ### Editing keys

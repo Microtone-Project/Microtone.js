@@ -108,7 +108,9 @@ export function showKeymapManual(spec, preset, octave, legend = defaultLegend) {
     dlg.appendChild(grid);
 
     /** The spec the inputs currently describe: every key an override, no
-     *  generator left to recompute anything under them. */
+     *  generator left to recompute anything under them — the two-hand split
+     *  goes with it, since an override already carries wherever the split had
+     *  put that key. */
     const currentSpec = () => {
       const overrides = {};
       for (const [code, { input }] of cells) {
@@ -120,7 +122,7 @@ export function showKeymapManual(spec, preset, octave, legend = defaultLegend) {
         const v = raw === "" || raw.toLowerCase() === OFF ? null : parseFloat(raw);
         overrides[code] = v === null || !Number.isFinite(v) ? null : v;
       }
-      return normaliseKeymap({ ...base, x: 0, y: 0, overrides });
+      return normaliseKeymap({ ...base, x: 0, y: 0, upper: 0, overrides });
     };
 
     // Live note names: the point of the grid is seeing what you are placing.

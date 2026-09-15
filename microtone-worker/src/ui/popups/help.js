@@ -25,6 +25,7 @@ export function showHelp() {
     ["Shift+" + t("help.arrowsDrag"), t("help.selExtend")],
     ["Ctrl+C / X / V", t("help.clipboard")],
     ["Esc · Delete", t("help.selClear")],
+    ["\\", t("help.ctxMenu")],
   ];
   const col2 = [
     ["A S D F G H J K L ;", t("help.whiteKeys")],

@@ -34,7 +34,8 @@ import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
 import { showModal } from "../widgets/modal.js";
 import { showContextMenu } from "../widgets/contextmenu.js";
-import { clipboardItems } from "../gridmenu.js";
+import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";
+import { clipboardItems, openMenuAtCursor } from "../gridmenu.js";
 import {
   blockToolItems, runBlockTool, isBlockTool,
   volumeDialog, panDialog, transposeDialog, instrumentDialog, transposePresetFor,
@@ -169,12 +170,25 @@ class PatternPane {
       this.invalidate();
     }, { passive: false });
 
+    // Press-and-hold opens the same menu on a touch screen (item 190.1).
+    this.hold = new LongPress({
+      onPaint: () => this.invalidate(),
+      onFire: (press) => this.onContextMenu({
+        clientX: press.clientX, clientY: press.clientY,
+        preventDefault() {}, fromKeyboard: true,
+      }),
+    });
+
     this.canvas.addEventListener("pointerdown", (e) => {
       // Primary button only — the secondary one opens the context menu and
       // must not move the cursor or drop the selection it is about to act on.
       if (e.button !== 0) return;
       const hit = this.hitTest(e);
       if (!hit) return;
+      if (longPressable(e)) {
+        const r = this.canvas.getBoundingClientRect();
+        this.hold.start(e, e.clientX - r.left, e.clientY - r.top, this.holdRect(hit));
+      }
       this.container.setActivePane(this); // clicking a column focuses it
       if (e.shiftKey) {
         // Shift+click = full-column selection.
@@ -192,6 +206,10 @@ class PatternPane {
       this.store.emit("cursor");
     });
     this.canvas.addEventListener("pointermove", (e) => {
+      if (this.hold.active) {
+        const r = this.canvas.getBoundingClientRect();
+        this.hold.moved(e, e.clientX - r.left, e.clientY - r.top);
+      }
       if (this._drag === null) return;
       const hit = this.hitTest(e);
       if (!hit) return;
@@ -203,11 +221,13 @@ class PatternPane {
       this.store.emit("cursor");
     });
     this.canvas.addEventListener("pointerup", (e) => {
+      this.hold.cancel();
       if (this._drag !== null) {
         this.canvas.releasePointerCapture?.(e.pointerId);
         this._drag = null;
       }
     });
+    this.canvas.addEventListener("pointercancel", () => this.hold.cancel());
     this.canvas.addEventListener("contextmenu", (e) => this.onContextMenu(e));
 
     // Interacting with the header — the step buttons, the pattern-number field, or the name
@@ -273,7 +293,8 @@ class PatternPane {
           block: this.hasSelection() })
       : [];
 
-    const pick = await showContextMenu(e.clientX, e.clientY, [items, tools]);
+    const pick = await showContextMenu(e.clientX, e.clientY, [items, tools],
+      { keyboard: e.fromKeyboard === true });
     if (isBlockTool(pick)) {
       const anchor = {
         pat: this.patIdx, row: cells[0].row,
@@ -299,6 +320,36 @@ class PatternPane {
         this.paste();
         break;
     }
+  }
+
+  // ── press-and-hold + the \ key (item 190) ──
+
+  /** What the hold gauge is drawn around: the row band the press landed inside,
+   *  else the single row under it. A Taud pattern is one channel, so the ring
+   *  always spans the cell's full width. */
+  holdRect(hit) {
+    const b = this.selRowBounds();
+    const inside = b && hit.row >= b.r0 && hit.row <= b.r1;
+    const [r0, r1] = inside ? [b.r0, b.r1] : [hit.row, hit.row];
+    const vis = Math.floor(this.canvas.clientHeight / ROW_H);
+    const y0 = Math.max(0, r0 - this.scrollRow) * ROW_H;
+    const y1 = Math.min(vis, r1 - this.scrollRow + 1) * ROW_H;
+    if (y1 <= y0) return null;
+    const chars = cellChars(this.wide(), this.fx2());
+    return { x: GUTTER_W, y: y0, w: chars * CHAR_W + 4, h: y1 - y0 };
+  }
+
+  /** Where the \ key's menu opens — the middle of the cursor's own column,
+   *  scrolled into view first. Canvas coordinates, or null with no pattern. */
+  cursorPoint() {
+    if (!this.store.doc) return null;
+    this._followCursor();
+    this.invalidate();
+    const [cs, ce] = colCharRange(this.wide(), this.fx2())[subToCol(this.cursor.sub)];
+    return {
+      x: GUTTER_W + 4 + ((cs + ce) / 2) * CHAR_W,
+      y: (this.cursor.row - this.scrollRow) * ROW_H + ROW_H / 2,
+    };
   }
 
   /** [{pat, row}] the second row's tools act on: the row-range selection, else
@@ -839,6 +890,7 @@ class PatternPane {
   frame() {
     const audio = this.store.audio;
     if (this.previewing && audio?.isPlaying()) this.needsRedraw = true; // playhead row
+    if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
     let changed = false;
     // Auto-reset when the preview ends — but only AFTER we've actually seen it
     // playing. Snapshots lag the play() command by ~16 ms, so checking
@@ -974,6 +1026,10 @@ class PatternPane {
     ctx.moveTo(GUTTER_W - 2.5, 0);
     ctx.lineTo(GUTTER_W - 2.5, H);
     ctx.stroke();
+
+    // The press-and-hold gauge, last of all, so nothing is drawn over it.
+    paintPerimeterGauge(ctx, this.hold.press?.rect ?? null, this.hold.progress(),
+      C.accent, C.dim);
   }
 }
 
@@ -1039,6 +1095,8 @@ export class PatternView {
   set sel(v) { this.active.sel = v; this.active.invalidate(); }
   pattern() { return this.active.pattern(); }
   setPattern(i) { return this.active.setPattern(i); }
+  /** The \ key opens the menu over the column the keyboard is in (item 190). */
+  openMenuAtCursor() { return openMenuAtCursor(this.active); }
   goTo(pat, row) { return this.active.goTo(pat, row); }
   duplicate() { return this.active.duplicate(); }
   findChangeOp() { return this.active.findChangeOp(); }

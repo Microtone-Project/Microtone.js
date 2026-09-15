@@ -862,7 +862,7 @@ Nothing in Project Data is required to play a song correctly, with three excepti
 - `Ixmp`, because it changes which samples an instrument plays.
 - `sMst`, because it is the chain the song is delivered through ([§9.12](#9-12-smst-song-mastering)).
 
-Everything else is naming, display and editor state.
+Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all.
 
 ### 9.9 `SRgn` — sample-pool regions
 
@@ -1078,6 +1078,18 @@ Each band record is:
 
 Only band 1 may declare a low shelf and only band 4 a high shelf; a shelf shape on band 2 or 3 **MUST** be read as a bell. Storing the parameters as binary32 is what lets an editor hold exactly what the file will hold, so a save-and-reload cannot drift the chain a fraction of a decibel at a time.
 
+### 9.13 `PKey` — project keymap
+
+The keyboard layout the project is written for: one `.taudkey` document, UTF-8, exactly as a Microtone export writes it. A terminating `NUL` is **OPTIONAL** and a reader **MUST** stop at the first one when it is present, the same rule the project strings follow ([§9.2](#9-2-pnam-pcom-pcpr-pmsg-project-strings)). Line breaks are `LF` (`$0A`).
+
+Project-scoped: a `.taud` may hold several songs, but the layout is a property of the piece's *notation* rather than of any one arrangement, and it stays with the project when a bank is split out into a `.tsii`.
+
+A keymap decides which physical key of a typing keyboard sounds which degree of the tuning. It changes nothing about playback — no player reads it, and a device that ignores Project Data plays the song identically — but a piece written in a nine-note unequal temperament on a split four-row board cannot be *edited* on whatever layout its reader happens to have, so this is how the piece carries its own.
+
+A file **SHOULD** hold at most one `PKey`. An editor that cannot parse the payload — a `.taudkey` version newer than it reads, or one that is malformed — **MUST** fall back to the user's own layout, and **MUST** leave the section's bytes untouched when saving, so a layout written by a later version survives a round trip through an older editor.
+
+The `.taudkey` text format itself is not part of this specification: it is an editor file, versioned on its own header line, and it is carried here as an opaque payload.
+
 ## 10. Validity checklist
 
 A writer producing a file that any conforming reader will accept must satisfy all of the following.
@@ -1117,3 +1129,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-09-03 | `SRgn` — sample-pool regions: long recordings living in the pool that no instrument claims |
 | 2026-09-09 | `sMst` — song mastering: the delivery chain, and the third Project-Data section a player must honour |
 | 2026-09-11 | An interrupt marker's argument: the `:` effect on the marker's own row, 0…65535, 0 where the row carries none |
+| 2026-09-15 | `PKey` — project keymap: the `.taudkey` layout the piece is written for, carried in the project |

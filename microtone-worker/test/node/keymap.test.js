@@ -5,7 +5,7 @@ import {
   ROW_CODES, ROW_INDEX, rowOfCode, resolveKeymap, keymapNote, keymapStats,
   normaliseKeymap, BUILTIN_KEYMAPS, builtinKeymap, DEFAULT_KEYMAP, fitKeymapToPreset,
   parseTaudkey, buildTaudkey, quoteKeyFields, QUOTE_ACTIONS, QUOTE_DEFAULT,
-  nearestRatio, unitsToCents, keymapHas, keymapClaimsZRow, PIANO_KEYMAP,
+  nearestRatio, unitsToCents, keymapHas, keymapClaimsZRow, PIANO_KEYMAP, upperRows,
 } from "../../src/ui/keymap.js";
 import { boardExtent, defaultLegend, BOARD_SIZES } from "../../src/ui/keymapboard.js";
 import { JAM_SEMIS, semiToNoteInTable } from "../../src/ui/edit.js";
@@ -491,4 +491,111 @@ test("keymap: Piano stays first, whatever else ships", () => {
   assert.equal(BUILTIN_KEYMAPS.filter((k) => k.name === "Piano").length, 1);
   assert.equal(new Set(BUILTIN_KEYMAPS.map((k) => k.name)).size, BUILTIN_KEYMAPS.length,
     "and every shipped layout has its own name — the library keys on it");
+});
+
+// ── the two-hand split (item 189) ──
+//
+// A four-row board is two keyboards, one per hand. `upper` moves the top pair
+// so the two hands play different registers, which is what turns thirty-odd
+// keys of the same half-octave over and over into a board that runs.
+
+test("keymap: the split moves the TOP TWO rows and nothing else", () => {
+  const spec = normaliseKeymap({
+    rows: ["Z", "A", "Q", "N"], origin: { code: "KeyA", value: 0 }, x: 1, y: 1, upper: 100,
+  });
+  const map = resolveKeymap(spec);
+  assert.deepEqual(upperRows(spec.rows), ["Q", "N"], "Q and N are the upper block");
+  assert.equal(map.get("KeyZ"), -1, "Z row: the lattice alone");
+  assert.equal(map.get("KeyA"), 0, "A row: the origin");
+  assert.equal(map.get("KeyQ"), 101, "Q row: one row up, plus the split");
+  assert.equal(map.get("Digit1"), 102, "N row: two rows up, plus the same split");
+  // …and the split is one offset for the block, not a per-row one: the interval
+  // BETWEEN the two upper rows is still y.
+  assert.equal(map.get("Digit1") - map.get("KeyQ"), spec.y);
+});
+
+test("keymap: the split is measured from the origin's own block", () => {
+  // Anchor the origin in the UPPER block and the origin key is still worth
+  // exactly origin.value — the lower block drops away below it instead. The
+  // panel shows that one number, and it has to mean what it says either way.
+  const spec = normaliseKeymap({
+    rows: ["Z", "A", "Q", "N"], origin: { code: "KeyQ", value: 7 }, x: 1, y: 1, upper: 50,
+  });
+  const map = resolveKeymap(spec);
+  assert.equal(map.get("KeyQ"), 7, "the origin key is the origin value");
+  assert.equal(map.get("KeyA"), 7 - 1 - 50, "the lower block sits a split below");
+  assert.equal(map.get("Digit1"), 8, "the other upper row keeps the plain lattice step");
+});
+
+test("keymap: a board with fewer than three rows has no split to make", () => {
+  // Two rows ARE the top two, so "move the top two" would move the whole board
+  // — which is what origin.value already does. The control is off there, and
+  // upperRows is what the panel asks.
+  for (const rows of [["A"], ["A", "Q"], ["Z", "A"]]) {
+    assert.deepEqual(upperRows(normaliseKeymap({ rows }).rows), [], rows.join(""));
+  }
+  const two = normaliseKeymap({ rows: ["A", "Q"], origin: { code: "KeyA", value: 0 }, x: 1, y: 10, upper: 100 });
+  assert.equal(resolveKeymap(two).get("KeyQ"), 10, "the stored value is simply not applied");
+  assert.equal(two.upper, 100, "…and not destroyed either — ticking a third row brings it back");
+});
+
+test("keymap: the split reproduces a hand-placed four-row layout exactly", () => {
+  // The layout item 189 exists for: Bosanquet–Wilson over nine unequal degrees,
+  // the upper hand twenty degrees above the lower. Hand-placed it needed twenty
+  // overrides; generated it needs one number, and the two must be the SAME
+  // keyboard or the feature has not replaced anything.
+  const byHand = normaliseKeymap({
+    rows: ["Z", "A", "Q", "N"], origin: { code: "KeyA", value: -1 }, x: 2, y: -1,
+    overrides: {
+      Digit1: 17, Digit2: 19, Digit3: 21, Digit4: 23, Digit5: 25,
+      Digit6: 27, Digit7: 29, Digit8: 31, Digit9: 33, Digit0: 35,
+      KeyQ: 18, KeyW: 20, KeyE: 22, KeyR: 24, KeyT: 26,
+      KeyY: 28, KeyU: 30, KeyI: 32, KeyO: 34, KeyP: 36,
+    },
+  });
+  const generated = normaliseKeymap({
+    rows: ["Z", "A", "Q", "N"], origin: { code: "KeyA", value: -1 }, x: 2, y: -1, upper: 20,
+  });
+  assert.deepEqual(
+    [...resolveKeymap(generated).entries()].sort(),
+    [...resolveKeymap(byHand).entries()].sort(),
+    "every one of the forty keys",
+  );
+  assert.equal(Object.keys(generated.overrides).length, 0, "and with no overrides left");
+});
+
+test("keymap: the split is read out in cents, like the two axes", () => {
+  const P12 = pitchTablePresets[120];
+  const split = normaliseKeymap({
+    rows: ["Z", "A", "Q", "N"], origin: { code: "KeyA", value: 0 }, x: 1, y: 3, upper: 12,
+  });
+  assert.equal(Math.round(keymapStats(split, P12).axisCents.upper), 1200,
+    "twelve degrees of 12-TET is the octave");
+  // No split, no read-out: the panel hides the row rather than showing a dash
+  // on every layout that does not use one.
+  const plain = normaliseKeymap({ rows: ["N", "Q", "A"], origin: { code: "KeyA", value: 0 }, x: 2, y: 1 });
+  assert.equal(keymapStats(plain, P12).axisCents.upper, 0);
+  // …and neither does a board too short to split, whatever it stores.
+  const two = normaliseKeymap({ rows: ["A", "Q"], origin: { code: "KeyA", value: 0 }, x: 1, y: 1, upper: 12 });
+  assert.equal(keymapStats(two, P12).axisCents.upper, 0);
+});
+
+test("taudkey: a split file says version 2, and only a split file does", () => {
+  const split = normaliseKeymap({
+    name: "Split", rows: ["Z", "A", "Q", "N"], origin: { code: "KeyA", value: -1 },
+    x: 2, y: -1, upper: 20,
+  });
+  const text = buildTaudkey(split);
+  assert.match(text, /^TAUDKEY 2$/m, "a layout version 1 cannot read declares 2");
+  assert.match(text, /^upper\s+20$/m);
+  assert.deepEqual(parseTaudkey(text), split, "and it round-trips");
+
+  // Everything else still writes version 1 — a new field must not make every
+  // exported file unreadable to a build that would have understood it.
+  for (const spec of BUILTIN_KEYMAPS) {
+    assert.match(buildTaudkey(spec), /^TAUDKEY 1$/m, spec.name);
+    assert.doesNotMatch(buildTaudkey(spec), /^upper\b/m, spec.name);
+  }
+  // An older file has no split, and reads as one without.
+  assert.equal(parseTaudkey(buildTaudkey(BUILTIN_KEYMAPS[1])).upper, 0);
 });

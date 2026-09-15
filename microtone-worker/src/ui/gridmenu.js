@@ -19,6 +19,30 @@ import { CUE_EMPTY, MAX_VOICES } from "../format/taud-const.js";
 const PAT_MASK = 0x7fff;
 const CMD_BIT = 0x8000;
 
+/**
+ * Open a grid's own context menu from the KEYBOARD, over the cell the cursor is
+ * on (item 190). Returns true when a menu was asked for.
+ *
+ * The menu is opened by SYNTHESISING the pointer event the right-click path
+ * already takes, rather than by giving each view a second entry point into its
+ * own menu: what the \ key does then cannot drift from what the right button
+ * does, which is the whole reason the key exists. `cursorPoint()` scrolls the
+ * cursor into view first and answers in canvas coordinates — the point has to
+ * be one the view can hit-test, and a cursor two hundred rows off screen is not.
+ */
+export function openMenuAtCursor(view) {
+  const pt = view?.cursorPoint?.();
+  if (!pt) return false;
+  const rect = view.canvas.getBoundingClientRect();
+  view.onContextMenu({
+    clientX: rect.left + pt.x,
+    clientY: rect.top + pt.y,
+    preventDefault() {},
+    fromKeyboard: true,
+  });
+  return true;
+}
+
 /** Copy / Cut / Paste cells. `hasSelection` gates the first two, `canPaste` the
  *  third; `selAnchored` only picks the tooltip that tells the truth about where
  *  the paste will land. */

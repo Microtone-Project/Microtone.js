@@ -1,0 +1,283 @@
+<!doctype html><meta charset="utf-8"><title>Context menu without the right button (\ key + press-and-hold)</title>
+<pre id="out">running…</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
+<script type="module">
+// Item 190: the three grids' context menus, reached WITHOUT the second mouse
+// button — which is what a touch screen has to live without entirely.
+//
+// Three things have to hold, on each of the three grids:
+//   \ opens the menu OVER THE CURSOR — the same menu the right button opens,
+//     aimed at the cell the keyboard is on rather than at wherever a pointer
+//     was left;
+//   the arrows walk its cells, including between its two rows, so the menu can
+//     be finished with the keyboard it was opened with;
+//   press-and-hold opens it too, and a press that TRAVELS does not — that is
+//     the block drag, and turning a drag into a menu would make selection
+//     impossible on a tablet.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+window.addEventListener("error", (e) => log("ERROR " + e.message));
+(async () => {
+ try {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); return; }
+  for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
+  const doc = win.document;
+  const { store, timeline, cuesView, patternView } = M;
+  // `:focus` only matches inside a frame that is itself in the focus chain, and
+  // the highlight checks below read it off the COMPUTED style.
+  app.focus();
+  win.focus();
+
+  const key = (code, opts = {}) =>
+    win.dispatchEvent(new win.KeyboardEvent("keydown", { code, bubbles: true, ...opts }));
+  const menuKey = async (code = "Backslash", opts = {}) => {
+    key(code, opts);
+    let dlg = null;
+    for (let i = 0; i < 60 && !dlg; i++) { dlg = doc.querySelector("dialog.ctxmenu"); await sleep(20); }
+    return dlg;
+  };
+  const cells = (dlg) => [...dlg.querySelectorAll(".ctx-cell:not(:disabled)")];
+  const focusId = () => doc.activeElement?.closest?.(".ctx-cell")?.dataset.id ?? null;
+  // The menu's own keydown listener is what implements the walk, so the event
+  // has to be delivered INSIDE the dialog, the way a real key press would be.
+  const inMenu = (dlg, k) =>
+    (doc.activeElement ?? dlg).dispatchEvent(new win.KeyboardEvent("keydown", { key: k, bubbles: true }));
+  const dismiss = async (dlg) => {
+    dlg?.dispatchEvent(new win.Event("cancel", { cancelable: true }));
+    await sleep(40);
+  };
+
+  // ══════════════════ TIMELINE (F1) ══════════════════
+  key("F1");
+  await sleep(120);
+  check(store.view === "timeline", "on the Timeline", store.view);
+
+  // Put the cursor somewhere unremarkable, and NOWHERE NEAR wherever a pointer
+  // might have been: the point of the key is that it follows the keyboard.
+  store.cursor = { row: 12, ch: 3, sub: 0, nib: 0 };
+  timeline.sel = null;
+  store.emit("cursor");
+  await sleep(60);
+
+  let dlg = await menuKey();
+  check(!!dlg, "\\ opens the menu on the Timeline");
+  check(dlg?.dataset.keyboard === "1", "…and records that a key opened it");
+  const tlIds = cells(dlg).map((c) => c.dataset.id);
+  check(tlIds.includes("insLeft") && tlIds.includes("insRight"),
+    "it is the channel menu, same as the right button's", tlIds.join());
+  check(focusId() !== null, "a cell has the focus ring to start from", String(focusId()));
+
+  // ←/→ walk every cell in reading order, and wrap.
+  const first = focusId();
+  inMenu(dlg, "ArrowRight");
+  const second = focusId();
+  check(second !== first, "→ moves to the next cell", `${first} → ${second}`);
+  inMenu(dlg, "ArrowLeft");
+  check(focusId() === first, "← comes back");
+  inMenu(dlg, "End");
+  const last = focusId();
+  check(last !== first, "End reaches the last cell", String(last));
+  inMenu(dlg, "Home");
+  check(focusId() === first, "Home returns to the first");
+  inMenu(dlg, "ArrowLeft");
+  check(focusId() === last, "← off the front wraps to the back");
+  inMenu(dlg, "ArrowRight");
+  check(focusId() === first, "…and → wraps forward again");
+
+  // ↑/↓ walk the ROWS — the menu is a grid, and the column tools are a row of
+  // their own underneath the clipboard.
+  const rowOf = () => [...dlg.querySelectorAll(".ctx-row")]
+    .findIndex((r) => r.contains(doc.activeElement));
+  const rowsInMenu = dlg.querySelectorAll(".ctx-row").length;
+  check(rowsInMenu >= 2, "this menu has two rows to walk between", `${rowsInMenu} rows`);
+  const beforeRow = rowOf();
+  inMenu(dlg, "ArrowDown");
+  check(rowOf() !== beforeRow, "↓ moves to the other row", `${beforeRow} → ${rowOf()}`);
+  inMenu(dlg, "ArrowUp");
+  check(rowOf() === beforeRow, "↑ comes back");
+
+  // ONE highlight, wherever it was last put. The menu used to carry two: a
+  // :hover one under the pointer and a :focus-visible ring that began matching
+  // every programmatic focus as soon as the \ key had been pressed once — so
+  // from then on every menu, mouse-opened ones included, lit two cells at once.
+  // `.here` is now the only thing that paints a cell, and it follows focus.
+  const lit = () => [...dlg.querySelectorAll(".ctx-cell.here")];
+  check(lit().length === 1, `exactly one cell is highlighted (${lit().length})`);
+  check(lit()[0]?.dataset.id === focusId(),
+    "and it is the cell Enter would take", `${lit()[0]?.dataset.id} vs ${focusId()}`);
+
+  // …and the pointer moves that same one rather than lighting a second.
+  const target = cells(dlg).at(-1);
+  target.dispatchEvent(new win.PointerEvent("pointerenter", { bubbles: false, pointerId: 3 }));
+  check(focusId() === target.dataset.id, "hovering a cell moves the highlight to it",
+    `${focusId()} vs ${target.dataset.id}`);
+  check(lit().length === 1 && lit()[0] === target,
+    `and there is still only one, on the hovered cell (${lit().length})`);
+  inMenu(dlg, "ArrowRight");
+  check(lit().length === 1 && lit()[0]?.dataset.id === focusId(),
+    "an arrow after a hover moves that same one");
+  await dismiss(dlg);
+
+  // The reported bug, in order: open with the key, then open with the MOUSE.
+  // The second menu must still carry exactly one highlight.
+  const rc = async (x, y) => {
+    const rr = timeline.canvas.getBoundingClientRect();
+    timeline.canvas.dispatchEvent(new win.MouseEvent("contextmenu", {
+      clientX: rr.left + x, clientY: rr.top + y, bubbles: true, cancelable: true, button: 2 }));
+    let d = null;
+    for (let i = 0; i < 60 && !d; i++) { d = doc.querySelector("dialog.ctxmenu"); await sleep(20); }
+    return d;
+  };
+  dlg = await rc(76 + timeline.colWFor(0) / 2, timeline.headerH() + 5 * 16 + 8);
+  check(!!dlg, "a right-click still opens the menu after the key has been used");
+  check(!dlg?.dataset.keyboard, "…and this one was not opened by a key");
+  check(lit().length === 1, `one highlight on a mouse-opened menu too (${lit().length})`);
+  check(lit()[0]?.dataset.id === focusId(), "…and it is still the one Enter would take");
+  await dismiss(dlg);
+
+  // The menu is about WHERE THE CURSOR IS: move the cursor to a channel with a
+  // pattern-bearing slot and one without, and the offered cells differ.
+  const cueOf = (row) => timeline.locate(row);
+  let emptyTarget = null;
+  for (let row = 0; row < 200 && !emptyTarget; row++) {
+    const loc = cueOf(row);
+    if (!loc) continue;
+    for (let ch = 0; ch < store.doc.channelCount; ch++) {
+      if ((store.song.cues[loc.entry.cue][ch] & 0x7fff) === 0x7fff) { emptyTarget = { row, ch }; break; }
+    }
+  }
+  check(!!emptyTarget, "the corpus has an empty slot to aim at");
+  if (emptyTarget) {
+    store.cursor = { row: emptyTarget.row, ch: emptyTarget.ch, sub: 0, nib: 0 };
+    store.emit("cursor");
+    await sleep(40);
+    dlg = await menuKey();
+    check(cells(dlg).some((c) => c.dataset.id === "newPat"),
+      "over an empty slot the key's menu offers New pattern");
+    await dismiss(dlg);
+  }
+
+  // ContextMenu and Shift+F10 are the same door.
+  store.cursor = { row: 12, ch: 3, sub: 0, nib: 0 };
+  store.emit("cursor");
+  dlg = await menuKey("ContextMenu");
+  check(!!dlg, "the ContextMenu key opens it too");
+  await dismiss(dlg);
+  dlg = await menuKey("F10", { shiftKey: true });
+  check(!!dlg, "and so does Shift+F10");
+  await dismiss(dlg);
+
+  // ══════════════════ press-and-hold ══════════════════
+  const cv = timeline.canvas;
+  const r = () => cv.getBoundingClientRect();
+  const touch = (type, x, y, extra = {}) => cv.dispatchEvent(new win.PointerEvent(type, {
+    clientX: r().left + x, clientY: r().top + y, bubbles: true, cancelable: true,
+    pointerId: 9, pointerType: "touch", isPrimary: true, button: 0, buttons: 1, ...extra,
+  }));
+  const GUTTER = 76, HDR = timeline.headerH(), ROW_H = 16;
+  const holdX = GUTTER + timeline.colWFor(0) / 2, holdY = HDR + 3 * ROW_H + 8;
+
+  touch("pointerdown", holdX, holdY);
+  await sleep(60);
+  check(timeline.hold.active, "a touch press arms the hold");
+  check(!!timeline.hold.press.rect, "…and picks out what it would act on");
+  let held = null;
+  for (let i = 0; i < 60 && !held; i++) { held = doc.querySelector("dialog.ctxmenu"); await sleep(20); }
+  check(!!held, "holding opens the menu with no second button anywhere");
+  check(held?.dataset.keyboard === "1", "…and it is the keyboard-navigable one");
+  await dismiss(held);
+  touch("pointerup", holdX, holdY);
+  await sleep(40);
+
+  // A press that travels is a block drag, and must NOT become a menu.
+  touch("pointerdown", holdX, holdY);
+  await sleep(40);
+  touch("pointermove", holdX + 80, holdY + 60, { buttons: 1 });
+  check(!timeline.hold.active, "a press that travels stops being a hold");
+  await sleep(600);
+  check(!doc.querySelector("dialog.ctxmenu"), "…and no menu opens behind the drag");
+  touch("pointerup", holdX + 80, holdY + 60);
+  await sleep(40);
+  check(!!timeline.sel, "the drag it really was still made a selection");
+  timeline.sel = null;
+
+  // A MOUSE press is not a hold — the button it would replace is right there,
+  // and every block drag starts by holding it down.
+  cv.dispatchEvent(new win.PointerEvent("pointerdown", {
+    clientX: r().left + holdX, clientY: r().top + holdY, bubbles: true,
+    pointerId: 1, pointerType: "mouse", button: 0, buttons: 1,
+  }));
+  check(!timeline.hold.active, "a mouse press arms nothing");
+  await sleep(600);
+  check(!doc.querySelector("dialog.ctxmenu"), "…and holding the left button opens nothing");
+  cv.dispatchEvent(new win.PointerEvent("pointerup", {
+    clientX: r().left + holdX, clientY: r().top + holdY, bubbles: true, pointerId: 1, pointerType: "mouse" }));
+  timeline.sel = null;
+  await sleep(40);
+
+  // ══════════════════ CUES (F2) ══════════════════
+  key("F2");
+  await sleep(120);
+  cuesView.cursor = { cue: 1, col: 3, nib: 0 };
+  cuesView.sel = null;
+  cuesView.invalidate();
+  await sleep(60);
+  dlg = await menuKey();
+  check(!!dlg, "\\ opens the menu on Cues");
+  const cueIds = cells(dlg).map((c) => c.dataset.id);
+  check(cueIds.includes("insLeft"), "…the channel menu again", cueIds.join());
+  await dismiss(dlg);
+
+  // A Cmd column belongs to the cue, not to a channel, and offers nothing —
+  // so the key must not conjure an empty menu there either.
+  cuesView.cursor = { cue: 1, col: 0, nib: 0 };
+  key("Backslash");
+  await sleep(120);
+  check(!doc.querySelector("dialog.ctxmenu"), "on a Cmd column the key offers nothing, like the right button");
+
+  // ══════════════════ PATTERNS (F3) ══════════════════
+  key("F3");
+  await sleep(150);
+  const pane = patternView.active;
+  pane.cursor.row = 8;
+  pane.cursor.sub = 0;
+  pane.sel = null;
+  pane.invalidate();
+  await sleep(60);
+  dlg = await menuKey();
+  check(!!dlg, "\\ opens the menu on Patterns");
+  const patIds = cells(dlg).map((c) => c.dataset.id);
+  check(!patIds.includes("insLeft"), "…the clipboard-only one, as the right button gives", patIds.join());
+  await dismiss(dlg);
+
+  // …and it lands on the row the cursor is on, which is what makes Paste land
+  // there too. Copy a row, move the cursor, paste through the key's menu.
+  pane.sel = { aRow: 0, row: 0, aSub: 0, sub: 5 };
+  pane.copySelection();
+  await sleep(40);
+  pane.sel = null;
+  pane.cursor.row = 31;
+  dlg = await menuKey();
+  const pasteCell = dlg?.querySelector('.ctx-cell[data-id="paste"]');
+  check(!!pasteCell, "Paste is offered");
+  pasteCell?.click();
+  await sleep(120);
+  check(pane.cursor.row === 31, "the paste stayed on the cursor row the key named",
+    `row ${pane.cursor.row}`);
+  store.undo.undo();
+  await sleep(60);
+
+  log(`\nFAILURES: ${fails}`);
+ } catch (err) { log("THREW: " + err.message + "\n" + err.stack); log("\nFAILURES: 1"); }
+})();
+</script>

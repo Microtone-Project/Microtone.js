@@ -863,7 +863,18 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
   min-height: 0;
   gap: 2px;
 }
-.view-canvas { display: block; position: absolute; inset: 0; }
+/* The grids own every gesture on them: a drag is a block selection and a
+   press-and-hold is the context menu (item 190.1). Left to the browser, a touch
+   drag would be a pan — the canvas fills its pane and has nothing to scroll, so
+   all that would happen is the selection and the hold both being cancelled. The
+   callout rule stops iOS putting its own press-and-hold sheet over ours. */
+.view-canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
 .view-dom { position: absolute; inset: 0; }
 
 .empty-state {
@@ -1563,12 +1574,21 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   line-height: 1.2;
   text-align: center;
 }
-.ctx-cell:hover:not(:disabled),
-.ctx-cell:focus-visible {
+/* EXACTLY ONE highlighted cell, and contextmenu.js says which: it puts `.here`
+   on the cell it focuses, and the arrows, Home/End, Tab and the pointer all go
+   through that one place.
+
+   A class, not :hover + :focus-visible. Those were two highlights, and they
+   both fired at once as soon as the \ key had been used — :focus-visible starts
+   matching every later programmatic focus once the browser has seen a keyboard
+   interaction, so the ring stayed on the mouse's menus too while the pointer
+   lit a second cell somewhere else. The outline rule is here for the same
+   reason: the browser's own focus ring would be a third. */
+.ctx-cell:focus { outline: none; }
+.ctx-cell.here {
   background: var(--panel-2);
   border-color: var(--accent);
   color: var(--accent);
-  outline: none;
 }
 .ctx-cell:disabled { color: var(--dim); cursor: default; opacity: 0.5; }
 .ctx-icon { display: block; height: 30px; }
@@ -2063,7 +2083,13 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pattern-canvas { display: block; border: 1px solid var(--border); border-radius: 6px; }
+.pattern-canvas {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
 .pattern-pane.active .pattern-canvas { border-color: var(--accent); }
 .pattern-pane.active .pane-num { color: var(--accent); }
 
@@ -3324,7 +3350,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .keymap-item:hover { background: var(--panel-2); }
 .keymap-item.active { background: var(--accent); color: var(--bg); }
 .keymap-item.builtin .keymap-item-name { font-style: italic; }
-.keymap-item-tag { color: var(--dim); font-size: 0.72rem; }
+/* The name takes the room and the tags huddle to the right of it, however many
+   there are — space-between alone would fling a second tag away from the first
+   once a layout is both "In project" and bound to a tuning. */
+.keymap-item-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.keymap-item-tag { color: var(--dim); font-size: 0.72rem; white-space: nowrap; }
 .keymap-item.active .keymap-item-tag { color: inherit; opacity: 0.75; }
 /* Two rows of three, the same treatment the Instruments and Samples toolbars
    get (.side-toolbar-inst): "New / Duplicate / Rename" over "Delete / Import /

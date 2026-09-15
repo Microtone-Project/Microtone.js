@@ -1493,6 +1493,17 @@ window.addEventListener("keydown", (e) => {
     showHelp();
     return;
   }
+  // \ — the context menu at the cursor (item 190). The three grids' menus have
+  // only ever been reachable with the second mouse button, which a touch screen
+  // does not have and a keyboard player should not have to reach for; this is
+  // the same menu, over the cell the cursor is on, and its cells are walked
+  // with the arrows. ContextMenu is the dedicated key some boards carry, and
+  // Shift+F10 the convention everywhere else — all three mean the same thing.
+  if ((e.code === "Backslash" || e.code === "ContextMenu" ||
+       (e.code === "F10" && e.shiftKey)) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const v = selView();
+    if (v?.openMenuAtCursor?.()) { e.preventDefault(); return; }
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
 
   switch (e.code) {

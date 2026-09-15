@@ -28,9 +28,11 @@ import { canvasFont } from "../fonts.js";
 import { unescapeName } from "../names.js";
 import { paintSpatialDot } from "../spatialdot.js";
 import { showContextMenu } from "../widgets/contextmenu.js";
+import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";
 import {
   clipboardItems, channelItems, newPatternItem, insertChannelAt,
   patternSlotItems, isPatternSlotItem, moveSlots, duplicateSlots, deleteSlots,
+  openMenuAtCursor,
   muteItems, runMuteItem, fx2Items, runFx2Item,
 } from "../gridmenu.js";
 import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
@@ -108,7 +110,17 @@ export class TimelineView {
     canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
     canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
     canvas.addEventListener("pointerup", (e) => this.onPointerUp(e));
+    canvas.addEventListener("pointercancel", () => this.hold.cancel());
     canvas.addEventListener("contextmenu", (e) => this.onContextMenu(e));
+
+    // Press-and-hold opens the same menu on a touch screen (item 190.1).
+    this.hold = new LongPress({
+      onPaint: () => this.invalidate(),
+      onFire: (press) => this.onContextMenu({
+        clientX: press.clientX, clientY: press.clientY,
+        preventDefault() {}, fromKeyboard: true,
+      }),
+    });
 
     this._ro = new ResizeObserver(() => this.resize());
     this._ro.observe(canvas.parentElement);
@@ -368,6 +380,7 @@ export class TimelineView {
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    if (longPressable(e)) this.hold.start(e, x, y, this.holdRect(x, y));
     if (y < this.headerH()) {
       // channel header: click = mute toggle, Ctrl/⌘+click = solo toggle
       const ch = this.channelAt(x);
@@ -442,6 +455,13 @@ export class TimelineView {
   }
 
   onPointerMove(e) {
+    // A press that has travelled was a drag all along — checked before the
+    // drag guards, because a press over the header or the grid's empty space
+    // starts no drag at all and would otherwise never be cancelled.
+    if (this.hold.active) {
+      const r = this.canvas.getBoundingClientRect();
+      this.hold.moved(e, e.clientX - r.left, e.clientY - r.top);
+    }
     if (!this._drag && !this._troughDrag) return;
     const rect = this.canvas.getBoundingClientRect();
     if (this._troughDrag) {
@@ -471,11 +491,78 @@ export class TimelineView {
   }
 
   onPointerUp(e) {
+    this.hold.cancel();
     if (this._drag || this._troughDrag) {
       this.canvas.releasePointerCapture?.(e.pointerId);
       this._drag = null;
       this._troughDrag = null;
     }
+  }
+
+  // ── press-and-hold + the \ key (item 190) ──
+
+  /**
+   * What the hold gauge is drawn around: the block the press landed INSIDE,
+   * else the one thing under it — a row band in the trough, a channel header,
+   * or a single cell. Canvas coordinates, or null where there is nothing to
+   * point at.
+   */
+  holdRect(x, y) {
+    const headerH = this.headerH();
+    if (this.inTrough(x)) {
+      if (y < headerH) return null;
+      const row = this.rowAt(y);
+      if (row < 0) return null;
+      const b = this.isRowBand() ? this.selBounds() : null;
+      const band = b && row >= b.r0 && row <= b.r1 ? [b.r0, b.r1] : [row, row];
+      return this.rowsRect(band[0], band[1], 0, GUTTER_W - 4);
+    }
+    const strip = this.stripAt(x);
+    if (!strip) return null;
+    if (y < headerH) return { x: strip.x - 2, y: 0, w: strip.w - 2, h: headerH };
+    const hit = this.hitTest(x, y);
+    if (!hit) return null;
+    const b = this.selBounds();
+    const inside = b && hit.row >= b.r0 && hit.row <= b.r1 && hit.ch >= b.c0 && hit.ch <= b.c1;
+    if (!inside) return this.rowsRect(hit.row, hit.row, strip.x - 2, strip.w - 2);
+    const strips = this.chanLayout();
+    const first = strips.find((sp) => sp.ch >= b.c0);
+    const last = [...strips].reverse().find((sp) => sp.ch <= b.c1);
+    if (!first || !last) return null;
+    return this.rowsRect(b.r0, b.r1, first.x - 2, last.x + last.w - first.x - 2);
+  }
+
+  /** The canvas rectangle rows r0…r1 occupy over [x, x+w), clipped to the part
+   *  of the grid that is actually on screen. */
+  rowsRect(r0, r1, x, w) {
+    const headerH = this.headerH();
+    const top = Math.floor(this.scrollRow);
+    const y0 = headerH + Math.max(0, r0 - top) * ROW_H;
+    const y1 = headerH + Math.min(this.visibleRows(), r1 - top + 1) * ROW_H;
+    return y1 <= y0 ? null : { x, y: y0, w, h: y1 - y0 };
+  }
+
+  /** The \ key opens the right-click menu where the cursor is (item 190). */
+  openMenuAtCursor() { return openMenuAtCursor(this); }
+
+  /**
+   * Where the \ key's menu opens: the middle of the cursor cell's own column,
+   * scrolled into view first so the point it names is one the grid can hit-test.
+   * Canvas coordinates, or null when there is no song under the cursor.
+   */
+  cursorPoint() {
+    const map = this.getMap();
+    if (!map || map.totalRows === 0) return null;
+    this.keepCursorVisible();
+    this.invalidate();
+    const c = this.store.cursor;
+    const strip = this.chanLayout().find((sp) => sp.ch === c.ch);
+    if (!strip) return null;
+    const [cs, ce] = colCharRange(this.wide(), this.fx2On(c.ch))[subToCol(c.sub ?? 0)];
+    return {
+      x: strip.x + 2 + ((cs + ce) / 2) * CHAR_W,
+      y: this.headerH() + (c.row - Math.floor(this.scrollRow)) * ROW_H + ROW_H / 2,
+    };
   }
 
   // ── right-click context menu ──
@@ -553,7 +640,8 @@ export class TimelineView {
               wide: store.doc.wideCells === true, block: this.hasSelection() })
           : []);
 
-    const pick = await showContextMenu(e.clientX, e.clientY, [items, second]);
+    const pick = await showContextMenu(e.clientX, e.clientY, [items, second],
+      { keyboard: e.fromKeyboard === true });
     if (isBlockTool(pick)) {
       const anchor = this.toolAnchor(hit, ch);
       if (await runBlockTool(pick, { store, cells, cols, lanes: this.toolLanes(hit, ch),
@@ -613,7 +701,8 @@ export class TimelineView {
     }
     const n = band.row1 - band.row0 + 1;
     const pick = await showContextMenu(e.clientX, e.clientY,
-      [rowBandItems(n), cueItems(canSplitAt(store.song, band.row0)), beatItems()]);
+      [rowBandItems(n), cueItems(canSplitAt(store.song, band.row0)), beatItems()],
+      { keyboard: e.fromKeyboard === true });
     if (!isRowTool(pick)) return;
     if (await runRowTool(pick, { store, ...band })) {
       // The order list may be a different shape now: drop the selection, put
@@ -1195,6 +1284,7 @@ export class TimelineView {
       }
       this.needsRedraw = true; // meters + playhead move every frame while playing
     }
+    if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
     if (this.needsRedraw) {
       this.needsRedraw = false;
       this.draw(playRow);
@@ -1512,6 +1602,10 @@ export class TimelineView {
       ctx.lineTo(sx, H);
     }
     ctx.stroke();
+
+    // The press-and-hold gauge, last of all, so nothing is drawn over it.
+    paintPerimeterGauge(ctx, this.hold.press?.rect ?? null, this.hold.progress(),
+      C.accent, C.dim);
   }
 
   /** Does pattern `patNum` carry any second effect? Memoised for the frame —

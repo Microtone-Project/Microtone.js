@@ -53,6 +53,11 @@ export const CUE_EMPTY_V1 = 0xfff;
 
 export const CAPTURE_SIGNATURE = "Microtone.js  "; // 14 bytes, space-padded
 
+// Project-Data section holding the song's own keyboard layout (§9.13): one
+// .taudkey document, UTF-8, exactly as an export writes it. Project scope, so
+// it stays with the .taud and never splits out into a .tsii bank.
+export const KEYMAP_FOURCC = "PKey";
+
 // Ixmp variable-length patch record: version byte (0b x0sPfpvi) + 30 common
 // bytes + optional blocks, always in on-wire order x, v, p, f, P, s.
 // (taud.mjs:340-345, terranmon.txt:3502-3508)

@@ -6,6 +6,25 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-15
 
+A four-row keymap can now be split between your two hands, and a project can carry the keyboard it was written for.
+
+- **Upper rows, extra** moves the top two rows of the board a fixed distance above the bottom two, so a four-row layout is two keyboards — one per hand — instead of four rows of the same one. On a small tuning that is what turns forty keys playing nearly the same half-dozen pitches into a board that actually runs: set it to the number of degrees the lower pair already covers and the whole board is one continuous run, or to a period and your right hand plays the octave above your left.
+- **The rows keep their lattice.** Every interval inside a hand is exactly what **Sideways** and **Between rows** say it is — only the step between the two hands is the extra one, and the readout's new **Between hands** line names what that step is worth in cents and as the nearest plain interval, exactly as the two axes are named.
+- **Layouts that used to need twenty hand-placed keys need one number.** A split board was previously only reachable through **Set every key…**, which meant giving up the generator entirely — and with it the ability to change the layout's steps afterwards.
+- **The field appears once a layout has three rows**, since on two rows the top two *are* the whole board and moving the whole board is what **Origin value** already does. Untick a row and the number is remembered, so ticking it back brings the split back with it.
+- **Embed in project** puts a copy of the layout into the `.taud` itself. Open that file anywhere and the layout is in the list marked **In project**, already on the keyboard, ahead of both the layout you chose and any layout bound to the tuning — for a piece that simply cannot be edited on the keyboard its reader happens to have. Close the project and your own layout comes back.
+- **The song's copy is a snapshot, not a link.** Go on editing the layout afterwards and the button reads **Embed in project** again, because the two no longer match — press it once more to bring the song's copy up to date. It is a document edit like any other: one **Ctrl+Z**, and **Remove from project** takes it back out.
+- **Nothing about playback changes.** A player ignores an embedded layout completely, and so does the TSVM device — a keymap decides which key on your keyboard types which degree, and it cannot reach the sound.
+
+The tracker grids' context menu is no longer behind the right mouse button: `\` opens it at the cursor, and press-and-hold opens it on a touch screen.
+
+- **`\` opens the menu over the cursor**, not over wherever the pointer was last left — so it offers what the cell the keyboard is actually on can do, and a paste from it lands on that row. Boards with a dedicated menu key can use that instead, and so can **Shift+F10**.
+- **The menu can then be finished with the keyboard.** **←** and **→** walk its cells, **Home** and **End** jump to the ends, **↑** and **↓** step between its two rows, **Enter** picks the cell with the ring round it and **Esc** closes it. Every one of those wraps rather than stopping dead.
+- **Press and hold opens it on a touch screen**, where there is no second button to press at all. A ring travels round what the menu will be about — the block you pressed inside, or the single cell, row band or channel header you pressed on — and the menu opens when the ring closes, so the wait is visible and so is the target.
+- **Sliding your finger before the ring closes goes back to dragging a block**, which is how a selection is made on a touch screen, and letting go early does nothing at all. Holding the **left mouse button** still does nothing either — that is how a block is dragged with a mouse, and the button that opens the menu is right there.
+- **Timeline, Cues and Patterns all behave the same way**, and each offers exactly what its right-click menu has always offered.
+- **Fixed: the menu could show two highlighted cells at once** — one following the arrow keys and one following the mouse — from the first time `\` had been used onwards, right-click menus included. There is now exactly one, and the arrows and the pointer both move that same one.
+
 Bit usage can now be asked about a passage, or about a single moment, rather than only about the whole take.
 
 - **The Bit usage panel has a second chooser: Whole take, Last 3 s, or Last 400 ms.** The whole take is the figure you would quote for the file, and it is the one you have always had — but it is cumulative, so within seconds it is dominated by the loudest passage so far and never comes back down. The two rolling windows answer the question you can actually act on: what is *this* part of the song using?

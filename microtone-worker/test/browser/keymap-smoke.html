@@ -369,7 +369,73 @@
     await sleep(300);
     ok(store.keymap.notation !== 10123, "…and stood down again");
 
+    // ── the two-hand split, and the project's own copy (item 189) ──
+    M.split.reveal("keymap");
+    await sleep(200);
+    const kv2 = M.keymapView;
+    const splitName = lib.uniqueName("smoke split");
+    await lib.save({
+      name: splitName, unit: "deg", rows: ["Z", "A", "Q", "N"],
+      origin: { code: "KeyA", value: -1 }, x: 2, y: -1, upper: 0,
+    });
+    await lib.refresh();
+    kv2._choose(lib.entries().find((e) => e.name === splitName));
+    await sleep(150);
+    ok(!kv2.draftIsBuiltin, "a saved four-row layout is editable");
+
+    // The field is in the panel, and typing in it splits the board.
+    const labelled = (text) => [...kv2.panelEl.querySelectorAll(".keymap-field")]
+      .find((f) => f.querySelector("span")?.textContent === text);
+    // The app boots in en here, so the English labels are the ones on screen.
+    const upperField = labelled("Upper rows, extra");
+    ok(!!upperField, "the panel offers the upper-rows field on a four-row layout");
+    if (upperField) {
+      const input = upperField.querySelector("input");
+      input.value = "20";
+      input.dispatchEvent(new win.Event("change", { bubbles: true }));
+      await sleep(200);
+      ok(store.keymap.upper === 20, `the split landed on the layout (${store.keymap.upper})`);
+      const q = keymapNote(store.keymap, "KeyQ", jam.octave, store.pitchPreset);
+      const z = keymapNote(store.keymap, "KeyZ", jam.octave, store.pitchPreset);
+      ok(q !== null && z !== null && q > z,
+         "the upper hand now plays above the lower one");
+      ok(Object.keys(store.keymap.overrides).length === 0,
+         "…with no per-key overrides needed to do it");
+    }
+
+    // Untick the Z row and the field goes, because two rows cannot split.
+    kv2._edit({ rows: ["A", "Q"] });
+    await sleep(200);
+    ok(!labelled("Upper rows, extra"), "a two-row layout is not offered the split at all");
+    kv2._edit({ rows: ["Z", "A", "Q", "N"] });
+    await sleep(200);
+    ok(store.keymap.upper === 20, "and ticking the row back brings the split back");
+
+    // Embed it in the project (item 189.1) and the button turns around.
+    const projBtn = () => [...kv2.panelEl.querySelectorAll(".keymap-section")]
+      .find((sec) => sec.querySelector("h3")?.textContent === "This project")
+      ?.querySelector("button");
+    ok(!!projBtn(), "the panel has a This-project section");
+    ok(projBtn().textContent === "Embed in project", `it offers to embed (${projBtn().textContent})`);
+    projBtn().click();
+    await sleep(250);
+    ok(store.doc.embeddedKeymap()?.includes(splitName),
+       "the project now carries the layout");
+    ok(projBtn().textContent === "Remove from project",
+       `and the button turns around (${projBtn().textContent})`);
+    ok(lib.entries().some((e) => e.project === true), "it is listed as the project's own");
+
+    // One Ctrl+Z takes it back out — it is a document edit like any other.
+    store.undo.undo();
+    await sleep(250);
+    ok(store.doc.embeddedKeymap() === null, "one undo removes it from the project");
+    ok(projBtn().textContent === "Embed in project", "and the button offers it again");
+    await lib.remove(splitName);
+    await lib.refresh();
+    lib.setActive(lib.find("Piano"));
+
     log(failures === 0 ? "ALL OK" : `${failures} FAILURE(S)`);
+    log(`FAILURES: ${failures}`);
     document.title = failures === 0 ? "keymap-smoke: ok" : "keymap-smoke: FAIL";
   </script>
 </body>

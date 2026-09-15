@@ -7,8 +7,8 @@ import { TaudPlayData } from "../engine/state.js";
 import { decodeInstWord, INST_PATLEN, INST_HALTAT, INST_HALT, INST_GOBACK, INST_SKIP, INST_JUMP } from "../engine/state.js";
 import { TaudInst, parsePatchesBlob } from "../engine/inst.js";
 import {
-  CUE_EMPTY, MAX_VOICES, NUM_VOICES, PATTERN_SIZE, PATTERN_SIZE_WIDE, SAMPLEBIN_SIZE,
-  TAUD_VERSION_WIDE,
+  CUE_EMPTY, KEYMAP_FOURCC, MAX_VOICES, NUM_VOICES, PATTERN_SIZE, PATTERN_SIZE_WIDE,
+  SAMPLEBIN_SIZE, TAUD_VERSION_WIDE,
 } from "../format/taud-const.js";
 import { emptyPatternBytes } from "./patterntools.js";
 import { widenPattern } from "./upgrade.js";
@@ -402,6 +402,17 @@ export class Document {
   masteringPayloadWith(songIndex, params) {
     return buildMasteringSection({ ...this.masteringMap(), [songIndex]: params });
   }
+
+  /**
+   * The keyboard layout the project carries (item 189.1, §9.13) as `.taudkey`
+   * TEXT, or null when it carries none.
+   *
+   * Text, not a parsed spec: what a keymap MEANS is the UI's business
+   * (src/ui/keymap.js), and the document's job is only to hold the bytes and
+   * hand them back verbatim — which is also what lets a layout written by a
+   * later version ride through a save untouched.
+   */
+  embeddedKeymap() { return this.projectString(KEYMAP_FOURCC); }
 
   /** Custom notation definitions from the "nota" section, cached by payload
    *  identity — undo/redo swaps the payload ref, invalidating naturally. */

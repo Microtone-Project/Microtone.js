@@ -7,10 +7,15 @@
 // lattice legible — the repeating bands ARE the isomorphism, and a layout
 // that strands a pitch class shows it as a colour that never appears.
 //
-// Nothing here touches the document: a keymap is a performer preference, so
-// edits are live, saved to the library rather than to the song, and carry no
+// Almost nothing here touches the document: a keymap is a performer preference,
+// so edits are live, saved to the library rather than to the song, and carry no
 // undo entry. That is the deliberate difference from the Notation Maker, which
 // edits a project section and lands as one undoable op.
+//
+// The exception is the "This project" section (item 189.1), which puts a COPY
+// of the layout into the song's own `PKey` section so the piece travels with
+// the keyboard it was written on. That one IS a document edit, and behaves like
+// every other document edit here: one op, one undo step.
 
 import { t } from "../i18n.js";
 import { themeColors, onThemeChange } from "../theme.js";
@@ -19,11 +24,13 @@ import { presetForNotation, pitchTablePresets } from "../pitchtables.js";
 import { noteToStr } from "../notenames.js";
 import { paintKeymapBoard, defaultLegend } from "../keymapboard.js";
 import { pickFile, download } from "../../storage/import-export.js";
+import { setSectionOp } from "../../doc/ops.js";
+import { KEYMAP_FOURCC } from "../keymaplib.js";
 import { showModal } from "../widgets/modal.js";
 import { showKeymapManual } from "../popups/keymapmanual.js";
 import {
   resolveKeymap, keymapNote, keymapStats,
-  normaliseKeymap, buildTaudkey, parseTaudkey, nearestRatio,
+  normaliseKeymap, buildTaudkey, parseTaudkey, nearestRatio, upperRows,
   QUOTE_ACTIONS, UNITS, BUILTIN_KEYMAPS,
 } from "../keymap.js";
 
@@ -179,9 +186,14 @@ export class KeymapView {
       li.className = "keymap-item";
       li.classList.toggle("active", entry.name === this.draft.name);
       li.classList.toggle("builtin", entry.builtin);
+      li.classList.toggle("inproject", entry.project === true);
+      // Two tags, and the order says which matters: where the layout came from
+      // first, what it is FOR second.
+      const tags = [];
+      if (entry.project) tags.push(t("keymap.inProject"));
+      if (entry.spec.notation !== null) tags.push(notationName(entry.spec.notation));
       li.innerHTML = `<span class="keymap-item-name">${esc(entry.name)}</span>` +
-        (entry.spec.notation !== null
-          ? `<span class="keymap-item-tag">${esc(notationName(entry.spec.notation))}</span>` : "");
+        tags.map((x) => `<span class="keymap-item-tag">${esc(x)}</span>`).join("");
       li.addEventListener("click", () => this._choose(entry));
       this.listEl.appendChild(li);
     }
@@ -200,7 +212,10 @@ export class KeymapView {
         .map((k) => `<option value="${esc(k.name)}">${esc(k.name)}</option>`).join("");
       sel.addEventListener("change", () => {
         const base = BUILTIN_KEYMAPS.find((k) => k.name === sel.value);
-        if (base) this._edit({ unit: base.unit, x: base.x, y: base.y, rows: base.rows, overrides: {} });
+        if (base) {
+          this._edit({ unit: base.unit, x: base.x, y: base.y, upper: base.upper,
+            rows: base.rows, overrides: {} });
+        }
         sel.value = "";
       });
       sel.disabled = locked;
@@ -213,6 +228,22 @@ export class KeymapView {
       body.appendChild(rowsField(s.rows, locked, (rows) => this._edit({ rows })));
       body.appendChild(numField(t("keymap.stepX"), s.x, locked, (v) => this._edit({ x: v })));
       body.appendChild(numField(t("keymap.stepY"), s.y, locked, (v) => this._edit({ y: v })));
+
+      // The two-hand split (item 189). Only on a board tall enough to HAVE two
+      // blocks — on two rows the top two rows are the whole board, and moving
+      // the whole board is what the origin value already does.
+      const split = upperRows(s.rows);
+      if (split.length > 0) {
+        body.appendChild(numField(t("keymap.upper"), s.upper, locked,
+          (v) => this._edit({ upper: v })));
+        const rowsNote = document.createElement("div");
+        rowsNote.className = "keymap-sub";
+        rowsNote.textContent = t("keymap.upperRows", {
+          rows: split.map((r) => t(`keymap.row.${r}`)).join(" + "),
+        });
+        body.appendChild(rowsNote);
+      }
+
       body.appendChild(numField(t("keymap.originValue"), s.origin.value, locked,
         (v) => this._edit({ origin: { ...s.origin, value: v } })));
       const originNote = document.createElement("div");
@@ -238,6 +269,11 @@ export class KeymapView {
         stats.lowest === null ? "—" : `${noteToStr(stats.lowest)} … ${noteToStr(stats.highest)}`));
       body.appendChild(readout(t("keymap.axisX"), axisLabel(stats.axisCents.x)));
       body.appendChild(readout(t("keymap.axisY"), axisLabel(stats.axisCents.y)));
+      // Only once there IS a split: a row reading "—" on every layout that
+      // does not use one is a row nobody reads.
+      if (stats.axisCents.upper !== 0) {
+        body.appendChild(readout(t("keymap.axisUpper"), axisLabel(stats.axisCents.upper)));
+      }
       body.appendChild(readout(t("keymap.doubled"), String(stats.duplicates)));
       if (s.rows.includes("Z")) {
         const warn = document.createElement("div");
@@ -257,6 +293,26 @@ export class KeymapView {
       sel.addEventListener("change", () =>
         this._edit({ notation: sel.value === "" ? null : Number(sel.value) }));
       body.appendChild(labelled(t("keymap.forNotation"), sel));
+    }));
+
+    // The song's own copy (item 189.1). Sits ABOVE the app settings and below
+    // the layout's own fields, which is where it belongs: it is neither a
+    // property of the layout nor a preference of the app, but a statement about
+    // the open project.
+    p.appendChild(section(t("keymap.project"), (body) => {
+      const embedded = this.lib.isEmbedded(s);
+      const btn = mkBtn(t(embedded ? "keymap.unembed" : "keymap.embed"),
+        () => (embedded ? this._unembed() : this._embed()));
+      btn.disabled = !this.store.doc;
+      body.appendChild(btn);
+      const note = document.createElement("div");
+      note.className = "keymap-sub";
+      const carried = this.lib.projectKeymap();
+      note.textContent = !this.store.doc ? t("keymap.embedNoDoc")
+        : embedded ? t("keymap.embedYes")
+        : carried ? t("keymap.embedOther", { name: carried.name })
+        : t("keymap.embedNo");
+      body.appendChild(note);
     }));
 
     // App configuration, NOT part of the layout — stated plainly, because a
@@ -397,6 +453,37 @@ export class KeymapView {
 
   _export() {
     download(new TextEncoder().encode(buildTaudkey(this.draft)), `${this.draft.name}.taudkey`);
+  }
+
+  // ── the project's own copy (item 189.1) ──
+  //
+  // A SNAPSHOT, not a link: the section holds the layout's text as it was when
+  // the button was pressed, and going on editing the layout afterwards leaves
+  // the song's copy where it was until it is embedded again. That is why the
+  // button reads "Embed" again the moment the two stop matching — an edit that
+  // silently rewrote the document would put an undo entry on the stack for
+  // every nudge of the − key.
+
+  /** Put a copy of the layout in hand into the project. */
+  _embed() {
+    if (!this.store.doc) return;
+    const payload = new TextEncoder().encode(buildTaudkey(this.draft));
+    this.store.undo.apply(setSectionOp(KEYMAP_FOURCC, payload));
+    this._afterProjectEdit();
+  }
+
+  /** Take the project's copy back out — the song stops carrying a keyboard. */
+  _unembed() {
+    if (!this.store.doc) return;
+    this.store.undo.apply(setSectionOp(KEYMAP_FOURCC, null));
+    this._afterProjectEdit();
+  }
+
+  /** The section edit itself is what tells the library to re-apply (it listens
+   *  for the tag, so undo and redo from any tab reach it too) — all this has to
+   *  do is redraw the panel the button sits in. */
+  _afterProjectEdit() {
+    this.refresh();
   }
 
   // ── keys ──

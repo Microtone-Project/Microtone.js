@@ -11,6 +11,7 @@
 // exactly ONE INTEGER per key:
 //
 //   value(code) = origin.value + (col - originCol)·x + (row - originRow)·y
+//                 + (upper, on the top two rows)
 //
 // col is the key's index within its physical row and row is the row's own
 // index, so "one key right" is x and "one row up" is y. The half-key stagger a
@@ -20,14 +21,26 @@
 // transcription of the Harmonic Table reaches only 9 of the 12 pitch classes;
 // the same lattice with its axes swapped reaches all 12 — see keymapStats).
 //
+// `upper` is the one thing in a spec that is NOT part of the lattice, and it is
+// there because a four-row board is not one keyboard but two: the bottom two
+// rows fall under one hand and the top two under the other. Splitting them —
+// moving the upper pair a fixed distance so the two hands play different
+// registers instead of the same one twice — is how a generalised keyboard is
+// actually laid out for a small tuning, where four rows of a plain lattice
+// would otherwise wrap through the same half-dozen pitches over and over. See
+// upperRows for exactly which rows move.
+//
 // One integer is enough because degrees WRAP through periods (noteForDegree,
 // pitchtables.js): degree 41 of 41-TET is the period root an octave up, degree
 // -1 the top degree of the period below. So one spec works unchanged on 5-TET
 // and 96-TET, the tuning's own cardinality doing the wrapping.
 //
-// Keymaps are a PERFORMER preference, never song data: they are not in the
-// .taud, they travel as .taudkey text files, and nothing here touches the
-// document or the engine. Pure and Node-testable — no DOM, no storage.
+// Keymaps are a PERFORMER preference: they travel as .taudkey text files, and
+// nothing here touches the document or the engine. Pure and Node-testable — no
+// DOM, no storage. A PROJECT may carry one too (item 189.1, the `PKey` section),
+// for a piece that cannot be edited on any other keyboard — but even then what
+// the document holds is this module's own .taudkey TEXT, and this module neither
+// knows nor cares that it does.
 
 import { semiToNoteInTable, noteForDegree, nearestDegreeIndex } from "./pitchtables.js";
 
@@ -127,6 +140,7 @@ export function normaliseKeymap(spec) {
     origin,
     x: num(spec?.x, 1),
     y: num(spec?.y, 1),
+    upper: num(spec?.upper, 0),
     notation: Number.isFinite(spec?.notation) ? spec.notation : null,
     overrides,
   };
@@ -136,6 +150,23 @@ const num = (v, dflt) => (Number.isFinite(v) ? v : dflt);
 const codeInRows = (code, rows) => rows.some((r) => ROW_CODES[r].includes(code));
 /** The bottom-most active row — where an unusable origin falls back to. */
 const lowestRow = (rows) => ROW_ORDER.find((r) => rows.includes(r)) ?? "A";
+
+/**
+ * The rows `upper` moves: the TOP TWO of the active ones, and none at all on a
+ * board with fewer than three rows.
+ *
+ * Top two rather than "Q and N" so the split follows the board rather than the
+ * keyboard — a four-row layout splits into the two hand blocks it really has,
+ * and a three-row one splits two rows over one. Two rows is the whole board
+ * when only two are active, and moving the whole board is what `origin.value`
+ * already does, so there the control has nothing to say and is switched off.
+ *
+ * `rows` is expected in ROW_ORDER (bottom-up), which is what normaliseKeymap
+ * guarantees — hence the last two, not the first.
+ */
+export function upperRows(rows) {
+  return rows.length >= 3 ? rows.slice(-2) : [];
+}
 
 /**
  * Resolve a spec to `Map<code, value>` — the generator over every key of every
@@ -148,11 +179,18 @@ export function resolveKeymap(spec) {
   const s = normaliseKeymap(spec);
   const originRow = rowOfCode(s.origin.code);
   const originCol = ROW_CODES[originRow].indexOf(s.origin.code);
+  // The split is measured from the origin's OWN block, so the origin key is
+  // worth origin.value wherever it sits. Anchor it in the upper block and the
+  // lower one drops away below it instead — which is the same keyboard, and
+  // keeps the one number the panel shows as "Origin value" honest.
+  const upper = s.upper === 0 ? new Set() : new Set(upperRows(s.rows));
+  const originUpper = upper.has(originRow) ? s.upper : 0;
   const out = new Map();
   for (const name of s.rows) {
     const dRow = ROW_INDEX[name] - ROW_INDEX[originRow];
+    const dBlock = (upper.has(name) ? s.upper : 0) - originUpper;
     ROW_CODES[name].forEach((code, col) => {
-      out.set(code, s.origin.value + (col - originCol) * s.x + dRow * s.y);
+      out.set(code, s.origin.value + (col - originCol) * s.x + dRow * s.y + dBlock);
     });
   }
   for (const [code, v] of Object.entries(s.overrides)) {
@@ -235,7 +273,9 @@ export const unitsToCents = (units) => (units * 1200) / 4096;
  *   lowest / highest   the board's span as note words, at `octave`.
  *   axisCents          what one step along each axis is worth, measured from
  *                      the origin so a non-equal table reports what it really
- *                      does rather than an idealised step.
+ *                      does rather than an idealised step. `upper` is the same
+ *                      measurement for the two-hand split — 0 when there is
+ *                      none, which is also how the panel knows not to show it.
  */
 export function keymapStats(spec, preset, octave = 4) {
   const s = normaliseKeymap(spec);
@@ -262,18 +302,20 @@ export function keymapStats(spec, preset, octave = 4) {
     highest,
     keys: map.size,
     axisCents: {
-      x: axisCents(s, preset, octave, map, "x", base),
-      y: axisCents(s, preset, octave, map, "y", base),
+      x: axisCents(s, preset, octave, map, s.x, base),
+      y: axisCents(s, preset, octave, map, s.y, base),
+      upper: upperRows(s.rows).length > 0
+        ? axisCents(s, preset, octave, map, s.upper, base) : 0,
     },
   };
 }
 
-/** One step along an axis, in cents, measured from the origin key outwards. */
-function axisCents(s, preset, octave, map, axis, base) {
-  if (base === null) return 0;
-  const step = axis === "x" ? s.x : s.y;
-  const unit = s.unit;
-  const moved = unit === "semi"
+/** What a `step`-unit move from the origin key is worth in cents — measured
+ *  from the origin outwards, so an unequal table reports what the layout really
+ *  does there rather than an idealised step. */
+function axisCents(s, preset, octave, map, step, base) {
+  if (base === null || step === 0) return 0;
+  const moved = s.unit === "semi"
     ? semiToNoteInTable(octave, map.get(s.origin.code) + step, preset)
     : noteForDegree(octave, map.get(s.origin.code) + step, preset);
   return unitsToCents(moved - base);
@@ -433,14 +475,25 @@ export function fitKeymapToPreset(spec, preset) {
 // .scl, which the notation importer already reads.
 
 export const TAUDKEY_MAGIC = "TAUDKEY";
-export const TAUDKEY_VERSION = 1;
+export const TAUDKEY_VERSION = 2;
+
+/**
+ * The oldest version that can read `s` correctly.
+ *
+ * Unknown directives are IGNORED by design, which is the right rule for a
+ * cosmetic addition and the wrong one for `upper`: a split layout read without
+ * its split is not a slightly different keyboard, it is the wrong keyboard on
+ * twenty of its keys, silently. So a file says 2 only when it actually carries
+ * a split, and everything else still writes — and still reads — as version 1.
+ */
+const versionFor = (s) => (s.upper !== 0 ? 2 : 1);
 
 /** Serialise a spec. Round-trips through parseTaudkey unchanged. */
 export function buildTaudkey(spec) {
   const s = normaliseKeymap(spec);
   const out = [
     "! Microtone keymap",
-    `${TAUDKEY_MAGIC} ${TAUDKEY_VERSION}`,
+    `${TAUDKEY_MAGIC} ${versionFor(s)}`,
     `name      ${s.name}`,
     `unit      ${s.unit}`,
     `rows      ${s.rows.join(" ")}`,
@@ -448,6 +501,7 @@ export function buildTaudkey(spec) {
     `x         ${fmt(s.x)}`,
     `y         ${fmt(s.y)}`,
   ];
+  if (s.upper !== 0) out.push(`upper     ${fmt(s.upper)}`);
   if (s.notation !== null) out.push(`notation  ${s.notation}`);
   const codes = Object.keys(s.overrides).sort();
   if (codes.length > 0) {
@@ -512,6 +566,7 @@ export function parseTaudkey(text) {
       }
       case "x": spec.x = number(rest, "x"); break;
       case "y": spec.y = number(rest, "y"); break;
+      case "upper": spec.upper = number(rest, "upper"); break;
       case "notation": spec.notation = number(rest, "notation"); break;
       default: break; // forwards compatibility
     }

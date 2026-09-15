@@ -12,9 +12,11 @@ import { lookahead } from "../edit.js";
 import { makeCueBlock, cueBlockIndex, mergeCueWord } from "../../doc/clipboard.js";
 import { showModal } from "../widgets/modal.js";
 import { showContextMenu } from "../widgets/contextmenu.js";
+import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";
 import {
   clipboardItems, channelItems, newPatternItem, insertChannelAt,
   patternSlotItems, isPatternSlotItem, moveSlots, duplicateSlots, deleteSlots,
+  openMenuAtCursor,
 } from "../gridmenu.js";
 import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
@@ -85,8 +87,18 @@ export class CuesView {
     canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
     canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
     canvas.addEventListener("pointerup", (e) => this.onPointerUp(e));
+    canvas.addEventListener("pointercancel", () => this.hold.cancel());
     canvas.addEventListener("contextmenu", (e) => this.onContextMenu(e));
     canvas.addEventListener("dblclick", () => this.openCmdEditor());
+
+    // Press-and-hold opens the same menu on a touch screen (item 190.1).
+    this.hold = new LongPress({
+      onPaint: () => this.invalidate(),
+      onFire: (press) => this.onContextMenu({
+        clientX: press.clientX, clientY: press.clientY,
+        preventDefault() {}, fromKeyboard: true,
+      }),
+    });
     this._ro = new ResizeObserver(() => this.resize());
     this._ro.observe(canvas.parentElement);
   }
@@ -146,6 +158,7 @@ export class CuesView {
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    if (longPressable(e)) this.hold.start(e, x, y, this.holdRect(x, y));
     if (y < HEADER_H) return;
     const cue = this.scrollCue + Math.floor((y - HEADER_H) / ROW_H);
     if (cue >= this.editRows()) return;
@@ -169,6 +182,10 @@ export class CuesView {
   }
 
   onPointerMove(e) {
+    if (this.hold.active) {
+      const r = this.canvas.getBoundingClientRect();
+      this.hold.moved(e, e.clientX - r.left, e.clientY - r.top);
+    }
     if (!this._drag) return;
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -187,10 +204,59 @@ export class CuesView {
   }
 
   onPointerUp(e) {
+    this.hold.cancel();
     if (this._drag) {
       this.canvas.releasePointerCapture?.(e.pointerId);
       this._drag = null;
     }
+  }
+
+  // ── press-and-hold + the \ key (item 190) ──
+
+  /** What the hold gauge is drawn around: the block the press landed inside,
+   *  else the single slot under it. Canvas coordinates, or null off-grid. */
+  holdRect(x, y) {
+    if (y < HEADER_H) return null;
+    const cue = this.scrollCue + Math.floor((y - HEADER_H) / ROW_H);
+    const col = this.hitCol(x);
+    if (cue >= this.editRows() || col < 0) return null;
+    if (col < 2) return this.slotRect(cue, cue, GUTTER_W + col * CMD_W, CMD_W);
+    const ch = col - 2;
+    const b = this.selBounds();
+    const inside = b && cue >= b.r0 && cue <= b.r1 && ch >= b.c0 && ch <= b.c1;
+    const [c0, c1] = inside ? [b.c0, b.c1] : [ch, ch];
+    // Clipped to the columns actually on screen at both ends, so a block that
+    // runs off the side is ringed where it IS rather than past the edge.
+    const lo = Math.max(c0, this.scrollCh);
+    const hi = Math.min(c1, this.scrollCh + this.visibleChans() - 1);
+    if (hi < lo) return null;
+    const x0 = this.chanX(lo - this.scrollCh);
+    const cols = hi - lo + 1;
+    return this.slotRect(inside ? b.r0 : cue, inside ? b.r1 : cue, x0, cols * COL_W);
+  }
+
+  /** The canvas rectangle cues r0…r1 occupy over [x, x+w), clipped to what is
+   *  actually on screen. */
+  slotRect(r0, r1, x, w) {
+    const y0 = HEADER_H + Math.max(0, r0 - this.scrollCue) * ROW_H;
+    const y1 = HEADER_H + Math.min(this.visibleRows(), r1 - this.scrollCue + 1) * ROW_H;
+    return y1 <= y0 ? null : { x, y: y0, w, h: y1 - y0 };
+  }
+
+  /** The \ key opens the right-click menu where the cursor is (item 190). */
+  openMenuAtCursor() { return openMenuAtCursor(this); }
+
+  /** Where the \ key's menu opens — the middle of the cursor's own cell,
+   *  scrolled into view first. Canvas coordinates, or null with no song. */
+  cursorPoint() {
+    if (!this.store.song) return null;
+    this.keepCursorVisible();
+    this.invalidate();
+    const c = this.cursor;
+    const x = c.col < 2
+      ? GUTTER_W + c.col * CMD_W + CMD_W / 2
+      : this.chanX(c.col - 2 - this.scrollCh) + COL_W / 2;
+    return { x, y: HEADER_H + (c.cue - this.scrollCue) * ROW_H + ROW_H / 2 };
   }
 
   moveCursor(dRow, dCol) {
@@ -425,7 +491,8 @@ export class CuesView {
 
     // The Cues grid holds pattern NUMBERS, not note cells, so it has no second
     // row: none of the column tools has anything to act on here.
-    const pick = await showContextMenu(e.clientX, e.clientY, [items]);
+    const pick = await showContextMenu(e.clientX, e.clientY, [items],
+      { keyboard: e.fromKeyboard === true });
     if (isPatternSlotItem(pick)) { this.runSlotItem(pick, slots); return; }
     switch (pick) {
       case "copy": this.copySelection(); break;
@@ -596,6 +663,7 @@ export class CuesView {
   frame() {
     if (!this.store.doc) return;
     if (this.store.audio?.isPlaying()) this.needsRedraw = true; // playhead marker
+    if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
     if (this.needsRedraw) { this.needsRedraw = false; this.draw(); }
   }
 
@@ -736,6 +804,10 @@ export class CuesView {
         ctx.fillText(label, cellX + 6, ty + 2 + (ROW_H - 3) / 2);
       }
     }
+
+    // The press-and-hold gauge, last of all, so nothing is drawn over it.
+    paintPerimeterGauge(ctx, this.hold.press?.rect ?? null, this.hold.progress(),
+      C.accent, C.dim);
   }
 }
 
