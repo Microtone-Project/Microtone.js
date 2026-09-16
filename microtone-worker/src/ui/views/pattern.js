@@ -28,6 +28,7 @@ import {
   scaleVolumeBytes, transformPanBytes, changeInstrumentBytes,
 } from "../../doc/patterntools.js";
 import { dittoGhosts } from "../../doc/ditto.js";
+import { bendGhosts, bendContext } from "../../doc/bendghosts.js";
 import { CUE_EMPTY } from "../../format/taud-const.js";
 import { SURROUND_SPATIAL } from "../../engine/spatial.js";
 import { themeColors } from "../theme.js";
@@ -62,6 +63,9 @@ const MIN_PANE_W = 250;      // floor for the per-column px budget (see paneBudg
 // (user report 2026-08-10). The 8-byte cell is unaffected: it sits on the
 // MIN_PANE_W floor either way.
 const PANE_PAD = 28;
+/** The "no ghosts here" map, for when they are switched off: indexing it
+ *  gives undefined, exactly as a real map's unghosted rows do. */
+const EMPTY_GHOSTS = Object.freeze([]);
 
 function clampInt(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -934,7 +938,24 @@ class PatternPane {
     // Pattern-ditto (effect 7) ghosts: the would-be-repeated values, painted
     // grey in whatever sub-columns the repeated rows leave blank. The Patterns
     // view has no cue context, so the full 64 rows are assumed.
-    const ghosts = dittoGhosts(pattern, pattern.length);
+    // …and the bend ghosts: where a slide or a portamento has moved the pitch,
+    // the note volume or the panning, what that row's TICK 0 is actually
+    // holding. Same grey, same rule — they only ever fill a blank sub-column,
+    // and the ditto map feeds the simulation so a repeated row's own commands
+    // bend too. Both kinds are one switch (store.ghosts), off costing nothing.
+    //
+    // Unlike the Timeline's, this trail starts from silence at row 0: a
+    // pattern shown here belongs to no particular cue — it can sit in any
+    // number of them — so there is no "the pattern before this one" to carry
+    // a bend in from.
+    const ghosts = store.ghosts === false ? EMPTY_GHOSTS
+      : dittoGhosts(pattern, pattern.length);
+    const bends = store.ghosts === false ? EMPTY_GHOSTS
+      : bendGhosts(pattern, {
+        ...bendContext(store.doc, store.song),
+        rowLimit: pattern.length,
+        ditto: ghosts,
+      });
     const dittoPal = monoPalette(C.ditto);
     const fxPal = { op: C.fxOp, a1: C.fxA1, a2: C.fxA2, a3: C.fxA3, dim: C.dim, ext: C.fxExt };
     const sb = this.selRowBounds(); // row-range selection (or null)
@@ -978,8 +999,12 @@ class PatternPane {
 
       const cell = pattern[row];
       const ghost = ghosts[row] ?? null;
-      if (ghost && ghost.note !== null) {
-        paintNoteCell(ctx, ghost.note, store.pitchPreset, x0, y, CHAR_W, ROW_H,
+      const bend = bends[row] ?? null;
+      // A ditto ghost is a repeat of a row that IS written down, so it speaks
+      // first; a bend ghost only ever reports a value nothing wrote at all.
+      const ghostNote = ghost?.note ?? bend?.note ?? null;
+      if (ghostNote !== null) {
+        paintNoteCell(ctx, ghostNote, store.pitchPreset, x0, y, CHAR_W, ROW_H,
           dittoPal, store.rawNoteView);
       } else {
         paintNoteCell(ctx, cell.note, store.pitchPreset, x0, y, CHAR_W, ROW_H,
@@ -993,13 +1018,18 @@ class PatternPane {
       ctx.fillText(instS, x0 + 5 * CHAR_W, y + ROW_H / 2);
       // vol/pan: symbol cell (vector ticks) + argument digits — item 87
       const wide = this.wide();
-      const vol = ghost?.vol ?? [cell.volume, cell.volumeEff];
+      // A bend ghost reports the value itself, so it paints as a plain SET —
+      // which is what typing that number into the cell would mean.
+      const ghostVol = ghost?.vol ?? (bend?.vol != null ? [bend.vol, 0] : null);
+      const vol = ghostVol ?? [cell.volume, cell.volumeEff];
       paintVolPanCell(ctx, vol[0], vol[1], false, x0 + 8 * CHAR_W, y, CHAR_W, ROW_H,
-        { ink: ghost?.vol ? C.ditto : C.meter, dim: C.dim, wide });
-      const pan = ghost?.pan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
+        { ink: ghostVol ? C.ditto : C.meter, dim: C.dim, wide });
+      const ghostPan = ghost?.pan ?? (bend?.pan != null ? [bend.pan, 0] : null);
+      const pan = ghostPan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
       paintVolPanCell(ctx, pan[0], pan[1], true, x0 + 12 * CHAR_W, y, CHAR_W, ROW_H,
-        { ink: ghost?.pan ? C.ditto : C.colPan, dim: C.dim, wide,
-          elevation: wide ? cell.elevation : 0, elevationInk: C.accent2,
+        { ink: ghostPan ? C.ditto : C.colPan, dim: C.dim, wide,
+          elevation: bend?.pan != null ? bend.elev : (wide ? cell.elevation : 0),
+          elevationInk: bend?.pan != null ? C.ditto : C.accent2,
         // On the sphere, ear level is a stated position, not an absent one.
         spatial: (store.doc?.songs[store.songIndex]?.surroundModel ?? 0) === SURROUND_SPATIAL });
       // Effect column: one shade of amber per argument field (item 120), or —

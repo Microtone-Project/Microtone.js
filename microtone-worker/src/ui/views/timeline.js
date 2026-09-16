@@ -19,6 +19,7 @@ import {
 } from "../edit.js";
 import { setCellOp, setCellsBytesOp, setCuesOp } from "../../doc/ops.js";
 import { dittoGhosts } from "../../doc/ditto.js";
+import { createBendSim, bendContext } from "../../doc/bendghosts.js";
 import {
   makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols,
   fxPasteRemap, remapFxBytes,
@@ -45,6 +46,9 @@ const ROW_H = 16;
 const HEADER_H = 58;   // header: [voxnum·note+inst·patNum] / VU / pan / patName
 const RADAR_H = 44;    // extra height when the surround radar is expanded (#998.6)
 const GUTTER_W = 76;   // "cue:row | absrow"
+/** The "no ghosts here" map: shared, frozen, and indexing it gives undefined
+ *  exactly as a real map's uncovered rows do. */
+const EMPTY_GHOSTS = Object.freeze([]);
 const COL_W = Math.ceil(CELL_CHARS * CHAR_W) + 10;
 // Format v3's wide cell needs three more characters for the panning column's
 // elevation, so the channel column's width follows the document (§5.5) — and
@@ -71,9 +75,18 @@ export class TimelineView {
     this._troughDrag = null; // active row-band drag down the trough {aRow}
     this._ghosts = new Map(); // per-frame memos, replaced at the top of draw()
     this._hasFx2 = new Map();
+    // Bend-ghost chains, one per channel, and NOT per-frame: a bend crosses a
+    // pattern boundary, so each chain is a running simulation of that
+    // channel's whole cue sequence and the maps it has produced so far. It is
+    // extended as far down the song as the view needs and thrown away when
+    // anything the simulation reads changes (dropBends).
+    this._bends = new Map();
 
-    store.on("doc", () => { this.map = null; this.scrollRow = 0; this.scrollCh = 0; this.sel = null; this.invalidate(); });
-    store.on("edit", () => { this.map = null; this.invalidate(); });
+    store.on("doc", () => {
+      this.map = null; this.scrollRow = 0; this.scrollCh = 0; this.sel = null;
+      this.dropBends(); this.invalidate();
+    });
+    store.on("edit", () => { this.map = null; this.dropBends(); this.invalidate(); });
     store.on("cursor", () => this.invalidate());
     store.on("mutes", () => this.invalidate());
     // Showing/hiding a second effect changes a strip's WIDTH and its cursor
@@ -706,9 +719,11 @@ export class TimelineView {
     if (!isRowTool(pick)) return;
     if (await runRowTool(pick, { store, ...band })) {
       // The order list may be a different shape now: drop the selection, put
-      // the cursor back inside the song and rebuild the map.
+      // the cursor back inside the song and rebuild the map (and with it the
+      // bend chains, which are that map read in order).
       this.sel = null;
       this.map = null;
+      this.dropBends();
       const total = this.getMap()?.totalRows ?? 0;
       store.cursor.row = clampInt(store.cursor.row, 0, Math.max(0, total - 1));
       store.emit("cursor");
@@ -1189,6 +1204,7 @@ export class TimelineView {
    * Rebuilt per draw — patterns repeat across channels, hence the memo.
    */
   ghostsFor(patNum, rowLimit) {
+    if (this.store.ghosts === false) return EMPTY_GHOSTS;
     const key = `${patNum}:${rowLimit}`;
     let g = this._ghosts.get(key);
     if (g === undefined) {
@@ -1196,6 +1212,51 @@ export class TimelineView {
       this._ghosts.set(key, g);
     }
     return g;
+  }
+
+  /** Forget every bend chain — anything that changes a pattern, the cue list
+   *  or the song invalidates the lot, since a chain is the song read in
+   *  order. Cheap: they rebuild lazily, and only as far as the view looks. */
+  dropBends() { this._bends.clear(); }
+
+  /**
+   * Bend ghost map for whatever channel `ch` plays in song-map entry `ei` —
+   * what a slide or a portamento is holding at each row's tick 0.
+   *
+   * Unlike the ditto map this CANNOT be memoised per pattern: a bend crosses
+   * the boundary between one cue and the next, so the same pattern reached
+   * from two different places in the song is holding two different things on
+   * its first rows. What is cached instead is one running simulation per
+   * CHANNEL, plus the maps it has already produced — extended to whichever
+   * entry is asked for, which is how the cost stays proportional to what the
+   * view is actually looking at rather than to the length of the song.
+   */
+  bendsFor(ch, cue) {
+    if (this.store.ghosts === false) return EMPTY_GHOSTS;
+    // songMap() emits one entry per cue from 0 up, so a cue number IS its
+    // index in the chain — which is the right way round to think about it
+    // anyway: the chain is the cue list, read in order, exactly as played.
+    const entries = this.getMap()?.entries;
+    if (!entries || cue < 0 || cue >= entries.length) return EMPTY_GHOSTS;
+    let chain = this._bends.get(ch);
+    if (chain === undefined) {
+      chain = { sim: createBendSim(bendContext(this.store.doc, this.store.song)), maps: [], next: 0 };
+      this._bends.set(ch, chain);
+    }
+    for (; chain.next <= cue; chain.next++) {
+      const e = entries[chain.next];
+      const patNum = e.info ? (this.store.song.cues[e.cue][ch] & 0x7fff) : PATTERN_EMPTY;
+      // An empty cue slot is not silence with a fresh start after it: row.js
+      // skips the channel before it resets anything, so the voice rings on
+      // holding everything it had. Running nothing through the sim is exactly
+      // that.
+      chain.maps[chain.next] = patNum === PATTERN_EMPTY ? EMPTY_GHOSTS
+        : chain.sim.run(this.patternFor(patNum), {
+          rowLimit: e.rowLimit,
+          ditto: this.ghostsFor(patNum, e.rowLimit),
+        });
+    }
+    return chain.maps[cue] ?? EMPTY_GHOSTS;
   }
 
   /** The pattern cell at (row, ch), or null (empty cue slot / off-map). */
@@ -1528,10 +1589,17 @@ export class TimelineView {
         // Pattern-ditto (effect 7): the rows the engine repeats show the
         // would-be-played source values in grey wherever the cell is blank.
         const ghost = this.ghostsFor(patNum, entry.rowLimit)[rowInCue] ?? null;
+        // …and the bend ghosts (same grey): where a slide or a portamento has
+        // moved the pitch, the note volume or the panning, what that row's
+        // tick 0 is actually holding.
+        const bend = this.bendsFor(ch, entry.cue)[rowInCue] ?? null;
         // Note glyphs: taut-style vector accidentals/ticks/sentinels, CJK
         // Shi'er lü via a conventional font, hex4 for raw/off-grid notes.
-        if (ghost && ghost.note !== null) {
-          paintNoteCell(ctx, ghost.note, store.pitchPreset, x + 2, y, CHAR_W, ROW_H,
+        // A ditto ghost repeats a row that IS written down, so it speaks
+        // first; a bend ghost reports a value nothing wrote at all.
+        const ghostNote = ghost?.note ?? bend?.note ?? null;
+        if (ghostNote !== null) {
+          paintNoteCell(ctx, ghostNote, store.pitchPreset, x + 2, y, CHAR_W, ROW_H,
             dittoPal, store.rawNoteView);
         } else {
           paintNoteCell(ctx, cell.note, store.pitchPreset, x + 2, y, CHAR_W, ROW_H,
@@ -1548,15 +1616,20 @@ export class TimelineView {
         ctx.globalAlpha = 1;
         // vol/pan: symbol cell (vector ticks) + argument digits — item 87
         const wide = this.wide();
-        const vol = ghost?.vol ?? [cell.volume, cell.volumeEff];
+        // A bend ghost reports the value itself, so it paints as a plain SET —
+        // which is what typing that number into the cell would mean.
+        const ghostVol = ghost?.vol ?? (bend?.vol != null ? [bend.vol, 0] : null);
+        const vol = ghostVol ?? [cell.volume, cell.volumeEff];
         paintVolPanCell(ctx, vol[0], vol[1], false, x + 2 + 8 * CHAR_W, y, CHAR_W, ROW_H,
-          { ink: ghost?.vol ? C.ditto : C.meter, dim: C.dim, wide });
+          { ink: ghostVol ? C.ditto : C.meter, dim: C.dim, wide });
         // A wide cell's panning column IS the azimuth, with the elevation in
         // front of it in its own ink (§5.5).
-        const pan = ghost?.pan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
+        const ghostPan = ghost?.pan ?? (bend?.pan != null ? [bend.pan, 0] : null);
+        const pan = ghostPan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
         paintVolPanCell(ctx, pan[0], pan[1], true, x + 2 + 12 * CHAR_W, y, CHAR_W, ROW_H,
-          { ink: ghost?.pan ? C.ditto : C.colPan, dim: C.dim, wide,
-            elevation: wide ? cell.elevation : 0, elevationInk: C.accent2,
+          { ink: ghostPan ? C.ditto : C.colPan, dim: C.dim, wide,
+            elevation: bend?.pan != null ? bend.elev : (wide ? cell.elevation : 0),
+            elevationInk: bend?.pan != null ? C.ditto : C.accent2,
           // On the sphere, ear level is a stated position, not an absent one.
           spatial: (store.doc?.songs[store.songIndex]?.surroundModel ?? 0) === SURROUND_SPATIAL });
         // Effect column: one shade of amber per argument field (item 120), or

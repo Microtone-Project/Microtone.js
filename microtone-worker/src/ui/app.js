@@ -1097,6 +1097,7 @@ $("langBtn").addEventListener("click", async () => {
 onLangChange(() => {
   $("langBtn").textContent = currentLang().toUpperCase();
   $("tbRaw").textContent = t(store.rawNoteView ? "toolbox.rawOn" : "toolbox.rawOff");
+  refreshGhostsBtn();
   refreshKeymapBarBtn();
   split.refresh();  // the panes' split/close button titles (item 148)
   refreshToolbox(); // the other imperatively-labelled toolbox buttons
@@ -1140,6 +1141,22 @@ $("tbRaw").addEventListener("click", () => {
   store.rawNoteView = !store.rawNoteView;
   $("tbRaw").textContent = t(store.rawNoteView ? "toolbox.rawOn" : "toolbox.rawOff");
   $("tbRaw").classList.toggle("active", store.rawNoteView);
+  invalidateGrids();
+});
+// Ghost cells — the pattern-ditto repeats AND the bend trails, one switch for
+// both: each says "nothing is written here, but this is what plays", and a
+// reader who wants the grid to show only what was typed wants neither. ON by
+// default; the state itself lives in the Store, so a view built before this
+// runs already has it.
+function refreshGhostsBtn() {
+  const btn = $("tbGhosts");
+  btn.textContent = t(store.ghosts ? "toolbox.ghostsOn" : "toolbox.ghostsOff");
+  btn.classList.toggle("active", store.ghosts);
+}
+refreshGhostsBtn();
+$("tbGhosts").addEventListener("click", () => {
+  store.ghosts = !store.ghosts;
+  refreshGhostsBtn();
   invalidateGrids();
 });
 // Second effect column (§5.5) — hidden by default, because most songs never

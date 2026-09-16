@@ -2406,6 +2406,56 @@ Starting playback **from a ghost row** sounds it: seeking into the middle of a
 ditto region rebuilds the repeat so the note you see in grey is the note you
 hear, exactly as if you had played through the arming row.
 
+The **Ghosts** button in the toolbox turns the grey off, here and for the bend
+trails below.
+
+### Bend ghosts
+
+A slide never writes down where it gets to. `G $0080` under one note bends
+toward the next across rows that look empty, `D $0400` fades over rows that
+say nothing about volume, and `P $0400` walks the panning away from wherever
+the channel was sitting. The Timeline and Patterns grids therefore paint, on
+every row a bend has MOVED something, **the value that row starts on** — in the
+same grey the ditto ghosts use, in whichever of the note, volume and panning
+columns the row leaves blank.
+
+Read a grey value as "this is what the cell would have to say to sound the same
+here". The pitch is a note you could type, the volume and the panning are plain
+SET values in the column's own units.
+
+**Ghosts** in the toolbox switches the grey off — both kinds of it, the bend
+trails and the ditto repeats, since both are saying the same thing. It starts
+on, and it is a view setting: it changes nothing in the song and is not saved
+with it.
+
+The trail only shows movement. It starts on the first row the bend has actually
+shifted something — never on the row carrying the command, because a coarse
+slide moves on the ticks *after* the first — and it ends on the row where the
+value settles, which is how a portamento shows you exactly where it landed and
+on which row. A one-shot fine slide (`E $Fxxx`, `D $FX00`, `S $2x`)
+does its work at tick zero, so its ghost sits on its own row.
+
+Things worth knowing about what the grey does NOT say:
+
+- **It fills blanks only.** A portamento row shows the TARGET note you typed, in
+  its own colour; the pitch the channel is actually passing through sits on the
+  rows below it.
+- **On the Timeline it follows the song, cue by cue.** A bend does not stop at
+  a pattern boundary and neither does the trail: a portamento still travelling
+  when a cue ends goes on ghosting into the next one, and the volume and
+  panning a channel is holding cross the join with it.
+- **In the Patterns view each pattern starts from silence.** A pattern there
+  belongs to no cue in particular — it can sit in any number of them — so
+  there is no "the pattern before this one" to carry a bend in from, and the
+  two views can disagree about a pattern's first rows. The Timeline is the one
+  that knows.
+- **Vibrato, tremolo, panbrello, tremor and the envelopes are not bends.** They
+  swing around the value the cell reports and return to it, so the number stays
+  true with them running.
+- **Where a value cannot be known it is not guessed.** A retrigger's volume
+  modifier (`Q`) and a metainstrument's per-layer volume and placement are not
+  predicted: the column simply stays quiet until something states a value again.
+
 ## Keyboard reference
 
 ### Global and navigation

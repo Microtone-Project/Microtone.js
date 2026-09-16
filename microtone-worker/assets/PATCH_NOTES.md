@@ -4,6 +4,19 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-17
+
+A slide no longer hides where it has got to: the Timeline and Patterns grids now show, in grey, the pitch, volume or panning that a bend has left standing on a row that says nothing.
+
+- **A portamento shows its whole glide.** Under a `G $xxxx` the note column fills with the pitch each row starts on, all the way to the row where it arrives — so where a bend lands, and how long it takes, is something you read off the grid instead of counting ticks.
+- **Volume and panning slides trail the same way.** `D`, `K`, `L` and a volume-column slide write the volume the row begins on; `P` and a panning-column slide write the position. Both are plain SET values in the column's own units, so a grey number is the number you would have to type there to sound the same.
+- **Pitch slides `E` and `F` are covered too**, and so are the one-shot fine forms — `E $Fxxx`, `D $FX00` and `S $2x` do their work on the first tick, so their result sits on their own row.
+- **Grey fills blanks and nothing else.** Anything you have typed keeps its own colour, and a portamento row goes on showing the target note you wrote; the pitch passing through is on the rows underneath.
+- **The trail only marks movement** — it starts on the first row a bend has actually shifted something, not on the row carrying the command, and stops as soon as the value settles.
+- **Where a value cannot be known it is left alone.** A retrigger's volume modifier (`Q`) and a metainstrument's per-layer volume and placement are not predicted, so the column stays quiet rather than showing a number that might be wrong.
+- **On the Timeline the trail crosses pattern boundaries.** A portamento still travelling when a cue ends goes on showing where it is in the next one, and so do the volume and panning a channel is holding — the trail follows the song rather than stopping at the join. In the Patterns view a pattern still starts from silence, because a pattern there belongs to no cue in particular.
+- **A new *Ghosts* button in the toolbox turns the grey off** — both the bend trails and the ditto repeats, since both are saying the same thing. It starts on, changes nothing in the song, and is not saved with it.
+
 ## 2026-09-16
 
 The Mastering view now shows the crest factor and its allpassed twin together, so how much peak the chain has flattened is something you can see rather than something you work out.

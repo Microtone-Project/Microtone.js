@@ -1,0 +1,210 @@
+<!doctype html><meta charset="utf-8"><title>bend ghost cells</title>
+<pre id="out">running…</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
+<script type="module">
+// Bend ghosts: where a slide or a portamento has moved the pitch, the note
+// volume or the panning, the grids paint what that row's TICK 0 is holding —
+// in the ghost colour (--cv-ditto), and only on sub-columns the row leaves
+// blank. Both grids (Timeline + Patterns).
+//
+// The arithmetic is pinned by test/node/bendghosts.test.js (which checks it
+// against the real engine); what this page checks is the PAINTING — that the
+// numbers the map predicts are the numbers on the canvas, in the ghost ink,
+// on the right rows, and that nothing else goes grey.
+//
+// The canvas is inspected by recording every fillText with the fillStyle in
+// force — pixel sampling would be at the mercy of font rasterisation.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const frames = async (win, n) => { for (let i = 0; i < n; i++) await new Promise((r) => win.requestAnimationFrame(r)); };
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+/** Wrap a 2D context so fillText calls are recorded with their ink. */
+function recorder(ctx) {
+  const calls = [];
+  const orig = ctx.fillText.bind(ctx);
+  ctx.fillText = (text, x, y) => { calls.push({ text, x, y, ink: ctx.fillStyle }); orig(text, x, y); };
+  return { calls, restore() { ctx.fillText = orig; } };
+}
+
+const hex2 = (v) => (v & 0xff).toString(16).toUpperCase().padStart(2, "0");
+
+(async () => {
+ try {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); return; }
+  for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
+  await frames(win, 3);
+
+  const { store, timeline, patternView } = M;
+  const ops = await import("../../src/doc/ops.js");
+  const { dittoGhosts } = await import("../../src/doc/ditto.js");
+  const { bendGhosts, bendContext } = await import("../../src/doc/bendghosts.js");
+  const DITTO = win.getComputedStyle(win.document.documentElement)
+    .getPropertyValue("--cv-ditto").trim();
+  check(!!DITTO, "--cv-ditto is defined in the theme");
+
+  // ── one note, then a bend on each axis in turn ──────────────────────────
+  const PAT = store.song.cues[0][0] & 0x7fff;
+  const bytes = new Uint8Array(512);
+  for (let r = 0; r < 64; r++) { bytes[r * 8 + 3] = 0xc0; bytes[r * 8 + 4] = 0xc0; } // blank convention
+  const blank = () => {
+    const b = new Uint8Array(512);
+    for (let r = 0; r < 64; r++) { b[r * 8 + 3] = 0xc0; b[r * 8 + 4] = 0xc0; }
+    return b;
+  };
+  const note = (b, r, n, inst) => { b[r * 8] = n & 0xff; b[r * 8 + 1] = n >> 8; b[r * 8 + 2] = inst; };
+  const fx = (b, r, op, arg) => {
+    b[r * 8 + 5] = op; b[r * 8 + 6] = arg & 0xff; b[r * 8 + 7] = (arg >> 8) & 0xff;
+  };
+  const put = (r, op, arg) => fx(bytes, r, op, arg);
+  // row 0: C4, inst $05, volume SET $30, and F $0100 — pitch up from here
+  bytes[0] = 0x00; bytes[1] = 0x50; bytes[2] = 0x05; bytes[3] = 0x30;
+  // A gentle rate on purpose: in Amiga tone mode a slide is period units a
+  // tick, and a coarse one walks a middle-octave note into the clamp inside a
+  // single row — which is faithful, but it would make this page's expectations
+  // depend on the song's tone mode.
+  put(0, 0x0f, 0x0010);
+  put(1, 0x0f, 0x0010);   // …one more row of it: ghosts land on rows 1 and 2
+  put(3, 0x0d, 0x0400);   // D — volume slide, ghost lands on row 4
+  put(5, 0x19, 0x0400);   // P — pan slide, ghost lands on row 6
+  store.undo.apply(ops.setPatternBytesOp(0, PAT, bytes));
+  store.emit("edit");
+  await frames(win, 3);
+
+  const pat = store.doc.patternAt(0, PAT);
+  const b = bendGhosts(pat, {
+    ...bendContext(store.doc, store.song),
+    rowLimit: 64,
+    ditto: dittoGhosts(pat, 64),
+  });
+  const bentRows = b.map((g, r) => (g ? r : -1)).filter((r) => r >= 0);
+  log(`tone mode ${store.song.globalFlags & 3}, speed ${store.song.tickRate}`);
+  log(`predicted trail: ${bentRows.join(",")}`);
+  check(b[1]?.note != null && b[2]?.note != null, "the map bends the pitch on rows 1-2");
+  check(b[4]?.vol != null, "…the volume on row 4", `vol=${b[4]?.vol}`);
+  check(b[6]?.pan != null, "…and the panning on row 6", `pan=${b[6]?.pan}`);
+  check(b[7] === null, "row 7 is past every bend");
+
+  // ── Timeline ────────────────────────────────────────────────────────────
+  timeline.scrollRow = 0; timeline.scrollCh = 0;
+  store.cursor.row = 40; store.cursor.ch = 3; // keep the cursor off the rows under test
+  const rec = recorder(timeline.ctx);
+  timeline.draw(-1);
+  rec.restore();
+  // Channel 0 only: GUTTER_W(76) .. GUTTER_W + COL_W(176).
+  const ch0 = rec.calls.filter((c) => c.x >= 76 && c.x < 76 + 176);
+  const rowOf = (c) => Math.round((c.y - 58 - 8) / 16); // HEADER_H, ROW_H
+  const at = (row) => ch0.filter((c) => rowOf(c) === row);
+  const inkOf = (cells, text) => cells.find((c) => c.text === text)?.ink;
+
+  const t1 = at(1), t2 = at(2), t4 = at(4), t6 = at(6), t7 = at(7);
+  // A ghosted note paints through the glyph engine, so what says it is there
+  // is that the cell left the empty path ("····") and went grey.
+  check(!t1.some((c) => c.text === "····"), "row 1's note cell is not the empty glyph");
+  check(t1.some((c) => c.ink === DITTO), "row 1 paints in the ghost ink");
+  check(t2.some((c) => c.ink === DITTO), "row 2 too");
+  check(inkOf(t4, hex2(b[4].vol)) === DITTO,
+    `row 4 shows the bent volume ${hex2(b[4].vol)}`, `ink=${inkOf(t4, hex2(b[4].vol))}`);
+  check(inkOf(t6, hex2(b[6].pan)) === DITTO,
+    `row 6 shows the bent panning ${hex2(b[6].pan)}`, `ink=${inkOf(t6, hex2(b[6].pan))}`);
+  check(t7.every((c) => c.ink !== DITTO), "row 7 has no ghost ink at all");
+  check(t7.some((c) => c.text === "····"), "row 7 still paints the empty note glyph");
+  // The volume trail must not overpaint the SET the composer typed on row 0.
+  check(inkOf(at(0), "30") !== DITTO, "row 0's own volume keeps its colour",
+    `ink=${inkOf(at(0), "30")}`);
+
+  // ── Patterns view ───────────────────────────────────────────────────────
+  win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "F3", code: "F3", bubbles: true }));
+  win.document.dispatchEvent(new win.KeyboardEvent("keydown", { key: "F3", code: "F3", bubbles: true }));
+  await frames(win, 3);
+  patternView.setPattern(PAT);
+  patternView.active.scrollRow = 0;
+  patternView.cursor.row = 40;
+  await frames(win, 3);
+  const prec = recorder(patternView.active.ctx);
+  patternView.active.draw();
+  prec.restore();
+  const prowOf = (c) => Math.round((c.y - 8) / 17); // ROW_H
+  const pat_ = (row) => prec.calls.filter((c) => prowOf(c) === row);
+  check(pat_(1).some((c) => c.ink === DITTO), "Patterns: row 1 paints a ghost");
+  check(pat_(4).find((c) => c.text === hex2(b[4].vol))?.ink === DITTO,
+    "Patterns: row 4 shows the bent volume");
+  check(pat_(6).find((c) => c.text === hex2(b[6].pan))?.ink === DITTO,
+    "Patterns: row 6 shows the bent panning");
+  check(pat_(7).every((c) => c.ink !== DITTO), "Patterns: row 7 has no ghost ink");
+
+  // ── the trail crosses a pattern boundary ────────────────────────────────
+  // A bend does not stop at the end of a pattern, and neither does the grid:
+  // the Timeline chains one simulation per channel down the cue list, so a
+  // portamento still travelling when cue 0 ends goes on ghosting into cue 1.
+  const entries = timeline.getMap().entries;
+  const lim0 = entries[0].rowLimit;
+  const PAT1 = store.song.cues[1][0] & 0x7fff;
+  check(PAT1 !== 0x7fff, "cue 1 channel 0 has a pattern to carry into");
+  const head = blank();
+  note(head, lim0 - 2, 0x4000, 5);                 // a low note, two rows from the end
+  note(head, lim0 - 1, 0x6000, 0); fx(head, lim0 - 1, 0x10, 0x0020); // G, far target
+  store.undo.apply(ops.setPatternBytesOp(0, PAT, head));
+  store.undo.apply(ops.setPatternBytesOp(0, PAT1, blank()));  // cue 1: nothing at all
+  store.emit("edit");
+  await frames(win, 3);
+
+  const carried = timeline.bendsFor(0, 1);
+  const carriedRows = carried.map((g, r) => (g?.note != null ? r : -1)).filter((r) => r >= 0);
+  log(`cue 1 ghost rows: ${carriedRows.slice(0, 8).join(",")}${carriedRows.length > 8 ? "…" : ""}`);
+  check(carried[0]?.note != null,
+    "cue 1's FIRST row carries the glide in from cue 0", `note=${carried[0]?.note}`);
+  check(carriedRows.length > 4, "…and it goes on bending down the new pattern",
+    `${carriedRows.length} rows`);
+  check(timeline.bendsFor(0, 0)[lim0 - 1] === undefined ||
+        timeline.bendsFor(0, 0)[lim0 - 1]?.note == null,
+    "the porta row itself still shows the target it was given, not a ghost");
+
+  // …and it is on the canvas, not just in the map.
+  timeline.scrollRow = entries[1].startRow;
+  const rec2 = recorder(timeline.ctx);
+  timeline.draw(-1);
+  rec2.restore();
+  const firstRowCalls = rec2.calls.filter((c) => c.x >= 76 && c.x < 76 + 176 &&
+    Math.round((c.y - 58 - 8) / 16) === 0);
+  check(firstRowCalls.some((c) => c.ink === DITTO),
+    "the first row of cue 1 paints the carried ghost");
+
+  // ── the toggle turns both ghost kinds off ───────────────────────────────
+  store.ghosts = false;
+  const rec3 = recorder(timeline.ctx);
+  timeline.draw(-1);
+  rec3.restore();
+  check(rec3.calls.every((c) => c.ink !== DITTO), "ghosts off: no ghost ink anywhere");
+  check(rec3.calls.some((c) => c.text === "····"), "…and the empty cells are still drawn");
+  store.ghosts = true;
+  const rec4 = recorder(timeline.ctx);
+  timeline.draw(-1);
+  rec4.restore();
+  check(rec4.calls.some((c) => c.ink === DITTO), "ghosts on again: the trail is back");
+
+  // ── a song with no bends in it looks exactly as it did ──────────────────
+  store.undo.undo(store.doc);
+  store.undo.undo(store.doc);
+  store.undo.undo(store.doc);
+  store.emit("edit");
+  await frames(win, 3);
+  const before = bendGhosts(store.doc.patternAt(0, PAT), {
+    ...bendContext(store.doc, store.song), rowLimit: 64,
+  }).filter(Boolean).length;
+  log(`original pattern ghost count: ${before}`);
+
+  log(fails === 0 ? "\nRESULT: PASS" : `\nRESULT: FAIL (${fails})`);
+ } catch (err) {
+  log(`\nRESULT: FAIL — ${err.message}\n${err.stack}`);
+ }
+})();
+</script>

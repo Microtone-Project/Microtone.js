@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Bend ghost visual harness (screenshot / legibility tuning)</title>
+</head>
+<body>
+  <!-- Every bend the grids ghost, side by side on four channels, so the grey
+       trail can be looked at against real typed cells:
+         chromium --headless=new --window-size=1400,1000 --screenshot=/tmp/bend.png \
+           --timeout=20000 "http://localhost:8932/test/browser/bend-visual.html?theme=dark"
+       ?theme=light for the light theme; ?view=pattern for the Patterns tab. -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1360px;height:940px;border:0"></iframe>
+  <script type="module">
+    (async () => {
+      const q = new URLSearchParams(location.search);
+      const frame = document.getElementById("app");
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const win = await new Promise((resolve) => {
+        const poll = setInterval(() => {
+          if (frame.contentWindow?.__microtone) { clearInterval(poll); resolve(frame.contentWindow); }
+        }, 50);
+      });
+      const M = win.__microtone;
+      for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
+      const { store } = M;
+      const ops = await import("../../src/doc/ops.js");
+      // The theme button is the only public switch (applyTheme also drops a
+      // colour cache the harness realm cannot reach), so cycle it to the one
+      // asked for.
+      const wanted = q.get("theme");
+      for (let i = 0; wanted && i < 6 && win.document.documentElement.dataset.theme !== wanted; i++) {
+        win.document.getElementById("themeBtn").click();
+        await sleep(60);
+      }
+
+      // One bend per channel: pitch slide, portamento, volume slide, pan slide.
+      const blank = () => {
+        const b = new Uint8Array(512);
+        for (let r = 0; r < 64; r++) { b[r * 8 + 3] = 0xc0; b[r * 8 + 4] = 0xc0; }
+        return b;
+      };
+      const note = (b, r, n, inst) => { b[r * 8] = n & 0xff; b[r * 8 + 1] = n >> 8; b[r * 8 + 2] = inst; };
+      const fx = (b, r, op, arg) => {
+        b[r * 8 + 5] = op; b[r * 8 + 6] = arg & 0xff; b[r * 8 + 7] = (arg >> 8) & 0xff;
+      };
+      const OP = { F: 0x0f, G: 0x10, D: 0x0d, P: 0x19 };
+
+      const pitch = blank();
+      note(pitch, 0, 0x5000, 5);
+      for (const r of [0, 1, 2, 3]) fx(pitch, r, OP.F, 0x0020);
+      note(pitch, 8, 0x5000, 5);
+      for (const r of [8, 9, 10, 11]) fx(pitch, r, OP.F, 0xf030);   // fine: one-shots
+
+      const porta = blank();
+      note(porta, 0, 0x4800, 5);
+      note(porta, 4, 0x5400, 0); fx(porta, 4, OP.G, 0x0040);        // glides on, silently
+      note(porta, 12, 0x4800, 0); fx(porta, 12, OP.G, 0x0040);
+
+      const vol = blank();
+      note(vol, 0, 0x5000, 5); vol[3] = 0x3f;                        // volume SET $3F
+      for (const r of [1, 2, 3, 4, 5]) fx(vol, r, OP.D, 0x0400);
+      note(vol, 10, 0x5000, 5); vol[10 * 8 + 3] = 0x08;
+      for (const r of [11, 12, 13, 14]) fx(vol, r, OP.D, 0x4000);
+
+      const pan = blank();
+      note(pan, 0, 0x5000, 5);
+      for (const r of [0, 1, 2, 3, 4]) fx(pan, r, OP.P, 0x0400);
+      for (const r of [8, 9, 10, 11, 12]) fx(pan, r, OP.P, 0x4000);
+
+      const pats = [pitch, porta, vol, pan];
+      for (let ch = 0; ch < pats.length; ch++) {
+        const patNum = store.song.cues[0][ch] & 0x7fff;
+        store.undo.apply(ops.setPatternBytesOp(0, patNum, pats[ch]));
+      }
+      // ?cross=1 — a bend still travelling when cue 0 ends, and an empty cue 1
+      // under it, for looking at what the trail does over a pattern boundary.
+      if (q.get("cross")) {
+        const lim = store.song.cues[0] && (M.timeline.getMap().entries[0].rowLimit);
+        for (let ch = 0; ch < pats.length; ch++) {
+          const head = blank();
+          note(head, lim - 3, 0x4000, 5);
+          note(head, lim - 2, 0x6000, 0); fx(head, lim - 2, OP.G, 0x0020);
+          store.undo.apply(ops.setPatternBytesOp(0, store.song.cues[0][ch] & 0x7fff, head));
+          const next = store.song.cues[1][ch] & 0x7fff;
+          if (next !== 0x7fff) store.undo.apply(ops.setPatternBytesOp(0, next, blank()));
+        }
+      }
+      store.emit("edit");
+
+      if (q.get("view") === "pattern") {
+        win.document.dispatchEvent(new win.KeyboardEvent("keydown",
+          { key: "F3", code: "F3", bubbles: true }));
+        await sleep(200);
+        M.patternView.setPattern(store.song.cues[0][0] & 0x7fff);
+      }
+      M.timeline.scrollRow = q.get("cross")
+        ? Math.max(0, M.timeline.getMap().entries[1].startRow - 6) : 0;
+      M.timeline.scrollCh = 0;
+      store.cursor.row = 40;
+      store.cursor.ch = 6;      // keep the cursor out of the trails
+      M.timeline.invalidate?.();
+      store.emit("cursor");
+    })();
+  </script>
+</body>
+</html>

@@ -37,6 +37,12 @@ export class Store {
     /** Draw the keyboard in true columns rather than typewriter-staggered —
      *  for the ortholinear boards whose keys really are in columns. */
     this.keymapOrtho = false;
+    /** Ghost cells in the two grids — the pattern-ditto repeats and the bend
+     *  trails, both of which say "nothing is written here, but this is what
+     *  plays". One switch for both: they are the same statement, and a reader
+     *  who wants the grid to show only what was typed wants neither. Default
+     *  on, and a view preference like the rest — never saved with the song. */
+    this.ghosts = true;
     this.cursor = { row: 0, ch: 0 }; // absolute song row + channel
     this.voiceMutes = new Array(64).fill(false); // per-channel mute (UI + engine)
     // Format v3's SECOND effect column (§5.5), exposed per channel (Timeline)
