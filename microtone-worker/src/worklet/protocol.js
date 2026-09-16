@@ -35,7 +35,7 @@ export const CMD = Object.freeze({
   SET_MONITOR_MODE: "setMonitorMode",              // {ph, mode} — #998.3 fold / binaural
   SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
   SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
-  SET_MASTER_METER: "setMasterMeter",              // {ph, on, bitDepth, histSpan} — item 178 Mastering-view tap
+  SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
@@ -176,9 +176,10 @@ export const SNAP_SCOPE_BASE = SNAP_METER_BASE + ANALYSIS_MAX_METERS * SNAP_METE
 
 // ── Mastering meter blocks (item 178), after the scope ring ──
 // Two stages — pre-chain then post-chain — each carrying the K-weighted energy
-// the loudness figures are built from and, per channel, the same four numbers
-// the strip's meters use. Measuring BOTH sides every chunk is what makes the
-// view's pre/post toggle instant and its two readings describe one moment.
+// the loudness figures are built from, the allpassed crest's peak and energy,
+// and, per channel, the same four numbers the strip's meters use. Measuring
+// BOTH sides every chunk is what makes the view's pre/post toggle instant and
+// its two readings describe one moment.
 export const SNAP_MM_BASE = SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS;
 export const SNAP_MM_SUM_Z = 0;        // Σ (K-weighted L² + K-weighted R²)
 export const SNAP_MM_CH = 1;           // …then 2 channels of:
@@ -187,7 +188,14 @@ export const SNAP_MM_C_TRUE_PEAK = 1;
 export const SNAP_MM_C_MEAN_SQUARE = 2;
 export const SNAP_MM_C_CLIP = 3;
 export const SNAP_MM_C_STRIDE = 4;
-export const SNAP_MM_STAGE_STRIDE = SNAP_MM_CH + 2 * SNAP_MM_C_STRIDE;
+// …and the allpassed crest's two halves (MasVis), channel-SUMMED rather than
+// per-channel: the reading is the pair's, exactly as the plain crest beside it
+// takes the louder channel's peak against the pair's mean square. Σ x² rather
+// than a mean square because that is what the tap accumulates and the view
+// packs into its own 100 ms frames, which the snapshot interval does not divide.
+export const SNAP_MM_AP_PEAK = SNAP_MM_CH + 2 * SNAP_MM_C_STRIDE;
+export const SNAP_MM_AP_SUM_SQ = SNAP_MM_AP_PEAK + 1;
+export const SNAP_MM_STAGE_STRIDE = SNAP_MM_AP_SUM_SQ + 1;
 export const SNAP_MM_STAGES = 2;
 
 // Delivered 8-bit code histogram (item 178.4's "bit usage"). Shipped NORMALISED

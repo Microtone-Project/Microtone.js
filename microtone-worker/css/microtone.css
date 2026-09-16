@@ -3261,7 +3261,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
      was last given becomes the size the box is laid out at, and one early
      narrow layout locks it there for good. */
   width: calc(100% - 2px);
-  height: 13px;
+  height: 42px;
   display: block;
   pointer-events: none;
 }
@@ -3274,6 +3274,12 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   position: relative;
 }
 .mst-readout span { color: var(--dim); font-size: 0.7rem; position: relative; }
+/* The big figure's companion, set beside it inside the same <b> (the Crest
+   cell's allpassed reading). Smaller and in the status ink, which is the same
+   colour the trail paints its excess in — that shared ink is what says the
+   two belong together, since the caption below names only the pair. */
+.mst-readout b > span { color: inherit; font-size: inherit; }
+.mst-readout b > span.mst-alt { color: var(--err-fg); font-size: 0.8em; margin-left: 0.3em; }
 
 .mst-offbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .mst-caplab {

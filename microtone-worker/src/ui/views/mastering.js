@@ -127,7 +127,7 @@ const CREST_TRAIL_BAR = 2;
 const CREST_TRAIL_GAP = 1;
 /** Height of the strip it occupies at the top of the cell, in CSS px. Must
  *  agree with the `.mst-trail` rule, which reserves the same band. */
-const CREST_TRAIL_H = 13;
+const CREST_TRAIL_H = 42;
 /** How long a clip lamp stays lit after the last over, in ms… */
 const CLIP_HOLD_MS = 1600;
 /** …of which this last fraction is the fade. Before that it is at full. */
@@ -255,17 +255,28 @@ export class LevelStats {
  * divide the frame evenly — which is always. Crediting a straddling interval's
  * peak to the frame it completed misplaces it by at most one interval; carrying
  * it smears one transient across the rest of the take.
+ *
+ * TWO crests come out of every frame, not one: the plain reading, and the
+ * ALLPASSED reading the tap's all-pass cascade feeds (loudness.js says what the
+ * cascade is for). They are accumulated side by side and emitted together, so
+ * `at(k)` and `apAt(k)` always describe the same 100 ms of music — which is the
+ * whole point, since the interesting quantity is the DIFFERENCE between them.
  */
 export class CrestTrail {
   constructor(rate) {
     this.frameSamples = Math.max(1, Math.round(FRAME_SEC * rate));
     this.hist = new Float64Array(CREST_TRAIL_CAP);
+    this.apHist = new Float64Array(CREST_TRAIL_CAP);
     this.head = 0;        // where the next completed frame goes
     this.count = 0;
     /** The last completed frame's crest, in dB, or NaN before there is one. */
     this.latest = NaN;
+    /** …and the same frame measured after the all-pass cascade. */
+    this.apLatest = NaN;
     this._peak = 0;
     this._sumSq = 0;
+    this._apPeak = 0;
+    this._apSumSq = 0;
     this._n = 0;
   }
 
@@ -273,21 +284,33 @@ export class CrestTrail {
     this.head = 0;
     this.count = 0;
     this.latest = NaN;
+    this.apLatest = NaN;
     this._peak = 0;
     this._sumSq = 0;
+    this._apPeak = 0;
+    this._apSumSq = 0;
     this._n = 0;
   }
 
   /**
    * Fold one drained interval in.
-   * @param peak       largest |sample| over it, either channel
-   * @param meanSquare the PAIR's mean square over it
-   * @param n          samples in it
+   * @param peak         largest |sample| over it, either channel
+   * @param meanSquare   the PAIR's mean square over it
+   * @param n            samples in it
+   * @param apPeak       the same peak, measured after the all-pass cascade
+   * @param apMeanSquare the same mean square, after the cascade
+   *
+   * The all-passed pair defaults to zero, which `crestDb` reports as 0 dB — so
+   * a host that does not run the cascade gets a trail whose allpassed reading
+   * never exceeds the plain one, and therefore draws no gap at all. Degrading
+   * to "nothing to say" is the right failure for a comparison.
    */
-  push(peak, meanSquare, n) {
+  push(peak, meanSquare, n, apPeak = 0, apMeanSquare = 0) {
     if (!(n > 0)) return;
     if (peak > this._peak) this._peak = peak;
+    if (apPeak > this._apPeak) this._apPeak = apPeak;
     this._sumSq += meanSquare * n;
+    this._apSumSq += apMeanSquare * n;
     this._n += n;
     while (this._n >= this.frameSamples) {
       // Energy splits proportionally when an interval overruns the frame it
@@ -295,16 +318,22 @@ export class CrestTrail {
       // share of it. The peak does not divide (see above).
       const share = this.frameSamples / this._n;
       const sq = this._sumSq * share;
-      this._emit(crestDb(this._peak, sq / this.frameSamples));
+      const apSq = this._apSumSq * share;
+      this._emit(crestDb(this._peak, sq / this.frameSamples),
+        crestDb(this._apPeak, apSq / this.frameSamples));
       this._sumSq -= sq;
+      this._apSumSq -= apSq;
       this._n -= this.frameSamples;
       this._peak = 0;
+      this._apPeak = 0;
     }
   }
 
-  _emit(db) {
+  _emit(db, apDb) {
     this.latest = db;
+    this.apLatest = apDb;
     this.hist[this.head] = db;
+    this.apHist[this.head] = apDb;
     this.head = (this.head + 1) % CREST_TRAIL_CAP;
     if (this.count < CREST_TRAIL_CAP) this.count++;
   }
@@ -313,6 +342,12 @@ export class CrestTrail {
   at(k) {
     if (k < 0 || k >= this.count) return NaN;
     return this.hist[(this.head - 1 - k + CREST_TRAIL_CAP * 2) % CREST_TRAIL_CAP];
+  }
+
+  /** …and its allpassed crest, over exactly the same samples. */
+  apAt(k) {
+    if (k < 0 || k >= this.count) return NaN;
+    return this.apHist[(this.head - 1 - k + CREST_TRAIL_CAP * 2) % CREST_TRAIL_CAP];
   }
 }
 
@@ -873,16 +908,18 @@ export class MasteringView {
 
   /** A grid of big numbers with small captions. A field may ask for a `trail`,
    *  which lays a canvas over the top band of its cell — the number still sits
-   *  in front of it, so the cell is exactly as tall as every other one. */
+   *  in front of it, so the cell is exactly as tall as every other one — and
+   *  for an `alt`, a second figure set beside the first in the same cell. The
+   *  pair is one reading, so it gets one cell and one caption; `cells[key]` is
+   *  then the main figure's element and `cells[key + "Alt"]` the companion. */
   readoutGrid(fields) {
     const grid = document.createElement("div");
     grid.className = "mst-readouts";
     const cells = {};
-    for (const [key, labelKey, titleKey, trail] of fields) {
+    for (const [key, labelKey, titleKey, trail, alt] of fields) {
       const cell = document.createElement("div");
       cell.className = "mst-readout";
       const v = document.createElement("b");
-      v.textContent = "—";
       const l = document.createElement("span");
       l.textContent = t(labelKey);
       if (titleKey) cell.title = t(titleKey);
@@ -892,9 +929,21 @@ export class MasteringView {
         cell.appendChild(cv);
         cells[key + "Trail"] = cv;
       }
+      if (alt) {
+        const main = document.createElement("span");
+        main.textContent = "—";
+        const second = document.createElement("span");
+        second.className = "mst-alt";
+        second.textContent = "—";
+        v.append(main, second);
+        cells[key] = main;
+        cells[key + "Alt"] = second;
+      } else {
+        v.textContent = "—";
+        cells[key] = v;
+      }
       cell.append(v, l);
       grid.appendChild(cell);
-      cells[key] = v;
     }
     return { grid, cells };
   }
@@ -908,7 +957,7 @@ export class MasteringView {
       ["lra", "mst.lra", "mst.lraTitle"],
       ["tp", "mst.truePeakRead", "mst.truePeakReadTitle"],
       ["plr", "mst.plr", "mst.plrTitle"],
-      ["crest", "mst.crest", "mst.crestTitle", true],
+      ["crest", "mst.crest", "mst.crestTitle", true, true],
     ]);
     this.loudCells = cells;
     this.loudCanvas = document.createElement("canvas");
@@ -1066,7 +1115,6 @@ export class MasteringView {
       ["lufs", "mst.plotLufs"],
       ["peak", "mst.plotPeak"],
       ["crest", "mst.plotCrest"],
-      ["gap", "mst.plotGap"],
       ["spectrum", "mst.plotSpectrum"],
     ]) {
       const b = document.createElement("button");
@@ -1336,8 +1384,11 @@ export class MasteringView {
           const peak = Math.max(r.peak[s * 2], r.peak[s * 2 + 1]);
           this.loud[s].push(r.sumZ[s], msPair * 2 * r.frames, peak,
             Math.max(r.truePeak[s * 2], r.truePeak[s * 2 + 1]), r.frames);
-          // Both halves of the crest ratio, over the same samples.
-          this.crest[s].push(peak, msPair, r.frames);
+          // Both halves of the crest ratio, over the same samples — and the
+          // all-passed pair beside them. apSumSq is channel-SUMMED, so half of
+          // it over the frames is the pair's mean square, exactly as msPair is.
+          this.crest[s].push(peak, msPair, r.frames, r.apPeak[s],
+            r.apSumSq[s] * 0.5 / r.frames);
         }
         for (let i = 0; i < 4; i++) {
           const db = dbfs(r.truePeak[i]);
@@ -1452,6 +1503,7 @@ export class MasteringView {
     cells.plr.textContent = Number.isFinite(l.plr) ? l.plr.toFixed(1) : "—";
     const crest = this.crest[this.stage];
     cells.crest.textContent = Number.isFinite(crest.latest) ? crest.latest.toFixed(1) : "—";
+    cells.crestAlt.textContent = Number.isFinite(crest.apLatest) ? crest.apLatest.toFixed(1) : "—";
     this.drawCrestTrail(C, crest);
 
     const box = this.ctxFor(this.loudCanvas, 38);
@@ -1518,6 +1570,14 @@ export class MasteringView {
    * digits are; hanging them keeps a typical reading up against the border and
    * clear of everything but the tops of the glyphs. The border is a real line
    * to hang an axis off, too.
+   *
+   * Each bar is drawn TWICE: once to the allpassed crest in the gap ink, then
+   * over it to the plain crest in the ordinary one. The all-passed reading is
+   * the longer of the two on anything the chain has flattened, so what stays
+   * visible is its excess — a coloured tip on the end of the bar, one pixel
+   * of it on clean material and a third of the bar on something clipped. There
+   * is no separate scale and no legend for it; the tip IS the gap, measured
+   * against the same 24 dB the bar already stands in.
    */
   drawCrestTrail(C, trail) {
     const cv = this.loudCells?.crestTrail;
@@ -1527,12 +1587,22 @@ export class MasteringView {
     const { ctx, w, h } = box;
     const step = CREST_TRAIL_BAR + CREST_TRAIL_GAP;
     const n = Math.min(Math.floor(w / step), trail.count);
-    ctx.fillStyle = mixInk(C.panel2, C.dim, 0.5);
+    const len = (db) => Math.max(1, Math.round(clamp(db / CREST_TRAIL_MAX_DB, 0, 1) * h));
+    const x = (k) => w - (k + 1) * step + CREST_TRAIL_GAP;
+    // Two passes rather than two fills per bar: a fillStyle change between
+    // every pair of 2 px rectangles is the expensive part of this loop.
+    ctx.fillStyle = mixInk(C.errBg, C.errFg, 0.35);
+    for (let k = 0; k < n; k++) {
+      const db = trail.at(k);
+      const ap = trail.apAt(k);
+      if (!(ap > db)) continue;
+      ctx.fillRect(x(k), 0, CREST_TRAIL_BAR, len(ap));
+    }
+    ctx.fillStyle = mixInk(C.panel2, C.dim, 0.35);
     for (let k = 0; k < n; k++) {
       const db = trail.at(k);
       if (!(db > 0)) continue;
-      const bh = Math.max(1, Math.round(clamp(db / CREST_TRAIL_MAX_DB, 0, 1) * h));
-      ctx.fillRect(w - (k + 1) * step + CREST_TRAIL_GAP, 0, CREST_TRAIL_BAR, bh);
+      ctx.fillRect(x(k), 0, CREST_TRAIL_BAR, len(db));
     }
   }
 
@@ -1939,22 +2009,61 @@ export class MasteringView {
       this.drawTimeAxis(ctx, w, h, pad, plotW, C);
       return;
     }
-    // Both stages, always: the point of the plot is the DIFFERENCE the chain
-    // made, and drawing one line at a time would hide it.
-    for (const [side, colour, dash] of [["pre", C.dim, [3, 3]], ["post", spec.colour, null]]) {
-      const series = spec.pick(a[side]);
-      if (!series || series.length === 0) continue;
+    const xAt = (i, len) => pad + (i / Math.max(1, len - 1)) * plotW;
+    const yAt = (v) => {
+      const c = clamp(Number.isFinite(v) ? v : spec.lo, spec.lo, spec.hi);
+      return 2 + (1 - (c - spec.lo) / (spec.hi - spec.lo)) * plotH;
+    };
+    const line = (series, colour, dash, alpha = 1) => {
+      if (!series || series.length === 0) return;
       ctx.strokeStyle = colour;
       ctx.lineWidth = 1.4;
+      ctx.globalAlpha = alpha;
       ctx.setLineDash(dash ?? []);
       ctx.beginPath();
       for (let i = 0; i < series.length; i++) {
-        const x = pad + (i / Math.max(1, series.length - 1)) * plotW;
-        const v = clamp(Number.isFinite(series[i]) ? series[i] : spec.lo, spec.lo, spec.hi);
-        const y = 2 + (1 - (v - spec.lo) / (spec.hi - spec.lo)) * plotH;
+        const x = xAt(i, series.length);
+        const y = yAt(series[i]);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.stroke();
+      ctx.globalAlpha = 1;
+    };
+    /**
+     * The band between a series and one drawn over it — the EXCESS only. Its
+     * top edge is the pointwise max of the two, so where the second series runs
+     * BELOW the first the band closes to nothing instead of reopening on the
+     * far side. That asymmetry is deliberate: an allpassed crest above the
+     * plain one means peaks were flattened, and an allpassed crest below it
+     * means the opposite (a lone transient smeared out by the cascade), which
+     * is not the same finding and must not be painted in the same ink.
+     */
+    const band = (lo, hi, colour, alpha) => {
+      if (!lo || !hi || lo.length === 0 || lo.length !== hi.length) return;
+      ctx.fillStyle = colour;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      for (let i = 0; i < hi.length; i++) {
+        const x = xAt(i, hi.length);
+        const y = yAt(Math.max(lo[i], hi[i]));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      for (let i = lo.length - 1; i >= 0; i--) ctx.lineTo(xAt(i, lo.length), yAt(lo[i]));
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+    // Both stages, always: the point of the plot is the DIFFERENCE the chain
+    // made, and drawing one line at a time would hide it. Pre is dashed and
+    // fainter throughout, post solid and full strength, so a plot carrying a
+    // pair of series still reads as two sides rather than four lines.
+    for (const [side, colour, dash] of [["pre", C.dim, [3, 3]], ["post", spec.colour, null]]) {
+      const series = spec.pick(a[side]);
+      const alt = spec.pick2 ? spec.pick2(a[side]) : null;
+      // The band goes down first so both lines stay legible on top of it.
+      if (alt) band(series, alt, spec.altColour, side === "post" ? 0.3 : 0.13);
+      line(series, colour, dash);
+      if (alt) line(alt, spec.altColour, dash, side === "post" ? 1 : 0.55);
     }
     ctx.setLineDash([]);
     // Axes: value on the left, time along the bottom.
@@ -1970,6 +2079,10 @@ export class MasteringView {
     ctx.textAlign = "left";
     ctx.fillStyle = spec.colour;
     ctx.fillText(spec.label, pad + 2, 10);
+    if (spec.altLabel) {
+      ctx.fillStyle = spec.altColour;
+      ctx.fillText(spec.altLabel, pad + 2 + ctx.measureText(spec.label).width + 10, 10);
+    }
   }
 
   /** Minutes:seconds along the bottom of the offline plot. */
@@ -1996,14 +2109,14 @@ export class MasteringView {
           ticks: [0, -12, -24, -36], pick: (s) => s.truePeakSeriesDb,
         };
       case "crest":
+        // TWO series on one plot, because the reading is the DIFFERENCE. Two
+        // picker entries made the reader flip between them and hold the shapes
+        // in their head, which is the one thing a chart is for.
         return {
           label: t("mst.plotCrest"), colour: C.meter, lo: 0, hi: 24,
           ticks: [6, 12, 18], pick: (s) => s.crestSeriesDb,
-        };
-      case "gap":
-        return {
-          label: t("mst.plotGap"), colour: C.colPan, lo: 0, hi: 24,
-          ticks: [6, 12, 18], pick: (s) => s.apCrestSeriesDb,
+          altLabel: t("mst.plotAllpassed"), altColour: C.errFg,
+          pick2: (s) => s.apCrestSeriesDb,
         };
       case "spectrum":
         // Drawn by drawSpectrogram, which has its own axis — this only names it.

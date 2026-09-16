@@ -6,6 +6,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-16
 
+The Mastering view now shows the crest factor and its allpassed twin together, so how much peak the chain has flattened is something you can see rather than something you work out.
+
+- **The Crest readout carries a second figure** — the **allpassed crest**, the same 100 ms window measured after an all-pass cascade that scatters the phases and leaves the spectrum alone. A flat-topped waveform has an artificially low crest; all-passing it turns those tops back into peaks, so the distance between the two figures is how much peak has been eaten.
+- **The ribbon under the readout draws that gap on every bar.** The coloured tip on the end of a bar is that window's gap — invisible on clean material, a third of the bar on something hard-clipped — so a passage the limiter is leaning on stands out while it plays.
+- **Analyse song plots the pair on one chart, with the difference shaded between them.** The picker's separate *Crest* and *Phase-scrambled crest* entries are now a single **Crest** entry: flipping between two charts to compare their shapes was the one thing this comparison should never have needed.
+- **The measurement is called the *allpassed crest* everywhere now**, rather than "phase-scrambled crest" — that is the name it is known by.
+- The shaded band is drawn only where the allpassed reading runs *above* the plain one. Where it runs below — very peaky material that the cascade smears out — the two lines simply cross, because that is a different finding and must not read as the same one.
+- The cascade now runs live while the Mastering view is open, which it did not before. It is real work, and it stops the moment you leave the view.
+
 The Cmd1/Cmd2 columns of the Cues list are now block-selectable, so a run of cues can be given one command in a single step.
 
 - **Select command words the way you select anything else** — drag across them, **Shift+arrows**, or **Ctrl+A** for the whole column with **Ctrl+←/→** to reach the other one. **Esc** clears the block and **Delete** blanks the commands in it, leaving every pattern number under them alone.

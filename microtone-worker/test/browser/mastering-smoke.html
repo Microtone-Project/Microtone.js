@@ -127,6 +127,18 @@ function painted(cv) {
     String(view.readout.specWrite));
   const readout = view.readout;
   check(readout.frames > 0, "the tap delivered frames", String(readout.frames));
+  // The all-pass cascade runs LIVE now, so the Crest cell can print the
+  // allpassed reading beside the plain one and the trail can colour the gap.
+  check(readout.apPeak[1] > 0, "the all-pass cascade ran on the audio thread",
+    String(readout.apPeak[1]));
+  check(readout.apSumSq[1] > 0, "…and carried its energy too",
+    String(readout.apSumSq[1]));
+  check(Number.isFinite(view.crest[1].apLatest),
+    "the Crest cell has an allpassed figure to print",
+    String(view.crest[1].apLatest));
+  check(doc.querySelector(".mst-readout b > span.mst-alt")?.textContent.trim() !== "\u2014",
+    "…and it is on screen beside the plain one",
+    doc.querySelector(".mst-readout b > span.mst-alt")?.textContent);
   check(Number.isFinite(view.loud[1].momentary),
     "momentary loudness reads a number", String(view.loud[1].momentary));
   check(readout.histTotal > 0, "the bit histogram filled", String(readout.histTotal));
@@ -225,6 +237,20 @@ function painted(cv) {
   check(bands === 5 && view.analysis.post.bandSeries.length === bands * view.analysis.post.peakSeriesDb.length,
     "the analysis carries a spectral column per frame",
     `${view.analysis.post.bandSeries.length / bands} columns`);
+  // One Crest entry drawing BOTH series, not two entries drawing one each.
+  const labels = [...pickBtns()].map((b) => b.textContent);
+  check(labels.join() === "Loudness,True peak,Crest,Spectral distribution",
+    "the plot picker offers one Crest entry", labels.join());
+  [...pickBtns()].find((b) => b.textContent === "Crest")?.click();
+  await sleep(200);
+  check(view.plotSeries === "crest", "the crest plot is selected", view.plotSeries);
+  check(painted(view.plotCanvas), "the crest plot painted");
+  const spec = view.plotSpec();
+  check(typeof spec.pick2 === "function" && !!spec.altLabel,
+    "…as a pair with the allpassed series", String(spec.altLabel));
+  check(spec.pick2(view.analysis.post).length === spec.pick(view.analysis.post).length,
+    "the two series cover the same frames");
+
   [...pickBtns()].find((b) => b.textContent === "Spectral distribution")?.click();
   await sleep(200);
   check(painted(view.plotCanvas), "the spectral distribution plot painted");

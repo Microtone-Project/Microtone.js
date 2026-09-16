@@ -27,6 +27,7 @@ import {
   SNAP_MM_FRAMES, SNAP_MM_COMP_GR, SNAP_MM_LIM_GR, SNAP_MM_HIST_TOTAL,
   SNAP_MM_BASE, SNAP_MM_SUM_Z, SNAP_MM_CH, SNAP_MM_C_PEAK, SNAP_MM_C_TRUE_PEAK,
   SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
+  SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ,
   SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
   SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
@@ -228,9 +229,10 @@ export function fillSnapshotInto(eng, playhead, f) {
 
 /**
  * Mastering-meter block (item 178). Drains the view's own tap — the K-weighted
- * energy, the per-channel peak/true-peak/mean-square/clip figures on BOTH sides
- * of the chain, the chain's gain reduction, and the delivered 8-bit code
- * histogram. With the tap off only the "no frames" marker is written.
+ * energy, the allpassed crest's peak and energy, the per-channel
+ * peak/true-peak/mean-square/clip figures on BOTH sides of the chain, the
+ * chain's gain reduction, and the delivered 8-bit code histogram. With the tap
+ * off only the "no frames" marker is written.
  */
 function fillMasterMeterInto(ts, f) {
   const tap = ts.masterMeter;
@@ -262,6 +264,8 @@ function fillMasterMeterInto(ts, f) {
       f[co + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
       f[co + SNAP_MM_C_CLIP] = r.clip[i];
     }
+    f[o + SNAP_MM_AP_PEAK] = r.apPeak[s];
+    f[o + SNAP_MM_AP_SUM_SQ] = r.apSumSq[s];
   }
   // Normalised buckets (see protocol.js): a raw count leaves float32's exact
   // integer range after a few minutes on one code. The FIGURES come from the

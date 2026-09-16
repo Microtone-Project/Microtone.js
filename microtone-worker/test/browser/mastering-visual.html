@@ -14,6 +14,7 @@
        ?theme=light|dim for the other themes (the app's own URL parameter);
        ?stage=pre reads the mix going into the chain instead of the master;
        ?bottom=1 scrolls the instrument column to the offline analysis;
+       ?plot=lufs|peak|crest|spectrum picks the time plot's series;
        ?cap= sets the analysis length in seconds (default 25). -->
   <img src="/hang" hidden>
   <iframe id="app" style="width:1580px;height:960px;border:0"></iframe>
@@ -57,6 +58,14 @@
       await win.__microtoneEnsureAudio?.();
       doc.getElementById("playSong")?.click();
       await sleep(2500);
+      if (q.get("plot")) {
+        view.plotSeries = q.get("plot");
+        for (const b of doc.querySelectorAll(".mst-serieseg button")) {
+          b.classList.toggle("active", b.textContent === view.plotSpec().label);
+        }
+        view._plotW = -1;
+        await sleep(200);
+      }
       if (q.get("bottom")) {
         const panel = doc.querySelector(".mst-panel");
         panel.scrollTop = panel.scrollHeight;

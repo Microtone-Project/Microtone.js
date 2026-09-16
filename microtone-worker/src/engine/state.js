@@ -364,10 +364,10 @@ export class TrackerState {
   }
 
   /** Install (or drop) the Mastering view's metering tap. `scramble` adds the
-   *  phase-scrambled crest measurement, which only the offline analyser asks
-   *  for (loudness.js explains why it is not on the live path); `bitDepth`
-   *  picks which delivered format the bit-usage census describes, and
-   *  `histSpan` (HIST_SPAN_*) over how much of the take it is taken. */
+   *  allpassed-crest measurement, which both the live readout and the offline
+   *  analyser ask for (loudness.js explains what it costs); `bitDepth` picks
+   *  which delivered format the bit-usage census describes, and `histSpan`
+   *  (HIST_SPAN_*) over how much of the take it is taken. */
   setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH, histSpan = HIST_SPAN_ALL) {
     if (!on) { this.masterMeter = null; return; }
     const depth = bitDepth === 8 ? 8 : 16;

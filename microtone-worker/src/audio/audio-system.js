@@ -27,6 +27,7 @@ import {
   SNAP_MM_FRAMES, SNAP_MM_COMP_GR, SNAP_MM_LIM_GR, SNAP_MM_HIST_TOTAL,
   SNAP_MM_BASE, SNAP_MM_SUM_Z, SNAP_MM_CH, SNAP_MM_C_PEAK, SNAP_MM_C_TRUE_PEAK,
   SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
+  SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ,
   SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
   SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
@@ -336,7 +337,13 @@ export class AudioSystem {
    */
   setMastering(ph, params) { this._post({ t: CMD.SET_MASTERING, ph, params }); }
   /** Item 178: install (or drop) the Mastering view's own metering tap. Costs
-   *  nothing while off, so the view turns it off the moment it is hidden. */
+   *  nothing while off, so the view turns it off the moment it is hidden.
+   *
+   *  `scramble` rides ON: the Crest readout draws the allpassed crest beside
+   *  the plain one, so the all-pass cascade has to run live. It is eight
+   *  biquads per channel per stage and it is not free — the reason it is
+   *  affordable is that this tap exists ONLY while the Mastering view is on
+   *  screen, and nothing else on that screen is cheap either. */
   setMasterMeter(ph, on, bitDepth = undefined, histSpan = undefined) {
     if (ph === 0) {
       this.masterMeterOn = !!on;
@@ -344,7 +351,7 @@ export class AudioSystem {
       if (histSpan !== undefined) this.masterMeterSpan = histSpan | 0;
     }
     this._post({
-      t: CMD.SET_MASTER_METER, ph, on: !!on,
+      t: CMD.SET_MASTER_METER, ph, on: !!on, scramble: !!on,
       bitDepth: this.masterMeterDepth, histSpan: this.masterMeterSpan,
     });
   }
@@ -554,6 +561,8 @@ export class AudioSystem {
         out.meanSquare[i] = f[co + SNAP_MM_C_MEAN_SQUARE];
         out.clip[i] = f[co + SNAP_MM_C_CLIP];
       }
+      out.apPeak[s] = f[o + SNAP_MM_AP_PEAK];
+      out.apSumSq[s] = f[o + SNAP_MM_AP_SUM_SQ];
     }
     return out;
   }

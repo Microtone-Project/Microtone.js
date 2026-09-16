@@ -3209,9 +3209,11 @@ function responseCurve(chain, lo = 20, hi = 20000, n = 256) {
 // is EBU Tech 3342: 3 s windows, a −20 LU relative gate, and the span from the
 // 10th to the 95th percentile.
 //
-// The all-pass cascade is NOT from a standard. It is this project's own, and it
-// is spelled out in TAUD_ENGINE_SPEC.md so a second implementation can produce
-// the same figure; see PHASE_SCRAMBLE_HZ for what it is for.
+// The all-pass cascade is NOT from a standard. It is this project's own, spelled
+// out at PHASE_SCRAMBLE_HZ below — section frequencies and Q — so that a second
+// implementation can produce the same figure. It is metering, not playback, so
+// it is defined here rather than in TAUD_ENGINE_SPEC.md: no two renders of a
+// song differ because of it.
 
 
 // ── K-weighting (BS.1770) ───────────────────────────────────────────────────
@@ -3310,7 +3312,9 @@ function lufsFromMeanSquare(sumOfChannelMeanSquares) {
 // is untouched while the phases are scattered; the flat tops become peaks again
 // and the crest factor jumps back up. The GAP between the two crest figures is
 // therefore a direct reading of how much peak the processing has eaten, which
-// is the measurement MasVis made famous.
+// is the measurement MasVis made famous. The cascade is the mechanism; the
+// figure it yields is what MasVis calls the ALLPASSED CREST, and that is the
+// name everything user-facing uses for it.
 //
 // The cascade below is this project's own definition, not MasVis's: eight
 // second-order all-pass sections at octave spacing from 31.25 Hz to 4 kHz, all
@@ -3713,11 +3717,11 @@ const SPEC_FRAMES = 2048;
 class MasterMeterTap {
   /**
    * @param rate      engine sampling rate
-   * @param scramble  also measure the phase-scrambled peak and energy, for the
-   *                  crest-gap reading. OFF for the live meters: eight biquads
-   *                  per channel per stage is real work for a figure whose
-   *                  whole point is a comparison over a WHOLE song, which is
-   *                  the offline analyser's job.
+   * @param scramble  also measure the all-passed peak and energy, which is what
+   *                  the ALLPASSED CREST is read off. Still optional — it is
+   *                  eight biquads per channel per stage — but both callers now
+   *                  ask for it: the offline analyser plots it against the
+   *                  plain crest, and the live Crest readout prints the pair.
    */
   constructor(rate, { scramble = false, bitDepth = DEFAULT_BIT_DEPTH } = {}) {
     this.rate = rate;
@@ -3732,7 +3736,8 @@ class MasterMeterTap {
       this.tp.push(new TruePeakDetector(2));
       this.ap.push(scramble ? [new PhaseScrambler(rate), new PhaseScrambler(rate)] : null);
     }
-    /** Phase-scrambled peak and Σ x², per stage (channel-summed). */
+    /** All-passed peak and Σ x², per stage (channel-summed) — the allpassed
+     *  crest's two halves. */
     this.apPeak = new Float64Array(TAP_STAGES);
     this.apSumSq = new Float64Array(TAP_STAGES);
     this.sumZ = new Float64Array(TAP_STAGES);        // channel-summed K-weighted
@@ -6615,10 +6620,10 @@ class TrackerState {
   }
 
   /** Install (or drop) the Mastering view's metering tap. `scramble` adds the
-   *  phase-scrambled crest measurement, which only the offline analyser asks
-   *  for (loudness.js explains why it is not on the live path); `bitDepth`
-   *  picks which delivered format the bit-usage census describes, and
-   *  `histSpan` (HIST_SPAN_*) over how much of the take it is taken. */
+   *  allpassed-crest measurement, which both the live readout and the offline
+   *  analyser ask for (loudness.js explains what it costs); `bitDepth` picks
+   *  which delivered format the bit-usage census describes, and `histSpan`
+   *  (HIST_SPAN_*) over how much of the take it is taken. */
   setMasterMeter(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH, histSpan = HIST_SPAN_ALL) {
     if (!on) { this.masterMeter = null; return; }
     const depth = bitDepth === 8 ? 8 : 16;
@@ -12922,7 +12927,7 @@ const CMD = Object.freeze({
   SET_MONITOR_MODE: "setMonitorMode",              // {ph, mode} — #998.3 fold / binaural
   SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
   SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
-  SET_MASTER_METER: "setMasterMeter",              // {ph, on, bitDepth, histSpan} — item 178 Mastering-view tap
+  SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
@@ -13063,9 +13068,10 @@ const SNAP_SCOPE_BASE = SNAP_METER_BASE + ANALYSIS_MAX_METERS * SNAP_METER_STRID
 
 // ── Mastering meter blocks (item 178), after the scope ring ──
 // Two stages — pre-chain then post-chain — each carrying the K-weighted energy
-// the loudness figures are built from and, per channel, the same four numbers
-// the strip's meters use. Measuring BOTH sides every chunk is what makes the
-// view's pre/post toggle instant and its two readings describe one moment.
+// the loudness figures are built from, the allpassed crest's peak and energy,
+// and, per channel, the same four numbers the strip's meters use. Measuring
+// BOTH sides every chunk is what makes the view's pre/post toggle instant and
+// its two readings describe one moment.
 const SNAP_MM_BASE = SNAP_SCOPE_BASE + SCOPE_FRAMES * SCOPE_CHANNELS;
 const SNAP_MM_SUM_Z = 0;        // Σ (K-weighted L² + K-weighted R²)
 const SNAP_MM_CH = 1;           // …then 2 channels of:
@@ -13074,7 +13080,14 @@ const SNAP_MM_C_TRUE_PEAK = 1;
 const SNAP_MM_C_MEAN_SQUARE = 2;
 const SNAP_MM_C_CLIP = 3;
 const SNAP_MM_C_STRIDE = 4;
-const SNAP_MM_STAGE_STRIDE = SNAP_MM_CH + 2 * SNAP_MM_C_STRIDE;
+// …and the allpassed crest's two halves (MasVis), channel-SUMMED rather than
+// per-channel: the reading is the pair's, exactly as the plain crest beside it
+// takes the louder channel's peak against the pair's mean square. Σ x² rather
+// than a mean square because that is what the tap accumulates and the view
+// packs into its own 100 ms frames, which the snapshot interval does not divide.
+const SNAP_MM_AP_PEAK = SNAP_MM_CH + 2 * SNAP_MM_C_STRIDE;
+const SNAP_MM_AP_SUM_SQ = SNAP_MM_AP_PEAK + 1;
+const SNAP_MM_STAGE_STRIDE = SNAP_MM_AP_SUM_SQ + 1;
 const SNAP_MM_STAGES = 2;
 
 // Delivered 8-bit code histogram (item 178.4's "bit usage"). Shipped NORMALISED
@@ -13577,9 +13590,10 @@ function fillSnapshotInto(eng, playhead, f) {
 
 /**
  * Mastering-meter block (item 178). Drains the view's own tap — the K-weighted
- * energy, the per-channel peak/true-peak/mean-square/clip figures on BOTH sides
- * of the chain, the chain's gain reduction, and the delivered 8-bit code
- * histogram. With the tap off only the "no frames" marker is written.
+ * energy, the allpassed crest's peak and energy, the per-channel
+ * peak/true-peak/mean-square/clip figures on BOTH sides of the chain, the
+ * chain's gain reduction, and the delivered 8-bit code histogram. With the tap
+ * off only the "no frames" marker is written.
  */
 function fillMasterMeterInto(ts, f) {
   const tap = ts.masterMeter;
@@ -13611,6 +13625,8 @@ function fillMasterMeterInto(ts, f) {
       f[co + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
       f[co + SNAP_MM_C_CLIP] = r.clip[i];
     }
+    f[o + SNAP_MM_AP_PEAK] = r.apPeak[s];
+    f[o + SNAP_MM_AP_SUM_SQ] = r.apSumSq[s];
   }
   // Normalised buckets (see protocol.js): a raw count leaves float32's exact
   // integer range after a few minutes on one code. The FIGURES come from the

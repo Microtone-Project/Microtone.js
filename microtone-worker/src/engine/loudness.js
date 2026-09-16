@@ -22,9 +22,11 @@
 // is EBU Tech 3342: 3 s windows, a −20 LU relative gate, and the span from the
 // 10th to the 95th percentile.
 //
-// The all-pass cascade is NOT from a standard. It is this project's own, and it
-// is spelled out in TAUD_ENGINE_SPEC.md so a second implementation can produce
-// the same figure; see PHASE_SCRAMBLE_HZ for what it is for.
+// The all-pass cascade is NOT from a standard. It is this project's own, spelled
+// out at PHASE_SCRAMBLE_HZ below — section frequencies and Q — so that a second
+// implementation can produce the same figure. It is metering, not playback, so
+// it is defined here rather than in TAUD_ENGINE_SPEC.md: no two renders of a
+// song differ because of it.
 
 import { TruePeakDetector } from "./analysis.js";
 
@@ -124,7 +126,9 @@ export function lufsFromMeanSquare(sumOfChannelMeanSquares) {
 // is untouched while the phases are scattered; the flat tops become peaks again
 // and the crest factor jumps back up. The GAP between the two crest figures is
 // therefore a direct reading of how much peak the processing has eaten, which
-// is the measurement MasVis made famous.
+// is the measurement MasVis made famous. The cascade is the mechanism; the
+// figure it yields is what MasVis calls the ALLPASSED CREST, and that is the
+// name everything user-facing uses for it.
 //
 // The cascade below is this project's own definition, not MasVis's: eight
 // second-order all-pass sections at octave spacing from 31.25 Hz to 4 kHz, all
@@ -527,11 +531,11 @@ export const SPEC_FRAMES = 2048;
 export class MasterMeterTap {
   /**
    * @param rate      engine sampling rate
-   * @param scramble  also measure the phase-scrambled peak and energy, for the
-   *                  crest-gap reading. OFF for the live meters: eight biquads
-   *                  per channel per stage is real work for a figure whose
-   *                  whole point is a comparison over a WHOLE song, which is
-   *                  the offline analyser's job.
+   * @param scramble  also measure the all-passed peak and energy, which is what
+   *                  the ALLPASSED CREST is read off. Still optional — it is
+   *                  eight biquads per channel per stage — but both callers now
+   *                  ask for it: the offline analyser plots it against the
+   *                  plain crest, and the live Crest readout prints the pair.
    */
   constructor(rate, { scramble = false, bitDepth = DEFAULT_BIT_DEPTH } = {}) {
     this.rate = rate;
@@ -546,7 +550,8 @@ export class MasterMeterTap {
       this.tp.push(new TruePeakDetector(2));
       this.ap.push(scramble ? [new PhaseScrambler(rate), new PhaseScrambler(rate)] : null);
     }
-    /** Phase-scrambled peak and Σ x², per stage (channel-summed). */
+    /** All-passed peak and Σ x², per stage (channel-summed) — the allpassed
+     *  crest's two halves. */
     this.apPeak = new Float64Array(TAP_STAGES);
     this.apSumSq = new Float64Array(TAP_STAGES);
     this.sumZ = new Float64Array(TAP_STAGES);        // channel-summed K-weighted

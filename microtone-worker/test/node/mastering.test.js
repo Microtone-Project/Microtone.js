@@ -39,6 +39,11 @@ import {
   Fft, BandAnalyser, hannWindow, spectrumDb, SPECTRUM_BANDS, SPECTRUM_NBANDS,
   SPECTRUM_TILT_DB_PER_OCT, SPECTRUM_TILT_PIVOT_HZ, tiltDbAt, tiltWeights,
 } from "../../src/engine/fft.js";
+import { fillSnapshotInto } from "../../src/worklet/engine-commands.js";
+import {
+  SNAP_FLOATS, SNAP_MM_BASE, SNAP_MM_STAGE_STRIDE, SNAP_MM_AP_PEAK,
+  SNAP_MM_AP_SUM_SQ, SNAP_MM_CH, SNAP_MM_C_STRIDE, SNAP_MM_C_PEAK,
+} from "../../src/worklet/protocol.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../../src/engine/constants.js";
 import { TrackerState } from "../../src/engine/state.js";
 import { TaudEngine } from "../../src/engine/engine.js";
@@ -608,6 +613,52 @@ test("the crest trail keeps the recent windows, newest first", () => {
   c.reset();
   assert.equal(c.count, 0);
   assert.ok(Number.isNaN(c.latest));
+  assert.ok(Number.isNaN(c.apLatest));
+});
+
+test("the trail carries the allpassed crest over exactly the same windows", () => {
+  const c = new CrestTrail(SAMPLING_RATE);
+  const f = c.frameSamples;
+  // Four windows, each given a plain crest of `d` dB and an allpassed one of
+  // `d + 3`. An all-pass leaves the ENERGY alone (Parseval), so the second
+  // reading differs only in its peak — which is how the gap is fed here.
+  const want = [4, 8, 12, 16];
+  for (const d of want) c.push(1, 10 ** (-d / 10), f, 10 ** (3 / 20), 10 ** (-d / 10));
+  assert.equal(c.count, want.length);
+  assert.ok(Math.abs(c.latest - 16) < 1e-9, `${c.latest}`);
+  assert.ok(Math.abs(c.apLatest - 19) < 1e-9, `${c.apLatest}`);
+  for (let k = 0; k < want.length; k++) {
+    const d = want[want.length - 1 - k];
+    assert.ok(Math.abs(c.at(k) - d) < 1e-9, `at(${k}) = ${c.at(k)}`);
+    assert.ok(Math.abs(c.apAt(k) - (d + 3)) < 1e-9, `apAt(${k}) = ${c.apAt(k)}`);
+  }
+  assert.ok(Number.isNaN(c.apAt(want.length)), "past the end");
+  assert.ok(Number.isNaN(c.apAt(-1)));
+  // The pair must stay aligned when the intervals do not divide the window —
+  // the two accumulators split their energy by the same share or the gap ends
+  // up describing two different moments.
+  const d1 = new CrestTrail(SAMPLING_RATE);
+  const d2 = new CrestTrail(SAMPLING_RATE);
+  d1.push(1, 0.5, f, 0.5, 0.5);
+  for (let n = 0; n < f; n += 173) {
+    const k = Math.min(173, f - n);
+    d2.push(1, 0.5, k, 0.5, 0.5);
+  }
+  assert.ok(Math.abs(d1.latest - d2.latest) < 1e-9, `${d1.latest} vs ${d2.latest}`);
+  assert.ok(Math.abs(d1.apLatest - d2.apLatest) < 1e-9, `${d1.apLatest} vs ${d2.apLatest}`);
+});
+
+test("…and a host that runs no cascade draws no gap at all", () => {
+  // The allpassed pair defaults to zero, which crestDb reports as 0 dB. The
+  // trail's excess is only ever drawn where the allpassed reading EXCEEDS the
+  // plain one, so the degraded case has to sit at or below it, never above.
+  const c = new CrestTrail(SAMPLING_RATE);
+  const f = c.frameSamples;
+  for (const d of [0, 4, 12, 24]) {
+    c.push(1, 10 ** (-d / 10), f);
+    assert.equal(c.apLatest, 0, `${d} dB window`);
+    assert.ok(!(c.apLatest > c.latest), "no gap without the cascade");
+  }
 });
 
 // ── The level bars' statistical marks (item 178) ────────────────────────────
@@ -831,6 +882,38 @@ test("a song with no section still reports a chain, and it is the neutral one", 
 });
 
 // ── the engine end to end ───────────────────────────────────────────────────
+
+test("the snapshot carries the allpassed crest's two halves to the live view", async () => {
+  // The live Crest readout draws the gap, so the all-passed peak and energy
+  // have to survive the worklet's snapshot. They are per STAGE and
+  // channel-summed, sitting past the two channel blocks in the stage's stride.
+  const bytes = new Uint8Array(await readFile(corpusDir + "4THSYM.taud"));
+  const doc = parseTaud(bytes);
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, doc, 0);
+  eng.setMasterMeter(0, true, true, 8);
+  eng.setCuePosition(0, 0);
+  eng.play(0);
+  const device = new Uint8Array(TRACKER_CHUNK * 2);
+  for (let i = 0; i < 40; i++) eng.renderChunk(0, device);
+  const f = new Float64Array(SNAP_FLOATS);
+  fillSnapshotInto(eng, 0, f);
+  const at = (stage, k) => f[SNAP_MM_BASE + stage * SNAP_MM_STAGE_STRIDE + k];
+  for (const stage of [TAP_PRE, TAP_POST]) {
+    assert.ok(at(stage, SNAP_MM_AP_PEAK) > 0, `stage ${stage} all-passed peak`);
+    assert.ok(at(stage, SNAP_MM_AP_SUM_SQ) > 0, `stage ${stage} all-passed energy`);
+    // Not aliasing the plain peak's slot: an all-pass moves the peak, so the
+    // two agreeing exactly would mean the stride is wrong.
+    const plain = at(stage, SNAP_MM_CH + SNAP_MM_C_PEAK);
+    assert.notEqual(at(stage, SNAP_MM_AP_PEAK), plain);
+  }
+  // A drain empties the accumulators, so a snapshot taken with nothing rendered
+  // since reports zero rather than repeating the last interval's figures.
+  const g = new Float64Array(SNAP_FLOATS);
+  fillSnapshotInto(eng, 0, g);
+  assert.equal(g[SNAP_MM_BASE + TAP_POST * SNAP_MM_STAGE_STRIDE + SNAP_MM_AP_PEAK], 0);
+  assert.equal(g[SNAP_MM_BASE + TAP_POST * SNAP_MM_STAGE_STRIDE + SNAP_MM_AP_SUM_SQ], 0);
+});
 
 test("the engine honours the chain a song declares", async () => {
   const bytes = new Uint8Array(await readFile(corpusDir + "4THSYM.taud"));
