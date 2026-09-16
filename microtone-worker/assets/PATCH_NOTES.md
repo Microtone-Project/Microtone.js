@@ -6,6 +6,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-17
 
+Every tick-box and slider in the app now takes the accent colour of the theme you are in, rather than the browser's own blue.
+
+- **Fixed: the controls outside the Instruments view's General tab were browser-blue in every theme** — the accent is now stated once for the whole app, so every view, dialog and pop-up picks it up.
+- **Where you will notice it**: the *follow* switch in the top bar, the Mastering rack's options, the Keymap and Project views, the Sample Lab, the Chord and Notation makers, the import dialogs, and the volume slider on the player page.
+- **A control added later is themed the moment it appears**, so the app cannot drift back into a patchwork.
+
 A slide no longer hides where it has got to: the Timeline and Patterns grids now show, in grey, the pitch, volume or panning that a bend has left standing on a row that says nothing.
 
 - **A portamento shows its whole glide.** Under a `G $xxxx` the note column fills with the pitch each row starts on, all the way to the row where it arrives — so where a bend lands, and how long it takes, is something you read off the grid instead of counting ticks.

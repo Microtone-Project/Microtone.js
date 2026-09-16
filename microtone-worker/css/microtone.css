@@ -356,6 +356,15 @@
   --cv-font: "Roboto Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
 }
 
+/* ── NATIVE FORM CONTROLS ──────────────────────────────────────────────
+ * `accent-color` is an INHERITED property, so this one declaration paints
+ * every checkbox, radio, range slider and <progress> in the app — on every
+ * page, in every popup, in whichever theme is live — with that theme's
+ * accent. It lives here, once, so a control added later is themed the
+ * moment it is created: NEVER restate `accent-color` on an individual
+ * widget, and never hard-code a slider/checkbox colour that would fight it. */
+:root { accent-color: var(--accent); }
+
 * { box-sizing: border-box; word-break: keep-all; }
 
 /* display rules on classes must not defeat the hidden attribute */
@@ -1935,9 +1944,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .slider-row .sl-buttons button { padding: 0.15rem 0.6rem; font-size: 0.85rem; color: var(--dim); }
 .slider-row .sl-buttons button.active { color: var(--accent); border-color: var(--accent); }
 .slider-row .sl-check { grid-column: 2 / -1; display: flex; align-items: center; gap: 0.35rem; color: var(--fg); justify-self: start; }
-.slider-row .sl-check input { accent-color: var(--accent); }
 .slider-row input.sl-num.wide { width: 100%; }
-.slider-row input.sl-range { width: 100%; accent-color: var(--accent); }
+.slider-row input.sl-range { width: 100%; }
 .slider-row.noslider { grid-template-columns: 10rem 9rem minmax(4.5rem, 1fr); }
 /* item 175.2 — "From the list" under Sample ptr. The picker spans the value
  * columns like the button groups do, and is allowed to CLIP rather than to
@@ -2126,7 +2134,6 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-size: 0.9rem;
 }
 .import-row:hover { background: var(--panel); }
-.import-row input { accent-color: var(--accent); }
 .import-row .idx { color: var(--accent); font-family: "Roboto Mono", monospace; }
 .import-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .import-row .note { color: var(--dim); font-size: 0.78rem; }
