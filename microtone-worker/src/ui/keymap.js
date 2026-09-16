@@ -435,6 +435,22 @@ export const BUILTIN_KEYMAPS = Object.freeze([
       KeyZ: -12, KeyX: -10, KeyC: -9, KeyV: -7, KeyB: -5, KeyN: -3, KeyM: -2, Comma: 0, Period: 2, Slash: 3,
     },
   }),
+  normaliseKeymap({
+    name: "Double-Deck Piano 24", unit: "deg", rows: ["N", "Q", "A", "Z"],
+    origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
+    notation: 240,
+    overrides: {
+      Comma: 24, Digit0: 31, Digit1: null, Digit2: 3, Digit3: 7, Digit4: null, Digit5: 13, Digit6: 17, Digit7: 21, Digit8: null, Digit9: 27, KeyA: null, KeyB: 14, KeyC: 8, KeyD: 6, KeyE: 9, KeyF: null, KeyG: 12, KeyH: 16, KeyI: 25, KeyJ: 20, KeyK: null, KeyL: 26, KeyM: 22, KeyN: 18, KeyO: 29, KeyP: 33, KeyQ: 1, KeyR: 11, KeyS: 2, KeyT: 15, KeyU: 23, KeyV: 10, KeyW: 5, KeyX: 4, KeyY: 19, KeyZ: 0, Period: 28, Semicolon: 30, Slash: 32
+    },
+  }),
+  normaliseKeymap({
+    name: "Double-Deck Piano 12", unit: "deg", rows: ["N", "Q", "A", "Z"],
+    origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
+    notation: 120,
+    overrides: {
+      Comma: 12, Digit0: 27, Digit1: null, Digit2: 13, Digit3: 15, Digit4: null, Digit5: 18, Digit6: 20, Digit7: 22, Digit8: null, Digit9: 25, KeyA: null, KeyB: 7, KeyC: 4, KeyD: 3, KeyE: 16, KeyF: null, KeyG: 6, KeyH: 8, KeyI: 24, KeyJ: 10, KeyK: null, KeyL: 13, KeyM: 11, KeyN: 9, KeyO: 26, KeyP: 28, KeyQ: 12, KeyR: 17, KeyS: 1, KeyT: 19, KeyU: 23, KeyV: 5, KeyW: 14, KeyX: 2, KeyY: 21, KeyZ: 0, Period: 14, Semicolon: 15, Slash: 16
+    },
+  }),
 ]);
 
 /** Built-in named `name`, or null. Names are the library's identity. */
