@@ -2,8 +2,142 @@
 
 ![Microtone screenshot](Screenshot1.png)
 
-A web build of the **Microtone** tracker and the **Taud** audio engine from
-[TSVM](https://github.com/curioustorvald/tsvm). Two halves:
+**Microtone** is a music tracker for the notes a piano cannot play. Every pitch
+sits on a grid of 4096 steps per octave, so 12-TET, 19-TET, 31-TET,
+Bohlen–Pierce and a temperament you drew yourself are all the same kind of thing
+to it. Sources can be placed anywhere on the sphere and delivered as ambisonic
+B-format as readily as stereo. It runs in a browser tab, and that is the entire
+install.
+
+## Try it
+
+Simply visit **[microtone.cc](https://microtone.cc)** and start tracking; no
+strings attached. There is no account and no server side — projects live in your
+browser's private storage, and even MIDI and module conversion happens on your
+own machine. Three demo songs sit on the welcome screen if you would rather hear
+it before writing anything, the **?** button opens the keyboard reference, and
+the [full manual](https://microtone.cc/docs.html) is inside the app.
+
+### What it does
+
+- **Any tuning, not just the twelve.** Pick a notation preset — 12, 19, 24, 31,
+  41-TET (with Kite glyphs), Shi'er lü, Bohlen–Pierce — or draw your own in the
+  Notation Maker, and the editor snaps entry, display and stepping to its
+  degrees. Retune a whole song between tunings without rewriting it.
+- **Opens what you already have.** `.taud` is the native project; `.mod`,
+  `.s3m`, `.xm`, `.it`, `.mon` and AdLib `.ims` are converted on the fly, and
+  **Import MIDI…** renders a `.mid` through a SoundFont. A General MIDI bank and
+  an AdLib bank ship with the app, so an import sounds without you hunting for
+  one first.
+- **Space, not merely width.** A song chooses stereo, planar 360° or the full
+  sphere, and the pan column carries a real angle. Export stereo, quadraphonic,
+  5.1, 7.1 or ambisonic B-format (first to third order, AmbiX with ADM
+  metadata) — or stems, one mono WAV per track in a single ZIP.
+- **Master it in the same window.** Trim, high-pass, EQ, compressor and limiter,
+  with loudness, true-peak, crest and gain-reduction metering, and an offline
+  analysis of the whole song. The chain you hear is the chain the export
+  renders through.
+- **Instruments that are more than samples.** Envelopes, filters, panning and
+  note-stealing rules per instrument, plus metainstruments — a *Layered* kit
+  that sounds several instruments side by side, or an *FM Rack* that wires them
+  into one another.
+- **Your keyboard becomes the instrument.** Forty keys laid out as an isomorphic
+  lattice — Bosanquet–Wilson, Wicki–Hayden, Harmonic Table and more — fitted to
+  whatever tuning the song is in.
+
+## A look around
+
+![](Screenshot2.png)
+
+**Cues** are the song's order list. A Taud pattern belongs to a single channel,
+so every voice gets its own column and its own pattern number on every row: the
+bassline can hold for sixteen cues while the lead changes on each one. The two
+command columns on the left carry the flow — jump, halt, cue length — and a
+whole run of them can be filled in one step.
+
+![](Screenshot3.png)
+
+The **pattern editor** puts several patterns side by side, which is how you write
+against something that already exists: keep the part you are answering in view,
+copy a phrase out of one column and into the next, or edit two voices of the
+same passage without losing your place in either.
+
+![](Screenshot4.png)
+
+The **sample bin**, mid-song. The orange in this waveform is Invert Loop
+(`S $F0xx`) at work — the effect walks through the loop region flipping one
+byte at a time, and every byte it has touched so far is tinted live as the song
+plays. Nothing is written to the file: stop the transport and the sample is
+exactly as it was.
+
+![](Screenshot5.png)
+
+The **instrument editor** is the main work panel. Each instrument is a sample
+plus its volume, panning, filter, vibrato and note-stealing behaviour; the
+tabs above carry its envelopes and its zone map. The badges in the list say
+where an instrument came from — `META` for a metainstrument, `IXMP` for a
+SoundFont patch and the number of pitch × velocity zones it brought with it.
+
+![](Screenshot6.png)
+
+The **mastering tab**, metering a song as it plays. Microtone lets you write and
+master the piece in one application: the rack down the left is the delivery
+chain, the meters on the right are the ones a mastering engineer asks for —
+short-term and integrated loudness, loudness range, true peak, crest against its
+allpassed twin — and the same chain is what an export renders through.
+
+![](Screenshot7.png)
+
+The **project tab** holds everything about the piece that is not a note: tempo
+and meter, global and mixing volume, the tuning reference and its frequency, the
+panning model, the display notation, and the message that travels inside the
+file. Housekeeping tools for the whole project live at the bottom of it.
+
+![](Screenshot8.png)
+
+The **keymap tab** turns a computer keyboard into a 40-key isomorphic
+microtonal instrument. This is Bosanquet–Wilson fitted to 19-TET: all nineteen
+degrees fall under the fingers, each cap says what it plays in the song's own
+notation and how far that is from 12-TET, and the colour bands repeating across
+the board *are* the isomorphism. Layouts are yours rather than the song's — they
+travel as `.taudkey` files — but a piece that needs a particular one can carry a
+copy of it.
+
+## Just the player — `taudplay`
+
+**If you are here for the playback module rather than the tracker, simply run
+`npm i taudplay`.** No tracker attached.
+
+`taudplay` is the playback half of this engine as a standalone LGPL-3.0 library,
+for pages and games that want to *play* a `.taud` rather than edit one. A file
+rendered there is bit-identical to the same file rendered in the tracker. Its
+whole surface is a transport, **one fader per voice**, **two probes per voice**
+(how loud that channel is right now, and where it sits) and the sixteen
+**interrupts** the song itself fires in time with the music:
+
+```js
+import { TaudPlayer } from "taudplay";
+
+const player = await new TaudPlayer().init();
+await player.load(await (await fetch("theme.taud")).arrayBuffer());
+button.onclick = async () => { await player.resume(); player.play(); };
+
+player.setVoiceGain(LEAD, 0.0, 1200);        // duck the lead over 1.2 s
+player.setInterrupt(0, (n) => spawnEnemy(n)); // let the song cue the game
+```
+
+That is the point of it. A game does not want a pattern editor; it wants to duck
+the lead when the player enters a cave and bring the drums up in combat. A
+tracker song is 32 or 64 channels that were *written together*, so fading them
+against each other gives you contextual scoring for the cost of one file.
+
+`player.html` in this repository is its reference consumer.
+
+---
+
+# For developers
+
+Two halves live here:
 
 - **Taud engine** (`src/engine/`) — a faithful JavaScript translation of the
   tracker engine in TSVM's `AudioAdapter.kt`, running inside an AudioWorklet.
@@ -12,10 +146,6 @@ A web build of the **Microtone** tracker and the **Taud** audio engine from
 - **Microtone tracker** (`src/ui/`) — a native web rewrite of the tracker UI
   (the TSVM `taut.js` is the behavioural reference).
 
-## Try it
-
-Simply visit **[microtone.cc](https://microtone.cc)** and start tracking; no strings attached.
-  
 ## Running locally
 
 No build step. Serve the directory with any static file server:
@@ -25,23 +155,6 @@ npm run serve            # python3 -m http.server 8737
 # then open http://localhost:8737/            (tracker)
 #           http://localhost:8737/player.html (minimal player)
 ```
-
-## taudplay
-
-`src/taudplay/` is a standalone **player** library built out of the same engine:
-a transport, one fader per voice, and two probes per voice (current volume and
-pan), for pages and games that want to *play* a .taud rather than edit one.
-`player.html` is its reference consumer. Regenerate the separate LGPL-3.0 repo
-(and the committed single-file worklet the fallback path loads) with:
-
-```sh
-node tools/make-taudplay.js [outDir]   # default ../../../microtone-taudplay (a sibling checkout)
-```
-
-The engine there is a copy of this one, so **re-run it after any engine
-change** — otherwise the library and the tracker stop agreeing about what a
-song sounds like. Its own suite (`test/taudplay/`) travels with it and asserts
-exactly that.
 
 ## Testing
 
@@ -64,6 +177,21 @@ engine (`tsvm/devtests/webconf/`) over the corpus in `test/corpus/`:
 node tools/render-taud.js test/corpus/WHEN.taud out.pcm
 node tools/compare-pcm.js out.pcm reference.pcm
 ```
+
+## Regenerating taudplay
+
+`src/taudplay/` is authored here; the standalone LGPL-3.0 repository is a
+generated artefact carrying a verbatim copy of the engine. Rebuild it — and the
+committed single-file worklet the non-module-worklet fallback loads — with:
+
+```sh
+node tools/make-taudplay.js [outDir]   # default ../../../microtone-taudplay (a sibling checkout)
+```
+
+The engine there is a copy of this one, so **re-run it after any engine
+change** — otherwise the library and the tracker stop agreeing about what a
+song sounds like. Its own suite (`test/taudplay/`) travels with it and asserts
+exactly that.
 
 ## Layout
 
