@@ -919,7 +919,7 @@ test("midi2taud --no-dedup-patterns unshares patterns without changing the song 
     const unshared = song(convert("M_E1M1.mid", { keepDuplicatePatterns: true }));
 
     // The cue sheet is the same shape either way — only what its words POINT AT
-    // changes, so walk both cue×voice grids and compare the pattern each cell
+    // changes, so walk both cue×lane grids and compare the pattern each cell
     // resolves to. Byte-identical everywhere ⇒ the song is note-for-note the same.
     assert.equal(unshared.cues.length, pooled.cues.length);
     const cellAt = (s, c, ch) => {
@@ -935,7 +935,7 @@ test("midi2taud --no-dedup-patterns unshares patterns without changing the song 
 
     // How often each pattern index is referenced. Pooling MUST produce reuse on
     // a song this repetitive (E1M1's silent columns alone repeat), and the flag
-    // MUST remove all of it: one private pattern per occupied cue×voice cell.
+    // MUST remove all of it: one private pattern per occupied cue×lane cell.
     const refCounts = (s) => {
       const n = new Map();
       for (const words of s.cues) {

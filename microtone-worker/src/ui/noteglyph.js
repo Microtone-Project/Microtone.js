@@ -9,7 +9,7 @@
 // metainstrument's layers read "C-4" in a song that has never heard of C.
 //
 // This is the bridge: build the nodes, drop them where the text used to go.
-// Sizes match the chord maker's voice rows (13 px, a font size app.js
+// Sizes match the chord maker's note rows (13 px, a font size app.js
 // pre-loads), so a note is the same size and shape everywhere it appears
 // outside the grids.
 

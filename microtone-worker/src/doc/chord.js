@@ -3,7 +3,7 @@
 // play one sample, so trackers baked the chord into the sample itself.
 //
 // Pure float-domain computation (no DOM, Node-tested). Everything funnels
-// through ONE canonical quantity: a voice's pitch offset in 4096-TET units
+// through ONE canonical quantity: a note's pitch offset in 4096-TET units
 // (0x1000 = octave), the project's native pitch unit. The three "mods" of the
 // TODO are just three ways of naming that offset —
 //   ji     a named just ratio (always available, tuning-independent)
@@ -11,10 +11,10 @@
 //          options than 12-TET, by construction)
 //   ratio  a raw playback ratio, 2.0 = an octave up   ┐ the two manual
 //   units  a raw 4096-TET offset, e.g. 0x100          ┘ input styles
-// — plus a per-voice `oct` (×2^n) that every mode shares, so voicing a chord
+// — plus a per-note `oct` (×2^n) that every mode shares, so voicing a chord
 // never means hunting through the interval list for "a fifth, two octaves up".
-// Modes are per voice: voice 1 can be a just fifth while voice 2 counts
-// degrees and voice 3 types a ratio.
+// Modes are per note: note 1 can be a just fifth while note 2 counts
+// degrees and note 3 types a ratio.
 //
 // Playback ratio r = 2^(units/4096); a copy pitched up by r plays r× faster,
 // i.e. resample(buf, 1/r) — which also anti-aliases on the way up, since the
@@ -25,14 +25,14 @@ import { resample, normaliseRange } from "./wavelab.js";
 
 export const UNITS_PER_OCTAVE = 0x1000;
 export const MAX_VOICES = 6;
-/** Pitch travel a voice may ask for, either way. Four octaves up already means
- *  a 16× oversized working buffer when a voice also runs four octaves down. */
+/** Pitch travel a note may ask for, either way. Four octaves up already means
+ *  a 16× oversized working buffer when a note also runs four octaves down. */
 export const MAX_UNITS = 4 * UNITS_PER_OCTAVE;
 
 /**
  * Named just intervals, ascending within one octave. `id` is the stable key
  * (presets, saved state, tests); `key` is the i18n name. Anything outside the
- * octave is reached with the voice's `oct` field rather than a longer list.
+ * octave is reached with the note's `oct` field rather than a longer list.
  */
 export const JI_INTERVALS = [
   { id: "1/1",   num: 1,  den: 1,  key: "chord.ji.unison" },
@@ -60,12 +60,12 @@ export function jiById(id) {
   return JI_INTERVALS.find((iv) => iv.id === id) ?? JI_INTERVALS[0];
 }
 
-/** A single silent-by-default voice slot. */
+/** A single silent-by-default note slot. */
 export function defaultVoice() {
   return { on: false, mode: "ji", ji: "1/1", step: 0, ratio: 1, units: 0, oct: 0, gainDb: 0 };
 }
 
-/** Six voice slots seeded with `preset`'s voices (a chord-preset id). */
+/** Six note slots seeded with `preset`'s notes (a chord-preset id). */
 export function defaultVoices(presetId = "major") {
   return applyChordPreset(presetId);
 }
@@ -134,7 +134,7 @@ const TETRACHORD_NAMES = {
 };
 
 /**
- * Every tetrachord of every supported tuning, as chord presets: four voices in
+ * Every tetrachord of every supported tuning, as chord presets: four notes in
  * `key` mode standing on the unison, the two inner degrees and the fourth.
  * Ordered first step ascending, then middle step — the wiki charts' own layout,
  * which puts the primary tetrachords (one second and one third) in the middle.
@@ -274,7 +274,7 @@ function extraclassicalVocab(tuning, pair) {
     a5: half === null ? null : fifth - half,
     t5: half === null ? null : fifth + half,
     // A pair that trisects the fifth IS the slendric generator stacked (the
-    // wiki's 3edf row), which is what makes the six-voice chain equal-stepped.
+    // wiki's 3edf row), which is what makes the six-note chain equal-stepped.
     slendric: fifth % 3 === 0 && pair.a === fifth / 3,
   };
 }
@@ -307,7 +307,7 @@ const EXTRACLASSICAL_SHAPES = [
 ];
 
 /**
- * A degree-mode shape survives when it reads bottom to top with no two voices
+ * A degree-mode shape survives when it reads bottom to top with no two notes
  * on one degree and nothing landing on an octave of the root — which is how
  * the degenerate cases weed themselves out (both families use this). 15-TET's fifth is exactly 3\5 of the
  * octave, so its tendo seventh IS the octave and every chord that wants one
@@ -467,7 +467,7 @@ function buildNeutral() {
  * Notes ABOVE the octave are the plain interval plus `oct: 1`: a ninth is the
  * major second an octave up, an eleventh the fourth, a thirteenth the sixth —
  * which is what those degrees mean, and it keeps JI_INTERVALS one octave long.
- * Voices are listed ASCENDING; nothing depends on it (inversions sort), but a
+ * Notes are listed ASCENDING; nothing depends on it (inversions sort), but a
  * preset that reads bottom-to-top is a preset you can check by eye.
  *
  * Six slots is the ceiling, so the tall chords omit what a keyboard player
@@ -547,17 +547,17 @@ export function chordPresetById(presetId) {
   return CHORD_PRESETS.find((p) => p.id === presetId) ?? null;
 }
 
-/** How many voices a preset sounds — the inversion selector's ceiling. */
+/** How many notes a preset sounds — the inversion selector's ceiling. */
 export function presetVoiceCount(presetId) {
   return chordPresetById(presetId)?.voices.length ?? 0;
 }
 
 /**
- * Highest inversion a preset has: the Nth lifts N voices, and lifting them all
+ * Highest inversion a preset has: the Nth lifts N notes, and lifting them all
  * is just the same chord an octave up.
  *
  * A tetrachord has none. It is a SCALE SEGMENT rather than a voicing — the
- * order of its degrees is the whole point of it — and its voices are counted in
+ * order of its degrees is the whole point of it — and its notes are counted in
  * degrees of one tuning, which the notation-independent ranking below cannot
  * weigh against an octave (invertVoiceSpecs).
  */
@@ -567,23 +567,23 @@ export function maxInversion(presetId) {
 }
 
 /**
- * A voice list inverted, in the textbook sense: the Nth inversion lifts the N
- * lowest voices an octave each, over the top of the chord, so it keeps its
+ * A note list inverted, in the textbook sense: the Nth inversion lifts the N
+ * lowest notes an octave each, over the top of the chord, so it keeps its
  * notes and changes which one is in the bass. Out-of-range values are clamped
  * rather than wrapped (a "6th inversion" of a triad is not a thing).
  *
  * Ordering is by sounding pitch. The tuning-independent presets are written in
- * `ji`/`ratio` mode, so the bass voice is the same one in every tuning and no
+ * `ji`/`ratio` mode, so the bass note is the same one in every tuning and no
  * pitch table is needed; a `key`-mode preset (arto/tendo) DOES need one, since
  * a bare degree count cannot be weighed against an octave lift of 4096 units —
  * without it such a chord stays in root position rather than come out
- * scrambled. The result is re-sorted, which is what keeps the voice rows
+ * scrambled. The result is re-sorted, which is what keeps the note rows
  * reading bottom-to-top after the lift.
  *
  * A chord that already contains its own octave (power, octaves) would land the
- * lifted voice exactly on one it already has — a second copy of the same sample
+ * lifted note exactly on one it already has — a second copy of the same sample
  * at the same pitch, which is a level change and nothing else — so the lift
- * carries on up until the voice is its own note again.
+ * carries on up until the note is its own note again.
  */
 export function invertVoiceSpecs(specs, inversion = 0, pitchPreset = null) {
   const n = Math.min(Math.max(Math.round(inversion) || 0, 0), Math.max(0, specs.length - 1));
@@ -605,7 +605,7 @@ export function invertVoiceSpecs(specs, inversion = 0, pitchPreset = null) {
   return ranked.map((e) => e.spec);
 }
 
-/** Six voice slots for a chord-preset id, in its `inversion`th inversion;
+/** Six note slots for a chord-preset id, in its `inversion`th inversion;
  *  unused slots stay off. `pitchPreset` is the song's notation, which only a
  *  degree-mode preset needs, and only to invert (see invertVoiceSpecs). */
 export function applyChordPreset(presetId, inversion = 0, pitchPreset = null) {
@@ -626,7 +626,7 @@ export function applyChordPreset(presetId, inversion = 0, pitchPreset = null) {
  * counted from unison (degree 0 = the table entry at Middle C).
  *
  * Kept local rather than reaching for pitchtables.stepNoteInTable: doc/ must
- * not import from ui/, and a chord voice steps by a WHOLE offset in one go
+ * not import from ui/, and a chord note steps by a WHOLE offset in one go
  * (walking one degree at a time would be the same arithmetic, slower).
  *   - lattice preset  degrees wrap into periods, so 13 degrees of 12-TET is an
  *                     octave + a semitone (and 14 of Bohlen-Pierce a tritave +
@@ -655,7 +655,7 @@ export function degreeUnits(preset, d) {
   return k * preset.interval + table[d - k * n];
 }
 
-/** A voice's total pitch offset in 4096-TET units (clamped to ±MAX_UNITS). */
+/** A note's total pitch offset in 4096-TET units (clamped to ±MAX_UNITS). */
 export function voiceUnits(voice, preset) {
   if (!voice) return 0;
   let u = (Math.round(voice.oct ?? 0) || 0) * UNITS_PER_OCTAVE;
@@ -681,12 +681,12 @@ export function voiceUnits(voice, preset) {
   return Math.min(Math.max(u, -MAX_UNITS), MAX_UNITS);
 }
 
-/** Playback ratio of a voice (2.0 = an octave up). */
+/** Playback ratio of a note (2.0 = an octave up). */
 export function voiceRatio(voice, preset) {
   return Math.pow(2, voiceUnits(voice, preset) / UNITS_PER_OCTAVE);
 }
 
-/** Note word a voice sounds when the root sounds Middle C — what the UI paints
+/** Note word a note sounds when the root sounds Middle C — what the UI paints
  *  through the ordinary note-cell glyph painter, so the reading is the same one
  *  the pattern grid gives. */
 export function voiceNote(voice, preset) {
@@ -697,12 +697,12 @@ export const activeVoices = (voices) => (voices ?? []).filter((v) => v && v.on !
 
 /**
  * Frames the mix will occupy, without building it. `lengthMode`:
- *   "longest"  the slowest (lowest) voice sets the length — a one-shot keeps
+ *   "longest"  the slowest (lowest) note sets the length — a one-shot keeps
  *              its whole tail whatever the chord does to it;
- *   "source"   the source length, cropping the low voices — what you want when
+ *   "source"   the source length, cropping the low notes — what you want when
  *              the result is going to be looped, or fed back into a sampler
  *              slot whose length matters;
- *   "shortest" the FASTEST (highest) voice sets it, cropping every other voice
+ *   "shortest" the FASTEST (highest) note sets it, cropping every other note
  *              back to where that one runs out. Nothing plays on alone, so the
  *              chord holds its full stack for every frame it has — which is
  *              what a loop wants, and what keeps a decaying source from

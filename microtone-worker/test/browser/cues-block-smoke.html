@@ -169,7 +169,7 @@
         const kbOk = kb && kb.r0 === 0 && kb.r1 === 1 && kb.c0 === 2 && kb.c1 === 3;
         log(`keyboard shift-select: ${kbOk}`);
 
-        // ── 8b. Ctrl+A takes the whole voice column, Ctrl+←/→ walk its edge ──
+        // ── 8b. Ctrl+A takes the whole lane column, Ctrl+←/→ walk its edge ───
         // The column stops at the end of the CUE LIST, not at the end of the
         // address space: selecting 8192 imaginary rows would make one paste
         // materialise the lot.

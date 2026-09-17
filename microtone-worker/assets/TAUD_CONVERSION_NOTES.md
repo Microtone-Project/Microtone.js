@@ -411,7 +411,7 @@ Melodic instruments get the **key lift** flag, so key-off behaves like a MIDI ke
 
 ### 7.6 Polyphony
 
-Polyphony rides on New Note Actions, which is what makes MIDI-shaped music fit a tracker at all. Every instrument, drum kits included, gets **NNA = Note Fade**: a voice column becomes reusable the moment its note releases, and the release tail moves to a background ghost that dies over its own release time.
+Polyphony rides on New Note Actions, which is what makes MIDI-shaped music fit a tracker at all. Every instrument, drum kits included, gets **NNA = Note Fade**: a lane becomes reusable the moment its note releases, and the release tail moves to a background ghost that dies over its own release time.
 
 The lane budget defaults to 32. A song exceeding it releases the oldest pedal-held or soonest-ending note **early** rather than cutting it. Raising the budget above 32 opts into 64-lane Taud mode, but only takes effect if the song actually allocates 33 or more lanes.
 

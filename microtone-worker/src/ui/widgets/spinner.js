@@ -218,7 +218,7 @@ const lastGood = new WeakMap();
  * here, and every call site read that blank as 0.
  *
  * A rewrite is announced with an `input` event, because several fields commit
- * on `input` and never listen for `change` at all (the chord maker's voices,
+ * on `input` and never listen for `change` at all (the chord maker's notes,
  * the panner, the export cap). Without it they would keep the 0 that `$FF`
  * parsed to while it was still `$FF`.
  */

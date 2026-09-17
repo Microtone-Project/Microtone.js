@@ -524,7 +524,7 @@ export function runPatternQuery(cells, query, wide) {
  *                             happen to BE one whole pattern, so the dialog can
  *                             name it as the pattern rather than list it twice
  *   {id: "pattern", pat}      all 64 rows of the pattern those cells sit in
- *   {id: "column", ch, patterns}  every pattern one voice column plays
+ *   {id: "column", ch, patterns}  every pattern one lane column plays
  *   {id: "song", patterns}    every pattern the song has
  *
  * Only MATERIALISED patterns are listed (item 48): an index a cue names but
@@ -564,7 +564,7 @@ export function queryScopes(song, channelCount, cells, channel = null) {
   return out;
 }
 
-/** The one voice column whose cue words name `pat`, or null when several do,
+/** The one lane column whose cue words name `pat`, or null when several do,
  *  none do, or there is no pattern to ask about. */
 export function soleColumnFor(song, channelCount, pat) {
   if (pat === null || pat === undefined || !song) return null;

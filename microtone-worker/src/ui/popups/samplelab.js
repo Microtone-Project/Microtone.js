@@ -790,7 +790,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
 
     // ── chord maker (item 89) ──────────────────────────────────────────────
     // Mixes pitch-shifted copies of the WHOLE working buffer into one chorded
-    // sample. Length-changing (a voice below unison runs longer), which is
+    // sample. Length-changing (a note below unison runs longer), which is
     // legal here for the same reason crop is: nothing is pooled yet. Chop
     // positions describe the old waveform, so they go.
     async function chordTool() {
@@ -801,7 +801,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       });
       if (!res) return;
       pushUndo();
-      // A stereo take is chorded channel by channel with the SAME voices, and
+      // A stereo take is chorded channel by channel with the SAME notes, and
       // the maker links the normalisation across them.
       setChans(res.dataR ? [res.data, res.dataR] : [res.data]);
       splits = [];

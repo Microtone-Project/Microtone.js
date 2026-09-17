@@ -45,7 +45,7 @@
           if (d) { clearInterval(poll); resolve(d); }
         }, 50);
       });
-      // one voice per mode, so every control shape is on screen at once
+      // one note per mode, so every control shape is on screen at once
       dlg.__chord.setVoice(0, { on: true, mode: "ji", ji: "1/1" });
       dlg.__chord.setVoice(1, { on: true, mode: "ji", ji: "5/4" });
       dlg.__chord.setVoice(2, { on: true, mode: "key", step: 7 });

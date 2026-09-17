@@ -110,7 +110,7 @@
         })();
         ok(glyphPainted, "a4 the voice paints a note glyph");
 
-        // a5: the four modes are independent, per voice
+        // a5: the four modes are independent, per note
         ch.setVoice(0, { on: true, mode: "ji", ji: "3/2" });
         ch.setVoice(1, { on: true, mode: "key", step: 4 });
         ch.setVoice(2, { on: true, mode: "units", units: 0x100 });
@@ -188,7 +188,7 @@
         await pMaker17;
         store.pitchPreset = prevPreset;
 
-        // a7: the mix — three voices at unison length, normalised to full scale
+        // a7: the mix — three notes at unison length, normalised to full scale
         ch.setChordPreset("major");
         await sleep(300);
         const mix = ch.mix();
@@ -225,7 +225,7 @@
         ch.setChordPreset("major", 0);
         await sleep(300);
 
-        // a8: a voice below unison stretches the result; "source length" caps it
+        // a8: a note below unison stretches the result; "source length" caps it
         ch.setVoice(3, { on: true, mode: "ji", ji: "1/1", oct: -1 });
         await sleep(300);
         ok(ch.mix().data.length === data.length * 2, `a8 an octave down doubles the length (${ch.mix().data.length})`);

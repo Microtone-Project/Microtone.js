@@ -1384,21 +1384,21 @@ buffer into one waveform. Reach it from the Samples view (**Chord…**, on a
 sample in the project) or from inside the Lab, on anything you have just recorded,
 imported or cropped.
 
-Each of the six voices is a tick-box, a **mode**, one value, an octave and a
-level — and the modes are independent, so voice 1 can be a just fifth while
-voice 2 counts degrees of the song's tuning and voice 3 is a number you typed:
+Each of the six notes is a tick-box, a **mode**, one value, an octave and a
+level — and the modes are independent, so note 1 can be a just fifth while
+note 2 counts degrees of the song's tuning and note 3 is a number you typed:
 
 - **Just** — a named just interval, chosen from a list that shows each one's ratio and its size in cents (a perfect fifth is `3:2 · +702¢`). Always available, whatever the song is tuned to.
 - **Degrees** — a signed count of degrees of *the song's own pitch table*, so the choices multiply with the tuning: 4 degrees is a major third in 12-TET and a whole tone in 24-TET. Counts wrap into the next period, and negative counts go down. On a notation with an absolute table (ProTracker) the count clamps at the ends, because those ends are every note it can express.
 - **Ratio ×** — a playback ratio typed as a decimal: `2.0` is an octave up, `1.9632` is whatever `1.9632` is.
 - **4096-TET** — a raw offset in note-word units, the same units the note column counts in; `0x1000` is an octave, and hex is accepted so `0x100` works as written.
 
-**oct** shifts that voice by whole octaves on top of its mode, and **dB** sets
+**oct** shifts that note by whole octaves on top of its mode, and **dB** sets
 its level in the mix.
 
 Every row reads out what it will actually sound: the ratio, the offset in
 cents, the note it lands on painted in the song's own notation, and — when the
-voice sits between two degrees — how many cents off that degree it is. A just
+note sits between two degrees — how many cents off that degree it is. A just
 major third in 12-TET therefore shows up as `E-4` in the off-grid colour with
 `off by −13 cents` beside it; the same third in 31-TET lands on a degree and says nothing.
 
@@ -1406,13 +1406,13 @@ major third in 12-TET therefore shows up as `E-4` in the off-grid colour with
 - **Neutral chords** appear when the song is in 17-, 24-, 31-, 41-, 53- or 96-TET. A neutral third is the exact centre of the third category — half the fifth, the point major and minor sit symmetrically either side of — which is why only a tuning that can spell that half is offered them, and why 12-TET is not: it halves its fifth at 350 cents and has no degree within 50 cents of it. The group runs neutral triad, neutral 7th, the neutral triad under the tuning's own minor or major 7th, a 6th, an add-9th, a 9th, and **Neutral chain**, which is the fifth halved and then the fifth above it halved again. 53-TET's fifth is an odd number of steps and cannot be halved exactly, so it offers both of the thirds that straddle the centre, labelled `11/9` for the flat one and `16/13` for the sharp one — the *artoneutral* and *tendoneutral* qualities.
 - **Extraclassical chords** — *arto* and *tendo* — appear when the song is in a tuning that has a pair of them: 15-, 16-, 17-, 19-, 22-, 24-, 31-, 41-, 53- or 96-TET. An arto (inframinor) triad is a minor triad whose third has been pushed a further quarter tone down, a tendo (ultramajor) triad a major one whose third has been pushed up; both behave like the chords they came from, but sit far enough outside them to sound like neither. Their party trick is that they are *cross-tonal*: a major and a minor third clash over one root, whereas an arto and a tendo third are a whole tone apart and sound together happily, which is what **Cross-tonal**, **Cross-tonal 7th** and — where the arto third divides the fifth exactly three ways — **Slendric chain** are for. The family runs on from there: arto and tendo 7ths, a tendo dominant 7th and an arto-tendo 7th, 6ths, add-9ths and 9ths, plus arto-diminished and tendo-augmented triads in the tunings whose own notation can spell a quarter-tone alteration. 31-, 41- and 96-TET have more than one arto/tendo pair, so their entries name the just ratios each pair is nearest (`8/7·21/16` against `7/6·9/7`); and a tuning is only offered the chords it can voice, so 15-TET and 17-TET, whose tendo 7th would land on the octave, are not shown one. 22-TET arrives by a different road and needs no quarter tones: its fifth is sharp enough that its own minor and major thirds have already drifted out to arto and tendo (within 6 cents of 7/6 and 9/7), which is why its **Cross-tonal** chord is just its minor and its major third sounding over one root. 12-TET's thirds are nowhere near far enough out, so it is offered nothing.
 - **Tetrachords** appear in the same menu when the song is in 17-TET, 22-TET or 31-TET, and only then: they are named in degrees of one tuning, so they mean nothing in any other. A tetrachord is the ancient Greeks' scale unit — four pitches spanning a perfect fourth, named by the three steps between them, `3-3-1` being the one the major scale is built from. The complete chart of each tuning is offered (15, 28 and 66 of them), with the names the Xenharmonic Wiki gives where it gives any: `3-3-1 · ionian (jins ʻAjam)` in 17-TET, `3-3-3 · diatonic · Porcupine, perfectly even` in 22-TET. Being a scale segment rather than a voicing, a tetrachord has no inversions — its order is the whole point of it.
-- **Inversion** lifts the lowest voices an octave each, so the chord keeps its notes and sits on a different one: the 1st inversion of a major triad is built up from its third. Only the inversions a chord actually has are offered — two for a triad, five for a six-voice chord — and a chord that already contains its own octave (power, octaves) lifts past it rather than doubling a voice onto one it already has.
-- **Length** — *longest voice* lets a voice below unison run past the end of the source (it plays slower, so it lasts longer) and keeps its whole tail; *source length* crops back to the original length, which is what you want if the result is going to loop; *shortest voice* crops to where the FASTEST voice runs out, so no voice is ever left playing on alone and the chord holds its full stack for every frame it has.
+- **Inversion** lifts the lowest notes an octave each, so the chord keeps its notes and sits on a different one: the 1st inversion of a major triad is built up from its third. Only the inversions a chord actually has are offered — two for a triad, five for a six-note chord — and a chord that already contains its own octave (power, octaves) lifts past it rather than doubling a note onto one it already has.
+- **Length** — *longest note* lets a note below unison run past the end of the source (it plays slower, so it lasts longer) and keeps its whole tail; *source length* crops back to the original length, which is what you want if the result is going to loop; *shortest note* crops to where the FASTEST note runs out, so no note is ever left playing on alone and the chord holds its full stack for every frame it has.
 - **Normalise result** scales the mix to full scale. Leave it on: six copies at unity peak far above what 8 bits can hold, and the info line tells you what the raw mix peaked at.
 
 **Preview** auditions the mix; **Apply** hands it back to the Lab as the working
 buffer (one Lab undo step), where you name it, set its rate and import it like
-any other take. The result is a plain one-shot sample — the voices are at
+any other take. The result is a plain one-shot sample — the notes are at
 irrational ratios to each other, so a loop point that suits all six at once is
 not something the mixer can arrange for you.
 
@@ -2364,7 +2364,7 @@ sidebar (also at [Note Effects](#effects)).
 | G | Tone portamento | `$xxxx` — slide toward the row's note |
 | H | Vibrato | `$xy00` — speed, depth |
 | I | Tremor | `$xy00` — x+1 ticks on, y+1 off |
-| J | Arpeggio | `$xy00` — microtonal offsets ×256 for voices 2/3 |
+| J | Arpeggio | `$xy00` — microtonal offsets ×256 for notes 2/3 |
 | K | Vibrato + vol slide | `$xy00` |
 | L | Portamento + vol slide | `$xy00` |
 | M | Lane volume | `$xx00` (00–3F) |

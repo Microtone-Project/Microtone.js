@@ -1,4 +1,4 @@
-// Chord maker core (item 89) — the pitch-offset algebra behind the four voice
+// Chord maker core (item 89) — the pitch-offset algebra behind the four note
 // modes, degree counting against real pitch tables, and the mix itself.
 
 import { test } from "node:test";
@@ -131,7 +131,7 @@ test("chord presets fill six slots, extras stay silent", () => {
   for (const p of CHORD_PRESETS) {
     const vs = applyChordPreset(p.id);
     assert.equal(vs.length, MAX_VOICES);
-    assert.equal(vs.filter((v) => v.on).length, p.voices.length, `${p.id} voice count`);
+    assert.equal(vs.filter((v) => v.on).length, p.voices.length, `${p.id} note count`);
     assert.ok(vs.slice(p.voices.length).every((v) => !v.on), `${p.id} pads with silence`);
   }
   assert.equal(new Set(CHORD_PRESETS.map((p) => p.id)).size, CHORD_PRESETS.length);
@@ -160,7 +160,7 @@ test("tetrachords divide their tuning's perfect fourth three ways", () => {
       assert.ok(steps.every((n) => n >= 1), `${p.id} has no zero step`);
       assert.equal(steps.reduce((a, b) => a + b, 0), fourth,
         `${p.id} adds up to the fourth`);
-      // …and the voices stand on the unison, the two inner degrees and the fourth
+      // …and the notes stand on the unison, the two inner degrees and the fourth
       assert.deepEqual(p.voices.map((v) => v.step),
         [0, steps[0], steps[0] + steps[1], fourth], `${p.id} voice degrees`);
       assert.ok(p.voices.every((v) => v.mode === "key"), `${p.id} counts degrees`);
@@ -453,7 +453,7 @@ test("the arto/tendo ladder is the pair stacked on the fifth, then inverted", ()
       // which is exactly when the fourth is twice the arto third.
       if (edo - fifth === 2 * a) assert.equal(deg("arto6"), undefined, `${notation}/${a} 6 = 7`);
       else assert.deepEqual(deg("arto6"), [0, a, fifth, t6]);
-      // The equal-stepped six-voice chain belongs to the pairs that trisect
+      // The equal-stepped six-note chain belongs to the pairs that trisect
       // the fifth — the slendric generator, three of them making a fifth.
       const chain = deg("chain");
       if (fifth % 3 === 0 && a === fifth / 3 && t7 % edo !== 0) {
@@ -533,7 +533,7 @@ test("arto/tendo chords are tuning-locked, unique, and named in both languages",
     for (const p of mine) {
       assert.ok(p.voices.every((v) => v.mode === "key"), `${p.id} counts degrees`);
       assert.ok(en[p.key] && ko[p.key], `${p.id} is named in both languages`);
-      // no voice doubles the root at the octave — that is a level change
+      // no note doubles the root at the octave — that is a level change
       assert.ok(p.voices.slice(1).every((v) => v.step % table.table.length !== 0),
         `${p.id} never lands on an octave of the root`);
       const sig = p.voices.map((v) => v.step).join(",");
@@ -569,7 +569,7 @@ test("a degree-mode chord inverts only when it is handed the pitch table", () =>
   assert.deepEqual(cents("xc240-5-tendo", 1, P24), [450, 700, 1200]);
   assert.deepEqual(cents("xc240-5-tendo", 2, P24), [700, 1200, 1650]);
   assert.equal(maxInversion("xc240-5-tendo"), 2);
-  // 17-TET's tendo third IS its fourth, and inverting still only moves voices
+  // 17-TET's tendo third IS its fourth, and inverting still only moves notes
   assert.deepEqual(cents("xc170-3-tendo", 0, P17), [0, 494, 706]);
   assert.deepEqual(cents("xc170-3-tendo", 1, P17), [494, 706, 1200]);
   // With no table a degree is a bare count, so the chord stays put rather than
@@ -642,7 +642,7 @@ test("inversions lift the lowest voices an octave and re-sort", () => {
     const base = cents(p.id, 0, table);
     for (let inv = 1; inv <= maxInversion(p.id); inv++) {
       const got = cents(p.id, inv, table);
-      assert.equal(got.length, base.length, `${p.id} inv ${inv} keeps its voice count`);
+      assert.equal(got.length, base.length, `${p.id} inv ${inv} keeps its note count`);
       const mod = (xs) => xs.map((c) => ((c % 1200) + 1200) % 1200).sort((a, b) => a - b);
       assert.deepEqual(mod(got), mod(base), `${p.id} inv ${inv} keeps its notes`);
       for (let i = 1; i < got.length; i++) {
@@ -652,13 +652,13 @@ test("inversions lift the lowest voices an octave and re-sort", () => {
   }
 
   // a chord that already owns its octave lifts PAST it rather than doubling a
-  // voice onto one it already has (which would only be a level change)
+  // note onto one it already has (which would only be a level change)
   assert.deepEqual(cents("power", 0), [0, 702, 1200]);
   assert.deepEqual(cents("power", 1), [702, 1200, 2400]);
   assert.deepEqual(cents("octaves", 1), [0, 1200, 2400]);
 
-  // out of range clamps rather than wrapping: inverting EVERY voice would just
-  // be the chord an octave up, so the last real inversion is voices−1
+  // out of range clamps rather than wrapping: inverting EVERY note would just
+  // be the chord an octave up, so the last real inversion is notes−1
   assert.equal(maxInversion("major"), 2);
   assert.equal(maxInversion("dom13"), 5);
   assert.equal(maxInversion("nonesuch"), 0);
@@ -671,7 +671,7 @@ test("inversions lift the lowest voices an octave and re-sort", () => {
   invertVoiceSpecs(CHORD_PRESETS.find((p) => p.id === "major").voices, 2);
   assert.equal(JSON.stringify(CHORD_PRESETS.find((p) => p.id === "major").voices), before);
 
-  // an inversion is a plain octave on the voice, so it survives every mode
+  // an inversion is a plain octave on the note, so it survives every mode
   const det = invertVoiceSpecs([{ mode: "ratio", ratio: 0.994 }, { mode: "ratio", ratio: 1 }], 1);
   assert.deepEqual(det, [{ mode: "ratio", ratio: 1 }, { mode: "ratio", ratio: 0.994, oct: 1 }]);
 });
@@ -696,7 +696,7 @@ test("chordLength: the lowest voice sets the length, or the source, or the highe
   for (const mode of ["longest", "source", "shortest"]) {
     assert.equal(chordLength(1000, [], P12, mode), 1000, `no voices: source length (${mode})`);
   }
-  // …and the built mix really is that long, every voice still sounding at the end
+  // …and the built mix really is that long, every note still sounding at the end
   const buf = sine(1000, 8);
   assert.equal(buildChord(buf, wide, P12, { lengthMode: "shortest" }).data.length, shortest);
   assert.equal(buildChord(buf, wide, P12, { lengthMode: "longest" }).data.length, longest);
@@ -735,7 +735,7 @@ test("buildChord: gains, peak reporting and normalisation", () => {
   for (const v of norm.data) mx = Math.max(mx, Math.abs(v));
   assert.ok(Math.abs(mx - 1.0) < 1e-6, "normalised to full scale");
 
-  // −6 dB halves a voice: one at unity + one at −6 dB peaks at 1.5×
+  // −6 dB halves a note: one at unity + one at −6 dB peaks at 1.5×
   const ducked = buildChord(src, [two[0], { ...two[1], gainDb: -6.0206 }], P12, { normalise: false });
   assert.ok(Math.abs(ducked.peak - 0.75) < 2e-3, `peak ${ducked.peak}`);
 
@@ -751,7 +751,7 @@ test("buildChord is deterministic and notation-aware", () => {
   const b = buildChord(src, vs, P12);
   assert.deepEqual([...a.data], [...b.data], "same inputs, same bytes");
 
-  // the SAME voice list retunes with the song: step 7 is a fifth in 12-TET and
+  // the SAME note list retunes with the song: step 7 is a fifth in 12-TET and
   // a quarter-tone-flat fourth in 24-TET, so the mixes differ
   const c = buildChord(src, vs, P24);
   assert.notDeepEqual([...a.data], [...c.data]);

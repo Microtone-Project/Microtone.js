@@ -441,7 +441,7 @@ A zero `$xx` or `$yy` input becomes 1 tick after the `+1`, never zero.
 
 **Plain.** Cycles the playing pitch through three values across consecutive ticks: the note, the note plus `$xx00` Taud units, and the note plus `$yy00` Taud units, repeating. At the default 50 Hz tick rate (speed 6, 125 BPM), this produces a classic chord-arpeggio effect; because Taud's grid is 4096-TET, the intervals can be microtonal.
 
-The encoding places each 8-bit offset byte into the **high byte** of a 16-bit pitch delta, giving 256 discrete intervals per arp voice with a resolution of $0100 ≈ 0.75 semitone per step. This is coarser than E/F's 16-bit slides, but adequate for arpeggios and well-suited to non-12-TET intervals.
+The encoding places each 8-bit offset byte into the **high byte** of a 16-bit pitch delta, giving 256 discrete intervals per arp note with a resolution of $0100 ≈ 0.75 semitone per step. This is coarser than E/F's 16-bit slides, but adequate for arpeggios and well-suited to non-12-TET intervals.
 
 **Compatibility.** ST3 `Jxy` uses nibbles as 12-TET semitones; Taud uses bytes as $0100-scaled 4096-TET offsets. The conversion is therefore lossy — 12-TET intervals that are not multiples of 3 semitones incur ±25 cent rounding error. The table below gives the best Taud byte for each 12-TET semitone offset:
 
@@ -478,7 +478,7 @@ on every tick:
     elif selector == 2: voice_pitch = base_pitch + (off2 << 8)
 ```
 
-The `tick_within_row mod 3` counter resets every row start (so every row begins at `base_pitch`). A subsequent E/F slide after a J row resumes from the last arpeggiated voice's pitch, not from `base_pitch` — this mirrors ST3's `kST3PortaAfterArpeggio` quirk and is deliberately preserved.
+The `tick_within_row mod 3` counter resets every row start (so every row begins at `base_pitch`). A subsequent E/F slide after a J row resumes from the last arpeggiated note's pitch, not from `base_pitch` — this mirrors ST3's `kST3PortaAfterArpeggio` quirk and is deliberately preserved.
 
 
 **Extended (paired with `:`).** `J $xxxx : $yyyy` replaces the two <<8-scaled BYTE offsets above with two full 16-bit 4096-TET offsets: `off1` is J's own argument verbatim, `off2` the paired `:`'s argument verbatim, order-independent as every pairing is. Where the base form reaches 256 discrete intervals at $0100 ($0100 ≈ 0.75 semitone) per step, the extended form reaches the full 65536-step resolution E and F already have — arpeggios can be as microtonal as any other pitch effect. Memory is private and separate from the base form's (the two are different units, so a row using one form **MUST NOT** recall the other's last value): `off1` recalls when J's own argument is `$0000`, `off2` when the paired `:`'s argument is `$0000`, independently.

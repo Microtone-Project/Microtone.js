@@ -6,14 +6,17 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-17
 
-Channels and voices are now called LANES, everywhere in the app and in every document.
+Channels and voices are now called LANES, everywhere in the app and in every document — and *voice* and *channel* now each mean one precise thing.
 
 - **One name for the thing you write a part on.** The app used to call the same thing a *channel* in one place and a *voice* in another; it is a **lane** now — the instruction lane a part is written down and played back on, which is what old-school trackers were really doing all along.
 - **You will see it on the Timeline and Cues right-click menus** (*Lane left*, *Lane right*), on the mute and solo tooltips, in the New project dialog's *Lanes* chooser, in the Project view's summary line, on the Panner's *Show this lane only*, in Find & Change's event counts and throughout the keyboard-shortcut help.
 - **Two effects are renamed in the effect palette**: `M $xx00` is **Lane volume** and `N $xy00` is **Lane vol slide**. The effect letters, their arguments and what they do are all unchanged — only the labels are new.
 - **Exported stems are named `Lane01…` instead of `Ch01…`** when you export per lane, and the stems dialog offers *Per lane* rather than *Per voice*.
 - **The manual, the Engine Spec, the File Format and the Conversion Notes have been reworded to match**, including the glossary entry, so nothing in the documentation still calls a lane by two different names.
-- **Where *channel* or *voice* genuinely means something else, it stays.** A stereo sample still has two channels, a surround export still has six, a chord still has voices, and a note displaced by a New Note Action still rings on as a background voice — those are different things, and now they read as different things.
+- **A VOICE is now strictly one sounding instance.** A layered instrument emits a voice per sounding layer; a New Note Action leaves the displaced note ringing as a background voice on the same lane; each FM operator and each jam-bank audition is a voice. That is the only thing the word means now.
+- **A CHANNEL is now strictly audio routing.** A stereo project renders into two channels, a stereo sample carries two, a 5.1 export six, an ambisonic export sixteen. Nothing you write a part on is a channel any more.
+- **The chord maker builds from six NOTES, not six voices** — which is the honest word for them, since the whole point of the tool is that all six are baked into one sample that plays on one voice. *Length* now offers *longest note* and *shortest note*, and Inversion lifts the lowest notes an octave. The metainstrument **Chord…** stack still says voices, because each of its members really is a separate sounding layer.
+- **Arpeggio `J $xy00` sets the offsets for notes 2 and 3** rather than "voices 2/3" — an arpeggio cycles one voice through three pitches, it does not sound three at once.
 
 Sample Lab's rate field no longer suggests downsampling a sample that is already stored above 32000 Hz.
 
@@ -343,9 +346,9 @@ Picking a chord is now a two-step: a **Family** menu beside the **Chord** menu, 
 - Changing family lands on that family's first chord and keeps your inversion, clamped to what the new chord has, exactly as picking another chord always did.
 - Fixed: in a finely divided tuning the chord dropdown ran off the bottom of the screen and left its last entries unpainted, so chords existed that the list would not show.
 
-The chord maker can crop a chord to its shortest voice.
+The chord maker can crop a chord to its shortest note.
 
-- **Length** has a third setting, *shortest voice*: the mix ends where the fastest voice runs out, so nothing is left playing on alone and every frame of the result has the whole chord in it. Useful when the chord is going to loop, or when a decaying sample would otherwise thin out into its bass notes.
+- **Length** has a third setting, *shortest note*: the mix ends where the fastest note runs out, so nothing is left playing on alone and every frame of the result has the whole chord in it. Useful when the chord is going to loop, or when a decaying sample would otherwise thin out into its bass notes.
 
 The metainstrument chord stack gained a preview, and no longer loses its inversion menu to a long chord name.
 
@@ -624,8 +627,8 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **Fixed: releasing a piano key while the song was playing cut every note that was sounding.** The release stopped the whole playhead instead of the audition it belonged to, so the music fell silent until the next row started it again. A release now ends only the note that key started, and fades it out over the same handful of samples a note cut uses instead of dropping it on the spot.
 - **Note cuts no longer click.** `^^` (and the `S $Dxny` note-cut follow-up action) used to stop the voice on the spot, so a cut landing mid-waveform stepped straight to silence and popped — most audible on sustained sounds, which are exactly what people reach for a cut to chop up. It now fades out over the same handful of samples a fresh note fades *in* over: short enough to still read as a cut, with no edge left in it. Layer children cut by the same event ramp with their parent.
 - **The chord maker knows twenty-eight chords now, grouped by family.** The **Chord** menu used to offer eight and a couple of spreads; it now opens on *Triads* (major, minor, sus2, sus4, diminished, augmented), *Sevenths* (the three you had, plus minor-major, half-diminished, diminished 7th and 7sus4), *Sixths & added notes* (6, m6, add9, m(add9), add11 and 6/9), *Extended* (major, dominant and minor 9ths, an 11th and a 13th) and *Spreads* (power, quartal, octaves and the detune chorus). Every one of them is in just intonation, as before, so a major third means 5:4 whatever the song is tuned to.
-  - **Notes above the octave are the interval an octave up**, which is what those degrees mean: the ninth is the major second, the eleventh the fourth, the thirteenth the sixth. Six voices is still the ceiling, so the tall chords drop what a keyboard player drops — the eleventh has no third, the thirteenth no eleventh.
-- **Inversion, on its own menu beside the chord.** It lifts the lowest voices an octave each, so the chord keeps its notes and sits on a different one — the 1st inversion of a major triad is the same triad built up from its third. Only the inversions a chord actually has are offered: two for a triad, three for a seventh, five for a six-voice chord. A chord that already contains its own octave lifts past it rather than stacking a second copy of the same pitch, so power and octaves spread upwards instead of doubling a voice.
+  - **Notes above the octave are the interval an octave up**, which is what those degrees mean: the ninth is the major second, the eleventh the fourth, the thirteenth the sixth. Six notes is still the ceiling, so the tall chords drop what a keyboard player drops — the eleventh has no third, the thirteenth no eleventh.
+- **Inversion, on its own menu beside the chord.** It lifts the lowest notes an octave each, so the chord keeps its notes and sits on a different one — the 1st inversion of a major triad is the same triad built up from its third. Only the inversions a chord actually has are offered: two for a triad, three for a seventh, five for a six-voice chord. A chord that already contains its own octave lifts past it rather than stacking a second copy of the same pitch, so power and octaves spread upwards instead of doubling a voice.
 - **The metainstrument Chord… stack offers all of it too.** Same chords, same groups, same inversions — and because the layer you start from is the voice nearest unison and never moves, the inversion is how you say *which note of the chord that layer plays*: root position builds the chord above it, the 1st inversion makes it the third, the 2nd the fifth.
 - **Fixed: a lane's header in the Timeline sat two pixels right of the lane it names.** The rule that divides two lanes ran just inside the left one's header block rather than in the gap between the two, and the lane number was a shade out of line with the notes under it. The header now shares its column's rectangle exactly, so the dividing line runs unbroken from the top of the header to the bottom of the grid.
 - **Fixed: notes could pop at the exact instant they started.** A fresh note jumped straight to full volume on its very first output sample, and a loud or DC-offset sample turned that jump into an audible click — worse on fast retriggers and dense chords. Every note attack now fades in from silence over its first two-thirds of a millisecond on a smooth curve, short enough that a real percussive transient still lands where it always did.
@@ -824,9 +827,9 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 
 ## 2026-07-27
 
-- **Chord maker.** Build a chorded sample out of an existing one — the Amiga trick, where the lane plays a single note so the chord has to live in the waveform. Six voices, each set as a named just interval, a degree of the song's own pitch table, a plain frequency ratio or a 4096-TET offset, plus a shared octave column and a per-voice level.
-- Every voice row paints the note it lands on in the song's notation and prints the ratio, the cents and the distance to the nearest grid degree — so a just third reads as an off-grid E in 12-TET but sits exactly on a degree in 31-TET.
-- Chord presets fill all six slots at once, the result length is either *longest voice* or *source length*, and normalising the result is on by default. Reachable from the Sample Lab's ops row and from the Samples view, which works on a copy so the pooled sample is untouched.
+- **Chord maker.** Build a chorded sample out of an existing one — the Amiga trick, where the lane plays a single note so the chord has to live in the waveform. Six notes, each set as a named just interval, a degree of the song's own pitch table, a plain frequency ratio or a 4096-TET offset, plus a shared octave column and a per-voice level.
+- Every note row paints the note it lands on in the song's notation and prints the ratio, the cents and the distance to the nearest grid degree — so a just third reads as an off-grid E in 12-TET but sits exactly on a degree in 31-TET.
+- Chord presets fill all six slots at once, the result length is either *longest note* or *source length*, and normalising the result is on by default. Reachable from the Sample Lab's ops row and from the Samples view, which works on a copy so the pooled sample is untouched.
 
 ## 2026-07-26
 

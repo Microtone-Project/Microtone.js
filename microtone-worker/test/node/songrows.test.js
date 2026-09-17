@@ -537,7 +537,7 @@ test("a relative jump is re-measured across the new boundary", () => {
   assert.equal(flow.arg, 5, "one more cue now sits between it and its target");
 });
 
-test("a split costs one pattern per voice the tail actually plays", () => {
+test("a split costs one pattern per lane the tail actually plays", () => {
   const doc = load("town.taud");
   const song0 = doc.songs[0];
   const e = song0.songMap().entries[2];

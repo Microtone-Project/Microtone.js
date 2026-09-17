@@ -1,4 +1,4 @@
-// Chord maker (item 89) — the UI over doc/chord.js. Six voice slots, each an
+// Chord maker (item 89) — the UI over doc/chord.js. Six note slots, each an
 // independent pitch offset expressed in whichever of the four idioms suits it
 // (just ratio · notation degrees · playback ratio · raw 4096-TET), mixed into
 // one sample: the Amiga trick of baking a chord into the waveform because the
@@ -42,7 +42,7 @@ const signed = (v, digits = 0) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d
  * @param data Float32Array mono, nominal ±1 (channel 1 — what the preview and
  *        the audition use)
  * @param dataR optional second channel of a STEREO take (item 90): the same
- *        voices are mixed into it and the two results share one normalisation
+ *        notes are mixed into it and the two results share one normalisation
  *        factor, so the chord keeps the take's stereo image
  * @param rate sample rate of `data` (audition + the info line)
  * @param name shown in the title
@@ -134,10 +134,10 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       wave.height = WAVE_H * dpr;
     }
 
-    // ── voice rows ─────────────────────────────────────────────────────────
+    // ── note rows ──────────────────────────────────────────────────────────
     // Every value control exists in every row; only the active mode's is
     // shown, so switching modes never rebuilds (and never loses what the other
-    // modes were set to — a voice remembers its ratio while you try degrees).
+    // modes were set to — a note remembers its ratio while you try degrees).
     const rows = [];
     for (let i = 0; i < MAX_VOICES; i++) {
       const row = document.createElement("div");
@@ -280,7 +280,7 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       ctx.fillStyle = C.wave;
       const spp = buf.length / waveW;
       if (spp <= 1) {
-        // Fewer samples than pixels (a short one-shot, or a voice pitched
+        // Fewer samples than pixels (a short one-shot, or a note pitched
         // WAY up shrinking the mix): one bar per sample, or min/max columns
         // degenerate to a single point every few columns — a scatter of dots.
         const rectW = Math.max(1, Math.ceil(1 / spp));
@@ -360,7 +360,7 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
 
     // ── head controls ──────────────────────────────────────────────────────
     /** The inversion menu only offers the inversions this chord HAS — a triad
-     *  has two, and a preset with one voice has none at all. */
+     *  has two, and a preset with one note has none at all. */
     function renderInversions() {
       const sel = $(".chord-inv");
       const top = maxInversion(presetId);

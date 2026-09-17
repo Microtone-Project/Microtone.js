@@ -5808,7 +5808,7 @@ class Voice {
     this.instrumentId = 0;
     // Display-only: the pattern-level instrument that triggered this voice (a
     // metainstrument's SLOT, not the layer-child it resolves to) — so the
-    // Timeline voice header shows the number the user sees in the pattern. No
+    // Timeline lane header shows the number the user sees in the pattern. No
     // Kotlin counterpart (write-only, like renderPitch).
     this.displayInst = 0;
 
@@ -7238,7 +7238,7 @@ function armFunkXfade(voice, offset, windowLen) {
 
 /** Same seam crossfade as `armFunkXfade`, on extended $102/$12x's own
  *  independent window (`voice.modFunkWindow`/`modFunkXfade*`) — a separate
- *  ghost channel because the two commands "do not share state"
+ *  set of ghost state because the two commands "do not share state"
  *  (TAUD_NOTE_EFFECTS.md) and can be live on one voice at once. */
 function armModFunkXfade(voice, offset, windowLen) {
   if (offset === 0) return;
@@ -7442,7 +7442,7 @@ function advanceSamplePos(voice, inst, sampleLen) {
           if (extWindowed) {
             // The restart is where the walk's pointer has got to by now, and
             // the seam it opens is crossfaded (item 163.2), on this command's
-            // OWN ghost channel.
+            // OWN ghost state.
             const prevWindow = extLoopStart;
             if (inst.modFunkPos >= 0) voice.modFunkWindow = inst.modFunkPos;
             armModFunkXfade(voice, prevWindow - voice.modFunkWindow, loopEnd - loopStart);

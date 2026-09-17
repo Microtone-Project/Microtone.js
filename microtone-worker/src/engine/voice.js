@@ -102,7 +102,7 @@ export class Voice {
     this.instrumentId = 0;
     // Display-only: the pattern-level instrument that triggered this voice (a
     // metainstrument's SLOT, not the layer-child it resolves to) — so the
-    // Timeline voice header shows the number the user sees in the pattern. No
+    // Timeline lane header shows the number the user sees in the pattern. No
     // Kotlin counterpart (write-only, like renderPitch).
     this.displayInst = 0;
 

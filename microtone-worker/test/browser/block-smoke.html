@@ -102,7 +102,7 @@
         log(`timeline keyboard sub-column select: rows=${tRowsOk} volOnly=${tVolOnly} widened=${tWidened} copyCols=${tCopyCols}`);
         timeline.clearSelection();
 
-        // ── Ctrl+A takes the whole voice column, Ctrl+←/→ walk its far edge ──
+        // ── Ctrl+A takes the whole lane column, Ctrl+←/→ walk its far edge ───
         const totalRows = store.song.songMap().totalRows;
         store.cursor = { row: 4, ch: 3, sub: SUB_VOL, nib: 0 };
         key(win, "KeyA", "a", { ctrlKey: true });

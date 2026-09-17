@@ -93,7 +93,7 @@
    * The FIFTH is the odd one out on purpose: four hues is as many as this arc
    * holds at a saturation that still reads, so c4 separates by LIGHTNESS
    * instead — near-white on the dark grounds, near-black on the light ones.
-   * Lightness is the channel that survives a three-pixel block. */
+   * Lightness is the component that survives a three-pixel block. */
   --cv-pool-c0: #4a7fb5;     /* blue */
   --cv-pool-c1: #b8566e;     /* rose */
   --cv-pool-c2: #2f95a8;     /* cyan */
