@@ -6,6 +6,22 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-17
 
+Sample Lab's rate field no longer suggests downsampling a sample that is already stored above 32000 Hz.
+
+- **Fixed: reopening such a sample offered to re-encode it down to 32000 Hz by default**, even though the info line above correctly showed its real, higher rate — the field now starts at the sample's own rate, so leaving it untouched and clicking Replace keeps the sound exactly as it was.
+
+Sample Lab has a new Extend tool, so a short take can be repeated into a longer one without leaving the editor.
+
+- **Extend asks how many times to repeat the current selection** — or, with nothing selected, the whole take — showing the resulting length before you commit to it, so a 0.3s hit repeated ×4 tells you it becomes 1.2s before you click through.
+- **The new copies are selected afterwards**, ready for their own fade, gain or EQ without having to re-drag a selection over them.
+- **Every chop split and, on a Replace, the pooled sample's loop markers carry straight through** the length change, exactly as they do across a Crop or a Cut.
+
+The waveform painter can now repeat whatever you drew, so a short hand-drawn or seeded motif can fill a much longer sample without redrawing it.
+
+- **A new Repeat × field sits beside Length in the Paint a waveform… dialog** (Instruments → New instrument) — set it above 1 and the sample you create is your drawing copy-pasted that many times back to back, so a 256-byte motif with Repeat ×16 lands as a 4096-byte sample.
+- **What is on the canvas is never touched, however it got there** — hand-drawn or seeded with one of the shape buttons (Noise included) — repeating only changes the sample that gets created from it, so the drawing is still there exactly as you left it if you want to keep adjusting it.
+- **A repeat that would not fit asks first**: if Length × Repeat is over the 64k-byte sample limit, a dialog tells you the highest repeat count that length allows and lets you proceed at that count or cancel and change the numbers yourself.
+
 A waveform you paint by hand now starts in tune, so striking C-4 plays the tone you drew at exactly middle C, whatever length you painted it at.
 
 - **The Paint a waveform… dialog (Instruments → New instrument) now sets the new instrument's sampling rate and detune automatically**, so the cycle you draw sounds at concert middle C on C-4 instead of whatever pitch its length happened to loop at — the default length used to play about two octaves flat, and any other length is corrected the same way.

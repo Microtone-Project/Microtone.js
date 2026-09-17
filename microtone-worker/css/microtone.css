@@ -1818,6 +1818,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .wavepaint-modal { max-width: min(1280px, 94vw); }
 .wavepaint-modal .wave-row { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin: 0.5rem 0; color: var(--dim); }
 .wavepaint-modal .wave-len { width: 6rem; }
+.wavepaint-modal .wave-repeat { width: 6rem; }
 .wavepaint-modal .wave-name { width: 14rem; }
 .wavepaint-modal .wave-shapes { display: flex; gap: 0.3rem; flex-wrap: wrap; }
 .wavepaint-modal .wave-shapes button { padding: 0.2rem 0.6rem; font-size: 0.82rem; }

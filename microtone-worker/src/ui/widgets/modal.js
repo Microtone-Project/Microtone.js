@@ -84,13 +84,21 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
       // whose options each need a sentence describes the chosen one here
       // rather than carrying the sentence in the option text, which would set
       // the width of the closed dropdown to the longest of them.
+      //
+      // `hint` as a FUNCTION `(rawValue) => string` is the numeric-field twin
+      // of `hints`: a live preview computed from whatever is currently typed
+      // (a spinner's "repeat this many times" wants to say what length that
+      // produces), recomputed on every keystroke the same way `hints` is.
       if (f.hint || f.hints) {
         const hint = document.createElement("p");
         hint.className = "modal-hint";
-        const text = () => (f.hints ? f.hints[input.value] ?? f.hint ?? "" : f.hint);
+        const text = () => {
+          if (f.hints) return f.hints[input.value] ?? (typeof f.hint === "function" ? f.hint(input.value) : f.hint) ?? "";
+          return typeof f.hint === "function" ? f.hint(input.value) : f.hint;
+        };
         hint.textContent = text();
         form.appendChild(hint);
-        if (f.hints) {
+        if (f.hints || typeof f.hint === "function") {
           const sync = () => { hint.textContent = text(); };
           input.addEventListener("change", sync);
           input.addEventListener("input", sync);

@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  crop, cut, silenceRange, fadeInRange, fadeOutRange, gainRange, normaliseRange,
+  crop, cut, repeatRange, silenceRange, fadeInRange, fadeOutRange, gainRange, normaliseRange,
   reverseRange, invertRange, removeDCRange,
   resample, planFit, fitToBudget, quantiseU8, u8ToFloat,
   biquadCoeffs, eqResponseDb, eqApply,
@@ -37,6 +37,24 @@ test("crop/cut keep and remove the range; args clamp and swap", () => {
   assert.equal(c.length, 7);
   assert.deepEqual([...c], [...buf.slice(0, 2), ...buf.slice(5)]);
   assert.equal(cut(buf, 0, 10).length, 0, "cut all");
+});
+
+test("repeatRange inserts count-1 extra copies right after itself, shifting the tail; args clamp/swap, count<=1 is a no-op", () => {
+  const buf = ramp(10);
+  const d = repeatRange(buf, 2, 5, 2);
+  assert.equal(d.length, 13, "grew by (b - a) * (count - 1)");
+  assert.deepEqual([...d], [...buf.slice(0, 5), ...buf.slice(2, 5), ...buf.slice(5)],
+    "[0,b) unchanged, then one [a,b) copy, then the shifted tail");
+  assert.deepEqual([...repeatRange(buf, 5, 2, 2)], [...d], "swapped args");
+  const d3 = repeatRange(buf, 2, 5, 3);
+  assert.equal(d3.length, 16, "grew by (b - a) * (count - 1) = 6");
+  assert.deepEqual([...d3], [...buf.slice(0, 5), ...buf.slice(2, 5), ...buf.slice(2, 5), ...buf.slice(5)],
+    "count 3 ⇒ TWO extra copies");
+  assert.deepEqual([...repeatRange(buf, 2, 5, 1)], [...buf], "count 1 is a no-op");
+  assert.deepEqual([...repeatRange(buf, 2, 5, 0)], [...buf], "count < 1 clamps to 1 (no-op)");
+  const whole = repeatRange(buf, 0, 10, 2);
+  assert.deepEqual([...whole], [...buf, ...buf], "no selection ⇒ [0, len) ⇒ doubles the whole buffer");
+  assert.deepEqual([...repeatRange(buf, -3, 99, 2)], [...whole], "clamped to the buffer");
 });
 
 test("silence/fades/gain/normalise act only inside the range", () => {
@@ -120,7 +138,9 @@ test("planFit: under budget keeps the rate cap, over budget squeezes to 65535", 
   const custom = planFit(1000, 32000, 16000);
   assert.equal(custom.rate, 16000, "explicit target rate honoured");
   assert.equal(custom.frames, 500);
-  assert.equal(planFit(100, 22050, 99999).rate, TARGET_RATE_MAX, "target rate capped");
+  assert.equal(planFit(100, 22050, 99999).rate, TARGET_RATE_MAX, "target rate capped to the default ceiling");
+  assert.equal(planFit(100, 22050, 99999, 40000).rate, 40000,
+    "a caller-supplied maxRate (item 109: re-editing an already->32k-rate pooled sample) overrides the default ceiling");
 });
 
 test("fitToBudget output length matches planFit exactly", () => {

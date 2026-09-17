@@ -41,6 +41,25 @@ export function cut(buf, a, b) {
   return out;
 }
 
+/** Insert `count - 1` extra copies of [a, b) right after itself — [0, b)
+ *  unchanged, everything from `b` on shifts up by (count - 1) * (b - a).
+ *  `count <= 1` is a plain copy (no-op). Mirrors `cut` (which removes and
+ *  shifts DOWN): nothing is destroyed, so unlike crop/cut a caller never has
+ *  to drop a position that fell inside the touched range — see samplelab.js's
+ *  "extend" op, whose split/loop-marker shift is exactly this function's own
+ *  arithmetic, `p => p < b ? p : p + extra`. */
+export function repeatRange(buf, a, b, count) {
+  [a, b] = clampRange(buf.length, a, b);
+  const n = Math.max(1, Math.floor(count) || 1);
+  const rangeLen = b - a;
+  const extra = rangeLen * (n - 1);
+  const out = new Float32Array(buf.length + extra);
+  out.set(buf.subarray(0, b), 0);
+  for (let i = 0; i < n - 1; i++) out.set(buf.subarray(a, b), b + i * rangeLen);
+  out.set(buf.subarray(b), b + extra);
+  return out;
+}
+
 /** Zero [a, b). */
 export function silenceRange(buf, a, b) {
   [a, b] = clampRange(buf.length, a, b);
@@ -190,13 +209,20 @@ export function resample(buf, ratio) {
 
 /**
  * How a chunk of `frames` at `srcRate` lands in the taud format: resampled to
- * `targetRate` (default = source, capped TARGET_RATE_MAX) and, if still over
+ * `targetRate` (default = source, capped `maxRate`) and, if still over
  * FRAME_BUDGET, squeezed to exactly the budget with the rate following so the
  * pitch is preserved. Pure arithmetic — the UI shows this before committing,
  * fitToBudget executes it. Returns {frames, rate, ratio, squeezed}.
+ *
+ * `maxRate` defaults to TARGET_RATE_MAX (the bandwidth-vs-bytes ceiling every
+ * FRESH import/recording suggests) but a caller re-opening an ALREADY-pooled
+ * sample whose own rate sits above that — e.g. a waveform-paint instrument
+ * tuned via detune math that can legitimately declare a rate past 32 kHz
+ * (item 195) — passes that sample's own rate instead, so editing and
+ * re-committing it without touching the rate field can't silently retune it.
  */
-export function planFit(frames, srcRate, targetRate = null) {
-  const want = Math.max(1, Math.min(TARGET_RATE_MAX, Math.round(targetRate ?? srcRate)));
+export function planFit(frames, srcRate, targetRate = null, maxRate = TARGET_RATE_MAX) {
+  const want = Math.max(1, Math.min(maxRate, Math.round(targetRate ?? srcRate)));
   let ratio = want / srcRate;
   let squeezed = false;
   if (Math.floor(frames * ratio) > FRAME_BUDGET) {
@@ -204,13 +230,13 @@ export function planFit(frames, srcRate, targetRate = null) {
     squeezed = true;
   }
   const outFrames = Math.max(1, Math.floor(frames * ratio));
-  const rate = Math.max(1, Math.min(TARGET_RATE_MAX, Math.round(srcRate * ratio)));
+  const rate = Math.max(1, Math.min(maxRate, Math.round(srcRate * ratio)));
   return { frames: outFrames, rate, ratio, squeezed };
 }
 
 /** Execute planFit on the buffer: {data, rate, squeezed}. */
-export function fitToBudget(buf, srcRate, targetRate = null) {
-  const fit = planFit(buf.length, srcRate, targetRate);
+export function fitToBudget(buf, srcRate, targetRate = null, maxRate = TARGET_RATE_MAX) {
+  const fit = planFit(buf.length, srcRate, targetRate, maxRate);
   return { data: resample(buf, fit.ratio), rate: fit.rate, squeezed: fit.squeezed };
 }
 

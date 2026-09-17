@@ -3,6 +3,10 @@
 //   paintNewSample  — CREATE a fresh sample+instrument (Instruments view), landed
 //     through planSampleImport + importBankOp (undo/sync for free). A length
 //     field + seed shapes; the whole sample loops so a single cycle sustains.
+//     Its own Repeat ×N field (item 195.1) is a COMMIT-time copy-paste of the
+//     drawn motif, not a canvas operation — what's on the drawing form (hand-
+//     drawn or seeded, e.g. by Noise) is landed byte-for-byte and never
+//     touched; only the imported sample is the motif tiled N times.
 //   paintEditSample — EDIT the selected pooled sample in place (Samples view,
 //     next to Edit…): the canvas is primed with the sample's bytes, its length is
 //     fixed, and OK rewrites the pool span via setSampleBytesOp (every instrument
@@ -44,6 +48,14 @@ function tuneForMiddleC(cycleLen) {
   return { samplingRate, detune };
 }
 
+/** Copy-paste `motif` after itself `times` total copies (item 195.1's "Repeat
+ *  ×N"): a NEW buffer, so the caller's own drawing (`motif`) is never touched. */
+function tileBuffer(motif, times) {
+  const out = new Uint8Array(motif.length * times);
+  for (let i = 0; i < times; i++) out.set(motif, i * motif.length);
+  return out;
+}
+
 /** CREATE a new sample+instrument by painting. Resolves {firstSlot, count} | null. */
 export function paintNewSample(store) {
   if (!store.doc) return Promise.resolve(null);
@@ -54,11 +66,24 @@ export function paintNewSample(store) {
     fixedLength: false,
     okLabel: t("common.create"),
     showName: true,
-    commit: (bufs, name) => {
+    showRepeat: true,
+    commit: (bufs, name, repeat) => {
+      const motif = bufs[0];
+      // Tuned off the MOTIF's length, not the repeated total: a tiled copy is
+      // verbatim, so the waveform's true periodicity — and the pitch an ear
+      // hears — is still the motif's, whatever loop point the repeat lands on.
+      const { samplingRate, detune } = tuneForMiddleC(motif.length);
+      const maxRepeat = Math.max(1, Math.floor(MAX_LEN / motif.length));
+      let reps = Math.max(1, repeat || 1);
+      if (reps > maxRepeat) {
+        if (!confirm(t("wave.repeatTooLong", { requested: reps, limit: MAX_LEN, max: maxRepeat }))) {
+          return undefined; // "go back" — leave the modal open, motif untouched
+        }
+        reps = maxRepeat;
+      }
+      const pcm = reps > 1 ? tileBuffer(motif, reps) : motif;
       const nameBytes = new TextEncoder().encode(escapeNonAscii(name || t("wave.defaultName")));
-      const { samplingRate, detune } = tuneForMiddleC(bufs[0].length);
-      const plan = planSampleImport(store.doc,
-        { nameBytes, pcm: bufs[0], rate: samplingRate, detune, loop: true });
+      const plan = planSampleImport(store.doc, { nameBytes, pcm, rate: samplingRate, detune, loop: true });
       if (plan.error) { alert(plan.error); return undefined; }
       store.undo.apply(importBankOp(plan));
       return { firstSlot: plan.insts[0].destSlot, count: 1 };
@@ -113,10 +138,14 @@ function openPaintModal(opts) {
     const lenRow = opts.fixedLength
       ? `<span class="wave-len-fixed">${esc(t("wave.length"))}: ${length}</span>`
       : `<label>${esc(t("wave.length"))} <input type="number" class="wave-len" min="${MIN_LEN}" max="${MAX_LEN}" value="${length}"></label>`;
+    const repeatRow = opts.showRepeat
+      ? `<label>${esc(t("wave.repeat"))} <input type="number" class="wave-repeat" min="1" value="1"></label>`
+      : "";
     dlg.innerHTML = `
       <h3>${esc(opts.title)}</h3>
       <div class="wave-row">
         ${lenRow}
+        ${repeatRow}
         <span class="wave-shapes">
           <button data-shape="sine">${esc(t("wave.sine"))}</button>
           <button data-shape="saw">${esc(t("wave.saw"))}</button>
@@ -153,6 +182,7 @@ function openPaintModal(opts) {
     const W = canvas.width, H = canvas.height;
     const lenInput = dlg.querySelector(".wave-len");
     const nameInput = dlg.querySelector(".wave-name");
+    const repeatInput = dlg.querySelector(".wave-repeat");
 
     const xToIdx = (x) => Math.min(length - 1, Math.max(0, Math.round((x / W) * (length - 1))));
     // Which lane a y coordinate belongs to, and the value it means inside it.
@@ -293,7 +323,8 @@ function openPaintModal(opts) {
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); close(null); });
     dlg.addEventListener("keydown", (e) => e.stopPropagation()); // don't leak to the grid
     dlg.querySelector(".wave-ok").addEventListener("click", () => {
-      const result = opts.commit(bufs, nameInput ? nameInput.value : "");
+      const repeat = repeatInput ? parseInt(repeatInput.value, 10) || 1 : 1;
+      const result = opts.commit(bufs, nameInput ? nameInput.value : "", repeat);
       if (result === undefined) return; // commit reported an error; keep the modal open
       close(result);
     });

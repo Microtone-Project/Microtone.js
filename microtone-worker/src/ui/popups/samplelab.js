@@ -1,6 +1,6 @@
 // Sample Lab (items 83/84/109/999) — THE sample editor, "a tiny Audacity
 // running inside": a zoomable waveform over a FLOAT working buffer with drag
-// selection, length-changing edits (crop/cut), fades/gain/normalise/etc over
+// selection, length-changing edits (crop/cut/extend), fades/gain/normalise/etc over
 // the selection, an oversampled parametric EQ with a live response graph, and a
 // transient chopper (item 84) that splits the take into per-hit chunks the user
 // can merge/split/discard. Length is only finalised at commit: each chunk is
@@ -31,7 +31,7 @@
 import { planMultiSampleImport, planReplaceSample } from "../../doc/bankmerge.js";
 import { importBankOp } from "../../doc/ops.js";
 import {
-  crop, cut, silenceRange, fadeInRange, fadeOutRange, gainRange,
+  crop, cut, repeatRange, silenceRange, fadeInRange, fadeOutRange, gainRange,
   normaliseRangeLinked, downmixChannels,
   reverseRange, invertRange, removeDCRange, eqApply, eqResponseDb,
   detectTransients, chunksFromSplits, planFit, fitToBudget, quantiseU8,
@@ -96,6 +96,14 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     const setChans = (next) => { chans = next; buf = chans[0]; };
     const isStereo = () => chans.length === 2;
     const srcRate = Math.max(1, Math.round(rate));
+    // The rate spinner's ceiling. TARGET_RATE_MAX is the bandwidth-vs-bytes
+    // suggestion for a FRESH capture (mic/file) — but Replace re-opens a
+    // sample that has ALREADY been through that decision once, and its own
+    // rate can legitimately sit above it (a waveform-paint instrument's
+    // detune-math tuning, item 195, can declare a rate past 32 kHz). Raising
+    // the ceiling to match keeps a straight re-commit from silently retuning
+    // it — see planFit's `maxRate`.
+    const rateCeil = replaceTarget ? Math.max(TARGET_RATE_MAX, srcRate) : TARGET_RATE_MAX;
     let sel = null;            // {a, b} in samples, a < b
     let splits = [];           // chop boundaries (samples)
     let chopOn = false;
@@ -158,6 +166,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       <div class="lab-tools lab-ops">
         <button data-op="crop" title="${esc(t("lab.cropTitle"))}">${esc(t("lab.crop"))}</button>
         <button data-op="cut" title="${esc(t("lab.cutTitle"))}">${esc(t("lab.cut"))}</button>
+        <button data-op="extend" title="${esc(t("lab.extendTitle"))}">${esc(t("lab.extend"))}</button>
         <button data-op="silence">${esc(t("lab.silence"))}</button>
         <button data-op="fadeIn">${esc(t("lab.fadeIn"))}</button>
         <button data-op="fadeOut">${esc(t("lab.fadeOut"))}</button>
@@ -185,7 +194,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       </div>
       <div class="lab-row">
         <label>${esc(t("lab.name"))} <input type="text" class="lab-name" value="${esc(name)}"></label>
-        <label>${esc(t("lab.rate"))} <input type="number" class="lab-rate" min="1" max="${TARGET_RATE_MAX}" value="${Math.min(srcRate, TARGET_RATE_MAX)}"></label>
+        <label>${esc(t("lab.rate"))} <input type="number" class="lab-rate" min="1" max="${rateCeil}" value="${Math.min(srcRate, rateCeil)}"></label>
         <span class="lab-fit dim"></span>
       </div>
       <p class="dim lab-hint">${esc(t("lab.hint"))}</p>
@@ -217,7 +226,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     const keptChunks = () => (chopOn ? chunks().filter((c) => !discarded.has(c.a)) : [{ a: 0, b: buf.length }]);
     const targetRate = () => {
       const v = parseInt(rateInput.value, 10);
-      return Number.isFinite(v) && v >= 1 ? Math.min(TARGET_RATE_MAX, v) : null;
+      return Number.isFinite(v) && v >= 1 ? Math.min(rateCeil, v) : null;
     };
 
     const snapshot = () => ({ chans, splits: [...splits], discarded: new Set(discarded), posMap });
@@ -253,7 +262,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     function remapPositions(list, fn) {
       return list.map(fn).filter((p) => p !== null && p > 0 && p < buf.length);
     }
-    function applyRanged(op) {
+    function applyRanged(op, count = 2) {
       const [a, b] = sel ? [sel.a, sel.b] : [0, buf.length];
       if ((op === "crop" || op === "cut") && !sel) { alert(t("lab.needSel")); return; }
       pushUndo();
@@ -282,6 +291,21 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
           sel = null;
           break;
         }
+        case "extend": {
+          // Insert count-1 extra copies of [a, b) — or, with no selection,
+          // the WHOLE take — right after itself: a one-click way to extend a
+          // short one-shot into a longer loop. Nothing is destroyed, so
+          // unlike crop/cut every split and loop marker carries over with a
+          // plain shift, no drops.
+          const extra = (b - a) * (Math.max(1, Math.floor(count) || 1) - 1);
+          each((c) => repeatRange(c, a, b, count));
+          const shift = (p) => (p < b ? p : p + extra);
+          splits = remapPositions(splits, shift);
+          discarded = new Set(remapPositions([...discarded], shift));
+          composeMap(shift);
+          sel = { a: b, b: b + extra }; // select the fresh copies, ready for their own edit
+          break;
+        }
         case "silence": each((c) => silenceRange(c, a, b)); break;
         case "fadeIn": each((c) => fadeInRange(c, a, b)); break;
         case "fadeOut": each((c) => fadeOutRange(c, a, b)); break;
@@ -306,6 +330,25 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       pushUndo();
       setChans(chans.map((c) => gainRange(c, a, b, Math.pow(10, db / 20))));
       refresh();
+    }
+    async function extendTool() {
+      const [a, b] = sel ? [sel.a, sel.b] : [0, buf.length];
+      const rangeLen = b - a;
+      const res = await showModal({
+        title: t("lab.extend"),
+        fields: [{
+          name: "count", label: t("lab.extendAsk"), type: "number", value: "2", min: "2",
+          hint: (raw) => {
+            const n = Math.max(2, Math.floor(Number(raw)) || 2);
+            const newLen = buf.length + rangeLen * (n - 1);
+            return t("lab.extendPreview", { frames: newLen, secs: (newLen / srcRate).toFixed(2) });
+          },
+        }],
+        okLabel: t("common.apply"),
+      });
+      if (!res) return;
+      const n = Math.max(2, Math.floor(Number(res.count)) || 2);
+      applyRanged("extend", n);
     }
 
     // ── painting ──
@@ -520,7 +563,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       if (kept.length === 0) {
         fitStr = t("lab.noChunks");
       } else {
-        const fits = kept.map((c) => planFit(c.b - c.a, srcRate, targetRate()));
+        const fits = kept.map((c) => planFit(c.b - c.a, srcRate, targetRate(), rateCeil));
         const big = fits.reduce((m, f) => (f.frames > m.frames ? f : m), fits[0]);
         fitStr = kept.length === 1
           ? t("lab.importOne", { frames: big.frames, rate: big.rate })
@@ -654,6 +697,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     for (const b of dlg.querySelectorAll(".lab-ops button[data-op]")) {
       b.addEventListener("click", () => {
         if (b.dataset.op === "gain") gainTool();
+        else if (b.dataset.op === "extend") extendTool();
         else applyRanged(b.dataset.op);
       });
     }
@@ -862,7 +906,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     function renderChunk(c) {
       // planFit depends only on the frame count, so every channel of a chunk
       // resamples by the same ratio to the same length and rate.
-      const fitted = chans.map((ch) => fitToBudget(ch.slice(c.a, c.b), srcRate, targetRate()));
+      const fitted = chans.map((ch) => fitToBudget(ch.slice(c.a, c.b), srcRate, targetRate(), rateCeil));
       const q = fitted.map((f) => quantiseU8(f.data));
       return {
         pcm: q[0].pcm,
@@ -976,7 +1020,8 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       setChannelCount,
       setSelection: (a, b) => { sel = { a: Math.min(a, b), b: Math.max(a, b) }; refresh(); },
       clearSelection: () => { sel = null; refresh(); },
-      tool: (op) => applyRanged(op),
+      tool: (op, count) => applyRanged(op, count),
+      extend: () => extendTool(),
       gainDb: (db) => {
         pushUndo();
         const [a, b] = sel ? [sel.a, sel.b] : [0, buf.length];
