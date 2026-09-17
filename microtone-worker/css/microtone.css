@@ -3235,8 +3235,16 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .mst-seg button:first-child { border-radius: 4px 0 0 4px; }
 .mst-seg button:last-child { border-radius: 0 4px 4px 0; }
-.mst-seg button + button { border-left: none; }
-.mst-seg button.active { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); }
+/* Neighbours OVERLAP their shared 1px edge rather than the later one dropping
+   its left border: a dropped border leaves an accent-bordered button (active,
+   or hovered) missing that edge, so every segment but the first drew an open
+   left side. The one wearing the accent is lifted above its neighbour so its
+   edge is the one that survives the overlap — hover last, so hovering always
+   shows a closed outline even next to the active segment. */
+.mst-seg button { position: relative; }
+.mst-seg button + button { margin-left: -1px; }
+.mst-seg button.active { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); z-index: 1; }
+.mst-seg button:hover { z-index: 2; }
 .mst-serieseg { align-self: flex-start; margin-top: 0.2rem; }
 
 .mst-canvas { width: 100%; display: block; }

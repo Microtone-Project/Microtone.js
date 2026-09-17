@@ -11,6 +11,7 @@ Every tick-box and slider in the app now takes the accent colour of the theme yo
 - **Fixed: the controls outside the Instruments view's General tab were browser-blue in every theme** — the accent is now stated once for the whole app, so every view, dialog and pop-up picks it up.
 - **Where you will notice it**: the *follow* switch in the top bar, the Mastering rack's options, the Keymap and Project views, the Sample Lab, the Chord and Notation makers, the import dialogs, and the volume slider on the player page.
 - **A control added later is themed the moment it appears**, so the app cannot drift back into a patchwork.
+- **Fixed: the Mastering view's pre/post and series switches drew the accent outline with the left side missing** — segments after the first dropped their left edge to avoid doubling it up, so the highlight on a selected or hovered segment was left hanging open.
 
 A slide no longer hides where it has got to: the Timeline and Patterns grids now show, in grey, the pitch, volume or panning that a bend has left standing on a row that says nothing.
 
