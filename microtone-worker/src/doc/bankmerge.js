@@ -402,7 +402,8 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
  *  binding filled in. Loop fields default to no-loop; pass them to inherit an
  *  existing pooled sample's loop (item 40). */
 export function buildFreshInstRecord({ samplePtr, sampleLength, samplingRate,
-                                       sampleLoopStart = 0, sampleLoopEnd = 0, loopMode = 0 }) {
+                                       sampleLoopStart = 0, sampleLoopEnd = 0, loopMode = 0,
+                                       sampleDetune = 0 }) {
   const inst = new TaudInst(0);
   inst.samplePtr = samplePtr;
   inst.sampleLength = sampleLength;
@@ -410,6 +411,7 @@ export function buildFreshInstRecord({ samplePtr, sampleLength, samplingRate,
   inst.sampleLoopStart = sampleLoopStart;
   inst.sampleLoopEnd = sampleLoopEnd;
   inst.loopMode = loopMode;
+  inst.sampleDetune = sampleDetune;
   const rec = new Uint8Array(256);
   for (let i = 0; i < 256; i++) rec[i] = inst.getByteNormal(i);
   return rec;
@@ -428,11 +430,16 @@ export function planSampleImport(destDoc, item) {
 
 /**
  * The N-sample generalisation (item 84 — the Sample Lab's chopper lands every
- * kept chunk in ONE undo step): `items` is [{nameBytes, pcm, rate, loop, pcmR}].
+ * kept chunk in ONE undo step): `items` is [{nameBytes, pcm, rate, loop, pcmR, detune}].
  * Each item becomes its own instrument (free $01–$FF slots ascending, in item
  * order); PCM dedupes against the pool AND within the batch; INam/SNam names
  * land per item (a deduped span keeps its existing name; for a batch-internal
  * dupe the first item's name wins). Same plan shape, same importBankOp.
+ *
+ * `detune` (signed, 4096-TET, item 195) defaults to 0 — the waveform-paint
+ * caller is the only one that passes it, to land a freshly painted cycle
+ * exactly on middle C at C-4 rather than at whatever pitch its raw length
+ * happens to loop at.
  *
  * `pcmR` (same length as `pcm`) makes the item STEREO (item 90): the right
  * channel takes its own pool span and the instrument gets a single full-range
@@ -516,6 +523,7 @@ export function planMultiSampleImport(destDoc, items) {
   const insts = items.map((it, i) => {
     const len = it.pcm.length;
     const rate = Math.max(1, Math.min(0xffff, Math.round(it.rate) || 0));
+    const detune = Math.max(-32768, Math.min(32767, Math.round(it.detune) || 0));
     // Optional forward loop over the whole sample — a painted single-cycle
     // waveform (item 53) needs it to sustain as a tone.
     const loopEnd = it.loop ? len : 0;
@@ -527,13 +535,13 @@ export function planMultiSampleImport(destDoc, items) {
       topLevel: true,
       record: buildFreshInstRecord({
         samplePtr: ptrs[i], sampleLength: len, samplingRate: rate,
-        sampleLoopEnd: loopEnd, loopMode,
+        sampleLoopEnd: loopEnd, loopMode, sampleDetune: detune,
       }),
       ixmpBlob: stereo
         ? writePatchesBlob([makeInstPatch({
             pitchStart: 0, pitchEnd: 0xffff, volumeStart: 0, volumeEnd: 63,
             samplePtr: ptrs[i], sampleLength: len, playStart: 0,
-            loopStart: 0, loopEnd, samplingRate: rate, loopMode,
+            loopStart: 0, loopEnd, samplingRate: rate, sampleDetune: detune, loopMode,
             hasChanBlock: true, chanCount: 2, chanMode: CHAN_MODE_DISCRETE,
             chanPtrs: [ptrsR[i]],
           })])

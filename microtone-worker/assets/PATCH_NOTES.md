@@ -6,6 +6,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-17
 
+A waveform you paint by hand now starts in tune, so striking C-4 plays the tone you drew at exactly middle C, whatever length you painted it at.
+
+- **The Paint a waveform… dialog (Instruments → New instrument) now sets the new instrument's sampling rate and detune automatically**, so the cycle you draw sounds at concert middle C on C-4 instead of whatever pitch its length happened to loop at — the default length used to play about two octaves flat, and any other length is corrected the same way.
+- **Repainting an existing sample in place (Samples → Edit…) is unaffected**, since it keeps that sample's own tuning — every instrument already using it keeps sounding where you left it.
+
 Every tick-box and slider in the app now takes the accent colour of the theme you are in, rather than the browser's own blue.
 
 - **Fixed: the controls outside the Instruments view's General tab were browser-blue in every theme** — the accent is now stated once for the whole app, so every view, dialog and pop-up picks it up.

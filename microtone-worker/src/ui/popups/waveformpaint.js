@@ -17,10 +17,32 @@ import { importBankOp, setSampleBytesOp, multiSampleBytesOp } from "../../doc/op
 import { sampleSpans } from "../../doc/document.js";
 import { escapeNonAscii } from "../names.js";
 import { t } from "../i18n.js";
+import { LINEAR_FREQ_C4_HZ } from "../../engine/constants.js";
 
-const MIN_LEN = 2, MAX_LEN = 0xffff, DEF_LEN = 256, RATE = 32000;
+const MIN_LEN = 2, MAX_LEN = 0xffff, DEF_LEN = 256;
 const LANE_H = 200;   // canvas height PER CHANNEL
 export const PAINT_WARN_LEN = 1024;
+
+/**
+ * A painted single-cycle waveform of `cycleLen` samples, looped whole, sounds
+ * at (samplingRate / cycleLen) Hz when triggered at C-4 with zero detune —
+ * an accident of whatever length the user typed, not a chosen pitch (item
+ * 195). Pick samplingRate as large as its 16-bit field allows (best rounding
+ * resolution) and let sampleDetune (also 16-bit, ±8 octaves in 4096ths)
+ * absorb the octave shift plus the rounding remainder, so C-4 plays exactly
+ * concert middle C instead. Clamped rather than exact for a pathologically
+ * long cycle that would need more than 8 octaves of correction.
+ */
+function tuneForMiddleC(cycleLen) {
+  const target = LINEAR_FREQ_C4_HZ * cycleLen; // Hz needed at detune 0
+  let rate = target;
+  while (rate > 0xffff) rate /= 2;
+  while (rate < 1) rate *= 2;
+  const samplingRate = Math.max(1, Math.min(0xffff, Math.round(rate)));
+  const detune = Math.max(-32768, Math.min(32767,
+    Math.round(4096 * Math.log2(target / samplingRate))));
+  return { samplingRate, detune };
+}
 
 /** CREATE a new sample+instrument by painting. Resolves {firstSlot, count} | null. */
 export function paintNewSample(store) {
@@ -34,7 +56,9 @@ export function paintNewSample(store) {
     showName: true,
     commit: (bufs, name) => {
       const nameBytes = new TextEncoder().encode(escapeNonAscii(name || t("wave.defaultName")));
-      const plan = planSampleImport(store.doc, { nameBytes, pcm: bufs[0], rate: RATE, loop: true });
+      const { samplingRate, detune } = tuneForMiddleC(bufs[0].length);
+      const plan = planSampleImport(store.doc,
+        { nameBytes, pcm: bufs[0], rate: samplingRate, detune, loop: true });
       if (plan.error) { alert(plan.error); return undefined; }
       store.undo.apply(importBankOp(plan));
       return { firstSlot: plan.insts[0].destSlot, count: 1 };
