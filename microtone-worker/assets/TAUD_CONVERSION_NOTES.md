@@ -20,13 +20,13 @@ The key words **MUST**, **SHOULD**, **MAY** and their negations are used as in [
 | One sample | 65 535 bytes | That sample alone is resampled further |
 | Directly addressable instruments | 255 (`$01`…`$FF`) | Conversion fails, or instruments are dropped |
 | Auxiliary instruments | 768 (`$100`…`$3FF`) | Reachable only as Metainstrument entries (layers, or a rack's operators) |
-| Channels | 32, or 64 with `xHDR` | Excess channels are dropped |
-| Pattern rows | 64 | Longer patterns are split ([§1.4](#1-4-patterns-are-single-channel)) |
-| Patterns | 32 767 | Practically bounded by `patterns × channels` |
-| Cues | 8192, or 4096 in 64-channel mode | — |
+| Lanes | 32, or 64 with `xHDR` | Excess lanes are dropped |
+| Pattern rows | 64 | Longer patterns are split ([§1.4](#1-4-patterns-are-single-lane)) |
+| Patterns | 32 767 | Practically bounded by `patterns × lanes` |
+| Cues | 8192, or 4096 in 64-lane mode | — |
 | Ixmp patches per instrument | Unbounded, but rectangles **MUST NOT** overlap | — |
 
-The pattern budget is the one that bites first on wide modules, because a Taud pattern holds one channel: a 20-channel module with 64 source patterns needs 1280 Taud patterns before deduplication. The reference converters treat `patterns × channels > 4095` as a hard error for the ≤ 20-channel formats.
+The pattern budget is the one that bites first on wide modules, because a Taud pattern holds one lane: a 20-lane module with 64 source patterns needs 1280 Taud patterns before deduplication. The reference converters treat `patterns × lanes > 4095` as a hard error for the ≤ 20-lane formats.
 
 ### 1.2 Samples
 
@@ -59,7 +59,7 @@ Per-sample tuning offsets — XM's `relative note` and `finetune`, IT's C5 speed
 
 One semitone is ≈ 341.33 units and one cent is ≈ 3.41 units, so slide arguments generally need scaling; each format's section gives its factor.
 
-### 1.4 Patterns are single-channel
+### 1.4 Patterns are single-lane
 
 This is the structural difference that shapes every converter. A source pattern of *R* rows × *C* channels becomes *C* Taud patterns of *R* rows, and the cue that plays them names all *C* at once.
 
@@ -68,7 +68,7 @@ Consequences:
 - **Row counts other than 64** need the cue's LEN instruction (`rows − 1` in the low six bits). A pattern longer than 64 rows is split into ⌊rows ÷ 64⌋ full cues plus a remainder cue carrying LEN.
 - **Splitting renumbers the order list**, so every `B` (position jump) and `C` (pattern break) target **MUST** be remapped to the new cue indices.
 - **A pattern loop (`S $Bx`) that straddles a split boundary cannot work**, because the loop is per-cue. Converters warn rather than silently mangling it.
-- **Deduplication pays for itself.** Identical 512-byte patterns collapse to one copy with a remap table; on a typical module most single-channel patterns are empty and fold into one.
+- **Deduplication pays for itself.** Identical 512-byte patterns collapse to one copy with a remap table; on a typical module most single-lane patterns are empty and fold into one.
 
 ### 1.5 The cue sheet
 
@@ -76,7 +76,7 @@ A converted song's cue sheet needs three things right:
 
 - **HALT goes on the last active cue**, not in an empty cue appended after it. Appending leaves a silent 64-row gap before playback stops.
 - **A partial final bar uses HALT AT** *x* rather than plain HALT, so the song ends at its own length.
-- **Trailing empty cues are trimmed** — a cue is empty only when every channel word is the no-pattern sentinel *and* both instruction words are NOP.
+- **Trailing empty cues are trimmed** — a cue is empty only when every lane word is the no-pattern sentinel *and* both instruction words are NOP.
 
 Looping is a cue **JMP** back to the loop-start cue, replacing that cue's HALT. When the loop start is mid-cue, an in-pattern `B` (plus `C` for the row) does the job instead.
 
@@ -84,18 +84,18 @@ Looping is a cue **JMP** back to the loop-start cue, replacing that cue's HALT. 
 
 Most trackers back their effects with per-effect or shared memory: re-issuing a command with a `$00` argument recalls the last non-zero one. Taud has memory too, but **its cohorts are narrower than ST3's or IT's**, so a naive pass-through changes which value gets recalled.
 
-The reference converters therefore **resolve recalls eagerly**: they walk the patterns in order-list order, per channel, tracking the source's own memory model, and substitute the concrete value before encoding. The known limitation is honest and worth stating: a pattern reached from several order entries is rewritten on its first visit, so a later visit may diverge from the original if the memory state differed. In practice this is inaudible on real modules, but it is a real difference and a converter **SHOULD** document it rather than pretend otherwise.
+The reference converters therefore **resolve recalls eagerly**: they walk the patterns in order-list order, per lane, tracking the source's own memory model, and substitute the concrete value before encoding. The known limitation is honest and worth stating: a pattern reached from several order entries is rewritten on its first visit, so a later visit may diverge from the original if the memory state differed. In practice this is inaudible on real modules, but it is a real difference and a converter **SHOULD** document it rather than pretend otherwise.
 
 ### 1.7 Volume and pan columns
 
 Taud's volume and pan columns each carry a 6-bit value plus a selector, and the FINE selector with value 0 is the canonical **no-op** (byte `$C0`). Two conventions follow:
 
-- On a row that triggers a note but carries no explicit source volume, emit a **SET** with the instrument's default volume. Otherwise the channel's prior volume persists into the fresh note, which is almost never what the source meant.
+- On a row that triggers a note but carries no explicit source volume, emit a **SET** with the instrument's default volume. Otherwise the lane's prior volume persists into the fresh note, which is almost never what the source meant.
 - On every other row, emit the FINE-0 no-op so the column does not disturb running state.
 
 A source volume of 64 maps to **63**, not to a rescaled value. ST3, XM and IT all display a 0…64 volume and all clamp it to six bits in the player, so 64 and 63 sound the same at the source; scaling the whole range by 63/64 to make 64 "fit" would quietly pull every other volume in the song down. Clamp, do not scale.
 
-Effects that only set channel volume or panning (`M`, `N`, `X`, `P` in ST3 terms) **SHOULD** be folded into these columns, which frees the effect slot for something that genuinely needs it. Each cell has exactly one effect slot, and on dense material that slot is the scarcest resource in the whole conversion.
+Effects that only set lane volume or panning (`M`, `N`, `X`, `P` in ST3 terms) **SHOULD** be folded into these columns, which frees the effect slot for something that genuinely needs it. Each cell has exactly one effect slot, and on dense material that slot is the scarcest resource in the whole conversion.
 
 ### 1.8 Subsongs
 
@@ -244,9 +244,9 @@ Full XM dispatch per the Note Effects conversion table. Volume-column commands f
 
 IT is the richest source and maps onto Taud most directly, because most of Taud's instrument model exists to carry IT semantics.
 
-### 5.1 Channels
+### 5.1 Channels → lanes
 
-The converter takes the non-muted, in-use channels: 32 or fewer stay in the default layout, 33…64 switch the file to **64-channel mode** (the `xHDR` flag), and only a song exceeding 64 active channels is capped. A channel is "muted" when its pan byte has bit 7 set or reads `$C0`, and "in use" when any cell on it is non-empty.
+The converter takes the non-muted, in-use source channels: 32 or fewer stay in the default layout, 33…64 switch the file to **64-lane mode** (the `xHDR` flag), and only a song exceeding 64 active channels is capped. A lane is "muted" when its pan byte has bit 7 set or reads `$C0`, and "in use" when any cell on it is non-empty.
 
 ### 5.2 Instruments and Ixmp
 
@@ -268,7 +268,7 @@ The fields an IT **sample** carries in its own right still convert: its default 
 
 **`Vir` = 0 means the sample has no auto-vibrato**, however deep its `Vid`. IT's rate field is the only thing that lifts the depth accumulator off zero, so a sample that names a speed and a depth but leaves the rate at zero is silent in IT and in OpenMPT. Taud reads a record with both ramp fields at zero as full depth from the first tick — the FT2 convention, and the one the instrument editor needs — so the conversion carries that silence as a depth of 0 rather than as the rate it came from.
 
-**New Note Action is the one field where "neutral" is not zero.** Sample mode has no NNA: a new note replaces whatever the channel was playing, exactly as in `.mod`, `.s3m` and `.xm`. Converted samples therefore get NNA = Note Cut, so no ghost is spawned. Note Off — the value the field's zero encodes — would keep a ghost running per trigger, and with no volume envelope and a fadeout of zero it would never stop ringing.
+**New Note Action is the one field where "neutral" is not zero.** Sample mode has no NNA: a new note replaces whatever the lane was playing, exactly as in `.mod`, `.s3m` and `.xm`. Converted samples therefore get NNA = Note Cut, so no ghost is spawned. Note Off — the value the field's zero encodes — would keep a ghost running per trigger, and with no volume envelope and a fadeout of zero it would never stop ringing.
 
 ### 5.4 Pattern splitting
 
@@ -276,7 +276,7 @@ IT patterns may exceed 64 rows, and are split into ⌈rows ÷ 64⌉ consecutive 
 
 ### 5.5 Note delays past the row
 
-IT triggers a note delay *during* the current row, so a delay of `x` ticks with `x ≥ speed` never lands — the note is silently lost. The converter relocates such a note to the next row with `delay = x − speed`, but only when that next row on the same channel is empty. This recovers notes that IT itself would have dropped, which is a deliberate deviation in favour of the music.
+IT triggers a note delay *during* the current row, so a delay of `x` ticks with `x ≥ speed` never lands — the note is silently lost. The converter relocates such a note to the next row with `delay = x − speed`, but only when that next row on the same lane is empty. This recovers notes that IT itself would have dropped, which is a deliberate deviation in favour of the music.
 
 ### 5.6 Portamento eats the instrument byte
 
@@ -284,7 +284,7 @@ IT does not reset an instrument's envelopes when a row carries a note, an instru
 
 The Taud engine deliberately does not reproduce it: an instrument byte on a portamento row re-attacks the four playheads (TAUD_ENGINE_SPEC §5.2), which is FastTracker's rule and the one a tracker musician can predict. Envelope carry is spelled out instead, in the LOOP word's `c` bit, where it is a property of the instrument rather than an accident of the row.
 
-So the converter resolves it at conversion time: **a note tied by `G` or `L` that names the instrument the channel is already holding is written without the instrument byte**, which is what an IT author's ear expects and how the passage would be written by hand. The byte is dropped only when it names the *same* instrument — that is precisely the case where IT reloads nothing, so nothing else goes with it. A portamento row naming a *different* instrument keeps its byte: there IT does swap the sample and clear the key-off, and the Taud re-attack is much the closer of the two readings.
+So the converter resolves it at conversion time: **a note tied by `G` or `L` that names the instrument the lane is already holding is written without the instrument byte**, which is what an IT author's ear expects and how the passage would be written by hand. The byte is dropped only when it names the *same* instrument — that is precisely the case where IT reloads nothing, so nothing else goes with it. A portamento row naming a *different* instrument keeps its byte: there IT does swap the sample and clear the key-off, and the Taud re-attack is much the closer of the two readings.
 
 The volume-column `Gx` counts as a portamento here whenever it will actually reach the pattern — when the main column is empty, or holds a non-zero `D` that folds into `L`. Where the vol-column porta is dropped for want of a slot the row is not tied in the output, and it keeps its instrument byte.
 
@@ -309,11 +309,11 @@ Global and mixing volume are IT's 0…128, scaled by 255/128 and rounded.
 
 ## 6. Monotone — `.mon`
 
-Monotone is Calvin "Trixter" French's tracker for the PC speaker, Tandy and TI-99 SN76489. It has no user-defined instruments — the only instrument is the beeper — 1…12 voices, 64 rows per pattern, ProTracker-flavoured 2-byte cells, and eight effects: `0`, `1`, `2`, `3`, `4`, `B`, `D`, `F`.
+Monotone is Calvin "Trixter" French's tracker for the PC speaker, Tandy and TI-99 SN76489. It has no user-defined instruments — the only instrument is the beeper — 1…12 lanes, 64 rows per pattern, ProTracker-flavoured 2-byte cells, and eight effects: `0`, `1`, `2`, `3`, `4`, `B`, `D`, `F`.
 
 ### 6.1 The instrument
 
-The converter synthesises a single instrument: a 32-byte, 50 %-duty square wave at offset 0 of the pool, looping forward, with a sampling rate of 8372 Hz so C4 sounds at 261.6 Hz. Its instrument global volume is set to `$A0` for headroom (a square wave is loud), its default note volume to full, its filter off, and its NNA to Note Cut. Every Monotone voice plays this one instrument.
+The converter synthesises a single instrument: a 32-byte, 50 %-duty square wave at offset 0 of the pool, looping forward, with a sampling rate of 8372 Hz so C4 sounds at 261.6 Hz. Its instrument global volume is set to `$A0` for headroom (a square wave is loud), its default note volume to full, its filter off, and its NNA to Note Cut. Every Monotone lane plays this one instrument.
 
 ### 6.2 Pitch and slides
 
@@ -335,7 +335,7 @@ The interesting decision is the slides. Monotone's `1xx`, `2xx` and `3xx` are **
 
 ## 7. MIDI and SoundFont 2 — `.mid` + `.sf2`
 
-This is the least mechanical conversion: MIDI has no patterns, no rows and no channels-as-voices, and a SoundFont is a sampler bank rather than a tracker instrument list. Almost everything here is a judgement call.
+This is the least mechanical conversion: MIDI has no patterns, no rows and no lanes, and a SoundFont is a sampler bank rather than a tracker instrument list. Almost everything here is a judgement call.
 
 ### 7.1 The rhythmic grid
 
@@ -343,7 +343,7 @@ MIDI time is continuous; Taud time is rows and ticks. The converter chooses **ro
 
 Pinning either axis on the command line auto-fits the other; pinning both overrides the analysis entirely.
 
-As a final step, a bend- or polyphony-heavy song with fewer than 8 rows per beat has its `rpb` doubled and its `speed` halved (leaving tempo and `F` unchanged), up to 8. The extra rows give key-offs, choke events, portamento and channel-volume effects distinct rows to land on, so fewer are lost to same-row collisions — each cell has only one effect slot.
+As a final step, a bend- or polyphony-heavy song with fewer than 8 rows per beat has its `rpb` doubled and its `speed` halved (leaving tempo and `F` unchanged), up to 8. The extra rows give key-offs, choke events, portamento and lane-volume effects distinct rows to land on, so fewer are lost to same-row collisions — each cell has only one effect slot.
 
 Sub-row timing is then carried by `S $Dx` note delays.
 
@@ -357,9 +357,9 @@ What no timing analysis can settle is the **metrical level**. A stream of eighth
 
 **Both ends are snapped, not just the onset.** Moving the onset alone leaves every release exactly as ragged as it was played, so the sub-row delays this was meant to clear up survive on the key-offs. A quantised note therefore lasts a whole number of grid steps — with one floor: a note shorter than half a step has both ends land on the same grid point, and it **MUST** keep the shortest length the grid can hold rather than being stretched to a full step, or every drum hit and grace note in the file becomes a sixteenth.
 
-That floor is the only thing that can leave an overlap **shorter than one step** behind, because everything else now sits on the grid and overlaps by whole steps. Within one channel and one key such an overlap is impossible in the source — nothing strikes one key twice at once — so a converter **SHOULD** resolve it: shorten the earlier note to the later one's onset, or, when both landed on the same grid point, drop it, since two strikes collapsed onto one instant are one strike. The same test **MUST NOT** be applied across different keys of one channel: a kick sounding under a hi-hat overlaps in exactly that way and is not an accident. Quantising runs after the grid has been chosen, because the picker reads the raw onsets and must see the timing the performance was aiming at rather than one this pass has already imposed. A converter offering this **SHOULD** warn that it erases swing, flams and grace notes along with the mistakes.
+That floor is the only thing that can leave an overlap **shorter than one step** behind, because everything else now sits on the grid and overlaps by whole steps. Within one channel and one key such an overlap is impossible in the source — nothing strikes one key twice at once — so a converter **SHOULD** resolve it: shorten the earlier note to the later one's onset, or, when both landed on the same grid point, drop it, since two strikes collapsed onto one instant are one strike. The same test **MUST NOT** be applied across different keys of one lane: a kick sounding under a hi-hat overlaps in exactly that way and is not an accident. Quantising runs after the grid has been chosen, because the picker reads the raw onsets and must see the timing the performance was aiming at rather than one this pass has already imposed. A converter offering this **SHOULD** warn that it erases swing, flams and grace notes along with the mistakes.
 
-Tempo changes become `T $xx00`, or the extended `T $FFxx` form above 280 BPM. Channel volume and expression (CC7 × CC11) become `M $xx00` channel-volume effects, deliberately **not** volume-column writes: the volume column is the velocity axis that selects Ixmp patches, and driving it from CC7 would change which sample plays.
+Tempo changes become `T $xx00`, or the extended `T $FFxx` form above 280 BPM. MIDI channel volume and expression (CC7 × CC11) become `M $xx00` lane-volume effects, deliberately **not** volume-column writes: the volume column is the velocity axis that selects Ixmp patches, and driving it from CC7 would change which sample plays.
 
 Cues break at every time-signature change, and each section is packed into whole-bar cues — the largest multiple of its bar length that fits in 64 rows — so a tracker's beat highlighting lines up with the music.
 
@@ -413,7 +413,7 @@ Melodic instruments get the **key lift** flag, so key-off behaves like a MIDI ke
 
 Polyphony rides on New Note Actions, which is what makes MIDI-shaped music fit a tracker at all. Every instrument, drum kits included, gets **NNA = Note Fade**: a voice column becomes reusable the moment its note releases, and the release tail moves to a background ghost that dies over its own release time.
 
-The voice-column budget defaults to 32. A song exceeding it releases the oldest pedal-held or soonest-ending note **early** rather than cutting it. Raising the budget above 32 opts into 64-channel Taud mode, but only takes effect if the song actually allocates 33 or more voices.
+The lane budget defaults to 32. A song exceeding it releases the oldest pedal-held or soonest-ending note **early** rather than cutting it. Raising the budget above 32 opts into 64-lane Taud mode, but only takes effect if the song actually allocates 33 or more lanes.
 
 SF2 **exclusiveClass** (generator 57) is honoured on the percussion channel: a new note in a class chokes any ringing note of the same class, matching FluidSynth's kill-by-exclusive-class. The choke is emitted as the fast note-fade sentinel (`$0004`, ≈ 0.3 s) at the next same-class onset. Without it, long percussion tails wash over the whole beat — an open hi-hat ringing through the closed one that should have stopped it.
 
@@ -444,7 +444,7 @@ The shared bank spans the **union** of every song's instruments, so the 8 MiB po
 
 ROL was a step sequencer, and the converter that turned it into an event stream only rescaled the clock — so the **greatest common divisor of every delta time IS the composer's original tick**, and `240 ÷ gcd` is the rows per beat. Every GCD observed across 1128 reference songs divides 240, so the grid is exact and no event is quantised away. Header byte 50 states the same number outright in the 59 files that set it, and it agrees with the GCD in all of them; it is a cross-check, not a shortcut, because the other 1069 leave it zero.
 
-Speed and BPM are then one equation with a free parameter — a row lasts `speed × 2.5 ÷ BPM` seconds — and the parameter is spent on making the **tick as short as the 535 BPM ceiling allows**. That is not cosmetic: the tick is the resolution of every envelope in the engine, and an OPL percussive attack of two milliseconds smeared over a 20 ms tick is a different instrument. A typical song lands near 480 BPM at speed 8, so its tick is 5 ms rather than 20. A tempo change re-solves the same equation and writes `A` and `T` on two channels of the same row.
+Speed and BPM are then one equation with a free parameter — a row lasts `speed × 2.5 ÷ BPM` seconds — and the parameter is spent on making the **tick as short as the 535 BPM ceiling allows**. That is not cosmetic: the tick is the resolution of every envelope in the engine, and an OPL percussive attack of two milliseconds smeared over a 20 ms tick is a different instrument. A typical song lands near 480 BPM at speed 8, so its tick is 5 ms rather than 20. A tempo change re-solves the same equation and writes `A` and `T` on two lanes of the same row.
 
 ### 8.2 An OPL patch is an FM rack
 
@@ -505,7 +505,7 @@ The three rendered drums are baked at the driver's starting tom pitch, because c
 
 ### 8.5 Volume is logarithmic
 
-`An vv`, and the velocity byte of a note-on, both set **channel** volume 0…127 — and AdLib's volume is not a linear gain. The driver scales the operator's 6-bit *amplitude*, which is a 0.75 dB-per-step logarithmic quantity, so volume 64 is 23 dB down and not 6. Converting it as if it were linear makes every fade in the format arrive far too late and far too suddenly. The exact curve depends on the operator's own total level, so the converter tracks which patch is on the channel and writes the resulting gain into the **volume column** — leaving the effect column free for the pitch bends, which need it far more.
+`An vv`, and the velocity byte of a note-on, both set **channel** volume 0…127 — and AdLib's volume is not a linear gain. The driver scales the operator's 6-bit *amplitude*, which is a 0.75 dB-per-step logarithmic quantity, so volume 64 is 23 dB down and not 6. Converting it as if it were linear makes every fade in the format arrive far too late and far too suddenly. The exact curve depends on the operator's own total level, so the converter tracks which patch is on the lane and writes the resulting gain into the **volume column** — leaving the effect column free for the pitch bends, which need it far more.
 
 ### 8.6 Bends are the loss
 

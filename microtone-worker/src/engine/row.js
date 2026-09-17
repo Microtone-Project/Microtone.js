@@ -84,7 +84,7 @@ function scheduleDxnyAction(voice, sArg, delayTick) {
 
 export function applyTrackerRow(eng, ts, playhead) {
   const cue = eng.cueSheet[ts.cuePos];
-  // Reset row-scope state before scanning channels.
+  // Reset row-scope state before scanning lanes.
   if (!ts.patternDelayActive) ts.sexWinningChannel = -1;
   ts.finePatternDelayExtra = 0;
 
@@ -336,7 +336,7 @@ export function applyTrackerRow(eng, ts, playhead) {
 
     // ── Effect columns ──
     // A wide cell carries two, applied in order, so the second lands last where
-    // both write the same channel state.
+    // both write the same lane state.
     //
     // Argument extension (item 162): a `:` in either slot is a modifier, not a
     // command of its own — it hands its argument to whichever OTHER effect

@@ -453,7 +453,7 @@ test("planIxmpCleanup prunes patches no pattern cell actually plays (usage-based
 
 test("planIxmpCleanup leaves a slot's patches untouched by usage-pruning when a trigger row is ambiguous", () => {
   // An instrument-byte-only row (no note) resolves its pitch from whatever the
-  // channel was already holding — not statically knowable from the cell alone
+  // lane was already holding — not statically knowable from the cell alone
   // — so a static scan must NOT guess it can never reach the second patch.
   const doc = loadWhen();
   const slot = doc.selectableInstrumentSlots().find((s) => !doc.instruments[s].isMeta);
@@ -475,7 +475,7 @@ test("planIxmpCleanup leaves a slot's patches untouched by usage-pruning when a 
 
 test("planIxmpCleanup leaves a slot's patches untouched by usage-pruning across a tone-portamento row", () => {
   // A G/L row that continues an already-sounding note resolves pitch from the
-  // channel's CURRENT position, not the row's own note column.
+  // lane's CURRENT position, not the row's own note column.
   const doc = loadWhen();
   const slot = doc.selectableInstrumentSlots().find((s) => !doc.instruments[s].isMeta);
   for (const song of doc.songs) for (const p of song.patterns) if (p) {
@@ -709,7 +709,7 @@ test("planBankCleanup frees a kept instrument's unreachable patch samples (item 
 });
 
 test("a note with no instrument byte keeps every candidate's patches", () => {
-  // The channel's latched instrument sounds it, and which one that is depends on
+  // The lane's latched instrument sounds it, and which one that is depends on
   // what came before — so the note must not be read as "only what the row says".
   const { doc, child } = kitDoc();
   const pat = doc.songs[0].patterns.find((p) => p);

@@ -1,10 +1,10 @@
 // The grid context menu's slot actions (item 103): moving a filled cue slot
-// sideways, duplicating the pattern it points at, deleting it, and the channel
+// sideways, duplicating the pattern it points at, deleting it, and the lane
 // header's mute row. Plus the ops underneath — compositeOp, createPatternOp and
 // deletePatternOp.
 //
 // Same load-bearing invariant as channelops.test.js: bit 15 of a cue word
-// belongs to the channel POSITION (it spells the cue's instruction words), so
+// belongs to the lane POSITION (it spells the cue's instruction words), so
 // nothing here may carry it around with the pattern.
 
 import { test } from "node:test";
@@ -40,7 +40,7 @@ const cmdBit = (store, cue, ch) => store.song.cues[cue][ch] & 0x8000;
 /** Every cue's instruction-word pair — what a slot move must not disturb. */
 const insts = (store) => store.song.cues.map((w) => cueInstructionWords(w).join(","));
 
-/** Force cue `cue`'s channels to the given pattern numbers (null = empty),
+/** Force cue `cue`'s lanes to the given pattern numbers (null = empty),
  *  leaving each position's command bit alone. */
 function seed(store, cue, from, nums) {
   const w = store.song.cues[cue];
@@ -379,7 +379,7 @@ test("muteItems: Mute flips to Unmute, and Unmute all only shows when it would d
   assert.equal(items[1].label, "Unmute", "the cell reads as the action it performs");
   assert.match(items[2].title, /1/, "the tooltip counts the muted channels");
 
-  // A channel that is NOT the muted one still offers Unmute all…
+  // A lane that is NOT the muted one still offers Unmute all…
   assert.equal(ids(muteItems(store, 4)), "solo,mute,unmuteAll");
   assert.equal(muteItems(store, 4)[1].label, "Mute", "…but its own cell still mutes");
 });

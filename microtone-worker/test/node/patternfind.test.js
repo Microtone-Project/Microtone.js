@@ -2,7 +2,7 @@
 //
 // The predicate itself is pinned by patternquery.test.js; what is pinned here
 // is the two ORDERS and the stepping, because those are what make a set of
-// matches a thing you can walk: play order across cues and channels, the
+// matches a thing you can walk: play order across cues and lanes, the
 // pattern bank ascending, and a Next/Previous that wraps and never lands on
 // where it already is.
 
@@ -71,7 +71,7 @@ test("one pattern placed in several cues is found in every one of them", () => {
   const doc = load("WHEN.taud");
   const undo = new UndoStack(doc);
   // A note nothing else in the song carries, written once, into a pattern that
-  // is then placed on two channels of two cues.
+  // is then placed on two lanes of two cues.
   undo.apply(setCellOp(0, 0, 3, { note: 0x1234, instrment: 1 }));
   undo.apply(setCueWordOp(0, 0, 5, 0));
   undo.apply(setCueWordOp(0, 1, 6, 0));
@@ -86,7 +86,7 @@ test("an empty cue slot holds nothing to find", () => {
   const doc = load("WHEN.taud");
   const undo = new UndoStack(doc);
   // A pattern of its own (past the end of the list, so no cue places it yet),
-  // put on one channel of one cue and then taken off again.
+  // put on one lane of one cue and then taken off again.
   const pat = doc.songs[0].patterns.length;
   undo.apply(setCellOp(0, pat, 3, { note: 0x1234, instrment: 1 }));
   undo.apply(setCueWordOp(0, 0, 5, pat));

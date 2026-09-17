@@ -20,7 +20,7 @@ const file = await readFile(path);
 const doc = parseTaud(file);
 
 console.log(`file        : ${path} (${file.length} bytes)`);
-console.log(`kind        : .${doc.kind}  format v${doc.fmtVer}  ${doc.is64Channel ? "64" : "32"}-channel`);
+console.log(`kind        : .${doc.kind}  format v${doc.fmtVer}  ${doc.is64Channel ? "64" : "32"}-lane`);
 console.log(`signature   : "${doc.signature}"`);
 console.log(`sample+inst : ${doc.sampleInstImage ? doc.sampleInstImage.length + " bytes decompressed" : "absent"}`);
 
@@ -39,7 +39,7 @@ if (doc.sampleInstImage) {
 }
 
 doc.songs.forEach((song, s) => {
-  console.log(`song ${s}      : voices=${song.numVoices} pats=${song.patterns.length} cues=${song.cues.length}` +
+  console.log(`song ${s}      : lanes=${song.numVoices} pats=${song.patterns.length} cues=${song.cues.length}` +
     ` bpm=${song.bpm} speed=${song.tickRate} flags=0x${song.globalFlags.toString(16).padStart(2, "0")}` +
     ` gv=${song.globalVolume} mv=${song.mixingVolume}` +
     ` tuning=0x${song.tuningBaseNote.toString(16)}@${song.tuningFreq}Hz`);

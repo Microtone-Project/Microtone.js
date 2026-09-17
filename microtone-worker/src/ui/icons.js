@@ -9,7 +9,7 @@ const SVG = (body) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ` +
   `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 
-// Channel strips as vertical bars: the existing channels FILLED, the slot being
+// Lane strips as vertical bars: the existing lanes FILLED, the slot being
 // made a dashed outline with a plus in it. Filling the solid pair is what keeps
 // the two apart at 30 px — stroked-only bars this narrow are almost all stroke
 // and the three read as one barcode.
@@ -34,30 +34,30 @@ const fxGhostCol = (x) => `<rect x="${x}" y="6" width="7.5" height="12" rx="1.2"
 // is about to become. A row is 16 wide and only 4 or 5 tall, which is nowhere
 // near enough to hold ghostAt's plus as well as the dashes — so these say "the
 // new one" with the dashes alone, and WHICH one by where it sits in the stack,
-// exactly as the channel inserts do.
+// exactly as the lane inserts do.
 const rowBar = (y) => `<rect x="4" y="${y}" width="16" height="4" rx="1" ` +
                       `fill="currentColor" stroke="none"/>`;
 const rowSlot = (y) => `<rect x="4" y="${y}" width="16" height="5" rx="1.5" ` +
                        `stroke-dasharray="3 2.4"/>`;
-// …and a whole ROW OF PATTERNS — one card per channel — for the cue inserts
-// beside them, so "a row of the song" and "a pattern on every channel" are
+// …and a whole ROW OF PATTERNS — one card per lane — for the cue inserts
+// beside them, so "a row of the song" and "a pattern on every lane" are
 // visibly two different things.
 const patRow = (y) => [3, 9.5, 16].map((x) =>
   `<rect x="${x}" y="${y}" width="5" height="5" rx="1" fill="currentColor" stroke="none"/>`)
   .join("");
 const patSlot = (y) => `<rect x="2.5" y="${y}" width="19" height="5" rx="1.5" ` +
                        `stroke-dasharray="3 2.4"/>`;
-// …and the same idea laid out as one channel's row, stacked three deep for the
-// all-channels form.
+// …and the same idea laid out as one lane's row, stacked three deep for the
+// all-lanes form.
 const fxRow = (y) => `<rect x="2" y="${y}" width="11" height="3.5" rx="1" ` +
                      `fill="currentColor" stroke="none"/>` +
                      `<rect x="15" y="${y}" width="7" height="3.5" rx="1" ` +
                      `stroke-dasharray="2.4 2"/>`;
 
 export const ICON = {
-  /** Insert a channel to the LEFT of this one. */
+  /** Insert a lane to the LEFT of this one. */
   channelLeft: SVG(ghostAt(1.5) + bar(13) + bar(19)),
-  /** Insert a channel to the RIGHT of this one. */
+  /** Insert a lane to the RIGHT of this one. */
   channelRight: SVG(bar(1) + bar(7) + ghostAt(13.5)),
   /** Create a new pattern for an empty cue slot: a pattern column + a plus. */
   patternNew: SVG(
@@ -70,9 +70,9 @@ export const ICON = {
     '<rect x="2.5" y="2.5" width="12" height="19" rx="1.5"/>' +
     '<path d="M5.5 7.5h6M5.5 12h6M5.5 16.5h3.5"/>' +
     '<path d="M15.8 14 21.2 19.4M21.2 14 15.8 19.4"/>'),
-  /** Move this slot's pattern one channel LEFT, into the empty slot there. */
+  /** Move this slot's pattern one lane LEFT, into the empty slot there. */
   moveLeft: SVG(slot(2) + '<path d="M15.5 12h-7M11 9.5 8.5 12l2.5 2.5"/>' + bar(18)),
-  /** Move this slot's pattern one channel RIGHT. */
+  /** Move this slot's pattern one lane RIGHT. */
   moveRight: SVG(bar(2) + '<path d="M8.5 12h7M13 9.5l2.5 2.5-2.5 2.5"/>' + slot(18)),
   /** Duplicate: a second pattern card in front of the one it was copied from. */
   duplicate: SVG(
@@ -80,42 +80,42 @@ export const ICON = {
     '<path d="M11.5 10h7M11.5 13.5h7M11.5 17h4"/>' +
     '<path d="M15.5 2.5H4.5a2 2 0 0 0-2 2v11"/>'),
 
-  // ── the channel header's mute row ──
-  /** Solo: headphones — listen to this channel on its own. Not another bar
-   *  triple: the channel inserts already own that shape, and the two rows are
+  // ── the lane header's mute row ─────
+  /** Solo: headphones — listen to this lane on its own. Not another bar
+   *  triple: the lane inserts already own that shape, and the two rows are
    *  on screen together. */
   solo: SVG(
     '<path d="M3.5 16.5V12a8.5 8.5 0 0 1 17 0v4.5"/>' +
     '<rect x="1.5" y="14" width="5" height="7.5" rx="2.2" fill="currentColor" stroke="none"/>' +
     '<rect x="17.5" y="14" width="5" height="7.5" rx="2.2" fill="currentColor" stroke="none"/>'),
-  /** Mute this channel: speaker with a cross. */
+  /** Mute this lane: speaker with a cross. */
   mute: SVG(speaker + '<path d="M15 9.5 20.5 15M20.5 9.5 15 15"/>'),
-  /** Unmute this channel: speaker with its waves back. */
+  /** Unmute this lane: speaker with its waves back. */
   unmute: SVG(speaker +
     '<path d="M14.5 9.4a4.2 4.2 0 0 1 0 5.2M17.6 7a8 8 0 0 1 0 10"/>'),
-  /** Unmute everything: every channel standing again. */
+  /** Unmute everything: every lane standing again. */
   unmuteAll: SVG(bar(2) + bar(10) + bar(18)),
 
   // ── the second effect column (§5.5) ──
   // A cell drawn as its column groups: the solid ones are what the strip shows,
   // the dashed one the effect slot being revealed or put away. The "all" pair
   // stacks three such strips, matching the unmuteAll idiom of "…and every other
-  // channel too".
-  /** Reveal this channel's second effect column. */
+  // lane too".
+  /** Reveal this lane's second effect column. */
   fx2Show: SVG(fxCol(1.5) + fxCol(8) + fxGhostCol(14.5)),
   /** Put it away again. */
   fx2Hide: SVG(fxCol(1.5) + fxCol(8) + fxGhostCol(14.5) +
     '<path d="M14 18.5 22.5 10"/>'),
-  /** …on every channel at once. */
+  /** …on every lane at once. */
   fx2ShowAll: SVG(fxRow(3.5) + fxRow(10.5) + fxRow(17.5)),
   fx2HideAll: SVG(fxRow(3.5) + fxRow(10.5) + fxRow(17.5) +
     '<path d="M3 20.5 21 3.5"/>'),
 
   // ── the row trough (item 136) ──
-  // Song ROWS, turned ninety degrees from the channel bars above so the two
+  // Song ROWS, turned ninety degrees from the lane bars above so the two
   // families never read as the same pair of actions: solid rules are rows that
   // are there, the dashed one is the row being made — the same "filled pair +
-  // dashed slot" grammar as the channel inserts.
+  // dashed slot" grammar as the lane inserts.
   /** Insert blank rows ABOVE this one: the gap opens at the top. */
   rowsAbove: SVG(rowSlot(2.5) + rowBar(11) + rowBar(18)),
   /** …and BELOW it. */

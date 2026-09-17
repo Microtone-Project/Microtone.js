@@ -25,10 +25,10 @@ import { applyVoiceFilter } from "./filter.js";
 
 /**
  * The live rack behind one sounding note. Allocated per trigger, hung off the
- * channel's foreground Voice as `voice.fmRig`, and dropped the moment that
+ * lane's foreground Voice as `voice.fmRig`, and dropped the moment that
  * voice is retriggered with anything else.
  *
- * `voices[0]` is the channel's OWN voice — operator 0 sounds on it, which is
+ * `voices[0]` is the lane's OWN voice — operator 0 sounds on it, which is
  * what gives the note a lifetime, an envelope and a place in the mix. Operators
  * 1… are background voices flagged `fmOperator`, so the tick pass maintains
  * them like layer children while the mixer leaves them alone: they are read
@@ -139,7 +139,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
   let s = fetchTrackerSample(eng, v, inst, interpMode, frames);
   let g = rig.gain[k];
   if (k !== 0) {
-    // Operator 0 is the channel's own voice: the mixer runs its filter, its
+    // Operator 0 is the lane's own voice: the mixer runs its filter, its
     // envelope and its ramps over the FINISHED signal (§5.5.1), so doing any of
     // that here would apply them twice. Every other operator is invisible to the
     // mixer and gets the same per-sample maintenance here, in the same order.
@@ -148,7 +148,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
     const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
     advanceVolumeRamp(v, ts.volDiv);
     advancePitchRamp(v, spt);
-    // NOT the note/channel volume, which §5.5.1's list of what an operator's
+    // NOT the note/lane volume, which §5.5.1's list of what an operator's
     // value is multiplied by deliberately omits. A rack is ONE voice: the
     // mixer applies that volume to the finished patch through operator 0, and
     // applying it here as well would put it on the carrier twice and — worse —
@@ -239,13 +239,13 @@ export function renderFmVoice(eng, ts, voice, interpMode, spt) {
 }
 
 /**
- * Detach and silence every operator the FOREGROUND voice of channel `vi` is
+ * Detach and silence every operator the FOREGROUND voice of lane `vi` is
  * driving. Called where a layered meta releases its children — but an orphaned
  * operator is not a sound that should be allowed to finish: on its own it is a
  * modulator nobody is reading, so it is cut rather than released.
  *
  * The operands of a rack that has already been GHOSTED (item 191) share the
- * channel but not the rack, so the test is the parent voice and not
+ * lane but not the rack, so the test is the parent voice and not
  * `sourceChannel`: the ghost is still reading them, and cutting them here
  * would strip the modulators off a note that is meant to ring on.
  */

@@ -102,7 +102,7 @@ export class Song {
     this.mixingVolume = parsedSong.mixingVolume;
     /** @type {TaudPlayData[][]} 64 cells per pattern */
     this.patterns = parsedSong.patterns.map((p) => decodePattern(p, wide));
-    /** @type {Uint16Array[]} raw u16 channel words per cue (64-wide) */
+    /** @type {Uint16Array[]} raw u16 lane words per cue (64-wide) */
     this.cues = parsedSong.cues.map((w) => Uint16Array.from(w));
   }
 
@@ -175,7 +175,7 @@ export class Song {
  * instrument bank into a full parsed shape for `new Document()`. Mirrors the
  * device flow where a .tpif loads over the RESIDENT sample+inst state
  * (taud.mjs:173): the bank contributes the image, Ixmp and INam/SNam names;
- * everything else (songs, sMet, xHDR channel mode, …) comes from the .tpif.
+ * everything else (songs, sMet, xHDR lane mode, …) comes from the .tpif.
  * `bank` is either a parsed .tsii/.taud or a live Document (whose image must
  * be up to date — call _rebuildInstRegion() first). The image is copied so
  * the combined document never aliases the bank's.

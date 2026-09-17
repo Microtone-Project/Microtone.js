@@ -135,17 +135,17 @@ export const SAMPLE_BANK_SIZE = 524288;
 export const SAMPLE_BANK_COUNT = 16;
 export const SAMPLE_BIN_TOTAL = SAMPLE_BANK_SIZE * SAMPLE_BANK_COUNT;
 
-// Channels / voices. Physical voice & cue storage is always sized MAX_VOICES;
-// 32-channel playback leaves the upper half inactive.
+// Lanes / voices. Physical voice & cue storage is always sized MAX_VOICES;
+// 32-lane playback leaves the upper half inactive.
 export const NUM_VOICES = 32;
 export const MAX_VOICES = 64;
 
-// Dedicated audition ("jam") voices, above every addressable song channel.
-// JS-only — the Kotlin device jams on a song channel, which is exactly what
-// item 140 is about: an audition on a channel is silenced by that channel's
-// mute, it hijacks whatever the song is playing there, and one channel can only
+// Dedicated audition ("jam") voices, above every addressable song lane.
+// JS-only — the Kotlin device jams on a song lane, which is exactly what
+// item 140 is about: an audition on a lane is silenced by that lane's
+// mute, it hijacks whatever the song is playing there, and one lane can only
 // hold one note, so a held chord collapses to its last key. These slots belong
-// to no channel, so the desk never mutes them and the song never writes to
+// to no lane, so the desk never mutes them and the song never writes to
 // them; the row loop stops at channelCount() while the tick and mix loops walk
 // the whole array, so they play but are never played TO.
 export const JAM_VOICES = 16;
@@ -155,7 +155,7 @@ export const NUM_CUES = 8192;
 export const CUE_BYTES = NUM_VOICES * 2;    // 64 bytes / cue (32-ch)
 export const CUE_BYTES_64 = MAX_VOICES * 2; // 128 bytes / cue (64-ch)
 
-// Pattern store: 15-bit pattern numbers; 0x7FFF = "no pattern on this channel".
+// Pattern store: 15-bit pattern numbers; 0x7FFF = "no pattern on this lane".
 export const NUM_PATTERNS = 0x7fff;
 export const PATTERN_EMPTY = 0x7fff;
 

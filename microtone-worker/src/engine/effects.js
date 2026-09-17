@@ -54,8 +54,8 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
     case EffectOp.OP_6: applyFilterParamEffect(eng, ts, voice, vi, rawArg, true); break;
     case EffectOp.OP_8: {
       // 8 $xyzz — Bitcrusher: x = clip mode, y = bit depth, zz = sample-skip.
-      // The crusher is the CHANNEL's colouring, so it lands on every voice the
-      // channel is sounding — a metainstrument's layer children included, or
+      // The crusher is the LANE's colouring, so it lands on every voice the
+      // lane is sounding — a metainstrument's layer children included, or
       // only its first layer would be crushed (item 154).
       const x = (rawArg >>> 12) & 0xf;
       const y = (rawArg >>> 8) & 0xf;
@@ -231,12 +231,12 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
       break;
     }
     case EffectOp.OP_M:
-      // M $xx00 — set channel volume (literal, no recall; IT $40 clamps to $3F).
+      // M $xx00 — set lane volume (literal, no recall; IT $40 clamps to $3F).
       // A wide cell's volume state is 8-bit, so the byte lands unscaled there.
       voice.channelVolume = Math.min((rawArg >>> 8) & 0xff, ts.volMax);
       break;
     case EffectOp.OP_N: {
-      // N $xy00 — channel-volume slide (D nibble decoding, channel axis only).
+      // N $xy00 — lane-volume slide (D nibble decoding, lane axis only).
       const arg = resolveArg(rawArg, voice.mem.n);
       if (rawArg !== 0) voice.mem.n = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -250,7 +250,7 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
       break;
     }
     case EffectOp.OP_P: {
-      // P $xy00 — channel-panning slide (IT convention: low nibble right, high left).
+      // P $xy00 — lane-panning slide (IT convention: low nibble right, high left).
       const arg = resolveArg(rawArg, voice.mem.p);
       if (rawArg !== 0) voice.mem.p = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -374,7 +374,7 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
     //    turn IT's X "fine set panning" into S $80xx instead).
     case EffectOp.OP_X: {
       // X $eeaa — place the source: azimuth $aa over the full turn, elevation
-      // $ee signed ($80 = −90°, $7F ≈ +90°). Channel axis, not note axis —
+      // $ee signed ($80 = −90°, $7F ≈ +90°). Lane axis, not note axis —
       // applyPanSet is the SAME call S $80xx makes (case 0x8 below), so the two
       // share one register and either can overwrite the other's azimuth.
       if (ts.surroundModel === SURROUND_STEREO) break;
@@ -384,7 +384,7 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
       break;
     }
     case EffectOp.OP_4:
-      // 4 $eeaa — where a Z slide is heading. Channel state: it outlives the row.
+      // 4 $eeaa — where a Z slide is heading. Lane state: it outlives the row.
       if (ts.surroundModel === SURROUND_STEREO) break;
       anglesFromSpatialArg(rawArg, spatialArg);
       voice.spatialTargetAz = spatialArg[0];
@@ -399,7 +399,7 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
       // drives — `$0` being 1.0C's own, so every `Z $F0xx` ever written keeps
       // meaning what it meant.
       //
-      // Speed and walk are both CHANNEL state and sticky (PT kept the speed in
+      // Speed and walk are both LANE state and sticky (PT kept the speed in
       // n_glissfunk's high nibble, alongside glissando's low one), and writing
       // either leaves the accumulator running — PT's mt_FunkIt never cleared
       // n_funkoffset, not on a speed change and not on Z $F000, so the phase
@@ -448,12 +448,12 @@ export function applySEffect(eng, ts, voice, vi, arg) {
       // $7..$E fan out across the meta's constituents (forEachLayerTarget).
       //
       // $0..$2 are PAST-note actions, and a live meta's layer children are
-      // themselves background voices — so on a meta's channel they would cull
+      // themselves background voices — so on a meta's lane they would cull
       // the very layers making up the sounding note. That hazard is theirs
       // alone. $3..$6 only arm what the note's NEXT displacement does to it,
       // and a metainstrument is ONE note, so the pattern gets to say what
       // happens to all of it (item 191.1). The override is written on the
-      // channel's own voice and read from there by both halves of the release:
+      // lane's own voice and read from there by both halves of the release:
       // maybeSpawnBackgroundForNNA for the foreground, releaseLayerChildren
       // for the children.
       const isMeta = voice.metaForeground;
@@ -506,7 +506,7 @@ export function applySEffect(eng, ts, voice, vi, arg) {
     case 0xc: if (x !== 0) voice.cutAtTick = x; break;
     case 0xd: break; // note delay — handled in the row's note section
     case 0xe:
-      // Pattern delay — first SEx in ascending channel order wins.
+      // Pattern delay — first SEx in ascending lane order wins.
       if (ts.sexWinningChannel < 0) {
         ts.sexWinningChannel = vi;
         ts.patternDelayRemaining = x;
@@ -531,8 +531,8 @@ export function applySEffect(eng, ts, voice, vi, arg) {
  *   $se  region        $x  operation (0 = reset)      $y  step period in ticks
  *
  * The state splits the way S $Fxxx's does: the modification belongs to the
- * INSTRUMENT (every channel sounding it hears the same sample) and the clock
- * driving it to the CHANNEL. A reserved region is ignored WHOLE, speed and all,
+ * INSTRUMENT (every lane sounding it hears the same sample) and the clock
+ * driving it to the LANE. A reserved region is ignored WHOLE, speed and all,
  * so a typo cannot drive a modification the writer never named.
  */
 export function applySampleModEffect(eng, ts, voice, vi, rawArg, invert, ext = null) {
@@ -543,9 +543,9 @@ export function applySampleModEffect(eng, ts, voice, vi, rawArg, invert, ext = n
   const op = (rawArg >>> 4) & 0xf;
   // A metainstrument is one note made of several instruments, so the command
   // reaches all of them — otherwise only layer 0's sample would ever be
-  // modified (item 154). One CLOCK per instrument per channel, though: two
+  // modified (item 154). One CLOCK per instrument per lane, though: two
   // layers sounding the same instrument must not step it twice a tick, which is
-  // what the `seen` set below is for. Non-meta channels have one target and
+  // what the `seen` set below is for. Non-meta lanes have one target and
   // behave exactly as before.
   const seen = new Set();
   forEachLayerTarget(ts, voice, vi, (v) => {
@@ -623,7 +623,7 @@ function applySampleModEffectExt(eng, ts, voice, vi, rawArg, invert, ext) {
 }
 
 /**
- * Every voice channel `vi` is sounding as ONE note: the foreground voice plus —
+ * Every voice lane `vi` is sounding as ONE note: the foreground voice plus —
  * for a metainstrument — its layer children. Anything the pattern says about
  * the note as a whole goes through here (env toggles S $77..$7E, the bitcrusher
  * and overdrive, the sample-modification command), or it would reach layer 0

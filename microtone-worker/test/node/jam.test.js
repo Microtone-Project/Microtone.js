@@ -75,7 +75,7 @@ test("jam: the release grace is short and can be switched off", async () => {
   assert.equal(log.at(-1).t, "off", "grace 0 releases synchronously");
 });
 
-// ── item 140: auditions live on the dedicated jam bank, never on a channel ──
+// ── item 140: auditions live on the dedicated jam bank, never on a lane ─────
 
 test("jam: every audition lands on the jam bank, above the song's channels", async () => {
   for (const opts of [{}, { record: true }, { view: "instruments" }]) {

@@ -140,17 +140,17 @@ const SAMPLE_BANK_SIZE = 524288;
 const SAMPLE_BANK_COUNT = 16;
 const SAMPLE_BIN_TOTAL = SAMPLE_BANK_SIZE * SAMPLE_BANK_COUNT;
 
-// Channels / voices. Physical voice & cue storage is always sized MAX_VOICES;
-// 32-channel playback leaves the upper half inactive.
+// Lanes / voices. Physical voice & cue storage is always sized MAX_VOICES;
+// 32-lane playback leaves the upper half inactive.
 const NUM_VOICES = 32;
 const MAX_VOICES = 64;
 
-// Dedicated audition ("jam") voices, above every addressable song channel.
-// JS-only — the Kotlin device jams on a song channel, which is exactly what
-// item 140 is about: an audition on a channel is silenced by that channel's
-// mute, it hijacks whatever the song is playing there, and one channel can only
+// Dedicated audition ("jam") voices, above every addressable song lane.
+// JS-only — the Kotlin device jams on a song lane, which is exactly what
+// item 140 is about: an audition on a lane is silenced by that lane's
+// mute, it hijacks whatever the song is playing there, and one lane can only
 // hold one note, so a held chord collapses to its last key. These slots belong
-// to no channel, so the desk never mutes them and the song never writes to
+// to no lane, so the desk never mutes them and the song never writes to
 // them; the row loop stops at channelCount() while the tick and mix loops walk
 // the whole array, so they play but are never played TO.
 const JAM_VOICES = 16;
@@ -160,7 +160,7 @@ const NUM_CUES = 8192;
 const CUE_BYTES = NUM_VOICES * 2;    // 64 bytes / cue (32-ch)
 const CUE_BYTES_64 = MAX_VOICES * 2; // 128 bytes / cue (64-ch)
 
-// Pattern store: 15-bit pattern numbers; 0x7FFF = "no pattern on this channel".
+// Pattern store: 15-bit pattern numbers; 0x7FFF = "no pattern on this lane".
 const NUM_PATTERNS = 0x7fff;
 const PATTERN_EMPTY = 0x7fff;
 
@@ -750,7 +750,7 @@ function sampleChannelAngles(az, el, localAz, out) {
  * −1 hard left … 0 centre … +1 hard right. It is the SHADOW the source casts
  * on that line — height and depth both collapse onto it, so a source overhead
  * or directly behind reads centre, and a hard-left source 60° up reads
- * half-left. The channel-header pan strip draws exactly this (#998.6), which
+ * half-left. The lane-header pan strip draws exactly this (#998.6), which
  * is why it lines up with the radar dot above it.
  *
  * Not the same thing as the audible downmix position (foldAzimuthToPan mirrors
@@ -996,7 +996,7 @@ class SpatialBus {
 // surround models track the continuous azimuth that the mixer and the Z slide
 // actually use. `voice.channelPan` stays the integer mirror the UI reads.
 
-/** Channel-pan write: absolute. `pan` is the legacy byte, or a 9-bit angle. */
+/** Lane-pan write: absolute. `pan` is the legacy byte, or a 9-bit angle. */
 function applyPanSet(ts, voice, pan) {
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = pan & 0xff;
@@ -1007,7 +1007,7 @@ function applyPanSet(ts, voice, pan) {
   voice.rowPan = clamp(voice.channelPan >>> 2, 0, 63);
 }
 
-/** Channel-pan write: signed delta — clamped in stereo, wrapped in surround. */
+/** Lane-pan write: signed delta — clamped in stereo, wrapped in surround. */
 function applyPanSlide(ts, voice, delta) {
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = delta < 0
@@ -1026,11 +1026,11 @@ function applyElevation(ts, voice, el) {
 }
 
 // ── Note-pan axis ─────────────────────────────────────────────────────────
-// The channel trio above places the CHANNEL; this pair offsets the note within
+// The lane trio above places the LANE; this pair offsets the note within
 // it. The offset is stored signed with 0 = neutral, so the writers take the
 // same 128-is-centre values every other pan command takes and subtract the
 // centre themselves — an Ixmp patch pan of $80 and a column SET of centre both
-// mean "no shift", whatever the channel is doing.
+// mean "no shift", whatever the lane is doing.
 
 /** Fold a note offset into range: clamped like a stereo pan, wrapped like an angle. */
 function boundNotePan(ts, off) {
@@ -1080,7 +1080,7 @@ function voiceAzimuth(voice) {
 }
 
 /**
- * Effective STEREO pan of a voice: the channel and note axes, the pan
+ * Effective STEREO pan of a voice: the lane and note axes, the pan
  * envelope's offset, the instrument's random pan swing and the panbrello LFO,
  * clamped to the byte the equal-energy law takes. The twin of voiceAzimuth
  * above, and the ONE place that sum is written — the meters used to keep their
@@ -1099,12 +1099,12 @@ function voicePanByte(voice) {
   return pan < 0 ? 0 : pan > 255 ? 255 : pan;
 }
 
-/** Effective elevation: the channel's height plus the note's own offset. */
+/** Effective elevation: the lane's height plus the note's own offset. */
 function voiceElevation(voice) {
   return voice.panElevation + voice.noteElevation;
 }
 
-// ── Where a channel SOUNDS, for the meters ────────────────────────────────
+// ── Where a lane SOUNDS, for the meters ───────────────────────────────────
 // Everything above answers for ONE voice. A metainstrument is several at once,
 // and the foreground voice is only its layer 0 — so a kit whose layers pan
 // apart was being drawn at the first layer's position rather than at the
@@ -1112,14 +1112,14 @@ function voiceElevation(voice) {
 // constituents: for a plain instrument that is the voice's own value unchanged,
 // and for a kit whose layers agree on panning it is still that value.
 
-/** A voice's share of the channel's output, as the mixer weights it. */
+/** A voice's share of the lane's output, as the mixer weights it. */
 function displayWeight(v) {
   const env = v.volEnvOn ? v.envVolMix : 1.0;
   return env * v.fadeoutVolume * v.currentMixVolume * v.layerMixGain *
     ((255 - v.fader) / 255.0);
 }
 
-/** Every voice channel `vi` is sounding — the foreground plus its layer
+/** Every voice lane `vi` is sounding — the foreground plus its layer
  *  children — visited with its display weight. */
 function forEachSoundingLayer(ts, vi, voice, fn) {
   fn(voice, displayWeight(voice));
@@ -1129,7 +1129,7 @@ function forEachSoundingLayer(ts, vi, voice, fn) {
   }
 }
 
-/** The stereo pan the METERS show for channel `vi` (item 155.1). */
+/** The stereo pan the METERS show for lane `vi` (item 155.1). */
 function displayPanByte(ts, vi, voice) {
   let sum = 0.0, wsum = 0.0;
   forEachSoundingLayer(ts, vi, voice, (v, w) => { sum += voicePanByte(v) * w; wsum += w; });
@@ -4931,7 +4931,7 @@ const META_TYPE_LAYERED = 0;
 /**
  * Type 4 — FM (item 159): the layer table becomes an OPERATOR RACK and the
  * bytes after it carry an RPN program saying how the operators feed each other.
- * The rack is one voice, not `n` of them: operator 0 sounds on the channel and
+ * The rack is one voice, not `n` of them: operator 0 sounds on the lane and
  * the rest are read by the program.
  */
 const META_TYPE_FM = 4;
@@ -5712,7 +5712,7 @@ class TaudInst {
 
 
 
-/** Per-channel effect memory cohorts and private slots (TAUD_NOTE_EFFECTS.md §6). */
+/** Per-lane effect memory cohorts and private slots (TAUD_NOTE_EFFECTS.md §6). */
 class MemorySlots {
   constructor() {
     this.ef = 0;        // shared E/F (pitch slide)
@@ -5811,7 +5811,7 @@ class Voice {
     // Kotlin counterpart (write-only, like renderPitch).
     this.displayInst = 0;
 
-    // -1 for live foreground voices; 0..NUM_VOICES-1 = source channel for background ghosts.
+    // -1 for live foreground voices; 0..NUM_VOICES-1 = source lane for background ghosts.
     this.sourceChannel = -1;
 
     // ── Stem-export taps (item 93; JS-only, never read by the DSP) ──
@@ -5839,7 +5839,7 @@ class Voice {
     this.layerRelPan = 0;
     this.layerRelElevation = 0;
     this.layerMixGain = 1.0;
-    // The parent channel's per-tick pitch overlay (vibrato / glissando /
+    // The parent lane's per-tick pitch overlay (vibrato / glissando /
     // arpeggio), copied down by the per-tick sync so an effect that bends the
     // note bends the WHOLE metainstrument and not just layer 0 (item 154).
     this.layerPitchMod = 0;
@@ -5860,34 +5860,34 @@ class Voice {
     this.noteFading = false;
 
     // ── FM operator rack (Metainstrument type 4, item 159) ──
-    // On a channel's foreground voice: the live rack this note is sounding
+    // On a lane's foreground voice: the live rack this note is sounding
     // (engine/fm.js FmRig), or null for every ordinary voice — which is what
     // the mixer branches on, so nothing that never plays a rack pays for it.
     this.fmRig = null;
-    // On a background voice: this is an OPERATOR of some channel's rack, not a
+    // On a background voice: this is an OPERATOR of some lane's rack, not a
     // sound of its own. The tick pass maintains it like a layer child; the
     // mixer skips it, because the rack's own render is what reads it.
     this.fmOperator = false;
     // …and THIS is the voice whose rack it belongs to — the one carrying the
-    // `fmRig` that reads it. A live rack's operators point at the channel's
+    // `fmRig` that reads it. A live rack's operators point at the lane's
     // foreground voice; an NNA ghost of a rack (item 191) is a whole rig
     // copied into the background pool, so its operators point at the ghost
-    // instead. Everything that acts on "the channel's rack" — the per-tick
+    // instead. Everything that acts on "the lane's rack" — the per-tick
     // sync, dropFmOperators, a pattern note cut — asks this rather than
-    // sourceChannel, which the ghost's operands still share with the channel
+    // sourceChannel, which the ghost's operands still share with the lane
     // that spawned them.
     this.fmParent = null;
 
     // Two-axis volume AND pan model (TAUD_NOTE_EFFECTS.md §3). Both axes work
     // the same way on either side: the instrument seeds the NOTE axis and the
-    // pattern's channel commands own the CHANNEL axis, and the two combine at
+    // pattern's lane commands own the LANE axis, and the two combine at
     // the mixer — volume multiplies, pan adds.
     this.noteVolume = 0x3f;
     this.channelVolume = 0x3f;
     this.rowVolume = 63;
     this.channelPan = 0x80;
     this.rowPan = 32;
-    // Note-pan axis: a signed OFFSET from the channel's position, in the same
+    // Note-pan axis: a signed OFFSET from the lane's position, in the same
     // 512-units-to-a-turn space as panAzimuth (so on the front arc it is just a
     // pan-byte delta). 0 = neutral, which is what keeps a song that never
     // touches it rendering exactly as it did under the single-register model.
@@ -6080,7 +6080,7 @@ class Voice {
 
     // Panbrello (Y). `panbrelloOffset` is a signed pan offset the mixer sums
     // alongside notePan and randomPanBias — an OFFSET rather than a write to
-    // either axis, so the LFO swings around wherever the channel and the note
+    // either axis, so the LFO swings around wherever the lane and the note
     // have put the voice without eating the instrument's own pan seed, and so
     // it reaches the surround path (voiceAzimuth) unchanged.
     this.panbrelloActive = false;
@@ -6130,7 +6130,7 @@ class Voice {
     // `funkWalk` is where the DETERMINISTIC walk has got to, which is the same
     // as funkPos except under `$8`-`$B`, whose throw is measured from it every
     // step so the jitter cannot accumulate. Speed, mode and accumulator are all
-    // CHANNEL state: nothing resets them but a transport reset (§2.1).
+    // LANE state: nothing resets them but a transport reset (§2.1).
     this.funkSpeed = 0;
     this.funkMode = 0;
     this.funkAccumulator = 0;
@@ -6147,7 +6147,7 @@ class Voice {
     this.funkXfadeOffset = 0;
 
     // Sample modification (notefx 2 / 3) — the operation and its region live on
-    // the instrument; the channel only drives the clock. `modPeriod` is the step
+    // the instrument; the lane only drives the clock. `modPeriod` is the step
     // period in TICKS (item 153.1), 0 = frozen, and modTickCount counts up to it.
     this.modPeriod = 0;
     this.modTickCount = 0;
@@ -6210,10 +6210,10 @@ class Voice {
     this.volColSlideUp = 0;
     this.volColSlideDown = 0;
     // Per-tick pan slides, one pair per axis — the pan twin of nSlideDir (N,
-    // channel volume) vs volColSlide* (the volume column, note volume).
+    // lane volume) vs volColSlide* (the volume column, note volume).
     this.panColSlideRight = 0;   // the panning column's, on the note axis
     this.panColSlideLeft = 0;
-    this.chanPanSlideRight = 0;  // effect P's, on the channel axis
+    this.chanPanSlideRight = 0;  // effect P's, on the lane axis
     this.chanPanSlideLeft = 0;
     this.nSlideDir = 0;
 
@@ -6246,14 +6246,14 @@ class Voice {
 }
 
 /**
- * Is background voice `bg` part of the note channel `vi` is sounding RIGHT NOW?
+ * Is background voice `bg` part of the note lane `vi` is sounding RIGHT NOW?
  *
  * A layer child is, and so is a live FM operand — that is what makes a command
- * written on the channel reach the whole metainstrument instead of layer 0
+ * written on the lane reach the whole metainstrument instead of layer 0
  * alone (item 154). A GHOSTED rack's operands (item 191) are NOT: they share
- * the channel with the note that displaced them, but they belong to a note the
+ * the lane with the note that displaced them, but they belong to a note the
  * pattern has already let go, and a background voice takes no row-driven
- * effect. Every channel-scoped walk over the children asks this, so the four
+ * effect. Every lane-scoped walk over the children asks this, so the four
  * of them cannot drift apart.
  */
 function isSoundingChild(ts, bg, vi) {
@@ -6285,7 +6285,7 @@ const INST_HALT = 6;
 const PLAY_INST_NOP = Object.freeze({ type: INST_NOP, arg: 0 });
 const PLAY_INST_HALT = Object.freeze({ type: INST_HALT, arg: 0 });
 
-/** Per-cue playback data: 64 u16 channel words (pattern | signBit<<15). */
+/** Per-cue playback data: 64 u16 lane words (pattern | signBit<<15). */
 class PlayCue {
   constructor() {
     this.raw = new Int32Array(MAX_VOICES).fill(PATTERN_EMPTY);
@@ -6293,7 +6293,7 @@ class PlayCue {
     this.inst1 = PLAY_INST_NOP;
   }
 
-  /** Pattern number for channel ch (0..0x7FFE), or PATTERN_EMPTY. */
+  /** Pattern number for lane ch (0..0x7FFE), or PATTERN_EMPTY. */
   pattern(ch) { return this.raw[ch] & 0x7fff; }
 
   _instWord(base) {
@@ -6469,9 +6469,9 @@ class TrackerState {
     this.tickInRow = 0;
     this.samplesIntoTick = 0.0;
     this.firstRow = true;
-    // Always MAX_VOICES so 64-channel mode has slots for every channel, plus
+    // Always MAX_VOICES so 64-lane mode has slots for every lane, plus
     // the dedicated jam bank above them (JAM_VOICE_BASE…, item 140) — the tick
-    // and mix loops run the whole array, the row loop only the channels.
+    // and mix loops run the whole array, the row loop only the lanes.
     this.voices = new Array(TOTAL_VOICES);
     for (let i = 0; i < TOTAL_VOICES; i++) this.voices[i] = new Voice();
 
@@ -6482,7 +6482,7 @@ class TrackerState {
 
     // Cell format (file format version 3 — the wide cell). It sets the width of
     // the volume column, and with it the whole volume STATE: note, row and
-    // channel volume are 0…63 in a v2 song and 0…255 in a v3 one. `volStep` is
+    // lane volume are 0…63 in a v2 song and 0…255 in a v3 one. `volStep` is
     // what a 6-bit-derived delta is worth (a nibble slide, a tremolo depth), so
     // `D $01` moves at the same musical rate in both; `volDiv` normalises to
     // gain. Instrument data — envelope nodes, Ixmp velocity rectangles — stays
@@ -6724,7 +6724,7 @@ class Playhead {
   }
 
   /**
-   * Silence every voice the SONG owns — the channels plus the NNA / layer
+   * Silence every voice the SONG owns — the lanes plus the NNA / layer
    * ghosts hanging off them — leaving the jam bank alone, so an audition held
    * across a stop keeps sounding (JS-only, item 140: the Kotlin device has no
    * jam bank and stops the lot).
@@ -6840,7 +6840,7 @@ class Playhead {
       it.dittoSourceStart = 0;
       it.dittoLength = 0;
       it.dittoEndRow = 0;
-      // Bitcrusher (8) / Overdrive (9) — the CHANNEL's colouring, written by the
+      // Bitcrusher (8) / Overdrive (9) — the LANE's colouring, written by the
       // song's own effects and cleared by nothing else, so a full reset owes
       // them the same clean slate as the panning above (§15).
       it.clipMode = 0;
@@ -7569,7 +7569,7 @@ function pitchGlideSamples(cur, target, spt) {
 /**
  * Per-sample pitch glide toward the tick's playbackRate, so the control signal
  * is INTERPOLATED rather than stepped. A fresh trigger snaps: a new note starts
- * at its own pitch, it does not bend up from whatever the channel was last
+ * at its own pitch, it does not bend up from whatever the lane was last
  * playing.
  */
 function advancePitchRamp(voice, spt) {
@@ -7833,10 +7833,10 @@ function applyTaudVoiceFx(voice, sample, st = voice) {
 
 /**
  * The live rack behind one sounding note. Allocated per trigger, hung off the
- * channel's foreground Voice as `voice.fmRig`, and dropped the moment that
+ * lane's foreground Voice as `voice.fmRig`, and dropped the moment that
  * voice is retriggered with anything else.
  *
- * `voices[0]` is the channel's OWN voice — operator 0 sounds on it, which is
+ * `voices[0]` is the lane's OWN voice — operator 0 sounds on it, which is
  * what gives the note a lifetime, an envelope and a place in the mix. Operators
  * 1… are background voices flagged `fmOperator`, so the tick pass maintains
  * them like layer children while the mixer leaves them alone: they are read
@@ -7947,7 +7947,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
   let s = fetchTrackerSample(eng, v, inst, interpMode, frames);
   let g = rig.gain[k];
   if (k !== 0) {
-    // Operator 0 is the channel's own voice: the mixer runs its filter, its
+    // Operator 0 is the lane's own voice: the mixer runs its filter, its
     // envelope and its ramps over the FINISHED signal (§5.5.1), so doing any of
     // that here would apply them twice. Every other operator is invisible to the
     // mixer and gets the same per-sample maintenance here, in the same order.
@@ -7956,7 +7956,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
     const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
     advanceVolumeRamp(v, ts.volDiv);
     advancePitchRamp(v, spt);
-    // NOT the note/channel volume, which §5.5.1's list of what an operator's
+    // NOT the note/lane volume, which §5.5.1's list of what an operator's
     // value is multiplied by deliberately omits. A rack is ONE voice: the
     // mixer applies that volume to the finished patch through operator 0, and
     // applying it here as well would put it on the carrier twice and — worse —
@@ -8047,13 +8047,13 @@ function renderFmVoice(eng, ts, voice, interpMode, spt) {
 }
 
 /**
- * Detach and silence every operator the FOREGROUND voice of channel `vi` is
+ * Detach and silence every operator the FOREGROUND voice of lane `vi` is
  * driving. Called where a layered meta releases its children — but an orphaned
  * operator is not a sound that should be allowed to finish: on its own it is a
  * modulator nobody is reading, so it is cut rather than released.
  *
  * The operands of a rack that has already been GHOSTED (item 191) share the
- * channel but not the rack, so the test is the parent voice and not
+ * lane but not the rack, so the test is the parent voice and not
  * `sourceChannel`: the ghost is still reading them, and cutting them here
  * would strip the modulators off a note that is meant to ring on.
  */
@@ -8571,10 +8571,10 @@ function capBackgroundVoices(ts) {
   }
 }
 
-/** Release channel vi's layer children (fresh trigger): detach + apply their NNA.
+/** Release lane vi's layer children (fresh trigger): detach + apply their NNA.
  *
  *  Each child's own instrument decides, UNLESS the pattern has said otherwise:
- *  an `S $73`…`$76` override written on this channel commands the whole note,
+ *  an `S $73`…`$76` override written on this lane commands the whole note,
  *  layers included (item 191.1), or a `S $74` would hold layer 0 and let the
  *  rest of the kit cut — half a note, which is not a reading of "continue".
  *  It is still the OUTGOING note's override here, because the incoming trigger
@@ -8607,13 +8607,13 @@ function releaseLayerChildren(eng, ts, vi) {
   }
 }
 
-/** Cut channel vi's layer children (pattern note-cut 0x0002). Ramped like the
+/** Cut lane vi's layer children (pattern note-cut 0x0002). Ramped like the
  *  parent — they are one note, and a clean parent over clicking children would
  *  be worse than either on its own.
  *
  *  A ghosted rack's operands (item 191) are skipped for the same reason
  *  dropFmOperators skips them: the note cut is addressed to the note the
- *  channel is sounding NOW, and those belong to one it has already let go. */
+ *  lane is sounding NOW, and those belong to one it has already let go. */
 function cutLayerChildren(ts, vi) {
   for (const bg of ts.backgroundVoices) {
     if (isSoundingChild(ts, bg, vi)) startCutRamp(bg);
@@ -8621,7 +8621,7 @@ function cutLayerChildren(ts, vi) {
 }
 
 /**
- * Trigger noteVal/instId on channel vi's foreground voice; a Metainstrument
+ * Trigger noteVal/instId on lane vi's foreground voice; a Metainstrument
  * fans out into layer children. rowVolOverride is the V-column trigger velocity
  * (or -1), used for velocity-conditional layer/patch resolution.
  */
@@ -8671,10 +8671,10 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
     return;
   }
   const l0 = layers[0];
-  // CHANNEL pan context as it stands before layer 0 retriggers — a channel the
+  // LANE pan context as it stands before layer 0 retriggers — a lane the
   // pattern placed carries to every layer, and capturing it first keeps layer
   // 0's own trigger from feeding back into its siblings. Where each layer sits
-  // WITHIN that channel is the note axis's business, handled per child below.
+  // WITHIN that lane is the note axis's business, handled per child below.
   const chanPan = voice.channelPan, chanRowPan = voice.rowPan;
   const chanPanbrello = voice.panbrelloOffset;
   const chanAzimuth = voice.panAzimuth, chanElevation = voice.panElevation;
@@ -8707,7 +8707,7 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
   for (let k = 1; k < layers.length; k++) {
     const lk = layers[k];
     const child = new Voice();
-    // Match layer 0's channel context so M/pan and the first tick agree; the
+    // Match layer 0's lane context so M/pan and the first tick agree; the
     // trigger below may then move the child's pan to its own default.
     child.channelVolume = voice.channelVolume;
     child.channelPan = chanPan;
@@ -8715,7 +8715,7 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
     child.panbrelloOffset = chanPanbrello;
     child.panAzimuth = chanAzimuth;
     child.panElevation = chanElevation;
-    // …and the channel's DSP colouring, which outlives the note that armed it:
+    // …and the lane's DSP colouring, which outlives the note that armed it:
     // a crusher already running when the meta is struck has to be running on
     // every layer of it, not just layer 0 (item 154).
     child.clipMode = voice.clipMode;
@@ -8755,17 +8755,17 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
 }
 
 /**
- * Sound a type-4 FM rack (item 159) on channel vi's foreground voice.
+ * Sound a type-4 FM rack (item 159) on lane vi's foreground voice.
  *
  * The shape deliberately mirrors the layered path above — operator 0 takes the
- * channel's own voice and the rest spawn background children carrying relative
+ * lane's own voice and the rest spawn background children carrying relative
  * detune — because everything downstream of the trigger (the per-tick sync, Q's
  * whole-instrument retrigger, the release of the previous note) then works on a
  * rack for exactly the reasons it works on a stack of layers.
  *
  * What differs is what the children are FOR. A layer child is a sound; an
  * operator is an operand. So an operator carries no position of its own (the
- * rack is one signal, and it sits where the channel sits), its mix octet is
+ * rack is one signal, and it sits where the lane sits), its mix octet is
  * applied by the rack rather than by the mixer, and it is only spawned at all
  * when the algorithm names it.
  */
@@ -8792,7 +8792,7 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   rig.program = program;
   fmSeedGains(rig, ops);
 
-  // The channel's pan context as it stands BEFORE operator 0 retriggers — read
+  // The lane's pan context as it stands BEFORE operator 0 retriggers — read
   // once, for the same reason the layered path reads it (a child's own trigger
   // must not inherit a sibling's).
   const chanPan = voice.channelPan, chanRowPan = voice.rowPan;
@@ -8841,7 +8841,7 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     op.layerRelDetune = ops[k].detune - ops[0].detune;
     op.layerMixGain = 1.0;
     // An operand has no place of its own: the rack is one signal at the
-    // channel's position, so an operator never pulls it sideways.
+    // lane's position, so an operator never pulls it sideways.
     op.layerRelPan = 0;
     op.layerRelElevation = 0;
     op.notePan = voice.notePan;
@@ -8964,10 +8964,10 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   notePanSeedBox[2] = 0;
   if (instId !== 0) {
     // Everything an INSTRUMENT says about panning lands on the note axis (item
-    // 117), never on the channel's own position — the exact mirror of the
+    // 117), never on the lane's own position — the exact mirror of the
     // volume side, where an instrument seeds `note_vol` and only M / N may
     // touch `channel_vol`. That is what lets `S $80xx` ROTATE a zone-panned
-    // instrument instead of being flattened by its next note: the channel says
+    // instrument instead of being flattened by its next note: the lane says
     // where the part sits, the instrument says where the note sits within it.
     //
     // Two sources, in specificity order, and mutually EXCLUSIVE because they
@@ -8998,7 +8998,7 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
         // Surround: the instrument's default is a POSITION (#998). Its azimuth
         // is nine bits (byte 177 + byte 14's `A`), so it can sit behind the
         // listener, and its elevation comes from record byte 254. Both are read
-        // as offsets from the channel's direction, so an instrument that wants
+        // as offsets from the lane's direction, so an instrument that wants
         // to sound half-left of wherever the part is placed can say so.
         applyNotePanSet(ts, voice, inst.defaultAzimuth);
         applyNoteElevation(ts, voice, inst.defaultElevation);
@@ -9009,7 +9009,7 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
     // ACCUMULATES across notes on an instrument that brings no default pan of
     // its own, which is IT's arithmetic (IT adds PPS to the pan it is holding
     // and only the default pan re-seeds that); it accumulates in note-axis
-    // units now instead of channel-axis ones.
+    // units now instead of lane-axis ones.
     if (inst.pitchPanSeparation !== 0) {
       const noteDelta = (noteVal - inst.pitchPanCentre) / 4096.0;
       const panShift = Math.trunc(noteDelta * inst.pitchPanSeparation * 4.0);
@@ -9039,14 +9039,14 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // noteVolume seed (IT `chan->volume = psmp->volume` rule; channelVolume survives).
   if (volOverride >= 0) voice.noteVolume = clamp(volOverride, 0, ts.volMax);
   else if (instId !== 0) voice.noteVolume = rowVolumeFromDefault(inst, patch, ts.volMax);
-  // else: note-only retrigger inherits the channel's existing note volume.
+  // else: note-only retrigger inherits the lane's existing note volume.
   voice.rowVolume = voice.noteVolume;
   // Deferred anti-click ramp snap (applyVolColumn/applyEffectRow run after this).
   voice.snapMixVolume = true;
   voice.volRampSamples = 0;
   voice.volRampStep = 0.0;
   // A fresh note starts AT its pitch and AT its pan — it does not bend or slide
-  // in from whatever the channel was last playing (item 141).
+  // in from whatever the lane was last playing (item 141).
   voice.snapPlaybackRate = true;
   voice.snapPan = true;
   voice.noteWasCut = false;
@@ -9069,7 +9069,7 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
 }
 
 /**
- * What a trigger of (instId, note) will actually sound on the channel's
+ * What a trigger of (instId, note) will actually sound on the lane's
  * FOREGROUND voice, as an [instrument, note] pair.
  *
  * Only an FM rack shifts it: the voice the rack takes is operator 0's, at
@@ -9153,7 +9153,7 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
  * rack monophonic whatever its New Note Action says — a rack of bells cut dead
  * by the next row. So the whole rig is copied instead: each sounding operand
  * is ghosted beside its carrier and re-hung on a clone of the rack, pointing
- * at the ghost through `fmParent` rather than at the channel, so the incoming
+ * at the ghost through `fmParent` rather than at the lane, so the incoming
  * note's own trigger leaves it alone.
  *
  * The ghost is then an ordinary background voice in every other respect: the
@@ -9207,7 +9207,7 @@ function maybeSpawnBackgroundForNNA(eng, ts, voice, channel) {
     // to mean dropping the old one wherever its waveform happened to be — a step
     // from that value to whatever the new note starts at. That is the retrigger
     // click, and it is loudest exactly where it is least wanted: a fast run of
-    // notes on one channel, or a tone portamento re-attacking (item 142).
+    // notes on one lane, or a tone portamento re-attacking (item 142).
     //
     // So the outgoing note is ghosted just long enough to ramp out. It fades
     // over the same span the incoming note's attack ramp fades IN, which makes
@@ -9229,7 +9229,7 @@ function maybeSpawnBackgroundForNNA(eng, ts, voice, channel) {
   capBackgroundVoices(ts);
 }
 
-/** Snapshot the playback-relevant state of src into a fresh Voice for channel.
+/** Snapshot the playback-relevant state of src into a fresh Voice for lane.
  *  MUST copy the full active-sample + active-envelope views AND both filter
  *  state sets (incl. SF2 biquad coefficients/history) — see the port notes. */
 function ghostVoice(src, channel) {
@@ -9303,7 +9303,7 @@ function ghostVoice(src, channel) {
   v.randomVolBias = src.randomVolBias;
   v.randomPanBias = src.randomPanBias;
   // A ghost runs no effects, so its panbrello freezes at the offset it had when
-  // the new note pushed it out of the channel — it keeps sounding where it was.
+  // the new note pushed it out of the lane — it keeps sounding where it was.
   v.panbrelloOffset = src.panbrelloOffset;
   v.noteVal = src.noteVal;
   v.basePitch = src.basePitch;
@@ -9337,7 +9337,7 @@ function ghostVoice(src, channel) {
   v.activeLoopMode = src.activeLoopMode;
   // The window funk repeat had walked to travels with the ghost — its sample
   // position is INSIDE that window — but the walk itself does not: the pointer
-  // is the channel's, and a ghost is no longer addressable from the pattern.
+  // is the lane's, and a ghost is no longer addressable from the pattern.
   v.funkWindow = src.funkWindow;
   // Same rule for extended $102/$12x's own window (item 173 follow-up): the
   // ghost's sample position is inside it, but inst.modFunkWalk/modFunkPos
@@ -9375,7 +9375,7 @@ function ghostVoice(src, channel) {
   return v;
 }
 
-/** Past-note action (S $70..$72) on all background voices spawned by channel. */
+/** Past-note action (S $70..$72) on all background voices spawned by lane. */
 function applyPastNoteAction(eng, ts, channel, action) {
   switch (action) {
     case 0: { // Past Note Cut — drop them.
@@ -9429,9 +9429,9 @@ function applyVolColumn(ts, voice, value, sel) {
 /**
  * Pan column — the NOTE pan axis (item 117), the exact counterpart of the
  * volume column owning `note_vol` while M / N own `channel_vol`. All four
- * selectors write it, so a column SET places THIS note and leaves the channel's
+ * selectors write it, so a column SET places THIS note and leaves the lane's
  * own position (S $80xx, P, X, Z) standing underneath: on a zone-panned Ixmp
- * instrument the SET is what overrides the zone, and the channel commands are
+ * instrument the SET is what overrides the zone, and the lane commands are
  * what rotate it. There is consequently nothing left to arbitrate when a row
  * carries both a SET and an S $80xx — they address different registers, so both
  * apply.
@@ -9464,13 +9464,13 @@ function applyPanColumn(ts, voice, value, sel) {
  * Like the narrow column it is the NOTE axis (item 117) — the wide cell is the
  * same two lanes at higher resolution, exactly as its volume column is still
  * `note_vol` with a whole byte instead of six bits — so its azimuth and
- * elevation are both offsets from wherever the channel is pointing.
+ * elevation are both offsets from wherever the lane is pointing.
  *
  * The one exception is a `Z` slide on the same row, which turns the SET into
  * that slide's TARGET rather than a jump (the column says what effect `4` would
  * have said, and outranks a `4` on the same row for being the more specific
- * statement). A Z target names an absolute direction for the CHANNEL to travel
- * to, so on those rows — and only those — the column speaks for the channel.
+ * statement). A Z target names an absolute direction for the LANE to travel
+ * to, so on those rows — and only those — the column speaks for the lane.
  */
 function applyPanColumnWide(ts, voice, row) {
   switch (row.panEff) {
@@ -9550,8 +9550,8 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
     case EffectOp.OP_6: applyFilterParamEffect(eng, ts, voice, vi, rawArg, true); break;
     case EffectOp.OP_8: {
       // 8 $xyzz — Bitcrusher: x = clip mode, y = bit depth, zz = sample-skip.
-      // The crusher is the CHANNEL's colouring, so it lands on every voice the
-      // channel is sounding — a metainstrument's layer children included, or
+      // The crusher is the LANE's colouring, so it lands on every voice the
+      // lane is sounding — a metainstrument's layer children included, or
       // only its first layer would be crushed (item 154).
       const x = (rawArg >>> 12) & 0xf;
       const y = (rawArg >>> 8) & 0xf;
@@ -9727,12 +9727,12 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
       break;
     }
     case EffectOp.OP_M:
-      // M $xx00 — set channel volume (literal, no recall; IT $40 clamps to $3F).
+      // M $xx00 — set lane volume (literal, no recall; IT $40 clamps to $3F).
       // A wide cell's volume state is 8-bit, so the byte lands unscaled there.
       voice.channelVolume = Math.min((rawArg >>> 8) & 0xff, ts.volMax);
       break;
     case EffectOp.OP_N: {
-      // N $xy00 — channel-volume slide (D nibble decoding, channel axis only).
+      // N $xy00 — lane-volume slide (D nibble decoding, lane axis only).
       const arg = resolveArg(rawArg, voice.mem.n);
       if (rawArg !== 0) voice.mem.n = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -9746,7 +9746,7 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
       break;
     }
     case EffectOp.OP_P: {
-      // P $xy00 — channel-panning slide (IT convention: low nibble right, high left).
+      // P $xy00 — lane-panning slide (IT convention: low nibble right, high left).
       const arg = resolveArg(rawArg, voice.mem.p);
       if (rawArg !== 0) voice.mem.p = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -9870,7 +9870,7 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
     //    turn IT's X "fine set panning" into S $80xx instead).
     case EffectOp.OP_X: {
       // X $eeaa — place the source: azimuth $aa over the full turn, elevation
-      // $ee signed ($80 = −90°, $7F ≈ +90°). Channel axis, not note axis —
+      // $ee signed ($80 = −90°, $7F ≈ +90°). Lane axis, not note axis —
       // applyPanSet is the SAME call S $80xx makes (case 0x8 below), so the two
       // share one register and either can overwrite the other's azimuth.
       if (ts.surroundModel === SURROUND_STEREO) break;
@@ -9880,7 +9880,7 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
       break;
     }
     case EffectOp.OP_4:
-      // 4 $eeaa — where a Z slide is heading. Channel state: it outlives the row.
+      // 4 $eeaa — where a Z slide is heading. Lane state: it outlives the row.
       if (ts.surroundModel === SURROUND_STEREO) break;
       anglesFromSpatialArg(rawArg, spatialArg);
       voice.spatialTargetAz = spatialArg[0];
@@ -9895,7 +9895,7 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
       // drives — `$0` being 1.0C's own, so every `Z $F0xx` ever written keeps
       // meaning what it meant.
       //
-      // Speed and walk are both CHANNEL state and sticky (PT kept the speed in
+      // Speed and walk are both LANE state and sticky (PT kept the speed in
       // n_glissfunk's high nibble, alongside glissando's low one), and writing
       // either leaves the accumulator running — PT's mt_FunkIt never cleared
       // n_funkoffset, not on a speed change and not on Z $F000, so the phase
@@ -9944,12 +9944,12 @@ function applySEffect(eng, ts, voice, vi, arg) {
       // $7..$E fan out across the meta's constituents (forEachLayerTarget).
       //
       // $0..$2 are PAST-note actions, and a live meta's layer children are
-      // themselves background voices — so on a meta's channel they would cull
+      // themselves background voices — so on a meta's lane they would cull
       // the very layers making up the sounding note. That hazard is theirs
       // alone. $3..$6 only arm what the note's NEXT displacement does to it,
       // and a metainstrument is ONE note, so the pattern gets to say what
       // happens to all of it (item 191.1). The override is written on the
-      // channel's own voice and read from there by both halves of the release:
+      // lane's own voice and read from there by both halves of the release:
       // maybeSpawnBackgroundForNNA for the foreground, releaseLayerChildren
       // for the children.
       const isMeta = voice.metaForeground;
@@ -10002,7 +10002,7 @@ function applySEffect(eng, ts, voice, vi, arg) {
     case 0xc: if (x !== 0) voice.cutAtTick = x; break;
     case 0xd: break; // note delay — handled in the row's note section
     case 0xe:
-      // Pattern delay — first SEx in ascending channel order wins.
+      // Pattern delay — first SEx in ascending lane order wins.
       if (ts.sexWinningChannel < 0) {
         ts.sexWinningChannel = vi;
         ts.patternDelayRemaining = x;
@@ -10027,8 +10027,8 @@ function applySEffect(eng, ts, voice, vi, arg) {
  *   $se  region        $x  operation (0 = reset)      $y  step period in ticks
  *
  * The state splits the way S $Fxxx's does: the modification belongs to the
- * INSTRUMENT (every channel sounding it hears the same sample) and the clock
- * driving it to the CHANNEL. A reserved region is ignored WHOLE, speed and all,
+ * INSTRUMENT (every lane sounding it hears the same sample) and the clock
+ * driving it to the LANE. A reserved region is ignored WHOLE, speed and all,
  * so a typo cannot drive a modification the writer never named.
  */
 function applySampleModEffect(eng, ts, voice, vi, rawArg, invert, ext = null) {
@@ -10039,9 +10039,9 @@ function applySampleModEffect(eng, ts, voice, vi, rawArg, invert, ext = null) {
   const op = (rawArg >>> 4) & 0xf;
   // A metainstrument is one note made of several instruments, so the command
   // reaches all of them — otherwise only layer 0's sample would ever be
-  // modified (item 154). One CLOCK per instrument per channel, though: two
+  // modified (item 154). One CLOCK per instrument per lane, though: two
   // layers sounding the same instrument must not step it twice a tick, which is
-  // what the `seen` set below is for. Non-meta channels have one target and
+  // what the `seen` set below is for. Non-meta lanes have one target and
   // behave exactly as before.
   const seen = new Set();
   forEachLayerTarget(ts, voice, vi, (v) => {
@@ -10119,7 +10119,7 @@ function applySampleModEffectExt(eng, ts, voice, vi, rawArg, invert, ext) {
 }
 
 /**
- * Every voice channel `vi` is sounding as ONE note: the foreground voice plus —
+ * Every voice lane `vi` is sounding as ONE note: the foreground voice plus —
  * for a metainstrument — its layer children. Anything the pattern says about
  * the note as a whole goes through here (env toggles S $77..$7E, the bitcrusher
  * and overdrive, the sample-modification command), or it would reach layer 0
@@ -10291,7 +10291,7 @@ function scheduleDxnyAction(voice, sArg, delayTick) {
 
 function applyTrackerRow(eng, ts, playhead) {
   const cue = eng.cueSheet[ts.cuePos];
-  // Reset row-scope state before scanning channels.
+  // Reset row-scope state before scanning lanes.
   if (!ts.patternDelayActive) ts.sexWinningChannel = -1;
   ts.finePatternDelayExtra = 0;
 
@@ -10543,7 +10543,7 @@ function applyTrackerRow(eng, ts, playhead) {
 
     // ── Effect columns ──
     // A wide cell carries two, applied in order, so the second lands last where
-    // both write the same channel state.
+    // both write the same lane state.
     //
     // Argument extension (item 162): a `:` in either slot is a modifier, not a
     // command of its own — it hands its argument to whichever OTHER effect
@@ -10884,7 +10884,7 @@ function funkWalkPointer(funkMode, walk, loopStart, loopLen, sampleLen) {
 
 /**
  * Arm the anti-click crossfade on every voice sounding `instId` (item 153.5).
- * The modification is instrument-scope, so one channel's step is heard by every
+ * The modification is instrument-scope, so one lane's step is heard by every
  * voice bound to that instrument — NNA ghosts and layer children included — and
  * each needs its own countdown because each is at its own point in its own
  * output. The state being faded FROM is the instrument's (one snapshot, taken
@@ -10975,7 +10975,7 @@ function applyTrackerTick(eng, ts, playhead) {
           forceKeyLift(voice);
           // …and it bypasses it for the WHOLE note, exactly as the note cut
           // above reaches every child: a metainstrument is one note, so a
-          // forced lift written on its channel has to lift all of it. The
+          // forced lift written on its lane has to lift all of it. The
           // per-tick sync cannot do this one — it hands each child its own
           // instrument's applyKeyLift, which is the flag this command exists
           // to override (item 191.3).
@@ -11056,7 +11056,7 @@ function applyTrackerTick(eng, ts, playhead) {
         voice.channelVolume = clamp(voice.channelVolume + voice.nSlideDir * ts.volStep, 0, ts.volMax);
       }
       // The panning column slides the NOTE axis, as its SET does (item 117);
-      // P slides the CHANNEL axis, as S $80xx sets it.
+      // P slides the LANE axis, as S $80xx sets it.
       if (voice.panColSlideRight !== 0) {
         applyNotePanSlide(ts, voice, voice.panColSlideRight);
       }
@@ -11145,7 +11145,7 @@ function applyTrackerTick(eng, ts, playhead) {
 
     // Q retrigger. A metainstrument retriggers WHOLE — every layer restarts
     // together, or the kit would fall apart into layer 0 stuttering over a
-    // sustained remainder (item 154). The volume modifier is the channel's, so
+    // sustained remainder (item 154). The volume modifier is the lane's, so
     // it is applied once, on the foreground voice the children sync from.
     if (voice.retrigActive && !voice.noteWasCut) {
       voice.retrigCounter++;
@@ -11218,7 +11218,7 @@ function applyTrackerTick(eng, ts, playhead) {
     }
   }
 
-  // Global volume slide (W coarse) — once per non-first tick per armed channel.
+  // Global volume slide (W coarse) — once per non-first tick per armed lane.
   if (ts.tickInRow > 0) {
     for (const voice of ts.voices) {
       if (voice.wSlideDir !== 0) {
@@ -11281,7 +11281,7 @@ function applyTrackerTick(eng, ts, playhead) {
 
   // Sample modification (notefx 2 / 3) — one step of the instrument's live
   // operation every $y ticks (item 153.1: $F every tick, $1 every fifteenth),
-  // counted per channel because the clock is the channel's and the operation
+  // counted per lane because the clock is the lane's and the operation
   // the instrument's. A metainstrument's layer children carry a clock too
   // (item 154), one per distinct instrument — applySampleModEffect zeroes the
   // duplicates' modPeriod, so a kit whose layers share a sample still steps it
@@ -11299,7 +11299,7 @@ function applyTrackerTick(eng, ts, playhead) {
     if (bg.isLayerChild) {
       // An operand follows the voice that READS it, which for a rack the NNA
       // has already ghosted (item 191) is a background voice and not the
-      // channel's. Every other child follows the channel, as it always has.
+      // lane's. Every other child follows the lane, as it always has.
       const parent = bg.fmOperator
         ? bg.fmParent
         : (bg.sourceChannel >= 0 && bg.sourceChannel < ts.voices.length
@@ -11334,7 +11334,7 @@ function applyTrackerTick(eng, ts, playhead) {
         // A NON-MELODIC layer (item 179) holds its own note: it is not sitting
         // at an interval from the parent, it is sitting at a pitch. Everything
         // else below still follows the parent — the pitch OVERLAY included, so
-        // a vibrato written on the channel still bends it. What the flag takes
+        // a vibrato written on the lane still bends it. What the flag takes
         // away is the keyed note, not the pattern's reach over the note.
         bg.noteVal = bg.layerFixedNote >= 0
           ? bg.layerFixedNote
@@ -11406,7 +11406,7 @@ function applyTrackerTick(eng, ts, playhead) {
 }
 
 /**
- * One tick of channel-clocked sample modification (notefx 2 / 3) for `voice`:
+ * One tick of lane-clocked sample modification (notefx 2 / 3) for `voice`:
  * step the instrument's live operation when this voice's period elapses. Split
  * out of the tick loop because a metainstrument's layer children run it too
  * (item 154) — the clock is the voice's, the operation the instrument's.
@@ -11968,9 +11968,9 @@ function generateTrackerAudio(eng, playhead, out) {
       // it (and aged it) in the foreground pass above, so summing it here would
       // put the modulators into the mix beside the note they shaped.
       if (bg.fmOperator) continue;
-      // Muting a channel must also silence the NNA ghosts and layer children it
-      // spawned (item 45): fold the source channel's fader into the bg voice's
-      // own, so a channel mute/solo covers everything that came from it.
+      // Muting a lane must also silence the NNA ghosts and layer children it
+      // spawned (item 45): fold the source lane's fader into the bg voice's
+      // own, so a lane mute/solo covers everything that came from it.
       const srcVoice = voices[bg.sourceChannel];
       const bgFader = srcVoice && srcVoice.fader > bg.fader ? srcVoice.fader : bg.fader;
       if (!bg.active || bgFader === 255) continue;
@@ -12020,7 +12020,7 @@ function generateTrackerAudio(eng, playhead, out) {
         rampGain *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
         bg.attackRampSamples--;
       }
-      // Ghosts and layer children belong to the stem of the channel that spawned them.
+      // Ghosts and layer children belong to the stem of the lane that spawned them.
       if (stems !== null) {
         const sBg = bg.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
         stems.add(bg, bg.sourceChannel, n, sBg * vol * rampGain);
@@ -12334,7 +12334,7 @@ class TaudEngine {
   }
   getCellFormat() { return this.wideCells; }
 
-  /** Upload one cue entry (64 bytes / 128 bytes in 64-channel mode). */
+  /** Upload one cue entry (64 bytes / 128 bytes in 64-lane mode). */
   uploadCue(idx, bytes) {
     const cue = this.cueSheet[idx & (NUM_CUES - 1)];
     const n = Math.min(this.cueByteStride(), bytes.length);
@@ -12401,11 +12401,11 @@ class TaudEngine {
    *  preview), so it clears the transient per-play state that would otherwise
    *  bleed a prior playback into a fresh start — notably the NNA background
    *  ghosts, which stop() leaves active and a replay would resume (the
-   *  "mysteriously lingering notes" bug), and the CHANNEL-scope mixer state the
-   *  song's own effects write (item 125: pan, elevation, channel volume). The
+   *  "mysteriously lingering notes" bug), and the LANE-scope mixer state the
+   *  song's own effects write (item 125: pan, elevation, lane volume). The
    *  playhead's tempo/volume are deliberately NOT touched (a replay must keep
    *  the song's tempo — that's why this is not a full resetParams), and neither
-   *  is the host's per-channel fader/mute, which belongs to the desk. */
+   *  is the host's per-lane fader/mute, which belongs to the desk. */
   setTrackerRow(ph, row) {
     const ts = this.playheads[ph].trackerState;
     ts.rowIndex = Math.min(Math.max(row, 0), 63);
@@ -12430,9 +12430,9 @@ class TaudEngine {
       // advances, but nothing did it at play START.
       v.loopStartRow = 0; v.loopCount = 0;
       v.dittoActive = false; v.dittoSourceStart = 0; v.dittoLength = 0; v.dittoEndRow = 0;
-      // Channel-scope state, back to the song-start defaults (item 125). A
-      // trigger deliberately does NOT reset any of this — pan and channel volume
-      // belong to the CHANNEL, not the note — so without a clear here the last
+      // Lane-scope state, back to the song-start defaults (item 125). A
+      // trigger deliberately does NOT reset any of this — pan and lane volume
+      // belong to the LANE, not the note — so without a clear here the last
       // S $80xx / M / N / P / X / Z of the previous play was still in force, and
       // a song played twice, or a second file opened on top of the first, panned
       // its notes wherever the last one had left them. Same defaults as
@@ -12449,7 +12449,7 @@ class TaudEngine {
       v.spatialSlideActive = false;
       v.panbrelloOffset = 0;
       v.glissandoOn = false;
-      // Bitcrusher (8) / Overdrive (9) are channel colouring in exactly the same
+      // Bitcrusher (8) / Overdrive (9) are lane colouring in exactly the same
       // sense — the song writes them, a trigger deliberately leaves them, and
       // nothing else clears them — so without this a song that crushed once was
       // still crushed on the replay, right through the rows before its next
@@ -13047,7 +13047,7 @@ const SNAP_VOICE_STRIDE = 23;
 // Every PHYSICAL voice, so the jam bank (item 140) is visible to the views that
 // follow a sounding audition — the Instruments/Samples editors scan the block
 // looking for the voice their preview landed on, and it no longer lands on a
-// song channel.
+// song lane.
 const SNAP_MAX_VOICES = TOTAL_VOICES;
 
 // ── Master-strip blocks (item 98), after the voice array ──
@@ -13533,7 +13533,7 @@ function fillSnapshotInto(eng, playhead, f) {
       const faderGain = (255 - v.fader) / 255.0;
       let ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
       f[o + SNAP_V_EFF_VOL] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
-      // Where the channel SOUNDS — the same sum the mixer pans by (pan swing
+      // Where the lane SOUNDS — the same sum the mixer pans by (pan swing
       // included, item 155), and for a metainstrument the mix-weighted mean of
       // its layers rather than layer 0's own position (item 155.1).
       f[o + SNAP_V_EFF_PAN] = displayPanByte(ts, vi, v);

@@ -129,7 +129,7 @@ export function sampleChannelAngles(az, el, localAz, out) {
  * −1 hard left … 0 centre … +1 hard right. It is the SHADOW the source casts
  * on that line — height and depth both collapse onto it, so a source overhead
  * or directly behind reads centre, and a hard-left source 60° up reads
- * half-left. The channel-header pan strip draws exactly this (#998.6), which
+ * half-left. The lane-header pan strip draws exactly this (#998.6), which
  * is why it lines up with the radar dot above it.
  *
  * Not the same thing as the audible downmix position (foldAzimuthToPan mirrors
@@ -375,7 +375,7 @@ export class SpatialBus {
 // surround models track the continuous azimuth that the mixer and the Z slide
 // actually use. `voice.channelPan` stays the integer mirror the UI reads.
 
-/** Channel-pan write: absolute. `pan` is the legacy byte, or a 9-bit angle. */
+/** Lane-pan write: absolute. `pan` is the legacy byte, or a 9-bit angle. */
 export function applyPanSet(ts, voice, pan) {
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = pan & 0xff;
@@ -386,7 +386,7 @@ export function applyPanSet(ts, voice, pan) {
   voice.rowPan = clamp(voice.channelPan >>> 2, 0, 63);
 }
 
-/** Channel-pan write: signed delta — clamped in stereo, wrapped in surround. */
+/** Lane-pan write: signed delta — clamped in stereo, wrapped in surround. */
 export function applyPanSlide(ts, voice, delta) {
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = delta < 0
@@ -405,11 +405,11 @@ export function applyElevation(ts, voice, el) {
 }
 
 // ── Note-pan axis ─────────────────────────────────────────────────────────
-// The channel trio above places the CHANNEL; this pair offsets the note within
+// The lane trio above places the LANE; this pair offsets the note within
 // it. The offset is stored signed with 0 = neutral, so the writers take the
 // same 128-is-centre values every other pan command takes and subtract the
 // centre themselves — an Ixmp patch pan of $80 and a column SET of centre both
-// mean "no shift", whatever the channel is doing.
+// mean "no shift", whatever the lane is doing.
 
 /** Fold a note offset into range: clamped like a stereo pan, wrapped like an angle. */
 export function boundNotePan(ts, off) {
@@ -459,7 +459,7 @@ export function voiceAzimuth(voice) {
 }
 
 /**
- * Effective STEREO pan of a voice: the channel and note axes, the pan
+ * Effective STEREO pan of a voice: the lane and note axes, the pan
  * envelope's offset, the instrument's random pan swing and the panbrello LFO,
  * clamped to the byte the equal-energy law takes. The twin of voiceAzimuth
  * above, and the ONE place that sum is written — the meters used to keep their
@@ -478,12 +478,12 @@ export function voicePanByte(voice) {
   return pan < 0 ? 0 : pan > 255 ? 255 : pan;
 }
 
-/** Effective elevation: the channel's height plus the note's own offset. */
+/** Effective elevation: the lane's height plus the note's own offset. */
 export function voiceElevation(voice) {
   return voice.panElevation + voice.noteElevation;
 }
 
-// ── Where a channel SOUNDS, for the meters ────────────────────────────────
+// ── Where a lane SOUNDS, for the meters ───────────────────────────────────
 // Everything above answers for ONE voice. A metainstrument is several at once,
 // and the foreground voice is only its layer 0 — so a kit whose layers pan
 // apart was being drawn at the first layer's position rather than at the
@@ -491,14 +491,14 @@ export function voiceElevation(voice) {
 // constituents: for a plain instrument that is the voice's own value unchanged,
 // and for a kit whose layers agree on panning it is still that value.
 
-/** A voice's share of the channel's output, as the mixer weights it. */
+/** A voice's share of the lane's output, as the mixer weights it. */
 function displayWeight(v) {
   const env = v.volEnvOn ? v.envVolMix : 1.0;
   return env * v.fadeoutVolume * v.currentMixVolume * v.layerMixGain *
     ((255 - v.fader) / 255.0);
 }
 
-/** Every voice channel `vi` is sounding — the foreground plus its layer
+/** Every voice lane `vi` is sounding — the foreground plus its layer
  *  children — visited with its display weight. */
 function forEachSoundingLayer(ts, vi, voice, fn) {
   fn(voice, displayWeight(voice));
@@ -508,7 +508,7 @@ function forEachSoundingLayer(ts, vi, voice, fn) {
   }
 }
 
-/** The stereo pan the METERS show for channel `vi` (item 155.1). */
+/** The stereo pan the METERS show for lane `vi` (item 155.1). */
 export function displayPanByte(ts, vi, voice) {
   let sum = 0.0, wsum = 0.0;
   forEachSoundingLayer(ts, vi, voice, (v, w) => { sum += voicePanByte(v) * w; wsum += w; });

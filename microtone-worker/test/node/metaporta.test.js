@@ -1,7 +1,7 @@
 // Tone portamento (G) on a metainstrument's foreground voice (item 176, user
-// report + minimal repro "portaonmeta.taud": two identical G-chains, channel 1
-// on a plain instrument, channel 2 on a metainstrument whose layer 0 carries a
-// detune — channel 1 glides and stops normally, channel 2's bend "continues
+// report + minimal repro "portaonmeta.taud": two identical G-chains, lane 1
+// on a plain instrument, lane 2 on a metainstrument whose layer 0 carries a
+// detune — lane 1 glides and stops normally, lane 2's bend "continues
 // along the entire porta region" and never seems to stop).
 //
 // Root cause: triggerMetaOrNote seeds a metainstrument's foreground voice.noteVal
@@ -45,7 +45,7 @@ function makeEngine() {
   return eng;
 }
 
-/** rows: [{row, note, inst, effect, arg}] on channels 0 and 1, uploaded as
+/** rows: [{row, note, inst, effect, arg}] on lanes 0 and 1, uploaded as
  *  patterns 0 and 1 (format v2, 8-byte narrow cells). */
 function loadSong(eng, rowsCh0, rowsCh1) {
   const write = (p, c) => {
@@ -99,8 +99,8 @@ test("metainstrument G-chain: foreground stays in lockstep with a plain instrume
   let sawTargetTogether = false, sawStopTogether = false;
   for (let tick = 0; tick < 30; tick++) {
     renderTicks(eng, 1);
-    // The whole point of the fix: at every tick, channel 1's noteVal tracks
-    // channel 0's by EXACTLY the layer's detune — never drifting off toward
+    // The whole point of the fix: at every tick, lane 1's noteVal tracks
+    // lane 0's by EXACTLY the layer's detune — never drifting off toward
     // an unshifted target.
     assert.equal(v1.noteVal, v0.noteVal + DETUNE,
       `tick ${tick}: meta foreground must stay detune-locked to the plain voice (0x${v0.noteVal.toString(16)} vs 0x${v1.noteVal.toString(16)})`);

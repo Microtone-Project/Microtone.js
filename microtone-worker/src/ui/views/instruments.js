@@ -1664,7 +1664,7 @@ export class InstrumentsView {
       `<td class="advCell"></td>`;
 
     // Entry 0 leads: for a layer table that is priority (the first layer that
-    // COVERS a trigger plays on the channel itself and the rest spawn
+    // COVERS a trigger plays on the lane itself and the rest spawn
     // background voices); for a rack it is the PRINCIPAL operator, whose
     // envelope is the note's own.
     const idxCell = tr.querySelector(".idxCell");

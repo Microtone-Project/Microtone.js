@@ -95,7 +95,7 @@ test("setCuesOp: dirty tags cover only the WRITTEN cues (not gap-fillers)", () =
 });
 
 test("setCuesOp: growth is capped at the channel-mode cue limit", () => {
-  const doc = loadWhen(); // 32-channel → NUM_CUES = 8192
+  const doc = loadWhen(); // 32-lane → NUM_CUES = 8192
   const undo = new UndoStack(doc);
   undo.apply(setCuesOp(0, [{ cue: 999999, ch: 0, value: 0x0001 }]));
   assert.equal(doc.songs[0].cues.length, 8192, "clamped to the format limit");
@@ -133,11 +133,11 @@ test("setCuesOp: paste preserves the destination cue's HALT command bits", () =>
   const undo = new UndoStack(doc);
   const song = doc.songs[0];
 
-  // give cue 1 a command bit on channel 0 (simulated HALT sign bit)
+  // give cue 1 a command bit on lane 0 (simulated HALT sign bit)
   song.cues[1][0] |= 0x8000;
   const cmdBefore = song.cues[1][0] & 0x8000;
 
-  // paste a plain pattern onto that same channel
+  // paste a plain pattern onto that same lane
   undo.apply(setCuesOp(0, [{ cue: 1, ch: 0, value: mergeCueWord(song.cues[1][0], 0x0009) }]));
   assert.equal(song.cues[1][0] & 0x7fff, 0x0009, "pattern index pasted");
   assert.equal(song.cues[1][0] & 0x8000, cmdBefore, "command bit preserved");

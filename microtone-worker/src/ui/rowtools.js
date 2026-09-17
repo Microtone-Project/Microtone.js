@@ -1,8 +1,8 @@
 // The row trough's right-click menu (item 136) — the Timeline's left-hand
 // gutter, where the numbers are.
 //
-// A cell in the grid belongs to one channel; a row in the trough belongs to the
-// whole SONG, so the actions here are the ones that move every channel at once:
+// A cell in the grid belongs to one lane; a row in the trough belongs to the
+// whole SONG, so the actions here are the ones that move every lane at once:
 // Excel's insert-rows-above/below and delete-rows, plus the row highlighting
 // those numbers are read against. Only the Timeline has a trough — the Cues
 // view's gutter counts cues, not rows — so unlike gridmenu.js this vocabulary

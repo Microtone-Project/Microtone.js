@@ -1,10 +1,10 @@
-// Item 125 — channel-scope state (panning above all) is per-PLAY, not for ever.
+// Item 125 — lane-scope state (panning above all) is per-PLAY, not for ever.
 //
 // Nothing reset it: `setTrackerRow`, the documented pre-play reset point, only
 // cleared timing + the NNA ghosts, and `loadDocument` never called resetParams
-// at all — so the last `S $80xx` of one play was still steering the channel on
+// at all — so the last `S $80xx` of one play was still steering the lane on
 // the next one, and a second file opened on top of the first inherited the
-// first's panning and channel volumes. taut.js has always called
+// first's panning and lane volumes. taut.js has always called
 // resetAudioDevice() (→ audio.resetParams) before every taud.uploadTaudFile;
 // the web build simply never did.
 
@@ -19,8 +19,8 @@ import { CMD } from "../../src/worklet/protocol.js";
 
 setSamplingRate(32000);
 
-/** Engine with one instrument and a pattern that shoves channel 0 around:
- *  hard right (S $80FF), channel volume $20 (M), glissando on (S $1100). */
+/** Engine with one instrument and a pattern that shoves lane 0 around:
+ *  hard right (S $80FF), lane volume $20 (M), glissando on (S $1100). */
 function makeEngine() {
   const eng = new TaudEngine();
   for (let i = 0; i < 256; i++) eng.sampleBin[i] = i < 128 ? 0x00 : 0xff;
@@ -40,7 +40,7 @@ function makeEngine() {
     pat[o + 6] = arg & 0xff; pat[o + 7] = (arg >>> 8) & 0xff;
   };
   cell(0, 0x5000, 1, EffectOp.OP_S, 0x80ff); // pan hard right
-  cell(1, 0, 0, EffectOp.OP_M, 0x2000);      // channel volume $20
+  cell(1, 0, 0, EffectOp.OP_M, 0x2000);      // lane volume $20
   cell(2, 0, 0, EffectOp.OP_S, 0x1100);      // glissando on
   cell(3, 0, 0, EffectOp.OP_8, 0x1304);      // bitcrusher: fold, 3-bit, skip 4
   cell(4, 0, 0, EffectOp.OP_9, 0x2020);      // overdrive amp $20 (clip mode wrap)
@@ -72,7 +72,7 @@ function playRows(eng, rows) {
 test("a replay starts from the song's own panning, not the last play's", () => {
   const eng = makeEngine();
   const v = playRows(eng, 5);
-  // Premise: the pattern really did move the channel.
+  // Premise: the pattern really did move the lane.
   assert.equal(v.channelPan, 0xff, "S $80FF panned the channel hard right");
   assert.equal(v.channelVolume, 0x20, "M $2000 set the channel volume");
   assert.equal(v.glissandoOn, true, "S $1100 armed glissando");

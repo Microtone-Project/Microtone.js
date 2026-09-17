@@ -49,7 +49,7 @@ function makeEngine() {
   return eng;
 }
 
-/** rows: [{row, note, inst, effect, arg}] on channel 0 of pattern 0, then play. */
+/** rows: [{row, note, inst, effect, arg}] on lane 0 of pattern 0, then play. */
 function loadSong(eng, rows) {
   const pat = new Uint8Array(512);
   for (let r = 0; r < 64; r++) { pat[r * 8 + 3] = 0xc0; pat[r * 8 + 4] = 0xc0; }

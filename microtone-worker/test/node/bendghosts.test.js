@@ -199,7 +199,7 @@ test("P walks the channel pan, reported in the column's own units", () => {
 test("the panning column's slide moves the NOTE axis, and both axes sum", () => {
   const p = blankPattern();
   p[0].note = 0x5000; p[0].instrment = 1;
-  fx(p[0], EffectOp.OP_S, 0x8040);          // channel hard-ish left
+  fx(p[0], EffectOp.OP_S, 0x8040);          // lane hard-ish left
   p[1].pan = 4; p[1].panEff = 2;            // column: slide LEFT 4/tick
   const g = bendGhosts(p, OPTS);
   assert.equal(g[0], null, "S $80xx states the position in its own argument");
@@ -299,7 +299,7 @@ test("a chain carries the volume and the pan across too, not just the pitch", ()
   const head = blankPattern();
   head[0].note = 0x5000; head[0].instrment = 1;
   head[0].volume = 0x30; head[0].volumeEff = 0;
-  fx(head[0], EffectOp.OP_S, 0x8040);          // channel pan well left
+  fx(head[0], EffectOp.OP_S, 0x8040);          // lane pan well left
   const tail = blankPattern();
   fx(tail[0], EffectOp.OP_D, 0x0400);          // a volume slide with no note of its own
   fx(tail[1], EffectOp.OP_P, 0x0400);

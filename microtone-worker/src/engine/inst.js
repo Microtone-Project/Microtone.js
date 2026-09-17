@@ -313,7 +313,7 @@ export const META_TYPE_LAYERED = 0;
 /**
  * Type 4 — FM (item 159): the layer table becomes an OPERATOR RACK and the
  * bytes after it carry an RPN program saying how the operators feed each other.
- * The rack is one voice, not `n` of them: operator 0 sounds on the channel and
+ * The rack is one voice, not `n` of them: operator 0 sounds on the lane and
  * the rest are read by the program.
  */
 export const META_TYPE_FM = 4;

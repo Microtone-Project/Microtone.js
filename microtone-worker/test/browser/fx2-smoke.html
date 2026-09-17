@@ -4,7 +4,7 @@
 <iframe id="app" src="../../index.html" style="width:1400px;height:800px"></iframe>
 <script type="module">
 // Drives the REAL app: a version-3 project's SECOND effect column is hidden by
-// default, can be exposed per channel (Timeline) and per column (Patterns) or
+// default, can be exposed per lane (Timeline) and per column (Patterns) or
 // everywhere at once, is editable once exposed, and — crucially — is left alone
 // by the block operations while it is hidden.
 const out = document.getElementById("out");
@@ -46,7 +46,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     String(timeline.subPosFor(0).length));
   const narrowW = timeline.colWFor(0);
 
-  // ── 2. per channel, from the channel header's menu ───────────────────────
+  // ── 2. per lane, from the lane header's menu ─────────────────────────────
   const { fx2Items, runFx2Item } = await import("../../src/ui/gridmenu.js");
   const items = fx2Items(store, 2);
   check(items.length === 2, "the header menu offers this-channel + all-channels",
@@ -83,7 +83,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   const edited = cellAt();
   const press = (k, code) => win.dispatchEvent(new win.KeyboardEvent("keydown",
     { key: k, code: code ?? ("Key" + k.toUpperCase()), bubbles: true }));
-  press("m");                                        // opcode M (channel volume)
+  press("m");                                        // opcode M (lane volume)
   await sleep(40);
   check(edited?.effect2 === 0x16, "typing an opcode writes effect2",
     String(edited?.effect2));
@@ -102,7 +102,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(store.cursor.sub === E.SUB_FX_ARG,
     "hiding the column moves the cursor off it", String(store.cursor.sub));
   check(edited?.effect2 === 0x16, "…and what it holds is still in the document");
-  // The channel header marks the hidden data, which is how it stays findable.
+  // The lane header marks the hidden data, which is how it stays findable.
   check(timeline.patternHasFx2(timeline.currentPatternFor(2)) === true,
     "…with the header's E2 hint reporting it");
 
@@ -240,7 +240,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(prow12.effect2 === 0 && prow12.effectArg2 === 0,
     "…leaving that row's own 2nd slot alone");
 
-  // ── 7. the all-channels switch ──────────────────────────────────────────
+  // ── 7. the all-lanes switch ─────────────────────────────────────────────
   store.setAllFx2(true);
   await sleep(150);
   check(store.fx2Chan(0) && store.fx2Chan(31) && store.fx2Pane(1),

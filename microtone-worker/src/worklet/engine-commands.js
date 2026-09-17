@@ -172,7 +172,7 @@ export function fillSnapshotInto(eng, playhead, f) {
       const faderGain = (255 - v.fader) / 255.0;
       let ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
       f[o + SNAP_V_EFF_VOL] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
-      // Where the channel SOUNDS — the same sum the mixer pans by (pan swing
+      // Where the lane SOUNDS — the same sum the mixer pans by (pan swing
       // included, item 155), and for a metainstrument the mix-weighted mean of
       // its layers rather than layer 0's own position (item 155.1).
       f[o + SNAP_V_EFF_PAN] = displayPanByte(ts, vi, v);

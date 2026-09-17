@@ -20,7 +20,7 @@ import { JAM_VOICES, JAM_VOICE_BASE } from "../../engine/constants.js";
 const W = 720, H = 200;
 
 // Marker preview goes on the jam bank's top slot (item 140): it is not a song
-// channel, so the preview is neither muted by the desk nor able to cut what the
+// lane, so the preview is neither muted by the desk nor able to cut what the
 // song is playing — and the piano keyboard hands out the bank from slot 0 up,
 // so a held chord has to run all the way round before it reaches this one.
 const AUDITION_VOICE = JAM_VOICE_BASE + JAM_VOICES - 1;

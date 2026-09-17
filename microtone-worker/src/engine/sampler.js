@@ -625,7 +625,7 @@ function pitchGlideSamples(cur, target, spt) {
 /**
  * Per-sample pitch glide toward the tick's playbackRate, so the control signal
  * is INTERPOLATED rather than stepped. A fresh trigger snaps: a new note starts
- * at its own pitch, it does not bend up from whatever the channel was last
+ * at its own pitch, it does not bend up from whatever the lane was last
  * playing.
  */
 export function advancePitchRamp(voice, spt) {

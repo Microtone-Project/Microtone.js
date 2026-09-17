@@ -263,7 +263,7 @@ export class FilesView {
   /**
    * Offline-render the current song into one 24-bit 48 kHz mono WAV per track
    * (item 93), zipped. Per-instrument splits a percussion kit into its pieces;
-   * per-voice gives one track per channel. Tracks are PRE-PAN: every volume is
+   * per-lane gives one track per lane. Tracks are PRE-PAN: every volume is
    * baked in, the pan law is not — you re-pan them in the DAW.
    */
   async exportStems() {

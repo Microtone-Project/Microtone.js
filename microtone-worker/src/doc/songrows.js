@@ -18,7 +18,7 @@
 //   rows !== null → the cue's content is rebuilt from those ABSOLUTE rows of the
 //                   original song (-1 = a blank row an insert made).
 //
-// Patterns are then allocated per (output cue, channel) by the SEQUENCE of
+// Patterns are then allocated per (output cue, lane) by the SEQUENCE of
 // (pattern, row) pairs that slot resolves to. Slots resolving to the same
 // sequence were drawing from the same source at the same alignment, so they were
 // already sharing before the edit and go on sharing one pattern after it.
@@ -243,7 +243,7 @@ export function splitPointAt(song, row) {
  * at the top of them and a shorter cue just stops reading earlier, so nothing
  * another cue still plays whole is touched. Only the TAIL needs patterns of its
  * own — its rows have to start at row 0 of one — and that is the untangling:
- * channels whose tails read the same rows out of the same pattern go on sharing
+ * lanes whose tails read the same rows out of the same pattern go on sharing
  * one copy, and a pattern the head (or anybody else) still plays is never
  * written over.
  *
@@ -374,7 +374,7 @@ export function planRowOutline(song, outline, {
   for (const e of map.entries) {
     for (let r = 0; r < e.rowLimit; r++) rowOwner[e.startRow + r] = e;
   }
-  /** What channel `ch` plays at absolute original row `abs`: the pattern it sits
+  /** What lane `ch` plays at absolute original row `abs`: the pattern it sits
    *  in and the row within it, or null when nothing is there. */
   const cellRef = (abs, ch) => {
     if (abs < 0) return null;
@@ -413,7 +413,7 @@ export function planRowOutline(song, outline, {
     if (o.rows === null) return;
     for (let ch = 0; ch < MAX_VOICES; ch++) {
       const refs = o.rows.map((abs) => cellRef(abs, ch));
-      if (refs.every((r) => r === null)) continue; // this channel plays nothing here
+      if (refs.every((r) => r === null)) continue; // this lane plays nothing here
       const key = keyOf(refs);
       if (!seqs.has(key)) { seqs.set(key, refs); order.push(key); }
       slotKeys[i].set(ch, key);
@@ -488,7 +488,7 @@ export function planRowOutline(song, outline, {
     } else {
       w0 = encLen(o.limit); // a cue this made: it has to say how long it is
     }
-    // The two instruction words live in the sign bits of channels 0-15 / 16-31.
+    // The two instruction words live in the sign bits of lanes 0-15 / 16-31.
     for (let ch = 0; ch < 16; ch++) {
       if ((w0 >> ch) & 1) words[ch] |= 0x8000;
       if ((w1 >> ch) & 1) words[16 + ch] |= 0x8000;

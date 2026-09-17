@@ -10,10 +10,10 @@
 // graph (worklet.bundle.js) instead.
 //
 // The one piece of machinery that is here and NOT in Microtone is the fader
-// ramp. The engine's per-voice fader is a plain byte applied straight to the
+// ramp. The engine's per-lane fader is a plain byte applied straight to the
 // gain, so a game moving it every animation frame would step the gain 60 times
 // a second and zipper audibly. Ramping it here — once per rendered chunk, which
-// is every 2.7 ms at 48 kHz — makes "fade this voice out over two seconds" a
+// is every 2.7 ms at 48 kHz — makes "fade this lane out over two seconds" a
 // single call that sounds like a fade instead of a staircase, and it costs the
 // engine nothing: the byte the mixer reads is still just a byte.
 
@@ -189,12 +189,12 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
       }
       f[o + SNAP_V_ACTIVE] = 1;
       // The gain the mixer actually applies, fader included — which is the
-      // point: a game fading a voice out watches its own fade on this probe.
+      // point: a game fading a lane out watches its own fade on this probe.
       const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
       const faderGain = (255 - v.fader) / 255.0;
       const ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
       f[o + SNAP_V_VOLUME] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
-      // Where it SOUNDS in the stereo image: a surround voice reports where the
+      // Where it SOUNDS in the stereo image: a surround lane reports where the
       // monitor downmix puts it, and a metainstrument the mix-weighted mean of
       // its layers rather than layer 0's position.
       f[o + SNAP_V_PAN] = displayPanByte(ts, vi, v) / 255.0;

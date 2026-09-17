@@ -1,4 +1,4 @@
-// Cues view (F2) — the order list: cue rows × channel columns of pattern
+// Cues view (F2) — the order list: cue rows × lane columns of pattern
 // numbers, plus the two per-cue instruction words (Cmd1/Cmd2 — BAK/FWD/JMP/
 // LEN/HALT, encoded in the sign bits of ch 0-15 / 16-31). Edits are eager-
 // synced to the worklet (DocSync). Feature reference: taut.js VIEW_CUES.
@@ -30,7 +30,7 @@ const ROW_H = 16;
 const HEADER_H = 22;
 const GUTTER_W = 52;             // cue index (4-digit hex)
 const CMD_W = Math.ceil(9 * CHAR_W); // "HALT@40 " per word
-const COL_W = Math.ceil(4 * CHAR_W) + 8; // 4 hex digits per channel (0000..7FFE)
+const COL_W = Math.ceil(4 * CHAR_W) + 8; // 4 hex digits per lane (0000..7FFE)
 
 const INST_NAMES = {
   [INST_NOP]: "", [INST_HALT]: "HALT", [INST_HALTAT]: "HALT@",
@@ -65,10 +65,10 @@ export class CuesView {
     this.ctx = canvas.getContext("2d");
     this.scrollCue = 0;
     this.scrollCh = 0;
-    this.cursor = { cue: 0, col: 0, nib: 0 }; // col: 0/1 = cmd words, 2+ = channel-2
+    this.cursor = { cue: 0, col: 0, nib: 0 }; // col: 0/1 = cmd words, 2+ = lane-2
     // Block selection {aCue, aCh, cue, ch, cmd}. The grid has TWO spaces and a
     // block lives in exactly one of them: `cmd` true makes aCh/ch the Cmd word
-    // SLOT (0 = Cmd1, 1 = Cmd2), false makes them channel indices. Nothing
+    // SLOT (0 = Cmd1, 1 = Cmd2), false makes them lane indices. Nothing
     // straddles the two — an instruction word and a pattern number are not the
     // same kind of thing, so a rectangle across the boundary would mean nothing.
     this.sel = null;
@@ -154,11 +154,11 @@ export class CuesView {
     return words ? cueInstructionWords(words) : [0, 0];
   }
 
-  /** Channel writes that put instruction `word` in cue `cue`'s Cmd `slot`,
-   *  leaving every channel's pattern index alone. The word IS the sign bits of
-   *  channels 0-15 / 16-31 (taud-parse cueInstructionWords), so setting one
+  /** Lane writes that put instruction `word` in cue `cue`'s Cmd `slot`,
+   *  leaving every lane's pattern index alone. The word IS the sign bits of
+   *  lanes 0-15 / 16-31 (taud-parse cueInstructionWords), so setting one
    *  command is sixteen one-bit edits — and the two slots never collide,
-   *  because they own different channels. */
+   *  because they own different lanes. */
   cmdWrites(cue, slot, word) {
     const base = slot * 16;
     const out = [];
@@ -169,7 +169,7 @@ export class CuesView {
     return out;
   }
 
-  /** Canvas-relative x → {col} (0/1 = Cmd words, 2+ = channel-2), or -1 off-grid. */
+  /** Canvas-relative x → {col} (0/1 = Cmd words, 2+ = lane-2), or -1 off-grid. */
   hitCol(x) {
     if (x < GUTTER_W) return -1;
     if (x < GUTTER_W + CMD_W) return 0;
@@ -191,7 +191,7 @@ export class CuesView {
     const col = this.hitCol(x);
     if (col < 0) return;
     const cmd = col < 2;              // the Cmd words are a space of their own
-    const idx = cmd ? col : col - 2;  // slot, or channel
+    const idx = cmd ? col : col - 2;  // slot, or lane
     if (e.shiftKey) {
       // Shift+click extends a block from the cursor cell — but only inside the
       // space the cursor is already in, since no block straddles the two. From
@@ -226,7 +226,7 @@ export class CuesView {
     const d = this._drag;
     // The drag keeps the space it started in: dragging a command block off the
     // side of the Cmd columns pins it to Cmd1/Cmd2 rather than turning into a
-    // channel block halfway across.
+    // lane block halfway across.
     const idx = d.cmd ? clampInt(col, 0, 1)
       : clampInt(col - 2, 0, this.store.doc.channelCount - 1);
     // Any drag is a block, single-cell ones included (same rule as the other
@@ -313,7 +313,7 @@ export class CuesView {
 
   // Lookahead-scroll: keep the cursor in the central 64% of the view (item 42).
   // Sideways too, on the same rule the Timeline uses — a column selection walks
-  // the cursor across channels, and a block growing into voices nobody can see
+  // the cursor across lanes, and a block growing into lanes nobody can see
   // is a block nobody can judge.
   keepCursorVisible() {
     this.scrollCue = lookahead(this.cursor.cue, this.scrollCue, this.visibleRows(), this.maxScrollCue());
@@ -323,7 +323,7 @@ export class CuesView {
     }
   }
 
-  /** Whole channel columns the canvas shows, and the leftmost channel that
+  /** Whole lane columns the canvas shows, and the leftmost lane that
    *  still fills it — the sideways pair of visibleRows/maxScrollCue. */
   visibleChans() {
     // `dpr` is only set once the size observer has fired; 1 until then, so a
@@ -347,8 +347,8 @@ export class CuesView {
   lastCue() { return Math.max(0, this.numCues() - 1); }
 
   /** Ctrl+A — select the whole column the cursor is in: every cue the song has,
-   *  one voice — or, on a Cmd word, that command slot all the way down. The
-   *  commands ARE a column; they just belong to the cue rather than to a voice. */
+   *  one lane — or, on a Cmd word, that command slot all the way down. The
+   *  commands ARE a column; they just belong to the cue rather than to a lane. */
   selectColumn() {
     const c = this.cursor;
     const cmd = c.col < 2;
@@ -357,8 +357,8 @@ export class CuesView {
     this.invalidate();
   }
 
-  /** Ctrl+←/→ — widen (or narrow) that column block by one voice, anchor
-   *  channel staying put and the far edge walking, exactly as the Timeline
+  /** Ctrl+←/→ — widen (or narrow) that column block by one lane, anchor
+   *  lane staying put and the far edge walking, exactly as the Timeline
    *  does it. With nothing selected it starts from Ctrl+A's block. On a command
    *  column there is exactly one neighbour, so it reaches Cmd1+Cmd2 and stops. */
   extendColumn(dir) {
@@ -396,7 +396,7 @@ export class CuesView {
 
   /** Shift+arrows: grow the block, moving the cursor with it. Sideways growth
    *  stays inside the block's own space — a command block reaches Cmd2 and
-   *  stops, a channel block stops at channel 1 rather than falling into the
+   *  stops, a lane block stops at lane 1 rather than falling into the
    *  commands. */
   extendSelection(dCue, dCol) {
     const c = this.cursor;
@@ -475,7 +475,7 @@ export class CuesView {
    *  one IN THE CLIPBOARD'S OWN SPACE — the corner the drag started from, not
    *  the cursor, which ends up wherever the drag stopped — otherwise the
    *  cursor. Same rule as the other two grids. A command block pasted with the
-   *  cursor parked on a channel has no slot to read off it, so it takes Cmd1. */
+   *  cursor parked on a lane has no slot to read off it, so it takes Cmd1. */
   pasteAnchor(cmd = false) {
     const b = this.selBounds();
     const c = this.cursor;
@@ -502,7 +502,7 @@ export class CuesView {
       if (cue >= limit) break;
       for (let ch = 0; ch < block.chans; ch++) {
         const dch = a.ch + ch;
-        if (dch >= chans) break; // clip past the last channel
+        if (dch >= chans) break; // clip past the last lane
         const src = block.words[cueBlockIndex(block, r, ch)];
         writes.push({ cue, ch: dch, value: mergeCueWord(this.wordAt(cue, dch), src) });
       }
@@ -557,9 +557,9 @@ export class CuesView {
 
   /**
    * The same palette the Timeline shows, over the order list: the clipboard
-   * cells, the two channel inserts (a Cues column IS a channel), and a fresh
+   * cells, the two lane inserts (a Cues column IS a lane), and a fresh
    * pattern for an empty slot. The Cmd1/Cmd2 columns belong to the cue rather
-   * than to any channel, so they get a menu of their own (cmdContextMenu).
+   * than to any lane, so they get a menu of their own (cmdContextMenu).
    */
   async onContextMenu(e) {
     e.preventDefault();
@@ -586,7 +586,7 @@ export class CuesView {
     const emptySlot = emptySlots.length > 0;
 
     // Only a PATTERN block belongs here — a command block copied off Cmd1/Cmd2
-    // has no meaning over a channel, and pastes from its own menu instead.
+    // has no meaning over a lane, and pastes from its own menu instead.
     const hasSel = this.hasSelectionIn(false);
     const items = [
       ...clipboardItems({
@@ -626,8 +626,8 @@ export class CuesView {
    * the command editor — which over a block fills every Cmd word it covers with
    * the one instruction, so a run of cues gets its `LEN` in a single step.
    *
-   * The channel cells' own palette is deliberately absent: an instruction word
-   * belongs to the cue, so inserting a channel or making a pattern has nothing
+   * The lane cells' own palette is deliberately absent: an instruction word
+   * belongs to the cue, so inserting a lane or making a pattern has nothing
    * to do here.
    */
   async cmdContextMenu(e, cue, slot) {
@@ -663,9 +663,9 @@ export class CuesView {
   }
 
   /** Move / duplicate / delete the patterns in `slots` (item 103.1). A move carries the
-   *  selection along so the block can be walked channel by channel — clamped,
+   *  selection along so the block can be walked lane by lane — clamped,
    *  because only the block's FILLED slots had to have somewhere to go, and a
-   *  selection can reach past them into empty channels. */
+   *  selection can reach past them into empty lanes. */
   runSlotItem(id, slots) {
     const dir = id === "movLeft" ? -1 : 1;
     const moving = id === "movLeft" || id === "movRight";
@@ -684,8 +684,8 @@ export class CuesView {
     this.invalidate();
   }
 
-  /** The (cue, channel) slots a block covers — the selection, else the one cell
-   *  under the pointer. Clipped to the channel count; rows past the stored cue
+  /** The (cue, lane) slots a block covers — the selection, else the one cell
+   *  under the pointer. Clipped to the lane count; rows past the stored cue
    *  list are fine, since writing one materialises it. */
   slotsInBlock(cue, ch) {
     const chans = this.store.doc.channelCount;
@@ -861,7 +861,7 @@ export class CuesView {
     // header
     ctx.fillStyle = C.dim;
     ctx.fillText("cue", 6, HEADER_H / 2);
-    // The Cmd headers light up with the cursor the same way the voice headers
+    // The Cmd headers light up with the cursor the same way the lane headers
     // do below — they are columns you can select now, so they read as columns.
     for (let slot = 0; slot < 2; slot++) {
       const selected = this.cursor.col === slot;
@@ -875,7 +875,7 @@ export class CuesView {
     const visCh = Math.min(Math.floor((W - this.chanX(0)) / COL_W) + 1, chans - this.scrollCh);
     for (let i = 0; i < visCh; i++) {
       const ch = this.scrollCh + i;
-      // highlight the selected channel's voice header too, same idea as the
+      // highlight the selected lane's header too, same idea as the
       // leftmost row number: findable at a glance regardless of cue row
       const selected = this.cursor.col === ch + 2;
       if (selected) {

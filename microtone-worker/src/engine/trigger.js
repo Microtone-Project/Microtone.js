@@ -211,10 +211,10 @@ export function capBackgroundVoices(ts) {
   }
 }
 
-/** Release channel vi's layer children (fresh trigger): detach + apply their NNA.
+/** Release lane vi's layer children (fresh trigger): detach + apply their NNA.
  *
  *  Each child's own instrument decides, UNLESS the pattern has said otherwise:
- *  an `S $73`…`$76` override written on this channel commands the whole note,
+ *  an `S $73`…`$76` override written on this lane commands the whole note,
  *  layers included (item 191.1), or a `S $74` would hold layer 0 and let the
  *  rest of the kit cut — half a note, which is not a reading of "continue".
  *  It is still the OUTGOING note's override here, because the incoming trigger
@@ -247,13 +247,13 @@ export function releaseLayerChildren(eng, ts, vi) {
   }
 }
 
-/** Cut channel vi's layer children (pattern note-cut 0x0002). Ramped like the
+/** Cut lane vi's layer children (pattern note-cut 0x0002). Ramped like the
  *  parent — they are one note, and a clean parent over clicking children would
  *  be worse than either on its own.
  *
  *  A ghosted rack's operands (item 191) are skipped for the same reason
  *  dropFmOperators skips them: the note cut is addressed to the note the
- *  channel is sounding NOW, and those belong to one it has already let go. */
+ *  lane is sounding NOW, and those belong to one it has already let go. */
 export function cutLayerChildren(ts, vi) {
   for (const bg of ts.backgroundVoices) {
     if (isSoundingChild(ts, bg, vi)) startCutRamp(bg);
@@ -261,7 +261,7 @@ export function cutLayerChildren(ts, vi) {
 }
 
 /**
- * Trigger noteVal/instId on channel vi's foreground voice; a Metainstrument
+ * Trigger noteVal/instId on lane vi's foreground voice; a Metainstrument
  * fans out into layer children. rowVolOverride is the V-column trigger velocity
  * (or -1), used for velocity-conditional layer/patch resolution.
  */
@@ -311,10 +311,10 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
     return;
   }
   const l0 = layers[0];
-  // CHANNEL pan context as it stands before layer 0 retriggers — a channel the
+  // LANE pan context as it stands before layer 0 retriggers — a lane the
   // pattern placed carries to every layer, and capturing it first keeps layer
   // 0's own trigger from feeding back into its siblings. Where each layer sits
-  // WITHIN that channel is the note axis's business, handled per child below.
+  // WITHIN that lane is the note axis's business, handled per child below.
   const chanPan = voice.channelPan, chanRowPan = voice.rowPan;
   const chanPanbrello = voice.panbrelloOffset;
   const chanAzimuth = voice.panAzimuth, chanElevation = voice.panElevation;
@@ -347,7 +347,7 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   for (let k = 1; k < layers.length; k++) {
     const lk = layers[k];
     const child = new Voice();
-    // Match layer 0's channel context so M/pan and the first tick agree; the
+    // Match layer 0's lane context so M/pan and the first tick agree; the
     // trigger below may then move the child's pan to its own default.
     child.channelVolume = voice.channelVolume;
     child.channelPan = chanPan;
@@ -355,7 +355,7 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
     child.panbrelloOffset = chanPanbrello;
     child.panAzimuth = chanAzimuth;
     child.panElevation = chanElevation;
-    // …and the channel's DSP colouring, which outlives the note that armed it:
+    // …and the lane's DSP colouring, which outlives the note that armed it:
     // a crusher already running when the meta is struck has to be running on
     // every layer of it, not just layer 0 (item 154).
     child.clipMode = voice.clipMode;
@@ -395,17 +395,17 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
 }
 
 /**
- * Sound a type-4 FM rack (item 159) on channel vi's foreground voice.
+ * Sound a type-4 FM rack (item 159) on lane vi's foreground voice.
  *
  * The shape deliberately mirrors the layered path above — operator 0 takes the
- * channel's own voice and the rest spawn background children carrying relative
+ * lane's own voice and the rest spawn background children carrying relative
  * detune — because everything downstream of the trigger (the per-tick sync, Q's
  * whole-instrument retrigger, the release of the previous note) then works on a
  * rack for exactly the reasons it works on a stack of layers.
  *
  * What differs is what the children are FOR. A layer child is a sound; an
  * operator is an operand. So an operator carries no position of its own (the
- * rack is one signal, and it sits where the channel sits), its mix octet is
+ * rack is one signal, and it sits where the lane sits), its mix octet is
  * applied by the rack rather than by the mixer, and it is only spawned at all
  * when the algorithm names it.
  */
@@ -432,7 +432,7 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   rig.program = program;
   fmSeedGains(rig, ops);
 
-  // The channel's pan context as it stands BEFORE operator 0 retriggers — read
+  // The lane's pan context as it stands BEFORE operator 0 retriggers — read
   // once, for the same reason the layered path reads it (a child's own trigger
   // must not inherit a sibling's).
   const chanPan = voice.channelPan, chanRowPan = voice.rowPan;
@@ -481,7 +481,7 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     op.layerRelDetune = ops[k].detune - ops[0].detune;
     op.layerMixGain = 1.0;
     // An operand has no place of its own: the rack is one signal at the
-    // channel's position, so an operator never pulls it sideways.
+    // lane's position, so an operator never pulls it sideways.
     op.layerRelPan = 0;
     op.layerRelElevation = 0;
     op.notePan = voice.notePan;
@@ -604,10 +604,10 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   notePanSeedBox[2] = 0;
   if (instId !== 0) {
     // Everything an INSTRUMENT says about panning lands on the note axis (item
-    // 117), never on the channel's own position — the exact mirror of the
+    // 117), never on the lane's own position — the exact mirror of the
     // volume side, where an instrument seeds `note_vol` and only M / N may
     // touch `channel_vol`. That is what lets `S $80xx` ROTATE a zone-panned
-    // instrument instead of being flattened by its next note: the channel says
+    // instrument instead of being flattened by its next note: the lane says
     // where the part sits, the instrument says where the note sits within it.
     //
     // Two sources, in specificity order, and mutually EXCLUSIVE because they
@@ -638,7 +638,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
         // Surround: the instrument's default is a POSITION (#998). Its azimuth
         // is nine bits (byte 177 + byte 14's `A`), so it can sit behind the
         // listener, and its elevation comes from record byte 254. Both are read
-        // as offsets from the channel's direction, so an instrument that wants
+        // as offsets from the lane's direction, so an instrument that wants
         // to sound half-left of wherever the part is placed can say so.
         applyNotePanSet(ts, voice, inst.defaultAzimuth);
         applyNoteElevation(ts, voice, inst.defaultElevation);
@@ -649,7 +649,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
     // ACCUMULATES across notes on an instrument that brings no default pan of
     // its own, which is IT's arithmetic (IT adds PPS to the pan it is holding
     // and only the default pan re-seeds that); it accumulates in note-axis
-    // units now instead of channel-axis ones.
+    // units now instead of lane-axis ones.
     if (inst.pitchPanSeparation !== 0) {
       const noteDelta = (noteVal - inst.pitchPanCentre) / 4096.0;
       const panShift = Math.trunc(noteDelta * inst.pitchPanSeparation * 4.0);
@@ -679,14 +679,14 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // noteVolume seed (IT `chan->volume = psmp->volume` rule; channelVolume survives).
   if (volOverride >= 0) voice.noteVolume = clamp(volOverride, 0, ts.volMax);
   else if (instId !== 0) voice.noteVolume = rowVolumeFromDefault(inst, patch, ts.volMax);
-  // else: note-only retrigger inherits the channel's existing note volume.
+  // else: note-only retrigger inherits the lane's existing note volume.
   voice.rowVolume = voice.noteVolume;
   // Deferred anti-click ramp snap (applyVolColumn/applyEffectRow run after this).
   voice.snapMixVolume = true;
   voice.volRampSamples = 0;
   voice.volRampStep = 0.0;
   // A fresh note starts AT its pitch and AT its pan — it does not bend or slide
-  // in from whatever the channel was last playing (item 141).
+  // in from whatever the lane was last playing (item 141).
   voice.snapPlaybackRate = true;
   voice.snapPan = true;
   voice.noteWasCut = false;
@@ -709,7 +709,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
 }
 
 /**
- * What a trigger of (instId, note) will actually sound on the channel's
+ * What a trigger of (instId, note) will actually sound on the lane's
  * FOREGROUND voice, as an [instrument, note] pair.
  *
  * Only an FM rack shifts it: the voice the rack takes is operator 0's, at
@@ -793,7 +793,7 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
  * rack monophonic whatever its New Note Action says — a rack of bells cut dead
  * by the next row. So the whole rig is copied instead: each sounding operand
  * is ghosted beside its carrier and re-hung on a clone of the rack, pointing
- * at the ghost through `fmParent` rather than at the channel, so the incoming
+ * at the ghost through `fmParent` rather than at the lane, so the incoming
  * note's own trigger leaves it alone.
  *
  * The ghost is then an ordinary background voice in every other respect: the
@@ -847,7 +847,7 @@ export function maybeSpawnBackgroundForNNA(eng, ts, voice, channel) {
     // to mean dropping the old one wherever its waveform happened to be — a step
     // from that value to whatever the new note starts at. That is the retrigger
     // click, and it is loudest exactly where it is least wanted: a fast run of
-    // notes on one channel, or a tone portamento re-attacking (item 142).
+    // notes on one lane, or a tone portamento re-attacking (item 142).
     //
     // So the outgoing note is ghosted just long enough to ramp out. It fades
     // over the same span the incoming note's attack ramp fades IN, which makes
@@ -869,7 +869,7 @@ export function maybeSpawnBackgroundForNNA(eng, ts, voice, channel) {
   capBackgroundVoices(ts);
 }
 
-/** Snapshot the playback-relevant state of src into a fresh Voice for channel.
+/** Snapshot the playback-relevant state of src into a fresh Voice for lane.
  *  MUST copy the full active-sample + active-envelope views AND both filter
  *  state sets (incl. SF2 biquad coefficients/history) — see the port notes. */
 export function ghostVoice(src, channel) {
@@ -943,7 +943,7 @@ export function ghostVoice(src, channel) {
   v.randomVolBias = src.randomVolBias;
   v.randomPanBias = src.randomPanBias;
   // A ghost runs no effects, so its panbrello freezes at the offset it had when
-  // the new note pushed it out of the channel — it keeps sounding where it was.
+  // the new note pushed it out of the lane — it keeps sounding where it was.
   v.panbrelloOffset = src.panbrelloOffset;
   v.noteVal = src.noteVal;
   v.basePitch = src.basePitch;
@@ -977,7 +977,7 @@ export function ghostVoice(src, channel) {
   v.activeLoopMode = src.activeLoopMode;
   // The window funk repeat had walked to travels with the ghost — its sample
   // position is INSIDE that window — but the walk itself does not: the pointer
-  // is the channel's, and a ghost is no longer addressable from the pattern.
+  // is the lane's, and a ghost is no longer addressable from the pattern.
   v.funkWindow = src.funkWindow;
   // Same rule for extended $102/$12x's own window (item 173 follow-up): the
   // ghost's sample position is inside it, but inst.modFunkWalk/modFunkPos
@@ -1015,7 +1015,7 @@ export function ghostVoice(src, channel) {
   return v;
 }
 
-/** Past-note action (S $70..$72) on all background voices spawned by channel. */
+/** Past-note action (S $70..$72) on all background voices spawned by lane. */
 export function applyPastNoteAction(eng, ts, channel, action) {
   switch (action) {
     case 0: { // Past Note Cut — drop them.
@@ -1069,9 +1069,9 @@ export function applyVolColumn(ts, voice, value, sel) {
 /**
  * Pan column — the NOTE pan axis (item 117), the exact counterpart of the
  * volume column owning `note_vol` while M / N own `channel_vol`. All four
- * selectors write it, so a column SET places THIS note and leaves the channel's
+ * selectors write it, so a column SET places THIS note and leaves the lane's
  * own position (S $80xx, P, X, Z) standing underneath: on a zone-panned Ixmp
- * instrument the SET is what overrides the zone, and the channel commands are
+ * instrument the SET is what overrides the zone, and the lane commands are
  * what rotate it. There is consequently nothing left to arbitrate when a row
  * carries both a SET and an S $80xx — they address different registers, so both
  * apply.
@@ -1104,13 +1104,13 @@ export function applyPanColumn(ts, voice, value, sel) {
  * Like the narrow column it is the NOTE axis (item 117) — the wide cell is the
  * same two lanes at higher resolution, exactly as its volume column is still
  * `note_vol` with a whole byte instead of six bits — so its azimuth and
- * elevation are both offsets from wherever the channel is pointing.
+ * elevation are both offsets from wherever the lane is pointing.
  *
  * The one exception is a `Z` slide on the same row, which turns the SET into
  * that slide's TARGET rather than a jump (the column says what effect `4` would
  * have said, and outranks a `4` on the same row for being the more specific
- * statement). A Z target names an absolute direction for the CHANNEL to travel
- * to, so on those rows — and only those — the column speaks for the channel.
+ * statement). A Z target names an absolute direction for the LANE to travel
+ * to, so on those rows — and only those — the column speaks for the lane.
  */
 export function applyPanColumnWide(ts, voice, row) {
   switch (row.panEff) {

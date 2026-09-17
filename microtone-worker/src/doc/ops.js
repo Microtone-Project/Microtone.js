@@ -155,7 +155,7 @@ export function setCueOp(song, cue, words, gestureId = null) {
   };
 }
 
-/** Highest cue index the doc's channel mode can address (format-limited). */
+/** Highest cue index the doc's lane mode can address (format-limited). */
 function cueLimit(doc) { return doc.is64Channel ? NUM_CUES_64 : NUM_CUES; }
 
 /**
@@ -233,23 +233,23 @@ function restoreCuesOp(song, prevWrites, truncateTo, gestureId = null) {
   };
 }
 
-// ── channel insert/remove (Timeline channel context menu) ──
+// ── lane insert/remove (Timeline lane context menu) ────────
 // A cue word is `pattern (15 bits) | command bit (bit 15)`, and the command
-// bits of channels 0-31 together SPELL the cue's two instruction words
-// (taud-parse cueInstructionWords). So shifting channels moves the PATTERN
-// half only — bit 15 belongs to the channel POSITION, not to its contents, and
+// bits of lanes 0-31 together SPELL the cue's two instruction words
+// (taud-parse cueInstructionWords). So shifting lanes moves the PATTERN
+// half only — bit 15 belongs to the lane POSITION, not to its contents, and
 // carrying it along would rewrite the cue's LEN/HALT/jump instructions.
 const PAT_MASK = 0x7fff;
 const CMD_BIT = 0x8000;
 
-/** True when channel `ch` plays anything anywhere in the song. Insert drops the
- *  LAST channel (the channel count is a fixed 32 or 64), so the caller uses this
+/** True when lane `ch` plays anything anywhere in the song. Insert drops the
+ *  LAST lane (the lane count is a fixed 32 or 64), so the caller uses this
  *  to warn before the drop. */
 export function channelHasContent(songObj, ch) {
   return songObj.cues.some((w) => (w[ch] & PAT_MASK) !== CUE_EMPTY);
 }
 
-// A channel's MUTE rides along with the content, because that is what the mute
+// A lane's MUTE rides along with the content, because that is what the mute
 // is about — you silenced a part, not a position on screen. `mutes` is the live
 // boolean[] (mutated in place; null skips the whole concern, which is what the
 // Node tests and any non-UI caller do), and the mute pushed off the end travels
@@ -259,7 +259,7 @@ export function channelHasContent(songObj, ch) {
 // op's tags when it undoes.
 
 /**
- * Insert an empty channel at index `at`: every channel from `at` on shifts one
+ * Insert an empty lane at index `at`: every lane from `at` on shifts one
  * to the right, and the last one falls off the end. `restore` (undo only) is
  * `{pats, mute}` — the per-cue pattern number and the mute to put back at `at`
  * instead of an empty, unmuted slot.
@@ -307,7 +307,7 @@ export function insertChannelOp(song, at, restore = null, mutes = null, gestureI
 
 /** Inverse of insertChannelOp: shift `at`+1… back left and put `restoreLast`
  *  (the patterns and mute the insert pushed off the end) back on the last
- *  channel. */
+ *  lane. */
 export function removeChannelOp(song, at, restoreLast = null, mutes = null, gestureId = null) {
   return {
     type: "removeChannel",

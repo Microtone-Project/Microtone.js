@@ -6,7 +6,7 @@
 // is new here is only the WALK — a query is a set, and a search is an ordered
 // list you can step through — and the two orders a tracker actually thinks in:
 //
-//   SONG      play order: every cue in turn, every row of it, every channel
+//   SONG      play order: every cue in turn, every row of it, every lane
 //             that has a pattern. This is the Timeline's own coordinate system,
 //             so a hit is a place the cursor can simply go.
 //   PATTERNS  the pattern bank: every materialised pattern, ascending, row by
@@ -60,7 +60,7 @@ function hitCache(doc, songIndex, predicate, wide) {
 /**
  * Every match in PLAY ORDER: [{row, ch, cue, pat, patRow}], where `row` is the
  * absolute song row the Timeline's cursor uses and `patRow` the row inside the
- * pattern. Sorted by row, then by channel — reading order on the grid.
+ * pattern. Sorted by row, then by lane — reading order on the grid.
  *
  * An empty cue slot holds no pattern and is skipped; a cue shortened by a LEN
  * or HALT instruction contributes only the rows it plays, because the rows past

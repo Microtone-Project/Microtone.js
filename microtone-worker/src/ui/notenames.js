@@ -100,10 +100,10 @@ const FX_LAYOUT = {
   19: "1122", // J $xxyy  arpeggio: offset 1, offset 2
   20: "12..", // K $xy00  vibrato + volume slide
   21: "12..", // L $xy00  portamento + volume slide
-  22: "11..", // M $xx00  set channel volume
-  23: "12..", // N $xy00  channel volume slide
+  22: "11..", // M $xx00  set lane volume
+  23: "12..", // N $xy00  lane volume slide
   24: "1111", // O $xxyy  sample offset
-  25: "12..", // P $xy00  channel panning slide
+  25: "12..", // P $xy00  lane panning slide
   26: "12..", // Q $xy00  retrigger: volume modifier, interval
   27: "1122", // R $xxyy  tremolo: speed, depth
   28: null, //  S        multiplexed — see fxArgFields
@@ -127,7 +127,7 @@ const S_LAYOUT = {
   0x5: "o1..", // S $5x00  panbrello waveform
   0x6: "o1..", // S $6x00  fine pattern delay
   0x7: "o1..", // S $7x00  note/instrument action
-  0x8: "o111", // S $80xx  set channel pan (9-bit angle in surround)
+  0x8: "o111", // S $80xx  set lane pan (9-bit angle in surround)
   0xb: "o1..", // S $Bx00  pattern loop
   0xc: "o1..", // S $Cx00  note cut
   0xd: "o123", // S $Dxny  note delay, action, action delay

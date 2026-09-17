@@ -155,7 +155,7 @@ export const SNAP_VOICE_STRIDE = 23;
 // Every PHYSICAL voice, so the jam bank (item 140) is visible to the views that
 // follow a sounding audition — the Instruments/Samples editors scan the block
 // looking for the voice their preview landed on, and it no longer lands on a
-// song channel.
+// song lane.
 export const SNAP_MAX_VOICES = TOTAL_VOICES;
 
 // ── Master-strip blocks (item 98), after the voice array ──

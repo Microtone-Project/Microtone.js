@@ -10,7 +10,7 @@
 //
 // Every tool acts on a CELL LIST the view supplies — the selection when there
 // is one, else the single cell that was clicked — so the same code serves the
-// Timeline (rows × channels, crossing patterns) and a Patterns column (a row
+// Timeline (rows × lanes, crossing patterns) and a Patterns column (a row
 // range in one pattern). The maths is patterntools.js's per-cell core, the same
 // one the Patterns toolbar runs, so the two can't drift.
 
@@ -177,12 +177,12 @@ function applyCellBytes(ctx, fn) {
  * `ctx` is `{ store, cells, cols, lanes, scope, anchor, column }` — `cells` a
  * DEDUPED `[{pat, row}]` list (the view builds it from its selection, or from
  * the one clicked cell), `cols` the logical columns in play, `lanes` the same
- * cells kept in READING ORDER and split per channel (which is what an
+ * cells kept in READING ORDER and split per lane (which is what an
  * interpolation runs down, and what a deduped set cannot say), `scope` the
  * human label the modals put in their body text, `anchor` the `{pat, row,
  * channel, rowLabel}` the panner reads its starting position off, and `column`
- * the voice the block sits in when the view HAS voices — a Taud pattern is one
- * channel, so the Patterns view leaves it out and Find & Change works the
+ * the lane the block sits in when the view HAS lanes — a Taud pattern is one
+ * lane, so the Patterns view leaves it out and Find & Change works the
  * column out from the cue list instead. Resolves true when the document
  * changed.
  */

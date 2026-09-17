@@ -652,7 +652,7 @@ test("jamNote audition finds an in-range note for a strict metainstrument", () =
   assert.ok(alt >= 0 && eng._metaSoundsAt(inst, alt), "audition note sounds");
 });
 
-// item 45: muting a channel silences its layer children / NNA ghosts too.
+// item 45: muting a lane silences its layer children / NNA ghosts too.
 test("channel mute covers metainstrument layer children (background voices)", () => {
   const corpus = fileURLToPath(new URL("../corpus/flourish.taud", import.meta.url));
   const eng = new TaudEngine();
@@ -676,7 +676,7 @@ test("channel mute covers metainstrument layer children (background voices)", ()
   assert.ok(loud > 1, "sounds while unmuted");
 
   jam();
-  eng.setVoiceMute(0, 0, true); // mute channel 0 (foreground + its children)
+  eng.setVoiceMute(0, 0, true); // mute lane 0 (foreground + its children)
   const muted = rms();
   assert.ok(muted < loud * 0.05, `muted RMS ${muted.toFixed(2)} ≪ ${loud.toFixed(2)} (layer child silenced too)`);
 });
@@ -757,7 +757,7 @@ test("jamSample previews the exact pooled sample, bypassing metainstrument zones
   }
   assert.ok(target, "found a layer-child sample to preview");
 
-  // jamSample plays that exact region on the top channel regardless of the bank.
+  // jamSample plays that exact region on the top lane regardless of the bank.
   const vi = 5;
   eng.jamSample(0, vi, 0x5000, target);
   const v = eng.playheads[0].trackerState.voices[vi];
@@ -776,7 +776,7 @@ test("jamSample previews the exact pooled sample, bypassing metainstrument zones
   assert.equal(v.active, false, "jamStop ends the audition");
 });
 
-// item 140: the jam bank sits above every addressable channel, so the desk
+// item 140: the jam bank sits above every addressable lane, so the desk
 // cannot mute an audition and one released key of a chord cannot take the
 // others (or the song) with it.
 test("item 140: the jam bank plays through a muted desk and releases per voice", () => {
@@ -812,7 +812,7 @@ test("item 140: the jam bank plays through a muted desk and releases per voice",
 
 test("item 140: playback never writes to the jam bank", () => {
   const eng = makeTestEngine();
-  // Every channel plays a note every row; the bank must stay untouched.
+  // Every lane plays a note every row; the bank must stay untouched.
   const pat = new Uint8Array(512);
   for (let r = 0; r < 64; r++) {
     pat[r * 8] = 0x00; pat[r * 8 + 1] = 0x50; pat[r * 8 + 2] = 1;
@@ -831,7 +831,7 @@ test("item 140: playback never writes to the jam bank", () => {
     assert.equal(ts.voices[v].active, false, `bank voice ${v} untouched by playback`);
   }
 
-  // …and jamming ALONG with the song neither steals a channel nor — on the
+  // …and jamming ALONG with the song neither steals a lane nor — on the
   // release — cuts it, which is what the old whole-playhead jamStop did.
   const jv = eng.jamVoice(0);
   eng.jamNote(0, jv, 0x5000, 1);
@@ -849,7 +849,7 @@ test("item 140: playback never writes to the jam bank", () => {
 // whole chord the stop had cut, and a Stop pressed while an audition rang kept
 // the song playing for ever (nothing goes silent, so jamActive never clears).
 
-/** Engine + a 4-channel song on cue 0 (`haltAfter` rows ⇒ the cue halts). */
+/** Engine + a 4-lane song on cue 0 (`haltAfter` rows ⇒ the cue halts). */
 function makeSongEngine(haltAfter = 0) {
   const eng = makeTestEngine();
   const pat = new Uint8Array(512);
@@ -863,7 +863,7 @@ function makeSongEngine(haltAfter = 0) {
   for (let ch = 0; ch < 4; ch++) { cue[ch * 2] = 0; cue[ch * 2 + 1] = 0; }
   if (haltAfter > 0) {
     // Instruction word 0 = "halt at row x" ($01, $40|x), carried in bit 15 of
-    // the first 16 channel words — bit k of the word lives on channel k.
+    // the first 16 lane words — bit k of the word lives on lane k.
     const w = 0x0100 | 0x40 | (haltAfter & 0x3f);
     for (let k = 0; k < 16; k++) {
       if ((w >>> k) & 1) { cue[k * 2] |= 0xff; cue[k * 2 + 1] |= 0x80; }
@@ -908,7 +908,7 @@ test("Stop ends the song's voices, so a later jam revives nothing", () => {
   for (let ch = 0; ch < 4; ch++) assert.equal(ts.voices[ch].active, false);
 
   // The silencing does not outlive the stop: the delegate's own jam-on-a-song-
-  // channel (what the Kotlin device does — see JAM_VOICES) still sounds.
+  // lane (what the Kotlin device does — see JAM_VOICES) still sounds.
   eng.jamNote(0, 1, 0x5000, 1);
   assert.ok(renderPeak(eng) > 8, "a channel jam after the stop is audible");
   renderSamples(eng, TRACKER_CHUNK);
@@ -1094,7 +1094,7 @@ test("item 116: a patch's default pan applies with the base 'p' bit CLEAR", () =
   ]));
 
   // Item 117: a zone pan lands on the NOTE axis, as an offset from centre, so
-  // the channel's own position is left for the pattern to command.
+  // the lane's own position is left for the pattern to command.
   const ts = eng.playheads[0].trackerState;
   eng.jamNote(0, 0, 0x4000, 1);
   assert.equal(ts.voices[0].activePatchIndex, 0);
@@ -1107,7 +1107,7 @@ test("item 116: a patch's default pan applies with the base 'p' bit CLEAR", () =
   assert.equal(ts.voices[0].channelPan, 0x80, "the channel axis stays where it was");
 });
 
-// Item 117's payoff: the channel pan no longer fights the zone pan, it ROTATES
+// Item 117's payoff: the lane pan no longer fights the zone pan, it ROTATES
 // it — the whole zone-panned keyboard swings with S $80xx instead of collapsing
 // onto it at the next note.
 test("item 117: a channel pan rotates a zone-panned instrument", () => {
@@ -1153,8 +1153,8 @@ test("item 116: the 0xFF sentinel still defers, and still respects 'p'", () => {
   assert.equal(ts.voices[0].notePan, 0, "…and the note axis stays neutral");
 
   // 'p' set + sentinel patch: the BASE record's byte 177 lands — on the note
-  // axis too (item 117: an instrument never writes the channel's own position),
-  // so with the channel at $11 it now sounds $11 offset by the default's $30.
+  // axis too (item 117: an instrument never writes the lane's own position),
+  // so with the lane at $11 it now sounds $11 offset by the default's $30.
   eng.instruments[1].panEnvLoop |= 0x80;
   eng.jamNote(0, 0, 0x5000, 1);
   assert.equal(ts.voices[0].notePan, 0x30 - 0x80, "sentinel defers to the base default pan");
@@ -1195,7 +1195,7 @@ test("item 116: each meta layer child keeps its OWN default pan", () => {
   assert.equal(kids[0].notePan, 0xe0 - 0x80, "layer 1 keeps its own pan, not layer 0's");
 });
 
-// …but a layer with NO default pan of its own must still inherit the channel's
+// …but a layer with NO default pan of its own must still inherit the lane's
 // pan (what the parent's copy was there for): the pattern's pan column and Mxx
 // have to reach every layer.
 test("item 116: a pan-less meta layer still inherits the channel pan", () => {

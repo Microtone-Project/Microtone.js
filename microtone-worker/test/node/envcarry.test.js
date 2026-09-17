@@ -1,5 +1,5 @@
 // Item 169.1 — envelope CARRY, the LOOP word's `c` bit (bit 6). With it set,
-// a new note on a channel does not rewind that envelope's playhead: the
+// a new note on a lane does not rewind that envelope's playhead: the
 // envelope carries on from where the last note left it. Without it, every
 // trigger starts at node 0, which is what the engine has always done.
 //
@@ -187,7 +187,7 @@ test("carry is per envelope: the bit is read from each LOOP word", () => {
 test("a fresh channel carries nothing — there is no playhead to keep", () => {
   const eng = makeEngine(new Set(["vol", "pan"]));
   uploadProbe(eng, [{ row: 8, note: NOTE_E4, inst: 1 }]);
-  // Row 0's own trigger is the first note on the channel: it must start at 0.
+  // Row 0's own trigger is the first note on the lane: it must start at 0.
   const first = renderToRow(eng, 0);
   assert.equal(first.envIndex, 0, "the very first note starts at node 0");
   assert.equal(first.envPanIndex, 0);

@@ -3,7 +3,7 @@
 // own lit number) reads brightness the same way:
 //
 //   * driven by each voice's CONTROL volume (audio.getVoiceEffectiveVolume —
-//     the same number the Timeline channel header's own VU bar already
+//     the same number the Timeline lane header's own VU bar already
 //     shows), never a measured/audible level;
 //   * several simultaneous voices lighting the same row (one instrument
 //     played as a chord, or several instruments sharing one sample) combine

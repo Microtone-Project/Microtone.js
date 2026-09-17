@@ -7,7 +7,7 @@ import { SCOPE_BUFFER_SIZE } from "./constants.js";
 import { envPoint } from "./inst.js";
 import { ModGeom } from "./samplemod.js";
 
-/** Per-channel effect memory cohorts and private slots (TAUD_NOTE_EFFECTS.md §6). */
+/** Per-lane effect memory cohorts and private slots (TAUD_NOTE_EFFECTS.md §6). */
 export class MemorySlots {
   constructor() {
     this.ef = 0;        // shared E/F (pitch slide)
@@ -106,7 +106,7 @@ export class Voice {
     // Kotlin counterpart (write-only, like renderPitch).
     this.displayInst = 0;
 
-    // -1 for live foreground voices; 0..NUM_VOICES-1 = source channel for background ghosts.
+    // -1 for live foreground voices; 0..NUM_VOICES-1 = source lane for background ghosts.
     this.sourceChannel = -1;
 
     // ── Stem-export taps (item 93; JS-only, never read by the DSP) ──
@@ -134,7 +134,7 @@ export class Voice {
     this.layerRelPan = 0;
     this.layerRelElevation = 0;
     this.layerMixGain = 1.0;
-    // The parent channel's per-tick pitch overlay (vibrato / glissando /
+    // The parent lane's per-tick pitch overlay (vibrato / glissando /
     // arpeggio), copied down by the per-tick sync so an effect that bends the
     // note bends the WHOLE metainstrument and not just layer 0 (item 154).
     this.layerPitchMod = 0;
@@ -155,34 +155,34 @@ export class Voice {
     this.noteFading = false;
 
     // ── FM operator rack (Metainstrument type 4, item 159) ──
-    // On a channel's foreground voice: the live rack this note is sounding
+    // On a lane's foreground voice: the live rack this note is sounding
     // (engine/fm.js FmRig), or null for every ordinary voice — which is what
     // the mixer branches on, so nothing that never plays a rack pays for it.
     this.fmRig = null;
-    // On a background voice: this is an OPERATOR of some channel's rack, not a
+    // On a background voice: this is an OPERATOR of some lane's rack, not a
     // sound of its own. The tick pass maintains it like a layer child; the
     // mixer skips it, because the rack's own render is what reads it.
     this.fmOperator = false;
     // …and THIS is the voice whose rack it belongs to — the one carrying the
-    // `fmRig` that reads it. A live rack's operators point at the channel's
+    // `fmRig` that reads it. A live rack's operators point at the lane's
     // foreground voice; an NNA ghost of a rack (item 191) is a whole rig
     // copied into the background pool, so its operators point at the ghost
-    // instead. Everything that acts on "the channel's rack" — the per-tick
+    // instead. Everything that acts on "the lane's rack" — the per-tick
     // sync, dropFmOperators, a pattern note cut — asks this rather than
-    // sourceChannel, which the ghost's operands still share with the channel
+    // sourceChannel, which the ghost's operands still share with the lane
     // that spawned them.
     this.fmParent = null;
 
     // Two-axis volume AND pan model (TAUD_NOTE_EFFECTS.md §3). Both axes work
     // the same way on either side: the instrument seeds the NOTE axis and the
-    // pattern's channel commands own the CHANNEL axis, and the two combine at
+    // pattern's lane commands own the LANE axis, and the two combine at
     // the mixer — volume multiplies, pan adds.
     this.noteVolume = 0x3f;
     this.channelVolume = 0x3f;
     this.rowVolume = 63;
     this.channelPan = 0x80;
     this.rowPan = 32;
-    // Note-pan axis: a signed OFFSET from the channel's position, in the same
+    // Note-pan axis: a signed OFFSET from the lane's position, in the same
     // 512-units-to-a-turn space as panAzimuth (so on the front arc it is just a
     // pan-byte delta). 0 = neutral, which is what keeps a song that never
     // touches it rendering exactly as it did under the single-register model.
@@ -375,7 +375,7 @@ export class Voice {
 
     // Panbrello (Y). `panbrelloOffset` is a signed pan offset the mixer sums
     // alongside notePan and randomPanBias — an OFFSET rather than a write to
-    // either axis, so the LFO swings around wherever the channel and the note
+    // either axis, so the LFO swings around wherever the lane and the note
     // have put the voice without eating the instrument's own pan seed, and so
     // it reaches the surround path (voiceAzimuth) unchanged.
     this.panbrelloActive = false;
@@ -425,7 +425,7 @@ export class Voice {
     // `funkWalk` is where the DETERMINISTIC walk has got to, which is the same
     // as funkPos except under `$8`-`$B`, whose throw is measured from it every
     // step so the jitter cannot accumulate. Speed, mode and accumulator are all
-    // CHANNEL state: nothing resets them but a transport reset (§2.1).
+    // LANE state: nothing resets them but a transport reset (§2.1).
     this.funkSpeed = 0;
     this.funkMode = 0;
     this.funkAccumulator = 0;
@@ -442,7 +442,7 @@ export class Voice {
     this.funkXfadeOffset = 0;
 
     // Sample modification (notefx 2 / 3) — the operation and its region live on
-    // the instrument; the channel only drives the clock. `modPeriod` is the step
+    // the instrument; the lane only drives the clock. `modPeriod` is the step
     // period in TICKS (item 153.1), 0 = frozen, and modTickCount counts up to it.
     this.modPeriod = 0;
     this.modTickCount = 0;
@@ -505,10 +505,10 @@ export class Voice {
     this.volColSlideUp = 0;
     this.volColSlideDown = 0;
     // Per-tick pan slides, one pair per axis — the pan twin of nSlideDir (N,
-    // channel volume) vs volColSlide* (the volume column, note volume).
+    // lane volume) vs volColSlide* (the volume column, note volume).
     this.panColSlideRight = 0;   // the panning column's, on the note axis
     this.panColSlideLeft = 0;
-    this.chanPanSlideRight = 0;  // effect P's, on the channel axis
+    this.chanPanSlideRight = 0;  // effect P's, on the lane axis
     this.chanPanSlideLeft = 0;
     this.nSlideDir = 0;
 
@@ -541,14 +541,14 @@ export class Voice {
 }
 
 /**
- * Is background voice `bg` part of the note channel `vi` is sounding RIGHT NOW?
+ * Is background voice `bg` part of the note lane `vi` is sounding RIGHT NOW?
  *
  * A layer child is, and so is a live FM operand — that is what makes a command
- * written on the channel reach the whole metainstrument instead of layer 0
+ * written on the lane reach the whole metainstrument instead of layer 0
  * alone (item 154). A GHOSTED rack's operands (item 191) are NOT: they share
- * the channel with the note that displaced them, but they belong to a note the
+ * the lane with the note that displaced them, but they belong to a note the
  * pattern has already let go, and a background voice takes no row-driven
- * effect. Every channel-scoped walk over the children asks this, so the four
+ * effect. Every lane-scoped walk over the children asks this, so the four
  * of them cannot drift apart.
  */
 export function isSoundingChild(ts, bg, vi) {

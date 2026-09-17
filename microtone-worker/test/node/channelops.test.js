@@ -1,8 +1,8 @@
-// Channel insert/remove (the Timeline channel context menu) + the free-pattern
+// Lane insert/remove (the Timeline lane context menu) + the free-pattern
 // allocator behind its "New pattern" item.
 //
 // The load-bearing invariant is that only the PATTERN half of a cue word moves:
-// bit 15 of channels 0-31 spells the cue's two instruction words, so a shift
+// bit 15 of lanes 0-31 spells the cue's two instruction words, so a shift
 // that carried it would silently rewrite LEN/HALT/jump. Every test below checks
 // the instruction words survive the shift unchanged.
 
@@ -20,7 +20,7 @@ import { UndoStack } from "../../src/doc/undo.js";
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const loadWhen = () => new Document(parseTaud(readFileSync(corpusDir + "WHEN.taud")));
 
-/** Pattern numbers of cue `c`'s first `n` channels. */
+/** Pattern numbers of cue `c`'s first `n` lanes. */
 const pats = (doc, c, n = 8) =>
   [...doc.songs[0].cues[c].subarray(0, n)].map((w) => w & 0x7fff);
 /** Every cue's instruction-word pair — the thing a shift must not disturb. */
@@ -35,7 +35,7 @@ test("insertChannel: shifts patterns right, blanks the inserted slot", () => {
   assert.deepEqual(after.slice(0, 2), before.slice(0, 2), "left of the insert is untouched");
   assert.equal(after[2], CUE_EMPTY, "the inserted slot is empty");
   assert.deepEqual(after.slice(3), before.slice(2, 7), "the rest shifted one right");
-  // the last channel fell off the end
+  // the last lane fell off the end
   assert.equal(doc.songs[0].cues[0][chans - 1] & 0x7fff,
     doc.songs[0].cues[0][chans - 1] & 0x7fff);
 });
@@ -68,7 +68,7 @@ test("insertChannel: the op's inverse restores every cue word exactly", () => {
 test("insertChannel: content pushed off the last channel comes back on undo", () => {
   const doc = loadWhen();
   const chans = doc.channelCount;
-  // Put a pattern on the last channel of cue 0 so the insert has to drop it.
+  // Put a pattern on the last lane of cue 0 so the insert has to drop it.
   doc.songs[0].cues[0][chans - 1] = (doc.songs[0].cues[0][chans - 1] & 0x8000) | 0x0123;
   assert.equal(channelHasContent(doc.songs[0], chans - 1), true);
   const snapshot = doc.songs[0].cues.map((w) => Uint16Array.from(w));
@@ -131,7 +131,7 @@ test("channelHasContent: only counts real pattern references", () => {
   assert.equal(channelHasContent(doc.songs[0], chans - 1), false);
 });
 
-// ── channel mutes ride with the content ──
+// ── lane mutes ride with the content ─────
 
 const muteArr = (doc, ...on) => {
   const m = new Array(doc.channelCount).fill(false);
@@ -165,7 +165,7 @@ test("insertChannel: undo shifts mutes back, keeping later toggles in place", ()
   const doc = loadWhen();
   const mutes = muteArr(doc);
   const inverse = insertChannelOp(0, 1, null, mutes).apply(doc);
-  // The user mutes a channel AFTER the insert — its content sits at index 5,
+  // The user mutes a lane AFTER the insert — its content sits at index 5,
   // and undo moves that content (and so its mute) back to 4.
   mutes[5] = true;
   inverse.apply(doc);

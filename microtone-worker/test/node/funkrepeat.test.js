@@ -14,7 +14,7 @@
 // accumulator, the sticky speed nibble and — in PT's sources — every name.
 //
 // State scope (§2.1, §7.2): the window is per voice and follows the note; the
-// speed and the accumulator are per channel and outlive it. PT never cleared
+// speed and the accumulator are per lane and outlive it. PT never cleared
 // the accumulator anywhere but on its own overflow — not on a note, not on a
 // speed change, not on `EF $0` — so the ladder is a running phase, not a
 // period counter.

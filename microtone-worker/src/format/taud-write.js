@@ -56,7 +56,7 @@ export function writeTaud(doc) {
       }
     });
     // Trim TRAILING empty cues (taud_common.finalize_cue_sheet): a cue is empty
-    // only when every channel is CUE_EMPTY (0x7FFF → bytes 0xFF,0x7F) AND both
+    // only when every lane is CUE_EMPTY (0x7FFF → bytes 0xFF,0x7F) AND both
     // instruction words are NOP, i.e. all its stride bytes are 0xFF/0x7F. Only
     // the trailing run is dropped (interior rests survive); at least one cue is
     // always kept. This is what makes "save only what's used": deleting content

@@ -4,7 +4,7 @@
 <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
 <script type="module">
 // The same icon-cell menu on the other two grids: the full set on Cues (the
-// clipboard, both channel inserts, New pattern on an empty slot) and the
+// clipboard, both lane inserts, New pattern on an empty slot) and the
 // clipboard on Patterns — where the point is that it works ACROSS columns,
 // i.e. copy inside one pane's selection and paste into another.
 const out = document.getElementById("out");
@@ -44,7 +44,7 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
     .map((c) => c.dataset.id);
   // The filled-slot cells (item 103.1) ride along on every menu opened over a
   // slot with a pattern in it; they get their own leg below, so the clipboard
-  // and insert checks look at the row only as far as the channel inserts.
+  // and insert checks look at the row only as far as the lane inserts.
   const clipIds = (dlg) => { const a = ids(dlg); return a.slice(0, a.indexOf("insRight") + 1); };
   const cell = (dlg, id) => dlg.querySelector(`.ctx-cell[data-id="${id}"]`);
   const dismiss = async (dlg) => { dlg?.dispatchEvent(new win.Event("cancel", { cancelable: true })); await sleep(40); };
@@ -72,9 +72,9 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
     "a filled slot with nothing selected = the two channel inserts", ids(dlg).join());
   await dismiss(dlg);
 
-  // The command columns belong to the cue rather than to a channel, so they get
+  // The command columns belong to the cue rather than to a lane, so they get
   // a menu of their own: the cue clipboard over the command words plus the
-  // command editor, and none of the channel cells.
+  // command editor, and none of the lane cells.
   dlg = await menuOn(cueCv, CUE_G + 10, cueY(0));
   check(!!dlg, "the Cmd1 column opens its own menu");
   check(ids(dlg).join() === "cmdFill",
@@ -90,7 +90,7 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   check(store.cueClipboard?.cmd === true && store.cueClipboard?.rows === 4 &&
     store.cueClipboard?.chans === 2, "the Copy cell took the command words",
     `${store.cueClipboard?.rows}×${store.cueClipboard?.chans} cmd=${store.cueClipboard?.cmd}`);
-  // A command block is not something a channel cell can paste…
+  // A command block is not something a lane cell can paste…
   dlg = await menuOn(cueCv, cueX(2), cueY(0));
   check(!ids(dlg).includes("paste"), "…which the channel menu will not offer", ids(dlg).join());
   await dismiss(dlg);
@@ -101,7 +101,7 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   cuesView.sel = null;
   store.cueClipboard = null;
 
-  // Channel insert, straight from the Cues view.
+  // Lane insert, straight from the Cues view.
   const c2 = cuePat(0, 2), c3 = cuePat(0, 3);
   const instsBefore = cueInsts().join("|");
   dlg = await menuOn(cueCv, cueX(2), cueY(0));
@@ -176,7 +176,7 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
 
   // ── New pattern over a BLOCK: one fresh number per empty slot ──────────
   cuesView.sel = null;
-  // Blank a 2 × 3 patch of cue 1-2 × channels 4-6.
+  // Blank a 2 × 3 patch of cue 1-2 × lanes 4-6.
   const blankWrites = [];
   for (let c = 1; c <= 2; c++) for (let v = 4; v <= 6; v++) {
     blankWrites.push({ cue: c, ch: v, value: (store.song.cues[c][v] & 0x8000) | 0x7fff });

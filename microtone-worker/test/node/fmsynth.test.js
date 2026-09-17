@@ -217,7 +217,7 @@ test("a rack is ONE voice: its modulators never reach the mix", () => {
   assert.notEqual(voice0(eng).fmRig, null, "the channel's voice carries the rack");
   assert.equal(voice0(eng).fmRig.voices[0], voice0(eng), "operator 0 IS that voice");
   // The proof that the operand is not also a sound: silence the CARRIER and
-  // the channel goes quiet even though the modulator is still running at full
+  // the lane goes quiet even though the modulator is still running at full
   // level. What is left is the output dither, which is one LSB of it.
   const quiet = makeEngine();
   quiet.uploadInstrument(4, buildMetaRecord([op(1, 0), op(2, 255)], { type: META_TYPE_FM }));
@@ -431,7 +431,7 @@ test("the ADD word sums two carriers", () => {
 
 // ── the note's volume, and the operator's level ──────────────────────────────
 
-/** `samples` frames of the LEFT channel, as ±1 floats. */
+/** `samples` frames of the LEFT lane, as ±1 floats. */
 function renderMono(eng, samples) {
   const out = new Uint8Array(TRACKER_CHUNK * 2);
   const buf = new Float64Array(samples);
@@ -455,7 +455,7 @@ function tone(buf, hz, from = 0) {
 test("an operator's level is its modulation index, not the note's volume", () => {
   // The volume column must change what a rack SOUNDS LIKE not at all — only how
   // loud it is. §5.5.1's list of what an operator's value is multiplied by
-  // leaves the note and channel volume out on purpose: the mixer applies them
+  // leaves the note and lane volume out on purpose: the mixer applies them
   // once, to the finished patch, through operator 0. Fold them into the
   // operators as well and a modulator's output — which IS a phase deviation —
   // shrinks with the volume column, so a patch played quietly plays duller too.
@@ -490,7 +490,7 @@ test("an operator's level is its modulation index, not the note's volume", () =>
 test("S $73..$76 reaches a rack: the pattern can override its principal's NNA", () => {
   // Operator 0 says Note Cut, so the rack leaves nothing behind on its own —
   // and a per-note override is the pattern's way of saying otherwise, which on
-  // a metainstrument's channel used to be a no-op (item 191.1).
+  // a metainstrument's lane used to be a no-op (item 191.1).
   const run = (rows) => {
     const eng = makeEngine();
     uploadCycle(eng, 1, 0, { nna: 1, fadeout: 8 });
@@ -514,8 +514,8 @@ test("S $73..$76 reaches a rack: the pattern can override its principal's NNA", 
 });
 
 test("a ghosted rack takes no row-driven effect — it is a background voice", () => {
-  // The ghost's operands share the channel with the note that displaced them,
-  // so every channel-scoped walk has to tell them apart from the LIVE rack's
+  // The ghost's operands share the lane with the note that displaced them,
+  // so every lane-scoped walk has to tell them apart from the LIVE rack's
   // (isSoundingChild) or a crusher written on the next row would reach back
   // into a note the pattern has already let go.
   const eng = makeEngine();

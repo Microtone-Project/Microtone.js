@@ -61,7 +61,7 @@ const clone = (q) => JSON.parse(JSON.stringify(q));
  *        range, or the one cell that was right-clicked
  * @param scope human label for those cells ("selected rows 0–15")
  * @param titleArg what the title names (the pattern number, usually)
- * @param channel the voice column those cells belong to, when the caller knows
+ * @param channel the lane column those cells belong to, when the caller knows
  *        it (a Timeline block does; the Patterns view works it out from the
  *        cue list) — it names the "whole column" scope
  * @returns Promise<boolean> — true when the document changed

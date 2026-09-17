@@ -44,7 +44,7 @@ function ensureWorker() {
  * @param opts.rpb  MIDI rows-per-beat (2/4/8/16/32/64, or null/"auto")
  * @param opts.trimPatches  MIDI: drop the Ixmp patches the song never triggers
  *                          (item 75; off = keep each preset's full zone map)
- * @param opts.keepDuplicatePatterns  MIDI: give every cue×voice cell its own
+ * @param opts.keepDuplicatePatterns  MIDI: give every cue×lane cell its own
  *                          pattern instead of pooling identical ones
  * @param opts.realign  MIDI (item 183): null/"off" trusts the file's tempo;
  *                      "auto" infers the tempo the events are really written

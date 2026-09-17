@@ -40,7 +40,7 @@
         // ── Timeline: 2D block copy → paste ──
         store.view = "timeline";
         store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
-        // Select rows 0..2 × channels 0..1.
+        // Select rows 0..2 × lanes 0..1.
         timeline.sel = { aRow: 0, aCh: 0, row: 2, ch: 1 };
         const src = [];
         for (let r = 0; r < 3; r++) { src.push([]); for (let c = 0; c < 2; c++) src[r].push(cap(timeline.cellAt(r, c))); }
@@ -49,7 +49,7 @@
         const blockOk = block && block.rows === 3 && block.chans === 2;
         log(`copy: block ${block?.rows}×${block?.chans}`);
 
-        // Paste at row 10 / channel 3. The selection has to go first: a live
+        // Paste at row 10 / lane 3. The selection has to go first: a live
         // block selection is now the paste TARGET (its top-left wins over the
         // cursor), which the anchor leg further down checks on its own.
         timeline.clearSelection();

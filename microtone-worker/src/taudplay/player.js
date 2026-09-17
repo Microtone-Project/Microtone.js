@@ -1,12 +1,12 @@
 // TaudPlayer — the browser half of taudplay. Owns the AudioContext and the
 // worklet node, keeps the latest snapshot, and exposes the whole library:
-// a transport, one fader per voice, and two numbers per voice to look at.
+// a transport, one fader per lane, and two numbers per lane to look at.
 //
 // Everything a tracker EDITOR needs and a player does not is absent by
 // construction, not by configuration — there is no document model, no undo, no
 // pattern access, no instrument editing, no jam bank, no analysis tap, no
 // loudness metering, no stem or surround export. What is left is the part a
-// game or a web page actually wants: press play, fade a voice, draw a meter.
+// game or a web page actually wants: press play, fade a lane, draw a meter.
 
 import { parseTaud } from "../format/taud-parse.js";
 import { SAMPLING_RATE } from "../engine/constants.js";
@@ -43,7 +43,7 @@ export class TaudPlayer {
     this.usedBundleFallback = false; // the module worklet was refused (Firefox)
     // Fader ramp mirror. The ramp itself runs in the worklet; this side keeps
     // the four numbers that describe it so `getVoiceGain` can report where a
-    // fade has got to WITHOUT spending a third per-voice slot in the snapshot
+    // fade has got to WITHOUT spending a third per-lane slot in the snapshot
     // on something the main thread already knows. The two clocks agree to
     // within the worklet's look-ahead, a few milliseconds.
     this._from = new Float64Array(64);
@@ -52,7 +52,7 @@ export class TaudPlayer {
     this._dur = new Float64Array(64); // seconds; 0 = already there
   }
 
-  /** Voice `v`'s fader byte right now, interpolated along any live ramp. */
+  /** Lane `v`'s fader byte right now, interpolated along any live ramp. */
   _liveFader(v) {
     const dur = this._dur[v];
     if (dur <= 0) return this._to[v];
@@ -195,7 +195,7 @@ export class TaudPlayer {
   stop() { this._post({ t: CMD.STOP }); }
   seekCue(cue) { this._post({ t: CMD.SEEK_CUE, cue }); }
 
-  /** Master volume, 0..1. Not a per-voice fader: this is the whole mix. */
+  /** Master volume, 0..1. Not a per-lane fader: this is the whole mix. */
   setVolume(gain) {
     const g = gain < 0 ? 0 : gain > 1 ? 1 : gain;
     this._post({ t: CMD.SET_VOLUME, volume: Math.round(g * 255) });
@@ -208,16 +208,16 @@ export class TaudPlayer {
    */
   setBinaural(on) { this._post({ t: CMD.SET_MONITOR, mode: on ? 1 : 0 }); }
 
-  // ── the knobs: one fader per voice ──
+  // ── the knobs: one fader per lane ───
 
   /**
-   * Set voice `v`'s gain (1 = as written, 0 = silent), optionally fading to it
+   * Set lane `v`'s gain (1 = as written, 0 = silent), optionally fading to it
    * over `fadeMs`. The fade is applied in the worklet at chunk rate — every
    * 2.7 ms at 48 kHz — so a slow fade is smooth without the caller having to
    * drive it frame by frame.
    *
-   * The voice's NNA ghosts and metainstrument layer children follow it: a
-   * faded-out channel takes everything it spawned with it, which is what makes
+   * The lane's NNA ghosts and metainstrument layer children follow it: a
+   * faded-out lane takes everything it spawned with it, which is what makes
    * this usable as a contextual music mixer rather than a mute button.
    */
   setVoiceGain(v, gain, fadeMs = 0) {
@@ -234,7 +234,7 @@ export class TaudPlayer {
     });
   }
 
-  /** Voice `v`'s fader gain right now — mid-fade, that is where the fade has
+  /** Lane `v`'s fader gain right now — mid-fade, that is where the fade has
    *  got to, not where it is going. Byte-quantised, like the mix itself. */
   getVoiceGain(v) {
     return v >= 0 && v < 64 ? faderToGain(Math.round(this._liveFader(v))) : 1;
@@ -250,7 +250,7 @@ export class TaudPlayer {
    * normal event handler may: start an animation, swap a sprite, print a line.
    *
    * A song fires an interrupt by putting `Int0`…`IntF` in a NOTE column. It
-   * makes no sound and disturbs no channel — it is the song saying something to
+   * makes no sound and disturbs no lane — it is the song saying something to
    * the program that is playing it, in time with the music. An interrupt that
    * fires more than once inside one snapshot window arrives once, carrying the
    * last argument.
@@ -260,26 +260,26 @@ export class TaudPlayer {
   /** Drop every registered interrupt callback. */
   clearInterrupts() { this._interrupts.fill(null); }
 
-  // ── the probes: two per voice ──
+  // ── the probes: two per lane ───
 
-  /** How loud voice `v` is RIGHT NOW, 0..1 — envelope, fadeout, volume column
+  /** How loud lane `v` is RIGHT NOW, 0..1 — envelope, fadeout, volume column
    *  and this library's own fader, which is the whole gain the mixer applies.
-   *  0 for a silent channel. */
+   *  0 for a silent lane. */
   getVoiceVolume(v) {
     if (v < 0 || v >= SNAP_VOICES) return 0;
     const o = SNAP_HEADER + v * SNAP_V_STRIDE;
     return this.snapshot[o + SNAP_V_ACTIVE] ? this.snapshot[o + SNAP_V_VOLUME] : 0;
   }
 
-  /** Where voice `v` sits in the stereo image, 0 (left) … 0.5 … 1 (right).
-   *  A surround song reports where the monitor downmix puts the voice. */
+  /** Where lane `v` sits in the stereo image, 0 (left) … 0.5 … 1 (right).
+   *  A surround song reports where the monitor downmix puts the lane. */
   getVoicePan(v) {
     if (v < 0 || v >= SNAP_VOICES) return 0.5;
     const o = SNAP_HEADER + v * SNAP_V_STRIDE;
     return this.snapshot[o + SNAP_V_ACTIVE] ? this.snapshot[o + SNAP_V_PAN] : 0.5;
   }
 
-  // ── transport read-out (not per-voice; a UI needs somewhere to start) ──
+  // ── transport read-out (not per-lane; a UI needs somewhere to start) ───
 
   get playing() { return this.snapshot[SNAP_PLAYING] !== 0; }
   get cue() { return this.snapshot[SNAP_CUE] | 0; }

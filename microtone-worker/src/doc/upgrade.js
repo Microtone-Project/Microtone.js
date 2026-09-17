@@ -26,7 +26,7 @@ export function widenVolume(v6) {
  *             ((v << 2) | (v >> 4), i.e. the front arc); slides and FINE keep
  *             their magnitude verbatim, because a pan-byte step and an azimuth
  *             step are the same unit — only FINE's direction bit moves, to `A`
- *   effects   copied into slot 1; slot 2 empty. `M` (channel volume) is the one
+ *   effects   copied into slot 1; slot 2 empty. `M` (lane volume) is the one
  *             effect whose ARGUMENT is an absolute volume level, so it scales
  *   elevation 0 — a v2 song has no height to carry
  */
@@ -67,7 +67,7 @@ export function widenPattern(src) {
     let effect = src[s + 5];
     let arg = src[s + 6] | (src[s + 7] << 8);
     if (effect === EffectOp.OP_M) {
-      // M $xx00 sets an absolute channel volume; the wide cell's is 8-bit.
+      // M $xx00 sets an absolute lane volume; the wide cell's is 8-bit.
       arg = (widenVolume((arg >>> 8) & 0x3f) << 8) | (arg & 0xff);
     }
     out[d + 5] = effect;

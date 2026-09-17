@@ -107,7 +107,7 @@ export function removeLayer(layers, i) {
 }
 
 /** Move layer `i` by `delta` places. Record order is PRIORITY: the first layer
- *  that resolves for a trigger becomes the channel's foreground voice, the rest
+ *  that resolves for a trigger becomes the lane's foreground voice, the rest
  *  spawn as background children (trigger.js triggerMetaOrNote). */
 export function moveLayer(layers, i, delta) {
   const to = i + delta;

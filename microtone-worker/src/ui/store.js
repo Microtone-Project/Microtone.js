@@ -43,9 +43,9 @@ export class Store {
      *  who wants the grid to show only what was typed wants neither. Default
      *  on, and a view preference like the rest — never saved with the song. */
     this.ghosts = true;
-    this.cursor = { row: 0, ch: 0 }; // absolute song row + channel
-    this.voiceMutes = new Array(64).fill(false); // per-channel mute (UI + engine)
-    // Format v3's SECOND effect column (§5.5), exposed per channel (Timeline)
+    this.cursor = { row: 0, ch: 0 }; // absolute song row + lane
+    this.voiceMutes = new Array(64).fill(false); // per-lane mute (UI + engine)
+    // Format v3's SECOND effect column (§5.5), exposed per lane (Timeline)
     // and per pane (Patterns). Hidden by default: most songs never use it, and
     // it costs six characters of a column that is already the widest thing on
     // screen. View state, not document state — nothing here is saved.
@@ -73,7 +73,7 @@ export class Store {
   viewOpen(name) { return this.views.includes(name); }
 
   // ── the second effect column ──
-  /** Is the column exposed on channel `ch`? Only a v3 document HAS one. */
+  /** Is the column exposed on lane `ch`? Only a v3 document HAS one. */
   fx2Chan(ch) { return this.wideCells() && this.fx2Chans[ch] === true; }
   /** …and the same question for Patterns-view pane `i`. */
   fx2Pane(i) { return this.wideCells() && this.fx2Panes[i] === true; }
@@ -96,7 +96,7 @@ export class Store {
     this.emit("fx2");
   }
 
-  /** Show/hide the column EVERYWHERE — every channel and every pattern pane. */
+  /** Show/hide the column EVERYWHERE — every lane and every pattern pane. */
   setAllFx2(on) {
     this.fx2Chans.fill(on);
     this.fx2Panes.fill(on);
@@ -132,9 +132,9 @@ export class Store {
     this.emit("mutes");
   }
 
-  /** Re-push every channel's mute to the engine and repaint. Used when
-   *  something has rewritten the whole array rather than toggled one channel —
-   *  a channel insert shifts the mutes along with the patterns they belong to,
+  /** Re-push every lane's mute to the engine and repaint. Used when
+   *  something has rewritten the whole array rather than toggled one lane —
+   *  a lane insert shifts the mutes along with the patterns they belong to,
    *  and its undo shifts them back. */
   syncVoiceMutes() {
     for (let i = 0; i < 64; i++) this.audio?.setVoiceMute(0, i, this.voiceMutes[i] === true);

@@ -6,7 +6,7 @@
 //   instrument  — renumber one instrument, following every reference to it (73)
 //   ixmp        — drop unreachable instrument patches (74)
 //
-// Cue words: `cues[cue][ch]` low 15 bits = the channel's pattern index (0x7FFF =
+// Cue words: `cues[cue][ch]` low 15 bits = the lane's pattern index (0x7FFF =
 // empty); bit 15 is one bit of the cue's packed instruction word, so a pattern
 // remap must preserve it.
 
@@ -433,13 +433,13 @@ function patchIsShadowed(p, earlier) {
  *
  * Some rows do not fix both coordinates: an instrument-byte-only row and a
  * tone-portamento continuation take the pitch (and sometimes the volume) from
- * the CHANNEL'S prior state, and a note with no instrument byte sounds whatever
- * the channel had latched. Those coordinates become WILDCARDS rather than
+ * the LANE'S prior state, and a note with no instrument byte sounds whatever
+ * the lane had latched. Those coordinates become WILDCARDS rather than
  * making the whole slot unanalysable, which is what item 147 turns on: the
  * wildcard axis is swept over every value that can change the answer, so the
  * result is still a guaranteed SUPERSET of what can sound — a drum kit played
  * on one note keeps its patches for that note and loses the rest, even though
- * some other channel's porta row leaves a volume unknown.
+ * some other lane's porta row leaves a volume unknown.
  *
  * The sweep is exact rather than sampled: resolvePatch returns the FIRST patch
  * whose rectangle contains the pair, so the answer is constant inside every
@@ -447,7 +447,7 @@ function patchIsShadowed(p, earlier) {
  * everything. The volume axis is only 6 bits, so it is swept whole.
  */
 
-/** Wildcard coordinate: "the channel decides, and we do not know what it had". */
+/** Wildcard coordinate: "the lane decides, and we do not know what it had". */
 const WILD = -2;
 /** Every seed volume a wildcard volume can stand for: -1 is "no volume column",
  *  which resolves to the instrument's own Default Note Volume. */
@@ -475,15 +475,15 @@ function addDemand(demands, slot, note, vol) {
 /**
  * Every (slot, note, seedVol) trigger the document's pattern cells can produce.
  * Mirrors row.js's note branches one for one; anything the row leaves to the
- * channel becomes WILD.
+ * lane becomes WILD.
  */
 function collectCellDemands(doc) {
   const ts = { wideCells: doc.wideCells };
   const demands = new Map();
   // Which instrument a note-with-no-instrument-byte row sounds depends on what
-  // the channel had latched, so every instrument the document names is a
-  // candidate. (Scanning by channel would narrow it, but a cue can put any
-  // pattern on any channel, so the narrowing would be worth little.)
+  // the lane had latched, so every instrument the document names is a
+  // candidate. (Scanning by lane would narrow it, but a cue can put any
+  // pattern on any lane, so the narrowing would be worth little.)
   const latchable = new Set();
   for (const song of doc.songs) {
     for (const rows of song.patterns) {
@@ -510,10 +510,10 @@ function collectCellDemands(doc) {
         const slot = cell.instrment & 0xff;
         const vol = cell.volumeEff === 0 ? narrowVolAxis(ts, cell.volume) : -1;
         if (note === 0x0000) {
-          // No note. An instrument byte either TRIGGERS at the channel's current
+          // No note. An instrument byte either TRIGGERS at the lane's current
           // pitch (row.js's E/F/G branch) or swaps the instrument under the
-          // sounding note, resolving at that pitch AND the channel's running
-          // volume. Both read channel state; the second reads both axes.
+          // sounding note, resolving at that pitch AND the lane's running
+          // volume. Both read lane state; the second reads both axes.
           if (slot !== 0) {
             addDemand(demands, slot, WILD, vol);
             addDemand(demands, slot, WILD, WILD);
@@ -522,8 +522,8 @@ function collectCellDemands(doc) {
         }
         if (note < 0x0020) continue; // key-off / cut / fade / interrupt: no lookup
         if (slot === 0) {
-          // The channel's latched instrument sounds it, seeded from the
-          // channel's running volume unless the row SETS one (triggerNote's
+          // The lane's latched instrument sounds it, seeded from the
+          // lane's running volume unless the row SETS one (triggerNote's
           // `instId === 0` branch).
           for (const s of latchable) addDemand(demands, s, note, vol >= 0 ? vol : WILD);
           continue;
@@ -534,7 +534,7 @@ function collectCellDemands(doc) {
         addDemand(demands, slot, note, 0x3f);
         if (cell.effect === EffectOp.OP_G || cell.effect === EffectOp.OP_L) {
           // Tone porta: on an ALREADY SOUNDING voice the row re-resolves the
-          // channel's note and volume under the new instrument instead of
+          // lane's note and volume under the new instrument instead of
           // triggering (row.js); on a silent one it falls through to the plain
           // trigger recorded above, so both are kept.
           addDemand(demands, slot, WILD, WILD);

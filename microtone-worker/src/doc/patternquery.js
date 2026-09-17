@@ -487,7 +487,7 @@ export function applyActions(bytes, wide, actions) {
  * whole edit lands as ONE undo step however many patterns it crossed.
  *
  * `perCondition` counts each condition ON ITS OWN — the events (rows ×
- * channels) that condition alone would select — so the dialog can say which
+ * lanes) that condition alone would select — so the dialog can say which
  * alternative of an OR is doing the work. A cell that two conditions both match
  * is counted in both, which is why the numbers can add up to more than
  * `matched`: they answer "what does this one select", not "what did this one
@@ -534,7 +534,7 @@ export function runPatternQuery(cells, query, wide) {
  * have named and can type into is a different thing from a hundred you have
  * not.
  *
- * `channel` is the voice the cells belong to when the caller knows it (a
+ * `lane` is the voice the cells belong to when the caller knows it (a
  * Timeline block does); without it the column is DERIVED — the sole voice
  * whose cue words name this pattern, since one shared by several columns names
  * none of them.

@@ -1,5 +1,5 @@
 // Item 124 — an instrument byte on a tone-portamento row RE-ATTACKS the
-// envelopes. Reported against unreeeal_superhero_3.taud (cue 3, channel 9,
+// envelopes. Reported against unreeeal_superhero_3.taud (cue 3, lane 9,
 // pattern $16): a key-off at row $21 was followed at row $22 by a note with an
 // instrument, a volume-column value and `G`, and the note was inaudible —
 // unless playback STARTED on row $21, where there was no sounding voice for the

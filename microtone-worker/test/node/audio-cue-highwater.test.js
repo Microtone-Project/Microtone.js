@@ -11,7 +11,7 @@ import { CMD } from "../../src/worklet/protocol.js";
 
 const CUE_EMPTY = 0x7fff;
 
-/** A doc-shaped stub with `n` cues (cue i, channel 0 = pattern i, unless empty). */
+/** A doc-shaped stub with `n` cues (cue i, lane 0 = pattern i, unless empty). */
 function fakeDoc(n, { empties = false } = {}) {
   const cues = [];
   for (let i = 0; i < n; i++) {

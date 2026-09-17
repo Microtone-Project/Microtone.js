@@ -176,9 +176,9 @@ export const FX_INTERP = {
     ok: (a) => (a & 0x0fff) !== 0 },
   // Overdrive: the amplification byte, clipping mode inherited.
   [EffectOp.OP_9]: { fields: F_LO, ok: (a) => (a & 0x0fff) !== 0 },
-  // S is a family, and only `S $80xx` — set channel pan — carries a byte.
+  // S is a family, and only `S $80xx` — set lane pan — carries a byte.
   [EffectOp.OP_S]: { fields: F_LO, ok: (a) => (a >>> 8) === 0x80 },
-  // The spherical pair: elevation (signed) over azimuth. X places the channel,
+  // The spherical pair: elevation (signed) over azimuth. X places the lane,
   // 4 places the target a Z slide travels to; both are directions.
   [EffectOp.OP_X]: { fields: [{ shift: 8, bits: 8, signed: true }, { shift: 0, bits: 8 }] },
   [EffectOp.OP_4]: { fields: [{ shift: 8, bits: 8, signed: true }, { shift: 0, bits: 8 }] },
@@ -306,7 +306,7 @@ const cellKey = (pat, row) => `${pat}:${row}`;
 const sameVals = (a, b) =>
   a.tag === b.tag && a.vals.length === b.vals.length && a.vals.every((v, k) => v === b.vals[k]);
 
-/** Two channels of a Timeline block can be pointed at the same patterns, which
+/** Two lanes of a Timeline block can be pointed at the same patterns, which
  *  would make one lane's writes fight the other's over the same cells for no
  *  gain. Identical lanes are one lane. */
 function dedupeLanes(lanes) {
@@ -324,11 +324,11 @@ function dedupeLanes(lanes) {
 /**
  * Interpolate `kinds` down every lane.
  *
- * `lanes` is a list of ORDERED `[{pat, row} | null]` runs — one per channel of
+ * `lanes` is a list of ORDERED `[{pat, row} | null]` runs — one per lane of
  * a Timeline block (a lane crosses patterns, because a song row does), or the
  * single row range of a Patterns column. A `null` entry is a song row this
- * channel has no cell on, and it holds the lane's SPACING: collapsing those out
- * would let a curve run straight across a stretch of song where the channel is
+ * lane has no cell on, and it holds the lane's SPACING: collapsing those out
+ * would let a curve run straight across a stretch of song where the lane is
  * not playing. `readCell(pat, row)` hands back that cell's bytes or null.
  *
  * Returns `{ writes, usable, stairs, points }`: `writes` is the

@@ -1,7 +1,7 @@
 // Interrupt dispatch — the one place a drained Int0..IntF latch becomes calls.
 //
 // A song fires an interrupt by putting `Int0`…`IntF` in a note column: no
-// sound, no channel touched, just the song saying something to the program
+// sound, no lane touched, just the song saying something to the program
 // playing it, exactly in time with the music. The argument comes from a `:` on
 // the same row (0 where the row has none).
 //

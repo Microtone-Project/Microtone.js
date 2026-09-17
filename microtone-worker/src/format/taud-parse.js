@@ -35,7 +35,7 @@ function strNul(b, o, end) {
 }
 
 // _v1CueToV2 (taud.mjs:123-144), producing u16 cue words instead of bytes:
-// 20 voices × 12-bit patterns in lo/mid/hi nibble planes + 16-bit instruction
+// 20 lanes × 12-bit patterns in lo/mid/hi nibble planes + 16-bit instruction
 // word in bytes 30/31 → 64 u16 words (low 15 bits pattern, sign bit = word0 bit).
 export function v1CueToWords(cueBin, off) {
   const b = cueBin.subarray(off, off + CUE_SIZE_V1);
@@ -58,7 +58,7 @@ export function v1CueToWords(cueBin, off) {
   return out;
 }
 
-// Decode a cue's two instruction words from its u16 channel words
+// Decode a cue's two instruction words from its u16 lane words
 // (sign bits of ch0-15 = word0, ch16-31 = word1; terranmon.txt §"Cue sheet").
 export function cueInstructionWords(words) {
   let w0 = 0, w1 = 0;
@@ -133,7 +133,7 @@ export function parseSMetSection(payload) {
  *   songs: [{ numVoices, numPats, bpm, tickRate, tuningBaseNote, tuningFreq,
  *             globalFlags, globalVolume, mixingVolume, numCuesStored, surroundModel,
  *             patterns: Uint8Array(512)[],       // raw pattern images
- *             cues: Uint16Array(64)[] }],        // raw u16 channel words (pattern | sign bit)
+ *             cues: Uint16Array(64)[] }],        // raw u16 lane words (pattern | sign bit)
  *   projSections: [{fourcc, payload: Uint8Array}],  // verbatim, in file order
  *   ixmp: [{instId, count, blob}],               // decoded view of the Ixmp section
  *   meta: { projectName, songMeta: {idx: {...}},  // decoded views of PNam / sMet

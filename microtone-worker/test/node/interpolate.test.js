@@ -353,7 +353,7 @@ test("lanes: a hole in the song keeps the curve's spacing", () => {
   const b = bench(9);
   setVol(b.at(0), 0, false);
   setVol(b.at(8), 32, false);
-  // The same eight rows, but rows 3..5 are a stretch this channel has no
+  // The same eight rows, but rows 3..5 are a stretch this lane has no
   // pattern on: the ramp either side must still be the ramp of a NINE-row span.
   const holed = b.lane.map((c, i) => (i >= 3 && i <= 5 ? null : c));
   const plan = planInterpolate({ lanes: [holed], readCell: b.readCell, kinds: ["vol"] });

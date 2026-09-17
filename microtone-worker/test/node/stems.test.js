@@ -133,7 +133,7 @@ test("labels name melodic tracks by instrument and drums by sample", () => {
 
   const v = renderWithBus(doc.toRenderable(0), 4, true);
   labelStems(v.stems, doc, "voice");
-  for (const s of v.stems) assert.match(s.label, /^Ch\d\d/, `voice label "${s.label}"`);
+  for (const s of v.stems) assert.match(s.label, /^Lane\d\d/, `lane label "${s.label}"`);
 });
 
 test("sanitiseName strips path separators and keeps non-ASCII", () => {
@@ -238,7 +238,7 @@ test("track buffers grow past the initial allocation without a seam", async () =
 });
 
 test("stem content is the pre-pan voice signal (a hard-panned voice keeps full level)", async () => {
-  // WHEN's channels carry real pan values; the stem must not be attenuated by
+  // WHEN's lanes carry real pan values; the stem must not be attenuated by
   // the pan law, so its peak is >= the peak of either mix side it feeds.
   const doc = renderable("WHEN");
   const r = renderWithBus(doc, 4, true);

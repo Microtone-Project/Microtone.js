@@ -14,7 +14,7 @@ import { EffectOp } from "../../src/engine/tables.js";
 
 setSamplingRate(32000);
 
-/** One instrument (a looping ramp) playing C4 on channel 0 of pattern 0. */
+/** One instrument (a looping ramp) playing C4 on lane 0 of pattern 0. */
 function makeEngine() {
   const eng = new TaudEngine();
   for (let i = 0; i < 1000; i++) eng.sampleBin[i] = 128 + ((i % 100) - 50);

@@ -37,11 +37,11 @@ home. If not, here is the vocabulary this manual uses:
 
 | Term | Meaning |
 |---|---|
-| **Channel / voice** | One monophonic playback lane. A song has 32 or 64 channels. |
-| **Pattern** | A 64-row grid of cells for **one** channel. Unlike most trackers, a Taud pattern is single-channel. |
+| **Lane** | One monophonic playback lane — where one part of the song is written down and played back. A song has 32 or 64 of them. Older trackers call the same thing a *channel* or a *voice*. |
+| **Pattern** | A 64-row grid of cells for **one** lane. Unlike most trackers, a Taud pattern is single-lane. |
 | **Row** | One line of a pattern. Each row holds a note, an instrument, a volume, a pan and an effect. |
 | **Tick** | The engine's time slice. Each row lasts *speed* ticks; effects update per tick. |
-| **Cue** | One entry of the song's order list: for every channel, which pattern plays next, plus optional flow commands (jump, halt, length…). A song is a sequence of cues. |
+| **Cue** | One entry of the song's order list: for every lane, which pattern plays next, plus optional flow commands (jump, halt, length…). A song is a sequence of cues. |
 | **Instrument** | A playable definition: a sample plus envelopes, filter, panning, NNA rules — or a **metainstrument**, which holds a table of other instruments instead of a sample. |
 | **Metainstrument** | The family, and it has two kinds: a **Layered** metainstrument sounds its instruments side by side, an **FM Rack** wires them into each other. Both live in an ordinary instrument slot and are played by an ordinary pattern cell. |
 | **Sample** | Raw 8-bit audio data in the shared sample pool. Several instruments may use the same sample. |
@@ -70,7 +70,7 @@ and the editor snaps entry, display and stepping to that table's degrees. See
   - **Meter** — a time signature and rows-per-beat. These set the two beat divisors (rows/beat and the derived rows/bar) that colour the row highlighting; the **Row highlight** preview shows exactly how the Timeline gutter will band.
   - **Tuning** — the reference base note (C4 or A4) and its frequency.
   - **Metadata** — song name, composer and copyright.
-  - **Layout** — 32 or 64 channels.
+  - **Layout** — 32 or 64 lanes.
   - **Notation** — the display pitch table (12-TET, 24-TET, 31-TET, Bohlen-Pierce…), defaulting to **24-TET**. You can change it later in the Project view.
 
 A new project has no samples. Add instruments later from the Instruments view.
@@ -123,7 +123,7 @@ From top to bottom:
 
 | Key | View | Purpose |
 |---|---|---|
-| **F1** | Timeline | The whole song, all channels — main editing view |
+| **F1** | Timeline | The whole song, all lanes — main editing view |
 | **F2** | Cues | The order list and flow commands |
 | **F3** | Patterns | Single-pattern editor with bulk tools |
 | **F4** | Samples | The sample pool: waveforms, DSP editing |
@@ -162,10 +162,10 @@ song it orders.
 
 ## Timeline (F1)
 
-The Timeline unrolls the entire song: every channel side by side, every cue
+The Timeline unrolls the entire song: every lane side by side, every cue
 stacked vertically. The left gutter — the *trough* — shows `cue:row` and selects
-whole song rows; channel headers carry
-live VU/pan meters, the channel's current pitch, and the name of the pattern while playing.
+whole song rows; lane headers carry
+live VU/pan meters, the lane's current pitch, and the name of the pattern while playing.
 
 ### Reading a cell
 
@@ -179,7 +179,7 @@ Each cell is five columns:
 - **Note** — the pitch in the song's notation (or a sentinel symbol: `===` key-off, `^^^` cut, `~~~` fade, `~^~` fast fade, `I·0`–`I·F` interrupt marker). Notes that don't sit on the current pitch table are shown snapped to the nearest degree and painted **yellow**. The toolbox **Raw** toggle switches to 4-digit hex words.
 - **Instrument** — two hex digits, `01`–`FF`.
 - **Volume** — a **symbol** cell + two hex digits. The symbol says what the column *does*; the digits are its argument.
-- **Pan** — the same shape, with sideways symbols (00 = left, 20 = centre, 3F = right). It pans the *note*, not the channel — see [Note volume vs channel volume, note pan vs channel pan](#note-volume-vs-channel-volume-note-pan-vs-channel-pan).
+- **Pan** — the same shape, with sideways symbols (00 = left, 20 = centre, 3F = right). It pans the *note*, not the lane — see [Note volume vs lane volume, note pan vs lane pan](#note-volume-vs-lane-volume-note-pan-vs-lane-pan).
 - **Effect** — a base-36 opcode letter and a 16-bit argument in four hex digits. See [Effect commands](#effect-commands).
 
 #### The volume and panning symbols
@@ -211,23 +211,23 @@ a fine slide's argument to zero empties the cell, since "shift by nothing" and
 | Key | Action |
 |---|---|
 | **← → ↑ ↓** | Move the cursor (left/right walks the sub-columns) |
-| **Tab / Shift+Tab** | Next / previous channel (jumps to the note column) |
+| **Tab / Shift+Tab** | Next / previous lane (jumps to the note column) |
 | **PageUp / PageDown** | ±16 rows |
 | **Home / End** | Start / end of the song |
 | **Ctrl+G** | Go to a `cue:row` (cue in hex) |
 | **Ctrl+F** | Find cells by what they contain ([below](#find-ctrl-f)) |
-| **wheel / Shift+wheel** | Scroll rows / channels |
+| **wheel / Shift+wheel** | Scroll rows / lanes |
 
 ### Mute and solo
 
 In navigate mode (record **off**), **M** mutes and **N** solos the cursor
-channel; pressing solo again unmutes everything. With the mouse: click a
-channel header to mute, **Ctrl+click** (⌘+click) to solo. Mutes are per-song
+lane; pressing solo again unmutes everything. With the mouse: click a
+lane header to mute, **Ctrl+click** (⌘+click) to solo. Mutes are per-song
 and cleared when a file loads.
 
 ### The right-click menu
 
-Right-clicking a channel — its header, or any row down its column — opens a
+Right-clicking a lane — its header, or any row down its column — opens a
 palette of icon buttons. The mouse is not the only way in: **`\`** opens the
 same menu over the cell the **cursor** is on, and on a touch screen **pressing
 and holding** opens it under your finger. See
@@ -237,9 +237,9 @@ and holding** opens it under your finger. See
 |---|---|
 | **Copy** / **Cut** | Only with a block selected — the same as Ctrl+C / Ctrl+X |
 | **Paste** | Only on a cell that has a pattern, with something on the clipboard |
-| **Channel left** | Insert an empty channel *before* this one |
-| **Channel right** | Insert an empty channel *after* this one |
-| **New pattern** | Where the cue leaves a channel empty: point the slot at the lowest unused pattern number and put the cursor there. Over a block it fills **every** empty slot the block covers, one fresh pattern each, leaving the slots that already have one alone |
+| **Lane left** | Insert an empty lane *before* this one |
+| **Lane right** | Insert an empty lane *after* this one |
+| **New pattern** | Where the cue leaves a lane empty: point the slot at the lowest unused pattern number and put the cursor there. Over a block it fills **every** empty slot the block covers, one fresh pattern each, leaving the slots that already have one alone |
 | **Delete pattern** | Where the cue has one: empty the slot — and delete the pattern itself when nothing else in the song still plays it |
 
 A **second row** underneath carries the Patterns-view edit tools, aimed at the
@@ -254,7 +254,7 @@ column you clicked (or, with a block selected, at the columns the block covers):
 | Effect | the eight most-used effect commands: **S** Special, **D** Volume slide, **G** Tone portamento, **H** Vibrato, **E** / **F** Pitch slide down / up, **O** Sample offset, **A** Set tick rate. Picking one writes the opcode and leaves the argument alone; everything else is in the command palette at the foot of the screen. |
 
 **Delete pattern** empties the slot: this cue simply has no pattern on that
-channel any more. Over a block it empties every filled slot the block covers and
+lane any more. Over a block it empties every filled slot the block covers and
 skips the empty ones. What becomes of the pattern *itself* is decided by
 **sharing** — one other cues still play is left exactly as it was, and one the
 selection was the last user of is deleted with the slot, freeing its number for
@@ -272,7 +272,7 @@ general case of the tools beside it and has no column of its own. See
 [Find & Change](#find-change-advanced-pattern-edit).
 
 Each tool acts on the **selected block** — which on the Timeline may span
-channels and cross several patterns — or on the single cell you clicked when
+lanes and cross several patterns — or on the single cell you clicked when
 nothing is selected, in one undo step either way. The Panner reads its starting
 position off the block's first cell and writes its answer to every cell in it,
 which is what a `Z` slide wants anyway: it has to be re-issued on every row it
@@ -281,12 +281,12 @@ columns offers one tool per column but never the effect palette: picking an
 effect is a write, not a transform, and stamping one across a band that merely
 happens to include the effect column is never what was meant.
 
-The **Cues** view has the same menu — a column there is a channel too — except
+The **Cues** view has the same menu — a column there is a lane too — except
 that *Paste* needs no pattern under it, because a cue cell holds the pattern
-*number*. The Cmd1/Cmd2 columns belong to the cue rather than to any channel, so
+*number*. The Cmd1/Cmd2 columns belong to the cue rather than to any lane, so
 they have a menu of their own: the clipboard over the command words, and *Set
 command…* — *Fill with command…* once a block of them is selected. The **Patterns** editor has the clipboard
-half only: a Taud pattern is a single channel, so there is no channel to insert
+half only: a Taud pattern is a single lane, so there is no lane to insert
 one beside. There, right-clicking focuses the column you pointed at first, which
 is what lets you *Copy* in one column and *Paste* into another. Its second row
 is the same as the Timeline's. The Cues grid has no second row at all — it holds
@@ -298,33 +298,33 @@ A touch screen has no second mouse button, and neither does a keyboard — so th
 menu has two other doors, and both open the same one:
 
 - **`\`** opens it over the **cursor**, not over wherever the pointer was left. The cells are walked with **←** and **→** (and **Home** / **End**), **↑** and **↓** step between the menu's two rows, and **Enter** picks the one with the ring round it. **Esc** closes it. Boards with a dedicated **menu key** can use that instead, and so does **Shift+F10**.
-- **Press and hold** opens it under your finger. A ring travels round what the menu will be about — the block you pressed inside, or the single cell, row band or channel header you pressed on — and the menu opens when the ring closes. Slide your finger before then and the press goes back to being a drag, which is how a block is selected on a touch screen; let go early and nothing happens.
+- **Press and hold** opens it under your finger. A ring travels round what the menu will be about — the block you pressed inside, or the single cell, row band or lane header you pressed on — and the menu opens when the ring closes. Slide your finger before then and the press goes back to being a drag, which is how a block is selected on a touch screen; let go early and nothing happens.
 
 Holding the **left mouse button** deliberately does nothing: the button that
 opens the menu is right there, and a held click is how a block is dragged out.
 
-Inserting slides the channel and everything to its right one place along. The
-song's channel count is fixed at 32 or 64, so the last channel falls off the
+Inserting slides the lane and everything to its right one place along. The
+song's lane count is fixed at 32 or 64, so the last lane falls off the
 end — you are asked first if it is carrying anything. Cue commands (pattern
-length, halt, jump) stay on the channel they were written on and are never moved
+length, halt, jump) stay on the lane they were written on and are never moved
 by the shift. The whole insert is one **Ctrl+Z**.
 
 ### The row trough
 
 The numbered gutter down the left addresses **song rows** rather than cells, so
 it selects and edits whole rows. Drag it to select a band of rows across every
-channel (**Shift+click** extends one); right-click it for the row commands:
+lane (**Shift+click** extends one); right-click it for the row commands:
 
 | Item | Action |
 |---|---|
 | **Rows above** / **Rows below** | Insert blank rows before or after the band, asking how many first — the whole song below slides down |
 | **Delete rows** | Take the selected rows out of the song; the whole song below slides up to close the gap |
-| **Patterns above** / **Patterns below** | Insert an empty pattern on every channel — a blank cue as long as the one you clicked — without moving anything |
+| **Patterns above** / **Patterns below** | Insert an empty pattern on every lane — a blank cue as long as the one you clicked — without moving anything |
 | **Split here** | Cut the cue in two at the clicked row, without moving a note of the song |
 | **Cut here** | The same cut, with the whole song below it re-barred to follow |
 | **Row highlights** | How many rows to a beat and to a bar |
 
-Insert and delete act on the **whole song**, every channel at once, in one
+Insert and delete act on the **whole song**, every lane at once, in one
 **Ctrl+Z**.
 
 A row here is a row of the *song*, not of a pattern, and the cue boundaries stay
@@ -341,7 +341,7 @@ to the end of the song now holds a different stretch of music and has to be
 rebuilt — and where a pattern is **shared**, the sharing decides what happens to
 it: one that another cue still plays whole is left exactly as it was and the
 edited cue gets its own copy, so a shift never moves notes in music it did not
-pass through. Channels that were playing the same pattern at the same point go
+pass through. Lanes that were playing the same pattern at the same point go
 on sharing one; the numbers the rebuilt cues let go of are used again rather than
 left behind, so a shift costs roughly as many patterns as it frees. Cue commands
 follow too — pattern lengths track the new lengths, and jumps still point at the
@@ -367,7 +367,7 @@ that want their own bar lines, their own lengths and their own jumps.
 The rows above the split keep the cue's own patterns, sharing and all — a shorter
 cue simply stops reading them earlier — so a pattern another cue still plays
 whole is never disturbed. Only the rows below it need patterns of their own,
-since they now have to start at row 0 of one; channels that were sharing a
+since they now have to start at row 0 of one; lanes that were sharing a
 pattern go on sharing the copy. Anything the cue did at its END — a **halt**, or
 a jump — moves down to the new cue, because that is where the end of the music
 now is. Splitting on a row that already is a cue boundary is offered greyed: the
@@ -385,7 +385,7 @@ That makes it the expensive one. Each cue under the cut now holds a different
 stretch of music — its events pulled up, its end topped up out of the cue after
 it — so every pattern from the cut to the end of the song is rebuilt, under the
 same sharing rules as **Delete rows**: a pattern another cue still plays whole is
-copied rather than moved, channels playing the same music go on sharing one, and
+copied rather than moved, lanes playing the same music go on sharing one, and
 the numbers the rebuilt cues let go of are used again. Reach for **Cut here**
 when the music turns out to be written a few rows out of step with the bar lines
 and you want the whole song re-barred from that point; reach for **Split here**
@@ -445,15 +445,15 @@ front–back), **front** (left–right against height) and **side** (front–bac
 against height). Each labels its own edges, so there is never a question of
 which way round it is, and any two panels showing the same view line up.
 
-*Blobs* shows the **sources**: a dot for every sounding channel, drawn where the
-engine actually has it — the same reading as the Panner and the channel radars.
+*Blobs* shows the **sources**: a dot for every sounding lane, drawn where the
+engine actually has it — the same reading as the Panner and the lane radars.
 *Blobs (top)* is the tracker's own view and the one you will use most; *front*
 and *side* are there when you want to see the height of a mix at a glance. On
 the top view a dot carries the height cue (it grows as it rises and casts a
 shadow) because a dial seen from above cannot otherwise tell up from down; on
 the other two, height is the vertical axis and needs no cue.
 
-*Goniometer* traces the **sound** itself rather than the channels. A stereo song
+*Goniometer* traces the **sound** itself rather than the lanes. A stereo song
 has no front–back axis and a planar song has no height, so every view that would
 be a flat line is simply not offered — which leaves a stereo song with the two
 top views.
@@ -648,8 +648,8 @@ resets it to the default, and the mouse wheel nudges it.
 turns amber. With record **off** the piano keys only audition ("jam") notes;
 with record **on** they write into the pattern and step down one row.
 
-Auditions play on their own voices, apart from the song's channels. That means
-they are heard even when the channel you are working on is **muted** or soloed
+Auditions play on their own voices, apart from the song's lanes. That means
+they are heard even when the lane you are working on is **muted** or soloed
 away, they never cut a note the song is playing, and holding several keys at
 once sounds a **chord** — up to sixteen notes. With record **on** the keyboard
 goes back to one note at a time, because there each key writes a cell.
@@ -707,7 +707,7 @@ wave that arrives on the fill: the composer places them, the game answers them.
 
 Press **b** on the note column to place `I·0`, then **[** / **]** or the mouse
 wheel to pick which of the sixteen it is, `I·0` through `I·F`. The marker makes
-no sound at all and disturbs nothing on its channel — a note already ringing
+no sound at all and disturbs nothing on its lane — a note already ringing
 there carries on ringing. The command palette has a button for each number.
 
 To hand the program a **number** with it, put a `:` effect on the same row and
@@ -718,7 +718,7 @@ it means. A marker with no `:` beside it sends `0`.
 Everything else on the row is the interrupt's business not at all. The
 instrument, volume and panning columns, and any other effect, are ignored by
 the marker and still do exactly what they always do — so an interrupt can share
-a row with a channel-volume change or a pan slide without either getting in the
+a row with a lane-volume change or a pan slide without either getting in the
 other's way. In a wide (version 3) song a row has two effect slots: if you put
 a `:` in **both**, the left one is the argument and the right one is painted
 **red** to say it is being ignored.
@@ -767,12 +767,12 @@ On the two digit positions, **Delete** / **Backspace** / **.** write the no-op
 sentinel so the cell goes blank. The command palette carries a button for every
 operation.
 
-### Note volume vs channel volume, note pan vs channel pan
+### Note volume vs lane volume, note pan vs lane pan
 
 Volume and panning each come in **two independent kinds**, and knowing which one
 you are writing saves a lot of head-scratching:
 
-| | The **note** kind | The **channel** kind |
+| | The **note** kind | The **lane** kind |
 |---|---|---|
 | Volume | the **volume column** | **M** (set) and **N** (slide) |
 | Panning | the **panning column** | **S $80xx** (set), **P** (slide), and **X** / **4** / **Z** in a surround song |
@@ -781,10 +781,10 @@ you are writing saves a lot of head-scratching:
 | How they combine | volume multiplies, panning adds | |
 
 The short version: **the mini-lanes are about the note, the effect column is
-about the channel.** A note volume is how hard *this note* was struck; the
-channel volume is how loud that part sits in the mix, and it stays put however
+about the lane.** A note volume is how hard *this note* was struck; the
+lane volume is how loud that part sits in the mix, and it stays put however
 many notes go by. `M $2000` after a quiet note leaves the note quiet — it has not
-turned anything up, it has set the fader for the channel.
+turned anything up, it has set the fader for the lane.
 
 Panning works the same way, and this is what makes zone-panned instruments
 behave. If an instrument pans by pitch — a piano laid out across the stereo
@@ -796,7 +796,7 @@ SoundFont — that spread lives on the **note** side. So:
 
 Both can appear on the same row and both apply — they are not fighting over one
 setting. If you want the older "everything to one spot" behaviour, put the
-channel where you want it and write the panning column on each note.
+lane where you want it and write the panning column on each note.
 
 **A Layered metainstrument works the same way, one level down.** If its layers sit at
 different places — an SF2 preset whose sub-instruments spread out, a kit built
@@ -845,9 +845,9 @@ depth.
 
 Timeline and Patterns support rectangular selections:
 
-- **Drag** with the mouse to select rows × channels. A drag also records which *columns* (note / instrument / volume / pan / effect) it covers, so a narrow drag lets you copy just volumes, or just notes. Any drag counts, including one that stays inside a single row or a single column — "just the panning of this row" is a selection you can copy.
+- **Drag** with the mouse to select rows × lanes. A drag also records which *columns* (note / instrument / volume / pan / effect) it covers, so a narrow drag lets you copy just volumes, or just notes. Any drag counts, including one that stays inside a single row or a single column — "just the panning of this row" is a selection you can copy.
 - **Shift+arrows** (and **Shift+PageUp/Down/Home/End**) extend a whole-cell selection from the cursor.
-- **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single voice, top to bottom (in Cues, with the cursor on **Cmd1** or **Cmd2**, that command word all the way down instead); in Patterns the pattern you are looking at. **Ctrl+←** and **Ctrl+→** then widen that selection a whole voice at a time (a Taud pattern is one channel, so they do nothing in Patterns; on a Cues command column there is only the other command word to reach). The voice you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this voice and the next.
+- **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single lane, top to bottom (in Cues, with the cursor on **Cmd1** or **Cmd2**, that command word all the way down instead); in Patterns the pattern you are looking at. **Ctrl+←** and **Ctrl+→** then widen that selection a whole lane at a time (a Taud pattern is one lane, so they do nothing in Patterns; on a Cues command column there is only the other command word to reach). The lane you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this lane and the next.
 - **Ctrl+C / Ctrl+X / Ctrl+V** copy, cut and paste. A paste lands on the **start of the selection** when there is one — the corner you began the drag from, not the cursor, which sits wherever the drag ended — and on the cursor when there is not. Pasting across views clips to what fits; a column-limited block overwrites only its columns.
 - **Right-click** for the same three as buttons: *Copy* and *Cut* while a block is selected, *Paste* on any cell that can take one. See [the right-click menu](#the-right-click-menu); the Cues view carries the same clipboard cells over its cue words.
 - **Delete / Backspace** blanks the selection, **Esc** clears it.
@@ -856,7 +856,7 @@ Timeline and Patterns support rectangular selections:
 ## Cues (F2)
 
 The Cues view is the song's order list: one row per cue, one column per
-channel, each cell holding the pattern number (hex) that channel plays during
+lane, each cell holding the pattern number (hex) that lane plays during
 that cue.
 
 - Type **hex digits** to enter a pattern number (`0000`–`7FFE`).
@@ -873,7 +873,7 @@ that cue.
 | **JMP** | Jump to cue N |
 
 The grid **scrolls the whole cue address space** (up to 8192 cues, 4096 in
-64-channel mode), like a spreadsheet — you can move to any row even if it is
+64-lane mode), like a spreadsheet — you can move to any row even if it is
 empty. This is how you extend the song past a **HALT**, or grow a brand-new
 project beyond its single cue 0.
 
@@ -883,13 +883,13 @@ the save. The one caveat: *interior* gaps are kept — if you put content on cue
 and cue 2000 with nothing between, all 2001 cues are stored (gzip keeps that
 cheap).
 
-**Block copy/paste.** Select a rectangle of channel cells by dragging with the
-mouse, with **Shift+arrows**, or a whole voice column at a time with **Ctrl+A**
+**Block copy/paste.** Select a rectangle of lane cells by dragging with the
+mouse, with **Shift+arrows**, or a whole lane column at a time with **Ctrl+A**
 and **Ctrl+←/→** (the column runs to the end of the cue list, not to the end of
 the address space you can scroll into); then **Ctrl+C** / **Ctrl+X** / **Ctrl+V** copy,
 cut and paste, **Delete**/**Backspace** blank the block, and **Esc** clears the
 selection. Paste lands with its top-left corner at the cursor, so you can move a
-group of voices onto different channels, onto other cues, or onto the blank row
+block of lanes onto other lanes, onto other cues, or onto the blank row
 to grow the order list. Only the pattern numbers move — each destination cell
 keeps its own flow command. (The Cues clipboard is separate from the
 Timeline/Patterns cell clipboard.)
@@ -902,23 +902,23 @@ Timeline/Patterns cell clipboard.)
   **LEN**, **HALT**, **BAK**, **FWD**, **JMP** and their arguments — so an intro's set of
   cue lengths can be pasted onto the reprise. Pasting rewrites only the
   commands: every pattern number under the block stays exactly where it was,
-  which is the mirror of a channel-cell paste leaving the flow commands alone.
+  which is the mirror of a lane-cell paste leaving the flow commands alone.
 - **Filling a run of cues with one command.** Select the command words —
   **Ctrl+A** on **Cmd1** takes the whole column — and press **Space**: the popup
   opens on the block's first cell, and what you pick is written to every word in
   it, in one **Ctrl+Z**. That is how a whole section gets **LEN** 30 rows without
   thirty visits to the popup.
 
-A block never straddles the two spaces: a selection is either channel cells or
+A block never straddles the two spaces: a selection is either lane cells or
 command words, and the arrows stop at the boundary rather than crossing it. The
 one clipboard holds whichever kind you copied last, and it pastes back into the
-space it came from — a command block dropped with the cursor on a voice lands on
-that cue's **Cmd1**, not on the voice.
+space it came from — a command block dropped with the cursor on a lane lands on
+that cue's **Cmd1**, not on the lane.
 
 ## Patterns (F3)
 
 A focused editor for a small set of patterns, with the same cell editing as the Timeline.
-The header shows which cues (and channels) use the pattern — remember that
+The header shows which cues (and lanes) use the pattern — remember that
 editing a shared pattern changes every place it plays.
 
 - **▶ Preview** plays just this pattern in a loop-free scratch cue.
@@ -949,7 +949,7 @@ the grid.
 
 What it searches is whichever grid you opened it from, in that grid's own terms:
 
-- from the **Timeline**, the song in **play order** — every cue, every row, every channel that has a pattern — so a match is a place the cursor simply goes. One pattern placed in six cues is found in all six.
+- from the **Timeline**, the song in **play order** — every cue, every row, every lane that has a pattern — so a match is a place the cursor simply goes. One pattern placed in six cues is found in all six.
 - from **Patterns**, the **pattern bank** in ascending order, and the pane follows the match to whichever pattern it is in. This is the only way to reach a pattern no cue has placed yet.
 
 The value is read in the column's own base — **hex**, like everywhere else —
@@ -1026,11 +1026,11 @@ of them still means something:
 | `H $xxyy` `U $xxyy` `R $xxyy` `Y $xxyy` | Speed and depth, as two independent bytes |
 | `I $xxyy` `J $xxyy` | The two on/off times; the two arpeggio offsets |
 | `O $xxxx` | The sample offset — a sweep down a recording |
-| `M $xx00` `V $xx00` | Channel volume; global volume |
+| `M $xx00` `V $xx00` | Lane volume; global volume |
 | `A $xx00` `T $xx00` | Tick speed; tempo, plain set form only |
 | `5 $xxxx` `6 $xxxx` | Filter cutoff; filter resonance |
 | `8 $xyzz` `9 $x0zz` | Bit depth and sample skip; overdrive amount — the shared clipping mode rides along unchanged |
-| `S $80xx` | Channel pan position |
+| `S $80xx` | Lane pan position |
 | `X $eeaa` `4 $eeaa` | Azimuth and elevation, elevation read as signed so a move across the horizon takes the short way |
 
 Everything else stays out. The nibble-packed slide pairs — `D`, `K`, `L`, `N`,
@@ -1065,7 +1065,7 @@ can express.
 It opens from two places, and is the same dialog either way:
 
 - the **Find & Change…** button on the Patterns toolbar, which acts on the selected rows (or the whole pattern with nothing selected);
-- the last cell of the right-click menu's tool row in the **Timeline** and **Patterns** grids, which acts on the selected block — on the Timeline that may cross channels and patterns — or on the single cell you clicked. (The Cues grid holds pattern numbers rather than note cells, so it has no tool row at all.)
+- the last cell of the right-click menu's tool row in the **Timeline** and **Patterns** grids, which acts on the selected block — on the Timeline that may cross lanes and patterns — or on the single cell you clicked. (The Cues grid holds pattern numbers rather than note cells, so it has no tool row at all.)
 
 **Apply to** names how far the edit reaches, and each of the wider answers is
 counted so you know what you are agreeing to before you agree to it:
@@ -1074,11 +1074,11 @@ counted so you know what you are agreeing to before you agree to it:
 |---|---|
 | the cells you came in with | the selected rows or block — named **whole pattern (nnnn)** when they happen to be one whole pattern |
 | **whole pattern (nnnn)** | all 64 rows of the pattern those cells sit in |
-| **whole column (nn patterns)** | every pattern that one voice column plays, in full |
+| **whole column (nn patterns)** | every pattern that one lane column plays, in full |
 | **whole song (nnn patterns)** | every pattern the song has, in full |
 
 A scope is only offered when it means something: the pattern one when the cells
-sit in a single pattern, the column one when the voice is known — a Timeline
+sit in a single pattern, the column one when the lane is known — a Timeline
 block knows the column it was drawn in, and elsewhere it is the column that
 plays this pattern, when only one does. Unwritten pattern numbers are left out
 of the counts and out of the edit; the whole of it is still one **Ctrl+Z**.
@@ -1090,7 +1090,7 @@ conditions at all, every cell in range is a match, which is how you say "all of
 them".
 
 Each condition carries its **own event count** in its bottom-right corner — the
-events (rows × channels) *that* condition selects on its own, whatever the
+events (rows × lanes) *that* condition selects on its own, whatever the
 others do. It is how you see which alternative of an *or* is doing the work, and
 which one is quietly selecting half the song. A cell that two conditions both
 match is counted on both, so the per-condition numbers can add up to more than
@@ -1377,7 +1377,7 @@ resampling are still reversible.
 
 ### The chord maker
 
-A tracker channel plays one note at a time, so the Amiga answer to "I want a
+A tracker lane plays one note at a time, so the Amiga answer to "I want a
 chord here" was to bake the chord into the sample itself. The **Chord…** button
 does exactly that: it mixes up to six pitch-shifted copies of the working
 buffer into one waveform. Reach it from the Samples view (**Chord…**, on a
@@ -1495,7 +1495,7 @@ to the carrier.
 
 Order matters here in a way it does not for layers. The **first** instrument
 picked becomes **operator 0**, the *principal*: it is the one that reaches the
-channel, and its envelope, its fadeout and its sample ending are the note's. The
+lane, and its envelope, its fadeout and its sample ending are the note's. The
 rack starts wired as a plain chain — the last operator modulates the one before
 it, all the way down into operator 0 — and the **FM** tab is where that is
 changed.
@@ -1559,7 +1559,7 @@ either way.
   - A **Sustain** point sitting on the last node follows it when you add another, so an envelope that holds its final level until key-off keeps doing that instead of turning into a hold halfway through. Sustain and loop points left pointing past the end are pulled back in when the envelope gets shorter.
   - **Carry** (beside *Envelope present*) makes a new note **continue** this envelope instead of restarting it: the playhead stays where the last note left it, so a slow pan sweep or a filter opening can run across a whole phrase of repeated notes rather than resetting on each one. Each envelope carries — or does not — on its own. It is ignored where there is nothing worth keeping: after a key-off, and on a note that changes instrument. This is also what makes a run of notes tied by `G` sound the same whether or not each row names its instrument.
 - **Zones** — the Ixmp key/velocity zone map with a live trigger overlay showing which zone each incoming note lands in. The **Advanced Edit…** button opens the full patch editor (below).
-- **Layers** (the Layered kind) — a Layered metainstrument plays several sub-instruments at once, and this table is the whole editor for that stack. Each row carries an editable **mix** (0–255, 159 = 0 dB, live dB readout), a **detune** in cents with ◂ ▸ buttons that step a whole degree of the song's own notation, and the **pitch** and **velocity** bounds that decide when the layer sounds at all. The ▸ beside row 0 marks the foreground layer: the first layer covering a trigger plays on the channel itself and the rest spawn background voices, so the order here is priority — **drag a row by the handle in its # column** to change it. The handle is a button as well as a grip: focus it and ↑ ↓ move the row without a pointer.
+- **Layers** (the Layered kind) — a Layered metainstrument plays several sub-instruments at once, and this table is the whole editor for that stack. Each row carries an editable **mix** (0–255, 159 = 0 dB, live dB readout), a **detune** in cents with ◂ ▸ buttons that step a whole degree of the song's own notation, and the **pitch** and **velocity** bounds that decide when the layer sounds at all. The ▸ beside row 0 marks the foreground layer: the first layer covering a trigger plays on the lane itself and the rest spawn background voices, so the order here is priority — **drag a row by the handle in its # column** to change it. The handle is a button as well as a grip: focus it and ↑ ↓ move the row without a pointer.
   - **Add layers…** brings in more instruments (the same picker, counts and all), **Duplicate** makes another voice of the layer's own sub-instrument ready to detune, and **Chord…** does a whole chord or unison spread in one action, using the same just intervals, chords and inversions as the [chord maker](#the-chord-maker). **Preview** there sounds the stack before you commit to it — the layer's own instrument at every pitch the panel lists — and stops on a second press, after a couple of seconds, or as soon as you pick a different chord. The layer you start from is the voice nearest unison and stays where it is, so an inversion decides which note of the chord that layer plays and the rest are placed around it.
   - Duplicated layers are **linked**: they share one sub-instrument, badged *linked ×n*, so editing it moves every voice of the stack together. When one voice needs to differ, **Unlink** gives that layer its own copy.
   - **fixed** beside the detune makes the layer **non-melodic**: it sounds one note whatever key is played, and the field beside the box stops being a detune and becomes that note — an absolute pitch, typed as a word (`$5000`) or a name (`C-4`), with ◂ ▸ still stepping degrees of the song's notation. This is how a layer that is a *sound* rather than a *pitch* is written: the click of a hammer, a breath, a bar of noise under the low keys. The pitch bounds still decide which keys reach the layer — the flag only fixes what it plays when one does — and everything else about it, mix and velocity bounds included, works as before. Ticking or unticking the box keeps the note the row was showing, so nothing jumps.
@@ -1586,7 +1586,7 @@ An instrument may carry a list of **Ixmp patches**: per-zone sample bindings ove
 - **Patch list** (left) — one row per patch plus the *base* fallback row. A ⚠ marks a patch whose rectangle overlaps an earlier one (**INVALID** per the format — use a Layered metainstrument for layering). **＋ Add**, **Duplicate**, **Delete** and **▲/▼** (match-order reorder) sit in the header; every action is one undo step.
 - **Zone map** — the patches as rectangles over pitch (x) × velocity (y), with live blobs at each sounding note's pitch/velocity and lit rectangles for zones currently playing. Click a rectangle to select its patch.
 - **Detail form** — the selected patch's rectangle, sample binding (pick any pooled sample — rate and loop follow), play/loop points, rate, detune, loop mode/sustain; pan / note-volume / auto-vibrato overrides (unchecked = inherit from the base instrument, and *Auto-vibrato override* covers all five of its fields at once — a zone with the box clear plays the instrument's own vibrato); and the *extra block*: per-patch fadeout, filter cutoff/resonance (IT or SF2 units) and SF2 initial attenuation.
-  - **Pan** — the override is a *note* pan, so a bank whose zones pan apart keeps its spread wherever the channel is pointed, and `S $80xx` rotates the lot ([note vs channel panning](#note-volume-vs-channel-volume-note-pan-vs-channel-pan)).
+  - **Pan** — the override is a *note* pan, so a bank whose zones pan apart keeps its spread wherever the lane is pointed, and `S $80xx` rotates the lot ([note vs lane panning](#note-volume-vs-lane-volume-note-pan-vs-lane-pan)).
   - **Stereo** — makes the patch play a [stereo pair](#stereo-samples): **Ch 2** picks the pooled sample that supplies the second channel (only same-length samples can pair up, since one set of loop points serves both), and **Mode** chooses `L/R` (the channels *are* left and right) or `M/S` (mid/side, decoded to L = M+S, R = M−S at mix time). Binding the patch to a stereo sample sets all of this for you.
 - **Vol / Pan / Filter / Pitch** sub-tabs — per-patch envelope overrides. Ticking *Patch overrides the … envelope* copies the base instrument's envelope as a starting point; the graph then edits exactly like the base envelope tabs (drag nodes, add/remove, sustain/loop ranges, log timescale). **Wave** shows the bound sample with live play positions.
 
@@ -1628,7 +1628,7 @@ Every control is one undo step per gesture — a whole slider drag is one Ctrl+Z
 
 The **pre / post** switch at the top decides which side of the chain the meters
 read. *Post* is the master: what the file will hold. *Pre* is the mix arriving
-at the chain — the untouched sum of your channels — so the two together are a
+at the chain — the untouched sum of your lanes — so the two together are a
 proper A/B of what the mastering did.
 
 Both are measured every block, so switching is instant and the two readings
@@ -1756,7 +1756,7 @@ can still be working on the 5.1 one. The limiter's ceiling holds on every
 channel of the file it writes; it is not a promise about what somebody's
 decoder does with those channels afterwards.
 
-Stems are per-channel and by definition pre-master.
+Stems are per-lane and by definition pre-master.
 
 ## Project (F7)
 
@@ -1805,10 +1805,10 @@ but ordinary pan sounds exactly as it did. Pan slides (P and the pan column)
 wrap round the circle instead of stopping at the ends.
 
 Three commands are yours only in a surround song. `X` writes the very same
-**channel axis** `S $8xxx` does — not a third register — so it places the
+**lane axis** `S $8xxx` does — not a third register — so it places the
 *part*, exactly like `S $80xx` in a stereo song; a zone-panned instrument's
 spread still rotates under it rather than collapsing to one point (see
-[note pan vs channel pan](#note-volume-vs-channel-volume-note-pan-vs-channel-pan)).
+[note pan vs lane pan](#note-volume-vs-lane-volume-note-pan-vs-lane-pan)).
 It only trades the single byte for a sphere:
 
 | Command | Meaning |
@@ -1818,8 +1818,8 @@ It only trades the single byte for a sphere:
 | **Z** `$0xxx` | Slide there at `$xxx`/16 azimuth units per tick, along the shortest way round. Like every other slide it runs on the row that carries it, so repeat it while you want the source moving; `Z $0000` recalls the last speed. |
 
 A **stereo sample** in a surround song is placed as a pair of sources 30° either
-side of where the voice points — the ITU listening triangle — and the pair turns
-with the voice instead of being nailed to the speakers.
+side of where the lane points — the ITU listening triangle — and the pair turns
+with the lane instead of being nailed to the speakers.
 
 **Where an instrument starts.** The Instruments view's *Default pan* becomes
 **Default azimuth** in a surround song — the full circle, not just the front
@@ -1835,14 +1835,14 @@ box is ticked — the box gates the instrument's own default, not the zones'.
 **The panner.** Rather than working the angles out by hand, press **Panner…**
 on the Timeline or Patterns toolbox (it appears once the song is planar or
 spatial). It draws the circle from above — plus a side view for elevation on a
-spatial song — with a dot for every channel that is sounding, drawn where the
+spatial song — with a dot for every lane that is sounding, drawn where the
 engine actually has it, so a Z slide is visible while it runs. Drag the handle
 or type the numbers, then press one button to write the command into the cell
 under the cursor: **Place** writes X, **Target** writes 4, **Slide** writes Z at
 the speed in the box. Each button shows the exact command it will write, and
 each write is a normal undo step.
 
-**Watching it from the Timeline.** In a surround song each channel header's pan
+**Watching it from the Timeline.** In a surround song each lane header's pan
 strip shows the source's *shadow* on the left–right line — height and depth
 collapse onto it, so a hard-left source 60° above you reads half-left, and one
 directly behind reads centre. Press **Radar** in the toolbox and every header
@@ -1881,7 +1881,7 @@ and right where they are, and pulls height toward the centre.
 range — stereo, quadraphonic, 5.1, 7.1 and ambisonic B-format — with a picture
 of each channel layout; see [Import and export](#import-and-export).
 
-The panner's **This channel only** box hides every other channel's dot, for when
+The panner's **This lane only** box hides every other lane's dot, for when
 a busy song makes the dial hard to read.
 
 ### The wide pattern cell
@@ -1903,11 +1903,11 @@ What the extra room buys you:
 
 The second effect column is **hidden by default**: most songs never write one, and it is six more characters in the widest column on the screen. Three ways to bring it out, all of them in version-3 projects only:
 
-- **2nd FX** in the toolbar shows or hides it on *every* channel and every pattern column at once.
-- **Right-click a channel header** in the Timeline for that one channel — the menu's second row carries **2nd effect** beside the mute controls.
+- **2nd FX** in the toolbar shows or hides it on *every* lane and every pattern column at once.
+- **Right-click a lane header** in the Timeline for that one lane — the menu's second row carries **2nd effect** beside the mute controls.
 - **The E2 button** at the top of a Patterns column, for that column alone.
 
-A channel that is *hiding* second effects it actually contains says so: an amber **E2** appears beside the channel number in the Timeline header, and the Patterns column's E2 button is outlined in the same colour. Hiding the column never changes what plays, and never changes what is in the file — a hidden second effect survives copy, paste and delete untouched, because a selection only ever reaches the columns you can see.
+A lane that is *hiding* second effects it actually contains says so: an amber **E2** appears beside the lane number in the Timeline header, and the Patterns column's E2 button is outlined in the same colour. Hiding the column never changes what plays, and never changes what is in the file — a hidden second effect survives copy, paste and delete untouched, because a selection only ever reaches the columns you can see.
 
 Once it is showing, it edits exactly like the first effect: the same opcode letters, the same four argument digits, the same command palette at the foot of the screen, and the same right-click quick-effect cells.
 
@@ -2006,8 +2006,8 @@ should use **Export** to keep your work.
   - Height only survives into B-format. A speaker layout spreads an overhead source evenly around the ring (it has nowhere else to go), and stereo folds it toward the centre. A stereo song can still be exported to any of these; it is simply promoted to the planar model first, which sounds the same for ordinary panning.
 - **Export stems…** — render the song into one 24-bit 48 kHz mono WAV per track, delivered as a single ZIP. A filename prefix is required; tracks come out as `<prefix>_01_<name>.wav`. Choose how they are arranged:
   - **Per instrument** (default) — one track per instrument as it appears in the pattern. A percussion instrument is split further, one track per kit piece, so kicks, snares and hats arrive separately; a drum layered from several sub-instruments stays on one track.
-  - **Per voice** — one track per channel. Note-off ghosts and layered notes follow the channel that spawned them.
-- Stem tracks are **dry**: every volume is baked in (note and channel volume, envelopes, fadeout, instrument volume, song global/mixing/master volume) but panning is not, so a hard-panned part arrives at full level and you re-pan it in your DAW. Because panning is left out, the tracks do not sum back to the stereo mix, and the Amiga post-mix filter (a mix-stage effect) is not applied to them. Nothing is dithered — 24 bits sit well below the engine's own noise floor.
+  - **Per lane** — one track per lane. Note-off ghosts and layered notes follow the lane that spawned them.
+- Stem tracks are **dry**: every volume is baked in (note and lane volume, envelopes, fadeout, instrument volume, song global/mixing/master volume) but panning is not, so a hard-panned part arrives at full level and you re-pan it in your DAW. Because panning is left out, the tracks do not sum back to the stereo mix, and the Amiga post-mix filter (a mix-stage effect) is not applied to them. Nothing is dithered — 24 bits sit well below the engine's own noise floor.
 
 ## Keymap (Shift+F9)
 
@@ -2367,8 +2367,8 @@ sidebar (also at [Note Effects](#effects)).
 | J | Arpeggio | `$xy00` — microtonal offsets ×256 for voices 2/3 |
 | K | Vibrato + vol slide | `$xy00` |
 | L | Portamento + vol slide | `$xy00` |
-| M | Channel volume | `$xx00` (00–3F) |
-| N | Channel vol slide | `$xy00` |
+| M | Lane volume | `$xx00` (00–3F) |
+| N | Lane vol slide | `$xy00` |
 | O | Sample offset | `$xxxx` — start at byte offset |
 | P | Pan slide | `$xy00` — left/right |
 | Q | Retrigger | `$xy00` — every y ticks, x = volume modifier |
@@ -2414,7 +2414,7 @@ trails below.
 A slide never writes down where it gets to. `G $0080` under one note bends
 toward the next across rows that look empty, `D $0400` fades over rows that
 say nothing about volume, and `P $0400` walks the panning away from wherever
-the channel was sitting. The Timeline and Patterns grids therefore paint, on
+the lane was sitting. The Timeline and Patterns grids therefore paint, on
 every row a bend has MOVED something, **the value that row starts on** — in the
 same grey the ditto ghosts use, in whichever of the note, volume and panning
 columns the row leaves blank.
@@ -2438,12 +2438,12 @@ does its work at tick zero, so its ghost sits on its own row.
 Things worth knowing about what the grey does NOT say:
 
 - **It fills blanks only.** A portamento row shows the TARGET note you typed, in
-  its own colour; the pitch the channel is actually passing through sits on the
+  its own colour; the pitch the lane is actually passing through sits on the
   rows below it.
 - **On the Timeline it follows the song, cue by cue.** A bend does not stop at
   a pattern boundary and neither does the trail: a portamento still travelling
   when a cue ends goes on ghosting into the next one, and the volume and
-  panning a channel is holding cross the join with it.
+  panning a lane is holding cross the join with it.
 - **In the Patterns view each pattern starts from silence.** A pattern there
   belongs to no cue in particular — it can sit in any number of them — so
   there is no "the pattern before this one" to carry a bend in from, and the
@@ -2468,12 +2468,12 @@ Things worth knowing about what the grey does NOT say:
 | F8 · Shift+F8 | Split the view in two / close the pane · the other pane |
 | Space | Record mode on/off |
 | [ ] | Octave down / up |
-| M / N | Mute / solo the cursor channel (navigate mode; Shift+M / Shift+N under a bottom-row layout) |
+| M / N | Mute / solo the cursor lane (navigate mode; Shift+M / Shift+N under a bottom-row layout) |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+S | Save to browser storage |
 | Ctrl+G | Go to cue:row |
-| Ctrl+A | Select the whole column (Timeline / Cues: one voice, or one command word; Patterns: the pattern) |
-| Ctrl+← / Ctrl+→ | Timeline / Cues: widen (or narrow) that column selection by one voice — on a Cues command column, to the other command word |
+| Ctrl+A | Select the whole column (Timeline / Cues: one lane, or one command word; Patterns: the pattern) |
+| Ctrl+← / Ctrl+→ | Timeline / Cues: widen (or narrow) that column selection by one lane — on a Cues command column, to the other command word |
 | Shift+arrows · drag | Extend a block selection |
 | Ctrl+C / X / V | Copy / cut / paste the block |
 | Esc · Delete / Backspace | Clear the selection · blank the block |
@@ -2499,8 +2499,8 @@ Things worth knowing about what the grey does NOT say:
 | > < / r l | Panning symbol cell: slide right / left |
 | + = / - | Symbol cell: fine slide up / down (right / left) |
 | Delete / Backspace / . | Clear the field — on a symbol cell, plain set |
-| ← → / Tab | Sub-column / next channel |
-| wheel · Shift+wheel | Scroll rows · channels |
+| ← → / Tab | Sub-column / next lane |
+| wheel · Shift+wheel | Scroll rows · lanes |
 | wheel on cursor cell | Step the hovered column (notes by one table degree) |
 
 ## Tips
@@ -2509,7 +2509,7 @@ Things worth knowing about what the grey does NOT say:
 - **Interface language and theme** — the globe and theme buttons in the top bar; both persist. The theme button cycles dark → dim → light — dim is the default — and `?theme=dark` / `?theme=dim` / `?theme=light` in the URL forces one.
 - **Deep links** — `index.html?load=<url>` opens a `.taud` from a URL, and `player.html` is a minimal stand-alone player.
 - **On a phone** — the tracker wants a keyboard and a wide screen, so a phone opens the stand-alone player instead, carrying the query string across. The player's **Open the tracker** link overrides that and the choice is remembered, and `index.html?tracker=1` does the same from a link; tablets are never redirected.
-- **The player turned sideways** — in landscape the player splits into two equal halves, controls on the left and channel meters on the right, so on a folding screen the crease falls between them rather than through either. The meters follow the shape of their half: channels across a wide one, channels down a tall one.
+- **The player turned sideways** — in landscape the player splits into two equal halves, controls on the left and lane meters on the right, so on a folding screen the crease falls between them rather than through either. The meters follow the shape of their half: lanes across a wide one, lanes down a tall one.
 - **Everything is local.** Clearing the browser's site data deletes your OPFS projects — export `.taud` files of anything you care about.
 
 ## About

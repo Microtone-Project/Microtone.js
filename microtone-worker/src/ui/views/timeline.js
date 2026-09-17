@@ -1,6 +1,6 @@
 // Timeline view (F1) — the multi-voice pattern grid across the whole song,
 // canvas-rendered and row-virtualised. M5 scope: read-only navigation, follow
-// mode, per-channel VU/pan header meters, cue-boundary gutter. Feature
+// mode, per-lane VU/pan header meters, cue-boundary gutter. Feature
 // reference: taut.js VIEW_TIMELINE.
 
 import { PATTERN_EMPTY } from "../../engine/constants.js";
@@ -51,12 +51,12 @@ const GUTTER_W = 76;   // "cue:row | absrow"
 const EMPTY_GHOSTS = Object.freeze([]);
 const COL_W = Math.ceil(CELL_CHARS * CHAR_W) + 10;
 // Format v3's wide cell needs three more characters for the panning column's
-// elevation, so the channel column's width follows the document (§5.5) — and
-// six more again on the channels showing their SECOND effect, which is why the
+// elevation, so the lane column's width follows the document (§5.5) — and
+// six more again on the lanes showing their SECOND effect, which is why the
 // strips are no longer all the same width.
 const COL_W_WIDE = Math.ceil(CELL_CHARS_WIDE * CHAR_W) + 10;
 const COL_W_WIDE_FX2 = Math.ceil(CELL_CHARS_WIDE_FX2 * CHAR_W) + 10;
-const CHAN_STEP_PX = 120; // ≈ one mouse-wheel notch; horizontal scroll's "one channel" reference
+const CHAN_STEP_PX = 120; // ≈ one mouse-wheel notch; horizontal scroll's "one lane" reference
 
 export class TimelineView {
   constructor(store, canvas) {
@@ -65,19 +65,19 @@ export class TimelineView {
     this.ctx = canvas.getContext("2d");
     this.scrollRow = 0;   // top visible absolute row (fractional while wheeling or follow-scrolling)
     this._wheelRem = 0;   // leftover row-units between wheel notches (see wheel listener below)
-    this.scrollCh = 0;    // leftmost visible channel
-    this._wheelChRem = 0; // leftover channel-units between horizontal wheel events
+    this.scrollCh = 0;    // leftmost visible lane
+    this._wheelChRem = 0; // leftover lane-units between horizontal wheel events
     this.map = null;      // songMap cache
     this.needsRedraw = true;
     this.lastPlayRow = -1; // remembered so resize() can repaint synchronously
-    this.sel = null;       // block selection {aRow, aCh, row, ch} (absolute rows/channels)
+    this.sel = null;       // block selection {aRow, aCh, row, ch} (absolute rows/lanes)
     this._drag = null;     // active pointer-drag anchor {aRow, aCh}
     this._troughDrag = null; // active row-band drag down the trough {aRow}
     this._ghosts = new Map(); // per-frame memos, replaced at the top of draw()
     this._hasFx2 = new Map();
-    // Bend-ghost chains, one per channel, and NOT per-frame: a bend crosses a
+    // Bend-ghost chains, one per lane, and NOT per-frame: a bend crosses a
     // pattern boundary, so each chain is a running simulation of that
-    // channel's whole cue sequence and the maps it has produced so far. It is
+    // lane's whole cue sequence and the maps it has produced so far. It is
     // extended as far down the song as the view needs and thrown away when
     // anything the simulation reads changes (dropBends).
     this._bends = new Map();
@@ -102,7 +102,7 @@ export class TimelineView {
       const d = horiz ? (e.deltaX !== 0 ? e.deltaX : e.deltaY) : e.deltaY;
       // Record mode: wheel over the CURSOR cell increments/decrements the
       // hovered column (wheel up = +1); elsewhere the wheel scrolls. Horizontal
-      // always means "scroll channels" — never a cell edit.
+      // always means "scroll lanes" — never a cell edit.
       // Never wheel-edit mid drag-selection — then the wheel only scrolls (item 57).
       if (!horiz && this.store.record && this._drag === null &&
           this.wheelEdit(e, d < 0 ? 1 : -1)) return;
@@ -172,7 +172,7 @@ export class TimelineView {
 
   visibleRows() { return Math.floor((this.canvas.height / this.dpr - this.headerH()) / ROW_H); }
 
-  /** Header height — the surround radar (#998.6) expands it for every channel. */
+  /** Header height — the surround radar (#998.6) expands it for every lane. */
   headerH() { return HEADER_H + (this.radarOn() ? RADAR_H : 0); }
 
   /** True when the song is planar/spatial AND the radar toggle is on. */
@@ -182,24 +182,24 @@ export class TimelineView {
   }
   /** The document's cell format — v3's wide cell changes the column layout. */
   wide() { return this.store.doc?.wideCells === true; }
-  /** Is channel `ch` showing its second effect column (§5.5)? */
+  /** Is lane `ch` showing its second effect column (§5.5)? */
   fx2On(ch) { return this.store.fx2Chan(ch); }
-  /** Width of channel `ch`'s strip — per channel, because the second effect is
-   *  exposed per channel. */
+  /** Width of lane `ch`'s strip — per lane, because the second effect is
+   *  exposed per lane. */
   colWFor(ch) {
     if (!this.wide()) return COL_W;
     return this.fx2On(ch) ? COL_W_WIDE_FX2 : COL_W_WIDE;
   }
-  /** Cursor walk order within channel `ch` — six sub-columns, or eight. */
+  /** Cursor walk order within lane `ch` — six sub-columns, or eight. */
   subPosFor(ch) { return subPositions(this.wide(), this.fx2On(ch)); }
-  /** The last logical column channel `ch` shows (what "the whole cell" means). */
+  /** The last logical column lane `ch` shows (what "the whole cell" means). */
   lastColFor(ch) { return this.fx2On(ch) ? COL_FX2 : COL_FX; }
 
-  /** Canvas width available to the channel strips. */
+  /** Canvas width available to the lane strips. */
   gridW() { return this.canvas.width / this.dpr - GUTTER_W; }
 
   /**
-   * The visible channel strips, left to right: `[{ch, x, w}]` from `scrollCh`
+   * The visible lane strips, left to right: `[{ch, x, w}]` from `scrollCh`
    * until the canvas runs out (the last one may be clipped). Strips differ in
    * width, so every x in this view is a running sum rather than `i * COL_W` —
    * this is the one place that sum is computed.
@@ -219,13 +219,13 @@ export class TimelineView {
 
   /**
    * The strip under canvas `x`, or null (in the gutter, or past the last
-   * channel — empty space to the right belongs to no channel).
+   * lane — empty space to the right belongs to no lane).
    *
    * `clamp` makes the last strip swallow everything to its right, which is what
    * a drag wants: pulling the pointer off the end of the grid should keep
-   * extending the block through the last channel rather than stopping dead.
+   * extending the block through the last lane rather than stopping dead.
    * The context menu deliberately does NOT clamp — right-clicking blank space
-   * is not right-clicking channel 32.
+   * is not right-clicking lane 32.
    */
   stripAt(x, clamp = false) {
     if (x < GUTTER_W) return null;
@@ -256,7 +256,7 @@ export class TimelineView {
     return Math.max(1, n);
   }
 
-  /** Leftmost channel that still leaves the grid full — walked from the RIGHT,
+  /** Leftmost lane that still leaves the grid full — walked from the RIGHT,
    *  since the strips are no longer a fixed width to divide by. */
   maxScrollCh() {
     const chans = this.store.doc?.channelCount ?? 32;
@@ -271,7 +271,7 @@ export class TimelineView {
     return Math.max(0, Math.min(first, chans - 1));
   }
 
-  /** Put the cursor back on a sub-column its channel actually shows — called
+  /** Put the cursor back on a sub-column its lane actually shows — called
    *  when a second effect column is hidden out from under it. */
   clampCursorSub() {
     const c = this.store.cursor;
@@ -300,8 +300,8 @@ export class TimelineView {
   }
 
   /**
-   * One channel's surround radar (#998.6): the horizon circle seen from above,
-   * front at the top, with the sounding voice as a dot. Elevation shrinks the
+   * One lane's surround radar (#998.6): the horizon circle seen from above,
+   * front at the top, with the sounding lane as a dot. Elevation shrinks the
    * radius (overhead = dead centre), which is what makes the pan strip above it
    * the dot's own horizontal shadow. A spatial song also gets a height tick on
    * the right edge.
@@ -395,7 +395,7 @@ export class TimelineView {
     const y = e.clientY - rect.top;
     if (longPressable(e)) this.hold.start(e, x, y, this.holdRect(x, y));
     if (y < this.headerH()) {
-      // channel header: click = mute toggle, Ctrl/⌘+click = solo toggle
+      // lane header: click = mute toggle, Ctrl/⌘+click = solo toggle
       const ch = this.channelAt(x);
       if (ch >= 0) {
         if (e.ctrlKey || e.metaKey) this.store.toggleSolo(ch);
@@ -426,9 +426,9 @@ export class TimelineView {
   // ── the row trough (item 136) ──
   // The numbered gutter down the left addresses SONG ROWS rather than cells, so
   // it selects and acts on whole rows: a drag there is a row band across every
-  // channel, which is what the insert/delete row commands take as their span.
+  // lane, which is what the insert/delete row commands take as their span.
 
-  /** Is canvas `x` in the trough (rather than over a channel strip)? */
+  /** Is canvas `x` in the trough (rather than over a lane strip)? */
   inTrough(x) { return x < GUTTER_W; }
 
   /** Absolute row at canvas `y`, clamped into the song (a drag that runs off
@@ -447,7 +447,7 @@ export class TimelineView {
     return !!b && b.c0 === 0 && b.c1 >= (this.store.doc?.channelCount ?? 1) - 1;
   }
 
-  /** Select a row band from `a` to `b`, every channel, every sub-column. */
+  /** Select a row band from `a` to `b`, every lane, every sub-column. */
   selectRowBand(a, b) {
     const last = (this.store.doc?.channelCount ?? 1) - 1;
     this.sel = { aRow: a, aCh: 0, aSub: 0, row: b, ch: last, sub: lastSub(this.fx2On(last)) };
@@ -516,7 +516,7 @@ export class TimelineView {
 
   /**
    * What the hold gauge is drawn around: the block the press landed INSIDE,
-   * else the one thing under it — a row band in the trough, a channel header,
+   * else the one thing under it — a row band in the trough, a lane header,
    * or a single cell. Canvas coordinates, or null where there is nothing to
    * point at.
    */
@@ -580,13 +580,13 @@ export class TimelineView {
 
   // ── right-click context menu ──
 
-  /** Channel under a canvas x — the whole strip, header and grid alike — or -1
-   *  when x is in the gutter or past the last channel. */
+  /** Lane under a canvas x — the whole strip, header and grid alike — or -1
+   *  when x is in the gutter or past the last lane. */
   channelAt(x) { return this.stripAt(x)?.ch ?? -1; }
 
   /**
-   * Context menu (icon-cell palette). Anywhere on a channel — its header or any
-   * row down its strip — offers the two channel inserts. On the grid it also
+   * Context menu (icon-cell palette). Anywhere on a lane — its header or any
+   * row down its strip — offers the two lane inserts. On the grid it also
    * offers the clipboard: copy/cut while a block is selected, paste onto a cell
    * that has a pattern to paste into; a cell whose cue slot is EMPTY offers a
    * fresh pattern instead (the two are mutually exclusive by construction), and
@@ -594,7 +594,7 @@ export class TimelineView {
    *
    * The second row depends on where the pointer is: over the grid it is the
    * column tools, over the HEADER — where there are no cells for them to act on
-   * — it is that channel's mute/solo (item 103.2).
+   * — it is that lane's mute/solo (item 103.2).
    */
   async onContextMenu(e) {
     e.preventDefault();
@@ -613,7 +613,7 @@ export class TimelineView {
     const surroundModel = store.doc.songs[store.songIndex]?.surroundModel ?? 0;
 
     // The "no pattern here" target: a grid row (not the header) inside the song
-    // whose cue leaves this channel empty.
+    // whose cue leaves this lane empty.
     const hit = this.hitTest(x, y);
     const loc = hit ? this.locate(hit.row) : null;
     // Two different questions, and conflating them once cost Paste its cell:
@@ -640,7 +640,7 @@ export class TimelineView {
 
     // Second row: over the grid, the column tools aimed at the selection's
     // column band or at the single column under the pointer; over the HEADER,
-    // that channel's mutes (item 103.2). The header is about the channel, not
+    // that lane's mutes (item 103.2). The header is about the lane, not
     // about a block someone left selected elsewhere, so it wins outright rather
     // than only when there happens to be nothing for the tools to act on.
     const onHeader = y < this.headerH();
@@ -739,7 +739,7 @@ export class TimelineView {
   }
 
   /** Deduped [{pat, row}] the tools act on: every cell of the block selection,
-   *  else the one cell under the pointer. Channels sharing a pattern would
+   *  else the one cell under the pointer. Lanes sharing a pattern would
    *  otherwise yield the same (pat,row) twice and corrupt the undo capture. */
   toolCells(hit, ch) {
     const seen = new Map();
@@ -756,11 +756,11 @@ export class TimelineView {
   }
 
   /**
-   * The same cells as toolCells, but kept as ONE LANE PER CHANNEL in song-row
+   * The same cells as toolCells, but kept as ONE SERIES PER LANE in song-row
    * order — what an interpolation runs down.
    *
-   * A song row this channel has no pattern on becomes a `null` rather than
-   * being left out, because the lane's SPACING is the curve's x axis: drop the
+   * A song row this lane has no pattern on becomes a `null` rather than
+   * being left out, because the series' SPACING is the curve's x axis: drop the
    * holes and a ramp written across a gap in the song arrives at the wrong
    * slope on the far side of it.
    */
@@ -809,9 +809,9 @@ export class TimelineView {
 
   /** Move / duplicate / delete the patterns in `slots` (item 103.1). A move takes the
    *  block selection with it, so the same block can be walked across several
-   *  channels without re-selecting it after every step — clamped, because only
+   *  lanes without re-selecting it after every step — clamped, because only
    *  the block's FILLED slots had to have somewhere to go, and a selection can
-   *  reach past them into empty channels. */
+   *  reach past them into empty lanes. */
   runSlotItem(id, slots) {
     const dir = id === "movLeft" ? -1 : 1;
     const moving = id === "movLeft" || id === "movRight";
@@ -831,7 +831,7 @@ export class TimelineView {
   }
 
   /** The (cue, ch) slots the tools' block covers — a Timeline selection is
-   *  rows × channels, and many rows map onto the same cue, so this collapses
+   *  rows × lanes, and many rows map onto the same cue, so this collapses
    *  them. Deduped, in reading order. */
   slotsInBlock(hit, ch) {
     const b = this.selBounds();
@@ -876,7 +876,7 @@ export class TimelineView {
   hasSelection() { return this.sel !== null; }
   clearSelection() { if (this.sel) { this.sel = null; this.invalidate(); } }
 
-  /** Ctrl+A — select the whole column of the cursor's channel (single voice):
+  /** Ctrl+A — select the whole column of the cursor's lane (a single lane):
    *  every row, all sub-columns. */
   selectColumn() {
     const map = this.getMap();
@@ -890,13 +890,13 @@ export class TimelineView {
 
   /**
    * Ctrl+←/→ — the move Ctrl+A asks for next: widen (or narrow) the block by
-   * one whole VOICE column.
+   * one whole LANE column.
    *
-   * The channel the block was anchored on stays put and the far edge walks, so
+   * The lane the block was anchored on stays put and the far edge walks, so
    * ← after a → takes the last column back off again rather than jumping the
    * anchor about — the same anchor-and-edge rule Shift+arrows follow. What it
    * selects is always WHOLE columns: every row of the song and every
-   * sub-column the edge channel shows, whatever the block looked like before.
+   * sub-column the edge lane shows, whatever the block looked like before.
    * With nothing selected it starts from Ctrl+A's block, so Ctrl+→ on its own
    * takes this column and the one beside it.
    */
@@ -909,7 +909,7 @@ export class TimelineView {
     const ch = clampInt(s.ch + dir, 0, this.store.doc.channelCount - 1);
     s.ch = ch;
     s.aRow = 0; s.row = map.totalRows - 1;
-    // The edge channel's own last sub-column: a hidden second effect stays
+    // The edge lane's own last sub-column: a hidden second effect stays
     // outside the block here exactly as it does everywhere else.
     s.aSub = 0; s.sub = lastSub(this.fx2On(ch));
     // The cursor rides the moving edge — that is what scrolls the new column
@@ -961,14 +961,14 @@ export class TimelineView {
     const chans = this.store.doc.channelCount;
     c.row = clampInt(c.row + dRow, 0, map.totalRows - 1);
     c.ch = clampInt(c.ch + dCh, 0, chans - 1);
-    this.clampCursorSub(); // the channel we landed on may show fewer columns
+    this.clampCursorSub(); // the lane we landed on may show fewer columns
     this.sel.row = c.row; this.sel.ch = c.ch; this.sel.sub = c.sub;
     this.keepCursorVisible();
     this.store.emit("cursor");
   }
 
   /** Shift+←/→: extend the selection by walking the sub-cursor (crossing
-   *  channels at the edges, like moveSubCursor), so the block carries
+   *  lanes at the edges, like moveSubCursor), so the block carries
    *  sub-column granularity just like a mouse drag. */
   extendSelectionSub(dir) {
     const map = this.getMap();
@@ -982,10 +982,10 @@ export class TimelineView {
   }
 
   /**
-   * Walk the cursor one sub-position, crossing into the neighbouring channel at
-   * either end. The walk order is that CHANNEL's — a channel showing its second
+   * Walk the cursor one sub-position, crossing into the neighbouring lane at
+   * either end. The walk order is that LANE's — a lane showing its second
    * effect has eight sub-columns and its neighbour may have six — so the index
-   * is re-seated against the destination channel's list after every crossing.
+   * is re-seated against the destination lane's list after every crossing.
    */
   stepSubCursor(dir) {
     const c = this.store.cursor;
@@ -1001,7 +1001,7 @@ export class TimelineView {
     [c.sub, c.nib] = this.subPosFor(c.ch)[idx];
   }
 
-  /** Dedupe writes by (pat,row) — channels sharing a pattern would otherwise
+  /** Dedupe writes by (pat,row) — lanes sharing a pattern would otherwise
    *  produce two writes to the same cell and corrupt the undo capture. */
   dedupeWrites(fn) {
     const map = new Map();
@@ -1163,12 +1163,12 @@ export class TimelineView {
     const chans = this.store.doc.channelCount;
     c.row = clampInt(c.row + dRow, 0, map.totalRows - 1);
     c.ch = clampInt(c.ch + dCh, 0, chans - 1);
-    this.clampCursorSub(); // the channel we landed on may show fewer columns
+    this.clampCursorSub(); // the lane we landed on may show fewer columns
     this.keepCursorVisible();
     this.store.emit("cursor");
   }
 
-  /** Move through sub-positions (nibble-level), wrapping across channels. */
+  /** Move through sub-positions (nibble-level), wrapping across lanes. */
   moveSubCursor(dir) {
     this.sel = null; // plain navigation drops any block selection
     this.stepSubCursor(dir);
@@ -1201,7 +1201,7 @@ export class TimelineView {
   /**
    * Ditto ghost map for a pattern played under a cue of `rowLimit` rows
    * (the endRow clamp is cue-dependent, so that's part of the cache key).
-   * Rebuilt per draw — patterns repeat across channels, hence the memo.
+   * Rebuilt per draw — patterns repeat across lanes, hence the memo.
    */
   ghostsFor(patNum, rowLimit) {
     if (this.store.ghosts === false) return EMPTY_GHOSTS;
@@ -1220,14 +1220,14 @@ export class TimelineView {
   dropBends() { this._bends.clear(); }
 
   /**
-   * Bend ghost map for whatever channel `ch` plays in song-map entry `ei` —
+   * Bend ghost map for whatever lane `ch` plays in song-map entry `ei` —
    * what a slide or a portamento is holding at each row's tick 0.
    *
    * Unlike the ditto map this CANNOT be memoised per pattern: a bend crosses
    * the boundary between one cue and the next, so the same pattern reached
    * from two different places in the song is holding two different things on
    * its first rows. What is cached instead is one running simulation per
-   * CHANNEL, plus the maps it has already produced — extended to whichever
+   * LANE, plus the maps it has already produced — extended to whichever
    * entry is asked for, which is how the cost stays proportional to what the
    * view is actually looking at rather than to the length of the song.
    */
@@ -1247,7 +1247,7 @@ export class TimelineView {
       const e = entries[chain.next];
       const patNum = e.info ? (this.store.song.cues[e.cue][ch] & 0x7fff) : PATTERN_EMPTY;
       // An empty cue slot is not silence with a fresh start after it: row.js
-      // skips the channel before it resets anything, so the voice rings on
+      // skips the lane before it resets anything, so the note rings on
       // holding everything it had. Running nothing through the sim is exactly
       // that.
       chain.maps[chain.next] = patNum === PATTERN_EMPTY ? EMPTY_GHOSTS
@@ -1352,7 +1352,7 @@ export class TimelineView {
     }
   }
 
-  /** Pattern number assigned to channel `ch` at the current play/cursor cue. */
+  /** Pattern number assigned to lane `ch` at the current play/cursor cue. */
   currentPatternFor(ch) {
     const song = this.store.song;
     if (!song) return null;
@@ -1384,7 +1384,7 @@ export class TimelineView {
     const song = store.song;
     if (!doc || !song) return;
     const map = this.getMap();
-    const strips = this.chanLayout(); // [{ch, x, w}] — widths differ per channel
+    const strips = this.chanLayout(); // [{ch, x, w}] — widths differ per lane
     const visRows = this.visibleRows() + 1;
     const top = Math.floor(this.scrollRow);
     const audio = store.audio;
@@ -1392,7 +1392,7 @@ export class TimelineView {
     ctx.font = canvasFont(FONT_PX);
     ctx.textBaseline = "middle";
 
-    // ── channel headers: two text rows split by the VU/pan meters ──
+    // ── lane headers: two text rows split by the VU/pan meters ─────
     //   upper: voxnum (L) · live note+inst (C) · pattern number (R, amber)
     //   lower: pattern name (C) — the rename display, alongside the number above
     const headPal = { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent };
@@ -1408,7 +1408,7 @@ export class TimelineView {
     const spatialSong = surroundModel === SURROUND_SPATIAL;
     for (const { ch, x: stripX, w: colW } of strips) {
       // A header panel is the CELL's rectangle, not the strip's: every grid
-      // cell is painted from `x - 2` and the channel boundary rule sits on its
+      // cell is painted from `x - 2` and the lane boundary rule sits on its
       // right edge, so a header drawn from `x` overhangs that rule by 2 px and
       // its text sits 2 px right of the notes underneath it (item 137). The
       // whole header block therefore shares the cell origin.
@@ -1417,13 +1417,13 @@ export class TimelineView {
       ctx.fillRect(x, 0, colW - 2, headerH - 2);
       const patNum = this.currentPatternFor(ch);
 
-      // upper row: channel number (left) + current pattern number (right, amber)
+      // upper row: lane number (left) + current pattern number (right, amber)
       ctx.fillStyle = C.dim;
       ctx.textAlign = "left";
       ctx.fillText(String(ch + 1).padStart(2, "0"), x + 4, UP_MID);
-      // …and, between them, the hint that this channel is HIDING second effects
+      // …and, between them, the hint that this lane is HIDING second effects
       // it actually carries — the column is off by default, so without this the
-      // only way to find out is to turn it on channel by channel.
+      // only way to find out is to turn it on lane by lane.
       if (!this.fx2On(ch) && this.patternHasFx2(patNum)) {
         ctx.fillStyle = C.fxOp;
         ctx.globalAlpha = 0.75;
@@ -1491,7 +1491,7 @@ export class TimelineView {
         }
       }
 
-      // muted channel: dim the header, MUTE tag over the meters
+      // muted lane: dim the header, MUTE tag over the meters
       if (store.voiceMutes[ch]) {
         ctx.globalAlpha = 0.6;
         ctx.fillStyle = C.bg;
@@ -1509,7 +1509,7 @@ export class TimelineView {
     const dittoPal = monoPalette(C.ditto); // ghost cells (pattern ditto)
     const fxPal = { op: C.fxOp, a1: C.fxA1, a2: C.fxA2, a3: C.fxA3, dim: C.dim, ext: C.fxExt };
     const sb = this.selBounds(); // block selection bounds (or null)
-    const rowBand = this.isRowBand(); // …and whether it spans every channel
+    const rowBand = this.isRowBand(); // …and whether it spans every lane
     const beats = store.beats(); // primary/secondary divisions from sMet
     for (let r = 0; r < visRows; r++) {
       const absRow = top + r;
@@ -1542,7 +1542,7 @@ export class TimelineView {
       // gutter: "cue:row" (cue is 4-digit hex); beat rows highlighted; the
       // cursor row gets its own background so it's findable at a glance.
       // A row BAND (a trough drag) is marked in the trough too — the grid
-      // highlight alone leaves it invisible wherever the channels are empty,
+      // highlight alone leaves it invisible wherever the lanes are empty,
       // which is exactly where a row edit is easiest to get wrong.
       if (rowBand && absRow >= sb.r0 && absRow <= sb.r1) {
         ctx.fillStyle = C.sel;
@@ -1659,13 +1659,13 @@ export class TimelineView {
     ctx.lineTo(GUTTER_W - 4.5, H);
     ctx.moveTo(0, this.headerH() - 1.5);
     ctx.lineTo(W, this.headerH() - 1.5);
-    // A rule down each channel BOUNDARY. The headers are already separated by
+    // A rule down each lane BOUNDARY. The headers are already separated by
     // their alternating panels, but the grid rows are not, and the strips are
-    // no longer a uniform width to count by — so where one channel ends and the
+    // no longer a uniform width to count by — so where one lane ends and the
     // next begins is the division worth drawing. The space between the two
     // effect groups is separation enough for them.
     // Sits in the middle of the 10 px every column carries past its last
-    // character, so it never crowds a cell; the last channel gets none, or the
+    // character, so it never crowds a cell; the last lane gets none, or the
     // grid would end on a rule with nothing beyond it.
     const lastCh = (doc.channelCount ?? 0) - 1;
     for (const { ch, x, w } of strips) {
@@ -1682,7 +1682,7 @@ export class TimelineView {
   }
 
   /** Does pattern `patNum` carry any second effect? Memoised for the frame —
-   *  one pattern is usually on several channels. Only asked of a v3 document. */
+   *  one pattern is usually on several lanes. Only asked of a v3 document. */
   patternHasFx2(patNum) {
     if (!this.wide() || patNum === null || patNum === PATTERN_EMPTY) return false;
     let has = this._hasFx2.get(patNum);

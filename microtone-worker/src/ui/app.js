@@ -258,7 +258,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   keymapLib.applyForPreset(store.pitchPreset, store.doc.meta.songMeta[0]?.notation ?? 120);
   store.undo = new UndoStack(store.doc, (dirty) => {
     store.sync?.onDirty(dirty);
-    // A channel insert shifts the mute array along with the patterns; the tag
+    // A lane insert shifts the mute array along with the patterns; the tag
     // is direction-free because UndoStack replays the forward op's tags. A
     // "format" tag re-pushes the whole document, which resets the engine (item
     // 125) — the mutes are the desk's, so they go back down after it.
@@ -369,7 +369,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   // Empty pattern: FINE-by-zero in both columns (the converter convention),
   // which in the wide cell is one selector byte instead of two.
   const emptyPat = emptyPatternBytes(wide);
-  // Cue 0: one private pattern per channel (pattern n on channel n).
+  // Cue 0: one private pattern per lane (pattern n on lane n).
   const cue0 = new Uint16Array(64).fill(0x7fff);
   const patterns = [];
   for (let ch = 0; ch < chans; ch++) {
@@ -437,7 +437,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   keymapLib.applyForPreset(store.pitchPreset, result.notation);
   store.undo = new UndoStack(store.doc, (dirty) => {
     store.sync?.onDirty(dirty);
-    // A channel insert shifts the mute array along with the patterns; the tag
+    // A lane insert shifts the mute array along with the patterns; the tag
     // is direction-free because UndoStack replays the forward op's tags. A
     // "format" tag re-pushes the whole document, which resets the engine (item
     // 125) — the mutes are the desk's, so they go back down after it.
@@ -556,7 +556,7 @@ async function importMidiInteractive({ toOpfs = false } = {}) {
       // The converter pools byte-identical patterns, so a repeated bar (and
       // every silent column) is ONE pattern the cue sheet points at several
       // times — edit it in one cue and every other cue changes with it. Ticking
-      // this gives each cue×voice cell its own pattern, which is what you want
+      // this gives each cue×lane cell its own pattern, which is what you want
       // when the import is a starting point for editing rather than a finished
       // song. Costs pattern slots (32767 cap), barely any file size.
       name: "nodedup", label: t("midi.keepDupPatterns"), type: "checkbox", value: false,
@@ -841,7 +841,7 @@ function refreshToolbox() {
   $("tbBinaural").textContent = t(store.binaural ? "toolbox.binauralOn" : "toolbox.binauralOff");
   $("tbBinaural").classList.toggle("active", store.binaural);
   // Second effect column (§5.5): only a format-v3 project HAS one, and the
-  // button is the all-channels switch — the per-channel one is on the channel
+  // button is the all-lanes switch — the per-lane one is on the lane
   // header's right-click menu (Timeline) and each column's E2 button (Patterns).
   refreshFx2Btn();
   // Master strip (item 98) — a Timeline fixture, so the button only means
@@ -1161,8 +1161,8 @@ $("tbGhosts").addEventListener("click", () => {
 });
 // Second effect column (§5.5) — hidden by default, because most songs never
 // write one and it costs six characters of the widest column on screen. This
-// button is the ALL-channels switch: on when anything is showing it, and one
-// click puts every channel and every pattern column back the other way.
+// button is the ALL-lanes switch: on when anything is showing it, and one
+// click puts every lane and every pattern column back the other way.
 function refreshFx2Btn() {
   const btn = $("tbFx2");
   const wide = store.doc?.wideCells === true;
@@ -1173,7 +1173,7 @@ function refreshFx2Btn() {
 }
 $("tbFx2").addEventListener("click", () => store.setAllFx2(!store.fx2Any()));
 store.on("fx2", () => refreshFx2Btn());
-// Surround radar (#998.6): expands every Timeline channel header into a
+// Surround radar (#998.6): expands every Timeline lane header into a
 // top-down dial. Collapsed, the pan strip already shows that dial's horizontal
 // shadow, so the toggle is "show me the other axis", not a different reading.
 store.surroundMeters = false;
@@ -1324,7 +1324,7 @@ for (const topic of ["cursor", "edit", "view", "doc", "keymap"]) {
 // ── Find (item 177) ──
 // The bar owns the criteria and the walk; going to a match is the views' own
 // business, because only they know what "there" means — an absolute song row
-// and channel on the Timeline, a pattern and a row in Patterns. Every copy of
+// and lane on the Timeline, a pattern and a row in Patterns. Every copy of
 // the view follows (a split shows the same music twice, and "take me there"
 // means both panes), exactly as Goto does.
 const findBar = new FindBar($("findBar"), store, {
@@ -1462,7 +1462,7 @@ window.addEventListener("keydown", (e) => {
     }
   }
   // Ctrl/Cmd+A — block-select the whole column (Timeline / Cues: the cursor's
-  // single voice; Patterns: the active pane's pattern). Item 47.5.
+  // single lane; Patterns: the active pane's pattern). Item 47.5.
   if ((e.ctrlKey || e.metaKey) && e.key === "a") {
     const v = selView();
     if (v?.selectColumn) {
@@ -1472,9 +1472,9 @@ window.addEventListener("keydown", (e) => {
       return;
     }
   }
-  // Ctrl/Cmd+←/→ — grow that column block sideways, a whole voice at a time.
-  // Only the two channel-column grids have a neighbouring column to reach: a
-  // Taud pattern is one channel, so the Patterns view leaves the keys alone.
+  // Ctrl/Cmd+←/→ — grow that column block sideways, a whole lane at a time.
+  // Only the two lane-column grids have a neighbouring column to reach: a
+  // Taud pattern is one lane, so the Patterns view leaves the keys alone.
   if ((e.ctrlKey || e.metaKey) && (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
     const v = selView();
     if (v?.extendColumn) {
@@ -1651,7 +1651,7 @@ window.addEventListener("keydown", (e) => {
         }
         return;
       }
-      // Mute/solo on the cursor channel — navigate mode only, like taut
+      // Mute/solo on the cursor lane — navigate mode only, like taut
       // (in record mode M and N stay piano keys). A keymap that claims the Z
       // row makes them piano keys in navigate mode too, so they move to Shift
       // there, the same relocation the note-column sentinels get.

@@ -71,7 +71,7 @@ const traceY = new Float32Array(SCOPE_FRAMES);
  * (top, front and side), so any two panels sit side by side on matching axes
  * and answer different questions about the same moment:
  *
- *   * BLOBS draws the SOURCES: one dot per sounding channel, where the engine
+ *   * BLOBS draws the SOURCES: one dot per sounding lane, where the engine
  *     has it.
  *   * TOP/FRONT/SIDE are the goniometers: the SOUND, as a pair of the field's
  *     own axes.
@@ -1175,9 +1175,9 @@ export class MasterStrip {
   }
 
   /**
-   * The tracker-friendly view: one dot per sounding channel where the engine
+   * The tracker-friendly view: one dot per sounding lane where the engine
    * actually has it, not a waveform. Same dial and the same height cue as the
-   * Panner and the channel radars, so a source reads the same everywhere.
+   * Panner and the lane radars, so a source reads the same everywhere.
    */
   drawBlobs(ctx, C, cx, cy, r, view) {
     const audio = this.store.audio;

@@ -234,8 +234,8 @@ test("the panning column places a source anywhere on the sphere", () => {
   ]);
   render(eng, 2);
   // Item 117: the panning column is the NOTE axis in a wide cell too, so the
-  // pair it writes is an offset from the channel's direction — which, with the
-  // channel at its default front, puts the source exactly where the cell says.
+  // pair it writes is an offset from the lane's direction — which, with the
+  // lane at its default front, puts the source exactly where the cell says.
   assert.equal(eng.getVoiceSpatialAzimuth(0, 0), 384, "behind — the ninth bit reached the engine");
   assert.equal(eng.getVoiceSpatialElevation(0, 0), 64);
   assert.equal(voice0(eng).panAzimuth, 128, "the channel's own direction is untouched");
@@ -288,7 +288,7 @@ test("both effect slots run, and the second one lands last", () => {
   loadWideSong(eng, [{
     row: 0, note: 0x5000, inst: 1,
     effect: EffectOp.OP_X, arg: 0x0040,   // place: front, ear level
-    effect2: EffectOp.OP_M, arg2: 0x8000, // …and set the channel volume
+    effect2: EffectOp.OP_M, arg2: 0x8000, // …and set the lane volume
   }]);
   render(eng, 2);
   const v = voice0(eng);
@@ -689,7 +689,7 @@ test("typing into the second effect column writes effect2, not effect", async ()
   const key = (k, sub, nib, c) =>
     E.interpretEditKey({ code: "Key" + k.toUpperCase(), key: k }, sub, nib, c, ctx);
 
-  // "M" is base-36 0x16 — the channel-volume command.
+  // "M" is base-36 0x16 — the lane-volume command.
   let a = key("m", E.SUB_FX2_OP, 0, cell);
   assert.deepEqual(a.fields, { effect2: 0x16 });
   assert.ok(a.advanceNib, "the opcode steps into its argument");

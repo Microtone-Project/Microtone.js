@@ -242,7 +242,7 @@ json.dumps({"out": out, "stderr": _err.getvalue()})
   return JSON.parse(py.runPython(src));
 }
 
-/** A minimal 4-channel "M.K." module: one pattern, one note per row, each a
+/** A minimal 4-lane "M.K." module: one pattern, one note per row, each a
  *  period straight out of ProTracker's table. Synthesised rather than shipped
  *  as a corpus binary so the periods under test are visible right here. */
 function makeMod(periods) {
@@ -261,7 +261,7 @@ function makeMod(periods) {
   buf[o + 1] = 127;                    // restart
   put(o + 2 + 128, "M.K.");
   periods.forEach((period, row) => {
-    const c = head + row * CH * 4;      // channel 0 of this row
+    const c = head + row * CH * 4;      // lane 0 of this row
     buf[c] = (period >> 8) & 0x0f;      // sample hi nibble 0 | period hi
     buf[c + 1] = period & 0xff;
     buf[c + 2] = 1 << 4;                // sample 1 lo nibble, effect 0
@@ -339,7 +339,7 @@ test("it2taud carries NNA, and sample-mode files get Note Cut", () => {
     [0, 0, 0, 2, 3, 1]);
 
   // Sample mode: the same file with the header's "use instruments" flag
-  // cleared. IT has no NNA there at all — a new note replaces the channel's
+  // cleared. IT has no NNA there at all — a new note replaces the lane's
   // voice — so every slot must read Note Cut (1). It used to read Note Off,
   // which spawns a ghost per trigger that a sample with no volume envelope
   // and no fadeout never stops. Its default pan and auto-vibrato come from
@@ -394,7 +394,7 @@ test("it2taud drops the instrument byte from porta-tied rows (item 169)", () => 
   // re-attack there (item 124), so the converter writes the passage the way an
   // IT author's ear expects instead — without the instrument byte. TUTE.IT
   // carries three such rows (two G, one L), and every one of them names the
-  // instrument the channel is already holding, so all three lose the byte.
+  // instrument the lane is already holding, so all three lose the byte.
   const cells = triggerCells(parseTaud(convert("TUTE.IT")));
   const tied = cells.filter((c) => c.op === 16 || c.op === 21);   // G, L
   assert.ok(tied.length > 0, "premise: the file HAS porta-tied notes");
@@ -572,7 +572,7 @@ test("midi2taud with GeneralUser-GS → parseable document (skips without the SF
   });
 
 // Item 159 — pattern $0000 is the index an editor hands out for a newly-added
-// channel or cue, so a converted song must not have real music sitting there.
+// lane or cue, so a converted song must not have real music sitting there.
 test("midi2taud reserves pattern $0000 for silence (skips without the SF2)",
   { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" },
   () => {
@@ -996,7 +996,7 @@ test("midi2taud keeps every zone by default; --trim-unused-patches drops the unt
 
 test("it2taud keeps an IT stereo sample as a stereo pair, --mono-samples folds it", () => {
   // TUTE-stereo.it is TUTE.IT with sample 1 ("Low Strings") turned into a
-  // stereo sample whose right channel is the left inverted about the DC centre.
+  // stereo sample whose right lane is the left inverted about the DC centre.
   const stereoDoc = new Document(parseTaud(convert("TUTE-stereo.it")));
   const monoDoc = new Document(parseTaud(convert("TUTE.IT")));
 
@@ -1006,7 +1006,7 @@ test("it2taud keeps an IT stereo sample as a stereo pair, --mono-samples folds i
   assert.equal(pair[0].name, "Low Strings");
   assert.deepEqual(sampleSpans(pair[0]).length, 2);
 
-  // Both channels are pooled, and they genuinely differ.
+  // Both lanes are pooled, and they genuinely differ.
   const [l, r] = sampleSpans(pair[0]);
   let diff = 0;
   for (let i = 0; i < pair[0].len; i++) {
@@ -1150,7 +1150,7 @@ test("ims2taud: an AdLib song plus its bank → a playable FM-rack document", ()
   assert.equal(doc.kind, "taud");
   assert.equal(doc.songs.length, 1);
   const song = doc.songs[0];
-  // Melodic mode is nine OPL voices, and channel IS voice in this format.
+  // Melodic mode is nine OPL voices, and lane IS voice in this format.
   assert.equal(song.numVoices, 9);
   // Concert pitch, declared the one way the engine reads as an exact identity:
   // A4 @ 440 renders without a bit disturbed, so the song is an ordinary

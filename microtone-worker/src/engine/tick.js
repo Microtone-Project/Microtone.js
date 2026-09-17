@@ -162,7 +162,7 @@ export function funkWalkPointer(funkMode, walk, loopStart, loopLen, sampleLen) {
 
 /**
  * Arm the anti-click crossfade on every voice sounding `instId` (item 153.5).
- * The modification is instrument-scope, so one channel's step is heard by every
+ * The modification is instrument-scope, so one lane's step is heard by every
  * voice bound to that instrument — NNA ghosts and layer children included — and
  * each needs its own countdown because each is at its own point in its own
  * output. The state being faded FROM is the instrument's (one snapshot, taken
@@ -253,7 +253,7 @@ export function applyTrackerTick(eng, ts, playhead) {
           forceKeyLift(voice);
           // …and it bypasses it for the WHOLE note, exactly as the note cut
           // above reaches every child: a metainstrument is one note, so a
-          // forced lift written on its channel has to lift all of it. The
+          // forced lift written on its lane has to lift all of it. The
           // per-tick sync cannot do this one — it hands each child its own
           // instrument's applyKeyLift, which is the flag this command exists
           // to override (item 191.3).
@@ -334,7 +334,7 @@ export function applyTrackerTick(eng, ts, playhead) {
         voice.channelVolume = clamp(voice.channelVolume + voice.nSlideDir * ts.volStep, 0, ts.volMax);
       }
       // The panning column slides the NOTE axis, as its SET does (item 117);
-      // P slides the CHANNEL axis, as S $80xx sets it.
+      // P slides the LANE axis, as S $80xx sets it.
       if (voice.panColSlideRight !== 0) {
         applyNotePanSlide(ts, voice, voice.panColSlideRight);
       }
@@ -423,7 +423,7 @@ export function applyTrackerTick(eng, ts, playhead) {
 
     // Q retrigger. A metainstrument retriggers WHOLE — every layer restarts
     // together, or the kit would fall apart into layer 0 stuttering over a
-    // sustained remainder (item 154). The volume modifier is the channel's, so
+    // sustained remainder (item 154). The volume modifier is the lane's, so
     // it is applied once, on the foreground voice the children sync from.
     if (voice.retrigActive && !voice.noteWasCut) {
       voice.retrigCounter++;
@@ -496,7 +496,7 @@ export function applyTrackerTick(eng, ts, playhead) {
     }
   }
 
-  // Global volume slide (W coarse) — once per non-first tick per armed channel.
+  // Global volume slide (W coarse) — once per non-first tick per armed lane.
   if (ts.tickInRow > 0) {
     for (const voice of ts.voices) {
       if (voice.wSlideDir !== 0) {
@@ -559,7 +559,7 @@ export function applyTrackerTick(eng, ts, playhead) {
 
   // Sample modification (notefx 2 / 3) — one step of the instrument's live
   // operation every $y ticks (item 153.1: $F every tick, $1 every fifteenth),
-  // counted per channel because the clock is the channel's and the operation
+  // counted per lane because the clock is the lane's and the operation
   // the instrument's. A metainstrument's layer children carry a clock too
   // (item 154), one per distinct instrument — applySampleModEffect zeroes the
   // duplicates' modPeriod, so a kit whose layers share a sample still steps it
@@ -577,7 +577,7 @@ export function applyTrackerTick(eng, ts, playhead) {
     if (bg.isLayerChild) {
       // An operand follows the voice that READS it, which for a rack the NNA
       // has already ghosted (item 191) is a background voice and not the
-      // channel's. Every other child follows the channel, as it always has.
+      // lane's. Every other child follows the lane, as it always has.
       const parent = bg.fmOperator
         ? bg.fmParent
         : (bg.sourceChannel >= 0 && bg.sourceChannel < ts.voices.length
@@ -612,7 +612,7 @@ export function applyTrackerTick(eng, ts, playhead) {
         // A NON-MELODIC layer (item 179) holds its own note: it is not sitting
         // at an interval from the parent, it is sitting at a pitch. Everything
         // else below still follows the parent — the pitch OVERLAY included, so
-        // a vibrato written on the channel still bends it. What the flag takes
+        // a vibrato written on the lane still bends it. What the flag takes
         // away is the keyed note, not the pattern's reach over the note.
         bg.noteVal = bg.layerFixedNote >= 0
           ? bg.layerFixedNote
@@ -684,7 +684,7 @@ export function applyTrackerTick(eng, ts, playhead) {
 }
 
 /**
- * One tick of channel-clocked sample modification (notefx 2 / 3) for `voice`:
+ * One tick of lane-clocked sample modification (notefx 2 / 3) for `voice`:
  * step the instrument's live operation when this voice's period elapses. Split
  * out of the tick loop because a metainstrument's layer children run it too
  * (item 154) — the clock is the voice's, the operation the instrument's.

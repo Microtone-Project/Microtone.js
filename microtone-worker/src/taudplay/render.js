@@ -85,7 +85,7 @@ export class TaudRenderer {
     this.engine.setCuePosition(0, Math.max(0, cue | 0));
     this.engine.setTrackerRow(0, 0);
   }
-  /** Master volume, 0..1 — the whole mix, not a voice. */
+  /** Master volume, 0..1 — the whole mix, not a lane. */
   setVolume(gain) {
     const g = gain < 0 ? 0 : gain > 1 ? 1 : gain;
     this.engine.setMasterVolume(0, Math.round(g * 255));
@@ -93,14 +93,14 @@ export class TaudRenderer {
 
   // ── the knobs ──
 
-  /** Voice `v` to `gain` (1 = as written, 0 = silent), optionally faded there
+  /** Lane `v` to `gain` (1 = as written, 0 = silent), optionally faded there
    *  over `fadeSeconds` of RENDERED time — the ramp advances as chunks are
    *  pulled, so it lands after exactly that much audio either way. */
   setVoiceGain(v, gain, fadeSeconds = 0) {
     this.faders.set(v, gainToFader(gain), Math.max(0, Math.round(fadeSeconds * SAMPLING_RATE)));
     this.faders.writeInto(this._ts());
   }
-  /** Voice `v`'s fader gain right now — mid-fade, where the fade has got to.
+  /** Lane `v`'s fader gain right now — mid-fade, where the fade has got to.
    *  The browser half reports the same thing off its own ramp mirror. */
   getVoiceGain(v) { return faderToGain(Math.round(this.faders.now[v])); }
 
@@ -122,7 +122,7 @@ export class TaudRenderer {
 
   // ── the probes ──
 
-  /** How loud voice `v` was at the end of the last chunk, 0..1. */
+  /** How loud lane `v` was at the end of the last chunk, 0..1. */
   getVoiceVolume(v) {
     const voice = this._ts().voices[v];
     if (!voice || !voice.active) return 0;
@@ -132,7 +132,7 @@ export class TaudRenderer {
     return ev < 0 ? 0 : ev > 1 ? 1 : ev;
   }
 
-  /** Where voice `v` sat, 0 (left) … 0.5 … 1 (right). */
+  /** Where lane `v` sat, 0 (left) … 0.5 … 1 (right). */
   getVoicePan(v) {
     const ts = this._ts();
     const voice = ts.voices[v];

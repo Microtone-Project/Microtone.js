@@ -123,12 +123,12 @@ export class AudioSystem {
     //   1. snapshots live in shared memory (no message traffic), and
     //   2. Tier 2 — a render Worker hosts the engine and streams audio into a
     //      SAB ring, leaving the AudioWorklet to only resample+copy (it can
-    //      never overrun, whatever the channel/voice load). Non-isolated hosts
+    //      never overrun, whatever the lane/voice load). Non-isolated hosts
     //      keep the engine in the worklet (render mode) with postMessage snapshots.
     if (globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined") {
       const snapSab = new SharedArrayBuffer(SNAP_SAB_BYTES);
       const view = new Float32Array(snapSab, 0, SNAP_FLOATS);
-      view.set(this.snapshot); // carry the pre-init defaults (channel count)
+      view.set(this.snapshot); // carry the pre-init defaults (lane count)
       this.snapshot = view;
       this.sabI32 = new Int32Array(snapSab, SNAP_FLOATS * 4, SNAP_SAB_I32_CELLS);
       this.usingSab = true;
@@ -220,8 +220,8 @@ export class AudioSystem {
     // Then wipe the engine's playback state (item 125), exactly as taut.js's
     // resetAudioDevice() precedes every taud.uploadTaudFile: the new document
     // brings patterns, cues and instruments, but nothing in it says where the
-    // previous song's S $80xx left each channel pointing, so without this a file
-    // opened on top of another inherited its panning, channel volumes and
+    // previous song's S $80xx left each lane pointing, so without this a file
+    // opened on top of another inherited its panning, lane volumes and
     // tone/interpolation modes. It follows the cell format because the reset
     // seeds the per-voice volumes from the layout's full-scale value.
     // Everything the song table DOES set is written below, after the reset.
@@ -362,11 +362,11 @@ export class AudioSystem {
   jamSample(ph, voice, note, spec) { this._post({ t: CMD.JAM_SAMPLE, ph, voice, note, spec }); }
   jamStop(ph = 0) { this._post({ t: CMD.JAM_STOP, ph }); }
   /** Stop one audition voice + what it spawned (item 140). `voice < 0` clears
-   *  the whole jam bank; neither form touches a song voice, so a released key
+   *  the whole jam bank; neither form touches a song lane, so a released key
    *  never cuts the playing song the way jamStop does. */
   jamStopVoice(ph = 0, voice = -1) { this._post({ t: CMD.JAM_STOP_VOICE, ph, voice }); }
   /** Voice index of jam-bank slot `i` — the audition voices, above every song
-   *  channel: no fader, no mute, and never written to by playback. */
+   *  lane: no fader, no mute, and never written to by playback. */
   jamVoice(i) { return JAM_VOICE_BASE + (((i | 0) % JAM_VOICES) + JAM_VOICES) % JAM_VOICES; }
   setVoiceMute(ph, voice, muted) { this._post({ t: CMD.SET_VOICE_MUTE, ph, voice, muted }); }
   setVoiceFader(ph, voice, fader) { this._post({ t: CMD.SET_VOICE_FADER, ph, voice, fader }); }

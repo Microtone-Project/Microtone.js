@@ -2,7 +2,7 @@
 // independent pitch offset expressed in whichever of the four idioms suits it
 // (just ratio · notation degrees · playback ratio · raw 4096-TET), mixed into
 // one sample: the Amiga trick of baking a chord into the waveform because the
-// channel can only play one note.
+// lane can only play one note.
 //
 // The interface is built around never having to look anything up:
 //   · every just interval names itself AND shows its ratio and cents;

@@ -99,8 +99,8 @@ export class JamKeyboard {
    * Audition a note the grid editor just entered, tracked under its key `code`
    * so record-mode entry obeys the same piano rules as a plain jam: last key
    * wins, and only the release of the LAST held key stops the voice. It sounds
-   * on the jam bank rather than the edited channel (item 140), so entering into
-   * a muted channel is still audible and never cuts what the song is playing
+   * on the jam bank rather than the edited lane (item 140), so entering into
+   * a muted lane is still audible and never cuts what the song is playing
    * there.
    */
   hold(code, note) {
@@ -119,7 +119,7 @@ export class JamKeyboard {
     if (!this.held.has(code)) {
       // Not ours to release (a jam issued by some other path): keep the old
       // safety net so its voice can never be left sounding. Only the BANK is
-      // cleared — the song's own voices are none of this keyboard's business.
+      // cleared — the song's own lanes are none of this keyboard's business.
       if (this.held.size === 0) this.store.audio?.jamStopVoice(0, -1);
       return true;
     }

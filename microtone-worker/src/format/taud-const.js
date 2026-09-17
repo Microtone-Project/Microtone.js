@@ -6,7 +6,7 @@ export const PROJ_MAGIC = Uint8Array.from([0x1e, 0x54, 0x61, 0x75, 0x64, 0x50, 0
 
 // Version byte layout: 0b kk x vvvvv
 //   vvvvv: format version (1 = legacy cues, 2 = extended cue sheet)
-//   x (0x20): Project Data carries an xHDR section (64-channel flag)
+//   x (0x20): Project Data carries an xHDR section (64-lane flag)
 //   kk: container kind
 export const TAUD_VERSION = 2;
 export const TAUD_VERSION_MASK = 0x1f;
@@ -37,7 +37,7 @@ export function patternSizeFor(fmtVer) {
 }
 export const NUM_PATTERNS_MAX = 0x7fff;
 
-// Cue sheet (v2): 32×Sint16 = 64 bytes; 64-channel mode: 64×Sint16 = 128 bytes.
+// Cue sheet (v2): 32×Sint16 = 64 bytes; 64-lane mode: 64×Sint16 = 128 bytes.
 export const NUM_VOICES = 32;
 export const MAX_VOICES = 64;
 export const CUE_SIZE = 64;

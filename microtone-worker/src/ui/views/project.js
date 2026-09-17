@@ -741,7 +741,7 @@ export class ProjectView {
     this.refresh();
   }
 
-  /** Append a fresh empty song (one private pattern per channel, cue 0). */
+  /** Append a fresh empty song (one private pattern per lane, cue 0). */
   addSong() {
     const store = this.store;
     const doc = store.doc;

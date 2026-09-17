@@ -1,6 +1,6 @@
 // Block clipboard for the pattern grids (Timeline + Pattern views). A block is
 // a rectangular region of cells captured as raw 8-byte images (row-major); the
-// same shape serves both views — the Pattern view is just a 1-channel block.
+// same shape serves both views — the Pattern view is just a 1-lane block.
 // Cross-view paste clips the block to whatever the destination can hold.
 //
 // "Empty" cells follow the converter convention: vol/pan bytes 0xC0
@@ -52,17 +52,17 @@ export function blockCell(block, r, c) {
 // ONE of its two spaces — never both, because the two do not hold the same kind
 // of thing and a rectangle straddling the boundary would mean nothing:
 //
-//   PATTERN blocks (`cmd` false): the columns are CHANNELS and each word is a
+//   PATTERN blocks (`cmd` false): the columns are LANES and each word is a
 //     pattern index (low 15 bits). The per-cue command sign bits are NOT
-//     carried: they are bit-packed across the channels of one cue, so a
-//     rectangular copy that moves channels around would scramble them. Paste
+//     carried: they are bit-packed across the lanes of one cue, so a
+//     rectangular copy that moves lanes around would scramble them. Paste
 //     therefore preserves each destination cell's own command bit and overlays
 //     only the pasted pattern index.
 //
 //   COMMAND blocks (`cmd` true): the columns are the two Cmd word SLOTS — at
 //     most two of them — and each word is a whole instruction (LEN/HALT/BAK/
 //     FWD/JMP as the engine decodes it). Pasting one rewrites the sign bits of
-//     channels 0-15 / 16-31 and leaves every pattern index alone, which is the
+//     lanes 0-15 / 16-31 and leaves every pattern index alone, which is the
 //     exact mirror of the above.
 //
 // `chans` is the block's column count either way; on a command block it counts

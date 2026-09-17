@@ -1,12 +1,12 @@
 // Minimal Taud player (M4 artefact) — the browser twin of TSVM's playtaud.js:
-// load a .taud, play/stop/seek by cue, live per-voice VU + pan meters.
+// load a .taud, play/stop/seek by cue, live per-lane VU + pan meters.
 //
 // This page is the reference consumer of `src/taudplay/` (item 179): it drives
 // the standalone player library, not the editor's AudioSystem. Everything it
 // needs is the transport, one fader group and two probes, which is exactly
 // what that library exposes — so if the page can still do its job, the cut is
 // the right size. (The faders are what the *editor* uses for mute/solo; here
-// nothing touches them, and the meters read the same voices regardless.)
+// nothing touches them, and the meters read the same lanes regardless.)
 
 import { TaudPlayer } from "../taudplay/index.js";
 import { applyIcons } from "./icons.js";
@@ -87,7 +87,7 @@ async function loadBytes(name, bytes) {
   const info = player.info;
   $("fileinfo").textContent =
     `${name} — ${info.title ?? "untitled"} · ${info.songCount} ${info.songCount === 1 ? "song" : "songs"} · ` +
-    `format v${info.formatVersion} · ${info.channels}ch` +
+    `format v${info.formatVersion} · ${info.channels} lanes` +
     (info.patchedInstruments ? ` · Ixmp on ${info.patchedInstruments} inst` : "");
   $("transport").hidden = false;
   $("visualiser").hidden = false; // the other half of the landscape split
@@ -145,9 +145,9 @@ $("vol").addEventListener("input", (e) => player.setVolume(parseInt(e.target.val
 // The visualiser owns a whole half of the page in landscape, so the canvas has
 // no fixed size any more: it is sized to whatever box CSS gives it, in device
 // pixels, and it lays itself out ALONG THE LONG AXIS of that box. A wide box
-// gets the familiar channels-across mixer strip; a tall one — the right half of
+// gets the familiar lanes-across mixer strip; a tall one — the right half of
 // an unfolded foldable is taller than it is wide — turns the strip on its side
-// so 32 channels get 27 px of height each instead of 17 px of width.
+// so 32 lanes get 27 px of height each instead of 17 px of width.
 const canvas = $("meters");
 const ctx = canvas.getContext("2d");
 const css = getComputedStyle(document.documentElement);
@@ -159,7 +159,7 @@ const COL = {
   text: css.getPropertyValue("--dim").trim(),
   accent: css.getPropertyValue("--accent").trim(),
 };
-// Peak-hold state per voice.
+// Peak-hold state per lane.
 const peaks = new Float32Array(64);
 
 /**
@@ -184,7 +184,7 @@ function fitMeters() {
 }
 
 /**
- * How often to print a channel number when the cells are too small to letter
+ * How often to print a lane number when the cells are too small to letter
  * every one: all of them, every fourth as a scale, or none at all. A strip you
  * cannot count along is worse than one with a scale down the side — and 32
  * two-digit labels in 390 px is not a scale, it is a smudge.
@@ -195,14 +195,14 @@ function labelStride(cell, need) {
   return 0;
 }
 
-/** One voice's level and peak-hold, decayed. Peaks fall at ~6% a frame. */
+/** One lane's level and peak-hold, decayed. Peaks fall at ~6% a frame. */
 function level(vi) {
   const vol = player.getVoiceVolume(vi);
   peaks[vi] = Math.max(peaks[vi] * 0.94, vol);
   return vol;
 }
 
-/** Channels across, bars growing upward — the mixer strip, for a wide box. */
+/** Lanes across, bars growing upward — the mixer strip, for a wide box. */
 function drawColumns(chans, W, H) {
   const labelH = 14;
   const panH = 8;
@@ -237,7 +237,7 @@ function drawColumns(chans, W, H) {
   }
 }
 
-/** Channels down, bars growing rightward — the same strip on its side, for a
+/** Lanes down, bars growing rightward — the same strip on its side, for a
  *  tall box. The pan track sits under each bar rather than beside it: pan is a
  *  left-to-right quantity and stays one here, which is the whole reason this
  *  layout reads at a glance rather than needing to be worked out. */

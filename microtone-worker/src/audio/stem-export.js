@@ -1,8 +1,8 @@
-// Stem export (item 93) — offline-render the song once and drop each voice's
+// Stem export (item 93) — offline-render the song once and drop each source's
 // contribution into its own mono track, then pack the tracks into a ZIP.
 //
 // Signal definition: a stem holds the voice's PRE-PAN mono signal with every
-// gain applied — note/channel volume, volume envelope + fadeout, instrument
+// gain applied — note/lane volume, volume envelope + fadeout, instrument
 // global volume, metainstrument mix gain, swing, fader, sample-end ramp and the
 // song's global × mixing × master volume. The equal-energy pan law is the one
 // thing left out (a mono file cannot carry it), so stems do NOT sum back to the
@@ -20,8 +20,8 @@
 //                  (metainstrument layer) and per Ixmp patch PITCH RECT, so
 //                  kick / snare / hats land on separate tracks while a drum's
 //                  velocity layers stay together.
-//   "voice"      — one track per channel; NNA ghosts and metainstrument layer
-//                  children follow the channel that spawned them.
+//   "voice"      — one track per lane; NNA ghosts and metainstrument layer
+//                  children follow the lane that spawned them.
 
 import { Zip, ZipPassThrough } from "../../vendor/fflate.esm.js";
 import { TaudEngine } from "../engine/engine.js";
@@ -133,7 +133,7 @@ export class StemBus {
 
   /** Mixer callback: `s` is the voice's pre-pan mono sample for frame `n`. */
   add(voice, vi, n, s) {
-    if (vi < 0) return; // a background voice with no source channel (never happens)
+    if (vi < 0) return; // a background voice with no source lane (never happens)
     const key = this.keyOf(voice);
     if (voice.stemKey !== key) {
       voice.stemKey = key;
@@ -328,9 +328,9 @@ export function labelStems(stems, doc, mode) {
   for (const s of stems) {
     if (mode === "voice") {
       const ch = String(s.channel + 1).padStart(2, "0");
-      // A channel that only ever played one instrument gets named after it.
+      // A lane that only ever played one instrument gets named after it.
       const only = s.insts.size === 1 ? instName([...s.insts][0]) : "";
-      s.label = only ? `Ch${ch} ${only}` : `Ch${ch}`;
+      s.label = only ? `Lane${ch} ${only}` : `Lane${ch}`;
       continue;
     }
     const inst = doc.instruments[s.sub];

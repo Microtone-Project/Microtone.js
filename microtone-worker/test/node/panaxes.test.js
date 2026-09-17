@@ -3,12 +3,12 @@
 // `channel_pan` is where the PART sits and only S $80xx / P / X / 4 / Z may
 // write it; `note_pan` is where the NOTE sits within it, seeded by the
 // instrument (its default pan, or the Ixmp zone's) and written by the panning
-// column. They add at the mixer, which is what lets a channel pan ROTATE a
+// column. They add at the mixer, which is what lets a lane pan ROTATE a
 // zone-panned instrument instead of flattening it at the next note.
 //
 // The volume side of the same shape is §3's `note_vol` × `channel_vol`, and
 // the mapping of commands onto axes is deliberately identical: effect column →
-// channel, mini-lane → note.
+// lane, mini-lane → note.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -127,7 +127,7 @@ test("an S $80xx and a column SET on the same row BOTH apply", () => {
 test("P slides the channel axis while the column's slide moves the note", () => {
   const eng = loadSong(makeEngine(), [
     { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_S, arg: 0x8080 },
-    { row: 1, effect: EffectOp.OP_P, arg: 0x0400 },  // channel: right 4/tick
+    { row: 1, effect: EffectOp.OP_P, arg: 0x0400 },  // lane: right 4/tick
     { row: 2, pan: 0x06, panEff: 1 },                // note: right 6/tick
   ]);
   render(eng, 12);
@@ -413,7 +413,7 @@ test("a sweep held across rows never collapses at the row boundary", () => {
 });
 
 // ── what the meters see ──────────────────────────────────────────────────
-// The channel-header pan slider and the master strip's blobs do not read the
+// The lane-header pan slider and the master strip's blobs do not read the
 // engine directly: they read the worklet snapshot, which sums pan itself.
 
 test("the snapshot's pan follows the panbrello LFO", () => {
@@ -459,7 +459,7 @@ test("the snapshot's pan carries the instrument's pan swing", () => {
 test("a metainstrument's meters show the kit's position, not layer 0's", () => {
   const eng = makeEngine();
   // Two sub-instruments that bring their own default pan: hard left and hard
-  // right of the channel. Bit 7 of the pan LOOP word is "use default pan".
+  // right of the lane. Bit 7 of the pan LOOP word is "use default pan".
   for (const [slot, pan] of [[3, 0x20], [4, 0xe0]]) {
     const r = new Uint8Array(256);
     const w16 = (o, v) => { r[o] = v & 0xff; r[o + 1] = (v >> 8) & 0xff; };

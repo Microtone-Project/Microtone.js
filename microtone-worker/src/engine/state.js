@@ -29,7 +29,7 @@ export const INST_HALT = 6;
 const PLAY_INST_NOP = Object.freeze({ type: INST_NOP, arg: 0 });
 const PLAY_INST_HALT = Object.freeze({ type: INST_HALT, arg: 0 });
 
-/** Per-cue playback data: 64 u16 channel words (pattern | signBit<<15). */
+/** Per-cue playback data: 64 u16 lane words (pattern | signBit<<15). */
 export class PlayCue {
   constructor() {
     this.raw = new Int32Array(MAX_VOICES).fill(PATTERN_EMPTY);
@@ -37,7 +37,7 @@ export class PlayCue {
     this.inst1 = PLAY_INST_NOP;
   }
 
-  /** Pattern number for channel ch (0..0x7FFE), or PATTERN_EMPTY. */
+  /** Pattern number for lane ch (0..0x7FFE), or PATTERN_EMPTY. */
   pattern(ch) { return this.raw[ch] & 0x7fff; }
 
   _instWord(base) {
@@ -213,9 +213,9 @@ export class TrackerState {
     this.tickInRow = 0;
     this.samplesIntoTick = 0.0;
     this.firstRow = true;
-    // Always MAX_VOICES so 64-channel mode has slots for every channel, plus
+    // Always MAX_VOICES so 64-lane mode has slots for every lane, plus
     // the dedicated jam bank above them (JAM_VOICE_BASE…, item 140) — the tick
-    // and mix loops run the whole array, the row loop only the channels.
+    // and mix loops run the whole array, the row loop only the lanes.
     this.voices = new Array(TOTAL_VOICES);
     for (let i = 0; i < TOTAL_VOICES; i++) this.voices[i] = new Voice();
 
@@ -226,7 +226,7 @@ export class TrackerState {
 
     // Cell format (file format version 3 — the wide cell). It sets the width of
     // the volume column, and with it the whole volume STATE: note, row and
-    // channel volume are 0…63 in a v2 song and 0…255 in a v3 one. `volStep` is
+    // lane volume are 0…63 in a v2 song and 0…255 in a v3 one. `volStep` is
     // what a 6-bit-derived delta is worth (a nibble slide, a tremolo depth), so
     // `D $01` moves at the same musical rate in both; `volDiv` normalises to
     // gain. Instrument data — envelope nodes, Ixmp velocity rectangles — stays
@@ -468,7 +468,7 @@ export class Playhead {
   }
 
   /**
-   * Silence every voice the SONG owns — the channels plus the NNA / layer
+   * Silence every voice the SONG owns — the lanes plus the NNA / layer
    * ghosts hanging off them — leaving the jam bank alone, so an audition held
    * across a stop keeps sounding (JS-only, item 140: the Kotlin device has no
    * jam bank and stops the lot).
@@ -584,7 +584,7 @@ export class Playhead {
       it.dittoSourceStart = 0;
       it.dittoLength = 0;
       it.dittoEndRow = 0;
-      // Bitcrusher (8) / Overdrive (9) — the CHANNEL's colouring, written by the
+      // Bitcrusher (8) / Overdrive (9) — the LANE's colouring, written by the
       // song's own effects and cleared by nothing else, so a full reset owes
       // them the same clean slate as the panning above (§15).
       it.clipMode = 0;

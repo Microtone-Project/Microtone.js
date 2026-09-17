@@ -13,7 +13,7 @@ import {
 import { CUE_EMPTY, MAX_VOICES } from "../format/taud-const.js";
 
 // A cue word is `pattern (15 bits) | command bit`, and bit 15 belongs to the
-// channel POSITION rather than to the pattern sitting in it (ops.js says why),
+// lane POSITION rather than to the pattern sitting in it (ops.js says why),
 // so everything below rewrites the low 15 bits and leaves each position's own
 // top bit where it was.
 const PAT_MASK = 0x7fff;
@@ -60,7 +60,7 @@ export function clipboardItems({ hasSelection, canPaste, selAnchored = false }) 
   return items;
 }
 
-/** The two channel inserts for channel `ch` of `chans`. */
+/** The two lane inserts for lane `ch` of `chans`. */
 export function channelItems(ch, chans) {
   return [
     { id: "insLeft", label: t("ctx.chanLeft"), icon: ICON.channelLeft,
@@ -77,7 +77,7 @@ export function newPatternItem() {
 }
 
 // ── item 103.1: what a FILLED slot can do ──
-// The cells a slot holding a pattern gets on top of the channel inserts: move it
+// The cells a slot holding a pattern gets on top of the lane inserts: move it
 // sideways, unshare it, or take it out of the song. They act on the same
 // `[{cue, ch}]` slot list the New-pattern cell does — the block's slots, or the
 // one that was clicked — so a block of patterns walks sideways, copies or goes
@@ -128,12 +128,12 @@ export function orphanedPatterns(song, slots) {
 }
 
 /**
- * Can every filled slot shift one channel in `dir` (-1 left / +1 right)?
+ * Can every filled slot shift one lane in `dir` (-1 left / +1 right)?
  *
  * A move must not overwrite anything, so each target has to be off the end of
  * nothing and empty — EXCEPT when the target is itself one of the slots being
  * moved, since the whole block shifts at once and that one is about to vacate.
- * That exception is what lets a solid block of channels slide sideways; without
+ * That exception is what lets a solid block of lanes slide sideways; without
  * it only the leading edge could ever move.
  */
 export function canMoveSlots(song, slots, dir, chans) {
@@ -185,7 +185,7 @@ const SLOT_ITEMS = ["movLeft", "movRight", "dupPat", "delPat"];
 export function isPatternSlotItem(id) { return SLOT_ITEMS.includes(id); }
 
 /**
- * Shift every filled slot one channel along, in ONE undo step. Pure cue-word
+ * Shift every filled slot one lane along, in ONE undo step. Pure cue-word
  * writes: the pattern moves, the position's command bit stays. A source is
  * cleared unless another source is landing on it, which is what keeps the
  * interior of a solid block intact as it slides.
@@ -272,10 +272,10 @@ export function deleteSlots(store, slots) {
   return true;
 }
 
-// ── item 103.2: the channel header's mute row ──
+// ── item 103.2: the lane header's mute row ─────
 
 /**
- * The second row for a channel HEADER, where there are no cells for the column
+ * The second row for a lane HEADER, where there are no cells for the column
  * tools to act on: the same two things a plain and a Ctrl+click on that header
  * already do, plus the way back out. Unmute-all only appears when something is
  * actually muted — otherwise it is a button that does nothing.
@@ -315,12 +315,12 @@ export function runMuteItem(store, id, ch) {
 // ── the second effect column (§5.5) ──
 
 /**
- * Show/hide this channel's SECOND effect, plus the all-channels form of the
+ * Show/hide this lane's SECOND effect, plus the all-lanes form of the
  * same switch. Only a format-v3 document has a second effect at all, so on
  * anything else this row is empty and the menu simply doesn't mention it.
  *
- * It rides on the channel header's row rather than the grid's column tools: the
- * column is a property of the CHANNEL STRIP — it changes that strip's width —
+ * It rides on the lane header's row rather than the grid's column tools: the
+ * column is a property of the LANE STRIP — it changes that strip's width —
  * not of the cells under the pointer.
  */
 export function fx2Items(store, ch) {
@@ -333,7 +333,7 @@ export function fx2Items(store, ch) {
       : { id: "fx2Show", label: t("ctx.fx2Show"), icon: ICON.fx2Show,
           title: t("ctx.fx2ShowTitle", { ch: ch + 1 }) },
   ];
-  // The all-channels cell always offers the OTHER state, so the pair never
+  // The all-lanes cell always offers the OTHER state, so the pair never
   // reads as two ways to do the same thing.
   items.push(store.fx2Any()
     ? { id: "fx2HideAll", label: t("ctx.fx2HideAll"), icon: ICON.fx2HideAll,
@@ -354,9 +354,9 @@ export function runFx2Item(store, id, ch) {
 }
 
 /**
- * Insert an empty channel at `at`, shifting that channel and everything right
+ * Insert an empty lane at `at`, shifting that lane and everything right
  * of it one place along — mutes included, which is why the live array goes in.
- * The channel count is a fixed 32/64, so the last channel falls off the end:
+ * The lane count is a fixed 32/64, so the last lane falls off the end:
  * ask first when it is carrying something (the drop is in the op's inverse, so
  * it undoes either way). Returns true when the document changed.
  */

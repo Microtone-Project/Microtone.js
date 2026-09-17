@@ -514,7 +514,7 @@ test("compileQuery drops the half-typed rows so the readout can run live", () =>
 
 // ── the scopes the dialog offers (the "Apply to" list) ─────────────────────
 
-/** A song stub in the two shapes queryScopes reads: cue words per channel and
+/** A song stub in the two shapes queryScopes reads: cue words per lane and
  *  a sparse pattern list (a hole = an index nothing has been written to). */
 function scopeSong(cueRows, patternIndices) {
   const patterns = [];

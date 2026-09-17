@@ -3,7 +3,7 @@
 // song, a SIDE view (elevation in the vertical plane through that azimuth).
 //
 // It does two jobs at once:
-//   * watch — every sounding channel is drawn where the engine actually has it
+//   * watch — every sounding lane is drawn where the engine actually has it
 //     (snapshot fields SNAP_V_AZIMUTH / SNAP_V_ELEVATION), so a Z slide is
 //     visible while it runs;
 //   * write — drag the handle and the buttons put the exact command into the
@@ -199,7 +199,7 @@ export function showPanner(store, target) {
       () => write(EffectOp.OP_Z, zSpeed & 0xfff));
 
     // ── view options (#998.8) ──
-    // A busy song puts a dot on every sounding channel, which is the point when
+    // A busy song puts a dot on every sounding lane, which is the point when
     // you are watching and in the way when you are placing one source. The
     // choice is remembered for the session, like the other view toggles.
     const viewOpts = document.createElement("div");
@@ -349,7 +349,7 @@ export function showPanner(store, target) {
       ctx.fill();
     }
 
-    /** Dots for every sounding channel, from the engine's own snapshot. `r` is
+    /** Dots for every sounding lane, from the engine's own snapshot. `r` is
      *  the dial radius — the height cue's shadow is measured in those units. */
     function paintLiveVoices(ctx, cx, cy, r, place) {
       const audio = store.audio;

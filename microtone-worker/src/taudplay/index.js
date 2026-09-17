@@ -1,15 +1,16 @@
 // taudplay — the whole public surface, in one place.
 //
 // A .taud player for the browser and for Node, cut down from the Microtone
-// tracker's engine to the part that PLAYS: one fader per voice, and two
-// numbers per voice to look at.
+// tracker's engine to the part that PLAYS: one fader per lane, and two
+// numbers per lane to look at. (The API spells a lane `voice`, which is what
+// the engine has always called the slot one plays on.)
 //
 //   import { TaudPlayer } from "taudplay";
 //   const player = await new TaudPlayer().init();
 //   await player.load(await (await fetch("song.taud")).arrayBuffer());
 //   await player.resume();      // from a user gesture
 //   player.play();
-//   player.setVoiceGain(3, 0, 1500);   // fade channel 4 out over 1.5 s
+//   player.setVoiceGain(3, 0, 1500);   // fade lane 4 out over 1.5 s
 //   player.getVoiceVolume(3);          // …and watch it go
 //   player.setInterrupt(0, (arg) => flash(arg));  // …and let the song call you
 //

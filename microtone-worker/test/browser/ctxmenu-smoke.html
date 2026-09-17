@@ -3,11 +3,11 @@
 <img src="/hang" hidden>
 <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
 <script type="module">
-// Drives the REAL app: right-click the Timeline's channel header and its strip,
+// Drives the REAL app: right-click the Timeline's lane header and its strip,
 // check the icon-cell menu that opens, and run each of its actions through the
 // undo stack. Also checks the two things that make the menu safe to have at all:
 // a secondary-button press must not move the cursor or toggle a mute, and the
-// channel shift must leave the cue instruction words alone.
+// lane shift must leave the cue instruction words alone.
 const out = document.getElementById("out");
 const log = (s) => { out.textContent += "\n" + s; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -51,19 +51,19 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     .map((c) => c.dataset.id);
   // The filled-slot cells (item 103.1) ride along on every menu opened over a
   // slot that has a pattern in it. They have their own section below, so the
-  // clipboard/insert checks look at the row only as far as the channel inserts.
+  // clipboard/insert checks look at the row only as far as the lane inserts.
   const clipIds = (dlg) => { const a = ids(dlg); return a.slice(0, a.indexOf("insRight") + 1); };
   const cell = (dlg, id) => dlg.querySelector(`.ctx-cell[data-id="${id}"]`);
   const dismiss = async (dlg) => { dlg?.dispatchEvent(new win.Event("cancel", { cancelable: true })); await sleep(40); };
 
   const GUTTER = 76;
   const colW = timeline.colWFor(0);
-  /** Canvas x at the middle of visible channel column `i`. */
+  /** Canvas x at the middle of visible lane column `i`. */
   const colX = (i) => GUTTER + i * colW + colW / 2;
   const pat = (cue, ch) => store.song.cues[cue][ch] & 0x7fff;
   const insts = () => store.song.cues.map((w) => cueInstructionWords(w).join(","));
 
-  // ── 1. the header opens the channel menu, and the right button alone ─────
+  // ── 1. the header opens the lane menu, and the right button alone ────────
   const cursorBefore = { ...store.cursor };
   const mutesBefore = store.voiceMutes.slice(0, 8).join(",");
   let dlg = await rightClick(colX(2), 10);
@@ -89,7 +89,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(stripCells >= 2, "…with the channel inserts on it", `${stripCells} cells`);
   await dismiss(dlg);
 
-  // ── 3. "Channel right" shifts the patterns, not the cue instructions ─────
+  // ── 3. "Lane right" shifts the patterns, not the cue instructions ────────
   const ch2 = pat(0, 2), ch3 = pat(0, 3), ch4 = pat(0, 4);
   const instsBefore = insts().join("|");
   const undoDepth = store.undo.undoStack.length;
@@ -110,7 +110,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   await sleep(60);
   check(pat(0, 2) === ch2 && pat(0, 3) === ch3 && pat(0, 4) === ch4, "undo puts every channel back");
 
-  // ── 4. "Channel left" inserts before the clicked channel ────────────────
+  // ── 4. "Lane left" inserts before the clicked lane ──────────────────────
   dlg = await rightClick(colX(2), 10);
   cell(dlg, "insLeft").click();
   await sleep(80);
@@ -120,7 +120,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   await sleep(60);
   check(pat(0, 2) === ch2, "…and undoes");
 
-  // ── 5. the last channel can't take an insert on its right ───────────────
+  // ── 5. the last lane can't take an insert on its right ──────────────────
   const chans = store.doc.channelCount;
   timeline.scrollCh = chans - 1;
   timeline.invalidate();
@@ -133,7 +133,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   await sleep(60);
 
   // ── 6. an empty cue slot gains "New pattern" ────────────────────────────
-  // Blank one channel of cue 0 so the cell under it has no pattern at all.
+  // Blank one lane of cue 0 so the cell under it has no pattern at all.
   const { setCuesOp } = await import("../../src/doc/ops.js");
   const emptyCh = 1;
   store.undo.apply(setCuesOp(store.songIndex, [{ cue: 0, ch: emptyCh,
@@ -173,7 +173,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(ids(dlg).includes("delPat"), "…or deleted", ids(dlg).join());
   await dismiss(dlg);
 
-  // ── 8. the gutter is not a channel — it is the ROW menu (item 136) ───────
+  // ── 8. the gutter is not a lane — it is the ROW menu (item 136) ──────────
   const r = rect();
   canvas.dispatchEvent(new win.MouseEvent("contextmenu", {
     clientX: r.left + 20, clientY: r.top + gridY, bubbles: true, cancelable: true, button: 2,
@@ -189,7 +189,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
 
   // ── 9. clipboard cells: copy/cut with a selection, paste on a real pattern ─
   store.clipboard = null;
-  // Rows 0-2 of the first two channels — the song's opening chord, so every
+  // Rows 0-2 of the first two lanes — the song's opening chord, so every
   // check below compares real note words rather than two empty cells.
   timeline.sel = { aRow: 0, aCh: 0, aSub: 0, row: 2, ch: 1, sub: 5 };
   dlg = await rightClick(colX(0), gridY);
@@ -284,7 +284,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     JSON.stringify(timeline.selCols()));
   timeline.sel = null;
 
-  // ── 11. inserting a channel carries the mutes with the patterns ─────────
+  // ── 11. inserting a lane carries the mutes with the patterns ────────────
   store.voiceMutes.fill(false);
   store.setVoiceMute(2, true);
   store.setVoiceMute(5, true);
@@ -320,7 +320,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(pat(0, emptyCh) !== 0x7fff, "the blanked slot is restored");
 
   // ── 13. moving a filled slot sideways (item 103.1) ──────────────────────
-  // Seed cue 0's first five channels so the menu's shape is decided by this
+  // Seed cue 0's first five lanes so the menu's shape is decided by this
   // test rather than by whatever the corpus happens to have there.
   const seed = async (nums) => {
     store.undo.apply(setCuesOp(store.songIndex, nums.map((n, ch) => ({
@@ -391,7 +391,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   await sleep(60);
 
   // ── 14. Duplicate unshares a pattern (item 103.1) ───────────────────────
-  // Channels 0 and 1 SHARE a pattern the corpus actually filled in, so the
+  // Lanes 0 and 1 SHARE a pattern the corpus actually filled in, so the
   // "the copy carries the cells" check below compares real note data.
   await seed([realPat, realPat, null, 0x0033]);
   const bytesOf = (p) => [...store.doc.patternBytes(store.songIndex, p)].join();

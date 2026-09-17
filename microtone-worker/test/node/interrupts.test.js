@@ -77,7 +77,7 @@ function buildPattern(wide, rows) {
   return pat;
 }
 
-/** Load one pattern onto channel 0 (plus any extra channel → pattern pairs)
+/** Load one pattern onto lane 0 (plus any extra lane → pattern pairs)
  *  and start the transport. */
 function loadSong(eng, patterns, { wide = false } = {}) {
   const cue = new Uint8Array(64);
@@ -138,7 +138,7 @@ test("an Int marker latches its bit and makes no sound", () => {
   rowStepper(eng)();
   assert.equal(ts(eng).pendingInterrupts, 1 << 3, "Int3 latched");
   // The instrument byte beside it is one of the columns the marker ignores:
-  // nothing triggered, so the channel is still silent.
+  // nothing triggered, so the lane is still silent.
   assert.equal(ts(eng).voices[0].active, false, "no voice was started");
 });
 
@@ -216,7 +216,7 @@ test("wide cell: either slot's `:` serves, and the FIRST one wins", () => {
 test("the other columns are the marker's business not at all — and still do their own job", () => {
   const eng = makeEngine(true);
   loadSong(eng, [[
-    // A sounding note first, so the channel volume the M below writes has
+    // A sounding note first, so the lane volume the M below writes has
     // somewhere visible to land.
     { row: 0, note: C4, inst: 1 },
     // …then a marker row carrying an instrument, a volume, a pan, an unrelated
@@ -233,7 +233,7 @@ test("the other columns are the marker's business not at all — and still do th
   assert.equal(eng.pollTrackerInterrupts(0), 1 << 7);
   assert.equal(eng.interruptArg(0, 7), 0xc8, "the `:` argument, not the M or the volume column");
   // The row's OTHER commands are untouched by the marker: M still set the
-  // channel volume, and the volume column still wrote the note volume.
+  // lane volume, and the volume column still wrote the note volume.
   assert.equal(ts(eng).voices[0].channelVolume, 0x20);
   assert.equal(ts(eng).voices[0].noteVolume, 0x20);
   assert.ok(noteVolBefore !== 0x20, "…which is a change, so the assertion means something");
@@ -435,7 +435,7 @@ test("two fires of ONE interrupt between drains collapse, keeping the LAST argum
 
 test("different interrupts in one window each keep their own argument", () => {
   const eng = makeEngine();
-  // Two channels firing on the same row — the classic same-window collision.
+  // Two lanes firing on the same row — the classic same-window collision.
   loadSong(eng, [
     [{ row: 0, note: INT(0), effect: COLON, arg: 0x00aa }],
     [{ row: 0, note: INT(1), effect: COLON, arg: 0x00bb }],

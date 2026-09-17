@@ -44,7 +44,7 @@ function recorder(ctx) {
   log(`ghost ink = ${DITTO}`);
   check(!!DITTO, "--cv-ditto is defined in the theme");
 
-  // ── build a known pattern on cue 0 / channel 0 ──────────────────────────
+  // ── build a known pattern on cue 0 / lane 0 ─────────────────────────────
   const PAT = store.song.cues[0][0] & 0x7fff;
   const origGhosts = dittoGhosts(store.doc.patternAt(0, PAT), 64).filter(Boolean).length;
   const bytes = new Uint8Array(512);
@@ -71,7 +71,7 @@ function recorder(ctx) {
   const rec = recorder(timeline.ctx);
   timeline.draw(-1);
   rec.restore();
-  // Channel 0 only: GUTTER_W(76) .. GUTTER_W + COL_W(176) — the next column's
+  // Lane 0 only: GUTTER_W(76) .. GUTTER_W + COL_W(176) — the next column's
   // note cell starts right after, and would otherwise leak into the row sets.
   const ch0 = rec.calls.filter((c) => c.x >= 76 && c.x < 76 + 176);
   const rowOf = (c) => Math.round((c.y - 58 - 8) / 16); // HEADER_H, ROW_H

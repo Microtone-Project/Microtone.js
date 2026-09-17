@@ -1,6 +1,6 @@
 // Pattern view (F3) — multi-column pattern editor. A Taud pattern is a
-// per-channel entity (64 rows × 8-byte cells); cues place patterns onto
-// channels. This view shows SEVERAL patterns side by side ("view windows",
+// per-lane entity (64 rows × 8-byte cells); cues place patterns onto
+// lanes. This view shows SEVERAL patterns side by side ("view windows",
 // each an independent PatternPane with its own pattern selector + scroll), so
 // a musician can edit one pattern while referencing/copy-pasting others in
 // real time. The shared toolbar's edit tools + preview act on the currently
@@ -268,7 +268,7 @@ class PatternPane {
   // ── row-range selection + clipboard ──
   /**
    * Right-click menu: the clipboard, and only the clipboard — a Taud pattern is
-   * a single channel, so there is no channel to insert one beside.
+   * a single lane, so there is no lane to insert one beside.
    *
    * It focuses the column it was opened on FIRST, which is what makes the
    * clipboard work across columns: copy inside one column's selection, then
@@ -329,7 +329,7 @@ class PatternPane {
   // ── press-and-hold + the \ key (item 190) ──
 
   /** What the hold gauge is drawn around: the row band the press landed inside,
-   *  else the single row under it. A Taud pattern is one channel, so the ring
+   *  else the single row under it. A Taud pattern is one lane, so the ring
    *  always spans the cell's full width. */
   holdRect(hit) {
     const b = this.selRowBounds();
@@ -358,7 +358,7 @@ class PatternPane {
 
   /** [{pat, row}] the second row's tools act on: the row-range selection, else
    *  the single row under the pointer. Already in row order and already one
-   *  channel's worth, so it doubles as the interpolation's single LANE. */
+   *  lane's worth, so it doubles as the interpolation's single SERIES. */
   toolCells(hit) {
     const b = this.selRowBounds();
     const rows = b ? [b.r0, b.r1] : [hit.row, hit.row];
@@ -535,7 +535,7 @@ class PatternPane {
    * The E2 button: present only on a format-v3 project, lit while this column
    * shows its second effect, and marked when the pattern USES second effects
    * that the column is currently hiding — the same "there is something here"
-   * hint the Timeline's channel headers carry.
+   * hint the Timeline's lane headers carry.
    */
   refreshFx2Btn() {
     const wide = this.wide();
@@ -567,12 +567,12 @@ class PatternPane {
     store.audio.stop(0);
     store.audio.setBPM(0, song.bpm);
     store.audio.setTickRate(0, song.tickRate > 0 ? song.tickRate : 6);
-    // Preview cue: voice 0 = this pattern, all other voices CUE_EMPTY (0x7FFF),
-    // plus a HALT so it ends after one pass (channel 8 sign bit → word0 = HALT).
+    // Preview cue: lane 0 = this pattern, all other lanes CUE_EMPTY (0x7FFF),
+    // plus a HALT so it ends after one pass (lane 8 sign bit → word0 = HALT).
     const chans = store.doc.channelCount;
     const bytes = new Uint8Array(chans * 2);
     for (let i = 0; i < bytes.length; i += 2) { bytes[i] = 0xff; bytes[i + 1] = 0x7f; }
-    bytes[0] = this.patIdx & 0xff;          // channel 0 ← this pattern
+    bytes[0] = this.patIdx & 0xff;          // lane 0 ← this pattern
     bytes[1] = (this.patIdx >>> 8) & 0x7f;
     bytes[17] |= 0x80;                      // ch8 sign bit → word0 bit 8 = HALT
     store.audio.uploadCue(PREVIEW_CUE, bytes);

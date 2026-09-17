@@ -3,11 +3,11 @@
 // tempo (BPM/speed) with a live "blinkenlights" tempo preview, meter (time
 // signature + rows/beat → derived rows/bar; these are the primary/secondary
 // beat divisors that drive the timeline row-highlight), tuning reference, project
-// metadata, channel layout, and the display notation (default 24-TET).
+// metadata, lane layout, and the display notation (default 24-TET).
 //
 // showNewProject({ fromBank, bankName }) resolves with a settings object or null
 // (cancel). The caller (app.js newProject) turns it into the Document shape.
-//   { name, composer, copyright, channels(32|64), bpm, tickRate, notation,
+//   { name, composer, copyright, lanes(32|64), bpm, tickRate, notation,
 //     beatPri, beatSec, timeSigNum, timeSigDen, baseNote, baseFreq }
 
 import { t } from "../i18n.js";

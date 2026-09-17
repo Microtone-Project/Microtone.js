@@ -1,7 +1,7 @@
 // Tier 2 render Worker — hosts the TaudEngine OFF the audio thread and streams
 // engine-rate float frames into a SharedArrayBuffer ring the AudioWorklet reads.
 // The audio callback then only resamples + copies, so it can never overrun
-// regardless of channel count / voice load (the whole point of Tier 2). Only
+// regardless of lane count / voice load (the whole point of Tier 2). Only
 // used when crossOriginIsolated (SAB available); the non-isolated fallback keeps
 // the engine in the worklet (see taud-processor.js render mode).
 //

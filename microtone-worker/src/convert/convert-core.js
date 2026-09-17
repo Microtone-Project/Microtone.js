@@ -127,7 +127,7 @@ except SystemExit as e:
  *  Worth turning on when the untrimmed pool overflows the converter's 8 MB
  *  budget: that path resamples EVERY sample down, costing quality song-wide.
  *  `keepDuplicatePatterns` (MIDI only) opts IN to --no-dedup-patterns: every
- *  cue×voice cell gets its own pattern instead of sharing one copy of each
+ *  cue×lane cell gets its own pattern instead of sharing one copy of each
  *  distinct bar, so editing a repeat can't change the other occurrences.
  *  `realign` (MIDI only, item 183) opts IN to --realign-tempo, for a MIDI whose
  *  declared tempo does not describe its own events: null/"off" trusts the file,

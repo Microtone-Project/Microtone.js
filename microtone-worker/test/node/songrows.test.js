@@ -56,8 +56,8 @@ function emptyKey(wide) {
 
 /**
  * The song as it SOUNDS, read top to bottom: one string per absolute row holding
- * every channel's cell, with silence written as ".". A channel with no pattern
- * and a channel whose pattern is blank on that row are both silence, and an
+ * every lane's cell, with silence written as ".". A lane with no pattern
+ * and a lane whose pattern is blank on that row are both silence, and an
  * insert makes one kind or the other depending on where it landed — so
  * distinguishing them here would compare the structure instead of the music,
  * which is the thing these edits are allowed to change.
@@ -311,7 +311,7 @@ test("the rebuild recycles numbers instead of one pattern per slot", () => {
     [...w].filter((x) => (x & 0x7fff) !== CUE_EMPTY).length, 0);
   // The naive rebuild is one fresh pattern per rebuilt slot. Recycling the
   // numbers the rebuilt cues just freed keeps the real cost a fraction of that:
-  // what is left over is the slots that had nothing to recycle, i.e. a channel
+  // what is left over is the slots that had nothing to recycle, i.e. a lane
   // silent in one cue and playing in the next one it now borrows rows from.
   assert.ok(patCount(song) < before + slots / 4,
     `pattern count stayed close (${before} → ${patCount(song)}, ${slots} slots rebuilt)`);
@@ -322,8 +322,8 @@ test("channels drawing the same rows out of the same patterns share one copy", (
   const song0 = doc.songs[0];
   const e = song0.songMap().entries[3];
   // A rebuilt cue borrows rows from the cue BELOW it, so what decides whether
-  // two channels can go on sharing is whether they match in BOTH — matching in
-  // the edited cue alone is not enough, and two channels that diverge below it
+  // two lanes can go on sharing is whether they match in BOTH — matching in
+  // the edited cue alone is not enough, and two lanes that diverge below it
   // have to diverge here too, because their music now differs.
   const pairs = [];
   let matched = 0;
@@ -435,7 +435,7 @@ test("the tail's music starts at the top of its new patterns", () => {
   const song = applyPlan(doc, planSplitCue(song0, e.startRow + at, {}));
   for (let ch = 0; ch < MAX_VOICES; ch++) {
     const p = song.cues[e.cue + 1][ch] & 0x7fff;
-    // A channel the cue had nothing on gets nothing — the tail is not padded out.
+    // A lane the cue had nothing on gets nothing — the tail is not padded out.
     if (p === CUE_EMPTY) { assert.equal(src[ch], null, `ch ${ch} had nothing to carry`); continue; }
     assert.equal(cellKey(song.patterns[p][0]), cellKey(src[ch]),
       `ch ${ch}: row ${at} of the cue is now row 0 of its pattern`);
@@ -798,7 +798,7 @@ test("a cue keeps its HALT when the music through it changes", () => {
 test("an absolute jump follows the cue it aimed at", () => {
   const doc = load("town.taud");
   const song0 = doc.songs[0];
-  const jmp = 0xf000 | 6; // JMP 6 on cue 9, in instruction word 1 (channels 16-31)
+  const jmp = 0xf000 | 6; // JMP 6 on cue 9, in instruction word 1 (lanes 16-31)
   for (let ch = 0; ch < 16; ch++) {
     song0.cues[9][16 + ch] = (song0.cues[9][16 + ch] & 0x7fff) | (((jmp >> ch) & 1) << 15);
   }

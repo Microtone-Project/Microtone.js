@@ -14,18 +14,18 @@ Arithmetic notation: `⌊x⌋` truncates toward zero, `round(x)` is round-half-a
 
 ### 1.1 Playheads
 
-A Taud device exposes four independent **playheads**. Each owns a complete tracker state — cue position, row, tick, channel voices, background voices — and renders its own stereo stream. Synchronisation between playheads is **not** guaranteed: a song **MUST NOT** be split across playheads.
+A Taud device exposes four independent **playheads**. Each owns a complete tracker state — cue position, row, tick, lane voices, background voices — and renders its own stereo stream. Synchronisation between playheads is **not** guaranteed: a song **MUST NOT** be split across playheads.
 
 Each playhead carries the transport-scope values a song table supplies: BPM, tick rate, global volume, mixing volume, master volume, master pan, tuning, global behaviour flags and surround model.
 
-### 1.2 Channels and voices
+### 1.2 Lanes and voices
 
-A song has 32 channels, or 64 when the file's `xHDR` section selects 64-channel mode. Each channel owns exactly one **foreground voice**, which is monophonic: a chord needs several channels.
+A song has 32 lanes, or 64 when the file's `xHDR` section selects 64-lane mode. Each lane owns exactly one **foreground voice**, which is monophonic: a chord needs several lanes.
 
 Beyond the foreground voices, each playhead keeps a mixer-private pool of **background voices**, at most 64. Two things put a voice there:
 
 - **NNA ghosts.** When a fresh note displaces a still-sounding voice, the old voice is copied into the pool and keeps ringing under the instrument's New Note Action.
-- **Metainstrument layer children.** A Metainstrument trigger sounds its first matching layer on the foreground voice and every further layer as a background voice bound to that channel.
+- **Metainstrument layer children.** A Metainstrument trigger sounds its first matching layer on the foreground voice and every further layer as a background voice bound to that lane.
 
 When the pool overflows, the implementation **MUST** evict the **oldest non-layer ghost**; only if every entry is a layer child does it evict the outright oldest. Layer children are protected because dropping one silences part of a chord that is still being played, whereas dropping a ghost only shortens a tail.
 
@@ -185,7 +185,7 @@ At trigger time the engine takes two snapshots onto the voice, and **all later p
 - The **active sample view** — pointer, length, play start, loop start, loop end, sampling rate, detune, loop mode, the five auto-vibrato fields, and the channel count/mode/second-channel pointer of a stereo pair.
 - The **active envelope view** — the volume, pan, pitch and filter envelopes with their LOOP and SUSTAIN words, plus fadeout step, filter mode, default cutoff, default resonance and initial-attenuation gain.
 
-This indirection is what makes Ixmp patches work at all, and it is also why an NNA ghost keeps playing the patch it was sounding even after the channel has moved to another instrument. An implementation that reads the instrument record during playback will get patched instruments audibly wrong.
+This indirection is what makes Ixmp patches work at all, and it is also why an NNA ghost keeps playing the patch it was sounding even after the lane has moved to another instrument. An implementation that reads the instrument record during playback will get patched instruments audibly wrong.
 
 ### 4.2 Envelope roles
 
@@ -213,13 +213,13 @@ This is how a SoundFont instrument — whose single modulation envelope drives p
 
 ## 5. The row pass
 
-The row pass runs once per row, per channel, in ascending channel order.
+The row pass runs once per row, per lane, in ascending lane order.
 
 ### 5.1 Per-row reset
 
 Before interpreting the cell, the engine clears the state that is scoped to one row: the note-delay and note-cut schedules, the slide arming, arpeggio, tremor, vibrato/tremolo/panbrello activation, retrigger arming, tempo- and global-volume-slide arming, the volume- and pan-column slides, and the spatial slide. It then rebases the row volume onto the persistent note volume, and records the row's effect and argument for the columns to consult.
 
-Everything else — note volume, channel volume, pan, envelope positions, LFO phases, effect memories — persists across rows and across patterns. That persistence is what tracker composers rely on.
+Everything else — note volume, lane volume, pan, envelope positions, LFO phases, effect memories — persists across rows and across patterns. That persistence is what tracker composers rely on.
 
 ### 5.2 Note events
 
@@ -243,7 +243,7 @@ fadeout_step = clamp(round(1024 ÷ ticks), 1, $FFF)
 
 Two cases of note word `$0000` are **not** silent, and both matter:
 
-- **Instrument byte plus a pitch effect** (`E`, `F` or `G`) on a channel that already has a pitch: this **triggers** the note at the voice's current pitch, so the slide has something to move. Latching the instrument and staying silent — the obvious reading — loses the note.
+- **Instrument byte plus a pitch effect** (`E`, `F` or `G`) on a lane that already has a pitch: this **triggers** the note at the voice's current pitch, so the slide has something to move. Latching the instrument and staying silent — the obvious reading — loses the note.
 - **Instrument byte alone**: latch the instrument, re-resolve its patch and re-seed the note volume from its default note volume, clear key-off and note-fading and reset the fadeout — **without** retriggering the sample. ProTracker, FT2, IT and Schism all behave this way.
 
 A pitch on a row carrying `G` (or `L`, which also takes a target) sets the portamento target instead of retriggering. If such a row also carries an instrument byte, the instrument is latched with the same no-retrigger path **and the note is re-attacked**: the four envelope playheads go back to node 0 exactly as they would on a fresh trigger ([§5.3](#5-3-trigger-sequence)) — envelope carry included, so an envelope carrying its `c` bit keeps its playhead here too ([§5.3.2](#5-3-2-envelope-carry)) — and the smoothed volume-envelope value is snapped so the attack lands there immediately. Only the sample position stays where it is.
@@ -275,11 +275,11 @@ Triggering a note **MUST**:
 - Draw fresh volume- and pan-swing biases.
 - Apply the instrument's default position and pitch-pan separation, if the row carried an instrument byte ([§5.3.1](#5-3-1-the-default-position)).
 - Reset the filter to the active defaults and clear its delay lines.
-- Seed the note volume: from the volume column's SET if present, otherwise from the instrument's default note volume if the row carried an instrument byte, otherwise leave it — a note-only retrigger inherits the channel's current note volume.
+- Seed the note volume: from the volume column's SET if present, otherwise from the instrument's default note volume if the row carried an instrument byte, otherwise leave it — a note-only retrigger inherits the lane's current note volume.
 - Clear the per-note overrides (`S $73`…`S $7E` NNA and envelope toggles).
 - Reset the vibrato, tremolo and panbrello LFO phases if their respective retrigger flags are set.
 
-Channel volume is **not** reset by a trigger. It belongs to the channel, not the note.
+Lane volume is **not** reset by a trigger. It belongs to the lane, not the note.
 
 #### 5.3.1 The default position
 
@@ -288,7 +288,7 @@ A trigger takes its default position from one of two places, and either is enoug
 - **The resolved patch's `default pan`**, whenever that is not the `$FF` sentinel. A patch override needs no further permission — see below.
 - **The base record**, but only when the pan envelope's LOOP word carries the `p` bit ("use default pan").
 
-Whichever applies, it is written to the **note-pan axis** — an offset from the channel's own direction, not a channel position (TAUD_NOTE_EFFECTS.md §3a). An instrument never writes `channel_pan`, exactly as it never writes `channel_vol`: the channel says where the part sits, the instrument says where the note sits within it. With the channel at its `$80` / front default the two coincide, which is why a file that predates the split sounds unchanged; once the pattern has moved the channel with `S $80xx`, `P`, `X` or `Z`, the instrument's whole arrangement rotates with it instead of collapsing onto the commanded point.
+Whichever applies, it is written to the **note-pan axis** — an offset from the lane's own direction, not a lane position (TAUD_NOTE_EFFECTS.md §3a). An instrument never writes `channel_pan`, exactly as it never writes `channel_vol`: the lane says where the part sits, the instrument says where the note sits within it. With the lane at its `$80` / front default the two coincide, which is why a file that predates the split sounds unchanged; once the pattern has moved the lane with `S $80xx`, `P`, `X` or `Z`, the instrument's whole arrangement rotates with it instead of collapsing onto the commanded point.
 
 The two sources are mutually **exclusive** — they are the same statement at two levels of specificity, so when both are available the patch wins and the base record's fields do not also apply. What the winner means depends on the song's surround model:
 
@@ -340,11 +340,11 @@ A type the engine does not know **MUST** sound nothing rather than fall back to 
 
 The rules below are written for the Layered kind, where they are easiest to state, but not all of them stop there: [§5.5.1](#5-5-1-type-4-fm-racks) says which a rack inherits **unchanged** — the release of the previous note, the per-tick sync of a child to its parent, and the pattern's reach over every voice sounding one note — and which are the Layered kind's own, the soundfield below being the plainest of them.
 
-If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the channel's existing layer children: each is detached from the parent and given its own instrument's New Note Action (note off with key lift, cut, continue, or fade).
+If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the lane's existing layer children: each is detached from the parent and given its own instrument's New Note Action (note off with key lift, cut, continue, or fade).
 
-Then it collects every layer whose rectangle contains the trigger, in record order. Under **strict layering** it additionally drops any layer whose own instrument resolves no patch at the (detuned) trigger. If nothing survives, the channel goes **silent** for this note — that is the correct outcome, not a fallback.
+Then it collects every layer whose rectangle contains the trigger, in record order. Under **strict layering** it additionally drops any layer whose own instrument resolves no patch at the (detuned) trigger. If nothing survives, the lane goes **silent** for this note — that is the correct outcome, not a fallback.
 
-Otherwise the first surviving layer sounds on the foreground voice and every further layer spawns a background voice bound to this channel. Each child inherits the parent's channel volume and channel pan (azimuth and elevation included) **as they stood before the foreground layer retriggered**, carries the parent's *relative* detune, and takes its own mix gain from the decibel octet table.
+Otherwise the first surviving layer sounds on the foreground voice and every further layer spawns a background voice bound to this lane. Each child inherits the parent's lane volume and lane pan (azimuth and elevation included) **as they stood before the foreground layer retriggered**, carries the parent's *relative* detune, and takes its own mix gain from the decibel octet table.
 
 **A layer may be NON-MELODIC.** With the fixed-pitch flag set ([File Format §7.4](TAUD_FILE_FORMAT.md#7-4-metainstrument-records)) a layer sounds one pitch whatever key was struck, and its detune field is that pitch — an absolute unsigned note word rather than an offset. Three consequences, and the third is the one an implementation gets wrong:
 
@@ -352,17 +352,17 @@ Otherwise the first surviving layer sounds on the foreground voice and every fur
 - the **gating rectangle is unaffected** — it still asks about the trigger, so a fixed-pitch layer covers the keys its rectangle covers and simply plays its own note within them;
 - the *relative* detune a child carries is the difference between the two layers' **sounding notes**, not between their detune fields, which is what keeps the arrangement intact when layer 0 is the fixed one. Where neither layer is fixed the two are identical, so nothing about an existing file changes.
 
-A fixed-pitch child then does **not** track the parent's note in the per-tick sync below: it holds the note it was triggered at for the whole note. Everything else in that sync still reaches it — key-off, fading, the volumes, both pan axes, and the pattern's **pitch overlay**, so a vibrato written on the channel still bends it. What the flag takes away is the keyed note, not the pattern's reach over the note.
+A fixed-pitch child then does **not** track the parent's note in the per-tick sync below: it holds the note it was triggered at for the whole note. Everything else in that sync still reaches it — key-off, fading, the volumes, both pan axes, and the pattern's **pitch overlay**, so a vibrato written on the lane still bends it. What the flag takes away is the keyed note, not the pattern's reach over the note.
 
 **A Layered metainstrument is a soundfield, and layer 0 is where it sits.** A layer's own default position ([§5.3.1](#5-3-1-the-default-position)) is not kept as an absolute place but as a **relative** one: the engine records how far the layer sits from layer 0's own position and holds that distance for the whole note. This is the pan twin of the relative detune beside it, and it has the same consequence — a note-pan SET, or anything else that moves the meta, **rotates** the whole arrangement instead of collapsing it onto one point. A layer that declares no position of its own has no opinion about where it sits relative to the centre, so its offset is zero and it simply rides wherever the meta goes.
 
-The order matters: the child inherits that channel context *before* it is triggered, so its own trigger can still move it to its own default position ([§5.3.1](#5-3-1-the-default-position)). Inheriting the parent's pan afterwards would flatten every layer onto the first one's position — audible as a SoundFont kit whose layers are meant to pan apart collapsing to a point.
+The order matters: the child inherits that lane context *before* it is triggered, so its own trigger can still move it to its own default position ([§5.3.1](#5-3-1-the-default-position)). Inheriting the parent's pan afterwards would flatten every layer onto the first one's position — audible as a SoundFont kit whose layers are meant to pan apart collapsing to a point.
 
-Every tick thereafter, a layer child re-synchronises to its parent: pitch (parent note plus relative detune **plus the parent's pitch overlay for this tick**), key-off, note-fading, channel volume, note volume, row volume, channel pan (azimuth and elevation included), and note pan **plus its own relative offset**. The two relative quantities are handled identically, and for the same reason: the pattern stays in command of the meta as a whole — a panning column or an `S $80xx` written on its channel reaches every layer — while the arrangement the instrument describes survives inside it. When the parent goes inactive the child detaches — but if the parent was *released* and its own fadeout deactivated it within the same tick, the child **MUST** inherit that release before detaching, or a chord's upper layers will ring on after the note that released them.
+Every tick thereafter, a layer child re-synchronises to its parent: pitch (parent note plus relative detune **plus the parent's pitch overlay for this tick**), key-off, note-fading, lane volume, note volume, row volume, lane pan (azimuth and elevation included), and note pan **plus its own relative offset**. The two relative quantities are handled identically, and for the same reason: the pattern stays in command of the meta as a whole — a panning column or an `S $80xx` written on its lane reaches every layer — while the arrangement the instrument describes survives inside it. When the parent goes inactive the child detaches — but if the parent was *released* and its own fadeout deactivated it within the same tick, the child **MUST** inherit that release before detaching, or a chord's upper layers will ring on after the note that released them.
 
-**Anything the pattern says about the note, it says about all of it.** This one is the family's, not the kind's — it governs a rack's operator voices exactly as it governs a stack's layers. The pitch overlay is the general case of a rule that runs through the whole effect column: a metainstrument is ONE note, so a command written on its channel **MUST** reach every voice sounding it, never layer 0 alone. The overlay itself is what the row's effects did to the pitch *this tick* — vibrato, glissando and arpeggio — carried as a signed delta on top of the note the child already tracks; auto-vibrato and the pitch envelope stay out of it, because those are the instrument's own and each layer runs its own copy. A child that has detached drops the overlay, so it finishes at its own note rather than frozen mid-bend. The same rule governs the bitcrusher and overdrive ([TAUD_NOTE_EFFECTS.md §8/§9](TAUD_NOTE_EFFECTS.md)), the sample-modification command (§2/§3), Q's retrigger, the filter overrides (§5/§6), the envelope gates (`S $77`…`$7E`) and the New Note Action override (`S $73`…`$76`), which replaces every layer's own NNA and not layer 0's alone.
+**Anything the pattern says about the note, it says about all of it.** This one is the family's, not the kind's — it governs a rack's operator voices exactly as it governs a stack's layers. The pitch overlay is the general case of a rule that runs through the whole effect column: a metainstrument is ONE note, so a command written on its lane **MUST** reach every voice sounding it, never layer 0 alone. The overlay itself is what the row's effects did to the pitch *this tick* — vibrato, glissando and arpeggio — carried as a signed delta on top of the note the child already tracks; auto-vibrato and the pitch envelope stay out of it, because those are the instrument's own and each layer runs its own copy. A child that has detached drops the overlay, so it finishes at its own note rather than frozen mid-bend. The same rule governs the bitcrusher and overdrive ([TAUD_NOTE_EFFECTS.md §8/§9](TAUD_NOTE_EFFECTS.md)), the sample-modification command (§2/§3), Q's retrigger, the filter overrides (§5/§6), the envelope gates (`S $77`…`$7E`) and the New Note Action override (`S $73`…`$76`), which replaces every layer's own NNA and not layer 0's alone.
 
-**What counts as sounding the note** is the foreground voice, its layer children and a live rack's operands — and nothing else. A rack the pattern has already released and left ringing in the background ([§5.5.1](#5-5-1-type-4-fm-racks)) still names the channel that spawned it, but it is a background voice and **MUST** take no row-driven effect: an engine that reads the channel number alone will reach back into a note it has let go, on every one of the commands above.
+**What counts as sounding the note** is the foreground voice, its layer children and a live rack's operands — and nothing else. A rack the pattern has already released and left ringing in the background ([§5.5.1](#5-5-1-type-4-fm-racks)) still names the lane that spawned it, but it is a background voice and **MUST** take no row-driven effect: an engine that reads the lane number alone will reach back into a note it has let go, on every one of the commands above.
 
 Layer indices are 10 bits, so layers **MAY** live in the auxiliary instrument bin, which a pattern cell cannot reach. A layer index pointing at another Metainstrument, or at instrument 0, is skipped. Both rules belong to the family, not to this kind: a rack's operator indices are read the same way.
 
@@ -372,11 +372,11 @@ A **type-4** Metainstrument is an **FM Rack** ([File Format §7.6](TAUD_FILE_FOR
 
 An operator's **oscillator is an ordinary instrument** — sample, loop, envelopes, filter, auto-vibrato and all. That is what this is for. A single-cycle looped waveform gives textbook FM; anything longer gives something a chip could not.
 
-**Triggering.** The engine collects the operators the algorithm names by a `$00xx` or `$04xx` word AND whose rectangle contains the trigger, gating them on the same narrowed six-bit volume axis as a layer's. Operator 0 sounds on the channel's foreground voice, at the note plus its own detune; each other surviving operator takes a voice of its own, bound to the channel exactly as a layer child is and carrying the same *relative* detune — so the per-tick sync of [§5.5](#5-5-metainstruments), `Q`'s whole-instrument retrigger, and the release of the previous note all apply unchanged. If the algorithm does not verify, or operator 0 does not survive, the channel goes **silent**.
+**Triggering.** The engine collects the operators the algorithm names by a `$00xx` or `$04xx` word AND whose rectangle contains the trigger, gating them on the same narrowed six-bit volume axis as a layer's. Operator 0 sounds on the lane's foreground voice, at the note plus its own detune; each other surviving operator takes a voice of its own, bound to the lane exactly as a layer child is and carrying the same *relative* detune — so the per-tick sync of [§5.5](#5-5-metainstruments), `Q`'s whole-instrument retrigger, and the release of the previous note all apply unchanged. If the algorithm does not verify, or operator 0 does not survive, the lane goes **silent**.
 
-An operator voice is **not** a layer child in two respects. It carries no position of its own: a rack is one signal, sitting where the channel sits, so an operator's own default pan is not read and nothing pulls the rack sideways. And it is never mixed: the mixer **MUST** skip it, because the rack that owns it already read it.
+An operator voice is **not** a layer child in two respects. It carries no position of its own: a rack is one signal, sitting where the lane sits, so an operator's own default pan is not read and nothing pulls the rack sideways. And it is never mixed: the mixer **MUST** skip it, because the rack that owns it already read it.
 
-**Reading an operator.** Each sounding operator is evaluated **at most once per output sample**, in the order the algorithm reaches it, through the ordinary sampler ([§8](#8-the-sampler)) — loops, interpolation, invert loop, funk repeat and the sample modifications included. Its value is that sample times its own mix gain and, for every operator except 0, its own volume envelope, fadeout, instrument global volume, initial attenuation and anti-click ramps, with its own filter applied. That list is exhaustive, and what it leaves out is the point: the note and channel volume are **NOT** applied to an operator. A rack is one voice, the mixer applies those to the finished patch through operator 0, and an operator's level is a modulation INDEX — applying the volume column to a modulator as well would make a patch played quietly also play duller. **Operator 0's envelope, fadeout, instrument global volume, filter and voice effects are applied by the mixer to the finished patch instead** — it is the channel's own voice, and that is what makes it the principal: its envelope is the note's shape and its sample ending is the note's end.
+**Reading an operator.** Each sounding operator is evaluated **at most once per output sample**, in the order the algorithm reaches it, through the ordinary sampler ([§8](#8-the-sampler)) — loops, interpolation, invert loop, funk repeat and the sample modifications included. Its value is that sample times its own mix gain and, for every operator except 0, its own volume envelope, fadeout, instrument global volume, initial attenuation and anti-click ramps, with its own filter applied. That list is exhaustive, and what it leaves out is the point: the note and lane volume are **NOT** applied to an operator. A rack is one voice, the mixer applies those to the finished patch through operator 0, and an operator's level is a modulation INDEX — applying the volume column to a modulator as well would make a patch played quietly also play duller. **Operator 0's envelope, fadeout, instrument global volume, filter and voice effects are applied by the mixer to the finished patch instead** — it is the lane's own voice, and that is what makes it the principal: its envelope is the note's shape and its sample ending is the note's end.
 
 **Phase modulation.** A `$04xx` word pops a value *m* and reads its operator at
 
@@ -390,21 +390,21 @@ Measuring the depth in cycles is what makes the mix octet read as a modulation i
 
 **The stack.** Words run in order, every word every sample; the value left on the stack at the end is the patch. `$08xx` pushes what its operator produced on the *previous* output sample, and every operator's tap advances together after the whole program has run — so a tap reads last sample's value wherever it sits, which is what lets a rack close a feedback loop in one pass. `$08xx` on an operator the algorithm does not sound reads 0.
 
-**Cost.** A rack costs one voice against the channel plus one background voice per sounding operator beyond the first, and one sample fetch per sounding operator per output sample. A released rack keeps that whole cost for as long as it rings, because what rings is the rack and not a snapshot of it. Unlike a layered metainstrument, none of it reaches the mix as a separate source: however many operators a rack has, it is one note in one place.
+**Cost.** A rack costs one voice against the lane plus one background voice per sounding operator beyond the first, and one sample fetch per sounding operator per output sample. A released rack keeps that whole cost for as long as it rings, because what rings is the rack and not a snapshot of it. Unlike a layered metainstrument, none of it reaches the mix as a separate source: however many operators a rack has, it is one note in one place.
 
-**Operator 0's voice lifetime is the rack's.** The principal is the channel's own voice, so everything the engine asks about a voice's *life* — its New Note Action, its key lift, its Duplicate Check type and action, its fadeout — is asked of operator 0's instrument and of nothing else. A rack's own record states none of them, and the operators past the first are never asked: an operand is not a note, and it has no lifetime apart from the note it is shaping.
+**Operator 0's voice lifetime is the rack's.** The principal is the lane's own voice, so everything the engine asks about a voice's *life* — its New Note Action, its key lift, its Duplicate Check type and action, its fadeout — is asked of operator 0's instrument and of nothing else. A rack's own record states none of them, and the operators past the first are never asked: an operand is not a note, and it has no lifetime apart from the note it is shaping.
 
-**A New Note Action on a rack ghosts the whole rig.** A ghost is ordinarily a snapshot of one voice, and a rack is a voice plus the operators that shape it, so a snapshot on its own would sound operator 0's bare sample — not the note that was playing, and not a sound the patch can make. The rack is therefore copied instead: every sounding operand is ghosted beside the carrier and re-hung on a copy of the rig, feedback taps included, and each copied operand is bound to **the carrier** rather than to the channel — so the incoming note, which cuts the operands of the rack it is displacing, leaves the released one intact. The ghost is an ordinary ghost in every other respect: it runs no effects, the per-tick sync of [§5.5](#5-5-metainstruments) carries the carrier's key-off and fadeout down to its operands exactly as it does for a live rack, and the mixer reads the rig through the carrier and skips the operands, exactly as it does for a live rack.
+**A New Note Action on a rack ghosts the whole rig.** A ghost is ordinarily a snapshot of one voice, and a rack is a voice plus the operators that shape it, so a snapshot on its own would sound operator 0's bare sample — not the note that was playing, and not a sound the patch can make. The rack is therefore copied instead: every sounding operand is ghosted beside the carrier and re-hung on a copy of the rig, feedback taps included, and each copied operand is bound to **the carrier** rather than to the lane — so the incoming note, which cuts the operands of the rack it is displacing, leaves the released one intact. The ghost is an ordinary ghost in every other respect: it runs no effects, the per-tick sync of [§5.5](#5-5-metainstruments) carries the carrier's key-off and fadeout down to its operands exactly as it does for a live rack, and the mixer reads the rig through the carrier and skips the operands, exactly as it does for a live rack.
 
-**An engine that will not ghost a rack has made every rack monophonic**, whatever the principal's New Note Action says, because the next row on the channel is then the end of the note. That is the one thing a rack of bells cannot survive, and it is why the snapshot objection above is answered by copying the rig rather than by refusing to release.
+**An engine that will not ghost a rack has made every rack monophonic**, whatever the principal's New Note Action says, because the next row on the lane is then the end of the note. That is the one thing a rack of bells cannot survive, and it is why the snapshot objection above is answered by copying the rig rather than by refusing to release.
 
-Past-note actions (`S $70`…`$72`) do not reach a metainstrument's channel at all, so they are not a rack's business either.
+Past-note actions (`S $70`…`$72`) do not reach a metainstrument's lane at all, so they are not a rack's business either.
 
 ### 5.6 Duplicate Check
 
 Duplicate Check (DCT/DCA) fires on every fresh foreground trigger that carries an instrument byte, **before** the NNA spawn. It does not fire on tone portamento, on key-off, on note cut, or on an empty cell.
 
-The values consulted belong to the **existing** voice's instrument, not the incoming note's, so two instruments sharing a channel can behave asymmetrically. Targets are the channel's foreground voice and every background voice that channel spawned; each is tested independently against the incoming (instrument, note) pair.
+The values consulted belong to the **existing** voice's instrument, not the incoming note's, so two instruments sharing a lane can behave asymmetrically. Targets are the lane's foreground voice and every background voice that lane spawned; each is tested independently against the incoming (instrument, note) pair.
 
 **The pair is what the trigger will SOUND, not what the pattern wrote.** For an ordinary instrument those are the same thing. For an FM rack ([§5.5.1](#5-5-1-type-4-fm-racks)) the foreground voice takes operator 0's instrument at operator 0's detune, and that is the pair to test: a voice is never playing the rack's own slot, because a metainstrument is not a sample, so asking about the slot answers "no" for every type and no Duplicate Check on a rack ever fires. The rack's operand voices are **not** targets — the rack is tested through its principal, and cutting a modulator out from under a ringing patch changes what the patch sounds like rather than stopping it. A Layered metainstrument is left alone here: it is one voice per layer rather than one voice, so no single pair stands for it.
 
@@ -423,9 +423,9 @@ The values consulted belong to the **existing** voice's instrument, not the inco
 
 ### 5.7 New Note Actions
 
-When a fresh note arrives on a channel whose voice is still sounding, the old voice is copied into the background pool and the copy is treated per the New Note Action — the instrument's own, unless a per-note override (`S $73`…`S $76`) is in force.
+When a fresh note arrives on a lane whose voice is still sounding, the old voice is copied into the background pool and the copy is treated per the New Note Action — the instrument's own, unless a per-note override (`S $73`…`S $76`) is in force.
 
-On a metainstrument the override reaches **the whole note**: the foreground voice's ghost and, in place of each layer child's own instrument NNA, every child released with it ([§5.5](#5-5-metainstruments)). Past-note actions are the pair that stops at the channel's edge, and for a reason that is theirs alone — a live meta's layer children *are* background voices, so `S $70`…`$72` on that channel would cull the layers making up the sounding note. An override arms nothing but the next displacement, and carries no such hazard.
+On a metainstrument the override reaches **the whole note**: the foreground voice's ghost and, in place of each layer child's own instrument NNA, every child released with it ([§5.5](#5-5-metainstruments)). Past-note actions are the pair that stops at the lane's edge, and for a reason that is theirs alone — a live meta's layer children *are* background voices, so `S $70`…`$72` on that lane would cull the layers making up the sounding note. An override arms nothing but the next displacement, and carries no such hazard.
 
 | NNA | Behaviour |
 |---|---|
@@ -439,7 +439,7 @@ On a metainstrument the override reaches **the whole note**: the foreground voic
 
 The ghost copy **MUST** carry the full playback state: both active views, both filter topologies' coefficients *and* delay lines, all four envelope playheads, the fadeout multiplier, the swing biases, the auto-vibrato phase, the spatial position and the stereo channel's own DSP history. A partial copy produces a click or a wrong-sounding tail at every NNA event; copying the filter but not its history is the classic instance. On a voice sounding an FM rack the state to copy is the **rack**, operands and feedback taps included, and the action read is operator 0's — [§5.5.1](#5-5-1-type-4-fm-racks) has that case in full.
 
-Past-note actions (`S $70`…`S $72`) act on *all* background voices a channel spawned: cut removes them outright, off releases them with key lift, fade starts their fadeout.
+Past-note actions (`S $70`…`S $72`) act on *all* background voices a lane spawned: cut removes them outright, off releases them with key lift, fade starts their fadeout.
 
 ### 5.8 Volume and panning columns
 
@@ -451,13 +451,13 @@ The columns are applied after the note event and before the effect column.
 - **Pan SET** writes the **note** pan, scaled from six bits to eight as `(v << 2) | (v >> 4)` and taken as an offset from centre. It replaces whatever the instrument seeded, so it is how a composer pans one note of a zone-panned instrument by hand. An `S $80xx` on the same row addresses the other axis and both apply.
 - **Pan slides** behave like the volume slides but move the note pan, and in a surround song they **wrap** the azimuth where the stereo model clamps. They keep their own per-tick accumulator, separate from effect `P`'s, so a `P` and a column slide on one row move the two axes independently.
 
-Both columns write the per-note axis of their quantity and neither can reach the per-channel one (TAUD_NOTE_EFFECTS.md §3, §3a); `M` / `N` and `S $80xx` / `P` / `X` / `4` / `Z` are the commands that can.
+Both columns write the per-note axis of their quantity and neither can reach the per-lane one (TAUD_NOTE_EFFECTS.md §3, §3a); `M` / `N` and `S $80xx` / `P` / `X` / `4` / `Z` are the commands that can.
 
 The pan column's SET keeps its front-arc meaning in every surround model — six bits cannot express a full turn, and `S $8xxx` and `X` are the commands that can.
 
 ### 5.9 Pattern Ditto
 
-Effect `7` arms a row-time repeat region on its channel: `7 $LLRR` repeats the preceding `LL` rows `RR` times, starting from the arming row. Within the region, each row is composed from the *source* row it echoes, overlaid by whatever the destination cell actually carries — a non-zero note, a non-zero instrument, a volume or pan column that is not the FINE-0 no-op, and a non-zero effect all override the echo. An echoed `7` in the source is not re-armed.
+Effect `7` arms a row-time repeat region on its lane: `7 $LLRR` repeats the preceding `LL` rows `RR` times, starting from the arming row. Within the region, each row is composed from the *source* row it echoes, overlaid by whatever the destination cell actually carries — a non-zero note, a non-zero instrument, a volume or pan column that is not the FINE-0 no-op, and a non-zero effect all override the echo. An echoed `7` in the source is not re-armed.
 
 Because the region is derived at play time from the arming row, an engine that supports starting playback mid-pattern **MUST** reconstruct the arm state by replaying the raw rows from row 0 up to the start row; otherwise ghost rows are silent when seeking into a region.
 
@@ -465,20 +465,20 @@ Because the region is derived at play time from the arming row, an engine that s
 
 The tick pass runs once per tick, per voice, and is where everything continuous happens. For each foreground voice, in order:
 
-1. **Scheduled note cut** (`S $Cx`): if this is the scheduled tick, zero the note and row volume — leaving channel volume alone — and mark the note cut.
+1. **Scheduled note cut** (`S $Cx`): if this is the scheduled tick, zero the note and row volume — leaving lane volume alone — and mark the note cut.
 2. **Note delay** (`S $Dx`): if this is the scheduled tick, perform the deferred event. For a pitch, that means the full trigger sequence of [§5.3](#5-3-trigger-sequence). **The instrument binding MUST be re-read afterwards** — the trigger may have swapped the voice's instrument, and the rest of this tick must see the instrument that just fired.
 3. **Scheduled follow-up action** (`S $Dxny`): if this is the scheduled tick, apply note off, note cut, continue, note fade or forced key lift. Forced key lift overrides the instrument's own New Note Action, exactly as `S $73`…`S $76` override it — and, like them, it commands **the whole note**: on a metainstrument it **MUST** lift every layer child and every operand too, not the foreground voice alone. The per-tick sync cannot deliver this one, because all it hands a child is that child's own instrument's key-lift answer, which is exactly what the command exists to override.
 4. If the voice is inactive, advance its volume envelope anyway and move on — an inactive voice still needs its envelope walked so that a re-trigger or a scheduled event sees a coherent state.
 5. **Pitch slides** (`E`, `F` coarse) on ticks after the first, in the current tone mode.
 6. **Tone portamento** on ticks after the first: step toward the target and stop exactly on it, in note space or Hz space per the tone mode.
 7. **Volume slides** — the effect-column coarse slide and the volume-column slides — on ticks after the first.
-8. **Channel-volume slide** (`N`), the **pan-column slides** (note axis) and effect `P`'s slide (channel axis), on ticks after the first.
+8. **Lane-volume slide** (`N`), the **pan-column slides** (note axis) and effect `P`'s slide (lane axis), on ticks after the first.
 9. **Spatial slide** (`Z`) on ticks after the first ([§11.5](#11-5-the-z-slide)).
 10. **Tremor** (`I`): advance the on/off phase counter; while off, force the row volume to 0.
 11. **Vibrato** (`H`, `U`): `delta = (lfo × depth) >> shift`, where the shift is 6 for `H` and 8 for `U` — the finer of the two. The result overlays the note for this tick only; the underlying note word is untouched. Phase advances by `speed`, modulo 1088.
 12. **Glissando** (`S $1x`): snap the *sounding* pitch to the nearest 12-TET semitone while leaving the note word smooth.
 13. **Tremolo** (`R`): `row_volume = clamp(note_volume + ((lfo × depth) >> 9), 0, 63)`.
-14. **Panbrello** (`Y`): `panbrello_offset = (lfo × depth) >> 7`. This is a signed offset the mixer sums with the two pan axes ([§10.3](#10-3-panning)), **not** a write to either of them — so the LFO swings around wherever the channel and the note have put the voice, without consuming the instrument's own pan seed, and the same offset steers the surround models ([§11](#11-the-spatial-model)). On a tick where `Y` is not active the same step sets it to 0, so a row without `Y` puts the voice back on its base pan. That zero **MUST** be written here and not in the row reset ([§5.1](#5-1-per-row-reset)): a row boundary runs the row pass *after* this one, so a value the row pass clears is still cleared while the new row's first tick renders — one tick of dead centre in the middle of a sweep that spans several rows.
+14. **Panbrello** (`Y`): `panbrello_offset = (lfo × depth) >> 7`. This is a signed offset the mixer sums with the two pan axes ([§10.3](#10-3-panning)), **not** a write to either of them — so the LFO swings around wherever the lane and the note have put the voice, without consuming the instrument's own pan seed, and the same offset steers the surround models ([§11](#11-the-spatial-model)). On a tick where `Y` is not active the same step sets it to 0, so a row without `Y` puts the voice back on its base pan. That zero **MUST** be written here and not in the row reset ([§5.1](#5-1-per-row-reset)): a row boundary runs the row pass *after* this one, so a value the row pass clears is still cleared while the new row's first tick renders — one tick of dead centre in the middle of a sweep that spans several rows.
 15. **Arpeggio** (`J`): the tick index modulo 3 selects offset 0, the first argument byte or the second, each shifted left 8 bits (one argument byte is 256 units ≈ 0.75 semitones). This *overrides* the sounding pitch for the tick.
 16. **Retrigger** (`Q`): count ticks and, on reaching the interval, restart the sample at the active play start, clear key-off, reset all four envelope playheads (re-seeding the pitch and filter ones past zero-duration nodes), reset the fadeout, auto-vibrato and filter history, and apply the retrigger volume modifier.
 17. **Auto-vibrato** ([§6.1](#6-1-auto-vibrato)), added on top of the sounding pitch.
@@ -726,7 +726,7 @@ The budget is **(interval × time)**, not time. A control move — a vibrato, an
 
 Two requirements:
 
-- A **fresh trigger snaps** the current rate to the target: a new note starts at its own pitch and never bends up from whatever the channel last played. An NNA ghost inherits the source voice's rates but likewise begins at its target — an unfinished glide is not continued across the hand-off, and the gap it lands over is at most the budget above.
+- A **fresh trigger snaps** the current rate to the target: a new note starts at its own pitch and never bends up from whatever the lane last played. An NNA ghost inherits the source voice's rates but likewise begins at its target — an unfinished glide is not continued across the hand-off, and the gap it lands over is at most the budget above.
 - The interval **MUST** be compared as a ratio, as written above, and not by converting to cents. The comparison decides a sample count, so a last-ulp disagreement in a logarithm is a rendering difference; §3.3's rule against logarithm round trips applies here for the same reason.
 
 ## 9. Filters
@@ -779,7 +779,7 @@ Direct Form I, unclamped — the gain normalisation bounds it. The −3.01 dB of
 
 ### 9.3 Runtime overrides
 
-Effects `5` and `6` set an instrument-wide cutoff or resonance override, targeting the channel's instrument and every layer child's instrument. An argument of `$FFFF` clears the override. In IT mode the high byte is taken; in SoundFont mode the full 16 bits are. Overrides are runtime state and **MUST** be cleared on a transport reset.
+Effects `5` and `6` set an instrument-wide cutoff or resonance override, targeting the lane's instrument and every layer child's instrument. An argument of `$FFFF` clears the override. In IT mode the high byte is taken; in SoundFont mode the full 16 bits are. Overrides are runtime state and **MUST** be cleared on a transport reset.
 
 An override is **absolute and instrument-wide**: while one is in force every voice of that instrument takes it, decoded and applied in the *instrument's* filter mode, whatever patch the voice resolved. Clearing it returns each sounding voice to **its own** default — the value in its patch's `x` block when it has one, the base record's otherwise. Dropping every voice onto the base record instead would retune a patched voice's filter, and where the patch and the base record disagree on SoundFont-versus-IT mode it would reinterpret the stored number in the wrong units.
 
@@ -819,7 +819,7 @@ sample_out = sample × per_voice × global × pan_gain × ramp_gain
 
 The envelope volume is likewise smoothed per sample: at each tick the engine computes a slope `(new_envelope_value − current) ÷ samples_per_tick` and adds it once per frame. Without this, a 50 Hz envelope staircase is audible on sustained material.
 
-The **fader** is a host-owned 256-step attenuator per channel (0 = unity, 255 = muted) used for mute and solo. Muting a channel **MUST** also silence the ghosts and layer children it spawned: a background voice's effective fader is the larger of its own and its source channel's.
+The **fader** is a host-owned 256-step attenuator per lane (0 = unity, 255 = muted) used for mute and solo. Muting a lane **MUST** also silence the ghosts and layer children it spawned: a background voice's effective fader is the larger of its own and its source lane's.
 
 ### 10.3 Panning
 
@@ -885,7 +885,7 @@ Both are continuous doubles, because the `Z` slide moves through them smoothly. 
 Two folds matter and are **not** the same operation:
 
 - **Audible downmix.** A full-circle azimuth folds onto the pan byte by *mirroring* the rear arc onto the front: two speakers cannot render front versus back, so the left–right axis is kept and the other dropped. The mapping is the identity on the front arc, which is what makes ordinary pan behave identically in every model.
-- **Position display.** The orthogonal projection onto the listener's left–right axis, `−cos(elevation) × sin(azimuth)`, is the *shadow* a source casts on that line: overhead and directly-behind both read centre. A channel-header pan strip draws this, which is why it lines up with a radar dot above it.
+- **Position display.** The orthogonal projection onto the listener's left–right axis, `−cos(elevation) × sin(azimuth)`, is the *shadow* a source casts on that line: overhead and directly-behind both read centre. A lane-header pan strip draws this, which is why it lines up with a radar dot above it.
 
 ### 11.3 The stereo renderer
 
@@ -998,10 +998,10 @@ Everything above describes the chain acting on the **stereo pair** the output st
 
 After the chain:
 
-1. Convert each channel's frame to **binary32**, then clamp to ±1.0 **in binary32 space**. Clamping before narrowing gives different results at the boundary.
+1. Convert each lane's frame to **binary32**, then clamp to ±1.0 **in binary32 space**. Clamping before narrowing gives different results at the boundary.
 2. Store into a binary32 mix bus.
 
-Quantisation to 8 bits is **noise-shaped dither**, per channel, with second-order error feedback:
+Quantisation to 8 bits is **noise-shaped dither**, per lane, with second-order error feedback:
 
 ```
 feedback = 1.5 × e[n−1] − 0.75 × e[n−2]
@@ -1063,13 +1063,13 @@ A transport reset restores a well-defined starting state, and getting its scope 
 
 A **full reset** sets BPM 125, tick rate 6, global and mixing volume `$80`, clears the tuning, restores the tone and interpolation modes from the file's global behaviour flags, re-installs the surround model, clears the Amiga filter states, returns the mastering chain to neutral, deactivates every voice, empties the background pool, clears every per-voice effect and envelope state (funk repeat's loop window among it), and clears the per-instrument runtime state (invert-loop masks and filter overrides).
 
-A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-channel pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, returns every channel to its song-start position, volume and colouring (the bitcrusher and the overdrive among it), and clears the mastering chain's delay lines and envelopes — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo. The chain's PARAMETERS are the song's and survive, like the tempo; its STATE is per-play, like the ghost pool. A compressor still holding six decibels of reduction from before a seek, and a look-ahead buffer still holding two milliseconds of the previous playback, are both the lingering-state bug this section exists to prevent.
+A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-lane pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, returns every lane to its song-start position, volume and colouring (the bitcrusher and the overdrive among it), and clears the mastering chain's delay lines and envelopes — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo. The chain's PARAMETERS are the song's and survive, like the tempo; its STATE is per-play, like the ghost pool. A compressor still holding six decibels of reduction from before a seek, and a look-ahead buffer still holding two milliseconds of the previous playback, are both the lingering-state bug this section exists to prevent.
 
-Returning the CHANNELS is not the same thing as leaving the playhead's tempo alone, and both halves matter. Channel volume and every panning axis (channel position and elevation, the note axis, the spherical slide target), glissando, the bitcrusher and overdrive settings (`8 $xyzz` and `9 $x0zz`, the clipper they share included) and the `S $7x` per-note overrides are all written by the song's own effects and reset by nothing else — a trigger deliberately leaves them, since they belong to the channel rather than the note — so a play that does not clear them starts wherever the last one finished. What a reset **MUST NOT** touch is the host's own mixer: per-channel mute and fader levels belong to whoever is listening, not to the song, and a replay that silently unmutes a channel is its own bug.
+Returning the LANES is not the same thing as leaving the playhead's tempo alone, and both halves matter. Lane volume and every panning axis (lane position and elevation, the note axis, the spherical slide target), glissando, the bitcrusher and overdrive settings (`8 $xyzz` and `9 $x0zz`, the clipper they share included) and the `S $7x` per-note overrides are all written by the song's own effects and reset by nothing else — a trigger deliberately leaves them, since they belong to the lane rather than the note — so a play that does not clear them starts wherever the last one finished. What a reset **MUST NOT** touch is the host's own mixer: per-lane mute and fader levels belong to whoever is listening, not to the song, and a replay that silently unmutes a lane is its own bug.
 
 Emptying the background pool is the part that is easy to omit and audible when omitted: a stop leaves ghosts active, and a replay resumes them.
 
-A host loading a new document **MUST** perform a full reset before uploading it, and **MUST** then upload the song's own mastering chain — or the neutral one when the file declares none. Nothing in a file describes the channel state the previous song left behind, so a document loaded on top of another inherits its panning, its channel volumes and its mastering otherwise.
+A host loading a new document **MUST** perform a full reset before uploading it, and **MUST** then upload the song's own mastering chain — or the neutral one when the file declares none. Nothing in a file describes the lane state the previous song left behind, so a document loaded on top of another inherits its panning, its lane volumes and its mastering otherwise.
 
 ## 16. Effects
 
@@ -1082,7 +1082,7 @@ Opcodes are base-36 digit values: `0`…`9` are `$00`…`$09` and `A`…`Z` are 
 | `:` | Row | On an interrupt row, that interrupt's argument ([§14](#14-interrupts-and-the-host-interface)); otherwise argument extension — hands its argument to whichever other effect shares the row, resolved once per row before either slot dispatches ([Note Effects](TAUD_NOTE_EFFECTS.md#-xxxx--interrupt-argument-and-argument-extension)), and a bare no-op outside Format 3 |
 | `1` | Playhead | Set the global behaviour flags — tone mode and interpolation — from the argument's high byte |
 | `5` / `6` | Instrument | Cutoff / resonance override, `$FFFF` to clear |
-| `7` | Channel, row-time | Pattern Ditto ([§5.9](#5-9-pattern-ditto)) |
+| `7` | Lane, row-time | Pattern Ditto ([§5.9](#5-9-pattern-ditto)) |
 | `8` / `9` | Voice | Bitcrusher / overdrive ([§10.1](#10-1-voice-effects)) |
 | `A` / `T` | Playhead | Tick rate / tempo |
 | `B` / `C` | Playhead | Order jump / pattern break, both resolved at row end |

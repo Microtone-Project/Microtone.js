@@ -86,7 +86,7 @@ export function wheelStep(remainder, rawDelta, quantum = 4) {
   return { step, remainder: total - step };
 }
 
-/** Cursor sub-position walk order within one channel: [sub, nib] pairs. */
+/** Cursor sub-position walk order within one lane: [sub, nib] pairs. */
 function buildPositions(nibbles) {
   const out = [];
   for (let sub = 0; sub < nibbles.length; sub++) {

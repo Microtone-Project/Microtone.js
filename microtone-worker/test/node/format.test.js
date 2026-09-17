@@ -16,7 +16,7 @@ function eqBytes(a, b, label) {
     .equals(Buffer.from(b.buffer, b.byteOffset, b.length)), `${label}: bytes differ`);
 }
 
-/** Cue count after trailing-empty trimming (a cue is empty when every channel
+/** Cue count after trailing-empty trimming (a cue is empty when every lane
  *  word is CUE_EMPTY); mirrors taud-write / finalize_cue_sheet. Keeps ≥ 1. */
 function trimmedCueCount(cues) {
   let last = 0;
@@ -38,7 +38,7 @@ for (const name of corpusFiles) {
       assert.ok(song.cues.length >= 1);
       assert.ok(song.bpm >= 25 && song.bpm <= 535, `bpm ${song.bpm}`);
       assert.ok(song.tickRate >= 1 && song.tickRate <= 127, `tickRate ${song.tickRate}`);
-      // every cue channel word: pattern number in range or empty sentinel
+      // every cue lane word: pattern number in range or empty sentinel
       for (const words of song.cues) {
         for (let ch = 0; ch < 64; ch++) {
           const pat = words[ch] & 0x7fff;

@@ -128,7 +128,7 @@ test("copy → paste block: bytes land verbatim at the destination", () => {
   const undo = new UndoStack(doc);
   const pat = doc.songs[0].patterns[0];
 
-  // capture rows 0..2 of pattern 0 into a 1-channel block (Pattern-view copy)
+  // capture rows 0..2 of pattern 0 into a 1-lane block (Pattern-view copy)
   const block = makeBlock(3, 1);
   for (let r = 0; r < 3; r++) blockCell(block, r, 0).set(cellToBytes(pat[r]));
 

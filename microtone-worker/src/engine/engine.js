@@ -194,7 +194,7 @@ export class TaudEngine {
   }
   getCellFormat() { return this.wideCells; }
 
-  /** Upload one cue entry (64 bytes / 128 bytes in 64-channel mode). */
+  /** Upload one cue entry (64 bytes / 128 bytes in 64-lane mode). */
   uploadCue(idx, bytes) {
     const cue = this.cueSheet[idx & (NUM_CUES - 1)];
     const n = Math.min(this.cueByteStride(), bytes.length);
@@ -261,11 +261,11 @@ export class TaudEngine {
    *  preview), so it clears the transient per-play state that would otherwise
    *  bleed a prior playback into a fresh start — notably the NNA background
    *  ghosts, which stop() leaves active and a replay would resume (the
-   *  "mysteriously lingering notes" bug), and the CHANNEL-scope mixer state the
-   *  song's own effects write (item 125: pan, elevation, channel volume). The
+   *  "mysteriously lingering notes" bug), and the LANE-scope mixer state the
+   *  song's own effects write (item 125: pan, elevation, lane volume). The
    *  playhead's tempo/volume are deliberately NOT touched (a replay must keep
    *  the song's tempo — that's why this is not a full resetParams), and neither
-   *  is the host's per-channel fader/mute, which belongs to the desk. */
+   *  is the host's per-lane fader/mute, which belongs to the desk. */
   setTrackerRow(ph, row) {
     const ts = this.playheads[ph].trackerState;
     ts.rowIndex = Math.min(Math.max(row, 0), 63);
@@ -290,9 +290,9 @@ export class TaudEngine {
       // advances, but nothing did it at play START.
       v.loopStartRow = 0; v.loopCount = 0;
       v.dittoActive = false; v.dittoSourceStart = 0; v.dittoLength = 0; v.dittoEndRow = 0;
-      // Channel-scope state, back to the song-start defaults (item 125). A
-      // trigger deliberately does NOT reset any of this — pan and channel volume
-      // belong to the CHANNEL, not the note — so without a clear here the last
+      // Lane-scope state, back to the song-start defaults (item 125). A
+      // trigger deliberately does NOT reset any of this — pan and lane volume
+      // belong to the LANE, not the note — so without a clear here the last
       // S $80xx / M / N / P / X / Z of the previous play was still in force, and
       // a song played twice, or a second file opened on top of the first, panned
       // its notes wherever the last one had left them. Same defaults as
@@ -309,7 +309,7 @@ export class TaudEngine {
       v.spatialSlideActive = false;
       v.panbrelloOffset = 0;
       v.glissandoOn = false;
-      // Bitcrusher (8) / Overdrive (9) are channel colouring in exactly the same
+      // Bitcrusher (8) / Overdrive (9) are lane colouring in exactly the same
       // sense — the song writes them, a trigger deliberately leaves them, and
       // nothing else clears them — so without this a song that crushed once was
       // still crushed on the replay, right through the rows before its next

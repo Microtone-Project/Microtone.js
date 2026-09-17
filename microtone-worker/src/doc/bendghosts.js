@@ -7,7 +7,7 @@
 // WHY. A slide's whole point is that the values it produces are never written
 // down: `G $0080` under one note bends toward the next across rows that look
 // empty, `D $0400` fades over rows that say nothing about volume, `P $0400`
-// walks the pan away from wherever the channel was. This module reports, for
+// walks the pan away from wherever the lane was. This module reports, for
 // every row a bend MOVED one of those three, the value in force at that row's
 // TICK 0 — the number you would have to type into the cell to get the same
 // sound there — so the grids can paint it in the ghost colour.
@@ -27,16 +27,16 @@
 //     state `TrackerState.reset` leaves behind — full note volume, centred
 //     pan, no sounding note. Where it starts is the caller's to say.
 //     `createBendSim` is a simulation that CARRIES across patterns, which is
-//     what the Timeline runs: one per channel, down the cue list in order, so
+//     what the Timeline runs: one per lane, down the cue list in order, so
 //     a bend crossing a cue boundary goes on being reported. `bendGhosts` is
 //     the one-shot — one pattern, from silence — which is all the Patterns
 //     view can honestly do, since a pattern there belongs to no cue in
 //     particular. Flow control (B / C / S $Bx) is followed by neither: the
 //     cue list is read straight through, 0, 1, 2, …
-//  2. THIS CHANNEL'S OWN COLUMN. Speed (A), pattern delay (S $Ex) and fine
+//  2. THIS LANE'S OWN COLUMN. Speed (A), pattern delay (S $Ex) and fine
 //     pattern delay (S $6x) are read from the pattern being drawn, though the
-//     engine resolves all three across every channel at once. A song that
-//     drives its speed from another channel bends at a different rate than
+//     engine resolves all three across every lane at once. A song that
+//     drives its speed from another lane bends at a different rate than
 //     the trail shows.
 //  3. WHAT IS NOT MODELLED MAKES ITS AXIS UNKNOWN rather than wrong. `Q`'s
 //     retrigger volume modifier and a metainstrument's per-layer volume and
@@ -231,7 +231,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       break;
     }
     case EffectOp.OP_P: {
-      // effects.js OP_P — the CHANNEL pan axis, fine forms at tick 0.
+      // effects.js OP_P — the LANE pan axis, fine forms at tick 0.
       const arg = resolveArg(rawArg, v.mem.p);
       if (rawArg !== 0) v.mem.p = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -256,7 +256,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
     }
     case EffectOp.OP_S: applyBendSEffect(ts, st, v, rawArg); break;
     case EffectOp.OP_X: {
-      // effects.js OP_X — place the channel. An absolute statement, so it is
+      // effects.js OP_X — place the lane. An absolute statement, so it is
       // no bend: the row shows the position in its own argument.
       if (ts.surroundModel === SURROUND_STEREO) break;
       anglesFromSpatialArg(rawArg, spatialArg);
@@ -301,14 +301,14 @@ function applyBendSEffect(ts, st, v, arg) {
       break;
     case 0x6: st.extraTicks += x; break;  // fine pattern delay — longer row
     case 0x8:
-      // effects.js applySEffect $8 — S $80xx sets the channel pan outright.
+      // effects.js applySEffect $8 — S $80xx sets the lane pan outright.
       applyPanSet(ts, v, arg & (ts.surroundModel === SURROUND_STEREO ? 0xff : 0x1ff));
       st.wrotePan = true;
       st.panKnown = true;
       break;
     case 0xe:
       // Pattern delay: the row runs again, ticks and tick-0 events alike. The
-      // engine gives it to the first channel that asks and does NOT let a
+      // engine gives it to the first lane that asks and does NOT let a
       // repetition re-arm it (effects.js sexWinningChannel, row.js advanceRow),
       // or the row would repeat for ever; `sexArmed` is that latch.
       if (!st.sexArmed) { st.sexArmed = true; st.delayRepeats = x; }
@@ -372,7 +372,7 @@ function bendTick(ts, v) {
     v.noteVolume = Math.max(v.noteVolume - v.volColSlideDown, 0);
     v.rowVolume = v.noteVolume;
   }
-  // The panning column slides the NOTE axis; P slides the CHANNEL axis.
+  // The panning column slides the NOTE axis; P slides the LANE axis.
   if (v.panColSlideRight !== 0) applyNotePanSlide(ts, v, v.panColSlideRight);
   if (v.panColSlideLeft !== 0) applyNotePanSlide(ts, v, -v.panColSlideLeft);
   if (v.chanPanSlideRight !== 0) applyPanSlide(ts, v, v.chanPanSlideRight);
@@ -444,7 +444,7 @@ function seedFromInstrument(ts, st, v, inst, instId, noteVal, volOverride) {
     st.wroteVol = true;
     st.volKnown = true;
   }
-  // else: a note-only retrigger inherits the channel's note volume (trigger.js).
+  // else: a note-only retrigger inherits the lane's note volume (trigger.js).
 
   if (instId === 0 || inst === null) return;
   // trigger.js's note-pan seed, verbatim in shape: a patch's per-zone pan wins,
@@ -477,7 +477,7 @@ function seedFromInstrument(ts, st, v, inst, instId, noteVal, volOverride) {
  */
 function applyBendRow(ts, st, v, row, instruments) {
   // row.js "Reset per-row transient state" — every slide re-arms per row. The
-  // portamento target does NOT: it is channel state that outlives the row,
+  // portamento target does NOT: it is lane state that outlives the row,
   // which is why a G trail keeps going over rows carrying no command at all.
   v.slideMode = 0; v.slideArg = 0;
   v.volColSlideUp = 0; v.volColSlideDown = 0;
@@ -626,8 +626,8 @@ export function bendGhosts(pattern, opts = {}) {
 /**
  * A simulation that can be CARRIED ACROSS PATTERNS — what the Timeline needs,
  * because the song does not start again at a pattern boundary. A slide, a
- * portamento still travelling, the channel's volume and its panning all cross
- * the join, so the trail has to as well: the view builds one sim per channel
+ * portamento still travelling, the lane's volume and its panning all cross
+ * the join, so the trail has to as well: the view builds one sim per lane
  * and runs the cue chain through it in order, and each pattern picks up
  * exactly where the one before it left off.
  *
@@ -667,7 +667,7 @@ export function createBendSim(opts = {}) {
      * Run one pattern through the sim and report its ghosts.
      *
      * @param {Array|null} pattern  TaudPlayData rows; null (an unmaterialised
-     *   gap, or an empty cue slot) advances NOTHING — row.js skips a channel
+     *   gap, or an empty cue slot) advances NOTHING — row.js skips a lane
      *   whose cue slot is empty before it resets any per-row state, so the
      *   voice simply rings on with everything it was holding.
      * @param {object} runOpts  `rowLimit` (rows the cue plays) and `ditto`

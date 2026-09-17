@@ -44,7 +44,7 @@ export function profileVerdict(p) {
       label: "Off-thread OK",
       detail:
         "Rendering runs in the Worker; the audio thread only resamples + copies, so " +
-        "it cannot overrun at any channel count. No ring underruns — playback is clean.",
+        "it cannot overrun at any lane count. No ring underruns — playback is clean.",
     };
   }
 

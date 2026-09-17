@@ -1,10 +1,10 @@
 // taudplay wire protocol — main thread ⇄ AudioWorklet.
 //
 // Deliberately tiny next to Microtone's own (src/worklet/protocol.js): that one
-// carries everything an EDITOR wants to see — per-voice envelope cursors, sample
+// carries everything an EDITOR wants to see — per-lane envelope cursors, sample
 // read positions, funk windows, the master analysis field, loudness histograms,
 // spectra. A player wants none of it. What is left is the transport, and two
-// numbers per voice: how loud it is and where it sits.
+// numbers per lane: how loud it is and where it sits.
 //
 // Snapshots travel by postMessage on a recycled pair of ArrayBuffers (~16 ms).
 // There is no SharedArrayBuffer path and no render-worker tier: 864 bytes every
@@ -47,7 +47,7 @@ export const SNAP_INT_ARGS = 8;      // 16 words, Int0..IntF
 export const SNAP_INT_COUNT = 16;
 export const SNAP_HEADER = 24;       // voice block starts here
 
-/** Per-voice block: the two probes plus the gate that says whether to believe
+/** Per-lane block: the two probes plus the gate that says whether to believe
  *  them. `active` is not a third probe — it is what tells a meter to fall to
  *  zero rather than hold the last note's level. */
 export const SNAP_V_ACTIVE = 0;
@@ -55,7 +55,7 @@ export const SNAP_V_VOLUME = 1;      // 0..1
 export const SNAP_V_PAN = 2;         // 0..1, 0.5 = centre
 export const SNAP_V_STRIDE = 3;
 
-/** Voices reported. 64 is the format's maximum channel count; the jam bank
+/** Voices reported. 64 is the format's maximum lane count; the jam bank
  *  above it does not exist here, because this library cannot jam. */
 export const SNAP_VOICES = 64;
 export const SNAP_FLOATS = SNAP_HEADER + SNAP_VOICES * SNAP_V_STRIDE;

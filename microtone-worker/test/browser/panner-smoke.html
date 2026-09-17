@@ -42,7 +42,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   const api = dlg.__panner;
   check(!!api, "panner exposes its test hook");
   check(dlg.querySelectorAll("canvas.panner-dial").length === 2, "spatial song shows BOTH dials");
-  check(dlg.textContent.includes("channel 3"), "info line names the cursor's channel",
+  check(dlg.textContent.includes("lane 3"), "info line names the cursor's lane",
     dlg.querySelector("p.dim")?.textContent);
 
   const cellAt = (row, ch) => {
@@ -94,7 +94,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   cell = cellAt(4, 2);
   check((cell.effectArg & 0xff) === 0x80, "…and Place writes that azimuth", `$${cell.effectArg.toString(16)}`);
 
-  // ── 4b. the channel-header radar (#998.6) ────────────────────────────────
+  // ── 4b. the lane-header radar (#998.6) ───────────────────────────────────
   const { lateralProjection } = await import("../../src/engine/spatial.js");
   const collapsedH = M.timeline.headerH();
   check(!doc.getElementById("tbRadar").hidden, "Radar toggle appears for a surround song");

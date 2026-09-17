@@ -14,7 +14,7 @@
 //   then reports what it is holding instead of pretending to fit it.
 //
 // · WHERE it searches follows the view, and is not a setting: on the Timeline a
-//   match is a place in the song (row × channel, play order), and in Patterns
+//   match is a place in the song (row × lane, play order), and in Patterns
 //   it is a place in the bank (pattern × row, ascending) — which is also the
 //   only way to find anything in a pattern no cue has placed yet. Those are the
 //   two coordinate systems the two grids actually have; a scope selector would

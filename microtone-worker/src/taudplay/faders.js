@@ -1,10 +1,10 @@
-// The library's one group of knobs: a ramped fader per voice.
+// The library's one group of knobs: a ramped fader per lane.
 //
 // The engine's `Voice.fader` is a plain 0..255 attenuation byte read straight
 // into the gain — no smoothing anywhere, because in the tracker it only ever
 // changes when a human clicks mute. A game moving it every animation frame
 // would step the gain 60 times a second, and on a sustained note that steps
-// audibly. So the ramp lives here, above the engine: the caller says "voice 4
+// audibly. So the ramp lives here, above the engine: the caller says "lane 4
 // to a third over two seconds" once, and the bank walks the byte there in
 // whatever increments the render is already using.
 //
@@ -22,7 +22,7 @@ export class FaderBank {
     this.dirty = true;                          // something to write out
   }
 
-  /** Aim voice `v` at attenuation `value` (0 = open, 255 = silent) over
+  /** Aim lane `v` at attenuation `value` (0 = open, 255 = silent) over
    *  `samples` frames. `samples <= 0` snaps. */
   set(v, value, samples) {
     if (v < 0 || v >= MAX_VOICES) return;
@@ -60,8 +60,8 @@ export class FaderBank {
    *
    * Not through `TaudEngine.setVoiceFader`, which clamps the voice index to
    * NUM_VOICES-1 (32) because the TSVM delegate clamps its readbacks there. A
-   * fader is a host control rather than a device readback, and a 64-channel
-   * song has 64 channels to fade, so the byte goes to the voice directly.
+   * fader is a host control rather than a device readback, and a 64-lane
+   * song has 64 lanes to fade, so the byte goes to the voice slot directly.
    */
   writeInto(ts) {
     if (!this.dirty) return;

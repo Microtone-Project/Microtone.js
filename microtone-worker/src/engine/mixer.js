@@ -306,9 +306,9 @@ export function generateTrackerAudio(eng, playhead, out) {
       // it (and aged it) in the foreground pass above, so summing it here would
       // put the modulators into the mix beside the note they shaped.
       if (bg.fmOperator) continue;
-      // Muting a channel must also silence the NNA ghosts and layer children it
-      // spawned (item 45): fold the source channel's fader into the bg voice's
-      // own, so a channel mute/solo covers everything that came from it.
+      // Muting a lane must also silence the NNA ghosts and layer children it
+      // spawned (item 45): fold the source lane's fader into the bg voice's
+      // own, so a lane mute/solo covers everything that came from it.
       const srcVoice = voices[bg.sourceChannel];
       const bgFader = srcVoice && srcVoice.fader > bg.fader ? srcVoice.fader : bg.fader;
       if (!bg.active || bgFader === 255) continue;
@@ -358,7 +358,7 @@ export function generateTrackerAudio(eng, playhead, out) {
         rampGain *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
         bg.attackRampSamples--;
       }
-      // Ghosts and layer children belong to the stem of the channel that spawned them.
+      // Ghosts and layer children belong to the stem of the lane that spawned them.
       if (stems !== null) {
         const sBg = bg.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
         stems.add(bg, bg.sourceChannel, n, sBg * vol * rampGain);
