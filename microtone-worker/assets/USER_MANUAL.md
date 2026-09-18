@@ -63,7 +63,7 @@ and the editor snaps entry, display and stepping to that table's degrees. See
 
 ### Opening and creating projects
 
-- **Drop a file anywhere** on the window, or use **Open…** in the top bar. `.taud` (full project) is the native format of the Microtone. Tracker modules (`.mod`, `.s3m`, `.xm`, `.it`, `.mon`) and AdLib songs (`.ims`) are converted on the fly.
+- **Drop a file anywhere** on the window, or use **Open…** in the top bar. `.taud` (full project) is the native format of the Microtone. Tracker modules (`.mod`, `.s3m`, `.xm`, `.it`, `.mon`) and AdLib songs (`.ims`, `.sop`) are converted on the fly.
 - **Import MIDI…** converts a `.mid` file through a SoundFont — see [Importing music](#importing-music).
 - **New…** opens the New Project wizard, which collects every song setting before the blank project is built:
   - **Tempo** — BPM (25–535) and speed (ticks per row, 1–127), with a live *blinkenlights* strip previewing the feel of that tempo.
@@ -2224,6 +2224,15 @@ These songs **name** their instruments instead of storing them, so they need a
 bank file. Drop the song and its `.bnk` together — or select both in **Open…** —
 and they are matched up; without one, the general AdLib bank that ships with
 Microtone resolves nearly every patch name in circulation.
+
+`.sop` files — the song format of a Korean **OPL3** tracker of the mid-to-late
+1990s, found in the same collections — open the same way and need **no bank at
+all**: a `.sop` stores its instruments rather than naming them, so one file is
+the whole song. Being an OPL3 format it brings three things an `.ims` cannot:
+twenty parts rather than eleven, **stereo panning** per part, and instruments
+that may be **four operators** rather than two — all of which survive, because a
+Taud lane count, panning axis and FM Rack are each wide enough to take them. Its
+scrolling credits arrive as the **project message** on the Project tab.
 
 The conversion sets its own tempo and speed: the row grid comes from the song's
 own timing, and the tick is made as short as the tempo register allows, because

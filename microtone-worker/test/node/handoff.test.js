@@ -13,6 +13,7 @@ import {
   encodeHandoff, decodeHandoff, handoffArmed, HANDOFF_PREFIX,
 } from "../../src/ui/handoff.js";
 import { IMS_SONG, IMS_BANK } from "../fixtures/ims.js";
+import { SOP_SONG } from "../fixtures/sop.js";
 
 test("a song and its bank survive the round trip", () => {
   const hash = encodeHandoff({
@@ -31,6 +32,18 @@ test("a song with no bank of its own carries none", () => {
   const got = decodeHandoff(encodeHandoff({ name: "bare.ims", song: IMS_SONG }));
   assert.equal(got.bank, null);
   assert.deepEqual([...got.bytes], [...IMS_SONG]);
+});
+
+test("a .sop needs no bank and the extension is what routes it", () => {
+  // A .sop stores its own instruments, so an empty bank field is the normal
+  // case for it rather than a song arriving half-dressed. The name is the only
+  // thing that says which converter to use, and the sender sets its extension
+  // from what the BYTES turned out to be — so a .sop saved as SOMETHING.IMS
+  // still arrives as a .sop.
+  const got = decodeHandoff(encodeHandoff({ name: "SV6-CHAN.sop", song: SOP_SONG }));
+  assert.equal(got.bank, null);
+  assert.equal(got.name, "SV6-CHAN.sop");
+  assert.deepEqual([...got.bytes], [...SOP_SONG]);
 });
 
 test("the fragment is small enough to be a URL", () => {

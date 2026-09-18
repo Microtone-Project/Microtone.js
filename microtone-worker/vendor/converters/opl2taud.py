@@ -94,20 +94,46 @@ def expand(att: int) -> int:
 
 OPL_FULL_SCALE = expand(0)          # 4090
 
-# Waveform 0…3: full sine, half sine (bottom removed), absolute sine, pulse sine.
 def waveform(shape: int, phase: int):
-    """(attenuation, sign) for a 10-bit phase; attenuation SILENCE means muted."""
+    """(attenuation, sign) for a 10-bit phase; attenuation SILENCE means muted.
+
+    Shapes 0…3 are the YM3812's.  Shapes 4…7 are the four the YMF262 adds, and
+    they add no table: they are the same quarter sine read differently, exactly
+    as the chip's published waveform figure draws them.  A `.sop` instrument
+    selects from all eight (SOP_FORMAT §3.2), so the compiler has to be able to
+    build all eight; a `.bnk` only ever names the first four."""
     quarter = phase & 0xFF
     mirrored = 255 - quarter if (phase & 0x100) else quarter
     negative = (phase & 0x200) != 0
-    shape &= 3
-    if shape == 0:
+    shape &= 7
+    if shape == 0:                                        # full sine
         return LOG_SIN[mirrored], (-1 if negative else 1)
-    if shape == 1:
+    if shape == 1:                                        # half sine
         return (SILENCE, 1) if negative else (LOG_SIN[mirrored], 1)
-    if shape == 2:
+    if shape == 2:                                        # absolute sine
         return LOG_SIN[mirrored], 1
-    return (SILENCE, 1) if (phase & 0x100) else (LOG_SIN[quarter], 1)
+    if shape == 3:                                        # pulse sine
+        return (SILENCE, 1) if (phase & 0x100) else (LOG_SIN[quarter], 1)
+    if shape == 4:                                        # even sine
+        # The first half cycle stretched over a whole one, sign and all; the
+        # second half is silent.
+        if negative:
+            return SILENCE, 1
+        p = (phase << 1) & 0x3FF
+        q = p & 0xFF
+        return LOG_SIN[255 - q if (p & 0x100) else q], (-1 if (p & 0x200) else 1)
+    if shape == 5:                                        # even absolute sine
+        if negative:
+            return SILENCE, 1
+        p = (phase << 1) & 0x1FF                          # as 4, sign dropped
+        q = p & 0xFF
+        return LOG_SIN[255 - q if (p & 0x100) else q], 1
+    if shape == 6:                                        # square
+        return 0, (-1 if negative else 1)
+    # Logarithmic sawtooth: down across the first half and back up across the
+    # second, so the two halves meet at silence rather than at a step.
+    ramp = phase & 0x1FF
+    return ((0x1FF - ramp if negative else ramp) << 3), (-1 if negative else 1)
 
 
 KSL_ROM = (0, 24, 32, 37, 40, 43, 45, 47, 48, 50, 51, 52, 53, 54, 55, 56)
@@ -235,15 +261,26 @@ BNK_PATCH_RECORD = 30
 
 
 class OplPatch:
-    """One AdLib bank patch: two operators, two wave selects, and a name."""
-    __slots__ = ('name', 'mod', 'car', 'mod_wave', 'car_wave')
+    """One AdLib bank patch: two operators, two wave selects, and a name.
 
-    def __init__(self, name, mod, car, mod_wave, car_wave):
+    `pair` is a SECOND OplPatch, and it is what makes this an OPL3
+    four-operator instrument rather than an OPL2 one: the YMF262 joins two
+    channels and runs their four operators as one voice (SOP_FORMAT §3.3).
+    A BNK never sets it; a `.sop` type-0 instrument always does.  `wave_mask`
+    is 3 for a patch that came off an OPL2 — an AdLib bank has four waveforms
+    and stores the two bits — and 7 for one that came off an OPL3, where all
+    three bits of register 0xE0 mean something.
+    """
+    __slots__ = ('name', 'mod', 'car', 'mod_wave', 'car_wave', 'pair')
+
+    def __init__(self, name, mod, car, mod_wave, car_wave, pair=None,
+                 wave_mask=3):
         self.name = name
         self.mod = mod
         self.car = car
-        self.mod_wave = mod_wave & 3
-        self.car_wave = car_wave & 3
+        self.mod_wave = mod_wave & wave_mask
+        self.car_wave = car_wave & wave_mask
+        self.pair = pair
 
     @property
     def additive(self) -> bool:
@@ -258,7 +295,8 @@ class OplPatch:
     def key(self):
         return (tuple(self.mod[f] for f in OPERATOR_FIELDS),
                 tuple(self.car[f] for f in OPERATOR_FIELDS),
-                self.mod_wave, self.car_wave)
+                self.mod_wave, self.car_wave,
+                self.pair.key() if self.pair else None)
 
 
 def _read_operator(b: bytes, o: int) -> dict:
@@ -536,14 +574,39 @@ def gain_to_octet(gain: float) -> int:
 
 
 #: A modulator's full-scale output displaces the carrier's phase by this many
-#: whole cycles on the chip (±4084 halved into a 1024-step phase index), which is
-#: what a Taud modulator's mix octet has to reproduce for the modulation index to
-#: come out the same.
-MOD_INDEX_FULL = OPL_FULL_SCALE / 2.0 / 1024.0
+#: whole cycles on the chip — ±4084 into a 1024-step phase index, WHOLE — which
+#: is what a Taud modulator's mix octet has to reproduce for the modulation index
+#: to come out the same.
+#:
+#: This was halved until it was measured (iyagimusic-js OPL2_NOTES.en.md, "the
+#: direct modulation path was halved"): the emulator's own FM path had been
+#: scaled to match the manual's 4π FEEDBACK figure, which is the only modulation
+#: number Yamaha states, and the converter inherited the same ½. Both were wrong
+#: by the same factor, so a converted rack agreed with a dull emulator. Full
+#: scale is 8π, which is twice the strongest feedback.
+MOD_INDEX_FULL = OPL_FULL_SCALE / 1024.0
 
 
 def tl_gain(total_level: int) -> float:
     return 10.0 ** (-TL_STEP_DB * (total_level & 63) / 20.0)
+
+
+def volume_column(vol: int, total_level: int) -> int:
+    """An OPL channel volume (0…127) → Taud's 6-bit LINEAR volume axis.
+
+    AdLib's volume is not a linear gain: the driver scales the operator's
+    6-bit AMPLITUDE — a 0.75 dB-per-step logarithmic quantity — so volume 64 is
+    23 dB down, not 6.  Converting it as if it were linear makes every fade in
+    the format arrive far too late and far too suddenly.  The exact curve
+    depends on the operator's own total level, which is why the caller passes
+    the patch currently on the channel."""
+    tl = total_level & 63
+    full = ((63 - tl) * 127 + 64) >> 7
+    here = ((63 - tl) * max(0, min(127, vol)) + 64) >> 7
+    if full <= 0:
+        return 63
+    gain = 10.0 ** (-TL_STEP_DB * (full - here) / 20.0)
+    return max(0, min(63, round(63.0 * gain)))
 
 
 # ── Oscillator samples ───────────────────────────────────────────────────────
@@ -681,15 +744,37 @@ def multiple_detune(multiple: int) -> int:
 VIBRATO_HZ = NATIVE_RATE / 8192.0
 VIBRATO_CENTS = 7.0
 
+#: The engine's auto-vibrato phase is 1024 steps advanced by the SPEED byte once
+#: a tick, so one LFO cycle is `1024 ÷ speed` ticks (TAUD_FILE_FORMAT byte 175,
+#: and `AUTOVIB_PHASE_STEPS` in the engine's tables).
+AUTOVIB_PHASE_STEPS = 1024
+#: What one unit of the DEPTH byte is worth on the 4096-TET grid: the engine
+#: computes `lfo × depth × 43 >> 12` and its LFO is ±127, so byte 255 is ±340
+#: units — the ±1 semitone byte 187 is documented as.
+AUTOVIB_UNITS_PER_DEPTH = 127.0 * 43.0 / 4096.0
+
 
 def vibrato_fields(bpm: float):
-    """(speed, depth) for the instrument record at a given tempo.  The phase runs
-    1024 steps advanced by speed per TICK, so the rate is tempo-dependent and the
-    caller has to know the song's BPM; the depth is not.  Depth inverts the
-    engine's `(lfo × depth × 43) >> 12` against the ±127 LFO."""
+    """(speed, depth) for the instrument record at a given tempo.
+
+    The rate is tempo-dependent because the LFO is clocked in TICKS, so the
+    caller has to know the song's BPM; the depth is not.
+
+    Both numbers were wrong until measured against the engine, and wrong in the
+    audible direction: the speed was derived as though a cycle were `128 ÷ speed`
+    ticks and the depth as though the byte ran to 127 units, which rendered the
+    chip's 6.07 Hz ±7 cent shimmer as a **0.80 Hz ±76 cent wobble** — eight times
+    too slow and eleven times too deep, which is what a lazy pitch bend sounds
+    like.  32 of the 134 operators in one reference `.sop` set the bit, so it is
+    not a corner.  Do not re-derive these from the field names; the engine's own
+    arithmetic is above and `test/node/convert.test.js` pins the result."""
     ticks_per_second = bpm * 2.0 / 5.0
-    speed = round(1024.0 * VIBRATO_HZ / ticks_per_second) if ticks_per_second else 0
-    depth = round(VIBRATO_CENTS * 4096.0 / 1200.0 * 4096.0 / (127.0 * 43.0))
+    # A converted song's BPM is always near the 535 ceiling, so the clamp below
+    # never bites in practice; a slow one would get a vibrato slower than the
+    # chip's rather than a wrapped one.
+    speed = (round(AUTOVIB_PHASE_STEPS * VIBRATO_HZ / ticks_per_second)
+             if ticks_per_second else 0)
+    depth = round(VIBRATO_CENTS * 4096.0 / 1200.0 / AUTOVIB_UNITS_PER_DEPTH)
     return max(1, min(255, speed)), max(1, min(255, depth))
 
 
@@ -860,6 +945,29 @@ AUX_SLOTS = 768
 #: ones, and they use the patch's MODULATOR half because that is the operator the
 #: driver loads into their single slot.
 RHYTHM_KIND = {6: 'bd', 7: 'sd', 8: 'tom', 9: 'tc', 10: 'hh'}
+RHYTHM_KINDS = frozenset(RHYTHM_KIND.values())
+
+#: In rhythm mode the chip sums channels 6, 7 and 8 into the accumulator twice
+#: over, so a drum sits 6 dB above where the same operator would sit on a
+#: melodic channel.  A Taud instrument has no such quirk, so the gain goes on
+#: the drum itself — on whichever of its operators reaches the mix, never on a
+#: modulator, whose octet is a phase deviation and not a level.  See
+#: iyagimusic-js OPL2_NOTES.en.md; the claim there is second-hand and labelled.
+RHYTHM_MIX = 2.0
+
+#: The four-operator connections, as chains of operator indices: each operator
+#: modulates the next, and each chain's last one reaches the mix.  This is the
+#: YMF262's published figure keyed by the two halves' CNT bits; see `_add_rack4`.
+CHAINS_FOUR_OP = {
+    (0, 0): [[0, 1, 2, 3]],
+    (0, 1): [[0, 1, 2], [3]],
+    (1, 0): [[0], [1, 2, 3]],
+    (1, 1): [[0], [1, 2], [3]],
+}
+
+#: Four operators at four key bands would want eighteen of the sixteen entries a
+#: rack holds, so a wide rack bands no finer than this however many were asked for.
+MAX_BANDS_FOUR_OP = 3
 DEFAULT_TOM_NOTE = 24       # the driver's own starting tom pitch
 
 
@@ -882,6 +990,8 @@ class BankBuilder:
         self.main_names = []
         self.wave_ptr = {}
         self.dc_ptr = self._add_sample(DC_SAMPLE, 'OPL DC')
+        # The YM3812's four shapes always; the YMF262's other four only when a
+        # patch asks for one, so an OPL2 conversion carries no dead samples.
         for shape in range(4):
             self.wave_ptr[shape] = self._add_sample(
                 wave_sample(shape), f'OPL wave {shape}')
@@ -899,6 +1009,14 @@ class BankBuilder:
         self._pool_index[data] = off
         self.sample_names.append(name)
         return off
+
+    def wave_pointer(self, shape: int) -> int:
+        """The single-cycle sample for one of the chip's eight wave shapes."""
+        shape &= 7
+        if shape not in self.wave_ptr:
+            self.wave_ptr[shape] = self._add_sample(
+                wave_sample(shape), f'OPL wave {shape}')
+        return self.wave_ptr[shape]
 
     def rhythm_pointer(self, drum: str, wave: int, multiple: int) -> int:
         key = (drum, wave, multiple & 15)
@@ -951,7 +1069,7 @@ class BankBuilder:
         loop_word, sustain_word, nodes = points_to_env_block(points, sustain)
         vib_speed, vib_depth = vibrato_fields(self.bpm) if op['vib'] else (0, 0)
         rec = build_instrument_record(
-            sample_ptr=self.wave_ptr[wave & 3], sample_length=WAVE_LEN,
+            sample_ptr=self.wave_pointer(wave), sample_length=WAVE_LEN,
             rate=OSC_RATE, loop_start=0, loop_end=WAVE_LEN, loop_mode=1,
             detune=OSC_DETUNE,
             vol_env=(loop_word, nodes), sustain_word=sustain_word,
@@ -998,22 +1116,29 @@ class BankBuilder:
             return self._add_main(build_instrument_record(
                 sample_ptr=0, sample_length=0, rate=OSC_RATE), name)
         notes = list(notes) if notes else list(range(CHIP_NOTES))
+        # A second operator pair is what makes a patch four-operator, and only a
+        # melodic voice can be given one: the chip's rhythm voices are one and
+        # two operators and have no pair to join.
+        if kind == 'melodic' and patch.pair is not None:
+            return self._add_rack4(patch, name, notes)
+        mix = RHYTHM_MIX if kind in RHYTHM_KINDS else 1.0
         if kind in ('sd', 'tc', 'hh'):
-            return self._add_rhythm_pcm(patch, kind, name)
+            return self._add_rhythm_pcm(patch, kind, name, mix)
         if kind == 'tom':
             return self._add_rack(patch, name, single_op=True,
-                                  notes=[self.tom_note] + notes, percussion=True)
+                                  notes=[self.tom_note] + notes, percussion=True,
+                                  mix=mix)
         return self._add_rack(patch, name, single_op=False, notes=notes,
-                              percussion=(kind == 'bd'))
+                              percussion=(kind == 'bd'), mix=mix)
 
-    def _add_rhythm_pcm(self, patch, drum, name):
+    def _add_rhythm_pcm(self, patch, drum, name, mix=1.0):
         op = patch.mod
         block, fnum = chip_freq(self.tom_note + (7 if drum in ('sd', 'hh') else 0))
         ksr_off = ksr_offset(block, fnum, bool(op['ksr']))
         ksl = ksl_attenuation(block, fnum, op['ksl'] & 3)
         points, sustain = opl_envelope(op, ksr_off)
         loop_word, sustain_word, nodes = points_to_env_block(points, sustain)
-        gain = tl_gain(op['totalLevel']) * 10.0 ** (-TL_STEP_DB * ksl / 20.0)
+        gain = tl_gain(op['totalLevel']) * 10.0 ** (-TL_STEP_DB * ksl / 20.0) * mix
         ptr = self.rhythm_pointer(drum, patch.mod_wave, op['multiple'])
         rec = build_instrument_record(
             sample_ptr=ptr, sample_length=RHYTHM_SAMPLE_FRAMES,
@@ -1022,7 +1147,107 @@ class BankBuilder:
             atten_octet=gain_to_octet(gain), percussion=True)
         return self._add_main(rec, name)
 
-    def _add_rack(self, patch, name, single_op, notes, percussion):
+    def _add_rack4(self, patch, name, notes):
+        """An OPL3 four-operator voice: two channels' operators as one chain.
+
+        The two halves each keep their own CNT bit in register 0xC0, and reading
+        CNT as "this half's first operator goes straight to the output instead of
+        modulating" gives the YMF262's four published connections at once:
+
+            0,0   1 → 2 → 3 → 4          0,1   1 → 2 → 3, and 4
+            1,0   1, and 2 → 3 → 4       1,1   1, and 2 → 3, and 4
+
+        Feedback belongs to operator 1 alone — operator 3 is fed by the chain
+        rather than by itself, so the slave half's feedback setting has nowhere
+        to act, and the register layout says as much.
+
+        Everything else is `_add_rack`'s reasoning four times over: key bands per
+        operator, the modulation-index factor on whichever operators modulate,
+        and a DC gate as operator 0, because with two to four operators reaching
+        the output there is no single one whose envelope is the whole rack's.
+        """
+        ops = [patch.mod, patch.car, patch.pair.mod, patch.pair.car]
+        waves = [patch.mod_wave, patch.car_wave,
+                 patch.pair.mod_wave, patch.pair.car_wave]
+        chains = CHAINS_FOUR_OP[(int(bool(patch.additive)),
+                                 int(bool(patch.pair.additive)))]
+        #: Operators that modulate rather than sound: all but each chain's last.
+        modulates = {i for chain in chains for i in chain[:-1]}
+
+        fb = patch.feedback
+        fb_scale = 2.0 ** (fb - 7) * self.feedback_scale if fb else 1.0
+        needs_fb_entry = bool(fb) and abs(fb_scale - 1.0) > 1e-9
+
+        def program_for(ids, fb_id):
+            p = []
+            for n, chain in enumerate(chains):
+                head = ids[chain[0]]
+                # Feedback is operator 1's own output a sample ago, so the tap
+                # reads the entries it is about to drive.
+                if fb and chain[0] == 0:
+                    p += _sum_taps(head)
+                    if fb_id is not None:
+                        p += [FM_OSC | fb_id, FM_MUL]
+                    p += _fan_mod(head)
+                else:
+                    p += _sum_free(head)
+                for i in chain[1:]:
+                    p += _fan_mod(ids[i])
+                if n:
+                    p.append(FM_ADD)
+            return p + [FM_OSC | 0, FM_MUL]           # entry 0 is the gate
+
+        # Fit the banding to the record BEFORE anything is allocated: the
+        # operator table and the algorithm share the record's 252 bytes, and a
+        # four-operator rack is the only thing here that can run out of them.
+        # Four operators at four bands would need eighteen entries against the
+        # sixteen a rack holds, so three is the ceiling whatever the budget says.
+        bands, ids = None, None
+        for limit in range(min(self.max_bands, MAX_BANDS_FOUR_OP), 0, -1):
+            bands = [key_bands(op, notes, limit) for op in ops]
+            ids, n = [], 1                            # entry 0 is the gate
+            for b in bands:
+                ids.append(list(range(n, n + len(b))))
+                n += len(b)
+            count = n + (1 if needs_fb_entry else 0)
+            words = len(program_for(ids, n if needs_fb_entry else None))
+            if count <= FM_MAX_OPERATORS and \
+                    count * 10 + (words + 1) * 2 <= FM_RECORD_BUDGET:
+                break
+
+        entries = [None]                              # reserved for the gate
+        tails = []
+        for i, op in enumerate(ops):
+            for j, (_lo, _hi, rep) in enumerate(bands[i]):
+                _, ksl = operator_keying(op, rep)
+                inst, pts, sus = self._operator_instrument(
+                    op, waves[i], rep, f'{name} op{i + 1}.{j}')
+                tails.append(envelope_tail_seconds(pts, sus))
+                gain = tl_gain(op['totalLevel']) * 10.0 ** (-TL_STEP_DB * ksl / 20.0)
+                # A modulator's output IS a phase deviation; an operator that
+                # reaches the mix instead means the level it states.
+                if i in modulates:
+                    gain *= MOD_INDEX_FULL
+                plo, phi = band_rect(bands[i], j) if len(bands[i]) > 1 else (0, 0xFFFF)
+                entries.append({'inst': inst, 'octet': gain_to_octet(gain),
+                                'detune': multiple_detune(op['multiple']),
+                                'plo': plo, 'phi': phi, 'vlo': 0, 'vhi': 63})
+
+        fb_id = None
+        if needs_fb_entry:
+            entries.append({'inst': self._constant_instrument('OPL feedback scale'),
+                            'octet': gain_to_octet(fb_scale), 'detune': 0,
+                            'plo': 0, 'phi': 0xFFFF, 'vlo': 0, 'vhi': 63})
+            fb_id = len(entries) - 1
+
+        entries[0] = {'inst': self._gate_instrument(max(tails) if tails else 1.0,
+                                                   f'{name} gate'),
+                      'octet': 159, 'detune': 0, 'plo': 0, 'phi': 0xFFFF,
+                      'vlo': 0, 'vhi': 63}
+        rec = build_rack_record(entries, program_for(ids, fb_id))
+        return self._add_main(rec, name)
+
+    def _add_rack(self, patch, name, single_op, notes, percussion, mix=1.0):
         additive = patch.additive
         fb = patch.feedback
         car_op, mod_op = patch.car, patch.mod
@@ -1057,7 +1282,7 @@ class BankBuilder:
             inst, pts, sus = self._operator_instrument(
                 car_op, car_wave, rep, f'{name} car{i}')
             tails.append(envelope_tail_seconds(pts, sus))
-            gain = tl_gain(car_op['totalLevel']) * 10.0 ** (-TL_STEP_DB * ksl / 20.0)
+            gain = tl_gain(car_op['totalLevel']) * 10.0 ** (-TL_STEP_DB * ksl / 20.0) * mix
             car_ids.append(add_entry(inst, gain_to_octet(gain),
                                      multiple_detune(car_op['multiple']),
                                      car_bands, i))
@@ -1072,8 +1297,10 @@ class BankBuilder:
             # In FM the modulator's output IS a phase deviation, and the chip's
             # full scale is very nearly two whole cycles of it; in additive it is
             # a second carrier and its level means what it says.
-            if not additive:
-                gain *= MOD_INDEX_FULL
+            if additive:
+                gain *= mix                       # a second carrier: a LEVEL
+            else:
+                gain *= MOD_INDEX_FULL            # a phase deviation, not a level
             mod_ids.append(add_entry(inst, gain_to_octet(gain),
                                      multiple_detune(mod_op['multiple']),
                                      mod_bands, i))

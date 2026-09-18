@@ -1,10 +1,12 @@
 // Cross-page song handoff (item 171).
 //
-// The IyagiMusic player — an .ims/.rol web player of its own — has a "remix
+// The IyagiMusic player — an .ims/.rol/.sop web player of its own — has a "remix
 // this in Microtone" button. Handing the song over as a DOWNLOAD would mean the
-// listener saves a file, finds it, and drops it back in, and for this format
-// TWICE, because a song without its instrument bank makes no sound at all. So
-// the sender puts both files in the URL instead and the link does the rest.
+// listener saves a file, finds it, and drops it back in, and for an .ims or a
+// .rol TWICE, because a song without its instrument bank makes no sound at all.
+// So the sender puts both files in the URL instead and the link does the rest.
+// A .sop travels alone — it carries its own instruments — and the bank field is
+// simply empty, which the reader already treats as "no bank".
 //
 // **Why the URL and not postMessage.** The obvious design — open Microtone,
 // have it say it is listening, post the bytes across — cannot work here: the
@@ -92,6 +94,11 @@ export function encodeHandoff({ name, song, bankName = "", bank = null }) {
  * Read a handoff fragment: `{name, bytes, bank}` with `bank` a `{name, bytes}`
  * or null, or null when the hash carries no handoff. Throws on a fragment that
  * claims to be one and is not — a truncated URL is worth saying so about.
+ *
+ * The NAME matters beyond the status line: `converterFor` picks the converter
+ * from its extension, and the sender sets it from what the bytes turned out to
+ * be rather than from what the file was called, because this corpus is full of
+ * files whose names lie.
  */
 export function decodeHandoff(hash) {
   if (!hash || !hash.startsWith(HANDOFF_PREFIX)) return null;

@@ -7,7 +7,7 @@ import { converterFor } from "./convert-core.js";
 export { converterFor };
 
 /** Extensions the import pipeline accepts, for file-picker accept lists. */
-export const CONVERT_ACCEPT = ".mod,.s3m,.it,.xm,.mon,.ims,.mid,.midi";
+export const CONVERT_ACCEPT = ".mod,.s3m,.it,.xm,.mon,.ims,.sop,.mid,.midi";
 
 let worker = null;
 let nextId = 1;
@@ -40,7 +40,8 @@ function ensureWorker() {
  * @param bytes     Uint8Array of the file
  * @param opts.sf2  {name, bytes} soundfont (required for .mid/.midi)
  * @param opts.banks  [{name, bytes}] AdLib .BNK banks, most specific first
- *                    (required for .ims — the song only names its patches)
+ *                    (required for .ims — the song only names its patches;
+ *                    a .sop needs none, it carries its own instruments)
  * @param opts.rpb  MIDI rows-per-beat (2/4/8/16/32/64, or null/"auto")
  * @param opts.trimPatches  MIDI: drop the Ixmp patches the song never triggers
  *                          (item 75; off = keep each preset's full zone map)

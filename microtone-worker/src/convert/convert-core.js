@@ -14,11 +14,15 @@ export const CONVERTERS = {
   xm: "xm2taud.py",
   mon: "mon2taud.py",
   ims: "ims2taud.py",
+  sop: "sop2taud.py",
   mid: "midi2taud.py",
   midi: "midi2taud.py",
 };
 
-/** Extensions whose converter needs a second input: the instrument bank. */
+/** Extensions whose converter needs a second input: the instrument bank.
+ *  `.sop` is deliberately NOT here: it is an AdLib format too, but an OPL3 one
+ *  that CARRIES its instruments, so it arrives complete and asking for a bank
+ *  would be sending the user after a file that does not exist. */
 export const BANK_EXTS = new Set(["ims"]);
 
 export const CONVERTER_SOURCES = [
@@ -27,6 +31,10 @@ export const CONVERTER_SOURCES = [
   // ims2taud imports opl2taud (the OPL→FM-rack instrument compiler) and the
   // Johab decoder its titles are written in; all three are plain stdlib.
   "ims2taud.py", "opl2taud.py", "johab2unicode.py", "johab_symbols.py",
+  // sop2taud shares all three with ims2taud: the same OPL instrument compiler
+  // (four operators wide for a .sop) and the same Johab decoder, since both
+  // formats come out of the same Korean BBS scene and write their titles in it.
+  "sop2taud.py",
 ];
 
 /** Microtone.js's own SF2→bank driver (src/convert/sf2bank.py) — installed
@@ -38,8 +46,9 @@ export const SF2BANK_SOURCE = "sf2bank.py";
 export const BNKBANK_SOURCE = "bnkbank.py";
 
 /** {script, isMidi, needsBank} for a file name, or null when it's not a
- *  convertible type. `needsBank` marks the AdLib family, whose songs NAME their
- *  instruments instead of storing them and so need a .BNK alongside. */
+ *  convertible type. `needsBank` marks the songs that NAME their instruments
+ *  instead of storing them and so need a .BNK alongside — which is .ims alone,
+ *  not the whole AdLib family: its OPL3 sibling .sop stores its own. */
 export function converterFor(name) {
   const ext = name.toLowerCase().split(".").pop();
   const script = CONVERTERS[ext];

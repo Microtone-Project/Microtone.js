@@ -32,7 +32,7 @@ universally recognised. Then run the conversion tests.
 
 ## converters/ — canonical Taud converters (verbatim copies from tsvm)
 
-`taud_common.py` + `{mod,s3m,it,xm,mon,midi,ims}2taud.py`, copied UNMODIFIED from
+`taud_common.py` + `{mod,s3m,it,xm,mon,midi,ims,sop}2taud.py`, copied UNMODIFIED from
 `/home/torvald/Documents/tsvm/` (the source of truth — they keep evolving
 there). Pure stdlib; the optional `zstandard` import is absent under Pyodide
 so output falls back to gzip (`best_compress`), which every Taud loader
@@ -40,12 +40,18 @@ sniffs fine. To sync: `cp` the files again and re-run the conversion tests —
 no porting, no patching.
 
 `ims2taud.py` (AdLib / Iyagi Music Sound, item 171) brings three files of its own
-from the same tree: `opl2taud.py`, which compiles a YM3812 patch into a Taud FM
+from the same tree: `opl2taud.py`, which compiles an OPL patch into a Taud FM
 operator rack and is importable on its own, and `johab2unicode.py` +
 `johab_symbols.py`, which decode the 2-byte Johab Korean these songs write their
 titles in (CPython ships a `johab` codec, but Pyodide's stdlib does not carry the
 CJK codec extension, so the decoder travels with the converter). All four are
 pure stdlib and are copied the same way as the rest.
+
+`sop2taud.py` (the Korean OPL3 tracker) shares all three with it and adds nothing
+of its own: the same instrument compiler — four operators wide for a `.sop`, which
+is a YMF262 format — and the same Johab decoder, since both formats come out of
+the same Korean BBS scene and write their titles in it. Re-sync the two together:
+`opl2taud.py` serves both, so an update to either converter can move it.
 
 ## Third-party DATA in `src/engine/` — the binaural HRIR set
 

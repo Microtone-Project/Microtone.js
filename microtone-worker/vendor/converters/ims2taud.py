@@ -50,7 +50,7 @@ from taud_common import (
     deduplicate_patterns, encode_song_entry, compress_blob, build_project_data,
 )
 import opl2taud as opl
-from opl2taud import escape_non_ascii
+from opl2taud import escape_non_ascii, volume_column
 
 try:
     from johab2unicode import decode_johab_field
@@ -254,26 +254,6 @@ def tempo_effect(bpm: int):
     if bpm <= 280:
         return TOP_T, ((bpm - 25) & 0xFF) << 8
     return TOP_T, 0xFF00 | ((bpm - 280) & 0xFF)
-
-
-# ── Volume ───────────────────────────────────────────────────────────────────
-
-def volume_column(vol: int, total_level: int) -> int:
-    """IMS channel volume (0…127) → Taud's 6-bit LINEAR volume axis.
-
-    AdLib's volume is not a linear gain: the driver scales the operator's
-    6-bit AMPLITUDE — a 0.75 dB-per-step logarithmic quantity — so volume 64 is
-    23 dB down, not 6.  Converting it as if it were linear makes every fade in
-    the format arrive far too late and far too suddenly.  The exact curve
-    depends on the operator's own total level, which is why the caller passes
-    the patch currently on the channel."""
-    tl = total_level & 63
-    full = ((63 - tl) * 127 + 64) >> 7
-    here = ((63 - tl) * max(0, min(127, vol)) + 64) >> 7
-    if full <= 0:
-        return 63
-    gain = 10.0 ** (-opl.TL_STEP_DB * (full - here) / 20.0)
-    return max(0, min(63, round(63.0 * gain)))
 
 
 # ── Instrument pass ──────────────────────────────────────────────────────────

@@ -33,6 +33,7 @@ import { TaudEngine } from "../../src/engine/engine.js";
 import { patchIsStereo } from "../../src/engine/inst.js";
 import { unescapeName } from "../../src/ui/names.js";
 import { IMS_BANK, IMS_SONG, IMS_SONG_12RPB, IMS_EVENTS, JOHAB_TITLE, makeIms } from "../fixtures/ims.js";
+import { SOP_SONG, SOP_SONG_RHYTHM, SOP_SONG_4OP, SOP_SONG_16RPB, SOP_SONG_VIB } from "../fixtures/sop.js";
 import { cueInstructionWords } from "../../src/format/taud-parse.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -369,6 +370,28 @@ test("it2taud carries NNA, and sample-mode files get Note Cut", () => {
   // Everything else stays neutral: no instrument record means no envelopes.
   assert.equal(one.defaultCutoff, 0xff, "no filter in sample mode");
 });
+
+/**
+ * Peak level of an offline render, 0…1.
+ *
+ * `renderChunk` writes **U8 stereo interleaved** — 0…255 about a centre of 128 —
+ * whatever array it is handed, so silence is a buffer of 128s and not a buffer
+ * of zeroes. Measuring |v| would therefore call silence full scale; the
+ * deviation from the centre is the thing, and it is what makes "did it sound?"
+ * an assertion that can actually fail.
+ */
+function renderPeak(doc, chunks = 400) {
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, doc, 0);
+  eng.play(0);
+  const buf = new Uint8Array(TRACKER_CHUNK * 2);
+  let peak = 0;
+  for (let i = 0; i < chunks; i++) {
+    eng.renderChunk(0, buf);
+    for (const v of buf) peak = Math.max(peak, Math.abs(v - 128) / 127);
+  }
+  return peak;
+}
 
 /** Every {note trigger, effect opcode} pair the songs of `doc` carry, as
  *  [[note, inst, op], …]. Taud opcodes are base-36 digit values: G = 16, L = 21,
@@ -1177,17 +1200,7 @@ test("ims2taud: an AdLib song plus its bank → a playable FM-rack document", ()
 });
 
 test("ims2taud: the converted song actually sounds", () => {
-  const bytes = convert("song.ims", { bytes: IMS_SONG, banks: [IMS_BANK] });
-  const doc = parseTaud(bytes);
-  const eng = new TaudEngine();
-  loadIntoEngine(eng, doc, 0);
-  eng.play(0);
-  const buf = new Float32Array(TRACKER_CHUNK * 2);
-  let peak = 0;
-  for (let i = 0; i < 400; i++) {
-    eng.renderChunk(0, buf);
-    for (const v of buf) peak = Math.max(peak, Math.abs(v));
-  }
+  const peak = renderPeak(parseTaud(convert("song.ims", { bytes: IMS_SONG, banks: [IMS_BANK] })));
   assert.ok(peak > 0.02, `converted IMS rendered silence (peak ${peak})`);
 });
 
@@ -1225,4 +1238,157 @@ test("…and leaves a 64-row cue alone when the bar already fits", () => {
   const words = doc.songs[0].cues.map((c) => cueInstructionWords(c)[0]);
   for (const w of words.slice(0, -1)) assert.equal(w, 0, "no LEN on a full-length cue");
   assert.equal(words[words.length - 1], 0x0100, "a plain HALT ends it");
+});
+
+// ── SOP / the Korean OPL3 tracker ────────────────────────────────────────────
+//
+// The .ims family's OPL3 sibling: twenty tracks, stereo panning, eight wave
+// shapes and four-operator instruments. Everything below is built rather than
+// committed for the same reason the .ims pair is — see test/fixtures/sop.js.
+
+test("converterFor knows a .sop needs no bank", () => {
+  assert.equal(converterFor("SONG.SOP").script, "sop2taud.py");
+  // The one thing that separates it from its .ims sibling: a SOP CARRIES its
+  // instruments, so asking for a .BNK would send the user after a file that
+  // does not exist.
+  assert.ok(!converterFor("SONG.SOP").needsBank);
+  assert.deepEqual(
+    buildArgv({ needsBank: false, isMidi: false, inPath: "/in.sop", outPath: "/out.taud" }),
+    ["/in.sop", "/out.taud", "-v"]);
+});
+
+test("sop2taud: an OPL3 tracker song → a playable FM-rack document", () => {
+  const doc = parseTaud(convert("song.sop", { bytes: SOP_SONG }));
+  assert.equal(doc.kind, "taud");
+  assert.equal(doc.songs.length, 1);
+  const song = doc.songs[0];
+  // Track IS lane in this format, and the two that carry events are the two
+  // that get lanes — the eighteen empty ones past them are not written out.
+  assert.equal(song.numVoices, 2);
+  // Concert pitch, declared the one way the engine reads as an exact identity.
+  assert.equal(song.tuningBaseNote, 0x5c00);
+  assert.equal(song.tuningFreq, 440);
+  assert.equal(tuningRatioOf(song.tuningBaseNote, song.tuningFreq), 1.0);
+  assert.equal(unescapeName(doc.meta.projectName), "SOP FIXTURE");
+  // Eight ticks a beat is eight ROWS a beat: the file was written on a
+  // tracker's grid already, so nothing is recovered and nothing is quantised.
+  assert.equal(doc.meta.songMeta[0].beatPri, 8);
+  assert.equal(doc.meta.songMeta[0].beatSec, 32);
+
+  const d = new Document(doc);
+  const racks = d.instruments.filter((i) => i && i.isMeta && i.metaType === 4);
+  assert.equal(racks.length, 2, "one rack per instrument the song selects");
+  for (const rack of racks) {
+    assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0);
+    for (const op of rack.metaLayers) assert.ok(op.instIdx >= 256, "operators live in the aux bin");
+  }
+  // §6: the credits share the instrument table with the instruments, and they
+  // are the composer's own — unlike an .iss's four name fields, which hold tool
+  // defaults far more often than people — so they survive as the project message.
+  assert.equal(unescapeName(d.projectString("PMsg")), "by nobody at all");
+});
+
+test("sop2taud: the converted song actually sounds", () => {
+  const peak = renderPeak(parseTaud(convert("song.sop", { bytes: SOP_SONG })));
+  assert.ok(peak > 0.02, `converted SOP rendered silence (peak ${peak})`);
+});
+
+test("sop2taud: panning moves the LANE, not the note", () => {
+  // §4.2's panning is a track setting that survives every note after it, which
+  // is what `S $80xx` means and what the panning column — the per-NOTE axis —
+  // does not. 0 is right and 2 is left, and the chip's stereo switches are hard,
+  // so the two ends of Taud's 8-bit lane pan are the honest reading of them.
+  const doc = parseTaud(convert("song.sop", { bytes: SOP_SONG }));
+  const pans = [];
+  for (const pat of doc.songs[0].patterns) {
+    for (let r = 0; r < 64; r++) {
+      const o = r * 8;
+      const arg = pat[o + 6] | (pat[o + 7] << 8);
+      if (pat[o + 5] === 28 && (arg & 0xff00) === 0x8000) pans.push(arg & 0xff);
+    }
+  }
+  assert.deepEqual(pans.sort(), [0x00, 0xff], "hard left, then hard right");
+});
+
+test("sop2taud: a four-operator instrument becomes a four-operator rack", () => {
+  // §8: a track asks for four operators either by saying so in the channel-mode
+  // table or merely by selecting a type-0 instrument, and the fixture does both.
+  // On a YMF262 a pair of channels is joined and all four operators sound; on a
+  // YM3812 only the first pair does. Taud's rack holds sixteen operator entries,
+  // so here nothing is dropped.
+  const doc = parseTaud(convert("wide.sop", { bytes: SOP_SONG_4OP }));
+  const d = new Document(doc);
+  const racks = d.instruments.filter((i) => i && i.isMeta && i.metaType === 4);
+  assert.equal(racks.length, 1);
+  const rack = racks[0];
+  assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0,
+            "a rack whose algorithm does not verify is silent");
+  // Four operators, plus the DC gate that carries the whole rack's envelope —
+  // with two to four operators reaching the output there is no single one whose
+  // envelope is the note's. Key banding may split an operator further.
+  assert.ok(rack.metaLayers.length >= 5,
+            `expected a gate and four operators, got ${rack.metaLayers.length}`);
+  assert.equal(doc.songs[0].numVoices, 2, "both tracks asked, both were served");
+  assert.ok(renderPeak(doc) > 0.02, "a four-operator rack that renders silence is a wrong algorithm");
+});
+
+test("sop2taud: rhythm mode puts the drums on tracks 6…10", () => {
+  // §4.1: the twenty tracks are not a flat list. In a percussive file slots
+  // 6…10 ARE the bass drum, snare, tom, cymbal and hi-hat, and three of those
+  // are not oscillators at all — the chip builds them out of bits of two
+  // accumulators — so they become rendered PCM rather than operator racks.
+  const doc = parseTaud(convert("drums.sop", { bytes: SOP_SONG_RHYTHM }));
+  assert.equal(doc.songs[0].numVoices, 11, "one melodic track and the five drums");
+  const d = new Document(doc);
+  const named = d.instruments.filter((i) => i).length;
+  assert.ok(named >= 6, `expected a slot per drum and the lead, got ${named}`);
+  const peak = renderPeak(doc);
+  assert.ok(peak > 0.02, `converted SOP drums rendered silence (peak ${peak})`);
+});
+
+test("sop2taud: sixteen rows a beat is a bar to the pattern", () => {
+  // A pattern holds 64 rows and a 4/4 bar at sixteen ticks a beat is exactly
+  // that, so one cue is one bar with no LEN to write — where the eight-a-beat
+  // songs above are thirty-two and fit two bars each.
+  const doc = parseTaud(convert("fine.sop", { bytes: SOP_SONG_16RPB }));
+  assert.equal(doc.meta.songMeta[0].beatPri, 16);
+  assert.equal(doc.meta.songMeta[0].beatSec, 64);
+  const words = doc.songs[0].cues.map((c) => cueInstructionWords(c)[0]);
+  assert.ok(words.length >= 2, `expected several cues, got ${words.length}`);
+  for (const w of words.slice(0, -1)) assert.equal(w, 0, "no LEN on a full-length cue");
+  assert.equal(words[words.length - 1], 0x0100, "a plain HALT ends it");
+});
+
+test("sop2taud: the chip's vibrato arrives at the chip's rate and depth", () => {
+  // A YM3812 operator's `vib` bit opts into a shared LFO at 6.078 Hz and ±7
+  // cents. Both numbers reach the engine indirectly — the speed byte is a phase
+  // increment over 1024 steps per TICK, so its musical rate depends on the
+  // song's tempo, and the depth byte runs 0…255 for ±1 semitone — and both were
+  // derived wrongly at first: the result was a 0.80 Hz ±76 cent wobble, eight
+  // times too slow and eleven times too deep. That is what a "lazy" pitch bend
+  // sounds like, and this test is here so it cannot come back.
+  const doc = parseTaud(convert("vib.sop", { bytes: SOP_SONG_VIB }));
+  const d = new Document(doc);
+  const ops = d.instruments
+    .filter((i) => i && i.isMeta && i.metaType === 4)
+    .flatMap((rack) => rack.metaLayers.map((l) => d.instruments[l.instIdx]))
+    .filter(Boolean);
+  const vibs = ops.filter((o) => o.vibratoDepth > 0 && o.vibratoSpeed > 0);
+  assert.ok(vibs.length >= 2, `premise: the patch sets vib on both operators (got ${vibs.length})`);
+  const ticksPerSecond = doc.songs[0].bpm * 2 / 5;
+  for (const o of vibs) {
+    // The engine's LFO phase is 1024 steps advanced by `speed` each tick.
+    const hz = ticksPerSecond * o.vibratoSpeed / 1024;
+    assert.ok(Math.abs(hz - 6.078) < 0.25, `vibrato at ${hz.toFixed(2)} Hz, want 6.078`);
+    // …and it scales the ±127 LFO by `depth × 43 >> 12` on the 4096-TET grid.
+    const cents = 1200 * (127 * o.vibratoDepth * 43 / 4096) / 4096;
+    assert.ok(Math.abs(cents - 7) < 1, `vibrato depth ±${cents.toFixed(1)} cents, want ±7`);
+    // The chip's LFO is free-running and always at full depth, so neither ramp
+    // may be set: FT2's sweep or IT's rate would swell every note in.
+    assert.equal(o.vibratoSweep, 0, "no FT2 sweep — the chip's LFO does not ramp in");
+    assert.equal(o.vibratoRate, 0, "no IT rate either");
+  }
+  // The patch that does NOT ask for vibrato must not get any.
+  assert.ok(ops.some((o) => o.vibratoDepth === 0 || o.vibratoSpeed === 0),
+            "the plain patch should carry no vibrato");
 });

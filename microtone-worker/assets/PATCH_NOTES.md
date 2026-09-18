@@ -4,6 +4,20 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-18
+
+`.sop` files now open in Microtone, and the IyagiMusic player's **Remix in Microtone** button works for them.
+
+- **A `.sop` needs no bank file.** It is the song format of a Korean OPL3 tracker of the mid-to-late 1990s, found in the same BBS collections as the `.ims` files Microtone already read — but unlike an `.ims`, which only *names* its instruments, a `.sop` stores them. Drop one on the window and that is the whole song; Microtone will not ask you for a `.bnk`.
+- **All twenty parts arrive, on their own lanes.** The format is written for a YMF262, which has twenty voices to the YM3812's eleven, and a Taud song has thirty-two lanes — so nothing is shared, stolen or cut, which is not true of playing the same file on an AdLib card.
+- **Four-operator instruments stay four operators.** A `.sop` instrument may be two operator pairs joined into one voice, in any of the chip's four connections; each becomes an FM Rack with all four operators and the right algorithm, editable operator by operator like any other.
+- **Panning survives.** A `.sop` is stereo — it sets each part hard left, centre or right — and that arrives as the lane's own pan position, so it is still a part you can move rather than something baked into the notes.
+- **The song's scrolling credits arrive as the project message**, on the Project tab, and its title as the project name.
+- **The grid is the one it was written on.** `.sop` is a tracker format, so its own 4-to-16 rows a beat are used directly; a bar lands on a bar line and a cue is a whole number of bars.
+- **Fixed: imported AdLib songs came out dull and their drums came out quiet.** Two numbers in the OPL instrument compiler were wrong. A modulator was driving its carrier at half the depth the chip drives it, which took the bite off every FM patch — the harmonics an instrument reaches now run roughly twice as high. And the five rhythm drums were 6 dB down, because the chip sums its rhythm channels into the mix twice and the conversion summed them once. Both `.ims` and `.sop` imports are affected and both are fixed; re-import a song to pick it up.
+- **Fixed: the vibrato on imported AdLib songs was far too slow and far too deep.** An instrument that asks for the chip's vibrato was wobbling at 0.8 Hz and three quarters of a semitone, instead of shimmering at 6 Hz and a fifteenth of one — so anything using it sounded like its pitch was dragging. Both `.sop` and `.ims` imports are affected and both are fixed; re-import a song to pick it up.
+- **Songs sent over from the IyagiMusic player** (microtone.cc's "remix this" link) are routed by what the file's bytes say rather than by what it is called, so a `.sop` saved under an `.IMS` name still opens as a `.sop`.
+
 ## 2026-09-17
 
 Channels and voices are now called LANES, everywhere in the app and in every document — and *voice* and *channel* now each mean one precise thing.
