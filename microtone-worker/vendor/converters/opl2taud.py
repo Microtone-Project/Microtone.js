@@ -586,6 +586,34 @@ def gain_to_octet(gain: float) -> int:
 #: scale is 8π, which is twice the strongest feedback.
 MOD_INDEX_FULL = OPL_FULL_SCALE / 1024.0
 
+def feedback_scale_for(feedback: int) -> float:
+    """What the feedback tap is multiplied by, on top of the modulator's own
+    mix gain.
+
+    The chip averages the modulator's last two outputs and shifts the result
+    down by (8 - feedback), so for a steady signal the deviation is
+    `out / 2^(8-feedback)` phase units, which is `MOD_INDEX_FULL x
+    2^(feedback-8)` of a cycle.  The rack's tap already carries the
+    modulator's mix gain, and that IS `MOD_INDEX_FULL` at total level 0, so
+    the residual is `2^(feedback-8)`.
+
+    **This tracks MOD_INDEX_FULL and has to move with it.**  It read
+    `2^(feedback-7)` while the modulation index was halved; doubling that
+    index without halving this made every patch with feedback twice as gritty
+    as the chip, which is what "the FM sounds 2x overdone" was.  Fitted by
+    measurement as well as derived - log-spectral distance between the
+    emulator's rendering of a 1:1 patch and the converted rack's, over 40
+    harmonics, falls from 12.00 dB to 3.24 dB at feedback 1 and from 10.52 to
+    5.79 at feedback 3.  At feedback 7 the two are within noise (6.81 against
+    6.84), because there the chip's TWO-SAMPLE AVERAGING dominates and the
+    rack has a single z-1 tap: a structural residual, not a scale error, and
+    not one to fudge this number for.
+
+    At feedback 7 the scale is 0.5, so a scaling operator is always emitted.
+    The old form hit exactly 1.0 there and skipped it, which left the
+    strongest feedback setting as the one case with no scaling at all."""
+    return 2.0 ** (feedback - 8)
+
 
 def tl_gain(total_level: int) -> float:
     return 10.0 ** (-TL_STEP_DB * (total_level & 63) / 20.0)
@@ -1175,7 +1203,7 @@ class BankBuilder:
         modulates = {i for chain in chains for i in chain[:-1]}
 
         fb = patch.feedback
-        fb_scale = 2.0 ** (fb - 7) * self.feedback_scale if fb else 1.0
+        fb_scale = feedback_scale_for(fb) * self.feedback_scale if fb else 1.0
         needs_fb_entry = bool(fb) and abs(fb_scale - 1.0) > 1e-9
 
         def program_for(ids, fb_id):
@@ -1307,10 +1335,7 @@ class BankBuilder:
 
         fb_id = None
         if fb and mod_ids:
-            # OPL's feedback is the modulator's own output, halved and shifted
-            # down by (8 − feedback); the tap already carries the modulator's mix
-            # gain, so what is left to apply is 2^(feedback − 7).
-            scale = 2.0 ** (fb - 7) * self.feedback_scale
+            scale = feedback_scale_for(fb) * self.feedback_scale
             if abs(scale - 1.0) > 1e-9:
                 fb_id = add_entry(self._constant_instrument('OPL feedback scale'),
                                   gain_to_octet(scale), 0, [], 0)

@@ -59,7 +59,7 @@ export function makeIms({ title, events, names, tempo = 120, percussive = false 
   return out;
 }
 
-const LOUD_OP = { multiple: 1, attack: 15, decay: 0, sustain: 0, eg: 1, release: 5,
+export const LOUD_OP = { multiple: 1, attack: 15, decay: 0, sustain: 0, eg: 1, release: 5,
                   totalLevel: 0, connection: 1 };
 
 /** A two-patch bank: one with feedback, one plain. */

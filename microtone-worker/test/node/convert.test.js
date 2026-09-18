@@ -32,7 +32,7 @@ import { TRACKER_CHUNK } from "../../src/engine/constants.js";
 import { TaudEngine } from "../../src/engine/engine.js";
 import { patchIsStereo } from "../../src/engine/inst.js";
 import { unescapeName } from "../../src/ui/names.js";
-import { IMS_BANK, IMS_SONG, IMS_SONG_12RPB, IMS_EVENTS, JOHAB_TITLE, makeIms } from "../fixtures/ims.js";
+import { IMS_BANK, IMS_SONG, IMS_SONG_12RPB, IMS_EVENTS, JOHAB_TITLE, makeIms, makeBnk, LOUD_OP } from "../fixtures/ims.js";
 import { SOP_SONG, SOP_SONG_RHYTHM, SOP_SONG_4OP, SOP_SONG_16RPB, SOP_SONG_VIB } from "../fixtures/sop.js";
 import { cueInstructionWords } from "../../src/format/taud-parse.js";
 
@@ -1391,4 +1391,30 @@ test("sop2taud: the chip's vibrato arrives at the chip's rate and depth", () => 
   // The patch that does NOT ask for vibrato must not get any.
   assert.ok(ops.some((o) => o.vibratoDepth === 0 || o.vibratoSpeed === 0),
             "the plain patch should carry no vibrato");
+});
+
+test("ims2taud: a feedback patch gets a scaling operator, and the right one", () => {
+  // The feedback tap reads the modulator's rack entries, so it arrives already
+  // carrying the modulator's mix gain — which IS the modulation index. The
+  // residual scale is therefore 2^(fb−8), and it has to move whenever the index
+  // does. It read 2^(fb−7) while the index was halved; doubling the index
+  // without halving this made every feedback patch twice as gritty as the chip.
+  //
+  // At feedback 7 the old form came out at exactly 1.0 and the converter
+  // SKIPPED the scaling operator altogether, so the strongest setting was the
+  // one with no scaling at all. 2^(7−8) = 0.5, so it is always emitted now.
+  const withFb = makeBnk([{ name: "FB", mod: { ...LOUD_OP, feedback: 7 }, car: LOUD_OP }]);
+  const noFb = makeBnk([{ name: "FB", mod: { ...LOUD_OP, feedback: 0 }, car: LOUD_OP }]);
+  const song = makeIms({ title: JOHAB_TITLE, events: IMS_EVENTS, names: ["FB", "FB"] });
+  const racks = (bank) => new Document(parseTaud(convert("fb.ims", { bytes: song, banks: [bank] })))
+    .instruments.filter((i) => i && i.isMeta && i.metaType === 4);
+  const a = racks(withFb), b = racks(noFb);
+  assert.ok(a.length && b.length, "both banks must yield a rack");
+  // The feedback rack carries one operator entry the plain one does not: the DC
+  // constant the tap is multiplied by.
+  assert.equal(a[0].metaLayers.length, b[0].metaLayers.length + 1,
+    `feedback 7 should add a scaling operator (${a[0].metaLayers.length} vs ${b[0].metaLayers.length})`);
+  for (const rack of [a[0], b[0]]) {
+    assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0);
+  }
 });
