@@ -40,7 +40,7 @@ import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
 import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
 import { laneVolumeCell, lanePanCell } from "../lanestate.js";
 import {
-  plotSeries, plotGeometry, paintPitchPlot, arpOffsets, PLOT_CHARS,
+  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, PLOT_CHARS,
 } from "../pitchplot.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
@@ -1618,11 +1618,16 @@ export class TimelineView {
     const sb = this.selBounds(); // block selection bounds (or null)
     const rowBand = this.isRowBand(); // …and whether it spans every lane
     const beats = store.beats(); // primary/secondary divisions from sMet
+    // Which visible rows exist at all, for the register-tab pass at the foot
+    // of the frame: it must cover exactly the rows this loop drew, and asking
+    // locate() a second time for each of them would scan the cue list twice.
+    const shownRows = pitchPlot ? [] : null;
     for (let r = 0; r < visRows; r++) {
       const absRow = top + r;
       const y = headerH + r * ROW_H;
       const loc = this.locate(absRow);
       if (!loc) continue;
+      shownRows?.push(r);
       const { entry, rowInCue } = loc;
 
       // row background banding from the song's beat divisions
@@ -1694,7 +1699,7 @@ export class TimelineView {
         if (pitchPlot) {
           const geo = this.plotFor(ch);
           paintPitchPlot(ctx, geo[absRow], geo[absRow + 1] ?? null,
-            { tabX: x, x: x + 2, y, w: PLOT_CHARS * CHAR_W, rowH: ROW_H }, C);
+            { x: x + 2, y, w: PLOT_CHARS * CHAR_W, rowH: ROW_H }, C);
         }
         const patNum = entry.info ? (this.store.song.cues[entry.cue][ch] & 0x7fff) : PATTERN_EMPTY;
         if (patNum === PATTERN_EMPTY) {
@@ -1790,6 +1795,20 @@ export class TimelineView {
       ctx.lineTo(sx, H);
     }
     ctx.stroke();
+
+    // The register tabs (item 198.5) go on TOP of those rules: each one is
+    // aligned onto the boundary between its lane and the one before it, so
+    // drawn any earlier the rule above would be ruled straight back through
+    // it. Nothing else in the cell reaches this far left, so being last costs
+    // the plot nothing.
+    if (pitchPlot) {
+      for (const r of shownRows) {
+        const y = headerH + r * ROW_H;
+        for (const { ch, x } of strips) {
+          paintPitchTab(ctx, this.plotFor(ch)[top + r], { tabX: x, y, rowH: ROW_H }, C);
+        }
+      }
+    }
 
     // The press-and-hold gauge, last of all, so nothing is drawn over it.
     paintPerimeterGauge(ctx, this.hold.press?.rect ?? null, this.hold.progress(),

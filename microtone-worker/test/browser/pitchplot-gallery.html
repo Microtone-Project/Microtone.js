@@ -53,7 +53,7 @@
     import { paintNoteCell } from "../../src/ui/glyphs.js";
     import { pitchTablePresets } from "../../src/ui/pitchtables.js";
     import {
-      plotSeries, plotGeometry, paintPitchPlot, octaveColour, PLOT_CHARS,
+      plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, octaveColour, PLOT_CHARS,
     } from "../../src/ui/pitchplot.js";
     import { rgbToOklab, parseHex } from "../../src/ui/oklch.js";
 
@@ -158,7 +158,7 @@
         ctx.fillStyle = row % 4 === 0 ? C.fg : C.dim;
         ctx.fillText(row.toString(16).toUpperCase().padStart(2, "0"), 8, y + RH / 2);
         paintPitchPlot(ctx, geo[row], geo[row + 1] ?? null,
-          { tabX: 34 + 2, x: x0, y, w: PLOT_CHARS * CH, rowH: RH }, C);
+          { x: x0, y, w: PLOT_CHARS * CH, rowH: RH }, C);
         // The glyph shows what the NOTE COLUMN says — blank on the slide's
         // rows, which is exactly the case the plot exists to cover.
         paintNoteCell(ctx, NOTES[row], p12, x0, y, CH, RH,
@@ -167,6 +167,17 @@
         if (!NOTES[row]) ctx.globalAlpha = 0.4;
         ctx.fillText(NOTES[row] ? "01" : "··", x0 + 5 * CH, y + RH / 2);
         ctx.globalAlpha = 1;
+      }
+      // The grids stroke the gutter rule after the rows and put the register
+      // tabs on top of it; do the same, or this stops being a picture of the
+      // real thing.
+      ctx.strokeStyle = C.dim;
+      ctx.beginPath();
+      ctx.moveTo(34 + 1.5, 0);
+      ctx.lineTo(34 + 1.5, cv.height);
+      ctx.stroke();
+      for (let row = 0; row < NOTES.length; row++) {
+        paintPitchTab(ctx, geo[row], { tabX: 34 + 2, y: row * RH, rowH: RH }, C);
       }
     }
   </script>

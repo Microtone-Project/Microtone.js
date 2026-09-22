@@ -42,7 +42,7 @@ import {
   volumeDialog, panDialog, transposeDialog, instrumentDialog, transposePresetFor,
 } from "../blocktools.js";
 import {
-  plotSeries, plotGeometry, paintPitchPlot, arpOffsets, PLOT_CHARS,
+  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, PLOT_CHARS,
 } from "../pitchplot.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
@@ -1027,7 +1027,7 @@ class PatternPane {
       // place in the song.
       if (plot !== null) {
         paintPitchPlot(ctx, plot[row], plot[row + 1] ?? null,
-          { tabX: GUTTER_W + 2, x: x0, y, w: PLOT_CHARS * CHAR_W, rowH: ROW_H }, C);
+          { x: x0, y, w: PLOT_CHARS * CHAR_W, rowH: ROW_H }, C);
       }
       const cell = pattern[row];
       const ghost = ghosts[row] ?? null;
@@ -1088,6 +1088,17 @@ class PatternPane {
     ctx.moveTo(GUTTER_W - 2.5, 0);
     ctx.lineTo(GUTTER_W - 2.5, H);
     ctx.stroke();
+
+    // …and the register tabs (item 198.5) on top of that rule, which they are
+    // aligned onto: painted with the rest of the plot they would have the rule
+    // above ruled straight back through them.
+    if (plot !== null) {
+      for (let r = 0; r < vis; r++) {
+        const row = this.scrollRow + r;
+        if (row > 63) break;
+        paintPitchTab(ctx, plot[row], { tabX: GUTTER_W + 2, y: r * ROW_H, rowH: ROW_H }, C);
+      }
+    }
 
     // The press-and-hold gauge, last of all, so nothing is drawn over it.
     paintPerimeterGauge(ctx, this.hold.press?.rect ?? null, this.hold.progress(),

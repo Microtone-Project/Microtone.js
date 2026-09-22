@@ -276,11 +276,14 @@ export function octaveColour(octave, C) {
  *  run as the two grids share. */
 export const PLOT_CHARS = 7;
 
-/** Width of the register tab. Two pixels, and the caller is expected to leave
- *  a clear pixel or two between it and the rule at the cell's left edge —
- *  butted against that rule it stops reading as a mark inside the cell and
- *  starts reading as the lane divider, recoloured. */
+/** Width of the register tab, and how far LEFT of the cell it is pulled so it
+ *  lands ON the rule dividing this lane from the one before it — the
+ *  Timeline's lane boundary (stroked at `x - 3.5`, so it inks `x-4` and
+ *  `x-3`), the Patterns view's gutter edge. Sitting on that rule rather than
+ *  beside it keeps the tab out of the cell's own space, and is why it is
+ *  painted in a pass of its own AFTER those rules (see paintPitchTab). */
 const TAB_W = 2;
+const TAB_DX = -4;
 
 /** The plot sits BEHIND the notation, so it is painted at less than full
  *  strength: the ticks carry the data, the line joining them is a reading aid,
@@ -297,20 +300,36 @@ const ARP_ALPHA = 0.5;
 const ARP_TICK_H = 0.42;
 
 /**
- * Paint one row's share of a lane's plot, BEHIND that row's glyphs.
+ * Paint one row's register tab: the band's colour, on the rule at the cell's
+ * left edge.
+ *
+ * SEPARATE from the plot below, and painted after it, because both grids
+ * stroke their rules at the END of a frame, over everything the rows drew — a
+ * tab painted with the rest of the plot would have its own rule ruled straight
+ * back through it. (TODO improve colour palette)
+ *
+ * @param box  {tabX, y, rowH} — the CELL's left edge; the tab is pulled left
+ *             of it onto the rule by TAB_DX.
+ */
+export function paintPitchTab(ctx, g, box, C) {
+  if (!g || g.band === null) return;
+  ctx.fillStyle = octaveColour(g.band, C);
+  ctx.fillRect(box.tabX + TAB_DX, box.y, TAB_W, box.rowH);
+}
+
+/**
+ * Paint one row's share of a lane's plot, BEHIND that row's glyphs. The
+ * register tab is not part of it — see paintPitchTab.
  *
  * @param g     this row's geometry (plotGeometry entry)
  * @param next  the next row's, or null — its `topX` is this row's bottom crossing
- * @param box   {tabX, x, y, w, rowH} — the tab's left edge, then the plot
- *              rectangle itself (`x`/`w` being the note-and-inst run)
+ * @param box   {x, y, w, rowH} — the plot rectangle (`x`/`w` being the
+ *              note-and-inst run)
  * @param C     themeColors()
  */
 export function paintPitchPlot(ctx, g, next, box, C) {
   if (!g || g.band === null) return;
-  const { tabX, x, y, w, rowH } = box;
-
-  ctx.fillStyle = octaveColour(g.band, C);
-  ctx.fillRect(tabX-4, y, TAB_W, rowH); // -4 offset to align it onto the left separator
+  const { x, y, w, rowH } = box;
 
   ctx.fillStyle = C.pitchAxis;
   ctx.fillRect(Math.round(x + w / 2), y, 1, rowH); // the band root, dead centre
