@@ -4,10 +4,13 @@
 // conversions are what every canvas hit test in the app now depends on: a
 // canvas paints in LAYOUT pixels and a pointer reports VISUAL ones, so
 // localPoint's division is the only thing keeping a click on the cell it
-// landed on. The rest of the module is one `zoom` property on the root.
+// landed on. The rest of the module is two properties on the root: `zoom`
+// itself, and `--ui-zoom`, which the stylesheet divides its viewport units by
+// because `zoom` does not scale those — the last test here pins that.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 // A root element and a localStorage just real enough for the module to boot —
 // it touches nothing else, which is why this is testable in Node at all.
@@ -19,7 +22,12 @@ globalThis.localStorage = {
 };
 const rootStyle = {
   zoom: "",
-  removeProperty(name) { if (name === "zoom") this.zoom = ""; },
+  props: new Map(),
+  setProperty(name, value) { this.props.set(name, value); },
+  removeProperty(name) {
+    if (name === "zoom") this.zoom = "";
+    this.props.delete(name);
+  },
 };
 globalThis.document = { documentElement: { style: rootStyle } };
 
@@ -41,6 +49,21 @@ test("boots at 100% with no zoom property on the root at all", () => {
   initZoom();
   assert.equal(uiZoom(), 1);
   assert.equal(rootStyle.zoom, "", "100% means the property is absent, not \"1\"");
+  assert.equal(rootStyle.props.has("--ui-zoom"), false, "…and so is the custom property");
+});
+
+test("the factor is published to CSS as well, for the viewport units", () => {
+  // `zoom` does not scale vw/vh, so every viewport length in the stylesheet
+  // divides by this — without it the shell lays out a whole window tall
+  // inside a zoomed root and hangs its foot off the bottom of the screen.
+  store.clear();
+  initZoom();
+  setUiZoom(1.25);
+  assert.equal(rootStyle.zoom, "1.25");
+  assert.equal(rootStyle.props.get("--ui-zoom"), "1.25");
+  resetZoom();
+  assert.equal(rootStyle.props.has("--ui-zoom"), false,
+    "…and removed at 100%, where the stylesheet's own `, 1` fallback answers");
 });
 
 test("a remembered factor is restored, and a nonsense one is not", () => {
@@ -157,4 +180,25 @@ test("toLayout undoes the zoom on a bare distance", () => {
   assert.equal(toLayout(125), 100);
   setUiZoom(1);
   assert.equal(toLayout(125), 125);
+});
+
+// ── the stylesheet's half of the bargain ──
+
+test("no viewport unit in the stylesheet escapes the zoom correction", () => {
+  // `zoom` scales the layout but NOT vw/vh, so a bare `height: 100vh` inside
+  // a zoomed root lays out a whole window tall and renders a quarter taller
+  // than the window. Every viewport length therefore divides by --ui-zoom,
+  // and this is what keeps the next one honest: the comment asking for it
+  // cannot be enforced, so the file is read instead.
+  const css = readFileSync(new URL("../../css/microtone.css", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, ""); // the rule is explained in prose; skip comments
+  const bare = [];
+  const unit = /(?<![\w.-])\d+(?:\.\d+)?(vw|vh|dvw|dvh|svw|svh|lvw|lvh|vmin|vmax)\b/g;
+  for (const m of css.matchAll(unit)) {
+    // …accepted only as the numerator of a division by --ui-zoom.
+    const after = css.slice(m.index + m[0].length, m.index + m[0].length + 30);
+    if (!/^\s*\/\s*var\(--ui-zoom/.test(after)) bare.push(m[0]);
+  }
+  assert.deepEqual(bare, [],
+    `wrap each in calc(N${bare[0]?.replace(/[\d.]/g, "") || "vh"} / var(--ui-zoom, 1))`);
 });

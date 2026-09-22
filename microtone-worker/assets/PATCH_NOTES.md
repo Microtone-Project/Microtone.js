@@ -28,6 +28,7 @@ The whole interface can be zoomed from the top bar.
 
 - **A `−` 100% `+` control sits beside the language button.** Click the figure to go back to 100%, or roll the wheel over it. Your choice is remembered.
 - **The grids stay sharp at every size** — they are redrawn at the new scale rather than magnified — and clicking still lands on the cell you aimed at.
+- **Fixed: zooming stretched the window vertically** — the tab strip and the grid resized with the zoom but the app as a whole did not, so at 125% the status bar sat below the bottom of the screen and at 90% there was a band of empty space under it. Dialogs that cap their own height could overflow the screen the same way.
 
 The File tab is quicker to get around.
 

@@ -416,6 +416,27 @@
  * widget, and never hard-code a slider/checkbox colour that would fight it. */
 :root { accent-color: var(--accent); }
 
+/* ── VIEWPORT UNITS AND THE UI ZOOM (item 198.4) ───────────────────────
+ * `--ui-zoom` is the interface zoom, set on <html> by src/ui/zoom.js
+ * alongside the `zoom` property itself; absent (hence the `, 1` fallback)
+ * at 100%, and on the pages that have no zoom control.
+ *
+ * It exists because CSS `zoom` scales the layout — a 1600 px window lays
+ * out as 1280 at 125% — but DOES NOT scale viewport units. `vw` and `vh`
+ * go on meaning hundredths of the real window, so a `height: 100vh` shell
+ * inside a zoomed root lays out 913 units tall and then renders 1141 px
+ * tall in a 913 px window, hanging its status bar off the bottom of the
+ * screen. Percentage and auto lengths have no such problem, which is why
+ * this shows up as "the width follows the zoom but the height does not".
+ *
+ * So EVERY viewport-unit length in this file is divided by the zoom:
+ *
+ *     height: calc(100vh / var(--ui-zoom, 1));
+ *
+ * Write any new one the same way — test/node/zoom.test.js reads this file
+ * and fails on a bare one. The browser's OWN zoom needs none of this: it
+ * scales the viewport itself, which is exactly the difference. */
+
 * { box-sizing: border-box; word-break: keep-all; }
 
 /* display rules on classes must not defeat the hidden attribute */
@@ -587,7 +608,7 @@ select, input[type="range"] {
  * should never be a half-width box beside nothing. Without :has() support the
  * layout is merely wide-and-empty until a file arrives. */
 @media (orientation: landscape) and (min-width: 640px) {
-  .player-page { height: 100vh; height: 100dvh; overflow: hidden; }
+  .player-page { height: calc(100vh / var(--ui-zoom, 1)); height: calc(100dvh / var(--ui-zoom, 1)); overflow: hidden; }
   .player {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -634,7 +655,7 @@ select, input[type="range"] {
 /* ── app shell (index.html) ── */
 
 .app-page {
-  height: 100vh;
+  height: calc(100vh / var(--ui-zoom, 1));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1558,7 +1579,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 /* Form dialogs built by widgets/modal.js: prose sets their width, so cap it at
    a readable measure rather than letting one long paragraph span the viewport. */
-.modal-text { max-width: min(560px, 94vw); }
+.modal-text { max-width: min(560px, calc(94vw / var(--ui-zoom, 1))); }
 .modal-text p { margin: 0.4rem 0 0.8rem; line-height: 1.45; text-align: justify; hyphens: auto; }
 .modal::backdrop { background: rgba(0, 0, 0, 0.55); }
 .modal h3 { margin-top: 0; }
@@ -1680,7 +1701,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 
 /* ── new-project modal ── */
-.np-modal { max-width: min(760px, 94vw); }
+.np-modal { max-width: min(760px, calc(94vw / var(--ui-zoom, 1))); }
 .np-modal .np-body { margin: 0.2rem 0 0.8rem; font-size: 0.85rem; }
 .np-grid { display: flex; gap: 1.2rem; align-items: stretch; }
 .np-col { display: flex; flex-direction: column; gap: 0.7rem; flex: 1 1 0; min-width: 0; }
@@ -1745,7 +1766,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 
 /* ── Notation Maker (item 61) ── */
-.nota-modal { max-width: min(960px, 96vw); width: min(960px, 96vw); }
+.nota-modal { max-width: min(960px, calc(96vw / var(--ui-zoom, 1))); width: min(960px, calc(96vw / var(--ui-zoom, 1))); }
 .nota-hint { margin: 0.2rem 0 0.7rem; font-size: 0.82rem; }
 .nota-grid { display: flex; gap: 1rem; align-items: stretch; min-height: 340px; }
 .nota-left { flex: 0 0 215px; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -1775,7 +1796,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .nota-chip.sel { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
 .nota-tools { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .nota-tools button { font-size: 0.82rem; }
-.nota-degrees { flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; max-height: min(600px, 90vh); }
+.nota-degrees { flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; max-height: min(600px, calc(90vh / var(--ui-zoom, 1))); }
 .nota-degrees table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
 .nota-degrees th { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-weight: 500; text-align: left; padding: 0.15rem 0.4rem; font-size: 0.75rem; }
 .nota-degrees td { padding: 0.08rem 0.4rem; white-space: nowrap; }
@@ -1908,7 +1929,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .side-detail > .wave-canvas { cursor: crosshair; }
 
 /* Paint-a-waveform modal (item 53) */
-.wavepaint-modal { max-width: min(1280px, 94vw); }
+.wavepaint-modal { max-width: min(1280px, calc(94vw / var(--ui-zoom, 1))); }
 .wavepaint-modal .wave-row { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin: 0.5rem 0; color: var(--dim); }
 .wavepaint-modal .wave-len { width: 6rem; }
 .wavepaint-modal .wave-repeat { width: 6rem; }
@@ -2086,7 +2107,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .adv-head .adv-back { color: var(--accent); border-color: var(--accent); }
 .adv-body { display: flex; gap: 0.8rem; align-items: flex-start; }
 .adv-list {
-  flex: 0 0 15rem; min-width: 0; max-height: 70vh; overflow-y: auto;
+  flex: 0 0 15rem; min-width: 0; max-height: calc(70vh / var(--ui-zoom, 1)); overflow-y: auto;
   border-right: 1px solid var(--border); padding-right: 0.5rem;
 }
 /* Advanced Edit is a fixed-height three-region layout (item 63): the panel is
@@ -2213,7 +2234,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   min-width: 8rem;
 }
 .import-list {
-  max-height: 50vh;
+  max-height: calc(50vh / var(--ui-zoom, 1));
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2297,7 +2318,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* Audio export dialog (#998.4) */
 /* Wide enough for all seven targets in one row — a wrapped last card reads as
    a second, lesser group. */
-.export-audio { max-width: min(920px, 94vw); }
+.export-audio { max-width: min(920px, calc(94vw / var(--ui-zoom, 1))); }
 .export-cards { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.6rem 0; }
 .export-card {
   display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
@@ -2431,7 +2452,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pw-overlay { position: absolute; left: 0; top: 0; display: block; touch-action: none; cursor: crosshair; }
 
 /* ── Sample Lab (items 83/84/109) ── */
-.samplelab-modal { max-width: min(1280px, 94vw); }
+.samplelab-modal { max-width: min(1280px, calc(94vw / var(--ui-zoom, 1))); }
 .samplelab-modal .lab-info { margin: 0.2rem 0 0.4rem; font-size: 0.85rem; }
 /* Replace overwrites a sample the song is already playing — it reads as the
    weightier of the two commits, and greys out when a chop makes it meaningless. */
@@ -2474,7 +2495,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .lab-hint { font-size: 0.78rem; margin: 0.2rem 0 0; }
 
 /* ── chord maker (item 89) ── */
-.chord-modal { max-width: min(960px, 94vw); }
+.chord-modal { max-width: min(960px, calc(94vw / var(--ui-zoom, 1))); }
 .chord-modal .chord-lead { margin: 0.2rem 0 0.6rem; font-size: 0.85rem; }
 .chord-head {
   display: flex; gap: 1.2rem; align-items: center; flex-wrap: wrap;
@@ -2517,7 +2538,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    a row at a time, so the dialog caps its height and scrolls rather than
    walking off a laptop screen, and keeps the count + Apply pinned to the foot
    where they stay readable while the form above them scrolls. */
-.findchange-modal { max-width: min(1080px, 96vw); max-height: min(88vh, 56rem); overflow-y: auto; }
+.findchange-modal { max-width: min(1080px, calc(96vw / var(--ui-zoom, 1))); max-height: min(calc(88vh / var(--ui-zoom, 1)), 56rem); overflow-y: auto; }
 .findchange-modal .fc-lead { margin: 0.2rem 0 0.7rem; font-size: 0.85rem; }
 .fc-block { margin: 0 0 0.7rem; }
 .fc-legend { font-size: 0.9rem; color: var(--fg2); margin-bottom: 0.3rem; }
@@ -2584,7 +2605,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* ── About popup (brand click) ── */
 /* The blurb is three paragraphs plus the support ask, so cap the height and
    scroll rather than overflow a laptop viewport, and tighten the stack. */
-.about-modal { max-width: min(94vw, 600px); max-height: min(84vh, 46rem); overflow-y: auto; }
+.about-modal { max-width: min(calc(94vw / var(--ui-zoom, 1)), 600px); max-height: min(calc(84vh / var(--ui-zoom, 1)), 46rem); overflow-y: auto; }
 .about-modal h3 { font-size: 1.3rem; }
 .about-modal p { margin: 0.55rem 0; text-align: justify; hyphens: auto; }
 /* Keep Close reachable when the text scrolls (short viewports). */
@@ -2643,7 +2664,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    Two cards side by side, each a picture, a name and a paragraph: the choice
    between summing children and modulating with them is not one a bare label
    can make, so the explanation lives in the button itself. */
-.kind-modal { max-width: min(720px, 94vw); }
+.kind-modal { max-width: min(720px, calc(94vw / var(--ui-zoom, 1))); }
 .kind-modal > p.dim { margin: 0.4rem 0 0.9rem; line-height: 1.45; }
 .kind-cards { display: flex; gap: 0.7rem; align-items: stretch; }
 .kind-card {
@@ -3074,7 +3095,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
  * thing it parodies — but it is styled from the theme's own tokens, and
  * the ONLY hard-coded ink in it is the gold of the wordmark. */
 .warmth-splash {
-  max-width: min(600px, 94vw);
+  max-width: min(600px, calc(94vw / var(--ui-zoom, 1)));
   padding: 0;
   overflow: hidden;
   border-color: #9d8c62;
@@ -3576,7 +3597,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* "Set every key" (item 187) — the whole board as one number per key, laid out
    the way the keyboard is, so the grid can be read like the thing it describes
    rather than like a list of settings. */
-.keymanual-modal { max-width: min(96vw, 68rem); }
+.keymanual-modal { max-width: min(calc(96vw / var(--ui-zoom, 1)), 68rem); }
 .keymanual-grid { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.6rem 0; }
 .keymanual-row { display: flex; gap: 0.35rem; }
 .keymanual-cell {

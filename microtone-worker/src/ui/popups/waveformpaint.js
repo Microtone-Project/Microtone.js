@@ -22,6 +22,7 @@ import { sampleSpans } from "../../doc/document.js";
 import { escapeNonAscii } from "../names.js";
 import { t } from "../i18n.js";
 import { LINEAR_FREQ_C4_HZ } from "../../engine/constants.js";
+import { toLayout } from "../zoom.js";
 
 const MIN_LEN = 2, MAX_LEN = 0xffff, DEF_LEN = 256;
 const LANE_H = 200;   // canvas height PER CHANNEL
@@ -129,7 +130,9 @@ function openPaintModal(opts) {
       ? (Array.isArray(opts.initial) ? opts.initial : [opts.initial]).map((b) => Uint8Array.from(b))
       : [new Uint8Array(length).fill(128)];
 
-    let cssMaxW1 = ((window.innerWidth * 94) / 100)|0 // 94 vw
+    // 94 vw, as LAYOUT pixels — the same width .wavepaint-modal's own
+    // max-width resolves to, which under a UI zoom is not 94% of the window.
+    let cssMaxW1 = ((toLayout(window.innerWidth) * 94) / 100)|0
     let cssMaxW2 = 1280 // 1280 px
     let cssMaxW = Math.min(cssMaxW1, cssMaxW2)
 

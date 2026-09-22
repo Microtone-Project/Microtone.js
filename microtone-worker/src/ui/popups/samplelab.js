@@ -45,7 +45,7 @@ import { themeColors } from "../theme.js";
 import { escapeNonAscii } from "../names.js";
 import { t } from "../i18n.js";
 import { icon, setIconLabel } from "../icons.js";
-import { uiDpr, localPoint } from "../zoom.js";
+import { uiDpr, localPoint, toLayout } from "../zoom.js";
 
 const WAVE_H = 220;
 const EQGRAPH_H = 150;
@@ -128,7 +128,9 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     // ── view transform ──
     const dlg = document.createElement("dialog");
     dlg.className = "modal samplelab-modal";
-    const cssW = Math.min(Math.floor((window.innerWidth * 94) / 100), 1280) - 48*2;
+    // 94 vw in LAYOUT pixels, matching .samplelab-modal's own max-width —
+    // under a UI zoom that is not 94% of the window (see zoom.js).
+    const cssW = Math.min(Math.floor((toLayout(window.innerWidth) * 94) / 100), 1280) - 48 * 2;
     const W = Math.max(480, cssW);
     let spp = buf.length / W;  // samples per px
     let scroll = 0;            // sample index at x=0

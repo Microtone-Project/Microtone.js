@@ -12,6 +12,16 @@
 //      the device pixel ratio: that is `uiDpr()`, which is what every canvas
 //      here sizes itself by.
 //
+//      …but VIEWPORT UNITS do not shrink with them. `vw` and `vh` go on
+//      meaning hundredths of the real window, so a `height: 100vh` shell
+//      inside a zoomed root lays out a full window tall and then renders a
+//      quarter taller than the window, hanging its foot off the bottom of the
+//      screen — while its WIDTH, which comes from a percentage, follows the
+//      zoom correctly. That asymmetry is the whole symptom. The factor is
+//      therefore also published as the `--ui-zoom` custom property, and every
+//      viewport length in css/microtone.css divides by it; see the note
+//      beside that property's declaration.
+//
 //   2. POINTER coordinates do not. `clientX`, `offsetX` and
 //      `getBoundingClientRect()` all report VISUAL pixels, so the usual
 //      `e.clientX - rect.left` is 1.25× the layout distance the canvas painted
@@ -97,10 +107,16 @@ export function onZoomChange(fn) { _listeners.add(fn); }
 
 function applyZoom() {
   const root = document.documentElement;
-  // At 100% the property comes OFF rather than going to "1": a page with no
-  // zoom at all is the one configuration every browser agrees about.
-  if (_zoom === DEFAULT_ZOOM) root.style.removeProperty("zoom");
-  else root.style.zoom = String(_zoom);
+  // At 100% both properties come OFF rather than going to "1": a page with no
+  // zoom at all is the one configuration every browser agrees about, and the
+  // stylesheet's `var(--ui-zoom, 1)` fallback already says 1.
+  if (_zoom === DEFAULT_ZOOM) {
+    root.style.removeProperty("zoom");
+    root.style.removeProperty("--ui-zoom");
+  } else {
+    root.style.zoom = String(_zoom);
+    root.style.setProperty("--ui-zoom", String(_zoom));
+  }
 }
 
 /** Boot-time zoom: the remembered factor, else 100%. Call before the first paint. */
