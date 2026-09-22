@@ -160,7 +160,14 @@ export const SNAP_V_MOD_FUNK_WINDOW = 22;
 export const SNAP_V_CHAN_VOL = 23;    // channelVolume, 0..volMax (M's `$xx`)
 export const SNAP_V_CHAN_AZ = 24;     // S $8aaa's `aaa`: the pan byte in a stereo song, the 512-unit azimuth otherwise
 export const SNAP_V_CHAN_EL = 25;     // X $eeaa's `ee`: signed lane elevation, 0 unless the song is spatial
-export const SNAP_VOICE_STRIDE = 26;
+// Whether the song has STATED either axis — bit0 volume, bit1 position. Not
+// the same as "is it at its default": `M $3F00` and `S $8080` write the very
+// values a reset leaves behind, so a header comparing against those would
+// paint a deliberate statement as an absence.
+export const SNAP_V_CHAN_SET = 26;
+export const SNAP_V_CHAN_SET_VOL = 1;
+export const SNAP_V_CHAN_SET_PAN = 2;
+export const SNAP_VOICE_STRIDE = 27;
 
 // Every PHYSICAL voice, so the jam bank (item 140) is visible to the views that
 // follow a sounding audition — the Instruments/Samples editors scan the block

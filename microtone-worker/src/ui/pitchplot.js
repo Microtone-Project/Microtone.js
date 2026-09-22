@@ -310,7 +310,7 @@ export function paintPitchPlot(ctx, g, next, box, C) {
   const { tabX, x, y, w, rowH } = box;
 
   ctx.fillStyle = octaveColour(g.band, C);
-  ctx.fillRect(tabX, y, TAB_W, rowH);
+  ctx.fillRect(tabX-4, y, TAB_W, rowH); // -4 offset to align it onto the left separator
 
   ctx.fillStyle = C.pitchAxis;
   ctx.fillRect(Math.round(x + w / 2), y, 1, rowH); // the band root, dead centre

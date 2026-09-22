@@ -234,9 +234,14 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
       // M $xx00 — set lane volume (literal, no recall; IT $40 clamps to $3F).
       // A wide cell's volume state is 8-bit, so the byte lands unscaled there.
       voice.channelVolume = Math.min((rawArg >>> 8) & 0xff, ts.volMax);
+      voice.channelVolumeSet = true;
       break;
     case EffectOp.OP_N: {
       // N $xy00 — lane-volume slide (D nibble decoding, lane axis only).
+      // Marked stated at the COMMAND, not at each write: the slide's own
+      // movement happens on later ticks (tick.js nSlideDir), and a song that
+      // wrote N has addressed this axis whichever branch below it takes.
+      voice.channelVolumeSet = true;
       const arg = resolveArg(rawArg, voice.mem.n);
       if (rawArg !== 0) voice.mem.n = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -251,6 +256,10 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
     }
     case EffectOp.OP_P: {
       // P $xy00 — lane-panning slide (IT convention: low nibble right, high left).
+      // Stated at the COMMAND like N, because the continuous form below arms a
+      // per-tick slide rather than writing the register here: applyPanSlide
+      // would not see it until tick 1.
+      voice.channelPanSet = true;
       const arg = resolveArg(rawArg, voice.mem.p);
       if (rawArg !== 0) voice.mem.p = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -415,7 +424,8 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
       const raw = rawArg & 0xfff;
       const arg = resolveArg(raw, voice.mem.z);
       if (raw !== 0) voice.mem.z = arg;
-      if (arg !== 0) voice.spatialSlideActive = true;
+      // …and the same for Z, whose movement is entirely per-tick.
+      if (arg !== 0) { voice.spatialSlideActive = true; voice.channelPanSet = true; }
       break;
     }
   }

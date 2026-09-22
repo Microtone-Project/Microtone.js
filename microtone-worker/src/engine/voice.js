@@ -182,6 +182,13 @@ export class Voice {
     this.rowVolume = 63;
     this.channelPan = 0x80;
     this.rowPan = 32;
+    // Has the SONG stated either lane axis yet? Not the same question as
+    // "is it at its default": `M $3F00` and `S $8080` write the very values a
+    // reset leaves behind, and a display that compared against those would
+    // call a deliberate statement an absence. Only a command writing the
+    // register sets these; only a reset clears them.
+    this.channelVolumeSet = false;
+    this.channelPanSet = false;
     // Note-pan axis: a signed OFFSET from the lane's position, in the same
     // 512-units-to-a-turn space as panAzimuth (so on the front arc it is just a
     // pan-byte delta). 0 = neutral, which is what keeps a song that never

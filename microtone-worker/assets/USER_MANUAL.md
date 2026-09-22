@@ -195,10 +195,13 @@ what you read is what you would type:
 - **`S` `$8aaa`** — the lane's position, in a stereo or planar song.
 - **`X` `$eeaa`** — the same in a spatial song, where it carries the height too.
 
-A setting nobody has moved is drawn grey, so the lanes that *have* been moved
-are the ones that catch your eye. Both keep reading while the lane is silent,
-which is the point: an `M` `$2000` twenty rows back is still in force, and no
-amount of staring at a meter will tell you so.
+A setting the song has never MENTIONED is drawn grey, so the lanes it has
+something to say about are the ones that catch your eye. That is not the same
+as "still at its default": `M` `$3F00` sets full volume and `S` `$8080` sets
+dead centre, which are the values a lane starts at anyway — write either and
+the header colours it, because you said so. Both keep reading while the lane is
+silent, which is the point: an `M` `$2000` twenty rows back is still in force,
+and no amount of staring at a meter will tell you so.
 
 The strips carry the same two readings as marks — a notch on the VU where the
 lane volume caps it, and a tick on the pan strip where the lane sits before the

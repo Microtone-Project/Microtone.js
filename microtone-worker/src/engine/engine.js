@@ -301,6 +301,8 @@ export class TaudEngine {
       // resetParams (state.js).
       v.channelVolume = ts.volMax;
       v.channelPan = 0x80;
+      v.channelVolumeSet = false;
+      v.channelPanSet = false;
       v.rowPan = 32;
       v.panAzimuth = 128.0;
       v.panElevation = 0.0;
@@ -655,6 +657,16 @@ export class TaudEngine {
     const v = this._voice(ph, vi);
     return this.playheads[ph].surroundModel === SURROUND_SPATIAL ? v.panElevation : 0.0;
   }
+
+  /**
+   * Has the song STATED either lane axis, as opposed to leaving it where a
+   * reset put it? A different question from "is it at its default value":
+   * `M $3F00` and `S $8080` write exactly the values a reset leaves behind,
+   * and they are statements, not absences. Only a command that writes the
+   * register raises these; only a reset clears them.
+   */
+  getVoiceChannelVolumeSet(ph, vi) { return this._voice(ph, vi).channelVolumeSet; }
+  getVoiceChannelPanSet(ph, vi) { return this._voice(ph, vi).channelPanSet; }
 
   /**
    * Fill the per-voice soundscope rings (`Voice.scopeBuffer`) or not. Off by

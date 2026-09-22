@@ -13,6 +13,7 @@ import {
   SNAP_V_ACTIVE, SNAP_V_EFF_VOL, SNAP_V_EFF_PAN, SNAP_V_NOTE, SNAP_V_INST,
   SNAP_V_AZIMUTH, SNAP_V_ELEVATION,
   SNAP_V_CHAN_VOL, SNAP_V_CHAN_AZ, SNAP_V_CHAN_EL,
+  SNAP_V_CHAN_SET, SNAP_V_CHAN_SET_VOL, SNAP_V_CHAN_SET_PAN,
   SNAP_V_SAMPLE_POS, SNAP_V_SAMPLE_PTR, SNAP_V_SAMPLE_LEN,
   SNAP_V_ENV_VOL_IDX, SNAP_V_ENV_VOL_TIME, SNAP_V_ENV_PAN_IDX, SNAP_V_ENV_PAN_TIME,
   SNAP_V_ENV_PITCH_IDX, SNAP_V_ENV_PITCH_TIME, SNAP_V_ENV_FILTER_IDX, SNAP_V_ENV_FILTER_TIME,
@@ -509,6 +510,11 @@ export class AudioSystem {
   getVoiceChannelAzimuth(vi) { return this._v(vi, SNAP_V_CHAN_AZ); }
   /** `X $eeaa`'s `ee` — signed, 128 units = 90°. Always 0 unless the song is spatial. */
   getVoiceChannelElevation(vi) { return this._v(vi, SNAP_V_CHAN_EL); }
+  /** Has the song STATED this axis? Not "is it at its default" — `M $3F00`
+   *  and `S $8080` write the values a reset leaves behind, and saying so is
+   *  not the same as saying nothing. */
+  getVoiceChannelVolumeSet(vi) { return (this._v(vi, SNAP_V_CHAN_SET) & SNAP_V_CHAN_SET_VOL) !== 0; }
+  getVoiceChannelPanSet(vi) { return (this._v(vi, SNAP_V_CHAN_SET) & SNAP_V_CHAN_SET_PAN) !== 0; }
 
   /** Song global volume as the ENGINE currently has it (0..255) — effects V and
    *  W move it while the song plays, which is what the master fader follows. */

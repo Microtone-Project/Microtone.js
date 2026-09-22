@@ -996,9 +996,16 @@ class SpatialBus {
 // stereo model keeps its exact arithmetic (clamped 0..255 integers) while the
 // surround models track the continuous azimuth that the mixer and the Z slide
 // actually use. `voice.channelPan` stays the integer mirror the UI reads.
+//
+// Being the one way in, they are also where `channelPanSet` is raised: every
+// command that places the lane — `S $80xx`, `X`, `P`, the Z slide's own steps
+// — arrives here, and a reset is a direct write that deliberately does not.
+// (`applyElevation` needs no such line: X is the only thing that calls it,
+// and X has already been through applyPanSet by then.)
 
 /** Lane-pan write: absolute. `pan` is the legacy byte, or a 9-bit angle. */
 function applyPanSet(ts, voice, pan) {
+  voice.channelPanSet = true;
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = pan & 0xff;
   } else {
@@ -1010,6 +1017,7 @@ function applyPanSet(ts, voice, pan) {
 
 /** Lane-pan write: signed delta — clamped in stereo, wrapped in surround. */
 function applyPanSlide(ts, voice, delta) {
+  voice.channelPanSet = true;
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = delta < 0
       ? Math.max(voice.channelPan + delta, 0)
@@ -5888,6 +5896,13 @@ class Voice {
     this.rowVolume = 63;
     this.channelPan = 0x80;
     this.rowPan = 32;
+    // Has the SONG stated either lane axis yet? Not the same question as
+    // "is it at its default": `M $3F00` and `S $8080` write the very values a
+    // reset leaves behind, and a display that compared against those would
+    // call a deliberate statement an absence. Only a command writing the
+    // register sets these; only a reset clears them.
+    this.channelVolumeSet = false;
+    this.channelPanSet = false;
     // Note-pan axis: a signed OFFSET from the lane's position, in the same
     // 512-units-to-a-turn space as panAzimuth (so on the front arc it is just a
     // pan-byte delta). 0 = neutral, which is what keeps a song that never
@@ -6574,6 +6589,9 @@ class TrackerState {
     for (const v of this.voices) {
       v.noteVolume = this.volMax;
       v.channelVolume = this.volMax;
+      // The axis went back to full because the CELL FORMAT changed under it,
+      // which is not the song saying anything about it.
+      v.channelVolumeSet = false;
       v.rowVolume = this.volMax;
     }
   }
@@ -6815,6 +6833,7 @@ class Playhead {
       it.active = false;
       it.noteVolume = ts.volMax;
       it.channelVolume = ts.volMax;
+      it.channelVolumeSet = false;
       it.rowVolume = ts.volMax;
       it.currentMixVolume = 1.0;
       it.volRampSamples = 0;
@@ -6824,6 +6843,7 @@ class Playhead {
       it.envVolMix = 1.0;
       it.envVolStep = 0.0;
       it.channelPan = 0x80;
+      it.channelPanSet = false;
       it.rowPan = 32;
       it.panbrelloOffset = 0;
       it.panAzimuth = 128.0;
@@ -8711,6 +8731,8 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
     // Match layer 0's lane context so M/pan and the first tick agree; the
     // trigger below may then move the child's pan to its own default.
     child.channelVolume = voice.channelVolume;
+    child.channelVolumeSet = voice.channelVolumeSet;
+    child.channelPanSet = voice.channelPanSet;
     child.channelPan = chanPan;
     child.rowPan = chanRowPan;
     child.panbrelloOffset = chanPanbrello;
@@ -8823,6 +8845,8 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     if (referenced[k] === 0 || !sounds(ops[k])) continue;
     const op = new Voice();
     op.channelVolume = voice.channelVolume;
+    op.channelVolumeSet = voice.channelVolumeSet;
+    op.channelPanSet = voice.channelPanSet;
     op.channelPan = chanPan;
     op.rowPan = chanRowPan;
     op.panbrelloOffset = chanPanbrello;
@@ -9246,6 +9270,8 @@ function ghostVoice(src, channel) {
   v.forward = src.forward;
   v.noteVolume = src.noteVolume;
   v.channelVolume = src.channelVolume;
+  v.channelVolumeSet = src.channelVolumeSet;
+  v.channelPanSet = src.channelPanSet;
   v.rowVolume = src.rowVolume;
   v.channelPan = src.channelPan;
   v.rowPan = src.rowPan;
@@ -9731,9 +9757,14 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
       // M $xx00 — set lane volume (literal, no recall; IT $40 clamps to $3F).
       // A wide cell's volume state is 8-bit, so the byte lands unscaled there.
       voice.channelVolume = Math.min((rawArg >>> 8) & 0xff, ts.volMax);
+      voice.channelVolumeSet = true;
       break;
     case EffectOp.OP_N: {
       // N $xy00 — lane-volume slide (D nibble decoding, lane axis only).
+      // Marked stated at the COMMAND, not at each write: the slide's own
+      // movement happens on later ticks (tick.js nSlideDir), and a song that
+      // wrote N has addressed this axis whichever branch below it takes.
+      voice.channelVolumeSet = true;
       const arg = resolveArg(rawArg, voice.mem.n);
       if (rawArg !== 0) voice.mem.n = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -9748,6 +9779,10 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
     }
     case EffectOp.OP_P: {
       // P $xy00 — lane-panning slide (IT convention: low nibble right, high left).
+      // Stated at the COMMAND like N, because the continuous form below arms a
+      // per-tick slide rather than writing the register here: applyPanSlide
+      // would not see it until tick 1.
+      voice.channelPanSet = true;
       const arg = resolveArg(rawArg, voice.mem.p);
       if (rawArg !== 0) voice.mem.p = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -9912,7 +9947,8 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
       const raw = rawArg & 0xfff;
       const arg = resolveArg(raw, voice.mem.z);
       if (raw !== 0) voice.mem.z = arg;
-      if (arg !== 0) voice.spatialSlideActive = true;
+      // …and the same for Z, whose movement is entirely per-tick.
+      if (arg !== 0) { voice.spatialSlideActive = true; voice.channelPanSet = true; }
       break;
     }
   }
@@ -11350,6 +11386,8 @@ function applyTrackerTick(eng, ts, playhead) {
         }
         if (parent.noteFading && !bg.noteFading) bg.noteFading = true;
         bg.channelVolume = parent.channelVolume;
+        bg.channelVolumeSet = parent.channelVolumeSet;
+        bg.channelPanSet = parent.channelPanSet;
         bg.noteVolume = parent.noteVolume;
         bg.rowVolume = parent.rowVolume;
         bg.channelPan = parent.channelPan;
@@ -12440,6 +12478,8 @@ class TaudEngine {
       // resetParams (state.js).
       v.channelVolume = ts.volMax;
       v.channelPan = 0x80;
+      v.channelVolumeSet = false;
+      v.channelPanSet = false;
       v.rowPan = 32;
       v.panAzimuth = 128.0;
       v.panElevation = 0.0;
@@ -12794,6 +12834,16 @@ class TaudEngine {
     const v = this._voice(ph, vi);
     return this.playheads[ph].surroundModel === SURROUND_SPATIAL ? v.panElevation : 0.0;
   }
+
+  /**
+   * Has the song STATED either lane axis, as opposed to leaving it where a
+   * reset put it? A different question from "is it at its default value":
+   * `M $3F00` and `S $8080` write exactly the values a reset leaves behind,
+   * and they are statements, not absences. Only a command that writes the
+   * register raises these; only a reset clears them.
+   */
+  getVoiceChannelVolumeSet(ph, vi) { return this._voice(ph, vi).channelVolumeSet; }
+  getVoiceChannelPanSet(ph, vi) { return this._voice(ph, vi).channelPanSet; }
 
   /**
    * Fill the per-voice soundscope rings (`Voice.scopeBuffer`) or not. Off by

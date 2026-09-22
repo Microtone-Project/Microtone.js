@@ -38,9 +38,7 @@ import {
 } from "../gridmenu.js";
 import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
 import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
-import {
-  laneVolumeCell, lanePanCell, laneVolumeAtRest, lanePanAtRest,
-} from "../lanestate.js";
+import { laneVolumeCell, lanePanCell } from "../lanestate.js";
 import {
   plotSeries, plotGeometry, paintPitchPlot, arpOffsets, PLOT_CHARS,
 } from "../pitchplot.js";
@@ -1476,7 +1474,7 @@ export class TimelineView {
     // and the grid's own effect column are the same notation, so they read
     // from the same inks.
     const fxPal = { op: C.fxOp, a1: C.fxA1, a2: C.fxA2, a3: C.fxA3, dim: C.dim, ext: C.fxExt };
-    const restPal = monoPalette(C.dim); // a lane axis nothing has moved
+    const restPal = monoPalette(C.dim); // a lane axis the song has never stated
     const pitchPlot = this.store.pitchPlot === true; // item 198.5, off by default
     for (const { ch, x: stripX, w: colW } of strips) {
       // A header panel is the CELL's rectangle, not the strip's: every grid
@@ -1551,6 +1549,11 @@ export class TimelineView {
       const chanVol = audio ? audio.getVoiceChannelVolume(ch) : volMax;
       const chanAz = audio ? audio.getVoiceChannelAzimuth(ch) : 128;
       const chanEl = audio ? audio.getVoiceChannelElevation(ch) : 0;
+      // …and whether the SONG put them there. Not "are they at their default":
+      // `M $3F00` and `S $8080` write the very values a reset leaves behind,
+      // and a lane the song deliberately set to full and centre has been set.
+      const volSet = audio ? audio.getVoiceChannelVolumeSet(ch) : false;
+      const panSet = audio ? audio.getVoiceChannelPanSet(ch) : false;
       // …and their marks on the two strips, so the number and the picture are
       // the same reading: the volume's is a CEILING (the VU can never pass it,
       // since the lane axis multiplies into the mixer gain), the pan's is where
@@ -1563,17 +1566,17 @@ export class TimelineView {
       ctx.fillStyle = C.dim;
       ctx.fillRect(barX + lanePan * (barW - 1), PAN_Y, 1, 7);
 
-      // An axis nothing has moved is painted flat grey rather than in the
-      // effect inks — with 32 lanes on screen the colour has to mean "this one
-      // was set", not "this column exists". (A dimmed palette, not a
+      // An axis the song has never stated is painted flat grey rather than in
+      // the effect inks — with 32 lanes on screen the colour has to mean "this
+      // one was set", not "this column exists". (A dimmed palette, not a
       // globalAlpha: paintFxCell resets the alpha after every digit.)
       const volCell = laneVolumeCell(chanVol);
       const panCell = lanePanCell(surroundModel, chanAz, chanEl);
       const LANE_Y = LANE_MID - ROW_H / 2;
       paintFxCell(ctx, volCell.effect, volCell.arg, x + 4, LANE_Y, CHAR_W, ROW_H,
-        laneVolumeAtRest(chanVol, volMax) ? restPal : fxPal);
+        volSet ? fxPal : restPal);
       paintFxCell(ctx, panCell.effect, panCell.arg, x + colW - 8 - 5 * CHAR_W, LANE_Y,
-        CHAR_W, ROW_H, lanePanAtRest(chanAz, chanEl) ? restPal : fxPal);
+        CHAR_W, ROW_H, panSet ? fxPal : restPal);
 
       // expanded radar: the source as it really sits, seen from above
       if (radar) {

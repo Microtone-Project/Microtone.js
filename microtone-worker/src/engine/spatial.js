@@ -374,9 +374,16 @@ export class SpatialBus {
 // stereo model keeps its exact arithmetic (clamped 0..255 integers) while the
 // surround models track the continuous azimuth that the mixer and the Z slide
 // actually use. `voice.channelPan` stays the integer mirror the UI reads.
+//
+// Being the one way in, they are also where `channelPanSet` is raised: every
+// command that places the lane — `S $80xx`, `X`, `P`, the Z slide's own steps
+// — arrives here, and a reset is a direct write that deliberately does not.
+// (`applyElevation` needs no such line: X is the only thing that calls it,
+// and X has already been through applyPanSet by then.)
 
 /** Lane-pan write: absolute. `pan` is the legacy byte, or a 9-bit angle. */
 export function applyPanSet(ts, voice, pan) {
+  voice.channelPanSet = true;
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = pan & 0xff;
   } else {
@@ -388,6 +395,7 @@ export function applyPanSet(ts, voice, pan) {
 
 /** Lane-pan write: signed delta — clamped in stereo, wrapped in surround. */
 export function applyPanSlide(ts, voice, delta) {
+  voice.channelPanSet = true;
   if (ts.surroundModel === SURROUND_STEREO) {
     voice.channelPan = delta < 0
       ? Math.max(voice.channelPan + delta, 0)

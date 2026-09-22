@@ -317,6 +317,9 @@ export class TrackerState {
     for (const v of this.voices) {
       v.noteVolume = this.volMax;
       v.channelVolume = this.volMax;
+      // The axis went back to full because the CELL FORMAT changed under it,
+      // which is not the song saying anything about it.
+      v.channelVolumeSet = false;
       v.rowVolume = this.volMax;
     }
   }
@@ -558,6 +561,7 @@ export class Playhead {
       it.active = false;
       it.noteVolume = ts.volMax;
       it.channelVolume = ts.volMax;
+      it.channelVolumeSet = false;
       it.rowVolume = ts.volMax;
       it.currentMixVolume = 1.0;
       it.volRampSamples = 0;
@@ -567,6 +571,7 @@ export class Playhead {
       it.envVolMix = 1.0;
       it.envVolStep = 0.0;
       it.channelPan = 0x80;
+      it.channelPanSet = false;
       it.rowPan = 32;
       it.panbrelloOffset = 0;
       it.panAzimuth = 128.0;

@@ -45,19 +45,10 @@ export function lanePanCell(surroundModel, az, el) {
   return { effect: EffectOp.OP_S, arg: 0x8000 | (Math.round(az) & 0x1ff) };
 }
 
-// Whether either axis is still where a song that never touched it would leave
-// it. A header paints a resting axis quietly: what it is FOR is the lanes that
-// have been moved, and eight identical `M3F00`s shouting across the top of the
-// screen would bury the one lane that says something else.
-
-/** Full volume — `M`'s own reset value, and the one a cue start restores. */
-export function laneVolumeAtRest(vol, volMax) {
-  return Math.round(vol) === Math.round(volMax);
-}
-
-/** Dead centre and ear level. Pan byte $80 and azimuth 128 are the same number
- *  by construction — 128 is the front of the 512-unit turn — so one test
- *  serves every surround model. */
-export function lanePanAtRest(az, el) {
-  return Math.round(az) === 128 && Math.round(el) === 0;
-}
+// Whether an axis is painted quietly is NOT decided here, and deliberately
+// not by comparing against the reset value: `M $3F00` and `S $8080` write the
+// very numbers a reset leaves behind, so a lane the song set to full and
+// centre would have read as a lane the song never mentioned. The engine
+// tracks the difference instead (Voice.channelVolumeSet / channelPanSet,
+// reachable as getVoiceChannelVolumeSet / getVoiceChannelPanSet), and the
+// header asks it.

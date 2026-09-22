@@ -350,6 +350,8 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
     // Match layer 0's lane context so M/pan and the first tick agree; the
     // trigger below may then move the child's pan to its own default.
     child.channelVolume = voice.channelVolume;
+    child.channelVolumeSet = voice.channelVolumeSet;
+    child.channelPanSet = voice.channelPanSet;
     child.channelPan = chanPan;
     child.rowPan = chanRowPan;
     child.panbrelloOffset = chanPanbrello;
@@ -462,6 +464,8 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     if (referenced[k] === 0 || !sounds(ops[k])) continue;
     const op = new Voice();
     op.channelVolume = voice.channelVolume;
+    op.channelVolumeSet = voice.channelVolumeSet;
+    op.channelPanSet = voice.channelPanSet;
     op.channelPan = chanPan;
     op.rowPan = chanRowPan;
     op.panbrelloOffset = chanPanbrello;
@@ -885,6 +889,8 @@ export function ghostVoice(src, channel) {
   v.forward = src.forward;
   v.noteVolume = src.noteVolume;
   v.channelVolume = src.channelVolume;
+  v.channelVolumeSet = src.channelVolumeSet;
+  v.channelPanSet = src.channelPanSet;
   v.rowVolume = src.rowVolume;
   v.channelPan = src.channelPan;
   v.rowPan = src.rowPan;

@@ -20,7 +20,7 @@ The Timeline can draw the shape of a melody behind the notes, so a part reads as
 Each lane header now shows the lane's own volume and position, so you can see what an effect twenty rows back left behind.
 
 - **Two extra cells under the meters**: the lane volume as `M` `$xx00`, and the lane's position as the command your song's panning model uses — `S` `$8aaa` in stereo and planar songs, `X` `$eeaa` in spatial ones, where it carries the height as well.
-- **A lane nobody has touched stays grey**, so the ones that have been moved are the ones that catch your eye.
+- **A lane the song never mentions stays grey**, so the ones it has something to say about are the ones that catch your eye. Writing `M` `$3F00` or `S` `$8080` counts as mentioning it, even though those are the values a lane starts at — the header shows what you wrote, not merely what the number happens to be.
 - **The meters gained matching marks**: a notch on the VU showing the ceiling the lane volume sets, and a tick on the pan strip showing where the lane sits before the note's own panning offsets it.
 - **Both keep reading while the lane is silent**, which is the point — a lane's volume and position outlive the notes that were playing when they were set.
 

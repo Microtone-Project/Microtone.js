@@ -20,6 +20,7 @@ import {
   SNAP_V_FUNK_WINDOW, SNAP_V_FUNK_POS, SNAP_V_FUNK_LEN, SNAP_V_FUNK_MODE,
   SNAP_V_MOD_FUNK_WINDOW,
   SNAP_V_CHAN_VOL, SNAP_V_CHAN_AZ, SNAP_V_CHAN_EL,
+  SNAP_V_CHAN_SET, SNAP_V_CHAN_SET_VOL, SNAP_V_CHAN_SET_PAN,
   SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD,
   SNAP_AN_CORR_LL, SNAP_AN_CORR_RR, SNAP_AN_CORR_LR, SNAP_AN_RING_WRITE,
   SNAP_METER_BASE, SNAP_METER_STRIDE,
@@ -230,6 +231,8 @@ export function fillSnapshotInto(eng, playhead, f) {
     f[o + SNAP_V_CHAN_VOL] = v.channelVolume;
     f[o + SNAP_V_CHAN_AZ] = ts.surroundModel === SURROUND_STEREO ? v.channelPan : v.panAzimuth;
     f[o + SNAP_V_CHAN_EL] = ts.surroundModel === SURROUND_SPATIAL ? v.panElevation : 0;
+    f[o + SNAP_V_CHAN_SET] = (v.channelVolumeSet ? SNAP_V_CHAN_SET_VOL : 0) |
+      (v.channelPanSet ? SNAP_V_CHAN_SET_PAN : 0);
   }
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);

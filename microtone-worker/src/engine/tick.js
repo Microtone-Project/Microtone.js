@@ -627,6 +627,8 @@ export function applyTrackerTick(eng, ts, playhead) {
         }
         if (parent.noteFading && !bg.noteFading) bg.noteFading = true;
         bg.channelVolume = parent.channelVolume;
+        bg.channelVolumeSet = parent.channelVolumeSet;
+        bg.channelPanSet = parent.channelPanSet;
         bg.noteVolume = parent.noteVolume;
         bg.rowVolume = parent.rowVolume;
         bg.channelPan = parent.channelPan;
