@@ -71,6 +71,38 @@ NOTE_ON, NOTE_OFF, VOLUME, PATCH, BEND, TEMPO, END = range(7)
 DEFAULT_VOLUME = 127
 MID_PITCH = 0x2000
 
+#: What IMPLAY loads when a song names a patch its bank does not have, or when
+#: there is no bank at all: the AdLib driver's own built-in timbres, one per
+#: voice role, rather than silence (FILE_FORMATS §1.4).  Each is 13 modulator
+#: bytes, 13 carrier bytes and two wave selects, in BNK operator order, exactly
+#: as IMPLAY.EXE 3.1 holds them.  Bytes the driver ignores -- a carrier's
+#: feedback and connection, a single-slot drum's whole carrier -- are left as
+#: found.  The piano is ADLIB.C's but for its carrier attack, 13 against 15.
+IMPLAY_DEFAULT_PATCH = {
+    'melodic': bytes.fromhex('01 01 03 0f 05 00 01 03 0f 00 00 00 01'
+                             '00 01 f6 0d 07 00 02 04 00 00 00 01 01 00 00'),
+    'bd':  bytes.fromhex('00 00 00 0a 04 00 08 0c 0b 00 00 00 01'
+                         '00 00 2f 0d 04 00 06 0f 00 00 00 00 01 00 00'),
+    'sd':  bytes.fromhex('00 0c 00 0f 0b 00 08 05 00 00 00 00 00'
+                         '00 00 2f 0d 04 00 06 0f 00 00 00 00 00 00 00'),
+    'tom': bytes.fromhex('00 04 00 0f 0b 00 07 05 00 00 00 00 00'
+                         '00 00 2f 0d 04 00 06 0f 00 00 00 00 00 00 00'),
+    'tc':  bytes.fromhex('00 01 00 0f 0b 00 05 05 00 00 00 00 00'
+                         '00 00 2f 0d 04 00 06 0f 00 00 00 00 00 00 00'),
+    'hh':  bytes.fromhex('00 01 00 0f 0b 00 07 05 00 00 00 00 00'
+                         '00 2e 04 11 00 00 00 00 00 2e 17 3c 00 00 00'),
+}
+
+
+def default_patch(role: str) -> 'opl.OplPatch':
+    """IMPLAY's stand-in for a patch the banks do not have, for a voice of
+    `role`: the piano for any melodic voice, the matching drum otherwise."""
+    b = IMPLAY_DEFAULT_PATCH.get(role, IMPLAY_DEFAULT_PATCH['melodic'])
+    ops = opl.OPERATOR_FIELDS
+    return opl.OplPatch(f'default {role}',
+                        {f: b[i] for i, f in enumerate(ops)},
+                        {f: b[13 + i] for i, f in enumerate(ops)}, b[26], b[27])
+
 
 # ── The file ─────────────────────────────────────────────────────────────────
 
@@ -202,6 +234,39 @@ def ims_sequence(song: dict):
         elif high == 0xE0:
             yield (tick, BEND, voice, a | (b << 7), 0)
         # B0 and D0 carry nothing the AdLib driver reads.
+
+
+def implay_end(song: dict, seq: list) -> list:
+    """The sequence cut where IMPLAY stops playing it.
+
+    IMPLAY ends a song when its tick counter reaches the header's `totalTick`,
+    whether or not `FC` has come (FILE_FORMATS §1.5), so no event at or past
+    `totalTick` is ever played.  In 312 of 1725 corpus files that removes a
+    silent tail -- MM-RAIN.IMS's runs about three hours -- which would
+    otherwise become cue after empty cue.  The one intact song that has a
+    note-on at or past its `totalTick`, D-PRODC#.IMS, would lose three quarters
+    of its music that way, so a song with a note there plays to `FC` instead,
+    and so does one whose `totalTick` is not positive."""
+    end = song['total_tick']
+    if end <= 0:
+        return seq
+    if any(t >= end and kind == NOTE_ON for t, kind, *_ in seq):
+        vprint(f"  totalTick {end} is before a note; playing to FC")
+        return seq
+    kept = [e for e in seq if e[0] < end]
+    if len(kept) < len(seq):
+        vprint(f"  ending at totalTick {end}, as IMPLAY does "
+               f"({len(seq) - len(kept)} events after it dropped)")
+    # Stopping silences the chip, and the note-offs that would have done it may
+    # be among the events dropped, so release whatever is still sounding.
+    sounding = set()
+    for _t, kind, voice, *_ in kept:
+        if kind == NOTE_ON:
+            sounding.add(voice)
+        elif kind == NOTE_OFF:
+            sounding.discard(voice)
+    return kept + [(end, NOTE_OFF, v, 0, 0) for v in sorted(sounding)] \
+        + [(end, END, 0, 0, 0)]
 
 
 def delta_gcd(song: dict) -> int:
@@ -484,7 +549,7 @@ def carrier_level(patch, role: str) -> int:
 
 def assemble_taud(song, banks, *, mixing_vol=DEFAULT_MIXING_VOL, max_bands=4,
                   feedback_scale=1.0, with_project_data=True):
-    seq = list(ims_sequence(song))
+    seq = implay_end(song, list(ims_sequence(song)))
     if not seq:
         sys.exit("error: no events in this IMS file")
 
@@ -508,8 +573,11 @@ def assemble_taud(song, banks, *, mixing_vol=DEFAULT_MIXING_VOL, max_bands=4,
         idx, role = key
         name = song['patch_names'][idx] if idx < len(song['patch_names']) else ''
         patch = opl.resolve_patch(name, *banks) if name else None
-        if patch is None and name:
-            vprint(f"  warning: patch '{name}' is in no bank; silent slot")
+        if patch is None:
+            # FILE_FORMATS §1.4: IMPLAY plays the driver's built-in timbre.
+            vprint(f"  warning: patch '{name or idx}' is in no bank; "
+                   f"using IMPLAY's built-in {role} default")
+            patch = default_patch(role)
         entries.append({'patch': patch, 'kind': role, 'notes': sorted(usage[key]),
                         'name': name or f'patch {idx}'})
         keys.append(key)

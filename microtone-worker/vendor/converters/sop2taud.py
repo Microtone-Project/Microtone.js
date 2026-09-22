@@ -32,6 +32,13 @@ What this converter does:
       volume onto the grid the file was written on
     - declares the song's tuning as concert pitch, so a converted note sounds
       where the tracker put it and stays in tune with anything remixed alongside
+    - plays the song the way the editor that wrote it did: NOTE.EXE, whose own
+      player is the reference (SOP_FORMAT §8).  That means overlapping notes
+      slur instead of re-striking, a track starts at volume 96, mode-0 tracks
+      are silent, only a mode-1 track is four operators wide, a pan value Note
+      did not know silences its lane, pitch is Note's own 25-step table, and
+      tempo is what Note's timer made of it.  The one departure is bit 7 of the
+      channel mode, the editor's disable switch, which is ignored (§8.1).
 
 See SOP_FORMAT.en.md in the iyagimusic-js repository for the format — every
 structural claim below cites it — and TAUD_CONVERSION_NOTES.md for what does not
@@ -39,6 +46,7 @@ survive the crossing.
 """
 
 import argparse
+import copy
 import math
 import struct
 import sys
@@ -49,7 +57,7 @@ from taud_common import (
     SAMPLEINST_SIZE, PATTERN_ROWS, NUM_PATTERNS_MAX,
     NUM_CUES, CUE_SIZE, NUM_VOICES,
     NOTE_NOP, NOTE_KEYOFF,
-    TOP_NONE, TOP_A, TOP_E, TOP_F, TOP_S, TOP_T, TOP_V,
+    TOP_NONE, TOP_A, TOP_E, TOP_F, TOP_G, TOP_S, TOP_T, TOP_V,
     SEL_SET, SEL_FINE,
     encode_cue, finalize_cue_sheet, set_cue_instruction,
     cue_instruction_len, cue_instruction_halt_at,
@@ -72,25 +80,28 @@ SOP_HEADER_SIZE = 76
 SOP_INST_NAME_SIZE = 28
 #: §3.1.  An unknown instType has to be fatal: the record length is the only
 #: thing that finds the next record, so a guess would misread the whole file.
-SOP_INST_DATA_SIZE = {0: 22, 1: 11, 6: 11, 7: 11, 8: 11, 9: 11, 10: 11, 12: 0}
+#: These are exactly the types NOTE.EXE's own reader and writer size; type 2
+#: ("1OP") is in no corpus file, but the editor round-trips it.
+SOP_INST_DATA_SIZE = {0: 22, 1: 11, 2: 11, 6: 11, 7: 11, 8: 11, 9: 11, 10: 11, 12: 0}
 #: §4.2 and §5: the two code spaces are disjoint, and neither ever appears in
 #: the other's track.
 SOP_TRACK_VALUE_SIZE = {1: 1, 2: 3, 4: 1, 5: 1, 6: 1, 7: 1}
 SOP_CTRL_VALUE_SIZE = {3: 1, 8: 1}
-#: §6: an instrument record of this type is not an instrument at all, but one
-#: 19-column line of the song's scrolling credits.
+#: §6: an instrument record of this type is an empty slot of the editor's
+#: instrument box — often renamed into one 19-column line of the credits.
 SOP_COMMENT_TYPE = 12
 
 #: Event kinds the row builder understands.
 NOTE_ON, VOLUME, PATCH, BEND, PAN, TEMPO, GVOL = range(7)
 
-#: §4.2: what a track is at before it says otherwise.  Volume is the driver's
-#: full scale and pitch is the centre of the ±100 range.
-DEFAULT_VOLUME = 127
+#: §4.2: what a track is at before it says otherwise, as NOTE.EXE's player
+#: assumes it.  Volume is 96, not the driver's full 127 — 12 dB down on the
+#: operator's own level — and 254 tracks in 46 corpus files play notes before
+#: their first volume event.  Pitch is the centre of the ±100 range.
+DEFAULT_VOLUME = 96
 CENTRE_PITCH = 100
-#: §4.2: pitch spans one semitone either way, and a Taud note word counts
-#: 1/256 semitones, so the two scales differ by this factor.
-PITCH_TO_256THS = 256.0 / 100.0
+#: §1, §5: Note starts every song at 120 bpm and never reads `basicTempo`.
+NOTE_START_TEMPO = 120
 
 
 # ── The file ─────────────────────────────────────────────────────────────────
@@ -117,9 +128,9 @@ def parse_sop(data: bytes) -> dict:
         'title_raw': data[23:54].split(b'\x00')[0],
         'percussive': data[54] != 0,
         # §1: tickBeat is 4…16 in every corpus file, and it is already what a
-        # tracker calls rows a beat.  Bytes 60…72 are a comment field the editor
-        # never wrote to — 110 files leave uninitialised stack there — so it is
-        # not read.
+        # tracker calls rows a beat.  Bytes 61…72 were never written by the
+        # editor — they are whatever its uncleared header buffer held — and
+        # `basicTempo` is written as 120 and never read (§1), so neither is used.
         'tick_beat': data[56] or 8,
         'beat_measure': data[58] or 4,
         'basic_tempo': data[59] or 120,
@@ -190,8 +201,9 @@ def parse_sop(data: bytes) -> dict:
 
     for t in range(n_tracks):
         song['tracks'].append({
-            # §2: bit 7 is undocumented, appears in four files, and the tracks
-            # carrying it hold ordinary events.  Mask it off; do not reject.
+            # §2: bit 7 is the editor's channel-disable switch — screen state,
+            # and two files were saved with solo on — so it is masked off and
+            # the track played, the one place this does not follow Note (§8.1).
             'mode': modes[t] & 0x7F,
             'events': read_track(SOP_TRACK_VALUE_SIZE, f'track {t}'),
         })
@@ -234,12 +246,11 @@ def _pair(name: str, d: bytes, at: int, single_op: bool) -> 'opl.OplPatch':
     """One eleven-byte operator pair, as an OplPatch (§3.2).
 
     `single_op` is the rhythm-voice reading: instTypes 7…10 are the chip's
-    one-operator rhythm voices, and in those everything from the feedback byte on
-    is uninitialised — register 0xC0 belongs to the channel, and those voices
-    share channels, so a per-instrument feedback for a hi-hat has nowhere to go.
-    81% of corpus hi-hats put something out of range there.  Those bytes are
-    zeroed rather than read."""
-    feedback = 0 if single_op else d[at + 5]
+    one-operator rhythm voices, and bytes 6…10 are never used for them, so the
+    carrier is zeroed.  Byte 5 is kept: NOTE.EXE writes its low nibble to 0xC7
+    on the hi-hat track and 0xC8 on the tom track (§3.2), and `_operator` reads
+    only those four bits, so the junk above them does not matter."""
+    feedback = d[at + 5]
     car = (_operator(0, 0, 0, 0, 0) if single_op
            else _operator(d[at + 6], d[at + 7], d[at + 8], d[at + 9], feedback))
     return opl.OplPatch(
@@ -269,15 +280,50 @@ def sop_patch(inst: dict) -> 'opl.OplPatch|None':
     return patch
 
 
+def track_plays(song: dict, track: int) -> bool:
+    """Whether NOTE.EXE's player sounds this track at all.
+
+    §2: a mode-0 track is the silent upper half of a four-operator pair — its
+    events are kept from before the pair was joined, and Note skips them — and
+    §4.1: without rhythm mode tracks 9 and 10 are no channel at all."""
+    if song['tracks'][track]['mode'] == 0:
+        return False
+    return song['percussive'] or track not in (9, 10)
+
+
 def track_role(song: dict, track: int) -> str:
     """What a track IS in this song's mode.
 
     §4.1: the twenty tracks are not a flat list — in a percussive file, slots
     6…10 are the bass drum, snare, tom, cymbal and hi-hat, which the corpus
-    confirms directly, and three of those are not oscillators at all."""
-    if not song['percussive']:
-        return 'melodic'
-    return opl.RHYTHM_KIND.get(track, 'melodic')
+    confirms directly, and three of those are not oscillators at all.  §2: a
+    mode-1 track is a four-operator channel, 'melodic4'; every other melodic
+    track is two operators, whatever instrument it selects."""
+    if song['percussive'] and track in opl.RHYTHM_KIND:
+        return opl.RHYTHM_KIND[track]
+    return 'melodic4' if song['tracks'][track]['mode'] == 1 else 'melodic'
+
+
+def rack_kind(role: str) -> str:
+    """The `opl2taud` kind a role is built as: a four-operator channel is still
+    a melodic one, and whether it gets four operators is the patch's business."""
+    return 'melodic' if role == 'melodic4' else role
+
+
+def patch_for(inst, role: str):
+    """The patch an instrument is played as on a track of `role`, or None.
+
+    §3.3: Note joins a channel pair because the channel-mode table says so and
+    never because of the instrument, so a four-operator instrument on any other
+    track plays its first operator pair alone — 30 tracks in 7 corpus files do
+    that.  The reverse, a two-operator instrument on a joined pair, leaves the
+    pair's second half holding the last instrument's operators in Note; a Taud
+    rack cannot carry that over, so it plays as two operators (§8.1)."""
+    patch = sop_patch(inst) if inst else None
+    if patch is not None and patch.pair is not None and role != 'melodic4':
+        patch = copy.copy(patch)
+        patch.pair = None
+    return patch
 
 
 def output_level(patch, role: str) -> int:
@@ -302,17 +348,25 @@ def output_level(patch, role: str) -> int:
     return min(ops[c[-1]]['totalLevel'] & 63 for c in chains)
 
 
+
+
+def default_instrument(song: dict):
+    """§4.2: a track that plays notes before selecting an instrument gets slot
+    0, which is Note's default.  `ST-BGM.SOP` needs it — 4878 notes and not a
+    single event 6.  In every corpus track that relies on it slot 0 holds an
+    instrument; where it did not, Note would play on reset registers, and this
+    stands in the first instrument that yields a patch instead."""
+    insts = song['instruments']
+    if insts and sop_patch(insts[0]) is not None:
+        return 0
+    return next((i for i, inst in enumerate(insts) if sop_patch(inst) is not None), None)
+
+
 def collect_usage(song: dict, seq):
     """{(instrument index, role): set of chip notes} — what the song actually
-    plays, which is what the key banding is fitted to.
-
-    §8: a track that plays notes without ever selecting an instrument gets the
-    first one in the table that yields a patch.  `ST-BGM.SOP` needs it — 4878
-    notes and not a single event 6 — so without a stand-in the whole file is
-    silent."""
+    plays, which is what the key banding is fitted to."""
     n_tracks = len(song['tracks'])
-    fallback = next((i for i, inst in enumerate(song['instruments'])
-                     if sop_patch(inst) is not None), None)
+    fallback = default_instrument(song)
     current = [fallback] * n_tracks
     usage = {}
     for _tick, kind, track, a, _b in seq:
@@ -323,22 +377,26 @@ def collect_usage(song: dict, seq):
             if idx is None:
                 continue
             usage.setdefault((idx, track_role(song, track)), set()).add(
-                max(0, a - opl.MIDI_TO_CHIP))
+                max(0, min(CHIP_TOP_NOTE, a - opl.MIDI_TO_CHIP)))
     return usage, fallback
 
 
 # ── The event stream ─────────────────────────────────────────────────────────
 
 def sop_sequence(song: dict):
-    """Every track merged with the control track, as (tick, kind, track, a, b).
+    """Every track Note plays merged with the control track, as
+    (tick, kind, track, a, b).
 
     Inside one tick a track's own events keep file order, because a SOP sets the
     instrument, the volume and the pitch of a note in the events just before
     it — a stable sort on the tick alone is what preserves that."""
+    insts = song['instruments']
     merged = []
     for ev in song['control']:
         merged.append((ev['tick'], 0, -1, ev))
     for t, track in enumerate(song['tracks']):
+        if not track_plays(song, t):
+            continue
         for ev in track['events']:
             merged.append((ev['tick'], 1, t, ev))
     merged.sort(key=lambda m: (m[0], m[1]))
@@ -365,12 +423,90 @@ def sop_sequence(song: dict):
         elif code == 5:
             yield (tick, BEND, t, value, 0)
         elif code == 6:
-            yield (tick, PATCH, t, value, 0)
+            # §4.2: selecting a slot that holds no instrument — a comment line,
+            # or past the end of the table — loads nothing in Note, so the
+            # instrument already on the track keeps sounding.
+            if value < len(insts) and sop_patch(insts[value]) is not None:
+                yield (tick, PATCH, t, value, 0)
         elif code == 7:
             yield (tick, PAN, t, value, 0)
-        # §4.2's code 1, the special event, is not understood by anyone: seven
-        # occurrences in 2.08 million events, and nothing says what it does.  Its
-        # one-byte size is confirmed, which is all a reader needs from it.
+        # §4.2's code 1, the special event, is a sync marker for other programs,
+        # and Note's own player ignores it; so does this.
+
+
+# ── Pitch ────────────────────────────────────────────────────────────────────
+
+#: §4.2: Note's bend resolution, in steps per semitone.
+SOP_PITCH_STEPS = 25
+#: The highest chip note Note can sound; SOP pitch 107.
+CHIP_TOP_NOTE = 95
+
+
+def _sop_fnum_table():
+    """The F-number table NOTE.EXE plays a `.sop` with: 25 rows of one octave,
+    row r sounding r/25 of a semitone sharp.  It is the Ad Lib driver's integer
+    recipe run at 25 steps — each row's C scaled by (1 + 0.06 r / 25) in fixed
+    point, each semitone after it the one before times 106/100, truncated — and
+    that recipe reproduces all 300 entries of the table inside NOTE.EXE exactly.
+    The library's `SOP_FNUM_TABLE` is the same computation."""
+    table = []
+    d100 = SOP_PITCH_STEPS * 100
+    for r in range(SOP_PITCH_STEPS):
+        f8 = ((d100 + 6 * r) * 26044 * 2) // (d100 * 25)
+        v = (f8 * 16384 * 9) // (179 * 625)
+        for _s in range(12):
+            table.append((v + 4) >> 3)
+            v = (v * 106) // 100
+    return table
+
+
+SOP_FNUM_TABLE = _sop_fnum_table()
+#: Middle C, where the song's concert tuning is anchored: chip note 48, row 0.
+_C4_WORD = opl.note_word(48)
+_C4_FREQ = SOP_FNUM_TABLE[0] * (1 << 4)
+
+
+def sop_note_word(chip_note: int, pitch: int = CENTRE_PITCH) -> int:
+    """A chip note at a SOP pitch (0…200 about 100) as a Taud note word, the
+    way NOTE.EXE works it out (§4.2): the pitch, shifted right by two, picks a
+    semitone either way and one of the 25 rows, and the note plus that semitone
+    is clamped to the chip's eight octaves — so notes above SOP pitch 107 sound
+    as 107.
+
+    Middle C is anchored at concert C4, as every OPL converter here does, and
+    everything else keeps its distance from it on Note's own table: its
+    semitones are a shade wider than equal temperament and its bends move in
+    1/25 of a semitone, and a converted note lands where Note put it."""
+    t = max(0, min(200, pitch)) >> 2
+    semitone, row = 0, t - SOP_PITCH_STEPS
+    if row < 0:
+        semitone, row = -1, t
+    elif row >= SOP_PITCH_STEPS:
+        semitone, row = 1, row - SOP_PITCH_STEPS
+    n = max(0, min(CHIP_TOP_NOTE, chip_note + semitone))
+    freq = SOP_FNUM_TABLE[row * 12 + n % 12] * (1 << (n // 12))
+    return round(_C4_WORD + 4096 * math.log2(freq / _C4_FREQ))
+
+
+# ── Tempo ────────────────────────────────────────────────────────────────────
+
+#: The PC's programmable interval timer counts at this, in Hz.
+PIT_HZ = 1193182
+
+
+def sop_tempo(bpm: int, tick_beat: int) -> float:
+    """§5: the tempo NOTE.EXE really plays a SOP tempo of `bpm` at.
+
+    Note runs the timer at 4 × bpm interrupts a second, 240 to the beat, and
+    steps the song one tick every 240 ÷ tickBeat of them, in integers.  The
+    divisor rounds down, so 120 comes out at 120.04; a rate under 19 Hz cannot
+    be set and leaves the timer at 18.2 Hz, so tempos 2…4 play at about 4.55;
+    and a tickBeat that does not divide 240 runs slightly fast.  The library's
+    `sopTempo` is the same arithmetic."""
+    rate = bpm * 4
+    divisor = 65536 if rate < 19 else PIT_HZ // rate
+    per_tick = max(1, 240 // max(1, tick_beat))
+    return (PIT_HZ / divisor) / per_tick * 60.0 / max(1, tick_beat)
 
 
 # ── Grid ─────────────────────────────────────────────────────────────────────
@@ -416,17 +552,22 @@ def tempo_effect(bpm: int):
 
 # ── Panning ──────────────────────────────────────────────────────────────────
 
-#: §4.2: 0 is right, 1 is middle, 2 is left.  Three events in the corpus say 7
-#: or 9, which is rare enough to be corruption, and they go to the middle rather
-#: than being asserted on.  Taud's lane pan is the IT convention — $00 left, $80
-#: centre, $FF right — and the chip's stereo switches really are hard, so the
-#: ends of the range are the honest reading of them.
-SOP_PAN_TO_TAUD = {0: 0xFF, 2: 0x00}
-TAUD_PAN_CENTRE = 0x80
+#: §4.2: 0 is right, 1 is middle, 2 is left.  Taud's lane pan is the IT
+#: convention — $00 left, $80 centre, $FF right — and the chip's stereo
+#: switches really are hard, so the ends of the range are the honest reading.
+SOP_PAN_TO_TAUD = {0: 0xFF, 1: 0x80, 2: 0x00}
 
 
-def pan_value(value: int) -> int:
-    return SOP_PAN_TO_TAUD.get(value, TAUD_PAN_CENTRE)
+def pan_value(value: int):
+    """The Taud pan for a SOP pan value, or None for one that silences the lane.
+
+    §4.2: NOTE.EXE writes any value but 0, 1 and 2 into register 0xC0 as it
+    stands, which clears both stereo switches — every such value in the corpus
+    does — so the channel is silent until the next pan event.  (It also ORs
+    the value's low nibble into feedback and connection until the next
+    instrument, which a Taud rack cannot follow.)  Five corpus events do it;
+    in `V_1.SOP` that is the whole of track 19."""
+    return SOP_PAN_TO_TAUD.get(value)
 
 
 # ── Cells ────────────────────────────────────────────────────────────────────
@@ -448,6 +589,18 @@ class Cell:
                            (SEL_FINE << 6), self.eff, self.arg)
 
 
+#: Roles whose pitch the SOP's pitch events move: every melodic voice and the
+#: bass drum.  §4.2: in rhythm mode Note ignores pitch on the snare, tom,
+#: cymbal and hi-hat tracks.
+PITCH_ROLES = frozenset(('melodic', 'melodic4', 'bd'))
+#: Drums whose note number means nothing: the chip builds them out of bits of
+#: two accumulators.
+PITCHLESS_ROLES = frozenset(('sd', 'tc', 'hh'))
+#: The largest pitch change a fine slide can make in one row, in note-word
+#: units — just under an octave.
+FINE_SLIDE_MAX = 0xFFF
+
+
 def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
     """The whole song as {(lane, row): Cell}, plus the row count.
 
@@ -460,11 +613,16 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
     twelve-rows-a-beat grid to four and leave nowhere to write between the notes.
 
     One SOP track is likewise one Taud lane, which needs saying only because it
-    is the part that takes no work: track IS voice in this format, twenty of
-    them, and Taud has thirty-two lanes.  Nothing is allocated, shared or
-    stolen — which is not true of playing the same file on a nine-voice OPL2,
-    where 298 of the 336 corpus files ask for more melodic voices than the chip
-    has."""
+    is the part that takes no work: track IS voice in NOTE.EXE, twenty of them,
+    and Taud has thirty-two lanes.  Nothing is allocated, shared or stolen.
+
+    §4.2: a note that starts while the track's last note is still sounding is a
+    SLUR in Note — the pitch moves and the note is not struck again — so it is
+    written as a pitch slide on the sounding note, not as a note: a fine slide,
+    which lands on tick 0 as Note's does, or for a leap of an octave or more a
+    tone portamento, which does not re-trigger either.  On a drum an overlapping
+    hit makes no sound at all.  A note that starts exactly where the last one
+    ends is struck, as in Note."""
     cells = {}
     rows_of_events = {}
     for row, kind, track, a, b in seq:
@@ -474,7 +632,9 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
     volume = [DEFAULT_VOLUME] * num_voices
     bend = [CENTRE_PITCH] * num_voices
     pan = [None] * num_voices
+    muted = [False] * num_voices
     note = [None] * num_voices
+    note_patch = [None] * num_voices
     sounding = [False] * num_voices
     cur_pitch = [0] * num_voices
     written_vol = [None] * num_voices
@@ -484,6 +644,12 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
     tempo_rows = {}
     gvol_rows = {}
     last_row = 0
+    roles = [track_role(song, v) for v in range(num_voices)]
+
+    def want_pitch(v):
+        """The note word the lane's sounding note should be at now."""
+        role = roles[v]
+        return sop_note_word(note[v], bend[v] if role in PITCH_ROLES else CENTRE_PITCH)
 
     def retire(v, before_row):
         """Spend the pending note-off, unless a fresh note has overtaken it.
@@ -505,9 +671,13 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
         sounding[v] = False
         last_row = max(last_row, row)
 
-    for row in sorted(rows_of_events):
+    rows = sorted(rows_of_events)
+    i = 0
+    while i < len(rows):
+        row = rows[i]
+        i += 1
         events = rows_of_events[row]
-        trigger = [None] * num_voices          # (chip note, instrument index)
+        trigger = [None] * num_voices          # (chip note, instrument index, length)
         vol_changed = [False] * num_voices
         bend_changed = [False] * num_voices
         pan_changed = [False] * num_voices
@@ -529,76 +699,113 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
                 bend[track] = a
                 bend_changed[track] = True
             elif kind == PAN:
-                pan[track] = pan_value(a)
+                p = pan_value(a)
+                if (p is None) != muted[track]:
+                    muted[track] = p is None
+                    vol_changed[track] = True
+                if p is not None:
+                    pan[track] = p
                 pan_changed[track] = True
             elif kind == NOTE_ON:
                 trigger[track] = (max(0, a - opl.MIDI_TO_CHIP), patch[track], b)
 
         for v in range(num_voices):
+            role = roles[v]
+            slur = False
             if trigger[v] is not None:
-                retire(v, row)
+                chip_note, idx, length = trigger[v]
+                # §4.2: this track's own note still sounding makes the new one a
+                # slur.  A change of instrument between the two is struck
+                # instead: Note would load the new instrument under the held key,
+                # and a Taud rack cannot be swapped without striking it.
+                slur = (sounding[v] and off_row[v] is not None and off_row[v] > row
+                        and idx == note_patch[v])
+                if slur:
+                    off_row[v] = row + max(1, length)
+                    if role not in PITCHLESS_ROLES:
+                        note[v] = chip_note
+                else:
+                    retire(v, row)
+            pitch_due = (sounding[v] and note[v] is not None and role not in PITCHLESS_ROLES
+                         and want_pitch(v) != cur_pitch[v])
+            pan_due = pan[v] is not None and written_pan[v] != pan[v]
             if trigger[v] is None and not vol_changed[v] and not bend_changed[v] \
-                    and not pan_changed[v] and off_row[v] != row:
+                    and not pan_changed[v] and off_row[v] != row \
+                    and not pitch_due and not pan_due:
                 continue
             cell = cells.setdefault((v, row), Cell())
-            role = track_role(song, v)
-            if trigger[v] is not None:
+            if trigger[v] is not None and not slur:
                 chip_note, idx, length = trigger[v]
                 slot = slot_of.get((idx, role), 0)
                 if slot:
-                    if role in ('sd', 'tc', 'hh'):
-                        # Pitchless: the chip builds these three out of bits of
-                        # two accumulators, so their note number means nothing.
+                    if role in PITCHLESS_ROLES:
                         cell.note = opl.TAUD_C4
+                        note[v] = None
                     else:
-                        cell.note = opl.note_word_bent(chip_note, bend_offset(bend[v]))
+                        note[v] = chip_note
+                        cell.note = want_pitch(v)
                     cell.inst = slot
                     cur_pitch[v] = cell.note
-                    note[v] = chip_note
+                    note_patch[v] = idx
                     sounding[v] = True
                     off_row[v] = row + max(1, length)
                 else:
-                    # §4.2 and §6: the instrument selected is a comment line or
-                    # past the end of the table, so nothing sounds — and nothing
-                    # should go on sliding the pitch of the note this one
-                    # replaced, either.
+                    # No instrument at all on this track yet: nothing sounds,
+                    # and nothing should go on sliding the note before it.
                     sounding[v] = False
                     note[v] = None
             elif off_row[v] == row:
                 retire(v, row)
 
             level = level_of.get((patch[v], role), 0)
-            vol = volume_column(volume[v], level)
-            if vol_changed[v] or trigger[v] is not None:
+            vol = 0 if muted[v] else volume_column(volume[v], level)
+            if vol_changed[v] or (trigger[v] is not None and not slur):
                 if written_vol[v] != vol or trigger[v] is not None:
                     cell.vol_sel = SEL_SET
                     cell.vol_val = vol
                     written_vol[v] = vol
 
-            # Panning is the LANE's, not the note's: a SOP sets it per track and
-            # it survives every note after it, which is exactly what `S $80xx`
-            # means and what the panning column does not.  It gets the effect
-            # column ahead of a pitch slide because it is rare — 114 619 panning
-            # events in the corpus against 1.19 million pitch ones — and because
-            # a slide that misses its row is retried on the next one.
-            if pan[v] is not None and written_pan[v] != pan[v]:
-                written_pan[v] = pan[v]
-                cell.eff, cell.arg = TOP_S, 0x8000 | pan[v]
-
             # §4.2's pitch is a ±100 offset about 100, one semitone either way,
-            # and it is followed with FINE pitch slides, which fire once on tick
-            # 0 — so the pitch is exact at every row boundary, and what is lost
-            # is only the shape between two rows.
-            if trigger[v] is None and sounding[v] and note[v] is not None \
-                    and role not in ('sd', 'tc', 'hh'):
-                want = opl.note_word_bent(note[v], bend_offset(bend[v]))
+            # and a slur moves it a whole interval.  Both are followed with FINE
+            # pitch slides, which fire once on tick 0 — so the pitch is exact at
+            # every row boundary, and what is lost is only the shape between two
+            # rows.  A leap too wide for one fine slide is a tone portamento to
+            # the new note, which reaches it on the next tick without striking.
+            # Pitch has the effect column ahead of panning, because a late pitch
+            # is heard and a late pan barely is; whichever loses is retried on
+            # the lane's next row.
+            if sounding[v] and note[v] is not None and role not in PITCHLESS_ROLES \
+                    and cell.note in (NOTE_NOP, NOTE_KEYOFF) and cell.eff == TOP_NONE:
+                want = want_pitch(v)
                 delta = want - cur_pitch[v]
-                if delta and cell.eff == TOP_NONE:
-                    step = min(0xFFF, abs(delta))
+                if cell.note == NOTE_NOP and abs(delta) > FINE_SLIDE_MAX:
+                    cell.note = want
+                    cell.eff, cell.arg = TOP_G, 0xFFFF
+                    cur_pitch[v] = want
+                elif delta:
+                    step = min(FINE_SLIDE_MAX, abs(delta))
                     cell.eff = TOP_F if delta > 0 else TOP_E
                     cell.arg = 0xF000 | step
                     cur_pitch[v] += step if delta > 0 else -step
+
+            # Panning is the LANE's, not the note's: a SOP sets it per track and
+            # it survives every note after it, which is exactly what `S $80xx`
+            # means and what the panning column does not.
+            if pan[v] is not None and written_pan[v] != pan[v] and cell.eff == TOP_NONE:
+                written_pan[v] = pan[v]
+                cell.eff, cell.arg = TOP_S, 0x8000 | pan[v]
         last_row = max(last_row, row)
+
+        # A slide or a pan that lost its row for want of an effect column is
+        # retried on the next row, whether or not that row has events of its own.
+        nxt = row + 1
+        if nxt not in rows_of_events and any(
+                (pan[v] is not None and written_pan[v] != pan[v]) or
+                (sounding[v] and note[v] is not None and roles[v] not in PITCHLESS_ROLES
+                 and want_pitch(v) != cur_pitch[v])
+                for v in range(num_voices)):
+            rows_of_events[nxt] = []
+            rows.insert(i, nxt)
 
     for v in range(num_voices):                       # the last note still rings
         retire(v, math.inf)
@@ -610,7 +817,7 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
         writes = []
         if row in tempo_rows:
             new_speed, new_bpm = speed_bpm_for(
-                row_seconds(song, tempo_rows[row]))
+                row_seconds(song, sop_tempo(tempo_rows[row], song['tick_beat'])))
             if new_speed != cur_speed:
                 writes.append((TOP_A, (new_speed & 0xFF) << 8))
             if new_bpm != cur_bpm:
@@ -629,11 +836,6 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
                    f"{len(writes)} playhead command(s)")
         last_row = max(last_row, row)
     return cells, last_row + 1
-
-
-def bend_offset(pitch: int) -> int:
-    """§4.2's 0…200 about a centre of 100, in 1/256 semitones."""
-    return round((max(0, min(200, pitch)) - CENTRE_PITCH) * PITCH_TO_256THS)
 
 
 def global_volume(value: int) -> int:
@@ -689,31 +891,29 @@ def cue_rows_for(rows_per_bar: int) -> int:
 
 
 def used_tracks(song: dict) -> int:
-    """How many lanes the song needs: one past the last track carrying events.
-
-    §2: a channel mode of 0 does NOT mean the track is empty — 68 tracks marked
-    0 carry events — so the mode table is the wrong thing to ask.  The events
-    are the right thing."""
+    """How many lanes the song needs: one past the last track Note plays that
+    carries events.  §2: a mode-0 track can hold events and still be silent in
+    Note, so both the mode and the events have to be asked."""
     last = -1
     for t, track in enumerate(song['tracks']):
-        if track['events']:
+        if track['events'] and track_plays(song, t):
             last = t
     return max(1, min(NUM_VOICES, last + 1))
 
 
 def initial_tempo(song: dict) -> float:
-    """§1: `basicTempo` is not the tempo.  The control track sets it, and every
-    one of the 334 files with a non-empty control track carries at least one
-    tempo event; `basicTempo` only decides the two files whose control track is
-    empty.  A tempo already in force at tick 0 belongs in the song header rather
-    than in a cell, so it is taken out of the stream here."""
-    tempo = song['basic_tempo']
+    """§1, §5: `basicTempo` is not the tempo — Note writes 120 into it and never
+    reads it back, and starts every song at 120.  The control track sets
+    anything else.  A tempo already in force at tick 0 belongs in the song header
+    rather than in a cell, so it is taken out of the stream here.  What comes
+    back is what Note's timer makes of it (`sop_tempo`)."""
+    tempo = NOTE_START_TEMPO
     for ev in song['control']:
         if ev['tick'] > 0:
             break
         if ev['code'] == 3:
             tempo = ev['value']               # a later one at tick 0 still wins
-    return tempo
+    return sop_tempo(tempo, song['tick_beat'])
 
 
 def initial_global_volume(song: dict) -> int:
@@ -750,17 +950,15 @@ def assemble_taud(song, *, mixing_vol=DEFAULT_MIXING_VOL, max_bands=4,
     for key in sorted(usage):
         idx, role = key
         inst = song['instruments'][idx] if idx < len(song['instruments']) else None
-        patch = sop_patch(inst) if inst else None
+        patch = patch_for(inst, role)
         if patch is None and idx not in silent:
+            # `sop_sequence` has already dropped selections of empty slots
+            # (§4.2), so this is only reachable through a default instrument
+            # that is not one — kept as a guard rather than relied on.
             silent.add(idx)
-            # §4.2: an instrument index can exceed nInsts — 324 selections
-            # across 7 files, one of them asking for index 119 out of 20 — and
-            # it can also land on a comment record (§6), which shares the table
-            # with the instruments and is nine times as numerous.  A player must
-            # survive both, and this is what surviving them sounds like.
             what = 'a comment line' if inst else 'past the end of the table'
             vprint(f"  warning: instrument {idx} is {what}; silent slot")
-        entries.append({'patch': patch, 'kind': role, 'notes': sorted(usage[key]),
+        entries.append({'patch': patch, 'kind': rack_kind(role), 'notes': sorted(usage[key]),
                         'name': (patch.name if patch else '') or f'inst {idx}'})
         keys.append(key)
     if len(entries) > opl.MAIN_SLOTS:
