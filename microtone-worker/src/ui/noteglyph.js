@@ -17,6 +17,7 @@ import { paintNoteCell, NOTE_CELL_CHARS } from "./glyphs.js";
 import { rangeBoundsOpen } from "./notenames.js";
 import { canvasFont } from "./fonts.js";
 import { themeColors } from "./theme.js";
+import { uiDpr } from "./zoom.js";
 
 const FONT_PX = 13;
 export const NOTE_GLYPH_CHAR_W = 9;
@@ -29,7 +30,7 @@ export const NOTE_GLYPH_H = 20;
  * it lands in.
  */
 export function noteRunCanvas(items, preset) {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = uiDpr();
   const cv = document.createElement("canvas");
   cv.className = "note-glyph";
 

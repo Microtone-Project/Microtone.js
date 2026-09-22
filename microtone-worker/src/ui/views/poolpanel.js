@@ -20,6 +20,7 @@ import { unescapeName } from "../names.js";
 import { poolMap, claimsIn, POOL_SIZE } from "../../doc/poolmap.js";
 import { TOTAL_VOICES } from "../../engine/constants.js";
 import { t } from "../i18n.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 const PAD_X = 4;
 const CAP_H = 13;      // caption line above a band
@@ -230,8 +231,8 @@ export class PoolPanel {
   }
 
   pointerMove(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const hit = this.hitTest(e.clientX - rect.left, e.clientY - rect.top);
+    const p = localPoint(this.canvas, e);
+    const hit = this.hitTest(p.x, p.y);
     if (!hit) { this.setHover(null); return; }
     if (hit.claim) {
       const c = hit.claim;
@@ -263,8 +264,8 @@ export class PoolPanel {
   }
 
   pointerDown(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const hit = this.hitTest(e.clientX - rect.left, e.clientY - rect.top);
+    const p = localPoint(this.canvas, e);
+    const hit = this.hitTest(p.x, p.y);
     if (hit?.claim) this.onSelect?.(hit.claim.index);
   }
 
@@ -311,7 +312,7 @@ export class PoolPanel {
   draw() {
     if (!this.map) return;
     const C = themeColors();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(320, this.wrap.clientWidth || this.root.clientWidth || 640);
     const { bands, height } = this.layout(w);
     this.bands = bands;
@@ -510,7 +511,7 @@ export class PoolPanel {
     const audio = this.store.audio;
     const ctx = this.overlay.getContext("2d");
     if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
     if (!audio || !this.map) return;

@@ -4,6 +4,36 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-22
+
+The Timeline can draw the shape of a melody behind the notes, so a part reads as a line rather than as a column of letters.
+
+- **Turn it on with *Pitch* in the toolbox**, above the Timeline and the Patterns view. It is off by default, and it changes nothing about what you have written — it only draws. Once you turn it on it stays on, in this browser.
+- **Every sounding note gets a tick on a two-octave scale, and the ticks are joined up.** The scale runs an octave (or, in a non-octave tuning, a period) either side of the register the part is sitting in, so ordinary melodic motion never runs off the end of it and the line you see is the shape you wrote.
+- **It follows slides and portamentos.** Rows whose note column says nothing still get their tick, so `G` between two notes draws the curve you hear instead of a straight line between its ends — and a row repeated by a pattern ditto is plotted like the note it repeats. The Ghosts switch does not change any of this; the shape stays true whether or not the grey values are printed.
+- **An arpeggio draws all three of its pitches**, as a short bar spanning them with a mark at each, and the contour runs through the one the row is rooted on — because a row playing a chord should not look like a row playing a note.
+- **A coloured tab in each cell's left margin names the register.** It runs along a spectrum — blue at the bottom of the keyboard, green through the middle, yellow at the top — so you can tell a bass part from a lead at a glance, right across the screen. The shades are spaced by how far apart the eye can really tell them, rather than by dividing the spectrum evenly, so neighbouring registers never run together.
+- **The contour is drawn in rose**, a colour nothing else in those cells wears, so it reads as something laid over the notes rather than as part of them.
+- **The tab only changes colour when the music really moves register.** Stepping from B up to C does not recolour anything; a leap of more than an octave does, and that is where the contour breaks too, because the scale underneath it has moved.
+- **It follows the song's tuning.** In Bohlen-Pierce the window is a tritave wide, not an octave, and the tab counts periods rather than octaves.
+
+Each lane header now shows the lane's own volume and position, so you can see what an effect twenty rows back left behind.
+
+- **Two extra cells under the meters**: the lane volume as `M` `$xx00`, and the lane's position as the command your song's panning model uses — `S` `$8aaa` in stereo and planar songs, `X` `$eeaa` in spatial ones, where it carries the height as well.
+- **A lane nobody has touched stays grey**, so the ones that have been moved are the ones that catch your eye.
+- **The meters gained matching marks**: a notch on the VU showing the ceiling the lane volume sets, and a tick on the pan strip showing where the lane sits before the note's own panning offsets it.
+- **Both keep reading while the lane is silent**, which is the point — a lane's volume and position outlive the notes that were playing when they were set.
+
+The whole interface can be zoomed from the top bar.
+
+- **A `−` 100% `+` control sits beside the language button.** Click the figure to go back to 100%, or roll the wheel over it. Your choice is remembered.
+- **The grids stay sharp at every size** — they are redrawn at the new scale rather than magnified — and clicking still lands on the cell you aimed at.
+
+The File tab is quicker to get around.
+
+- **Click a project's name to open it.** The name underlines and turns amber under the pointer; the Open button beside it still works exactly as before.
+- **Download all** puts every project stored in this browser into a single dated ZIP — the backup the browser's own storage does not give you. Anything unsaved is not in it, so save first.
+
 ## 2026-09-18
 
 `.sop` files now open in Microtone, and the IyagiMusic player's **Remix in Microtone** button works for them.

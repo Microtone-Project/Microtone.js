@@ -53,9 +53,16 @@ export class FilesView {
     setIconLabel(exportBtn, "download", t("files.export"), { after: true });
     const wavBtn = mkBtn(t("files.exportWav"), () => this.exportWav());
     const stemsBtn = mkBtn(t("files.exportStems"), () => this.exportStems());
+    // …and the one action that is about the DISK rather than the document
+    // (item 198.2): every project in this browser, in one archive. Enabled
+    // below, once the listing says there is something to put in it.
+    const allBtn = mkBtn("", () => this.downloadAll());
+    setIconLabel(allBtn, "download", t("files.downloadAll"), { after: true });
+    allBtn.title = t("files.downloadAllTitle");
+    allBtn.disabled = true;
     // doc-scoped actions grey out until something is loaded
     for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn]) b.disabled = !doc;
-    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn);
+    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, allBtn);
     this.root.appendChild(bar);
 
     if (!ok) {
@@ -65,6 +72,7 @@ export class FilesView {
       this.root.appendChild(warn);
     } else {
       const entries = await opfs.list();
+      allBtn.disabled = entries.length === 0;
       const table = document.createElement("table");
       table.className = "files-table";
       table.innerHTML =
@@ -79,18 +87,28 @@ export class FilesView {
       for (const e of entries) {
         const tr = document.createElement("tr");
         const current = e.name === this.store.fileName;
-        tr.innerHTML =
-          `<td class="${current ? "files-current" : ""}">${escapeHtml(e.name)}</td>` +
+        const open = async () => {
+          await this.cb.openBytes(e.name, await opfs.read(e.name));
+          this.refresh();
+        };
+        // The name IS the Open control (item 198.1) — a list of files invites a
+        // click on the file, and the row's Open button had been the only thing
+        // that answered one. A <button> rather than a styled <td>, so it keeps
+        // the keyboard and the screen reader the button already gave.
+        const nameTd = document.createElement("td");
+        const nameBtn = mkBtn(e.name, open);
+        nameBtn.className = "files-name" + (current ? " files-current" : "");
+        nameBtn.title = t("files.openTitle", { name: e.name });
+        nameTd.appendChild(nameBtn);
+        tr.appendChild(nameTd);
+        tr.insertAdjacentHTML("beforeend",
           `<td>${(e.size / 1024).toFixed(1)} K</td>` +
-          `<td>${new Date(e.mtime).toLocaleString()}</td>`;
+          `<td>${new Date(e.mtime).toLocaleString()}</td>`);
         const td = document.createElement("td");
         const renameBtn = iconBtn("rename", () => this.rename(e.name));
         renameBtn.title = t("common.rename");
         td.append(
-          mkBtn(t("files.open"), async () => {
-            await this.cb.openBytes(e.name, await opfs.read(e.name));
-            this.refresh();
-          }),
+          mkBtn(t("files.open"), open),
           renameBtn,
           iconBtn("download", async () => download(await opfs.read(e.name), e.name)),
           iconBtn("close", async () => {
@@ -184,6 +202,41 @@ export class FilesView {
     const { doc, fileName } = this.cb.currentDoc();
     if (!doc) return;
     download(doc.toBytes(), fileName ?? "untitled.taud");
+  }
+
+  /**
+   * Every project in OPFS, zipped (item 198.2) — the backup the browser's own
+   * storage does not give you. Bytes go in VERBATIM: a .taud is already a
+   * compressed container, so the archive is stored rather than deflated and
+   * costs a copy rather than a re-encode.
+   *
+   * Read one file at a time with a yield between, so a disk holding a hundred
+   * projects still paints its progress bar; the unsaved document in memory is
+   * NOT included — Save first, or use Export for that one.
+   */
+  async downloadAll() {
+    const entries = await opfs.list();
+    if (entries.length === 0) return;
+    const progress = showProgress(t("files.zipAll", { n: entries.length }), { cancellable: true });
+    const zip = new StemZip();
+    let chunks;
+    try {
+      for (let i = 0; i < entries.length; i++) {
+        if (progress.signal.aborted) { progress.done(); return; }
+        zip.addFile(entries[i].name, await opfs.read(entries[i].name));
+        progress.set((i + 1) / entries.length);
+        await new Promise((r) => setTimeout(r, 0)); // let the bar paint
+      }
+      chunks = zip.finish();
+    } catch (err) {
+      progress.fail(err.message ?? String(err));
+      console.error("Project archive failed:", err);
+      return;
+    }
+    progress.done();
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadBlob(new Blob(chunks, { type: "application/zip" }),
+      `microtone-projects-${stamp}.zip`);
   }
 
   /**

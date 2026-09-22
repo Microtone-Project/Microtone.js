@@ -12,6 +12,7 @@ import {
   SNAP_INTERRUPT_MASK, SNAP_CHANNEL_COUNT, SNAP_HEADER_SIZE,
   SNAP_V_ACTIVE, SNAP_V_EFF_VOL, SNAP_V_EFF_PAN, SNAP_V_NOTE, SNAP_V_INST,
   SNAP_V_AZIMUTH, SNAP_V_ELEVATION,
+  SNAP_V_CHAN_VOL, SNAP_V_CHAN_AZ, SNAP_V_CHAN_EL,
   SNAP_V_SAMPLE_POS, SNAP_V_SAMPLE_PTR, SNAP_V_SAMPLE_LEN,
   SNAP_V_ENV_VOL_IDX, SNAP_V_ENV_VOL_TIME, SNAP_V_ENV_PAN_IDX, SNAP_V_ENV_PAN_TIME,
   SNAP_V_ENV_PITCH_IDX, SNAP_V_ENV_PITCH_TIME, SNAP_V_ENV_FILTER_IDX, SNAP_V_ENV_FILTER_TIME,
@@ -495,6 +496,19 @@ export class AudioSystem {
    *  its pan byte on the front arc and zero elevation. */
   getVoiceAzimuth(vi) { return this._v(vi, SNAP_V_AZIMUTH); }
   getVoiceElevation(vi) { return this._v(vi, SNAP_V_ELEVATION); }
+
+  /**
+   * Item 198.3 — the LANE axis, which is a different question from the three
+   * readings above. Those say where the sounding note ended up; these say what
+   * the pattern's own `M $xx00` and `S $8aaa` / `X $eeaa` left on the lane, and
+   * they keep saying it while the lane is silent, because the lane does.
+   */
+  getVoiceChannelVolume(vi) { return this._v(vi, SNAP_V_CHAN_VOL); }
+  /** `S $8aaa`'s `aaa`: the pan byte in a stereo song, the 512-unit azimuth in
+   *  a planar or spatial one. */
+  getVoiceChannelAzimuth(vi) { return this._v(vi, SNAP_V_CHAN_AZ); }
+  /** `X $eeaa`'s `ee` — signed, 128 units = 90°. Always 0 unless the song is spatial. */
+  getVoiceChannelElevation(vi) { return this._v(vi, SNAP_V_CHAN_EL); }
 
   /** Song global volume as the ENGINE currently has it (0..255) — effects V and
    *  W move it while the song plays, which is what the master fader follows. */

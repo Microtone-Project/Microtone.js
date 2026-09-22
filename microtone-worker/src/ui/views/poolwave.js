@@ -28,6 +28,7 @@ import { u8ToFloat } from "../../doc/wavelab.js";
 import { SamplePreview } from "../samplepreview.js";
 import { TOTAL_VOICES } from "../../engine/constants.js";
 import { t } from "../i18n.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 /** Waveform height of one line, the claim ribbon under it, and the gap. The
  *  ribbon is deep enough to hold a NUMBER: drawn as a five-pixel underline it
@@ -301,9 +302,9 @@ export class PoolWave {
 
   /** The pool byte under a pointer event, or -1 when it is off the trace. */
   byteAtEvent(e) {
-    const r = this.overlay.getBoundingClientRect();
-    const x = e.clientX - r.left - GUTTER_W;
-    const y = e.clientY - r.top;
+    const p = localPoint(this.overlay, e);
+    const x = p.x - GUTTER_W;
+    const y = p.y;
     const w = this.waveWidth();
     if (x < 0 || x > w) return -1;
     const row = this.topRow() + Math.floor(y / ROW_H);
@@ -561,7 +562,7 @@ export class PoolWave {
    *  offset — the spacer owns the height, so a pool 30 000 lines tall costs
    *  one screen of pixels. */
   sizeCanvases() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = GUTTER_W + this.waveWidth();
     const visible = Math.min(this.rows - this.topRow(), Math.ceil(this.viewH() / ROW_H) + 1);
     const h = Math.max(ROW_H, visible * ROW_H);
@@ -767,7 +768,7 @@ export class PoolWave {
   drawOverlay() {
     const ctx = this.overlay.getContext("2d");
     if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
     const C = themeColors();

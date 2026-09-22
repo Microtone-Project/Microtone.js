@@ -246,6 +246,7 @@ export class SplitView {
     const r = this.host.getBoundingClientRect();
     const span = this.stacked ? r.height : r.width;
     if (span <= 0) return;
+    // Ratio against the same rect, so the UI zoom cancels (see zoom.js).
     const at = this.stacked ? e.clientY - r.top : e.clientX - r.left;
     this.ratio = Math.min(Math.max(at / span, MIN_RATIO), 1 - MIN_RATIO);
     this._layout();

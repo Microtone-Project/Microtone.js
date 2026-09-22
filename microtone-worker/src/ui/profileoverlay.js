@@ -8,6 +8,8 @@
 // help — or the surrounding OVERHEAD (resample / snapshot / messaging), where
 // it would not. profileVerdict() is pure so it can be unit-tested in Node.
 
+import { toLayout } from "./zoom.js";
+
 // Sustained mean load above this fraction of real time = little headroom.
 export const PF_LOAD_WARN = 0.7;
 // Mean load at/above this while glitching = genuine throughput saturation
@@ -157,8 +159,8 @@ export function createProfileOverlay() {
   title.addEventListener("pointerdown", (e) => {
     if (closeBtn.contains(e.target)) return; // let the close button click through
     const r = el.getBoundingClientRect();
-    el.style.left = r.left + "px";
-    el.style.top = r.top + "px";
+    el.style.left = toLayout(r.left) + "px";
+    el.style.top = toLayout(r.top) + "px";
     el.style.right = "auto";
     el.style.bottom = "auto";
     startX = e.clientX; startY = e.clientY;

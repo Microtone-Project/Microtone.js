@@ -19,6 +19,7 @@ import {
   SNAP_VOICE_STRIDE, SNAP_MAX_VOICES, SNAP_GLOBAL_VOLUME,
   SNAP_V_FUNK_WINDOW, SNAP_V_FUNK_POS, SNAP_V_FUNK_LEN, SNAP_V_FUNK_MODE,
   SNAP_V_MOD_FUNK_WINDOW,
+  SNAP_V_CHAN_VOL, SNAP_V_CHAN_AZ, SNAP_V_CHAN_EL,
   SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD,
   SNAP_AN_CORR_LL, SNAP_AN_CORR_RR, SNAP_AN_CORR_LR, SNAP_AN_RING_WRITE,
   SNAP_METER_BASE, SNAP_METER_STRIDE,
@@ -34,7 +35,7 @@ import {
   SNAP_MM_HIST_ENTROPY,
 } from "./protocol.js";
 import {
-  SURROUND_STEREO, foldAzimuthToPan, displayPanByte, displayAngles,
+  SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, displayPanByte, displayAngles,
 } from "../engine/spatial.js";
 import { ANALYSIS_MAX_METERS, makeAnalysisReadout } from "../engine/analysis.js";
 import { makeMasterMeterReadout } from "../engine/loudness.js";
@@ -222,6 +223,13 @@ export function fillSnapshotInto(eng, playhead, f) {
       f[o + SNAP_V_FUNK_POS] = -1;
       f[o + SNAP_V_MOD_FUNK_WINDOW] = -1;
     }
+    // The LANE axis (item 198.3) — outside the active/inactive split on
+    // purpose. `M`'s volume and `S $8aaa` / `X $eeaa`'s position belong to the
+    // lane, not to whatever is sounding on it, and they are exactly what the
+    // Timeline's headers are for: state a row set once, twenty rows ago.
+    f[o + SNAP_V_CHAN_VOL] = v.channelVolume;
+    f[o + SNAP_V_CHAN_AZ] = ts.surroundModel === SURROUND_STEREO ? v.channelPan : v.panAzimuth;
+    f[o + SNAP_V_CHAN_EL] = ts.surroundModel === SURROUND_SPATIAL ? v.panElevation : 0;
   }
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);

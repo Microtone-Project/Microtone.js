@@ -9,6 +9,7 @@
 // targets the dialog itself, which is the outside-click dismissal.
 
 import { t } from "../i18n.js";
+import { toLayout } from "../zoom.js";
 
 const MARGIN = 6; // keep the menu this far from the viewport edge
 
@@ -145,11 +146,14 @@ export function showContextMenu(x, y, groups, opts = {}) {
     if (opts.keyboard) dlg.dataset.keyboard = "1"; // provenance, for the tests to read
     // Place it only once it has been laid out, so the flip is measured against
     // the real box: prefer down-right of the pointer, flip at the edges.
+    // `x`/`y` and the measured box are CLIENT pixels; `left`/`top` are the
+    // dialog's own LAYOUT pixels, which the UI zoom scales. Clamp against the
+    // viewport in client space, then convert the answer once (item 198.4).
     const box = dlg.getBoundingClientRect();
     const maxX = window.innerWidth - box.width - MARGIN;
     const maxY = window.innerHeight - box.height - MARGIN;
-    dlg.style.left = `${Math.max(MARGIN, Math.min(x, maxX))}px`;
-    dlg.style.top = `${Math.max(MARGIN, Math.min(y, maxY))}px`;
+    dlg.style.left = `${toLayout(Math.max(MARGIN, Math.min(x, maxX)))}px`;
+    dlg.style.top = `${toLayout(Math.max(MARGIN, Math.min(y, maxY)))}px`;
     // Where the one highlight starts. Normally the first cell — the menu is
     // anchored by its top-left CORNER, so (x, y) is its padding and not a cell.
     // But near a viewport edge the box flips back over the pointer, and then

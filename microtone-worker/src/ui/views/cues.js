@@ -23,6 +23,7 @@ import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
 import { unescapeName } from "../names.js";
 import { t } from "../i18n.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 const FONT_PX = 13; // family comes from --cv-font via fonts.js
 const CHAR_W = 7.9;
@@ -121,7 +122,7 @@ export class CuesView {
 
   resize() {
     const host = this.canvas.parentElement;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     this.canvas.width = Math.max(100, host.clientWidth * dpr);
     this.canvas.height = Math.max(100, host.clientHeight * dpr);
     this.canvas.style.width = host.clientWidth + "px";
@@ -181,9 +182,7 @@ export class CuesView {
     // Primary button only — the secondary one opens the context menu, and must
     // not move the cursor or drop the selection the menu is about to act on.
     if (e.button !== 0) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.canvas, e);
     if (longPressable(e)) this.hold.start(e, x, y, this.holdRect(x, y));
     if (y < HEADER_H) return;
     const cue = this.scrollCue + Math.floor((y - HEADER_H) / ROW_H);
@@ -214,13 +213,11 @@ export class CuesView {
 
   onPointerMove(e) {
     if (this.hold.active) {
-      const r = this.canvas.getBoundingClientRect();
-      this.hold.moved(e, e.clientX - r.left, e.clientY - r.top);
+      const p = localPoint(this.canvas, e);
+      this.hold.moved(e, p.x, p.y);
     }
     if (!this._drag) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.canvas, e);
     const cue = clampInt(this.scrollCue + Math.floor((y - HEADER_H) / ROW_H), 0, this.editRows() - 1);
     const col = this.hitCol(x);
     const d = this._drag;
@@ -565,9 +562,7 @@ export class CuesView {
     e.preventDefault();
     const store = this.store;
     if (!store.doc || !store.song) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.canvas, e);
     if (y < HEADER_H) return;
     const col = this.hitCol(x);
     if (col < 0) return; // the gutter

@@ -32,6 +32,7 @@ import {
 } from "../units.js";
 import { mapSpinner } from "../widgets/spinner.js";
 import { t } from "../i18n.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 // Fraction of the env plot width the time axis uses (item 37 headroom rule,
 // same constant as the base-instrument envelope tabs).
@@ -321,7 +322,7 @@ export class AdvancedZoneEditor {
   drawMap() {
     const canvas = this.mapCanvas;
     if (!canvas || !canvas.isConnected) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(240, canvas.parentElement.clientWidth - 2);
     const h = 170;
     canvas.width = w * dpr;
@@ -403,10 +404,8 @@ export class AdvancedZoneEditor {
   }
 
   mapClick(e) {
-    const rect = this.mapCanvas.getBoundingClientRect();
     const g = this.mapGeom();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.mapCanvas, e);
     const patches = this.patches();
     let hit = patches.length; // base backdrop
     for (let i = 0; i < patches.length; i++) {
@@ -933,7 +932,7 @@ export class AdvancedZoneEditor {
     if (!env) return;
     const { canvas, kind } = this.envCanvas;
     const p = this.patches()[this.selIdx];
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(240, canvas.parentElement.clientWidth - 2);
     const h = 180;
     canvas.width = w * dpr;
@@ -1016,8 +1015,7 @@ export class AdvancedZoneEditor {
 
   envHit(e) {
     const env = this.curEnv();
-    const rect = this.envCanvas.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+    const x = localPoint(this.envCanvas.canvas, e).x;
     const { w, times, total } = this.envGeometry(env);
     const active = envActiveCount(env);
     let best = -1, bestD = 12;
@@ -1043,14 +1041,13 @@ export class AdvancedZoneEditor {
     const env = this.curEnv();
     if (!env) return;
     const { canvas, kind } = this.envCanvas;
-    const rect = canvas.getBoundingClientRect();
     const h = canvas.clientHeight;
     const idx = this.dragState.idx;
-    const v = clampN(Math.round(((h - 14 - (e.clientY - rect.top)) / (h - 28)) * kind.max), 0, kind.max);
+    const { x, y } = localPoint(canvas, e);
+    const v = clampN(Math.round(((h - 14 - y) / (h - 28)) * kind.max), 0, kind.max);
     let prevOffset;
     if (idx > 0) {
       const { w, times, total } = this.envGeometry(env);
-      const x = e.clientX - rect.left;
       // headroom rule (item 37): frac may exceed 1 up to 1/ENV_TIME_FRAC so the
       // last node can be dragged rightwards to extend the envelope
       const frac = clampN((x - 10) / ((w - 20) * ENV_TIME_FRAC), 0, 1 / ENV_TIME_FRAC);
@@ -1085,7 +1082,7 @@ export class AdvancedZoneEditor {
   drawWave() {
     const canvas = this.waveCanvas;
     if (!canvas || !canvas.isConnected) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(240, canvas.parentElement.clientWidth - 2);
     const h = 140;
     canvas.width = w * dpr;

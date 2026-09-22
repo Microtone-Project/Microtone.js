@@ -35,6 +35,7 @@ import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { PoolPanel } from "./poolpanel.js";
 import { PoolWave } from "./poolwave.js";
+import { uiDpr } from "../zoom.js";
 
 /** The map view (item 175.1) is off by default and remembered per browser —
  *  the same treatment the memory panel's toggle gets. */
@@ -651,6 +652,7 @@ export class SamplesView {
     if (!s || !s.len) return;
     const r = this.canvas.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return;
+    // Ratio against the same rect, so the UI zoom cancels (see zoom.js).
     const byte = Math.floor(((e.clientX - r.left) / r.width) * s.len);
     const lanes = sampleSpans(s).length;
     const lane = Math.min(lanes - 1, Math.max(0,
@@ -787,7 +789,7 @@ export class SamplesView {
   drawWave() {
     const s = this.list[this.selected];
     const doc = this.store.doc;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(100, this.right.clientWidth - 20);
     // One FULL lane per channel: a stereo sample gets a canvas twice as tall
     // rather than two half-height lanes — the view has the room, and squeezing

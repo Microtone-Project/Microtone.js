@@ -41,8 +41,12 @@ import {
   blockToolItems, runBlockTool, isBlockTool,
   volumeDialog, panDialog, transposeDialog, instrumentDialog, transposePresetFor,
 } from "../blocktools.js";
+import {
+  plotSeries, plotGeometry, paintPitchPlot, arpOffsets, PLOT_CHARS,
+} from "../pitchplot.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 const FONT_PX = 14; // family comes from --cv-font via fonts.js
 const CHAR_W = 8.5;
@@ -190,8 +194,8 @@ class PatternPane {
       const hit = this.hitTest(e);
       if (!hit) return;
       if (longPressable(e)) {
-        const r = this.canvas.getBoundingClientRect();
-        this.hold.start(e, e.clientX - r.left, e.clientY - r.top, this.holdRect(hit));
+        const p = localPoint(this.canvas, e);
+        this.hold.start(e, p.x, p.y, this.holdRect(hit));
       }
       this.container.setActivePane(this); // clicking a column focuses it
       if (e.shiftKey) {
@@ -211,8 +215,8 @@ class PatternPane {
     });
     this.canvas.addEventListener("pointermove", (e) => {
       if (this.hold.active) {
-        const r = this.canvas.getBoundingClientRect();
-        this.hold.moved(e, e.clientX - r.left, e.clientY - r.top);
+        const p = localPoint(this.canvas, e);
+        this.hold.moved(e, p.x, p.y);
       }
       if (this._drag === null) return;
       const hit = this.hitTest(e);
@@ -739,9 +743,7 @@ class PatternPane {
   }
 
   hitTest(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.canvas, e);
     const row = this.scrollRow + Math.floor(y / ROW_H);
     if (row < 0 || row > 63 || x < GUTTER_W) return null;
     const charX = (x - GUTTER_W - 4) / CHAR_W;
@@ -871,7 +873,7 @@ class PatternPane {
   }
 
   resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(160, this.el.clientWidth);
     const h = Math.max(80, this.el.clientHeight - this.header.offsetHeight - 4);
     const cw = Math.round(w * dpr);
@@ -948,15 +950,36 @@ class PatternPane {
     // pattern shown here belongs to no particular cue — it can sit in any
     // number of them — so there is no "the pattern before this one" to carry
     // a bend in from.
-    const ghosts = store.ghosts === false ? EMPTY_GHOSTS
-      : dittoGhosts(pattern, pattern.length);
-    const bends = store.ghosts === false ? EMPTY_GHOSTS
-      : bendGhosts(pattern, {
-        ...bendContext(store.doc, store.song),
-        rowLimit: pattern.length,
-        ditto: ghosts,
-      });
+    //
+    // The pitch plot (item 198.5) reads the SAME two maps: it draws what
+    // sounds, so a ditto repeat gets its tick and a slide is a curve rather
+    // than a straight line between the notes either side of it. They are
+    // therefore computed whenever EITHER feature wants them, and only the
+    // painters below are gated on the Ghosts switch — a contour that
+    // straightened itself out when the grey was turned off would be lying
+    // about the song.
+    const plotOn = store.pitchPlot === true;
+    const plotMem = { j: 0, jExt1: 0, jExt2: 0 }; // J's recall, down this pattern
+    const want = store.ghosts !== false || plotOn;
+    const allGhosts = want ? dittoGhosts(pattern, pattern.length) : EMPTY_GHOSTS;
+    const allBends = want ? bendGhosts(pattern, {
+      ...bendContext(store.doc, store.song),
+      rowLimit: pattern.length,
+      ditto: allGhosts,
+    }) : EMPTY_GHOSTS;
+    const ghosts = store.ghosts === false ? EMPTY_GHOSTS : allGhosts;
+    const bends = store.ghosts === false ? EMPTY_GHOSTS : allBends;
     const dittoPal = monoPalette(C.ditto);
+    const plot = plotOn ? plotGeometry(plotSeries(pattern.map((cell, r) => {
+      const g = allGhosts[r] ?? null;
+      const fx = g?.fx
+        ? { effect: g.fx[0], effectArg: g.fx[1], effect2: 0, effectArg2: 0 }
+        : cell;
+      return {
+        note: g?.note ?? allBends[r]?.note ?? cell.note,
+        arp: arpOffsets(fx, this.wide(), plotMem),
+      };
+    }), store.pitchPreset)) : null;
     const fxPal = { op: C.fxOp, a1: C.fxA1, a2: C.fxA2, a3: C.fxA3, dim: C.dim, ext: C.fxExt };
     const sb = this.selRowBounds(); // row-range selection (or null)
     const beats = store.beats(); // primary/secondary divisions from sMet
@@ -997,6 +1020,15 @@ class PatternPane {
         : row % beats.pri === 0 ? C.fg : C.dim;
       ctx.fillText(row.toString(16).toUpperCase().padStart(2, "0"), 8, y + ROW_H / 2);
 
+      // Absolute-pitch plot (item 198.5), behind the note and instrument
+      // cells. A pane shows ONE pattern with no cue around it, so the band
+      // starts from silence at row 0 — the same rule the bend ghosts here
+      // follow, and for the same reason: this pattern belongs to no particular
+      // place in the song.
+      if (plot !== null) {
+        paintPitchPlot(ctx, plot[row], plot[row + 1] ?? null,
+          { tabX: GUTTER_W + 2, x: x0, y, w: PLOT_CHARS * CHAR_W, rowH: ROW_H }, C);
+      }
       const cell = pattern[row];
       const ghost = ghosts[row] ?? null;
       const bend = bends[row] ?? null;

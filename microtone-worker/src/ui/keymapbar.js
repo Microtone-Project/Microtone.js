@@ -23,6 +23,7 @@ import { themeColors, onThemeChange } from "./theme.js";
 import { pitchTablePresets } from "./pitchtables.js";
 import { paintKeymapBoard, boardExtent, BOARD_SIZES } from "./keymapboard.js";
 import { DEFAULT_KEYMAP } from "./keymap.js";
+import { uiDpr, toLayout } from "./zoom.js";
 
 const PREF_KEY = "microtone-keymapbar";
 
@@ -109,7 +110,7 @@ export class KeymapBar {
     const spec = this.spec;
     const ortho = this.store.keymapOrtho === true;
     const extent = boardExtent(spec, "compact", ortho);
-    const dpr = globalThis.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(this.el.clientWidth, 200);
     // Tall enough for the rows this layout uses, and no taller: a three-row
     // layout must not reserve the space a four-row one would want.
@@ -134,7 +135,7 @@ export class KeymapBar {
   }
 
   _onPointer(e) {
-    const code = this._capAt(e.offsetX, e.offsetY);
+    const code = this._capAt(toLayout(e.offsetX), toLayout(e.offsetY));
     if (!code) return;
     if (this.jam.down(code, false)) {
       const release = () => { this.jam.up(code); window.removeEventListener("pointerup", release); };

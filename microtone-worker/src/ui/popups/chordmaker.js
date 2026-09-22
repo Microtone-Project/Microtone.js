@@ -27,6 +27,7 @@ import { canvasFont } from "../fonts.js";
 import { themeColors } from "../theme.js";
 import { t } from "../i18n.js";
 import { icon, setIconLabel } from "../icons.js";
+import { uiDpr, toLayout } from "../zoom.js";
 
 const WAVE_H = 96;
 const GLYPH_CHAR_W = 9, GLYPH_H = 20;
@@ -121,13 +122,14 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
     const voicesEl = $(".chord-voices");
     const wave = $(".chord-wave");
     const playBtn = $(".chord-play");
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     // The canvas stretches to the dialog (CSS width: 100%), so its backing
     // store can only be sized once it is laid out — i.e. after showModal.
     let waveW = 600;
     wave.style.height = WAVE_H + "px";
     function sizeWave() {
-      const w = Math.max(200, Math.round(wave.getBoundingClientRect().width) || waveW);
+      // The rect is in client pixels; the canvas paints in layout ones.
+      const w = Math.max(200, Math.round(toLayout(wave.getBoundingClientRect().width)) || waveW);
       if (w === waveW && wave.width === w * dpr) return;
       waveW = w;
       wave.width = w * dpr;

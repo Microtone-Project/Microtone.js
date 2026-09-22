@@ -21,6 +21,7 @@ import { themeColors } from "../theme.js";
 import { paintSpatialDot } from "../spatialdot.js";
 import { azimuthLabel, elevationLabel } from "../units.js";
 import { t } from "../i18n.js";
+import { localPoint } from "../zoom.js";
 
 const DIAL = 210;        // dial canvas size (CSS px)
 const MAX_VOICES = 64;
@@ -389,8 +390,8 @@ export function showPanner(store, target) {
     // ── interaction ──
     const drag = (cv, onMove) => {
       const move = (e) => {
-        const rect = cv.getBoundingClientRect();
-        onMove(e.clientX - rect.left - DIAL / 2, e.clientY - rect.top - DIAL / 2);
+        const p = localPoint(cv, e);
+        onMove(p.x - DIAL / 2, p.y - DIAL / 2);
         refresh(false);
       };
       cv.addEventListener("pointerdown", (e) => {

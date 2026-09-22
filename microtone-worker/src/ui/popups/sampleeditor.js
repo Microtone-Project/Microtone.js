@@ -16,6 +16,7 @@ import { unescapeName } from "../names.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../../engine/constants.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 const W = 720, H = 200;
 
@@ -236,17 +237,15 @@ export function openInstSampleEditor(store, slot) {
       return best;
     };
     shell.canvas.addEventListener("pointerdown", (e) => {
-      const rect = shell.canvas.getBoundingClientRect();
-      const key = markerAt(e.clientX - rect.left);
+      const key = markerAt(localPoint(shell.canvas, e).x);
       if (!key) return;
       drag = { key, gestureId: `smpdrag${Date.now()}` };
       shell.canvas.setPointerCapture(e.pointerId);
     });
     shell.canvas.addEventListener("pointermove", (e) => {
       if (!drag) return;
-      const rect = shell.canvas.getBoundingClientRect();
       const pos = Math.max(0, Math.min(len,
-        Math.round(((e.clientX - rect.left) / W) * len)));
+        Math.round((localPoint(shell.canvas, e).x / W) * len)));
       applyFields({ [drag.key]: pos }, drag.gestureId);
     });
     shell.canvas.addEventListener("pointerup", () => { drag = null; });
@@ -366,7 +365,7 @@ function buildShell(store, { title, info, className, resolve }) {
  */
 function paintWaveform(canvas, bin, ptr, len, { loopStart, loopEnd, markers }) {
   const C = themeColors();
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = uiDpr();
   canvas.width = W * dpr;
   canvas.height = H * dpr;
   canvas.style.width = W + "px";

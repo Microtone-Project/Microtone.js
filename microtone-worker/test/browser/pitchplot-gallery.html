@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>pitch-plot gallery</title>
+  <!-- The real theme variables: the register ramp and the plot inks below are
+       READ from this sheet, so the gallery can never drift from what the
+       pattern grids actually paint. Companion to glyph-gallery.html — that one
+       tunes the note glyphs, this one the absolute-pitch plot behind them. -->
+  <link rel="stylesheet" href="../../css/microtone.css" />
+  <style>
+    body { background: #777777; color: #d8dce4; font-family: monospace; padding: 16px; }
+    canvas { display: block; border: 1px solid #343a46; }
+    h3 { color: #f5a623; margin: 14px 0 4px; font-size: 13px; }
+    p.note { color: #dde2ea; font-size: 12px; margin: 2px 0 8px; max-width: 90ch; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .swatch { display: flex; flex-direction: column; gap: 3px; }
+    .tag { color: #f5a623; font-size: 11px; }
+    .ramp { display: flex; gap: 0; margin-bottom: 10px; }
+    .ramp div { width: 56px; height: 34px; font-size: 10px; color: #000; text-align: center; }
+    .ramp.de { margin-bottom: 14px; }
+    .ramp.de div { height: auto; color: #dde2ea; font-size: 10px; }
+  </style>
+</head>
+<body>
+  <h3>register ramp — octave/period 0 … 9, computed in OKLCh from three stops</h3>
+  <p class="note">
+    A spectral continuum: blue at the bottom of the keyboard, through cyan and
+    green, to yellow at the top, with lightness running with it as a second,
+    redundant channel. The eight registers between the stops are spaced by
+    PERCEPTUAL distance, not by interpolation parameter — the ΔE row under each
+    strip is the OKLab distance between neighbours, and the point is that it is
+    flat. Tune <code>--cv-oct-low / --cv-oct-mid / --cv-oct-high</code> in
+    css/microtone.css; an unreachable chroma is pulled back along constant
+    lightness and hue rather than clipped per channel.
+  </p>
+  <div id="ramps"></div>
+
+  <h3>the plot itself — one lane, 32 rows, per theme</h3>
+  <p class="note">
+    Top to bottom: a rising then falling scale; a repeated pitch; a PORTAMENTO
+    over rows whose note column is blank (the contour must curve through it,
+    not cut straight across); three ARPEGGIO rows, each drawing its other two
+    pitches on a bar; a rest longer than RE_ENTRY_ROWS (the contour must
+    BREAK); a leap of two periods (the band must re-root — the contour breaks
+    and the tab changes colour). Glyphs are painted on top, as the grids paint
+    them, so this is the legibility test: the plot has to stay behind the
+    notation while its rose ink still reads as something other than notation.
+  </p>
+  <div class="row" id="plots"></div>
+
+  <script type="module">
+    import { paintNoteCell } from "../../src/ui/glyphs.js";
+    import { pitchTablePresets } from "../../src/ui/pitchtables.js";
+    import {
+      plotSeries, plotGeometry, paintPitchPlot, octaveColour, PLOT_CHARS,
+    } from "../../src/ui/pitchplot.js";
+    import { rgbToOklab, parseHex } from "../../src/ui/oklch.js";
+
+    const CH = 8.5, RH = 17;              // the Patterns view's own cell metrics
+    const THEME_LIST = ["dark", "dim", "light", "warmth"];
+    const VARS = {
+      bg: "--cv-bg", rowBeat: "--cv-row-beat", rowBar: "--cv-row-bar",
+      fg: "--fg", fg2: "--fg2", dim: "--dim", accent: "--accent",
+      octLow: "--cv-oct-low", octMid: "--cv-oct-mid", octHigh: "--cv-oct-high",
+      pitchPole: "--cv-pitch-pole", pitchAxis: "--cv-pitch-axis",
+    };
+    const PALETTES = {};
+    for (const theme of THEME_LIST) {
+      const prev = document.documentElement.dataset.theme;
+      document.documentElement.dataset.theme = theme;
+      const css = getComputedStyle(document.documentElement);
+      PALETTES[theme] = Object.fromEntries(
+        Object.entries(VARS).map(([k, v]) => [k, css.getPropertyValue(v).trim()]));
+      if (prev === undefined) delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = prev;
+    }
+
+    // ── the ramp strips ──
+    const ramps = document.getElementById("ramps");
+    for (const theme of THEME_LIST) {
+      const tag = document.createElement("div");
+      tag.className = "tag";
+      tag.textContent = theme;
+      const strip = document.createElement("div");
+      strip.className = "ramp";
+      const steps = [];
+      for (let oct = 0; oct <= 9; oct++) {
+        const hex = octaveColour(oct, PALETTES[theme]);
+        steps.push(hex);
+        const cell = document.createElement("div");
+        cell.style.background = hex;
+        cell.textContent = oct;
+        strip.appendChild(cell);
+      }
+      // Neighbour distances in OKLab. Flat = the steps are evenly readable.
+      const dE = (x, y) => {
+        const a = rgbToOklab(parseHex(x)), b = rgbToOklab(parseHex(y));
+        return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      };
+      const row = document.createElement("div");
+      row.className = "ramp de";
+      row.append(Object.assign(document.createElement("div"), { textContent: "ΔE" }));
+      for (let i = 1; i < steps.length; i++) {
+        row.append(Object.assign(document.createElement("div"),
+          { textContent: dE(steps[i - 1], steps[i]).toFixed(3) }));
+      }
+      ramps.append(tag, strip, row);
+    }
+
+    // ── the plot strips ──
+    const p12 = pitchTablePresets[120];
+    const N = (oct, semi) => 0x5000 + (oct - 4) * 0x1000 + Math.round((semi * 4096) / 12);
+    const NOTES = new Array(32).fill(0);
+    [0, 2, 4, 5, 7, 9, 11, 12, 11, 9, 7, 5].forEach((s, i) => { NOTES[i] = N(4, s); });
+    NOTES[12] = N(4, 0); NOTES[13] = N(4, 0); NOTES[14] = N(4, 0); // a repeated pitch
+    // rows 15-24 silent — past RE_ENTRY_ROWS, so the contour must not resume
+    [0, 4, 7].forEach((s, i) => { NOTES[25 + i] = N(6, s); });      // …and two periods up
+    NOTES[29] = N(2, 0);                                            // …then four down
+
+    // …then the two things the plot draws that the NOTE COLUMN never states:
+    // a portamento creeping between two written notes (one tick per row, so
+    // the contour is a curve rather than a straight line), and an arpeggio,
+    // which is three pitches on one row.
+    const ROWS = NOTES.map((note) => ({ note, arp: null }));
+    for (let i = 0; i < 6; i++) {                 // rows 15-1A: a slide up
+      ROWS[15 + i] = { note: N(4, 0) + Math.round((i + 1) * 0x0700 / 6), arp: null };
+    }
+    ROWS[21] = { note: N(4, 7), arp: [0x0300, 0x0700] };  // …and an arpeggio
+    ROWS[22] = { note: N(4, 7), arp: [0x0300, 0x0700] };
+    ROWS[23] = { note: N(4, 0), arp: [0x0400, 0x0900] };
+
+    const geo = plotGeometry(plotSeries(ROWS, p12));
+    const W = 34 + PLOT_CHARS * CH + 10;
+    const plots = document.getElementById("plots");
+    for (const theme of THEME_LIST) {
+      const C = PALETTES[theme];
+      const wrap = document.createElement("div");
+      wrap.className = "swatch";
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = theme;
+      const cv = document.createElement("canvas");
+      cv.width = W; cv.height = NOTES.length * RH;
+      wrap.append(tag, cv);
+      plots.appendChild(wrap);
+
+      const ctx = cv.getContext("2d");
+      ctx.font = `14px ui-monospace, monospace`;
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = C.bg;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      const x0 = 34 + 4;
+      for (let row = 0; row < NOTES.length; row++) {
+        const y = row * RH;
+        if (row % 16 === 0) { ctx.fillStyle = C.rowBar; ctx.fillRect(0, y, W, RH); }
+        else if (row % 4 === 0) { ctx.fillStyle = C.rowBeat; ctx.fillRect(0, y, W, RH); }
+        ctx.fillStyle = row % 4 === 0 ? C.fg : C.dim;
+        ctx.fillText(row.toString(16).toUpperCase().padStart(2, "0"), 8, y + RH / 2);
+        paintPitchPlot(ctx, geo[row], geo[row + 1] ?? null,
+          { tabX: 34 + 2, x: x0, y, w: PLOT_CHARS * CH, rowH: RH }, C);
+        // The glyph shows what the NOTE COLUMN says — blank on the slide's
+        // rows, which is exactly the case the plot exists to cover.
+        paintNoteCell(ctx, NOTES[row], p12, x0, y, CH, RH,
+          { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent }, false);
+        ctx.fillStyle = NOTES[row] ? C.fg2 : C.dim;
+        if (!NOTES[row]) ctx.globalAlpha = 0.4;
+        ctx.fillText(NOTES[row] ? "01" : "··", x0 + 5 * CH, y + RH / 2);
+        ctx.globalAlpha = 1;
+      }
+    }
+  </script>
+</body>
+</html>

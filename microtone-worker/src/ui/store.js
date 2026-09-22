@@ -43,6 +43,12 @@ export class Store {
      *  who wants the grid to show only what was typed wants neither. Default
      *  on, and a view preference like the rest — never saved with the song. */
     this.ghosts = true;
+    /** Absolute-pitch plot in the two grids (item 198.5): the contour behind
+     *  the note and instrument cells, plus the register tab beside them. OFF by
+     *  default — it is a reading aid for shaping a melody, not part of the
+     *  notation, and a grid that shows it unasked is a busier grid. A view
+     *  preference like `ghosts`: never saved with the song. */
+    this.pitchPlot = false;
     this.cursor = { row: 0, ch: 0 }; // absolute song row + lane
     this.voiceMutes = new Array(64).fill(false); // per-lane mute (UI + engine)
     // Format v3's SECOND effect column (§5.5), exposed per lane (Timeline)

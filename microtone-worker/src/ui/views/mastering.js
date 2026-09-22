@@ -59,6 +59,7 @@ import { setMasteringOp } from "../../doc/ops.js";
 import { themeColors } from "../theme.js";
 import { parseInk, RMS_SLOW_MS } from "./masterstrip.js";
 import { t } from "../i18n.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 /** Metering scale for the level bars, in dBFS. */
 const METER_MIN_DB = -60;
@@ -1001,9 +1002,7 @@ export class MasteringView {
   tipAt(e) {
     const geom = this.levelGeom;
     if (!geom) return -1;
-    const r = this.levelCanvas.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
+    const { x, y } = localPoint(this.levelCanvas, e);
     if (x < geom.tipX || x > geom.right) return -1;
     for (let c = 0; c < 2; c++) {
       const i = this.stage * 2 + c;
@@ -1463,7 +1462,7 @@ export class MasteringView {
   ctxFor(canvas, cssHeight) {
     const w = canvas.clientWidth;
     if (!w) return null;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const h = cssHeight;
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       canvas.width = Math.round(w * dpr);

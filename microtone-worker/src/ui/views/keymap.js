@@ -33,6 +33,7 @@ import {
   normaliseKeymap, buildTaudkey, parseTaudkey, nearestRatio, upperRows,
   QUOTE_ACTIONS, UNITS, BUILTIN_KEYMAPS,
 } from "../keymap.js";
+import { uiDpr, toLayout } from "../zoom.js";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
@@ -534,7 +535,7 @@ export class KeymapView {
   }
 
   _onPointer(e) {
-    const code = this._capAt(e.offsetX, e.offsetY);
+    const code = this._capAt(toLayout(e.offsetX), toLayout(e.offsetY));
     if (!code) return;
     this.selected = code;
     this.paint();
@@ -545,7 +546,7 @@ export class KeymapView {
   }
 
   _onWheel(e) {
-    const code = this._capAt(e.offsetX, e.offsetY);
+    const code = this._capAt(toLayout(e.offsetX), toLayout(e.offsetY));
     if (!code) return;
     e.preventDefault();
     this.selected = code;
@@ -572,7 +573,7 @@ export class KeymapView {
     if (!this.visible) return;
     const cv = this.canvas;
     const stage = cv.parentElement;
-    const dpr = globalThis.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(stage.clientWidth, 320);
     const h = Math.max(stage.clientHeight - 28, 200);
     cv.width = Math.round(w * dpr);

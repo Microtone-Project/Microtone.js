@@ -3,7 +3,7 @@
 // mode, per-lane VU/pan header meters, cue-boundary gutter. Feature
 // reference: taut.js VIEW_TIMELINE.
 
-import { PATTERN_EMPTY } from "../../engine/constants.js";
+import { PATTERN_EMPTY, VOLUME_MAX, VOLUME_MAX_WIDE } from "../../engine/constants.js";
 import {
   AZIMUTH_TURN, ELEVATION_QUARTER, SURROUND_SPATIAL, lateralProjection,
 } from "../../engine/spatial.js";
@@ -38,12 +38,20 @@ import {
 } from "../gridmenu.js";
 import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
 import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
+import {
+  laneVolumeCell, lanePanCell, laneVolumeAtRest, lanePanAtRest,
+} from "../lanestate.js";
+import {
+  plotSeries, plotGeometry, paintPitchPlot, arpOffsets, PLOT_CHARS,
+} from "../pitchplot.js";
 import { t } from "../i18n.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 const FONT_PX = 13; // family comes from --cv-font via fonts.js
 const CHAR_W = 7.9;
 const ROW_H = 16;
-const HEADER_H = 58;   // header: [voxnum·note+inst·patNum] / VU / pan / patName
+// header: [voxnum·note+inst·patNum] / VU / pan / lane state / patName
+const HEADER_H = 72;
 const RADAR_H = 44;    // extra height when the surround radar is expanded (#998.6)
 const GUTTER_W = 76;   // "cue:row | absrow"
 /** The "no ghosts here" map: shared, frozen, and indexing it gives undefined
@@ -81,6 +89,13 @@ export class TimelineView {
     // extended as far down the song as the view needs and thrown away when
     // anything the simulation reads changes (dropBends).
     this._bends = new Map();
+    // Absolute-pitch plots (item 198.5), one per lane, indexed by ABSOLUTE
+    // song row. Unlike the bend chains these need no incremental machinery —
+    // a plot reads notes and nothing else, so a lane's whole series is one
+    // cheap walk of the cue list, built the first time it is drawn and thrown
+    // away by the same events that drop the bends.
+    this._plots = new Map();
+    this._plotPreset = null;
 
     store.on("doc", () => {
       this.map = null; this.scrollRow = 0; this.scrollCh = 0; this.sel = null;
@@ -150,7 +165,7 @@ export class TimelineView {
 
   resize() {
     const host = this.canvas.parentElement;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(100, Math.round(host.clientWidth * dpr));
     const h = Math.max(100, Math.round(host.clientHeight * dpr));
     // Skip no-op resizes (ResizeObserver fires on unrelated reflows too).
@@ -390,9 +405,7 @@ export class TimelineView {
     // without this it would also move the cursor / toggle the header's mute
     // underneath the menu it just opened.
     if (e.button !== 0) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.canvas, e);
     if (longPressable(e)) this.hold.start(e, x, y, this.holdRect(x, y));
     if (y < this.headerH()) {
       // lane header: click = mute toggle, Ctrl/⌘+click = solo toggle
@@ -472,13 +485,13 @@ export class TimelineView {
     // drag guards, because a press over the header or the grid's empty space
     // starts no drag at all and would otherwise never be cancelled.
     if (this.hold.active) {
-      const r = this.canvas.getBoundingClientRect();
-      this.hold.moved(e, e.clientX - r.left, e.clientY - r.top);
+      const p = localPoint(this.canvas, e);
+      this.hold.moved(e, p.x, p.y);
     }
     if (!this._drag && !this._troughDrag) return;
-    const rect = this.canvas.getBoundingClientRect();
+    const pt = localPoint(this.canvas, e);
     if (this._troughDrag) {
-      const row = this.rowAt(e.clientY - rect.top);
+      const row = this.rowAt(pt.y);
       if (row < 0) return;
       this.selectRowBand(this._troughDrag.aRow, row);
       this.store.cursor.row = row;
@@ -486,7 +499,7 @@ export class TimelineView {
       this.invalidate();
       return;
     }
-    const hit = this.hitTest(e.clientX - rect.left, e.clientY - rect.top);
+    const hit = this.hitTest(pt.x, pt.y);
     if (!hit) return;
     // ANY drag makes a block — including one that never leaves the cell, or
     // never leaves a single column. "Just the pan column of this row" is a
@@ -600,9 +613,7 @@ export class TimelineView {
     e.preventDefault();
     const store = this.store;
     if (!store.doc || !store.song) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.canvas, e);
     if (this.inTrough(x)) {
       if (y >= this.headerH()) await this.troughMenu(e, y);
       return;
@@ -1117,8 +1128,8 @@ export class TimelineView {
    */
   wheelEdit(e, dir) {
     const store = this.store;
-    const rect = this.canvas.getBoundingClientRect();
-    const hit = this.hitTest(e.clientX - rect.left, e.clientY - rect.top);
+    const p = localPoint(this.canvas, e);
+    const hit = this.hitTest(p.x, p.y);
     if (!hit) return false;
     const c = store.cursor;
     if (hit.row !== c.row || hit.ch !== c.ch) return false;
@@ -1217,7 +1228,58 @@ export class TimelineView {
   /** Forget every bend chain — anything that changes a pattern, the cue list
    *  or the song invalidates the lot, since a chain is the song read in
    *  order. Cheap: they rebuild lazily, and only as far as the view looks. */
-  dropBends() { this._bends.clear(); }
+  dropBends() { this._bends.clear(); this._plots.clear(); }
+
+  /**
+   * One lane's absolute-pitch plot for the WHOLE song, indexed by absolute
+   * row (item 198.5). Built lazily per lane, so a 64-lane song only ever pays
+   * for the handful of lanes on screen, and dropped whole by dropBends.
+   */
+  plotFor(ch) {
+    const { store } = this;
+    // The band's width is the TUNING's period, so a retune invalidates every
+    // plot — and does not always arrive as an edit.
+    if (this._plotPreset !== store.pitchPreset) {
+      this._plotPreset = store.pitchPreset;
+      this._plots.clear();
+    }
+    let geo = this._plots.get(ch);
+    if (geo !== undefined) return geo;
+    const map = this.getMap();
+    const wide = this.wide();
+    const rows = new Array(map?.totalRows ?? 0).fill(0);
+    // The plot draws what SOUNDS, so it runs its own ditto expansion and its
+    // own bend simulation rather than reading the view's — those two are
+    // gated on the Ghosts switch, and a contour that straightened itself out
+    // when the grey was turned off would be lying about the song. One sim per
+    // lane, down the cue list in order, exactly as bendsFor does it.
+    const sim = createBendSim(bendContext(store.doc, store.song));
+    const mem = { j: 0, jExt1: 0, jExt2: 0 }; // J's recall, carried down the lane
+    for (const e of map?.entries ?? []) {
+      if (!e.info) continue; // an empty cue slot plays nothing on any lane
+      const patNum = store.song.cues[e.cue][ch] & 0x7fff;
+      // …and advances nothing: the voice rings on holding what it had.
+      if (patNum === PATTERN_EMPTY) { sim.run(null); continue; }
+      const pat = this.patternFor(patNum);
+      const ditto = dittoGhosts(pat, e.rowLimit);
+      const bend = sim.run(pat, { rowLimit: e.rowLimit, ditto });
+      for (let r = 0; r < e.rowLimit; r++) {
+        const cell = pat[r];
+        const g = ditto[r] ?? null;
+        // A ditto repeat is a row that IS written down somewhere, so it
+        // speaks first; a bend trail only ever reports a pitch nothing wrote.
+        const note = g?.note ?? bend[r]?.note ?? cell.note;
+        // …and a ditto repeats the source row's EFFECT too, arpeggio included.
+        const fx = g?.fx
+          ? { effect: g.fx[0], effectArg: g.fx[1], effect2: 0, effectArg2: 0 }
+          : cell;
+        rows[e.startRow + r] = { note, arp: arpOffsets(fx, wide, mem) };
+      }
+    }
+    geo = plotGeometry(plotSeries(rows, store.pitchPreset));
+    this._plots.set(ch, geo);
+    return geo;
+  }
 
   /**
    * Bend ghost map for whatever lane `ch` plays in song-map entry `ei` —
@@ -1398,14 +1460,24 @@ export class TimelineView {
     const headPal = { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent };
     const NOTE_H = 15, UP_Y = 4, UP_MID = UP_Y + NOTE_H / 2; // upper row
     const VU_Y = 23, PAN_Y = 32;                             // meters
-    // The radar (#998.6) slots in between the pan strip and the name row.
+    const LANE_MID = 48;                                     // lane-state cells (item 198.3)
+    // The radar (#998.6) slots in between the lane state and the name row.
     const radar = this.radarOn();
     const headerH = this.headerH();
-    const RADAR_Y = 44;
-    const NAME_Y = 49 + (radar ? RADAR_H : 0);
+    const RADAR_Y = 57;
+    const NAME_Y = 62 + (radar ? RADAR_H : 0);
     const surroundModel = store.doc?.songs[store.songIndex]?.surroundModel ?? 0;
     const surroundSong = surroundModel !== 0;
     const spatialSong = surroundModel === SURROUND_SPATIAL;
+    // The lane-volume axis is 6-bit in a v2 song and 8-bit in a v3 one, and
+    // `M`'s reading has to be scaled by the one this document uses.
+    const volMax = store.doc?.wideCells === true ? VOLUME_MAX_WIDE : VOLUME_MAX;
+    // One effect palette for the whole frame: the header's lane-state cells
+    // and the grid's own effect column are the same notation, so they read
+    // from the same inks.
+    const fxPal = { op: C.fxOp, a1: C.fxA1, a2: C.fxA2, a3: C.fxA3, dim: C.dim, ext: C.fxExt };
+    const restPal = monoPalette(C.dim); // a lane axis nothing has moved
+    const pitchPlot = this.store.pitchPlot === true; // item 198.5, off by default
     for (const { ch, x: stripX, w: colW } of strips) {
       // A header panel is the CELL's rectangle, not the strip's: every grid
       // cell is painted from `x - 2` and the lane boundary rule sits on its
@@ -1470,6 +1542,39 @@ export class TimelineView {
       ctx.fillStyle = C.accent2;
       ctx.fillRect(barX + pan * (barW - 3), PAN_Y, 3, 7);
 
+      // ── the LANE axis (item 198.3) ──
+      // Everything above is where the sounding NOTE ended up; these two are
+      // what the pattern left on the LANE, which no amount of staring at the
+      // meters recovers — an `M $2000` twenty rows back is still in force, and
+      // a silent lane shows no meter at all. Read as the cells that would put
+      // the lane where it already is, in the grid's own field colours.
+      const chanVol = audio ? audio.getVoiceChannelVolume(ch) : volMax;
+      const chanAz = audio ? audio.getVoiceChannelAzimuth(ch) : 128;
+      const chanEl = audio ? audio.getVoiceChannelElevation(ch) : 0;
+      // …and their marks on the two strips, so the number and the picture are
+      // the same reading: the volume's is a CEILING (the VU can never pass it,
+      // since the lane axis multiplies into the mixer gain), the pan's is where
+      // the lane sits before the note axis offsets it.
+      ctx.fillStyle = C.fg2;
+      ctx.fillRect(barX + Math.round((barW - 1) * Math.min(chanVol / volMax, 1)), VU_Y, 1, 7);
+      const lanePan = surroundSong
+        ? 0.5 + 0.5 * lateralProjection(chanAz, chanEl)
+        : chanAz / 255;
+      ctx.fillStyle = C.dim;
+      ctx.fillRect(barX + lanePan * (barW - 1), PAN_Y, 1, 7);
+
+      // An axis nothing has moved is painted flat grey rather than in the
+      // effect inks — with 32 lanes on screen the colour has to mean "this one
+      // was set", not "this column exists". (A dimmed palette, not a
+      // globalAlpha: paintFxCell resets the alpha after every digit.)
+      const volCell = laneVolumeCell(chanVol);
+      const panCell = lanePanCell(surroundModel, chanAz, chanEl);
+      const LANE_Y = LANE_MID - ROW_H / 2;
+      paintFxCell(ctx, volCell.effect, volCell.arg, x + 4, LANE_Y, CHAR_W, ROW_H,
+        laneVolumeAtRest(chanVol, volMax) ? restPal : fxPal);
+      paintFxCell(ctx, panCell.effect, panCell.arg, x + colW - 8 - 5 * CHAR_W, LANE_Y,
+        CHAR_W, ROW_H, lanePanAtRest(chanAz, chanEl) ? restPal : fxPal);
+
       // expanded radar: the source as it really sits, seen from above
       if (radar) {
         this.paintChannelRadar(ctx, C, x, RADAR_Y, ch, colW, audio, spatialSong);
@@ -1507,7 +1612,6 @@ export class TimelineView {
     // ── rows ──
     const cursor = store.cursor;
     const dittoPal = monoPalette(C.ditto); // ghost cells (pattern ditto)
-    const fxPal = { op: C.fxOp, a1: C.fxA1, a2: C.fxA2, a3: C.fxA3, dim: C.dim, ext: C.fxExt };
     const sb = this.selBounds(); // block selection bounds (or null)
     const rowBand = this.isRowBand(); // …and whether it spans every lane
     const beats = store.beats(); // primary/secondary divisions from sMet
@@ -1580,6 +1684,14 @@ export class TimelineView {
           const [cpos, cw] = subCharPos(cursor.sub ?? 0, cursor.nib ?? 0, this.wide());
           ctx.fillStyle = store.record ? C.caret : C.caretNav;
           ctx.fillRect(x + 2 + cpos * CHAR_W - 1, y, cw * CHAR_W + 2, ROW_H);
+        }
+        // Absolute-pitch plot (item 198.5), behind everything this cell is
+        // about to draw and in front of the row's own background — which is
+        // why it sits here rather than in a pass of its own.
+        if (pitchPlot) {
+          const geo = this.plotFor(ch);
+          paintPitchPlot(ctx, geo[absRow], geo[absRow + 1] ?? null,
+            { tabX: x, x: x + 2, y, w: PLOT_CHARS * CHAR_W, rowH: ROW_H }, C);
         }
         const patNum = entry.info ? (this.store.song.cues[entry.cue][ch] & 0x7fff) : PATTERN_EMPTY;
         if (patNum === PATTERN_EMPTY) {

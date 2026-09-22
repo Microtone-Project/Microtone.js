@@ -45,6 +45,7 @@ import { themeColors } from "../theme.js";
 import { escapeNonAscii } from "../names.js";
 import { t } from "../i18n.js";
 import { icon, setIconLabel } from "../icons.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 const WAVE_H = 220;
 const EQGRAPH_H = 150;
@@ -215,7 +216,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     const chanBtn = $(".lab-chans");
     const okBtn = $(".lab-ok");
     const replaceBtn = $(".lab-replace");
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     canvas.width = W * dpr; canvas.height = WAVE_H * dpr;
     canvas.style.width = W + "px"; canvas.style.height = WAVE_H + "px";
     eqGraph.width = W * dpr; eqGraph.height = EQGRAPH_H * dpr;
@@ -623,15 +624,13 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     // ── waveform interaction: drag = select, click = chop-edit / clear ──
     let drag = null; // {x0, i0, moved}
     canvas.addEventListener("pointerdown", (e) => {
-      const r = canvas.getBoundingClientRect();
-      const x = e.clientX - r.left;
+      const x = localPoint(canvas, e).x;
       drag = { x0: x, i0: Math.max(0, Math.min(buf.length, iOf(x))), moved: false };
       try { canvas.setPointerCapture?.(e.pointerId); } catch { /* synthetic pointer (smokes) */ }
     });
     canvas.addEventListener("pointermove", (e) => {
       if (!drag) return;
-      const r = canvas.getBoundingClientRect();
-      const x = e.clientX - r.left;
+      const x = localPoint(canvas, e).x;
       if (!drag.moved && Math.abs(x - drag.x0) < 3) return;
       drag.moved = true;
       const i = Math.max(0, Math.min(buf.length, iOf(x)));
@@ -642,8 +641,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     canvas.addEventListener("pointerup", (e) => {
       if (!drag) return;
       const wasDrag = drag.moved;
-      const r = canvas.getBoundingClientRect();
-      const x = e.clientX - r.left;
+      const x = localPoint(canvas, e).x;
       drag = null;
       if (wasDrag) return;
       if (chopOn) {
@@ -663,8 +661,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     });
     canvas.addEventListener("wheel", (e) => {
       e.preventDefault();
-      const r = canvas.getBoundingClientRect();
-      const x = e.clientX - r.left;
+      const x = localPoint(canvas, e).x;
       if (e.ctrlKey || e.metaKey) {
         const focus = iOf(x);
         spp *= e.deltaY > 0 ? 1.3 : 1 / 1.3;

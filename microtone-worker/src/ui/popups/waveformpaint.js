@@ -233,6 +233,7 @@ function openPaintModal(opts) {
     let painting = false, lastIdx = -1, lastVal = 128, lane = 0;
     function paintAt(e) {
       const r = canvas.getBoundingClientRect();
+      // Ratio against the same rect, so the UI zoom cancels (see zoom.js).
       const x = (e.clientX - r.left) * (W / r.width);
       const y = (e.clientY - r.top) * (H / r.height);
       const idx = xToIdx(x), val = yToVal(y);

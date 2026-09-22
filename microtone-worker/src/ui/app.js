@@ -48,12 +48,16 @@ import { keymapClaimsZRow } from "./keymap.js";
 import { KeymapLibrary } from "./keymaplib.js";
 import { KeymapBar } from "./keymapbar.js";
 import { initTheme, toggleTheme, onThemeChange, currentTheme, isThemeName, WARMTH } from "./theme.js";
+import {
+  initZoom, onZoomChange, zoomStep, resetZoom, zoomLabel, canZoomIn, canZoomOut,
+} from "./zoom.js";
 import { initI18n, applyDom, t, LANGS, changeLang, onLangChange, currentLang } from "./i18n.js";
 import { escapeNonAscii, unescapeName } from "./names.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./widgets/spinner.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
+initZoom();  // …and before anything measures itself: the factor scales the layout
 await initI18n(); // strings before any UI is built
 applyDom(); // translate the static index.html chrome
 {
@@ -1078,6 +1082,30 @@ $("reloadBtn").addEventListener("click", () => {
 // ── on-screen help (mirrors the '?' key; works regardless of view/doc) ──
 $("helpBtn").addEventListener("click", () => showHelp());
 
+// ── UI zoom (item 198.4) ──
+// The browser's own Ctrl+± cannot be driven from a page, so this is the app
+// scaling itself: one `zoom` on the root, which takes the grids, the chrome
+// and the popups with it. Every canvas re-measures on the way through (their
+// backing stores carry the factor, see zoom.js), and the choice is remembered
+// per browser like the theme.
+function refreshZoomBtns() {
+  $("zoomDisp").textContent = zoomLabel();
+  $("zoomOutBtn").disabled = !canZoomOut();
+  $("zoomInBtn").disabled = !canZoomIn();
+}
+$("zoomOutBtn").addEventListener("click", () => zoomStep(-1));
+$("zoomInBtn").addEventListener("click", () => zoomStep(1));
+$("zoomDisp").addEventListener("click", () => resetZoom()); // the readout is the way back to 100%
+onZoomChange(() => {
+  refreshZoomBtns();
+  // The root's layout width really does change, so most canvases are woken by
+  // their own ResizeObserver — but one whose host did not move (a fixed-size
+  // popup canvas) would keep a stale backing store, so re-measure everything.
+  for (const name of VIEWS) eachView(name, (v) => v.resize?.());
+  invalidateGrids();
+});
+refreshZoomBtns();
+
 // ── language picker (applied live — no reload; item 29) ──
 $("langBtn").textContent = currentLang().toUpperCase();
 $("langBtn").addEventListener("click", async () => {
@@ -1098,6 +1126,7 @@ onLangChange(() => {
   $("langBtn").textContent = currentLang().toUpperCase();
   $("tbRaw").textContent = t(store.rawNoteView ? "toolbox.rawOn" : "toolbox.rawOff");
   refreshGhostsBtn();
+  refreshPitchPlotBtn();
   refreshKeymapBarBtn();
   split.refresh();  // the panes' split/close button titles (item 148)
   refreshToolbox(); // the other imperatively-labelled toolbox buttons
@@ -1157,6 +1186,34 @@ refreshGhostsBtn();
 $("tbGhosts").addEventListener("click", () => {
   store.ghosts = !store.ghosts;
   refreshGhostsBtn();
+  invalidateGrids();
+});
+// Absolute-pitch plot (item 198.5) — the melodic contour drawn behind the note
+// and instrument cells, with a register tab in their left gutter. OFF by
+// default: it answers "what shape did I write", which is a question you ask
+// some of the time, and it costs the busiest part of the grid the rest of it.
+//
+// …but REMEMBERED, unlike the other drawing toggles, because it is the one
+// that is off to begin with: a preference you have to re-assert every visit is
+// not a preference. Per browser, like the theme and the zoom, and never part
+// of a song.
+const PITCH_PLOT_KEY = "microtone-pitchplot";
+try {
+  store.pitchPlot = localStorage.getItem(PITCH_PLOT_KEY) === "1";
+} catch { /* private mode — it simply starts off, as it would anyway */ }
+function refreshPitchPlotBtn() {
+  const btn = $("tbPitchPlot");
+  btn.textContent = t(store.pitchPlot ? "toolbox.pitchPlotOn" : "toolbox.pitchPlotOff");
+  btn.classList.toggle("active", store.pitchPlot);
+}
+refreshPitchPlotBtn();
+$("tbPitchPlot").addEventListener("click", () => {
+  store.pitchPlot = !store.pitchPlot;
+  try {
+    if (store.pitchPlot) localStorage.setItem(PITCH_PLOT_KEY, "1");
+    else localStorage.removeItem(PITCH_PLOT_KEY); // off is the default: store nothing
+  } catch { /* private mode */ }
+  refreshPitchPlotBtn();
   invalidateGrids();
 });
 // Second effect column (§5.5) — hidden by default, because most songs never
@@ -1250,6 +1307,7 @@ function stepCurrentInst(dir) {
   store.emit("instsel");
 }
 onWheelCtl("octCtl", (dir) => { jam.octaveDelta(dir); store.emit("octave"); updateStatus(); });
+onWheelCtl("zoomCtl", (dir) => zoomStep(dir));
 onWheelCtl("instCtl", (dir) => stepCurrentInst(dir));
 
 /** The bracket-key scheme (items 47.2 + 47.6). `dir` = -1 for '[' / +1 for ']';

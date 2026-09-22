@@ -150,7 +150,17 @@ export const SNAP_V_FUNK_MODE = 21;
 // modFunkLen), already carried by the invert-mask query reply
 // (engine.js getInstrumentSampleMod) the Samples view already polls.
 export const SNAP_V_MOD_FUNK_WINDOW = 22;
-export const SNAP_VOICE_STRIDE = 23;
+// ── the LANE axis (item 198.3), for the Timeline's lane headers ──
+// What `M`/`N` and `S $8aaa` / `X $eeaa` left on the lane, as opposed to the
+// EFF_/AZIMUTH/ELEVATION readings above, which are where the sounding note
+// ended up once the note axis, the envelopes and the panbrello had their say.
+// Written whether or not the voice is active: a lane keeps its volume and its
+// position between notes, and that persistence is the whole reason a header
+// has to show them.
+export const SNAP_V_CHAN_VOL = 23;    // channelVolume, 0..volMax (M's `$xx`)
+export const SNAP_V_CHAN_AZ = 24;     // S $8aaa's `aaa`: the pan byte in a stereo song, the 512-unit azimuth otherwise
+export const SNAP_V_CHAN_EL = 25;     // X $eeaa's `ee`: signed lane elevation, 0 unless the song is spatial
+export const SNAP_VOICE_STRIDE = 26;
 
 // Every PHYSICAL voice, so the jam bank (item 140) is visible to the views that
 // follow a sounding audition — the Instruments/Samples editors scan the block

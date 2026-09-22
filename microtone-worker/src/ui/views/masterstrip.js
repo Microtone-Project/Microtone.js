@@ -57,6 +57,7 @@ import {
 import { CloudField, CloudView } from "../cloud.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
+import { uiDpr, toLayout } from "../zoom.js";
 
 const PREF_KEY = "microtone-masterstrip";
 
@@ -483,7 +484,7 @@ export class MasterStrip {
     this._split = null;
     this._wheelGesture = null;
     this._wheelAt = 0;
-    this.dpr = window.devicePixelRatio || 1;
+    this.dpr = uiDpr();
     this.onToggle = null; // set by the shell so the toolbox button can follow
 
     this.build();
@@ -888,7 +889,7 @@ export class MasterStrip {
   }
 
   resize() {
-    this.dpr = window.devicePixelRatio || 1;
+    this.dpr = uiDpr();
     this.layout();
   }
 
@@ -927,7 +928,7 @@ export class MasterStrip {
     if (this._split === null) return;
     const g = this.geometry();
     if (g === null) return;
-    const y = e.clientY - this._split.top - STRIP_PAD;
+    const y = toLayout(e.clientY - this._split.top) - STRIP_PAD;
     this.setPanelCount(Math.max(0, Math.round((y - g.headH) / g.panelH)));
   }
 
@@ -947,7 +948,7 @@ export class MasterStrip {
 
   faderHit(e) {
     const r = this.faderRect();
-    const x = e.offsetX;
+    const x = toLayout(e.offsetX);
     return x >= r.x - 3 && x <= r.x + r.w + 3;
   }
 
@@ -973,9 +974,11 @@ export class MasterStrip {
     this.store.undo.apply(setSongScalarOp(this.store.songIndex, "globalVolume", v, gestureId));
   }
 
+  /** `offsetY` is a VISUAL distance; the fader's geometry is in layout pixels
+   *  (it is the canvas's own), so the zoom comes out before the comparison. */
   faderValueAt(offsetY) {
     const r = this.faderRect();
-    const f = 1 - (offsetY - r.y) / r.h;
+    const f = 1 - (toLayout(offsetY) - r.y) / r.h;
     return (f < 0 ? 0 : f > 1 ? 1 : f) * 255;
   }
 

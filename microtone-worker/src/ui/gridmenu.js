@@ -11,6 +11,7 @@ import {
   deletePatternOp,
 } from "../doc/ops.js";
 import { CUE_EMPTY, MAX_VOICES } from "../format/taud-const.js";
+import { clientPoint } from "./zoom.js";
 
 // A cue word is `pattern (15 bits) | command bit`, and bit 15 belongs to the
 // lane POSITION rather than to the pattern sitting in it (ops.js says why),
@@ -33,10 +34,12 @@ const CMD_BIT = 0x8000;
 export function openMenuAtCursor(view) {
   const pt = view?.cursorPoint?.();
   if (!pt) return false;
-  const rect = view.canvas.getBoundingClientRect();
+  // `pt` is where the CURSOR sits on the canvas — layout pixels — and a
+  // synthetic event has to speak the client coordinates a real one would.
+  const at = clientPoint(view.canvas, pt.x, pt.y);
   view.onContextMenu({
-    clientX: rect.left + pt.x,
-    clientY: rect.top + pt.y,
+    clientX: at.clientX,
+    clientY: at.clientY,
     preventDefault() {},
     fromKeyboard: true,
   });

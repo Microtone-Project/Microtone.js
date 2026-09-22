@@ -12776,6 +12776,25 @@ class TaudEngine {
   getVoiceActive(ph, vi) { return this._voice(ph, vi).active; }
 
   /**
+   * The LANE axis as the pattern left it (item 198.3): `channel_vol`, and the
+   * lane position `S $8aaa` / `X $eeaa` share. Deliberately NOT gated on
+   * `active` — the two registers belong to the lane and survive between notes,
+   * which is the whole reason a display wants them; the effective readings
+   * above answer the other question, "where did the sounding note end up".
+   */
+  getVoiceChannelVolume(ph, vi) { return this._voice(ph, vi).channelVolume; }
+  /** `S $8aaa`'s `aaa`: the pan byte in a stereo song, the 512-unit azimuth otherwise. */
+  getVoiceChannelAzimuth(ph, vi) {
+    const v = this._voice(ph, vi);
+    return this.playheads[ph].surroundModel === SURROUND_STEREO ? v.channelPan : v.panAzimuth;
+  }
+  /** `X $eeaa`'s `ee` — signed, 128 units = 90°; zero unless the song is spatial. */
+  getVoiceChannelElevation(ph, vi) {
+    const v = this._voice(ph, vi);
+    return this.playheads[ph].surroundModel === SURROUND_SPATIAL ? v.panElevation : 0.0;
+  }
+
+  /**
    * Fill the per-voice soundscope rings (`Voice.scopeBuffer`) or not. Off by
    * default: the Kotlin device has no such switch because a TSVM guest can read
    * the scope window through MMIO at any instant, whereas here a host that
@@ -13042,7 +13061,17 @@ const SNAP_V_FUNK_MODE = 21;
 // modFunkLen), already carried by the invert-mask query reply
 // (engine.js getInstrumentSampleMod) the Samples view already polls.
 const SNAP_V_MOD_FUNK_WINDOW = 22;
-const SNAP_VOICE_STRIDE = 23;
+// ── the LANE axis (item 198.3), for the Timeline's lane headers ──
+// What `M`/`N` and `S $8aaa` / `X $eeaa` left on the lane, as opposed to the
+// EFF_/AZIMUTH/ELEVATION readings above, which are where the sounding note
+// ended up once the note axis, the envelopes and the panbrello had their say.
+// Written whether or not the voice is active: a lane keeps its volume and its
+// position between notes, and that persistence is the whole reason a header
+// has to show them.
+const SNAP_V_CHAN_VOL = 23;    // channelVolume, 0..volMax (M's `$xx`)
+const SNAP_V_CHAN_AZ = 24;     // S $8aaa's `aaa`: the pan byte in a stereo song, the 512-unit azimuth otherwise
+const SNAP_V_CHAN_EL = 25;     // X $eeaa's `ee`: signed lane elevation, 0 unless the song is spatial
+const SNAP_VOICE_STRIDE = 26;
 
 // Every PHYSICAL voice, so the jam bank (item 140) is visible to the views that
 // follow a sounding audition — the Instruments/Samples editors scan the block
@@ -13583,6 +13612,13 @@ function fillSnapshotInto(eng, playhead, f) {
       f[o + SNAP_V_FUNK_POS] = -1;
       f[o + SNAP_V_MOD_FUNK_WINDOW] = -1;
     }
+    // The LANE axis (item 198.3) — outside the active/inactive split on
+    // purpose. `M`'s volume and `S $8aaa` / `X $eeaa`'s position belong to the
+    // lane, not to whatever is sounding on it, and they are exactly what the
+    // Timeline's headers are for: state a row set once, twenty rows ago.
+    f[o + SNAP_V_CHAN_VOL] = v.channelVolume;
+    f[o + SNAP_V_CHAN_AZ] = ts.surroundModel === SURROUND_STEREO ? v.channelPan : v.panAzimuth;
+    f[o + SNAP_V_CHAN_EL] = ts.surroundModel === SURROUND_SPATIAL ? v.panElevation : 0;
   }
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);

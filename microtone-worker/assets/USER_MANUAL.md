@@ -112,12 +112,24 @@ without pressing Play.
 
 From top to bottom:
 
-- **Top bar** — transport, record toggle, undo/redo, octave / instrument / speed displays (hover and use the mouse wheel to change them), song selector, file buttons, language / theme / help buttons. Click the **Microtone** logo for the About box.
+- **Top bar** — transport, record toggle, undo/redo, octave / instrument / speed displays (hover and use the mouse wheel to change them), song selector, file buttons, the zoom control, language / theme / help buttons. Click the **Microtone** logo for the About box.
 - **Tabs** — the eight views, on **F1**–**F7** and **F9**. The strip belongs to the pane below it, so a split screen has one per pane, each ending in the button that splits the view (**⊞**) or closes that pane (**✕**).
-- **Toolbox** (Timeline and Patterns only) — **Retune…**, the **Raw** hex-note toggle and the quick **Instruments** lookup panel.
+- **Toolbox** (Timeline and Patterns only) — **Retune…**, the **Raw** hex-note toggle, the **Ghosts** and **Pitch** drawing toggles, and the quick **Instruments** lookup panel.
 - **The main view.**
 - **Command palette** — a context strip above the status bar showing the actions and documentation for the column under the cursor while recording.
 - **Status bar** — file name, project name, dirty marker, cue/row/BPM/speed position, and links to these docs.
+
+### Zooming the interface
+
+The **− 100% +** control in the top bar, beside the language button, scales the
+whole interface: the grids, the panels and the dialogs together. Click the
+figure to go straight back to 100%, or hover it and roll the wheel. The choice
+is remembered by this browser and is nothing to do with any song.
+
+The grids are **redrawn** at the new size rather than magnified, so a cell is as
+crisp at 175% as at 100% — and clicking still lands on the cell you aimed at.
+It is independent of the browser's own zoom (Ctrl+ +/−), which also works and
+which this does not touch.
 
 ## Views
 
@@ -165,7 +177,32 @@ song it orders.
 The Timeline unrolls the entire song: every lane side by side, every cue
 stacked vertically. The left gutter — the *trough* — shows `cue:row` and selects
 whole song rows; lane headers carry
-live VU/pan meters, the lane's current pitch, and the name of the pattern while playing.
+live VU/pan meters, the lane's current pitch, the lane's own volume and position,
+and the name of the pattern while playing.
+
+### What a lane header tells you
+
+Top to bottom: the lane number, the note and instrument sounding on it right
+now, and the number of the pattern playing there; then the **VU** and **pan**
+strips; then the lane's own two settings; then the pattern's name.
+
+The bottom pair are the **lane axis** — what the pattern's own commands have
+left on this lane, as opposed to where the note currently sounding ended up.
+They are written as the cell that would put the lane where it already is, so
+what you read is what you would type:
+
+- **`M` `$xx00`** — the lane volume.
+- **`S` `$8aaa`** — the lane's position, in a stereo or planar song.
+- **`X` `$eeaa`** — the same in a spatial song, where it carries the height too.
+
+A setting nobody has moved is drawn grey, so the lanes that *have* been moved
+are the ones that catch your eye. Both keep reading while the lane is silent,
+which is the point: an `M` `$2000` twenty rows back is still in force, and no
+amount of staring at a meter will tell you so.
+
+The strips carry the same two readings as marks — a notch on the VU where the
+lane volume caps it, and a tick on the pan strip where the lane sits before the
+note's own panning offsets it.
 
 ### Reading a cell
 
@@ -1981,11 +2018,19 @@ screen).
 
 Projects are saved into the browser's **origin-private file system** — private
 storage owned by the site, never uploaded anywhere. The table lists your saved
-projects with size and modification time; **Open** loads, **✎ Rename** changes
-the file name (renaming the currently-open project keeps it current, so a later
-Save targets the new name), **⬇** downloads a copy, and **✕** deletes.
+projects with size and modification time. **Click a project's name to open it**
+— it underlines under the pointer — or use the buttons beside it: **Open**
+loads, **✎ Rename** changes the file name (renaming the currently-open project
+keeps it current, so a later Save targets the new name), **⬇** downloads a copy,
+and **✕** deletes.
 In private-browsing mode OPFS may be unavailable — a warning appears, and you
 should use **Export** to keep your work.
+
+**Download all** at the end of the button bar puts *every* project in this
+browser into one dated ZIP — the backup browser storage does not otherwise give
+you, and worth taking before you clear site data. It archives what is on the
+virtual disk, so save the project you are working on first if you want the
+current state of it.
 
 ### Saving and autosave
 
@@ -2465,7 +2510,54 @@ Things worth knowing about what the grey does NOT say:
   modifier (`Q`) and a metainstrument's per-layer volume and placement are not
   predicted: the column simply stays quiet until something states a value again.
 
+### The pitch plot
+
+**Pitch** in the toolbox draws the shape of each lane's melody behind its note
+and instrument cells. It changes nothing in the song — it is a reading aid. It
+starts off, and unlike the other drawing toggles your choice is **remembered**
+by this browser, so once it is on it stays on.
+
+Every sounding note gets a **tick** on a horizontal scale running across those
+cells, and consecutive ticks are **joined into a contour**, so a part reads as a
+line going down the column instead of as a stack of letters. A run of notes at
+one pitch draws one straight vertical line; a rising phrase leans right.
+
+**It plots what sounds, not what is typed.** A row a [pattern
+ditto](#ditto-ghosts) repeats gets its tick like any other, and so does
+every row a slide or a portamento is travelling through — so `G $0080` between
+two written notes draws the curve you actually hear rather than a straight line
+between its ends. This does not depend on the **Ghosts** switch: that one
+decides whether the grey values are printed in the cells, and the shape of the
+part is true either way.
+
+**An arpeggio draws all three of its pitches.** `J $xxyy` sweeps one voice
+through three pitches within the row, so such a row gets a short bar spanning
+them with a mark at each, and the contour runs through the one the row is
+rooted on. A row playing a chord should not look like a row playing a note.
+
+The scale spans **one octave either side** of the register the part is sitting
+in — one *period* either side, in a tuning whose period is not an octave, so in
+Bohlen-Pierce it is a tritave wide. Ordinary melodic motion lives well inside
+that, which is why the contour is a shape and not a series of jumps to the edge.
+
+The **coloured tab** in each cell's left margin names the register the scale is
+currently centred on, along a spectrum: blue at the bottom of the keyboard,
+through green in the middle, to yellow at the top. The shades are spaced by how
+far apart the eye can actually tell them, not by dividing the spectrum evenly,
+so two registers a step apart look a step apart wherever on the ramp they sit.
+
+It changes colour only when the music really moves register — stepping from B
+up to C does not, a leap of more than an octave does, and that is also where the
+contour breaks, because the scale underneath it has moved. A long rest breaks it
+too.
+
+The ticks and their contour are drawn in **rose**, a colour nothing else in
+those cells wears, so the plot reads as something laid over the notation rather
+than as part of it. The faint grey line down the middle of each cell is the
+centre of the scale.
+
 ## Keyboard reference
+
 
 ### Global and navigation
 

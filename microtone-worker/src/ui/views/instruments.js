@@ -62,6 +62,7 @@ import {
 import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../engine/spatial.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
+import { uiDpr, localPoint } from "../zoom.js";
 
 // Fraction of the envelope graph's plottable width the time axis uses; the
 // rightmost 1−ENV_TIME_FRAC stays empty so the last node can always be grabbed
@@ -1352,7 +1353,7 @@ export class InstrumentsView {
 
   drawEnvGraph() {
     const { canvas, env, tabDef, inst } = this.envCanvas;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(200, this.right.clientWidth - 20);
     const h = 240;
     canvas.width = w * dpr;
@@ -1451,9 +1452,7 @@ export class InstrumentsView {
   }
 
   envHit(e) {
-    const rect = this.envCanvas.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = localPoint(this.envCanvas.canvas, e);
     const { w, times, total } = this.envGeometry();
     const active = envActiveCount(this.envCanvas.env);
     let best = -1, bestD = 12;
@@ -1488,16 +1487,15 @@ export class InstrumentsView {
   envPointerMove(e) {
     if (!this.dragState) return;
     const { canvas, tabDef } = this.envCanvas;
-    const rect = canvas.getBoundingClientRect();
     const h = canvas.clientHeight;
     const idx = this.dragState.idx;
-    const v = Math.round(((h - 14 - (e.clientY - rect.top)) / (h - 28)) * tabDef.max);
+    const { x, y } = localPoint(canvas, e);
+    const v = Math.round(((h - 14 - y) / (h - 28)) * tabDef.max);
     const change = { value: Math.min(Math.max(v, 0), tabDef.max) };
     // Horizontal drag re-times the PRECEDING segment (env[idx-1].offset),
     // quantised to the ThreeFiveMiniUfloat grid. Node 0 is fixed at t=0.
     if (idx > 0) {
       const { w, times, total } = this.envGeometry();
-      const x = e.clientX - rect.left;
       // Divide by the reserved plot width so dragging into the rightmost
       // headroom (frac > 1, up to 1/ENV_TIME_FRAC) extends the envelope.
       const frac = Math.min(Math.max((x - 10) / ((w - 20) * ENV_TIME_FRAC), 0), 1 / ENV_TIME_FRAC);
@@ -1540,7 +1538,7 @@ export class InstrumentsView {
   drawZones() {
     if (!this.zoneCanvas) return;
     const { canvas, inst } = this.zoneCanvas;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = uiDpr();
     const w = Math.max(200, this.right.clientWidth - 20);
     const h = 260;
     canvas.width = w * dpr;
