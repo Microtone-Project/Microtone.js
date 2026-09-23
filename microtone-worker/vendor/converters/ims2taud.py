@@ -241,17 +241,15 @@ def implay_end(song: dict, seq: list) -> list:
 
     IMPLAY ends a song when its tick counter reaches the header's `totalTick`,
     whether or not `FC` has come (FILE_FORMATS §1.5), so no event at or past
-    `totalTick` is ever played.  In 312 of 1725 corpus files that removes a
-    silent tail -- MM-RAIN.IMS's runs about three hours -- which would
-    otherwise become cue after empty cue.  The one intact song that has a
-    note-on at or past its `totalTick`, D-PRODC#.IMS, would lose three quarters
-    of its music that way, so a song with a note there plays to `FC` instead,
-    and so does one whose `totalTick` is not positive."""
+    `totalTick` is ever played.  In 316 of 1725 corpus files that removes a
+    tail that is silence or damage -- MM-RAIN.IMS's runs about three hours --
+    which would otherwise become cue after empty cue.  D-PRODC#.IMS is cut
+    like the rest: past its `totalTick` one held note on channel 5 sounds
+    alone for almost seven minutes, and a 31-second closing passage follows
+    that IMPLAY never reached.  A song whose `totalTick` is not positive (no corpus file) would be
+    silent in IMPLAY, and plays to `FC` instead."""
     end = song['total_tick']
     if end <= 0:
-        return seq
-    if any(t >= end and kind == NOTE_ON for t, kind, *_ in seq):
-        vprint(f"  totalTick {end} is before a note; playing to FC")
         return seq
     kept = [e for e in seq if e[0] < end]
     if len(kept) < len(seq):
