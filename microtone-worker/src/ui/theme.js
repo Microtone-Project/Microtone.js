@@ -49,9 +49,11 @@ const VAR_KEYS = {
   sel: "--cv-sel", ditto: "--cv-ditto",
   fxOp: "--cv-fx-op", fxA1: "--cv-fx-a1", fxA2: "--cv-fx-a2", fxA3: "--cv-fx-a3",
   fxExt: "--cv-fx-ext", // item 162: a `:` cell and the one it pairs with, painted red
-  // canvas: absolute-pitch plot (item 198.5) — the three ends of the register
-  // ramp, then the plot's own two inks. See pitchplot.js for the walk between.
-  octLow: "--cv-oct-low", octMid: "--cv-oct-mid", octHigh: "--cv-oct-high",
+  // canvas: absolute-pitch plot (item 198.5) — the four stops of the register
+  // ramp, low to high, then the plot's own two inks. See pitchplot.js for the
+  // walk between them.
+  octRed: "--cv-oct-red", octYellow: "--cv-oct-yellow",
+  octGreen: "--cv-oct-green", octBlue: "--cv-oct-blue",
   pitchPole: "--cv-pitch-pole", pitchAxis: "--cv-pitch-axis",
   // canvas: samples / instruments
   wave: "--cv-wave", waveLoop: "--cv-wave-loop", waveMid: "--cv-wave-mid",

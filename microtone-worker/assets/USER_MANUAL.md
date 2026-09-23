@@ -2544,10 +2544,11 @@ Bohlen-Pierce it is a tritave wide. Ordinary melodic motion lives well inside
 that, which is why the contour is a shape and not a series of jumps to the edge.
 
 The **coloured tab** in each cell's left margin names the register the scale is
-currently centred on, along a spectrum: blue at the bottom of the keyboard,
-through green in the middle, to yellow at the top. The shades are spaced by how
-far apart the eye can actually tell them, not by dividing the spectrum evenly,
-so two registers a step apart look a step apart wherever on the ramp they sit.
+currently centred on, along a spectrum running the way a spectrum runs: **red**
+at the bottom of the keyboard, through orange, yellow and green, to **blue** at
+the top. The shades are spaced by how far apart the eye can actually tell them,
+not by dividing the spectrum evenly, so two registers a step apart look a step
+apart wherever on the ramp they sit.
 
 It changes colour only when the music really moves register — stepping from B
 up to C does not, a leap of more than an octave does, and that is also where the

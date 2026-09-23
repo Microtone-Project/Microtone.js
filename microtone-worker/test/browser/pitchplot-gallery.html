@@ -23,16 +23,17 @@
   </style>
 </head>
 <body>
-  <h3>register ramp — octave/period 0 … 9, computed in OKLCh from three stops</h3>
+  <h3>register ramp — octave/period 0 … 9, computed in OKLCh from four stops</h3>
   <p class="note">
-    A spectral continuum: blue at the bottom of the keyboard, through cyan and
-    green, to yellow at the top, with lightness running with it as a second,
-    redundant channel. The eight registers between the stops are spaced by
-    PERCEPTUAL distance, not by interpolation parameter — the ΔE row under each
-    strip is the OKLab distance between neighbours, and the point is that it is
-    flat. Tune <code>--cv-oct-low / --cv-oct-mid / --cv-oct-high</code> in
-    css/microtone.css; an unreachable chroma is pulled back along constant
-    lightness and hue rather than clipped per channel.
+    A spectral continuum running the way a spectrum runs: red at the bottom of
+    the keyboard, through yellow and green, to blue at the top. The six
+    registers between the four stops are spaced by PERCEPTUAL distance, not by
+    interpolation parameter — the ΔE row under each strip is the OKLab distance
+    between neighbours, and the point is that it is flat. Tune
+    <code>--cv-oct-red / -yellow / -green / -blue</code> in css/microtone.css;
+    an unreachable chroma is pulled back along constant lightness and hue
+    rather than clipped per channel, so a stop may be asked for more than sRGB
+    holds and will come back as close as it can.
   </p>
   <div id="ramps"></div>
 
@@ -62,7 +63,8 @@
     const VARS = {
       bg: "--cv-bg", rowBeat: "--cv-row-beat", rowBar: "--cv-row-bar",
       fg: "--fg", fg2: "--fg2", dim: "--dim", accent: "--accent",
-      octLow: "--cv-oct-low", octMid: "--cv-oct-mid", octHigh: "--cv-oct-high",
+      octRed: "--cv-oct-red", octYellow: "--cv-oct-yellow",
+      octGreen: "--cv-oct-green", octBlue: "--cv-oct-blue",
       pitchPole: "--cv-pitch-pole", pitchAxis: "--cv-pitch-axis",
     };
     const PALETTES = {};

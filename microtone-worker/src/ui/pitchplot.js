@@ -233,21 +233,27 @@ export function plotGeometry(series) {
 
 // ── the register ramp ──
 //
-// A SPECTRAL continuum rather than a ramp about a neutral middle: blue at the
-// bottom of the keyboard, through cyan and green, to yellow at the top. Three
-// stops per theme, and the eight registers between them are computed.
+// A SPECTRAL continuum, running the way a spectrum runs: RED at the bottom of
+// the keyboard, through yellow and green, to BLUE at the top. Four stops per
+// theme, and the six registers between them are computed.
 //
 // The computation is the interesting part. The steps are NOT cut at even
 // intervals along the path — they are spaced so that every adjacent pair is
 // the same PERCEPTUAL distance apart (oklch.js evenSteps), because a path
-// through hue does not travel at a constant speed through OKLab and a stop in
-// the middle almost never lands at its halfway point. Cutting evenly by
-// parameter bunches several registers into the stretch the eye separates
-// worst — the greens run together while the blues fly apart — which for a
-// signal already asking a lot of a sense with famously poor hue resolution is
-// the difference between a scale you can read and a smear. So the ramp is
-// walked at constant perceptual speed instead, and where the green STOP
-// happens to land is wherever the middle of the journey really is.
+// through hue does not travel at a constant speed through OKLab and four
+// stops are never equally far apart to begin with: red to yellow is a longer
+// journey than yellow to green. Cutting evenly by parameter bunches several
+// registers into the stretch the eye separates worst, which for a signal
+// already asking a lot of a sense with famously poor hue resolution is the
+// difference between a scale you can read and a smear. So the ramp is walked
+// at constant perceptual speed instead, and where each STOP happens to land
+// is wherever that point of the journey really is.
+//
+// Lightness carries nothing here — each stop sits near the most colourful
+// lightness its own hue can reach, and those disagree (yellow and green peak
+// light, red and blue peak dark). Hue alone orders the ramp. That is the
+// price of a spectrum, and why the tab is a 2 px stripe rather than anything
+// asked to be read precisely.
 //
 // Memoised per theme: the walk is a few hundred cube roots, and a 64-lane
 // screen would otherwise ask for it thousands of times a frame.
@@ -259,12 +265,13 @@ const RAMP_HIGH = 9;
 let _rampKey = null;
 let _ramp = null;
 
-/** The tab colour for an absolute octave/period, from the theme's three stops. */
+/** The tab colour for an absolute octave/period, from the theme's four stops. */
 export function octaveColour(octave, C) {
-  const key = `${C.octLow}|${C.octMid}|${C.octHigh}`;
+  const key = `${C.octRed}|${C.octYellow}|${C.octGreen}|${C.octBlue}`;
   if (_rampKey !== key) {
     _rampKey = key;
-    _ramp = evenSteps([C.octLow, C.octMid, C.octHigh], RAMP_HIGH - RAMP_LOW + 1);
+    _ramp = evenSteps([C.octRed, C.octYellow, C.octGreen, C.octBlue],
+      RAMP_HIGH - RAMP_LOW + 1);
   }
   return _ramp[Math.min(Math.max(Math.round(octave), RAMP_LOW), RAMP_HIGH) - RAMP_LOW];
 }
@@ -306,7 +313,7 @@ const ARP_TICK_H = 0.42;
  * SEPARATE from the plot below, and painted after it, because both grids
  * stroke their rules at the END of a frame, over everything the rows drew — a
  * tab painted with the rest of the plot would have its own rule ruled straight
- * back through it. (TODO improve colour palette)
+ * back through it.
  *
  * @param box  {tabX, y, rowH} — the CELL's left edge; the tab is pulled left
  *             of it onto the rule by TAB_DX.

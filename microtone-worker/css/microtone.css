@@ -53,20 +53,25 @@
   /* Absolute-pitch plot (item 198.5) — the background contour behind the note
    * and instrument cells, plus the register tab down their left edge.
    *
-   * The register ramp is a SPECTRAL continuum: blue at the bottom of the
-   * keyboard, through cyan and green, to yellow at the top. A theme states
-   * three stops and src/ui/pitchplot.js computes the eight registers between
-   * them — not at even intervals along the path, but spaced so every adjacent
-   * pair is the same PERCEPTUAL distance apart (oklch.js evenSteps). Hue
-   * resolution is the weakest thing the eye brings to this, so the steps are
-   * spent where they can actually be told apart rather than divided evenly
-   * and left to bunch up in the greens.
+   * The register ramp is a SPECTRAL continuum running the way a spectrum
+   * runs: RED at the bottom of the keyboard, through yellow and green, to
+   * BLUE at the top. A theme states those four stops and src/ui/pitchplot.js
+   * computes the six registers between them — not at even intervals along the
+   * path, but spaced so every adjacent pair is the same PERCEPTUAL distance
+   * apart (oklch.js evenSteps). Hue resolution is the weakest thing the eye
+   * brings to this, so the steps are spent where they can actually be told
+   * apart rather than divided evenly and left to bunch up in the greens.
    *
-   * Lightness runs with the ramp as a second, redundant channel — towards the
-   * ground at the bottom of the keyboard and away from it at the top, on every
-   * theme — so the high registers stand furthest off the page whichever way
-   * round that theme's ground is, and the tab still reads when hue perception
-   * is the thing that is missing.
+   * Each stop sits near the MOST COLOURFUL lightness its own hue can reach in
+   * sRGB, which is a different lightness for each of them — yellow and green
+   * peak light, red and blue peak dark — so the ramp's lightness is not
+   * monotone and carries no meaning. Hue alone orders it, which is the price
+   * of a spectrum and the reason the tab is a 2 px stripe rather than
+   * anything asked to be read precisely. The stops are pulled back from those
+   * peaks only as far as each ground demands: a light theme cannot show a
+   * light yellow at all, so its stops trade contrast for chroma — the tab is
+   * not text, and a colour that cannot be told from its neighbour is worth
+   * less here than one that is slightly harder to see.
    *
    * The plot itself is deliberately NOT on that ramp — a coloured note value
    * turns a dense pattern into soup — and it is not grey either: it gets one
@@ -74,9 +79,10 @@
    * else in these cells wears, so it reads as an annotation over the notation
    * rather than as part of it. The band's centre rule behind them stays a
    * plain neutral: it is a reference, not a reading. */
-  --cv-oct-low: #467ac6;      /* register ramp: the bottom of the keyboard */
-  --cv-oct-mid: #57bd72;      /* …the middle of it */
-  --cv-oct-high: #efd54a;     /* …and the top */
+  --cv-oct-red: #ec1c15;      /* register ramp, low to high: the bottom of the keyboard */
+  --cv-oct-yellow: #f4ce23;   /* …low-middle */
+  --cv-oct-green: #1cee65;    /* …high-middle */
+  --cv-oct-blue: #0f79fd;     /* …and the top */
   --cv-pitch-pole: #e17eb9;   /* the pitch ticks and the line joining them */
   --cv-pitch-axis: #32363b;   /* the band's centre rule, behind them */
 
@@ -178,9 +184,10 @@
   --cv-fx-ext: #ff4d4d;     /* item 162: a `:` cell and the one it pairs with */
 
   /* Absolute-pitch plot (item 198.5) — see the DARK block for the ramp. */
-  --cv-oct-low: #4c80cd;      /* register ramp: the bottom of the keyboard */
-  --cv-oct-mid: #5ec478;      /* …the middle of it */
-  --cv-oct-high: #f3d84e;     /* …and the top */
+  --cv-oct-red: #f0221a;      /* register ramp, low to high: the bottom of the keyboard */
+  --cv-oct-yellow: #f8d224;   /* …low-middle */
+  --cv-oct-green: #1cf267;    /* …high-middle */
+  --cv-oct-blue: #187cff;     /* …and the top */
   --cv-pitch-pole: #e885bf;   /* the pitch ticks and the line joining them */
   --cv-pitch-axis: #585b61;   /* the band's centre rule, behind them */
 
@@ -254,9 +261,10 @@
   --cv-fx-ext: #c62828;     /* item 162: a `:` cell and the one it pairs with */
 
   /* Absolute-pitch plot (item 198.5) — see the DARK block for the ramp. */
-  --cv-oct-low: #5086d6;      /* register ramp: the bottom of the keyboard */
-  --cv-oct-mid: #418d55;      /* …the middle of it */
-  --cv-oct-high: #866c00;     /* …and the top */
+  --cv-oct-red: #e11d16;      /* register ramp, low to high: the bottom of the keyboard */
+  --cv-oct-yellow: #dbb801;   /* …low-middle */
+  --cv-oct-green: #00cd53;    /* …high-middle */
+  --cv-oct-blue: #046de9;     /* …and the top */
   --cv-pitch-pole: #b23e88;   /* the pitch ticks and the line joining them */
   --cv-pitch-axis: #cdd1d8;   /* the band's centre rule, behind them */
 
@@ -344,9 +352,10 @@
   --cv-fx-ext: #a83232;     /* item 162: a `:` cell and the one it pairs with */
 
   /* Absolute-pitch plot (item 198.5) — see the DARK block for the ramp. */
-  --cv-oct-low: #3b71bf;      /* register ramp: the bottom of the keyboard */
-  --cv-oct-mid: #26753e;      /* …the middle of it */
-  --cv-oct-high: #6e5400;     /* …and the top */
+  --cv-oct-red: #d10003;      /* register ramp, low to high: the bottom of the keyboard */
+  --cv-oct-yellow: #a58a0f;   /* …low-middle */
+  --cv-oct-green: #069a3e;    /* …high-middle */
+  --cv-oct-blue: #005dc9;     /* …and the top */
   --cv-pitch-pole: #943171;   /* the pitch ticks and the line joining them */
   --cv-pitch-axis: #afab9d;   /* the band's centre rule, behind them */
 

@@ -183,30 +183,36 @@ test("a second effect slot only counts when the document HAS one", () => {
 
 // ── the register ramp ──
 
-const RAMP = { octLow: "#467ac6", octMid: "#57bd72", octHigh: "#efd54a" };
+const RAMP = {
+  octRed: "#ec1c15", octYellow: "#f4ce23", octGreen: "#1cee65", octBlue: "#0f79fd",
+};
 /** OKLab distance — perceived difference, which is the thing being spaced. */
 const deltaE = (x, y) => {
   const a = rgbToOklab(parseHex(x)), b = rgbToOklab(parseHex(y));
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 };
 
-test("the ramp is a spectral continuum: blue at the bottom, green through the middle, yellow at the top", () => {
+test("the ramp is a spectral continuum: red at the bottom of the keyboard, blue at the top", () => {
   const steps = [];
   for (let oct = 0; oct <= 9; oct++) steps.push(hexToOklch(octaveColour(oct, RAMP)));
-  // Hue sweeps monotonically from the blue end to the yellow end (the whole
-  // walk is one short-path arc, so it never doubles back), and the lightness
-  // rises with it — the second, redundant channel.
+  // Hue sweeps monotonically from the red end to the blue end — the whole walk
+  // is one arc through yellow and green, and never doubles back.
   for (let oct = 1; oct <= 9; oct++) {
-    assert.ok(steps[oct][2] < steps[oct - 1][2], `hue advances at octave ${oct}`);
-    assert.ok(steps[oct][0] > steps[oct - 1][0], `…and so does lightness at ${oct}`);
+    assert.ok(steps[oct][2] > steps[oct - 1][2], `hue advances at octave ${oct}`);
   }
-  assert.ok(steps[0][2] > 230 && steps[0][2] < 280, "the bottom of the keyboard is blue");
-  assert.ok(steps[9][2] > 80 && steps[9][2] < 115, "the top of it is yellow");
-  // Nothing on the ramp is grey: the anchor used to be, and that was the note
-  // this design was rebuilt on.
+  assert.ok(steps[0][2] > 15 && steps[0][2] < 45, "the bottom of the keyboard is red");
+  assert.ok(steps[9][2] > 235 && steps[9][2] < 275, "the top of it is blue");
+  // Every step carries real chroma: a spectral ramp with a washed-out member
+  // is a ramp with a hole in it.
   for (const [i, lch] of steps.entries()) {
-    assert.ok(lch[1] > 0.05, `octave ${i} carries real chroma (${lch[1].toFixed(3)})`);
+    assert.ok(lch[1] > 0.1, `octave ${i} is properly coloured (C ${lch[1].toFixed(3)})`);
   }
+  // …and lightness deliberately carries NOTHING: each stop sits near its own
+  // hue's most colourful lightness, and those disagree. Asserted so nobody
+  // "fixes" the ramp into a monotone one and quietly halves its chroma.
+  const ls = steps.map((l) => l[0]);
+  assert.ok(Math.max(...ls) > ls[0] && Math.max(...ls) > ls[9],
+    "the lightest step is in the middle, not at an end");
 });
 
 test("the steps are spaced by PERCEPTUAL distance, not by interpolation parameter", () => {
@@ -214,16 +220,18 @@ test("the steps are spaced by PERCEPTUAL distance, not by interpolation paramete
   for (let oct = 0; oct <= 9; oct++) steps.push(octaveColour(oct, RAMP));
   const gaps = steps.slice(1).map((c, i) => deltaE(steps[i], c));
   const lo = Math.min(...gaps), hi = Math.max(...gaps);
-  assert.ok(hi / lo < 1.15, `neighbour gaps are flat: ${lo.toFixed(3)}..${hi.toFixed(3)}`);
+  assert.ok(hi / lo < 1.2, `neighbour gaps are flat: ${lo.toFixed(3)}..${hi.toFixed(3)}`);
 
   // …and that this is worth doing: cutting the same path at even PARAMETER
-  // values instead bunches the steps, because the two arms of the path are
-  // nowhere near equal in perceptual length.
+  // values instead bunches the steps, because the three arms are nowhere near
+  // equal in perceptual length — red to yellow is a far longer journey than
+  // yellow to green.
+  const arms = [RAMP.octRed, RAMP.octYellow, RAMP.octGreen, RAMP.octBlue];
   const naive = [];
-  for (let oct = 0; oct <= 9; oct++) {
-    naive.push(oct <= 4
-      ? mixOklch(RAMP.octLow, RAMP.octMid, oct / 4)
-      : mixOklch(RAMP.octMid, RAMP.octHigh, (oct - 4) / 5));
+  for (let k = 0; k <= 9; k++) {
+    const t = (k / 9) * 3;
+    const seg = Math.min(Math.floor(t), 2);
+    naive.push(mixOklch(arms[seg], arms[seg + 1], t - seg));
   }
   const nGaps = naive.slice(1).map((c, i) => deltaE(naive[i], c));
   assert.ok(Math.max(...nGaps) / Math.min(...nGaps) > 1.5,
@@ -233,13 +241,15 @@ test("the steps are spaced by PERCEPTUAL distance, not by interpolation paramete
 test("the ramp saturates at both ends rather than running off them", () => {
   assert.equal(octaveColour(0, RAMP), octaveColour(-3, RAMP));
   assert.equal(octaveColour(9, RAMP), octaveColour(14, RAMP));
-  assert.equal(octaveColour(0, RAMP), RAMP.octLow, "…and the ends ARE the stops");
-  assert.equal(octaveColour(9, RAMP), RAMP.octHigh);
+  assert.equal(octaveColour(0, RAMP), RAMP.octRed, "…and the ends ARE the stops");
+  assert.equal(octaveColour(9, RAMP), RAMP.octBlue);
 });
 
 test("a new theme's ramp replaces the old one rather than answering from its cache", () => {
   const dark = octaveColour(7, RAMP);
-  const light = octaveColour(7, { octLow: "#5086d6", octMid: "#418d55", octHigh: "#866c00" });
+  const light = octaveColour(7, {
+    octRed: "#e11d16", octYellow: "#dbb801", octGreen: "#00cd53", octBlue: "#046de9",
+  });
   assert.notEqual(dark, light);
   assert.equal(octaveColour(7, RAMP), dark, "…and switching back gives the first one again");
 });
