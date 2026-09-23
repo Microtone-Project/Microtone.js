@@ -1163,6 +1163,9 @@ export class PatternView {
   // ── delegating surface (app.js palette/clipboard + smoke tests) ──
   get cursor() { return this.active.cursor; }
   get patIdx() { return this.active.patIdx; }
+  /** The active column's pattern, for a Cues view in the other pane. No cue
+   *  slot: a pattern shown here is not tied to any one place in the song. */
+  linkPattern() { return this.store.song ? { pat: this.patIdx, cue: -1, ch: -1 } : null; }
   get scrollRow() { return this.active.scrollRow; }
   get sel() { return this.active.sel; }
   set sel(v) { this.active.sel = v; this.active.invalidate(); }

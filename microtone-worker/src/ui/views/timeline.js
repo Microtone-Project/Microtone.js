@@ -1330,6 +1330,19 @@ export class TimelineView {
     return { pat: patNum, rowInCue: loc.rowInCue, cell: this.patternFor(patNum)[loc.rowInCue] };
   }
 
+  /** Which pattern the cursor is sitting on, and in which cue slot — what a
+   *  Cues view in the other pane highlights while this one has the keyboard.
+   *  Null on an empty slot or past the end of the song. */
+  linkPattern() {
+    const { store } = this;
+    const ch = store.cursor.ch;
+    if (!store.song || ch < 0 || ch >= store.doc.channelCount) return null;
+    const loc = this.locate(store.cursor.row);
+    if (!loc) return null;
+    const pat = store.song.cues[loc.entry.cue][ch] & 0x7fff;
+    return pat === PATTERN_EMPTY ? null : { pat, cue: loc.entry.cue, ch };
+  }
+
   /** The pattern cell under the cursor, or null (empty cue slot / off-map). */
   cursorCell() { return this.cellAt(this.store.cursor.row, this.store.cursor.ch); }
 

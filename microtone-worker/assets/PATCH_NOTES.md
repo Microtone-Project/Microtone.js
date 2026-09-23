@@ -4,6 +4,13 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-24
+
+The Cues view now shows you everywhere a pattern is used.
+
+- **Put the cursor on a pattern number in the Cues view and every other placement of that pattern turns blue**, so you can see at a glance where else an edit to it will be heard.
+- **With the Cues view open beside the Timeline or the Patterns view, it follows whichever one you are working in.** It highlights the pattern under the Timeline's cursor — with a frame round the exact cue slot you are in — or the pattern the Patterns view has open.
+
 ## 2026-09-22
 
 The Timeline can draw the shape of a melody behind the notes, so a part reads as a line rather than as a column of letters.

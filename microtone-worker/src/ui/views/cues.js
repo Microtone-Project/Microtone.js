@@ -120,6 +120,26 @@ export class CuesView {
 
   invalidate() { this.needsRedraw = true; }
 
+  /** The pattern the focused Timeline/Patterns pane is on ({pat, cue, ch},
+   *  cue -1 when it is not tied to a slot), or null to follow this view's own
+   *  cursor. Repaints only on a change — app.js calls this every frame. */
+  setLink(link) {
+    const key = link ? `${link.pat},${link.cue},${link.ch}` : "";
+    if (key === (this._linkKey ?? "")) return;
+    this._linkKey = key;
+    this.link = link;
+    this.invalidate();
+  }
+
+  /** The pattern number whose every placement is inked blue: the linked one,
+   *  else the one under this view's own cursor. CUE_EMPTY for none. */
+  highlightPattern() {
+    if (this.link) return this.link.pat;
+    if (this.cursor.col < 2) return CUE_EMPTY;
+    const words = this.store.song?.cues[this.cursor.cue];
+    return words ? words[this.cursor.col - 2] & 0x7fff : CUE_EMPTY;
+  }
+
   resize() {
     const host = this.canvas.parentElement;
     const dpr = uiDpr();
@@ -881,6 +901,8 @@ export class CuesView {
       ctx.fillText(String(ch + 1).padStart(2, "0"), this.chanX(i) + 4, HEADER_H / 2);
     }
 
+    const hiPat = this.highlightPattern();
+    const link = this.link ?? null;
     const playCue = store.audio?.isPlaying() ? store.audio.getCuePosition() : -1;
     const editRows = this.editRows();
     const sb = this.selBounds();
@@ -951,8 +973,16 @@ export class CuesView {
           ctx.fillText("····", x, y + ROW_H / 2);
           ctx.globalAlpha = 1;
         } else {
-          ctx.fillStyle = C.fg;
+          // Every other placement of the selected pattern reads in blue; the
+          // cursor's own cell keeps the plain ink its caret is drawn for.
+          const own = !link && cueIdx === this.cursor.cue && ch === this.cursor.col - 2;
+          ctx.fillStyle = pat === hiPat && !own ? C.accent2 : C.fg;
           ctx.fillText(pat.toString(16).toUpperCase().padStart(4, "0"), x, y + ROW_H / 2);
+          // The exact slot the other pane's cursor is in gets a frame as well.
+          if (link && cueIdx === link.cue && ch === link.ch) {
+            ctx.strokeStyle = C.accent2;
+            ctx.strokeRect(this.chanX(i) + 0.5, y + 0.5, COL_W - 3, ROW_H - 1);
+          }
         }
       }
     }

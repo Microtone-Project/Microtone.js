@@ -1882,6 +1882,20 @@ window.__microtone = {
 showView(store.view);
 
 // ── frame loop ──
+/** A Cues view sharing the screen with a Timeline or Patterns view that has
+ *  the keyboard highlights that view's current pattern; otherwise it
+ *  highlights its own cursor's. Cheap enough to settle every frame — setLink
+ *  only repaints on a change. */
+function linkCues() {
+  const other = split.paneView(split.focus);
+  const src = other === "timeline" || other === "pattern"
+    ? paneViews[split.focus].get(other)?.obj.linkPattern() ?? null : null;
+  for (let i = 0; i < paneViews.length; i++) {
+    if (split.paneView(i) !== "cues") continue;
+    paneViews[i].get("cues")?.obj.setLink(i === split.focus ? null : src);
+  }
+}
+
 function frame() {
   const audio = store.audio;
   if (audio && store.doc) {
@@ -1891,6 +1905,7 @@ function frame() {
     $("posBpm").textContent = audio.getBPM() || "–";
     $("posSpd").textContent = audio.getTickRate() || "–";
   }
+  linkCues();
   // Every view a pane is showing gets a frame, not just the focused one — and
   // two panes on the same view are two copies, each with its own scroll.
   for (let i = 0; i < paneViews.length; i++) {
