@@ -1857,6 +1857,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* …and the OPEN project still marks itself. `color: inherit` above is more
  * specific than .files-current on its own, so the pairing has to be stated. */
 .files-table td button.files-name.files-current { color: var(--accent); }
+.files-disclaimer { margin-top: 1rem; color: var(--dim); font-size: 0.9rem; }
 
 /* ── split views (Samples / Instruments) ── */
 .split-view { position: absolute; inset: 0; display: flex; }

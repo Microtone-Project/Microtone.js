@@ -365,6 +365,7 @@ export default {
   "files.wavCap": "Max seconds",
   "files.render": "Render",
   "files.wavRendering": "Rendering WAV…",
+  "files.disclaimer": "These songs live in this browser only. Clearing the browser's data takes them with it, so download anything you mean to keep.",
 
   // ── audio export dialog (#998.4) ──
   "export.title": "Export audio (offline render)",

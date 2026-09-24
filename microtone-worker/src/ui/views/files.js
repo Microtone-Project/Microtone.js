@@ -121,6 +121,10 @@ export class FilesView {
       }
       table.appendChild(tbody);
       this.root.appendChild(table);
+      const disclaimer = document.createElement("p");
+      disclaimer.className = "files-disclaimer";
+      disclaimer.textContent = t("files.disclaimer");
+      this.root.appendChild(disclaimer);
     }
   }
 

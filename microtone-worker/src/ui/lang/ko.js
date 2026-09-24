@@ -356,6 +356,7 @@ export default {
   "files.wavCap": "최대 길이 (초)",
   "files.render": "렌더",
   "files.wavRendering": "WAV 렌더링 중…",
+  "files.disclaimer": "이 곡들은 이 브라우저에만 있습니다. 브라우저 데이터를 지우면 함께 사라지니, 남겨 둘 곡은 내려받아 두세요.",
 
   // ── 오디오 내보내기 대화상자 (#998.4) ──
   "export.title": "오디오 내보내기 (오프라인 렌더)",
