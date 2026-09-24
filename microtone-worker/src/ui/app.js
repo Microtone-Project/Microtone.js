@@ -302,8 +302,11 @@ function updateStatus() {
     ? `${store.fileName ?? "untitled"} — ${unescapeName(doc.meta.projectName ?? "untitled")} · ${doc.songs.length} ${doc.songs.length === 1 ? "song" : "songs"} · ${doc.channelCount}ch`
     : t("status.noFile");
   $("stDirty").hidden = !doc?.dirty;
-  $("octDisp").textContent = jam.octave;
+  // A transposed keyboard reads as the octave with its offset, "4+3".
+  $("octDisp").textContent = jam.transpose === 0 ? String(jam.octave)
+    : `${jam.octave}${jam.transpose > 0 ? "+" : "\u2212"}${Math.abs(jam.transpose)}`;
   $("instDisp").textContent = hex2(jam.currentInst);
+  $("stepDisp").textContent = String(store.editStep);
   updateUndoUI();
   updateHint();
 }
@@ -1293,8 +1296,7 @@ function onWheelCtl(id, fn) {
 }
 // Step the current (jam/entry) instrument by dir through the selectable
 // (top-level) slots — never land on a metainstrument's sub-instrument (item 59).
-// Wrap-free clamp at the ends. Shared by the topbar instCtl wheel and the
-// not-record bracket keys (item 47.6: { } = instrument down / up).
+// Wrap-free clamp at the ends. Shared by the topbar instCtl wheel and Alt+←/→.
 function stepCurrentInst(dir) {
   if (!store.doc) return;
   const slots = store.doc.selectableInstrumentSlots();
@@ -1306,20 +1308,99 @@ function stepCurrentInst(dir) {
   updateStatus();
   store.emit("instsel");
 }
+// The input step: how many rows the cursor moves after a note or a finished
+// field is entered — 0 keeps it where it is, for writing several columns of
+// one row. [ ] and the wheel on the top bar's Step read-out.
+const EDIT_STEP_MAX = 16;
+function stepEditStep(dir) {
+  store.editStep = Math.min(Math.max(store.editStep + dir, 0), EDIT_STEP_MAX);
+  updateStatus();
+}
 onWheelCtl("octCtl", (dir) => { jam.octaveDelta(dir); store.emit("octave"); updateStatus(); });
 onWheelCtl("zoomCtl", (dir) => zoomStep(dir));
 onWheelCtl("instCtl", (dir) => stepCurrentInst(dir));
+onWheelCtl("stepCtl", (dir) => stepEditStep(dir));
 
-/** The bracket-key scheme (items 47.2 + 47.6). `dir` = -1 for '[' / +1 for ']';
- *  `shift` selects the '{' / '}' variant. In record mode on a grid view the
- *  brackets edit the cell under the cursor (contextual per column); otherwise
- *  they are the global octave ([ ]) / instrument ({ }) steppers. */
-function handleBracket(dir, shift) {
-  if (store.record && (store.view === "timeline" || store.view === "pattern")) {
-    if (viewNamed(store.view).bracketEdit(dir, shift)) { updateStatus(); return; }
+// Shift+Alt+↑/↓ walks the layouts in the Keymap tab's order and wraps round.
+// Remembering where the walk stood matters because a saved layout may share
+// its name with a built-in it shadows, and looking the name up would land on
+// the built-in every time and never get past it.
+let keymapWalk = -1;
+function stepKeymap(dir) {
+  const list = keymapLib.entries();
+  if (!list.length) return;
+  let i = list[keymapWalk]?.name === keymapLib.activeName
+    ? keymapWalk : list.findIndex((en) => en.name === keymapLib.activeName);
+  i = i < 0 ? 0 : (i + dir + list.length) % list.length;
+  keymapWalk = i;
+  keymapLib.setActive(list[i].spec);
+}
+
+/**
+ * The modified arrow keys. Four families, one modifier each:
+ *   Alt          the keyboard: ←/→ instrument, ↑/↓ octave
+ *   Shift+Alt    the keyboard, finer: ←/→ transpose by a step, ↑/↓ layout
+ *   Ctrl         the music: nudge the selection or the cursor's column —
+ *                ←/→ by a period (16 for a number), ↑/↓ by a degree (1)
+ *   Shift+Ctrl   navigation: ←/→ a lane, ↑/↓ a beat; with Alt as well,
+ *                four lanes and a whole cue (a pattern, in Patterns)
+ * Shift alone is the block selection and belongs to the views. Returns true
+ * when the chord did something.
+ */
+function arrowChord(e) {
+  const mod = e.ctrlKey || e.metaKey, alt = e.altKey, shift = e.shiftKey;
+  const horiz = e.code === "ArrowLeft" || e.code === "ArrowRight";
+  // A value or a pitch goes UP to the right and upward…
+  const up = e.code === "ArrowRight" || e.code === "ArrowUp" ? 1 : -1;
+  // …while the cursor goes FORWARD to the right and downward.
+  const fwd = e.code === "ArrowRight" || e.code === "ArrowDown" ? 1 : -1;
+  if (!mod) {
+    if (!alt) return false;
+    if (!shift) {
+      if (horiz) stepCurrentInst(up);
+      else { jam.octaveDelta(up); store.emit("octave"); }
+    } else if (horiz) {
+      jam.transposeDelta(up);
+      store.emit("octave");
+    } else {
+      stepKeymap(fwd);
+    }
+    return true;
   }
-  if (shift) stepCurrentInst(dir);                       // { } = instrument down/up
-  else { jam.octaveDelta(dir); store.emit("octave"); updateStatus(); } // [ ] = octave
+  const view = store.view;
+  if (!shift) {
+    if (alt) return false;
+    if (view === "timeline" || view === "pattern") {
+      viewNamed(view).nudge(up, horiz);
+      return true;
+    }
+    // Cues holds pattern numbers, not music, so its Ctrl+←/→ keeps widening a
+    // column selection by one lane — to the other command word on a Cmd column.
+    if (view === "cues" && horiz) {
+      viewNamed("cues").extendColumn(fwd);
+      return true;
+    }
+    return false;
+  }
+  const lanes = fwd * (alt ? 4 : 1);
+  if (view === "timeline") {
+    const tl = viewNamed("timeline");
+    if (horiz) tl.moveCursor(0, lanes);
+    else tl.jumpGrid(fwd, alt);
+    return true;
+  }
+  if (view === "pattern") {
+    const pat = viewNamed("pattern");
+    if (horiz) pat.stepPane(lanes);
+    else if (alt) pat.jumpPattern(fwd);
+    else pat.jumpBeat(fwd);
+    return true;
+  }
+  if (view === "cues" && horiz) {
+    viewNamed("cues").moveCursor(0, lanes);
+    return true;
+  }
+  return false;
 }
 onWheelCtl("spdCtl", (dir) => {
   // live playback speed tweak (device only — the A effect can still override)
@@ -1440,6 +1521,7 @@ document.addEventListener("click", (e) => {
 // must keep their hands off it. TEXTAREA belongs here as much as INPUT does:
 // without it the Project tab's message box never sees an Enter, because the
 // dispatch below claims the key first.
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
 function isTypingTarget(el) {
   const tag = el?.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
@@ -1447,6 +1529,16 @@ function isTypingTarget(el) {
 }
 
 window.addEventListener("keydown", (e) => {
+  // Alt+←/→ are the keyboard's instrument keys, and the browser's Back and
+  // Forward — which would throw the whole session away mid-edit. Refused up
+  // front, before any guard below can return early, so not even an open
+  // dialog or an empty workspace lets one through. The exception is a text
+  // field on a Mac, where Option+←/→ is the word jump (and not navigation).
+  if (e.altKey && !e.ctrlKey && !e.metaKey &&
+      (e.code === "ArrowLeft" || e.code === "ArrowRight") &&
+      !(IS_MAC && isTypingTarget(e.target))) {
+    e.preventDefault();
+  }
   // Save works anywhere, any time (item 47.4): before the input/dialog and
   // no-doc guards below, so a focused field or open modal can't swallow it.
   if ((e.ctrlKey || e.metaKey) && e.key === "s") {
@@ -1530,17 +1622,10 @@ window.addEventListener("keydown", (e) => {
       return;
     }
   }
-  // Ctrl/Cmd+←/→ — grow that column block sideways, a whole lane at a time.
-  // Only the two lane-column grids have a neighbouring column to reach: a
-  // Taud pattern is one lane, so the Patterns view leaves the keys alone.
-  if ((e.ctrlKey || e.metaKey) && (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
-    const v = selView();
-    if (v?.extendColumn) {
-      e.preventDefault();
-      v.extendColumn(e.code === "ArrowLeft" ? -1 : 1);
-      updateStatus();
-      return;
-    }
+  // Ctrl / Alt / Shift+Ctrl / Shift+Alt with an arrow — see arrowChord.
+  if (e.code?.startsWith("Arrow") && (e.ctrlKey || e.metaKey || e.altKey)) {
+    if (arrowChord(e)) { e.preventDefault(); updateStatus(); }
+    return;
   }
   // Block clipboard (Timeline / Patterns): copy / cut / paste.
   if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "x" || e.key === "v")) {
@@ -1606,8 +1691,12 @@ window.addEventListener("keydown", (e) => {
         setRecord(!store.record);
       return;
     }
-    case "BracketLeft": e.preventDefault(); handleBracket(-1, e.shiftKey); return;
-    case "BracketRight": e.preventDefault(); handleBracket(1, e.shiftKey); return;
+    // [ ] — the input step down / up. { } do nothing, deliberately: they are
+    // swallowed rather than left to the jam so a layout can never claim them.
+    case "BracketLeft": case "BracketRight":
+      e.preventDefault();
+      if (!e.shiftKey) stepEditStep(e.code === "BracketLeft" ? -1 : 1);
+      return;
     // Fn goes to the nth TAB, which is the rule the strip has always followed —
     // so the Mastering tab (item 178) taking the sixth place moved Project to
     // F7 and pushed the File tab off the run entirely. It lands on F9 rather
@@ -1678,9 +1767,9 @@ window.addEventListener("keydown", (e) => {
     const timeline = viewNamed("timeline"); // the focused pane's copy
     switch (e.code) {
       case "ArrowUp": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(-1, 0) : timeline.moveCursor(-store.editStep || -1, 0); return;
+        e.shiftKey ? timeline.extendSelection(-1, 0) : timeline.moveCursor(-1, 0); return;
       case "ArrowDown": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(1, 0) : timeline.moveCursor(store.editStep || 1, 0); return;
+        e.shiftKey ? timeline.extendSelection(1, 0) : timeline.moveCursor(1, 0); return;
       case "ArrowLeft": e.preventDefault();
         e.shiftKey ? timeline.extendSelectionSub(-1) : timeline.moveSubCursor(-1); return;
       case "ArrowRight": e.preventDefault();

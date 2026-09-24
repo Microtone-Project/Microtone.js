@@ -98,7 +98,7 @@ export class KeymapBar {
     if (this.el.hidden) return;
     const held = new Set(this.jam.held.keys());
     const sig = [...held].sort().join(",");
-    const key = `${this.spec.name}|${this.spec.rows}|${this.jam.octave}|${this.preset?.index}` +
+    const key = `${this.spec.name}|${this.spec.rows}|${this.jam.octave}|${this.jam.transpose}|${this.preset?.index}` +
       `|${this.store.keymapOrtho}|${this.el.clientWidth}|${sig}`;
     if (key === this._paintedFor) return;
     this._paintedFor = key;
@@ -123,13 +123,14 @@ export class KeymapBar {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     this._layout = paintKeymapBoard(ctx, {
-      spec, preset: this.preset, octave: this.jam.octave,
+      spec, preset: this.preset, octave: this.jam.octave, shift: this.jam.transpose,
       w, h, size: "compact", held, ground: true, ortho,
     });
 
     const C = themeColors();
-    this.label.textContent = t("keymapbar.label", {
-      name: spec.name, octave: this.jam.octave,
+    const shift = this.jam.transpose;
+    this.label.textContent = t(shift ? "keymapbar.labelShift" : "keymapbar.label", {
+      name: spec.name, octave: this.jam.octave, shift: shift > 0 ? `+${shift}` : String(shift),
     });
     this.label.style.color = C.dim;
   }

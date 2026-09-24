@@ -10,14 +10,14 @@ import {
 import { hex2, hex4, fxColonWarns } from "../notenames.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
 import {
-  interpretEditKey, interpretBracketKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
+  interpretEditKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
   subPositions, subCharPos, charToSub, CELL_CHARS, CELL_CHARS_WIDE, CELL_CHARS_WIDE_FX2,
   lookahead, wheelStep, stepNoteCell,
   colsForSubs, subToCol, ALL_COLS, colCharRange, subIsEmpty,
-  volPanStep, volPanState, elevationStep,
+  volPanStep, volPanState, elevationStep, nudgeColumns, nudgeCursor, gridStepRow,
 } from "../edit.js";
-import { setCellOp, setCellsBytesOp, setCuesOp } from "../../doc/ops.js";
+import { setCellOp, setCellsBytesOp, setCellsEachOp, setCuesOp } from "../../doc/ops.js";
 import { dittoGhosts } from "../../doc/ditto.js";
 import { createBendSim, bendContext } from "../../doc/bendghosts.js";
 import {
@@ -1358,7 +1358,7 @@ export class TimelineView {
     const c = store.cursor;
     const action = interpretEditKey(
       { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, c.sub, c.nib, target.cell,
-      { octave: jam.octave, currentInst: jam.currentInst, preset: store.pitchPreset,
+      { octave: jam.octave, transpose: jam.transpose, currentInst: jam.currentInst, preset: store.pitchPreset,
         rawHex: rawNoteView(store.rawNoteView, store.pitchPreset),
         keymap: store.keymap, quoteKey: store.quoteKey,
         wideCells: store.doc?.wideCells === true });
@@ -1380,19 +1380,56 @@ export class TimelineView {
     return true;
   }
 
-  /** Contextual bracket-key cell edit (item 47.6), record mode only. Returns
-   *  true when consumed. */
-  bracketEdit(dir, shift) {
+  /**
+   * Ctrl+arrows: nudge the block selection, or — with none — the cursor's
+   * column. `coarse` is Ctrl+←/→ (a note by a period, a number by 16), else
+   * Ctrl+↑/↓ (a degree, or 1). A selection moves in any mode, as Delete and
+   * paste do; the lone cursor cell is an edit like typing, so record only.
+   * Returns true when consumed.
+   */
+  nudge(dir, coarse) {
     const store = this.store;
-    if (!store.record) return false;
-    const target = this.cursorCell();
-    if (!target) return false;
-    const action = interpretBracketKey(dir, shift, store.cursor.sub, target.cell,
-      { preset: store.pitchPreset, instSlots: store.doc.selectableInstrumentSlots() });
-    if (!action) return false;
-    store.undo.apply(setCellOp(store.songIndex, target.pat, target.rowInCue, action.fields));
-    this.invalidate();
+    const ctx = { preset: store.pitchPreset, wide: this.wide() };
+    const b = this.selBounds();
+    let writes;
+    if (b) {
+      const cols = this.selCols();
+      const byCell = new Map(); // lanes sharing a pattern name one cell twice
+      for (let r = b.r0; r <= b.r1; r++) {
+        for (let ch = b.c0; ch <= b.c1; ch++) {
+          const t = this.cellAt(r, ch);
+          if (!t) continue;
+          const key = `${t.pat}:${t.rowInCue}`;
+          if (byCell.has(key)) continue;
+          // A hidden second effect stays out of it, as it does of the block.
+          const laneCols = this.fx2On(ch) ? cols : cols.filter((c) => c !== COL_FX2);
+          const fields = nudgeColumns(laneCols, t.cell, dir, coarse, ctx);
+          if (fields) byCell.set(key, { pat: t.pat, row: t.rowInCue, fields });
+        }
+      }
+      writes = [...byCell.values()];
+    } else {
+      if (!store.record) return false;
+      const target = this.cursorCell();
+      if (!target) return false;
+      const c = store.cursor;
+      const fields = nudgeCursor(c.sub, c.nib, target.cell, dir, coarse, ctx);
+      writes = fields ? [{ pat: target.pat, row: target.rowInCue, fields }] : [];
+    }
+    if (writes.length) {
+      store.undo.apply(setCellsEachOp(store.songIndex, writes));
+      this.invalidate();
+    }
     return true;
+  }
+
+  /** Shift+Ctrl(+Alt)+↑/↓: to the next (dir +1) or previous beat — or, with
+   *  `cue`, the start of the next or previous cue. */
+  jumpGrid(dir, cue) {
+    const map = this.getMap();
+    if (!map) return;
+    const every = cue ? Infinity : this.store.beats().pri;
+    this.moveCursor(gridStepRow(map.entries, this.store.cursor.row, dir, every) - this.store.cursor.row, 0);
   }
 
   /** Per-frame: follow playback + repaint when needed. */

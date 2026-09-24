@@ -11,13 +11,13 @@ import { hex2, fxColonWarns } from "../notenames.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
 import { transposePatternNotes, transposeUnitKeys } from "../pitchtables.js";
 import {
-  interpretEditKey, interpretBracketKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
+  interpretEditKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
   subCharPos, charToSub, cellChars, lookahead, wheelStep, stepNoteCell,
   colsForSubs, subToCol, ALL_COLS, colCharRange, subIsEmpty, volPanStep, elevationStep,
-  subPositions,
+  subPositions, nudgeColumns, nudgeCursor, gridStepRow,
 } from "../edit.js";
-import { setCellOp, setPatternBytesOp, appendPatternOp, bulkNotesOp, setCellsBytesOp, setSectionOp, changeInstrumentOp } from "../../doc/ops.js";
+import { setCellOp, setPatternBytesOp, appendPatternOp, bulkNotesOp, setCellsBytesOp, setCellsEachOp, setSectionOp, changeInstrumentOp } from "../../doc/ops.js";
 import { escapeNonAscii, unescapeName } from "../names.js";
 import {
   makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols,
@@ -794,7 +794,6 @@ class PatternPane {
       case "PageDown": e.shiftKey ? this.extendSelection(16) : this.moveCursor(16); return true;
       case "Home": e.shiftKey ? this.extendSelection(-64) : this.moveCursor(-64); return true;
       case "End": e.shiftKey ? this.extendSelection(64) : this.moveCursor(64); return true;
-      case "BracketLeft": case "BracketRight": return false; // octave keys: global
     }
     const pattern = this.pattern();
     if (!pattern || !this.store.record) return false;
@@ -802,7 +801,7 @@ class PatternPane {
     const cell = pattern[c.row];
     const action = interpretEditKey(
       { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, c.sub, c.nib, cell,
-      { octave: this.jam.octave, currentInst: this.jam.currentInst, preset: this.store.pitchPreset,
+      { octave: this.jam.octave, transpose: this.jam.transpose, currentInst: this.jam.currentInst, preset: this.store.pitchPreset,
         rawHex: rawNoteView(this.store.rawNoteView, this.store.pitchPreset),
         keymap: this.store.keymap, quoteKey: this.store.quoteKey,
         wideCells: this.store.doc?.wideCells === true });
@@ -819,19 +818,47 @@ class PatternPane {
     return true;
   }
 
-  /** Contextual bracket-key cell edit (item 47.6), record mode only. */
-  bracketEdit(dir, shift) {
+  /** Ctrl+arrows: nudge the selected rows' column band, or the cursor's
+   *  column (record mode only) — Timeline.nudge, for one pattern. */
+  nudge(dir, coarse) {
     const store = this.store;
-    if (!store.record) return false;
     const pattern = this.pattern();
     if (!pattern) return false;
-    const c = this.cursor;
-    const action = interpretBracketKey(dir, shift, c.sub, pattern[c.row],
-      { preset: store.pitchPreset, instSlots: store.doc.selectableInstrumentSlots() });
-    if (!action) return false;
-    store.undo.apply(setCellOp(store.songIndex, this.patIdx, c.row, action.fields));
-    this.invalidate();
+    const ctx = { preset: store.pitchPreset, wide: this.wide() };
+    const b = this.selRowBounds();
+    const writes = [];
+    if (b) {
+      const cols = this.fx2() ? this.selCols() : this.selCols().filter((c) => c !== COL_FX2);
+      for (let r = b.r0; r <= b.r1; r++) {
+        const fields = nudgeColumns(cols, pattern[r], dir, coarse, ctx);
+        if (fields) writes.push({ pat: this.patIdx, row: r, fields });
+      }
+    } else {
+      if (!store.record) return false;
+      const c = this.cursor;
+      const fields = nudgeCursor(c.sub, c.nib, pattern[c.row], dir, coarse, ctx);
+      if (fields) writes.push({ pat: this.patIdx, row: c.row, fields });
+    }
+    if (writes.length) {
+      store.undo.apply(setCellsEachOp(store.songIndex, writes));
+      this.invalidate();
+    }
     return true;
+  }
+
+  /** Shift+Ctrl+↑/↓: the next or previous beat of this pattern. */
+  jumpBeat(dir) {
+    const to = gridStepRow([{ startRow: 0, rowLimit: 64 }], this.cursor.row, dir,
+      this.store.beats().pri);
+    this.moveCursor(to - this.cursor.row);
+  }
+
+  /** Shift+Ctrl+Alt+↑/↓: row 0 of the next pattern — or, going up, of this
+   *  one first, and of the previous one from there. */
+  jumpPattern(dir) {
+    if (dir < 0 && this.cursor.row > 0) { this.moveCursor(-this.cursor.row); return; }
+    this.goTo(this.patIdx + dir, 0);
+    this.store.emit("cursor");
   }
 
   wheelEdit(e, dir) {
@@ -1180,7 +1207,14 @@ export class PatternView {
   hasSelection() { return this.active.hasSelection(); }
   clearSelection() { return this.active.clearSelection(); }
   selectColumn() { return this.active.selectColumn(); }
-  bracketEdit(dir, shift) { return this.active.bracketEdit(dir, shift); }
+  nudge(dir, coarse) { return this.active.nudge(dir, coarse); }
+  jumpBeat(dir) { return this.active.jumpBeat(dir); }
+  jumpPattern(dir) { return this.active.jumpPattern(dir); }
+  /** Shift+Ctrl(+Alt)+←/→: a pattern is one lane, so the next lane over is
+   *  the next column — clamped, where Tab wraps round. */
+  stepPane(n) {
+    this.setActiveIdx(Math.min(Math.max(this.activeIdx + n, 0), this.panes.length - 1));
+  }
   copySelection() { return this.active.copySelection(); }
   cutSelection() { return this.active.cutSelection(); }
   deleteSelection() { return this.active.deleteSelection(); }

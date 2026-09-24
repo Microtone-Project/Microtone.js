@@ -86,10 +86,11 @@ export function boardExtent(spec, size = "full", ortho = false) {
  * @param opts.legend    (code) => the key's printed letter
  * @param opts.size      "full" | "compact"
  * @param opts.ground    fill the box first (the tab does; the strip has CSS)
+ * @param opts.shift     the keyboard's transposition, in the layout's unit
  */
 export function paintKeymapBoard(ctx, opts) {
   const {
-    spec, preset, octave, w, h, size = "full", ortho = false,
+    spec, preset, octave, shift = 0, w, h, size = "full", ortho = false,
     held = EMPTY_SET, selected = null, legend = defaultLegend, ground = true,
   } = opts;
   const stagger = ortho ? ROW_ORTHO : ROW_STAGGER;
@@ -129,7 +130,7 @@ export function paintKeymapBoard(ctx, opts) {
       const cx = S.pad + (col + stagger[row]) * S.w + S.w / 2;
       const cy = S.pad + ri * (ortho ? S.h : S.step) + S.h / 2;
       layout.set(code, { x: cx * scale + dx, y: cy * scale + dy });
-      const note = resolved.has(code) ? keymapNote(spec, code, octave, preset, resolved) : null;
+      const note = resolved.has(code) ? keymapNote(spec, code, octave, preset, resolved, shift) : null;
       paintCap(ctx, {
         code, cx, cy, note, preset, total, S, C, dark,
         held: held.has(code), selected: selected === code, ortho,

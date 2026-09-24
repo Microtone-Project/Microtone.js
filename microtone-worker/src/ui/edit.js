@@ -296,11 +296,6 @@ function vpFields(isPan, value, sel, wide = false) {
   return wide ? { azimuth: value, panEff: sel } : { pan: value, panEff: sel };
 }
 
-/** …wrapped as an interpretBracketKey action. */
-function vpFieldsFor(isPan, value, sel, wide = false) {
-  return { fields: vpFields(isPan, value, sel, wide) };
-}
-
 /** Read a cell's vol or pan column as {value, sel, arg, op, empty}. */
 export function volPanState(isPan, cell, wide = false) {
   const sp = colSpec(isPan, wide);
@@ -460,24 +455,9 @@ export function rawNoteView(rawToggle, preset) {
 // jam map has always been reachable from the edit interpreter.
 export { semiToNote, semiToNoteInTable };
 
-/** Next/previous selectable instrument slot from `cur`, stepping by `step`
- *  (+1 = up, -1 = down) through the ascending `slots` list. Off-list current
- *  values jump to the nearest slot in the step direction. Null if none. */
-function stepInstSlot(cur, step, slots) {
-  if (!slots || slots.length === 0) return null;
-  cur &= 0xff;
-  const i = slots.indexOf(cur);
-  if (i < 0) {
-    if (step > 0) return slots.find((s) => s > cur) ?? slots[slots.length - 1];
-    for (let k = slots.length - 1; k >= 0; k--) if (slots[k] < cur) return slots[k];
-    return slots[0];
-  }
-  return slots[Math.min(Math.max(i + step, 0), slots.length - 1)];
-}
-
 /**
  * One step of the note column, for the two controls that nudge a cell in place
- * — the mouse wheel and the bracket keys.
+ * — the mouse wheel and Ctrl+↑/↓.
  *
  * Three kinds of note word behave differently, and only one of them is a pitch:
  * an interrupt marker (item 181) walks Int0…IntF and clamps at both ends, so a
@@ -485,8 +465,8 @@ function stepInstSlot(cur, step, slots) {
  * real note steps by one degree of the active pitch table; every other
  * sentinel holds still, since stepping "key-off" by a degree means nothing.
  * Both callers already refuse the third case (subIsEmpty gates the wheel, and
- * the bracket keys return early), so that branch is belt and braces — but it
- * is what keeps this function safe to call on any cell.
+ * nudgeColumn returns early), so that branch is belt and braces — but it is
+ * what keeps this function safe to call on any cell.
  */
 export function stepNoteCell(note, preset, dir) {
   if (note >= 0x0010 && note <= 0x001f) {
@@ -496,63 +476,136 @@ export function stepNoteCell(note, preset, dir) {
   return stepNoteInTable(note, preset, dir);
 }
 
+/** How far one COARSE nudge moves a number column: a whole hex digit. */
+export const NUDGE_COARSE = 16;
+
 /**
- * Contextual bracket-key edit (items 47.2 + 47.6). `dir` is -1 for '[' / +1 for
- * ']'; `shift` selects the '{' / '}' variant. This handles ONLY the record-mode,
- * cursor-on-a-column edits; the not-record global bindings ([ ] octave, { }
- * instrument) live in app.js. Per-column behaviour (following the 47.6 table,
- * with the note column overridden by the 47.2 choice — octave / semitone):
- *   note: [ ] octave down/up      · Shift {} one semitone/step down/up
- *   inst: [ prev inst · ] next    · Shift same
- *   vol : [ vol- · ] vol+         · Shift {} FINE selector, value ∓1
- *   pan : [ pan- (L) · ] pan+ (R) · Shift {} FINE selector, ∓1 toward L/R
- *   fx  : no-op
- * ctx: { preset, instSlots } (instSlots = ascending selectable slots).
- * Returns { fields } for setCellOp, or null (unhandled / nothing to change).
+ * Nudge a vol/pan column by `delta` (already scaled for coarse/fine). A fine
+ * slide moves its SIGNED delta and stops at ±1 rather than crossing zero —
+ * zero is the no-op sentinel, and a slide turning round is the symbol cell's
+ * business — and at the field's magnitude at the other end. Everything else
+ * steps the plain value, clamped. Null when nothing moves.
  */
-export function interpretBracketKey(dir, shift, sub, cell, ctx) {
-  const clampV = (v) => (v < 0 ? 0 : v > 0x3f ? 0x3f : v);
-  switch (sub) {
-    case SUB_NOTE: {
-      // Interrupt markers are the one sentinel with a VALUE in it (item 181):
-      // `[`/`]` walk Int0…IntF, and Shift does the same, since the number has
-      // no coarse and fine axis to tell apart.
-      if (cell.note >= 0x0010 && cell.note <= 0x001f) {
-        const note = stepNoteCell(cell.note, ctx.preset, dir);
-        return note === cell.note ? null : { fields: { note } };
-      }
-      if (cell.note < 0x20) return null; // other sentinels / empty: no pitch to nudge
-      const interval = ctx.preset?.interval || 0x1000;
-      const note = shift
-        ? stepNoteInTable(cell.note, ctx.preset, dir)                        // semitone/step
-        : Math.min(Math.max(cell.note + dir * interval, 0x20), 0xffff);      // octave/period
-      return note === cell.note ? null : { fields: { note } };
-    }
-    case SUB_INST: {
-      // '[' = prev instrument (dn), ']' = next (up). '{'/'}' behave the same.
-      const instrment = stepInstSlot(cell.instrment, dir > 0 ? +1 : -1, ctx.instSlots);
-      return instrment == null || instrment === cell.instrment ? null : { fields: { instrment } };
-    }
-    case SUB_VOL:
-    case SUB_PAN: {
-      const isPan = sub === SUB_PAN;
-      const st = volPanState(isPan, cell);
-      if (shift) {
-        // FINE selector, SIGNED delta ∓1 — the symbol carries the direction now
-        // (item 87), so '{' walks +2 → +1 → −1 → −2 rather than wrapping round
-        // the raw byte into a 31-unit slide the other way.
-        // Stepping a ∓1 through zero lands on the no-op sentinel, i.e. clears.
-        const value = fineValue(fineSigned(st.value, st.sel) + dir);
-        return value === st.value && st.sel === 3
-          ? null : vpFieldsFor(isPan, value, 3);
-      }
-      // '[' = quieter / toward L, ']' = louder / toward R.
-      if (st.empty) return vpFieldsFor(isPan, 0x20, 0); // default set / centre
-      const value = clampV(st.value + dir);
-      return value === st.value ? null : vpFieldsFor(isPan, value, st.sel);
-    }
-    default: return null; // fx op/arg: no-op
+function volPanNudge(isPan, cell, delta, wide) {
+  const st = volPanState(isPan, cell, wide);
+  if (st.empty) return null;
+  const sp = colSpec(isPan, wide);
+  if (st.sel === SEL_FINE) {
+    const signed = fineSigned(st.value, st.sel, isPan, wide);
+    const sign = Math.sign(signed);
+    const next = Math.min(Math.max((signed + delta) * sign, 1), sp.mag) * sign;
+    return next === signed ? null : vpFields(isPan, fineValue(next, isPan, wide), SEL_FINE, wide);
   }
+  const value = Math.min(Math.max(st.value + delta, 0), sp.max);
+  return value === st.value ? null : vpFields(isPan, value, st.sel, wide);
+}
+
+/**
+ * Ctrl+arrows on one logical column of `cell`: `coarse` is Ctrl+←/→ (a note
+ * moves by one period of the tuning — an octave, a tritave — and a number by
+ * 16), otherwise Ctrl+↑/↓ (a note moves one degree of the table, or one
+ * interrupt number, and a number by 1). `dir` is +1 up/right, −1 down/left.
+ *
+ * Only what is already written moves: an empty column stays empty, exactly as
+ * under the wheel, so nudging a block does not conjure an instrument or a
+ * volume into every blank cell in it. The effect columns nudge their ARGUMENT;
+ * the opcode is a choice, not a quantity. `ctx` = { preset, wide, elevation }
+ * — `elevation` points a wide cell's panning nudge at its height instead.
+ * Returns setCellOp fields, or null when nothing changes.
+ */
+export function nudgeColumn(col, cell, dir, coarse, ctx = {}) {
+  const wide = ctx.wide === true;
+  const amount = dir * (coarse ? NUDGE_COARSE : 1);
+  switch (col) {
+    case COL_NOTE: {
+      const note = cell.note;
+      if (note >= 0x0010 && note <= 0x001f) {
+        // An interrupt number has no period to jump by.
+        if (coarse) return null;
+        const next = stepNoteCell(note, ctx.preset, dir);
+        return next === note ? null : { note: next };
+      }
+      if (note < 0x20) return null; // empty, key-off and the other sentinels
+      const next = coarse
+        ? Math.min(Math.max(note + dir * (ctx.preset?.interval || 0x1000), 0x20), 0xffff)
+        : stepNoteInTable(note, ctx.preset, dir);
+      return next === note ? null : { note: next };
+    }
+    case COL_INST: {
+      if (cell.instrment === 0) return null;
+      const instrment = Math.min(Math.max(cell.instrment + amount, 1), 255);
+      return instrment === cell.instrment ? null : { instrment };
+    }
+    case COL_VOL: return volPanNudge(false, cell, amount, wide);
+    case COL_PAN:
+      if (wide && ctx.elevation) {
+        return subIsEmpty(SUB_PAN, cell) ? null : elevationStep(cell, amount);
+      }
+      return volPanNudge(true, cell, amount, wide);
+    case COL_FX: {
+      if (cell.effect === 0 && cell.effectArg === 0) return null;
+      const effectArg = Math.min(Math.max(cell.effectArg + amount, 0), 0xffff);
+      return effectArg === cell.effectArg ? null : { effectArg };
+    }
+    case COL_FX2: {
+      if ((cell.effect2 ?? 0) === 0 && (cell.effectArg2 ?? 0) === 0) return null;
+      const effectArg2 = Math.min(Math.max(cell.effectArg2 + amount, 0), 0xffff);
+      return effectArg2 === cell.effectArg2 ? null : { effectArg2 };
+    }
+    default: return null;
+  }
+}
+
+/** nudgeColumn over several logical columns of one cell — a block selection's
+ *  column band — merged into one set of fields, or null when none moved. */
+export function nudgeColumns(cols, cell, dir, coarse, ctx = {}) {
+  let fields = null;
+  for (const col of cols) {
+    const f = nudgeColumn(col, cell, dir, coarse, { ...ctx, elevation: false });
+    if (f) fields = { ...(fields ?? {}), ...f };
+  }
+  return fields;
+}
+
+/** nudgeColumn for the cursor: the column its sub-position belongs to, and in
+ *  a wide cell's panning column the elevation digits (nibbles 1–2) nudge the
+ *  height rather than the azimuth — the same split the wheel makes. */
+export function nudgeCursor(sub, nib, cell, dir, coarse, ctx = {}) {
+  const elevation = ctx.wide === true && sub === SUB_PAN && nib >= 1 && nib <= 2;
+  return nudgeColumn(subToCol(sub), cell, dir, coarse, { ...ctx, elevation });
+}
+
+/**
+ * Where Shift+Ctrl+↑/↓ (the next beat) and Shift+Ctrl+Alt+↑/↓ (the next cue)
+ * land. `entries` are the song map's [{startRow, rowLimit}] in order; the
+ * grid restarts at every one of them, so a beat is a row whose place in ITS
+ * cue is a multiple of `every` — which is what the row highlighting draws,
+ * and why this walks to the next such row rather than adding `every` blindly:
+ * a cue of 48 rows, or a cursor sitting between two beats, would otherwise
+ * drift off the grid. `every` = Infinity asks for cue starts only.
+ *
+ * Down (+1) goes to the first grid row after `row`; up (−1) to the last one
+ * before it — so from the middle of a beat, up lands on that beat's own start.
+ * Past either end it stops on the first or the last row.
+ */
+export function gridStepRow(entries, row, dir, every) {
+  if (!entries.length) return row;
+  const last = entries[entries.length - 1];
+  const total = last.startRow + last.rowLimit;
+  const step = Number.isFinite(every) && every > 0 ? every : total + 1;
+  let i = entries.findIndex((e) => row >= e.startRow && row < e.startRow + e.rowLimit);
+  if (i < 0) return row < 0 ? 0 : total - 1;
+  const e = entries[i];
+  const at = row - e.startRow;
+  if (dir > 0) {
+    const next = (Math.floor(at / step) + 1) * step;
+    if (next < e.rowLimit) return e.startRow + next;
+    return i + 1 < entries.length ? entries[i + 1].startRow : total - 1;
+  }
+  if (at > 0) return e.startRow + Math.floor((at - 1) / step) * step;
+  if (i === 0) return 0;
+  const p = entries[i - 1];
+  return p.startRow + Math.floor((p.rowLimit - 1) / step) * step;
 }
 
 function hexDigit(key) {
@@ -577,7 +630,7 @@ function isClearKey(code) {
  * row, and on Shift+<same letter> once one does (interpretEditKey). The
  * interrupt is the odd one out and does NOT advance the row (item 181): it
  * usually shares a row with the note above it, and stepping its number with
- * the bracket keys is the next thing the hand wants to do.
+ * Ctrl+↑/↓ is the next thing the hand wants to do.
  */
 function zRowSentinel(code) {
   switch (code) {
@@ -604,7 +657,7 @@ function base36Digit(key) {
  *             which the piano keys ignore)
  * @param sub  cursor sub-column, nib nibble index within it
  * @param cell current TaudPlayData (read-only here)
- * @param ctx  {octave, currentInst, preset, wideCells} — preset = active pitch
+ * @param ctx  {octave, transpose, currentInst, preset, wideCells} — preset = active pitch
  *             table; wideCells marks a format-v3 project
  * @returns null (unhandled) or an action:
  *   {fields, jamNote?, advanceRow?, advanceNib?} — fields go through setCellOp;
@@ -649,7 +702,7 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
       // note, like a piano. Swallowed (no retrigger, no cell write, no row
       // advance) — the keyup still ends it.
       if (ev.repeat) return { consumed: true };
-      const note = keymapNote(keymap, code, ctx.octave, ctx.preset);
+      const note = keymapNote(keymap, code, ctx.octave, ctx.preset, null, ctx.transpose ?? 0);
       const fields = { note };
       // Current-instrument auto-adopt (taut behaviour): note entry stamps the
       // active instrument unless the cell already carries one.

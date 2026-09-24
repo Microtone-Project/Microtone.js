@@ -243,11 +243,16 @@ export function keymapClaimsZRow(spec) {
  * does not claim that key. `deg` goes through the tuning's own degrees; `semi`
  * through the old snap-a-semitone path, which is what keeps the Piano built-in
  * bit-for-bit what the keyboard has always done.
+ *
+ * `shift` is the keyboard's own transposition (Shift+Alt+←/→), in the layout's
+ * unit: a degree of the tuning on a `deg` layout, a semitone on a `semi` one.
+ * It moves every key by the same step, so the layout's shape — and every hand
+ * shape on it — is untouched.
  */
-export function keymapNote(spec, code, octave, preset, resolved = null) {
+export function keymapNote(spec, code, octave, preset, resolved = null, shift = 0) {
   const map = resolved ?? resolvedKeymap(spec);
   if (!map.has(code)) return null;
-  const value = map.get(code);
+  const value = map.get(code) + shift;
   const unit = UNITS.includes(spec?.unit) ? spec.unit : "deg";
   return unit === "semi"
     ? semiToNoteInTable(octave, value, preset)

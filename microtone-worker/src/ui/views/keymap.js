@@ -64,11 +64,20 @@ export class KeymapView {
     this._build();
     onThemeChange(() => this.paint());
     // What the caps SAY comes from outside this view: the song's tuning (a load
-    // or a notation change) and the jam octave, which the bracket keys and the
+    // or a notation change) and the jam octave, which Alt+↑/↓ and the
     // toolbar stepper move. The readouts are computed from both too, so these
     // refresh rather than merely repaint.
     store.on("doc", () => { if (this.visible) this.refresh(); });
-    store.on("keymap", () => { if (this.visible) this.refresh(); });
+    store.on("keymap", () => {
+      // The layout can change under the tab — Shift+Alt+↑/↓ walks them from
+      // anywhere — and the panel must follow it rather than keep editing the
+      // one it had. Its own edits keep the name, so they never trip this.
+      if (store.keymap && store.keymap.name !== this.draft.name) {
+        this.draft = normaliseKeymap(store.keymap);
+        this.selected = null;
+      }
+      if (this.visible) this.refresh();
+    });
     store.on("octave", () => { if (this.visible) this.refresh(); });
     this._loadLegends();
   }
@@ -539,7 +548,7 @@ export class KeymapView {
     if (!code) return;
     this.selected = code;
     this.paint();
-    const note = keymapNote(this.draft, code, this.jam.octave, this.preset);
+    const note = keymapNote(this.draft, code, this.jam.octave, this.preset, null, this.jam.transpose);
     if (note !== null) this.jam.hold(code, note);
     const release = () => { this.jam.up(code); window.removeEventListener("pointerup", release); };
     window.addEventListener("pointerup", release);
@@ -586,7 +595,7 @@ export class KeymapView {
     // The board itself is drawn by the shared painter, so the strip that docks
     // under the grids shows exactly what is built here.
     this._layout = paintKeymapBoard(ctx, {
-      spec: this.draft, preset: this.preset, octave: this.jam.octave,
+      spec: this.draft, preset: this.preset, octave: this.jam.octave, shift: this.jam.transpose,
       w, h, size: "full", ortho: this.store.keymapOrtho === true,
       held: this.held, selected: this.selected, legend: (c) => this.legend(c),
     });
@@ -600,7 +609,7 @@ export class KeymapView {
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = C.dim;
     const note = this.selected === null
-      ? null : keymapNote(this.draft, this.selected, this.jam.octave, this.preset);
+      ? null : keymapNote(this.draft, this.selected, this.jam.octave, this.preset, null, this.jam.transpose);
     const parts = [t("keymap.octave", { n: this.jam.octave })];
     if (note !== null) {
       parts.push(`${this.legend(this.selected)} → ${noteToStr(note)}`);

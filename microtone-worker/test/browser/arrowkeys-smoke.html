@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>arrow-chord smoke</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
+  <script>
+    // The modified-arrow key scheme: Alt = the keyboard, Shift+Alt = the
+    // keyboard finer, Ctrl = nudge the music, Shift+Ctrl(+Alt) = navigate,
+    // [ ] = the input step and { } = nothing.
+    const out = [];
+    let failures = 0;
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const ok = (cond, what) => { if (!cond) failures++; log(`${cond ? "PASS" : "FAIL"} ${what}`); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await new Promise((resolve) => {
+          const poll = setInterval(() => {
+            const w = frame.contentWindow;
+            if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+          }, 100);
+        });
+        const M = win.__microtone;
+        const { store, jam, keymapLib } = M;
+        // Returns the event, so a test can ask whether the default was refused.
+        const key = (code, opts = {}) => {
+          const ev = new win.KeyboardEvent("keydown", { code, key: opts.key ?? code, bubbles: true, cancelable: true, ...opts });
+          win.dispatchEvent(ev);
+          win.dispatchEvent(new win.KeyboardEvent("keyup", { code, key: opts.key ?? code, bubbles: true, ...opts }));
+          return ev;
+        };
+        log("app loaded, doc ready");
+
+        // ── Alt: the keyboard ──
+        const oct = jam.octave;
+        key("ArrowUp", { altKey: true });
+        ok(jam.octave === oct + 1, "Alt+↑ raises the keyboard octave");
+        key("ArrowDown", { altKey: true });
+        ok(jam.octave === oct, "Alt+↓ lowers it again");
+        const slots = store.doc.selectableInstrumentSlots();
+        jam.currentInst = slots[0];
+        const back = key("ArrowRight", { altKey: true });
+        ok(jam.currentInst === (slots[1] ?? slots[0]), `Alt+→ takes the next instrument (${jam.currentInst})`);
+        ok(back.defaultPrevented, "…and the browser does not get it as Forward");
+        ok(key("ArrowLeft", { altKey: true }).defaultPrevented && jam.currentInst === slots[0],
+          "Alt+← takes the previous one, and is not Back either");
+
+        // ── Shift+Alt: transpose, layout ──
+        key("ArrowRight", { altKey: true, shiftKey: true });
+        key("ArrowRight", { altKey: true, shiftKey: true });
+        ok(jam.transpose === 2, "Shift+Alt+→ transposes the keyboard a step at a time");
+        ok(win.document.getElementById("octDisp").textContent === `${jam.octave}+2`,
+          `the top bar shows it (${win.document.getElementById("octDisp").textContent})`);
+        store.record = true;
+        store.cursor = { row: 1, ch: 0, sub: 0, nib: 0 };
+        M.timeline.moveCursor(0, 0);
+        const t0 = M.timeline.cursorCell();
+        key("KeyA", { key: "a" });
+        const entered = store.song.patterns[t0.pat][t0.rowInCue].note;
+        const { keymapNote } = await import("../../src/ui/keymap.js");
+        const want = keymapNote(store.keymap, "KeyA", jam.octave, store.pitchPreset, null, 2);
+        ok(entered === want && want !== keymapNote(store.keymap, "KeyA", jam.octave, store.pitchPreset),
+          `a transposed keyboard enters the transposed note (0x${entered.toString(16)})`);
+        key("ArrowLeft", { altKey: true, shiftKey: true });
+        key("ArrowLeft", { altKey: true, shiftKey: true });
+        ok(jam.transpose === 0, "Shift+Alt+← takes it back");
+        const layouts = keymapLib.entries().map((e) => e.name);
+        const layout0 = keymapLib.activeName;
+        key("ArrowDown", { altKey: true, shiftKey: true });
+        const i0 = layouts.indexOf(layout0);
+        ok(keymapLib.activeName === layouts[(i0 + 1) % layouts.length],
+          `Shift+Alt+↓ goes to the next layout (${keymapLib.activeName})`);
+        key("ArrowUp", { altKey: true, shiftKey: true });
+        ok(keymapLib.activeName === layout0, "Shift+Alt+↑ comes back");
+
+        // ── [ ] the input step, { } nothing ──
+        store.editStep = 1;
+        key("BracketRight", { key: "]" }); key("BracketRight", { key: "]" });
+        ok(store.editStep === 3, "] raises the input step");
+        ok(win.document.getElementById("stepDisp").textContent === "3", "the top bar shows it");
+        const octNow = jam.octave, instNow = jam.currentInst;
+        key("BracketLeft", { key: "{", shiftKey: true });
+        ok(store.editStep === 3 && jam.octave === octNow && jam.currentInst === instNow, "{ does nothing");
+        store.cursor = { row: 4, ch: 0, sub: 0, nib: 0 };
+        M.timeline.moveCursor(0, 0);
+        key("KeyA", { key: "a" });
+        ok(store.cursor.row === 7, `note entry advances by the step (row ${store.cursor.row})`);
+        key("ArrowDown");
+        ok(store.cursor.row === 8, "a plain arrow still moves one row");
+        for (let i = 0; i < 3; i++) key("BracketLeft", { key: "[" });
+        ok(store.editStep === 0, "[ goes down to 0 and stops");
+        store.editStep = 1;
+        win.document.getElementById("stepDisp").textContent = "1";
+
+        // ── Ctrl: nudge the cursor column (record mode) — row 4 has the note
+        // the step test just entered ──
+        store.cursor = { row: 4, ch: 0, sub: 0, nib: 0 };
+        M.timeline.moveCursor(0, 0);
+        const t1 = M.timeline.cursorCell();
+        const n0 = t1.cell.note;
+        key("ArrowRight", { ctrlKey: true });
+        ok(store.song.patterns[t1.pat][t1.rowInCue].note === n0 + store.pitchPreset.interval,
+          "Ctrl+→ moves the cursor's note up a period");
+        key("ArrowDown", { ctrlKey: true });
+        const n1 = store.song.patterns[t1.pat][t1.rowInCue].note;
+        ok(n1 < n0 + store.pitchPreset.interval && n1 > n0, "Ctrl+↓ moves it down a degree");
+        key("KeyZ", { key: "z", ctrlKey: true }); key("KeyZ", { key: "z", ctrlKey: true });
+        ok(store.song.patterns[t1.pat][t1.rowInCue].note === n0, "each nudge is its own undo step");
+
+        // ── Shift+Ctrl(+Alt): navigate ──
+        const beat = store.beats().pri;
+        const map = store.song.songMap();
+        store.cursor = { row: 1, ch: 0, sub: 0, nib: 0 };
+        key("ArrowDown", { ctrlKey: true, shiftKey: true });
+        ok(store.cursor.row === beat, `Shift+Ctrl+↓ lands on the next beat (${store.cursor.row})`);
+        key("ArrowUp", { ctrlKey: true, shiftKey: true });
+        ok(store.cursor.row === 0, "Shift+Ctrl+↑ on the previous one");
+        key("ArrowDown", { ctrlKey: true, shiftKey: true, altKey: true });
+        ok(store.cursor.row === (map.entries[1]?.startRow ?? 0), `Shift+Ctrl+Alt+↓ lands on the next cue (${store.cursor.row})`);
+        key("ArrowRight", { ctrlKey: true, shiftKey: true });
+        ok(store.cursor.ch === 1, "Shift+Ctrl+→ moves one lane");
+        key("ArrowRight", { ctrlKey: true, shiftKey: true, altKey: true });
+        ok(store.cursor.ch === Math.min(5, store.doc.channelCount - 1), `Shift+Ctrl+Alt+→ moves four (${store.cursor.ch})`);
+
+        // ── the same in Patterns ──
+        key("F3", { key: "F3" });
+        await sleep(300);
+        const pv = M.patternView;
+        pv.goTo(0, 3);
+        key("ArrowDown", { ctrlKey: true, shiftKey: true });
+        ok(pv.cursor.row === beat, `Patterns: Shift+Ctrl+↓ to the next beat (${pv.cursor.row})`);
+        key("ArrowDown", { ctrlKey: true, shiftKey: true, altKey: true });
+        ok(pv.patIdx === 1 && pv.cursor.row === 0, "Shift+Ctrl+Alt+↓ to row 0 of the next pattern");
+        pv.goTo(1, 9);
+        key("ArrowUp", { ctrlKey: true, shiftKey: true, altKey: true });
+        ok(pv.patIdx === 1 && pv.cursor.row === 0, "↑ goes to this pattern's row 0 first…");
+        key("ArrowUp", { ctrlKey: true, shiftKey: true, altKey: true });
+        ok(pv.patIdx === 0 && pv.cursor.row === 0, "…then to the previous pattern");
+        const pane = pv.activeIdx;
+        key("ArrowRight", { ctrlKey: true, shiftKey: true });
+        ok(pv.activeIdx === Math.min(pane + 1, pv.panes.length - 1), "Shift+Ctrl+→ moves to the next column");
+        key("F1", { key: "F1" });
+
+        log(`FAILURES: ${failures}`);
+      } catch (err) {
+        log("EXCEPTION " + (err?.stack || err));
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+</body>
+</html>

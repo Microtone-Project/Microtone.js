@@ -2,10 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  interpretEditKey, interpretBracketKey, lookahead, rawNoteView, semiToNote, semiToNoteInTable,
+  interpretEditKey, nudgeColumn, nudgeColumns, nudgeCursor, gridStepRow, lookahead, rawNoteView, semiToNote, semiToNoteInTable,
   subIsEmpty, subCharPos, charToSub, subToCol, SUB_POSITIONS, SUB_NIBBLES, stepNoteCell,
   volPanOp, volPanArg, volPanStep, fineSigned, fineValue, JAM_SEMIS,
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
+  COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX,
 } from "../../src/ui/edit.js";
 import { volToStr, panToStr, rangeToStr, noteCentsOff } from "../../src/ui/notenames.js";
 import { TaudPlayData } from "../../src/engine/state.js";
@@ -224,16 +225,15 @@ test("raw hex entry still wins over `b` on the note column", () => {
   assert.equal(raw.fields.note, 0x000b, "raw hex reads `b` as the digit $B, not a marker");
 });
 
-test("bracket keys walk an interrupt marker Int0…IntF and clamp at both ends", () => {
+test("Ctrl+↑/↓ walks an interrupt marker Int0…IntF and clamps; Ctrl+←/→ leaves it", () => {
   const cell = new TaudPlayData();
   cell.note = 0x0010;
-  assert.equal(interpretBracketKey(-1, false, SUB_NOTE, cell, ctx), null, "Int0 is the floor");
-  assert.equal(interpretBracketKey(+1, false, SUB_NOTE, cell, ctx).fields.note, 0x0011);
-  // Shift ({ }) is the same step: the number has no coarse and fine axis.
-  assert.equal(interpretBracketKey(+1, true, SUB_NOTE, cell, ctx).fields.note, 0x0011);
+  assert.equal(nudgeColumn(COL_NOTE, cell, -1, false, ctx), null, "Int0 is the floor");
+  assert.equal(nudgeColumn(COL_NOTE, cell, +1, false, ctx).note, 0x0011);
+  assert.equal(nudgeColumn(COL_NOTE, cell, +1, true, ctx), null, "a number has no period");
   cell.note = 0x001f;
-  assert.equal(interpretBracketKey(+1, false, SUB_NOTE, cell, ctx), null, "IntF is the ceiling");
-  assert.equal(interpretBracketKey(-1, false, SUB_NOTE, cell, ctx).fields.note, 0x001e);
+  assert.equal(nudgeColumn(COL_NOTE, cell, +1, false, ctx), null, "IntF is the ceiling");
+  assert.equal(nudgeColumn(COL_NOTE, cell, -1, false, ctx).note, 0x001e);
 });
 
 test("stepNoteCell: markers walk, other sentinels hold still, notes step by a degree", () => {
@@ -361,41 +361,64 @@ test("non-edit keys pass through", () => {
   assert.equal(interpretEditKey({ code: "KeyN", key: "n" }, SUB_NOTE, 0, cell, ctx), null);
 });
 
-// ── item 47.2/47.6: contextual bracket keys ──
-test("bracket note: [ ] octave, { } semitone/step (12-TET)", () => {
-  const bctx = { preset: pitchTablePresets[120], instSlots: [1, 2, 5] };
+// ── Ctrl+arrows: nudge a column ──
+test("nudge note: ←/→ a period, ↑/↓ a degree (12-TET); sentinels hold", () => {
+  const nctx = { preset: pitchTablePresets[120] };
   const cell = new TaudPlayData(); cell.note = MIDDLE_C;
-  // '[' (dir -1) = octave down, ']' (dir +1) = octave up
-  assert.equal(interpretBracketKey(-1, false, SUB_NOTE, cell, bctx).fields.note, MIDDLE_C - 0x1000);
-  assert.equal(interpretBracketKey(+1, false, SUB_NOTE, cell, bctx).fields.note, MIDDLE_C + 0x1000);
-  // Shift = one 12-TET degree (semitone)
-  assert.equal(interpretBracketKey(+1, true, SUB_NOTE, cell, bctx).fields.note,
+  assert.equal(nudgeColumn(COL_NOTE, cell, -1, true, nctx).note, MIDDLE_C - 0x1000);
+  assert.equal(nudgeColumn(COL_NOTE, cell, +1, true, nctx).note, MIDDLE_C + 0x1000);
+  assert.equal(nudgeColumn(COL_NOTE, cell, +1, false, nctx).note,
     MIDDLE_C + pitchTablePresets[120].table[1]);
-  // sentinels / empty note: no action
   cell.note = 0x0001;
-  assert.equal(interpretBracketKey(-1, false, SUB_NOTE, cell, bctx), null);
+  assert.equal(nudgeColumn(COL_NOTE, cell, -1, true, nctx), null);
 });
 
-test("bracket inst: steps through selectable slots ('[' prev, ']' next)", () => {
-  const bctx = { instSlots: [1, 2, 5] };
-  const cell = new TaudPlayData(); cell.instrment = 2;
-  assert.equal(interpretBracketKey(-1, false, SUB_INST, cell, bctx).fields.instrment, 1, "'[' = prev");
-  assert.equal(interpretBracketKey(+1, false, SUB_INST, cell, bctx).fields.instrment, 5, "']' = next");
-  cell.instrment = 5; // top of the list
-  assert.equal(interpretBracketKey(+1, false, SUB_INST, cell, bctx), null, "']' clamped at the end");
-});
-
-test("bracket vol/pan: [ ] value, { } fine (FINE selector)", () => {
+test("nudge numbers: by 16 or 1, clamped, and never into an empty column", () => {
   const cell = new TaudPlayData();
+  assert.equal(nudgeColumn(COL_INST, cell, +1, false), null, "no instrument is conjured");
+  cell.instrment = 2;
+  assert.equal(nudgeColumn(COL_INST, cell, +1, true).instrment, 18);
+  assert.equal(nudgeColumn(COL_INST, cell, -1, true).instrment, 1, "clamped at 1, not 0");
   cell.volume = 0x20; cell.volumeEff = 0;
-  // Consistent direction: '[' decreases, ']' increases.
-  assert.equal(interpretBracketKey(-1, false, SUB_VOL, cell, {}).fields.volume, 0x1f, "'[' quieter");
-  assert.equal(interpretBracketKey(+1, false, SUB_VOL, cell, {}).fields.volume, 0x21, "']' louder");
-  const fine = interpretBracketKey(+1, true, SUB_VOL, cell, {});
-  assert.equal(fine.fields.volumeEff, 3); assert.equal(fine.fields.volume, 0x21);
+  assert.equal(nudgeColumn(COL_VOL, cell, -1, false).volume, 0x1f);
+  assert.equal(nudgeColumn(COL_VOL, cell, +1, true).volume, 0x30);
+  cell.volume = 0x38;
+  assert.equal(nudgeColumn(COL_VOL, cell, +1, true).volume, 0x3f, "clamped at the top");
   cell.pan = 0x20; cell.panEff = 0;
-  assert.equal(interpretBracketKey(-1, false, SUB_PAN, cell, {}).fields.pan, 0x1f, "'[' toward L");
-  assert.equal(interpretBracketKey(+1, false, SUB_PAN, cell, {}).fields.pan, 0x21, "']' toward R");
+  assert.equal(nudgeColumn(COL_PAN, cell, -1, false).pan, 0x1f);
+  cell.effect = 4; cell.effectArg = 0x0100;
+  assert.equal(nudgeColumn(COL_FX, cell, +1, true).effectArg, 0x0110);
+  assert.equal(nudgeCursor(SUB_FX_OP, 0, cell, -1, false, {}).effectArg, 0x00ff,
+    "the opcode's cursor nudges the argument");
+});
+
+test("nudge a fine slide: signed, stops at ±1 instead of turning round", () => {
+  const cell = new TaudPlayData();
+  cell.volumeEff = 3; cell.volume = 0x20 | 3; // fine up 3
+  assert.equal(fineSigned(nudgeColumn(COL_VOL, cell, -1, true).volume, 3), 1);
+  assert.equal(fineSigned(nudgeColumn(COL_VOL, cell, +1, true).volume, 3), 0x13);
+});
+
+test("nudgeColumns merges every column of a band", () => {
+  const cell = new TaudPlayData();
+  cell.note = MIDDLE_C; cell.instrment = 3;
+  cell.volumeEff = 3; cell.volume = 0; // the empty column's no-op sentinel
+  const f = nudgeColumns([COL_NOTE, COL_INST, COL_VOL], cell, +1, true, { preset: pitchTablePresets[120] });
+  assert.deepEqual(f, { note: MIDDLE_C + 0x1000, instrment: 19 });
+});
+
+test("gridStepRow walks to beats per cue, and to cue starts", () => {
+  const entries = [{ startRow: 0, rowLimit: 64 }, { startRow: 64, rowLimit: 48 }];
+  assert.equal(gridStepRow(entries, 0, +1, 4), 4);
+  assert.equal(gridStepRow(entries, 5, +1, 4), 8, "off-grid lands on the next beat");
+  assert.equal(gridStepRow(entries, 5, -1, 4), 4, "up lands on this beat's start");
+  assert.equal(gridStepRow(entries, 62, +1, 16), 64, "into the next cue");
+  assert.equal(gridStepRow(entries, 64, -1, 16), 48, "the previous cue's last beat");
+  assert.equal(gridStepRow(entries, 100, +1, 16), 111, "stops on the last row");
+  assert.equal(gridStepRow(entries, 10, +1, Infinity), 64);
+  assert.equal(gridStepRow(entries, 70, -1, Infinity), 64);
+  assert.equal(gridStepRow(entries, 64, -1, Infinity), 0);
+  assert.equal(gridStepRow(entries, 0, -1, 4), 0);
 });
 
 // ── item 42: lookahead-scroll (18% edge / 64% central band) ──

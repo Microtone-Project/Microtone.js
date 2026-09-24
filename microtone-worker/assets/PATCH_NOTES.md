@@ -6,6 +6,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-24
 
+The arrow keys have a new scheme, one modifier per job, and brackets now set the input step — muscle memory from before will need retraining.
+
+- **Alt+arrows are the keyboard.** **Alt+↑/↓** change the octave (this used to be **[ ]**) and **Alt+←/→** pick the previous or next instrument (this used to be **{ }**). The browser no longer takes **Alt+←** as Back, so a stray press cannot throw your session away.
+- **Shift+Alt+←/→ transpose the keyboard a step at a time** — a degree of the song's tuning, or a semitone on the Piano layout — without touching the octave. The top bar shows it next to the octave, as **Oct 4+3**, and the key strip names the notes it now plays. **Shift+Alt+↑/↓** walk through the keyboard layouts.
+- **Ctrl+arrows move what you have written.** **Ctrl+←/→** take notes down or up a whole octave (a period, in a non-octave tuning) and numbers by 16; **Ctrl+↑/↓** move notes by one degree and numbers by 1. With a block selected every cell in it moves, only in the columns you selected, as one undo step; otherwise the column under the cursor does, in record mode. Empty columns stay empty. This replaces the record-mode bracket keys.
+- **Shift+Ctrl+arrows jump.** **←/→** go one lane over, **↑/↓** to the previous or next beat — landing on the beat, not a fixed number of rows away. Add **Alt** for four lanes, or for the start of the previous or next cue (in Patterns, row 0 of the previous or next pattern).
+- **[ ] set the input step**, the number of rows the cursor moves after each note, from 0 to 16. It is shown as **Step** in the top bar, where the wheel changes it too; 0 keeps the cursor on its row. The arrow keys always move one row. **{ }** now do nothing.
+- **Ctrl+←/→ no longer widen a column selection on the Timeline** — they nudge it instead. In Cues they still widen it.
+
 The Cues view now shows you everywhere a pattern is used.
 
 - **Put the cursor on a pattern number in the Cues view and every other placement of that pattern turns blue**, so you can see at a glance where else an edit to it will be heard.

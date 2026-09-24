@@ -14,12 +14,17 @@ import { JAM_VOICES, JAM_VOICE_BASE } from "../engine/constants.js";
 // they send no keyup at all.
 const RELEASE_GRACE_MS = 30;
 
+export const TRANSPOSE_MAX = 99;
+
 export class JamKeyboard {
   constructor(store) {
     this.store = store;
     /** code → jam-bank voice index currently sounding it. */
     this.held = new Map();
     this.octave = 4;
+    /** Keyboard transposition in the layout's own unit (a degree, or a
+     *  semitone on a `semi` layout) — Shift+Alt+←/→. On top of the octave. */
+    this.transpose = 0;
     this.currentInst = 1;
     /** code → timer id for releases still waiting out the grace window. */
     this.releasing = new Map();
@@ -85,7 +90,7 @@ export class JamKeyboard {
     this.held.set(code, voice);
     const audio = this.store.audio;
     if (audio) {
-      const note = keymapNote(this.keymap, code, this.octave, this.store.pitchPreset);
+      const note = keymapNote(this.keymap, code, this.octave, this.store.pitchPreset, null, this.transpose);
       // Pure audition on the DOM views (Instruments/Samples) may snap a strict
       // metainstrument to a note it can actually sound (item 51); note-entry
       // views keep the exact pitch.
@@ -164,5 +169,11 @@ export class JamKeyboard {
 
   octaveDelta(d) {
     this.octave = Math.min(Math.max(this.octave + d, 0), 9);
+  }
+
+  /** Step the keyboard transposition, clamped to two digits either way —
+   *  anything wider is what the octave keys are for. */
+  transposeDelta(d) {
+    this.transpose = Math.min(Math.max(this.transpose + d, -TRANSPOSE_MAX), TRANSPOSE_MAX);
   }
 }

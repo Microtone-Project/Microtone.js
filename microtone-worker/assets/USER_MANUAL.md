@@ -714,8 +714,23 @@ their left: B half-sharp of the octave below, E half-sharp, and B half-sharp.
 They are quarter-tone keys, so in a 12-TET song they enter a note that lands
 between two piano keys and the cell shows it with a cents marker.
 
-**[** and **]** shift the octave. Entering a note also stamps the current
+**Alt+↑** and **Alt+↓** shift the octave, and **Alt+←** / **Alt+→** pick the
+previous or next instrument. Entering a note also stamps the current
 instrument into the cell (unless the cell already has one).
+
+**Shift+Alt+←** and **Shift+Alt+→** transpose the whole keyboard one step at a
+time — a degree of the song's tuning, or a semitone on the Piano layout —
+without touching the octave, so a tune that sits awkwardly across the rows can
+be moved until it falls under the hand. The top bar shows it beside the octave:
+**Oct 4+3** is octave 4, three steps up. **Shift+Alt+↑** and **Shift+Alt+↓**
+walk through the keyboard layouts, in the order the Keymap tab lists them.
+
+After each note — or each finished field — the cursor moves down by the
+**input step**, shown as **Step** in the top bar. **[** lowers it and **]**
+raises it (or wheel over the display), from 0 to 16. At **0** the cursor stays
+where it is, for filling in several columns of one row; at the song's beat
+length every note you type lands on the next beat. The arrow keys always move
+one row, whatever the step.
 
 Entry is **notation-aware**: in a non-12-TET song, the keyboard's positions map
 to the nearest degrees of the song's pitch table, so you play that tuning's
@@ -745,8 +760,8 @@ in time with the music, without that program having to guess where the beat is.
 A lighting cue on the downbeat, a subtitle that lands with the line, an enemy
 wave that arrives on the fill: the composer places them, the game answers them.
 
-Press **b** on the note column to place `I·0`, then **[** / **]** or the mouse
-wheel to pick which of the sixteen it is, `I·0` through `I·F`. The marker makes
+Press **b** on the note column to place `I·0`, then **Ctrl+↑** / **Ctrl+↓** or
+the mouse wheel to pick which of the sixteen it is, `I·0` through `I·F`. The marker makes
 no sound at all and disturbs nothing on its lane — a note already ringing
 there carries on ringing. The command palette has a button for each number.
 
@@ -870,9 +885,33 @@ In record mode, the wheel over any cell steps the hovered column in place:
 notes by one degree of the pitch table, everything else by one. On a fine
 slide the wheel walks the signed delta (…−2, −1, +1, +2…) and stops either
 side of zero, since the direction is the symbol cell's business. Hovering the
-top-bar **Oct** / **Inst** / **Spd** displays and wheeling changes the jam
-octave, steps through the used instrument slots, or nudges the live playback
-speed.
+top-bar **Oct** / **Inst** / **Step** / **Spd** displays and wheeling changes the jam
+octave, steps through the used instrument slots, changes the input step, or
+nudges the live playback speed.
+
+### Nudging with Ctrl+arrows
+
+**Ctrl+arrows** move what is already written, on the Timeline and in Patterns:
+
+- **Ctrl+←** / **Ctrl+→** — notes down / up a whole **period** (an octave, or a tritave in Bohlen–Pierce); instrument, volume, panning and effect arguments down / up by **16**, one whole hex digit.
+- **Ctrl+↓** / **Ctrl+↑** — notes down / up one **degree** of the pitch table (a semitone in 12-TET); numbers by **1**. An interrupt marker steps its number instead.
+
+With a block selected they move every cell in it, in the columns the selection
+covers — select just the note column and only the notes move — as one undo
+step, in record mode or not. With nothing selected they move the column under
+the cursor, in record mode only, like any other edit. Empty columns stay empty:
+nothing is conjured into a blank cell, and a column already at its limit stays
+there. The effect columns nudge their argument; the opcode is left alone. A fine
+volume or panning slide moves its signed amount and stops at ±1 rather than
+turning round.
+
+### Moving around
+
+**Shift+Ctrl+arrows** jump rather than step:
+
+- **Shift+Ctrl+←** / **Shift+Ctrl+→** — to the previous / next lane (in Patterns, the next column). Add **Alt** for four at a time.
+- **Shift+Ctrl+↑** / **Shift+Ctrl+↓** — to the previous / next **beat**, the rows the grid highlights. From between two beats, up lands on the start of the beat you are in, so the cursor always comes back onto the grid.
+- **Shift+Ctrl+Alt+↑** / **Shift+Ctrl+Alt+↓** — to the start of the previous / next cue on the Timeline, or row 0 of the previous / next pattern in Patterns. Going up from the middle of one lands on its own start first.
 
 ### Undo and redo
 
@@ -887,7 +926,7 @@ Timeline and Patterns support rectangular selections:
 
 - **Drag** with the mouse to select rows × lanes. A drag also records which *columns* (note / instrument / volume / pan / effect) it covers, so a narrow drag lets you copy just volumes, or just notes. Any drag counts, including one that stays inside a single row or a single column — "just the panning of this row" is a selection you can copy.
 - **Shift+arrows** (and **Shift+PageUp/Down/Home/End**) extend a whole-cell selection from the cursor.
-- **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single lane, top to bottom (in Cues, with the cursor on **Cmd1** or **Cmd2**, that command word all the way down instead); in Patterns the pattern you are looking at. **Ctrl+←** and **Ctrl+→** then widen that selection a whole lane at a time (a Taud pattern is one lane, so they do nothing in Patterns; on a Cues command column there is only the other command word to reach). The lane you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this lane and the next.
+- **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single lane, top to bottom (in Cues, with the cursor on **Cmd1** or **Cmd2**, that command word all the way down instead); in Patterns the pattern you are looking at. In Cues, **Ctrl+←** and **Ctrl+→** then widen that selection a whole lane at a time (on a command column there is only the other command word to reach). The lane you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this lane and the next. On the Timeline and in Patterns, **Ctrl+arrows** [nudge](#nudging-with-ctrl-arrows) the selection instead.
 - **Ctrl+C / Ctrl+X / Ctrl+V** copy, cut and paste. A paste lands on the **start of the selection** when there is one — the corner you began the drag from, not the cursor, which sits wherever the drag ended — and on the cursor when there is not. Pasting across views clips to what fits; a column-limited block overwrites only its columns.
 - **Right-click** for the same three as buttons: *Copy* and *Cut* while a block is selected, *Paste* on any cell that can take one. See [the right-click menu](#the-right-click-menu); the Cues view carries the same clipboard cells over its cue words.
 - **Delete / Backspace** blanks the selection, **Esc** clears it.
@@ -2086,7 +2125,7 @@ when it lands between the marked degrees, and a colour per degree so the
 repeating pattern of the layout is visible at a glance.
 
 - **Press a key** to hear it and pick it out; **`−`** and **`=`**, or the wheel over a key, nudge that one key a degree either way, and **Delete** puts it back.
-- **`[`** and **`]`** shift the whole board an octave, as they do everywhere else.
+- **Alt+↑** and **Alt+↓** shift the whole board an octave and **Shift+Alt+←/→** transpose it a step, as they do everywhere else; **Shift+Alt+↑/↓** move to the previous or next layout in the list.
 - **Ortholinear keyboard** in the settings squares the picture up: keys in true columns and rectangular caps, for the boards whose keys really are in columns rather than typewriter-staggered. Like the **`'`** key it describes your hardware, so it belongs to the app rather than to any one layout.
 
 ### Seeing it while you work
@@ -2572,13 +2611,19 @@ centre of the scale.
 | F1…F7 · F9 · Shift+F9 | Switch views (Shift+F9 is the Keymap tab) |
 | F8 · Shift+F8 | Split the view in two / close the pane · the other pane |
 | Space | Record mode on/off |
-| [ ] | Octave down / up |
+| [ ] | Input step down / up (0–16 rows) |
+| Alt+← / Alt+→ | Previous / next instrument |
+| Alt+↑ / Alt+↓ | Keyboard octave up / down |
+| Shift+Alt+← / → | Transpose the keyboard down / up a step (a degree, or a semitone) |
+| Shift+Alt+↑ / ↓ | Previous / next keyboard layout |
+| Shift+Ctrl+← / → | Previous / next lane (Patterns: column); add Alt for four |
+| Shift+Ctrl+↑ / ↓ | Previous / next beat; add Alt for the previous / next cue (Patterns: pattern) |
 | M / N | Mute / solo the cursor lane (navigate mode; Shift+M / Shift+N under a bottom-row layout) |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+S | Save to browser storage |
 | Ctrl+G | Go to cue:row |
 | Ctrl+A | Select the whole column (Timeline / Cues: one lane, or one command word; Patterns: the pattern) |
-| Ctrl+← / Ctrl+→ | Timeline / Cues: widen (or narrow) that column selection by one lane — on a Cues command column, to the other command word |
+| Ctrl+← / Ctrl+→ | Cues: widen (or narrow) that column selection by one lane — on a command column, to the other command word |
 | Shift+arrows · drag | Extend a block selection |
 | Ctrl+C / X / V | Copy / cut / paste the block |
 | Esc · Delete / Backspace | Clear the selection · blank the block |
@@ -2597,7 +2642,7 @@ centre of the scale.
 | Shift+z x c v b | The same, on a layout that has taken the bottom row |
 | ` | Key-off, whatever the layout does |
 | ' | Whichever sentinel you set it to on the Keymap tab |
-| b | Interrupt marker `I·0` — `[` `]` or the wheel pick its number |
+| b | Interrupt marker `I·0` — Ctrl+↑ ↓ or the wheel pick its number |
 | 0–9 A–F | Hex entry (instrument / volume / pan / fx argument) |
 | 1–Z | Effect opcode (base-36) |
 | ^ v / u d | Volume symbol cell: slide up / down |
@@ -2607,6 +2652,8 @@ centre of the scale.
 | ← → / Tab | Sub-column / next lane |
 | wheel · Shift+wheel | Scroll rows · lanes |
 | wheel on cursor cell | Step the hovered column (notes by one table degree) |
+| Ctrl+← / Ctrl+→ | Selection, or the cursor column in record mode: notes down / up a period, numbers by 16 |
+| Ctrl+↓ / Ctrl+↑ | The same by a degree (a semitone), numbers by 1 |
 
 ## Tips
 

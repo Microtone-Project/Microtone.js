@@ -351,12 +351,22 @@
     };
     const octBefore = jam.octave;
     const paintBefore = noteAt();
-    tap("BracketRight", { key: "]" });
+    tap("ArrowUp", { key: "ArrowUp", altKey: true });
     await sleep(300);
-    ok(jam.octave === octBefore + 1, "the bracket key moved the octave");
+    ok(jam.octave === octBefore + 1, "Alt+↑ moved the octave");
     ok(noteAt() !== paintBefore, "…and the board repainted with the new notes");
-    tap("BracketLeft", { key: "[" });
+    tap("ArrowDown", { key: "ArrowDown", altKey: true });
     await sleep(300);
+
+    // 2b. The transposition (Shift+Alt+←/→) names new notes the same way.
+    const shiftPaint = noteAt();
+    tap("ArrowRight", { key: "ArrowRight", altKey: true, shiftKey: true });
+    await sleep(300);
+    ok(jam.transpose === 1, "Shift+Alt+→ transposed the keyboard a step");
+    ok(noteAt() !== shiftPaint, "…and the board repainted with the new notes");
+    tap("ArrowLeft", { key: "ArrowLeft", altKey: true, shiftKey: true });
+    await sleep(300);
+    ok(jam.transpose === 0, "Shift+Alt+← took it back");
 
     // 3. The tuning, changed from the Project tab rather than by loading a song.
     const projected = M.projectView;

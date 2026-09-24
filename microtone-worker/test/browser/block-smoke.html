@@ -102,30 +102,31 @@
         log(`timeline keyboard sub-column select: rows=${tRowsOk} volOnly=${tVolOnly} widened=${tWidened} copyCols=${tCopyCols}`);
         timeline.clearSelection();
 
-        // ── Ctrl+A takes the whole lane column, Ctrl+←/→ walk its far edge ───
+        // ── Ctrl+A takes the whole lane column; Ctrl+→ then nudges it ───
+        // (Ctrl+←/→ widened the column on the Timeline until the 3.0 key
+        // scheme gave the chord to transposition; Cues keeps the widening.)
         const totalRows = store.song.songMap().totalRows;
         store.cursor = { row: 4, ch: 3, sub: SUB_VOL, nib: 0 };
         key(win, "KeyA", "a", { ctrlKey: true });
         let cb = timeline.selBounds();
         const colWholeOk = cb && cb.r0 === 0 && cb.r1 === totalRows - 1 && cb.c0 === 3 && cb.c1 === 3 &&
           timeline.selCols()[0] === 0 && timeline.selCols().at(-1) >= 4; // note … effect
-        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
-        cb = timeline.selBounds();
-        const colWidenOk = cb.c0 === 3 && cb.c1 === 4 && cb.r0 === 0 && cb.r1 === totalRows - 1 &&
-          store.cursor.ch === 4; // the cursor rides the moving edge
-        key(win, "ArrowLeft", "ArrowLeft", { ctrlKey: true }); // back off again…
-        const colNarrowOk = eq([timeline.selBounds().c0, timeline.selBounds().c1], [3, 3]);
-        key(win, "ArrowLeft", "ArrowLeft", { ctrlKey: true }); // …and out the other side
-        const colCrossOk = eq([timeline.selBounds().c0, timeline.selBounds().c1], [2, 3]);
         key(win, "KeyC", "c", { ctrlKey: true });
-        const colClipOk = store.clipboard.rows === totalRows && store.clipboard.chans === 2;
-        // With nothing selected the pair starts from Ctrl+A's block.
-        timeline.clearSelection();
-        store.cursor = { row: 0, ch: 1, sub: 0, nib: 0 };
+        const colClipOk = store.clipboard.rows === totalRows && store.clipboard.chans === 1;
+        // Ctrl+→ moves every note in the block up a period, in ONE undo step.
+        const notesOf = () => { const out = [];
+          for (let r = 0; r < totalRows; r++) { const t = timeline.cellAt(r, 3); if (t) out.push(t.cell.note); }
+          return out; };
+        const before = notesOf();
+        const period = store.pitchPreset?.interval || 0x1000;
         key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
-        const colSeedOk = eq([timeline.selBounds().c0, timeline.selBounds().c1], [1, 2]);
-        const colOk = colWholeOk && colWidenOk && colNarrowOk && colCrossOk && colClipOk && colSeedOk;
-        log(`timeline Ctrl+A column: whole=${colWholeOk} widen=${colWidenOk} narrow=${colNarrowOk} cross=${colCrossOk} clip=${colClipOk} seed=${colSeedOk}`);
+        const after = notesOf();
+        const colNudgeOk = before.every((n, i) => n < 0x20 || after[i] === Math.min(n + period, 0xffff)) &&
+          eq(timeline.selBounds() && [timeline.selBounds().c0, timeline.selBounds().c1], [3, 3]);
+        key(win, "KeyZ", "z", { ctrlKey: true });
+        const colUndoOk = eq(notesOf(), before);
+        const colOk = colWholeOk && colClipOk && colNudgeOk && colUndoOk;
+        log(`timeline Ctrl+A column: whole=${colWholeOk} clip=${colClipOk} nudge=${colNudgeOk} undo=${colUndoOk}`);
         timeline.clearSelection();
 
         // ── Pattern view: row-range copy → paste ──

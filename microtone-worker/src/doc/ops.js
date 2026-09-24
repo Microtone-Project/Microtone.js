@@ -99,6 +99,19 @@ export function setCellsFieldsOp(song, cells, fields, gestureId = null) {
   };
 }
 
+/** DIFFERENT fields per cell, in one undo step — what a nudge of a block
+ *  selection (Ctrl+arrows) produces, since every cell moves from its own
+ *  value. `writes` is [{pat, row, fields}], each (pat, row) at most once: a
+ *  repeat would capture the first write's result as its "previous" value, and
+ *  undo would restore that instead of the original. */
+export function setCellsEachOp(song, writes, gestureId = null) {
+  const op = restoreCellsFieldsOp(song,
+    writes.map(({ pat, row, fields }) => ({ pat, row, prev: fields })), gestureId);
+  op.type = "setCellsEach";
+  op.coalesceKey = `cellseach:${song}`;
+  return op;
+}
+
 /** Inverse of setCellsFieldsOp: put each cell's captured fields back. */
 function restoreCellsFieldsOp(song, saved, gestureId = null) {
   return {
