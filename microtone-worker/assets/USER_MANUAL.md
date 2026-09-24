@@ -743,7 +743,7 @@ degree of a larger table, enter a nearby note and step it with the mouse wheel
 
 | Keys | Word | Symbol | Meaning |
 |---|---|---|---|
-| **z** or **`** | `0001` | `===` | Key-off — release the note (envelopes enter their release phase) |
+| **z** | `0001` | `===` | Key-off — release the note (envelopes enter their release phase) |
 | **x** | `0002` | `^^^` | Note cut — stop immediately |
 | **c** | `0003` | `~~~` | Note fade — fade out at the instrument's fade rate |
 | **v** | `0004` | `~^~` | Fast fade |
@@ -926,6 +926,7 @@ Timeline and Patterns support rectangular selections:
 
 - **Drag** with the mouse to select rows × lanes. A drag also records which *columns* (note / instrument / volume / pan / effect) it covers, so a narrow drag lets you copy just volumes, or just notes. Any drag counts, including one that stays inside a single row or a single column — "just the panning of this row" is a selection you can copy.
 - **Shift+arrows** (and **Shift+PageUp/Down/Home/End**) extend a whole-cell selection from the cursor.
+- **Backtick** (the key left of 1) turns on **selection mode**, and **select** lights up in the top bar. While it is on, every cursor movement extends the block instead of moving: the plain arrows, **PageUp/Down**, **Home/End**, and the [Shift+Ctrl jumps](#moving-around) — so **Backtick**, then **Shift+Ctrl+Alt+↓** twice and **Shift+Ctrl+→** three times, selects two cues across four lanes in six keystrokes. Press **Backtick** again to leave it with the block still selected, ready to copy or nudge; **Esc** leaves it and clears the block. In Patterns a block stays inside its own pattern, so there the cue-sized jump grows it to the pattern's first or last row.
 - **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single lane, top to bottom (in Cues, with the cursor on **Cmd1** or **Cmd2**, that command word all the way down instead); in Patterns the pattern you are looking at. In Cues, **Ctrl+←** and **Ctrl+→** then widen that selection a whole lane at a time (on a command column there is only the other command word to reach). The lane you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this lane and the next. On the Timeline and in Patterns, **Ctrl+arrows** [nudge](#nudging-with-ctrl-arrows) the selection instead.
 - **Ctrl+C / Ctrl+X / Ctrl+V** copy, cut and paste. A paste lands on the **start of the selection** when there is one — the corner you began the drag from, not the cursor, which sits wherever the drag ended — and on the cursor when there is not. Pasting across views clips to what fits; a column-limited block overwrites only its columns.
 - **Right-click** for the same three as buttons: *Copy* and *Cut* while a block is selected, *Paste* on any cell that can take one. See [the right-click menu](#the-right-click-menu); the Cues view carries the same clipboard cells over its cue words.
@@ -2253,8 +2254,7 @@ once.
 
 What it costs is spelled out on the panel when you tick it: key-off, cut, fade
 and the interrupt move to **Shift** plus the same letter, and so do **mute** and
-**solo**. The backtick stays key-off whatever happens, and **Delete** still
-clears a cell.
+**solo**. **Delete** still clears a cell.
 
 ### The `'` key
 
@@ -2625,6 +2625,7 @@ centre of the scale.
 | Ctrl+A | Select the whole column (Timeline / Cues: one lane, or one command word; Patterns: the pattern) |
 | Ctrl+← / Ctrl+→ | Cues: widen (or narrow) that column selection by one lane — on a command column, to the other command word |
 | Shift+arrows · drag | Extend a block selection |
+| ` | Selection mode on / off — the arrows and Shift+Ctrl(+Alt)+arrows extend the block |
 | Ctrl+C / X / V | Copy / cut / paste the block |
 | Esc · Delete / Backspace | Clear the selection · blank the block |
 | `\` · menu key · Shift+F10 | Context menu at the cursor — arrows walk it, Enter picks ([more](#opening-it-without-a-right-button)) |
@@ -2640,7 +2641,6 @@ centre of the scale.
 | 1…0 · z…/ | Two more rows of notes, on a layout that asks for them (see [Keymap](#keymap-shift-f9)) |
 | z x c v | Key-off `===` · cut `^^^` · fade `~~~` · fast-fade `~^~` |
 | Shift+z x c v b | The same, on a layout that has taken the bottom row |
-| ` | Key-off, whatever the layout does |
 | ' | Whichever sentinel you set it to on the Keymap tab |
 | b | Interrupt marker `I·0` — Ctrl+↑ ↓ or the wheel pick its number |
 | 0–9 A–F | Hex entry (instrument / volume / pan / fx argument) |

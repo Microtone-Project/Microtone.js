@@ -1321,6 +1321,21 @@ onWheelCtl("zoomCtl", (dir) => zoomStep(dir));
 onWheelCtl("instCtl", (dir) => stepCurrentInst(dir));
 onWheelCtl("stepCtl", (dir) => stepEditStep(dir));
 
+// Selection mode (the backtick): while it is on, every cursor movement —
+// the arrows, Page/Home/End and the Shift+Ctrl(+Alt) jumps — extends the
+// block instead, as though Shift were held. What it buys is the big jumps:
+// Shift is already part of those chords, so without a mode there is no way to
+// say "select as far as the next cue". Esc, or the backtick again, ends it;
+// so does leaving the grids, where it would mean nothing.
+store.selMode = false;
+function setSelMode(on) {
+  store.selMode = !!on;
+  $("selModeBadge").hidden = !store.selMode;
+}
+store.on("view", () => { if (store.selMode && !selView()) setSelMode(false); });
+const NAV_CODES = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+  "PageUp", "PageDown", "Home", "End"]);
+
 // Shift+Alt+↑/↓ walks the layouts in the Keymap tab's order and wraps round.
 // Remembering where the walk stood matters because a saved layout may share
 // its name with a built-in it shadows, and looking the name up would land on
@@ -1383,21 +1398,25 @@ function arrowChord(e) {
     return false;
   }
   const lanes = fwd * (alt ? 4 : 1);
+  const extend = store.selMode; // selection mode: every jump grows the block
   if (view === "timeline") {
     const tl = viewNamed("timeline");
-    if (horiz) tl.moveCursor(0, lanes);
-    else tl.jumpGrid(fwd, alt);
+    if (horiz) extend ? tl.extendSelection(0, lanes) : tl.moveCursor(0, lanes);
+    else tl.jumpGrid(fwd, alt, extend);
     return true;
   }
   if (view === "pattern") {
     const pat = viewNamed("pattern");
-    if (horiz) pat.stepPane(lanes);
-    else if (alt) pat.jumpPattern(fwd);
-    else pat.jumpBeat(fwd);
+    // A block cannot span two columns (each is its own pattern), so the
+    // column step has nothing to extend into and stays put.
+    if (horiz) { if (!extend) pat.stepPane(lanes); }
+    else if (alt) pat.jumpPattern(fwd, extend);
+    else pat.jumpBeat(fwd, extend);
     return true;
   }
   if (view === "cues" && horiz) {
-    viewNamed("cues").moveCursor(0, lanes);
+    const cues = viewNamed("cues");
+    extend ? cues.extendSelection(0, lanes) : cues.moveCursor(0, lanes);
     return true;
   }
   return false;
@@ -1639,10 +1658,22 @@ window.addEventListener("keydown", (e) => {
       return;
     }
   }
-  // Escape clears a block selection; Delete/Backspace blanks a selected block.
+  // ` — selection mode on / off (see setSelMode). The key has no other job
+  // on the grids: it used to be key-off, which z (Shift+Z under a layout that
+  // takes the bottom row) and the ' key still cover.
+  if (e.code === "Backquote" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && selView()) {
+    e.preventDefault();
+    setSelMode(!store.selMode);
+    return;
+  }
+  // Escape clears a block selection and ends selection mode; Delete/Backspace
+  // blanks a selected block.
   if (e.code === "Escape") {
     const v = selView();
+    const wasSelecting = store.selMode;
+    setSelMode(false);
     if (v?.hasSelection()) { v.clearSelection(); e.preventDefault(); return; }
+    if (wasSelecting) { e.preventDefault(); return; }
   }
   if (e.code === "Delete" || e.code === "Backspace") {
     const v = selView();
@@ -1665,6 +1696,19 @@ window.addEventListener("keydown", (e) => {
     if (v?.openMenuAtCursor?.()) { e.preventDefault(); return; }
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  // Selection mode: the plain navigation keys go to the views as their Shift
+  // variants. A stand-in event, because a real one's shiftKey is read-only.
+  if (store.selMode && NAV_CODES.has(e.code) && selView()) {
+    e.preventDefault();
+    const shifted = { code: e.code, key: e.key, repeat: e.repeat, shiftKey: true,
+      ctrlKey: false, metaKey: false, altKey: false };
+    if (store.view === "timeline") timelineNavKey(viewNamed("timeline"), shifted);
+    else if (store.view === "pattern") viewNamed("pattern").processKey(shifted);
+    else if (e.code !== "Home" && e.code !== "End") viewNamed("cues").processKey(shifted);
+    updateStatus();
+    return;
+  }
 
   switch (e.code) {
     // Enter — play from the cursor ROW / stop (item 47.1: the keyboard shortcut
@@ -1765,29 +1809,14 @@ window.addEventListener("keydown", (e) => {
 
   if (store.view === "timeline") {
     const timeline = viewNamed("timeline"); // the focused pane's copy
+    if (timelineNavKey(timeline, e)) { e.preventDefault(); return; }
     switch (e.code) {
-      case "ArrowUp": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(-1, 0) : timeline.moveCursor(-1, 0); return;
-      case "ArrowDown": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(1, 0) : timeline.moveCursor(1, 0); return;
-      case "ArrowLeft": e.preventDefault();
-        e.shiftKey ? timeline.extendSelectionSub(-1) : timeline.moveSubCursor(-1); return;
-      case "ArrowRight": e.preventDefault();
-        e.shiftKey ? timeline.extendSelectionSub(1) : timeline.moveSubCursor(1); return;
       case "Tab":
         e.preventDefault();
         store.cursor.sub = SUB_NOTE;
         store.cursor.nib = 0;
         timeline.moveCursor(0, e.shiftKey ? -1 : 1);
         return;
-      case "PageUp": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(-16, 0) : timeline.moveCursor(-16, 0); return;
-      case "PageDown": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(16, 0) : timeline.moveCursor(16, 0); return;
-      case "Home": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(-1e9, 0) : timeline.moveCursor(-1e9, 0); return;
-      case "End": e.preventDefault();
-        e.shiftKey ? timeline.extendSelection(1e9, 0) : timeline.moveCursor(1e9, 0); return;
       case "Enter": { // pick up the cell's instrument as current
         e.preventDefault();
         const target = timeline.cursorCell();
@@ -1823,6 +1852,24 @@ window.addEventListener("keydown", (e) => {
     }
   }
 });
+
+/** The Timeline's navigation keys — arrows, Page, Home/End, with Shift the
+ *  block-extending variants. Shared by the dispatch below and selection mode,
+ *  which hands it a Shift stand-in. True when the key was one of them. */
+function timelineNavKey(timeline, e) {
+  const ext = e.shiftKey;
+  switch (e.code) {
+    case "ArrowUp": ext ? timeline.extendSelection(-1, 0) : timeline.moveCursor(-1, 0); return true;
+    case "ArrowDown": ext ? timeline.extendSelection(1, 0) : timeline.moveCursor(1, 0); return true;
+    case "ArrowLeft": ext ? timeline.extendSelectionSub(-1) : timeline.moveSubCursor(-1); return true;
+    case "ArrowRight": ext ? timeline.extendSelectionSub(1) : timeline.moveSubCursor(1); return true;
+    case "PageUp": ext ? timeline.extendSelection(-16, 0) : timeline.moveCursor(-16, 0); return true;
+    case "PageDown": ext ? timeline.extendSelection(16, 0) : timeline.moveCursor(16, 0); return true;
+    case "Home": ext ? timeline.extendSelection(-1e9, 0) : timeline.moveCursor(-1e9, 0); return true;
+    case "End": ext ? timeline.extendSelection(1e9, 0) : timeline.moveCursor(1e9, 0); return true;
+    default: return false;
+  }
+}
 
 window.addEventListener("keyup", (e) => {
   // Mirror the keydown guards (chords, focused inputs/dialogs) so a keyup

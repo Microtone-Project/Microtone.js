@@ -547,6 +547,17 @@ select, input[type="range"] {
 }
 .badge.on { background: var(--ok-bg); color: var(--ok-fg); }
 
+/* Selection mode (the backtick): the arrows are extending a block, not moving
+   the cursor, and nothing else on screen says so — hence a chip in the
+   selection's own blue, beside the Step read-out it sits next to. */
+.sel-mode {
+  color: var(--accent-2);
+  border: 1px solid var(--accent-2);
+  border-radius: 4px;
+  padding: 0 0.4rem;
+  font-size: 0.85rem;
+}
+
 #meters {
   width: 100%;
   /* Portrait keeps the shape the meters have always had. There is no width/

@@ -685,10 +685,6 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
     const keymap = ctx.keymap ?? DEFAULT_KEYMAP;
     const zRow = keymapClaimsZRow(keymap);
 
-    // Backquote is key-off whatever the keymap is doing — no map can claim it,
-    // so it is the one sentinel that never needs relocating.
-    if (code === "Backquote") return { fields: { note: 0x0001 }, advanceRow: true };
-
     // While a keymap holds the Z row, z/x/c/v/b are piano keys and the
     // sentinels that live there answer to Shift instead. This has to be tested
     // BEFORE the piano branch, or the keymap would swallow Shift+X as a note.

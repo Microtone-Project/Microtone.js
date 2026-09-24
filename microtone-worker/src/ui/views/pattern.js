@@ -846,16 +846,21 @@ class PatternPane {
     return true;
   }
 
-  /** Shift+Ctrl+↑/↓: the next or previous beat of this pattern. */
-  jumpBeat(dir) {
+  /** Shift+Ctrl+↑/↓: the next or previous beat of this pattern (`extend`,
+   *  selection mode: grow the block to it). */
+  jumpBeat(dir, extend = false) {
     const to = gridStepRow([{ startRow: 0, rowLimit: 64 }], this.cursor.row, dir,
       this.store.beats().pri);
-    this.moveCursor(to - this.cursor.row);
+    if (extend) this.extendSelection(to - this.cursor.row);
+    else this.moveCursor(to - this.cursor.row);
   }
 
   /** Shift+Ctrl+Alt+↑/↓: row 0 of the next pattern — or, going up, of this
-   *  one first, and of the previous one from there. */
-  jumpPattern(dir) {
+   *  one first, and of the previous one from there. A block cannot leave its
+   *  pattern, so in selection mode it grows to this pattern's first or last
+   *  row instead. */
+  jumpPattern(dir, extend = false) {
+    if (extend) { this.extendSelection(dir < 0 ? -this.cursor.row : 63 - this.cursor.row); return; }
     if (dir < 0 && this.cursor.row > 0) { this.moveCursor(-this.cursor.row); return; }
     this.goTo(this.patIdx + dir, 0);
     this.store.emit("cursor");
@@ -1208,8 +1213,8 @@ export class PatternView {
   clearSelection() { return this.active.clearSelection(); }
   selectColumn() { return this.active.selectColumn(); }
   nudge(dir, coarse) { return this.active.nudge(dir, coarse); }
-  jumpBeat(dir) { return this.active.jumpBeat(dir); }
-  jumpPattern(dir) { return this.active.jumpPattern(dir); }
+  jumpBeat(dir, extend) { return this.active.jumpBeat(dir, extend); }
+  jumpPattern(dir, extend) { return this.active.jumpPattern(dir, extend); }
   /** Shift+Ctrl(+Alt)+←/→: a pattern is one lane, so the next lane over is
    *  the next column — clamped, where Tab wraps round. */
   stepPane(n) {

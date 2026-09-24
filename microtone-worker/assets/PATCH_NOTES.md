@@ -13,6 +13,8 @@ The arrow keys have a new scheme, one modifier per job, and brackets now set the
 - **Ctrl+arrows move what you have written.** **Ctrl+←/→** take notes down or up a whole octave (a period, in a non-octave tuning) and numbers by 16; **Ctrl+↑/↓** move notes by one degree and numbers by 1. With a block selected every cell in it moves, only in the columns you selected, as one undo step; otherwise the column under the cursor does, in record mode. Empty columns stay empty. This replaces the record-mode bracket keys.
 - **Shift+Ctrl+arrows jump.** **←/→** go one lane over, **↑/↓** to the previous or next beat — landing on the beat, not a fixed number of rows away. Add **Alt** for four lanes, or for the start of the previous or next cue (in Patterns, row 0 of the previous or next pattern).
 - **[ ] set the input step**, the number of rows the cursor moves after each note, from 0 to 16. It is shown as **Step** in the top bar, where the wheel changes it too; 0 keeps the cursor on its row. The arrow keys always move one row. **{ }** now do nothing.
+- **Backtick turns on selection mode**, marked **select** in the top bar: every cursor movement extends the block instead of moving, the big Shift+Ctrl jumps included — Backtick, then **Shift+Ctrl+Alt+↓** twice, selects two whole cues. Backtick again leaves it with the block kept; **Esc** leaves it and clears the block.
+- **Backtick no longer enters a key-off.** Use **z** (or **Shift+Z** on a layout that takes the bottom row), or set the **'** key to key-off on the Keymap tab.
 - **Ctrl+←/→ no longer widen a column selection on the Timeline** — they nudge it instead. In Cues they still widen it.
 
 The Cues view now shows you everywhere a pattern is used.

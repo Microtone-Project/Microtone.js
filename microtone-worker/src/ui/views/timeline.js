@@ -1424,12 +1424,15 @@ export class TimelineView {
   }
 
   /** Shift+Ctrl(+Alt)+↑/↓: to the next (dir +1) or previous beat — or, with
-   *  `cue`, the start of the next or previous cue. */
-  jumpGrid(dir, cue) {
+   *  `cue`, the start of the next or previous cue. `extend` (selection mode)
+   *  grows the block there instead of moving. */
+  jumpGrid(dir, cue, extend = false) {
     const map = this.getMap();
     if (!map) return;
     const every = cue ? Infinity : this.store.beats().pri;
-    this.moveCursor(gridStepRow(map.entries, this.store.cursor.row, dir, every) - this.store.cursor.row, 0);
+    const d = gridStepRow(map.entries, this.store.cursor.row, dir, every) - this.store.cursor.row;
+    if (extend) this.extendSelection(d, 0);
+    else this.moveCursor(d, 0);
   }
 
   /** Per-frame: follow playback + repaint when needed. */

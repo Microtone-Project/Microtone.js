@@ -132,6 +132,28 @@
         key("ArrowRight", { ctrlKey: true, shiftKey: true, altKey: true });
         ok(store.cursor.ch === Math.min(5, store.doc.channelCount - 1), `Shift+Ctrl+Alt+→ moves four (${store.cursor.ch})`);
 
+        // ── ` selection mode: Shift+Ctrl jumps grow a block ──
+        store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
+        M.timeline.moveCursor(0, 0);
+        const noteAt0 = M.timeline.cursorCell()?.cell.note;
+        key("Backquote", { key: "`" });
+        ok(store.selMode === true && !win.document.getElementById("selModeBadge").hidden,
+          "` turns selection mode on, and the top bar says so");
+        ok(M.timeline.cursorCell()?.cell.note === noteAt0, "…without writing anything into the cell");
+        key("ArrowDown", { ctrlKey: true, shiftKey: true, altKey: true });
+        key("ArrowRight", { ctrlKey: true, shiftKey: true });
+        let sb = M.timeline.selBounds();
+        ok(sb && sb.r0 === 0 && sb.r1 === (map.entries[1]?.startRow ?? 0) && sb.c0 === 0 && sb.c1 === 1,
+          `Shift+Ctrl+Alt+↓ then Shift+Ctrl+→ grow the block to the next cue and lane (${JSON.stringify(sb)})`);
+        key("ArrowDown");
+        sb = M.timeline.selBounds();
+        ok(sb && sb.r1 === (map.entries[1]?.startRow ?? 0) + 1, "a plain arrow extends it too");
+        key("Backquote", { key: "`" });
+        ok(store.selMode === false && M.timeline.hasSelection(), "` again leaves the mode and keeps the block");
+        key("Backquote", { key: "`" });
+        key("Escape", { key: "Escape" });
+        ok(store.selMode === false && !M.timeline.hasSelection(), "Esc ends the mode and clears the block");
+
         // ── the same in Patterns ──
         key("F3", { key: "F3" });
         await sleep(300);
@@ -149,6 +171,13 @@
         const pane = pv.activeIdx;
         key("ArrowRight", { ctrlKey: true, shiftKey: true });
         ok(pv.activeIdx === Math.min(pane + 1, pv.panes.length - 1), "Shift+Ctrl+→ moves to the next column");
+        pv.goTo(0, 5);
+        key("Backquote", { key: "`" });
+        key("ArrowDown", { ctrlKey: true, shiftKey: true, altKey: true });
+        const psb = pv.active.selRowBounds();
+        ok(psb && psb.r0 === 5 && psb.r1 === 63 && pv.patIdx === 0,
+          "Patterns: in selection mode Shift+Ctrl+Alt+↓ grows the block to the pattern's last row");
+        key("Escape", { key: "Escape" });
         key("F1", { key: "F1" });
 
         log(`FAILURES: ${failures}`);

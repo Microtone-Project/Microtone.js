@@ -188,7 +188,8 @@ test("note column: autorepeat on a held piano key is swallowed", () => {
 
 test("note column specials: keyoff/clear (Digit1/2/3 removed, item 47.3)", () => {
   const cell = new TaudPlayData();
-  assert.equal(interpretEditKey({ code: "Backquote", key: "`" }, SUB_NOTE, 0, cell, ctx).fields.note, 1);
+  // The backtick is selection mode now (app.js), not key-off: the interpreter leaves it alone.
+  assert.equal(interpretEditKey({ code: "Backquote", key: "`" }, SUB_NOTE, 0, cell, ctx), null);
   // Digit 1/2/3 no longer insert sentinels on the note column.
   assert.equal(interpretEditKey({ code: "Digit1", key: "1" }, SUB_NOTE, 0, cell, ctx), null);
   assert.equal(interpretEditKey({ code: "Digit2", key: "2" }, SUB_NOTE, 0, cell, ctx), null);
@@ -652,10 +653,10 @@ test("note column: a Z-row keymap moves the sentinels onto Shift", () => {
   assert.equal(plain.fields.note, 2);
 });
 
-test("note column: Backquote and Delete are never relocated", () => {
+test("note column: Delete is never relocated, and the backtick is never a note", () => {
   const cell = new TaudPlayData();
   for (const c of [ctx, { ...ctx, keymap: zRowMap }]) {
-    assert.equal(interpretEditKey({ code: "Backquote", key: "`" }, SUB_NOTE, 0, cell, c).fields.note, 1);
+    assert.equal(interpretEditKey({ code: "Backquote", key: "`" }, SUB_NOTE, 0, cell, c), null);
     assert.deepEqual(
       interpretEditKey({ code: "Delete", key: "Delete" }, SUB_NOTE, 0, cell, c).fields,
       { note: 0, instrment: 0 },

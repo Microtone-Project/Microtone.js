@@ -121,9 +121,12 @@
 
     store.cursor = { row: 4, ch: 0, sub: 0, nib: 0 };
     target = timeline.cursorCell();
+    const noteBefore = cellAt(target).note;
     tap("Backquote", { key: "`" });
     await sleep(60);
-    ok(cellAt(target).note === 0x0001, "the backtick is key-off whatever the layout does");
+    ok(cellAt(target).note === noteBefore && store.selMode === true,
+      "the backtick writes nothing — it is selection mode now");
+    tap("Backquote", { key: "`" });
 
     // ── the Quote key ──
     for (const [action, expected] of [["cut", 0x0002], ["off", 0x0001], ["clear", 0]]) {

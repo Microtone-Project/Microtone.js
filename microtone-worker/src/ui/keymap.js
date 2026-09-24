@@ -87,9 +87,8 @@ export function rowOfCode(code) {
 //
 // It is app configuration, NOT part of any keymap: it is never written to a
 // .taudkey, and it does not change when you switch maps. The default is `cut`
-// because the other sentinels all keep a home a Z-row map cannot take —
-// Backquote is still key-off, Delete/Backspace still clear — which leaves note
-// cut as the only one with nowhere convenient to go.
+// because note cut is the sentinel a Z-row map displaces that is most often
+// wanted in a hurry — key-off keeps Shift+Z, Delete/Backspace still clear.
 export const QUOTE_ACTIONS = Object.freeze(["cut", "off", "fade", "fastfade", "clear", "none"]);
 export const QUOTE_DEFAULT = "cut";
 
