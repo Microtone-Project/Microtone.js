@@ -4,6 +4,14 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-25
+
+The pitch plot's register tabs now mark the notes instead of running the whole height of the lane.
+
+- **A tab appears beside a row that sounds a note, and nowhere else.** Rests, key-offs, cuts and fades carry none, so each lane's own dividing rule shows between them and the colour punctuates the lane rather than repainting it.
+- **Nothing about the registers themselves has changed** — the faint centre line still runs unbroken, because the register is in force between the notes just as much as on them. What has gone is the solid colour that made it hard to see the one row where it changes.
+- **A slide is still marked all the way down.** Rows a portamento travels through sound a pitch even where the note column says nothing, so they take a tab like any other sounding row — and its colour follows the slide into the next register.
+
 ## 2026-09-24
 
 The arrow keys have a new scheme, one modifier per job, and brackets now set the input step — muscle memory from before will need retraining.

@@ -204,10 +204,10 @@ export function plotGeometry(series) {
     ? { x: e.x, octave: e.octave, arp: e.arp, band: null, topX: null }
     : { x: null, octave: null, arp: null, band: null, topX: null }));
   // The BAND is carried forward past the rows that place nothing: it is lane
-  // state, in force until a leap moves it, so the register tab is a continuous
-  // stripe rather than a mark beside each note. A stripe is what makes the
-  // colour CHANGE visible — a run of marks that are all the same colour says
-  // nothing, and the one place they differ is the whole message.
+  // state, in force until a leap moves it, and the rows between two notes are
+  // still inside it. That is what lets the CENTRE RULE and the contour run
+  // unbroken through them — the register tab does not use it, being a mark on
+  // the notes themselves (see paintPitchTab).
   let band = null;
   for (let row = 0; row < series.length; row++) {
     if (series[row]) band = series[row].octave;
@@ -310,6 +310,15 @@ const ARP_TICK_H = 0.42;
  * Paint one row's register tab: the band's colour, on the rule at the cell's
  * left edge.
  *
+ * ONLY ON ROWS THAT SOUND A NOTE. The band itself is in force continuously —
+ * it is lane state, and the centre rule below goes on drawing it — but a
+ * colour that strong held down every row of every lane reads as decoration
+ * rather than as information, and buries the one place it changes under a
+ * hundred places it does not. Marking the notes instead leaves the plain
+ * lane rule showing between them, so the tab punctuates the lane rather than
+ * repainting it. Sentinels (key-off, cut, fade), interrupt markers and empty
+ * rows sound no pitch, so `x` is null there and none of them is marked.
+ *
  * SEPARATE from the plot below, and painted after it, because both grids
  * stroke their rules at the END of a frame, over everything the rows drew — a
  * tab painted with the rest of the plot would have its own rule ruled straight
@@ -319,8 +328,11 @@ const ARP_TICK_H = 0.42;
  *             of it onto the rule by TAB_DX.
  */
 export function paintPitchTab(ctx, g, box, C) {
-  if (!g || g.band === null) return;
-  ctx.fillStyle = octaveColour(g.band, C);
+  if (!g || g.x === null) return;
+  // `octave` rather than `band`: on a row that sounds they are the same
+  // number, and reading the tick's own says plainly that the tick is what is
+  // being marked.
+  ctx.fillStyle = octaveColour(g.octave, C);
   ctx.fillRect(box.tabX + TAB_DX, box.y, TAB_W, box.rowH);
 }
 

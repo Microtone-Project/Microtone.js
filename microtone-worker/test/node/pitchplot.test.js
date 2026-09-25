@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import {
   plotSeries, plotGeometry, octaveColour, plotPeriod, isPlottable, arpOffsets,
+  paintPitchTab,
   RE_ENTRY_ROWS, ANCHOR_OCTAVE,
 } from "../../src/ui/pitchplot.js";
 import { EffectOp } from "../../src/engine/tables.js";
@@ -179,6 +180,65 @@ test("a second effect slot only counts when the document HAS one", () => {
   const row = { effect: 0, effectArg: 0, effect2: OP_J, effectArg2: 0x0203 };
   assert.deepEqual(arpOffsets(row, true, freshMem()), [0x0200, 0x0300]);
   assert.equal(arpOffsets(row, false, freshMem()), null, "a v2 cell has no second slot");
+});
+
+// ── the register tab ──
+//
+// The band is in force continuously, but the TAB marks only the rows that
+// sound: held down every row it reads as decoration and buries the one place
+// the colour changes. A recording context is enough to pin that, and it is
+// the one thing about the tab worth pinning.
+
+/** Just enough of a 2-D context to see what was filled, and in what. */
+function recordingCtx() {
+  const calls = [];
+  return {
+    calls,
+    set fillStyle(v) { this._fill = v; },
+    get fillStyle() { return this._fill; },
+    fillRect(x, y, w, h) { calls.push({ x, y, w, h, fill: this._fill }); },
+  };
+}
+
+/** Paint a whole series' worth of tabs and report one entry per row. */
+function tabsFor(rows, C) {
+  const geo = plotGeometry(plotSeries(rows, P12));
+  return geo.map((g, row) => {
+    const ctx = recordingCtx();
+    paintPitchTab(ctx, g, { tabX: 100, y: row * 10, rowH: 10 }, C);
+    return ctx.calls[0]?.fill ?? null;
+  });
+}
+
+test("the tab marks the rows that sound a note, and only those", () => {
+  const C = { octRed: "#ec1c15", octYellow: "#f4ce23", octGreen: "#1cee65", octBlue: "#0f79fd" };
+  //            note    gap   gap    note     key-off  cut     fade   Int3    empty
+  const rows = [N(4, 0), 0, 0, N(4, 7), 0x0001, 0x0002, 0x0003, 0x0013, 0];
+  const tabs = tabsFor(rows, C);
+  assert.deepEqual(tabs.map((t) => t !== null),
+    [true, false, false, true, false, false, false, false, false]);
+  // …and what it paints is that note's own register.
+  assert.equal(tabs[0], octaveColour(4, C));
+  assert.equal(tabs[3], octaveColour(4, C));
+});
+
+test("a rest between two notes keeps the BAND without wearing the tab", () => {
+  // The band has to carry on — the centre rule and the contour run through
+  // those rows — but the colour must not.
+  const geo = plotGeometry(plotSeries([N(4, 0), 0, 0, N(4, 2)], P12));
+  assert.deepEqual(geo.map((g) => g.band), [4, 4, 4, 4], "the band is continuous");
+  assert.deepEqual(geo.map((g) => g.x !== null), [true, false, false, true],
+    "…and the tab, which follows the ticks, is not");
+});
+
+test("a leap recolours the tab on the note that caused it", () => {
+  const C = { octRed: "#ec1c15", octYellow: "#f4ce23", octGreen: "#1cee65", octBlue: "#0f79fd" };
+  const tabs = tabsFor([N(4, 0), 0, N(6, 0), 0, N(2, 0)], C);
+  assert.equal(tabs[0], octaveColour(4, C));
+  assert.equal(tabs[2], octaveColour(6, C), "…two periods up, and bluer");
+  assert.equal(tabs[4], octaveColour(2, C), "…four down, and redder");
+  assert.notEqual(tabs[0], tabs[2]);
+  assert.notEqual(tabs[2], tabs[4]);
 });
 
 // ── the register ramp ──

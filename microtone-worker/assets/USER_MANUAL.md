@@ -2582,12 +2582,18 @@ in — one *period* either side, in a tuning whose period is not an octave, so i
 Bohlen-Pierce it is a tritave wide. Ordinary melodic motion lives well inside
 that, which is why the contour is a shape and not a series of jumps to the edge.
 
-The **coloured tab** in each cell's left margin names the register the scale is
-currently centred on, along a spectrum running the way a spectrum runs: **red**
-at the bottom of the keyboard, through orange, yellow and green, to **blue** at
-the top. The shades are spaced by how far apart the eye can actually tell them,
-not by dividing the spectrum evenly, so two registers a step apart look a step
-apart wherever on the ramp they sit.
+The **coloured tab** beside a note names the register the scale is currently
+centred on, along a spectrum running the way a spectrum runs: **red** at the
+bottom of the keyboard, through orange, yellow and green, to **blue** at the
+top. The shades are spaced by how far apart the eye can actually tell them, not
+by dividing the spectrum evenly, so two registers a step apart look a step apart
+wherever on the ramp they sit.
+
+It marks the **rows that sound**, and nothing else: a rest, a key-off or a cut
+carries no tab, so the lane's own dividing rule shows between the notes. The
+register itself is in force the whole time — the faint centre line goes on
+drawing it — but a colour that strong held down every row would read as
+decoration and bury the one place it changes.
 
 It changes colour only when the music really moves register — stepping from B
 up to C does not, a leap of more than an octave does, and that is also where the
