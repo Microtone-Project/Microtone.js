@@ -290,7 +290,7 @@ column you clicked (or, with a block selected, at the columns the block covers):
 | Note | **Transpose** — the same notation-aware shift as the Patterns toolbar |
 | Instrument | **Instrument** — replace instrument numbers |
 | Volume | **Volume** — rescale volumes |
-| Panning | **Panning** — widen / narrow / shift; in a surround song a **Panner** cell sits beside it, opening the same dial as the toolbox button |
+| Panning | **Panning** — widen / narrow / shift; a **Panner** cell sits beside it, opening the same dial as the toolbox button |
 | Effect | the eight most-used effect commands: **S** Special, **D** Volume slide, **G** Tone portamento, **H** Vibrato, **E** / **F** Pitch slide down / up, **O** Sample offset, **A** Set tick rate. Picking one writes the opcode and leaves the argument alone; everything else is in the command palette at the foot of the screen. |
 
 **Delete pattern** empties the slot: this cue simply has no pattern on that
@@ -852,6 +852,17 @@ SoundFont — that spread lives on the **note** side. So:
 Both can appear on the same row and both apply — they are not fighting over one
 setting. If you want the older "everything to one spot" behaviour, put the
 lane where you want it and write the panning column on each note.
+
+**The Panner writes either one for you.** Press **Panner…** in the toolbox, or
+pick **Panner** beside **Panning** when you right-click the panning column. In a
+stereo song it draws a half-circle — hard left at one end, centre at the top,
+hard right at the other — with a dot for every lane that is sounding, where it
+is actually panned. Drag the handle or type the pan value, then press **Lane**
+to write `S $80xx` into the cell under the cursor, or **Column** to write
+the position into its panning column instead. Each button shows the exact value
+it will write, and reopening the Panner on that cell starts the handle where the
+cell already puts it. In a surround song the same button opens the full circle —
+see [Surround panning](#surround-panning).
 
 **A Layered metainstrument works the same way, one level down.** If its layers sit at
 different places — an SF2 preset whose sub-instruments spread out, a kit built
@@ -1913,8 +1924,9 @@ their own pan) but not the height, and a zone's pan applies whether or not the
 box is ticked — the box gates the instrument's own default, not the zones'.
 
 **The panner.** Rather than working the angles out by hand, press **Panner…**
-on the Timeline or Patterns toolbox (it appears once the song is planar or
-spatial). It draws the circle from above — plus a side view for elevation on a
+on the Timeline or Patterns toolbox (a stereo song gets a half-circle instead;
+see [Note volume vs lane volume, note pan vs lane pan](#note-volume-vs-lane-volume-note-pan-vs-lane-pan)).
+In a planar or spatial song it draws the circle from above — plus a side view for elevation on a
 spatial song — with a dot for every lane that is sounding, drawn where the
 engine actually has it, so a Z slide is visible while it runs. Drag the handle
 or type the numbers, then press one button to write the command into the cell

@@ -3,9 +3,10 @@
 <img src="/hang" hidden>
 <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
 <script type="module">
-// Drives the REAL app: switch the song to a surround model in the Project view,
-// check the Panner button appears, open it, drag/set a position and write each
-// of the three commands into the cursor's cell — then undo the lot.
+// Drives the REAL app: open the Panner on the stereo song (the half-dial, S $80xx
+// and the v2 panning column), then switch the song to a surround model, open it
+// again, drag/set a position and write each of the three spatial commands into
+// the cursor's cell — then undo the lot.
 const out = document.getElementById("out");
 const log = (s) => { out.textContent += "\n" + s; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -25,11 +26,76 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   const { EffectOp } = await import("../../src/engine/tables.js");
   const { setSongScalarOp } = await import("../../src/doc/ops.js");
 
-  // ── 1. the button follows the song's surround model ──────────────────────
-  check(doc.getElementById("tbPanner").hidden, "Panner hidden for a stereo song");
+  const cellAt = (row, ch) => {
+    const save = store.cursor;
+    store.cursor = { row, ch, sub: 0, nib: 0 };
+    const c = timeline.cursorCell()?.cell;
+    store.cursor = save;
+    return c;
+  };
+
+  // ── 1. a stereo song gets the half-dial ──────────────────────────────────
+  check(!doc.getElementById("tbPanner").hidden, "Panner offered for a stereo song");
+  check(store.doc.wideCells !== true, "the corpus song is a version-2 (narrow-cell) project");
+  store.cursor = { row: 4, ch: 2, sub: 0, nib: 0 };
+  doc.getElementById("tbPanner").click();
+  let sdlg = null;
+  for (let i = 0; i < 100 && !sdlg; i++) { sdlg = doc.querySelector("dialog.panner"); await sleep(30); }
+  check(!!sdlg, "stereo panner opened");
+  if (sdlg) {
+    const cvs = sdlg.querySelectorAll("canvas.panner-dial");
+    check(cvs.length === 1 && cvs[0].width > cvs[0].height, "ONE dial, a half-circle (wider than tall)",
+      `${cvs.length} × ${cvs[0]?.width}×${cvs[0]?.height}`);
+    const labels = [...sdlg.querySelectorAll("button")].map((b) => b.textContent);
+    check(!labels.some((l) => /X \$|4 \$|Z \$/.test(l)), "no X / 4 / Z buttons — a stereo song ignores them",
+      labels.join(" | "));
+    // A drag straight up is centre, and one hard left of the listener is $00.
+    const hcv = cvs[0];
+    const hr = hcv.getBoundingClientRect();
+    const hp = (type, x, y) => hcv.dispatchEvent(new win.PointerEvent(type, {
+      clientX: hr.left + x, clientY: hr.top + y, bubbles: true, pointerId: 1,
+    }));
+    hp("pointerdown", 4, hr.height - 20);
+    hp("pointerup", 4, hr.height - 20);
+    await sleep(40);
+    const panField = sdlg.querySelector(".panner-fields input");
+    check(Math.round(parseFloat(panField.value)) === 0, "dragging far left = pan 0", panField.value);
+
+    const was = cellAt(4, 2);
+    const before = [was.effect, was.effectArg, was.pan, was.panEff].join();
+    sdlg.__panner.setAngles(0x40, 0);
+    sdlg.__panner.lane();
+    await sleep(40);
+    let sc = cellAt(4, 2);
+    check(sc.effect === EffectOp.OP_S && sc.effectArg === 0x8040, "Lane writes S $8040",
+      `${sc.effect}/$${sc.effectArg.toString(16)}`);
+    sdlg.__panner.column();
+    await sleep(40);
+    sc = cellAt(4, 2);
+    check(sc.panEff === 0 && sc.pan === 0x10, "Column writes a v2 panning SET 0 10",
+      `${sc.panEff}/${sc.pan.toString(16)}`);
+    sdlg.__panner.close();
+    await sleep(60);
+    // Reopening reads the handle back off the cell it wrote.
+    doc.getElementById("tbPanner").click();
+    sdlg = null;
+    for (let i = 0; i < 100 && !sdlg; i++) { sdlg = doc.querySelector("dialog.panner"); await sleep(30); }
+    check(Math.round(parseFloat(sdlg.querySelector(".panner-fields input").value)) === 0x40,
+      "reopening picks the position up from the cell's S $80xx");
+    sdlg.__panner.close();
+    await sleep(60);
+    store.undo.undo();
+    store.undo.undo();
+    await sleep(60);
+    sc = cellAt(4, 2);
+    check([sc.effect, sc.effectArg, sc.pan, sc.panEff].join() === before, "…and both writes undo",
+      `${before} → ${[sc.effect, sc.effectArg, sc.pan, sc.panEff].join()}`);
+  }
+
+  // ── 1b. a surround song gets the full circle ─────────────────────────────
   store.undo.apply(setSongScalarOp(store.songIndex, "surroundModel", 2));
   await sleep(60);
-  check(!doc.getElementById("tbPanner").hidden, "Panner appears once the song is spatial");
+  check(!doc.getElementById("tbPanner").hidden, "Panner still offered once the song is spatial");
   check(store.song.surroundModel === 2, "song carries the spatial model");
 
   // ── 2. open it on a known cell ───────────────────────────────────────────
@@ -44,14 +110,6 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(dlg.querySelectorAll("canvas.panner-dial").length === 2, "spatial song shows BOTH dials");
   check(dlg.textContent.includes("lane 3"), "info line names the cursor's lane",
     dlg.querySelector("p.dim")?.textContent);
-
-  const cellAt = (row, ch) => {
-    const save = store.cursor;
-    store.cursor = { row, ch, sub: 0, nib: 0 };
-    const c = timeline.cursorCell()?.cell;
-    store.cursor = save;
-    return c;
-  };
 
   // ── 3. write X / 4 / Z from the dial ─────────────────────────────────────
   api.setAngles(384, 64);            // behind, 45° up
@@ -125,8 +183,9 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(cell.effect === 0 && cell.effectArg === 0, "undo walks every panner write back off the cell",
     `${cell.effect}/${cell.effectArg}`);
   check(store.song.surroundModel === 0, "…including the surround-model switch");
-  check(doc.getElementById("tbPanner").hidden, "Panner button hides again");
+  check(!doc.getElementById("tbPanner").hidden, "Panner button stays for the stereo song");
 
   log(fails === 0 ? "\nALL PASS" : `\n${fails} FAILED`);
+  log(`FAILURES: ${fails}`);
 })();
 </script>

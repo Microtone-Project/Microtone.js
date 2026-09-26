@@ -294,10 +294,9 @@ class PatternPane {
     // Second row: the same column tools the toolbar carries, aimed at the
     // selection's column band or at the single column under the pointer.
     const cells = this.toolCells(hit);
-    const surround = (store.doc.songs[store.songIndex]?.surroundModel ?? 0) !== 0;
     const cols = this.hasSelection() ? this.selCols() : [subToCol(hit.sub)];
     const tools = this.pattern() && cells.length > 0
-      ? blockToolItems(cols, { surround, wide: store.doc.wideCells === true,
+      ? blockToolItems(cols, { wide: store.doc.wideCells === true,
           block: this.hasSelection() })
       : [];
 

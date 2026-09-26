@@ -619,7 +619,6 @@ export class TimelineView {
     const ch = this.channelAt(x);
     if (ch < 0) return;
     const chans = store.doc.channelCount;
-    const surroundModel = store.doc.songs[store.songIndex]?.surroundModel ?? 0;
 
     // The "no pattern here" target: a grid row (not the header) inside the song
     // whose cue leaves this lane empty.
@@ -658,8 +657,8 @@ export class TimelineView {
     const second = onHeader
       ? [...muteItems(store, ch), ...fx2Items(store, ch)]
       : (cells.length > 0
-          ? blockToolItems(cols, { surround: surroundModel !== 0,
-              wide: store.doc.wideCells === true, block: this.hasSelection() })
+          ? blockToolItems(cols, { wide: store.doc.wideCells === true,
+              block: this.hasSelection() })
           : []);
 
     const pick = await showContextMenu(e.clientX, e.clientY, [items, second],

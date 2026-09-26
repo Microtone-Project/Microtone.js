@@ -101,7 +101,7 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   await dismiss(dlg);
 
   dlg = await menuAt(charX(0, COL_X.pan), rowY(0));
-  check(rows(dlg)[1].join() === "pan,findchange", "panning column → Panning", rows(dlg)[1].join());
+  check(rows(dlg)[1].join() === "pan,panner,findchange", "panning column → Panning + Panner", rows(dlg)[1].join());
   await dismiss(dlg);
 
   // ── 2. the effect column → the quick effect palette ────────────────────
@@ -123,21 +123,21 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   // ── 3. a multi-column band offers each tool but NOT the effects ────────
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_PAN, row: 3, ch: 0, sub: E.SUB_FX_ARG };
   dlg = await menuAt(charX(0, COL_X.pan), rowY(1));
-  check(rows(dlg)[1].join() === "pan,findchange",
-    "pan + effects selected → only the pan tool, and no Interpolate", rows(dlg)[1].join());
+  check(rows(dlg)[1].join() === "pan,panner,findchange",
+    "pan + effects selected → only the pan tools, and no Interpolate", rows(dlg)[1].join());
   await dismiss(dlg);
 
   // …but volume AND panning together is the one band that DOES offer it.
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_VOL, row: 3, ch: 0, sub: E.SUB_PAN };
   dlg = await menuAt(charX(0, COL_X.vol), rowY(1));
-  check(rows(dlg)[1].join() === "volume,pan,interpolate,findchange",
+  check(rows(dlg)[1].join() === "volume,pan,panner,interpolate,findchange",
     "volume + panning → one Interpolate for the pair", rows(dlg)[1].join());
   await dismiss(dlg);
 
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_NOTE, row: 3, ch: 0, sub: E.SUB_FX_ARG };
   dlg = await menuAt(charX(0, COL_X.note), rowY(1));
-  check(rows(dlg)[1].join() === "transpose,instrument,volume,pan,findchange",
-    "the whole cell selected → all four, effects and Interpolate excluded", rows(dlg)[1].join());
+  check(rows(dlg)[1].join() === "transpose,instrument,volume,pan,panner,findchange",
+    "the whole cell selected → every column tool, effects and Interpolate excluded", rows(dlg)[1].join());
   await dismiss(dlg);
 
   // ── 4. the tools act on the BLOCK, not the whole pattern ───────────────
@@ -219,12 +219,14 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   await sleep(60);
   for (let i = 0; i < 3; i++) { store.undo.undo(); await sleep(40); } // drop the seeds
 
-  // ── 6b. the Panner joins the panning column in a surround song ─────────
+  // ── 6b. the Panner joins the panning column in every song ──────────────
   const { setSongScalarOp } = await import("../../src/doc/ops.js");
   timeline.sel = null;
   dlg = await menuAt(charX(0, COL_X.pan), rowY(0));
-  check(rows(dlg)[1].join() === "pan,findchange",
-    "a stereo song's panning column offers the pan tool alone", rows(dlg)[1].join());
+  check(rows(dlg)[1].join() === "pan,panner,findchange",
+    "a stereo song's panning column offers the Panner too (the half-circle)", rows(dlg)[1].join());
+  check(!win.document.getElementById("tbPanner").hidden,
+    "…and so does the toolbox");
   await dismiss(dlg);
 
   store.undo.apply(setSongScalarOp(store.songIndex, "surroundModel", 2));

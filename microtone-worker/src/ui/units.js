@@ -68,3 +68,14 @@ export function elevationLabel(el) {
   const deg = (el * 90) / 128;
   return `${deg >= 0 ? "+" : ""}${deg.toFixed(1)}°`;
 }
+
+/** Human label for a stereo pan byte ($00 left, $80 centre, $FF right):
+ *  "centre", "50% left". The two ends are asymmetric by one step, so each side
+ *  is scaled to its own reach and both ends read 100%. */
+export function panLabel(pan) {
+  const p = Math.max(0, Math.min(255, Math.round(pan)));
+  if (p === 128) return t("dir.centre");
+  return p < 128
+    ? t("panner.panLeft", { pct: Math.round(((128 - p) * 100) / 128) })
+    : t("panner.panRight", { pct: Math.round(((p - 128) * 100) / 127) });
+}

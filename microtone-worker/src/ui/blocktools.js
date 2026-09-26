@@ -98,10 +98,9 @@ export function interpKinds(cols, wide = false) {
  * that column's tool — the effect column gets the quick palette instead. Several
  * columns get one tool each, effects excluded.
  *
- * `surround` adds the Panner beside the panning tool, on exactly the condition
- * the toolbox button uses (the song declares a surround model): the two are the
- * same popup, so they should appear and disappear together. A stereo song has
- * no circle to place anything on.
+ * The panning column always gets the Panner beside its own tool — the same
+ * popup the toolbox button opens, which every song has now: a surround song's
+ * circle or sphere, a stereo song's front half-circle.
  *
  * Find & Change (item 132) closes every row, including the effect palette's:
  * it is the only tool here that is not about a column, so which column you
@@ -110,7 +109,7 @@ export function interpKinds(cols, wide = false) {
  * `block` says a selection exists, which is the one thing Interpolate needs on
  * top of the right columns (item 181).
  */
-export function blockToolItems(cols, { surround = false, wide = false, block = false } = {}) {
+export function blockToolItems(cols, { wide = false, block = false } = {}) {
   // Interpolate needs a BLOCK, not the one cell under the pointer: two control
   // points is its floor, and a single row can never hold two. Offering it there
   // would be offering a cell that could only ever answer "no".
@@ -132,7 +131,7 @@ export function blockToolItems(cols, { surround = false, wide = false, block = f
   for (const col of cols) {
     const tool = TOOL_FOR_COL[col];
     if (tool) items.push(TOOL_ITEM[tool]());
-    if (col === COL_PAN && surround) items.push(TOOL_ITEM.panner());
+    if (col === COL_PAN) items.push(TOOL_ITEM.panner());
   }
   items.push(...interp, TOOL_ITEM.findchange());
   return items;

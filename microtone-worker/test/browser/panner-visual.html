@@ -59,7 +59,8 @@
       // Nudge the handle off the default so the dial reads as a position.
       for (let i = 0; i < 60; i++) {
         const dlg = win.document.querySelector("dialog.panner");
-        if (dlg?.__panner) { dlg.__panner.setAngles(320, 48); break; }
+        // ?model=0 is the stereo half-dial, whose whole range is the front arc.
+        if (dlg?.__panner) { dlg.__panner.setAngles(store.song.surroundModel ? 320 : 88, 48); break; }
         await sleep(50);
       }
     })();

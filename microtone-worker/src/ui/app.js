@@ -691,8 +691,8 @@ store.on("songs", (payload) => {
   selectSong(payload?.select ?? store.songIndex);
 });
 store.on("doc", updateStatus); // keep the dirty dot in sync on doc-level edits
-// The Panner button appears with the song's surround model — which arrives on a
-// load ("doc") and can be switched in the Project view ("edit").
+// The Radar and Binaural buttons appear with the song's surround model — which
+// arrives on a load ("doc") and can be switched in the Project view ("edit").
 store.on("doc", refreshToolbox);
 store.on("edit", refreshToolbox);
 
@@ -841,7 +841,9 @@ masterStrip.onToggle = () => refreshToolbox();
 /** Toolbox buttons that depend on the document, not on the view. */
 function refreshToolbox() {
   const surround = (store.doc?.songs[store.songIndex]?.surroundModel ?? 0) !== 0;
-  $("tbPanner").hidden = !surround;
+  // Every song has a pan space to place things in: the Panner draws a stereo
+  // song's as a half-circle, so only the surround-only toggles follow the model.
+  $("tbPanner").hidden = !store.doc;
   $("tbRadar").hidden = !surround;
   $("tbRadar").textContent = t(store.surroundMeters ? "toolbox.radarOn" : "toolbox.radarOff");
   $("tbBinaural").hidden = !surround;
@@ -1254,8 +1256,8 @@ $("tbBinaural").addEventListener("click", () => {
   store.audio?.setMonitorMode(0, store.binaural ? 1 : 0);
   refreshToolbox();
 });
-// Spatial panner (#998.6) — only meaningful once the song declares a surround
-// model, so the button appears with it.
+// Spatial panner (#998.6) — the circle / sphere in a surround song, the front
+// half-circle in a stereo one.
 $("tbPanner").addEventListener("click", async () => {
   const { showPanner } = await import("./popups/panner.js");
   await showPanner(store, cursorCellTarget());

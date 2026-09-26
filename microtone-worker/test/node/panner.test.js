@@ -8,9 +8,10 @@ import assert from "node:assert/strict";
 
 import {
   pointerAzimuth, azimuthOffset, pointerElevation, elevationOffset,
+  pointerPan, panColumnValue,
 } from "../../src/ui/popups/panner.js";
 // The labels are shared with the Instruments view's default-position fields.
-import { azimuthLabel, elevationLabel } from "../../src/ui/units.js";
+import { azimuthLabel, elevationLabel, panLabel } from "../../src/ui/units.js";
 import {
   AZIMUTH_TURN, ELEVATION_QUARTER, wrapAzimuth,
   anglesFromSpatialArg, spatialArgFromAngles,
@@ -90,4 +91,47 @@ test("labels name the direction a musician would say", () => {
   assert.equal(elevationLabel(0), "+0.0°");
   assert.equal(elevationLabel(64), "+45.0°");
   assert.equal(elevationLabel(-128), "-90.0°");
+});
+
+// ── the stereo half-dial ──
+
+test("the half-dial reads left / centre / right on the front arc", () => {
+  near(pointerPan(-100, 0), 0);     // nine o'clock → hard left
+  near(pointerPan(0, -100), 128);   // straight up  → centre
+  near(pointerPan(100, 0), 255);    // three o'clock → hard right (the byte's top)
+  near(pointerPan(-70.71, -70.71), 64, 1e-3); // 45° left of centre
+});
+
+test("below the baseline the half-dial pins to the nearer end", () => {
+  near(pointerPan(-100, 60), 0);
+  near(pointerPan(100, 60), 255);
+  near(pointerPan(-1, 100), 0);
+  near(pointerPan(1, 100), 255);
+});
+
+test("the half-dial draws its own pan byte where the pointer put it", () => {
+  // The stereo pan byte is the azimuth on the front arc, so the top view's
+  // offset is the half-dial's too — this is what makes the live dots line up.
+  for (let p = 0; p < 256; p += 5) {
+    azimuthOffset(p, out);
+    assert.ok(out[1] <= 1e-12, `pan ${p} drawn below the baseline`);
+    near(pointerPan(out[0] * 100, out[1] * 100), p, 1e-9);
+  }
+});
+
+test("a v2 panning-column SET is the nearest six-bit value to the pan byte", () => {
+  const widen = (v) => (v << 2) | (v >>> 4);
+  assert.equal(panColumnValue(0), 0);
+  assert.equal(panColumnValue(255), 63);
+  // Every column value round-trips through the byte it widens to.
+  for (let v = 0; v < 64; v++) assert.equal(panColumnValue(widen(v)), v);
+  // And no byte lands further than half a column step from what it plays.
+  for (let p = 0; p < 256; p++) assert.ok(Math.abs(widen(panColumnValue(p)) - p) <= 2, `pan ${p}`);
+});
+
+test("the stereo readout names the side and reaches 100% at both ends", () => {
+  assert.match(panLabel(128), /centre/);
+  assert.match(panLabel(0), /100% left/);
+  assert.match(panLabel(255), /100% right/);
+  assert.match(panLabel(64), /50% left/);
 });

@@ -402,9 +402,10 @@ test("the menu cell needs a BLOCK, not just the right column", () => {
   assert.equal(ids([COL_VOL], { block: true }), "volume,interpolate,findchange");
   assert.equal(ids([COL_NOTE], { block: true }), "transpose,interpolate,findchange");
   assert.equal(ids([COL_INST], { block: true }), "instrument,findchange");
-  assert.equal(ids([COL_VOL, COL_PAN], { block: true }), "volume,pan,interpolate,findchange");
-  assert.equal(ids([COL_PAN], { block: true, surround: true }),
-    "pan,panner,interpolate,findchange");
+  // The Panner sits beside the panning tool in every song — a stereo one gets
+  // the half-circle — so it rides along whenever the pan column is in play.
+  assert.equal(ids([COL_VOL, COL_PAN], { block: true }), "volume,pan,panner,interpolate,findchange");
+  assert.equal(ids([COL_PAN], { block: true }), "pan,panner,interpolate,findchange");
   // The effect column's row is the quick palette, and Interpolate closes it
   // beside Find & Change there too.
   assert.ok(ids([COL_FX], { block: true }).endsWith("interpolate,findchange"));

@@ -1,29 +1,39 @@
-// Spatial panner (#998.6) — the visualiser/editor for surround and spatial
-// songs. Two dials: a TOP view (azimuth, the full circle) and, for a spatial
-// song, a SIDE view (elevation in the vertical plane through that azimuth).
+// Spatial panner (#998.6) — the visualiser/editor for a song's pan positions.
+// A surround song gets a TOP view (azimuth, the full circle) and, for a spatial
+// song, a SIDE view (elevation in the vertical plane through that azimuth). A
+// stereo song gets the top view's front half — its whole pan space — and
+// writes the stereo commands instead (S $80xx, the panning column).
 //
 // It does two jobs at once:
 //   * watch — every sounding lane is drawn where the engine actually has it
 //     (snapshot fields SNAP_V_AZIMUTH / SNAP_V_ELEVATION), so a Z slide is
 //     visible while it runs;
 //   * write — drag the handle and the buttons put the exact command into the
-//     cursor's cell: X (place), 4 (slide target) or Z (start the slide).
+//     cursor's cell: X (place), 4 (slide target) or Z (start the slide); in a
+//     stereo song S $80xx (the lane) or a panning-column SET (the note).
 //
 // The angle ↔ argument codec lives in the engine (spatial.js), the same one the
 // effects read, so what you drag and what plays can never disagree.
 
 import {
-  AZIMUTH_TURN, ELEVATION_QUARTER, SURROUND_SPATIAL,
-  wrapAzimuth, anglesFromSpatialArg, spatialArgFromAngles,
+  AZIMUTH_TURN, ELEVATION_QUARTER, SURROUND_STEREO, SURROUND_SPATIAL,
+  wrapAzimuth, foldAzimuthToPan, anglesFromSpatialArg, spatialArgFromAngles,
 } from "../../engine/spatial.js";
 import { EffectOp } from "../../engine/tables.js";
 import { themeColors } from "../theme.js";
 import { paintSpatialDot } from "../spatialdot.js";
-import { azimuthLabel, elevationLabel } from "../units.js";
+import { azimuthLabel, elevationLabel, panLabel } from "../units.js";
 import { t } from "../i18n.js";
 import { localPoint } from "../zoom.js";
 
 const DIAL = 210;        // dial canvas size (CSS px)
+// The stereo half-dial: wider than a full dial is tall, since it only has half
+// the height to spend. The listener sits on the baseline.
+const HALF_W = 260;
+const HALF_R = 104;
+const HALF_CX = HALF_W / 2;
+const HALF_CY = 22 + HALF_R;
+const HALF_H = HALF_CY + 20;
 const MAX_VOICES = 64;
 
 // ── pure geometry (unit-tested in test/node/panner.test.js) ───────────────
@@ -62,8 +72,32 @@ export function elevationOffset(el, out) {
   return out;
 }
 
-// (azimuthLabel / elevationLabel live in ../units.js — the Instruments view's
-// default-position fields name the same directions.)
+// ── the stereo half-dial ──
+// A stereo song's pan space is the segment $00..$FF, which is the FRONT ARC of
+// the surround circle in the same units (S $8xxx's low byte), so its dial is
+// the top half of the top view: left at nine o'clock, centre straight up, right
+// at three. The pan byte IS the azimuth there, so azimuthOffset draws it.
+
+/** Half-dial: (dx, dy) from the listener → pan byte. A pointer below the
+ *  baseline pins to whichever end it is nearer rather than wrapping round. */
+export function pointerPan(dx, dy) {
+  const deg = (Math.atan2(dx, -dy) * 180) / Math.PI; // 0 = up, +90 = right
+  const p = 128 + (Math.max(-90, Math.min(90, deg)) * 128) / 90;
+  return p > 255 ? 255 : p;
+}
+
+/** A version-2 panning column SET widens its six bits to the pan byte as
+ *  `(v << 2) | (v >> 4)`; this is the nearest value to a given byte. */
+export function panColumnValue(pan) {
+  let best = 0;
+  for (let v = 1; v < 64; v++) {
+    if (Math.abs(((v << 2) | (v >>> 4)) - pan) < Math.abs(((best << 2) | (best >>> 4)) - pan)) best = v;
+  }
+  return best;
+}
+
+// (azimuthLabel / elevationLabel / panLabel live in ../units.js — the
+// Instruments view's default-position fields name the same directions.)
 
 // ── the popup ────────────────────────────────────────────────────────────
 
@@ -75,7 +109,10 @@ export function elevationOffset(el, out) {
 export function showPanner(store, target) {
   return new Promise((resolve) => {
     const song = store.doc?.songs[store.songIndex];
-    const spatial = (song?.surroundModel ?? 0) === SURROUND_SPATIAL;
+    const model = song?.surroundModel ?? SURROUND_STEREO;
+    const spatial = model === SURROUND_SPATIAL;
+    const stereo = model === SURROUND_STEREO;
+    const wide = store.doc?.wideCells === true;
     const scratch = new Float64Array(2);
     const off = new Float64Array(2);
 
@@ -84,11 +121,20 @@ export function showPanner(store, target) {
     let el = 0;
     let zSpeed = 0x040;
     const cell = target?.cell ?? null;
-    if (cell && (cell.effect === EffectOp.OP_X || cell.effect === EffectOp.OP_4)) {
+    if (stereo) {
+      // In a stereo song `az` IS the pan byte (the front arc, 0..255).
+      if (cell && cell.effect === EffectOp.OP_S && (cell.effectArg & 0xff00) === 0x8000) {
+        az = cell.effectArg & 0xff;
+      } else if (cell && wide && cell.panEff === 0 && (cell.azimuth !== 0 || cell.elevation !== 0)) {
+        az = foldAzimuthToPan(cell.azimuth);
+      } else if (cell && !wide && cell.panEff === 0) {
+        az = (cell.pan << 2) | (cell.pan >>> 4);
+      }
+    } else if (cell && (cell.effect === EffectOp.OP_X || cell.effect === EffectOp.OP_4)) {
       anglesFromSpatialArg(cell.effectArg, scratch);
       az = scratch[0];
       el = spatial ? scratch[1] : 0;
-    } else if (cell && store.doc?.wideCells && cell.panEff === 0 &&
+    } else if (cell && wide && cell.panEff === 0 &&
                (cell.azimuth !== 0 || cell.elevation !== 0)) {
       // A wide cell can carry the position in its panning COLUMN — pick the
       // handle up from there too, so reopening the dialog shows where the
@@ -102,21 +148,27 @@ export function showPanner(store, target) {
     const dlg = document.createElement("dialog");
     dlg.className = "modal panner";
     const h = document.createElement("h3");
-    h.textContent = t("panner.title");
+    h.textContent = t(stereo ? "panner.titleStereo" : "panner.title");
     const info = document.createElement("p");
     info.className = "dim";
 
     const dials = document.createElement("div");
     dials.className = "panner-dials";
-    const topCv = document.createElement("canvas");
-    const sideCv = document.createElement("canvas");
-    for (const cv of [topCv, sideCv]) {
-      cv.width = DIAL;
-      cv.height = DIAL;
-      cv.style.width = `${DIAL}px`;
-      cv.style.height = `${DIAL}px`;
+    const mkDial = (w, hgt) => {
+      const cv = document.createElement("canvas");
+      cv.width = w;
+      cv.height = hgt;
+      cv.style.width = `${w}px`;
+      cv.style.height = `${hgt}px`;
       cv.className = "panner-dial";
-    }
+      return cv;
+    };
+    // A stereo song has no behind and no height, so it gets the top view's
+    // front half and nothing else — a dial rather than a slider, so the
+    // position reads as a direction from the listener, as it does everywhere
+    // else in the app.
+    const topCv = stereo ? mkDial(HALF_W, HALF_H) : mkDial(DIAL, DIAL);
+    const sideCv = mkDial(DIAL, DIAL);
     dials.append(topCv);
     if (spatial) dials.append(sideCv);
 
@@ -144,7 +196,9 @@ export function showPanner(store, target) {
       fields.appendChild(lab);
       return { inp, read };
     };
-    const azField = mkNum("panner.azimuth", az, 0, AZIMUTH_TURN - 1, (v) => { az = wrapAzimuth(v); });
+    const azField = stereo
+      ? mkNum("panner.pan", az, 0, 255, (v) => { az = Math.max(0, Math.min(255, v)); })
+      : mkNum("panner.azimuth", az, 0, AZIMUTH_TURN - 1, (v) => { az = wrapAzimuth(v); });
     const elField = spatial
       ? mkNum("panner.elevation", el, -ELEVATION_QUARTER, ELEVATION_QUARTER - 1,
         (v) => { el = Math.max(-ELEVATION_QUARTER, Math.min(ELEVATION_QUARTER - 1, v)); })
@@ -167,9 +221,21 @@ export function showPanner(store, target) {
     // 9-bit azimuth and a signed elevation — so a wide project can place the
     // source without spending its effect slot at all. The button only exists
     // where the column can hold a position.
-    const columnBtn = store.doc?.wideCells
-      ? mkBtn("panner.column", "panner.columnTitle", () => {
+    //
+    // A stereo song ignores X / 4 / Z outright, so it gets its own two writes
+    // instead: S $80xx for the LANE, and the panning column's SET for the NOTE
+    // (six bits in a v2 cell, the azimuth byte in a wide one).
+    const laneBtn = stereo
+      ? mkBtn("panner.lane", "panner.laneTitle",
+        () => write(EffectOp.OP_S, 0x8000 | Math.round(az)))
+      : null;
+    const columnBtn = wide || stereo
+      ? mkBtn("panner.column", stereo ? "panner.columnStereoTitle" : "panner.columnTitle", () => {
         if (!target) return;
+        if (!wide) {
+          target.apply({ pan: panColumnValue(Math.round(az)), panEff: 0 }); // SET
+          return;
+        }
         target.apply({
           azimuth: Math.round(wrapAzimuth(az)) & 0x1ff,
           elevation: spatial ? Math.max(-128, Math.min(127, Math.round(el))) : 0,
@@ -177,27 +243,32 @@ export function showPanner(store, target) {
         });
       })
       : null;
-    const placeBtn = mkBtn("panner.place", "panner.placeTitle",
-      () => write(EffectOp.OP_X, spatialArgFromAngles(az, spatial ? el : 0)));
-    const targetBtn = mkBtn("panner.target", "panner.targetTitle",
-      () => write(EffectOp.OP_4, spatialArgFromAngles(az, spatial ? el : 0)));
+    let placeBtn = null;
+    let targetBtn = null;
+    let slideBtn = null;
+    if (!stereo) {
+      placeBtn = mkBtn("panner.place", "panner.placeTitle",
+        () => write(EffectOp.OP_X, spatialArgFromAngles(az, spatial ? el : 0)));
+      targetBtn = mkBtn("panner.target", "panner.targetTitle",
+        () => write(EffectOp.OP_4, spatialArgFromAngles(az, spatial ? el : 0)));
 
-    const zLab = document.createElement("label");
-    zLab.className = "modal-field";
-    zLab.append(t("panner.speed") + " ");
-    const zInp = document.createElement("input");
-    zInp.type = "text";
-    zInp.size = 4;
-    zInp.value = zSpeed.toString(16).toUpperCase().padStart(3, "0");
-    zInp.addEventListener("input", () => {
-      const v = parseInt(zInp.value, 16);
-      zSpeed = Number.isFinite(v) ? Math.max(0, Math.min(0xfff, v)) : 0;
-      refresh(false);
-    });
-    zLab.appendChild(zInp);
-    cmds.appendChild(zLab);
-    const slideBtn = mkBtn("panner.slide", "panner.slideTitle",
-      () => write(EffectOp.OP_Z, zSpeed & 0xfff));
+      const zLab = document.createElement("label");
+      zLab.className = "modal-field";
+      zLab.append(t("panner.speed") + " ");
+      const zInp = document.createElement("input");
+      zInp.type = "text";
+      zInp.size = 4;
+      zInp.value = zSpeed.toString(16).toUpperCase().padStart(3, "0");
+      zInp.addEventListener("input", () => {
+        const v = parseInt(zInp.value, 16);
+        zSpeed = Number.isFinite(v) ? Math.max(0, Math.min(0xfff, v)) : 0;
+        refresh(false);
+      });
+      zLab.appendChild(zInp);
+      cmds.appendChild(zLab);
+      slideBtn = mkBtn("panner.slide", "panner.slideTitle",
+        () => write(EffectOp.OP_Z, zSpeed & 0xfff));
+    }
 
     // ── view options (#998.8) ──
     // A busy song puts a dot on every sounding lane, which is the point when
@@ -305,6 +376,59 @@ export function showPanner(store, target) {
       }
     }
 
+    /** The stereo half-dial: the top view's front arc, listener on the
+     *  baseline. Live dots need no mapping — a stereo song's snapshot azimuth
+     *  is already the pan byte. */
+    function paintHalf(cv) {
+      const ctx = cv.getContext("2d");
+      const c = themeColors();
+      const r = HALF_R;
+      const cx = HALF_CX;
+      const cy = HALF_CY;
+      ctx.clearRect(0, 0, HALF_W, HALF_H);
+      ctx.fillStyle = c.cvBg;
+      ctx.fillRect(0, 0, HALF_W, HALF_H);
+
+      ctx.strokeStyle = c.border;
+      ctx.lineWidth = 1;
+      for (const f of [1, 0.66, 0.33]) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * f, Math.PI, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+      ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - r);
+      ctx.stroke();
+      ctx.fillStyle = c.dim;
+      ctx.font = "11px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(t("dir.centre"), cx, 2);
+      ctx.fillText(t("dir.left"), cx - r, cy + 4);
+      ctx.fillText(t("dir.right"), cx + r, cy + 4);
+      ctx.fillStyle = c.fg2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      paintLiveVoices(ctx, cx, cy, r, (a, e, o) => azimuthOffset(a, o));
+
+      azimuthOffset(az, off);
+      const hx = cx + off[0] * r;
+      const hy = cy + off[1] * r;
+      ctx.strokeStyle = c.accent;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+      ctx.fillStyle = c.accent;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     function paintSide(cv) {
       const ctx = cv.getContext("2d");
       const c = themeColors();
@@ -388,10 +512,10 @@ export function showPanner(store, target) {
     }
 
     // ── interaction ──
-    const drag = (cv, onMove) => {
+    const drag = (cv, ox, oy, onMove) => {
       const move = (e) => {
         const p = localPoint(cv, e);
-        onMove(p.x - DIAL / 2, p.y - DIAL / 2);
+        onMove(p.x - ox, p.y - oy);
         refresh(false);
       };
       cv.addEventListener("pointerdown", (e) => {
@@ -406,20 +530,25 @@ export function showPanner(store, target) {
         cv.addEventListener("pointerup", up);
       });
     };
-    drag(topCv, (dx, dy) => { az = pointerAzimuth(dx, dy); });
+    if (stereo) {
+      drag(topCv, HALF_CX, HALF_CY, (dx, dy) => { az = pointerPan(dx, dy); });
+    } else {
+      drag(topCv, DIAL / 2, DIAL / 2, (dx, dy) => { az = pointerAzimuth(dx, dy); });
+    }
     if (spatial) {
-      drag(sideCv, (dx, dy) => { el = pointerElevation(dx, dy - 0); });
+      drag(sideCv, DIAL / 2, DIAL / 2, (dx, dy) => { el = pointerElevation(dx, dy); });
     }
 
     /** Repaint; `live` = a frame of the animation loop (leaves fields alone
      *  while they are being typed into). */
     function refresh(live) {
-      paintTop(topCv);
+      if (stereo) paintHalf(topCv);
+      else paintTop(topCv);
       if (spatial) paintSide(sideCv);
       if (!live || document.activeElement !== azField.inp) {
         azField.inp.value = String(Math.round(az));
       }
-      azField.read.textContent = azimuthLabel(az);
+      azField.read.textContent = stereo ? panLabel(az) : azimuthLabel(az);
       if (elField) {
         if (!live || document.activeElement !== elField.inp) {
           elField.inp.value = String(Math.round(el));
@@ -428,10 +557,13 @@ export function showPanner(store, target) {
       }
       const arg = spatialArgFromAngles(az, spatial ? el : 0);
       const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, "0");
-      placeBtn.textContent = `${t("panner.place")}  X $${hex(arg, 4)}`;
-      targetBtn.textContent = `${t("panner.target")}  4 $${hex(arg, 4)}`;
-      slideBtn.textContent = `${t("panner.slide")}  Z $${hex(zSpeed & 0xfff, 4)}`;
-      if (columnBtn) {
+      if (placeBtn) placeBtn.textContent = `${t("panner.place")}  X $${hex(arg, 4)}`;
+      if (targetBtn) targetBtn.textContent = `${t("panner.target")}  4 $${hex(arg, 4)}`;
+      if (slideBtn) slideBtn.textContent = `${t("panner.slide")}  Z $${hex(zSpeed & 0xfff, 4)}`;
+      if (laneBtn) laneBtn.textContent = `${t("panner.lane")}  S $80${hex(Math.round(az), 2)}`;
+      if (columnBtn && !wide) {
+        columnBtn.textContent = `${t("panner.column")}  0 ${hex(panColumnValue(Math.round(az)), 2)}`;
+      } else if (columnBtn) {
         const azi = Math.round(wrapAzimuth(az)) & 0x1ff;
         const elv = (spatial ? Math.max(-128, Math.min(127, Math.round(el))) : 0) & 0xff;
         columnBtn.textContent = `${t("panner.column")}  ${hex(elv, 2)} ${hex(azi, 3)}`;
@@ -462,11 +594,17 @@ export function showPanner(store, target) {
     refresh(false);
     raf = requestAnimationFrame(tick);
     dlg.__panner = { // test hook: the smoke drives these instead of real drags
-      setAngles: (a, e) => { az = wrapAzimuth(a); el = e; refresh(false); },
+      setAngles: (a, e) => {
+        az = stereo ? Math.max(0, Math.min(255, a)) : wrapAzimuth(a);
+        el = e;
+        refresh(false);
+      },
       onlyThis: (on) => { onlyBox.checked = on; onlyBox.dispatchEvent(new Event("change")); },
-      place: () => placeBtn.click(),
-      target: () => targetBtn.click(),
-      slide: () => slideBtn.click(),
+      place: () => placeBtn?.click(),
+      target: () => targetBtn?.click(),
+      slide: () => slideBtn?.click(),
+      lane: () => laneBtn?.click(),
+      column: () => columnBtn?.click(),
       close: finish,
     };
   });

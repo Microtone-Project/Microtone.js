@@ -4,6 +4,15 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-27
+
+The Panner now works in stereo songs too, drawn as a half-circle from hard left, over the centre, to hard right.
+
+- **Panner… is in the toolbox for every song**, and in the right-click menu beside **Panning** on the panning column. In a planar or spatial song it is the same full circle (and side view) as before.
+- **Drag the handle round the arc, or type the pan value**, and the dial names the position as it moves — *centre*, *50% left*, *100% right*. Every lane that is sounding shows as a dot on the arc where it is actually panned, and **Show this lane only** works here too.
+- **Two buttons write what a stereo song understands.** **Lane** writes `S $80xx` and moves the whole lane there; **Column** writes a SET into the cell's panning column and places just that note, leaving the effect slot free. Each button shows the exact value it will write, and each write is one undo step.
+- **Reopening the Panner picks the position up from the cell** — from its `S $80xx` or its panning-column SET — so the handle starts where the note already is.
+
 ## 2026-09-25
 
 The pitch plot's register tabs now mark the notes instead of running the whole height of the lane.
