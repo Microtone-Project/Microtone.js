@@ -1,0 +1,36 @@
+# Cloudflare Pages configuration. This directory is both the Pages project's
+# root and its output directory — there is no build step.
+#
+# Because this file names pages_build_output_dir, Pages takes the bindings and
+# plain variables from HERE, and shows them read-only in the dashboard.
+# Secrets are the exception, and never go in this file: it is committed, and
+# served as a static file like everything else in this directory. Put them in
+# the dashboard (Settings → Variables and Secrets → type "Secret") or
+#     wrangler pages secret put SCENEID_CLIENT_SECRET --project-name <project>
+# and, for local runs, in .dev.vars (gitignored).
+#
+# R2 and D1 need no credentials at all — a binding IS the permission, granted
+# to this project's Functions and nothing else. Do not create R2 API tokens
+# for the online projects; nothing uses the S3-compatible endpoint.
+#
+# First-time setup:
+#     wrangler d1 create microtone-online        → paste the id below
+#     wrangler d1 migrations apply microtone-online --remote
+#
+# Local run (serves the site and /api/online with a local D1 and R2):
+#     printf 'ONLINE_DEV_LOGIN=1\n' > .dev.vars
+#     wrangler d1 migrations apply microtone-online --local
+#     wrangler pages dev
+
+pages_build_output_dir = "."
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "ONLINE_DB"
+database_name = "microtone-online"
+database_id = "00000000-0000-0000-0000-000000000000"   # ← from `wrangler d1 create`
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ONLINE_BUCKET"
+bucket_name = "microtone-online-storage"

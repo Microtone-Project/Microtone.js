@@ -178,6 +178,30 @@ node tools/render-taud.js test/corpus/WHEN.taud out.pcm
 node tools/compare-pcm.js out.pcm reference.pcm
 ```
 
+## Online projects (server)
+
+The File tab can keep a few working projects with a person's SceneID account.
+That half runs on Cloudflare Pages Functions: `functions/api/online/[[path]].js`
+hands every request under `/api/online` to `server/online/`, which keeps the
+index in D1 (`migrations/`) and the bytes in R2. The bindings are declared in
+`wrangler.toml`; there are no R2 or D1 keys anywhere, because a binding is the
+permission. The one secret, SceneID's client secret, belongs in the Pages
+dashboard (or `wrangler pages secret put`) and in `.dev.vars` locally — never in
+a file here, since everything in this directory is served publicly.
+
+Wherever there is no API (a static server, `npm run serve`) the online section
+simply does not appear. To run it locally, with a test sign-in standing in for
+SceneID:
+
+```sh
+printf 'ONLINE_DEV_LOGIN=1\n' > .dev.vars
+npx wrangler d1 migrations apply microtone-online --local
+npx wrangler pages dev          # http://localhost:8788/
+```
+
+`test/node/online-*.test.js` run the same server code under Node, against a
+real SQLite loaded from `migrations/` and an in-memory R2.
+
 ## Regenerating taudplay
 
 `src/taudplay/` is authored here; the standalone LGPL-3.0 repository is a
@@ -204,7 +228,9 @@ exactly that.
 | `src/audio/` | main-thread audio system (context lifecycle, snapshots) |
 | `src/doc/` | canonical document model, invertible ops, undo, worklet sync |
 | `src/ui/` | tracker application (vanilla ES modules, canvas + DOM) |
-| `src/storage/` | OPFS virtual disk, import/export |
+| `src/storage/` | OPFS virtual disk, import/export, online projects client |
+| `server/online/` | online projects API (run by `functions/` on Cloudflare Pages) |
+| `migrations/` | its D1 schema |
 | `vendor/` | vendored single-file ESM deps (see `vendor/VENDOR-VERSIONS.md`) |
 | `test/corpus/` | .taud conformance/demo corpus (from the TSVM repo) |
 | `test/fixtures/` | file formats built rather than committed (the .ims/.bnk pair) |

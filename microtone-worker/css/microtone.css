@@ -1870,6 +1870,15 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .files-table td button.files-name.files-current { color: var(--accent); }
 .files-disclaimer { margin-top: 1rem; color: var(--dim); font-size: 0.9rem; }
 
+/* The online projects (filesonline.js): a second list under the browser's
+ * own, set off by a rule, with the account on the right of its own bar. */
+.files-online { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.files-online-head { margin: 0 0 0.75rem; font-size: 1rem; color: var(--fg2); }
+.files-online-count { color: var(--dim); font-size: 0.9rem; font-weight: normal; }
+.files-online-blurb { margin: 0 0 0.75rem; color: var(--fg2); }
+.files-online-bar { align-items: center; flex-wrap: wrap; }
+.files-online-who { margin-left: auto; color: var(--dim); }
+
 /* ── split views (Samples / Instruments) ── */
 .split-view { position: absolute; inset: 0; display: flex; }
 .side-list {

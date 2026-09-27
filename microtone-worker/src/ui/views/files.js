@@ -2,8 +2,12 @@
 // buttons, no canvas). The Files tab replaces taut's filenav-driven File tab.
 // Reachable WITHOUT a loaded document (browse OPFS / import something); the
 // doc-scoped buttons and the song list only appear once a project is loaded.
+// Under the browser's own list sits the online projects section
+// (filesonline.js), on hosts that have one.
 
 import * as opfs from "../../storage/opfs.js";
+import { onAuthChange } from "../../storage/online.js";
+import { OnlineSection } from "./filesonline.js";
 import { pickFile, download, downloadBlob } from "../../storage/import-export.js";
 import { converterFor, CONVERT_ACCEPT } from "../../convert/convert.js";
 import { showModal } from "../widgets/modal.js";
@@ -30,6 +34,20 @@ export class FilesView {
     this.root = document.createElement("div");
     this.root.className = "files-view";
     host.appendChild(this.root);
+    this.online = new OnlineSection(store, {
+      openBytes: callbacks.openBytes,
+      currentDoc: callbacks.currentDoc,
+      refresh: () => this.refresh(),
+    });
+    // ONE section element for the life of the view, re-attached under each
+    // fresh local list: it keeps showing the last answer while the server is
+    // asked again, instead of blinking out on every save.
+    this.onlineHost = document.createElement("section");
+    this.onlineHost.className = "files-online";
+    this.onlineHost.hidden = true;
+    this._renderSeq = 0;
+    // A sign-in window finishing, or a sign-out in any tab.
+    onAuthChange(() => this.refresh());
   }
 
   async refresh() {
@@ -84,9 +102,11 @@ export class FilesView {
         tr.innerHTML = `<td colspan="4" class="dim">${escapeHtml(t("files.none"))}</td>`;
         tbody.appendChild(tr);
       }
+      // An open ONLINE project is not the local file that shares its name.
+      const openHere = this.store.onlineProject ? null : this.store.fileName;
       for (const e of entries) {
         const tr = document.createElement("tr");
-        const current = e.name === this.store.fileName;
+        const current = e.name === openHere;
         const open = async () => {
           await this.cb.openBytes(e.name, await opfs.read(e.name));
           this.refresh();
@@ -126,11 +146,21 @@ export class FilesView {
       disclaimer.textContent = t("files.disclaimer");
       this.root.appendChild(disclaimer);
     }
+
+    // Last, and on its own clock: the local list is already on screen while
+    // the server answers. The sequence number stops a slow answer painting
+    // into a page a newer refresh has replaced.
+    this.root.appendChild(this.onlineHost);
+    const seq = ++this._renderSeq;
+    await this.online.render(this.onlineHost, () => seq === this._renderSeq)
+      .catch((err) => console.error("Online projects:", err));
   }
 
   async save() {
     const { doc, fileName } = this.cb.currentDoc();
     if (!doc) return;
+    // A project opened from (or saved to) the online section goes back there.
+    if (this.store.onlineProject) return this.online.saveOver();
     if (!fileName) return this.saveAs();
     await opfs.write(fileName, doc.toBytes());
     doc.dirty = false;
@@ -151,6 +181,7 @@ export class FilesView {
     await opfs.write(name, doc.toBytes());
     doc.dirty = false;
     this.store.fileName = name;
+    this.store.online = null; // a local copy: the document lives in this browser now
     this.store.emit("saved", name);
     this.refresh();
   }
@@ -172,7 +203,7 @@ export class FilesView {
       return;
     }
     await opfs.rename(oldName, name);
-    if (this.store.fileName === oldName) {
+    if (this.store.fileName === oldName && !this.store.onlineProject) {
       this.store.fileName = name;
       this.store.emit("status"); // status-bar filename follows the rename
     }

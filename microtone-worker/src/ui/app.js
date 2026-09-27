@@ -298,8 +298,10 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
 
 function updateStatus() {
   const doc = store.doc;
+  // An online project says so: its Save goes to the server, not this browser.
+  const where = store.onlineProject ? ` (${t("status.onlineTag")})` : "";
   $("stFile").textContent = doc
-    ? `${store.fileName ?? "untitled"} — ${unescapeName(doc.meta.projectName ?? "untitled")} · ${doc.songs.length} ${doc.songs.length === 1 ? "song" : "songs"} · ${doc.channelCount}ch`
+    ? `${store.fileName ?? "untitled"}${where} — ${unescapeName(doc.meta.projectName ?? "untitled")} · ${doc.songs.length} ${doc.songs.length === 1 ? "song" : "songs"} · ${doc.channelCount}ch`
     : t("status.noFile");
   $("stDirty").hidden = !doc?.dirty;
   // A transposed keyboard reads as the octave with its offset, "4+3".
@@ -733,6 +735,7 @@ async function saveProjectCopyAs(name) {
   await opfs.write(target, store.doc.toBytes());
   store.doc.dirty = false;
   store.fileName = target;
+  store.online = null; // the copy is local, even if the original was online
   store.emit("saved", target);
   updateStatus();
 }
