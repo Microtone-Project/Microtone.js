@@ -3600,17 +3600,56 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    DOM node; `hidden` hands the height straight back. */
 .keymap-bar {
   flex: 0 0 auto;
-  position: relative;
+  display: flex;
+  align-items: stretch;
   background: var(--panel);
   border-top: 1px solid var(--border);
   overflow: hidden;
 }
+/* The board takes whatever width the two button columns leave it; the canvas
+   is sized from THIS box, and centred in it when the buttons stand taller. */
+.keymap-bar-board {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
 .keymap-bar-canvas { display: block; width: 100%; }
+/* Transposition on the left, octave on the right: each a + over a − with the
+   pair's name between them, sharing the strip's height and each still a
+   finger's width — the point of them is a tablet, where Alt-arrows do not
+   exist. */
+.keymap-bar-side {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+  padding: 0.25rem;
+}
+.keymap-bar-side:first-child { border-right: 1px solid var(--border); }
+.keymap-bar-side:last-child { border-left: 1px solid var(--border); }
+.keymap-bar-btn {
+  flex: 1 1 0;
+  min-width: 2.75rem;
+  min-height: 1.75rem;
+  padding: 0 0.3rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1;
+  touch-action: manipulation; /* no double-tap zoom on a quick second press */
+}
+.keymap-bar-cap { font-size: 0.62rem; color: var(--dim); text-align: center; white-space: nowrap; }
+.keymap-bar-btn:disabled { opacity: 0.35; cursor: default; }
+.keymap-bar-btn:disabled:hover { border-color: var(--border); }
 .keymap-bar-label {
   position: absolute;
   left: 0.5rem;
   top: 0.2rem;
   font-size: 0.68rem;
+  white-space: nowrap;
   pointer-events: none;
   z-index: 1;
 }

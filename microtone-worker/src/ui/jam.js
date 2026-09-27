@@ -15,6 +15,7 @@ import { JAM_VOICES, JAM_VOICE_BASE } from "../engine/constants.js";
 const RELEASE_GRACE_MS = 30;
 
 export const TRANSPOSE_MAX = 99;
+export const OCTAVE_MIN = 0, OCTAVE_MAX = 9;
 
 export class JamKeyboard {
   constructor(store) {
@@ -168,7 +169,7 @@ export class JamKeyboard {
   }
 
   octaveDelta(d) {
-    this.octave = Math.min(Math.max(this.octave + d, 0), 9);
+    this.octave = Math.min(Math.max(this.octave + d, OCTAVE_MIN), OCTAVE_MAX);
   }
 
   /** Step the keyboard transposition, clamped to two digits either way —

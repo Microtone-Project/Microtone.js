@@ -834,7 +834,7 @@ const VIEW_SPEC = {
 // 168), and the master strip sits beside the whole split.
 const instLookup = new InstLookup(store, jam, $("instLookup"), () => updateStatus());
 // The active layout, drawn under whichever pane holds a grid (item 187).
-const keymapBar = new KeymapBar(store, jam, $("keymapBar"));
+const keymapBar = new KeymapBar(store, jam, $("keymapBar"), () => updateStatus());
 const masterStrip = new MasterStrip(store, $("masterStrip"));
 masterStrip.onToggle = () => refreshToolbox();
 

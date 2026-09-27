@@ -2150,6 +2150,7 @@ height and without the editing furniture.
 
 - It shows the active layout in the song's notation, and **keys light up as they sound** — whatever played them, the letter keys or a click on the board itself.
 - Clicking a key on the strip plays it, so it is a small instrument as well as a reminder.
+- The **+** and **−** buttons at either end move the whole board: on the left, **Transp.** transposes it a step (a degree of the tuning, or a semitone on the Piano layout); on the right, **Oct** shifts it an octave. They do what **Shift+Alt+←/→** and **Alt+↑/↓** do, for when there is no keyboard to press them on, such as on a tablet. A button greys out at the end of its range.
 - It is off until you ask for it, stays off until you do, and is only on screen where the letter keys are notes — the Timeline and Patterns.
 
 ### Choosing a layout

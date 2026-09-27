@@ -169,6 +169,39 @@
     ok(bar._layout.size === 40, "a four-row layout puts forty keys on the strip");
     ok(bar.canvas.height > hBefore, "…and the strip grows a row to fit them");
 
+    // The +/− pairs either side of the board: transposition left, octave right.
+    const sides = [...bar.el.querySelectorAll(".keymap-bar-side")];
+    ok(sides.length === 2 && sides[0] === bar.el.firstElementChild && sides[1] === bar.el.lastElementChild,
+       "a button column flanks the board on each side");
+    ok(sides[0].contains(bar.btn.trUp) && sides[0].contains(bar.btn.trDown)
+       && sides[1].contains(bar.btn.octUp) && sides[1].contains(bar.btn.octDown),
+       "transposition on the left, octave on the right");
+    const box = (b) => b.getBoundingClientRect();
+    ok(box(bar.btn.trUp).bottom <= box(bar.btn.trDown).top && box(bar.btn.trUp).left === box(bar.btn.trDown).left
+       && box(bar.btn.octUp).bottom <= box(bar.btn.octDown).top,
+       "each pair stacks + above \u2212");
+    const octWas = jam.octave, trWas = jam.transpose;
+    bar.btn.octUp.click();
+    bar.btn.trUp.click(); bar.btn.trUp.click();
+    await sleep(80);
+    ok(jam.octave === octWas + 1 && jam.transpose === trWas + 2,
+       `the + buttons raise the octave and transpose up (${jam.octave}, ${jam.transpose})`);
+    ok(win.document.getElementById("octDisp").textContent === `${octWas + 1}+${trWas + 2}`,
+       "…and the top bar's octave readout follows them");
+    bar.btn.octDown.click();
+    bar.btn.trDown.click(); bar.btn.trDown.click();
+    await sleep(80);
+    ok(jam.octave === octWas && jam.transpose === trWas, "the \u2212 buttons take them back down");
+    while (jam.octave < 9) bar.btn.octUp.click();
+    bar.frame();
+    ok(bar.btn.octUp.disabled && !bar.btn.octDown.disabled, "octave + greys out at the top of the range");
+    while (jam.octave > octWas) bar.btn.octDown.click();
+    bar.frame();
+    ok(!bar.btn.octUp.disabled, "…and comes back once there is room again");
+    const boardW = bar.board.clientWidth;
+    ok(boardW > 0 && boardW < bar.el.clientWidth && parseFloat(bar.canvas.style.width) <= boardW,
+       `the board is sized from the width the buttons leave it (${boardW} of ${bar.el.clientWidth})`);
+
     M.split.reveal("keymap");
     await sleep(180);
     ok(bar.el.hidden, "it goes away where the letter keys are not notes");

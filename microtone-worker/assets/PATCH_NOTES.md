@@ -6,6 +6,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-27
 
+The key strip under the grids has octave and transpose buttons, so the keyboard can be shifted on a tablet.
+
+- **A + and − pair at each end of the strip.** The pair on the left, **Transp.**, moves the keyboard by one step of the layout — a degree of the song's tuning, or a semitone on the Piano layout; the pair on the right, **Oct**, moves it by an octave. They do exactly what **Shift+Alt+←/→** and **Alt+↑/↓** do, and the top bar's **Oct 4+3** follows them.
+- **A button greys out at the end of its range**, octave 0 or 9, or a transposition of 99 steps either way.
+- **Fixed: on a narrow strip the layout's name printed over the top row of keys.** It now moves to a line of its own above the keys when there is no room beside them.
+
 The Panner now works in stereo songs too, drawn as a half-circle from hard left, over the centre, to hard right.
 
 - **Panner… is in the toolbox for every song**, and in the right-click menu beside **Panning** on the panning column. In a planar or spatial song it is the same full circle (and side view) as before.
