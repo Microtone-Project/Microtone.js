@@ -1651,7 +1651,19 @@ window.addEventListener("keydown", (e) => {
     if (arrowChord(e)) { e.preventDefault(); updateStatus(); }
     return;
   }
-  // Block clipboard (Timeline / Patterns): copy / cut / paste.
+  // Shift+Ctrl+V — porous paste: the block's empty cells are holes, so the
+  // target keeps whatever is under them. Shift makes the key "V", so it cannot
+  // reach the plain paste below; both spellings are taken for Caps Lock's sake.
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "V" || e.key === "v")) {
+    const v = selView();
+    if (v) {
+      e.preventDefault();
+      v.paste(true);
+      updateStatus();
+      return;
+    }
+  }
+  // Block clipboard (Timeline / Patterns / Cues): copy / cut / paste.
   if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "x" || e.key === "v")) {
     const v = selView();
     if (v) {

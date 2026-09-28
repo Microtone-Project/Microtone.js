@@ -7,6 +7,8 @@
 // (SEL_FINE-0 no-ops), everything else zero — NOT all-zero (that is a real
 // "set volume 0" command). Overwrite-paste of an empty source cell therefore
 // blanks the destination, which is the standard tracker paste semantic.
+// Porous paste (Shift+Ctrl+V) is the other one: a source column still holding
+// exactly those blank bytes is a hole, and the destination shows through it.
 
 /** Bytes per cell for a block: format version 3's cell is twice as wide. */
 export function cellSize(wide) { return wide ? 16 : 8; }
@@ -57,13 +59,13 @@ export function blockCell(block, r, c) {
 //     carried: they are bit-packed across the lanes of one cue, so a
 //     rectangular copy that moves lanes around would scramble them. Paste
 //     therefore preserves each destination cell's own command bit and overlays
-//     only the pasted pattern index.
+//     only the pasted pattern index. A porous paste skips CUE_EMPTY words.
 //
 //   COMMAND blocks (`cmd` true): the columns are the two Cmd word SLOTS — at
 //     most two of them — and each word is a whole instruction (LEN/HALT/BAK/
 //     FWD/JMP as the engine decodes it). Pasting one rewrites the sign bits of
 //     lanes 0-15 / 16-31 and leaves every pattern index alone, which is the
-//     exact mirror of the above.
+//     exact mirror of the above. A porous paste skips NOP (zero) words.
 //
 // `chans` is the block's column count either way; on a command block it counts
 // Cmd slots rather than voices.
@@ -164,4 +166,19 @@ export function overlayCols(dest, src, cols, wide = false) {
     }
   }
   return dest;
+}
+
+/** The columns of `cols` that `src` actually FILLS — every one whose bytes
+ *  differ from the blank cell's. A porous paste overlays only these, so a
+ *  column the source left blank is a hole the destination shows through.
+ *  Blank is byte-exact, as clearRegion writes it: a key-off or a SET-volume-0
+ *  is a command, not a hole. The format comes off the cell's own length — a
+ *  remapped effect slot has already been resized for the destination, and a
+ *  plain block cell is still in the format it was copied from. */
+export function filledCols(src, cols) {
+  const wide = src.length === cellSize(true);
+  const table = wide ? COL_BYTE_MASKS_WIDE : COL_BYTE_MASKS;
+  const empty = emptyCellBytes(wide);
+  return cols.filter((col) =>
+    (table[col] ?? []).some(([b, mask]) => (src[b] & mask) !== (empty[b] & mask)));
 }

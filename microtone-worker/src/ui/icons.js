@@ -161,6 +161,11 @@ export const ICON = {
     '<rect x="3.5" y="4.5" width="17" height="17" rx="2"/>' +
     '<path d="M7.5 11h9M7.5 15.5h6"/>' +
     '<rect x="8" y="1.8" width="8" height="4.4" rx="1.3" fill="currentColor" stroke="none"/>'),
+  /** Porous paste: the same board, its lines broken into holes. */
+  pastePorous: SVG(
+    '<rect x="3.5" y="4.5" width="17" height="17" rx="2"/>' +
+    '<path d="M7.5 11h9M7.5 15.5h9" stroke-dasharray="1 3"/>' +
+    '<rect x="8" y="1.8" width="8" height="4.4" rx="1.3" fill="currentColor" stroke="none"/>'),
 
   // ── the second row's column tools ──
   /** Transpose: a note head with an up/down arrow beside it. */

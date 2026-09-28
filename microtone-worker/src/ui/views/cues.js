@@ -502,14 +502,16 @@ export class CuesView {
   }
 
   /** Paste the cue clipboard, into whichever space the block came from — the
-   *  two are never interchangeable. */
-  paste() {
+   *  two are never interchangeable. `porous` (Shift+Ctrl+V) skips the block's
+   *  blank words — an empty slot, a NOP — so the destination's own show
+   *  through instead of being blanked. */
+  paste(porous = false) {
     const block = this.store.cueClipboard;
     if (!block) return false;
-    return block.cmd ? this.pasteCmd(block) : this.pastePatterns(block);
+    return block.cmd ? this.pasteCmd(block, porous) : this.pastePatterns(block, porous);
   }
 
-  pastePatterns(block) {
+  pastePatterns(block, porous = false) {
     const a = this.pasteAnchor(false);
     const chans = this.store.doc.channelCount;
     const limit = this.cueLimit();
@@ -521,6 +523,7 @@ export class CuesView {
         const dch = a.ch + ch;
         if (dch >= chans) break; // clip past the last lane
         const src = block.words[cueBlockIndex(block, r, ch)];
+        if (porous && (src & 0x7fff) === CUE_EMPTY) continue;
         writes.push({ cue, ch: dch, value: mergeCueWord(this.wordAt(cue, dch), src) });
       }
     }
@@ -540,7 +543,7 @@ export class CuesView {
    *  list is materialised, as typing a command there would — except by a NOP,
    *  which is already what an absent cue says, so pasting blank commands past
    *  the end grows nothing. */
-  pasteCmd(block) {
+  pasteCmd(block, porous = false) {
     const a = this.pasteAnchor(true);
     const limit = this.cueLimit();
     const nCues = this.numCues();
@@ -552,7 +555,7 @@ export class CuesView {
         const slot = a.ch + c;
         if (slot > 1) break; // clip past Cmd2
         const w = block.words[cueBlockIndex(block, r, c)];
-        if (w === 0 && cue >= nCues) continue;
+        if (w === 0 && (porous || cue >= nCues)) continue;
         writes.push(...this.cmdWrites(cue, slot, w));
       }
     }
@@ -625,10 +628,11 @@ export class CuesView {
       case "copy": this.copySelection(); break;
       case "cut": this.cutSelection(); break;
       case "paste":
+      case "pastePorous":
         // No block for it to anchor on: paste where the menu was opened, not
         // wherever the cursor happens to be sitting.
         if (!hasSel) { this.cursor = { cue, col, nib: 0 }; }
-        this.paste();
+        this.paste(pick === "pastePorous");
         break;
       case "insLeft": this.insertChannel(ch); break;
       case "insRight": this.insertChannel(ch + 1); break;
@@ -662,13 +666,14 @@ export class CuesView {
       { keyboard: e.fromKeyboard === true });
     // Without a block, both actions work on the cell the menu was opened over,
     // not on wherever the cursor happens to be sitting.
-    if ((pick === "paste" || pick === "cmdFill") && !hasSel) {
+    if ((pick === "paste" || pick === "pastePorous" || pick === "cmdFill") && !hasSel) {
       this.cursor = { cue, col: slot, nib: 0 };
     }
     switch (pick) {
       case "copy": this.copySelection(); break;
       case "cut": this.cutSelection(); break;
       case "paste": this.paste(); break;
+      case "pastePorous": this.paste(true); break;
       case "cmdFill": this.openCmdEditor(); break;
     }
   }

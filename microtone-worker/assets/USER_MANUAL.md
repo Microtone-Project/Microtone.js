@@ -277,6 +277,7 @@ and holding** opens it under your finger. See
 |---|---|
 | **Copy** / **Cut** | Only with a block selected — the same as Ctrl+C / Ctrl+X |
 | **Paste** | Only on a cell that has a pattern, with something on the clipboard |
+| **Porous paste** | Beside *Paste*: the same paste, but the clipboard's empty cells leave what is under them alone — the same as Shift+Ctrl+V |
 | **Lane left** | Insert an empty lane *before* this one |
 | **Lane right** | Insert an empty lane *after* this one |
 | **New pattern** | Where the cue leaves a lane empty: point the slot at the lowest unused pattern number and put the cursor there. Over a block it fills **every** empty slot the block covers, one fresh pattern each, leaving the slots that already have one alone |
@@ -940,7 +941,8 @@ Timeline and Patterns support rectangular selections:
 - **Backtick** (the key left of 1) turns on **selection mode**, and **select** lights up in the top bar. While it is on, every cursor movement extends the block instead of moving: the plain arrows, **PageUp/Down**, **Home/End**, and the [Shift+Ctrl jumps](#moving-around) — so **Backtick**, then **Shift+Ctrl+Alt+↓** twice and **Shift+Ctrl+→** three times, selects two cues across four lanes in six keystrokes. Press **Backtick** again to leave it with the block still selected, ready to copy or nudge; **Esc** leaves it and clears the block. In Patterns a block stays inside its own pattern, so there the cue-sized jump grows it to the pattern's first or last row.
 - **Ctrl+A** selects a whole column — on the Timeline and in Cues the cursor's single lane, top to bottom (in Cues, with the cursor on **Cmd1** or **Cmd2**, that command word all the way down instead); in Patterns the pattern you are looking at. In Cues, **Ctrl+←** and **Ctrl+→** then widen that selection a whole lane at a time (on a command column there is only the other command word to reach). The lane you started on stays put and the far edge walks, so a **Ctrl+←** after a **Ctrl+→** takes the last column off again. With nothing selected they start from the cursor's column, so **Ctrl+→** on its own selects this lane and the next. On the Timeline and in Patterns, **Ctrl+arrows** [nudge](#nudging-with-ctrl-arrows) the selection instead.
 - **Ctrl+C / Ctrl+X / Ctrl+V** copy, cut and paste. A paste lands on the **start of the selection** when there is one — the corner you began the drag from, not the cursor, which sits wherever the drag ended — and on the cursor when there is not. Pasting across views clips to what fits; a column-limited block overwrites only its columns.
-- **Right-click** for the same three as buttons: *Copy* and *Cut* while a block is selected, *Paste* on any cell that can take one. See [the right-click menu](#the-right-click-menu); the Cues view carries the same clipboard cells over its cue words.
+- **Shift+Ctrl+V** is **porous paste**: the same paste, except that whatever the copied block left **empty** is a hole, and the destination shows through it instead of being blanked. It goes column by column, so a copied note with no instrument, volume or effect lands its note and keeps the destination's instrument, volume and effect; a row that is empty all the way across changes nothing. Only a truly empty column counts — a key-off, a note cut or a volume *set* to 0 is a command and is pasted like any other. Use it to lay a line of effects over existing notes, or to merge two half-written parts into one lane.
+- **Right-click** for the same as buttons: *Copy* and *Cut* while a block is selected, *Paste* and *Porous paste* on any cell that can take one. See [the right-click menu](#the-right-click-menu); the Cues view carries the same clipboard cells over its cue words.
 - **Delete / Backspace** blanks the selection, **Esc** clears it.
 - **The clipboard is shared between browser tabs.** Copy in one tab of Microtone and paste in another, so two songs open side by side can pass material between them; the copy outlives the tab that made it. The cue clipboard travels the same way.
 
@@ -982,7 +984,9 @@ cut and paste, **Delete**/**Backspace** blank the block, and **Esc** clears the
 selection. Paste lands with its top-left corner at the cursor, so you can move a
 block of lanes onto other lanes, onto other cues, or onto the blank row
 to grow the order list. Only the pattern numbers move — each destination cell
-keeps its own flow command. (The Cues clipboard is separate from the
+keeps its own flow command. **Shift+Ctrl+V** is the porous paste here too: an
+empty slot in the copied block leaves the slot it lands on alone, and over the
+command columns a blank command word does the same. (The Cues clipboard is separate from the
 Timeline/Patterns cell clipboard.)
 
 **The Cmd1/Cmd2 columns are a block space of their own**, with the same drag,
@@ -2664,6 +2668,7 @@ centre of the scale.
 | Shift+arrows · drag | Extend a block selection |
 | ` | Selection mode on / off — the arrows and Shift+Ctrl(+Alt)+arrows extend the block |
 | Ctrl+C / X / V | Copy / cut / paste the block |
+| Shift+Ctrl+V | Porous paste — the block's empty cells leave what is under them alone |
 | Esc · Delete / Backspace | Clear the selection · blank the block |
 | `\` · menu key · Shift+F10 | Context menu at the cursor — arrows walk it, Enter picks ([more](#opening-it-without-a-right-button)) |
 | ? | Keyboard help popup |

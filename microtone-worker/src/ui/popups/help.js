@@ -31,6 +31,7 @@ export function showHelp() {
     ["Shift+" + t("help.arrowsDrag"), t("help.selExtend")],
     ["`", t("help.selMode")],
     ["Ctrl+C / X / V", t("help.clipboard")],
+    ["Shift+Ctrl+V", t("help.pastePorous")],
     ["Esc · Delete", t("help.selClear")],
     ["\\", t("help.ctxMenu")],
   ];

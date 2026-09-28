@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
-  emptyCellBytes, cellToBytes, makeBlock, blockCell, overlayCols,
+  emptyCellBytes, cellToBytes, makeBlock, blockCell, overlayCols, filledCols,
 } from "../../src/doc/clipboard.js";
 import {
   COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2, ALL_COLS, subToCol, colsForSubs,
@@ -120,6 +120,54 @@ test("overlayCols: only the named columns overwrite; others keep dest bytes", ()
   assert.deepEqual([...out.subarray(5, 8)], [0x0a, 0x00, 0x0f], "fx untouched");
 
   // all columns = full overwrite
+  assert.deepEqual([...overlayCols(Uint8Array.from(dest), src, ALL_COLS)], [...src]);
+});
+
+test("filledCols: only columns that differ from the blank cell survive", () => {
+  assert.deepEqual(filledCols(emptyCellBytes(), ALL_COLS), [], "a blank cell is all holes");
+  // note D4 only: the rest of the cell is the blank image
+  const noteOnly = emptyCellBytes(); noteOnly[0] = 0x00; noteOnly[1] = 0x54;
+  assert.deepEqual(filledCols(noteOnly, ALL_COLS), [COL_NOTE]);
+  // the selection's columns still bound it: a note-only cell over inst+vol is
+  // nothing at all
+  assert.deepEqual(filledCols(noteOnly, [COL_INST, COL_VOL]), []);
+  // blank is byte-exact: a key-off and a SET-volume-0 are commands, not holes
+  const keyOff = emptyCellBytes(); keyOff[0] = 0x01;
+  assert.deepEqual(filledCols(keyOff, ALL_COLS), [COL_NOTE], "key-off fills the note column");
+  const vol0 = emptyCellBytes(); vol0[3] = 0x00;
+  assert.deepEqual(filledCols(vol0, ALL_COLS), [COL_VOL], "SET volume 0 fills the volume column");
+  // an effect counts by opcode OR argument
+  const fxArg = emptyCellBytes(); fxArg[7] = 0x12;
+  assert.deepEqual(filledCols(fxArg, ALL_COLS), [COL_FX]);
+  // the 8-byte cell has no second effect, so it can never fill one
+  const full = Uint8Array.from([0x00, 0x54, 0x0a, 0x3f, 0x00, 0x0b, 0x34, 0x12]);
+  assert.deepEqual(filledCols(full, ALL_COLS), [COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX]);
+});
+
+test("filledCols: a wide cell reads its shared selector byte per column", () => {
+  const W = () => emptyCellBytes(true);
+  assert.deepEqual(filledCols(W(), ALL_COLS), [], "a blank wide cell is all holes");
+  // byte 8 carries both selectors: moving only the volume's leaves pan a hole
+  const volSel = W(); volSel[8] = 0x03; // volume selector SET, pan still FINE
+  assert.deepEqual(filledCols(volSel, ALL_COLS), [COL_VOL]);
+  const panSel = W(); panSel[8] = 0x30; // pan selector SET, volume still FINE
+  assert.deepEqual(filledCols(panSel, ALL_COLS), [COL_PAN]);
+  // the elevation alone is enough to fill the panning column
+  const elev = W(); elev[9] = 0x10;
+  assert.deepEqual(filledCols(elev, ALL_COLS), [COL_PAN]);
+  const fx2 = W(); fx2[10] = 0x0b;
+  assert.deepEqual(filledCols(fx2, ALL_COLS), [COL_FX2]);
+});
+
+test("porous overlay: the source's blank columns leave the destination's own", () => {
+  // dest: note C4, inst 0x05, vol 0x20, pan 0x30, fx A0F00
+  const dest = Uint8Array.from([0x00, 0x50, 0x05, 0x20, 0x30, 0x0a, 0x00, 0x0f]);
+  // src: note D4 and an instrument, nothing else
+  const src = emptyCellBytes(); src[1] = 0x54; src[2] = 0x0a;
+  const out = overlayCols(Uint8Array.from(dest), src, filledCols(src, ALL_COLS));
+  assert.deepEqual([...out], [0x00, 0x54, 0x0a, 0x20, 0x30, 0x0a, 0x00, 0x0f],
+    "note + inst pasted, vol/pan/fx kept");
+  // the plain paste of the same cell blanks them instead
   assert.deepEqual([...overlayCols(Uint8Array.from(dest), src, ALL_COLS)], [...src]);
 });
 

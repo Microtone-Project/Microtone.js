@@ -151,6 +151,25 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   store.undo.undo();
   await sleep(60);
   check(cuePat(6, 4) !== 0x0123, "…and the paste undoes");
+
+  // Porous paste: an empty slot in the block leaves the destination's own.
+  const { makeCueBlock } = await import("../../src/doc/clipboard.js");
+  const savedCueClip = store.cueClipboard;
+  const holey = makeCueBlock(1, 2);
+  holey.words[0] = 0x0321; // words[1] stays CUE_EMPTY
+  store.cueClipboard = holey;
+  cuesView.sel = null;
+  const keep = cuePat(6, 5);
+  dlg = await menuOn(cueCv, cueX(4), cueY(6));
+  cell(dlg, "pastePorous").click();
+  await sleep(80);
+  check(cuePat(6, 4) === 0x0321 && cuePat(6, 5) === keep,
+    "Porous paste skips the block's empty slot",
+    `$${cuePat(6, 4).toString(16)}/$${cuePat(6, 5).toString(16)} vs $${keep.toString(16)}`);
+  check(keep !== 0x7fff, "…and the slot it skipped really held a pattern (guards the check above)");
+  store.undo.undo();
+  await sleep(60);
+  store.cueClipboard = savedCueClip;
   store.undo.undo(); // drop the seeded numbers too
   await sleep(60);
 
@@ -162,7 +181,7 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   await sleep(60);
   const free = store.song.firstFreePattern();
   dlg = await menuOn(cueCv, cueX(1), cueY(0));
-  check(ids(dlg).join() === "paste,insLeft,insRight,newPat",
+  check(ids(dlg).join() === "paste,pastePorous,insLeft,insRight,newPat",
     "an empty cue slot offers New pattern", ids(dlg).join());
   cell(dlg, "newPat").click();
   await sleep(80);
@@ -335,8 +354,8 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   const dstBefore = rowBytes(pb, 40);
   paneB.sel = null;
   dlg = await menuOn(paneB.canvas, pX(1), pY(paneB, 40));
-  check(!!dlg && ids(dlg).join() === "paste",
-    "the other column offers Paste (nothing selected there)", ids(dlg)?.join());
+  check(!!dlg && ids(dlg).join() === "paste,pastePorous",
+    "the other column offers the two pastes (nothing selected there)", ids(dlg)?.join());
   cell(dlg, "paste").click();
   await sleep(80);
   check(patternView.activeIdx === 1, "…and focus moved to that column");
@@ -354,7 +373,7 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   paneB.sel = { aRow: 50, row: 51, aSub: 0, sub: 5 };
   paneB.cursor.row = 10;
   dlg = await menuOn(paneB.canvas, pX(1), pY(paneB, 20));
-  check(ids(dlg).join() === "copy,cut,paste", "a column with a selection offers all three",
+  check(ids(dlg).join() === "copy,cut,paste,pastePorous", "a column with a selection offers all four",
     ids(dlg).join());
   cell(dlg, "paste").click();
   await sleep(80);

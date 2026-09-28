@@ -237,6 +237,58 @@
         const tlCursorOk = eq(cap(timeline.cellAt(60, 5)), tlSrc);
         log(`timeline paste anchors on the selection (${tlAnchorOk}), cursor without one (${tlCursorOk})`);
         const anchorOk = patAnchorOk && tlAnchorOk && tlCursorOk;
+        store.view = "pattern";
+
+        // ── porous paste (Shift+Ctrl+V): the block's blank columns are holes ──
+        // Row 0 is a full cell, row 1 blank, row 2 a key-off and nothing else:
+        // the blank row must leave its destination alone, and the key-off must
+        // land (a command, not a hole) while the rest of its cell shows through.
+        const blankCell = [0x00, 0x00, 0x00, 0xc0, 0xc0, 0x00, 0x00, 0x00];
+        const pSrc = [srcBytes[0], blankCell, [0x01, 0x00, 0x00, 0xc0, 0xc0, 0x00, 0x00, 0x00]];
+        const pDst = [dstBytes[0], dstBytes[1], [0x00, 0x4c, 0x09, 0x21, 0x12, 0x0c, 0x33, 0x00]];
+        store.undo.apply(setCellsBytesOp(store.songIndex, [
+          ...pSrc.map((b, r) => ({ pat, row: 48 + r, bytes: Uint8Array.from(b) })),
+          ...pDst.map((b, r) => ({ pat, row: 56 + r, bytes: Uint8Array.from(b) })),
+        ]));
+        patternView.clearSelection();
+        patternView.sel = { aRow: 48, row: 50, aSub: 0, sub: SUB_FX_ARG };
+        key(win, "KeyC", "c", { ctrlKey: true });
+        patternView.clearSelection();
+        patternView.cursor.row = 56;
+        key(win, "KeyV", "V", { ctrlKey: true, shiftKey: true });
+        const pGot = (r) => [...cellToBytes(store.song.patterns[pat][56 + r])];
+        const porousWant = [pSrc[0], pDst[1], [0x01, 0x00, ...pDst[2].slice(2)]];
+        const patPorousOk = [0, 1, 2].every((r) => eq(pGot(r), porousWant[r]));
+        if (!patPorousOk) for (let r = 0; r < 3; r++) log(`  porous row ${r}: got ${pGot(r)} want ${porousWant[r]}`);
+        key(win, "KeyZ", "z", { ctrlKey: true }); // one undo step puts it all back
+        const porousUndoOk = [0, 1, 2].every((r) => eq(pGot(r), pDst[r]));
+        key(win, "KeyV", "v", { ctrlKey: true }); // without Shift it still overwrites
+        const plainStillOk = eq(pGot(1), blankCell);
+        key(win, "KeyZ", "z", { ctrlKey: true });
+        log(`pattern porous paste: merged=${patPorousOk} undo=${porousUndoOk} plainBlanks=${plainStillOk}`);
+
+        // Timeline: a two-lane block whose second lane is blank leaves that
+        // destination lane alone and still pastes the first.
+        store.view = "timeline";
+        const tSlots = [timeline.cellAt(6, 0), timeline.cellAt(6, 1), timeline.cellAt(52, 2), timeline.cellAt(52, 3)];
+        const tDistinct = tSlots.every(Boolean) &&
+          new Set(tSlots.map((t) => `${t.pat}:${t.rowInCue}`)).size === 4;
+        let tlPorousOk = false;
+        if (tDistinct) {
+          store.undo.apply(setCellsBytesOp(store.songIndex, [srcBytes[1], blankCell, dstBytes[0], dstBytes[1]]
+            .map((b, i) => ({ pat: tSlots[i].pat, row: tSlots[i].rowInCue, bytes: Uint8Array.from(b) }))));
+          timeline.sel = { aRow: 6, aCh: 0, aSub: 0, row: 6, ch: 1, sub: SUB_FX_ARG };
+          key(win, "KeyC", "c", { ctrlKey: true });
+          timeline.clearSelection();
+          store.cursor = { row: 52, ch: 2, sub: 0, nib: 0 };
+          key(win, "KeyV", "V", { ctrlKey: true, shiftKey: true });
+          tlPorousOk = eq(cap(timeline.cellAt(52, 2)), srcBytes[1]) &&
+            eq(cap(timeline.cellAt(52, 3)), dstBytes[1]);
+          key(win, "KeyZ", "z", { ctrlKey: true });
+          timeline.clearSelection();
+        }
+        log(`timeline porous paste: slots=${tDistinct} merged=${tlPorousOk}`);
+        const porousOk = patPorousOk && porousUndoOk && plainStillOk && tlPorousOk;
         store.view = "pattern"; // Escape below must reach the pattern view
 
         // ── a drag that never leaves one column is still a selection ──
@@ -263,8 +315,8 @@
         const escOk = !patternView.hasSelection();
         log(`escape cleared pattern selection: ${escOk}`);
 
-        const pass = blockOk && pasteOk && cutCleared && tKbOk && colOk && patPasteOk && colsOk && subOk && kbOk && escOk && anchorOk && degenerateOk;
-        log(pass ? "RESULT: PASS" : `RESULT: FAIL block=${blockOk} paste=${pasteOk} cut=${cutCleared} tKb=${tKbOk} col=${colOk} patPaste=${patPasteOk} cols=${colsOk} sub=${subOk} kb=${kbOk} esc=${escOk} anchor=${anchorOk} degenerate=${degenerateOk}`);
+        const pass = blockOk && pasteOk && cutCleared && tKbOk && colOk && patPasteOk && colsOk && subOk && kbOk && escOk && anchorOk && porousOk && degenerateOk;
+        log(pass ? "RESULT: PASS" : `RESULT: FAIL block=${blockOk} paste=${pasteOk} cut=${cutCleared} tKb=${tKbOk} col=${colOk} patPaste=${patPasteOk} cols=${colsOk} sub=${subOk} kb=${kbOk} esc=${escOk} anchor=${anchorOk} porous=${porousOk} degenerate=${degenerateOk}`);
       } catch (err) {
         log(`RESULT: ERROR ${err.message}\n${err.stack}`);
       }

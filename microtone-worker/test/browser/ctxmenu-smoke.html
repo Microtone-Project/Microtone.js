@@ -201,8 +201,8 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     "the Copy cell copied the block", `${store.clipboard?.rows}×${store.clipboard?.chans}`);
 
   dlg = await rightClick(colX(0), gridY);
-  check(!!dlg && clipIds(dlg).join() === "copy,cut,paste,insLeft,insRight",
-    "with something on the clipboard the Paste cell appears", ids(dlg).join());
+  check(!!dlg && clipIds(dlg).join() === "copy,cut,paste,pastePorous,insLeft,insRight",
+    "with something on the clipboard the Paste and Porous paste cells appear", ids(dlg).join());
   await dismiss(dlg);
 
   // Paste lands on the START of the selection, not on the cursor.

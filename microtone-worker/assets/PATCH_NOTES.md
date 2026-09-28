@@ -6,6 +6,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-28
 
+Porous paste: **Shift+Ctrl+V** pastes the clipboard but lets its empty cells through, so what is already under them stays.
+
+- **It works column by column.** A copied note with no instrument, volume or effect lands just its note; the destination keeps its own instrument, volume and effect, and a row that was empty all the way across changes nothing.
+- **Only a truly empty column is a hole.** A key-off, a note cut or a volume set to 0 is a command, so it is pasted like any other.
+- **It works on the Timeline, in Patterns and in Cues**, where an empty pattern slot or a blank command word leaves the one it lands on alone. The right-click menu has a **Porous paste** button beside **Paste**, and it is one undo step like any paste.
+
 A download that fails can be dismissed again.
 
 - **Fixed: a demo song that could not be downloaded left its progress popup on screen with no Close button**, so only Esc got rid of it; the popup now offers Close under the error.

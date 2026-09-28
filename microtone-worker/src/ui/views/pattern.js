@@ -20,7 +20,7 @@ import {
 import { setCellOp, setPatternBytesOp, appendPatternOp, bulkNotesOp, setCellsBytesOp, setCellsEachOp, setSectionOp, changeInstrumentOp } from "../../doc/ops.js";
 import { escapeNonAscii, unescapeName } from "../names.js";
 import {
-  makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols,
+  makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols, filledCols,
   fxPasteRemap, remapFxBytes,
 } from "../../doc/clipboard.js";
 import {
@@ -318,13 +318,14 @@ class PatternPane {
       case "copy": this.copySelection(); break;
       case "cut": this.cutSelection(); break;
       case "paste":
+      case "pastePorous":
         // No selection: paste at the row the menu was opened on, not at a
         // cursor the user may have left in another part of the pattern.
         if (!this.hasSelection()) {
           this.cursor.row = hit.row;
           this.store.emit("cursor");
         }
-        this.paste();
+        this.paste(pick === "pastePorous");
         break;
     }
   }
@@ -471,7 +472,9 @@ class PatternPane {
     this.invalidate();
   }
 
-  paste() {
+  /** `porous` (Shift+Ctrl+V): a column the block left blank is a hole — the
+   *  destination keeps its own there instead of being blanked. */
+  paste(porous = false) {
     const block = this.store.clipboard;
     const pattern = this.pattern();
     if (!block || !pattern) return false;
@@ -488,7 +491,10 @@ class PatternPane {
     for (let r = 0; r < block.rows; r++) {
       const row = start + r;
       if (row > 63) break;
-      writes.push({ pat: this.patIdx, row, bytes: overlayCols(cellToBytes(pattern[row], wide), remapFxBytes(blockCell(block, r, 0), remap, wide), cols, wide) });
+      const src = remapFxBytes(blockCell(block, r, 0), remap, wide);
+      const use = porous ? filledCols(src, cols) : cols;
+      if (!use.length) continue; // nothing but holes: leave the row alone
+      writes.push({ pat: this.patIdx, row, bytes: overlayCols(cellToBytes(pattern[row], wide), src, use, wide) });
     }
     if (!writes.length) return false;
     this.store.undo.apply(setCellsBytesOp(this.store.songIndex, writes));
@@ -1222,7 +1228,7 @@ export class PatternView {
   copySelection() { return this.active.copySelection(); }
   cutSelection() { return this.active.cutSelection(); }
   deleteSelection() { return this.active.deleteSelection(); }
-  paste() { return this.active.paste(); }
+  paste(porous = false) { return this.active.paste(porous); }
 
   show() {
     this.visible = true;

@@ -46,9 +46,9 @@ export function openMenuAtCursor(view) {
   return true;
 }
 
-/** Copy / Cut / Paste cells. `hasSelection` gates the first two, `canPaste` the
- *  third; `selAnchored` only picks the tooltip that tells the truth about where
- *  the paste will land. */
+/** Copy / Cut / Paste / Porous paste cells. `hasSelection` gates the first
+ *  two, `canPaste` the two pastes; `selAnchored` only picks the tooltips that
+ *  tell the truth about where the paste will land. */
 export function clipboardItems({ hasSelection, canPaste, selAnchored = false }) {
   const items = [];
   if (hasSelection) {
@@ -57,8 +57,11 @@ export function clipboardItems({ hasSelection, canPaste, selAnchored = false }) 
       { id: "cut", label: t("ctx.cut"), icon: ICON.cut, title: t("ctx.cutTitle") });
   }
   if (canPaste) {
-    items.push({ id: "paste", label: t("ctx.paste"), icon: ICON.paste,
-      title: t(selAnchored ? "ctx.pasteSelTitle" : "ctx.pasteTitle") });
+    items.push(
+      { id: "paste", label: t("ctx.paste"), icon: ICON.paste,
+        title: t(selAnchored ? "ctx.pasteSelTitle" : "ctx.pasteTitle") },
+      { id: "pastePorous", label: t("ctx.pastePorous"), icon: ICON.pastePorous,
+        title: t(selAnchored ? "ctx.pastePorousSelTitle" : "ctx.pastePorousTitle") });
   }
   return items;
 }

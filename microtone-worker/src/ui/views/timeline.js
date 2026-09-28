@@ -21,7 +21,7 @@ import { setCellOp, setCellsBytesOp, setCellsEachOp, setCuesOp } from "../../doc
 import { dittoGhosts } from "../../doc/ditto.js";
 import { createBendSim, bendContext } from "../../doc/bendghosts.js";
 import {
-  makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols,
+  makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols, filledCols,
   fxPasteRemap, remapFxBytes,
 } from "../../doc/clipboard.js";
 import { themeColors } from "../theme.js";
@@ -678,6 +678,7 @@ export class TimelineView {
       case "copy": this.copySelection(); break;
       case "cut": this.cutSelection(); break;
       case "paste":
+      case "pastePorous":
         // With no block selected, paste goes to the cursor — so put the cursor
         // where the menu was opened, or the paste would land somewhere the user
         // is not even looking. With a selection, its top-left already wins.
@@ -686,7 +687,7 @@ export class TimelineView {
           store.cursor.ch = ch;
           store.emit("cursor");
         }
-        this.paste();
+        this.paste(pick === "pastePorous");
         break;
       case "insLeft": this.insertChannel(ch); break;
       case "insRight": this.insertChannel(ch + 1); break;
@@ -1072,7 +1073,9 @@ export class TimelineView {
     return b ? { row: b.r0, ch: b.c0 } : { row: c.row, ch: c.ch };
   }
 
-  paste() {
+  /** `porous` (Shift+Ctrl+V): a column the block left blank is a hole — the
+   *  destination keeps its own there instead of being blanked. */
+  paste(porous = false) {
     const block = this.store.clipboard;
     if (!block) return false;
     const wide = this.wide();
@@ -1086,8 +1089,12 @@ export class TimelineView {
       for (let r = 0; r < block.rows; r++) {
         for (let ch = 0; ch < block.chans; ch++) {
           const t = this.cellAt(a.row + r, a.ch + ch);
-          // merge only the block's columns onto the destination cell
-          if (t) push(t.pat, t.rowInCue, overlayCols(cellToBytes(t.cell, wide), remapFxBytes(blockCell(block, r, ch), remap, wide), cols, wide));
+          if (!t) continue;
+          // merge only the block's columns onto the destination cell — and,
+          // porous, only the ones this source cell actually fills
+          const src = remapFxBytes(blockCell(block, r, ch), remap, wide);
+          const use = porous ? filledCols(src, cols) : cols;
+          if (use.length) push(t.pat, t.rowInCue, overlayCols(cellToBytes(t.cell, wide), src, use, wide));
         }
       }
     });
