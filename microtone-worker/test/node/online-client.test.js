@@ -5,6 +5,7 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { onlineEnv, browser, taudBytes } from "../fixtures/online-env.js";
 import * as online from "../../src/storage/online.js";
+import { PROJECT_LIMIT } from "../../server/online/util.js";
 
 let realFetch;
 beforeEach(() => { realFetch = globalThis.fetch; });
@@ -72,7 +73,7 @@ test("a whole session: create, list, open, save, conflict, rename, remove", asyn
   await rejectsWith(online.create("x.taud", new Uint8Array(64)), "not-taud");
 
   const listing = await online.list();
-  assert.equal(listing.limit, 16);
+  assert.equal(listing.limit, PROJECT_LIMIT);
   assert.deepEqual(listing.projects.map((q) => q.id), [p.id]);
 
   // open it here, and in "another browser" (the same etag, read twice)
@@ -97,11 +98,11 @@ test("a whole session: create, list, open, save, conflict, rename, remove", asyn
   await rejectsWith(online.read(p.id), "not-found");
 });
 
-test("the seventeenth project is refused with 'quota'", async () => {
+test("one project past the limit is refused with 'quota'", async () => {
   const { b } = connect();
   await b.signIn("alice");
-  for (let i = 0; i < 16; i++) await online.create(`s${i}.taud`, taudBytes());
-  await rejectsWith(online.create("s16.taud", taudBytes()), "quota");
+  for (let i = 0; i < PROJECT_LIMIT; i++) await online.create(`s${i}.taud`, taudBytes());
+  await rejectsWith(online.create("one-more.taud", taudBytes()), "quota");
 });
 
 test("sign out: the session is gone and every tab is told", async () => {

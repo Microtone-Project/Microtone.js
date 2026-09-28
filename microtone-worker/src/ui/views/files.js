@@ -51,9 +51,16 @@ export class FilesView {
   }
 
   async refresh() {
+    // Refreshes overlap — a sign-out both tells every tab (this one included)
+    // and asks for one directly — and each waits on the disk listing half-way.
+    // So the page is built off-screen and put up in ONE step, by the newest
+    // refresh only: an older one that finishes late simply gives way, instead
+    // of adding its table under the newer one's.
+    const seq = ++this._renderSeq;
+    const newest = () => seq === this._renderSeq;
     const ok = await opfs.available();
     const { doc } = this.cb.currentDoc();
-    this.root.innerHTML = "";
+    const page = [];
 
     const bar = document.createElement("div");
     bar.className = "files-bar";
@@ -81,13 +88,13 @@ export class FilesView {
     // doc-scoped actions grey out until something is loaded
     for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn]) b.disabled = !doc;
     bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, allBtn);
-    this.root.appendChild(bar);
+    page.push(bar);
 
     if (!ok) {
       const warn = document.createElement("p");
       warn.className = "files-warn";
       warn.textContent = t("files.opfsWarn");
-      this.root.appendChild(warn);
+      page.push(warn);
     } else {
       const entries = await opfs.list();
       allBtn.disabled = entries.length === 0;
@@ -140,19 +147,19 @@ export class FilesView {
         tbody.appendChild(tr);
       }
       table.appendChild(tbody);
-      this.root.appendChild(table);
       const disclaimer = document.createElement("p");
       disclaimer.className = "files-disclaimer";
       disclaimer.textContent = t("files.disclaimer");
-      this.root.appendChild(disclaimer);
+      page.push(table, disclaimer);
     }
 
+    if (!newest()) return;
+    this.root.replaceChildren(...page, this.onlineHost);
+
     // Last, and on its own clock: the local list is already on screen while
-    // the server answers. The sequence number stops a slow answer painting
-    // into a page a newer refresh has replaced.
-    this.root.appendChild(this.onlineHost);
-    const seq = ++this._renderSeq;
-    await this.online.render(this.onlineHost, () => seq === this._renderSeq)
+    // the server answers, and the same rule keeps a slow answer from painting
+    // over what a newer refresh put there.
+    await this.online.render(this.onlineHost, newest)
       .catch((err) => console.error("Online projects:", err));
   }
 

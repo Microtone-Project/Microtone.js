@@ -1,0 +1,19 @@
+# Files in this directory that are NOT part of the published site. Everything
+# else here is uploaded to microtone.cc as a static file — see wrangler.toml at
+# the repository root.
+
+# The Worker's own code and its database schema: they run on the server, and
+# have no business being downloadable next to the pages.
+server/
+migrations/
+
+# Local-only state and secrets. The build checks out git, where these never
+# exist, but a deploy from a working tree must not publish them either.
+.dev.vars*
+.env*
+.wrangler/
+node_modules/
+
+# A local symlink to the full soundfont, over the 25 MiB asset limit (the site
+# ships GeneralUser-GS.taud.sf2.gz instead).
+GeneralUser-GS.sf2

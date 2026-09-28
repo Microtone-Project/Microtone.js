@@ -2,8 +2,8 @@
 //
 // A few working projects kept with the person's SceneID account (the storage
 // half is src/storage/online.js). Deliberately NOT presented as storage: the
-// heading says "online projects", the count says how many of the sixteen
-// slots are taken, and the note under the table says what they are for.
+// heading says "online projects", the count says how many of the few slots
+// are taken, and the note under the table says what they are for.
 //
 // A project opened from here, or saved here, BELONGS here: store.online
 // remembers it, and the ordinary Save (button or Ctrl+S) goes back to it —
@@ -18,6 +18,10 @@ import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 
 const MB = 1024 * 1024;
+
+/** SceneID's own "Sign in with SceneID" artwork, cropped from the kit they
+ *  hand out to sites that use it (see the comment inside the file). */
+const SCENEID_SIGN_IN = new URL("../../../assets/sceneid/sign-in.svg", import.meta.url).href;
 
 /** Error codes with a sentence of their own; anything else gets the generic
  *  one, code included, so a report can say what happened. */
@@ -35,7 +39,7 @@ export class OnlineSection {
     this.cb = callbacks;
     // What the server said last time; the size check before an upload and
     // the messages quote it.
-    this.limit = 16;
+    this.limit = 8;
     this.sizeLimit = 10 * MB;
   }
 
@@ -84,8 +88,9 @@ export class OnlineSection {
       blurb.textContent = t("files.online.blurb");
       const bar = document.createElement("div");
       bar.className = "files-bar";
-      bar.append(mkBtn(t(st.signIn === "dev" ? "files.online.signInDev" : "files.online.signIn"),
-        () => this.signIn(st.signIn)));
+      bar.append(st.signIn === "sceneid"
+        ? sceneIdButton(() => this.signIn(st.signIn))
+        : mkBtn(t("files.online.signInDev"), () => this.signIn(st.signIn)));
       parts.push(blurb, bar);
     } else {
       const { doc } = this.cb.currentDoc();
@@ -391,6 +396,26 @@ function taudName(raw) {
 function mkBtn(label, onClick) {
   const b = document.createElement("button");
   b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/**
+ * The sign-in button, faced with SceneID's artwork — the mark someone who has
+ * signed in with SceneID elsewhere will recognise. SceneID only draws it in
+ * English, so the label in the app's own language is its accessible name and
+ * its tooltip.
+ */
+function sceneIdButton(onClick) {
+  const b = document.createElement("button");
+  b.className = "files-sceneid";
+  b.title = t("files.online.signIn");
+  const img = document.createElement("img");
+  img.src = SCENEID_SIGN_IN;
+  img.alt = t("files.online.signIn");
+  img.width = 200;
+  img.height = 32;
+  b.appendChild(img);
   b.addEventListener("click", onClick);
   return b;
 }

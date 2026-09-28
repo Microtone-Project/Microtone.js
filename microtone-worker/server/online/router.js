@@ -1,4 +1,4 @@
-// Online projects — the HTTP surface. functions/api/online/[[path]].js hands
+// Online projects — the HTTP surface. The Worker (server/worker.js) hands
 // every request under /api/online here; the tests call handle() directly.
 //
 //   GET    /api/online/me                   who is signed in, and how to sign in
@@ -17,7 +17,7 @@
 // bucket. There are no R2 or D1 credentials anywhere — a binding IS the
 // permission — so the only secret this server will ever read is SceneID's.
 
-import { fail, json } from "./util.js";
+import { fail, json, explain } from "./util.js";
 import { currentUser, signOut, devSignIn, devSignInAllowed } from "./auth.js";
 import { sceneIdConfigured, beginSignIn, finishSignIn } from "./sceneid.js";
 import {
@@ -99,7 +99,7 @@ export async function handle(request, env) {
     if (user?.setCookie) res.headers.append("set-cookie", user.setCookie);
     return res;
   } catch (err) {
-    console.error("online:", err);
+    console.error("online:", explain(err));
     return fail(500, "server-error");
   }
 }

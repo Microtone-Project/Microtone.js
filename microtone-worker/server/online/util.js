@@ -1,7 +1,7 @@
 // Online projects — the small pieces every handler shares: limits, random ids,
 // responses, the capped body reader and the two validators.
 //
-// Runs on Cloudflare's Workers runtime (as Pages Functions) and under Node for
+// Runs on Cloudflare's Workers runtime (the microtone Worker) and under Node for
 // the tests, so it keeps to what both have: Web Crypto, fetch's Request and
 // Response, and streams. Nothing here reads the environment.
 
@@ -129,6 +129,17 @@ export function cleanName(raw) {
   if (name.length > NAME_MAX || !name.endsWith(".taud") || name.length === ".taud".length) return null;
   if (/[\u0000-\u001f\u007f/\\]/.test(name)) return null;
   return name;
+}
+
+/** An error as the log should show it. A missing table means the D1
+ *  migrations were never applied to THIS database — local and remote are
+ *  separate, and a new database_id starts a new, empty local one — so the
+ *  log says which command fixes it rather than leaving a bare SQLite error. */
+export function explain(err) {
+  const msg = String(err?.message ?? err);
+  if (!/no such table/.test(msg)) return err;
+  return `${msg} — the D1 migrations have not been applied to this database. From the repository root: ` +
+    "wrangler d1 migrations apply microtone-online --local (or --remote for the deployed one)";
 }
 
 /** Did this D1 (or SQLite) error come from a UNIQUE index? */

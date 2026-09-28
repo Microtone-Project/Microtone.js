@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { onlineEnv, browser, taudBytes, barrier } from "../fixtures/online-env.js";
 import { handle } from "../../server/online/router.js";
+import worker from "../../server/worker.js";
 import { cleanName, isTaudProject, randomId, PROJECT_LIMIT, SIZE_LIMIT, PENDING_TTL_MS } from "../../server/online/util.js";
 
 const upload = (b, name, bytes = taudBytes()) =>
@@ -41,6 +42,17 @@ test("validators: names, the .taud header, ids", () => {
   assert.notEqual(randomId("u_", 10), randomId("u_", 10));
 });
 
+test("the Worker answers the API and nothing else", async () => {
+  // Static files never reach it; what does is either the API or a miss.
+  const env = onlineEnv();
+  const api = await worker.fetch(new Request("http://localhost:8788/api/online/me"), env);
+  assert.equal(api.status, 200);
+  assert.deepEqual(await api.json(), { signedIn: false, signIn: "dev" });
+  const miss = await worker.fetch(new Request("http://localhost:8788/no/such/file.js"), env);
+  assert.equal(miss.status, 404);
+  assert.match(miss.headers.get("content-type"), /text\/plain/);
+});
+
 test("a deploy without bindings says so; unknown paths are 404", async () => {
   const res = await handle(new Request("http://localhost:8788/api/online/me"), {});
   assert.equal(res.status, 503);
@@ -58,7 +70,7 @@ test("signed out: /me explains, everything else is 401", async () => {
   assert.equal((await upload(b, "a.taud")).status, 401);
 });
 
-test("no sign-in method → signIn null; SceneID endpoints are not wired yet", async () => {
+test("no sign-in method → signIn null; the SceneID endpoints say unavailable without their variables", async () => {
   const env = onlineEnv({ dev: false });
   const b = browser(env);
   assert.deepEqual(await (await b.fetch("/api/online/me")).json(), { signedIn: false, signIn: null });
@@ -166,7 +178,7 @@ test("a name is taken once per person; a retried upload cannot land twice", asyn
   assert.equal(env.ONLINE_BUCKET.objects.size, 3);
 });
 
-test("sixteen slots, enforced atomically even when uploads race", async () => {
+test("the slot limit holds atomically even when uploads race", async () => {
   const env = onlineEnv();
   const b = await signedIn(env);
   // Hold all 24 at the transaction until every one has passed the early

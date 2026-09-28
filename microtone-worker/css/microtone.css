@@ -1872,12 +1872,27 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 
 /* The online projects (filesonline.js): a second list under the browser's
  * own, set off by a rule, with the account on the right of its own bar. */
-.files-online { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.files-online { margin-top: 2rem; padding-top: 1rem; border-top: 8px solid var(--border); }
 .files-online-head { margin: 0 0 0.75rem; font-size: 1rem; color: var(--fg2); }
 .files-online-count { color: var(--dim); font-size: 0.9rem; font-weight: normal; }
 .files-online-blurb { margin: 0 0 0.75rem; color: var(--fg2); }
 .files-online-bar { align-items: center; flex-wrap: wrap; }
 .files-online-who { margin-left: auto; color: var(--dim); }
+/* "Sign in with SceneID" is SceneID's own artwork (assets/sceneid/), so the
+ * button gives up its chrome and the picture is the whole face. Its colours
+ * are SceneID's and stay the same in every theme, as a provider's sign-in
+ * button should; the focus ring is still the app's. */
+.files-online button.files-sceneid {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  line-height: 0;
+}
+.files-online button.files-sceneid img { display: block; height: 2rem; width: auto; }
+.files-online button.files-sceneid:hover img { filter: brightness(1.2); }
+.files-online button.files-sceneid:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ── split views (Samples / Instruments) ── */
 .split-view { position: absolute; inset: 0; display: flex; }

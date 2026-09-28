@@ -1,13 +1,13 @@
 // Online projects — the browser's side of /api/online (server/online/). A
 // handful of working projects kept with a person's SceneID account, so the
 // song they are in the middle of follows them to another machine. Not a
-// backup and not an archive: sixteen slots, and the File tab says so.
+// backup and not an archive: a handful of slots, and the File tab says so.
 //
 // Every failure is an OnlineError whose `code` is the server's own error code
 // (see server/online/) or "offline" when the request never got an answer; the
 // UI turns codes into sentences, so nothing here is prose.
 //
-// Where there is no API at all — a static server, the offline build, a Pages
+// Where there is no API at all — a static server, the offline build, a
 // deploy without its bindings, or one with no way to sign in yet — status()
 // says `available: false` and the app shows no online section whatsoever.
 

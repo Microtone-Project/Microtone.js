@@ -41,7 +41,7 @@ export async function listProjects({ env, user }) {
  * POST /projects?name=<name>, body = the .taud bytes.
  *
  * Quota first, bytes second: the slot is claimed by ONE statement that
- * inserts the row only while fewer than sixteen exist, so two uploads racing
+ * inserts the row only while fewer than PROJECT_LIMIT exist, so two uploads racing
  * for the last slot cannot both get it, and the name's unique index means a
  * retried upload cannot land twice. The row goes in as 'pending' and turns
  * 'ready' once R2 has the object.

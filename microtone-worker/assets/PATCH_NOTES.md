@@ -4,6 +4,15 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-09-28
+
+Online projects: keep the few songs you are working on with your SceneID account, and open them again in any browser.
+
+- **Sign in with SceneID** in the File tab, and an **Online projects** list appears under the browser's own — 8 slots of up to 10 MB each, meant for work in progress rather than as an archive.
+- **Save online…** puts the open project there. From then on **Save** and **Ctrl+S** save it back online, and the status bar marks it **(online)**; **Save As…** still makes a copy in the browser.
+- **A save never quietly replaces a newer one.** If the project was saved from another browser since you opened it, Save asks before replacing that version.
+- Online projects are associated with your SceneID account and remain available while your account remains active. Microtone keeps only your SceneID number and display name.
+
 ## 2026-09-27
 
 The Panner now works in stereo songs too, drawn as a half-circle from hard left, over the centre, to hard right.

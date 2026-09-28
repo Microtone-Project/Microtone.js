@@ -2089,8 +2089,26 @@ current state of it.
 
 ### Saving and autosave
 
-- **Save** (**Ctrl+S**) writes the current project into OPFS; **Save As…** under a new name.
+- **Save** (**Ctrl+S**) writes the current project into OPFS — or, for an [online project](#online-projects), back online; **Save As…** writes it into OPFS under a new name.
 - The app **autosaves** 45 seconds after your last edit. If the browser closes with unsaved work, the next visit offers to recover it; declining discards the autosave. A clean save removes its autosave.
+
+### Online projects
+
+Under the browser's own list, **Online projects** keeps the few songs you are
+working on with your [SceneID](https://id.scene.org/) account, so you can pick
+one up again in another browser or on another computer. It is a desk, not an
+archive: there are **8 slots** of up to **10 MB** each — far more than a
+project needs — and finished songs belong on your own disk as well. Online
+projects are associated with your SceneID account and remain available while
+your account remains active.
+
+- **Sign in with SceneID** opens a small window where you sign in at SceneID; the first time, SceneID asks you to allow Microtone. The window closes itself when you are done, and the project you have open is not touched. If the browser blocks the window, allow pop-ups for the site. Microtone keeps only your SceneID number and display name.
+- **Save online…** puts the open project into a free slot, under a name you choose. From then on the project *belongs* online: the status bar marks it **(online)**, and **Save** (**Ctrl+S**) saves it back there.
+- **Click a name** (or **Open**) to open an online project. **✎** renames it, **⬇** downloads a copy to your computer, and **✕** deletes it.
+- **A save never quietly replaces a newer one.** If the project was saved from another browser after you opened it here, Save asks first — **Replace it** keeps what is open here and discards the other version.
+- **Save As…** always makes a copy in this browser, and the project then belongs to the browser again.
+- If a save cannot reach the server, nothing is lost: the project stays open and unsaved, and **Save As…** keeps a copy in the browser meanwhile.
+- **Sign out** ends the session in this browser only.
 
 ### Import and export
 

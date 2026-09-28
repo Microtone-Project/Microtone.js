@@ -1,8 +1,8 @@
 // Online projects — accounts and sessions.
 //
 // Everything here is independent of HOW someone proved who they are. An
-// identity provider hands over a stable subject and a display name; from
-// there it is signInAs → createSession → completionPage, and the same three
+// identity provider asks readyForSignIn() before it starts, and hands a stable
+// subject and a display name to completeSignIn() when it is done; the same two
 // calls serve the local test sign-in below. SceneID plugs in at sceneid.js.
 //
 // A session is a random token in an HttpOnly cookie. D1 holds only its
@@ -10,7 +10,7 @@
 // (or deleting the row) ends the session at once — no signed-cookie secret to
 // rotate, and nothing to keep in sync between deploys.
 
-import { randomId, randomToken, sha256Hex, parseCookies, fail } from "./util.js";
+import { randomId, randomToken, sha256Hex, parseCookies, fail, explain } from "./util.js";
 
 /** `__Host-` binds the cookie to exactly this origin: Secure, Path=/, and no
  *  Domain, so no sibling subdomain can set or read it. Browsers treat
@@ -96,13 +96,59 @@ export async function createSession(env, userId) {
   return sessionCookie(token, expires, now);
 }
 
-/** POST /auth/logout — forget this session, here and in the browser. */
-export async function signOut(request, env) {
+/** Delete the session this request's cookie names, if it names one. */
+async function dropSession(request, env) {
   const token = parseCookies(request.headers.get("cookie")).get(COOKIE);
   if (token && token.length <= 64) {
     await env.ONLINE_DB.prepare(`DELETE FROM sessions WHERE token_hash = ?1`)
       .bind(await sha256Hex(token)).run();
   }
+}
+
+/**
+ * Can the database take a sign-in? Asked BEFORE anyone is sent off to type a
+ * password, so a database whose migrations were never applied fails at once,
+ * with the fix in the log, instead of after the whole round trip.
+ */
+export async function readyForSignIn(env) {
+  try {
+    await env.ONLINE_DB.prepare(`SELECT 1 FROM users LIMIT 1`).first();
+    await env.ONLINE_DB.prepare(`SELECT 1 FROM sessions LIMIT 1`).first();
+    return true;
+  } catch (err) {
+    console.error("online: cannot sign anyone in:", explain(err));
+    return false;
+  }
+}
+
+/**
+ * Record a sign-in: find or create the account, open its session (ending the
+ * one this browser had), and answer with the completion page. Any failure
+ * here answers with the failure page too — the person is looking at a small
+ * window, and a JSON error is not something to leave in it.
+ */
+export async function completeSignIn(request, env, subject, displayName, extraCookies = []) {
+  try {
+    const userId = await signInAs(env, subject, displayName);
+    const session = await replaceSession(request, env, userId);
+    return completionPage({ ok: true, setCookies: [...extraCookies, session] });
+  } catch (err) {
+    console.error("online: sign-in could not be recorded:", explain(err));
+    return completionPage({ ok: false, setCookies: extraCookies });
+  }
+}
+
+/** A sign-in completing in a browser that was already signed in — as the same
+ *  account or another — ends the old session rather than leaving it behind
+ *  to expire, then opens the new one. Returns its Set-Cookie value. */
+export async function replaceSession(request, env, userId) {
+  await dropSession(request, env);
+  return createSession(env, userId);
+}
+
+/** POST /auth/logout — forget this session, here and in the browser. */
+export async function signOut(request, env) {
+  await dropSession(request, env);
   const res = new Response(null, { status: 204 });
   res.headers.append("set-cookie", `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   return res;
@@ -117,40 +163,46 @@ function sessionCookie(token, expiresAt, now) {
 
 /**
  * The page a sign-in window lands on at the end. It tells every open tab of
- * the app, then closes itself; the text is only for the case where the
- * browser will not let a script close the window. `setCookie` is the new
- * session, if the sign-in worked.
+ * the app. A sign-in that worked then closes its window — the text is only
+ * for a browser that will not let a script do that. One that did not work
+ * stays open, because the window is the only place that can say so: the
+ * person may have declined on purpose, or may need to try again. Both
+ * languages at once, since nothing here knows which one the app is in.
+ * `setCookies` are Set-Cookie values: the new session, the spent state.
  */
-export function completionPage({ ok, setCookie = null }) {
+export function completionPage({ ok, setCookies = [] }) {
   const msg = ok
     ? { en: "Signed in. You can close this window.", ko: "로그인했습니다. 이 창을 닫아도 됩니다." }
-    : { en: "Sign-in did not complete. You can close this window.", ko: "로그인하지 못했습니다. 이 창을 닫아도 됩니다." };
+    : { en: "Sign-in did not complete. You can close this window and try again from the File tab.",
+        ko: "로그인하지 못했습니다. 이 창을 닫고 파일 탭에서 다시 시도하세요." };
   const type = ok ? "signed-in" : "sign-in-failed";
   const html = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
+<meta name="color-scheme" content="light dark">
 <title>Microtone</title>
 <p lang="en">${msg.en}</p>
 <p lang="ko">${msg.ko}</p>
+<p><button type="button" onclick="window.close()">Close · 닫기</button></p>
 <script>
 try { new BroadcastChannel(${JSON.stringify(AUTH_CHANNEL)}).postMessage({ type: ${JSON.stringify(type)} }); } catch (e) {}
-window.close();
+${ok ? "window.close();" : ""}
 </script>
 `;
   const res = new Response(html, {
     status: ok ? 200 : 400,
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
   });
-  if (setCookie) res.headers.append("set-cookie", setCookie);
+  for (const c of setCookies) res.headers.append("set-cookie", c);
   return res;
 }
 
 // ── local test sign-in ──
 //
-// Lets the whole feature be exercised under `wrangler pages dev` before the
-// SceneID client exists, through the SAME path a real sign-in takes: a window
-// opens, a cookie is set on a top-level navigation, the completion page
-// broadcasts. Two locks, both required — the variable only ever lives in
+// Lets the whole feature be exercised under `wrangler dev` without a
+// SceneID account or a registered localhost callback, through the SAME path a
+// real sign-in takes: a window opens, a cookie is set on a top-level
+// navigation, the completion page broadcasts. Two locks, both required — the variable only ever lives in
 // .dev.vars (gitignored), and even if it were set in production the request
 // has to arrive addressed to this machine, which Cloudflare's edge never
 // routes.
@@ -166,6 +218,6 @@ export async function devSignIn(request, env) {
   if (!devSignInAllowed(request, env)) return fail(404, "not-found");
   const raw = new URL(request.url).searchParams.get("name") ?? "";
   const name = raw.trim().slice(0, 40) || "tester";
-  const userId = await signInAs(env, `dev:${name}`, `${name} (local test)`);
-  return completionPage({ ok: true, setCookie: await createSession(env, userId) });
+  if (!(await readyForSignIn(env))) return completionPage({ ok: false });
+  return completeSignIn(request, env, `dev:${name}`, `${name} (local test)`);
 }
