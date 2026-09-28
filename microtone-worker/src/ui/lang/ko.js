@@ -416,6 +416,7 @@ export default {
   // ── 온라인 프로젝트 (파일 탭의 두 번째 목록) ──
   "files.online.head": "온라인 프로젝트",
   "files.online.count": "· {limit}칸 중 {n}칸 사용 중",
+  "files.online.loading": "· 연결하는 중…",
   "files.online.blurb": "작업 중인 곡 몇 개를 SceneID 계정에 두고, 어느 브라우저에서든 이어서 작업하세요.",
   "files.online.signIn": "SceneID로 로그인",
   "files.online.signInDev": "로컬 테스트 계정으로 로그인",
@@ -428,6 +429,8 @@ export default {
   "files.online.none": "아직 온라인 프로젝트가 없습니다 — 온라인에 저장…으로 열린 프로젝트를 여기에 둘 수 있습니다",
   "files.online.policy": "온라인 프로젝트는 SceneID 계정에 연결되며, 계정이 활성 상태로 유지되는 동안 계속 이용할 수 있습니다. 작업 중인 곡을 위한 곳으로, {limit}칸에 칸마다 최대 {mb} MB까지 둘 수 있습니다. 완성한 곡은 자신의 디스크에도 보관하세요.",
   "files.online.downloadTitle": "{name}을(를) 이 컴퓨터로 내려받기",
+  "files.online.opening": "{name} 여는 중…",
+  "files.online.downloading": "{name} 내려받는 중…",
   "files.online.deleteAsk": "온라인 프로젝트 {name}을(를) 삭제할까요? 되돌릴 수 없습니다.",
   "files.online.replaceAsk": "{name}(이)라는 온라인 프로젝트가 이미 있습니다. 열린 프로젝트로 바꿀까요?",
   "files.online.replace": "바꾸기",

@@ -127,3 +127,60 @@ test("a dropped connection is 'offline', not a crash", async () => {
   await rejectsWith(online.list(), "offline");
   await rejectsWith(online.save("p_0000000000000000", taudBytes(), "x"), "offline");
 });
+
+test("read: a watched project reports its bytes arriving, through the real router", async () => {
+  const { b } = connect();
+  await b.signIn("alice");
+  const p = await online.create("big.taud", taudBytes(4000, 7));
+  const heard = [];
+  const got = await online.read(p.id, { size: p.size, onProgress: (f) => heard.push(f) });
+  assert.deepEqual(got.bytes, taudBytes(4000, 7));
+  assert.equal(got.etag, p.etag);
+  assert.ok(heard.length >= 1);
+  assert.equal(heard.at(-1), 1);
+});
+
+/** A reply that arrives in `parts`, and (optionally) breaks off after them. */
+function trickle(parts, { length = null, breakOff = false } = {}) {
+  return async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        if (breakOff) controller.error(new TypeError("network error"));
+        else controller.close();
+      },
+    });
+    const headers = { etag: '"e1"' };
+    if (length !== null) headers["content-length"] = String(length);
+    return new Response(stream, { headers });
+  };
+}
+
+test("read: progress climbs with each chunk, and the listing's size stands in for a missing length", async () => {
+  const parts = [new Uint8Array([1, 2]), new Uint8Array([3, 4, 5, 6]), new Uint8Array([7, 8])];
+  let heard = [];
+  globalThis.fetch = trickle(parts, { length: 8 });
+  const got = await online.read("p_x", { onProgress: (f) => heard.push(f) });
+  assert.deepEqual([...got.bytes], [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(got.etag, "e1");
+  assert.deepEqual(heard, [0.25, 0.75, 1]);
+
+  heard = [];
+  globalThis.fetch = trickle(parts);
+  await online.read("p_x", { size: 8, onProgress: (f) => heard.push(f) });
+  assert.deepEqual(heard, [0.25, 0.75, 1]);
+
+  // no length from anywhere: no bar to fill, the bytes still come
+  heard = [];
+  globalThis.fetch = trickle(parts);
+  assert.equal((await online.read("p_x", { onProgress: (f) => heard.push(f) })).bytes.length, 8);
+  assert.deepEqual(heard, []);
+});
+
+test("read: a connection lost half-way is 'offline'", async () => {
+  const parts = [new Uint8Array([1, 2, 3])];
+  globalThis.fetch = trickle(parts, { length: 8, breakOff: true });
+  await rejectsWith(online.read("p_x", { onProgress: () => {} }), "offline");
+  globalThis.fetch = trickle(parts, { length: 8, breakOff: true });
+  await rejectsWith(online.read("p_x"), "offline");
+});

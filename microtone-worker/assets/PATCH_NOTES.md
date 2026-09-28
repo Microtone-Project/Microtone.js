@@ -6,6 +6,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-09-28
 
+A download that fails can be dismissed again.
+
+- **Fixed: a demo song that could not be downloaded left its progress popup on screen with no Close button**, so only Esc got rid of it; the popup now offers Close under the error.
+
 Online projects: keep the few songs you are working on with your SceneID account, and open them again in any browser.
 
 - **Sign in with SceneID** in the File tab, and an **Online projects** list appears under the browser's own — 8 slots of up to 10 MB each, meant for work in progress rather than as an archive.

@@ -425,6 +425,7 @@ export default {
   // ── online projects (the File tab's second list) ──
   "files.online.head": "Online projects",
   "files.online.count": "· {n} of {limit} slots in use",
+  "files.online.loading": "· connecting…",
   "files.online.blurb": "Keep the few songs you are working on with your SceneID account, and pick them up again in any browser.",
   "files.online.signIn": "Sign in with SceneID",
   "files.online.signInDev": "Sign in to a local test account",
@@ -437,6 +438,8 @@ export default {
   "files.online.none": "no online projects yet — Save online… puts the open project here",
   "files.online.policy": "Online projects are associated with your SceneID account and remain available while your account remains active. They are for work in progress: {limit} slots, up to {mb} MB each. Keep your finished songs on your own disk as well.",
   "files.online.downloadTitle": "Download {name} to this computer",
+  "files.online.opening": "Opening {name}…",
+  "files.online.downloading": "Downloading {name}…",
   "files.online.deleteAsk": "Delete the online project {name}? This cannot be undone.",
   "files.online.replaceAsk": "You already have an online project called {name}. Replace it with the open one?",
   "files.online.replace": "Replace",

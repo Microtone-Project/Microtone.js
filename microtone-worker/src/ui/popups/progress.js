@@ -1,13 +1,18 @@
 // Determinate progress popup — a spinner + a <progress> bar + a percentage
 // readout, optionally cancellable (exposes an AbortSignal). Used by the WAV
 // export (item 38); shaped like showImportProgress but for a known-length job.
+//
+// `holdBack` is for a wait that is often over in a blink (an online project
+// arriving): the popup is up at once — so the page behind it is already out
+// of reach — but it stays invisible for a moment, and a quick job never
+// flashes it.
 
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 
-export function showProgress(title, { cancellable = false } = {}) {
+export function showProgress(title, { cancellable = false, holdBack = false } = {}) {
   const dlg = document.createElement("dialog");
-  dlg.className = "modal progress-modal";
+  dlg.className = "modal progress-modal" + (holdBack ? " progress-held" : "");
   const h = document.createElement("h3");
   const spin = document.createElement("span");
   spin.className = "spinner";
@@ -53,6 +58,7 @@ export function showProgress(title, { cancellable = false } = {}) {
       setIconLabel(pct, "close", message);
       closeBtn.textContent = t("common.close");
       closeBtn.onclick = (e) => { e.preventDefault(); dlg.close(); dlg.remove(); };
+      btnRow.appendChild(closeBtn); // a popup that could not be cancelled has none yet
       btnRow.hidden = false;
       closeBtn.focus();
     },

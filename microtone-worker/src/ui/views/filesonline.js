@@ -14,6 +14,7 @@
 import * as online from "../../storage/online.js";
 import { download } from "../../storage/import-export.js";
 import { showModal } from "../widgets/modal.js";
+import { showProgress } from "../popups/progress.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 
@@ -41,6 +42,13 @@ export class OnlineSection {
     // the messages quote it.
     this.limit = 8;
     this.sizeLimit = 10 * MB;
+    // Whether the last answer offered online projects at all; null until the
+    // first one comes. Only an unknown answer earns the placeholder.
+    this.available = null;
+    // The section element render() fills, and how many requests it is
+    // waiting on (see waiting()).
+    this.host = null;
+    this.waits = 0;
   }
 
   /**
@@ -49,37 +57,32 @@ export class OnlineSection {
    * — no API on this host, or no way to sign in yet — so the File tab looks
    * exactly as it always did. `stillCurrent()` is false once a newer refresh
    * has started, and then this one gives way.
+   *
+   * The very first ask has no last answer to keep showing, so a placeholder
+   * stands in for it. The stylesheet holds that back for a moment: a host
+   * with no API answers at once, and never shows it.
    */
   async render(host, stillCurrent) {
-    const st = await online.status();
-    if (!stillCurrent()) return;
+    this.host = host;
+    if (host.hidden && this.available === null) {
+      host.replaceChildren(...placeholder());
+      host.classList.add("files-online-pending");
+      host.hidden = false;
+    }
+    const answer = await this.waiting(this.ask(stillCurrent));
+    if (!answer) return;
+    const { st, listing, failure } = answer;
+    this.available = st.available;
+    host.classList.remove("files-online-pending");
     if (!st.available) {
       host.hidden = true;
       host.replaceChildren();
       return;
     }
-    let listing = null;
-    let failure = null;
-    if (st.signedIn) {
-      try {
-        listing = await online.list();
-        this.limit = listing.limit;
-        this.sizeLimit = listing.sizeLimit;
-      } catch (err) {
-        failure = err;
-      }
-      if (!stillCurrent()) return;
-    }
 
-    const head = document.createElement("h3");
-    head.className = "files-online-head";
-    head.textContent = t("files.online.head");
-    if (listing) {
-      const count = document.createElement("span");
-      count.className = "files-online-count";
-      count.textContent = t("files.online.count", { n: listing.projects.length, limit: this.limit });
-      head.append(" ", count);
-    }
+    const head = heading(listing
+      ? t("files.online.count", { n: listing.projects.length, limit: this.limit })
+      : null);
     const parts = [head];
 
     if (!st.signedIn) {
@@ -120,6 +123,44 @@ export class OnlineSection {
     parts.push(note);
     host.replaceChildren(...parts);
     host.hidden = false;
+  }
+
+  /** The status, then — when signed in — the listing; null once a newer
+   *  refresh has started. */
+  async ask(stillCurrent) {
+    const st = await online.status();
+    if (!stillCurrent()) return null;
+    let listing = null;
+    let failure = null;
+    if (st.signedIn) {
+      try {
+        listing = await online.list();
+        this.limit = listing.limit;
+        this.sizeLimit = listing.sizeLimit;
+      } catch (err) {
+        failure = err;
+      }
+      if (!stillCurrent()) return null;
+    }
+    return { st, listing, failure };
+  }
+
+  /** Await `promise` with the section marked busy, which puts a spinner by
+   *  its heading — after a moment, so a quick answer does not blink one. */
+  async waiting(promise) {
+    const host = this.host;
+    if (this.waits++ === 0) {
+      host?.classList.add("files-online-busy");
+      host?.setAttribute("aria-busy", "true");
+    }
+    try {
+      return await promise;
+    } finally {
+      if (--this.waits === 0) {
+        host?.classList.remove("files-online-busy");
+        host?.removeAttribute("aria-busy");
+      }
+    }
   }
 
   table(projects) {
@@ -188,7 +229,7 @@ export class OnlineSection {
 
   async signOut() {
     try {
-      await online.signOut();
+      await this.waiting(online.signOut());
     } catch (err) {
       await this.report(err);
     }
@@ -196,11 +237,8 @@ export class OnlineSection {
   }
 
   async open(p) {
-    let got;
-    try {
-      got = await online.read(p.id);
-    } catch (err) {
-      await this.report(err, p.name);
+    const got = await this.fetchProject(p, "files.online.opening");
+    if (!got) {
       this.cb.refresh();
       return;
     }
@@ -262,7 +300,7 @@ export class OnlineSection {
     if (!yes) return;
     let existing;
     try {
-      existing = (await online.list()).projects.find((p) => p.name === name);
+      existing = (await this.waiting(online.list())).projects.find((p) => p.name === name);
     } catch (err) {
       await this.report(err, name, { saving: true });
       return;
@@ -295,7 +333,7 @@ export class OnlineSection {
     const off = this.store.on("edit", () => { editedMeanwhile = true; });
     let project;
     try {
-      project = await send(bytes);
+      project = await this.waiting(send(bytes));
     } catch (err) {
       if (err instanceof online.OnlineError && ["conflict", "exists", "not-found"].includes(err.code)) {
         return err.code;
@@ -323,7 +361,7 @@ export class OnlineSection {
     if (!name || name === p.name) return;
     let renamed;
     try {
-      renamed = await online.rename(p.id, name);
+      renamed = await this.waiting(online.rename(p.id, name));
     } catch (err) {
       await this.report(err, name);
       return;
@@ -336,10 +374,23 @@ export class OnlineSection {
   }
 
   async download(p) {
+    const got = await this.fetchProject(p, "files.online.downloading");
+    if (got) download(got.bytes, p.name);
+  }
+
+  /** An online project's bytes and ETag, with a progress bar while they
+   *  arrive — up to 10 MB, where a silent pause would read as a hang. Null
+   *  if they could not be had, the popup then saying why. (The popup is the
+   *  busy sign here, so the heading's spinner stays out of it.) */
+  async fetchProject(p, titleKey) {
+    const progress = showProgress(t(titleKey, { name: p.name }), { holdBack: true });
     try {
-      download((await online.read(p.id)).bytes, p.name);
+      const got = await online.read(p.id, { size: p.size, onProgress: (f) => progress.set(f) });
+      progress.done();
+      return got;
     } catch (err) {
-      await this.report(err, p.name);
+      progress.fail(this.message(err, p.name));
+      return null;
     }
   }
 
@@ -347,7 +398,7 @@ export class OnlineSection {
     const yes = await showModal({ title: t("files.online.deleteAsk", { name: p.name }), okLabel: t("common.delete") });
     if (!yes) return;
     try {
-      await online.remove(p.id);
+      await this.waiting(online.remove(p.id));
     } catch (err) {
       if (err.code !== "not-found") {
         await this.report(err, p.name);
@@ -391,6 +442,67 @@ function taudName(raw) {
   const name = (raw ?? "").trim();
   if (!name) return null;
   return name.endsWith(".taud") ? name : name + ".taud";
+}
+
+/** The section's heading, with a `note` after it (the slots in use, say),
+ *  and last the spinner a busy section shows. */
+function heading(note) {
+  const head = document.createElement("h3");
+  head.className = "files-online-head";
+  head.append(t("files.online.head"));
+  if (note) {
+    const span = document.createElement("span");
+    span.className = "files-online-count";
+    span.textContent = note;
+    head.append(" ", span);
+  }
+  const spinner = document.createElement("span");
+  spinner.className = "spinner files-online-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  head.append(spinner);
+  return head;
+}
+
+/** Name-column widths (em) of the placeholder's rows, so they read as names. */
+const SKELETON_NAMES = [11, 7.5, 13];
+
+/**
+ * What stands in for the section while its first answer is on the way: the
+ * heading, saying so, and the shape of a button and a project table drawn in
+ * shimmering bars.
+ */
+function placeholder() {
+  const head = heading(t("files.online.loading"));
+  const bar = document.createElement("div");
+  bar.className = "files-bar";
+  bar.appendChild(skeleton("files-skel-btn"));
+  const table = document.createElement("table");
+  table.className = "files-table files-skel-table";
+  table.setAttribute("aria-hidden", "true");
+  table.innerHTML =
+    `<thead><tr><th>${t("files.colProject")}</th><th>${t("files.colSize")}</th>` +
+    `<th>${t("files.colModified")}</th><th></th></tr></thead>`;
+  const tbody = document.createElement("tbody");
+  for (const nameWidth of SKELETON_NAMES) {
+    const tr = document.createElement("tr");
+    for (const width of [nameWidth, 3, 10, 8]) {
+      const td = document.createElement("td");
+      const bone = skeleton();
+      bone.style.width = `${width}em`;
+      td.appendChild(bone);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return [head, bar, table];
+}
+
+function skeleton(extra = "") {
+  const bone = document.createElement("span");
+  bone.className = ("files-skel " + extra).trim();
+  bone.setAttribute("aria-hidden", "true");
+  return bone;
 }
 
 function mkBtn(label, onClick) {

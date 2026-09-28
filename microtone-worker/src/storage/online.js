@@ -71,10 +71,39 @@ export async function list() {
   return (await call("/projects")).json();
 }
 
-/** → { bytes, etag } — keep the etag: the next save() quotes it. */
-export async function read(id) {
+/**
+ * → { bytes, etag } — keep the etag: the next save() quotes it.
+ * `onProgress(fraction)` hears the bytes arrive, for a progress bar; `size`
+ * (the listing's) stands in when the reply does not say how long it is.
+ */
+export async function read(id, { onProgress = null, size = 0 } = {}) {
   const res = await call(`/projects/${encodeURIComponent(id)}`);
-  return { bytes: new Uint8Array(await res.arrayBuffer()), etag: unquote(res.headers.get("etag")) };
+  const total = Number(res.headers.get("content-length")) || size;
+  return { bytes: await body(res, onProgress, total), etag: unquote(res.headers.get("etag")) };
+}
+
+/** A reply's bytes, read chunk by chunk when someone is watching them come.
+ *  A connection lost half-way is "offline", as one never made is. */
+async function body(res, onProgress, total) {
+  try {
+    if (!onProgress || !total || !res.body?.getReader) return new Uint8Array(await res.arrayBuffer());
+    const reader = res.body.getReader();
+    const chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      onProgress(Math.min(1, got / total));
+    }
+    const out = new Uint8Array(got);
+    let at = 0;
+    for (const c of chunks) { out.set(c, at); at += c.length; }
+    return out;
+  } catch {
+    throw new OnlineError("offline");
+  }
 }
 
 /** A new online project. → project. Fails with "exists", "quota",
