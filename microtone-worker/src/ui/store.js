@@ -25,6 +25,12 @@ export class Store {
     this.view = "timeline";
     this.views = ["timeline"];
     this.fileName = null;
+    /** Where the open document lives online, if it does: { doc, id, etag } —
+     *  the project it was opened from or last saved to, and the ETag the next
+     *  save must quote. Read it through `onlineProject`, which checks `doc`:
+     *  loading anything else retires it without every load path having to
+     *  remember. Only a local Save As (same document, new home) clears it. */
+    this.online = null;
     this.follow = true;
     /** #998.3: monitor surround songs through the binaural head model. Default
      *  on — the stereo fold cannot render height at all. Stereo songs ignore it. */
@@ -72,6 +78,11 @@ export class Store {
   /** Cue-word block clipboard (Cues view) — likewise. */
   get cueClipboard() { return this._cueClip.get(); }
   set cueClipboard(b) { this._cueClip.set(b ?? null); }
+
+  /** `online`, while it still belongs to the open document. */
+  get onlineProject() {
+    return this.online !== null && this.online.doc === this.doc ? this.online : null;
+  }
 
   /** Is `name` on screen in ANY pane? Fixtures that belong to a view rather
    *  than to the keyboard (the master strip, the instrument lookup) ask this

@@ -25,3 +25,6 @@ microtone-worker/index_kaputt.html
 /*.IMS
 /*.bnk
 /*.BNK
+.dev.vars*
+.env*
+.wrangler/

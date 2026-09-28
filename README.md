@@ -178,6 +178,39 @@ node tools/render-taud.js test/corpus/WHEN.taud out.pcm
 node tools/compare-pcm.js out.pcm reference.pcm
 ```
 
+## Online projects (server)
+
+The File tab can keep a few working projects with a person's SceneID account.
+microtone.cc is the Cloudflare Worker `microtone`: this directory is published
+as static files, and the Worker's code (`server/worker.js`) runs only for a
+request no file matches — the API under `/api/online`, handled by
+`server/online/`, which keeps the index in D1 (`migrations/`) and the bytes in
+R2. Its configuration is `wrangler.toml` at the repository root, the one file
+that lives outside this directory, because the build deploys from there; the
+server code and schema stay out of the published files through `.assetsignore`.
+There are no R2 or D1 keys anywhere, because a binding is the permission.
+Sign-in is [SceneID](https://id.scene.org/docs/) OAuth
+(`server/online/sceneid.js`); its client id and secret are Worker secrets
+(`npx wrangler secret put`) and live in `.dev.vars` beside `wrangler.toml`
+locally — never in a committed file, since everything tracked here is public.
+SceneID only sends people back to registered callbacks, so every origin that
+signs in needs `<origin>/api/online/auth/callback` registered with SceneID.
+
+Wherever there is no API (a static server, `npm run serve`) the online section
+simply does not appear. To run it locally — from the REPOSITORY ROOT, with a
+test sign-in standing in for SceneID (or put `SCENEID_CLIENT_ID` and
+`SCENEID_CLIENT_SECRET` in `.dev.vars` instead; `http://localhost:8788` is a
+registered callback):
+
+```sh
+printf 'ONLINE_DEV_LOGIN=1\n' > .dev.vars
+npx wrangler d1 migrations apply microtone-online --local
+npx wrangler dev --port 8788    # http://localhost:8788/
+```
+
+`test/node/online-*.test.js` run the same server code under Node, against a
+real SQLite loaded from `migrations/` and an in-memory R2.
+
 ## Regenerating taudplay
 
 `src/taudplay/` is authored here; the standalone LGPL-3.0 repository is a
@@ -204,7 +237,9 @@ exactly that.
 | `src/audio/` | main-thread audio system (context lifecycle, snapshots) |
 | `src/doc/` | canonical document model, invertible ops, undo, worklet sync |
 | `src/ui/` | tracker application (vanilla ES modules, canvas + DOM) |
-| `src/storage/` | OPFS virtual disk, import/export |
+| `src/storage/` | OPFS virtual disk, import/export, online projects client |
+| `server/` | the microtone Worker: the online projects API (not published — `.assetsignore`) |
+| `migrations/` | its D1 schema |
 | `vendor/` | vendored single-file ESM deps (see `vendor/VENDOR-VERSIONS.md`) |
 | `test/corpus/` | .taud conformance/demo corpus (from the TSVM repo) |
 | `test/fixtures/` | file formats built rather than committed (the .ims/.bnk pair) |
