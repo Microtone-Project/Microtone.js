@@ -69,6 +69,7 @@ export class Store {
     this._clip = new SharedSlot("microtone.clipboard", encodeBlock, decodeBlock);
     this._cueClip = new SharedSlot("microtone.cueClipboard", encodeCueBlock, decodeCueBlock);
     this._subs = new Map();
+    this.gen = 0; // emit() generation — see emit()
   }
 
   /** Pattern-cell block clipboard — shared across tabs. */
@@ -173,6 +174,10 @@ export class Store {
   }
 
   emit(topic, payload) {
+    // Bumped on EVERY topic: a view that caches pixels between frames (the
+    // Timeline's rows while playing) keys them on this, so anything anyone
+    // announces invalidates them — the conservative side of a stale grid.
+    this.gen++;
     const subs = this._subs.get(topic);
     if (subs) for (const fn of subs) fn(payload);
   }

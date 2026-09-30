@@ -1,5 +1,5 @@
 // Randomness seams for the Taud engine. No engine file may call Math.random
-// directly — everything routes through here so conformance tests can seed it.
+// directly — everything routes through here so tests (the golden gate) can seed it.
 //
 // Two independent streams, mirroring AudioAdapter.kt:
 //  - xorshift32: the noise-shaped dither PRNG in pcm32fToPcm8 (deterministic,

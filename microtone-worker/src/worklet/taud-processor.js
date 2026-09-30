@@ -180,8 +180,8 @@ class TaudProcessor extends AudioWorkletProcessor {
       }
     } else {
       // Feed the pre-dither Float32 mix bus directly — clean output, no 8-bit
-      // dithering. (renderChunk still fills the dithered U8 `out` so the engine
-      // stays bit-exact for the JVM-oracle conformance tests; playback ignores it.)
+      // dithering. (renderChunk still fills the dithered U8 `out` — the device
+      // output the golden gate pins; playback ignores it.)
       const ts = this.engine.playheads[this.playhead].trackerState;
       const mL = ts.mixLeft;
       const mR = ts.mixRight;

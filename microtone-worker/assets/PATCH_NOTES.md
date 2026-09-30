@@ -4,6 +4,16 @@ Microtone is deployed continuously — there are no numbered releases, so every 
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-01
+
+Microtone needs much less of your computer: the audio engine renders a quarter to a third faster, the screen redraws only what has changed, and a stopped song costs almost nothing.
+
+- **Fixed: in Firefox the audio engine stalled for a moment every five seconds**, which on a slower computer could be long enough to crackle: whenever the engine sat idle between blocks of audio, Firefox scheduled a clean-up of its memory that also threw away the engine's compiled code, and the engine then ran slowly while it recompiled. The engine no longer gives Firefox that idle moment.
+- **The audio engine renders a quarter to a third faster**, and every song sounds exactly as it did, down to the last bit — the headroom goes to heavier songs, more lanes and slower machines.
+- **The Timeline repaints its rows only when they change.** While a song plays, the lane headers' meters still move every frame, but the pattern grid under them is redrawn once a row instead of sixty times a second.
+- **A stopped song lets the computer rest.** A few seconds after the sound ends, the master strip stops redrawing its empty scopes and meters, and the transport readout no longer makes the toolbar re-lay itself out every frame — laptops and tablets will notice it in their batteries.
+- **The master strip's cloud and radiation scopes draw faster**, with the same picture.
+
 ## 2026-09-28
 
 Porous paste: **Shift+Ctrl+V** pastes the clipboard but lets its empty cells through, so what is already under them stays.

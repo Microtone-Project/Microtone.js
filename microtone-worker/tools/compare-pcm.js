@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Compare two PCM dumps (JS engine vs JVM oracle).
+// Compare two PCM dumps — two builds of the reference engine, or a port
+// (e.g. TSVM's RenderDumpTest) against the reference.
 //   .u8.pcm  → exact-byte %, max abs LSB delta, histogram of deltas
 //   .f32.pcm → max abs error, RMS error, first divergence position
 // Usage: node tools/compare-pcm.js <a.pcm> <b.pcm>

@@ -1447,7 +1447,8 @@ export class TimelineView {
     if (!store.doc) return;
     const audio = store.audio;
     let playRow = -1;
-    if (audio && audio.isPlaying()) {
+    const playing = audio ? audio.isPlaying() : false;
+    if (playing) {
       const map = this.getMap();
       const cue = audio.getCuePosition();
       const entry = map?.entries[cue];
@@ -1462,13 +1463,36 @@ export class TimelineView {
           }
         }
       }
-      this.needsRedraw = true; // meters + playhead move every frame while playing
     }
     if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
-    if (this.needsRedraw) {
+    if (this.needsRedraw || playing) {
+      // While a song plays, the header's meters and live notes move every
+      // frame — but the rows under them move once a ROW at most, and a full
+      // repaint is thousands of glyphs. So a frame that nothing but playback
+      // has touched repaints the header band alone and leaves the rows' pixels
+      // where they are, keyed on everything those rows are painted from.
+      const headerOnly = playing && !this.needsRedraw && !this.hold.active &&
+        this._gridKey === this.gridKey(playRow) && this._gridTheme === themeColors();
       this.needsRedraw = false;
-      this.draw(playRow);
+      this.draw(playRow, headerOnly);
     }
+  }
+
+  /**
+   * What the rows below the header are painted from, as one comparable key:
+   * where they scroll to, how big they are, the play and cursor rows, the
+   * selection, record mode, the notation settings — and `store.gen`, which
+   * every announced change (an edit, a cursor move, a mute, a view setting)
+   * bumps. Two frames with the same key paint the same rows.
+   */
+  gridKey(playRow) {
+    const s = this.store;
+    const c = s.cursor;
+    const sel = this.sel;
+    return `${s.gen}|${Math.floor(this.scrollRow)}|${this.scrollCh}|${this.canvas.width}x${this.canvas.height}@${this.dpr}` +
+      `|${this.headerH()}|${playRow}|${c.row},${c.ch},${c.sub},${c.nib}|${s.record}` +
+      `|${sel ? `${sel.aRow},${sel.aCh},${sel.row},${sel.ch}` : "-"}` +
+      `|${s.pitchPreset}|${s.rawNoteView}|${s.pitchPlot}|${s.ghosts}|${s.follow}`;
   }
 
   /** Pattern number assigned to lane `ch` at the current play/cursor cue. */
@@ -1486,8 +1510,31 @@ export class TimelineView {
     return words[ch] & 0x7fff;
   }
 
-  draw(playRow) {
+  /** Paint the view. `headerOnly` repaints the header band and nothing else
+   *  (frame() decides when the rows below are known to be unchanged). */
+  draw(playRow, headerOnly = false) {
     if (playRow === undefined) playRow = -1;
+    if (!headerOnly) {
+      this._gridKey = this.gridKey(playRow);
+      this._gridTheme = themeColors();
+      this._paint(playRow, false);
+      return;
+    }
+    const ctx = this.ctx;
+    const dpr = this.dpr;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    ctx.rect(0, 0, this.canvas.width / dpr, this.headerH());
+    ctx.clip();
+    try {
+      this._paint(playRow, true);
+    } finally {
+      ctx.restore();
+    }
+  }
+
+  _paint(playRow, headerOnly) {
     this.lastPlayRow = playRow;
     this._ghosts = new Map(); // ditto ghost maps, memoised for this frame only
     this._hasFx2 = new Map(); // "does this pattern use effect 2", same lifetime
@@ -1671,7 +1718,7 @@ export class TimelineView {
       }
     }
 
-    // ── rows ──
+    // ── rows ──  (a header-only frame stops at the rules below)
     const cursor = store.cursor;
     const dittoPal = monoPalette(C.ditto); // ghost cells (pattern ditto)
     const sb = this.selBounds(); // block selection bounds (or null)
@@ -1681,7 +1728,7 @@ export class TimelineView {
     // of the frame: it must cover exactly the rows this loop drew, and asking
     // locate() a second time for each of them would scan the cue list twice.
     const shownRows = pitchPlot ? [] : null;
-    for (let r = 0; r < visRows; r++) {
+    for (let r = 0; r < (headerOnly ? 0 : visRows); r++) {
       const absRow = top + r;
       const y = headerH + r * ROW_H;
       const loc = this.locate(absRow);
@@ -1860,7 +1907,7 @@ export class TimelineView {
     // drawn any earlier the rule above would be ruled straight back through
     // it. Nothing else in the cell reaches this far left, so being last costs
     // the plot nothing.
-    if (pitchPlot) {
+    if (pitchPlot && !headerOnly) {
       for (const r of shownRows) {
         const y = headerH + r * ROW_H;
         for (const { ch, x } of strips) {

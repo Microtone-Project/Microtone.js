@@ -1,7 +1,7 @@
 // The engine's output rate is settable (item 108): the web default is 48 kHz —
 // the rate the browser's AudioContext runs at, so playback and the default WAV
-// export need no resampling — while the Kotlin engine, the JVM-oracle dumps and
-// the scenario tests stay on 32 kHz.
+// export need no resampling — while the TSVM device and the scenario tests
+// stay on 32 kHz.
 //
 // What must hold at BOTH rates: the song plays at the same speed, the filters
 // sit at the same frequencies in Hz, and the anti-click ramps last the same

@@ -4,8 +4,8 @@
 //
 // The property that matters most is the one that is NOT about v3: a version-2
 // song must render exactly as it always did, because the volume state widened
-// underneath it. The conformance suite pins that against the JVM oracle; the
-// first test here pins the arithmetic that made the widening possible.
+// underneath it. The golden gate (engine-golden.test.js) pins that on real
+// songs; the first test here pins the arithmetic that made the widening possible.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

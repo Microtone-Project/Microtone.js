@@ -15,9 +15,9 @@
 // value, so the audible parameters stay where they are in Hz and in
 // milliseconds — what changes is that they are now realised on a 48 kHz grid.
 //
-// It is a `let`, not a const: setSamplingRate() below puts the engine back on
-// 32 kHz for the JVM-oracle conformance tests and the Kotlin-mirroring
-// scenario tests, which compare against 32 kHz reference renders. Set it ONCE
+// It is a `let`, not a const: setSamplingRate() below puts the engine on
+// 32 kHz — the TSVM device's rate — for the scenario tests written against it
+// and for dumps a 32 kHz port compares itself with. Set it ONCE
 // before rendering — like rng.js's seed, it is start-up configuration, not a
 // per-render parameter.
 export let SAMPLING_RATE = 48000;

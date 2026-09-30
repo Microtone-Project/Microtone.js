@@ -139,10 +139,10 @@ against each other gives you contextual scoring for the cost of one file.
 
 Two halves live here:
 
-- **Taud engine** (`src/engine/`) — a faithful JavaScript translation of the
-  tracker engine in TSVM's `AudioAdapter.kt`, running inside an AudioWorklet.
-  Pure computation, no DOM/Web Audio imports, so the same code runs headlessly
-  under Node for conformance testing against the JVM engine.
+- **Taud engine** (`src/engine/`) — the reference implementation of the Taud
+  engine (TSVM's `AudioAdapter.kt` follows it), running in a render Worker or
+  an AudioWorklet. Pure computation, no DOM/Web Audio imports, so the same code
+  runs headlessly under Node, where a golden gate pins its renders bit for bit.
 - **Microtone tracker** (`src/ui/`) — a native web rewrite of the tracker UI
   (the TSVM `taut.js` is the behavioural reference).
 

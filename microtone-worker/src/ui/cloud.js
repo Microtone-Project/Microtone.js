@@ -508,6 +508,7 @@ export class CloudView {
     if (s === this.size) return;
     this.size = s;
     this.acc = new Float64Array(s * s * 3);
+    this.gx = new Float64Array(s); // one splat's horizontal Gaussian factors (splat)
   }
 
   clear() { this.acc.fill(0); this.ref = 0; }
@@ -562,17 +563,27 @@ export class CloudView {
       if (y0 < 0) y0 = 0;
       if (x1 > size - 1) x1 = size - 1;
       if (y1 > size - 1) y1 = size - 1;
+      // The Gaussian is separable — e^(−(dx²+dy²)k) = e^(−dx²k)·e^(−dy²k) — so
+      // a splat costs one exp per column and one per row instead of one per
+      // pixel it covers: the transcendental was most of this panel's frame.
+      const gx = this.gx;
+      for (let px2 = x0; px2 <= x1; px2++) {
+        const dx = px2 + 0.5 - sx;
+        gx[px2 - x0] = Math.exp(-(dx * dx) * inv);
+      }
+      const r0 = c[0] * amp, g0 = c[1] * amp, b0 = c[2] * amp;
       for (let py2 = y0; py2 <= y1; py2++) {
         const dy = py2 + 0.5 - sy;
+        const gy = Math.exp(-(dy * dy) * inv);
+        if (gy < 1e-3) continue; // every pixel on the row is below the cut
         const row = py2 * size;
         for (let px2 = x0; px2 <= x1; px2++) {
-          const dx = px2 + 0.5 - sx;
-          const g = Math.exp(-(dx * dx + dy * dy) * inv);
+          const g = gx[px2 - x0] * gy;
           if (g < 1e-3) continue;
           const p = (row + px2) * 3;
-          acc[p] += c[0] * amp * g;
-          acc[p + 1] += c[1] * amp * g;
-          acc[p + 2] += c[2] * amp * g;
+          acc[p] += r0 * g;
+          acc[p + 1] += g0 * g;
+          acc[p + 2] += b0 * g;
         }
       }
     }

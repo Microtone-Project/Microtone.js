@@ -6,7 +6,7 @@
 //
 // The MIDI test needs a soundfont: it uses GeneralUser-GS.sf2 from the repo
 // root (32 MB, not committed) and auto-skips when absent — same pattern as
-// the conformance suite's reference dumps.
+// the golden gate's local-only corpus songs.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

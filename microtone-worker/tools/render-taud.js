@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Render a .taud through the JS Taud engine to PCM dumps, mirroring the JVM
-// oracle (tsvm/devtests/webconf/RenderDumpTest.java) exactly:
+// Render a .taud through the reference (JS) Taud engine to PCM dumps — the
+// layout tsvm/devtests/webconf/RenderDumpTest.java writes too, so a port can be
+// checked against these with tools/compare-pcm.js:
 //   <out>/<name>.u8.pcm   interleaved stereo unsigned-8 (device output)
 //   <out>/<name>.f32.pcm  interleaved stereo float32 LE pre-dither mix bus
 // Usage: node tools/render-taud.js <in.taud> <outDir> [seconds=20] [songIndex=0]
@@ -12,7 +13,7 @@ import { TaudEngine } from "../src/engine/engine.js";
 import { SAMPLING_RATE } from "../src/engine/constants.js";
 import { loadIntoEngine, renderSong } from "../src/audio/offline-render.js";
 
-export { loadIntoEngine, renderSong }; // back-compat for the conformance test
+export { loadIntoEngine, renderSong }; // back-compat for older importers
 
 const isMain = process.argv[1] && import.meta.url.endsWith(basename(process.argv[1]));
 if (isMain) {

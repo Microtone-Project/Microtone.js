@@ -295,9 +295,14 @@ export class TrackerState {
     // LAST argument, which is the same level-collapsing the mask already does.
     this.interruptArgs = new Uint16Array(NUM_INTERRUPTS);
 
-    // Pre-allocated mix buffers (Float32 — matches the Kotlin FloatArray mix bus).
+    // Pre-allocated mix buffers (Float32 — the spec's binary32 mix bus).
     this.mixLeft = new Float32Array(TRACKER_CHUNK);
     this.mixRight = new Float32Array(TRACKER_CHUNK);
+    // The mixer's binary64 accumulators, one frame each: voices are rendered a
+    // span at a time (mixer.js), so a frame's running sum has to outlive the
+    // voice that started it.
+    this.mixAccL = new Float64Array(TRACKER_CHUNK);
+    this.mixAccR = new Float64Array(TRACKER_CHUNK);
 
     // Mixer-private background voices (NNA ghosts); index 0 = oldest.
     this.backgroundVoices = [];

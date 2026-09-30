@@ -6,7 +6,9 @@
 // (AR_WRITE by the worker, AR_READ by the worklet) need only be published with
 // Atomics.store / read with Atomics.load — no locks. AR_EPOCH is bumped by the
 // worker on a transport reset (play / seek / stop) so the worklet drops the
-// stale buffered tail instead of playing ~one ring of old audio.
+// stale buffered tail instead of playing ~one ring of old audio. AR_DOORBELL
+// is not about the audio at all: it is the main thread's "you have mail" to
+// the worker, and it lives here only because this is the SAB both of them hold.
 //
 // This module is imported by BOTH the module worker and the AudioWorklet, so it
 // must stay bundle-safe (plain export forms, unique top-level names) — it goes
@@ -21,6 +23,8 @@ export const AR_STATE = 2;                // bit0: producer active (playing/jam)
 export const AR_EPOCH = 3;                // transport-reset generation (worker bumps; worklet re-syncs)
 export const AR_FLUSH_POS = 4;            // write frame at the last flush — the worklet jumps its read cursor here,
                                           //   dropping the stale tail (counters stay monotonic; no reset race)
+export const AR_DOORBELL = 5;             // messages the main thread has posted to the worker, bumped (+ notify)
+                                          //   AFTER each postMessage — the worker's clock sleeps on it (render.worker.js)
 // Target ring occupancy the worker keeps buffered. 1024 frames ≈ 21 ms @ 48 kHz
 // = the jam-latency / cursor-lead / underrun-safety knob (user-chosen balanced).
 export const AR_HIGH_WATER = 1024;

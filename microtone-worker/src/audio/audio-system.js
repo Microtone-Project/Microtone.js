@@ -39,7 +39,7 @@ import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
   PATTERN_BYTES, PATTERN_BYTES_WIDE, NUM_INTERRUPTS,
 } from "../engine/constants.js";
-import { AR_SAB_BYTES } from "./audio-ring.js";
+import { AR_SAB_BYTES, AR_CTRL_LEN, AR_DOORBELL } from "./audio-ring.js";
 import { ANALYSIS_OFF, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { DEFAULT_BIT_DEPTH } from "../engine/loudness.js";
 
@@ -64,6 +64,8 @@ export class AudioSystem {
     this.sabI32 = null;     // Int32Array view over the SAB interrupt latch
     this.worker = null;         // Tier 2 render Worker (isolated hosts); null in render mode
     this.usingWorker = false;   // engine renders off the audio thread (Tier 2)
+    this.workerDoorbell = null; // Int32Array over the audio ring's control words —
+                                // AR_DOORBELL there wakes the worker (_postWorker)
     this._cueHighWater = 0;     // highest cue index+1 ever uploaded to the engine
                                 // (the cueSheet persists across loads — blank the
                                 // stale tail when a shorter song loads over it)
@@ -136,19 +138,21 @@ export class AudioSystem {
       this.usingSab = true;
 
       try {
+        const audioSab = new SharedArrayBuffer(AR_SAB_BYTES);
+        this.workerDoorbell = new Int32Array(audioSab, 0, AR_CTRL_LEN);
         this.worker = new Worker(RENDER_WORKER, { type: "module" });
         this.worker.onmessage = (e) => this._onEngineMessage(e.data);
-        const audioSab = new SharedArrayBuffer(AR_SAB_BYTES);
         this.node.port.postMessage({ t: CMD.USE_AUDIO_SAB, sab: audioSab }); // worklet → consume
-        this.worker.postMessage({ t: CMD.USE_SAB, sab: snapSab });           // worker fills snapshots
-        this.worker.postMessage({ t: CMD.USE_AUDIO_SAB, sab: audioSab });    // worker produces into the ring
-        this.worker.postMessage({ t: CMD.INIT, snapshotIntervalMs });
+        this._postWorker({ t: CMD.USE_SAB, sab: snapSab });           // worker fills snapshots
+        this._postWorker({ t: CMD.USE_AUDIO_SAB, sab: audioSab });    // worker produces into the ring
+        this._postWorker({ t: CMD.INIT, snapshotIntervalMs });
         this.engineTarget = this.worker; // route engine commands to the worker
         this.usingWorker = true;
       } catch (e) {
         // Module Worker unavailable → keep the engine in the worklet, just with
         // SAB snapshots (the pre-Tier-2 isolated path).
         this.worker = null;
+        this.workerDoorbell = null;
         this.node.port.postMessage({ t: CMD.USE_SAB, sab: snapSab });
         this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
       }
@@ -201,7 +205,22 @@ export class AudioSystem {
   // Engine commands go to whichever thread hosts the engine (the worklet port
   // in render mode, the render Worker in Tier 2). Both share the postMessage
   // (msg, transfer) signature.
-  _post(msg, transfer) { this.engineTarget.postMessage(msg, transfer ?? []); }
+  _post(msg, transfer) {
+    if (this.usingWorker) this._postWorker(msg, transfer);
+    else this.engineTarget.postMessage(msg, transfer ?? []);
+  }
+
+  /** EVERY message to the render Worker goes through here. Its clock sleeps in
+   *  Atomics.wait and only returns to its event loop once the doorbell says a
+   *  message is waiting (render.worker.js explains why) — so a message posted
+   *  any other way would sit undelivered until the next one rang. The bump
+   *  comes after postMessage so the message is already queued when the worker
+   *  wakes to look for it. */
+  _postWorker(msg, transfer) {
+    this.worker.postMessage(msg, transfer ?? []);
+    Atomics.add(this.workerDoorbell, AR_DOORBELL, 1);
+    Atomics.notify(this.workerDoorbell, AR_DOORBELL);
+  }
 
   // ── document upload (mirror of taud.mjs uploadTaudFile order) ──
 

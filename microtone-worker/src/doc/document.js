@@ -335,9 +335,29 @@ export class Document {
     return parts;
   }
 
-  instrumentName(slot) { return this._nameTable("INam")[slot] ?? ""; }
-  sampleName(index) { return this._nameTable("SNam")[index] ?? ""; }
-  patternName(idx) { return this._nameTable("pNam")[idx] ?? ""; }
+  /**
+   * _nameTable, decoded once per payload. The single-name getters below are
+   * asked every frame (the Timeline's lane headers name their pattern), and
+   * decoding the whole table per lookup was a tenth of that view's paint.
+   * Keyed on the payload's identity: a name table is only ever replaced
+   * (setSection), never edited in place. The array is shared, so it is for
+   * reading — _nameTable still hands out a fresh one to anyone who edits.
+   */
+  _namesOf(fourcc) {
+    const sec = this.projSections.find((s) => s.fourcc === fourcc);
+    const payload = sec ? sec.payload : null;
+    this._nameCache ??= new Map();
+    let c = this._nameCache.get(fourcc);
+    if (c === undefined || c.payload !== payload) {
+      c = { payload, names: payload === null ? [] : this._nameTable(fourcc) };
+      this._nameCache.set(fourcc, c);
+    }
+    return c.names;
+  }
+
+  instrumentName(slot) { return this._namesOf("INam")[slot] ?? ""; }
+  sampleName(index) { return this._namesOf("SNam")[index] ?? ""; }
+  patternName(idx) { return this._namesOf("pNam")[idx] ?? ""; }
 
   /**
    * One of the four project strings (§9.2): "PNam" / "PCom" / "PCpr" / "PMsg",

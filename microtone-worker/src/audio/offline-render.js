@@ -1,6 +1,6 @@
 // Offline rendering — pure engine, runs identically in Node (tools/
-// render-taud.js) and the browser (WAV export). Mirrors the JVM oracle's
-// upload sequence exactly (taud.mjs uploadTaudFile order).
+// render-taud.js) and the browser (WAV export). Uploads in taud.mjs's
+// uploadTaudFile order, the one every host uses.
 
 import { TaudEngine } from "../engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE, MAX_VOICES, NUM_VOICES } from "../engine/constants.js";

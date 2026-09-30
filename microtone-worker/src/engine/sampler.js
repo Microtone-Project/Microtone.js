@@ -87,6 +87,22 @@ export function plainFetchOnly(voice, inst) {
     ((inst.modOp === MOD_OFF && inst.modOpExt === 0) || (!inst.modOn && voice.modXfade === 0));
 }
 
+/**
+ * A pool byte scaled to [-1,1]: `PCM_U8[b]` IS `(b - 127.5) / 127.5`, the same
+ * double computed once per byte value instead of once per tap — the sinc
+ * kernel reads six of these per output sample per channel, and a load is far
+ * cheaper than a divide. Only for an integer byte; a crossfaded (fractional)
+ * byte still takes the arithmetic.
+ */
+const PCM_U8 = (() => {
+  const t = new Float64Array(256);
+  for (let b = 0; b < 256; b++) t[b] = (b - 127.5) / 127.5;
+  return t;
+})();
+
+// interpolateChannel's interior sinc kernel is unrolled for this width.
+if (SINC_WIDTH !== 3) throw new Error("sampler.js: the unrolled sinc kernel assumes SINC_WIDTH = 3");
+
 /** The plain fetch alone: clamp to the sample, clamp to the pool, scale to
  *  [-1,1] — exactly what readSamplePoint → poolByte compute when
  *  `plainFetchOnly` holds, written small so it inlines. */
@@ -94,7 +110,7 @@ export function poolPoint(eng, sampleLen, binMax, basePtr, idx) {
   const hi = sampleLen - 1;
   const i = idx < 0 ? 0 : idx > hi ? hi : idx;
   const p = basePtr + i;
-  return (eng.sampleBin[p > binMax ? binMax : p] - 127.5) / 127.5;
+  return PCM_U8[eng.sampleBin[p > binMax ? binMax : p]];
 }
 
 /** readSamplePoint's slow half — reached only while a sample modification is
@@ -191,13 +207,25 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
         // the identity, so the taps become plain indexed loads off one base.
         // That is the case for all but the first and last few frames of a
         // sample, which is to say almost always.
+        //
+        // In here i0 IS trunc(samplePos) (both clamps are the identity), so
+        // frac lies in [0,1) and the first tap, j = -SINC_WIDTH, sits at
+        // |x| >= SINC_WIDTH·SINC_PRECISION — past the end of the table, where
+        // sincTap answers 0 and the generic loop below skips it. So the sum
+        // starts one tap in, unrolled (SINC_WIDTH is 3, asserted at load), and
+        // without that loop's `coeff !== 0` test: a zero coefficient makes a
+        // ±0 term, and adding ±0 to a sum that began at +0 changes nothing, so
+        // this is the same sum of the same terms in the same order — bit for
+        // bit — with a seventh of the kernel evaluations and every branch gone.
         const base = basePtr + i0;
         if (i0 >= SINC_WIDTH && i0 + SINC_WIDTH <= sampleLen - 1 && base + SINC_WIDTH <= binMax) {
           const bin = eng.sampleBin;
-          for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-            const coeff = sincTap(frac, j);
-            if (coeff !== 0.0) acc += ((bin[base + j] - 127.5) / 127.5) * coeff;
-          }
+          acc += PCM_U8[bin[base - 2]] * sincTap(frac, -2);
+          acc += PCM_U8[bin[base - 1]] * sincTap(frac, -1);
+          acc += PCM_U8[bin[base]] * sincTap(frac, 0);
+          acc += PCM_U8[bin[base + 1]] * sincTap(frac, 1);
+          acc += PCM_U8[bin[base + 2]] * sincTap(frac, 2);
+          acc += PCM_U8[bin[base + 3]] * sincTap(frac, 3);
           return acc;
         }
         for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {

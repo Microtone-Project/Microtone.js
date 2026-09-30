@@ -374,6 +374,14 @@ export function scopeAxes(kind, stereoSong) {
 export const RMS_SLOW_MS = 300;
 
 /**
+ * How long after the last sound the strip keeps painting. It has to outlast
+ * the slowest thing still moving: a peak marker holds 1.2 s and then falls at
+ * 20 dB/s across the scale (about four seconds from the top), and the cloud's
+ * develop reference releases over 1.4 s.
+ */
+export const STRIP_REST_MS = 6000;
+
+/**
  * Meter ballistics — one channel's moving state. The engine ships sums per
  * snapshot interval; the LOOK (integration, peak hold and fall, clip hold) is
  * the display's business and lives here.
@@ -481,6 +489,9 @@ export class MasterStrip {
     this._tapAudio = null;
     this._tapTarget = null;
     this._drag = null;
+    this._soundMs = 0;       // when the strip last saw sound (frame's rest check)
+    this._restKey = null;
+    this._restTheme = null;
     this._split = null;
     this._wheelGesture = null;
     this._wheelAt = 0;
@@ -1011,6 +1022,7 @@ export class MasterStrip {
     this.dtMs = dt; // the scope painters slew against wall time too
 
     const audio = this.store.audio;
+    let active = false;
     if (audio) {
       // A clip lamp stays lit until the next take starts — this is the edge
       // that puts it out.
@@ -1019,6 +1031,9 @@ export class MasterStrip {
       this._wasPlaying = playing;
 
       const r = audio.readAnalysis(this.readout);
+      // Sound is anything the engine rendered this interval — a jam while the
+      // transport is stopped moves the meters too.
+      active = playing || r.frames > 0;
       if (r.frames > 0) {
         const wantCorr = integrateCorrelation(
           this.corrSums, r.corrLL, r.corrRR, r.corrLR, r.frames);
@@ -1058,11 +1073,33 @@ export class MasterStrip {
     }
 
     const C = themeColors();
+    // At rest. A few seconds after the sound stops, every meter, trail and
+    // surface above has decayed to nothing, and each further frame would paint
+    // the same empty panels again at the display's rate — and make the page
+    // recomposite for it. So once STRIP_REST_MS have passed without sound the
+    // strip stops painting, until sound returns or something it is drawn from
+    // (its panels and their sizes, the fader, the theme, any store event)
+    // changes, which buys exactly one fresh frame.
+    if (active) this._soundMs = now;
+    const key = this.restKey();
+    if (now - this._soundMs > STRIP_REST_MS && key === this._restKey && C === this._restTheme) return;
+    this._restKey = key;
+    this._restTheme = C;
     this.updateRadiation(C, dt);
     this.updateCloud(C, dt);
     const n = this.panelCount();
     for (let i = 0; i < n; i++) this.drawScope(i, C);
     this.drawMeters(C);
+  }
+
+  /** Everything but the sound that the strip's pixels are drawn from — see the
+   *  rest check at the end of frame(). */
+  restKey() {
+    const n = this.panelCount();
+    let k = `${this.store.gen}|${this.dpr}|${n}|${this.meterCanvas.width}x${this.meterCanvas.height}` +
+      `|${this.volumeValue()}|${this._drag !== null}|${this.effective?.join()}|${this.slots?.join()}`;
+    for (let i = 0; i < n; i++) k += `|${this.scopeCanvas[i].width}x${this.scopeCanvas[i].height}`;
+    return k;
   }
 
   /**

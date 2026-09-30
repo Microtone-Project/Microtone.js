@@ -21,9 +21,9 @@
 // value, so the audible parameters stay where they are in Hz and in
 // milliseconds — what changes is that they are now realised on a 48 kHz grid.
 //
-// It is a `let`, not a const: setSamplingRate() below puts the engine back on
-// 32 kHz for the JVM-oracle conformance tests and the Kotlin-mirroring
-// scenario tests, which compare against 32 kHz reference renders. Set it ONCE
+// It is a `let`, not a const: setSamplingRate() below puts the engine on
+// 32 kHz — the TSVM device's rate — for the scenario tests written against it
+// and for dumps a 32 kHz port compares itself with. Set it ONCE
 // before rendering — like rng.js's seed, it is start-up configuration, not a
 // per-render parameter.
 let SAMPLING_RATE = 48000;
@@ -250,7 +250,7 @@ function minifloatFromDouble(fval) {
 
 // ══ src/engine/rng.js ══
 // Randomness seams for the Taud engine. No engine file may call Math.random
-// directly — everything routes through here so conformance tests can seed it.
+// directly — everything routes through here so tests (the golden gate) can seed it.
 //
 // Two independent streams, mirroring AudioAdapter.kt:
 //  - xorshift32: the noise-shaped dither PRNG in pcm32fToPcm8 (deterministic,
@@ -6567,9 +6567,14 @@ class TrackerState {
     // LAST argument, which is the same level-collapsing the mask already does.
     this.interruptArgs = new Uint16Array(NUM_INTERRUPTS);
 
-    // Pre-allocated mix buffers (Float32 — matches the Kotlin FloatArray mix bus).
+    // Pre-allocated mix buffers (Float32 — the spec's binary32 mix bus).
     this.mixLeft = new Float32Array(TRACKER_CHUNK);
     this.mixRight = new Float32Array(TRACKER_CHUNK);
+    // The mixer's binary64 accumulators, one frame each: voices are rendered a
+    // span at a time (mixer.js), so a frame's running sum has to outlive the
+    // voice that started it.
+    this.mixAccL = new Float64Array(TRACKER_CHUNK);
+    this.mixAccR = new Float64Array(TRACKER_CHUNK);
 
     // Mixer-private background voices (NNA ghosts); index 0 = oldest.
     this.backgroundVoices = [];
@@ -7052,6 +7057,22 @@ function plainFetchOnly(voice, inst) {
     ((inst.modOp === MOD_OFF && inst.modOpExt === 0) || (!inst.modOn && voice.modXfade === 0));
 }
 
+/**
+ * A pool byte scaled to [-1,1]: `PCM_U8[b]` IS `(b - 127.5) / 127.5`, the same
+ * double computed once per byte value instead of once per tap — the sinc
+ * kernel reads six of these per output sample per channel, and a load is far
+ * cheaper than a divide. Only for an integer byte; a crossfaded (fractional)
+ * byte still takes the arithmetic.
+ */
+const PCM_U8 = (() => {
+  const t = new Float64Array(256);
+  for (let b = 0; b < 256; b++) t[b] = (b - 127.5) / 127.5;
+  return t;
+})();
+
+// interpolateChannel's interior sinc kernel is unrolled for this width.
+if (SINC_WIDTH !== 3) throw new Error("sampler.js: the unrolled sinc kernel assumes SINC_WIDTH = 3");
+
 /** The plain fetch alone: clamp to the sample, clamp to the pool, scale to
  *  [-1,1] — exactly what readSamplePoint → poolByte compute when
  *  `plainFetchOnly` holds, written small so it inlines. */
@@ -7059,7 +7080,7 @@ function poolPoint(eng, sampleLen, binMax, basePtr, idx) {
   const hi = sampleLen - 1;
   const i = idx < 0 ? 0 : idx > hi ? hi : idx;
   const p = basePtr + i;
-  return (eng.sampleBin[p > binMax ? binMax : p] - 127.5) / 127.5;
+  return PCM_U8[eng.sampleBin[p > binMax ? binMax : p]];
 }
 
 /** readSamplePoint's slow half — reached only while a sample modification is
@@ -7156,13 +7177,25 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
         // the identity, so the taps become plain indexed loads off one base.
         // That is the case for all but the first and last few frames of a
         // sample, which is to say almost always.
+        //
+        // In here i0 IS trunc(samplePos) (both clamps are the identity), so
+        // frac lies in [0,1) and the first tap, j = -SINC_WIDTH, sits at
+        // |x| >= SINC_WIDTH·SINC_PRECISION — past the end of the table, where
+        // sincTap answers 0 and the generic loop below skips it. So the sum
+        // starts one tap in, unrolled (SINC_WIDTH is 3, asserted at load), and
+        // without that loop's `coeff !== 0` test: a zero coefficient makes a
+        // ±0 term, and adding ±0 to a sum that began at +0 changes nothing, so
+        // this is the same sum of the same terms in the same order — bit for
+        // bit — with a seventh of the kernel evaluations and every branch gone.
         const base = basePtr + i0;
         if (i0 >= SINC_WIDTH && i0 + SINC_WIDTH <= sampleLen - 1 && base + SINC_WIDTH <= binMax) {
           const bin = eng.sampleBin;
-          for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-            const coeff = sincTap(frac, j);
-            if (coeff !== 0.0) acc += ((bin[base + j] - 127.5) / 127.5) * coeff;
-          }
+          acc += PCM_U8[bin[base - 2]] * sincTap(frac, -2);
+          acc += PCM_U8[bin[base - 1]] * sincTap(frac, -1);
+          acc += PCM_U8[bin[base]] * sincTap(frac, 0);
+          acc += PCM_U8[bin[base + 1]] * sincTap(frac, 1);
+          acc += PCM_U8[bin[base + 2]] * sincTap(frac, 2);
+          acc += PCM_U8[bin[base + 3]] * sincTap(frac, 3);
           return acc;
         }
         for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
@@ -11834,8 +11867,270 @@ function pcm32fToPcm8(eng, fleft, fright, sampleCount, out) {
 }
 
 /**
- * Render one 512-frame chunk for playhead into out (Uint8Array(1024), interleaved
- * U8 L,R). Returns null when the playhead has no tracker state.
+ * True while any voice in the playhead runs an extended 2/3 on its per-SAMPLE
+ * clock (item 162). That clock is the one place voices couple within a
+ * sample: a step writes the INSTRUMENT (its step index, mod bits, funk walk),
+ * draws from the shared random stream and arms the crossfade of every voice
+ * on that instrument — so the order voices take their samples in is audible,
+ * and a span containing it has to be mixed sample-major, as it always was.
+ * Deliberately wider than advanceSampleModExtended's own gate (it skips the
+ * geometry test): a false alarm only costs the slower order.
+ */
+function extModClockLive(eng, voices, bgVoices) {
+  for (let vi = 0; vi < voices.length; vi++) {
+    const v = voices[vi];
+    if (v.modExtended && v.active && v.modStepTicks > 0 &&
+        eng.instruments[v.instrumentId].modOpExt !== 0) return true;
+  }
+  for (const v of bgVoices) {
+    if (v.isLayerChild && v.modExtended && v.active && v.modStepTicks > 0 &&
+        eng.instruments[v.instrumentId].modOpExt !== 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Mix one FOREGROUND voice (lane `vi`) over frames [n0, n1) into the frame
+ * accumulators — the body the mixer used to run for this voice inside its
+ * per-sample loop, now run as the inner loop. Nothing a tick can change moves
+ * inside a span, and within a frame every voice still adds in the same order,
+ * so the result is the same number to the bit.
+ *
+ * `sptFirst` is the samples-per-tick of frame n0 and `sptRest` that of every
+ * later frame: a tick that changes the tempo fires at the top of its frame,
+ * but that frame was always rendered with the rate read before the tick.
+ */
+function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRest, globalGain) {
+  const scopeOn = ts.scopeOn;
+  if (!voice.active || voice.fader === 255) {
+    // A voice that is silent at the top of a span stays silent to its end:
+    // only a tick or a host command can start one.
+    if (scopeOn) { // keep the soundscope flat between notes / while muted
+      for (let n = n0; n < n1; n++) {
+        voice.scopeBuffer[voice.scopeWritePos] = 0;
+        voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
+      }
+    }
+    return;
+  }
+  const stems = eng.stemBus;
+  const spatial = ts.spatial;
+  const abus = ts.analysis === null ? null : ts.analysis.bus;
+  const accL = ts.mixAccL;
+  const accR = ts.mixAccR;
+  const interpMode = ts.interpolationMode;
+  const volDiv = ts.volDiv;
+  const voiceInst = eng.instruments[voice.instrumentId];
+  const instGv = voiceInst.instGlobalVolume / 255.0;
+  const swingScale = 1.0 + voice.randomVolBias / 255.0;
+  const faderGain = (255 - voice.fader) / 255.0;
+
+  for (let n = n0; n < n1; n++) {
+    if (!voice.active) { // ramped out earlier in this span
+      if (scopeOn) {
+        voice.scopeBuffer[voice.scopeWritePos] = 0;
+        voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
+      }
+      continue;
+    }
+    const spt = n === n0 ? sptFirst : sptRest;
+    // Argument extension (item 162): an extended 2/3's clock runs in
+    // samples, not ticks, so it steps HERE rather than in applyTrackerTick
+    // — same per-sample-accumulator shape ts.samplesIntoTick uses, scoped to
+    // this one voice's instrument. (A span where it is live is mixed
+    // sample-major: see extModClockLive.)
+    advanceSampleModExtended(eng, ts, voice, spt);
+    renderVoicePair(eng, ts, voice, voiceInst, interpMode, spt, stereoPair);
+    const sL = stereoPair[0];
+    const sR = stereoPair[1];
+    // Soundscope shows the mono sum — a stereo voice is still one voice.
+    const sScope = voice.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
+    // Per-sample envelope smoothing.
+    voice.envVolMix += voice.envVolStep;
+    const effEnvVol = voice.volEnvOn ? voice.envVolMix : 1.0;
+    advanceVolumeRamp(voice, volDiv);
+    advancePitchRamp(voice, spt);
+    const perVoiceGain = effEnvVol * voice.fadeoutVolume * voice.currentMixVolume *
+      swingScale * instGv * faderGain * voice.layerMixGain * voice.activeAttenGain;
+    const vol = perVoiceGain * globalGain;
+    // ONE pan ramp, above the branch, because both paths smooth the same
+    // composed number: every input to it moves once a TICK while the pan law
+    // (and the ambisonic encode) is evaluated every sample, so without this
+    // the gain stepped 50 times a second (item 141). Sharing it is also what
+    // keeps a planar song rendering identically to its stereo twin.
+    let lGain = 0.0;
+    let rGain = 0.0;
+    if (spatial === null) {
+      // equal-energy pan law, memoised on the pan itself (item 179): two
+      // transcendentals per voice per sample is a lot to pay for a number
+      // that only moves while something is actually panning the voice.
+      const pan = advancePanRamp(voice, voicePanByte(voice));
+      if (pan !== voice.panLawPan) {
+        voice.panLawPan = pan;
+        voice.panLawL = Math.cos((Math.PI * pan) / 512.0);
+        voice.panLawR = Math.sin((Math.PI * pan) / 512.0);
+      }
+      lGain = voice.panLawL;
+      rGain = voice.panLawR;
+    } else {
+      advancePanRamp(voice, voiceAzimuth(voice), true);
+    }
+    // Sample-end ramp-out.
+    let rampGain;
+    if (voice.rampOutSamples > 0) {
+      rampGain = voice.rampOutGain;
+      voice.rampOutGain -= voice.rampOutStep;
+      voice.rampOutSamples--;
+      if (voice.rampOutSamples === 0) voice.active = false;
+    } else {
+      rampGain = 1.0;
+    }
+    // Volume ramp for Attack (item 139): half-cosine fade-in folded into the same
+    // rampGain, so every downstream use (scope, stems, mix, spatial) picks it up for free.
+    if (voice.attackRampSamples > 0) {
+      const elapsed = ATTACK_RAMP_SAMPLES - voice.attackRampSamples;
+      rampGain *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
+      voice.attackRampSamples--;
+    }
+    if (scopeOn) {
+      voice.scopeBuffer[voice.scopeWritePos] = sScope * perVoiceGain * rampGain;
+      voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
+    }
+    if (stems !== null) stems.add(voice, vi, n, sScope * vol * rampGain);
+    if (spatial === null) {
+      accL[n] += sL * vol * lGain * rampGain;
+      accR[n] += sR * vol * rGain * rampGain;
+    } else {
+      // One positioned source per sample channel: a stereo sample is a pair
+      // of objects sitting ±30° apart, not two speaker feeds (#998.0).
+      const g = spatialVoiceGains(spatial, voice);
+      spatial.addSource(n, sL * vol, g, 0, rampGain);
+      if (voice.activeChanCount === 2) {
+        spatial.addSource(n, sR * vol, g, spatial.numChannels, rampGain);
+      }
+    }
+    if (abus !== null) {
+      const ag = analysisVoiceGains(abus, voice);
+      abus.addSource(n, sL * vol, ag, 0, rampGain);
+      if (voice.activeChanCount === 2) {
+        abus.addSource(n, sR * vol, ag, abus.numChannels, rampGain);
+      }
+    }
+  }
+}
+
+/**
+ * Mix one BACKGROUND voice (an NNA ghost or a metainstrument layer child) over
+ * frames [n0, n1) — mixForegroundSpan's twin, with the arithmetic background
+ * voices have always had (their gain chain folds the globals in left to right,
+ * so it is written out whole, not shared).
+ */
+function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvol, mvol) {
+  // An FM operator is an OPERAND, not a sound: the rack that owns it read
+  // it (and aged it) in the foreground pass, so summing it here would
+  // put the modulators into the mix beside the note they shaped.
+  if (bg.fmOperator) return;
+  // Muting a lane must also silence the NNA ghosts and layer children it
+  // spawned (item 45): fold the source lane's fader into the bg voice's
+  // own, so a lane mute/solo covers everything that came from it.
+  const srcVoice = ts.voices[bg.sourceChannel];
+  const bgFader = srcVoice && srcVoice.fader > bg.fader ? srcVoice.fader : bg.fader;
+  if (!bg.active || bgFader === 255) return;
+  const stems = eng.stemBus;
+  const spatial = ts.spatial;
+  const abus = ts.analysis === null ? null : ts.analysis.bus;
+  const accL = ts.mixAccL;
+  const accR = ts.mixAccR;
+  const interpMode = ts.interpolationMode;
+  const volDiv = ts.volDiv;
+  const bgInst = eng.instruments[bg.instrumentId];
+  const instGv = bgInst.instGlobalVolume / 255.0;
+  const swingScale = 1.0 + bg.randomVolBias / 255.0;
+  const faderGain = (255 - bgFader) / 255.0;
+
+  for (let n = n0; n < n1; n++) {
+    if (!bg.active) continue; // ramped out earlier in this span
+    const spt = n === n0 ? sptFirst : sptRest;
+    // A metainstrument's layer children carry the sample-mod clock too
+    // (item 154) — mirrors applyTrackerTick's own `if (bg.isLayerChild)`
+    // gate on advanceSampleMod, just at sample instead of tick rate.
+    if (bg.isLayerChild) advanceSampleModExtended(eng, ts, bg, spt);
+    renderVoicePair(eng, ts, bg, bgInst, interpMode, spt, stereoPair);
+    const sL = stereoPair[0];
+    const sR = stereoPair[1];
+    bg.envVolMix += bg.envVolStep;
+    const effEnvVol = bg.volEnvOn ? bg.envVolMix : 1.0;
+    advanceVolumeRamp(bg, volDiv);
+    advancePitchRamp(bg, spt);
+    const vol = (effEnvVol * bg.fadeoutVolume * bg.currentMixVolume *
+      swingScale * gvol * mvol * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain *
+      playhead.masterVolume) / 255.0;
+    let lGain = 0.0;
+    let rGain = 0.0;
+    if (spatial === null) {
+      const pan = advancePanRamp(bg, voicePanByte(bg));
+      if (pan !== bg.panLawPan) {
+        bg.panLawPan = pan;
+        bg.panLawL = Math.cos((Math.PI * pan) / 512.0);
+        bg.panLawR = Math.sin((Math.PI * pan) / 512.0);
+      }
+      lGain = bg.panLawL;
+      rGain = bg.panLawR;
+    } else {
+      advancePanRamp(bg, voiceAzimuth(bg), true);
+    }
+    let rampGain;
+    if (bg.rampOutSamples > 0) {
+      rampGain = bg.rampOutGain;
+      bg.rampOutGain -= bg.rampOutStep;
+      bg.rampOutSamples--;
+      if (bg.rampOutSamples === 0) bg.active = false;
+    } else {
+      rampGain = 1.0;
+    }
+    if (bg.attackRampSamples > 0) {
+      const elapsed = ATTACK_RAMP_SAMPLES - bg.attackRampSamples;
+      rampGain *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
+      bg.attackRampSamples--;
+    }
+    // Ghosts and layer children belong to the stem of the lane that spawned them.
+    if (stems !== null) {
+      const sBg = bg.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
+      stems.add(bg, bg.sourceChannel, n, sBg * vol * rampGain);
+    }
+    if (spatial === null) {
+      accL[n] += sL * vol * lGain * rampGain;
+      accR[n] += sR * vol * rGain * rampGain;
+    } else {
+      const g = spatialVoiceGains(spatial, bg);
+      spatial.addSource(n, sL * vol, g, 0, rampGain);
+      if (bg.activeChanCount === 2) {
+        spatial.addSource(n, sR * vol, g, spatial.numChannels, rampGain);
+      }
+    }
+    if (abus !== null) {
+      const ag = analysisVoiceGains(abus, bg);
+      abus.addSource(n, sL * vol, ag, 0, rampGain);
+      if (bg.activeChanCount === 2) {
+        abus.addSource(n, sR * vol, ag, abus.numChannels, rampGain);
+      }
+    }
+  }
+}
+
+/**
+ * Render one TRACKER_CHUNK-frame chunk for playhead into out (Uint8Array,
+ * interleaved U8 L,R). Returns null when the playhead has no tracker state.
+ *
+ * The chunk is cut into SPANS at its ticks. A tick is the only thing that
+ * moves the song's state (rows, triggers, effect steps, tempo, the global
+ * volumes), and it fires at the top of a frame; between two of them every
+ * voice evolves on its own. So each voice renders its whole span in one tight
+ * loop — the per-voice setup is paid once a span instead of once a sample, and
+ * a silent lane costs one test instead of one per frame — while the frame
+ * accumulators still receive the voices in the same order as ever, which
+ * keeps the sum, and so the output, bit-identical to the per-sample mixer
+ * (test/node/engine-golden.test.js).
  */
 function generateTrackerAudio(eng, playhead, out) {
   const ts = playhead.trackerState;
@@ -11843,26 +12138,23 @@ function generateTrackerAudio(eng, playhead, out) {
 
   // Jam mode mixes voices without advancing rows/cues.
   const advancing = playhead.isPlaying;
-  // Stem-export tap (item 93) — null on every playback path. See TaudEngine.stemBus.
-  const stems = eng.stemBus;
   // Surround object bus (#998) — null for the stereo model, which keeps the
-  // plain mixL/mixR accumulators below and stays bit-exact against the JVM.
+  // plain binary64 accumulators below and stays bit-exact with the stereo mix.
   const spatial = ts.spatial;
   if (spatial !== null) spatial.clear();
   // Master-strip analysis tap (item 98) — null unless the strip is on screen.
   // Its bus is null for a stereo song, whose tap is taken from the finished
   // mix below, so the legacy path stays exactly as it was.
   const analysis = ts.analysis;
-  const abus = analysis === null ? null : analysis.bus;
   if (analysis !== null) analysis.begin();
-  // Per-voice soundscope ring (item 179): the Kotlin device fills it on every
-  // sample because a TSVM guest can read the window at any instant; here
-  // nothing can, so it is filled only for a host that asked. Two stores per
-  // voice per sample — 80 voices' worth, active or not — for a buffer no one
-  // is looking at is the single cheapest thing in the mix loop to not do.
-  const scopeOn = ts.scopeOn;
+  // Per-voice soundscope ring (item 179): filled only for a host that asked
+  // (ts.scopeOn) — two stores per voice per sample for a buffer no one is
+  // looking at is the single cheapest thing in the mix loop to not do.
   const voices = ts.voices;
   const nVoices = voices.length;
+  const bgVoices = ts.backgroundVoices;
+  const accL = ts.mixAccL;
+  const accR = ts.mixAccR;
 
   if (advancing && ts.firstRow) {
     ts.firstRow = false;
@@ -11877,13 +12169,16 @@ function generateTrackerAudio(eng, playhead, out) {
   const ledA1 = AMIGA_LED_A1, ledA2 = AMIGA_LED_A2;
   const ledB1 = AMIGA_LED_B1, ledB2 = AMIGA_LED_B2;
 
-  for (let n = 0; n < TRACKER_CHUNK; n++) {
-    // Recompute samples-per-tick every iteration (T/T-slide mutate BPM mid-row).
-    const spt = (srate * 2.5) / playhead.bpm;
+  let n0 = 0;
+  while (n0 < TRACKER_CHUNK) {
+    // ── The tick clock at the top of the span's first frame ──
+    // Samples-per-tick is read fresh (T/T-slide mutate BPM mid-row); this
+    // frame is rendered with the value from BEFORE its own tick, as always.
+    const sptFirst = (srate * 2.5) / playhead.bpm;
     if (advancing) {
       ts.samplesIntoTick += 1.0;
-      if (ts.samplesIntoTick >= spt) {
-        ts.samplesIntoTick -= spt;
+      if (ts.samplesIntoTick >= sptFirst) {
+        ts.samplesIntoTick -= sptFirst;
         applyTrackerTick(eng, ts, playhead);
         ts.tickInRow++;
         if (ts.tickInRow >= playhead.tickRate + ts.finePatternDelayExtra) {
@@ -11893,243 +12188,108 @@ function generateTrackerAudio(eng, playhead, out) {
       }
     } else { // jamActive: evolve envelopes only, never advance the song
       ts.samplesIntoTick += 1.0;
-      if (ts.samplesIntoTick >= spt) {
-        ts.samplesIntoTick -= spt;
+      if (ts.samplesIntoTick >= sptFirst) {
+        ts.samplesIntoTick -= sptFirst;
         applyTrackerTick(eng, ts, playhead);
       }
     }
+    // ── …and the span runs until the frame whose clock will fire next ──
+    // The same `+= 1.0` per frame the clock always took, so the counter lands
+    // where it always did; the firing frame is left for the next span's top.
+    const sptRest = (srate * 2.5) / playhead.bpm;
+    let n1 = n0 + 1;
+    while (n1 < TRACKER_CHUNK) {
+      const next = ts.samplesIntoTick + 1.0;
+      if (next >= sptRest) break;
+      ts.samplesIntoTick = next;
+      n1++;
+    }
 
-    let mixL = 0.0;
-    let mixR = 0.0;
     const gvol = playhead.globalVolume / 255.0;
     const mvol = playhead.mixingVolume / 255.0;
-    // Loop-invariant across the voice loop: every voice is scaled by it, and
-    // nothing inside the loop can change it.
+    // Every voice is scaled by it, and nothing inside a span can change it.
     const globalGain = (gvol * mvol * playhead.masterVolume) / 255.0;
-    for (let vi = 0; vi < nVoices; vi++) {
-      const voice = voices[vi];
-      if (!voice.active || voice.fader === 255) {
-        if (scopeOn) { // keep the soundscope flat between notes / while muted
-          voice.scopeBuffer[voice.scopeWritePos] = 0;
-          voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
-        }
-        continue;
-      }
-      const voiceInst = eng.instruments[voice.instrumentId];
-      // Argument extension (item 162): an extended 2/3's clock runs in
-      // samples, not ticks, so it steps HERE rather than in applyTrackerTick
-      // — same per-sample-accumulator shape ts.samplesIntoTick uses above,
-      // scoped to this one voice's instrument.
-      advanceSampleModExtended(eng, ts, voice, spt);
-      renderVoicePair(eng, ts, voice, voiceInst, ts.interpolationMode, spt, stereoPair);
-      const sL = stereoPair[0];
-      const sR = stereoPair[1];
-      // Soundscope shows the mono sum — a stereo voice is still one voice.
-      const sScope = voice.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
-      const instGv = voiceInst.instGlobalVolume / 255.0;
-      const swingScale = 1.0 + voice.randomVolBias / 255.0;
-      // Per-sample envelope smoothing.
-      voice.envVolMix += voice.envVolStep;
-      const effEnvVol = voice.volEnvOn ? voice.envVolMix : 1.0;
-      advanceVolumeRamp(voice, ts.volDiv);
-      advancePitchRamp(voice, spt);
-      const faderGain = (255 - voice.fader) / 255.0;
-      const perVoiceGain = effEnvVol * voice.fadeoutVolume * voice.currentMixVolume *
-        swingScale * instGv * faderGain * voice.layerMixGain * voice.activeAttenGain;
-      const vol = perVoiceGain * globalGain;
-      // ONE pan ramp, above the branch, because both paths smooth the same
-      // composed number: every input to it moves once a TICK while the pan law
-      // (and the ambisonic encode) is evaluated every sample, so without this
-      // the gain stepped 50 times a second (item 141). Sharing it is also what
-      // keeps a planar song rendering identically to its stereo twin.
-      let lGain = 0.0;
-      let rGain = 0.0;
-      if (spatial === null) {
-        // equal-energy pan law, memoised on the pan itself (item 179): two
-        // transcendentals per voice per sample is a lot to pay for a number
-        // that only moves while something is actually panning the voice.
-        const pan = advancePanRamp(voice, voicePanByte(voice));
-        if (pan !== voice.panLawPan) {
-          voice.panLawPan = pan;
-          voice.panLawL = Math.cos((Math.PI * pan) / 512.0);
-          voice.panLawR = Math.sin((Math.PI * pan) / 512.0);
-        }
-        lGain = voice.panLawL;
-        rGain = voice.panLawR;
-      } else {
-        advancePanRamp(voice, voiceAzimuth(voice), true);
-      }
-      // Sample-end ramp-out.
-      let rampGain;
-      if (voice.rampOutSamples > 0) {
-        rampGain = voice.rampOutGain;
-        voice.rampOutGain -= voice.rampOutStep;
-        voice.rampOutSamples--;
-        if (voice.rampOutSamples === 0) voice.active = false;
-      } else {
-        rampGain = 1.0;
-      }
-      // Volume ramp for Attack (item 139): half-cosine fade-in folded into the same
-      // rampGain, so every downstream use (scope, stems, mix, spatial) picks it up for free.
-      if (voice.attackRampSamples > 0) {
-        const elapsed = ATTACK_RAMP_SAMPLES - voice.attackRampSamples;
-        rampGain *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
-        voice.attackRampSamples--;
-      }
-      if (scopeOn) {
-        voice.scopeBuffer[voice.scopeWritePos] = sScope * perVoiceGain * rampGain;
-        voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
-      }
-      if (stems !== null) stems.add(voice, vi, n, sScope * vol * rampGain);
-      if (spatial === null) {
-        mixL += sL * vol * lGain * rampGain;
-        mixR += sR * vol * rGain * rampGain;
-      } else {
-        // One positioned source per sample channel: a stereo sample is a pair
-        // of objects sitting ±30° apart, not two speaker feeds (#998.0).
-        const g = spatialVoiceGains(spatial, voice);
-        spatial.addSource(n, sL * vol, g, 0, rampGain);
-        if (voice.activeChanCount === 2) {
-          spatial.addSource(n, sR * vol, g, spatial.numChannels, rampGain);
-        }
-      }
-      if (abus !== null) {
-        const ag = analysisVoiceGains(abus, voice);
-        abus.addSource(n, sL * vol, ag, 0, rampGain);
-        if (voice.activeChanCount === 2) {
-          abus.addSource(n, sR * vol, ag, abus.numChannels, rampGain);
-        }
-      }
+
+    if (spatial === null) {
+      accL.fill(0.0, n0, n1);
+      accR.fill(0.0, n0, n1);
     }
-    // Background (NNA-ghost + metainstrument layer-child) voices.
-    for (const bg of ts.backgroundVoices) {
-      // An FM operator is an OPERAND, not a sound: the rack that owns it read
-      // it (and aged it) in the foreground pass above, so summing it here would
-      // put the modulators into the mix beside the note they shaped.
-      if (bg.fmOperator) continue;
-      // Muting a lane must also silence the NNA ghosts and layer children it
-      // spawned (item 45): fold the source lane's fader into the bg voice's
-      // own, so a lane mute/solo covers everything that came from it.
-      const srcVoice = voices[bg.sourceChannel];
-      const bgFader = srcVoice && srcVoice.fader > bg.fader ? srcVoice.fader : bg.fader;
-      if (!bg.active || bgFader === 255) continue;
-      const bgInst = eng.instruments[bg.instrumentId];
-      // A metainstrument's layer children carry the sample-mod clock too
-      // (item 154) — mirrors applyTrackerTick's own `if (bg.isLayerChild)`
-      // gate on advanceSampleMod, just at sample instead of tick rate.
-      if (bg.isLayerChild) advanceSampleModExtended(eng, ts, bg, spt);
-      renderVoicePair(eng, ts, bg, bgInst, ts.interpolationMode, spt, stereoPair);
-      const sL = stereoPair[0];
-      const sR = stereoPair[1];
-      const instGv = bgInst.instGlobalVolume / 255.0;
-      const swingScale = 1.0 + bg.randomVolBias / 255.0;
-      bg.envVolMix += bg.envVolStep;
-      const effEnvVol = bg.volEnvOn ? bg.envVolMix : 1.0;
-      advanceVolumeRamp(bg, ts.volDiv);
-      advancePitchRamp(bg, spt);
-      const faderGain = (255 - bgFader) / 255.0;
-      const vol = (effEnvVol * bg.fadeoutVolume * bg.currentMixVolume *
-        swingScale * gvol * mvol * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain *
-        playhead.masterVolume) / 255.0;
-      let lGain = 0.0;
-      let rGain = 0.0;
-      if (spatial === null) {
-        const pan = advancePanRamp(bg, voicePanByte(bg));
-        if (pan !== bg.panLawPan) {
-          bg.panLawPan = pan;
-          bg.panLawL = Math.cos((Math.PI * pan) / 512.0);
-          bg.panLawR = Math.sin((Math.PI * pan) / 512.0);
+    if (!extModClockLive(eng, voices, bgVoices)) {
+      for (let vi = 0; vi < nVoices; vi++) {
+        mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n0, n1, sptFirst, sptRest, globalGain);
+      }
+      // Background (NNA-ghost + metainstrument layer-child) voices.
+      for (const bg of bgVoices) {
+        mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvol, mvol);
+      }
+    } else {
+      for (let n = n0; n < n1; n++) {
+        const spt = n === n0 ? sptFirst : sptRest;
+        for (let vi = 0; vi < nVoices; vi++) {
+          mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n, n + 1, spt, spt, globalGain);
         }
-        lGain = bg.panLawL;
-        rGain = bg.panLawR;
-      } else {
-        advancePanRamp(bg, voiceAzimuth(bg), true);
-      }
-      let rampGain;
-      if (bg.rampOutSamples > 0) {
-        rampGain = bg.rampOutGain;
-        bg.rampOutGain -= bg.rampOutStep;
-        bg.rampOutSamples--;
-        if (bg.rampOutSamples === 0) bg.active = false;
-      } else {
-        rampGain = 1.0;
-      }
-      if (bg.attackRampSamples > 0) {
-        const elapsed = ATTACK_RAMP_SAMPLES - bg.attackRampSamples;
-        rampGain *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
-        bg.attackRampSamples--;
-      }
-      // Ghosts and layer children belong to the stem of the lane that spawned them.
-      if (stems !== null) {
-        const sBg = bg.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
-        stems.add(bg, bg.sourceChannel, n, sBg * vol * rampGain);
-      }
-      if (spatial === null) {
-        mixL += sL * vol * lGain * rampGain;
-        mixR += sR * vol * rGain * rampGain;
-      } else {
-        const g = spatialVoiceGains(spatial, bg);
-        spatial.addSource(n, sL * vol, g, 0, rampGain);
-        if (bg.activeChanCount === 2) {
-          spatial.addSource(n, sR * vol, g, spatial.numChannels, rampGain);
-        }
-      }
-      if (abus !== null) {
-        const ag = analysisVoiceGains(abus, bg);
-        abus.addSource(n, sL * vol, ag, 0, rampGain);
-        if (bg.activeChanCount === 2) {
-          abus.addSource(n, sR * vol, ag, abus.numChannels, rampGain);
+        for (const bg of bgVoices) {
+          mixBackgroundSpan(eng, ts, playhead, bg, n, n + 1, spt, spt, gvol, mvol);
         }
       }
     }
 
-    // Fold the object bus down to the device's pair — for the stereo renderer
-    // that IS the mix; another render target hands back its own monitor decode.
-    if (spatial !== null) {
-      const pair = spatial.stereoAt(n);
-      mixL = pair[0];
-      mixR = pair[1];
-    }
-
-    // Amiga interpolation modes: post-mix LPF chain.
-    if (ts.interpolationMode === INTERP_A500) {
-      ts.amigaLPStateL = mixL * a500A0 + ts.amigaLPStateL * a500B1;
-      ts.amigaLPStateR = mixR * a500A0 + ts.amigaLPStateR * a500B1;
-      mixL = ts.amigaLPStateL;
-      mixR = ts.amigaLPStateR;
-      if (ts.ledFilterOn) {
-        const sl = ts.amigaLEDStateL;
-        const sr = ts.amigaLEDStateR;
-        const outL = mixL * ledA1 + sl[0] * ledA2 + sl[1] * ledA1 - sl[2] * ledB1 - sl[3] * ledB2;
-        const outR = mixR * ledA1 + sr[0] * ledA2 + sr[1] * ledA1 - sr[2] * ledB1 - sr[3] * ledB2;
-        sl[1] = sl[0]; sl[0] = mixL; sl[3] = sl[2]; sl[2] = outL;
-        sr[1] = sr[0]; sr[0] = mixR; sr[3] = sr[2]; sr[2] = outR;
-        mixL = outL;
-        mixR = outR;
+    for (let n = n0; n < n1; n++) {
+      let mixL;
+      let mixR;
+      if (spatial !== null) {
+        // Fold the object bus down to the device's pair — for the stereo
+        // renderer that IS the mix; another render target hands back its own
+        // monitor decode. Frames are folded in order (the binaural decode keeps
+        // a convolution history), and a monitor reads only its own frame.
+        const pair = spatial.stereoAt(n);
+        mixL = pair[0];
+        mixR = pair[1];
+      } else {
+        mixL = accL[n];
+        mixR = accR[n];
       }
-    } else if (ts.interpolationMode === INTERP_A1200) {
-      // The A1200's own 1-pole LPF sits at ~34 kHz — above Nyquist at 32 kHz
-      // AND at 48 kHz — so it stays bypassed (pt2-clone).
-      if (ts.ledFilterOn) {
-        const sl = ts.amigaLEDStateL;
-        const sr = ts.amigaLEDStateR;
-        const outL = mixL * ledA1 + sl[0] * ledA2 + sl[1] * ledA1 - sl[2] * ledB1 - sl[3] * ledB2;
-        const outR = mixR * ledA1 + sr[0] * ledA2 + sr[1] * ledA1 - sr[2] * ledB1 - sr[3] * ledB2;
-        sl[1] = sl[0]; sl[0] = mixL; sl[3] = sl[2]; sl[2] = outL;
-        sr[1] = sr[0]; sr[0] = mixR; sr[3] = sr[2]; sr[2] = outR;
-        mixL = outL;
-        mixR = outR;
-      }
-    }
 
-    // Double → Float32 (like Kotlin .toFloat()). The clamp that used to sit
-    // here now runs below, after the mastering chain — clamping first would
-    // hand the limiter a signal whose peaks had already been destroyed. With
-    // no chain installed the two forms are identical: `fl` is stored to a
-    // Float32Array either way, so the clamp reads back exactly the value it
-    // used to compare.
-    ts.mixLeft[n] = fround(mixL);
-    ts.mixRight[n] = fround(mixR);
+      // Amiga interpolation modes: post-mix LPF chain.
+      if (ts.interpolationMode === INTERP_A500) {
+        ts.amigaLPStateL = mixL * a500A0 + ts.amigaLPStateL * a500B1;
+        ts.amigaLPStateR = mixR * a500A0 + ts.amigaLPStateR * a500B1;
+        mixL = ts.amigaLPStateL;
+        mixR = ts.amigaLPStateR;
+        if (ts.ledFilterOn) {
+          const sl = ts.amigaLEDStateL;
+          const sr = ts.amigaLEDStateR;
+          const outL = mixL * ledA1 + sl[0] * ledA2 + sl[1] * ledA1 - sl[2] * ledB1 - sl[3] * ledB2;
+          const outR = mixR * ledA1 + sr[0] * ledA2 + sr[1] * ledA1 - sr[2] * ledB1 - sr[3] * ledB2;
+          sl[1] = sl[0]; sl[0] = mixL; sl[3] = sl[2]; sl[2] = outL;
+          sr[1] = sr[0]; sr[0] = mixR; sr[3] = sr[2]; sr[2] = outR;
+          mixL = outL;
+          mixR = outR;
+        }
+      } else if (ts.interpolationMode === INTERP_A1200) {
+        // The A1200's own 1-pole LPF sits at ~34 kHz — above Nyquist at 32 kHz
+        // AND at 48 kHz — so it stays bypassed (pt2-clone).
+        if (ts.ledFilterOn) {
+          const sl = ts.amigaLEDStateL;
+          const sr = ts.amigaLEDStateR;
+          const outL = mixL * ledA1 + sl[0] * ledA2 + sl[1] * ledA1 - sl[2] * ledB1 - sl[3] * ledB2;
+          const outR = mixR * ledA1 + sr[0] * ledA2 + sr[1] * ledA1 - sr[2] * ledB1 - sr[3] * ledB2;
+          sl[1] = sl[0]; sl[0] = mixL; sl[3] = sl[2]; sl[2] = outL;
+          sr[1] = sr[0]; sr[0] = mixR; sr[3] = sr[2]; sr[2] = outR;
+          mixL = outL;
+          mixR = outR;
+        }
+      }
+
+      // Double → Float32 (the spec's binary32 bus). The clamp runs below,
+      // after the mastering chain — clamping first would hand the limiter a
+      // signal whose peaks had already been destroyed. With no chain installed
+      // the two forms are identical: `fl` is stored to a Float32Array either
+      // way, so the clamp reads back exactly the value it used to compare.
+      ts.mixLeft[n] = fround(mixL);
+      ts.mixRight[n] = fround(mixR);
+    }
+    n0 = n1;
   }
 
   // ── Output stage (TAUD_ENGINE_SPEC.md §12) ──
@@ -13195,8 +13355,8 @@ class StreamResampler {
 
 // ══ src/audio/offline-render.js ══
 // Offline rendering — pure engine, runs identically in Node (tools/
-// render-taud.js) and the browser (WAV export). Mirrors the JVM oracle's
-// upload sequence exactly (taud.mjs uploadTaudFile order).
+// render-taud.js) and the browser (WAV export). Uploads in taud.mjs's
+// uploadTaudFile order, the one every host uses.
 
 
 

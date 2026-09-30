@@ -1,0 +1,92 @@
+{
+  "rate": 48000,
+  "seconds": 20,
+  "seed": 1,
+  "songs": {
+    "4THSYM": {
+      "file": "test/corpus/4THSYM.taud",
+      "frames": 960000,
+      "u8": "8f509c8b5ec2c840d44c73957b3a69a496be663f50f88727e264b12a89876e42",
+      "f32": "8cf86f19e3c474aa9f098868af69c0d496f7b9d053f1c294ce317bc902cd15a9"
+    },
+    "changing_waves": {
+      "file": "test/corpus/changing_waves.taud",
+      "frames": 960000,
+      "u8": "187777679d08894d660e87376cdc9c50f5ed7d542f7abf3b04f0717127dd94bf",
+      "f32": "05ac9c67108fdd97b33e9de32d879134383aca6111740acec56bc4001474f02f"
+    },
+    "Circus galop": {
+      "file": "test/corpus/Circus galop.taud",
+      "frames": 960000,
+      "u8": "d2041096937340c2172b504634770a7f72523ba3c111ea70413cfad755caaee6",
+      "f32": "41f22970efa7b0f7a5d7c699900bf360a48ff40a13a611c1d36d82c1ff5aa45d"
+    },
+    "flourish": {
+      "file": "test/corpus/flourish.taud",
+      "frames": 960000,
+      "u8": "37eede1b4700d880400dec34853f22ef82dab61cf4354c3af28094d9af7f756b",
+      "f32": "f3541fd99ef4d18f31ef20998b14e2dd88bd9939cac030ff40e08a412e93da71"
+    },
+    "Insaniq2": {
+      "file": "test/corpus/Insaniq2.taud",
+      "frames": 960000,
+      "u8": "fb227741d40dd725b5a2f9a21079d428ec2025bada85bf11a7633f70fc2cfdb1",
+      "f32": "d05620be06d369c72e94bce12d5f525ed0307d9840f76091171422a9ac78c33f"
+    },
+    "M_E1M1": {
+      "file": "test/corpus/M_E1M1.taud",
+      "frames": 960000,
+      "u8": "be0f86b58a24faf4cd104475f5a585dde0b5923e3af6828bdadf398c28861789",
+      "f32": "a0b8c50a5aa379d832068d626d5c0559f0de12a4ea65ec35e8d9ceaab75c844f"
+    },
+    "Onestop": {
+      "file": "test/corpus/Onestop.taud",
+      "frames": 960000,
+      "u8": "5634dee7c6402e94b0d681c2fa8d13873c972d600b179f485b4dc5dca7cac8e6",
+      "f32": "412d63e9df51c4a64eeed12ef1b37552daa6d82146728e3948ca8bf8afcac8f1"
+    },
+    "slumberjack": {
+      "file": "test/corpus/slumberjack.taud",
+      "frames": 960000,
+      "u8": "8806205e7b68193c94b055e6f2ebe7b08af56f1ef3bfa9ffb2aca8007208a070",
+      "f32": "b198882566c7d8e705b0f854cdb8c90c1afebefb8c13c0ed63df24045f562bcf"
+    },
+    "town": {
+      "file": "test/corpus/town.taud",
+      "frames": 960000,
+      "u8": "6051d018fe104cc4c2a616a1d3cde46ed425c15541beed16b1bfcb6d44c6ab1d",
+      "f32": "45d841601cc932857aa31fc6afe0e02313e6b0ca46d4dd621332b57bb917e2e4"
+    },
+    "WHEN": {
+      "file": "test/corpus/WHEN.taud",
+      "frames": 960000,
+      "u8": "9aac7ae51cc5cf3ccfdffc49b826d2bdc4bb8529c6ea9be36ea3d447842926e1",
+      "f32": "b5fd86ec9e7f6ed97ec3157fa549800a3310716eeebc7b934b009d1cd856097a"
+    },
+    "16uba_baion": {
+      "file": "assets/demo_projects/16uba_baion.taud",
+      "frames": 960000,
+      "u8": "236fda1a666334b701b6aa3e39f092440df4ef97fcfe1f8460d0f7248d2c1f7d",
+      "f32": "32ee3f216c5a431d1019bc73e35046a738c5baff687598fd113e0293fd5be11d"
+    },
+    "Temjin_speaki": {
+      "file": "assets/demo_projects/Temjin_speaki.taud",
+      "frames": 960000,
+      "u8": "d55b59753e72dd924a04419d301e38b5801d58b35a1eacfd45184b2da6e933a7",
+      "f32": "b2144d80319b007cfc428d9709e7acbda3d0f2ee1a246ce8dc23b51f77c13962"
+    },
+    "WHEN_AMBI": {
+      "file": "assets/demo_projects/WHEN_AMBI.taud",
+      "frames": 960000,
+      "u8": "76e3220aead079fb0d6bd498f111d9f0cdee8b083f03835699bcc47f605fd696",
+      "f32": "450a004eb6df0b233db549f3ea6526cc9a5b63056465dbedccabd568d2298573"
+    },
+    "WHEN_AMBI@binaural": {
+      "file": "assets/demo_projects/WHEN_AMBI.taud",
+      "monitor": 1,
+      "frames": 960000,
+      "u8": "9b733e5438f1f685df0ab6e477f8c1082335bbe16223502b8fd145e776e48b73",
+      "f32": "2e432eeacd4b5e0e748f777f2f6f3ccd60d344a06dd4a3473a5324311eb259c0"
+    }
+  }
+}

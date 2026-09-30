@@ -2,6 +2,8 @@
 
 This document defines the **Taud playback engine**: how a conforming implementation turns the structures of a Taud file into audio. It covers timing, pitch, the trigger path, envelopes, the sampler, filters, mixing, the spatial model and the output stage. It does **not** define the file layout (see the **Taud File Format Specification**) or the effect column (see the **Note Effects** reference); it defines everything those two documents assume.
 
+The **reference implementation** is the Microtone web engine. Its renders are the worked examples conformance is measured against ([§13](#13-determinism)), and where it and this document disagree, one of the two has a defect to fix — neither is a licence for an implementation to differ. The TSVM Audio Adapter's engine follows the reference implementation.
+
 Taud is a ScreamTracker 3-lineage tracker extended with 16-bit effect arguments and a 4096 tone-equal-temperament pitch grid. Where behaviour has an ancestor, this document names it — ImpulseTracker (via Schism Tracker's mixer), FastTracker 2 (via MilkyTracker), ProTracker, SoundFont 2 (via FluidSynth). Those lineages are the *reason* for many rules that would otherwise look arbitrary, and an implementation that follows the rule but not the lineage will drift on real songs.
 
 ## Conformance language
@@ -48,7 +50,7 @@ A host whose output is at another rate **MAY** run the engine at that rate inste
 | Voice filter coefficients ([§9](#9-filters)) | `rate` in §9's formulae is the running rate, so the cutoff clamp rises with it |
 | Amiga LPF / LED coefficients ([§10.4](#10-4-the-post-mix-amiga-chain)) | Recomputed at the running rate, so both corners stay at their analogue frequencies (4420.971 Hz, 3090.533 Hz) |
 
-Rate is the one thing that is an implementation's own choice. Nothing else in this document is: a render at another rate **MUST** still reach the same row at the same moment, and the same voice at the same pitch, as the 32 kHz reference — which is what makes conformance testable against a 32 kHz oracle by running the implementation at 32 kHz.
+Rate is the one thing that is an implementation's own choice. Nothing else in this document is: a render at another rate **MUST** still reach the same row at the same moment, and the same voice at the same pitch, as the 32 kHz reference — which is what makes conformance testable: render the reference implementation and the implementation under test at the same rate, and compare.
 
 Internally the mix bus is floating point, it passes through the song's mastering chain, and the quantisation to 8 bits happens once per chunk in a defined, deterministic way ([§12](#12-output-stage)).
 
@@ -851,7 +853,7 @@ In both Amiga modes, when the LED filter is on, the mix additionally passes thro
 
 The engine's spatial model is **object-based**: a sounding voice is a source with a direction and a gain, and the mixer knows nothing about output channels. A **renderer** turns those objects into bus channels, so an output format is always a render *target*, never something the engine holds. Playback installs a stereo renderer; an export installs whatever the chosen format wants and re-renders the same song through the same mixer.
 
-The Kotlin reference engine does not implement this yet; the web engine is the reference implementation for this section.
+The TSVM Audio Adapter's engine does not implement this yet.
 
 ### 11.1 Surround models
 
@@ -1041,7 +1043,7 @@ The engine has two random streams, and they serve opposite purposes.
 
 An implementation **MUST NOT** call the host's random generator directly from engine code; both streams **MUST** be injectable, or conformance testing against a reference render becomes impossible. A song that uses neither swing nor the random waveform renders deterministically.
 
-Under those conditions, and with the numeric rules of [§12](#12-output-stage), independent implementations agree **bit-for-bit** — both on the pre-dither float bus and on the dithered 8-bit output. That is the conformance bar this specification sets, and it is met in practice: the JavaScript and Kotlin engines match exactly across the reference corpus.
+Under those conditions, and with the numeric rules of [§12](#12-output-stage), independent implementations agree **bit-for-bit** — both on the pre-dither float bus and on the dithered 8-bit output. That is the conformance bar this specification sets: with both streams seeded alike, an implementation reproduces the reference implementation's renders exactly.
 
 ## 14. Interrupts and the host interface
 

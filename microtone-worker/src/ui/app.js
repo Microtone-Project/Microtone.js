@@ -2049,14 +2049,23 @@ function linkCues() {
   }
 }
 
+/** Write a readout only when it reads differently. A textContent write
+ *  replaces the text node even when the string is the same, and that restyles
+ *  and re-lays-out the toolbar — and repaints the page, and wakes the control
+ *  enhancer's MutationObserver — every frame, playing or not. */
+function showText(id, text) {
+  const el = $(id);
+  if (el.textContent !== text) el.textContent = text;
+}
+
 function frame() {
   const audio = store.audio;
   if (audio && store.doc) {
     // Cue/row shown in hex (matches the grid gutters + note-fx B/C hex args).
-    $("posCue").textContent = "$" + audio.getCuePosition().toString(16).toUpperCase();
-    $("posRow").textContent = "$" + audio.getTrackerRow().toString(16).toUpperCase().padStart(2, "0");
-    $("posBpm").textContent = audio.getBPM() || "–";
-    $("posSpd").textContent = audio.getTickRate() || "–";
+    showText("posCue", "$" + audio.getCuePosition().toString(16).toUpperCase());
+    showText("posRow", "$" + audio.getTrackerRow().toString(16).toUpperCase().padStart(2, "0"));
+    showText("posBpm", String(audio.getBPM() || "–"));
+    showText("posSpd", String(audio.getTickRate() || "–"));
   }
   linkCues();
   // Every view a pane is showing gets a frame, not just the focused one — and

@@ -889,10 +889,41 @@ export class RadiationView {
     const col = front ? this.nearRgb : this.farRgb;
     const alpha = this.alpha;
     const o0 = i0 * 3, o1 = i1 * 3, o2 = i2 * 3;
+    const z0 = sz[i0], z1 = sz[i1], z2 = sz[i2];
     for (let py = minY; py <= maxY; py++) {
       const fy = py + 0.5;
       const row = py * size;
-      for (let px = minX; px <= maxX; px++) {
+      // Where this row's centre line crosses the triangle, from its three
+      // edges, widened by a pixel each way: a convex triangle meets the line
+      // in one interval, so nothing outside it can pass the test below and the
+      // bounding box's empty corners — about half of it — are never visited.
+      // The test itself is unchanged, so the same pixels are drawn.
+      let lo = Infinity;
+      let hi = -Infinity;
+      if ((y0 <= fy) !== (y1 <= fy) || y0 === fy || y1 === fy) {
+        const x = y1 === y0 ? x0 : x0 + ((fy - y0) * (x1 - x0)) / (y1 - y0);
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+        if (y1 === y0) { if (x1 < lo) lo = x1; if (x1 > hi) hi = x1; }
+      }
+      if ((y1 <= fy) !== (y2 <= fy) || y1 === fy || y2 === fy) {
+        const x = y2 === y1 ? x1 : x1 + ((fy - y1) * (x2 - x1)) / (y2 - y1);
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+        if (y2 === y1) { if (x2 < lo) lo = x2; if (x2 > hi) hi = x2; }
+      }
+      if ((y2 <= fy) !== (y0 <= fy) || y2 === fy || y0 === fy) {
+        const x = y0 === y2 ? x2 : x2 + ((fy - y2) * (x0 - x2)) / (y0 - y2);
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+        if (y0 === y2) { if (x0 < lo) lo = x0; if (x0 > hi) hi = x0; }
+      }
+      if (lo > hi) continue;
+      let pxLo = Math.floor(lo) - 1;
+      let pxHi = Math.ceil(hi) + 1;
+      if (pxLo < minX) pxLo = minX;
+      if (pxHi > maxX) pxHi = maxX;
+      for (let px = pxLo; px <= pxHi; px++) {
         const fx = px + 0.5;
         // Barycentric from the same edge functions as the area, so a point on a
         // shared edge lands in exactly one of the two triangles.
@@ -903,7 +934,7 @@ export class RadiationView {
         const w2 = 1 - w0 - w1;
         if (w2 < 0) continue;
 
-        const depth = w0 * sz[i0] + w1 * sz[i1] + w2 * sz[i2];
+        const depth = w0 * z0 + w1 * z1 + w2 * z2;
         const p = row + px;
         if (depth <= z[p]) continue;
         z[p] = depth;

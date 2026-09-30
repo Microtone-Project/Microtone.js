@@ -5,10 +5,23 @@
 // used when crossOriginIsolated (SAB available); the non-isolated fallback keeps
 // the engine in the worklet (see taud-processor.js render mode).
 //
-// Self-clocked: a ~5 ms timer tops the ring up to AR_HIGH_WATER and refreshes
-// the snapshot on a ~16 ms wall cadence. Commands arrive by postMessage and are
-// applied between ticks (single-threaded, so no lock vs the producer) — we do
-// NOT Atomics.wait here (that would freeze the message loop).
+// Self-clocked: every ~5 ms a tick tops the ring up to AR_HIGH_WATER and
+// refreshes the snapshot on a ~16 ms wall cadence. Commands arrive by
+// postMessage and are applied between ticks (single-threaded, so no lock vs the
+// producer).
+//
+// The clock is an Atomics.wait on AR_DOORBELL, NOT a setInterval, and the
+// event loop is handed back only when a message is already waiting in it. A
+// worker whose event queue ever drains gets Firefox's idle-GC timer armed
+// (dom/workers/WorkerPrivate.cpp): five seconds later it runs a NON-incremental
+// SHRINKING GC, which also throws away every piece of JIT code — and later
+// activity is deliberately not allowed to cancel that timer. A 5 ms interval
+// drains the queue after every tick, so the engine was stalled every 5 s by a
+// ~6 ms mark of its whole heap and then re-ran cold for a while, bailing out
+// and recompiling: 10–21 ms wakes against a 32 ms ring on a Ryzen 9950X.
+// Sleeping inside a task never drains the queue, so that timer is never armed.
+// The main thread bumps the doorbell after each postMessage (AudioSystem), the
+// wait wakes, and the handler for that message re-enters the clock.
 
 import { TaudEngine } from "../engine/engine.js";
 import { TRACKER_CHUNK } from "../engine/constants.js";
@@ -19,7 +32,7 @@ import {
 } from "../worklet/engine-commands.js";
 import {
   audioRingViews, AR_FRAMES, AR_MASK,
-  AR_WRITE, AR_READ, AR_STATE, AR_EPOCH, AR_FLUSH_POS, AR_HIGH_WATER,
+  AR_WRITE, AR_READ, AR_STATE, AR_EPOCH, AR_FLUSH_POS, AR_DOORBELL, AR_HIGH_WATER,
 } from "./audio-ring.js";
 
 const PLAYHEAD = 0;
@@ -33,7 +46,16 @@ let writeFrames = 0;        // authoritative producer cursor (Int32-wrapping)
 let snapF32 = null, snapI32 = null;
 let snapshotIntervalMs = 16;
 let lastSnapshotMs = -1e9;
-let timer = null;
+let timer = null;           // setInterval fallback — only where this agent may not block
+let handled = 0;            // messages received; AR_DOORBELL counts the same ones as posted
+
+// Atomics.wait throws, before it compares anything, in an agent that may not
+// suspend. Every dedicated worker may, but an embedding that says otherwise
+// keeps the old interval clock rather than a dead one.
+const canBlock = (() => {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 1, 0); return true; }
+  catch { return false; }
+})();
 
 const now = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
 
@@ -83,8 +105,37 @@ function tick() {
   maybeSnapshot(false);
 }
 
+/** Tick until the main thread has posted a message this worker has not read
+ *  yet, then return so the event loop can deliver it — never with the queue
+ *  empty. The tick comes first so a burst of messages (a song upload) still
+ *  tops the ring up between them. A tick that throws is reported and the
+ *  clock carries on, as the interval it replaced did. */
+function clock() {
+  const ctrl = ring.ctrl;
+  for (;;) {
+    try {
+      tick();
+    } catch (err) {
+      console.error(err);
+    }
+    const posted = Atomics.load(ctrl, AR_DOORBELL);
+    if (posted !== handled) return;
+    Atomics.wait(ctrl, AR_DOORBELL, posted, PRODUCE_INTERVAL_MS);
+  }
+}
+
 self.onmessage = (e) => {
-  const m = e.data;
+  handled = (handled + 1) | 0;
+  try {
+    handleMessage(e.data);
+  } catch (err) {
+    // Reported now: the clock below may not return until the next message.
+    console.error(err);
+  }
+  if (ring !== null && canBlock) clock();
+};
+
+function handleMessage(m) {
   if (applyAudioCommand(engine, m)) {
     if (isTransportReset(m.t)) flushRing();
     produceAudio();      // start filling immediately (low play/seek latency)
@@ -101,7 +152,7 @@ self.onmessage = (e) => {
       break;
     case CMD.USE_AUDIO_SAB:
       ring = audioRingViews(m.sab);
-      if (timer === null) timer = setInterval(tick, PRODUCE_INTERVAL_MS);
+      if (!canBlock && timer === null) timer = setInterval(tick, PRODUCE_INTERVAL_MS);
       break;
     case CMD.QUERY_INVERT_MASK: {
       const buf = invertMaskBuffer(engine, m.slot);
@@ -113,6 +164,6 @@ self.onmessage = (e) => {
       break;
     }
   }
-};
+}
 
 self.postMessage({ t: MSG.READY });
