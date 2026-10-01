@@ -6,6 +6,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-01
 
+Songs from The IMS Archive open directly, and the game music that adds recorded samples to the SOP format now imports.
+
+- **Open an `.imac` from The IMS Archive** and pick the song you want from the list of every variant it holds; an `.ims` arrives with the instrument bank of its own variant.
+- **Version 0.2 `.sop` files import**, the music of the game 개미맨: their four sample parts become four more lanes of ordinary sample instruments, played as the game played them.
+- **Fixed: a version 0.2 `.sop` that did import came out with most of its parts silent**, because its panning was read the version 0.1 way, where the centre value means "off".
+- **Fixed: a `.sop` with a tempo written on one of its parts would not import at all**; it now plays as the editor that made it played it, at the tempo of its tempo track.
+
 Microtone needs much less of your computer: the audio engine renders a quarter to a third faster, the screen redraws only what has changed, and a stopped song costs almost nothing.
 
 - **Fixed: in Firefox the audio engine stalled for a moment every five seconds**, which on a slower computer could be long enough to crackle: whenever the engine sat idle between blocks of audio, Firefox scheduled a clean-up of its memory that also threw away the engine's compiled code, and the engine then ran slowly while it recompiled. The engine no longer gives Firefox that idle moment.

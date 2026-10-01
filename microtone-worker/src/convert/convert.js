@@ -6,8 +6,10 @@ import { converterFor } from "./convert-core.js";
 
 export { converterFor };
 
-/** Extensions the import pipeline accepts, for file-picker accept lists. */
-export const CONVERT_ACCEPT = ".mod,.s3m,.it,.xm,.mon,.ims,.sop,.mid,.midi";
+/** Extensions the import pipeline accepts, for file-picker accept lists.
+ *  `.imac` has no converter of its own: it is The IMS Archive's container, and
+ *  the .ims or .sop chosen from inside it is what gets converted (imac.js). */
+export const CONVERT_ACCEPT = ".mod,.s3m,.it,.xm,.mon,.ims,.sop,.imac,.mid,.midi";
 
 let worker = null;
 let nextId = 1;

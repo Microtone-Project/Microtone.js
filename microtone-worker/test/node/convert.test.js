@@ -33,7 +33,8 @@ import { TaudEngine } from "../../src/engine/engine.js";
 import { patchIsStereo } from "../../src/engine/inst.js";
 import { unescapeName } from "../../src/ui/names.js";
 import { IMS_BANK, IMS_SONG, IMS_SONG_12RPB, IMS_EVENTS, JOHAB_TITLE, makeIms, makeBnk, LOUD_OP } from "../fixtures/ims.js";
-import { SOP_SONG, SOP_SONG_RHYTHM, SOP_SONG_4OP, SOP_SONG_16RPB, SOP_SONG_VIB } from "../fixtures/sop.js";
+import { SOP_SONG, SOP_SONG_RHYTHM, SOP_SONG_4OP, SOP_SONG_16RPB, SOP_SONG_VIB,
+         SOP_SONG_V02, SOP_BLIP, sopStray } from "../fixtures/sop.js";
 import { cueInstructionWords } from "../../src/format/taud-parse.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -1391,6 +1392,109 @@ test("sop2taud: the chip's vibrato arrives at the chip's rate and depth", () => 
   // The patch that does NOT ask for vibrato must not get any.
   assert.ok(ops.some((o) => o.vibratoDepth === 0 || o.vibratoSpeed === 0),
             "the plain patch should carry no vibrato");
+});
+
+/** One lane's cells in song order, as {note, inst, vol, op, arg}. A cue's rows
+ *  past its LEN are blank on disk, so reading all 64 of each adds nothing. */
+function laneCells(doc, lane) {
+  const song = doc.songs[0];
+  const out = [];
+  for (const cue of song.cues) {
+    const pat = song.patterns[cue[lane]];
+    if (!pat) continue;
+    for (let r = 0; r < 64; r++) {
+      const o = r * 8;
+      out.push({ note: pat[o] | (pat[o + 1] << 8), inst: pat[o + 2], vol: pat[o + 3],
+                 op: pat[o + 5], arg: pat[o + 6] | (pat[o + 7] << 8) });
+    }
+  }
+  return out;
+}
+
+test("sop2taud: a version-0.2 WAV track becomes a lane of recorded samples", () => {
+  // SOP §10: four tracks of the 개미맨 songs play samples carried inline in the
+  // instrument table, on the game's mixer rather than the chip. Each becomes a
+  // lane, and each sample an ordinary one-shot instrument.
+  const doc = parseTaud(convert("v02.sop", { bytes: SOP_SONG_V02 }));
+  assert.equal(doc.songs[0].numVoices, 21, "lanes up to the last track that carries events");
+  const d = new Document(doc);
+  const samples = d.instruments.filter((i) => i && !i.isMeta && i.sampleLength === SOP_BLIP.length);
+  assert.equal(samples.length, 1, "the sample, once");
+  const blip = samples[0];
+  assert.equal(blip.samplingRate, 11025, "the rate the file says it was recorded at");
+  // §10.6: note 24 plays a sample as recorded. Taud plays an instrument at its
+  // rate on C4 — SOP note 60 — so the instrument is detuned up three octaves.
+  assert.equal(blip.sampleDetune, 3 * 4096);
+  assert.equal(blip.loopMode, 0, "one-shot: nothing loops in the game's mixer");
+  // The file's samples are signed; Taud's pool is unsigned about $80.
+  const pool = doc.sampleInstImage.subarray(blip.samplePtr, blip.samplePtr + blip.sampleLength);
+  assert.deepEqual([...pool.subarray(0, 3)], SOP_BLIP.slice(0, 3).map((v) => (v & 0xff) ^ 0x80));
+
+  const slot = d.instruments.indexOf(blip);
+  const cells = laneCells(doc, 20);
+  const triggers = cells.filter((c) => c.note >= 0x20);
+  // §10.6: the note struck while FM slot 0 was selected is silence — no trigger
+  // at all — and the two after the sample is selected are note 24 (C1) and 36.
+  assert.deepEqual(triggers.map((c) => [c.note, c.inst]), [[0x2000, slot], [0x3000, slot]]);
+  // `(v >> 1) + 1` of 64, linear: volume 127 is the whole of Taud's 0…63.
+  assert.equal(triggers[0].vol, 63);
+  // §10.6: a note's length is how long its sample plays — the first is cut
+  // four rows in, and a sample has no release to play, so it is a CUT.
+  const first = cells.findIndex((c) => c.note === 0x2000);
+  assert.equal(cells[first + 4].note, 0x0002, "note cut where the note ends");
+  assert.ok(!cells.some((c) => c.note === 0x0001), "never a key-off on a sample lane");
+});
+
+test("sop2taud: a version-0.2 pan of 64 is the centre, not silence", () => {
+  // SOP §10.4: version 0.2 pans about 64, and the game reads it as Note's
+  // three switches. Read as version 0.1, 64 is an invalid value that clears
+  // both outputs — which is what the converter did, muting most of every
+  // version-0.2 song's FM lanes.
+  const doc = parseTaud(convert("v02.sop", { bytes: SOP_SONG_V02 }));
+  const lead = laneCells(doc, 0);
+  assert.ok(lead.some((c) => c.op === 28 && c.arg === 0x8080), "S $8080: the lane, centred");
+  const strike = lead.find((c) => c.note >= 0x20);
+  assert.ok((strike.vol & 0x3f) > 0 && (strike.vol >> 6) === 0, "struck at a volume, not muted");
+});
+
+test("sop2taud: the version-0.2 sample actually sounds", () => {
+  const doc = parseTaud(convert("v02.sop", { bytes: SOP_SONG_V02 }));
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, doc, 0);
+  eng.setVoiceMute(0, 0, true);                    // the FM lead: only the sample is left
+  eng.play(0);
+  const buf = new Uint8Array(TRACKER_CHUNK * 2);
+  let peak = 0;
+  for (let i = 0; i < 400; i++) {
+    eng.renderChunk(0, buf);
+    for (const v of buf) peak = Math.max(peak, Math.abs(v - 128) / 127);
+  }
+  assert.ok(peak > 0.02, `the sample lane rendered silence (peak ${peak})`);
+});
+
+test("sop2taud: a control-track code on a sequenced track is read as Note reads it", () => {
+  // SOP §4.3: MUSIC1.SOP carries a tempo on track 0, and a reader that keeps
+  // the two code spaces apart refuses the whole file. NOTE.EXE reads every
+  // code on every track, takes its tempo from the control track alone, and
+  // honours a global volume wherever it is — as the player and IMS Studio do.
+  const doc = parseTaud(convert("stray.sop", { bytes: sopStray() }));
+  const plain = parseTaud(convert("plain.sop", { bytes: sopStray({ stray: false }) }));
+  const [a, b] = [doc.songs[0], plain.songs[0]];
+  assert.deepEqual([a.bpm, a.tickRate], [b.bpm, b.tickRate],
+    "the control track's 157 sets the pace; track 0's 161 does nothing");
+  // The global volume lands as `V $xx00` where it was: 64 of 127 is $81 of $FF.
+  const v = laneCells(doc, 0).filter((c) => c.op === 31);
+  assert.deepEqual(v.map((c) => c.arg), [0x8100]);
+  assert.ok(!laneCells(plain, 0).some((c) => c.op === 31), "and only where the file put it");
+});
+
+test("sop2taud: a PCM instrument in a version-0.1 file is still refused", () => {
+  // §3.1, §10.7: type 11 exists only in version 0.2. Its record carries its own
+  // length, so guessing at one in a file that cannot have it would misread
+  // every record after it — refusing is the only safe reading, as the library's.
+  const v01 = Uint8Array.from(SOP_SONG_V02);
+  v01[8] = 1;
+  assert.throws(() => convert("v01.sop", { bytes: v01 }), /converter exited/);
 });
 
 test("ims2taud: a feedback patch gets a scaling operator, and the right one", () => {

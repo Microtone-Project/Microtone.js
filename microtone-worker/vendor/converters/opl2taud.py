@@ -1159,6 +1159,26 @@ class BankBuilder:
         return self._add_rack(patch, name, single_op=False, notes=notes,
                               percussion=(kind == 'bd'), mix=mix)
 
+    def add_sample(self, data: bytes, rate: int, name: str, detune: int = 0) -> int:
+        """A recorded sample beside the racks, as one ordinary instrument, and
+        the directly-addressable slot that plays it.
+
+        Not every voice of an OPL-era song is the chip's: a version-0.2 `.sop`
+        plays four of its tracks on a Sound Blaster's sample voices (SOP_FORMAT
+        §10), and its samples have to share this pool and this slot numbering
+        with the racks.  `data` is unsigned 8-bit, Taud's own pool format;
+        `rate` is what the instrument plays at on C4, nudged by `detune`.
+
+        One-shot and no fadeout: a sample stops at its last byte or when the
+        pattern cuts it.  NNA = Note Cut, for the same reason as an operator's —
+        the voice it stands for is monophonic."""
+        if not 0 < len(data) <= 0xFFFF:
+            sys.exit(f"error: sample {name!r} is {len(data)} bytes; "
+                     f"an instrument holds 1…65535")
+        return self._add_main(build_instrument_record(
+            sample_ptr=self._add_sample(data, name), sample_length=len(data),
+            rate=rate, detune=detune, nna=NNA_NOTE_CUT), name)
+
     def _add_rhythm_pcm(self, patch, drum, name, mix=1.0):
         op = patch.mod
         block, fnum = chip_freq(self.tom_note + (7 if drum in ('sd', 'hh') else 0))
@@ -1448,13 +1468,17 @@ def build_bank(entries, *, bpm: float = 125.0, max_bands: int = 4,
 
     `entries` is a list of dicts: `patch` (an OplPatch or None for an unresolved
     name), `kind` ('melodic', 'bd', 'sd', 'tom', 'tc' or 'hh'), `notes` (the chip
-    notes the song plays it at, or None for the whole range) and `name`.
+    notes the song plays it at, or None for the whole range) and `name`.  An
+    entry may carry `sample` instead of `patch` — {'data', 'rate', 'detune'},
+    see `BankBuilder.add_sample` — for a voice that was never the chip's.
 
     Returns the sample bin, the instrument bin, the name tables, and `slots` —
     the directly-addressable instrument index of each entry, in order."""
     b = BankBuilder(bpm=bpm, max_bands=max_bands, tom_note=tom_note,
                     feedback_scale=feedback_scale)
-    slots = [b.add_patch(e.get('patch'), e.get('kind', 'melodic'),
+    slots = [b.add_sample(name=e.get('name') or 'sample', **e['sample'])
+             if e.get('sample') else
+             b.add_patch(e.get('patch'), e.get('kind', 'melodic'),
                          e.get('notes'), e.get('name')) for e in entries]
     out = b.finish()
     out['slots'] = slots

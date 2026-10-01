@@ -37,6 +37,7 @@ import { showModal } from "./widgets/modal.js";
 import * as opfs from "../storage/opfs.js";
 import { pickFile } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
+import { isImac, imacSongs } from "../convert/imac.js";
 import { showImportProgress } from "./popups/importlog.js";
 import { showProgress } from "./popups/progress.js";
 import { fetchDemo } from "./demos.js";
@@ -165,12 +166,56 @@ async function convertImport(name, bytes, { sf2: sf2Override = null, bank = null
   }
 }
 
+/**
+ * An IMAC — a song from The IMS Archive, every variant of it in one file — is
+ * a container rather than a song (src/convert/imac.js). Offer the songs inside
+ * that can be imported, or take the only one there is; null when there is
+ * nothing to import or the choice was cancelled.
+ */
+async function pickImacSong(name, bytes) {
+  let songs;
+  try {
+    songs = imacSongs(bytes, name);
+  } catch (err) {
+    $("stFile").textContent = t("status.parseErrorIn", { name, err: err.message });
+    return null;
+  }
+  if (!songs.length) {
+    $("stFile").textContent = t("imac.nothing", { name });
+    return null;
+  }
+  if (songs.length === 1) return songs[0];
+  const choice = await showModal({
+    title: t("imac.title", { name }),
+    body: t("imac.body"),
+    fields: [{
+      name: "song", label: t("imac.song"), type: "select", value: "0",
+      options: songs.map((s, i) => ({
+        value: String(i),
+        label: `${s.variant + 1}. ${s.name}${s.title ? ` \u2014 ${s.title}` : ""}`,
+      })),
+    }],
+    okLabel: t("common.import"),
+  });
+  return choice ? songs[Number(choice.song)] : null;
+}
+
 // ── document loading ──
 async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = false,
                                         rpb = null,
                                         trimPatches = false, stereoSamples = false,
                                         keepDuplicatePatterns = false, realign = null,
                                         quantise = null, quantiseStrength = 100 } = {}) {
+  // Recognised by its bytes rather than its name, as the songs inside are: the
+  // chosen song then takes the ordinary route, with the bank that travelled in
+  // its own variant ahead of any dropped alongside.
+  if (isImac(bytes)) {
+    const pick = await pickImacSong(name, bytes);
+    if (!pick) return;
+    return loadBytes(pick.name, pick.bytes,
+      { sf2, bank: pick.bank ?? bank, saveToOpfs, rpb, trimPatches, stereoSamples,
+        keepDuplicatePatterns, realign, quantise, quantiseStrength });
+  }
   let converted = false;
   if (converterFor(name)) {
     bytes = await convertImport(name, bytes,

@@ -36,9 +36,20 @@ What this converter does:
       player is the reference (SOP_FORMAT §8).  That means overlapping notes
       slur instead of re-striking, a track starts at volume 96, mode-0 tracks
       are silent, only a mode-1 track is four operators wide, a pan value Note
-      did not know silences its lane, pitch is Note's own 25-step table, and
-      tempo is what Note's timer made of it.  The one departure is bit 7 of the
+      did not know silences its lane, pitch is Note's own 25-step table,
+      tempo is what Note's timer made of it, and a control-track code on a
+      sequenced track is read as Note reads it — a tempo there ignored, a
+      global volume honoured (§4.3).  The one departure is bit 7 of the
       channel mode, the editor's disable switch, which is ignored (§8.1).
+
+Version 0.2 (§10) is read too.  It is four songs from the game 개미맨, played
+by the game's own player rather than Note, and it adds four tracks, 20…23, that
+play recorded samples carried inline in the instrument table.  Those become
+four more Taud lanes playing ordinary sample instruments, by the game's rules as
+the library implements them (§10.7): note 24 plays a sample at its recorded
+rate, a note's length is how long it plays, an overlapping note slurs, volume is
+linear, and selecting a slot that holds no sample silences the track.  The FM
+tracks pan about 64 and keep tempo by the game's clock instead of Note's.
 
 See SOP_FORMAT.en.md in the iyagimusic-js repository for the format — every
 structural claim below cites it — and TAUD_CONVERSION_NOTES.md for what does not
@@ -56,7 +67,7 @@ from taud_common import (
     TAUD_MAGIC, TAUD_VERSION, TAUD_HEADER_SIZE, TAUD_SONG_ENTRY,
     SAMPLEINST_SIZE, PATTERN_ROWS, NUM_PATTERNS_MAX,
     NUM_CUES, CUE_SIZE, NUM_VOICES,
-    NOTE_NOP, NOTE_KEYOFF,
+    NOTE_NOP, NOTE_KEYOFF, NOTE_CUT,
     TOP_NONE, TOP_A, TOP_E, TOP_F, TOP_G, TOP_S, TOP_T, TOP_V,
     SEL_SET, SEL_FINE,
     encode_cue, finalize_cue_sheet, set_cue_instruction,
@@ -83,13 +94,28 @@ SOP_INST_NAME_SIZE = 28
 #: These are exactly the types NOTE.EXE's own reader and writer size; type 2
 #: ("1OP") is in no corpus file, but the editor round-trips it.
 SOP_INST_DATA_SIZE = {0: 22, 1: 11, 2: 11, 6: 11, 7: 11, 8: 11, 9: 11, 10: 11, 12: 0}
-#: §4.2 and §5: the two code spaces are disjoint, and neither ever appears in
-#: the other's track.
-SOP_TRACK_VALUE_SIZE = {1: 1, 2: 3, 4: 1, 5: 1, 6: 1, 7: 1}
-SOP_CTRL_VALUE_SIZE = {3: 1, 8: 1}
+#: §4.2, §5: how many value bytes follow each event code.  The sequenced tracks
+#: and the control track use disjoint codes, but §4.3: NOTE.EXE reads all of
+#: them with one routine, one value byte for every code 1…8 but the note-on's
+#: three, so a tempo or a global volume on a sequenced track is read like any
+#: other event — `MUSIC1.SOP` has one — and so is this reader, as the library's
+#: is.  What each code DOES where it was not expected is `sop_sequence`'s
+#: business.  A code outside 1…8 is still an error: Note would read no value
+#: for it, and the walk would have lost its alignment.
+SOP_EVENT_VALUE_SIZE = {1: 1, 2: 3, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1}
 #: §6: an instrument record of this type is an empty slot of the editor's
 #: instrument box — often renamed into one 19-column line of the credits.
 SOP_COMMENT_TYPE = 12
+#: §10.3: a version-0.2 PCM instrument.  Its record is the 28-byte head, 19
+#: bytes of sample header and then the samples themselves, so its size is in
+#: the record rather than in SOP_INST_DATA_SIZE — and in a version-0.1 file it
+#: stays an unknown type, as the library has it.
+SOP_PCM_TYPE = 11
+SOP_PCM_HEAD_SIZE = 19
+#: §10.2: the channel mode of a version-0.2 WAV track, 20…23.  Every handler
+#: the game's player has for such a track drives a sample voice of its mixer;
+#: none of them touches the chip.
+SOP_MODE_WAV = 3
 
 #: Event kinds the row builder understands.
 NOTE_ON, VOLUME, PATCH, BEND, PAN, TEMPO, GVOL = range(7)
@@ -113,13 +139,50 @@ def _text(b: bytes) -> str:
     return decode_johab_field(b.split(b'\x00')[0]).rstrip()
 
 
+def is_v02(song: dict) -> bool:
+    """§10: version 0.2 or later, which is what the game reads with its own
+    rules — the library's `centredPan`.  No later version is known."""
+    return song['version'] >= (0, 2)
+
+
+def _pcm_instrument(data: bytes, o: int, i: int) -> dict:
+    """§10.3: one version-0.2 PCM record at `o`.
+
+    The head stores the samples' file offset as well as their length, and in
+    every known file the offset is simply where the head ends.  The walk is what
+    is trusted, as everywhere else in a SOP and as the game's own loader does:
+    it reads `length` bytes straight on and never consults the offset.  It never
+    reads `period` either — the rate put another way — so neither is kept.
+
+    The samples are SIGNED 8-bit.  The game XORs every byte with 0x80 for the
+    Sound Blaster, which is exactly what Taud's unsigned pool wants as well."""
+    head = o + SOP_INST_NAME_SIZE
+    if head + SOP_PCM_HEAD_SIZE > len(data):
+        sys.exit(f"error: SOP instrument {i}: PCM head truncated")
+    length, _period, rate = struct.unpack_from('<HHH', data, head + 4)
+    start = head + SOP_PCM_HEAD_SIZE
+    if start + length > len(data):
+        sys.exit(f"error: SOP instrument {i}: PCM samples truncated")
+    return {
+        'type': SOP_PCM_TYPE,
+        'short_name': _text(data[o + 1:o + 9]),
+        'long_name': _text(data[o + 9:o + 28]),
+        'data': data[head:start + length],
+        'pcm': {'rate': rate, 'samples': data[start:start + length]},
+    }
+
+
 def parse_sop(data: bytes) -> dict:
-    """Header, channel modes, instruments, twenty tracks, control track.
+    """Header, channel modes, instruments, the tracks, control track.
 
     Everything after the 76-byte header is positional — there is no offset table
     anywhere — so the file has to be read strictly in order.  The compensation is
     that it must end exactly where the control track does, which is a strong
-    check that nothing was misread, and this reader makes it (§1)."""
+    check that nothing was misread, and this reader makes it (§1).
+
+    The tracks are twenty in version 0.1 and twenty-four in 0.2, and `nTracks`
+    says which (§10.1): the count is read rather than assumed, as the game's
+    loader reads it, because it moves everything after the mode table."""
     if len(data) < SOP_HEADER_SIZE or data[0:7] != SOP_MAGIC:
         sys.exit("error: not a SOP file (bad 'sopepos' signature)")
     n_tracks = data[73]
@@ -150,6 +213,11 @@ def parse_sop(data: bytes) -> dict:
         if o + SOP_INST_NAME_SIZE > len(data):
             sys.exit(f"error: SOP instrument {i} truncated")
         inst_type = data[o]
+        if inst_type == SOP_PCM_TYPE and is_v02(song):
+            inst = _pcm_instrument(data, o, i)
+            song['instruments'].append(inst)
+            o += SOP_INST_NAME_SIZE + len(inst['data'])
+            continue
         size = SOP_INST_DATA_SIZE.get(inst_type)
         if size is None:
             sys.exit(f"error: SOP instrument {i}: unknown instType {inst_type}")
@@ -205,9 +273,9 @@ def parse_sop(data: bytes) -> dict:
             # and two files were saved with solo on — so it is masked off and
             # the track played, the one place this does not follow Note (§8.1).
             'mode': modes[t] & 0x7F,
-            'events': read_track(SOP_TRACK_VALUE_SIZE, f'track {t}'),
+            'events': read_track(SOP_EVENT_VALUE_SIZE, f'track {t}'),
         })
-    song['control'] = read_track(SOP_CTRL_VALUE_SIZE, 'control track')
+    song['control'] = read_track(SOP_EVENT_VALUE_SIZE, 'control track')
     if o != len(data):
         vprint(f"  warning: {len(data) - o} bytes after the control track")
     return song
@@ -269,9 +337,10 @@ def sop_patch(inst: dict) -> 'opl.OplPatch|None':
 
     §3.3: a four-operator instrument is the same eleven-byte layout twice, at
     register offsets 0x08/0x0B, and comes back as a patch carrying its second
-    pair — which is what routes it to `opl2taud`'s four-operator rack."""
+    pair — which is what routes it to `opl2taud`'s four-operator rack.  §10.3:
+    a PCM record's bytes are a sample, not registers, so it is no patch either."""
     d = inst['data']
-    if inst['type'] == SOP_COMMENT_TYPE or len(d) < 11:
+    if inst['type'] in (SOP_COMMENT_TYPE, SOP_PCM_TYPE) or len(d) < 11:
         return None
     single_op = 7 <= inst['type'] <= 10
     patch = _pair(inst['short_name'] or inst['long_name'], d, 0, single_op)
@@ -280,12 +349,23 @@ def sop_patch(inst: dict) -> 'opl.OplPatch|None':
     return patch
 
 
+def pcm_of(song: dict, idx) -> 'dict|None':
+    """The sample an instrument slot holds, or None.  §10.6: on a WAV track an
+    instrument event only records the slot, and a note sounds only if that slot
+    holds a sample — so a slot that does not is silence, not "keep the last"."""
+    insts = song['instruments']
+    if idx is None or not 0 <= idx < len(insts):
+        return None
+    return insts[idx].get('pcm')
+
+
 def track_plays(song: dict, track: int) -> bool:
-    """Whether NOTE.EXE's player sounds this track at all.
+    """Whether the song's player sounds this track at all.
 
     §2: a mode-0 track is the silent upper half of a four-operator pair — its
     events are kept from before the pair was joined, and Note skips them — and
-    §4.1: without rhythm mode tracks 9 and 10 are no channel at all."""
+    §4.1: without rhythm mode tracks 9 and 10 are no channel at all.  §10.2: a
+    WAV track plays, on a sample voice rather than the chip."""
     if song['tracks'][track]['mode'] == 0:
         return False
     return song['percussive'] or track not in (9, 10)
@@ -298,7 +378,10 @@ def track_role(song: dict, track: int) -> str:
     6…10 are the bass drum, snare, tom, cymbal and hi-hat, which the corpus
     confirms directly, and three of those are not oscillators at all.  §2: a
     mode-1 track is a four-operator channel, 'melodic4'; every other melodic
-    track is two operators, whatever instrument it selects."""
+    track is two operators, whatever instrument it selects.  §10.2: a mode-3
+    track is a sample voice, 'pcm'."""
+    if song['tracks'][track]['mode'] == SOP_MODE_WAV:
+        return 'pcm'
     if song['percussive'] and track in opl.RHYTHM_KIND:
         return opl.RHYTHM_KIND[track]
     return 'melodic4' if song['tracks'][track]['mode'] == 1 else 'melodic'
@@ -364,10 +447,15 @@ def default_instrument(song: dict):
 
 def collect_usage(song: dict, seq):
     """{(instrument index, role): set of chip notes} — what the song actually
-    plays, which is what the key banding is fitted to."""
+    plays, which is what the key banding is fitted to.  A sample is played at
+    any note and fitted to none, so a 'pcm' key collects the file's own note
+    numbers, and only for a slot that holds a sample (`pcm_of`)."""
     n_tracks = len(song['tracks'])
     fallback = default_instrument(song)
-    current = [fallback] * n_tracks
+    roles = [track_role(song, t) for t in range(n_tracks)]
+    # §10.6: a WAV track's voice holds no sample until one is selected; Note's
+    # default instrument is an FM one and means nothing to it.
+    current = [None if roles[t] == 'pcm' else fallback for t in range(n_tracks)]
     usage = {}
     for _tick, kind, track, a, _b in seq:
         if kind == PATCH:
@@ -376,21 +464,26 @@ def collect_usage(song: dict, seq):
             idx = current[track]
             if idx is None:
                 continue
-            usage.setdefault((idx, track_role(song, track)), set()).add(
+            if roles[track] == 'pcm':
+                if pcm_of(song, idx) is not None:
+                    usage.setdefault((idx, 'pcm'), set()).add(a)
+                continue
+            usage.setdefault((idx, roles[track]), set()).add(
                 max(0, min(CHIP_TOP_NOTE, a - opl.MIDI_TO_CHIP)))
     return usage, fallback
 
 
 # ── The event stream ─────────────────────────────────────────────────────────
 
-def sop_sequence(song: dict):
+def merged_events(song: dict):
     """Every track Note plays merged with the control track, as
-    (tick, kind, track, a, b).
+    (tick, track, event) with track −1 for the control track.
 
-    Inside one tick a track's own events keep file order, because a SOP sets the
-    instrument, the volume and the pitch of a note in the events just before
-    it — a stable sort on the tick alone is what preserves that."""
-    insts = song['instruments']
+    Inside one tick the control track comes first and a track's own events keep
+    file order, because a SOP sets the instrument, the volume and the pitch of a
+    note in the events just before it — a stable sort on the tick alone is what
+    preserves that.  It is the library's order too, which matters wherever two
+    events at one tick set the same thing."""
     merged = []
     for ev in song['control']:
         merged.append((ev['tick'], 0, -1, ev))
@@ -400,8 +493,13 @@ def sop_sequence(song: dict):
         for ev in track['events']:
             merged.append((ev['tick'], 1, t, ev))
     merged.sort(key=lambda m: (m[0], m[1]))
+    return [(tick, t, ev) for tick, _source, t, ev in merged]
 
-    for tick, _source, t, ev in merged:
+
+def sop_sequence(song: dict):
+    """The song as (tick, kind, track, a, b), in `merged_events` order."""
+    insts = song['instruments']
+    for tick, t, ev in merged_events(song):
         code, value = ev['code'], ev['value']
         if t < 0:
             # A control event at tick 0 is the song's opening state, and that
@@ -416,6 +514,17 @@ def sop_sequence(song: dict):
             elif code == 8:
                 yield (tick, GVOL, -1, value, 0)
             continue
+        # §4.3: a control-track code on a sequenced track.  Note's player takes
+        # its tempo from the control track alone, so a tempo here does nothing —
+        # `MUSIC1.SOP`'s track 0 asks for 161 under a control track's 157, and
+        # plays at 157 — but it honours a global volume wherever it finds one.
+        # A tick-0 one is the song's opening state, as on the control track.
+        if code == 3:
+            continue
+        if code == 8:
+            if tick > 0:
+                yield (tick, GVOL, -1, value, 0)
+            continue
         if code == 2:
             yield (tick, NOTE_ON, t, value, ev['length'])
         elif code == 4:
@@ -425,8 +534,12 @@ def sop_sequence(song: dict):
         elif code == 6:
             # §4.2: selecting a slot that holds no instrument — a comment line,
             # or past the end of the table — loads nothing in Note, so the
-            # instrument already on the track keeps sounding.
-            if value < len(insts) and sop_patch(insts[value]) is not None:
+            # instrument already on the track keeps sounding.  §10.6: a WAV
+            # track only records the slot, and one holding no sample silences
+            # its notes — every known WAV track selects FM slot 0 at tick 0 —
+            # so there every selection is passed on.
+            if song['tracks'][t]['mode'] == SOP_MODE_WAV or (
+                    value < len(insts) and sop_patch(insts[value]) is not None):
                 yield (tick, PATCH, t, value, 0)
         elif code == 7:
             yield (tick, PAN, t, value, 0)
@@ -488,6 +601,37 @@ def sop_note_word(chip_note: int, pitch: int = CENTRE_PITCH) -> int:
     return round(_C4_WORD + 4096 * math.log2(freq / _C4_FREQ))
 
 
+#: §10.6: the note at which a WAV track plays its sample at the recorded rate.
+#: The game's player looks a note up as the period `table[note − 12]` and plays
+#: at `rate × 1712 ÷ period`, and 1712 is note 24's entry.  The library's
+#: `SOP_SAMPLE_REFERENCE`.
+SAMPLE_REFERENCE_NOTE = 24
+#: Taud plays an instrument at its stored rate on C4, which is SOP note 60 (MIDI
+#: numbering, as on the FM tracks), so the sample instrument is detuned up by
+#: the three octaves between the two: note 24 then sounds the recording as it
+#: was made, and the grid still shows each note under its own name.
+SAMPLE_DETUNE = round((60 - SAMPLE_REFERENCE_NOTE) * 4096 / 12)
+
+
+def sample_cents(pitch: int) -> float:
+    """§10.6: a WAV track's pitch event, 0…200 about 100, as the game bends a
+    sample: `pitch >> 3` picks a row of its period table a twelfth of a semitone
+    from the next, and a semitone down, none or up — steps of 8⅓ cents, stopping
+    at a semitone either way.  The library's `sopSampleCents`."""
+    q = max(0, min(200, pitch)) >> 3
+    return (min(q, 24) - 12) * 100 / 12
+
+
+def sample_note_word(note: int, pitch: int = CENTRE_PITCH) -> int:
+    """A WAV-track note at a pitch, as a Taud note word.  §10.7: equal
+    temperament exactly, `rate × 2^((note − 24)/12)`, which is the library's
+    choice too — the game's period table is hand-rounded to within a fraction
+    of a percent of it — and notes outside the table's 12…71 keep their own
+    pitch rather than the nearest end's, which no known file plays."""
+    word = 0x5000 + (note - 60) * 4096 / 12 + sample_cents(pitch) * 4096 / 1200
+    return max(0x20, min(0xFFFF, round(word)))
+
+
 # ── Tempo ────────────────────────────────────────────────────────────────────
 
 #: The PC's programmable interval timer counts at this, in Hz.
@@ -507,6 +651,31 @@ def sop_tempo(bpm: int, tick_beat: int) -> float:
     divisor = 65536 if rate < 19 else PIT_HZ // rate
     per_tick = max(1, 240 // max(1, tick_beat))
     return (PIT_HZ / divisor) / per_tick * 60.0 / max(1, tick_beat)
+
+
+#: §10.8: the game's timer divisor — its one interrupt, about 35 Hz, and so the
+#: shortest tick it can play.
+GAME_TIMER_COUNTS = 0x851E
+
+
+def sop_game_tempo(bpm: int, tick_beat: int) -> float:
+    """§10.8: the tempo 개미맨's player, the one program known to read version
+    0.2, plays a SOP tempo of `bpm` at.  It counts the PIT's clock to the tick —
+    ⌊⌊60 × 1193182 ÷ tickBeat⌋ ÷ bpm⌋ counts, never fewer than one interrupt —
+    so the average is the tempo as written, where Note's makes 120 into 120.04.
+    0 means 120.  The library's `sopGameTempo` is the same arithmetic; neither
+    quantises events onto the game's 35 Hz interrupt."""
+    b, tb = bpm or 120, tick_beat or 4
+    counts = max((60 * PIT_HZ // tb) // b, GAME_TIMER_COUNTS)
+    return 60 * PIT_HZ / (counts * tb)
+
+
+def song_tempo(song: dict, bpm: int) -> float:
+    """The tempo the song's own player plays `bpm` at: the game's for version
+    0.2, Note's for 0.1."""
+    if is_v02(song):
+        return sop_game_tempo(bpm, song['tick_beat'])
+    return sop_tempo(bpm, song['tick_beat'])
 
 
 # ── Grid ─────────────────────────────────────────────────────────────────────
@@ -558,7 +727,7 @@ def tempo_effect(bpm: int):
 SOP_PAN_TO_TAUD = {0: 0xFF, 1: 0x80, 2: 0x00}
 
 
-def pan_value(value: int):
+def pan_value(value: int, centred: bool = False):
     """The Taud pan for a SOP pan value, or None for one that silences the lane.
 
     §4.2: NOTE.EXE writes any value but 0, 1 and 2 into register 0xC0 as it
@@ -566,8 +735,34 @@ def pan_value(value: int):
     does — so the channel is silent until the next pan event.  (It also ORs
     the value's low nibble into feedback and connection until the next
     instrument, which a Taud rack cannot follow.)  Five corpus events do it;
-    in `V_1.SOP` that is the whole of track 19."""
+    in `V_1.SOP` that is the whole of track 19.
+
+    §10.4: a version-0.2 pan (`centred`) is 0…127 about 64, and the game turns
+    it into the same three switch settings Note's 0, 1 and 2 are — below 64 is
+    0's, 64 is 1's, above 64 is 2's — so 54 is as hard to one side as 0 is.
+    Read as version 0.1 instead, every one of those 64s would silence its lane."""
+    if centred:
+        return 0xFF if value < 64 else 0x00 if value > 64 else 0x80
     return SOP_PAN_TO_TAUD.get(value)
+
+
+def sample_pan(value: int) -> int:
+    """§10.4: a WAV track's pan as a Taud lane pan.  The game mixes it as a
+    gradual balance and the OTHER way round from the FM tracks — below 64 is
+    louder on the left — and Taud's lane pan runs left to right through $80 too,
+    so it is the same scale doubled.  The two laws differ: the game keeps the
+    nearer side whole and shares the other out linearly, Taud spends equal
+    energy.  Every WAV-track pan in the four files is 64, where that difference
+    is the same 3 dB every centred FM lane is given too."""
+    return min(0xFF, max(0, min(127, value)) * 2)
+
+
+def sample_volume(value: int) -> int:
+    """§10.6: a WAV track's volume onto Taud's linear 0…63 axis.  The game
+    makes it `(v >> 1) + 1` of 64 and its mixer is linear in that, so 127 is
+    full, 96 is 2.3 dB down and 0 is 1/64 rather than silence.  The library's
+    `sopSampleGain`."""
+    return round(63 * ((max(0, min(127, value)) >> 1) + 1) / 64)
 
 
 # ── Cells ────────────────────────────────────────────────────────────────────
@@ -591,8 +786,8 @@ class Cell:
 
 #: Roles whose pitch the SOP's pitch events move: every melodic voice and the
 #: bass drum.  §4.2: in rhythm mode Note ignores pitch on the snare, tom,
-#: cymbal and hi-hat tracks.
-PITCH_ROLES = frozenset(('melodic', 'melodic4', 'bd'))
+#: cymbal and hi-hat tracks.  §10.6: the game bends a sample too.
+PITCH_ROLES = frozenset(('melodic', 'melodic4', 'bd', 'pcm'))
 #: Drums whose note number means nothing: the chip builds them out of bits of
 #: two accumulators.
 PITCHLESS_ROLES = frozenset(('sd', 'tc', 'hh'))
@@ -628,7 +823,9 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
     for row, kind, track, a, b in seq:
         rows_of_events.setdefault(row, []).append((kind, track, a, b))
 
-    patch = [fallback] * num_voices
+    roles = [track_role(song, v) for v in range(num_voices)]
+    # §10.6: a WAV track holds no sample until it selects one.
+    patch = [None if r == 'pcm' else fallback for r in roles]
     volume = [DEFAULT_VOLUME] * num_voices
     bend = [CENTRE_PITCH] * num_voices
     pan = [None] * num_voices
@@ -644,11 +841,13 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
     tempo_rows = {}
     gvol_rows = {}
     last_row = 0
-    roles = [track_role(song, v) for v in range(num_voices)]
+    centred = is_v02(song)
 
     def want_pitch(v):
         """The note word the lane's sounding note should be at now."""
         role = roles[v]
+        if role == 'pcm':
+            return sample_note_word(note[v], bend[v])
         return sop_note_word(note[v], bend[v] if role in PITCH_ROLES else CENTRE_PITCH)
 
     def retire(v, before_row):
@@ -666,8 +865,9 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
             return                                # cut short by the new note
         cell = cells.setdefault((v, row), Cell())
         # The release itself is the instrument's Volume Fadeout, not anything
-        # written here — see opl2taud.release_fadeout.
-        cell.note = NOTE_KEYOFF
+        # written here — see opl2taud.release_fadeout.  §10.6: a WAV track's
+        # note-off stops its voice outright, and a sample has no release.
+        cell.note = NOTE_CUT if roles[v] == 'pcm' else NOTE_KEYOFF
         sounding[v] = False
         last_row = max(last_row, row)
 
@@ -699,7 +899,7 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
                 bend[track] = a
                 bend_changed[track] = True
             elif kind == PAN:
-                p = pan_value(a)
+                p = sample_pan(a) if roles[track] == 'pcm' else pan_value(a, centred)
                 if (p is None) != muted[track]:
                     muted[track] = p is None
                     vol_changed[track] = True
@@ -707,7 +907,10 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
                     pan[track] = p
                 pan_changed[track] = True
             elif kind == NOTE_ON:
-                trigger[track] = (max(0, a - opl.MIDI_TO_CHIP), patch[track], b)
+                # A sample is played at the file's own note number (§10.6); a
+                # chip note is the driver's, twelve below.
+                n = a if roles[track] == 'pcm' else max(0, a - opl.MIDI_TO_CHIP)
+                trigger[track] = (n, patch[track], b)
 
         for v in range(num_voices):
             role = roles[v]
@@ -758,7 +961,8 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
                 retire(v, row)
 
             level = level_of.get((patch[v], role), 0)
-            vol = 0 if muted[v] else volume_column(volume[v], level)
+            vol = (0 if muted[v] else sample_volume(volume[v]) if role == 'pcm'
+                   else volume_column(volume[v], level))
             if vol_changed[v] or (trigger[v] is not None and not slur):
                 if written_vol[v] != vol or trigger[v] is not None:
                     cell.vol_sel = SEL_SET
@@ -817,7 +1021,7 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices):
         writes = []
         if row in tempo_rows:
             new_speed, new_bpm = speed_bpm_for(
-                row_seconds(song, sop_tempo(tempo_rows[row], song['tick_beat'])))
+                row_seconds(song, song_tempo(song, tempo_rows[row])))
             if new_speed != cur_speed:
                 writes.append((TOP_A, (new_speed & 0xFF) << 8))
             if new_bpm != cur_bpm:
@@ -906,22 +1110,26 @@ def initial_tempo(song: dict) -> float:
     reads it back, and starts every song at 120.  The control track sets
     anything else.  A tempo already in force at tick 0 belongs in the song header
     rather than in a cell, so it is taken out of the stream here.  What comes
-    back is what Note's timer makes of it (`sop_tempo`)."""
+    back is what Note's timer makes of it (`sop_tempo`) — or, for version 0.2,
+    the game's (`sop_game_tempo`), which also starts at 120."""
     tempo = NOTE_START_TEMPO
     for ev in song['control']:
         if ev['tick'] > 0:
             break
         if ev['code'] == 3:
             tempo = ev['value']               # a later one at tick 0 still wins
-    return sop_tempo(tempo, song['tick_beat'])
+    return song_tempo(song, tempo)
 
 
 def initial_global_volume(song: dict) -> int:
     """§5: the first control event is a global volume at tick 0 in 228 files.
-    Like the tempo, one already in force belongs in the song header."""
+    Like the tempo, one already in force belongs in the song header.  §4.3: a
+    global volume counts on whichever track Note plays it from, so a sequenced
+    track's at tick 0 is in force too, and the last of them in `merged_events`
+    order — the control track's first — is the one that holds."""
     vol = 0xFF
-    for ev in song['control']:
-        if ev['tick'] > 0:
+    for tick, _t, ev in merged_events(song):
+        if tick > 0:
             break
         if ev['code'] == 8:
             vol = global_volume(ev['value'])
@@ -950,6 +1158,16 @@ def assemble_taud(song, *, mixing_vol=DEFAULT_MIXING_VOL, max_bands=4,
     for key in sorted(usage):
         idx, role = key
         inst = song['instruments'][idx] if idx < len(song['instruments']) else None
+        if role == 'pcm':
+            # §10.3: a recorded sample, played as recorded on note 24.  The
+            # game's loader turns signed bytes into unsigned with an XOR, and so
+            # does this.  `collect_usage` keeps only slots that hold one.
+            pcm = inst['pcm']
+            entries.append({'kind': 'pcm', 'name': inst['short_name'] or f'inst {idx}',
+                            'sample': {'data': bytes(b ^ 0x80 for b in pcm['samples']),
+                                       'rate': pcm['rate'], 'detune': SAMPLE_DETUNE}})
+            keys.append(key)
+            continue
         patch = patch_for(inst, role)
         if patch is None and idx not in silent:
             # `sop_sequence` has already dropped selections of empty slots
@@ -972,10 +1190,12 @@ def assemble_taud(song, *, mixing_vol=DEFAULT_MIXING_VOL, max_bands=4,
     bank = opl.build_bank(entries, bpm=bpm, max_bands=max_bands,
                           feedback_scale=feedback_scale)
     slot_of = dict(zip(keys, bank['slots']))
-    level_of = {k: output_level(e['patch'], e['kind'])
+    level_of = {k: output_level(e.get('patch'), e['kind'])
                 for k, e in zip(keys, entries)}
-    wide = sum(1 for e in entries if e['patch'] and e['patch'].pair)
-    vprint(f"  instruments: {len(entries)} racks ({wide} four-operator), "
+    wide = sum(1 for e in entries if e.get('patch') and e['patch'].pair)
+    recorded = sum(1 for e in entries if e.get('sample'))
+    vprint(f"  instruments: {len(entries) - recorded} racks ({wide} four-operator), "
+           f"{recorded} recorded samples, "
            f"{sum(1 for n in bank['instrument_names'][opl.AUX_BASE:] if n)} operators, "
            f"{bank['pool_bytes']} bytes of samples")
 

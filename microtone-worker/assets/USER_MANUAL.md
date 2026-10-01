@@ -63,7 +63,7 @@ and the editor snaps entry, display and stepping to that table's degrees. See
 
 ### Opening and creating projects
 
-- **Drop a file anywhere** on the window, or use **Open…** in the top bar. `.taud` (full project) is the native format of the Microtone. Tracker modules (`.mod`, `.s3m`, `.xm`, `.it`, `.mon`) and AdLib songs (`.ims`, `.sop`) are converted on the fly.
+- **Drop a file anywhere** on the window, or use **Open…** in the top bar. `.taud` (full project) is the native format of the Microtone. Tracker modules (`.mod`, `.s3m`, `.xm`, `.it`, `.mon`) and AdLib songs (`.ims`, `.sop`, and `.imac` from The IMS Archive) are converted on the fly.
 - **Import MIDI…** converts a `.mid` file through a SoundFont — see [Importing music](#importing-music).
 - **New…** opens the New Project wizard, which collects every song setting before the blank project is built:
   - **Tempo** — BPM (25–535) and speed (ticks per row, 1–127), with a live *blinkenlights* strip previewing the feel of that tempo.
@@ -2355,6 +2355,20 @@ twenty parts rather than eleven, **stereo panning** per part, and instruments
 that may be **four operators** rather than two — all of which survive, because a
 Taud lane count, panning axis and FM Rack are each wide enough to take them. Its
 scrolling credits arrive as the **project message** on the Project tab.
+
+A handful of `.sop` files are **version 0.2**, the music of the game *개미맨*:
+four more parts that play **recorded samples** — explosions and effects carried
+inside the song — beside the twenty FM ones. They arrive as four more lanes
+playing ordinary sample instruments, as the game played them: the note C-1 sounds
+the recording as it was made, a sample stops when its note ends, and selecting an
+instrument that is not a sample silences the part until one is selected again.
+
+`.imac` files come from **The IMS Archive**, where one file is one song with
+every variant of it that was found — a revision, a slightly different copy,
+another person's arrangement — each with the bank and lyrics it travelled with.
+Open one and Microtone lists the `.ims` and `.sop` songs inside; pick one and it
+is converted as above, with its own variant's bank. A variant that holds only a
+`.rol`, `.kis` or `.ong` is not offered, as there is nothing to convert it with.
 
 The conversion sets its own tempo and speed: the row grid comes from the song's
 own timing, and the tick is made as short as the tempo register allows, because

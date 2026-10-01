@@ -10,6 +10,7 @@ import { onAuthChange } from "../../storage/online.js";
 import { OnlineSection } from "./filesonline.js";
 import { pickFile, download, downloadBlob } from "../../storage/import-export.js";
 import { converterFor, CONVERT_ACCEPT } from "../../convert/convert.js";
+import { isImac } from "../../convert/imac.js";
 import { showModal } from "../widgets/modal.js";
 import { renderToWavAsync } from "../../audio/offline-render.js";
 import {
@@ -224,8 +225,11 @@ export class FilesView {
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     // Foreign formats are converted by openBytes → the user saves the RESULT;
-    // only native containers land in OPFS verbatim.
-    if (!converterFor(file.name) && await opfs.available()) await opfs.write(file.name, bytes);
+    // only native containers land in OPFS verbatim. An IMAC is foreign too —
+    // the song chosen from inside it is what gets converted.
+    if (!converterFor(file.name) && !isImac(bytes) && await opfs.available()) {
+      await opfs.write(file.name, bytes);
+    }
     await this.cb.openBytes(file.name, bytes);
     this.refresh();
   }

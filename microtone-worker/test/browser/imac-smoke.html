@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>IMAC import smoke: pick a variant, convert it, a version-0.2 SOP among them</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- Pyodide-in-a-worker: run in REAL time (tools/browser-smoke.js), as
+       convert-smoke.html explains. The /hang image keeps `load` pending. -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html" style="width:1200px;height:700px"></iframe>
+  <script type="module">
+    import { SOP_SONG_V02 } from "../fixtures/sop.js";
+    import { IMS_SONG, IMS_BANK } from "../fixtures/ims.js";
+
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const waitFor = (fn, ms = 60000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 50);
+    });
+
+    // An IMAC as The IMS Archive writes one (src/convert/imac.js has the layout).
+    const enc = new TextEncoder();
+    const chunk = (id, body) => {
+      const o = new Uint8Array(8 + body.length + (body.length & 1));
+      o.set(enc.encode(id), 0);
+      new DataView(o.buffer).setUint32(4, body.length, true);
+      o.set(body, 8);
+      return o;
+    };
+    const cat = (parts) => {
+      const o = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+      let at = 0;
+      for (const p of parts) { o.set(p, at); at += p.length; }
+      return o;
+    };
+    const makeImac = (variants) => chunk("RIFF", cat([enc.encode("IMAC"),
+      chunk("modT", new Uint8Array(8)), chunk("creT", new Uint8Array(8)),
+      ...variants.map((v, i) => chunk(`V${String(i).padStart(3, "0")}`, cat([
+        ...Object.entries(v.files).map(([id, b]) => chunk(id, b)),
+        chunk("META", enc.encode(JSON.stringify(v.meta))),
+      ])))]));
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => frame.contentWindow?.__microtone ? frame.contentWindow : null);
+        const { store, loadBytes } = win.__microtone;
+        log("app booted");
+
+        const IMAC = makeImac([
+          { files: { "SOP ": SOP_SONG_V02 },
+            meta: { files: { sop_filename: "V02.SOP" }, metadata: { songname: "version 0.2" } } },
+          { files: { "IMS ": IMS_SONG, "BNK ": IMS_BANK },
+            meta: { files: { ims_filename: "FIX.IMS", bnk_filename: "FIX.BNK" }, metadata: { songname: "fixture" } } },
+        ]);
+
+        // ── The picker lists both, and the first is the version-0.2 SOP ──
+        const p1 = loadBytes("SONG-c0ffee.imac", IMAC);
+        const dlg1 = await waitFor(() => win.document.querySelector("dialog.modal"));
+        const opts = [...dlg1.querySelectorAll("select option")].map((o) => o.textContent);
+        log(`picker offers ${opts.length}: ${opts.join(" | ")} → ${opts.length === 2 && /V02\.sop/.test(opts[0]) && /FIX\.ims/.test(opts[1]) ? "ok" : "FAIL"}`);
+        dlg1.querySelector("select").value = "0";
+        dlg1.querySelector(".modal-buttons button").click();
+        await p1;
+        const song = store.doc?.songs[0];
+        const sample = store.doc?.instruments.find((i) => i && !i.isMeta && i.sampleDetune === 3 * 4096);
+        const sopOk = store.fileName === "V02.taud" && song?.numVoices === 21 && !!sample;
+        log(`v0.2 sop from the imac: ${store.fileName}, lanes ${song?.numVoices}, sample ${sample ? sample.samplingRate + " Hz" : "none"} → ${sopOk ? "ok" : "FAIL"}`);
+
+        // ── The second, an .ims with the bank of its own variant ──
+        store.doc.dirty = false;            // skip the discard confirm
+        const p2 = loadBytes("SONG-c0ffee.imac", IMAC);
+        const dlg2 = await waitFor(() => win.document.querySelector("dialog.modal"));
+        dlg2.querySelector("select").value = "1";
+        dlg2.querySelector(".modal-buttons button").click();
+        await p2;
+        const racks = store.doc.instruments.filter((i) => i && i.isMeta && i.metaType === 4).length;
+        const imsOk = store.fileName === "FIX.taud" && racks > 0;
+        log(`ims from the imac: ${store.fileName}, ${racks} FM racks → ${imsOk ? "ok" : "FAIL"}`);
+
+        // ── Nothing importable: said so, and the open song stays ──
+        const rolOnly = makeImac([{ files: { "ROL ": new Uint8Array(4) }, meta: { files: {} } }]);
+        await loadBytes("ROL-only.imac", rolOnly);
+        const status = win.document.getElementById("stFile").textContent;
+        const noneOk = store.fileName === "FIX.taud" && /ROL-only\.imac/.test(status);
+        log(`rol-only imac: "${status}" → ${noneOk ? "ok" : "FAIL"}`);
+
+        log(`FAILURES: ${out.filter((l) => l.endsWith("FAIL")).length}`);
+      } catch (err) {
+        log("ERROR: " + err.message + "\n" + err.stack);
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+</body>
+</html>

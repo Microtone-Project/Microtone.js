@@ -60,11 +60,11 @@ function trackBytes(events) {
  * take them: channel modes, instruments, the tracks, the control track.
  */
 export function makeSop({ title = "", percussive = false, tickBeat = 8,
-                          beatMeasure = 4, tempo = 120, modes = null,
+                          beatMeasure = 4, tempo = 120, modes = null, minor = 1,
                           instruments, tracks, control = [] }) {
   const head = new Uint8Array(76);
   head.set(field("sopepos", 7), 0);
-  head[8] = 1;                                     // version 0.1, and only 0.1
+  head[8] = minor;                                 // version 0.1, or 0.2 (§10)
   head.set(field("FIXTURE.SOP", 13), 10);
   head.set(title instanceof Uint8Array ? title.subarray(0, 31) : field(title, 31), 23);
   head[54] = percussive ? 1 : 0;
@@ -240,3 +240,85 @@ export const SOP_SONG_VIB = makeSop({
   ],
   control: [{ delta: 0, code: 3, value: 120 }],
 });
+
+/**
+ * One version-0.2 PCM instrument's bytes after its names (§10.3): a 19-byte head
+ * and then the samples themselves, signed 8-bit, inline. The head is the
+ * samples' file offset — left 0 here, since no reader consults it — their
+ * length, the rate as an NTSC period, the rate itself, and five bytes the game
+ * keeps or ignores, written as the four known files have them.
+ */
+export function sopPcm(samples, rate) {
+  const head = new Uint8Array(19);
+  const dv = new DataView(head.buffer);
+  dv.setUint16(4, samples.length, true);
+  dv.setUint16(6, Math.floor(3579545 / rate), true);
+  dv.setUint16(8, rate, true);
+  head[10] = 64;
+  return [...head, ...samples.map((v) => v & 0xff)];
+}
+
+/** A tenth of a second of a full-height square wave at 11 025 Hz. */
+export const SOP_BLIP = Array.from({ length: 1103 }, (_, i) => (i % 50 < 25 ? 120 : -120));
+
+/**
+ * Version 0.2 (§10): twenty-four tracks, the last four WAV tracks (mode 3) that
+ * play samples carried in the instrument table, and pans about 64.
+ *
+ * Track 20 does what every known WAV track does first — select FM slot 0 —
+ * and strikes a note there, which the game plays as SILENCE: a WAV track
+ * sounds only a slot that holds a sample (§10.6). Then it selects the sample
+ * and plays note 24, which is the sample as recorded, cut after four ticks,
+ * and an octave up. Track 0 is an ordinary FM lead panned 64, which version
+ * 0.1 would read as an invalid value and silence, and version 0.2 reads as
+ * the centre (§10.4).
+ */
+export const SOP_SONG_V02 = makeSop({
+  title: "SOP V02",
+  minor: 2,
+  modes: [...Array.from({ length: 20 }, () => 2), 3, 3, 3, 3],
+  instruments: [
+    { type: 1, shortName: "LEAD", data: sopPair({ ...LOUD, tl: 20 }, { ...LOUD }) },
+    { type: 11, shortName: "BLIP", longName: "BLIP\0WAV", data: sopPcm(SOP_BLIP, 11025) },
+  ],
+  tracks: [
+    [{ delta: 0, code: 7, value: 64 },
+     { delta: 0, code: 6, value: 0 },
+     { delta: 0, code: 4, value: 127 },
+     { delta: 0, code: 2, value: 60, length: 16 }],
+    ...EMPTY_TRACKS(19),
+    [{ delta: 0, code: 7, value: 64 },
+     { delta: 0, code: 6, value: 0 },             // an FM slot: the note is silent
+     { delta: 0, code: 5, value: 100 },
+     { delta: 0, code: 4, value: 127 },
+     { delta: 0, code: 2, value: 24, length: 4 },
+     { delta: 8, code: 6, value: 1 },             // the sample
+     { delta: 0, code: 2, value: 24, length: 4 },
+     { delta: 8, code: 2, value: 36, length: 32 }],
+    [], [], [],
+  ],
+  control: [{ delta: 0, code: 3, value: 120 }],
+});
+
+/**
+ * §4.3: control-track codes on a sequenced track, as `MUSIC1.SOP` has one —
+ * a tempo of 161 on track 0 under a control track's 157. Note reads every code
+ * 1…8 on every track; its player takes tempo from the control track alone and
+ * honours a global volume wherever it finds one. `stray: false` is the same
+ * song without the two, for comparison.
+ */
+export function sopStray({ stray = true } = {}) {
+  return makeSop({
+    title: "SOP STRAY",
+    instruments: [{ type: 1, shortName: "LEAD", data: sopPair({ ...LOUD, tl: 20 }, { ...LOUD }) }],
+    tracks: [
+      [{ delta: 0, code: 6, value: 0 },
+       ...(stray ? [{ delta: 0, code: 3, value: 161 }] : []),
+       { delta: 0, code: 2, value: 60, length: 16 },
+       ...(stray ? [{ delta: 16, code: 8, value: 64 }] : []),
+       { delta: stray ? 0 : 16, code: 2, value: 64, length: 16 }],
+      ...EMPTY_TRACKS(NTRACKS - 1),
+    ],
+    control: [{ delta: 0, code: 3, value: 157 }],
+  });
+}
