@@ -10,8 +10,8 @@
 // order written on it: the point of B-format is precisely that the speakers are
 // the listener's problem, not the file's.
 
-import { SPEAKER_LAYOUTS, speakerAzimuth } from "../engine/speakers.js";
-import { AZIMUTH_TURN } from "../engine/spatial.js";
+import { SPEAKER_LAYOUTS, speakerAzimuth } from "../../core/engine/speakers.js";
+import { AZIMUTH_TURN } from "../../core/engine/spatial.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 

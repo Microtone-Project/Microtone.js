@@ -16,7 +16,7 @@ import { importBankOp } from "../../doc/ops.js";
 import { largestFreeRun } from "../../doc/sampleregions.js";
 import { sampleSpans } from "../../doc/document.js";
 import { showModal } from "../widgets/modal.js";
-import { escapeNonAscii } from "../names.js";
+import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 
 const ACCEPT = ".wav,.mp3,.ogg,.oga,.flac,.aif,.aiff,.m4a,audio/*";

@@ -15,18 +15,18 @@
 import { setInstPatchesOp } from "../../doc/ops.js";
 import {
   writePatchesBlob, makeInstPatch, patchVibratoInherits, baseStereoPatchIndex,
-} from "../../engine/inst.js";
-import { TOTAL_VOICES } from "../../engine/constants.js";
+} from "../../../core/engine/inst.js";
+import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { encodeNameTable } from "../../doc/cleanup.js";
-import { envPresent, envCarry } from "../../engine/envelope.js";
-import { minifloatToDouble, minifloatFromDouble } from "../../engine/minifloat.js";
+import { envPresent, envCarry } from "../../../core/engine/envelope.js";
+import { minifloatToDouble, minifloatFromDouble } from "../../../core/engine/minifloat.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
 } from "../../doc/envedit.js";
-import { META_MIX_GAIN } from "../../engine/tables.js";
+import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { noteToStr, rangeToStr, hex4 } from "../notenames.js";
 import { themeColors } from "../theme.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import {
   annFadeout, annFilter, annSfCutoff, annSfReso, SEG_MINIFLOAT_MAP,
 } from "../units.js";

@@ -30,7 +30,7 @@ import { setSectionOp } from "../../doc/ops.js";
 import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
 import { paintNoteCell } from "../glyphs.js";
-import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol } from "../pitchtables.js";
+import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol } from "../../../core/tuning/pitchtables.js";
 import {
   NOTA_SLOTS, notationValueForSlot, buildNotaPayload, parseTaudnot, buildTaudnot,
   parseScl, sclToDef, centsToUnits, unitsToCents, autoAssignSyms, defToPreset,

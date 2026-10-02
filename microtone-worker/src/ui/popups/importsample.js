@@ -9,7 +9,7 @@ import { decodeAudioToFloat } from "../audiodecode.js";
 import { planExistingSampleAsInstrument } from "../../doc/bankmerge.js";
 import { importBankOp } from "../../doc/ops.js";
 import { showModal } from "../widgets/modal.js";
-import { escapeNonAscii, unescapeName } from "../names.js";
+import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 
 const ACCEPT = ".wav,.mp3,.ogg,.oga,.flac,.aif,.aiff,.m4a,audio/*";

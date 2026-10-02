@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud, v1CueToWords, cueInstructionWords } from "../../src/format/taud-parse.js";
-import { writeTaud } from "../../src/format/taud-write.js";
-import { SAMPLEINST_SIZE, CUE_EMPTY } from "../../src/format/taud-const.js";
+import { parseTaud, v1CueToWords, cueInstructionWords } from "../../core/format/taud-parse.js";
+import { writeTaud } from "../../core/format/taud-write.js";
+import { SAMPLEINST_SIZE, CUE_EMPTY } from "../../core/format/taud-const.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const corpusFiles = (await readdir(corpusDir)).filter((f) => f.endsWith(".taud")).sort();

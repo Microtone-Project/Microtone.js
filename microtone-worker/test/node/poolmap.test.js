@@ -9,13 +9,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { poolMap, claimsIn, POOL_SIZE } from "../../src/doc/poolmap.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document, sampleSpans } from "../../src/doc/document.js";
 import { planDeleteSample } from "../../src/doc/cleanup.js";
 import { planDuplicateSample } from "../../src/doc/bankmerge.js";
 import { importBankOp, cleanupBankOp } from "../../src/doc/ops.js";
 import { UndoStack } from "../../src/doc/undo.js";
-import { SAMPLEBIN_SIZE } from "../../src/format/taud-const.js";
+import { SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const load = (f) => new Document(parseTaud(readFileSync(corpusDir + f)));

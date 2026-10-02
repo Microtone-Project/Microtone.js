@@ -10,7 +10,7 @@ import {
   insertChannelOp, channelHasContent, setCuesOp, createPatternOp, compositeOp,
   deletePatternOp,
 } from "../doc/ops.js";
-import { CUE_EMPTY, MAX_VOICES } from "../format/taud-const.js";
+import { CUE_EMPTY, MAX_VOICES } from "../../core/format/taud-const.js";
 import { clientPoint } from "./zoom.js";
 
 // A cue word is `pattern (15 bits) | command bit`, and bit 15 belongs to the

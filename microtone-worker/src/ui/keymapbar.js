@@ -26,7 +26,7 @@
 
 import { t } from "./i18n.js";
 import { themeColors, onThemeChange } from "./theme.js";
-import { pitchTablePresets } from "./pitchtables.js";
+import { pitchTablePresets } from "../../core/tuning/pitchtables.js";
 import { paintKeymapBoard, boardExtent, BOARD_SIZES } from "./keymapboard.js";
 import { DEFAULT_KEYMAP } from "./keymap.js";
 import { TRANSPOSE_MAX, OCTAVE_MIN, OCTAVE_MAX } from "./jam.js";

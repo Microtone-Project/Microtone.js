@@ -14,18 +14,18 @@ import { fileURLToPath } from "node:url";
 import {
   BinauralRenderer, binauralChannelList, binauralHrirTable,
   MONITOR_FOLD, MONITOR_BINAURAL,
-} from "../../src/engine/binaural.js";
+} from "../../core/engine/binaural.js";
 import {
   HRIR_ORDER, HRIR_CHANNELS, HRIR_LENGTH, HRIR_RATE, decodeShHrir,
-} from "../../src/engine/hrir-sadie.js";
+} from "../../core/engine/hrir-sadie.js";
 import {
   StereoRenderer, encodeSN3D, SURROUND_PLANAR, SURROUND_SPATIAL,
-} from "../../src/engine/spatial.js";
-import { SAMPLING_RATE } from "../../src/engine/constants.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+} from "../../core/engine/spatial.js";
+import { SAMPLING_RATE } from "../../core/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
-import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
+import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
 
 /** The head's own impulse response for a source at (az, el): [L, R]. */
 function headIR(r, az, el, frames = 512) {
@@ -150,7 +150,7 @@ test("the HRIR module decodes to the set it advertises", () => {
 
   // The base64 decoder is hand-rolled (AudioWorkletGlobalScope has no atob),
   // so check it against the platform's, on the real payload.
-  const src = readFileSync(fileURLToPath(new URL("../../src/engine/hrir-sadie.js", import.meta.url)), "utf8");
+  const src = readFileSync(fileURLToPath(new URL("../../core/engine/hrir-sadie.js", import.meta.url)), "utf8");
   const b64 = [...src.matchAll(/^ {2}"([A-Za-z0-9+/=]+)",$/gm)].map((m) => m[1]).join("");
   assert.ok(b64.length > 0, "no payload found in hrir-sadie.js");
   const bytes = Buffer.from(b64, "base64");

@@ -3,8 +3,8 @@
 // semitone = 4096/12 ≈ 341.33 units; notes off the 12-EDO grid get a cents
 // marker (microtonal pitch-table content).
 
-import { MIDDLE_C } from "../engine/constants.js";
-import { EffectOp, EXT_CAPABLE_OPS } from "../engine/tables.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
+import { EffectOp, EXT_CAPABLE_OPS } from "../../core/engine/tables.js";
 import { volPanOp, volPanArg } from "./edit.js";
 import { t } from "./i18n.js";
 
@@ -188,7 +188,7 @@ export function fxOpChar(effect) {
  * all three, because there the `:` is not an extension at all — it is the
  * interrupt's argument, and the format says the FIRST one wins whichever slot
  * it sits in ([Note Effects](../../assets/TAUD_NOTE_EFFECTS.md), engine side
- * `src/engine/row.js` interruptArgOf). So on such a row the winning `:` is
+ * `core/engine/row.js` interruptArgOf). So on such a row the winning `:` is
  * doing its job and never flags, whatever shares the row with it; only a
  * SECOND `:` behind it does, since that one is read by nobody.
  *

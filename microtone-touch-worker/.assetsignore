@@ -1,0 +1,8 @@
+# Files here that are not part of the published site (tools/stage-site.js
+# applies this list, the same syntax as microtone-worker/.assetsignore).
+test/
+node_modules/
+package.json
+.dev.vars*
+.wrangler/
+README.md

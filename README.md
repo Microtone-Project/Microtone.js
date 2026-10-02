@@ -142,23 +142,39 @@ against each other gives you contextual scoring for the cost of one file.
 
 # For developers
 
-Two halves live here:
+Four parts live here:
 
-- **Taud engine** (`src/engine/`) — the reference implementation of the Taud
-  engine (TSVM's `AudioAdapter.kt` follows it), running in a render Worker or
-  an AudioWorklet. Pure computation, no DOM/Web Audio imports, so the same code
-  runs headlessly under Node, where a golden gate pins its renders bit for bit.
-- **Microtone tracker** (`src/ui/`) — a native web rewrite of the tracker UI
-  (the TSVM `taut.js` is the behavioural reference).
+- **`core/`** — what every Microtone app shares. Above all the **Taud engine**
+  (`core/engine/`), the reference implementation of the Taud engine (TSVM's
+  `AudioAdapter.kt` follows it), running in a render Worker or an AudioWorklet.
+  Pure computation, no DOM/Web Audio imports, so the same code runs headlessly
+  under Node, where a golden gate pins its renders bit for bit. Beside it: the
+  file format, the live audio system, offline rendering, the pitch tables and
+  the online-projects client.
+- **`microtone-worker/`** — the Microtone tracker, a native web rewrite of the
+  tracker UI (the TSVM `taut.js` is the behavioural reference), and the
+  microtone.cc site it is served as.
+- **`microtone-touch-worker/`** — Microtone Touch, a phone sketchpad built
+  around an isomorphic keyboard (a prototype), with its own version number.
+- **`desktop/`** — the tracker as a desktop application.
+
+Each web app reaches `core/` through a committed `core → ../core` symlink, so
+either one runs straight from its own directory with no build step. What ships
+is a staged copy with the link replaced by the files (`tools/stage-site.js`,
+run by the Cloudflare deploy and the desktop build alike).
 
 ## Running locally
 
 No build step. Serve the directory with any static file server:
 
 ```sh
+cd microtone-worker
 npm run serve            # python3 -m http.server 8737
 # then open http://localhost:8737/            (tracker)
 #           http://localhost:8737/player.html (minimal player)
+
+cd microtone-touch-worker
+npm run serve            # python3 -m http.server 8738 — Microtone Touch
 ```
 
 ## Desktop app
@@ -173,7 +189,8 @@ shell does for the page are in [`desktop/README.md`](desktop/README.md).
 Requires Node ≥ 22.
 
 ```sh
-node --test        # discovers test/node/*.test.js and test/taudplay/*.test.js
+cd microtone-worker && node --test        # test/node/*.test.js and test/taudplay/*.test.js
+cd microtone-touch-worker && node --test  # Touch's own suite
 ```
 
 Browser smoke pages under `test/browser/` are driven headlessly over CDP:
@@ -193,13 +210,14 @@ node tools/compare-pcm.js out.pcm reference.pcm
 ## Online projects (server)
 
 The File tab can keep a few working projects with a person's SceneID account.
-microtone.cc is the Cloudflare Worker `microtone`: this directory is published
-as static files, and the Worker's code (`server/worker.js`) runs only for a
-request no file matches — the API under `/api/online`, handled by
-`server/online/`, which keeps the index in D1 (`migrations/`) and the bytes in
-R2. Its configuration is `wrangler.toml` at the repository root, the one file
-that lives outside this directory, because the build deploys from there; the
-server code and schema stay out of the published files through `.assetsignore`.
+microtone.cc is the Cloudflare Worker `microtone`: `microtone-worker/` and the
+`core/` it links to are published as static files, and the Worker's code
+(`server/worker.js`) runs only for a request no file matches — the API under
+`/api/online`, handled by `server/online/`, which keeps the index in D1
+(`migrations/`) and the bytes in R2. Its configuration is `wrangler.toml` at the
+repository root, because the build deploys from there; its `[build]` step stages
+the site into `build/microtone-worker`, which is what is uploaded, and the server
+code and schema stay out of the published files through `.assetsignore`.
 There are no R2 or D1 keys anywhere, because a binding is the permission.
 Sign-in is [SceneID](https://id.scene.org/docs/) OAuth
 (`server/online/sceneid.js`); its client id and secret are Worker secrets
@@ -248,19 +266,23 @@ exactly that.
 
 ## Layout
 
+Paths in `microtone-worker/`, and the `core/` beside it:
+
 | Path | Contents |
 |---|---|
-| `src/engine/` | Taud engine port (worklet- and Node-safe, no imports outside itself) |
-| `src/format/` | .taud/.tsii/.tpif parser + serialiser (gzip/zstd via `vendor/`) |
-| `src/worklet/` | AudioWorkletProcessor + message protocol |
+| `../core/engine/` | Taud engine port (worklet- and Node-safe, no imports outside itself) |
+| `../core/format/` | .taud/.tsii/.tpif parser + serialiser (gzip/zstd via `core/vendor/`) |
+| `../core/worklet/` | AudioWorkletProcessor + message protocol |
+| `../core/audio/` | the live audio system (context lifecycle, snapshots) and offline rendering |
+| `../core/tuning/` | the pitch tables every notation is drawn from |
 | `src/taudplay/` | the standalone player library (see above) |
-| `src/audio/` | main-thread audio system (context lifecycle, snapshots) |
+| `src/audio/` | stem, surround and mastering-analysis exports |
 | `src/doc/` | canonical document model, invertible ops, undo, worklet sync |
 | `src/ui/` | tracker application (vanilla ES modules, canvas + DOM) |
-| `src/storage/` | OPFS virtual disk, import/export, online projects client |
+| `src/storage/` | OPFS virtual disk, import/export (the online projects client is `../core/storage/`) |
 | `server/` | the microtone Worker: the online projects API (not published — `.assetsignore`) |
 | `migrations/` | its D1 schema |
-| `vendor/` | vendored single-file ESM deps (see `vendor/VENDOR-VERSIONS.md`) |
+| `vendor/` | the import runtime and converters (see `vendor/VENDOR-VERSIONS.md`) |
 | `test/corpus/` | .taud conformance/demo corpus (from the TSVM repo) |
 | `test/fixtures/` | file formats built rather than committed (the .ims/.bnk pair) |
 | `tools/` | Node CLIs: render, compare, inspect, worklet-bundle, taudplay, browser tests |

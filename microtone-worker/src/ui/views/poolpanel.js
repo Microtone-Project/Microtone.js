@@ -16,9 +16,9 @@
 // A live tick per sounding voice rides on top while the song plays.
 
 import { themeColors, pickInk } from "../theme.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import { poolMap, claimsIn, POOL_SIZE } from "../../doc/poolmap.js";
-import { TOTAL_VOICES } from "../../engine/constants.js";
+import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
 

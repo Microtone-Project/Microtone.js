@@ -2,11 +2,11 @@
 // export), editing dispatch (record mode, jam keyboard, undo/redo), Timeline
 // + Cues + Files views. Samples/Instruments/Project views come with M7.
 
-import { parseTaud } from "../format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document, combineTpif } from "../doc/document.js";
 import { DocSync } from "../doc/sync.js";
 import { UndoStack } from "../doc/undo.js";
-import { AudioSystem } from "../audio/audio-system.js";
+import { AudioSystem } from "../../core/audio/audio-system.js";
 import { createProfileOverlay } from "./profileoverlay.js";
 import { Store } from "./store.js";
 import { TimelineView } from "./views/timeline.js";
@@ -44,7 +44,7 @@ import { fetchDemo } from "./demos.js";
 import { getSoundfont, getBundledSoundfont, pickUserSoundfont } from "./soundfont.js";
 import { resolveBanks, rememberBank } from "./adlibbank.js";
 import { decodeHandoff, handoffArmed } from "./handoff.js";
-import { presetForNotation } from "./pitchtables.js";
+import { presetForNotation } from "../../core/tuning/pitchtables.js";
 import { keymapClaimsZRow } from "./keymap.js";
 import { KeymapLibrary } from "./keymaplib.js";
 import { KeymapBar } from "./keymapbar.js";
@@ -53,7 +53,7 @@ import {
   initZoom, onZoomChange, zoomStep, resetZoom, zoomLabel, canZoomIn, canZoomOut,
 } from "./zoom.js";
 import { initI18n, applyDom, t, LANGS, changeLang, onLangChange, currentLang } from "./i18n.js";
-import { escapeNonAscii, unescapeName } from "./names.js";
+import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./widgets/spinner.js";
 

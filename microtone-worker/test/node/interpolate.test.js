@@ -17,7 +17,7 @@ import {
 import { emptyPatternBytes, cellStride, readVol, readPan, readElev } from "../../src/doc/patterntools.js";
 import { interpKinds, blockToolItems, isBlockTool } from "../../src/ui/blocktools.js";
 import { COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2 } from "../../src/ui/edit.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import en from "../../src/ui/lang/en.js";
 import ko from "../../src/ui/lang/ko.js";
 
@@ -445,7 +445,7 @@ test("the mode lists are what the dialog offers", () => {
 test("over a real document: one undo step, and the cells really move", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
   const { Document } = await import("../../src/doc/document.js");
   const { UndoStack } = await import("../../src/doc/undo.js");
   const { setCellsBytesOp } = await import("../../src/doc/ops.js");
@@ -496,7 +496,7 @@ test("a curve runs through a pattern nobody has edited yet", async () => {
   const { cellToBytes } = await import("../../src/doc/clipboard.js");
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
   const corpus = fileURLToPath(new URL("../corpus/", import.meta.url));
   const doc = new Document(parseTaud(readFileSync(corpus + "WHEN.taud")));
   const undo = new UndoStack(doc);

@@ -9,12 +9,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { laneVolumeCell, lanePanCell } from "../../src/ui/lanestate.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { applyEffectRow } from "../../src/engine/effects.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { applyEffectRow } from "../../core/engine/effects.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import {
   SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL,
-} from "../../src/engine/spatial.js";
+} from "../../core/engine/spatial.js";
 
 test("lane volume reads back as M $xx00 — the byte in the high half, nothing in the low", () => {
   assert.deepEqual(laneVolumeCell(0x3f), { effect: EffectOp.OP_M, arg: 0x3f00 });

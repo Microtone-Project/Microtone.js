@@ -21,10 +21,10 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { Voice } from "../../src/engine/voice.js";
-import { advanceAutoVibrato } from "../../src/engine/envelope.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
+import { Voice } from "../../core/engine/voice.js";
+import { advanceAutoVibrato } from "../../core/engine/envelope.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
 
 setSamplingRate(32000);
 

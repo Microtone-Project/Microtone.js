@@ -7,12 +7,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { unzipSync } from "../../vendor/fflate.esm.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { unzipSync } from "../../core/vendor/fflate.esm.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
-import { TRACKER_CHUNK, SAMPLING_RATE } from "../../src/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
+import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
 import {
   StemBus, renderStemsAsync, encodeWav24Mono, zipStems, labelStems,
   sanitiseName, stemFileName,

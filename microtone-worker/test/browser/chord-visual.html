@@ -28,7 +28,7 @@
       if (theme) (await win.eval('import("/src/ui/theme.js")')).applyTheme(theme);
       const notation = params.get("notation");
       if (notation) {
-        const pt = await win.eval('import("/src/ui/pitchtables.js")');
+        const pt = await win.eval('import("/core/tuning/pitchtables.js")');
         win.__microtone.store.pitchPreset = pt.presetForNotation(Number(notation), win.__microtone.store.doc);
       }
 

@@ -21,12 +21,12 @@
 // and "Cut instrument" mints an instrument that plays exactly those bytes.
 
 import { themeColors, pickInk } from "../theme.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import { sampleSpans } from "../../doc/document.js";
 import { regionSpans, POOL_SIZE, DEFAULT_RATE } from "../../doc/sampleregions.js";
 import { u8ToFloat } from "../../doc/wavelab.js";
 import { SamplePreview } from "../samplepreview.js";
-import { TOTAL_VOICES } from "../../engine/constants.js";
+import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
 

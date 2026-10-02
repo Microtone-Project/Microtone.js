@@ -7,12 +7,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { DocSync } from "../../src/doc/sync.js";
 import { setInstPatchesOp } from "../../src/doc/ops.js";
-import { parsePatchesBlob, writePatchesBlob, makeInstPatch } from "../../src/engine/inst.js";
+import { parsePatchesBlob, writePatchesBlob, makeInstPatch } from "../../core/engine/inst.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const load = async (name) => new Uint8Array(await readFile(corpusDir + name));

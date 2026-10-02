@@ -21,7 +21,7 @@
 //
 // Pure and DOM-free: the document model, the ops and the tests all read it.
 
-import { SAMPLEBIN_SIZE } from "../format/taud-const.js";
+import { SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
 
 /** The pool's address space: [0, POOL_SIZE). */
 export const POOL_SIZE = SAMPLEBIN_SIZE;

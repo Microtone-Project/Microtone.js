@@ -30,7 +30,7 @@
           }, 100);
         });
         const { store, instrumentsView: iv } = win.__microtone;
-        const { parseTaud } = await import("../../src/format/taud-parse.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
         const { Document } = await import("../../src/doc/document.js");
         const { planImport, bankInventory } = await import("../../src/doc/bankmerge.js");
         const { importBankOp } = await import("../../src/doc/ops.js");

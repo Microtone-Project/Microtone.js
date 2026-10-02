@@ -14,11 +14,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { fetchTrackerSample } from "../../src/engine/sampler.js";
-import { Voice } from "../../src/engine/voice.js";
-import { TaudInst } from "../../src/engine/inst.js";
-import { SAMPLE_BIN_TOTAL, INTERP_SNES } from "../../src/engine/constants.js";
-import { SNES_GAUSS } from "../../src/engine/tables.js";
+import { fetchTrackerSample } from "../../core/engine/sampler.js";
+import { Voice } from "../../core/engine/voice.js";
+import { TaudInst } from "../../core/engine/inst.js";
+import { SAMPLE_BIN_TOTAL, INTERP_SNES } from "../../core/engine/constants.js";
+import { SNES_GAUSS } from "../../core/engine/tables.js";
 
 const LEN = 512;
 

@@ -1,0 +1,28 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#242a34"/>
+      <stop offset="1" stop-color="#15171c"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff6b82"/>
+      <stop offset="0.55" stop-color="#ff3b5c"/>
+      <stop offset="1" stop-color="#ec0044"/>
+    </linearGradient>
+    <clipPath id="remove-top">
+      <rect x="0" y="136" width="512" height="512" />
+    </clipPath>
+  </defs>
+
+  <!-- rounded tile -->
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#tile)"/>
+  <rect x="3" y="3" width="506" height="506" rx="113" fill="none"
+        stroke="#ffffff" stroke-opacity="0.06" stroke-width="6"/>
+
+  <!-- oblique M -->
+  <g transform="translate(256,262) skewX(-10) translate(-256,-256)" clip-path="url(#remove-top)">
+    <path d="M 154 366 L 154 152 L 256 292 L 358 152 L 358 366"
+          fill="none" stroke="url(#ink)" stroke-width="74"
+          stroke-linejoin="miter" stroke-linecap="miter"/>
+  </g>
+</svg>

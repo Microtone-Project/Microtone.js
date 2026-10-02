@@ -11,7 +11,7 @@
 //     beatPri, beatSec, timeSigNum, timeSigDen, baseNote, baseFreq }
 
 import { t } from "../i18n.js";
-import { pitchTablePresets } from "../pitchtables.js";
+import { pitchTablePresets } from "../../../core/tuning/pitchtables.js";
 
 // Base-note tuning references (note value in the 0x1000-per-octave space, C4 =
 // 0x5000). Written to the song's tuning fields, which the engine APPLIES (item

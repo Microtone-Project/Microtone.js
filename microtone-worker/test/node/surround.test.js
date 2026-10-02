@@ -9,12 +9,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../src/engine/constants.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../core/engine/constants.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import {
   SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL, AmbisonicRenderer,
-} from "../../src/engine/spatial.js";
+} from "../../core/engine/spatial.js";
 
 // Pinned to the Kotlin engine's 32 kHz (item 108 moved the web default to
 // 48 kHz): the expectations below are sample counts and reference renders
@@ -304,8 +304,8 @@ test("the surround model survives resetParams (it is a song property)", () => {
 test("the surround model round-trips through the song table", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
-  const { writeTaud } = await import("../../src/format/taud-write.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
+  const { writeTaud } = await import("../../core/format/taud-write.js");
 
   const path = fileURLToPath(new URL("../corpus/WHEN.taud", import.meta.url));
   const parsed = parseTaud(readFileSync(path));

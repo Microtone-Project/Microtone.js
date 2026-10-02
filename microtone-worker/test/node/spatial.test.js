@@ -13,7 +13,7 @@ import {
   wrapAzimuth, foldAzimuthToPan, lateralProjection, directionFromAngles, anglesFromDirection,
   sampleChannelAngles, stepTowardTarget, encodeSN3D, acnChannelList,
   StereoRenderer, AmbisonicRenderer, SpatialBus,
-} from "../../src/engine/spatial.js";
+} from "../../core/engine/spatial.js";
 
 const vec = new Float64Array(3);
 const ang = new Float64Array(2);

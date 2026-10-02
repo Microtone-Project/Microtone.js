@@ -10,13 +10,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { setSamplingRate } from "../../src/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { setSamplingRate } from "../../core/engine/constants.js";
 import {
   makeInstPatch, writePatchesBlob, patchVibratoInherits,
-} from "../../src/engine/inst.js";
-import { applyActiveSample } from "../../src/engine/trigger.js";
-import { Voice } from "../../src/engine/voice.js";
+} from "../../core/engine/inst.js";
+import { applyActiveSample } from "../../core/engine/trigger.js";
+import { Voice } from "../../core/engine/voice.js";
 
 setSamplingRate(32000);
 

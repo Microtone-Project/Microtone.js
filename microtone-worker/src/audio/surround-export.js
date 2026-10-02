@@ -33,15 +33,15 @@
 // device output a multichannel export produces is thrown away, and mastering it
 // as well would be work nobody would ever hear.
 
-import { TaudEngine } from "../engine/engine.js";
-import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
-import { MasterChain, masteringEngaged, defaultMastering } from "../engine/mastering.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
+import { MasterChain, masteringEngaged, defaultMastering } from "../../core/engine/mastering.js";
 import {
   SURROUND_STEREO, SURROUND_PLANAR, AmbisonicRenderer, AMBISONIC_ORDER_MAX,
-} from "../engine/spatial.js";
-import { SPEAKER_LAYOUTS, SpeakerRenderer } from "../engine/speakers.js";
-import { loadIntoEngine } from "./offline-render.js";
-import { StreamResampler } from "./resampler.js";
+} from "../../core/engine/spatial.js";
+import { SPEAKER_LAYOUTS, SpeakerRenderer } from "../../core/engine/speakers.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
+import { StreamResampler } from "../../core/audio/resampler.js";
 import { WavWriter, riffChunk } from "./wavwrite.js";
 import {
   buildAdmXml, buildChna, admXmlBytes, speakerChannelSpecs, hoaChannelSpecs,

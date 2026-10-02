@@ -31,7 +31,7 @@
 // between projects) is the same repetition behind an 9-byte header:
 //   Byte[8] magic \x1E T a u d n o t · Uint8 version 'a'
 //
-// Symbols use the same 3-char token DSL as src/ui/pitchtables.js presets
+// Symbols use the same 3-char token DSL as core/tuning/pitchtables.js presets
 // ([tick][letter][accidental], single-char = CJK), converted to/from the Taud
 // charset here. The byte values are transcribed from taut.js `sym` (taut.js:45).
 
@@ -426,7 +426,7 @@ export function autoAssignSyms(def, mode = "nearest") {
 
 /**
  * Definition → a pitch-table preset consumable by everything in
- * src/ui/pitchtables.js / glyphs.js (index = the internal notation value).
+ * core/tuning/pitchtables.js / glyphs.js (index = the internal notation value).
  * An interval-less definition (interval 0) becomes an ABSOLUTE preset: the
  * table is every note the notation can express, offset from the definition's
  * base note — or C4 when it declares none, which `presetBase` supplies.

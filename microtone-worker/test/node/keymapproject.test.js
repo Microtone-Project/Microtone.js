@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud } from "../../src/format/taud-parse.js";
-import { KEYMAP_FOURCC } from "../../src/format/taud-const.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { KEYMAP_FOURCC } from "../../core/format/taud-const.js";
 import { Document } from "../../src/doc/document.js";
 import { setSectionOp } from "../../src/doc/ops.js";
 import { UndoStack } from "../../src/doc/undo.js";
@@ -21,7 +21,7 @@ import { KeymapLibrary } from "../../src/ui/keymaplib.js";
 import {
   BUILTIN_KEYMAPS, buildTaudkey, normaliseKeymap, resolveKeymap, builtinKeymap,
 } from "../../src/ui/keymap.js";
-import { pitchTablePresets } from "../../src/ui/pitchtables.js";
+import { pitchTablePresets } from "../../core/tuning/pitchtables.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const whenBytes = await readFile(corpusDir + "WHEN.taud");

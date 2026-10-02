@@ -9,8 +9,8 @@ import assert from "node:assert/strict";
 
 import {
   SPEAKER_LAYOUTS, SPEAKER_LAYOUT_NAMES, SpeakerRenderer, speakerAzimuth,
-} from "../../src/engine/speakers.js";
-import { AZIMUTH_TURN } from "../../src/engine/spatial.js";
+} from "../../core/engine/speakers.js";
+import { AZIMUTH_TURN } from "../../core/engine/spatial.js";
 
 const energy = (g) => g.reduce((s, v) => s + v * v, 0);
 

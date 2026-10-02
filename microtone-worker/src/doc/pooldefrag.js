@@ -30,7 +30,7 @@
 // re-uploads the pool, and applyPlan already knows what to do with every field.
 // Pure and DOM-free.
 
-import { SAMPLEBIN_SIZE, ixmpChanByteOffset, ixmpPatchLen } from "../format/taud-const.js";
+import { SAMPLEBIN_SIZE, ixmpChanByteOffset, ixmpPatchLen } from "../../core/format/taud-const.js";
 import { sampleSpans } from "./document.js";
 import { regionSpans, buildRegionPayload, largestFreeRun } from "./sampleregions.js";
 

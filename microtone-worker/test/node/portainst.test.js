@@ -15,9 +15,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
+import { EffectOp } from "../../core/engine/tables.js";
 
 setSamplingRate(32000);
 

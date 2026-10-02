@@ -12,8 +12,8 @@ import {
 } from "../../src/doc/chord.js";
 import en from "../../src/ui/lang/en.js";
 import ko from "../../src/ui/lang/ko.js";
-import { pitchTablePresets, gridDelta } from "../../src/ui/pitchtables.js";
-import { MIDDLE_C } from "../../src/engine/constants.js";
+import { pitchTablePresets, gridDelta } from "../../core/tuning/pitchtables.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
 
 const P12 = pitchTablePresets[120];
 const P24 = pitchTablePresets[240];

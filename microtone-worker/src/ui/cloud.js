@@ -87,7 +87,7 @@
 
 import {
   SCOPE_CHANNELS, SCOPE_FRAMES, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X, SCOPE_ORDER2,
-} from "../engine/analysis.js";
+} from "../../core/engine/analysis.js";
 import { Fft, RAD_BANDS, RAD_NBANDS, radTilt } from "./radiation.js";
 
 /** Analysis window and hop — the radiation monitor's, so both families see the

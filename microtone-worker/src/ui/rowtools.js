@@ -22,7 +22,7 @@ import {
 } from "../doc/songrows.js";
 import { remapPatternsOp } from "../doc/ops.js";
 import { encodeNameTable } from "../doc/cleanup.js";
-import { NUM_CUES, NUM_CUES_64 } from "../format/taud-const.js";
+import { NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
 
 /**
  * The trough menu's first row: what can be done to the rows themselves.

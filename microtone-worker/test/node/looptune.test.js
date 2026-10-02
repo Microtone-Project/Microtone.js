@@ -13,7 +13,7 @@ import {
   resolveLoopRegion, estimatePeriod, seamResidual, cornerResidual, residualDb,
   toSignal, usableRange, LOOP_POLICIES, LOOP_BUDGET,
 } from "../../src/doc/looptune.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));

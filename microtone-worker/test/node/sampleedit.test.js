@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { normalise, fadeIn, fadeOut, reverse, invert, removeDC } from "../../src/doc/sampledsp.js";
 import { setSampleBytesOp, multiInstBytesOp, setSectionOp } from "../../src/doc/ops.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

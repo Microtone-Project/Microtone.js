@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   TaudInst, META_MAX_LAYERS, META_TYPE_FM, buildMetaRecord, makeMetaLayer,
-} from "../../src/engine/inst.js";
+} from "../../core/engine/inst.js";
 import { setMetaBytesOp, setMetaRecordOp, importBankOp } from "../../src/doc/ops.js";
 import {
   metaLayers, metaRecordOf, metaFlags, metaRecordWithFlags, defaultLayer, linkCount,
@@ -20,7 +20,7 @@ import {
 import {
   planCreateMeta, planAddMetaLayers, planUnlinkMetaLayer,
 } from "../../src/doc/bankmerge.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 
@@ -314,7 +314,7 @@ test("repointLayer: onlyThis vs every layer on the same child", () => {
 
 test("chordOffsets: normalises around the voice nearest unison", async () => {
   const { chordOffsets } = await import("../../src/ui/popups/metachord.js");
-  const { presetForNotation } = await import("../../src/ui/pitchtables.js");
+  const { presetForNotation } = await import("../../core/tuning/pitchtables.js");
   const p12 = presetForNotation(120); // 12-TET
 
   // Just intonation, like the chord maker: 5/4 and 3/2 off the root, which is
@@ -338,7 +338,7 @@ test("chordOffsets: normalises around the voice nearest unison", async () => {
 
 test("chordOffsets: an inversion moves which voice the layer plays", async () => {
   const { chordOffsets } = await import("../../src/ui/popups/metachord.js");
-  const { presetForNotation } = await import("../../src/ui/pitchtables.js");
+  const { presetForNotation } = await import("../../core/tuning/pitchtables.js");
   const p12 = presetForNotation(120);
   const third = Math.round(4096 * Math.log2(5 / 4));   // 386¢
   const fifth = Math.round(4096 * Math.log2(3 / 2));   // 702¢

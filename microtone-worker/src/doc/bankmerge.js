@@ -12,12 +12,12 @@
 //     SNam rebuilds by sample identity (ptr:len) AFTER apply so the name
 //     order always matches the post-merge sampleList() census.
 
-import { SAMPLEBIN_SIZE, ixmpPatchLen, ixmpChanByteOffset } from "../format/taud-const.js";
+import { SAMPLEBIN_SIZE, ixmpPatchLen, ixmpChanByteOffset } from "../../core/format/taud-const.js";
 import {
   parsePatchesBlob, TaudInst, buildMetaRecord, makeMetaLayer, META_MAX_LAYERS,
   META_TYPE_FM, FM_MAX_OPERATORS, FM_BUDGET_BYTES, defaultFmProgram, fmRecordBytes,
   patchChannelPtrs, makeInstPatch, writePatchesBlob, CHAN_MODE_DISCRETE,
-} from "../engine/inst.js";
+} from "../../core/engine/inst.js";
 import { sampleSpans } from "./document.js";
 import {
   regionSpans, buildRegionPayload, MAX_REGION_CHANNELS,

@@ -1,14 +1,21 @@
 # Cloudflare configuration for microtone.cc — the Worker `microtone`.
 #
-# The site is static files (microtone-worker/) served straight from Cloudflare's
-# asset store; the Worker below only runs for a request that matches no file,
-# which in practice means the online-projects API under /api/online. This file
-# sits at the repository root because the Workers build runs here: its deploy
-# command,
-#     npx wrangler@4.120.0 deploy --assets ./microtone-worker/ --compatibility-date 2026-07-10
-# picks it up for the name, the entry point and the bindings, and passes the
-# asset directory and the date itself (the same values as below). The branch
-# "version command" (`npx wrangler versions upload`) reads everything from here.
+# The site is static files (microtone-worker/, plus the shared core/ it links
+# to) served straight from Cloudflare's asset store; the Worker below only runs
+# for a request that matches no file, which in practice means the
+# online-projects API under /api/online. This file sits at the repository root
+# because the Workers build runs here: its deploy command,
+#     npx wrangler@4.120.0 deploy --compatibility-date 2026-07-10
+# picks it up for the name, the entry point, the bindings, the build step and
+# the asset directory. The branch "version command" (`npx wrangler versions
+# upload`) reads everything from here too.
+#
+# The asset directory is a STAGED COPY, build/microtone-worker, made by the
+# [build] command below before every deploy, upload and `wrangler dev`.
+# microtone-worker/ reaches core/ through a symlink, and the asset upload does
+# not reliably follow one — so a deploy command that still says
+# `--assets ./microtone-worker/` overrides this and ships the site WITHOUT its
+# engine. Do not put that flag back.
 #
 # No secrets in this file: it is committed. SceneID's two — SCENEID_CLIENT_ID
 # and SCENEID_CLIENT_SECRET — are Worker secrets:
@@ -34,8 +41,12 @@ name = "microtone"
 main = "microtone-worker/server/worker.js"
 compatibility_date = "2026-07-10"
 
+[build]
+command = "node tools/stage-site.js microtone-worker build/microtone-worker"
+watch_dir = ["core", "microtone-worker/src", "microtone-worker/css", "microtone-worker/assets", "microtone-worker/server"]
+
 [assets]
-directory = "microtone-worker"
+directory = "build/microtone-worker"
 
 [[d1_databases]]
 binding = "ONLINE_DB"

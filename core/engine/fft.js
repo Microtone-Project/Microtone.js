@@ -6,7 +6,7 @@
 // the radiation surface and the soundfield cloud (src/ui/), the Mastering
 // view's live spectrometer, and the offline spectral analysis (src/audio/).
 // Pure computation with no DOM and no engine state, so it satisfies the
-// src/engine/ rule and can be unit-tested on its own.
+// core/engine/ rule and can be unit-tested on its own.
 //
 // The FFT is the one radiation.js has always used, moved verbatim — the
 // radiation surface and the cloud still import it from there, so nothing about

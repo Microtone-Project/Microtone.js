@@ -10,7 +10,7 @@ import {
 } from "./edit.js";
 import { t } from "./i18n.js";
 import { PIANO_KEYMAP } from "./keymap.js";
-import { EffectOp, EXT_CAPABLE_OPS } from "../engine/tables.js";
+import { EffectOp, EXT_CAPABLE_OPS } from "../../core/engine/tables.js";
 
 // Effect reference (TAUD_NOTE_EFFECTS.md digest): opcode → button label (l).
 // The displayed name/argument-format text is looked up in the language table

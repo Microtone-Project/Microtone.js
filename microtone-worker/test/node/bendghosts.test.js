@@ -8,10 +8,10 @@ import assert from "node:assert/strict";
 
 import { bendGhosts, createBendSim } from "../../src/doc/bendghosts.js";
 import { dittoGhosts } from "../../src/doc/ditto.js";
-import { TaudPlayData } from "../../src/engine/state.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { EffectOp } from "../../src/engine/tables.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
 
 // Pinned to the Kotlin engine's 32 kHz, as every other engine-driving test is.
 setSamplingRate(32000);

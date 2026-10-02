@@ -66,7 +66,7 @@
         fire(nums(0)[0]);
         await sleep(20);
         const dbOctet = layers()[0].mixOctet;
-        const { META_MIX_GAIN } = await win.eval('import("/src/engine/tables.js")');
+        const { META_MIX_GAIN } = await win.eval('import("/core/engine/tables.js")');
         const landedDb = 20 * Math.log10(META_MIX_GAIN[dbOctet]);
         check(`typing −6 dB lands on the nearest octet ($${dbOctet.toString(16)} = ${landedDb.toFixed(1)} dB)`,
           Math.abs(landedDb + 6) < 0.6);
@@ -109,7 +109,7 @@
         check("the layer range is painted too",
           !!rows()[0].querySelector(".meta-rng-ann canvas.note-glyph"));
         const { noteGlyphCanvas } = await win.eval('import("/src/ui/noteglyph.js")');
-        const { pitchTablePresets } = await win.eval('import("/src/ui/pitchtables.js")');
+        const { pitchTablePresets } = await win.eval('import("/core/tuning/pitchtables.js")');
         const pixels = (preset) => {
           const cv = noteGlyphCanvas(0x50ab, preset); // C4 + a quarter tone
           const px = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;

@@ -213,7 +213,7 @@
           "f6 …bytes and all");
 
         // ── it survives a save/reload ──
-        const { parseTaud } = await import("../../src/format/taud-parse.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
         const { Document } = await import("../../src/doc/document.js");
         const reloaded = new Document(parseTaud(store.doc.toBytes()));
         const rr = reloaded.sampleRegions();

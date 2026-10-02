@@ -20,4 +20,4 @@
 export { TaudPlayer } from "./player.js";
 export { TaudRenderer, encodeWav } from "./render.js";
 export { gainToFader, faderToGain } from "./faders.js";
-export { SAMPLING_RATE } from "../engine/constants.js";
+export { SAMPLING_RATE } from "../../core/engine/constants.js";

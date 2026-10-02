@@ -9,7 +9,7 @@
 // GeneralUser-GS.sf2 stays as a fallback for trees without the build.
 
 import { pickFile } from "../storage/import-export.js";
-import { gunzipSync } from "../../vendor/fflate.esm.js";
+import { gunzipSync } from "../../core/vendor/fflate.esm.js";
 
 let bundled;        // undefined = not tried, null = unavailable, else {name, bytes}
 let userSf2 = null; // last user-picked {name, bytes}

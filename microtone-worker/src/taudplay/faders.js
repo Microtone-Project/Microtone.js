@@ -11,7 +11,7 @@
 // Shared by both hosts (the worklet and the offline renderer) so a fade sounds
 // the same whether it is played or written to a file.
 
-import { MAX_VOICES } from "../engine/constants.js";
+import { MAX_VOICES } from "../../core/engine/constants.js";
 
 export class FaderBank {
   constructor() {

@@ -12,7 +12,7 @@
 import {
   AUDIO_EXPORT_FORMATS, exportFormat,
 } from "../../audio/surround-export.js";
-import { SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL } from "../../engine/spatial.js";
+import { SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
 import { speakerDiagram } from "../speakerdiagram.js";
 import { t } from "../i18n.js";
 

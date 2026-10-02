@@ -18,14 +18,14 @@ import {
 import { planDeleteSample } from "../../src/doc/cleanup.js";
 import { planImportRegion } from "../../src/doc/bankmerge.js";
 import { importBankOp, cleanupBankOp } from "../../src/doc/ops.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document, sampleSpans } from "../../src/doc/document.js";
-import { parsePatchesBlob } from "../../src/engine/inst.js";
+import { parsePatchesBlob } from "../../core/engine/inst.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { poolMap } from "../../src/doc/poolmap.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { setSamplingRate } from "../../src/engine/constants.js";
-import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { setSamplingRate } from "../../core/engine/constants.js";
+import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
 
 setSamplingRate(32000);
 

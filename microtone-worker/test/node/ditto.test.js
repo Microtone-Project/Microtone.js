@@ -1,5 +1,5 @@
 // Pattern-Ditto (effect 7) DISPLAY expansion — src/doc/ditto.js. The map must
-// agree with what the engine actually plays (src/engine/row.js), so the last
+// agree with what the engine actually plays (core/engine/row.js), so the last
 // test drives the real engine over the same pattern and checks the note the
 // ghost predicts is the note that sounds.
 
@@ -7,9 +7,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { dittoGhosts, OP_DITTO } from "../../src/doc/ditto.js";
-import { TaudPlayData } from "../../src/engine/state.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
 
 // Pinned to the Kotlin engine's 32 kHz (item 108 moved the web default to
 // 48 kHz): the expectations below are sample counts and reference renders

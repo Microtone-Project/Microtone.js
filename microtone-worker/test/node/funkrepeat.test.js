@@ -22,18 +22,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { setRandomSource, makeSeededRandom } from "../../src/engine/rng.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
-import { FUNK_XFADE_SAMPLES } from "../../src/engine/sampler.js";
-import { SURROUND_SPATIAL } from "../../src/engine/spatial.js";
-import { INTERP_NONE } from "../../src/engine/constants.js";
-import { TOTAL_VOICES } from "../../src/engine/constants.js";
-import { fillSnapshotInto } from "../../src/worklet/engine-commands.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
+import { FUNK_XFADE_SAMPLES } from "../../core/engine/sampler.js";
+import { SURROUND_SPATIAL } from "../../core/engine/spatial.js";
+import { INTERP_NONE } from "../../core/engine/constants.js";
+import { TOTAL_VOICES } from "../../core/engine/constants.js";
+import { fillSnapshotInto } from "../../core/worklet/engine-commands.js";
 import {
   SNAP_FLOATS, SNAP_HEADER_SIZE, SNAP_VOICE_STRIDE, SNAP_V_ACTIVE,
   SNAP_V_FUNK_WINDOW, SNAP_V_FUNK_POS, SNAP_V_FUNK_LEN, SNAP_V_FUNK_MODE,
-} from "../../src/worklet/protocol.js";
+} from "../../core/worklet/protocol.js";
 
 setSamplingRate(32000);
 

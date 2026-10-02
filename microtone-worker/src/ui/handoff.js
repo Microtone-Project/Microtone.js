@@ -18,7 +18,7 @@
 // gzips: across 1152 reference songs the encoded payload is a median 9.5 kB and
 // a worst case of 52 kB, well inside every browser's limit.
 
-import { gzipSync, gunzipSync } from "../../vendor/fflate.esm.js";
+import { gzipSync, gunzipSync } from "../../core/vendor/fflate.esm.js";
 
 /** The fragment that carries a handed-over song. */
 export const HANDOFF_PREFIX = "#import=";

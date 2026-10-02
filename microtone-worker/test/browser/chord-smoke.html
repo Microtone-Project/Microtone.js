@@ -123,7 +123,7 @@
 
         // a6: degrees follow the SONG's notation — switch it and v2 moves
         const prevPreset = store.pitchPreset;
-        store.pitchPreset = (await win.eval('import("/src/ui/pitchtables.js")')).pitchTablePresets[240];
+        store.pitchPreset = (await win.eval('import("/core/tuning/pitchtables.js")')).pitchTablePresets[240];
         const pMaker24 = openChordMaker(store, { data, rate, name: "24-TET" });
         const dlg24 = await waitFor(() => {
           const l = [...win.document.querySelectorAll(".chord-modal")];
@@ -136,7 +136,7 @@
 
         // a6c (item 141): tetrachords appear in the tuning they belong to, and
         // picking one really does span that tuning's perfect fourth
-        const pitchTables = (await win.eval('import("/src/ui/pitchtables.js")')).pitchTablePresets;
+        const pitchTables = (await win.eval('import("/core/tuning/pitchtables.js")')).pitchTablePresets;
         store.pitchPreset = pitchTables[170];
         const pMaker17 = openChordMaker(store, { data, rate, name: "17-TET" });
         const dlg17 = await waitFor(() => {

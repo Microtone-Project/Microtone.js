@@ -21,7 +21,7 @@ import {
   applyChordPreset, buildChord, chordLength, chordPresetById, chordPresetLabel, chordPresetsFor,
   maxInversion, voiceNote, voiceRatio, voiceUnits,
 } from "../../doc/chord.js";
-import { presetForNotation, gridDelta } from "../pitchtables.js";
+import { presetForNotation, gridDelta } from "../../../core/tuning/pitchtables.js";
 import { paintNoteCell } from "../glyphs.js";
 import { canvasFont } from "../fonts.js";
 import { themeColors } from "../theme.js";

@@ -3,10 +3,10 @@
 // LEN/HALT, encoded in the sign bits of ch 0-15 / 16-31). Edits are eager-
 // synced to the worklet (DocSync). Feature reference: taut.js VIEW_CUES.
 
-import { CUE_EMPTY, MAX_VOICES, NUM_CUES, NUM_CUES_64 } from "../../format/taud-const.js";
-import { cueInstructionWords } from "../../format/taud-parse.js";
+import { CUE_EMPTY, MAX_VOICES, NUM_CUES, NUM_CUES_64 } from "../../../core/format/taud-const.js";
+import { cueInstructionWords } from "../../../core/format/taud-parse.js";
 import { cueInfo } from "../../doc/document.js";
-import { INST_NOP, INST_GOBACK, INST_SKIP, INST_JUMP, INST_PATLEN, INST_HALTAT, INST_HALT } from "../../engine/state.js";
+import { INST_NOP, INST_GOBACK, INST_SKIP, INST_JUMP, INST_PATLEN, INST_HALTAT, INST_HALT } from "../../../core/engine/state.js";
 import { setCuesOp } from "../../doc/ops.js";
 import { lookahead } from "../edit.js";
 import { makeCueBlock, cueBlockIndex, mergeCueWord } from "../../doc/clipboard.js";
@@ -21,7 +21,7 @@ import {
 } from "../gridmenu.js";
 import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
 

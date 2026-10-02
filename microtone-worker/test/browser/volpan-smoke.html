@@ -169,7 +169,7 @@ function recorder(ctx) {
     "the pan palette shows the sideways ticks", palHost.textContent.slice(0, 80));
 
   // ── 5. item 85: global Transpose, current song only ───────────────────────
-  const { transposeAllPatterns } = await import("../../src/ui/pitchtables.js");
+  const { transposeAllPatterns } = await import("../../core/tuning/pitchtables.js");
   const notesOf = (si) => store.doc.songs[si].patterns.map((p) => (p ?? []).map((c) => c.note));
   const before = JSON.stringify(notesOf(0));
   const undoDepth = store.undo.undoStack.length;

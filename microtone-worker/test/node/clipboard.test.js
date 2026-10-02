@@ -15,8 +15,8 @@ import {
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG, SUB_FX2_OP, SUB_FX2_ARG,
 } from "../../src/ui/edit.js";
 import { setCellsBytesOp } from "../../src/doc/ops.js";
-import { TaudPlayData } from "../../src/engine/state.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

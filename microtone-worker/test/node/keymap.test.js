@@ -9,8 +9,8 @@ import {
 } from "../../src/ui/keymap.js";
 import { boardExtent, defaultLegend, BOARD_SIZES } from "../../src/ui/keymapboard.js";
 import { JAM_SEMIS, semiToNoteInTable } from "../../src/ui/edit.js";
-import { pitchTablePresets, noteForDegree } from "../../src/ui/pitchtables.js";
-import { MIDDLE_C } from "../../src/engine/constants.js";
+import { pitchTablePresets, noteForDegree } from "../../core/tuning/pitchtables.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
 
 const P12 = pitchTablePresets[120];
 const P41 = pitchTablePresets[410];

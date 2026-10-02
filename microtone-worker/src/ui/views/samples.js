@@ -10,14 +10,14 @@
 
 import { hex2 } from "../notenames.js";
 import { themeColors } from "../theme.js";
-import { unescapeName, escapeNonAscii } from "../names.js";
+import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
 import { sampleSpans, isStereoSample } from "../../doc/document.js";
-import { TOTAL_VOICES } from "../../engine/constants.js";
+import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import {
   ModGeom, resolveModGeom, modTouches, modAddress,
   extModTouches, modAddressExt, applyExtLevel, isExtFunkOp,
-} from "../../engine/samplemod.js";
+} from "../../../core/engine/samplemod.js";
 import { encodeU8Wav } from "../../audio/wavwrite.js";
 import { download } from "../../storage/import-export.js";
 import { sanitiseName } from "../../audio/stem-export.js";

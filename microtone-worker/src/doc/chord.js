@@ -20,7 +20,7 @@
 // i.e. resample(buf, 1/r) — which also anti-aliases on the way up, since the
 // Kaiser-sinc cutoff follows the ratio (wavelab.js).
 
-import { MIDDLE_C } from "../engine/constants.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
 import { resample, normaliseRange } from "./wavelab.js";
 
 export const UNITS_PER_OCTAVE = 0x1000;

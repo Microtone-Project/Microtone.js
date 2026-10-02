@@ -1,7 +1,7 @@
 // Master channel strip (item 98) — the mastering view, docked to the right of
 // the Timeline grid: a stack of scope panels over one fader + meter.
 //
-// Everything it draws comes from the engine's analysis tap (src/engine/
+// Everything it draws comes from the engine's analysis tap (core/engine/
 // analysis.js) through the snapshot, and the two kinds of panel ask different
 // questions of it:
 //
@@ -42,11 +42,11 @@ import {
   ANALYSIS_OFF, ANALYSIS_STEREO, ANALYSIS_AMBISONIC,
   SCOPE_FRAMES, SCOPE_CHANNELS, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X,
   availableTargets, meterDisplay, makeAnalysisReadout,
-} from "../../engine/analysis.js";
+} from "../../../core/engine/analysis.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL, directionFromAngles,
-} from "../../engine/spatial.js";
-import { SAMPLING_RATE } from "../../engine/constants.js";
+} from "../../../core/engine/spatial.js";
+import { SAMPLING_RATE } from "../../../core/engine/constants.js";
 import { setSongScalarOp } from "../../doc/ops.js";
 import { themeColors } from "../theme.js";
 import { paintSpatialDot } from "../spatialdot.js";

@@ -7,9 +7,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { AudioSystem } from "../../src/audio/audio-system.js";
-import { CMD } from "../../src/worklet/protocol.js";
-import { TaudEngine } from "../../src/engine/engine.js";
+import { AudioSystem } from "../../core/audio/audio-system.js";
+import { CMD } from "../../core/worklet/protocol.js";
+import { TaudEngine } from "../../core/engine/engine.js";
 
 /** A doc-shaped stub with `n` patterns, each one byte `i` repeated. */
 function fakeDoc(n) {

@@ -7,21 +7,21 @@ import assert from "node:assert/strict";
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
-import { Voice } from "../../src/engine/voice.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
+import { Voice } from "../../core/engine/voice.js";
 import {
   envPoint, buildMetaRecord, makeMetaLayer, makeInstPatch, writePatchesBlob,
   TaudInst,
-} from "../../src/engine/inst.js";
-import { ghostVoice } from "../../src/engine/trigger.js";
-import { advancePitchRamp } from "../../src/engine/sampler.js";
-import { applyFilterParamEffect } from "../../src/engine/effects.js";
+} from "../../core/engine/inst.js";
+import { ghostVoice } from "../../core/engine/trigger.js";
+import { advancePitchRamp } from "../../core/engine/sampler.js";
+import { applyFilterParamEffect } from "../../core/engine/effects.js";
 import {
   advancePfRole, seedPfRole, advanceEnvelope, pfIdxBox, pfTimeBox, applyKeyLift, forceKeyLift,
-} from "../../src/engine/envelope.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
-import { loadIntoEngine } from "../../src/audio/offline-render.js";
+} from "../../core/engine/envelope.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
 
 // Pinned to the Kotlin engine's 32 kHz (item 108 moved the web default to
 // 48 kHz): the expectations below are sample counts and reference renders

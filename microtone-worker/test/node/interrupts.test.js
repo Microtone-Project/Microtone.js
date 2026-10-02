@@ -9,18 +9,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
+import { TaudEngine } from "../../core/engine/engine.js";
 import {
   TRACKER_CHUNK, PATTERN_BYTES, PATTERN_BYTES_WIDE, CELL_BYTES_WIDE,
   SAMPLING_RATE, setSamplingRate,
-} from "../../src/engine/constants.js";
-import { EffectOp } from "../../src/engine/tables.js";
-import { SURROUND_SPATIAL } from "../../src/engine/spatial.js";
-import { drainInterruptsInto } from "../../src/worklet/engine-commands.js";
+} from "../../core/engine/constants.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { SURROUND_SPATIAL } from "../../core/engine/spatial.js";
+import { drainInterruptsInto } from "../../core/worklet/engine-commands.js";
 import {
   SNAP_FLOATS, SNAP_INTERRUPT_MASK, SNAP_INTERRUPT_ARGS,
   SNAP_SAB_I32_MASK, SNAP_SAB_I32_ARGS, SNAP_SAB_I32_CELLS,
-} from "../../src/worklet/protocol.js";
+} from "../../core/worklet/protocol.js";
 
 setSamplingRate(32000);
 

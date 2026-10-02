@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { setCellOp, setCueWordOp, setSongScalarOp, setInstBytesOp } from "../../src/doc/ops.js";
 import { UndoStack } from "../../src/doc/undo.js";

@@ -14,7 +14,7 @@ import {
 } from "../../src/doc/cleanup.js";
 import { deleteInstrumentOp, changeInstrumentOp, importBankOp, setMetaBytesOp } from "../../src/doc/ops.js";
 import { planCreateMeta } from "../../src/doc/bankmerge.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

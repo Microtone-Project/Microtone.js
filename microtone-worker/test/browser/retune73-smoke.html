@@ -39,7 +39,7 @@ const clickCancel = (dlg) => dlg.querySelectorAll(".modal-buttons button")[1].cl
   const { store } = M;
   const doc = win.document;
   win.alert = () => {};
-  const { surveyTuning, presetForNotation } = await import("../../src/ui/pitchtables.js");
+  const { surveyTuning, presetForNotation } = await import("../../core/tuning/pitchtables.js");
   const p12 = presetForNotation(120);
 
   // ── 1. WHEN is on-grid: the same-table cleanup has nothing to do, and says so ──

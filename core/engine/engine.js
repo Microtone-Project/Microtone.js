@@ -26,6 +26,7 @@ import {
 import { generateTrackerAudio } from "./mixer.js";
 import { triggerMetaOrNote, triggerNote } from "./trigger.js";
 import { startCutRamp } from "./sampler.js";
+import { applyKeyLift } from "./envelope.js";
 import { reconstructDittoState } from "./row.js";
 
 // Scratch instrument slot for the raw-sample preview (jamSample). It sits just
@@ -583,6 +584,24 @@ export class TaudEngine {
     for (const bg of ts.backgroundVoices) {
       if (bg.sourceChannel >= lo && bg.sourceChannel <= hi) startCutRamp(bg);
     }
+  }
+
+  /**
+   * RELEASE one audition voice exactly as a pattern key-off (note word
+   * 0x0001) releases a lane: the sustain region lets go, a key-lift instrument
+   * jumps to its sustain end, and the release plays out — where jamStopVoice
+   * cuts. A finger lifted off a touch keyboard is a key-off, not a cut.
+   * Metainstrument layer children follow through the per-tick sync, as they
+   * follow a pattern key-off; an instrument with neither a release nor a
+   * fadeout keeps sounding, as it would after one. JS-only (item 206), no
+   * Kotlin counterpart.
+   */
+  jamKeyOff(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const voice = ts.voices[Math.min(Math.max(vi, 0), TOTAL_VOICES - 1)];
+    if (!voice.active || voice.keyOff) return;
+    voice.keyOff = true;
+    applyKeyLift(voice, this.instruments[voice.instrumentId]);
   }
 
   // ── per-voice readbacks (delegate 144-325; clamps mirror the delegate) ──

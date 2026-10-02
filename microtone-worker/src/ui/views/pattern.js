@@ -9,7 +9,7 @@
 
 import { hex2, fxColonWarns } from "../notenames.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
-import { transposePatternNotes, transposeUnitKeys } from "../pitchtables.js";
+import { transposePatternNotes, transposeUnitKeys } from "../../../core/tuning/pitchtables.js";
 import {
   interpretEditKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
@@ -18,7 +18,7 @@ import {
   subPositions, nudgeColumns, nudgeCursor, gridStepRow,
 } from "../edit.js";
 import { setCellOp, setPatternBytesOp, appendPatternOp, bulkNotesOp, setCellsBytesOp, setCellsEachOp, setSectionOp, changeInstrumentOp } from "../../doc/ops.js";
-import { escapeNonAscii, unescapeName } from "../names.js";
+import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import {
   makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols, filledCols,
   fxPasteRemap, remapFxBytes,
@@ -29,8 +29,8 @@ import {
 } from "../../doc/patterntools.js";
 import { dittoGhosts } from "../../doc/ditto.js";
 import { bendGhosts, bendContext } from "../../doc/bendghosts.js";
-import { CUE_EMPTY } from "../../format/taud-const.js";
-import { SURROUND_SPATIAL } from "../../engine/spatial.js";
+import { CUE_EMPTY } from "../../../core/format/taud-const.js";
+import { SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
 import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
 import { showModal } from "../widgets/modal.js";

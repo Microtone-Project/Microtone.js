@@ -13,20 +13,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../src/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../core/engine/constants.js";
 import {
   EffectOp, lfoSampleWide, advanceLfoPhase, LFO_PHASE_STEPS, MOD_SIN_TABLE,
-} from "../../src/engine/tables.js";
+} from "../../core/engine/tables.js";
 import {
   makeInstPatch, writePatchesBlob, buildMetaRecord, makeMetaLayer,
-} from "../../src/engine/inst.js";
-import { fillSnapshotInto } from "../../src/worklet/engine-commands.js";
+} from "../../core/engine/inst.js";
+import { fillSnapshotInto } from "../../core/worklet/engine-commands.js";
 import {
   SNAP_HEADER_SIZE, SNAP_VOICE_STRIDE, SNAP_V_EFF_PAN, SNAP_V_AZIMUTH,
-} from "../../src/worklet/protocol.js";
-import { MAX_VOICES } from "../../src/engine/constants.js";
-import { setRandomSource, makeSeededRandom } from "../../src/engine/rng.js";
+} from "../../core/worklet/protocol.js";
+import { MAX_VOICES } from "../../core/engine/constants.js";
+import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
 
 setSamplingRate(32000);
 

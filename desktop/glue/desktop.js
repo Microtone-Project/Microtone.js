@@ -248,7 +248,7 @@
 
   // ── online projects ──
   //
-  // src/storage/online.js is the website's own client, unchanged: it fetches
+  // core/storage/online.js is the website's own client, unchanged: it fetches
   // /api/online on its own origin and signs in through a window it opens.
   // Here its origin is the app, so both are handed to desktop/src/online.rs,
   // which sends the requests to the server with the access token and signs in

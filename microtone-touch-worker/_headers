@@ -1,0 +1,6 @@
+# Cross-origin isolation, as microtone.cc has it: with SharedArrayBuffer the
+# engine renders in a Worker and the AudioWorklet only copies, which is what
+# keeps a phone's audio thread from overrunning.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp

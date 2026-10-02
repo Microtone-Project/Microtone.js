@@ -299,7 +299,7 @@
     ok(press("Slash", "/"), "and it stays swallowed when a layout DOES claim it");
 
     // ── the shipped Shi'er lü layout volunteers for its own tuning ──
-    const pt = await import("../../src/ui/pitchtables.js");
+    const pt = await import("../../core/tuning/pitchtables.js");
     lib.setActive(lib.find("Piano"));               // an explicit, unbound choice
     store.pitchPreset = pt.pitchTablePresets[10123];
     lib.applyForPreset(store.pitchPreset, 10123);   // what a song load does

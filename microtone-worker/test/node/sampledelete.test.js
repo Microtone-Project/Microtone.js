@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { planDuplicateSample } from "../../src/doc/bankmerge.js";
 import { planDeleteSample } from "../../src/doc/cleanup.js";
 import { importBankOp, cleanupBankOp } from "../../src/doc/ops.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document, sampleSpans } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

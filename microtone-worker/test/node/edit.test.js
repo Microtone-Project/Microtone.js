@@ -9,9 +9,9 @@ import {
   COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX,
 } from "../../src/ui/edit.js";
 import { volToStr, panToStr, rangeToStr, noteCentsOff } from "../../src/ui/notenames.js";
-import { TaudPlayData } from "../../src/engine/state.js";
-import { MIDDLE_C } from "../../src/engine/constants.js";
-import { pitchTablePresets } from "../../src/ui/pitchtables.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
+import { pitchTablePresets } from "../../core/tuning/pitchtables.js";
 import { normaliseKeymap } from "../../src/ui/keymap.js";
 
 const ctx = { octave: 4, currentInst: 0x12 };

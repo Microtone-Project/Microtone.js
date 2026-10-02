@@ -18,8 +18,8 @@
 import {
   AZIMUTH_TURN, ELEVATION_QUARTER, SURROUND_STEREO, SURROUND_SPATIAL,
   wrapAzimuth, foldAzimuthToPan, anglesFromSpatialArg, spatialArgFromAngles,
-} from "../../engine/spatial.js";
-import { EffectOp } from "../../engine/tables.js";
+} from "../../../core/engine/spatial.js";
+import { EffectOp } from "../../../core/engine/tables.js";
 import { themeColors } from "../theme.js";
 import { paintSpatialDot } from "../spatialdot.js";
 import { azimuthLabel, elevationLabel, panLabel } from "../units.js";

@@ -9,7 +9,7 @@
 // general one rather than merged with it.
 
 import { pickFile } from "../storage/import-export.js";
-import { gunzipSync } from "../../vendor/fflate.esm.js";
+import { gunzipSync } from "../../core/vendor/fflate.esm.js";
 
 let bundled;        // undefined = not tried, null = unavailable, else {name, bytes}
 let userBank = null; // last user-picked {name, bytes}

@@ -17,12 +17,12 @@
 // single call that sounds like a fade instead of a staircase, and it costs the
 // engine nothing: the byte the mixer reads is still just a byte.
 
-import { TaudEngine } from "../engine/engine.js";
-import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
-import { displayPanByte } from "../engine/spatial.js";
-import { loadIntoEngine } from "../audio/offline-render.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
+import { displayPanByte } from "../../core/engine/spatial.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
 import { FaderBank } from "./faders.js";
-import { kaiserKernel } from "../audio/resampler.js";
+import { kaiserKernel } from "../../core/audio/resampler.js";
 import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,

@@ -15,8 +15,8 @@ import { setPatternBytesOp, appendPatternOp, bulkNotesOp, setCellOp } from "../.
 import {
   pitchTablePresets, transposePatternNotes, transposeAllPatterns, transposeUnitKeys,
   ANCHOR_NOTE,
-} from "../../src/ui/pitchtables.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+} from "../../core/tuning/pitchtables.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document, Song } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

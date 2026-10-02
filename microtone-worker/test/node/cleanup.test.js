@@ -11,13 +11,13 @@ import {
   applyPatternOrder, encodeNameTable, usedInstrumentSlots,
   planRenumberInstrument, instrumentCellRefs, planIxmpCleanup, reachablePatchSets,
 } from "../../src/doc/cleanup.js";
-import { TaudPlayData } from "../../src/engine/state.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import { remapPatternsOp, cleanupBankOp, renumberInstrumentOp, importBankOp } from "../../src/doc/ops.js";
-import { writePatchesBlob } from "../../src/engine/inst.js";
+import { writePatchesBlob } from "../../core/engine/inst.js";
 import { buildIxmpSection, planCreateMeta } from "../../src/doc/bankmerge.js";
 import { planBankCleanup } from "../../src/doc/cleanup.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

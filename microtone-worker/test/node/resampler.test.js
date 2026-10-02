@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import {
   RESAMP_PHASES, resampHalfWidth, kaiserSincRows, kaiserKernel,
   resampleInterleaved, StreamResampler,
-} from "../../src/audio/resampler.js";
+} from "../../core/audio/resampler.js";
 
 const AMP = 0.5;
 const db = (x) => 20 * Math.log10(x);

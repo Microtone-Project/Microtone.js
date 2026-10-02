@@ -15,7 +15,7 @@
 import { themeColors, isDarkTheme } from "./theme.js";
 import { canvasFont } from "./fonts.js";
 import { paintNoteCell } from "./glyphs.js";
-import { nearestDegreeIndex } from "./pitchtables.js";
+import { nearestDegreeIndex } from "../../core/tuning/pitchtables.js";
 import { noteCentsOff } from "./notenames.js";
 import { ROW_CODES, ROW_ORDER, resolveKeymap, keymapNote } from "./keymap.js";
 

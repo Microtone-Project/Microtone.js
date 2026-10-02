@@ -25,7 +25,7 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
   for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
   const doc = win.document;
   const { store, cuesView, patternView } = M;
-  const { cueInstructionWords } = await import("../../src/format/taud-parse.js");
+  const { cueInstructionWords } = await import("../../core/format/taud-parse.js");
   const { cellToBytes } = await import("../../src/doc/clipboard.js");
 
   const menuOn = async (canvas, x, y) => {

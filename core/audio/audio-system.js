@@ -386,6 +386,9 @@ export class AudioSystem {
    *  the whole jam bank; neither form touches a song lane, so a released key
    *  never cuts the playing song the way jamStop does. */
   jamStopVoice(ph = 0, voice = -1) { this._post({ t: CMD.JAM_STOP_VOICE, ph, voice }); }
+  /** Release one audition voice the way a pattern key-off releases a lane:
+   *  the envelope's release plays out, where jamStopVoice cuts. */
+  jamKeyOff(ph, voice) { this._post({ t: CMD.JAM_KEY_OFF, ph, voice }); }
   /** Voice index of jam-bank slot `i` — the audition voices, above every song
    *  lane: no fader, no mute, and never written to by playback. */
   jamVoice(i) { return JAM_VOICE_BASE + (((i | 0) % JAM_VOICES) + JAM_VOICES) % JAM_VOICES; }

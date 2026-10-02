@@ -150,7 +150,7 @@ function riffChunks(bytes) {
       `14=$${inst.getByteNormal(14).toString(16)} 177=$${inst.getByteNormal(177).toString(16)}`);
     // …and it survives a save/load round-trip through the image.
     const bytes = store.doc.toBytes();
-    const { parseTaud } = await import("../../src/format/taud-parse.js");
+    const { parseTaud } = await import("../../core/format/taud-parse.js");
     const { Document } = await import("../../src/doc/document.js");
     const reloaded = new Document(parseTaud(bytes));
     check(reloaded.instruments[M.instrumentsView?.selected ?? 1].defaultAzimuth === 384,

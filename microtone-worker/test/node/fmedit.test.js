@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudInst, decodeFmProgram, makeMetaLayer } from "../../src/engine/inst.js";
+import { TaudInst, decodeFmProgram, makeMetaLayer } from "../../core/engine/inst.js";
 import {
   fmOperators, fmProgramOf, fmRecordOf, fmValidate, fmBudget, fmFormula, fmTree, fmGraph,
   fmWord, fmWordClass, fmWordIndex, fmOperatorsNamed, fmCanAddOperator, fmCanAddWord,

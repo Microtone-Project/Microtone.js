@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 
 const DIR = new URL("../../assets/demo_projects/", import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL("demos.json", DIR), "utf8"));

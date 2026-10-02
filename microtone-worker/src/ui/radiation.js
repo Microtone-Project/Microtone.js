@@ -57,10 +57,10 @@
 
 import {
   SCOPE_CHANNELS, SCOPE_FRAMES, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X,
-} from "../engine/analysis.js";
-import { Fft, SPECTRUM_BANDS } from "../engine/fft.js";
+} from "../../core/engine/analysis.js";
+import { Fft, SPECTRUM_BANDS } from "../../core/engine/fft.js";
 
-// The FFT moved to src/engine/fft.js when the Mastering view (item 178) and the
+// The FFT moved to core/engine/fft.js when the Mastering view (item 178) and the
 // offline spectral analysis needed it too — same class, same numbers. Re-exported
 // so cloud.js and the tests keep importing it from here.
 export { Fft };
@@ -537,7 +537,7 @@ export class RadiationField {
     const norm = this.norm;
     for (let i = 0; i < raw.length; i++) raw[i] *= norm;
     // E = (W² + X² + Y² + Z²) / 2 — the same direction-invariant energy density
-    // the ambisonic meter reads (src/engine/analysis.js).
+    // the ambisonic meter reads (core/engine/analysis.js).
     this.density = dens * norm * 0.5;
     return true;
   }

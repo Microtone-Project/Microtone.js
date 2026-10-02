@@ -4,19 +4,19 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 test("vendored fflate gzip round-trip", async () => {
-  const ff = await import("../../vendor/fflate.esm.js");
+  const ff = await import("../../core/vendor/fflate.esm.js");
   const data = new TextEncoder().encode("microtone".repeat(1000));
   const back = ff.gunzipSync(ff.gzipSync(data));
   assert.deepEqual(back, data);
 });
 
 test("vendored fzstd exposes decompress", async () => {
-  const fz = await import("../../vendor/fzstd.esm.js");
+  const fz = await import("../../core/vendor/fzstd.esm.js");
   assert.equal(typeof fz.decompress, "function");
 });
 
 test("engine constants import and are sane", async () => {
-  const c = await import("../../src/engine/constants.js");
+  const c = await import("../../core/engine/constants.js");
   assert.equal(c.SAMPLING_RATE, 48000); // 32000→48000, the browser's own rate (item 108)
   assert.equal(c.TRACKER_CHUNK, 128); // 512→128 for the AudioWorklet callback budget (bit-exact; see constants.js)
   assert.equal(c.MAX_VOICES, 64);

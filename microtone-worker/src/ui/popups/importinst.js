@@ -8,8 +8,8 @@
 // becomes an ordinary two-operator FM rack — there is no song here to say
 // which of them, if any, were rhythm-mode drums.
 
-import { parseTaud } from "../../format/taud-parse.js";
-import { SAMPLEBIN_SIZE } from "../../format/taud-const.js";
+import { parseTaud } from "../../../core/format/taud-parse.js";
+import { SAMPLEBIN_SIZE } from "../../../core/format/taud-const.js";
 import { sampleSpans } from "../../doc/document.js";
 import { Document } from "../../doc/document.js";
 import { bankInventory, planImport } from "../../doc/bankmerge.js";

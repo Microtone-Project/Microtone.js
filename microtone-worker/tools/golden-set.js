@@ -1,5 +1,5 @@
 // The engine's golden set: which songs, rendered how, pin the reference
-// behaviour of src/engine/ (see tools/make-golden.js, test/node/engine-golden.test.js).
+// behaviour of core/engine/ (see tools/make-golden.js, test/node/engine-golden.test.js).
 //
 // The web engine IS the reference implementation of the Taud engine — the TSVM
 // Kotlin engine is downstream of it — so its own renders are what a refactor
@@ -11,12 +11,12 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud } from "../src/format/taud-parse.js";
-import { TaudEngine } from "../src/engine/engine.js";
-import { setSamplingRate } from "../src/engine/constants.js";
-import { setRandomSource, makeSeededRandom } from "../src/engine/rng.js";
-import { MONITOR_BINAURAL } from "../src/engine/binaural.js";
-import { loadIntoEngine, renderSong } from "../src/audio/offline-render.js";
+import { parseTaud } from "../core/format/taud-parse.js";
+import { TaudEngine } from "../core/engine/engine.js";
+import { setSamplingRate } from "../core/engine/constants.js";
+import { setRandomSource, makeSeededRandom } from "../core/engine/rng.js";
+import { MONITOR_BINAURAL } from "../core/engine/binaural.js";
+import { loadIntoEngine, renderSong } from "../core/audio/offline-render.js";
 
 export const GOLDEN_RATE = 48000;   // the web engine's production rate (item 108)
 export const GOLDEN_SECONDS = 20;

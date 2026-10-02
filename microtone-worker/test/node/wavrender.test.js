@@ -7,12 +7,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
-import { TaudEngine } from "../../src/engine/engine.js";
+import { TaudEngine } from "../../core/engine/engine.js";
 import {
   loadIntoEngine, renderSong, renderSongAsync, renderToWav, renderToWavAsync,
-} from "../../src/audio/offline-render.js";
+} from "../../core/audio/offline-render.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const loadWhen = () => new Document(parseTaud(readFileSync(corpusDir + "WHEN.taud"))).toRenderable(0);

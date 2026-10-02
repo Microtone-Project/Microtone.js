@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 
 import {
   SCOPE_FRAMES, SCOPE_CHANNELS, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X,
-} from "../../src/engine/analysis.js";
+} from "../../core/engine/analysis.js";
 import {
   Fft, RadiationField, RadiationView, RAD_BANDS, RAD_NBANDS, RAD_VIEWS, RAD_VERTS,
   RAD_MERIDIANS, RAD_PARALLELS, RAD_FILL, RAD_SILENCE, G_LEN,

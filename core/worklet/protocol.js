@@ -46,6 +46,7 @@ export const CMD = Object.freeze({
   JAM_SAMPLE: "jamSample",                         // {ph, voice, note, spec} — raw pooled-sample preview
   JAM_STOP: "jamStop",                             // {ph} — every voice (panic)
   JAM_STOP_VOICE: "jamStopVoice",                  // {ph, voice} — one audition voice; voice < 0 = the whole jam bank
+  JAM_KEY_OFF: "jamKeyOff",                        // {ph, voice} — RELEASE one audition voice (a key-off, not a cut)
   SET_VOICE_MUTE: "setVoiceMute",                  // {ph, voice, muted}
   SET_VOICE_FADER: "setVoiceFader",                // {ph, voice, fader}
   QUERY_INVERT_MASK: "queryInvertMask",            // {slot} → MSG.INVERT_MASK
@@ -187,7 +188,7 @@ export const SNAP_METER_STRIDE = 4;
 
 // The vectorscope ring: SCOPE_FRAMES frames of first-order B-format, frame
 // interleaved (W, Y, Z, X), written continuously and read backwards from
-// SNAP_AN_RING_WRITE. See src/engine/analysis.js for why the scopes are always
+// SNAP_AN_RING_WRITE. See core/engine/analysis.js for why the scopes are always
 // B-format whatever the metering target is.
 export const SNAP_SCOPE_BASE = SNAP_METER_BASE + ANALYSIS_MAX_METERS * SNAP_METER_STRIDE;
 

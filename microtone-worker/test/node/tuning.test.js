@@ -19,13 +19,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { tuningRatioOf } from "../../src/engine/tables.js";
+import { tuningRatioOf } from "../../core/engine/tables.js";
 import {
   TUNING_REF_C4_HZ, TUNING_DEFAULT_BASE_NOTE, TUNING_DEFAULT_FREQ_HZ, MIDDLE_C,
-} from "../../src/engine/constants.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
-import { loadIntoEngine } from "../../src/audio/offline-render.js";
+} from "../../core/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
 import { Document } from "../../src/doc/document.js";
 
 const A4 = 0x5c00; // spec: "A4 (western default) is 0x5C00"

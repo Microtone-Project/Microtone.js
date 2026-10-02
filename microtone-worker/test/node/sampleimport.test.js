@@ -10,10 +10,10 @@ import {
   planSampleImport, planMultiSampleImport, buildFreshInstRecord, planExistingSampleAsInstrument,
 } from "../../src/doc/bankmerge.js";
 import { importBankOp } from "../../src/doc/ops.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
-import { escapeNonAscii, unescapeName } from "../../src/ui/names.js";
+import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const loadWhen = () => new Document(parseTaud(readFileSync(corpusDir + "WHEN.taud")));

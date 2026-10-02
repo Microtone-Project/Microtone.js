@@ -13,9 +13,9 @@
 // see visualiser.js + style.css there). Brightness (not just on/off) follows
 // the shared lamp.js ballistics — see there for the why.
 
-import { unescapeName } from "./names.js";
+import { unescapeName } from "../../core/format/names.js";
 import { t } from "./i18n.js";
-import { TOTAL_VOICES } from "../engine/constants.js";
+import { TOTAL_VOICES } from "../../core/engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "./lamp.js";
 
 const PREF_KEY = "microtone-instlist";

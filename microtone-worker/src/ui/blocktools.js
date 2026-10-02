@@ -23,7 +23,7 @@ import { setCellsBytesOp, setCellsFieldsOp, bulkNotesOp } from "../doc/ops.js";
 import { cellToBytes } from "../doc/clipboard.js";
 import {
   transposePatternNotes, transposeUnitKeys, pitchTablePresets, gridDelta,
-} from "./pitchtables.js";
+} from "../../core/tuning/pitchtables.js";
 import { FX_INFO, fxName, fxArg } from "./palette.js";
 import { planInterpolate, INTERP_SHAPES, PITCH_MODES } from "../doc/interpolate.js";
 

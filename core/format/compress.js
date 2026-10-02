@@ -3,8 +3,8 @@
 // and — despite the "gzip" JS namespace — WRITES zstd (CompressorDelegate.kt:106).
 // We decompress both and always emit real gzip, which the desktop auto-detects.
 
-import { gzipSync, gunzipSync } from "../../vendor/fflate.esm.js";
-import { decompress as zstdDecompress } from "../../vendor/fzstd.esm.js";
+import { gzipSync, gunzipSync } from "../vendor/fflate.esm.js";
+import { decompress as zstdDecompress } from "../vendor/fzstd.esm.js";
 
 /** Decompress a gzip- or zstd-compressed section (auto-detected by magic). */
 export function decomp(bytes, expectedSize) {

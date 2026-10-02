@@ -10,10 +10,10 @@
 // empty); bit 15 is one bit of the cue's packed instruction word, so a pattern
 // remap must preserve it.
 
-import { CUE_EMPTY, PATTERN_SIZE, SAMPLEBIN_SIZE } from "../format/taud-const.js";
-import { writePatchesBlob, buildMetaRecord, layerNote } from "../engine/inst.js";
-import { EffectOp } from "../engine/tables.js";
-import { rowVolumeFromDefault, narrowVolAxis } from "../engine/trigger.js";
+import { CUE_EMPTY, PATTERN_SIZE, SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
+import { writePatchesBlob, buildMetaRecord, layerNote } from "../../core/engine/inst.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
 import { sampleSpans } from "./document.js";
 import { regionSpans } from "./sampleregions.js";
 import { emptyPatternBytes } from "./patterntools.js";

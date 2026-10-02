@@ -12,10 +12,10 @@
 import { setInstBytesOp, syncBaseStereoPatchOp, compositeOp } from "../../doc/ops.js";
 import { resolveLoopRegion, residualDb, LOOP_POLICIES } from "../../doc/looptune.js";
 import { themeColors } from "../theme.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
-import { JAM_VOICES, JAM_VOICE_BASE } from "../../engine/constants.js";
+import { JAM_VOICES, JAM_VOICE_BASE } from "../../../core/engine/constants.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
 const W = 720, H = 200;

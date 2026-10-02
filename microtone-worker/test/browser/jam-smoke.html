@@ -15,7 +15,7 @@
     // jamming must sound WITHOUT the song ever being played.
     // Item 140: it sounds on the dedicated jam bank, so a MUTED cursor channel
     // still auditions, and held keys chord with per-key releases.
-    import { JAM_VOICES, JAM_VOICE_BASE } from "../../src/engine/constants.js";
+    import { JAM_VOICES, JAM_VOICE_BASE } from "../../core/engine/constants.js";
     const out = [];
     const log = (l) => { out.push(l); document.getElementById("out").textContent = out.join("\n"); };
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

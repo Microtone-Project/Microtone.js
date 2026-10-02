@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Microtone Touch</title>
+  <meta name="description" content="Sketch a musical idea on an isomorphic keyboard in any equal tuning, then send it to Microtone.">
+  <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fafbfd" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="apple-touch-icon" href="favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Touch">
+  <link rel="stylesheet" href="css/touch.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <section class="pane pane-song" aria-label="Sketch">
+      <header class="bar topbar">
+        <button id="playBtn" class="tbtn" aria-label="Play" aria-pressed="false"><span class="ico ico-play"></span></button>
+        <button id="recBtn" class="tbtn rec" aria-label="Record" aria-pressed="false"><span class="ico ico-rec"></span></button>
+        <button id="loopBtn" class="tbtn wide" aria-pressed="true" title="What the transport plays">Section</button>
+        <button id="bpmBtn" class="tbtn wide" title="Tempo"><span id="bpmVal">120</span><small>bpm</small></button>
+        <select id="tuningSel" class="tsel" aria-label="Tuning"></select>
+        <span class="spacer"></span>
+        <button id="sendBtn" class="tbtn send" title="Send to Microtone">Send</button>
+        <button id="menuBtn" class="tbtn" aria-label="More"><span class="ico ico-more"></span></button>
+      </header>
+      <nav class="bar sections" id="sections" aria-label="Sections"></nav>
+      <div class="grid-wrap" id="gridWrap">
+        <div class="grid" id="grid" role="grid" aria-label="Pattern"></div>
+      </div>
+      <div class="bar strip" aria-label="Editing">
+        <button id="offBtn" class="tbtn" title="Write a key-off">Off</button>
+        <button id="clearBtn" class="tbtn" aria-label="Clear the cell"><span class="ico ico-clear"></span></button>
+        <button id="stepBtn" class="tbtn wide" title="Rows the cursor moves after an entry">Step <b id="stepVal">1</b></button>
+        <button id="fxBtn" class="tbtn wide" title="Effect on the cell">FX</button>
+        <span class="spacer"></span>
+        <button id="undoBtn" class="tbtn" aria-label="Undo" disabled><span class="ico ico-undo"></span></button>
+        <button id="redoBtn" class="tbtn" aria-label="Redo" disabled><span class="ico ico-redo"></span></button>
+      </div>
+    </section>
+    <div class="splitter" id="splitter" role="separator" tabindex="0" aria-label="Resize the keyboard"
+         aria-valuemin="20" aria-valuemax="80"><button type="button" class="split-knob" id="splitKnob"></button><button
+         type="button" class="split-knob hand-knob" id="handKnob"></button></div>
+    <div class="hinge" aria-hidden="true"></div>
+    <section class="pane pane-keys" aria-label="Keyboard">
+      <div class="bar keyhead">
+        <button id="octDown" class="tbtn" aria-label="Octave down">‹</button>
+        <span id="octVal" class="oct">C3</span>
+        <button id="octUp" class="tbtn" aria-label="Octave up">›</button>
+        <select id="layoutSel" class="tsel" aria-label="Keyboard layout"></select>
+        <span class="spacer"></span>
+        <span id="laneTag" class="lane-tag"></span>
+        <button id="zoomOut" class="tbtn" aria-label="Smaller keys">−</button>
+        <button id="zoomIn" class="tbtn" aria-label="Larger keys">+</button>
+      </div>
+      <div class="keys-wrap" id="keysWrap">
+        <canvas id="keys" class="keys" aria-label="Isomorphic keyboard"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <div id="startVeil" class="veil">
+    <button id="startBtn" class="start">
+      <span class="brand"><b>Micro</b>tone <i>Touch</i></span>
+      <span class="start-hint">Tap to start the sound</span>
+    </button>
+  </div>
+
+  <dialog id="sheet" class="sheet"><form method="dialog" id="sheetBody"></form></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

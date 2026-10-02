@@ -18,7 +18,7 @@
 // fast-fade = a sinc function with a TRIANGULAR main lobe (the "~^~" sigil —
 // the cut-like spike at x=0 sits inside a decaying sinc envelope).
 
-import { resolveNoteSymbol } from "./pitchtables.js";
+import { resolveNoteSymbol } from "../../core/tuning/pitchtables.js";
 import { hex2, hex4, fxArgFields, fxOpChar } from "./notenames.js";
 import { volPanOp, volPanArg } from "./edit.js";
 

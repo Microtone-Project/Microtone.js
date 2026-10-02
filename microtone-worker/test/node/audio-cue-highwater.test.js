@@ -6,8 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { AudioSystem } from "../../src/audio/audio-system.js";
-import { CMD } from "../../src/worklet/protocol.js";
+import { AudioSystem } from "../../core/audio/audio-system.js";
+import { CMD } from "../../core/worklet/protocol.js";
 
 const CUE_EMPTY = 0x7fff;
 

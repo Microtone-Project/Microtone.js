@@ -16,7 +16,7 @@
 
 import {
   buildMetaRecord, makeMetaLayer, META_MAX_LAYERS, META_TYPE_LAYERED, META_TYPE_FM,
-} from "../engine/inst.js";
+} from "../../core/engine/inst.js";
 
 export { META_MAX_LAYERS, META_TYPE_LAYERED, META_TYPE_FM };
 

@@ -2,7 +2,7 @@
 // combiner, the attack/decay-asymmetric slew, and the per-voice bucketing
 // every play-indicator lamp in the app (Instruments/Samples tabs' dot, the
 // instrument lookup's own lit number) is built on. lamp.js lives in src/ui/,
-// not src/engine/, but its maths carries no DOM dependency (matchMedia is
+// not core/engine/, but its maths carries no DOM dependency (matchMedia is
 // feature-detected away), so it is exercised directly here rather than only
 // through a browser smoke.
 

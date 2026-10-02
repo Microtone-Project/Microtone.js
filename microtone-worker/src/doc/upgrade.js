@@ -10,8 +10,8 @@
 // separate from the Document so it can be tested on its own and so the mapping
 // table in the spec has exactly one implementation.
 
-import { PATTERN_SIZE, PATTERN_SIZE_WIDE } from "../format/taud-const.js";
-import { EffectOp } from "../engine/tables.js";
+import { PATTERN_SIZE, PATTERN_SIZE_WIDE } from "../../core/format/taud-const.js";
+import { EffectOp } from "../../core/engine/tables.js";
 
 /** A 6-bit column value in the wide cell's 8-bit units: 0x3F ↦ 255, exactly. */
 export function widenVolume(v6) {

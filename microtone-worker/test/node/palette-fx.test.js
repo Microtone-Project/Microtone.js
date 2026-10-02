@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { fxArgHint, fxName, fxArg, FX_INFO } from "../../src/ui/palette.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import { t } from "../../src/ui/i18n.js";
 
 test("`:` has its own FX_INFO entry, so the opcode picker can offer it", () => {

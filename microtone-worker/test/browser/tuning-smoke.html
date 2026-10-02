@@ -21,7 +21,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   const { store, projectView: pv } = M;
   win.alert = (m) => log("alert: " + m); // a real alert() blocks the headless page
 
-  const { tuningRatioOf } = await win.eval('import("/src/engine/tables.js")');
+  const { tuningRatioOf } = await win.eval('import("/core/engine/tables.js")');
   const song = store.song;
 
   // ── the corpus declares the tracker default ──
@@ -97,7 +97,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
 
   // ── it survives a save/load round trip ──
   const bytes = store.doc.toBytes();
-  const { parseTaud } = await win.eval('import("/src/format/taud-parse.js")');
+  const { parseTaud } = await win.eval('import("/core/format/taud-parse.js")');
   const re = parseTaud(bytes);
   check("the tuning round-trips through toBytes → parseTaud",
     re.songs[store.songIndex].tuningBaseNote === 0x5c00 &&

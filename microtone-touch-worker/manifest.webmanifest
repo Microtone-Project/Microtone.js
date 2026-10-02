@@ -1,0 +1,17 @@
+{
+  "name": "Microtone Touch",
+  "short_name": "Touch",
+  "description": "Sketch a musical idea on an isomorphic keyboard in any equal tuning, then send it to Microtone.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#16181d",
+  "theme_color": "#16181d",
+  "categories": ["music"],
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

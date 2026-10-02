@@ -1,25 +1,25 @@
 // Document — the canonical, fully-decoded project model owned by the main
 // thread. The worklet holds a playback copy fed by upload commands (sync.js);
-// the .taud container is (de)serialised by src/format/. Pattern cells reuse
+// the .taud container is (de)serialised by core/format/. Pattern cells reuse
 // the engine's TaudPlayData codec so byte round-trips are exact.
 
-import { TaudPlayData } from "../engine/state.js";
-import { decodeInstWord, INST_PATLEN, INST_HALTAT, INST_HALT, INST_GOBACK, INST_SKIP, INST_JUMP } from "../engine/state.js";
-import { TaudInst, parsePatchesBlob } from "../engine/inst.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { decodeInstWord, INST_PATLEN, INST_HALTAT, INST_HALT, INST_GOBACK, INST_SKIP, INST_JUMP } from "../../core/engine/state.js";
+import { TaudInst, parsePatchesBlob } from "../../core/engine/inst.js";
 import {
   CUE_EMPTY, KEYMAP_FOURCC, MAX_VOICES, NUM_VOICES, PATTERN_SIZE, PATTERN_SIZE_WIDE,
   SAMPLEBIN_SIZE, TAUD_VERSION_WIDE,
-} from "../format/taud-const.js";
+} from "../../core/format/taud-const.js";
 import { emptyPatternBytes } from "./patterntools.js";
 import { widenPattern } from "./upgrade.js";
 import { parseNotaPayload, defToPreset, slotForNotationValue } from "./notation.js";
 import {
   MASTERING_FOURCC, parseMasteringSection, buildMasteringSection,
-} from "../format/mastering-section.js";
-import { defaultMastering } from "../engine/mastering.js";
+} from "../../core/format/mastering-section.js";
+import { defaultMastering } from "../../core/engine/mastering.js";
 import { parseRegionPayload } from "./sampleregions.js";
-import { cueInstructionWords } from "../format/taud-parse.js";
-import { writeTaud } from "../format/taud-write.js";
+import { cueInstructionWords } from "../../core/format/taud-parse.js";
+import { writeTaud } from "../../core/format/taud-write.js";
 
 // Cells are decoded with the ENGINE's codec, in whichever of its two layouts
 // the file declares (format version 3 = the 16-byte wide cell, §5.5), so a

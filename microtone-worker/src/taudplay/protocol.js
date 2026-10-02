@@ -1,6 +1,6 @@
 // taudplay wire protocol — main thread ⇄ AudioWorklet.
 //
-// Deliberately tiny next to Microtone's own (src/worklet/protocol.js): that one
+// Deliberately tiny next to Microtone's own (core/worklet/protocol.js): that one
 // carries everything an EDITOR wants to see — per-lane envelope cursors, sample
 // read positions, funk windows, the master analysis field, loudness histograms,
 // spectra. A player wants none of it. What is left is the transport, and two

@@ -21,11 +21,11 @@ import {
   metaLayers, metaRecordOf, stackLayer, clampDetune, clampLayerPitch, META_MAX_LAYERS,
 } from "../../doc/metaedit.js";
 import { setMetaRecordOp } from "../../doc/ops.js";
-import { ANCHOR_NOTE } from "../pitchtables.js";
-import { JAM_VOICES, JAM_VOICE_BASE } from "../../engine/constants.js";
+import { ANCHOR_NOTE } from "../../../core/tuning/pitchtables.js";
+import { JAM_VOICES, JAM_VOICE_BASE } from "../../../core/engine/constants.js";
 import { noteGlyphCanvas } from "../noteglyph.js";
 import { setIconLabel } from "../icons.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 
 /** How long a preview rings before it releases itself. A stack of sustaining

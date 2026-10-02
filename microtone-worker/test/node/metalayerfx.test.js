@@ -7,12 +7,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../src/engine/constants.js";
-import { EffectOp } from "../../src/engine/tables.js";
-import { buildMetaRecord, makeMetaLayer } from "../../src/engine/inst.js";
-import { minifloatFromDouble } from "../../src/engine/minifloat.js";
-import { MOD_OFF, MOD_ROL1 } from "../../src/engine/samplemod.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../core/engine/constants.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { buildMetaRecord, makeMetaLayer } from "../../core/engine/inst.js";
+import { minifloatFromDouble } from "../../core/engine/minifloat.js";
+import { MOD_OFF, MOD_ROL1 } from "../../core/engine/samplemod.js";
 
 setSamplingRate(32000);
 

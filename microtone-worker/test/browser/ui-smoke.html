@@ -129,7 +129,7 @@
         pv.changeProjectString("PNam", "Neue Œuvre");
         const pn = store.doc.meta.projectName;
         const pnam = store.doc.projSections.find((s) => s.fourcc === "PNam");
-        const { parseTaud } = await import("../../src/format/taud-parse.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
         const re = parseTaud(store.doc.toBytes());
         const stFile = win.document.getElementById("stFile").textContent;
         const projOk = pn === "Neue \\u0152uvre" && !!pnam && re.meta.projectName === pn &&

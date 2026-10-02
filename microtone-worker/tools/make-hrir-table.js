@@ -7,10 +7,10 @@
 // Source: Omnitone's pristine copy of the GoogleVR resource
 // (/home/torvald/Documents/omnitone/src/resources/sh_hrir_order_3.wav), a
 // 16-channel 48 kHz 16-bit WAV, 256 frames. Channel k IS ambisonic channel k in
-// ACN order — see src/engine/hrir-sadie.js for what the numbers mean and
+// ACN order — see core/engine/hrir-sadie.js for what the numbers mean and
 // vendor/VENDOR-VERSIONS.md for the licence.
 //
-// Output is COMMITTED (src/engine/hrir-sadie.js); the engine never parses a WAV
+// Output is COMMITTED (core/engine/hrir-sadie.js); the engine never parses a WAV
 // at run time. The samples are stored CHANNEL-MAJOR, as int16 little-endian,
 // base64'd — the layout the convolver wants, so decoding is a straight copy.
 
@@ -149,6 +149,6 @@ export function decodeShHrir() {
 }
 `;
 
-writeFileSync(root + "src/engine/hrir-sadie.js", out);
-console.log(`wrote src/engine/hrir-sadie.js (${out.length} bytes) from ${src}`);
+writeFileSync(root + "core/engine/hrir-sadie.js", out);
+console.log(`wrote core/engine/hrir-sadie.js (${out.length} bytes) from ${src}`);
 console.log(`  order ${order}, ${channels} channels × ${length} taps @ ${fmt.rate} Hz, md5 ${md5}`);

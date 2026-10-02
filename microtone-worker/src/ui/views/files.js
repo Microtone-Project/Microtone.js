@@ -6,18 +6,18 @@
 // (filesonline.js), on hosts that have one.
 
 import * as opfs from "../../storage/opfs.js";
-import { onAuthChange } from "../../storage/online.js";
+import { onAuthChange } from "../../../core/storage/online.js";
 import { OnlineSection } from "./filesonline.js";
 import { pickFile, download, downloadBlob } from "../../storage/import-export.js";
 import { converterFor, CONVERT_ACCEPT } from "../../convert/convert.js";
 import { isImac } from "../../convert/imac.js";
 import { showModal } from "../widgets/modal.js";
-import { renderToWavAsync } from "../../audio/offline-render.js";
+import { renderToWavAsync } from "../../../core/audio/offline-render.js";
 import {
   renderStemsAsync, labelStems, encodeWav24Mono, stemFileName, sanitiseName, StemZip,
 } from "../../audio/stem-export.js";
 import { showProgress } from "../popups/progress.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import { showDemoPicker } from "../demos.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
@@ -298,7 +298,7 @@ export class FilesView {
     const song = doc.songs[songIndex];
     const surroundModel = song?.surroundModel ?? 0;
     const { showExportAudio } = await import("../popups/exportaudio.js");
-    const { masteringEngaged } = await import("../../engine/mastering.js");
+    const { masteringEngaged } = await import("../../../core/engine/mastering.js");
     const choice = await showExportAudio({
       surroundModel,
       // A multichannel target is written from the object bus, upstream of the

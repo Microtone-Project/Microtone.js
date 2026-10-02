@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import {
   pitchTablePresets, presetForNotation, resolveNoteSymbol, stepNoteInTable,
   transposePatternNotes, surveyTuning, retuneAllPatterns, ANCHOR_NOTE, OFF_GRID_TOL,
-} from "../../src/ui/pitchtables.js";
+} from "../../core/tuning/pitchtables.js";
 
 const PT = presetForNotation(1);
 

@@ -17,7 +17,7 @@
 
 import { t } from "../i18n.js";
 import { noteToStr, noteCentsOff } from "../notenames.js";
-import { resolveNoteSymbol } from "../pitchtables.js";
+import { resolveNoteSymbol } from "../../../core/tuning/pitchtables.js";
 import {
   ROW_CODES, ROW_ORDER, resolveKeymap, keymapNote, normaliseKeymap, OFF,
 } from "../keymap.js";

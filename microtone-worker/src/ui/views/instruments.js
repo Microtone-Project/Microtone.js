@@ -31,35 +31,35 @@ import {
 import { planDuplicateInstruments } from "../../doc/bankmerge.js";
 import { showModal } from "../widgets/modal.js";
 import { AdvancedZoneEditor } from "./instadvanced.js";
-import { META_MIX_GAIN } from "../../engine/tables.js";
-import { TOTAL_VOICES } from "../../engine/constants.js";
+import { META_MIX_GAIN } from "../../../core/engine/tables.js";
+import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import { showImportInstruments, importFromSf2 } from "../popups/importinst.js";
 import { getSoundfont } from "../soundfont.js";
-import { minifloatToDouble, minifloatFromDouble } from "../../engine/minifloat.js";
+import { minifloatToDouble, minifloatFromDouble } from "../../../core/engine/minifloat.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
 } from "../../doc/envedit.js";
 import { mapSpinner } from "../widgets/spinner.js";
 import { dragGrip, focusGrip } from "../widgets/dragsort.js";
-import { envPresent, envCarry } from "../../engine/envelope.js";
+import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import { hex2, rangeToStr } from "../notenames.js";
 import { noteGlyphCanvas, rangeGlyphCanvas } from "../noteglyph.js";
 import { fmGraphSvg } from "../fmgraph.js";
-import { ANCHOR_NOTE, stepNoteInTable } from "../pitchtables.js";
+import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
 import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
 // A fixed-pitch layer's field takes a note WORD, and the query parser is
 // already the app's one place that reads "$5000" and "C-4" as the same thing.
 import { parseFieldValue } from "../../doc/patternquery.js";
 import { themeColors } from "../theme.js";
-import { unescapeName, escapeNonAscii } from "../names.js";
+import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
 import { isStereoSample } from "../../doc/document.js";
-import { baseStereoPatchIndex } from "../../engine/inst.js";
+import { baseStereoPatchIndex } from "../../../core/engine/inst.js";
 import {
   annHex2, annFilter, annFadeout, annSfCutoff, annSfReso, azimuthLabel, elevationLabel,
   SEG_MINIFLOAT_MAP,
 } from "../units.js";
-import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../engine/spatial.js";
+import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr, localPoint } from "../zoom.js";

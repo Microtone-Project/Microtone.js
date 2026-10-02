@@ -23,7 +23,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
   const doc = win.document;
   const { store, timeline } = M;
-  const { EffectOp } = await import("../../src/engine/tables.js");
+  const { EffectOp } = await import("../../core/engine/tables.js");
   const { setSongScalarOp } = await import("../../src/doc/ops.js");
 
   const cellAt = (row, ch) => {
@@ -153,7 +153,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check((cell.effectArg & 0xff) === 0x80, "…and Place writes that azimuth", `$${cell.effectArg.toString(16)}`);
 
   // ── 4b. the lane-header radar (#998.6) ───────────────────────────────────
-  const { lateralProjection } = await import("../../src/engine/spatial.js");
+  const { lateralProjection } = await import("../../core/engine/spatial.js");
   const collapsedH = M.timeline.headerH();
   check(!doc.getElementById("tbRadar").hidden, "Radar toggle appears for a surround song");
   doc.getElementById("tbRadar").click();

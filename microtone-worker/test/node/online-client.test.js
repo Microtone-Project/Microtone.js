@@ -1,10 +1,10 @@
-// src/storage/online.js against the real router (server/online/), through a
+// core/storage/online.js against the real router (server/online/), through a
 // cookie-jar fetch — the client and the server checked against each other.
 
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { onlineEnv, browser, taudBytes } from "../fixtures/online-env.js";
-import * as online from "../../src/storage/online.js";
+import * as online from "../../core/storage/online.js";
 import { PROJECT_LIMIT } from "../../server/online/util.js";
 
 let realFetch;

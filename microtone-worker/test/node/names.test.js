@@ -9,10 +9,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { setSectionOp, setProjectStringOp } from "../../src/doc/ops.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
-import { decodeProjectString, encodeProjectString } from "../../src/ui/names.js";
+import { decodeProjectString, encodeProjectString } from "../../core/format/names.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const loadWhen = () => new Document(parseTaud(readFileSync(corpusDir + "WHEN.taud")));

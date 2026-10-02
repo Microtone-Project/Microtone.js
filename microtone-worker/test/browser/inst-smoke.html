@@ -30,7 +30,7 @@
         });
         const M = win.__microtone;
         const { store, instrumentsView: iv, timeline, jam } = M;
-        const { presetForNotation } = await import("../../src/ui/pitchtables.js");
+        const { presetForNotation } = await import("../../core/tuning/pitchtables.js");
         const { semiToNote, semiToNoteInTable } = await import("../../src/ui/edit.js");
         log("app loaded, doc ready");
 

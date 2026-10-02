@@ -17,7 +17,7 @@ import {
   buildMetaRecord, makeMetaLayer, fmWordArity, fmRecordBytes,
   FM_MAX_OPERATORS, FM_BUDGET_BYTES, FM_STACK_MAX, FM_INDEX_MASK,
   FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FM_WORD_OP, FmOp, META_TYPE_FM,
-} from "../engine/inst.js";
+} from "../../core/engine/inst.js";
 import { metaFlags } from "./metaedit.js";
 
 export { FM_MAX_OPERATORS, FM_BUDGET_BYTES, FmOp, META_TYPE_FM };

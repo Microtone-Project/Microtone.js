@@ -11,11 +11,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
-import { EffectOp } from "../../src/engine/tables.js";
-import { AudioSystem } from "../../src/audio/audio-system.js";
-import { CMD } from "../../src/worklet/protocol.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { AudioSystem } from "../../core/audio/audio-system.js";
+import { CMD } from "../../core/worklet/protocol.js";
 
 setSamplingRate(32000);
 

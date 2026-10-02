@@ -12,15 +12,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../src/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../core/engine/constants.js";
 import {
   buildMetaRecord, makeMetaLayer, decodeFmProgram, defaultFmProgram, fmRecordBytes,
   TaudInst, FmOp, FM_WORD_MOD, FM_WORD_FB, FM_MAX_OPERATORS, FM_BUDGET_BYTES,
   META_TYPE_FM, META_TYPE_LAYERED,
-} from "../../src/engine/inst.js";
-import { fmReferencedOperators } from "../../src/engine/fm.js";
-import { EffectOp } from "../../src/engine/tables.js";
+} from "../../core/engine/inst.js";
+import { fmReferencedOperators } from "../../core/engine/fm.js";
+import { EffectOp } from "../../core/engine/tables.js";
 
 setSamplingRate(32000);
 

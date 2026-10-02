@@ -12,7 +12,7 @@
 // every edit here is really an edit to where that terminator sits — and why
 // "delete the last node" is not "shift the array down one".
 
-import { minifloatToDouble, minifloatFromDouble } from "../engine/minifloat.js";
+import { minifloatToDouble, minifloatFromDouble } from "../../core/engine/minifloat.js";
 
 /** Physical node slots in a record; the array is always this long. */
 export const ENV_MAX_NODES = 25;

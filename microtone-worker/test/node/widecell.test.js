@@ -10,15 +10,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
+import { TaudEngine } from "../../core/engine/engine.js";
 import {
   TRACKER_CHUNK, PATTERN_BYTES_WIDE, CELL_BYTES_WIDE, SAMPLING_RATE, setSamplingRate,
-} from "../../src/engine/constants.js";
-import { TaudPlayData } from "../../src/engine/state.js";
-import { EffectOp } from "../../src/engine/tables.js";
-import { applyEffectRow } from "../../src/engine/effects.js";
-import { SURROUND_PLANAR, SURROUND_SPATIAL } from "../../src/engine/spatial.js";
-import { readSamplePoint } from "../../src/engine/sampler.js";
+} from "../../core/engine/constants.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { applyEffectRow } from "../../core/engine/effects.js";
+import { SURROUND_PLANAR, SURROUND_SPATIAL } from "../../core/engine/spatial.js";
+import { readSamplePoint } from "../../core/engine/sampler.js";
 
 // Pinned to the Kotlin engine's 32 kHz (item 108 moved the web default to
 // 48 kHz): the expectations below are sample counts and reference renders
@@ -324,8 +324,8 @@ test("a narrow-cell engine never reads the second effect", () => {
 test("a version-3 file round-trips through parse → document → write", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
-  const { writeTaud } = await import("../../src/format/taud-write.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
+  const { writeTaud } = await import("../../core/format/taud-write.js");
   const { Document } = await import("../../src/doc/document.js");
 
   // Start from a real song and widen it by hand — the upgrade FLOW is stage 2;
@@ -381,9 +381,9 @@ test("an empty wide pattern is empty in the wide sense", async () => {
 test("a wide document renders through the offline path", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
   const { Document } = await import("../../src/doc/document.js");
-  const { renderToWav } = await import("../../src/audio/offline-render.js");
+  const { renderToWav } = await import("../../core/audio/offline-render.js");
 
   const path = fileURLToPath(new URL("../corpus/WHEN.taud", import.meta.url));
   const parsed = parseTaud(readFileSync(path));
@@ -457,7 +457,7 @@ test("widening a cell preserves what every field meant", async () => {
 test("the upgrade is one undo step and puts the exact bytes back", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
   const { Document } = await import("../../src/doc/document.js");
   const { upgradeCellFormatOp } = await import("../../src/doc/ops.js");
   const { UndoStack } = await import("../../src/doc/undo.js");
@@ -490,9 +490,9 @@ test("a widened song sounds like the one it came from", async () => {
   // The upgrade's whole claim: the same music, in a cell that can say more.
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
   const { Document } = await import("../../src/doc/document.js");
-  const { renderToWav } = await import("../../src/audio/offline-render.js");
+  const { renderToWav } = await import("../../core/audio/offline-render.js");
 
   const path = fileURLToPath(new URL("../corpus/WHEN.taud", import.meta.url));
   const narrow = new Document(parseTaud(readFileSync(path)));

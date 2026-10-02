@@ -37,38 +37,38 @@ const outDir = process.argv[2] ??
 
 // ── the module graph, in dependency order (mirrors make-worklet-bundle.js) ──
 const ENGINE = [
-  "src/engine/constants.js",
-  "src/engine/minifloat.js",
-  "src/engine/rng.js",
-  "src/engine/tables.js",
-  "src/engine/spatial.js",
-  "src/engine/hrir-sadie.js",
-  "src/engine/binaural.js",
-  "src/engine/speakers.js",
-  "src/engine/analysis.js",
-  "src/engine/mastering.js",
-  "src/engine/loudness.js",
-  "src/engine/samplemod.js",
-  "src/engine/inst.js",
-  "src/engine/voice.js",
-  "src/engine/state.js",
-  "src/engine/sampler.js",
-  "src/engine/filter.js",
-  "src/engine/fm.js",
-  "src/engine/envelope.js",
-  "src/engine/trigger.js",
-  "src/engine/effects.js",
-  "src/engine/row.js",
-  "src/engine/tick.js",
-  "src/engine/mixer.js",
-  "src/engine/engine.js",
+  "core/engine/constants.js",
+  "core/engine/minifloat.js",
+  "core/engine/rng.js",
+  "core/engine/tables.js",
+  "core/engine/spatial.js",
+  "core/engine/hrir-sadie.js",
+  "core/engine/binaural.js",
+  "core/engine/speakers.js",
+  "core/engine/analysis.js",
+  "core/engine/mastering.js",
+  "core/engine/loudness.js",
+  "core/engine/samplemod.js",
+  "core/engine/inst.js",
+  "core/engine/voice.js",
+  "core/engine/state.js",
+  "core/engine/sampler.js",
+  "core/engine/filter.js",
+  "core/engine/fm.js",
+  "core/engine/envelope.js",
+  "core/engine/trigger.js",
+  "core/engine/effects.js",
+  "core/engine/row.js",
+  "core/engine/tick.js",
+  "core/engine/mixer.js",
+  "core/engine/engine.js",
 ];
 
 /** Everything the worklet bundle concatenates, in order. */
 const WORKLET_BUNDLE = [
   ...ENGINE,
-  "src/audio/resampler.js",
-  "src/audio/offline-render.js", // loadIntoEngine: the one upload sequence
+  "core/audio/resampler.js",
+  "core/audio/offline-render.js", // loadIntoEngine: the one upload sequence
   "src/taudplay/protocol.js",
   "src/taudplay/faders.js",
   "src/taudplay/worklet.js",
@@ -77,13 +77,13 @@ const WORKLET_BUNDLE = [
 /** Everything the standalone repo carries, verbatim, at the same paths. */
 const REPO_FILES = [
   ...ENGINE,
-  "src/engine/fft.js",           // analysis.js imports it
-  "src/audio/resampler.js",
-  "src/audio/offline-render.js",
-  "src/format/taud-const.js",
-  "src/format/compress.js",
-  "src/format/mastering-section.js",
-  "src/format/taud-parse.js",
+  "core/engine/fft.js",           // analysis.js imports it
+  "core/audio/resampler.js",
+  "core/audio/offline-render.js",
+  "core/format/taud-const.js",
+  "core/format/compress.js",
+  "core/format/mastering-section.js",
+  "core/format/taud-parse.js",
   "src/taudplay/protocol.js",
   "src/taudplay/faders.js",
   "src/taudplay/interrupts.js",
@@ -91,8 +91,8 @@ const REPO_FILES = [
   "src/taudplay/player.js",
   "src/taudplay/render.js",
   "src/taudplay/index.js",
-  "vendor/fflate.esm.js",
-  "vendor/fzstd.esm.js",
+  "core/vendor/fflate.esm.js",
+  "core/vendor/fzstd.esm.js",
 ];
 
 // ── 1. the single-file classic worklet ──────────────────────────────────────
@@ -143,7 +143,7 @@ const PACKAGE_JSON = (version) => JSON.stringify({
   type: "module",
   main: "./src/taudplay/index.js",
   exports: { ".": "./src/taudplay/index.js" },
-  files: ["src", "COPYING", "COPYING.LESSER", "README.md"],
+  files: ["src", "core", "COPYING", "COPYING.LESSER", "README.md"],
   license: "LGPL-3.0-or-later",
   author: "CuriousTorvald",
   keywords: ["taud", "tracker", "microtone", "audio", "webaudio", "chiptune", "module"],
@@ -186,7 +186,7 @@ against each other gives you contextual scoring for the cost of one file.
 npm install taudplay
 \`\`\`
 
-…or just copy \`src/\` in. There is no build step and no dependency to install:
+…or just copy \`src/\` and \`core/\` in. There is no build step and no dependency to install:
 everything is ES modules, and the two vendored decompressors are single files.
 
 ## Play something
@@ -330,7 +330,7 @@ builds on). You may link this library into a proprietary application; changes
 The vendored decompressors keep their own (MIT) licences:
 [fflate](https://github.com/101arrowz/fflate) and
 [fzstd](https://github.com/101arrowz/fzstd). The binaural filter set in
-\`src/engine/hrir-sadie.js\` is the GoogleVR/SADIE set, Apache-2.0.
+\`core/engine/hrir-sadie.js\` is the GoogleVR/SADIE set, Apache-2.0.
 
 ---
 
@@ -362,7 +362,7 @@ async function main() {
   }
   const engineHash = acc.toString(16).padStart(16, "0").slice(0, 12);
 
-  for (const sub of ["src", "vendor"]) {
+  for (const sub of ["src", "core", "vendor"]) {
     await rm(join(outDir, sub), { recursive: true, force: true });
   }
   for (const rel of REPO_FILES) {

@@ -1,7 +1,7 @@
 // Bend ghosts — the pitch / volume / panning a BENDING effect leaves standing
 // on a cell that displays nothing. A static mirror of the engine's row and
-// tick arithmetic (src/engine/row.js applyTrackerRow, src/engine/effects.js
-// applyEffectRow, src/engine/tick.js applyTrackerTick), in the same spirit as
+// tick arithmetic (core/engine/row.js applyTrackerRow, core/engine/effects.js
+// applyEffectRow, core/engine/tick.js applyTrackerTick), in the same spirit as
 // ditto.js: pure — no DOM, no engine instance, no audio.
 //
 // WHY. A slide's whole point is that the values it produces are never written
@@ -50,19 +50,19 @@ import {
   EffectOp, clamp, FINETUNE_OFFSET,
   amigaSlideOnce, amigaSlideTick, linearFreqSlideOnce, linearFreqSlideTick,
   noteValToFreqHz, freqHzToNoteVal,
-} from "../engine/tables.js";
-import { resolveArg } from "../engine/effects.js";
+} from "../../core/engine/tables.js";
+import { resolveArg } from "../../core/engine/effects.js";
 import {
   applyVolColumn, applyPanColumn, applyPanColumnWide, rowVolumeFromDefault,
   narrowVolAxis,
-} from "../engine/trigger.js";
+} from "../../core/engine/trigger.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL,
   applyPanSet, applyPanSlide, applyElevation, applyNotePanSet, applyNotePanSlide,
   applyNoteElevation, anglesFromSpatialArg, stepTowardTarget,
   wrapAzimuth, mirrorPanByte, voiceElevation,
-} from "../engine/spatial.js";
-import { VOLUME_MAX, VOLUME_MAX_WIDE, VOLUME_STEP_WIDE } from "../engine/constants.js";
+} from "../../core/engine/spatial.js";
+import { VOLUME_MAX, VOLUME_MAX_WIDE, VOLUME_STEP_WIDE } from "../../core/engine/constants.js";
 
 /** Scratch [azimuth, elevation], the twin of effects.js's own `spatialArg`. */
 const spatialArg = new Float64Array(2);

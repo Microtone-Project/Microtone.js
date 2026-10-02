@@ -7,10 +7,10 @@ import {
   changeInstrumentOp, bulkNotesOp, upgradeCellFormatOp, setProjectStringOp,
   importBankOp,
 } from "../../doc/ops.js";
-import { tuningRatioOf } from "../../engine/tables.js";
+import { tuningRatioOf } from "../../../core/engine/tables.js";
 import {
   TUNING_REF_C4_HZ, TUNING_DEFAULT_BASE_NOTE, TUNING_DEFAULT_FREQ_HZ,
-} from "../../engine/constants.js";
+} from "../../../core/engine/constants.js";
 import {
   planCleanupPatterns, planMergeDuplicatePatterns, planRenumberPatterns, applyPatternOrder,
   encodeNameTable, planBankCleanup, planIxmpCleanup,
@@ -19,13 +19,13 @@ import { planPoolDefrag } from "../../doc/pooldefrag.js";
 import {
   pitchTablePresets, presetForNotation, retuneAllPatterns, surveyTuning,
   transposeAllPatterns, transposeUnitKeys,
-} from "../pitchtables.js";
+} from "../../../core/tuning/pitchtables.js";
 import { defToPreset } from "../../doc/notation.js";
 import { Song } from "../../doc/document.js";
 import { showModal } from "../widgets/modal.js";
 import {
   decodeProjectString, encodeProjectString, escapeNonAscii, unescapeName,
-} from "../names.js";
+} from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 
 /** Byte counts as a person reads them — the pool is measured in megabytes. */

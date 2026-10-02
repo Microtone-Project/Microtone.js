@@ -26,11 +26,11 @@ import {
 } from "../../src/doc/songrows.js";
 import { remapPatternsOp } from "../../src/doc/ops.js";
 import { Document, cueInfo } from "../../src/doc/document.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { UndoStack } from "../../src/doc/undo.js";
-import { CUE_EMPTY, MAX_VOICES } from "../../src/format/taud-const.js";
+import { CUE_EMPTY, MAX_VOICES } from "../../core/format/taud-const.js";
 import { emptyPatternBytes } from "../../src/doc/patterntools.js";
-import { INST_JUMP, INST_GOBACK } from "../../src/engine/state.js";
+import { INST_JUMP, INST_GOBACK } from "../../core/engine/state.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const load = (name) => new Document(parseTaud(readFileSync(corpusDir + name)));

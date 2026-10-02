@@ -5,7 +5,7 @@
 // Why from here: the page is tauri://localhost and the API is microtone.cc.
 // Fetched by the webview that is a cross-site request — CORS, and a session
 // cookie the webviews drop as third-party. Sent by the app it is neither, and
-// src/storage/online.js stays exactly what the website runs: the glue
+// core/storage/online.js stays exactly what the website runs: the glue
 // (glue/desktop.js) hands this module the page's fetch() calls to /api/online
 // and its sign-in window.open().
 //

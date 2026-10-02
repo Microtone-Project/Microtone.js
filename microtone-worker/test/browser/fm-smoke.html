@@ -177,7 +177,7 @@
         // ── the rack survives a save/reload round trip ──
         const bytes = doc.toBytes();
         const { Document } = await import("../../src/doc/document.js");
-        const { parseTaud } = await import("../../src/format/taud-parse.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
         const reloaded = new Document(parseTaud(bytes));
         const back = reloaded.instruments[slot];
         log(`rack survives serialise/parse: ` +

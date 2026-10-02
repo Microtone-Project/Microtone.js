@@ -16,8 +16,8 @@
 //
 // Pure — no DOM, no canvas — so the shape of every reading is testable.
 
-import { EffectOp } from "../engine/tables.js";
-import { SURROUND_SPATIAL } from "../engine/spatial.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { SURROUND_SPATIAL } from "../../core/engine/spatial.js";
 
 /** `M $xx00` for a lane volume of `vol` (0..volMax). */
 export function laneVolumeCell(vol) {

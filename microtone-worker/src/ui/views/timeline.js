@@ -3,10 +3,10 @@
 // mode, per-lane VU/pan header meters, cue-boundary gutter. Feature
 // reference: taut.js VIEW_TIMELINE.
 
-import { PATTERN_EMPTY, VOLUME_MAX, VOLUME_MAX_WIDE } from "../../engine/constants.js";
+import { PATTERN_EMPTY, VOLUME_MAX, VOLUME_MAX_WIDE } from "../../../core/engine/constants.js";
 import {
   AZIMUTH_TURN, ELEVATION_QUARTER, SURROUND_SPATIAL, lateralProjection,
-} from "../../engine/spatial.js";
+} from "../../../core/engine/spatial.js";
 import { hex2, hex4, fxColonWarns } from "../notenames.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
 import {
@@ -26,7 +26,7 @@ import {
 } from "../../doc/clipboard.js";
 import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
-import { unescapeName } from "../names.js";
+import { unescapeName } from "../../../core/format/names.js";
 import { paintSpatialDot } from "../spatialdot.js";
 import { showContextMenu } from "../widgets/contextmenu.js";
 import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";

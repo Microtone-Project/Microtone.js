@@ -65,7 +65,7 @@ const ARB = 0x0500; // far beyond WHEN's materialised patterns
 
   // 5. It must survive a save/reload round-trip.
   const bytes = store.doc.toBytes();
-  const { parseTaud } = await import("../../src/format/taud-parse.js");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
   const { Document } = await import("../../src/doc/document.js");
   const re = new Document(parseTaud(bytes));
   check((re.songs[0].cues[0][0] & 0x7fff) === ARB, "cue word round-trips");

@@ -8,10 +8,10 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { parseTaud } from "../src/format/taud-parse.js";
-import { TaudEngine } from "../src/engine/engine.js";
-import { SAMPLING_RATE } from "../src/engine/constants.js";
-import { loadIntoEngine, renderSong } from "../src/audio/offline-render.js";
+import { parseTaud } from "../core/format/taud-parse.js";
+import { TaudEngine } from "../core/engine/engine.js";
+import { SAMPLING_RATE } from "../core/engine/constants.js";
+import { loadIntoEngine, renderSong } from "../core/audio/offline-render.js";
 
 export { loadIntoEngine, renderSong }; // back-compat for older importers
 

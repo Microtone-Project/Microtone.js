@@ -69,7 +69,7 @@ export function blockCell(block, r, c) {
 //
 // `chans` is the block's column count either way; on a command block it counts
 // Cmd slots rather than voices.
-import { CUE_EMPTY } from "../format/taud-const.js";
+import { CUE_EMPTY } from "../../core/format/taud-const.js";
 
 /** Allocate a rows×chans cue block pre-filled with "nothing here": an empty
  *  pattern index, or — for a command block — the NOP instruction word. */

@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { spatialDotCue, LIGHT_ELEVATION_DEG } from "../../src/ui/spatialdot.js";
-import { ELEVATION_QUARTER } from "../../src/engine/spatial.js";
+import { ELEVATION_QUARTER } from "../../core/engine/spatial.js";
 
 const DIAL = 80, DOT = 5;
 const cue = (el) => spatialDotCue(el, DIAL, DOT);

@@ -17,10 +17,10 @@ import { TaudRenderer, TaudPlayer, encodeWav, gainToFader, faderToGain }
   from "../../src/taudplay/index.js";
 import { makeInterruptBank, setInterruptIn, fireInterrupts }
   from "../../src/taudplay/interrupts.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
-import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
-import { SAMPLING_RATE, TRACKER_CHUNK } from "../../src/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
+import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
 
 const corpus = fileURLToPath(new URL("../corpus/", import.meta.url));
 const WHEN = await readFile(corpus + "WHEN.taud");

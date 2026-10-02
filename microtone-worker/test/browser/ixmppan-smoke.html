@@ -15,8 +15,8 @@
     // worklet consumes through its generated bundle.
     // Run: chromium --headless=new --autoplay-policy=no-user-gesture-required \
     //        --enable-logging=stderr http://localhost:8737/test/browser/ixmppan-smoke.html
-    import { parseTaud } from "../../src/format/taud-parse.js";
-    import { AudioSystem } from "../../src/audio/audio-system.js";
+    import { parseTaud } from "../../core/format/taud-parse.js";
+    import { AudioSystem } from "../../core/audio/audio-system.js";
 
     const out = [];
     const log = (line) => {

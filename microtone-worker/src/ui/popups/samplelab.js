@@ -42,7 +42,7 @@ import { download } from "../../storage/import-export.js";
 import { sanitiseName } from "../../audio/stem-export.js";
 import { showModal } from "../widgets/modal.js";
 import { themeColors } from "../theme.js";
-import { escapeNonAscii } from "../names.js";
+import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { icon, setIconLabel } from "../icons.js";
 import { uiDpr, localPoint, toLayout } from "../zoom.js";

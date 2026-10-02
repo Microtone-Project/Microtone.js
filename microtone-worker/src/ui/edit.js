@@ -15,8 +15,8 @@
 // selection highlight alike. `fx2` is meaningless without `wide`: the 8-byte
 // cell has no second effect to show.
 
-import { EffectOp } from "../engine/tables.js";
-import { stepNoteInTable, semiToNote, semiToNoteInTable } from "./pitchtables.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { stepNoteInTable, semiToNote, semiToNoteInTable } from "../../core/tuning/pitchtables.js";
 import {
   DEFAULT_KEYMAP, keymapHas, keymapNote, keymapClaimsZRow,
   quoteKeyFields, QUOTE_DEFAULT,

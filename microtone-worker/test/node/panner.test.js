@@ -15,7 +15,7 @@ import { azimuthLabel, elevationLabel, panLabel } from "../../src/ui/units.js";
 import {
   AZIMUTH_TURN, ELEVATION_QUARTER, wrapAzimuth,
   anglesFromSpatialArg, spatialArgFromAngles,
-} from "../../src/engine/spatial.js";
+} from "../../core/engine/spatial.js";
 
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps, `${a} !≈ ${b}`);
 const out = new Float64Array(2);

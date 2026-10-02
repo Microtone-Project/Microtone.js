@@ -14,12 +14,12 @@ import {
   paintPitchTab,
   RE_ENTRY_ROWS, ANCHOR_OCTAVE,
 } from "../../src/ui/pitchplot.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import {
   hexToOklch, mixOklch, evenSteps, gamutClamp, inGamut,
   parseHex, toHex, rgbToOklab, oklabToRgb,
 } from "../../src/ui/oklch.js";
-import { pitchTablePresets, ANCHOR_NOTE } from "../../src/ui/pitchtables.js";
+import { pitchTablePresets, ANCHOR_NOTE } from "../../core/tuning/pitchtables.js";
 
 const P12 = pitchTablePresets[120];
 /** A 12-TET note word: octave + semitone offset from that octave's C. */

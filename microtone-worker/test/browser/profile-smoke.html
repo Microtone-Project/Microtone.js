@@ -19,8 +19,8 @@
     //   chromium --headless=new --disable-gpu --no-sandbox --timeout=60000 \
     //     --autoplay-policy=no-user-gesture-required --dump-dom \
     //     http://localhost:8932/test/browser/profile-smoke.html
-    import { parseTaud } from "../../src/format/taud-parse.js";
-    import { AudioSystem } from "../../src/audio/audio-system.js";
+    import { parseTaud } from "../../core/format/taud-parse.js";
+    import { AudioSystem } from "../../core/audio/audio-system.js";
     import { createProfileOverlay, profileVerdict } from "../../src/ui/profileoverlay.js";
 
     const out = [];

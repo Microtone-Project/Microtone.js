@@ -8,19 +8,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import {
   AUDIO_EXPORT_FORMATS, renderMultichannelAsync,
   makeExportRenderer, exportFileSuffix, admChunksFor,
 } from "../../src/audio/surround-export.js";
-import { StreamResampler } from "../../src/audio/resampler.js";
-import { renderToWavAsync } from "../../src/audio/offline-render.js";
+import { StreamResampler } from "../../core/audio/resampler.js";
+import { renderToWavAsync } from "../../core/audio/offline-render.js";
 import { encodeWavBuffer, quantisePcm } from "../../src/audio/wavwrite.js";
 import { acnOrderDegree, buildChna, buildAdmXml, hoaChannelSpecs } from "../../src/audio/adm.js";
-import { SPEAKER_LAYOUTS } from "../../src/engine/speakers.js";
-import { SAMPLING_RATE } from "../../src/engine/constants.js";
-import { defaultMastering, normaliseMastering } from "../../src/engine/mastering.js";
+import { SPEAKER_LAYOUTS } from "../../core/engine/speakers.js";
+import { SAMPLING_RATE } from "../../core/engine/constants.js";
+import { defaultMastering, normaliseMastering } from "../../core/engine/mastering.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const loadSong = (name) => new Document(parseTaud(readFileSync(corpusDir + name))).toRenderable(0);

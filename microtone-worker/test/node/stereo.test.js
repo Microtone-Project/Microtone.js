@@ -10,25 +10,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK } from "../../src/engine/constants.js";
-import { Voice } from "../../src/engine/voice.js";
-import { ghostVoice } from "../../src/engine/trigger.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK } from "../../core/engine/constants.js";
+import { Voice } from "../../core/engine/voice.js";
+import { ghostVoice } from "../../core/engine/trigger.js";
 import {
   makeInstPatch, writePatchesBlob, parsePatchesBlob, envPoint,
   patchIsStereo, patchChannelPtrs, CHAN_MODE_DISCRETE, CHAN_MODE_MATRIX,
-} from "../../src/engine/inst.js";
-import { ixmpPatchLen, ixmpChanCount, SAMPLEBIN_SIZE } from "../../src/format/taud-const.js";
+} from "../../core/engine/inst.js";
+import { ixmpPatchLen, ixmpChanCount, SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document, sampleSpans, isStereoSample } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import {
   importBankOp, multiSampleBytesOp, compositeOp, setInstFieldOp,
   syncBaseStereoPatchOp, rebindBaseStereoPatchOp,
 } from "../../src/doc/ops.js";
-import { baseStereoPatchIndex } from "../../src/engine/inst.js";
+import { baseStereoPatchIndex } from "../../core/engine/inst.js";
 import { planMultiSampleImport, planImport } from "../../src/doc/bankmerge.js";
 import { planBankCleanup } from "../../src/doc/cleanup.js";
 import { applyChannels, normalise, reverse } from "../../src/doc/sampledsp.js";

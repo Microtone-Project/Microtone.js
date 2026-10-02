@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { fxArgFields, fxColonWarns } from "../../src/ui/notenames.js";
-import { EffectOp } from "../../src/engine/tables.js";
+import { EffectOp } from "../../core/engine/tables.js";
 
 const OP = 0, RSVD = -1;
 

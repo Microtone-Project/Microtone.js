@@ -13,9 +13,9 @@ import {
   defToPreset, validateDef, notationValueForSlot, slotForNotationValue,
 } from "../../src/doc/notation.js";
 import { pitchTablePresets, presetForNotation, resolveNoteSymbol, stepNoteInTable, ANCHOR_NOTE }
-  from "../../src/ui/pitchtables.js";
+  from "../../core/tuning/pitchtables.js";
 import { setSectionOp } from "../../src/doc/ops.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

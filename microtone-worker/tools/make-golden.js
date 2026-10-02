@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Regenerate test/fixtures/engine-golden.json — the digests the engine's
-// golden gate (test/node/engine-golden.test.js) holds src/engine/ to.
+// golden gate (test/node/engine-golden.test.js) holds core/engine/ to.
 //
 // Run it ONLY for an intentional change to what the engine renders, in the
 // same batch as that change (and say which songs moved — that is the real

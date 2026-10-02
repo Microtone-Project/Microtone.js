@@ -42,7 +42,7 @@
         const store = win.__microtone.store;
         const { openSampleLab } = await win.eval('import("/src/ui/popups/samplelab.js")');
         const { isStereoSample, sampleSpans } = await win.eval('import("/src/doc/document.js")');
-        const { patchIsStereo } = await win.eval('import("/src/engine/inst.js")');
+        const { patchIsStereo } = await win.eval('import("/core/engine/inst.js")');
 
         // A deterministic STEREO take: 0.5 s @ 32 kHz, the right channel a
         // different tone from the left so a downmix or a crossed channel shows.
@@ -216,7 +216,7 @@
           "t12d the paint edit undoes");
 
         // ── the patch editor round-trips the 's' block ───────────────────────
-        const { writePatchesBlob, parsePatchesBlob } = await win.eval('import("/src/engine/inst.js")');
+        const { writePatchesBlob, parsePatchesBlob } = await win.eval('import("/core/engine/inst.js")');
         const blob = writePatchesBlob(patches);
         const back = parsePatchesBlob(blob);
         ok(back.length === 1 && patchIsStereo(back[0]) &&

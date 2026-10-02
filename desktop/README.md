@@ -34,9 +34,10 @@ cargo tauri build    # bundles in target/release/bundle/
 cargo test           # the Rust unit tests
 ```
 
-Both copy the shipped part of `microtone-worker` into `dist/` first
-(`tools/stage-frontend.js`: what git would commit there, less `.assetsignore`
-and the test suite and dev tools). A local build makes unsigned bundles without
+Both copy the shipped part of `microtone-worker` — and the shared `core/` it
+links to — into `dist/` first (`tools/stage-frontend.js`, through the repository's
+`tools/stage-site.js`: what git would commit there, less `.assetsignore` and the
+test suite and dev tools). A local build makes unsigned bundles without
 updater artefacts and needs no key.
 
 ## Releasing
@@ -80,7 +81,7 @@ initialization script:
 
 ### Online projects
 
-The website's own client (`src/storage/online.js`) runs unchanged. The glue hands
+The website's own client (`core/storage/online.js`) runs unchanged. The glue hands
 its `fetch()` calls to `/api/online` to `online_request`, which sends them to
 microtone.cc with `Authorization: Bearer <token>` — from the app, so there is no
 CORS and no third-party cookie for a webview to drop — and its sign-in

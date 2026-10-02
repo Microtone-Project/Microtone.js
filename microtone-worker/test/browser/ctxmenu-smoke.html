@@ -24,7 +24,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
   const doc = win.document;
   const { store, timeline } = M;
-  const { cueInstructionWords } = await import("../../src/format/taud-parse.js");
+  const { cueInstructionWords } = await import("../../core/format/taud-parse.js");
 
   const canvas = doc.getElementById("timeline");
   const rect = () => canvas.getBoundingClientRect();

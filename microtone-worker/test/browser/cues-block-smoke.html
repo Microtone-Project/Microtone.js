@@ -52,7 +52,7 @@
           }, 100);
         });
         const { store, cuesView } = win.__microtone;
-        const { CUE_EMPTY } = await import("../../src/format/taud-const.js");
+        const { CUE_EMPTY } = await import("../../core/format/taud-const.js");
         const song = store.song;
         log("app loaded, doc ready");
 
@@ -209,7 +209,7 @@
 
         // ── 8c. The Cmd columns are a block space of their own: fill ──
         const { cueInfo } = await import("../../src/doc/document.js");
-        const { INST_PATLEN, INST_NOP } = await import("../../src/engine/state.js");
+        const { INST_PATLEN, INST_NOP } = await import("../../core/engine/state.js");
         const instOf = (cue, slot) => {
           const i = cueInfo(song.cues[cue]);
           return slot === 0 ? i.inst0 : i.inst1;

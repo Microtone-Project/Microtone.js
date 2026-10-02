@@ -57,10 +57,10 @@
 import {
   TaudPlayData, INST_HALT, INST_HALTAT, INST_PATLEN,
   INST_GOBACK, INST_SKIP, INST_JUMP,
-} from "../engine/state.js";
-import { CUE_EMPTY, MAX_VOICES, NUM_CUES } from "../format/taud-const.js";
+} from "../../core/engine/state.js";
+import { CUE_EMPTY, MAX_VOICES, NUM_CUES } from "../../core/format/taud-const.js";
 import { cueInfo } from "./document.js";
-import { cueInstructionWords } from "../format/taud-parse.js";
+import { cueInstructionWords } from "../../core/format/taud-parse.js";
 import { emptyPatternBytes, cellStride } from "./patterntools.js";
 
 const PAT_MASK = 0x7fff;

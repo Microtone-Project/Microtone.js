@@ -43,8 +43,8 @@
 // The band walk and the ramp are pure — no DOM — so both are testable on their
 // own; only paintPitchPlot at the foot of the file touches a 2-D context.
 
-import { ANCHOR_NOTE } from "./pitchtables.js";
-import { EffectOp } from "../engine/tables.js";
+import { ANCHOR_NOTE } from "../../core/tuning/pitchtables.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import { evenSteps } from "./oklch.js";
 
 const OP_J = EffectOp.OP_J;

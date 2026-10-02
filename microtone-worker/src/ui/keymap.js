@@ -42,7 +42,7 @@
 // the document holds is this module's own .taudkey TEXT, and this module neither
 // knows nor cares that it does.
 
-import { semiToNoteInTable, noteForDegree, nearestDegreeIndex } from "./pitchtables.js";
+import { semiToNoteInTable, noteForDegree, nearestDegreeIndex } from "../../core/tuning/pitchtables.js";
 
 // ── the physical rows ──
 //

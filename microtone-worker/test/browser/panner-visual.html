@@ -43,7 +43,7 @@
       if (params.get("radar")) {
         // Header radars instead of the popup: scatter a few sources first so the
         // dots are not all sitting at the default pan.
-        const { EffectOp } = await win.eval('import("/src/engine/tables.js")');
+        const { EffectOp } = await win.eval('import("/core/engine/tables.js")');
         const { setCellOp } = await win.eval('import("/src/doc/ops.js")');
         const args = [0x0000, 0x4030, 0xc080, 0x00c0];
         for (let ch = 0; ch < 4; ch++) {

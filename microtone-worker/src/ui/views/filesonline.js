@@ -1,7 +1,7 @@
 // File view — the online projects section, under the browser's own list.
 //
 // A few working projects kept with the person's SceneID account (the storage
-// half is src/storage/online.js). Deliberately NOT presented as storage: the
+// half is core/storage/online.js). Deliberately NOT presented as storage: the
 // heading says "online projects", the count says how many of the few slots
 // are taken, and the note under the table says what they are for.
 //
@@ -11,7 +11,7 @@
 // the meantime is never silently replaced. Save As still makes a local copy,
 // and the document then belongs to the browser again.
 
-import * as online from "../../storage/online.js";
+import * as online from "../../../core/storage/online.js";
 import { download } from "../../storage/import-export.js";
 import { showModal } from "../widgets/modal.js";
 import { showProgress } from "../popups/progress.js";

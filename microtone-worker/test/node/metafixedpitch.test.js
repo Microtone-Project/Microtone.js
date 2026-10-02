@@ -11,12 +11,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../src/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../core/engine/constants.js";
 import {
   TaudInst, buildMetaRecord, makeMetaLayer, layerNote, META_TYPE_FM,
   META_LAYER_FIXED_PITCH, defaultFmProgram,
-} from "../../src/engine/inst.js";
+} from "../../core/engine/inst.js";
 import {
   metaLayers, patchLayer, duplicateLayer, stackLayer,
   fixedPitchFields, clampLayerPitch, FIXED_PITCH_ANCHOR,

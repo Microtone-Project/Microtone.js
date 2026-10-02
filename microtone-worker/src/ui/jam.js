@@ -3,7 +3,7 @@
 // auditions, last-key-wins on one voice where it ENTERS notes (item 140.1).
 
 import { DEFAULT_KEYMAP, keymapHas, keymapNote } from "./keymap.js";
-import { JAM_VOICES, JAM_VOICE_BASE } from "../engine/constants.js";
+import { JAM_VOICES, JAM_VOICE_BASE } from "../../core/engine/constants.js";
 
 // Hosts that deliver hardware autorepeat as a keyup+keydown PAIR (X11 without
 // detectable autorepeat) give no way to tell the phantom release from a real

@@ -104,7 +104,7 @@
         // ── mapped spinner: stored units under the buttons, prose in the box ──
         const { mapSpinner } = await win.eval('import("/src/ui/widgets/spinner.js")');
         const { SEG_MINIFLOAT_MAP } = await win.eval('import("/src/ui/units.js")');
-        const { minifloatToDouble } = await win.eval('import("/src/engine/minifloat.js")');
+        const { minifloatToDouble } = await win.eval('import("/core/engine/minifloat.js")');
         const mapped = doc.createElement("input");
         host.appendChild(mapped);
         mapSpinner(mapped, SEG_MINIFLOAT_MAP, 60);

@@ -23,12 +23,12 @@
 //   "voice"      — one track per lane; NNA ghosts and metainstrument layer
 //                  children follow the lane that spawned them.
 
-import { Zip, ZipPassThrough } from "../../vendor/fflate.esm.js";
-import { TaudEngine } from "../engine/engine.js";
-import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
-import { loadIntoEngine } from "./offline-render.js";
-import { resampleInterleaved } from "./resampler.js";
-import { unescapeName } from "../ui/names.js";
+import { Zip, ZipPassThrough } from "../../core/vendor/fflate.esm.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
+import { resampleInterleaved } from "../../core/audio/resampler.js";
+import { unescapeName } from "../../core/format/names.js";
 
 /** First allocation per track — ~22 s at 48 kHz (4 MiB), doubling from there. */
 const INITIAL_STEM_FRAMES = 1 << 20;

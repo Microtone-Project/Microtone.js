@@ -12,7 +12,7 @@
 //
 // Pure and DOM-free — the Samples view's memory panel draws it, tests read it.
 
-import { SAMPLEBIN_SIZE } from "../format/taud-const.js";
+import { SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
 import { sampleSpans } from "./document.js";
 import { regionSpans } from "./sampleregions.js";
 

@@ -31,7 +31,7 @@ import {
   buildTaudkey, parseTaudkey, fitKeymapToPreset, normaliseKeymap,
 } from "./keymap.js";
 
-import { KEYMAP_FOURCC } from "../format/taud-const.js";
+import { KEYMAP_FOURCC } from "../../core/format/taud-const.js";
 export { KEYMAP_FOURCC };
 
 export const KEYMAP_PREF = "microtone-keymap";

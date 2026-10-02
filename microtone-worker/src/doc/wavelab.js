@@ -6,7 +6,7 @@
 // (item 999 — a pool span's length is immutable once allocated). The in-place
 // editor's u8 ops stay in sampledsp.js.
 
-import { RESAMP_PHASES, resampHalfWidth, kaiserSincRows } from "../audio/resampler.js";
+import { RESAMP_PHASES, resampHalfWidth, kaiserSincRows } from "../../core/audio/resampler.js";
 
 // Sample-rate ceiling for what lands in the pool. Deliberately BELOW the
 // engine's own 48 kHz output rate (item 108): the pool is 8 MB and a record's
@@ -167,7 +167,7 @@ export function removeDCRange(buf, a, b) {
 
 // ── band-limited resampler ─────────────────────────────────────────────────
 // Float twin of the canonical taud_common.resample_bandlimited (the converter/
-// sf2taudify path). The kernel itself lives in src/audio/resampler.js — the
+// sf2taudify path). The kernel itself lives in core/audio/resampler.js — the
 // same Kaiser-windowed sinc the player and the exporters run on — so the web
 // import path, the converters and playback all shave samples with one knife.
 // What stays here is the LENGTH contract: output = max(1, ⌊n·ratio⌋), which

@@ -11,9 +11,9 @@
 import { applyPlan, captureBankState, restoreBankState, buildIxmpSection } from "./bankmerge.js";
 import {
   parsePatchesBlob, writePatchesBlob, makeInstPatch, baseStereoPatchIndex, BASE_TO_PATCH_FIELD,
-} from "../engine/inst.js";
-import { TaudPlayData } from "../engine/state.js";
-import { CUE_EMPTY, MAX_VOICES, NUM_CUES, NUM_CUES_64 } from "../format/taud-const.js";
+} from "../../core/engine/inst.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { CUE_EMPTY, MAX_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
 
 /**
  * Run several ops as ONE undo step — the combinator, not an op of its own.

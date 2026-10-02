@@ -27,7 +27,7 @@ const SESSION_MS = 30 * DAY_MS;
  *  a listing, an open, a save — to one read. */
 const REFRESH_MS = DAY_MS;
 
-/** The same name as the client's (src/storage/online.js AUTH_CHANNEL): the
+/** The same name as the client's (core/storage/online.js AUTH_CHANNEL): the
  *  page that finishes a sign-in announces it here, and every open tab of the
  *  app is listening. A BroadcastChannel rather than window.opener, because the
  *  app is served cross-origin-isolated (COOP same-origin), and the round trip

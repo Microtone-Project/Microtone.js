@@ -8,8 +8,8 @@ import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { parseTaud, parseIxmpSection } from "../../src/format/taud-parse.js";
-import { SAMPLEINST_SIZE, SAMPLEBIN_SIZE } from "../../src/format/taud-const.js";
+import { parseTaud, parseIxmpSection } from "../../core/format/taud-parse.js";
+import { SAMPLEINST_SIZE, SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { importBankOp, setInstFieldOp } from "../../src/doc/ops.js";
@@ -19,7 +19,7 @@ import {
 } from "../../src/doc/bankmerge.js";
 import {
   TaudInst, buildMetaRecord, makeMetaLayer, META_MAX_LAYERS,
-} from "../../src/engine/inst.js";
+} from "../../core/engine/inst.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const when = new Document(parseTaud(await readFile(corpusDir + "WHEN.taud")));

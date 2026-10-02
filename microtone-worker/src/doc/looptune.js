@@ -6,7 +6,7 @@
 // edit and the whole search is one undo step. Node-tested; no DOM, no engine.
 //
 // WHAT THE CLICK IS, per mode — read off the engine's own loop arithmetic in
-// src/engine/sampler.js `advanceSamplePos`, not from tracker folklore:
+// core/engine/sampler.js `advanceSamplePos`, not from tracker folklore:
 //
 //   FORWARD (mode 1) wraps with `samplePos -= loopLen`, so the wrap maps e → s
 //   exactly: the ear has just heard x[e-1] and expects x[e], x[e+1]…, and gets

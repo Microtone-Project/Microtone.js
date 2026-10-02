@@ -2,8 +2,8 @@
 // in the app goes through:
 //
 //   * the AudioWorklet's engine→context read cursor (both the local render ring
-//     and the Tier 2 SAB ring) — src/worklet/taud-processor.js
-//   * the offline stereo WAV + mono stem exports — src/audio/offline-render.js
+//     and the Tier 2 SAB ring) — core/worklet/taud-processor.js
+//   * the offline stereo WAV + mono stem exports — core/audio/offline-render.js
 //   * the streaming multichannel export — src/audio/surround-export.js
 //   * the sample Lab / import knife — src/doc/wavelab.js, which is ALSO the
 //     float twin of the Python converters' taud_common.resample_bandlimited

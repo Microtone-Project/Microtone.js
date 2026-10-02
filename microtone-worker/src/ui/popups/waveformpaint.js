@@ -19,9 +19,9 @@
 import { planSampleImport } from "../../doc/bankmerge.js";
 import { importBankOp, setSampleBytesOp, multiSampleBytesOp } from "../../doc/ops.js";
 import { sampleSpans } from "../../doc/document.js";
-import { escapeNonAscii } from "../names.js";
+import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
-import { LINEAR_FREQ_C4_HZ } from "../../engine/constants.js";
+import { LINEAR_FREQ_C4_HZ } from "../../../core/engine/constants.js";
 import { toLayout } from "../zoom.js";
 
 const MIN_LEN = 2, MAX_LEN = 0xffff, DEF_LEN = 256;

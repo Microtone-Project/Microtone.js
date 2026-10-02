@@ -40,18 +40,18 @@ import {
   responseCurve, MasterChain, RANGE, EQ_BANDS,
   EQ_LOW_SHELF, EQ_PEAKING, EQ_HIGH_SHELF, COMP_PEAK, COMP_RMS,
   HP_SLOPE_12, HP_SLOPE_24,
-} from "../../engine/mastering.js";
+} from "../../../core/engine/mastering.js";
 import {
   LoudnessIntegrator, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
   crestDb, dbfs, percentile, FRAME_SEC, BIT_DEPTHS, DEFAULT_BIT_DEPTH,
   HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT, HIST_SPAN_SEC,
-} from "../../engine/loudness.js";
+} from "../../../core/engine/loudness.js";
 import {
   Fft, hannWindow, spectrumDb, tiltDbAt, SPECTRUM_BANDS, SPECTRUM_NBANDS,
   SPECTRUM_TILT_DB_PER_OCT,
-} from "../../engine/fft.js";
+} from "../../../core/engine/fft.js";
 import { RAD_BANDS } from "../radiation.js";
-import { SAMPLING_RATE } from "../../engine/constants.js";
+import { SAMPLING_RATE } from "../../../core/engine/constants.js";
 import {
   analyseSongAsync, gainForTruePeak, gainForLoudness, trimForLoudness,
 } from "../../audio/master-analysis.js";

@@ -8,12 +8,12 @@
 // AudioContext at all — for an OfflineAudioContext bounce, or to draw a
 // waveform of a song nobody is listening to yet.
 
-import { parseTaud } from "../format/taud-parse.js";
-import { TaudEngine } from "../engine/engine.js";
-import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
-import { MONITOR_BINAURAL, MONITOR_FOLD } from "../engine/binaural.js";
-import { displayPanByte } from "../engine/spatial.js";
-import { loadIntoEngine, encodeWav } from "../audio/offline-render.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
+import { MONITOR_BINAURAL, MONITOR_FOLD } from "../../core/engine/binaural.js";
+import { displayPanByte } from "../../core/engine/spatial.js";
+import { loadIntoEngine, encodeWav } from "../../core/audio/offline-render.js";
 import { FaderBank, gainToFader, faderToGain } from "./faders.js";
 import { makeInterruptBank, setInterruptIn, dispatchInterruptsFromState } from "./interrupts.js";
 

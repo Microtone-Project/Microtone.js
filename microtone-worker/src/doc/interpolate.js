@@ -35,7 +35,7 @@ import {
   readVol, writeVol, writeVolSel, readPan, writePan, writePanSel,
   readElev, writeElev,
 } from "./patterntools.js";
-import { EffectOp } from "../engine/tables.js";
+import { EffectOp } from "../../core/engine/tables.js";
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const clamp01 = (v) => clamp(v, 0, 1);

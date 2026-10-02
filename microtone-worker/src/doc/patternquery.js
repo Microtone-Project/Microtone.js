@@ -43,8 +43,8 @@
 // Pure: no DOM, no i18n, no document. Labels are i18n keys the UI owns; this
 // module deals in ids and numbers, and is therefore Node-testable on its own.
 
-import { MIDDLE_C } from "../engine/constants.js";
-import { CUE_EMPTY } from "../format/taud-const.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
+import { CUE_EMPTY } from "../../core/format/taud-const.js";
 import {
   cellStride, readVol, writeVol, writeVolSel, readPan, writePan, writePanSel,
   readElev, writeElev,

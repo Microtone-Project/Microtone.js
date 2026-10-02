@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { JamKeyboard } from "../../src/ui/jam.js";
 import { semiToNoteInTable, JAM_SEMIS } from "../../src/ui/edit.js";
-import { JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES } from "../../src/engine/constants.js";
+import { JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES } from "../../core/engine/constants.js";
 
 /** `view`/`record` decide chording (item 140.1): the default is the Timeline
  *  with record OFF, i.e. a pure audition, i.e. polyphonic. */

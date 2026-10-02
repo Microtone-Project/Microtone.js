@@ -10,7 +10,7 @@
 // narrow cell and 0x33 in the wide cell's shared selector byte — all-zero
 // columns would be real "set volume 0" commands, not blanks.
 
-import { PATTERN_SIZE, PATTERN_SIZE_WIDE } from "../format/taud-const.js";
+import { PATTERN_SIZE, PATTERN_SIZE_WIDE } from "../../core/format/taud-const.js";
 
 /** Cell stride in bytes for a format. */
 export function cellStride(wide) { return wide ? 16 : 8; }

@@ -28,3 +28,4 @@ microtone-worker/index_kaputt.html
 .dev.vars*
 .env*
 .wrangler/
+/build/

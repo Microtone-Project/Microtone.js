@@ -17,7 +17,7 @@ import {
   ENV_MAX_NODES, envActiveCount, envAddNode, envRemoveNode,
   envFollowTailSustain, envClampWrap,
 } from "../../src/doc/envedit.js";
-import { minifloatFromDouble, minifloatToDouble } from "../../src/engine/minifloat.js";
+import { minifloatFromDouble, minifloatToDouble } from "../../core/engine/minifloat.js";
 
 /** A 25-slot array from `[value, seconds]` pairs; the rest are zero nodes.
  *  The last pair given gets offset 0 — the terminator — unless it says

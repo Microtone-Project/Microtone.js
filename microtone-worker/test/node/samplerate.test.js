@@ -11,11 +11,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import * as C from "../../src/engine/constants.js";
-import * as T from "../../src/engine/tables.js";
-import { BinauralRenderer } from "../../src/engine/binaural.js";
-import { HRIR_LENGTH, HRIR_RATE } from "../../src/engine/hrir-sadie.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import * as C from "../../core/engine/constants.js";
+import * as T from "../../core/engine/tables.js";
+import { BinauralRenderer } from "../../core/engine/binaural.js";
+import { HRIR_LENGTH, HRIR_RATE } from "../../core/engine/hrir-sadie.js";
 
 const AMIGA_A500_LP_FC = 4420.971; // the A500's RC corner, in Hz — rate-independent
 

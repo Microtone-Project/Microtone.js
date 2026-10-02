@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 
 import { setCuesOp } from "../../src/doc/ops.js";
 import { makeCueBlock, cueBlockIndex, mergeCueWord } from "../../src/doc/clipboard.js";
-import { CUE_EMPTY } from "../../src/format/taud-const.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { CUE_EMPTY } from "../../core/format/taud-const.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 

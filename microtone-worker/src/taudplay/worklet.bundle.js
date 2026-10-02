@@ -3,7 +3,7 @@
 // whose AudioWorklet cannot import ES modules.
 "use strict";
 
-// ══ src/engine/constants.js ══
+// ══ core/engine/constants.js ══
 // Taud engine constants — port of AudioAdapter.kt companion object (scalar part).
 // Source: tsvm_core/src/net/torvald/tsvm/peripheral/AudioAdapter.kt:149-250
 // Lookup tables (sinc, SNES gauss, Amiga filter coefficients) live in tables.js.
@@ -205,7 +205,7 @@ const NOTE_INT_FIRST = 0x0010; // Int0..IntF interrupt notes
 const NOTE_INT_LAST = 0x001f;
 const NUM_INTERRUPTS = 16;
 
-// ══ src/engine/minifloat.js ══
+// ══ core/engine/minifloat.js ══
 // ThreeFiveMiniUfloat — port of tsvm_core/src/net/torvald/tsvm/ThreeFiveMinifloat.kt.
 // 3.5 unsigned minifloat (3-bit exponent + 5-bit mantissa) scaled so the smallest
 // non-zero step is 1/256 s ≈ 3.91 ms and the max is 15.75 s. Used for Taud
@@ -248,7 +248,7 @@ function minifloatFromDouble(fval) {
   return llim % 2 === 0 ? llim : hlim;
 }
 
-// ══ src/engine/rng.js ══
+// ══ core/engine/rng.js ══
 // Randomness seams for the Taud engine. No engine file may call Math.random
 // directly — everything routes through here so tests (the golden gate) can seed it.
 //
@@ -294,7 +294,7 @@ function makeSeededRandom(seed = 1) {
   };
 }
 
-// ══ src/engine/tables.js ══
+// ══ core/engine/tables.js ══
 // Lookup tables + pitch math — port of AudioAdapter.kt companion object tables
 // (149-340), MOD_SIN_TABLE / FINETUNE_OFFSET (1406-1422), META_MIX_GAIN (1480),
 // EffectOp (1438), lfoSample (1426), pitch conversions (1632-1690).
@@ -620,7 +620,7 @@ function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-// ══ src/engine/spatial.js ══
+// ══ core/engine/spatial.js ══
 // Surround and ambisonics core — TODO #998.0/.1/.2.
 //
 // The engine's spatial model is OBJECT-based: a sounding voice is a source with
@@ -1217,7 +1217,7 @@ function analysisVoiceGains(bus, voice) {
   return (voice.analysisSpatial = voiceGainsCache(bus, voice, voice.analysisSpatial)).gains;
 }
 
-// ══ src/engine/hrir-sadie.js ══
+// ══ core/engine/hrir-sadie.js ══
 // GENERATED FILE — do not edit. Rebuild with: node tools/make-hrir-table.js
 //
 // GoogleVR / SADIE spherical-harmonic HRIR set, order 3 (16 ambisonic
@@ -1411,7 +1411,7 @@ function decodeShHrir() {
   return out;
 }
 
-// ══ src/engine/binaural.js ══
+// ══ core/engine/binaural.js ══
 // Binaural monitoring (#998.3, rebuilt for item 128) — the render target that
 // makes a surround song AUDIBLE on headphones while you compose it.
 //
@@ -1679,7 +1679,7 @@ class BinauralRenderer {
   }
 }
 
-// ══ src/engine/speakers.js ══
+// ══ core/engine/speakers.js ══
 // ITU speaker layouts and their render target (#998.6) — quadraphonic, 5.1 and
 // 7.1 export.
 //
@@ -1846,7 +1846,7 @@ class SpeakerRenderer {
   }
 }
 
-// ══ src/engine/analysis.js ══
+// ══ core/engine/analysis.js ══
 // Master-bus analysis tap (item 98) — what the mastering strip looks at.
 //
 // The strip asks two different questions, and they want two different signals:
@@ -2304,7 +2304,7 @@ function makeAnalysisReadout() {
   };
 }
 
-// ══ src/engine/mastering.js ══
+// ══ core/engine/mastering.js ══
 // Master-bus mastering chain (item 178) — the last thing that touches the mix
 // before it narrows to 8 bits.
 //
@@ -3193,7 +3193,7 @@ function responseCurve(chain, lo = 20, hi = 20000, n = 256) {
   return { freq, db };
 }
 
-// ══ src/engine/loudness.js ══
+// ══ core/engine/loudness.js ══
 // Loudness and delivery metering (item 178) — the numbers the Mastering view
 // draws, and the numbers its measure-and-set buttons act on.
 //
@@ -4018,7 +4018,7 @@ function makeMasterMeterReadout() {
   };
 }
 
-// ══ src/engine/samplemod.js ══
+// ══ core/engine/samplemod.js ══
 // Sample-modification note effects (items 130, 152, 153) — notefx 2 and 3, ONE
 // command with two spellings: `3` names the region to modify, `2` names the
 // region to leave alone. Both are NON-DESTRUCTIVE views over the sample pool,
@@ -4624,7 +4624,7 @@ function extModTouches(g, invert, f, stepIndex, i) {
   return modTouches(g, invert, i) && fModTouches(f, i, g.es, g.ee, stepIndex);
 }
 
-// ══ src/engine/inst.js ══
+// ══ core/engine/inst.js ══
 // Taud instrument data model — port of AudioAdapter.kt TaudInstEnvPoint (5246),
 // TaudInstPatch (5261), MetaLayer (5312), TaudInst (5378-5766).
 // Envelope point `offset` is the ThreeFiveMiniUfloat LUT index (0..255);
@@ -5712,7 +5712,7 @@ class TaudInst {
   }
 }
 
-// ══ src/engine/voice.js ══
+// ══ core/engine/voice.js ══
 // Voice + MemorySlots — port of AudioAdapter.kt:4497-4878. All fields are
 // initialised in the constructor (monomorphic shape for the JIT); defaults
 // match the Kotlin field initialisers exactly. Envelope point `offset` fields
@@ -6277,7 +6277,7 @@ function isSoundingChild(ts, bg, vi) {
   return !bg.fmOperator || bg.fmParent === ts.voices[vi];
 }
 
-// ══ src/engine/state.js ══
+// ══ core/engine/state.js ══
 // PlayCue / PlayInstruction / TaudPlayData / TrackerState / Playhead —
 // port of AudioAdapter.kt:4412-4494, 4880-5208, 5210-5244.
 
@@ -6976,7 +6976,7 @@ class Playhead {
   }
 }
 
-// ══ src/engine/sampler.js ══
+// ══ core/engine/sampler.js ══
 // Sample fetch + interpolators + anti-click ramps — port of AudioAdapter.kt
 // computePlaybackRate (1515), readSamplePoint (2211), fetchTrackerSample (2221),
 // startRampOut (2341), startFastFade (2357), advanceVolumeRamp (2376).
@@ -7715,7 +7715,7 @@ function advanceVolumeRamp(voice, div = 63.0) {
   }
 }
 
-// ══ src/engine/filter.js ══
+// ══ core/engine/filter.js ══
 // Per-voice filters + Taud voice FX — port of AudioAdapter.kt refreshVoiceFilter
 // (2001), applyVoiceFilter (2071), applyTaudVoiceFx (2101), clipSample (2141).
 //
@@ -7863,7 +7863,7 @@ function applyTaudVoiceFx(voice, sample, st = voice) {
   return s;
 }
 
-// ══ src/engine/fm.js ══
+// ══ core/engine/fm.js ══
 // FM operator racks — Metainstrument type 4 (item 159). No Kotlin counterpart
 // yet: this is a Microtone-first format extension, specified in
 // TAUD_FILE_FORMAT.md §7.6 and TAUD_ENGINE_SPEC.md §5.5.1.
@@ -8125,7 +8125,7 @@ function dropFmOperators(ts, vi) {
   }
 }
 
-// ══ src/engine/envelope.js ══
+// ══ core/engine/envelope.js ══
 // Envelope walkers — port of AudioAdapter.kt resolveEnvWrap (1708), envPresent
 // (1728), applyKeyLift (1755), advanceEnvelope (1768), advancePfRole (1881),
 // seedPfRole (1945), advancePitchEnvelope (1951), advanceFilterEnvelope (1960),
@@ -8417,7 +8417,7 @@ function advanceAutoVibrato(voice, inst) {
   return pitchDelta;
 }
 
-// ══ src/engine/trigger.js ══
+// ══ core/engine/trigger.js ══
 // Trigger path + NNA/Metainstrument machinery — port of AudioAdapter.kt
 // applyActiveSample (1529), resolveActiveEnvelopes (1574), attenGainOf (1629),
 // rowVolumeFromDefault (2413), capBackgroundVoices (2421), release/cutLayerChildren
@@ -9563,7 +9563,7 @@ function rowSlidesSpatially(row) {
          (row.effect2 === EffectOp.OP_Z && (row.effectArg2 & 0xfff) !== 0);
 }
 
-// ══ src/engine/effects.js ══
+// ══ core/engine/effects.js ══
 // Effect-column dispatch — port of AudioAdapter.kt resolveArg (3214),
 // applyEffectRow (3216), applySEffect (3538), forEachLayerTarget (3633),
 // applyFilterParamEffect (3650), applyRetrigVolMod (4090).
@@ -10279,7 +10279,7 @@ function applyRetrigVolMod(vol, x, step = 1, max = 0x3f) {
   return clamp(v, 0, max);
 }
 
-// ══ src/engine/row.js ══
+// ══ core/engine/row.js ══
 // Row processing + cue advance — port of AudioAdapter.kt applyTrackerRow (2948),
 // advanceTrackerCue (4101), resetPatternLoopState (4117), advanceRow (4343).
 
@@ -10806,7 +10806,7 @@ function advanceRow(eng, ts, playhead) {
   applyTrackerRow(eng, ts, playhead);
 }
 
-// ══ src/engine/tick.js ══
+// ══ core/engine/tick.js ══
 // Per-tick voice processing — port of AudioAdapter.kt applyTrackerTick (3689-4087).
 //
 // CRITICAL: after a mid-tick note-delay trigger (S$Dx) fires, the local `inst`
@@ -11743,7 +11743,7 @@ function restartVoice(v) {
   v.right.reset();
 }
 
-// ══ src/engine/mixer.js ══
+// ══ core/engine/mixer.js ══
 // Mixer + output quantiser — port of AudioAdapter.kt generateTrackerAudio
 // (4128-4315) and pcm32fToPcm8 (839-873).
 //
@@ -12342,7 +12342,7 @@ function generateTrackerAudio(eng, playhead, out) {
   return out;
 }
 
-// ══ src/engine/engine.js ══
+// ══ core/engine/engine.js ══
 // TaudEngine — the device facade, port of AudioAdapter.kt state fields
 // (356-397) + AudioJSR223Delegate.kt (the `audio.*` API surface consumed by
 // taut.js / playtaud / taud.mjs). One instance ≈ one AudioAdapter.
@@ -12354,6 +12354,7 @@ function generateTrackerAudio(eng, playhead, out) {
 //    playback addresses the 8 MB pool directly (as the Kotlin engine does).
 //  - Voice-index clamps mirror the delegate exactly (readbacks clamp to
 //    NUM_VOICES-1; jamNote to MAX_VOICES-1).
+
 
 
 
@@ -12922,6 +12923,24 @@ class TaudEngine {
     }
   }
 
+  /**
+   * RELEASE one audition voice exactly as a pattern key-off (note word
+   * 0x0001) releases a lane: the sustain region lets go, a key-lift instrument
+   * jumps to its sustain end, and the release plays out — where jamStopVoice
+   * cuts. A finger lifted off a touch keyboard is a key-off, not a cut.
+   * Metainstrument layer children follow through the per-tick sync, as they
+   * follow a pattern key-off; an instrument with neither a release nor a
+   * fadeout keeps sounding, as it would after one. JS-only (item 206), no
+   * Kotlin counterpart.
+   */
+  jamKeyOff(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const voice = ts.voices[Math.min(Math.max(vi, 0), TOTAL_VOICES - 1)];
+    if (!voice.active || voice.keyOff) return;
+    voice.keyOff = true;
+    applyKeyLift(voice, this.instruments[voice.instrumentId]);
+  }
+
   // ── per-voice readbacks (delegate 144-325; clamps mirror the delegate) ──
 
   _voice(ph, vi) {
@@ -13120,13 +13139,13 @@ class TaudEngine {
   }
 }
 
-// ══ src/audio/resampler.js ══
+// ══ core/audio/resampler.js ══
 // Kaiser-windowed-sinc resampling — the ONE interpolator every rate conversion
 // in the app goes through:
 //
 //   * the AudioWorklet's engine→context read cursor (both the local render ring
-//     and the Tier 2 SAB ring) — src/worklet/taud-processor.js
-//   * the offline stereo WAV + mono stem exports — src/audio/offline-render.js
+//     and the Tier 2 SAB ring) — core/worklet/taud-processor.js
+//   * the offline stereo WAV + mono stem exports — core/audio/offline-render.js
 //   * the streaming multichannel export — src/audio/surround-export.js
 //   * the sample Lab / import knife — src/doc/wavelab.js, which is ALSO the
 //     float twin of the Python converters' taud_common.resample_bandlimited
@@ -13353,7 +13372,7 @@ class StreamResampler {
   }
 }
 
-// ══ src/audio/offline-render.js ══
+// ══ core/audio/offline-render.js ══
 // Offline rendering — pure engine, runs identically in Node (tools/
 // render-taud.js) and the browser (WAV export). Uploads in taud.mjs's
 // uploadTaudFile order, the one every host uses.
@@ -13557,7 +13576,7 @@ async function renderToWavAsync(docLike, songIndex, maxSeconds,
 // ══ src/taudplay/protocol.js ══
 // taudplay wire protocol — main thread ⇄ AudioWorklet.
 //
-// Deliberately tiny next to Microtone's own (src/worklet/protocol.js): that one
+// Deliberately tiny next to Microtone's own (core/worklet/protocol.js): that one
 // carries everything an EDITOR wants to see — per-lane envelope cursors, sample
 // read positions, funk windows, the master analysis field, loudness histograms,
 // spectra. A player wants none of it. What is left is the transport, and two

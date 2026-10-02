@@ -20,7 +20,7 @@
 import { t } from "../i18n.js";
 import { themeColors, onThemeChange } from "../theme.js";
 import { canvasFont } from "../fonts.js";
-import { presetForNotation, pitchTablePresets } from "../pitchtables.js";
+import { presetForNotation, pitchTablePresets } from "../../../core/tuning/pitchtables.js";
 import { noteToStr } from "../notenames.js";
 import { paintKeymapBoard, defaultLegend } from "../keymapboard.js";
 import { pickFile, download } from "../../storage/import-export.js";

@@ -69,7 +69,7 @@
         // SF2 instrument import (1.1): drive the IFRAME's own modules so the
         // already-booted conversion worker is reused, exactly like the picker.
         const conv = await win.eval('import("/src/convert/convert.js")');
-        const fmt = await win.eval('import("/src/format/taud-parse.js")');
+        const fmt = await win.eval('import("/core/format/taud-parse.js")');
         const docm = await win.eval('import("/src/doc/document.js")');
         const bm = await win.eval('import("/src/doc/bankmerge.js")');
         const ops = await win.eval('import("/src/doc/ops.js")');

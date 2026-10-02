@@ -14,8 +14,8 @@ import assert from "node:assert/strict";
 
 import {
   SCOPE_FRAMES, SCOPE_CHANNELS, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X,
-} from "../../src/engine/analysis.js";
-import { encodeSN3D, anglesFromDirection } from "../../src/engine/spatial.js";
+} from "../../core/engine/analysis.js";
+import { encodeSN3D, anglesFromDirection } from "../../core/engine/spatial.js";
 import { RAD_BANDS, RAD_NBANDS } from "../../src/ui/radiation.js";
 import {
   CloudField, CloudView, CLOUD_FILL, CLOUD_HOP, CLOUD_SIG_MIN, CLOUD_SIG_MAX,

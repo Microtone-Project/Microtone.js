@@ -18,7 +18,7 @@ import {
   masteringEngaged, masteringEqual, responseCurve, dbToGain, RANGE,
   EQ_LOW_SHELF, EQ_PEAKING, EQ_HIGH_SHELF, COMP_RMS, HP_SLOPE_24,
   LIMITER_LOOKAHEAD_MS,
-} from "../../src/engine/mastering.js";
+} from "../../core/engine/mastering.js";
 import {
   KWeighting, kWeightingCoefficients, LoudnessIntegrator, PhaseScrambler,
   MasterMeterTap, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
@@ -26,7 +26,7 @@ import {
   percentile, FRAME_SEC,
   HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT, HIST_SPAN_SEC,
   BIT_DEPTHS, DEFAULT_BIT_DEPTH, HIST_BUCKETS,
-} from "../../src/engine/loudness.js";
+} from "../../core/engine/loudness.js";
 import {
   LevelStats, LEVEL_STAT_MS, LEVEL_STAT_LO, LEVEL_STAT_HI, CrestTrail,
 } from "../../src/ui/views/mastering.js";
@@ -34,27 +34,27 @@ import {
   MASTERING_FOURCC, MASTERING_BLOCK_SIZE, parseMasteringBlock,
   buildMasteringBlock, parseMasteringSection, buildMasteringSection,
   isDefaultMastering,
-} from "../../src/format/mastering-section.js";
+} from "../../core/format/mastering-section.js";
 import {
   Fft, BandAnalyser, hannWindow, spectrumDb, SPECTRUM_BANDS, SPECTRUM_NBANDS,
   SPECTRUM_TILT_DB_PER_OCT, SPECTRUM_TILT_PIVOT_HZ, tiltDbAt, tiltWeights,
-} from "../../src/engine/fft.js";
-import { fillSnapshotInto } from "../../src/worklet/engine-commands.js";
+} from "../../core/engine/fft.js";
+import { fillSnapshotInto } from "../../core/worklet/engine-commands.js";
 import {
   SNAP_FLOATS, SNAP_MM_BASE, SNAP_MM_STAGE_STRIDE, SNAP_MM_AP_PEAK,
   SNAP_MM_AP_SUM_SQ, SNAP_MM_CH, SNAP_MM_C_STRIDE, SNAP_MM_C_PEAK,
-} from "../../src/worklet/protocol.js";
-import { SAMPLING_RATE, TRACKER_CHUNK } from "../../src/engine/constants.js";
-import { TrackerState } from "../../src/engine/state.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+} from "../../core/worklet/protocol.js";
+import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
+import { TrackerState } from "../../core/engine/state.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { setMasteringOp } from "../../src/doc/ops.js";
-import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
+import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
 import { analyseSongAsync, gainForTruePeak, gainForLoudness, trimForLoudness }
   from "../../src/audio/master-analysis.js";
-import { setRandomSource, makeSeededRandom } from "../../src/engine/rng.js";
+import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
 
 const corpusDir = new URL("../corpus/", import.meta.url).pathname;
 

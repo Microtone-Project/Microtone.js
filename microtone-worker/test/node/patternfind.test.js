@@ -15,7 +15,7 @@ import {
   songMatches, patternMatches, stepMatch, songCursorCmp, patternCursorCmp, indexAt,
 } from "../../src/doc/patternfind.js";
 import { compileQuery } from "../../src/doc/patternquery.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { setCellOp, setCueWordOp } from "../../src/doc/ops.js";

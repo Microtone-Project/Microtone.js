@@ -18,7 +18,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { CMD } from "../../src/worklet/protocol.js";
+import { CMD } from "../../core/worklet/protocol.js";
 
 // Left in place for the rest of this file: TaudProcessor's constructor reads
 // the global `sampleRate` (AudioWorkletGlobalScope semantics) each time it
@@ -30,7 +30,7 @@ globalThis.AudioWorkletProcessor = class {
 };
 let TaudProcessor = null;
 globalThis.registerProcessor = (name, cls) => { TaudProcessor = cls; };
-await import("../../src/worklet/taud-processor.js");
+await import("../../core/worklet/taud-processor.js");
 
 const NUM_PATTERNS_EMPTY = [0xff, 0x7f]; // PATTERN_EMPTY sentinel, LE
 

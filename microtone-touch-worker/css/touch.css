@@ -1,0 +1,442 @@
+/* Microtone Touch.
+ *
+ * Every colour is a token on :root — DOM and canvas alike (the keyboard reads
+ * them through getComputedStyle) — in the tracker's own dark and light
+ * palettes, so the two read as one family. Never hard-code a colour below.
+ */
+:root {
+  color-scheme: dark;
+  --bg: #16181d;
+  --panel: #1f232b;
+  --panel-2: #262b35;
+  --fg: #e2e5eb;
+  --fg2: #95a3bc;
+  --dim: #7a8290;
+  --accent: #ffc043;
+  --accent-2: #78dce7;
+  --border: #404655;
+  --rec-fg: #ff5c5c;
+  --rec-bg: #3d2229;
+  --rec-border: #7a3434;
+  --ok-fg: #9df0ae;
+  --err-fg: #ffb0b0;
+
+  --row-beat: #20242d;
+  --row-bar: #262c38;
+  --row-play: #3a3320;
+  --cursor: #28405c;
+  --fx-ink: #ff8f71;
+
+  --key-natural: #c9ced8;
+  --key-natural-ink: #16181d;
+  --key-near: #6d7686;
+  --key-near-ink: #f2f4f8;
+  --key-accidental: #2c313c;
+  --key-accidental-ink: #c9ced8;
+  --key-edge: #0d0f12;
+  --key-tonic: #ffc043;
+  --key-down: #ffc043;
+  --key-down-ink: #16181d;
+  --key-ghost: #78dce7;
+
+  /* one hue per lane, for the header, the cells' note ink and the keys' label */
+  --lane-0: #ffb35c;
+  --lane-1: #7fd1ff;
+  --lane-2: #ff7f9e;
+  --lane-3: #b59cff;
+  --lane-4: #8be400;
+  --lane-5: #ffdd00;
+  --lane-6: #6be6c1;
+  --lane-7: #ff9ff0;
+
+  --tap: 40px;     /* the smallest thing a thumb should have to hit */
+  --gap: 5px;
+  accent-color: var(--accent);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #fafbfd;
+    --panel: #f0f2f6;
+    --panel-2: #e4e7ee;
+    --fg: #24272e;
+    --fg2: #656c7d;
+    --dim: #69707d;
+    --accent: #a44500;
+    --accent-2: #1d66b8;
+    --border: #c2c7d1;
+    --rec-fg: #c22f2f;
+    --rec-bg: #fbe3e3;
+    --rec-border: #d99d9d;
+    --ok-fg: #1d6b32;
+    --err-fg: #a03434;
+
+    --row-beat: #eef0f4;
+    --row-bar: #e3e6ee;
+    --row-play: #f4e3b8;
+    --cursor: #c5d8ef;
+    --fx-ink: #d4319d;
+
+    --key-natural: #ffffff;
+    --key-natural-ink: #24272e;
+    --key-near: #b9c0cd;
+    --key-near-ink: #24272e;
+    --key-accidental: #3a404c;
+    --key-accidental-ink: #f0f2f6;
+    --key-edge: #8d95a4;
+    --key-tonic: #a44500;
+    --key-down: #a44500;
+    --key-down-ink: #ffffff;
+    --key-ghost: #1d66b8;
+
+    --lane-0: #b35b00;
+    --lane-1: #1d66b8;
+    --lane-2: #c2185b;
+    --lane-3: #6a3fc8;
+    --lane-4: #3c8200;
+    --lane-5: #8a6d00;
+    --lane-6: #00806a;
+    --lane-7: #a3249a;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+button, select, input { font: inherit; color: inherit; }
+
+/* ── the frame ───────────────────────────────────────────────────────────── */
+
+.app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+           env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+.pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+/* The two panes divide what the splitter leaves; app.js (split.js) sets
+ * their flex-grow from the split the person dragged to. */
+.pane-song, .pane-keys { flex: 1 1 0; }
+.hinge { display: none; }
+
+/* Stacked (song above) or side by side (song left): split.js decides, per
+ * screen orientation, and the knob on the splitter flips it. Side by side,
+ * the hand knob can put the keyboard on the left instead; stacked, the
+ * keyboard is always below and the hand is not consulted. */
+.app[data-split="cols"] { flex-direction: row; }
+.app[data-split="cols"][data-hand="left"] { flex-direction: row-reverse; }
+
+.splitter {
+  flex: 0 0 18px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: row-resize;
+  touch-action: none;
+}
+.splitter::before { /* a thumb-sized grab area around the thin bar */
+  content: "";
+  position: absolute;
+  inset: -10px 0;
+}
+.app[data-split="cols"] .splitter {
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  cursor: col-resize;
+}
+.app[data-split="cols"] .splitter::before { inset: 0 -10px; }
+.splitter:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.split-knob {
+  position: relative; /* above the grab area */
+  width: 52px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--fg2);
+  font-size: 14px;
+  line-height: 1;
+  touch-action: none;
+}
+.app[data-split="cols"] .split-knob { width: 18px; height: 52px; }
+.app[data-split="cols"] .splitter { flex-direction: column; gap: 14px; }
+.app:not([data-split="cols"]) .hand-knob { display: none; }
+
+/* Foldables (Viewport Segments). A vertical hinge splits the screen into two
+ * side-by-side segments — the song goes on one, the keyboard on the other —
+ * and a horizontal fold (a flip phone half-open, a book device turned) puts
+ * the song above and the keyboard on the half lying flat. The hinge itself
+ * is never drawn over: nothing is lost in the crease. */
+@media (horizontal-viewport-segments: 2) {
+  .app {
+    display: grid;
+    grid-template-columns:
+      env(viewport-segment-width 0 0)
+      calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0))
+      1fr;
+    grid-template-rows: 100%;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .hinge { display: block; background: var(--bg); }
+  .splitter { display: none; }
+}
+@media (vertical-viewport-segments: 2) {
+  .app {
+    display: grid;
+    grid-template-rows:
+      env(viewport-segment-height 0 0)
+      calc(env(viewport-segment-top 0 1) - env(viewport-segment-bottom 0 0))
+      1fr;
+    grid-template-columns: 100%;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .pane-song { padding-top: env(safe-area-inset-top, 0px); }
+  .pane-keys { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .hinge { display: block; background: var(--bg); }
+  .splitter { display: none; }
+}
+/* Device Posture: a half-folded device that reports no segments keeps the
+ * splitter, and only starts with the keyboard taking the larger share —
+ * split.js reads data-posture, which app.js mirrors from
+ * navigator.devicePosture. */
+
+/* ── bars and buttons ────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 4px 6px;
+  background: var(--panel);
+  flex: 0 0 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bar::-webkit-scrollbar { display: none; }
+.spacer { flex: 1 1 auto; }
+
+.tbtn, .tsel {
+  min-width: var(--tap);
+  height: 38px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  touch-action: manipulation;
+}
+.tbtn:disabled { opacity: 0.4; }
+.tbtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.tbtn small { color: var(--dim); }
+.tbtn.rec[aria-pressed="true"] { background: var(--rec-bg); border-color: var(--rec-border); color: var(--rec-fg); }
+.tbtn.send { border-color: var(--accent-2); color: var(--accent-2); }
+.tsel { padding-right: 4px; max-width: 7em; }
+.keyhead .tbtn { min-width: 34px; }
+/* A phone held upright: every control in the two bars has to fit 360 px. */
+@media (max-width: 430px) {
+  .tbtn small { display: none; }
+  .tbtn.wide, .tsel { padding: 0 6px; }
+}
+@media (max-width: 350px) {
+  .lane-tag { display: none; }
+}
+
+.ico { display: inline-block; width: 14px; height: 14px; position: relative; }
+.ico-play { width: 0; height: 0; border-style: solid; border-width: 7px 0 7px 12px; border-color: transparent transparent transparent currentColor; }
+.ico-stop { background: currentColor; width: 12px; height: 12px; border-radius: 2px; }
+.ico-rec { background: currentColor; border-radius: 50%; width: 13px; height: 13px; }
+.ico-more::before { content: "⋯"; position: absolute; inset: -6px 0 0; text-align: center; font-size: 20px; line-height: 20px; }
+.ico-clear::before { content: "⌫"; position: absolute; inset: -3px 0 0; text-align: center; font-size: 17px; line-height: 17px; }
+.ico-undo::before { content: "↶"; position: absolute; inset: -4px 0 0; text-align: center; font-size: 19px; line-height: 19px; }
+.ico-redo::before { content: "↷"; position: absolute; inset: -4px 0 0; text-align: center; font-size: 19px; line-height: 19px; }
+
+/* ── sections ────────────────────────────────────────────────────────────── */
+
+.sections { border-top: 1px solid var(--border); }
+.sec {
+  min-width: 40px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+.sec[aria-current="true"] { border-color: var(--accent); color: var(--accent); }
+.sec.playing { box-shadow: inset 0 -3px 0 var(--accent); }
+.sec.add, .sec.more { color: var(--dim); font-weight: 400; }
+
+/* ── the pattern grid ────────────────────────────────────────────────────── */
+
+.grid-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--bg);
+}
+.grid {
+  display: grid;
+  grid-template-columns: 2.2em repeat(8, minmax(2.9em, 1fr));
+  font: 13px/1 ui-monospace, "SF Mono", "Roboto Mono", "Noto Sans Mono", Menlo, monospace;
+  min-width: max-content;
+}
+.gh, .gr, .gc {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--bg);
+  white-space: nowrap;
+}
+.gh {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: var(--panel);
+  font: 600 12px/1 system-ui, sans-serif;
+  border-bottom: 2px solid var(--lane-colour, var(--border));
+  color: var(--lane-colour, var(--dim));
+  gap: 3px;
+}
+.gh.corner { --lane-colour: var(--border); left: 0; z-index: 3; }
+.gh[aria-selected="true"] { background: var(--panel-2); }
+.gh.muted { opacity: 0.45; text-decoration: line-through; }
+.gr {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  color: var(--dim);
+  background: var(--panel);
+  font-size: 11px;
+}
+.gc { color: var(--lane-colour); position: relative; }
+.gc.empty { color: var(--dim); }
+.gc.off { color: var(--fg2); }
+.beat { background: var(--row-beat); }
+.bar16 { background: var(--row-bar); }
+.gr.bar16, .gr.beat { color: var(--fg2); }
+.play { background: var(--row-play) !important; }
+.gc.cur { background: var(--cursor); outline: 1px solid var(--accent-2); outline-offset: -1px; }
+.gc .fx {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  font: 700 9px/1 system-ui, sans-serif;
+  color: var(--fx-ink);
+}
+
+/* ── the keyboard ────────────────────────────────────────────────────────── */
+
+.keyhead { border-bottom: 1px solid var(--border); }
+.oct { min-width: 2.4em; text-align: center; font-variant-numeric: tabular-nums; }
+.lane-tag { color: var(--lane-colour, var(--dim)); font-weight: 600; white-space: nowrap; }
+.keys-wrap { flex: 1 1 auto; min-height: 0; position: relative; }
+.keys {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  display: block;
+}
+
+/* ── start veil, sheet, toast ────────────────────────────────────────────── */
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+.veil[hidden] { display: none; }
+.start {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 28px 34px;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+.brand { font-size: 26px; letter-spacing: 0.01em; }
+.brand b { color: var(--rec-fg); font-weight: 700; }
+.brand i { color: var(--accent); font-style: normal; font-weight: 600; }
+.start-hint { color: var(--dim); }
+
+.sheet {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--fg);
+  padding: 0;
+  width: min(92vw, 420px);
+  max-height: 84vh;
+}
+.sheet::backdrop { background: color-mix(in srgb, var(--bg) 60%, transparent); }
+.sheet form { display: grid; gap: 12px; padding: 16px; }
+.sheet h2 { margin: 0; font-size: 17px; }
+.sheet p { margin: 0; color: var(--fg2); }
+.sheet .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.sheet .tbtn { height: 42px; }
+.sheet .primary { border-color: var(--accent); color: var(--accent); }
+.sheet input[type="text"] {
+  height: 42px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 0 10px;
+  width: 100%;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5em, 1fr)); gap: 8px; }
+.chips .tbtn { justify-content: flex-start; }
+.chips .tbtn[aria-pressed="true"] { background: var(--cursor); }
+.fx-grid { display: grid; grid-template-columns: 6em repeat(3, 1fr); gap: 6px; align-items: center; }
+.err { color: var(--err-fg); }
+.ok { color: var(--ok-fg); }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  transform: translateX(-50%);
+  z-index: 30;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  max-width: 90vw;
+}

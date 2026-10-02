@@ -13,8 +13,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TaudEngine } from "../../src/engine/engine.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../src/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
 import {
   decodeSampleRegion, MOD_STEP, MOD_MAX, MOD_COMB_MAX, MOD_COMB_ODD_MAX,
   MOD_SCATTER_FRAC, MOD_JUMP_SLICES, MOD_JUMP8, MOD_JUMP16, MOD_JUMP_ALL,
@@ -26,10 +26,10 @@ import {
   fModTouches, extModTouches, decodeExtOp, EXT_JUMP_N, extJitterFrac,
   EXT_SCATTER_FRAC, EXT_BITPERM_LUT, extYkPeriodTicks, modAddressExt,
   bitRotate8, applyExtLevel, applyExtLevelPrev,
-} from "../../src/engine/samplemod.js";
-import { setRandomSource, makeSeededRandom } from "../../src/engine/rng.js";
-import { readSamplePoint } from "../../src/engine/sampler.js";
-import { EffectOp } from "../../src/engine/tables.js";
+} from "../../core/engine/samplemod.js";
+import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
+import { readSamplePoint } from "../../core/engine/sampler.js";
+import { EffectOp } from "../../core/engine/tables.js";
 
 setSamplingRate(32000);
 

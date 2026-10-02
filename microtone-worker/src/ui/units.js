@@ -5,7 +5,7 @@
 // engine (AudioAdapter.refreshVoiceFilter).
 
 import { t } from "./i18n.js";
-import { minifloatToDouble, minifloatFromDouble } from "../engine/minifloat.js";
+import { minifloatToDouble, minifloatFromDouble } from "../../core/engine/minifloat.js";
 
 /**
  * Envelope segment length, as a spinner mapping (item 156.2). The record stores

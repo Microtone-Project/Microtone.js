@@ -19,8 +19,8 @@ import {
 import {
   compositeOp, createPatternOp, deletePatternOp, setCueWordOp, setCellOp,
 } from "../../src/doc/ops.js";
-import { CUE_EMPTY } from "../../src/format/taud-const.js";
-import { parseTaud, cueInstructionWords } from "../../src/format/taud-parse.js";
+import { CUE_EMPTY } from "../../core/format/taud-const.js";
+import { parseTaud, cueInstructionWords } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { Store } from "../../src/ui/store.js";

@@ -11,8 +11,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { presetForNotation, retuneAllPatterns, retuneNearest, surveyTuning, OFF_GRID_TOL }
-  from "../../src/ui/pitchtables.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+  from "../../core/tuning/pitchtables.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { retuneOp } from "../../src/doc/ops.js";
 import { UndoStack } from "../../src/doc/undo.js";

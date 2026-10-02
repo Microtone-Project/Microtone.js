@@ -16,7 +16,7 @@ import { planCreateMeta, planCreateFm, planAddMetaLayers } from "../../doc/bankm
 import { importBankOp } from "../../doc/ops.js";
 import { META_MAX_LAYERS, metaLayers } from "../../doc/metaedit.js";
 import { FM_MAX_OPERATORS, fmProgramOf, fmBudget, fmCanAddOperator } from "../../doc/fmedit.js";
-import { escapeNonAscii, unescapeName } from "../names.js";
+import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 
 const hex3 = (n) => "$" + n.toString(16).toUpperCase().padStart(3, "0");

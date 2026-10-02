@@ -1,5 +1,5 @@
 // Pattern-Ditto (effect 7) display expansion — a STATIC mirror of the engine's
-// row-time expansion in src/engine/row.js applyTrackerRow, used only to paint
+// row-time expansion in core/engine/row.js applyTrackerRow, used only to paint
 // the would-be-repeated cells in a ghost colour. Pure: no DOM, no engine state.
 //
 // The engine copies, per covered row, every sub-column the destination row
@@ -13,7 +13,7 @@
 // empty (effect 0 + arg 0). Everything visible stays truthful; the ghosts only
 // ever fill blanks.
 
-import { EffectOp } from "../engine/tables.js";
+import { EffectOp } from "../../core/engine/tables.js";
 
 export const OP_DITTO = EffectOp.OP_7;
 

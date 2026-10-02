@@ -6,7 +6,7 @@
   <!-- load a clean corpus doc so the New flow has no dirty-discard confirm -->
   <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:760px"></iframe>
   <script type="module">
-    import { parseTaud } from "../../src/format/taud-parse.js";
+    import { parseTaud } from "../../core/format/taud-parse.js";
     // Todo #32: the elaborate New Project modal — notation selector (default
     // 24-TET), primary/secondary beat divisors + live row-highlight preview,
     // blinkenlights, tuning + metadata. Verify the modal renders and a created
@@ -146,7 +146,7 @@
         //    dormant corruption — right on screen, mojibake after save+reload,
         //    because newProject() skipped the \uHHHH escape every other name
         //    write path applies before the ASCII-only sMet/PNam readers see it). ──
-        const { unescapeName } = await import("../../src/ui/names.js");
+        const { unescapeName } = await import("../../core/format/names.js");
         win.confirm = () => true; // doc is dirty now — newProject()'s discard guard
         doc.getElementById("newBtn").click();
         await sleep(60);

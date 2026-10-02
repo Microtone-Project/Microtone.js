@@ -18,7 +18,7 @@ import {
 } from "../../src/doc/patternquery.js";
 import { emptyCellBytes, cellSize } from "../../src/doc/clipboard.js";
 import { emptyPatternBytes } from "../../src/doc/patterntools.js";
-import { MIDDLE_C } from "../../src/engine/constants.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
 
 // ── fixtures ───────────────────────────────────────────────────────────────
 

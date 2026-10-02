@@ -17,7 +17,7 @@ import {
   parseRegionPayload, buildRegionPayload, regionSpans, regionBytes,
   largestFreeRun, wholeMemoryRegion, MAX_REGION_CHANNELS, POOL_SIZE,
 } from "../../src/doc/sampleregions.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document, sampleSpans } from "../../src/doc/document.js";
 import {
   planImportRegion, planDeleteRegion, planRenameRegion, planRegionSlice,

@@ -8,8 +8,8 @@
 // loudness metering, no stem or surround export. What is left is the part a
 // game or a web page actually wants: press play, fade a lane, draw a meter.
 
-import { parseTaud } from "../format/taud-parse.js";
-import { SAMPLING_RATE } from "../engine/constants.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { SAMPLING_RATE } from "../../core/engine/constants.js";
 import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,

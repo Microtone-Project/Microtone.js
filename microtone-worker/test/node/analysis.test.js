@@ -12,14 +12,14 @@ import {
   METER_MIX, METER_FOA, METER_SPEAKERS,
   AnalysisTap, AnalysisRenderer, TruePeakDetector,
   availableTargets, meterLabels, meterDisplay, makeAnalysisReadout,
-} from "../../src/engine/analysis.js";
+} from "../../core/engine/analysis.js";
 import {
   SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL, SpatialBus,
-} from "../../src/engine/spatial.js";
-import { TRACKER_CHUNK, SAMPLING_RATE } from "../../src/engine/constants.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
-import { loadIntoEngine, renderSong } from "../../src/audio/offline-render.js";
+} from "../../core/engine/spatial.js";
+import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
 import {
   dbfs, meterFrac, correlation, availableScopes, effectiveScopes, SCOPE_KINDS,
   scopeAxes, scopeLabels, blobView, radView, MeterBallistics, RMS_SLOW_MS,

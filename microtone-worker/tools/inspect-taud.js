@@ -4,8 +4,8 @@
 // Usage: node tools/inspect-taud.js <file.taud> [--cues] [--ixmp]
 
 import { readFile } from "node:fs/promises";
-import { parseTaud, cueInstructionWords } from "../src/format/taud-parse.js";
-import { ixmpPatchLen, ixmpChanCount, CUE_EMPTY } from "../src/format/taud-const.js";
+import { parseTaud, cueInstructionWords } from "../core/format/taud-parse.js";
+import { ixmpPatchLen, ixmpChanCount, CUE_EMPTY } from "../core/format/taud-const.js";
 
 const args = process.argv.slice(2);
 const path = args.find((a) => !a.startsWith("--"));

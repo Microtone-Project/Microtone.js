@@ -19,23 +19,23 @@ import {
   CONVERTER_SOURCES, SF2BANK_SOURCE, BNKBANK_SOURCE, converterFor,
   loadConverterRuntime, runConverter, buildArgv,
 } from "../../src/convert/convert-core.js";
-import { parseTaud } from "../../src/format/taud-parse.js";
-import { CUE_EMPTY, NUM_PATTERNS_MAX } from "../../src/format/taud-const.js";
-import { tuningRatioOf } from "../../src/engine/tables.js";
-import { presetForNotation, surveyTuning } from "../../src/ui/pitchtables.js";
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { CUE_EMPTY, NUM_PATTERNS_MAX } from "../../core/format/taud-const.js";
+import { tuningRatioOf } from "../../core/engine/tables.js";
+import { presetForNotation, surveyTuning } from "../../core/tuning/pitchtables.js";
 import { Document, combineTpif, sampleSpans, isStereoSample } from "../../src/doc/document.js";
 import { planImport } from "../../src/doc/bankmerge.js";
 import { importBankOp } from "../../src/doc/ops.js";
 import { UndoStack } from "../../src/doc/undo.js";
-import { loadIntoEngine } from "../../src/audio/offline-render.js";
-import { TRACKER_CHUNK } from "../../src/engine/constants.js";
-import { TaudEngine } from "../../src/engine/engine.js";
-import { patchIsStereo } from "../../src/engine/inst.js";
-import { unescapeName } from "../../src/ui/names.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
+import { TRACKER_CHUNK } from "../../core/engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { patchIsStereo } from "../../core/engine/inst.js";
+import { unescapeName } from "../../core/format/names.js";
 import { IMS_BANK, IMS_SONG, IMS_SONG_12RPB, IMS_EVENTS, JOHAB_TITLE, makeIms, makeBnk, LOUD_OP } from "../fixtures/ims.js";
 import { SOP_SONG, SOP_SONG_RHYTHM, SOP_SONG_4OP, SOP_SONG_16RPB, SOP_SONG_VIB,
          SOP_SONG_V02, SOP_BLIP, sopStray } from "../fixtures/sop.js";
-import { cueInstructionWords } from "../../src/format/taud-parse.js";
+import { cueInstructionWords } from "../../core/format/taud-parse.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const importDir = root + "test/corpus/import/";

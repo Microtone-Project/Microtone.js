@@ -16,17 +16,17 @@
 // Nothing here interprets anything. It reports LUFS, peaks, crest and the code
 // histogram; whether a dip is a mistake or the quiet bit is not its business.
 
-import { TaudEngine } from "../engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE } from "../engine/constants.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
 import {
   LoudnessIntegrator, FRAME_SEC, TAP_PRE, TAP_POST, SPEC_FRAMES,
   makeMasterMeterReadout, bitUsage, crestDb, dbfs,
   DEFAULT_BIT_DEPTH, HIST_BUCKETS,
-} from "../engine/loudness.js";
+} from "../../core/engine/loudness.js";
 import {
   BandAnalyser, SPECTRUM_NBANDS, SPECTRUM_TILT_DB_PER_OCT,
-} from "../engine/fft.js";
-import { loadIntoEngine } from "./offline-render.js";
+} from "../../core/engine/fft.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
 
 /** One stage's growing series, in 100 ms frames. */
 class StageSeries {
