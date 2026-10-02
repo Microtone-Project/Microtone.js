@@ -131,6 +131,20 @@ crisp at 175% as at 100% — and clicking still lands on the cell you aimed at.
 It is independent of the browser's own zoom (Ctrl+ +/−), which also works and
 which this does not touch.
 
+### The desktop app
+
+Microtone also comes as an application for Linux, Windows and macOS, from the
+[releases page](https://github.com/Microtone-Project/Microtone.js/releases). It
+is this same tracker in a window of its own, and it works without a connection.
+A few things differ from the browser:
+
+- **Its projects are its own.** The app keeps them apart from any browser's, so the File tab in each lists different projects. To move one across, **Export** it in one and open the `.taud` with **Open…** in the other — or save it to your online projects, which both can open.
+- **Exports ask where to go.** A project, a WAV or a ZIP of stems opens your system's Save dialog instead of landing in Downloads.
+- **Closing the window asks first** when the open project has unsaved changes, as closing a browser tab does.
+- **It updates itself.** A few seconds after it starts, a note in the corner says when a new version is out. **Download** fetches it; then **Restart now** installs it at once, and **When I quit** leaves it until you close Microtone.
+- **The manual opens beside it** in a window of its own, and links to websites open in your browser.
+- **Online projects sign in through your browser.** **Sign in with SceneID** on the File tab opens your usual browser at microtone.cc; sign in there (if you already are, there is nothing to do) and it hands you back to Microtone — the browser may ask whether to open it. The app then stays signed in until you sign out, separately from the browser.
+
 ## Views
 
 | Key | View | Purpose |

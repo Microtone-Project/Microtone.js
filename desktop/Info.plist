@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the macOS bundle's Info.plist by the Tauri bundler (it picks
+     up an Info.plist next to tauri.conf.json). Without a usage string macOS
+     terminates the app the moment the sampler's Record asks for the mic. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Microtone records samples from the microphone when you press Record in the sampler.</string>
+</dict>
+</plist>

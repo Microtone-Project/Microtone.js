@@ -18,6 +18,11 @@ own machine. Three demo songs sit on the welcome screen if you would rather hear
 it before writing anything, the **?** button opens the keyboard reference, and
 the [full manual](https://microtone.cc/docs.html) is inside the app.
 
+Rather have it as an application? Microtone for Linux, Windows and macOS is on
+the [releases page](https://github.com/Microtone-Project/Microtone.js/releases):
+the same tracker in a window of its own, working offline and keeping itself up
+to date.
+
 ### What it does
 
 - **Any tuning, not just the twelve.** Pick a notation preset — 12, 19, 24, 31,
@@ -156,6 +161,13 @@ npm run serve            # python3 -m http.server 8737
 #           http://localhost:8737/player.html (minimal player)
 ```
 
+## Desktop app
+
+`desktop/`, beside `microtone-worker/` rather than in it, wraps the site in a
+[Tauri 2](https://v2.tauri.app/) window with self-updating releases. Building it,
+releasing it (raise the version in `microtone-worker/package.json`) and what the
+shell does for the page are in [`desktop/README.md`](desktop/README.md).
+
 ## Testing
 
 Requires Node ≥ 22.
@@ -195,6 +207,14 @@ Sign-in is [SceneID](https://id.scene.org/docs/) OAuth
 locally — never in a committed file, since everything tracked here is public.
 SceneID only sends people back to registered callbacks, so every origin that
 signs in needs `<origin>/api/online/auth/callback` registered with SceneID.
+
+The desktop app (`desktop/`) signs in through the system's browser instead of a
+pop-up (`server/online/desktop.js`): its sign-in runs on this site as usual, then
+hands the app a one-time code through the app's `cc.microtone.desktop:` scheme,
+which the app swaps — with a PKCE verifier only it holds — for an access token it
+sends as `Authorization: Bearer`. The codes live in the `desktop_codes` table
+(`migrations/0002_desktop_codes.sql`), so a deploy that adds it needs
+`npx wrangler d1 migrations apply microtone-online --remote` once.
 
 Wherever there is no API (a static server, `npm run serve`) the online section
 simply does not appear. To run it locally — from the REPOSITORY ROOT, with a

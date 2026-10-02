@@ -1,0 +1,129 @@
+# Desktop releases — Microtone as a Tauri app (desktop/).
+#
+# The version is microtone-worker/package.json's, and bumping it is what ships:
+# every push to master looks for a release tagged v<version>, and only when
+# there is none does it build Linux, Windows and macOS, upload them to a draft
+# release with the updater's latest.json, and publish the release once every
+# platform is in. Installed copies check
+#   https://github.com/Microtone-Project/Microtone.js/releases/latest/download/latest.json
+# so they see a release only when it is complete.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           the key `cargo tauri signer generate` wrote
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password
+# and the matching public key in desktop/tauri.conf.json (plugins.updater.pubkey).
+
+name: Desktop release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      build: ${{ steps.read.outputs.build }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "v$version is released already: nothing to build."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  draft:
+    needs: version
+    if: needs.version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      release-id: ${{ steps.create.outputs.release-id }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Refuse to release without the updater's public key
+        run: |
+          if grep -q 'REPLACE_WITH' desktop/tauri.conf.json; then
+            echo "::error file=desktop/tauri.conf.json::plugins.updater.pubkey is still the placeholder; see desktop/README.md"
+            exit 1
+          fi
+      - id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # A draft left by a failed run is started afresh.
+          gh release delete "v$VERSION" --yes 2> /dev/null || true
+          gh release create "v$VERSION" --draft --target "$GITHUB_SHA" \
+            --title "Microtone $VERSION" \
+            --notes "Microtone $VERSION for Linux (AppImage, .deb, .rpm), Windows and macOS. Installed copies update themselves. What changed: https://microtone.cc/docs.html#patchnotes"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.draft and .tag_name == \"v$VERSION\") | .id" | head -n 1)
+          echo "release-id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [version, draft]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04: an AppImage runs on systems at least as new as the one that built it.
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+          - platform: macos-latest
+            args: '--target universal-apple-darwin'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+      - name: Linux build dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+            gstreamer1.0-pulseaudio gstreamer1.0-alsa
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          releaseId: ${{ needs.draft.outputs.release-id }}
+          tagName: v__VERSION__
+          releaseDraft: true
+          args: ${{ matrix.args }} --config tauri.release.conf.json
+
+  publish:
+    needs: [version, draft, build]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest

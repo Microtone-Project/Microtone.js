@@ -1,0 +1,6 @@
+# Cargo's build output
+/target/
+# tauri-build's generated ACL schemas
+/gen/
+# tools/stage-frontend.js output — the shipped part of ../microtone-worker
+/dist/

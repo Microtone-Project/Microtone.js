@@ -1,0 +1,6 @@
+{
+  "name": "microtone-desktop",
+  "private": true,
+  "type": "module",
+  "description": "The Tauri shell around microtone-worker. Not an npm project: this file exists so `cargo tauri` takes this directory as the frontend root and runs tools/stage-frontend.js from here (without it, the CLI walks down to the first package.json it finds — the staged copy's). The app's version is NOT here; it is microtone-worker/package.json's."
+}

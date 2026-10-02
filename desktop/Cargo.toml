@@ -1,0 +1,52 @@
+[package]
+name = "microtone"
+# NOT the app's version: tauri.conf.json reads that from
+# ../microtone-worker/package.json, and the bundles and the updater use it.
+version = "0.0.0"
+description = "Microtone, the microtonal tracker, as a desktop application"
+authors = ["CuriousTorvald"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Microtone-Project/Microtone.js"
+edition = "2024"
+rust-version = "1.90"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-deep-link = "2.6"
+tauri-plugin-opener = "2.7"
+# deep-link: a second launch carrying a cc.microtone.desktop: URL hands it over.
+tauri-plugin-single-instance = { version = "2.5", features = ["deep-link"] }
+tauri-plugin-updater = "2.13"
+tauri-plugin-window-state = "2.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Online projects (src/online.rs): the same HTTP client and TLS the updater
+# brings, plus what PKCE needs.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+
+# Native dialogs WITHOUT tauri-plugin-dialog: that plugin's init script
+# replaces window.alert/window.confirm with async versions, and the app's
+# `if (!confirm(...)) return;` would then never stop anything (a Promise is
+# truthy). rfd, which the plugin uses, on Windows and macOS only — see the
+# Linux note in src/saving.rs.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Tauri's own GTK, for the Save dialog (src/saving.rs).
+gtk = "0.18"
+# wry's own pin, for the settings wry leaves off (src/webkitgtk.rs).
+webkit2gtk = "=2.0.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

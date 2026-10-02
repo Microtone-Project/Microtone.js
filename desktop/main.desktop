@@ -1,0 +1,18 @@
+{{!-- The .deb and .rpm desktop entry (tauri.conf.json bundle.linux.*.desktopTemplate):
+      the bundler's own template plus %u, without which a launcher may start
+      the app for a cc.microtone.desktop: link but not hand it the link —
+      and the browser's sign-in would never reach it (src/online.rs). --}}
+[Desktop Entry]
+Categories={{categories}}
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Exec={{exec}} %u
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name={{name}}
+Terminal=false
+Type=Application
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

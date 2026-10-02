@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Microtone",
+  "mainBinaryName": "microtone",
+  "version": "../microtone-worker/package.json",
+  "identifier": "cc.microtone.desktop",
+  "build": {
+    "beforeDevCommand": "node tools/stage-frontend.js",
+    "beforeBuildCommand": "node tools/stage-frontend.js",
+    "frontendDist": "dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null,
+      "headers": {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb", "rpm", "nsis", "app", "dmg"],
+    "publisher": "CuriousTorvald",
+    "homepage": "https://microtone.cc/",
+    "copyright": "© CuriousTorvald and contributors. GNU GPL version 3 or later.",
+    "license": "GPL-3.0-or-later",
+    "licenseFile": "../COPYING",
+    "category": "Music",
+    "shortDescription": "A music tracker for the notes a piano cannot play",
+    "longDescription": "Microtone is a music tracker for microtonal and spatial music: any tuning on a 4096-step pitch grid, sources placed anywhere on the sphere, ambisonic B-format and stereo export.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "desktopTemplate": "main.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "main.desktop"
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "Korean"]
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["cc.microtone.desktop"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxMThGMkQ0MzdEODVDNTAKUldSUVhOZzMxUElZc1VnWm0zM215SWxiNGpnSjNaWnR6cCtRR2VCWkU0Sm15SWNPQWloQytYZ0sK",
+      "endpoints": [
+        "https://github.com/Microtone-Project/Microtone.js/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

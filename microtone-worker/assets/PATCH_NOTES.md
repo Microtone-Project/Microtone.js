@@ -1,8 +1,18 @@
 # Patch Notes
 
-Microtone is deployed continuously — there are no numbered releases, so every entry below is one dated batch of work, newest first. Dates are the day the work landed.
+The website is deployed continuously, so every entry below is one dated batch of work, newest first; the desktop app picks the batches up in its own updates. Dates are the day the work landed.
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
+
+## 2026-10-02
+
+Microtone now comes as a desktop application for Linux, Windows and macOS, and keeps itself up to date.
+
+- **Download it from the [releases page](https://github.com/Microtone-Project/Microtone.js/releases)**: an AppImage, a .deb or an .rpm for Linux, an installer for Windows, a disk image for macOS. It is this same tracker in a window of its own, and it works without a connection.
+- **It updates itself.** When a new version is out, a note in the corner offers to download it; then restart straight away, or let it install when you quit — it never restarts on its own.
+- **Exports go through your system's Save dialog**, and closing the window asks first when the open project has unsaved changes.
+- **Online projects work in the app too.** **Sign in with SceneID** on the File tab opens your usual browser; sign in there — or do nothing, if you already are — and the browser hands you back to Microtone, which stays signed in until you sign out.
+- **Its projects are its own**, kept apart from any browser's: Export a project in one and open it in the other to move it across, or keep it in your online projects, which both can open.
 
 ## 2026-10-01
 
