@@ -7,9 +7,10 @@
 // (see server/online/) or "offline" when the request never got an answer; the
 // UI turns codes into sentences, so nothing here is prose.
 //
-// Where there is no API at all — a static server, the offline build, a
-// deploy without its bindings, or one with no way to sign in yet — status()
-// says `available: false` and the app shows no online section whatsoever.
+// Where there is no API at all — a static server, a deploy without its
+// bindings, or one with no way to sign in yet — status() says
+// `available: false` and the app shows no online section whatsoever. (The
+// desktop app answers these same requests itself: desktop/src/online.rs.)
 
 const API = "/api/online";
 

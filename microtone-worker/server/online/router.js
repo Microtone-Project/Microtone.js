@@ -12,13 +12,16 @@
 //   GET    /api/online/auth/callback        ← SceneID
 //   POST   /api/online/auth/logout
 //   GET    /api/online/auth/dev-login       local test sign-in (auth.js)
+//   GET    /api/online/auth/desktop         the desktop app's sign-in  (desktop.js)
+//   POST   /api/online/auth/token           ← the desktop app: code → access token
 //
 // Bindings (wrangler.toml): ONLINE_DB is the D1 database, ONLINE_BUCKET the R2
 // bucket. There are no R2 or D1 credentials anywhere — a binding IS the
 // permission — so the only secret this server will ever read is SceneID's.
 
 import { fail, json, explain } from "./util.js";
-import { currentUser, signOut, devSignIn, devSignInAllowed } from "./auth.js";
+import { currentUser, signOut, devSignIn, devSignInAllowed, desktopToken } from "./auth.js";
+import { beginDesktopSignIn } from "./desktop.js";
 import { sceneIdConfigured, beginSignIn, finishSignIn } from "./sceneid.js";
 import {
   listProjects, createProject, readProject, overwriteProject, renameProject, deleteProject,
@@ -41,6 +44,9 @@ const ROUTES = [
   { path: /^\/auth\/callback$/, GET: (c) => finishSignIn(c.request, c.env) },
   { path: /^\/auth\/logout$/, POST: (c) => signOut(c.request, c.env) },
   { path: /^\/auth\/dev-login$/, GET: (c) => devSignIn(c.request, c.env) },
+  // A browser already signed in here hands the desktop app its sign-in at once.
+  { path: /^\/auth\/desktop$/, session: "optional", GET: beginDesktopSignIn },
+  { path: /^\/auth\/token$/, POST: desktopToken },
 ];
 
 /** How this deployment lets people sign in: "sceneid", "dev", or null for
@@ -93,7 +99,9 @@ export async function handle(request, env) {
   try {
     const user = route.session ? await currentUser(request, env) : null;
     if (route.session === "required" && !user) return fail(401, "signed-out");
-    const res = await handler({ request, env, url, user, params: match.groups ?? {} });
+    const res = await handler({
+      request, env, url, user, params: match.groups ?? {}, signIn: signInMode(request, env),
+    });
     // A session that was just extended re-issues its cookie on whatever the
     // answer was.
     if (user?.setCookie) res.headers.append("set-cookie", user.setCookie);

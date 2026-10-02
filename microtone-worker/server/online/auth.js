@@ -5,12 +5,14 @@
 // subject and a display name to completeSignIn() when it is done; the same two
 // calls serve the local test sign-in below. SceneID plugs in at sceneid.js.
 //
-// A session is a random token in an HttpOnly cookie. D1 holds only its
-// SHA-256, so the table is useless to anyone who reads it, and signing out
-// (or deleting the row) ends the session at once — no signed-cookie secret to
-// rotate, and nothing to keep in sync between deploys.
+// A session is a random token in an HttpOnly cookie — or, for the desktop
+// app (desktop.js), the same kind of token sent as `Authorization: Bearer`.
+// D1 holds only its SHA-256, so the table is useless to anyone who reads it,
+// and signing out (or deleting the row) ends the session at once — no
+// signed-cookie secret to rotate, and nothing to keep in sync between deploys.
 
-import { randomId, randomToken, sha256Hex, parseCookies, fail, explain } from "./util.js";
+import { randomId, randomToken, sha256Hex, parseCookies, fail, json, explain, readCapped } from "./util.js";
+import { pendingDesktop, handOff, redeemCode, CLEAR_PENDING } from "./desktop.js";
 
 /** `__Host-` binds the cookie to exactly this origin: Secure, Path=/, and no
  *  Domain, so no sibling subdomain can set or read it. Browsers treat
@@ -32,14 +34,25 @@ const REFRESH_MS = DAY_MS;
  *  through the identity provider's pages severs the opener. */
 const AUTH_CHANNEL = "microtone-online";
 
+/** The session token a request carries, and how: a bearer token (the desktop
+ *  app) is taken over a cookie. */
+function sessionToken(request) {
+  const bearer = /^Bearer ([A-Za-z0-9_-]{1,64})$/.exec(request.headers.get("authorization") ?? "");
+  if (bearer) return { token: bearer[1], cookie: false };
+  const token = parseCookies(request.headers.get("cookie")).get(COOKIE);
+  return token && token.length <= 64 ? { token, cookie: true } : null;
+}
+
 /**
  * The signed-in account for this request, or null. `setCookie` is non-null
- * when the session was just extended; the router hands it back on the
- * response so the browser's copy is extended too.
+ * when a cookie session was just extended; the router hands it back on the
+ * response so the browser's copy is extended too. A bearer token's expiry
+ * lives only here, so extending it is the whole job.
  */
 export async function currentUser(request, env) {
-  const token = parseCookies(request.headers.get("cookie")).get(COOKIE);
-  if (!token || token.length > 64) return null;
+  const carried = sessionToken(request);
+  if (!carried) return null;
+  const { token } = carried;
   const hash = await sha256Hex(token);
   const now = Date.now();
   const db = env.ONLINE_DB;
@@ -56,7 +69,7 @@ export async function currentUser(request, env) {
       db.prepare(`UPDATE sessions SET expires_at = ?2 WHERE token_hash = ?1`).bind(hash, expires),
       db.prepare(`UPDATE users SET last_seen_at = ?2 WHERE id = ?1`).bind(row.user_id, now),
     ]);
-    user.setCookie = sessionCookie(token, expires, now);
+    if (carried.cookie) user.setCookie = sessionCookie(token, expires, now);
   }
   return user;
 }
@@ -80,28 +93,34 @@ export async function signInAs(env, subject, displayName) {
   return row.id;
 }
 
-/** Open a session for `userId`; returns the Set-Cookie value. The same
- *  account's expired sessions are swept in the same write, so a person who
- *  signs in on many devices over the years leaves no pile behind. */
-export async function createSession(env, userId) {
+/** Open a session for `userId`; returns its token. The same account's
+ *  expired sessions are swept in the same write, so a person who signs in on
+ *  many devices over the years leaves no pile behind. */
+async function openSession(env, userId) {
   const db = env.ONLINE_DB;
   const token = randomToken();
   const now = Date.now();
-  const expires = now + SESSION_MS;
   await db.batch([
     db.prepare(`DELETE FROM sessions WHERE user_id = ?1 AND expires_at <= ?2`).bind(userId, now),
     db.prepare(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)`)
-      .bind(await sha256Hex(token), userId, now, expires),
+      .bind(await sha256Hex(token), userId, now, now + SESSION_MS),
   ]);
-  return sessionCookie(token, expires, now);
+  return token;
 }
 
-/** Delete the session this request's cookie names, if it names one. */
+/** Open a session for `userId`; returns the Set-Cookie value. */
+export async function createSession(env, userId) {
+  const token = await openSession(env, userId);
+  const now = Date.now();
+  return sessionCookie(token, now + SESSION_MS, now);
+}
+
+/** Delete the session this request names (cookie or bearer), if it names one. */
 async function dropSession(request, env) {
-  const token = parseCookies(request.headers.get("cookie")).get(COOKIE);
-  if (token && token.length <= 64) {
+  const carried = sessionToken(request);
+  if (carried) {
     await env.ONLINE_DB.prepare(`DELETE FROM sessions WHERE token_hash = ?1`)
-      .bind(await sha256Hex(token)).run();
+      .bind(await sha256Hex(carried.token)).run();
   }
 }
 
@@ -123,19 +142,41 @@ export async function readyForSignIn(env) {
 
 /**
  * Record a sign-in: find or create the account, open its session (ending the
- * one this browser had), and answer with the completion page. Any failure
- * here answers with the failure page too — the person is looking at a small
- * window, and a JSON error is not something to leave in it.
+ * one this browser had), and answer with the completion page — or, when the
+ * sign-in was begun by the desktop app (desktop.js), with the page that hands
+ * it on to the app. Any failure here answers with the failure page too — the
+ * person is looking at a small window, and a JSON error is not something to
+ * leave in it.
  */
 export async function completeSignIn(request, env, subject, displayName, extraCookies = []) {
+  const desktop = pendingDesktop(request);
   try {
     const userId = await signInAs(env, subject, displayName);
     const session = await replaceSession(request, env, userId);
+    if (desktop) return await handOff(env, userId, displayName, desktop, [...extraCookies, session]);
     return completionPage({ ok: true, setCookies: [...extraCookies, session] });
   } catch (err) {
     console.error("online: sign-in could not be recorded:", explain(err));
-    return completionPage({ ok: false, setCookies: extraCookies });
+    // A desktop sign-in that failed is over, too: a later sign-in on the site
+    // must not wander off to the app.
+    return completionPage({ ok: false, setCookies: desktop ? [...extraCookies, CLEAR_PENDING] : extraCookies });
   }
+}
+
+/**
+ * POST /auth/token {"code": …, "verifier": …} — the desktop app's half of
+ * desktop.js: spend the code, open a session, and hand over its token, which
+ * the app then sends as `Authorization: Bearer`.
+ */
+export async function desktopToken({ request, env }) {
+  const raw = await readCapped(request, 4096);
+  let body = null;
+  try { body = JSON.parse(new TextDecoder().decode(raw ?? new Uint8Array(0))); } catch { /* answered below */ }
+  const userId = await redeemCode(env, body?.code, body?.verifier);
+  if (!userId) return fail(400, "invalid-grant");
+  const token = await openSession(env, userId);
+  const row = await env.ONLINE_DB.prepare(`SELECT display_name FROM users WHERE id = ?1`).bind(userId).first();
+  return json({ token, user: { name: row?.display_name ?? "" } });
 }
 
 /** A sign-in completing in a browser that was already signed in — as the same
