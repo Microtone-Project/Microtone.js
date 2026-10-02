@@ -433,10 +433,10 @@ export const BUILTIN_KEYMAPS = Object.freeze([
     origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
     notation: 10123,
     overrides: {
-      Digit1: null, Digit2: 1, Digit3: null, Digit4: 4, Digit5: 6, Digit6: 8, Digit7: null, Digit8: 11, Digit9: 13, Digit0: null,
-      KeyQ: 0, KeyW: 2, KeyE: 3, KeyR: 5, KeyT: 7, KeyY: 9, KeyU: 10, KeyI: 12, KeyO: 14, KeyP: 15,
-      KeyA: null, KeyS: -11, KeyD: null, KeyF: -8, KeyG: -6, KeyH: -4, KeyJ: null, KeyK: -1, KeyL: 1, Semicolon: null,
-      KeyZ: -12, KeyX: -10, KeyC: -9, KeyV: -7, KeyB: -5, KeyN: -3, KeyM: -2, Comma: 0, Period: 2, Slash: 3,
+      Digit1: null, Digit2: 1, Digit3: 3, Digit4: null, Digit5: 6, Digit6: 8, Digit7: null, Digit8: 11, Digit9: 13, Digit0: 15,
+      KeyQ: 0, KeyW: 2, KeyE: 4, KeyR: 5, KeyT: 7, KeyY: 9, KeyU: 10, KeyI: 12, KeyO: 14, KeyP: 16,
+      KeyA: null, KeyS: -11, KeyD: -9, KeyF: null, KeyG: -6, KeyH: -4, KeyJ: null, KeyK: -1, KeyL: 1, Semicolon: 3,
+      KeyZ: -12, KeyX: -10, KeyC: -8, KeyV: -7, KeyB: -5, KeyN: -3, KeyM: -2, Comma: 0, Period: 2, Slash: 4,
     },
   }),
   normaliseKeymap({
