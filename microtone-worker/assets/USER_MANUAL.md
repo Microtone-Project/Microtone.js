@@ -134,7 +134,8 @@ which this does not touch.
 ### The desktop app
 
 Microtone also comes as an application for Linux, Windows and macOS, from the
-[releases page](https://github.com/Microtone-Project/Microtone.js/releases). It
+[releases page](https://github.com/Microtone-Project/Microtone.js/releases) —
+**Get the desktop app** on the welcome screen goes straight to the newest one. It
 is this same tracker in a window of its own, and it works without a connection.
 A few things differ from the browser:
 

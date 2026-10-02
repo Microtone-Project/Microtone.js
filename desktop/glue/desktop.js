@@ -14,6 +14,8 @@
 //     (desktop/src/online.rs)
 //   - alert() and confirm() on macOS, which WKWebView lacks
 //     (desktop/src/mac_dialogs.rs)
+//   - hides the welcome screen's "Get the desktop app" (.wc-desktop), the
+//     website's offer of the very app this is
 //
 // Its strings are its own, in the app's two languages, chosen by <html lang>
 // (which the app's i18n sets). Its colours are the app's theme tokens, and the
@@ -74,6 +76,30 @@
    *  the event while the project is dirty (src/ui/app.js). */
   function pageWouldStay() {
     return !window.dispatchEvent(new Event("beforeunload", { cancelable: true }));
+  }
+
+  // ── the website's offer of this app ──
+  //
+  // The welcome screen offers the desktop app to a browser
+  // (src/ui/views/welcome.js); the page does not know it is in one, so the
+  // shell takes the offer down. Hidden from the first paint: a constructed
+  // sheet needs no <head>, which an initialization script runs too early to
+  // have. An older webview without one gets a <style> once the head is there.
+
+  const WEB_ONLY = ".wc-desktop { display: none !important; }";
+
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(WEB_ONLY);
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  } catch {
+    const add = () => {
+      const style = document.createElement("style");
+      style.textContent = WEB_ONLY;
+      document.head.appendChild(style);
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", add, { once: true });
+    else add();
   }
 
   // ── closing ──

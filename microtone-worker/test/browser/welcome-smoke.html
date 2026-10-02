@@ -125,6 +125,17 @@
           doc.querySelectorAll(".topbar .support-btn").length === 0;
         log(`support banner present, topbar buttons retired: ${bannerOk ? "ok" : "FAIL"}`);
 
+        // ── the desktop app, offered under the tagline ──
+        // Shown here, in a browser; the desktop shell hides .wc-desktop
+        // itself (desktop/glue/desktop.js), so the class is the contract.
+        const offer = host.querySelector(".wc-hero .wc-desktop");
+        const offerLink = offer?.querySelector("a");
+        const offerOk = !!offerLink && offer.offsetHeight > 0 &&
+          offerLink.href === "https://github.com/Microtone-Project/Microtone.js/releases/latest" &&
+          offerLink.target === "_blank" && offerLink.textContent.trim() === t("welcome.desktop") &&
+          !!offerLink.querySelector(".btn-ico") && offer.textContent.includes(t("welcome.desktopOs"));
+        log(`"${t("welcome.desktop")}" under the tagline: ${offerOk ? "ok" : "FAIL"}`);
+
         // The About popup keeps its own links — retiring the topbar pair must
         // not have taken the ask away entirely.
         doc.getElementById("brandBtn").click();

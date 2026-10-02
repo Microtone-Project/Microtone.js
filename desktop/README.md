@@ -76,6 +76,7 @@ initialization script:
 | `src/online.rs` | online projects: signs in through the system's browser, keeps an access token, and sends the page's `/api/online` requests to microtone.cc with it |
 | `src/webkitgtk.rs` | Linux: switches on the Storage and File System APIs (where every project lives) and the microphone, which WebKitGTK ships switched off |
 | `src/mac_dialogs.rs` | macOS: `alert()` and `confirm()`, which WKWebView lacks, as native alerts |
+| `glue/desktop.js` | hides the welcome screen's **Get the desktop app** (`.wc-desktop`), from the first paint — the page offers the app to a browser and never asks where it runs |
 
 ### Online projects
 

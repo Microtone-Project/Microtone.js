@@ -1011,6 +1011,25 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
   line-height: 1.05;
 }
 .wc-tagline { margin: 0.45rem 0 0; color: var(--dim); font-size: 0.95rem; }
+/* The desktop app, offered under the tagline. The desktop shell hides it
+   (desktop/glue/desktop.js keys off this class name). */
+.wc-desktop {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  column-gap: 0.4em;
+  margin: 0.55rem 0 0;
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+.wc-desktop a {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  text-decoration: none;
+}
+.wc-desktop a:hover { text-decoration: underline; }
 
 .wc-grid {
   display: grid;
@@ -1092,7 +1111,7 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
 .wc-links a:hover { color: var(--accent); }
 /* .btn-ico's own spacing rule keys off :only-child, and the svg IS the only
    ELEMENT beside a bare text node — so these two have to say it themselves. */
-.wc-links .btn-ico, .wc-banner .btn-ico { margin-right: 0.4em; }
+.wc-links .btn-ico, .wc-banner .btn-ico, .wc-desktop .btn-ico { margin-right: 0.4em; }
 .wc-sep { color: var(--border); }
 .wc-linkbtn {
   padding: 0;

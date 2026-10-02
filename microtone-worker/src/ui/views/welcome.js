@@ -105,8 +105,26 @@ export class WelcomeView {
     const tag = document.createElement("p");
     tag.className = "wc-tagline";
     tag.textContent = t("welcome.tagline");
-    el.append(brand, tag);
+    el.append(brand, tag, this.desktopOffer());
     return el;
+  }
+
+  /** The desktop app, offered to whoever is in a browser. The app is this
+   *  same page in a shell, and the shell hides `.wc-desktop` itself
+   *  (desktop/glue/desktop.js) — so nothing here asks where it is running,
+   *  and the class name is the whole contract between the two. */
+  desktopOffer() {
+    const p = document.createElement("p");
+    p.className = "wc-desktop";
+    const a = document.createElement("a");
+    a.href = "https://github.com/Microtone-Project/Microtone.js/releases/latest";
+    a.target = "_blank";
+    a.rel = "noopener";
+    setIconLabel(a, "download", t("welcome.desktop"));
+    const os = document.createElement("span");
+    os.textContent = t("welcome.desktopOs");
+    p.append(a, os);
+    return p;
   }
 
   // ── Start ──

@@ -274,6 +274,8 @@ export default {
   "status.noBankIn": "{name} carries no sample+instrument bank",
   // ── welcome screen (item 104) ──
   "welcome.tagline": "A music tracker for the notes a piano cannot play.",
+  "welcome.desktop": "Get the desktop app",
+  "welcome.desktopOs": "for Linux, Windows and macOS",
   "welcome.loading": "Loading…",
   "welcome.start": "Start",
   "welcome.new": "New project…",

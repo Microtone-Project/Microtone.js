@@ -13,6 +13,7 @@ Microtone now comes as a desktop application for Linux, Windows and macOS, and k
 - **Exports go through your system's Save dialog**, and closing the window asks first when the open project has unsaved changes.
 - **Online projects work in the app too.** **Sign in with SceneID** on the File tab opens your usual browser; sign in there — or do nothing, if you already are — and the browser hands you back to Microtone, which stays signed in until you sign out.
 - **Its projects are its own**, kept apart from any browser's: Export a project in one and open it in the other to move it across, or keep it in your online projects, which both can open.
+- **The welcome screen links to it**: **Get the desktop app**, under the tagline, takes you to the newest release. The app itself does not show it.
 
 ## 2026-10-01
 
