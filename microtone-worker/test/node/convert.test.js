@@ -1312,24 +1312,29 @@ test("sop2taud: panning moves the LANE, not the note", () => {
 });
 
 test("sop2taud: a four-operator instrument becomes a four-operator rack", () => {
-  // §8: a track asks for four operators either by saying so in the channel-mode
-  // table or merely by selecting a type-0 instrument, and the fixture does both.
-  // On a YMF262 a pair of channels is joined and all four operators sound; on a
-  // YM3812 only the first pair does. Taud's rack holds sixteen operator entries,
-  // so here nothing is dropped.
+  // §3.3: Note joins a channel pair because the channel-mode table says so and
+  // never because of the instrument. Both of the fixture's tracks select the
+  // same type-0 instrument, but only track 0 is joined: there all four operators
+  // sound (Taud's rack holds sixteen operator entries, so nothing is dropped),
+  // and on track 1 the instrument's first operator pair plays alone.
   const doc = parseTaud(convert("wide.sop", { bytes: SOP_SONG_4OP }));
   const d = new Document(doc);
-  const racks = d.instruments.filter((i) => i && i.isMeta && i.metaType === 4);
-  assert.equal(racks.length, 1);
-  const rack = racks[0];
-  assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0,
-            "a rack whose algorithm does not verify is silent");
+  const rackOf = (lane) => d.instruments[laneCells(doc, lane).find((c) => c.inst !== 0).inst];
+  const wide = rackOf(0), narrow = rackOf(1);
+  for (const rack of [wide, narrow]) {
+    assert.ok(rack && rack.isMeta && rack.metaType === 4, "an FM operator rack");
+    assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0,
+              "a rack whose algorithm does not verify is silent");
+  }
+  assert.notEqual(wide, narrow, "one instrument, played two ways, is two racks");
   // Four operators, plus the DC gate that carries the whole rack's envelope —
   // with two to four operators reaching the output there is no single one whose
   // envelope is the note's. Key banding may split an operator further.
-  assert.ok(rack.metaLayers.length >= 5,
-            `expected a gate and four operators, got ${rack.metaLayers.length}`);
-  assert.equal(doc.songs[0].numVoices, 2, "both tracks asked, both were served");
+  assert.ok(wide.metaLayers.length >= 5,
+            `expected a gate and four operators, got ${wide.metaLayers.length}`);
+  assert.ok(narrow.metaLayers.length < wide.metaLayers.length,
+            "the unjoined track plays fewer operators than the joined one");
+  assert.equal(doc.songs[0].numVoices, 2, "both tracks sound");
   assert.ok(renderPeak(doc) > 0.02, "a four-operator rack that renders silence is a wrong algorithm");
 });
 

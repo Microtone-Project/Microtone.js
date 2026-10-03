@@ -56,9 +56,12 @@ test("E / F switch layout on the fine-slide marker nibble", () => {
   assert.equal(map(fx("e"), 0xefff), "1111"); // $EFFF is still coarse
 });
 
-test("T picks one of three layouts from its high byte", () => {
+test("T picks one of three layouts from its form", () => {
   assert.equal(map(fx("t"), 0x6400), "11.."); // set tempo: byte + reserved
   assert.equal(map(fx("t"), 0xff64), "1122"); // extended set: $FF marker + byte
+  assert.equal(map(fx("t"), 0xfc03), "1122"); // …down to the $FC prefix
+  assert.equal(map(fx("t"), 0xfe00), "11.."); // $FE00 is a plain set (279 BPM)
+  assert.equal(map(fx("t"), 0xff00), "11.."); // …and so is $FF00 (280 BPM)
   assert.equal(map(fx("t"), 0x0013), "..12"); // slide: direction nibble + amount
 });
 

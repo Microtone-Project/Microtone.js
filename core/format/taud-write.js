@@ -111,7 +111,7 @@ function planTaud(doc) {
     return {
       numVoices: song.numVoices,
       numPatterns: song.patterns.length,
-      bpmStored: Math.max(0, Math.min(0x1fe, song.bpm - 25)),
+      bpmStored: Math.max(0, Math.min(0x3ff, song.bpm - 25)),
       tickRate: song.tickRate,
       tuningBaseNote: song.tuningBaseNote,
       tuningFreq: song.tuningFreq,
@@ -171,7 +171,8 @@ function assembleTaud(plan, packed) {
     pushU32(table, bins.patComp.length);
     pushU32(table, bins.cueComp.length);
     pushU16(table, song.numCues); // num_cues (v2) — trailing empties trimmed
-    table.push(song.surroundModel & 3); // immutable flags: `ss` surround model
+    // Immutable flags: `ss` surround model; bit 7 is BPM bit 9.
+    table.push((((song.bpmStored >> 9) & 1) << 7) | (song.surroundModel & 3));
     table.push(0, 0, 0);              // reserved
     binOff += bins.patComp.length + bins.cueComp.length;
   });

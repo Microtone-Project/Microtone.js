@@ -3,7 +3,7 @@
 // applyFilterParamEffect (3650), applyRetrigVolMod (4090).
 // Behavioural contract: TAUD_NOTE_EFFECTS.md; implementation truth: the Kotlin.
 
-import { NUM_CUES, INTERP_A500, INTERP_A1200 } from "./constants.js";
+import { NUM_CUES, INTERP_A500, INTERP_A1200, BPM_MIN, BPM_MAX } from "./constants.js";
 import {
   EffectOp, FINETUNE_OFFSET,
   amigaSlideOnce, linearFreqSlideOnce, clamp,
@@ -330,12 +330,17 @@ export function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = n
     case EffectOp.OP_S: applySEffect(eng, ts, voice, vi, rawArg); break;
     case EffectOp.OP_T: {
       const hi = (rawArg >>> 8) & 0xff;
-      if (hi === 0xff) {
-        // T $FFxx — extended set-tempo: BPM = $xx + $118 (280..535).
-        playhead.bpm = clamp((rawArg & 0xff) + 0x118, 25, 535);
+      const lo = rawArg & 0xff;
+      if (hi >= 0xfc && lo !== 0) {
+        // T $FFxx…$FCxx (xx > 0) — extended set-tempo, each prefix carrying on
+        // where the one above stops: BPM = $118 + ($FF − hh) × $FF + $xx, so
+        // $FF → 281..535, $FE → 536..790, $FD → 791..1045, $FC → 1046..
+        playhead.bpm = clamp(0x118 + (0xff - hi) * 0xff + lo, BPM_MIN, BPM_MAX);
+      } else if (hi === 0xfb && lo !== 0) {
+        // T $FBxx (xx > 0) — RESERVED: ignored.
       } else if (hi !== 0) {
-        // T $xx00 — set-tempo: BPM = $xx + $19 (25..280).
-        playhead.bpm = clamp(hi + 0x19, 25, 535);
+        // T $xx00 — set-tempo: BPM = $xx + $19 (26..280).
+        playhead.bpm = clamp(hi + 0x19, BPM_MIN, BPM_MAX);
       } else {
         const low = rawArg & 0xff;
         switch (low & 0xf0) {

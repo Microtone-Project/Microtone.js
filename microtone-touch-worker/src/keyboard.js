@@ -12,7 +12,7 @@
 import { layoutSteps, keyDegree, pixelToHex, visibleKeys } from "./lattice.js";
 import { noteForDegree, resolveNoteSymbol } from "../core/tuning/pitchtables.js";
 import { noteClass, noteShade } from "./notes.js";
-import { DRUMS } from "./presets.js";
+import { DRUMS } from "../core/sketch/pack.js";
 
 // Keys outside C0…B9 are drawn but inert: the notation has no name for them,
 // and further out the note words clamp, so a row would all sound one pitch.

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TaudEngine } from "../../core/engine/engine.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
+import { TRACKER_CHUNK, setSamplingRate, BPM_MIN, BPM_MAX } from "../../core/engine/constants.js";
 import { Voice } from "../../core/engine/voice.js";
 import {
   envPoint, buildMetaRecord, makeMetaLayer, makeInstPatch, writePatchesBlob,
@@ -16,7 +16,8 @@ import {
 } from "../../core/engine/inst.js";
 import { ghostVoice } from "../../core/engine/trigger.js";
 import { advancePitchRamp } from "../../core/engine/sampler.js";
-import { applyFilterParamEffect } from "../../core/engine/effects.js";
+import { applyFilterParamEffect, applyEffectRow } from "../../core/engine/effects.js";
+import { EffectOp } from "../../core/engine/tables.js";
 import {
   advancePfRole, seedPfRole, advanceEnvelope, pfIdxBox, pfTimeBox, applyKeyLift, forceKeyLift,
 } from "../../core/engine/envelope.js";
@@ -1375,4 +1376,40 @@ test("key lift is the question every key-off asks", () => {
   cut.instrumentFlag = 0x01;
   assert.equal(lift.nnaKeyLift, true);
   assert.equal(cut.nnaKeyLift, false);
+});
+
+test("T sets all ten bits of tempo: $xx00, then $FFxx…$FCxx with xx > 0", () => {
+  const bpmAfter = (arg, from = 125) => {
+    const ph = { bpm: from };
+    applyEffectRow(null, null, ph, { mem: {} }, 0, EffectOp.OP_T, arg);
+    return ph.bpm;
+  };
+  // the plain set, $FB00…$FF00 among it
+  assert.equal(bpmAfter(0x0100), 26);
+  assert.equal(bpmAfter(0x6400), 125);
+  assert.equal(bpmAfter(0xfb00), 276);
+  assert.equal(bpmAfter(0xfc00), 277);
+  assert.equal(bpmAfter(0xfe00), 279);
+  assert.equal(bpmAfter(0xff00), 280);
+  // each extended prefix carries on where the one above stops
+  assert.equal(bpmAfter(0xff01), 281);
+  assert.equal(bpmAfter(0xff64), 380);
+  assert.equal(bpmAfter(0xffff), 535);
+  assert.equal(bpmAfter(0xfe01), 536);
+  assert.equal(bpmAfter(0xfeff), 790);
+  assert.equal(bpmAfter(0xfd01), 791);
+  assert.equal(bpmAfter(0xfdff), 1045);
+  assert.equal(bpmAfter(0xfc01), 1046);
+  assert.equal(bpmAfter(0xfc03), BPM_MAX);
+  assert.equal(bpmAfter(0xfcff), BPM_MAX, "overshoot clamps");
+  // $FBxx (xx > 0) is RESERVED: the tempo stays where it was
+  assert.equal(bpmAfter(0xfb01, 333), 333);
+  assert.equal(bpmAfter(0xfbff, 333), 333);
+});
+
+test("setBPM clamps to the ten-bit register", () => {
+  const eng = new TaudEngine();
+  eng.setBPM(0, 1000); assert.equal(eng.getBPM(0), 1000);
+  eng.setBPM(0, 5000); assert.equal(eng.getBPM(0), BPM_MAX);
+  eng.setBPM(0, 1);    assert.equal(eng.getBPM(0), BPM_MIN);
 });

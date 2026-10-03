@@ -30,13 +30,14 @@ Its version is this directory's `package.json`, independent of the tracker's.
 | File | Contents |
 |---|---|
 | `src/app.js` | The page: state, editing, transport, recording, sheets |
-| `src/sketch.js` | The sketch model and its conversion to a Taud song |
-| `src/presets.js` | The synthesised instrument bank (no samples are shipped) |
+| `src/sketch.js` | The sketch model, and its road to and from a `.mtsk` file |
+| `../core/sketch/pack.js` | The instrument pack, synthesised (no samples are shipped) — in `core/` because Microtone builds it too, to open a sketch |
+| `../core/sketch/mtsk.js` | The `.mtsk` file, and the Taud song a sketch plays as |
 | `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth, each turned so the head key's octaves stand in a vertical column |
 | `src/keyboard.js` | The canvas keyboard and drum pads, multi-touch |
 | `src/grid.js` | The pattern grid |
 | `src/notes.js` | Note names as plain text |
-| `src/send.js` | Sending to Microtone's online projects |
+| `src/send.js` | Sending a `.mtsk` to Microtone's online projects |
 | `src/split.js` | The splitter, the stacked / side-by-side knob and the hand knob |
 
 ## How a sketch maps onto Taud
@@ -47,9 +48,17 @@ section × 8 + lane, so an edit re-uploads exactly one). Cells hold a note or a
 key-off and at most one effect — Slide (`G`), Vibrato (`H`), Roll (`Q`) or
 Fade (`D`) — which lasts until the lane's next note and is written out on
 every row of that run. There are no volume or pan columns. The song loops with
-`JMP 0` on its last cue (or halts, if looping is off); the instrument bank
-travels in the file's sample and instrument image, so the sketch sounds the
-same wherever it is opened.
+`JMP 0` on its last cue (or halts, if looping is off).
+
+A sketch is SENT as a `.mtsk` (`microtone-worker/assets/MICROTONE_SKETCH_FORMAT.md`):
+the header, the 128 pattern images of sections A…P as one compressed blob, and
+the name — a few hundred bytes, where a `.taud` of the same sketch is ~73 KB,
+nearly all of it the instrument pack. The pack does not travel: Touch and
+Microtone both build it (`core/sketch/pack.js`), pinned byte for byte to
+`microtone-worker/assets/MicrotoneTouch.tsii`, and the server keeps sketches in
+64 slots of their own beside the 8 project slots. Microtone lists them under
+File → Online projects and opens one as a new project. The download fallback
+is still a `.taud`, self-contained, so it opens anywhere.
 
 Everywhere else a splitter sits between the song and the keyboard: drag it to
 resize, double-tap it to reset, and tap its knob to switch between stacked and

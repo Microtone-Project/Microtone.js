@@ -4,13 +4,14 @@
 // matches the main app — shared `microtone-theme` localStorage + data-theme,
 // the same three-way cycle and the same default.
 //
-// Six documents, all fetched from assets/ and rendered live: the User Manual
+// Seven documents, all fetched from assets/ and rendered live: the User Manual
 // (USER_MANUAL.md), the Note Effects reference (TAUD_NOTE_EFFECTS.md), the
 // three Taud reference specifications (item 997 — TAUD_ENGINE_SPEC.md,
 // TAUD_FILE_FORMAT.md, TAUD_CONVERSION_NOTES.md; these are the canonical texts,
 // mirrored into the TSVM tree which points at them instead of carrying its own
-// copy) and the Patch Notes (PATCH_NOTES.md — item 95; kept up to date as TODO
-// items land, see CLAUDE.md "Patch notes").
+// copy), the Microtone Touch sketch format (MICROTONE_SKETCH_FORMAT.md — item
+// 206; Microtone's own, not mirrored) and the Patch Notes (PATCH_NOTES.md —
+// item 95; kept up to date as TODO items land, see CLAUDE.md "Patch notes").
 
 import { renderMarkdown, extractToc } from "./markdown.js";
 import { applyIcons } from "./icons.js";
@@ -59,6 +60,7 @@ const DOCS = [
   { id: "engine", title: "Engine Spec", load: fetchDoc("assets/TAUD_ENGINE_SPEC.md") },
   { id: "format", title: "File Format", load: fetchDoc("assets/TAUD_FILE_FORMAT.md") },
   { id: "conversion", title: "Conversion Notes", load: fetchDoc("assets/TAUD_CONVERSION_NOTES.md") },
+  { id: "sketch", title: "Sketch Format", load: fetchDoc("assets/MICROTONE_SKETCH_FORMAT.md") },
   { id: "patchnotes", title: "Patch Notes", load: fetchDoc("assets/PATCH_NOTES.md") },
 ];
 

@@ -14,6 +14,12 @@
 
 const API = "/api/online";
 
+/** A Microtone Touch sketch's extension. The server keeps sketches in slots
+ *  of their own — many more of them, each far smaller — and a name's
+ *  extension is what says which kind of slot it is in, for good. */
+export const SKETCH_EXT = ".mtsk";
+export const isSketchName = (name) => name.endsWith(SKETCH_EXT);
+
 /** The BroadcastChannel name the server's completion page broadcasts under
  *  when a sign-in window finishes (server/online/auth.js AUTH_CHANNEL);
  *  signOut() broadcasts under it too. Every open tab of the app hears both. */
@@ -67,7 +73,9 @@ export async function status() {
   };
 }
 
-/** → { projects: [{ id, name, size, etag, modified }], limit, sizeLimit } */
+/** → { projects: [{ id, name, size, etag, modified }], limit, sizeLimit,
+ *      sketchLimit, sketchSizeLimit } — the limits per kind of slot; the
+ *  listing holds both kinds (isSketchName tells them apart). */
 export async function list() {
   return (await call("/projects")).json();
 }
@@ -107,8 +115,9 @@ async function body(res, onProgress, total) {
   }
 }
 
-/** A new online project. → project. Fails with "exists", "quota",
- *  "too-large" or "not-taud" as well as the usual. */
+/** A new online project — or sketch, when `name` ends in SKETCH_EXT. →
+ *  project. Fails with "exists", "quota", "too-large", "not-taud" or
+ *  "not-sketch" as well as the usual. */
 export async function create(name, bytes) {
   const res = await call(`/projects?name=${encodeURIComponent(name)}`, {
     method: "POST", body: bytes, headers: { "content-type": "application/octet-stream" },

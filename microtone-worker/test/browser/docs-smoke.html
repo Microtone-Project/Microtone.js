@@ -61,12 +61,14 @@
         const hasCode = !!doc.querySelector("#content pre code");
         log(`note effects render: h1=${effectsOk} tocHeadings=${headingLinks} table=${hasTable} code=${hasCode}`);
 
-        // item 997: the three Taud reference specs, each reached from the switcher
+        // item 997: the three Taud reference specs, and the sketch format
+        // (item 206), each reached from the switcher
         let specsOk = true;
         for (const [title, h1re] of [
           ["Engine Spec", /Taud Engine Specification/i],
           ["File Format", /Taud File Format Specification/i],
           ["Conversion Notes", /Taud Conversion Notes/i],
+          ["Sketch Format", /Microtone Sketch File Format Specification/i],
         ]) {
           [...doc.querySelectorAll(".toc-doc")].find((b) => b.textContent === title).click();
           for (let i = 0; i < 80; i++) {

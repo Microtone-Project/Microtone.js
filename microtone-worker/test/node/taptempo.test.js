@@ -43,8 +43,8 @@ test("another meter/speed keeps the tapped beat, not the number", () => {
   assert.equal(tapAnalyse(series(4, 480), 8, 6).bpm, 250);
 });
 
-test("the field value stays inside the song's 25..535 range", () => {
-  assert.equal(tapAnalyse(series(4, 60), 16, 16).bpm, 535);   // absurdly fast
+test("the field value stays inside the song's 25..1048 range", () => {
+  assert.equal(tapAnalyse(series(4, 60), 16, 16).bpm, 1048);  // absurdly fast
   assert.equal(tapAnalyse(series(4, 4000), 1, 1).bpm, 25);    // absurdly slow
 });
 

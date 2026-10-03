@@ -1,10 +1,15 @@
-// The instrument presets — synthesised, not sampled, and so not shipped.
+// The Microtone Touch instrument pack — synthesised, not sampled, and so not
+// shipped.
 //
 // Touch has no instrument editor and no Ixmp: every instrument is one sample
 // in the pool plus one 256-byte record, built here at start-up into a fresh
-// sample+instrument image (TAUD_FILE_FORMAT.md §3, §7). The image goes into
-// every sketch that is played or sent, so a sketch opened in Microtone sounds
-// exactly as it did on the phone, with nothing to install.
+// sample+instrument image (TAUD_FILE_FORMAT.md §3, §7). A sketch file
+// (MICROTONE_SKETCH_FORMAT.md) carries none of it — only the slot numbers in
+// its pattern cells — so every app that opens sketches builds this same pack,
+// and the slots are part of that format: never renumber one, and never change
+// how one sounds without a new format version. The committed
+// microtone-worker/assets/MicrotoneTouch.tsii is the pack as a file, and a
+// test holds this code to it byte for byte.
 //
 // Melodic presets are ONE-CYCLE LOOPS behind a short attack: the attack is a
 // few dozen cycles of a waveform that settles into the loop cycle, and from
@@ -18,9 +23,10 @@
 // Everything is deterministic (a seeded PRNG for the noise), so two phones
 // build byte-identical banks, and a test can pin them.
 
-import { TaudInst, envPoint } from "../core/engine/inst.js";
-import { minifloatFromDouble } from "../core/engine/minifloat.js";
-import { SAMPLEBIN_SIZE, SAMPLEINST_SIZE, INST_RECORD_SIZE } from "../core/format/taud-const.js";
+import { TaudInst, envPoint } from "../engine/inst.js";
+import { minifloatFromDouble } from "../engine/minifloat.js";
+import { SAMPLEBIN_SIZE, SAMPLEINST_SIZE, INST_RECORD_SIZE } from "../format/taud-const.js";
+import { escapeNonAscii } from "../format/names.js";
 
 /** Concert-pitch C4 (A4 = 440 Hz) — what a song declaring A4 @ 440 plays a
  *  record's "sampling rate at C4" against (TAUD_FILE_FORMAT.md §4 Tuning). */
@@ -365,4 +371,24 @@ export function buildBank() {
     }
   }
   return { image, slots, names };
+}
+
+/** The pack's `INam` section payload (TAUD_FILE_FORMAT.md §9.3). */
+export function packNames(bank) {
+  return new TextEncoder().encode(bank.names.map(escapeNonAscii).join("\x1e"));
+}
+
+/** The pack as a .tsii document (writeTaud's input) — the file that stands
+ *  for it outside the apps, microtone-worker/assets/MicrotoneTouch.tsii. */
+export function packAsTsii(bank) {
+  return {
+    kind: "tsii",
+    fmtVer: 2,
+    is64Channel: false,
+    signature: "MicrotoneTouch",
+    sampleInstImage: bank.image,
+    songs: [],
+    projSections: [{ fourcc: "INam", payload: packNames(bank) }],
+    ixmp: [],
+  };
 }

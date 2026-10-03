@@ -6,7 +6,7 @@
 // playhead moves by toggling one row's class off and the next one's on.
 
 import { LANES, ROWS, NOTE_OFF, FX } from "./sketch.js";
-import { DRUMS, presetById } from "./presets.js";
+import { DRUMS, presetById } from "../core/sketch/pack.js";
 import { noteLabel } from "./notes.js";
 
 const ROWS_PER_BEAT = 4;

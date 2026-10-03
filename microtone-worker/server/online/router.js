@@ -3,7 +3,7 @@
 //
 //   GET    /api/online/me                   who is signed in, and how to sign in
 //   GET    /api/online/projects             this person's projects
-//   POST   /api/online/projects?name=…      a new one (body: .taud bytes)
+//   POST   /api/online/projects?name=…      a new one (body: .taud, or a .mtsk sketch)
 //   GET    /api/online/projects/:id         its bytes
 //   PUT    /api/online/projects/:id         save over it (If-Match: its ETag)
 //   PATCH  /api/online/projects/:id         rename it ({"name": …})

@@ -1,6 +1,6 @@
 // Microtone Touch's pure half: the keyboard lattice, the synthesised preset
-// bank, and a sketch's road to a .taud — checked against the REAL parser and
-// the REAL engine (both from core/), not against copies of them.
+// bank, and a sketch's road to a .mtsk and a .taud — checked against the REAL
+// parser and the REAL engine (both from core/), not against copies of them.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,11 +9,12 @@ import {
   edoSteps, layoutSteps, reachesAll, layoutWorks, fitLayout, keyDegree, hexCentre, pixelToHex, visibleKeys, LAYOUTS,
   findFloor, octaveStep, tiltFor, riseToRight,
 } from "../../src/lattice.js";
-import { buildBank, PRESETS, DRUMS } from "../../src/presets.js";
+import { buildBank, PRESETS, DRUMS } from "../../core/sketch/pack.js";
 import {
-  newSketch, normaliseSketch, toTaudDoc, sketchToTaud, patternBytes, isBlank, sketchFileName,
-  NOTE_OFF, LANES, ROWS, TUNINGS, FX, tuningById,
+  newSketch, normaliseSketch, toTaudDoc, sketchToTaud, sketchToFile, sketchFromFile, patternBytes, isBlank,
+  sketchFileName, emptySection, NOTE_OFF, LANES, ROWS, TUNINGS, FX, FX_IDS, tuningById,
 } from "../../src/sketch.js";
+import { sketchFileToTaud, parseSketch, writeSketch, SketchFormatError } from "../../core/sketch/mtsk.js";
 import { originPeriod } from "../../src/keyboard.js";
 import { noteLabel, noteShade } from "../../src/notes.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
@@ -372,6 +373,58 @@ test("sketch: junk from storage is dropped, not trusted", () => {
   const cells = s.sections[0].cells[0];
   assert.deepEqual(cells.slice(0, 4), [{ n: 0x5000 }, null, { n: NOTE_OFF }, { n: 0x5000, fx: "roll", lv: 2 }]);
   assert.equal(sketchFileName({ name: 'a/b:c*"d' }), "a b c d.taud");
+  assert.equal(sketchFileName({ name: "riff" }, ".mtsk"), "riff.mtsk");
+});
+
+test("sketch: a .mtsk carries everything a sketch is, and comes back as the same sketch", () => {
+  for (const tuning of TUNINGS.map((t) => t.id)) {
+    const s = sketchWithTune();
+    s.name = "가락 one";
+    s.tuning = tuning;
+    s.bpm = 97;
+    s.loop = tuning !== "bp";
+    s.lanes[5].preset = "organ"; // written on, so it comes back
+    s.sections[0].cells[5][3] = { n: 0x4800, fx: "slide", lv: 0 };
+    s.sections.push(emptySection(), structuredClone(s.sections[0])); // a silent section in the middle survives
+    s.sections[2].cells[1][63] = { n: 0x3000, fx: "fade", lv: 2 };
+    const back = sketchFromFile(sketchToFile(s, bank), bank);
+    assert.deepEqual(back, { ...s, lanes: s.lanes.map((l) => ({ ...l, mute: false })), sent: null }, tuning);
+  }
+  // every effect at every setting
+  const s = newSketch();
+  FX_IDS.forEach((fx, i) => [0, 1, 2].forEach((lv) => {
+    s.sections[0].cells[0][i * 8 + lv * 2] = { n: 0x5000 + i, fx, lv };
+  }));
+  s.sections.push(...Array.from({ length: 15 }, emptySection));
+  assert.deepEqual(sketchFromFile(sketchToFile(s, bank), bank).sections, s.sections);
+});
+
+test("sketch: what a .mtsk says that the sketch cannot hold is left behind, not misread", () => {
+  const s = sketchWithTune();
+  const bytes = sketchToFile(s, bank);
+  // an empty lane keeps its default preset; a lane's own drum hits stay hits
+  const back = sketchFromFile(bytes, bank);
+  assert.equal(back.lanes[7].preset, newSketch().lanes[7].preset);
+  assert.equal(back.sections[0].cells[2][8].d, 1);
+  // a hand-made file: a note cut, a volume column, an effect Touch has not got
+  const f = parseSketch(bytes);
+  const p = f.patterns;
+  p[2 * 8] = 0x02; p[2 * 8 + 1] = 0; // row 2, lane 0: note cut
+  p[0 * 8 + 3] = 0x20; // a volume SET on row 0
+  p[4 * 8 + 5] = 0x0f; // row 4's vibrato becomes an F
+  const odd = sketchFromFile(writeSketch(f), bank);
+  assert.equal(odd.sections[0].cells[0][2], null, "a sentinel Touch has no key for");
+  assert.deepEqual(odd.sections[0].cells[0][4], { n: s.sections[0].cells[0][4].n }, "an unknown effect is dropped");
+  assert.throws(() => sketchFromFile(Uint8Array.from([0x1f, 0x4d, 0x54, 0x73, 0x6b, 0x65, 0x63, 0x68, 9, ...new Uint8Array(23)]), bank),
+    SketchFormatError);
+});
+
+test("sketch: sending is a few hundred bytes where the .taud was seventy thousand", () => {
+  const s = sketchWithTune();
+  const taud = sketchToTaud(s, bank).length;
+  const mtsk = sketchToFile(s, bank).length;
+  assert.ok(taud > 60000, `.taud ${taud}`);
+  assert.ok(mtsk < 600, `.mtsk ${mtsk}`);
 });
 
 test("sketch: A-ak and Hyang-ak are Shi'er lü at their own reference pitch", () => {
@@ -490,7 +543,10 @@ test("tracker: Microtone's own document model opens a sent sketch", async () => 
   const s = sketchWithTune();
   s.name = "Phone idea";
   s.tuning = "19";
-  const doc = new Document(parseTaud(sketchToTaud(s, bank)));
+  // …from the bytes that are sent, through the tracker's way in
+  const sent = sketchFileToTaud(sketchToFile(s, bank));
+  assert.deepEqual(sent, sketchToTaud(s, bank), "the tracker opens exactly what the phone played");
+  const doc = new Document(parseTaud(sent));
   assert.equal(doc.channelCount, 32);
   assert.equal(doc.instrumentName(bank.slots.piano), "Piano");
   assert.equal(doc.instrumentName(bank.slots.drums[1]), "Snare");

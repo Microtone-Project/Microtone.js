@@ -10,6 +10,10 @@
 // with the ETag it was opened with, so a copy saved from another browser in
 // the meantime is never silently replaced. Save As still makes a local copy,
 // and the document then belongs to the browser again.
+//
+// Sketches sent from Microtone Touch (.mtsk) are listed here too, in slots of
+// their own. One opens as a NEW project made from it, belonging nowhere yet:
+// a sketch slot holds sketches, and the phone may send that one again.
 
 import * as online from "../../../core/storage/online.js";
 import { ZSTD_LEVEL_SAVE } from "../../../core/format/zstd.js";
@@ -44,6 +48,7 @@ export class OnlineSection {
     // the messages quote it.
     this.limit = 8;
     this.sizeLimit = 10 * MB;
+    this.sketchLimit = 64;
     // Whether the last answer offered online projects at all; null until the
     // first one comes. Only an unknown answer earns the placeholder.
     this.available = null;
@@ -82,8 +87,11 @@ export class OnlineSection {
       return;
     }
 
+    const sketches = listing ? listing.projects.filter((p) => online.isSketchName(p.name)).length : 0;
+    const projects = listing ? listing.projects.length - sketches : 0;
     const head = heading(listing
-      ? t("files.online.count", { n: listing.projects.length, limit: this.limit })
+      ? t("files.online.count", { n: projects, limit: this.limit }) +
+        (sketches ? " " + t("files.online.countSketches", { n: sketches, limit: this.sketchLimit }) : "")
       : null);
     const parts = [head];
 
@@ -103,7 +111,7 @@ export class OnlineSection {
       bar.className = "files-bar files-online-bar";
       const saveBtn = mkBtn(t("files.online.saveOnline"), () => this.saveNew());
       // A full desk can still save over one of its own projects, just not add one.
-      saveBtn.disabled = !doc || !listing || listing.projects.length >= this.limit;
+      saveBtn.disabled = !doc || !listing || projects >= this.limit;
       const who = document.createElement("span");
       who.className = "files-online-who";
       who.textContent = t("files.online.signedInAs", { name: st.user?.name ?? "" });
@@ -139,6 +147,7 @@ export class OnlineSection {
         listing = await online.list();
         this.limit = listing.limit;
         this.sizeLimit = listing.sizeLimit;
+        this.sketchLimit = listing.sketchLimit ?? this.sketchLimit;
       } catch (err) {
         failure = err;
       }
@@ -246,8 +255,9 @@ export class OnlineSection {
     }
     const before = this.store.doc;
     await this.cb.openBytes(p.name, got.bytes);
-    // Unchanged means the load was declined at the unsaved-work prompt.
-    if (this.store.doc !== before) {
+    // Unchanged means the load was declined at the unsaved-work prompt. A
+    // sketch opens as a new project, belonging to no slot (see the top).
+    if (this.store.doc !== before && !online.isSketchName(p.name)) {
       this.store.online = { doc: this.store.doc, id: p.id, etag: got.etag };
       this.store.emit("status");
     }
@@ -364,7 +374,10 @@ export class OnlineSection {
       fields: [{ name: "name", label: t("files.name"), value: p.name }],
       okLabel: t("common.rename"),
     });
-    const name = taudName(result?.name);
+    // A rename keeps the slot's kind, which its extension is.
+    const name = online.isSketchName(p.name)
+      ? withExt(result?.name, online.SKETCH_EXT)
+      : taudName(result?.name);
     if (!name || name === p.name) return;
     let renamed;
     try {
@@ -445,10 +458,12 @@ export class OnlineSection {
 
 /** A typed name as a project name: trimmed, `.taud` added as the local Save
  *  As adds it. Empty → null. */
-function taudName(raw) {
+const taudName = (raw) => withExt(raw, ".taud");
+
+function withExt(raw, ext) {
   const name = (raw ?? "").trim();
   if (!name) return null;
-  return name.endsWith(".taud") ? name : name + ".taud";
+  return name.endsWith(ext) ? name : name + ext;
 }
 
 /** The section's heading, with a `note` after it (the slots in use, say),

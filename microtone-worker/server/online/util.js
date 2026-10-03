@@ -13,6 +13,28 @@ export const PROJECT_LIMIT = 8;
  *  there so a slot cannot be used to park something that is not a song. */
 export const SIZE_LIMIT = 10 * 1024 * 1024;
 
+/** Microtone Touch sketches (.mtsk) have slots of their own, many more of
+ *  them: a sketch carries no samples, and its patterns are 64 KiB before
+ *  compression however full it is — a real one is a few kilobytes. The
+ *  ceiling is twice that, so 64 of them can never pass 8 MiB
+ *  (MICROTONE_SKETCH_FORMAT.md, "Online storage"). */
+export const SKETCH_LIMIT = 64;
+export const SKETCH_SIZE_LIMIT = 128 * 1024;
+
+/** The two kinds of slot. A file's name says which it is in — its extension
+ *  — so a slot never changes kind, and the quota is counted per kind. */
+export const KINDS = Object.freeze({
+  project: Object.freeze({ ext: ".taud", slots: PROJECT_LIMIT, size: SIZE_LIMIT, error: "not-taud" }),
+  sketch: Object.freeze({ ext: ".mtsk", slots: SKETCH_LIMIT, size: SKETCH_SIZE_LIMIT, error: "not-sketch" }),
+});
+
+/** The kind of slot a (clean) name belongs to. */
+export const kindOf = (name) => (name.endsWith(KINDS.sketch.ext) ? "sketch" : "project");
+
+/** SQL: 1 for a sketch row, 0 for a project — the same test as kindOf. Both
+ *  extensions are five characters. */
+export const IS_SKETCH_SQL = `(substr(filename, -5) = '${KINDS.sketch.ext}')`;
+
 /** A reserved slot whose upload has not finished after this long is taken to
  *  have died. The body is read BEFORE the slot is reserved, so a live
  *  reservation only ever spans one R2 write — seconds, never minutes. */
@@ -115,18 +137,32 @@ export function isTaudProject(bytes) {
 
 const NAME_MAX = 120;
 
+const SKETCH_MAGIC = [0x1f, 0x4d, 0x54, 0x73, 0x6b, 0x65, 0x63, 0x68]; // \x1FMTskech
+
+/** Is this a Microtone Touch sketch — the magic, and a whole 32-byte header? */
+export function isSketchFile(bytes) {
+  if (bytes.length < 32) return false;
+  for (let i = 0; i < SKETCH_MAGIC.length; i++) if (bytes[i] !== SKETCH_MAGIC[i]) return false;
+  return true;
+}
+
+/** Are these bytes what a slot of `kind` holds? */
+export const fitsKind = (kind, bytes) => (kind === "sketch" ? isSketchFile(bytes) : isTaudProject(bytes));
+
 /**
  * A project name as the server will store it, or null. NFC, so the same name
  * typed on two systems is one name — Hangul in particular arrives decomposed
  * from some keyboards. It must end in `.taud` (the client adds it, as the
  * local Save As does) and have something in front of that; separators and
  * control characters are refused rather than stripped, since a name that was
- * silently changed is a name the person cannot find again.
+ * silently changed is a name the person cannot find again. A sketch ends in
+ * `.mtsk` instead, which is what puts it in a sketch slot.
  */
 export function cleanName(raw) {
   if (typeof raw !== "string") return null;
   const name = raw.normalize("NFC").trim();
-  if (name.length > NAME_MAX || !name.endsWith(".taud") || name.length === ".taud".length) return null;
+  const { ext } = KINDS[kindOf(name)];
+  if (name.length > NAME_MAX || !name.endsWith(ext) || name.length === ext.length) return null;
   if (/[\u0000-\u001f\u007f/\\]/.test(name)) return null;
   return name;
 }

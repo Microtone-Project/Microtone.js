@@ -66,7 +66,7 @@ and the editor snaps entry, display and stepping to that table's degrees. See
 - **Drop a file anywhere** on the window, or use **Open…** in the top bar. `.taud` (full project) is the native format of the Microtone. Tracker modules (`.mod`, `.s3m`, `.xm`, `.it`, `.mon`) and AdLib songs (`.ims`, `.sop`, and `.imac` from The IMS Archive) are converted on the fly.
 - **Import MIDI…** converts a `.mid` file through a SoundFont — see [Importing music](#importing-music).
 - **New…** opens the New Project wizard, which collects every song setting before the blank project is built:
-  - **Tempo** — BPM (25–535) and speed (ticks per row, 1–127), with a live *blinkenlights* strip previewing the feel of that tempo.
+  - **Tempo** — BPM (25–1048) and speed (ticks per row, 1–127), with a live *blinkenlights* strip previewing the feel of that tempo.
   - **Meter** — a time signature and rows-per-beat. These set the two beat divisors (rows/beat and the derived rows/bar) that colour the row highlighting; the **Row highlight** preview shows exactly how the Timeline gutter will band.
   - **Tuning** — the reference base note (C4 or A4) and its frequency.
   - **Metadata** — song name, composer and copyright.
@@ -1882,7 +1882,7 @@ and copyright, which the songs table at the bottom edits.
 
 Then the per-song properties, applied live to playback:
 
-- **BPM** (25–535) and **Speed** (ticks per row, 1–127).
+- **BPM** (25–1048) and **Speed** (ticks per row, 1–127).
 - **Rows per beat** and **Rows per bar** — the row highlighting the grids are banded with (display only). Also on the Timeline trough's right-click menu, see [The row trough](#the-row-trough).
 - **Global volume** and **Mixing volume** (0–255).
 - **Tone-slide mode** — Linear (4096-TET), Amiga period, or Linear frequency.
@@ -2535,7 +2535,7 @@ sidebar (also at [Note Effects](#effects)).
 | Q | Retrigger | `$xy00` — every y ticks, x = volume modifier |
 | R | Tremolo | `$xy00` — speed, depth |
 | S | Special | delays, cuts, loops, waveforms, NNA overrides, invert loop… |
-| T | Tempo | `$xx00` set · `$FFxx` extended · `$000y/$001y` slide |
+| T | Tempo | `$xx00` set · `$FFxx` … `$FCxx` extended (xx non-zero; up to 1048 BPM) · `$000y/$001y` slide |
 | U | Fine vibrato | `$xy00` |
 | V | Global volume | `$xx00` (00–FF) |
 | W | Global vol slide | `$xy00` |

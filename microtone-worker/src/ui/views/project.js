@@ -9,7 +9,7 @@ import {
 } from "../../doc/ops.js";
 import { tuningRatioOf } from "../../../core/engine/tables.js";
 import {
-  TUNING_REF_C4_HZ, TUNING_DEFAULT_BASE_NOTE, TUNING_DEFAULT_FREQ_HZ,
+  TUNING_REF_C4_HZ, TUNING_DEFAULT_BASE_NOTE, TUNING_DEFAULT_FREQ_HZ, BPM_MIN, BPM_MAX,
 } from "../../../core/engine/constants.js";
 import {
   planCleanupPatterns, planMergeDuplicatePatterns, planRenumberPatterns, applyPatternOrder,
@@ -313,7 +313,7 @@ export class ProjectView {
       nameRow,
       authorRow,
       copyrightRow,
-      num(t("proj.bpm"), song.bpm, 25, 535, (v) => this.op("bpm", v)),
+      num(t("proj.bpm"), song.bpm, BPM_MIN, BPM_MAX, (v) => this.op("bpm", v)),
       num(t("proj.speedTicks"), song.tickRate, 1, 127, (v) => this.op("tickRate", v)),
       // Row highlighting (item 136.1) — the grids' beat/bar banding. Display
       // only: nothing about playback reads these, which is why they are plain

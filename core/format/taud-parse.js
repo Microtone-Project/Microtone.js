@@ -217,8 +217,10 @@ export function parseTaud(file) {
       const cueComp = u32(file, e + 22);
       const numCuesStored = u16(file, e + 26);
       // Immutable song flags: `ss` = surround model (#998) — 0 stereo,
-      // 1 planar (360° panning), 2 spatial.
-      const surroundModel = file[e + 28] & 3;
+      // 1 planar (360° panning), 2 spatial; bit 7 = BPM bit 9.
+      const songFlags = file[e + 28];
+      const surroundModel = songFlags & 3;
+      bpmStored |= (songFlags & 0x80) << 2;
 
       // Version 3 doubles the cell (and so the pattern image) — see the file
       // format's §5.5. Everything else about a song is unchanged by it.

@@ -701,19 +701,41 @@ Taud splits T by which byte carries the value:
 
 ### T $xx00 (high byte non-zero) — Set tempo
 
-**Plain.** Sets the Taud tempo byte to `$xx`. The resulting BPM is `$xx + $19`: Taud byte $00 → 25 BPM, $64 → 125 BPM (default), $FF → 280 BPM.
+**Plain.** Sets the Taud tempo byte to `$xx`. The resulting BPM is `$xx + $19`: Taud byte $00 → 25 BPM, $64 → 125 BPM (default), $FF → 280 BPM. The low byte is ignored — except under a high byte of $FB…$FF, where a non-zero low byte makes it the extended form below.
 
-**Compatibility.** ST3 `Txx` (where `xx ∈ $20..$FF`) stores BPM directly; converters **MUST** convert with `taud_byte = xx − $18`. Taud byte $07 corresponds to ST3's minimum BPM of 32; Taud bytes below $07 are inexpressible in ST3 and **SHOULD** round up to $07 (BPM 32) when exporting. OpenMPT's extended tempo slides (`T $0x` down, `T $1x` up) in S3M files map to Taud T $00xx — see below.
+**Compatibility.** ST3 `Txx` (where `xx ∈ $20..$FF`) stores BPM directly; converters **MUST** convert with `taud_byte = xx − $18`. Taud byte $07 corresponds to ST3's minimum BPM of 32; Taud bytes below $07 are inexpressible in ST3 and **SHOULD** round up to $07 (BPM 32) when exporting. OpenMPT's extended tempo slides (`T $0x` down, `T $1x` up) in S3M files map to Taud `T $00xx` — see below.
 
 ProTracker `Fxx` with `xx ≥ $20` maps to Taud `T $(xx − $19)00`; `Fxx` with `xx < $20` maps to A (speed) instead.
 
-**Implementation.** If the high byte is non-zero, set `tempo_byte = arg >> 8`; derive `BPM = tempo_byte + $19`; compute tick duration as `samples_per_tick = rate × 5 / (BPM × 2)`, i.e. `80000 / BPM` (integer truncated) at the 32000 Hz reference rate. Example at that rate: BPM 125 → 640 samples per tick; BPM 24 → 3200 samples per tick; BPM 280 → 286 samples per tick. There is no memory for set-tempo.
+**Implementation.** If the high byte is non-zero and the argument is not an extended form, set `tempo_byte = arg >> 8`; derive `BPM = tempo_byte + $19`; compute tick duration as `samples_per_tick = rate × 5 / (BPM × 2)`, i.e. `80000 / BPM` (integer truncated) at the 32000 Hz reference rate. Example at that rate: BPM 125 → 640 samples per tick; BPM 24 → 3200 samples per tick; BPM 280 → 286 samples per tick. There is no memory for set-tempo.
 
-### T $FFxx (high byte 0xFF) — Set tempo (extended)
+### T $FCxx … T $FFxx (xx non-zero) — Set tempo (extended)
 
-**Plain.** Sets the Taud tempo byte to `$FF + $xx`. The resulting BPM is `$xx + $118`: xx = $00 → 280 BPM, $64 → 380 BPM, $FF → 535 BPM.
+**Plain.** Sets a tempo past the reach of one byte, up to the top of the 10-bit tempo register. Each of the four prefixes carries on where the one above it stops:
 
-**Compatibility.** Unique to Taud.
+| Form | BPM |
+|---|---|
+| `T $FF01` … `T $FFFF` | 281 … 535 |
+| `T $FE01` … `T $FEFF` | 536 … 790 |
+| `T $FD01` … `T $FDFF` | 791 … 1045 |
+| `T $FC01` … `T $FC03` | 1046 … 1048 |
+
+So xx = $64 is 380 BPM under $FF and 635 BPM under $FE. `T $FC04` … `T $FCFF` overshoot the register and play at 1048 BPM. With xx = $00 each of these prefixes is the plain set above instead (`T $FC00` = 277 BPM … `T $FF00` = 280 BPM).
+
+**Compatibility.** Unique to Taud. `T $FFxx` came first and the three lower prefixes do not change it. A player that knows only `T $FFxx` reads `T $FExx` … `T $FCxx` as plain sets of 279 … 277 BPM.
+
+**Implementation.**
+
+```
+hi = arg >> 8
+lo = arg & $FF
+if hi >= $FC and lo != 0:
+    BPM = min($118 + ($FF - hi) × $FF + lo, 1048)
+elif hi != 0 and lo != 0:
+    do nothing (RESERVED)
+```
+
+As with the plain set, there is no memory.
 
 ### T $00xy (high byte zero) — Tempo slide
 

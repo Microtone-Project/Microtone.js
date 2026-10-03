@@ -797,9 +797,9 @@ def vibrato_fields(bpm: float):
     not a corner.  Do not re-derive these from the field names; the engine's own
     arithmetic is above and `test/node/convert.test.js` pins the result."""
     ticks_per_second = bpm * 2.0 / 5.0
-    # A converted song's BPM is always near the 535 ceiling, so the clamp below
-    # never bites in practice; a slow one would get a vibrato slower than the
-    # chip's rather than a wrapped one.
+    # A converted song's BPM is always near the AdLib converters' 800 ceiling, so
+    # the clamp below never bites in practice; a slow one would get a vibrato
+    # slower than the chip's rather than a wrapped one.
     speed = (round(AUTOVIB_PHASE_STEPS * VIBRATO_HZ / ticks_per_second)
              if ticks_per_second else 0)
     depth = round(VIBRATO_CENTS * 4096.0 / 1200.0 / AUTOVIB_UNITS_PER_DEPTH)

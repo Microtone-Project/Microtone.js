@@ -4,29 +4,35 @@
 // playing ONE preset; a song is a run of SECTIONS, and a section is one cue,
 // one 64-row pattern per lane. A cell holds a note (or a key-off) and at most
 // one of a handful of effects, with no volume and no pan column. Everything
-// the full tracker can say about a song is still reachable afterwards: the
-// sketch is sent as an ordinary .taud and Microtone opens it like any other.
+// the full tracker can say about a song is still reachable afterwards:
+// Microtone opens a sent sketch as an ordinary project.
+//
+// A sketch travels as a .mtsk (core/sketch/mtsk.js): the Taud pattern images
+// and a header, without the instrument pack, which every app that opens one
+// builds for itself. What it PLAYS as is decided there, once, for Touch's
+// transport and for Microtone alike.
 //
 // An effect here LASTS: written on a note, it carries on down the lane until
 // the next note or key-off. Taud's own G/H/Q/D act only on the rows that
 // carry them, so the export writes the command on every row of that run —
 // which is exactly what a tracker user would have typed.
 
-import { CUE_EMPTY, NUM_VOICES, PATTERN_SIZE } from "../core/format/taud-const.js";
+import { PATTERN_SIZE } from "../core/format/taud-const.js";
 import { writeTaud } from "../core/format/taud-write.js";
-import { escapeNonAscii } from "../core/format/names.js";
+import {
+  writeSketch, parseSketch, sketchTaudDoc, mtskPattern,
+  MTSK_PATTERN_BYTES, MTSK_SECTIONS, MTSK_TICKS_PER_ROW, MTSK_EXTENSION,
+} from "../core/sketch/mtsk.js";
 import { EffectOp } from "../core/engine/tables.js";
-import { DRUMS, PRESETS, presetById } from "./presets.js";
+import { DRUMS, PRESETS, presetById } from "../core/sketch/pack.js";
 
 export const LANES = 8;
 export const ROWS = 64;
-export const MAX_SECTIONS = 16;
+export const MAX_SECTIONS = MTSK_SECTIONS;
 export const NOTE_OFF = 0x0001;
 export const SKETCH_VERSION = 1;
 /** Ticks per row. Fixed: a sketch has a tempo, not a speed. */
-export const TICKS_PER_ROW = 6;
-/** The 14-byte header signature (TAUD_FILE_FORMAT.md §2) — diagnostics only. */
-export const SIGNATURE = "MicrotoneTouch";
+export const TICKS_PER_ROW = MTSK_TICKS_PER_ROW;
 
 /**
  * The tunings Touch offers. `notation` is the sMet notation index (§9.6) —
@@ -129,10 +135,10 @@ export function isBlank(sketch) {
   return sketch.sections.every((sec) => sec.cells.every((lane) => lane.every((c) => c === null)));
 }
 
-// ── to Taud ──────────────────────────────────────────────────────────────────
+// ── to and from the file ─────────────────────────────────────────────────────
 
 /** Pattern number of `lane` in `section` — fixed, so an edit re-uploads one. */
-export const patternSlot = (section, lane) => section * LANES + lane;
+export const patternSlot = mtskPattern;
 
 /** The instrument a cell plays on a lane holding `preset`. */
 function cellInstrument(cell, preset, bank) {
@@ -140,9 +146,10 @@ function cellInstrument(cell, preset, bank) {
   return Array.isArray(slot) ? slot[cell.d ?? 0] : slot;
 }
 
-/** One lane of one section as a version-2 pattern image (8-byte cells). */
-export function patternBytes(sketch, section, lane, bank) {
-  const bytes = new Uint8Array(PATTERN_SIZE);
+/** One lane of one section as a version-2 pattern image (8-byte cells),
+ *  written into `out` at `offset` when given. */
+export function patternBytes(sketch, section, lane, bank, out = new Uint8Array(PATTERN_SIZE), offset = 0) {
+  const bytes = out.subarray(offset, offset + PATTERN_SIZE);
   const preset = sketch.lanes[lane].preset;
   const cells = sketch.sections[section].cells[lane];
   let fx = null; // the effect still running from the last note: [op, arg]
@@ -167,99 +174,125 @@ export function patternBytes(sketch, section, lane, bank) {
       bytes[o + 7] = fx[1] >>> 8;
     }
   }
-  return bytes;
+  return out;
 }
 
-/** The cue's lane words with `word0` spread over lanes 0…15's sign bits (§6.2). */
-function cueWords(section, word0) {
-  const words = new Uint16Array(64).fill(CUE_EMPTY);
-  for (let l = 0; l < LANES; l++) words[l] = patternSlot(section, l);
-  for (let c = 0; c < 16; c++) {
-    if ((word0 >>> c) & 1) words[c] |= 0x8000;
+/** An empty lane: no notes, both columns at "no intent". */
+function emptyPattern(out, offset) {
+  for (let r = 0; r < ROWS; r++) {
+    out[offset + r * 8 + 3] = 0xc0;
+    out[offset + r * 8 + 4] = 0xc0;
   }
-  return words;
 }
 
-const JMP_TO_START = 0xf000; // JMP 0 — "this is how a song loops"
-const HALT = 0x0100;
-
-function utf8z(s) {
-  return Uint8Array.from([...new TextEncoder().encode(s), 0]);
-}
-
-function projSections(sketch, bank) {
-  const enc = new TextEncoder();
-  const name = escapeNonAscii(sketch.name);
-  const inam = enc.encode(bank.names.map(escapeNonAscii).join("\x1e"));
-  const { notation } = tuningById(sketch.tuning);
-  const smetBody = [
-    notation & 0xff, notation >>> 8,
-    4, 16, // beat divisions: four rows a beat, sixteen a bar
-    ...utf8z(name), 0, 0, // song name; no composer, no copyright
-  ];
-  const smet = new Uint8Array(5 + smetBody.length);
-  smet[0] = 0; // song index
-  new DataView(smet.buffer).setUint32(1, smetBody.length, true);
-  smet.set(smetBody, 5);
-  return [
-    { fourcc: "PNam", payload: utf8z(name) },
-    { fourcc: "INam", payload: inam },
-    { fourcc: "sMet", payload: smet },
-  ];
+/** The sketch as the file's fields (core/sketch/mtsk.js writeSketch). */
+export function sketchFields(sketch, bank) {
+  const patterns = new Uint8Array(MTSK_PATTERN_BYTES);
+  for (let s = 0; s < MTSK_SECTIONS; s++) {
+    for (let l = 0; l < LANES; l++) {
+      const at = patternSlot(s, l) * PATTERN_SIZE;
+      if (s < sketch.sections.length) patternBytes(sketch, s, l, bank, patterns, at);
+      else emptyPattern(patterns, at);
+    }
+  }
+  const tuning = tuningById(sketch.tuning);
+  return {
+    name: sketch.name,
+    bpm: sketch.bpm,
+    loop: sketch.loop,
+    sections: sketch.sections.length,
+    notation: tuning.notation,
+    tuning: { baseNote: tuning.baseNote, freq: tuning.freq },
+    patterns,
+  };
 }
 
 /**
  * The parsed-document shape parseTaud returns (and AudioSystem.loadDocument
- * and writeTaud take). With `only` set, the song is that one section looping
- * — what the transport plays while a section is being worked on; the
- * patterns are always all of them, so pattern numbers never move.
+ * and writeTaud take) — exactly what Microtone makes of the sent file. With
+ * `only` set, the song is that one section looping, which is what the
+ * transport plays while a section is being worked on.
  */
 export function toTaudDoc(sketch, bank, { only = null } = {}) {
-  const tuning = tuningById(sketch.tuning);
-  const patterns = [];
-  for (let s = 0; s < sketch.sections.length; s++) {
-    for (let l = 0; l < LANES; l++) patterns.push(patternBytes(sketch, s, l, bank));
-  }
-  const order = only === null ? sketch.sections.map((_, i) => i) : [only];
-  const cues = order.map((s, i) => {
-    const last = i === order.length - 1;
-    return cueWords(s, last ? (sketch.loop || only !== null ? JMP_TO_START : HALT) : 0);
-  });
-  return {
-    kind: "taud",
-    fmtVer: 2,
-    is64Channel: false,
-    signature: SIGNATURE,
-    sampleInstImage: bank.image,
-    songs: [{
-      numVoices: NUM_VOICES,
-      numPats: patterns.length,
-      bpm: sketch.bpm,
-      tickRate: TICKS_PER_ROW,
-      tuningBaseNote: tuning.baseNote,
-      tuningFreq: tuning.freq,
-      globalFlags: 0,
-      globalVolume: 0x80,
-      mixingVolume: 0x80,
-      surroundModel: 0,
-      numCuesStored: cues.length,
-      patterns,
-      cues,
-    }],
-    projSections: projSections(sketch, bank),
-    ixmp: [],
-  };
+  return sketchTaudDoc(sketchFields(sketch, bank), bank, { only });
 }
 
-/** The .taud bytes Microtone receives. */
+/** The .taud bytes — the file a download carries, which opens anywhere. */
 export function sketchToTaud(sketch, bank) {
   return writeTaud(toTaudDoc(sketch, bank));
 }
 
-/** A file name for the sketch: the name, made safe for every filesystem. */
-export function sketchFileName(sketch) {
-  const base = sketch.name.replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ").trim() || "Sketch";
-  return `${base}.taud`;
+/** The .mtsk bytes — what Send puts online. */
+export function sketchToFile(sketch, bank) {
+  return writeSketch(sketchFields(sketch, bank));
 }
+
+/**
+ * A .mtsk file read back into a sketch. What the model cannot hold is left
+ * behind: a lane plays the preset of its first note's instrument (an empty
+ * lane keeps its default), a note's effect is the one on its own row when it
+ * is one of the four at one of their three settings, and the volume and pan
+ * columns, other effects and other sentinels are dropped. Throws
+ * SketchFormatError for a file the format calls INVALID.
+ */
+export function sketchFromFile(bytes, bank) {
+  const file = parseSketch(bytes);
+  const byInst = new Map(); // instrument slot → { preset, d }
+  for (const [preset, slot] of Object.entries(bank.slots)) {
+    if (Array.isArray(slot)) slot.forEach((inst, d) => byInst.set(inst, { preset, d }));
+    else byInst.set(slot, { preset });
+  }
+  const fxByWord = new Map(); // op << 16 | arg → { fx, lv }
+  for (const id of FX_IDS) FX[id].args.forEach((arg, lv) => fxByWord.set(FX[id].op * 65536 + arg, { fx: id, lv }));
+
+  const at = (s, l, r) => (patternSlot(s, l) * ROWS + r) * 8;
+  const p = file.patterns;
+  const lanes = newSketch().lanes.map((dflt, l) => {
+    for (let s = 0; s < file.sections; s++) {
+      for (let r = 0; r < ROWS; r++) {
+        const o = at(s, l, r);
+        if ((p[o] | (p[o + 1] << 8)) >= 0x20 && byInst.has(p[o + 2])) {
+          return { preset: byInst.get(p[o + 2]).preset, mute: false };
+        }
+      }
+    }
+    return dflt;
+  });
+  const sections = Array.from({ length: file.sections }, (_, s) => ({
+    cells: lanes.map((lane, l) => Array.from({ length: ROWS }, (_, r) => {
+      const o = at(s, l, r);
+      const n = p[o] | (p[o + 1] << 8);
+      if (n === NOTE_OFF) return { n };
+      if (n < 0x20) return null;
+      const cell = { n };
+      const inst = byInst.get(p[o + 2]);
+      if (inst?.preset === lane.preset && inst.d !== undefined) cell.d = inst.d;
+      const fx = fxByWord.get(p[o + 5] * 65536 + (p[o + 6] | (p[o + 7] << 8)));
+      if (fx) Object.assign(cell, fx);
+      return cell;
+    })),
+  }));
+  const tuning = TUNINGS.find((t) => t.notation === file.notation &&
+    t.baseNote === file.tuning.baseNote && t.freq === file.tuning.freq);
+  return normaliseSketch({
+    v: SKETCH_VERSION,
+    name: file.name || "Sketch",
+    bpm: file.bpm,
+    tuning: tuning?.id,
+    notation: file.notation, // no exact match: the nearest by notation alone
+    loop: file.loop,
+    lanes,
+    sections,
+  });
+}
+
+/** A file name for the sketch: the name, made safe for every filesystem —
+ *  `.taud` for the file a download carries, MTSK_EXTENSION online. */
+export function sketchFileName(sketch, ext = ".taud") {
+  const base = sketch.name.replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ").trim() || "Sketch";
+  return `${base}${ext}`;
+}
+
+export { MTSK_EXTENSION };
 
 export { presetById };

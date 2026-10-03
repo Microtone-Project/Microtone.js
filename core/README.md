@@ -12,6 +12,7 @@ nothing here knows which app is using it.
 | `format/` | `.taud` / `.tsii` / `.tpif` parse and write, section codecs (saves compress with Zstandard in a worker, `zstd.js`), the name-escape convention |
 | `tuning/` | The pitch-table presets every notation is drawn from |
 | `storage/` | The online-projects client (the server is `microtone-worker/server/`) |
+| `sketch/` | Microtone Touch's `.mtsk` sketch file (`mtsk.js`) and the instrument pack every sketch plays through (`pack.js`) — shared because the tracker opens sketches too |
 | `vendor/` | fflate and fzstd, single-file ESM, and zstd's encoder as WebAssembly in an ES module (see `vendor/VENDOR-VERSIONS.md`) |
 
 ## How the apps reach it

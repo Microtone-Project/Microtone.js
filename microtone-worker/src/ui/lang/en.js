@@ -431,6 +431,7 @@ export default {
   // ── online projects (the File tab's second list) ──
   "files.online.head": "Online projects",
   "files.online.count": "· {n} of {limit} slots in use",
+  "files.online.countSketches": "· {n} of {limit} sketches from Touch",
   "files.online.loading": "· connecting…",
   "files.online.blurb": "Keep the few songs you are working on with your SceneID account, and pick them up again in any browser.",
   "files.online.signIn": "Sign in with SceneID",
@@ -1515,7 +1516,7 @@ export default {
   "pal.fx.S.n": "Special",
   "pal.fx.S.a": "$Dx.. delay · $Cx.. cut@tick · $Bx.. loop · $80xx pan ($8xxx = 9-bit angle in surround songs) · $1x gliss · $3/4/5 waveforms · $6x/$Ex delays · $7x NNA/env · $Fx invert loop",
   "pal.fx.T.n": "Tempo",
-  "pal.fx.T.a": "$xx00 BPM=xx+25 · $FFxx BPM=xx+280 · $000y/$001y slide",
+  "pal.fx.T.a": "$xx00 BPM=xx+25 · xx>0: $FFxx BPM=xx+280, $FExx xx+535, $FDxx xx+790, $FCxx xx+1045 (max 1048) · $000y/$001y slide",
   "pal.fx.U.n": "Fine vibrato",
   "pal.fx.U.a": "$xxyy — x speed, y depth (finer than H)",
   "pal.fx.V.n": "Global volume",

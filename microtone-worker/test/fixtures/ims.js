@@ -35,7 +35,7 @@ export function makeBnk(patches) {
 }
 
 /** A minimal .ims: header, event stream, then the patch-name table. */
-export function makeIms({ title, events, names, tempo = 120, percussive = false }) {
+export function makeIms({ title, events, names, tempo = 120, percussive = false, totalTick = 240 }) {
   const body = Uint8Array.from(events);
   const out = new Uint8Array(70 + body.length + 4 + 9 * names.length);
   const dv = new DataView(out.buffer);
@@ -43,7 +43,7 @@ export function makeIms({ title, events, names, tempo = 120, percussive = false 
   out.set(title.subarray(0, 30), 6);
   out[36] = 240;                                   // ticks a beat
   out[37] = 4;                                     // beats a measure
-  dv.setInt32(38, 240, true);                      // totalTick (advisory)
+  dv.setInt32(38, totalTick, true);                // IMPLAY stops here, FC or not
   dv.setInt32(42, body.length, true);
   dv.setInt32(46, events.length, true);
   out[58] = percussive ? 1 : 0;
@@ -92,6 +92,7 @@ export const IMS_SONG = makeIms({ title: JOHAB_TITLE, events: IMS_EVENTS,
  */
 export const IMS_SONG_12RPB = makeIms({
   title: JOHAB_TITLE, names: ["LEAD", "BASS"],
+  totalTick: 1480,                     // where FC lands; any less and IMPLAY cuts the song short
   events: [
     0x00, 0xc0, 0x00,                  // channel 0 → patch 0
     0x00, 0xc1, 0x01,                  // channel 1 → patch 1

@@ -11,6 +11,7 @@ import { OnlineSection } from "./filesonline.js";
 import { pickFile, download, downloadBlob } from "../../storage/import-export.js";
 import { converterFor, CONVERT_ACCEPT } from "../../convert/convert.js";
 import { isImac } from "../../convert/imac.js";
+import { isSketch } from "../../../core/sketch/mtsk.js";
 import { showModal } from "../widgets/modal.js";
 import { renderToWavAsync } from "../../../core/audio/offline-render.js";
 import {
@@ -230,14 +231,15 @@ export class FilesView {
 
   async import() {
     // no .mid here — MIDI import (with its soundfont choice) is its own button
-    const file = await pickFile(".taud,.tsii,.tpif," +
+    const file = await pickFile(".taud,.tsii,.tpif,.mtsk," +
       CONVERT_ACCEPT.split(",").filter((e) => !e.startsWith(".mid")).join(","));
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     // Foreign formats are converted by openBytes → the user saves the RESULT;
     // only native containers land in OPFS verbatim. An IMAC is foreign too —
-    // the song chosen from inside it is what gets converted.
-    if (!converterFor(file.name) && !isImac(bytes) && await opfs.available()) {
+    // the song chosen from inside it is what gets converted — and so is a
+    // Touch sketch, which opens as the project it stands for.
+    if (!converterFor(file.name) && !isImac(bytes) && !isSketch(bytes) && await opfs.available()) {
       await opfs.write(file.name, bytes);
     }
     await this.cb.openBytes(file.name, bytes);

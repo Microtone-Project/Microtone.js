@@ -38,6 +38,7 @@ import * as opfs from "../storage/opfs.js";
 import { pickFile } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
 import { isImac, imacSongs } from "../convert/imac.js";
+import { isSketch, sketchFileToTaud } from "../../core/sketch/mtsk.js";
 import { showImportProgress } from "./popups/importlog.js";
 import { showProgress } from "./popups/progress.js";
 import { fetchDemo } from "./demos.js";
@@ -219,7 +220,19 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
         keepDuplicatePatterns, realign, quantise, quantiseStrength });
   }
   let converted = false;
-  if (converterFor(name)) {
+  // A Microtone Touch sketch is the Taud song it stands for, with the Touch
+  // instrument pack built in — opened as a new project, never bound to the
+  // sketch it came from (core/sketch/mtsk.js).
+  if (isSketch(bytes)) {
+    try {
+      bytes = sketchFileToTaud(bytes);
+    } catch (err) {
+      $("stFile").textContent = t("status.parseError", { err: err.message });
+      return;
+    }
+    name = name.replace(/\.[^.]+$/, "") + ".taud";
+    converted = true;
+  } else if (converterFor(name)) {
     bytes = await convertImport(name, bytes,
       { sf2, bank, rpb, trimPatches, stereoSamples, keepDuplicatePatterns,
         realign, quantise, quantiseStrength });

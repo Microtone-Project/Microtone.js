@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sketch smoke: the tracker opens a Microtone Touch .mtsk as a new project</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- Run in real time (tools/browser-smoke.js); /hang keeps `load` pending. -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html" style="width:1200px;height:700px"></iframe>
+  <script type="module">
+    import { writeSketch, MTSK_PATTERN_BYTES, MTSK_TUNINGS } from "../../core/sketch/mtsk.js";
+
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const waitFor = (fn, ms = 60000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 50);
+    });
+
+    // Two sections; lane 0 plays the pluck (slot 4) on row 0 of each, lane 2 a snare (slot 9).
+    const patterns = new Uint8Array(MTSK_PATTERN_BYTES);
+    for (let i = 0; i < patterns.length; i += 8) patterns[i + 3] = patterns[i + 4] = 0xc0;
+    const note = (pattern, row, word, inst) => {
+      const o = pattern * 512 + row * 8;
+      patterns[o] = word & 0xff; patterns[o + 1] = word >>> 8; patterns[o + 2] = inst;
+    };
+    note(0, 0, 0x5000, 4);
+    note(8, 0, 0x5555, 4);
+    note(2, 4, 0x5000, 9);
+    const sketch = writeSketch({
+      name: "폰 Riff", bpm: 128, loop: true, sections: 2, notation: 190,
+      tuning: { ...MTSK_TUNINGS[0] }, patterns,
+    });
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => frame.contentWindow?.__microtone ? frame.contentWindow : null);
+        const { store, loadBytes } = win.__microtone;
+        log(`app booted; the sketch is ${sketch.length} bytes`);
+
+        await loadBytes("폰 Riff.mtsk", sketch);
+        const doc = store.doc;
+        const song = doc?.songs[0];
+        const opened = store.fileName === "폰 Riff.taud" && doc.dirty === true && !store.onlineProject;
+        log(`opened as ${store.fileName}, dirty ${doc?.dirty}, online ${!!store.onlineProject} → ${opened ? "ok" : "FAIL"}`);
+        const shape = song?.patterns.length === 16 && song.tickRate === 6 && song.bpm === 128 &&
+          song.cues.length === 2 && doc.meta.songMeta[0]?.notation === 190;
+        log(`song: ${song?.patterns.length} patterns, speed ${song?.tickRate}, ${song?.bpm} BPM, ${song?.cues.length} cues → ${shape ? "ok" : "FAIL"}`);
+        const insts = doc.instrumentName(4) === "Pluck" && doc.instrumentName(9) === "Snare" &&
+          doc.usedInstrumentSlots().includes(4) && doc.usedInstrumentSlots().includes(9);
+        log(`pack: 4 = ${doc.instrumentName(4)}, 9 = ${doc.instrumentName(9)} → ${insts ? "ok" : "FAIL"}`);
+        const cell = doc.patternBytes(0, 8);
+        const noteOk = (cell[0] | (cell[1] << 8)) === 0x5555 && cell[2] === 4;
+        log(`section B, lane 0, row 0: $${(cell[0] | (cell[1] << 8)).toString(16)} inst ${cell[2]} → ${noteOk ? "ok" : "FAIL"}`);
+
+        // ── A broken one is refused, and the open project stays ──
+        doc.dirty = false; // skip the discard confirm
+        const broken = sketch.slice(0, 40);
+        await loadBytes("broken.mtsk", broken);
+        const status = win.document.getElementById("stFile").textContent;
+        const refused = store.doc === doc && /mtsk/.test(status);
+        log(`a truncated sketch: "${status}" → ${refused ? "ok" : "FAIL"}`);
+
+        log(`FAILURES: ${out.filter((l) => l.endsWith("FAIL")).length}`);
+      } catch (err) {
+        log("ERROR: " + err.message + "\n" + err.stack);
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+</body>
+</html>

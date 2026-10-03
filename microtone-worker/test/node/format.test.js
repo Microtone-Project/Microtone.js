@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { parseTaud, v1CueToWords, cueInstructionWords } from "../../core/format/taud-parse.js";
 import { writeTaud } from "../../core/format/taud-write.js";
-import { SAMPLEINST_SIZE, CUE_EMPTY } from "../../core/format/taud-const.js";
+import { SAMPLEINST_SIZE, CUE_EMPTY, TAUD_HEADER_SIZE } from "../../core/format/taud-const.js";
+import { BPM_MIN, BPM_MAX } from "../../core/engine/constants.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
 const corpusFiles = (await readdir(corpusDir)).filter((f) => f.endsWith(".taud")).sort();
@@ -36,7 +37,7 @@ for (const name of corpusFiles) {
     for (const song of doc.songs) {
       assert.ok(song.patterns.length >= 1);
       assert.ok(song.cues.length >= 1);
-      assert.ok(song.bpm >= 25 && song.bpm <= 535, `bpm ${song.bpm}`);
+      assert.ok(song.bpm >= BPM_MIN && song.bpm <= BPM_MAX, `bpm ${song.bpm}`);
       assert.ok(song.tickRate >= 1 && song.tickRate <= 127, `tickRate ${song.tickRate}`);
       // every cue lane word: pattern number in range or empty sentinel
       for (const words of song.cues) {
@@ -95,6 +96,27 @@ for (const name of corpusFiles) {
     }
   });
 }
+
+test("BPM bit 9 is byte 28's bit 7, beside the surround model", async () => {
+  const path = fileURLToPath(new URL("../../assets/demo_projects/WHEN_AMBI.taud", import.meta.url));
+  const doc = parseTaud(await readFile(path));
+  const ss = doc.songs[0].surroundModel;
+  assert.notEqual(ss, 0, "a surround song, so byte 28 carries both");
+  for (const bpm of [BPM_MIN, 280, 281, 535, 536, 537, 791, 1045, 1047, BPM_MAX]) {
+    doc.songs[0].bpm = bpm;
+    const file = writeTaud(doc);
+    const e = TAUD_HEADER_SIZE + (file[10] | file[11] << 8 | file[12] << 16 | file[13] << 24);
+    const stored = bpm - 25;
+    assert.equal(file[e + 7], stored & 0xff, `${bpm}: byte 7`);
+    assert.equal(file[e + 8] >> 7, (stored >> 8) & 1, `${bpm}: byte 8 bit 7`);
+    assert.equal(file[e + 28], ((stored >> 9) << 7) | ss, `${bpm}: byte 28`);
+    const back = parseTaud(file).songs[0];
+    assert.equal(back.bpm, bpm);
+    assert.equal(back.surroundModel, ss);
+  }
+  doc.songs[0].bpm = 5000;
+  assert.equal(parseTaud(writeTaud(doc)).songs[0].bpm, BPM_MAX, "the writer clamps to ten bits");
+});
 
 test("v1 cue translation (synthetic)", () => {
   // Build a v1 cue: 20 voices as 12-bit nibble planes. Voice 0 → pattern 0x123,

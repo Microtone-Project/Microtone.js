@@ -232,3 +232,10 @@ export function taudBytes(size = 64, fill = 0) {
   b.set([0x1f, 0x54, 0x53, 0x56, 0x4d, 0x61, 0x75, 0x64, 0x02], 0);
   return b;
 }
+
+/** A Microtone Touch sketch's header (\x1FMTskech, version 1) on `size` bytes. */
+export function sketchBytes(size = 64, fill = 0) {
+  const b = new Uint8Array(size).fill(fill);
+  b.set([0x1f, 0x4d, 0x54, 0x73, 0x6b, 0x65, 0x63, 0x68, 0x01], 0);
+  return b;
+}

@@ -257,10 +257,11 @@ function fxLayout(effect, arg, pairedOp = 0) {
       return (arg & 0xf000) === 0xf000 ? "o122" : "o111";
     case 29: {
       // T: a zero high byte means "tempo slide" and moves everything into the
-      // low byte; $FF means "extended set" and makes the low byte the value.
+      // low byte; $FB…$FF over a non-zero low byte means "extended set" and
+      // makes the low byte the value ($FB's is RESERVED but the same shape).
       const hi = (arg >> 8) & 0xff;
       if (hi === 0x00) return "..12"; // $00 marker, direction nibble, amount
-      if (hi === 0xff) return "1122"; // $FF marker byte, tempo byte
+      if (hi >= 0xfb && (arg & 0xff) !== 0) return "1122"; // prefix byte, tempo byte
       return "11..";
     }
     default:

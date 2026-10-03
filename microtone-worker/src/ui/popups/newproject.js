@@ -12,6 +12,7 @@
 
 import { t } from "../i18n.js";
 import { pitchTablePresets } from "../../../core/tuning/pitchtables.js";
+import { BPM_MIN, BPM_MAX } from "../../../core/engine/constants.js";
 
 // Base-note tuning references (note value in the 0x1000-per-octave space, C4 =
 // 0x5000). Written to the song's tuning fields, which the engine APPLIES (item
@@ -57,7 +58,7 @@ export function tapResetMs(taps) {
 
 /** Tap timestamps (ms, oldest first) → { intervalMs, tapBpm, bpm }, or null
  *  before there are two taps to measure. `bpm` is the song field, clamped to
- *  its 25..535 range; `tapBpm` is the tempo actually tapped. */
+ *  its BPM_MIN..BPM_MAX range; `tapBpm` is the tempo actually tapped. */
 export function tapAnalyse(taps, beatPri, tickRate) {
   if (taps.length < 2) return null;
   const intervalMs = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
@@ -66,7 +67,7 @@ export function tapAnalyse(taps, beatPri, tickRate) {
   return {
     intervalMs,
     tapBpm: 60000 / intervalMs,
-    bpm: Math.max(25, Math.min(535, Math.round(raw))),
+    bpm: Math.max(BPM_MIN, Math.min(BPM_MAX, Math.round(raw))),
   };
 }
 
@@ -91,7 +92,7 @@ export function showNewProject({ fromBank = null, bankName = null } = {}) {
           <fieldset class="np-sec">
             <legend>${esc(t("np.secTempo"))}</legend>
             <label class="np-field"><span>${esc(t("np.bpm"))}</span>
-              <input type="number" data-f="bpm" min="25" max="535" value="125"></label>
+              <input type="number" data-f="bpm" min="${BPM_MIN}" max="${BPM_MAX}" value="125"></label>
             <label class="np-field"><span>${esc(t("np.speed"))}</span>
               <input type="number" data-f="spd" min="1" max="127" value="6"></label>
             <div class="np-field np-tap-row"><span>${esc(t("np.tapTempo"))}</span>
@@ -174,7 +175,7 @@ export function showNewProject({ fromBank = null, bankName = null } = {}) {
     const beatPri = () => clampInt(inp("rpb").value, 1, 16, 4);
     const timeNum = () => clampInt(inp("tnum").value, 1, 16, 4);
     const beatSec = () => Math.min(255, beatPri() * timeNum());
-    const bpmVal = () => clampInt(inp("bpm").value, 25, 535, 125);
+    const bpmVal = () => clampInt(inp("bpm").value, BPM_MIN, BPM_MAX, 125);
     const spdVal = () => clampInt(inp("spd").value, 1, 127, 6);
     const curFreq = () => {
       const n = parseFloat(inp("freq").value);

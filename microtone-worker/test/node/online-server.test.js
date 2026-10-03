@@ -3,10 +3,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { onlineEnv, browser, taudBytes, barrier } from "../fixtures/online-env.js";
+import { onlineEnv, browser, taudBytes, sketchBytes, barrier } from "../fixtures/online-env.js";
 import { handle } from "../../server/online/router.js";
 import worker from "../../server/worker.js";
-import { cleanName, isTaudProject, randomId, PROJECT_LIMIT, SIZE_LIMIT, PENDING_TTL_MS } from "../../server/online/util.js";
+import {
+  cleanName, isTaudProject, isSketchFile, kindOf, randomId,
+  PROJECT_LIMIT, SIZE_LIMIT, SKETCH_LIMIT, SKETCH_SIZE_LIMIT, PENDING_TTL_MS,
+} from "../../server/online/util.js";
 
 const upload = (b, name, bytes = taudBytes()) =>
   b.fetch(`/api/online/projects?name=${encodeURIComponent(name)}`, { method: "POST", body: bytes });
@@ -296,6 +299,98 @@ test("rename keeps the bytes and the modified time; names stay unique", async ()
   assert.equal((await rename("../x")).status, 400);
   assert.equal((await b.fetch(`/api/online/projects/${a.id}`, { method: "PATCH", body: "{" })).status, 400);
   assert.deepEqual((await list(b)).map((p) => p.name), ["b.taud", "c.taud"]);
+});
+
+// ── sketch slots (Microtone Touch's .mtsk) ──
+
+test("validators: a sketch is named .mtsk and starts with its magic", () => {
+  assert.equal(cleanName("riff.mtsk"), "riff.mtsk");
+  assert.equal(cleanName(".mtsk"), null);
+  assert.equal(cleanName("riff.MTSK"), null, "the extension is exact, as .taud's is");
+  assert.equal(kindOf("riff.mtsk"), "sketch");
+  assert.equal(kindOf("riff.taud"), "project");
+  assert.equal(isSketchFile(sketchBytes()), true);
+  assert.equal(isSketchFile(sketchBytes(31)), false, "a whole header or nothing");
+  assert.equal(isSketchFile(taudBytes()), false);
+  assert.equal(isTaudProject(sketchBytes()), false);
+});
+
+test("sketches have slots of their own, beside the projects' and never sharing them", async () => {
+  const env = onlineEnv();
+  const b = await signedIn(env);
+  for (let i = 0; i < PROJECT_LIMIT; i++) assert.equal((await upload(b, `p${i}.taud`)).status, 201);
+  // a full desk of projects takes nothing from the sketches…
+  for (let i = 0; i < SKETCH_LIMIT; i++) assert.equal((await upload(b, `s${i}.mtsk`, sketchBytes())).status, 201);
+  const more = await upload(b, "one-more.mtsk", sketchBytes());
+  assert.equal(more.status, 409);
+  assert.deepEqual(await more.json(), { error: "quota" });
+  // …and a full set of sketches nothing from the projects
+  assert.equal((await upload(b, "one-more.taud")).status, 409);
+  const sketch = (await list(b)).find((p) => p.name === "s0.mtsk");
+  assert.equal((await b.fetch(`/api/online/projects/${sketch.id}`, { method: "DELETE" })).status, 204);
+  assert.equal((await upload(b, "one-more.taud")).status, 409, "a sketch's slot does not become a project's");
+  assert.equal((await upload(b, "one-more.mtsk", sketchBytes())).status, 201);
+
+  const listing = await (await b.fetch("/api/online/projects")).json();
+  assert.equal(listing.limit, PROJECT_LIMIT);
+  assert.equal(listing.sketchLimit, SKETCH_LIMIT);
+  assert.equal(listing.sketchSizeLimit, SKETCH_SIZE_LIMIT);
+  assert.equal(listing.projects.length, PROJECT_LIMIT + SKETCH_LIMIT);
+});
+
+test("the sketch limit holds atomically when uploads race", async () => {
+  const env = onlineEnv();
+  const b = await signedIn(env);
+  await upload(b, "song.taud"); // a project in the way counts for nothing
+  const n = SKETCH_LIMIT + 6;
+  env.ONLINE_DB.beforeBatch = barrier(n);
+  const results = await Promise.all(Array.from({ length: n }, (_, i) => upload(b, `s${i}.mtsk`, sketchBytes())));
+  env.ONLINE_DB.beforeBatch = null;
+  assert.equal(results.filter((r) => r.status === 201).length, SKETCH_LIMIT);
+  assert.equal(results.filter((r) => r.status === 409).length, n - SKETCH_LIMIT);
+  assert.equal((await list(b)).length, SKETCH_LIMIT + 1);
+});
+
+test("a slot holds only its own kind, up to its own ceiling", async () => {
+  const env = onlineEnv();
+  const b = await signedIn(env);
+  const wrong = await upload(b, "taud-in-disguise.mtsk", taudBytes());
+  assert.equal(wrong.status, 415);
+  assert.deepEqual(await wrong.json(), { error: "not-sketch" });
+  const wrong2 = await upload(b, "sketch-in-disguise.taud", sketchBytes());
+  assert.equal(wrong2.status, 415);
+  assert.deepEqual(await wrong2.json(), { error: "not-taud" });
+  assert.equal((await upload(b, "big.mtsk", sketchBytes(SKETCH_SIZE_LIMIT + 1))).status, 413);
+  assert.equal((await upload(b, "edge.mtsk", sketchBytes(SKETCH_SIZE_LIMIT))).status, 201);
+
+  // saving over one checks the same, by the slot's kind
+  const { project: s } = await (await upload(b, "s.mtsk", sketchBytes(64, 1))).json();
+  const { project: p } = await (await upload(b, "p.taud")).json();
+  const put = (id, bytes) => b.fetch(`/api/online/projects/${id}`, { method: "PUT", body: bytes, headers: { "if-match": "*" } });
+  const r1 = await put(s.id, taudBytes());
+  assert.equal(r1.status, 415);
+  assert.deepEqual(await r1.json(), { error: "not-sketch" });
+  assert.equal((await put(s.id, sketchBytes(SKETCH_SIZE_LIMIT + 1))).status, 413);
+  assert.equal((await put(s.id, sketchBytes(80, 2))).status, 200);
+  assert.equal((await put(p.id, sketchBytes())).status, 415);
+  assert.equal((await put(p.id, taudBytes(SKETCH_SIZE_LIMIT + 1))).status, 200, "a project's ceiling is its own");
+});
+
+test("a rename cannot change what kind of slot it is", async () => {
+  const env = onlineEnv();
+  const b = await signedIn(env);
+  const { project: s } = await (await upload(b, "riff.mtsk", sketchBytes())).json();
+  const { project: p } = await (await upload(b, "song.taud")).json();
+  const rename = (id, name) => b.fetch(`/api/online/projects/${id}`, {
+    method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }),
+  });
+  const r1 = await rename(s.id, "riff.taud");
+  assert.equal(r1.status, 400);
+  assert.deepEqual(await r1.json(), { error: "bad-name" });
+  assert.equal((await rename(p.id, "song.mtsk")).status, 400);
+  assert.equal((await rename(s.id, "groove.mtsk")).status, 200);
+  assert.equal((await rename("p_nonexistent00000", "x.mtsk")).status, 404, "a missing one is still not-found");
+  assert.deepEqual((await list(b)).map((x) => x.name), ["groove.mtsk", "song.taud"]);
 });
 
 test("delete removes the row and the object", async () => {

@@ -422,6 +422,7 @@ export default {
   // ── 온라인 프로젝트 (파일 탭의 두 번째 목록) ──
   "files.online.head": "온라인 프로젝트",
   "files.online.count": "· {limit}칸 중 {n}칸 사용 중",
+  "files.online.countSketches": "· Touch 스케치 {limit}개 중 {n}개",
   "files.online.loading": "· 연결하는 중…",
   "files.online.blurb": "작업 중인 곡 몇 개를 SceneID 계정에 두고, 어느 브라우저에서든 이어서 작업하세요.",
   "files.online.signIn": "SceneID로 로그인",
@@ -1461,7 +1462,7 @@ export default {
   "pal.fx.S.n": "특수",
   "pal.fx.S.a": "$Dx.. 노트 지연 · $Cx.. 지정 틱에 자르기 · $Bx.. 루프 · $80xx 팬 ($8xxx = 서라운드 곡의 9비트 각도) · $1x 글리산도 · $3/4/5 파형 · $6x/$Ex 지연 · $7x NNA/엔벨로프 · $Fx 인버트 루프",
   "pal.fx.T.n": "템포",
-  "pal.fx.T.a": "$xx00 BPM=xx+25 · $FFxx BPM=xx+280 · $000y/$001y 슬라이드",
+  "pal.fx.T.a": "$xx00 BPM=xx+25 · xx>0: $FFxx BPM=xx+280, $FExx xx+535, $FDxx xx+790, $FCxx xx+1045 (최대 1048) · $000y/$001y 슬라이드",
   "pal.fx.U.n": "미세 비브라토",
   "pal.fx.U.a": "$xxyy — x 속도, y 깊이 (H보다 미세함)",
   "pal.fx.V.n": "전역 음량",

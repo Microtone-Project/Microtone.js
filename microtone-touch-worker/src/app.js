@@ -13,7 +13,7 @@
 
 import { AudioSystem } from "../core/audio/audio-system.js";
 import { pitchTablePresets, nearestDegreeIndex, noteForDegree } from "../core/tuning/pitchtables.js";
-import { buildBank, PRESETS, DRUMS, presetById } from "./presets.js";
+import { buildBank, PRESETS, DRUMS, presetById } from "../core/sketch/pack.js";
 import { LAYOUTS, fitLayout } from "./lattice.js";
 import {
   newSketch, normaliseSketch, toTaudDoc, patternBytes, patternSlot, emptySection,

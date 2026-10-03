@@ -204,29 +204,44 @@ test("PATCH_NOTES.md: the newest section yields a renderable teaser", () => {
 // cross-linked, so the invariant worth pinning (beyond "renders at all") is
 // that every in-page anchor resolves to a heading this renderer actually emits
 // — a renamed section otherwise silently produces a dead link.
-for (const [file, h1] of [
-  ["TAUD_ENGINE_SPEC.md", "Taud Engine Specification"],
-  ["TAUD_FILE_FORMAT.md", "Taud File Format Specification"],
-  ["TAUD_CONVERSION_NOTES.md", "Taud Conversion Notes"],
+// The sketch format (Microtone Touch's .mtsk) is held to the same, and its
+// links INTO the file format must land on headings there.
+const assetText = (file) => readFileSync(fileURLToPath(new URL(`../../assets/${file}`, import.meta.url)), "utf8");
+const headingIds = (md) => {
+  const ids = new Set();
+  for (const line of md.split("\n")) {
+    const h = line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (h) ids.add(slug(h[2]));
+  }
+  return ids;
+};
+for (const [file, h1, minToc] of [
+  ["TAUD_ENGINE_SPEC.md", "Taud Engine Specification", 20],
+  ["TAUD_FILE_FORMAT.md", "Taud File Format Specification", 20],
+  ["TAUD_CONVERSION_NOTES.md", "Taud Conversion Notes", 20],
+  ["MICROTONE_SKETCH_FORMAT.md", "Microtone Sketch File Format Specification", 15],
 ]) {
   test(`renders ${file} + TOC + every in-page anchor resolves`, () => {
-    const md = readFileSync(fileURLToPath(new URL(`../../assets/${file}`, import.meta.url)), "utf8");
+    const md = assetText(file);
     const html = renderMarkdown(md);
     assert.ok(html.length > 10000);
     assert.match(html, new RegExp(`<h1 id="[^"]+">${h1}</h1>`));
     assert.match(html, /<table>/);
 
     const toc = extractToc(md);
-    assert.ok(toc.length > 20, "TOC has many entries");
+    assert.ok(toc.length > minToc, "TOC has many entries");
     assert.ok(toc.every((e) => e.slug && e.text && (e.level === 2 || e.level === 3)));
     assert.equal(new Set(toc.map((e) => e.slug)).size, toc.length, "slugs unique");
 
-    const ids = new Set();
-    for (const line of md.split("\n")) {
-      const h = line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
-      if (h) ids.add(slug(h[2]));
-    }
+    const ids = headingIds(md);
     const dead = [...md.matchAll(/\]\(#([^)]+)\)/g)].map((m) => m[1]).filter((a) => !ids.has(a));
     assert.deepEqual(dead, [], "no dead in-page anchors");
   });
 }
+
+test("the sketch format's links into the Taud File Format land on its headings", () => {
+  const ids = headingIds(assetText("TAUD_FILE_FORMAT.md"));
+  const links = [...assetText("MICROTONE_SKETCH_FORMAT.md").matchAll(/\]\(TAUD_FILE_FORMAT\.md#([^)]+)\)/g)].map((m) => m[1]);
+  assert.ok(links.length > 5);
+  assert.deepEqual(links.filter((a) => !ids.has(a)), [], "no dead anchors into the file format");
+});

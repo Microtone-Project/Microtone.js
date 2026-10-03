@@ -15,6 +15,7 @@ import {
   JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES,
   CUE_BYTES, CUE_BYTES_64, TRACKER_CHUNK,
   CELL_BYTES, CELL_BYTES_WIDE, PATTERN_BYTES, PATTERN_BYTES_WIDE,
+  BPM_MIN, BPM_MAX,
 } from "./constants.js";
 import { tuningRatioOf } from "./tables.js";
 import { TaudInst, parsePatchesBlob, writePatchesBlob, makeInstPatch, layerNote } from "./inst.js";
@@ -232,7 +233,7 @@ export class TaudEngine {
   setMasterPan(ph, pan) { this.playheads[ph].masterPan = pan & 255; }
   getMasterPan(ph) { return this.playheads[ph].masterPan; }
 
-  setBPM(ph, bpm) { this.playheads[ph].bpm = Math.min(Math.max(bpm, 25), 535); }
+  setBPM(ph, bpm) { this.playheads[ph].bpm = Math.min(Math.max(bpm, BPM_MIN), BPM_MAX); }
   getBPM(ph) { return this.playheads[ph].bpm; }
   setTickRate(ph, rate) { this.playheads[ph].tickRate = rate & 255; }
   getTickRate(ph) { return this.playheads[ph].tickRate; }

@@ -4,13 +4,15 @@
 // made-up one does.
 //
 // D1 says which projects exist and what they are called; R2 holds the bytes
-// under `u_…/p_…`. The two cannot be written in one transaction, so every
+// under `u_…/p_…`. A slot is a project's (.taud) or a Microtone Touch
+// sketch's (.mtsk), by its name's extension: each kind has its own quota and
+// size ceiling (util.js KINDS), and nothing turns a slot of one into the other. The two cannot be written in one transaction, so every
 // operation is ordered so that a failure half-way leaves, at worst, bytes
 // nobody points at — never a listed project with nothing behind it.
 
 import {
-  PROJECT_LIMIT, SIZE_LIMIT, PENDING_TTL_MS,
-  json, fail, readCapped, isTaudProject, cleanName, isUniqueViolation, randomId,
+  PROJECT_LIMIT, SIZE_LIMIT, SKETCH_LIMIT, SKETCH_SIZE_LIMIT, PENDING_TTL_MS, KINDS, IS_SKETCH_SQL,
+  json, fail, readCapped, fitsKind, kindOf, cleanName, isUniqueViolation, randomId,
 } from "./util.js";
 
 const COLUMNS = "id, filename, size, etag, updated_at";
@@ -34,14 +36,18 @@ export async function listProjects({ env, user }) {
   const { results } = await env.ONLINE_DB.prepare(
     `SELECT ${COLUMNS} FROM projects WHERE user_id = ?1 AND state = 'ready' ORDER BY filename`,
   ).bind(user.id).all();
-  return json({ limit: PROJECT_LIMIT, sizeLimit: SIZE_LIMIT, projects: results.map(publicProject) });
+  return json({
+    limit: PROJECT_LIMIT, sizeLimit: SIZE_LIMIT,
+    sketchLimit: SKETCH_LIMIT, sketchSizeLimit: SKETCH_SIZE_LIMIT,
+    projects: results.map(publicProject),
+  });
 }
 
 /**
- * POST /projects?name=<name>, body = the .taud bytes.
+ * POST /projects?name=<name>, body = the .taud (or .mtsk) bytes.
  *
  * Quota first, bytes second: the slot is claimed by ONE statement that
- * inserts the row only while fewer than PROJECT_LIMIT exist, so two uploads racing
+ * inserts the row only while fewer than the kind's limit exist, so two uploads racing
  * for the last slot cannot both get it, and the name's unique index means a
  * retried upload cannot land twice. The row goes in as 'pending' and turns
  * 'ready' once R2 has the object.
@@ -50,6 +56,9 @@ export async function createProject({ request, env, user, url }) {
   const db = env.ONLINE_DB;
   const name = cleanName(url.searchParams.get("name"));
   if (!name) return fail(400, "bad-name");
+  const kind = kindOf(name);
+  const { slots, size, error } = KINDS[kind];
+  const sketch = kind === "sketch" ? 1 : 0;
   const now = Date.now();
   const staleBefore = now - PENDING_TTL_MS;
 
@@ -57,15 +66,15 @@ export async function createProject({ request, env, user, url }) {
   // ten megabytes are accepted for nothing. Advisory only — the INSERT below
   // is what actually enforces both.
   const pre = await db.prepare(
-    `SELECT COUNT(*) AS n, COALESCE(SUM(filename = ?2), 0) AS clash
+    `SELECT COALESCE(SUM(${IS_SKETCH_SQL} = ?4), 0) AS n, COALESCE(SUM(filename = ?2), 0) AS clash
        FROM projects WHERE user_id = ?1 AND (state = 'ready' OR updated_at >= ?3)`,
-  ).bind(user.id, name, staleBefore).first();
+  ).bind(user.id, name, staleBefore, sketch).first();
   if (pre.clash) return fail(409, "exists");
-  if (pre.n >= PROJECT_LIMIT) return fail(409, "quota");
+  if (pre.n >= slots) return fail(409, "quota");
 
-  const bytes = await readCapped(request, SIZE_LIMIT);
+  const bytes = await readCapped(request, size);
   if (!bytes) return fail(413, "too-large");
-  if (!isTaudProject(bytes)) return fail(415, "not-taud");
+  if (!fitsKind(kind, bytes)) return fail(415, error);
 
   const id = randomId("p_", 16);
   const key = `${user.id}/${id}`;
@@ -80,8 +89,8 @@ export async function createProject({ request, env, user, url }) {
       db.prepare(
         `INSERT INTO projects (id, user_id, r2_key, filename, size, state, created_at, updated_at)
          SELECT ?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6
-          WHERE (SELECT COUNT(*) FROM projects WHERE user_id = ?2) < ?7`,
-      ).bind(id, user.id, key, name, bytes.length, now, PROJECT_LIMIT),
+          WHERE (SELECT COUNT(*) FROM projects WHERE user_id = ?2 AND ${IS_SKETCH_SQL} = ?8) < ?7`,
+      ).bind(id, user.id, key, name, bytes.length, now, slots, sketch),
     ]);
   } catch (err) {
     if (isUniqueViolation(err)) return fail(409, "exists");
@@ -123,8 +132,8 @@ export async function readProject({ env, user, params }) {
 }
 
 /**
- * PUT /projects/:id, body = the .taud bytes, If-Match = the ETag it was
- * opened (or last saved) with.
+ * PUT /projects/:id, body = the .taud (or, in a sketch slot, the .mtsk) bytes,
+ * If-Match = the ETag it was opened (or last saved) with.
  *
  * The condition is enforced by R2 itself, on the write: if the project was
  * saved from somewhere else in the meantime, nothing is written and the
@@ -136,9 +145,10 @@ export async function overwriteProject({ request, env, user, params }) {
   if (!ifMatch) return fail(428, "precondition-required");
   const row = await ownedReady(env, user, params.id);
   if (!row) return fail(404, "not-found");
-  const bytes = await readCapped(request, SIZE_LIMIT);
+  const kind = kindOf(row.filename);
+  const bytes = await readCapped(request, KINDS[kind].size);
   if (!bytes) return fail(413, "too-large");
-  if (!isTaudProject(bytes)) return fail(415, "not-taud");
+  if (!fitsKind(kind, bytes)) return fail(415, KINDS[kind].error);
 
   const onlyIf = ifMatch === "*" ? undefined : { etagMatches: ifMatch.replace(/^W\//, "").replace(/"/g, "") };
   const obj = await env.ONLINE_BUCKET.put(row.r2_key, bytes, { httpMetadata: OCTETS, onlyIf });
@@ -151,7 +161,9 @@ export async function overwriteProject({ request, env, user, params }) {
 }
 
 /** PATCH /projects/:id, body = {"name": "<new name>"}. A rename is not an
- *  edit: the modified time stays where the last save put it. */
+ *  edit: the modified time stays where the last save put it. Nor may it
+ *  change the slot's kind — that would move it past the other kind's quota —
+ *  so the new name keeps the old one's extension. */
 export async function renameProject({ request, env, user, params }) {
   let body;
   try { body = await request.json(); } catch { return fail(400, "bad-request"); }
@@ -160,13 +172,14 @@ export async function renameProject({ request, env, user, params }) {
   let row;
   try {
     row = await env.ONLINE_DB.prepare(
-      `UPDATE projects SET filename = ?3 WHERE id = ?1 AND user_id = ?2 AND state = 'ready' RETURNING ${COLUMNS}`,
-    ).bind(params.id, user.id, name).first();
+      `UPDATE projects SET filename = ?3
+        WHERE id = ?1 AND user_id = ?2 AND state = 'ready' AND ${IS_SKETCH_SQL} = ?4 RETURNING ${COLUMNS}`,
+    ).bind(params.id, user.id, name, kindOf(name) === "sketch" ? 1 : 0).first();
   } catch (err) {
     if (isUniqueViolation(err)) return fail(409, "exists");
     throw err;
   }
-  if (!row) return fail(404, "not-found");
+  if (!row) return (await ownedReady(env, user, params.id)) ? fail(400, "bad-name") : fail(404, "not-found");
   return json({ project: publicProject(row) });
 }
 

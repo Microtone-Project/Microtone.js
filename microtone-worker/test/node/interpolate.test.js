@@ -237,7 +237,10 @@ test("fx: the interpolatable table excludes every nibble-packed slide pair", () 
   assert.equal(isInterpolatableFx(EffectOp.OP_S, 0x7040), false);
   assert.equal(isInterpolatableFx(EffectOp.OP_T, 0x0012), false, "T tempo SLIDE");
   assert.equal(isInterpolatableFx(EffectOp.OP_T, 0xff20), false, "T extended set");
+  assert.equal(isInterpolatableFx(EffectOp.OP_T, 0xfc03), false, "T extended set, lowest prefix");
+  assert.equal(isInterpolatableFx(EffectOp.OP_T, 0x4005), false, "T plain set, low byte not zero");
   assert.equal(isInterpolatableFx(EffectOp.OP_T, 0x8000), true, "T plain set");
+  assert.equal(isInterpolatableFx(EffectOp.OP_T, 0xff00), true, "T $FF00 is the plain set of $FF");
   assert.equal(isInterpolatableFx(EffectOp.OP_5, 0xffff), false, "filter reset sentinel");
 });
 

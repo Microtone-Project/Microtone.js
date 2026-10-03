@@ -139,10 +139,12 @@ Present in `.taud` and `.tpif`; the entry count is the header's song count. Each
 | 18 | `U32` | Compressed size of this song's pattern bin |
 | 22 | `U32` | Compressed size of this song's cue sheet |
 | 26 | `U16` | Number of cues stored in the cue sheet (version 2); 0 in a version-1 file |
-| 28 | `U8` | Immutable song flags (below) |
+| 28 | `U8` | Immutable song flags (below); bit 7 = BPM bit 9 |
 | 29 | `Byte[3]` | **RESERVED** |
 
-The BPM field is split across two bytes, giving a 9-bit range of 25…535. Values above 280 are reachable only from the file or from the extended set-tempo effect; note that the effect form `T $FFxx` cannot express `$1FF`.
+The BPM field is split across three bytes — the low 8 bits at offset 7, bit 8 at offset 8, bit 9 at offset 28 — giving a 10-bit range of 25…1048. Values above 280 are reachable only from the file or from the extended set-tempo effect (`T $FFxx` … `T $FCxx`, [Note Effects](TAUD_NOTE_EFFECTS.md#t-xxyy--tempo-set-or-tempo-slide)).
+
+Bit 9 came later than the other nine: a reader that predates it ignores it, and so plays a song stored at 537 BPM or faster exactly 512 BPM too slowly.
 
 The cue count at offset 26 exists so a loader can size the cue image without deriving it from the decompressed length. When it is 0 (a version-1 file, or a version-2 writer that omitted it), a reader **MUST** fall back to `decompressed_length ÷ cue_size`.
 
@@ -165,10 +167,12 @@ Effect `1` may change these at runtime, but the change does not persist: startin
 ### Immutable song flags (byte 28)
 
 ```
-0b 0000 00ss
+0b p000 00ss
 ```
 
-`ss` selects the **surround model**: 0 = stereo, 1 = planar (360° panning), 2 = spatial (full sphere), 3 = **RESERVED**. It is immutable because it changes what the pan column *means*; no effect can alter it mid-song. Bits 2…7 are **RESERVED**.
+`ss` selects the **surround model**: 0 = stereo, 1 = planar (360° panning), 2 = spatial (full sphere), 3 = **RESERVED**. It is immutable because it changes what the pan column *means*; no effect can alter it mid-song. Bits 2…6 are **RESERVED**.
+
+`p` is not a flag: it is **bit 9 of the initial BPM** ([above](#4-song-table)), lodged here for want of room in bytes 7 and 8. A reader **MUST** fold it into the tempo and **MUST NOT** read it as part of the surround model.
 
 ### Tuning
 

@@ -165,9 +165,11 @@ export const FX_INTERP = {
   [EffectOp.OP_V]: { fields: F_HI },
   // Tick speed: the low byte is reserved, and `$0000` is ignored outright.
   [EffectOp.OP_A]: { fields: F_HI, ok: (a) => (a >>> 8) !== 0 },
-  // Tempo multiplexes on its high byte — `$00xy` is a slide and `$FFxx` the
-  // extended set — so only the plain set form is a level to ramp between.
-  [EffectOp.OP_T]: { fields: F_HI, ok: (a) => (a >>> 8) !== 0 && (a >>> 8) !== 0xff },
+  // Tempo multiplexes on its high byte — `$00xy` is a slide and `$FCxx`…`$FFxx`
+  // the extended set — so only the plain set form `$xx00` is a level to ramp
+  // between. Its low byte must be zero: the ramp inherits it, and a non-zero
+  // one would turn a step that lands on $FC…$FF into an extended set.
+  [EffectOp.OP_T]: { fields: F_HI, ok: (a) => (a >>> 8) !== 0 && (a & 0xff) === 0 },
   // Filter cutoff / resonance. `$FFFF` is the reset sentinel, not a value.
   [EffectOp.OP_5]: { fields: F16, ok: (a) => a !== 0xffff },
   [EffectOp.OP_6]: { fields: F16, ok: (a) => a !== 0xffff },

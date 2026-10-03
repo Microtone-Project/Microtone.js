@@ -10,6 +10,7 @@ import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { parseTaud } from "../../core/format/taud-parse.js";
+import { unescapeName } from "../../core/format/names.js";
 
 const DIR = new URL("../../assets/demo_projects/", import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL("demos.json", DIR), "utf8"));
@@ -43,15 +44,22 @@ for (const d of demos) {
     const doc = parseTaud(new Uint8Array(readFileSync(path)));
     assert.equal(d.bytes, statSync(path).size, "manifest `bytes` is stale");
     assert.equal(d.songs, doc.songs.length, "manifest `songs` is stale");
-    assert.equal(d.title, doc.meta.projectName, "manifest `title` is stale");
+    // The container spells a name outside its byte charset as \uXXXX escapes.
+    // The row may dress the title up — "(音MAD) " before Temjin's — but the
+    // stored one must still be in it.
+    const title = unescapeName(doc.meta.projectName);
+    assert.ok(d.title.includes(title), `manifest \`title\` is stale (the file says "${title}")`);
     // Every song of a project shares one spatial model in practice; the row can
     // only show one, so insist the file does not contradict it.
     for (const [i, song] of doc.songs.entries()) {
       assert.equal(song.surroundModel, d.surroundModel ?? 0,
         `song ${i}: manifest \`surroundModel\` is stale`);
     }
-    // The credit on the row has to be the credit in the file — this is the
-    // field the composer's permission actually rests on.
+    // On a permitted demo the credit on the row has to be the credit in the
+    // file — this is the field the composer's permission actually rests on. A
+    // demo without one is the arranger's own, and its row credits the arranger
+    // where the file credits the piece (Cuba Baion's sMet names Kurt Drabek).
+    if (!d.permission) return;
     const composers = new Set(Object.values(doc.meta.songMeta).map((m) => m.composer));
     assert.ok([...composers].some((c) => c?.includes(d.composer)),
       `manifest composer "${d.composer}" appears in no song's sMet (${[...composers]})`);

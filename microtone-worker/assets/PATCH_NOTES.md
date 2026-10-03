@@ -4,6 +4,16 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-04
+
+Songs can now run at up to 1048 BPM, nearly twice the old ceiling of 535.
+
+- **Type a tempo up to 1048** in the Project view and the New Project dialog, and tap one that fast too.
+- **`T $FExx`, `T $FDxx` and `T $FCxx` carry on where `T $FFxx` stops**: with a non-zero `xx`, `T $FFxx` still sets 280 + xx BPM, `T $FExx` sets 535 + xx, `T $FDxx` 790 + xx and `T $FCxx` 1045 + xx. With `xx` at zero they are the plain tempo set they always were.
+- **A song saved at more than 536 BPM needs an up-to-date player**: an older copy of Microtone, or a player that has not caught up yet, plays it 512 BPM too slowly. Nothing changes for songs at 536 BPM or slower.
+- **AdLib imports are finer-grained.** A song imported from Iyagi Music Sound (`.ims`) or Note (`.sop`) now plays at 700–800 BPM instead of around 500, so each tick lasts about 3 ms instead of 5: envelopes and percussive attacks follow the chip more closely, and tempos are reproduced more exactly. The price is the longest release tail, which now stops at about 3 seconds instead of 5; most instruments release far sooner than either.
+- **Fast MIDI files keep their real tempo.** A MIDI import whose tempo, at the grid it needs, came out above 535 BPM was clamped there and played too slowly; it can now go to 1048.
+
 ## 2026-10-03
 
 Projects save smaller, and saving happens in the background.

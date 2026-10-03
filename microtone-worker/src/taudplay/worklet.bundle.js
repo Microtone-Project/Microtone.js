@@ -70,6 +70,11 @@ const TUNING_REF_C4_HZ = LINEAR_FREQ_C4_HZ;
 const TUNING_DEFAULT_BASE_NOTE = 0xa000; // C9
 const TUNING_DEFAULT_FREQ_HZ = 8363.0;
 
+// The tempo register: ten bits biased by −25 (song table byte 7, byte 8 bit 7,
+// byte 28 bit 7), so 25…1048 BPM. Every path that sets the tempo clamps to it.
+const BPM_MIN = 25;
+const BPM_MAX = 25 + 0x3ff;
+
 // Anti-click ramp-out on sample end/cut: 8 ms (256 samples at Kotlin's 32 kHz).
 let RAMP_OUT_SAMPLES = 384;
 const RAMP_OUT_SEC = 0.008;
@@ -6686,7 +6691,7 @@ class Playhead {
     this.position = 0;
     this.masterVolume = 0;
     this.masterPan = 128;
-    this.bpm = 125;      // 25..535
+    this.bpm = 125;      // BPM_MIN..BPM_MAX (25..1048)
     this.tickRate = 6;
     this.patBank1 = 0;
     this.patBank2 = 0;
@@ -9886,12 +9891,17 @@ function applyEffectRow(eng, ts, playhead, voice, vi, op, rawArg, ext = null) {
     case EffectOp.OP_S: applySEffect(eng, ts, voice, vi, rawArg); break;
     case EffectOp.OP_T: {
       const hi = (rawArg >>> 8) & 0xff;
-      if (hi === 0xff) {
-        // T $FFxx — extended set-tempo: BPM = $xx + $118 (280..535).
-        playhead.bpm = clamp((rawArg & 0xff) + 0x118, 25, 535);
+      const lo = rawArg & 0xff;
+      if (hi >= 0xfc && lo !== 0) {
+        // T $FFxx…$FCxx (xx > 0) — extended set-tempo, each prefix carrying on
+        // where the one above stops: BPM = $118 + ($FF − hh) × $FF + $xx, so
+        // $FF → 281..535, $FE → 536..790, $FD → 791..1045, $FC → 1046..
+        playhead.bpm = clamp(0x118 + (0xff - hi) * 0xff + lo, BPM_MIN, BPM_MAX);
+      } else if (hi === 0xfb && lo !== 0) {
+        // T $FBxx (xx > 0) — RESERVED: ignored.
       } else if (hi !== 0) {
-        // T $xx00 — set-tempo: BPM = $xx + $19 (25..280).
-        playhead.bpm = clamp(hi + 0x19, 25, 535);
+        // T $xx00 — set-tempo: BPM = $xx + $19 (26..280).
+        playhead.bpm = clamp(hi + 0x19, BPM_MIN, BPM_MAX);
       } else {
         const low = rawArg & 0xff;
         switch (low & 0xf0) {
@@ -12569,7 +12579,7 @@ class TaudEngine {
   setMasterPan(ph, pan) { this.playheads[ph].masterPan = pan & 255; }
   getMasterPan(ph) { return this.playheads[ph].masterPan; }
 
-  setBPM(ph, bpm) { this.playheads[ph].bpm = Math.min(Math.max(bpm, 25), 535); }
+  setBPM(ph, bpm) { this.playheads[ph].bpm = Math.min(Math.max(bpm, BPM_MIN), BPM_MAX); }
   getBPM(ph) { return this.playheads[ph].bpm; }
   setTickRate(ph, rate) { this.playheads[ph].tickRate = rate & 255; }
   getTickRate(ph) { return this.playheads[ph].tickRate; }

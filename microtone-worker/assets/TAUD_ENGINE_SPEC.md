@@ -60,7 +60,7 @@ Internally the mix bus is floating point, it passes through the song's mastering
 
 Two independent knobs set the timing, exactly as in every ScreamTracker descendant:
 
-- **Tempo** (effect `T`, song table byte 7/8) sets the duration of one **tick**, conventionally written as BPM.
+- **Tempo** (effect `T`, song table bytes 7, 8 and 28) sets the duration of one **tick**, conventionally written as BPM.
 - **Speed** (effect `A`, song table byte 8) sets how many ticks make one **row** — the *tick rate*.
 
 The tick duration is
@@ -70,7 +70,7 @@ tick_seconds     = 2.5 / bpm
 samples_per_tick = rate × 2.5 / bpm
 ```
 
-so BPM 125 gives a 50 Hz tick and, at speed 6, a 120 ms row. BPM is a 9-bit value, 25…535; the engine **MUST** clamp to that range.
+so BPM 125 gives a 50 Hz tick and, at speed 6, a 120 ms row. BPM is a 10-bit value, 25…1048; the engine **MUST** clamp to that range.
 
 Timing is accumulated **per output sample**, not per block: the engine adds 1 to a sample counter for every frame it emits, and fires a tick whenever the counter reaches `samples_per_tick`, subtracting rather than resetting so fractional remainders carry. `samples_per_tick` **MUST** be recomputed every frame, because `T` and the tempo slide can change BPM in the middle of a row. Block size is therefore not observable in the output, and an implementation **MAY** choose any block length.
 

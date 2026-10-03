@@ -48,6 +48,7 @@ from taud_common import (
     encode_cue, finalize_cue_sheet, set_cue_instruction,
     cue_instruction_len, cue_instruction_halt_at,
     deduplicate_patterns, encode_song_entry, compress_blob, build_project_data,
+    TAUD_BPM_MIN, tempo_effect_arg,
 )
 import opl2taud as opl
 from opl2taud import escape_non_ascii, volume_column
@@ -283,10 +284,14 @@ def delta_gcd(song: dict) -> int:
 #: 24-bar section a 1152-row song — so a finer source tick is quantised.
 MAX_ROWS_PER_BEAT = 48
 #: Taud's tick rate is the resolution of every envelope and every per-tick
-#: effect, so the converter buys as many ticks a row as the tempo range allows:
-#: at 500 BPM a tick is 5 ms, against 20 ms at a tracker-ordinary 125.
-MAX_BPM = 535
-MIN_BPM = 25
+#: effect, so the converter buys as many ticks a row as it can: at 800 BPM a
+#: tick is 3.1 ms, against 20 ms at a tracker-ordinary 125.  Not the register's
+#: 1048: the release is a Volume Fadeout, a 12-bit step taken once a TICK
+#: (opl2taud.release_fadeout), so its longest tail is 1024 ticks — 3.2 s here,
+#: 2.4 s at 1048 — and a fifth of the patches in the IMS banks (release rates
+#: 1-3) would lose most of what is left of theirs for a 0.7 ms sharper tick.
+MAX_BPM = 800
+MIN_BPM = TAUD_BPM_MIN
 MAX_TICK_RATE = 127
 
 
@@ -300,8 +305,8 @@ def speed_bpm_for(seconds: float):
 
     A Taud row lasts `speed × 2.5 ÷ BPM` seconds, so the pair is one equation
     with a free parameter — and the parameter is spent on the shortest TICK the
-    535 BPM ceiling allows, because the tick is the resolution of every envelope
-    and every per-tick effect the engine has.  At 500 BPM a tick is 5 ms against
+    MAX_BPM ceiling allows, because the tick is the resolution of every envelope
+    and every per-tick effect the engine has.  At 800 BPM a tick is 3.1 ms against
     20 ms at a tracker-ordinary 125, which is the difference between an OPL
     percussive attack surviving the conversion and being smeared over a row."""
     if seconds <= 0:
@@ -313,10 +318,8 @@ def speed_bpm_for(seconds: float):
 
 
 def tempo_effect(bpm: int):
-    """(opcode, argument) for `T`, using the extended form above 280 BPM."""
-    if bpm <= 280:
-        return TOP_T, ((bpm - 25) & 0xFF) << 8
-    return TOP_T, 0xFF00 | ((bpm - 280) & 0xFF)
+    """(opcode, argument) for `T`, using the extended forms above 280 BPM."""
+    return TOP_T, tempo_effect_arg(bpm)
 
 
 # ── Instrument pass ──────────────────────────────────────────────────────────

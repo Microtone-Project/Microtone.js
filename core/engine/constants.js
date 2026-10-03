@@ -64,6 +64,11 @@ export const TUNING_REF_C4_HZ = LINEAR_FREQ_C4_HZ;
 export const TUNING_DEFAULT_BASE_NOTE = 0xa000; // C9
 export const TUNING_DEFAULT_FREQ_HZ = 8363.0;
 
+// The tempo register: ten bits biased by −25 (song table byte 7, byte 8 bit 7,
+// byte 28 bit 7), so 25…1048 BPM. Every path that sets the tempo clamps to it.
+export const BPM_MIN = 25;
+export const BPM_MAX = 25 + 0x3ff;
+
 // Anti-click ramp-out on sample end/cut: 8 ms (256 samples at Kotlin's 32 kHz).
 export let RAMP_OUT_SAMPLES = 384;
 const RAMP_OUT_SEC = 0.008;

@@ -19,6 +19,7 @@ import { EffectOp } from "../../core/engine/tables.js";
 import { applyEffectRow } from "../../core/engine/effects.js";
 import { SURROUND_PLANAR, SURROUND_SPATIAL } from "../../core/engine/spatial.js";
 import { readSamplePoint } from "../../core/engine/sampler.js";
+import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
 
 // Pinned to the Kotlin engine's 32 kHz (item 108 moved the web default to
 // 48 kHz): the expectations below are sample counts and reference renders
@@ -1094,7 +1095,10 @@ test("2/3 extended: $11x (invert, jittered) is audible the same way $101 is", ()
     { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_3, arg: 0x0f11,
       effect2: EffectOp.OP_COLON, arg2: 0x0100 },
   ]);
-  render(eng, 6);
+  // Seeded: on Math.random, about one walk in sixty toggles nothing in the
+  // first thousand bytes the scan below looks at.
+  setRandomSource(makeSeededRandom(1090));
+  try { render(eng, 6); } finally { setRandomSource(null); }
   const inst = eng.instruments[1];
   const voice = voice0(eng);
   assert.equal(inst.modOpExt, 0x110);

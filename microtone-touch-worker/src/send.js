@@ -1,7 +1,9 @@
 // Sending a sketch to Microtone — through the same online projects the
 // tracker's File tab lists (core/storage/online.js, the server under
-// /api/online). Touch adds nothing to that protocol: a sketch arrives as an
-// ordinary online project, and Microtone opens it like any other.
+// /api/online). A sketch goes up as a .mtsk (core/sketch/mtsk.js): a few
+// hundred bytes to a few kilobytes, without the instrument pack, so the
+// server keeps sketches in slots of their own, many more than its projects.
+// Microtone lists them beside the projects and opens one as a new project.
 //
 // The first send creates the project; later sends save over THAT project
 // (quoting the etag it was last sent with), so re-sending a sketch as it grows
@@ -10,22 +12,22 @@
 // says so and offers the file itself instead.
 
 import * as online from "../core/storage/online.js";
-import { sketchToTaud, sketchFileName } from "./sketch.js";
+import { sketchToTaud, sketchToFile, sketchFileName } from "./sketch.js";
 
 const MESSAGES = {
   offline: "No connection. Try again when you are back online.",
-  quota: "Your online projects are full. Delete one in Microtone, then send again.",
-  "too-large": "This sketch is larger than an online project can be.",
-  exists: "You already have an online project with this name.",
+  quota: "Your online sketches are full. Delete one in Microtone (File → Online projects), then send again.",
+  "too-large": "This sketch is larger than an online sketch can be.",
+  exists: "You already have an online sketch with this name.",
   conflict: "That project was changed somewhere else since you last sent it.",
   "signed-out": "Your sign-in has expired. Sign in again to send.",
   "bad-name": "That name cannot be used for an online project.",
 };
 const message = (code) => MESSAGES[code] ?? `The server said no (${code}).`;
 
-/** An online project is named like a file — the tracker's Save As adds
- *  `.taud` too, and the server requires it. */
-const projectName = (name) => sketchFileName({ name });
+/** An online sketch is named like a file, and its `.mtsk` is what puts it
+ *  in a sketch slot. */
+const projectName = (name) => sketchFileName({ name }, online.SKETCH_EXT);
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -111,17 +113,18 @@ async function offerSend(ctx, st) {
   };
 }
 
-/** Create the project, or save over the one this sketch was last sent as. */
+/** Create the online sketch, or save over the one this sketch was last sent as. */
 async function send(sketch, bank, name) {
-  const bytes = sketchToTaud({ ...sketch, name }, bank);
+  const bytes = sketchToFile({ ...sketch, name }, bank);
   const file = projectName(name);
   if (sketch.sent) {
     try {
       const p = await online.save(sketch.sent.id, bytes, sketch.sent.etag);
       return { id: p.id, etag: p.etag };
     } catch (err) {
-      // Deleted in Microtone since: send it afresh rather than fail.
-      if (err.status !== 404 && err.code !== "not-found") throw err;
+      // Deleted in Microtone since, or a project slot (a sketch sent as a
+      // .taud before sketches had slots of their own): send it afresh.
+      if (err.status !== 404 && err.code !== "not-found" && err.code !== "not-taud") throw err;
     }
   }
   const { projects } = await online.list();
@@ -138,7 +141,7 @@ async function send(sketch, bank, name) {
 function offerExists(ctx, name, project) {
   render(ctx.body, `
     <h2>That name is taken</h2>
-    <p>You already have an online project called “${esc(projectName(name))}”. Replace it with this sketch, or send it under another name.</p>
+    <p>You already have an online sketch called “${esc(projectName(name))}”. Replace it with this one, or send it under another name.</p>
     <div class="row">
       <button type="button" class="tbtn" data-act="replace">Replace it</button>
       <button type="button" class="tbtn primary" data-act="back">Choose another name</button>
@@ -149,7 +152,7 @@ function offerExists(ctx, name, project) {
   ctx.body.querySelector('[data-act="back"]').onclick = async () => offerSend(ctx, await online.status());
   ctx.body.querySelector('[data-act="replace"]').onclick = async () => {
     try {
-      const p = await online.save(project.id, sketchToTaud({ ...ctx.sketch, name }, ctx.bank), null);
+      const p = await online.save(project.id, sketchToFile({ ...ctx.sketch, name }, ctx.bank), null);
       ctx.onSent({ id: p.id, etag: p.etag }, name);
       msg.className = "ok";
       msg.textContent = "Sent. Open it in Microtone from File → Online projects.";
@@ -178,7 +181,7 @@ function offerConflict(ctx, name) {
     msg.hidden = false;
   };
   ctx.body.querySelector('[data-act="replace"]').onclick = () => run(async () => {
-    const p = await online.save(ctx.sketch.sent.id, sketchToTaud({ ...ctx.sketch, name }, ctx.bank), null);
+    const p = await online.save(ctx.sketch.sent.id, sketchToFile({ ...ctx.sketch, name }, ctx.bank), null);
     return { id: p.id, etag: p.etag };
   });
   ctx.body.querySelector('[data-act="new"]').onclick = () => run(() => send({ ...ctx.sketch, sent: null }, ctx.bank, `${name} (phone)`));

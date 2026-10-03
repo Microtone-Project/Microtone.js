@@ -81,7 +81,7 @@ Behaviour (per midi2taud.md):
     default from the tempo map, the MIDI time signatures and onset-subdivision
     analysis: rpb·speed fine-ticks per beat is chosen to represent the finest
     subdivision actually used, keep every tempo inside the Taud BPM register
-    (25..535), and stay near the proven 24-fts/beat grid — so plain 4/4 @ 120
+    (25..1048), and stay near the proven 24-fts/beat grid — so plain 4/4 @ 120
     BPM still reproduces the old speed 6 / rpb 4. Passing --rpb or --speed pins
     that axis and auto-fits the other; pass both to fully override. As a final
     step, a bend- or polyphony-heavy song with rpb < 8 has its rpb doubled (and
@@ -89,8 +89,8 @@ Behaviour (per midi2taud.md):
     key-offs, exclusiveClass chokes, bend portamento (G) and channel-volume (M)
     effects more distinct rows to land on, so fewer are eaten by same-row / per-
     cell-slot collisions. Disabled by pinning --rpb or --speed.
-    MIDI tempo changes map to T $xx00 set-tempo effects (or T $FFxx extended
-    set-tempo above 280 BPM); channel volume /
+    MIDI tempo changes map to T $xx00 set-tempo effects (or the T $FFxx…$FCxx
+    extended set-tempo above 280 BPM); channel volume /
     expression (CC7 × CC11) map to M $xx00 channel-volume effects so they
     never disturb the velocity-driven patch selection axis.
   * A MIDI whose declared tempo does not describe its own events — the beat is
@@ -161,6 +161,7 @@ from taud_common import (
     cue_instruction_halt_at, cue_instruction_jump,
     last_note_cue_index, nearest_minifloat,
     IXMP_PAN_NO_OVERRIDE, IXMP_CHAN_DISCRETE, atten_cb_to_octet,
+    TAUD_BPM_MIN, TAUD_BPM_MAX, tempo_effect_arg,
 )
 
 SIGNATURE = b'midi2taud/TSVM'   # 14 bytes
@@ -1199,8 +1200,8 @@ _SUBDIV_THRESHOLD = 0.95
 # NOTE: row/pattern count depends only on rpb (rows = beats×rpb); speed is "free"
 # sub-row + tempo precision, so the picker spends it rather than minimising F.
 _F_TARGET = 24
-# Taud BPM register is bias-25 in [25, 535] (T $FFxx extends past 280); tick rate Hz = bpm·2/5.
-_TAUD_BPM_LO, _TAUD_BPM_HI = 25, 535
+# Taud BPM register is bias-25 in [25, 1048] (T $FFxx…$FCxx extend past 280); tick rate Hz = bpm·2/5.
+_TAUD_BPM_LO, _TAUD_BPM_HI = TAUD_BPM_MIN, TAUD_BPM_MAX
 
 # RPB bump: bend- or polyphony-heavy songs cram more triggers / key-offs / chokes
 # / bend-G / channel-M into each beat than emit_cells can place on distinct rows,
@@ -3342,11 +3343,8 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
                    f"clamped to {_TAUD_BPM_LO}..{_TAUD_BPM_HI} (try a different --rpb/--speed)")
         return max(_TAUD_BPM_LO, min(_TAUD_BPM_HI, t))
 
-    def tempo_effarg(tb):
-        # T $xx00 set-tempo (BPM = xx+$19) up to 280; T $FFxx extended (BPM = xx+$118) above.
-        if tb <= 280:
-            return ((tb - 25) & 0xFF) << 8
-        return 0xFF00 | ((tb - 280) & 0xFF)
+    # T $xx00 set-tempo (BPM = xx+$19) up to 280; T $FFxx…$FCxx extended above.
+    tempo_effarg = tempo_effect_arg
 
     n_voices, voice_part, voice_slot = allocate_voices(notes, speed, max_voices)
     if n_voices == 0:

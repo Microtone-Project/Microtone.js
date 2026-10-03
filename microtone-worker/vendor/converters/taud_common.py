@@ -176,6 +176,26 @@ TOP_V    = 0x1F
 TOP_W    = 0x20
 TOP_Y    = 0x22
 
+# The tempo register: ten bits biased by -25 (song table byte 7, byte 8 bit 7,
+# byte 28 bit 7), so 25..1048 BPM (TAUD_FILE_FORMAT.md §4).
+TAUD_BPM_MIN = 25
+TAUD_BPM_MAX = 25 + 0x3FF
+
+
+def tempo_effect_arg(bpm: int) -> int:
+    """Argument of the `T` effect that sets `bpm` (TAUD_NOTE_EFFECTS.md §T).
+
+    `T $xx00` sets 26..280. Above that, `T $FFxx`..`T $FCxx` with a NON-ZERO xx
+    each carry on where the one above stops: $FF 281..535, $FE 536..790,
+    $FD 791..1045, $FC 1046..1048. 25 BPM itself has no set form ($0000 is an
+    empty tempo slide), so it comes out as that no-op, as it always has."""
+    bpm = max(TAUD_BPM_MIN, min(TAUD_BPM_MAX, int(bpm)))
+    if bpm <= 280:
+        return ((bpm - 25) & 0xFF) << 8
+    k = (bpm - 281) // 255
+    return ((0xFF - k) << 8) | (bpm - 280 - 255 * k)
+
+
 # Volume / pan column selectors (2-bit field at top of vol/pan byte)
 SEL_SET  = 0     # 6-bit value: set vol / pan
 SEL_UP   = 1     # 6-bit per-tick slide up / right
@@ -632,15 +652,17 @@ def encode_song_entry(song_offset: int, num_voices: int, num_patterns: int,
         u16 base_note, f32 base_freq,
         u8 flags, u8 global_vol, u8 mixing_vol,
         u32 pat_bin_comp_size, u32 cue_sheet_comp_size,
-        u16 num_cues (was reserved), byte[4] reserved.
+        u16 num_cues (was reserved), u8 bpm_bit9<<7 (immutable song flags),
+        byte[3] reserved.
 
-    `bpm_stored` is `bpm - 25` and may be a 9-bit value (0..510 ⇒ BPM 25..535);
-    its low 8 bits go to the bpm byte and bit 8 is packed into bit 7 of the
-    tick-rate byte (which therefore caps tick_rate at 0..127). `num_cues` is the
+    `bpm_stored` is `bpm - 25`, a 10-bit value (0..1023 ⇒ BPM 25..1048): its
+    low 8 bits go to the bpm byte, bit 8 into bit 7 of the tick-rate byte (which
+    therefore caps tick_rate at 0..127) and bit 9 into bit 7 of the immutable
+    song flags, whose surround model (bits 0..1) a converter leaves 0. `num_cues` is the
     cue count of the (v2) cue sheet, so a loader need not derive it from the
     decompressed size (0 in a legacy v1 file). See terranmon.txt §"Song Table".
     """
-    bpm_stored = max(0, min(0x1FE, bpm_stored))
+    bpm_stored = max(0, min(TAUD_BPM_MAX - TAUD_BPM_MIN, bpm_stored))
     entry = struct.pack('<IBHBBHfBBBIIH',
         song_offset,
         num_voices & 0xFF,
@@ -655,7 +677,7 @@ def encode_song_entry(song_offset: int, num_voices: int, num_patterns: int,
         pat_bin_comp_size & 0xFFFFFFFF,
         cue_sheet_comp_size & 0xFFFFFFFF,
         num_cues & 0xFFFF,
-    ) + b'\x00' * 4
+    ) + bytes([((bpm_stored >> 9) & 1) << 7, 0, 0, 0])
     assert len(entry) == TAUD_SONG_ENTRY
     return entry
 

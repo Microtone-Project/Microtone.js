@@ -339,7 +339,7 @@ This is the least mechanical conversion: MIDI has no patterns, no rows and no la
 
 ### 7.1 The rhythmic grid
 
-MIDI time is continuous; Taud time is rows and ticks. The converter chooses **rows per beat** and **ticks per row** together, from the tempo map, the time signatures and an analysis of which onset subdivisions the song actually uses. The chosen `rpb × speed` fine-ticks per beat must represent the finest subdivision in use, keep every tempo inside the 25…535 BPM register, and stay near the proven 24-fine-ticks-per-beat grid — so plain 4/4 at 120 BPM still comes out as the familiar speed 6, 4 rows per beat.
+MIDI time is continuous; Taud time is rows and ticks. The converter chooses **rows per beat** and **ticks per row** together, from the tempo map, the time signatures and an analysis of which onset subdivisions the song actually uses. The chosen `rpb × speed` fine-ticks per beat must represent the finest subdivision in use, keep every tempo inside the 25…1048 BPM register, and stay near the proven 24-fine-ticks-per-beat grid — so plain 4/4 at 120 BPM still comes out as the familiar speed 6, 4 rows per beat.
 
 Pinning either axis on the command line auto-fits the other; pinning both overrides the analysis entirely.
 
@@ -359,7 +359,7 @@ What no timing analysis can settle is the **metrical level**. A stream of eighth
 
 That floor is the only thing that can leave an overlap **shorter than one step** behind, because everything else now sits on the grid and overlaps by whole steps. Within one channel and one key such an overlap is impossible in the source — nothing strikes one key twice at once — so a converter **SHOULD** resolve it: shorten the earlier note to the later one's onset, or, when both landed on the same grid point, drop it, since two strikes collapsed onto one instant are one strike. The same test **MUST NOT** be applied across different keys of one lane: a kick sounding under a hi-hat overlaps in exactly that way and is not an accident. Quantising runs after the grid has been chosen, because the picker reads the raw onsets and must see the timing the performance was aiming at rather than one this pass has already imposed. A converter offering this **SHOULD** warn that it erases swing, flams and grace notes along with the mistakes.
 
-Tempo changes become `T $xx00`, or the extended `T $FFxx` form above 280 BPM. MIDI channel volume and expression (CC7 × CC11) become `M $xx00` lane-volume effects, deliberately **not** volume-column writes: the volume column is the velocity axis that selects Ixmp patches, and driving it from CC7 would change which sample plays.
+Tempo changes become `T $xx00`, or one of the extended forms `T $FFxx` … `T $FCxx` above 280 BPM. MIDI channel volume and expression (CC7 × CC11) become `M $xx00` lane-volume effects, deliberately **not** volume-column writes: the volume column is the velocity axis that selects Ixmp patches, and driving it from CC7 would change which sample plays.
 
 Cues break at every time-signature change, and each section is packed into whole-bar cues — the largest multiple of its bar length that fits in 64 rows — so a tracker's beat highlighting lines up with the music.
 
@@ -444,7 +444,7 @@ The shared bank spans the **union** of every song's instruments, so the 8 MiB po
 
 ROL was a step sequencer, and the converter that turned it into an event stream only rescaled the clock — so the **greatest common divisor of every delta time IS the composer's original tick**, and `240 ÷ gcd` is the rows per beat. Every GCD observed across 1128 reference songs divides 240, so the grid is exact and no event is quantised away. Header byte 50 states the same number outright in the 59 files that set it, and it agrees with the GCD in all of them; it is a cross-check, not a shortcut, because the other 1069 leave it zero.
 
-Speed and BPM are then one equation with a free parameter — a row lasts `speed × 2.5 ÷ BPM` seconds — and the parameter is spent on making the **tick as short as the 535 BPM ceiling allows**. That is not cosmetic: the tick is the resolution of every envelope in the engine, and an OPL percussive attack of two milliseconds smeared over a 20 ms tick is a different instrument. A typical song lands near 480 BPM at speed 8, so its tick is 5 ms rather than 20. A tempo change re-solves the same equation and writes `A` and `T` on two lanes of the same row.
+Speed and BPM are then one equation with a free parameter — a row lasts `speed × 2.5 ÷ BPM` seconds — and the parameter is spent on making the **tick as short as an 800 BPM ceiling allows**. That is not cosmetic: the tick is the resolution of every envelope in the engine, and an OPL percussive attack of two milliseconds smeared over a 20 ms tick is a different instrument. A typical song lands between 700 and 800 BPM, so its tick is about 3.3 ms rather than 20. The ceiling stops short of the register's 1048 on purpose: an operator's release is a Volume Fadeout (§8.2), a step taken once a tick, so the longest tail it can draw is 1024 ticks — 3.2 s at 800 BPM, 2.4 s at 1048 — and a fifth of the patches in the IMS banks have a release slow enough to lose the difference. A tempo change re-solves the same equation and writes `A` and `T` on two lanes of the same row.
 
 ### 8.2 An OPL patch is an FM rack
 
@@ -564,7 +564,7 @@ An `.ims` is a ROL score rescaled onto a 240-tick MIDI grid and has to have the 
 
 Tracks map the same way. The format has twenty of them because a YMF262 in rhythm mode offers fifteen melodic voices plus five percussion ones, and Taud has thirty-two lanes — so track is lane, one to one, with nothing allocated, shared or stolen, which is also how Note plays it. A track Note does not sound is not written: a **mode-0** track is the silent upper half of a four-operator pair, whose events are kept from before the pair was joined, and without rhythm mode tracks 9 and 10 are no channel at all. Trailing tracks with nothing to play are left out.
 
-Speed and BPM are solved as in §8.1, for the same reason and with the same result: a typical song lands near 500 BPM at a speed in the twenties, so its tick is 5 ms rather than 20.
+Speed and BPM are solved as in §8.1, against the same 800 BPM ceiling and for the same reasons: a typical song lands between 700 and 800 BPM, so its tick is about 3.3 ms rather than 20.
 
 ### 9.2 A four-operator instrument stays four operators
 

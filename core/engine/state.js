@@ -414,7 +414,7 @@ export class Playhead {
     this.position = 0;
     this.masterVolume = 0;
     this.masterPan = 128;
-    this.bpm = 125;      // 25..535
+    this.bpm = 125;      // BPM_MIN..BPM_MAX (25..1048)
     this.tickRate = 6;
     this.patBank1 = 0;
     this.patBank2 = 0;
