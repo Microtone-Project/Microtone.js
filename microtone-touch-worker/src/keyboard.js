@@ -57,10 +57,6 @@ export class Keyboard {
     this._readColours();
 
     new ResizeObserver(() => this._resize()).observe(canvas.parentElement);
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-      this._readColours();
-      this.paint();
-    });
 
     canvas.addEventListener("pointerdown", (e) => this._down(e));
     canvas.addEventListener("pointermove", (e) => this._move(e));
@@ -158,6 +154,12 @@ export class Keyboard {
   }
 
   // ── painting ──
+
+  /** The theme changed (theme.js): the colours are cached, so read them again. */
+  retheme() {
+    this._readColours();
+    this.paint();
+  }
 
   _readColours() {
     const cs = getComputedStyle(document.documentElement);

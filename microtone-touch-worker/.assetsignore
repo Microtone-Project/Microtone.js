@@ -2,7 +2,6 @@
 # applies this list, the same syntax as microtone-worker/.assetsignore).
 test/
 node_modules/
-package.json
 .dev.vars*
 .wrangler/
 README.md

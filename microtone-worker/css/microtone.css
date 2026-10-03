@@ -706,6 +706,10 @@ select, input[type="range"] {
   cursor: pointer; /* opens the About popup */
 }
 
+.about-modal .brand-container {
+  font-size: 1.7rem;
+}
+
 .brand {
   text-shadow: 0 0 4.0px rgba(0, 0, 0, 0.15),
                0 0 2.0px rgba(0, 0, 0, 0.15),
@@ -2715,6 +2719,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .about-modal { max-width: min(calc(94vw / var(--ui-zoom, 1)), 600px); max-height: min(calc(84vh / var(--ui-zoom, 1)), 46rem); overflow-y: auto; }
 .about-modal h3 { font-size: 1.3rem; }
 .about-modal p { margin: 0.55rem 0; text-align: justify; hyphens: auto; }
+.about-modal p.dim { font-size: 0.85rem; }
+.about-modal .about-version { margin-top: 0.1rem; font-size: 0.85rem; }
 /* Keep Close reachable when the text scrolls (short viewports). */
 .about-modal .modal-buttons {
   position: sticky; bottom: 0;

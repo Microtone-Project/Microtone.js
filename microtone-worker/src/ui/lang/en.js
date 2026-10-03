@@ -348,6 +348,7 @@ export default {
   "about.thanksEmpty": "Donors and sponsors will be listed here — thank you for supporting the project!",
   "about.docs": "Documentation",
   "about.patchNotes": "Patch notes",
+  "about.version": "Version {version}",
 
   // ── files view ──
   "files.save": "Save",

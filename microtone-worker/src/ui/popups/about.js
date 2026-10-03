@@ -4,12 +4,28 @@
 //
 // The blurb is three separate keys, not one: the text goes through esc(), so a
 // single string cannot carry paragraph markup.
+//
+// The version under the wordmark is package.json's — the one the desktop app
+// takes as its own and its updater compares against. It ships beside the
+// pages (and in the desktop bundle) for exactly this, so a bump there is all
+// a release needs; test/node/version.test.js keeps it shipped.
 
 import { t } from "../i18n.js";
 
 const THANKS = [
   // ["Name", "note"], — donors/sponsors, newest first
 ];
+
+let version = null;
+
+/** package.json's version, read once; null when it cannot be read. */
+function appVersion() {
+  version ??= fetch(new URL("../../../package.json", import.meta.url))
+    .then((res) => (res.ok ? res.json() : null))
+    .then((pkg) => (typeof pkg?.version === "string" ? pkg.version : null))
+    .catch(() => null);
+  return version;
+}
 
 export function showAbout() {
   const dlg = document.createElement("dialog");
@@ -19,7 +35,8 @@ export function showAbout() {
         `<li><b>${esc(n)}</b>${note ? ` — ${esc(note)}` : ""}</li>`).join("")}</ul>`
     : `<p class="dim">${esc(t("about.thanksEmpty"))}</p>`;
   dlg.innerHTML = `
-    <h3 class="brand-container"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span></h3>
+    <h2 class="brand-container"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span></h2>
+    <p class="dim about-version" hidden></p>
     <p>${esc(t("about.blurb1"))}</p>
     <p>${esc(t("about.blurb2"))}</p>
     <p>${esc(t("about.blurb3"))}</p>
@@ -44,6 +61,12 @@ export function showAbout() {
   dlg.addEventListener("cancel", () => dlg.remove());
   dlg.addEventListener("keydown", (e) => e.stopPropagation());
   dlg.showModal();
+  appVersion().then((v) => {
+    if (!v) return;
+    const line = dlg.querySelector(".about-version");
+    line.textContent = t("about.version", { version: v });
+    line.hidden = false;
+  });
 }
 
 function esc(s) {

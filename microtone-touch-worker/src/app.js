@@ -10,23 +10,32 @@
 // plays. Record on and stopped, a key writes at the cursor and the cursor
 // steps down. Record on and playing, a key writes where the playhead is — and
 // lifting it writes the key-off — so a phrase can be played in over the loop.
+//
+// The sketch in hand is a working copy: where it is KEPT — on this phone or
+// online — is its home (saving.js), and Save writes it back there. Opening
+// another sketch, or starting a new one, starts a new undo history.
 
 import { AudioSystem } from "../core/audio/audio-system.js";
 import { pitchTablePresets, nearestDegreeIndex, noteForDegree } from "../core/tuning/pitchtables.js";
 import { buildBank, PRESETS, DRUMS, presetById } from "../core/sketch/pack.js";
 import { LAYOUTS, fitLayout } from "./lattice.js";
 import {
-  newSketch, normaliseSketch, toTaudDoc, patternBytes, patternSlot, emptySection,
+  newSketch, normaliseSketch, toTaudDoc, patternBytes, patternSlot, emptySection, sketchDigest, isBlank,
   LANES, ROWS, MAX_SECTIONS, NOTE_OFF, TUNINGS, FX, FX_IDS, tuningById,
 } from "./sketch.js";
 import { Keyboard, originPeriod } from "./keyboard.js";
 import { Grid } from "./grid.js";
 import { noteLabel } from "./notes.js";
-import { openSend } from "./send.js";
+import { save, openSaveAs, keepOrDiscard } from "./saving.js";
+import { FilesPanel, openLoad } from "./files.js";
+import { fitBrand, initMenu } from "./topbar.js";
 import { initSplit } from "./split.js";
+import { THEMES, themeChoice, setTheme, initTheme } from "./theme.js";
+import { openAbout } from "./about.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "microtone-touch:sketch";
+const FILE_KEY = "microtone-touch:file";
 const PREFS_KEY = "microtone-touch:prefs";
 const STEPS = [1, 2, 4, 0];
 const SECTION_NAMES = "ABCDEFGHIJKLMNOP";
@@ -37,7 +46,8 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 // ── state ────────────────────────────────────────────────────────────────────
 
 const bank = buildBank();
-let sketch = load(STORE_KEY, normaliseSketch, newSketch);
+const stored = load(STORE_KEY, (raw) => raw, () => null);
+let sketch = stored ? normaliseSketch(stored) : newSketch();
 const prefs = load(PREFS_KEY, (p) => ({
   layout: LAYOUTS.some((l) => l.id === p?.layout) ? p.layout : "wicki",
   size: Number.isFinite(p?.size) ? Math.min(48, Math.max(20, p.size)) : 30,
@@ -48,6 +58,28 @@ const prefs = load(PREFS_KEY, (p) => ({
 }), () => ({ layout: "wicki", size: 30, octaves: {} }));
 
 const ui = { section: 0, lane: 0, row: 0, step: 1, record: false, loopSection: true };
+
+/**
+ * Where the sketch in hand is kept — null (nowhere yet), { where: "local",
+ * id } or { where: "online", id, etag } — and its digest as it was last
+ * saved or opened: anything else is unsaved. Neither is part of the sketch,
+ * so undo never moves them. A sketch from before Save had only `sent`, the
+ * online project it was last sent as.
+ */
+let { home, savedDigest } = load(FILE_KEY, (f) => ({
+  home: validHome(f?.home),
+  savedDigest: typeof f?.saved === "string" ? f.saved : "",
+}), () => ({
+  home: stored?.sent?.id ? validHome({ where: "online", ...stored.sent }) : null,
+  savedDigest: isBlank(sketch) ? sketchDigest(sketch) : "",
+}));
+
+function validHome(h) {
+  if (!h || typeof h.id !== "string") return null;
+  if (h.where === "local") return { where: "local", id: h.id };
+  if (h.where === "online") return { where: "online", id: h.id, etag: typeof h.etag === "string" ? h.etag : null };
+  return null;
+}
 let audio = null;
 let playing = false;
 let audioDocKey = null;
@@ -67,10 +99,19 @@ function load(key, normalise, fresh) {
 let saveTimer = 0;
 function saveSoon() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(sketch)); } catch { /* full or private */ }
-  }, 300);
+  saveTimer = setTimeout(saveNow, 300);
 }
+function saveNow() {
+  clearTimeout(saveTimer);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(sketch)); } catch { /* full or private */ }
+}
+/** The working copy and its home go together: a home saved beside a stale
+ *  copy would have Save put the wrong sketch there. */
+function saveFileState() {
+  saveNow();
+  try { localStorage.setItem(FILE_KEY, JSON.stringify({ home, saved: savedDigest })); } catch { /* ignore */ }
+}
+const unsaved = () => sketchDigest(sketch) !== savedDigest;
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
 }
@@ -124,8 +165,6 @@ function renderAll() {
   grid.render(sketch, ui.section, tuning(), ui.lane);
   grid.setCursor(ui.lane, ui.row);
   renderSections();
-  showText($("bpmVal"), String(sketch.bpm));
-  setValue($("tuningSel"), sketch.tuning);
   showText($("stepVal"), String(ui.step));
   $("undoBtn").disabled = undoStack.length === 0;
   $("redoBtn").disabled = redoStack.length === 0;
@@ -305,18 +344,27 @@ const layoutName = (id) => LAYOUTS.find((l) => l.id === id)?.name ?? id;
 
 // ── audio ────────────────────────────────────────────────────────────────────
 
+/** The tap on the veil. The sound starts inside it (a browser starts audio
+ *  only from a gesture), and the veil stays up, its keys lit, until the
+ *  engine runs — on a slow connection, until the worklet has arrived — so no
+ *  key is played into an engine that is not there yet. */
 async function startAudio() {
-  $("startVeil").hidden = true;
+  const veil = $("startVeil");
+  veil.dataset.state = "starting";
+  $("startBtn").disabled = true;
+  showText($("startHint"), "Starting the sound…");
   try {
-    audio = new AudioSystem();
-    await audio.init();
-    await audio.resume();
+    const system = new AudioSystem();
+    await system.init();
+    await system.resume();
+    audio = system;
     audioDocKey = null;
     syncAudio();
   } catch (e) {
     audio = null;
     toast(`No sound: ${e.message}`);
   }
+  veil.hidden = true;
 }
 
 /** The transport's copy: reloaded only when its shape changed. */
@@ -611,6 +659,8 @@ function openFxSheet() {
   });
 }
 
+/** BPM… — and, since it is about how the song runs, what happens when it
+ *  ends. */
 function openTempoSheet() {
   showSheet(`
     <h2>Tempo</h2>
@@ -622,6 +672,7 @@ function openTempoSheet() {
       <button type="button" class="tbtn" data-d="5">+5</button>
     </div>
     <input type="range" min="40" max="240" value="${sketch.bpm}" data-range>
+    <label class="check"><input type="checkbox" name="loop" ${sketch.loop ? "checked" : ""}> At the end of the song, loop back to A</label>
     <div class="row"><button class="tbtn" value="close">Done</button></div>`, (body) => {
     const set = (v) => {
       const bpm = Math.min(240, Math.max(40, Math.round(v)));
@@ -632,54 +683,119 @@ function openTempoSheet() {
     };
     body.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => set(sketch.bpm + Number(b.dataset.d))));
     body.querySelector("[data-range]").addEventListener("input", (e) => set(Number(e.target.value)));
-  });
-}
-
-function openMenu() {
-  showSheet(`
-    <h2>${esc(sketch.name)}</h2>
-    <label>Name<input type="text" name="name" value="${esc(sketch.name)}" maxlength="64" autocomplete="off"></label>
-    <label class="row" style="align-items:center"><input type="checkbox" name="loop" ${sketch.loop ? "checked" : ""}> The song loops back to A when it ends</label>
-    <div class="row">
-      <button type="button" class="tbtn" data-act="new">New sketch</button>
-      <button class="tbtn" value="close">Done</button>
-    </div>
-    <p>Send a sketch to carry on with it in Microtone, where it opens as an ordinary project.</p>`, (body) => {
-    body.querySelector('[name="name"]').addEventListener("change", (e) => {
-      const name = e.target.value.trim();
-      if (name) edit(() => { sketch.name = name.slice(0, 64); });
-    });
     body.querySelector('[name="loop"]').addEventListener("change", (e) => {
       edit(() => { sketch.loop = e.target.checked; }, { structure: true });
     });
-    body.querySelector('[data-act="new"]').addEventListener("click", () => {
-      showSheet(`
-        <h2>Start a new sketch?</h2>
-        <p>This one is replaced. Undo brings it back until the page is closed.</p>
-        <div class="row">
-          <button type="button" class="tbtn primary" data-act="yes">New sketch</button>
-          <button class="tbtn" value="close">Keep this one</button>
-        </div>`, (b2) => b2.querySelector('[data-act="yes"]').addEventListener("click", () => {
-        edit(() => { sketch = Object.assign(newSketch(), { bpm: sketch.bpm, tuning: sketch.tuning }); },
-          { structure: true, lanes: [...Array(LANES).keys()] });
-        ui.section = 0; ui.row = 0;
-        if (audio) { audioDocKey = null; syncAudio(); }
-        configureKeyboard();
-        renderAll();
-        closeSheet();
-      }));
-    });
   });
+}
+
+function openTuningSheet() {
+  showSheet(`
+    <h2>Temperament</h2>
+    <div class="chips">${TUNINGS.map((t) => `
+      <button type="button" class="tbtn" data-tuning="${t.id}" aria-pressed="${t.id === sketch.tuning}">${esc(t.name)}</button>`).join("")}
+    </div>
+    <p>Notes already written move to the nearest step of the new tuning.</p>
+    <div class="row"><button class="tbtn" value="close">Done</button></div>`, (body) => {
+    body.querySelectorAll("[data-tuning]").forEach((b) => b.addEventListener("click", () => {
+      closeSheet();
+      if (b.dataset.tuning !== sketch.tuning) setTuning(b.dataset.tuning);
+    }));
+  });
+}
+
+/** Theme… — applied as it is tapped, so the choice can be seen before Done. */
+function openThemeSheet() {
+  showSheet(`
+    <h2>Theme</h2>
+    <div class="chips">${THEMES.map((t) => `
+      <button type="button" class="tbtn" data-theme-id="${t.id}" aria-pressed="${t.id === themeChoice()}">${t.name}</button>`).join("")}
+    </div>
+    <p>System follows the phone's own dark or light setting.</p>
+    <div class="row"><button class="tbtn" value="close">Done</button></div>`, (body) => {
+    const chips = [...body.querySelectorAll("[data-theme-id]")];
+    for (const b of chips) {
+      b.addEventListener("click", () => {
+        setTheme(b.dataset.themeId);
+        for (const o of chips) o.setAttribute("aria-pressed", String(o === b));
+      });
+    }
+  });
+}
+
+// ── keeping sketches ─────────────────────────────────────────────────────────
+
+/** Put another sketch in hand — opened from `where`, or new (null) — with a
+ *  fresh undo history: undoing into the last one would have Save write it
+ *  over this one's home. */
+function replaceSketch(next, where) {
+  if (playing) togglePlay();
+  keyboard.releaseAll();
+  sketch = next;
+  undoStack.length = 0;
+  redoStack.length = 0;
+  take = null;
+  ui.section = 0;
+  ui.row = 0;
+  if (audio) { audioDocKey = null; syncAudio(); }
+  home = where;
+  savedDigest = sketchDigest(sketch);
+  saveFileState();
+  configureKeyboard();
+  renderAll();
+  grid.setPlayRow(0);
+  if (sheet.open) closeSheet();
+  files.close();
+}
+
+/** What saving.js and files.js see of the page. */
+const docs = {
+  sheet, body: sheetBody, bank, toast, unsaved,
+  sketch: () => sketch,
+  home: () => home,
+  snapshot(name = sketch.name) {
+    const copy = { ...structuredClone(sketch), name };
+    return { sketch: copy, digest: sketchDigest(copy) };
+  },
+  saved(where, snap) {
+    if (sketch.name !== snap.sketch.name) edit(() => { sketch.name = snap.sketch.name; });
+    home = where;
+    savedDigest = snap.digest; // a change made while it was saving stays unsaved
+    saveFileState();
+  },
+  renamed(name, where) {
+    const clean = !unsaved();
+    if (sketch.name !== name) edit(() => { sketch.name = name; });
+    home = where;
+    if (clean) savedDigest = sketchDigest(sketch);
+    saveFileState();
+  },
+  homeGone() {
+    home = null;
+    savedDigest = "";
+    saveFileState();
+  },
+  open: replaceSketch,
+  newSketch: () => keepOrDiscard(docs, () => {
+    replaceSketch(Object.assign(newSketch(), { bpm: sketch.bpm, tuning: sketch.tuning }), null);
+  }),
+  covered(on) {
+    $("app").inert = on;
+    if (on) keyboard.releaseAll();
+  },
+};
+
+const files = new FilesPanel($("files"), docs);
+
+/** The menu's first line: the sketch, where it is kept, and whether all of
+ *  it is. */
+function menuCaption() {
+  const where = !home ? "not saved yet" : home.where === "local" ? "on this phone" : "online";
+  return `${sketch.name} — ${where}${home && unsaved() ? ", unsaved changes" : ""}`;
 }
 
 // ── wiring ───────────────────────────────────────────────────────────────────
 
-for (const t of TUNINGS) {
-  const o = document.createElement("option");
-  o.value = t.id;
-  o.textContent = t.name;
-  $("tuningSel").append(o);
-}
 for (const l of LAYOUTS) {
   const o = document.createElement("option");
   o.value = l.id;
@@ -700,13 +816,34 @@ $("loopBtn").addEventListener("click", () => {
   if (audio) syncAudio();
   renderAll();
 });
-$("bpmBtn").addEventListener("click", openTempoSheet);
-$("tuningSel").addEventListener("change", (e) => setTuning(e.target.value));
-$("sendBtn").addEventListener("click", () => openSend({
-  sheet, body: sheetBody, sketch, bank, toast,
-  onSent: (sent, name) => edit(() => { sketch.sent = sent; sketch.name = name; }),
-}));
-$("menuBtn").addEventListener("click", openMenu);
+initMenu($("menu"), $("menuBtn"), {
+  before() {
+    showText($("menuCap"), menuCaption());
+    showText($("menuBpm"), String(sketch.bpm));
+    showText($("menuTuning"), tuningById(sketch.tuning).name);
+    showText($("menuTheme"), THEMES.find((t) => t.id === themeChoice()).name);
+    // About… lives on the wordmark; the menu offers it only while the bar
+    // has no room for the wordmark to be tapped.
+    $("menuAbout").hidden = $("brand").dataset.fit !== "none";
+  },
+  items: {
+    bpm: openTempoSheet,
+    tuning: openTuningSheet,
+    save: () => save(docs),
+    saveAs: () => openSaveAs(docs),
+    load: () => openLoad(docs),
+    files: () => files.open(),
+    theme: openThemeSheet,
+    about: () => openAbout(showSheet),
+  },
+});
+fitBrand($("transport"), $("brand"), $("topSpacer"));
+$("brand").addEventListener("click", () => openAbout(showSheet));
+$("brand").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  openAbout(showSheet);
+});
 $("offBtn").addEventListener("click", () => { writeCell(ui.section, ui.lane, ui.row, { n: NOTE_OFF }); advance(); });
 $("clearBtn").addEventListener("click", () => { writeCell(ui.section, ui.lane, ui.row, null); advance(); });
 $("stepBtn").addEventListener("click", () => {
@@ -738,7 +875,12 @@ const zoom = (d) => {
 $("zoomOut").addEventListener("click", () => zoom(-4));
 $("zoomIn").addEventListener("click", () => zoom(4));
 
-document.addEventListener("visibilitychange", () => { if (document.hidden) keyboard.releaseAll(); });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) return;
+  keyboard.releaseAll();
+  saveNow(); // a phone may never come back to this page
+});
+addEventListener("pagehide", saveNow);
 
 // Device Posture: mirrored onto the root for browsers that have the API but
 // not the CSS media feature (touch.css reads both).
@@ -754,6 +896,7 @@ const split = initSplit({
   bar: $("splitter"), knob: $("splitKnob"), handKnob: $("handKnob"),
 }, prefs, savePrefs);
 
+initTheme(() => keyboard.retheme());
 configureKeyboard();
 renderAll();
 grid.setPlayRow(0); // stopped: the playhead waits on row 0, where Play begins
@@ -762,4 +905,11 @@ grid.setPlayRow(0); // stopped: the playhead waits on row 0, where Play begins
 window.__touch = {
   get sketch() { return sketch; }, ui, bank, keyboard, grid,
   get audio() { return audio; }, get playing() { return playing; }, startAudio, togglePlay, split, prefs,
+  get home() { return home; }, docs, files,
 };
+
+// Everything has loaded and is wired: the veil stops saying "Loading…" and
+// takes the tap that starts the sound.
+$("startVeil").dataset.state = "ready";
+$("startBtn").disabled = false;
+showText($("startHint"), "Tap to start the sound");

@@ -339,6 +339,7 @@ export default {
   "about.thanksEmpty": "후원자와 스폰서가 이곳에 실립니다 — 프로젝트를 지원해 주셔서 감사합니다!",
   "about.docs": "문서",
   "about.patchNotes": "패치 노트",
+  "about.version": "버전 {version}",
 
   // ── files view ──
   "files.save": "저장",

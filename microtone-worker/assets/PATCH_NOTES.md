@@ -6,6 +6,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-04
 
+The About box now says which version of Microtone you are running.
+
+- **Click the Microtone logo** in the top bar to see it, under the logo: the same version number the desktop app's updates go by.
+
 Songs can now run at up to 1048 BPM, nearly twice the old ceiling of 535.
 
 - **Type a tempo up to 1048** in the Project view and the New Project dialog, and tap one that fast too.

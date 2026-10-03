@@ -1,10 +1,16 @@
 /* Microtone Touch.
  *
  * Every colour is a token on :root — DOM and canvas alike (the keyboard reads
- * them through getComputedStyle) — in the tracker's own dark and light
- * palettes, so the two read as one family. Never hard-code a colour below.
+ * them through getComputedStyle) — once per theme: the tracker's own three,
+ * dark, dim and light, under its names and in its palettes wherever the two
+ * share a token, so the two read as one family. index.html sets data-theme
+ * before the first paint and src/theme.js keeps it right. Never hard-code a
+ * colour below — save in the wordmark's block, which is microtone.css's own,
+ * verbatim.
  */
-:root {
+/* ── THEME: DARK ─────────────────────────────────────────────────────────── */
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #16181d;
   --panel: #1f232b;
@@ -20,6 +26,8 @@
   --rec-border: #7a3434;
   --ok-fg: #9df0ae;
   --err-fg: #ffb0b0;
+  --brand: #ff4362;   /* the wordmark, in the tracker's own two inks */
+  --brand2: #eeeeee;
 
   --row-beat: #20242d;
   --row-bar: #262c38;
@@ -48,60 +56,116 @@
   --lane-5: #ffdd00;
   --lane-6: #6be6c1;
   --lane-7: #ff9ff0;
+}
 
+/* ── THEME: DIM — the tracker's mid grey ─────────────────────────────────── */
+:root[data-theme="dim"] {
+  color-scheme: dark;
+  --bg: #2f3136;
+  --panel: #3a3d45;
+  --panel-2: #444753;
+  --fg: #e8e9ec;
+  --fg2: #bcc1cb;
+  --dim: #a4aab5;
+  --accent: #ffc043;
+  --accent-2: #78dce7;
+  --border: #565b62;
+  --rec-fg: #ff5c5c;
+  --rec-bg: #55353c;
+  --rec-border: #8a4141;
+  --ok-fg: #9df0ae;
+  --err-fg: #ffb0b0;
+  --brand: #ff4362;
+  --brand2: #eeeeee;
+
+  --row-beat: #36393f;
+  --row-bar: #3f434b;
+  --row-play: #4d4329;
+  --cursor: #3a4f6b;
+  --fx-ink: #ff8f71;
+
+  /* Black keys go DARKER than the grey ground, as on a piano — lighter, they
+   * would be lost against the inert keys, which are --panel. */
+  --key-natural: #d0d4db;
+  --key-natural-ink: #1d1f24;
+  --key-near: #7d8492;
+  --key-near-ink: #f2f4f8;
+  --key-accidental: #24262b;
+  --key-accidental-ink: #d0d4db;
+  --key-edge: #1c1e22;
+  --key-tonic: #ffc043;
+  --key-down: #ffc043;
+  --key-down-ink: #16181d;
+  --key-ghost: #78dce7;
+
+  --lane-0: #ffb35c;
+  --lane-1: #7fd1ff;
+  --lane-2: #ff7f9e;
+  --lane-3: #b59cff;
+  --lane-4: #8be400;
+  --lane-5: #ffdd00;
+  --lane-6: #6be6c1;
+  --lane-7: #ff9ff0;
+}
+
+/* ── THEME: LIGHT ────────────────────────────────────────────────────────── */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #fafbfd;
+  --panel: #f0f2f6;
+  --panel-2: #e4e7ee;
+  --fg: #24272e;
+  --fg2: #656c7d;
+  --dim: #69707d;
+  --accent: #a44500;
+  --accent-2: #1d66b8;
+  --border: #c2c7d1;
+  --rec-fg: #c22f2f;
+  --rec-bg: #fbe3e3;
+  --rec-border: #d99d9d;
+  --ok-fg: #1d6b32;
+  --err-fg: #a03434;
+  --brand: #f20046;
+  --brand2: #404758;
+
+  --row-beat: #eef0f4;
+  --row-bar: #e3e6ee;
+  --row-play: #f4e3b8;
+  --cursor: #c5d8ef;
+  --fx-ink: #d4319d;
+
+  --key-natural: #ffffff;
+  --key-natural-ink: #24272e;
+  --key-near: #b9c0cd;
+  --key-near-ink: #24272e;
+  --key-accidental: #3a404c;
+  --key-accidental-ink: #f0f2f6;
+  --key-edge: #8d95a4;
+  --key-tonic: #a44500;
+  --key-down: #a44500;
+  --key-down-ink: #ffffff;
+  --key-ghost: #1d66b8;
+
+  --lane-0: #b35b00;
+  --lane-1: #1d66b8;
+  --lane-2: #c2185b;
+  --lane-3: #6a3fc8;
+  --lane-4: #3c8200;
+  --lane-5: #8a6d00;
+  --lane-6: #00806a;
+  --lane-7: #a3249a;
+}
+
+:root {
   --tap: 40px;     /* the smallest thing a thumb should have to hit */
   --gap: 5px;
   accent-color: var(--accent);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --bg: #fafbfd;
-    --panel: #f0f2f6;
-    --panel-2: #e4e7ee;
-    --fg: #24272e;
-    --fg2: #656c7d;
-    --dim: #69707d;
-    --accent: #a44500;
-    --accent-2: #1d66b8;
-    --border: #c2c7d1;
-    --rec-fg: #c22f2f;
-    --rec-bg: #fbe3e3;
-    --rec-border: #d99d9d;
-    --ok-fg: #1d6b32;
-    --err-fg: #a03434;
-
-    --row-beat: #eef0f4;
-    --row-bar: #e3e6ee;
-    --row-play: #f4e3b8;
-    --cursor: #c5d8ef;
-    --fx-ink: #d4319d;
-
-    --key-natural: #ffffff;
-    --key-natural-ink: #24272e;
-    --key-near: #b9c0cd;
-    --key-near-ink: #24272e;
-    --key-accidental: #3a404c;
-    --key-accidental-ink: #f0f2f6;
-    --key-edge: #8d95a4;
-    --key-tonic: #a44500;
-    --key-down: #a44500;
-    --key-down-ink: #ffffff;
-    --key-ghost: #1d66b8;
-
-    --lane-0: #b35b00;
-    --lane-1: #1d66b8;
-    --lane-2: #c2185b;
-    --lane-3: #6a3fc8;
-    --lane-4: #3c8200;
-    --lane-5: #8a6d00;
-    --lane-6: #00806a;
-    --lane-7: #a3249a;
-  }
-}
-
 * { box-sizing: border-box; }
+/* `hidden` always hides, whatever display a rule below gives the element —
+ * .tbtn is inline-flex, #files a grid on a wide or folding screen. */
+[hidden] { display: none !important; }
 html, body {
   margin: 0;
   height: 100%;
@@ -283,7 +347,6 @@ button, select, input { font: inherit; color: inherit; }
 .tbtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .tbtn small { color: var(--dim); }
 .tbtn.rec[aria-pressed="true"] { background: var(--rec-bg); border-color: var(--rec-border); color: var(--rec-fg); }
-.tbtn.send { border-color: var(--accent-2); color: var(--accent-2); }
 .tsel { padding-right: 4px; max-width: 7em; }
 .keyhead .tbtn { min-width: 34px; }
 /* A phone held upright: every control in the two bars has to fit 360 px. */
@@ -299,6 +362,14 @@ button, select, input { font: inherit; color: inherit; }
 .ico-play { width: 0; height: 0; border-style: solid; border-width: 7px 0 7px 12px; border-color: transparent transparent transparent currentColor; }
 .ico-stop { background: currentColor; width: 12px; height: 12px; border-radius: 2px; }
 .ico-rec { background: currentColor; border-radius: 50%; width: 13px; height: 13px; }
+.ico-menu {
+  width: 16px;
+  height: 12px;
+  background:
+    linear-gradient(currentColor 0 0) top / 100% 2px no-repeat,
+    linear-gradient(currentColor 0 0) center / 100% 2px no-repeat,
+    linear-gradient(currentColor 0 0) bottom / 100% 2px no-repeat;
+}
 .ico-more::before { content: "⋯"; position: absolute; inset: -6px 0 0; text-align: center; font-size: 20px; line-height: 20px; }
 .ico-clear::before { content: "⌫"; position: absolute; inset: -3px 0 0; text-align: center; font-size: 17px; line-height: 17px; }
 .ico-undo::before { content: "↶"; position: absolute; inset: -4px 0 0; text-align: center; font-size: 19px; line-height: 19px; }
@@ -306,7 +377,47 @@ button, select, input { font: inherit; color: inherit; }
 
 /* ── sections ────────────────────────────────────────────────────────────── */
 
-#transport { border-bottom: 1px solid var(--border); }
+#transport { border-bottom: 1px solid var(--border); position: relative; }
+
+/* ── the wordmark ────────────────────────────────────────────────────────── */
+
+/* Microtone's wordmark, copied VERBATIM from microtone-worker/css/microtone.css
+ * (and its markup from that index.html), so that the two apps change
+ * together under one grep — the mark itself lives in .brand-tm::after alone. Do not
+ * edit it here; edit both. */
+.brand-container {
+  display: inline-block;
+  font-family: "Geist", sans-serif;
+  font-weight: 900;
+  font-style: oblique;
+  font-size: 1.333rem;
+  margin: 0 0.333rem;
+  cursor: pointer; /* opens the About popup */
+}
+
+.brand {
+  text-shadow: 0 0 4.0px rgba(0, 0, 0, 0.15),
+               0 0 2.0px rgba(0, 0, 0, 0.15),
+               0 0 1.0px rgba(0, 0, 0, 0.80);
+}
+.brand-red { color: var(--brand); }
+.brand-white { color: var(--brand2); }
+.brand-dim { margin-left: 0.14rem; color: var(--dim); font-weight: 400; font-style: normal; font-size: 1.222rem; }
+.brand-tm { margin-left: 0.14rem; color: var(--dim); font-weight: 700; font-style: normal; font-size: 0.25em; position: relative; top: -2em }
+.brand-tm::after { content: "TM" }
+
+/* …and Touch's own word after it: the same face, in the accent. */
+.brand-touch { margin-left: 0.25em; color: var(--accent); }
+
+/* In the bar it takes the room the controls leave (topbar.js fitBrand):
+ * "Touch", then the whole mark, is lifted out of the flow and hidden rather
+ * than removed, so it can still be measured. */
+#brand { flex: none; touch-action: manipulation; }
+#brand:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; border-radius: 4px; }
+#brand:active { opacity: 0.7; } /* it opens About */
+#brand[data-fit="short"] .brand-touch,
+#brand[data-fit="none"] { position: absolute; visibility: hidden; }
+
 #editing { border-top: 1px solid var(--border); }
 .sec {
   min-width: 40px;
@@ -409,7 +520,6 @@ button, select, input { font: inherit; color: inherit; }
   place-items: center;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
 }
-.veil[hidden] { display: none; }
 .start {
   border: 1px solid var(--border);
   background: var(--panel);
@@ -419,10 +529,56 @@ button, select, input { font: inherit; color: inherit; }
   gap: 10px;
   justify-items: center;
 }
-.brand { font-size: 26px; letter-spacing: 0.01em; }
-.brand b { color: var(--rec-fg); font-weight: 700; }
-.brand i { color: var(--accent); font-style: normal; font-weight: 600; }
+/* The start veil's mark, as the tracker's splash sizes its own. */
+.start-brand {
+  font-family: "Geist", sans-serif;
+  font-weight: 900;
+  font-style: oblique;
+  font-size: 2rem;
+}
 .start-hint { color: var(--dim); }
+
+/* Seven keys of the board, the six round the middle one lighting in turn —
+ * a glissando round a chord — while the page loads, and again while the
+ * sound starts; still once a tap is all it is waiting for. Pure CSS, so it
+ * runs from the first paint, before any script has arrived. The keys stand
+ * as the board's do, pointy end up: a neighbour is one key-width away. */
+.start-keys {
+  --w: 22px;                  /* a key's width */
+  --h: calc(var(--w) * 1.1547); /* …and height, w · 2/√3 */
+  position: relative;
+  width: calc(var(--w) * 3);
+  height: calc(var(--h) * 2.5);
+}
+.start-keys i {
+  position: absolute;
+  left: calc(50% + var(--x, 0) * var(--w) - var(--w) / 2);
+  top: calc(50% + var(--y, 0) * var(--h) - var(--h) / 2);
+  width: var(--w);
+  height: var(--h);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  transform: scale(0.9);
+  background: var(--key-natural);
+}
+.start-keys i:nth-child(1) { background: var(--key-accidental); }
+/* the ring, clockwise from the right */
+.start-keys i:nth-child(2) { --x: 1;    --y: 0;     --n: 0; }
+.start-keys i:nth-child(3) { --x: 0.5;  --y: 0.75;  --n: 1; }
+.start-keys i:nth-child(4) { --x: -0.5; --y: 0.75;  --n: 2; }
+.start-keys i:nth-child(5) { --x: -1;   --y: 0;     --n: 3; }
+.start-keys i:nth-child(6) { --x: -0.5; --y: -0.75; --n: 4; }
+.start-keys i:nth-child(7) { --x: 0.5;  --y: -0.75; --n: 5; }
+.veil:not([data-state="ready"]) .start-keys i:not(:first-child) {
+  animation: start-key 1.2s linear infinite;
+  animation-delay: calc(var(--n) * 0.2s - 1.2s);
+}
+@keyframes start-key {
+  0%, 30%, 100% { background: var(--key-natural); }
+  6% { background: var(--key-down); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .veil:not([data-state="ready"]) .start-keys i:not(:first-child) { animation: none; }
+}
 
 .sheet {
   border: 1px solid var(--border);
@@ -432,10 +588,14 @@ button, select, input { font: inherit; color: inherit; }
   padding: 0;
   width: min(92vw, 420px);
   max-height: 84vh;
+  overflow: auto;
 }
 .sheet::backdrop { background: color-mix(in srgb, var(--bg) 60%, transparent); }
 .sheet form { display: grid; gap: 12px; padding: 16px; }
 .sheet h2 { margin: 0; font-size: 17px; }
+.sheet h3 { margin: 4px 0 -4px; font-size: 14px; color: var(--fg2); }
+.sheet .check { display: flex; align-items: center; gap: 8px; min-height: var(--tap); }
+.sheet .check input { width: 20px; height: 20px; margin: 0; }
 .sheet p { margin: 0; color: var(--fg2); }
 .sheet .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .sheet .tbtn { height: 42px; }
@@ -454,6 +614,28 @@ button, select, input { font: inherit; color: inherit; }
 .chips .tbtn { justify-content: flex-start; }
 .chips .tbtn[aria-pressed="true"] { background: var(--cursor); }
 .fx-grid { display: grid; grid-template-columns: 6em repeat(3, 1fr); gap: 6px; align-items: center; }
+/* About (src/about.js), after the tracker's own .about-modal. */
+.about { display: grid; gap: 10px; }
+.about .brand-container { margin: 0; font-size: 1.7rem; }
+.about p { color: var(--fg); }
+.about .about-fine { color: var(--dim); font-size: 12px; }
+.about h3 {
+  margin: 6px 0 -4px;
+  color: var(--accent);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.about a { color: var(--accent); }
+/* Close sits right, and stays in reach while the text scrolls — as the
+ * tracker's About keeps its own. */
+.about-buttons {
+  justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  padding-top: 8px;
+  background: var(--panel);
+}
 .err { color: var(--err-fg); }
 .ok { color: var(--ok-fg); }
 
@@ -468,4 +650,190 @@ button, select, input { font: inherit; color: inherit; }
   border-radius: 10px;
   padding: 10px 14px;
   max-width: 90vw;
+}
+
+/* ── the menu ────────────────────────────────────────────────────────────── */
+
+/* Dropped from the hamburger: topbar.js sets top and right from the button. */
+.menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  min-width: 13em;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100dvh - 60px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.menu::backdrop { background: transparent; }
+.menu-body { display: grid; padding: 4px 0; }
+.menu-cap {
+  margin: 0;
+  padding: 6px 14px 8px;
+  color: var(--fg2);
+  font-size: 12px;
+  max-width: 18em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-body button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  background: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+  touch-action: manipulation;
+}
+.menu-body button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.menu-body button:active { background: var(--panel-2); }
+.menu-val { margin-left: auto; color: var(--dim); }
+.menu-body hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--border); }
+
+/* ── the Files panel ─────────────────────────────────────────────────────── */
+
+.files {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+           env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+.files-a { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; min-width: 0; }
+.files-head { border-bottom: 1px solid var(--border); }
+.files-head h1 { margin: 0 4px; font-size: 17px; }
+.files-tabs { border-bottom: 1px solid var(--border); }
+.files-tabs .tbtn { flex: 1 1 0; }
+.files-tabs .tbtn[aria-selected="true"] { border-color: var(--accent); color: var(--accent); background: var(--cursor); }
+.files-col { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; min-width: 0; }
+.files > .hinge { display: none; }
+.files-colhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 8px 4px 12px;
+}
+.files-colhead h2 { margin: 0; font-size: 15px; }
+.files-count { color: var(--dim); }
+.files-note { margin: 0; padding: 6px 12px; color: var(--fg2); }
+.files-who { padding-top: 0; }
+.files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.file-row { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--border); }
+.file-row[aria-current="true"] { box-shadow: inset 3px 0 0 var(--accent); }
+.file-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 52px;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  text-align: left;
+  touch-action: manipulation;
+}
+.file-open:active { background: var(--panel); }
+.file-name { font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-meta { color: var(--dim); font-size: 12px; }
+.file-meta b { color: var(--accent); font-weight: 600; }
+.file-more { min-width: var(--tap); }
+.sheet .files-list { padding: 0; overflow: visible; }
+
+/* On a phone held upright, one list at a time (the tabs above). */
+#files[data-tab="online"] #filesLocal { display: none; }
+#files[data-tab="online"] .files-a { flex: 0 0 auto; }
+#files[data-tab="local"] #filesOnline { display: none; }
+
+/* With room for both, both: the bar across the top, a column each. */
+@media (min-width: 640px) {
+  #files {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "head head" "local online";
+  }
+  #files .files-a { display: contents; }
+  #files .files-tabs { display: none; }
+  #files[data-tab] #filesLocal, #files[data-tab] #filesOnline { display: flex; }
+  #files .files-head { grid-area: head; }
+  #filesLocal { grid-area: local; border-right: 1px solid var(--border); }
+  #filesOnline { grid-area: online; }
+}
+
+/* A foldable: a segment each, and nothing in the crease. Side by side the
+ * bar stays over the phone's own list; one above the other, it heads the
+ * upper segment. */
+@media (horizontal-viewport-segments: 2) {
+  #files {
+    display: grid;
+    grid-template-columns:
+      env(viewport-segment-width 0 0)
+      calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0))
+      1fr;
+    grid-template-rows: 100%;
+    grid-template-areas: none;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+@media (vertical-viewport-segments: 2) {
+  #files {
+    display: grid;
+    grid-template-rows:
+      env(viewport-segment-height 0 0)
+      calc(env(viewport-segment-top 0 1) - env(viewport-segment-bottom 0 0))
+      1fr;
+    grid-template-columns: 100%;
+    grid-template-areas: none;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  #files .files-a { padding-top: env(safe-area-inset-top, 0px); }
+  #filesOnline { padding-bottom: env(safe-area-inset-bottom, 0px); }
+}
+@media (horizontal-viewport-segments: 2), (vertical-viewport-segments: 2) {
+  #files .files-a { display: flex; }
+  #files .files-tabs { display: none; }
+  #files[data-tab] #filesLocal, #files[data-tab] #filesOnline { display: flex; }
+  #files .files-a, #files .files-head, #filesLocal, #filesOnline { grid-area: auto; }
+  #filesLocal { border-right: 0; }
+  #files > .hinge { display: block; background: var(--bg); }
+}
+
+/* A sheet keeps to one segment too — the second, under the hand that holds
+ * the keyboard — rather than straddling the hinge. */
+@media (horizontal-viewport-segments: 2) {
+  .sheet {
+    left: env(viewport-segment-left 1 0);
+    right: 0;
+    width: min(calc(env(viewport-segment-width 1 0) - 24px), 420px);
+  }
+}
+@media (vertical-viewport-segments: 2) {
+  .sheet {
+    top: env(viewport-segment-top 0 1);
+    bottom: 0;
+    max-height: calc(env(viewport-segment-height 0 1) - 24px);
+  }
 }

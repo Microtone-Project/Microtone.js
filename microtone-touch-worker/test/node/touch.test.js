@@ -12,8 +12,13 @@ import {
 import { buildBank, PRESETS, DRUMS } from "../../core/sketch/pack.js";
 import {
   newSketch, normaliseSketch, toTaudDoc, sketchToTaud, sketchToFile, sketchFromFile, patternBytes, isBlank,
-  sketchFileName, emptySection, NOTE_OFF, LANES, ROWS, TUNINGS, FX, FX_IDS, tuningById,
+  sketchFileName, sketchDigest, emptySection, NOTE_OFF, LANES, ROWS, TUNINGS, FX, FX_IDS, tuningById,
 } from "../../src/sketch.js";
+import { cleanName, NAME_MAX } from "../../src/library.js";
+import { onlineName, shownName } from "../../src/saving.js";
+import { compilePattern, readPatterns } from "../../../tools/stage-site.js";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { sketchFileToTaud, parseSketch, writeSketch, SketchFormatError } from "../../core/sketch/mtsk.js";
 import { originPeriod } from "../../src/keyboard.js";
 import { noteLabel, noteShade } from "../../src/notes.js";
@@ -376,6 +381,47 @@ test("sketch: junk from storage is dropped, not trusted", () => {
   assert.equal(sketchFileName({ name: "riff" }, ".mtsk"), "riff.mtsk");
 });
 
+test("sketch: the digest tells an unsaved change from the sketch as it was saved", () => {
+  const s = sketchWithTune();
+  const saved = sketchDigest(s);
+  assert.equal(sketchDigest(structuredClone(s)), saved, "a copy is the same sketch");
+  assert.equal(sketchDigest(normaliseSketch(JSON.parse(JSON.stringify(s)))), saved,
+    "…and so is the working copy read back from local storage");
+  // Save as… keeps a renamed COPY, then renames the sketch in hand: the two
+  // must come out the same, or a sketch would read as unsaved the moment it
+  // was saved
+  const copy = { ...structuredClone(s), name: "riff 2" };
+  s.name = "riff 2";
+  assert.equal(sketchDigest(s), sketchDigest(copy));
+  assert.notEqual(sketchDigest(s), saved);
+  s.name = sketchWithTune().name;
+  s.sections[0].cells[3][5] = { n: 0x5100 };
+  assert.notEqual(sketchDigest(s), saved, "one note is a change");
+  s.sections[0].cells[3][5] = null;
+  s.lanes[3].mute = !s.lanes[3].mute;
+  assert.notEqual(sketchDigest(s), saved, "so is a mute");
+});
+
+test("about: package.json ships beside the page, where About reads its version", () => {
+  const site = new URL("../../", import.meta.url);
+  const ignored = readPatterns(fileURLToPath(new URL(".assetsignore", site))).map(compilePattern);
+  assert.ok(!ignored.some((matches) => matches("package.json")), ".assetsignore must not drop package.json");
+  const about = new URL("src/about.js", site);
+  const path = readFileSync(about, "utf8").match(/new URL\("([^"]*package\.json)", import\.meta\.url\)/)?.[1];
+  assert.ok(path && existsSync(new URL(path, about)), "about.js's path to package.json finds it");
+  assert.match(JSON.parse(readFileSync(new URL("package.json", site), "utf8")).version, /^\d+\.\d+\.\d+/);
+});
+
+test("saving: a name as it is kept — on the phone as typed, online as a .mtsk", () => {
+  assert.equal(cleanName("  Cafe\u0301 riff  "), "Caf\u00e9 riff", "NFC, trimmed: one name however it was typed");
+  assert.equal(cleanName("   "), "");
+  assert.equal(cleanName("x".repeat(200)).length, NAME_MAX);
+  assert.equal(onlineName('a/b:c'), "a b c.mtsk");
+  assert.equal(shownName("riff.mtsk"), "riff");
+  assert.equal(shownName(onlineName("가락 one")), "가락 one");
+  assert.equal(shownName("song.taud"), "song.taud", "a project is not a sketch");
+});
+
 test("sketch: a .mtsk carries everything a sketch is, and comes back as the same sketch", () => {
   for (const tuning of TUNINGS.map((t) => t.id)) {
     const s = sketchWithTune();
@@ -388,7 +434,7 @@ test("sketch: a .mtsk carries everything a sketch is, and comes back as the same
     s.sections.push(emptySection(), structuredClone(s.sections[0])); // a silent section in the middle survives
     s.sections[2].cells[1][63] = { n: 0x3000, fx: "fade", lv: 2 };
     const back = sketchFromFile(sketchToFile(s, bank), bank);
-    assert.deepEqual(back, { ...s, lanes: s.lanes.map((l) => ({ ...l, mute: false })), sent: null }, tuning);
+    assert.deepEqual(back, { ...s, lanes: s.lanes.map((l) => ({ ...l, mute: false })) }, tuning);
   }
   // every effect at every setting
   const s = newSketch();

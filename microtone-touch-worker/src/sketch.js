@@ -5,7 +5,7 @@
 // one 64-row pattern per lane. A cell holds a note (or a key-off) and at most
 // one of a handful of effects, with no volume and no pan column. Everything
 // the full tracker can say about a song is still reachable afterwards:
-// Microtone opens a sent sketch as an ordinary project.
+// Microtone opens a sketch saved online as an ordinary project.
 //
 // A sketch travels as a .mtsk (core/sketch/mtsk.js): the Taud pattern images
 // and a header, without the instrument pack, which every app that opens one
@@ -77,7 +77,6 @@ export function newSketch() {
     loop: true,
     lanes: DEFAULT_LANES.map((preset) => ({ preset, mute: false })),
     sections: [emptySection()],
-    sent: null, // { id, etag } of the online project this was last sent as
   };
 }
 
@@ -124,10 +123,19 @@ export function normaliseSketch(obj) {
       return out;
     });
   }
-  if (obj.sent && typeof obj.sent.id === "string") {
-    s.sent = { id: obj.sent.id, etag: typeof obj.sent.etag === "string" ? obj.sent.etag : null };
-  }
   return s;
+}
+
+/** A short fingerprint of everything a sketch holds — FNV-1a over its JSON,
+ *  and the JSON's length — to tell whether it has changed since it was saved. */
+export function sketchDigest(sketch) {
+  const json = JSON.stringify(sketch);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < json.length; i++) {
+    h ^= json.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${(h >>> 0).toString(16).padStart(8, "0")}:${json.length}`;
 }
 
 /** True when nothing has been written yet. */
@@ -209,7 +217,7 @@ export function sketchFields(sketch, bank) {
 
 /**
  * The parsed-document shape parseTaud returns (and AudioSystem.loadDocument
- * and writeTaud take) — exactly what Microtone makes of the sent file. With
+ * and writeTaud take) — exactly what Microtone makes of the saved file. With
  * `only` set, the song is that one section looping, which is what the
  * transport plays while a section is being worked on.
  */
@@ -222,7 +230,7 @@ export function sketchToTaud(sketch, bank) {
   return writeTaud(toTaudDoc(sketch, bank));
 }
 
-/** The .mtsk bytes — what Send puts online. */
+/** The .mtsk bytes — what an online save puts there. */
 export function sketchToFile(sketch, bank) {
   return writeSketch(sketchFields(sketch, bank));
 }

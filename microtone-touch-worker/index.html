@@ -14,21 +14,40 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Touch">
+  <script>
+    // Early theme: the saved choice, else the phone's own dark or light — set
+    // before the first paint, so nothing flashes the wrong palette. Once the
+    // app runs, src/theme.js is the authority; keep the two in step.
+    (function () {
+      var theme = null;
+      try { theme = localStorage.getItem("microtone-touch:theme"); } catch (e) { /* private mode */ }
+      if (["dark", "dim", "light"].indexOf(theme) < 0) {
+        theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      }
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
   <link rel="stylesheet" href="css/touch.css">
+  <!-- The wordmark's face, Geist (as microtone.css has it), without holding up
+       the first paint: the veil must be on screen while the rest loads, and
+       the mark sets itself in sans-serif until the font arrives. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..900&display=swap" media="print" onload="this.media = 'all'">
 </head>
 <body>
   <div id="app" class="app">
     <section class="pane pane-song" aria-label="Sketch">
       <div class="tracker-wrapper">
         <header id="transport" class="bar topbar">
+          <div class="brand-container" id="brand" data-fit="full" role="button" tabindex="0" aria-label="About Microtone Touch">
+            <span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span><span class="brand brand-touch">Touch</span>
+          </div>
           <button id="playBtn" class="tbtn" aria-label="Play" aria-pressed="false"><span class="ico ico-play"></span></button>
           <button id="recBtn" class="tbtn rec" aria-label="Record" aria-pressed="false"><span class="ico ico-rec"></span></button>
           <button id="loopBtn" class="tbtn wide" aria-pressed="true" title="What the transport plays">Section</button>
-          <button id="bpmBtn" class="tbtn wide" title="Tempo"><span id="bpmVal">120</span><small>bpm</small></button>
-          <select id="tuningSel" class="tsel" aria-label="Tuning"></select>
-          <span class="spacer"></span>
-          <button id="sendBtn" class="tbtn send" title="Send to Microtone">Send</button>
-          <button id="menuBtn" class="tbtn" aria-label="More"><span class="ico ico-more"></span></button>
+          <span class="spacer" id="topSpacer"></span>
+          <button id="menuBtn" class="tbtn" aria-label="Menu" aria-haspopup="menu" aria-expanded="false"><span class="ico ico-menu"></span></button>
         </header>
         <nav class="vbar sections" id="sections" aria-label="Sections"></nav>
         <div class="grid-wrap" id="gridWrap">
@@ -66,13 +85,54 @@
     </section>
   </div>
 
-  <div id="startVeil" class="veil">
-    <button id="startBtn" class="start">
-      <span class="brand"><b>Micro</b>tone <i>Touch</i></span>
-      <span class="start-hint">Tap to start the sound</span>
+  <!-- Up from the first paint, before any script runs: keys light in turn
+       while the page loads. app.js enables the button once everything is
+       wired (data-state="ready"), and the tap that starts the sound lights
+       them again until the engine is running ("starting"). -->
+  <div id="startVeil" class="veil" data-state="loading">
+    <button id="startBtn" class="start" disabled>
+      <span class="start-brand"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span><span class="brand brand-touch">Touch</span></span>
+      <span class="start-keys" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      <span class="start-hint" id="startHint" role="status">Loading…</span>
     </button>
   </div>
 
+  <!-- The Files panel takes the screen in place of the sketch: local and online
+       side by side — a screen segment each on a foldable, two columns where
+       there is room, a tab each on a phone held upright (touch.css). -->
+  <section id="files" class="files" aria-label="Files" data-tab="local" hidden>
+    <div class="files-a">
+      <header class="bar files-head">
+        <button id="filesBack" class="tbtn" aria-label="Back to the sketch">‹</button>
+        <h1>Files</h1>
+        <span class="spacer"></span>
+        <button id="filesNew" class="tbtn wide">New sketch</button>
+      </header>
+      <div class="bar files-tabs" role="tablist" aria-label="Where">
+        <button type="button" class="tbtn" role="tab" data-tab="local" aria-selected="true">On this phone</button>
+        <button type="button" class="tbtn" role="tab" data-tab="online" aria-selected="false">Online</button>
+      </div>
+      <section class="files-col" id="filesLocal" aria-label="On this phone"></section>
+    </div>
+    <div class="hinge" aria-hidden="true"></div>
+    <section class="files-col" id="filesOnline" aria-label="Online"></section>
+  </section>
+
+  <dialog id="menu" class="menu" aria-label="Menu">
+    <div class="menu-body" role="menu">
+      <p class="menu-cap" id="menuCap"></p>
+      <button type="button" role="menuitem" data-act="bpm">BPM…<span class="menu-val" id="menuBpm"></span></button>
+      <button type="button" role="menuitem" data-act="tuning">Temperament…<span class="menu-val" id="menuTuning"></span></button>
+      <hr>
+      <button type="button" role="menuitem" data-act="save">Save</button>
+      <button type="button" role="menuitem" data-act="saveAs">Save as…</button>
+      <button type="button" role="menuitem" data-act="load">Load…</button>
+      <button type="button" role="menuitem" data-act="files">Files…</button>
+      <hr>
+      <button type="button" role="menuitem" data-act="theme">Theme…<span class="menu-val" id="menuTheme"></span></button>
+      <button type="button" role="menuitem" data-act="about" id="menuAbout" hidden>About…</button>
+    </div>
+  </dialog>
   <dialog id="sheet" class="sheet"><form method="dialog" id="sheetBody"></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
