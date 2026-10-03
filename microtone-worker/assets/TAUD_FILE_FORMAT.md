@@ -808,7 +808,7 @@ The beat divisions drive a tracker's row banding and are purely cosmetic. The **
 | 0 | Raw numbers (hex note words) |
 | 1 | ProTracker pitch (period-based) |
 | 10 × *n* | *n*-tone equal temperament — 12-TET is 120, 24-TET is 240, and so on |
-| 410, 530, 960 | 41-, 53- and 96-TET in Kite notation |
+| 410, 430, 530, 960 | 41-, 53- and 96-TET in Kite notation |
 | 531 | 53-TET Pythagorean notation |
 | 10121 | Pythagorean diminished fifth (12 tones) |
 | 10122 | Pythagorean augmented fourth (12 tones) |

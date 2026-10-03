@@ -259,7 +259,7 @@ test("a neutral third is half the fifth, inside the wiki's 341-361 ¢ band", () 
   // 12-TET halves its fifth at exactly 350 ¢ but cannot SPELL it: the nearest
   // degrees are its plain major and minor thirds, 50 ¢ either side.
   assert.equal((diatonic(12).fifth * 1200) / 24, 350);
-  for (const index of [120, 150, 160, 190, 220, 0, 1, 35130]) {
+  for (const index of [120, 150, 160, 190, 220, 430, 0, 1, 35130]) {
     assert.ok(!chordPresetsFor({ index }).some((p) => p.group === "neutral"),
       `notation ${index} cannot spell a neutral third`);
   }

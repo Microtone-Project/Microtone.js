@@ -256,6 +256,9 @@ const EXTRACLASSICAL_TUNINGS = [
     { a: 6, t: 12, ji: "8/7·21/16" }, { a: 7, t: 11, ji: "7/6·9/7" }] },
   { notation: 410, edo: 41, fifth: 24, half: 2,    pairs: [
     { a: 8, t: 16, ji: "8/7·21/16" }, { a: 9, t: 15, ji: "7/6·9/7" }] },
+  { notation: 430, edo: 43, fifth: 25, half: null, pairs: [
+    { a: 8, t: 17, ji: "8/7·21/16" }, { a: 9, t: 16, ji: "15/13·13/10" },
+    { a: 10, t: 15, ji: "7/6·9/7" }] },
   { notation: 530, edo: 53, fifth: 31, half: null, pairs: [{ a: 11, t: 20 }] },
   { notation: 531, edo: 53, fifth: 31, half: null, pairs: [{ a: 11, t: 20 }] },
   { notation: 960, edo: 96, fifth: 56, half: 4,    pairs: [
