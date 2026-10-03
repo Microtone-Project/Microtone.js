@@ -1,0 +1,124 @@
+<!doctype html><meta charset="utf-8"><title>Zstandard saves, off the main thread</title>
+<pre id="out">running…</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/Temjin_speaki.taud" style="width:1200px;height:700px"></iframe>
+<script type="module">
+// The half of the zstd save path Node cannot reach: the module worker.
+//   node tools/browser-smoke.js test/browser/zstd-smoke.html 120
+// 1. Document.toSaveBytes compresses in the worker (no fallback warning) while
+//    the main thread stays free, and writes the same document back.
+// 2. The real app's Save shows its progress in the status bar, in place of the
+//    unsaved dot; writes zstd to OPFS and clears the dirty flag — and does NOT
+//    clear it when an edit lands while the save is compressing.
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { loadZstd, ZSTD_LEVEL_SAVE } from "../../core/format/zstd.js";
+import { Document } from "../../src/doc/document.js";
+
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; console.log("SMOKE: " + s); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+const isZstd = (b) => b[0] === 0x28 && b[1] === 0xb5 && b[2] === 0x2f && b[3] === 0xfd;
+const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+const warnings = [];
+const warn = console.warn;
+console.warn = (...args) => { warnings.push(args.join(" ")); warn.apply(console, args); };
+
+(async () => {
+  try {
+    // ── 1. the worker, and the main thread meanwhile ──
+    const bytes = new Uint8Array(await (await fetch("../../assets/demo_projects/Temjin_speaki.taud")).arrayBuffer());
+    const doc = new Document(parseTaud(bytes));
+    // A full sample pool of 8-bit PCM — two detuned partials and a little
+    // noise, a new pitch every 64 KiB — which level 19 has to work at, so a
+    // save that blocked would be unmistakable.
+    let x = 7;
+    for (let i = 0; i < 8 * 1024 * 1024; i++) {
+      x = (x * 1103515245 + 12345) >>> 0;
+      const f = 0.01 + ((i >> 16) % 23) * 0.003;
+      doc.sampleInstImage[i] = 128 + Math.round(70 * Math.sin(i * f) + 30 * Math.sin(i * f * 2.01) + ((x >>> 24) & 7));
+    }
+    let last = performance.now(), worstGap = 0;
+    const ticker = setInterval(() => {
+      const now = performance.now();
+      worstGap = Math.max(worstGap, now - last);
+      last = now;
+    }, 5);
+    const t0 = performance.now();
+    const saving = doc.toSaveBytes(ZSTD_LEVEL_SAVE);
+    const syncPart = performance.now() - t0; // reading the document + handing it over
+    const saved = await saving;
+    const took = performance.now() - t0;
+    clearInterval(ticker);
+    check(warnings.length === 0, "compressed in the worker (no fallback)", warnings.join("; "));
+    check(isZstd(saved.subarray(32)), "the image section is a zstd frame");
+    check(same(new Document(parseTaud(saved)).toBytes(), doc.toBytes()), "it parses back to the same document");
+    const zstd = await loadZstd();
+    const t1 = performance.now();
+    zstd.compress(doc.sampleInstImage, ZSTD_LEVEL_SAVE);
+    const inThread = performance.now() - t1;
+    check(worstGap < Math.max(150, inThread / 3), "the main thread kept running while it compressed",
+      `save ${took.toFixed(0)} ms (${syncPart.toFixed(0)} ms of it on this thread), ` +
+      `longest main-thread stall ${worstGap.toFixed(0)} ms ` +
+      `(the same compression on this thread: ${inThread.toFixed(0)} ms)`);
+
+    // ── 2. the real app's Save ──
+    const app = document.getElementById("app");
+    const win = app.contentWindow;
+    for (let i = 0; i < 300 && !win.__microtone?.store?.song; i++) await sleep(50);
+    const M = win.__microtone;
+    if (!M?.store?.song) throw new Error("the app never loaded the demo");
+    const { store, filesView } = M;
+    const opfs = await import("../../src/storage/opfs.js");
+    const bar = win.document.getElementById("stSaving");
+    const dot = win.document.getElementById("stDirty");
+    store.fileName = "zstdsmoke.taud";
+    store.online = null;
+    // the same slow-to-compress pool, so the save lasts long enough to watch
+    store.doc.sampleInstImage.set(doc.sampleInstImage.subarray(0, 8 * 1024 * 1024));
+    store.doc.dirty = true;
+    store.emit("status");
+    check(!dot.hidden && bar.hidden, "before: the unsaved dot, no bar");
+
+    // Watch the status bar while Save runs.
+    const seen = [];
+    let dotDuring = false;
+    let watching = true;
+    const watch = (async () => {
+      while (watching) {
+        if (!bar.hidden) seen.push(bar.value);
+        if (!bar.hidden && !dot.hidden) dotDuring = true;
+        await sleep(30);
+      }
+    })();
+    await filesView.save();
+    watching = false;
+    await watch;
+    const partway = seen.filter((v) => v > 0 && v < 1);
+    check(partway.length >= 3, "during: the bar shows the save part of the way through",
+      `${seen.length} looks, ${partway.length} partway: ${partway.slice(0, 8).map((v) => v.toFixed(2)).join(" ")}…`);
+    check(seen.every((v, i) => i === 0 || v >= seen[i - 1]), "…and never goes backwards");
+    check(!dotDuring, "…with the dot out of the way");
+    check(bar.hidden && dot.hidden, "after: no bar, and no dot — it is saved");
+
+    const onDisk = await opfs.read("zstdsmoke.taud");
+    check(isZstd(onDisk.subarray(32)), "Save wrote a zstd file to OPFS");
+    check(same(new Document(parseTaud(onDisk)).toBytes(), store.doc.toBytes()), "…of the open document");
+    check(store.doc.dirty === false, "…and the document is clean");
+
+    // An edit that lands while the save is still compressing.
+    const second = filesView.save();
+    store.doc.dirty = true;
+    await second;
+    check(store.doc.dirty === true, "an edit made during the save keeps the document dirty");
+    check(bar.hidden && !dot.hidden, "…so the dot is back when the bar goes");
+    await opfs.remove("zstdsmoke.taud");
+  } catch (err) {
+    fails++;
+    log("FAIL threw: " + (err?.stack ?? err));
+  }
+  log(`FAILURES: ${fails}`);
+})();
+</script>

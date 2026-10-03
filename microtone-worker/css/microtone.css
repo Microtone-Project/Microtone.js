@@ -1253,6 +1253,19 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 }
 
 .dirty { color: var(--accent); }
+/* A manual save's progress, in the unsaved dot's place (saveprogress.js). Full,
+   it breathes while the bytes are written: a blink for this browser's storage,
+   as long as the upload for an online project. */
+.statusbar .save-progress {
+  width: 4.5rem;
+  height: 0.55rem;
+  margin: 0;
+}
+.save-progress.save-writing { animation: save-breathe 0.8s ease-in-out infinite alternate; }
+@keyframes save-breathe { to { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .save-progress.save-writing { animation: none; }
+}
 
 /* Record arm. It is a TOGGLE you are meant to find, so idle it is an ordinary
    button — the dimmed version read as a disabled control. Armed, the dot, the

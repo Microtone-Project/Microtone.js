@@ -18,6 +18,8 @@ import {
 } from "../../audio/stem-export.js";
 import { showProgress } from "../popups/progress.js";
 import { unescapeName } from "../../../core/format/names.js";
+import { ZSTD_LEVEL_SAVE } from "../../../core/format/zstd.js";
+import { withSaveProgress } from "../saveprogress.js";
 import { showDemoPicker } from "../demos.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
@@ -170,8 +172,13 @@ export class FilesView {
     // A project opened from (or saved to) the online section goes back there.
     if (this.store.onlineProject) return this.online.saveOver();
     if (!fileName) return this.saveAs();
-    await opfs.write(fileName, doc.toBytes());
-    doc.dirty = false;
+    // The bytes take a moment to compress; an edit made meanwhile is not in
+    // them, and must not be marked saved when they land.
+    await withSaveProgress(this.store, async (progress) => {
+      const serial = doc.editSerial;
+      await opfs.write(fileName, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+      if (doc.editSerial === serial) doc.dirty = false;
+    });
     this.store.emit("saved", fileName);
     this.refresh();
   }
@@ -186,8 +193,11 @@ export class FilesView {
     });
     if (!result || !result.name) return;
     const name = result.name.endsWith(".taud") ? result.name : result.name + ".taud";
-    await opfs.write(name, doc.toBytes());
-    doc.dirty = false;
+    await withSaveProgress(this.store, async (progress) => {
+      const serial = doc.editSerial;
+      await opfs.write(name, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+      if (doc.editSerial === serial) doc.dirty = false;
+    });
     this.store.fileName = name;
     this.store.online = null; // a local copy: the document lives in this browser now
     this.store.emit("saved", name);
@@ -244,10 +254,11 @@ export class FilesView {
     this.refresh();
   }
 
-  export() {
+  async export() {
     const { doc, fileName } = this.cb.currentDoc();
     if (!doc) return;
-    download(doc.toBytes(), fileName ?? "untitled.taud");
+    const bytes = await withSaveProgress(this.store, (progress) => doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+    download(bytes, fileName ?? "untitled.taud");
   }
 
   /**

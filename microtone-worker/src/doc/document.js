@@ -19,7 +19,9 @@ import {
 import { defaultMastering } from "../../core/engine/mastering.js";
 import { parseRegionPayload } from "./sampleregions.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
-import { writeTaud } from "../../core/format/taud-write.js";
+import { writeTaud, writeTaudWith } from "../../core/format/taud-write.js";
+import { comp } from "../../core/format/compress.js";
+import { zstdCompressAll } from "../../core/format/zstd.js";
 
 // Cells are decoded with the ENGINE's codec, in whichever of its two layouts
 // the file declares (format version 3 = the 16-byte wide cell, §5.5), so a
@@ -223,7 +225,8 @@ export class Document {
       projectName: parsed.meta.projectName,
       songMeta: structuredClone(parsed.meta.songMeta),
     };
-    this.dirty = false; // unsaved-changes flag (ops set it; save clears it)
+    this.editSerial = 0; // counts every `dirty = true` (see the accessor)
+    this.dirty = false;
 
     this._instruments = null;     // lazily-decoded TaudInst[1024]
     this._instrumentsEdited = false; // when true, toBytes rebuilds the inst region
@@ -612,11 +615,47 @@ export class Document {
     return n;
   }
 
-  /** Re-serialise to .taud bytes (via the format layer). */
+  /** Re-serialise to .taud bytes (via the format layer), gzip sections: the
+   *  synchronous byte view in-memory comparisons are made of. A save to disk
+   *  uses toSaveBytes. */
   toBytes() {
+    return writeTaud(this._writerInput());
+  }
+
+  /**
+   * The bytes a SAVE writes: Zstandard sections at `level` (ZSTD_LEVEL_SAVE or
+   * ZSTD_LEVEL_AUTOSAVE), compressed off the main thread. Everything is read
+   * from the document before this returns its promise, so the bytes are the
+   * document as it was when the save began; an edit made while they compress is
+   * not in them, and editSerial tells the caller whether there was one. Saves
+   * gzip — still a valid file — if the encoder cannot run here at all.
+   *
+   * `onProgress(done, total)`, for a save that shows its progress, follows the
+   * compression in bytes of input (zstdCompressAll).
+   */
+  toSaveBytes(level, onProgress = null) {
+    return writeTaudWith(this._writerInput(), (raw) =>
+      zstdCompressAll(raw, level, onProgress).catch((err) => {
+        console.warn(`Save: Zstandard unavailable (${err.message}); writing gzip`);
+        return raw.map((bytes) => comp(bytes));
+      }));
+  }
+
+  /** Unsaved-changes flag: ops set it, a save clears it. Every setting of it
+   *  also counts in editSerial — the only way a save that took a while can
+   *  tell that an edit landed while it ran. */
+  get dirty() { return this._dirty; }
+  set dirty(value) {
+    if (value) this.editSerial++;
+    this._dirty = value;
+  }
+
+  /** What writeTaud takes, with the sections the document keeps decoded
+   *  (instrument records, sMet) rebuilt first. */
+  _writerInput() {
     this._rebuildInstRegion();
     this._rebuildSMet();
-    return writeTaud({
+    return {
       kind: this.kind,
       // The cell layout the patterns below are encoded in — without it the
       // writer would stride the bin as if they were 8-byte cells (§5.5).
@@ -635,12 +674,12 @@ export class Document {
         mixingVolume: s.mixingVolume,
         surroundModel: s.surroundModel,
         // Null gaps (unmaterialised arbitrary-number patterns, item 48) serialise
-        // as empty patterns — gzip compresses the sparsity.
+        // as empty patterns — the compressor absorbs the sparsity.
         patterns: s.patterns.map((p) => (p ? encodePattern(p, this.wideCells) : emptyPatternBytes(this.wideCells))),
         cues: s.cues,
       })),
       projSections: this.projSections,
-    });
+    };
   }
 
   /** Encode one pattern back to its 512-byte image (worklet sync). An index
@@ -654,9 +693,9 @@ export class Document {
   // ── item 48: arbitrary pattern numbers ──
   // Every pattern 0x0000..0x7FFE is conceptually available. The in-memory array
   // is grown (with `null` gaps — cheap) only when a pattern is actually EDITED;
-  // gaps and the whole 0..length-1 range serialise as empty patterns (gzip
-  // compresses the sparsity), so a song can reference/create any pattern number
-  // without pre-creating the ones below it.
+  // gaps and the whole 0..length-1 range serialise as empty patterns (the
+  // compressor absorbs the sparsity), so a song can reference/create any
+  // pattern number without pre-creating the ones below it.
 
   /** Highest addressable pattern index (cue words are 15-bit, 0x7FFF = empty). */
   static get MAX_PATTERN() { return 0x7ffe; }

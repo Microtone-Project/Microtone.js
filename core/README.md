@@ -1,7 +1,7 @@
 # core — what every Microtone app shares
 
-Plain ES modules with no build step and no dependencies beyond the two vendored
-decompressors in `vendor/`. Nothing here imports from outside `core/`, and
+Plain ES modules with no build step and no dependencies beyond what is vendored
+in `vendor/`: two decompressors and the Zstandard encoder saves use. Nothing here imports from outside `core/`, and
 nothing here knows which app is using it.
 
 | Path | Contents |
@@ -9,10 +9,10 @@ nothing here knows which app is using it.
 | `engine/` | The Taud engine — the reference implementation (TSVM's `AudioAdapter.kt` follows it). Pure computation: importable by a Worker, an AudioWorklet and Node alike |
 | `worklet/` | The AudioWorkletProcessor, the engine command protocol, and the committed single-file bundle for worklets that cannot import modules |
 | `audio/` | The live audio system (context, worklet or render Worker, snapshots), its SharedArrayBuffer ring, the resampler, and offline rendering (`loadIntoEngine`, the one upload sequence every host uses) |
-| `format/` | `.taud` / `.tsii` / `.tpif` parse and write, section codecs, the name-escape convention |
+| `format/` | `.taud` / `.tsii` / `.tpif` parse and write, section codecs (saves compress with Zstandard in a worker, `zstd.js`), the name-escape convention |
 | `tuning/` | The pitch-table presets every notation is drawn from |
 | `storage/` | The online-projects client (the server is `microtone-worker/server/`) |
-| `vendor/` | fflate and fzstd, single-file ESM (see `vendor/VENDOR-VERSIONS.md`) |
+| `vendor/` | fflate and fzstd, single-file ESM, and zstd's encoder as WebAssembly in an ES module (see `vendor/VENDOR-VERSIONS.md`) |
 
 ## How the apps reach it
 

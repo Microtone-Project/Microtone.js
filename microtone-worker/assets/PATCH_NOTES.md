@@ -4,6 +4,16 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-03
+
+Projects save smaller, and saving happens in the background.
+
+- **Saved projects are about a sixth smaller**, and songs made mostly of patterns rather than samples can come out at half their old size. Save, Save As, Export and saving to your online projects all compress harder now, with Zstandard instead of gzip.
+- **Autosaves are about a tenth smaller**, at a lighter setting that takes no longer than before.
+- **You can keep working while a project saves.** The compression runs in the background, so the editor never pauses for it; an edit you make while a save is still running stays marked as unsaved until the next one.
+- **A save shows how far it has got**: the unsaved-changes dot in the status bar turns into a progress bar while Save, Save As, Export or an online save runs, and goes away when the project is saved.
+- **Nothing changes about opening files**: Microtone, TSVM and the Taud player have always read both kinds, and older projects open exactly as they did.
+
 ## 2026-10-02
 
 Microtone now comes as a desktop application for Linux, Windows and macOS, and keeps itself up to date.

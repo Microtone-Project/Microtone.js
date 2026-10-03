@@ -1,7 +1,8 @@
 // Compressed-section codec. TSVM's CompressorDelegate sniffs the 4-byte magic
 // on decompress (gzip 1F 8B 08 vs zstd 28 B5 2F FD, CompressorDelegate.kt:99-122)
 // and — despite the "gzip" JS namespace — WRITES zstd (CompressorDelegate.kt:106).
-// We decompress both and always emit real gzip, which the desktop auto-detects.
+// We decompress both. comp() writes gzip: synchronous, for the byte view
+// writeTaud makes. A save writes Zstandard instead, through zstd.js.
 
 import { gzipSync, gunzipSync } from "../vendor/fflate.esm.js";
 import { decompress as zstdDecompress } from "../vendor/fzstd.esm.js";
@@ -24,7 +25,7 @@ export function decomp(bytes, expectedSize) {
   );
 }
 
-/** Compress a section for writing (always gzip; TSVM sniffs the magic on load).
+/** Compress a section for writeTaud (gzip; every loader sniffs the magic).
  *  mtime 0 like the *2taud converters — without it fflate stamps the current
  *  time into the gzip header and toBytes() stops being deterministic. */
 export function comp(bytes) {

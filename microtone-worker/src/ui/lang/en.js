@@ -250,6 +250,7 @@ export default {
   "meta.vel": "vel",
   "range.whole": "whole range",
   "status.noFile": "no file",
+  "status.saving": "Saving…",
   "status.onlineTag": "online",
   "status.hint": "Open or import a file to begin · F9 for the File tab",
   "status.hint.timeline": "arrows move · Space record · Enter play · M/N mute/solo · Ctrl+C/V copy/paste",

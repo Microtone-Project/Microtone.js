@@ -12,6 +12,8 @@
 // and the document then belongs to the browser again.
 
 import * as online from "../../../core/storage/online.js";
+import { ZSTD_LEVEL_SAVE } from "../../../core/format/zstd.js";
+import { withSaveProgress } from "../saveprogress.js";
 import { download } from "../../storage/import-export.js";
 import { showModal } from "../widgets/modal.js";
 import { showProgress } from "../popups/progress.js";
@@ -322,28 +324,33 @@ export class OnlineSection {
    * to ask about; every other failure has already been reported.
    */
   async upload(doc, send, name) {
-    const bytes = doc.toBytes();
-    if (bytes.length > this.sizeLimit) {
-      await this.report(new online.OnlineError("too-large"), name, { saving: true });
-      return "too-large";
-    }
-    // An upload can take a while; an edit made during it is not in these
-    // bytes, and must not be marked saved when they land.
-    let editedMeanwhile = false;
-    const off = this.store.on("edit", () => { editedMeanwhile = true; });
-    let project;
-    try {
-      project = await this.waiting(send(bytes));
-    } catch (err) {
-      if (err instanceof online.OnlineError && ["conflict", "exists", "not-found"].includes(err.code)) {
-        return err.code;
+    // Compressing and uploading both take a while; an edit made during either
+    // is not in these bytes, and must not be marked saved when they land.
+    const serial = doc.editSerial;
+    // The status bar shows the save until the server has answered — and no
+    // longer: a failure's question or report comes after it is gone.
+    let failure = null;
+    const project = await withSaveProgress(this.store, async (progress) => {
+      const bytes = await this.waiting(doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+      if (bytes.length > this.sizeLimit) {
+        failure = new online.OnlineError("too-large");
+        return null;
       }
-      await this.report(err, name, { saving: true });
-      return err.code ?? "error";
-    } finally {
-      off();
+      try {
+        return await this.waiting(send(bytes));
+      } catch (err) {
+        failure = err;
+        return null;
+      }
+    });
+    if (failure) {
+      if (failure instanceof online.OnlineError && ["conflict", "exists", "not-found"].includes(failure.code)) {
+        return failure.code;
+      }
+      await this.report(failure, name, { saving: true });
+      return failure.code ?? "error";
     }
-    if (!editedMeanwhile) doc.dirty = false;
+    if (doc.editSerial === serial) doc.dirty = false;
     this.store.online = { doc, id: project.id, etag: project.etag };
     this.store.fileName = project.name;
     this.store.emit("saved", project.name);

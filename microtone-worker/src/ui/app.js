@@ -54,6 +54,8 @@ import {
 } from "./zoom.js";
 import { initI18n, applyDom, t, LANGS, changeLang, onLangChange, currentLang } from "./i18n.js";
 import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
+import { ZSTD_LEVEL_SAVE, ZSTD_LEVEL_AUTOSAVE } from "../../core/format/zstd.js";
+import { withSaveProgress, saveInProgress } from "./saveprogress.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./widgets/spinner.js";
 
@@ -334,8 +336,12 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   if (converted) store.doc.dirty = true; // imported, not yet saved anywhere
   if (converted && saveToOpfs && (await opfs.available())) {
     // Files-tab MIDI import: the CONVERSION RESULT lands in OPFS right away.
-    await opfs.write(name, store.doc.toBytes());
-    store.doc.dirty = false;
+    const doc = store.doc;
+    await withSaveProgress(store, async (progress) => {
+      const serial = doc.editSerial;
+      await opfs.write(name, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+      if (doc.editSerial === serial) doc.dirty = false;
+    });
     store.emit("saved", name);
   }
   updateStatus();
@@ -348,7 +354,7 @@ function updateStatus() {
   $("stFile").textContent = doc
     ? `${store.fileName ?? "untitled"}${where} — ${unescapeName(doc.meta.projectName ?? "untitled")} · ${doc.songs.length} ${doc.songs.length === 1 ? "song" : "songs"} · ${doc.channelCount}ch`
     : t("status.noFile");
-  $("stDirty").hidden = !doc?.dirty;
+  $("stDirty").hidden = !doc?.dirty || saveInProgress(); // a save's bar stands in for it
   // A transposed keyboard reads as the octave with its offset, "4+3".
   $("octDisp").textContent = jam.transpose === 0 ? String(jam.octave)
     : `${jam.octave}${jam.transpose > 0 ? "+" : "\u2212"}${Math.abs(jam.transpose)}`;
@@ -777,8 +783,12 @@ async function saveProjectCopyAs(name) {
   for (let n = 2; (await opfs.list()).some((f) => f.name === target); n++) {
     target = name.replace(/\.taud$/, `-${n}.taud`);
   }
-  await opfs.write(target, store.doc.toBytes());
-  store.doc.dirty = false;
+  const doc = store.doc;
+  await withSaveProgress(store, async (progress) => {
+    const serial = doc.editSerial;
+    await opfs.write(target, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+    if (doc.editSerial === serial) doc.dirty = false;
+  });
   store.fileName = target;
   store.online = null; // the copy is local, even if the original was online
   store.emit("saved", target);
@@ -1983,7 +1993,7 @@ store.on("edit", () => {
     if (!(await opfs.available())) return;
     const name = store.fileName ?? "untitled.taud";
     try {
-      await opfs.writeAutosave(name, store.doc.toBytes());
+      await opfs.writeAutosave(name, await store.doc.toSaveBytes(ZSTD_LEVEL_AUTOSAVE));
       console.info(`APP: autosaved ${name}`);
     } catch (err) {
       console.warn(`APP: autosave failed: ${err.message}`);

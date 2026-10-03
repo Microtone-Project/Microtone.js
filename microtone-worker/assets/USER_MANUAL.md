@@ -988,8 +988,8 @@ project beyond its single cue 0.
 The file **saves only up to the last used cue**: trailing empty cues are trimmed
 away, so scrolling far down (or deleting the tail of a long song) never bloats
 the save. The one caveat: *interior* gaps are kept — if you put content on cue 0
-and cue 2000 with nothing between, all 2001 cues are stored (gzip keeps that
-cheap).
+and cue 2000 with nothing between, all 2001 cues are stored (compression keeps
+that cheap).
 
 **Block copy/paste.** Select a rectangle of lane cells by dragging with the
 mouse, with **Shift+arrows**, or a whole lane column at a time with **Ctrl+A**
@@ -2109,6 +2109,7 @@ current state of it.
 ### Saving and autosave
 
 - **Save** (**Ctrl+S**) writes the current project into OPFS — or, for an [online project](#online-projects), back online; **Save As…** writes it into OPFS under a new name.
+- While a project has **unsaved changes**, a dot sits after its name in the status bar. During a save, that dot becomes a **progress bar**; the project is compressed in the background, so you can keep working, and anything you change while the bar is up stays unsaved — the dot comes back — until you save again.
 - The app **autosaves** 45 seconds after your last edit. If the browser closes with unsaved work, the next visit offers to recover it; declining discards the autosave. A clean save removes its autosave.
 
 ### Online projects

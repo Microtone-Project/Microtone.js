@@ -245,6 +245,7 @@ export default {
   "meta.vel": "세기",
   "range.whole": "전체 범위",
   "status.noFile": "파일 없음",
+  "status.saving": "저장 중…",
   "status.onlineTag": "온라인",
   "status.hint": "파일을 열거나 가져와서 시작하세요 · F9: 파일 탭",
   "status.hint.timeline": "방향키: 이동 · Space: 녹음 · Enter: 재생 · M/N: 음소거/솔로 · Ctrl+C/V: 복사/붙여넣기",

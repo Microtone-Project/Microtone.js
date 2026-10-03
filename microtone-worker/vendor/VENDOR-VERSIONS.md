@@ -1,8 +1,9 @@
 # Vendored dependencies
 
-The two single-file decompressors (fflate, fzstd) are shared with Microtone
-Touch and live in `core/vendor/` — see `core/vendor/VENDOR-VERSIONS.md`. What
-stays here is the tracker's own: the import runtime and its converters.
+The compression code — fflate, fzstd and the Zstandard encoder saves use — is
+shared with Microtone Touch and lives in `core/vendor/`; see
+`core/vendor/VENDOR-VERSIONS.md`. What stays here is the tracker's own: the
+import runtime and its converters.
 
 ## pyodide/ — CPython-in-wasm runtime (import features only)
 
