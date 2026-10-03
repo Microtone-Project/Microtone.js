@@ -39,7 +39,7 @@ export const SIGNATURE = "MicrotoneTouch";
 const CONCERT = { baseNote: 0x5c00, freq: 440 };
 const edo = (n) => ({ id: String(n), notation: n * 10, name: `${n}-TET`, ...CONCERT });
 export const TUNINGS = Object.freeze([
-  ...[4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 19, 22, 24, 31, 41, 53].map(edo),
+  ...[4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 19, 22, 24, 31, 41, 43, 53].map(edo),
   { id: "bp", notation: 35130, name: "Bohlen–Pierce", ...CONCERT },
   { id: "aak", notation: 10123, name: "A-ak (C 262 Hz)", baseNote: 0x5000, freq: 262 },
   { id: "hyangak", notation: 10123, name: "Hyang-ak (C 311 Hz)", baseNote: 0x5000, freq: 311 },
