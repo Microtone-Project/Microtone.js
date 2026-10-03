@@ -126,11 +126,35 @@ button, select, input { font: inherit; color: inherit; }
   padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
            env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
-.pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.tracker-wrapper {
+  flex: 1 1 0; /* fill the song pane, whatever share the splitter gives it */
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "trans trans"
+    "order pattern"
+    "edit edit";
+}
 /* The two panes divide what the splitter leaves; app.js (split.js) sets
  * their flex-grow from the split the person dragged to. */
 .pane-song, .pane-keys { flex: 1 1 0; }
 .hinge { display: none; }
+
+#transport { grid-area: trans; }
+#sections { grid-area: order; }
+#gridWrap { grid-area: pattern; }
+#editing { grid-area: edit; }
 
 /* Stacked (song above) or side by side (song left): split.js decides, per
  * screen orientation, and the knob on the splitter flips it. Side by side,
@@ -223,7 +247,7 @@ button, select, input { font: inherit; color: inherit; }
 
 /* ── bars and buttons ────────────────────────────────────────────────────── */
 
-.bar {
+.bar, .vbar {
   display: flex;
   align-items: center;
   gap: var(--gap);
@@ -233,7 +257,11 @@ button, select, input { font: inherit; color: inherit; }
   overflow-x: auto;
   scrollbar-width: none;
 }
+.vbar {
+  flex-flow: column;
+}
 .bar::-webkit-scrollbar { display: none; }
+.vbar::-webkit-scrollbar { display: none; }
 .spacer { flex: 1 1 auto; }
 
 .tbtn, .tsel {
@@ -278,7 +306,8 @@ button, select, input { font: inherit; color: inherit; }
 
 /* ── sections ────────────────────────────────────────────────────────────── */
 
-.sections { border-top: 1px solid var(--border); }
+#transport { border-bottom: 1px solid var(--border); }
+#editing { border-top: 1px solid var(--border); }
 .sec {
   min-width: 40px;
   height: 32px;

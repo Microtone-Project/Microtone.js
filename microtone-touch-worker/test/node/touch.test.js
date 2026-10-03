@@ -6,8 +6,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  edoSteps, layoutSteps, reachesAll, layoutWorks, fitLayout, keyDegree, hexCentre, pixelToHex, visibleKeys, LAYOUTS, TILT,
-  findFloor,
+  edoSteps, layoutSteps, reachesAll, layoutWorks, fitLayout, keyDegree, hexCentre, pixelToHex, visibleKeys, LAYOUTS,
+  findFloor, octaveStep, tiltFor, riseToRight,
 } from "../../src/lattice.js";
 import { buildBank, PRESETS, DRUMS } from "../../src/presets.js";
 import {
@@ -29,11 +29,14 @@ const C4_HZ = 440 * 2 ** (-9 / 12);
 
 // ── lattice ──────────────────────────────────────────────────────────────────
 
+/** Just a layout's two steps (it also carries its octave step and tilt). */
+const ab = ({ a, b }) => ({ a, b });
+
 test("lattice: a tuning's own intervals, from its patent fifth", () => {
   assert.deepEqual(edoSteps(12), { n: 12, fifth: 7, tone: 2, limma: 1, apotome: 1, major3: 4, minor3: 3 });
   assert.deepEqual(edoSteps(31), { n: 31, fifth: 18, tone: 5, limma: 3, apotome: 2, major3: 10, minor3: 8 });
-  assert.deepEqual(layoutSteps("wicki", 12), { a: 2, b: 7 });
-  assert.deepEqual(layoutSteps("harmonic", 12), { a: 4, b: 7 });
+  assert.deepEqual(ab(layoutSteps("wicki", 12)), { a: 2, b: 7 });
+  assert.deepEqual(ab(layoutSteps("harmonic", 12)), { a: 4, b: 7 });
   assert.deepEqual([layoutSteps("bosanquet", 53).a, layoutSteps("bosanquet", 53).b], [9, 5]);
 });
 
@@ -139,20 +142,63 @@ test("lattice: every key's centre maps back to that key, and its neighbours are 
   assert.equal(keyDegree(-1, 1, L), 5, "up-left = a fourth");
 });
 
-test("lattice: the board is the Lumatone's — pointy-topped, turned 16.1° anticlockwise", () => {
-  const o = hexCentre(0, 0, 30);
-  const along = (q, r) => { const p = hexCentre(q, r, 30); return { dx: p.x - o.x, dy: o.y - p.y }; };
-  const angle = (q, r) => { const v = along(q, r); return (Math.atan2(v.dy, v.dx) * 180) / Math.PI; };
-  const tilt = (TILT * 180) / Math.PI;
-  assert.ok(Math.abs(tilt - 16.1) < 0.01, `tilt ${tilt}`);
-  assert.ok(Math.abs(angle(1, 0) - tilt) < 1e-9, "a climbs to the right at the tilt");
-  assert.ok(Math.abs(angle(0, 1) - (tilt + 60)) < 1e-9, "b climbs steeply");
-  assert.ok(Math.abs(angle(-1, 1) - (tilt + 120)) < 1e-9, "b − a goes up and to the left");
-  for (const [q, r] of [[1, 0], [0, 1], [-1, 1]]) {
-    const v = along(q, r);
-    assert.ok(Math.abs(Math.hypot(v.dx, v.dy) - 30 * Math.sqrt(3)) < 1e-9, "all three are neighbours");
+test("lattice: a pointy-topped board turned by a tilt — neighbours at tilt, +60°, +120°", () => {
+  for (const tilt of [0, 0.3, -0.28, Math.PI / 2, 2.06]) {
+    const o = hexCentre(0, 0, 30, tilt);
+    const along = (q, r) => { const p = hexCentre(q, r, 30, tilt); return { dx: p.x - o.x, dy: o.y - p.y }; };
+    const angle = (q, r) => { const v = along(q, r); return Math.atan2(v.dy, v.dx); };
+    const same = (x, y) => Math.abs(Math.atan2(Math.sin(x - y), Math.cos(x - y))) < 1e-9;
+    assert.ok(same(angle(1, 0), tilt), `a runs at the tilt (${tilt})`);
+    assert.ok(same(angle(0, 1), tilt + Math.PI / 3), "b at tilt + 60°");
+    assert.ok(same(angle(-1, 1), tilt + (2 * Math.PI) / 3), "b − a at tilt + 120°");
+    for (const [q, r] of [[1, 0], [0, 1], [-1, 1]]) {
+      const v = along(q, r);
+      assert.ok(Math.abs(Math.hypot(v.dx, v.dy) - 30 * Math.sqrt(3)) < 1e-9, "all three are neighbours");
+    }
+    // …and the inverse finds every key again, turned or not.
+    for (let q = -5; q <= 5; q++) {
+      for (let r = -5; r <= 5; r++) {
+        const c = hexCentre(q, r, 30, tilt);
+        assert.deepEqual(pixelToHex(c.x + 7, c.y - 6, 30, tilt), { q, r });
+      }
+    }
   }
-  assert.ok(Math.abs(along(7, -2).dy) < 1e-9, "key (7, −2) is level with the origin: the lattice's own horizontal");
+});
+
+test("lattice: every layout stands the head key's octaves in a vertical column", () => {
+  for (const t of TUNINGS) {
+    const p = pitchTablePresets[t.notation];
+    const n = p.table.length;
+    for (const { id } of LAYOUTS) {
+      const steps = layoutSteps(fitLayout(id, n, p.interval), n, p.interval);
+      const name = `${t.name} / ${id}`;
+      assert.ok(steps.octave, `${name} has an octave step`);
+      const { q, r } = steps.octave;
+      for (let m = -2; m <= 2; m++) {
+        assert.equal(keyDegree(m * q, m * r, steps), m * n, `${name}: ${m} octaves`);
+        const c = hexCentre(m * q, m * r, 1, steps.tilt);
+        assert.ok(Math.abs(c.x) < 1e-9, `${name}: octave ${m} is straight above/below (x ${c.x})`);
+        assert.ok(m === 0 || Math.sign(-c.y) === Math.sign(m), `${name}: up is up`);
+      }
+      assert.ok(riseToRight(steps, steps.tilt) >= -1e-9, `${name}: the board does not fall to the right`);
+      // Not only the head key: on these layouts every key's octave is above it.
+      for (let kq = -4; kq <= 4; kq++) {
+        for (let kr = -6; kr <= 6; kr++) {
+          assert.equal(keyDegree(kq + q, kr + r, steps) - keyDegree(kq, kr, steps), n, `${name} at (${kq}, ${kr})`);
+        }
+      }
+    }
+  }
+  const deg = (id, n) => Math.round((layoutSteps(id, n).tilt * 180) / Math.PI * 10) / 10;
+  assert.equal(deg("wicki", 12), 0, "Wicki–Hayden is upright already");
+  assert.equal(deg("wicki", 31), 0);
+  assert.equal(deg("bosanquet", 12), 0);
+  assert.equal(deg("bosanquet", 19), 10.9);
+  assert.equal(deg("bosanquet", 22), -16.1, "22-TET Bosanquet turns clockwise: its octave is (−3, 4)");
+  assert.equal(deg("harmonic", 12), -30, "the harmonic table: four keys up, not three major thirds across");
+  assert.ok(riseToRight(layoutSteps("harmonic", 12), Math.PI / 2) < 0, "…which, stood upright, would fall to the right");
+  assert.equal(Math.round(tiltFor({ q: -1, r: 2 }) * 1e9), 0);
+  assert.equal(octaveStep({ a: 2, b: 4 }, 7), null, "a board that never reaches the octave has no step");
 });
 
 test("lattice: the layouts read as the Lumatone's preset charts", () => {
@@ -169,14 +215,16 @@ test("lattice: the layouts read as the Lumatone's preset charts", () => {
   assert.deepEqual([keyDegree(1, 0, h12), keyDegree(0, 1, h12), keyDegree(-1, 1, h12)], [4, 7, 3]);
 });
 
-test("lattice: the visible keys cover the board without gaps", () => {
+test("lattice: the visible keys cover the board without gaps, at any tilt", () => {
   const origin = { x: 40, y: 260 };
-  const keys = visibleKeys(390, 300, 26, origin);
-  assert.ok(keys.length > 40);
-  for (let x = 2; x < 390; x += 13) {
-    for (let y = 2; y < 300; y += 13) {
-      const { q, r } = pixelToHex(x - origin.x, y - origin.y, 26);
-      assert.ok(keys.some((k) => k.q === q && k.r === r), `(${x}, ${y}) → (${q}, ${r}) is drawn`);
+  for (const tilt of [0, 0.19, -0.28, Math.PI / 2, 2.06]) {
+    const keys = visibleKeys(390, 300, 26, origin, tilt);
+    assert.ok(keys.length > 40);
+    for (let x = 2; x < 390; x += 13) {
+      for (let y = 2; y < 300; y += 13) {
+        const { q, r } = pixelToHex(x - origin.x, y - origin.y, 26, tilt);
+        assert.ok(keys.some((k) => k.q === q && k.r === r), `tilt ${tilt}: (${x}, ${y}) → (${q}, ${r}) is drawn`);
+      }
     }
   }
 });
@@ -426,8 +474,10 @@ test("notes: labels follow the tuning's own notation", () => {
   assert.equal(at(35130, 7), "H4", "Bohlen–Pierce's H");
   const lu = pitchTablePresets[10123];
   const shade = (d) => noteShade(noteForDegree(4, d, lu), lu);
-  assert.deepEqual([0, 1, 2, 11].map(shade), ["natural", "accidental", "natural", "accidental"],
-    "Shi'er lü: yang lü light, yin lü dark");
+  // 黃 大 太 夾 姑 仲 蕤 林 夷 南 無 應, degrees 0…11.
+  const W = "natural", G = "near", B = "accidental";
+  assert.deepEqual([...Array(12).keys()].map(shade), [W, B, W, B, G, W, B, W, B, G, W, B],
+    "Shi'er lü: white 黃 太 仲 林 無, grey 姑 南, black the rest");
   assert.equal(DRUMS.length, 8);
 });
 

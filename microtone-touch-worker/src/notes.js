@@ -7,7 +7,7 @@
 // the plain-text spellings microtonal writing already uses: C+ / Dd for the
 // half-sharp and half-flat, arrows for Kite's up and down ticks.
 
-import { resolveNoteSymbol, nearestDegreeIndex } from "../core/tuning/pitchtables.js";
+import { resolveNoteSymbol } from "../core/tuning/pitchtables.js";
 import { NOTE_OFF } from "./sketch.js";
 
 const TICK = { " ": "", ".": "", u: "↑", d: "↓", U: "⇈", D: "⇊" };
@@ -32,14 +32,20 @@ export function noteLabel(note, preset) {
   return noteClass(note, preset) + s.octave;
 }
 
-/** How a key should be shaded: "natural", "near" (a Kite tick or a
- *  quarter-tone off one), or "accidental". Shi'er lü has no accidentals; it
- *  has its own split, the six yang lü (律, the even degrees from 黃) and the
- *  six yin lü (呂, the odd ones), and that is what its keys are shaded by. */
+/** Shi'er lü has no accidentals, so its keys are shaded by name: white for
+ *  黃 太 仲 林 無, grey for 姑 南, black for the other five. */
+const LU_SHADE = {
+  "\u9EC3": "natural", "\u592A": "natural", "\u4EF2": "natural", "\u6797": "natural", "\u7121": "natural", // 黃 太 仲 林 無
+  "\u59D1": "near", "\u5357": "near",                                                                        // 姑 南
+  "\u5927": "accidental", "\u593E": "accidental", "\u8564": "accidental", "\u5937": "accidental", "\u61C9": "accidental", // 大 夾 蕤 夷 應
+};
+
+/** How a key should be shaded: "natural" (white), "near" (grey: a Kite tick
+ *  or a quarter-tone off a natural), or "accidental" (black). */
 export function noteShade(note, preset) {
   const s = resolveNoteSymbol(note, preset);
   if (!s) return "natural";
-  if (s.cjk) return nearestDegreeIndex(note, preset).index % 2 === 0 ? "natural" : "accidental";
+  if (s.cjk) return LU_SHADE[s.cjk] ?? "accidental";
   if (s.acc === "-" ) return s.tick === " " || s.tick === "." ? "natural" : "near";
   if (s.acc === "t" || s.acc === "p") return "near";
   return "accidental";

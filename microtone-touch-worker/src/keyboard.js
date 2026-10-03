@@ -9,7 +9,7 @@
 // Painting is change-driven: the canvas is redrawn when its size, its
 // configuration, the theme or the set of held keys changes — never on a timer.
 
-import { layoutSteps, keyDegree, pixelToHex, visibleKeys, TILT } from "./lattice.js";
+import { layoutSteps, keyDegree, pixelToHex, visibleKeys } from "./lattice.js";
 import { noteForDegree, resolveNoteSymbol } from "../core/tuning/pitchtables.js";
 import { noteClass, noteShade } from "./notes.js";
 import { DRUMS } from "./presets.js";
@@ -101,14 +101,21 @@ export class Keyboard {
       return { note: DRUM_NOTE, drum };
     }
     const o = this._origin();
-    const { q, r } = pixelToHex(x - o.x, y - o.y, this.cfg.size);
+    const { q, r } = pixelToHex(x - o.x, y - o.y, this.cfg.size, this._steps().tilt);
     const key = this._key(q, r);
     return key.off ? null : key;
   }
 
+  /** The layout's steps on this tuning — its tilt included (lattice.js
+   *  caches them, so this is a lookup). */
+  _steps() {
+    const p = this.cfg.preset;
+    return layoutSteps(this.cfg.layout, p.table.length, p.interval);
+  }
+
   _key(q, r) {
     const p = this.cfg.preset;
-    const degree = keyDegree(q, r, layoutSteps(this.cfg.layout, p.table.length, p.interval));
+    const degree = keyDegree(q, r, this._steps());
     const note = noteForDegree(4 + originPeriod(p, this.cfg.octave), degree, p);
     return { q, r, degree, note, off: note < LOWEST || note >= HIGHEST };
   }
@@ -185,10 +192,11 @@ export class Keyboard {
     const font = Math.max(10, Math.round(size * 0.42));
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const { q, r, x, y } of visibleKeys(this.width, this.height, size, o)) {
+    const tilt = this._steps().tilt;
+    for (const { q, r, x, y } of visibleKeys(this.width, this.height, size, o, tilt)) {
       const key = this._key(q, r);
       if (key.off) {
-        hexPath(ctx, x, y, size * 0.93);
+        hexPath(ctx, x, y, size * 0.93, tilt);
         ctx.fillStyle = c["--panel"];
         ctx.fill();
         continue;
@@ -197,7 +205,7 @@ export class Keyboard {
       const down = heldNotes.has(key.note);
       const fill = down ? c["--key-down"] : c[`--key-${shade}`];
       const ink = down ? c["--key-down-ink"] : c[`--key-${shade}-ink`];
-      hexPath(ctx, x, y, size * 0.93);
+      hexPath(ctx, x, y, size * 0.93, tilt);
       ctx.fillStyle = fill;
       ctx.fill();
       const n = this.cfg.preset.table.length;
@@ -206,7 +214,7 @@ export class Keyboard {
       ctx.strokeStyle = isTonic ? c["--key-tonic"] : c["--key-edge"];
       ctx.stroke();
       if (!down && this.lit.has(key.note)) {
-        hexPath(ctx, x, y, size * 0.6);
+        hexPath(ctx, x, y, size * 0.6, tilt);
         ctx.lineWidth = 2;
         ctx.strokeStyle = c["--key-ghost"];
         ctx.stroke();
@@ -247,11 +255,11 @@ export class Keyboard {
   }
 }
 
-function hexPath(ctx, x, y, r) {
+function hexPath(ctx, x, y, r, tilt) {
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
     // A pointy-topped hexagon turned with the board (screen y runs down).
-    const a = (Math.PI / 180) * (60 * i - 30) - TILT;
+    const a = (Math.PI / 180) * (60 * i - 30) - tilt;
     const px = x + r * Math.cos(a), py = y + r * Math.sin(a);
     if (i === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);

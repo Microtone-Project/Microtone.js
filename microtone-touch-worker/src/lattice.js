@@ -1,18 +1,19 @@
 // The isomorphic keyboard's geometry — pure, Node-testable.
 //
-// The board is a hexagonal lattice addressed by axial coordinates (q, r),
-// drawn the way the Lumatone draws it: a pointy-topped grid turned
-// TILT ≈ 16.1° anticlockwise, so it is neither pointy- nor flat-topped. A
-// layout is two numbers, the degree step to the neighbour along q (`a`,
-// climbing to the right at TILT) and along r (`b`, steeply up at TILT + 60°);
-// the neighbour up and to the left, at TILT + 120°, is then `b − a`. That is
-// the whole definition of "isomorphic": the same hand shape plays the same
-// interval everywhere on the board.
+// The board is a hexagonal lattice addressed by axial coordinates (q, r): a
+// pointy-topped grid, turned by the layout's own TILT. A layout is two
+// numbers, the degree step to the neighbour along q (`a`, to the right at
+// TILT) and along r (`b`, at TILT + 60°); the neighbour at TILT + 120° is then
+// `b − a`. That is the whole definition of "isomorphic": the same hand shape
+// plays the same interval everywhere on the board.
 //
-// TILT is measured, not chosen: the key centres in the Lumatone's own preset
-// charts (12-ET Harmonic Table, 19- and 22-ET Bosanquet) sit at 15.9° ± 0.1°,
-// and atan(√3 / 6) = 16.10° is the angle at which the lattice lines up with
-// the horizontal again — key (q + 7, r − 2) is level with key (q, r).
+// The tilt is not a constant: each layout is turned so that the octave of
+// the head key stands straight above it, and the octave below straight below
+// (see octaveStep) — a column of C's up the board in every tuning. Wicki–
+// Hayden needs no turn at all; Bosanquet a few degrees either way; the
+// harmonic table and the degree run up to about 48°. (The Lumatone draws all
+// of its layouts at one tilt, atan(√3 / 6) = 16.1°, the angle at which its
+// lattice is level again at (q + 7, r − 2); Touch's tilt is the octave's.)
 //
 // The steps are not tables per tuning. On an octave-period equal tuning they
 // are derived from its own patent fifth — the nearest degree to 3/2 — so a
@@ -89,15 +90,71 @@ const stepCache = new Map();
 function computeSteps(layout, n, period) {
   const s = edoSteps(n, period);
   switch (layout) {
-    case "wicki": return { a: s.tone, b: s.fifth };
+    case "wicki": return withTilt({ a: s.tone, b: s.fifth }, n);
     case "bosanquet": {
       const steps = { a: s.tone, b: s.apotome > 0 ? s.apotome : s.limma };
       const floor = findFloor(steps, n, period);
-      return floor ? { ...steps, floor } : steps;
+      return withTilt(floor ? { ...steps, floor } : steps, n);
     }
-    case "harmonic": return { a: s.major3, b: s.fifth };
-    default: return { a: 1, b: Math.max(2, s.tone) };
+    case "harmonic": return withTilt({ a: s.major3, b: s.fifth }, n);
+    default: return withTilt({ a: 1, b: Math.max(2, s.tone) }, n);
   }
+}
+
+/** The steps, plus the octave step and the tilt that stands it upright. */
+function withTilt(steps, n) {
+  const octave = octaveStep(steps, n);
+  return { ...steps, octave, tilt: octave ? tiltFor(octave) : 0 };
+}
+
+/**
+ * The key step that is one PERIOD up (an octave, or Bohlen–Pierce's
+ * tritave): the shortest {q, r} whose key sounds `n` degrees above the one
+ * it starts from — and keeps doing so, two periods at twice the step and one
+ * down at its negation, so the head key's octaves form one straight column.
+ * On a floored Bosanquet board the step must also span whole floors, which
+ * makes EVERY key's octave sit directly above it, not just the head key's.
+ *
+ * And of those, only a step whose board still RISES (or stays level) to the
+ * right: the head key is the bottom-left corner, so a board that falls to the
+ * right would put most of itself below it. (The harmonic table's nearest
+ * octave, three major thirds along one axis, is such a step — stood upright it
+ * runs C3, C2, C1 across the board — so it takes the next one, four keys up
+ * at −30°.) Ties go to the smaller turn. Null if no step within reach does it.
+ */
+export function octaveStep(steps, n) {
+  const reach = Math.max(12, n);
+  let best = null;
+  for (let q = -reach; q <= reach; q++) {
+    for (let r = -reach; r <= reach; r++) {
+      if (keyDegree(q, r, steps) !== n) continue;
+      if (keyDegree(-q, -r, steps) !== -n || keyDegree(2 * q, 2 * r, steps) !== 2 * n) continue;
+      if (steps.floor && r % steps.floor.rows !== 0) continue;
+      const tilt = tiltFor({ q, r });
+      if (riseToRight(steps, tilt) < -1e-9) continue;
+      const length = q * q + r * r + q * r; // squared, in key spacings
+      const turn = Math.abs(tilt);
+      if (!best || length < best.length || (length === best.length && turn < best.turn)) {
+        best = { q, r, length, turn };
+      }
+    }
+  }
+  return best && { q: best.q, r: best.r };
+}
+
+/** How many degrees a board turned by `tilt` climbs per key spacing to the
+ *  right — the horizontal part of its pitch gradient. A floored board climbs
+ *  its floors' lift on top of `b`, spread over their rows. */
+export function riseToRight({ a, b, floor }, tilt) {
+  const steep = b + (floor ? floor.lift / floor.rows : 0);
+  // Solve g·e1 = a, g·e2 = steep for the gradient g; the basis' determinant is sin 60°.
+  return (a * Math.sin(tilt + DEG60) - steep * Math.sin(tilt)) / Math.sin(DEG60);
+}
+
+/** The tilt (radians, −π…π) that points key step {q, r} straight up. */
+export function tiltFor({ q, r }) {
+  const t = Math.PI / 2 - Math.atan2((r * SQRT3) / 2, q + r / 2); // its angle on an unturned board
+  return Math.atan2(Math.sin(t), Math.cos(t));
 }
 
 function gcd(x, y) {
@@ -137,22 +194,33 @@ export function keyDegree(q, r, { a, b, floor }) {
 }
 
 const SQRT3 = Math.sqrt(3);
-/** The board's tilt from pointy-topped, in radians (see the header). */
-export const TILT = 0;//Math.atan(SQRT3 / 6); // the tilt used by Lumatone
 const DEG60 = Math.PI / 3;
-// Unit steps along q and r, in screen space (y down), per unit of key size.
-const QX = SQRT3 * Math.cos(TILT), QY = -SQRT3 * Math.sin(TILT);
-const RX = SQRT3 * Math.cos(TILT + DEG60), RY = -SQRT3 * Math.sin(TILT + DEG60);
-const DET = QX * RY - QY * RX;
+
+/** Unit steps along q and r on a board turned by `tilt` radians, in screen
+ *  space (y down), per unit of key size — and the determinant that inverts
+ *  them. Cached per tilt: a board has one. */
+function basis(tilt) {
+  let m = basisCache.get(tilt);
+  if (!m) {
+    const QX = SQRT3 * Math.cos(tilt), QY = -SQRT3 * Math.sin(tilt);
+    const RX = SQRT3 * Math.cos(tilt + DEG60), RY = -SQRT3 * Math.sin(tilt + DEG60);
+    m = { QX, QY, RX, RY, DET: QX * RY - QY * RX };
+    basisCache.set(tilt, m);
+  }
+  return m;
+}
+const basisCache = new Map();
 
 /** Centre of key (q, r), for keys of circumradius `size`, origin at (0, 0)
- *  and y growing DOWNWARD (screen space). */
-export function hexCentre(q, r, size) {
+ *  and y growing DOWNWARD (screen space), on a board turned by `tilt`. */
+export function hexCentre(q, r, size, tilt = 0) {
+  const { QX, QY, RX, RY } = basis(tilt);
   return { x: size * (q * QX + r * RX), y: size * (q * QY + r * RY) };
 }
 
 /** The key under point (x, y) — the inverse of hexCentre, cube-rounded. */
-export function pixelToHex(x, y, size) {
+export function pixelToHex(x, y, size, tilt = 0) {
+  const { QX, QY, RX, RY, DET } = basis(tilt);
   const qf = (x * RY - y * RX) / (size * DET);
   const rf = (y * QX - x * QY) / (size * DET);
   // Cube rounding: round all three axes, then fix the one that moved most.
@@ -169,7 +237,8 @@ export function pixelToHex(x, y, size) {
  * key (0, 0) is centred at `origin` (screen space). → [{q, r, x, y}], the
  * centres included.
  */
-export function visibleKeys(width, height, size, origin) {
+export function visibleKeys(width, height, size, origin, tilt = 0) {
+  const { QX, QY, RX, RY, DET } = basis(tilt);
   // The board, grown by a key all round, mapped into (q, r): its corners
   // bound every key that can show.
   const corners = [[-size, -size], [width + size, -size], [-size, height + size], [width + size, height + size]]
@@ -184,7 +253,7 @@ export function visibleKeys(width, height, size, origin) {
   const out = [];
   for (let q = qLo; q <= qHi; q++) {
     for (let r = rLo; r <= rHi; r++) {
-      const c = hexCentre(q, r, size);
+      const c = hexCentre(q, r, size, tilt);
       const x = origin.x + c.x, y = origin.y + c.y;
       if (x < -size || x > width + size || y < -size || y > height + size) continue;
       out.push({ q, r, x, y });
@@ -235,7 +304,7 @@ export function findFloor({ a, b }, n, period = OCTAVE) {
   };
   for (let r = 1; r <= 4 * n; r++) {
     for (let q = -r - 2; q <= 2; q++) {
-      const c = hexCentre(q, r, 1);
+      const c = hexCentre(q, r, 1); // "up" on the UNTURNED board: the tilt comes after
       if (Math.abs(Math.atan2(-c.y, c.x) - Math.PI / 2) > FLOOR_CONE) continue;
       const d = q * a + r * b;
       const isRoot = pc(d) === 0, isRight = pc(d - a) === 0;

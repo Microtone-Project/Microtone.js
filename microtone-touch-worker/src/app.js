@@ -731,7 +731,7 @@ $("layoutSel").addEventListener("change", (e) => {
   configureKeyboard();
 });
 const zoom = (d) => {
-  prefs.size = Math.min(48, Math.max(20, prefs.size + d));
+  prefs.size = Math.min(80, Math.max(20, prefs.size + d));
   savePrefs();
   configureKeyboard();
 };

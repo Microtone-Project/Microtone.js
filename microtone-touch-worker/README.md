@@ -32,7 +32,7 @@ Its version is this directory's `package.json`, independent of the tracker's.
 | `src/app.js` | The page: state, editing, transport, recording, sheets |
 | `src/sketch.js` | The sketch model and its conversion to a Taud song |
 | `src/presets.js` | The synthesised instrument bank (no samples are shipped) |
-| `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth |
+| `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth, each turned so the head key's octaves stand in a vertical column |
 | `src/keyboard.js` | The canvas keyboard and drum pads, multi-touch |
 | `src/grid.js` | The pattern grid |
 | `src/notes.js` | Note names as plain text |

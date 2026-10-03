@@ -19,28 +19,30 @@
 <body>
   <div id="app" class="app">
     <section class="pane pane-song" aria-label="Sketch">
-      <header class="bar topbar">
-        <button id="playBtn" class="tbtn" aria-label="Play" aria-pressed="false"><span class="ico ico-play"></span></button>
-        <button id="recBtn" class="tbtn rec" aria-label="Record" aria-pressed="false"><span class="ico ico-rec"></span></button>
-        <button id="loopBtn" class="tbtn wide" aria-pressed="true" title="What the transport plays">Section</button>
-        <button id="bpmBtn" class="tbtn wide" title="Tempo"><span id="bpmVal">120</span><small>bpm</small></button>
-        <select id="tuningSel" class="tsel" aria-label="Tuning"></select>
-        <span class="spacer"></span>
-        <button id="sendBtn" class="tbtn send" title="Send to Microtone">Send</button>
-        <button id="menuBtn" class="tbtn" aria-label="More"><span class="ico ico-more"></span></button>
-      </header>
-      <nav class="bar sections" id="sections" aria-label="Sections"></nav>
-      <div class="grid-wrap" id="gridWrap">
-        <div class="grid" id="grid" role="grid" aria-label="Pattern"></div>
-      </div>
-      <div class="bar strip" aria-label="Editing">
-        <button id="offBtn" class="tbtn" title="Write a key-off">Off</button>
-        <button id="clearBtn" class="tbtn" aria-label="Clear the cell"><span class="ico ico-clear"></span></button>
-        <button id="stepBtn" class="tbtn wide" title="Rows the cursor moves after an entry">Step <b id="stepVal">1</b></button>
-        <button id="fxBtn" class="tbtn wide" title="Effect on the cell">FX</button>
-        <span class="spacer"></span>
-        <button id="undoBtn" class="tbtn" aria-label="Undo" disabled><span class="ico ico-undo"></span></button>
-        <button id="redoBtn" class="tbtn" aria-label="Redo" disabled><span class="ico ico-redo"></span></button>
+      <div class="tracker-wrapper">
+        <header id="transport" class="bar topbar">
+          <button id="playBtn" class="tbtn" aria-label="Play" aria-pressed="false"><span class="ico ico-play"></span></button>
+          <button id="recBtn" class="tbtn rec" aria-label="Record" aria-pressed="false"><span class="ico ico-rec"></span></button>
+          <button id="loopBtn" class="tbtn wide" aria-pressed="true" title="What the transport plays">Section</button>
+          <button id="bpmBtn" class="tbtn wide" title="Tempo"><span id="bpmVal">120</span><small>bpm</small></button>
+          <select id="tuningSel" class="tsel" aria-label="Tuning"></select>
+          <span class="spacer"></span>
+          <button id="sendBtn" class="tbtn send" title="Send to Microtone">Send</button>
+          <button id="menuBtn" class="tbtn" aria-label="More"><span class="ico ico-more"></span></button>
+        </header>
+        <nav class="vbar sections" id="sections" aria-label="Sections"></nav>
+        <div class="grid-wrap" id="gridWrap">
+          <div class="grid" id="grid" role="grid" aria-label="Pattern"></div>
+        </div>
+        <div class="bar strip" id="editing" aria-label="Editing">
+          <button id="offBtn" class="tbtn" title="Write a key-off">Off</button>
+          <button id="clearBtn" class="tbtn" aria-label="Clear the cell"><span class="ico ico-clear"></span></button>
+          <button id="stepBtn" class="tbtn wide" title="Rows the cursor moves after an entry">Step <b id="stepVal">1</b></button>
+          <button id="fxBtn" class="tbtn wide" title="Effect on the cell">FX</button>
+          <span class="spacer"></span>
+          <button id="undoBtn" class="tbtn" aria-label="Undo" disabled><span class="ico ico-undo"></span></button>
+          <button id="redoBtn" class="tbtn" aria-label="Redo" disabled><span class="ico ico-redo"></span></button>
+        </div>
       </div>
     </section>
     <div class="splitter" id="splitter" role="separator" tabindex="0" aria-label="Resize the keyboard"
