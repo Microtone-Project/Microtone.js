@@ -357,6 +357,13 @@ button, select, input { font: inherit; color: inherit; }
 @media (max-width: 350px) {
   .lane-tag { display: none; }
 }
+/* The harmonic table's two buttons take the lane tag's room on a phone, and
+ * a little off every button in the bar, so that it still fits 360 px. */
+@media (max-width: 430px) {
+  .keyhead[data-harmonic] { gap: 4px; }
+  .keyhead[data-harmonic] .tbtn { min-width: 30px; }
+  .keyhead[data-harmonic] .lane-tag { display: none; }
+}
 
 .ico { display: inline-block; width: 14px; height: 14px; position: relative; }
 .ico-play { width: 0; height: 0; border-style: solid; border-width: 7px 0 7px 12px; border-color: transparent transparent transparent currentColor; }
@@ -374,6 +381,16 @@ button, select, input { font: inherit; color: inherit; }
 .ico-clear::before { content: "⌫"; position: absolute; inset: -3px 0 0; text-align: center; font-size: 17px; line-height: 17px; }
 .ico-undo::before { content: "↶"; position: absolute; inset: -4px 0 0; text-align: center; font-size: 19px; line-height: 19px; }
 .ico-redo::before { content: "↷"; position: absolute; inset: -4px 0 0; text-align: center; font-size: 19px; line-height: 19px; }
+/* The way the octaves run: up the board, or (pressed) across it. */
+.ico-octaves::before { content: "↕"; position: absolute; inset: -3px 0 0; text-align: center; font-size: 18px; line-height: 18px; }
+[aria-pressed="true"] > .ico-octaves::before { content: "↔"; }
+/* Three keys' meeting point: a dot for each. */
+.ico-fat {
+  background:
+    radial-gradient(circle at 50% 18%, currentColor 2.3px, transparent 2.8px),
+    radial-gradient(circle at 15% 80%, currentColor 2.3px, transparent 2.8px),
+    radial-gradient(circle at 85% 80%, currentColor 2.3px, transparent 2.8px);
+}
 
 /* ── sections ────────────────────────────────────────────────────────────── */
 
@@ -499,7 +516,10 @@ button, select, input { font: inherit; color: inherit; }
 
 .keyhead { border-bottom: 1px solid var(--border); }
 .oct { min-width: 2.4em; text-align: center; font-variant-numeric: tabular-nums; }
-.lane-tag { color: var(--lane-colour, var(--dim)); font-weight: 600; white-space: nowrap; }
+.lane-tag {
+  color: var(--lane-colour, var(--dim)); font-weight: 600; white-space: nowrap;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; /* gives way before the buttons do */
+}
 .keys-wrap { flex: 1 1 auto; min-height: 0; position: relative; }
 .keys {
   position: absolute;
@@ -650,6 +670,7 @@ button, select, input { font: inherit; color: inherit; }
   border-radius: 10px;
   padding: 10px 14px;
   max-width: 90vw;
+  pointer-events: none; /* it sits over the keyboard: a key under it still plays */
 }
 
 /* ── the menu ────────────────────────────────────────────────────────────── */

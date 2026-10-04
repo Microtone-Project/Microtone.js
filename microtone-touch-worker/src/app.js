@@ -52,10 +52,12 @@ const prefs = load(PREFS_KEY, (p) => ({
   layout: LAYOUTS.some((l) => l.id === p?.layout) ? p.layout : "wicki",
   size: Number.isFinite(p?.size) ? Math.min(48, Math.max(20, p.size)) : 30,
   octaves: p?.octaves && typeof p.octaves === "object" ? p.octaves : {},
+  across: p?.across === true, // the harmonic table's two options
+  fat: p?.fat === true,
   split: p?.split, // split.js checks these three itself
   share: p?.share,
   hand: p?.hand,
-}), () => ({ layout: "wicki", size: 30, octaves: {} }));
+}), () => ({ layout: "wicki", size: 30, octaves: {}, across: false, fat: false }));
 
 const ui = { section: 0, lane: 0, row: 0, step: 1, record: false, loopSection: true };
 
@@ -146,9 +148,17 @@ function configureKeyboard() {
   const p = lanePreset();
   const t = tuning();
   const layout = fitLayout(prefs.layout, t.table.length, t.interval);
+  // Octaves across and fat fingers are the harmonic table's alone: its rows
+  // of major thirds close on the octave, and its corners are triads.
+  const harmonic = layout === "harmonic" && !p.kit;
   keyboard.configure({
     preset: t, layout, octave: octaveFor(p), size: prefs.size, drums: !!p.kit,
+    across: harmonic && prefs.across, fat: harmonic && prefs.fat,
   });
+  $("acrossBtn").hidden = $("fatBtn").hidden = !harmonic;
+  $("keyhead").toggleAttribute("data-harmonic", harmonic);
+  $("acrossBtn").setAttribute("aria-pressed", String(prefs.across));
+  $("fatBtn").setAttribute("aria-pressed", String(prefs.fat));
   // The origin key's own name: C3 on an octave tuning, 黃3 in Shi'er lü.
   const origin = noteForDegree(4 + originPeriod(t, octaveFor(p)), 0, t);
   showText($("octVal"), p.kit ? "Kit" : noteLabel(origin, t));
@@ -396,7 +406,7 @@ function allocVoice() {
   const busy = new Set([...fingers.values()].map((f) => f.voice));
   for (let i = 0; i < 16; i++) {
     const v = (nextVoice + i) % 16;
-    if (!busy.has(v)) { nextVoice = v + 1; return audio.jamVoice(v); }
+    if (!busy.has(audio.jamVoice(v))) { nextVoice = v + 1; return audio.jamVoice(v); }
   }
   return audio.jamVoice(nextVoice++);
 }
@@ -866,6 +876,19 @@ $("layoutSel").addEventListener("change", (e) => {
   savePrefs();
   warnUnfit();
   configureKeyboard();
+});
+$("acrossBtn").addEventListener("click", () => {
+  prefs.across = !prefs.across;
+  savePrefs();
+  keyboard.releaseAll();
+  configureKeyboard();
+});
+$("fatBtn").addEventListener("click", () => {
+  prefs.fat = !prefs.fat;
+  savePrefs();
+  keyboard.releaseAll();
+  configureKeyboard();
+  if (prefs.fat) toast("Fat fingers: a touch where two or three keys meet plays them together.");
 });
 const zoom = (d) => {
   prefs.size = Math.min(80, Math.max(20, prefs.size + d));

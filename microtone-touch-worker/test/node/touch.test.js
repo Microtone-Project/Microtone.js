@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 import {
   edoSteps, layoutSteps, reachesAll, layoutWorks, fitLayout, keyDegree, hexCentre, pixelToHex, visibleKeys, LAYOUTS,
-  findFloor, octaveStep, tiltFor, riseToRight,
+  findFloor, octaveStep, tiltFor, riseToRight, riseUpwards, fatZone, fatPoints, FAT_CORNER, FAT_EDGE, FAT_SLACK,
 } from "../../src/lattice.js";
 import { buildBank, PRESETS, DRUMS } from "../../core/sketch/pack.js";
 import {
@@ -205,6 +205,149 @@ test("lattice: every layout stands the head key's octaves in a vertical column",
   assert.ok(riseToRight(layoutSteps("harmonic", 12), Math.PI / 2) < 0, "…which, stood upright, would fall to the right");
   assert.equal(Math.round(tiltFor({ q: -1, r: 2 }) * 1e9), 0);
   assert.equal(octaveStep({ a: 2, b: 4 }, 7), null, "a board that never reaches the octave has no step");
+});
+
+test("lattice: the harmonic table lays its octaves across — C E G♯ C′ along a level row", () => {
+  const h12 = layoutSteps("harmonic", 12, undefined, true);
+  assert.equal(h12.across, true);
+  assert.deepEqual(h12.octave, { q: 3, r: 0 }, "three major thirds");
+  assert.equal(h12.tilt, 0, "the row of thirds is the board's own level axis");
+  assert.deepEqual([0, 1, 2, 3].map((q) => keyDegree(q, 0, h12)), [0, 4, 8, 12]);
+  assert.equal(layoutSteps("harmonic", 12).across, false, "upright unless asked");
+  assert.equal(Math.round((layoutSteps("harmonic", 12).tilt * 180) / Math.PI), -30);
+
+  for (const t of TUNINGS) {
+    const p = pitchTablePresets[t.notation];
+    const n = p.table.length;
+    if (fitLayout("harmonic", n, p.interval) !== "harmonic") continue;
+    const steps = layoutSteps("harmonic", n, p.interval, true);
+    assert.ok(steps.across, `${t.name}: has an octave to lay across`);
+    const { q, r } = steps.octave;
+    for (let m = -2; m <= 2; m++) {
+      assert.equal(keyDegree(m * q, m * r, steps), m * n, `${t.name}: ${m} octaves`);
+      const c = hexCentre(m * q, m * r, 1, steps.tilt);
+      assert.ok(Math.abs(c.y) < 1e-9, `${t.name}: octave ${m} is level with the head key (y ${c.y})`);
+      assert.ok(m === 0 || Math.sign(c.x) === Math.sign(m), `${t.name}: up an octave is to the right`);
+    }
+    assert.ok(riseUpwards(steps, steps.tilt) >= -1e-9, `${t.name}: the board does not fall going up`);
+    assert.ok(riseToRight(steps, steps.tilt) > 0, `${t.name}: …and climbs to the right`);
+  }
+  // What climbs up a board turned by t climbs to the right of one turned by t − 90°.
+  assert.ok(Math.abs(riseUpwards(h12, 0) - 10 / Math.sqrt(3)) < 1e-9, "a minor seventh per row pair straight up");
+  // A board with no level octave stands upright instead, and says so:
+  // 19-TET Bosanquet's floors are three rows tall, and no step spanning whole
+  // floors lies level with the board still climbing upwards.
+  const b19 = layoutSteps("bosanquet", 19, undefined, true);
+  assert.equal(b19.across, false);
+  assert.deepEqual([b19.octave, b19.tilt], [layoutSteps("bosanquet", 19).octave, layoutSteps("bosanquet", 19).tilt]);
+});
+
+test("lattice: fat fingers — a key's middle plays it, its edges two keys, its corners three", () => {
+  const size = 30;
+  for (const tilt of [0, -Math.PI / 6, 0.19, 2.06]) {
+    const at = (q, r) => hexCentre(q, r, size, tilt);
+    const keysOf = (z) => z.keys.map(({ q, r }) => `${q},${r}`).sort();
+    // The middle, and well inside the rim, is the key itself.
+    const mid = at(2, -1);
+    assert.deepEqual(keysOf(fatZone(mid.x, mid.y, size, tilt)), ["2,-1"]);
+    assert.deepEqual(keysOf(fatZone(mid.x + 0.5 * size, mid.y, size, tilt)), ["2,-1"]);
+    // An edge's midpoint is the two keys either side of it.
+    const e = hexCentre(2.5, -1, size, tilt);
+    assert.deepEqual(keysOf(fatZone(e.x, e.y, size, tilt)), ["2,-1", "3,-1"]);
+    // A corner is the three keys around it.
+    const v = hexCentre(2 + 1 / 3, -1 + 1 / 3, size, tilt);
+    assert.deepEqual(keysOf(fatZone(v.x, v.y, size, tilt)), ["2,-1", "2,0", "3,-1"]);
+    // No stretch of a rim belongs to one key alone: walk an edge corner to corner.
+    const c0 = hexCentre(2 + 1 / 3, -1 + 1 / 3, size, tilt), c1 = hexCentre(2 + 2 / 3, -1 - 1 / 3, size, tilt);
+    for (let i = 0; i <= 40; i++) {
+      const x = c0.x + ((c1.x - c0.x) * i) / 40, y = c0.y + ((c1.y - c0.y) * i) / 40;
+      assert.ok(fatZone(x, y, size, tilt).keys.length > 1, `tilt ${tilt}: rim point ${i}/40`);
+    }
+  }
+});
+
+test("lattice: fat fingers on the 12-TET harmonic table — every corner a triad, every edge a third or a fifth", () => {
+  const h12 = layoutSteps("harmonic", 12);
+  const pcs = (z) => z.keys.map(({ q, r }) => ((keyDegree(q, r, h12) % 12) + 12) % 12);
+  const shape = (z) => {
+    const p = pcs(z);
+    for (const root of p) { // the triad's shape from whichever note makes it close
+      const up = p.map((d) => (d - root + 12) % 12).sort((x, y) => x - y).join(" ");
+      if (up === "0 4 7") return "major";
+      if (up === "0 3 7") return "minor";
+    }
+    return p.length === 2 ? [(p[1] - p[0] + 12) % 12, (p[0] - p[1] + 12) % 12].sort((x, y) => x - y).join("/") : "?";
+  };
+  const seen = new Map();
+  for (const p of fatPoints(0, 0).concat(fatPoints(1, 0), fatPoints(0, 1))) {
+    const c = hexCentre(p.q, p.r, 30, h12.tilt);
+    const s = shape(fatZone(c.x, c.y, 30, h12.tilt));
+    seen.set(s, (seen.get(s) ?? 0) + 1);
+  }
+  assert.deepEqual([...seen.keys()].sort(), ["3/9", "4/8", "5/7", "major", "minor"],
+    "corners are major and minor triads; edges a minor third, a major third, a fifth (or their inversions)");
+  assert.equal(seen.get("major"), 3);
+  assert.equal(seen.get("minor"), 3);
+});
+
+test("lattice: a fat finger keeps its zone until it is clearly out of it", () => {
+  const size = 40, tilt = 0;
+  const v = hexCentre(1 / 3, 1 / 3, size, tilt);
+  const corner = fatZone(v.x, v.y, size, tilt);
+  assert.equal(corner.keys.length, 3);
+  // Out along the line to the key's middle: just past the corner's own radius
+  // it is still the corner for a finger already there, not for a new one.
+  const c = hexCentre(0, 0, size, tilt);
+  const toward = (d) => {
+    const len = Math.hypot(c.x - v.x, c.y - v.y);
+    return { x: v.x + ((c.x - v.x) * d * size) / len, y: v.y + ((c.y - v.y) * d * size) / len };
+  };
+  const p = toward(FAT_CORNER + FAT_SLACK / 2);
+  assert.equal(fatZone(p.x, p.y, size, tilt).keys.length, 1, "a new finger there is on the key");
+  assert.equal(fatZone(p.x, p.y, size, tilt, corner), corner, "the finger already on the corner keeps it");
+  const q = toward(FAT_CORNER + FAT_SLACK * 2);
+  assert.equal(fatZone(q.x, q.y, size, tilt, corner).keys.length, 1, "further out, it lets go");
+  // And back in: a finger on the key reaches the corner only past the slack.
+  const key = fatZone(q.x, q.y, size, tilt);
+  const r = toward(FAT_CORNER - FAT_SLACK / 2);
+  assert.equal(fatZone(r.x, r.y, size, tilt).keys.length, 3, "a new finger there is on the corner");
+  assert.equal(fatZone(r.x, r.y, size, tilt, key), key, "the finger already on the key keeps it");
+  const s = toward(FAT_CORNER - FAT_SLACK * 2);
+  assert.equal(fatZone(s.x, s.y, size, tilt, key).keys.length, 3, "deeper in, it takes the corner");
+  // The edge zone's slack works the same way.
+  const e = hexCentre(0.5, 0, size, tilt);
+  const edge = fatZone(e.x, e.y, size, tilt);
+  assert.equal(edge.keys.length, 2);
+  const out = { x: e.x - (FAT_EDGE + FAT_SLACK / 2) * size, y: e.y };
+  assert.equal(fatZone(out.x, out.y, size, tilt).keys.length, 1);
+  assert.equal(fatZone(out.x, out.y, size, tilt, edge), edge);
+});
+
+test("lattice: the fat-finger points drawn per key land on every corner and edge once", () => {
+  const size = 10, tilt = 0.4;
+  const drawn = new Map();
+  for (let q = -4; q <= 4; q++) {
+    for (let r = -4; r <= 4; r++) {
+      for (const p of fatPoints(q, r)) {
+        const c = hexCentre(p.q, p.r, size, tilt);
+        const id = `${Math.round(c.x * 1000)},${Math.round(c.y * 1000)}`;
+        assert.ok(!drawn.has(id), `(${q}, ${r}) draws ${id} again`);
+        drawn.set(id, p.keys.length);
+        // …each one being the zone it marks.
+        const z = fatZone(c.x, c.y, size, tilt);
+        assert.deepEqual(z.keys.map((k) => `${k.q},${k.r}`).sort(), p.keys.map((k) => `${k.q},${k.r}`).sort());
+      }
+    }
+  }
+  // An inner key's six corners and six edges are all among them.
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i - tilt; // screen y runs down: corners at −tilt + 30° + 60°i, edges between
+    for (const [d, n] of [[size, 3], [size * (Math.sqrt(3) / 2), 2]]) {
+      const ang = n === 3 ? a - Math.PI / 6 : a;
+      const id = `${Math.round(d * Math.cos(ang) * 1000)},${Math.round(d * Math.sin(ang) * 1000)}`;
+      assert.equal(drawn.get(id), n, `key (0, 0): ${n === 3 ? "corner" : "edge"} ${i}`);
+    }
+  }
 });
 
 test("lattice: the layouts read as the Lumatone's preset charts", () => {

@@ -14,6 +14,8 @@
 // harmonic table and the degree run up to about 48°. (The Lumatone draws all
 // of its layouts at one tilt, atan(√3 / 6) = 16.1°, the angle at which its
 // lattice is level again at (q + 7, r − 2); Touch's tilt is the octave's.)
+// A board can instead lay its octaves ACROSS — a row of C's to the right,
+// which on the harmonic table is its row of major thirds, C E G♯ C′.
 //
 // The steps are not tables per tuning. On an octave-period equal tuning they
 // are derived from its own patent fifth — the nearest degree to 3/2 — so a
@@ -76,35 +78,39 @@ export const LAYOUTS = Object.freeze([
  *   step       one degree along a, a whole tone along b — the one that
  *              reaches every degree of every tuning
  */
-export function layoutSteps(layout, n, period = OCTAVE) {
-  const key = `${layout}|${n}|${period}`;
+export function layoutSteps(layout, n, period = OCTAVE, across = false) {
+  const key = `${layout}|${n}|${period}|${across}`;
   let steps = stepCache.get(key);
   if (!steps) {
-    steps = Object.freeze(computeSteps(layout, n, period));
+    steps = Object.freeze(computeSteps(layout, n, period, across));
     stepCache.set(key, steps);
   }
   return steps;
 }
 const stepCache = new Map();
 
-function computeSteps(layout, n, period) {
+function computeSteps(layout, n, period, across) {
   const s = edoSteps(n, period);
   switch (layout) {
-    case "wicki": return withTilt({ a: s.tone, b: s.fifth }, n);
+    case "wicki": return withTilt({ a: s.tone, b: s.fifth }, n, across);
     case "bosanquet": {
       const steps = { a: s.tone, b: s.apotome > 0 ? s.apotome : s.limma };
       const floor = findFloor(steps, n, period);
-      return withTilt(floor ? { ...steps, floor } : steps, n);
+      return withTilt(floor ? { ...steps, floor } : steps, n, across);
     }
-    case "harmonic": return withTilt({ a: s.major3, b: s.fifth }, n);
-    default: return withTilt({ a: 1, b: Math.max(2, s.tone) }, n);
+    case "harmonic": return withTilt({ a: s.major3, b: s.fifth }, n, across);
+    default: return withTilt({ a: 1, b: Math.max(2, s.tone) }, n, across);
   }
 }
 
-/** The steps, plus the octave step and the tilt that stands it upright. */
-function withTilt(steps, n) {
-  const octave = octaveStep(steps, n);
-  return { ...steps, octave, tilt: octave ? tiltFor(octave) : 0 };
+/** The steps, plus the octave step and the tilt that stands it upright — or,
+ *  `across`, lays it to the right; a board with no such step stands upright
+ *  instead, and says so by `across` being false. */
+function withTilt(steps, n, across) {
+  let octave = across ? octaveStep(steps, n, true) : null;
+  across = !!octave;
+  octave ??= octaveStep(steps, n);
+  return { ...steps, octave, across, tilt: octave ? tiltFor(octave, across) : 0 };
 }
 
 /**
@@ -121,8 +127,12 @@ function withTilt(steps, n) {
  * octave, three major thirds along one axis, is such a step — stood upright it
  * runs C3, C2, C1 across the board — so it takes the next one, four keys up
  * at −30°.) Ties go to the smaller turn. Null if no step within reach does it.
+ *
+ * `across` lays the step to the right instead, and then it is the board's
+ * climb UPWARDS that must not be negative — the very steps the upright board
+ * turns down: the harmonic table's three major thirds lie level at 0°.
  */
-export function octaveStep(steps, n) {
+export function octaveStep(steps, n, across = false) {
   const reach = Math.max(12, n);
   let best = null;
   for (let q = -reach; q <= reach; q++) {
@@ -130,8 +140,8 @@ export function octaveStep(steps, n) {
       if (keyDegree(q, r, steps) !== n) continue;
       if (keyDegree(-q, -r, steps) !== -n || keyDegree(2 * q, 2 * r, steps) !== 2 * n) continue;
       if (steps.floor && r % steps.floor.rows !== 0) continue;
-      const tilt = tiltFor({ q, r });
-      if (riseToRight(steps, tilt) < -1e-9) continue;
+      const tilt = tiltFor({ q, r }, across);
+      if ((across ? riseUpwards(steps, tilt) : riseToRight(steps, tilt)) < -1e-9) continue;
       const length = q * q + r * r + q * r; // squared, in key spacings
       const turn = Math.abs(tilt);
       if (!best || length < best.length || (length === best.length && turn < best.turn)) {
@@ -151,9 +161,17 @@ export function riseToRight({ a, b, floor }, tilt) {
   return (a * Math.sin(tilt + DEG60) - steep * Math.sin(tilt)) / Math.sin(DEG60);
 }
 
-/** The tilt (radians, −π…π) that points key step {q, r} straight up. */
-export function tiltFor({ q, r }) {
-  const t = Math.PI / 2 - Math.atan2((r * SQRT3) / 2, q + r / 2); // its angle on an unturned board
+/** …and per key spacing UP the board: what climbs up a board is what climbs
+ *  to the right of the same board turned a quarter clockwise. */
+export function riseUpwards(steps, tilt) {
+  return riseToRight(steps, tilt - Math.PI / 2);
+}
+
+/** The tilt (radians, −π…π) that points key step {q, r} straight up — or,
+ *  `across`, straight to the right. */
+export function tiltFor({ q, r }, across = false) {
+  const angle = Math.atan2((r * SQRT3) / 2, q + r / 2); // on an unturned board
+  const t = (across ? 0 : Math.PI / 2) - angle;
   return Math.atan2(Math.sin(t), Math.cos(t));
 }
 
@@ -260,6 +278,87 @@ export function visibleKeys(width, height, size, origin, tilt = 0) {
     }
   }
   return out;
+}
+
+// ── Fat fingers ──────────────────────────────────────────────────────────────
+//
+// Where two keys touch, and where three do, the board can have a touch point
+// of its own: a finger landing near the corner three keys share plays all
+// three, near the edge two keys share both of them, and anywhere else the key
+// under it. On the harmonic table those are its triads (the major and minor
+// triangles of the Tonnetz) and its thirds and fifths, each one finger wide.
+//
+// A zone is a circle — FAT_CORNER of a key's size around a corner, FAT_EDGE
+// around an edge's midpoint (corners first where the two meet: their radii
+// add up to just past the half-edge between them, so no stretch of a key's
+// rim is left for one key alone) — and what is left of a key, about three
+// fifths of it, plays that key. A finger holding a zone keeps it until it
+// is FAT_SLACK further out, so a finger resting on a rim does not chatter.
+
+export const FAT_CORNER = 0.3;
+export const FAT_EDGE = 0.22;
+export const FAT_SLACK = 0.05;
+
+/** The six neighbours of a key, anticlockwise from `a`; two in a row are
+ *  neighbours of each other too, so each pair meets the key at a corner. */
+const AROUND = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+
+/**
+ * The fat-finger zone under point (x, y) (relative to key (0, 0)'s centre):
+ * `{ keys: [{q, r}, …], x, y }` with one, two or three keys, and the zone's
+ * own point — the key's centre, the edge's midpoint or the corner. `was`,
+ * the zone the finger was in, is returned as it is while the finger has not
+ * left it.
+ */
+export function fatZone(x, y, size, tilt = 0, was = null) {
+  if (was?.keys.length > 1) {
+    const radius = was.keys.length === 3 ? FAT_CORNER : FAT_EDGE;
+    if (Math.hypot(x - was.x, y - was.y) <= (radius + FAT_SLACK) * size) return was;
+  } else if (was) {
+    // Off a lone key only once into a zone further than the slack — or onto
+    // another key, which is never further than its rim.
+    const z = zoneAt(x, y, size, tilt, FAT_SLACK);
+    if (z.keys.length === 1 && z.keys[0].q === was.keys[0].q && z.keys[0].r === was.keys[0].r) return was;
+  }
+  return zoneAt(x, y, size, tilt, 0);
+}
+
+function zoneAt(x, y, size, tilt, shrink) {
+  const { q, r } = pixelToHex(x, y, size, tilt);
+  const near = (radius, points) => {
+    let best = null;
+    for (const p of points) {
+      const c = hexCentre(p.q, p.r, size, tilt);
+      const d = Math.hypot(x - c.x, y - c.y);
+      if (d <= (radius - shrink) * size && (!best || d < best.d)) best = { d, keys: p.keys, x: c.x, y: c.y };
+    }
+    return best && { keys: best.keys, x: best.x, y: best.y };
+  };
+  const corners = AROUND.map(([aq, ar], i) => {
+    const [bq, br] = AROUND[(i + 1) % 6];
+    return {
+      q: q + (aq + bq) / 3, r: r + (ar + br) / 3,
+      keys: [{ q, r }, { q: q + aq, r: r + ar }, { q: q + bq, r: r + br }],
+    };
+  });
+  const edges = AROUND.map(([aq, ar]) => ({
+    q: q + aq / 2, r: r + ar / 2, keys: [{ q, r }, { q: q + aq, r: r + ar }],
+  }));
+  const c = hexCentre(q, r, size, tilt);
+  return near(FAT_CORNER, corners) ?? near(FAT_EDGE, edges) ?? { keys: [{ q, r }], x: c.x, y: c.y };
+}
+
+/** The touch points to draw around key (q, r) — two of its corners and three
+ *  of its edges, so that drawing them for every key draws each point once:
+ *  `[{keys, q, r}]`, the point at fractional (q, r). */
+export function fatPoints(q, r) {
+  const [[aq, ar], [bq, br], [cq, cr]] = AROUND;
+  const key = (dq, dr) => ({ q: q + dq, r: r + dr });
+  return [
+    { keys: [key(0, 0), key(aq, ar), key(bq, br)], q: q + (aq + bq) / 3, r: r + (ar + br) / 3 },
+    { keys: [key(0, 0), key(bq, br), key(cq, cr)], q: q + (bq + cq) / 3, r: r + (br + cr) / 3 },
+    ...[[aq, ar], [bq, br], [cq, cr]].map(([dq, dr]) => ({ keys: [key(0, 0), key(dq, dr)], q: q + dq / 2, r: r + dr / 2 })),
+  ];
 }
 
 // ── Bosanquet's floors ───────────────────────────────────────────────────────

@@ -6,10 +6,17 @@
 // re-triggers that finger's voice at the new pitch, so a run up the board is
 // one gesture. On a drum lane the same canvas shows eight pads instead.
 //
+// With fat fingers on (the harmonic table's own mode; see lattice.js), one
+// finger can hold two or three keys at once. The app is told of each as a
+// finger of its own — ids are the keyboard's, not the pointer's — so a held
+// triad takes three voices and spreads over lanes like a three-finger chord.
+// Sliding into another zone keeps every key the two zones share sounding,
+// moves the rest, and lets go of or adds whatever is left over.
+//
 // Painting is change-driven: the canvas is redrawn when its size, its
 // configuration, the theme or the set of held keys changes — never on a timer.
 
-import { layoutSteps, keyDegree, pixelToHex, visibleKeys } from "./lattice.js";
+import { layoutSteps, keyDegree, pixelToHex, visibleKeys, fatZone, fatPoints, hexCentre } from "./lattice.js";
 import { noteForDegree, resolveNoteSymbol } from "../core/tuning/pitchtables.js";
 import { noteClass, noteShade } from "./notes.js";
 import { DRUMS } from "../core/sketch/pack.js";
@@ -48,8 +55,12 @@ export class Keyboard {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.handlers = handlers;
-    this.cfg = { preset: null, layout: "wicki", octave: 3, size: 30, drums: false, laneColour: "" };
-    this.held = new Map(); // pointer id → key
+    this.cfg = {
+      preset: null, layout: "wicki", octave: 3, size: 30, drums: false, laneColour: "",
+      across: false, fat: false,
+    };
+    this.held = new Map(); // pointer id → { touch: {keys, zone}, fingers: [{ id, key }] }
+    this.nextFinger = 1;
     this.lit = new Set();  // note words sounding from elsewhere, drawn as ghosts
     this.width = 0;
     this.height = 0;
@@ -73,9 +84,9 @@ export class Keyboard {
 
   /** Every held finger lets go (a lane switch, the page losing focus). */
   releaseAll() {
-    for (const id of [...this.held.keys()]) {
-      this.held.delete(id);
-      this.handlers.up(id);
+    for (const [pointer, hold] of [...this.held]) {
+      this.held.delete(pointer);
+      for (const f of hold.fingers) this.handlers.up(f.id);
     }
     this.paint();
   }
@@ -88,25 +99,38 @@ export class Keyboard {
     return { x: size * 1.05, y: this.height - size * 1.05 };
   }
 
-  _keyAt(x, y) {
+  /**
+   * What a finger at (x, y) holds: `{ keys, zone }`, or null off the playable
+   * board. `was` is what it held until now, returned as it is while a fat
+   * finger has not left its zone; `zone` is null but for fat fingers.
+   */
+  _touchAt(x, y, was = null) {
     if (this.cfg.drums) {
       const col = Math.floor((x / this.width) * PAD_COLS);
       const row = Math.floor((y / this.height) * PAD_ROWS);
       if (col < 0 || col >= PAD_COLS || row < 0 || row >= PAD_ROWS) return null;
       const drum = (PAD_ROWS - 1 - row) * PAD_COLS + col; // kick bottom-left
-      return { note: DRUM_NOTE, drum };
+      return { keys: [{ note: DRUM_NOTE, drum }], zone: null };
     }
     const o = this._origin();
-    const { q, r } = pixelToHex(x - o.x, y - o.y, this.cfg.size, this._steps().tilt);
+    const { size } = this.cfg;
+    const { tilt } = this._steps();
+    if (this.cfg.fat) {
+      const zone = fatZone(x - o.x, y - o.y, size, tilt, was?.zone);
+      if (zone === was?.zone) return was;
+      const keys = zone.keys.map(({ q, r }) => this._key(q, r)).filter((k) => !k.off);
+      return keys.length ? { keys, zone } : null;
+    }
+    const { q, r } = pixelToHex(x - o.x, y - o.y, size, tilt);
     const key = this._key(q, r);
-    return key.off ? null : key;
+    return key.off ? null : { keys: [key], zone: null };
   }
 
   /** The layout's steps on this tuning — its tilt included (lattice.js
    *  caches them, so this is a lookup). */
   _steps() {
     const p = this.cfg.preset;
-    return layoutSteps(this.cfg.layout, p.table.length, p.interval);
+    return layoutSteps(this.cfg.layout, p.table.length, p.interval, this.cfg.across);
   }
 
   _key(q, r) {
@@ -127,30 +151,69 @@ export class Keyboard {
     if (!this.cfg.preset) return;
     e.preventDefault();
     const { x, y } = this._point(e);
-    const key = this._keyAt(x, y);
-    if (!key) return;
+    const touch = this._touchAt(x, y);
+    if (!touch) return;
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
-    this.held.set(e.pointerId, key);
-    this.handlers.down(e.pointerId, key);
+    const hold = { touch, fingers: [] };
+    this.held.set(e.pointerId, hold);
+    for (const key of touch.keys) this._press(hold, key);
     this.paint();
+  }
+
+  _press(hold, key) {
+    const id = this.nextFinger++;
+    hold.fingers.push({ id, key });
+    this.handlers.down(id, key);
   }
 
   _move(e) {
-    const was = this.held.get(e.pointerId);
-    if (!was) return;
+    const hold = this.held.get(e.pointerId);
+    if (!hold) return;
     const { x, y } = this._point(e);
-    const key = this._keyAt(x, y);
-    if (!key || (key.note === was.note && key.drum === was.drum)) return;
-    this.held.set(e.pointerId, key);
-    this.handlers.slide(e.pointerId, key);
-    this.paint();
+    const touch = this._touchAt(x, y, hold.touch);
+    if (!touch || touch === hold.touch) return;
+    // A fat finger's zone is drawn lit, so a new one repaints even when it
+    // holds the same keys (a corner whose third key is off the board).
+    let changed = touch.zone !== hold.touch.zone;
+    hold.touch = touch;
+    // Keys both holds share keep sounding; the rest move, low to low…
+    const fresh = [...touch.keys];
+    const moved = [];
+    for (const f of hold.fingers) {
+      const i = fresh.findIndex((k) => sameKey(k, f.key));
+      if (i < 0) moved.push(f);
+      else f.key = fresh.splice(i, 1)[0];
+    }
+    moved.sort((f, g) => f.key.note - g.key.note);
+    fresh.sort((k, l) => k.note - l.note);
+    moved.forEach((f, i) => {
+      changed = true;
+      if (i < fresh.length) {
+        f.key = fresh[i];
+        this.handlers.slide(f.id, f.key);
+      } else { // …and what is left over lets go, or comes in
+        hold.fingers.splice(hold.fingers.indexOf(f), 1);
+        this.handlers.up(f.id);
+      }
+    });
+    for (const key of fresh.slice(moved.length)) {
+      changed = true;
+      this._press(hold, key);
+    }
+    if (changed) this.paint();
   }
 
   _up(e) {
-    if (!this.held.has(e.pointerId)) return;
+    const hold = this.held.get(e.pointerId);
+    if (!hold) return;
     this.held.delete(e.pointerId);
-    this.handlers.up(e.pointerId);
+    for (const f of hold.fingers) this.handlers.up(f.id);
     this.paint();
+  }
+
+  /** Every key held, by any finger. */
+  _heldKeys() {
+    return [...this.held.values()].flatMap((h) => h.fingers.map((f) => f.key));
   }
 
   // ── painting ──
@@ -189,7 +252,7 @@ export class Keyboard {
   _paintKeys() {
     const { ctx, colours: c } = this;
     const size = this.cfg.size;
-    const heldNotes = new Set([...this.held.values()].map((k) => k.note));
+    const heldNotes = new Set(this._heldKeys().map((k) => k.note));
     const o = this._origin();
     const font = Math.max(10, Math.round(size * 0.42));
     ctx.textAlign = "center";
@@ -230,11 +293,40 @@ export class Keyboard {
         ctx.fillText(String(resolveNoteSymbol(key.note, this.cfg.preset)?.octave ?? ""), x, y + font * 0.6);
       }
     }
+    if (this.cfg.fat) this._paintFatPoints(o, tilt);
+  }
+
+  /** A dot on every corner and edge that has a touch point — the ones a
+   *  finger is holding in the held keys' colour. */
+  _paintFatPoints(o, tilt) {
+    const { ctx, colours: c } = this;
+    const size = this.cfg.size;
+    const held = [...this.held.values()]
+      .filter((h) => h.touch.zone?.keys.length > 1)
+      .map((h) => h.touch.zone);
+    const corner = Math.max(2, size * 0.1), edge = Math.max(1.5, size * 0.07);
+    const offs = new Map(); // "q,r" → inert: each key is asked once, not five times
+    const off = ({ q, r }) => {
+      const id = `${q},${r}`;
+      if (!offs.has(id)) offs.set(id, this._key(q, r).off);
+      return offs.get(id);
+    };
+    for (const { q, r } of visibleKeys(this.width, this.height, size, o, tilt)) {
+      for (const p of fatPoints(q, r)) {
+        if (p.keys.some(off)) continue;
+        const at = hexCentre(p.q, p.r, size, tilt);
+        const lit = held.some((z) => Math.abs(z.x - at.x) < 0.5 && Math.abs(z.y - at.y) < 0.5);
+        ctx.beginPath();
+        ctx.arc(o.x + at.x, o.y + at.y, p.keys.length === 3 ? corner : edge, 0, 2 * Math.PI);
+        ctx.fillStyle = lit ? c["--key-down"] : c["--dim"];
+        ctx.fill();
+      }
+    }
   }
 
   _paintPads() {
     const { ctx, colours: c } = this;
-    const held = new Set([...this.held.values()].map((k) => k.drum));
+    const held = new Set(this._heldKeys().map((k) => k.drum));
     const w = this.width / PAD_COLS;
     const h = this.height / PAD_ROWS;
     ctx.textAlign = "center";
@@ -256,6 +348,8 @@ export class Keyboard {
     }
   }
 }
+
+const sameKey = (k, l) => k.note === l.note && k.drum === l.drum;
 
 function hexPath(ctx, x, y, r, tilt) {
   ctx.beginPath();

@@ -69,11 +69,15 @@
          type="button" class="split-knob hand-knob" id="handKnob"></button></div>
     <div class="hinge" aria-hidden="true"></div>
     <section class="pane pane-keys" aria-label="Keyboard">
-      <div class="bar keyhead">
+      <div class="bar keyhead" id="keyhead">
         <button id="octDown" class="tbtn" aria-label="Octave down">‹</button>
         <span id="octVal" class="oct">C3</span>
         <button id="octUp" class="tbtn" aria-label="Octave up">›</button>
         <select id="layoutSel" class="tsel" aria-label="Keyboard layout"></select>
+        <button id="acrossBtn" class="tbtn" aria-pressed="false" aria-label="Octaves across"
+                title="Octaves up the board, or across it" hidden><span class="ico ico-octaves"></span></button>
+        <button id="fatBtn" class="tbtn" aria-pressed="false" aria-label="Fat fingers"
+                title="Where two or three keys meet, one touch plays them all" hidden><span class="ico ico-fat"></span></button>
         <span class="spacer"></span>
         <span id="laneTag" class="lane-tag"></span>
         <button id="zoomOut" class="tbtn" aria-label="Smaller keys">−</button>

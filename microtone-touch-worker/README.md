@@ -37,14 +37,35 @@ Its version is this directory's `package.json`, independent of the tracker's.
 | `src/sketch.js` | The sketch model, and its road to and from a `.mtsk` file |
 | `../core/sketch/pack.js` | The instrument pack, synthesised (no samples are shipped) — in `core/` because Microtone builds it too, to open a sketch |
 | `../core/sketch/mtsk.js` | The `.mtsk` file, and the Taud song a sketch plays as |
-| `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth, each turned so the head key's octaves stand in a vertical column |
-| `src/keyboard.js` | The canvas keyboard and drum pads, multi-touch |
+| `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth, each turned so the head key's octaves stand in a vertical column (or lie in a row); the fat-finger touch zones |
+| `src/keyboard.js` | The canvas keyboard and drum pads, multi-touch; one fat-finger touch is told to the app as one finger per key |
 | `src/grid.js` | The pattern grid |
 | `src/notes.js` | Note names as plain text |
 | `src/saving.js` | Save, Save as…, the sign-in and the conflicts they may need, the `.taud` to take away |
 | `src/library.js` | Sketches kept on this phone (IndexedDB) |
 | `src/files.js` | The Files panel and the Load… sheet: both places' sketches, opened, renamed, copied, deleted |
 | `src/split.js` | The splitter, the stacked / side-by-side knob and the hand knob |
+
+## The harmonic table's own options
+
+Two buttons beside the layout picker show only while the board is the harmonic
+table (major thirds one way, fifths the other, minor thirds up-left), and are
+remembered with the other keyboard settings:
+
+- **↕ / ↔** stands the octaves up the board (the default) or lays them across
+  it: the row of major thirds turns level, so in 12-TET the bottom row reads
+  C E G♯ C′ E′ …, and in every other tuning the board is turned until its own
+  octave step lies to the right.
+- **Fat fingers** gives every corner where three keys meet, and every edge where
+  two do, a touch point of its own: one finger there plays all of them — on
+  this table a major or minor triad at a corner, a third or a fifth at an
+  edge. The points are drawn as dots in the gaps. A finger keeps the zone it
+  is in until it is clearly out of it, and sliding to another zone keeps the
+  keys the two share sounding. Each key held counts as a finger, so a held
+  triad spreads across lanes holding the same preset, as a three-finger chord
+  does.
+
+On a phone held upright the two buttons take the lane tag's place in the bar.
 
 ## How a sketch maps onto Taud
 
