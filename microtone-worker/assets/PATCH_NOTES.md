@@ -6,6 +6,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-04
 
+43-TET (Kite) joins the tunings, in the tracker and in Microtone Touch.
+
+- **43-TET (Kite) is a new tuning** in the Project view's tuning list, with Kite note names for all 43 steps.
+- **The chord maker knows it too**: it can build the 7-limit and 13-limit chords that 43 steps approximate.
+
 The About box now says which version of Microtone you are running.
 
 - **Click the Microtone logo** in the top bar to see it, under the logo: the same version number the desktop app's updates go by.
