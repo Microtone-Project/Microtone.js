@@ -68,6 +68,7 @@ test("lattice: Bosanquet's floors — each repeat of the root's row is an octave
   assert.deepEqual(floorOf(22), { rows: 4, lift: 22 });
   assert.deepEqual(floorOf(31), { rows: 5, lift: 31 });
   assert.deepEqual(floorOf(41), { rows: 7, lift: 41 });
+  assert.deepEqual(floorOf(43), { rows: 7, lift: 43 });
   assert.deepEqual(floorOf(53), { rows: 9, lift: 53 });
   // 7- and 9-TET (and 5, 8, 16) already climb an octave a floor: nothing to lift.
   for (const n of [5, 7, 8, 9, 16]) assert.equal(floorOf(n), null, `${n}-TET`);
@@ -128,7 +129,7 @@ test("lattice: a layout that cannot reach every degree falls back to the degree 
     assert.equal(reachesAll(layoutSteps(id, 24), 24), false, id);
     assert.equal(fitLayout(id, 24), "step");
   }
-  for (const n of [12, 17, 19, 22, 31, 41, 53]) assert.equal(fitLayout("wicki", n), "wicki", `${n}-TET`);
+  for (const n of [12, 17, 19, 22, 31, 41, 43, 53]) assert.equal(fitLayout("wicki", n), "wicki", `${n}-TET`);
   for (const n of [12, 24, 53]) assert.ok(reachesAll(layoutSteps("step", n), n));
   assert.deepEqual(LAYOUTS.map((l) => l.id), ["wicki", "bosanquet", "harmonic", "step"]);
 });
@@ -627,7 +628,7 @@ test("sketch: A-ak and Hyang-ak are Shi'er lü at their own reference pitch", ()
   }
   assert.equal(tuningById("nonsense").id, "12");
   assert.deepEqual(TUNINGS.map((t) => t.id), [
-    "4", "5", "6", "7", "8", "9", "10", "12", "15", "16", "17", "19", "22", "24", "31", "41", "53", "bp", "aak", "hyangak",
+    "4", "5", "6", "7", "8", "9", "10", "12", "15", "16", "17", "19", "22", "24", "31", "41", "43", "53", "bp", "aak", "hyangak",
   ]);
 });
 
