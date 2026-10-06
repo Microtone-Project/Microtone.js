@@ -11,6 +11,7 @@
 // a release needs; test/node/version.test.js keeps it shipped.
 
 import { t } from "../i18n.js";
+import { linkTouch } from "../touchlink.js";
 
 const THANKS = [
   // ["Name", "note"], — donors/sponsors, newest first
@@ -44,6 +45,7 @@ export function showAbout() {
     <p>
       <a href="docs.html" target="_blank" rel="noopener">${esc(t("about.docs"))}</a> ·
       <a href="docs.html#patchnotes" target="_blank" rel="noopener">${esc(t("about.patchNotes"))}</a> ·
+      <a data-touch>Microtone Touch</a> ·
       <a href="https://github.com/curioustorvald/Microtone.js" target="_blank" rel="noopener">GitHub</a> ·
       <a href="https://bsky.app/profile/did:plc:3enk4wk6acr23segkntcdzzc" target="_blank" rel="noopener">Bluesky</a>
     </p>
@@ -56,6 +58,7 @@ export function showAbout() {
     <h4>${esc(t("about.thanks"))}</h4>
     ${thanksList}
     <div class="modal-buttons"><button>${esc(t("common.close"))}</button></div>`;
+  linkTouch(dlg.querySelector("[data-touch]"));
   document.body.appendChild(dlg);
   dlg.querySelector(".modal-buttons button").addEventListener("click", () => { dlg.close(); dlg.remove(); });
   dlg.addEventListener("cancel", () => dlg.remove());

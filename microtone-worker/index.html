@@ -6,18 +6,24 @@
   <script>
   (function () {
     "use strict";
-    // ── PHONE → PLAYER ────────────────────────────────────────────────────
+    // ── PHONE → TOUCH (or → PLAYER) ───────────────────────────────────────
     // The tracker is a grid-and-keyboard application: it wants a physical
     // keyboard and a screen wide enough for a pattern. On a phone it is not
-    // merely cramped, it is unusable — so a phone lands on the standalone
-    // player instead, with the query string carried across so a `?load=` deep
-    // link still opens its song.
+    // merely cramped, it is unusable — so a phone lands on Microtone Touch,
+    // the phone's own sketchpad, at its own site (`from=tracker` lets it say
+    // why). A link that CARRIES A SONG — a `?load=` deep link, or an
+    // `#import=` handoff from a sibling player — goes to the standalone
+    // player instead, query string and fragment and all: the song is what
+    // that link is for, and Touch cannot open one.
     //
     // Only PHONES. "Android" without "Mobile" is a tablet, and an iPad reports
     // itself as a Mac, so both keep the tracker (rightly: a tablet in landscape
-    // can drive it). Anything this test gets wrong is undone by the player's
-    // "Open the tracker" link, which comes back here with `tracker=1` — and
-    // that choice is remembered, so a false positive costs one tap, once.
+    // can drive it — and the welcome screen and About link to Touch for
+    // whoever wants both). Anything this test gets wrong is undone by Touch's
+    // or the player's "Open the tracker" link, which comes back here with
+    // `tracker=1` — and that choice is remembered, so a false positive costs
+    // one tap, once. The tracker's own links to Touch forget it again
+    // (src/ui/touchlink.js): the last of the two chosen is what this opens.
     //
     // Runs first thing in <head>, ahead of the stylesheet and the splash, so a
     // redirected phone never pays for a boot it is not going to finish.
@@ -29,6 +35,10 @@
       else stay = localStorage.getItem("microtone-tracker-on-phone") === "1";
     } catch (e) { /* private mode — the URL parameter alone still overrides */ }
     if (stay) return;
+    if (!/[?&]load=/.test(location.search) && location.hash.indexOf("#import=") !== 0) {
+      location.replace("https://touch.microtone.cc/?from=tracker");
+      return;
+    }
     // Tells player.html it was arrived at rather than asked for, so it can say
     // so. Session-scoped: it is a fact about this navigation, not a setting.
     try { sessionStorage.setItem("microtone-phone-redirect", "1"); } catch (e) {}

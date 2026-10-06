@@ -9,6 +9,14 @@ online, where Microtone opens them as ordinary projects.
 
 Served at **https://touch.microtone.cc**, in English and Korean.
 
+A phone that opens microtone.cc is sent here (`?from=tracker`, which the start
+screen answers with a note and an "Open the tracker instead" link, then drops
+from the address) — unless the link carries a song, which still opens the
+tracker's player. Every link from here to the tracker asks for it with
+`tracker=1`, which microtone.cc remembers on that phone; the tracker's own
+links here (the welcome screen, About) forget it again. Tablets are never
+redirected, and find Touch through those links.
+
 ## Running it
 
 ```sh

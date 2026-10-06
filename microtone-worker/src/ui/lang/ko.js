@@ -272,6 +272,7 @@ export default {
   "welcome.tagline": "피아노로 낼 수 없는 음을 위한 뮤직 트래커.",
   "welcome.desktop": "데스크톱 앱 받기",
   "welcome.desktopOs": "Linux·Windows·macOS용",
+  "welcome.touchFor": "휴대폰·태블릿용 스케치패드",
   "welcome.loading": "불러오는 중…",
   "welcome.start": "시작하기",
   "welcome.new": "새 프로젝트…",

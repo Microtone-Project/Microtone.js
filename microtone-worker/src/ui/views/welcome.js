@@ -30,6 +30,7 @@ import { renderMarkdown, firstSection, sectionHeadlines, topLevelBullets } from 
 import { fillDemos } from "../demos.js";
 import { t, currentLang, onLangChange } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
+import { linkTouch } from "../touchlink.js";
 
 const RECENT_MAX = 6;     // rows in the Recent panel
 const NEWS_BULLETS = 4;   // headline items in the What's new panel
@@ -105,7 +106,10 @@ export class WelcomeView {
     const tag = document.createElement("p");
     tag.className = "wc-tagline";
     tag.textContent = t("welcome.tagline");
-    el.append(brand, tag, this.desktopOffer());
+    const offers = document.createElement("div");
+    offers.className = "wc-offers";
+    offers.append(this.desktopOffer(), this.touchOffer());
+    el.append(brand, tag, offers);
     return el;
   }
 
@@ -124,6 +128,20 @@ export class WelcomeView {
     const os = document.createElement("span");
     os.textContent = t("welcome.desktopOs");
     p.append(a, os);
+    return p;
+  }
+
+  /** Microtone Touch, the phone's sketchpad — offered everywhere, a tablet
+   *  being as much at home in it as in the tracker. (A phone never sees this
+   *  page unless it asked to: index.html sends it to Touch.) */
+  touchOffer() {
+    const p = document.createElement("p");
+    p.className = "wc-touch";
+    const a = linkTouch(document.createElement("a"));
+    setIconLabel(a, "external", "Microtone Touch");
+    const what = document.createElement("span");
+    what.textContent = t("welcome.touchFor");
+    p.append(a, what);
     return p;
   }
 

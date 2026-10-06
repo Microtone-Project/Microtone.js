@@ -146,6 +146,18 @@ A few things differ from the browser:
 - **The manual opens beside it** in a window of its own, and links to websites open in your browser.
 - **Online projects sign in through your browser.** **Sign in with SceneID** on the File tab opens your usual browser at microtone.cc; sign in there (if you already are, there is nothing to do) and it hands you back to Microtone — the browser may ask whether to open it. The app then stays signed in until you sign out, separately from the browser.
 
+### Microtone Touch
+
+[Microtone Touch](https://touch.microtone.cc/) is Microtone's sketchpad for
+phones and tablets: an isomorphic keyboard in 4- to 53-tone equal temperaments,
+Bohlen–Pierce and the twelve lü, eight lanes of preset instruments, and a
+pattern grid cut down to notes and a handful of effects. The welcome screen and
+**About** link to it.
+
+- **A sketch comes over through your online projects.** Save it online in Touch, signed in with the same SceneID account, and it is listed under **Online projects** on the File tab; opening it there makes it an ordinary project. Touch can also give you a sketch as a `.taud` file, which **Open…** reads like any other.
+- **On a phone, microtone.cc opens Touch.** A link that brings a song with it opens the song player instead. **Open the tracker** — in Touch's menu, on its start screen, or in the player — takes you to the tracker, and that phone keeps opening the tracker until you follow a link to Touch from it.
+- **Tablets are not sent anywhere**: an iPad or an Android tablet opens the tracker, with Touch a link away.
+
 ## Views
 
 | Key | View | Purpose |

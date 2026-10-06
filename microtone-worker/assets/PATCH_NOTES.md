@@ -6,6 +6,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-06
 
+Microtone Touch is out: a sketchpad for your phone at [touch.microtone.cc](https://touch.microtone.cc/), and a phone that visits microtone.cc now lands there.
+
+- **Microtone Touch sketches the notes a piano cannot play on a phone**: an isomorphic keyboard in 4- to 53-tone equal temperaments, Bohlen–Pierce and the twelve lü, eight lanes of preset instruments, and a pattern grid cut down to notes and a handful of effects. It speaks English and Korean, following your phone's language.
+- **A sketch saved online opens here as an ordinary project**: sign in to Touch with the same SceneID account, and the sketch is listed under File → Online projects, ready for everything the tracker can do.
+- **On a phone, microtone.cc now opens Touch** instead of the song player; a link that brings a song with it still opens the player. **Open the tracker** in Touch (or in the player) takes you to the tracker, and that phone keeps opening the tracker until you follow a link to Touch from it.
+- **The welcome screen and About link to Touch**, for a tablet that is at home in both.
+
 The keyboard strip under the grids can write notes now, not just play them.
 
 - **Click a key on the strip in record mode** and its note goes in at the cursor exactly as typing that key would: with the current instrument, the cursor stepping on by the input step. A tablet with no keyboard can write a whole part this way.

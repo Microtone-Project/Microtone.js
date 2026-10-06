@@ -277,6 +277,7 @@ export default {
   "welcome.tagline": "A music tracker for the notes a piano cannot play.",
   "welcome.desktop": "Get the desktop app",
   "welcome.desktopOs": "for Linux, Windows and macOS",
+  "welcome.touchFor": "a sketchpad for phones and tablets",
   "welcome.loading": "Loading…",
   "welcome.start": "Start",
   "welcome.new": "New project…",
