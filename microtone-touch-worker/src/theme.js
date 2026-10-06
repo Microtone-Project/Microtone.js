@@ -1,6 +1,6 @@
 // Themes: the tracker's three under its own names — dark, dim and light —
 // or SYSTEM, the default, which is the phone's own dark or light and follows
-// it when it changes.
+// it when it changes. Their names are the language's (lang/*.js theme.<id>).
 //
 // Every colour is a token in touch.css under :root[data-theme=…]. The early
 // script in index.html sets the attribute from the same saved choice before
@@ -8,12 +8,7 @@
 // right afterwards and tells the one view that caches colours (the keyboard
 // canvas) to read them again.
 
-export const THEMES = Object.freeze([
-  { id: "system", name: "System" },
-  { id: "dark", name: "Dark" },
-  { id: "dim", name: "Dim" },
-  { id: "light", name: "Light" },
-]);
+export const THEMES = Object.freeze([{ id: "system" }, { id: "dark" }, { id: "dim" }, { id: "light" }]);
 const KEY = "microtone-touch:theme"; // index.html's early script reads it too
 const phoneIsLight = matchMedia("(prefers-color-scheme: light)");
 

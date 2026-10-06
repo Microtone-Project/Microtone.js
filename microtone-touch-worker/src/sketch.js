@@ -37,7 +37,9 @@ export const TICKS_PER_ROW = MTSK_TICKS_PER_ROW;
 /**
  * The tunings Touch offers. `notation` is the sMet notation index (§9.6) —
  * which pitch table the degrees come from — and `baseNote` / `freq` the
- * song's tuning declaration (§4 Tuning). Most declare concert pitch, A4 at
+ * song's tuning declaration (§4 Tuning). `name` is English, for messages and
+ * the tests; the page shows the language's own (lang/*.js tuning.<id>, and
+ * tuning.edo for the equal divisions). Most declare concert pitch, A4 at
  * 440 Hz; the two Shi'er lü standards are the same twelve lü pitched by their
  * own conventions, C4 at 262 Hz (the Chinese a-ak) and at 311 Hz (the Korean
  * hyang-ak), and they travel as that declaration, not as different degrees.
@@ -53,12 +55,14 @@ export const TUNINGS = Object.freeze([
 export const DEFAULT_TUNING = "12";
 export const tuningById = (id) => TUNINGS.find((t) => t.id === id) ?? tuningById(DEFAULT_TUNING);
 
-/** The handful of effects. `args` are the light / medium / strong settings. */
+/** The handful of effects — Slide, Vibrato, Roll and Fade, as the language
+ *  names them (lang/*.js fx.<id>). `args` are the light / medium / strong
+ *  settings. */
 export const FX = Object.freeze({
-  slide: { name: "Slide", op: EffectOp.OP_G, args: [0x0040, 0x0100, 0x0400] },
-  vibrato: { name: "Vibrato", op: EffectOp.OP_H, args: [0x7120, 0x7140, 0x7180] },
-  roll: { name: "Roll", op: EffectOp.OP_Q, args: [0x0300, 0x0200, 0x0100] },
-  fade: { name: "Fade", op: EffectOp.OP_D, args: [0x0100, 0x0200, 0x0400] },
+  slide: { op: EffectOp.OP_G, args: [0x0040, 0x0100, 0x0400] },
+  vibrato: { op: EffectOp.OP_H, args: [0x7120, 0x7140, 0x7180] },
+  roll: { op: EffectOp.OP_Q, args: [0x0300, 0x0200, 0x0100] },
+  fade: { op: EffectOp.OP_D, args: [0x0100, 0x0200, 0x0400] },
 });
 export const FX_IDS = Object.freeze(Object.keys(FX));
 

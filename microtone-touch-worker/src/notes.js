@@ -9,6 +9,7 @@
 
 import { resolveNoteSymbol } from "../core/tuning/pitchtables.js";
 import { NOTE_OFF } from "./sketch.js";
+import { t } from "./i18n.js";
 
 const TICK = { " ": "", ".": "", u: "↑", d: "↓", U: "⇈", D: "⇊" };
 const ACC = {
@@ -24,9 +25,10 @@ export function noteClass(note, preset) {
   return (TICK[s.tick] ?? "") + s.letter + (ACC[s.acc] ?? "");
 }
 
-/** The full label with its octave: "C♯4". A key-off reads "off". */
+/** The full label with its octave: "C♯4". A key-off reads "off" (the
+ *  language's cell.off). */
 export function noteLabel(note, preset) {
-  if (note === NOTE_OFF) return "off";
+  if (note === NOTE_OFF) return t("cell.off");
   const s = resolveNoteSymbol(note, preset);
   if (!s) return "?";
   return noteClass(note, preset) + s.octave;

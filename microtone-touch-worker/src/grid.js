@@ -6,8 +6,9 @@
 // playhead moves by toggling one row's class off and the next one's on.
 
 import { LANES, ROWS, NOTE_OFF, FX } from "./sketch.js";
-import { DRUMS, presetById } from "../core/sketch/pack.js";
+import { DRUMS } from "../core/sketch/pack.js";
 import { noteLabel } from "./notes.js";
+import { t } from "./i18n.js";
 
 const ROWS_PER_BEAT = 4;
 const ROWS_PER_BAR = 16;
@@ -66,7 +67,7 @@ export class Grid {
     for (let l = 0; l < LANES; l++) {
       const lane = sketch.lanes[l];
       const h = this.heads[l];
-      const text = presetById(lane.preset).short;
+      const text = t(`preset.${lane.preset}.short`);
       if (h.textContent !== text) h.textContent = text;
       h.classList.toggle("muted", lane.mute);
       const sel = String(l === selectedLane);
@@ -79,9 +80,9 @@ export class Grid {
   _paintCell(l, r, cell, pitchPreset) {
     let text = "·", kind = "empty", fx = "";
     if (cell) {
-      if (cell.n === NOTE_OFF) { text = "off"; kind = "off"; }
+      if (cell.n === NOTE_OFF) { text = t("cell.off"); kind = "off"; }
       else {
-        text = cell.d !== undefined ? DRUMS[cell.d].short : noteLabel(cell.n, pitchPreset);
+        text = cell.d !== undefined ? t(`drum.${DRUMS[cell.d].id}.short`) : noteLabel(cell.n, pitchPreset);
         kind = "note";
         if (cell.fx && FX[cell.fx]) fx = FX_TAG[cell.fx] + ((cell.lv ?? 1) + 1);
       }

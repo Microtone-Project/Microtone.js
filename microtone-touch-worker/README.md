@@ -7,7 +7,7 @@ instruments, a pattern grid
 cut down to notes and a handful of effects — and sketches kept on the phone or
 online, where Microtone opens them as ordinary projects.
 
-**Status: prototype.** It runs and sends; it is not deployed anywhere yet.
+Served at **https://touch.microtone.cc**, in English and Korean.
 
 ## Running it
 
@@ -19,12 +19,54 @@ node --test          # the pure half against the real engine and parser
 `core` here is a symlink to the repository's shared `../core`. A plain static
 server has no online-projects API, so Files shows only the phone's own
 sketches and Save as… offers the `.taud` file besides. To try the online side,
-serve a staged copy (`node tools/stage-site.js microtone-touch-worker
-build/microtone-touch-worker`, from the repository root) under `wrangler dev`
-with the microtone Worker's code and bindings, on `localhost` with
-`ONLINE_DEV_LOGIN=1` and no SceneID pair in its `.dev.vars`.
+run this directory's own Worker, from here:
+
+```sh
+npx wrangler d1 migrations apply microtone-online --local
+npx wrangler dev --port 8789      # .dev.vars here: ONLINE_DEV_LOGIN=1
+```
 
 Its version is this directory's `package.json`, independent of the tracker's.
+
+## Deploying
+
+`wrangler.toml` here is the Worker `microtone-touch`: the tracker's own server
+code (`../microtone-worker/server/worker.js`) with the tracker's D1 database
+and R2 bucket, so a sketch saved on either site is the same sketch — only the
+static files differ. Its `[build]` stages this directory with `core/` laid in
+(`tools/stage-site.js` → `build/microtone-touch-worker`), which is what is
+uploaded; `.assetsignore` keeps the tests, this README, `wrangler.toml` and
+`.dev.vars` out of it. A test holds the database id and the bucket to the
+tracker's `/wrangler.toml`.
+
+Setting it up once, in the Cloudflare dashboard:
+
+1. **Workers & Pages → Create → Import a repository**: this repository, the
+   Worker named `microtone-touch`, **root directory** `microtone-touch-worker`,
+   no build command (the config's `[build]` stages the site), deploy command
+   `npx wrangler@4.120.0 deploy --compatibility-date 2026-07-10` (never with
+   `--assets`, which would ship the site without `core/`), version command
+   `npx wrangler versions upload`.
+2. **Settings → Domains & Routes → Add → Custom domain**: `touch.microtone.cc`.
+3. **Settings → Variables and Secrets**: `SCENEID_CLIENT_ID` and
+   `SCENEID_CLIENT_SECRET`, the same pair as the `microtone` Worker's (or
+   `npx wrangler secret put …` from here). Sign-in switches itself on once both
+   are there; SceneID already lists
+   `https://touch.microtone.cc/api/online/auth/callback`.
+
+The database schema is the tracker's, applied once for both
+(`npx wrangler d1 migrations apply microtone-online --remote`, from here or
+from the repository root). Every push to the branch then deploys both sites.
+
+## Languages
+
+Every word on screen comes from `src/i18n.js` and the tables in `src/lang/`
+(`en.js` is the reference list; `ko.js` the Korean). Touch starts in the
+phone's own language when it speaks it, and English otherwise; Language… in
+the menu overrides that, and switches at once. To add a language, copy `en.js`
+to `<code>.js`, translate the values, and register the code in `i18n.js` and
+in `index.html`'s two early scripts — `test/node/i18n.test.js` says what is
+missing.
 
 ## What is where
 
@@ -34,6 +76,8 @@ Its version is this directory's `package.json`, independent of the tracker's.
 | `src/topbar.js` | The transport bar's wordmark, fitted to the room left, and the hamburger menu |
 | `src/about.js` | About, opened by tapping the wordmark (or from the menu when the bar has no room for it); its version is read from `package.json`, which ships for that |
 | `src/theme.js` | Dark, dim and light (the tracker's three), or the phone's own; `index.html` applies the saved one before the first paint |
+| `src/i18n.js`, `src/lang/` | The languages: the phone's own or the one chosen, `t()` and its kin, and the English and Korean tables; `index.html` sets the page's language before the first paint |
+| `wrangler.toml` | The `microtone-touch` Worker: the tracker's server and storage, Touch's files |
 | `src/sketch.js` | The sketch model, and its road to and from a `.mtsk` file |
 | `../core/sketch/pack.js` | The instrument pack, synthesised (no samples are shipped) — in `core/` because Microtone builds it too, to open a sketch |
 | `../core/sketch/mtsk.js` | The `.mtsk` file, and the Taud song a sketch plays as |
@@ -82,7 +126,7 @@ every row of that run. There are no volume or pan columns. The song loops with
 The bar holds the transport alone — the wordmark (as much of "Microtone™ Touch"
 as fits), Play, Record, Section / Song — and the hamburger holds the rest, one
 level deep: BPM… (with whether the song loops), Temperament…, Save, Save as…,
-Load…, Files… and Theme…. The sketch on screen is a working copy, kept in local storage
+Load…, Files…, Theme…, Language… and a link to the tracker. The sketch on screen is a working copy, kept in local storage
 after every edit; Save writes it back where it was last saved or opened (its
 *home*), Save as… picks a name and a place, and opening another sketch or
 starting a new one asks first if there are unsaved changes, then starts a new

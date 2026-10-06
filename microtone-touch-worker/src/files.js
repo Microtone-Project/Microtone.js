@@ -26,14 +26,26 @@ import { normaliseSketch, sketchFromFile, sketchToFile } from "./sketch.js";
 import {
   keepOrDiscard, offerSignIn, fail, message, onlineName, shownName, esc, showSheet,
 } from "./saving.js";
+import { t, tHtml, html, plural, currentLang } from "./i18n.js";
 
-const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-const when = (t) => {
-  const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? "" : DATE.format(d);
+/** Dates and sizes are written the way the language showing writes them. */
+let formats = null;
+function format() {
+  if (formats?.lang !== currentLang()) {
+    formats = {
+      lang: currentLang(),
+      date: new Intl.DateTimeFormat(currentLang(), { dateStyle: "medium", timeStyle: "short" }),
+      kb: new Intl.NumberFormat(currentLang(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    };
+  }
+  return formats;
+}
+const when = (ms) => {
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? "" : format().date.format(d);
 };
-const size = (n) => (n < 1024 ? `${n} bytes` : `${(n / 1024).toFixed(1)} KB`);
-const PLACE = { local: "On this phone", online: "Online" };
+const size = (n) => (n < 1024 ? t("files.bytes", { n }) : t("files.kb", { n: format().kb.format(n / 1024) }));
+const place = (where) => t(where === "local" ? "files.local" : "files.online");
 
 const isHome = (home, entry) => !!home && home.where === entry.where && home.id === entry.id;
 
@@ -42,8 +54,7 @@ const isHome = (home, entry) => !!home && home.where === entry.where && home.id 
 /** → [{ where, id, name, modified, detail }], the newest first. */
 async function localEntries() {
   return (await library.list()).map((m) => ({
-    where: "local", id: m.id, name: m.name, modified: m.modified,
-    detail: m.sections === 1 ? "1 section" : `${m.sections} sections`,
+    where: "local", id: m.id, name: m.name, modified: m.modified, sections: m.sections,
   }));
 }
 
@@ -56,23 +67,27 @@ async function onlineEntries() {
   const { projects, sketchLimit } = await online.list();
   const entries = projects.filter((p) => online.isSketchName(p.name)).map((p) => ({
     where: "online", id: p.id, name: shownName(p.name), modified: p.modified, size: p.size,
-    detail: size(p.size),
   })).sort((a, b) => new Date(b.modified) - new Date(a.modified));
   return { st, entries, limit: sketchLimit };
 }
+
+/** What a row says of a sketch besides its name: how many sections it has
+ *  (on this phone) or its size (online). Worked out when it is shown, so it
+ *  is in the language showing. */
+const detail = (e) => (e.where === "local" ? plural("files.sections", e.sections) : size(e.size));
 
 function rowsHtml(entries, ctx, { more }) {
   const home = ctx.home();
   return entries.map((e, i) => {
     const open = isHome(home, e);
-    const meta = esc([when(e.modified), e.detail].filter(Boolean).join(" · "));
+    const meta = esc([when(e.modified), detail(e)].filter(Boolean).join(" · "));
     return `
       <li class="file-row"${open ? ' aria-current="true"' : ""}>
         <button type="button" class="file-open" data-open="${i}">
           <span class="file-name">${esc(e.name)}</span>
-          <span class="file-meta">${meta}${open ? ` · <b>open${ctx.unsaved() ? ", unsaved changes" : ""}</b>` : ""}</span>
+          <span class="file-meta">${meta}${open ? ` · <b>${tHtml(ctx.unsaved() ? "files.openUnsaved" : "files.open")}</b>` : ""}</span>
         </button>${more ? `
-        <button type="button" class="tbtn file-more" data-more="${i}" aria-label="${esc(e.name)}: more"><span class="ico ico-more"></span></button>` : ""}
+        <button type="button" class="tbtn file-more" data-more="${i}" aria-label="${tHtml("files.more", { name: e.name })}"><span class="ico ico-more"></span></button>` : ""}
       </li>`;
   }).join("");
 }
@@ -88,14 +103,14 @@ export function openEntry(ctx, entry) {
         if (!rec) throw new library.LibraryError("not-found");
         ctx.open({ ...normaliseSketch(rec.sketch), name: rec.name }, { where: "local", id: rec.id });
       } else {
-        ctx.toast(`Opening “${entry.name}”…`);
+        ctx.toast(t("files.opening", { name: entry.name }));
         const { bytes, etag } = await online.read(entry.id, { size: entry.size });
         const sketch = sketchFromFile(bytes, ctx.bank);
         ctx.open({ ...sketch, name: library.cleanName(entry.name) || sketch.name }, { where: "online", id: entry.id, etag });
       }
     } catch (err) {
-      fail(ctx, "Not opened", err instanceof SketchFormatError
-        ? "That file is not a sketch Touch can read."
+      fail(ctx, t("files.notOpened"), err instanceof SketchFormatError
+        ? t("files.notSketch")
         : message(err.code ?? "offline"));
     }
   });
@@ -106,13 +121,13 @@ function entrySheet(ctx, entry, changed) {
   const open = isHome(ctx.home(), entry);
   const body = showSheet(ctx, `
     <h2>${esc(entry.name)}</h2>
-    <p>${esc([PLACE[entry.where], when(entry.modified), entry.detail].filter(Boolean).join(" · "))}${open ? " · open now" : ""}</p>
+    <p>${esc([place(entry.where), when(entry.modified), detail(entry), open ? t("files.openNow") : ""].filter(Boolean).join(" · "))}</p>
     <div class="row">
-      <button type="button" class="tbtn primary" data-act="open">Open</button>
-      <button type="button" class="tbtn" data-act="rename">Rename…</button>
-      <button type="button" class="tbtn" data-act="copy">${entry.where === "local" ? "Copy online" : "Copy to this phone"}</button>
-      <button type="button" class="tbtn" data-act="delete">Delete…</button>
-      <button class="tbtn" value="close">Close</button>
+      <button type="button" class="tbtn primary" data-act="open">${tHtml("files.openBtn")}</button>
+      <button type="button" class="tbtn" data-act="rename">${tHtml("files.rename")}</button>
+      <button type="button" class="tbtn" data-act="copy">${tHtml(entry.where === "local" ? "files.copyOnline" : "files.copyLocal")}</button>
+      <button type="button" class="tbtn" data-act="delete">${tHtml("files.delete")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.close")}</button>
     </div>`);
   const on = (name, fn) => { body.querySelector(`[data-act="${name}"]`).onclick = fn; };
   on("open", () => openEntry(ctx, entry));
@@ -123,11 +138,11 @@ function entrySheet(ctx, entry, changed) {
 
 function renameSheet(ctx, entry, changed) {
   const body = showSheet(ctx, `
-    <h2>Rename</h2>
-    <label>Name<input type="text" name="name" value="${esc(entry.name)}" maxlength="${library.NAME_MAX}" autocomplete="off" enterkeyhint="done"></label>
+    <h2>${tHtml("rename.title")}</h2>
+    <label>${tHtml("saveAs.name")}<input type="text" name="name" value="${esc(entry.name)}" maxlength="${library.NAME_MAX}" autocomplete="off" enterkeyhint="done"></label>
     <div class="row">
-      <button type="button" class="tbtn primary" data-act="rename">Rename</button>
-      <button class="tbtn" value="close">Cancel</button>
+      <button type="button" class="tbtn primary" data-act="rename">${tHtml("rename.rename")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   const input = body.querySelector('[name="name"]');
@@ -136,7 +151,7 @@ function renameSheet(ctx, entry, changed) {
   const say = (text) => { err.hidden = false; err.textContent = text; button.disabled = false; };
   button.onclick = async () => {
     const name = library.cleanName(input.value);
-    if (!name) return say("Give the sketch a name.");
+    if (!name) return say(t("saveAs.needName"));
     if (name === entry.name) return ctx.sheet.close();
     button.disabled = true;
     try {
@@ -153,7 +168,7 @@ function renameSheet(ctx, entry, changed) {
       changed();
     } catch (e) {
       if (e.code === "exists") {
-        return say(`There is already a sketch called “${name}” ${entry.where === "local" ? "on this phone" : "online"}.`);
+        return say(t(entry.where === "local" ? "rename.takenLocal" : "rename.takenOnline", { name }));
       }
       say(message(e.code ?? "offline"));
     }
@@ -167,7 +182,7 @@ function renameSheet(ctx, entry, changed) {
 
 /** Copy a kept sketch to the other place, under the same name. */
 async function copy(ctx, entry, changed) {
-  const body = showSheet(ctx, `<h2>${esc(entry.name)}</h2><p>Copying…</p>`);
+  const body = showSheet(ctx, `<h2>${esc(entry.name)}</h2><p>${tHtml("copy.copying")}</p>`);
   try {
     if (entry.where === "local") {
       const st = await online.status();
@@ -177,25 +192,23 @@ async function copy(ctx, entry, changed) {
       const file = onlineName(rec.name);
       const { projects } = await online.list();
       if (projects.some((p) => p.name === file)) {
-        return fail(ctx, "Not copied", `You already have an online sketch called “${rec.name}”. Rename one of the two first.`);
+        return fail(ctx, t("copy.failed"), t("copy.takenOnline", { name: rec.name }));
       }
       await online.create(file, sketchToFile({ ...normaliseSketch(rec.sketch), name: rec.name }, ctx.bank));
-      ctx.toast(`Copied “${rec.name}” online.`);
+      ctx.toast(t("copy.copiedOnline", { name: rec.name }));
     } else {
       const { bytes } = await online.read(entry.id, { size: entry.size });
       const sketch = sketchFromFile(bytes, ctx.bank);
       const name = library.cleanName(entry.name) || sketch.name;
       await library.write({ ...sketch, name });
-      ctx.toast(`Copied “${name}” to this phone.`);
+      ctx.toast(t("copy.copiedLocal", { name }));
     }
     if (body.isConnected && ctx.sheet.open) ctx.sheet.close();
     changed();
   } catch (err) {
-    if (err.code === "exists") {
-      return fail(ctx, "Not copied", `There is already a sketch called “${entry.name}” on this phone. Rename one of the two first.`);
-    }
-    fail(ctx, "Not copied", err instanceof SketchFormatError
-      ? "That file is not a sketch Touch can read."
+    if (err.code === "exists") return fail(ctx, t("copy.failed"), t("copy.takenLocal", { name: entry.name }));
+    fail(ctx, t("copy.failed"), err instanceof SketchFormatError
+      ? t("files.notSketch")
       : message(err.code ?? "offline"));
   }
 }
@@ -203,11 +216,11 @@ async function copy(ctx, entry, changed) {
 function deleteSheet(ctx, entry, changed) {
   const open = isHome(ctx.home(), entry);
   const body = showSheet(ctx, `
-    <h2>Delete “${esc(entry.name)}”?</h2>
-    <p>It goes from ${entry.where === "local" ? "this phone" : "your online sketches"} for good.${open ? " The sketch you have open stays open, saved nowhere." : ""}</p>
+    <h2>${tHtml("delete.title", { name: entry.name })}</h2>
+    <p>${tHtml(entry.where === "local" ? "delete.bodyLocal" : "delete.bodyOnline")}${open ? ` ${tHtml("delete.stillOpen")}` : ""}</p>
     <div class="row">
-      <button type="button" class="tbtn primary" data-act="delete">Delete</button>
-      <button class="tbtn" value="close">Cancel</button>
+      <button type="button" class="tbtn primary" data-act="delete">${tHtml("delete.delete")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   body.querySelector('[data-act="delete"]').onclick = async (e) => {
@@ -233,32 +246,32 @@ let loadGen = 0;
 
 export async function openLoad(ctx) {
   const gen = ++loadGen;
-  showSheet(ctx, `<h2>Load</h2><p>Looking…</p>`);
+  showSheet(ctx, `<h2>${tHtml("load.title")}</h2><p>${tHtml("load.looking")}</p>`);
   const [local, remote] = await Promise.allSettled([localEntries(), onlineEntries()]);
   if (gen !== loadGen || !ctx.sheet.open) return; // closed, or something else since
   const lists = {};
-  let html = `<h2>Load</h2><h3>On this phone</h3>`;
-  if (local.status === "rejected") html += `<p class="err">${esc(message(local.reason?.code ?? "unavailable"))}</p>`;
-  else if (!local.value.length) html += `<p>Nothing is kept on this phone yet.</p>`;
+  let out = `<h2>${tHtml("load.title")}</h2><h3>${tHtml("files.local")}</h3>`;
+  if (local.status === "rejected") out += `<p class="err">${esc(message(local.reason?.code ?? "unavailable"))}</p>`;
+  else if (!local.value.length) out += `<p>${tHtml("load.noneLocal")}</p>`;
   else {
     lists.local = local.value;
-    html += `<ul class="files-list" data-list="local">${rowsHtml(local.value, ctx, { more: false })}</ul>`;
+    out += `<ul class="files-list" data-list="local">${rowsHtml(local.value, ctx, { more: false })}</ul>`;
   }
   const r = remote.status === "fulfilled" ? remote.value : null;
   if (r && !r.st.available) {
     // no online sketches here at all: say nothing about them
   } else {
-    html += `<h3>Online</h3>`;
-    if (!r) html += `<p class="err">${esc(message(remote.reason?.code ?? "offline"))}</p>`;
-    else if (!r.entries) html += `<p>Sign in to see your online sketches.</p><div class="row"><button type="button" class="tbtn" data-act="signin">Sign in</button></div>`;
-    else if (!r.entries.length) html += `<p>No sketches online yet.</p>`;
+    out += `<h3>${tHtml("files.online")}</h3>`;
+    if (!r) out += `<p class="err">${esc(message(remote.reason?.code ?? "offline"))}</p>`;
+    else if (!r.entries) out += `<p>${tHtml("load.signIn")}</p><div class="row"><button type="button" class="tbtn" data-act="signin">${tHtml("signIn.signIn")}</button></div>`;
+    else if (!r.entries.length) out += `<p>${tHtml("load.noneOnline")}</p>`;
     else {
       lists.online = r.entries;
-      html += `<ul class="files-list" data-list="online">${rowsHtml(r.entries, ctx, { more: false })}</ul>`;
+      out += `<ul class="files-list" data-list="online">${rowsHtml(r.entries, ctx, { more: false })}</ul>`;
     }
   }
-  html += `<div class="row"><button class="tbtn" value="close">Cancel</button></div>`;
-  const body = showSheet(ctx, html);
+  out += `<div class="row"><button class="tbtn" value="close">${tHtml("sheet.cancel")}</button></div>`;
+  const body = showSheet(ctx, out);
   body.querySelectorAll("[data-list]").forEach((ul) => {
     ul.onclick = (e) => {
       const b = e.target.closest("[data-open]");
@@ -330,7 +343,7 @@ export class FilesPanel {
   column(where, { count = "", aside = "", body }) {
     this.cols[where].innerHTML = `
       <header class="files-colhead">
-        <h2>${PLACE[where]}</h2><span class="files-count">${esc(count)}</span>
+        <h2>${esc(place(where))}</h2><span class="files-count">${esc(count)}</span>
         <span class="spacer"></span>${aside}
       </header>${body}`;
   }
@@ -350,13 +363,13 @@ export class FilesPanel {
       count: String(entries.length || ""),
       body: entries.length
         ? `<ul class="files-list">${rowsHtml(entries, this.ctx, { more: true })}</ul>`
-        : `<p class="files-note">Nothing is kept on this phone yet. Save as… → On this phone keeps the sketch you are working on here.</p>`,
+        : `<p class="files-note">${tHtml("files.noneLocal")}</p>`,
     });
   }
 
   async refreshOnline() {
     const gen = ++this.gen.online;
-    if (!this.entries.online.length) this.column("online", { body: `<p class="files-note">Looking…</p>` });
+    if (!this.entries.online.length) this.column("online", { body: `<p class="files-note">${tHtml("load.looking")}</p>` });
     let r;
     try {
       r = await onlineEntries();
@@ -365,7 +378,7 @@ export class FilesPanel {
       this.entries.online = [];
       this.column("online", {
         body: `<p class="files-note err">${esc(message(err.code ?? "offline"))}</p>
-          <div class="files-note"><button type="button" class="tbtn" data-act="retry">Try again</button></div>`,
+          <div class="files-note"><button type="button" class="tbtn" data-act="retry">${tHtml("files.retry")}</button></div>`,
       });
       return;
     }
@@ -374,21 +387,21 @@ export class FilesPanel {
     this.st = r.st;
     if (!r.st.available) {
       return this.column("online", {
-        body: `<p class="files-note">Online sketches are not available here. Save as… can still give you the sketch as a file that opens in Microtone.</p>`,
+        body: `<p class="files-note">${tHtml("files.unavailable")}</p>`,
       });
     }
     if (!r.entries) {
       return this.column("online", {
-        body: `<p class="files-note">Sign in with the account you use in Microtone, and a sketch kept online is there too, under File → Online projects.</p>
-          <div class="files-note"><button type="button" class="tbtn primary" data-act="signin">Sign in</button></div>`,
+        body: `<p class="files-note">${tHtml("files.signInNote")}</p>
+          <div class="files-note"><button type="button" class="tbtn primary" data-act="signin">${tHtml("signIn.signIn")}</button></div>`,
       });
     }
     this.column("online", {
-      count: `${r.entries.length} of ${r.limit}`,
-      aside: `<button type="button" class="tbtn" data-act="signout">Sign out</button>`,
-      body: `<p class="files-note files-who">Signed in as <b>${esc(r.st.user?.name ?? "you")}</b></p>${r.entries.length
+      count: t("files.count", { n: r.entries.length, limit: r.limit }),
+      aside: `<button type="button" class="tbtn" data-act="signout">${tHtml("files.signOut")}</button>`,
+      body: `<p class="files-note files-who">${tHtml("files.signedInAs", { name: html(`<b>${esc(r.st.user?.name ?? t("files.you"))}</b>`) })}</p>${r.entries.length
         ? `<ul class="files-list">${rowsHtml(r.entries, this.ctx, { more: true })}</ul>`
-        : `<p class="files-note">No sketches online yet. Save as… → Online puts the sketch you are working on here.</p>`}`,
+        : `<p class="files-note">${tHtml("files.noneOnline")}</p>`}`,
     });
   }
 

@@ -18,6 +18,11 @@
     // Early theme: the saved choice, else the phone's own dark or light — set
     // before the first paint, so nothing flashes the wrong palette. Once the
     // app runs, src/theme.js is the authority; keep the two in step.
+    //
+    // Early language, likewise: the saved choice, else the first of the
+    // phone's languages that Touch speaks, else English — src/i18n.js makes
+    // the same choice once it runs, and test/node/touch.test.js runs this
+    // script against it. LANGS is i18n.js's LANGS.
     (function () {
       var theme = null;
       try { theme = localStorage.getItem("microtone-touch:theme"); } catch (e) { /* private mode */ }
@@ -25,6 +30,19 @@
         theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
       }
       document.documentElement.dataset.theme = theme;
+
+      var LANGS = ["en", "ko"];
+      var lang = null;
+      try { lang = localStorage.getItem("microtone-touch:lang"); } catch (e) { /* private mode */ }
+      if (LANGS.indexOf(lang) < 0) {
+        lang = "en";
+        var list = navigator.languages || [navigator.language];
+        for (var i = 0; i < list.length; i++) {
+          var primary = String(list[i] || "").toLowerCase().split(/[-_]/)[0];
+          if (LANGS.indexOf(primary) >= 0) { lang = primary; break; }
+        }
+      }
+      document.documentElement.lang = lang;
     })();
   </script>
   <link rel="stylesheet" href="css/touch.css">
@@ -37,54 +55,54 @@
 </head>
 <body>
   <div id="app" class="app">
-    <section class="pane pane-song" aria-label="Sketch">
+    <section class="pane pane-song" aria-label="Sketch" data-i18n-aria="app.sketch">
       <div class="tracker-wrapper">
         <header id="transport" class="bar topbar">
-          <div class="brand-container" id="brand" data-fit="full" role="button" tabindex="0" aria-label="About Microtone Touch">
+          <div class="brand-container" id="brand" data-fit="full" role="button" tabindex="0" aria-label="About Microtone Touch" data-i18n-aria="app.aboutOpen">
             <span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span><span class="brand brand-touch">Touch</span>
           </div>
-          <button id="playBtn" class="tbtn" aria-label="Play" aria-pressed="false"><span class="ico ico-play"></span></button>
-          <button id="recBtn" class="tbtn rec" aria-label="Record" aria-pressed="false"><span class="ico ico-rec"></span></button>
-          <button id="loopBtn" class="tbtn wide" aria-pressed="true" title="What the transport plays">Section</button>
+          <button id="playBtn" class="tbtn" aria-label="Play" data-i18n-aria="transport.play" aria-pressed="false"><span class="ico ico-play"></span></button>
+          <button id="recBtn" class="tbtn rec" aria-label="Record" data-i18n-aria="transport.record" aria-pressed="false"><span class="ico ico-rec"></span></button>
+          <button id="loopBtn" class="tbtn wide" aria-pressed="true" title="What the transport plays" data-i18n-title="transport.scopeTitle">Section</button>
           <span class="spacer" id="topSpacer"></span>
-          <button id="menuBtn" class="tbtn" aria-label="Menu" aria-haspopup="menu" aria-expanded="false"><span class="ico ico-menu"></span></button>
+          <button id="menuBtn" class="tbtn" aria-label="Menu" data-i18n-aria="transport.menu" aria-haspopup="menu" aria-expanded="false"><span class="ico ico-menu"></span></button>
         </header>
-        <nav class="vbar sections" id="sections" aria-label="Sections"></nav>
+        <nav class="vbar sections" id="sections" aria-label="Sections" data-i18n-aria="sections.label"></nav>
         <div class="grid-wrap" id="gridWrap">
-          <div class="grid" id="grid" role="grid" aria-label="Pattern"></div>
+          <div class="grid" id="grid" role="grid" aria-label="Pattern" data-i18n-aria="grid.label"></div>
         </div>
-        <div class="bar strip" id="editing" aria-label="Editing">
-          <button id="offBtn" class="tbtn" title="Write a key-off">Off</button>
-          <button id="clearBtn" class="tbtn" aria-label="Clear the cell"><span class="ico ico-clear"></span></button>
-          <button id="stepBtn" class="tbtn wide" title="Rows the cursor moves after an entry">Step <b id="stepVal">1</b></button>
-          <button id="fxBtn" class="tbtn wide" title="Effect on the cell">FX</button>
+        <div class="bar strip" id="editing" aria-label="Editing" data-i18n-aria="edit.label">
+          <button id="offBtn" class="tbtn" title="Write a key-off" data-i18n-title="edit.offTitle" data-i18n="edit.off">Off</button>
+          <button id="clearBtn" class="tbtn" aria-label="Clear the cell" data-i18n-aria="edit.clear"><span class="ico ico-clear"></span></button>
+          <button id="stepBtn" class="tbtn wide" title="Rows the cursor moves after an entry" data-i18n-title="edit.stepTitle"><span data-i18n="edit.step">Step</span> <b id="stepVal">1</b></button>
+          <button id="fxBtn" class="tbtn wide" title="Effect on the cell" data-i18n-title="edit.fxTitle" data-i18n="edit.fx">FX</button>
           <span class="spacer"></span>
-          <button id="undoBtn" class="tbtn" aria-label="Undo" disabled><span class="ico ico-undo"></span></button>
-          <button id="redoBtn" class="tbtn" aria-label="Redo" disabled><span class="ico ico-redo"></span></button>
+          <button id="undoBtn" class="tbtn" aria-label="Undo" data-i18n-aria="edit.undo" disabled><span class="ico ico-undo"></span></button>
+          <button id="redoBtn" class="tbtn" aria-label="Redo" data-i18n-aria="edit.redo" disabled><span class="ico ico-redo"></span></button>
         </div>
       </div>
     </section>
-    <div class="splitter" id="splitter" role="separator" tabindex="0" aria-label="Resize the keyboard"
+    <div class="splitter" id="splitter" role="separator" tabindex="0" aria-label="Resize the keyboard" data-i18n-aria="split.resize"
          aria-valuemin="20" aria-valuemax="80"><button type="button" class="split-knob" id="splitKnob"></button><button
          type="button" class="split-knob hand-knob" id="handKnob"></button></div>
     <div class="hinge" aria-hidden="true"></div>
-    <section class="pane pane-keys" aria-label="Keyboard">
+    <section class="pane pane-keys" aria-label="Keyboard" data-i18n-aria="keys.label">
       <div class="bar keyhead" id="keyhead">
-        <button id="octDown" class="tbtn" aria-label="Octave down">‹</button>
+        <button id="octDown" class="tbtn" aria-label="Octave down" data-i18n-aria="keys.octDown">‹</button>
         <span id="octVal" class="oct">C3</span>
-        <button id="octUp" class="tbtn" aria-label="Octave up">›</button>
-        <select id="layoutSel" class="tsel" aria-label="Keyboard layout"></select>
-        <button id="acrossBtn" class="tbtn" aria-pressed="false" aria-label="Octaves across"
-                title="Octaves up the board, or across it" hidden><span class="ico ico-octaves"></span></button>
-        <button id="fatBtn" class="tbtn" aria-pressed="false" aria-label="Fat fingers"
-                title="Where two or three keys meet, one touch plays them all" hidden><span class="ico ico-fat"></span></button>
+        <button id="octUp" class="tbtn" aria-label="Octave up" data-i18n-aria="keys.octUp">›</button>
+        <select id="layoutSel" class="tsel" aria-label="Keyboard layout" data-i18n-aria="keys.layout"></select>
+        <button id="acrossBtn" class="tbtn" aria-pressed="false" aria-label="Octaves across" data-i18n-aria="keys.across"
+                title="Octaves up the board, or across it" data-i18n-title="keys.acrossTitle" hidden><span class="ico ico-octaves"></span></button>
+        <button id="fatBtn" class="tbtn" aria-pressed="false" aria-label="Fat fingers" data-i18n-aria="keys.fat"
+                title="Where two or three keys meet, one touch plays them all" data-i18n-title="keys.fatTitle" hidden><span class="ico ico-fat"></span></button>
         <span class="spacer"></span>
         <span id="laneTag" class="lane-tag"></span>
-        <button id="zoomOut" class="tbtn" aria-label="Smaller keys">−</button>
-        <button id="zoomIn" class="tbtn" aria-label="Larger keys">+</button>
+        <button id="zoomOut" class="tbtn" aria-label="Smaller keys" data-i18n-aria="keys.smaller">−</button>
+        <button id="zoomIn" class="tbtn" aria-label="Larger keys" data-i18n-aria="keys.larger">+</button>
       </div>
       <div class="keys-wrap" id="keysWrap">
-        <canvas id="keys" class="keys" aria-label="Isomorphic keyboard"></canvas>
+        <canvas id="keys" class="keys" aria-label="Isomorphic keyboard" data-i18n-aria="keys.canvas"></canvas>
       </div>
     </section>
   </div>
@@ -99,42 +117,72 @@
       <span class="start-keys" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="start-hint" id="startHint" role="status">Loading…</span>
     </button>
+    <p class="veil-note" id="veilNote" hidden><span data-i18n="veil.fromTracker">This looks like a phone, so microtone.cc opened Microtone Touch.</span>
+      <a href="https://microtone.cc/?tracker=1" data-i18n="veil.openTracker">Open the tracker instead</a></p>
   </div>
+  <script>
+    // The veil's words in the page's language before any module has run —
+    // each one the src/lang/*.js string of the same key, which
+    // test/node/i18n.test.js keeps in step; app.js takes them over. And when
+    // microtone.cc's phone redirect sent this phone here (`from=tracker`), the
+    // veil says so and offers the tracker — `tracker=1` makes microtone.cc
+    // stop redirecting — and the parameter is spent at once, so a reload, a
+    // bookmark or an installed app does not say it again.
+    (function () {
+      var EARLY = {
+        "veil.loading": { en: "Loading…", ko: "불러오는 중…" },
+        "veil.fromTracker": { en: "This looks like a phone, so microtone.cc opened Microtone Touch.", ko: "휴대폰으로 보여서 microtone.cc가 Microtone Touch를 열었습니다." },
+        "veil.openTracker": { en: "Open the tracker instead", ko: "대신 트래커 열기" }
+      };
+      var lang = document.documentElement.lang;
+      var say = function (key) { return EARLY[key][lang] || EARLY[key].en; };
+      document.getElementById("startHint").textContent = say("veil.loading");
+      if (!/[?&]from=tracker(&|$)/.test(location.search)) return;
+      var note = document.getElementById("veilNote");
+      var parts = note.querySelectorAll("[data-i18n]");
+      for (var i = 0; i < parts.length; i++) parts[i].textContent = say(parts[i].getAttribute("data-i18n"));
+      note.hidden = false;
+      try { history.replaceState(history.state, "", location.pathname + location.hash); } catch (e) { /* the note still shows */ }
+    })();
+  </script>
 
   <!-- The Files panel takes the screen in place of the sketch: local and online
        side by side — a screen segment each on a foldable, two columns where
        there is room, a tab each on a phone held upright (touch.css). -->
-  <section id="files" class="files" aria-label="Files" data-tab="local" hidden>
+  <section id="files" class="files" aria-label="Files" data-i18n-aria="files.title" data-tab="local" hidden>
     <div class="files-a">
       <header class="bar files-head">
-        <button id="filesBack" class="tbtn" aria-label="Back to the sketch">‹</button>
-        <h1>Files</h1>
+        <button id="filesBack" class="tbtn" aria-label="Back to the sketch" data-i18n-aria="files.back">‹</button>
+        <h1 data-i18n="files.title">Files</h1>
         <span class="spacer"></span>
-        <button id="filesNew" class="tbtn wide">New sketch</button>
+        <button id="filesNew" class="tbtn wide" data-i18n="files.new">New sketch</button>
       </header>
-      <div class="bar files-tabs" role="tablist" aria-label="Where">
-        <button type="button" class="tbtn" role="tab" data-tab="local" aria-selected="true">On this phone</button>
-        <button type="button" class="tbtn" role="tab" data-tab="online" aria-selected="false">Online</button>
+      <div class="bar files-tabs" role="tablist" aria-label="Where" data-i18n-aria="files.where">
+        <button type="button" class="tbtn" role="tab" data-tab="local" aria-selected="true" data-i18n="files.local">On this phone</button>
+        <button type="button" class="tbtn" role="tab" data-tab="online" aria-selected="false" data-i18n="files.online">Online</button>
       </div>
-      <section class="files-col" id="filesLocal" aria-label="On this phone"></section>
+      <section class="files-col" id="filesLocal" aria-label="On this phone" data-i18n-aria="files.local"></section>
     </div>
     <div class="hinge" aria-hidden="true"></div>
-    <section class="files-col" id="filesOnline" aria-label="Online"></section>
+    <section class="files-col" id="filesOnline" aria-label="Online" data-i18n-aria="files.online"></section>
   </section>
 
-  <dialog id="menu" class="menu" aria-label="Menu">
+  <dialog id="menu" class="menu" aria-label="Menu" data-i18n-aria="transport.menu">
     <div class="menu-body" role="menu">
       <p class="menu-cap" id="menuCap"></p>
-      <button type="button" role="menuitem" data-act="bpm">BPM…<span class="menu-val" id="menuBpm"></span></button>
-      <button type="button" role="menuitem" data-act="tuning">Temperament…<span class="menu-val" id="menuTuning"></span></button>
+      <button type="button" role="menuitem" data-act="bpm"><span data-i18n="menu.bpm">BPM…</span><span class="menu-val" id="menuBpm"></span></button>
+      <button type="button" role="menuitem" data-act="tuning"><span data-i18n="menu.tuning">Temperament…</span><span class="menu-val" id="menuTuning"></span></button>
       <hr>
-      <button type="button" role="menuitem" data-act="save">Save</button>
-      <button type="button" role="menuitem" data-act="saveAs">Save as…</button>
-      <button type="button" role="menuitem" data-act="load">Load…</button>
-      <button type="button" role="menuitem" data-act="files">Files…</button>
+      <button type="button" role="menuitem" data-act="save" data-i18n="menu.save">Save</button>
+      <button type="button" role="menuitem" data-act="saveAs" data-i18n="menu.saveAs">Save as…</button>
+      <button type="button" role="menuitem" data-act="load" data-i18n="menu.load">Load…</button>
+      <button type="button" role="menuitem" data-act="files" data-i18n="menu.files">Files…</button>
       <hr>
-      <button type="button" role="menuitem" data-act="theme">Theme…<span class="menu-val" id="menuTheme"></span></button>
-      <button type="button" role="menuitem" data-act="about" id="menuAbout" hidden>About…</button>
+      <button type="button" role="menuitem" data-act="theme"><span data-i18n="menu.theme">Theme…</span><span class="menu-val" id="menuTheme"></span></button>
+      <button type="button" role="menuitem" data-act="lang"><span data-i18n="menu.lang">Language…</span><span class="menu-val" id="menuLang"></span></button>
+      <!-- The tracker, beside Touch rather than in its place: `tracker=1` keeps a phone from being sent straight back here. -->
+      <a role="menuitem" data-act="tracker" href="https://microtone.cc/?tracker=1" target="_blank" rel="noopener"><span data-i18n="menu.tracker">Open the Microtone tracker</span><span class="menu-val" aria-hidden="true">↗</span></a>
+      <button type="button" role="menuitem" data-act="about" id="menuAbout" data-i18n="menu.about" hidden>About…</button>
     </div>
   </dialog>
   <dialog id="sheet" class="sheet"><form method="dialog" id="sheetBody"></form></dialog>

@@ -1,0 +1,70 @@
+# Cloudflare configuration for touch.microtone.cc — the Worker
+# `microtone-touch`, Microtone Touch's twin of the tracker's `microtone`
+# (/wrangler.toml at the repository root, which says more about each part).
+#
+# The SAME server code as microtone.cc, with the SAME D1 database and R2
+# bucket: one SceneID account, one set of projects and sketches, whichever
+# site saved them. Only the static files differ — a staged copy of this
+# directory with core/ laid in (tools/stage-site.js, run by [build] below
+# before every deploy, version upload and `wrangler dev`). Paths here are
+# relative to THIS file, so every command runs from this directory:
+#     npx wrangler@4.120.0 deploy --compatibility-date 2026-07-10
+# and the Workers build that runs it has its root directory set to
+# microtone-touch-worker. As for the tracker, a deploy command must NOT pass
+# `--assets`: it would override the staged directory and ship Touch without
+# its engine.
+#
+# The domain, touch.microtone.cc, is attached to the Worker in the dashboard
+# (Workers → microtone-touch → Settings → Domains & Routes), as microtone.cc
+# is to `microtone`.
+#
+# Secrets: the same SceneID pair as `microtone` — SceneID's client is one
+# application with both sites' callbacks registered — set on THIS Worker too:
+#     npx wrangler secret put SCENEID_CLIENT_ID
+#     npx wrangler secret put SCENEID_CLIENT_SECRET
+# and, for local runs, .dev.vars NEXT TO THIS FILE (gitignored, and never
+# staged: .assetsignore). Sign-in switches itself on once both are present.
+#
+# The D1 schema is the tracker's and is applied once for both, from either
+# file: npx wrangler d1 migrations apply microtone-online --remote
+#
+# Local run, from this directory (Touch + the API, with a local D1 and R2):
+#     npx wrangler d1 migrations apply microtone-online --local
+#     npx wrangler dev --port 8789
+# with ONLINE_DEV_LOGIN=1 in .dev.vars for a test sign-in that needs no
+# SceneID at all (SceneID only knows its registered callbacks).
+
+name = "microtone-touch"
+main = "../microtone-worker/server/worker.js"
+compatibility_date = "2026-07-10"
+
+[build]
+command = "node tools/stage-site.js microtone-touch-worker build/microtone-touch-worker"
+cwd = ".."
+watch_dir = ["../core", "src", "css", "../microtone-worker/server"]
+
+[assets]
+directory = "../build/microtone-touch-worker"
+
+# The tracker's database and bucket, by the same names and the same id: a
+# different id here would split one person's sketches across two databases.
+# test/node/touch.test.js holds the two files to that.
+[[d1_databases]]
+binding = "ONLINE_DB"
+database_name = "microtone-online"
+database_id = "270dc7be-bf3d-4ca9-8da1-9e431bcba76d"
+migrations_dir = "../microtone-worker/migrations"
+
+[[r2_buckets]]
+binding = "ONLINE_BUCKET"
+bucket_name = "microtone-online-storage"
+
+[[previews.d1_databases]]
+binding = "ONLINE_DB"
+database_name = "microtone-online"
+database_id = "270dc7be-bf3d-4ca9-8da1-9e431bcba76d"
+migrations_dir = "../microtone-worker/migrations"
+
+[[previews.r2_buckets]]
+binding = "ONLINE_BUCKET"
+bucket_name = "microtone-online-storage"

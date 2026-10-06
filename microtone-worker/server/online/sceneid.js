@@ -23,8 +23,9 @@
 //
 // SceneID only sends people back to REGISTERED redirect URIs, so each origin
 // that signs in needs <origin>/api/online/auth/callback listed under
-// "Maintained websites" in the SceneID profile: https://microtone.cc, and
-// http://localhost:8788 for `wrangler dev --port 8788`.
+// "Maintained websites" in the SceneID profile: https://microtone.cc,
+// https://touch.microtone.cc (Microtone Touch, its own Worker on this same
+// code), and http://localhost:8788 for `wrangler dev --port 8788`.
 //
 // SCENEID_CLIENT_ID and SCENEID_CLIENT_SECRET come from the environment:
 // Worker secrets in production, .dev.vars locally — never a file here.

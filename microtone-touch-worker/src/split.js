@@ -19,6 +19,8 @@
 // A device that reports a folded posture without segments keeps the bar, and
 // only starts with the keyboard taking the larger share.
 
+import { t } from "./i18n.js";
+
 const SHARE_MIN = 0.2;
 const SHARE_MAX = 0.8;
 const DRAG_SLOP = 5; // px a press may wander and still count as a tap
@@ -62,11 +64,11 @@ export function initSplit(els, prefs, save) {
     bar.setAttribute("aria-orientation", mode === "cols" ? "vertical" : "horizontal");
     bar.setAttribute("aria-valuenow", String(Math.round(share * 100)));
     knob.textContent = mode === "cols" ? "⇅" : "⇄";
-    knob.title = mode === "cols" ? "Song above the keyboard" : "Song beside the keyboard";
+    knob.title = t(mode === "cols" ? "split.stack" : "split.beside");
     knob.setAttribute("aria-label", knob.title);
     const toLeft = prefs.hand === "right";
     handKnob.textContent = "⇆";
-    handKnob.title = toLeft ? "Keyboard on the left (left-handed)" : "Keyboard on the right (right-handed)";
+    handKnob.title = t(toLeft ? "split.handLeft" : "split.handRight");
     handKnob.setAttribute("aria-label", handKnob.title);
     handKnob.setAttribute("aria-pressed", String(prefs.hand === "left"));
   }

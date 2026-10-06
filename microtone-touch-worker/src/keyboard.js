@@ -20,6 +20,7 @@ import { layoutSteps, keyDegree, pixelToHex, visibleKeys, fatZone, fatPoints, he
 import { noteForDegree, resolveNoteSymbol } from "../core/tuning/pitchtables.js";
 import { noteClass, noteShade } from "./notes.js";
 import { DRUMS } from "../core/sketch/pack.js";
+import { t } from "./i18n.js";
 
 // Keys outside C0…B9 are drawn but inert: the notation has no name for them,
 // and further out the note words clamp, so a row would all sound one pitch.
@@ -344,7 +345,7 @@ export class Keyboard {
       ctx.stroke();
       ctx.fillStyle = held.has(i) ? c["--key-down-ink"] : c["--key-accidental-ink"];
       ctx.font = `600 ${Math.round(Math.min(pw, ph) * 0.16)}px system-ui, sans-serif`;
-      ctx.fillText(DRUMS[i].name, x + pw / 2, y + ph / 2);
+      ctx.fillText(t(`drum.${DRUMS[i].id}`), x + pw / 2, y + ph / 2);
     }
   }
 }

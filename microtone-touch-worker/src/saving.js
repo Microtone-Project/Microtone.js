@@ -24,19 +24,14 @@
 import * as online from "../core/storage/online.js";
 import * as library from "./library.js";
 import { sketchToTaud, sketchToFile, sketchFileName } from "./sketch.js";
+import { t, tHtml } from "./i18n.js";
 
-const MESSAGES = {
-  offline: "No connection. Try again when you are back online.",
-  quota: "Your online sketches are full. Delete one in Files, then save again.",
-  "too-large": "This sketch is larger than an online sketch can be.",
-  exists: "You already have an online sketch with this name.",
-  conflict: "That sketch was saved from somewhere else since it was last saved here.",
-  "signed-out": "Your sign-in has expired. Sign in again.",
-  "bad-name": "That name cannot be used.",
-  "not-found": "That sketch is not there any more.",
-  unavailable: "This browser is not keeping anything for this page — a private window, perhaps.",
-};
-export const message = (code) => MESSAGES[code] ?? `The server said no (${code}).`;
+/** The failures with a sentence of their own (lang/*.js err.<code>): the
+ *  server's codes, library.js's, and "offline" for no answer at all. */
+const EXPLAINED = new Set([
+  "offline", "quota", "too-large", "exists", "conflict", "signed-out", "bad-name", "not-found", "unavailable",
+]);
+export const message = (code) => (EXPLAINED.has(code) ? t(`err.${code}`) : t("err.other", { code }));
 
 /** An online sketch is named like a file, and its `.mtsk` is what puts it
  *  in a sketch slot; it is shown without it. */
@@ -59,7 +54,7 @@ export function fail(ctx, title, text) {
   showSheet(ctx, `
     <h2>${esc(title)}</h2>
     <p class="err">${esc(text)}</p>
-    <div class="row"><button class="tbtn" value="close">Close</button></div>`);
+    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.close")}</button></div>`);
 }
 
 /** Saved: the page learns where, the sheet goes, and whatever was waiting
@@ -87,22 +82,22 @@ export async function save(ctx, opts = {}) {
 async function saveLocal(ctx, snap, id, opts) {
   try {
     const kept = await library.write(snap.sketch, { id });
-    done(ctx, { where: "local", id: kept.id }, snap, `Saved “${kept.name}” on this phone.`, opts);
+    done(ctx, { where: "local", id: kept.id }, snap, t("save.savedLocal", { name: kept.name }), opts);
   } catch (err) {
-    if (err.code !== "exists") return fail(ctx, "Not saved", message(err.code));
+    if (err.code !== "exists") return fail(ctx, t("save.failed"), message(err.code));
     const home = ctx.home();
     // Save as… under the name it is already kept under: that is just Save.
     if (home?.where === "local" && home.id === err.existing.id) return saveLocal(ctx, snap, home.id, opts);
-    offerReplace(ctx, snap, opts, "on this phone", () => saveLocal(ctx, snap, err.existing.id, opts));
+    offerReplace(ctx, snap, opts, "local", () => saveLocal(ctx, snap, err.existing.id, opts));
   }
 }
 
 /** Save over the online sketch the one in hand came from. */
 async function saveOnline(ctx, snap, home, opts) {
-  ctx.toast("Saving online…");
+  ctx.toast(t("save.saving"));
   try {
     const p = await online.save(home.id, sketchToFile(snap.sketch, ctx.bank), home.etag);
-    done(ctx, { where: "online", id: p.id, etag: p.etag }, snap, "Saved online.", opts);
+    done(ctx, { where: "online", id: p.id, etag: p.etag }, snap, t("save.savedOnline"), opts);
   } catch (err) {
     // Deleted since — or a project slot, where a prototype once sent a
     // .taud: save it afresh under its name.
@@ -118,7 +113,8 @@ async function saveOnlineAs(ctx, snap, opts) {
   const file = onlineName(snap.sketch.name);
   const bytes = sketchToFile(snap.sketch, ctx.bank);
   const home = ctx.home();
-  const ok = (p) => done(ctx, { where: "online", id: p.id, etag: p.etag }, snap, `Saved “${shownName(p.name)}” online.`, opts);
+  const ok = (p) => done(ctx, { where: "online", id: p.id, etag: p.etag }, snap,
+    t("save.savedOnlineAs", { name: shownName(p.name) }), opts);
   try {
     const { projects } = await online.list();
     const same = projects.find((p) => p.name === file);
@@ -139,18 +135,19 @@ async function onlineFailed(ctx, err, snap, opts, retry) {
   if (err.code === "signed-out") {
     return offerSignIn(ctx, await online.status(), { then: retry, why: message("signed-out") });
   }
-  fail(ctx, "Not saved", message(err.code ?? "offline"));
+  fail(ctx, t("save.failed"), message(err.code ?? "offline"));
 }
 
+/** `where` is the place the name is taken in: "local" or "online". */
 function offerReplace(ctx, snap, opts, where, replace) {
   const name = snap.sketch.name;
   const body = showSheet(ctx, `
-    <h2>That name is taken</h2>
-    <p>You already have a sketch called “${esc(name)}” ${where}. Replace it with this one, or save this one under another name.</p>
+    <h2>${tHtml("replace.title")}</h2>
+    <p>${tHtml(where === "local" ? "replace.bodyLocal" : "replace.bodyOnline", { name })}</p>
     <div class="row">
-      <button type="button" class="tbtn" data-act="replace">Replace it</button>
-      <button type="button" class="tbtn primary" data-act="rename">Choose another name</button>
-      <button class="tbtn" value="close">Cancel</button>
+      <button type="button" class="tbtn" data-act="replace">${tHtml("replace.replace")}</button>
+      <button type="button" class="tbtn primary" data-act="rename">${tHtml("replace.rename")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>`);
   act(body, "replace").onclick = (e) => { e.target.disabled = true; replace(); };
   act(body, "rename").onclick = () => openSaveAs(ctx, opts, { name });
@@ -159,20 +156,20 @@ function offerReplace(ctx, snap, opts, where, replace) {
 function offerConflict(ctx, snap, opts) {
   const name = snap.sketch.name;
   const body = showSheet(ctx, `
-    <h2>Changed somewhere else</h2>
-    <p>“${esc(name)}” was saved online from somewhere else after it was last saved or opened here. Saving now would replace that work.</p>
+    <h2>${tHtml("conflict.title")}</h2>
+    <p>${tHtml("conflict.body", { name })}</p>
     <div class="row">
-      <button type="button" class="tbtn primary" data-act="new">Save as a new sketch</button>
-      <button type="button" class="tbtn" data-act="replace">Replace it</button>
-      <button class="tbtn" value="close">Cancel</button>
+      <button type="button" class="tbtn primary" data-act="new">${tHtml("conflict.saveNew")}</button>
+      <button type="button" class="tbtn" data-act="replace">${tHtml("replace.replace")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>`);
-  act(body, "new").onclick = () => openSaveAs(ctx, opts, { name: `${name} (phone)` });
+  act(body, "new").onclick = () => openSaveAs(ctx, opts, { name: t("conflict.copyName", { name }) });
   act(body, "replace").onclick = async (e) => {
     e.target.disabled = true;
     const home = ctx.home();
     try {
       const p = await online.save(home.id, sketchToFile(snap.sketch, ctx.bank), null);
-      done(ctx, { where: "online", id: p.id, etag: p.etag }, snap, "Saved online.", opts);
+      done(ctx, { where: "online", id: p.id, etag: p.etag }, snap, t("save.savedOnline"), opts);
     } catch (err) {
       onlineFailed(ctx, err, snap, opts, () => save(ctx, opts));
     }
@@ -190,18 +187,18 @@ export function openSaveAs(ctx, opts = {}, { name = ctx.sketch().name } = {}) {
   const wasOnline = ctx.home()?.where === "online";
   const share = canShare();
   const body = showSheet(ctx, `
-    <h2>Save as</h2>
-    <label>Name<input type="text" name="name" value="${esc(name)}" maxlength="${library.NAME_MAX}" autocomplete="off" enterkeyhint="done"></label>
+    <h2>${tHtml("saveAs.title")}</h2>
+    <label>${tHtml("saveAs.name")}<input type="text" name="name" value="${esc(name)}" maxlength="${library.NAME_MAX}" autocomplete="off" enterkeyhint="done"></label>
     <div class="row">
-      <button type="button" class="tbtn ${wasOnline ? "" : "primary"}" data-act="local">On this phone</button>
-      <button type="button" class="tbtn ${wasOnline ? "primary" : ""}" data-act="online" disabled>Online</button>
+      <button type="button" class="tbtn ${wasOnline ? "" : "primary"}" data-act="local">${tHtml("saveAs.local")}</button>
+      <button type="button" class="tbtn ${wasOnline ? "primary" : ""}" data-act="online" disabled>${tHtml("saveAs.online")}</button>
     </div>
-    <p data-online>Checking online sketches…</p>
-    <p>Or take it as a file — a .taud, which opens in Microtone anywhere.</p>
+    <p data-online>${tHtml("saveAs.checking")}</p>
+    <p>${tHtml("saveAs.fileNote")}</p>
     <div class="row">
-      ${share ? `<button type="button" class="tbtn" data-act="share">Share…</button>` : ""}
-      <button type="button" class="tbtn" data-act="download">Download</button>
-      <button class="tbtn" value="close">Cancel</button>
+      ${share ? `<button type="button" class="tbtn" data-act="share">${tHtml("saveAs.share")}</button>` : ""}
+      <button type="button" class="tbtn" data-act="download">${tHtml("saveAs.download")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   const input = body.querySelector('[name="name"]');
@@ -211,7 +208,7 @@ export function openSaveAs(ctx, opts = {}, { name = ctx.sketch().name } = {}) {
     const n = library.cleanName(input.value);
     if (!n) {
       err.hidden = false;
-      err.textContent = "Give the sketch a name.";
+      err.textContent = t("saveAs.needName");
       input.focus();
     }
     return n;
@@ -266,9 +263,9 @@ export function openSaveAs(ctx, opts = {}, { name = ctx.sketch().name } = {}) {
       return;
     }
     onlineBtn.disabled = false;
-    note.textContent = st.signedIn
-      ? `Online, it is kept with ${st.user?.name ?? "your account"}, and Microtone lists it under File → Online projects.`
-      : "Online needs you to sign in, with the account you use in Microtone.";
+    note.textContent = !st.signedIn ? t("saveAs.onlineSignIn")
+      : st.user?.name ? t("saveAs.onlineAs", { name: st.user.name })
+      : t("saveAs.onlineAccount");
   });
 }
 
@@ -288,15 +285,15 @@ function canShare() {
  * any tab of the page has signed in. `why` replaces the opening sentence.
  */
 export function offerSignIn(ctx, st, { then, why = "" }) {
-  if (!st.available) return fail(ctx, "Not available", "Online sketches are not available here.");
+  if (!st.available) return fail(ctx, t("signIn.unavailableTitle"), t("signIn.unavailable"));
   const dev = st.signIn === "dev";
   const body = showSheet(ctx, `
-    <h2>Sign in</h2>
-    <p>${esc(why || "Sign in with the account you use in Microtone. A sketch kept online is listed there under File → Online projects.")}</p>
-    ${dev ? `<input type="text" name="devName" placeholder="Test account name" autocomplete="off">` : ""}
+    <h2>${tHtml("signIn.title")}</h2>
+    <p>${why ? esc(why) : tHtml("signIn.why")}</p>
+    ${dev ? `<input type="text" name="devName" placeholder="${tHtml("signIn.devName")}" autocomplete="off">` : ""}
     <div class="row">
-      <button type="button" class="tbtn primary" data-act="signin">Sign in</button>
-      <button class="tbtn" value="close">Cancel</button>
+      <button type="button" class="tbtn primary" data-act="signin">${tHtml("signIn.signIn")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   const err = body.querySelector("[data-err]");
@@ -308,10 +305,10 @@ export function offerSignIn(ctx, st, { then, why = "" }) {
   ctx.sheet.addEventListener("close", stop, { once: true });
   act(body, "signin").onclick = () => {
     const name = body.querySelector('[name="devName"]')?.value.trim() ?? "";
-    if (dev && !name) { err.hidden = false; err.textContent = "Give the test account a name."; return; }
+    if (dev && !name) { err.hidden = false; err.textContent = t("signIn.needDevName"); return; }
     if (!online.signIn(st.signIn, { name })) {
       err.hidden = false;
-      err.textContent = "The sign-in window was blocked. Allow pop-ups for this page and try again.";
+      err.textContent = t("signIn.blocked");
     }
   };
 }
@@ -321,12 +318,12 @@ export function offerSignIn(ctx, st, { then, why = "" }) {
 export function keepOrDiscard(ctx, then) {
   if (!ctx.unsaved()) return then();
   const body = showSheet(ctx, `
-    <h2>Unsaved changes</h2>
-    <p>“${esc(ctx.sketch().name)}” has changes that are not saved${ctx.home() ? "" : " anywhere yet"}.</p>
+    <h2>${tHtml("unsaved.title")}</h2>
+    <p>${tHtml(ctx.home() ? "unsaved.body" : "unsaved.bodyNowhere", { name: ctx.sketch().name })}</p>
     <div class="row">
-      <button type="button" class="tbtn primary" data-act="save">Save</button>
-      <button type="button" class="tbtn" data-act="discard">Don’t save</button>
-      <button class="tbtn" value="close">Cancel</button>
+      <button type="button" class="tbtn primary" data-act="save">${tHtml("unsaved.save")}</button>
+      <button type="button" class="tbtn" data-act="discard">${tHtml("unsaved.discard")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>`);
   act(body, "save").onclick = (e) => { e.target.disabled = true; save(ctx, { after: then }); };
   act(body, "discard").onclick = () => { ctx.sheet.close(); then(); };

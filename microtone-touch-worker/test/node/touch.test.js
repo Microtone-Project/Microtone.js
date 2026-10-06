@@ -556,6 +556,53 @@ test("about: package.json ships beside the page, where About reads its version",
   assert.match(JSON.parse(readFileSync(new URL("package.json", site), "utf8")).version, /^\d+\.\d+\.\d+/);
 });
 
+// ── deploying (wrangler.toml) ────────────────────────────────────────────────
+
+/** The few wrangler.toml settings these tests read: top-level `key = "…"`,
+ *  and the same under a [table] or [[array]] heading as "table.key". */
+function tomlSettings(url) {
+  const out = {};
+  let table = "";
+  for (const line of readFileSync(url, "utf8").split("\n")) {
+    const head = /^\s*\[\[?([\w.]+)\]\]?\s*$/.exec(line);
+    if (head) { table = `${head[1]}.`; continue; }
+    const kv = /^\s*(\w+)\s*=\s*"([^"]*)"\s*$/.exec(line);
+    if (kv) out[table + kv[1]] = kv[2];
+  }
+  return out;
+}
+
+const TOUCH_TOML = new URL("../../wrangler.toml", import.meta.url);
+const TRACKER_TOML = new URL("../../../wrangler.toml", import.meta.url);
+
+test("deploy: Touch's Worker keeps its sketches in the tracker's database and bucket", () => {
+  const touch = tomlSettings(TOUCH_TOML), tracker = tomlSettings(TRACKER_TOML);
+  for (const key of ["d1_databases.binding", "d1_databases.database_name", "d1_databases.database_id",
+    "r2_buckets.binding", "r2_buckets.bucket_name", "compatibility_date"]) {
+    assert.ok(tracker[key], `the tracker's wrangler.toml has ${key}`);
+    assert.equal(touch[key], tracker[key], key);
+  }
+  assert.notEqual(touch.name, tracker.name, "a Worker of its own");
+  const at = (toml, path) => fileURLToPath(new URL(path, toml));
+  assert.equal(at(TOUCH_TOML, touch.main), at(TRACKER_TOML, tracker.main), "the same server code");
+  assert.equal(at(TOUCH_TOML, touch["d1_databases.migrations_dir"] + "/"),
+    at(TRACKER_TOML, tracker["d1_databases.migrations_dir"] + "/"), "the same schema");
+});
+
+test("deploy: Touch's build stages this directory where its assets are uploaded from", () => {
+  const touch = tomlSettings(TOUCH_TOML);
+  const [, site, out] = /^node tools\/stage-site\.js (\S+) (\S+)$/.exec(touch["build.command"]) ?? [];
+  const cwd = new URL(`${touch["build.cwd"]}/`, TOUCH_TOML);
+  assert.equal(fileURLToPath(new URL(`${site}/`, cwd)), fileURLToPath(new URL("../../", import.meta.url)), "stages Touch");
+  assert.ok(existsSync(new URL("tools/stage-site.js", cwd)), "from the repository root");
+  assert.equal(fileURLToPath(new URL(`${out}/`, cwd)), fileURLToPath(new URL(`${touch["assets.directory"]}/`, TOUCH_TOML)),
+    "the staged copy is the asset directory");
+  const ignored = readPatterns(fileURLToPath(new URL("../../.assetsignore", import.meta.url))).map(compilePattern);
+  const ships = (path) => !ignored.some((matches) => matches(path));
+  for (const path of ["wrangler.toml", ".dev.vars", "test/node/touch.test.js", "README.md"]) assert.ok(!ships(path), `${path} stays home`);
+  for (const path of ["index.html", "_headers", "package.json", "src/app.js", "src/lang/ko.js"]) assert.ok(ships(path), `${path} ships`);
+});
+
 test("saving: a name as it is kept — on the phone as typed, online as a .mtsk", () => {
   assert.equal(cleanName("  Cafe\u0301 riff  "), "Caf\u00e9 riff", "NFC, trimmed: one name however it was typed");
   assert.equal(cleanName("   "), "");

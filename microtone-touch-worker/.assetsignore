@@ -3,5 +3,6 @@
 test/
 node_modules/
 .dev.vars*
+wrangler.toml
 .wrangler/
 README.md

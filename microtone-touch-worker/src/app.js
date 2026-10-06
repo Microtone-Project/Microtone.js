@@ -14,6 +14,10 @@
 // The sketch in hand is a working copy: where it is KEPT — on this phone or
 // online — is its home (saving.js), and Save writes it back there. Opening
 // another sketch, or starting a new one, starts a new undo history.
+//
+// Every word on screen comes from i18n.js. A switch of language redraws
+// whatever was drawn with words (relabel()); a sheet that is open when it
+// happens keeps its words until it is opened again, but for Language… itself.
 
 import { AudioSystem } from "../core/audio/audio-system.js";
 import { pitchTablePresets, nearestDegreeIndex, noteForDegree } from "../core/tuning/pitchtables.js";
@@ -32,6 +36,7 @@ import { fitBrand, initMenu } from "./topbar.js";
 import { initSplit } from "./split.js";
 import { THEMES, themeChoice, setTheme, initTheme } from "./theme.js";
 import { openAbout } from "./about.js";
+import { t, tHtml, initLang, setLang, langChoice, LANGS } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "microtone-touch:sketch";
@@ -41,13 +46,16 @@ const STEPS = [1, 2, 4, 0];
 const SECTION_NAMES = "ABCDEFGHIJKLMNOP";
 const UNDO_DEPTH = 100;
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-
 // ── state ────────────────────────────────────────────────────────────────────
+
+// The language first: a new sketch is named in it.
+initLang(() => relabel());
 
 const bank = buildBank();
 const stored = load(STORE_KEY, (raw) => raw, () => null);
-let sketch = stored ? normaliseSketch(stored) : newSketch();
+/** A new sketch, named in the language showing. */
+const untitled = () => Object.assign(newSketch(), { name: t("sketch.untitled") });
+let sketch = stored ? normaliseSketch(stored) : untitled();
 const prefs = load(PREFS_KEY, (p) => ({
   layout: LAYOUTS.some((l) => l.id === p?.layout) ? p.layout : "wicki",
   size: Number.isFinite(p?.size) ? Math.min(48, Math.max(20, p.size)) : 30,
@@ -146,13 +154,13 @@ const keyboard = new Keyboard($("keys"), {
 
 function configureKeyboard() {
   const p = lanePreset();
-  const t = tuning();
-  const layout = fitLayout(prefs.layout, t.table.length, t.interval);
+  const tu = tuning();
+  const layout = fitLayout(prefs.layout, tu.table.length, tu.interval);
   // Octaves across and fat fingers are the harmonic table's alone: its rows
   // of major thirds close on the octave, and its corners are triads.
   const harmonic = layout === "harmonic" && !p.kit;
   keyboard.configure({
-    preset: t, layout, octave: octaveFor(p), size: prefs.size, drums: !!p.kit,
+    preset: tu, layout, octave: octaveFor(p), size: prefs.size, drums: !!p.kit,
     across: harmonic && prefs.across, fat: harmonic && prefs.fat,
   });
   $("acrossBtn").hidden = $("fatBtn").hidden = !harmonic;
@@ -160,14 +168,15 @@ function configureKeyboard() {
   $("acrossBtn").setAttribute("aria-pressed", String(prefs.across));
   $("fatBtn").setAttribute("aria-pressed", String(prefs.fat));
   // The origin key's own name: C3 on an octave tuning, 黃3 in Shi'er lü.
-  const origin = noteForDegree(4 + originPeriod(t, octaveFor(p)), 0, t);
-  showText($("octVal"), p.kit ? "Kit" : noteLabel(origin, t));
+  const origin = noteForDegree(4 + originPeriod(tu, octaveFor(p)), 0, tu);
+  showText($("octVal"), p.kit ? t("keys.kit") : noteLabel(origin, tu));
   $("octDown").disabled = $("octUp").disabled = !!p.kit;
   $("layoutSel").disabled = !!p.kit;
   setValue($("layoutSel"), layout);
   const tag = $("laneTag");
-  showText(tag, p.name);
-  tag.title = `Lane ${ui.lane + 1}`;
+  showText(tag, presetName(p.id));
+  const title = t("keys.lane", { n: ui.lane + 1 });
+  if (tag.title !== title) tag.title = title;
   tag.style.setProperty("--lane-colour", `var(--lane-${ui.lane})`);
 }
 
@@ -178,7 +187,7 @@ function renderAll() {
   showText($("stepVal"), String(ui.step));
   $("undoBtn").disabled = undoStack.length === 0;
   $("redoBtn").disabled = redoStack.length === 0;
-  showText($("loopBtn"), ui.loopSection ? "Section" : "Song");
+  showText($("loopBtn"), t(ui.loopSection ? "transport.section" : "transport.song"));
   $("loopBtn").setAttribute("aria-pressed", String(ui.loopSection));
 }
 
@@ -198,11 +207,13 @@ function renderSections() {
     const add = document.createElement("button");
     add.className = "sec add";
     add.textContent = "+";
-    add.title = "Add a section (a copy of this one)";
     add.disabled = want >= MAX_SECTIONS;
     add.addEventListener("click", () => addSection());
     nav.append(add);
   }
+  const add = nav.querySelector(".sec.add");
+  const title = t("sections.add");
+  if (add.title !== title) add.title = title;
   nav.querySelectorAll(".sec.s").forEach((b, i) => {
     const cur = String(i === ui.section);
     if (b.getAttribute("aria-current") !== cur) b.setAttribute("aria-current", cur);
@@ -217,13 +228,24 @@ function setValue(el, v) {
   if (el.value !== v) el.value = v;
 }
 
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+/** What things are called, in the language showing. */
+const presetName = (id) => t(`preset.${id}`);
+const drumName = (d) => t(`drum.${DRUMS[d].id}`);
+const layoutName = (id) => t(`layout.${id}`);
+function tuningName(id) {
+  const tu = tuningById(id);
+  return /^\d+$/.test(tu.id) ? t("tuning.edo", { n: tu.id }) : t(`tuning.${tu.id}`);
+}
+
 let toastTimer = 0;
 function toast(text) {
-  const t = $("toast");
-  t.textContent = text;
-  t.hidden = false;
+  const el = $("toast");
+  el.textContent = text;
+  el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
 }
 
 // ── editing ──────────────────────────────────────────────────────────────────
@@ -344,13 +366,11 @@ function setTuning(id) {
 /** Say so when the chosen layout cannot work on this tuning and the board has
  *  fallen back to the degree run. */
 function warnUnfit() {
-  const t = tuning();
-  if (fitLayout(prefs.layout, t.table.length, t.interval) !== prefs.layout) {
-    toast(`${layoutName(prefs.layout)} does not work on ${tuningById(sketch.tuning).name}; the keyboard plays a degree run instead.`);
+  const tu = tuning();
+  if (fitLayout(prefs.layout, tu.table.length, tu.interval) !== prefs.layout) {
+    toast(t("keys.unfit", { layout: layoutName(prefs.layout), tuning: tuningName(sketch.tuning) }));
   }
 }
-
-const layoutName = (id) => LAYOUTS.find((l) => l.id === id)?.name ?? id;
 
 // ── audio ────────────────────────────────────────────────────────────────────
 
@@ -362,7 +382,7 @@ async function startAudio() {
   const veil = $("startVeil");
   veil.dataset.state = "starting";
   $("startBtn").disabled = true;
-  showText($("startHint"), "Starting the sound…");
+  showText($("startHint"), t("veil.starting"));
   try {
     const system = new AudioSystem();
     await system.init();
@@ -372,7 +392,7 @@ async function startAudio() {
     syncAudio();
   } catch (e) {
     audio = null;
-    toast(`No sound: ${e.message}`);
+    toast(t("veil.noSound", { error: e.message }));
   }
   veil.hidden = true;
 }
@@ -572,14 +592,14 @@ const closeSheet = () => sheet.close();
 function openLaneSheet(lane) {
   const cur = sketch.lanes[lane];
   showSheet(`
-    <h2>Lane ${lane + 1}</h2>
+    <h2>${tHtml("lane.title", { n: lane + 1 })}</h2>
     <div class="chips">${PRESETS.map((p) => `
-      <button type="button" class="tbtn" data-preset="${p.id}" aria-pressed="${p.id === cur.preset}">${esc(p.name)}</button>`).join("")}
+      <button type="button" class="tbtn" data-preset="${p.id}" aria-pressed="${p.id === cur.preset}">${esc(presetName(p.id))}</button>`).join("")}
     </div>
     <div class="row">
-      <button type="button" class="tbtn" data-act="mute" aria-pressed="${cur.mute}">${cur.mute ? "Unmute" : "Mute"}</button>
-      <button type="button" class="tbtn" data-act="clear">Clear this lane in ${SECTION_NAMES[ui.section]}</button>
-      <button class="tbtn" value="close">Done</button>
+      <button type="button" class="tbtn" data-act="mute" aria-pressed="${cur.mute}">${tHtml(cur.mute ? "lane.unmute" : "lane.mute")}</button>
+      <button type="button" class="tbtn" data-act="clear">${tHtml("lane.clear", { section: SECTION_NAMES[ui.section] })}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.done")}</button>
     </div>`, (body) => {
     body.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => {
       const id = b.dataset.preset;
@@ -610,13 +630,13 @@ function openSectionSheet() {
   const n = sketch.sections.length;
   const name = SECTION_NAMES[ui.section];
   showSheet(`
-    <h2>Section ${name}</h2>
+    <h2>${tHtml("section.title", { name })}</h2>
     <div class="row">
-      <button type="button" class="tbtn" data-act="left" ${ui.section === 0 ? "disabled" : ""}>Move earlier</button>
-      <button type="button" class="tbtn" data-act="right" ${ui.section === n - 1 ? "disabled" : ""}>Move later</button>
-      <button type="button" class="tbtn" data-act="clear">Clear</button>
-      <button type="button" class="tbtn" data-act="delete" ${n === 1 ? "disabled" : ""}>Delete</button>
-      <button class="tbtn" value="close">Done</button>
+      <button type="button" class="tbtn" data-act="left" ${ui.section === 0 ? "disabled" : ""}>${tHtml("section.earlier")}</button>
+      <button type="button" class="tbtn" data-act="right" ${ui.section === n - 1 ? "disabled" : ""}>${tHtml("section.later")}</button>
+      <button type="button" class="tbtn" data-act="clear">${tHtml("section.clear")}</button>
+      <button type="button" class="tbtn" data-act="delete" ${n === 1 ? "disabled" : ""}>${tHtml("section.delete")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.done")}</button>
     </div>`, (body) => {
     const act = (a, fn) => body.querySelector(`[data-act="${a}"]`).addEventListener("click", () => { fn(); closeSheet(); });
     const move = (d) => {
@@ -645,18 +665,18 @@ function openSectionSheet() {
 
 function openFxSheet() {
   const c = cells(ui.section, ui.lane)[ui.row];
-  if (!c || c.n === NOTE_OFF) { toast("Put the cursor on a note first."); return; }
-  const levels = ["light", "medium", "strong"];
+  if (!c || c.n === NOTE_OFF) { toast(t("fx.needNote")); return; }
+  const levels = FX.slide.args.map((_, i) => `fx.level${i}`);
   showSheet(`
-    <h2>Effect on ${esc(c.d !== undefined ? DRUMS[c.d].name : noteLabel(c.n, tuning()))}</h2>
-    <p>It lasts until the lane's next note or key-off.</p>
+    <h2>${tHtml("fx.title", { note: c.d !== undefined ? drumName(c.d) : noteLabel(c.n, tuning()) })}</h2>
+    <p>${tHtml("fx.lasts")}</p>
     <div class="fx-grid">${FX_IDS.map((id) => `
-      <span>${FX[id].name}</span>${levels.map((lv, i) => `
-      <button type="button" class="tbtn" data-fx="${id}" data-lv="${i}" aria-pressed="${c.fx === id && (c.lv ?? 1) === i}">${lv}</button>`).join("")}`).join("")}
+      <span>${tHtml(`fx.${id}`)}</span>${levels.map((lv, i) => `
+      <button type="button" class="tbtn" data-fx="${id}" data-lv="${i}" aria-pressed="${c.fx === id && (c.lv ?? 1) === i}">${tHtml(lv)}</button>`).join("")}`).join("")}
     </div>
     <div class="row">
-      <button type="button" class="tbtn" data-fx="" ${c.fx ? "" : "disabled"}>No effect</button>
-      <button class="tbtn" value="close">Done</button>
+      <button type="button" class="tbtn" data-fx="" ${c.fx ? "" : "disabled"}>${tHtml("fx.none")}</button>
+      <button class="tbtn" value="close">${tHtml("sheet.done")}</button>
     </div>`, (body) => {
     body.querySelectorAll("[data-fx]").forEach((b) => b.addEventListener("click", () => {
       const fx = b.dataset.fx;
@@ -673,7 +693,7 @@ function openFxSheet() {
  *  ends. */
 function openTempoSheet() {
   showSheet(`
-    <h2>Tempo</h2>
+    <h2>${tHtml("tempo.title")}</h2>
     <div class="row" style="align-items:center">
       <button type="button" class="tbtn" data-d="-5">−5</button>
       <button type="button" class="tbtn" data-d="-1">−1</button>
@@ -682,8 +702,8 @@ function openTempoSheet() {
       <button type="button" class="tbtn" data-d="5">+5</button>
     </div>
     <input type="range" min="40" max="240" value="${sketch.bpm}" data-range>
-    <label class="check"><input type="checkbox" name="loop" ${sketch.loop ? "checked" : ""}> At the end of the song, loop back to A</label>
-    <div class="row"><button class="tbtn" value="close">Done</button></div>`, (body) => {
+    <label class="check"><input type="checkbox" name="loop" ${sketch.loop ? "checked" : ""}> ${tHtml("tempo.loop")}</label>
+    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
     const set = (v) => {
       const bpm = Math.min(240, Math.max(40, Math.round(v)));
       edit(() => { sketch.bpm = bpm; });
@@ -701,12 +721,12 @@ function openTempoSheet() {
 
 function openTuningSheet() {
   showSheet(`
-    <h2>Temperament</h2>
-    <div class="chips">${TUNINGS.map((t) => `
-      <button type="button" class="tbtn" data-tuning="${t.id}" aria-pressed="${t.id === sketch.tuning}">${esc(t.name)}</button>`).join("")}
+    <h2>${tHtml("tuning.title")}</h2>
+    <div class="chips">${TUNINGS.map((tu) => `
+      <button type="button" class="tbtn" data-tuning="${tu.id}" aria-pressed="${tu.id === sketch.tuning}">${esc(tuningName(tu.id))}</button>`).join("")}
     </div>
-    <p>Notes already written move to the nearest step of the new tuning.</p>
-    <div class="row"><button class="tbtn" value="close">Done</button></div>`, (body) => {
+    <p>${tHtml("tuning.moves")}</p>
+    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
     body.querySelectorAll("[data-tuning]").forEach((b) => b.addEventListener("click", () => {
       closeSheet();
       if (b.dataset.tuning !== sketch.tuning) setTuning(b.dataset.tuning);
@@ -717,12 +737,12 @@ function openTuningSheet() {
 /** Theme… — applied as it is tapped, so the choice can be seen before Done. */
 function openThemeSheet() {
   showSheet(`
-    <h2>Theme</h2>
-    <div class="chips">${THEMES.map((t) => `
-      <button type="button" class="tbtn" data-theme-id="${t.id}" aria-pressed="${t.id === themeChoice()}">${t.name}</button>`).join("")}
+    <h2>${tHtml("theme.title")}</h2>
+    <div class="chips">${THEMES.map(({ id }) => `
+      <button type="button" class="tbtn" data-theme-id="${id}" aria-pressed="${id === themeChoice()}">${tHtml(`theme.${id}`)}</button>`).join("")}
     </div>
-    <p>System follows the phone's own dark or light setting.</p>
-    <div class="row"><button class="tbtn" value="close">Done</button></div>`, (body) => {
+    <p>${tHtml("theme.note")}</p>
+    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
     const chips = [...body.querySelectorAll("[data-theme-id]")];
     for (const b of chips) {
       b.addEventListener("click", () => {
@@ -730,6 +750,26 @@ function openThemeSheet() {
         for (const o of chips) o.setAttribute("aria-pressed", String(o === b));
       });
     }
+  });
+}
+
+/** What the menu says the language is: System, or the language's own name. */
+const langLabel = (id) => (id === "system" ? t("lang.system") : LANGS[id]);
+
+/** Language… — applied as it is tapped, the sheet itself included. Each
+ *  language is offered under its own name, which reads the same in all. */
+function openLangSheet() {
+  showSheet(`
+    <h2>${tHtml("lang.title")}</h2>
+    <div class="chips">${["system", ...Object.keys(LANGS)].map((id) => `
+      <button type="button" class="tbtn" data-lang="${id}" aria-pressed="${id === langChoice()}"${id === "system" ? "" : ` lang="${id}"`}>${esc(langLabel(id))}</button>`).join("")}
+    </div>
+    <p>${tHtml("lang.note")}</p>
+    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
+    body.querySelectorAll("[data-lang]").forEach((b) => b.addEventListener("click", () => {
+      setLang(b.dataset.lang);
+      openLangSheet();
+    }));
   });
 }
 
@@ -787,7 +827,7 @@ const docs = {
   },
   open: replaceSketch,
   newSketch: () => keepOrDiscard(docs, () => {
-    replaceSketch(Object.assign(newSketch(), { bpm: sketch.bpm, tuning: sketch.tuning }), null);
+    replaceSketch(Object.assign(untitled(), { bpm: sketch.bpm, tuning: sketch.tuning }), null);
   }),
   covered(on) {
     $("app").inert = on;
@@ -800,8 +840,23 @@ const files = new FilesPanel($("files"), docs);
 /** The menu's first line: the sketch, where it is kept, and whether all of
  *  it is. */
 function menuCaption() {
-  const where = !home ? "not saved yet" : home.where === "local" ? "on this phone" : "online";
-  return `${sketch.name} — ${where}${home && unsaved() ? ", unsaved changes" : ""}`;
+  const key = !home ? "menu.capNowhere"
+    : home.where === "local" ? (unsaved() ? "menu.capLocalUnsaved" : "menu.capLocal")
+    : (unsaved() ? "menu.capOnlineUnsaved" : "menu.capOnline");
+  return t(key, { name: sketch.name });
+}
+
+/** After a switch of language: whatever was drawn with words, drawn again. */
+function relabel() {
+  labelLayouts();
+  configureKeyboard(); // the lane tag, the octave box, the drum pads
+  renderAll();
+  split.apply();
+  if (files.isOpen) files.refresh();
+  const veil = $("startVeil");
+  if (!veil.hidden) {
+    showText($("startHint"), t({ loading: "veil.loading", ready: "veil.tap", starting: "veil.starting" }[veil.dataset.state]));
+  }
 }
 
 // ── wiring ───────────────────────────────────────────────────────────────────
@@ -809,10 +864,18 @@ function menuCaption() {
 for (const l of LAYOUTS) {
   const o = document.createElement("option");
   o.value = l.id;
-  o.textContent = l.short;
-  o.title = l.name;
   $("layoutSel").append(o);
 }
+/** The layout picker: each option shows its short name, and its full one as
+ *  a title. */
+function labelLayouts() {
+  for (const o of $("layoutSel").options) {
+    const short = t(`layout.${o.value}.short`), name = layoutName(o.value);
+    if (o.textContent !== short) o.textContent = short;
+    if (o.title !== name) o.title = name;
+  }
+}
+labelLayouts();
 
 $("startBtn").addEventListener("click", startAudio);
 $("playBtn").addEventListener("click", togglePlay);
@@ -830,8 +893,9 @@ initMenu($("menu"), $("menuBtn"), {
   before() {
     showText($("menuCap"), menuCaption());
     showText($("menuBpm"), String(sketch.bpm));
-    showText($("menuTuning"), tuningById(sketch.tuning).name);
-    showText($("menuTheme"), THEMES.find((t) => t.id === themeChoice()).name);
+    showText($("menuTuning"), tuningName(sketch.tuning));
+    showText($("menuTheme"), t(`theme.${themeChoice()}`));
+    showText($("menuLang"), langLabel(langChoice()));
     // About… lives on the wordmark; the menu offers it only while the bar
     // has no room for the wordmark to be tapped.
     $("menuAbout").hidden = $("brand").dataset.fit !== "none";
@@ -844,6 +908,7 @@ initMenu($("menu"), $("menuBtn"), {
     load: () => openLoad(docs),
     files: () => files.open(),
     theme: openThemeSheet,
+    lang: openLangSheet,
     about: () => openAbout(showSheet),
   },
 });
@@ -888,7 +953,7 @@ $("fatBtn").addEventListener("click", () => {
   savePrefs();
   keyboard.releaseAll();
   configureKeyboard();
-  if (prefs.fat) toast("Fat fingers: a touch where two or three keys meet plays them together.");
+  if (prefs.fat) toast(t("keys.fatOn"));
 });
 const zoom = (d) => {
   prefs.size = Math.min(80, Math.max(20, prefs.size + d));
@@ -935,4 +1000,4 @@ window.__touch = {
 // takes the tap that starts the sound.
 $("startVeil").dataset.state = "ready";
 $("startBtn").disabled = false;
-showText($("startHint"), "Tap to start the sound");
+showText($("startHint"), t("veil.tap"));

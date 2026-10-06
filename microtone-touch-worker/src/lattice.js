@@ -58,13 +58,10 @@ export function edoSteps(n, period = OCTAVE) {
   };
 }
 
-/** The layouts the board offers, in the order a picker lists them. */
-export const LAYOUTS = Object.freeze([
-  { id: "wicki", name: "Wicki–Hayden", short: "Wicki" },
-  { id: "bosanquet", name: "Bosanquet–Wilson", short: "Bosanquet" },
-  { id: "harmonic", name: "Harmonic table", short: "Harmonic" },
-  { id: "step", name: "Degree run", short: "Run" },
-]);
+/** The layouts the board offers, in the order a picker lists them: the
+ *  Wicki–Hayden, the Bosanquet–Wilson, the harmonic table and the degree run,
+ *  each named in the language's own words (lang/*.js layout.<id>). */
+export const LAYOUTS = Object.freeze([{ id: "wicki" }, { id: "bosanquet" }, { id: "harmonic" }, { id: "step" }]);
 
 /**
  * The `a` (shallow, to the right) and `b` (steep, upwards) steps of `layout`

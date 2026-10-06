@@ -208,14 +208,16 @@ function sessionCookie(token, expiresAt, now) {
  * for a browser that will not let a script do that. One that did not work
  * stays open, because the window is the only place that can say so: the
  * person may have declined on purpose, or may need to try again. Both
- * languages at once, since nothing here knows which one the app is in.
+ * languages at once, since nothing here knows which one the app is in — nor
+ * which app: the tracker and Microtone Touch share this server, so the page
+ * names neither's menus.
  * `setCookies` are Set-Cookie values: the new session, the spent state.
  */
 export function completionPage({ ok, setCookies = [] }) {
   const msg = ok
     ? { en: "Signed in. You can close this window.", ko: "로그인했습니다. 이 창을 닫아도 됩니다." }
-    : { en: "Sign-in did not complete. You can close this window and try again from the File tab.",
-        ko: "로그인하지 못했습니다. 이 창을 닫고 파일 탭에서 다시 시도하세요." };
+    : { en: "Sign-in did not complete. You can close this window and try again.",
+        ko: "로그인하지 못했습니다. 이 창을 닫고 다시 시도하세요." };
   const type = ok ? "signed-in" : "sign-in-failed";
   const html = `<!doctype html>
 <meta charset="utf-8">

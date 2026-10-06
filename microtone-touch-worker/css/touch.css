@@ -179,6 +179,9 @@ html, body {
   -webkit-touch-callout: none;
 }
 button, select, input { font: inherit; color: inherit; }
+/* Korean wraps between words, as it is written, not inside one (i18n.js
+ * keeps <html lang> on the language showing). */
+:root:lang(ko) { word-break: keep-all; overflow-wrap: break-word; }
 
 /* ── the frame ───────────────────────────────────────────────────────────── */
 
@@ -538,8 +541,19 @@ button, select, input { font: inherit; color: inherit; }
   z-index: 20;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 18px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
 }
+/* Under the start button when microtone.cc's phone redirect sent us here. */
+.veil-note {
+  margin: 0;
+  max-width: 24em;
+  padding: 0 16px;
+  text-align: center;
+  color: var(--fg2);
+}
+.veil-note a { color: var(--accent); }
 .start {
   border: 1px solid var(--border);
   background: var(--panel);
@@ -703,7 +717,7 @@ button, select, input { font: inherit; color: inherit; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.menu-body button {
+.menu-body button, .menu-body a {
   min-height: 44px;
   padding: 0 14px;
   border: 0;
@@ -714,8 +728,9 @@ button, select, input { font: inherit; color: inherit; }
   text-align: left;
   touch-action: manipulation;
 }
-.menu-body button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
-.menu-body button:active { background: var(--panel-2); }
+.menu-body a { color: inherit; text-decoration: none; }
+.menu-body button:focus-visible, .menu-body a:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.menu-body button:active, .menu-body a:active { background: var(--panel-2); }
 .menu-val { margin-left: auto; color: var(--dim); }
 .menu-body hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--border); }
 

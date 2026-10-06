@@ -54,6 +54,19 @@ database_name = "microtone-online"
 database_id = "270dc7be-bf3d-4ca9-8da1-9e431bcba76d"
 migrations_dir = "microtone-worker/migrations"
 
+[[previews.d1_databases]]
+binding = "ONLINE_DB"
+database_name = "microtone-online"
+database_id = "270dc7be-bf3d-4ca9-8da1-9e431bcba76d"
+migrations_dir = "microtone-worker/migrations"
+
 [[r2_buckets]]
 binding = "ONLINE_BUCKET"
 bucket_name = "microtone-online-storage"
+
+[[previews.r2_buckets]]
+binding = "ONLINE_BUCKET"
+bucket_name = "microtone-online-storage"
+
+
+
