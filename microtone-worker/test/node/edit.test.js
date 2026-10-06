@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  interpretEditKey, nudgeColumn, nudgeColumns, nudgeCursor, gridStepRow, lookahead, rawNoteView, semiToNote, semiToNoteInTable,
+  interpretEditKey, capKey, nudgeColumn, nudgeColumns, nudgeCursor, gridStepRow, lookahead, rawNoteView, semiToNote, semiToNoteInTable,
   subIsEmpty, subCharPos, charToSub, subToCol, SUB_POSITIONS, SUB_NIBBLES, stepNoteCell,
   volPanOp, volPanArg, volPanStep, fineSigned, fineValue, JAM_SEMIS,
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
@@ -697,4 +697,22 @@ test("note column: a deg keymap enters the tuning's own degrees", () => {
   const notes = ["KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL", "Semicolon"]
     .map((code) => interpretEditKey({ code, key: "a" }, SUB_NOTE, 0, cell, c).fields.note);
   assert.deepEqual(notes, p41.table.slice(0, 10).map((off) => MIDDLE_C + off));
+});
+
+// ── a click on a keymap strip cap (item 207) ──
+
+test("a strip cap is the cap's own piano key, whatever the Z row is doing", () => {
+  const cell = new TaudPlayData();
+  // Under a four-row map X is a note (its cut sentinel moved to Shift+X), and
+  // the cap must reach the note — the strip never sends Shift.
+  const a = interpretEditKey(capKey("KeyX"), SUB_NOTE, 0, cell, { ...ctx, keymap: zRowMap });
+  assert.ok(a.fields.note >= 0x20, "a pitch, not the cut sentinel");
+  assert.equal(a.jamNote, a.fields.note, "auditions what it writes");
+  assert.equal(a.fields.instrment, ctx.currentInst, "stamps the current instrument");
+  assert.ok(a.advanceRow, "and steps like a key");
+  // The grids send a cap with raw hex OFF whatever the column shows, so D is
+  // the note it plays, not the digit $D shifted into the note word.
+  const d = interpretEditKey(capKey("KeyD"), SUB_NOTE, 0, cell, { ...ctx, keymap: zRowMap, rawHex: false });
+  assert.ok(d.fields.note >= 0x20, "D is a note");
+  assert.equal(capKey("KeyA").repeat, false, "never an autorepeat, which the piano swallows");
 });

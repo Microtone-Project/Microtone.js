@@ -160,13 +160,38 @@
              wordsOf().length === kept.length));
 
         // ── an operator the algorithm names cannot be removed ──
-        // The ✕ is the icon-only button of the row's action group; check IT
-        // rather than "some button is disabled", which any row satisfies.
-        const closeOf = (r) => [...r.querySelectorAll(".advCell .meta-act")]
-          .find((b) => !b.textContent.trim());
+        // The ✕ is the LAST icon-only button of the row's action group (the
+        // duplicate is the first); check IT rather than "some button is
+        // disabled", which any row satisfies.
+        const iconActs = (r) => [...r.querySelectorAll(".advCell .meta-act")]
+          .filter((b) => !b.textContent.trim());
+        const closeOf = (r) => iconActs(r).at(-1);
         const closeDisabled = [...iv.panel.querySelectorAll(".meta-table tbody tr")]
           .every((r) => closeOf(r)?.disabled);
         log(`wired operators are guarded against removal: ${ok(closeDisabled)}`);
+
+        // ── Duplicate: a LINKED copy right below, the patch unchanged ──
+        const rackRows = () => iv.panel.querySelectorAll(".meta-table tbody tr");
+        const byInst = (inst) => (k) => inst.metaLayers[k].instIdx.toString(16);
+        const formulaBefore = fmedit.fmFormula([...doc.instruments[slot].fmProgram], 4,
+          byInst(doc.instruments[slot]));
+        const depthDup = store.undo.undoStack.length;
+        iconActs(rackRows()[1])[0].click();
+        await waitFor(() => rackRows().length === 5);
+        const dup = doc.instruments[slot];
+        log(`duplicate adds a fifth operator in one undo step: ` +
+          ok(dup.metaLayers.length === 5 && store.undo.undoStack.length === depthDup + 1));
+        log(`…sharing operator 1's sub-instrument, right below it: ` +
+          ok(dup.metaLayers[2].instIdx === dup.metaLayers[1].instIdx));
+        log(`…badged as linked on both rows: ` +
+          ok(iv.panel.querySelectorAll(".meta-table tbody tr .meta-link").length === 2));
+        log(`…and the algorithm still wires the same patch: ` +
+          ok(dup.fmProgram !== null &&
+             fmedit.fmFormula([...dup.fmProgram], 5, byInst(dup)) === formulaBefore));
+        store.undo.undo();
+        iv.renderPanel();
+        await waitFor(() => rackRows().length === 4);
+        log(`undo takes the copy back out: ` + ok(doc.instruments[slot].metaLayers.length === 4));
 
         // ── every rack row and every algorithm word has a drag grip ──
         const grips = iv.panel.querySelectorAll(".meta-table tbody tr .drag-grip").length;

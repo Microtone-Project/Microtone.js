@@ -1130,6 +1130,7 @@ export default {
   "fm.unused": "unwired",
   "fm.unusedTitle": "No word of the algorithm names this operator, so it makes no sound. It still costs its 10 bytes of the record.",
   "fm.dragTitle": "Drag to reorder this operator. The algorithm is renumbered with it, so the patch sounds the same — but operator 0 is the principal, and this is how that is chosen. With the handle focused, ↑ ↓ move it too.",
+  "fm.dupTitle": "Duplicate this operator — a linked copy of the same sub-instrument, placed right below it and left unwired until the algorithm names it",
   "fm.removeTitle": "Remove this operator",
   "fm.removeBlockedTitle": "The algorithm still names this operator. Remove or repoint those words first — dropping them here would unbalance the stack.",
   "fm.editTitle": "Edit this operator's instrument: its own General / envelope / Zones tabs. Its loop is the cycle this operator modulates by.",

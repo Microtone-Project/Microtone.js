@@ -18,7 +18,7 @@ import {
 import {
   fmOperators, fmProgramOf, fmRecordOf, fmValidate, fmBudget, fmFormula, fmGraph,
   fmWord, fmWordClass, fmWordIndex, fmOperatorsNamed, fmCanAddOperator, fmCanAddWord,
-  canRemoveOperator, removeOperator, moveOperator, patchOperator,
+  canRemoveOperator, removeOperator, duplicateOperator, moveOperator, patchOperator,
   insertWord, removeWord, moveWord, setWord,
   FM_OPERATORS, FM_CLASS_OSC, FM_CLASS_MOD, FM_CLASS_FB, FM_CLASS_OP,
   FM_MAX_OPERATORS,
@@ -107,6 +107,14 @@ function roleTabDef(inst, wantFilter) {
     liveIdx: wantFilter ? "getVoiceEnvFilterIndex" : "getVoiceEnvPitchIndex",
     liveTime: wantFilter ? "getVoiceEnvFilterTime" : "getVoiceEnvPitchTime",
   };
+}
+
+/** An envelope tab's header line — "Vol env: present — …", the state word in
+ *  the accent colour only while it is present. */
+function envHeaderHtml(tabDef, present) {
+  const stateWord = escape(t(present ? "inst.envStatePresent" : "inst.envStateAbsent"));
+  const state = present ? `<b class="env-present">${stateWord}</b>` : `<b>${stateWord}</b>`;
+  return t("inst.envHeaderState", { label: t(tabDef.labelKey), state });
 }
 
 export class InstrumentsView {
@@ -1095,10 +1103,7 @@ export class InstrumentsView {
     const present = tabDef.role ? tabDef.roleActive : envPresent(inst[tabDef.loopKey]);
     const head = document.createElement("div");
     head.className = "detail-info";
-    const label = t(tabDef.labelKey);
-    const stateWord = escape(t(present ? "inst.envStatePresent" : "inst.envStateAbsent"));
-    const state = present ? `<b class="env-present">${stateWord}</b>` : `<b>${stateWord}</b>`;
-    head.innerHTML = t("inst.envHeaderState", { label, state });
+    head.innerHTML = envHeaderHtml(tabDef, present);
     this.panel.appendChild(head);
 
     const canvas = document.createElement("canvas");
@@ -1193,11 +1198,11 @@ export class InstrumentsView {
 
   /** The op that marks this tab's envelope present, or null when it already
    *  is. A node array is only read when the LOOP word's P bit is set — the
-   *  format's sole presence signal — so adding a node has to say so, or the
-   *  work is silently ignored on every tab but Volume (whose envelope the
-   *  engine runs unconditionally, which is exactly why the asymmetry was
-   *  invisible). On a Pitch/Filter tab it is the ROLE CLAIM — P bit plus the
-   *  m-bit — the same claim a first node-drag performs. */
+   *  format's sole presence signal, on the Volume tab as on the rest since
+   *  item 207 — so EVERY edit that shapes the nodes says so: a drag, the value
+   *  and segment fields, adding a node. An envelope you shape is one you mean
+   *  to hear. On a Pitch/Filter tab it is the ROLE CLAIM — P bit plus the
+   *  m-bit. */
   envPresenceClaimOp(tabDef) {
     const cur = this.store.doc.instruments[this.selected][tabDef.loopKey];
     if (tabDef.role) {
@@ -1207,6 +1212,13 @@ export class InstrumentsView {
     }
     if (envPresent(cur)) return null;
     return setInstFieldOp(this.selected, tabDef.loopKey, (cur | 0x2000) & 0xffff);
+  }
+
+  /** One node edit from the fields below the graph, with the presence claim
+   *  it implies — one undo step either way. */
+  applyEnvNodeEdit(tabDef, op) {
+    const claim = this.envPresenceClaimOp(tabDef);
+    this.store.undo.apply(claim === null ? op : compositeOp([op, claim]));
   }
 
   /** The op that walks an enabled sustain point from `oldLast` to `newLast` —
@@ -1273,10 +1285,10 @@ export class InstrumentsView {
         this.renderPanel();
       }),
       spin(t("env.value"), node.value, 0, max, 1, (v) =>
-        this.store.undo.apply(setEnvPointOp(this.selected, tabDef.key, sel,
+        this.applyEnvNodeEdit(tabDef, setEnvPointOp(this.selected, tabDef.key, sel,
           { value: Math.min(Math.max(parseInt(v, 10) || 0, 0), max) }))),
       spinMapped(t("env.seg"), SEG_MINIFLOAT_MAP, node.offset, (code) =>
-        this.store.undo.apply(setEnvPointOp(this.selected, tabDef.key, sel,
+        this.applyEnvNodeEdit(tabDef, setEnvPointOp(this.selected, tabDef.key, sel,
           { offset: code }))),
       btn(t("env.addNode"), t("adv.addNodeTitle"),
         () => this.addEnvNode(tabDef, env, sel, max), active >= 25),
@@ -1470,16 +1482,15 @@ export class InstrumentsView {
     this.selectedNode = hit.idx; // sync the spinner target to the grabbed node
     this.envCanvas.canvas.setPointerCapture(e.pointerId);
     const gestureId = `envdrag${Date.now()}`;
-    this.dragState = { idx: hit.idx, gestureId };
-    // Editing an inactive Pitch/Filter role first CLAIMS its slot: mark the
-    // envelope present (LOOP-word P bit 13) and assign the role via the m-bit
-    // (bit 7: set = filter, clear = pitch), as part of this drag's undo step.
-    const { tabDef, inst, head } = this.envCanvas;
-    if (tabDef.role && !tabDef.roleActive) {
-      const claimed = ((inst[tabDef.loopKey] | 0x2000) & ~0x80) | (tabDef.role === "filter" ? 0x80 : 0);
-      this.store.undo.apply(setInstFieldOp(this.selected, tabDef.loopKey, claimed, gestureId));
-      tabDef.roleActive = true;
-      if (head) head.innerHTML = t("inst.envHeaderClaimed", { label: t(tabDef.labelKey) });
+    // Shaping an absent envelope first makes it present (LOOP-word P bit 13),
+    // and on an inactive Pitch/Filter tab claims the role too (m-bit 7: set =
+    // filter, clear = pitch). The claim rides the drag's first step (below).
+    const { tabDef, head } = this.envCanvas;
+    const claim = this.envPresenceClaimOp(tabDef);
+    this.dragState = { idx: hit.idx, gestureId, claim };
+    if (claim !== null) {
+      if (tabDef.role) tabDef.roleActive = true;
+      if (head) head.innerHTML = envHeaderHtml(tabDef, true);
     }
     this.envPointerMove(e);
   }
@@ -1503,8 +1514,19 @@ export class InstrumentsView {
       const seg = Math.max(wantTime - times[idx - 1], 0);
       change.prevOffset = minifloatFromDouble(seg);
     }
-    this.store.undo.apply(setEnvDragOp(
-      this.selected, tabDef.key, idx, change, this.dragState.gestureId));
+    const op = setEnvDragOp(this.selected, tabDef.key, idx, change, this.dragState.gestureId);
+    const claim = this.dragState.claim;
+    if (claim !== null) {
+      // Bundled under the DRAG's own coalesce key, so every later move of the
+      // gesture folds into this entry and one undo takes back the shape and
+      // the presence together.
+      this.dragState.claim = null;
+      this.store.undo.apply({
+        ...compositeOp([claim, op], this.dragState.gestureId), coalesceKey: op.coalesceKey,
+      });
+    } else {
+      this.store.undo.apply(op);
+    }
     this.drawEnvGraph();
   }
 
@@ -2029,6 +2051,12 @@ export class InstrumentsView {
         tr.querySelector(".nameCell").append(badge);
       }
       advCell.append(
+        // Linked, like a layer's duplicate: a second reading of the same
+        // sub-instrument, for the algorithm to wire in at another ratio.
+        this.metaIconBtn("duplicate", "", t("fm.dupTitle"), () => {
+          const r = duplicateOperator(ops, program, i);
+          commit(r.ops, r.program);
+        }, !fmCanAddOperator(ops, program)),
         this.metaIconBtn(null, t("meta.unlink"), t("meta.unlinkTitle"), async () => {
           const { planUnlinkMetaLayer } = await import("../../doc/bankmerge.js");
           const plan = planUnlinkMetaLayer(doc, slot, i);

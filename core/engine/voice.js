@@ -232,6 +232,9 @@ export class Voice {
     // Per-sample smoothed copy of envVolume (see AudioAdapter.kt:4615-4624).
     this.envVolMix = 1.0;
     this.envVolStep = 0.0;
+    // The ACTIVE volume envelope's P bit (resolveActiveEnvelopes). False until
+    // a trigger resolves one, when envVolume is still its unity seed anyway.
+    this.hasVolEnv = false;
     this.envPanIndex = 0;
     this.envPanTimeSec = 0.0;
     this.envPan = 0.5;

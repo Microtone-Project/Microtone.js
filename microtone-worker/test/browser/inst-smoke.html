@@ -323,6 +323,53 @@
             `undo1=${addUndoOk} remove=${remOk} susFollow=${susFollowOk} susClamp=${susClampOk} ` +
             `roleClaim=${roleClaimOk} roleUndo=${roleUndoOk} (${env181Ok ? "ok" : "FAIL"})`);
 
+        // Item 207 — the VOLUME envelope's P bit is real now (the engine skips
+        // an absent one), so every edit that shapes the nodes claims presence:
+        // the Value field and a drag, not only Add node. One undo each takes
+        // back the shape AND the claim.
+        const volInst = () => store.doc.instruments[baseSlot];
+        const volP = () => (volInst().volEnvLoop & 0x2000) !== 0;
+        iv.selected = baseSlot;
+        iv.tab = "env0";
+        iv.renderPanel();
+        let vpc = presentChk();
+        if (vpc.checked) { vpc.checked = false; fire(vpc, "change"); iv.renderPanel(); }
+        const unticked = !volP();
+        iv.selectedNode = 0;
+        iv.renderPanel();
+        const node0 = volInst().volEnvelopes[0].value;
+        const valueIn = [...iv.panel.querySelectorAll("label.env-ctl")]
+          .find((l) => /^Value/.test(l.textContent))?.querySelector("input");
+        valueIn.value = String(node0 === 40 ? 41 : 40);
+        fire(valueIn, "change");
+        iv.renderPanel();
+        const fieldClaim = volP() && presentChk().checked === true;
+        store.undo.undo();
+        iv.renderPanel();
+        const fieldUndo = !volP() && volInst().volEnvelopes[0].value === node0;
+
+        // A drag on node 0 (at x = 10 on the graph), pointer capture stubbed:
+        // a synthetic pointer is not one the browser can capture.
+        const cv = iv.envCanvas.canvas;
+        cv.setPointerCapture = () => {};
+        const r = cv.getBoundingClientRect();
+        const h = cv.clientHeight;
+        const want = node0 === 30 ? 31 : 30;
+        const at = { clientX: r.left + 10, clientY: r.top + (h - 14 - (want / 63) * (h - 28)), pointerId: 1 };
+        const depth = store.undo.undoStack.length;
+        iv.envPointerDown(at);
+        iv.envPointerMove({ ...at, clientY: at.clientY + 1 });
+        iv.envPointerMove(at);
+        cv.dispatchEvent(new win.PointerEvent("pointerup"));
+        const dragClaim = volP() && volInst().volEnvelopes[0].value === want &&
+          store.undo.undoStack.length === depth + 1;
+        store.undo.undo();
+        iv.renderPanel();
+        const dragUndo = !volP() && volInst().volEnvelopes[0].value === node0;
+        const env207Ok = unticked && fieldClaim && fieldUndo && dragClaim && dragUndo;
+        log(`item207 vol presence: unticked=${unticked} field=${fieldClaim} fieldUndo=${fieldUndo} ` +
+            `drag=${dragClaim} dragUndo=${dragUndo} (${env207Ok ? "ok" : "FAIL"})`);
+
         // Notation-aware entry: a 5-TET project (NOT a 12-TET superset) → a jam
         // key snaps to a 5-TET degree, and the note differs from plain 12-EDO.
         const p5 = presetForNotation(50);
@@ -352,6 +399,7 @@
 
         const pass = labelsOk && swingOk && sepOk && panSwOk && ppcOk && useDefOk && cutOk && resOk &&
           nnaOk && detOk && logOk && roleToggleOk && carryOk && envFormatOk && env181Ok &&
+          env207Ok &&
           notOk && nameOk;
         log(pass ? "RESULT: PASS" : "RESULT: FAIL");
       } catch (err) {

@@ -501,7 +501,7 @@ export function voiceElevation(voice) {
 
 /** A voice's share of the lane's output, as the mixer weights it. */
 function displayWeight(v) {
-  const env = v.volEnvOn ? v.envVolMix : 1.0;
+  const env = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
   return env * v.fadeoutVolume * v.currentMixVolume * v.layerMixGain *
     ((255 - v.fader) / 255.0);
 }

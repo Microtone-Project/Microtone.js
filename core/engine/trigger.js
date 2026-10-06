@@ -110,6 +110,10 @@ export function resolveActiveEnvelopes(voice, inst, patch) {
     voice.activeVolEnvLoop = inst.volEnvLoop;
     voice.activeVolEnvSustain = inst.volEnvSustainWord;
   }
+  // The volume envelope answers to its P bit like every other envelope (spec
+  // §7.2): a record that says "absent" plays at unity whatever its nodes hold.
+  // Resolved here, beside the envelope it describes, so the two never disagree.
+  voice.hasVolEnv = envPresent(voice.activeVolEnvLoop);
   const panEnv = patch !== null ? patch.panEnv : null;
   if (panEnv !== null) {
     voice.activePanEnv = panEnv;
@@ -916,6 +920,7 @@ export function ghostVoice(src, channel) {
   v.envPanIndex = src.envPanIndex;
   v.envPanTimeSec = src.envPanTimeSec;
   v.envPan = src.envPan;
+  v.hasVolEnv = src.hasVolEnv;
   v.hasPanEnv = src.hasPanEnv;
   v.hasPitchEnv = src.hasPitchEnv;
   v.envPitchIndex = src.envPitchIndex;

@@ -544,7 +544,7 @@ A wrap region whose start equals its end **holds** at that node (the FT2 single-
 
 ### 7.2 The volume and pan walker
 
-For the volume envelope — evaluated whenever the voice's volume-envelope toggle is on, regardless of any wrap bits — and the pan envelope, which additionally requires its `P` presence bit:
+For the volume and pan envelopes — each evaluated whenever its `P` presence bit is set and the voice's own toggle for it is on, regardless of any wrap bits:
 
 - If wrapping and the playhead is at the wrap end with start equal to end: hold, taking the node's value.
 - If wrapping and the playhead is at the wrap end: reset the time carry, jump to the wrap start, take that node's value.
@@ -553,6 +553,8 @@ For the volume envelope — evaluated whenever the voice's volume-envelope toggl
 - Otherwise: accumulate the tick into the time carry; when it passes the node's duration, subtract the duration and step (to the wrap start if wrapping at the end, else to the next node, capped at 24). Between nodes, the value is linearly interpolated on the time fraction.
 
 Volume values scale as `clamp(value ÷ 63, 0, 1)`; pan values as `value ÷ 255`.
+
+An **absent** volume envelope (`P = 0`) is not read at all: the voice plays at unity envelope volume whatever the node array holds, and the cut rule below cannot fire on it. The bit is resolved from the *active* envelope — an Ixmp patch's own `v` block when the patch carries one — exactly as the pan, pitch and filter envelopes' are.
 
 **The cut rule.** When the volume envelope freezes at a node — either the terminator case or arrival at node 24 — *and* that node's value is 0 *and* no wrap is active, the engine **MUST** start the voice's ramp-out. Without this, instruments with a stored fadeout of 0 and an envelope ending at 0 hold their voices forever.
 
@@ -803,7 +805,7 @@ For a stereo voice the parameters are shared but the crusher's hold state is per
 Per voice, per frame:
 
 ```
-per_voice = envelope_volume            (1.0 when the volume envelope is toggled off)
+per_voice = envelope_volume            (1.0 when the volume envelope is absent or toggled off)
           × fadeout_multiplier
           × current_mix_volume         (the ramped row × channel volume)
           × (1 + volume_swing_bias ÷ 255)
@@ -1100,6 +1102,7 @@ An implementation conforms when all of the following hold.
 - Row events fire at the row boundary and the row's tick passes then run with tick indices 0…`tick_rate − 1`.
 - All playback state reads the trigger-time active views, never the live instrument record.
 - The volume and pan envelope walker freezes on zero-duration nodes; the pitch and filter walker skips them, and seeds settle past leading ones.
+- Every envelope, the volume one included, is read only when its `P` presence bit is set.
 - The volume envelope's cut rule fires on a zero-valued terminator with no active wrap.
 - NNA ghosts carry the complete voice state, including both filter topologies' delay lines.
 - Duplicate Check runs before the NNA spawn and consults the *existing* voice's instrument.

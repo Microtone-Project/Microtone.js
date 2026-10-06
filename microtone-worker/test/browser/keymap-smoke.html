@@ -20,7 +20,7 @@
     // row displaces the note-column sentinels onto Shift rather than eating
     // them. The last one is the one that would quietly cost someone their
     // note-offs, so it is checked against the real grid, not the pure model.
-    import { keymapNote, normaliseKeymap } from "../../src/ui/keymap.js";
+    import { keymapNote, normaliseKeymap, keymapHas } from "../../src/ui/keymap.js";
 
     const out = [];
     const log = (l) => { out.push(l); console.log("SMOKE: " + l); document.getElementById("out").textContent = out.join("\n"); };
@@ -201,6 +201,73 @@
     const boardW = bar.board.clientWidth;
     ok(boardW > 0 && boardW < bar.el.clientWidth && parseFloat(bar.canvas.style.width) <= boardW,
        `the board is sized from the width the buttons leave it (${boardW} of ${bar.el.clientWidth})`);
+
+    // ── a click on a cap is the cap's key: in record mode, note entry (item 207) ──
+    // Driven through the strip's own hit test, at the cap's painted centre.
+    const capDown = (code) => {
+      const p = bar._layout.get(code);
+      bar._onPointer({ offsetX: p.x, offsetY: p.y });
+    };
+    const capUp = () => win.dispatchEvent(new win.PointerEvent("pointerup"));
+    const clickCap = async (code) => { capDown(code); capUp(); await sleep(60); };
+    const capNote = (code) => keymapNote(store.keymap, code, jam.octave, store.pitchPreset, null, jam.transpose);
+    const tl = M.timeline;
+    store.record = true;
+    store.cursor = { row: 6, ch: 0, sub: 0, nib: 0 };
+    let capTarget = tl.cursorCell();
+    await clickCap("KeyF");
+    ok(cellAt(capTarget).note === capNote("KeyF"),
+       `clicking a cap in record mode enters its note (${cellAt(capTarget).note.toString(16)})`);
+    ok(cellAt(capTarget).instrment === jam.currentInst, "…stamped with the current instrument");
+    ok(store.cursor.row === 6 + store.editStep, "…and steps the cursor as the key would");
+
+    store.cursor = { row: 8, ch: 0, sub: 2, nib: 1 };   // on the volume column
+    capTarget = tl.cursorCell();
+    const volBefore = cellAt(capTarget).volume;
+    await clickCap("KeyG");
+    ok(cellAt(capTarget).note === capNote("KeyG"),
+       "from another column it still writes the NOTE — a cap is never a hex digit");
+    ok(cellAt(capTarget).volume === volBefore, "…and leaves the column the cursor was on alone");
+
+    // A silenced cap is still painted, but it is no piano key — and under a
+    // Z-row layout "." left unclaimed is the note column's CLEAR key, which a
+    // click must never reach.
+    lib.setActive(normaliseKeymap({
+      name: "gap", unit: "deg", rows: ["N", "Q", "A", "Z"],
+      origin: { code: "KeyA", value: 0 }, x: 1, y: 10, overrides: { Period: null },
+    }));
+    bar.frame();
+    await sleep(80);
+    ok(bar._layout.has("Period") && !keymapHas(store.keymap, "Period"), "the silenced cap is on the strip");
+    store.cursor = { row: 6, ch: 0, sub: 0, nib: 0 };   // the note entered above
+    capTarget = tl.cursorCell();
+    const before = cellAt(capTarget).note;
+    await clickCap("Period");
+    ok(cellAt(capTarget).note === before && store.cursor.row === 6,
+       "clicking it writes nothing — not even the clear it would be as a key");
+
+    store.record = false;
+    store.cursor = { row: 12, ch: 0, sub: 0, nib: 0 };
+    capTarget = tl.cursorCell();
+    const auditionBefore = cellAt(capTarget).note;
+    capDown("KeyS");
+    ok(jam.held.has("KeyS"), "with record off a click only auditions");
+    capUp();
+    await sleep(80);
+    ok(cellAt(capTarget).note === auditionBefore && store.cursor.row === 12, "…and writes nothing");
+    ok(!jam.held.has("KeyS"), "…until the pointer comes up");
+
+    M.split.reveal("pattern");
+    await sleep(250);
+    store.record = true;
+    const pv = M.patternView;
+    const pc = pv.cursor;
+    pc.row = 3; pc.sub = 0; pc.nib = 0;
+    await clickCap("KeyS");
+    ok(pv.pattern()[3].note === capNote("KeyS"), "the Patterns grid takes a clicked note too");
+    store.record = false;
+    M.split.reveal("timeline");
+    await sleep(150);
 
     M.split.reveal("keymap");
     await sleep(180);

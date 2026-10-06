@@ -10,7 +10,7 @@ import {
 import { hex2, hex4, fxColonWarns } from "../notenames.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
 import {
-  interpretEditKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
+  interpretEditKey, capKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
   subPositions, subCharPos, charToSub, CELL_CHARS, CELL_CHARS_WIDE, CELL_CHARS_WIDE_FX2,
   lookahead, wheelStep, stepNoteCell,
@@ -1357,15 +1357,33 @@ export class TimelineView {
    * octave/currentInst context and auditions entered notes.
    */
   processEditKey(e, jam) {
+    const c = this.store.cursor;
+    return this.editKey(e, jam, c.sub, c.nib, rawNoteView(this.store.rawNoteView, this.store.pitchPreset));
+  }
+
+  /**
+   * A cap clicked on the keymap strip (item 207). In record mode it is note
+   * entry exactly as its key is — the note, the current instrument, the
+   * audition and the step — except that it always writes the NOTE column,
+   * whichever column the cursor is on and over a raw-hex note column too: a cap
+   * can only mean a note, never a hex digit. True when it entered one.
+   */
+  enterCapNote(code, jam) {
+    return this.editKey(capKey(code), jam, SUB_NOTE, 0, false);
+  }
+
+  /** Record-mode entry of one key into the cursor's cell, read as column
+   *  `sub`/`nib` — the shared body of processEditKey and enterCapNote. */
+  editKey(e, jam, sub, nib, rawHex) {
     const store = this.store;
     if (!store.record) return false;
     const target = this.cursorCell();
     if (!target) return false;
     const c = store.cursor;
     const action = interpretEditKey(
-      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, c.sub, c.nib, target.cell,
+      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, target.cell,
       { octave: jam.octave, transpose: jam.transpose, currentInst: jam.currentInst, preset: store.pitchPreset,
-        rawHex: rawNoteView(store.rawNoteView, store.pitchPreset),
+        rawHex,
         keymap: store.keymap, quoteKey: store.quoteKey,
         wideCells: store.doc?.wideCells === true });
     if (!action) return false;

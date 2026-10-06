@@ -11,7 +11,7 @@ import { hex2, fxColonWarns } from "../notenames.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
 import { transposePatternNotes, transposeUnitKeys } from "../../../core/tuning/pitchtables.js";
 import {
-  interpretEditKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
+  interpretEditKey, capKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
   subCharPos, charToSub, cellChars, lookahead, wheelStep, stepNoteCell,
   colsForSubs, subToCol, ALL_COLS, colCharRange, subIsEmpty, volPanStep, elevationStep,
@@ -800,14 +800,27 @@ class PatternPane {
       case "Home": e.shiftKey ? this.extendSelection(-64) : this.moveCursor(-64); return true;
       case "End": e.shiftKey ? this.extendSelection(64) : this.moveCursor(64); return true;
     }
+    return this.editKey(e, this.cursor.sub, this.cursor.nib,
+      rawNoteView(this.store.rawNoteView, this.store.pitchPreset));
+  }
+
+  /** A cap clicked on the keymap strip — Timeline.enterCapNote, for one
+   *  pattern: always the note column, never a hex digit (item 207). */
+  enterCapNote(code) {
+    return this.editKey(capKey(code), SUB_NOTE, 0, false);
+  }
+
+  /** Record-mode entry of one key into the cursor's row, read as column
+   *  `sub`/`nib` — the shared body of processKey and enterCapNote. */
+  editKey(e, sub, nib, rawHex) {
     const pattern = this.pattern();
     if (!pattern || !this.store.record) return false;
     const c = this.cursor;
     const cell = pattern[c.row];
     const action = interpretEditKey(
-      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, c.sub, c.nib, cell,
+      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, cell,
       { octave: this.jam.octave, transpose: this.jam.transpose, currentInst: this.jam.currentInst, preset: this.store.pitchPreset,
-        rawHex: rawNoteView(this.store.rawNoteView, this.store.pitchPreset),
+        rawHex,
         keymap: this.store.keymap, quoteKey: this.store.quoteKey,
         wideCells: this.store.doc?.wideCells === true });
     if (!action) return false;
@@ -1385,6 +1398,9 @@ export class PatternView {
     }
     return this.active.processKey(e);
   }
+
+  /** A keymap strip cap, in record mode: entered into the active column. */
+  enterCapNote(code) { return this.active.enterCapNote(code); }
 
   frame() {
     if (!this.visible) return;

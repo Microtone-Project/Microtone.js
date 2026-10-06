@@ -643,6 +643,7 @@ export class Playhead {
       it.keyOff = false;
       it.envIndex = 0; it.envTimeSec = 0.0; it.envVolume = 1.0;
       it.envPanIndex = 0; it.envPanTimeSec = 0.0; it.envPan = 0.5;
+      it.hasVolEnv = false;
       it.hasPanEnv = false;
       it.envPitchIndex = 0; it.envPitchTimeSec = 0.0; it.envPitchValue = 0.5;
       it.envFilterIndex = 0; it.envFilterTimeSec = 0.0; it.envFilterValue = 0.5;

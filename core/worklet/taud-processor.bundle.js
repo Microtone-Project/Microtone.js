@@ -1127,7 +1127,7 @@ function voiceElevation(voice) {
 
 /** A voice's share of the lane's output, as the mixer weights it. */
 function displayWeight(v) {
-  const env = v.volEnvOn ? v.envVolMix : 1.0;
+  const env = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
   return env * v.fadeoutVolume * v.currentMixVolume * v.layerMixGain *
     ((255 - v.fader) / 255.0);
 }
@@ -5950,6 +5950,9 @@ class Voice {
     // Per-sample smoothed copy of envVolume (see AudioAdapter.kt:4615-4624).
     this.envVolMix = 1.0;
     this.envVolStep = 0.0;
+    // The ACTIVE volume envelope's P bit (resolveActiveEnvelopes). False until
+    // a trigger resolves one, when envVolume is still its unity seed anyway.
+    this.hasVolEnv = false;
     this.envPanIndex = 0;
     this.envPanTimeSec = 0.0;
     this.envPan = 0.5;
@@ -6919,6 +6922,7 @@ class Playhead {
       it.keyOff = false;
       it.envIndex = 0; it.envTimeSec = 0.0; it.envVolume = 1.0;
       it.envPanIndex = 0; it.envPanTimeSec = 0.0; it.envPan = 0.5;
+      it.hasVolEnv = false;
       it.hasPanEnv = false;
       it.envPitchIndex = 0; it.envPitchTimeSec = 0.0; it.envPitchValue = 0.5;
       it.envFilterIndex = 0; it.envFilterTimeSec = 0.0; it.envFilterValue = 0.5;
@@ -8011,7 +8015,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
     // mixer and gets the same per-sample maintenance here, in the same order.
     s = applyVoiceFilter(v, s);
     v.envVolMix += v.envVolStep;
-    const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
+    const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     advanceVolumeRamp(v, ts.volDiv);
     advancePitchRamp(v, spt);
     // NOT the note/lane volume, which §5.5.1's list of what an operator's
@@ -8225,10 +8229,11 @@ function forceKeyLift(voice) {
 function advanceEnvelope(voice, tickSec) {
   const maxIdx = 24;
 
-  // Volume envelope — gated only by voice.volEnvOn; wrap bits gate WRAPPING,
-  // not whether the envelope runs (Schism player/sndmix.c:470-502).
+  // Volume envelope — gated by its P bit and the S $77/$78 toggle; wrap bits
+  // gate WRAPPING, not whether the envelope runs (Schism player/sndmix.c:470-
+  // 502). An absent envelope never walks, so it can never fire the cut rule.
   const volEnv = voice.activeVolEnv;
-  if (voice.volEnvOn) {
+  if (voice.hasVolEnv && voice.volEnvOn) {
     resolveEnvWrap(voice.activeVolEnvLoop, voice.activeVolEnvSustain, voice.keyOff, volWrap);
     const wStart = volWrap[0];
     const wEnd = volWrap[1];
@@ -8528,6 +8533,10 @@ function resolveActiveEnvelopes(voice, inst, patch) {
     voice.activeVolEnvLoop = inst.volEnvLoop;
     voice.activeVolEnvSustain = inst.volEnvSustainWord;
   }
+  // The volume envelope answers to its P bit like every other envelope (spec
+  // §7.2): a record that says "absent" plays at unity whatever its nodes hold.
+  // Resolved here, beside the envelope it describes, so the two never disagree.
+  voice.hasVolEnv = envPresent(voice.activeVolEnvLoop);
   const panEnv = patch !== null ? patch.panEnv : null;
   if (panEnv !== null) {
     voice.activePanEnv = panEnv;
@@ -9334,6 +9343,7 @@ function ghostVoice(src, channel) {
   v.envPanIndex = src.envPanIndex;
   v.envPanTimeSec = src.envPanTimeSec;
   v.envPan = src.envPan;
+  v.hasVolEnv = src.hasVolEnv;
   v.hasPanEnv = src.hasPanEnv;
   v.hasPitchEnv = src.hasPitchEnv;
   v.envPitchIndex = src.envPitchIndex;
@@ -11956,7 +11966,7 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
     const sScope = voice.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
     // Per-sample envelope smoothing.
     voice.envVolMix += voice.envVolStep;
-    const effEnvVol = voice.volEnvOn ? voice.envVolMix : 1.0;
+    const effEnvVol = voice.hasVolEnv && voice.volEnvOn ? voice.envVolMix : 1.0;
     advanceVolumeRamp(voice, volDiv);
     advancePitchRamp(voice, spt);
     const perVoiceGain = effEnvVol * voice.fadeoutVolume * voice.currentMixVolume *
@@ -12068,7 +12078,7 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
     const sL = stereoPair[0];
     const sR = stereoPair[1];
     bg.envVolMix += bg.envVolStep;
-    const effEnvVol = bg.volEnvOn ? bg.envVolMix : 1.0;
+    const effEnvVol = bg.hasVolEnv && bg.volEnvOn ? bg.envVolMix : 1.0;
     advanceVolumeRamp(bg, volDiv);
     advancePitchRamp(bg, spt);
     const vol = (effEnvVol * bg.fadeoutVolume * bg.currentMixVolume *
@@ -12965,7 +12975,7 @@ class TaudEngine {
   getVoiceEffectiveVolume(ph, vi) {
     const v = this._voice(ph, vi);
     if (!v.active) return 0.0;
-    const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
+    const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     const faderGain = (255 - v.fader) / 255.0;
     return Math.min(Math.max(effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain, 0.0), 1.0);
   }

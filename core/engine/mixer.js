@@ -213,7 +213,7 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
     const sScope = voice.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
     // Per-sample envelope smoothing.
     voice.envVolMix += voice.envVolStep;
-    const effEnvVol = voice.volEnvOn ? voice.envVolMix : 1.0;
+    const effEnvVol = voice.hasVolEnv && voice.volEnvOn ? voice.envVolMix : 1.0;
     advanceVolumeRamp(voice, volDiv);
     advancePitchRamp(voice, spt);
     const perVoiceGain = effEnvVol * voice.fadeoutVolume * voice.currentMixVolume *
@@ -325,7 +325,7 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
     const sL = stereoPair[0];
     const sR = stereoPair[1];
     bg.envVolMix += bg.envVolStep;
-    const effEnvVol = bg.volEnvOn ? bg.envVolMix : 1.0;
+    const effEnvVol = bg.hasVolEnv && bg.volEnvOn ? bg.envVolMix : 1.0;
     advanceVolumeRamp(bg, volDiv);
     advancePitchRamp(bg, spt);
     const vol = (effEnvVol * bg.fadeoutVolume * bg.currentMixVolume *

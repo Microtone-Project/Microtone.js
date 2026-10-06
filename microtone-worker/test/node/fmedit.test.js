@@ -13,7 +13,7 @@ import { TaudInst, decodeFmProgram, makeMetaLayer } from "../../core/engine/inst
 import {
   fmOperators, fmProgramOf, fmRecordOf, fmValidate, fmBudget, fmFormula, fmTree, fmGraph,
   fmWord, fmWordClass, fmWordIndex, fmOperatorsNamed, fmCanAddOperator, fmCanAddWord,
-  canRemoveOperator, removeOperator, moveOperator, patchOperator,
+  canRemoveOperator, removeOperator, duplicateOperator, moveOperator, patchOperator,
   insertWord, removeWord, moveWord, setWord,
   FM_CLASS_OSC, FM_CLASS_MOD, FM_CLASS_FB, FM_CLASS_OP,
   FM_BUDGET_BYTES, FmOp, META_TYPE_FM,
@@ -110,6 +110,36 @@ test("removing an unwired operator slides the references past it", () => {
   assert.deepEqual(r.ops.map((o) => o.instIdx), [0x101, 0x103]);
   assert.deepEqual(r.program, [OSC(1), MOD(0)], "operator 2 became operator 1");
   assert.ok(fmValidate(r.program, r.ops.length).ok);
+});
+
+test("a duplicate is a LINKED copy right below, and the patch is unchanged", () => {
+  const ops = [op(0x101), { ...op(0x102), detune: 1365, mixOctet: 140 }, op(0x103)];
+  const prog = [OSC(2), MOD(1), MOD(0)];          // 2 → 1 → 0
+  const name = (list) => (k) => list[k].instIdx.toString(16);
+  const r = duplicateOperator(ops, prog, 1);
+  assert.deepEqual(r.ops.map((o) => o.instIdx), [0x101, 0x102, 0x102, 0x103]);
+  assert.equal(r.ops[2].detune, 1365, "the copy keeps its ratio");
+  assert.equal(r.ops[2].mixOctet, 140, "…and its level");
+  assert.notEqual(r.ops[2], r.ops[1], "a copy, not the same object twice");
+  assert.deepEqual(r.program, [OSC(3), MOD(1), MOD(0)], "the operator past it moved up one");
+  assert.equal(fmFormula(r.program, 4, name(r.ops)), fmFormula(prog, 3, name(ops)), "same wiring");
+  assert.deepEqual(fmOperatorsNamed(r.program, 4), [1, 1, 0, 1], "the copy starts unwired");
+  assert.ok(fmValidate(r.program, r.ops.length).ok);
+  // Round trip through the record: the rack still decodes as one.
+  assert.notEqual(rack(r.ops, r.program).fmProgram, null);
+});
+
+test("duplicating the last operator renumbers nothing; a full rack refuses", () => {
+  const ops = [op(0x101), op(0x102)];
+  const prog = [OSC(1), MOD(0)];
+  const r = duplicateOperator(ops, prog, 1);
+  assert.deepEqual(r.program, prog);
+  assert.equal(r.ops.length, 3);
+  let full = { ops, program: prog };
+  while (fmCanAddOperator(full.ops, full.program)) full = duplicateOperator(full.ops, full.program, 0);
+  const again = duplicateOperator(full.ops, full.program, 0);
+  assert.equal(again.ops, full.ops, "no room: the rack comes back untouched");
+  assert.ok(fmValidate(again.program, again.ops.length).ok);
 });
 
 test("a feedback tap still counts as naming an operator", () => {

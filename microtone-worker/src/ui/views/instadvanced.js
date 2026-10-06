@@ -58,6 +58,13 @@ const ENV_KINDS = [
 ];
 const ENV_WAVE = 4; // the fifth sub-tab: sample wavescope
 
+/** Mark patch block `q`'s `kind` envelope present (LOOP-word P bit 13). Every
+ *  node edit does, as on the base instrument's tabs: the engine ignores the
+ *  nodes of an envelope without it, the volume one included (item 207). */
+function claimPresence(q, kind) {
+  q[kind.loopKey] = (q[kind.loopKey] | 0x2000) & 0xffff;
+}
+
 const VIB_WAVES = ["sine", "ramp-down", "square", "random", "ramp-up"];
 
 function clonePatch(p) {
@@ -809,6 +816,8 @@ export class AdvancedZoneEditor {
       const q = ps[this.selIdx];
       if (q && q[kind.key] !== null) fn(q, q[kind.key]);
     });
+    // …and one that reshapes the nodes, which also makes the block present.
+    const editNodes = (fn) => editEnv((q, e) => { fn(q, e); claimPresence(q, kind); });
     const setWordBit = (wordKey, bit, on) => editEnv((q) => {
       q[wordKey] = on ? (q[wordKey] | (1 << bit)) & 0xffff : q[wordKey] & ~(1 << bit) & 0xffff;
     });
@@ -820,14 +829,14 @@ export class AdvancedZoneEditor {
     this.row(wrap,
       this.num(t("env.node"), selN, 0, active - 1, (v) => { this.selNode = v; this.render(); }),
       this.num(t("env.value"), node.value, 0, kind.max,
-        (v) => editEnv((q, e) => { e[selN].value = v; })),
+        (v) => editNodes((q, e) => { e[selN].value = v; })),
       (() => {
         // Seconds on screen, one minifloat CODE per press (item 156.2) — the
         // General tab's segment field works the same way, from the same map.
         const l = this.num(t("env.seg"), 0, 0, 255, () => {});
         const inp = l.querySelector("input");
         mapSpinner(inp, SEG_MINIFLOAT_MAP, node.offset);
-        inp.addEventListener("change", () => editEnv((q, e) => {
+        inp.addEventListener("change", () => editNodes((q, e) => {
           e[selN].offset = inp.rawValue;
         }));
         return l;
@@ -872,8 +881,9 @@ export class AdvancedZoneEditor {
       if (res.appended) {
         q[kind.susKey] = envFollowTailSustain(q[kind.susKey], active - 1, active);
       }
-      // A patch block always carries its P bit — setEnvBlock stamps it when the
-      // override is switched on — so there is no presence to claim here.
+      // setEnvBlock stamps the P bit when the override goes on, but the
+      // block's own "Envelope present" box can take it off again.
+      claimPresence(q, kind);
       this.selNode = res.selected;
     });
   }
@@ -1060,6 +1070,7 @@ export class AdvancedZoneEditor {
       if (!en) return;
       en[idx].value = v;
       if (prevOffset !== undefined) en[idx - 1].offset = prevOffset;
+      claimPresence(q, kind);
     }, { gestureId: this.dragState.gestureId });
     this.drawEnv();
   }

@@ -620,7 +620,7 @@ export class TaudEngine {
   getVoiceEffectiveVolume(ph, vi) {
     const v = this._voice(ph, vi);
     if (!v.active) return 0.0;
-    const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
+    const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     const faderGain = (255 - v.fader) / 255.0;
     return Math.min(Math.max(effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain, 0.0), 1.0);
   }

@@ -905,7 +905,7 @@ const VIEW_SPEC = {
 // 168), and the master strip sits beside the whole split.
 const instLookup = new InstLookup(store, jam, $("instLookup"), () => updateStatus());
 // The active layout, drawn under whichever pane holds a grid (item 187).
-const keymapBar = new KeymapBar(store, jam, $("keymapBar"), () => updateStatus());
+const keymapBar = new KeymapBar(store, jam, $("keymapBar"), () => updateStatus(), enterCapNote);
 const masterStrip = new MasterStrip(store, $("masterStrip"));
 masterStrip.onToggle = () => refreshToolbox();
 
@@ -1135,6 +1135,18 @@ $("playSong").addEventListener("click", () => playFrom(0, 0));
 $("playCue").addEventListener("click", () => playFrom(playCursor().cue, 0));
 $("stopBtn").addEventListener("click", () => store.audio?.stop(0));
 $("follow").addEventListener("change", (e) => { store.follow = e.target.checked; });
+
+/** A keymap strip cap, clicked in record mode (item 207): note entry into the
+ *  grid the strip is docked under, which the click has already handed the
+ *  keyboard (the split's capture-phase pointerdown). True when it entered. */
+function enterCapNote(code) {
+  if (!store.record) return false;
+  const entered = store.view === "timeline" ? viewNamed("timeline").enterCapNote(code, jam)
+    : store.view === "pattern" ? viewNamed("pattern").enterCapNote(code)
+    : false;
+  if (entered) updateStatus();
+  return entered;
+}
 
 function setRecord(on) {
   store.record = on;

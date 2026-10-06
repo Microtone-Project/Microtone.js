@@ -394,9 +394,7 @@
    * the case, the highlight/shade pair that makes an edge look bevelled,
    * and the two states of a membrane keycap. */
   --abs-grain:
-    repeating-linear-gradient(112deg,
-      rgba(255, 252, 236, 0.055) 0 1.5px,
-      rgba(96, 76, 34, 0.05) 1.5px 3px);
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='3.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.24'/%3E%3C/svg%3E");
   --abs-bevel:
     inset 0 1px 0 rgba(255, 252, 236, 0.55),
     inset 0 -1px 0 rgba(92, 73, 33, 0.20);

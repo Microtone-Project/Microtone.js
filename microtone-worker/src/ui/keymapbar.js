@@ -18,6 +18,10 @@
 // whatever played it — the letter keys, a click on the Keymap tab's board, or
 // a pointer on the grid.
 //
+// A click on a cap is the cap's key: an audition, and in record mode note
+// ENTRY into the grid the strip sits under (item 207) — which is the only way
+// a tablet without a keyboard can write a note at all.
+//
 // Either end of the board carries a +/− pair stacked one above the other:
 // transposition on the left, octave on the right. They do what Shift+Alt+←/→
 // and Alt+↑/↓ do, for a tablet that has neither — and they sit in the strip's
@@ -28,7 +32,7 @@ import { t } from "./i18n.js";
 import { themeColors, onThemeChange } from "./theme.js";
 import { pitchTablePresets } from "../../core/tuning/pitchtables.js";
 import { paintKeymapBoard, boardExtent, BOARD_SIZES } from "./keymapboard.js";
-import { DEFAULT_KEYMAP } from "./keymap.js";
+import { DEFAULT_KEYMAP, keymapHas } from "./keymap.js";
 import { TRANSPOSE_MAX, OCTAVE_MIN, OCTAVE_MAX } from "./jam.js";
 import { uiDpr, toLayout } from "./zoom.js";
 
@@ -46,12 +50,16 @@ const GRID_VIEWS = ["timeline", "pattern"];
 
 export class KeymapBar {
   /** `onShift` runs after a button moves the octave or the transposition —
-   *  the top bar's "Oct 4+3" readout is the app's to refresh. */
-  constructor(store, jam, el, onShift = null) {
+   *  the top bar's "Oct 4+3" readout is the app's to refresh. `onCapNote(code)`
+   *  is asked first when a cap is clicked, and answers true when it ENTERED
+   *  the note (record mode, a grid with a cursor); otherwise the click is a
+   *  plain audition. */
+  constructor(store, jam, el, onShift = null, onCapNote = null) {
     this.store = store;
     this.jam = jam;
     this.el = el;
     this.onShift = onShift;
+    this.onCapNote = onCapNote;
     this.enabled = loadPref();
     this._heldSig = "";
     this._paintedFor = null;
@@ -77,7 +85,8 @@ export class KeymapBar {
       this.board,
       this._side("keymapbar.oct", this.btn.octUp, this.btn.octDown));
 
-    // Clicking a key auditions it, so the strip is playable as well as legible.
+    // Clicking a key plays it — or enters it, in record mode — so the strip is
+    // playable as well as legible.
     this.canvas.addEventListener("pointerdown", (e) => this._onPointer(e));
 
     store.on("view", () => this.applyVisibility());
@@ -219,8 +228,12 @@ export class KeymapBar {
 
   _onPointer(e) {
     const code = this._capAt(toLayout(e.offsetX), toLayout(e.offsetY));
-    if (!code) return;
-    if (this.jam.down(code, false)) {
+    // A cap the layout leaves unclaimed is painted, but it is not a piano key —
+    // and as note entry it would reach the note column's sentinels instead.
+    if (!code || !keymapHas(this.spec, code)) return;
+    // Entry auditions what it writes (jam.hold), so the two never both sound;
+    // either way the one release below ends the note.
+    if (this.onCapNote?.(code) || this.jam.down(code, false)) {
       const release = () => { this.jam.up(code); window.removeEventListener("pointerup", release); };
       window.addEventListener("pointerup", release);
     }

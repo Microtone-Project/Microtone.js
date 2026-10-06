@@ -652,6 +652,16 @@ function base36Digit(key) {
 }
 
 /**
+ * The keydown a click on a keymap strip cap stands for (item 207). Never an
+ * autorepeat and never Shift, so interpretEditKey's piano branch answers it
+ * whatever the Z row is doing. Only a cap the keymap claims may be sent: an
+ * unclaimed one would reach the note column's sentinel keys instead.
+ */
+export function capKey(code) {
+  return { code, key: "", repeat: false, shiftKey: false };
+}
+
+/**
  * Interpret an edit-mode keydown against a cell column.
  * @param ev   {code, key, repeat} from the KeyboardEvent (repeat = autorepeat,
  *             which the piano keys ignore)

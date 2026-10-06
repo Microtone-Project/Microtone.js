@@ -167,6 +167,26 @@ export function removeOperator(ops, program, i) {
 }
 
 /**
+ * Copy operator `i`, inserting the copy directly after it — metaedit's
+ * duplicateLayer for a rack, and LINKED the same way: the copy names the same
+ * sub-instrument, so editing that instrument moves both. Every word that named
+ * an operator past `i` is renumbered one place up, so the patch sounds exactly
+ * as it did; the copy itself is unwired until the algorithm names it. Returns
+ * the rack unchanged when another operator would not fit.
+ */
+export function duplicateOperator(ops, program, i) {
+  if (i < 0 || i >= ops.length || !fmCanAddOperator(ops, program)) return { ops, program };
+  const src = ops[i];
+  const copy = makeMetaLayer(src.instIdx, src.mixOctet, src.detune,
+    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd);
+  const map = ops.map((_, n) => (n <= i ? n : n + 1));
+  return {
+    ops: [...ops.slice(0, i + 1), copy, ...ops.slice(i + 1)],
+    program: remapProgram(program, map),
+  };
+}
+
+/**
  * Move operator `i` by `delta`. A reorder is a permutation, so the algorithm
  * survives it exactly — every word is renumbered and the patch sounds the same.
  * What DOES change is which operator is principal, and that is the point: this

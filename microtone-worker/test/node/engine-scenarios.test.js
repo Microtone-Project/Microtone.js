@@ -14,7 +14,7 @@ import {
   envPoint, buildMetaRecord, makeMetaLayer, makeInstPatch, writePatchesBlob,
   TaudInst,
 } from "../../core/engine/inst.js";
-import { ghostVoice } from "../../core/engine/trigger.js";
+import { ghostVoice, resolveActiveEnvelopes } from "../../core/engine/trigger.js";
 import { advancePitchRamp } from "../../core/engine/sampler.js";
 import { applyFilterParamEffect, applyEffectRow } from "../../core/engine/effects.js";
 import { EffectOp } from "../../core/engine/tables.js";
@@ -485,12 +485,62 @@ test("vol/pan walker FREEZES on zero-offset nodes (IT terminator semantics)", ()
   for (let i = 0; i < 25; i++) v.activeVolEnv[i] = envPoint(63, 0);
   v.activeVolEnv[0] = envPoint(32, 0); // terminator at node 0
   v.activeVolEnvLoop = 0x2000;
+  v.hasVolEnv = true; // what resolveActiveEnvelopes reads off that P bit
   v.activeVolEnvSustain = 0;
   v.envIndex = 0;
   advanceEnvelope(v, 0.05);
   advanceEnvelope(v, 0.05);
   assert.equal(v.envIndex, 0, "vol env must hold at the terminator");
   assert.ok(Math.abs(v.envVolume - 32 / 63) < 1e-12);
+});
+
+// Item 207: the volume envelope answers to its P bit like the other three.
+test("an absent volume envelope never walks, so its zero end cannot cut", () => {
+  const inst = new TaudInst(1);
+  inst.volEnvelopes[0] = envPoint(63, 40);   // a short segment…
+  inst.volEnvelopes[1] = envPoint(0, 0);     // …down to a zero terminator
+  const run = (loopWord) => {
+    inst.volEnvLoop = loopWord;
+    const v = new Voice();
+    v.active = true;
+    resolveActiveEnvelopes(v, inst, null);
+    for (let i = 0; i < 100; i++) advanceEnvelope(v, 0.02);
+    return v;
+  };
+  const absent = run(0x0000);
+  assert.equal(absent.hasVolEnv, false);
+  assert.equal(absent.envIndex, 0, "an absent envelope never walks");
+  assert.equal(absent.rampOutSamples, 0, "…so the cut rule never fires on it");
+  const present = run(0x2000);
+  assert.equal(present.hasVolEnv, true);
+  assert.equal(present.envIndex, 1, "a present one walks to its terminator");
+  assert.ok(present.rampOutSamples > 0, "…and is cut there");
+});
+
+test("an absent volume envelope plays at unity, whatever its nodes hold", () => {
+  const peakWith = (node0, loopWord) => {
+    const eng = makeTestEngine();
+    eng.setMasterVolume(0, 255);
+    const inst = eng.instruments[1];
+    inst.volEnvelopes[0] = envPoint(node0, 0);
+    inst.volEnvLoop = loopWord;
+    const jv = eng.jamVoice(0);
+    eng.jamNote(0, jv, 0x5000, 1);
+    const out = new Uint8Array(TRACKER_CHUNK * 2);
+    let peak = 0;
+    for (let c = 0; c < 8; c++) {
+      eng.renderChunk(0, out);
+      for (const b of out) peak = Math.max(peak, Math.abs(b - 128));
+    }
+    return { peak, voice: eng.playheads[0].trackerState.voices[jv] };
+  };
+  const full = peakWith(63, 0x2000).peak;
+  const quiet = peakWith(16, 0x2000).peak;
+  const absent = peakWith(16, 0x0000);
+  assert.ok(quiet < full / 2, `a present envelope at 16/63 attenuates (${quiet} of ${full})`);
+  assert.equal(absent.voice.hasVolEnv, false);
+  // ±2: the U8 output is dithered.
+  assert.ok(Math.abs(absent.peak - full) <= 2, `an absent one plays at full level (${absent.peak} of ${full})`);
 });
 
 test("ghostVoice copies SF2 biquad state and the active-envelope view", () => {

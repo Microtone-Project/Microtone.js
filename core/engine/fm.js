@@ -145,7 +145,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
     // mixer and gets the same per-sample maintenance here, in the same order.
     s = applyVoiceFilter(v, s);
     v.envVolMix += v.envVolStep;
-    const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
+    const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     advanceVolumeRamp(v, ts.volDiv);
     advancePitchRamp(v, spt);
     // NOT the note/lane volume, which §5.5.1's list of what an operator's

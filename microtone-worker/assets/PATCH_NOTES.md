@@ -4,6 +4,23 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-06
+
+The keyboard strip under the grids can write notes now, not just play them.
+
+- **Click a key on the strip in record mode** and its note goes in at the cursor exactly as typing that key would: with the current instrument, the cursor stepping on by the input step. A tablet with no keyboard can write a whole part this way.
+- **A click always writes the note column**, wherever the cursor sits in the cell, and a key the layout leaves silent writes nothing.
+
+An FM rack's operators can be duplicated.
+
+- **Duplicate** on an operator's row in the FM tab puts a copy right below it, linked to the same sub-instrument and at the same level and ratio. The algorithm is renumbered around it, so the patch sounds the same until you wire the copy in.
+
+Unticking Envelope present on a volume envelope now really switches it off.
+
+- **Fixed: a volume envelope went on playing with Envelope present unticked**, on every kind of instrument, the layers and operators of metainstruments included; the player read the volume envelope whether or not it was marked present. Unticked, the instrument now plays at full level, and the same goes for the patch envelopes in Advanced Edit.
+- **Shaping an envelope ticks Envelope present for you**: dragging a node or typing its value or segment length now does what adding a node already did, in the same undo step.
+- **An older project may play a volume envelope flat**: one shaped by dragging its nodes was never marked present, and is now ignored. Tick Envelope present on its Vol env tab to bring it back. The bundled demo songs are already fixed.
+
 ## 2026-10-04
 
 43-TET (Kite) joins the tunings, in the tracker and in Microtone Touch.

@@ -96,10 +96,11 @@ export function forceKeyLift(voice) {
 export function advanceEnvelope(voice, tickSec) {
   const maxIdx = 24;
 
-  // Volume envelope — gated only by voice.volEnvOn; wrap bits gate WRAPPING,
-  // not whether the envelope runs (Schism player/sndmix.c:470-502).
+  // Volume envelope — gated by its P bit and the S $77/$78 toggle; wrap bits
+  // gate WRAPPING, not whether the envelope runs (Schism player/sndmix.c:470-
+  // 502). An absent envelope never walks, so it can never fire the cut rule.
   const volEnv = voice.activeVolEnv;
-  if (voice.volEnvOn) {
+  if (voice.hasVolEnv && voice.volEnvOn) {
     resolveEnvWrap(voice.activeVolEnvLoop, voice.activeVolEnvSustain, voice.keyOff, volWrap);
     const wStart = volWrap[0];
     const wEnd = volWrap[1];
