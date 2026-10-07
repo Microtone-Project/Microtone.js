@@ -12,6 +12,11 @@
 // copy), the Microtone Touch sketch format (MICROTONE_SKETCH_FORMAT.md — item
 // 206; Microtone's own, not mirrored) and the Patch Notes (PATCH_NOTES.md —
 // item 95; kept up to date as TODO items land, see CLAUDE.md "Patch notes").
+//
+// On a phone (docs.html's 720px media query) the TOC is a drawer: the ☰
+// button in the top bar slides it over the page, and picking a heading, the
+// scrim or Escape puts it away. Switching documents leaves it open, so the new
+// document's headings are right there to pick from.
 
 import { renderMarkdown, extractToc } from "./markdown.js";
 import { applyIcons } from "./icons.js";
@@ -66,7 +71,16 @@ const DOCS = [
 
 const tocEl = document.getElementById("toc");
 const contentEl = document.getElementById("content");
+const tocBtn = document.getElementById("tocBtn");
 let currentId = null;
+
+// The drawer's state is just this class; the stylesheet decides whether it
+// means anything at the current width.
+const tocOpen = () => document.body.classList.contains("toc-open");
+function setTocOpen(open) {
+  document.body.classList.toggle("toc-open", open);
+  tocBtn.setAttribute("aria-expanded", String(open));
+}
 
 function docList(activeId) {
   const items = DOCS.map((d) =>
@@ -99,6 +113,7 @@ async function selectDoc(id, anchor) {
   for (const a of tocEl.querySelectorAll("a[data-slug]")) {
     a.addEventListener("click", (ev) => {
       ev.preventDefault();
+      setTocOpen(false);
       scrollToSlug(a.dataset.slug);
       history.replaceState(null, "", `#${doc.id}/${a.dataset.slug}`);
     });
@@ -142,6 +157,13 @@ function fromHash() {
 initTheme();
 applyIcons(document); // the theme button's ◐ is a vector now (item 107)
 document.getElementById("themeBtn").addEventListener("click", cycleTheme);
+tocBtn.addEventListener("click", () => setTocOpen(!tocOpen()));
+document.getElementById("tocScrim").addEventListener("click", () => setTocOpen(false));
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || !tocOpen()) return;
+  setTocOpen(false);
+  tocBtn.focus();
+});
 const start = fromHash();
 selectDoc(start.id, start.anchor);
 window.addEventListener("hashchange", () => {

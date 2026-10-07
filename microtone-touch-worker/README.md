@@ -89,7 +89,7 @@ missing.
 | `src/sketch.js` | The sketch model, and its road to and from a `.mtsk` file |
 | `../core/sketch/pack.js` | The instrument pack, synthesised (no samples are shipped) — in `core/` because Microtone builds it too, to open a sketch |
 | `../core/sketch/mtsk.js` | The `.mtsk` file, and the Taud song a sketch plays as |
-| `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth, each turned so the head key's octaves stand in a vertical column (or lie in a row); the fat-finger touch zones |
+| `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth, each turned so the head key's octaves stand in a vertical column (or lie in a row); the degree run's strips; the fat-finger touch zones |
 | `src/keyboard.js` | The canvas keyboard and drum pads, multi-touch; one fat-finger touch is told to the app as one finger per key |
 | `src/grid.js` | The pattern grid |
 | `src/notes.js` | Note names as plain text |
@@ -98,16 +98,18 @@ missing.
 | `src/files.js` | The Files panel and the Load… sheet: both places' sketches, opened, renamed, copied, deleted |
 | `src/split.js` | The splitter, the stacked / side-by-side knob and the hand knob |
 
-## The harmonic table's own options
+## The board's own options
 
 Two buttons beside the layout picker show only while the board is the harmonic
-table (major thirds one way, fifths the other, minor thirds up-left), and are
-remembered with the other keyboard settings:
+table (major thirds one way, fifths the other, minor thirds up-left), and the
+first of them while it is the degree run too; both are remembered with the
+other keyboard settings:
 
 - **↕ / ↔** stands the octaves up the board (the default) or lays them across
   it: the row of major thirds turns level, so in 12-TET the bottom row reads
   C E G♯ C′ E′ …, and in every other tuning the board is turned until its own
-  octave step lies to the right.
+  octave step lies to the right. On the degree run it turns the run: see
+  below.
 - **Fat fingers** gives every corner where three keys meet, and every edge where
   two do, a touch point of its own: one finger there plays all of them — on
   this table a major or minor triad at a corner, a third or a fifth at an
@@ -117,7 +119,16 @@ remembered with the other keyboard settings:
   triad spreads across lanes holding the same preset, as a three-finger chord
   does.
 
-On a phone held upright the two buttons take the lane tag's place in the bar.
+On a phone held upright the buttons take the lane tag's place in the bar.
+
+The degree run (one degree one way, a whole tone the other) would otherwise
+repeat itself across the board — in 12-TET every other column the same notes —
+so it is cut into strips a whole tone of keys wide, each an octave above the
+one to its left. Inside a strip the run climbs straight up (in 12-TET the whole
+tones stand in a column, C D E F♯ G♯ A♯ C′, the semitones zigzagging beside
+them), and the next strip is the next octave, level with it. ↔ takes the same
+board in a mirror: the run climbs across, in floors stacked an octave apart —
+in 12-TET, the Bosanquet board.
 
 ## How a sketch maps onto Taud
 
@@ -133,8 +144,8 @@ every row of that run. There are no volume or pan columns. The song loops with
 
 The bar holds the transport alone — the wordmark (as much of "Microtone™ Touch"
 as fits), Play, Record, Section / Song — and the hamburger holds the rest, one
-level deep: BPM… (with whether the song loops), Temperament…, Save, Save as…,
-Load…, Files…, Theme…, Language… and a link to the tracker. The sketch on screen is a working copy, kept in local storage
+level deep: BPM… (with whether the song loops), Temperament…, New sketch, Save,
+Save as…, Load…, Files…, Theme…, Language… and a link to the tracker. The sketch on screen is a working copy, kept in local storage
 after every edit; Save writes it back where it was last saved or opened (its
 *home*), Save as… picks a name and a place, and opening another sketch or
 starting a new one asks first if there are unsaved changes, then starts a new

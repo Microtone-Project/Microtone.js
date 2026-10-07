@@ -54,6 +54,8 @@ export default {
   "keys.layout": "건반 배열",
   "keys.across": "옥타브 가로로",
   "keys.acrossTitle": "옥타브를 세로로 쌓거나 가로로 눕힙니다",
+  "keys.runAcross": "나열 가로로",
+  "keys.runAcrossTitle": "도수 나열은 세로로, 옥타브는 가로로 놓거나 그 반대로 놓습니다",
   "keys.fat": "화음 터치",
   "keys.fatTitle": "건반 두세 개가 만나는 곳을 한 번 누르면 모두 울립니다",
   "keys.fatOn": "화음 터치: 건반 두세 개가 만나는 곳을 누르면 함께 울립니다.",
@@ -155,6 +157,7 @@ export default {
   // ── the menu ──
   "menu.bpm": "BPM…",
   "menu.tuning": "음률…",
+  "menu.new": "새 스케치",
   "menu.save": "저장",
   "menu.saveAs": "다른 이름으로 저장…",
   "menu.load": "불러오기…",

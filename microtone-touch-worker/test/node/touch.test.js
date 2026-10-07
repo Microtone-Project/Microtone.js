@@ -70,10 +70,13 @@ test("lattice: Bosanquet's floors — each repeat of the root's row is an octave
   assert.deepEqual(floorOf(41), { rows: 7, lift: 41 });
   assert.deepEqual(floorOf(43), { rows: 7, lift: 43 });
   assert.deepEqual(floorOf(53), { rows: 9, lift: 53 });
-  // 7- and 9-TET (and 5, 8, 16) already climb an octave a floor: nothing to lift.
-  for (const n of [5, 7, 8, 9, 16]) assert.equal(floorOf(n), null, `${n}-TET`);
-  // …and no other layout has floors at all.
-  for (const id of ["wicki", "harmonic", "step"]) assert.equal(layoutSteps(id, 12).floor, undefined, id);
+  // 8-, 9- and 16-TET already climb an octave a floor: nothing to lift. (5 and 7
+  // have no Bosanquet board to floor: their whole tone is one degree, the same
+  // step as their semitone, so they get the degree run.)
+  for (const n of [8, 9, 16]) assert.equal(floorOf(n), null, `${n}-TET`);
+  for (const n of [5, 7]) assert.equal(fitLayout("bosanquet", n), "step", `${n}-TET`);
+  // …and no other layout has floors at all (the degree run's strips are its own: below).
+  for (const id of ["wicki", "harmonic"]) assert.equal(layoutSteps(id, 12).floor, undefined, id);
 
   // Where the walk lands, one floor up is now one octave up.
   const at = (n, q, r) => keyDegree(q, r, layoutSteps("bosanquet", n));
@@ -90,18 +93,21 @@ test("lattice: Bosanquet's floors — each repeat of the root's row is an octave
 });
 
 test("lattice: every degree is on the board, floors and all, in every tuning and layout", () => {
-  // Not one note missing across three periods, for every layout as fitted. (A
-  // two-row floor in 31-TET would fail this: C4 on no key at all.)
+  // Not one note missing across three periods, for every layout as fitted,
+  // either way up. (A two-row floor in 31-TET would fail this: C4 on no key
+  // at all.)
   for (const t of TUNINGS) {
     const p = pitchTablePresets[t.notation];
     const n = p.table.length;
     for (const { id } of LAYOUTS) {
-      const steps = layoutSteps(fitLayout(id, n, p.interval), n, p.interval);
-      const on = new Set();
-      for (let q = -60; q <= 60; q++) for (let r = -40; r <= 40; r++) on.add(keyDegree(q, r, steps));
-      const missing = [];
-      for (let d = -n; d < 2 * n; d++) if (!on.has(d)) missing.push(d);
-      assert.deepEqual(missing, [], `${t.name} / ${id}`);
+      for (const across of [false, true]) {
+        const steps = layoutSteps(fitLayout(id, n, p.interval), n, p.interval, across);
+        const on = new Set();
+        for (let q = -60; q <= 60; q++) for (let r = -40; r <= 40; r++) on.add(keyDegree(q, r, steps));
+        const missing = [];
+        for (let d = -n; d < 2 * n; d++) if (!on.has(d)) missing.push(d);
+        assert.deepEqual(missing, [], `${t.name} / ${id}${across ? " across" : ""}`);
+      }
     }
   }
 });
@@ -176,7 +182,8 @@ test("lattice: every layout stands the head key's octaves in a vertical column",
   for (const t of TUNINGS) {
     const p = pitchTablePresets[t.notation];
     const n = p.table.length;
-    for (const { id } of LAYOUTS) {
+    // The degree run's octave step is its strips', laid across (its own test, below).
+    for (const { id } of LAYOUTS.filter((l) => fitLayout(l.id, n, p.interval) !== "step")) {
       const steps = layoutSteps(fitLayout(id, n, p.interval), n, p.interval);
       const name = `${t.name} / ${id}`;
       assert.ok(steps.octave, `${name} has an octave step`);
@@ -206,6 +213,59 @@ test("lattice: every layout stands the head key's octaves in a vertical column",
   assert.ok(riseToRight(layoutSteps("harmonic", 12), Math.PI / 2) < 0, "…which, stood upright, would fall to the right");
   assert.equal(Math.round(tiltFor({ q: -1, r: 2 }) * 1e9), 0);
   assert.equal(octaveStep({ a: 2, b: 4 }, 7), null, "a board that never reaches the octave has no step");
+});
+
+test("lattice: the degree run climbs up its strips, and each strip across is an octave up", () => {
+  // 12-TET: the whole tones stand in a column, the semitones zigzag beside
+  // them, and two columns across is the next octave, level with the first.
+  const r12 = layoutSteps("step", 12);
+  assert.deepEqual([r12.a, r12.b, r12.floor, r12.octave], [1, 2, { cols: 2, lift: 12 }, { q: 2, r: -1 }]);
+  assert.equal(Math.round((r12.tilt * 180) / Math.PI), 30);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map((r) => keyDegree(0, r, r12)), [0, 2, 4, 6, 8, 10, 12], "C D E F♯ G♯ A♯ C′");
+  assert.ok(Math.abs(hexCentre(0, 6, 1, r12.tilt).x) < 1e-9, "…straight up");
+  assert.deepEqual([0, 1, 2, 3, 4, 5].map((r) => keyDegree(1, r, r12)), [1, 3, 5, 7, 9, 11], "C♯ D♯ F G A B beside it");
+  assert.deepEqual([0, 1, 2, 3].map((m) => keyDegree(2 * m, -m, r12)), [0, 12, 24, 36], "C3 C4 C5 C6 along a level row");
+  assert.equal(keyDegree(-2, 1, r12), -12, "the strip to the left is an octave down");
+  // …and across, the same board in a mirror — which in 12-TET is Bosanquet's.
+  const x12 = layoutSteps("step", 12, undefined, true);
+  const b12 = layoutSteps("bosanquet", 12);
+  assert.equal(x12.across, true);
+  assert.deepEqual([x12.a, x12.b, x12.floor, x12.octave, x12.tilt], [b12.a, b12.b, b12.floor, b12.octave, b12.tilt]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map((q) => keyDegree(q, 0, x12)), [0, 2, 4, 6, 8, 10, 12], "C D E F♯ G♯ A♯ C′ across");
+
+  const near = (x, y) => Math.abs(x - y) < 1e-9;
+  for (const t of TUNINGS) {
+    const p = pitchTablePresets[t.notation];
+    const n = p.table.length;
+    for (const across of [false, true]) {
+      const steps = layoutSteps("step", n, p.interval, across);
+      const name = `${t.name}${across ? " across" : ""}`;
+      assert.ok(layoutWorks(steps), `${name} works`);
+      // One key along the run is one degree, within a strip (or a floor).
+      assert.equal(across ? keyDegree(0, 1, steps) : keyDegree(1, 0, steps), 1, `${name}: a run`);
+      // Every key's octave is one strip over, level with it — or, across, one
+      // floor up, straight above it.
+      const { q, r } = steps.octave;
+      for (let kq = -10; kq <= 10; kq++) {
+        for (let kr = -10; kr <= 10; kr++) {
+          assert.equal(keyDegree(kq + q, kr + r, steps) - keyDegree(kq, kr, steps), n, `${name} at (${kq}, ${kr})`);
+        }
+      }
+      const c = hexCentre(q, r, 1, steps.tilt);
+      if (across) assert.ok(near(c.x, 0) && c.y < 0, `${name}: the floor above is straight above`);
+      else assert.ok(near(c.y, 0) && c.x > 0, `${name}: the next strip is level, to the right`);
+      // Inside a strip the pitch follows the height alone, and climbs; inside a
+      // floor, the same going right.
+      const plain = { a: steps.a, b: steps.b };
+      const [still, climbs] = across ? [riseUpwards, riseToRight] : [riseToRight, riseUpwards];
+      assert.ok(near(still(plain, steps.tilt), 0), `${name}: level inside a strip`);
+      assert.ok(climbs(plain, steps.tilt) > 0, `${name}: …climbing along it`);
+      assert.ok(riseToRight(steps, steps.tilt) > 0 && riseUpwards(steps, steps.tilt) > 0, `${name}: up and right are up`);
+    }
+    // A mirror, not a turn: the two tilts add up to 30°.
+    const sum = layoutSteps("step", n, p.interval).tilt + layoutSteps("step", n, p.interval, true).tilt;
+    assert.ok(near(sum, Math.PI / 6), `${t.name}: mirrored`);
+  }
 });
 
 test("lattice: the harmonic table lays its octaves across — C E G♯ C′ along a level row", () => {

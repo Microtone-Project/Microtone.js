@@ -58,6 +58,8 @@ export default {
   "keys.layout": "Keyboard layout",
   "keys.across": "Octaves across",
   "keys.acrossTitle": "Octaves up the board, or across it",
+  "keys.runAcross": "Run across",
+  "keys.runAcrossTitle": "The run up the board and the octaves across it, or the other way round",
   "keys.fat": "Fat fingers",
   "keys.fatTitle": "Where two or three keys meet, one touch plays them all",
   "keys.fatOn": "Fat fingers: a touch where two or three keys meet plays them together.",
@@ -160,6 +162,7 @@ export default {
   // ── the menu ──
   "menu.bpm": "BPM…",
   "menu.tuning": "Temperament…",
+  "menu.new": "New sketch",
   "menu.save": "Save",
   "menu.saveAs": "Save as…",
   "menu.load": "Load…",

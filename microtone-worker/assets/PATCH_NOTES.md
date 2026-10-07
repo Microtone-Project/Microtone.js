@@ -6,6 +6,18 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-07
 
+Microtone Touch's menu can start a new sketch, and its Run keyboard now climbs an octave in both directions.
+
+- **New sketch is in the menu**, beside Save and Load…; as in Files, it asks first if the sketch you have open has unsaved changes.
+- **The Run keyboard no longer repeats itself across the screen**: it is cut into strips, each an octave above the one to its left, so the notes still climb up the board and every strip to the right is the next octave. In 12-TET the bottom row now reads C3, C4, C5, C6.
+- **The ↕/↔ button now turns the Run keyboard too**: ↔ lays the run of notes across the board and stacks the octaves upwards — in 12-TET, the same board as Bosanquet.
+
+On a phone, the manual's contents fold away behind a ☰ button, so the text gets the whole screen.
+
+- **The ☰ button at the top left slides the contents in over the page**: tap a heading to go there and put them away again, or tap beside them or press Escape to close them. Switching documents leaves them open, so you can pick a heading in the new one straight away.
+- **On a narrow screen the manual's top bar keeps to one line**: the Documentation label steps aside and the way back to the tracker reads ← App.
+- On a wider screen the contents stay where they were, beside the text.
+
 A pinch or a quick second tap no longer zooms the page in Microtone Touch, the tracker or the song player.
 
 - **Pinching and double-tapping no longer zoom the page** on a phone or a tablet: a quick second tap on a key or a cell, or a second finger landing beside the keyboard, now does what a tap does. One-finger scrolling works as before.

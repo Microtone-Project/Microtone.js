@@ -257,6 +257,9 @@ export const BTN_ICON = {
   /** Rename this file (✎) — a pencil over a line. */
   rename: line('<path d="M4.5 19.5h15"/>' +
     '<path d="M5.5 15.6 15.9 5.2a2 2 0 0 1 2.9 0 2 2 0 0 1 0 2.9L8.4 18.5H5.5z"/>'),
+  /** Show / hide a sidebar that has folded away (☰) — the manual's contents
+   *  on a phone. */
+  menu: line('<path d="M4 6.5h16M4 12h16M4 17.5h16"/>'),
   /** Fold a panel open/shut (▾). */
   caretDown: solid('<path d="M6 9h12l-6 7z"/>'),
   /** Becomes this (→) — the mono/stereo conversions. */

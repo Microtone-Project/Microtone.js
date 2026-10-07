@@ -11,11 +11,13 @@
 // the head key stands straight above it, and the octave below straight below
 // (see octaveStep) — a column of C's up the board in every tuning. Wicki–
 // Hayden needs no turn at all; Bosanquet a few degrees either way; the
-// harmonic table and the degree run up to about 48°. (The Lumatone draws all
-// of its layouts at one tilt, atan(√3 / 6) = 16.1°, the angle at which its
-// lattice is level again at (q + 7, r − 2); Touch's tilt is the octave's.)
-// A board can instead lay its octaves ACROSS — a row of C's to the right,
-// which on the harmonic table is its row of major thirds, C E G♯ C′.
+// harmonic table up to about 48°. (The Lumatone draws all of its layouts at
+// one tilt, atan(√3 / 6) = 16.1°, the angle at which its lattice is level
+// again at (q + 7, r − 2); Touch's tilt is the octave's.) A board can instead
+// lay its octaves ACROSS — a row of C's to the right, which on the harmonic
+// table is its row of major thirds, C E G♯ C′. The degree run is cut into
+// strips an octave apart instead, and turned by those (see "The degree run's
+// strips" at the end).
 //
 // The steps are not tables per tuning. On an octave-period equal tuning they
 // are derived from its own patent fifth — the nearest degree to 3/2 — so a
@@ -73,7 +75,12 @@ export const LAYOUTS = Object.freeze([{ id: "wicki" }, { id: "bosanquet" }, { id
  *   harmonic   major thirds along a, fifths along b, minor thirds up-left —
  *              the C-Thru AXiS table: every triad is one cluster of keys
  *   step       one degree along a, a whole tone along b — the one that
- *              reaches every degree of every tuning
+ *              reaches every degree of every tuning — in strips an octave
+ *              apart
+ *
+ * `across` turns the board a quarter: the harmonic table lays its octaves
+ * across, and the degree run lays its run across and stacks its strips (see
+ * runSteps). The result's `across` says whether it could.
  */
 export function layoutSteps(layout, n, period = OCTAVE, across = false) {
   const key = `${layout}|${n}|${period}|${across}`;
@@ -96,7 +103,7 @@ function computeSteps(layout, n, period, across) {
       return withTilt(floor ? { ...steps, floor } : steps, n, across);
     }
     case "harmonic": return withTilt({ a: s.major3, b: s.fifth }, n, across);
-    default: return withTilt({ a: 1, b: Math.max(2, s.tone) }, n, across);
+    default: return runSteps(n, Math.max(2, s.tone), across);
   }
 }
 
@@ -136,7 +143,7 @@ export function octaveStep(steps, n, across = false) {
     for (let r = -reach; r <= reach; r++) {
       if (keyDegree(q, r, steps) !== n) continue;
       if (keyDegree(-q, -r, steps) !== -n || keyDegree(2 * q, 2 * r, steps) !== 2 * n) continue;
-      if (steps.floor && r % steps.floor.rows !== 0) continue;
+      if (steps.floor && !spansFloors(q, r, steps.floor)) continue;
       const tilt = tiltFor({ q, r }, across);
       if ((across ? riseUpwards(steps, tilt) : riseToRight(steps, tilt)) < -1e-9) continue;
       const length = q * q + r * r + q * r; // squared, in key spacings
@@ -151,11 +158,13 @@ export function octaveStep(steps, n, across = false) {
 
 /** How many degrees a board turned by `tilt` climbs per key spacing to the
  *  right — the horizontal part of its pitch gradient. A floored board climbs
- *  its floors' lift on top of `b`, spread over their rows. */
+ *  its floors' lift on top of `b`, spread over their rows (or, in strips, on
+ *  top of `a`, spread over their width). */
 export function riseToRight({ a, b, floor }, tilt) {
-  const steep = b + (floor ? floor.lift / floor.rows : 0);
-  // Solve g·e1 = a, g·e2 = steep for the gradient g; the basis' determinant is sin 60°.
-  return (a * Math.sin(tilt + DEG60) - steep * Math.sin(tilt)) / Math.sin(DEG60);
+  const shallow = a + (floor?.cols ? floor.lift / floor.cols : 0);
+  const steep = b + (floor?.rows ? floor.lift / floor.rows : 0);
+  // Solve g·e1 = shallow, g·e2 = steep for the gradient g; the basis' determinant is sin 60°.
+  return (shallow * Math.sin(tilt + DEG60) - steep * Math.sin(tilt)) / Math.sin(DEG60);
 }
 
 /** …and per key spacing UP the board: what climbs up a board is what climbs
@@ -201,11 +210,19 @@ export function fitLayout(preferred, n, period = OCTAVE) {
 }
 
 /** Degree (relative to the board's origin) of the key at (q, r): the
- *  layout's two steps, plus a period for every FLOOR the key's row is up
- *  (Bosanquet only; see findFloor). */
+ *  layout's two steps, plus a period for every FLOOR the key is up — floors
+ *  `rows` rows tall (Bosanquet, see findFloor; the degree run across) or
+ *  strips `cols` keys wide along q (the degree run, see runSteps). */
 export function keyDegree(q, r, { a, b, floor }) {
   const d = q * a + r * b;
-  return floor ? d + Math.floor(r / floor.rows) * floor.lift : d;
+  if (!floor) return d;
+  return d + Math.floor(floor.cols ? q / floor.cols : r / floor.rows) * floor.lift;
+}
+
+/** True when step (q, r) climbs whole floors, so it moves every key by the
+ *  same interval, wherever in its floor the key is. */
+function spansFloors(q, r, floor) {
+  return (floor.cols ? q % floor.cols : r % floor.rows) === 0;
 }
 
 const SQRT3 = Math.sqrt(3);
@@ -411,4 +428,39 @@ export function findFloor({ a, b }, n, period = OCTAVE) {
     }
   }
   return null;
+}
+
+// ── The degree run's strips ──────────────────────────────────────────────────
+//
+// One degree along a and a whole tone (w degrees) along b has a direction that
+// does not climb at all: w keys along a and one row back down, (w, −1), is the
+// same note again. Stood up by its octave the way the other layouts are, the
+// board repeats itself across — in 12-TET exactly, every other column the
+// same notes at the same height — so its width is wasted.
+//
+// So the board is cut along that repeat into STRIPS w keys wide, each a period
+// above the one to its left: (w, −1) is an octave, for every key. A strip
+// holds every degree once per period, and then the board is turned to lay
+// that step level, which is the turn that makes a strip's pitch depend on
+// height alone — the run climbs straight up, and every strip to the right is
+// an octave higher. In 12-TET the turn is 30°, which stands the whole tones in
+// a column, C D E F♯ G♯ A♯ C′, with C♯ D♯ F … zigzagging beside them, and the
+// next C two columns to the right; from 17 tones up a strip leans right, by up
+// to 24°.
+//
+// Across, the same board is taken in a MIRROR (a quarter turn would set the
+// run falling, or the strips stacking downwards): whole tones along a, one
+// degree along b, cut into floors w rows tall and stood up by their own
+// octave step (−1, w). The run climbs across, each floor is an octave above
+// the one below, and the turn is 30° less the upright one's — none at all in
+// 12-TET, where it is the Bosanquet board.
+
+/** The degree run on an `n`-degree board whose whole tone is `w` degrees. */
+function runSteps(n, w, across) {
+  if (across) {
+    const octave = { q: -1, r: w };
+    return { a: w, b: 1, floor: { rows: w, lift: n }, octave, across: true, tilt: tiltFor(octave) };
+  }
+  const octave = { q: w, r: -1 };
+  return { a: 1, b: w, floor: { cols: w, lift: n }, octave, across: false, tilt: tiltFor(octave, true) };
 }

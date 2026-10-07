@@ -29,13 +29,16 @@
     .docs-topbar .docs-brand:hover { color: var(--accent); }
     .docs-topbar .docs-sub { color: var(--fg); }
     .docs-topbar .grow { flex: 1; }
-    .docs-topbar a.back { color: var(--accent-2); text-decoration: none; font-size: 0.9rem; }
+    .docs-topbar a.back { color: var(--accent-2); text-decoration: none; font-size: 0.9rem; white-space: nowrap; }
+    .docs-topbar .back-short { display: none; }
     .docs-topbar button {
       background: var(--panel-2); color: var(--fg);
       border: 1px solid var(--border); border-radius: 5px;
       padding: 0.25rem 0.6rem; cursor: pointer;
     }
-    .docs-main { flex: 1; display: flex; min-height: 0; }
+    .docs-topbar .docs-toc-btn { display: none; }
+    .docs-main { flex: 1; display: flex; min-height: 0; position: relative; }
+    .docs-scrim { display: none; }
     .docs-toc {
       flex: 0 0 260px;
       overflow-y: auto;
@@ -95,24 +98,54 @@
     .docs-content th { background: var(--panel); }
     .docs-loading, .docs-error { color: var(--dim); }
     .docs-error { color: var(--accent); }
+    /* Phone: the contents fold away into a drawer that the ☰ button slides
+       over the page, so the text gets the whole width. Open or shut is the
+       one `toc-open` class on <body> (docs.js); above this width nothing
+       reads it, so widening the window past the breakpoint needs no JS. */
     @media (max-width: 720px) {
-      .docs-toc { flex-basis: 190px; }
+      .docs-topbar .docs-toc-btn { display: inline-block; }
+      .docs-toc {
+        position: absolute; top: 0; bottom: 0; left: 0; z-index: 2;
+        width: min(300px, 85vw);
+        transform: translateX(-100%);
+        visibility: hidden; /* shut = out of the tab order too */
+        transition: transform 0.2s ease, visibility 0s linear 0.2s;
+      }
+      .toc-open .docs-toc { transform: none; visibility: visible; transition: transform 0.2s ease; }
+      .toc-open .docs-scrim {
+        display: block; position: absolute; inset: 0; z-index: 1;
+        background: var(--scrim);
+      }
       .docs-content { padding: 1rem; }
+    }
+    @media (max-width: 720px) and (prefers-reduced-motion: reduce) {
+      .docs-toc, .toc-open .docs-toc { transition: none; }
+    }
+    /* A phone's top bar holds ☰, the brand, the way back and the theme, and
+       nothing more: a bar wider than the screen makes the browser zoom the
+       whole page out to fit it, and the page then pans under the finger. */
+    @media (max-width: 540px) {
+      .docs-topbar { gap: 0.6rem; padding: 0.4rem 0.6rem; }
+      .docs-topbar .docs-sub, .docs-topbar .back-full { display: none; }
+      .docs-topbar .back-short { display: inline; }
     }
   </style>
 </head>
 <body class="docs-body">
   <header class="docs-topbar">
+    <button id="tocBtn" class="docs-toc-btn" data-icon="menu" aria-controls="toc"
+            aria-expanded="false" aria-label="Contents" title="Contents"></button>
     <div class="brand-container">
       <span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span>
     </div>
     <span class="docs-sub">Documentation</span>
     <div class="grow"></div>
-    <a class="back" href="index.html">← Back to the app</a>
+    <a class="back" href="index.html">← <span class="back-full">Back to the app</span><span class="back-short">App</span></a>
     <button id="themeBtn" data-icon="theme" title="Cycle theme: dark → dim → light"></button>
   </header>
   <div class="docs-main">
     <nav class="docs-toc" id="toc"></nav>
+    <div class="docs-scrim" id="tocScrim"></div>
     <main class="docs-content" id="content"></main>
   </div>
   <script type="module" src="src/ui/docs.js"></script>

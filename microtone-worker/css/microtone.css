@@ -414,6 +414,14 @@
   --cv-font: "Roboto Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
 }
 
+/* ── SCRIM ─────────────────────────────────────────────────────────────
+ * The veil behind a modal, and behind the manual's contents drawer on a
+ * phone (docs.html). One neutral black for every theme: it dims whatever
+ * the theme's ground is, so it needs no per-theme twin. */
+:root {
+  --scrim: rgba(0, 0, 0, 0.55);
+}
+
 /* ── NATIVE FORM CONTROLS ──────────────────────────────────────────────
  * `accent-color` is an INHERITED property, so this one declaration paints
  * every checkbox, radio, range slider and <progress> in the app — on every
@@ -1659,7 +1667,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    a readable measure rather than letting one long paragraph span the viewport. */
 .modal-text { max-width: min(560px, calc(94vw / var(--ui-zoom, 1))); }
 .modal-text p { margin: 0.4rem 0 0.8rem; line-height: 1.45; text-align: justify; hyphens: auto; }
-.modal::backdrop { background: rgba(0, 0, 0, 0.55); }
+.modal::backdrop { background: var(--scrim); }
 .modal h3 { margin-top: 0; }
 .modal-field { display: block; margin: 0.6rem 0; color: var(--dim); }
 .modal-field input, .modal-field select {

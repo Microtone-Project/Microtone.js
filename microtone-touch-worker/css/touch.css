@@ -369,12 +369,13 @@ button, select, input { font: inherit; color: inherit; }
 @media (max-width: 350px) {
   .lane-tag { display: none; }
 }
-/* The harmonic table's two buttons take the lane tag's room on a phone, and
- * a little off every button in the bar, so that it still fits 360 px. */
+/* The board's own buttons (the harmonic table's two, the degree run's one)
+ * take the lane tag's room on a phone, and a little off every button in the
+ * bar, so that it still fits 360 px. */
 @media (max-width: 430px) {
-  .keyhead[data-harmonic] { gap: 4px; }
-  .keyhead[data-harmonic] .tbtn { min-width: 30px; }
-  .keyhead[data-harmonic] .lane-tag { display: none; }
+  .keyhead[data-board-buttons] { gap: 4px; }
+  .keyhead[data-board-buttons] .tbtn { min-width: 30px; }
+  .keyhead[data-board-buttons] .lane-tag { display: none; }
 }
 
 .ico { display: inline-block; width: 14px; height: 14px; position: relative; }

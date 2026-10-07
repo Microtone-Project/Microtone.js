@@ -80,8 +80,8 @@ const prefs = load(PREFS_KEY, (p) => ({
   layout: LAYOUTS.some((l) => l.id === p?.layout) ? p.layout : "wicki",
   size: Number.isFinite(p?.size) ? Math.min(48, Math.max(20, p.size)) : 30,
   octaves: p?.octaves && typeof p.octaves === "object" ? p.octaves : {},
-  across: p?.across === true, // the harmonic table's two options
-  fat: p?.fat === true,
+  across: p?.across === true, // the harmonic table's and the degree run's turn
+  fat: p?.fat === true, // the harmonic table's alone
   split: p?.split, // split.js checks these three itself
   share: p?.share,
   hand: p?.hand,
@@ -176,17 +176,27 @@ function configureKeyboard() {
   const p = lanePreset();
   const tu = tuning();
   const layout = fitLayout(prefs.layout, tu.table.length, tu.interval);
-  // Octaves across and fat fingers are the harmonic table's alone: its rows
-  // of major thirds close on the octave, and its corners are triads.
+  // Octaves across: the harmonic table's rows of major thirds close on the
+  // octave, and the degree run lays its run across and stacks its strips.
+  // Fat fingers are the harmonic table's alone: its corners are triads.
   const harmonic = layout === "harmonic" && !p.kit;
+  const run = layout === "step" && !p.kit;
   keyboard.configure({
     preset: tu, layout, octave: octaveFor(p), size: prefs.size, drums: !!p.kit,
-    across: harmonic && prefs.across, fat: harmonic && prefs.fat,
+    across: (harmonic || run) && prefs.across, fat: harmonic && prefs.fat,
   });
-  $("acrossBtn").hidden = $("fatBtn").hidden = !harmonic;
-  $("keyhead").toggleAttribute("data-harmonic", harmonic);
-  $("acrossBtn").setAttribute("aria-pressed", String(prefs.across));
+  const across = $("acrossBtn");
+  across.hidden = !harmonic && !run;
+  $("fatBtn").hidden = !harmonic;
+  $("keyhead").toggleAttribute("data-board-buttons", harmonic || run);
+  across.setAttribute("aria-pressed", String(prefs.across));
   $("fatBtn").setAttribute("aria-pressed", String(prefs.fat));
+  // The one button turns either board, and says which; applyDom reads the
+  // same keys on a switch of language.
+  const [ariaKey, titleKey] = run ? ["keys.runAcross", "keys.runAcrossTitle"] : ["keys.across", "keys.acrossTitle"];
+  if (across.dataset.i18nAria !== ariaKey) Object.assign(across.dataset, { i18nAria: ariaKey, i18nTitle: titleKey });
+  if (across.getAttribute("aria-label") !== t(ariaKey)) across.setAttribute("aria-label", t(ariaKey));
+  if (across.title !== t(titleKey)) across.title = t(titleKey);
   // The origin key's own name: C3 on an octave tuning, 黃3 in Shi'er lü.
   const origin = noteForDegree(4 + originPeriod(tu, octaveFor(p)), 0, tu);
   showText($("octVal"), p.kit ? t("keys.kit") : noteLabel(origin, tu));
@@ -923,6 +933,7 @@ initMenu($("menu"), $("menuBtn"), {
   items: {
     bpm: openTempoSheet,
     tuning: openTuningSheet,
+    new: docs.newSketch,
     save: () => save(docs),
     saveAs: () => openSaveAs(docs),
     load: () => openLoad(docs),
