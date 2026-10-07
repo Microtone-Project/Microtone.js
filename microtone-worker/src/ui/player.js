@@ -11,11 +11,13 @@
 import { TaudPlayer } from "../taudplay/index.js";
 import { applyIcons } from "./icons.js";
 import { startControlEnhancer } from "./widgets/spinner.js";
+import { holdBrowserZoom } from "./zoom.js";
 
 const $ = (id) => document.getElementById(id);
 
 applyIcons(document); // vector transport symbols (item 107)
 startControlEnhancer(); // …and the song chooser as a step-button group (item 156)
+holdBrowserZoom(); // a pinch beside a fader is a stray finger, not a zoom
 
 const player = new TaudPlayer();
 let audioReady = false;

@@ -6,7 +6,9 @@
 // localPoint's division is the only thing keeping a click on the cell it
 // landed on. The rest of the module is two properties on the root: `zoom`
 // itself, and `--ui-zoom`, which the stylesheet divides its viewport units by
-// because `zoom` does not scale those — the last test here pins that.
+// because `zoom` does not scale those — a test near the end pins that.
+// The last two pin the other side of an app that zooms itself: the
+// browser's own touch zoom stays off on its pages.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -33,7 +35,7 @@ globalThis.document = { documentElement: { style: rootStyle } };
 
 const {
   initZoom, setUiZoom, uiZoom, uiDpr, zoomStep, resetZoom, zoomLabel,
-  canZoomIn, canZoomOut, localPoint, clientPoint, toLayout, onZoomChange,
+  canZoomIn, canZoomOut, localPoint, clientPoint, toLayout, onZoomChange, holdBrowserZoom,
 } = await import("../../src/ui/zoom.js");
 
 /** A stand-in for an element 400 layout pixels wide at the current zoom. */
@@ -201,4 +203,79 @@ test("no viewport unit in the stylesheet escapes the zoom correction", () => {
   }
   assert.deepEqual(bare, [],
     `wrap each in calc(N${bare[0]?.replace(/[\d.]/g, "") || "vh"} / var(--ui-zoom, 1))`);
+});
+
+// ── the browser's own zoom stays off ──
+
+test("holdBrowserZoom cancels iOS's pinch, gives every tap something to click, and leaves a Mac's trackpad alone", () => {
+  const added = [];
+  const navigatorWas = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const touchPoints = (n) => Object.defineProperty(globalThis, "navigator", { value: { maxTouchPoints: n }, configurable: true });
+  // An element as addEventListener treats it: the same listener twice is one.
+  const element = (name) => ({
+    name, listeners: [],
+    addEventListener(type, fn) { if (!this.listeners.some(([t, f]) => t === type && f === fn)) this.listeners.push([type, fn]); },
+  });
+  const body = { children: [element("topbar"), element("viewHost"), element("statusbar")] };
+  let watch = null;
+  document.addEventListener = (type, fn) => added.push([type, fn]);
+  document.body = body;
+  globalThis.MutationObserver = class {
+    constructor(fn) { this.fn = fn; }
+    observe(target, options) { watch = { fn: this.fn, target, options }; }
+  };
+  try {
+    touchPoints(0);
+    holdBrowserZoom();
+    assert.deepEqual(added, [], "no touch screen: the gesture events are a trackpad's");
+    assert.ok(body.children.every((el) => el.listeners.length === 0) && watch === null, "…and nothing else is touched");
+    touchPoints(5);
+    holdBrowserZoom();
+    assert.deepEqual(added.map(([type]) => type).sort(), ["gesturechange", "gesturestart"]);
+    for (const [type, fn] of added) {
+      let cancelled = false;
+      fn({ preventDefault: () => { cancelled = true; } });
+      assert.ok(cancelled, `${type} is cancelled`);
+    }
+    // iOS asks touch-action about a double tap only through the element the
+    // tap would click, looking no higher than <body>: everything under it
+    // must answer one, or a tap on bare panel zooms.
+    for (const el of body.children) assert.deepEqual(el.listeners.map(([type]) => type), ["click"], `${el.name} answers a click`);
+    assert.equal(watch?.target, body, "<body> is watched for popups");
+    assert.deepEqual(watch.options, { childList: true }, "…its children only, not every change under it");
+    body.children.push(element("popup"));
+    watch.fn();
+    assert.deepEqual(body.children.map((el) => el.listeners.length), [1, 1, 1, 1], "a popup that joins later answers too, and nothing answers twice");
+  } finally {
+    delete document.addEventListener;
+    delete document.body;
+    delete globalThis.MutationObserver;
+    if (navigatorWas) Object.defineProperty(globalThis, "navigator", navigatorWas);
+    else delete globalThis.navigator;
+  }
+});
+
+test("the tracker and the player hold all three locks on touch zoom, and the manual none", () => {
+  // Each lock covers what the others miss — the viewport tag Android, the
+  // stylesheet's touch-action a double tap and any pinch outside iOS,
+  // holdBrowserZoom iOS's pinch and its double tap on bare panel — so a page
+  // with only some of them still zooms.
+  const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+  const viewport = (html) => /<meta name="viewport" content="([^"]*)"/.exec(html)[1].split(/\s*,\s*/);
+  const css = read("css/microtone.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const [, selector] = /([^{}]*)\{\s*touch-action:\s*pan-x pan-y;\s*\}/.exec(css) ?? [];
+  assert.ok(selector, "the stylesheet's touch-action rule");
+  for (const [page, script, body] of [["index.html", "src/ui/app.js", "app-page"], ["player.html", "src/ui/player.js", "player-page"]]) {
+    const html = read(page);
+    for (const part of ["maximum-scale=1", "user-scalable=no"]) assert.ok(viewport(html).includes(part), `${page}: ${part}`);
+    assert.match(html, new RegExp(`<body class="${body}"`), `${page}'s body`);
+    for (const part of [`.${body}`, `.${body} *`, `> .${body}`]) {
+      assert.ok(selector.includes(part), `the touch-action rule covers ${part} (every element: WebKit restarts it at each scroller)`);
+    }
+    assert.match(read(script), /^holdBrowserZoom\(\);/m, `${script} calls holdBrowserZoom`);
+  }
+  const docs = read("docs.html");
+  assert.ok(!viewport(docs).includes("user-scalable=no"), "the manual is read by zooming");
+  const [, docsBody] = /<body class="([^"]*)"/.exec(docs);
+  assert.ok(!selector.includes(docsBody), "…so the touch-action rule leaves it alone");
 });

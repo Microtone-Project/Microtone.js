@@ -46,6 +46,26 @@ const STEPS = [1, 2, 4, 0];
 const SECTION_NAMES = "ABCDEFGHIJKLMNOP";
 const UNDO_DEPTH = 100;
 
+// No browser zoom. The viewport tag's user-scalable=no and touch.css's
+// `touch-action: pan-x pan-y` stop it everywhere but iOS, whose Safari has
+// ignored the tag since iOS 10; there it is WebKit's own gesture events that
+// carry the pinch, and cancelling the first two cancels the zoom. Touch
+// screens only: on a Mac the same events are the trackpad's pinch.
+//
+// iOS's double tap needs one more thing. Safari asks touch-action about it
+// only through the element the tap would CLICK — the nearest with a click
+// listener, looking no higher than <body> — so where nothing answers a click
+// (the section column below its last button) it zooms whatever the CSS
+// says. A listener that does nothing, on everything under <body>, gives
+// every tap something to click.
+if (navigator.maxTouchPoints > 0) {
+  const cancel = (e) => e.preventDefault();
+  document.addEventListener("gesturestart", cancel);
+  document.addEventListener("gesturechange", cancel);
+  const nothing = () => {};
+  for (const el of document.body.children) el.addEventListener("click", nothing);
+}
+
 // ── state ────────────────────────────────────────────────────────────────────
 
 // The language first: a new sketch is named in it.

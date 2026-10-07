@@ -1,6 +1,6 @@
 {
   "name": "microtone-touch",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Microtone Touch: sketch a microtonal idea on a phone's isomorphic keyboard, then send it to Microtone.",
   "type": "module",
   "private": true,

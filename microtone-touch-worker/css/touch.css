@@ -163,6 +163,15 @@
 }
 
 * { box-sizing: border-box; }
+/* No browser zoom: a quick second tap on a key or a cell, or a second finger
+ * landing beside the keyboard, plays — it never zooms the page. Pans are left
+ * alone, so the grid and the sheets still scroll. One of three locks that
+ * only work together: the viewport tag's user-scalable=no (Android; iOS
+ * ignores it), this, and app.js's iOS guard (the pinch, and a double tap
+ * where nothing answers a click). On EVERY
+ * element rather than on <html>, because WebKit starts the rule afresh at
+ * each scroller; `*` weighs nothing, so `.keys`'s `none` still wins. */
+* { touch-action: pan-x pan-y; }
 /* `hidden` always hides, whatever display a rule below gives the element —
  * .tbtn is inline-flex, #files a grid on a wide or folding screen. */
 [hidden] { display: none !important; }

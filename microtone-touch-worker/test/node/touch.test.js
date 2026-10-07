@@ -603,6 +603,27 @@ test("deploy: Touch's build stages this directory where its assets are uploaded 
   for (const path of ["index.html", "_headers", "package.json", "src/app.js", "src/lang/ko.js"]) assert.ok(ships(path), `${path} ships`);
 });
 
+test("page: a pinch or a quick second tap never zooms Touch", () => {
+  // Three locks, each covering what the others miss: the viewport tag
+  // (Android), touch-action (a double tap; any pinch outside iOS) and the
+  // iOS guard (its pinch, which ignores the tag, and its double tap).
+  const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+  const tag = /<meta name="viewport" content="([^"]*)"/.exec(read("index.html"))[1].split(/\s*,\s*/);
+  for (const part of ["maximum-scale=1", "user-scalable=no", "viewport-fit=cover", "interactive-widget=resizes-content"]) {
+    assert.ok(tag.includes(part), `the viewport tag says ${part}`);
+  }
+  const css = read("css/touch.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(css, /^\*\s*\{\s*touch-action:\s*pan-x pan-y;\s*\}/m, "on every element: WebKit restarts touch-action at each scroller");
+  assert.match(css, /\.keys\s*\{[^}]*touch-action:\s*none;/, "…and the keyboard keeps every gesture for itself");
+  const app = read("src/app.js");
+  for (const type of ["gesturestart", "gesturechange"]) assert.ok(app.includes(`document.addEventListener("${type}", cancel)`), `${type} is cancelled`);
+  // iOS asks touch-action about a double tap only through the element the tap
+  // would click, looking no higher than <body>: the section column below its
+  // last button answered none, and zoomed.
+  assert.ok(app.includes(`for (const el of document.body.children) el.addEventListener("click", nothing);`),
+    "everything under <body> answers a click");
+});
+
 test("saving: a name as it is kept — on the phone as typed, online as a .mtsk", () => {
   assert.equal(cleanName("  Cafe\u0301 riff  "), "Caf\u00e9 riff", "NFC, trimmed: one name however it was typed");
   assert.equal(cleanName("   "), "");

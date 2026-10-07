@@ -446,6 +446,24 @@
 
 * { box-sizing: border-box; word-break: keep-all; }
 
+/* ── NO BROWSER ZOOM BY TOUCH ──────────────────────────────────────────
+ * On the tracker and the player, a pinch or a quick second tap must not
+ * zoom the page: the tracker zooms ITSELF (the zoom control in the top bar,
+ * src/ui/zoom.js), and on the player a stray finger beside a fader is not a
+ * request to zoom. Pans are left alone, so every panel still scrolls. One
+ * of three locks that only work together: the viewport tag's
+ * user-scalable=no (Android; iOS ignores it), this, and zoom.js's
+ * holdBrowserZoom (iOS: the pinch, and a double tap where nothing answers
+ * a click). On EVERY element rather than on the body, because WebKit starts
+ * the rule afresh at each scroller — and on <html> too, which is what a
+ * finger lands on below a short body (the player's, before a song is
+ * loaded, ends a fifth of the way down a phone). `:where` weighs nothing,
+ * so a canvas's own `touch-action: none` still wins. The manual (docs.html)
+ * is left out on purpose: zooming is how one reads it. */
+:where(:root:has(> .app-page, > .player-page), .app-page, .app-page *, .player-page, .player-page *) {
+  touch-action: pan-x pan-y;
+}
+
 /* display rules on classes must not defeat the hidden attribute */
 [hidden] { display: none !important; }
 

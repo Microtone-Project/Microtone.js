@@ -119,6 +119,38 @@ function applyZoom() {
   }
 }
 
+/**
+ * Keep the BROWSER's touch zoom off — on the tracker, which zooms itself,
+ * and on the player (css/microtone.css says why, beside its `touch-action`
+ * rule). The viewport tag's user-scalable=no and the stylesheet's
+ * `touch-action: pan-x pan-y` stop it everywhere but iOS, whose Safari has
+ * ignored the tag since iOS 10; there it is WebKit's own gesture events
+ * that carry the pinch, and cancelling the first two cancels the zoom.
+ *
+ * iOS's double tap needs one more thing. Safari asks touch-action about it
+ * only through the element the tap would CLICK — the nearest with a click
+ * listener, looking no higher than <body> — so where nothing answers a click
+ * (in Microtone Touch: the section column below its last button) it zooms
+ * whatever the CSS says. A listener that does nothing, on everything under
+ * <body>, gives every tap something to click; popups join <body> later, so
+ * its children are watched (a childList-only observer: it wakes when a
+ * popup opens or closes, never per frame).
+ *
+ * Touch screens only: on a Mac the gesture events are the trackpad's pinch,
+ * which nothing stray sets off.
+ */
+export function holdBrowserZoom() {
+  if (!(navigator.maxTouchPoints > 0)) return;
+  const cancel = (e) => e.preventDefault();
+  document.addEventListener("gesturestart", cancel);
+  document.addEventListener("gesturechange", cancel);
+  const nothing = () => {};
+  // Adding the same listener twice is a no-op, so a re-walk is harmless.
+  const answerClicks = () => { for (const el of document.body.children) el.addEventListener("click", nothing); };
+  answerClicks();
+  new MutationObserver(answerClicks).observe(document.body, { childList: true });
+}
+
 /** Boot-time zoom: the remembered factor, else 100%. Call before the first paint. */
 export function initZoom() {
   let saved = null;

@@ -51,7 +51,7 @@ import { KeymapLibrary } from "./keymaplib.js";
 import { KeymapBar } from "./keymapbar.js";
 import { initTheme, toggleTheme, onThemeChange, currentTheme, isThemeName, WARMTH } from "./theme.js";
 import {
-  initZoom, onZoomChange, zoomStep, resetZoom, zoomLabel, canZoomIn, canZoomOut,
+  initZoom, onZoomChange, zoomStep, resetZoom, zoomLabel, canZoomIn, canZoomOut, holdBrowserZoom,
 } from "./zoom.js";
 import { initI18n, applyDom, t, LANGS, changeLang, onLangChange, currentLang } from "./i18n.js";
 import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
@@ -62,6 +62,7 @@ import { startControlEnhancer } from "./widgets/spinner.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
 initZoom();  // …and before anything measures itself: the factor scales the layout
+holdBrowserZoom(); // the browser's own touch zoom stays off: the zoom control above is the zoom
 await initI18n(); // strings before any UI is built
 applyDom(); // translate the static index.html chrome
 {

@@ -4,6 +4,14 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-07
+
+A pinch or a quick second tap no longer zooms the page in Microtone Touch, the tracker or the song player.
+
+- **Pinching and double-tapping no longer zoom the page** on a phone or a tablet: a quick second tap on a key or a cell, or a second finger landing beside the keyboard, now does what a tap does. One-finger scrolling works as before.
+- **In the tracker, the − 100% + control in the top bar is the zoom**: it resizes the whole interface, and tapping the percentage takes it back to 100%.
+- **The manual still zooms**, since that is how you read it on a phone.
+
 ## 2026-10-06
 
 Microtone Touch is out: a sketchpad for your phone at [touch.microtone.cc](https://touch.microtone.cc/), and a phone that visits microtone.cc now lands there.
