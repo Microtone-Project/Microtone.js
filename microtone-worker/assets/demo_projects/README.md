@@ -27,3 +27,18 @@ Because the grant is conditional on Microtone staying *software gratis*, a fork 
 a repackaging that is **not** *software gratis* must remove this file. The
 arranger's note on the piece travels with it, in the project's Message
 (`PMsg`) — open the Project tab after loading it.
+
+## Huygens_clock.taud — "Huygens' Clock"
+
+- **Generated procedurally:** every note, the instrument bank, the zone
+  re-tuning, the mix and the mastering chain are computed by the scripts in
+  `tools/huygens-clock/`, written by Claude in 2026. This file is their output
+  and is rebuilt, byte for byte, by `node tools/huygens-clock/make.mjs` (from
+  `microtone-worker/`). It is a generated artefact: change the scripts and
+  rebuild rather than editing it by hand — see `tools/huygens-clock/README.md`.
+- **Instruments:** General MIDI patches from GeneralUser GS by S. Christian
+  Collins, the soundfont Microtone bundles.
+- **Copyright line in the project:** (c) 2026 CuriousTorvald.
+
+The note on how the piece is built travels with it, in the project's Message
+(`PMsg`) — open the Project tab after loading it.

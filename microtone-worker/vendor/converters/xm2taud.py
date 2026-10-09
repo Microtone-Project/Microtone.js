@@ -62,6 +62,7 @@ from taud_common import (
     SEL_SET, SEL_UP, SEL_DOWN, SEL_FINE,
     J_SEMI_TABLE,
     d_arg_to_col, resample_linear, rescale_offset_effects_per_slot,
+    loop_resample_ratio, scale_loop,
     encode_cue, deduplicate_patterns, finalize_cue_sheet, set_cue_instruction,
     normalise_sample, encode_song_entry, nearest_minifloat, compress_blob,
     CUE_INST_NOP, CUE_INST_HALT, cue_instruction_len,
@@ -961,25 +962,28 @@ def build_sample_inst_bin_xm(proxies: list) -> tuple:
                 if s is not None and s.sample_data]
 
     def _scale_sample(s, r):
+        """Resample `s` by about `r` — exactly the ratio that keeps its loop a
+        whole number of frames (taud_common.loop_resample_ratio) — and return
+        the ratio actually used, which the rate and TOP_O offsets follow."""
+        r = loop_resample_ratio(r, [(s.loop_begin, s.loop_end)] if (s.flags & 1) else [])
         s.sample_data = resample_linear(s.sample_data, r)
         s.length      = len(s.sample_data)
-        s.loop_begin  = max(0, int(s.loop_begin * r))
-        s.loop_end    = max(0, min(int(s.loop_end * r), s.length))
-        s.c2spd       = max(1, int(s.c2spd * r))
+        s.loop_begin, s.loop_end = scale_loop(s.loop_begin, s.loop_end, r, s.length)
+        s.c2spd       = max(1, round(s.c2spd * r))
+        return r
 
     # ── Pass 1: global pool-overflow resample (8 MB cap) ────────────────────
     total = sum(len(s.sample_data) for _, s in pcm_list)
     global_ratio = 1.0
+    global_eff = {}           # id(s) → the ratio pass 1 actually applied to s
     if total > SAMPLEBIN_SIZE:
         global_ratio = SAMPLEBIN_SIZE / total
         vprint(f"  info: sample bin overflow ({total} bytes); "
                f"resampling all by {global_ratio:.4f}")
-        seen_g = set()
         for _, s in pcm_list:
-            if id(s) in seen_g:
+            if id(s) in global_eff:
                 continue
-            seen_g.add(id(s))
-            _scale_sample(s, global_ratio)
+            global_eff[id(s)] = _scale_sample(s, global_ratio)
 
     # ── Pass 2: per-sample u16 cap (each sample must fit in 65535 bytes) ────
     # The Taud instrument record stores the sample length as u16, and TOP_O
@@ -997,15 +1001,14 @@ def build_sample_inst_bin_xm(proxies: list) -> tuple:
             r = SAMPLE_LEN_LIMIT / len(s.sample_data)
             vprint(f"  info: '{s.name}' exceeds {SAMPLE_LEN_LIMIT}-byte cap "
                    f"({len(s.sample_data)}); resampling by {r:.4f}")
-            _scale_sample(s, r)
-            per_sample_ratio[id(s)] = r
+            per_sample_ratio[id(s)] = _scale_sample(s, r)
 
     # Effective slot → ratio for TOP_O rescaling. XM keymaps can route
     # several Taud slots to the same _XMSampleProxy (one slot per XM
     # sample-in-instrument), so they share the same per-sample ratio.
     slot_ratios = {}
     for slot_idx, s in pcm_list:
-        slot_ratios[slot_idx] = global_ratio * per_sample_ratio.get(id(s), 1.0)
+        slot_ratios[slot_idx] = global_eff.get(id(s), 1.0) * per_sample_ratio.get(id(s), 1.0)
     ratio = slot_ratios
 
     sample_bin = bytearray(SAMPLEBIN_SIZE)

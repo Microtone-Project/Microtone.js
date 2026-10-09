@@ -14,14 +14,15 @@
 // the whole budget — and it runs in REAL time, which anything with audio in it
 // needs (a virtual-time budget starves the audio thread).
 //
-// Chromium is found via CHROME_PATH, then the usual PATH names, then a
-// Playwright cache. The file server (tools/test-server.py) is started here.
+// Chromium is found as tools/chromium.js finds it. The file server
+// (tools/test-server.py) is started here.
 
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, readdir, access } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findChrome, Cdp, sleep } from "./chromium.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const [page, secondsArg] = process.argv.slice(2);
@@ -32,30 +33,6 @@ if (!page) {
 const budgetMs = (secondsArg ? Number(secondsArg) : 60) * 1000;
 const PORT = 8932;
 const DEBUG_PORT = 9333;
-
-async function findChrome() {
-  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
-  for (const name of ["chromium", "chromium-browser", "google-chrome", "chrome"]) {
-    const hit = await new Promise((r) => {
-      const p = spawn("sh", ["-c", `command -v ${name}`]);
-      let o = "";
-      p.stdout.on("data", (d) => { o += d; });
-      p.on("close", (c) => r(c === 0 ? o.trim() : null));
-    });
-    if (hit) return hit;
-  }
-  const cache = join(process.env.HOME ?? "", ".cache/ms-playwright");
-  try {
-    const dirs = (await readdir(cache)).filter((d) => d.startsWith("chromium-")).sort();
-    for (const d of dirs.reverse()) {
-      const exe = join(cache, d, "chrome-linux64/chrome");
-      try { await access(exe); return exe; } catch { /* next */ }
-    }
-  } catch { /* no playwright cache */ }
-  throw new Error("no Chromium found — set CHROME_PATH");
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** How a smoke page says it has finished. The pages here use one of three
  *  conventions; any of them ends the poll and decides the exit code. */
@@ -71,32 +48,6 @@ async function cdpTarget() {
     await sleep(100);
   }
   throw new Error("Chromium never opened its debugging port");
-}
-
-/** Minimal CDP client over Node's built-in WebSocket. */
-class Cdp {
-  constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); }
-  static async connect(url) {
-    const ws = new WebSocket(url);
-    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-    const c = new Cdp(ws);
-    ws.onmessage = (e) => {
-      const m = JSON.parse(e.data);
-      if (m.id && c.pending.has(m.id)) { c.pending.get(m.id)(m); c.pending.delete(m.id); }
-    };
-    return c;
-  }
-  send(method, params = {}) {
-    const id = ++this.id;
-    return new Promise((res) => {
-      this.pending.set(id, res);
-      this.ws.send(JSON.stringify({ id, method, params }));
-    });
-  }
-  async evaluate(expression) {
-    const r = await this.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
-    return r.result?.result?.value;
-  }
 }
 
 const chrome = await findChrome();

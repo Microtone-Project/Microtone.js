@@ -156,7 +156,8 @@ from taud_common import (
     TOP_B, TOP_C, TOP_G, TOP_M, TOP_S, TOP_T,
     SEL_SET, SEL_FINE,
     CUE_INST_NOP, CUE_INST_HALT,
-    resample_linear, encode_cue, deduplicate_patterns, encode_song_entry,
+    resample_linear, loop_resample_ratio, scale_loop,
+    encode_cue, deduplicate_patterns, encode_song_entry,
     compress_blob, build_project_data, cue_instruction_len,
     cue_instruction_halt_at, cue_instruction_jump,
     last_note_cue_index, nearest_minifloat,
@@ -2108,8 +2109,8 @@ class Patch:
         if self.ms.synth_loop is not None:
             ls_w, le_w, lm_w = self.ms.synth_loop[0], self.ms.synth_loop[1], 1
         else:
-            ls_w = round(self.loop_start * r)
-            le_w = round(self.loop_end   * r)
+            # Length rounded once, never the two ends (taud_common.scale_loop).
+            ls_w, le_w = scale_loop(self.loop_start, self.loop_end, r, len(self.ms.data))
             lm_w = self.loop_mode
         d = {
             'pitch_start':         self.rect[0],
@@ -2817,6 +2818,22 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
     for ms in pool:
         ms.render(sf)
 
+    # Every loop a zone plays out of each pooled sample, in native frames. A
+    # resample picks the ratio that keeps the SHORTEST of them a whole number of
+    # frames — the one rounding hurts most — and the rest land within half a
+    # frame (taud_common.loop_resample_ratio / scale_loop).
+    zone_loops = {}
+    for ti in layer_insts:
+        for p in ti.patches:
+            if p.loop_mode and p.loop_end - p.loop_start >= 2:
+                zone_loops.setdefault(id(p.ms), set()).add((p.loop_start, p.loop_end))
+
+    def _loops(ms):
+        """The loops `ms` will be written with, in its CURRENT frames."""
+        if ms.synth_loop is not None:
+            return [ms.synth_loop]
+        return [(b * ms.ratio, e * ms.ratio) for b, e in zone_loops.get(id(ms), ())]
+
     def _rescale_right(ms, transform):
         """Apply the same length-changing transform to a stereo sample's right
         channel and clamp it to the left channel's length — the two spans share
@@ -2850,9 +2867,12 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
             """(1)/(2) downsample the WHOLE sample to <= 65535 frames. Used when the
             fitted rate stays >= 32 kHz, or as the fall-back for a looped sample whose
             loop sits past the cap at 32 kHz (only fit-to-cap keeps that far loop)."""
-            ms.data   = resample_linear(ms.data, r_fit)
-            _rescale_right(ms, lambda d: resample_linear(d, r_fit))
-            ms.ratio *= len(ms.data) / native_len
+            # The ratio that keeps the SF2 loop a whole number of frames, and
+            # the ratio itself — not len(out)/len(in) — is what the rate follows.
+            r = loop_resample_ratio(r_fit, _loops(ms))
+            ms.data   = resample_linear(ms.data, r)
+            _rescale_right(ms, lambda d: resample_linear(d, r))
+            ms.ratio *= r
 
         def _synth_path(decay=True):
             """(3) resample to the 32 kHz floor (full bandwidth), keep the first 65535
@@ -2864,7 +2884,7 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
             SF2 ADSR + key-off fadeout end it. synth_loop takes precedence over any real
             loop_native in the record/patch writers."""
             resampled = resample_linear(ms.data, r32)
-            ms.ratio *= len(resampled) / native_len    # effective rate -> 32 kHz
+            ms.ratio *= r32                            # effective rate -> 32 kHz
             ms.data   = resampled
             body, ls, le = _synth_sustain_loop(ms.data, SAMPLE_LEN_LIMIT, SF2_LOOP_HINT)
             ms.data        = body
@@ -2890,10 +2910,11 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
             # keep the first 65535 frames. The per-patch loop points (native * ratio)
             # land within the kept data, so the SF2 loop + ADSR are preserved at full
             # bandwidth (a sustain-loop release tail past loop_end is truncated to fit).
-            resampled = resample_linear(ms.data, r32)
-            ms.ratio *= len(resampled) / native_len
+            r = loop_resample_ratio(r32, _loops(ms))   # loops stay whole frames
+            resampled = resample_linear(ms.data, r)
+            ms.ratio *= r
             ms.data   = resampled[:SAMPLE_LEN_LIMIT]
-            _rescale_right(ms, lambda d: resample_linear(d, r32)[:SAMPLE_LEN_LIMIT])
+            _rescale_right(ms, lambda d: resample_linear(d, r)[:SAMPLE_LEN_LIMIT])
             vprint(f"  info: '{ms.name}' {native_len} frames > 64K cap, long & looped; "
                    f"32 kHz, kept first {len(ms.data)} frames (loop_end {le32})")
         elif force_synth_loop:
@@ -2943,14 +2964,13 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
         vprint(f"  info: sample pool overflow ({total} bytes); "
                f"resampling all by {g:.4f}")
         for ms in pool:
-            old = len(ms.data)
-            ms.data = resample_linear(ms.data, g)
-            _rescale_right(ms, lambda d: resample_linear(d, g))
-            ms.ratio *= len(ms.data) / old
+            r = loop_resample_ratio(g, _loops(ms))
+            ms.data = resample_linear(ms.data, r)
+            _rescale_right(ms, lambda d: resample_linear(d, r))
+            ms.ratio *= r
             if ms.synth_loop is not None:
-                le = min(len(ms.data) - 1, round(ms.synth_loop[1] * g))
-                ls = max(0, min(le - 2, round(ms.synth_loop[0] * g)))
-                ms.synth_loop = (ls, le)
+                ms.synth_loop = scale_loop(ms.synth_loop[0], ms.synth_loop[1], r,
+                                           len(ms.data) - 1)
 
     sample_bin = bytearray(SAMPLEBIN_SIZE)
     pos = 0
@@ -3003,8 +3023,7 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
         if ms.synth_loop is not None:
             ls_w, le_w, lm_w = ms.synth_loop[0], ms.synth_loop[1], 1
         else:
-            ls_w = round(c.loop_start * r)
-            le_w = round(c.loop_end   * r)
+            ls_w, le_w = scale_loop(c.loop_start, c.loop_end, r, len(ms.data))
             lm_w = c.loop_mode
         struct.pack_into('<H', inst_bin, base + 10, min(0xFFFF, ls_w))
         struct.pack_into('<H', inst_bin, base + 12, min(0xFFFF, le_w))

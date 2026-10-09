@@ -6,3 +6,6 @@ node_modules/
 wrangler.toml
 .wrangler/
 README.md
+# Promo shots (microtone-worker/tools/make-screenshots.js touch): for the
+# README and store listings, not for the site.
+screenshots/

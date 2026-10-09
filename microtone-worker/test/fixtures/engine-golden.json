@@ -87,6 +87,12 @@
       "frames": 960000,
       "u8": "9b733e5438f1f685df0ab6e477f8c1082335bbe16223502b8fd145e776e48b73",
       "f32": "2e432eeacd4b5e0e748f777f2f6f3ccd60d344a06dd4a3473a5324311eb259c0"
+    },
+    "Huygens_clock": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "frames": 960000,
+      "u8": "245e07bd58f75b593afc0854fe076c7e86777dd5eaa5759c581cdb5cb44705d2",
+      "f32": "e0b8fe109b4ce39f6bd61fcf104ec65a839fcef457d2bc5c8c384b855f3c74cc"
     }
   }
 }

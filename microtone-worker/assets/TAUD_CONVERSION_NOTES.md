@@ -45,6 +45,8 @@ Stereo sources are stored **split**, not interleaved: the whole left channel fol
 
 Both passes invalidate sample-offset effect arguments (`O`), so those **MUST** be rescaled by the same ratio — per instrument slot when the second pass resampled only some samples. A converter that resamples but forgets the offsets will start long samples in the wrong place, which usually sounds like a drum loop losing its downbeat.
 
+Whatever resamples a looped sample, the loop **MUST** keep its length in time. A loop is a whole number of frames, so scaling its two ends and rounding each separately moves the pitch of everything it sustains, by up to a frame in a loop that may be a dozen frames long — most of a semitone on a single-cycle synth wave. Round the loop's *length* once, take that sample's ratio from it (new length over old), and derive the stored sampling rate and the loop start from that ratio. Derive the rate from the ratio the resampler actually applied, too, never from the output length over the input length: truncating the output to whole frames makes that quotient smaller than the true ratio, and leaves every short sample a little flat.
+
 ### 1.3 Pitch
 
 Every source pitch becomes a 4096-TET note word anchored at C4 = `$5000`:

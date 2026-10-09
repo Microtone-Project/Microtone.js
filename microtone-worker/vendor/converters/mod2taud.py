@@ -39,7 +39,8 @@ from taud_common import (
     TOP_J, TOP_K, TOP_L, TOP_O, TOP_Q, TOP_R, TOP_S, TOP_T, TOP_U, TOP_V, TOP_Y,
     SEL_SET, SEL_UP, SEL_DOWN, SEL_FINE,
     J_SEMI_TABLE,
-    d_arg_to_col, resample_linear, rescale_offset_effects, encode_cue, deduplicate_patterns,
+    d_arg_to_col, resample_linear, rescale_offset_effects_per_slot, encode_cue, deduplicate_patterns,
+    loop_resample_ratio, scale_loop,
     finalize_cue_sheet, set_cue_instruction, CUE_INST_HALT,
     encode_song_entry, compress_blob,
     build_project_data, detect_subsongs,
@@ -503,21 +504,29 @@ def resolve_pt_recalls(patterns: list, order_list: list, n_channels: int) -> Non
 # ── Sample resampling and Taud sample/instrument bin (port of s3m2taud) ──────
 
 def build_sample_inst_bin(samples: list) -> tuple:
-    """Returns (bin_bytes[786432], offsets_dict). 1-based indexing."""
+    """Returns (bin_bytes[786432], offsets_dict, slot_ratios). 1-based indexing.
+
+    slot_ratios maps Taud slot → the ratio that slot's sample was resampled by
+    (for TOP_O rescaling); slot 0 — an O before any instrument byte — gets the
+    pass's nominal ratio."""
     pcm = [(i, s) for i, s in enumerate(samples) if s.sample_data]
 
     total = sum(len(s.sample_data) for _, s in pcm)
     ratio = 1.0
+    slot_ratios = {}
     if total > SAMPLEBIN_SIZE:
         ratio = SAMPLEBIN_SIZE / total
         vprint(f"  info: sample bin overflow ({total} bytes); resampling all by {ratio:.4f}")
-        for _, s in pcm:
-            new_data    = resample_linear(s.sample_data, ratio)
-            s.sample_data = new_data
-            s.length      = len(new_data)
-            s.loop_begin  = max(0, int(s.loop_begin * ratio))
-            s.loop_end    = max(0, min(int(s.loop_end * ratio), s.length))
-            s.c2spd       = max(1, int(s.c2spd * ratio))
+        slot_ratios[0] = ratio
+        for i, s in pcm:
+            # Each looped sample gets the ratio that keeps its loop a whole
+            # number of frames (taud_common.loop_resample_ratio).
+            r = loop_resample_ratio(ratio, [(s.loop_begin, s.loop_end)] if (s.flags & 1) else [])
+            s.sample_data = resample_linear(s.sample_data, r)
+            s.length      = len(s.sample_data)
+            s.loop_begin, s.loop_end = scale_loop(s.loop_begin, s.loop_end, r, s.length)
+            s.c2spd       = max(1, round(s.c2spd * r))
+            slot_ratios[i + 1] = r
 
     sample_bin = bytearray(SAMPLEBIN_SIZE)
     offsets    = {}
@@ -592,7 +601,7 @@ def build_sample_inst_bin(samples: list) -> tuple:
         vprint(f"  instrument[{taud_idx}] '{s.name}' ptr={ptr} c2spd={s.c2spd} "
                f"vol={s.volume} loop=({ls},{le},{'on' if loop_mode else 'off'})")
 
-    return bytes(sample_bin) + bytes(inst_bin), offsets, ratio
+    return bytes(sample_bin) + bytes(inst_bin), offsets, slot_ratios
 
 
 # ── Pattern build ────────────────────────────────────────────────────────────
@@ -808,7 +817,7 @@ def _build_song_payload_mod(mod: dict, patterns_template: list,
         for ch in range(n_channels):
             default_pan = _default_channel_pan(ch)
             pat_bin += build_pattern(grid, ch, default_pan, inst_vols)
-    pat_bin = rescale_offset_effects(bytes(pat_bin), sample_ratio)
+    pat_bin = rescale_offset_effects_per_slot(bytes(pat_bin), P_used, n_channels, sample_ratio)
 
     orig_count = P_used * n_channels
     pat_bin, pat_remap, num_taud_pats = deduplicate_patterns(pat_bin, orig_count)

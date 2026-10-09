@@ -4,6 +4,21 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-10
+
+Converted instruments now stay in tune when their samples have to be resampled, above all those from the bundled GeneralUser GS soundfont.
+
+- **Fixed: instruments from the bundled GeneralUser GS soundfont could play out of tune**: 43 of them by a quarter tone or more somewhere in their range, the marimba, kalimba, accordion and harpsichord among them, and 14 by a semitone or more near the top, the synth basses and leads among them, because shrinking a sample to 32 kHz rounded the two ends of its loop separately.
+- **Fixed: converting a large module or MIDI file could put instruments with short loops out of tune**, by up to a semitone and a half, when their samples had to be shrunk to fit; the converters rounded loops the same way.
+- **Every conversion from now on is on pitch**: a module or MIDI file converted now, and an instrument added with **New…** in the Instruments view.
+- **What you converted before keeps its old samples**: convert the file again, or add the instrument again, to get the corrected ones.
+
+A new demo song, *Huygens' Clock*, is a contemporary instrumental in 31-tone equal temperament and 7/8 time, generated procedurally.
+
+- **Huygens' Clock joins the demo songs** on the welcome screen and under **Demo songs…** in the File view: sixty-four bars of 7/8 on the 31-TET grid, played by drums, fretless bass, electric piano, marimba, strings, flute and a synth lead.
+- **It is generated, not played**: every note, the instrument bank, the mix and the master are computed by a script that ships with Microtone's source code, and the project is its output. You can still open it and change it like any other project.
+- **It is a tour of 31-TET's harmony**: a theme on a septimal blues scale over harmonic seventh chords, major chords climbing by neutral thirds while the pad and strings glide between them, a breakdown that walks through all five of 31-TET's thirds, and an ending on the harmonic series. The Project tab's Message takes you through it bar by bar.
+
 ## 2026-10-07
 
 Microtone Touch's menu can start a new sketch, and its Run keyboard now climbs an octave in both directions.

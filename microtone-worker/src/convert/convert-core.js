@@ -1,10 +1,11 @@
-// Conversion core — drives the vendored, UNMODIFIED *2taud.py converters
+// Conversion core — drives the *2taud.py converters (vendor/converters/)
 // inside a Pyodide runtime. Environment-agnostic: the Web Worker
 // (convert.worker.js) and the Node tests both call loadConverterRuntime /
 // runConverter, differing only in how they obtain the vendor file bytes.
 //
-// The converters are canonical tsvm sources (vendor/VENDOR-VERSIONS.md);
-// running them verbatim is the whole point — no JS port to drift.
+// The converters are the canonical Python sources, authored here and ported to
+// TSVM (vendor/VENDOR-VERSIONS.md); running them as they are is the whole point —
+// no JS port to drift.
 
 /** Converter script per input extension. */
 export const CONVERTERS = {

@@ -207,6 +207,24 @@ node tools/render-taud.js test/corpus/WHEN.taud out.pcm
 node tools/compare-pcm.js out.pcm reference.pcm
 ```
 
+## Screenshots
+
+The screenshots in this README (`Screenshot1..8.png`, the first doubling as
+`microtone-worker/screenshot.png`, the site's preview image) and Microtone
+Touch's (`microtone-touch-worker/screenshots/`) are generated, in headless
+Chromium, from scenes in `microtone-worker/tools/shots/`:
+
+```sh
+cd microtone-worker
+node tools/make-screenshots.js            # the tracker's eight (needs test/corpus/)
+node tools/make-screenshots.js 4          # just one of them
+node tools/make-screenshots.js touch      # Touch's six
+node tools/make-screenshots.js --out /tmp/shots   # look before replacing
+```
+
+Shots with a song playing are taken in real time, so each run is the same scene
+but not the same pixels: look before committing.
+
 ## Online projects (server)
 
 The File tab can keep a few working projects with a person's SceneID account.

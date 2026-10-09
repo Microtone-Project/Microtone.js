@@ -60,6 +60,7 @@ from taud_common import (
     EFF_U, EFF_V, EFF_W, EFF_X, EFF_Y, EFF_Z,
     J_SEMI_TABLE,
     d_arg_to_col, resample_linear, rescale_offset_effects_per_slot,
+    loop_resample_ratio, scale_loop,
     encode_cue, deduplicate_patterns, finalize_cue_sheet, set_cue_instruction,
     normalise_sample, normalise_sample_channels,
     encode_song_entry, nearest_minifloat, compress_blob,
@@ -1454,6 +1455,16 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
                 if s is not None and s.sample_data]
 
     def _scale_sample(s, r):
+        """Resample `s` by about `r` — exactly the ratio that keeps its shorter
+        active loop a whole number of frames (taud_common.loop_resample_ratio),
+        the other within half a frame — and return the ratio actually used,
+        which the rate and TOP_O offsets follow."""
+        loops = []
+        if s.has_loop:
+            loops.append((s.loop_beg, s.loop_end))
+        if s.flags & IT_SMP_SUS_LOOP:
+            loops.append((s.sus_beg, s.sus_end))
+        r = loop_resample_ratio(r, loops)
         s.sample_data = resample_linear(s.sample_data, r)
         if getattr(s, 'sample_data_r', b''):
             # The pair must stay frame-aligned: resample channel 2 by the same
@@ -1463,25 +1474,23 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
             s.sample_data_r = (r2[:n] if len(r2) >= n
                                else r2 + bytes([0x80]) * (n - len(r2)))
         s.length      = len(s.sample_data)
-        s.loop_beg    = max(0, int(s.loop_beg * r))
-        s.loop_end    = max(0, min(int(s.loop_end * r), s.length))
-        s.sus_beg     = max(0, int(s.sus_beg  * r))
-        s.sus_end     = max(0, min(int(s.sus_end  * r), s.length))
-        s.c5_speed    = max(1, int(s.c5_speed * r))
+        s.loop_beg, s.loop_end = scale_loop(s.loop_beg, s.loop_end, r, s.length)
+        s.sus_beg, s.sus_end   = scale_loop(s.sus_beg, s.sus_end, r, s.length)
+        s.c5_speed    = max(1, round(s.c5_speed * r))
+        return r
 
     # ── Pass 1: global pool-overflow resample (8 MB cap) ────────────────────
     total = sum(len(s.sample_data) + len(getattr(s, 'sample_data_r', b''))
                 for _, s in pcm_list)
     global_ratio = 1.0
+    global_eff = {}           # id(s) → the ratio pass 1 actually applied to s
     if total > SAMPLEBIN_SIZE:
         global_ratio = SAMPLEBIN_SIZE / total
         vprint(f"  info: sample bin overflow ({total} bytes); resampling all by {global_ratio:.4f}")
-        seen_g = set()
         for _, s in pcm_list:
-            if id(s) in seen_g:
+            if id(s) in global_eff:
                 continue
-            seen_g.add(id(s))
-            _scale_sample(s, global_ratio)
+            global_eff[id(s)] = _scale_sample(s, global_ratio)
 
     # ── Pass 2: per-sample u16 cap (each sample must fit in 65535 bytes) ────
     # The Taud instrument record stores the sample length as u16, and TOP_O
@@ -1499,14 +1508,13 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
             r = SAMPLE_LEN_LIMIT / len(s.sample_data)
             vprint(f"  info: '{s.name}' exceeds {SAMPLE_LEN_LIMIT}-byte cap "
                    f"({len(s.sample_data)}); resampling by {r:.4f}")
-            _scale_sample(s, r)
-            per_sample_ratio[id(s)] = r
+            per_sample_ratio[id(s)] = _scale_sample(s, r)
 
     # Effective slot → ratio for TOP_O rescaling. Slots sharing a sample
     # object (IT use_instruments mode) get the same ratio.
     slot_ratios = {}
     for slot_idx, s in pcm_list:
-        slot_ratios[slot_idx] = global_ratio * per_sample_ratio.get(id(s), 1.0)
+        slot_ratios[slot_idx] = global_eff.get(id(s), 1.0) * per_sample_ratio.get(id(s), 1.0)
     ratio = slot_ratios
 
     sample_bin = bytearray(SAMPLEBIN_SIZE)

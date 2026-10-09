@@ -411,6 +411,51 @@ def resample_bandlimited(data: bytes, ratio: float) -> bytes:
 resample_linear = resample_bandlimited
 
 
+def loop_resample_ratio(ratio: float, loops) -> float:
+    """The ratio to resample by in place of `ratio`, for a sample whose ACTIVE
+    loops are `loops` — (begin, end) frame pairs; None entries and loops under
+    two frames are ignored.
+
+    A loop is a whole number of frames, so a loop scaled by an arbitrary ratio
+    has to be rounded, and that moves the pitch of everything it sustains — by
+    up to a frame in a loop that may be a dozen frames long, most of a semitone
+    on a single-cycle wave (TAUD_CONVERSION_NOTES.md §1.2). This lowers `ratio`
+    to the nearest value at which the SHORTEST loop spans exactly
+    floor(length × ratio) frames: that loop keeps its period exactly, and any
+    other is off by half a frame at most (scale_loop). Lowering, never raising,
+    keeps a pool-overflow pass inside its budget and a capped sample under its
+    cap. The resampler scales time by exactly the ratio it is given, so the
+    sample's rate, its loop points and any offset into it all scale by the
+    returned value — never by the output length over the input length, which
+    int() truncation makes short. No loop, or no resampling: `ratio` itself.
+    """
+    if ratio == 1.0:
+        return ratio
+    lengths = [lp[1] - lp[0] for lp in loops if lp and lp[1] - lp[0] >= 2]
+    if not lengths:
+        return ratio
+    shortest = min(lengths)
+    frames = math.floor(shortest * ratio)
+    return frames / shortest if frames >= 2 else ratio
+
+
+def scale_loop(begin: int, end: int, ratio: float, length: int) -> tuple:
+    """A loop's (begin, end) once its sample has been resampled by exactly
+    `ratio` into `length` frames. The start rounds to the nearest frame and the
+    LENGTH is rounded once — never the two ends separately — so the loop keeps
+    its period (exactly, when `ratio` came from loop_resample_ratio). A loop
+    that would run past the data slides back rather than shrinking. Ratio 1.0
+    returns the loop untouched."""
+    if ratio == 1.0:
+        return begin, end
+    n = max(0, round((end - begin) * ratio))
+    b = max(0, round(begin * ratio))
+    if b + n > length:
+        b = max(0, length - n)
+        n = min(n, length - b)
+    return b, b + n
+
+
 def rescale_offset_effects(pat_bin: bytes, ratio: float) -> bytes:
     """Scale TOP_O sample-offset args in raw pattern bytes by `ratio`.
 

@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 import { loadPyodide } from "../../vendor/pyodide/pyodide.js";
 import {
@@ -528,6 +529,89 @@ test("sf2bank: list presets + build bank + merge into a project (skips without t
     assert.equal(dest.instrumentName(gp), "Grand Piano");
     undo.undo();
     assert.ok(Buffer.from(dest.toBytes()).equals(before), "undo byte-exact");
+  });
+
+// Resampling a looped sample (pool overflow, length cap, the soundfont's 32 kHz
+// floor) must keep the loop's length in TIME: a loop is a whole number of
+// frames, and a 13-frame single-cycle loop rounded the wrong way is most of a
+// semitone out (TAUD_CONVERSION_NOTES.md §1.2).
+test("resampling keeps every loop a whole number of frames (loop_resample_ratio / scale_loop)", () => {
+  const r = JSON.parse(py.runPython(`
+import json
+from taud_common import loop_resample_ratio, scale_loop
+r = loop_resample_ratio(0.75, [(10, 23)])
+json.dumps({
+    "ratio": r,
+    "loop": scale_loop(10, 23, r, 100),
+    "shortest": loop_resample_ratio(0.6, [(0, 100), None, (40, 53)]),
+    "unlooped": loop_resample_ratio(0.75, [None, (5, 6)]),
+    "unity": scale_loop(3, 9, 1.0, 4),
+    "slide": scale_loop(90, 100, 0.5, 49),
+})`));
+  // 13 frames at 0.75 would be 9.75: the ratio drops to 9/13, which makes it exactly 9.
+  assert.equal(r.ratio, 9 / 13);
+  assert.deepEqual(r.loop, [7, 16], "start rounds, length is carried whole");
+  assert.equal(r.shortest, 7 / 13, "the shortest active loop sets the ratio");
+  assert.equal(r.unlooped, 0.75, "no loop (or one under two frames): the ratio stands");
+  assert.deepEqual(r.unity, [3, 9], "no resampling leaves a loop untouched");
+  assert.deepEqual(r.slide, [44, 49], "a loop past the data slides back, keeping its length");
+});
+
+test("xm2taud: a sample over the length cap keeps its single-cycle loop in tune", () => {
+  const r = JSON.parse(py.runPython(`
+import json
+import xm2taud
+from taud_common import SAMPLEBIN_SIZE
+P, n = 13, 70000                     # a 13-frame cycle, in a sample over the 65535-frame cap
+s = xm2taud._XMSampleProxy()
+for k in s.__slots__:
+    setattr(s, k, 0)
+s.name, s.pingpong, s.has_pan_env = 'saw', False, False
+s.vol_env_pts = s.pan_env_pts = None
+s.sample_data = bytes(128 + (i % P) * 4 for i in range(n))
+s.length, s.loop_begin, s.loop_end = n, n - 10 * P, n - 9 * P
+s.c2spd, s.flags, s.volume, s.panning, s.nna = 44100, 1, 64, 128, 1
+blob, _offsets, ratios = xm2taud.build_sample_inst_bin_xm([None, s])
+rec = blob[SAMPLEBIN_SIZE + 256:SAMPLEBIN_SIZE + 512]
+u16 = lambda o: rec[o] | (rec[o + 1] << 8)
+json.dumps({"len": u16(4), "rate": u16(6), "ls": u16(10), "le": u16(12), "ratio": ratios[1]})`));
+  assert.ok(r.len <= 65535, `the sample fits the cap (${r.len} frames)`);
+  // the loop's pitch is its rate over its length, against the source's 44100 / 13
+  const cents = 1200 * Math.log2((r.rate / (r.le - r.ls)) / (44100 / 13));
+  assert.ok(Math.abs(cents) < 0.1, `the loop is ${cents.toFixed(2)} cents off`);
+  assert.equal(r.ratio, (r.le - r.ls) / 13, "O offsets follow the ratio actually applied");
+});
+
+test("the bundled soundfont keeps every looped zone's period (skips without the SF2)",
+  { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" },
+  () => {
+    py.FS.writeFile("/gu.sf2", readFileSync(sf2Path));
+    py.FS.writeFile("/gu.taud.sf2", gunzipSync(readFileSync(root + "assets/GeneralUser-GS.taud.sf2.gz")));
+    try {
+      const r = JSON.parse(py.runPython(`
+import json, math
+from midi2taud import parse_sf2
+orig, bundled = parse_sf2('/gu.sf2'), parse_sf2('/gu.taud.sf2')
+checked, worst = 0, 0.0
+for key, (_name, zones) in orig.presets.items():
+    for oz, bz in zip(zones, bundled.presets[key][1]):
+        if oz.modes not in (1, 3) or oz.rate <= 32000:
+            continue                 # unlooped, or never resampled
+        L = oz.loop_abs_end - oz.loop_abs_start      # the zone's loop, offsets applied
+        Lb = bz.loop_abs_end - bz.loop_abs_start
+        if L < 2 or Lb < 2 or abs(Lb - L * bz.rate / oz.rate) >= 2:
+            continue                 # a synthesized loop replaced the original
+        checked += 1
+        worst = max(worst, abs(1200 * math.log2((bz.rate / Lb) / (oz.rate / L))))
+orig.file.close()
+bundled.file.close()
+json.dumps({"checked": checked, "worst": worst})`));
+      assert.ok(r.checked > 2000, `checked ${r.checked} looped zones`);
+      assert.ok(r.worst < 0.1, `a looped zone is ${r.worst.toFixed(2)} cents off its original`);
+    } finally {
+      py.FS.unlink("/gu.sf2");
+      py.FS.unlink("/gu.taud.sf2");
+    }
   });
 
 test("bnkbank: list patches + build bank + merge into a project", () => {

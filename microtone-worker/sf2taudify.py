@@ -47,6 +47,7 @@ gzip alongside (.gz) — the .gz is what the web app fetches. Requires numpy.
 
 import argparse
 import gzip
+import math
 import os
 import struct
 import sys
@@ -136,7 +137,7 @@ class Sample:
                  'corr', 'link', 'stype',
                  # census / transform state
                  'modes', 'data', 'q', 'new_rate', 'nls', 'nle',
-                 'synth', 'decay', 'new_start')
+                 'synth', 'decay', 'new_start', 'zone_loops')
 
     def __init__(self, rec):
         self.name = rec[:20].split(b'\x00')[0]
@@ -148,6 +149,7 @@ class Sample:
         if self.rate == 0:
             self.rate = 8363
         self.modes = set()
+        self.zone_loops = set()     # (start, end) relative frames of every looped zone
         self.data = None            # np.int16 (transformed)
         self.q = 1.0                # exact resample ratio (n_out / n_in)
         self.new_rate = self.rate
@@ -259,21 +261,46 @@ def transform_sample(s, smpl16, tail_thresh, quantise):
         return
     raw = smpl16[s.start:s.end].astype(np.float64)
 
-    # 1. 32 kHz floor
-    if s.rate > RATE_FLOOR:
-        data = resample_sinc(raw, RATE_FLOOR / s.rate)
-        s.q = len(data) / n
-        s.new_rate = max(1, round(s.rate * s.q))
-    else:
-        data = raw
-    n_out = len(data)
-
-    # loop in the resampled domain (shdr loop values are junk on unlooped
+    # loop in the source domain (shdr loop values are junk on unlooped
     # drums — e.g. GeneralUser stores [start+8, end-8] — so gate on modes)
     ls = max(0, min(s.ls - s.start, n))
     le = max(0, min(s.le - s.start, n))
     has_loop = bool(s.modes & {1, 3}) and le - ls >= 2
-    nls, nle = round(ls * s.q), round(le * s.q)
+
+    # 1. 32 kHz floor. The resampler scales time by exactly `ratio`, so that is
+    # the rate the data now has and the factor every position scales by — not
+    # len(out)/len(in), which int() truncation makes short by up to a frame.
+    # A loop keeps its pitch only if it spans the same time as before, and a
+    # loop is a whole number of frames: so a looped sample's ratio is lowered to
+    # the nearest one that makes its loop exactly floor(L·ratio) frames. Rounding
+    # the two loop ends separately instead put a 13-frame single-cycle loop as
+    # much as half a semitone out (GeneralUser's synth leads, tine and sine
+    # layers). Lowering, never raising, keeps the rate at or under the floor.
+    if s.rate > RATE_FLOOR:
+        ratio = RATE_FLOOR / s.rate
+        if has_loop:
+            # the shortest loop any zone plays out of this sample — a zone's
+            # loop offsets can make it shorter than the header's — is the one
+            # rounding hurts most; every other lands within half a frame
+            loops = [lp for lp in s.zone_loops if lp[1] - lp[0] >= 2] or [(ls, le)]
+            shortest = min(e - b for b, e in loops)
+            frames = math.floor(shortest * ratio)
+            if frames >= 2:
+                ratio = frames / shortest
+        data = resample_sinc(raw, ratio)
+        s.q = ratio
+        s.new_rate = max(1, round(s.rate * ratio))
+    else:
+        data = raw
+    n_out = len(data)
+
+    # the loop in the resampled domain: the start rounds to the nearest frame
+    # and the length is carried over whole, so the seam stays where it was in
+    # the waveform's own cycle.
+    nls = round(ls * s.q)
+    nle = nls + round((le - ls) * s.q)
+    if nle > n_out:                  # a loop ending on the last frame: slide
+        nls, nle = max(0, nls - (nle - n_out)), n_out    # it back, length kept
     if has_loop and nle - nls < 2:
         has_loop = False
 
@@ -323,7 +350,11 @@ def transform_sample(s, smpl16, tail_thresh, quantise):
 
 def refit_offset(total, q):
     """Scale a combined coarse+fine address offset, re-split -> (coarse, fine)."""
-    t = int(round(total * q))
+    return split_offset(int(round(total * q)))
+
+
+def split_offset(t):
+    """A frame offset as SF2's (coarse, fine) generator pair."""
     coarse = int(t / 32768)          # trunc toward zero keeps |fine| < 32768
     return coarse, t - 32768 * coarse
 
@@ -461,6 +492,33 @@ def main():
         vprint(f"  split: inst {ii} zone {zi} offset {off} on "
                f"'{s.name.decode('latin-1')}' -> sample #{new_si}")
 
+    # --- zone loops: every loop a looped zone plays out of each sample, its loop
+    # offsets applied (globals folded exactly as the rewrite below folds them),
+    # so the 32 kHz resample can keep the shortest one a whole number of frames
+    for ii, (b0, zones, _) in enumerate(inst_bags):
+        glob = None
+        for zi, zone in enumerate(zones):
+            if not any(o == G_SAMPLEID for o, _ in zone):
+                if glob is None and zi == 0:
+                    glob = zone
+                continue
+            gd = dict(zone)
+            gv = dict(glob) if glob and (ii, zi) not in split_zones else {}
+            si = gd.get(G_SAMPLEID, -1)
+            if not (0 <= si < len(samples)):
+                continue
+            if gd.get(G_SAMPLEMODES, gv.get(G_SAMPLEMODES, 0)) & 3 not in (1, 3):
+                continue
+            s = samples[si]
+            lso = (gv.get(G_STARTLOOP_OFF, 0) + gd.get(G_STARTLOOP_OFF, 0)
+                   + 32768 * (gv.get(G_STARTLOOP_COARSE, 0) + gd.get(G_STARTLOOP_COARSE, 0)))
+            leo = (gv.get(G_ENDLOOP_OFF, 0) + gd.get(G_ENDLOOP_OFF, 0)
+                   + 32768 * (gv.get(G_ENDLOOP_COARSE, 0) + gd.get(G_ENDLOOP_COARSE, 0)))
+            zs = max(0, min(s.ls - s.start + lso, s.frames))
+            ze = max(0, min(s.le - s.start + leo, s.frames))
+            if ze - zs >= 2:
+                s.zone_loops.add((zs, ze))
+
     # --- per-sample transform
     n_synth = n_decay = n_resamp = 0
     for s in samples:
@@ -509,10 +567,21 @@ def main():
                 want[G_STARTLOOP_OFF] = want[G_STARTLOOP_COARSE] = 0
                 want[G_ENDLOOP_OFF] = want[G_ENDLOOP_COARSE] = 0
             else:
-                c, f = refit_offset(combined(G_STARTLOOP_OFF, G_STARTLOOP_COARSE), s.q)
-                want[G_STARTLOOP_OFF], want[G_STARTLOOP_COARSE] = f, c
-                c, f = refit_offset(combined(G_ENDLOOP_OFF, G_ENDLOOP_COARSE), s.q)
-                want[G_ENDLOOP_OFF], want[G_ENDLOOP_COARSE] = f, c
+                lso = combined(G_STARTLOOP_OFF, G_STARTLOOP_COARSE)
+                leo = combined(G_ENDLOOP_OFF, G_ENDLOOP_COARSE)
+                if s.q != 1.0 and (lso or leo):
+                    # the zone's own loop — start rounded, LENGTH rounded once —
+                    # as offsets from the new header loop; scaling the two
+                    # offsets separately could stretch or shrink it a frame
+                    zs = s.ls - s.start + lso
+                    ze = s.le - s.start + leo
+                    nzs = round(zs * s.q)
+                    nze = nzs + round((ze - zs) * s.q)
+                    lso_t, leo_t = nzs - s.nls, nze - s.nle
+                else:
+                    lso_t, leo_t = round(lso * s.q), round(leo * s.q)
+                want[G_STARTLOOP_COARSE], want[G_STARTLOOP_OFF] = split_offset(lso_t)
+                want[G_ENDLOOP_COARSE], want[G_ENDLOOP_OFF] = split_offset(leo_t)
             if s.decay:
                 want[G_SAMPLEMODES] = 1
                 want[G_DECAY_VOLENV] = DECAY_TC

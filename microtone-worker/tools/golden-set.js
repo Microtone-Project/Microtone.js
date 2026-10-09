@@ -38,6 +38,7 @@ export const GOLDEN_SET = {
   "WHEN": { file: "test/corpus/WHEN.taud" },
   "16uba_baion": { file: "assets/demo_projects/16uba_baion.taud" },
   "Temjin_speaki": { file: "assets/demo_projects/Temjin_speaki.taud" },
+  "Huygens_clock": { file: "assets/demo_projects/Huygens_clock.taud" },
   "WHEN_AMBI": { file: "assets/demo_projects/WHEN_AMBI.taud" },
   "WHEN_AMBI@binaural": { file: "assets/demo_projects/WHEN_AMBI.taud", monitor: MONITOR_BINAURAL },
 };

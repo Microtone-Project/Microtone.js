@@ -43,7 +43,8 @@ from taud_common import (
     EFF_K, EFF_L, EFF_M, EFF_N, EFF_O, EFF_P, EFF_Q, EFF_R, EFF_S, EFF_T,
     EFF_U, EFF_V, EFF_W, EFF_X, EFF_Y, EFF_Z,
     J_SEMI_TABLE,
-    d_arg_to_col, resample_linear, rescale_offset_effects, encode_cue, deduplicate_patterns,
+    d_arg_to_col, resample_linear, rescale_offset_effects_per_slot, encode_cue, deduplicate_patterns,
+    loop_resample_ratio, scale_loop,
     finalize_cue_sheet, set_cue_instruction, CUE_INST_HALT,
     normalise_sample, encode_song_entry, compress_blob,
     build_project_data, detect_subsongs,
@@ -447,25 +448,31 @@ def warn_st3_quirks(patterns: list, order_list: list, num_channels: int) -> None
 
 def build_sample_inst_bin(instruments: list) -> tuple:
     """
-    Returns (bin_bytes[786432], offsets_list, updated_insts).
-    Resamples globally if total exceeds SAMPLEBIN_SIZE.
+    Returns (bin_bytes[786432], offsets_list, slot_ratios).
+    Resamples globally if total exceeds SAMPLEBIN_SIZE; slot_ratios maps Taud
+    slot → the ratio that slot's sample was resampled by (for TOP_O
+    rescaling), and slot 0 — an O before any instrument byte — gets the pass's
+    nominal ratio.
     """
     pcm_insts = [(i, inst) for i, inst in enumerate(instruments)
                  if inst is not None and inst.itype == S3M_TYPE_PCM and inst.sample_data]
 
     total = sum(len(inst.sample_data) for _, inst in pcm_insts)
     ratio = 1.0
+    slot_ratios = {}
     if total > SAMPLEBIN_SIZE:
         ratio = SAMPLEBIN_SIZE / total
         vprint(f"  info: sample bin overflow ({total} bytes); resampling all by {ratio:.4f}")
-        for _, inst in pcm_insts:
-            new_data = resample_linear(inst.sample_data, ratio)
-            old_len  = len(inst.sample_data)
-            inst.sample_data  = new_data
-            inst.length       = len(new_data)
-            inst.loop_begin   = max(0, int(inst.loop_begin * ratio))
-            inst.loop_end     = max(0, min(int(inst.loop_end * ratio), inst.length))
-            inst.c2spd        = max(1, int(inst.c2spd * ratio))
+        slot_ratios[0] = ratio
+        for i, inst in pcm_insts:
+            # Each looped sample gets the ratio that keeps its loop a whole
+            # number of frames (taud_common.loop_resample_ratio).
+            r = loop_resample_ratio(ratio, [(inst.loop_begin, inst.loop_end)] if (inst.flags & 1) else [])
+            inst.sample_data  = resample_linear(inst.sample_data, r)
+            inst.length       = len(inst.sample_data)
+            inst.loop_begin, inst.loop_end = scale_loop(inst.loop_begin, inst.loop_end, r, inst.length)
+            inst.c2spd        = max(1, round(inst.c2spd * r))
+            slot_ratios[i + 1] = r
 
     sample_bin = bytearray(SAMPLEBIN_SIZE)
     offsets    = {}
@@ -546,7 +553,7 @@ def build_sample_inst_bin(instruments: list) -> tuple:
         if inst.c2spd > 65535:
             vprint(f"  warning: sampling rate of '{inst.name}' exceeds 65535 (got '{inst.c2spd}')")
 
-    return bytes(sample_bin) + bytes(inst_bin), offsets, ratio
+    return bytes(sample_bin) + bytes(inst_bin), offsets, slot_ratios
 
 
 def _default_channel_pan(ch_setting: int) -> int:
@@ -840,7 +847,7 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
                                       h.linear_slides, inst_vols,
                                       amiga_mode=not h.linear_slides)
 
-    pat_bin = rescale_offset_effects(bytes(pat_bin), sample_ratio)
+    pat_bin = rescale_offset_effects_per_slot(bytes(pat_bin), P_used, C, sample_ratio)
     orig_count = P_used * C
     pat_bin, pat_remap, num_taud_pats = deduplicate_patterns(pat_bin, orig_count)
     vprint(f"  [{song_label}] patterns: {orig_count} → {num_taud_pats} unique "
