@@ -261,7 +261,7 @@ for (let b = 1; b <= 8; b++) {
   for (let b = 3; b <= 8; b++) {
     if (b > 3 && CH[b] === CH[b - 1]) continue;
     v = voiceLead(v, CH[b], st("C3"), st("D5"));
-    holdChord(PADS, b, 0, v, b === 3 ? 6 : 30, 0);
+    holdChord(PADS, b, 0, v, b === 3 ? 24 : 48, 0);
     if (b === 3) for (const p of PADS) for (let r = 1; r <= 5; r++) volSlideUp(p, R(3, r), 1);
   }
   for (const p of PADS) keyOff(p, R(9));
@@ -334,7 +334,7 @@ fillToms(24, 8);
 {
   // Pad: one attack at bar 25, then the triads MORPH — every change is a glide.
   let v = S(["Bb3", "D4", "F4"]);
-  holdChord(PADS, 25, 0, v, 30, 0);
+  holdChord(PADS, 25, 0, v, 48, 0);
   for (let k = 1; k < 8; k++) {
     const nv = voiceLead(v, CHAIN[k], st("D3"), st("A4"));
     glideChord(PADS, R(25 + 2 * k), v, nv, 4);
@@ -417,7 +417,7 @@ for (const [r, n, v] of [[8, "tomHM", 34], [10, "tomLM", 30], [12, "flHi", 28], 
   const third = S(["Fp4", "F4", "Ft4", "F#4", "Gb4", "F#4", "F#4", "F#4"]);
   const seventh = S(["Cp4", "C5", "Ct5", "C#5", "C#5", "Cp4", "Cp4", "Cp4"]);
   // Pad: D and A held, the third and seventh glide.
-  holdChord(PADS, 41, 0, [st("D3"), st("A3"), third[0], seventh[0]], 34, 0);
+  holdChord(PADS, 41, 0, [st("D3"), st("A3"), third[0], seventh[0]], 54, 0);
   for (let b = 42; b <= 48; b++) {
     const k = b - 41;
     if (third[k] !== third[k - 1]) glide("pad3", R(b), third[k], glideSpeed(third[k - 1], third[k], 3));
@@ -491,7 +491,7 @@ dr("cym", 53, 0, "crash2", 50);
       if (b > 49) w = voiceLead(w, CH[b], st("A3"), st("A5"));
       holdChord(STRS, b, 0, w, 24, 0);
     }
-    if (b === 49 || CH[b] !== CH[b - 1]) holdChord(PADS.slice(0, 3), b, 0, voiceLead([st("D3"), st("A3"), st("F#4")], CH[b], st("C3"), st("C5"), { n: 3 }), 22, 0);
+    if (b === 49 || CH[b] !== CH[b - 1]) holdChord(PADS.slice(0, 3), b, 0, voiceLead([st("D3"), st("A3"), st("F#4")], CH[b], st("C3"), st("C5"), { n: 3 }), 35, 0);
   }
 }
 snareFill(56, 10, [36, 42, 48, 54]);
@@ -521,7 +521,7 @@ dr("cym", 57, 0, "crash", 54);
     guitarBar(b, GTRV[c], -2);
     w = voiceLead(w, CH[b], st("A3"), st("A5"));
     holdChord(STRS, b, 0, w, 28, 0);
-    holdChord(PADS.slice(0, 3), b, 0, voiceLead([st("D3"), st("A3"), st("F#4")], CH[b], st("C3"), st("C5"), { n: 3 }), 24, 0);
+    holdChord(PADS.slice(0, 3), b, 0, voiceLead([st("D3"), st("A3"), st("F#4")], CH[b], st("C3"), st("C5"), { n: 3 }), 38, 0);
   }
 }
 snareFill(60, 4, [30, 0, 34, 38, 0, 42, 46, 50, 54, 58].filter(Boolean));
@@ -534,7 +534,7 @@ dr("perc", 61, 0, "splash", 40);
 hit("bass", R(61), st("D2"), 56);
 keyOff("bass", R(63, 8));
 holdChord(STRS, 61, 0, S(["D4", "Cp4", "E5", "Gt5"]), 34, 0);
-holdChord(PADS, 61, 0, S(["D3", "A3", "F#4", "A4"]), 30, 0);
+holdChord(PADS, 61, 0, S(["D3", "A3", "F#4", "A4"]), 48, 0);
 epChord(61, 0, S(["F#4", "A4", "Cp4", "E5"]), 40, 20);
 for (const lane of [...STRS, ...PADS]) {
   for (let r = R(61, 6); r < R(64, 10); r++) volFineDown(lane, r, r < R(63) ? 1 : 2);
