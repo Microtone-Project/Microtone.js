@@ -38,7 +38,7 @@ import { sectionOfCue } from "./song.mjs";
 import { retune, usesFromLanes } from "./retune.mjs";
 import {
   TITLE, FILE, COMPOSER, COPYRIGHT, MESSAGE, MASTER, BPM, GLOBAL_VOLUME, MIXING_VOLUME,
-  INST_NAMES, PRESETS,
+  INST_NAMES, PRESETS, LAYER_MIX,
 } from "./meta.mjs";
 
 const APP = fileURLToPath(new URL("../../", import.meta.url));
@@ -163,6 +163,16 @@ if (!plan.noop) cleanupBankOp(plan).apply(doc);
   }
   doc._resetInstrumentCache();
 }
+
+// The layer mix levels (meta.mjs), written into each metainstrument's layer table.
+for (const [key, octet] of Object.entries(LAYER_MIX)) {
+  const slot = Number(key);
+  const inst = doc.instruments[slot];
+  if (!inst.isMeta) throw new Error(`slot ${slot}: not a metainstrument`);
+  const rec = doc.sampleInstImage.subarray(SAMPLEBIN_SIZE + slot * 256, SAMPLEBIN_SIZE + (slot + 1) * 256);
+  for (const l of inst.metaLayers) rec[l.rawOffset + 1] = octet;
+}
+doc._resetInstrumentCache();
 
 // Every zone the song plays, onto the 31-TET grid. The drum kit is left alone.
 const report = retune(doc, usesFromLanes(lanes, new Set([1])), { passes: 3, log: verbose ? console.log : () => {} });

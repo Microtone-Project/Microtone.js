@@ -20,10 +20,10 @@ defLane("cym", KIT, 0x66, "Cymbals", 1, 3);
 defLane("tom", KIT, 0x80, "Toms");
 defLane("perc", KIT, 0x9c, "Percussion", 1, 3);
 defLane("bass", FRETLESS, 0x80, "Fretless", 0.8);
-defLane("ep1", EP, 0x5c, "Tines 1");
+defLane("ep1", EP, 0x4a, "Tines 1");
 defLane("ep2", EP, 0x6e, "Tines 2");
 defLane("ep3", EP, 0x92, "Tines 3");
-defLane("ep4", EP, 0xa4, "Tines 4");
+defLane("ep4", EP, 0xb5, "Tines 4");
 defLane("mar", MAR, 0x56, "Marimba", 1, 2);
 defLane("vib", VIB, 0xae, "Vibes");
 defLane("pad1", PAD, 0x40, "Pad 1");
@@ -261,7 +261,7 @@ for (let b = 1; b <= 8; b++) {
   for (let b = 3; b <= 8; b++) {
     if (b > 3 && CH[b] === CH[b - 1]) continue;
     v = voiceLead(v, CH[b], st("C3"), st("D5"));
-    holdChord(PADS, b, 0, v, b === 3 ? 24 : 48, 0);
+    holdChord(PADS, b, 0, v, b === 3 ? 16 : 32, 0);
     if (b === 3) for (const p of PADS) for (let r = 1; r <= 5; r++) volSlideUp(p, R(3, r), 1);
   }
   for (const p of PADS) keyOff(p, R(9));
@@ -344,7 +344,7 @@ fillToms(24, 8);
   // Strings join at bar 33 an octave up, gliding the same way.
   let w = voiceLead(S(["E4", "G4", "C5", "E5"]), CHAIN[4], st("C4"), st("G5"));
   holdChord(STRS, 33, 0, w, 10, 0);
-  for (const s of STRS) for (let r = 1; r <= 3; r++) volSlideUp(s, R(33, r), 1);
+  for (const s of STRS) for (let r = 1; r <= 3; r+=2) volSlideUp(s, R(33, r), 1); // milder vol slideup
   for (let k = 5; k < 8; k++) {
     const nw = voiceLead(w, CHAIN[k], st("A3"), st("G5"));
     glideChord(STRS, R(25 + 2 * k), w, nw, 4);
@@ -431,7 +431,7 @@ for (const [r, n, v] of [[8, "tomHM", 34], [10, "tomLM", 30], [12, "flHi", 28], 
   }
   // Strings from bar 43, an octave over the pad's moving notes; then the 9th and 11th.
   holdChord(STRS, 43, 0, [st("D4"), third[2] + 31, st("A4"), seventh[2]], 10, 0);
-  for (const s of STRS) for (let r = 1; r <= 4; r++) volSlideUp(s, R(43, r), 1);
+  for (const s of STRS) for (let r = 1; r <= 4; r+=2) volSlideUp(s, R(43, r), 1); // milder vol slideup
   for (let b = 44; b <= 46; b++) {
     const k = b - 41;
     if (third[k] !== third[k - 1]) glide("str2", R(b), third[k] + 31, glideSpeed(third[k - 1], third[k], 3));

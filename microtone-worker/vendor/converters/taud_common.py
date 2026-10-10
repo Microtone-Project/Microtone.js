@@ -929,13 +929,17 @@ META_GAIN = (
 
 
 def atten_cb_to_octet(atten_cb: float) -> int:
-    """SF2 initialAttenuation (centibels, ≥0) → nearest [META_GAIN] octet (159 = 0 dB /
-    unity). Returns 159 for ~0 attenuation and never 0 — octet 0 is the engine's "unset"
-    sentinel (treated as unity), so emitting it for a real value would silence the voice."""
-    if atten_cb <= 0:
+    """SF2 initialAttenuation (centibels) → nearest [META_GAIN] octet (159 = 0 dB /
+    unity). Returns 159 for 0 attenuation and never 0 — octet 0 is the engine's "unset"
+    sentinel (treated as unity), so emitting it for a real value would silence the voice.
+    A NEGATIVE attenuation is a boost, up to the table's +24 dB (octet 255): midi2taud
+    asks for one when a layer's own velocity curve is flatter than the one its key's note
+    volume was mapped through (see _split_layer_velocity_bands)."""
+    if atten_cb == 0:
         return 159
     g = 10.0 ** (-atten_cb / 200.0)
-    return min(range(1, 160), key=lambda o: abs(META_GAIN[o] - g))
+    octets = range(1, 160) if atten_cb > 0 else range(159, 256)
+    return min(octets, key=lambda o: abs(META_GAIN[o] - g))
 
 
 def _encode_env_block(env: dict) -> bytes:

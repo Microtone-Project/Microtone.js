@@ -531,6 +531,162 @@ test("sf2bank: list presets + build bank + merge into a project (skips without t
     assert.ok(Buffer.from(dest.toBytes()).equals(before), "undo byte-exact");
   });
 
+// A Taud note volume is linear amplitude, and it is also the axis an Ixmp patch's
+// volume range selects on. A SoundFont velocity is neither: FluidSynth turns it
+// into attenuation through a concave curve the bank may re-scale. So velocity
+// must reach note volume — and a zone's velocity range its volume range —
+// through the curve the SoundFont actually applies, or the layer a volume picks
+// is not the layer that sounds at that loudness.
+test("midi2taud: velocity reaches note volume through the SoundFont's own curve", () => {
+  const r = JSON.parse(py.runPython(`
+import json
+import midi2taud as M
+from taud_common import atten_cb_to_octet, META_GAIN
+d = M._vel_axis(M._DEFAULT_VEL2ATT_MODS)
+gu = M._vel_axis(((800, 0x0502, 0),))
+def gaps(ax):
+    out = []
+    for b in range(1, 127):
+        lo, hi = ax.vrange(1, b), ax.vrange(b + 1, 127)
+        if lo and hi and lo[1] + 1 != hi[0]:
+            out.append(b)
+    return out
+V = (0x0502, 48)                     # note-on velocity -> initialAttenuation
+mods = M._zone_velocity_atten_mods
+json.dumps({
+    "fwd": [d.fwd[v] for v in (127, 100, 64, 32)],
+    "gu": [gu.fwd[v] for v in (127, 100, 64, 32)],
+    "repMonotone": all(ax.rep[x] <= ax.rep[x + 1] for ax in (d, gu) for x in range(63)),
+    "gaps": gaps(d) + gaps(gu),
+    "none": mods([], [], [], []),
+    "inst": mods([], [(*V, 800, 0, 0)], [], []),
+    "instThenPreset": mods([], [(*V, 800, 0, 0)], [], [(*V, 100, 0, 0)]),
+    "presetOnly": mods([], [], [], [(*V, 100, 0, 0)]),
+    "flat": mods([(*V, 0, 0, 0)], [], [], []),
+    "shadowed": mods([], [], [(*V, 50, 0, 0)], [(*V, 100, 0, 0)]),
+    "cc": M._gain_to_v6(63 * M._cc_gain(100) * M._cc_gain(127)),
+    "boost": META_GAIN[atten_cb_to_octet(-60)],
+    "unity": atten_cb_to_octet(0),
+})`));
+  assert.deepEqual(r.fwd, [63, 39, 16, 4],
+    "63 x (vel/127)^2 — FluidSynth's default 960 cB concave curve; velocity 64 is 12 dB down, not 6");
+  assert.deepEqual(r.gu, [63, 42, 20, 6], "GeneralUser's own 800 cB curve is shallower");
+  assert.ok(r.repMonotone, "a louder note volume never stands for a softer velocity");
+  assert.deepEqual(r.gaps, [], "velocity-adjacent zones meet on the axis without gap or overlap");
+  // FluidSynth's modulator rules: the instrument overwrites the default, the
+  // preset adds to whatever the instrument left, and a preset-global modulator
+  // identical to a preset-local one is ignored.
+  assert.deepEqual(r.none, [[960, 0x0502, 0]], "no modulators: the default curve");
+  assert.deepEqual(r.inst, [[800, 0x0502, 0]], "an instrument modulator replaces the default's amount");
+  assert.deepEqual(r.instThenPreset, [[900, 0x0502, 0]], "a preset modulator adds to it");
+  assert.deepEqual(r.presetOnly, [[1060, 0x0502, 0]], "…to the default's, if the instrument left it alone");
+  assert.deepEqual(r.flat, [], "amount 0: velocity-insensitive");
+  assert.deepEqual(r.shadowed, [[1060, 0x0502, 0]], "a local preset modulator shadows its global twin");
+  assert.equal(r.cc, 39, "CC7 100 is (100/127)^2 through the same curve, not 100/127");
+  assert.ok(Math.abs(r.boost - 1.995) < 0.01, `a negative attenuation is a +6 dB boost (${r.boost})`);
+  assert.equal(r.unity, 159);
+});
+
+test("midi2taud: every layer at a key keeps FluidSynth's sample and level (skips without the SF2)",
+  { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" },
+  () => {
+    // GeneralUser's snare (kit key 40) lays a 529 cB-curve zone over a 900 cB one
+    // in each velocity band, and a Taud note has ONE volume for every layer: the
+    // key shares the dominant curve, and the minority layer's patches make up the
+    // difference in their initial attenuation. Checked at every note volume, at the
+    // velocity it stands for, against FluidSynth's zone choice and attenuation.
+    py.FS.writeFile("/gu.sf2", readFileSync(sf2Path));
+    try {
+      const r = JSON.parse(py.runPython(`
+import json, math
+import midi2taud as M
+from taud_common import atten_cb_to_octet, META_GAIN
+out = {}
+for label, ik, key in (("snare", ('d', 0), 40), ("horns", ('m', 0, 60), 54)):
+    sf = M.parse_sf2('/gu.sf2')
+    nv = M.key_to_noteval(key)
+    layers = M.build_presets(sf, [ik], {ik: {(nv, x): 1 for x in range(64)}}, None, {}, 4)[ik][1]
+    sf.file.close()
+    ref = M.parse_sf2('/gu.sf2')                  # unmerged: build_presets merged its own
+    raw = M.resolve_preset(ref, ik, None)[1]
+    axis = M._preset_vel_axes(raw)[key]
+    zones = [z for z in M.merge_stereo_zones(list(raw), ref.shdrs) if z.keylo <= key <= z.keyhi]
+    ref.file.close()
+    same, err = 0, []
+    for x in range(1, 64):
+        vel = axis.rep[x]
+        want = {z.sample: -M._zone_atten_at(z, vel) / 10 for z in zones if z.vello <= vel <= z.velhi}
+        got = {}
+        for ti in layers:
+            p = next((p for p in ti.patches
+                      if p.rect[0] <= nv <= p.rect[1] and p.rect[2] <= x <= p.rect[3]), None)
+            if p:
+                got[p.zone.sample] = (20 * math.log10(x / 63) + 20 * math.log10(
+                    META_GAIN[atten_cb_to_octet(p.zone.atten_cb)]))
+        if sorted(got) == sorted(want):
+            same += 1
+            if vel >= 17:                         # below, the 6-bit floor (-36 dB) rules
+                err += [abs(got[s] - want[s]) for s in got]
+    out[label] = {"same": same, "mean": sum(err) / len(err), "max": max(err),
+                  "layers": len(layers)}
+json.dumps(out)`));
+      for (const [label, s] of Object.entries(r)) {
+        assert.ok(s.layers > 1, `${label}: premise — the key is layered (${s.layers} layers)`);
+        assert.equal(s.same, 63, `${label}: every note volume sounds FluidSynth's samples`);
+        assert.ok(s.mean < 0.3, `${label}: mean level error ${s.mean.toFixed(2)} dB`);
+        assert.ok(s.max < 1.5, `${label}: worst level error ${s.max.toFixed(2)} dB`);
+      }
+    } finally {
+      py.FS.unlink("/gu.sf2");
+    }
+  });
+
+test("midi2taud writes the volume FluidSynth plays a velocity at (skips without the SF2)",
+  { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" },
+  () => {
+    // Grand Piano, middle C, one note a beat at velocities 127 / 100 / 64 / 32,
+    // under CC7 100. GeneralUser plays its piano through an 800 cB velocity curve.
+    const ev = [];
+    let last = 0;
+    const at = (tick, ...bytes) => {
+      let d = tick - last;
+      const v = [d & 0x7f];
+      while ((d >>= 7) > 0) v.unshift((d & 0x7f) | 0x80);
+      ev.push(...v, ...bytes);
+      last = tick;
+    };
+    at(0, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20);
+    at(0, 0xc0, 0x00);
+    at(0, 0xb0, 7, 100);
+    [127, 100, 64, 32].forEach((vel, i) => {
+      at(i * 480, 0x90, 60, vel);
+      at(i * 480 + 240, 0x80, 60, 0);
+    });
+    at(4 * 480, 0xff, 0x2f, 0x00);
+    const midi = new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0,
+      0x4d, 0x54, 0x72, 0x6b, 0, 0, (ev.length >> 8) & 0xff, ev.length & 0xff, ...ev]);
+    const out = runConverter(py, {
+      script: "midi2taud.py",
+      argv: buildArgv({ isMidi: true, inPath: "/in.mid", sf2Path: "/sf.sf2", outPath: "/out.taud" }),
+      inputs: [{ path: "/in.mid", bytes: midi }, { path: "/sf.sf2", bytes: readFileSync(sf2Path) }],
+      output: "/out.taud",
+      onLog: () => {},
+    });
+    const vols = [], lane = [];
+    for (const song of parseTaud(out).songs) {
+      for (const pat of song.patterns) {
+        for (let r = 0; r < 64; r++) {
+          const o = r * 8;
+          if ((pat[o] | (pat[o + 1] << 8)) >= 0x20) vols.push(pat[o + 3]);
+          if (pat[o + 5] === 0x16) lane.push(pat[o + 7]);
+        }
+      }
+    }
+    assert.deepEqual(vols.sort((a, b) => a - b), [6, 20, 42, 63],
+      "63 x (vel/127)^(1600/960) — not the linear 16 / 32 / 50 / 63");
+    assert.deepEqual(lane, [39], "CC7 100 is M $2700: (100/127)^2, not 100/127");
+  });
+
 // Resampling a looped sample (pool overflow, length cap, the soundfont's 32 kHz
 // floor) must keep the loop's length in TIME: a loop is a whole number of
 // frames, and a 13-frame single-cycle loop rounded the wrong way is most of a

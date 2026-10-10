@@ -29,3 +29,4 @@ microtone-worker/index_kaputt.html
 .env*
 .wrangler/
 /build/
+/OoT_musical_experiments/

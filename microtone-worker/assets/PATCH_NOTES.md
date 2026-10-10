@@ -6,6 +6,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-10
 
+Instruments from a SoundFont now choose their velocity layer by loudness, so the volume column plays the sample the SoundFont would play at that volume, and converted MIDI files keep their dynamics.
+
+- **Fixed: the volume column picked the wrong velocity layer on SoundFont instruments**: a volume of 32, half the amplitude, played the layer the SoundFont keeps for velocity 64, which it plays at a quarter of the amplitude, because the layers were laid out as though velocity were amplitude. The layer you get now is the one that sounds at the volume you wrote.
+- **Fixed: quiet notes in converted MIDI files were too loud**: a velocity-64 note played 6 dB above the level the SoundFont gives it and a velocity-32 note 12 dB above, flattening the dynamics. Velocity now reaches the volume column through the SoundFont's own velocity curve, which GeneralUser GS sets instrument by instrument.
+- **Channel volume and expression in MIDI files follow the same curve**, so fades and swells in a converted song sound as they do in a SoundFont player.
+- **Layers that respond to velocity differently keep their own balance**: where a SoundFont stacks a layer with its own velocity curve over another, as the GeneralUser GS snare does in every velocity band, each layer now plays at its own level instead of both following one.
+- **What you converted or imported before keeps its old layers**: convert the file again, or add the instrument again, to get the corrected ones.
+
 Converted instruments now stay in tune when their samples have to be resampled, above all those from the bundled GeneralUser GS soundfont.
 
 - **Fixed: instruments from the bundled GeneralUser GS soundfont could play out of tune**: 43 of them by a quarter tone or more somewhere in their range, the marimba, kalimba, accordion and harpsichord among them, and 14 by a semitone or more near the top, the synth basses and leads among them, because shrinking a sample to 32 kHz rounded the two ends of its loop separately.

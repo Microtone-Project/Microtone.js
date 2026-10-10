@@ -46,7 +46,13 @@ Behaviour (per midi2taud.md):
   * The SF2 key/velocity sample-layering model is recreated faithfully. Each
     preset's zones are partitioned into the fewest mutually-DISJOINT layers
     (--max-layers cap, default 4); each layer becomes one normal Taud instrument
-    with its zones as Ixmp patches (velocity axis round(vel × 63/127)). A preset
+    with its zones as Ixmp patches. A patch's volume range is a range of NOTE
+    VOLUME, which the engine plays as linear amplitude, so a zone's velocity range
+    is mapped through the SoundFont's own velocity→attenuation curve (FluidSynth's
+    default 960 cB concave modulator, (vel/127)² in amplitude, unless the bank
+    overrides it) — and every note is written at the volume FluidSynth would play
+    it at. Timbre and level then agree: the layer a note selects is the layer that
+    sounds at that loudness (see VelAxis). A preset
     needing >1 layer is emitted as a Metainstrument (terranmon.txt "Metainstrument
     definition"): the note references the meta slot and the engine fans out one
     voice per matching layer, so SF2's simultaneous layering (and detune-stacks)
@@ -91,8 +97,10 @@ Behaviour (per midi2taud.md):
     cell-slot collisions. Disabled by pinning --rpb or --speed.
     MIDI tempo changes map to T $xx00 set-tempo effects (or the T $FFxx…$FCxx
     extended set-tempo above 280 BPM); channel volume /
-    expression (CC7 × CC11) map to M $xx00 channel-volume effects so they
-    never disturb the velocity-driven patch selection axis.
+    expression (CC7 × CC11) map to M $xx00 lane-volume effects so they
+    never disturb the velocity-driven patch selection axis. Both pass through
+    FluidSynth's default 960 cB concave curve, as velocity does: the lane volume
+    is (CC7/127)² × (CC11/127)², not the plain product.
   * A MIDI whose declared tempo does not describe its own events — the beat is
     1.2 or 1.35 quarter notes long, so bar lines fall mid-phrase and rows per
     beat means nothing — can be put back on a sane grid with --realign-tempo.
@@ -358,7 +366,7 @@ def parse_midi(path: str):
 class Note:
     __slots__ = ('ch', 'key', 'vel', 'start_ft', 'end_ft', 'inst_key',
                  'bend0', 'slot', 'voice', 'drum', 'pedal_ft', 'excl_cut_ft',
-                 'start_tick')
+                 'start_tick', 'vol6')
     def __init__(self, ch, key, vel, start_ft, inst_key, bend0, start_tick=0):
         self.ch       = ch
         self.key      = key
@@ -376,6 +384,7 @@ class Note:
         self.drum     = (inst_key[0] == 'd')
         self.pedal_ft = None     # physical key-up time when only the pedal holds it
         self.excl_cut_ft = None  # ft at which a same-exclusiveClass note chokes this one
+        self.vol6     = None     # note volume 0..63 the velocity plays at (assign_note_volumes)
 
 
 class _ChState:
@@ -1447,8 +1456,12 @@ class SFZone:
                  # exclusiveClass (gen 57): drum mutual-exclusion group (0 = none).
                  'excl_class',
                  # SF2 velocity→filter modulators (fc_mods, me2_mods); see
-                 # _zone_velocity_filter_mods / _split_velocity_filter.
-                 'vel_filter_mods')
+                 # _zone_velocity_filter_mods / _split_layer_velocity_bands.
+                 'vel_filter_mods',
+                 # SF2 velocity→attenuation modulators, defaults included (see
+                 # _zone_velocity_atten_mods), and the static initialAttenuation BEFORE
+                 # its [0, 1440] clamp — FluidSynth clamps the SUM of the two.
+                 'vel_atten_mods', 'atten_raw_cb')
 
 
 class SF2:
@@ -1633,6 +1646,211 @@ def _eval_zone_filter_at(z: 'SFZone', vel: int):
     return fc, me2
 
 
+# ── SF2 modulators (velocity → attenuation) and the note-volume axis ─────────
+# A Taud note volume is LINEAR amplitude (the mixer applies vol ÷ 63), and the same
+# number is the axis an Ixmp patch's volume range selects on. A SoundFont velocity is
+# neither: FluidSynth turns it into attenuation through the default modulator below
+# (SF2.01 §8.4.1, fluid_synth.c default_vel2att_mod) — 960 cB × concave, which is
+# −40·log10(vel/127) dB, amplitude (vel/127)² — and a bank may override its amount per
+# instrument or add to it per preset. GeneralUser-GS does both on nearly every
+# instrument (800 cB is its usual amount; 0 on its velocity-insensitive patches).
+#
+# So velocity becomes note volume through the curve the SoundFont actually applies,
+# and so does every zone's velocity range: a note then sounds at the level FluidSynth
+# gives it AND selects the layer FluidSynth selects. Mapping velocity linearly instead
+# (the old round(vel·63/127)) played a velocity-64 note 6 dB too loud, and handed a
+# tracker volume of 32 the velocity-64 layer, which the SoundFont plays 12 dB down.
+
+_DEFAULT_VEL2ATT = (0x0502, GEN_INITATTEN, 960, 0, 0)   # (src, dest, amount, amtsrc, trans)
+_DEFAULT_VEL2ATT_MODS = ((960, 0x0502, 0),)             # the same, as _zone_velocity_atten_mods emits it
+
+
+def _is_velocity_src(oper: int) -> bool:
+    """A modulator source operator reading note-on velocity (general controller 2)."""
+    return not (oper & 0x80) and (oper & 0x7F) == 2
+
+
+def _fluid_voice_mods(inst_glob, inst_local, pre_glob, pre_local, defaults=()):
+    """The modulators a FluidSynth voice ends up with (fluid_defsfont.c
+    fluid_defpreset_noteon_add_mod_to_voice): `defaults` first; then the instrument
+    zone's, a global modulator identical to a local one being dropped, each OVERWRITING
+    the amount of an identical one already there; then the preset zone's, deduplicated
+    the same way, each ADDING to an identical one (a zero-amount preset modulator is
+    skipped). Identity is fluid_mod_test_identity's — source, destination and amount
+    source; the transform is not part of it. Modulators are (src, dest, amt, amtsrc,
+    trans) tuples."""
+    def ident(m):
+        return (m[0], m[1], m[3])
+
+    def level(glob, local):
+        seen = {ident(m) for m in local}
+        return list(local) + [m for m in glob if ident(m) not in seen]
+
+    final, order = {}, []
+    def put(m):
+        final[ident(m)] = list(m)
+        order.append(ident(m))
+    for m in defaults:
+        put(m)
+    for m in level(inst_glob, inst_local):
+        k = ident(m)
+        if k in final:
+            final[k][2] = m[2]
+        else:
+            put(m)
+    for m in level(pre_glob, pre_local):
+        if m[2] == 0:
+            continue
+        k = ident(m)
+        if k in final:
+            final[k][2] += m[2]
+        else:
+            put(m)
+    return [tuple(final[k]) for k in order]
+
+
+def _zone_velocity_atten_mods(inst_glob, inst_local, pre_glob, pre_local) -> tuple:
+    """A zone's velocity→attenuation modulators as a canonical, hashable tuple of
+    (amount, src, amtsrc): the default vel2att modulator with the zone's overrides
+    applied, plus any further note-on-velocity modulator aimed at initialAttenuation.
+    One whose amount source is neither velocity nor none cannot be evaluated per note
+    and is left out, as for the filter. The tuple doubles as the curve's identity
+    (_vel_axis, _preset_vel_axes)."""
+    out = []
+    for (src, dest, amt, amtsrc, _trans) in _fluid_voice_mods(
+            inst_glob, inst_local, pre_glob, pre_local, (_DEFAULT_VEL2ATT,)):
+        if dest != GEN_INITATTEN or amt == 0:
+            continue
+        if not _is_velocity_src(src) or (amtsrc != 0 and not _is_velocity_src(amtsrc)):
+            continue
+        out.append((amt, src, amtsrc))
+    return tuple(sorted(out))
+
+
+def _mod_sum_at(mods, vel: int) -> float:
+    """Σ amount × source(vel) × amount-source(vel) over (amount, src, amtsrc) mods."""
+    return sum(amt * _mod_src_transform(src, vel) * _mod_src_transform(asrc, vel)
+               for amt, src, asrc in mods)
+
+
+def _zone_atten_at(z: 'SFZone', vel: int) -> float:
+    """The attenuation (cB) FluidSynth gives zone `z` at velocity `vel`: its static
+    initialAttenuation plus its velocity modulators, clamped to [0, 1440] as a SUM
+    (fluid_voice_update_param, GEN_ATTENUATION)."""
+    return max(0.0, min(1440.0, z.atten_raw_cb + _mod_sum_at(z.vel_atten_mods, vel)))
+
+
+def _cc_gain(val: float) -> float:
+    """FluidSynth's default CC7 and CC11 → attenuation modulators (SF2.01 §8.4.5 and
+    §8.4.7: 960 cB, concave, negative — the velocity curve's shape) as linear gain:
+    (val/127)², and −95 dB at 0."""
+    return 10.0 ** (-960.0 * _mod_src_transform(0x0500, val) / 200.0)
+
+
+def _gain_to_v6(level: float) -> int:
+    """A linear level on the 0..63 note-volume scale → the nearest note volume 1..63 IN
+    DECIBELS (the crossover between x and x + 1 is their geometric mean). Never 0: a
+    note the source plays must sound, and the quietest step (−36 dB) is the nearest one
+    to anything below it."""
+    x = int(level)
+    if x < 1:
+        return 1
+    if x >= 63:
+        return 63
+    return x + 1 if level * level >= x * (x + 1) else x
+
+
+class VelAxis:
+    """One velocity → note-volume map, built from a velocity→attenuation curve.
+
+    att[vel] is the curve's attenuation (cB) relative to its loudest velocity, and
+    fwd[vel] the note volume that velocity plays at: att as linear amplitude on the
+    0..63 scale, rounded in decibels (fwd[0] = 0). rep[x] is the velocity note volume x
+    stands for — the median velocity mapping to x, or, for an x nothing maps to, the
+    velocity whose level is nearest in decibels; x = 0 goes with the quietest step.
+    A zone's volume range is every x whose rep lies in its velocity range (vrange), so
+    velocity-adjacent zones meet without gap or overlap, and a note written at
+    fwd[vel] selects the zone FluidSynth selects — unless the velocities sharing its x
+    straddle a zone boundary and it is on the minority side."""
+    __slots__ = ('att', 'fwd', 'rep')
+
+    def __init__(self, mods):
+        att = [_mod_sum_at(mods, v) for v in range(1, 128)]
+        top = min(att)
+        self.att = [0.0] + [a - top for a in att]
+        lvl = [0.0] + [63.0 * 10.0 ** (-a / 200.0) for a in self.att[1:]]
+        self.fwd = [0] + [_gain_to_v6(lvl[v]) for v in range(1, 128)]
+        rep = []
+        for x in range(64):
+            pre = [v for v in range(1, 128) if self.fwd[v] == x]
+            if pre:
+                rep.append(pre[len(pre) // 2])
+            else:
+                lx = math.log(max(x, 1))
+                rep.append(min(range(1, 128), key=lambda v: abs(math.log(lvl[v]) - lx)))
+        rep[0] = rep[1]
+        self.rep = rep
+
+    def monotonic(self) -> bool:
+        """True when the curve never gets quieter as velocity rises."""
+        return all(self.att[v] >= self.att[v + 1] for v in range(1, 127))
+
+    def vrange(self, vlo: int, vhi: int):
+        """(vol_lo, vol_hi) standing for the velocity range [vlo, vhi], or None when
+        no note volume does (a sliver of velocities too narrow for the 6-bit axis)."""
+        xs = [x for x in range(64) if vlo <= self.rep[x] <= vhi]
+        return (xs[0], xs[-1]) if xs else None
+
+
+_AXIS_CACHE = {}
+
+
+def _vel_axis(mods: tuple) -> VelAxis:
+    """The (shared, immutable) axis of a velocity-curve identity tuple."""
+    ax = _AXIS_CACHE.get(mods)
+    if ax is None:
+        ax = _AXIS_CACHE[mods] = VelAxis(mods)
+    return ax
+
+
+# An axis must tell a key's velocity layers apart. A curve spanning under 6 dB end to
+# end maps them onto a handful of note volumes, so a key that HAS layers falls back to
+# the default curve, and its zones keep their own flat level through gain correction.
+MIN_AXIS_SPAN_CB = 60.0
+
+
+def _preset_vel_axes(zones: list) -> list:
+    """The note-volume axis (VelAxis) of each MIDI key 0..127 of a preset.
+
+    A Taud note carries ONE volume, and every layer of a Metainstrument selects on it,
+    so all the zones sounding at a key must share one axis — otherwise the layers would
+    disagree about which velocity a volume stands for (the GeneralUser-GS snare lays a
+    529 cB zone over a 900 cB one in every velocity band). The axis is the curve that
+    covers most of the key's velocity range, summed over its zones (first seen wins a
+    tie); a minority layer keeps its own level through gain correction
+    (_split_layer_velocity_bands). A key whose winning curve is not monotonic, or is
+    too flat to tell its velocity layers apart, takes the default curve instead.
+    Built from the RAW zone list — stereo merging never changes a zone's keys,
+    velocities or curve — so build_presets and assign_note_volumes always agree."""
+    default = _vel_axis(_DEFAULT_VEL2ATT_MODS)
+    axes = []
+    for key in range(128):
+        weight, layered = {}, False
+        for z in zones:
+            if z.keylo <= key <= z.keyhi:
+                weight[z.vel_atten_mods] = (weight.get(z.vel_atten_mods, 0)
+                                            + z.velhi - z.vello + 1)
+                layered = layered or z.vello > 1 or z.velhi < 127
+        if not weight:
+            axes.append(default)
+            continue
+        ax = _vel_axis(max(weight, key=weight.get))
+        if not ax.monotonic() or (layered and ax.att[1] < MIN_AXIS_SPAN_CB):
+            ax = default
+        axes.append(ax)
+    return axes
+
+
 def parse_sf2(path: str) -> SF2:
     f = open(path, 'rb')
     hdr = f.read(12)
@@ -1785,9 +2003,13 @@ def parse_sf2(path: str) -> SF2:
                 # FluidSynth scales the preset+instrument initialAttenuation by 0.4
                 # (EMU_ATTENUATION_FACTOR) before clamping to the SF2 [0, 1440] cB range;
                 # match it so instrument volumes line up with FluidSynth's rendering.
-                z.atten_cb = max(0, min(1440, EMU_ATTENUATION_FACTOR
-                                        * (iz.get(GEN_INITATTEN, 0)
-                                           + pz.get(GEN_INITATTEN, 0))))
+                z.atten_raw_cb = EMU_ATTENUATION_FACTOR * (iz.get(GEN_INITATTEN, 0)
+                                                           + pz.get(GEN_INITATTEN, 0))
+                z.atten_cb = max(0, min(1440, z.atten_raw_cb))
+                # Velocity→attenuation: the default modulator as this zone overrides
+                # it. Not folded here — it decides the note-volume axis (VelAxis).
+                z.vel_atten_mods = _zone_velocity_atten_mods(iglob_m, iz_mods,
+                                                             pglob_m, pz_mods)
                 # Static low-pass filter. initialFilterFc is absolute cents (default
                 # 13500 ≈ open); initialFilterQ is cB of resonance (default 0).
                 z.filter_fc = iz.get(GEN_FILTERFC, 13500) + pz.get(GEN_FILTERFC, 0)
@@ -1969,22 +2191,47 @@ def apply_exclusive_class(song, sf, perc_force):
                f"{len(groups)} group(s)")
 
 
-def _rect_of_zone(z: SFZone):
-    """Zone key/vel ranges → Taud (pitch_lo, pitch_hi, vol_lo, vol_hi).
-    Pitch bounds sit on half-semitone boundaries so triggers carrying an
-    initial pitch bend (< 50 cents) still land inside the right rectangle;
-    adjacent zones stay disjoint. Velocity per Ixmp note 5: round(v·63/127)."""
-    if z.keylo <= 0:
-        plo = 0x0000
-    else:
-        plo = max(0, min(0xFFFF, round(TAUD_C4 + (z.keylo - 0.5 - 60) * UNITS_PER_SEMI)))
-    if z.keyhi >= 127:
-        phi = 0xFFFF
-    else:
-        phi = max(0, min(0xFFFF, round(TAUD_C4 + (z.keyhi + 0.5 - 60) * UNITS_PER_SEMI) - 1))
-    vlo = round(z.vello * 63 / 127)
-    vhi = round(z.velhi * 63 / 127)
-    return (plo, phi, vlo, vhi)
+def assign_note_volumes(song, sf, perc_force) -> None:
+    """Give every note its volume: its velocity through its preset's note-volume axis
+    at its key (VelAxis.fwd) — the level FluidSynth plays it at, relative to the
+    preset's loudest velocity there. build_presets derives the patches' volume ranges
+    from the same axes, so the note also selects the layer FluidSynth selects."""
+    axes_of = {}
+    for n in song.notes:
+        axes = axes_of.get(n.inst_key)
+        if axes is None:
+            res = resolve_preset(sf, n.inst_key, perc_force)
+            axes = axes_of[n.inst_key] = _preset_vel_axes(res[1] if res else [])
+        n.vol6 = axes[max(0, min(127, n.key))].fwd[max(1, min(127, n.vel))]
+
+
+def _rects_of_zone(z: SFZone, axes: list) -> list:
+    """Zone key/vel ranges → [((pitch_lo, pitch_hi, vol_lo, vol_hi), axis)], one per run
+    of keys sharing a note-volume axis — a single rect unless the zone spans keys whose
+    axes differ. Pitch bounds sit on half-semitone boundaries so triggers carrying an
+    initial pitch bend (< 50 cents) still land inside the right rectangle; adjacent
+    zones stay disjoint. The volume range is the axis's image of the velocity range
+    (VelAxis.vrange); a run no note volume reaches yields nothing."""
+    out = []
+    k = z.keylo
+    while k <= z.keyhi:
+        ax = axes[min(k, 127)]
+        kb = k
+        while kb < z.keyhi and axes[min(kb + 1, 127)] is ax:
+            kb += 1
+        vr = ax.vrange(z.vello, z.velhi)
+        if vr is not None:
+            if k <= 0:
+                plo = 0x0000
+            else:
+                plo = max(0, min(0xFFFF, round(TAUD_C4 + (k - 0.5 - 60) * UNITS_PER_SEMI)))
+            if kb >= 127:
+                phi = 0xFFFF
+            else:
+                phi = max(0, min(0xFFFF, round(TAUD_C4 + (kb + 0.5 - 60) * UNITS_PER_SEMI) - 1))
+            out.append(((plo, phi, vr[0], vr[1]), ax))
+        k = kb + 1
+    return out
 
 
 def _rect_subtract(r, k):
@@ -2228,49 +2475,56 @@ def _rect_overlap(a, b) -> bool:
     return not (p1 < q0 or p0 > q1 or v1 < w0 or v0 > w1)
 
 
-def _partition_layers(zones: list, registry: dict, max_layers: int):
+def _partition_layers(zones: list, registry: dict, max_layers: int, axes: list):
     """Split zones into disjoint layers by ITERATED first-wins disjointify.
 
     Layer 0 is the classic disjointify result: each zone is rectangle-SUBTRACTED
     against the rects already placed in the layer, so its non-overlapping pieces
-    tile in. This is essential — the velocity axis quantises 0..127 → 0..63, so
-    adjacent SF2 velocity splits round to ranges that touch/overlap by ~1 unit;
-    subtraction absorbs that boundary sliver into the first zone instead of
-    spawning a spurious extra layer (which would DOUBLE the level at boundary
-    velocities). Only a zone that is *fully* covered by the layer below — SF2's
-    real simultaneous layering, detune-stacks, duplicate zones — spills down to
-    the next layer, where the same disjointify runs over the spilled set. Returns
-    ([ [(rect, zone, ms), …] per layer ], dropped_zone_count)."""
+    tile in. Velocity-adjacent zones already meet exactly on the note-volume axis
+    (VelAxis.vrange), but partial overlaps remain — a key range one zone shares
+    with another, a velocity range that straddles a neighbour's — and subtraction
+    gives that sliver to the first zone instead of spawning a spurious extra layer
+    (which would DOUBLE the level there). Only a zone that is *fully* covered by the
+    layer below — SF2's real simultaneous layering, detune-stacks, duplicate zones —
+    spills down to the next layer, where the same disjointify runs over the spilled
+    set. `axes` is the preset's _preset_vel_axes. Returns ([ [(rect, zone, ms,
+    axis), …] per layer ], dropped_zone_count, unreachable_zone_count) — an
+    unreachable zone covers only velocities no note volume stands for."""
     remaining = []
+    unreachable = 0
     for z in zones:
         ms = MonoSample(z)
         if ms.frames < 2:
             continue
+        rects = _rects_of_zone(z, axes)
+        if not rects:
+            unreachable += 1
+            continue
         ms = registry.setdefault(ms.key(), ms)
-        remaining.append((z, ms))
+        remaining.append((z, ms, rects))
 
     layers = []
     while remaining and len(layers) < max_layers:
         kept_rects = []
         layer = []
         spill = []
-        for z, ms in remaining:
-            pieces = [_rect_of_zone(z)]
+        for z, ms, rects in remaining:
+            pieces = list(rects)
             for k in kept_rects:
-                pieces = [p2 for p in pieces for p2 in _rect_subtract(p, k)]
+                pieces = [(p2, ax) for (p, ax) in pieces for p2 in _rect_subtract(p, k)]
                 if not pieces:
                     break
-            pieces = [p for p in pieces if p[0] <= p[1] and p[2] <= p[3]]
+            pieces = [(p, ax) for (p, ax) in pieces if p[0] <= p[1] and p[2] <= p[3]]
             if not pieces:
-                spill.append((z, ms))          # fully overlapped → next layer
+                spill.append((z, ms, rects))    # fully overlapped → next layer
                 continue
-            for p in pieces:
+            for p, ax in pieces:
                 kept_rects.append(p)
-                layer.append((p, z, ms))
+                layer.append((p, z, ms, ax))
         if layer:
             layers.append(layer)
         remaining = spill
-    return layers, len(remaining)
+    return layers, len(remaining), unreachable
 
 
 def _build_layer_instrument(name: str, items: list, trig: dict, trim: bool = False):
@@ -2303,55 +2557,74 @@ def _build_layer_instrument(name: str, items: list, trig: dict, trim: bool = Fal
     return ti
 
 
-def _v6_to_midi_velocity(v6: int) -> int:
-    """Representative MIDI note-on velocity (1..127) for a Taud volume level v6
-    (0..63). Inverse of the converter's round(vel·63/127) trigger mapping."""
-    return max(1, min(127, round(v6 * 127.0 / 63.0)))
-
-
-# Cap on velocity bands a single filtered zone is split into. Bounds patch growth
-# so a velocity-rich song cannot blow a sustained instrument past the engine's
+# Cap on velocity bands a single zone is split into. Bounds patch growth so a
+# velocity-rich song cannot blow a sustained instrument past the engine's
 # ~192-patch/instrument cap (which would silently drop bands → wrong-sample fallback,
 # the same failure mode as the meta velocity-patch bug). 12 bands ≈ 5-v6 (~550-cent)
 # brightness steps — finer than perceptible on a sustained note.
 MAX_VEL_BANDS = 12
 
+# A zone's level error across its own volume range (cB) beyond which it is banded,
+# each band carrying its own correction; within it one constant correction serves.
+GAIN_BAND_TOL_CB = 10.0
 
-def _split_layer_velocity_filter(items: list, trig: dict) -> list:
-    """Split each disjoint layer item ((pitch,vol)-rect, zone, ms) carrying velocity→
-    filter modulators into per-velocity-band copies, each with the cutoff / mod-env-to-
-    filter FluidSynth computes at that velocity.
+
+def _split_layer_velocity_bands(items: list, trig: dict) -> list:
+    """Give each disjoint layer item ((pitch,vol)-rect, zone, ms, axis) what FluidSynth
+    gives its zone across the velocities its volume range stands for, and return plain
+    (rect, zone, ms) items.
+
+    Two things vary with velocity inside one rect. The cutoff, when the zone carries
+    velocity→filter modulators. And the level: the note volume already plays the key's
+    AXIS curve, so the patch's initialAttenuation makes up the rest of the zone's OWN
+    attenuation — static plus velocity, clamped as a sum — at each velocity. For a zone
+    on its key's axis that rest is its static attenuation, constant, exactly what the
+    patch always carried; a minority layer (a curve other than its key's) gets one that
+    varies with velocity, and may be negative — a boost. Either kind of variation splits
+    the item into per-velocity-band copies, each evaluated at its band's representative
+    velocity (VelAxis.rep); a level that stays within GAIN_BAND_TOL_CB across the rect is
+    applied as one constant instead.
 
     MUST run AFTER _partition_layers, not before. SF2 layering (e.g. the GeneralUser-GS
     closed hi-hat's bright 'Soft' sample over its filtered 'Hard' sample) is realised by
     the partition spilling a zone that is FULLY covered by a layer-mate into its own
-    layer (so both sound). Fragmenting a zone into trigger-aligned filter bands BEFORE
-    the partition makes a once-fully-covered mate only PARTIALLY covered, so disjointify
+    layer (so both sound). Fragmenting a zone into trigger-aligned bands BEFORE the
+    partition makes a once-fully-covered mate only PARTIALLY covered, so disjointify
     subtracts (and loses) the overlap instead of spilling it — the bright 'Soft' layer
     vanished at the played velocities and the kit went muffled. Splitting per-layer here
     leaves the partition's coverage/spill decisions on whole zones intact.
 
     Bands TILE the item's OWN v6 rect (no gaps → no canonical fall-through), grouped at the
-    distinct trigger v6 into at most [MAX_VEL_BANDS] contiguous buckets."""
+    distinct trigger v6 into at most [MAX_VEL_BANDS] contiguous buckets — over the whole
+    rect when no trigger lands in it (a level correction must hold wherever it is played)."""
     v6s = sorted({v6 for (_nv, v6) in trig})
     out = []
-    for (rect, z, ms) in items:
-        fc_mods, me2_mods = z.vel_filter_mods
+    for (rect, z, ms, ax) in items:
         plo, phi, vlo, vhi = rect
-        played = [v6 for v6 in v6s if vlo <= v6 <= vhi] if (fc_mods or me2_mods) else []
-        if not played:
+        played = [v6 for v6 in v6s if vlo <= v6 <= vhi]
+        xs = played or list(range(vlo, vhi + 1))
+        fc_mods, me2_mods = z.vel_filter_mods
+        filtered = bool(played) and bool(fc_mods or me2_mods)
+        atten = {x: _zone_atten_at(z, ax.rep[x]) - ax.att[ax.rep[x]] for x in xs}
+        if not filtered and max(atten.values()) - min(atten.values()) <= GAIN_BAND_TOL_CB:
+            a = atten[xs[len(xs) // 2]]
+            if atten_cb_to_octet(a) != atten_cb_to_octet(z.atten_cb):
+                z = copy.copy(z)                    # __slots__ shallow copy, own level
+                z.atten_cb = a
             out.append((rect, z, ms))
             continue
-        gsize = max(1, (len(played) + MAX_VEL_BANDS - 1) // MAX_VEL_BANDS)
-        groups = [played[i:i + gsize] for i in range(0, len(played), gsize)]
+        gsize = max(1, (len(xs) + MAX_VEL_BANDS - 1) // MAX_VEL_BANDS)
+        groups = [xs[i:i + gsize] for i in range(0, len(xs), gsize)]
         for gi, grp in enumerate(groups):
             b_lo = vlo if gi == 0 else grp[0]
             b_hi = vhi if gi == len(groups) - 1 else groups[gi + 1][0] - 1
             if b_lo > b_hi:
                 continue
-            zc = copy.copy(z)                       # __slots__ shallow copy, band-local filter
-            zc.filter_fc, zc.me2filt = _eval_zone_filter_at(
-                z, _v6_to_midi_velocity((grp[0] + grp[-1]) // 2))
+            vel = ax.rep[(grp[0] + grp[-1]) // 2]
+            zc = copy.copy(z)                       # __slots__ shallow copy, band-local
+            if filtered:
+                zc.filter_fc, zc.me2filt = _eval_zone_filter_at(z, vel)
+            zc.atten_cb = _zone_atten_at(z, vel) - ax.att[vel]
             out.append(((plo, phi, b_lo, b_hi), zc, ms))
     return out
 
@@ -2373,16 +2646,21 @@ def build_presets(sf: SF2, slot_keys: list, triggers: dict, perc_force,
             presets[ik] = ('(missing preset)', [])
             continue
         name, zones = res
+        axes = _preset_vel_axes(zones)          # from the raw zones — see its docstring
         zones = merge_stereo_zones(zones, sf.shdrs, keep_stereo)
         trig = triggers.get(ik, {})
-        layer_items, dropped = _partition_layers(zones, registry, max_layers)
+        layer_items, dropped, unreachable = _partition_layers(zones, registry,
+                                                              max_layers, axes)
         if dropped:
             vprint(f"  warning: '{name}': {dropped} zone(s) exceed the "
                    f"{max_layers}-layer cap and were dropped (raise --max-layers)")
-        # Per-velocity filter banding runs per-layer, AFTER the partition, so SF2 layering
-        # (the spill of fully-covered layer-mates) is decided on whole zones — see
-        # _split_layer_velocity_filter.
-        layer_items = [_split_layer_velocity_filter(items, trig) for items in layer_items]
+        if unreachable:
+            vprint(f"  '{name}': {unreachable} zone(s) span velocities too narrow for "
+                   f"any note volume to select — dropped")
+        # Per-velocity banding (filter and level) runs per-layer, AFTER the partition, so
+        # SF2 layering (the spill of fully-covered layer-mates) is decided on whole zones
+        # — see _split_layer_velocity_bands.
+        layer_items = [_split_layer_velocity_bands(items, trig) for items in layer_items]
         layers = [ti for items in layer_items
                   if (ti := _build_layer_instrument(name, items, trig, trim)) is not None]
         if not layers and layer_items:
@@ -3379,7 +3657,7 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
         nv = key_to_noteval(n.key + n.bend0)
         c['note'] = nv
         c['inst'] = n.slot
-        c['vol']  = (SEL_SET, round(n.vel * 63 / 127))
+        c['vol']  = (SEL_SET, n.vol6)
         st = song.channels[n.ch]
         if st.cc10_ft:
             pan = _curve_at(st.cc10_ft, st.cc10_val, n.start_ft + shift_ft, 64)
@@ -3482,7 +3760,8 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
     if seg_count:
         vprint(f"  bend: {seg_count} portamento segment(s) emitted")
 
-    # ── Pass 4: M channel volume (CC7 × CC11), per voice chronologically ──
+    # ── Pass 4: M lane volume (CC7 × CC11 through FluidSynth's default curves), per
+    #    lane chronologically ──
     by_voice = {}
     for n in notes:
         by_voice.setdefault(n.voice, []).append(n)
@@ -3494,9 +3773,10 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
             st = song.channels[n.ch]
             for r in range(n.start_ft // speed, n.end_ft // speed + 1):
                 ftr = r * speed + shift_ft
-                m = round(_curve_at(st.cc7_ft,  st.cc7_val,  ftr, 100) / 127
-                          * _curve_at(st.cc11_ft, st.cc11_val, ftr, 127) / 127
-                          * 63)
+                c7  = _curve_at(st.cc7_ft,  st.cc7_val,  ftr, 100)
+                c11 = _curve_at(st.cc11_ft, st.cc11_val, ftr, 127)
+                m = (_gain_to_v6(63 * _cc_gain(c7) * _cc_gain(c11))
+                     if c7 > 0 and c11 > 0 else 0)
                 if m == m_state:
                     continue
                 c = _cell(cells, v, r)
@@ -4507,6 +4787,7 @@ def load_midi_song(path: str, sf: SF2, args):
 
     # SF2 exclusiveClass percussion choking (closed hi-hat silences open hi-hat, etc.).
     apply_exclusive_class(song, sf, args.perc_force_mapping)
+    assign_note_volumes(song, sf, args.perc_force_mapping)
     return song, rpb, speed
 
 
@@ -4521,7 +4802,7 @@ def collect_triggers(song: Song, slot_keys: list, seen_keys: set,
             seen_keys.add(n.inst_key)
             slot_keys.append(n.inst_key)
         t = triggers.setdefault(n.inst_key, {})
-        k = (key_to_noteval(n.key + n.bend0), round(n.vel * 63 / 127))
+        k = (key_to_noteval(n.key + n.bend0), n.vol6)
         t[k] = t.get(k, 0) + 1
 
 

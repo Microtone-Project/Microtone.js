@@ -91,8 +91,8 @@
     "Huygens_clock": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "frames": 960000,
-      "u8": "245e07bd58f75b593afc0854fe076c7e86777dd5eaa5759c581cdb5cb44705d2",
-      "f32": "e0b8fe109b4ce39f6bd61fcf104ec65a839fcef457d2bc5c8c384b855f3c74cc"
+      "u8": "2bf2a9b45275d1bd2f6a920eb68ae0d62c4bbe1611cdf5c6dceba24aa257f0c6",
+      "f32": "fe1fe874eb0e1a176549f62e0d3c0c75df794f9dbeb86fce82da3afd5259a337"
     }
   }
 }

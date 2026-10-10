@@ -23,6 +23,9 @@ export const BPM = 120;
 export const GLOBAL_VOLUME = 255;
 export const MIXING_VOLUME = 100;
 export const INST_NAMES = { 1: "Standard Kit" };
+/** Every layer's mix octet (§7.5's decibel octets, $9F = unity), per metainstrument
+ *  slot: the tines up 3 dB ($B7), the strings down 3 dB ($87). */
+export const LAYER_MIX = { 3: 0xb7, 6: 0x87 };
 // trim → high-pass → EQ → compressor → width → limiter. The EQ lifts the lows
 // and the top towards the other demos' tonal balance (octave-band LTAS).
 export const MASTER = {

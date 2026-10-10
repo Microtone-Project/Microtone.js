@@ -965,7 +965,7 @@ Patch records are **variable length**. Each begins with a version byte that is r
 
 The first four fields define a rectangle over pitch × volume space. **Patch selection walks the list in order and the first patch whose rectangle contains the trigger wins**; when nothing matches, the base record's sample fields are used unchanged. The "no override" sentinels let a converter that has no per-sample data for one axis defer to the base record.
 
-The IT and XM formats do not define a velocity axis; those converters leave the volume range at 0…63. SoundFont does, and the velocity axis is `round(velocity × 63 ÷ 127)`.
+The IT and XM formats do not define a velocity axis; those converters leave the volume range at 0…63. SoundFont does, but its velocity is not an amplitude, and the volume range is: it is a range of **note volume**, which the engine plays as linear amplitude. A SoundFont converter therefore carries a zone's velocity range through the SoundFont's own velocity curve, onto the note volumes that sound at those velocities' loudness ([Conversion Notes §7.4](TAUD_CONVERSION_NOTES.md#7-4-soundfont-presets-to-taud-instruments)). Rounding velocity linearly onto 0…63 instead makes a volume choose the layer the SoundFont plays at a different loudness.
 
 **The sentinels are the only gate.** A `default pan` other than `$FF` is applied at every trigger the patch wins, whether or not the base record's pan envelope carries its `p` bit; likewise a non-zero `default note volume` and an auto-vibrato waveform other than `$FF`. A patch may bring its own pan envelope, whose LOOP word replaces the base record's, so a producer **MUST NOT** rely on `p` to enable or suppress a patch's pan — set `$FF` to defer instead.
 
