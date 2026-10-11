@@ -4,6 +4,12 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-11
+
+11-TET, 13-TET, 23-TET and 26-TET joins the tunings, in the tracker and in Microtone Touch.
+
+- **The chord maker does not know them**: 13- and 26-TET does not produce extraclassical nor neutral chords, and 11- and 23-TET are known as *oddball EDO*, meaning they refuse to be bound by the standard musical theory.
+
 ## 2026-10-10
 
 Instruments from a SoundFont now choose their velocity layer by loudness, so the volume column plays the sample the SoundFont would play at that volume, and converted MIDI files keep their dynamics.
