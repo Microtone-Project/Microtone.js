@@ -211,6 +211,26 @@ export const ICON = {
     '<circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>' +
     '<path d="M12 12 17.6 7.4"/>' +
     '<circle cx="18" cy="7" r="2.4" fill="currentColor" stroke="none"/>'),
+
+  // ── the Motif editor's code commands ──
+  /** Rename a name everywhere it is used: a pencil over a line of text. */
+  rename: SVG(
+    '<path d="M2.5 20.5h19"/>' +
+    '<path d="M5.5 16.2 15.6 6.1a2 2 0 0 1 2.8 0 2 2 0 0 1 0 2.8L8.3 19H5.5z"/>'),
+  /** Go to where a name is declared: an arrow into the line it starts on. */
+  declaration: SVG(
+    '<path d="M2.5 12h11"/><path d="M9.5 7.5 14 12l-4.5 4.5"/>' +
+    '<path d="M18.5 4v16"/><path d="M18.5 4h3M18.5 20h3"/>'),
+  /** Call hierarchy: one function at the top, the ones it reaches below. */
+  hierarchy: SVG(
+    '<rect x="8" y="2.5" width="8" height="5" rx="1.2" fill="currentColor" stroke="none"/>' +
+    '<rect x="2.5" y="16.5" width="7" height="5" rx="1.2"/>' +
+    '<rect x="14.5" y="16.5" width="7" height="5" rx="1.2"/>' +
+    '<path d="M12 7.5v4.5M6 16.5V12h12v4.5"/>'),
+  /** Preview what one call writes: a play mark over a short run of notes. */
+  preview: SVG(
+    '<path d="M2.5 20.5h4M9 17h4M15.5 13.5h6"/>' +
+    '<path d="M7 3.5 15 8l-8 4.5z" fill="currentColor"/>'),
 };
 
 // ── button icons (item 107) ───────────────────────────────────────────────

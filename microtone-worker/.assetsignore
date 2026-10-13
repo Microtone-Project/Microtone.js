@@ -17,3 +17,7 @@ node_modules/
 # A local symlink to the full soundfont, over the 25 MiB asset limit (the site
 # ships GeneralUser-GS.taud.sf2.gz instead).
 GeneralUser-GS.sf2
+
+# The demo songs' build recipe: the songs ship, the Makefile that builds them
+# (from their Motif programs) does not.
+assets/demo_projects/Makefile

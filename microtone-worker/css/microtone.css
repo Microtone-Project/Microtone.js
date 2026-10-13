@@ -7,7 +7,7 @@
  *  attribute on <html>.
  * ══════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@450&family=Open+Sans:ital,wdth,wght@0,75..100,300..800;1,75..100,300..800&family=Geist:wght@400..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,450;0,700;1,450&family=Open+Sans:ital,wdth,wght@0,75..100,300..800;1,75..100,300..800&family=Geist:wght@400..900&display=swap');
 
 /* ── THEME: DARK (default) — taut.js-inspired slate + amber ───────────── */
 :root,
@@ -138,6 +138,16 @@
 
   --brand: #ff4362;
   --brand2: #eeeeee;
+
+  /* the Motif editor — the Dimtello scheme: a grey page, whatever the chrome */
+  --code-bg: #bcbcbc;  --code-fg: #0c0a0a;  --code-caret-row: #cccccc;
+  --code-sel: #a6d2ff;  --code-occ-read: #c5d407;  --code-occ-write: #c5d407;
+  --code-gutter-bg: #a4a4a4;  --code-gutter-fg: #363636;  --code-gutter-here: #363636;
+  --code-kw: #006077;  --code-decl: #74118c;  --code-num: #b75100;
+  --code-str: #ac0202;  --code-esc: #0037a6;  --code-pitch: #8f009e;
+  --code-com: #707070;  --code-fn: #00559b;  --code-fn-decl: #005bab;
+  --code-field: #8f009e;  --code-param: #800000;  --code-op: #174ad4;
+  --code-name: #8f009e;  --code-err: #ef2424;
 }
 
 /* ── THEME: DIM — neutral grey, midway between dark and light ──────────
@@ -218,6 +228,16 @@
 
   --brand: #ff4362;
   --brand2: #eeeeee;
+
+  /* the Motif editor — the Dimtello scheme: a grey page, whatever the chrome */
+  --code-bg: #bcbcbc;  --code-fg: #0c0a0a;  --code-caret-row: #cccccc;
+  --code-sel: #a6d2ff;  --code-occ-read: #c5d407;  --code-occ-write: #c5d407;
+  --code-gutter-bg: #a4a4a4;  --code-gutter-fg: #363636;  --code-gutter-here: #363636;
+  --code-kw: #006077;  --code-decl: #74118c;  --code-num: #b75100;
+  --code-str: #ac0202;  --code-esc: #0037a6;  --code-pitch: #8f009e;
+  --code-com: #707070;  --code-fn: #00559b;  --code-fn-decl: #005bab;
+  --code-field: #8f009e;  --code-param: #800000;  --code-op: #174ad4;
+  --code-name: #8f009e;  --code-err: #ef2424;
 }
 
 /* ── THEME: LIGHT (preliminary — tune freely) ─────────────────────────── */
@@ -295,6 +315,16 @@
 
   --brand: #f20046;
   --brand2: #404758;
+
+  /* the Motif editor — the Syntello scheme */
+  --code-bg: #fdfdfd;  --code-fg: #1f2124;  --code-caret-row: #eef4fc;
+  --code-sel: #a6d2ff;  --code-occ-read: #f2ff31;  --code-occ-write: #ffe995;
+  --code-gutter-bg: #f2f2f2;  --code-gutter-fg: #888888;  --code-gutter-here: #0033ff;
+  --code-kw: #00627a;  --code-decl: #74118c;  --code-num: #b14d00;
+  --code-str: #bf0303;  --code-esc: #0037a6;  --code-pitch: #871094;
+  --code-com: #707070;  --code-fn: #00559b;  --code-fn-decl: #00559b;
+  --code-field: #871094;  --code-param: #800000;  --code-op: #00559b;
+  --code-name: #871094;  --code-err: #f50000;
 }
 
 /* ── THEME: WARMTH — "Microtone: Analogue Warmth Edition" ──────────────
@@ -400,6 +430,16 @@
     inset 0 -1px 0 rgba(92, 73, 33, 0.20);
   --abs-cap: linear-gradient(180deg, #ece2c6 0%, #e0d5b4 52%, #cec095 100%);
   --abs-cap-down: linear-gradient(180deg, #cdbf94 0%, #ded3b1 100%);
+
+  /* the Motif editor — the Syntello scheme */
+  --code-bg: #fdfdfd;  --code-fg: #1f2124;  --code-caret-row: #eef4fc;
+  --code-sel: #a6d2ff;  --code-occ-read: #f2ff31;  --code-occ-write: #ffe995;
+  --code-gutter-bg: #f2f2f2;  --code-gutter-fg: #888888;  --code-gutter-here: #0033ff;
+  --code-kw: #00627a;  --code-decl: #74118c;  --code-num: #b14d00;
+  --code-str: #bf0303;  --code-esc: #0037a6;  --code-pitch: #871094;
+  --code-com: #707070;  --code-fn: #00559b;  --code-fn-decl: #00559b;
+  --code-field: #871094;  --code-param: #800000;  --code-op: #00559b;
+  --code-name: #871094;  --code-err: #f50000;
 }
 
 /* ── CANVAS GRID FONT ──────────────────────────────────────────────────
@@ -1073,13 +1113,15 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
     "start  recent"
     "demos  demos"
     "news   news"
-    "banner banner";
+    "banner banner"
+    "friends friends";
 }
 .wc-start { grid-area: start; }
 .wc-recent { grid-area: recent; }
 .wc-demos { grid-area: demos; }
 .wc-news { grid-area: news; }
 .wc-banner { grid-area: banner; }
+.wc-friends { grid-area: friends; }
 
 .wc-panel {
   display: flex;
@@ -1277,10 +1319,24 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
   font-size: 0.87rem;
 }
 
+/* Sites we like (item 211) — 88x31 buttons at their own pixels, never scaled. */
+.wc-friends-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.wc-friends-row a { display: block; line-height: 0; }
+.wc-friends-row img {
+  width: 88px;
+  height: 31px;
+  object-fit: none;
+  image-rendering: pixelated;
+}
+.wc-friends-row a:hover img, .wc-friends-row a:focus-visible img {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
 @media (max-width: 760px) {
   .wc-grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "start" "recent" "demos" "news" "banner";
+    grid-template-areas: "start" "recent" "demos" "news" "banner" "friends";
   }
   .wc-brand { font-size: 2.1rem; }
   .welcome-view { padding: 1.1rem 0.8rem 1.6rem; }
@@ -2882,19 +2938,27 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .motif-ref { color: var(--dim); text-decoration: none; }
 .motif-ref:hover { color: var(--fg); }
 .motif-state { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.motif-main { flex: 1 1 auto; min-height: 6rem; display: flex; position: relative; }
 .motif-editor {
   flex: 1 1 auto;
-  min-height: 6rem;
+  min-width: 0;
   display: flex;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--panel-2);
+  background: var(--code-bg);
   overflow: hidden;
 }
-.motif-gutter, .motif-text {
-  font-family: "Roboto Mono", monospace;
+/* One face, one size, no synthesised bold or italic and no kerning: the
+   highlighted <pre> sits under the textarea glyph for glyph. */
+.motif-gutter, .motif-hl, .motif-text {
+  font-family: "Roboto Mono", ui-monospace, monospace;
   font-size: 0.85rem;
   line-height: 1.45;
+  font-synthesis: none;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+  tab-size: 2;
   margin: 0;
   padding: 0.4rem 0.5rem;
 }
@@ -2902,26 +2966,152 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   flex: none;
   min-width: 3.2em;
   text-align: right;
-  color: var(--dim);
-  background: var(--panel);
-  border-right: 1px solid var(--border);
+  color: var(--code-gutter-fg);
+  background: var(--code-gutter-bg);
   overflow: hidden;
   user-select: none;
 }
-.motif-gutter .motif-err-line { color: var(--err-fg); font-weight: 600; }
+.motif-gutter .motif-here { color: var(--code-gutter-here); }
+.motif-gutter .motif-err-line { color: var(--code-err); font-weight: 700; }
+.motif-code { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.motif-caret-row { position: absolute; left: 0; right: 0; background: var(--code-caret-row); pointer-events: none; }
+.motif-hl {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: pre;
+  color: var(--code-fg);
+  pointer-events: none;
+  will-change: transform;
+}
 .motif-text {
-  flex: 1 1 auto;
-  min-width: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   resize: none;
   border: none;
   outline: none;
   background: transparent;
-  color: var(--fg);
+  color: transparent;
+  caret-color: var(--code-fg);
   white-space: pre;
   overflow: auto;
-  tab-size: 2;
 }
+/* the selection is drawn under the text (.motif-marks), so the textarea's own
+   is invisible */
+.motif-text::selection { background: transparent; color: transparent; }
+.motif-marks { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; }
+.motif-mark { position: absolute; }
+.motif-mark-sel { background: var(--code-sel); }
+.motif-mark-read { background: var(--code-occ-read); }
+.motif-mark-write { background: var(--code-occ-write); }
 .motif-editor:focus-within { border-color: var(--accent); }
+.motif-hl .t-kw { color: var(--code-kw); font-weight: 700; }
+.motif-hl .t-decl { color: var(--code-decl); font-weight: 700; }
+.motif-hl .t-num { color: var(--code-num); font-weight: 700; }
+.motif-hl .t-str { color: var(--code-str); }
+.motif-hl .t-esc { color: var(--code-esc); }
+.motif-hl .t-pitch { color: var(--code-pitch); font-style: italic; }
+.motif-hl .t-com { color: var(--code-com); font-style: italic; }
+.motif-hl .t-fn { color: var(--code-fn); }
+.motif-hl .t-bi { color: var(--code-fn); font-style: italic; }
+.motif-hl .t-fnd { color: var(--code-fn-decl); }
+.motif-hl .t-fld { color: var(--code-field); }
+.motif-hl .t-par { color: var(--code-param); }
+.motif-hl .t-op { color: var(--code-op); }
+.motif-hl .t-name { color: var(--code-name); font-style: italic; }
+/* the side panel (Structure, Call hierarchy, Preview) and the strip of tabs
+   it folds away to */
+.motif-side {
+  flex: 0 0 17rem;
+  min-width: 0;
+  margin-left: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.motif-side[hidden] { display: none; }
+.motif-side-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.3rem 0.25rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.motif-side-title { flex: 1 1 auto; font-weight: 600; font-size: 0.85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.motif-side-head .icon-btn { padding: 0.15rem 0.3rem; font-size: 0.9rem; }
+.motif-side-body { flex: 1 1 auto; overflow: auto; padding: 0.3rem 0.4rem 0.6rem; font-size: 0.85rem; }
+.motif-side-note { color: var(--dim); margin: 0.3rem 0.2rem; font-size: 0.8rem; }
+.motif-side-sub { margin: 0.3rem 0.2rem; overflow-wrap: anywhere; }
+.motif-dock { flex: none; display: flex; flex-direction: column; gap: 0.25rem; margin-left: 0.25rem; overflow-y: auto; }
+.motif-dock-tab {
+  flex: none;
+  writing-mode: vertical-rl;
+  padding: 0.6rem 0.15rem;
+  font-size: 0.8rem;
+  color: var(--dim);
+  box-shadow: none;
+}
+.motif-dock-tab.on { color: var(--fg); border-color: var(--accent); }
+.motif-st-group h4 { margin: 0.5rem 0.2rem 0.1rem; font-size: 0.75rem; font-weight: 600; color: var(--dim); }
+.motif-tree { list-style: none; margin: 0; padding: 0 0 0 0.9rem; }
+.motif-tool > .motif-tree, .motif-st-group > .motif-tree { padding-left: 0; }
+.motif-tree-line { display: flex; align-items: center; }
+.motif-tree-row {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.08rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  font-size: 0.85rem;
+}
+.motif-tree-row:hover { background: var(--panel-2); border-color: transparent; }
+.motif-tree-name { font-family: "Roboto Mono", ui-monospace, monospace; font-size: 0.8rem; white-space: nowrap; }
+.motif-tree-detail { color: var(--dim); font-size: 0.78rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.motif-tree-count { margin-left: auto; color: var(--dim); font-size: 0.78rem; }
+.motif-twisty {
+  flex: none;
+  width: 1.2rem;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--dim);
+  font-size: 0.75rem;
+  line-height: 1;
+}
+.motif-twisty .btn-ico { transform: rotate(-90deg); }
+.motif-twisty.open .btn-ico { transform: none; }
+.motif-twisty:disabled { cursor: default; }
+.motif-calls-bar { display: flex; gap: 0.3rem; margin: 0.2rem 0.2rem 0.3rem; }
+.motif-calls-bar button { font-size: 0.8rem; }
+.motif-calls-bar button.on { border-color: var(--accent); }
+.motif-preview-table { border-collapse: collapse; margin: 0.3rem 0.2rem; font-family: "Roboto Mono", ui-monospace, monospace; font-size: 0.75rem; }
+.motif-preview-table th { text-align: left; color: var(--dim); font-weight: 600; }
+.motif-preview-table th, .motif-preview-table td { padding: 0 0.6rem 0 0; white-space: nowrap; }
+/* on a narrow screen the panel lies over the editor rather than squeezing it */
+@media (max-width: 760px) {
+  .motif-side {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 2rem;
+    width: min(17rem, calc(100% - 3rem));
+    z-index: 2;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  }
+}
 .motif-out { flex: 0 0 auto; max-height: 30%; overflow-y: auto; }
 .motif-progress { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem; }
 .motif-progress progress { width: 12rem; }

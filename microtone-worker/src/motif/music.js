@@ -15,6 +15,9 @@ import {
 } from "./values.js";
 import { tuningFrom } from "./tuning.js";
 import { mulberry32 } from "./stdlib.js";
+import { FM_MAX_OPERATORS, META_MAX_LAYERS, FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp } from "../../core/engine/inst.js";
+import { minifloatFromDouble } from "../../core/engine/minifloat.js";
+import { fmValidate } from "../doc/fmedit.js";
 
 export const KEY_OFF = 0x0001;
 export const NOTE_CUT = 0x0002;
@@ -87,18 +90,31 @@ function readOptions(value, schema, what) {
 }
 
 const SONG = {
-  title: str, composer: str, copyright: str, message: str, signature: str,
+  title: str, composer: str, copyright: str, message: str,
   tuning: any, a4: num(1, 100000), tempo: int(25, 1048), speed: int(1, 127),
   bars: int(1, 100000), bar_rows: int(1, 64), beat_rows: int(1, 255), cue_bars: int(1, 64),
   format: int(2, 3), surround: oneOf({ stereo: 0, planar: 1, spatial: 2 }),
   global_volume: int(0, 255), mixing_volume: int(0, 255), seed: int(-2147483648, 4294967295),
   soundfont: str, retune: bool,
 };
+/** The single-cycle waveforms a `wave` instrument can be: the Sample Lab's
+ *  paint presets, OPL's eight among them. */
+export const WAVES = ["sine", "triangle", "saw", "square", "noise",
+  "opl0", "opl1", "opl2", "opl3", "opl4", "opl5", "opl6", "opl7"];
 const INSTRUMENT = {
-  bank: int(0, 128), program: int(0, 127), name: str, retune: bool,
-  layer_gain: num(-86, 24), min_fadeout: int(0, 4095), fadeout: int(0, 4095),
-  nna: oneOf({ off: 0, cut: 1, continue: 2, fade: 3 }), layers: any,
+  // the source — exactly one of these
+  bank: int(0, 128), program: int(0, 127),         // a soundfont preset
+  pack: str, slot: any,                            // an instrument of a .tsii pack
+  wave: oneOf(Object.fromEntries(WAVES.map((w) => [w, w]))), length: int(2, 65535), // a waveform
+  layers: any, fm: any,                            // a metainstrument
+  // what it is called and how it plays
+  name: str, retune: bool, layer_gain: num(-86, 24), min_fadeout: int(0, 4095), fadeout: int(0, 4095),
+  nna: oneOf({ off: 0, cut: 1, continue: 2, fade: 3 }), keep_layers: any,
+  envelope: any, sustain: any, strict: bool, percussion: bool,
 };
+const LAYER = { inst: any, gain: num(-86, 24), detune: num(-9600, 9600), notes: any, vols: any, fixed: any };
+const OPERATOR = { inst: any, level: num(-86, 24), ratio: num(1 / 256, 256), detune: num(-9600, 9600), notes: any, vols: any };
+const FM = { operators: any, algorithm: str };
 const LANE = { inst: any, pan: int(0, 511), label: str, trim: num(0, 1000), jitter: int(0, 255) };
 
 // The master block: snake_case spellings of the engine's mastering record.
@@ -149,6 +165,9 @@ export class Score {
     this.seed = 1;
     this.random = mulberry32(1);
     this.log = log;
+    /** A preview's tap: {test() → is the write part of the call being
+     *  previewed, lanes: Map lane → Map row → the fields it wrote}. */
+    this.capture = null;
   }
 
   get rows() { return this.song.bars * this.song.barRows; }
@@ -175,13 +194,10 @@ export class Score {
     const surround = o.surround ?? 0;
     const format = o.format ?? (surround ? 3 : 2);
     if (format === 3 && surround === 0) throw fail("format 3 (the wide cell) is for surround songs: set surround to \"planar\" or \"spatial\"");
-    const sig = o.signature ?? "Microtone.js";
-    if (sig.length > 14 || /[^\x20-\x7e]/.test(sig)) throw fail("song's signature is up to 14 plain ASCII characters");
     const rec = value.m.get("tuning");
     this.tuning = tuningFrom(rec instanceof Rec ? null : (o.tuning ?? "12-TET"), rec instanceof Rec ? rec.m : null);
     this.song = {
       title: o.title ?? "", composer: o.composer ?? "", copyright: o.copyright ?? "", message: o.message ?? "",
-      signature: sig.padEnd(14, " "),
       a4: o.a4 ?? 440, tempo: o.tempo ?? 125, speed: o.speed ?? 6,
       bars: o.bars, barRows, beatRows: o.beat_rows ?? 4, cueBars,
       format, surround,
@@ -195,25 +211,159 @@ export class Score {
     this.needSong("an instrument");
     if (this.lanes.length) throw fail("declare every instrument before the first lane");
     if (this.instruments.length >= 255) throw fail("a song has at most 255 instruments");
-    const o = readOptions(value, INSTRUMENT, `instrument ${name}`);
-    if (o.bank === undefined || o.program === undefined) {
-      throw fail(`instrument ${name} needs bank and program: the soundfont preset it plays`);
+    const what = `instrument ${name}`;
+    const o = readOptions(value, INSTRUMENT, what);
+    const has = (k) => o[k] !== undefined;
+    const kinds = [
+      (has("bank") || has("program")) && "sf2", has("pack") && "pack", has("wave") && "wave",
+      has("layers") && "layers", has("fm") && "fm",
+    ].filter(Boolean);
+    if (!kinds.length) {
+      throw fail(`${what} needs a source: a soundfont preset (bank and program), an instrument from a pack (pack and slot), a waveform (wave), layers of other instruments (layers), or an FM rack (fm)`);
     }
-    let layers = null;
-    if (o.layers !== undefined) {
-      layers = asList(o.layers, `instrument ${name}'s layers`).map((x) => asInt(x, "a layer number"));
-      if (!layers.length) throw fail(`instrument ${name} keeps no layers`);
-    }
-    const slot = this.instruments.length + 1;
-    const inst = {
-      id: name, slot, bank: o.bank, program: o.program, name: o.name ?? null,
-      retune: o.retune ?? true, layerGain: o.layer_gain ?? null, minFadeout: o.min_fadeout ?? null,
-      fadeout: o.fadeout ?? null, nna: o.nna ?? null, layers,
+    if (kinds.length > 1) throw fail(`${what} has more than one source (${kinds.join(" and ")}); give it one`);
+    const kind = kinds[0];
+    const only = (key, kindsOk, says) => {
+      if (has(key) && !kindsOk.includes(kind)) throw fail(`${what}: ${key} is for ${says}`);
     };
-    inst.handle = new Handle("instrument", { name, slot });
+    only("slot", ["pack"], "an instrument from a pack");
+    only("length", ["wave"], "a wave instrument");
+    only("envelope", ["wave"], "a wave instrument (a soundfont's or a pack's instruments carry their own)");
+    only("sustain", ["wave"], "a wave instrument with an envelope");
+    only("keep_layers", ["sf2", "pack"], "a layered preset from a soundfont or a pack");
+    only("layer_gain", ["sf2", "pack"], "a layered preset from a soundfont or a pack (a layers instrument gives each layer its own gain)");
+    only("strict", ["layers"], "a layers instrument");
+    only("percussion", ["layers", "fm"], "a layers or fm instrument");
+    const inst = {
+      // provisional — the build gives each instrument its real slot (the same
+      // one, for a song of soundfont presets alone)
+      id: name, kind, slot: this.instruments.length + 1, name: o.name ?? null,
+      retune: o.retune ?? (kind === "sf2" || kind === "layers"),
+      layerGain: o.layer_gain ?? null, minFadeout: o.min_fadeout ?? null,
+      fadeout: o.fadeout ?? null, nna: o.nna ?? null, keepLayers: null,
+      strict: o.strict ?? false, percussion: o.percussion ?? false,
+    };
+    if (kind === "sf2") {
+      if (!has("bank") || !has("program")) throw fail(`${what} needs bank and program: the soundfont preset it plays`);
+      inst.bank = o.bank;
+      inst.program = o.program;
+    } else if (kind === "pack") {
+      if (!has("slot")) throw fail(`${what} needs slot: the instrument's slot number in the pack, or its name there`);
+      inst.pack = o.pack;
+      if (typeof o.slot === "number") {
+        asInt(o.slot, `${what}'s slot`);
+        if (o.slot < 1 || o.slot > 1023) throw fail(`${what}'s slot is 1…1023 (or the instrument's name)`);
+      } else asString(o.slot, `${what}'s slot`);
+      inst.packSlot = o.slot;
+    } else if (kind === "wave") {
+      inst.wave = o.wave;
+      inst.length = o.length ?? 256;
+      if (has("envelope")) inst.envelope = this.envelopeOf(o.envelope, o.sustain ?? null, what);
+      else if (has("sustain")) throw fail(`${what}: sustain needs an envelope`);
+    } else if (kind === "layers") {
+      const list = asList(o.layers, `${what}'s layers`);
+      if (!list.length) throw fail(`${what} has no layers`);
+      inst.layers = list.map((l, i) => this.layerOf(l, `${what}'s layer ${i}`));
+    } else {
+      const fm = readOptions(o.fm, FM, `${what}'s fm`);
+      if (fm.operators === undefined) throw fail(`${what}'s fm needs operators`);
+      const ops = asList(fm.operators, `${what}'s operators`);
+      if (!ops.length || ops.length > FM_MAX_OPERATORS) throw fail(`an FM rack has 1…${FM_MAX_OPERATORS} operators, not ${ops.length}`);
+      inst.operators = ops.map((op, i) => this.operatorOf(op, `${what}'s operator ${i}`));
+      inst.program = fm.algorithm === undefined ? null : fmAlgorithm(fm.algorithm, ops.length, what);
+    }
+    if (has("keep_layers")) {
+      inst.keepLayers = asList(o.keep_layers, `${what}'s keep_layers`).map((x) => asInt(x, "a layer number"));
+      if (!inst.keepLayers.length) throw fail(`${what} keeps no layers`);
+    }
+    inst.handle = new Handle("instrument", { name });
     inst.handle.instrument = inst;
     this.instruments.push(inst);
     return inst.handle;
+  }
+
+  /** A pitch range → [low word, high word]: `'C3'..'C5'`, or [low, high]. */
+  noteRange(v, what) {
+    if (v === undefined) return [0x0000, 0xffff];
+    let lo, hi;
+    if (v instanceof Range) { lo = v.from; hi = v.inclusive ? v.to : v.to - 1; }
+    else {
+      const xs = asList(v, what);
+      if (xs.length !== 2) throw fail(`${what} is a range of pitches, like 'C3'..'C5'`);
+      lo = asInt(xs[0], what); hi = asInt(xs[1], what);
+    }
+    if (hi < lo) throw fail(`${what} runs backwards`);
+    return [this.tuning.word(lo), this.tuning.word(hi)];
+  }
+
+  /** A volume range → [low, high], 0…63 (a rectangle's units in every format). */
+  volRange(v, what) {
+    if (v === undefined) return [0, 63];
+    let lo, hi;
+    if (v instanceof Range) { lo = v.from; hi = v.inclusive ? v.to : v.to - 1; }
+    else {
+      const xs = asList(v, what);
+      if (xs.length !== 2) throw fail(`${what} is a range of volumes, like 0..40`);
+      lo = asInt(xs[0], what); hi = asInt(xs[1], what);
+    }
+    if (lo < 0 || hi > 63 || hi < lo) throw fail(`${what} is a range within 0…63`);
+    return [lo, hi];
+  }
+
+  layerOf(v, what) {
+    const o = readOptions(v, LAYER, what);
+    if (o.inst === undefined) throw fail(`${what} needs inst: the instrument it sounds`);
+    const ref = instrumentOf(o.inst, `${what}'s inst`);
+    const [pitchStart, pitchEnd] = this.noteRange(o.notes, `${what}'s notes`);
+    const [volStart, volEnd] = this.volRange(o.vols, `${what}'s vols`);
+    let fixed = null;
+    if (o.fixed !== undefined) {
+      if (o.detune !== undefined) throw fail(`${what}: a fixed-pitch layer has no detune`);
+      fixed = this.tuning.word(asInt(o.fixed, `${what}'s fixed pitch`));
+    }
+    return {
+      ref, gain: o.gain ?? 0, detune: Math.round(((o.detune ?? 0) * 4096) / 1200), fixed,
+      pitchStart, pitchEnd, volStart, volEnd,
+    };
+  }
+
+  operatorOf(v, what) {
+    const o = readOptions(v, OPERATOR, what);
+    if (o.inst === undefined) throw fail(`${what} needs inst: the instrument it reads (a wave, usually)`);
+    const ref = instrumentOf(o.inst, `${what}'s inst`);
+    const [pitchStart, pitchEnd] = this.noteRange(o.notes, `${what}'s notes`);
+    const [volStart, volEnd] = this.volRange(o.vols, `${what}'s vols`);
+    // the operator's frequency ratio is its detune field: +4096 is an octave
+    const units = Math.round(4096 * Math.log2(o.ratio ?? 1)) + Math.round(((o.detune ?? 0) * 4096) / 1200);
+    if (units < -0x8000 || units > 0x7fff) throw fail(`${what}'s ratio is out of range`);
+    return { ref, level: o.level ?? 0, detune: units, pitchStart, pitchEnd, volStart, volEnd };
+  }
+
+  /** [[seconds, value 0…63], …] → envelope nodes (each node's offset is the
+   *  time to the next; the last holds), plus the sustain word. */
+  envelopeOf(v, sustain, what) {
+    const pts = asList(v, `${what}'s envelope`).map((p, i) => {
+      const xy = asList(p, `point ${i} of ${what}'s envelope`);
+      if (xy.length !== 2) throw fail(`point ${i} of ${what}'s envelope is [seconds, volume]`);
+      return [asNumber(xy[0], "a point's time"), asNumber(xy[1], "a point's volume")];
+    });
+    if (!pts.length || pts.length > 25) throw fail(`${what}'s envelope has 1…25 points, not ${pts.length}`);
+    const nodes = pts.map(([t, val], i) => {
+      if (val < 0 || val > 63) throw fail(`${what}'s envelope volumes are 0…63`);
+      const dt = i + 1 < pts.length ? pts[i + 1][0] - t : 0;
+      if (dt < 0) throw fail(`${what}'s envelope goes back in time at point ${i + 1}`);
+      if (dt > 15.75) throw fail(`${what}'s envelope: the points are at most 15.75 s apart`);
+      return { value: Math.round(val), offset: dt > 0 ? Math.max(1, minifloatFromDouble(dt)) : 0 };
+    });
+    let susWord = 0;
+    if (sustain !== null) {
+      let a, b;
+      if (sustain instanceof Range) { a = sustain.from; b = sustain.inclusive ? sustain.to : sustain.to - 1; }
+      else { a = b = asInt(sustain, `${what}'s sustain`); }
+      if (a < 0 || b >= nodes.length || b < a) throw fail(`${what}'s sustain names points 0…${nodes.length - 1}`);
+      susWord = (a << 8) | 0x20 | b;
+    }
+    return { nodes, susWord };
   }
 
   declareLane(name, value) {
@@ -222,11 +372,11 @@ export class Score {
     const o = readOptions(value, LANE, `lane ${name}`);
     const inst = instrumentOf(o.inst, `lane ${name}'s inst`);
     const lane = {
-      id: name, index: this.lanes.length, inst: inst.slot, instrument: inst,
+      id: name, index: this.lanes.length, instrument: inst,
       pan: o.pan ?? null, label: o.label ?? name, trim: o.trim ?? 1, jitter: o.jitter ?? 0,
       ev: new Map(),
     };
-    lane.handle = new Handle("lane", { name, label: lane.label, index: lane.index, inst: inst.handle });
+    lane.handle = new Handle("lane", { name, label: lane.label, index: lane.index, inst: inst.handle, trim: lane.trim });
     lane.handle.lane = lane;
     this.lanes.push(lane);
     return lane.handle;
@@ -287,6 +437,17 @@ export class Score {
       c[k] = v;
     }
     lane.ev.set(row, c);
+    if (this.capture?.test()) {
+      let rows = this.capture.lanes.get(lane);
+      if (!rows) this.capture.lanes.set(lane, (rows = new Map()));
+      const cc = rows.get(row) ?? {};
+      for (const [k, v] of Object.entries(f)) {
+        if (v === undefined || v === null) continue;
+        if (k === "note" && cc.note !== undefined && isSentinel(v)) continue;
+        cc[k] = v;
+      }
+      rows.set(row, cc);
+    }
   }
 
   clash(lane, row, k, a, b) {
@@ -297,6 +458,7 @@ export class Score {
       panRaw: "panning-column commands", az: "positions", el: "positions",
     }[k] ?? k;
     const fmt = (x) => {
+      if (k === "inst") return x.id;
       if (k === "note") {
         if (x === KEY_OFF) return "key-off";
         if (x === NOTE_CUT) return "note cut";
@@ -317,7 +479,7 @@ export class Score {
 
   hit(lane, row, step, vol, fx = null, arg = 0, inst = null, pos = null) {
     this.put(lane, row, {
-      note: this.word(step), inst: inst ?? lane.inst, vol: vol ?? undefined,
+      note: this.word(step), inst: inst ?? lane.instrument, vol: vol ?? undefined,
       fx: fx === null ? undefined : fx, arg: fx === null ? undefined : arg,
     });
     if (pos) this.put(lane, row, { az: pos.az, el: pos.el });
@@ -351,6 +513,81 @@ export class Score {
       first = false;
     }
   }
+}
+
+/**
+ * An FM algorithm in the FM editor's own notation → its RPN words (§7.6).
+ * `0` is operator 0 free-running; `0[1]` is operator 0 phase-modulated by 1
+ * (so `0[1[2]]` is a chain); `1'` is what operator 1 put out one sample ago (a
+ * feedback tap, so `0[0']` is self-feedback); `a + b` mixes, `a * b`
+ * ring-modulates, `-a` inverts, and parentheses group.
+ */
+export function fmAlgorithm(text, opCount, what = "the algorithm") {
+  const src = String(text);
+  let i = 0;
+  const words = [];
+  const err = (msg) => fail(`${what}: ${msg} at character ${i + 1} of "${src}"`);
+  const ws = () => { while (i < src.length && /\s/.test(src[i])) i++; };
+  const peek = () => { ws(); return src[i]; };
+  const sum = () => {
+    prod();
+    for (;;) {
+      const c = peek();
+      if (c === "+") { i++; prod(); words.push(FmOp.ADD); }
+      else if (c === "-" || c === "\u2212") { i++; prod(); words.push(FmOp.NEG, FmOp.ADD); }
+      else return;
+    }
+  };
+  const prod = () => {
+    unary();
+    for (;;) {
+      const c = peek();
+      if (c === "*" || c === "\u00d7") { i++; unary(); words.push(FmOp.MUL); }
+      else return;
+    }
+  };
+  const unary = () => {
+    const c = peek();
+    if (c === "-" || c === "\u2212") { i++; unary(); words.push(FmOp.NEG); return; }
+    atom();
+  };
+  const atom = () => {
+    const c = peek();
+    if (c === "(") {
+      i++;
+      sum();
+      if (peek() !== ")") throw err("expected )");
+      i++;
+      return;
+    }
+    const m = /^\d+/.exec(src.slice(i));
+    if (!m) throw err(c === undefined ? "the algorithm ends too soon" : `expected an operator number, found "${c}"`);
+    i += m[0].length;
+    const k = Number(m[0]);
+    if (k >= opCount) throw err(`there is no operator ${k} (the rack has ${opCount})`);
+    if (src[i] === "'" || src[i] === "\u2032") {
+      i++;
+      if (peek() === "[") throw err("a feedback tap cannot be modulated");
+      words.push(FM_WORD_FB | k);
+      return;
+    }
+    if (peek() === "[") {
+      i++;
+      sum();
+      if (peek() !== "]") throw err("expected ]");
+      i++;
+      words.push(FM_WORD_MOD | k);
+      return;
+    }
+    words.push(FM_WORD_OSC | k);
+  };
+  sum();
+  if (peek() !== undefined) throw err(`unexpected "${src[i]}"`);
+  const v = fmValidate(words, opCount);
+  if (!v.ok) {
+    throw fail(`${what} does not make a playable rack (${v.error === "budget" ? "too long for the record: fewer operators or a shorter algorithm" : v.error})`);
+  }
+  return words;
 }
 
 function instrumentOf(v, what) {
@@ -526,15 +763,14 @@ export function musicBuiltins(score) {
       (_, l, r, p, v, fx, arg, inst, pos, delay) => {
         const lane = laneOf(l);
         const at = row(r);
-        let slot = null;
-        if (inst !== null) slot = instrumentOf(inst, "inst").slot;
+        const instObj = inst === null ? null : instrumentOf(inst, "inst");
         let where = null;
         if (pos !== null) {
           wideOnly("pos");
           const pr = asRecord(pos, "pos");
           where = { az: asInt(pr.m.get("az"), "pos.az"), el: asInt(pr.m.get("el"), "pos.el") };
         }
-        score.hit(lane, at, pitch(p), vol(v), fx === null ? null : opByte(fx), fx === null ? 0 : arg16(arg), slot, where);
+        score.hit(lane, at, pitch(p), vol(v), fx === null ? null : opByte(fx), fx === null ? 0 : arg16(arg), instObj, where);
         const d = asInt(delay, "delay");
         if (d < 0 || d > 15) throw fail("delay is 0…15 ticks");
         if (d > 0) score.put(lane, at, { fx: opByte("S"), arg: 0xd000 | (d << 8) });
@@ -608,9 +844,60 @@ export function musicBuiltins(score) {
     }),
     new Builtin("melody", "lane, row, text, vol=none, vib=none, glide_rows=1, transpose=0, ring=false, map=none", melody),
     new Builtin("occupied", "lane, row", (_, l, r) => score.has(laneOf(l), row(r))),
+    new Builtin("cell", "lane, row", (_, l, r) => {
+      // what a row holds so far, as a record of the fields written (none for an
+      // empty row): note (a pitch, or "off" / "cut" / "fade"), inst, vol,
+      // vol_cmd (a slide or fine slide is there), fx/arg, fx2/arg2, pos
+      const c = score.cellAt(laneOf(l), row(r));
+      if (!c) return null;
+      const out = new Rec();
+      if (c.note !== undefined) {
+        out.m.set("note", c.note === KEY_OFF ? "off" : c.note === NOTE_CUT ? "cut" : c.note === NOTE_FADE ? "fade"
+          : (score.tuning.stepOfWord(c.note) ?? null));
+      }
+      if (c.inst !== undefined) out.m.set("inst", c.inst.handle);
+      if (c.vol !== undefined) out.m.set("vol", c.vol);
+      if (c.volRaw !== undefined) out.m.set("vol_cmd", true);
+      if (c.fx !== undefined) { out.m.set("fx", opName(c.fx)); out.m.set("arg", c.arg ?? 0); }
+      if (c.fx2 !== undefined) { out.m.set("fx2", opName(c.fx2)); out.m.set("arg2", c.arg2 ?? 0); }
+      if (c.az !== undefined) out.m.set("pos", new Rec([["az", c.az], ["el", c.el ?? 0]]));
+      return out;
+    }),
+    new Builtin("vol_ramp", "lane, from, to, from_vol, to_vol", (_, l, a, b, v0, v1) => {
+      // A smooth change of the sounding note's volume over rows [from, to), as
+      // one fine slide per row, each the rounded share of what is left. The
+      // volumes are in the lane's own units (its trim applies, as it does to a
+      // volume it sets), and a row whose volume column is taken is stepped round.
+      const lane = laneOf(l);
+      const r0 = row(a, "the first row");
+      const r1 = asInt(b, "the end row");
+      if (r1 < r0) throw fail("vol_ramp runs backwards");
+      const tr = lane.trim;
+      const from = Math.round(vol(v0, "the starting volume") * tr), to = Math.round(vol(v1, "the ending volume") * tr);
+      const lim = score.wide ? 127 : 31;
+      let cur = from;
+      for (let r = r0; r < Math.min(r1, score.rows); r++) {
+        const want = Math.round(from + ((to - from) * (r - r0 + 1)) / (r1 - r0));
+        const d = Math.max(-lim, Math.min(lim, want - cur));
+        const c = score.cellAt(lane, r);
+        if (c && (c.volRaw !== undefined || c.vol !== undefined)) continue;
+        if (d === 0) continue;
+        const m = Math.abs(d);
+        if (score.wide) score.put(lane, r, { volSel: 3, volRaw: (d > 0 ? 0x80 : 0) | m });
+        else score.put(lane, r, { volRaw: 0xc0 | (d > 0 ? 0x20 : 0) | m });
+        cur += d;
+      }
+    }),
 
     // ── harmony and space ──
     new Builtin("nearest_chord", "prev, chord, lo, hi, n=none, need_root=false", nearestChord),
+    new Builtin("dir_arg", "az, el=0", (_, a, e) => {
+      // a direction as the argument of X and 4 ($eeaa): elevation, then the
+      // 9-bit azimuth halved
+      const az = ((Math.round(128 + (asNumber(a, "the azimuth") * 512) / 360) % 512) + 512) % 512;
+      const el = Math.max(-128, Math.min(127, Math.round((asNumber(e, "the elevation") * 128) / 90)));
+      return ((el & 0xff) << 8) | ((az >> 1) & 0xff);
+    }),
     new Builtin("dir", "az, el=0", (_, a, e) => {
       // degrees as a listener names them (0 ahead, +90 right, 180 behind; +90
       // up) → the engine's 9-bit azimuth and signed elevation (128 = 90°)

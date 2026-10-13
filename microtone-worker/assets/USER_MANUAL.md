@@ -2359,6 +2359,16 @@ Every program begins with `tml 1`, then a `song` block, then its instruments and
 - **Cancel** stops a build. The program runs apart from the page, so even one that loops forever cannot freeze the app (it would stop by itself after fifty million steps).
 - **Open .tml…** loads a program from a file without building it, and **Save .tml…** downloads the one in the editor. **Example** starts again from a short example song.
 - Tab indents by two spaces (Shift+Tab takes them away); press Esc first to move on to the next control with Tab.
+- The program is coloured as you type: keywords, declarations, numbers, strings, pitches, comments, calls and fields each have their own colour, and the line the caret is on is lit. The light themes use the Syntello scheme on a white page, the dark ones Dimtello on a grey one.
+
+### Finding your way around a program
+
+- **The uses of a name.** Put the caret in a name and every other place the program uses it is marked; the places that set it (its declaration, an `=` or a `+=`) are marked in a second colour. The selection is drawn under the text, so the colours stay readable inside it.
+- **Right-click a name or a call** for its menu: **Rename…**, **Declaration**, **Call hierarchy** and **Preview**. The keys are the ones most code editors use: Shift+F6 renames, Ctrl+B goes to the declaration, Ctrl+Alt+H shows the call hierarchy, and the menu key or Shift+F10 opens the menu at the caret.
+- **Rename** changes a name everywhere it means the same thing, and nowhere else: not a field that happens to be spelt the same, not a different variable of the same name in another function. A `{ name }` shorthand keeps its field and becomes `{ name: new_name }`. When the new name would change what the program does (it would clash with another name, hide a builtin, or be taken for a closer variable), nothing is renamed and the message names the line where it would happen. One undo takes the whole rename back. A lane, a waveform or a metainstrument with no `label` or `name` of its own is called by its name in the project, so renaming one renames it there too at the next build.
+- **The side panel** on the right folds away to a strip of tabs at the edge: click the open tab, or the arrow, to fold it, and a tab to bring it back. On a narrow screen it opens over the program. **Structure** is always there: the song, its sections, instruments, lanes, functions and variables, each a click away from its declaration. While the program has a mistake in it, Structure keeps the outline it had before and says so.
+- **Call hierarchy** lists what calls a function (**Callers**) or what it calls (**Callees**), each with how many times. Expand a row to follow the chain further; click it to go to the call, and again for the next one. It follows the program as you edit it.
+- **Preview** plays what one call writes, without building the song: a `melody(…)`, a `hit(…)`, or a function of your own, every time the program makes that call. It lists the cells the call writes and plays them through the open project's instruments, so it works when the open project was built from this program, or opened with it, as the demo song is, when its instruments all come from the soundfont. Otherwise, build first. Esc stops it.
 
 ### When a build goes wrong
 
@@ -2366,7 +2376,13 @@ A mistake stops the build and is listed under the editor with its line and colum
 
 ### Instruments and soundfonts
 
-Each `instrument` is a preset of a soundfont, by bank and program number, built into the project by the same converter **Import MIDI…** uses. A song plays from the bundled GeneralUser GS unless it names another `soundfont`; then the app asks for that file the first time it is needed in a session. A build keeps only the zones the song plays, and with `retune: true` in the song it also measures every zone the song plays and corrects its tuning onto the grid — soundfont samples are tuned for twelve-tone music, and a few cents off is a fifth of a step in 31-TET.
+An `instrument` comes from one of five places:
+
+- **A soundfont preset**, by bank and program number, built into the project by the same converter **Import MIDI…** uses. A song plays from the bundled GeneralUser GS unless it names another `soundfont`; then the app asks for that file the first time it is needed in a session.
+- **An instrument pack** — a `.tsii` bank, or a whole project — by its slot number there or its name. The app asks for the file the first time a build needs it. This is how a song plays instruments a program cannot make: samples you processed yourself, presets from several soundfonts, anything you built in the Instruments view.
+- **A waveform**: one cycle of a sine, a triangle, a saw, a square, noise or one of OPL's eight, looped and tuned, with an envelope if you give it one.
+- **Layers** of other instruments: a layered metainstrument, each layer with its own level, detune, key range and volume range, or a fixed pitch.
+- **An FM rack**: operators reading other instruments (waveforms, usually), each with its frequency ratio and level, wired by an algorithm written as the FM tab reads one back — `0[1]` is operator 0 modulated by operator 1. A build keeps only the zones the song plays, and with `retune: true` in the song it also measures every zone the song plays and corrects its tuning onto the grid — soundfont samples are tuned for twelve-tone music, and a few cents off is a fifth of a step in 31-TET.
 
 The same program always builds the same project: chance in a program comes from a seeded stream (`seed` in the song), so change the seed to hear another roll of the dice.
 

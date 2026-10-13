@@ -6,6 +6,24 @@
 import { buildSf2Bank } from "../convert/convert.js";
 import { MotifError } from "../motif/lexer.js";
 
+/**
+ * What one call writes (captureCall), worked out off the page. Resolves with
+ * the capture, rejects with a MotifError when the program does not run.
+ */
+export function captureInWorker(source, offset) {
+  const worker = new Worker(new URL("../motif/motif.worker.js", import.meta.url), { type: "module" });
+  return new Promise((resolve, reject) => {
+    worker.onmessage = (e) => {
+      const m = e.data;
+      worker.terminate();
+      if (m.t === "captured") resolve(m.result);
+      else reject(m.motif ? new MotifError(m.message, m.pos, m.trace) : new Error(m.message));
+    };
+    worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message || "the Motif worker failed to start")); };
+    worker.postMessage({ t: "capture", source, offset });
+  });
+}
+
 /** What a cancelled build rejects with. */
 export class MotifCancelled extends Error {
   constructor() { super("cancelled"); this.name = "MotifCancelled"; }
@@ -19,10 +37,13 @@ export class MotifCancelled extends Error {
  * @param opts.resolveSoundfont  async (name) → {name, bytes}, or null when the
  *        person declines. `name` is the song's `soundfont`, null for the
  *        bundled GeneralUser GS.
+ * @param opts.resolvePack  async (name) → Uint8Array, or null when the person
+ *        declines: the instrument pack an instrument's `pack` names
  * @param opts.onProgress  (stage, fraction)
  * @param opts.onLog       (line) — print() output and the stages' own lines
+ * @param opts.signature   the file's signature (default: the app's own)
  */
-export function startMotifBuild(source, { resolveSoundfont, onProgress = null, onLog = null, steps } = {}) {
+export function startMotifBuild(source, { resolveSoundfont, resolvePack, onProgress = null, onLog = null, steps, signature } = {}) {
   const worker = new Worker(new URL("../motif/motif.worker.js", import.meta.url), { type: "module" });
   let settled = false;
   let fail;
@@ -53,6 +74,22 @@ export function startMotifBuild(source, { resolveSoundfont, onProgress = null, o
           }
           break;
         }
+        case "pack": {
+          try {
+            const bytes = await resolvePack(m.name);
+            if (settled) return;
+            if (!bytes) {
+              finish();
+              reject(new MotifCancelled());
+              return;
+            }
+            const buf = bytes.slice().buffer;
+            worker.postMessage({ t: "pack", bytes: buf }, [buf]);
+          } catch (err) {
+            if (!settled) worker.postMessage({ t: "packError", message: err?.message ?? String(err) });
+          }
+          break;
+        }
         case "done":
           finish();
           resolve({ bytes: new Uint8Array(m.bytes), report: m.report });
@@ -70,7 +107,7 @@ export function startMotifBuild(source, { resolveSoundfont, onProgress = null, o
       reject(new Error(e.message || "the Motif worker failed to start"));
     };
   });
-  worker.postMessage({ t: "build", source, steps });
+  worker.postMessage({ t: "build", source, steps, signature });
   return {
     promise,
     cancel() {

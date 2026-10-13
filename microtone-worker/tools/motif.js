@@ -2,18 +2,21 @@
 // Build a Taud project from a Taud Motif Language source:
 //
 //   node tools/motif.js <song.tml> [out.taud] [-v] [--no-source] [--check]
+//                       [--signature "Microtone Demo"]
 //
 // (from microtone-worker/; the default output is the source's own name with
 // .taud). --check runs the program and compiles the song without building the
 // bank, which is quick, and says what it would make. --no-source leaves the
 // TML out of the project (it is kept in a PMtf section by default, so the
-// Motif view can open it again).
+// Motif view can open it again). --signature sets the file's 14-character
+// signature, which a program cannot (it says what wrote the file); the demo
+// songs' Makefile is what passes "Microtone Demo".
 //
 // The soundfont bank is made by the app's own SF2 driver (src/convert/
 // sf2bank.py) run with the local python3, exactly as the app runs it under
 // Pyodide. A song that names no soundfont plays the one the app bundles,
 // assets/GeneralUser-GS.taud.sf2.gz; one that names a file finds it next to
-// the .tml.
+// the .tml — as does an instrument pack (`pack: "file.tsii"`).
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
@@ -31,9 +34,15 @@ const APP = fileURLToPath(new URL("../", import.meta.url));
 const args = process.argv.slice(2);
 const verbose = args.includes("-v");
 const check = args.includes("--check");
-const files = args.filter((a) => !a.startsWith("-"));
+const sigAt = args.indexOf("--signature");
+const signature = sigAt >= 0 ? args[sigAt + 1] : undefined;
+if (sigAt >= 0 && signature === undefined) {
+  console.error("--signature needs a value");
+  process.exit(2);
+}
+const files = args.filter((a, i) => !a.startsWith("-") && !(sigAt >= 0 && i === sigAt + 1));
 if (!files.length) {
-  console.error("usage: node tools/motif.js <song.tml> [out.taud] [-v] [--no-source] [--check]");
+  console.error("usage: node tools/motif.js <song.tml> [out.taud] [-v] [--no-source] [--check] [--signature TEXT]");
   process.exit(2);
 }
 const inPath = resolve(files[0]);
@@ -56,6 +65,12 @@ function soundfontBytes(name) {
   const path = resolve(dirname(inPath), name);
   if (!existsSync(path)) throw new MotifError(`the soundfont "${name}" is not next to the source (${path})`);
   return readFileSync(path);
+}
+
+async function packBytes(name) {
+  const path = resolve(dirname(inPath), name);
+  if (!existsSync(path)) throw new MotifError(`the instrument pack "${name}" is not next to the source (${path})`);
+  return new Uint8Array(readFileSync(path));
 }
 
 async function sf2Bank(selection, { bpm, soundfont }) {
@@ -88,9 +103,10 @@ try {
     const t0 = performance.now();
     let last = "";
     const { doc } = await buildProject(source, {
-      sf2Bank, log,
+      sf2Bank, pack: packBytes, log,
       progress: verbose ? (stage) => { if (stage !== last) { last = stage; log(`[${stage}]`); } } : undefined,
       embedSource: !args.includes("--no-source"),
+      signature,
     });
     const bytes = await doc.toSaveBytes(ZSTD_LEVEL_SAVE);
     writeFileSync(outPath, bytes);

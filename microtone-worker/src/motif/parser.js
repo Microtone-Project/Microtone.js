@@ -272,7 +272,7 @@ export class Parser {
     this.noRecord = false;
     const body = this.fnBody(() => this.block());
     this.noRecord = saved;
-    return { k: "fn", name: id.v, params, body, pos: t.pos };
+    return { k: "fn", name: id.v, namePos: id.pos, params, body, pos: t.pos, end: this.toks[this.i - 1].end };
   }
 
   /** An expression whose end is a block's "{": no bare record literal. */
@@ -498,11 +498,11 @@ export class Parser {
       }
       if (!this.eatOp(",")) break;
     }
-    this.expectOp(")", "to close the call");
+    const close = this.expectOp(")", "to close the call");
     this.noRecord = saved;
     this.leave();
     // an error in the call is reported where the call starts, at its name
-    return { k: "call", f, args, named, pos: f.pos ?? open.pos };
+    return { k: "call", f, args, named, pos: f.pos ?? open.pos, end: close.end };
   }
 
   primary() {
@@ -589,7 +589,7 @@ export class Parser {
       seen.add(key);
       let value;
       if (this.eatOp(":")) value = this.expression();
-      else if (kt.t === "ident") value = { k: "ident", name: key, pos: kt.pos }; // { name } = { name: name }
+      else if (kt.t === "ident") value = { k: "ident", name: key, pos: kt.pos, shorthand: true }; // { name } = { name: name }
       else throw new MotifError(`expected ":" after the field "${key}"`, this.peek().pos);
       entries.push({ key, value, pos: kt.pos });
       this.eatOp(","); // commas between fields are optional; line breaks will do
@@ -611,7 +611,7 @@ export class Parser {
     this.noRecord = false;
     const body = this.fnBody(() => this.block());
     this.noRecord = saved;
-    return { k: "fnlit", params, body, expr: false, pos: t.pos };
+    return { k: "fnlit", params, body, expr: false, pos: t.pos, end: this.toks[this.i - 1].end };
   }
 }
 

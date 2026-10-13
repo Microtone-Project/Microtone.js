@@ -78,12 +78,81 @@
         check("the view now shows the project's own program", view.origin === "doc" && text() === MOTIF_EXAMPLE);
         check("the Motif view stays on screen after a build", store.views.includes("motif"));
 
+        // ── the editor highlights what it holds ──
+        const hl = view.root.querySelector(".motif-hl");
+        check(`the overlay highlights the program (${hl.querySelectorAll("span").length} spans)`,
+          hl.querySelector(".t-kw")?.textContent === "tml" && hl.textContent === text() + "\n");
+
+        // ── instruments from a pack, waveforms, layers and an FM rack ──
+        store.doc.dirty = false;
+        const touch = await fetchBytes("../../assets/MicrotoneTouch.tsii");
+        let asked = null;
+        view.resolvePack = async (name) => { asked = name; return touch; };
+        view.setText(`tml 1
+song { title: "Racks", bars: 1, bar_rows: 16, tuning: "12-TET", global_volume: 255 }
+instrument SINE  { wave: "sine", envelope: [[0, 63], [1, 20]] }
+instrument PLUCK { pack: "MicrotoneTouch.tsii", slot: "Pluck" }
+instrument STACK { layers: [{ inst: SINE }, { inst: PLUCK, gain: -6 }] }
+instrument BELL  { fm: { operators: [{ inst: SINE }, { inst: SINE, ratio: 3.5 }], algorithm: "0[1]" } }
+lane a { inst: BELL }
+lane b { inst: STACK }
+hit(a, 0, 'C4', 60)
+hit(b, 4, 'G4', 50)
+`, "draft");
+        await view.runBuild();
+        await waitFor(() => store.fileName === "Racks.taud", 120000);
+        const insts = store.doc.usedInstrumentSlots().filter((s) => s < 256).map((s) => store.doc.instruments[s]);
+        check(`a pack ("${asked}"), a wave, layers and an FM rack in one project: ${insts.length} instruments`,
+          asked === "MicrotoneTouch.tsii" && insts.some((i) => i.isFm) && insts.some((i) => i.isMeta && !i.isFm) &&
+          insts.length === 4);
+
         // ── a project built by Motif carries its program ──
-        doc.dirty = false; // skip the discard confirm
+        store.doc.dirty = false; // skip the discard confirm
         const demoSrc = await fetchText("../../assets/demo_projects/Huygens_clock.tml");
         await loadBytes("Huygens_clock.taud", await fetchBytes("../../assets/demo_projects/Huygens_clock.taud"));
         await waitFor(() => store.fileName === "Huygens_clock.taud", 30000);
         check("opening Huygens' Clock shows its program", text() === demoSrc && view.origin === "doc");
+
+        // ── the editor reads the program: Structure, the uses of a name, Rename,
+        //    the call hierarchy, Preview ──
+        const doc_ = win.document;
+        split.reveal("motif"); // opening a project shows the Timeline
+        await waitFor(() => !doc_.getElementById("motifHost").hidden, 5000);
+        await new Promise((r) => setTimeout(r, 200));
+        const groups = [...doc_.querySelectorAll(".motif-structure .motif-st-group h4")].map((h) => h.textContent);
+        check(`the Structure panel outlines it: ${groups.join(", ")}`, groups.includes("Functions") && groups.includes("Lanes"));
+        const drAt = demoSrc.indexOf("dr(hat") + 1;
+        view.text.focus();
+        view.text.setSelectionRange(drAt, drAt);
+        view.updateSelection();
+        const reads = doc_.querySelectorAll(".motif-mark-read").length, writes = doc_.querySelectorAll(".motif-mark-write").length;
+        check(`the caret in dr() marks its other uses: ${reads} + its declaration`, reads > 10 && writes === 1);
+        view.text.setSelectionRange(drAt, drAt + 20);
+        view.updateSelection();
+        check("a selection is drawn under the text", doc_.querySelector(".motif-hl").previousElementSibling.querySelector(".motif-mark-sel") !== null);
+        const renaming = view.rename(drAt);
+        const field = await waitFor(() => doc_.querySelector("dialog input"), 5000);
+        field.value = "drum";
+        doc_.querySelector("dialog .modal-buttons button").click();
+        await renaming;
+        const drums = (text().match(/\bdrum\(/g) || []).length;
+        check(`Rename dr → drum changes ${drums} places and leaves no dr( behind`, drums > 40 && !/\bdr\(/.test(text()));
+        view.text.focus();
+        doc_.execCommand("undo");
+        view.analyseNow();
+        check("…and one undo takes it back", text() === demoSrc);
+        view.callsDirection = "callers";
+        view.callHierarchy(demoSrc.indexOf("fn groove_a(") + 4);
+        const callers = [...doc_.querySelectorAll(".motif-calls .motif-tree-row")].map((r) => r.textContent);
+        check(`Call hierarchy: groove_a() is called from ${callers.join(", ")}`, callers.length >= 1 && /×\d/.test(callers[0]));
+        const melodyCall = view.current().callAt(demoSrc.indexOf("melody(lead, at(9)") + 2);
+        await view.previewCall(melodyCall);
+        await waitFor(() => store.audio?.isPlaying(), 10000);
+        const previewRows = doc_.querySelectorAll(".motif-preview-table tr").length - 1;
+        check(`Preview of melody(lead, at(9) …) shows its ${previewRows} cells and plays them`, previewRows === 71 && store.audio.isPlaying());
+        const patternsBefore = store.doc.songs[0].patterns.length;
+        view.stopPreview();
+        check("…and stops, leaving the project as it was", !store.audio.isPlaying() && store.doc.songs[0].patterns.length === patternsBefore && !store.doc.dirty);
 
         // ── and the browser builds the same file the command line did ──
         // (the bank by Pyodide's CPython, the re-tuning by the engine in the

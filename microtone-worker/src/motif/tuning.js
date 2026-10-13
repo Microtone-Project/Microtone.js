@@ -80,6 +80,16 @@ export class Tuning {
     return w;
   }
 
+  /** The step a note word sits on exactly, or null when it is off the grid. */
+  stepOfWord(w) {
+    const p = Math.floor((w - ANCHOR_NOTE) / this.interval) + 4;
+    for (let q = p - 1; q <= p + 1; q++) {
+      const d = this.table.indexOf(w - ANCHOR_NOTE - (q - 4) * this.interval);
+      if (d >= 0) return q * this.n + d;
+    }
+    return null;
+  }
+
   /** The name of a note word that sits exactly on the grid, or null. */
   nameOfWord(w) {
     const p = Math.floor((w - ANCHOR_NOTE) / this.interval) + 4;

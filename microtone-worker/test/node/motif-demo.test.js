@@ -44,7 +44,7 @@ test("Huygens' Clock: names, tempo, levels and notation agree", () => {
   assert.deepEqual(pNam, compiled.names);
   assert.equal(file.meta.songMeta[0].notation, 310, "31-TET notation");
   assert.equal(td.decode(section("PMsg")), score.song.message);
-  assert.equal(file.signature, score.song.signature);
+  assert.equal(file.signature, "Microtone Demo", "the demo songs' Makefile signs them");
 });
 
 test("Huygens' Clock carries its own source, verbatim", () => {

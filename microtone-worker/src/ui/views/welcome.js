@@ -22,6 +22,8 @@
 //                   any one group's detail without misrepresenting the rest.
 //   Support         the banner that retired the topbar's Donate/Sponsor
 //                   buttons (item 104.3; the About popup keeps its own links).
+//   Sites we like   88x31 buttons for the scene sites we like (item 211) —
+//                   free adverts, not affiliates: plain links, no tracking.
 //
 // Everything here is DOM — the canvas grids stay hidden while it is up.
 
@@ -39,6 +41,18 @@ const MRU_KEY = "microtone-recent";
 // Module-relative, so the panel finds the changelog wherever the app is served
 // from (src/ui/views/ → the deploy root).
 const NEWS_URL = new URL("../../../assets/PATCH_NOTES.md", import.meta.url);
+const BANNERS_URL = new URL("../../../assets/site_banners/", import.meta.url);
+// [button file, site, its name (the alt text)]. Ours goes last.
+const FRIENDS = [
+  ["scene.gif", "https://www.scene.org/", "scene.org"],
+  ["tma_c.gif", "https://modarchive.org/", "The Mod Archive"],
+  ["scenesat.gif", "https://scenesat.com/", "SceneSat"],
+  ["pouet-javaap-man.gif", "https://www.pouet.net/", "pouët.net"],
+  ["soundtrackermuseum.gif", "https://soundtracker-museum.com/", "Soundtracker Museum"],
+  ["xenwiki.gif", "https://en.xen.wiki/w/Main_Page", "Xenharmonic Wiki"],
+  ["scaleworkshop.gif", "https://sevish.com/scaleworkshop/", "Scale Workshop"],
+  ["microtone.gif", "https://microtone.cc/", "Microtone"],
+];
 
 export class WelcomeView {
   /**
@@ -83,7 +97,7 @@ export class WelcomeView {
     const grid = document.createElement("div");
     grid.className = "wc-grid";
     grid.append(this.startPanel(), this.recentPanel(), this.demoPanel(),
-                this.newsPanel(), this.banner());
+                this.newsPanel(), this.banner(), this.friends());
     const inner = document.createElement("div");
     inner.className = "wc-inner";
     inner.append(this.hero(), grid);
@@ -342,6 +356,31 @@ export class WelcomeView {
     return el;
   }
 }
+
+// ── Sites we like ──
+
+WelcomeView.prototype.friends = function () {
+  const p = panel("wc-friends", t("welcome.friends"));
+  const row = document.createElement("div");
+  row.className = "wc-friends-row";
+  for (const [file, href, name] of FRIENDS) {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.title = name;
+    const img = document.createElement("img");
+    img.src = new URL(file, BANNERS_URL).href;
+    img.alt = name;
+    img.width = 88;
+    img.height = 31;
+    img.loading = "lazy";
+    a.appendChild(img);
+    row.appendChild(a);
+  }
+  p.appendChild(row);
+  return p;
+};
 
 // ── DOM helpers ──
 

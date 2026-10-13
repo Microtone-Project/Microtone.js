@@ -3,14 +3,17 @@
 // soundfont bank is made differs, so the host hands that step in.
 //
 //   evaluate     run the program (sandboxed) → the score
+//   bank         the instruments, which is where each gets its slot: the
+//                soundfont presets → a .tsii made by the app's own SF2 driver
+//                (sf2bank.py) at the song's tempo; then instruments imported
+//                from packs, generated waveforms, and the metainstruments
+//                (layers, FM racks) built over them
 //   compile      the score → patterns, cues, pattern names (compile.js)
-//   bank         the instruments' soundfont presets → a .tsii, made by the
-//                app's own SF2 driver (sf2bank.py) at the song's tempo
 //   assemble     bank + song + texts + notation + master → a Document
 //   instruments  layer choice, New Note Action and fadeout overrides
 //   cleanup      every Ixmp zone no note can reach is pruned, as the app's
 //                Housekeeping does (and every instrument nothing plays, when
-//                a `layers` option left some behind)
+//                `keep_layers` left some behind)
 //   tweak        minimum fadeouts, layer gains
 //   retune       every zone the song plays, measured and moved onto the grid
 //   source       the TML itself, saved in the project (PMtf) so it can be
@@ -19,12 +22,17 @@
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { buildMasteringSection } from "../../core/format/mastering-section.js";
 import { defaultMastering } from "../../core/engine/mastering.js";
-import { parsePatchesBlob, writePatchesBlob, buildMetaRecord } from "../../core/engine/inst.js";
-import { SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
+import {
+  parsePatchesBlob, writePatchesBlob, buildMetaRecord, makeMetaLayer, META_TYPE_FM, META_MAX_LAYERS,
+} from "../../core/engine/inst.js";
+import { LINEAR_FREQ_C4_HZ } from "../../core/engine/constants.js";
+import { SAMPLEBIN_SIZE, SAMPLEINST_SIZE, CAPTURE_SIGNATURE } from "../../core/format/taud-const.js";
 import { Document } from "../doc/document.js";
 import { planIxmpCleanup, planBankCleanup, encodeNameTable } from "../doc/cleanup.js";
-import { cleanupBankOp } from "../doc/ops.js";
-import { buildIxmpSection } from "../doc/bankmerge.js";
+import { cleanupBankOp, importBankOp } from "../doc/ops.js";
+import { buildIxmpSection, planImport, planSampleImport, splitNameTable, joinNameTable } from "../doc/bankmerge.js";
+import { noise2 } from "./stdlib.js";
+import { emptyPattern } from "./compile.js";
 import { MotifError } from "./lexer.js";
 import { parse } from "./parser.js";
 import { Interp } from "./interp.js";
@@ -52,8 +60,10 @@ export function evaluate(source, opts = {}) {
   return score;
 }
 
-/** Run a program and return its Score, whether or not it declared a song. */
-export function interpret(source, { steps, depth, log = () => {} } = {}) {
+/** Run a program and return its Score, whether or not it declared a song.
+ *  `capture`: the source offset of a call; the score's `capture` then holds
+ *  what that call wrote, each time it ran (the Motif view's preview). */
+export function interpret(source, { steps, depth, log = () => {}, capture = null } = {}) {
   const ast = parse(source);
   const score = new Score({ log });
   const state = {
@@ -63,13 +73,56 @@ export function interpret(source, { steps, depth, log = () => {} } = {}) {
   };
   const builtins = new Map([...stdlib(state), ...musicBuiltins(score)]);
   const interp = new Interp({ builtins, hooks: musicHooks(score), steps, depth });
+  if (capture !== null) {
+    score.capture = { lanes: new Map(), test: () => interp.stack.some((f) => f.pos?.offset === capture) };
+  }
   interp.run(ast);
   return score;
 }
 
-/** [[bank, program], …] in slot order — what sf2bank.py builds. */
+/**
+ * What one call writes — the preview of `melody(…)`, `hit(…)` or a function of
+ * your own: the program runs as for a build, and every cell the call at
+ * `offset` writes (each time it runs) is kept. Plain data, ready to post:
+ * {song, lanes: [{index, id, label, trim, jitter, cells: [[row, fields]]}],
+ *  instruments: [{id, kind, slot}], first, last}. Cells name their
+ * instrument by id (`instId`); slots are the provisional ones (§7.3).
+ */
+export function captureCall(source, offset, opts = {}) {
+  const score = interpret(source, { ...opts, capture: offset });
+  if (!score.song) throw new MotifError("the program declares no song yet");
+  let first = Infinity, last = -Infinity;
+  const lanes = [];
+  for (const [lane, rows] of score.capture.lanes) {
+    const cells = [...rows].sort((p, q) => p[0] - q[0]).map(([row, c]) => {
+      const out = { ...c };
+      if (out.inst) { out.instId = out.inst.id; delete out.inst; }
+      return [row, out];
+    });
+    if (!cells.length) continue;
+    first = Math.min(first, cells[0][0]);
+    last = Math.max(last, cells[cells.length - 1][0]);
+    lanes.push({ index: lane.index, id: lane.id, label: lane.label, trim: lane.trim, jitter: lane.jitter, instId: lane.instrument.id, cells });
+  }
+  lanes.sort((p, q) => p.index - q.index);
+  const s = score.song;
+  return {
+    song: {
+      tempo: s.tempo, speed: s.speed, barRows: s.barRows, cueBars: s.cueBars, bars: s.bars,
+      format: s.format, rows: score.rows, notation: score.tuning.notation,
+    },
+    names: Object.fromEntries(lanes.flatMap((l) => l.cells).filter(([, c]) => c.note >= 0x20)
+      .map(([, c]) => [c.note, score.tuning.nameOfWord(c.note) ?? `$${c.note.toString(16).toUpperCase()}`])),
+    lanes,
+    instruments: score.instruments.map((i) => ({ id: i.id, kind: i.kind, slot: i.slot })),
+    first: lanes.length ? first : null, last: lanes.length ? last : null,
+  };
+}
+
+/** [[bank, program], …] of the soundfont presets, in the order they are
+ *  declared — what sf2bank.py builds, and the slots they take (1, 2, …). */
 export function bankSelection(score) {
-  return score.instruments.map((i) => [i.bank, i.program]);
+  return score.instruments.filter((i) => i.kind === "sf2").map((i) => [i.bank, i.program]);
 }
 
 const enc = new TextEncoder();
@@ -90,24 +143,31 @@ function songMeta(score) {
  * @param host.sf2Bank   async (selection, {bpm, soundfont}) → .tsii bytes. The
  *                       soundfont is the song's `soundfont` (null = the bundled
  *                       GeneralUser GS).
+ * @param host.pack      async (name) → the bytes of the instrument pack (.tsii
+ *                       or .taud) an instrument's `pack` names
  * @param host.log       build log lines (print() and the stages)
  * @param host.progress  (stage, fraction) while it runs
  * @param host.pause     awaited now and then, so a page can draw
  * @param host.embedSource  keep the source in the project (default true)
+ * @param host.signature    the file's 14-character signature (default
+ *                          "Microtone.js"). Not the program's to choose: it
+ *                          says what wrote the file, so the host decides — the
+ *                          demo songs' Makefile passes "Microtone Demo", and
+ *                          the app keeps the signature of a project it rebuilds.
  * @returns {doc, score, report}
  */
 export async function buildProject(source, host) {
   const { sf2Bank, log = () => {}, progress = () => {}, pause = null, embedSource = true, steps, depth } = host;
+  const signature = checkSignature(host.signature ?? CAPTURE_SIGNATURE);
   progress("evaluate", 0);
   const score = evaluate(source, { steps, depth, log });
   const { song } = score;
-  progress("compile", 0);
-  const { patterns, cues, names } = compileScore(score);
 
   progress("bank", 0);
-  const tsii = await sf2Bank(bankSelection(score), { bpm: song.tempo, soundfont: song.soundfont });
-  const bank = parseTaud(tsii);
-  if (bank.kind !== "tsii" && bank.kind !== "taud") throw new MotifError("the soundfont bank came back empty");
+  const bank = await assembleBank(score, { sf2Bank, pack: host.pack, log });
+
+  progress("compile", 0);
+  const { patterns, cues, names } = compileScore(score);
 
   // ── assemble ──
   const inamPayload = sectionOf(bank, "INam");
@@ -142,7 +202,7 @@ export async function buildProject(source, host) {
     kind: "taud",
     fmtVer: song.format,
     is64Channel: is64,
-    signature: song.signature,
+    signature,
     sampleInstImage: bank.sampleInstImage,
     songs: [{
       numVoices: score.lanes.length, bpm: song.tempo, tickRate: song.speed,
@@ -163,14 +223,14 @@ export async function buildProject(source, host) {
     const inst = doc.instruments[slot];
     return inst.isMeta ? inst.metaLayers.filter((l) => l.instIdx >= 1).map((l) => l.instIdx & 0x3ff) : [slot];
   };
-  const keepsLayers = score.instruments.some((i) => i.layers);
+  const keepsLayers = score.instruments.some((i) => i.keepLayers);
   if (keepsLayers || score.instruments.some((i) => i.nna !== null || i.fadeout !== null)) {
     doc._rebuildInstRegion();
     for (const i of score.instruments) {
-      if (!i.layers) continue;
+      if (!i.keepLayers) continue;
       const inst = doc.instruments[i.slot];
-      if (!inst.isMeta) throw new MotifError(`instrument ${i.id} has one layer, so it cannot keep layers ${i.layers.join(", ")}`);
-      const keep = i.layers.map((k) => {
+      if (!inst.isMeta) throw new MotifError(`instrument ${i.id} has one layer, so it cannot keep layers ${i.keepLayers.join(", ")}`);
+      const keep = i.keepLayers.map((k) => {
         const l = inst.metaLayers[k];
         if (!l) throw new MotifError(`instrument ${i.id} has layers 0–${inst.metaLayers.length - 1}; there is no layer ${k}`);
         return l;
@@ -274,10 +334,233 @@ export async function buildProject(source, host) {
     samplesBefore, samplesAfter: doc.sampleList().length,
     zonesPruned: plan.removedPatches ?? 0, instrumentsRemoved: removedInstruments,
     retunedGroups: retuned.length, worstCents: worst,
+    // which slot each instrument took — what a preview plays through
+    slots: Object.fromEntries(score.instruments.map((i) => [i.id, i.slot])),
   };
   log(`${report.lanes} lanes, ${report.patterns} patterns, ${report.cues} cues; samples ${report.samplesBefore} → ${report.samplesAfter} ` +
     `(${report.zonesPruned} zones pruned)` + (song.retune ? `; ${report.retunedGroups} zone groups re-tuned, worst ${worst.toFixed(1)} cents from the grid` : ""));
   return { doc, score, report };
+}
+
+// ── the bank ──
+
+/**
+ * Every instrument the song declares, in one bank, each given its slot. A song
+ * of soundfont presets alone is exactly the bank sf2bank.py builds (slots in
+ * the order they are declared); anything else is added to it the way the
+ * Instruments view adds it — a pack's instruments by the app's bank import, a
+ * waveform as a new sample, a metainstrument as a new record over the slots of
+ * the instruments it is made of. Returns the parsed-bank shape the rest of the
+ * build reads ({sampleInstImage, ixmp, projSections}).
+ */
+async function assembleBank(score, { sf2Bank, pack, log }) {
+  const { song } = score;
+  const sf2s = score.instruments.filter((i) => i.kind === "sf2");
+  let bank = null;
+  if (sf2s.length) {
+    if (!sf2Bank) throw new MotifError("this build cannot make soundfont instruments");
+    bank = parseTaud(await sf2Bank(bankSelection(score), { bpm: song.tempo, soundfont: song.soundfont }));
+    if (!bank.sampleInstImage) throw new MotifError("the soundfont bank came back empty");
+    sf2s.forEach((inst, k) => { inst.slot = k + 1; });
+  }
+  const others = score.instruments.filter((i) => i.kind !== "sf2");
+  if (!others.length) return bank;
+
+  // a scratch project to import into: the soundfont bank so far, or nothing
+  const work = new Document({
+    kind: "taud", fmtVer: 2, is64Channel: false, signature: CAPTURE_SIGNATURE,
+    sampleInstImage: bank ? bank.sampleInstImage : new Uint8Array(SAMPLEINST_SIZE),
+    songs: [{
+      numVoices: 1, bpm: 125, tickRate: 6, tuningBaseNote: 0, tuningFreq: 0, globalFlags: 0,
+      globalVolume: 128, mixingVolume: 128, surroundModel: 0,
+      patterns: [emptyPattern(false)], cues: [new Uint16Array(64).fill(0x7fff)],
+    }],
+    projSections: bank ? bank.projSections.filter((x) => ["INam", "SNam", "Ixmp"].includes(x.fourcc)) : [],
+    ixmp: bank ? bank.ixmp : [],
+    meta: { projectName: "", songMeta: {} },
+  });
+
+  // instruments from packs, a pack at a time
+  const packs = new Map();
+  for (const i of others) if (i.kind === "pack") (packs.get(i.pack) ?? packs.set(i.pack, []).get(i.pack)).push(i);
+  for (const [file, insts] of packs) {
+    if (!pack) throw new MotifError(`instrument ${insts[0].id} comes from the pack "${file}", which this build cannot open`);
+    const parsed = parseTaud(await pack(file));
+    if (!parsed.sampleInstImage) throw new MotifError(`"${file}" holds no instruments`);
+    const src = new Document(parsed);
+    const used = new Set(src.usedInstrumentSlots());
+    for (const i of insts) {
+      if (typeof i.packSlot === "number") {
+        if (!used.has(i.packSlot)) throw new MotifError(`instrument ${i.id}: "${file}" has nothing in slot ${i.packSlot}`);
+        i.srcSlot = i.packSlot;
+      } else {
+        const hit = [...used].sort((a, b) => a - b).find((sl) => src.instrumentName(sl) === i.packSlot);
+        if (hit === undefined) throw new MotifError(`instrument ${i.id}: "${file}" has no instrument named "${i.packSlot}"`);
+        i.srcSlot = hit;
+      }
+    }
+    const plan = planImport(work, src, insts.map((i) => i.srcSlot));
+    if (plan.error) throw new MotifError(`importing from "${file}": ${plan.error}`);
+    importBankOp(plan).apply(work);
+    for (const i of insts) i.slot = plan.slotMap.get(i.srcSlot);
+    log(`${insts.length} instrument${insts.length === 1 ? "" : "s"} from ${file}`);
+  }
+
+  // generated waveforms: a single cycle each, looped, tuned so C4 sounds at C4
+  for (const i of others) {
+    if (i.kind !== "wave") continue;
+    const pcm = waveform(i.wave, i.length);
+    const { rate, detune } = tuneForMiddleC(pcm.length);
+    const plan = planSampleImport(work, { nameBytes: utf8(i.name ?? i.id), pcm, rate, detune, loop: true });
+    if (plan.error) throw new MotifError(`instrument ${i.id}: ${plan.error}`);
+    importBankOp(plan).apply(work);
+    i.slot = plan.insts[0].destSlot;
+    if (i.envelope) {
+      work._rebuildInstRegion();
+      const inst = work.instruments[i.slot];
+      for (let k = 0; k < 25; k++) inst.volEnvelopes[k] = i.envelope.nodes[Math.min(k, i.envelope.nodes.length - 1)];
+      inst.volEnvLoop = 0x2000; // P: present
+      inst.volEnvSustainWord = i.envelope.susWord;
+      writeRecord(work, i.slot, inst);
+    }
+  }
+
+  // metainstruments, in the order they are declared (one may be made of another)
+  for (const i of others) {
+    if (i.kind !== "layers" && i.kind !== "fm") continue;
+    work._rebuildInstRegion();
+    const record = i.kind === "layers" ? layeredRecord(work, i) : rackRecord(work, i);
+    const taken = new Set(work.usedInstrumentSlots());
+    let slot = 1;
+    while (slot <= 255 && taken.has(slot)) slot++;
+    if (slot > 255) throw new MotifError(`instrument ${i.id}: no free instrument slots left in $01–$FF`);
+    work.sampleInstImage.set(record, SAMPLEBIN_SIZE + slot * 256);
+    work._resetInstrumentCache();
+    i.slot = slot;
+    const parts = splitNameTable(sectionOf(work, "INam") ?? null);
+    while (parts.length <= slot) parts.push(new Uint8Array(0));
+    parts[slot] = utf8(i.name ?? i.id);
+    work.setSection("INam", joinNameTable(parts));
+  }
+  work._rebuildInstRegion();
+  return {
+    sampleInstImage: work.sampleInstImage,
+    ixmp: work.ixmp,
+    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp"].includes(x.fourcc)),
+  };
+}
+
+/** Write a decoded instrument back into the image. */
+function writeRecord(doc, slot, inst) {
+  const rec = new Uint8Array(256);
+  for (let k = 0; k < 256; k++) rec[k] = inst.getByteNormal(k);
+  doc.sampleInstImage.set(rec, SAMPLEBIN_SIZE + slot * 256);
+  doc._resetInstrumentCache();
+}
+
+/** One cycle of a waveform as unsigned 8-bit PCM — the Sample Lab's paint
+ *  presets, so a `wave` sounds like the instrument painted from the same one. */
+export function waveform(shape, length) {
+  const pcm = new Uint8Array(length);
+  for (let k = 0; k < length; k++) {
+    const p = k / length;
+    let v = 128;
+    switch (shape) {
+      case "sine": case "opl0": v = 128 + 127 * Math.sin(2 * Math.PI * p); break;
+      case "saw": v = 255 * p; break;
+      case "square": case "opl6": v = p < 0.5 ? 255 : 0; break;
+      case "triangle": v = p < 0.5 ? 510 * p : 510 * (1 - p); break;
+      case "noise": v = 128 + 127 * noise2(k, length); break; // a fixed noise: the same every build
+      case "opl1": v = 128 + 127 * Math.max(0, Math.sin(2 * Math.PI * p)); break;
+      case "opl2": v = 128 + 127 * Math.abs(Math.sin(2 * Math.PI * p)); break;
+      case "opl3": { const q = p % 0.5; v = q < 0.25 ? 128 + 127 * Math.sin(2 * Math.PI * q) : 128; break; }
+      case "opl4": v = p < 0.5 ? 128 + 127 * Math.sin(4 * Math.PI * p) : 128; break;
+      case "opl5": v = p < 0.5 ? 128 + 127 * Math.abs(Math.sin(4 * Math.PI * p)) : 128; break;
+      case "opl7": v = p < 0.5 ? 128 + 127 * Math.pow(2, -32 * p) : 128 - 127 * Math.pow(2, -32 * (1 - p)); break;
+      default: throw new MotifError(`"${shape}" is not a waveform`);
+    }
+    pcm[k] = Math.max(0, Math.min(255, Math.round(v)));
+  }
+  return pcm;
+}
+
+/** The rate and detune that make a looped cycle of `n` frames sound middle C
+ *  at C4: the rate as high as its 16 bits allow, the detune taking up the rest
+ *  (the waveform painter's own tuning). */
+function tuneForMiddleC(n) {
+  const target = LINEAR_FREQ_C4_HZ * n;
+  let rate = target;
+  while (rate > 0xffff) rate /= 2;
+  while (rate < 1) rate *= 2;
+  const r = Math.max(1, Math.min(0xffff, Math.round(rate)));
+  return { rate: r, detune: Math.max(-32768, Math.min(32767, Math.round(4096 * Math.log2(target / r)))) };
+}
+
+const octetToDb = (o) => {
+  if (o === 0) return -Infinity;
+  if (o >= 232) return 12.5 + (o - 232) * 0.5;
+  if (o >= 208) return 6.25 + (o - 208) * 0.25;
+  if (o >= 112) return -5.875 + (o - 112) * 0.125;
+  if (o >= 88) return -11.75 + (o - 88) * 0.25;
+  if (o >= 64) return -23.5 + (o - 64) * 0.5;
+  if (o >= 2) return -85 + (o - 2);
+  return -86;
+};
+
+/** A layered metainstrument's record. A layer over an ordinary instrument
+ *  points at it; a layer over a layered one stands in for all of ITS layers
+ *  (a layer cannot hold a metainstrument), each with the two gains added, the
+ *  two detunes added and the two rectangles intersected. */
+function layeredRecord(work, i) {
+  const out = [];
+  let strict = i.strict;
+  for (const L of i.layers) {
+    const ref = work.instruments[L.ref.slot];
+    if (!ref.isMeta) {
+      out.push(L.fixed !== null
+        ? makeMetaLayer(L.ref.slot, dbOctet(L.gain), L.fixed, L.pitchStart, L.pitchEnd, L.volStart, L.volEnd, true)
+        : makeMetaLayer(L.ref.slot, dbOctet(L.gain), L.detune, L.pitchStart, L.pitchEnd, L.volStart, L.volEnd));
+      continue;
+    }
+    if (ref.isFm) throw new MotifError(`instrument ${i.id}: ${L.ref.id} is an FM rack, which cannot be a layer`);
+    strict = strict || ref.metaStrict;
+    for (const c of ref.metaLayers) {
+      if ((c.instIdx & 0x3ff) === 0) continue;
+      const ps = Math.max(c.pitchStart, L.pitchStart), pe = Math.min(c.pitchEnd, L.pitchEnd);
+      const vs = Math.max(c.volStart, L.volStart), ve = Math.min(c.volEnd, L.volEnd);
+      if (ps > pe || vs > ve) continue;
+      const gain = octetToDb(c.mixOctet) + L.gain;
+      const octet = gain === -Infinity ? 0 : dbOctet(Math.max(-86, Math.min(24, gain)));
+      let fixed = c.fixedPitch, det = c.detune;
+      if (L.fixed !== null) { fixed = true; det = L.fixed; }
+      else if (fixed) det = Math.max(0x20, Math.min(0xffff, (c.detune & 0xffff) + L.detune));
+      else det = Math.max(-0x8000, Math.min(0x7fff, c.detune + L.detune));
+      out.push(makeMetaLayer(c.instIdx & 0x3ff, octet, det, ps, pe, vs, ve, fixed));
+    }
+  }
+  if (!out.length) throw new MotifError(`instrument ${i.id}: none of its layers can sound (their ranges miss each other)`);
+  if (out.length > META_MAX_LAYERS) throw new MotifError(`instrument ${i.id} would hold ${out.length} layers; a metainstrument holds at most ${META_MAX_LAYERS}`);
+  return buildMetaRecord(out, { strict, percussion: i.percussion });
+}
+
+/** An FM rack's record: each operator reads an ordinary instrument. */
+function rackRecord(work, i) {
+  const ops = i.operators.map((op, k) => {
+    const ref = work.instruments[op.ref.slot];
+    if (ref.isMeta) {
+      throw new MotifError(`instrument ${i.id}: operator ${k} reads ${op.ref.id}, a metainstrument; an operator reads one sample (a wave, usually)`);
+    }
+    return makeMetaLayer(op.ref.slot, dbOctet(op.level), op.detune, op.pitchStart, op.pitchEnd, op.volStart, op.volEnd);
+  });
+  return buildMetaRecord(ops, { type: META_TYPE_FM, percussion: i.percussion, program: i.program === null ? null : Uint16Array.from(i.program) });
+}
+
+/** A file signature: up to 14 printable ASCII characters, padded with spaces. */
+export function checkSignature(sig) {
+  if (typeof sig !== "string" || sig.length > 14 || /[^\x20-\x7e]/.test(sig)) {
+    throw new MotifError(`a file signature is up to 14 plain ASCII characters, not ${JSON.stringify(sig)}`);
+  }
+  return sig.padEnd(14, " ");
 }
 
 /**
@@ -291,15 +574,14 @@ function retuneUses(score) {
   for (const lane of score.lanes) {
     for (const c of lane.ev.values()) {
       if (c.note === undefined || c.note < 0x20 || c.inst === undefined) continue; // glides trigger nothing
-      const inst = score.instruments[c.inst - 1];
-      if (!inst?.retune) continue;
+      if (!c.inst.retune) continue;
       let vol = 63;
       if (c.vol !== undefined) {
         const v = c.vol * lane.trim;
         vol = Math.max(0, Math.min(63, Math.round(wide ? (v * 63) / 255 : v)));
       }
-      if (!uses.has(c.inst)) uses.set(c.inst, []);
-      uses.get(c.inst).push({ word: c.note, vol });
+      if (!uses.has(c.inst.slot)) uses.set(c.inst.slot, []);
+      uses.get(c.inst.slot).push({ word: c.note, vol });
     }
   }
   return uses;

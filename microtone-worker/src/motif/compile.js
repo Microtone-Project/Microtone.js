@@ -16,7 +16,7 @@ function cell8(c, trim, jit) {
   if (!c) return b;
   const note = c.note ?? 0;
   b[0] = note & 0xff; b[1] = note >>> 8;
-  b[2] = c.inst ?? 0;
+  b[2] = c.inst ? c.inst.slot : 0;
   if (c.volRaw !== undefined) b[3] = c.volRaw;
   else if (c.vol !== undefined) b[3] = setVolume(c.vol, trim, jit, 63); // selector 0 = SET
   if (c.panRaw !== undefined) b[4] = c.panRaw;
@@ -34,7 +34,7 @@ function cell16(c, trim, jit) {
   if (!c) return b;
   const note = c.note ?? 0;
   b[0] = note & 0xff; b[1] = note >>> 8;
-  b[2] = c.inst ?? 0;
+  b[2] = c.inst ? c.inst.slot : 0;
   let volSel = 3, volVal = 0;
   if (c.volSel !== undefined) { volSel = c.volSel; volVal = c.volRaw; }
   else if (c.vol !== undefined) { volSel = 0; volVal = setVolume(c.vol, trim, jit, 255); }
@@ -54,6 +54,11 @@ function cell16(c, trim, jit) {
 function setVolume(v, trim, jit, max) {
   if (v === 0) return 0;
   return Math.max(1, Math.min(max, Math.round(v * trim + jit)));
+}
+
+/** One cell as pattern bytes, in either layout — the preview's encoder. */
+export function encodeCell(c, trim, jit, wide) {
+  return wide ? cell16(c, trim, jit) : cell8(c, trim, jit);
 }
 
 /** One empty pattern image. */

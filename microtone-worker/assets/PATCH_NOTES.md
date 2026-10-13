@@ -6,6 +6,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-15
 
+The Welcome page now ends with a row of sites we like: the demoscene, tracker-music and xenharmonic homes Microtone grew up beside.
+
+- **Sites we like**: scene.org, The Mod Archive, SceneSat, pouët.net, the Soundtracker Museum, Xenharmonic Wiki and the Scale Workshop, each behind its own 88×31 button at the foot of the Welcome page; a click opens the site in a new tab.
+- No affiliation and nothing tracked: they are plain links, there because we like the sites.
+
 Motif arrives: write a song as a program in the Taud Motif Language, and Microtone builds the whole project from it — notes, instruments, mix and master.
 
 - **A new Motif tab** (Shift+F7) holds a program and builds it with **Build** (Ctrl+Enter). The program describes the song (its tuning, tempo, length, instruments and lanes, its melodies and chords) and the rules that make the rest: loops, functions, chance, mirror images and other transformations of a line.
@@ -15,6 +20,12 @@ Motif arrives: write a song as a program in the Taud Motif Language, and Microto
 - **Mistakes point at their line**: an error stops the build and shows its line and column, marked in the margin, with the calls that led to it; a misspelt option suggests the one you meant, and two notes clashing on one row are named with their lane and bar.
 - **Safe to share**: a program can do nothing but make music — it cannot reach your files, the network or the page, and it runs apart from the page, so even one that never ends can be cancelled and cannot freeze the app.
 - **The project keeps its program**: open it later and the Motif tab shows the program it was built from, ready to change and build again. Open a `.tml` file like any other file to build it, and **Save .tml…** downloads the program you are writing.
+- **The editor colours what you type**: keywords, numbers, strings, pitches, comments and calls each in their own colour, the line you are on lit, in the Syntello scheme on the light themes and Dimtello on the dark ones.
+- **The editor follows your names**: put the caret in a name and every other place it is used lights up, the places that set it in a colour of their own; the selection is drawn under the text, so the colours stay readable inside it.
+- **Rename** (Shift+F6, or right-click a name) changes a name everywhere it means the same thing, and refuses a new name that would change what the program does; one undo takes it back.
+- **A side panel** beside the program: Structure outlines its sections, instruments, lanes, functions and variables, and Call hierarchy (Ctrl+Alt+H) shows what calls a function and what it calls. It folds away to a strip at the edge.
+- **Preview** a call: right-click a `melody(…)`, a `hit(…)` or a function of your own to hear what that call writes, through the open project's instruments, without building the song.
+- **Instruments beyond the soundfont**: a program can play instruments from a pack (a `.tsii` bank, or another project), generated waveforms with their own envelopes, layered instruments stacked from others, and FM racks whose operators and algorithm it writes itself.
 - **Huygens' Clock is now a Motif program**: the demo song is built from one, and carries it — load the demo, open the Motif tab, and read how the piece is made. The song sounds exactly as it did.
 - **Docs → Motif Language** is the language's full reference, and the User Manual has a chapter on the Motif tab.
 

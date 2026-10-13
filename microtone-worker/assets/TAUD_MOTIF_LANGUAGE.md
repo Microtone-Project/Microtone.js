@@ -122,8 +122,8 @@ A name is ASCII letters, digits and `_`, not starting with a digit; case matters
 | record | `{ root: 2, ivs: [0, 10] }` | named fields in the order first written, changeable |
 | range | `1..8`, `0..<14 by 2` | whole numbers, made on demand (§5) |
 | function | `fn(x) => x * 2` | §6 |
-| lane | declared by `lane` | fields `name`, `label`, `index`, `inst` |
-| instrument | declared by `instrument` | fields `name`, `slot` |
+| lane | declared by `lane` | fields `name`, `label`, `index`, `inst`, `trim` |
+| instrument | declared by `instrument` | field `name` |
 
 A record's fields are separated by commas or line breaks, and `{ name }` is short for `{ name: name }`. A field name may also be a string: `{ "pad 1": 3 }`.
 
@@ -209,7 +209,6 @@ song { title: "…", tuning: "31-TET", tempo: 120, speed: 6, bars: 64, bar_rows:
 | `a4` | 440 | The frequency A4 sounds at, in Hz |
 | `title`, `composer`, `copyright` | empty | The project's name, author and copyright |
 | `message` | empty | The Project message |
-| `signature` | `"Microtone.js"` | The file's signature, up to 14 ASCII characters |
 | `surround` | `"stereo"` | `"stereo"`, `"planar"` (the circle) or `"spatial"` (the sphere) |
 | `format` | 2; 3 for a surround song | 3 is the wide cell (TAUD_FILE_FORMAT.md §5.5), for surround songs only |
 | `global_volume`, `mixing_volume` | 128, 128 | The song's two volumes, 0–255 |
@@ -236,21 +235,63 @@ Notations that list a fixed set of notes rather than repeating a period, such as
 ### 7.3 `instrument`
 
 ```
-instrument EP { bank: 0, program: 4, layer_gain: 3 }
+instrument EP   { bank: 0, program: 4, layer_gain: 3 }
+instrument SINE { wave: "sine", envelope: [[0, 63], [0.4, 30], [2, 0]] }
+instrument BELL { fm: { operators: [{ inst: SINE }, { inst: SINE, ratio: 3.5, level: -6 }], algorithm: "0[1]" } }
 ```
 
-An instrument is a preset of the song's soundfont, and declaring one binds its name. Instruments take the slots 1, 2, 3, … in the order they are declared (at most 255), and all of them come before the first lane.
+Declaring an instrument binds its name. A song has at most 255, and all of them come before the first lane. Each has exactly one **source**:
+
+| Source | Options | |
+|---|---|---|
+| A soundfont preset | `bank`, `program` | Bank 0–128 (128 holds the drum kits), program 0–127, from the song's `soundfont` |
+| An instrument pack | `pack`, `slot` | An instrument of a `.tsii` bank (or a whole `.taud` project): `pack` names the file, `slot` the instrument's slot number in it or its name there. The app asks for the file the first time a build needs it; the command line finds it next to the `.tml` |
+| A waveform | `wave`, `length` | One cycle of `"sine"`, `"triangle"`, `"saw"`, `"square"`, `"noise"` or one of OPL's eight (`"opl0"` … `"opl7"`), `length` samples long (256 unless given), looped and tuned so C4 sounds at C4 — the Sample Lab's paint presets |
+| Layers | `layers` | A layered metainstrument: a list of layers over other instruments, each sounding on its own voice (below) |
+| An FM rack | `fm` | An FM operator rack: operators reading other instruments, combined by an algorithm, on one voice (below) |
+
+Every instrument also takes:
 
 | Option | Default | |
 |---|---|---|
-| `bank`, `program` | — | **Required.** The preset: bank 0–128 (128 holds the drum kits), program 0–127 |
-| `name` | the soundfont's | The instrument's name in the project |
-| `retune` | `true` | Whether the song's `retune` measures this instrument (leave drums out) |
-| `layer_gain` | — | Decibels applied to every layer of a layered instrument, as the layer-mix octet that comes nearest (TAUD_FILE_FORMAT.md §7.5) |
+| `name` | the soundfont's or pack's name; else the instrument's own | The instrument's name in the project |
+| `retune` | `true` for soundfont presets and layers, `false` otherwise | Whether the song's `retune` measures this instrument — drums and noises are better left out, and a waveform is in tune already |
+| `layer_gain` | — | (A layered preset from a soundfont or a pack.) Decibels applied to every one of its layers, as the layer-mix octet that comes nearest (TAUD_FILE_FORMAT.md §7.5) |
+| `keep_layers` | all | (The same.) Which of its layers to keep, numbered from 0; the others are removed |
 | `min_fadeout` | — | Every zone fades out at least this fast (in the engine's fadeout units, which a soundfont's release becomes at the song's tempo) |
 | `fadeout` | — | Every layer and zone fades out at exactly this rate |
 | `nna` | — | The New Note Action: `"off"`, `"cut"`, `"continue"` or `"fade"` |
-| `layers` | all | Which layers of a layered preset to keep, numbered from 0; the others are removed |
+| `envelope` | — | (A waveform.) Its volume envelope: up to 25 `[seconds, volume]` points, volume 0–63, the last held; at most 15.75 s between two points |
+| `sustain` | — | (A waveform with an envelope.) The point it holds while the key is down (`sustain: 1`), or a range of points it loops through (`sustain: 1..3`) |
+| `percussion` | `false` | (Layers or an FM rack.) Marks the instrument as percussion |
+| `strict` | `false` | (Layers.) Strict layering: a layer whose own zones do not cover a note stays silent for it, rather than falling back to its base sample (TAUD_FILE_FORMAT.md §7.4) |
+
+**Layers.** Each layer is a record:
+
+| Field | Default | |
+|---|---|---|
+| `inst` | — | **Required.** The instrument it sounds |
+| `gain` | 0 | Its level, in decibels |
+| `detune` | 0 | Its detune, in cents |
+| `notes` | every pitch | The pitches it answers: a range such as `'C3'..'C5'` |
+| `vols` | 0..63 | The volumes it answers (0–63) |
+| `fixed` | — | A pitch it always plays, whatever note triggers it — a click, a breath, a noise bed (no `detune` then) |
+
+A layer over a layered instrument stands in for all of that instrument's layers (a layer cannot hold a metainstrument): each keeps its own layer, with the two gains and the two detunes added and the two ranges narrowed to where they overlap. So `layers: [{ inst: PIANO }, { inst: STRINGS, gain: -6 }]` stacks two soundfont presets whatever they are made of. A metainstrument holds at most 25 layers.
+
+**FM racks.** `fm` is a record of `operators` — a list of 1–16 — and an `algorithm`. Each operator is a record:
+
+| Field | Default | |
+|---|---|---|
+| `inst` | — | **Required.** The instrument it reads: one sample, not a metainstrument (a `wave`, usually) |
+| `level` | 0 | Its output level, in decibels |
+| `ratio` | 1 | Its frequency ratio: 2 an octave up, 3.5 a minor seventh above that |
+| `detune` | 0 | Added to the ratio, in cents |
+| `notes`, `vols` | everything | The pitches and volumes it plays for; outside them it is silent (key scaling, velocity-switched brightness) |
+
+The algorithm is written the way the Instruments view's FM tab reads one back: `0` is operator 0 free-running; `0[1]` is operator 0 with its phase modulated by operator 1, so `0[1[2]]` is a chain of three; `1'` is what operator 1 put out one sample before (a feedback tap, so `0[0']` is operator 0 feeding back into itself); `a + b` mixes, `a * b` ring-modulates, `-a` inverts, and parentheses group. Without one, the rack is a chain: the last operator into the one before it, all the way down to operator 0. Operator 0 is the principal — its envelope, its fadeout and its ending are the note's (TAUD_FILE_FORMAT.md §7.6). An algorithm that does not make a playable rack is an error.
+
+**Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are declared), then the instruments from packs, the waveforms and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
 
 ### 7.4 `lane`
 
@@ -328,6 +369,8 @@ Volumes are 0–63 in a format-2 song and 0–255 in a format-3 one. An effect i
 | `vibrato(lane, from, to, speed, depth)` | `H` on the rows from `from` up to `to`: the first states speed and depth, the rest continue it; a row that already has an effect is stepped round (the next one states them again), and a key-off ends it |
 | `melody(lane, row, text, …)` | A line from a melody string (§8.4); returns the row after it |
 | `occupied(lane, row)` | Whether anything is written on that row yet |
+| `cell(lane, row)` | What is written there so far, as a record of the fields that are (`none` for an empty row): `note` (a pitch, or `"off"`, `"cut"`, `"fade"`), `inst`, `vol`, `vol_cmd` (true when the volume column holds a slide), `fx`/`arg`, `fx2`/`arg2`, `pos` |
+| `vol_ramp(lane, from, to, from_vol, to_vol)` | A smooth change of the sounding note's volume over the rows from `from` up to `to`: one fine slide a row, each the rounded share of what is left, in the lane's own units (its trim applies, as to a volume it sets); a row whose volume column is taken is stepped round |
 | `lanes()` | Every lane, in order |
 
 ### 8.4 Melody strings
@@ -366,6 +409,7 @@ melody(lead, at(9), """
 | `mirror(pitch, axis)` | The pitch reflected through the axis: `2 × axis − pitch` |
 | `transpose(pitches, steps)`, `invert(pitches, axis)` | The same over a list |
 | `dir(az, el)` | A position for a format-3 song, in degrees: azimuth 0 ahead, 90 right, 180 behind; elevation 90 straight up |
+| `dir_arg(az, el)` | The same direction as the argument of `X` and `4` (`$eeaa`: elevation, then the azimuth halved) |
 | `nearest_chord(prev, chord, lo, hi, n, need_root)` | The notes of `chord` that move least from the notes `prev` |
 
 A **chord** is a record with `root` (a degree number) and `ivs` (its intervals in steps), and optionally a `name` for error messages: `{ root: degree("D"), ivs: [0, 10, 18, 25] }` is D 4:5:6:7 in 31-TET. `nearest_chord` returns `n` pitches (as many as `prev` has, unless given), ascending, every one within `lo`…`hi` and of the chord's pitch classes, covering as many of its classes as `n` allows — the root among them when `need_root` — and moving the least in total from `prev` note by note (what harmony textbooks call smooth voice leading). Ties go to the lower spelling. It is an error when no spelling fits.
@@ -447,9 +491,9 @@ A build turns the score into a project in these steps:
 1. **Compile.** Each lane's events in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
 2. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 63 in format 2 and 255 in format 3 — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
 3. **Pans.** Each lane with a `pan` gets `S $8xxx` on the song's first row, in a pattern of its own when its first pattern is used anywhere else.
-4. **Bank.** The instruments' presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick).
-5. **Instruments.** `layers`, `nna` and `fadeout` are applied.
-6. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `layers` left some layers behind, every instrument nothing plays.
+4. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
+5. **Instruments.** `keep_layers`, `nna` and `fadeout` are applied.
+6. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `keep_layers` left some layers behind, every instrument nothing plays.
 7. **Adjustments.** `min_fadeout`, then `layer_gain`.
 8. **Re-tuning** (when the song asks for it). Soundfont samples are tuned for twelve-tone music, a few cents either way — nothing in a piano, a fifth of a step in 31-TET. For each combination of zones the song's notes trigger, a held note is rendered, its pitch measured, and those zones' detune moved by the error; three passes, so the last measures the result. Layers a note sounds together move together, so a deliberately detuned pair keeps its spread.
 9. **Source.** The program itself is saved in the project, in a `PMtf` section (TAUD_FILE_FORMAT.md §9.14), so that the Motif view can show it, and build it again.
@@ -458,17 +502,19 @@ The project is new and unsaved when the build finishes; save it like any other.
 
 ### In Microtone
 
-The **Motif** tab (Shift+F7) holds a program and builds it. When the open project was built by Motif, the tab shows its program; otherwise it holds a draft of your own, kept in the browser. **Build** (Ctrl+Enter) runs the program away from the page, so a long one never freezes the app, and **Cancel** stops it. An error stops the build and is shown with its line and column — click the position to go there — and, inside a function, the calls that led to it. Opening a `.tml` file anywhere a project can be opened puts it in the tab and builds it.
+The **Motif** tab (Shift+F7) holds a program and builds it. When the open project was built by Motif, the tab shows its program; otherwise it holds a draft of your own, kept in the browser. **Build** (Ctrl+Enter) runs the program away from the page, so a long one never freezes the app, and **Cancel** stops it. An error stops the build and is shown with its line and column — click the position to go there — and, inside a function, the calls that led to it. Opening a `.tml` file anywhere a project can be opened puts it in the tab and builds it. The editor colours the program as it is typed — keywords, declarations, numbers, strings, pitches, comments, calls, fields — in the Syntello scheme on the light themes and Dimtello (a grey page) on the dark ones, and lights the line the caret is on. A song that plays a soundfont other than the bundled one, or instruments from a pack, asks for that file the first time a build needs it.
+
+The editor reads the program as it is typed, by the scope rules of §6: the caret in a name marks the other places it is used, and right-clicking a name offers **Rename**, which changes the name wherever it refers to the same declaration — named arguments and `{ name }` shorthands included — and refuses a new name that would make any name in the program refer to something else. A side panel outlines the program (**Structure**) and shows what calls a function and what it calls (**Call hierarchy**). **Preview**, on a call, runs the program and plays only what that call writes, each time it is made, through the open project's instruments.
 
 ### On the command line
 
 From `microtone-worker/` in Microtone's source:
 
 ```
-node tools/motif.js song.tml [out.taud] [-v] [--check] [--no-source]
+node tools/motif.js song.tml [out.taud] [-v] [--check] [--no-source] [--signature TEXT]
 ```
 
-`--check` runs the program and compiles the song without making the bank, and says what it would make; `--no-source` leaves the program out of the project. The bank is made by the same converter the app runs, with the local `python3`.
+`--check` runs the program and compiles the song without making the bank, and says what it would make; `--no-source` leaves the program out of the project. `--signature` sets the file's 14-character signature, which says what wrote the file and so is not the program's to choose (the app signs what it builds, and keeps the signature of a project it rebuilds); the demo songs' Makefile is what signs them "Microtone Demo". A song that needs more than a program — samples processed, an instrument pack made — is built by a Makefile too: the pack first, then the program that plays it. The bank is made by the same converter the app runs, with the local `python3`.
 
 ## 12. Limits and errors
 

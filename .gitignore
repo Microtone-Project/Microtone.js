@@ -30,3 +30,4 @@ microtone-worker/index_kaputt.html
 .wrangler/
 /build/
 /OoT_musical_experiments/
+*.icls

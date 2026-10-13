@@ -150,5 +150,7 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
     dlg.showModal();
     const first = Object.values(inputs)[0];
     if (first) first.focus();
+    // `select: true` on the first field: its text starts selected, to be typed over
+    if (first && fields[0]?.select) first.select?.();
   });
 }

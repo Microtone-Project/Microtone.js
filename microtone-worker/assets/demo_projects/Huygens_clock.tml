@@ -16,7 +16,6 @@ song {
   title: "Huygens' Clock"
   composer: "CuriousTorvald via Motif"
   copyright: "(c) 2026 CuriousTorvald"
-  signature: "Microtone Demo"
   message: about()            // the Project message, written at the end of this file
   tuning: "31-TET"
   tempo: 120

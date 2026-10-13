@@ -26,7 +26,11 @@ function err(src) {
   try { interpret(src); } catch (e) { if (e instanceof MotifError) return e; throw e; }
   assert.fail("expected a MotifError");
 }
-const cell = (score, row, lane = 0) => score.lanes[lane].ev.get(row);
+/** A cell as plain data: the instrument it names reads as its slot. */
+const cell = (score, row, lane = 0) => {
+  const c = score.lanes[lane].ev.get(row);
+  return c && c.inst ? { ...c, inst: c.inst.slot } : c;
+};
 
 test("pitches are steps of the song's notation, spelt as the Timeline spells them", () => {
   assert.equal(run('bars: 1, tuning: "31-TET"', "print('C4', 'Cp4', note_name(154), note(\"F#3\"), degree(\"Bb\"), period())").out, "124 154 Cp4 108 26 31");

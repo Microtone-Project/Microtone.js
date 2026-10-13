@@ -35,8 +35,8 @@ arranger's note on the piece travels with it, in the project's Message
   `Huygens_clock.tml` beside it, written by Claude in 2026 (first as a
   JavaScript generator, whose output the program rebuilds byte for byte). This
   file is the program's output, and carries the program in its `PMtf` section:
-  rebuild it with `node tools/motif.js assets/demo_projects/Huygens_clock.tml`
-  (from `microtone-worker/`, needs python3), or with Build in the Motif view.
+  rebuild it with `make` in this directory (needs node and python3; it also
+  refreshes `demos.json`), or with Build in the Motif view.
   It is a generated artefact: change the program and rebuild rather than
   editing the file by hand.
 - **Instruments:** General MIDI patches from GeneralUser GS by S. Christian
