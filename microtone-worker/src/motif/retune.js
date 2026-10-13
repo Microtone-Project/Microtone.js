@@ -10,8 +10,8 @@
 // pair (a chorus) keeps its spread and only its centre is corrected.
 
 import { parsePatchesBlob, writePatchesBlob } from "../../core/engine/inst.js";
-import { buildIxmpSection } from "../../src/doc/bankmerge.js";
-import { measureWords } from "./zonetune.mjs";
+import { buildIxmpSection } from "../doc/bankmerge.js";
+import { measureWords } from "./zonetune.js";
 
 const UNITS_PER_CENT = 4096 / 1200;
 
@@ -32,10 +32,16 @@ function zoneKey(doc, slot, word, vol) {
 
 /**
  * `uses`: Map slot → array of {word, vol}. Returns a report; edits doc.ixmp and
- * the Ixmp section in place.
+ * the Ixmp section in place. `pause` (awaited between measurements) lets a
+ * page draw while this runs; `progress(done, total)` counts measurements.
  */
-export function retune(doc, uses, { passes = 2, log = () => {} } = {}) {
+export async function retune(doc, uses, { passes = 2, log = () => {}, pause = null, progress = null } = {}) {
   const report = [];
+  let done = 0;
+  let total = 0;
+  if (progress) {
+    for (const [slot, list] of uses) total += new Set(list.map((u) => zoneKey(doc, slot, u.word, u.vol))).size * passes;
+  }
   for (let pass = 0; pass < passes; pass++) {
     const corr = new Map(); // "layer:patchIdx" → [cents…]
     for (const [slot, list] of uses) {
@@ -48,7 +54,9 @@ export function retune(doc, uses, { passes = 2, log = () => {} } = {}) {
       for (const [key, members] of groups) {
         members.sort((a, b) => a.word - b.word);
         const rep = members[members.length >> 1];
+        if (pause) await pause();
         const [m] = measureWords(doc, slot, [rep.word], rep.vol);
+        progress?.(++done, total);
         if (!Number.isFinite(m.cents)) continue;
         if (pass === passes - 1) report.push({ slot, key, word: rep.word, cents: m.cents });
         for (const z of key.split(",")) {
@@ -85,19 +93,4 @@ export function retune(doc, uses, { passes = 2, log = () => {} } = {}) {
     doc._resetInstrumentCache();
   }
   return report;
-}
-
-/** Every (word, vol) each pattern-visible melodic instrument is triggered with. */
-export function usesFromLanes(lanes, skipSlots) {
-  const uses = new Map();
-  for (const lane of lanes) {
-    if (skipSlots.has(lane.inst)) continue;
-    for (const c of lane.ev.values()) {
-      if (c.note === undefined || c.note < 0x20 || c.inst === undefined) continue; // glides trigger nothing
-      const vol = c.vol !== undefined ? Math.max(0, Math.min(63, Math.round(c.vol * (lane.trim ?? 1)))) : 63;
-      if (!uses.has(lane.inst)) uses.set(lane.inst, []);
-      uses.get(lane.inst).push({ word: c.note, vol });
-    }
-  }
-  return uses;
 }

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Motif smoke: write a song as a program, build it, open its source again</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- Run in real time (tools/browser-smoke.js test/browser/motif-smoke.html 600):
+       the build runs in a module worker and the bank in the Pyodide worker. -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html" style="width:1200px;height:760px"></iframe>
+  <script type="module">
+    import { MOTIF_EXAMPLE } from "../../src/ui/motifexample.js";
+
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const check = (what, ok) => log(`${what} → ${ok ? "ok" : "FAIL"}`);
+    const waitFor = (fn, ms = 60000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 100);
+    });
+    const fetchText = async (url) => (await fetch(url)).text();
+    const fetchBytes = async (url) => new Uint8Array(await (await fetch(url)).arrayBuffer());
+
+    (async () => {
+      try {
+        try { localStorage.removeItem("microtone-motif-draft"); } catch { /* fine */ }
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => frame.contentWindow?.__microtone ? frame.contentWindow : null);
+        const app = win.__microtone;
+        const { store, loadBytes, split } = app;
+        log("app booted");
+
+        // ── the tab is there, and usable with nothing loaded ──
+        const tab = win.document.querySelector('#tabs [data-view="motif"]');
+        check(`Motif tab "${tab?.textContent}"`, !!tab);
+        split.reveal("motif");
+        await waitFor(() => !win.document.getElementById("motifHost").hidden, 5000);
+        const view = app.motifView;
+        const text = () => view.text.value;
+        check("with no project, the editor offers the example", text() === MOTIF_EXAMPLE && view.origin === "draft");
+
+        // ── a program with a mistake: the error points at its line ──
+        const bad = "tml 1\nsong { bars: 2, tuning: \"12-TET\" }\ninstrument P { bank: 0, program: 0 }\nlane a { inst: P }\nhit(a, 0, 'C4', 40)\nhit(a, 0, 'D4', 40)\n";
+        await loadBytes("bad.tml", new TextEncoder().encode(bad));
+        const err = await waitFor(() => view.msgs.querySelector(".motif-err"), 30000);
+        check(`a .tml opens in the view: "${view.fileName}"`, text() === bad && view.fileName === "bad.tml" && store.doc === null);
+        check(`its clash is reported at 6:1 ("${err.textContent}")`, /^6:1 /.test(err.textContent) && /two different notes/.test(err.textContent));
+        check("…and the gutter marks line 6", view.gutter.querySelector(".motif-err-line")?.textContent === "6");
+
+        // ── an endless loop can be cancelled ──
+        view.setText("tml 1\nlet i = 0\nwhile true { i += 1 }\n", "draft");
+        const running = view.runBuild();
+        await waitFor(() => view.buildBtn.textContent === "Cancel", 5000);
+        await new Promise((r) => setTimeout(r, 300));
+        view.cancel();
+        await running;
+        check("Cancel stops a build that never ends", view.job === null && /cancelled/i.test(view.msgs.textContent));
+
+        // ── the example builds (the bank through the Pyodide converter) ──
+        view.setText(MOTIF_EXAMPLE, "draft");
+        const t0 = performance.now();
+        await view.runBuild();
+        await waitFor(() => store.doc, 240000);
+        const doc = store.doc;
+        log(`built in ${((performance.now() - t0) / 1000).toFixed(1)} s: "${view.msgs.lastChild?.textContent}"`);
+        check(`the build is the project: ${store.fileName}, ${doc.songs[0].numVoices} lanes, notation ${doc.meta.songMeta[0]?.notation}`,
+          store.fileName === "Motif example.taud" && doc.songs[0].numVoices === 7 && doc.meta.songMeta[0]?.notation === 190 && doc.dirty);
+        check("the view now shows the project's own program", view.origin === "doc" && text() === MOTIF_EXAMPLE);
+        check("the Motif view stays on screen after a build", store.views.includes("motif"));
+
+        // ── a project built by Motif carries its program ──
+        doc.dirty = false; // skip the discard confirm
+        const demoSrc = await fetchText("../../assets/demo_projects/Huygens_clock.tml");
+        await loadBytes("Huygens_clock.taud", await fetchBytes("../../assets/demo_projects/Huygens_clock.taud"));
+        await waitFor(() => store.fileName === "Huygens_clock.taud", 30000);
+        check("opening Huygens' Clock shows its program", text() === demoSrc && view.origin === "doc");
+
+        // ── and the browser builds the same file the command line did ──
+        // (the bank by Pyodide's CPython, the re-tuning by the engine in the
+        // worker, the save by the WebAssembly zstd: every host, the same bytes)
+        store.doc.dirty = false;
+        const t1 = performance.now();
+        await view.runBuild();
+        await waitFor(() => store.doc && view.job === null && view.origin === "doc" && store.doc.dirty, 600000);
+        const built = await store.doc.toSaveBytes(19);
+        const want = await fetchBytes("../../assets/demo_projects/Huygens_clock.taud");
+        let same = built.length === want.length;
+        for (let i = 0; same && i < built.length; i++) if (built[i] !== want[i]) same = false;
+        check(`rebuilt in the browser in ${((performance.now() - t1) / 1000).toFixed(1)} s: ${built.length} bytes, the committed file is ${want.length} — byte for byte`, same);
+
+        log(`FAILURES: ${out.filter((l) => l.endsWith("FAIL")).length}`);
+      } catch (err) {
+        log("ERROR: " + err.message + "\n" + err.stack);
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+</body>
+</html>

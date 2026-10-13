@@ -2868,6 +2868,75 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .proj-message-text:focus { outline: 1px solid var(--accent); }
 
+/* ── Motif view: a Taud Motif Language program and its build (item 208) ── */
+.motif-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0.8rem;
+  gap: 0.4rem;
+}
+.motif-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.motif-bar .motif-build { min-width: 5.5rem; border-color: var(--accent); }
+.motif-ref { color: var(--dim); text-decoration: none; }
+.motif-ref:hover { color: var(--fg); }
+.motif-state { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.motif-editor {
+  flex: 1 1 auto;
+  min-height: 6rem;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.motif-gutter, .motif-text {
+  font-family: "Roboto Mono", monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+}
+.motif-gutter {
+  flex: none;
+  min-width: 3.2em;
+  text-align: right;
+  color: var(--dim);
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  user-select: none;
+}
+.motif-gutter .motif-err-line { color: var(--err-fg); font-weight: 600; }
+.motif-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+.motif-editor:focus-within { border-color: var(--accent); }
+.motif-out { flex: 0 0 auto; max-height: 30%; overflow-y: auto; }
+.motif-progress { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem; }
+.motif-progress progress { width: 12rem; }
+.motif-msgs { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+.motif-msgs li { padding: 0.1rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.motif-msgs .motif-err { color: var(--err-fg); }
+.motif-msgs .motif-ok { color: var(--ok-fg); }
+.motif-msgs .motif-trace { color: var(--dim); padding-left: 1.5rem; }
+.motif-pos {
+  font-family: "Roboto Mono", monospace;
+  font-size: 0.8rem;
+  padding: 0 0.35rem;
+  margin-right: 0.2rem;
+}
+
 /* ── boot splash (item 67) ─────────────────────────────────────────────── */
 .splash {
   position: fixed;

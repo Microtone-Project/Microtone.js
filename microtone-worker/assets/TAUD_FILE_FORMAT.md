@@ -868,7 +868,7 @@ Nothing in Project Data is required to play a song correctly, with three excepti
 - `Ixmp`, because it changes which samples an instrument plays.
 - `sMst`, because it is the chain the song is delivered through ([§9.12](#9-12-smst-song-mastering)).
 
-Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all.
+Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all, and `PMtf` ([§9.14](#9-14-pmtf-motif-source)), the program a project was built from.
 
 ### 9.9 `SRgn` — sample-pool regions
 
@@ -1096,6 +1096,14 @@ A file **SHOULD** hold at most one `PKey`. An editor that cannot parse the paylo
 
 The `.taudkey` text format itself is not part of this specification: it is an editor file, versioned on its own header line, and it is carried here as an opaque payload.
 
+### 9.14 `PMtf` — Motif source
+
+The program the project was built from: one Taud Motif Language source (`.tml`), UTF-8, exactly as it was built. A terminating `NUL` is **OPTIONAL** and a reader **MUST** stop at the first one when it is present, as for the project strings ([§9.2](#9-2-pnam-pcom-pcpr-pmsg-project-strings)).
+
+A Motif build writes it so that the project carries its own recipe: an editor can show the program, and building it again makes the project again. It changes nothing about playback, and the patterns, instruments and texts of the project are what a reader plays and shows — never the program. The section says what the project was built FROM, not what it is now: an editor **MUST NOT** rewrite it when the project is edited by hand, and **SHOULD** replace it only by building the project anew.
+
+A file **SHOULD** hold at most one `PMtf`. An editor that does not build Motif programs **MUST** keep the section's bytes untouched when saving. The language is not part of this specification; it is defined in the Taud Motif Language reference (TAUD_MOTIF_LANGUAGE.md), which also says how a build turns a program into the rest of this file.
+
 ## 10. Validity checklist
 
 A writer producing a file that any conforming reader will accept must satisfy all of the following.
@@ -1137,3 +1145,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-09-11 | An interrupt marker's argument: the `:` effect on the marker's own row, 0…65535, 0 where the row carries none |
 | 2026-09-15 | `PKey` — project keymap: the `.taudkey` layout the piece is written for, carried in the project |
 | 2026-10-06 | The volume envelope's `P` bit is read like every other envelope's: `P = 0` plays at unity whatever the nodes hold (it had been informational) |
+| 2026-10-11 | `PMtf` — Motif source: the Taud Motif Language program a project was built from, carried in the project |

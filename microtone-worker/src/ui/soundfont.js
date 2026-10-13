@@ -56,3 +56,9 @@ export async function pickUserSoundfont() {
 export async function getSoundfont() {
   return (await getBundledSoundfont()) ?? userSf2 ?? pickUserSoundfont();
 }
+
+/** The soundfont the person picked last this session, or null — what a song
+ *  that names its soundfont is matched against before asking again. */
+export function lastUserSoundfont() {
+  return userSf2;
+}

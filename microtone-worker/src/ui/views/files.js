@@ -231,7 +231,7 @@ export class FilesView {
 
   async import() {
     // no .mid here — MIDI import (with its soundfont choice) is its own button
-    const file = await pickFile(".taud,.tsii,.tpif,.mtsk," +
+    const file = await pickFile(".taud,.tsii,.tpif,.mtsk,.tml," +
       CONVERT_ACCEPT.split(",").filter((e) => !e.startsWith(".mid")).join(","));
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -239,7 +239,9 @@ export class FilesView {
     // only native containers land in OPFS verbatim. An IMAC is foreign too —
     // the song chosen from inside it is what gets converted — and so is a
     // Touch sketch, which opens as the project it stands for.
-    if (!converterFor(file.name) && !isImac(bytes) && !isSketch(bytes) && await opfs.available()) {
+    // A Motif program builds a project; the project is what gets saved.
+    if (!converterFor(file.name) && !isImac(bytes) && !isSketch(bytes) && !/\.tml$/i.test(file.name) &&
+        await opfs.available()) {
       await opfs.write(file.name, bytes);
     }
     await this.cb.openBytes(file.name, bytes);

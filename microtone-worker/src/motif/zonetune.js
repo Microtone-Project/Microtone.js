@@ -9,7 +9,6 @@ import { TaudEngine } from "../../core/engine/engine.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
 import { loadIntoEngine } from "../../core/audio/offline-render.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
-import { noteWord } from "./lib.mjs";
 
 const hzOf = (word) => 261.6255653 * 2 ** ((word - 0x5000) / 4096);
 
@@ -70,12 +69,7 @@ export function trackPitch(x, a, z, f0) {
   return est[est.length >> 1];
 }
 
-/** Cents error of `inst` playing each of `steps` (31-EDO steps), at volume `vol`. */
-export function measureNotes(bank, inst, steps, vol = 50) {
-  return measureWords(bank, inst, steps.map(noteWord), vol).map((r, i) => ({ ...r, step: steps[i] }));
-}
-
-/** Same, for raw note words. */
+/** Cents error of `inst` playing each of `words` (note words), at volume `vol`. */
 export function measureWords(bank, inst, words, vol = 50) {
   return words.map((word) => {
     const x = renderMono(heldNoteDoc(bank, inst, word, vol), 1.6);

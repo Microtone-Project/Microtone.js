@@ -14,6 +14,7 @@ export function showHelp() {
     ["F1…F7", t("help.views")],
     ["F8 · Shift+F8", t("help.split")],
     ["F9", t("help.filesTab")],
+    ["Shift+F7", t("help.motifTab")],
     ["[ ]", t("help.editStep")],
     ["Alt+← →", t("help.kbInst")],
     ["Alt+↑ ↓", t("help.octave")],

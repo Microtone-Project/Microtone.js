@@ -18,7 +18,7 @@ import { applyDom, t } from "./i18n.js";
 /** Tab order, which is also the F1..F8 order in app.js. */
 export const VIEWS = [
   "timeline", "cues", "pattern", "samples", "instruments", "mastering", "project", "files",
-  "keymap",
+  "keymap", "motif",
 ];
 
 /** At or above this width/height ratio the panes sit side by side; below it

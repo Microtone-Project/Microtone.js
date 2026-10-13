@@ -4,6 +4,20 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-15
+
+Motif arrives: write a song as a program in the Taud Motif Language, and Microtone builds the whole project from it — notes, instruments, mix and master.
+
+- **A new Motif tab** (Shift+F7) holds a program and builds it with **Build** (Ctrl+Enter). The program describes the song (its tuning, tempo, length, instruments and lanes, its melodies and chords) and the rules that make the rest: loops, functions, chance, mirror images and other transformations of a line.
+- **What it builds is an ordinary project**: patterns and cues, an instrument bank from the bundled GeneralUser GS soundfont (or a soundfont you name), the zones the song never plays pruned away, and optionally every zone it does play re-tuned onto the grid of your tuning. Edit it, play it and save it like any other.
+- **Any tuning Microtone has a notation for**, by name, plus any equal division of the octave and scales of your own given in cents; pitches are written as the Timeline writes them, so 'Cp4' is C half-flat in 31-TET.
+- **Chance is repeatable**: the random choices a program makes come from a seeded stream, so the same program always builds the same song, and a new seed rolls the dice again.
+- **Mistakes point at their line**: an error stops the build and shows its line and column, marked in the margin, with the calls that led to it; a misspelt option suggests the one you meant, and two notes clashing on one row are named with their lane and bar.
+- **Safe to share**: a program can do nothing but make music — it cannot reach your files, the network or the page, and it runs apart from the page, so even one that never ends can be cancelled and cannot freeze the app.
+- **The project keeps its program**: open it later and the Motif tab shows the program it was built from, ready to change and build again. Open a `.tml` file like any other file to build it, and **Save .tml…** downloads the program you are writing.
+- **Huygens' Clock is now a Motif program**: the demo song is built from one, and carries it — load the demo, open the Motif tab, and read how the piece is made. The song sounds exactly as it did.
+- **Docs → Motif Language** is the language's full reference, and the User Manual has a chapter on the Motif tab.
+
 ## 2026-10-11
 
 11-TET, 13-TET, 23-TET and 26-TET joins the tunings, in the tracker and in Microtone Touch.

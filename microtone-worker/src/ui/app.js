@@ -19,6 +19,7 @@ import { InstrumentsView } from "./views/instruments.js";
 import { MasteringView } from "./views/mastering.js";
 import { ProjectView } from "./views/project.js";
 import { WelcomeView } from "./views/welcome.js";
+import { MotifView } from "./views/motif.js";
 import { MasterStrip } from "./views/masterstrip.js";
 import { SplitView, VIEWS } from "./splitview.js";
 import { JamKeyboard } from "./jam.js";
@@ -209,7 +210,16 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
                                         rpb = null,
                                         trimPatches = false, stereoSamples = false,
                                         keepDuplicatePatterns = false, realign = null,
-                                        quantise = null, quantiseStrength = 100 } = {}) {
+                                        quantise = null, quantiseStrength = 100,
+                                        fromMotif = false } = {}) {
+  // A Taud Motif Language program is not a project but the recipe for one: it
+  // opens in the Motif view, which builds it (and shows where it went wrong
+  // when it does not build).
+  if (/\.tml$/i.test(name)) {
+    showView("motif");
+    await viewNamed("motif").openSource(name, new TextDecoder().decode(bytes));
+    return true;
+  }
   // Recognised by its bytes rather than its name, as the songs inside are: the
   // chosen song then takes the ordinary route, with the bank that travelled in
   // its own variant ahead of any dropped alongside.
@@ -308,9 +318,11 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
     name = name.replace(/\.[^.]+$/, "") + ".taud";
     converted = true; // synthesised container — load it unsaved
   }
+  // A Motif build is new until it is saved, like a conversion.
+  if (fromMotif) converted = true;
 
   if (store.doc?.dirty) {
-    if (!confirm(t("confirm.discardNamed", { name: store.fileName ?? t("common.currentProject") }))) return;
+    if (!confirm(t("confirm.discardNamed", { name: store.fileName ?? t("common.currentProject") }))) return false;
   }
   store.audio?.stop(0);
   store.doc = new Document(parsed);
@@ -346,7 +358,10 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   // with the previous song's map and, if the canvas dims are unchanged, that
   // stale crop can persist (item 49a: crop-to-length failed on a file-tab reload).
   store.emit("doc");
-  showView("timeline"); // hides the welcome screen: a document is loaded now
+  // hides the welcome screen: a document is loaded now (a Motif build keeps
+  // the program on screen, unless the Timeline is what is showing)
+  if (!fromMotif) showView("timeline");
+  else if (!split.views.includes("motif")) showView("timeline");
   if (converted) store.doc.dirty = true; // imported, not yet saved anywhere
   if (converted && saveToOpfs && (await opfs.available())) {
     // Files-tab MIDI import: the CONVERSION RESULT lands in OPFS right away.
@@ -391,7 +406,7 @@ function updateHint() {
   const el = $("stHint");
   if (!el) return;
   let key = "status.hint"; // generic / no-doc prompt
-  if (store.doc || store.view === "files") {
+  if (store.doc || store.view === "files" || store.view === "motif") {
     switch (store.view) {
       // A layout that has claimed the bottom row moves the sentinels onto
       // Shift, so the hint that names them has to say the same thing.
@@ -403,6 +418,7 @@ function updateHint() {
       case "mastering": key = "status.hint.mastering"; break;
       case "project": key = "status.hint.project"; break;
       case "files": key = "status.hint.files"; break;
+      case "motif": key = "status.hint.motif"; break;
     }
   }
   el.textContent = t(key);
@@ -541,7 +557,7 @@ $("newBtn").addEventListener("click", () => newProject());
 // ?load= still accept .mid via the automatic bundled-else-picker path.
 // `.bnk` is here so an AdLib song and its bank can be picked TOGETHER; a bank
 // on its own is not a project and loadFileSet ignores it.
-const OPEN_ACCEPT = ".taud,.tsii,.tpif,.bnk," +
+const OPEN_ACCEPT = ".taud,.tsii,.tpif,.bnk,.tml," +
   CONVERT_ACCEPT.split(",").filter((e) => !e.startsWith(".mid")).join(",");
 $("fileInput").accept = OPEN_ACCEPT;
 $("fileInput").multiple = true;
@@ -899,6 +915,12 @@ const VIEW_SPEC = {
     host: { id: "keymapHost" },
     make: (el) => new KeymapView(store, el, keymapLib, jam),
   },
+  motif: {
+    host: { id: "motifHost" },
+    make: (el) => new MotifView(store, el, {
+      loadBuilt: (name, bytes) => loadBytes(name, bytes, { fromMotif: true }),
+    }),
+  },
 };
 
 // Fixtures that stay single whatever the split does: the instrument lookup is
@@ -938,7 +960,7 @@ function refreshToolbox() {
 // and previews against 12-TET until one is open. Item 104.1 — before this,
 // going to the File tab with no document was a one-way trip, because the
 // Timeline tab was as inert as the rest.
-const NO_DOC_VIEWS = ["timeline", "files", "keymap"];
+const NO_DOC_VIEWS = ["timeline", "files", "keymap", "motif"];
 
 /** Is this view reachable at all right now? (The dead-end tabs say so rather
  *  than silently swallowing the click — item 104.1.) */
@@ -1228,6 +1250,7 @@ onLangChange(() => {
   }
   // The Mastering view's labels are all built at rebuild time (item 178).
   eachOpenView("mastering", (v) => v.rebuild());
+  eachView("motif", (v) => v.applyLabels());
   updateStatus();
 });
 
@@ -1671,11 +1694,12 @@ window.addEventListener("keydown", (e) => {
   }
   if (!store.doc) {
     // The welcome screen (F1) and the File tab (F9) stay reachable before
-    // anything is loaded — and so does the way back (item 104.1).
-    if ((e.code === "F1" || e.code === "F9") && !e.ctrlKey && !e.metaKey && !e.altKey &&
+    // anything is loaded — and so does the way back (item 104.1). So does the
+    // Motif tab (Shift+F7): a program is how a song can begin.
+    if ((e.code === "F1" || e.code === "F9" || (e.code === "F7" && e.shiftKey)) && !e.ctrlKey && !e.metaKey && !e.altKey &&
         !isTypingTarget(e.target) && !e.target.closest?.("dialog")) {
       e.preventDefault();
-      showView(e.code === "F1" ? "timeline" : "files");
+      showView(e.code === "F1" ? "timeline" : e.code === "F7" ? "motif" : "files");
     }
     return;
   }
@@ -1845,7 +1869,9 @@ window.addEventListener("keydown", (e) => {
     // than displacing the split binding below.
     case "F1": case "F2": case "F3": case "F4": case "F5": case "F6": case "F7": {
       e.preventDefault();
-      showView(VIEWS[parseInt(e.code.slice(1), 10) - 1]);
+      // Shift+F7 is the Motif tab, beside Project: both are about the whole project
+      if (e.code === "F7" && e.shiftKey) showView("motif");
+      else showView(VIEWS[parseInt(e.code.slice(1), 10) - 1]);
       return;
     }
     // F8 — split the view area in two / close the pane the keyboard is in
@@ -2107,6 +2133,7 @@ window.__microtone = {
   get projectView() { return viewNamed("project"); },
   get filesView() { return viewNamed("files"); },
   get keymapView() { return viewNamed("keymap"); },
+  get motifView() { return viewNamed("motif"); },
   get welcomeView() { return paneViews[split.focus].get("timeline")?.welcome ?? paneViews[0].get("timeline").welcome; },
 };
 

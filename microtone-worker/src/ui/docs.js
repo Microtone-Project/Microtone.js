@@ -66,6 +66,7 @@ const DOCS = [
   { id: "format", title: "File Format", load: fetchDoc("assets/TAUD_FILE_FORMAT.md") },
   { id: "conversion", title: "Conversion Notes", load: fetchDoc("assets/TAUD_CONVERSION_NOTES.md") },
   { id: "sketch", title: "Sketch Format", load: fetchDoc("assets/MICROTONE_SKETCH_FORMAT.md") },
+  { id: "motif", title: "Motif Language", load: fetchDoc("assets/TAUD_MOTIF_LANGUAGE.md") },
   { id: "patchnotes", title: "Patch Notes", load: fetchDoc("assets/PATCH_NOTES.md") },
 ];
 

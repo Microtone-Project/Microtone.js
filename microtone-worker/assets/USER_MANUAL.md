@@ -65,6 +65,7 @@ and the editor snaps entry, display and stepping to that table's degrees. See
 
 - **Drop a file anywhere** on the window, or use **Open…** in the top bar. `.taud` (full project) is the native format of the Microtone. Tracker modules (`.mod`, `.s3m`, `.xm`, `.it`, `.mon`) and AdLib songs (`.ims`, `.sop`, and `.imac` from The IMS Archive) are converted on the fly.
 - **Import MIDI…** converts a `.mid` file through a SoundFont — see [Importing music](#importing-music).
+- **A Motif program** (`.tml`) opens in the Motif view, which builds it into a project — see [Motif](#motif-shift-f7).
 - **New…** opens the New Project wizard, which collects every song setting before the blank project is built:
   - **Tempo** — BPM (25–1048) and speed (ticks per row, 1–127), with a live *blinkenlights* strip previewing the feel of that tempo.
   - **Meter** — a time signature and rows-per-beat. These set the two beat divisors (rows/beat and the derived rows/bar) that colour the row highlighting; the **Row highlight** preview shows exactly how the Timeline gutter will band.
@@ -86,6 +87,8 @@ unless you save it yourself.
 A demo is a whole project, samples and all — open it, play it, and take it
 apart. The composer's own note on the piece is usually in the project
 **Message**, in the [Project](#project-f7) view.
+
+*Huygens' Clock* was not played in at all: a [Motif](#motif-shift-f7) program composed it, instruments and mix included, and the project carries that program. Open the Motif view after loading it to read how the piece is made, change it, and build it again.
 
 Demo songs are included with the permission of their composers and keep their
 own copyright; they are not covered by Microtone's licence.
@@ -171,6 +174,7 @@ pattern grid cut down to notes and a handful of effects. The welcome screen and
 | **F7** | Project | Song properties, tuning, song list |
 | **F9** | File | Browser storage, import/export |
 | **Shift+F9** | Keymap | What the jam keys play — the isomorphic keyboard |
+| **Shift+F7** | Motif | A song written as a program, and the build that makes it |
 
 ### Value controls
 
@@ -2330,6 +2334,42 @@ cell* you reach for most — it is under your little finger and it never moves.
 That setting belongs to the app rather than to a layout: it stays put when you
 switch keymaps, and it is not written into an exported `.taudkey`.
 
+## Motif (Shift+F7)
+
+Motif writes a song as a **program** rather than note by note. A Motif program, in the **Taud Motif Language** (a `.tml` file), says what the song is — its tuning, tempo and length, its instruments and lanes, its melodies and chords — and the rules that make the rest: loops, functions, chance, transformations. **Build** runs the program and makes a whole project from it: the patterns and cues, an instrument bank from a soundfont, the mix and the mastering chain. The [language reference](docs.html#motif) has every word of the language; this chapter is about the view.
+
+```
+tml 1
+song { title: "Rain", tuning: "22-TET", tempo: 90, bars: 8, bar_rows: 16, seed: 4 }
+instrument BELL { bank: 0, program: 14 }
+lane drops { inst: BELL }
+
+let scale = notes("C5 D5 E5 F5 G5 A5 B5")
+for row in 0..<128 by 2 {
+  if chance(0.35) { hit(drops, row, choose(scale), random_int(20, 50)) }
+}
+```
+
+Every program begins with `tml 1`, then a `song` block, then its instruments and lanes. Pitches are counted in steps of the song's tuning and written as the Timeline writes them (`'Cp4'` is C half-flat in octave 4 of 31-TET); rows are counted from the start of the song, and `at(bar, row)` finds the row of a bar.
+
+### The editor
+
+- The editor shows **the program the open project was built from**, when the project was built by Motif — the project carries it. Any other time it holds **your draft**, which stays in this browser between visits. The line above the editor says which one you are looking at, and whether you have changed it since it was built.
+- **Build** (Ctrl+Enter) runs the program and opens what it makes as the project, unsaved; save it from the File tab. Building again replaces the open project — the app asks first when that project has unsaved changes — so a change by hand to a Motif project lasts only until the next build.
+- **Cancel** stops a build. The program runs apart from the page, so even one that loops forever cannot freeze the app (it would stop by itself after fifty million steps).
+- **Open .tml…** loads a program from a file without building it, and **Save .tml…** downloads the one in the editor. **Example** starts again from a short example song.
+- Tab indents by two spaces (Shift+Tab takes them away); press Esc first to move on to the next control with Tab.
+
+### When a build goes wrong
+
+A mistake stops the build and is listed under the editor with its line and column — click the position to go there; the line number is marked in the margin. A mistake inside a function also lists the calls that led to it. The messages say what to change: two different notes on one row name the lane, the bar and both notes; a misspelt option suggests the one you probably meant. Anything the program `print`s appears in the same list.
+
+### Instruments and soundfonts
+
+Each `instrument` is a preset of a soundfont, by bank and program number, built into the project by the same converter **Import MIDI…** uses. A song plays from the bundled GeneralUser GS unless it names another `soundfont`; then the app asks for that file the first time it is needed in a session. A build keeps only the zones the song plays, and with `retune: true` in the song it also measures every zone the song plays and corrects its tuning onto the grid — soundfont samples are tuned for twelve-tone music, and a few cents off is a fifth of a step in 31-TET.
+
+The same program always builds the same project: chance in a program comes from a seeded stream (`seed` in the song), so change the seed to hear another roll of the dice.
+
 ## Importing music
 
 All conversion runs **inside your browser** — the canonical Taud converter
@@ -2692,7 +2732,7 @@ centre of the scale.
 |---|---|
 | Enter | Play from cursor / stop |
 | Shift+Enter | Play from start |
-| F1…F7 · F9 · Shift+F9 | Switch views (Shift+F9 is the Keymap tab) |
+| F1…F7 · F9 · Shift+F7 · Shift+F9 | Switch views (Shift+F7 is the Motif tab, Shift+F9 the Keymap tab) |
 | F8 · Shift+F8 | Split the view in two / close the pane · the other pane |
 | Space | Record mode on/off |
 | [ ] | Input step down / up (0–16 rows) |
