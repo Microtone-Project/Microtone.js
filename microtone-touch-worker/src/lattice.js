@@ -25,40 +25,16 @@
 // still whole tones one way and the chromatic semitone the other, whatever a
 // whole tone happens to be in degrees. A tuning whose period is not the octave
 // (Bohlen–Pierce repeats at the tritave) has no chain of fifths to derive
-// from, so there each interval is simply rounded to the nearest degree.
+// from, so there each interval is simply rounded to the nearest degree. That
+// derivation is edoSteps (core/tuning/intervals.js), shared with the tracker's
+// keymaps so the two apps mean the same thing by each layout's name.
 //
 // Steps are in DEGREES of the tuning, so an unequal tuning (Shi'er lü) is laid
 // out by its degree numbers, exactly as the tracker's keymaps lay it out.
 
-const OCTAVE = 0x1000; // the period of an octave tuning, in 4096-TET units
-const cents = (ratio) => 1200 * Math.log2(ratio);
+import { edoSteps } from "../core/tuning/intervals.js";
 
-/**
- * Interval sizes, in degrees, of an `n`-degree tuning whose period is
- * `period` 4096-TET units (default: the octave).
- */
-export function edoSteps(n, period = OCTAVE) {
-  if (period === OCTAVE) {
-    const fifth = Math.round(n * Math.log2(1.5));
-    const tone = 2 * fifth - n;           // two fifths less an octave
-    const limma = 3 * n - 5 * fifth;      // the diatonic semitone, E–F
-    const apotome = tone - limma;         // the chromatic semitone, F–F♯
-    const major3 = 2 * tone;
-    const minor3 = fifth - major3;
-    return { n, fifth, tone, limma, apotome, major3, minor3 };
-  }
-  const step = (period * 1200) / 4096 / n; // cents per degree
-  const near = (ratio) => Math.round(cents(ratio) / step);
-  return {
-    n,
-    fifth: near(3 / 2),
-    tone: near(9 / 8),
-    limma: near(256 / 243),
-    apotome: near(2187 / 2048),
-    major3: near(5 / 4),
-    minor3: near(6 / 5),
-  };
-}
+const OCTAVE = 0x1000; // the period of an octave tuning, in 4096-TET units
 
 /** The layouts the board offers, in the order a picker lists them: the
  *  Wicki–Hayden, the Bosanquet–Wilson, the harmonic table and the degree run,

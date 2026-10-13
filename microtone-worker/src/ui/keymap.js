@@ -16,10 +16,11 @@
 // col is the key's index within its physical row and row is the row's own
 // index, so "one key right" is x and "one row up" is y. The half-key stagger a
 // real keyboard has is cosmetic — the lattice is what defines an isomorphic
-// layout, which is also why the built-ins below are oriented for three long
-// rows rather than transcribed from the Lumatone's five short ones (a literal
-// transcription of the Harmonic Table reaches only 9 of the 12 pitch classes;
-// the same lattice with its axes swapped reaches all 12 — see keymapStats).
+// layout, which is also why the built-ins below are oriented for long rows
+// rather than transcribed from the Lumatone's five short ones (on three rows a
+// literal transcription of the Harmonic Table reaches only 9 of the 12 pitch
+// classes; the same lattice with its axes swapped reaches all 12 — see
+// keymapStats).
 //
 // `upper` is the one thing in a spec that is NOT part of the lattice, and it is
 // there because a four-row board is not one keyboard but two: the bottom two
@@ -42,7 +43,8 @@
 // the document holds is this module's own .taudkey TEXT, and this module neither
 // knows nor cares that it does.
 
-import { semiToNoteInTable, noteForDegree, nearestDegreeIndex } from "../../core/tuning/pitchtables.js";
+import { semiToNoteInTable, noteForDegree, nearestDegreeIndex, isAbsolute } from "../../core/tuning/pitchtables.js";
+import { edoSteps } from "../../core/tuning/intervals.js";
 
 // ── the physical rows ──
 //
@@ -370,10 +372,13 @@ export function nearestRatio(cents) {
 
 // ── built-in keymaps ──
 //
-// Every GENERATED layout below reaches all 12 pitch classes on three rows in
-// 12-TET, which is why the axes are what they are; keymapStats is how you check
-// the same holds in any other tuning. The two that are not generated —  Piano
-// and Shi’er lü — are placed key by key, and say why in their own comments.
+// Every GENERATED layout below reaches all 12 pitch classes in 12-TET, which is
+// why the axes are what they are; keymapStats is how you check the same holds
+// in any other tuning. The numbers written here are the 12-TET ones: the three
+// generalised keyboards are re-derived for the song's tuning when they are
+// applied (fitKeymapToPreset). The ones that are not generated — Piano, Shi’er
+// lü and the Double-Deck pianos — are placed key by key, and say why in their
+// own comments.
 
 /** The keyboard as it has always been — a piano, not a lattice. Kept as the
  *  default so nothing changes for anyone who does not go looking, and expressed
@@ -393,20 +398,24 @@ export const BUILTIN_KEYMAPS = Object.freeze([
   }),
   // Sheet 1 of the Lumatone presets: semitones on one axis, whole tones on the
   // other. The classic generalised keyboard, and the gentlest for a pianist.
+  //
+  // This and the next two take all four rows: a generalised keyboard is meant
+  // to be big, and the bottom row is ten more keys of the same lattice below
+  // the origin. What that costs the note column's sentinels is keymapClaimsZRow.
   normaliseKeymap({
-    name: "Bosanquet–Wilson", unit: "deg", rows: ["N", "Q", "A"],
+    name: "Bosanquet–Wilson", unit: "deg", rows: ["N", "Q", "A", "Z"],
     origin: { code: "KeyA", value: 0 }, x: 2, y: 1,
   }),
   // Whole tones along a row, fourths and fifths on the two diagonals.
   normaliseKeymap({
-    name: "Wicki–Hayden", unit: "deg", rows: ["N", "Q", "A"],
+    name: "Wicki–Hayden", unit: "deg", rows: ["N", "Q", "A", "Z"],
     origin: { code: "KeyA", value: 0 }, x: 2, y: 5,
   }),
-  // Sheet 2, with the axes swapped for a three-row board: minor thirds along a
-  // row, major thirds between rows, so up-and-right is the fifth. Every major
-  // and minor triad is one hand shape.
+  // Sheet 2, with the axes swapped for long rows: minor thirds along a row,
+  // major thirds between rows, so up-and-right is the fifth. Every major and
+  // minor triad is one hand shape.
   normaliseKeymap({
-    name: "Harmonic Table", unit: "deg", rows: ["N", "Q", "A"],
+    name: "Harmonic Table", unit: "deg", rows: ["N", "Q", "A", "Z"],
     origin: { code: "KeyA", value: 0 }, x: 3, y: 4,
   }),
   // One degree per key, one period per row — the layout for LOW tunings, where
@@ -476,15 +485,102 @@ export const PIANO_KEYMAP = BUILTIN_KEYMAPS[0];
 /** What a fresh install jams with, before anyone has chosen anything. */
 export const DEFAULT_KEYMAP = BUILTIN_KEYMAPS[0];
 
+// ── fitting a built-in to the tuning ──
+//
+// The three generalised keyboards are INTERVALS, not degree counts:
+// Wicki–Hayden is whole tones along a row and fourths up one, whatever a whole
+// tone is in degrees. Their 12-TET numbers on 31-TET would step 77¢ along a
+// row, which is not Wicki–Hayden or anything else. So applying one re-derives
+// its two steps from the tuning's own chain of fifths — edoSteps, the very
+// derivation Microtone Touch lays its board out by, so a layout's name means
+// the same keyboard in both apps — and on 12-TET that gives back exactly the
+// numbers written above.
+
+/** Each generalised built-in's two steps, from a tuning's intervals. */
+const INTERVAL_STEPS = {
+  // Whole tones along a row, the chromatic semitone up one — or the diatonic
+  // one, where the chain of fifths has no chromatic semitone to give.
+  "Bosanquet–Wilson": (s) => ({ x: s.tone, y: s.apotome > 0 ? s.apotome : s.limma }),
+  // Whole tones along a row and a fourth up one, so up-and-right is the fifth.
+  "Wicki–Hayden": (s) => ({ x: s.tone, y: s.fifth - s.tone }),
+  // Minor thirds along a row and major thirds up one; the fifth up-and-right.
+  "Harmonic Table": (s) => ({ x: s.minor3, y: s.major3 }),
+};
+
 /**
- * "Octave rows" only means anything once a tuning is known, so applying it
- * patches `y` to that tuning's cardinality. Every other map is tuning-agnostic
- * and comes back untouched.
+ * A generalised keyboard in `preset`, through `steps` (INTERVAL_STEPS). Two
+ * tunings need more than the two steps:
+ *
+ *  - Where the chain of fifths COLLAPSES — a tuning so small that a step comes
+ *    out as no step at all (2- and 4-TET; the Harmonic Table on 3- and 6-TET)
+ *    — two neighbouring keys would play one note. The six neighbours of a key
+ *    are ±x, ±y and ±(x + y), so that is any of the three being zero, and a
+ *    row that does not climb is no better. There is no such keyboard in that
+ *    tuning, so the board falls back on Octave rows' lattice, which covers a
+ *    small tuning outright.
+ *  - Where the fifth SKIPS degrees — 24-TET's fifth is 12-TET's, so a lattice
+ *    built from it lands only ever on 12-TET's notes — the upper hand is moved
+ *    one degree (the two-hand split, `upper`) and plays the notes the lower
+ *    hand cannot: on 24-TET, two 12-TET keyboards a quarter tone apart, every
+ *    degree reached. Where it skips more than one in two (15-, 96-TET) the
+ *    split still doubles what the board reaches. The test is a factor the two
+ *    steps share WITH `n`: the Harmonic Table's thirds on 31-TET are 8 and 10,
+ *    which reach every note of the tuning, each in every other octave — the
+ *    layout as it is on any generalised keyboard, and a board that spans three
+ *    octaves still has every note on it. One degree between the hands would
+ *    buy nothing there but confusion. (Microtone Touch's smaller board gives
+ *    that layout up for its degree run instead.)
+ *
+ * Comes back as `spec` itself when nothing moves, which is 12-TET.
  */
-export function fitKeymapToPreset(spec, preset) {
-  if (spec?.name !== "Octave rows") return spec;
+function fitIntervals(spec, preset, steps) {
+  const n = preset?.table?.length ?? 0;
+  // A Raw preset has no degrees to count, and an absolute table (ProTracker's)
+  // already steps a semitone per degree, so the 12-TET numbers are its own.
+  if (n === 0 || isAbsolute(preset)) return spec;
+  let { x, y } = steps(edoSteps(n, preset.interval));
+  let upper = 0;
+  if (x <= 0 || y === 0 || x + y === 0) {
+    x = 1;
+    y = n;
+  } else if (gcd(gcd(x, y), n) > 1) {
+    upper = 1;
+  }
+  if (x === spec.x && y === spec.y && upper === spec.upper) return spec;
+  return { ...spec, x, y, upper };
+}
+
+function gcd(a, b) {
+  a = Math.abs(a); b = Math.abs(b);
+  while (b) [a, b] = [b, a % b];
+  return a;
+}
+
+/** One period per row: `y` is the tuning's cardinality. */
+function fitOctaveRows(spec, preset) {
   const n = preset?.table?.length ?? 0;
   return n > 0 ? { ...spec, y: n } : spec;
+}
+
+// Keyed by the built-in OBJECT, never by name: a saved layout that shadows a
+// built-in's name, a project's embedded copy of one and a "Start from" copy
+// are all fixed numbers that somebody chose, and a tuning change must not
+// rewrite them.
+const FITS = new Map([
+  ...Object.entries(INTERVAL_STEPS).map(([name, steps]) =>
+    [builtinKeymap(name), (spec, preset) => fitIntervals(spec, preset, steps)]),
+  [builtinKeymap("Octave rows"), fitOctaveRows],
+]);
+
+/**
+ * The layout as it plays in `preset`. The three generalised keyboards and
+ * Octave rows only mean something once a tuning is known, so applying one
+ * fits it to that tuning; every other layout — every saved one included —
+ * comes back untouched.
+ */
+export function fitKeymapToPreset(spec, preset) {
+  const fit = FITS.get(spec);
+  return fit ? fit(spec, preset) : spec;
 }
 
 // ── .taudkey (text) ──

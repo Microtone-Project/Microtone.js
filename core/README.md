@@ -10,7 +10,7 @@ nothing here knows which app is using it.
 | `worklet/` | The AudioWorkletProcessor, the engine command protocol, and the committed single-file bundle for worklets that cannot import modules |
 | `audio/` | The live audio system (context, worklet or render Worker, snapshots), its SharedArrayBuffer ring, the resampler, and offline rendering (`loadIntoEngine`, the one upload sequence every host uses) |
 | `format/` | `.taud` / `.tsii` / `.tpif` parse and write, section codecs (saves compress with Zstandard in a worker, `zstd.js`), the name-escape convention |
-| `tuning/` | The pitch-table presets every notation is drawn from |
+| `tuning/` | The pitch-table presets every notation is drawn from, and a tuning's own intervals (`intervals.js`), which both apps build their isomorphic keyboards from |
 | `storage/` | The online-projects client (the server is `microtone-worker/server/`) |
 | `sketch/` | Microtone Touch's `.mtsk` sketch file (`mtsk.js`) and the instrument pack every sketch plays through (`pack.js`) — shared because the tracker opens sketches too |
 | `vendor/` | fflate and fzstd, single-file ESM, and zstd's encoder as WebAssembly in an ES module (see `vendor/VENDOR-VERSIONS.md`) |

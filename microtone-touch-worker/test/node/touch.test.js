@@ -6,9 +6,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  edoSteps, layoutSteps, reachesAll, layoutWorks, fitLayout, keyDegree, hexCentre, pixelToHex, visibleKeys, LAYOUTS,
+  layoutSteps, reachesAll, layoutWorks, fitLayout, keyDegree, hexCentre, pixelToHex, visibleKeys, LAYOUTS,
   findFloor, octaveStep, tiltFor, riseToRight, riseUpwards, fatZone, fatPoints, FAT_CORNER, FAT_EDGE, FAT_SLACK,
 } from "../../src/lattice.js";
+import { edoSteps } from "../../core/tuning/intervals.js";
 import { buildBank, PRESETS, DRUMS } from "../../core/sketch/pack.js";
 import {
   newSketch, normaliseSketch, toTaudDoc, sketchToTaud, sketchToFile, sketchFromFile, patternBytes, isBlank,

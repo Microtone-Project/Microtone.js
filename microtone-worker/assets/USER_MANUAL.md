@@ -2210,7 +2210,7 @@ height and without the editing furniture.
 
 ### Choosing a layout
 
-Seven come with Microtone, and they are read-only — **Duplicate** one to get a
+Nine come with Microtone, and they are read-only — **Duplicate** one to get a
 copy you can change, which is also the only way to rename or delete one of them.
 Your own layouts can be renamed, deleted and exported freely; a saved layout may
 take a built-in's name, and then it is the one you get.
@@ -2218,12 +2218,25 @@ take a built-in's name, and then it is the one you get.
 | Layout | Sideways | Up a row | Good for |
 |---|---|---|---|
 | Piano | — | — | The familiar one. 12-note tunings |
-| Bosanquet–Wilson | whole tone | semitone | The classic generalised keyboard |
+| Bosanquet–Wilson | whole tone | chromatic semitone | The classic generalised keyboard |
 | Wicki–Hayden | whole tone | fourth | Fifths and fourths under one hand |
 | Harmonic Table | minor third | major third | Triads as a single shape |
 | Octave rows | one degree | one octave | 5-, 7- and other small tunings |
 | Chromatic run | one degree | ten degrees | Reaching *every* degree of a big tuning |
 | Shi'er lü (十二律) | — | — | Placed by hand for that tuning; comes up with it |
+| Double-Deck Piano 12 | — | — | The classic tracker keyboard: a piano on the bottom two rows and another an octave up on the top two; comes up with 12-TET |
+| Double-Deck Piano 24 | — | — | Two pianos a quarter tone apart, the upper one on the top two rows; comes up with 24-TET |
+
+**Bosanquet–Wilson, Wicki–Hayden and the Harmonic Table follow the tuning.**
+They are written as intervals, not as numbers of keys, so each is worked out
+again from the song's own tuning whenever it changes: a whole tone is two steps
+of 12-TET, five of 31-TET and nine of 53-TET, and the layout under your fingers
+is the same keyboard in all three. The panel shows the numbers for the tuning
+you are in. All three take four rows, the bottom one included (see
+[The bottom row](#the-bottom-row)).
+
+- **Where the tuning has no such keyboard of its own**, the layout does the next best thing. On 24-TET the fifth is 12-TET's, so the lattice alone would only ever play 12-TET's notes; there the top two rows play a quarter tone above the bottom two, and between them the hands reach every note. On the smallest tunings (2- and 4-TET), where the fifth gives no whole tone at all, the layout falls back on **Octave rows**.
+- **A Duplicate keeps the numbers of the tuning you made it in.** Your copy is a layout of your own, and a different tuning does not rewrite it.
 
 The panel on the right is where a layout is built, and the readout below it is
 the part worth reading:
@@ -2238,9 +2251,11 @@ the part worth reading:
 the layout comes up by itself, so the 41-TET song brings the 41-TET keyboard
 without you going to fetch it. The shipped **Shi'er lü** layout works that way:
 it is placed by hand across four rows for that tuning's twelve unequal degrees,
-with the keys it has nothing to put under left silent. Leave that tuning and the
-keyboard goes back to the layout you chose — a layout only volunteers for its
-own songs, and never displaces a choice you made.
+with the keys it has nothing to put under left silent. The two **Double-Deck**
+pianos are bound the same way, to 12-TET and 24-TET, so a 12-TET song comes up
+on Double-Deck Piano 12. Leave that tuning and the keyboard goes back to the
+layout you chose — a layout only volunteers for its own songs, and never
+displaces a choice you made.
 
 ### Unequal temperaments
 
@@ -2314,11 +2329,12 @@ three. Close the project and your own layout comes back.
 
 ### The bottom row
 
-By default the bottom row — **z x c v b** and the keys beside it — stays the
-note-column's own: key-off, cut, fade, fast fade and the interrupt marker. Tick
-**Z…/** and a layout takes that row too, which buys ten more keys: four full
-rows is forty keys, near enough a whole period of 41-TET under both hands at
-once.
+The bottom row — **z x c v b** and the keys beside it — is the note column's
+own on the Piano layout: key-off, cut, fade, fast fade and the interrupt marker.
+Tick **Z…/** and a layout takes that row too, which buys ten more keys: four
+full rows is forty keys, near enough a whole period of 41-TET under both hands
+at once. Bosanquet–Wilson, Wicki–Hayden, the Harmonic Table, Shi'er lü and both
+Double-Deck pianos come with it ticked.
 
 What it costs is spelled out on the panel when you tick it: key-off, cut, fade
 and the interrupt move to **Shift** plus the same letter, and so do **mute** and

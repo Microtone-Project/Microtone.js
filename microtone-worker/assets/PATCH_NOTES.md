@@ -6,6 +6,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-15
 
+Bosanquet–Wilson, Wicki–Hayden and the Harmonic Table now follow the song's tuning, and take all four rows of the keyboard.
+
+- **The same keyboard in every tuning**: each is worked out from the tuning's own fifth, so a whole tone is two steps of 12-TET, five of 31-TET and nine of 53-TET. Until now they used 12-TET's numbers in every tuning, which anywhere else made them different keyboards with the same names.
+- **Four rows, forty keys**: the three take the bottom row too. While one is on, key-off, cut, fade and the interrupt move to Shift plus the same letter, as on any four-row layout, and the ' key keeps whatever you set it to.
+- **On 12-TET only the extra row is new**: every other key plays what it always did.
+- **24-TET gets every note**: its fifth is 12-TET's, so the top two rows play a quarter tone above the bottom two. 2- and 4-TET, too small for a whole tone, fall back on Octave rows.
+- **Copies keep their numbers**: Duplicate one, or start a layout from one, and it keeps the steps of the tuning you made it in.
+
 The Welcome page now ends with a row of sites we like: the demoscene, tracker-music and xenharmonic homes Microtone grew up beside.
 
 - **Sites we like**: scene.org, The Mod Archive, SceneSat, pouët.net, the Soundtracker Museum, Xenharmonic Wiki and the Scale Workshop, each behind its own 88×31 button at the foot of the Welcome page; a click opens the site in a new tab.

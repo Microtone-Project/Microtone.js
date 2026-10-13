@@ -158,9 +158,11 @@ test("keymap: an absolute table indexes directly and clamps at both ends", () =>
 
 // ── coverage: the number that decides whether a layout is usable ──
 
-test("keymap: the Harmonic Table's axes are swapped for a three-row board", () => {
+test("keymap: the Harmonic Table's axes are swapped for long rows", () => {
   // Sheet 2's own orientation on five short Lumatone rows; on three long QWERTY
-  // rows it strands three pitch classes (F, A and C#).
+  // rows it strands three pitch classes (F, A and C#). The built-in takes four
+  // rows now, where either way round reaches all twelve, but a copy with the
+  // bottom row unticked must still be a whole keyboard.
   const asPrinted = normaliseKeymap({
     unit: "deg", rows: ["N", "Q", "A"], origin: { code: "KeyA", value: 0 }, x: 4, y: 3,
   });
@@ -212,6 +214,127 @@ test("keymap: Octave rows only means something once a tuning is known", () => {
   assert.equal(fitKeymapToPreset(builtinKeymap("Octave rows"), P41).y, 41);
   assert.equal(fitKeymapToPreset(builtinKeymap("Octave rows"), P5).y, 5);
   assert.equal(fitKeymapToPreset(builtinKeymap("Chromatic run"), P41).y, 10, "others untouched");
+});
+
+// ── the generalised keyboards follow the tuning (item 210) ──
+
+const GENERALISED = ["Bosanquet–Wilson", "Wicki–Hayden", "Harmonic Table"];
+const P24 = pitchTablePresets[240];
+const P31 = pitchTablePresets[310];
+
+/** The two steps and the split a built-in plays with in `preset`. */
+const fittedSteps = (name, preset) => {
+  const { x, y, upper } = fitKeymapToPreset(builtinKeymap(name), preset);
+  return { x, y, upper };
+};
+
+test("keymap: the generalised keyboards take all four rows", () => {
+  for (const name of GENERALISED) {
+    const spec = builtinKeymap(name);
+    assert.deepEqual(spec.rows, ["Z", "A", "Q", "N"], name);
+    assert.equal(keymapClaimsZRow(spec), true, `${name} moves the sentinels onto Shift`);
+    assert.equal(resolveKeymap(spec).size, 40, name);
+    assert.equal(keymapStats(spec, P12).reachable, 12, `${name} still reaches all of 12-TET`);
+  }
+});
+
+test("keymap: on 12-note tunings a generalised keyboard is its written numbers", () => {
+  // The regression lock for everyone already playing these in 12-TET: the fit
+  // hands back the built-in ITSELF, not a lookalike. Shi'er lü and ProTracker's
+  // absolute table count twelve to the octave as well; a Raw preset counts none.
+  for (const preset of [P12, pitchTablePresets[10123], PT, RAW, undefined]) {
+    for (const name of GENERALISED) {
+      assert.equal(fitKeymapToPreset(builtinKeymap(name), preset), builtinKeymap(name),
+        `${name} on ${preset?.name ?? "no preset"}`);
+    }
+  }
+});
+
+test("keymap: a generalised keyboard is the same intervals in every tuning", () => {
+  // 31-TET: whole tone 5, chromatic semitone 2, fourth 13, thirds 8 and 10.
+  assert.deepEqual(fittedSteps("Bosanquet–Wilson", P31), { x: 5, y: 2, upper: 0 });
+  assert.deepEqual(fittedSteps("Wicki–Hayden", P31), { x: 5, y: 13, upper: 0 });
+  assert.deepEqual(fittedSteps("Harmonic Table", P31), { x: 8, y: 10, upper: 0 });
+  // 41-TET: whole tone 7, chromatic semitone 4, fourth 17, thirds 10 and 14 —
+  // the chain's own major third, a degree wider than the nearest 5/4.
+  assert.deepEqual(fittedSteps("Bosanquet–Wilson", P41), { x: 7, y: 4, upper: 0 });
+  assert.deepEqual(fittedSteps("Wicki–Hayden", P41), { x: 7, y: 17, upper: 0 });
+  assert.deepEqual(fittedSteps("Harmonic Table", P41), { x: 10, y: 14, upper: 0 });
+
+  // Measured rather than counted: up-and-right is the tuning's own fifth on
+  // every one of them, and a row of Wicki–Hayden is its whole tone.
+  for (const index of [120, 170, 190, 220, 310, 410, 530]) {
+    const preset = pitchTablePresets[index];
+    const slack = 600 / preset.table.length + 1; // half a degree, plus the table's rounding
+    for (const name of GENERALISED) {
+      const { axisCents } = keymapStats(fitKeymapToPreset(builtinKeymap(name), preset), preset);
+      if (name === "Bosanquet–Wilson") continue; // a tone and a semitone make no fifth
+      const fifth = axisCents.x + axisCents.y;
+      assert.ok(Math.abs(fifth - 701.955) <= slack,
+        `${name} on ${preset.name}: up-and-right is ${fifth.toFixed(1)}¢`);
+    }
+    const wicki = keymapStats(fitKeymapToPreset(builtinKeymap("Wicki–Hayden"), preset), preset);
+    const fifth = wicki.axisCents.x + wicki.axisCents.y;
+    assert.ok(Math.abs(wicki.axisCents.x - (2 * fifth - 1200)) < 1,
+      `${preset.name}: a row step is two fifths less an octave`);
+  }
+});
+
+test("keymap: where the fifth skips degrees, the upper hand plays the others", () => {
+  // 24-TET's fifth is 12-TET's, so every step it makes is even: unsplit, all
+  // three keyboards play 12-TET and nothing else.
+  for (const name of GENERALISED) {
+    const fitted = fitKeymapToPreset(builtinKeymap(name), P24);
+    assert.equal(fitted.upper, 1, `${name}: the upper hand a quarter tone up`);
+    const unsplit = keymapStats({ ...fitted, upper: 0 }, P24).reachable;
+    assert.equal(unsplit, 12, `${name}: the lattice alone is 12-TET`);
+    assert.ok(keymapStats(fitted, P24).reachable > unsplit, `${name}: the split adds the rest`);
+  }
+  for (const name of ["Bosanquet–Wilson", "Wicki–Hayden"]) {
+    assert.equal(keymapStats(fitKeymapToPreset(builtinKeymap(name), P24), P24).reachable, 24,
+      `${name} reaches every degree of 24-TET`);
+  }
+  // The split is a fixed-up layout like any other, so a copy of it says so.
+  const copy = buildTaudkey(fitKeymapToPreset(builtinKeymap("Wicki–Hayden"), P24));
+  assert.match(copy, /^TAUDKEY 2$/m);
+});
+
+test("keymap: where the fifth collapses, the board falls back on octave rows", () => {
+  // 2- and 4-TET have no whole tone: a row of all three keyboards would be one
+  // note ten times over.
+  for (const index of [20, 40]) {
+    const preset = pitchTablePresets[index];
+    const n = preset.table.length;
+    for (const name of GENERALISED) {
+      assert.deepEqual(fittedSteps(name, preset), { x: 1, y: n, upper: 0 }, `${name} on ${preset.name}`);
+      assert.equal(keymapStats(fitKeymapToPreset(builtinKeymap(name), preset), preset).reachable, n);
+    }
+  }
+});
+
+test("keymap: no shipped tuning leaves a generalised keyboard with unison neighbours", () => {
+  // A key's six neighbours are ±x, ±y and ±(x + y): none of them may be zero,
+  // and a row has to climb.
+  for (const preset of Object.values(pitchTablePresets)) {
+    for (const name of GENERALISED) {
+      const { x, y } = fitKeymapToPreset(builtinKeymap(name), preset);
+      assert.ok(x > 0 && y !== 0 && x + y !== 0, `${name} on ${preset.name}: ${x}/${y}`);
+    }
+  }
+});
+
+test("keymap: only the built-in itself is fitted, never a layout sharing its name", () => {
+  // A saved layout may take a built-in's name and then shadows it; the project
+  // carries its own copy as text. Both are numbers somebody chose, and a new
+  // tuning must not rewrite them.
+  for (const name of [...GENERALISED, "Octave rows"]) {
+    const saved = normaliseKeymap({ ...builtinKeymap(name) });
+    assert.equal(fitKeymapToPreset(saved, P31), saved, `a saved "${name}" keeps its numbers`);
+    assert.notEqual(fitKeymapToPreset(builtinKeymap(name), P31), builtinKeymap(name),
+      `the built-in "${name}" is refitted`);
+  }
+  const embedded = parseTaudkey(buildTaudkey(builtinKeymap("Wicki–Hayden")));
+  assert.equal(fitKeymapToPreset(embedded, P31), embedded, "and so does a project's copy");
 });
 
 test("keymap: a chromatic run reaches degrees 12-EDO snapping cannot", () => {

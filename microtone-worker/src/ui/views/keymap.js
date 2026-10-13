@@ -31,7 +31,7 @@ import { showKeymapManual } from "../popups/keymapmanual.js";
 import {
   resolveKeymap, keymapNote, keymapStats,
   normaliseKeymap, buildTaudkey, parseTaudkey, nearestRatio, upperRows,
-  QUOTE_ACTIONS, UNITS, BUILTIN_KEYMAPS,
+  QUOTE_ACTIONS, UNITS, BUILTIN_KEYMAPS, fitKeymapToPreset,
 } from "../keymap.js";
 import { uiDpr, toLayout } from "../zoom.js";
 
@@ -75,6 +75,12 @@ export class KeymapView {
       if (store.keymap && store.keymap.name !== this.draft.name) {
         this.draft = normaliseKeymap(store.keymap);
         this.selected = null;
+      } else if (store.keymap && !this.lib.user.has(this.draft.name)) {
+        // Same name, but a layout the tab cannot edit (a built-in, the
+        // project's copy) may still have changed: a new tuning refits a
+        // generalised keyboard, and the panel has to show the steps the
+        // keyboard now plays rather than the last tuning's.
+        this.draft = normaliseKeymap(store.keymap);
       }
       if (this.visible) this.refresh();
     });
@@ -221,7 +227,10 @@ export class KeymapView {
       sel.innerHTML = `<option value="">${esc(t("keymap.startFromNone"))}</option>` + BUILTIN_KEYMAPS
         .map((k) => `<option value="${esc(k.name)}">${esc(k.name)}</option>`).join("");
       sel.addEventListener("change", () => {
-        const base = BUILTIN_KEYMAPS.find((k) => k.name === sel.value);
+        // Fitted first, so a generalised keyboard starts as its intervals in
+        // THIS tuning; the copy is plain numbers from then on.
+        const builtin = BUILTIN_KEYMAPS.find((k) => k.name === sel.value);
+        const base = builtin && fitKeymapToPreset(builtin, this.preset);
         if (base) {
           this._edit({ unit: base.unit, x: base.x, y: base.y, upper: base.upper,
             rows: base.rows, overrides: {} });
