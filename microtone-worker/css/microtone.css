@@ -2259,11 +2259,17 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fmt-mark-ipa { fill: var(--fg2); font-size: 15px; }
 .fmt-mark:hover .fmt-mark-ipa, .fmt-mark:focus-visible .fmt-mark-ipa { fill: var(--fg); }
 .fmt-mark-ipa.near { fill: var(--accent); font-weight: 600; }
+/* A mark of the other lip setting: still a click away, but not where the
+   tongue can take the sound with the lips as they are. */
+.fmt-mark.off { opacity: 0.4; }
+.fmt-mark.off:hover, .fmt-mark.off:focus-visible { opacity: 1; }
 .fmt-handle { fill: none; stroke: var(--accent); stroke-width: 2.5; pointer-events: none; }
 .fmt-readout { font-size: 0.85rem; color: var(--dim); font-variant-numeric: tabular-nums; }
 .fmt-note { margin: 0.2rem 0; font-size: 0.85rem; line-height: 1.4; max-width: 560px; }
 .slider-row.fmt-range { grid-template-columns: 10rem 6.2rem auto 6.2rem auto auto; }
 .slider-row.fmt-range .sl-ann { white-space: nowrap; }
+.slider-row.fmt-source { grid-template-columns: 10rem minmax(0, 1fr) auto; }
+.slider-row.fmt-source .fmt-source-text { line-height: 1.35; }
 .fmt-dash { color: var(--dim); }
 .slider-row.fmt-slot { grid-template-columns: 10rem 3.4rem minmax(0, 1fr); }
 .fmt-slot-cons { font-size: 1.05rem; min-width: 3rem; }

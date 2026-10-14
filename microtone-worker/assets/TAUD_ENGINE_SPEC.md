@@ -548,15 +548,96 @@ An OPL voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)): its attack
 
 A **type-1** Metainstrument is a **formant instrument** ([File Format §7.8](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is a glottal source, played through a model of the vocal tract that sings it as one syllable — up to two consonants, a vowel, and a coda consonant spoken on the key-off. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter, the voice effects, the attack ramp and the whole gain chain — with the tract inserted between the sample fetch and the voice filter. A formant instrument resolves no Ixmp patch.
 
-The tract is Klatt's cascade/parallel formant synthesiser (D. H. Klatt, *Software for a cascade/parallel formant synthesizer*, JASA 67(3), 1980): a **cascade** of resonators carries everything voiced or aspirated, a **parallel** bank carries frication. Where Klatt's sources are an impulse train and a noise generator, a formant instrument's are samples: its own sample is the voicing, and each consonant slot names a span of the pool as its noise. One output sample:
+The tract is Klatt's cascade/parallel formant synthesiser (D. H. Klatt, *Software for a cascade/parallel formant synthesizer*, JASA 67(3), 1980): a **cascade** of resonators carries everything voiced or aspirated, a **parallel** bank carries frication. Where Klatt's sources are an impulse train and a noise generator, a formant instrument's are samples: its own sample is the voicing, and each consonant slot names a span of the pool as its noise — or, naming none, has Klatt's noise generator after all. One output sample:
 
 ```
 g  = the instrument's sample, fetched as any voice fetches it (§8)
+SG = the source gain, SM the source's mean (below)
 n  = the current consonant's noise (below), or 0
-y  = NV × cascade(AV × g + AH × n)  +  AF × NB × bank(n)
+y  = NV × cascade(AV × SG × (g − SM) + AH × n)  +  AF × NB × bank(n)
 ```
 
 `y` then goes through the voice filter and voice effects and the mixer's gains exactly as a sample would. **A formant instrument is one voice**, whatever its syllable holds.
+
+##### The level
+
+A formant instrument's level is settled on two fronts.
+
+- **The sources are calibrated by their plain RMS.** `SG` brings the voicing source to `LEVEL = 1 ÷ √3` — a full-scale sawtooth's RMS, and a full-scale white noise's — whatever its own level; the noise is at `LEVEL` already (the generator) or brought there by its slot's gain (a sample, as an editor sets it).
+- **The filters keep LOUDNESS.** The cascade (`NV`) and the parallel bank (`NB`) leave what passes through them as loud as it entered, judged by the [equal-loudness weighting](#equal-loudness) — not as strong by RMS. A filter that put a vowel's power under 300 Hz, where hearing is dull, would otherwise be heard to make it quieter than one that put it near 1 kHz: an [i] beside an [a].
+
+So the vowel and the consonants shape the sound and never make it louder or quieter to the ear, whatever the vowel or the pitch.
+
+A note **measures its source** once — on the voice's first rendered sample after the trigger, and again after an instrument change ([below](#what-reaches-a-formant-instrument)) — over ONE **stretch**: the loudest it plays, so that a quiet stretch cannot set a gain a louder one then plays through. `b = (byte − 127.5) ÷ 127.5`; every range below is cut at the sample's length and at the end of the pool; a range's AC power is the variance of its bytes, `Σb² ÷ N − (Σb ÷ N)²`.
+
+- A **looped** source (loop mode forward or ping-pong, loop end past loop start) sustains on its **loop**, `[loop start, loop end)`, and that is the stretch — unless the note plays from AHEAD of its loop (an attack, or whatever came before the loop in a recording) and the loudest **window** of `[play start, loop start)` has more AC power than the loop's first 16384 bytes: then that window is.
+- A **one-shot** source's stretch is the loudest window of `[play start, length)`.
+
+Windows are 1024 bytes, at offsets 0, 512, 1024, … from the range's start while they fit, the last one ending at the range's end (a range of 1024 bytes or fewer is one window); only a range's first 16384 bytes are searched, and the first of equal windows wins. `Q`'s retrigger keeps what was measured.
+
+`SM` and `SG`, over at most the stretch's first 16384 bytes, `N` of them:
+
+```
+SM = Σb ÷ N                                     (0 when N < 2)
+AC = Σb² ÷ N − SM²                              (the variance: the RMS² with the mean removed)
+SG = clamp(LEVEL ÷ sqrt(AC), 1/16, 16)          (1 when N < 2 or AC ≤ 10⁻¹²)
+```
+
+The mean is taken out because a DC offset would pass the cascade's unity-DC resonators whole and step in at every note-on.
+
+The source's **harmonics**, for the normaliser (below) — what makes a recorded vowel, or a loop high enough to hold only a few dozen harmonics, come out at the level a sawtooth does. Its period in bytes is `P = active_sampling_rate ÷ 261.6255653005986` (the rate at C4 sounds middle C), and it has `K = min(64, ⌊P ÷ 2⌋)` harmonics its own rate can hold. Over `N = min(stretch, 4096)` bytes from the stretch's start, `x[n] = b[n] − mean` (the mean of those `N`). A stretch that is a **whole loop** — the record's loop, not cut short — no longer than 4096 bytes is read exactly: it repeats every `N` bytes, so with `m = max(1, round(N ÷ P))` harmonic `k` is at `ωk = 2π k m ÷ N`. Anything else is windowed, `x[n] × (0.5 − 0.5 cos(2π n ÷ N))`, and `ωk = 2π k ÷ P`. For k = 1…K:
+
+```
+c = 1, s = 0, re = 0, im = 0
+for n = 0…N−1:   re += x[n] c,   im −= x[n] s,   (c, s) = (c cos ωk − s sin ωk,  s cos ωk + c sin ωk)
+w(k) = re² + im²
+```
+
+With `P < 2`, `N < 2`, or every `w(k)` 0, the source is taken to be a sawtooth: `w(k) = 1 ÷ k²` for k = 1…64. A sample's harmonics stay the same harmonics at any speed it is played, so they are measured once a note; an implementation **MAY** keep them for the same bytes, since they come out the same.
+
+##### Equal loudness
+
+The weighting `E(f)` is the inverse of the **ISO 226:2003 equal-loudness contour at 60 phon** — a moderate listening level. At the standard's 29 frequencies, with its parameters:
+
+| f (Hz) | αf | Lu (dB) | Tf (dB) |
+|---|---|---|---|
+| 20 | 0.532 | -31.6 | 78.5 |
+| 25 | 0.506 | -27.2 | 68.7 |
+| 31.5 | 0.480 | -23.0 | 59.5 |
+| 40 | 0.455 | -19.1 | 51.1 |
+| 50 | 0.432 | -15.9 | 44.0 |
+| 63 | 0.409 | -13.0 | 37.5 |
+| 80 | 0.387 | -10.3 | 31.5 |
+| 100 | 0.367 | -8.1 | 26.5 |
+| 125 | 0.349 | -6.2 | 22.1 |
+| 160 | 0.33 | -4.5 | 17.9 |
+| 200 | 0.315 | -3.1 | 14.4 |
+| 250 | 0.301 | -2.0 | 11.4 |
+| 315 | 0.288 | -1.1 | 8.6 |
+| 400 | 0.276 | -0.4 | 6.2 |
+| 500 | 0.267 | 0.0 | 4.4 |
+| 630 | 0.259 | 0.3 | 3.0 |
+| 800 | 0.253 | 0.5 | 2.2 |
+| 1000 | 0.25 | 0.0 | 2.4 |
+| 1250 | 0.246 | -2.7 | 3.5 |
+| 1600 | 0.244 | -4.1 | 1.7 |
+| 2000 | 0.243 | -1.0 | -1.3 |
+| 2500 | 0.243 | 1.7 | -4.2 |
+| 3150 | 0.243 | 2.5 | -6.0 |
+| 4000 | 0.242 | 1.2 | -5.4 |
+| 5000 | 0.242 | -2.1 | -1.5 |
+| 6300 | 0.245 | -7.1 | 6.0 |
+| 8000 | 0.254 | -11.2 | 12.6 |
+| 10000 | 0.271 | -10.7 | 13.9 |
+| 12500 | 0.301 | -3.1 | 12.3 |
+
+```
+Af  = 4.47 × 10⁻³ × (10^(0.025 × 60) − 1.15) + (0.4 × 10^((Tf + Lu) ÷ 10 − 9))^αf
+Lp  = (10 ÷ αf) × log10(Af) − Lu + 94          the SPL heard as loud as 60 dB at 1 kHz
+e   = −Lp                                       the weighting in dB at that frequency
+```
+
+Between the 29 frequencies `e` is linear in dB over `log2 f`; below 20 Hz and above 12.5 kHz it holds its end value. `E(f) = 10^(e ÷ 10)`. Only its shape matters — every use is a ratio — so it is not scaled to any frequency. Relative to 1 kHz it is −18.6 dB at 100 Hz, −7.5 dB at 250 Hz and +3.6 dB at 3.15 kHz.
 
 ##### The control clock
 
@@ -564,29 +645,29 @@ The tract is re-configured once per **control update**, every `u = max(1, round(
 
 ##### The vowel at a pitch
 
-At every update the vowel is the chart point (frontness, openness, roundness) of [File Format §7.8](TAUD_FILE_FORMAT.md) — the record's, or what `S $Afgr` has moved it to (below) — sung at the voice's fundamental:
+At every update the vowel is the tongue and lips (frontness, openness, roundness) of [File Format §7.8](TAUD_FILE_FORMAT.md) — the record's as it stands at that update, or the note's own once it has one ([below](#what-reaches-a-formant-instrument)) — sung at the voice's fundamental:
 
 ```
-f0  = current_playback_rate × rate × 261.6255653005986 ÷ active_sampling_rate     (0 when the rate is 0)
+f0  = r × rate × 261.6255653005986 ÷ active_sampling_rate     (0 when the rate is 0)
 ref = 261.6255653005986 × 2^((reference_note − $5000) ÷ 4096)
 s   = f0 > 0 ? (f0 ÷ ref)^(size_tracking ÷ 256) : 1
 ```
 
-`current_playback_rate` is the per-sample glided rate ([§8.8](#8-8-the-pitch-glide)) as it stands at the update, so the formants follow a slide, a vibrato and a pitch envelope. Then:
+`r` is the per-sample glided rate `current_playback_rate` ([§8.8](#8-8-the-pitch-glide)) as it stands at the update, so the formants follow a slide, a vibrato and a pitch envelope — except while a trigger's snap to the note's rate is still pending, on the note's first sample (the mixer snaps after rendering it), when `r` is the note's own `playback_rate`. Then:
 
 1. **Size.** A singer pitched higher has a smaller vocal tract. Every formant is multiplied by `s`: between speakers formants rise as about the 0.30 power of f0 (Hillenbrand et al. 1995: women's 0.28–0.31 over men's, children's 0.33–0.42), between a choir's parts — bass, tenor, alto, soprano — somewhat less (about 0.22–0.27 by the singer's formant), and the record's default tracking, 64, is ¼.
-2. **R1:f0 tuning.** Once f0 passes F1, a singer tunes the first resonance onto it (Joliveau, Smith & Wolfe 2004; Henrich, Smith & Wolfe 2011 — sopranos throughout their upper range, altos in theirs). The gesture is the jaw, so the point moves straight down the chart, frontness kept: if `f0 > F1(openness) × s`, the openness is replaced by the one whose F1 is `f0 ÷ s` — 255 when that is past the chart's floor — before the formants are read off the chart. F2 then follows the row the point lands on: it rises for a back vowel, as those papers measure, and falls for a front one — the [i] → [ɛ] a soprano's high [i] is heard to make.
-3. The five formants of [File Format §7.8](TAUD_FILE_FORMAT.md) are read at that point and multiplied by `s`; then, if `f0 > F1`, F1 = f0 (past the floor F1 alone goes on following f0).
+2. **R1:f0 tuning.** Once f0 passes F1, a singer tunes the first resonance onto it (Joliveau, Smith & Wolfe 2004; Henrich, Smith & Wolfe 2011 — sopranos throughout their upper range, altos in theirs). The gesture is the jaw, so the tongue OPENS, frontness and lips kept. With `F1(o)` the F1 of [File Format §7.8](TAUD_FILE_FORMAT.md) at openness `o` and the vowel's own frontness and roundness: if `f0 > F1(openness) × s` the vowel is **tuned**, and its openness is replaced — by 255 when `F1(255) ≤ f0 ÷ s`, otherwise by bisection: `a = openness`, `b = 255`, then 24 times `m = (a + b) ÷ 2`, `a = m` if `F1(m) < f0 ÷ s` else `b = m`; the openness is `(a + b) ÷ 2`. F2 follows the tongue: it rises for a back vowel, as those papers measure, and falls for a front one — the [i] → [ɛ] a soprano's high [i] is heard to make.
+3. The five formants of [File Format §7.8](TAUD_FILE_FORMAT.md) are read at that openness and multiplied by `s`; then, if the vowel is tuned, F1 = f0 exactly (fully open, F1 alone goes on following f0).
 4. **Order.** For n = 2…5 in turn, Fn = max(Fn, 1.15 × F(n−1)). Then every formant is capped at 45% of the output rate.
 5. **Bandwidths** are Bn = max(Fn ÷ 10, 50 Hz) — Praat's vowel-editor Q of 10, with Klatt's 50 Hz floor for a close vowel.
 
 ##### The vowel normaliser
 
-The tract shapes the sound; it does not set its level. `NV` is what makes a sawtooth leave the cascade at the RMS it entered with, at this f0. Every **eighth** update (and at the first), with `H` the vowel's five cascade resonators (below) at the update's formants:
+The tract shapes the sound; it does not set its loudness. `NV` is what makes the source leave the cascade as loud as it entered, at this f0, the source being its measured harmonics `w(1…K)` ([above](#the-level)) and each harmonic's power weighted by the [equal-loudness weight](#equal-loudness) `E` at its frequency. Every **eighth** update (and at the first), with `H` the vowel's five cascade resonators (below) at the update's formants:
 
 ```
-K   = clamp(floor(0.45 × rate ÷ f0), 1, 64)
-P   = Σ k=1…K  |H(k f0)|² ÷ k²          Pref = Σ k=1…K  1 ÷ k²
+K'   = max(1, min(K, floor(0.45 × rate ÷ f0)))
+P    = Σ k=1…K'  |H(k f0)|² × w(k) × E(k f0)        Pref = Σ k=1…K'  w(k) × E(k f0)
 NVgoal = clamp(sqrt(Pref ÷ P), 1/256, 16)          (16 when P = 0; 1 when f0 is 0)
 ```
 
@@ -717,7 +798,7 @@ A CODA starts on the vowel's values and ends in silence: every track but `w` clo
 
 ##### The syllable
 
-At a trigger the engine builds the syllable afresh from the record: the **onset** is slots 0 and 1, in that order, whichever of them name a defined consonant — built back to front, since each ends where the next starts — and the **coda** is slot 2. The note starts in its onset (or, with none, in its vowel) at time 0, with every filter of the tract at rest and the vowel at the record's chart point. Each control update, in this order:
+At a trigger the engine builds the syllable afresh from the record: the **onset** is slots 0 and 1, in that order, whichever of them name a defined consonant — built back to front, since each ends where the next starts — and the **coda** is slot 2. The note starts in its onset (or, with none, in its vowel) at time 0, with every filter of the tract at rest, singing the record's vowel. Each control update, in this order:
 
 1. If the voice is note-fading and the coda has not begun, the coda is **vetoed** for this note.
 2. While in the onset and the current consonant's time has reached its end, its end is subtracted from the time and the next consonant starts (its noise reader too); after the last, the vowel.
@@ -747,23 +828,33 @@ resonator:      y[n] = A x[n] + Bc y[n−1] + C y[n−2]
 antiresonator:  y[n] = (x[n] − Bc x[n−1] − C x[n−2]) ÷ A          (the inverse of the resonator at FNZ, BNZ)
 ```
 
-The **parallel bank**, run while a consonant reads noise: five resonators at F2, F3 (the blended ones), 3300 s, 3750 s and 4900 s Hz, with bandwidths B2, B3, 250 s, 200 s, 1000 s — Klatt's F4…F6 — each scaled to **unity gain at its own frequency** (its `A` replaced by `|1 − Bc e^(−jω) − C e^(−2jω)|` at ω = 2π F ÷ rate), summed with **alternating signs** — `+` for F2, `−` F3, `+` F4, `−` F5, `+` F6 — at gains `gj = 10^((Aj − 60) ÷ 20)` (0 where Aj is 0), plus the noise itself at `gB = 10^((AB − 60) ÷ 20)`. A bank shapes the noise; it does not set its level:
+The **parallel bank**, run while a consonant reads noise: five resonators at F2, F3 (the blended ones), 3300 s, 3750 s and 4900 s Hz, with bandwidths B2, B3, 250 s, 200 s, 1000 s — Klatt's F4…F6 — each scaled to **unity gain at its own frequency** (its `A` replaced by `|1 − Bc e^(−jω) − C e^(−2jω)|` at ω = 2π F ÷ rate), summed with **alternating signs** — `+` for F2, `−` F3, `+` F4, `−` F5, `+` F6 — at gains `gj = 10^((Aj − 60) ÷ 20)` (0 where Aj is 0), plus the noise itself at `gB = 10^((AB − 60) ÷ 20)`. A bank shapes the noise; it does not set its loudness. `NB` makes white noise leave it as loud as it entered, its response `G` taken whole (the signs cancel or reinforce between formants) and weighted by [equal loudness](#equal-loudness) over a sixth-octave grid:
 
 ```
-NB = 1 ÷ sqrt( Σ gj² Pj + gB² )      Pj = A² (1 + a2) ÷ ((1 − a2)((1 + a2)² − a1²)),  a1 = −Bc, a2 = −C
+fi = 50 × 2^(i ÷ 6) Hz,  i = 0, 1, … while fi ≤ 0.45 × rate        ω = 2π fi ÷ rate
+Wi = E(fi) × fi × (2^(1/12) − 2^(−1/12))                           (white noise: equal power per Hz)
+G(fi) = gB + Σj gj Aj ÷ (1 − Bcj e^(−jω) − Cj e^(−2jω))              (j over the gains that are not 0)
+NB = sqrt( Σi Wi ÷ Σi Wi |G(fi)|² )                                  (0 when the denominator is)
 ```
 
-(`Pj` is resonator j's white-noise power gain; NB is 0 when the sum is.) The consonant's own level is `L`, in its tracks.
+`cos ω`, `sin ω`, `cos 2ω`, `sin 2ω` are the grid's, computed once. The consonant's own level is `L`, in its tracks.
 
 ##### The noise
 
-Each consonant that reads noise — a stop, an affricate, a fricative or an aspirate whose slot's sample is at least 2 bytes long past its offset and whose rate is not 0 — starts a reader at its own start: from `pointer + offset`, over the `length − offset` bytes after it (cut at the end of the pool), position 0. Each output sample it reads the two pool bytes about the position, linearly interpolated (`b` = `(byte − 127.5) ÷ 127.5`, the second byte wrapping to the span's first), advances the position by `slot_rate ÷ rate` and wraps it into the span, then applies the slot's tilt — for tilt `t` with `c = |t| ÷ 128`, `t > 0`: `y = x − c × x[n−1]`; `t < 0`: `y = (1 − c) x + c y[n−1]`; the filter's state starts at 0 — and its gain (the decibel octet, 0 = unity). The noise is NOT pitched by the note: a consonant's hiss is the same at every pitch.
+Each consonant that reads noise — a stop, an affricate, a fricative or an aspirate — starts its noise at its own start, from one of two places:
+
+- **A sample**, when its slot's sample is at least 2 bytes long past its offset and its rate is not 0: a reader from `pointer + offset`, over the `length − offset` bytes after it (cut at the end of the pool), position 0. Each output sample it reads the two pool bytes about the position, linearly interpolated (`b` = `(byte − 127.5) ÷ 127.5`, the second byte wrapping to the span's first), advances the position by `slot_rate ÷ rate` and wraps it into the span.
+- **The generator**, otherwise: a 32-bit xorshift whose state is `$9E3779B9` at the consonant's start — so a syllable's noise is the same every time it is said. Each output sample, all arithmetic modulo 2³²: `x ^= x << 13`, `x ^= x >>> 17`, `x ^= x << 5`; the value is `x ÷ 2³² × 2 − 1` — white, uniform on [−1, 1), at `LEVEL`.
+
+Either then takes the slot's tilt — for tilt `t` with `c = |t| ÷ 128`, `t > 0`: `y = x − c × x[n−1]`; `t < 0`: `y = (1 − c) x + c y[n−1]`; the filter's state starts at 0 — and its gain (the decibel octet, 0 = unity). The noise is NOT pitched by the note: a consonant's hiss is the same at every pitch.
 
 ##### What reaches a formant instrument
 
-- **`S $Afgr`** moves the vowel to openness `f × 17`, frontness `g × 17`, roundness `r × 17` on every voice sounding the note (layer children included); on any other instrument it does nothing. Before the voice's first control update — on the row that triggered the note — the vowel is set outright, so the note's onset already heads for it. Otherwise it glides there linearly over the record's glide time (2 ms a unit), restarted from wherever it stands by each new `S $Afgr`, the last update landing exactly on the target. A glide of 0 is a jump. The next trigger starts from the record's vowel again.
-- **`Q`'s retrigger** says the syllable again from its onset, on the vowel it is singing now.
-- **An instrument byte without a retrigger** ([§5.2](#5-2-note-events)) hands a sounding formant syllable the new record's tract: its vowel glides to the new record's over the new glide time, the pitch rules become the new record's, and a coda that has not begun becomes the new record's; consonants already under way finish as they started, and nothing restarts. A sampled note handed a formant instrument starts its tract at the vowel, its onset long past.
+- **The record, as it is edited.** A note sings the RECORD's vowel — bytes +3…+5 as they stand, read afresh at every control update — until it is given one of its own, so an edit is heard on a note already sounding. The pitch rules are read from the record as it stands too; the source gain is not measured again.
+- **`S $Afgr`** gives the note a vowel of its own: openness `f × 17`, frontness `g × 17`, roundness `r × 17`, on every voice sounding the note (layer children included); on any other instrument it does nothing. Before the voice's first control update — on the row that triggered the note — the vowel is set outright, so the note's onset already heads for it. Otherwise it glides there linearly over the record's glide time (2 ms a unit), restarted from wherever it stands by each new `S $Afgr`, the last update landing exactly on the target. A glide of 0 is a jump. The note keeps its own vowel, record edits notwithstanding, until the next trigger, which sings the record's again.
+- **A Duplicate Check** ([§5.6](#5-6-duplicate-check)) treats formant instruments made from one pool range as one voice speaking, and ends the vowel, never a coda.
+- **`Q`'s retrigger** says the syllable again from its onset, on the vowel it is singing now — its own, if it has one, staying its own.
+- **An instrument byte without a retrigger** ([§5.2](#5-2-note-events)) hands a sounding formant syllable the new record's tract: its vowel glides to the new record's over the new glide time and from then on follows that record as it is edited (at once, with a glide of 0 or before the note's first update); the source gain is measured again, the pitch rules become the new record's, and a coda that has not begun becomes the new record's; consonants already under way finish as they started, and nothing restarts. A sampled note handed a formant instrument starts its tract at the vowel, its onset long past.
 - A **layer** of a type-0 record may be a formant instrument and sounds like any other; an FM rack's operator may not ([§5.5.1](#5-5-1-type-4-fm-racks)).
 
 ### 5.6 Duplicate Check
@@ -786,6 +877,12 @@ The values consulted belong to the **existing** voice's instrument, not the inco
 | 0 — note cut | Zero the fadeout multiplier; the voice deactivates this tick |
 | 1 — note off | Set key-off (releasing sustain, applying key lift, and starting the fadeout if one is configured) |
 | 2 — note fade | Begin fading immediately, with no sustain release, so sample and envelope loops continue |
+
+**Formant instruments** ([§5.5.3](#5-5-3-type-1-formant-instruments)) are checked as ONE VOICE SPEAKING — the syllables of a word, each its own instrument, on one lane:
+
+- For type 2 a voice sounding a formant instrument matches an incoming formant instrument made from the **same pool range** (block bytes +11…+16 equal), whichever instruments the two are: the range is what a formant instrument is made from, as a sample is what an ordinary one plays.
+- What the check ends is the **vowel**. A formant voice already speaking its coda, or already ramping out, is never a target — the coda ends the note itself.
+- Action 0 does not zero a formant voice: it ramps it out over the attack ramp ([§8.7](#8-7-the-attack-ramp)) — the foreground voice through a ghost, as Note Cut's New Note Action does ([§5.7](#5-7-new-note-actions)) — so the next syllable crossfades in rather than splicing on.
 
 ### 5.7 New Note Actions
 

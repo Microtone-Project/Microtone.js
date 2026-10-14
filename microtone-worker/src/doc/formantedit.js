@@ -18,14 +18,13 @@ import {
   FORMANT_BLOCK_START, FORMANT_BLOCK_LEN, FORMANT_SLOTS, FORMANT_SLOT_BYTES, FB_SLOTS,
   FB_FRONT, FB_OPEN, FB_ROUND, FB_TRACK, FB_REF, FB_GLIDE, FB_TIMING, FB_RANGE_LO, FB_RANGE_HI,
   META_TYPE_FORMANT, FormantPatch, encodeFormantBlock, CONSONANTS, consonantNeedsNoise,
-  vowelCoordsOf, vowelF1, vowelF2, vowelFormants, vowelAtPitch, noteHz, timingScale,
-  VOWEL_F1_MIN, VOWEL_F1_MAX, VOWEL_FRONT_EDGE, VOWEL_BACK_EDGE,
+  vowelCoordsOf, vowelF1F2, vowelFormants, vowelAtPitch, noteHz, timingScale,
 } from "../../core/engine/formant.js";
 import { buildFormantRecord } from "../../core/engine/inst.js";
 
 export {
-  META_TYPE_FORMANT, CONSONANTS, vowelF1, vowelF2, vowelFormants, vowelAtPitch, noteHz,
-  timingScale, vowelCoordsOf, VOWEL_F1_MIN, VOWEL_F1_MAX, VOWEL_FRONT_EDGE, VOWEL_BACK_EDGE,
+  META_TYPE_FORMANT, CONSONANTS, vowelF1F2, vowelFormants, vowelAtPitch, noteHz,
+  timingScale, vowelCoordsOf,
 };
 
 const B = FORMANT_BLOCK_START;
@@ -149,16 +148,26 @@ export function formantSlotBytes(i, s) {
   ];
 }
 
-/** A recipe from the machine (formantrecipe.js) as a slot. */
+/** A recipe from the machine (formantrecipe.js) as a slot. The generator's
+ *  and the voice-only recipe are both a slot with no sample. */
 export function slotFromRecipe(cons, r) {
-  if (!r || !r.cand) return { cons, ptr: 0, len: 0, offset: 0, rate: 0, tilt: 0, gain: 0 };
+  if (!r || !r.cand) return { cons, ptr: 0, len: 0, offset: 0, rate: 0, tilt: r?.tilt ?? 0, gain: r?.gain ?? 0 };
   return { cons, ptr: r.cand.ptr, len: r.cand.len, offset: r.offset, rate: r.rate, tilt: r.tilt, gain: r.gain };
+}
+
+/** Is slot `s` (fields) what recipe `r` would write? */
+export function slotIsRecipe(s, r) {
+  if (r.cand === null) return s.len === 0 && s.tilt === r.tilt && s.gain === r.gain;
+  return s.ptr === r.cand.ptr && s.len === r.cand.len && s.offset === r.offset &&
+    s.rate === r.rate && s.tilt === r.tilt && s.gain === r.gain;
 }
 
 /**
  * …the glottal source: a census entry and the rate that makes it sound middle
  * C at note $5000. The pointer goes to the block, the rest where an ordinary
- * sample's would.
+ * sample's would. A looped source PLAYS FROM its loop: the loop is what was
+ * chosen and measured, and what lies before it — in a window of a recording,
+ * whatever was said before — is neither.
  */
 export function formantSourceBytes(e, c4Rate) {
   const w16 = (o, v) => [[o, v & 0xff], [o + 1, (v >>> 8) & 0xff]];
@@ -167,7 +176,7 @@ export function formantSourceBytes(e, c4Rate) {
     [B, e.ptr & 0xff], [B + 1, (e.ptr >>> 8) & 0xff], [B + 2, (e.ptr >>> 16) & 0xff],
     ...w16(4, e.len),
     ...w16(6, Math.max(1, Math.min(65535, Math.round(c4Rate)))),
-    ...w16(8, 0),
+    ...w16(8, looped ? e.loopStart : 0),
     ...w16(10, looped ? e.loopStart : 0),
     ...w16(12, looped ? e.loopEnd : 0),
   ];
@@ -182,7 +191,10 @@ export function formantSourceFlagByte(inst, e) {
  * A new type-1 record: the source (a census entry, or null for none yet), its
  * C4 rate, the pool range, and the vowel [a] with no consonants — a sung "ah"
  * until the editor says otherwise. Note Off is its New Note Action, so a new
- * note lets the old one finish its coda in the background.
+ * note lets the old one finish its coda in the background; its Duplicate
+ * Check is Sample → Note Cut, which for formant instruments means "made from
+ * the same pool range" — so the next syllable, whichever formant instrument
+ * says it, ends the old one's VOWEL (a coda being spoken is left to finish).
  */
 export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
   const p = new FormantPatch();
@@ -194,56 +206,38 @@ export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
     ptr: source ? source.ptr : 0,
     len: source ? source.len : 0,
     rate: source ? Math.max(1, Math.min(65535, Math.round(c4Rate))) : 0,
+    playStart: looped ? source.loopStart : 0,
     loopStart: looped ? source.loopStart : 0,
     loopEnd: looped ? source.loopEnd : 0,
     loopMode: source ? source.loopMode & 0x07 : 0,
-  }, { nna: 0 });
+  }, { nna: 0, dct: 2, dca: 0 });
 }
 
 // ── the chart's marks ──────────────────────────────────────────────────────
 //
-// IPA vowels where the chart puts them. The sixteen cardinal vowels sit at
-// Catford's measurements (the same anchors the chart's edges run through);
-// the central vowels sit midway across their row — central is "between front
-// and back" — and schwa at the uniform tube's 500 / 1500 Hz. A rounded vowel
-// and its unrounded partner that share a position share a dot, unrounded on
-// the left, as the IPA chart draws them. Clicking a mark sets the roundness
-// too, which is what the mark means.
+// IPA vowels where the IPA chart puts them — as TONGUE positions with the
+// lips spread or rounded, the bytes a mark sets. The sixteen cardinal vowels
+// are the corners and edges of the engine's table: front 255, back 0, at
+// openness 0, 85, 170 and 255. The central vowels sit midway across their row
+// (central is "between front and back"), schwa at the chart's centre, and the
+// near-close and near-open vowels between the rows they lie between. Where a
+// mark is DRAWN is where it sounds (formant.js vowelF1F2), so the two members
+// of a pair part on the chart exactly as far as rounding moves the sound.
 
-const CARDINAL = [
-  ["i", 240, 2400, 0], ["y", 235, 2100, 1], ["e", 390, 2300, 0], ["ø", 370, 1900, 1],
-  ["ɛ", 610, 1900, 0], ["œ", 585, 1710, 1], ["a", 850, 1610, 0], ["ɶ", 820, 1530, 1],
-  ["ɑ", 750, 940, 0], ["ɒ", 700, 760, 1], ["ʌ", 600, 1170, 0], ["ɔ", 500, 700, 1],
-  ["ɤ", 460, 1310, 0], ["o", 360, 640, 1], ["ɯ", 300, 1390, 0], ["u", 250, 595, 1],
+/** [ipa, front, open, rounded]. */
+const MARKS = [
+  ["i", 255, 0, 0], ["y", 255, 0, 1], ["ɨ", 128, 0, 0], ["ʉ", 128, 0, 1], ["ɯ", 0, 0, 0], ["u", 0, 0, 1],
+  ["ɪ", 215, 42, 0], ["ʏ", 205, 42, 1], ["ʊ", 45, 42, 1],
+  ["e", 255, 85, 0], ["ø", 255, 85, 1], ["ɘ", 128, 85, 0], ["ɵ", 128, 85, 1], ["ɤ", 0, 85, 0], ["o", 0, 85, 1],
+  ["ə", 128, 128, 0],
+  ["ɛ", 255, 170, 0], ["œ", 255, 170, 1], ["ɜ", 128, 170, 0], ["ɞ", 128, 170, 1], ["ʌ", 0, 170, 0], ["ɔ", 0, 170, 1],
+  ["æ", 255, 212, 0], ["ɐ", 128, 212, 0],
+  ["a", 255, 255, 0], ["ɶ", 255, 255, 1], ["ɑ", 0, 255, 0], ["ɒ", 0, 255, 1],
 ];
 
-function markAt(ipa, front, open, round) {
-  return { ipa, front: Math.round(front), open: Math.round(open), round: round ? 255 : 0 };
-}
-
 /** The marks, as {ipa, front, open, round} in chart bytes. */
-export const VOWEL_MARKS = (() => {
-  const out = [];
-  for (const [ipa, f1, f2, r] of CARDINAL) {
-    const [front, open] = vowelCoordsOf(f1, f2);
-    out.push(markAt(ipa, front, open, r));
-  }
-  const rowOpen = (f1) => vowelCoordsOf(f1, 1000)[1];
-  // Central: halfway across the row at each of the four heights.
-  for (const [u, r, f1] of [["ɨ", "ʉ", 280], ["ɘ", "ɵ", 390], ["ɜ", "ɞ", 600]]) {
-    const open = rowOpen(f1);
-    out.push(markAt(u, 128, open, 0), markAt(r, 128, open, 1));
-  }
-  {
-    const [front, open] = vowelCoordsOf(500, 1500);
-    out.push(markAt("ə", front, open, 0));
-  }
-  // Near-close and near-open, between the rows they lie between.
-  const nc = rowOpen(310), no = rowOpen(730);
-  out.push(markAt("ɪ", 215, nc, 0), markAt("ʏ", 205, nc, 1), markAt("ʊ", 45, nc, 1));
-  out.push(markAt("æ", 245, no, 0), markAt("ɐ", 128, no, 0));
-  return Object.freeze(out);
-})();
+export const VOWEL_MARKS = Object.freeze(MARKS.map(([ipa, front, open, r]) =>
+  Object.freeze({ ipa, front, open, round: r ? 255 : 0 })));
 
 /** The mark nearest a chart point, roundness counted as a third axis. */
 export function nearestVowelMark(front, open, round) {

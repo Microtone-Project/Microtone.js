@@ -2,11 +2,15 @@
 //
 // Four groups, in the order an instrument is made:
 //
-//   Material   the pool range the instrument is made from, and which sample in
-//              it the vowel is sung with — ranked by the recipe machine
-//   Vowel      Lindsey's acoustic vowel chart as a 2D slider (log F1 down, log
-//              F2 right to left, as Praat's VowelEditor draws it), the IPA
-//              marked on it, and roundness beside it
+//   Material   the pool range the instrument is made from — a sample, a
+//              recording, all of them, or typed addresses — and the source the
+//              vowel is sung with, which the recipe machine CHOOSES: the loop in
+//              the range that best suits the vowel, chosen again whenever the
+//              range or the vowel changes
+//   Vowel      the tongue on Lindsey's acoustic vowel chart as a 2D slider
+//              (log F1 down, log F2 right to left, as Praat's VowelEditor
+//              draws it), the IPA marked on it, and the lips' roundness
+//              beside it, which moves both
 //   Syllable   the two onset consonants and the coda, each picked from an IPA
 //              chart coloured by how well the range can make it, and each
 //              sounded by a recipe from a list sorted best first
@@ -19,9 +23,8 @@
 import { setInstBytesOp, compositeOp } from "../../doc/ops.js";
 import {
   formantFields, formantFieldBytes, formantVowelBytes, formantRangeBytes, formantSlotBytes,
-  formantSourceBytes, formantSourceFlagByte, slotFromRecipe, VOWEL_MARKS, nearestVowelMark,
-  vowelEffectArg, vowelF1, vowelF2, vowelFormants, vowelCoordsOf, noteHz, timingScale,
-  VOWEL_F1_MIN, VOWEL_F1_MAX, CONSONANTS,
+  formantSourceBytes, formantSourceFlagByte, slotFromRecipe, slotIsRecipe, VOWEL_MARKS, nearestVowelMark,
+  vowelEffectArg, vowelF1F2, vowelFormants, vowelCoordsOf, noteHz, timingScale, CONSONANTS,
 } from "../../doc/formantedit.js";
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
 import {
@@ -39,6 +42,8 @@ import { t } from "../i18n.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const POOL_END = 0x800000;
 const hex6 = (n) => "$" + (n >>> 0).toString(16).toUpperCase().padStart(6, "0");
+const fmtBytes = (n) => (n >= 1048576 ? (n / 1048576).toFixed(2) + " MB"
+  : n >= 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B");
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -92,8 +97,12 @@ const badClass = (b) => (!Number.isFinite(b) ? "none" : b <= 0.5 ? "good" : b <=
 //
 // Lindsey's chart is Praat's VowelEditor plane: log F2 across, high to the
 // LEFT, and log F1 down, low at the TOP — so close front [i] is top left and
-// open [a] at the bottom. The drawn region is every vowel the chart's bytes
-// can name; a drag outside it lands on its edge.
+// open [a] at the bottom. Everything on it is drawn where it SOUNDS. The
+// handle is the tongue, and the drawn region is everywhere the tongue can go
+// with the lips as the roundness slider has them: rounding shrinks it towards
+// the back and the bottom, and carries the handle with it. A drag outside the
+// region lands on its edge. Marks of the other lip setting are dimmed — a
+// click on one sets the lips too.
 
 const CH_W = 440, CH_H = 300, PAD = 30;
 const F2_LO = 520, F2_HI = 2700, F1_LO = 215, F1_HI = 920;
@@ -101,24 +110,31 @@ const xOfF2 = (f2) => PAD + ((Math.log(F2_HI) - Math.log(f2)) / (Math.log(F2_HI)
 const yOfF1 = (f1) => PAD + ((Math.log(f1) - Math.log(F1_LO)) / (Math.log(F1_HI) - Math.log(F1_LO))) * (CH_H - 2 * PAD);
 const f2OfX = (x) => Math.exp(Math.log(F2_HI) - ((x - PAD) / (CH_W - 2 * PAD)) * (Math.log(F2_HI) - Math.log(F2_LO)));
 const f1OfY = (y) => Math.exp(Math.log(F1_LO) + ((y - PAD) / (CH_H - 2 * PAD)) * (Math.log(F1_HI) - Math.log(F1_LO)));
-const pointOf = (front, open) => {
-  const f1 = vowelF1(open);
-  return [xOfF2(vowelF2(front, f1)), yOfF1(f1)];
+const f1f2 = new Float64Array(2);
+const pointOf = (front, open, round) => {
+  vowelF1F2(front, open, round, f1f2);
+  return [xOfF2(f1f2[1]), yOfF1(f1f2[0])];
 };
 
-function regionPath() {
+/** The tongue's square, front edge, open edge, back edge, close edge, as it
+ *  sounds with the lips at `round`. */
+function regionPath(round) {
   const pts = [];
-  for (let i = 0; i <= 24; i++) pts.push(pointOf(255, (i * 255) / 24));
-  for (let i = 24; i >= 0; i--) pts.push(pointOf(0, (i * 255) / 24));
+  const N = 24, q = (i) => (i * 255) / N;
+  for (let i = 0; i <= N; i++) pts.push(pointOf(255, q(i), round));
+  for (let i = N - 1; i >= 0; i--) pts.push(pointOf(q(i), 255, round));
+  for (let i = N - 1; i >= 0; i--) pts.push(pointOf(0, q(i), round));
+  for (let i = 1; i < N; i++) pts.push(pointOf(q(i), 0, round));
   return "M " + pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ") + " Z";
 }
 
 /**
  * The chart as an element. `get()` answers the current {front, open, round};
  * `onDrag(front, open, gid)` is called through a drag and `onMark(mark)` when a
- * symbol is clicked. Returns {node, update(front, open, round)}.
+ * symbol is clicked, `onDragEnd()` when a drag lets go. Returns {node,
+ * update(front, open, round)}.
  */
-function vowelChart(get, onDrag, onMark) {
+function vowelChart(get, onDrag, onMark, onDragEnd = () => {}) {
   const wrap = el("div", "fmt-chart");
   const s = svg("svg", { viewBox: `0 0 ${CH_W} ${CH_H}`, class: "fmt-chart-svg", role: "img" });
   s.setAttribute("aria-label", t("fmt.chartLabel"));
@@ -144,57 +160,54 @@ function vowelChart(get, onDrag, onMark) {
   axisF1.textContent = "F1 ↓";
   const axisF2 = svg("text", { x: PAD, y: 12, class: "fmt-axis" });
   axisF2.textContent = "← F2";
-  s.append(svg("path", { d: regionPath(), class: "fmt-region" }), axisF1, axisF2);
+  const region = svg("path", { class: "fmt-region" });
+  s.append(region, axisF1, axisF2);
 
-  // The marks. A pair sharing a position sits either side of it, unrounded
-  // on the left, as the IPA chart sets them.
-  const at = new Map();
-  for (const m of VOWEL_MARKS) {
-    const k = `${m.front}:${m.open}`;
-    if (!at.has(k)) at.set(k, []);
-    at.get(k).push(m);
-  }
+  // The marks, each where it sounds.
   const markEls = [];
-  for (const group of at.values()) {
-    for (const m of group) {
-      const [x, y] = pointOf(m.front, m.open);
-      const dx = group.length > 1 ? (m.round ? 7 : -7) : 0;
-      const g = svg("g", { class: "fmt-mark", tabindex: "0", role: "button" });
-      const dot = svg("circle", { cx: x, cy: y, r: 2, class: "fmt-mark-dot" });
-      const tx = svg("text", { x: x + dx, y: y - 6, "text-anchor": "middle", class: "fmt-mark-ipa" });
-      tx.textContent = m.ipa;
-      const tt = svg("title");
-      tt.textContent = t(m.round ? "fmt.markRounded" : "fmt.markUnrounded", { ipa: m.ipa });
-      g.append(tt, dot, tx);
-      const pick = (e) => { e.preventDefault(); e.stopPropagation(); onMark(m); };
-      g.addEventListener("pointerdown", (e) => e.stopPropagation());
-      g.addEventListener("click", pick);
-      g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") pick(e); });
-      markEls.push({ m, tx });
-      s.appendChild(g);
-    }
+  for (const m of VOWEL_MARKS) {
+    const [x, y] = pointOf(m.front, m.open, m.round);
+    const g = svg("g", { class: "fmt-mark", tabindex: "0", role: "button" });
+    const dot = svg("circle", { cx: x, cy: y, r: 2, class: "fmt-mark-dot" });
+    const tx = svg("text", { x, y: y - 6, "text-anchor": "middle", class: "fmt-mark-ipa" });
+    tx.textContent = m.ipa;
+    const tt = svg("title");
+    tt.textContent = t(m.round ? "fmt.markRounded" : "fmt.markUnrounded", { ipa: m.ipa });
+    g.append(tt, dot, tx);
+    const pick = (e) => { e.preventDefault(); e.stopPropagation(); onMark(m); };
+    g.addEventListener("pointerdown", (e) => e.stopPropagation());
+    g.addEventListener("click", pick);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") pick(e); });
+    markEls.push({ m, g, tx });
+    s.appendChild(g);
   }
   const handle = svg("circle", { r: 7, class: "fmt-handle" });
   s.appendChild(handle);
   wrap.appendChild(s);
 
+  let drawnRound = -1;
   const update = (front, open, round) => {
-    const [x, y] = pointOf(front, open);
+    if (round !== drawnRound) {
+      drawnRound = round;
+      region.setAttribute("d", regionPath(round));
+      for (const { m, g } of markEls) g.classList.toggle("off", Math.abs(m.round - round) > 127);
+    }
+    const [x, y] = pointOf(front, open, round);
     handle.setAttribute("cx", x.toFixed(1));
     handle.setAttribute("cy", y.toFixed(1));
     const near = nearestVowelMark(front, open, round);
     for (const { m, tx } of markEls) tx.classList.toggle("near", m === near);
   };
 
-  // Dragging: the pointer's F1/F2, clamped into the region by the chart's own
-  // inverse, so the handle never leaves it.
+  // Dragging: the pointer's F1/F2, turned into the tongue position that
+  // sounds nearest it with the lips as they are — so the handle never leaves
+  // the region.
   let gid = null;
   const toCoords = (e) => {
     const r = s.getBoundingClientRect();
     const x = ((e.clientX - r.left) / r.width) * CH_W;
     const y = ((e.clientY - r.top) / r.height) * CH_H;
-    const f1 = Math.min(Math.max(f1OfY(y), VOWEL_F1_MIN), VOWEL_F1_MAX);
-    const [front, open] = vowelCoordsOf(f1, f2OfX(x));
+    const [front, open] = vowelCoordsOf(f1OfY(y), f2OfX(x), get().round);
     return [Math.round(front), Math.round(open)];
   };
   s.addEventListener("pointerdown", (e) => {
@@ -210,7 +223,7 @@ function vowelChart(get, onDrag, onMark) {
     const [front, open] = toCoords(e);
     onDrag(front, open, gid);
   });
-  const end = () => { gid = null; };
+  const end = () => { if (gid !== null) { gid = null; onDragEnd(); } };
   s.addEventListener("pointerup", end);
   s.addEventListener("pointercancel", end);
   const cur = get();
@@ -314,14 +327,13 @@ function nameOf(e) {
 
 /** Recipe list label: sample, offset, speed, tilt, badness. */
 function recipeLabel(r) {
+  if (r.generator) return `${fmtBad(r.badness)} — ${t("fmt.recipeGenerator")}`;
   if (!r.cand) return t("fmt.recipeVoicing");
   const speed = r.rate / Math.max(1, r.cand.rate);
   const tilt = r.tilt === 0 ? "" : r.tilt > 0 ? ` · ${t("fmt.brighter")}` : ` · ${t("fmt.darker")}`;
   return `${fmtBad(r.badness)} — ${nameOf(r.cand)} · @${r.offset} · ×${speed.toFixed(2)}${tilt}`;
 }
 
-const sameRecipe = (s, r) => r.cand !== null && s.ptr === r.cand.ptr && s.len === r.cand.len &&
-  s.offset === r.offset && s.rate === r.rate && s.tilt === r.tilt;
 
 export function renderFormantTab(view, inst) {
   const doc = view.store.doc;
@@ -331,74 +343,117 @@ export function renderFormantTab(view, inst) {
   const applyQuiet = (pairs, gid) => view.applyQuiet(setInstBytesOp(slot, pairs, gid));
 
   // ── Material ──
+  // The RANGE is the user's; the SOURCE is the machine's. Whenever the range
+  // or the vowel moves, the source is chosen again for them — the loop in the
+  // range that best suits the vowel — in the same undo step as the edit.
   let lo = f.rangeLo, hi = f.rangeHi;
   if (hi <= lo) [lo, hi] = poolSpan(doc);  // a record with no range: everything
   const machine = machineFor(doc, lo, hi);
-  const src = sourceEntry(machine, inst);
-  const ranked = machine.sources();
+  const vowel = { front: f.front, open: f.open, round: f.round };
+  const vowelFor = (v) => ({ ...v, track: f.track, refNote: f.refNote });
 
-  const rangeRow = el("div", "slider-row fmt-range");
+  /** The bytes that make machine `m`'s best source for vowel `v` the record's:
+   *  {pairs, best}. Always the same offsets (empty when nothing in the range
+   *  can be a source), so every step of a drag coalesces into one undo step. */
+  const sourcePairs = (m, v) => {
+    const best = m.bestSource(vowelFor(v));
+    if (!best) return { pairs: [], best: null };
+    return { pairs: [...formantSourceBytes(best.cand, best.c4Rate), ...formantSourceFlagByte(inst, best.cand)], best };
+  };
+  const setRange = (a, b) => {
+    const { pairs } = sourcePairs(machineFor(doc, a, b), vowel);
+    apply([...formantRangeBytes(a, b), ...pairs]);
+  };
+
+  // The range: one of the pool's samples or recordings, all of them, or two
+  // addresses typed in.
+  const census = doc.sampleList(), regions = doc.sampleRegions();
+  const [alo, ahi] = poolSpan(doc);
+  const items = [["all", t("fmt.rangeAllItems"), alo, ahi]];
+  const sampleItems = census.map((e) => [`s${e.ptr}:${e.len}`,
+    `${String(e.index).padStart(3, "0")} ${unescapeName(e.name) || t("smp.namePlaceholder")} · ${fmtBytes(e.len)} · ${hex6(e.ptr)}`,
+    e.ptr, e.ptr + e.len]);
+  const regionItems = regions.map((r, i) => [`r${r.ptr}:${r.len}`,
+    `R${String(i).padStart(2, "0")} ${unescapeName(r.name) || t("rgn.namePlaceholder")} · ${fmtBytes(r.len)} · ${hex6(r.ptr)}`,
+    r.ptr, r.ptr + r.len]);
+  const all = [...items, ...sampleItems, ...regionItems];
+  const current = all.find(([, , a, b]) => a === lo && b === hi) ?? null;
+  const pick = ([v, text]) => [v, text];
+  const rangePick = view.pickRow(t("fmt.range"), current ? current[0] : "",
+    [...(current ? [] : [["", t("fmt.rangeCustom")]]), ...items.map(pick)],
+    (v) => {
+      const it = all.find((x) => x[0] === v);
+      if (it && it[3] > it[2]) setRange(it[2], it[3]);
+    },
+    [[t("fmt.rangeGroupSamples"), sampleItems.map(pick)], [t("fmt.rangeGroupRecordings"), regionItems.map(pick)]]);
+  rangePick.title = t("fmt.rangeTitle");
+
+  const addrRow = el("div", "slider-row fmt-range");
   const loIn = el("input", "sl-num wide");
   loIn.type = "text"; loIn.value = hex6(lo); loIn.title = t("fmt.rangeLoTitle");
   const hiIn = el("input", "sl-num wide");
   hiIn.type = "text"; hiIn.value = hex6(hi); hiIn.title = t("fmt.rangeHiTitle");
-  const parseHex = (s) => {
-    const v = parseInt(String(s).trim().replace(/^\$|^0x/i, ""), 16);
-    return Number.isFinite(v) ? Math.max(0, Math.min(POOL_END, v)) : null;
+  const parseHex = (v) => {
+    const n = parseInt(String(v).trim().replace(/^\$|^0x/i, ""), 16);
+    return Number.isFinite(n) ? Math.max(0, Math.min(POOL_END, n)) : null;
   };
   const commitRange = () => {
     const a = parseHex(loIn.value), b = parseHex(hiIn.value);
     if (a === null || b === null || b <= a) { loIn.value = hex6(lo); hiIn.value = hex6(hi); return; }
-    apply(formantRangeBytes(a, b));
+    setRange(a, b);
   };
   loIn.addEventListener("change", commitRange);
   hiIn.addEventListener("change", commitRange);
-  const allBtn = el("button", "", t("fmt.rangeAll"));
-  allBtn.type = "button";
-  allBtn.title = t("fmt.rangeAllTitle");
-  allBtn.addEventListener("click", () => {
-    const [a, b] = poolSpan(doc);
-    if (b > a) apply(formantRangeBytes(a, b));
-  });
-  rangeRow.append(el("span", "sl-label", t("fmt.range")), loIn, el("span", "fmt-dash", "–"), hiIn,
-    el("span", "sl-ann", t("fmt.rangeCount", { n: machine.materialCount })), allBtn);
-  rangeRow.title = t("fmt.rangeTitle");
+  addrRow.append(el("span", "sl-label", t("fmt.rangeAddr")), loIn, el("span", "fmt-dash", "–"), hiIn,
+    el("span", "sl-ann", t("fmt.rangeCount", { n: machine.materialCount })));
 
-  const srcOpts = ranked.map((j) => [
-    `${j.cand.ptr}:${j.cand.len}`,
-    `${nameOf(j.cand)} · ${j.hz > 0 ? j.hz.toFixed(0) + " Hz" : "—"} · ${fmtBad(j.badness)}`,
-  ]);
-  const srcKey = src ? `${src.ptr}:${src.len}` : "";
-  const srcRow = view.pickRow(t("fmt.source"), srcKey,
-    src ? srcOpts : [["", t("fmt.sourceNone")], ...srcOpts],
-    (v) => {
-      const j = ranked.find((x) => `${x.cand.ptr}:${x.cand.len}` === v);
-      if (!j) return;
-      // The new source sets the level every recipe's noise is matched to, so
-      // each slot keeps its recipe and takes the gain the new source asks for.
-      const pairs = [...formantSourceBytes(j.cand, j.c4Rate), ...formantSourceFlagByte(inst, j.cand)];
-      f.slots.forEach((s, i) => {
-        if (!s.cons || s.len === 0) return;
-        const r = machine.recipes(s.cons, j.cand, f.timing).find((x) => sameRecipe(s, x));
-        if (r) pairs.push(...formantSlotBytes(i, slotFromRecipe(s.cons, r)));
-      });
-      apply(pairs);
-    });
+  // The source, as chosen: what it is, where it loops, and for which vowel.
+  const srcRow = el("div", "slider-row fmt-source");
+  const srcText = el("span", "sl-ann fmt-source-text");
+  const paintSource = () => {
+    const e = sourceEntry(machine, inst) ?? (inst.sampleLength > 0 ? null : undefined);
+    if (e === undefined) { srcText.textContent = t("fmt.sourceNone"); return; }
+    const j = e ? machine.judgeSource({ ...e, loopStart: inst.sampleLoopStart, loopEnd: inst.sampleLoopEnd,
+      loopMode: inst.loopMode }, vowelFor(vowel)) : null;
+    // No pitch here: the source is tuned to middle C, and a census sample
+    // reports its rate as the record has it — a figure that would be the tuned
+    // pitch, not the recording's own.
+    const where = e ? nameOf(e) : hex6(inst.samplePtr);
+    const ipa = nearestVowelMark(vowel.front, vowel.open, vowel.round)?.ipa ?? "?";
+    srcText.textContent = `${where} · ${t("fmt.sourceLoop", { a: inst.sampleLoopStart, b: inst.sampleLoopEnd })}` +
+      (j ? ` · ${t("fmt.sourceFor", { ipa, b: fmtBad(j.badness) })}` : "");
+  };
+  const againBtn = el("button", "", t("fmt.sourcePick"));
+  againBtn.type = "button";
+  againBtn.title = t("fmt.sourcePickTitle");
+  againBtn.addEventListener("click", () => {
+    const { pairs, best } = sourcePairs(machine, vowel);
+    if (!best) return;
+    if (!pairs.every(([o, v]) => inst.getByte(o) === v)) apply(pairs);
+  });
+  srcRow.append(el("span", "sl-label", t("fmt.source")), srcText, againBtn);
   srcRow.title = t("fmt.sourceTitle");
-  view.group(t("fmt.grpMaterial"), rangeRow, srcRow,
+  paintSource();
+  view.group(t("fmt.grpMaterial"), rangePick, addrRow, srcRow,
     machine.cands.length === 0 ? el("p", "dim fmt-note", t("fmt.rangeEmpty")) : null);
 
   // ── Vowel ──
-  const vowel = { front: f.front, open: f.open, round: f.round };
   const readout = el("div", "fmt-readout");
   const paintReadout = () => {
     const F = vowelFormants(vowel.front, vowel.open, vowel.round, new Float64Array(5));
     const m = nearestVowelMark(vowel.front, vowel.open, vowel.round);
     const arg = vowelEffectArg(vowel.front, vowel.open, vowel.round);
-    const fx = "S $" + arg.toString(16).toUpperCase().padStart(4, "0");
+    const fx = "S\u00a0$" + arg.toString(16).toUpperCase().padStart(4, "0");
     readout.textContent = t("fmt.readout", {
       f1: Math.round(F[0]), f2: Math.round(F[1]), f3: Math.round(F[2]), ipa: m?.ipa ?? "?", fx,
     });
+  };
+  // A vowel edit carries the source chosen for the new vowel with it.
+  const vowelEdit = (gid) => {
+    const { pairs } = sourcePairs(machine, vowel);
+    const op = [...formantVowelBytes(vowel.front, vowel.open, vowel.round), ...pairs];
+    if (gid === null) apply(op); else applyQuiet(op, gid);
+    paintSource();
   };
   const chart = vowelChart(
     () => vowel,
@@ -406,24 +461,26 @@ export function renderFormantTab(view, inst) {
       vowel.front = front; vowel.open = open;
       chart.update(front, open, vowel.round);
       paintReadout();
-      applyQuiet(formantVowelBytes(front, open, vowel.round), gid);
+      vowelEdit(gid);
     },
     (m) => {
       vowel.front = m.front; vowel.open = m.open; vowel.round = m.round;
-      apply(formantVowelBytes(m.front, m.open, m.round));
+      vowelEdit(null);
     },
+    () => view.renderPanel(),
   );
   paintReadout();
   const roundRow = view.sliderRow(t("fmt.round"), f.round, 0, 255, (v, gid) => {
     vowel.round = v;
     chart.update(vowel.front, vowel.open, v);
     paintReadout();
-    applyQuiet(formantFieldBytes("round", v), gid);
+    vowelEdit(gid);
   }, { ann: (v) => (v < 64 ? t("fmt.spread") : v > 191 ? t("fmt.rounded") : t("fmt.halfRounded")) });
+  roundRow.title = t("fmt.roundTitle");
   view.group(t("fmt.grpVowel"), chart.node, roundRow, readout);
 
   // ── Syllable ──
-  const best = machine.bestPerConsonant(src, f.timing);
+  const best = machine.bestPerConsonant(f.timing);
   const slotRow = (i, labelKey) => {
     const s = f.slots[i];
     const row = el("div", "slider-row fmt-slot");
@@ -435,17 +492,17 @@ export function renderFormantTab(view, inst) {
       const id = await pickConsonant(best, s.cons);
       if (id === null) return;
       if (id === 0) { apply(formantSlotBytes(i, { cons: 0 })); return; }
-      const top = machine.recipes(id, src, f.timing)[0] ?? null;
+      const top = machine.recipes(id, f.timing)[0] ?? null;
       apply(formantSlotBytes(i, slotFromRecipe(id, top)));
     });
     row.append(el("span", "sl-label", t(labelKey)), consBtn);
     if (r && consonantNeedsNoise(r)) {
-      const list = machine.recipes(s.cons, src, f.timing).slice(0, 16);
-      const curIdx = list.findIndex((x) => sameRecipe(s, x));
+      const list = machine.recipes(s.cons, f.timing).slice(0, 16);
+      const curIdx = list.findIndex((x) => slotIsRecipe(s, x));
       const opts = list.map((x, k) => [String(k), recipeLabel(x)]);
       const sel = el("select", "sl-pick fmt-recipe");
       if (curIdx < 0) {
-        const o = el("option", "", s.len > 0 ? t("fmt.recipeStored") : t("fmt.recipeNone"));
+        const o = el("option", "", s.len > 0 ? t("fmt.recipeStored") : t("fmt.recipeGeneratorStored"));
         o.value = "";
         sel.appendChild(o);
       }

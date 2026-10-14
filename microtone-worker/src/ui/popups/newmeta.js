@@ -325,7 +325,8 @@ function createFormant(store) {
   const doc = store.doc;
   const [lo, hi] = poolSpan(doc);
   const machine = new FormantMachine(doc.sampleBin, rangeCandidates(doc, lo, hi));
-  const top = machine.sources()[0] ?? null;
+  // Chosen for the vowel a new one sings, [a] at C3 (formant.js FormantPatch).
+  const top = machine.bestSource({ front: 200, open: 255, round: 0, track: 64, refNote: 0x4000 });
   const record = defaultFormantRecord(top?.cand ?? null, top?.c4Rate ?? 0, lo, hi);
   const plan = planCreateOpl(doc, record, "Formant");
   if (plan.error) { alert(plan.error); return null; }

@@ -3,11 +3,13 @@
 // What is pinned here: (1) the record — an ordinary instrument whose header
 // says "type 1", whose sample is the glottal source with its pointer in the
 // tract block, and whose second pitch/filter slot is that block; (2) the
-// chart and the pitch rules — Catford's cardinal vowels where the chart puts
-// them, R1 tuned onto f0 by opening the jaw; (3) the sound — formants where the
-// chart says, the level of the source at every pitch, consonants before the
-// vowel and the coda only on a key-off; (4) the recipe machine's ranking; (5)
-// the pool tools, which have to know every pointer a type-1 record holds.
+// vowel and the pitch rules — tongue and lips on Catford's cardinal vowels,
+// R1 tuned onto f0 by opening the jaw; (3) the sound — formants where the
+// vowel puts them, one level whatever the source's level, the vowel or the
+// pitch, consonants before the vowel and the coda only on a key-off, the
+// noise generator, a sounding note following edits to its vowel; (4) the
+// recipe machine's ranking; (5) the pool tools, which have to know every
+// pointer a type-1 record holds.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -30,6 +32,7 @@ import {
 } from "../../src/doc/formantedit.js";
 import { FormantMachine, rangeCandidates, spanOf, poolSpan, gainOctet } from "../../src/doc/formantrecipe.js";
 import { buildRegionPayload } from "../../src/doc/sampleregions.js";
+import { META_MIX_GAIN } from "../../core/engine/tables.js";
 
 const C4_HZ = 261.6255653005986;
 const id = (ipa) => F.CONSONANT_LIST.find((r) => r.ipa === ipa).id;
@@ -41,30 +44,55 @@ const id = (ipa) => F.CONSONANT_LIST.find((r) => r.ipa === ipa).id;
 const SAW = { ptr: 0x1000, len: 128, rate: Math.round(128 * C4_HZ), loopStart: 0, loopEnd: 128, loopMode: 1 };
 const NOISE = { ptr: 0x2000, len: 22050, rate: 22050, loopStart: 0, loopEnd: 0, loopMode: 0 };
 const SQUARE = { ptr: 0x8000, len: 8000, rate: 16000, loopStart: 0, loopEnd: 0, loopMode: 0 };
+/** The saw at a quarter of full scale, and a parabola — every harmonic, power
+ *  falling as 1 ÷ k⁴, −12 dB per octave — both one cycle like the saw. */
+const QUIET_SAW = { ...SAW, ptr: 0x1800 };
+/** The saw at half scale riding on a DC offset of +0.31. */
+const OFFSET_SAW = { ...SAW, ptr: 0x1900 };
+const PARABOLA = { ...SAW, ptr: 0x1c00 };
+/** The noise at half its level. */
+const HALF_NOISE = { ...NOISE, ptr: 0x10000 };
+/** A sung-and-decayed sample: 6400 bytes of a full-scale saw (period 128,
+ *  middle C at SAW.rate), then a tail at 1/16 of it, looped in the tail —
+ *  as an ordinary instrument loops a plucked or sung sample to sustain it. */
+const TAILED = { ptr: 0x40000, len: 8192, rate: SAW.rate, loopStart: 7680, loopEnd: 7808, loopMode: 1 };
 function fillPool(bin) {
   for (let i = 0; i < SAW.len; i++) bin[SAW.ptr + i] = Math.round((255 * i) / (SAW.len - 1));
+  for (let i = 0; i < SAW.len; i++) bin[QUIET_SAW.ptr + i] = Math.round(127.5 + (31.75 * (2 * i - SAW.len + 1)) / (SAW.len - 1));
+  for (let i = 0; i < SAW.len; i++) bin[OFFSET_SAW.ptr + i] = Math.round(167.5 + (63.5 * (2 * i - SAW.len + 1)) / (SAW.len - 1));
+  for (let i = 0; i < SAW.len; i++) {
+    const x = (2 * i) / SAW.len - 1;
+    bin[PARABOLA.ptr + i] = Math.round(127.5 + 127 * (3 * x * x - 1) / 2);
+  }
   let x = 0x12345678;
   for (let i = 0; i < NOISE.len; i++) {
     x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
     bin[NOISE.ptr + i] = 16 + ((x >>> 8) % 224);
+    bin[HALF_NOISE.ptr + i] = 72 + ((x >>> 8) % 224) / 2;
+  }
+  for (let i = 0; i < TAILED.len; i++) {
+    const a = i < 6400 ? 1 : 1 / 16;
+    bin[TAILED.ptr + i] = Math.round(127.5 + 127 * a * (2 * ((i % 128) / 127) - 1));
   }
   for (let i = 0; i < SQUARE.len; i++) bin[SQUARE.ptr + i] = Math.floor((i * 440 * 2) / 16000) % 2 ? 200 : 56;
 }
 
-function patchBytes({ front = 177, open = 255, round = 0, slots = [0, 0, 0], track = 64, timing = 128, glide = 20 } = {}) {
+function patchBytes({ front = 200, open = 255, round = 0, slots = [0, 0, 0], track = 64, timing = 128, glide = 20,
+  src = SAW, generator = false, gain = 0, range = [0, 0] } = {}) {
   const p = new F.FormantPatch();
-  p.srcPtr = SAW.ptr; p.front = front; p.open = open; p.round = round;
+  [p.rangeLo, p.rangeHi] = range;
+  p.srcPtr = src.ptr; p.front = front; p.open = open; p.round = round;
   p.track = track; p.timing = timing; p.glide = glide; p.refNote = 0x4000;
   slots.forEach((c, i) => {
     const s = p.slots[i];
     s.cons = c;
-    if (c && F.consonantNeedsNoise(F.CONSONANTS[c])) {
-      s.ptr = NOISE.ptr; s.len = NOISE.len; s.offset = 0; s.rate = NOISE.rate;
+    if (c && !generator && F.consonantNeedsNoise(F.CONSONANTS[c])) {
+      s.ptr = NOISE.ptr; s.len = NOISE.len; s.offset = 0; s.rate = NOISE.rate; s.gain = gain;
     }
   });
   return F.encodeFormantBlock(p);
 }
-const formantRecord = (opts = {}, fields = {}) => buildFormantRecord(patchBytes(opts), SAW, fields);
+const formantRecord = (opts = {}, fields = {}) => buildFormantRecord(patchBytes(opts), opts.src ?? SAW, fields);
 
 /** An ordinary record for the same saw, for level comparisons. */
 function plainRecord(src) {
@@ -77,11 +105,13 @@ function plainRecord(src) {
   return r;
 }
 
-/** Render `cells` on lane 0 with `rec` as instrument 1; the left mix bus. */
-function render(rec, cells, frames, { tick = 6 } = {}) {
+/** Render `cells` on lane 0 with `rec` as instrument 1; the left mix bus.
+ *  `at(ms, eng)` hooks run before the chunk that holds that millisecond. */
+function render(rec, cells, frames, { tick = 6, at: hooks = [], more = [], bin = null } = {}) {
   const eng = new TaudEngine();
-  fillPool(eng.sampleBin);
+  if (bin) eng.sampleBin.set(bin.subarray(0, eng.sampleBin.length)); else fillPool(eng.sampleBin);
   eng.uploadInstrument(1, rec);
+  more.forEach((r, i) => eng.uploadInstrument(2 + i, r));
   const pat = new Uint8Array(512);
   for (let r = 0; r < 64; r++) { pat[r * 8 + 3] = 0xc0; pat[r * 8 + 4] = 0xc0; }
   for (const c of cells) {
@@ -100,7 +130,9 @@ function render(rec, cells, frames, { tick = 6 } = {}) {
   const out = new Uint8Array(TRACKER_CHUNK * 2);
   const ts = eng.playheads[0].trackerState;
   const res = new Float32Array(frames);
+  const due = hooks.map(([t, fn]) => [ms(t), fn]);
   for (let at = 0; at < frames; at += TRACKER_CHUNK) {
+    for (const h of due) if (h[1] && at >= h[0]) { h[1](eng); h[1] = null; }
     eng.renderChunk(0, out);
     res.set(ts.mixLeft.subarray(0, Math.min(TRACKER_CHUNK, frames - at)), at);
   }
@@ -113,6 +145,26 @@ const rms = (a, t0, t1) => {
   return Math.sqrt(s / Math.max(1, ms(t1) - ms(t0)));
 };
 const db = (x) => 20 * Math.log10(Math.max(x, 1e-9));
+const noteF0 = (note) => C4_HZ * 2 ** ((note - 0x5000) / 4096);
+
+/** How LOUD a steady tone at f0 is: the power of each harmonic (Hann-windowed
+ *  DFT, up to 64 of them and below 45% of the rate, as the normaliser counts
+ *  them) weighted by the engine's equal-loudness weighting, in dB. */
+function loudDb(a, t0, t1, f0) {
+  const i0 = ms(t0), N = ms(t1) - i0;
+  let p = 0;
+  for (let k = 1; k <= 64 && k * f0 < 0.45 * SAMPLING_RATE; k++) {
+    const w = (2 * Math.PI * k * f0) / SAMPLING_RATE, c1 = Math.cos(w), s1 = Math.sin(w);
+    let re = 0, im = 0, c = 1, sn = 0;
+    for (let i = 0; i < N; i++) {
+      const v = a[i0 + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+      re += v * c; im -= v * sn;
+      const nc = c * c1 - sn * s1; sn = sn * c1 + c * s1; c = nc;
+    }
+    p += (re * re + im * im) * F.equalLoudness(k * f0);
+  }
+  return 10 * Math.log10(p / (N * N));
+}
 const S_FX = 0x1c; // effect opcode S
 
 /** The strongest harmonics of f0 in a window, by a direct DFT at each one. */
@@ -193,7 +245,7 @@ test("the block encodes and decodes field for field", () => {
   Object.assign(p.slots[1], { cons: 54, ptr: 0x654321, len: 40000, offset: 1234, rate: 44100, tilt: -96, gain: 170 });
   const raw = F.encodeFormantBlock(p);
   assert.equal(raw.length, F.FORMANT_BLOCK_LEN);
-  assert.equal(raw[F.FB_RESERVED], 0);
+  assert.equal(raw[53], 0, "the block's last byte is reserved");
   const q = F.decodeFormantBlock(raw, 0);
   assert.deepEqual({ ...q, slots: null }, { ...p, slots: null });
   assert.deepEqual(q.slots[1], p.slots[1]);
@@ -201,46 +253,64 @@ test("the block encodes and decodes field for field", () => {
 
 // ── the chart and the pitch rules ────────────────────────────────────────
 
-test("the chart runs through Catford's cardinal vowels", () => {
-  assert.equal(F.vowelF1(0), 240);
-  assert.ok(Math.abs(F.vowelF1(255) - 850) < 1e-9);
-  assert.ok(Math.abs(F.vowelF2(255, 240) - 2400) < 1e-9, "[i]");
-  assert.ok(Math.abs(F.vowelF2(255, 850) - 1610) < 1e-9, "[a]");
-  assert.ok(Math.abs(F.vowelF2(0, 500) - 700) < 1e-9, "[ɔ]");
-  assert.ok(Math.abs(F.vowelF2(255, 390) - 2300) < 1e-9, "[e]");
-  for (const [f1, f2] of [[300, 1000], [610, 1900], [700, 900], [250, 595]]) {
-    const [front, open] = F.vowelCoordsOf(f1, f2);
-    assert.ok(Math.abs(F.vowelF1(open) - f1) < 1e-6);
-    assert.ok(Math.abs(F.vowelF2(front, F.vowelF1(open)) - f2) < 1e-6);
+test("the tongue and the lips run through Catford's sixteen cardinal vowels", () => {
+  const out = new Float64Array(2);
+  const corner = [[255, 0], [255, 255], [0, 0], [0, 255]];   // front spread, front round, back spread, back round
+  F.CARDINAL_VOWELS.forEach((row, h) => row.forEach(([f1, f2], c) => {
+    F.vowelF1F2(corner[c][0], h * 85, corner[c][1], out);
+    assert.ok(Math.abs(out[0] - f1) < 1e-9 && Math.abs(out[1] - f2) < 1e-9, `height ${h}, column ${c}`);
+  }));
+  // The inverse finds the tongue for a sound, with the lips as given.
+  for (const round of [0, 128, 255]) {
+    for (const [front, open] of [[255, 0], [40, 200], [128, 128], [200, 30]]) {
+      F.vowelF1F2(front, open, round, out);
+      const [x, h] = F.vowelCoordsOf(out[0], out[1], round);
+      assert.ok(Math.abs(x - front) < 0.5 && Math.abs(h - open) < 0.5, `(${front}, ${open}) at round ${round}: ${x}, ${h}`);
+    }
   }
   const m = (ipa) => VOWEL_MARKS.find((x) => x.ipa === ipa);
   assert.deepEqual([m("i").front, m("i").open, m("i").round], [255, 0, 0]);
-  assert.deepEqual([m("u").front, m("u").open, m("u").round], [0, 8, 255]);
+  assert.deepEqual([m("y").front, m("y").open, m("y").round], [255, 0, 255], "[y] is [i]'s tongue with the lips rounded");
+  assert.deepEqual([m("u").front, m("u").open, m("u").round], [0, 0, 255]);
   assert.equal(nearestVowelMark(255, 0, 255).ipa, "y", "roundness decides between [i] and [y]");
   const schwa = m("ə");
-  assert.equal(nearestVowelMark(schwa.front, schwa.open, 0).ipa, "ə", "the uniform tube, 500/1500 Hz");
+  assert.equal(nearestVowelMark(schwa.front, schwa.open, 0).ipa, "ə");
+  F.vowelF1F2(schwa.front, schwa.open, 0, out);
+  assert.ok(Math.abs(out[0] - 500) < 25 && Math.abs(out[1] - 1500) < 150, "schwa near the uniform tube's 500/1500 Hz");
+  assert.equal(nearestVowelMark(200, 255, 0).ipa, "a", "a new instrument's vowel");
   assert.equal(vowelEffectArg(255, 0, 0), 0xa0f0, "S $Afgr for [i]: open 0, front F, round 0");
 });
 
-test("roundness is F3: it closes in on F2", () => {
-  const V = new Float64Array(5);
+test("rounding the lips lowers every formant, as Catford's pairs say", () => {
+  const V = new Float64Array(5), W = new Float64Array(5);
   F.vowelFormants(255, 0, 0, V);
   assert.deepEqual([...V].map(Math.round), [240, 2400, 3100, 3500, 4500]);
   F.vowelFormants(255, 0, 255, V);
-  assert.equal(Math.round(V[2]), 2650, "[y]: F2 + 250");
-  F.vowelFormants(0, 8, 255, V);
-  assert.equal(Math.round(V[2]), 2200, "[u]: Klatt's 2200");
+  assert.deepEqual([...V].slice(0, 3).map(Math.round), [235, 2100, 2350], "[y]: F2 down 12%, F3 F2 + 250");
+  F.vowelFormants(0, 0, 255, V);
+  assert.deepEqual([...V].slice(0, 3).map(Math.round), [250, 595, 2200], "[u]: Klatt's F3 of 2200");
+  F.vowelFormants(0, 0, 0, V);
+  assert.equal(Math.round(V[1]), 1390, "[ɯ]: the same tongue, spread, F2 more than twice [u]'s");
+  // Every step of the slider moves the sound, at every tongue position.
+  for (const [front, open] of [[255, 0], [0, 0], [128, 128], [0, 255], [255, 255]]) {
+    for (let r = 0; r < 255; r += 15) {
+      F.vowelFormants(front, open, r, V);
+      F.vowelFormants(front, open, r + 15, W);
+      assert.ok(W[1] < V[1], `F2 falls with rounding at (${front}, ${open}), ${r}`);
+      assert.ok(W[0] <= V[0] + 1e-9, `…and F1 never rises`);
+    }
+  }
 });
 
 test("a higher note is a smaller tract, and past F1 the jaw opens", () => {
   const V = new Float64Array(5), B = new Float64Array(5);
   const ref = F.noteHz(0x4000);
-  assert.equal(F.vowelAtPitch(177, 255, 0, ref, ref, 64, V, B), 1, "at the reference note, the chart");
+  assert.equal(F.vowelAtPitch(255, 255, 0, ref, ref, 64, V, B), 1, "at the reference note, the chart");
   assert.equal(Math.round(V[0]), 850);
-  const s = F.vowelAtPitch(177, 255, 0, ref * 16, ref, 64, V, B);
+  const s = F.vowelAtPitch(255, 255, 0, ref * 16, ref, 64, V, B);
   assert.ok(Math.abs(s - 2) < 1e-12, "four octaves up at k = ¼: twice the size");
   // [u] at C5: F1 is tuned onto f0 and F2 rises with the jaw.
-  const s5 = F.vowelAtPitch(0, 8, 255, 523.25, ref, 64, V, B);
+  const s5 = F.vowelAtPitch(0, 0, 255, 523.25, ref, 64, V, B);
   assert.ok(Math.abs(V[0] - 523.25) < 1e-9);
   assert.ok(V[1] > 595 * s5 * 1.05, "a back vowel's F2 rises past its size alone");
   // [i] at C6: F1 on f0, F2 FALLS — the soprano's [i] heard as [ɛ].
@@ -249,35 +319,88 @@ test("a higher note is a smaller tract, and past F1 the jaw opens", () => {
   assert.ok(V[1] < 2400 * (1046.5 / ref) ** 0.25, "a front vowel's F2 falls");
   for (let n = 1; n < 5; n++) assert.ok(V[n] >= V[n - 1] * 1.15 - 1e-9, "the formants stay in order");
   for (let n = 0; n < 5; n++) assert.ok(B[n] >= 50 && Math.abs(B[n] - Math.max(V[n] / 10, 50)) < 1e-9);
-  F.vowelAtPitch(177, 255, 0, ref * 4, ref, 0, V, B);
-  assert.equal(Math.round(V[1]), 1300, "track 0: one size at every pitch below F1");
+  F.vowelAtPitch(255, 255, 0, ref * 4, ref, 0, V, B);
+  assert.equal(Math.round(V[1]), 1610, "track 0: one size at every pitch below F1");
 });
 
 // ── the sound ────────────────────────────────────────────────────────────
 
-/** Each of F1…F3 within one harmonic of the strongest peaks of the sound. */
+/** Each of F1…F3 within one harmonic of the strongest peaks of the sound —
+ *  F1 and F2 only for a rounded vowel, whose F3 the lips leave too weak to
+ *  stand out from F4. */
 function assertFormants(a, t0, f0, front, open, round) {
-  const want = F.vowelFormants(front, open, round, new Float64Array(5)).slice(0, 3);
-  const got = harmonicPeaks(a, t0, f0);
+  const n = round > 127 ? 2 : 3;
+  const want = F.vowelFormants(front, open, round, new Float64Array(5)).slice(0, n);
+  const got = harmonicPeaks(a, t0, f0, n);
   want.forEach((f, i) => assert.ok(Math.abs(got[i] - f) < f0, `F${i + 1} ${f.toFixed(0)} Hz, peak at ${got[i].toFixed(0)}`));
 }
 
-test("a sung vowel's formants are where the chart puts them", () => {
-  for (const [front, open, round] of [[177, 255, 0], [255, 0, 0], [80, 120, 0]]) {
+test("a sung vowel's formants are where the chart puts them, the lips' included", () => {
+  for (const [front, open, round] of [[200, 255, 0], [255, 0, 0], [80, 120, 0], [0, 85, 255], [255, 85, 255]]) {
     const { res } = render(formantRecord({ front, open, round }), [{ row: 0, note: 0x4000, inst: 1 }], ms(800));
     assertFormants(res, 300, 130.8128, front, open, round);
   }
 });
 
-test("the tract sets the timbre, not the level: a sawtooth comes out at its own level at every pitch", () => {
-  const level = (rec, note) => db(rms(render(rec, [{ row: 0, note, inst: 1 }], ms(450)).res, 100, 450));
+test("the equal-loudness weighting is ISO 226:2003's 60-phon contour, inverted", () => {
+  const rel = (f) => 10 * Math.log10(F.equalLoudness(f) / F.equalLoudness(1000));
+  // The contour's SPL at 1 kHz is the loudness level itself; 250 Hz needs
+  // 7.5 dB more and 100 Hz 18.6 dB more to sound as loud; 3.15 kHz, where
+  // hearing is keenest, 3.6 dB less.
+  assert.equal(F.LOUDNESS_PHON, 60);
+  for (const [f, want] of [[250, -7.52], [100, -18.64], [3150, 3.59], [500, -2.04]]) {
+    assert.ok(Math.abs(rel(f) - want) < 0.01, `${f} Hz: ${rel(f).toFixed(3)} dB`);
+  }
+  assert.equal(rel(16000), rel(12500), "held past the table's last frequency");
+  assert.equal(rel(10), rel(20), "…and below its first");
+  assert.ok(Math.abs(rel(354) - (rel(315) + rel(400)) / 2) < 0.05, "linear in dB over log frequency");
+});
+
+test("one loudness: whatever the source's level and spectrum, the vowel and the pitch, a formant instrument sings as loud as its source", () => {
+  // Two corrections: the SOURCE is brought to a full-scale sawtooth's RMS,
+  // and the TRACT keeps its equal-loudness-weighted power — so an [i], whose
+  // power lies under 300 Hz, comes out as loud as an [a], not at its RMS.
+  const level = (rec, note) => loudDb(render(rec, [{ row: 0, note, inst: 1 }], ms(450)).res, 100, 450, noteF0(note));
   for (const note of [0x3000, 0x4000, 0x5000, 0x6000, 0x7000]) {
     const plain = level(plainRecord(SAW), note);
-    for (const [front, open, round] of [[177, 255, 0], [255, 0, 0], [0, 6, 255]]) {
+    for (const [front, open, round] of [[200, 255, 0], [255, 0, 0], [0, 0, 255], [255, 0, 255], [128, 128, 0]]) {
+      const at = `note $${note.toString(16)}, (${front}, ${open}, ${round})`;
       const got = level(formantRecord({ front, open, round }), note);
-      assert.ok(Math.abs(got - plain) < 0.6, `note $${note.toString(16)}: ${got.toFixed(2)} vs ${plain.toFixed(2)} dB`);
+      assert.ok(Math.abs(got - plain) < 0.6, `${at}: ${got.toFixed(2)} vs ${plain.toFixed(2)} dB`);
+      const quiet = level(formantRecord({ front, open, round, src: QUIET_SAW }), note);
+      assert.ok(Math.abs(quiet - plain) < 0.6, `${at}, a source 12 dB down: ${quiet.toFixed(2)} dB`);
+      // A darker source — −12 dB/octave, which a sawtooth model of the
+      // source put several dB off — measured by the engine.
+      // A darker source: as loud as itself played plainly, once calibrated.
+      const d = render(formantRecord({ front, open, round, src: PARABOLA }), [{ row: 0, note, inst: 1 }], ms(450));
+      const dark = loudDb(d.res, 100, 450, noteF0(note));
+      const darkPlain = level(plainRecord(PARABOLA), note) + db(d.ts.voices[0].formant.sg);
+      assert.ok(Math.abs(dark - darkPlain) < 0.6, `${at}, a −12 dB/octave source: ${dark.toFixed(2)} vs ${darkPlain.toFixed(2)} dB`);
     }
   }
+  // …and so not at one RMS: at C3 the [i] is the louder by RMS.
+  const r = (front, open) => db(rms(render(formantRecord({ front, open }), [{ row: 0, note: 0x4000, inst: 1 }], ms(450)).res, 100, 450));
+  assert.ok(r(255, 0) - r(200, 255) > 1.5, `[i] ${r(255, 0).toFixed(2)} vs [a] ${r(200, 255).toFixed(2)} dB RMS`);
+});
+
+test("a note starts at its own level — no burst while the normaliser settles — and a source's DC offset is taken out", () => {
+  // The first control update runs before the mixer snaps the voice to the
+  // note's rate; it must read the note's pitch, not the voice's last one.
+  for (const note of [0x3000, 0x4000, 0x6000]) {
+    for (const [front, open, round] of [[255, 0, 0], [0, 0, 255], [255, 85, 0], [0, 85, 255]]) {
+      const { res } = render(formantRecord({ front, open, round }), [{ row: 0, note, inst: 1 }], ms(500));
+      let onset = 0, steady = 0;
+      for (let i = 0; i < ms(40); i++) onset = Math.max(onset, Math.abs(res[i]));
+      for (let i = ms(200); i < ms(500); i++) steady = Math.max(steady, Math.abs(res[i]));
+      assert.ok(onset < steady * 1.5, `$${note.toString(16)} (${front}, ${open}, ${round}): onset peak ${onset.toFixed(3)} vs ${steady.toFixed(3)}`);
+      assert.equal(res.length, ms(500));
+    }
+  }
+  const sum = (a) => { let m = 0; for (let i = ms(100); i < ms(450); i++) m += a[i]; return m / (ms(450) - ms(100)); };
+  const off = render(formantRecord({ src: OFFSET_SAW }), [{ row: 0, note: 0x4000, inst: 1 }], ms(450)).res;
+  const plain = render(formantRecord(), [{ row: 0, note: 0x4000, inst: 1 }], ms(450)).res;
+  assert.ok(Math.abs(sum(off)) < 0.002, `mean ${sum(off).toFixed(4)}`);
+  assert.ok(Math.abs(db(rms(off, 100, 450)) - db(rms(plain, 100, 450))) < 0.3, "the offset saw sings as the centred one does");
 });
 
 test("an onset fricative hisses before the vowel, and a fricative coda only after a key-off", () => {
@@ -311,6 +434,40 @@ test("a note cut, a note fade and a fast fade end the vowel without the coda", (
   }
 });
 
+test("a slot with no sample sounds the noise generator: white, at the source's level, the same every time", () => {
+  const gen = formantRecord({ slots: [id("s"), 0, id("s")], generator: true });
+  const recipe = new FormantMachine(pool(), CANDS).recipes(id("s")).find((x) => x.cand?.name === "noise");
+  const smp = formantRecord({ slots: [id("s"), 0, id("s")], gain: recipe.gain });
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }, { row: 4, note: 0x0001 }];
+  const a = render(gen, cells, ms(900)).res;
+  const b = render(smp, cells, ms(900)).res;
+  const vowel = rms(a, 300, 450);
+  const hiss = rms(a, 40, 100);
+  assert.ok(db(hiss) - db(vowel) < -3 && db(hiss) - db(vowel) > -12, `/s/ at ${(db(hiss) - db(vowel)).toFixed(1)} dB`);
+  // The test's noise sample is white too, at its own rate: at the gain the
+  // machine gives it, the two hiss alike.
+  assert.ok(Math.abs(db(hiss) - db(rms(b, 40, 100))) < 1.5,
+    `generator ${db(hiss).toFixed(1)} vs sample ${db(rms(b, 40, 100)).toFixed(1)} dB`);
+  assert.ok(rms(a, 530, 600) > 0, "the coda hisses too");
+  // The generator restarts at each consonant: both /s/ hiss the same noise
+  // (the first note is cut and silent well before the second). The second
+  // may start a sample off the row's first, so the match is sought within a
+  // few samples of it: the two correlate as one.
+  const c = render(gen, [{ row: 0, note: 0x4000, inst: 1 }, { row: 4, note: 0x0002 },
+    { row: 8, note: 0x4000, inst: 1 }], ms(1000)).res;
+  const onset2 = ms(8 * 6 * 20);
+  let best = -1;
+  for (let lag = -3; lag <= 3; lag++) {
+    let xy = 0, xx = 0, yy = 0;
+    for (let i = ms(10); i < ms(35); i++) {
+      const y = c[onset2 + lag + i];
+      xy += c[i] * y; xx += c[i] * c[i]; yy += y * y;
+    }
+    best = Math.max(best, xy / Math.sqrt(xx * yy));
+  }
+  assert.ok(best > 0.999, `correlation ${best.toFixed(5)}`);
+});
+
 test("a key-off during the onset waits for it, then speaks the coda", () => {
   const rec = formantRecord({ slots: [id("s"), 0, id("n")] });
   const { res } = render(rec, [{ row: 0, note: 0x4000, inst: 1 }, { row: 1, note: 0x0001 }], ms(700));
@@ -333,6 +490,82 @@ test("S $Afgr on the trigger row is the note's vowel from its start; later it gl
   const v = later.ts.voices[0].formant;
   assert.equal(v.vOpen, 0);
   assert.equal(v.vFront, 255);
+});
+
+test("a sounding note sings the record's vowel as it is edited, until S $Afgr gives it one of its own", () => {
+  const set = (front, open, round) => (eng) => {
+    const inst = eng.instruments[1];
+    inst.setByte(F.FORMANT_BLOCK_START + F.FB_FRONT, front);
+    inst.setByte(F.FORMANT_BLOCK_START + F.FB_OPEN, open);
+    inst.setByte(F.FORMANT_BLOCK_START + F.FB_ROUND, round);
+  };
+  // [a], then edited to [i] and to [y] while the note sounds.
+  const { res, ts } = render(formantRecord(), [{ row: 0, note: 0x4000, inst: 1 }], ms(1300),
+    { at: [[400, set(255, 0, 0)], [800, set(255, 0, 255)]] });
+  assertFormants(res, 100, 130.8128, 200, 255, 0);
+  assertFormants(res, 500, 130.8128, 255, 0, 0);
+  assertFormants(res, 900, 130.8128, 255, 0, 255);
+  assert.equal(ts.voices[0].formant.ownVowel, false);
+  // After S $Afgr the note keeps its own vowel through an edit.
+  const own = render(formantRecord({ glide: 0 }), [{ row: 0, note: 0x4000, inst: 1 }, { row: 1, fx: S_FX, arg: 0xa0f0 }],
+    ms(1000), { at: [[500, set(0, 0, 255)]] });
+  assertFormants(own.res, 700, 130.8128, 255, 0, 0);
+  assert.equal(own.ts.voices[0].formant.ownVowel, true);
+});
+
+test("an instrument change mid-note glides to the new record's vowel, then follows its edits", () => {
+  const toI = formantRecord({ front: 255, open: 0, round: 0, glide: 25 });   // a 50 ms glide
+  const { res, ts } = render(formantRecord(), [{ row: 0, note: 0x4000, inst: 1 }, { row: 3, inst: 2 }], ms(1300),
+    { more: [toI], at: [[900, (eng) => eng.instruments[2].setByte(F.FORMANT_BLOCK_START + F.FB_ROUND, 255)]] });
+  assertFormants(res, 100, 130.8128, 200, 255, 0);
+  assertFormants(res, 500, 130.8128, 255, 0, 0);
+  assertFormants(res, 1000, 130.8128, 255, 0, 255);
+  const st = ts.voices[0].formant;
+  assert.equal(st.ownVowel, false, "the glide over, the note follows the record again");
+  assert.equal(st.vRound, 255);
+});
+
+test("Duplicate Check Sample: the next syllable from any formant instrument on the same pool range ends the old vowel", () => {
+  const active = (ts) => ts.backgroundVoices.filter((v) => v.active && v.formant !== null).length;
+  const word = (dct, rangeB = [0, 0]) => {
+    const A = formantRecord({ front: 255, open: 0 }, { dct });                         // [i], no coda
+    const B = formantRecord({ slots: [id("s"), 0, 0], range: rangeB }, { dct });       // [sa], another instrument
+    return render(A, [{ row: 0, note: 0x4000, inst: 1 }, { row: 4, note: 0x4400, inst: 2 }], ms(900), { more: [B] });
+  };
+  // Without the check, Note Off leaves a syllable with no coda singing its
+  // vowel under the next one — which is what the default is for.
+  assert.ok(active(word(0).ts) > 0, "DCT off: the [i] sings on");
+  assert.equal(active(word(2).ts), 0, "DCT Sample: the [i] is gone");
+  assert.ok(active(word(2, [0x1000, 0x2000]).ts) > 0, "…but not for an instrument made from another range");
+  // A coda being spoken is not the vowel: it is left to finish.
+  const timing = 192;                    // twice as slow: [n]'s coda takes 270 ms
+  const A = formantRecord({ slots: [0, 0, id("n")], timing }, { dct: 2 });
+  const B = formantRecord({ slots: [id("s"), 0, 0] }, { dct: 2 });
+  const seen = {};
+  render(A, [{ row: 0, note: 0x4000, inst: 1 }, { row: 3, note: 0x0001 }, { row: 4, note: 0x4400, inst: 2 }], ms(900), {
+    more: [B],
+    at: [[520, (eng) => { seen.mid = active(eng.playheads[0].trackerState); }],
+         [800, (eng) => { seen.end = active(eng.playheads[0].trackerState); }]],
+  });
+  assert.equal(seen.mid, 1, "the [n] coda, started at 360 ms, still speaks after the next syllable at 480 ms");
+  assert.equal(seen.end, 0, "…and ends the note itself");
+});
+
+test("a note that starts ahead of a quiet loop is held to the level by the louder stretch it plays", () => {
+  // The record plays from byte 0: 6400 bytes of full-scale body, then the
+  // quiet loop. Gain and harmonics come from the loudest stretch played —
+  // here the body — so the body sings at the level, not 24 dB over it.
+  const fromStart = buildFormantRecord(patchBytes({ src: TAILED, front: 255, open: 0 }), { ...TAILED, playStart: 0 });
+  const fromLoop = buildFormantRecord(patchBytes({ src: TAILED, front: 255, open: 0 }), { ...TAILED, playStart: TAILED.loopStart });
+  const saw = db(rms(render(formantRecord({ front: 255, open: 0 }), [{ row: 0, note: 0x5000, inst: 1 }], ms(400)).res, 100, 400));
+  const { res, ts } = render(fromStart, [{ row: 0, note: 0x5000, inst: 1 }], ms(400));
+  // At C4 the 6400-byte body lasts 6400 ÷ 33488 Hz = 191 ms.
+  assert.ok(Math.abs(db(rms(res, 40, 180)) - saw) < 1, `body ${db(rms(res, 40, 180)).toFixed(2)} vs ${saw.toFixed(2)} dB`);
+  assert.ok(ts.voices[0].formant.sg < 1.1, `source gain ${ts.voices[0].formant.sg.toFixed(2)}, set by the body`);
+  // From its loop, the same source is the quiet loop lifted to the level.
+  const loop = render(fromLoop, [{ row: 0, note: 0x5000, inst: 1 }], ms(400));
+  assert.ok(loop.ts.voices[0].formant.sg > 12, "the quiet loop alone is lifted ~24 dB");
+  assert.ok(Math.abs(db(rms(loop.res, 100, 400)) - saw) < 1.5, `${db(rms(loop.res, 100, 400)).toFixed(2)} dB`);
 });
 
 test("S $Afgr does nothing on an ordinary instrument", () => {
@@ -399,19 +632,35 @@ test("the machine ranks a sawtooth first as a source, and tunes it to middle C",
   assert.ok(s[0].badness < 0.5);
 });
 
-test("the machine makes /s/ from noise, not from a pitched sample, and matches its level", () => {
+test("the machine offers the noise generator first, makes /s/ from noise rather than a pitched sample, and brings it to the generator's level", () => {
   const m = new FormantMachine(pool(), CANDS);
-  const r = m.recipes(id("s"), CANDS[0]);
-  assert.equal(r[0].cand.name, "noise");
-  assert.ok(r[0].badness < 0.5, `noise: ${r[0].badness}`);
-  const sq = r.find((x) => x.cand.name === "square");
-  assert.ok(!sq || sq.badness > r[0].badness + 1, "the square is a poor /s/");
+  const r = m.recipes(id("s"));
+  assert.equal(r[0].generator, true, "the generator, white, is the flattest noise there is");
+  assert.equal(r[0].badness, 0);
+  assert.deepEqual(slotFromRecipe(id("s"), r[0]), { cons: id("s"), ptr: 0, len: 0, offset: 0, rate: 0, tilt: 0, gain: 0 });
+  const samples = r.filter((x) => x.cand);
+  assert.equal(samples[0].cand.name, "noise");
+  assert.ok(samples[0].badness < 0.5, `noise: ${samples[0].badness}`);
+  // The gain is what brings the sample's level to the generator's (heard
+  // through the engine in the generator's test above): the same noise 6 dB
+  // down is given 6 dB more.
+  const half = new FormantMachine(pool(), [{ ...HALF_NOISE, index: 0, name: "half" }]).recipes(id("s"))
+    .find((x) => x.cand && x.offset === samples[0].offset && x.rate === samples[0].rate && x.tilt === samples[0].tilt);
+  const lift = db(META_MIX_GAIN[half.gain]) - db(META_MIX_GAIN[samples[0].gain]);
+  assert.ok(Math.abs(lift - 6.02) < 0.6, `${lift.toFixed(2)} dB`);
+  const sq = samples.find((x) => x.cand.name === "square");
+  assert.ok(!sq || sq.badness > samples[0].badness + 1, "the square is a poor /s/");
   for (let i = 1; i < r.length; i++) assert.ok(r[i].badness >= r[i - 1].badness, "best first");
-  assert.equal(m.recipes(id("m"), CANDS[0])[0].cand, null, "a nasal needs no noise");
-  assert.equal(m.recipes(id("m"), CANDS[0])[0].badness, 0);
-  const best = m.bestPerConsonant(CANDS[0]);
+  // A stop wants a click, which the generator has not: a little badness.
+  assert.ok(m.recipes(id("t")).find((x) => x.generator).badness > 0);
+  assert.equal(m.recipes(id("m"))[0].cand, null, "a nasal needs no noise");
+  assert.equal(m.recipes(id("m"))[0].generator, false);
+  assert.equal(m.recipes(id("m"))[0].badness, 0);
+  const best = m.bestPerConsonant();
   assert.equal(best.get(id("l")), 0);
-  assert.ok(best.get(id("ʃ")) < 1);
+  assert.ok(F.CONSONANT_LIST.every((c) => best.get(c.id) < 0.5), "with the generator, every consonant can be made");
+  const none = new FormantMachine(pool(), []).bestPerConsonant();
+  assert.ok(F.CONSONANT_LIST.every((c) => Number.isFinite(none.get(c.id))), "…even from an empty range");
   assert.equal(gainOctet(1), 159, "unity is octet 159");
 });
 
@@ -449,7 +698,7 @@ function withFormant() {
   assert.ok(!plan.error, plan.error);
   doc.undo.apply(importBankOp(plan));
   const slot = plan.metaSlot;
-  const s = m.recipes(id("s"), src.cand)[0];
+  const s = m.recipes(id("s")).find((r) => r.cand);   // a sample's, so the record holds a noise pointer
   doc.undo.apply(setInstBytesOp(slot, formantSlotBytes(0, slotFromRecipe(id("s"), s))));
   return { doc, slot, m, src };
 }
@@ -461,8 +710,12 @@ test("a new formant instrument sings [a] on the best source, in a range covering
   assert.equal(inst.samplePtr, SAW.ptr);
   assert.equal(inst.formant.rangeLo, SAW.ptr);
   assert.equal(inst.formant.rangeHi, NOISE.ptr + NOISE.len > SQUARE.ptr + SQUARE.len ? NOISE.ptr + NOISE.len : SQUARE.ptr + SQUARE.len);
-  assert.equal(nearestVowelMark(inst.formant.front, inst.formant.open, inst.formant.round).ipa, "ɐ");
-  assert.equal(formantSyllable(inst), "sɐ");
+  assert.equal(nearestVowelMark(inst.formant.front, inst.formant.open, inst.formant.round).ipa, "a");
+  assert.equal(formantSyllable(inst), "sa");
+  assert.equal(inst.volumeFadeoutLow | ((inst.fadeoutHigh & 0x0f) << 8), 0, "no fadeout");
+  assert.equal(inst.newNoteAction, 0, "New Note Action: Note Off");
+  assert.equal(inst.duplicateCheckType, 2, "Duplicate Check: Sample…");
+  assert.equal(inst.duplicateCheckAction, 0, "…→ Note Cut");
   assert.equal(inst.formant.slots[0].ptr, NOISE.ptr);
 });
 
@@ -555,8 +808,8 @@ test("a recording loaded into the pool is material: the machine cuts windows out
   assert.equal(src.cand.loopMode, 1, "…looped by the loop finder");
   assert.ok(src.cand.loopEnd > src.cand.loopStart);
   assert.ok(Math.abs(src.hz - 150) < 1, `${src.hz} Hz`);
-  const s = m.recipes(id("s"), src.cand)[0];
-  assert.match(s.cand.label, /^R00 @/, "and its hiss the best /s/");
+  const s = m.recipes(id("s")).find((r) => r.cand);
+  assert.match(s.cand.label, /^R00 @/, "and its hiss the best sampled /s/");
   assert.ok(s.badness < 0.5);
   // Taking them makes the windows samples of the census, this instrument's.
   const plan = planCreateOpl(doc, defaultFormantRecord(src.cand, src.c4Rate, lo, hi), "Formant");
@@ -577,4 +830,96 @@ test("a recording loaded into the pool is material: the machine cuts windows out
   // …and a new machine over the same range names them by where they came from.
   const again = new FormantMachine(doc.sampleBin, rangeCandidates(doc, lo, hi));
   assert.match(again.cands.find((c) => c.ptr === s.cand.ptr && c.len === s.cand.len).label, /^R00 @/);
+});
+
+test("the source is chosen for the vowel: a recording of sung vowels gives each its own", () => {
+  // A 150 Hz sawtooth sung through [i], then [a], then [u], two seconds each,
+  // loaded as a recording. Choosing the source for a vowel picks a loop in the
+  // stretch that sings it — and the pitch is found at 150 Hz, not the octave
+  // below a strongly resonant [a] used to pass for.
+  const doc = project([SQUARE]);
+  const rate = 22050;
+  const reg = { ptr: 0x40000, len: rate * 6, rate, chan: 1, name: "aiu" };
+  const mark = (ipa) => VOWEL_MARKS.find((v) => v.ipa === ipa);
+  const sung = new Float64Array(reg.len);
+  let ph = 0;
+  ["i", "a", "u"].forEach((ipa, k) => {
+    const m = mark(ipa);
+    const V = new Float64Array(5), B = new Float64Array(5);
+    F.vowelAtPitch(m.front, m.open, m.round, 150, 150, 0, V, B);
+    const rs = [4, 3, 2, 1, 0].map((n) => {
+      const r = Math.exp((-Math.PI * B[n]) / rate), c = -r * r, b = 2 * r * Math.cos((2 * Math.PI * V[n]) / rate);
+      return { A: 1 - b - c, b, c, y1: 0, y2: 0 };
+    });
+    for (let i = k * rate * 2; i < (k + 1) * rate * 2; i++) {
+      ph = (ph + 150 / rate) % 1;
+      let x = 2 * ph - 1;
+      for (const q of rs) { const y = q.A * x + q.b * q.y1 + q.c * q.y2; q.y2 = q.y1; q.y1 = y; x = y; }
+      sung[i] = x;
+    }
+  });
+  let peak = 0;
+  for (const v of sung) peak = Math.max(peak, Math.abs(v));
+  for (let i = 0; i < reg.len; i++) doc.sampleBin[reg.ptr + i] = Math.round(127.5 + (120 * sung[i]) / peak);
+  doc.projSections.push({ fourcc: "SRgn", payload: buildRegionPayload([reg]) });
+  const m = new FormantMachine(doc.sampleBin, rangeCandidates(doc, ...poolSpan(doc)));
+  const secOf = (c) => (c.ptr + (c.loopStart + c.loopEnd) / 2 - reg.ptr) / rate;
+  for (const [ipa, from, to] of [["i", 0, 2], ["a", 2, 4], ["u", 4, 6]]) {
+    const v = mark(ipa);
+    const best = m.bestSource({ front: v.front, open: v.open, round: v.round, track: 64, refNote: 0x4000 });
+    const at = secOf(best.cand);
+    assert.ok(at >= from && at < to, `[${ipa}]: the loop sits at ${at.toFixed(2)} s`);
+    assert.ok(Math.abs(best.hz - 150) < 1, `[${ipa}]: ${best.hz} Hz`);
+    assert.ok(Math.abs(best.c4Rate - Math.round((rate / 150) * 261.6255653005986)) <= 2);
+  }
+  // Each vowel on its own loop — loops of different levels and very
+  // different spectra (a recorded [i] is nothing like a sawtooth) — sings at
+  // the one level, at every pitch. A looped source plays from its loop.
+  // Each source is calibrated by its RMS; the tract then keeps its loudness —
+  // so each note is as loud as its own loop played plainly at that RMS.
+  for (const note of [0x4000, 0x5000, 0x6000]) {
+    for (const ipa of ["i", "a", "u"]) {
+      const v = mark(ipa);
+      const best = m.bestSource({ front: v.front, open: v.open, round: v.round, track: 64, refNote: 0x4000 });
+      const rec = defaultFormantRecord(best.cand, best.c4Rate, ...poolSpan(doc));
+      for (const [o, b] of formantVowelBytes(v.front, v.open, v.round)) rec[o] = b;
+      const inst = new TaudInst(1);
+      inst.loadRecord(rec);
+      assert.equal(inst.samplePlayStart, best.cand.loopStart, "the source plays from its loop");
+      const r = render(rec, [{ row: 0, note, inst: 1 }], ms(450), { bin: doc.sampleBin });
+      const got = loudDb(r.res, 100, 450, noteF0(note));
+      // The loop itself, played plainly and brought by the same source gain:
+      // the tract neither adds nor takes loudness.
+      const L = best.cand.loopEnd - best.cand.loopStart;
+      const plainRec = plainRecord({ ptr: best.cand.ptr + best.cand.loopStart, len: L, rate: best.c4Rate, loopEnd: L, loopMode: 1 });
+      const p = render(plainRec, [{ row: 0, note, inst: 1 }], ms(450), { bin: doc.sampleBin }).res;
+      const plain = loudDb(p, 100, 450, noteF0(note)) + db(r.ts.voices[0].formant.sg);
+      assert.ok(Math.abs(got - plain) < 0.6, `[${ipa}] at $${note.toString(16)}: ${got.toFixed(2)} vs ${plain.toFixed(2)} dB`);
+    }
+  }
+});
+
+test("a sample looped in its quiet tail is offered looped in its body, and a quiet loop costs", () => {
+  const m = new FormantMachine(pool(), [{ ...TAILED, index: 0, name: "tailed" }]);
+  const all = m.sources();
+  const tail = all.find((s) => !s.cand.relooped), body = all.find((s) => s.cand.relooped);
+  assert.ok(body, "a re-looped candidate exists");
+  assert.ok(body.cand.loopEnd <= 6400 + 1024 && body.cand.loopEnd - body.cand.loopStart >= 16, `loop ${body.cand.loopStart}–${body.cand.loopEnd}, in the body`);
+  assert.ok(tail.badness - body.badness > 1, `tail ${tail.badness.toFixed(2)} vs body ${body.badness.toFixed(2)}`);
+  assert.equal(all[0], body, "and the body is chosen");
+  // Written as a record, it plays from its loop.
+  const rec = defaultFormantRecord(body.cand, body.c4Rate, 0, 0);
+  assert.equal(rec[8] | (rec[9] << 8), body.cand.loopStart);
+});
+
+test("a periodic sample that does not loop is given a loop as a source; noise is not", () => {
+  const hum = { ptr: 0x30000, len: 22050, rate: 22050, loopStart: 0, loopEnd: 0, loopMode: 0, index: 0, name: "hum" };
+  const bin = pool();
+  for (let i = 0; i < hum.len; i++) bin[hum.ptr + i] = Math.round(127.5 + 100 * (2 * (((i * 110) / 22050) % 1) - 1));
+  const s = new FormantMachine(bin, [hum]).bestSource();
+  assert.equal(s.cand.loopMode & 3, 1);
+  assert.ok(s.cand.autoLoop && s.cand.loopEnd - s.cand.loopStart >= 16);
+  assert.equal(hum.loopMode, 0, "the census entry itself is left alone");
+  const n = new FormantMachine(pool(), [{ ...NOISE, index: 1, name: "noise" }]).bestSource();
+  assert.equal(n.cand.loopMode & 3, 0, "a noise is not looped into a fake tone");
 });

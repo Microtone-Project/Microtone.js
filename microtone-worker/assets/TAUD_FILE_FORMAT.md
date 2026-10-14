@@ -836,7 +836,7 @@ A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whos
 
 The block takes the place of the **second pitch/filter envelope slot**, as an OPL patch does, so a formant instrument has exactly one: bytes 19, 121 and 193, playing the pitch or the filter role as its `m` bit says. A formant instrument has **no Ixmp patch list**: its one source is its sample, and an `Ixmp` entry naming a type-1 instrument is **IGNORED**.
 
-The source's rate at C4 **MUST** be the rate at which note `$5000` sounds middle C, 261.63 Hz — for a single-cycle loop, the loop's length times 261.63. The engine reads the voice's fundamental from it to make the vowel follow the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)), so a source tuned elsewhere has formants that follow the wrong pitch. A looped source rich in overtones — a sawtooth is the textbook one — is what the tract expects.
+The source's rate at C4 **MUST** be the rate at which note `$5000` sounds middle C, 261.63 Hz — for a single-cycle loop, the loop's length times 261.63. The engine reads the voice's fundamental from it to make the vowel follow the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)), so a source tuned elsewhere has formants that follow the wrong pitch. A looped source rich in overtones — a sawtooth is the textbook one — is what the tract expects. Its level and its spectrum do not matter: the engine calibrates the source by its RMS to a full-scale sawtooth's, and its filters keep the loudness of what passes through them, so no vowel and no pitch is heard louder or quieter than another. A looped source **SHOULD** play from its loop — play start = loop start: the loop is what sustains the vowel, and what comes before it, in a window of a recording, is whatever was said before.
 
 #### The tract block
 
@@ -845,12 +845,12 @@ Offsets are from byte 197.
 | Offset | Type | Field |
 |---|---|---|
 | +0 | `U24` | The source's **pointer** into the pool |
-| +3 | `U8` | Vowel **frontness**: 0 is the chart's back edge, 255 its front edge |
-| +4 | `U8` | Vowel **openness**: 0 is close, 255 open |
-| +5 | `U8` | Vowel **roundness**: 0 is spread lips, 255 rounded |
+| +3 | `U8` | Vowel: **frontness** of the tongue — 0 back, 255 front |
+| +4 | `U8` | Vowel: **openness** of the tongue (its height, inverted) — 0 close, 255 open |
+| +5 | `U8` | Vowel: **roundness** of the lips — 0 spread, 255 rounded |
 | +6 | `U8` | **Size tracking**: the formants rise with the note as its (byte ÷ 256)th power. 64 is ¼; 0 holds one size at every pitch |
-| +7 | `U16` | **Reference note**: the note word at which the chart's formants are sung unscaled. `$4000` (C3) is a man's speaking pitch |
-| +9 | `U8` | **Vowel glide**, in 2 ms units: how long `S $Afgr` takes to move the vowel |
+| +7 | `U16` | **Reference note**: the note word at which the vowels' formants (a man's) are sung unscaled. `$4000` (C3) is a man's speaking pitch |
+| +9 | `U8` | **Vowel glide**, in 2 ms units: how long `S $Afgr`, or an instrument change, takes to move the vowel |
 | +10 | `U8` | **Consonant timing**: every consonant time is multiplied by 2^((byte − 128) ÷ 64), so 128 is as written, 64 twice as quick and 192 twice as slow |
 | +11 | `U24` | **Pool range**, start |
 | +14 | `U24` | Pool range, end, exclusive |
@@ -873,30 +873,38 @@ Each consonant slot:
 
 The sample fields are the consonant's **recipe**: which span of the pool sounds its hiss, its burst or its breath, from where, how fast, and how coloured — chosen by an editor for the job, since nothing in a pool is made to be a consonant. The consonant itself (its tract, its timing, the shape of its frication) is the engine's, by id. Only plosives, affricates, fricatives and the aspirates `h ɦ ħ ʕ` read their noise; a slot naming any other consonant **SHOULD** carry a zero length, and a reader **MUST** ignore its sample fields.
 
-#### The vowel chart
+A slot whose consonant reads noise but which has **no sample** — fewer than two bytes from its offset to its end, or a rate of 0 — sounds the engine's own **noise generator**: white noise at the level the source is brought to, through the slot's tilt and gain ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)). Its pointer, length, offset and rate **SHOULD** then all be 0. White noise is what the consonants' frication was modelled on, so the generator is the natural default; a sample earns its place by what it has that white noise has not — a click for a stop, a recorded breath's own colour. A sample's gain **SHOULD** bring its noise to the generator's density in the band its consonant uses, so that a recipe changes the noise's colour and not its loudness.
 
-The vowel is a point on **Lindsey's acoustic vowel chart**: the first formant down, the second right to left, both on a log scale — the plane Praat's vowel editor draws, on which Geoff Lindsey proposed a sound-based vowel triangle to replace the IPA's quadrilateral. The chart's edges run through the cardinal vowels as Catford measures them for a man's speech (*A Practical Introduction to Phonetics*, 2nd ed., p. 154), so every pair of bytes names a vowel a singer can make.
+#### The vowel
 
-```
-F1      = 240 × (850 ÷ 240)^(openness ÷ 255)                    Hz
-F2      = back(F1) × (front(F1) ÷ back(F1))^(frontness ÷ 255)    Hz
-```
+A vowel is where the **tongue** is — how open and how front — and what the **lips** do: the three things the IPA describes a vowel by, and bytes +3…+5. What they sound like is read off the sixteen **cardinal vowels** as Catford measures them for a man's speech (*A Practical Introduction to Phonetics*, 2nd ed., p. 154), which give every tongue position twice, lips spread and lips rounded:
 
-`front` and `back` are piecewise linear in (log F1, log F2) between these anchors, and held at their end values beyond them:
+| Openness | Front, spread | Front, rounded | Back, spread | Back, rounded |
+|---|---|---|---|---|
+| 0 — close | [i] 240, 2400 | [y] 235, 2100 | [ɯ] 300, 1390 | [u] 250, 595 |
+| 85 — close-mid | [e] 390, 2300 | [ø] 370, 1900 | [ɤ] 460, 1310 | [o] 360, 640 |
+| 170 — open-mid | [ɛ] 610, 1900 | [œ] 585, 1710 | [ʌ] 600, 1170 | [ɔ] 500, 700 |
+| 255 — open | [a] 850, 1610 | [ɶ] 820, 1530 | [ɑ] 750, 940 | [ɒ] 700, 760 |
 
-| Edge | Anchors (F1, F2) in Hz |
-|---|---|
-| Front — i e ɛ a | (240, 2400) · (390, 2300) · (610, 1900) · (850, 1610) |
-| Back — u o ɔ ɒ, and the floor | (250, 595) · (360, 640) · (500, 700) · (700, 760) · (850, 800) |
-
-The chart has no third axis, so **roundness is the third formant** — the dimension Lindsey's chart leaves to it, and the one that tells [y] from [i]:
+(F1, F2 in Hz.) Front is frontness 255, back 0; spread is roundness 0, rounded 255. Between them F1 and F2 are interpolated in **log frequency**: linearly in openness between the two rows it lies between, and bilinearly in frontness × roundness across the four columns:
 
 ```
-F3 = F3u × (F3r ÷ F3u)^(roundness ÷ 255)    F3u = max(2500, F2 + 700)    F3r = max(2200, F2 + 250)
-F4 = max(3500, F3 + 400)                     F5  = max(4500, F4 + 500)
+x = frontness ÷ 255      r = roundness ÷ 255      h = openness ÷ 85,  row i = min(2, ⌊h⌋),  u = h − i
+log Fn(column c) = log Fn[i][c] + u × (log Fn[i+1][c] − log Fn[i][c])          n = 1, 2
+log Fn = x(1−r)·log Fn(front spread) + x·r·log Fn(front rounded)
+       + (1−x)(1−r)·log Fn(back spread) + (1−x)·r·log Fn(back rounded)
 ```
 
-Unrounded, F3 rides above a front vowel's F2 as American English's do (Hillenbrand et al. 1995); rounded, it closes in on F2, as in French [y] and Klatt's [u]. The engine then moves the whole vowel with the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
+So every cardinal vowel is exactly where Catford measured it, and rounding the lips lowers a vowel's formants by what his pairs say rounding does: a little for [i] → [y], a great deal for [ɯ] → [u]. The three higher formants follow:
+
+```
+F3 = F3u × (F3r ÷ F3u)^r      F3u = max(2500, F2 + 700)      F3r = max(2200, F2 + 250)
+F4 = max(3500, F3 + 400)      F5  = max(4500, F4 + 500)
+```
+
+Spread, F3 rides above a front vowel's F2 as American English's do (Hillenbrand et al. 1995); rounded, it closes in on F2, as in French [y] and Klatt's [u]. The engine then moves the whole vowel with the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
+
+An editor shows the vowel on **Lindsey's acoustic vowel chart** — the first formant down, the second right to left, both on a log scale, the plane Praat's vowel editor draws, on which Geoff Lindsey proposed a sound-based vowel chart to replace the IPA's quadrilateral — at the F1 and F2 these bytes sound. The tongue's square then maps to a region of that plane that moves with the lips.
 
 #### Consonant ids
 
@@ -916,7 +924,7 @@ What each sounds like — its tract, its timing, its frication — is [Engine Sp
 
 #### The pool range
 
-Bytes +11…+16 name the span of the pool the instrument is **made from**. Nothing about playback reads them. They are an editor's: the source and every slot's recipe are chosen among the samples lying wholly inside the range, and from whatever part of a pool region ([§9.9](#9-9-srgn-sample-pool-regions)) it covers — a long recording is used a window at a time, an instrument's span being at most 65535 bytes, and each window a record points at becomes a census span of its own. A producer **SHOULD** keep the source and every slot's sample within the range. A writer with no range writes 0 and 0.
+Bytes +11…+16 name the span of the pool the instrument is **made from**. Playback reads them in one place only: the Duplicate Check's *sample* type, which for formant instruments matches those made from the same range ([Engine Specification §5.6](TAUD_ENGINE_SPEC.md)). Otherwise they are an editor's: the source and every slot's recipe are chosen among the samples lying wholly inside the range, and from whatever part of a pool region ([§9.9](#9-9-srgn-sample-pool-regions)) it covers — a long recording is used a window at a time, an instrument's span being at most 65535 bytes, and each window a record points at becomes a census span of its own. A producer **SHOULD** keep the source and every slot's sample within the range. A writer with no range writes 0 and 0.
 
 #### Pool references
 
@@ -1330,7 +1338,7 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Every Metainstrument layer index resolves to an ordinary instrument in `$001`…`$3FF`, or, in a type-0 record, to a type-8 one.
 - Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.6](#7-6-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
 - Every type-8 record's kind is 0…6, its reserved bytes are zero, and no rack names it as an operator ([§7.7](#7-7-metainstrument-type-8-opl-instruments)).
-- Every type-1 record's reserved bytes are zero, its consonant ids are 0 or defined, every slot whose consonant reads noise lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.8](#7-8-metainstrument-type-1-formant-instruments)).
+- Every type-1 record's reserved bytes are zero, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.8](#7-8-metainstrument-type-1-formant-instruments)).
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
 
@@ -1359,4 +1367,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-06 | The volume envelope's `P` bit is read like every other envelope's: `P = 0` plays at unity whatever the nodes hold (it had been informational) |
 | 2026-10-11 | `PMtf` — Motif source: the Taud Motif Language program a project was built from, carried in the project |
 | 2026-10-14 | Metainstrument type 8 — OPL instruments: an ordinary record with a YM3812 / YMF262 channel in place of its sample, the patch in the second pitch/filter slot |
-| 2026-10-14 | Metainstrument type 1 — formant instruments: an ordinary record whose sample is a glottal source, a vocal tract (vowel, three consonant slots with their pool recipes, the pitch rules) in the second pitch/filter slot |
+| 2026-10-14 | Metainstrument type 1 — formant instruments: an ordinary record whose sample is a glottal source, a vocal tract (the vowel as tongue and lips, three consonant slots with their pool recipes or the engine's noise generator, the pitch rules) in the second pitch/filter slot |

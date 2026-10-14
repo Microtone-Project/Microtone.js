@@ -64,6 +64,9 @@
         const inst = () => doc.instruments[slot];
         log(`a new slot $${slot.toString(16)} is a type-1 formant instrument with a source: ` +
           ok(inst().isFormant && !inst().isMeta && inst().sampleLength > 0));
+        const fade = inst().volumeFadeoutLow | ((inst().fadeoutHigh & 0x0f) << 8);
+        log(`…no fadeout, Duplicate Check Sample → Note Cut: ` +
+          ok(fade === 0 && inst().duplicateCheckType === 2 && inst().duplicateCheckAction === 0));
         await waitFor(() => iv.panel.querySelector(".fmt-chart-svg"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +
@@ -102,15 +105,51 @@
           bubbles: true, pointerId: 7, button: 0, buttons: type === "pointerup" ? 0 : 1,
           clientX: r.left + r.width * fx, clientY: r.top + r.height * fy,
         }));
-        ptr("pointerdown", 0.15, 0.15);
+        // (The chart's left edge is F2 2.7 kHz: a tenth of the way in is past [i]'s 2.4 kHz.)
+        ptr("pointerdown", 0.3, 0.3);
         ptr("pointermove", 0.2, 0.2);
-        ptr("pointermove", 0.25, 0.2);
-        ptr("pointerup", 0.25, 0.2);
+        ptr("pointermove", 0.1, 0.12);
+        ptr("pointerup", 0.1, 0.12);
         await sleep(50);
         log(`(chart ${r.width.toFixed(0)}×${r.height.toFixed(0)}, vowel now front ${inst().formant.front} open ${inst().formant.open})`);
         log(`a drag to the top left makes a close front vowel: ` +
           ok(inst().formant.front > 180 && inst().formant.open < 80));
         log(`…in one undo step: ${ok(store.undo.undoStack.length === depth0 + 1)}`);
+
+        // ── roundness is the lips: rounding moves the ring and the region ──
+        {
+          await waitFor(() => iv.panel.querySelector(".fmt-handle"));
+          const handle = iv.panel.querySelector(".fmt-handle");
+          const region = iv.panel.querySelector(".fmt-region");
+          const at = () => [parseFloat(handle.getAttribute("cx")), parseFloat(handle.getAttribute("cy"))];
+          const [x0, y0] = at(), d0 = region.getAttribute("d");
+          const tongue0 = [inst().formant.front, inst().formant.open];
+          const faded0 = [...iv.panel.querySelectorAll(".fmt-mark.off .fmt-mark-ipa")].map((e) => e.textContent);
+          const roundRow = [...iv.panel.querySelectorAll(".slider-row")]
+            .find((row) => row.querySelector(".sl-label")?.textContent === "Roundness");
+          const range = roundRow.querySelector("input[type=range]");
+          const depth1 = store.undo.undoStack.length;
+          range.dispatchEvent(new win.PointerEvent("pointerdown", { bubbles: true }));
+          for (const v of [80, 160, 255]) {
+            range.value = String(v);
+            range.dispatchEvent(new win.Event("input", { bubbles: true }));
+          }
+          range.dispatchEvent(new win.Event("change", { bubbles: true }));
+          await waitFor(() => inst().formant.round === 255);
+          const [x1, y1] = at();
+          log(`spread lips fade the rounded marks (${faded0.slice(0, 4).join(" ")} …): ` +
+            ok(faded0.includes("y") && faded0.includes("u") && !faded0.includes("i")));
+          log(`rounding the lips moves the ring back (right, ${(x1 - x0).toFixed(0)} px) and the region with it: ` +
+            ok(x1 - x0 > 20 && region.getAttribute("d") !== d0));
+          const faded1 = [...iv.panel.querySelectorAll(".fmt-mark.off .fmt-mark-ipa")].map((e) => e.textContent);
+          log(`…and fades the spread marks instead: ${ok(faded1.includes("i") && !faded1.includes("y"))}`);
+          log(`…the tongue stays where it was: front ${inst().formant.front}, open ${inst().formant.open}: ` +
+            ok(inst().formant.front === tongue0[0] && inst().formant.open === tongue0[1]));
+          log(`…in one undo step: ${ok(store.undo.undoStack.length === depth1 + 1)}`);
+          log(`readout: ${iv.panel.querySelector(".fmt-readout").textContent}`);
+          store.undo.undo();
+          await waitFor(() => inst().formant.round === 0);
+        }
 
         // ── a consonant from the IPA chart, sounded by the best recipe ──
         const consBtn = (i) => iv.panel.querySelectorAll(".fmt-slot-cons")[i];
@@ -120,13 +159,24 @@
         log(`the consonant chart offers [s], rated ${sBtn?.className}: ${ok(!!sBtn)}`);
         const nCons = pick.querySelectorAll(".fmt-cons").length;
         log(`…and ${nCons} consonants in all: ${ok(nCons >= 70)}`);
+        log(`…every consonant can be made (none grey): ${ok(pick.querySelectorAll(".fmt-cons.none").length === 0)}`);
         sBtn.click();
         await waitFor(() => inst().formant.slots[0].cons !== 0);
+        const g0 = inst().formant.slots[0];
+        log(`onset [s] took the best recipe, the noise generator — no sample: ` +
+          ok(g0.cons === 54 && g0.len === 0 && g0.ptr === 0));
+        const recipeSel = await waitFor(() => iv.panel.querySelector(".fmt-recipe"));
+        const optTexts = [...recipeSel.querySelectorAll("option")].map((o) => o.textContent);
+        log(`…the list beside it starts "${optTexts[0]}" and offers samples after it: ` +
+          ok(/noise generator/.test(optTexts[0]) && recipeSel.value === "0" && optTexts.length >= 2));
+        // A sample recipe instead: the slot now points into the pool.
+        const smpOpt = [...recipeSel.querySelectorAll("option")].find((o) => o.value && !/noise generator/.test(o.textContent));
+        recipeSel.value = smpOpt.value;
+        recipeSel.dispatchEvent(new win.Event("change"));
+        await waitFor(() => inst().formant.slots[0].len > 0);
         const s0 = inst().formant.slots[0];
-        log(`onset [s] took a recipe: sample $${s0.ptr.toString(16)}+${s0.len} @${s0.offset} at ${s0.rate} Hz: ` +
+        log(`choosing "${smpOpt.textContent}" makes it sample $${s0.ptr.toString(16)}+${s0.len} @${s0.offset} at ${s0.rate} Hz: ` +
           ok(s0.cons === 54 && s0.len > 0 && s0.rate > 0));
-        await waitFor(() => iv.panel.querySelector(".fmt-recipe"));
-        log(`…with a recipe list beside it: ${ok(iv.panel.querySelectorAll(".fmt-recipe option").length >= 1)}`);
         consBtn(2).click();
         const pick2 = await waitFor(() => wdoc.querySelector("dialog.fmt-cons-modal"));
         [...pick2.querySelectorAll(".fmt-cons")].find((b) => b.textContent === "n").click();
@@ -178,21 +228,41 @@
           log(`region loaded: ${ok(!plan.error)}${plan.error ? " " + plan.error : ""}`);
           store.undo.apply(importBankOp(plan));
           iv.selected = slot; iv.tab = "formant"; iv.refresh();
-          await waitFor(() => iv.panel.querySelector(".fmt-range"));
-          const allBtn = [...iv.panel.querySelectorAll(".fmt-range button")].find((b) => b.textContent === "All samples");
-          allBtn.click();
-          await waitFor(() => inst().formant.rangeHi >= plan.region.ptr + plan.region.len);
-          log(`All samples now reaches the recording: ok`);
-          const srcSel = await waitFor(() => iv.panel.querySelector(".fmt-range")?.parentElement.querySelector("select"));
-          const srcOpts = [...srcSel.options].map((o) => o.textContent);
-          log(`source list offers windows of R00 (${srcOpts.filter((t) => /^R\d\d @/.test(t)).length}): ` +
-            ok(srcOpts.some((t) => /^R\d\d @.* Hz/.test(t))));
-          const tone = [...srcSel.options].find((o) => /^R\d\d @/.test(o.textContent));
-          srcSel.value = tone.value;
-          srcSel.dispatchEvent(new win.Event("change"));
-          await waitFor(() => inst().samplePtr >= plan.region.ptr && inst().samplePtr < plan.region.ptr + plan.region.len);
-          log(`a window of the recording became the source, looped: ` +
-            ok((inst().loopMode & 3) === 1 && inst().sampleLoopEnd > inst().sampleLoopStart && inst().sampleLength <= 65535));
+          // The range picker lists the recording; choosing it makes it the range,
+          // and the source is chosen from it, automatically, for the vowel.
+          const rangeSel = await waitFor(() => iv.panel.querySelector(".inst-rows select.sl-pick"));
+          const recOpt = [...rangeSel.querySelectorAll("optgroup option")].find((o) => o.value.startsWith("r"));
+          log(`the range picker lists the recording (${recOpt?.textContent}): ${ok(!!recOpt && /^R00 take 1/.test(recOpt.textContent))}`);
+          const depth0 = store.undo.undoStack.length;
+          rangeSel.value = recOpt.value;
+          rangeSel.dispatchEvent(new win.Event("change"));
+          await waitFor(() => inst().formant.rangeLo === plan.region.ptr && inst().formant.rangeHi === plan.region.ptr + plan.region.len);
+          log(`choosing it makes it the range: ok`);
+          log(`…and in the same undo step a window of it became the source, looped: ` +
+            ok(inst().samplePtr >= plan.region.ptr && inst().samplePtr < plan.region.ptr + plan.region.len &&
+               (inst().loopMode & 3) === 1 && inst().sampleLoopEnd > inst().sampleLoopStart &&
+               inst().sampleLength <= 65535 && store.undo.undoStack.length === depth0 + 1));
+          log(`…and a note plays from the loop, not from what precedes it (start ${inst().samplePlayStart}): ` +
+            ok(inst().samplePlayStart === inst().sampleLoopStart && inst().sampleLoopStart > 0));
+          const srcText = await waitFor(() => iv.panel.querySelector(".fmt-source-text")?.textContent);
+          log(`the source reads "${srcText}": ${ok(/^R00 @.* · loop \d+–\d+ · chosen for \[/.test(srcText))}`);
+          // Typed addresses work too, and choose again.
+          const [loIn, hiIn] = iv.panel.querySelectorAll(".fmt-range input");
+          loIn.value = "$" + (plan.region.ptr + 22050 * 2).toString(16);
+          loIn.dispatchEvent(new win.Event("change"));
+          await waitFor(() => inst().formant.rangeLo === plan.region.ptr + 22050 * 2);
+          log(`typing the start address narrows the range to the tone, and the source follows: ` +
+            ok(inst().samplePtr >= plan.region.ptr + 22050 * 2));
+          // A vowel edit chooses the source again, in the vowel edit's undo step.
+          const d1 = store.undo.undoStack.length;
+          const uMark = [...iv.panel.querySelectorAll(".fmt-mark")]
+            .find((g) => g.querySelector(".fmt-mark-ipa").textContent === "u");
+          uMark.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+          await waitFor(() => inst().formant.round === 255);
+          const lo2 = plan.region.ptr + 22050 * 2;
+          log(`clicking [u] re-chooses the source within the range, one undo step: ` +
+            ok(store.undo.undoStack.length === d1 + 1 && inst().samplePtr >= lo2 &&
+               /chosen for \[u\]/.test(iv.panel.querySelector(".fmt-source-text").textContent)));
           const recipeOpts = await waitFor(() => {
             const o = [...iv.panel.querySelectorAll(".fmt-recipe option")].map((e) => e.textContent);
             return o.length ? o : null;

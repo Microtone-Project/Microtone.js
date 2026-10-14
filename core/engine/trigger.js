@@ -15,7 +15,7 @@ import { META_MIX_GAIN, attenGainOf, EffectOp, clamp } from "./tables.js";
 import { envPresent, envCarry, applyKeyLift, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { computePlaybackRate, startCutRamp } from "./sampler.js";
 import { OplState, oplKeyOn, cloneOplState, OPL_C4_RATE } from "./opl.js";
-import { FormantState, formantNoteOn, cloneFormantState } from "./formant.js";
+import { FormantState, formantNoteOn, cloneFormantState, PHASE_CODA } from "./formant.js";
 import { random } from "./rng.js";
 import {
   applyPanSet, applyPanSlide, applyElevation, SURROUND_STEREO, SURROUND_SPATIAL,
@@ -775,6 +775,13 @@ function principalOf(eng, instId, note) {
 /**
  * IT-style Duplicate Check (DCT/DCA), run BEFORE NNA on every fresh foreground
  * trigger. Reference: schismtracker effects.c:1664-1764.
+ *
+ * Formant instruments (item 212) read it as one voice speaking: their
+ * "sample" is the POOL RANGE they are made from, so DCT Sample matches any
+ * formant instrument made from the same range — the syllables of a word, each
+ * its own instrument. What it ends is the VOWEL: a formant voice already
+ * speaking its coda, or already ramping out, is no duplicate, and a cut is a
+ * crossfade (as NNA Note Cut's is) rather than a step.
  */
 export function applyDuplicateCheck(eng, ts, channel, instId, note) {
   if (instId === 0) return;
@@ -786,20 +793,34 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
 
   const isDuplicate = (v) => {
     const existInst = eng.instruments[v.instrumentId];
+    if (v.formant !== null && (v.formant.phase >= PHASE_CODA || v.rampOutSamples > 0)) return false;
     switch (existInst.duplicateCheckType) {
       case 1: return v.noteVal === newNote && v.instrumentId === newInstId;
-      case 2: return v.instrumentId === newInstId &&
-                     v.activeSamplePtr === newSmpPtr &&
-                     v.activeSampleLength === newSmpLen;
+      case 2:
+        if (v.formant !== null && existInst.formant !== null && newInst.formant !== null) {
+          return existInst.formant.rangeLo === newInst.formant.rangeLo &&
+                 existInst.formant.rangeHi === newInst.formant.rangeHi;
+        }
+        return v.instrumentId === newInstId &&
+               v.activeSamplePtr === newSmpPtr &&
+               v.activeSampleLength === newSmpLen;
       case 3: return v.instrumentId === newInstId;
       default: return false;
     }
   };
 
-  const applyAction = (v) => {
+  const applyAction = (v, isFg) => {
     const existInst = eng.instruments[v.instrumentId];
     switch (existInst.duplicateCheckAction) {
-      case 0: v.fadeoutVolume = 0.0; v.active = false; break;
+      case 0:
+        if (v.formant !== null) {
+          // Ramped out over the incoming note's attack: the foreground voice
+          // through a ghost, since the note is about to reuse it.
+          startCutRamp(isFg ? ghostRig(ts, v, channel) : v);
+          if (isFg) { v.active = false; capBackgroundVoices(ts); }
+          break;
+        }
+        v.fadeoutVolume = 0.0; v.active = false; break;
       case 1: v.keyOff = true; applyKeyLift(v, existInst); break;
       case 2: v.noteFading = true; break;
     }
@@ -807,7 +828,7 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
 
   const fg = ts.voices[channel];
   if (fg.active && eng.instruments[fg.instrumentId].duplicateCheckType !== 0 && isDuplicate(fg)) {
-    applyAction(fg);
+    applyAction(fg, true);
   }
 
   for (let i = ts.backgroundVoices.length - 1; i >= 0; i--) {
@@ -820,7 +841,7 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
     if (bg.fmOperator) continue;
     if (eng.instruments[bg.instrumentId].duplicateCheckType === 0) continue;
     if (!isDuplicate(bg)) continue;
-    applyAction(bg);
+    applyAction(bg, false);
     if (!bg.active) ts.backgroundVoices.splice(i, 1);
   }
 }

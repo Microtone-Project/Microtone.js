@@ -564,7 +564,7 @@ export function buildOplRecord(block, {
  */
 export function buildFormantRecord(block, src, {
   detune = 0, nna = 0, fadeout = 0, pan = 0x80, percussion = false,
-  globalVolume = 0xff, noteVolume = 0xff,
+  globalVolume = 0xff, noteVolume = 0xff, dct = 0, dca = 0,
 } = {}) {
   const r = new Uint8Array(256);
   for (let i = 0; i < 4; i++) r[i] = FORMANT_RECORD_HEADER[i];
@@ -587,6 +587,7 @@ export function buildFormantRecord(block, src, {
   const d = detune & 0xffff;
   r[184] = d & 0xff; r[185] = (d >>> 8) & 0xff;
   r[186] = (nna & 3) | (((nna >>> 2) & 1) << 5);
+  r[195] = (dct & 3) | ((dca & 3) << 2);
   r[196] = noteVolume & 0xff;
   r.set(block.subarray(0, FORMANT_BLOCK_LEN), FORMANT_BLOCK_START);
   const p = src.ptr ?? 0;

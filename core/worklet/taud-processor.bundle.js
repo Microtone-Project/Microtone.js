@@ -6014,7 +6014,7 @@ function buildOplRecord(block, {
  */
 function buildFormantRecord(block, src, {
   detune = 0, nna = 0, fadeout = 0, pan = 0x80, percussion = false,
-  globalVolume = 0xff, noteVolume = 0xff,
+  globalVolume = 0xff, noteVolume = 0xff, dct = 0, dca = 0,
 } = {}) {
   const r = new Uint8Array(256);
   for (let i = 0; i < 4; i++) r[i] = FORMANT_RECORD_HEADER[i];
@@ -6037,6 +6037,7 @@ function buildFormantRecord(block, src, {
   const d = detune & 0xffff;
   r[184] = d & 0xff; r[185] = (d >>> 8) & 0xff;
   r[186] = (nna & 3) | (((nna >>> 2) & 1) << 5);
+  r[195] = (dct & 3) | ((dca & 3) << 2);
   r[196] = noteVolume & 0xff;
   r.set(block.subarray(0, FORMANT_BLOCK_LEN), FORMANT_BLOCK_START);
   const p = src.ptr ?? 0;
@@ -8845,9 +8846,9 @@ const FORMANT_BLOCK_LEN = 54;
 
 /** Offsets inside the block. */
 const FB_SOURCE = 0;     // U24 pool pointer of the glottal source
-const FB_FRONT = 3;      // U8 vowel: frontness (F2 across its row)
-const FB_OPEN = 4;       // U8 vowel: openness (F1)
-const FB_ROUND = 5;      // U8 vowel: roundness (F3)
+const FB_FRONT = 3;      // U8 vowel: frontness of the tongue
+const FB_OPEN = 4;       // U8 vowel: openness (height) of the tongue
+const FB_ROUND = 5;      // U8 vowel: rounding of the lips
 const FB_TRACK = 6;      // U8 size tracking: exponent = byte ÷ 256
 const FB_REF = 7;        // U16 reference note: where the chart's (adult male) formants hold
 const FB_GLIDE = 9;      // U8 vowel glide for S $Afgr, in 2 ms units
@@ -8855,16 +8856,16 @@ const FB_TIMING = 10;    // U8 consonant timing: scale = 2^((byte − 128) ÷ 64
 const FB_RANGE_LO = 11;  // U24 the pool range the instrument is made from (editor's)
 const FB_RANGE_HI = 14;  // U24 …its exclusive end
 const FB_SLOTS = 17;     // three consonant slots, 12 bytes each
-const FB_RESERVED = 53;
 const FORMANT_SLOTS = 3; // onset C1, onset C2, coda C
 const FORMANT_SLOT_BYTES = 12;
 
-/** One consonant slot: which consonant, and the recipe it is sounded with. */
+/** One consonant slot: which consonant, and the recipe it is sounded with. A
+ *  slot with no sample (length 0) sounds the engine's own noise generator. */
 class FormantSlot {
   constructor() {
     this.cons = 0;    // consonant id (CONSONANTS), 0 = none
     this.ptr = 0;     // noise sample: pool pointer…
-    this.len = 0;     // …and length in bytes (the whole census sample)
+    this.len = 0;     // …and length in bytes (the whole census sample); 0 = the generator
     this.offset = 0;  // where in it the noise starts
     this.rate = 0;    // the rate it is read at, Hz — the recipe's speed
     this.tilt = 0;    // S8 spectral tilt: + brightens, − darkens
@@ -8877,7 +8878,7 @@ class FormantSlot {
 class FormantPatch {
   constructor() {
     this.srcPtr = 0;
-    this.front = 177;
+    this.front = 200;
     this.open = 255;
     this.round = 0;
     this.track = 64;
@@ -8920,7 +8921,7 @@ function decodeFormantBlock(raw, off, patch = new FormantPatch()) {
   return patch;
 }
 
-/** Write `patch` as a 54-byte block into `out[off…]`; the reserved byte is 0. */
+/** Write `patch` as a 54-byte block into `out[off…]`. */
 function encodeFormantBlock(patch, out = new Uint8Array(FORMANT_BLOCK_LEN), off = 0) {
   const p24 = (o, v) => { out[o] = v & 0xff; out[o + 1] = (v >>> 8) & 0xff; out[o + 2] = (v >>> 16) & 0xff; };
   const p16 = (o, v) => { out[o] = v & 0xff; out[o + 1] = (v >>> 8) & 0xff; };
@@ -8945,76 +8946,114 @@ function encodeFormantBlock(patch, out = new Uint8Array(FORMANT_BLOCK_LEN), off 
     out[o + 10] = s.tilt & 0xff;
     out[o + 11] = s.gain & 0xff;
   }
-  out[off + FB_RESERVED] = 0;
   return out;
 }
 
-// ── The vowel chart ─────────────────────────────────────────────────────────
+// ── The vowel ───────────────────────────────────────────────────────────────
 //
-// Openness is F1 from 240 to 850 Hz on a log scale — Catford's [i] to his [a].
-// Each row runs from the BACK edge to the FRONT edge in log F2, both edges
-// piecewise linear in (log F1, log F2) through the cardinal vowels as Catford
-// gives them for a man's speech (A Practical Introduction to Phonetics, 2nd ed.,
-// p. 154): front i e ɛ a, back u o ɔ ɒ, the back edge carried on to the
-// chart's floor along its ɔ–ɒ slope. So every byte pair is a vowel some singer
-// can make, and the space is the rounded V Lindsey draws, not a rectangle.
+// A vowel is where the TONGUE is — how open (height) and how front — and what
+// the LIPS do — how rounded — the three things the IPA chart describes a vowel
+// by. The sound is read off Catford's measurements of the sixteen cardinal
+// vowels for a man's speech (A Practical Introduction to Phonetics, 2nd ed.,
+// p. 154), which give each tongue position twice, spread and rounded:
+//
+//   height        front spread  front round   back spread   back round
+//   close         i  240 2400   y  235 2100   ɯ  300 1390   u  250  595
+//   close-mid     e  390 2300   ø  370 1900   ɤ  460 1310   o  360  640
+//   open-mid      ɛ  610 1900   œ  585 1710   ʌ  600 1170   ɔ  500  700
+//   open          a  850 1610   ɶ  820 1530   ɑ  750  940   ɒ  700  760
+//
+// The four heights sit at openness 0, 85, 170 and 255. F1 and F2 are
+// interpolated in log frequency: linearly through the heights, and bilinearly
+// across frontness and roundness between the four columns — so every cardinal
+// vowel is exactly where Catford measured it, and rounding a vowel moves all
+// of its formants down by what his pairs say rounding does: a little for [i]
+// → [y] (F2 −12%), a great deal for [ɯ] → [u] (F2 −57%). The sound is shown on
+// Lindsey's acoustic chart (log F1 down, log F2 right to left), where the
+// lips visibly move it.
 
-const VOWEL_F1_MIN = 240;
-const VOWEL_F1_MAX = 850;
-/** [F1, F2] anchors of the front edge (i e ɛ a) and the back edge (u o ɔ ɒ, floor). */
-const VOWEL_FRONT_EDGE = Object.freeze([[240, 2400], [390, 2300], [610, 1900], [850, 1610]]);
-const VOWEL_BACK_EDGE = Object.freeze([[250, 595], [360, 640], [500, 700], [700, 760], [850, 800]]);
+/** Catford's cardinal vowels: [height][spread front, round front, spread back,
+ *  round back] as [F1, F2] Hz. */
+const CARDINAL_VOWELS = Object.freeze([
+  [[240, 2400], [235, 2100], [300, 1390], [250, 595]],
+  [[390, 2300], [370, 1900], [460, 1310], [360, 640]],
+  [[610, 1900], [585, 1710], [600, 1170], [500, 700]],
+  [[850, 1610], [820, 1530], [750, 940], [700, 760]],
+]);
+const LOG_CARD = CARDINAL_VOWELS.map((row) => row.map(([f1, f2]) => [Math.log(f1), Math.log(f2)]));
 
-function edgeF2(edge, f1) {
-  if (f1 <= edge[0][0]) return edge[0][1];
-  for (let i = 1; i < edge.length; i++) {
-    if (f1 <= edge[i][0]) {
-      const [a1, a2] = edge[i - 1];
-      const [b1, b2] = edge[i];
-      const u = Math.log(f1 / a1) / Math.log(b1 / a1);
-      return a2 * (b2 / a2) ** u;
-    }
+/** F1 and F2 (Hz) of the tongue at (front, open) with the lips at `round`,
+ *  all three bytes 0…255 (fractions allowed), into out[0], out[1]. */
+function vowelF1F2(front, open, round, out = new Float64Array(2)) {
+  const x = Math.min(Math.max(front / 255, 0), 1);
+  const r = Math.min(Math.max(round / 255, 0), 1);
+  const h = Math.min(Math.max(open / 255, 0), 1) * 3;
+  const i = Math.min(2, Math.floor(h));
+  const u = h - i;
+  // Corner weights: front spread, front round, back spread, back round.
+  const w0 = x * (1 - r), w1 = x * r, w2 = (1 - x) * (1 - r), w3 = (1 - x) * r;
+  for (let n = 0; n < 2; n++) {
+    const lo = LOG_CARD[i], hi = LOG_CARD[i + 1];
+    const at = (c) => lo[c][n] + (hi[c][n] - lo[c][n]) * u;
+    out[n] = Math.exp(w0 * at(0) + w1 * at(1) + w2 * at(2) + w3 * at(3));
   }
-  return edge[edge.length - 1][1];
+  return out;
 }
 
-/** F1 of an openness byte (0 = close, 255 = open). */
-function vowelF1(open) {
-  return VOWEL_F1_MIN * (VOWEL_F1_MAX / VOWEL_F1_MIN) ** (open / 255);
-}
-
-/** F2 of a frontness byte at that F1 (0 = the back edge, 255 = the front edge). */
-function vowelF2(front, f1) {
-  const bk = edgeF2(VOWEL_BACK_EDGE, f1);
-  const fr = edgeF2(VOWEL_FRONT_EDGE, f1);
-  return bk * (fr / bk) ** (front / 255);
-}
-
-/** The inverse pair, for editors: chart bytes (unrounded to integers) for an F1/F2. */
-function vowelCoordsOf(f1, f2) {
-  const f1c = Math.min(Math.max(f1, VOWEL_F1_MIN), VOWEL_F1_MAX);
-  const open = 255 * Math.log(f1c / VOWEL_F1_MIN) / Math.log(VOWEL_F1_MAX / VOWEL_F1_MIN);
-  const bk = edgeF2(VOWEL_BACK_EDGE, f1c);
-  const fr = edgeF2(VOWEL_FRONT_EDGE, f1c);
-  const f2c = Math.min(Math.max(f2, bk), fr);
-  const front = 255 * Math.log(f2c / bk) / Math.log(fr / bk);
-  return [front, open];
+const f1f2 = new Float64Array(2);
+/** F1 alone, for the jaw rule below. */
+function vowelF1At(front, open, round) {
+  return vowelF1F2(front, open, round, f1f2)[0];
 }
 
 /**
- * The vowel's five formants at the reference pitch, into F (Hz). F3 is where
- * roundness lives: unrounded it sits at max(2500, F2 + 700) — the American
- * English front vowels' F3 (Hillenbrand et al. 1995) — and rounded it closes
- * in on F2, max(2200, F2 + 250), as French [y] and Klatt's [u] have it; the
- * two are interpolated in log frequency. F4 and F5 are Praat's VowelEditor
- * defaults, held clear above F3.
+ * The inverse, for editors: the (front, open) — fractional bytes — that sound
+ * nearest to F1/F2 with the lips at `round`, as [front, open]. A point the
+ * lips cannot reach lands on the nearest one they can.
+ */
+function vowelCoordsOf(f1, f2, round = 0) {
+  const t1 = Math.log(f1), t2 = Math.log(f2);
+  const err = (x, h) => {
+    vowelF1F2(x, h, round, f1f2);
+    const d1 = Math.log(f1f2[0]) - t1, d2 = Math.log(f1f2[1]) - t2;
+    return d1 * d1 + d2 * d2;
+  };
+  let bx = 0, bh = 0, be = Infinity;
+  for (let x = 0; x <= 255; x += 15) {
+    for (let h = 0; h <= 255; h += 15) {
+      const e = err(x, h);
+      if (e < be) { be = e; bx = x; bh = h; }
+    }
+  }
+  // Refine: a shrinking pattern search inside the square.
+  for (let step = 8; step >= 1 / 16; step /= 2) {
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const [dx, dh] of [[step, 0], [-step, 0], [0, step], [0, -step]]) {
+        const x = Math.min(255, Math.max(0, bx + dx)), h = Math.min(255, Math.max(0, bh + dh));
+        const e = err(x, h);
+        if (e < be - 1e-15) { be = e; bx = x; bh = h; moved = true; }
+      }
+    }
+  }
+  return [bx, bh];
+}
+
+/**
+ * The vowel's five formants at the reference pitch, into F (Hz). F1 and F2
+ * from the cardinal vowels above. F3 rides above F2 — max(2500, F2 + 700)
+ * spread, as the American English front vowels have it (Hillenbrand et al.
+ * 1995), closing in on F2 rounded, max(2200, F2 + 250), as French [y] and
+ * Klatt's [u] have it — interpolated in log frequency by roundness. F4 and F5
+ * are Praat's VowelEditor defaults, held clear above F3.
  */
 function vowelFormants(front, open, round, F) {
-  const f1 = vowelF1(open);
-  const f2 = vowelF2(front, f1);
+  vowelF1F2(front, open, round, f1f2);
+  const f1 = f1f2[0], f2 = f1f2[1];
   const f3u = Math.max(2500, f2 + 700);
   const f3r = Math.max(2200, f2 + 250);
-  const f3 = f3u * (f3r / f3u) ** (round / 255);
+  const f3 = f3u * (f3r / f3u) ** (Math.min(Math.max(round, 0), 255) / 255);
   const f4 = Math.max(3500, f3 + 400);
   const f5 = Math.max(4500, f4 + 500);
   F[0] = f1; F[1] = f2; F[2] = f3; F[3] = f4; F[4] = f5;
@@ -9027,8 +9066,8 @@ function noteHz(note) {
 }
 
 /**
- * The vowel at a pitch: the chart point (front, open, round) sung at f0 (Hz),
- * into F (formants) and B (bandwidths), Hz. Returns the size scale.
+ * The vowel at a pitch: the vowel (front, open, round) sung at f0 (Hz), into
+ * F (formants) and B (bandwidths), Hz. Returns the size scale.
  *
  *  1. SIZE. Every formant scales by (f0 ÷ ref)^k, k = track ÷ 256. Between
  *     speakers formants rise as about the 0.30 power of f0 (Hillenbrand et al.
@@ -9037,12 +9076,13 @@ function noteHz(note) {
  *     Reports 2022: about 0.22–0.27). The record's default, 64, is ¼.
  *  2. R1:f0 TUNING. Once f0 passes F1, the singer tunes F1 to it (Joliveau,
  *     Smith & Wolfe 2004; Henrich, Smith & Wolfe 2011: sopranos, and altos in
- *     their upper range). The gesture is the jaw, so the point moves straight
- *     DOWN the chart — frontness kept — until its F1 is f0: F2 follows the
- *     row it lands on, rising for a back vowel (the incidental R2 rise those
- *     papers report) and falling for a front one, which is the [i]→[ɛ]
- *     modification a soprano's high [i] is heard to make. Past the chart's
- *     floor F1 alone goes on following f0.
+ *     their upper range). The gesture is the jaw, so the vowel OPENS —
+ *     frontness and lips kept — until its F1 is f0: the openness is found by
+ *     bisection (24 halvings over [open, 255], F1 rising with openness). F2
+ *     follows: it rises for a back vowel (the incidental R2 rise those papers
+ *     report) and falls for a front one, which is the [i]→[ɛ] modification a
+ *     soprano's high [i] is heard to make. Fully open, F1 alone goes on
+ *     following f0.
  *  3. ORDER. Each formant is held at least 15% above the one below it, and
  *     none above 45% of the output rate.
  *
@@ -9052,14 +9092,23 @@ function noteHz(note) {
 function vowelAtPitch(front, open, round, f0, refHz, track, F, B) {
   const s = f0 > 0 && refHz > 0 ? (f0 / refHz) ** (track / 256) : 1.0;
   let o = open;
-  if (f0 > vowelF1(open) * s) {
+  const tuned = f0 > vowelF1At(front, open, round) * s;
+  if (tuned) {
     const want = f0 / s;
-    o = want >= VOWEL_F1_MAX ? 255
-      : (255 * Math.log(want / VOWEL_F1_MIN)) / Math.log(VOWEL_F1_MAX / VOWEL_F1_MIN);
+    if (vowelF1At(front, 255, round) <= want) {
+      o = 255;
+    } else {
+      let a = open, b = 255;
+      for (let i = 0; i < 24; i++) {
+        const m = (a + b) / 2;
+        if (vowelF1At(front, m, round) < want) a = m; else b = m;
+      }
+      o = (a + b) / 2;
+    }
   }
   vowelFormants(front, o, round, F);
   for (let n = 0; n < 5; n++) F[n] *= s;
-  if (f0 > F[0]) F[0] = f0;
+  if (tuned) F[0] = f0;   // exactly, whatever the bisection's last bit (and fully open, past it)
   const ceil = 0.45 * SAMPLING_RATE;
   for (let n = 1; n < 5; n++) if (F[n] < F[n - 1] * 1.15) F[n] = F[n - 1] * 1.15;
   for (let n = 0; n < 5; n++) {
@@ -9531,8 +9580,93 @@ const NORM_HARMONICS = 64;
  *  and more) to +24 dB. */
 const NORM_MIN = 1 / 256;
 const NORM_MAX = 16;
+/** The level a formant instrument sings at: a full-scale sawtooth's RMS, 1 ÷ √3 —
+ *  and so a full-scale white noise's too. The source is brought to it. */
+const FORMANT_LEVEL = 0.5773502691896258;
+/** The source gain's clamp, ±24 dB. */
+const SOURCE_GAIN_MAX = 16;
+/** Where the noise generator starts, at every consonant. */
+const NOISE_SEED = 0x9e3779b9;
+/** How much of the source the source gain is measured over, at most (bytes). */
+const SOURCE_MEASURE_MAX = 16384;
+/** …and its harmonics, at most (bytes). */
+const SOURCE_DFT_MAX = 4096;
 /** Klatt's fixed nasal pole, its bandwidth, and the parallel bank's upper formants. */
 const FNP = 270, BNP = 100, BNZ = 100;
+
+// ── Equal loudness ──────────────────────────────────────────────────────────
+//
+// The level is settled in two parts. The SOURCE is calibrated by its plain
+// RMS (sourceGain). The TRACT's strength is judged by ear: the vowel
+// normaliser keeps the source's loudness, not its RMS — every harmonic's
+// power weighted by the inverse of an equal-loudness contour — so an [i],
+// whose power lies under 300 Hz where hearing is dull, is not heard quieter
+// than an [a] whose power lies near 1 kHz.
+//
+// The contour is ISO 226:2003's, at LOUDNESS_PHON, from the standard's
+// parameters at its 29 frequencies (as the IoSR Matlab Toolbox's iso226.m
+// tabulates them):
+//
+//   Af = 4.47e−3 × (10^(0.025 Ln) − 1.15) + (0.4 × 10^((Tf + Lu) ÷ 10 − 9))^αf
+//   Lp = (10 ÷ αf) × log10(Af) − Lu + 94          the SPL heard as Ln phon
+//
+// The weighting is −Lp in dB, linear in dB over log2 f between the 29
+// frequencies and held at the end values outside 20 Hz…12.5 kHz.
+
+const ISO226_F = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
+  1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500];
+const ISO226_AF = [0.532, 0.506, 0.480, 0.455, 0.432, 0.409, 0.387, 0.367, 0.349, 0.330, 0.315,
+  0.301, 0.288, 0.276, 0.267, 0.259, 0.253, 0.250, 0.246, 0.244, 0.243, 0.243, 0.243, 0.242, 0.242,
+  0.245, 0.254, 0.271, 0.301];
+const ISO226_LU = [-31.6, -27.2, -23.0, -19.1, -15.9, -13.0, -10.3, -8.1, -6.2, -4.5, -3.1, -2.0,
+  -1.1, -0.4, 0.0, 0.3, 0.5, 0.0, -2.7, -4.1, -1.0, 1.7, 2.5, 1.2, -2.1, -7.1, -11.2, -10.7, -3.1];
+const ISO226_TF = [78.5, 68.7, 59.5, 51.1, 44.0, 37.5, 31.5, 26.5, 22.1, 17.9, 14.4, 11.4, 8.6,
+  6.2, 4.4, 3.0, 2.2, 2.4, 3.5, 1.7, -1.3, -4.2, -6.0, -5.4, -1.5, 6.0, 12.6, 13.9, 12.3];
+/** The loudness level the tract is judged at: a moderate listening level. */
+const LOUDNESS_PHON = 60;
+const ELW_LOGF = ISO226_F.map((f) => Math.log2(f));
+const ELW_DB = ISO226_F.map((_, i) => {
+  const af = ISO226_AF[i], lu = ISO226_LU[i], tf = ISO226_TF[i];
+  const A = 4.47e-3 * (10 ** (0.025 * LOUDNESS_PHON) - 1.15) + (0.4 * 10 ** ((tf + lu) / 10 - 9)) ** af;
+  return -((10 / af) * Math.log10(A) - lu + 94);
+});
+const ELW_LAST = ISO226_F.length - 1;
+
+/** The equal-loudness weighting in dB at f Hz (0 at no particular frequency:
+ *  only its shape matters), searching up from table index j; returns the dB
+ *  and leaves the index found in elwAt.j, so rising frequencies walk it. */
+const elwAt = { j: 0 };
+function elwDb(f, j) {
+  const lf = Math.log2(f);
+  if (!(lf > ELW_LOGF[0])) { elwAt.j = 0; return ELW_DB[0]; }
+  if (lf >= ELW_LOGF[ELW_LAST]) { elwAt.j = ELW_LAST; return ELW_DB[ELW_LAST]; }
+  while (lf > ELW_LOGF[j + 1]) j++;
+  elwAt.j = j;
+  const u = (lf - ELW_LOGF[j]) / (ELW_LOGF[j + 1] - ELW_LOGF[j]);
+  return ELW_DB[j] + u * (ELW_DB[j + 1] - ELW_DB[j]);
+}
+
+/** The equal-loudness power weight at f Hz (for editors and tests). */
+function equalLoudness(f) {
+  return 10 ** (elwDb(f, 0) / 10);
+}
+
+/** The grid the parallel bank's loudness is summed over: sixth-octave steps
+ *  from 50 Hz to 45% of the rate, each point weighted by the equal-loudness
+ *  weight times the band it stands for (white noise has equal power per Hz). */
+const BANK_GRID = (() => {
+  const f = [];
+  for (let i = 0; 50 * 2 ** (i / 6) <= 0.45 * SAMPLING_RATE; i++) f.push(50 * 2 ** (i / 6));
+  const band = 2 ** (1 / 12) - 2 ** (-1 / 12);
+  const w = f.map((x) => 10 ** (elwDb(x, 0) / 10) * x * band);
+  const om = f.map((x) => (2 * Math.PI * x) / SAMPLING_RATE);
+  return {
+    n: f.length, w,
+    c1: om.map(Math.cos), s1: om.map(Math.sin),
+    c2: om.map((o) => Math.cos(2 * o)), s2: om.map((o) => Math.sin(2 * o)),
+    ref: w.reduce((a, b) => a + b, 0),
+  };
+})();
 const PAR_F = [3300, 3750, 4900], PAR_B = [250, 200, 1000];
 
 /** One consonant as it sounds: its row, its slot's recipe, its tracks. */
@@ -9561,6 +9695,11 @@ class FormantState {
     this.ctl = 0;             // samples until the next one
     this.normCount = 0;
     // The vowel, current and gliding (chart bytes, fractional while gliding).
+    // Until the note is given a vowel of its own (S $Afgr, an instrument
+    // change), it sings the RECORD's, read afresh every update — so an edit
+    // is heard on a note already sounding.
+    this.ownVowel = false;
+    this.rejoin = false;      // a re-latch glide: follow the record again after it
     this.vFront = 0.0; this.vOpen = 0.0; this.vRound = 0.0;
     this.gFront = 0.0; this.gOpen = 0.0; this.gRound = 0.0; // per-ms glide steps
     this.tFront = 0.0; this.tOpen = 0.0; this.tRound = 0.0; // …and where it ends
@@ -9571,6 +9710,11 @@ class FormantState {
     this.af = 0.0; this.afStep = 0.0;
     this.nv = 1.0; this.nvStep = 0.0; this.nvGoal = 1.0;
     this.nb = 0.0;                         // parallel bank normaliser
+    this.sg = 1.0;                         // source gain: the source to FORMANT_LEVEL
+    this.sm = 0.0;                         // …and its mean, taken out first
+    this.sgDue = true;                     // …measured at the next sample, with:
+    this.hw = new Float64Array(NORM_HARMONICS + 1);  // the source's harmonic powers, [1…hwK]
+    this.hwK = 0;
     // Coefficients: cascade NP, NZ (as a resonator's A B C), R5…R1; bank R2…R6.
     this.casc = new Float64Array(21);
     this.bank = new Float64Array(15);
@@ -9582,6 +9726,8 @@ class FormantState {
     this.nOn = false;
     this.nBase = 0; this.nSpan = 0; this.nPos = 0.0; this.nStep = 0.0;
     this.nTilt = 0; this.nTiltC = 0.0; this.nGain = 1.0; this.nZ = 0.0;
+    this.nGen = false;                     // the generator rather than a sample
+    this.nSeed = NOISE_SEED;
     // Scratch.
     this.V = new Float64Array(5); this.VB = new Float64Array(5);
     this.F = new Float64Array(5); this.B = new Float64Array(5);
@@ -9599,6 +9745,7 @@ function cloneFormantState(src, dst = new FormantState()) {
   dst.codaVeto = src.codaVeto;
   dst.fresh = src.fresh;
   dst.upd = src.upd; dst.ctl = src.ctl; dst.normCount = src.normCount;
+  dst.ownVowel = src.ownVowel; dst.rejoin = src.rejoin;
   dst.vFront = src.vFront; dst.vOpen = src.vOpen; dst.vRound = src.vRound;
   dst.gFront = src.gFront; dst.gOpen = src.gOpen; dst.gRound = src.gRound;
   dst.tFront = src.tFront; dst.tOpen = src.tOpen; dst.tRound = src.tRound;
@@ -9608,11 +9755,14 @@ function cloneFormantState(src, dst = new FormantState()) {
   dst.af = src.af; dst.afStep = src.afStep;
   dst.nv = src.nv; dst.nvStep = src.nvStep; dst.nvGoal = src.nvGoal;
   dst.nb = src.nb;
+  dst.sg = src.sg; dst.sm = src.sm; dst.sgDue = src.sgDue;
+  dst.hw.set(src.hw); dst.hwK = src.hwK;
   dst.casc.set(src.casc); dst.bank.set(src.bank); dst.bankGain.set(src.bankGain);
   dst.cy.set(src.cy); dst.by.set(src.by);
   dst.nOn = src.nOn; dst.nBase = src.nBase; dst.nSpan = src.nSpan; dst.nPos = src.nPos;
   dst.nStep = src.nStep; dst.nTilt = src.nTilt; dst.nTiltC = src.nTiltC; dst.nGain = src.nGain;
   dst.nZ = src.nZ;
+  dst.nGen = src.nGen; dst.nSeed = src.nSeed;
   return dst;
 }
 
@@ -9652,8 +9802,10 @@ function formantNoteOn(st, patch) {
   st.upd = Math.max(1, Math.round(SAMPLING_RATE / 1000));
   st.ctl = 0;
   st.normCount = 0;
+  st.ownVowel = false; st.rejoin = false;
   st.vFront = patch.front; st.vOpen = patch.open; st.vRound = patch.round;
   st.glideLeft = 0.0;
+  st.sgDue = true;
   st.av = 0.0; st.avStep = 0.0; st.ah = 0.0; st.ahStep = 0.0; st.af = 0.0; st.afStep = 0.0;
   st.nv = 1.0; st.nvStep = 0.0; st.nvGoal = 1.0;
   st.cy.fill(0); st.by.fill(0);
@@ -9668,21 +9820,28 @@ function formantNoteOn(st, patch) {
  */
 function formantRestart(st) {
   if (st.patch === null) return;
-  const f = st.vFront, o = st.vOpen, r = st.vRound;
+  const f = st.vFront, o = st.vOpen, r = st.vRound, own = st.ownVowel;
+  const sg = st.sg, sm = st.sm, due = st.sgDue;
   formantNoteOn(st, st.patch);
-  st.vFront = f; st.vOpen = o; st.vRound = r;
+  st.vFront = f; st.vOpen = o; st.vRound = r; st.ownVowel = own;
+  st.sg = sg; st.sm = sm; st.sgDue = due;   // the same sample: the same measurements
 }
 
 /**
  * An instrument byte without a retrigger (§5.2): the sounding syllable takes
  * the new record's tract. Its vowel glides to the new default over the new
- * glide time, the pitch rules become the new record's, and a coda that has
+ * glide time and then follows that record's vowel as any note of it does,
+ * the pitch rules become the new record's, and a coda that has
  * not begun becomes the new record's coda; consonants already under way
  * finish as they started. Nothing restarts — the note is still sounding.
  */
 function formantRelatch(st, patch) {
   st.patch = patch;
+  st.sgDue = true;
   formantGlideTo(st, patch.open, patch.front, patch.round);
+  // Once there, the note sings the new record's vowel as it is edited.
+  if (st.glideLeft > 0) { st.ownVowel = true; st.rejoin = true; }
+  else { st.ownVowel = false; st.rejoin = false; }
   if (st.phase === PHASE_ONSET || st.phase === PHASE_VOWEL) {
     const cr = CONSONANTS[patch.slots[2].cons];
     st.coda = cr !== undefined
@@ -9721,9 +9880,17 @@ function formantGlideTo(st, open, front, round) {
  * the record's glide time.
  */
 function formantSetVowel(st, f, g, r) {
+  st.ownVowel = true;
+  st.rejoin = false;
   formantGlideTo(st, (f & 15) * 17, (g & 15) * 17, (r & 15) * 17);
 }
 
+/**
+ * A consonant starts its noise: the slot's sample, or — a slot with no
+ * sample to read (fewer than two bytes from its offset, or rate 0) — the
+ * engine's generator, restarted from the same seed every time, so a
+ * syllable's noise is the same every time it is said.
+ */
 function startNoise(st, seg) {
   const s = seg.slot;
   st.nOn = false;
@@ -9731,28 +9898,41 @@ function startNoise(st, seg) {
   let span = s.len - s.offset;
   const base = s.ptr + s.offset;
   if (base + span > SAMPLE_BIN_TOTAL) span = SAMPLE_BIN_TOTAL - base;
-  if (span < 2 || s.rate <= 0) return;
+  st.nGen = span < 2 || s.rate <= 0;
   st.nOn = true;
   st.nBase = base;
   st.nSpan = span;
   st.nPos = 0.0;
   st.nStep = s.rate / SAMPLING_RATE;
+  st.nSeed = NOISE_SEED;
   st.nTilt = s.tilt;
   st.nTiltC = Math.abs(s.tilt) / 128;
   st.nGain = attenGainOf(s.gain);
   st.nZ = 0.0;
 }
 
-/** The slot's noise, read at its own rate, looped over [offset, end). */
+/**
+ * The slot's noise: its sample read at its own rate, looped over
+ * [offset, end) — or the generator, a 32-bit xorshift (13, 17, 5) whose
+ * every output sample is a value uniform on [−1, 1): white, at FORMANT_LEVEL.
+ */
 function readNoise(eng, st) {
-  const i = Math.trunc(st.nPos);
-  const fr = st.nPos - i;
-  const bin = eng.sampleBin;
-  const a = PCM_U8[bin[st.nBase + i]];
-  const b = PCM_U8[bin[st.nBase + (i + 1 < st.nSpan ? i + 1 : 0)]];
-  let x = a + (b - a) * fr;
-  st.nPos += st.nStep;
-  while (st.nPos >= st.nSpan) st.nPos -= st.nSpan;
+  let x;
+  if (st.nGen) {
+    let r = st.nSeed;
+    r ^= r << 13; r ^= r >>> 17; r ^= r << 5;
+    st.nSeed = r >>> 0;
+    x = (st.nSeed / 4294967296) * 2 - 1;
+  } else {
+    const i = Math.trunc(st.nPos);
+    const fr = st.nPos - i;
+    const bin = eng.sampleBin;
+    const a = PCM_U8[bin[st.nBase + i]];
+    const b = PCM_U8[bin[st.nBase + (i + 1 < st.nSpan ? i + 1 : 0)]];
+    x = a + (b - a) * fr;
+    st.nPos += st.nStep;
+    while (st.nPos >= st.nSpan) st.nPos -= st.nSpan;
+  }
   if (st.nTilt > 0) {          // pre-emphasis: brighter
     const y = x - st.nTiltC * st.nZ;
     st.nZ = x;
@@ -9785,30 +9965,53 @@ function setPeakRes(a, i, f, bw) {
   a[i] = Math.sqrt(re * re + im * im);
 }
 
-/** White-noise power gain of a resonator (A, B, C): Σ h[n]². */
-function resPower(a, i) {
-  const A = a[i], a1 = -a[i + 1], a2 = -a[i + 2];
-  return (A * A * (1 + a2)) / ((1 - a2) * ((1 + a2) * (1 + a2) - a1 * a1));
+/**
+ * The parallel bank's normaliser: what makes white noise leave the bank as
+ * LOUD as it entered — the bank's five resonators (coefficients in `bank`)
+ * summed with their signed gains g[0…4] and the bypass g[5], its response
+ * G(f) taken whole (the alternating signs cancel or reinforce between
+ * formants), and |G|² weighted by equal loudness over BANK_GRID:
+ * sqrt(Σ w ÷ Σ w·|G|²). 0 when the bank passes nothing.
+ */
+function bankNorm(bank, g) {
+  const G = BANK_GRID;
+  let p = 0.0;
+  for (let i = 0; i < G.n; i++) {
+    let re = g[5], im = 0.0;
+    for (let j = 0; j < 5; j++) {
+      if (g[j] === 0) continue;
+      const A = bank[j * 3], b = bank[j * 3 + 1], c = bank[j * 3 + 2];
+      const dr = 1 - b * G.c1[i] - c * G.c2[i];
+      const di = b * G.s1[i] + c * G.s2[i];
+      const k = (g[j] * A) / (dr * dr + di * di);
+      re += k * dr;
+      im -= k * di;
+    }
+    p += G.w[i] * (re * re + im * im);
+  }
+  return p > 0 ? Math.sqrt(G.ref / p) : 0.0;
 }
 
 const normCo = new Float64Array(15);
 
 /**
- * The vowel normaliser: what makes a sawtooth come out of the cascade at the
- * RMS it went in with, at this f0 — so the tract shapes the sound and does not
- * set its level. P = Σ |H(k·f0)|² ÷ k² over the harmonics below 45% of the
- * rate (at most 64), against Σ 1 ÷ k²; clamped to −48…+24 dB.
+ * The vowel normaliser: what makes the source come out of the cascade as LOUD
+ * as it went in, at this f0 — so the tract shapes the sound and does not set
+ * its loudness. The source is its harmonics as measured (sourceHarmonics,
+ * w[1…K]), each weighted by the equal-loudness weight L at its frequency:
+ * P = Σ |H(k·f0)|²·w(k)·L(k·f0) against Σ w(k)·L(k·f0), over the harmonics
+ * below 45% of the rate. Clamped to −48…+24 dB.
  */
-function vowelNorm(F, B, f0) {
+function vowelNorm(F, B, f0, w, wK) {
   if (!(f0 > 0)) return 1.0;
   const R = SAMPLING_RATE;
-  const K = Math.max(1, Math.min(NORM_HARMONICS, Math.floor((0.45 * R) / f0)));
+  const K = Math.max(1, Math.min(wK, Math.floor((0.45 * R) / f0)));
   const co = normCo;
   for (let n = 0; n < 5; n++) setRes(co, n * 3, F[n], B[n]);
   const w0 = (2 * Math.PI * f0) / R;
   const c1 = Math.cos(w0), s1 = Math.sin(w0);
   let ck = c1, sk = s1;
-  let p = 0.0, ref = 0.0;
+  let p = 0.0, ref = 0.0, j = 0;
   for (let k = 1; k <= K; k++) {
     const c2 = ck * ck - sk * sk, s2 = 2 * sk * ck;
     let h = 1.0;
@@ -9818,9 +10021,10 @@ function vowelNorm(F, B, f0) {
       const im = b * sk + c * s2;
       h *= (A * A) / (re * re + im * im);
     }
-    const wk = 1 / (k * k);
-    p += h * wk;
-    ref += wk;
+    const lw = w[k] * 10 ** (elwDb(k * f0, j) / 10);
+    j = elwAt.j;
+    p += h * lw;
+    ref += lw;
     const nc = ck * c1 - sk * s1;
     sk = sk * c1 + ck * s1;
     ck = nc;
@@ -9829,10 +10033,182 @@ function vowelNorm(F, B, f0) {
   return Math.min(Math.max(g, NORM_MIN), NORM_MAX);
 }
 
-/** The fundamental the source is sounding at, Hz. */
+/**
+ * What a note measures of its source, once — at its first rendered sample,
+ * and again after an instrument change: the gain that brings it to
+ * FORMANT_LEVEL, and its harmonics. Both over ONE stretch — the loudest the
+ * note plays, so a quiet stretch cannot set a gain a louder one then plays
+ * through:
+ *
+ *   the loop, for a looped source — the stretch it sustains on;
+ *   …unless the note starts AHEAD of its loop (an attack, or whatever came
+ *     before the loop in a recording) and the loudest window of that is
+ *     louder — then that window;
+ *   for a one-shot source, its loudest window from play start.
+ *
+ * Windows are SOURCE_WINDOW bytes every half window, at most the first
+ * SOURCE_MEASURE_MAX bytes of a stretch.
+ */
+function measureSource(eng, voice, st) {
+  const bin = eng.sampleBin;
+  const mode = voice.activeLoopMode & 3;
+  const looped = (mode === 1 || mode === 2) && voice.activeSampleLoopEnd > voice.activeSampleLoopStart;
+  const base = voice.activeSamplePtr;
+  const cut = (x) => Math.max(0, Math.min(x, voice.activeSampleLength, SAMPLE_BIN_TOTAL - base));
+  const p0 = voice.activeSamplePlayStart;
+  let at, n, whole = false;
+  if (looped) {
+    const a = voice.activeSampleLoopStart;
+    at = base + a;
+    n = cut(voice.activeSampleLoopEnd) - a;
+    whole = n === voice.activeSampleLoopEnd - a;
+    const preN = Math.min(cut(a) - p0, SOURCE_MEASURE_MAX);
+    if (preN >= 2 && n >= 2) {
+      const loopAc = acOf(bin, at, Math.min(n, SOURCE_MEASURE_MAX))[1];
+      const w = loudestWindow(bin, base + p0, preN);
+      if (w.ac > loopAc) { at = w.at; n = w.n; whole = false; }
+    }
+  } else {
+    const w = loudestWindow(bin, base + p0, Math.min(cut(voice.activeSampleLength) - p0, SOURCE_MEASURE_MAX));
+    at = w.at; n = w.n;
+  }
+  sourceGain(bin, at, Math.min(n, SOURCE_MEASURE_MAX), st);
+  sourceHarmonics(bin, at, n, whole, voice.activeSamplingRate / LINEAR_FREQ_C4_HZ, st);
+}
+
+/** Mean and AC power (variance) of n bytes from p, into acOut[0], acOut[1]. */
+const acOut = new Float64Array(2);
+function acOf(bin, p, n) {
+  let sum = 0.0, sq = 0.0;
+  for (let i = 0; i < n; i++) {
+    const v = PCM_U8[bin[p + i]];
+    sum += v;
+    sq += v * v;
+  }
+  const mean = sum / n;
+  acOut[0] = mean;
+  acOut[1] = sq / n - mean * mean;
+  return acOut;
+}
+
+/** The loudest window of n bytes from p: windows of SOURCE_WINDOW bytes
+ *  every half window, the last one ending at the end (fewer bytes than a
+ *  window are one window); the first of equals wins. {at, n, ac}. */
+const SOURCE_WINDOW = 1024;
+const loudOut = { at: 0, n: 0, ac: 0.0 };
+function loudestWindow(bin, p, n) {
+  loudOut.at = p; loudOut.n = Math.max(n, 0); loudOut.ac = 0.0;
+  if (n < 2) return loudOut;
+  if (n <= SOURCE_WINDOW) { loudOut.ac = acOf(bin, p, n)[1]; return loudOut; }
+  loudOut.n = SOURCE_WINDOW;
+  loudOut.ac = -1.0;
+  for (let o = 0; ; o += SOURCE_WINDOW >> 1) {
+    const q = Math.min(o, n - SOURCE_WINDOW);
+    const ac = acOf(bin, p + q, SOURCE_WINDOW)[1];
+    if (ac > loudOut.ac) { loudOut.ac = ac; loudOut.at = p + q; }
+    if (q === n - SOURCE_WINDOW) break;
+  }
+  return loudOut;
+}
+
+/**
+ * The source's calibration over n bytes from p, into st: its mean (sm), which
+ * the tract takes out — a DC offset would pass the cascade's unity-DC
+ * resonators whole and step in at every note-on — and the gain (sg) that
+ * brings what is left to FORMANT_LEVEL by its plain RMS, clamped to ±24 dB.
+ * Fewer than two bytes: mean 0, gain 1; silence: gain 1.
+ */
+function sourceGain(bin, p, n, st) {
+  st.sm = 0.0;
+  st.sg = 1.0;
+  if (n < 2) return;
+  const [mean, ac] = acOf(bin, p, n);
+  st.sm = mean;
+  if (!(ac > 1e-12)) return;
+  st.sg = Math.min(Math.max(FORMANT_LEVEL / Math.sqrt(ac), 1 / SOURCE_GAIN_MAX), SOURCE_GAIN_MAX);
+}
+
+/** Measurements already made, by what they were made of: a pure memo (the
+ *  same bytes measure the same), so a chord pays for one, not one a note. */
+const sourceMemo = new Map();
+const SOURCE_MEMO_MAX = 32;
+const srcDft = new Float64Array(SOURCE_DFT_MAX);
+
+/**
+ * The source's harmonic powers into st.hw[1…K], K = min(64, ⌊P ÷ 2⌋) — every
+ * harmonic its own rate can hold — P being its period in bytes (the rate at
+ * C4 ÷ 261.63 Hz, since that rate sounds middle C). A sample's harmonics stay
+ * the same harmonics at any speed it is played, which is what makes this
+ * worth measuring once: a recorded [i] is not a sawtooth, and a loop at
+ * 700 Hz has a few dozen harmonics where a sawtooth model assumes 64.
+ *
+ * Over N = min(span, SOURCE_DFT_MAX) bytes from p, mean removed. A whole loop
+ * that fits is read EXACTLY: it repeats every N bytes, m = max(1, round(N ÷ P))
+ * periods of it, so harmonic k is the DFT's bin k·m. Anything else is
+ * Hann-windowed and read at k ÷ P cycles a byte. Power = re² + im². With no
+ * period to read (P < 2, or nothing measured) the source is taken to be a
+ * sawtooth: 1 ÷ k² for k ≤ 64.
+ */
+function sourceHarmonics(bin, p, span, whole, P, st) {
+  const w = st.hw;
+  const K = P >= 2 ? Math.min(NORM_HARMONICS, Math.floor(P / 2)) : 0;
+  const N = Math.min(span, SOURCE_DFT_MAX);
+  if (K < 1 || N < 2) { sawHarmonics(st); return; }
+  const exact = whole && span <= SOURCE_DFT_MAX;
+  const m = exact ? Math.max(1, Math.round(N / P)) : 0;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < N; i++) h = Math.imul(h ^ bin[p + i], 16777619);
+  const key = `${p}:${N}:${m}:${P}:${h >>> 0}`;
+  const hit = sourceMemo.get(key);
+  if (hit !== undefined) {
+    w.set(hit.w); st.hwK = hit.K;
+    return;
+  }
+  let mean = 0.0;
+  for (let i = 0; i < N; i++) mean += PCM_U8[bin[p + i]];
+  mean /= N;
+  const x = srcDft;
+  for (let i = 0; i < N; i++) {
+    const v = PCM_U8[bin[p + i]] - mean;
+    x[i] = exact ? v : v * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+  }
+  let sum = 0.0;
+  for (let k = 1; k <= K; k++) {
+    const om = exact ? (2 * Math.PI * k * m) / N : (2 * Math.PI * k) / P;
+    const c1 = Math.cos(om), s1 = Math.sin(om);
+    let c = 1.0, s = 0.0, re = 0.0, im = 0.0;
+    for (let i = 0; i < N; i++) {
+      re += x[i] * c;
+      im -= x[i] * s;
+      const nc = c * c1 - s * s1;
+      s = s * c1 + c * s1;
+      c = nc;
+    }
+    w[k] = re * re + im * im;
+    sum += w[k];
+  }
+  if (!(sum > 0)) { sawHarmonics(st); return; }
+  st.hwK = K;
+  if (sourceMemo.size >= SOURCE_MEMO_MAX) sourceMemo.clear();
+  sourceMemo.set(key, { w: w.slice(0, K + 1), K });
+}
+
+/** A sawtooth's harmonics, 1 ÷ k² for k ≤ 64: what a source with no period
+ *  to measure is taken to be. */
+function sawHarmonics(st) {
+  for (let k = 1; k <= NORM_HARMONICS; k++) st.hw[k] = 1 / (k * k);
+  st.hwK = NORM_HARMONICS;
+}
+
+/**
+ * The fundamental the source is sounding at, Hz. On a note's first sample
+ * the mixer has not yet snapped the voice's rate to the note's (it does so
+ * after rendering the sample): the note's own rate is the one meant then.
+ */
 function voiceF0(voice) {
   const rate = voice.activeSamplingRate;
-  return rate > 0 ? (voice.currentPlaybackRate * SAMPLING_RATE * LINEAR_FREQ_C4_HZ) / rate : 0.0;
+  const pr = voice.snapPlaybackRate ? voice.playbackRate : voice.currentPlaybackRate;
+  return rate > 0 ? (pr * SAMPLING_RATE * LINEAR_FREQ_C4_HZ) / rate : 0.0;
 }
 
 /** Values of a segment's amplitude tracks at t into a 4-slot scratch. */
@@ -9891,23 +10267,26 @@ function formantControl(voice, st) {
     return;
   }
 
-  // The vowel: glide, then the pitch rules.
+  // The vowel: the record's as it stands, or a glide, then the pitch rules.
   if (st.glideLeft > 0) {
     if (st.glideLeft <= dt) {           // the last step lands exactly
       st.vOpen = st.tOpen; st.vFront = st.tFront; st.vRound = st.tRound;
       st.glideLeft = 0.0;
+      if (st.rejoin) { st.ownVowel = false; st.rejoin = false; }
     } else {
       st.vOpen += st.gOpen * dt;
       st.vFront += st.gFront * dt;
       st.vRound += st.gRound * dt;
       st.glideLeft -= dt;
     }
+  } else if (!st.ownVowel) {
+    st.vOpen = patch.open; st.vFront = patch.front; st.vRound = patch.round;
   }
   const f0 = voiceF0(voice);
   const V = st.V, VB = st.VB;
   const s = vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, noteHz(patch.refNote), patch.track, V, VB);
   if (st.fresh || st.normCount <= 0) {
-    st.nvGoal = vowelNorm(V, VB, f0);
+    st.nvGoal = vowelNorm(V, VB, f0, st.hw, st.hwK);
     st.normCount = NORM_EVERY;
   }
   st.normCount--;
@@ -9956,15 +10335,12 @@ function formantControl(voice, st) {
     for (let j = 0; j < 3; j++) {
       setPeakRes(bank, 6 + j * 3, Math.min(PAR_F[j] * s, ceil), Math.min(PAR_B[j] * s, ceil));
     }
-    let pw = 0.0;
     for (let j = 0; j < 5; j++) {
       const gj = a[j] > 0 ? dbGain(a[j] - 60) : 0;
       g[j] = (j & 1) === 0 ? gj : -gj;
-      pw += gj * gj * resPower(bank, j * 3);
     }
     g[5] = a[5] > 0 ? dbGain(a[5] - 60) : 0;
-    pw += g[5] * g[5];
-    st.nb = pw > 0 ? 1 / Math.sqrt(pw) : 0;
+    st.nb = bankNorm(bank, g);
   }
 
   // Ramps across the update.
@@ -9987,12 +10363,13 @@ function tractRes(co, i, cy, j, x) {
 
 /**
  * One output sample of a voice sounding a formant instrument: the source
- * fetched as any sample is, through the cascade with the aspiration, plus the
- * frication through the parallel bank. The mixer applies the filter, the voice
+ * fetched as any sample is and brought to FORMANT_LEVEL, through the cascade
+ * with the aspiration, plus the frication through the parallel bank. The mixer applies the filter, the voice
  * FX and every gain after this, exactly as for a sampled voice.
  */
 function renderFormantVoice(eng, voice, inst, interpMode) {
   const st = voice.formant;
+  if (st.sgDue) { measureSource(eng, voice, st); st.sgDue = false; }
   const g = fetchTrackerSample(eng, voice, inst, interpMode);
   if (st.phase === PHASE_DONE) return 0.0;
   if (st.ctl <= 0) {
@@ -10002,7 +10379,7 @@ function renderFormantVoice(eng, voice, inst, interpMode) {
   st.ctl--;
   const n = st.nOn ? readNoise(eng, st) : 0.0;
   const casc = st.casc, cy = st.cy;
-  let x = st.av * g + st.ah * n;
+  let x = st.av * st.sg * (g - st.sm) + st.ah * n;
   x = tractRes(casc, 0, cy, 0, x);                    // nasal pole
   {                                              // nasal zero: the inverse
     const A = casc[3], b = casc[4], c = casc[5]; //   of its resonator
@@ -11511,6 +11888,13 @@ function principalOf(eng, instId, note) {
 /**
  * IT-style Duplicate Check (DCT/DCA), run BEFORE NNA on every fresh foreground
  * trigger. Reference: schismtracker effects.c:1664-1764.
+ *
+ * Formant instruments (item 212) read it as one voice speaking: their
+ * "sample" is the POOL RANGE they are made from, so DCT Sample matches any
+ * formant instrument made from the same range — the syllables of a word, each
+ * its own instrument. What it ends is the VOWEL: a formant voice already
+ * speaking its coda, or already ramping out, is no duplicate, and a cut is a
+ * crossfade (as NNA Note Cut's is) rather than a step.
  */
 function applyDuplicateCheck(eng, ts, channel, instId, note) {
   if (instId === 0) return;
@@ -11522,20 +11906,34 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
 
   const isDuplicate = (v) => {
     const existInst = eng.instruments[v.instrumentId];
+    if (v.formant !== null && (v.formant.phase >= PHASE_CODA || v.rampOutSamples > 0)) return false;
     switch (existInst.duplicateCheckType) {
       case 1: return v.noteVal === newNote && v.instrumentId === newInstId;
-      case 2: return v.instrumentId === newInstId &&
-                     v.activeSamplePtr === newSmpPtr &&
-                     v.activeSampleLength === newSmpLen;
+      case 2:
+        if (v.formant !== null && existInst.formant !== null && newInst.formant !== null) {
+          return existInst.formant.rangeLo === newInst.formant.rangeLo &&
+                 existInst.formant.rangeHi === newInst.formant.rangeHi;
+        }
+        return v.instrumentId === newInstId &&
+               v.activeSamplePtr === newSmpPtr &&
+               v.activeSampleLength === newSmpLen;
       case 3: return v.instrumentId === newInstId;
       default: return false;
     }
   };
 
-  const applyAction = (v) => {
+  const applyAction = (v, isFg) => {
     const existInst = eng.instruments[v.instrumentId];
     switch (existInst.duplicateCheckAction) {
-      case 0: v.fadeoutVolume = 0.0; v.active = false; break;
+      case 0:
+        if (v.formant !== null) {
+          // Ramped out over the incoming note's attack: the foreground voice
+          // through a ghost, since the note is about to reuse it.
+          startCutRamp(isFg ? ghostRig(ts, v, channel) : v);
+          if (isFg) { v.active = false; capBackgroundVoices(ts); }
+          break;
+        }
+        v.fadeoutVolume = 0.0; v.active = false; break;
       case 1: v.keyOff = true; applyKeyLift(v, existInst); break;
       case 2: v.noteFading = true; break;
     }
@@ -11543,7 +11941,7 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
 
   const fg = ts.voices[channel];
   if (fg.active && eng.instruments[fg.instrumentId].duplicateCheckType !== 0 && isDuplicate(fg)) {
-    applyAction(fg);
+    applyAction(fg, true);
   }
 
   for (let i = ts.backgroundVoices.length - 1; i >= 0; i--) {
@@ -11556,7 +11954,7 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
     if (bg.fmOperator) continue;
     if (eng.instruments[bg.instrumentId].duplicateCheckType === 0) continue;
     if (!isDuplicate(bg)) continue;
-    applyAction(bg);
+    applyAction(bg, false);
     if (!bg.active) ts.backgroundVoices.splice(i, 1);
   }
 }
