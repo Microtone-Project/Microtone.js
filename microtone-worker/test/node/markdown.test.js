@@ -53,6 +53,33 @@ test("GFM table renders thead/tbody with cells", () => {
   assert.match(html, /<td>T<\/td><td>Tempo<\/td>/);
 });
 
+test("table: an escaped pipe stays in its cell, code span or not", () => {
+  // The Motif spec's bar-line row: a split at the `\|` dropped the meaning
+  // into a third cell the header never had.
+  const md = "| Token | Meaning |\n|---|---|\n| `\\|` | A bar line |\n| a \\| b | `x\\|y` |";
+  const html = renderMarkdown(md);
+  assert.match(html, /<td><code>\|<\/code><\/td><td>A bar line<\/td>/);
+  assert.match(html, /<td>a \| b<\/td><td><code>x\|y<\/code><\/td>/);
+  // a backslash before anything else is left alone, and a row may end in `\|`
+  const tail = renderMarkdown("| A | B |\n|---|---|\n| `\\x1F` | c \\|");
+  assert.match(tail, /<td><code>\\x1F<\/code><\/td><td>c \|<\/td>/);
+  // rows without the outer pipes still split the same
+  assert.match(renderMarkdown("A | B\n--|--\n1 | 2"), /<td>1<\/td><td>2<\/td>/);
+});
+
+test("indented code keeps its lines, after a blank line only", () => {
+  const md = "Two buttons:\n\n    ┌─┬───┬─┐\n    │–│1<2│+│\n\n      └─┴───┴─┘\n\nAfter.";
+  assert.match(renderMarkdown(md),
+    /<p>Two buttons:<\/p>\n<pre><code>┌─┬───┬─┐\n│–│1&lt;2│\+│\n\n  └─┴───┴─┘<\/code><\/pre>\n<p>After\.<\/p>/);
+  assert.match(renderMarkdown("\tx = 1\n"), /^<pre><code>x = 1<\/code><\/pre>$/);
+  // with no blank line before it, an indented line is a paragraph's run-on
+  // (or a list item's), as before
+  assert.equal(renderMarkdown("Text\n    more"), "<p>Text     more</p>");
+  assert.equal(renderMarkdown("- item\n    more"), "<ul><li>item</li></ul>\n<p>    more</p>");
+  // nested list items are still lists, blank line or not
+  assert.match(renderMarkdown("- a\n\n    - b"), /<li>a<ul><li>b<\/li><\/ul><\/li>/);
+});
+
 test("lists: unordered + one level of nesting", () => {
   const md = "- one\n- two\n  - two-a\n- three";
   const html = renderMarkdown(md);
@@ -244,4 +271,20 @@ test("the sketch format's links into the Taud File Format land on its headings",
   const links = [...assetText("MICROTONE_SKETCH_FORMAT.md").matchAll(/\]\(TAUD_FILE_FORMAT\.md#([^)]+)\)/g)].map((m) => m[1]);
   assert.ok(links.length > 5);
   assert.deepEqual(links.filter((a) => !ids.has(a)), [], "no dead anchors into the file format");
+});
+
+test("the docs' escaped pipes and indented diagrams render as written", () => {
+  const motif = renderMarkdown(assetText("TAUD_MOTIF_LANGUAGE.md"));
+  assert.match(motif, /<td><code>\|<\/code><\/td><td>A bar line: an error unless/);
+  assert.match(motif, /<td><code>\|<\/code><\/td><td>bitwise or<\/td>/);
+  assert.match(renderMarkdown(assetText("TAUD_FILE_FORMAT.md")),
+    /<code>\(value &lt;&lt; 2\) \| \(value &gt;&gt; 4\)<\/code>, the same byte/);
+  assert.match(renderMarkdown(assetText("USER_MANUAL.md")),
+    /<pre><code>┌─┬───┬─┐ {8}┌─┬───┬─┐\n│–│123│\+│ {8}│◄│abc│►│\n└/);
+  assert.match(renderMarkdown(assetText("TAUD_NOTE_EFFECTS.md")), /<pre><code>0b 000 rrr ff<\/code><\/pre>/);
+  // an indented block read as a paragraph shows up as one opening on spaces
+  for (const file of ["USER_MANUAL.md", "TAUD_NOTE_EFFECTS.md", "TAUD_ENGINE_SPEC.md", "TAUD_FILE_FORMAT.md",
+    "TAUD_CONVERSION_NOTES.md", "MICROTONE_SKETCH_FORMAT.md", "TAUD_MOTIF_LANGUAGE.md", "PATCH_NOTES.md"]) {
+    assert.doesNotMatch(renderMarkdown(assetText(file)), /<p> {4}/, file);
+  }
 });

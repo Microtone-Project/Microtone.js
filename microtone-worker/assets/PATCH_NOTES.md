@@ -54,6 +54,10 @@ Motif arrives: write a song as a program in the Taud Motif Language, and Microto
 - **Huygens' Clock is now a Motif program**: the demo song is built from one, and carries it — load the demo, open the Motif tab, and read how the piece is made. The song sounds exactly as it did.
 - **Docs → Motif Language** is the language's full reference, and the User Manual has a chapter on the Motif tab.
 
+Diagrams and bit layouts in the documentation now keep their line breaks.
+
+- **Fixed: diagrams in the docs ran together into one line** — a block indented by four spaces was read as an ordinary paragraph, so the User Manual's sketch of the value controls and the bit layout of `1 $xx00` in Note Effects lost their line breaks; they now show line for line, as code.
+
 ## 2026-10-11
 
 11-TET, 13-TET, 23-TET and 26-TET joins the tunings, in the tracker and in Microtone Touch.
