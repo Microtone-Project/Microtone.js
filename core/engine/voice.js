@@ -182,6 +182,13 @@ export class Voice {
     this.opl = null;
     this.oplCarry = false;
 
+    // ── Formant instrument (Metainstrument type 1, item 212) ──
+    // The tract this voice's sample is sounding through (engine/formant.js
+    // FormantState), or null — which is what the mixer branches on. Built at
+    // every trigger; an NNA ghost takes a copy, so a released syllable finishes
+    // its coda in the background while the lane starts the next one.
+    this.formant = null;
+
     // Two-axis volume AND pan model (TAUD_NOTE_EFFECTS.md §3). Both axes work
     // the same way on either side: the instrument seeds the NOTE axis and the
     // pattern's lane commands own the LANE axis, and the two combine at

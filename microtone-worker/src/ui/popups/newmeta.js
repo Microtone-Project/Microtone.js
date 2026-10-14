@@ -14,6 +14,8 @@
 
 import { planCreateMeta, planCreateFm, planCreateOpl, planAddMetaLayers } from "../../doc/bankmerge.js";
 import { defaultOplRecord } from "../../doc/opledit.js";
+import { defaultFormantRecord } from "../../doc/formantedit.js";
+import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
 import { importBankOp } from "../../doc/ops.js";
 import { META_MAX_LAYERS, metaLayers } from "../../doc/metaedit.js";
 import { FM_MAX_OPERATORS, fmProgramOf, fmBudget, fmCanAddOperator } from "../../doc/fmedit.js";
@@ -250,6 +252,18 @@ function kindDiagram(kind) {
     });
     plus.textContent = "+";
     svg.appendChild(plus);
+  } else if (kind === "formant") {
+    // A sample, then a tract: a box feeding a spectral envelope with three
+    // humps — the formants — and only that envelope reaches the speaker.
+    const hump = (x0, w, h) => `Q ${x0 + w / 2} ${36 - h} ${x0 + w} 50`;
+    svg.append(
+      box(8, 28), line(38, 36, 52, 36), head(54, 36),
+      svgEl("path", {
+        d: `M 56 50 ${hump(56, 18, 34)} ${hump(74, 22, 22)} ${hump(96, 20, 14)}`,
+        fill: "none", stroke: "currentColor", "stroke-width": 1.4, "stroke-linejoin": "round",
+      }),
+      line(120, 36, 132, 36), head(134, 36), out(138, 36),
+    );
   } else if (kind === "opl") {
     // One chip channel: a modulator bending a carrier inside the channel's
     // outline, and the channel the only thing that reaches the speaker — no
@@ -289,11 +303,34 @@ export async function showNewMetaKind(store) {
   // nothing to build from it is the only card offered, rather than the
   // chooser being refused outright.
   const haveCandidates = layerCandidates(store.doc).length > 0;
-  const kind = await pickMetaKind(haveCandidates);
+  // A formant instrument is made from the pool's samples rather than from
+  // instruments: with none, its card is shown but disabled.
+  const haveSamples = store.doc.sampleList().length > 0 || store.doc.sampleRegions().length > 0;
+  const kind = await pickMetaKind(haveCandidates, haveSamples);
   if (kind === "meta") return showNewMeta(store);
   if (kind === "fm") return showNewFm(store);
   if (kind === "opl") return createOpl(store);
+  if (kind === "formant") return createFormant(store);
   return null;
+}
+
+/**
+ * A new formant instrument (item 212): its range every sample and recording in
+ * the pool, its
+ * source the one the recipe machine ranks best, singing [a] with no consonants
+ * yet — the Formant tab is where it becomes a syllable. Resolves {firstSlot,
+ * count} like the pickers.
+ */
+function createFormant(store) {
+  const doc = store.doc;
+  const [lo, hi] = poolSpan(doc);
+  const machine = new FormantMachine(doc.sampleBin, rangeCandidates(doc, lo, hi));
+  const top = machine.sources()[0] ?? null;
+  const record = defaultFormantRecord(top?.cand ?? null, top?.c4Rate ?? 0, lo, hi);
+  const plan = planCreateOpl(doc, record, "Formant");
+  if (plan.error) { alert(plan.error); return null; }
+  store.undo.apply(importBankOp(plan));
+  return { firstSlot: plan.metaSlot, count: 1 };
 }
 
 /**
@@ -307,21 +344,26 @@ function createOpl(store) {
   return { firstSlot: plan.metaSlot, count: 1 };
 }
 
-/** Resolves "meta", "fm", "opl", or null on cancel. Without `haveCandidates`
- *  the two kinds built from other instruments are shown but disabled. */
-function pickMetaKind(haveCandidates = true) {
+/** Resolves "meta", "fm", "opl", "formant", or null on cancel. Without
+ *  `haveCandidates` the two kinds built from other instruments are shown but
+ *  disabled; without `haveSamples`, the one built from the pool. */
+function pickMetaKind(haveCandidates = true, haveSamples = true) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
     dlg.className = "modal kind-modal";
     const cards = el("div", "kind-cards");
     const finish = (kind) => { dlg.close(); dlg.remove(); resolve(kind); };
 
-    for (const kind of ["meta", "fm", "opl"]) {
+    for (const kind of ["meta", "fm", "opl", "formant"]) {
       const card = el("button", "kind-card");
       card.type = "button";
-      if (kind !== "opl" && !haveCandidates) {
+      if ((kind === "meta" || kind === "fm") && !haveCandidates) {
         card.disabled = true;
         card.title = t("newkind.noCandidates");
+      }
+      if (kind === "formant" && !haveSamples) {
+        card.disabled = true;
+        card.title = t("newkind.noSamples");
       }
       card.append(
         kindDiagram(kind),

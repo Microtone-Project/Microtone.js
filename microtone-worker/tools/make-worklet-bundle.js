@@ -35,6 +35,7 @@ const FILES = [
   "core/engine/voice.js",
   "core/engine/state.js",
   "core/engine/sampler.js",
+  "core/engine/formant.js",    // …after sampler.js, whose fetch and ramp it calls
   "core/engine/filter.js",
   "core/engine/fm.js",   // …after sampler + filter, whose per-sample calls it makes
   "core/engine/envelope.js",

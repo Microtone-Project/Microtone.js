@@ -4,6 +4,18 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-16
+
+Formant instruments arrive: an instrument that sings, turning any looped tone in the pool into a singer that says a syllable on every note.
+
+- **A new kind of instrument**: Instruments → Meta… → Formant instrument sings its sample through a model of the vocal tract — up to two consonants, a vowel, and a final consonant spoken when the key is let go — so a note can be *sa*, *stra*, *man* or *kin*. It costs one voice.
+- **Made from the pool**: give it a range of the sample pool — loose samples and recordings loaded into memory alike — and it finds what it needs there — the tone to sing with, and for each consonant a recipe of which sample, from where and how fast makes its hiss, pop or breath — and lists every option best first with a badness score.
+- **A Formant tab** shapes it: the vowel chart with the IPA vowels marked on it, to drag or click; roundness; and the consonants picked from an IPA chart coloured by how well your samples can make each one.
+- **Vowels that sing like singers**: the vowel rises a little with the pitch the way a higher singer's does, and on high notes it opens the jaw as a soprano does, while the level stays the same from the lowest note to the highest.
+- **Key-off speaks the last consonant**; a note cut, note fade or fast fade ends the vowel without it, and a new note lets the old one finish its consonant underneath.
+- **`S $Afgr` changes the vowel** from the pattern — how open, how front, how rounded — at the start of a note or gliding mid-note, so one instrument can sing a whole text.
+- **One Pitch/Filter tab** for OPL and formant instruments, which have room for only one such envelope: a Pitch | Filter switch at its top says which it is, instead of two tabs editing the same envelope.
+
 ## 2026-10-15
 
 OPL instruments arrive: one channel of the FM chip that played AdLib and Sound Blaster music, sounding as the chip did — and AdLib songs, banks and tracker modules now arrive as them.

@@ -2237,6 +2237,58 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .opl-env polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
 .opl-note { margin: 0.1rem 0; font-size: 0.85rem; }
 
+/* ── Formant tab (item 212, views/instformant.js) ──
+   The vowel chart is an SVG drawn in theme tokens; every IPA symbol, there and
+   in the consonant picker, is Open Sans at its full width ("wdth" 100), the
+   face's IPA coverage being the reason it is the app's face at all. */
+.fmt-chart { max-width: 560px; margin-bottom: 0.3rem; }
+.fmt-chart-svg {
+  display: block; width: 100%; height: auto; touch-action: none; cursor: crosshair;
+  background: var(--cv-bg); border: 1px solid var(--border); border-radius: 6px;
+  user-select: none; -webkit-user-select: none;
+}
+.fmt-region { fill: var(--panel-2); stroke: var(--border); stroke-width: 1; }
+.fmt-grid { stroke: var(--meter-bg); stroke-width: 1; }
+.fmt-axis { fill: var(--dim); font-size: 9px; }
+.fmt-mark { cursor: pointer; outline: none; }
+.fmt-mark-dot { fill: var(--dim); }
+.fmt-mark-ipa, .fmt-slot-cons, .fmt-cons {
+  font-family: "Open Sans", sans-serif;
+  font-variation-settings: "wdth" 100;
+}
+.fmt-mark-ipa { fill: var(--fg2); font-size: 15px; }
+.fmt-mark:hover .fmt-mark-ipa, .fmt-mark:focus-visible .fmt-mark-ipa { fill: var(--fg); }
+.fmt-mark-ipa.near { fill: var(--accent); font-weight: 600; }
+.fmt-handle { fill: none; stroke: var(--accent); stroke-width: 2.5; pointer-events: none; }
+.fmt-readout { font-size: 0.85rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.fmt-note { margin: 0.2rem 0; font-size: 0.85rem; line-height: 1.4; max-width: 560px; }
+.slider-row.fmt-range { grid-template-columns: 10rem 6.2rem auto 6.2rem auto auto; }
+.slider-row.fmt-range .sl-ann { white-space: nowrap; }
+.fmt-dash { color: var(--dim); }
+.slider-row.fmt-slot { grid-template-columns: 10rem 3.4rem minmax(0, 1fr); }
+.fmt-slot-cons { font-size: 1.05rem; min-width: 3rem; }
+.fmt-slot-cons.empty { color: var(--dim); }
+.fmt-recipe { min-width: 0; max-width: 100%; }
+.fmt-cons-modal { max-width: min(1120px, calc(96vw / var(--ui-zoom, 1))); }
+.fmt-cons-scroll { overflow-x: auto; max-width: 100%; scrollbar-color: var(--border) var(--panel); }
+.fmt-cons-table { border-collapse: collapse; font-size: 0.78rem; }
+.fmt-cons-table th, .fmt-cons-table td {
+  border: 1px solid var(--border); padding: 0.15rem 0.2rem; text-align: center; white-space: nowrap;
+}
+.fmt-cons-place, .fmt-cons-manner { color: var(--dim); font-weight: normal; }
+.fmt-cons-table th.fmt-cons-place { white-space: normal; max-width: 4.6rem; line-height: 1.15; }
+.fmt-cons-manner { text-align: left; }
+.fmt-cons {
+  font-size: 1rem; min-width: 1.7rem; padding: 0.05rem 0.15rem; margin: 1px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+}
+.fmt-cons.good { color: var(--meter); }
+.fmt-cons.fair { color: var(--accent); }
+.fmt-cons.poor { color: var(--err-fg); }
+.fmt-cons.none { color: var(--dim); opacity: 0.6; }
+.fmt-cons.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.fmt-cons-legend { max-width: 60rem; line-height: 1.4; }
+
 /* General-tab stacked field rows: label · spinner · annotation · slider. */
 .inst-rows {
   display: flex;
@@ -2876,14 +2928,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 
 /* ── "Meta…" kind chooser (popups/newmeta.js) ──
-   Two cards side by side, each a picture, a name and a paragraph: the choice
+   Four cards, two by two, each a picture, a name and a paragraph: the choice
    between summing children and modulating with them is not one a bare label
    can make, so the explanation lives in the button itself. */
 .kind-modal { max-width: min(720px, calc(94vw / var(--ui-zoom, 1))); }
 .kind-modal > p.dim { margin: 0.4rem 0 0.9rem; line-height: 1.45; }
-.kind-cards { display: flex; gap: 0.7rem; align-items: stretch; }
+.kind-cards { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: stretch; }
 .kind-card {
-  flex: 1 1 0;
+  flex: 1 1 calc(50% - 0.35rem);
   display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
   padding: 0.7rem 0.7rem 0.8rem; cursor: pointer; text-align: center;
   background: var(--panel-2); color: var(--dim);

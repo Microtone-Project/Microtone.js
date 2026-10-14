@@ -15,6 +15,7 @@ import { META_MIX_GAIN, attenGainOf, EffectOp, clamp } from "./tables.js";
 import { envPresent, envCarry, applyKeyLift, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { computePlaybackRate, startCutRamp } from "./sampler.js";
 import { OplState, oplKeyOn, cloneOplState, OPL_C4_RATE } from "./opl.js";
+import { FormantState, formantNoteOn, cloneFormantState } from "./formant.js";
 import { random } from "./rng.js";
 import {
   applyPanSet, applyPanSlide, applyElevation, SURROUND_STEREO, SURROUND_SPATIAL,
@@ -424,8 +425,9 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   const program = inst.fmProgram;
   const sounds = (o) =>
     o.instIdx >= 1 && o.instIdx <= 1023 && !eng.instruments[o.instIdx].isMeta &&
-    // An OPL instrument is a channel, not a waveform a rack can read (§7.7).
-    !eng.instruments[o.instIdx].isOpl &&
+    // An OPL instrument is a channel, not a waveform a rack can read (§7.7);
+    // a formant instrument is a sound made of a waveform, not one (§7.8).
+    !eng.instruments[o.instIdx].isOpl && !eng.instruments[o.instIdx].isFormant &&
     noteVal >= o.pitchStart && noteVal <= o.pitchEnd &&
     seedVol >= o.volStart && seedVol <= o.volEnd;
   // No algorithm, or no principal operator, is silence — the same answer the
@@ -542,8 +544,10 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   if (volOverride >= 0) seedVolForLookup = narrow(volOverride);
   else if (instId !== 0) seedVolForLookup = rowVolumeFromDefault(inst, null);
   else seedVolForLookup = narrow(voice.noteVolume);
-  // An OPL instrument has no keyboard map: its sound is its one patch (§7.7).
-  const patch = inst.opl !== null ? null : inst.resolvePatch(noteVal, seedVolForLookup);
+  // An OPL instrument has no keyboard map: its sound is its one patch (§7.7);
+  // nor has a formant instrument: its sample is the one glottal source (§7.8).
+  // resolvePatch answers null for both.
+  const patch = inst.resolvePatch(noteVal, seedVolForLookup);
   applyActiveSample(voice, inst, patch);
   voice.tonePortaTarget = -1; // fresh note trigger cancels any running porta
   voice.samplePos = voice.activeSamplePlayStart;
@@ -733,6 +737,14 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
     oplKeyOn(voice.opl, inst.opl, oplCarry);
   } else {
     voice.opl = null;
+  }
+  // A formant instrument (item 212): every trigger is a fresh syllable, onset
+  // and all. The voice object's previous state is reused — a ghost took a copy.
+  if (inst.formant !== null) {
+    if (voice.formant === null) voice.formant = new FormantState();
+    formantNoteOn(voice.formant, inst.formant);
+  } else {
+    voice.formant = null;
   }
   if (voice.vibratoRetrig) voice.vibratoLfoPos = 0;
   if (voice.tremoloRetrig) voice.tremoloLfoPos = 0;
@@ -1059,6 +1071,10 @@ export function ghostVoice(src, channel) {
   // takes a copy, clock and envelopes and all, and the lane keeps its own to
   // re-key for the next note.
   v.opl = src.opl !== null ? cloneOplState(src.opl) : null;
+  // The ghost of a voice sounding a formant instrument is the syllable it was
+  // saying: a released one goes
+  // on into its coda in the background (formant.js reads the ghost's key-off).
+  v.formant = src.formant !== null ? cloneFormantState(src.formant) : null;
   return v;
 }
 

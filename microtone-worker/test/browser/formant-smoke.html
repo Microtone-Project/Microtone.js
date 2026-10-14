@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Formant instrument smoke: create a type-1 instrument, shape its syllable, sing it</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- REAL time: the audition leg needs the audio thread running. Run with
+         node tools/browser-smoke.js test/browser/formant-smoke.html 90 -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1280px;height:900px"></iframe>
+  <script type="module">
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = (fn, ms = 8000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 40);
+    });
+    const ok = (cond) => (cond ? "ok" : "FAIL");
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => {
+          const w = frame.contentWindow;
+          return w && w.__microtone?.store.doc ? w : null;
+        }, 20000);
+        win.alert = (m) => log("alert: " + m);
+        const { store, instrumentsView: iv, masterStrip } = win.__microtone;
+        const doc = store.doc;
+        const wdoc = win.document;
+        log("app loaded");
+
+        // ── "Meta…" offers a formant card, and it makes a type-1 instrument ──
+        // The Instruments view for real (F5), so the chart is laid out.
+        const fkey = (code) => {
+          win.dispatchEvent(new win.KeyboardEvent("keydown", { code, key: code, bubbles: true }));
+          win.dispatchEvent(new win.KeyboardEvent("keyup", { code, key: code, bubbles: true }));
+        };
+        fkey("F5");
+        await sleep(150);
+        iv.show();
+        const before = new Set(doc.usedInstrumentSlots());
+        const metaBtn = [...iv.listEl.querySelectorAll(".side-toolbar-inst button")]
+          .find((b) => b.textContent === "Meta…");
+        metaBtn.click();
+        const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
+        const cards = [...dlg.querySelectorAll(".kind-card")];
+        log(`kind chooser shows four cards, the formant one last and enabled: ` +
+          ok(cards.length === 4 && !cards[3].disabled &&
+             cards[3].querySelector(".kind-card-name").textContent === "Formant instrument"));
+        cards[3].click();
+        const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
+        const inst = () => doc.instruments[slot];
+        log(`a new slot $${slot.toString(16)} is a type-1 formant instrument with a source: ` +
+          ok(inst().isFormant && !inst().isMeta && inst().sampleLength > 0));
+        await waitFor(() => iv.panel.querySelector(".fmt-chart-svg"));
+        const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
+        log(`tabs ${tabs.join("|")}: ` +
+          ok(tabs.join("|") === "Formant|General|Vol env|Pan env|Pitch/Filter" && iv.tab === "formant"));
+        const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
+        log(`list badge "${badge()}": ${ok(badge() === "FMNT")}`);
+        const heads = [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);
+        log(`groups ${heads.join(", ")}: ` +
+          ok(heads.join("|") === "Material|Vowel|Syllable|Pitch and timing"));
+        const marks = iv.panel.querySelectorAll(".fmt-mark");
+        log(`the chart carries ${marks.length} IPA marks: ${ok(marks.length >= 28)}`);
+        const ipaFont = win.getComputedStyle(iv.panel.querySelector(".fmt-mark-ipa")).fontVariationSettings;
+        log(`IPA is set at full width (${ipaFont}): ${ok(/"wdth" 100/.test(ipaFont))}`);
+
+        // ── clicking a mark takes that vowel, roundness included ──
+        const markOf = (ipa) => [...iv.panel.querySelectorAll(".fmt-mark")]
+          .find((g) => g.querySelector(".fmt-mark-ipa").textContent === ipa);
+        markOf("u").dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+        await waitFor(() => inst().formant.round === 255);
+        log(`[u]: close, back, rounded: ` +
+          ok(inst().formant.open < 20 && inst().formant.front < 20 && inst().formant.round === 255));
+        await waitFor(() => iv.panel.querySelector(".fmt-readout"));
+        log(`readout: ${iv.panel.querySelector(".fmt-readout").textContent}`);
+        store.undo.undo();
+        await waitFor(() => inst().formant.round === 0);
+
+        // ── dragging the chart moves the vowel, one undo step a drag ──
+        await sleep(150);
+        const svgEl = await waitFor(() => {
+          const e = iv.panel.querySelector(".fmt-chart-svg");
+          return e && e.isConnected && e.getBoundingClientRect().width > 0 ? e : null;
+        });
+        const r = svgEl.getBoundingClientRect();
+        const depth0 = store.undo.undoStack.length;
+        const ptr = (type, fx, fy) => svgEl.dispatchEvent(new win.PointerEvent(type, {
+          bubbles: true, pointerId: 7, button: 0, buttons: type === "pointerup" ? 0 : 1,
+          clientX: r.left + r.width * fx, clientY: r.top + r.height * fy,
+        }));
+        ptr("pointerdown", 0.15, 0.15);
+        ptr("pointermove", 0.2, 0.2);
+        ptr("pointermove", 0.25, 0.2);
+        ptr("pointerup", 0.25, 0.2);
+        await sleep(50);
+        log(`(chart ${r.width.toFixed(0)}×${r.height.toFixed(0)}, vowel now front ${inst().formant.front} open ${inst().formant.open})`);
+        log(`a drag to the top left makes a close front vowel: ` +
+          ok(inst().formant.front > 180 && inst().formant.open < 80));
+        log(`…in one undo step: ${ok(store.undo.undoStack.length === depth0 + 1)}`);
+
+        // ── a consonant from the IPA chart, sounded by the best recipe ──
+        const consBtn = (i) => iv.panel.querySelectorAll(".fmt-slot-cons")[i];
+        consBtn(0).click();
+        const pick = await waitFor(() => wdoc.querySelector("dialog.fmt-cons-modal"));
+        const sBtn = [...pick.querySelectorAll(".fmt-cons")].find((b) => b.textContent === "s");
+        log(`the consonant chart offers [s], rated ${sBtn?.className}: ${ok(!!sBtn)}`);
+        const nCons = pick.querySelectorAll(".fmt-cons").length;
+        log(`…and ${nCons} consonants in all: ${ok(nCons >= 70)}`);
+        sBtn.click();
+        await waitFor(() => inst().formant.slots[0].cons !== 0);
+        const s0 = inst().formant.slots[0];
+        log(`onset [s] took a recipe: sample $${s0.ptr.toString(16)}+${s0.len} @${s0.offset} at ${s0.rate} Hz: ` +
+          ok(s0.cons === 54 && s0.len > 0 && s0.rate > 0));
+        await waitFor(() => iv.panel.querySelector(".fmt-recipe"));
+        log(`…with a recipe list beside it: ${ok(iv.panel.querySelectorAll(".fmt-recipe option").length >= 1)}`);
+        consBtn(2).click();
+        const pick2 = await waitFor(() => wdoc.querySelector("dialog.fmt-cons-modal"));
+        [...pick2.querySelectorAll(".fmt-cons")].find((b) => b.textContent === "n").click();
+        await waitFor(() => inst().formant.slots[2].cons === 34);
+        log(`coda [n] needs no sample and claims none: ` +
+          ok(inst().formant.slots[2].len === 0 && inst().formant.slots[2].ptr === 0));
+        log(`the census counts the onset's noise sample as this instrument's: ` +
+          ok(doc.sampleList().some((e) => e.ptr === s0.ptr && e.len === s0.len && e.users.includes(slot))));
+
+        // ── it sings: a jam note sounds, and its key-off speaks the coda ──
+        await waitFor(() => store.audio, 15000);
+        const audio = store.audio;
+        try { await audio.ctx?.resume?.(); } catch { /* headless autoplay flag */ }
+        const voice = audio.jamVoice(0);
+        audio.jamNote(0, voice, 0x4800, slot, true);
+        await waitFor(() => audio.getVoiceActive(voice) && audio.getVoiceInstrument(voice) === slot, 5000)
+          .catch(() => null);
+        log(`a jam note sounds the formant instrument: ` +
+          ok(audio.getVoiceActive(voice) && audio.getVoiceInstrument(voice) === slot));
+        let peak = 0, frames = 0;
+        const readout = masterStrip?.readout;
+        for (let i = 0; i < 40 && readout; i++) {
+          await sleep(30);
+          const rr = audio.readAnalysis(readout);
+          frames += rr.frames;
+          for (let c = 0; c < rr.meterCount; c++) peak = Math.max(peak, rr.peak[c]);
+        }
+        log(frames > 0
+          ? `…and the master meter sees it (peak ${peak.toFixed(3)}): ${ok(peak > 0.01)}`
+          : `…master meter tap is off in this layout — skipped`);
+        audio.jamKeyOff(0, voice);
+        await waitFor(() => !audio.getVoiceActive(voice), 6000).catch(() => null);
+        log(`key-off speaks the coda and the voice ends: ${ok(!audio.getVoiceActive(voice))}`);
+
+        // ── a recording loaded into memory (a pool region) is material too ──
+        {
+          const { planImportRegion } = await import("../../src/doc/bankmerge.js");
+          const { importBankOp } = await import("../../src/doc/ops.js");
+          const n = 22050 * 6;
+          const pcm = new Uint8Array(n);
+          let x = 0x2468ace1;
+          const rnd = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return (x / 4294967296) * 2 - 1; };
+          for (let i = 0; i < n; i++) {
+            const sec = i / 22050;
+            const v = sec < 1.5 ? 0.6 * rnd() : sec >= 2.5 && sec < 5 ? 0.7 * (2 * (((sec - 2.5) * 150) % 1) - 1) : 0.01 * rnd();
+            pcm[i] = Math.max(0, Math.min(255, Math.round(127.5 + 127.5 * v)));
+          }
+          const plan = planImportRegion(doc, { channels: [pcm], rate: 22050, nameBytes: new TextEncoder().encode("take 1") });
+          log(`region loaded: ${ok(!plan.error)}${plan.error ? " " + plan.error : ""}`);
+          store.undo.apply(importBankOp(plan));
+          iv.selected = slot; iv.tab = "formant"; iv.refresh();
+          await waitFor(() => iv.panel.querySelector(".fmt-range"));
+          const allBtn = [...iv.panel.querySelectorAll(".fmt-range button")].find((b) => b.textContent === "All samples");
+          allBtn.click();
+          await waitFor(() => inst().formant.rangeHi >= plan.region.ptr + plan.region.len);
+          log(`All samples now reaches the recording: ok`);
+          const srcSel = await waitFor(() => iv.panel.querySelector(".fmt-range")?.parentElement.querySelector("select"));
+          const srcOpts = [...srcSel.options].map((o) => o.textContent);
+          log(`source list offers windows of R00 (${srcOpts.filter((t) => /^R\d\d @/.test(t)).length}): ` +
+            ok(srcOpts.some((t) => /^R\d\d @.* Hz/.test(t))));
+          const tone = [...srcSel.options].find((o) => /^R\d\d @/.test(o.textContent));
+          srcSel.value = tone.value;
+          srcSel.dispatchEvent(new win.Event("change"));
+          await waitFor(() => inst().samplePtr >= plan.region.ptr && inst().samplePtr < plan.region.ptr + plan.region.len);
+          log(`a window of the recording became the source, looped: ` +
+            ok((inst().loopMode & 3) === 1 && inst().sampleLoopEnd > inst().sampleLoopStart && inst().sampleLength <= 65535));
+          const recipeOpts = await waitFor(() => {
+            const o = [...iv.panel.querySelectorAll(".fmt-recipe option")].map((e) => e.textContent);
+            return o.length ? o : null;
+          });
+          log(`the /s/ recipes include the recording's hiss: ${ok(recipeOpts.some((t) => /R\d\d @/.test(t)))}`);
+        }
+
+        // ── it survives a save/reload round trip ──
+        const bytes = doc.toBytes();
+        const { Document } = await import("../../src/doc/document.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
+        const back = new Document(parseTaud(bytes)).instruments[slot];
+        log(`round trip keeps a type-1 record with the same tract and source: ` +
+          ok(back.isFormant && String([...back.formantRaw.subarray(3)]) === String([...inst().formantRaw.subarray(3)]) &&
+             back.samplePtr === inst().samplePtr));
+
+        log("RESULT: " + (out.some((l) => l.includes("FAIL")) ? "FAIL" : "PASS"));
+      } catch (e) {
+        log("EXCEPTION: " + (e && e.stack ? e.stack : e));
+        log("RESULT: FAIL");
+      }
+    })();
+  </script>
+</body>
+</html>

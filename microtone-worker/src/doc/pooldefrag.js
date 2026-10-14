@@ -33,6 +33,7 @@
 import { SAMPLEBIN_SIZE, ixmpChanByteOffset, ixmpPatchLen } from "../../core/format/taud-const.js";
 import { sampleSpans } from "./document.js";
 import { regionSpans, buildRegionPayload, largestFreeRun } from "./sampleregions.js";
+import { retargetFormantRecord } from "./formantedit.js";
 
 /** The pool's address space: [0, POOL_SIZE). */
 export const POOL_SIZE = SAMPLEBIN_SIZE;
@@ -217,6 +218,17 @@ export function planPoolDefrag(doc) {
     const inst = doc.instruments[slot];
     // A Metainstrument's bytes 0…3 are the $FFFF sentinel, its type nibble and
     // its layer count — not a pointer, and never to be written as one.
+    // A formant instrument's header sits there too, and its pointers — the source
+    // and one per consonant slot — are elsewhere (item 212, §7.8).
+    if (inst.isFormant) {
+      const record = doc.instRecordBytes(slot);
+      if (retargetFormantRecord(record, (p) => map(p)) === 0) continue;
+      insts.push({
+        srcSlot: -(insts.length + 1), destSlot: slot, topLevel: true,
+        record, ixmpBlob: null, ixmpCount: 0,
+      });
+      continue;
+    }
     const baseMoves = !inst.isMeta && inst.sampleLength > 0 &&
       map(inst.samplePtr) !== inst.samplePtr;
     const entry = [...doc.ixmp].reverse().find((e) => (e.instId & 0x3ff) === slot);

@@ -12,6 +12,7 @@ import {
 import { applyKeyLift, envPresent, envCarry, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { startFastFade, startCutRamp } from "./sampler.js";
 import { OplState, oplKeyOn, oplReattack } from "./opl.js";
+import { FormantState, formantRelatch, formantStartAtVowel } from "./formant.js";
 import { applyEffectRow } from "./effects.js";
 
 /**
@@ -387,6 +388,18 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
     oplKeyOn(voice.opl, newInst.opl, false);
   } else {
     voice.opl = null;
+  }
+  // A voice sounding a formant instrument (item 212) keeps saying its syllable under the new record's
+  // tract (formantRelatch); a sampled note handed one starts its tract at the
+  // vowel, since the note's onset is long past. Neither replays an onset — the
+  // re-attack is the envelopes', not the syllable's.
+  if (newInst.formant !== null && voice.formant !== null) {
+    formantRelatch(voice.formant, newInst.formant);
+  } else if (newInst.formant !== null) {
+    voice.formant = new FormantState();
+    formantStartAtVowel(voice.formant, newInst.formant);
+  } else {
+    voice.formant = null;
   }
   const seedVol = rowVolumeFromDefault(newInst, newPatch, ts.volMax);
   voice.noteVolume = seedVol;

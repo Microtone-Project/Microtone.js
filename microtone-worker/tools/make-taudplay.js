@@ -54,6 +54,7 @@ const ENGINE = [
   "core/engine/voice.js",
   "core/engine/state.js",
   "core/engine/sampler.js",
+  "core/engine/formant.js",
   "core/engine/filter.js",
   "core/engine/fm.js",
   "core/engine/envelope.js",

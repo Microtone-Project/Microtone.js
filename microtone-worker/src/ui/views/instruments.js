@@ -54,6 +54,8 @@ import {
   OPL_OP_FIELDS, OPL_KIND_2OP, OPL_KIND_4OP, OPL_KIND_BD, OPL_KIND_SD, OPL_KIND_TOM,
   OPL_KIND_TC, OPL_KIND_HH,
 } from "../../doc/opledit.js";
+import { formantBadge } from "../../doc/formantedit.js";
+import { renderFormantTab } from "./instformant.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
 import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
 // A fixed-pitch layer's field takes a note WORD, and the query parser is
@@ -97,20 +99,7 @@ const ENV_TABS = [
 function roleTabDef(inst, wantFilter) {
   const SLOT1 = { key: "pfEnvelopes", loopKey: "pfEnvLoop", susKey: "pfEnvSustainWord" };
   const SLOT2 = { key: "pf2Envelopes", loopKey: "pf2EnvLoop", susKey: "pf2EnvSustainWord" };
-  if (inst?.isOpl) {
-    // An OPL instrument's second slot holds its patch (TAUD_FILE_FORMAT §7.7), so
-    // both tabs edit the one slot left; claiming the other role takes it over.
-    const role1 = envPresent(inst.pfEnvLoop) ? ((inst.pfEnvLoop >>> 7) & 1) === 1 : null;
-    return {
-      ...SLOT1,
-      labelKey: wantFilter ? "inst.envFilter" : "inst.envPitch",
-      max: 255,
-      role: wantFilter ? "filter" : "pitch",
-      roleActive: role1 === wantFilter,
-      liveIdx: wantFilter ? "getVoiceEnvFilterIndex" : "getVoiceEnvPitchIndex",
-      liveTime: wantFilter ? "getVoiceEnvFilterTime" : "getVoiceEnvPitchTime",
-    };
-  }
+  if (hasOnePfSlot(inst)) return onePfTabDef(inst);
   const role1 = envPresent(inst.pfEnvLoop) ? ((inst.pfEnvLoop >>> 7) & 1) === 1 : null;
   const role2 = envPresent(inst.pf2EnvLoop) ? ((inst.pf2EnvLoop >>> 7) & 1) === 1 : null;
   let slot, active;
@@ -128,6 +117,31 @@ function roleTabDef(inst, wantFilter) {
     roleActive: active,
     liveIdx: wantFilter ? "getVoiceEnvFilterIndex" : "getVoiceEnvPitchIndex",
     liveTime: wantFilter ? "getVoiceEnvFilterTime" : "getVoiceEnvPitchTime",
+  };
+}
+
+/**
+ * An OPL instrument's second slot holds its patch (TAUD_FILE_FORMAT §7.7) and a
+ * formant instrument's its tract (§7.8), so either has ONE pitch/filter
+ * envelope, and which of the two it is is the slot's own `m` bit. The editor
+ * shows it as one Pitch/Filter tab with that bit as a switch at its top,
+ * rather than two tabs both editing the same envelope.
+ */
+function hasOnePfSlot(inst) {
+  return !!(inst?.isOpl || inst?.isFormant);
+}
+
+/** The tab definition for that one slot, in whichever role its `m` bit names. */
+function onePfTabDef(inst) {
+  const filter = ((inst.pfEnvLoop >>> 7) & 1) === 1;
+  return {
+    key: "pfEnvelopes", loopKey: "pfEnvLoop", susKey: "pfEnvSustainWord",
+    labelKey: filter ? "inst.envFilter" : "inst.envPitch",
+    max: 255,
+    role: filter ? "filter" : "pitch",
+    roleActive: envPresent(inst.pfEnvLoop),
+    liveIdx: filter ? "getVoiceEnvFilterIndex" : "getVoiceEnvPitchIndex",
+    liveTime: filter ? "getVoiceEnvFilterTime" : "getVoiceEnvPitchTime",
   };
 }
 
@@ -331,13 +345,25 @@ export class InstrumentsView {
     const metaTab = inst?.isFm ? ["fm", t("inst.tabFm")] : ["meta", t("inst.tabLayers")];
     const envTabs = [["env0", t("inst.tabVolEnv")], ["env1", t("inst.tabPanEnv")],
       ["pitch", t("inst.tabPitch")], ["filter", t("inst.tabFilter")]];
+    // One pitch/filter slot, one tab (see hasOnePfSlot). Moving between the two
+    // kinds of instrument keeps the user on the envelope they were looking at.
+    const oneSlotTabs = [["env0", t("inst.tabVolEnv")], ["env1", t("inst.tabPanEnv")],
+      ["pf", t("inst.tabPitchFilter")]];
+    if (hasOnePfSlot(inst) && (this.tab === "pitch" || this.tab === "filter")) this.tab = "pf";
+    else if (!hasOnePfSlot(inst) && this.tab === "pf") {
+      this.tab = inst && ((inst.pfEnvLoop >>> 7) & 1) === 1 ? "filter" : "pitch";
+    }
     // An OPL instrument is an ordinary one around a chip channel: its patch
     // first, then everything an ordinary one has but the keyboard map.
+    // A formant instrument likewise: its tract first, then an ordinary
+    // instrument's tabs (its sample, the glottal source, is on General).
     const tabs = inst?.isMeta
       ? [metaTab, ["metaopts", t("inst.tabMetaOptions")]]
       : inst?.isOpl
-        ? [["opl", t("inst.tabOpl")], ["general", t("inst.tabGeneral")], ...envTabs]
-        : [["general", t("inst.tabGeneral")], ...envTabs, ["zones", t("inst.tabZones")]];
+        ? [["opl", t("inst.tabOpl")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
+        : inst?.isFormant
+          ? [["formant", t("inst.tabFormant")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
+          : [["general", t("inst.tabGeneral")], ...envTabs, ["zones", t("inst.tabZones")]];
     // A tab this instrument has not got is snapped to its first one, in either
     // direction: a metainstrument has no envelopes and an ordinary instrument
     // has no layer table, so simply keeping `this.tab` across a selection
@@ -380,10 +406,12 @@ export class InstrumentsView {
     else if (this.tab.startsWith("env")) this.renderEnv(inst, ENV_TABS[parseInt(this.tab.slice(3), 10)]);
     else if (this.tab === "pitch") this.renderEnv(inst, roleTabDef(inst, false));
     else if (this.tab === "filter") this.renderEnv(inst, roleTabDef(inst, true));
+    else if (this.tab === "pf") this.renderOnePf(inst);
     else if (this.tab === "zones") this.renderZones(inst);
     else if (this.tab === "meta") this.renderMeta(inst);
     else if (this.tab === "fm") this.renderFm(inst);
     else if (this.tab === "opl") this.renderOpl(inst);
+    else if (this.tab === "formant") renderFormantTab(this, inst);
     else if (this.tab === "metaopts") this.renderMetaOptions(inst);
   }
 
@@ -1138,6 +1166,25 @@ export class InstrumentsView {
     );
 
     this.group(t("inst.grpTuning"), this.detuneRow(inst));
+  }
+
+  /**
+   * The Pitch/Filter tab of an instrument with ONE pitch/filter slot: a
+   * Pitch | Filter switch for the slot's `m` bit first — the role is the
+   * first thing to know about this envelope, so it is read before the graph
+   * — then the envelope in that role. Switching keeps the nodes; they are
+   * read as the other role from then on.
+   */
+  renderOnePf(inst) {
+    const filter = ((inst.pfEnvLoop >>> 7) & 1) === 1;
+    const box = document.createElement("div");
+    box.className = "inst-rows env-role";
+    box.appendChild(this.selectRow(t("inst.pfRole"), filter ? 1 : 0,
+      [[0, t("inst.tabPitch")], [1, t("inst.tabFilter")]],
+      (v) => { if ((v === 1) !== filter) this.setEnvWordBit("pfEnvLoop", 7, v === 1); }));
+    box.firstChild.title = t("inst.pfRoleTitle");
+    this.panel.appendChild(box);
+    this.renderEnv(inst, onePfTabDef(inst));
   }
 
   renderEnv(inst, tabDef) {
@@ -2510,12 +2557,14 @@ function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
  *  you are looking at ("FM·4" is a patch; "FM·1" is a sample with extra steps). */
 /** Which tab an instrument opens on: its rack, its layer table, or General. */
 function metaTabKey(inst) {
-  return inst?.isFm ? "fm" : inst?.isMeta ? "meta" : inst?.isOpl ? "opl" : "general";
+  return inst?.isFm ? "fm" : inst?.isMeta ? "meta" : inst?.isOpl ? "opl"
+    : inst?.isFormant ? "formant" : "general";
 }
 
 function instKindBadge(inst) {
   if (inst.isFm) return `FM·${inst.metaLayers.length}`;
   if (inst.isOpl) return oplBadge(inst);
+  if (inst.isFormant) return formantBadge(inst);
   if (inst.isMeta) return "META";
   const patches = inst.extraPatches;
   if (!patches) return "";

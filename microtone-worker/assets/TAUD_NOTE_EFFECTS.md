@@ -1423,6 +1423,14 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 
 **Implementation.** Write `channel_pan = arg & $FF`. The mixer sums it with `note_pan` and the pan envelope (§3a) and applies the equal-energy law to the total: `left_gain = cos(π × position ÷ 512)`, `right_gain = sin(π × position ÷ 512)`, both before the global volume stage.
 
+## S $Afgr — Formant vowel
+
+**Plain.** On a formant instrument (a type-1 metainstrument), moves the vowel the note is singing: `$f` is its openness, `$g` its frontness and `$r` its roundness, each 0…F. Openness 0 is a close vowel like [i] or [u], F an open one like [a]; frontness 0 is the back edge of the vowel chart ([u] [o] [ɔ]), F its front edge ([i] [e] [ɛ]); roundness 0 is spread lips, F rounded. So `S $A0F0` is [i], `S $A00F` is [u], `S $AFA0` is [a], and `S $A8A0` sits near the middle of the chart. Written on the row that triggers the note, it is the note's vowel from the very start, consonants included; written later, the vowel glides there over the instrument's own glide time. The next note starts from the instrument's vowel again, so a sung text writes one on every syllable whose vowel differs from the instrument's. On any other instrument it does nothing.
+
+**Compatibility.** Taud only.
+
+**Implementation.** Openness = `$f × 17`, frontness = `$g × 17`, roundness = `$r × 17`, on the chart of TAUD_FILE_FORMAT.md §7.8. Before the voice's first control update — the trigger row — the vowel is set outright; otherwise it glides linearly from where it stands, restarting at every new `S $Afgr`, and the last step lands exactly on the target. Every voice sounding the note takes it, layer children included. See TAUD_ENGINE_SPEC.md §5.5.3.
+
 ## S $Bx00 — Pattern loop
 
 **Plain.** Sets a loop point and loops within a pattern. `S $B000` marks the current row as the loop start (per lane, not per song); `S $Bx00` with $x > 0 returns playback to the saved row and plays the intervening range `$x` more times (so `$B200` plays the loop twice total beyond the initial pass).

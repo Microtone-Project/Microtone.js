@@ -73,7 +73,8 @@ test("S is multiplexed — the sub-command nibble takes the OPCODE's ink", () =>
   assert.equal(map(fx("s"), 0x8040), "o111"); // S $80xx pan — 9-bit angle, one field
   assert.equal(map(fx("s"), 0xd123), "o123"); // S $Dxny delay, action, action delay
   assert.equal(map(fx("s"), 0xf0a0), "o.11"); // S $F0xx invert loop — 8-bit speed over a reserved nibble
-  assert.equal(map(fx("s"), 0xa000), "o111"); // undefined sub-command: one field
+  assert.equal(map(fx("s"), 0xa7c3), "o123"); // S $Afgr formant vowel: openness, frontness, roundness
+  assert.equal(map(fx("s"), 0x9000), "o111"); // undefined sub-command: one field
 });
 
 test("Z is multiplexed the same way", () => {

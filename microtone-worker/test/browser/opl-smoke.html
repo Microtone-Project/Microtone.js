@@ -51,8 +51,8 @@
         metaBtn.click();
         const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
         const cards = [...dlg.querySelectorAll(".kind-card")];
-        log(`kind chooser shows three cards, OPL last and enabled: ` +
-          ok(cards.length === 3 && !cards[2].disabled &&
+        log(`kind chooser shows four cards, OPL third and enabled: ` +
+          ok(cards.length === 4 && !cards[2].disabled &&
              cards[2].querySelector(".kind-card-name").textContent === "OPL instrument"));
         cards[2].click();
         const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
@@ -64,7 +64,7 @@
         await waitFor(() => iv.panel.querySelector(".opl-edit"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +
-          ok(tabs.join("|") === "OPL|General|Vol env|Pan env|Pitch|Filter" && iv.tab === "opl"));
+          ok(tabs.join("|") === "OPL|General|Vol env|Pan env|Pitch/Filter" && iv.tab === "opl"));
         const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
         log(`list badge "${badge()}": ${ok(badge() === "OPL")}`);
         const opGroups = () => iv.panel.querySelectorAll(".opl-op");
@@ -149,13 +149,21 @@
         const labels = [...iv.panel.querySelectorAll(".sl-label")].map((l) => l.textContent);
         log(`…a rate, no sample pointer: ${ok(labels.includes("Rate @C4") && !labels.includes("Sample ptr"))}`);
 
-        // ── the Pitch and Filter tabs both edit the one slot left ──
-        tabBtn("Pitch").click();
-        await waitFor(() => iv.tab === "pitch" && iv.envCanvas);
-        log(`Pitch tab paints its graph: ${ok(!!iv.panel.querySelector("canvas"))}`);
-        tabBtn("Filter").click();
-        await waitFor(() => iv.tab === "filter" && iv.envCanvas);
-        log(`Filter tab paints its graph: ${ok(!!iv.panel.querySelector("canvas"))}`);
+        // ── one Pitch/Filter tab for the one slot left, its role a switch ──
+        tabBtn("Pitch/Filter").click();
+        await waitFor(() => iv.tab === "pf" && iv.envCanvas);
+        const roleBtns = () => [...iv.panel.querySelectorAll(".env-role .sl-buttons button")];
+        log(`Pitch/Filter tab: a Pitch | Filter switch above the graph, Pitch lit: ` +
+          ok(roleBtns().map((b) => b.textContent).join("|") === "Pitch|Filter" &&
+             roleBtns()[0].classList.contains("active") && !!iv.panel.querySelector("canvas")));
+        roleBtns()[1].click();
+        await waitFor(() => ((inst().pfEnvLoop >>> 7) & 1) === 1);
+        await sleep(30);
+        log(`Filter sets the slot's m bit, and the header reads Filter env: ` +
+          ok(roleBtns()[1].classList.contains("active") &&
+             iv.panel.querySelector(".detail-info").textContent.startsWith("Filter env")));
+        store.undo.undo();
+        await waitFor(() => ((inst().pfEnvLoop >>> 7) & 1) === 0);
         const patchBefore = String([...inst().oplRaw]);
         const ops = await import("../../src/doc/ops.js");
         // Claim the filter role on slot 1 as the editor's first drag would.

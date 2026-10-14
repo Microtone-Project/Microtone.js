@@ -16,6 +16,7 @@ import {
 import { patchAt } from "./inst.js";
 import { isSoundingChild } from "./voice.js";
 import { applyPastNoteAction } from "./trigger.js";
+import { formantSetVowel } from "./formant.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL,
   applyPanSet, applyPanSlide, applyElevation, anglesFromSpatialArg,
@@ -496,6 +497,14 @@ export function applySEffect(eng, ts, voice, vi, arg) {
       }
       break;
     }
+    case 0xa:
+      // S $Afgr — on a voice sounding a formant instrument (item 212), the vowel: openness f,
+      // frontness g, roundness r. The note's whole tract hears it, layer
+      // children included; on any other instrument it does nothing.
+      forEachLayerTarget(ts, voice, vi, (v) => {
+        if (v.formant !== null) formantSetVowel(v.formant, x, (arg >>> 4) & 0xf, arg & 0xf);
+      });
+      break;
     case 0x8:
       // S$80xx — full 8-bit pan. A surround song reads one bit more (#998.1):
       // S$8xxx is a 9-bit angle, $000 left · $080 front · $100 right · $180

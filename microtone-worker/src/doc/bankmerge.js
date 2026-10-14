@@ -22,6 +22,7 @@ import { sampleSpans } from "./document.js";
 import {
   regionSpans, buildRegionPayload, MAX_REGION_CHANNELS,
 } from "./sampleregions.js";
+import { formantInstSpans, formantRecordSpans, retargetFormantRecord } from "./formantedit.js";
 import {
   metaLayers, metaRecordOf, defaultLayer, linkCount, repointLayer,
 } from "./metaedit.js";
@@ -102,6 +103,8 @@ export function bankInventory(srcDoc) {
     const inst = srcDoc.instruments[slot];
     const keys = new Set();
     if (!inst.isMeta && inst.sampleLength > 0) keys.add(sampleKey(inst.samplePtr, inst.sampleLength));
+    // A formant instrument's consonant slots cost pool bytes too (item 212).
+    for (const sp of formantInstSpans(inst)) keys.add(sampleKey(sp.ptr, sp.len));
     for (const p of inst.extraPatches ?? []) {
       // Both channels of a stereo patch cost pool bytes.
       if (p.sampleLength > 0) {
@@ -258,6 +261,7 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
   for (const srcSlot of ordered) {
     const inst = srcDoc.instruments[srcSlot];
     if (!inst.isMeta && inst.sampleLength > 0) wantKeys.push([inst.samplePtr, inst.sampleLength]);
+    for (const sp of formantInstSpans(inst)) wantKeys.push([sp.ptr, sp.len]);
     for (const p of inst.extraPatches ?? []) {
       if (p.sampleLength > 0) {
         // Each channel of a stereo patch is its own pool span and travels with
@@ -309,6 +313,9 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
 
     if (inst.isMeta) {
       remapMetaLayerSlots(rec, slotMap);
+    } else if (inst.isFormant) {
+      // Its pointers are the block's and the slots', not bytes 0…3 (§7.8).
+      retargetFormantRecord(rec, (ptr, len) => sampleMap.get(sampleKey(ptr, len)));
     } else {
       if (inst.sampleLength > 0) {
         const ptr = sampleMap.get(sampleKey(inst.samplePtr, inst.sampleLength));
@@ -882,6 +889,40 @@ export function planReplaceSample(destDoc, sample, { pcm, pcmR = null, rate, nam
   let clampedLoops = 0;
   for (const slot of destDoc.usedInstrumentSlots()) {
     const inst = destDoc.instruments[slot];
+    // A formant instrument (item 212) is bound by its source and by any consonant
+    // slot's noise; its pointers live in the block, its header where an
+    // ordinary record's pointer is. A slot's speed scales with the sample's
+    // rate, as the source's C4 rate does, so a resample keeps both in tune.
+    if (inst.isFormant) {
+      const record = destDoc.instRecordBytes(slot);
+      const spans = formantRecordSpans(record).filter((sp) => sp.ptr === sample.ptr && sp.len === oldLen);
+      if (spans.length === 0) continue;
+      userSlots.push(slot);
+      const u16 = (o, v) => { record[o] = v & 0xff; record[o + 1] = (v >>> 8) & 0xff; };
+      const u24 = (o, v) => { record[o] = v & 0xff; record[o + 1] = (v >>> 8) & 0xff; record[o + 2] = (v >>> 16) & 0xff; };
+      const scale = sample.rate > 0 ? newRate / sample.rate : 1;
+      const rateOf = (r) => Math.max(1, Math.min(0xffff, Math.round(r * scale)));
+      for (const sp of spans) {
+        u24(sp.at, newPtrs[0]);
+        if (sp.role === "source") {
+          const loopStart = mark(inst.sampleLoopStart);
+          const loopEnd = Math.max(loopStart, mark(inst.sampleLoopEnd));
+          if ((inst.loopMode & 3) !== 0 && loopEnd <= loopStart) clampedLoops++;
+          u16(4, newLen);
+          u16(6, rateOf(inst.samplingRate));
+          u16(8, mark(inst.samplePlayStart));
+          u16(10, loopStart);
+          u16(12, loopEnd);
+        } else {
+          const s = inst.formant.slots[sp.role];
+          u16(sp.at + 3, newLen);
+          u16(sp.at + 5, Math.min(newLen - 1, mark(s.offset)));
+          u16(sp.at + 7, rateOf(s.rate));
+        }
+      }
+      insts.push({ srcSlot: -(insts.length + 1), destSlot: slot, topLevel: true, record, ixmpBlob: null, ixmpCount: 0 });
+      continue;
+    }
     const baseHit = !inst.isMeta && bindsOld(inst);
     const patches = inst.extraPatches ?? [];
     const patchHits = patches.filter(bindsOld);

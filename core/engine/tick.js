@@ -13,6 +13,7 @@ import {
 } from "./tables.js";
 import { computePlaybackRate, startFastFade, startCutRamp } from "./sampler.js";
 import { oplKeyOn } from "./opl.js";
+import { formantRestart } from "./formant.js";
 import { refreshVoiceFilter } from "./filter.js";
 import { isSoundingChild } from "./voice.js";
 import {
@@ -953,4 +954,6 @@ function restartVoice(v) {
   // An OPL channel restarts the way the chip re-keys one: the attack begins
   // from wherever each envelope stands, the phase from zero (§5.5.2).
   if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, true);
+  // A voice sounding a formant instrument says its syllable again (item 212).
+  if (v.formant !== null) formantRestart(v.formant);
 }

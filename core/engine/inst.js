@@ -6,6 +6,11 @@
 import {
   OplPatch, decodeOplPatch, OPL_BLOCK_START, OPL_BLOCK_LEN,
 } from "./opl.js";
+import {
+  FormantPatch, decodeFormantBlock, FORMANT_BLOCK_START, FORMANT_BLOCK_LEN,
+  FORMANT_RECORD_HEADER, META_TYPE_FORMANT,
+} from "./formant.js";
+
 
 export function envPoint(value, offset = 0) {
   return { value, offset };
@@ -315,6 +320,14 @@ export const META_MAX_LAYERS = 25;
  *  its own voice, mixed in parallel (§7.4). */
 export const META_TYPE_LAYERED = 0;
 /**
+ * Type 1 — FORMANT (item 212): an ordinary instrument record whose sample is a
+ * glottal source played through a vocal tract (formant.js, §7.8). Like the OPL
+ * kind it has no table: bytes 0…3 are the header, the second pitch/filter slot
+ * carries the tract, and the source's pool pointer — which the header took —
+ * lives at the start of that block. `samplePtr` mirrors it, so everything that
+ * reads or moves an instrument's sample sees the source as the sample it is.
+ * `META_TYPE_FORMANT` itself is defined in formant.js.
+ *
  * Type 4 — FM (item 159): the layer table becomes an OPERATOR RACK and the
  * bytes after it carry an RPN program saying how the operators feed each other.
  * The rack is one voice, not `n` of them: operator 0 sounds on the lane and
@@ -542,6 +555,48 @@ export function buildOplRecord(block, {
 }
 
 /**
+ * A whole type-1 record around a 54-byte tract block (§7.8): the header, the
+ * source sample's fields where an ordinary sample's are, the block where the
+ * second pitch/filter envelope would be, and an ordinary instrument's neutral
+ * defaults elsewhere. `src` = {ptr, len, rate, playStart, loopStart, loopEnd,
+ * loopMode}; the block's own pointer bytes are overwritten with `src.ptr`.
+ * `fields` overrides the rest by name, as buildOplRecord's do.
+ */
+export function buildFormantRecord(block, src, {
+  detune = 0, nna = 0, fadeout = 0, pan = 0x80, percussion = false,
+  globalVolume = 0xff, noteVolume = 0xff,
+} = {}) {
+  const r = new Uint8Array(256);
+  for (let i = 0; i < 4; i++) r[i] = FORMANT_RECORD_HEADER[i];
+  const w16 = (o, v) => { r[o] = v & 0xff; r[o + 1] = (v >>> 8) & 0xff; };
+  w16(4, src.len ?? 0);
+  w16(6, src.rate ?? 0);
+  w16(8, src.playStart ?? 0);
+  w16(10, src.loopStart ?? 0);
+  w16(12, src.loopEnd ?? 0);
+  r[14] = ((src.loopMode ?? 1) & 0x07) | (percussion ? 0x10 : 0);
+  for (let i = 0; i < 25; i++) r[21 + 2 * i] = 0x3f;   // vol env nodes (absent)
+  for (let i = 0; i < 25; i++) r[71 + 2 * i] = 0x80;   // pan env nodes (absent)
+  for (let i = 0; i < 25; i++) r[121 + 2 * i] = 0x80;  // pitch/filter nodes (absent)
+  r[171] = globalVolume & 0xff;
+  r[172] = fadeout & 0xff;
+  r[173] = (fadeout >>> 8) & 0x0f;
+  r[177] = pan & 0xff;
+  r[178] = 0x00; r[179] = 0x50;                         // pitch-pan centre C4
+  r[182] = 0xff;                                        // filter open
+  const d = detune & 0xffff;
+  r[184] = d & 0xff; r[185] = (d >>> 8) & 0xff;
+  r[186] = (nna & 3) | (((nna >>> 2) & 1) << 5);
+  r[196] = noteVolume & 0xff;
+  r.set(block.subarray(0, FORMANT_BLOCK_LEN), FORMANT_BLOCK_START);
+  const p = src.ptr ?? 0;
+  r[FORMANT_BLOCK_START] = p & 0xff;
+  r[FORMANT_BLOCK_START + 1] = (p >>> 8) & 0xff;
+  r[FORMANT_BLOCK_START + 2] = (p >>> 16) & 0xff;
+  return r;
+}
+
+/**
  * 256-byte instrument record (terranmon.txt:2001+). See AudioAdapter.kt:5322-5376
  * for the full byte layout. Envelopes have LOOP (always-active wrap) and SUSTAIN
  * (key-on-only wrap) words; playback priority matches schismtracker sndmix.c.
@@ -617,6 +672,12 @@ export class TaudInst {
     // IN PLACE on every write, so a sounding voice hears an edit at once.
     this.oplRaw = null;
     this.opl = null;
+    // Formant instrument (type 1, item 212): the tract block's raw 54 bytes and its
+    // decoded form, or null for every other instrument. Updated in place, as
+    // OPL's is. Bytes 0…2 of the raw block are NOT authoritative — the source
+    // pointer is `samplePtr`, and the block reads it from there.
+    this.formantRaw = null;
+    this.formant = null;
 
     // Invert loop (S $F0xx) XOR bit-mask over the loop region.
     this.invertMask = null;
@@ -744,6 +805,8 @@ export class TaudInst {
   get isFm() { return this.metaLayers !== null && this.metaType === META_TYPE_FM; }
   /** True for a type-8 OPL instrument: the chip in place of the sample (§7.7). */
   get isOpl() { return this.opl !== null; }
+  /** True for a type-1 formant instrument: the sample through a vocal tract (§7.8). */
+  get isFormant() { return this.formant !== null; }
 
   get defaultCutoff16() {
     if (this.cutoffOverride >= 0) return this.cutoffOverride;
@@ -761,7 +824,9 @@ export class TaudInst {
   /** First Ixmp patch whose pitch+volume rectangle contains the trigger, else null. */
   resolvePatch(noteVal, rowVolume) {
     const patches = this.extraPatches;
-    if (patches === null) return null;
+    // An OPL instrument and a formant instrument have no keyboard map (§7.7, §7.8):
+    // a list a project carries for either is ignored on every path.
+    if (patches === null || this.opl !== null || this.formant !== null) return null;
     for (const p of patches) {
       if (noteVal >= p.pitchStart && noteVal <= p.pitchEnd &&
           rowVolume >= p.volumeStart && rowVolume <= p.volumeEnd) return p;
@@ -788,9 +853,13 @@ export class TaudInst {
     const sp = ((b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16)) + (b[3] & 0xff) * 0x1000000;
     if (((sp >>> 16) & 0xffff) === 0xffff && ((b[0] >>> 4) & 0x0f) === META_TYPE_OPL) {
       this.loadOplRecord(b);
+    } else if (((sp >>> 16) & 0xffff) === 0xffff && ((b[0] >>> 4) & 0x0f) === META_TYPE_FORMANT) {
+      this.loadFormantRecord(b);
     } else if (((sp >>> 16) & 0xffff) === 0xffff) {
       this.oplRaw = null;
       this.opl = null;
+      this.formantRaw = null;
+      this.formant = null;
       const type = (b[0] >>> 4) & 0x0f;
       const fm = type === META_TYPE_FM;
       const rawCount = (sp >>> 8) & 0xff; // byte 1 = layer / operator count
@@ -840,6 +909,8 @@ export class TaudInst {
       this.fmProgram = null;
       this.oplRaw = null;
       this.opl = null;
+      this.formantRaw = null;
+      this.formant = null;
       const n = Math.min(256, b.length);
       for (let i = 0; i < n; i++) this.setByte(i, b[i] & 0xff);
     }
@@ -858,6 +929,8 @@ export class TaudInst {
     this.metaType = META_TYPE_OPL;
     this.fmProgram = null;
     this.extraPatches = null;
+    this.formantRaw = null;
+    this.formant = null;
     const raw = new Uint8Array(OPL_BLOCK_LEN);
     for (let i = 0; i < OPL_BLOCK_LEN; i++) raw[i] = b[OPL_BLOCK_START + i] & 0xff;
     this.oplRaw = raw;
@@ -866,6 +939,37 @@ export class TaudInst {
     const n = Math.min(256, b.length);
     for (let i = 4; i < n; i++) {
       if (i >= OPL_BLOCK_START && i < OPL_BLOCK_START + OPL_BLOCK_LEN) continue;
+      this.setByte(i, b[i] & 0xff);
+    }
+    this.pf2EnvLoop = 0;
+    this.pf2EnvSustainWord = 0;
+    this.pf2Envelopes = makeEnv(0x80);
+  }
+
+  /**
+   * The type-1 branch of loadRecord: an ordinary record, except that bytes
+   * 0…3 are the header and bytes 197…250 are the tract block (§7.8), whose
+   * first three bytes are the source's pool pointer. An Ixmp list, if the
+   * project carries one for this slot, is uploaded afterwards as for any
+   * instrument: a patch replaces the source within its rectangle.
+   */
+  loadFormantRecord(b) {
+    this.metaLayers = null;
+    this.metaRaw = null;
+    this.metaStrict = false;
+    this.metaType = META_TYPE_FORMANT;
+    this.fmProgram = null;
+    this.extraPatches = null;
+    this.oplRaw = null;
+    this.opl = null;
+    const raw = new Uint8Array(FORMANT_BLOCK_LEN);
+    for (let i = 0; i < FORMANT_BLOCK_LEN; i++) raw[i] = b[FORMANT_BLOCK_START + i] & 0xff;
+    this.formantRaw = raw;
+    this.formant = decodeFormantBlock(raw, 0, this.formant ?? new FormantPatch());
+    this.samplePtr = this.formant.srcPtr;
+    const n = Math.min(256, b.length);
+    for (let i = 4; i < n; i++) {
+      if (i >= FORMANT_BLOCK_START && i < FORMANT_BLOCK_START + FORMANT_BLOCK_LEN) continue;
       this.setByte(i, b[i] & 0xff);
     }
     this.pf2EnvLoop = 0;
@@ -1050,6 +1154,16 @@ export class TaudInst {
   }
 
   getByteNormal(o) {
+    if (this.formant !== null) {
+      // A type-1 record (§7.8): the header, then the tract block with the
+      // source pointer — `samplePtr`, wherever an editor has moved it — first.
+      if (o <= 3) return FORMANT_RECORD_HEADER[o];
+      if (o >= FORMANT_BLOCK_START && o < FORMANT_BLOCK_START + FORMANT_BLOCK_LEN) {
+        const r = o - FORMANT_BLOCK_START;
+        if (r < 3) return (this.samplePtr >>> (8 * r)) & 0xff;
+        return this.formantRaw[r];
+      }
+    }
     if (this.opl !== null) {
       // A type-8 record (§7.7): the header where the sample pointer was, the
       // patch where the second pitch/filter envelope was.
@@ -1121,6 +1235,22 @@ export class TaudInst {
   }
 
   setByte(o, byte) {
+    if (this.formant !== null) {
+      if (o <= 3) return; // the header is the record's kind, not a field
+      if (o >= FORMANT_BLOCK_START && o < FORMANT_BLOCK_START + FORMANT_BLOCK_LEN) {
+        const r = o - FORMANT_BLOCK_START;
+        if (r < 3) {
+          const sh = 8 * r;
+          this.samplePtr = ((this.samplePtr & ~(0xff << sh)) | ((byte & 0xff) << sh)) >>> 0;
+          this.formantRaw[r] = byte & 0xff;
+        } else {
+          this.formantRaw[r] = byte & 0xff;
+        }
+        decodeFormantBlock(this.formantRaw, 0, this.formant);
+        this.formant.srcPtr = this.samplePtr;
+        return;
+      }
+    }
     if (this.opl !== null) {
       if (o <= 3) return; // the header is the record's kind, not a field
       if (o >= OPL_BLOCK_START && o < OPL_BLOCK_START + OPL_BLOCK_LEN) {

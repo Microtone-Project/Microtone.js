@@ -16,6 +16,7 @@ import { EffectOp } from "../../core/engine/tables.js";
 import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
 import { sampleSpans } from "./document.js";
 import { regionSpans } from "./sampleregions.js";
+import { formantRecordSpans } from "./formantedit.js";
 import { emptyPatternBytes } from "./patterntools.js";
 
 const PAT_MASK = 0x7fff;
@@ -189,6 +190,7 @@ function censusForSlots(instAt, slots, patchOverrides = null) {
     const inst = instAt(s);
     if (!inst) continue;
     if (!inst.isMeta) add(inst.samplePtr, inst.sampleLength);
+    if (inst.isFormant) for (const sl of inst.formant.slots) add(sl.ptr, sl.len);
     const patches = patchOverrides?.has(s) ? patchOverrides.get(s) : inst.extraPatches;
     if (patches) {
       for (const p of patches) {
@@ -836,8 +838,28 @@ export function planDeleteSample(doc, sample) {
   for (const s of doc.usedInstrumentSlots()) {
     const inst = doc.instruments[s];
     if (inst.isMeta) continue;
-    if (inst.samplePtr !== sample.ptr || inst.sampleLength !== sample.len) continue;
     const o = recOff(s);
+    // A formant instrument (item 212): its header is where an ordinary record's
+    // pointer is, so its source is cleared at the block, and a consonant slot
+    // sounding the sample loses its noise (the consonant itself stays).
+    if (inst.isFormant) {
+      let hit = false;
+      for (const sp of formantRecordSpans(image.subarray(o, o + 256))) {
+        if (sp.ptr !== sample.ptr || sp.len !== sample.len) continue;
+        hit = true;
+        if (sp.role === "source") {
+          image.fill(0, o + sp.at, o + sp.at + 3);
+          image.fill(0, o + 4, o + 6);
+          image.fill(0, o + 10, o + 14);
+          image[o + 14] &= ~0x07;
+        } else {
+          image.fill(0, o + sp.at, o + sp.at + 11); // pointer…gain; the id stays
+        }
+      }
+      if (hit) clearedInsts.push(s);
+      continue;
+    }
+    if (inst.samplePtr !== sample.ptr || inst.sampleLength !== sample.len) continue;
     image.fill(0, o, o + 6);       // 0..3 samplePtr, 4..5 sampleLength
     image.fill(0, o + 10, o + 14); // 10..11 loop start, 12..13 loop end
     image[o + 14] &= ~0x07;        // loop mode + sustain

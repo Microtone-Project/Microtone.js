@@ -521,6 +521,13 @@ export class Document {
         add(inst.samplePtr, inst.sampleLength, inst.samplingRate,
             inst.sampleLoopStart, inst.sampleLoopEnd, inst.loopMode, s);
       }
+      // A formant instrument (item 212) claims a noise sample per consonant slot
+      // besides its source; each is a sample of the census like any other.
+      if (inst.isFormant) {
+        for (const sl of inst.formant.slots) {
+          if (sl.len > 0) add(sl.ptr, sl.len, sl.rate, 0, 0, 0, s);
+        }
+      }
       const patches = patchOverrides?.has(s) ? patchOverrides.get(s) : inst.extraPatches;
       if (patches !== null) {
         for (const p of patches) {

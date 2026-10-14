@@ -94,7 +94,7 @@ export function plainFetchOnly(voice, inst) {
  * cheaper than a divide. Only for an integer byte; a crossfaded (fractional)
  * byte still takes the arithmetic.
  */
-const PCM_U8 = (() => {
+export const PCM_U8 = (() => {
   const t = new Float64Array(256);
   for (let b = 0; b < 256; b++) t[b] = (b - 127.5) / 127.5;
   return t;

@@ -21,6 +21,7 @@ import {
 import { applyVoiceFilter, applyTaudVoiceFx } from "./filter.js";
 import { renderFmVoice } from "./fm.js";
 import { renderOplVoice } from "./opl.js";
+import { renderFormantVoice } from "./formant.js";
 import { CHAN_MODE_MATRIX } from "./inst.js";
 import {
   spatialVoiceGains, analysisVoiceGains, voiceAzimuth, voicePanByte,
@@ -58,6 +59,17 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
   if (voice.opl !== null) {
     const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
       renderOplVoice(voice, ts.oplFrame + n)));
+    out[0] = s;
+    out[1] = s;
+    return out;
+  }
+  // A voice sounding a formant instrument (item 212) fetches its sample as any
+  // voice does and plays
+  // it through the tract; the filter, the voice FX and the gains then act on
+  // the tract's output as they act on a sample.
+  if (voice.formant !== null) {
+    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
+      renderFormantVoice(eng, voice, inst, interpMode)));
     out[0] = s;
     out[1] = s;
     return out;
