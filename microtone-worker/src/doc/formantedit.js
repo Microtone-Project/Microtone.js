@@ -16,7 +16,8 @@
 
 import {
   FORMANT_BLOCK_START, FORMANT_BLOCK_LEN, FORMANT_SLOTS, FORMANT_SLOT_BYTES, FB_SLOTS,
-  FB_FRONT, FB_OPEN, FB_ROUND, FB_TRACK, FB_REF, FB_GLIDE, FB_TIMING, FB_RANGE_LO, FB_RANGE_HI,
+  FB_FRONT, FB_OPEN, FB_ROUND, FB_TRACK, FB_REF, FB_GLIDE, FB_TIMING, FB_RANGE_LO, FB_RANGE_HI, FB_GR,
+  SEMIVOWELS,
   META_TYPE_FORMANT, FormantPatch, encodeFormantBlock, CONSONANTS, consonantNeedsNoise,
   vowelCoordsOf, vowelF1F2, vowelFormants, vowelAtPitch, noteHz, timingScale,
 } from "../../core/engine/formant.js";
@@ -94,7 +95,7 @@ export function formantFields(inst) {
   return {
     front: f.front, open: f.open, round: f.round,
     track: f.track, refNote: f.refNote, glide: f.glide, timing: f.timing,
-    rangeLo: f.rangeLo, rangeHi: f.rangeHi,
+    rangeLo: f.rangeLo, rangeHi: f.rangeHi, semivowel: f.semivowel, rhotic: f.rhotic,
     slots: f.slots.map((s) => ({ ...s })),
   };
 }
@@ -117,6 +118,11 @@ export function formantFieldBytes(key, value) {
 export function formantVowelBytes(front, open, round) {
   return [...formantFieldBytes("front", front), ...formantFieldBytes("open", open),
     ...formantFieldBytes("round", round)];
+}
+
+/** …the glide (G: 0 none, 1…4 SEMIVOWELS) and the r-colouring (R), one byte. */
+export function formantGrBytes(semivowel, rhotic) {
+  return [[B + FB_GR, ((semivowel | 0) & 7) | (rhotic ? 0x80 : 0)]];
 }
 
 /** …the pool range, [lo, hi). */
@@ -255,11 +261,19 @@ export function vowelEffectArg(front, open, round) {
   return 0xa000 | (n(open) << 8) | (n(front) << 4) | n(round);
 }
 
-/** The syllable a record says, in IPA: onset, nearest vowel mark, coda. */
+/** A vowel symbol r-coloured: [ə] and [ɜ] have letters of their own, any
+ *  other takes the rhotic hook. */
+export function rhoticIpa(ipa) {
+  return ipa === "ə" ? "ɚ" : ipa === "ɜ" ? "ɝ" : ipa + "\u02DE";
+}
+
+/** The syllable a record says, in IPA — CCGVRC: the onset, the glide, the
+ *  nearest vowel mark (r-coloured when R), the coda. */
 export function formantSyllable(inst) {
   const f = inst.formant;
   const c = (i) => CONSONANTS[f.slots[i].cons]?.ipa ?? "";
-  return c(0) + c(1) + (nearestVowelMark(f.front, f.open, f.round)?.ipa ?? "") + c(2);
+  const v = nearestVowelMark(f.front, f.open, f.round)?.ipa ?? "";
+  return c(0) + c(1) + (SEMIVOWELS[f.semivowel]?.ipa ?? "") + (v && f.rhotic ? rhoticIpa(v) : v) + c(2);
 }
 
 /** What the list badge says a formant instrument is. */

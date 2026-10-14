@@ -186,6 +186,29 @@
         log(`the census counts the onset's noise sample as this instrument's: ` +
           ok(doc.sampleList().some((e) => e.ptr === s0.ptr && e.len === s0.len && e.users.includes(slot))));
 
+        // ── the glide and the r-colouring: CCGVRC ──
+        {
+          const rowOf = (label) => [...iv.panel.querySelectorAll(".slider-row")]
+            .find((r) => r.querySelector(".sl-label")?.textContent === label);
+          const glide = await waitFor(() => rowOf("Glide"));
+          const btns = [...glide.querySelectorAll(".sl-buttons button")].map((b) => b.textContent);
+          log(`the Glide row offers ${btns.join(" ")}: ${ok(btns.join(" ") === "— j ɥ ɰ w")}`);
+          const ipaFont = win.getComputedStyle(glide.querySelector(".sl-buttons button")).fontFamily;
+          log(`…in the IPA face (${ipaFont}): ${ok(/Open Sans/.test(ipaFont))}`);
+          [...glide.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === "w").click();
+          await waitFor(() => inst().formant.semivowel === 4);
+          const rh = await waitFor(() => rowOf("R-colouring"));
+          [...rh.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === "r-coloured").click();
+          await waitFor(() => inst().formant.rhotic === true);
+          const read = await waitFor(() => iv.panel.querySelector(".fmt-readout")?.textContent);
+          log(`[w] and R set the record (G 4, R on) and the readout r-colours: "${read}": ` +
+            ok(inst().formant.semivowel === 4 && /F3 1711/.test(read) && /\u02DE\]|ɚ\]|ɝ\]/.test(read)));
+          const lit = [...(rowOf("Glide")?.querySelectorAll(".sl-buttons button.active") ?? [])].map((b) => b.textContent);
+          log(`…and the panel shows them lit (${lit.join(",")}): ${ok(lit.join() === "w")}`);
+          store.undo.undo(); store.undo.undo();
+          await waitFor(() => inst().formant.semivowel === 0 && !inst().formant.rhotic);
+        }
+
         // ── it sings: a jam note sounds, and its key-off speaks the coda ──
         await waitFor(() => store.audio, 15000);
         const audio = store.audio;

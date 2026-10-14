@@ -47,6 +47,9 @@ const SQUARE = { ptr: 0x8000, len: 8000, rate: 16000, loopStart: 0, loopEnd: 0, 
 /** The saw at a quarter of full scale, and a parabola — every harmonic, power
  *  falling as 1 ÷ k⁴, −12 dB per octave — both one cycle like the saw. */
 const QUIET_SAW = { ...SAW, ptr: 0x1800 };
+/** One cycle whose SECOND harmonic carries it, as a recorded [u] at its pitch
+ *  does: 0.4·h1 + h2 + 0.3·h3. */
+const H2SRC = { ...SAW, ptr: 0x1a00 };
 /** The saw at half scale riding on a DC offset of +0.31. */
 const OFFSET_SAW = { ...SAW, ptr: 0x1900 };
 const PARABOLA = { ...SAW, ptr: 0x1c00 };
@@ -60,6 +63,12 @@ function fillPool(bin) {
   for (let i = 0; i < SAW.len; i++) bin[SAW.ptr + i] = Math.round((255 * i) / (SAW.len - 1));
   for (let i = 0; i < SAW.len; i++) bin[QUIET_SAW.ptr + i] = Math.round(127.5 + (31.75 * (2 * i - SAW.len + 1)) / (SAW.len - 1));
   for (let i = 0; i < SAW.len; i++) bin[OFFSET_SAW.ptr + i] = Math.round(167.5 + (63.5 * (2 * i - SAW.len + 1)) / (SAW.len - 1));
+  {
+    const h = (t) => 0.4 * Math.sin(2 * Math.PI * t) + Math.sin(4 * Math.PI * t) + 0.3 * Math.sin(6 * Math.PI * t);
+    let m = 0;
+    for (let i = 0; i < SAW.len; i++) m = Math.max(m, Math.abs(h(i / SAW.len)));
+    for (let i = 0; i < SAW.len; i++) bin[H2SRC.ptr + i] = Math.round(127.5 + (127 * h(i / SAW.len)) / m);
+  }
   for (let i = 0; i < SAW.len; i++) {
     const x = (2 * i) / SAW.len - 1;
     bin[PARABOLA.ptr + i] = Math.round(127.5 + 127 * (3 * x * x - 1) / 2);
@@ -78,9 +87,10 @@ function fillPool(bin) {
 }
 
 function patchBytes({ front = 200, open = 255, round = 0, slots = [0, 0, 0], track = 64, timing = 128, glide = 20,
-  src = SAW, generator = false, gain = 0, range = [0, 0] } = {}) {
+  src = SAW, generator = false, gain = 0, range = [0, 0], semivowel = 0, rhotic = false } = {}) {
   const p = new F.FormantPatch();
   [p.rangeLo, p.rangeHi] = range;
+  p.semivowel = semivowel; p.rhotic = rhotic;
   p.srcPtr = src.ptr; p.front = front; p.open = open; p.round = round;
   p.track = track; p.timing = timing; p.glide = glide; p.refNote = 0x4000;
   slots.forEach((c, i) => {
@@ -245,10 +255,17 @@ test("the block encodes and decodes field for field", () => {
   Object.assign(p.slots[1], { cons: 54, ptr: 0x654321, len: 40000, offset: 1234, rate: 44100, tilt: -96, gain: 170 });
   const raw = F.encodeFormantBlock(p);
   assert.equal(raw.length, F.FORMANT_BLOCK_LEN);
-  assert.equal(raw[53], 0, "the block's last byte is reserved");
+  assert.equal(raw[F.FB_GR], 0, "no glide, not r-coloured");
   const q = F.decodeFormantBlock(raw, 0);
   assert.deepEqual({ ...q, slots: null }, { ...p, slots: null });
   assert.deepEqual(q.slots[1], p.slots[1]);
+  Object.assign(p, { semivowel: 4, rhotic: true });
+  const gr = F.encodeFormantBlock(p);
+  assert.equal(gr[F.FB_GR], 0x84, "G in bits 0–2, R in bit 7");
+  const q2 = F.decodeFormantBlock(gr, 0);
+  assert.deepEqual([q2.semivowel, q2.rhotic], [4, true]);
+  gr[F.FB_GR] = 0x07;
+  assert.equal(F.decodeFormantBlock(gr, 0).semivowel, 0, "a reserved glide code is none");
 });
 
 // ── the chart and the pitch rules ────────────────────────────────────────
@@ -566,6 +583,82 @@ test("a note that starts ahead of a quiet loop is held to the level by the loude
   const loop = render(fromLoop, [{ row: 0, note: 0x5000, inst: 1 }], ms(400));
   assert.ok(loop.ts.voices[0].formant.sg > 12, "the quiet loop alone is lifted ~24 dB");
   assert.ok(Math.abs(db(rms(loop.res, 100, 400)) - saw) < 1.5, `${db(rms(loop.res, 100, 400)).toFixed(2)} dB`);
+});
+
+test("R: an r-coloured vowel takes [ɝ]'s F3 — [ə] r-coloured is Hillenbrand's [ɝ] — and a front vowel is drawn back", () => {
+  const V = new Float64Array(5);
+  F.vowelFormants(128, 128, 0, V, true);
+  assert.deepEqual([...V].slice(1, 4).map(Math.round), [1379, 1711, 3335], "[ɚ]: Hillenbrand's [ɝ] F2 F3 F4");
+  const plain = F.vowelFormants(128, 128, 0, new Float64Array(5));
+  assert.equal(V[0], plain[0], "F1 is the vowel's own");
+  F.vowelFormants(255, 0, 0, V, true);
+  assert.equal(Math.round(V[2]), 1711);
+  assert.ok(V[1] <= (1711 * 1379) / 1711 + 1e-9, "[i] r-coloured: F2 under F3 in [ɝ]'s proportion");
+  F.vowelFormants(0, 0, 255, V, true);
+  assert.equal(Math.round(V[1]), 595, "[u]'s F2 is already under it");
+  // In the tract: F3 at [ɝ]'s for the size, and an edit to the record is
+  // heard on a sounding note.
+  const set = (on) => (eng) => {
+    const inst = eng.instruments[1];
+    inst.setByte(F.FORMANT_BLOCK_START + F.FB_GR, on ? 0x80 : 0);
+  };
+  const seen = {};
+  render(formantRecord({ front: 128, open: 128 }), [{ row: 0, note: 0x4000, inst: 1 }], ms(700), {
+    at: [[200, (eng) => { seen.before = eng.playheads[0].trackerState.voices[0].formant.F[2]; set(true)(eng); }],
+         [400, (eng) => { seen.after = eng.playheads[0].trackerState.voices[0].formant.F[2]; }]],
+  });
+  assert.equal(Math.round(seen.before), 2500);
+  assert.equal(Math.round(seen.after), 1711);
+});
+
+test("G: a glide starts on its semivowel's vowel and moves into the syllable's — after the onset, in its voicing", () => {
+  const C2 = (st) => [Math.round(st.F[0]), Math.round(st.F[1])];
+  const trace = (rec) => {
+    const at = {};
+    const hook = (t) => [t, (eng) => { at[t] = { F: Float64Array.from(eng.playheads[0].trackerState.voices[0].formant.F),
+      av: eng.playheads[0].trackerState.voices[0].formant.av, ph: eng.playheads[0].trackerState.voices[0].formant.phase }; }];
+    render(rec, [{ row: 0, note: 0x4000, inst: 1 }], ms(500), { at: [hook(15), hook(250), hook(70)] });
+    return at;
+  };
+  const a = F.vowelFormants(200, 255, 0, new Float64Array(5));
+  for (const sv of F.SEMIVOWELS.slice(1)) {
+    const g = trace(formantRecord({ semivowel: sv.code }));
+    const v = F.vowelFormants(sv.front, sv.open, sv.round, new Float64Array(5));
+    assert.deepEqual(C2({ F: g[15].F }), [Math.round(v[0]), Math.round(v[1])], `[${sv.ipa}] starts on [${sv.vowel}]`);
+    assert.ok(Math.abs(g[15].av - 0.4) < 1e-9, `[${sv.ipa}] in the approximant's voicing`);
+    assert.deepEqual(C2({ F: g[250].F }), [Math.round(a[0]), Math.round(a[1])], `…and reaches [a]`);
+  }
+  // With an onset consonant the glide waits for it: [k] first, then [w].
+  const kw = trace(formantRecord({ semivowel: 4, slots: [id("k"), 0, 0] }));
+  assert.equal(kw[15].ph, F.PHASE_ONSET, "the [k] is still being said at 15 ms");
+  assert.ok(kw[70].F[1] < 900, `then the [w]: F2 ${Math.round(kw[70].F[1])} Hz`);
+  // The editor spells it.
+  const inst = new TaudInst(1);
+  inst.loadRecord(formantRecord({ semivowel: 4, rhotic: true, slots: [id("k"), 0, id("n")] }));
+  assert.equal(formantSyllable(inst), "kwa\u02DEn");
+  inst.loadRecord(formantRecord({ front: 128, open: 128, semivowel: 1, rhotic: true }));
+  assert.equal(formantSyllable(inst), "jɚ");
+});
+
+test("a consonant's tract is normalised as it stands: a nasal coda after a tuned [i] does not ring over the vowel", () => {
+  // At C4 the [i]'s F1 is tuned onto the fundamental; its [ɴ] coda sweeps F1
+  // up across the second harmonic and opens the nasal pole — a tract far
+  // louder than the vowel's, which the vowel's correction alone let through.
+  for (const [coda, src] of [["ɴ", H2SRC], ["n", H2SRC], ["m", SAW], ["l", SAW]]) {
+    const rec = formantRecord({ front: 255, open: 0, slots: [0, 0, id(coda)], src });
+    const { res } = render(rec, [{ row: 0, note: 0x5000, inst: 1 }, { row: 4, note: 0x0001 }], ms(800));
+    let vp = 0, cp = 0;
+    for (let i = ms(200); i < ms(470); i++) vp = Math.max(vp, Math.abs(res[i]));
+    for (let i = ms(480); i < ms(700); i++) cp = Math.max(cp, Math.abs(res[i]));
+    assert.ok(cp < vp * 1.3, `[${coda}] coda peak ${cp.toFixed(3)} vs vowel ${vp.toFixed(3)}`);
+    assert.ok(rms(res, 480, 700) < rms(res, 200, 470), `[${coda}] coda quieter than the vowel`);
+  }
+  // …and a nasal onset enters its vowel without a burst.
+  const { res } = render(formantRecord({ front: 255, open: 0, slots: [id("m"), 0, 0] }), [{ row: 0, note: 0x5000, inst: 1 }], ms(600));
+  let op = 0, vp = 0;
+  for (let i = 0; i < ms(200); i++) op = Math.max(op, Math.abs(res[i]));
+  for (let i = ms(300); i < ms(600); i++) vp = Math.max(vp, Math.abs(res[i]));
+  assert.ok(op < vp * 1.3, `[m] onset peak ${op.toFixed(3)} vs vowel ${vp.toFixed(3)}`);
 });
 
 test("S $Afgr does nothing on an ordinary instrument", () => {

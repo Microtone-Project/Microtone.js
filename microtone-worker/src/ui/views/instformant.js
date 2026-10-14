@@ -24,11 +24,12 @@ import { setInstBytesOp, compositeOp } from "../../doc/ops.js";
 import {
   formantFields, formantFieldBytes, formantVowelBytes, formantRangeBytes, formantSlotBytes,
   formantSourceBytes, formantSourceFlagByte, slotFromRecipe, slotIsRecipe, VOWEL_MARKS, nearestVowelMark,
+  formantGrBytes, rhoticIpa,
   vowelEffectArg, vowelF1F2, vowelFormants, vowelCoordsOf, noteHz, timingScale, CONSONANTS,
 } from "../../doc/formantedit.js";
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
 import {
-  CONSONANT_LIST, consonantNeedsNoise,
+  CONSONANT_LIST, consonantNeedsNoise, SEMIVOWELS,
   MANNER_STOP, MANNER_AFFRICATE, MANNER_FRICATIVE, MANNER_ASPIRATE, MANNER_NASAL,
   MANNER_APPROX, MANNER_TAP, MANNER_TRILL, MANNER_GLOTTAL,
   PLACE_BILABIAL, PLACE_LABIODENTAL, PLACE_DENTAL, PLACE_ALVEOLAR, PLACE_POSTALVEOLAR,
@@ -440,12 +441,13 @@ export function renderFormantTab(view, inst) {
   // ── Vowel ──
   const readout = el("div", "fmt-readout");
   const paintReadout = () => {
-    const F = vowelFormants(vowel.front, vowel.open, vowel.round, new Float64Array(5));
+    const F = vowelFormants(vowel.front, vowel.open, vowel.round, new Float64Array(5), f.rhotic);
     const m = nearestVowelMark(vowel.front, vowel.open, vowel.round);
+    const ipa = m ? (f.rhotic ? rhoticIpa(m.ipa) : m.ipa) : "?";
     const arg = vowelEffectArg(vowel.front, vowel.open, vowel.round);
     const fx = "S\u00a0$" + arg.toString(16).toUpperCase().padStart(4, "0");
     readout.textContent = t("fmt.readout", {
-      f1: Math.round(F[0]), f2: Math.round(F[1]), f3: Math.round(F[2]), ipa: m?.ipa ?? "?", fx,
+      f1: Math.round(F[0]), f2: Math.round(F[1]), f3: Math.round(F[2]), ipa, fx,
     });
   };
   // A vowel edit carries the source chosen for the new vowel with it.
@@ -523,8 +525,19 @@ export function renderFormantTab(view, inst) {
     }
     return row;
   };
+  // The glide (G) and the r-colouring (R), between the onset and the coda —
+  // the syllable is CCGVRC.
+  const glideRow = view.selectRow(t("fmt.semivowel"), f.semivowel,
+    [[0, "—"], ...SEMIVOWELS.slice(1).map((sv) => [sv.code, sv.ipa])],
+    (v) => { if (v !== f.semivowel) apply(formantGrBytes(v, f.rhotic)); });
+  glideRow.classList.add("fmt-sv");
+  glideRow.title = t("fmt.semivowelTitle");
+  const rhoticRow = view.selectRow(t("fmt.rhotic"), f.rhotic ? 1 : 0,
+    [[0, t("fmt.rhoticOff")], [1, t("fmt.rhoticOn")]],
+    (v) => { if ((v === 1) !== f.rhotic) apply(formantGrBytes(f.semivowel, v === 1)); });
+  rhoticRow.title = t("fmt.rhoticTitle");
   view.group(t("fmt.grpSyllable"),
-    slotRow(0, "fmt.onset1"), slotRow(1, "fmt.onset2"), slotRow(2, "fmt.coda"),
+    slotRow(0, "fmt.onset1"), slotRow(1, "fmt.onset2"), glideRow, rhoticRow, slotRow(2, "fmt.coda"),
     el("p", "dim fmt-note", t("fmt.syllableNote")));
 
   // ── Pitch and timing ──

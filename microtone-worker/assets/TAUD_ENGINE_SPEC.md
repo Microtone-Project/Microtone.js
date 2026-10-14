@@ -546,7 +546,7 @@ An OPL voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)): its attack
 
 #### 5.5.3 Type 1 — formant instruments
 
-A **type-1** Metainstrument is a **formant instrument** ([File Format §7.8](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is a glottal source, played through a model of the vocal tract that sings it as one syllable — up to two consonants, a vowel, and a coda consonant spoken on the key-off. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter, the voice effects, the attack ramp and the whole gain chain — with the tract inserted between the sample fetch and the voice filter. A formant instrument resolves no Ixmp patch.
+A **type-1** Metainstrument is a **formant instrument** ([File Format §7.8](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is a glottal source, played through a model of the vocal tract that sings it as one syllable — up to two consonants, a glide, a vowel that may be r-coloured, and a coda consonant spoken on the key-off: CCGVRC. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter, the voice effects, the attack ramp and the whole gain chain — with the tract inserted between the sample fetch and the voice filter. A formant instrument resolves no Ixmp patch.
 
 The tract is Klatt's cascade/parallel formant synthesiser (D. H. Klatt, *Software for a cascade/parallel formant synthesizer*, JASA 67(3), 1980): a **cascade** of resonators carries everything voiced or aspirated, a **parallel** bank carries frication. Where Klatt's sources are an impulse train and a noise generator, a formant instrument's are samples: its own sample is the voicing, and each consonant slot names a span of the pool as its noise — or, naming none, has Klatt's noise generator after all. One output sample:
 
@@ -661,9 +661,9 @@ s   = f0 > 0 ? (f0 ÷ ref)^(size_tracking ÷ 256) : 1
 4. **Order.** For n = 2…5 in turn, Fn = max(Fn, 1.15 × F(n−1)). Then every formant is capped at 45% of the output rate.
 5. **Bandwidths** are Bn = max(Fn ÷ 10, 50 Hz) — Praat's vowel-editor Q of 10, with Klatt's 50 Hz floor for a close vowel.
 
-##### The vowel normaliser
+##### The tract normaliser
 
-The tract shapes the sound; it does not set its loudness. `NV` is what makes the source leave the cascade as loud as it entered, at this f0, the source being its measured harmonics `w(1…K)` ([above](#the-level)) and each harmonic's power weighted by the [equal-loudness weight](#equal-loudness) `E` at its frequency. Every **eighth** update (and at the first), with `H` the vowel's five cascade resonators (below) at the update's formants:
+The tract shapes the sound; it does not set its loudness. `NV` is what makes the source leave the cascade as loud as it entered, at this f0, the source being its measured harmonics `w(1…K)` ([above](#the-level)) and each harmonic's power weighted by the [equal-loudness weight](#equal-loudness) `E` at its frequency. `H` is the cascade **as configured** this update ([below](#the-tract)): the nasal pole, the nasal zero (the inverse of its resonator, so `|H|²` divides by that resonator's), F5…F1 — in the vowel the zero cancels the pole and `H` is the vowel's, in a consonant it is the consonant's tract with whatever its nasality has done to it. It is measured at the first update, at every **eighth** update in the vowel, and at **every** update in the onset and the coda, since a consonant's tract moves — a coda's F1 sweeping over a harmonic, a nasal's pole left uncancelled — and a consonant's level is meant to be its voicing track's alone:
 
 ```
 K'   = max(1, min(K, floor(0.45 × rate ÷ f0)))
@@ -671,7 +671,7 @@ P    = Σ k=1…K'  |H(k f0)|² × w(k) × E(k f0)        Pref = Σ k=1…K'  w(
 NVgoal = clamp(sqrt(Pref ÷ P), 1/256, 16)          (16 when P = 0; 1 when f0 is 0)
 ```
 
-`cos(k ω0)` and `sin(k ω0)` are stepped by rotation from `cos ω0`, `sin ω0` (ω0 = 2π f0 ÷ rate), and `cos 2kω0 = c² − s²`, `sin 2kω0 = 2sc`, in that order. At every update `NV` moves a quarter of the way to `NVgoal` across the update (`NVend = NV + (NVgoal − NV) × 0.25`); at the first it is `NVgoal` outright. The clamp's floor is deep because a fundamental tuned onto F1 is boosted 30 dB and more.
+`cos(k ω0)` and `sin(k ω0)` are stepped by rotation from `cos ω0`, `sin ω0` (ω0 = 2π f0 ÷ rate), and `cos 2kω0 = c² − s²`, `sin 2kω0 = 2sc`, in that order. At every update `NV` moves a quarter of the way to `NVgoal` across the update (`NVend = NV + (NVgoal − NV) × 0.25`) — except at the first, and in the onset or the coda when `NVgoal < NV`, when `NVend = NVgoal`: a resonance building up is met at once, while one ringing out still holds the energy it stored and is let go gently. The clamp's floor is deep because a fundamental tuned onto F1 is boosted 30 dB and more.
 
 ##### The consonants
 
@@ -798,16 +798,33 @@ A CODA starts on the vowel's values and ends in silence: every track but `w` clo
 
 ##### The syllable
 
-At a trigger the engine builds the syllable afresh from the record: the **onset** is slots 0 and 1, in that order, whichever of them name a defined consonant — built back to front, since each ends where the next starts — and the **coda** is slot 2. The note starts in its onset (or, with none, in its vowel) at time 0, with every filter of the tract at rest, singing the record's vowel. Each control update, in this order:
+At a trigger the engine builds the syllable afresh from the record: the **onset** is slots 0 and 1, in that order, whichever of them name a defined consonant — built back to front, since each ends where the next starts, the last on the glide's values when there is one — then the **glide** (below), and the **coda** is slot 2. The note starts in its onset (or, with none, in its vowel) at time 0, with every filter of the tract at rest, singing the record's vowel. Each control update, in this order:
 
 1. If the voice is note-fading and the coda has not begun, the coda is **vetoed** for this note.
 2. While in the onset and the current consonant's time has reached its end, its end is subtracted from the time and the next consonant starts (its noise reader too); after the last, the vowel.
 3. In the vowel, if the voice is keyed off, the coda is not vetoed and the record has one, the coda starts at time 0.
 4. In the coda, once its time reaches its end, the syllable is **over**: from then on the tract outputs 0, and the voice starts its sample-end ramp-out ([§12](#12-output-stage)).
-5. The vowel glide advances (below), the vowel is read at the pitch, `NV` updates, and the tract is configured.
-6. The time advances by `dt` — in the onset and the coda; the vowel has no clock.
+5. The vowel glide advances (below), the vowel is read at the pitch, the tract is configured, and `NV` updates for it.
+6. The time advances by `dt` — in the onset and the coda; the vowel has no clock. The glide's clock advances by `dt` in the vowel and the coda, and once it reaches the glide's end the glide is over.
 
 So **a key-off speaks the coda and ends the note**; a key-off during the onset waits for it, and a syllable with no coda goes on singing its vowel through its release. A key-off reaches the voice's envelopes and fadeout as on any instrument, at the same moment the coda starts: a fadeout or a release faster than the coda is heard cutting it short. A **note cut** ends the voice outright, and a **note fade** or **fast fade** fades the vowel without ever speaking the coda — a key-off that follows a fade does not bring it back. A note-off New Note Action keys off the ghost, which speaks its coda in the background while the lane starts the next syllable; a ghost carries a copy of the whole tract.
+
+##### The glide
+
+A record's glide G ([File Format §7.8](TAUD_FILE_FORMAT.md)) is built at the trigger from the approximant row of the same name (ids 83…86): with `k` the timing scale, `dur = row.dur × k` and `tr = row.trans × k`,
+
+| Track | Points | |
+|---|---|---|
+| `wG` | (0, 1) (dur, 1) (dur + tr, 0) | 1 on the semivowel, 0 on the vowel |
+| `avG` | (0, row.av) (dur, row.av) (dur + tr ÷ 2, 1) | the voicing |
+
+ending at `dur + tr`. Its clock starts at 0 and stands still through the onset, so the glide is held on its semivowel while the consonants are said and the last of them heads for it — its `nx.av` is `avG` at 0, its other next values 0. At each update with the glide not over, after the vowel is read at the pitch (with R), the **semivowel's** formants and bandwidths `FG`, `BG` are read the same way at its counterpart's chart point (never r-coloured), and with `g = wG(clock)`:
+
+```
+Fn = Fn × (FGn ÷ Fn)^g        Bn = Bn × (BGn ÷ Bn)^g          n = 1…5   (linear in log frequency)
+```
+
+That blended vowel is THE vowel for everything after it — the normaliser, an onset consonant's target, the coda's. In the vowel the voicing is `avG(clock)` across the update (`avG(clock + dt)` at its end) instead of 1. A sampled note handed a formant instrument ([§5.2](#5-2-note-events)) has no glide, its onset being long past; `Q`'s retrigger says the glide again with the syllable; an instrument change leaves a glide under way to finish as it started.
 
 ##### The tract
 

@@ -8856,6 +8856,7 @@ const FB_TIMING = 10;    // U8 consonant timing: scale = 2^((byte − 128) ÷ 64
 const FB_RANGE_LO = 11;  // U24 the pool range the instrument is made from (editor's)
 const FB_RANGE_HI = 14;  // U24 …its exclusive end
 const FB_SLOTS = 17;     // three consonant slots, 12 bytes each
+const FB_GR = 53;        // U8 the glide (bits 0–2) and rhoticity (bit 7): CCGVRC's G and R
 const FORMANT_SLOTS = 3; // onset C1, onset C2, coda C
 const FORMANT_SLOT_BYTES = 12;
 
@@ -8885,6 +8886,8 @@ class FormantPatch {
     this.refNote = 0x4000;
     this.glide = 20;
     this.timing = 128;
+    this.semivowel = 0;    // G: 0 none, 1 [j], 2 [ɥ], 3 [ɰ], 4 [w] (SEMIVOWELS)
+    this.rhotic = false;   // R: the vowel r-coloured
     this.rangeLo = 0;
     this.rangeHi = 0;
     this.slots = [new FormantSlot(), new FormantSlot(), new FormantSlot()];
@@ -8906,6 +8909,9 @@ function decodeFormantBlock(raw, off, patch = new FormantPatch()) {
   patch.timing = raw[off + FB_TIMING] & 0xff;
   patch.rangeLo = fu24(raw, off + FB_RANGE_LO);
   patch.rangeHi = fu24(raw, off + FB_RANGE_HI);
+  const gr = raw[off + FB_GR] & 0xff;
+  patch.semivowel = (gr & 7) <= 4 ? gr & 7 : 0;
+  patch.rhotic = (gr & 0x80) !== 0;
   for (let i = 0; i < FORMANT_SLOTS; i++) {
     const o = off + FB_SLOTS + i * FORMANT_SLOT_BYTES;
     const s = patch.slots[i];
@@ -8935,6 +8941,7 @@ function encodeFormantBlock(patch, out = new Uint8Array(FORMANT_BLOCK_LEN), off 
   out[off + FB_TIMING] = patch.timing & 0xff;
   p24(off + FB_RANGE_LO, patch.rangeLo);
   p24(off + FB_RANGE_HI, patch.rangeHi);
+  out[off + FB_GR] = (patch.semivowel & 7) | (patch.rhotic ? 0x80 : 0);
   for (let i = 0; i < FORMANT_SLOTS; i++) {
     const o = off + FB_SLOTS + i * FORMANT_SLOT_BYTES;
     const s = patch.slots[i];
@@ -9040,6 +9047,13 @@ function vowelCoordsOf(f1, f2, round = 0) {
   return [bx, bh];
 }
 
+/** R-colouring, from Hillenbrand et al. 1995's [ɝ] ("heard") for men, mean of
+ *  45: F1 475, F2 1379, F3 1711, F4 3335 Hz. Its F3 is the target, its F3 ÷ F2
+ *  the closest F2 may come under it, its F4 the ceiling for F4. */
+const RHOTIC_F3 = 1711;
+const RHOTIC_F2 = 1379;
+const RHOTIC_F4 = 3335;
+
 /**
  * The vowel's five formants at the reference pitch, into F (Hz). F1 and F2
  * from the cardinal vowels above. F3 rides above F2 — max(2500, F2 + 700)
@@ -9047,14 +9061,24 @@ function vowelCoordsOf(f1, f2, round = 0) {
  * 1995), closing in on F2 rounded, max(2200, F2 + 250), as French [y] and
  * Klatt's [u] have it — interpolated in log frequency by roundness. F4 and F5
  * are Praat's VowelEditor defaults, held clear above F3.
+ *
+ * R-coloured (`rhotic`), F3 falls to [ɝ]'s, F2 is held under it in [ɝ]'s
+ * proportion — a front vowel r-coloured is pulled back — and F4 under [ɝ]'s:
+ * [ə] r-coloured is Hillenbrand's [ɝ]. F1 is the vowel's own.
  */
-function vowelFormants(front, open, round, F) {
+function vowelFormants(front, open, round, F, rhotic = false) {
   vowelF1F2(front, open, round, f1f2);
-  const f1 = f1f2[0], f2 = f1f2[1];
+  const f1 = f1f2[0];
+  let f2 = f1f2[1];
   const f3u = Math.max(2500, f2 + 700);
   const f3r = Math.max(2200, f2 + 250);
-  const f3 = f3u * (f3r / f3u) ** (Math.min(Math.max(round, 0), 255) / 255);
-  const f4 = Math.max(3500, f3 + 400);
+  let f3 = f3u * (f3r / f3u) ** (Math.min(Math.max(round, 0), 255) / 255);
+  if (rhotic) {
+    f3 = Math.min(f3, RHOTIC_F3);
+    f2 = Math.min(f2, (f3 * RHOTIC_F2) / RHOTIC_F3);
+  }
+  let f4 = Math.max(3500, f3 + 400);
+  if (rhotic) f4 = Math.min(f4, RHOTIC_F4);
   const f5 = Math.max(4500, f4 + 500);
   F[0] = f1; F[1] = f2; F[2] = f3; F[3] = f4; F[4] = f5;
   return F;
@@ -9086,10 +9110,12 @@ function noteHz(note) {
  *  3. ORDER. Each formant is held at least 15% above the one below it, and
  *     none above 45% of the output rate.
  *
+ * `rhotic` r-colours the vowel (vowelFormants) before any of it.
+ *
  * Bandwidths are then F ÷ 10 (Praat's VowelEditor Q of 10) with a 50 Hz
  * floor (Klatt's B1 for a close vowel).
  */
-function vowelAtPitch(front, open, round, f0, refHz, track, F, B) {
+function vowelAtPitch(front, open, round, f0, refHz, track, F, B, rhotic = false) {
   const s = f0 > 0 && refHz > 0 ? (f0 / refHz) ** (track / 256) : 1.0;
   let o = open;
   const tuned = f0 > vowelF1At(front, open, round) * s;
@@ -9106,7 +9132,7 @@ function vowelAtPitch(front, open, round, f0, refHz, track, F, B) {
       o = (a + b) / 2;
     }
   }
-  vowelFormants(front, o, round, F);
+  vowelFormants(front, o, round, F, rhotic);
   for (let n = 0; n < 5; n++) F[n] *= s;
   if (tuned) F[0] = f0;   // exactly, whatever the bisection's last bit (and fully open, past it)
   const ceil = 0.45 * SAMPLING_RATE;
@@ -9290,6 +9316,21 @@ const CONSONANTS = (() => {
 
 /** Every defined consonant, in id order (for editors). */
 const CONSONANT_LIST = Object.freeze(ROWS.slice());
+
+/**
+ * The glides — CCGVRC's G: a semivowel is its vowel said without being the
+ * syllable's peak, so each starts ON its syllabic counterpart's chart point
+ * and glides into the vowel. Timing and voicing are the approximant's own row
+ * (`row`: its steady `dur`, its transition `trans`, its voicing `av`). By the
+ * record's code (FB_GR bits 0–2); 0 is none.
+ */
+const SEMIVOWELS = Object.freeze([
+  null,
+  Object.freeze({ code: 1, ipa: "j", vowel: "i", front: 255, open: 0, round: 0, row: 83 }),
+  Object.freeze({ code: 2, ipa: "ɥ", vowel: "y", front: 255, open: 0, round: 255, row: 86 }),
+  Object.freeze({ code: 3, ipa: "ɰ", vowel: "ɯ", front: 0, open: 0, round: 0, row: 84 }),
+  Object.freeze({ code: 4, ipa: "w", vowel: "u", front: 0, open: 0, round: 255, row: 85 }),
+]);
 
 /** Does this consonant read its slot's noise sample at all? */
 function consonantNeedsNoise(r) {
@@ -9699,6 +9740,10 @@ class FormantState {
     // change), it sings the RECORD's, read afresh every update — so an edit
     // is heard on a note already sounding.
     this.ownVowel = false;
+    // The glide (G), when the syllable has one: its semivowel, its two tracks
+    // (w: 1 at the semivowel, 0 at the vowel; av), its clock and its end.
+    this.sv = null; this.svW = null; this.svAv = null; this.svT = 0.0; this.svEnd = 0.0;
+    this.VG = new Float64Array(5); this.VGB = new Float64Array(5);
     this.rejoin = false;      // a re-latch glide: follow the record again after it
     this.vFront = 0.0; this.vOpen = 0.0; this.vRound = 0.0;
     this.gFront = 0.0; this.gOpen = 0.0; this.gRound = 0.0; // per-ms glide steps
@@ -9746,6 +9791,7 @@ function cloneFormantState(src, dst = new FormantState()) {
   dst.fresh = src.fresh;
   dst.upd = src.upd; dst.ctl = src.ctl; dst.normCount = src.normCount;
   dst.ownVowel = src.ownVowel; dst.rejoin = src.rejoin;
+  dst.sv = src.sv; dst.svW = src.svW; dst.svAv = src.svAv; dst.svT = src.svT; dst.svEnd = src.svEnd;
   dst.vFront = src.vFront; dst.vOpen = src.vOpen; dst.vRound = src.vRound;
   dst.gFront = src.gFront; dst.gOpen = src.gOpen; dst.gRound = src.gRound;
   dst.tFront = src.tFront; dst.tOpen = src.tOpen; dst.tRound = src.tRound;
@@ -9779,9 +9825,22 @@ function formantNoteOn(st, patch) {
     const r = CONSONANTS[patch.slots[i].cons];
     if (r !== undefined) rows.push([r, patch.slots[i]]);
   }
-  // Built back to front: each consonant ends where the next one starts.
+  // The glide, if any: on its semivowel for the approximant's steady time,
+  // then into the vowel over its transition, its voicing rising to the
+  // vowel's over the first half of that.
+  const sv = SEMIVOWELS[patch.semivowel] ?? null;
+  st.sv = sv; st.svT = 0.0;
+  if (sv !== null) {
+    const r = CONSONANTS[sv.row];
+    const dur = r.dur * k, tr = r.trans * k;
+    st.svEnd = dur + tr;
+    st.svW = new FormantTrack().at(0, 1).at(dur, 1).at(dur + tr, 0).close(st.svEnd, 0);
+    st.svAv = new FormantTrack().at(0, r.av).at(dur, r.av).at(dur + tr * 0.5, 1).close(st.svEnd, 1);
+  }
+  // Built back to front: each consonant ends where the next one starts — the
+  // last on the glide, when there is one.
   const segs = new Array(rows.length);
-  let nx = VOWEL_START;
+  let nx = sv !== null ? { av: st.svAv[1], ah: 0, af: 0, nz: 0 } : VOWEL_START;
   let next = null;
   for (let i = rows.length - 1; i >= 0; i--) {
     const [r, slot] = rows[i];
@@ -9853,6 +9912,7 @@ function formantRelatch(st, patch) {
  *  the vowel, with the coda ready — the note's onset was its sample's. */
 function formantStartAtVowel(st, patch) {
   formantNoteOn(st, patch);
+  st.sv = null;   // the glide, like the onset, is long past
   st.onset = [];
   st.seg = 0;
   st.phase = PHASE_VOWEL;
@@ -9992,22 +10052,22 @@ function bankNorm(bank, g) {
   return p > 0 ? Math.sqrt(G.ref / p) : 0.0;
 }
 
-const normCo = new Float64Array(15);
 
 /**
- * The vowel normaliser: what makes the source come out of the cascade as LOUD
+ * The tract normaliser: what makes the source come out of the cascade as LOUD
  * as it went in, at this f0 — so the tract shapes the sound and does not set
- * its loudness. The source is its harmonics as measured (sourceHarmonics,
- * w[1…K]), each weighted by the equal-loudness weight L at its frequency:
- * P = Σ |H(k·f0)|²·w(k)·L(k·f0) against Σ w(k)·L(k·f0), over the harmonics
- * below 45% of the rate. Clamped to −48…+24 dB.
+ * its loudness. `co` is the cascade as configured (formantControl's `casc`:
+ * the nasal pole, the nasal zero — the resonator it inverts — then F5…F1),
+ * so a consonant's tract is measured as it stands. The source is its
+ * harmonics as measured (sourceHarmonics, w[1…K]), each weighted by the
+ * equal-loudness weight L at its frequency: P = Σ |H(k·f0)|²·w(k)·L(k·f0)
+ * against Σ w(k)·L(k·f0), over the harmonics below 45% of the rate.
+ * Clamped to −48…+24 dB.
  */
-function vowelNorm(F, B, f0, w, wK) {
+function cascadeNorm(co, f0, w, wK) {
   if (!(f0 > 0)) return 1.0;
   const R = SAMPLING_RATE;
   const K = Math.max(1, Math.min(wK, Math.floor((0.45 * R) / f0)));
-  const co = normCo;
-  for (let n = 0; n < 5; n++) setRes(co, n * 3, F[n], B[n]);
   const w0 = (2 * Math.PI * f0) / R;
   const c1 = Math.cos(w0), s1 = Math.sin(w0);
   let ck = c1, sk = s1;
@@ -10015,11 +10075,12 @@ function vowelNorm(F, B, f0, w, wK) {
   for (let k = 1; k <= K; k++) {
     const c2 = ck * ck - sk * sk, s2 = 2 * sk * ck;
     let h = 1.0;
-    for (let n = 0; n < 5; n++) {
+    for (let n = 0; n < 7; n++) {
       const A = co[n * 3], b = co[n * 3 + 1], c = co[n * 3 + 2];
       const re = 1 - b * ck - c * c2;
       const im = b * sk + c * s2;
-      h *= (A * A) / (re * re + im * im);
+      const g = (A * A) / (re * re + im * im);
+      h *= n === 1 ? 1 / g : g;   // section 1, the nasal zero, inverts its resonator
     }
     const lw = w[k] * 10 ** (elwDb(k * f0, j) / 10);
     j = elwAt.j;
@@ -10284,14 +10345,21 @@ function formantControl(voice, st) {
   }
   const f0 = voiceF0(voice);
   const V = st.V, VB = st.VB;
-  const s = vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, noteHz(patch.refNote), patch.track, V, VB);
-  if (st.fresh || st.normCount <= 0) {
-    st.nvGoal = vowelNorm(V, VB, f0, st.hw, st.hwK);
-    st.normCount = NORM_EVERY;
+  const ref = noteHz(patch.refNote);
+  const s = vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, ref, patch.track, V, VB, patch.rhotic);
+  // The glide: from the semivowel to the vowel, in log frequency. Held on the
+  // semivowel through the onset, so the consonants head for it.
+  if (st.sv !== null) {
+    const gw = trackAt(st.svW, st.svT);
+    if (gw > 0) {
+      const sv = st.sv, VG = st.VG, VGB = st.VGB;
+      vowelAtPitch(sv.front, sv.open, sv.round, f0, ref, patch.track, VG, VGB);
+      for (let n = 0; n < 5; n++) {
+        V[n] *= (VG[n] / V[n]) ** gw;
+        VB[n] *= (VGB[n] / VB[n]) ** gw;
+      }
+    }
   }
-  st.normCount--;
-  const nvEnd = st.fresh ? st.nvGoal : st.nv + (st.nvGoal - st.nv) * 0.25;
-  if (st.fresh) st.nv = nvEnd;
 
   // The tract this update.
   const F = st.F, B = st.B;
@@ -10315,8 +10383,9 @@ function formantControl(voice, st) {
     segAmps(seg, st.t + dt, ampNext);
   } else {
     F.set(V); B.set(VB);
-    ampNow[0] = 1; ampNow[1] = 0; ampNow[2] = 0;
-    ampNext[0] = 1; ampNext[1] = 0; ampNext[2] = 0;
+    const gl = st.sv !== null;
+    ampNow[0] = gl ? trackAt(st.svAv, st.svT) : 1; ampNow[1] = 0; ampNow[2] = 0;
+    ampNext[0] = gl ? trackAt(st.svAv, st.svT + dt) : 1; ampNext[1] = 0; ampNext[2] = 0;
   }
   const ceil = 0.45 * SAMPLING_RATE;
   const casc = st.casc;
@@ -10343,6 +10412,23 @@ function formantControl(voice, st) {
     st.nb = bankNorm(bank, g);
   }
 
+  // The normaliser, for the cascade as it is configured this update — in a
+  // consonant at every update, since a consonant's tract moves (a coda's F1
+  // sweeping over a harmonic, a nasal's pole left uncancelled) and its level
+  // is meant to be its voicing track's alone, not whatever its tract makes of
+  // the vowel's correction; in the vowel every NORM_EVERY updates.
+  if (st.fresh || st.normCount <= 0 || st.phase !== PHASE_VOWEL) {
+    st.nvGoal = cascadeNorm(casc, f0, st.hw, st.hwK);
+    st.normCount = NORM_EVERY;
+  }
+  st.normCount--;
+  // Eased in a quarter of the way an update — except in a consonant when the
+  // goal FALLS: a resonance building up is met at once, while one ringing out
+  // (a goal rising) still holds the energy it stored and is let go gently.
+  const nvEnd = st.fresh || (st.phase !== PHASE_VOWEL && st.nvGoal < st.nv)
+    ? st.nvGoal : st.nv + (st.nvGoal - st.nv) * 0.25;
+  if (st.fresh) st.nv = nvEnd;
+
   // Ramps across the update.
   const inv = 1 / upd;
   st.av = ampNow[0]; st.avStep = (ampNext[0] - ampNow[0]) * inv;
@@ -10351,6 +10437,11 @@ function formantControl(voice, st) {
   st.nvStep = (nvEnd - st.nv) * inv;
   st.fresh = false;
   if (st.phase !== PHASE_VOWEL) st.t += dt;
+  // The glide's clock runs from the end of the onset; past its end it is done.
+  if (st.sv !== null && st.phase !== PHASE_ONSET) {
+    st.svT += dt;
+    if (st.svT >= st.svEnd) st.sv = null;
+  }
 }
 
 /** One cascade stage: y = A·x + B·y1 + C·y2. */

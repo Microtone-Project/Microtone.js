@@ -2252,7 +2252,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fmt-axis { fill: var(--dim); font-size: 9px; }
 .fmt-mark { cursor: pointer; outline: none; }
 .fmt-mark-dot { fill: var(--dim); }
-.fmt-mark-ipa, .fmt-slot-cons, .fmt-cons {
+.fmt-mark-ipa, .fmt-slot-cons, .fmt-cons, .fmt-sv .sl-buttons button {
   font-family: "Open Sans", sans-serif;
   font-variation-settings: "wdth" 100;
 }

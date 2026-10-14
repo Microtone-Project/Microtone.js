@@ -821,7 +821,7 @@ How the chip runs all of this — the envelope generator, the phase, the key sca
 
 ### 7.8 Metainstrument type 1 — formant instruments
 
-A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whose sample is a **glottal source** — the buzz a singer's vocal folds make — played through a model of the **vocal tract** that shapes it into a sung syllable: up to two consonants, a vowel, and a consonant spoken when the key is released. It is the fourth kind of the family defined in [§7.4](#7-4-metainstrument-records), and like the OPL kind it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-1 record **is an ordinary instrument record**, field for field: its sample fields describe the source, and its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato, filter and detune all mean exactly what [§7.1](#7-1-byte-map) says.
+A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whose sample is a **glottal source** — the buzz a singer's vocal folds make — played through a model of the **vocal tract** that shapes it into a sung syllable: up to two consonants, a glide, a vowel that may be r-coloured, and a consonant spoken when the key is released. It is the fourth kind of the family defined in [§7.4](#7-4-metainstrument-records), and like the OPL kind it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-1 record **is an ordinary instrument record**, field for field: its sample fields describe the source, and its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato, filter and detune all mean exactly what [§7.1](#7-1-byte-map) says.
 
 | Offset | Type | Field |
 |---|---|---|
@@ -855,9 +855,9 @@ Offsets are from byte 197.
 | +11 | `U24` | **Pool range**, start |
 | +14 | `U24` | Pool range, end, exclusive |
 | +17 | 12 bytes × 3 | **Consonant slots**: onset 1, onset 2, coda |
-| +53 | `U8` | **RESERVED**, 0 |
+| +53 | `U8` | **Glide and r-colouring**: bits 0–2 the glide G ([below](#the-glide-and-r-colouring)) — 0 none, 1 [j], 2 [ɥ], 3 [ɰ], 4 [w], 5–7 **RESERVED** and sounding as none; bit 7 R, the vowel r-coloured; bits 3–6 **RESERVED**, 0 |
 
-The **onset** is slots 0 and 1, in that order, whichever of them name a consonant; the **coda** is slot 2, spoken on a key-off. So a note is one syllable, CCVC at most.
+The **onset** is slots 0 and 1, in that order, whichever of them name a consonant; then the **glide** (byte +53), the **vowel**, r-coloured or not (byte +53 again); the **coda** is slot 2, spoken on a key-off. So a note is one syllable, CCGVRC at most.
 
 Each consonant slot:
 
@@ -904,7 +904,30 @@ F4 = max(3500, F3 + 400)      F5  = max(4500, F4 + 500)
 
 Spread, F3 rides above a front vowel's F2 as American English's do (Hillenbrand et al. 1995); rounded, it closes in on F2, as in French [y] and Klatt's [u]. The engine then moves the whole vowel with the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
 
+**R-coloured**, the vowel's F3 falls to that of an [ɝ] and F2 is held under it in an [ɝ]'s proportion — so a front vowel r-coloured is drawn back — with F4 held under an [ɝ]'s too. The [ɝ] is Hillenbrand et al.'s (1995, *heard*, the mean of 45 men: F1 475, F2 1379, F3 1711, F4 3335 Hz):
+
+```
+F3 = min(F3, 1711)      F2 = min(F2, F3 × 1379 ÷ 1711)      F4 = min(max(3500, F3 + 400), 3335)
+```
+
+applied before F4 and F5 are derived; F1 stays the vowel's own. [ə] r-coloured is that [ɚ]/[ɝ].
+
 An editor shows the vowel on **Lindsey's acoustic vowel chart** — the first formant down, the second right to left, both on a log scale, the plane Praat's vowel editor draws, on which Geoff Lindsey proposed a sound-based vowel chart to replace the IPA's quadrilateral — at the F1 and F2 these bytes sound. The tongue's square then maps to a region of that plane that moves with the lips.
+
+#### The glide and r-colouring
+
+The syllable's **G** is a semivowel between the onset and the vowel: a vowel said without being the syllable's peak. Each starts ON its syllabic counterpart's point of the chart, at that vowel's formants (unrounded or rounded as it is, never r-coloured), and glides into the syllable's vowel; its timing and its quieter voicing are those of the approximant of the same name in the consonant table ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
+
+| Code | Glide | Counterpart | Frontness, openness, roundness | Approximant id |
+|---|---|---|---|---|
+| 1 | [j] | [i] | 255, 0, 0 | 83 |
+| 2 | [ɥ] | [y] | 255, 0, 255 | 86 |
+| 3 | [ɰ] | [ɯ] | 0, 0, 0 | 84 |
+| 4 | [w] | [u] | 0, 0, 255 | 85 |
+
+The same four remain consonants too (ids 83…86), for a slot; as G they are the vowel's own glide, after the slots' consonants.
+
+**R** r-colours the vowel the whole note through, as [ɚ], [ɝ] or [a˞] are written ([above](#the-vowel)).
 
 #### Consonant ids
 
@@ -1367,4 +1390,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-06 | The volume envelope's `P` bit is read like every other envelope's: `P = 0` plays at unity whatever the nodes hold (it had been informational) |
 | 2026-10-11 | `PMtf` — Motif source: the Taud Motif Language program a project was built from, carried in the project |
 | 2026-10-14 | Metainstrument type 8 — OPL instruments: an ordinary record with a YM3812 / YMF262 channel in place of its sample, the patch in the second pitch/filter slot |
-| 2026-10-14 | Metainstrument type 1 — formant instruments: an ordinary record whose sample is a glottal source, a vocal tract (the vowel as tongue and lips, three consonant slots with their pool recipes or the engine's noise generator, the pitch rules) in the second pitch/filter slot |
+| 2026-10-14 | Metainstrument type 1 — formant instruments: an ordinary record whose sample is a glottal source, a vocal tract (the vowel as tongue and lips, the glide and r-colouring, three consonant slots with their pool recipes or the engine's noise generator, the pitch rules) in the second pitch/filter slot |
