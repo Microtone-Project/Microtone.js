@@ -11,6 +11,7 @@ import {
 } from "./trigger.js";
 import { applyKeyLift, envPresent, envCarry, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { startFastFade, startCutRamp } from "./sampler.js";
+import { OplState, oplKeyOn, oplReattack } from "./opl.js";
 import { applyEffectRow } from "./effects.js";
 
 /**
@@ -194,7 +195,7 @@ export function applyTrackerRow(eng, ts, playhead) {
         // slide has a sounding note to move — previously this only latched the
         // instrument and stayed silent (item 43; needs the same TSVM fix).
         applyDuplicateCheck(eng, ts, vi, row.instrment, voice.noteVal);
-        maybeSpawnBackgroundForNNA(eng, ts, voice, vi);
+        maybeSpawnBackgroundForNNA(eng, ts, voice, vi, row.instrment);
         const trigVol = row.volumeEff === 0 ? row.volume : -1;
         triggerMetaOrNote(eng, ts, voice, vi, voice.noteVal, row.instrment, trigVol);
       } else if (row.instrment !== 0 && !eng.instruments[row.instrment].isMeta) {
@@ -322,7 +323,7 @@ export function applyTrackerRow(eng, ts, playhead) {
         scheduleDxnyAction(voice, sArg, sDelayTick);
       } else {
         applyDuplicateCheck(eng, ts, vi, row.instrment, note);
-        maybeSpawnBackgroundForNNA(eng, ts, voice, vi);
+        maybeSpawnBackgroundForNNA(eng, ts, voice, vi, row.instrment);
         const trigVol = row.volumeEff === 0 ? row.volume : -1;
         triggerMetaOrNote(eng, ts, voice, vi, note, row.instrment, trigVol);
         scheduleDxnyAction(voice, sArg, sDelayTick);
@@ -369,6 +370,24 @@ import { applyActiveSample, rowVolumeFromDefault } from "./trigger.js";
 function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
                               reAttack = false, mayCarry = false) {
   applyActiveSample(voice, newInst, newPatch);
+  // An OPL voice takes the new patch onto the channel it is sounding, as a
+  // driver writes a patch change into a keyed channel; an instrument byte on a
+  // porta row then re-attacks its envelopes without restarting the phase — the
+  // OPL reading of "every envelope back to the start, the sample position
+  // kept" (§5.5.2). A change between the chip and a sample has no channel to
+  // carry: a sampled note starts a fresh channel, an OPL note a sampled read.
+  if (newInst.opl !== null && voice.opl !== null) {
+    voice.opl.patch = newInst.opl;
+    voice.opl.gen = -1;
+    if (reAttack) oplReattack(voice.opl);
+  } else if (newInst.opl !== null) {
+    // A sampled note handed an OPL instrument has no channel to carry: it
+    // gets a fresh one, keyed at the note it is already playing.
+    voice.opl = new OplState();
+    oplKeyOn(voice.opl, newInst.opl, false);
+  } else {
+    voice.opl = null;
+  }
   const seedVol = rowVolumeFromDefault(newInst, newPatch, ts.volMax);
   voice.noteVolume = seedVol;
   voice.rowVolume = seedVol;

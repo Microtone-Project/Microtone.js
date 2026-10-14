@@ -49,6 +49,7 @@ const ENGINE = [
   "core/engine/mastering.js",
   "core/engine/loudness.js",
   "core/engine/samplemod.js",
+  "core/engine/opl.js",
   "core/engine/inst.js",
   "core/engine/voice.js",
   "core/engine/state.js",
@@ -129,6 +130,29 @@ async function buildWorkletBundle() {
     }
   }
   if (missing.size > 0) throw new Error(`module(s) missing from WORKLET_BUNDLE:\n  ${[...missing].join("\n  ")}`);
+  // Sanity: the bundle is ONE scope. A top-level name two modules both declare
+  // is a SyntaxError when either is a const/let/class — reported nowhere inside
+  // AudioWorkletGlobalScope — and when both are function declarations it is not
+  // even that: the later one silently replaces the earlier for every caller, the
+  // earlier module's own included. (opl.js and envelope.js once both had an
+  // `advanceEnvelope`; bundled, every OPL voice ran the sampler's and was silent.)
+  // Module scope never shows it, so check here.
+  {
+    const owner = new Map();
+    const clashes = [];
+    for (const rel of WORKLET_BUNDLE) {
+      const src = await readFile(root + rel, "utf8");
+      const decl = /^(?:export\s+)?(?:async\s+)?(?:function\s*\*?\s*|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
+      for (const m of src.matchAll(decl)) {
+        const prev = owner.get(m[1]);
+        if (prev && prev !== rel) clashes.push(`${m[1]}: ${prev} and ${rel}`);
+        else owner.set(m[1], rel);
+      }
+    }
+    if (clashes.length > 0) {
+      throw new Error(`top-level name(s) declared by two bundled modules:\n  ${clashes.join("\n  ")}`);
+    }
+  }
   return out;
 }
 

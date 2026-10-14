@@ -36,8 +36,9 @@ import { emptyPattern } from "./compile.js";
 import { MotifError } from "./lexer.js";
 import { parse } from "./parser.js";
 import { Interp } from "./interp.js";
-import { stdlib } from "./stdlib.js";
+import { stdlib, stdlib2 } from "./stdlib.js";
 import { Score, musicBuiltins, musicHooks, dbOctet } from "./music.js";
+import { resolve } from "./phrase.js";
 import { compileScore } from "./compile.js";
 import { retune } from "./retune.js";
 
@@ -54,7 +55,7 @@ export const BUNDLED_SOUNDFONT = "GeneralUser GS";
  */
 export function evaluate(source, opts = {}) {
   const score = interpret(source, opts);
-  if (!score.song) throw new MotifError("the file declares no song: write song { … } after tml 1", { line: 1, col: 1 });
+  if (!score.song) throw new MotifError("the file declares no song: write song { … } after the tml line", { line: 1, col: 1 });
   if (!score.instruments.length) throw new MotifError("the song has no instruments: declare one with instrument NAME { bank: …, program: … }", { line: 1, col: 1 });
   if (!score.lanes.length) throw new MotifError("the song has no lanes: declare one with lane NAME { inst: … }", { line: 1, col: 1 });
   return score;
@@ -65,6 +66,7 @@ export function evaluate(source, opts = {}) {
  *  what that call wrote, each time it ran (the Motif view's preview). */
 export function interpret(source, { steps, depth, log = () => {}, capture = null } = {}) {
   const ast = parse(source);
+  if (ast.version >= 2) return interpret2(ast, { steps, depth, log, capture });
   const score = new Score({ log });
   const state = {
     random: () => score.random(),
@@ -77,6 +79,33 @@ export function interpret(source, { steps, depth, log = () => {}, capture = null
     score.capture = { lanes: new Map(), test: () => interp.stack.some((f) => f.pos?.offset === capture) };
   }
   interp.run(ast);
+  return score;
+}
+
+/**
+ * A TML 2 program: run it, which makes its music as a value; place that
+ * music (resolve: the cells placed for certain, then the fitted parts against
+ * them); and fill the score from it in time order.
+ */
+function interpret2(ast, { steps, depth, log, capture }) {
+  const score = new Score({ log, version: 2 });
+  const base = stdlib2({ seed: () => score.seed, log });
+  const builtins = new Map([...base, ...musicBuiltins(score, { version: 2, base })]);
+  const interp = new Interp({ builtins, hooks: musicHooks(score), steps, depth });
+  if (capture !== null) {
+    interp.captureAt = capture;
+    score.capture = { lanes: new Map(), test: () => interp.capturing > 0 };
+  }
+  interp.run(ast);
+  if (score.song) {
+    let cells;
+    try {
+      cells = resolve(score, interp.result, interp);
+    } catch (err) {
+      throw interp.wrap(err, ast.pos);
+    }
+    score.fill(cells);
+  }
   return score;
 }
 

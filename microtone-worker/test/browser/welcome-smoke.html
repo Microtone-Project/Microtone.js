@@ -37,7 +37,7 @@
         const host = doc.getElementById("welcomeHost");
         const shellOk = !host.hidden && win.__microtone.store.view === "timeline" &&
           doc.getElementById("timeline").hidden &&
-          host.querySelectorAll(".wc-panel").length === 4 &&
+          host.querySelectorAll(".wc-panel").length === 5 && !!host.querySelector(".wc-panel.wc-friends") &&
           !!host.querySelector(".wc-banner");
         log(`welcome screen up on boot, timeline canvas away: ${shellOk ? "ok" : "FAIL"}`);
 

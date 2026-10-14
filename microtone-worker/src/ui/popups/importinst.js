@@ -3,10 +3,10 @@
 // project via bankmerge.planImport + the invertible importBankOp. An .sf2 or
 // .bnk source gets a preset/patch picker instead: the chosen entries are
 // built into a .tsii bank by the canonical midi2taud/opl2taud machinery
-// (src/convert/sf2bank.py, src/convert/bnkbank.py, under Pyodide) at the
-// destination song's BPM, then merged through the same pipeline. A .bnk patch
-// becomes an ordinary two-operator FM rack — there is no song here to say
-// which of them, if any, were rhythm-mode drums.
+// (src/convert/sf2bank.py, src/convert/bnkbank.py, under Pyodide) — an .sf2 at
+// the destination song's BPM — then merged through the same pipeline. A .bnk
+// patch becomes a two-operator OPL instrument (Metainstrument type 8) — there is no
+// song here to say which of them, if any, were rhythm-mode drums.
 
 import { parseTaud } from "../../../core/format/taud-parse.js";
 import { SAMPLEBIN_SIZE } from "../../../core/format/taud-const.js";
@@ -304,9 +304,9 @@ export function importFromSf2(store, fileName, sf2Bytes) {
 
 /**
  * AdLib .BNK source: patch picker (name filter, All/None over visible rows)
- * → build a .tsii from the selection at the destination song's BPM via
- * opl2taud (each patch becomes an ordinary two-operator FM rack) → merge
- * every top-level slot of that bank. Resolves like the main popup.
+ * → build a .tsii from the selection via opl2taud (each patch becomes a
+ * two-operator OPL instrument) → merge every top-level slot of that bank.
+ * Resolves like the main popup.
  */
 export function importFromBnk(store, fileName, bnkBytes) {
   return new Promise((resolve) => {
@@ -399,8 +399,7 @@ export function importFromBnk(store, fileName, bnkBytes) {
       okBtn.disabled = true;
       errEl.hidden = true;
       try {
-        const bpm = store.doc.songs[store.songIndex ?? 0]?.bpm ?? 125;
-        const tsii = await buildBnkBank(bnkBytes, selection, { bpm, onStatus: status });
+        const tsii = await buildBnkBank(bnkBytes, selection, { onStatus: status });
         const src = new Document(parseTaud(tsii));
         const topLevel = src.usedInstrumentSlots().filter((s) => s <= 255);
         const plan = planImport(store.doc, src, topLevel);

@@ -1,7 +1,10 @@
 // The general builtins every TML program sees: numbers, lists, strings,
 // records, randomness. The music builtins live in music.js. Every one of these
-// is pure apart from the random stream (seeded, so a build is repeatable) and
-// print (which only writes to the build log).
+// is pure apart from TML 1's random stream (seeded, so a build is repeatable),
+// TML 1's list changers (push, pop, insert, remove) and print (which only
+// writes to the build log). TML 2 (stdlib2) has neither: its randomness is a
+// function of the song's seed and the keys a program gives, and its lists
+// never change.
 
 import {
   Builtin, Rec, Range, Closure, MotifError, asNumber, asInt, asString, asList, asRecord, asFunction,
@@ -31,6 +34,48 @@ export function noise2(a, b) {
   t = Math.imul(t ^ (t >>> 15), t | 1);
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return (((t ^ (t >>> 14)) >>> 0) / 4294967296) * 2 - 1;
+}
+
+/** One round of Mulberry32's mixing: the step TML 2's keyed randomness is
+ *  built from (TAUD_MOTIF_LANGUAGE.md §10). */
+export function mix32(t) {
+  t = (t + 0x6d2b79f5) >>> 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return (t ^ (t >>> 14)) >>> 0;
+}
+
+const KEY_NUMBER = 0x4e554d00; // "NUM\0"
+const KEY_STRING = 0x53545200; // "STR\0"
+const utf8 = new TextEncoder();
+
+/**
+ * TML 2's random(): a number in [0, 1) that depends on the song's seed and
+ * the keys, and on nothing else — the same keys always give the same number.
+ * A key is a whole number (−2³¹ … 2³²−1) or a string.
+ */
+export function keyedRandom(seed, keys) {
+  let h = seed >>> 0;
+  for (const k of keys) {
+    if (typeof k === "number") {
+      if (!Number.isInteger(k) || k < -2147483648 || k > 4294967295) {
+        throw fail(`a random key is a whole number (−2147483648…4294967295) or a string, not ${show(k)}`);
+      }
+      h = mix32(h ^ KEY_NUMBER);
+      h = mix32(h ^ (k >>> 0));
+    } else if (typeof k === "string") {
+      const b = utf8.encode(k);
+      h = mix32(h ^ KEY_STRING);
+      h = mix32(h ^ b.length);
+      for (let i = 0; i < b.length; i += 4) {
+        const w = (b[i] | ((b[i + 1] ?? 0) << 8) | ((b[i + 2] ?? 0) << 16) | ((b[i + 3] ?? 0) << 24)) >>> 0;
+        h = mix32(h ^ w);
+      }
+    } else {
+      throw fail(`a random key is a whole number or a string, not ${typeName(k)}`);
+    }
+  }
+  return mix32(h) / 4294967296;
 }
 
 function cmpValues(a, b) {
@@ -267,6 +312,83 @@ export function stdlib(state) {
   ];
   const out = new Map(fns.map((f) => [f.name, f]));
   out.set("PI", Math.PI);
+  return out;
+}
+
+/**
+ * TML 2's general builtins: stdlib's, with no list that changes, and with
+ * randomness that is a function of the song's seed and the keys given.
+ * @param state  {seed: () → the song's seed, log(line)}
+ */
+export function stdlib2(state) {
+  const out = stdlib({ random: () => 0, reseed: () => {}, log: state.log });
+  const call = (interp, f, args) => interp.call(f, args, null, null);
+  const changes = (name, instead) => new Builtin(name, "...values", () => {
+    throw fail(`TML 2 never changes a list once it is made, so it has no ${name}(): ${instead}`);
+  });
+  const rand = (keys, name) => {
+    if (!keys.length) {
+      throw fail(`${name}() in TML 2 needs a key: what the choice is for, as numbers and strings — ${name === "random" ? "random(\"swing\", bar)" : `${name}(…, "kick", bar)`} — the same keys always give the same answer`);
+    }
+    return keyedRandom(state.seed(), keys);
+  };
+  const fns = [
+    changes("push", "xs + [v] is a new list with v on the end"),
+    changes("pop", "xs[0..<len(xs) - 1] is the list without its last item, xs[-1] that item"),
+    changes("insert", "xs[0..<i] + [v] + xs[i..] is a new list with v at i"),
+    changes("remove", "xs[0..<i] + xs[i + 1..] is a new list without item i"),
+    new Builtin("seed", "n", () => {
+      throw fail("TML 2 has no seed(): the song's seed is song { seed: … }, and each random choice is keyed by what it is for — random(\"walk\", n)");
+    }),
+    new Builtin("random", "...keys", (_, ...keys) => rand(keys, "random")),
+    new Builtin("random_int", "lo, hi, ...keys", (_, lo, hi, ...keys) => {
+      const a = asInt(lo, "the low end"), b = asInt(hi, "the high end");
+      if (b < a) throw fail("random_int(lo, hi) needs lo ≤ hi");
+      return a + Math.floor(rand(keys, "random_int") * (b - a + 1));
+    }),
+    new Builtin("chance", "p, ...keys", (_, p, ...keys) => rand(keys, "chance") < asNumber(p, "the probability")),
+    new Builtin("choose", "xs, ...keys", (_, xs, ...keys) => {
+      const l = asList(xs, "choose()'s list");
+      if (!l.length) throw fail("choose() from an empty list");
+      return l[Math.floor(rand(keys, "choose") * l.length)];
+    }),
+    new Builtin("choose_weighted", "xs, weights, ...keys", (_, xs, ws, ...keys) => {
+      const l = asList(xs, "choose_weighted()'s list"), w = asList(ws, "the weights");
+      if (!l.length || l.length !== w.length) throw fail("choose_weighted() needs as many weights as items, and at least one");
+      const total = w.reduce((s, v) => s + Math.max(0, asNumber(v, "a weight")), 0);
+      if (!(total > 0)) throw fail("choose_weighted() needs a positive weight");
+      let r = rand(keys, "choose_weighted") * total;
+      for (let i = 0; i < l.length; i++) { r -= Math.max(0, w[i]); if (r < 0) return l[i]; }
+      return l[l.length - 1];
+    }),
+    new Builtin("shuffle", "xs, ...keys", (_, xs, ...keys) => {
+      const l = asList(xs, "shuffle()'s list").slice();
+      rand(keys, "shuffle");
+      for (let i = l.length - 1; i > 0; i--) {
+        const j = Math.floor(keyedRandom(state.seed(), [...keys, i]) * (i + 1));
+        [l[i], l[j]] = [l[j], l[i]];
+      }
+      return l;
+    }),
+    // ── building values in one go ──
+    new Builtin("scan", "xs, initial, f", (interp, xs, init, f) => {
+      asFunction(f, "scan()'s function");
+      const outList = [];
+      let acc = init;
+      for (const v of asList(xs, "scan()'s list")) { acc = call(interp, f, [acc, v]); outList.push(acc); }
+      return outList;
+    }),
+    new Builtin("with", "x, key, value", (_, x, k, v) => {
+      if (x instanceof Rec) return new Rec([...x.m, [asString(k, "the field"), v]]);
+      const l = asList(x, "with()'s list or record").slice();
+      asInt(k, "the index");
+      const i = k < 0 ? l.length + k : k;
+      if (i < 0 || i >= l.length) throw fail(`index ${k} is outside the list (it has ${l.length} items)`);
+      l[i] = v;
+      return l;
+    }),
+  ];
+  for (const f of fns) out.set(f.name, f);
   return out;
 }
 

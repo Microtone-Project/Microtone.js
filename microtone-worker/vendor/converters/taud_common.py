@@ -888,6 +888,112 @@ IXMP_CHAN_DISCRETE = 0       # XY stereo, 4-track quad — one channel per speak
 IXMP_CHAN_MATRIX   = 1       # M/S stereo, ambisonic B-format — decoded before panning
 
 
+# ── OPL instruments — Metainstrument type 8 (TAUD_FILE_FORMAT.md §7.7) ───────────
+#
+# An ordinary instrument record with one channel of a YM3812 / YMF262 where its
+# sample would be: the Metainstrument header in bytes 0…3, the C2SPD in the
+# rate field, and the patch in the 54 bytes an ordinary record spends on its
+# second pitch/filter envelope slot.  Every other field keeps its meaning, so a
+# converter builds an OPL instrument as it builds any other and then hands the
+# record to `make_opl_record`.  Used by opl2taud (AdLib banks, .ims, .sop) and by
+# s3m2taud / it2taud (Scream Tracker AdLib instruments, OpenMPT OPL samples).
+
+OPL_KIND_2OP, OPL_KIND_4OP, OPL_KIND_BD, OPL_KIND_SD, OPL_KIND_TOM, OPL_KIND_TC, \
+    OPL_KIND_HH = range(7)
+OPL_FLAG_DEEP_TREMOLO = 0x08    # register 0xBD bit 7
+OPL_FLAG_DEEP_VIBRATO = 0x10    # register 0xBD bit 6
+OPL_FLAG_NTS = 0x20             # register 0x08 bit 6
+OPL_FLAG_LOW_FNUM = 0x40        # Note's F-number range (343…685 a block)
+OPL_BLOCK_START = 197
+OPL_BLOCK_LEN = 54
+OPL_RECORD_HEADER = bytes([0x80, 0x00, 0xFF, 0xFF])
+#: The rate at which an OPL instrument sounds concert middle C at note $5000 — the
+#: tracker C2SPD convention, and OpenMPT's own AdLib mapping.
+OPL_C4_RATE = 8363
+
+
+def tracker_opl_gain(vol: int, total_level: int) -> float:
+    """A tracker volume 0…64 on an OPL voice → the linear gain the chip makes
+    of it, the way OpenMPT drives an S3M AdLib instrument or an IT/MPTM OPL
+    sample (soundlib/OPL.cpp `CalcVolume` over Sndmix.cpp's 0…63 scaling):
+    the carrier's level `63 − TL` scaled by `(v′ + 1) / 64` in whole 0.75 dB
+    total-level steps, v′ being the volume on 0…63.  It is no linear gain —
+    measured against openmpt123 (2026-10-14): 64 → 0 dB, 48 → −12, 32 → −23.3,
+    16 → −35.5, 0 → −47.5, not silence."""
+    v63 = min(63, (max(0, min(64, vol)) * 63 * 2 + 64) // 128)
+    if v63 >= 63:
+        return 1.0
+    t = v63 + 1 if v63 > 0 else 0
+    tl = total_level & 63
+    steps = (63 - ((63 - tl) * t) // 64) - tl
+    return 10.0 ** (-0.75 * steps / 20.0)
+
+
+def opl_block(kind: int, ops, *, feedback: int = 0, cnt_a: int = 0, cnt_b: int = 0,
+              partner_mult: int = 0, partner_detune: int = 0,
+              deep_tremolo: bool = False, deep_vibrato: bool = False,
+              nts: bool = False, low_fnum: bool = False) -> bytes:
+    """The 54-byte patch block.  `ops` are up to four operators, each the five
+    register bytes the chip takes for it: (0x20, 0x40, 0x60, 0x80, 0xE0)."""
+    b = bytearray(OPL_BLOCK_LEN)
+    b[0] = ((kind & 7) | (OPL_FLAG_DEEP_TREMOLO if deep_tremolo else 0)
+            | (OPL_FLAG_DEEP_VIBRATO if deep_vibrato else 0)
+            | (OPL_FLAG_NTS if nts else 0) | (OPL_FLAG_LOW_FNUM if low_fnum else 0))
+    b[1] = ((feedback & 7) << 1) | (cnt_a & 1)
+    b[2] = cnt_b & 1
+    b[3] = partner_mult & 0x0F
+    struct.pack_into('<h', b, 4, max(-32768, min(32767, int(partner_detune))))
+    for i, regs in enumerate(ops[:4]):
+        o = 6 + 5 * i
+        b[o] = regs[0] & 0xFF
+        b[o + 1] = regs[1] & 0xFF
+        b[o + 2] = regs[2] & 0xFF
+        b[o + 3] = regs[3] & 0xFF
+        b[o + 4] = regs[4] & 0x07
+    return bytes(b)
+
+
+def make_opl_record(base: bytes, block: bytes, rate: int = OPL_C4_RATE) -> bytes:
+    """Turn an ordinary 256-byte record into a type-8 one: the header where the
+    sample pointer was, the C2SPD as the rate, no sample geometry or loop, and
+    `block` in place of the second pitch/filter envelope slot.  Everything else
+    — envelopes, fadeout, NNA, pan, volumes, vibrato, detune — is kept."""
+    r = bytearray(base)
+    r[0:4] = OPL_RECORD_HEADER
+    struct.pack_into('<H', r, 4, 0)
+    struct.pack_into('<H', r, 6, rate & 0xFFFF)
+    struct.pack_into('<HHH', r, 8, 0, 0, 0)
+    r[14] &= 0x30                     # keep percussion and the azimuth MSB
+    r[OPL_BLOCK_START:OPL_BLOCK_START + OPL_BLOCK_LEN] = block
+    return bytes(r)
+
+
+def build_opl_record(block: bytes, *, rate: int = OPL_C4_RATE, detune: int = 0,
+                     nna: int = 1, percussion: bool = False, pan: int = 0x80,
+                     fadeout: int = 0, global_volume: int = 0xFF,
+                     note_volume: int = 0xFF) -> bytes:
+    """A whole type-8 record with an ordinary instrument's neutral defaults: no
+    envelopes, the filter open, centre pan, full volumes.  NNA defaults to Note
+    Cut, which on an OPL voice means a retrigger keys the same channel on again,
+    envelopes carried, as the chip does (TAUD_ENGINE_SPEC.md §5.5.2)."""
+    r = bytearray(256)
+    for i in range(25):
+        r[21 + 2 * i] = 0x3F
+        r[71 + 2 * i] = 0x80
+        r[121 + 2 * i] = 0x80
+    r[14] = 0x10 if percussion else 0
+    r[171] = global_volume & 0xFF
+    r[172] = fadeout & 0xFF
+    r[173] = (fadeout >> 8) & 0x0F
+    r[177] = pan & 0xFF
+    struct.pack_into('<H', r, 178, 0x5000)
+    r[182] = 0xFF
+    struct.pack_into('<h', r, 184, max(-32768, min(32767, detune)))
+    r[186] = (nna & 3) | (((nna >> 2) & 1) << 5)
+    r[196] = note_volume & 0xFF
+    return make_opl_record(bytes(r), block, rate)
+
+
 # "Perceptually Significant Octet to Decibel Table" → linear gain (octet → amplitude).
 # The canonical perceptual loudness curve shared by the engine (AudioAdapter.META_MIX_GAIN),
 # the Metainstrument layer mix volume, and the base/patch initialAttenuation octet.

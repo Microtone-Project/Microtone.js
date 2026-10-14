@@ -32,11 +32,17 @@ import { loadIntoEngine } from "../../core/audio/offline-render.js";
 import { TRACKER_CHUNK } from "../../core/engine/constants.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { patchIsStereo } from "../../core/engine/inst.js";
+import {
+  OPL_KIND_2OP, OPL_KIND_4OP, OPL_KIND_BD, OPL_KIND_SD, OPL_KIND_TOM, OPL_KIND_TC, OPL_KIND_HH,
+} from "../../core/engine/opl.js";
 import { unescapeName } from "../../core/format/names.js";
 import { IMS_BANK, IMS_SONG, IMS_SONG_12RPB, IMS_EVENTS, JOHAB_TITLE, makeIms, makeBnk, LOUD_OP } from "../fixtures/ims.js";
 import { SOP_SONG, SOP_SONG_RHYTHM, SOP_SONG_4OP, SOP_SONG_16RPB, SOP_SONG_VIB,
-         SOP_SONG_V02, SOP_BLIP, sopStray } from "../fixtures/sop.js";
+         SOP_SONG_V02, SOP_BLIP, sopStray, makeSop, sopPair } from "../fixtures/sop.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
+import { makeS3m, adlibPatch, SINE_PATCH, SQUARE } from "../fixtures/s3m.js";
+import { makeIt } from "../fixtures/it.js";
+import { renderSong } from "../../core/audio/offline-render.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const importDir = root + "test/corpus/import/";
@@ -786,7 +792,7 @@ test("bnkbank: list patches + build bank + merge into a project", () => {
   const sel = JSON.stringify([0, 1]);
   const tsii = runConverter(py, {
     script: BNKBANK_SOURCE,
-    argv: ["build", "/in.bnk", "/sel.json", "/out.tsii", "--bpm", "125"],
+    argv: ["build", "/in.bnk", "/sel.json", "/out.tsii"],
     inputs: [bnk, { path: "/sel.json", bytes: new TextEncoder().encode(sel) }],
     output: "/out.tsii",
     onLog: () => {},
@@ -794,7 +800,8 @@ test("bnkbank: list patches + build bank + merge into a project", () => {
   const src = new Document(parseTaud(tsii));
   assert.equal(src.kind, "tsii");
   const topLevel = src.usedInstrumentSlots().filter((s) => s <= 255);
-  assert.equal(topLevel.length, 2, "one rack slot per selected patch");
+  assert.equal(topLevel.length, 2, "one OPL instrument per selected patch");
+  for (const slot of topLevel) assert.ok(src.instruments[slot].isOpl);
   assert.equal(src.instrumentName(topLevel[0]), "LEAD");
   assert.equal(src.instrumentName(topLevel[1]), "bass");
 
@@ -807,6 +814,8 @@ test("bnkbank: list patches + build bank + merge into a project", () => {
   undo.apply(importBankOp(plan));
   const lead = plan.slotMap.get(topLevel[0]);
   assert.equal(dest.instrumentName(lead), "LEAD");
+  assert.ok(dest.instruments[lead].isOpl, "still an OPL instrument after the merge");
+  assert.equal(dest.instruments[lead].opl.feedback, 4, "…with its patch intact");
   undo.undo();
   assert.ok(Buffer.from(dest.toBytes()).equals(before), "undo byte-exact");
 });
@@ -1408,7 +1417,7 @@ test("buildArgv passes AdLib banks most-specific-first", () => {
     ["/in.ims", "/out.taud", "-v"]);
 });
 
-test("ims2taud: an AdLib song plus its bank → a playable FM-rack document", () => {
+test("ims2taud: an AdLib song plus its bank → a playable OPL-instrument document", () => {
   const bytes = convert("song.ims", { bytes: IMS_SONG, banks: [IMS_BANK] });
   const doc = parseTaud(bytes);
   assert.equal(doc.kind, "taud");
@@ -1426,18 +1435,23 @@ test("ims2taud: an AdLib song plus its bank → a playable FM-rack document", ()
   // convention names ride, since these titles are Korean by nature.
   assert.equal(unescapeName(doc.meta.projectName), "검은");
 
-  // Every patch the song names becomes a type-4 FM rack whose operators live
-  // in the auxiliary bin, and whose algorithm verifies (a rack whose program
-  // does not verify is silent, so a parsed fmProgram is the real check).
+  // Every patch the song names becomes a type-8 OPL instrument: the chip's own
+  // registers in place of a sample, nothing in the auxiliary bin and no pool.
   const d = new Document(doc);
-  const insts = d.instruments;
-  const racks = insts.filter((inst) => inst && inst.isMeta && inst.metaType === 4);
-  assert.ok(racks.length >= 2, `expected a rack per patch, got ${racks.length}`);
-  for (const rack of racks) {
-    assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0);
-    assert.ok(rack.metaLayers.length >= 2);
-    for (const op of rack.metaLayers) assert.ok(op.instIdx >= 256, "operators live in the aux bin");
+  const opls = d.instruments.filter((inst) => inst && inst.isOpl);
+  assert.equal(opls.length, 2, "one OPL instrument per patch");
+  for (const inst of opls) {
+    assert.equal(inst.opl.kind, OPL_KIND_2OP);
+    assert.equal(inst.isMeta, false, "no layer table to resolve");
+    assert.equal(inst.newNoteAction, 1, "a retrigger keys the same channel on, as the driver does");
   }
+  assert.ok(!d.instruments.slice(256).some((i) => i && (i.isOpl || i.sampleLength > 0)),
+    "nothing lives in the auxiliary bin");
+  // A bank's `connection` is the register bit the other way up: 1 is FM.
+  const lead = opls.find((i) => i.opl.feedback === 4);
+  assert.ok(lead, "LEAD's feedback 4 is register 0xC0's own");
+  assert.equal(lead.opl.cntA, 0);
+  assert.equal(lead.opl.ops[0].tl, 20, "the modulator's total level, bit for bit");
 });
 
 test("ims2taud: the converted song actually sounds", () => {
@@ -1498,7 +1512,7 @@ test("converterFor knows a .sop needs no bank", () => {
     ["/in.sop", "/out.taud", "-v"]);
 });
 
-test("sop2taud: an OPL3 tracker song → a playable FM-rack document", () => {
+test("sop2taud: an OPL3 tracker song → a playable OPL-instrument document", () => {
   const doc = parseTaud(convert("song.sop", { bytes: SOP_SONG }));
   assert.equal(doc.kind, "taud");
   assert.equal(doc.songs.length, 1);
@@ -1517,11 +1531,13 @@ test("sop2taud: an OPL3 tracker song → a playable FM-rack document", () => {
   assert.equal(doc.meta.songMeta[0].beatSec, 32);
 
   const d = new Document(doc);
-  const racks = d.instruments.filter((i) => i && i.isMeta && i.metaType === 4);
-  assert.equal(racks.length, 2, "one rack per instrument the song selects");
-  for (const rack of racks) {
-    assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0);
-    for (const op of rack.metaLayers) assert.ok(op.instIdx >= 256, "operators live in the aux bin");
+  const opls = d.instruments.filter((i) => i && i.isOpl);
+  assert.equal(opls.length, 2, "one OPL instrument per instrument the song selects");
+  for (const inst of opls) {
+    // Note starts every block at C on F-number 343, and the key scaling reads
+    // the block and the F-number, so the patch says which range it lives on.
+    assert.equal(inst.opl.lowFnum, true, "on Note's F-number range");
+    assert.equal(inst.opl.kind, OPL_KIND_2OP);
   }
   // §6: the credits share the instrument table with the instruments, and they
   // are the composer's own — unlike an .iss's four name fields, which hold tool
@@ -1551,43 +1567,51 @@ test("sop2taud: panning moves the LANE, not the note", () => {
   assert.deepEqual(pans.sort(), [0x00, 0xff], "hard left, then hard right");
 });
 
-test("sop2taud: a four-operator instrument becomes a four-operator rack", () => {
+test("sop2taud: a four-operator instrument becomes a four-operator OPL instrument", () => {
   // §3.3: Note joins a channel pair because the channel-mode table says so and
   // never because of the instrument. Both of the fixture's tracks select the
   // same type-0 instrument, but only track 0 is joined: there all four operators
-  // sound (Taud's rack holds sixteen operator entries, so nothing is dropped),
-  // and on track 1 the instrument's first operator pair plays alone.
+  // sound, and on track 1 the instrument's first operator pair plays alone.
   const doc = parseTaud(convert("wide.sop", { bytes: SOP_SONG_4OP }));
   const d = new Document(doc);
-  const rackOf = (lane) => d.instruments[laneCells(doc, lane).find((c) => c.inst !== 0).inst];
-  const wide = rackOf(0), narrow = rackOf(1);
-  for (const rack of [wide, narrow]) {
-    assert.ok(rack && rack.isMeta && rack.metaType === 4, "an FM operator rack");
-    assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0,
-              "a rack whose algorithm does not verify is silent");
-  }
-  assert.notEqual(wide, narrow, "one instrument, played two ways, is two racks");
-  // Four operators, plus the DC gate that carries the whole rack's envelope —
-  // with two to four operators reaching the output there is no single one whose
-  // envelope is the note's. Key banding may split an operator further.
-  assert.ok(wide.metaLayers.length >= 5,
-            `expected a gate and four operators, got ${wide.metaLayers.length}`);
-  assert.ok(narrow.metaLayers.length < wide.metaLayers.length,
-            "the unjoined track plays fewer operators than the joined one");
+  const instOf = (lane) => d.instruments[laneCells(doc, lane).find((c) => c.inst !== 0).inst];
+  const wide = instOf(0), narrow = instOf(1);
+  assert.ok(wide.isOpl && narrow.isOpl);
+  assert.notEqual(wide, narrow, "one instrument, played two ways, is two voices");
+  assert.equal(wide.opl.kind, OPL_KIND_4OP);
+  assert.equal(narrow.opl.kind, OPL_KIND_2OP);
+  // The two halves' CNT bits, 0 and 1: `1 → 2 → 3, and 4`.
+  assert.deepEqual([wide.opl.cntA, wide.opl.cntB], [0, 1]);
+  assert.equal(wide.opl.feedback, 3);
+  assert.equal(wide.opl.ops[3].ws, 5, "an OPL3 waveform, kept");
+  assert.equal(narrow.opl.ops[0].tl, wide.opl.ops[0].tl, "…and the narrow one is its first pair");
   assert.equal(doc.songs[0].numVoices, 2, "both tracks sound");
-  assert.ok(renderPeak(doc) > 0.02, "a four-operator rack that renders silence is a wrong algorithm");
+  assert.ok(renderPeak(doc) > 0.02, "a four-operator voice that renders silence is a wrong connection");
 });
 
 test("sop2taud: rhythm mode puts the drums on tracks 6…10", () => {
   // §4.1: the twenty tracks are not a flat list. In a percussive file slots
-  // 6…10 ARE the bass drum, snare, tom, cymbal and hi-hat, and three of those
-  // are not oscillators at all — the chip builds them out of bits of two
-  // accumulators — so they become rendered PCM rather than operator racks.
+  // 6…10 ARE the bass drum, snare, tom, cymbal and hi-hat — the chip's five
+  // rhythm-mode drums, each of which an OPL instrument can be.
   const doc = parseTaud(convert("drums.sop", { bytes: SOP_SONG_RHYTHM }));
   assert.equal(doc.songs[0].numVoices, 11, "one melodic track and the five drums");
   const d = new Document(doc);
-  const named = d.instruments.filter((i) => i).length;
-  assert.ok(named >= 6, `expected a slot per drum and the lead, got ${named}`);
+  const struck = (lane) => laneCells(doc, lane).find((c) => c.inst !== 0 && c.note >= 0x20);
+  const kinds = [6, 7, 8, 9, 10].map((lane) => d.instruments[struck(lane).inst].opl.kind);
+  assert.deepEqual(kinds, [OPL_KIND_BD, OPL_KIND_SD, OPL_KIND_TOM, OPL_KIND_TC, OPL_KIND_HH]);
+  for (const lane of [6, 7, 8, 9, 10]) {
+    assert.ok(d.instruments[struck(lane).inst].isPercussion, "a retuner leaves drums alone");
+  }
+  // Only the tom has a pitch of its own: the snare's channel — the hi-hat's —
+  // sits seven semitones above it and the cymbal shares it, whatever note the
+  // file wrote on those tracks.
+  const tom = struck(8).note;
+  assert.equal(struck(9).note, tom, "the cymbal on the tom's channel");
+  assert.equal(struck(7).note, struck(10).note, "the snare and the hi-hat share a channel");
+  assert.ok(Math.abs(struck(7).note - tom - 2389) < 40, "seven semitones above the tom, on Note's table");
+  const hh = d.instruments[struck(10).inst].opl, tc = d.instruments[struck(9).inst].opl;
+  assert.equal(hh.partnerDetune, tom - struck(10).note, "the hi-hat's partner is the tom's channel");
+  assert.equal(tc.partnerDetune, struck(7).note - tom, "…the cymbal's the snare's");
   const peak = renderPeak(doc);
   assert.ok(peak > 0.02, `converted SOP drums rendered silence (peak ${peak})`);
 });
@@ -1605,38 +1629,22 @@ test("sop2taud: sixteen rows a beat is a bar to the pattern", () => {
   assert.equal(words[words.length - 1], 0x0100, "a plain HALT ends it");
 });
 
-test("sop2taud: the chip's vibrato arrives at the chip's rate and depth", () => {
+test("sop2taud: the chip's vibrato is the patch's own bit, not an auto-vibrato", () => {
   // A YM3812 operator's `vib` bit opts into a shared LFO at 6.078 Hz and ±7
-  // cents. Both numbers reach the engine indirectly — the speed byte is a phase
-  // increment over 1024 steps per TICK, so its musical rate depends on the
-  // song's tempo, and the depth byte runs 0…255 for ±1 semitone — and both were
-  // derived wrongly at first: the result was a 0.80 Hz ±76 cent wobble, eight
-  // times too slow and eleven times too deep. That is what a "lazy" pitch bend
-  // sounds like, and this test is here so it cannot come back.
+  // cents. An OPL voice runs that LFO itself, on its playhead's chip clock, so
+  // the bit travels in the patch and the instrument's auto-vibrato stays off —
+  // when it was an auto-vibrato it once came out eight times too slow and
+  // eleven times too deep.
   const doc = parseTaud(convert("vib.sop", { bytes: SOP_SONG_VIB }));
-  const d = new Document(doc);
-  const ops = d.instruments
-    .filter((i) => i && i.isMeta && i.metaType === 4)
-    .flatMap((rack) => rack.metaLayers.map((l) => d.instruments[l.instIdx]))
-    .filter(Boolean);
-  const vibs = ops.filter((o) => o.vibratoDepth > 0 && o.vibratoSpeed > 0);
-  assert.ok(vibs.length >= 2, `premise: the patch sets vib on both operators (got ${vibs.length})`);
-  const ticksPerSecond = doc.songs[0].bpm * 2 / 5;
-  for (const o of vibs) {
-    // The engine's LFO phase is 1024 steps advanced by `speed` each tick.
-    const hz = ticksPerSecond * o.vibratoSpeed / 1024;
-    assert.ok(Math.abs(hz - 6.078) < 0.25, `vibrato at ${hz.toFixed(2)} Hz, want 6.078`);
-    // …and it scales the ±127 LFO by `depth × 43 >> 12` on the 4096-TET grid.
-    const cents = 1200 * (127 * o.vibratoDepth * 43 / 4096) / 4096;
-    assert.ok(Math.abs(cents - 7) < 1, `vibrato depth ±${cents.toFixed(1)} cents, want ±7`);
-    // The chip's LFO is free-running and always at full depth, so neither ramp
-    // may be set: FT2's sweep or IT's rate would swell every note in.
-    assert.equal(o.vibratoSweep, 0, "no FT2 sweep — the chip's LFO does not ramp in");
-    assert.equal(o.vibratoRate, 0, "no IT rate either");
+  const opls = new Document(doc).instruments.filter((i) => i && i.isOpl);
+  const vib = opls.find((i) => i.opl.ops[0].vib && i.opl.ops[1].vib);
+  const plain = opls.find((i) => !i.opl.ops[0].vib && !i.opl.ops[1].vib);
+  assert.ok(vib && plain, "one patch with the bit on both operators, one without");
+  assert.equal(vib.opl.deepVibrato, false, "the AdLib driver never sets the depth bit");
+  for (const i of opls) {
+    assert.equal(i.vibratoDepth, 0, "no auto-vibrato on an OPL instrument");
+    assert.equal(i.vibratoSpeed, 0);
   }
-  // The patch that does NOT ask for vibrato must not get any.
-  assert.ok(ops.some((o) => o.vibratoDepth === 0 || o.vibratoSpeed === 0),
-            "the plain patch should carry no vibrato");
 });
 
 /** One lane's cells in song order, as {note, inst, vol, op, arg}. A cue's rows
@@ -1645,7 +1653,9 @@ function laneCells(doc, lane) {
   const song = doc.songs[0];
   const out = [];
   for (const cue of song.cues) {
-    const pat = song.patterns[cue[lane]];
+    // The sign bit of a cue entry is one bit of an instruction word, not part
+    // of the pattern number.
+    const pat = song.patterns[cue[lane] & 0x7fff];
     if (!pat) continue;
     for (let r = 0; r < 64; r++) {
       const o = r * 8;
@@ -1727,10 +1737,42 @@ test("sop2taud: a control-track code on a sequenced track is read as Note reads 
   const [a, b] = [doc.songs[0], plain.songs[0]];
   assert.deepEqual([a.bpm, a.tickRate], [b.bpm, b.tickRate],
     "the control track's 157 sets the pace; track 0's 161 does nothing");
-  // The global volume lands as `V $xx00` where it was: 64 of 127 is $81 of $FF.
-  const v = laneCells(doc, 0).filter((c) => c.op === 31);
-  assert.deepEqual(v.map((c) => c.arg), [0x8100]);
-  assert.ok(!laneCells(plain, 0).some((c) => c.op === 31), "and only where the file put it");
+  // §5: a global volume scales every track's volume BEFORE the driver's
+  // total-level curve, so it lands in the lanes' volume columns. 64 of 127
+  // takes the note from volume 96 to 48, which the curve makes 39 total-level
+  // steps under full rather than 16 — 17 dB, not the 6 a linear `V` would.
+  assert.ok(!laneCells(doc, 0).some((c) => c.op === 31), "no V: it is not a linear gain");
+  const second = (cells) => cells.filter((c) => c.note >= 0x20)[1].vol & 0x3f;
+  const quiet = second(laneCells(doc, 0)), loud = second(laneCells(plain, 0));
+  const db = 20 * Math.log10(quiet / loud);
+  assert.ok(db < -15 && db > -21, `the second note ${db.toFixed(1)} dB under the plain song's`);
+});
+
+test("sop2taud: a tempo change takes the column a pan was in, and the pan waits", () => {
+  // Both tracks pan on the row the tempo changes, so every effect column is
+  // taken. A lost tempo puts the whole rest of the song out of time, and a pan
+  // that arrives a row late barely shows: the tempo wins.
+  const lead = sopPair({ mult: 1, eg: 1, attack: 15, tl: 20 }, { mult: 1, eg: 1, attack: 15 });
+  const song = makeSop({
+    title: "SOP CROWDED",
+    instruments: [{ type: 1, shortName: "LEAD", data: lead }],
+    tracks: [
+      [{ delta: 0, code: 6, value: 0 }, { delta: 0, code: 2, value: 60, length: 32 },
+       { delta: 8, code: 7, value: 2 }],
+      [{ delta: 0, code: 6, value: 0 }, { delta: 0, code: 2, value: 48, length: 32 },
+       { delta: 8, code: 7, value: 0 }],
+      ...Array.from({ length: 18 }, () => []),
+    ],
+    control: [{ delta: 0, code: 3, value: 120 }, { delta: 8, code: 3, value: 150 }],
+  });
+  const doc = parseTaud(convert("crowded.sop", { bytes: song }));
+  const lanes = [laneCells(doc, 0), laneCells(doc, 1)];
+  assert.ok(lanes.some((l) => l[8].op === 0x0a || l[8].op === 0x1d), "the tempo is on row 8");
+  for (const l of lanes) {
+    const pans = l.map((c, r) => [r, c]).filter(([, c]) => c.op === 28 && (c.arg & 0xff00) === 0x8000);
+    assert.equal(pans.length, 1, "each lane still pans, once");
+    assert.ok(pans[0][0] === 8 || pans[0][0] === 9, `on row 8 or the one after (${pans[0][0]})`);
+  }
 });
 
 test("sop2taud: a PCM instrument in a version-0.1 file is still refused", () => {
@@ -1742,28 +1784,171 @@ test("sop2taud: a PCM instrument in a version-0.1 file is still refused", () => 
   assert.throws(() => convert("v01.sop", { bytes: v01 }), /converter exited/);
 });
 
-test("ims2taud: a feedback patch gets a scaling operator, and the right one", () => {
-  // The feedback tap reads the modulator's rack entries, so it arrives already
-  // carrying the modulator's mix gain — which IS the modulation index. The
-  // residual scale is therefore 2^(fb−8), and it has to move whenever the index
-  // does. It read 2^(fb−7) while the index was halved; doubling the index
-  // without halving this made every feedback patch twice as gritty as the chip.
-  //
-  // At feedback 7 the old form came out at exactly 1.0 and the converter
-  // SKIPPED the scaling operator altogether, so the strongest setting was the
-  // one with no scaling at all. 2^(7−8) = 0.5, so it is always emitted now.
+test("ims2taud: a patch's feedback is the chip register's own", () => {
+  // A rack had to build feedback out of a z⁻¹ tap and a scaling operator, and
+  // got the scale wrong twice. An OPL instrument carries register 0xC0 as it is.
   const withFb = makeBnk([{ name: "FB", mod: { ...LOUD_OP, feedback: 7 }, car: LOUD_OP }]);
   const noFb = makeBnk([{ name: "FB", mod: { ...LOUD_OP, feedback: 0 }, car: LOUD_OP }]);
   const song = makeIms({ title: JOHAB_TITLE, events: IMS_EVENTS, names: ["FB", "FB"] });
-  const racks = (bank) => new Document(parseTaud(convert("fb.ims", { bytes: song, banks: [bank] })))
-    .instruments.filter((i) => i && i.isMeta && i.metaType === 4);
-  const a = racks(withFb), b = racks(noFb);
-  assert.ok(a.length && b.length, "both banks must yield a rack");
-  // The feedback rack carries one operator entry the plain one does not: the DC
-  // constant the tap is multiplied by.
-  assert.equal(a[0].metaLayers.length, b[0].metaLayers.length + 1,
-    `feedback 7 should add a scaling operator (${a[0].metaLayers.length} vs ${b[0].metaLayers.length})`);
-  for (const rack of [a[0], b[0]]) {
-    assert.ok(rack.fmProgram !== null && rack.fmProgram.length > 0);
-  }
+  const voice = (bank) => new Document(parseTaud(convert("fb.ims", { bytes: song, banks: [bank] })))
+    .instruments.find((i) => i && i.isOpl);
+  assert.equal(voice(withFb).opl.feedback, 7);
+  assert.equal(voice(noFb).opl.feedback, 0);
+});
+
+test("ims2taud: a patch change over a ringing note reaches it", () => {
+  // The driver writes a patch change into the channel whatever it is doing, so
+  // a note still releasing goes on releasing at the NEW patch's rate — a
+  // corpus bass drum with release 0 rings forever otherwise. An instrument
+  // byte with no note does the same to an OPL voice.
+  const events = [
+    0x00, 0xc0, 0x00,                  // channel 0 → patch 0
+    0x00, 0x90, 60, 100,               // C4
+    30, 0x80, 60, 0,                   // off: it releases
+    30, 0xc0, 0x01,                    // …and patch 1 is loaded under it
+    60, 0xfc,
+  ];
+  const song = makeIms({ title: JOHAB_TITLE, events, names: ["LEAD", "BASS"], totalTick: 240 });
+  const doc = parseTaud(convert("repatch.ims", { bytes: song, banks: [IMS_BANK] }));
+  const d = new Document(doc);
+  const swap = laneCells(doc, 0).find((c) => c.note === 0 && c.inst !== 0);
+  assert.ok(swap, "an instrument byte with no note");
+  assert.equal(d.instruments[swap.inst].opl.feedback, 0, "the BASS patch, not LEAD");
+  assert.equal(swap.vol >> 6, 0, "…restating the channel's volume, which the byte would re-seed");
+});
+
+test("ims2taud: a drum sounds at its channel's pitch", () => {
+  // ENGINE_SPEC §6 of the IMS library: only the bass drum and the tom carry a
+  // pitch of their own. The snare's channel — the hi-hat's too — is retuned to
+  // seven semitones above the tom whenever the tom changes, and the cymbal
+  // shares the tom's, whatever note the file wrote on those channels.
+  const bank = makeBnk([
+    { name: "TOM", mod: { ...LOUD_OP, multiple: 2 }, car: LOUD_OP },
+    { name: "SNARE", mod: { ...LOUD_OP, multiple: 3 }, car: LOUD_OP },
+    { name: "HIHAT", mod: { ...LOUD_OP, multiple: 5 }, car: LOUD_OP },
+    { name: "CYMBAL", mod: { ...LOUD_OP, multiple: 7 }, car: LOUD_OP },
+  ]);
+  const events = [
+    0x00, 0xc8, 0x00, 0x00, 0xc7, 0x01, 0x00, 0xca, 0x02, 0x00, 0xc9, 0x03,
+    0x00, 0x98, 60, 100,               // tom at C4 — chip note 48
+    0x00, 0x97, 30, 100,               // snare: its own note means nothing
+    0x00, 0x9a, 99, 100,               // hi-hat
+    0x00, 0x99, 10, 100,               // cymbal
+    60, 0xfc,
+  ];
+  const song = makeIms({ title: JOHAB_TITLE, events, percussive: true,
+                         names: ["TOM", "SNARE", "HIHAT", "CYMBAL"], totalTick: 240 });
+  const doc = parseTaud(convert("drums.ims", { bytes: song, banks: [bank] }));
+  const d = new Document(doc);
+  const hit = (lane) => laneCells(doc, lane).find((c) => c.note >= 0x20);
+  const tom = hit(8).note;
+  assert.equal(tom, 0x5000, "the tom plays its note");
+  assert.equal(hit(7).note, tom + 2389, "the snare, seven semitones up");
+  assert.equal(hit(10).note, tom + 2389, "the hi-hat on the snare's channel");
+  assert.equal(hit(9).note, tom, "the cymbal on the tom's");
+  const op = (lane) => d.instruments[hit(lane).inst].opl;
+  assert.equal(op(7).kind, OPL_KIND_SD);
+  assert.equal(op(7).partnerMult, 5, "the snare reads the hi-hat operator's accumulator");
+  assert.equal(op(10).partnerMult, 7, "the hi-hat the cymbal's");
+  assert.equal(op(9).partnerMult, 5, "the cymbal the hi-hat's");
+  assert.equal(op(10).partnerDetune, -2389);
+  assert.equal(op(9).partnerDetune, 2389);
+  assert.ok(renderPeak(doc) > 0.02);
+});
+
+// ── OPL instruments in S3M and IT (item 209) ─────────────────────────────────
+//
+// openmpt123 is the oracle for how these play: every figure below was measured
+// against it on the very bytes these fixtures write (2026-10-14).
+
+/** Mid-note RMS of a converted song, both channels averaged. */
+function midRms(doc) {
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, doc, 0);
+  const r = renderSong(eng, 1.5);
+  let l = 0, rr = 0;
+  for (let i = 24000; i < 72000; i++) { l += r.f32[2 * i] ** 2; rr += r.f32[2 * i + 1] ** 2; }
+  return (Math.sqrt(l / 48000) + Math.sqrt(rr / 48000)) / 2;
+}
+
+const FM_PATCH = adlibPatch({ mult: 1, tl: 18, ar: 15, dr: 3, sl: 5, eg: 0, ws: 2 },
+  { mult: 2, tl: 4, ar: 15, dr: 2, sl: 4, eg: 0 }, { feedback: 5 });
+
+test("s3m2taud: an AdLib instrument becomes an OPL instrument at its C2SPD", () => {
+  const song = makeS3m({
+    channels: [16],
+    instruments: [{ type: 2, patch: FM_PATCH, volume: 48, c2spd: 16726 }],
+    patterns: [[{ row: 0, ch: 0, note: 0x40, inst: 1 }]],
+  });
+  const d = new Document(parseTaud(convert("adlib.s3m", { bytes: song })));
+  const inst = d.instruments[1];
+  assert.ok(inst.isOpl, "a type-8 OPL instrument");
+  assert.equal(inst.opl.kind, OPL_KIND_2OP);
+  assert.equal(inst.samplingRate, 16726, "the C2SPD is the voice's rate");
+  assert.equal(inst.opl.feedback, 5);
+  assert.equal(inst.opl.ops[0].ws, 2, "D08: the modulator's wave");
+  assert.equal(inst.opl.ops[1].mult, 2, "D01: the carrier's multiplier");
+  assert.equal(inst.opl.ops[1].tl, 4, "D03: the carrier's level");
+  // Volume 48 scales the carrier's own 63 − 4 = 59 by 48/64 to 44: fifteen
+  // 0.75 dB steps down on the chip's curve, not 2.5 dB as a linear gain.
+  assert.equal(inst.defaultNoteVolume, Math.round(255 * 10 ** (-0.75 * 15 / 20)));
+});
+
+test("s3m2taud: ^^^ keys an AdLib channel off, and still cuts a sample", () => {
+  // OpenMPT: "OPL voices are not cut but enter the release portion of their
+  // envelope". A sample's ^^^ is the cut it always was.
+  const song = makeS3m({
+    channels: [0, 16],
+    instruments: [{ type: 1, data: SQUARE, loop: true }, { type: 2, patch: SINE_PATCH }],
+    patterns: [[
+      { row: 0, ch: 0, note: 0x40, inst: 1 }, { row: 0, ch: 1, note: 0x40, inst: 2 },
+      { row: 4, ch: 0, note: 254 }, { row: 4, ch: 1, note: 254 },
+    ]],
+  });
+  const doc = parseTaud(convert("offs.s3m", { bytes: song }));
+  assert.equal(laneCells(doc, 0)[4].note, 0x0002, "the sample is cut");
+  assert.equal(laneCells(doc, 1)[4].note, 0x0001, "the AdLib channel is keyed off");
+});
+
+test("s3m2taud: an AdLib volume goes through the chip's total-level curve", () => {
+  // openmpt123: volume 32 on a full-level carrier is 23.3 dB down.
+  const song = makeS3m({
+    channels: [16],
+    instruments: [{ type: 2, patch: SINE_PATCH }],
+    patterns: [[{ row: 0, ch: 0, note: 0x40, inst: 1, vol: 32 }]],
+  });
+  const cell = laneCells(parseTaud(convert("vol.s3m", { bytes: song })), 0)[0];
+  assert.equal(cell.vol, Math.round(63 * 10 ** (-23.25 / 20)), "SET, on the curve");
+});
+
+test("s3m2taud: an AdLib voice sits against a sample where OpenMPT puts it", () => {
+  // Both centred (an AdLib channel type is centred whatever the pan table
+  // says): openmpt123 puts a full-volume AdLib sine 5.40 dB under a full-scale
+  // square sample.
+  const insts = [{ type: 1, data: SQUARE, loop: true }, { type: 2, patch: SINE_PATCH }];
+  const one = (ch) => parseTaud(convert("bal.s3m", { bytes: makeS3m({
+    channels: [17, 16], instruments: insts,
+    patterns: [[{ row: 0, ch, note: 0x40, inst: ch + 1 }]] }) }));
+  const db = 20 * Math.log10(midRms(one(1)) / midRms(one(0)));
+  assert.ok(Math.abs(db + 5.40) < 0.3, `OPL ${db.toFixed(2)} dB against the sample, want −5.40`);
+});
+
+test("it2taud: an OpenMPT OPL sample becomes an OPL instrument, on OpenMPT's level", () => {
+  // An IMPS header with cvt 0x40 and twelve register bytes for a sample —
+  // what OpenMPT writes for an OPL instrument. openmpt123 puts it 2.90 dB
+  // under a full-scale square sample in an IT-structured file (its VSTV 48
+  // against an S3M's 36), and volume 32 on the same curve as an S3M's.
+  const smps = [{ data: SQUARE, loop: true }, { opl: FM_PATCH, c5: 8363 }];
+  const doc = parseTaud(convert("opl.it", { bytes: makeIt({ samples: smps, patterns: [[
+    { row: 0, ch: 0, note: 60, smp: 2, vol: 32 }]] }) }));
+  const d = new Document(doc);
+  assert.ok(d.instruments[2].isOpl);
+  assert.equal(d.instruments[2].opl.feedback, 5);
+  assert.equal(laneCells(doc, 0)[0].vol, Math.round(63 * 10 ** (-0.75 * 29 / 20)),
+    "volume 32 on a TL-4 carrier: 63 − 59·33/64 = 33, 29 total-level steps down");
+  const level = (smp) => midRms(parseTaud(convert("lvl.it", { bytes: makeIt({
+    samples: [{ data: SQUARE, loop: true }, { opl: SINE_PATCH }],
+    patterns: [[{ row: 0, ch: 0, note: 60, smp }]] }) })));
+  const db = 20 * Math.log10(level(2) / level(1));
+  assert.ok(Math.abs(db + 2.90) < 0.3, `OPL ${db.toFixed(2)} dB against the sample, want −2.90`);
 });

@@ -398,7 +398,7 @@ A cue is *empty* when every lane word is `$7FFF` and both instruction words are 
 
 Each instrument occupies 256 bytes in the instrument bin. Envelopes are described by three independent regions per envelope, and the record carries two pitch-or-filter envelope slots, which is what lets a single instrument hold both.
 
-If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a value no real sample pointer can take, since the 8 MiB pool caps pointers at `$7FFFFF` — the record is a **Metainstrument** and bytes 0…3 are reinterpreted per [§7.4](#7-4-metainstrument-records).
+If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a value no real sample pointer can take, since the 8 MiB pool caps pointers at `$7FFFFF` — the record is a **Metainstrument** and bytes 0…3 are reinterpreted per [§7.4](#7-4-metainstrument-records). One kind, the OPL instrument ([§7.7](#7-7-metainstrument-type-8-opl-instruments)), keeps this byte map for everything but its sample and its second pitch/filter slot.
 
 ### 7.1 Byte map
 
@@ -592,8 +592,11 @@ A **Metainstrument** is an instrument whose record carries a **table of other in
 |---|---|---|---|
 | 0 | **Layered** | a list of **layers** | every layer whose rectangle contains the trigger, **in parallel**, one voice each — [below](#type-0-layered) |
 | 4 | **FM Rack** | an **operator rack**, with an RPN algorithm packed after it | **one voice**: the value the algorithm produces — [§7.6](#7-6-metainstrument-type-4-fm-operator-racks) |
+| 8 | **OPL** | **absent** — the record is an ordinary instrument with an OPL patch where its sample would be | **one voice**: one channel of a YM3812 / YMF262 FM chip — [§7.7](#7-7-metainstrument-type-8-opl-instruments) |
 
 Every other value is **RESERVED**. A reader that does not know a type **MUST** treat the record as sounding nothing, not as type 0 — the table's *entries* have the same shape in every kind, but what they mean does not.
+
+Type 8 is the one kind with no table. Everything this section says about the header's byte 1 and about entries — the table below, the two rules after it, the Layered and rack semantics — is about the kinds that have one; a type-8 record's own layout is [§7.7](#7-7-metainstrument-type-8-opl-instruments).
 
 #### The header, and the table
 
@@ -625,7 +628,7 @@ The two remaining fields are the ones each kind reads its own way: in a Layered 
 
 Two rules hold for **every** kind:
 
-- **Recursion is forbidden.** An entry index **MUST** resolve to an ordinary instrument in `$001`…`$3FF`. An entry pointing at another Metainstrument, or at instrument 0, is skipped by the engine.
+- **Recursion is forbidden.** An entry index **MUST** resolve to an ordinary instrument in `$001`…`$3FF`. An entry pointing at another Metainstrument, or at instrument 0, is skipped by the engine. The one exception is the OPL kind, which holds no table and so cannot recurse: a **layer** of a type-0 record **MAY** name a type-8 instrument, and sounds it like any other. An **operator** of a type-4 rack **MUST NOT**: a rack reads its operators as waveforms, and an OPL voice is a channel, not a waveform — the engine skips it as it skips any other Metainstrument.
 - Entry indices are 10 bits, so a Metainstrument **MAY** name instruments in the auxiliary bin (`$100`…`$3FF`), which a pattern cell cannot reach.
 
 #### Type 0 — Layered
@@ -715,6 +718,105 @@ The strictness is deliberate. The tail of a 256-byte record is whatever the writ
 - **Operator 0 is the principal.** It sounds on the lane's own voice, so its envelope, its fadeout, its instrument global volume and its sample ending belong to the whole note; its own mix octet applies to its operand alone. A rack whose operator 0 is gated out, or points at nothing, sounds nothing.
 
 The rest of what the words mean at playback — the unit phase modulation is measured in, and what a rack costs the mixer — is the engine's business: [Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md).
+
+### 7.7 Metainstrument type 8 — OPL instruments
+
+A type-8 Metainstrument is an **OPL instrument**: one channel of a Yamaha YM3812 (OPL2) or YMF262 (OPL3) FM synthesis chip, sounding where an ordinary instrument sounds its sample. It is the third kind of the family defined in [§7.4](#7-4-metainstrument-records), and the one that does not fit its pattern: it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-8 record **is an ordinary instrument record**, field for field — its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato and detune all mean exactly what [§7.1](#7-1-byte-map) says. What the chip replaces is the sample.
+
+| Offset | Type | Field |
+|---|---|---|
+| 0 | `U8` | `$80` — type 8. The low nibble is **RESERVED** |
+| 1 | `U8` | **RESERVED**, 0 |
+| 2 | `U8` | Sentinel — **MUST** be `$FF` |
+| 3 | `U8` | Sentinel — **MUST** be `$FF` |
+| 4 | `U16` | **RESERVED**, 0 |
+| 6 | `U16` | The voice's **C2SPD**: the rate at which note `$5000` sounds middle C, read exactly as a sample's rate is. 8363 sounds concert C4, 261.63 Hz; 0 reads as 8363 |
+| 8 | `U16 × 3` | **RESERVED**, 0 |
+| 14 | `U8` | As [§7.1](#7-1-byte-map), except that the loop bits `pp` and `s` are **RESERVED** |
+| 15…196 | — | As [§7.1](#7-1-byte-map) |
+| 197 | `U8` | Kind and chip switches (below) |
+| 198 | `U8` | Channel A's register `$C0`: feedback in bits 1…3, connection in bit 0 |
+| 199 | `U8` | Channel B's register `$C0`, for a four-operator patch: connection in bit 0 |
+| 200 | `U8` | Rhythm partner's multiplier, bits 0…3 (below) |
+| 201 | `S16` | Rhythm partner's channel pitch, in 4096-TET units from the voice's own (below) |
+| 203 | `U8 × 5` | Operator 1: registers `$20`, `$40`, `$60`, `$80`, `$E0` |
+| 208 | `U8 × 5` | Operator 2 |
+| 213 | `U8 × 5` | Operator 3 |
+| 218 | `U8 × 5` | Operator 4 |
+| 223…250 | — | **RESERVED**, 0 |
+| 251…255 | — | As [§7.1](#7-1-byte-map) |
+
+The patch takes the place of the **second pitch/filter envelope slot**, so an OPL instrument has exactly one: bytes 19, 121 and 193, playing the pitch or the filter role as its `m` bit says. An OPL instrument has **no Ixmp patch list**: its sound is its one patch, and an `Ixmp` entry naming a type-8 instrument is **IGNORED**.
+
+#### Byte 197 — kind and chip switches
+
+```
+0b 0LNV Tkkk
+```
+
+| Bits | Field |
+|---|---|
+| `kkk` (0…2) | **Kind**: 0 = two operators, 1 = four operators, 2 = bass drum, 3 = snare drum, 4 = tom-tom, 5 = top cymbal, 6 = hi-hat. 7 is **RESERVED** and sounds nothing |
+| `T` (3) | Deep tremolo — register `$BD` bit 7: tremolo is 4.8 dB rather than 1 dB |
+| `V` (4) | Deep vibrato — register `$BD` bit 6: vibrato is 14 cents rather than 7 |
+| `N` (5) | NOTE SEL — register `$08` bit 6: which F-number bit the key-scale rate reads |
+| `L` (6) | **Low F-number range**: the chip is driven with F-numbers 343…685 a block rather than 512…1023 (below) |
+| 7 | **RESERVED** |
+
+The three chip switches are registers a real chip holds once for all its channels. A patch carries the setting it was voiced against, so that two patches meant for two different chips can share a song.
+
+`L` exists because a pitch can be written to the chip in more than one way — F-number 686 at block 3 and 343 at block 4 are the same frequency — and the chip's key scaling reads the block and the F-number, not the frequency. Most drivers write the lowest block whose F-number fits the register (512…1023), and that is what a clear `L` means. Note, the editor `.sop` files come from, starts every block at C on F-number 343; a patch voiced on it sets `L`.
+
+#### Operators
+
+Each operator is the five register bytes the chip takes for it, bit for bit:
+
+| Register | Bits |
+|---|---|
+| `$20` | AM (7), VIB (6), EGT (5, sustaining), KSR (4), MULT (0…3) |
+| `$40` | KSL (6…7), TL (0…5) |
+| `$60` | AR (4…7), DR (0…3) |
+| `$80` | SL (4…7), RR (0…3) |
+| `$E0` | Waveform (0…2), the YMF262's eight; bits 3…7 **RESERVED** |
+
+In the two `$C0` bytes, bits 4…7 — the chip's stereo switches, and channel B's feedback — are **RESERVED**: an OPL voice is panned like any other voice, and channel B's feedback has nowhere to act. An operator the kind does not play is **RESERVED**, and a writer **SHOULD** zero it.
+
+#### Kinds
+
+| Kind | Operators | How they connect |
+|---|---|---|
+| 0 two operators | 1, 2 | Channel A's connection: 0 = operator 1 modulates 2; 1 = the two are added. Channel A's feedback acts on operator 1 |
+| 1 four operators | 1…4 | The two connection bits pick one of four chains, below. Channel A's feedback acts on operator 1 |
+| 2 bass drum | 1, 2 | As kind 0, at **twice** a melodic channel's level |
+| 3 snare drum | 1 | A rhythm voice (below), twice the level |
+| 4 tom-tom | 1 | A plain operator with no feedback, twice the level |
+| 5 top cymbal | 1 | A rhythm voice, twice the level |
+| 6 hi-hat | 1 | A rhythm voice, twice the level |
+
+The four chains of a four-operator patch, by (channel A, channel B) connection:
+
+| A, B | Chain |
+|---|---|
+| 0, 0 | 1 → 2 → 3 → 4 |
+| 0, 1 | 1 → 2 → 3, and 4 |
+| 1, 0 | 1, and 2 → 3 → 4 |
+| 1, 1 | 1, and 2 → 3, and 4 |
+
+The five drums are the chip's rhythm mode, one instrument each. A single-operator drum is written in operator 1 whichever operator slot it occupies on the chip — the convention every AdLib bank follows.
+
+#### The rhythm partner
+
+The snare drum, top cymbal and hi-hat are not oscillators. The chip builds their phase out of single bits of **two** accumulators — the hi-hat operator's (channel 7's modulator) and the top cymbal operator's (channel 8's carrier) — and a noise register. On the chip each of those accumulators runs at its own channel's pitch and its own operator's multiplier, so a drum sounds the way it does partly because of a channel and an operator that are not its own. A rhythm voice's **note is its own channel's pitch** — channel 7 for the snare and hi-hat, channel 8 for the top cymbal — and bytes 200…202 supply the rest:
+
+| Kind | Byte 200 is the multiplier of | Bytes 201…202 are the pitch of |
+|---|---|---|
+| Snare drum | the hi-hat operator, which shares the snare's channel | — (**RESERVED**: the snare reads only channel 7) |
+| Top cymbal | the hi-hat operator | channel 7, from channel 8 |
+| Hi-hat | the top cymbal operator | channel 8, from channel 7 |
+
+The AdLib driver keeps channel 7 seven semitones above channel 8, which is `+2389` for the cymbal and `−2389` for the hi-hat. In every other kind bytes 200…202 are **RESERVED**.
+
+How the chip runs all of this — the envelope generator, the phase, the key scaling, the drums' phase equations, the clock it all keeps — is the engine's business: [Engine Specification §5.5.2](TAUD_ENGINE_SPEC.md).
 
 ## 8. `.tsii` and `.tpif`
 
@@ -1117,8 +1219,9 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - No pattern number in a cue exceeds `$7FFE` except the `$7FFF` sentinel.
 - Every `Ixmp` entry names a distinct instrument, and no two patches of one instrument have overlapping rectangles.
 - Every `sMst` entry names a distinct song, and its parameter block is at least as long as the record version it declares.
-- Every Metainstrument layer index resolves to an ordinary instrument in `$001`…`$3FF`.
+- Every Metainstrument layer index resolves to an ordinary instrument in `$001`…`$3FF`, or, in a type-0 record, to a type-8 one.
 - Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.6](#7-6-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
+- Every type-8 record's kind is 0…6, its reserved bytes are zero, and no rack names it as an operator ([§7.7](#7-7-metainstrument-type-8-opl-instruments)).
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
 
@@ -1146,3 +1249,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-09-15 | `PKey` — project keymap: the `.taudkey` layout the piece is written for, carried in the project |
 | 2026-10-06 | The volume envelope's `P` bit is read like every other envelope's: `P = 0` plays at unity whatever the nodes hold (it had been informational) |
 | 2026-10-11 | `PMtf` — Motif source: the Taud Motif Language program a project was built from, carried in the project |
+| 2026-10-14 | Metainstrument type 8 — OPL instruments: an ordinary record with a YM3812 / YMF262 channel in place of its sample, the patch in the second pitch/filter slot |

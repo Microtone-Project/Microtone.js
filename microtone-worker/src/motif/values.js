@@ -1,8 +1,9 @@
 // Taud Motif Language (TML) — values. What a TML program computes with: number
 // (a double), string, bool, none (null), list (a JS array), record (Rec),
-// function (Closure / Builtin), range (Range) and the opaque handles a host
-// adds (a lane, an instrument), which expose read-only fields. Plus the checks
-// every builtin uses to turn a wrong type into a sentence.
+// function (Closure / Builtin), range (Range), phrase (Phrase: music, in TML 2)
+// and the opaque handles a host adds (a lane, an instrument), which expose
+// read-only fields. Plus the checks every builtin uses to turn a wrong type
+// into a sentence.
 
 import { MotifError } from "./lexer.js";
 
@@ -64,6 +65,31 @@ export class Handle {
   constructor(kind, fields) { this.kind = kind; this.fields = fields; }
 }
 
+/**
+ * Music as a value (TML 2): the cells a phrase writes, by lane and row, and its
+ * fitted parts — the ones that can only be placed once the whole song is known
+ * (a vibrato that steps round effects, music under() the rest). It spans the
+ * rows [from, to). A phrase never changes; phrase.js makes new ones.
+ */
+export class Phrase {
+  /**
+   * @param cells  Map lane → Map row → cell (the fields a row writes)
+   * @param soft   [{lane, self, gen(view, interp) → Phrase | null, cap, pos, trace}]
+   */
+  constructor(cells, soft, from, to) {
+    this.cells = cells;
+    this.soft = soft;
+    this.from = from;
+    this.to = to;
+  }
+}
+
+/** A TML 2 name whose value is computed the first time it is needed (the
+ *  names of a block can be used before the line that defines them). */
+export class Thunk {
+  constructor(compute) { this.state = 0; this.value = undefined; this.compute = compute; }
+}
+
 // ── value helpers, shared with the music builtins ──
 
 export function typeName(v) {
@@ -79,6 +105,7 @@ export function typeName(v) {
   if (v instanceof Range) return "range";
   if (v instanceof Closure || v instanceof Builtin) return "function";
   if (v instanceof Handle) return v.kind;
+  if (v instanceof Phrase) return "phrase";
   return "value";
 }
 
@@ -102,6 +129,24 @@ export function equal(a, b) {
   if (a instanceof Range && b instanceof Range) {
     return a.from === b.from && a.step === b.step && a.length === b.length;
   }
+  if (a instanceof Phrase && b instanceof Phrase) {
+    // by what they place for certain, and the very same fitted parts
+    if (a.from !== b.from || a.to !== b.to || a.soft.length !== b.soft.length) return false;
+    if (a.soft.some((p, i) => p !== b.soft[i])) return false;
+    const lanes = [...a.cells.keys()].filter((l) => a.cells.get(l).size);
+    if (lanes.length !== [...b.cells.values()].filter((r) => r.size).length) return false;
+    for (const l of lanes) {
+      const x = a.cells.get(l), y = b.cells.get(l);
+      if (!y || x.size !== y.size) return false;
+      for (const [r, c] of x) {
+        const d = y.get(r);
+        if (!d) return false;
+        const ka = Object.keys(c).filter((k) => k !== "cap"), kb = Object.keys(d).filter((k) => k !== "cap");
+        if (ka.length !== kb.length || ka.some((k) => c[k] !== d[k])) return false;
+      }
+    }
+    return true;
+  }
   return false;
 }
 
@@ -123,6 +168,13 @@ export function show(v, nested = false) {
   if (v instanceof Closure) return `fn ${v.name ?? "(anonymous)"}`;
   if (v instanceof Builtin) return `fn ${v.name}`;
   if (v instanceof Handle) return `${v.kind} ${v.fields.name ?? ""}`.trim();
+  if (v instanceof Phrase) {
+    let n = 0;
+    const names = [];
+    for (const [lane, rows] of v.cells) if (rows.size) { n += rows.size; names.push(lane.id); }
+    const fitted = v.soft.length ? ` and ${v.soft.length} fitted part${v.soft.length === 1 ? "" : "s"}` : "";
+    return `phrase of rows ${v.from}..<${v.to}: ${n} cell${n === 1 ? "" : "s"}${names.length ? ` on ${names.join(", ")}` : ""}${fitted}`;
+  }
   return String(v);
 }
 

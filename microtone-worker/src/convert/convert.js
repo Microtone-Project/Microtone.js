@@ -124,12 +124,11 @@ export async function listBnkPresets(bnkBytes, { onStatus = null } = {}) {
 /**
  * Build a .tsii instrument bank from selected patch indices (from
  * listBnkPresets) via the canonical opl2taud machinery — each patch becomes
- * an ordinary two-operator FM rack. `bpm` should be the destination song's
- * BPM (auto-vibrato speed is tempo-relative).
+ * a two-operator OPL instrument (Metainstrument type 8), slot n the n-th picked.
  */
-export function buildBnkBank(bnkBytes, selection, { bpm = 125, onStatus = null } = {}) {
+export function buildBnkBank(bnkBytes, selection, { onStatus = null } = {}) {
   return bankRequest(
-    { t: "bnk", mode: "build", bytes: bnkBytes.slice().buffer, selection, bpm },
+    { t: "bnk", mode: "build", bytes: bnkBytes.slice().buffer, selection },
     onStatus,
   );
 }

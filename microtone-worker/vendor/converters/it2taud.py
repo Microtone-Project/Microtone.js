@@ -20,7 +20,11 @@ Limits:
       auto-vibrato, fadeout, PPS/PPC, default pan, volume/pan swing, and
       initial filter cutoff/resonance are forwarded to the engine via
       the new instrument fields.
-    - AdLib / OPL instruments are skipped.
+    - OpenMPT's OPL samples (an IMPS header with cvt 0x40, its "sample" the
+      twelve register bytes of an S3M AdLib instrument — ITTools.cpp) become
+      Taud OPL instruments (Metainstrument type 8), keeping the IT instrument's
+      envelopes, NNA, fadeout and the rest around the chip.  See "OPL samples"
+      below.
 
 Effect support:
     A-Z dispatch per TAUD_NOTE_EFFECTS.md. IT-specific: Cxx is binary
@@ -38,6 +42,23 @@ Effect support:
     the instrument the channel already holds is emitted WITHOUT the
     instrument byte — see drop_porta_retriggers for the IT bug that makes
     this the faithful conversion rather than a liberty.
+
+OPL samples, as OpenMPT plays them (soundlib/OPL.cpp, Sndmix.cpp, Load_it.cpp;
+openmpt123 the oracle, 2026-10-14):
+    - Everything OpenMPT multiplies into a voice's volume reaches the chip as
+      total level on the carrier (`taud_common.tracker_opl_gain`), so it is
+      no linear gain.  The converter puts that curve where it can: on a volume
+      SET, on the default volume, on the instrument and sample global volumes
+      and on the volume envelope's nodes.  Slides, fadeout and the song's own
+      volumes stay linear, which is where the conversion is approximate.
+    - OpenMPT uses an instrument's filter cutoff as the modulator's level
+      ("cutoff doubles as modulator intensity for FM instruments"): a set,
+      enabled cutoff below 63 is folded into the modulator's total level on
+      the same curve, and the voice's own filter is left open.
+    - An OPL instrument has no keyboard map of samples: an instrument whose
+      sample is OPL plays it on every note.
+    - Loudness against the samples is OpenMPT's own (its `VSTV` song setting,
+      48 unless the file says otherwise): `OPL_LEVEL_OCTET`.
 """
 
 import argparse
@@ -68,6 +89,7 @@ from taud_common import (
     cue_instruction_halt_at,
     build_project_data, detect_subsongs,
     IXMP_PAN_NO_OVERRIDE, IXMP_CHAN_DISCRETE,
+    OPL_KIND_2OP, opl_block, make_opl_record, tracker_opl_gain,
 )
 
 
@@ -75,6 +97,9 @@ from taud_common import (
 
 IT_MAGIC      = b'IMPM'
 IT_SMP_MAGIC  = b'IMPS'
+#: IMPS `cvt` 0x40: OpenMPT's OPL instrument in place of a sample (ITTools.h
+#: `cvtOPLInstrument`, "FM instrument in MPTM").
+IT_CVT_OPL = 0x40
 IT_INST_MAGIC = b'IMPI'
 
 IT_NOTE_OFF   = 255
@@ -388,7 +413,7 @@ class ITSample:
                  'sus_beg', 'sus_end', 'smp_point',
                  'has_loop', 'is_16bit', 'is_stereo', 'is_compressed',
                  'is_signed', 'sample_data', 'sample_data_r',
-                 'av_speed', 'av_depth', 'av_sweep', 'av_wave')
+                 'av_speed', 'av_depth', 'av_sweep', 'av_wave', 'opl')
 
 def parse_samples(data: bytes, h: ITHeader, decompress: bool,
                   keep_stereo: bool = True) -> list:
@@ -437,6 +462,18 @@ def parse_samples(data: bytes, h: ITHeader, decompress: bool,
         s.is_signed    = bool(s.cvt & 0x01)
         s.sample_data  = b''
         s.sample_data_r = b''
+        s.opl = None
+
+        if s.cvt == IT_CVT_OPL:
+            # OpenMPT's OPL sample: the patch where the sample data would be,
+            # whatever the length field says (Load_it.cpp reads twelve bytes).
+            if s.smp_point + 12 <= len(data):
+                s.opl = bytes(data[s.smp_point:s.smp_point + 12])
+            else:
+                vprint(f"  warning: OPL sample '{s.name}' patch out of range, silent")
+            s.length = 0
+            samples.append(s)
+            continue
 
         has_data = bool(s.flags & IT_SMP_ASSOC) and s.length > 0
         if has_data:
@@ -1752,9 +1789,64 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
         inst_bin[base + 196] = default_note_vol & 0xFF
         # Bytes 197..255: reserved (already zeroed).
 
+        if getattr(s, 'opl', None):
+            inst_bin[base:base + 256] = opl_record_it(bytes(inst_bin[base:base + 256]), s)
+            vprint(f"  instrument[{taud_idx}] '{s.name}' OPL, c5spd:{s.c5_speed}")
+            continue
         vprint(f"  instrument[{taud_idx}] '{s.name}' ptr:{ptr} c5spd:{s.c5_speed}")
 
     return bytes(sample_bin) + bytes(inst_bin), offsets, ratio, pool_order, offsets_r
+
+
+# ── OPL samples ───────────────────────────────────────────────────────────────
+
+#: How far an OPL voice sits under a sample in OpenMPT, as the record's initial
+#: attenuation octet (TAUD_FILE_FORMAT §7.5).  Measured with openmpt123
+#: (2026-10-14): in an IT-structured file a full-volume OPL sine is 2.90 dB
+#: under a full-scale square sample, both centred — OpenMPT's `VSTV` of 48
+#: against an S3M's 36, the 2.5 dB the two formats differ by.
+OPL_LEVEL_OCTET = 159
+
+
+def opl_carrier_tl(patch: bytes) -> int:
+    return patch[3] & 63
+
+
+def opl_record_it(rec: bytes, s) -> bytes:
+    """An ordinary IT-derived record with sample `s`'s OPL patch in place of
+    its sample: the curve put on the default volume, the global volume and the
+    volume envelope; the filter folded into the modulator's level and opened."""
+    d = bytearray(s.opl)
+    tl = opl_carrier_tl(d)
+    r = bytearray(rec)
+    # OpenMPT: an enabled instrument cutoff is the modulator's level — IT's
+    # 0…127 halved onto the volume's 0…63 (Sndmix.cpp HandleNoteChangeFilter),
+    # through the same curve.  The record holds the cutoff doubled.
+    if r[182] != 0xFF:
+        v63 = (r[182] // 2) // 2
+        if v63 < 63:
+            mtl = d[2] & 63
+            t = v63 + 1 if v63 > 0 else 0
+            d[2] = (d[2] & 0xC0) | (63 - ((63 - mtl) * t) // 64)
+    r[182] = 0xFF
+    r[183] = 0xFF
+    # A filter-role pitch/filter envelope drove the modulator in OpenMPT, not
+    # a filter; it is dropped rather than turned into one.
+    pf_loop = struct.unpack_from('<H', r, 19)[0]
+    if pf_loop & 0x80:
+        struct.pack_into('<H', r, 19, 0)
+        struct.pack_into('<H', r, 193, 0)
+    on_curve = lambda v255: round(255 * tracker_opl_gain(round(v255 * 64 / 255), tl))
+    r[196] = on_curve(r[196])
+    r[171] = on_curve(r[171])
+    for k in range(25):                       # volume envelope node values, 0…63
+        o = 21 + 2 * k
+        r[o] = round(63 * tracker_opl_gain(round(r[o] * 64 / 63), tl))
+    ops = [(d[0], d[2], d[4], d[6], d[8]), (d[1], d[3], d[5], d[7], d[9])]
+    block = opl_block(OPL_KIND_2OP, ops, feedback=(d[10] >> 1) & 7, cnt_a=d[10] & 1)
+    out = bytearray(make_opl_record(bytes(r), block, rate=min(s.c5_speed, 0xFFFF)))
+    out[251] = OPL_LEVEL_OCTET if OPL_LEVEL_OCTET != 159 else 0
+    return bytes(out)
 
 
 # ── Pattern builder ───────────────────────────────────────────────────────────
@@ -1767,8 +1859,16 @@ def _it_default_pan(raw_pan: int) -> int:
     return min(0x3F, round(p * 63 / 64))
 
 def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
-                     inst_vols: dict, amiga_mode: bool = False) -> bytes:
-    """Build a 512-byte Taud pattern for one IT channel from a 64-row chunk grid."""
+                     inst_vols: dict, amiga_mode: bool = False,
+                     opl_tl: dict = None, entry_inst: int = 0) -> bytes:
+    """Build a 512-byte Taud pattern for one IT channel from a 64-row chunk grid.
+
+    `opl_tl` maps the Taud slot of every OPL instrument to its carrier's total
+    level, so a volume SET on one goes through the chip's curve; `entry_inst`
+    is the slot the channel holds as the chunk begins, in play order."""
+    if opl_tl is None:
+        opl_tl = {}
+    last_inst = entry_inst
     out = bytearray(PATTERN_BYTES)
     rows = chunk_grid[ch_idx] if ch_idx < len(chunk_grid) else [ITRow()] * PATTERN_ROWS
     last_note_it = -1
@@ -1778,6 +1878,8 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
     mem_vc_volslide = 0
 
     for r, cell in enumerate(rows[:PATTERN_ROWS]):
+        if cell.inst > 0:
+            last_inst = cell.inst
         # ── Resolve vol-col into overrides ──────────────────────────────────
         # Update mem_vc_volslide before decode so a fresh non-zero on this
         # row stays visible for any later x=0 in the same channel.
@@ -1839,7 +1941,9 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
         # noteVolume from it when this row has no V column, so the converter
         # still doesn't need to emit SEL_SET=Sv on plain trigger rows.
         if cell.volcol >= 0 and cell.volcol <= VC_VOL_HI:
-            vol_sel, vol_value = SEL_SET, min(cell.volcol, 0x3F)
+            vol_sel, vol_value = SEL_SET, (
+                round(63 * tracker_opl_gain(cell.volcol, opl_tl[last_inst]))
+                if last_inst in opl_tl else min(cell.volcol, 0x3F))
         elif vs != SEL_FINE or vv != 0:
             vol_sel, vol_value = vs, vv
         elif vol_override is not None:
@@ -2016,7 +2120,7 @@ def _per_pattern_bxx_it(patterns_rows: list):
 def _build_song_payload(h: ITHeader, patterns_rows_template: list,
                         positions: list, sample_ratio: dict,
                         inst_vols: dict, active_channels: list,
-                        *, song_label: str = 'song') -> tuple:
+                        *, song_label: str = 'song', opl_tl: dict = None) -> tuple:
     """Build pattern bin + cue sheet + song-entry kwargs for one subsong.
 
     Returns (pat_comp, cue_comp, entry_kwargs). The caller fills in
@@ -2087,11 +2191,17 @@ def _build_song_payload(h: ITHeader, patterns_rows_template: list,
         )
 
     pat_bin = bytearray()
+    holding = {}                    # channel → the slot it holds, in play order
     for ci in cue_list:
         cg = chunks[ci]
         for vi, ch in enumerate(active_channels):
             pat_bin += build_pattern_it(cg, ch, default_pans[vi], inst_vols,
-                                          amiga_mode=not h.linear_slides)
+                                          amiga_mode=not h.linear_slides,
+                                          opl_tl=opl_tl, entry_inst=holding.get(ch, 0))
+            rows = cg[ch] if ch < len(cg) else []
+            for cell in rows[:PATTERN_ROWS]:
+                if cell.inst > 0:
+                    holding[ch] = cell.inst
 
     pat_bin = rescale_offset_effects_per_slot(
         bytes(pat_bin), len(cue_list), C, sample_ratio)
@@ -2409,12 +2519,18 @@ def assemble_taud(h: ITHeader, samples: list, instruments: list,
 
     # ── Build per-song payloads ──────────────────────────────────────────────
     song_payloads = []   # list of (pat_comp, cue_comp, entry_kwargs)
+    # Taud slot → carrier total level of every slot an OPL sample plays.
+    opl_tl = {slot: opl_carrier_tl(smp.opl) for slot, smp in enumerate(proxy)
+              if 0 < slot < 256 and smp is not None and getattr(smp, 'opl', None)}
+    if opl_tl:
+        vprint(f"  {len(opl_tl)} OPL instrument(s)")
+
     for i, ss in enumerate(subsongs):
         label = f"song {i}" if n_songs > 1 else "song"
         song_payloads.append(_build_song_payload(
             h, patterns_rows, ss['positions'],
             sample_ratio, inst_vols, active_channels,
-            song_label=label))
+            song_label=label, opl_tl=opl_tl))
 
     # ── Compute layout offsets and assemble song table ───────────────────────
     song_table_off = TAUD_HEADER_SIZE + comp_size
@@ -2461,6 +2577,8 @@ def assemble_taud(h: ITHeader, samples: list, instruments: list,
                     if inst is None: continue
                     taud_slot = ii + 1
                     if taud_slot >= 256: continue
+                    if taud_slot in opl_tl:
+                        continue        # an OPL instrument has no keyboard map (§7.7)
                     patches = _build_it_ixmp_patches(inst, samples, extras_offsets,
                                                      extras_offsets_r)
                     if patches:

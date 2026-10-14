@@ -8,6 +8,11 @@
 // except that a note replaces a key-off, cut or fade written there earlier,
 // and a key-off never replaces a note. (The rules the Huygens' Clock generator
 // composed by, before Motif existed.)
+//
+// TML 1 programs write into the Score as they run. In TML 2 the same builtins
+// write into a PhraseWriter instead and hand back the music as a value (a
+// Phrase, phrase.js); the song is every phrase the program's statements make,
+// resolved and then filled into the Score in time order (Score.fill).
 
 import { MotifError } from "./lexer.js";
 import {
@@ -18,6 +23,12 @@ import { mulberry32 } from "./stdlib.js";
 import { FM_MAX_OPERATORS, META_MAX_LAYERS, FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp } from "../../core/engine/inst.js";
 import { minifloatFromDouble } from "../../core/engine/minifloat.js";
 import { fmValidate } from "../doc/fmedit.js";
+import { Phrase, truthy } from "./values.js";
+import {
+  Music, union, emptyPhrase, shiftPhrase, mapCells, slicePhrase, onLane, underPhrase, COLUMNS, cellRecord,
+  cellList, stepOf, mergeCells, fittedPart, vibratoRows, volRampRows,
+} from "./phrase.js";
+import { reversePhrase, stretchPhrase } from "./retime.js";
 
 export const KEY_OFF = 0x0001;
 export const NOTE_CUT = 0x0002;
@@ -155,7 +166,8 @@ function octetDb(o) {
 // ── the score ──
 
 export class Score {
-  constructor({ log = () => {} } = {}) {
+  constructor({ log = () => {}, version = 1 } = {}) {
+    this.version = version;
     this.song = null;
     this.tuning = null;
     this.instruments = [];
@@ -207,10 +219,12 @@ export class Score {
     this.reseed(o.seed ?? 1);
   }
 
-  declareInstrument(name, value) {
+  /** `index`: its place among the instruments (TML 2, where declarations are
+   *  read in any order); TML 1 declares them in order, before the lanes. */
+  declareInstrument(name, value, index = null) {
     this.needSong("an instrument");
-    if (this.lanes.length) throw fail("declare every instrument before the first lane");
-    if (this.instruments.length >= 255) throw fail("a song has at most 255 instruments");
+    if (index === null && this.lanes.length) throw fail("declare every instrument before the first lane");
+    if ((index ?? this.instruments.length) >= 255) throw fail("a song has at most 255 instruments");
     const what = `instrument ${name}`;
     const o = readOptions(value, INSTRUMENT, what);
     const has = (k) => o[k] !== undefined;
@@ -237,7 +251,7 @@ export class Score {
     const inst = {
       // provisional — the build gives each instrument its real slot (the same
       // one, for a song of soundfont presets alone)
-      id: name, kind, slot: this.instruments.length + 1, name: o.name ?? null,
+      id: name, kind, slot: (index ?? this.instruments.length) + 1, name: o.name ?? null,
       retune: o.retune ?? (kind === "sf2" || kind === "layers"),
       layerGain: o.layer_gain ?? null, minFadeout: o.min_fadeout ?? null,
       fadeout: o.fadeout ?? null, nna: o.nna ?? null, keepLayers: null,
@@ -278,7 +292,8 @@ export class Score {
     }
     inst.handle = new Handle("instrument", { name });
     inst.handle.instrument = inst;
-    this.instruments.push(inst);
+    if (index === null) this.instruments.push(inst);
+    else this.instruments[index] = inst;
     return inst.handle;
   }
 
@@ -366,19 +381,20 @@ export class Score {
     return { nodes, susWord };
   }
 
-  declareLane(name, value) {
+  declareLane(name, value, index = null) {
     this.needSong("a lane");
-    if (this.lanes.length >= 64) throw fail("a song has at most 64 lanes");
+    const at = index ?? this.lanes.length;
+    if (at >= 64) throw fail("a song has at most 64 lanes");
     const o = readOptions(value, LANE, `lane ${name}`);
     const inst = instrumentOf(o.inst, `lane ${name}'s inst`);
     const lane = {
-      id: name, index: this.lanes.length, instrument: inst,
+      id: name, index: at, instrument: inst,
       pan: o.pan ?? null, label: o.label ?? name, trim: o.trim ?? 1, jitter: o.jitter ?? 0,
       ev: new Map(),
     };
     lane.handle = new Handle("lane", { name, label: lane.label, index: lane.index, inst: inst.handle, trim: lane.trim });
     lane.handle.lane = lane;
-    this.lanes.push(lane);
+    this.lanes[at] = lane;
     return lane.handle;
   }
 
@@ -452,6 +468,9 @@ export class Score {
 
   clash(lane, row, k, a, b) {
     const where = `lane ${lane.id}, bar ${Math.floor(row / this.song.barRows) + 1} row ${row % this.song.barRows}`;
+    if (k === "volume") {
+      return fail(`lane ${lane.id}, bar ${Math.floor(row / this.song.barRows) + 1} row ${row % this.song.barRows}: a volume (${a}) and a volume-column command on one row — the volume column holds one or the other`);
+    }
     const word = {
       note: "notes", inst: "instruments", vol: "volumes", volRaw: "volume-column commands", volSel: "volume-column commands",
       fx: "effects", arg: "effect arguments", fx2: "second effects", arg2: "second-effect arguments",
@@ -504,16 +523,94 @@ export class Score {
    *  recall it; rows that already carry an effect are stepped round (and the
    *  next free one restates), and a key-off ends it. */
   vibrato(lane, from, to, speed, depth) {
-    let first = true;
-    for (let r = from; r < to; r++) {
-      const c = this.cellAt(lane, r);
-      if (c?.fx !== undefined) { first = true; continue; }
-      if (c?.note === KEY_OFF) break;
-      this.put(lane, r, { fx: opByte("H"), arg: first ? ((speed << 8) | depth) : 0 });
-      first = false;
+    vibratoRows((r) => this.cellAt(lane, r), from, to, speed, depth, (r, f) => this.put(lane, r, f));
+  }
+
+  /** vol_ramp over rows [r0, r1), from volume `from` to `to` (both in the
+   *  lane's own units already). */
+  volRamp(lane, r0, r1, from, to) {
+    volRampRows((r) => this.cellAt(lane, r), r0, Math.min(r1, this.rows), r1, from, to, this.wide, (r, f) => this.put(lane, r, f));
+  }
+
+  /** A TML 2 song (resolve(): Map lane → Map row → cell) into the lanes, row
+   *  by row in time order — the order the build reads them in — keeping what
+   *  a preview captured. */
+  fill(cells) {
+    for (const lane of this.lanes) {
+      const rows = cells.get(lane);
+      if (!rows) continue;
+      for (const r of [...rows.keys()].sort((a, b) => a - b)) {
+        const { cap, ...fields } = rows.get(r);
+        lane.ev.set(r, fields);
+        if (cap && this.capture) {
+          let got = this.capture.lanes.get(lane);
+          if (!got) this.capture.lanes.set(lane, (got = new Map()));
+          const cc = {};
+          for (const k in cap) if (fields[k] !== undefined) cc[k] = fields[k];
+          if (cc.note === undefined && cap.$note !== undefined) cc.note = cap.$note;
+          if (Object.keys(cc).length) got.set(r, cc);
+        }
+      }
     }
   }
 }
+
+/**
+ * What a TML 2 builtin writes into, in place of the score: the same calls
+ * (put, hit, keyOff, glide…), collected into a new Phrase. Its vibratos and
+ * ramps are fitted parts, placed once the whole song is known.
+ */
+export class PhraseWriter {
+  constructor(score, interp) {
+    this.score = score;
+    this.interp = interp;
+    this.cells = new Map();
+    this.soft = [];
+    this.cap = score.capture?.test() ?? false;
+  }
+
+  get song() { return this.score.song; }
+  get tuning() { return this.score.tuning; }
+  get rows() { return this.score.rows; }
+  get wide() { return this.score.wide; }
+  get volMax() { return this.score.volMax; }
+
+  put(lane, row, f) {
+    if (row < 0 || row >= this.rows || !Number.isInteger(row)) {
+      throw fail(`row ${row} is outside the song (rows 0–${this.rows - 1}: ${this.song.bars} bars of ${this.song.barRows})`);
+    }
+    let rows = this.cells.get(lane);
+    if (!rows) this.cells.set(lane, (rows = new Map()));
+    const cell = {};
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null) cell[k] = v;
+    if (this.cap) {
+      cell.cap = {};
+      for (const k in cell) if (k !== "cap") cell.cap[k] = true;
+    }
+    const old = rows.get(row);
+    rows.set(row, old ? mergeCells(this.score, lane, row, old, cell) : cell);
+  }
+
+  has(lane, row) { return this.cells.get(lane)?.has(row) ?? false; }
+  cellAt(lane, row) { return this.cells.get(lane)?.get(row); }
+
+  /** Where a fitted part came from, for its errors. */
+  where() {
+    return { pos: this.interp?.stack.at(-1)?.pos ?? null, trace: this.interp?.trace() ?? null };
+  }
+
+  vibrato(lane, from, to, speed, depth) {
+    this.soft.push(fittedPart({ type: "vibrato", lane, from, to, speed, depth }, { cap: this.cap, ...this.where() }));
+  }
+
+  volRamp(lane, r0, r1, from, to) {
+    const end = Math.min(r1, this.rows);
+    this.soft.push(fittedPart({ type: "ramp", lane, r0, r1, end, v0: from, v1: to, wide: this.wide }, { cap: this.cap, ...this.where() }));
+  }
+
+  phrase(from, to) { return new Phrase(this.cells, this.soft, from, to); }
+}
+for (const m of ["hit", "keyOff", "glide", "glideSpeed", "word", "clash"]) PhraseWriter.prototype[m] = Score.prototype[m];
 
 /**
  * An FM algorithm in the FM editor's own notation → its RPN words (§7.6).
@@ -602,7 +699,18 @@ const MELODY_TOKEN = /^(~?)([^:@~]+):(\d+)(?:@(\d+))?([v>]*)$/;
 
 // ── the music builtins ──
 
-export function musicBuiltins(score) {
+/**
+ * The music builtins of a TML version. In TML 1 they write into `score` as
+ * they run; in TML 2 each writes into a PhraseWriter of its own and returns
+ * the music it made (and the phrase builtins combine and transform music).
+ * `base` is the general library (stdlib.js), which TML 2's filter and slice
+ * extend to phrases.
+ */
+export function musicBuiltins(score, { version = 1, base = null } = {}) {
+  const v2 = version >= 2;
+  const begin = (interp) => (v2 ? new PhraseWriter(score, interp) : score);
+  /** A writer builtin's result: in TML 2 the music it made, spanning [from, to). */
+  const end = (w, from, to, ret = null) => (v2 ? w.phrase(from, to) : ret);
   const T = () => { score.needSong("a pitch"); return score.tuning; };
   const S = () => { score.needSong("this"); return score.song; };
   const row = (v, what = "the row") => {
@@ -637,6 +745,7 @@ export function musicBuiltins(score) {
     asInt(transpose, "transpose");
     if (map !== null) asFunction(map, "map");
     vol(v, "the melody's volume");
+    const w = begin(interp);
     let prev = null;
     const ends = [];
     const startRow = r;
@@ -654,7 +763,7 @@ export function musicBuiltins(score) {
       const len = Number(lenS);
       if (len < 1) throw fail(`"${tok}" lasts no rows`);
       if (name === "r") {
-        if (prev && !prev.tie && !ring) score.keyOff(lane, r);
+        if (prev && !prev.tie && !ring) w.keyOff(lane, r);
         prev = null;
         r += len;
         continue;
@@ -663,19 +772,19 @@ export function musicBuiltins(score) {
       if (map !== null) step = asInt(callTml(interp, map, [step]), "what map returns");
       const nv = volS ? vol(Number(volS), `the volume in "${tok}"`) : v;
       if (tilde && prev) {
-        score.glide(lane, r, step, score.glideSpeed(prev.step, step, gRows));
-        if (volS) score.put(lane, r, { vol: nv });
+        w.glide(lane, r, step, w.glideSpeed(prev.step, step, gRows));
+        if (volS) w.put(lane, r, { vol: nv });
       } else {
-        score.hit(lane, r, step, nv);
+        w.hit(lane, r, step, nv);
       }
       if (flags.includes("v") && len >= 4) ends.push([r + 2, r + len]);
       prev = { step, tie: flags.includes(">") };
       r += len;
     }
     // the last note is let go where the line ends — unless the song does
-    if (prev && !prev.tie && !ring && r < score.rows) score.keyOff(lane, r);
-    for (const [a, b] of ends) score.vibrato(lane, a, Math.min(b, score.rows), vibs[0], vibs[1]);
-    return r;
+    if (prev && !prev.tie && !ring && r < score.rows) w.keyOff(lane, r);
+    for (const [a, b] of ends) w.vibrato(lane, a, Math.min(b, score.rows), vibs[0], vibs[1]);
+    return end(w, startRow, r, r);
   };
 
   /**
@@ -723,6 +832,9 @@ export function musicBuiltins(score) {
     return best.v;
   };
 
+  /** What a TML 1 program asks of the song so far, and TML 2 of a phrase. */
+  const cellOf = (c) => (c ? cellRecord(score, c) : null);
+
   const fns = [
     // ── pitch ──
     new Builtin("note", "name", (_, nm) => T().parse(asString(nm, "the note name"))),
@@ -760,7 +872,7 @@ export function musicBuiltins(score) {
 
     // ── events ──
     new Builtin("hit", "lane, row, pitch, vol=none, fx=none, arg=0, inst=none, pos=none, delay=0",
-      (_, l, r, p, v, fx, arg, inst, pos, delay) => {
+      (ip, l, r, p, v, fx, arg, inst, pos, delay) => {
         const lane = laneOf(l);
         const at = row(r);
         const instObj = inst === null ? null : instrumentOf(inst, "inst");
@@ -770,63 +882,100 @@ export function musicBuiltins(score) {
           const pr = asRecord(pos, "pos");
           where = { az: asInt(pr.m.get("az"), "pos.az"), el: asInt(pr.m.get("el"), "pos.el") };
         }
-        score.hit(lane, at, pitch(p), vol(v), fx === null ? null : opByte(fx), fx === null ? 0 : arg16(arg), instObj, where);
+        const w = begin(ip);
+        w.hit(lane, at, pitch(p), vol(v), fx === null ? null : opByte(fx), fx === null ? 0 : arg16(arg), instObj, where);
         const d = asInt(delay, "delay");
         if (d < 0 || d > 15) throw fail("delay is 0…15 ticks");
-        if (d > 0) score.put(lane, at, { fx: opByte("S"), arg: 0xd000 | (d << 8) });
+        if (d > 0) w.put(lane, at, { fx: opByte("S"), arg: 0xd000 | (d << 8) });
+        return end(w, at, at + 1);
       }),
-    new Builtin("keyoff", "lane, row", (_, l, r) => { score.keyOff(laneOf(l), row(r), KEY_OFF); }),
-    new Builtin("cut", "lane, row", (_, l, r) => { score.keyOff(laneOf(l), row(r), NOTE_CUT); }),
-    new Builtin("fade", "lane, row", (_, l, r) => { score.keyOff(laneOf(l), row(r), NOTE_FADE); }),
-    new Builtin("fx", "lane, row, op, arg=0", (_, l, r, op, arg) => {
-      score.put(laneOf(l), row(r), { fx: opByte(op), arg: arg16(arg) });
+    // an ending lasts no rows: it marks the moment a note ends
+    new Builtin("keyoff", "lane, row", (ip, l, r) => { const w = begin(ip); const lane = laneOf(l), at = row(r); w.keyOff(lane, at, KEY_OFF); return end(w, at, at); }),
+    new Builtin("cut", "lane, row", (ip, l, r) => { const w = begin(ip); const lane = laneOf(l), at = row(r); w.keyOff(lane, at, NOTE_CUT); return end(w, at, at); }),
+    new Builtin("fade", "lane, row", (ip, l, r) => { const w = begin(ip); const lane = laneOf(l), at = row(r); w.keyOff(lane, at, NOTE_FADE); return end(w, at, at); }),
+    new Builtin("fx", "lane, row, op, arg=0", (ip, l, r, op, arg) => {
+      const w = begin(ip);
+      const lane = laneOf(l), at = row(r);
+      w.put(lane, at, { fx: opByte(op), arg: arg16(arg) });
+      return end(w, at, at + 1);
     }),
-    new Builtin("fx2", "lane, row, op, arg=0", (_, l, r, op, arg) => {
+    new Builtin("fx2", "lane, row, op, arg=0", (ip, l, r, op, arg) => {
       wideOnly("fx2");
-      score.put(laneOf(l), row(r), { fx2: opByte(op), arg2: arg16(arg) });
+      const w = begin(ip);
+      const lane = laneOf(l), at = row(r);
+      w.put(lane, at, { fx2: opByte(op), arg2: arg16(arg) });
+      return end(w, at, at + 1);
     }),
-    new Builtin("set_vol", "lane, row, vol", (_, l, r, v) => {
+    new Builtin("set_vol", "lane, row, vol", (ip, l, r, v) => {
       if (v === null) throw fail("set_vol needs a volume");
-      score.put(laneOf(l), row(r), { vol: vol(v) });
+      const w = begin(ip);
+      const lane = laneOf(l), at = row(r);
+      w.put(lane, at, { vol: vol(v) });
+      return end(w, at, at + 1);
     }),
-    new Builtin("set_pan", "lane, row, pan", (_, l, r, p) => {
+    new Builtin("set_pan", "lane, row, pan", (ip, l, r, p) => {
+      const w = begin(ip);
       if (score.wide) {
         const pr = asRecord(p, "the position (a format-3 song places a note with dir(az, el))");
-        score.put(laneOf(l), row(r), { az: asInt(pr.m.get("az"), "az"), el: asInt(pr.m.get("el"), "el") });
-        return;
+        const lane = laneOf(l), at = row(r);
+        w.put(lane, at, { az: asInt(pr.m.get("az"), "az"), el: asInt(pr.m.get("el"), "el") });
+        return end(w, at, at + 1);
       }
       asInt(p, "the pan");
       if (p < 0 || p > 63) throw fail("the panning column's pan is 0…63 in a format-2 song");
-      score.put(laneOf(l), row(r), { panRaw: p });
+      const lane = laneOf(l), at = row(r);
+      w.put(lane, at, { panRaw: p });
+      return end(w, at, at + 1);
     }),
-    new Builtin("vol_fine", "lane, row, delta", (_, l, r, d) => {
+    new Builtin("vol_fine", "lane, row, delta", (ip, l, r, d) => {
       asInt(d, "the delta");
-      if (d === 0) return;
+      const w = begin(ip);
+      if (d === 0) {
+        if (!v2) return null;
+        const at = row(r);
+        laneOf(l);
+        return end(w, at, at + 1);
+      }
       const m = Math.abs(d);
       if (score.wide) {
         if (m > 127) throw fail("a fine volume slide moves at most 127 in a format-3 song");
-        score.put(laneOf(l), row(r), { volSel: 3, volRaw: (d > 0 ? 0x80 : 0) | m });
-      } else {
-        if (m > 31) throw fail("a fine volume slide moves at most 31 in a format-2 song");
-        score.put(laneOf(l), row(r), { volRaw: 0xc0 | (d > 0 ? 0x20 : 0) | m });
+        const lane = laneOf(l), at = row(r);
+        w.put(lane, at, { volSel: 3, volRaw: (d > 0 ? 0x80 : 0) | m });
+        return end(w, at, at + 1);
       }
+      if (m > 31) throw fail("a fine volume slide moves at most 31 in a format-2 song");
+      const lane = laneOf(l), at = row(r);
+      w.put(lane, at, { volRaw: 0xc0 | (d > 0 ? 0x20 : 0) | m });
+      return end(w, at, at + 1);
     }),
-    new Builtin("vol_slide", "lane, row, per_tick", (_, l, r, x) => {
+    new Builtin("vol_slide", "lane, row, per_tick", (ip, l, r, x) => {
       asInt(x, "the slide");
-      if (x === 0) return;
+      const w = begin(ip);
+      if (x === 0) {
+        if (!v2) return null;
+        const at = row(r);
+        laneOf(l);
+        return end(w, at, at + 1);
+      }
       const m = Math.abs(x);
       if (score.wide) {
         if (m > 255) throw fail("a volume slide moves at most 255 a tick in a format-3 song");
-        score.put(laneOf(l), row(r), { volSel: x > 0 ? 1 : 2, volRaw: m });
-      } else {
-        if (m > 63) throw fail("a volume slide moves at most 63 a tick in a format-2 song");
-        score.put(laneOf(l), row(r), { volRaw: (x > 0 ? 0x40 : 0x80) | m });
+        const lane = laneOf(l), at = row(r);
+        w.put(lane, at, { volSel: x > 0 ? 1 : 2, volRaw: m });
+        return end(w, at, at + 1);
       }
+      if (m > 63) throw fail("a volume slide moves at most 63 a tick in a format-2 song");
+      const lane = laneOf(l), at = row(r);
+      w.put(lane, at, { volRaw: (x > 0 ? 0x40 : 0x80) | m });
+      return end(w, at, at + 1);
     }),
-    new Builtin("glide", "lane, row, pitch, speed", (_, l, r, p, sp) => {
+    new Builtin("glide", "lane, row, pitch, speed", (ip, l, r, p, sp) => {
       const s = asInt(sp, "the glide speed");
       if (s < 1 || s > 0xffff) throw fail("a glide's speed is 1…$FFFF");
-      score.glide(laneOf(l), row(r), pitch(p), s);
+      const w = begin(ip);
+      const lane = laneOf(l), at = row(r);
+      w.glide(lane, at, pitch(p), s);
+      return end(w, at, at + 1);
     }),
     new Builtin("glide_speed", "from, to, rows", (_, a, b, n) => {
       S();
@@ -835,35 +984,17 @@ export function musicBuiltins(score) {
       if (score.song.speed < 2) throw fail("a glide needs a speed of at least 2 ticks a row");
       return score.glideSpeed(pitch(a), pitch(b), rows);
     }),
-    new Builtin("vibrato", "lane, from, to, speed, depth", (_, l, a, b, sp, dp) => {
+    new Builtin("vibrato", "lane, from, to, speed, depth", (ip, l, a, b, sp, dp) => {
       const speed = asInt(sp, "the vibrato speed"), depth = asInt(dp, "the vibrato depth");
       if (speed < 0 || speed > 255 || depth < 0 || depth > 255) throw fail("vibrato's speed and depth are 0…255");
       const lane = laneOf(l);
       const from = row(a, "the first row"), to = asInt(b, "the end row");
-      score.vibrato(lane, from, Math.min(to, score.rows), speed, depth);
+      const w = begin(ip);
+      w.vibrato(lane, from, Math.min(to, score.rows), speed, depth);
+      return end(w, from, Math.max(from, Math.min(to, score.rows)));
     }),
     new Builtin("melody", "lane, row, text, vol=none, vib=none, glide_rows=1, transpose=0, ring=false, map=none", melody),
-    new Builtin("occupied", "lane, row", (_, l, r) => score.has(laneOf(l), row(r))),
-    new Builtin("cell", "lane, row", (_, l, r) => {
-      // what a row holds so far, as a record of the fields written (none for an
-      // empty row): note (a pitch, or "off" / "cut" / "fade"), inst, vol,
-      // vol_cmd (a slide or fine slide is there), fx/arg, fx2/arg2, pos
-      const c = score.cellAt(laneOf(l), row(r));
-      if (!c) return null;
-      const out = new Rec();
-      if (c.note !== undefined) {
-        out.m.set("note", c.note === KEY_OFF ? "off" : c.note === NOTE_CUT ? "cut" : c.note === NOTE_FADE ? "fade"
-          : (score.tuning.stepOfWord(c.note) ?? null));
-      }
-      if (c.inst !== undefined) out.m.set("inst", c.inst.handle);
-      if (c.vol !== undefined) out.m.set("vol", c.vol);
-      if (c.volRaw !== undefined) out.m.set("vol_cmd", true);
-      if (c.fx !== undefined) { out.m.set("fx", opName(c.fx)); out.m.set("arg", c.arg ?? 0); }
-      if (c.fx2 !== undefined) { out.m.set("fx2", opName(c.fx2)); out.m.set("arg2", c.arg2 ?? 0); }
-      if (c.az !== undefined) out.m.set("pos", new Rec([["az", c.az], ["el", c.el ?? 0]]));
-      return out;
-    }),
-    new Builtin("vol_ramp", "lane, from, to, from_vol, to_vol", (_, l, a, b, v0, v1) => {
+    new Builtin("vol_ramp", "lane, from, to, from_vol, to_vol", (ip, l, a, b, v0, v1) => {
       // A smooth change of the sounding note's volume over rows [from, to), as
       // one fine slide per row, each the rounded share of what is left. The
       // volumes are in the lane's own units (its trim applies, as it does to a
@@ -874,19 +1005,9 @@ export function musicBuiltins(score) {
       if (r1 < r0) throw fail("vol_ramp runs backwards");
       const tr = lane.trim;
       const from = Math.round(vol(v0, "the starting volume") * tr), to = Math.round(vol(v1, "the ending volume") * tr);
-      const lim = score.wide ? 127 : 31;
-      let cur = from;
-      for (let r = r0; r < Math.min(r1, score.rows); r++) {
-        const want = Math.round(from + ((to - from) * (r - r0 + 1)) / (r1 - r0));
-        const d = Math.max(-lim, Math.min(lim, want - cur));
-        const c = score.cellAt(lane, r);
-        if (c && (c.volRaw !== undefined || c.vol !== undefined)) continue;
-        if (d === 0) continue;
-        const m = Math.abs(d);
-        if (score.wide) score.put(lane, r, { volSel: 3, volRaw: (d > 0 ? 0x80 : 0) | m });
-        else score.put(lane, r, { volRaw: 0xc0 | (d > 0 ? 0x20 : 0) | m });
-        cur += d;
-      }
+      const w = begin(ip);
+      w.volRamp(lane, r0, r1, from, to);
+      return end(w, r0, Math.max(r0, Math.min(r1, score.rows)));
     }),
 
     // ── harmony and space ──
@@ -906,6 +1027,148 @@ export function musicBuiltins(score) {
       return new Rec([["az", az], ["el", el]]);
     }),
   ];
+
+  if (!v2) {
+    fns.push(
+      new Builtin("occupied", "lane, row", (_, l, r) => score.has(laneOf(l), row(r))),
+      // what a row holds so far, as a record of the fields written (none for an
+      // empty row): note (a pitch, or "off" / "cut" / "fade"), inst, vol,
+      // vol_cmd (a slide or fine slide is there), fx/arg, fx2/arg2, pos
+      new Builtin("cell", "lane, row", (_, l, r) => cellOf(score.cellAt(laneOf(l), row(r)))),
+    );
+    return new Map(fns.map((f) => [f.name, f]));
+  }
+
+  // ── TML 2: music as values ──
+
+  /** Music given as a phrase, or as a list of them (put together). */
+  const music = (v, what) => {
+    if (v instanceof Phrase) return v;
+    if (Array.isArray(v)) return union(score, v) ?? emptyPhrase(0, 0);
+    throw fail(`${what} must be music (a phrase, or a list of them), not ${typeName(v)}`);
+  };
+  const where = (ip) => ({ pos: ip.stack.at(-1)?.pos ?? null, trace: ip.trace() });
+  /** A note word through a pitch function (endings pass untouched). */
+  const notesThrough = (p, f) => mapCells(score, p, (c) => (c.note >= 0x20 ? { ...c, note: score.word(f(stepOf(score, c.note))) } : c), null, true);
+  const askedOfSong = (name, args) =>
+    fail(`in TML 2, ${name}() reads music you name — ${name}(${args}) — since the song is only known once the program has finished; to fit music round what the rest of the song writes, use under() or follow()`);
+  const sFilter = base?.get("filter"), sSlice = base?.get("slice"), sReverse = base?.get("reverse");
+  const v1 = new Map(fns.map((f) => [f.name, f]));
+  const v1Transpose = v1.get("transpose"), v1Invert = v1.get("invert");
+
+  fns.push(
+    new Builtin("transpose", "x, steps", (ip, x, n) => {
+      if (!(x instanceof Phrase)) return v1Transpose.fn(ip, x, n);
+      const k = asInt(n, "the steps");
+      return notesThrough(x, (s) => s + k);
+    }),
+    new Builtin("invert", "x, axis", (ip, x, a) => {
+      if (!(x instanceof Phrase)) return v1Invert.fn(ip, x, a);
+      const ax = pitch(a, "the axis");
+      return notesThrough(x, (s) => 2 * ax - s);
+    }),
+    new Builtin("map_notes", "music, f", (ip, x, f) => {
+      const p = music(x, "map_notes()'s music");
+      asFunction(f, "map_notes()'s function");
+      return notesThrough(p, (s) => asInt(ip.call(f, [s], null, null), "what map_notes()'s function returns"));
+    }),
+    new Builtin("map_vols", "music, f", (ip, x, f) => {
+      const p = music(x, "map_vols()'s music");
+      asFunction(f, "map_vols()'s function");
+      return mapCells(score, p, (c) => (c.vol === undefined ? c
+        : { ...c, vol: vol(ip.call(f, [c.vol], null, null), "what map_vols()'s function returns") }), null, true);
+    }),
+    new Builtin("filter", "xs, f", (ip, x, f) => {
+      if (!(x instanceof Phrase)) return sFilter.fn(ip, x, f);
+      asFunction(f, "filter()'s function");
+      return mapCells(score, x, (c, lane, r) => (truthy(ip.call(f, [cellRecord(score, c, lane, r)], null, null)) ? c : null));
+    }),
+    new Builtin("slice", "xs, from, to=none", (ip, x, a, b) => {
+      if (!(x instanceof Phrase)) return sSlice.fn(ip, x, a, b);
+      return slicePhrase(score, x, asInt(a, "the first row"), b === null ? x.to : asInt(b, "the end row"));
+    }),
+    new Builtin("shift", "music, rows", (_, x, n) => shiftPhrase(score, music(x, "shift()'s music"), asInt(n, "the rows"))),
+    // retrograde and augmentation (retime.js)
+    new Builtin("reverse", "xs", (ip, x) => (x instanceof Phrase ? reversePhrase(score, x) : sReverse.fn(ip, x))),
+    new Builtin("stretch", "music, factor", (_, x, k) => {
+      const p = music(x, "stretch()'s music");
+      const f = asNumber(k, "the factor");
+      if (!(f > 0) || !Number.isFinite(f)) throw fail("stretch() takes a factor above 0: 2 plays the music twice as slowly, 0.5 twice as fast");
+      return stretchPhrase(score, p, f);
+    }),
+    new Builtin("on", "lane, music", (_, l, x) => onLane(score, music(x, "on()'s music"), laneOf(l))),
+    new Builtin("stack", "...music", (_, ...xs) => union(score, xs)),
+    new Builtin("seq", "...music", (_, ...xs) => {
+      const parts = [];
+      let at = null;
+      const add = (x) => {
+        if (x === null) return;
+        if (Array.isArray(x)) { x.forEach(add); return; }
+        const p = music(x, "an item of seq()");
+        if (at === null) at = p.from;
+        parts.push(shiftPhrase(score, p, at - p.from));
+        at += p.to - p.from;
+      };
+      xs.forEach(add);
+      return union(score, parts);
+    }),
+    new Builtin("loop", "music, times, every=none", (_, x, n, e) => {
+      const p = music(x, "loop()'s music");
+      const times = asInt(n, "the times");
+      if (times < 1) throw fail("loop() plays its music at least once");
+      const step = e === null ? p.to - p.from : asInt(e, "every");
+      if (step < 1) throw fail("loop() needs music that lasts at least a row (or every: rows)");
+      return union(score, Array.from({ length: times }, (_v, k) => shiftPhrase(score, p, k * step)));
+    }),
+    new Builtin("rest", "rows", (_, n) => {
+      const k = asInt(n, "the rows");
+      if (k < 0) throw fail("a rest lasts 0 rows or more");
+      return emptyPhrase(0, k);
+    }),
+    new Builtin("under", "music, ...columns", (ip, x, ...cols) => {
+      const p = music(x, "under()'s music");
+      for (const c of cols) {
+        if (typeof c !== "string" || !Object.prototype.hasOwnProperty.call(COLUMNS, c)) {
+          throw fail(`under() steps round columns: ${Object.keys(COLUMNS).map((k) => `"${k}"`).join(", ")}`);
+        }
+      }
+      return underPhrase(p, cols, where(ip));
+    }),
+    new Builtin("follow", "lane, from, to, f", (ip, l, a, b, f) => {
+      const lane = laneOf(l);
+      const from = row(a, "the first row");
+      const to = asInt(b, "the end row");
+      if (to < from) throw fail("follow() runs backwards");
+      asFunction(f, "follow()'s function");
+      const stop = Math.min(to, score.rows);
+      const w = where(ip);
+      const part = {
+        lane, self: false, cap: score.capture?.test() ?? false, ...w,
+        gen: (view, interp) => {
+          const heard = [];
+          for (let r = from; r < stop; r++) heard.push(cellOf(view(r)));
+          const v = interp.call(f, [heard], null, w.pos);
+          if (v === null || v instanceof Phrase) return v;
+          if (Array.isArray(v)) return union(score, v);
+          throw fail(`follow()'s function returns music (a phrase, or a list of them) or none, not ${typeName(v)}`);
+        },
+      };
+      return new Phrase(new Map(), [part], from, stop);
+    }),
+    new Builtin("cells", "music, lane=none", (_, x, l) => cellList(score, music(x, "cells()'s music"), l === null ? null : laneOf(l))),
+    // (lane and row are checked after the music, so that TML 1's cell(lane,
+    // row) is told what TML 2 asks for rather than that a row is missing)
+    new Builtin("cell", "music, lane=none, row=none", (_, x, l, r) => {
+      if (!(x instanceof Phrase)) throw askedOfSong("cell", "music, lane, row");
+      if (l === null || r === null) throw fail("cell() needs the music, a lane and a row");
+      return cellOf(x.cells.get(laneOf(l))?.get(asInt(r, "the row")));
+    }),
+    new Builtin("occupied", "music, lane=none, row=none", (_, x, l, r) => {
+      if (!(x instanceof Phrase)) throw askedOfSong("occupied", "music, lane, row");
+      if (l === null || r === null) throw fail("occupied() needs the music, a lane and a row");
+      return x.cells.get(laneOf(l))?.has(asInt(r, "the row")) ?? false;
+    }),
+  );
   return new Map(fns.map((f) => [f.name, f]));
 }
 
@@ -914,17 +1177,27 @@ function truthyFlag(v) { return v === true; }
 /** The interpreter hooks that route declarations and pitches to `score`. */
 export function musicHooks(score) {
   return {
-    declare(st, scope, interp) {
+    /** A declaration. `index` is its place among its kind (TML 2, which binds
+     *  the name itself and so takes the handle back). */
+    declare(st, scope, interp, index = null) {
       if (st.k === "section") {
         score.declareSection(interp.eval(st.name, scope), interp.eval(st.range, scope));
-        return;
+        return null;
       }
       const value = interp.eval(st.value, scope);
       switch (st.kind) {
-        case "song": score.declareSong(value); return;
-        case "master": score.declareMaster(value); return;
-        case "instrument": interp.declare(scope, st.name, score.declareInstrument(st.name, value), st.namePos); return;
-        case "lane": interp.declare(scope, st.name, score.declareLane(st.name, value), st.namePos); return;
+        case "song": score.declareSong(value); return null;
+        case "master": score.declareMaster(value); return null;
+        case "instrument": {
+          const h = score.declareInstrument(st.name, value, index);
+          if (index === null) interp.declare(scope, st.name, h, st.namePos);
+          return h;
+        }
+        case "lane": {
+          const h = score.declareLane(st.name, value, index);
+          if (index === null) interp.declare(scope, st.name, h, st.namePos);
+          return h;
+        }
         default: throw new MotifError(`internal error: declaration ${st.kind}`, st.pos);
       }
     },
@@ -932,5 +1205,7 @@ export function musicHooks(score) {
       if (!score.tuning) throw fail(`the pitch '${text}' needs the song's tuning: declare song { … } first`);
       return score.tuning.parse(text);
     },
+    /** A TML 2 block's music, put together as its statements make it. */
+    music() { return new Music(score); },
   };
 }

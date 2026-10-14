@@ -233,7 +233,7 @@ test("every whole program in the docs, and the Motif view's example, runs", () =
   const programs = [["the example", MOTIF_EXAMPLE]];
   for (const doc of ["TAUD_MOTIF_LANGUAGE.md", "USER_MANUAL.md"]) {
     const md = readFileSync(new URL(`../../assets/${doc}`, import.meta.url), "utf8");
-    for (const m of md.matchAll(/```\n(tml 1\n[\s\S]*?)```/g)) programs.push([doc, m[1]]);
+    for (const m of md.matchAll(/```\n(tml [12]\n[\s\S]*?)```/g)) programs.push([doc, m[1]]);
   }
   assert.ok(programs.length >= 3);
   for (const [where, src] of programs) {

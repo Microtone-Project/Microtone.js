@@ -20,6 +20,7 @@ import {
 } from "./sampler.js";
 import { applyVoiceFilter, applyTaudVoiceFx } from "./filter.js";
 import { renderFmVoice } from "./fm.js";
+import { renderOplVoice } from "./opl.js";
 import { CHAN_MODE_MATRIX } from "./inst.js";
 import {
   spatialVoiceGains, analysisVoiceGains, voiceAzimuth, voicePanByte,
@@ -49,7 +50,18 @@ const stereoPair = [0.0, 0.0];
  * the ITU angle for the sample's channel count (#998.0). Anything not
  * stereo-shaped stays mono here.
  */
-function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out) {
+function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
+  // An OPL channel (item 209) replaces the sample fetch the same way, and
+  // reads the playhead's chip clock at this frame (opl.js). The note volume
+  // it has already applied, as the chip's drivers do, in the operators'
+  // attenuation — see the gain chains below.
+  if (voice.opl !== null) {
+    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
+      renderOplVoice(voice, ts.oplFrame + n)));
+    out[0] = s;
+    out[1] = s;
+    return out;
+  }
   // An FM rack (item 159) replaces the voice's own sample fetch, and nothing
   // else: the filter, the voice FX and every gain below still act on the
   // finished patch exactly as they act on a sampled one.
@@ -206,7 +218,7 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
     // this one voice's instrument. (A span where it is live is mixed
     // sample-major: see extModClockLive.)
     advanceSampleModExtended(eng, ts, voice, spt);
-    renderVoicePair(eng, ts, voice, voiceInst, interpMode, spt, stereoPair);
+    renderVoicePair(eng, ts, voice, voiceInst, interpMode, spt, stereoPair, n);
     const sL = stereoPair[0];
     const sR = stereoPair[1];
     // Soundscope shows the mono sum — a stereo voice is still one voice.
@@ -216,7 +228,10 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
     const effEnvVol = voice.hasVolEnv && voice.volEnvOn ? voice.envVolMix : 1.0;
     advanceVolumeRamp(voice, volDiv);
     advancePitchRamp(voice, spt);
-    const perVoiceGain = effEnvVol * voice.fadeoutVolume * voice.currentMixVolume *
+    // An OPL voice took its note volume into the operators (opl.js), so the
+    // mix volume must not be applied a second time here.
+    const mixVol = voice.opl !== null ? 1.0 : voice.currentMixVolume;
+    const perVoiceGain = effEnvVol * voice.fadeoutVolume * mixVol *
       swingScale * instGv * faderGain * voice.layerMixGain * voice.activeAttenGain;
     const vol = perVoiceGain * globalGain;
     // ONE pan ramp, above the branch, because both paths smooth the same
@@ -321,14 +336,14 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
     // (item 154) — mirrors applyTrackerTick's own `if (bg.isLayerChild)`
     // gate on advanceSampleMod, just at sample instead of tick rate.
     if (bg.isLayerChild) advanceSampleModExtended(eng, ts, bg, spt);
-    renderVoicePair(eng, ts, bg, bgInst, interpMode, spt, stereoPair);
+    renderVoicePair(eng, ts, bg, bgInst, interpMode, spt, stereoPair, n);
     const sL = stereoPair[0];
     const sR = stereoPair[1];
     bg.envVolMix += bg.envVolStep;
     const effEnvVol = bg.hasVolEnv && bg.volEnvOn ? bg.envVolMix : 1.0;
     advanceVolumeRamp(bg, volDiv);
     advancePitchRamp(bg, spt);
-    const vol = (effEnvVol * bg.fadeoutVolume * bg.currentMixVolume *
+    const vol = (effEnvVol * bg.fadeoutVolume * (bg.opl !== null ? 1.0 : bg.currentMixVolume) *
       swingScale * gvol * mvol * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain *
       playhead.masterVolume) / 255.0;
     let lGain = 0.0;
@@ -584,6 +599,9 @@ export function generateTrackerAudio(eng, playhead, out) {
     meter.compGrDb = master === null ? 0 : master.compGrDb;
     meter.limGrDb = master === null ? 0 : master.limGrDb;
   }
+
+  // The OPL chip clock (item 209) counts the frames this playhead has mixed.
+  ts.oplFrame += TRACKER_CHUNK;
 
   pcm32fToPcm8(eng, ts.mixLeft, ts.mixRight, TRACKER_CHUNK, out);
   // Bit usage is a question about the DELIVERED codes, and which those are

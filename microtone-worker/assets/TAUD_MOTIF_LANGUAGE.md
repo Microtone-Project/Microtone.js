@@ -1,14 +1,16 @@
 # Taud Motif Language
 
-**Motif** is Microtone's way of writing a song as a program. A Motif program — written in the **Taud Motif Language**, TML for short, and kept in a `.tml` file — describes the music itself (notes, melodies, chords, instruments, the arrangement) and the rules that make it (loops, functions, probability, transformations). Building the program makes a whole Taud project: the patterns and cues, an instrument bank drawn from a soundfont, the mix, the mastering chain and the texts. The project carries its program, so it can be opened in the Motif view, changed and built again.
+**Motif** is Microtone's way of writing a song as a program. A Motif program — written in the **Taud Motif Language**, TML for short, and kept in a `.tml` file — describes the music itself (notes, melodies, chords, instruments, the arrangement) and the rules that make it (functions, probability, transformations). Building the program makes a whole Taud project: the patterns and cues, an instrument bank drawn from a soundfont, the mix, the mastering chain and the texts. The project carries its program, so it can be opened in the Motif view, changed and built again.
+
+TML is **declarative**: a program says what the song is, not what to do in which order. Music is a value that can be named, passed, transformed and combined; every line on its own is part of the song; a name can be used anywhere in the block that defines it; and nothing, once made, changes. So a program can be read, and rearranged, in any order, and the song it builds stays the same.
 
 TML is a small language of its own rather than JavaScript, so that a program can be shared and built by anyone without being trusted: it can reach nothing but the builtins listed here — not the page, the network, the files or the clock — and it runs on a budget of steps, so the worst a program can do is fail to build.
 
 Companion documents: the **Taud File Format** defines the project a build writes, and the **Note Effects** reference what the effect letters in a program mean.
 
-- **Created** by CuriousTorvald, 2026-10-11. Language version 1.
+- **Created** by CuriousTorvald, 2026-10-11. Language version 2; programs written in version 1 still build, as §13 describes.
 - **Files** — UTF-8 text with the extension `.tml`, at most 2 MiB.
-- **Determinism** — the same program, built against the same soundfont by the same version of Microtone, makes the same project byte for byte, in the app and on the command line alike. Nothing in a program depends on the time, the machine or chance that is not seeded.
+- **Determinism** — the same program, built against the same soundfont by the same version of Microtone, makes the same project byte for byte, in the app and on the command line alike. Nothing in a program depends on the time, the machine, or chance that is not keyed to the song's seed.
 
 ## Conformance language
 
@@ -17,7 +19,7 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are
 ## 1. A first program
 
 ```
-tml 1
+tml 2
 song {
   title: "Three bars"
   tuning: "31-TET"
@@ -35,19 +37,27 @@ lane kick { inst: KIT, pan: $80 }
 // A tune in 31-TET: Dp is D half-flat, the neutral third over B flat.
 melody(tune, at(1), "Bb4:4 Dp5:4 F5:8 | ~Ft5:12v r:4 | Bb5:16")
 
+// A kick on every bar, and on a coin toss a second one.
+let KICK = hit(kick, 0, midi(36), 50)
 for bar in 1..3 {
-  hit(kick, at(bar), midi(36), 50)
-  if chance(0.5) { hit(kick, at(bar, 10), midi(36), 36) }
+  shift(KICK, at(bar))
+  if chance(0.5, "second kick", bar) { hit(kick, at(bar, 10), midi(36), 36) }
 }
 ```
 
-Line by line: every program starts with `tml` and the language version. The `song` block says what the song is — its tuning, tempo and length. Each `instrument` is a preset of the soundfont, and each `lane` is one of the song's monophonic parts, playing an instrument. Then come the events: `melody` writes a line from a string of notes (§8.4), and a `for` loop puts a kick drum on the first row of every bar — and, on a coin toss, a second one; the coin is seeded (§10), so the same program always tosses it the same way.
+Line by line: every program starts with `tml` and the language version. The `song` block says what the song is — its tuning, tempo and length. Each `instrument` is a preset of the soundfont, and each `lane` is one of the song's monophonic parts, playing an instrument. The rest is the music. `melody` is a line written as a string of notes (§8.4). `KICK` names a single kick drum, which is music like any other; the `for` places it on the first row of every bar, and on a coin toss adds a second kick. The coin is keyed to what it is for — the second kick of that bar — and to the song's seed (§10), so the same program always tosses it the same way.
 
-## 2. How a program runs
+## 2. How a program is read
 
-A program runs once, from the top to the bottom. Its declarations (`song`, `instrument`, `lane`, `section`, `master`) describe the song; its other statements compute — with numbers, lists, records and functions — and place events on the lanes. Nothing is played while it runs: what it leaves behind, the **score**, is then built into a project (§11).
+A program is made of **definitions** — the song and its parts (`song`, `instrument`, `lane`, `section`, `master`), values (`let`) and functions (`fn`) — and **music**. A value can be a number, a list, a record, a function — or a **phrase**: music, the notes and effects a part of the song plays (§8.2). Every line on its own (a call, usually) is a piece of music, and the song is every piece of music the program's lines make, put together.
 
-The song is declared first, before anything that needs its tuning or its length; the instruments are declared before the first lane. Everything else may come in any order, and the events a program places merge into the lanes' cells by the rules in §8.2.
+Three rules make a program declarative:
+
+- **Order does not matter.** A name can be used anywhere in the block that defines it, above its own line as well as below, and the song's music is put together by rules (§8.2) that give the same result whatever order its pieces come in. The song's declaration can come last, its instruments after its lanes, and its helper functions before or after the music that uses them.
+- **Nothing changes.** A name keeps the value it is given; lists and records are never changed, only used to make new ones. There is no assignment and no loop that runs "until": a value that a TML 1 program would build step by step is built in one go (a comprehension, `map`, `scan`).
+- **Music is a value.** The event builtins (`hit`, `melody`, `keyoff`…) do not write anything anywhere: they *make* music, which a program can name, move, repeat, transform and combine before it becomes part of the song.
+
+Some music can only be placed once the rest of the song is known: a vibrato that steps round the effects of its lane, a volume ramp that steps round the volumes, music placed `under` the rest or made to `follow` another lane. These are **fitted** parts (§8.6). A build places the song in two passes: every cell that is placed for certain, then each fitted part against those.
 
 The interpreter **MUST** give a program nothing but the values and builtins this document defines, and **MUST** stop a program that exceeds the limits in §12 with an error rather than run it further.
 
@@ -87,20 +97,18 @@ A number may not run straight into letters: `12ab` is an error. Every number is 
 `"""…"""` is a string over several lines. When the opening quotes end their line, that line break is not part of the text; when the closing quotes start a line of their own, the line break before them is not either, and their indentation is taken off every line — so the text can be indented with the code around it:
 
 ```
-fn about() {
-  return """
-    First paragraph.
+let ABOUT = """
+  First paragraph.
 
-    Second paragraph.
-    """
-}
+  Second paragraph.
+  """
 ```
 
 reads `"First paragraph.\n\nSecond paragraph."`.
 
 ### Pitches
 
-`'…'` is a pitch: a note name in the song's tuning, such as `'C4'` or `'Cp4'` (§7.2). It is a number — a count of steps — and needs the song to be declared first.
+`'…'` is a pitch: a note name in the song's tuning, such as `'C4'` or `'Cp4'` (§7.2). It is a number — a count of steps.
 
 ### Names and reserved words
 
@@ -108,7 +116,7 @@ A name is ASCII letters, digits and `_`, not starting with a digit; case matters
 
 `tml` `let` `fn` `for` `in` `while` `if` `then` `else` `return` `break` `continue` `and` `or` `not` `true` `false` `none`
 
-`song`, `instrument`, `lane`, `master` and `section` are declarations only at the start of a statement, and `by` only after a range, so all six may still be used as names (`fn dr(lane, bar)` is fine).
+(`while`, `break` and `continue` belong to TML 1, §13.) `song`, `instrument`, `lane`, `master` and `section` are declarations only at the start of a statement, and `by` only after a range, so all six may still be used as names (`fn dr(lane, bar)` is fine).
 
 ## 4. Values
 
@@ -118,20 +126,21 @@ A name is ASCII letters, digits and `_`, not starting with a digit; case matters
 | string | `"text"` | |
 | bool | `true`, `false` | |
 | none | `none` | the absence of a value |
-| list | `[1, 2, 3]` | ordered, changeable; a trailing comma is allowed |
-| record | `{ root: 2, ivs: [0, 10] }` | named fields in the order first written, changeable |
+| list | `[1, 2, 3]` | ordered; a trailing comma is allowed |
+| record | `{ root: 2, ivs: [0, 10] }` | named fields in the order first written |
 | range | `1..8`, `0..<14 by 2` | whole numbers, made on demand (§5) |
 | function | `fn(x) => x * 2` | §6 |
+| phrase | made by the music builtins | music: §8.2 |
 | lane | declared by `lane` | fields `name`, `label`, `index`, `inst`, `trim` |
 | instrument | declared by `instrument` | field `name` |
 
 A record's fields are separated by commas or line breaks, and `{ name }` is short for `{ name: name }`. A field name may also be a string: `{ "pad 1": 3 }`.
 
-Lists and records are shared, not copied, when assigned or passed: changing one changes it for every name that refers to it (use `copy` for a separate one).
+No value ever changes. `xs + [v]` is a new list with `v` on the end, `with(xs, i, v)` a new list with item `i` replaced, and `merge(r, { f: v })` a new record with field `f` set.
 
 **Truth.** `false`, `none`, `0` and `""` are false; every other value is true.
 
-**Equality.** `==` compares numbers, strings and bools by value, lists, records and ranges by their contents, and functions, lanes and instruments by identity.
+**Equality.** `==` compares numbers, strings and bools by value; lists, records and ranges by their contents; phrases by the cells they place for certain (and the very same fitted parts); and functions, lanes and instruments by identity.
 
 ## 5. Expressions
 
@@ -163,33 +172,53 @@ The bitwise operators bind tighter than the comparisons, so `variant & 1 == 0` m
 
 **Indexing.** `xs[i]` counts from 0; a negative index counts from the end (`xs[-1]` is the last item). `xs[a..b]` and `xs[a..<b]` are slices, of lists and strings alike. `r["name"]` is the field `name`, as `r.name` is. Reading a field a record does not have is an error; `get(r, "name", default)` is the gentle way.
 
+**Comprehensions** make a list in one go: `[n * 2 for n in 1..4]` is `[2, 4, 6, 8]`. A `for` may be followed by any number of `if` conditions, which keep only the items they are true for, and by further `for`s, which run inside it: `[[x, y] for x in 0..<3 for y in 0..<x if x + y > 1]`. `for i, x in xs` gives the index (a record: the field's name) as well. The element is written first, but the names its `for`s bind are its own.
+
 **Calls** take positional arguments, then named ones: `melody(lead, at(9), THEME, vol: 55)`. A named argument names a parameter.
 
 **Function values** are written `fn(x, y) => expression` or `fn(x, y) { statements }`.
 
-## 6. Statements
+## 6. Statements and blocks
 
 | Statement | |
 |---|---|
-| `let name = value` | a new name in this block; `let [a, b] = pair` unpacks a list |
-| `name = value`, `xs[i] = value`, `r.f = value` | change an existing name, item or field; also `+=` `-=` `*=` `/=` |
+| `let name = value` | a name for a value; `let [a, b] = pair` unpacks a list |
+| `fn name(a, b = 2) => expression` | a function whose value is the expression |
+| `fn name(a, b = 2) { … }` | a function with a body of statements (below) |
 | `if c { … } else if d { … } else { … }` | `else` may start the line after the closing brace |
-| `for x in xs { … }` | each item of a list or range, each character of a string |
+| `for x in xs { … }` | the body for each item of a list or range, each character of a string |
+| `for x in xs if c { … }` | only for the items `c` is true for |
 | `for i, x in xs { … }` | with its index (a record gives each field's name and value) |
 | `for [a, b] in pairs { … }` | unpacking each item |
-| `while c { … }` | |
-| `break`, `continue` | leave the loop, or go on to its next round |
-| `fn name(a, b = 2) { … }` | a function; `return value` (or `return` for none) |
-| `{ … }` | a block: a scope of its own for the names it lets |
-| an expression | a call, usually, for what it does |
+| `{ … }` | a block: a scope of its own for the names it defines |
+| `return value` | ends a function, with that value (`return` alone: none) |
+| an expression | music: a phrase, a list of phrases, or none |
 
-A `for` loop over a list walks a copy of it, so changing the list inside the loop does not change the walk.
+The body of a function, a branch of an `if`, the body of a `for` and a bare `{ }` are **blocks**. The top of the program is a block too, and the only place a declaration may stand (§7).
 
-**Functions.** A parameter may have a default, written after the ones without, which may use the parameters before it: `fn f(a, b = a * 2)`. A function sees the names around the place it was written and keeps them (a closure). A named function can be used anywhere in the block it is written in, even above it — a program can start with the song and leave its helper functions for later.
+**Names.** Every name a block defines — its `let`s and `fn`s, and at the top its lanes and instruments — can be used anywhere in that block, and in every block and function inside it, above its own line as well as below. A name is defined once per block (an inner block may define the same name again, for itself). When a block runs, each of its `let`s is computed in the order written, each after whatever it needs; a value defined in terms of itself (`let x = x + 1`, or two names defined in terms of each other) is an error.
 
-**Blocks after conditions.** The `{` after the condition of `if` and `while` and after the list of `for` starts the block, so a record written there needs parentheses: `for k, v in ({ a: 1 }) { … }`.
+**Music.** Every statement of a block that is an expression must make music — a phrase, a list of phrases, or none (`print(…)` and `assert(…)` make none) — and the block's music is all of it put together (§8.2). A value that is not music, on a line of its own, is an error: nothing would use it. An `if` makes the music of the branch it takes; a `for` makes the music of every round put together.
+
+**Functions.** A parameter may have a default, written after the ones without, which may use the parameters before it: `fn f(a, b = a * 2)`. A function sees the names around the place it was written. A function written with `=>` gives the value of its expression. A function with a body gives the music its body makes — together with the phrase it returns, if it returns one — or, when its body makes no music, the value it returns. A body that makes music and returns something else is an error.
+
+**Blocks after conditions.** The `{` after the condition of `if` and after the list of `for` (or its `if` condition) starts the block, so a record written there needs parentheses: `for k, v in ({ a: 1 }) { … }`.
+
+**What TML 2 leaves out.** TML 1 (§13) had statements that changed things, and a program that uses them is told what to write instead:
+
+| TML 1 | TML 2 |
+|---|---|
+| `x = x + 1`, `x += 1`, `xs[i] = v`, `r.f = v` | a new name: `let y = x + 1`, `with(xs, i, v)`, `merge(r, { f: v })` |
+| a value built up in a loop | a comprehension, `map`, `filter` or `scan` |
+| `while c { … }` | a `for` over a range, or a function that calls itself |
+| `break`, `continue` | `for x in xs if c { … }`, or an `if` |
+| `push`, `pop`, `insert`, `remove` | `xs + [v]`, `xs[0..<len(xs) - 1]`, slices joined with `+` |
+| `seed(n)` and the random stream | keyed randomness (§10) |
+| `occupied(lane, row)`, `cell(lane, row)` | `under`, `follow` (§8.6); `occupied`, `cell` and `cells` of a phrase (§8.7) |
 
 ## 7. Declarations
+
+Declarations stand at the top of the program, never inside a block or a function: each says what the song is. They may come in any order. The song is read first, then the master, the instruments, the lanes and the sections; lanes are numbered, and instruments take their slots, in the order they are written.
 
 ### 7.1 `song`
 
@@ -212,7 +241,7 @@ song { title: "…", tuning: "31-TET", tempo: 120, speed: 6, bars: 64, bar_rows:
 | `surround` | `"stereo"` | `"stereo"`, `"planar"` (the circle) or `"spatial"` (the sphere) |
 | `format` | 2; 3 for a surround song | 3 is the wide cell (TAUD_FILE_FORMAT.md §5.5), for surround songs only |
 | `global_volume`, `mixing_volume` | 128, 128 | The song's two volumes, 0–255 |
-| `seed` | 1 | The random stream's seed (§10) |
+| `seed` | 1 | The seed every random choice is keyed to (§10) |
 | `soundfont` | the bundled GeneralUser GS | The soundfont the instruments come from: a file name, which the app asks for when it is first needed and the command line finds next to the `.tml` |
 | `retune` | `false` | Measure every zone the song plays and correct its tuning onto the grid (§11) |
 
@@ -240,7 +269,7 @@ instrument SINE { wave: "sine", envelope: [[0, 63], [0.4, 30], [2, 0]] }
 instrument BELL { fm: { operators: [{ inst: SINE }, { inst: SINE, ratio: 3.5, level: -6 }], algorithm: "0[1]" } }
 ```
 
-Declaring an instrument binds its name. A song has at most 255, and all of them come before the first lane. Each has exactly one **source**:
+Declaring an instrument binds its name. A song has at most 255. Each has exactly one **source**:
 
 | Source | Options | |
 |---|---|---|
@@ -291,7 +320,7 @@ A layer over a layered instrument stands in for all of that instrument's layers 
 
 The algorithm is written the way the Instruments view's FM tab reads one back: `0` is operator 0 free-running; `0[1]` is operator 0 with its phase modulated by operator 1, so `0[1[2]]` is a chain of three; `1'` is what operator 1 put out one sample before (a feedback tap, so `0[0']` is operator 0 feeding back into itself); `a + b` mixes, `a * b` ring-modulates, `-a` inverts, and parentheses group. Without one, the rack is a chain: the last operator into the one before it, all the way down to operator 0. Operator 0 is the principal — its envelope, its fadeout and its ending are the note's (TAUD_FILE_FORMAT.md §7.6). An algorithm that does not make a playable rack is an error.
 
-**Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are declared), then the instruments from packs, the waveforms and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
+**Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are written), then the instruments from packs, the waveforms and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
 
 ### 7.4 `lane`
 
@@ -299,7 +328,7 @@ The algorithm is written the way the Instruments view's FM tab reads one back: `
 lane bass { inst: FRETLESS, pan: $80, label: "Fretless", trim: 0.8 }
 ```
 
-A lane is one of the song's monophonic parts; declaring one binds its name. Lanes are numbered in the order they are declared, at most 64 (more than 32 makes a 64-lane project).
+A lane is one of the song's monophonic parts; declaring one binds its name. Lanes are numbered in the order they are written, at most 64 (more than 32 makes a 64-lane project).
 
 | Option | Default | |
 |---|---|---|
@@ -315,7 +344,7 @@ A lane is one of the song's monophonic parts; declaring one binds its name. Lane
 section "theme" 9..16
 ```
 
-Names part of the arrangement: every cue that starts in those bars names its patterns `"<lane label> <section>"`, so the Timeline reads "Lead theme", "Bass theme 2". Bars may be given as `9..16` or `9..<17`. A cue in no section names its patterns after the lane alone.
+Names part of the arrangement: every cue that starts in those bars names its patterns `"<lane label> <section>"`, so the Timeline reads "Lead theme", "Bass theme 2". Bars may be given as `9..16` or `9..<17`. A cue in no section names its patterns after the lane alone; a cue in two takes the first written.
 
 ### 7.6 `master`
 
@@ -336,26 +365,25 @@ The song's mastering chain (the Mastering view's), saved with the project. An op
 | `lim_on`, `lim_true_peak`, `lim_ceiling_db`, `lim_release_ms` | Limiter |
 | `out_gain_db` | Output gain, dB |
 
-## 8. Placing notes
+## 8. Music
 
 ### 8.1 Rows
 
-Events are placed by **row**, counted from 0 at the start of the song. `at(bar, row)` is the row of a bar (counted from 1) and a row within it (from 0): with 14-row bars, `at(9)` is row 112 and `at(9, 4)` row 116. A row outside the song is an error.
+Music is placed by **row**, counted from 0 at the start of the song. `at(bar, row)` is the row of a bar (counted from 1) and a row within it (from 0): with 14-row bars, `at(9)` is row 112 and `at(9, 4)` row 116. Music always lies within the song: a row outside it is an error — except that a key-off, cut or fade which moving music (`shift`, `seq`, `loop`) pushes past the song's end is left out, as a melody leaves out the key-off it would write where the song ends: the song is over, and has nothing left to end.
 
-### 8.2 Cells, and how writes merge
+### 8.2 Phrases, cells, and how music is put together
 
-Each lane holds one cell per row: a note, an instrument, a volume-column command, a panning-column command and one effect (two in a format-3 song). Every write to a row MERGES into its cell. Two writes that give one field two different values are a mistake in the program and stop the build, naming the lane, the bar and the row — with two exceptions:
+A **phrase** is a piece of music: the **cells** it writes, on lanes and rows, and the rows it spans, from its first row up to (not including) the row where it ends — a melody of eight two-row notes spans 16 rows, though the key-off after its last note lies on the row after. A cell is what one row of one lane holds: a note, an instrument, a volume-column command, a panning-column command and one effect (two in a format-3 song).
 
-- a note replaces a key-off, note cut or note fade written to that row before it;
-- `keyoff`, `cut` and `fade` write nothing on a row that already holds a note.
+When phrases are put together — the lines of a block, or the arguments of `stack` — their cells **MERGE** row by row. Two cells that give one field two different values are a mistake in the program and stop the build, naming the lane, the bar and the row, with one exception: a note wins over a key-off, note cut or note fade on its row. So a phrase can end with a key-off on the row where the next phrase begins with a note. The volume column holds a volume or a command (a slide, a fine slide), not both: a note's volume and a slide on its row are a clash too.
 
-So a phrase can end with a key-off where the next phrase begins with a note, in either order.
+These rules do not depend on the order phrases are put together in, so neither does the song.
 
 ### 8.3 The event builtins
 
-Volumes are 0–63 in a format-2 song and 0–255 in a format-3 one. An effect is its letter — `"G"`, `"S"` — or its symbol, and its argument a number written as on the grid: `fx(lane, row, "S", $7300)` is `S $7300`.
+Each makes a phrase: one row long, unless it says otherwise — a key-off, cut or fade lasts no rows, since it marks the moment a note ends. Volumes are 0–63 in a format-2 song and 0–255 in a format-3 one. An effect is its letter — `"G"`, `"S"` — or its symbol, and its argument a number written as on the grid: `fx(lane, row, "S", $7300)` is `S $7300`.
 
-| Builtin | Writes |
+| Builtin | Makes |
 |---|---|
 | `hit(lane, row, pitch, vol, fx, arg, inst, pos, delay)` | A note with the lane's instrument (or `inst`), optionally its volume, an effect, a position (`pos: dir(az, el)`, format 3) and a delay of 1–15 ticks (`S $Dx`) |
 | `keyoff(lane, row)`, `cut(lane, row)`, `fade(lane, row)` | Key-off, note cut, note fade |
@@ -365,13 +393,11 @@ Volumes are 0–63 in a format-2 song and 0–255 in a format-3 one. An effect i
 | `vol_fine(lane, row, delta)` | A one-shot volume change on the row's first tick (up when positive); at most 31 in format 2, 127 in format 3 |
 | `vol_slide(lane, row, per_tick)` | A volume slide on every later tick (up when positive) |
 | `glide(lane, row, pitch, speed)` | A tone portamento to the pitch (`G` with no instrument: no new attack) |
-| `glide_speed(from, to, rows)` | The `G` speed that covers `from` → `to` in that many rows |
-| `vibrato(lane, from, to, speed, depth)` | `H` on the rows from `from` up to `to`: the first states speed and depth, the rest continue it; a row that already has an effect is stepped round (the next one states them again), and a key-off ends it |
-| `melody(lane, row, text, …)` | A line from a melody string (§8.4); returns the row after it |
-| `occupied(lane, row)` | Whether anything is written on that row yet |
-| `cell(lane, row)` | What is written there so far, as a record of the fields that are (`none` for an empty row): `note` (a pitch, or `"off"`, `"cut"`, `"fade"`), `inst`, `vol`, `vol_cmd` (true when the volume column holds a slide), `fx`/`arg`, `fx2`/`arg2`, `pos` |
-| `vol_ramp(lane, from, to, from_vol, to_vol)` | A smooth change of the sounding note's volume over the rows from `from` up to `to`: one fine slide a row, each the rounded share of what is left, in the lane's own units (its trim applies, as to a volume it sets); a row whose volume column is taken is stepped round |
-| `lanes()` | Every lane, in order |
+| `glide_speed(from, to, rows)` | (A number.) The `G` speed that covers `from` → `to` in that many rows |
+| `melody(lane, row, text, …)` | A line from a melody string (§8.4), spanning its notes and rests |
+| `vibrato(lane, from, to, speed, depth)` | `H` on the rows from `from` up to `to`, fitted (§8.6): the first states speed and depth, the rest continue it; a row with another effect is stepped round (the next one states them again), and a key-off ends it |
+| `vol_ramp(lane, from, to, from_vol, to_vol)` | A smooth change of the sounding note's volume over the rows from `from` up to `to`, fitted (§8.6): one fine slide a row, each the rounded share of what is left, in the lane's own units (its trim applies, as to a volume it sets); a row whose volume column is taken is stepped round |
+| `lanes()` | (A list.) Every lane, in order |
 
 ### 8.4 Melody strings
 
@@ -396,7 +422,79 @@ melody(lead, at(9), """
   """, vol: 55)
 ```
 
-### 8.5 Pitches and chords
+### 8.5 Combining and transforming music
+
+Wherever these take music, a list of phrases will do (it is put together first).
+
+| Builtin | Makes |
+|---|---|
+| `stack(a, b, …)` | The phrases together, as the lines of a block are |
+| `seq(a, b, …)` | The phrases one after another: each moved to start where the one before ends |
+| `shift(music, rows)` | The music moved later (earlier, for a negative count) |
+| `loop(music, times, every)` | The music `times` times, each `every` rows after the last (its own length, unless given) |
+| `rest(rows)` | Nothing, lasting `rows` rows from row 0: a gap in a `seq`, or a bar's length for `loop` |
+| `slice(music, from, to)` | The cells on rows from `from` up to `to` (the end of the music, unless given) |
+| `on(lane, music)` | The music played on another lane. A note that played the instrument of the lane it came from plays the new lane's; a note given an instrument of its own keeps it |
+| `transpose(music, steps)` | Every note moved by that many steps (glides too; their speeds stay) |
+| `invert(music, axis)` | Every note reflected through the axis: `2 × axis − pitch` |
+| `map_notes(music, f)` | Every note's pitch through `f(pitch)` |
+| `map_vols(music, f)` | Every volume a cell sets through `f(volume)` |
+| `filter(music, f)` | Only the cells `f(cell)` is true for (the cell as `cells` gives it, §8.7) |
+| `reverse(music)` | The music backwards (retrograde): below |
+| `stretch(music, factor)` | The music `factor` times as slow (augmentation; a factor below 1 is diminution), counted from its start: below |
+
+`transpose`, `invert`, `filter`, `slice` and `reverse` take lists too, as §8.8 and §9 say. A transformation applies to a phrase's fitted parts as well, so a vibrato moved with its melody still steps round the effects where it now lies.
+
+**Backwards.** A row of a lane is not a note: a note *sounds* from its row until something ends it, a glide carries the sound on to another pitch, and effects and volume commands act on it in between. So `reverse` turns round what the music does rather than its rows. On each lane, the sounds and the silences between them come in the opposite order, each as long as it was, and the phrase keeps its span:
+
+- A sound keeps how it is struck — its instrument, its position and its own effects — but is struck at the volume it *ended* at, and every change of volume inside it is undone in reverse: a slide up becomes a slide down, a fitted ramp from 20 to 50 becomes one from 50 to 20, and so a swell becomes a fade. Its glides run the other way, each at the speed of the glide between the same two notes.
+- A sound is let go where the original was entered from silence: with the ending that began that silence, or — after the phrase's start or a leading rest — the way the music lets its notes go (its ending on its last row, else its last ending). A reversed melody is therefore let go at its end as a melody is; music that lets nothing go (`ring: true`) is let go nowhere.
+- Inside a sound, what is on a row keeps its distance from the sound's *end*: an effect one row after the strike lands one row before the reversed sound ends. Between sounds, rows are mirrored. A fitted vibrato is fitted again over the mirror image of its rows.
+
+Reversing twice gives the music back, with three exceptions where what a reversed note did is not written in the music: a note that is never let go (a ring, a tie at the very end) after a leading rest; a note struck without a volume of its own whose volume changes inside it; and a volume that a slide drives against its limit, 0 or the maximum.
+
+**Slower and faster.** `stretch(music, 2)` makes every row of the music two rows long, from its first row; `stretch(music, 0.5)` halves them. What happens at a moment — a note, a glide, an ending, a volume or pan set, a lone effect, a fine volume step — moves with its row, and must land on a whole row (`stretch(…, 0.5)` of a note on an odd row is an error, naming it). A glide takes as much longer: its speed is divided by the factor, rounded, and never falls below 1. What goes on through rows is drawn out over its new length: a run of one effect on rows in a row (a vibrato is stated once and recalled; a roll of retriggers goes on retriggering), the change a volume slide makes (spread over the new rows), and fitted vibratos and ramps (fitted again over their new rows). Stretching by a factor and then by its inverse gives the music back (glide speeds to within their rounding), and `reverse` and `stretch` can be applied in either order to the same notes.
+
+```
+let motif = melody(lead, 0, "D5:2 F5:2 A5:4 ~G5:4v", vol: 44)
+seq(motif, reverse(motif), stretch(motif, 2))    // the motif, backwards, then at half speed
+```
+
+```
+let riff = melody(bass, 0, "D2:2 A2:2 D3:4", vol: 44)
+seq(riff, transpose(riff, 5), riff, rest(8))   // three times, the second a fourth up
+on(bass2, shift(invert(riff, 'D2'), at(5)))    // upside down, from bar 5, on another lane
+```
+
+### 8.6 Fitted music
+
+Some music can only be placed once the rest of the song is known. A **fitted** part is placed in the build's second pass, against every cell the song places for certain — never against another fitted part, so two that land on one row of one lane clash like any other cells. So the order the program is written in still does not matter.
+
+| Builtin | Places |
+|---|---|
+| `vibrato(…)`, the `v` of a melody | `H` on the rows whose effect column the song leaves free (§8.3) |
+| `vol_ramp(…)` | Fine slides on the rows whose volume column the song leaves free (§8.3) |
+| `under(music, columns…)` | The music, row by row, only where the rest of the song leaves room: a row of a lane on which the song already writes anything — or, given column names, anything in those columns — is left out, the music's whole row with it. Columns: `"note"`, `"inst"`, `"vol"`, `"pan"`, `"fx"`, `"fx2"` |
+| `follow(lane, from, to, f)` | The music `f(heard)` makes, where `heard` is a list with one item for each row from `from` up to `to`: what the rest of the song writes on that lane there (a record, as `cells` gives it, without `lane` and `row`), or none |
+
+```
+// a ride in eighths, except where a crash is struck
+for r in 0..<14 by 2 { under(hit(cym, at(bar, r), midi(51), 40)) }
+// a second voice a major third over whatever the lead plays in bars 9–16
+follow(lead, at(9), at(17), fn(heard) => [hit(harmony, at(9) + i, c.note + 10, 30) for i, c in heard if c != none and type(c.note) == "number"])
+```
+
+### 8.7 Reading music
+
+A phrase has the fields `from` and `to` (the rows it spans), `rows` (how many) and `lanes` (the lanes it plays on). What it places for certain can be read — its fitted parts are only placed with the whole song:
+
+| Builtin | |
+|---|---|
+| `cells(music, lane)` | Every cell, in lane order and then row order (only that lane's, given one), as a record of the fields it has: `lane`, `row`, `note` (a pitch, or `"off"`, `"cut"`, `"fade"`), `inst`, `vol`, `vol_cmd` (true when the volume column holds a slide), `fx`/`arg`, `fx2`/`arg2`, `pos` |
+| `cell(music, lane, row)` | That row's cell, as the same record (without `lane` and `row`), or none |
+| `occupied(music, lane, row)` | Whether the music writes anything there |
+
+### 8.8 Pitches and chords
 
 | Builtin | |
 |---|---|
@@ -407,12 +505,16 @@ melody(lead, at(9), """
 | `word(pitch)` | The pitch's 4096-TET note word, as the pattern grid stores it |
 | `midi(key)` | The step nearest a MIDI key (60 is C4), a tie going to the lower step — what a General MIDI drum map needs |
 | `mirror(pitch, axis)` | The pitch reflected through the axis: `2 × axis − pitch` |
-| `transpose(pitches, steps)`, `invert(pitches, axis)` | The same over a list |
+| `transpose(pitches, steps)`, `invert(pitches, axis)` | The same over a list (and over music, §8.5) |
 | `dir(az, el)` | A position for a format-3 song, in degrees: azimuth 0 ahead, 90 right, 180 behind; elevation 90 straight up |
 | `dir_arg(az, el)` | The same direction as the argument of `X` and `4` (`$eeaa`: elevation, then the azimuth halved) |
 | `nearest_chord(prev, chord, lo, hi, n, need_root)` | The notes of `chord` that move least from the notes `prev` |
 
-A **chord** is a record with `root` (a degree number) and `ivs` (its intervals in steps), and optionally a `name` for error messages: `{ root: degree("D"), ivs: [0, 10, 18, 25] }` is D 4:5:6:7 in 31-TET. `nearest_chord` returns `n` pitches (as many as `prev` has, unless given), ascending, every one within `lo`…`hi` and of the chord's pitch classes, covering as many of its classes as `n` allows — the root among them when `need_root` — and moving the least in total from `prev` note by note (what harmony textbooks call smooth voice leading). Ties go to the lower spelling. It is an error when no spelling fits.
+A **chord** is a record with `root` (a degree number) and `ivs` (its intervals in steps), and optionally a `name` for error messages: `{ root: degree("D"), ivs: [0, 10, 18, 25] }` is D 4:5:6:7 in 31-TET. `nearest_chord` returns `n` pitches (as many as `prev` has, unless given), ascending, every one within `lo`…`hi` and of the chord's pitch classes, covering as many of its classes as `n` allows — the root among them when `need_root` — and moving the least in total from `prev` note by note (what harmony textbooks call smooth voice leading). Ties go to the lower spelling. It is an error when no spelling fits. A chain of chords, each voiced from the one before, is a `scan`:
+
+```
+let voicings = scan(CHORDS, notes("C4 E4 G4"), fn(prev, ch) => nearest_chord(prev, ch, 'G3', 'G4'))
+```
 
 ## 9. General builtins
 
@@ -430,9 +532,11 @@ A **chord** is a record with `root` (a degree number) and `ivs` (its intervals i
 | `range(n)`, `range(a, b, step)` | `0..<n`, and `a..<b by step` |
 | `list(x)` | A list from a range, a string (its characters), a list (a copy) or a record (its field names) |
 | `repeat(value, n)` | A list of `n` copies |
-| `push(xs, …)`, `pop(xs)`, `insert(xs, i, v)`, `remove(xs, i)` | Change a list in place |
-| `slice(xs, a, b)`, `reverse(xs)`, `rotate(xs, n)`, `sort(xs, key)`, `unique(xs)`, `flatten(xs)`, `zip(a, b)`, `copy(x)` | New lists (`copy` copies records too, all the way down) |
-| `map(xs, f)`, `filter(xs, f)`, `reduce(xs, f, initial)`, `any(xs, f)`, `all(xs, f)`, `sum(xs)` | |
+| `with(xs, i, v)` | The list with item `i` replaced by `v` (or the record with field `i` set) |
+| `slice(xs, a, b)`, `reverse(xs)`, `rotate(xs, n)`, `sort(xs, key)`, `unique(xs)`, `flatten(xs)`, `zip(a, b)`, `copy(x)` | New lists |
+| `map(xs, f)`, `filter(xs, f)`, `any(xs, f)`, `all(xs, f)`, `sum(xs)` | |
+| `reduce(xs, f, initial)` | `f(f(f(initial, x0), x1), x2)…`: the last value |
+| `scan(xs, initial, f)` | The same, keeping every value on the way: `[f(initial, x0), f(that, x1), …]` |
 | `contains(xs, x)`, `index_of(xs, x)`, `count(xs, x)` | Searches (in a string, `contains` and `index_of` find text) |
 
 | Strings | |
@@ -445,37 +549,46 @@ A **chord** is a record with `root` (a degree number) and `ivs` (its intervals i
 | Records and the rest | |
 |---|---|
 | `keys(r)`, `values(r)`, `has_key(r, k)`, `get(r, k, default)`, `merge(a, b)` | `merge` is a new record with `b`'s fields over `a`'s |
-| `type(x)` | `"number"`, `"string"`, `"bool"`, `"none"`, `"list"`, `"record"`, `"range"`, `"function"`, `"lane"`, `"instrument"` |
+| `type(x)` | `"number"`, `"string"`, `"bool"`, `"none"`, `"list"`, `"record"`, `"range"`, `"function"`, `"phrase"`, `"lane"`, `"instrument"` |
 | `print(…)` | A line in the build log |
 | `error(message)`, `assert(condition, message)` | Stop the build with a message |
 
 ## 10. Randomness
 
-`random()` and everything built on it draw from one stream, seeded by the song's `seed` (1 unless given) and restarted by `seed(n)`, so a program makes the same choices every time it is built; change the seed for another set. The stream is **Mulberry32**, which an implementation **MUST** follow exactly:
+A random number is not drawn from a stream: it is a function of the song's `seed` (1 unless given) and of **keys** the program gives — whole numbers and strings that say what the choice is for. `random("swing", bar)` is the same number every time it is asked, wherever it is asked, however many other choices the program makes; change the seed for another set. Since the same keys give the same number, give each kind of choice a name of its own: `chance(0.4, "extra kick", bar)` and `choose(FILLS, "fill", bar)` are independent; `chance(0.4, bar)` and `choose(FILLS, bar)` are not.
+
+`random(keys…)` **MUST** be computed exactly as follows, so that every implementation builds the same song:
 
 ```
-state ← seed (as an unsigned 32-bit integer)
-next():
-  state ← (state + 0x6D2B79F5) mod 2^32
-  t ← state
+mix(t):
+  t ← (t + 0x6D2B79F5) mod 2^32
   t ← imul(t xor (t >>> 15), t or 1)
   t ← t xor (t + imul(t xor (t >>> 7), t or 61))
-  return ((t xor (t >>> 14)) >>> 0) ÷ 2^32
+  return (t xor (t >>> 14)) >>> 0
+
+h ← seed (as an unsigned 32-bit integer)
+for each key k:
+  a whole number (−2^31 … 2^32 − 1):  h ← mix(h xor 0x4E554D00);  h ← mix(h xor (k mod 2^32))
+  a string, as UTF-8 bytes b:         h ← mix(h xor 0x53545200);  h ← mix(h xor len(b))
+                                      then for each 4 bytes of b (the last zero-padded),
+                                      as a little-endian word w:  h ← mix(h xor w)
+return mix(h) ÷ 2^32
 ```
 
-(`imul` is the low 32 bits of the product, `>>>` an unsigned shift.)
+(`imul` is the low 32 bits of the product, `>>>` an unsigned shift.) Test vectors: with seed 1, `random(0)` is 0.6445763253141195, `random("walk", 1)` 0.8974380060099065 and `random("héllo, 世界")` 0.9516397698316723; with seed 19, `random("walk", 1)` is 0.4422831176780164.
 
-| Builtin | Draws |
+| Builtin | |
 |---|---|
-| `random()` | A number in [0, 1) |
-| `random_int(lo, hi)` | `lo + floor(random() × (hi − lo + 1))` |
-| `chance(p)` | `random() < p` |
-| `choose(xs)` | `xs[floor(random() × len(xs))]` |
-| `choose_weighted(xs, weights)` | An item, each as likely as its weight |
-| `shuffle(xs)` | A shuffled copy (Fisher–Yates from the last item down) |
-| `seed(n)` | Restarts the stream at `n` |
+| `random(keys…)` | A number in [0, 1) |
+| `random_int(lo, hi, keys…)` | `lo + floor(random(keys…) × (hi − lo + 1))` |
+| `chance(p, keys…)` | `random(keys…) < p` |
+| `choose(xs, keys…)` | `xs[floor(random(keys…) × len(xs))]` |
+| `choose_weighted(xs, weights, keys…)` | An item, each as likely as its weight: `r ← random(keys…) × total`, then the first item whose weight takes `r` below 0 |
+| `shuffle(xs, keys…)` | A shuffled copy: for `i` from the last index down to 1, item `i` swaps with item `floor(random(keys…, i) × (i + 1))` |
 
-`noise(a, b)` is not part of the stream: it is a fixed hash of two whole numbers into [−1, 1), the same every time it is asked, which is what lane jitter uses (§11):
+Each needs at least one key.
+
+`noise(a, b)` is another fixed hash of two whole numbers into [−1, 1), with no seed: the same every time it is asked. It is what lane jitter uses (§11):
 
 ```
 t ← (imul(a + 1, 0x9E3779B1) xor imul(b + 7, 0x85EBCA6B)) >>> 0
@@ -486,17 +599,18 @@ return (((t xor (t >>> 14)) >>> 0) ÷ 2^32) × 2 − 1
 
 ## 11. Building
 
-A build turns the score into a project in these steps:
+A build turns the song's music into a project in these steps:
 
-1. **Compile.** Each lane's events in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
-2. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 63 in format 2 and 255 in format 3 — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
-3. **Pans.** Each lane with a `pan` gets `S $8xxx` on the song's first row, in a pattern of its own when its first pattern is used anywhere else.
-4. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
-5. **Instruments.** `keep_layers`, `nna` and `fadeout` are applied.
-6. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `keep_layers` left some layers behind, every instrument nothing plays.
-7. **Adjustments.** `min_fadeout`, then `layer_gain`.
-8. **Re-tuning** (when the song asks for it). Soundfont samples are tuned for twelve-tone music, a few cents either way — nothing in a piano, a fifth of a step in 31-TET. For each combination of zones the song's notes trigger, a held note is rendered, its pitch measured, and those zones' detune moved by the error; three passes, so the last measures the result. Layers a note sounds together move together, so a deliberately detuned pair keeps its spread.
-9. **Source.** The program itself is saved in the project, in a `PMtf` section (TAUD_FILE_FORMAT.md §9.14), so that the Motif view can show it, and build it again.
+1. **Place.** Every cell the program places for certain, then each fitted part against them (§8.6). Each lane's cells are then read in row order — the order the following steps see them in.
+2. **Compile.** Each lane's cells in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
+3. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 63 in format 2 and 255 in format 3 — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
+4. **Pans.** Each lane with a `pan` gets `S $8xxx` on the song's first row, in a pattern of its own when its first pattern is used anywhere else.
+5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
+6. **Instruments.** `keep_layers`, `nna` and `fadeout` are applied.
+7. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `keep_layers` left some layers behind, every instrument nothing plays.
+8. **Adjustments.** `min_fadeout`, then `layer_gain`.
+9. **Re-tuning** (when the song asks for it). Soundfont samples are tuned for twelve-tone music, a few cents either way — nothing in a piano, a fifth of a step in 31-TET. For each combination of zones the song's notes trigger, a held note is rendered, its pitch measured, and those zones' detune moved by the error; three passes, so the last measures the result. Layers a note sounds together move together, so a deliberately detuned pair keeps its spread.
+10. **Source.** The program itself is saved in the project, in a `PMtf` section (TAUD_FILE_FORMAT.md §9.14), so that the Motif view can show it, and build it again.
 
 The project is new and unsaved when the build finishes; save it like any other.
 
@@ -504,7 +618,7 @@ The project is new and unsaved when the build finishes; save it like any other.
 
 The **Motif** tab (Shift+F7) holds a program and builds it. When the open project was built by Motif, the tab shows its program; otherwise it holds a draft of your own, kept in the browser. **Build** (Ctrl+Enter) runs the program away from the page, so a long one never freezes the app, and **Cancel** stops it. An error stops the build and is shown with its line and column — click the position to go there — and, inside a function, the calls that led to it. Opening a `.tml` file anywhere a project can be opened puts it in the tab and builds it. The editor colours the program as it is typed — keywords, declarations, numbers, strings, pitches, comments, calls, fields — in the Syntello scheme on the light themes and Dimtello (a grey page) on the dark ones, and lights the line the caret is on. A song that plays a soundfont other than the bundled one, or instruments from a pack, asks for that file the first time a build needs it.
 
-The editor reads the program as it is typed, by the scope rules of §6: the caret in a name marks the other places it is used, and right-clicking a name offers **Rename**, which changes the name wherever it refers to the same declaration — named arguments and `{ name }` shorthands included — and refuses a new name that would make any name in the program refer to something else. A side panel outlines the program (**Structure**) and shows what calls a function and what it calls (**Call hierarchy**). **Preview**, on a call, runs the program and plays only what that call writes, each time it is made, through the open project's instruments.
+The editor reads the program as it is typed, by the scope rules of §6 (or, for a TML 1 program, of §13): the caret in a name marks the other places it is used, and right-clicking a name offers **Rename**, which changes the name wherever it refers to the same definition — named arguments and `{ name }` shorthands included — and refuses a new name that would make any name in the program refer to something else. A side panel outlines the program (**Structure**) and shows what calls a function and what it calls (**Call hierarchy**). **Preview**, on a call, runs the program and plays only what that call makes — each time it is made, as the song plays it — through the open project's instruments.
 
 ### On the command line
 
@@ -524,13 +638,47 @@ node tools/motif.js song.tml [out.taud] [-v] [--check] [--no-source] [--signatur
 | Calls | 200 deep |
 | Nesting | 200 deep in the source |
 | Lists and strings | 1 000 000 items or characters |
+| Fitted music | 16 deep (music a `follow` makes may itself have fitted parts) |
 | Source | 2 MiB |
 | Lanes, instruments | 64, 255 |
 
-Every error names its line and column, and a mistake inside a function also lists the calls that led to it, innermost first. Errors are written to be acted on: a misspelt option suggests the one that was probably meant; a clash names the lane, the bar, the row and both values; a bar line that falls mid-bar says how many rows in it falls.
+Every error names its line and column, and a mistake inside a function also lists the calls that led to it, innermost first. Errors are written to be acted on: a misspelt option suggests the one that was probably meant; a clash names the lane, the bar, the row and both values, at the line that brought the second; a bar line that falls mid-bar says how many rows in it falls; a TML 1 statement in a TML 2 program says what to write instead.
 
-## 13. Version history
+## 13. TML 1
+
+A program that starts `tml 1` is read as the first version of the language was, and builds exactly the project it always built. TML 1 runs a program once, from the top to the bottom, like a script, and its music builtins write into the song as they run. Everything in §3–§12 holds for it, except:
+
+- **Order.** The song is declared first, before anything that needs its tuning or its length, and the instruments before the first lane. A name can be used only below its own line — except inside a function (which runs later) and for a named function, which can be used anywhere in its block. Declarations may also stand inside blocks.
+- **Changing things.** `name = value`, `xs[i] = value` and `r.f = value` change an existing name, item or field, as do `+=`, `-=`, `*=` and `/=`. Lists and records are shared, not copied, when assigned or passed: changing one changes it for every name that refers to it (`copy` makes a separate one). `push(xs, …)`, `pop(xs)`, `insert(xs, i, v)` and `remove(xs, i)` change a list in place. A `for` over a list walks a copy of it.
+- **Loops.** `while c { … }` repeats while `c` is true; `break` leaves the loop and `continue` goes on to its next round.
+- **Music.** The music builtins return none (`melody` returns the row after its line); a line's value is not music and is not checked. `occupied(lane, row)` says whether anything is written on that row yet, and `cell(lane, row)` what is written there so far (as the record of §8.7). `vibrato`, the `v` of a melody and `vol_ramp` step round what is written so far. There are no phrases, so none of §8.5's builtins, nor `under`, `follow`, `cells`, comprehensions, `for … if`, `fn name() =>`, `scan` or `with`.
+- **Merging.** A key-off, cut or fade writes nothing on a row that already holds a note or another of them: the first written stays. A volume and a volume-column command may meet on one row, and the command is what the pattern keeps.
+- **Event order.** A lane's rows are read in the order the program first wrote to each, which re-tuning (§11) groups and averages in, so moving a statement can move a detune by a unit.
+- **Randomness.** `random()` and everything built on it draw from one stream, seeded by the song's `seed` and restarted by `seed(n)`, so each draw depends on every draw before it. The stream is **Mulberry32**, which an implementation **MUST** follow exactly:
+
+```
+state ← seed (as an unsigned 32-bit integer)
+next():
+  state ← (state + 0x6D2B79F5) mod 2^32
+  t ← state
+  t ← imul(t xor (t >>> 15), t or 1)
+  t ← t xor (t + imul(t xor (t >>> 7), t or 61))
+  return ((t xor (t >>> 14)) >>> 0) ÷ 2^32
+```
+
+| Builtin | Draws |
+|---|---|
+| `random()` | A number in [0, 1) |
+| `random_int(lo, hi)` | `lo + floor(random() × (hi − lo + 1))` |
+| `chance(p)` | `random() < p` |
+| `choose(xs)` | `xs[floor(random() × len(xs))]` |
+| `choose_weighted(xs, weights)` | An item, each as likely as its weight |
+| `shuffle(xs)` | A shuffled copy (Fisher–Yates from the last item down) |
+| `seed(n)` | Restarts the stream at `n` |
+
+## 14. Version history
 
 | Version | Date | |
 |---|---|---|
+| 2 | 2026-10-14 | Declarative: music is a value (phrases, §8.2) that can be combined and transformed — played backwards and stretched among the rest — names can be used anywhere in their block, nothing changes once made, fitted music (§8.6), keyed randomness (§10), comprehensions, `for … if` and `fn name() =>` |
 | 1 | 2026-10-11 | The first version |

@@ -97,16 +97,17 @@
         const bnk = await abm.getBundledBank();
         const bnkPatches = await conv.listBnkPresets(bnk.bytes);
         log(`bnk patches listed: ${bnkPatches.length} (${bnkPatches[0]?.name})`);
-        const bnkTsii = await conv.buildBnkBank(bnk.bytes, [bnkPatches[0].index],
-          { bpm: store.doc.songs[0].bpm });
+        const bnkTsii = await conv.buildBnkBank(bnk.bytes, [bnkPatches[0].index]);
         const bnkSrc = new docm.Document(fmt.parseTaud(bnkTsii));
         const bnkTop = bnkSrc.usedInstrumentSlots().filter((s) => s <= 255);
         const bnkPlan = bm.planImport(store.doc, bnkSrc, bnkTop);
         if (bnkPlan.error) throw new Error("bnk plan: " + bnkPlan.error);
         store.undo.apply(ops.importBankOp(bnkPlan));
-        const fmSlot = bnkPlan.slotMap.get(bnkTop[0]);
-        const bnkOk = bnkPatches.length > 0 && store.doc.instruments[fmSlot].isFm;
-        log(`bnk import: "${store.doc.instrumentName(fmSlot)}" at $${fmSlot.toString(16)}, isFm: ${store.doc.instruments[fmSlot].isFm} → ${bnkOk ? "ok" : "FAIL"}`);
+        const oplSlot = bnkPlan.slotMap.get(bnkTop[0]);
+        // Each patch is one OPL instrument (type 8): the chip itself, no rack.
+        const bnkOk = bnkPatches.length > 0 && bnkTop.length === 1 &&
+          store.doc.instruments[oplSlot].isOpl;
+        log(`bnk import: "${store.doc.instrumentName(oplSlot)}" at $${oplSlot.toString(16)}, isOpl: ${store.doc.instruments[oplSlot].isOpl} → ${bnkOk ? "ok" : "FAIL"}`);
 
         // .tpif leg: serialise the loaded doc's song domain as a .tpif (kind
         // flip through toBytes), then reload it via loadBytes — exercises the
@@ -125,9 +126,47 @@
         log(`tpif reload over resident bank: ${store.fileName}, pats ${store.doc.songs[0].patterns.length}/${patsBefore}, ` +
             `gp: "${store.doc.instrumentName(gpSlot)}" → ${tpOk ? "ok" : "FAIL"}`);
 
-        log(xmOk && itOk && midOk && sf2Ok && bnkOk && tpOk ? "ALL PASS" : "FAILURES");
+        // AdLib songs, and the AdLib/OPL instruments of S3M and IT, through
+        // the same worker: every patch becomes an OPL instrument (type 8).
+        const imsF = await import("../fixtures/ims.js");
+        const sopF = await import("../fixtures/sop.js");
+        const s3mF = await import("../fixtures/s3m.js");
+        const itF = await import("../fixtures/it.js");
+        const oplSlots = () => store.doc.usedInstrumentSlots().filter((s) => store.doc.instruments[s].isOpl);
+        const oplLeg = async (label, name, bytes, want, opts = {}) => {
+          store.doc.dirty = false;
+          await loadBytes(name, bytes, opts);
+          const n = oplSlots().length;
+          const good = store.fileName === name.replace(/\.[^.]+$/, ".taud") && n === want;
+          log(`${label}: ${store.fileName}, OPL instruments ${n}/${want} → ${good ? "ok" : "FAIL"}`);
+          return good;
+        };
+        const imsOk = await oplLeg("ims import", "FIXTURE.IMS", imsF.IMS_SONG, 2,
+          { bank: { name: "FIXTURE.BNK", bytes: imsF.IMS_BANK } });
+        const sopOk = await oplLeg("sop import", "FIXTURE.SOP", sopF.SOP_SONG, 2);
+        store.doc.dirty = false;
+        await loadBytes("DRUMS.SOP", sopF.SOP_SONG_RHYTHM);
+        const kinds = [...new Set(oplSlots().map((s) => store.doc.instruments[s].opl.kind))].sort();
+        // 0 the melodic lead, then the bass drum, snare, tom, cymbal, hi-hat.
+        const drumsOk = store.fileName === "DRUMS.taud" && kinds.join(",") === "0,2,3,4,5,6";
+        log(`sop rhythm import: the chip's own drums (kinds ${kinds.join(",")}) → ${drumsOk ? "ok" : "FAIL"}`);
+        const s3mOk = await oplLeg("s3m AdLib import", "ADLIB.S3M", Uint8Array.from(s3mF.makeS3m({
+          channels: [0, 16],
+          instruments: [{ type: 1, data: s3mF.SQUARE, loop: true }, { type: 2, patch: s3mF.SINE_PATCH }],
+          patterns: [[{ row: 0, ch: 0, note: 0x40, inst: 1 }, { row: 0, ch: 1, note: 0x40, inst: 2 }]],
+        })), 1);
+        const itOplOk = await oplLeg("it OPL-sample import", "OPL.IT", Uint8Array.from(itF.makeIt({
+          samples: [{ data: itF.SQUARE, loop: true }, { opl: itF.SINE_PATCH }],
+          patterns: [[{ row: 0, ch: 0, note: 60, smp: 2 }]],
+        })), 1);
+
+        const all = xmOk && itOk && midOk && sf2Ok && bnkOk && tpOk && imsOk && sopOk && drumsOk &&
+          s3mOk && itOplOk;
+        log(all ? "ALL PASS" : "FAILURES");
+        log("RESULT: " + (all ? "PASS" : "FAIL"));
       } catch (err) {
         log("ERROR: " + err.message + "\n" + err.stack);
+        log("RESULT: FAIL");
       }
     })();
   </script>

@@ -42,7 +42,7 @@ home. If not, here is the vocabulary this manual uses:
 | **Row** | One line of a pattern. Each row holds a note, an instrument, a volume, a pan and an effect. |
 | **Tick** | The engine's time slice. Each row lasts *speed* ticks; effects update per tick. |
 | **Cue** | One entry of the song's order list: for every lane, which pattern plays next, plus optional flow commands (jump, halt, length…). A song is a sequence of cues. |
-| **Instrument** | A playable definition: a sample plus envelopes, filter, panning, NNA rules — or a **metainstrument**, which holds a table of other instruments instead of a sample. |
+| **Instrument** | A playable definition: a sample plus envelopes, filter, panning, NNA rules — or a **metainstrument**, which holds a table of other instruments instead of a sample, or an **OPL instrument**, which has a channel of an FM sound chip where the sample would be. |
 | **Metainstrument** | The family, and it has two kinds: a **Layered** metainstrument sounds its instruments side by side, an **FM Rack** wires them into each other. Both live in an ordinary instrument slot and are played by an ordinary pattern cell. |
 | **Sample** | Raw 8-bit audio data in the shared sample pool. Several instruments may use the same sample. |
 | **Note word** | A 16-bit pitch value; see the pitch system below. |
@@ -1559,10 +1559,10 @@ Two rows of three: the top row fills a slot from outside the project, the bottom
 
 - **New…** — pick presets from the bundled GeneralUser-GS SoundFont (or your own `.sf2`) and merge them in.
 - **Sample…** — build instruments from any audio file (`.wav`, `.mp3`, `.ogg`, `.flac`, …). The audio is decoded to mono and opens in the [Sample Lab](#the-sample-lab) for cropping, EQ and chopping before it is committed to the engine's 8-bit format.
-- **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes a two-operator [FM Rack](#metainstruments-the-family-and-its-two-kinds), playable across the whole keyboard.
+- **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes an [OPL instrument](#opl-instruments), playable across the whole keyboard.
 - **Record…** — record from the microphone; the take opens in the Sample Lab.
 - **Paint…** — draw a waveform by hand and add it as an instrument.
-- **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments. A chooser asks which of the two kinds first — **Layered**, where every child is heard and the mixer sums them, or **FM Rack**, where the children modulate each other and only operator 0 is heard. Both are described below.
+- **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments — or an **OPL instrument**, made out of nothing. A chooser asks which first — **Layered**, where every child is heard and the mixer sums them, **FM Rack**, where the children modulate each other and only operator 0 is heard, or **OPL instrument**, one channel of the sound chip that played AdLib and Sound Blaster music. All three are described below.
 
 All imports are single undo steps.
 
@@ -1645,6 +1645,33 @@ through the whole thing — a much stranger noise, and a perfectly good one.
 Metainstruments are not offered as picks: an operator resolves straight to a
 sample.
 
+### OPL instruments
+
+**Meta… → OPL instrument** makes an instrument with **no sample at all**: one
+channel of the Yamaha OPL2/OPL3 FM chip that played AdLib and Sound Blaster
+music, which the engine runs the way the chip does — its sine operators and
+their eight waveforms, its envelopes, its tremolo and vibrato, its rhythm
+drums. It takes no pool space and costs **one voice**. A new one starts as a
+plain two-operator tone and opens on its **OPL** tab, ready to be shaped.
+
+In the file it is metainstrument type 8, but it holds no table of other
+instruments: it is an ordinary instrument with the chip where its sample would
+be. So it keeps everything an ordinary instrument has — volume, pan and
+pitch/filter envelopes, fadeout, New Note Action, filter, panning — around the
+chip's own sound. AdLib songs, AdLib `.bnk` banks, a Scream Tracker module's
+AdLib instruments and OpenMPT's OPL instruments all arrive as OPL instruments
+([Importing music](#adlib-songs)).
+
+An OPL channel plays one note at a time. With **New Note Action** at *Note Cut*
+— what every imported one uses — a new note keys the **same** channel on again,
+its envelopes carrying on from where the last note left them, exactly as the
+chip does when a note is retriggered; any other NNA lets the old note ring on
+beside the new one, as a sampled instrument would.
+
+An OPL instrument may be a **layer** of a Layered metainstrument, which is how
+two chip patches are stacked into one sound, but not an **operator** of an FM
+Rack: a rack's operators are read as samples, and an OPL instrument has none.
+
 ### Duplicating an instrument
 
 The **Duplicate** button beside an instrument's name copies it into the lowest
@@ -1685,6 +1712,13 @@ either way.
   - A **Sustain** point sitting on the last node follows it when you add another, so an envelope that holds its final level until key-off keeps doing that instead of turning into a hold halfway through. Sustain and loop points left pointing past the end are pulled back in when the envelope gets shorter.
   - **Carry** (beside *Envelope present*) makes a new note **continue** this envelope instead of restarting it: the playhead stays where the last note left it, so a slow pan sweep or a filter opening can run across a whole phrase of repeated notes rather than resetting on each one. Each envelope carries — or does not — on its own. It is ignored where there is nothing worth keeping: after a key-off, and on a note that changes instrument. This is also what makes a run of notes tied by `G` sound the same whether or not each row names its instrument.
 - **Zones** — the Ixmp key/velocity zone map with a live trigger overlay showing which zone each incoming note lands in. The **Advanced Edit…** button opens the full patch editor (below).
+- **OPL** (OPL instruments) — the chip's own controls, laid out as the chip lays them out. An OPL instrument has the General tab and the envelope tabs as well, but no Zones: one chip channel plays every key.
+  - **Kind** is what the channel is: a **2-op** or **4-op** melodic channel, or one of the five rhythm drums — **Bass drum**, **Snare**, **Tom**, **Cymbal** and **Hi-hat**. Switching kinds keeps the operators a kind does not show, so a trip to another kind and back loses nothing; the first switch to 4-op starts the second pair as a copy of the first.
+  - **Deep tremolo** and **Deep vibrato** widen the chip's tremolo from 1 to 4.8 dB and its vibrato from 7 to 14 cents. **Note select (NTS)** moves which bit of the pitch Key scale rate follows. **Low F-number range** picks the chip's octave block the way the Korean OPL3 tracker did; Key scale rate and Key scale level read the block, so an imported `.sop` keeps the brightness and envelope speeds it had there. On the real chip all four are shared by every channel; here each instrument keeps its own.
+  - One group per **operator**, its envelope sketched at the top: **Attack**, **Decay**, **Sustain level** and **Release** (each 0…15, the sketch drawn on the chip's own doubling time scale), **Level** (0 the loudest, 0.75 dB a step), **Key scale level**, **Multiple**, **Waveform** (0…3 the OPL2's, 4…7 the OPL3's), and the **Tremolo**, **Vibrato**, **Sustain** and **Key scale rate** switches. Hover a field for what it does.
+  - After each operator pair, the **channel** it plays on: **Feedback** (on the first pair only — the chip has no other) and **Connection**, *FM* (the first operator bends the second) or *Additive* (both are heard).
+  - The **Snare**, **Cymbal** and **Hi-hat** mix their operator with the chip's noise and with a **partner** operator's phase, on the channel beside them: the partner's **Multiple**, and — for the cymbal and the hi-hat, whose partner sits on another channel — its **pitch** in cents from the drum's own.
+  - Every field is one undo step per gesture — holding a spinner's + is one step, not twenty — and a voice already sounding the instrument hears an edit at once, as a chip channel does when its registers are rewritten.
 - **Layers** (the Layered kind) — a Layered metainstrument plays several sub-instruments at once, and this table is the whole editor for that stack. Each row carries an editable **mix** (0–255, 159 = 0 dB, live dB readout), a **detune** in cents with ◂ ▸ buttons that step a whole degree of the song's own notation, and the **pitch** and **velocity** bounds that decide when the layer sounds at all. The ▸ beside row 0 marks the foreground layer: the first layer covering a trigger plays on the lane itself and the rest spawn background voices, so the order here is priority — **drag a row by the handle in its # column** to change it. The handle is a button as well as a grip: focus it and ↑ ↓ move the row without a pointer.
   - **Add layers…** brings in more instruments (the same picker, counts and all), **Duplicate** makes another voice of the layer's own sub-instrument ready to detune, and **Chord…** does a whole chord or unison spread in one action, using the same just intervals, chords and inversions as the [chord maker](#the-chord-maker). **Preview** there sounds the stack before you commit to it — the layer's own instrument at every pitch the panel lists — and stops on a second press, after a couple of seconds, or as soon as you pick a different chord. The layer you start from is the voice nearest unison and stays where it is, so an inversion decides which note of the chord that layer plays and the rest are placed around it.
   - Duplicated layers are **linked**: they share one sub-instrument, badged *linked ×n*, so editing it moves every voice of the stack together. When one voice needs to differ, **Unlink** gives that layer its own copy.
@@ -2352,21 +2386,23 @@ switch keymaps, and it is not written into an exported `.taudkey`.
 
 ## Motif (Shift+F7)
 
-Motif writes a song as a **program** rather than note by note. A Motif program, in the **Taud Motif Language** (a `.tml` file), says what the song is — its tuning, tempo and length, its instruments and lanes, its melodies and chords — and the rules that make the rest: loops, functions, chance, transformations. **Build** runs the program and makes a whole project from it: the patterns and cues, an instrument bank from a soundfont, the mix and the mastering chain. The [language reference](docs.html#motif) has every word of the language; this chapter is about the view.
+Motif writes a song as a **program** rather than note by note. A Motif program, in the **Taud Motif Language** (a `.tml` file), says what the song is — its tuning, tempo and length, its instruments and lanes, its melodies and chords — and the rules that make the rest: functions, chance, transformations. **Build** runs the program and makes a whole project from it: the patterns and cues, an instrument bank from a soundfont, the mix and the mastering chain. The [language reference](docs.html#motif) has every word of the language; this chapter is about the view.
 
 ```
-tml 1
+tml 2
 song { title: "Rain", tuning: "22-TET", tempo: 90, bars: 8, bar_rows: 16, seed: 4 }
 instrument BELL { bank: 0, program: 14 }
 lane drops { inst: BELL }
 
 let scale = notes("C5 D5 E5 F5 G5 A5 B5")
-for row in 0..<128 by 2 {
-  if chance(0.35) { hit(drops, row, choose(scale), random_int(20, 50)) }
+for row in 0..<128 by 2 if chance(0.35, "drop", row) {
+  hit(drops, row, choose(scale, "note", row), random_int(20, 50, "loud", row))
 }
 ```
 
-Every program begins with `tml 1`, then a `song` block, then its instruments and lanes. Pitches are counted in steps of the song's tuning and written as the Timeline writes them (`'Cp4'` is C half-flat in octave 4 of 31-TET); rows are counted from the start of the song, and `at(bar, row)` finds the row of a bar.
+Every program begins with `tml 2`, then says what the song is: a `song` block, its instruments and lanes, and its music. Pitches are counted in steps of the song's tuning and written as the Timeline writes them (`'Cp4'` is C half-flat in octave 4 of 31-TET); rows are counted from the start of the song, and `at(bar, row)` finds the row of a bar.
+
+A program is **declarative**: it describes the song rather than giving orders in sequence. Every line on its own is part of the music; a name can be used anywhere in the block that defines it, even above its own line; and nothing, once named, changes. So the parts of a program can be written in any order. Music is a value: a melody can be named once, then moved, repeated, transposed, played backwards, stretched to half or double speed, or played on another lane. Some music fits round the rest of the song, such as a ride that plays `under` the crashes, or a vibrato that steps round the effects on its lane; the build places it last, once everything else is known. Programs written for the first version of the language (`tml 1`, one statement after another) still build exactly as they did.
 
 ### The editor
 
@@ -2379,12 +2415,12 @@ Every program begins with `tml 1`, then a `song` block, then its instruments and
 
 ### Finding your way around a program
 
-- **The uses of a name.** Put the caret in a name and every other place the program uses it is marked; the places that set it (its declaration, an `=` or a `+=`) are marked in a second colour. The selection is drawn under the text, so the colours stay readable inside it.
+- **The uses of a name.** Put the caret in a name and every other place the program uses it is marked; the places that set it (its definition, or in a `tml 1` program an `=` or a `+=`) are marked in a second colour. The selection is drawn under the text, so the colours stay readable inside it.
 - **Right-click a name or a call** for its menu: **Rename…**, **Declaration**, **Call hierarchy** and **Preview**. The keys are the ones most code editors use: Shift+F6 renames, Ctrl+B goes to the declaration, Ctrl+Alt+H shows the call hierarchy, and the menu key or Shift+F10 opens the menu at the caret.
 - **Rename** changes a name everywhere it means the same thing, and nowhere else: not a field that happens to be spelt the same, not a different variable of the same name in another function. A `{ name }` shorthand keeps its field and becomes `{ name: new_name }`. When the new name would change what the program does (it would clash with another name, hide a builtin, or be taken for a closer variable), nothing is renamed and the message names the line where it would happen. One undo takes the whole rename back. A lane, a waveform or a metainstrument with no `label` or `name` of its own is called by its name in the project, so renaming one renames it there too at the next build.
 - **The side panel** on the right folds away to a strip of tabs at the edge: click the open tab, or the arrow, to fold it, and a tab to bring it back. On a narrow screen it opens over the program. **Structure** is always there: the song, its sections, instruments, lanes, functions and variables, each a click away from its declaration. While the program has a mistake in it, Structure keeps the outline it had before and says so.
 - **Call hierarchy** lists what calls a function (**Callers**) or what it calls (**Callees**), each with how many times. Expand a row to follow the chain further; click it to go to the call, and again for the next one. It follows the program as you edit it.
-- **Preview** plays what one call writes, without building the song: a `melody(…)`, a `hit(…)`, or a function of your own, every time the program makes that call. It lists the cells the call writes and plays them through the open project's instruments, so it works when the open project was built from this program, or opened with it, as the demo song is, when its instruments all come from the soundfont. Otherwise, build first. Esc stops it.
+- **Preview** plays what one call makes, without building the song: a `melody(…)`, a `hit(…)`, or a function of your own, every time the program makes that call, as the song plays it. It lists the cells and plays them through the open project's instruments, so it works when the open project was built from this program, or opened with it, as the demo song is, when its instruments all come from the soundfont. Otherwise, build first. Esc stops it.
 
 ### When a build goes wrong
 
@@ -2400,7 +2436,7 @@ An `instrument` comes from one of five places:
 - **Layers** of other instruments: a layered metainstrument, each layer with its own level, detune, key range and volume range, or a fixed pitch.
 - **An FM rack**: operators reading other instruments (waveforms, usually), each with its frequency ratio and level, wired by an algorithm written as the FM tab reads one back — `0[1]` is operator 0 modulated by operator 1. A build keeps only the zones the song plays, and with `retune: true` in the song it also measures every zone the song plays and corrects its tuning onto the grid — soundfont samples are tuned for twelve-tone music, and a few cents off is a fifth of a step in 31-TET.
 
-The same program always builds the same project: chance in a program comes from a seeded stream (`seed` in the song), so change the seed to hear another roll of the dice.
+The same program always builds the same project. Every random choice is keyed to the song's `seed` and to what it is for (`chance(0.35, "drop", row)`), so changing one part of a program never reshuffles another; change the seed to hear another roll of the dice.
 
 ## Importing music
 
@@ -2435,13 +2471,20 @@ drop them. An `.it` whose samples are stereo keeps them as
 [stereo samples](#stereo-samples) — the other formats have no stereo samples to
 begin with.
 
+A Scream Tracker `.s3m` may play **AdLib** instruments beside its samples, and
+OpenMPT saves its own OPL instruments into `.it` files; both arrive as
+[OPL instruments](#opl-instruments), at the pitch, level and loudness OpenMPT
+plays them at. (ST3's AdLib drum instruments stay silent, as they do in ST3 and
+OpenMPT.)
+
 ### AdLib songs
 
 `.ims` files — **Iyagi Music Sound**, the music format of the Korean BBS
 terminal *Iyagi*, played on an AdLib card — open the same way, and arrive as
-**FM Racks**: every instrument the song names is compiled into the two-operator
-patch the chip played, over single-cycle samples of the chip's own waveforms,
-and is editable operator by operator ([Building an FM Rack](#building-an-fm-rack)).
+[OPL instruments](#opl-instruments): every instrument the song names is the
+chip's own patch, played as the chip played it and editable operator by
+operator on the OPL tab. Rhythm-mode songs keep their five drums as the chip's
+own drums.
 
 These songs **name** their instruments instead of storing them, so they need a
 bank file. Drop the song and its `.bnk` together — or select both in **Open…** —
@@ -2454,7 +2497,8 @@ all**: a `.sop` stores its instruments rather than naming them, so one file is
 the whole song. Being an OPL3 format it brings three things an `.ims` cannot:
 twenty parts rather than eleven, **stereo panning** per part, and instruments
 that may be **four operators** rather than two — all of which survive, because a
-Taud lane count, panning axis and FM Rack are each wide enough to take them. Its
+Taud lane count, panning axis and OPL instrument are each wide enough to take
+them. Its
 scrolling credits arrive as the **project message** on the Project tab.
 
 A handful of `.sop` files are **version 0.2**, the music of the game *개미맨*:

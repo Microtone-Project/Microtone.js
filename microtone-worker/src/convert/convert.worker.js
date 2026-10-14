@@ -3,7 +3,7 @@
 //
 // in : {t:"convert", id, fileName, bytes, sf2?: {name, bytes}, banks?: [{name, bytes}]}
 //    | {t:"sf2", id, mode:"list"|"build", bytes, selection?, bpm?, stereo?}
-//    | {t:"bnk", id, mode:"list"|"build", bytes, selection?, bpm?}
+//    | {t:"bnk", id, mode:"list"|"build", bytes, selection?}
 // out: {t:"status", id, line} stream, then {t:"done", id, bytes} | {t:"error", id, message}
 
 import {
@@ -112,7 +112,7 @@ function jobSpec(m) {
   return {
     label: `building bank (${m.selection.length} patches)…`,
     script: BNKBANK_SOURCE,
-    argv: ["build", "/in.bnk", "/sel.json", "/out.tsii", "--bpm", String(m.bpm ?? 125)],
+    argv: ["build", "/in.bnk", "/sel.json", "/out.tsii"],
     inputs,
     output: "/out.tsii",
   };

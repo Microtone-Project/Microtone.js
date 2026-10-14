@@ -14,6 +14,7 @@ import {
 import { META_MIX_GAIN, attenGainOf, EffectOp, clamp } from "./tables.js";
 import { envPresent, envCarry, applyKeyLift, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { computePlaybackRate, startCutRamp } from "./sampler.js";
+import { OplState, oplKeyOn, cloneOplState, OPL_C4_RATE } from "./opl.js";
 import { random } from "./rng.js";
 import {
   applyPanSet, applyPanSlide, applyElevation, SURROUND_STEREO, SURROUND_SPATIAL,
@@ -47,7 +48,10 @@ export function applyActiveSample(voice, inst, patch) {
     voice.activeSamplePlayStart = inst.samplePlayStart;
     voice.activeSampleLoopStart = inst.sampleLoopStart;
     voice.activeSampleLoopEnd = inst.sampleLoopEnd;
-    voice.activeSamplingRate = inst.samplingRate;
+    // An OPL instrument's rate is its C2SPD, and a record that leaves it 0 plays at
+    // the tracker convention (§7.7) — the pitch has to come from somewhere.
+    voice.activeSamplingRate = inst.opl !== null && inst.samplingRate === 0
+      ? OPL_C4_RATE : inst.samplingRate;
     voice.activeSampleDetune = inst.sampleDetuneSigned;
     voice.activeLoopMode = inst.loopMode;
     voice.activeVibratoSpeed = inst.vibratoSpeed;
@@ -420,6 +424,8 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   const program = inst.fmProgram;
   const sounds = (o) =>
     o.instIdx >= 1 && o.instIdx <= 1023 && !eng.instruments[o.instIdx].isMeta &&
+    // An OPL instrument is a channel, not a waveform a rack can read (§7.7).
+    !eng.instruments[o.instIdx].isOpl &&
     noteVal >= o.pitchStart && noteVal <= o.pitchEnd &&
     seedVol >= o.volStart && seedVol <= o.volEnd;
   // No algorithm, or no principal operator, is silence — the same answer the
@@ -523,6 +529,11 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // below once the patch has said which envelopes are active.
   const mayCarry = voice.active && !voice.keyOff && !voice.noteFading
     && (instId === 0 || instId === voice.instrumentId);
+  // An OPL channel handed over by maybeSpawnBackgroundForNNA (a retrigger the
+  // New Note Action cuts) keeps its envelopes, as the chip does — read before
+  // anything below marks the voice active.
+  const oplCarry = voice.oplCarry && voice.active && voice.opl !== null;
+  voice.oplCarry = false;
   if (instId !== 0) voice.instrumentId = instId;
   const inst = eng.instruments[voice.instrumentId];
   // Resolve the Ixmp patch for this trigger (volume axis = pre-patch seed).
@@ -531,7 +542,8 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   if (volOverride >= 0) seedVolForLookup = narrow(volOverride);
   else if (instId !== 0) seedVolForLookup = rowVolumeFromDefault(inst, null);
   else seedVolForLookup = narrow(voice.noteVolume);
-  const patch = inst.resolvePatch(noteVal, seedVolForLookup);
+  // An OPL instrument has no keyboard map: its sound is its one patch (§7.7).
+  const patch = inst.opl !== null ? null : inst.resolvePatch(noteVal, seedVolForLookup);
   applyActiveSample(voice, inst, patch);
   voice.tonePortaTarget = -1; // fresh note trigger cancels any running porta
   voice.samplePos = voice.activeSamplePlayStart;
@@ -578,7 +590,10 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   voice.rampOutSamples = 0;
   voice.rampOutGain = 0.0;
   // Arm the Attack fade-in (item 139); see constants.js ATTACK_RAMP_SAMPLES.
-  voice.attackRampSamples = ATTACK_RAMP_SAMPLES;
+  // Not on an OPL voice: its attack IS the chip's envelope, which starts from
+  // silence on a fresh channel and from where it stood on a carried one — a
+  // fade on top would soften every attack-rate-15 patch the chip plays hard.
+  voice.attackRampSamples = inst.opl !== null ? 0 : ATTACK_RAMP_SAMPLES;
   voice.autoVibPhase = 0;
   voice.autoVibTicksSinceTrigger = 0;
   voice.nesDpcmCounter = 63;
@@ -711,6 +726,14 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // including the ones that never go through triggerMetaOrNote (the audition
   // path, a layer child). triggerFmRack re-hangs it after this returns.
   voice.fmRig = null;
+  // The OPL channel (item 209): keyed on here, carried or fresh. A voice
+  // object's previous OplState is reused — an NNA ghost took a copy of it.
+  if (inst.opl !== null) {
+    if (voice.opl === null) voice.opl = new OplState();
+    oplKeyOn(voice.opl, inst.opl, oplCarry);
+  } else {
+    voice.opl = null;
+  }
   if (voice.vibratoRetrig) voice.vibratoLfoPos = 0;
   if (voice.tremoloRetrig) voice.tremoloLfoPos = 0;
   if (voice.panbrelloRetrig) voice.panbrelloLfoPos = 0;
@@ -845,11 +868,20 @@ function ghostRig(ts, voice, channel) {
  * already the note's (TAUD_ENGINE_SPEC §5.5.1), and whose New Note Action is
  * therefore the rack's.
  */
-export function maybeSpawnBackgroundForNNA(eng, ts, voice, channel) {
+export function maybeSpawnBackgroundForNNA(eng, ts, voice, channel, incomingInst = 0) {
   if (!voice.active) return;
   const nna = voice.nnaOverride >= 0
     ? voice.nnaOverride
     : eng.instruments[voice.instrumentId].newNoteAction;
+  if (nna === 1 && voice.opl !== null && voice.fmRig === null &&
+      eng.instruments[incomingInst !== 0 ? incomingInst : voice.instrumentId].isOpl) {
+    // An OPL note cut by an OPL note is not a crossfade but a retrigger of the
+    // same channel (§5.5.2): the chip keys the operators on again from
+    // wherever their envelopes stand, with no ghost and no ramp. triggerNote
+    // picks the hand-over up.
+    voice.oplCarry = true;
+    return;
+  }
   if (nna === 1) {
     // Note Cut. The voice is about to be REUSED for the new note, so "cut" used
     // to mean dropping the old one wherever its waveform happened to be — a step
@@ -1023,6 +1055,10 @@ export function ghostVoice(src, channel) {
   v.activeDefaultCutoff = src.activeDefaultCutoff;
   v.activeDefaultResonance = src.activeDefaultResonance;
   v.activeAttenGain = src.activeAttenGain;
+  // An OPL channel is the voice's whole sound and its whole state: the ghost
+  // takes a copy, clock and envelopes and all, and the lane keeps its own to
+  // re-key for the next note.
+  v.opl = src.opl !== null ? cloneOplState(src.opl) : null;
   return v;
 }
 

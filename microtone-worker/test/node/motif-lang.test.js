@@ -97,7 +97,7 @@ test("errors point at the line and column", () => {
 
 test("the header: tml and its version", () => {
   assert.throws(() => interpret("print(1)"), /starts with the language version/);
-  assert.throws(() => interpret("tml 2\n"), /TML 2; this version of Microtone reads TML 1/);
+  assert.throws(() => interpret("tml 3\n"), /TML 3; this version of Microtone reads TML 1 and 2/);
 });
 
 test("the sandbox: a budget of steps, a bounded depth, bounded sizes", () => {

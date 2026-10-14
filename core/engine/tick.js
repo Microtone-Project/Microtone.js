@@ -12,6 +12,7 @@ import {
   clamp,
 } from "./tables.js";
 import { computePlaybackRate, startFastFade, startCutRamp } from "./sampler.js";
+import { oplKeyOn } from "./opl.js";
 import { refreshVoiceFilter } from "./filter.js";
 import { isSoundingChild } from "./voice.js";
 import {
@@ -222,7 +223,7 @@ export function applyTrackerTick(eng, ts, playhead) {
             break;
           }
           applyDuplicateCheck(eng, ts, vi, voice.delayedInst, voice.delayedNote);
-          maybeSpawnBackgroundForNNA(eng, ts, voice, vi);
+          maybeSpawnBackgroundForNNA(eng, ts, voice, vi, voice.delayedInst);
           triggerMetaOrNote(eng, ts, voice, vi, voice.delayedNote, voice.delayedInst, voice.delayedVol);
           break;
       }
@@ -949,4 +950,7 @@ function restartVoice(v) {
   v.autoVibTicksSinceTrigger = 0;
   v.filterY1 = 0.0; v.filterY2 = 0.0; v.filterX1 = 0.0; v.filterX2 = 0.0;
   v.right.reset();
+  // An OPL channel restarts the way the chip re-keys one: the attack begins
+  // from wherever each envelope stands, the phase from zero (§5.5.2).
+  if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, true);
 }

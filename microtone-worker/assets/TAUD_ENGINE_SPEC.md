@@ -335,6 +335,7 @@ A **Metainstrument** is an instrument whose record names other instruments inste
 |---|---|---|
 | 0 | **Layered** | sounds every entry whose rectangle contains the trigger, **in parallel** — one voice each. This section. |
 | 4 | **FM Rack** | reads the entries as **operators** and the words after them as an algorithm: **one voice**, whatever that algorithm produces. [§5.5.1](#5-5-1-type-4-fm-racks). |
+| 8 | **OPL** | has no table: the record is an ordinary instrument whose sample is **one channel of an OPL FM chip**. [§5.5.2](#5-5-2-type-8-opl-instruments). |
 
 A type the engine does not know **MUST** sound nothing rather than fall back to type 0.
 
@@ -401,6 +402,146 @@ Measuring the depth in cycles is what makes the mix octet read as a modulation i
 **An engine that will not ghost a rack has made every rack monophonic**, whatever the principal's New Note Action says, because the next row on the lane is then the end of the note. That is the one thing a rack of bells cannot survive, and it is why the snapshot objection above is answered by copying the rig rather than by refusing to release.
 
 Past-note actions (`S $70`…`$72`) do not reach a metainstrument's lane at all, so they are not a rack's business either.
+
+#### 5.5.2 Type 8 — OPL instruments
+
+A **type-8** Metainstrument is an **OPL instrument** ([File Format §7.7](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is one channel of a Yamaha YM3812 / YMF262. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter and the voice effects, the whole gain chain — with four differences, each stated below: where the sample would be read, the chip is run; the note volume reaches the chip's operators instead of the finished signal; a retrigger can hand the channel over instead of ghosting it; and there is no attack ramp. An OPL instrument resolves no Ixmp patch.
+
+The chip model is the IMS Archive's clean-room OPL core (iyagimusic-js `src/opl/`, written from Yamaha's *YM3812 Application Manual* and the published die description), number for number. Two readings — the key-scale-rate split and the key-scale level's rounding — follow the silicon where the application manual says otherwise; the IMS Archive core took the same two readings on 2026-10-14, so the two agree to the bit. Everything is integer arithmetic or IEEE doubles, the two ROM tables are stated rather than computed, and the only transcendental is `2 ^ rational`, so independent implementations agree bit for bit.
+
+**The chip clock.** Each playhead keeps one counter, `F`, of the output frames it has mixed — playing or jamming — reset to 0 by a full reset and by a play-from-row reset ([§15](#15-transport-reset)). Output frame `F` falls on chip sample
+
+```
+k    = ⌊F × 3579545 ÷ (72 × output_rate)⌋
+frac = (F × 3579545 − k × 72 × output_rate) ÷ (72 × output_rate)
+```
+
+— the chip's own 49716.05 Hz, computed in integers so that every voice reads the same grid. The chip's envelope counter and its LFO position at chip sample `k` are both `k`. A voice computes chip samples in order up to `k` and outputs
+
+```
+voice_sample = (c[k−1] + (c[k] − c[k−1]) × frac) ÷ 4096
+```
+
+where `c[j]` is the channel's value at chip sample `j` below. A full-scale operator is therefore one full-scale sample. A voice the mixer does not render for a frame — a fully muted lane — computes nothing for it; when it is rendered again and more than 8 chip samples are owed, it skips to `k − 1` and computes only `k`, so a muted channel is **frozen**, as a muted sample voice's position is.
+
+A channel's first rendered frame after a fresh key-on anchors it: its last computed chip sample is set to `k − 1`, and `c[k−1]` is 0.
+
+**Pitch.** The channel's frequency follows the voice's sample-rate arithmetic ([§3.2](#3-2-playback-rate)) unchanged — the record's rate field is the voice's C2SPD, 8363 when 0 — and is read through the per-sample pitch glide:
+
+```
+hz = current_playback_rate × output_rate × 261.6255653005986 ÷ 8363
+x  = hz × 1048576 ÷ 49716.0486111…        (3579545 ÷ 72)
+```
+
+The block is the lowest `b` in 0…7 whose `fnum = round(x ÷ 2^b)` is below the ceiling — 1024, or 686 with the low-F-number flag — and above block 7 the pair is block 7, F-number 1023. From the pair:
+
+```
+phase_inc[op] = ((fnum × MULT_X2[mult]) << block) >> 1      MULT_X2 = 1,2,4,6,8,10,12,14,16,18,20,20,24,24,30,30
+ksl_base      = max(0, KSL_ROM[(fnum >> 6) & 15] − 8 × (7 − block))
+                                                             KSL_ROM = 0,24,32,37,40,43,45,47,48,50,51,52,53,54,55,56
+ksl_att[op]   = ksl == 0 ? 0 : (ksl_base × 4) >> (ksl == 1 ? 1 : ksl == 2 ? 2 : 0)    envelope units
+ksv           = (block << 1) | ((fnum >> (NTS ? 8 : 9)) & 1)
+ksr_off[op]   = ksr ? ksv : ksv >> 2
+```
+
+The `ksv` and `ksl_att` lines are the two places the silicon and the manual part ways. The application manual's figure for NOTE SEL has NTS = 0 splitting on the F-number's second bit; the silicon splits on its most significant bit, which is what every hardware-verified emulator does and what this engine does — only an operator with KSR set can hear the difference. And the chip computes the key-scale level in 0.1875 dB envelope units before halving or quartering it for settings 1 and 2, so the fraction a shift in 0.75 dB units would drop — up to 0.56 dB — is kept.
+
+These values are recomputed whenever the playback rate or the patch changes. A drum's two accumulators (below) are derived the same way.
+
+**The envelope generator.** Each operator holds an attenuation `env`, 0…511 in 0.1875 dB steps, and a phase — OFF, ATTACK, DECAY, SUSTAIN or RELEASE. At chip sample `k`, before the operator is read:
+
+```
+rate_param = ATTACK: AR · DECAY: DR · SUSTAIN: (EGT ? 0 : RR) · RELEASE: RR
+if phase is OFF or rate_param == 0: no change           (a rate of 0 is "never")
+rate  = min(60, rate_param × 4 + ksr_off)
+shift = 12 − (rate >> 2)
+if shift ≥ 0:  if k & (2^shift − 1) ≠ 0: no change;  steps = DUTY[rate & 3][(k >> shift) & 7]
+else:          steps = DUTY[rate & 3][k & 7] << −shift
+DUTY = 10101010, 10101011, 10111011, 10111111
+repeat steps times, stopping early if the phase changes:
+  ATTACK:            env −= (env >> 3) + 1;  at env ≤ 0: env = 0, phase = DECAY
+  DECAY:             env += 1;  at env ≥ SL: env = SL, phase = SUSTAIN
+  SUSTAIN, RELEASE:  env += 1;  at env ≥ 511: env = 511, phase = OFF
+```
+
+where SL is the sustain field × 16, and 496 for 15. A key-on puts every operator in ATTACK with its phase accumulator at 0 and leaves `env` where it is; a key-off puts every operator not OFF in RELEASE.
+
+**The LFOs.** At chip sample `k`, with `tri(p, P) = p < P/2 ? p ÷ (P/2) : 2 − p ÷ (P/2)` (`P/2` an integer shift):
+
+```
+tremolo = (deep ? 26 : 5) × 8 × tri(k mod 13440, 13440)                   attenuation units
+vibrato = c == 0 ? 1 : 2 ^ (c ÷ 1200),  c = (deep ? 14 : 7) × (2 × tri(k mod 8192, 8192) − 1)
+```
+
+**An operator.** Reading operator `n` with phase modulation `m` and extra attenuation `x`:
+
+```
+att  = (env + ksl_att) × 8 + TL × 32 + x
+inc  = phase_inc;  if VIB and vibrato ≠ 1: inc = round(inc × vibrato)
+acc  = (acc + inc) mod 2^32;  prev = out
+if phase is OFF: out = 0
+else: (log, sign) = WAVE[waveform]( ((acc >> 10) + m) & 1023 )
+      out = log is SILENCE ? 0 : sign × EXPAND(log + att)
+EXPAND(a) = a ≥ 6144 ? 0 : ((EXP[255 − (a & 255)] + 1024) << 1) >> (a >> 8)
+```
+
+`x` is the operator's tremolo when its AM bit is set, plus the note volume's attenuation when it is an output (below). The bit operations of EXPAND truncate a fractional `a`. LOG_SIN and EXP are the 256-entry tables `round(−log2(sin((i + ½)π ÷ 512)) × 256)` and `round((2^(i/256) − 1) × 1024)`; an implementation **MUST** use the integer values, not evaluate the formulas at run time. The eight waveforms read the quarter sine at phase `p` (`q = p & 255`, mirrored `q' = p & 256 ? 255 − q : q`, negative half `h = p & 512`):
+
+| Shape | Value |
+|---|---|
+| 0 sine | LOG_SIN[q'], negative when `h` |
+| 1 half sine | `h` ? SILENCE : LOG_SIN[q'] |
+| 2 absolute sine | LOG_SIN[q'] |
+| 3 pulse sine | `p & 256` ? SILENCE : LOG_SIN[q] |
+| 4 even sine | `h` ? SILENCE : shape 0 read at `(p << 1) & 1023` |
+| 5 even absolute sine | `h` ? SILENCE : shape 2 read at `(p << 1) & 511` |
+| 6 square | 0, negative when `h` |
+| 7 logarithmic saw | `(h ? 511 − (p & 511) : p & 511) << 3`, negative when `h` |
+
+**A channel.** `c[k]` for each kind, after advancing the envelopes of the operators it plays:
+
+```
+feedback = FB == 0 ? 0 : trunc((out₁ + prev₁) ÷ 2 ÷ 2^(8 − FB))         (operator 1's last two)
+two operators:   m = op₁(feedback);  c = CNT ? m + op₂(0) : op₂(m)
+four operators:  CNT A = 0:  c = CNT B ? op₃(op₂(op₁(feedback))) + op₄(0) : op₄(op₃(op₂(op₁(feedback))))
+                 CNT A = 1:  o₁ = op₁(feedback);  o₃ = op₃(op₂(0))
+                             c = CNT B ? o₁ + o₃ + op₄(0) : o₁ + op₄(o₃)
+bass drum:       2 × (the two-operator value)
+tom-tom:         2 × op₁(0)
+```
+
+Operators are read in the order these expressions name them. The snare drum, top cymbal and hi-hat are read at a **dictated** phase. The channel holds two more accumulators, the hi-hat operator's `hh` and the top cymbal operator's `tc`, each advanced (mod 2^32, without vibrato) by its own increment before either is read:
+
+| Kind | `hh` increment | `tc` increment |
+|---|---|---|
+| Snare drum | own F-number and block, partner multiplier | — |
+| Top cymbal | partner channel, partner multiplier | own operator's |
+| Hi-hat | own operator's | partner channel, partner multiplier |
+
+where the partner channel is the voice's frequency × `2 ^ (partner_pitch ÷ 4096)`, taken through the same block and F-number rule. Then, with `hp = (hh >> 10) & 1023`, `tp = (tc >> 10) & 1023` and `noise` the low bit of the channel's noise register:
+
+```
+xor        = ((hp>>2 ^ hp>>7) | hp>>3 | (tp>>5 ^ tp>>3)) & 1
+hi-hat:      phase = (xor << 9) | (xor ^ noise ? 0x0D0 : 0x034)
+snare drum:  phase = ((hp >> 8) & 1 ? 0x200 : 0x100) ^ (noise << 8)
+top cymbal:  phase = (xor << 9) | 0x100
+c = 2 × (operator 1 read at `phase`, its own accumulator unused)
+noise = (noise >> 1) | (((noise ^ (noise >> 14)) & 1) << 22)              after it is read
+```
+
+The noise register is the chip's 23-bit LFSR. A fresh channel's register is seeded at its anchoring frame from that frame's `k`: the low 32 bits of `k × 0x9E3779B1` (k taken as a 32-bit integer), shifted right 9 and masked to 23 bits, or 1 if that is 0 — any non-zero state is a point on the LFSR's one cycle, so this is the chip's free-running noise met at a deterministic moment. At a key-on, `hh` and `tc` restart at 0.
+
+**The note volume.** The voice's mix volume — row volume × lane volume, ramped exactly as for a sampled voice ([§10.2](#10-2-the-gain-chain)) — is applied **as attenuation on the operators that reach the output**, as the chip's drivers apply channel volume through total level: the carrier of a two-operator FM channel, both operators of an additive one, operators 1 and 3 when their connection sends them out and operator 4 always, and a drum's one operator (the bass drum's carrier, and its modulator when additive). The attenuation is the least integer `i` in 0…6144 with `volume ≥ 2 ^ (−(2i + 1) ÷ 512)` — the nearest step of 1/256 of an octave, found by comparison, 0 at full volume and 6144 (silence) at none. The gain chain then uses 1 in place of the mix volume for this voice; every other factor of [§10.2](#10-2-the-gain-chain) applies as usual. Applied in the operators rather than to the signal, the volume reaches an additive modulator's feedback, so an additive patch played quietly changes timbre as it does on the chip.
+
+**The note.** A trigger keys the channel on. Ordinarily the channel is **fresh**: every operator at `env = 511`, its outputs zero, anchored at its first rendered frame. A voice whose New Note Action — the instrument's or `S $73`'s — is **note cut**, and which is struck by a note on an OPL instrument while it sounds one, is not ghosted at all: the incoming trigger keys the **same channel** on again, every envelope continuing from where it stands, as a driver retriggering a channel on the chip does. No ghost is made and no cut ramp runs. Every other New Note Action ghosts the voice as ever, and the ghost carries a copy of the whole channel — envelopes, accumulators, noise, clock position and its last two values.
+
+`Q`'s retrigger keys the channel on the same way, envelopes carried. A key-off — the pattern's, a ghost's release, a Duplicate Check note-off, past-note off — keys it off. An instrument byte on a tone-portamento row ([§5.2](#5-2-note-events)) re-attacks every operator from where it stands without restarting a phase, which is the chip's reading of "the envelopes restart and the sample position stays". An instrument change without a retrigger writes the new patch into the sounding channel, as a driver writes a patch change; a sampled voice handed an OPL instrument that way gets a fresh channel keyed on at its current note.
+
+An OPL voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)): its attack is the chip's envelope.
+
+**The end of the note.** After each frame the voice deactivates if no output operator can sound again: each is OFF, or holds `env = 511` in a phase that cannot lower it (anything but ATTACK, or ATTACK with AR 0). A held note on a sustaining patch therefore rings until it is keyed off, and a non-sustaining one ends by itself, as on the chip. The instrument's fadeout and volume envelope end it too, as they end any voice.
+
+**Not the chip.** The channel's stereo switches are not modelled — an OPL voice is panned like any voice — and nor are the chip's timers, CSM mode and composite sine mode, which no instrument can reach. The tremolo and vibrato are the documented depths and rates as smooth triangles rather than the chip's stepped tables, and the rhythm voices sit at twice a melodic channel's level as every hardware-verified emulator reports, both as in the reference core.
 
 ### 5.6 Duplicate Check
 
@@ -1073,6 +1214,8 @@ Returning the LANES is not the same thing as leaving the playhead's tempo alone,
 
 Emptying the background pool is the part that is easy to omit and audible when omitted: a stop leaves ghosts active, and a replay resumes them.
 
+Both resets also return the playhead's **OPL chip clock** ([§5.5.2](#5-5-2-type-8-opl-instruments)) to 0, so a song played from a row meets the chip's envelope counter and LFOs exactly where a render from that row does.
+
 A host loading a new document **MUST** perform a full reset before uploading it, and **MUST** then upload the song's own mastering chain — or the neutral one when the file declares none. Nothing in a file describes the lane state the previous song left behind, so a document loaded on top of another inherits its panning, its lane volumes and its mastering otherwise.
 
 ## 16. Effects
@@ -1110,6 +1253,7 @@ An implementation conforms when all of the following hold.
 - Sample ends and envelope cuts ramp out over 8 ms; volume changes ramp over 2 ms, and `current_mix_volume` snaps rather than ramps on a trigger.
 - A fresh trigger separately fades `ramp_gain` in from silence over a ~⅔ ms half-cosine attack ramp, inherited by an NNA ghost spawned mid-ramp.
 - Pitch glides toward the tick's target on an (interval × time) budget, so a vibrato is smoothed across the tick while an arpeggio step or a fast portamento arrival still lands at once.
+- An OPL voice runs the chip at 49716.05 Hz on its playhead's chip clock, from the stated integer tables, with the note volume in its output operators' attenuation, and is read back by linear interpolation; a retrigger its New Note Action cuts keys the same channel on, envelopes carried.
 - A planar or spatial song that uses only ordinary pan renders bit-identically to the stereo model.
 - The mastering chain runs between the narrowing and the clamp, in the order §12.1 fixes, and a song that declares none renders as though the stage did not exist.
 - The limiter's ceiling is never exceeded, on any material, in either peak mode.

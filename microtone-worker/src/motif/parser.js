@@ -5,11 +5,16 @@
 // operator or inside brackets. `;` also ends a statement. A block's `{` follows
 // the condition of if/while and the iterable of for, so a record literal there
 // needs parentheses (as in Rust and Go).
+//
+// TML 2 is declarative: the parser refuses what would change a value or run
+// "until" (assignment, while, break, continue), keeps declarations at the top
+// of the program, and adds comprehensions ([e for x in xs if c]), a filter on
+// a for (for x in xs if c { … }) and expression functions (fn f(x) => e).
 
 import { lex, MotifError, SourceMap } from "./lexer.js";
 
 /** The language versions this parser reads. */
-export const TML_VERSIONS = [1];
+export const TML_VERSIONS = [1, 2];
 
 const MAX_DEPTH = 200;
 
@@ -43,6 +48,8 @@ export class Parser {
     this.depth = 0;
     this.loops = 0;     // loops around the statement being parsed (in this function)
     this.fns = 0;       // functions around it
+    this.blocks = 0;    // blocks around it (0: the top of the program)
+    this.version = 1;
   }
 
   // ── token stream ──
@@ -103,8 +110,9 @@ export class Parser {
     if (v.t !== "num") throw new MotifError("expected the language version after tml, e.g. tml 1", v.pos);
     this.next();
     if (!TML_VERSIONS.includes(v.v)) {
-      throw new MotifError(`this file is written in TML ${v.v}; this version of Microtone reads TML ${TML_VERSIONS.join(", ")}`, v.pos);
+      throw new MotifError(`this file is written in TML ${v.v}; this version of Microtone reads TML ${TML_VERSIONS.join(" and ")}`, v.pos);
     }
+    this.version = v.v;
     this.endStatement();
     const body = [];
     for (;;) {
@@ -132,6 +140,7 @@ export class Parser {
   block() {
     const open = this.expectOp("{", "to open a block");
     this.enter(false);
+    this.blocks++;
     const body = [];
     for (;;) {
       this.skipSeparators();
@@ -141,9 +150,20 @@ export class Parser {
       body.push(this.statement());
       this.endStatement();
     }
+    this.blocks--;
     this.leave();
     this.next(); // }
     return { k: "block", body, pos: open.pos };
+  }
+
+  /** The words TML 2 has no use for, and what to write instead. */
+  notInV2(what, pos) {
+    const why = {
+      assign: "TML 2 never changes a name once it is defined: let a new name (a block's names can be used anywhere in it), or build the value in one go — a comprehension [… for x in xs], map() or scan()",
+      while: "TML 2 has no while: loop over a range (for i in 0..<n), or let a function call itself",
+      break: "TML 2 has no break or continue: put the condition on the loop (for x in xs if …) or in an if",
+    }[what];
+    return new MotifError(why, pos);
   }
 
   statement() {
@@ -157,7 +177,9 @@ export class Parser {
             if (this.peek(1).t === "ident") return this.fnDeclaration();
             break;
           case "for": return this.forStatement();
-          case "while": return this.whileStatement();
+          case "while":
+            if (this.version >= 2) throw this.notInV2("while", t.pos);
+            return this.whileStatement();
           case "if":
             return this.ifStatement();
           case "return": {
@@ -168,6 +190,7 @@ export class Parser {
             return { k: "return", value: ends ? null : this.expression(), pos: t.pos };
           }
           case "break": case "continue":
+            if (this.version >= 2) throw this.notInV2("break", t.pos);
             if (!this.loops) throw new MotifError(`${t.v} outside a loop`, t.pos);
             this.next();
             return { k: t.v, pos: t.pos };
@@ -177,7 +200,12 @@ export class Parser {
       }
       if (t.t === "ident") {
         const d = this.declaration(t);
-        if (d) return d;
+        if (d) {
+          if (this.version >= 2 && this.blocks) {
+            throw new MotifError(`a ${d.kind ?? "section"} is declared at the top of the program, not inside a block or a function: a declaration says what the song is`, d.pos);
+          }
+          return d;
+        }
       }
       // A "{" that starts a statement opens a block: a scope for its own lets.
       // (A record on its own as a statement would do nothing.)
@@ -185,6 +213,7 @@ export class Parser {
       const e = this.expression();
       const a = this.peek();
       if (a.t === "op" && ASSIGN.has(a.v)) {
+        if (this.version >= 2) throw this.notInV2("assign", a.pos);
         if (!(e.k === "ident" || e.k === "index" || e.k === "field")) {
           throw new MotifError("only a name, an element (xs[i]) or a field (r.x) can be assigned to", e.pos);
         }
@@ -268,6 +297,16 @@ export class Parser {
     const t = this.next();
     const id = this.expectIdent("the function's name");
     const params = this.params();
+    if (this.version >= 2 && this.isOp("=>")) {
+      // fn name(a, b) => expression
+      this.next();
+      this.skipNl();
+      const saved = this.noRecord;
+      this.noRecord = false;
+      const body = this.fnBody(() => this.expression());
+      this.noRecord = saved;
+      return { k: "fn", name: id.v, namePos: id.pos, params, body, expr: true, pos: t.pos, end: this.toks[this.i - 1].end };
+    }
     const saved = this.noRecord;
     this.noRecord = false;
     const body = this.fnBody(() => this.block());
@@ -291,9 +330,11 @@ export class Parser {
     if (this.eatOp(",")) b = this.pattern();
     this.expectKw("in");
     const iter = this.head();
+    let cond = null;
+    if (this.version >= 2 && this.isKw("if")) { this.next(); cond = this.head(); } // for x in xs if c { … }
     const body = this.loopBody();
     // `for x in` binds the item; `for i, x in` binds the index (or key) and the item
-    return { k: "for", key: b ? a : null, item: b ?? a, iter, body, pos: t.pos };
+    return { k: "for", key: b ? a : null, item: b ?? a, iter, cond, body, pos: t.pos };
   }
 
   loopBody() {
@@ -563,12 +604,37 @@ export class Parser {
     const items = [];
     while (!this.isOp("]")) {
       items.push(this.expression());
+      if (items.length === 1 && this.version >= 2 && this.isKw("for")) {
+        const comp = this.comprehension(open, items[0]);
+        this.noRecord = saved;
+        this.leave();
+        return comp;
+      }
       if (!this.eatOp(",")) break;
     }
     this.expectOp("]", "to close the list (or a \",\" between its items)");
     this.noRecord = saved;
     this.leave();
     return { k: "list", items, pos: open.pos };
+  }
+
+  /** [expr for x in xs if c for y in ys …]: after the first item, at its `for`. */
+  comprehension(open, expr) {
+    const clauses = [];
+    while (this.isKw("for")) {
+      const t = this.next();
+      const a = this.pattern();
+      let b = null;
+      if (this.eatOp(",")) b = this.pattern();
+      this.expectKw("in");
+      clauses.push({ k: "for", key: b ? a : null, item: b ?? a, iter: this.expression(), pos: t.pos });
+      while (this.isKw("if")) {
+        const it = this.next();
+        clauses.push({ k: "if", cond: this.expression(), pos: it.pos });
+      }
+    }
+    const close = this.expectOp("]", "to close the list");
+    return { k: "comp", expr, clauses, pos: open.pos, end: close.end };
   }
 
   recordLiteral() {

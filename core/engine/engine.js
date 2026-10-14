@@ -276,6 +276,8 @@ export class TaudEngine {
     ts.tickInRow = 0;
     ts.samplesIntoTick = 0.0;
     ts.firstRow = true;
+    // A replay meets the OPL chip where a render from the start does (§15).
+    ts.oplFrame = 0;
     ts.pendingOrderJump = -1;
     ts.pendingRowJump = -1;
     ts.pendingRowJumpLocal = false;

@@ -11,13 +11,17 @@
 //   t-fld field or named argument · t-name declared lane/instrument · t-op operator
 
 import { KEYWORDS } from "./lexer.js";
-import { stdlib } from "./stdlib.js";
+import { stdlib, stdlib2 } from "./stdlib.js";
 import { Score, musicBuiltins } from "./music.js";
 
-/** Every builtin's name: a call of one is drawn apart from a call of your own. */
+const base2 = stdlib2({ seed: () => 1, log: () => {} });
+/** Every builtin's name, in either version: a call of one is drawn apart from
+ *  a call of your own. */
 export const BUILTIN_NAMES = new Set([
   ...stdlib({ random: () => 0, reseed: () => {}, log: () => {} }).keys(),
   ...musicBuiltins(new Score()).keys(),
+  ...base2.keys(),
+  ...musicBuiltins(new Score({ version: 2 }), { version: 2, base: base2 }).keys(),
 ]);
 
 const OPS = [

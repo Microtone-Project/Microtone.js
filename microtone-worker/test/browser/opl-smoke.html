@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>OPL instrument smoke: create a type-8 instrument, edit it, play it</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- REAL time: the audition leg needs the audio thread running, which a
+       virtual-time budget starves. Run with
+         node tools/browser-smoke.js test/browser/opl-smoke.html 60 -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1280px;height:800px"></iframe>
+  <script type="module">
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = (fn, ms = 8000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 40);
+    });
+    const ok = (cond) => (cond ? "ok" : "FAIL");
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => {
+          const w = frame.contentWindow;
+          return w && w.__microtone?.store.doc ? w : null;
+        }, 20000);
+        win.alert = (m) => log("alert: " + m);
+        const { store, instrumentsView: iv, masterStrip } = win.__microtone;
+        const doc = store.doc;
+        const wdoc = win.document;
+        log("app loaded");
+
+        // ── "Meta…" offers an OPL card, and it makes a type-8 instrument ──
+        iv.show();
+        const before = new Set(doc.usedInstrumentSlots());
+        const metaBtn = [...iv.listEl.querySelectorAll(".side-toolbar-inst button")]
+          .find((b) => b.textContent === "Meta…");
+        log(`Meta… button present: ${ok(!!metaBtn)}`);
+        metaBtn.click();
+        const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
+        const cards = [...dlg.querySelectorAll(".kind-card")];
+        log(`kind chooser shows three cards, OPL last and enabled: ` +
+          ok(cards.length === 3 && !cards[2].disabled &&
+             cards[2].querySelector(".kind-card-name").textContent === "OPL instrument"));
+        cards[2].click();
+        const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
+        const inst = () => doc.instruments[slot];
+        log(`a new slot $${slot.toString(16)} is a type-8 OPL instrument: ` +
+          ok(inst().isOpl && !inst().isMeta && inst().opl.kind === 0));
+        log(`…named "${doc.instrumentName(slot)}", selected: ` +
+          ok(doc.instrumentName(slot) === "OPL" && iv.selected === slot));
+        await waitFor(() => iv.panel.querySelector(".opl-edit"));
+        const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
+        log(`tabs ${tabs.join("|")}: ` +
+          ok(tabs.join("|") === "OPL|General|Vol env|Pan env|Pitch|Filter" && iv.tab === "opl"));
+        const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
+        log(`list badge "${badge()}": ${ok(badge() === "OPL")}`);
+        const opGroups = () => iv.panel.querySelectorAll(".opl-op");
+        const chanGroups = () => iv.panel.querySelectorAll(".opl-chan");
+        log(`two operators + one channel group, two envelope sketches: ` +
+          ok(opGroups().length === 2 && chanGroups().length === 1 &&
+             iv.panel.querySelectorAll("svg.opl-env").length === 2));
+
+        // ── a field edit writes the patch, keeps the field, redraws the sketch ──
+        const tlInput = () => opGroups()[0].querySelectorAll(".inst-field input")[4];
+        const tl0 = tlInput();
+        const sketch0 = opGroups()[0].querySelector("svg.opl-env");
+        const depth0 = store.undo.undoStack.length;
+        tl0.value = "20";
+        tl0.dispatchEvent(new win.Event("change"));
+        await sleep(30);
+        log(`modulator level 32 → 20 lands in the record: ` +
+          ok((inst().oplRaw[7] & 63) === 20 && inst().opl.ops[0].tl === 20));
+        log(`…the field stays put (no rebuild) and the sketch redraws: ` +
+          ok(tl0.isConnected && tlInput() === tl0 &&
+             !sketch0.isConnected && !!opGroups()[0].querySelector("svg.opl-env")));
+        tl0.value = "24";
+        tl0.dispatchEvent(new win.Event("change"));
+        await sleep(30);
+        log(`two quick steps on one field are one undo step: ` +
+          ok(store.undo.undoStack.length === depth0 + 1 && (inst().oplRaw[7] & 63) === 24));
+        store.undo.undo();
+        await waitFor(() => (inst().oplRaw[7] & 63) === 32);
+        await sleep(30);
+        log(`undo puts 32 back, in the record and on screen: ` +
+          ok(+tlInput().value === 32));
+
+        // ── the carrier's sustain switch is a checkbox ──
+        const egBox = opGroups()[1].querySelectorAll(".inst-field input")[10];
+        log(`carrier Sustain is a checked checkbox: ${ok(egBox.type === "checkbox" && egBox.checked)}`);
+        egBox.click();
+        await sleep(30);
+        log(`…unticking it clears register 0x20 bit 5: ${ok((inst().oplRaw[11] & 0x20) === 0)}`);
+        store.undo.undo();
+        await sleep(30);
+
+        // ── kinds ──
+        const kindBtn = (label) => [...iv.panel.querySelectorAll(".sl-buttons button")]
+          .find((b) => b.textContent === label);
+        kindBtn("4-op").click();
+        await waitFor(() => opGroups().length === 4);
+        log(`4-op: four operators in two pairs, feedback on the first pair only: ` +
+          ok(chanGroups().length === 2 &&
+             chanGroups()[0].querySelectorAll(".inst-field").length === 2 &&
+             chanGroups()[1].querySelectorAll(".inst-field").length === 1));
+        log(`…badge "${badge()}", record kind ${inst().opl.kind}: ${ok(badge() === "OPL·4" && inst().opl.kind === 1)}`);
+        kindBtn("Snare").click();
+        await waitFor(() => opGroups().length === 1);
+        log(`snare: one operator, a partner multiple, no partner pitch (it shares the hi-hat's channel): ` +
+          ok(chanGroups().length === 1 && chanGroups()[0].querySelectorAll(".inst-field").length === 1));
+        kindBtn("Cymbal").click();
+        await waitFor(() => inst().opl.kind === 5);
+        await sleep(30);
+        log(`cymbal: partner multiple and partner pitch: ` +
+          ok(chanGroups()[0].querySelectorAll(".inst-field").length === 2));
+        const pitch = chanGroups()[0].querySelectorAll(".inst-field input")[1];
+        pitch.value = "-700";
+        pitch.dispatchEvent(new win.Event("change"));
+        await sleep(30);
+        log(`partner pitch −700 cents is ${inst().opl.partnerDetune} units: ` +
+          ok(inst().opl.partnerDetune === Math.round(-700 * 4096 / 1200)));
+        kindBtn("Bass drum").click();
+        await waitFor(() => inst().opl.kind === 2);
+        await sleep(30);
+        log(`bass drum: both operators and their channel: ` +
+          ok(opGroups().length === 2 && chanGroups().length === 1));
+        kindBtn("2-op").click();
+        await waitFor(() => inst().opl.kind === 0);
+
+        // ── the General tab: the sample group is the instrument's own ──
+        const tabBtn = (label) => [...iv.tabBar.querySelectorAll("button")].find((b) => b.textContent === label);
+        tabBtn("General").click();
+        await waitFor(() => iv.tab === "general" && iv.panel.querySelector(".inst-rows"));
+        const heads = [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);
+        log(`General groups ${heads.join(", ")}: ` +
+          ok(heads.includes("OPL instrument") && !heads.includes("Sample")));
+        const labels = [...iv.panel.querySelectorAll(".sl-label")].map((l) => l.textContent);
+        log(`…a rate, no sample pointer: ${ok(labels.includes("Rate @C4") && !labels.includes("Sample ptr"))}`);
+
+        // ── the Pitch and Filter tabs both edit the one slot left ──
+        tabBtn("Pitch").click();
+        await waitFor(() => iv.tab === "pitch" && iv.envCanvas);
+        log(`Pitch tab paints its graph: ${ok(!!iv.panel.querySelector("canvas"))}`);
+        tabBtn("Filter").click();
+        await waitFor(() => iv.tab === "filter" && iv.envCanvas);
+        log(`Filter tab paints its graph: ${ok(!!iv.panel.querySelector("canvas"))}`);
+        const patchBefore = String([...inst().oplRaw]);
+        const ops = await import("../../src/doc/ops.js");
+        // Claim the filter role on slot 1 as the editor's first drag would.
+        store.undo.apply(ops.setInstBytesOp(slot, [[19, 0x81], [20, 0x00]]));
+        log(`an envelope edit leaves the patch alone: ${ok(String([...inst().oplRaw]) === patchBefore)}`);
+        store.undo.undo();
+
+        // ── it plays: a jam note sounds on the instrument ──
+        await waitFor(() => store.audio, 15000);
+        const audio = store.audio;
+        try { await audio.ctx?.resume?.(); } catch { /* headless autoplay flag */ }
+        const voice = audio.jamVoice(0);
+        audio.jamNote(0, voice, 0x5000, slot, true);
+        await waitFor(() => audio.getVoiceActive(voice) && audio.getVoiceInstrument(voice) === slot, 5000)
+          .catch(() => null);
+        log(`a jam note sounds the OPL instrument: ` +
+          ok(audio.getVoiceActive(voice) && audio.getVoiceInstrument(voice) === slot));
+        let peak = 0, frames = 0;
+        const readout = masterStrip?.readout;
+        for (let i = 0; i < 60 && readout; i++) {
+          await sleep(30);
+          const r = audio.readAnalysis(readout);
+          frames += r.frames;
+          for (let c = 0; c < r.meterCount; c++) peak = Math.max(peak, r.peak[c]);
+        }
+        log(frames > 0
+          ? `…and the master meter sees it (peak ${peak.toFixed(3)}): ${ok(peak > 0.01)}`
+          : `…master meter tap is off in this layout — skipped`);
+        audio.jamKeyOff(0, voice);
+        await waitFor(() => !audio.getVoiceActive(voice), 6000).catch(() => null);
+        log(`key-off releases it and the voice ends: ${ok(!audio.getVoiceActive(voice))}`);
+
+        // ── it survives a save/reload round trip ──
+        const bytes = doc.toBytes();
+        const { Document } = await import("../../src/doc/document.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
+        const back = new Document(parseTaud(bytes)).instruments[slot];
+        log(`round trip keeps a type-8 record with the same patch: ` +
+          ok(back.isOpl && String([...back.oplRaw]) === String([...inst().oplRaw])));
+
+        log("RESULT: " + (out.some((l) => l.includes("FAIL")) ? "FAIL" : "PASS"));
+      } catch (e) {
+        log("EXCEPTION: " + (e && e.stack ? e.stack : e));
+        log("RESULT: FAIL");
+      }
+    })();
+  </script>
+</body>
+</html>

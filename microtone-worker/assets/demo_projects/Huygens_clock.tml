@@ -1,4 +1,4 @@
-tml 1
+tml 2
 // "Huygens' Clock" — a contemporary instrumental in 31-tone equal temperament
 // and 7/8 (2+2+3): sixty-four bars, two rows to the eighth.
 //
@@ -11,12 +11,16 @@ tml 1
 // 'Cp4' is degree 30 of period 4, just below C5. A melody string is a run of
 // NAME:ROWS tokens; ~ glides into a note, v adds vibrato, @n sets its volume,
 // r is a rest and | checks a bar line.
+//
+// The program says what the song is, not what to do in which order: every
+// line on its own is part of the music, every name can be used anywhere in
+// the file, and nothing, once named, changes.
 
 song {
   title: "Huygens' Clock"
   composer: "CuriousTorvald via Motif"
   copyright: "(c) 2026 CuriousTorvald"
-  message: about()            // the Project message, written at the end of this file
+  message: ABOUT              // the Project message, written at the end of this file
   tuning: "31-TET"
   tempo: 120
   speed: 6
@@ -107,7 +111,7 @@ section "major"  49..56
 section "coda"   57..64
 
 // ── harmony ──────────────────────────────────────────────────────────────────
-fn ch(root, ivs, name) { return { root: degree(root), ivs, name } }
+fn ch(root, ivs, name) => { root: degree(root), ivs, name }
 let SUB7 = [0, 7, 18, 25]              // 12:14:18:21 — subminor third, harmonic seventh
 let H7 = [0, 10, 18, 25]               // 4:5:6:7
 let MAJ = [0, 10, 18]
@@ -119,7 +123,7 @@ let D7 = ch("D", H7, "D7h")
 let Doton = ch("D", OTON, "Doton")
 // Major triads climbing by neutral thirds (9 steps): two make a fifth, so every
 // other chord is the circle of fifths and the ones between sit half a fifth off.
-let CHAIN = map(["Bb", "Dp", "F", "Ap", "C", "Ep", "G", "Bp"], fn(r) => ch(r, MAJ, r))
+let CHAIN = [ch(r, MAJ, r) for r in ["Bb", "Dp", "F", "Ap", "C", "Ep", "G", "Bp"]]
 // The five thirds over D, then the harmonic series assembling itself.
 let LADDER = [
   ch("D", [0, 7, 18, 25], "D 12:14:18:21"),    // subminor
@@ -132,13 +136,22 @@ let LADDER = [
   Doton,
 ]
 
-let CH = repeat(none, 65)    // CH[bar]: the chord of each bar
-for b in 1..24 { CH[b] = [Dsub7, Dsub7, Bb7, A7][(b - 1) % 4] }
-for b in 25..40 { CH[b] = CHAIN[(b - 25) >> 1] }
-for b in 41..48 { CH[b] = LADDER[b - 41] }
-for b in 49..56 { CH[b] = [D7, D7, Bb7, A7][(b - 49) % 4] }
-for b in 57..60 { CH[b] = [Bb7, A7][(b - 57) % 2] }
-for b in 61..64 { CH[b] = Doton }
+// CH[bar]: the chord of each bar.
+let CH = [none] + [chord_of(b) for b in 1..64]
+fn chord_of(b) =>
+  if b <= 24 then [Dsub7, Dsub7, Bb7, A7][(b - 1) % 4]
+  else if b <= 40 then CHAIN[(b - 25) >> 1]
+  else if b <= 48 then LADDER[b - 41]
+  else if b <= 56 then [D7, D7, Bb7, A7][(b - 49) % 4]
+  else if b <= 60 then [Bb7, A7][(b - 57) % 2]
+  else Doton
+
+// A voicing for each of `chords`, each moving as little as it can from the one
+// before it, the first from `start`.
+fn voicings(start, chords, lo, hi, n = none) => scan(chords, start, fn(v, c) => nearest_chord(v, c, lo, hi, n: n))
+
+// The bars from `bars` where the chord changes (and the first of them).
+fn changes(bars) => [b for i, b in bars if i == 0 or CH[b] != CH[b - 1]]
 
 // ── drums ────────────────────────────────────────────────────────────────────
 let GM = {
@@ -146,14 +159,12 @@ let GM = {
   ride: 51, bell: 53, splash: 55, tomHi: 50, tomHM: 48, tomLM: 47, tomLo: 45,
   flHi: 43, flLo: 41, tamb: 54, shaker: 82, chimes: 84,
 }
-fn dr(lane, bar, row, name, vol, op = none, arg = 0) {
-  hit(lane, at(bar, row), midi(GM[name]), vol, op, arg)
-}
+fn dr(lane, bar, row, name, vol, op = none, arg = 0) => hit(lane, at(bar, row), midi(GM[name]), vol, op, arg)
 // An open hat that the next hat on the lane chokes (NNA cut on this note, S $73).
-fn open_hat(bar, row, vol) { dr(hat, bar, row, "hatO", vol, "S", $7300) }
+fn open_hat(bar, row, vol) => dr(hat, bar, row, "hatO", vol, "S", $7300)
 // A ride stroke re-strikes the one cymbal: the next stroke cuts this one (S $73)
 // instead of leaving its looped tail to fade for ten seconds under the rest.
-fn ride(bar, row, name, vol) { dr(cym, bar, row, name, vol, "S", $7300) }
+fn ride(bar, row, name, vol) => dr(cym, bar, row, name, vol, "S", $7300)
 
 fn groove_a(bar, variant = 0, tamb = false, open = false, fill_from = 14) {
   fn k(row, name, vol) { if row < fill_from { dr(kick, bar, row, name, vol) } }
@@ -166,12 +177,11 @@ fn groove_a(bar, variant = 0, tamb = false, open = false, fill_from = 14) {
   sn(10, "snare", 53)
   sn(7, "snare", 13)
   if variant & 1 == 0 { sn(13, "snare", 17) }
+  // closed hats, the two off-beat ones only in the odd variant; an open one on 12
   let hv = [60, 0, 44, 0, 56, 0, 44, 0, 58, 30, 44, 32, 50, 0]
-  for r in 0..<14 {
-    if hv[r] == 0 or r >= fill_from { continue }
-    if (r == 9 or r == 11) and variant & 1 == 0 { continue }
-    if r == 12 and open { open_hat(bar, 12, 46); continue }
-    dr(hat, bar, r, "hatC", hv[r])
+  for r in 0..<14 if hv[r] != 0 and r < fill_from and not ((r == 9 or r == 11) and variant & 1 == 0) {
+    if r == 12 and open { open_hat(bar, 12, 46) }
+    else { dr(hat, bar, r, "hatC", hv[r]) }
   }
   if tamb {
     dr(perc, bar, 4, "tamb", 26)
@@ -189,11 +199,9 @@ fn groove_solo(bar, variant = 0) {
   dr(snare, bar, 2, "snare", 12)
   dr(snare, bar, 7, "snare", 14)
   if variant & 1 != 0 { dr(snare, bar, 13, "snare", 18) }
+  // the ride in eighths — under() whatever else strikes the cymbal there
   let rv = [58, 0, 44, 0, 52, 0, 44, 0, 54, 0, 44, 0, 48, 0]
-  for r in 0..<14 by 2 {
-    if occupied(cym, at(bar, r)) { continue }
-    ride(bar, r, if r == 8 then "bell" else "ride", if r == 8 then 44 else rv[r])
-  }
+  for r in 0..<14 by 2 { under(ride(bar, r, if r == 8 then "bell" else "ride", if r == 8 then 44 else rv[r])) }
   dr(hat, bar, 4, "hatP", 50)
   dr(hat, bar, 10, "hatP", 50)
 }
@@ -206,21 +214,19 @@ fn groove_half(bar, second) {
   dr(snare, bar, 8, "snare", 48)
   if second { dr(snare, bar, 4, "rim", 30) }
   for r in 0..<14 by 2 {
-    if occupied(cym, at(bar, r)) { continue }
-    ride(bar, r, if r == 0 and not second then "bell" else "ride", if r % 4 == 0 or r == 8 then 46 else 36)
+    under(ride(bar, r, if r == 0 and not second then "bell" else "ride", if r % 4 == 0 or r == 8 then 46 else 36))
   }
   dr(hat, bar, 4, "hatP", 42)
   dr(hat, bar, 12, "hatP", 38)
   for r in 0..<14 {
-    if occupied(perc, at(bar, r)) { continue }
-    dr(perc, bar, r, "shaker", [34, 20, 28, 20][r % 4] - (if r >= 8 and r % 2 == 1 then 2 else 0))
+    under(dr(perc, bar, r, "shaker", [34, 20, 28, 20][r % 4] - (if r >= 8 and r % 2 == 1 then 2 else 0)))
   }
 }
 
 fn fill_toms(bar, from = 8) {
-  let seq = [["tomHi", 46], ["tomHi", 40], ["tomHM", 50], ["tomLM", 48], ["flHi", 54], ["flLo", 58]]
+  let strokes = [["tomHi", 46], ["tomHi", 40], ["tomHM", 50], ["tomLM", 48], ["flHi", 54], ["flLo", 58]]
   for i in 0..<14 - from {
-    let [n, v] = seq[max(0, len(seq) - (14 - from) + i)]
+    let [n, v] = strokes[max(0, len(strokes) - (14 - from) + i)]
     dr(tom, bar, from + i, n, v)
   }
 }
@@ -238,7 +244,7 @@ let BASS = {
   D7a: "D2:3@54 D2:1@28 D3:2@46 Cp2:2@48 A2:3@52 A2:1@26 G2:2@44"
   D7b: "D2:3@54 D2:1@28 D3:2@46 Cp2:2@48 A2:2@50 F#2:2@44 D2:2@46"
 }
-fn bass_bar(bar, key) { melody(bass, at(bar), BASS[key], glide_rows: 1) }
+fn bass_bar(bar, key) => melody(bass, at(bar), BASS[key], glide_rows: 1)
 
 // ── keys, mallets, guitar ────────────────────────────────────────────────────
 let EPV = {
@@ -303,29 +309,22 @@ fn hold_chord(ids, bar, row, steps, vol, len) {
 }
 // Glide every lane to its new step (no re-attack), each at its own speed.
 fn glide_chord(ids, row, from, to, rows) {
-  for i, s in to {
-    if s == from[i] { continue }
-    glide(ids[i], row, s, glide_speed(from[i], s, rows))
-  }
+  for i, s in to if s != from[i] { glide(ids[i], row, s, glide_speed(from[i], s, rows)) }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1–8  INTRO — the clock alone, then the band arriving
 // ═════════════════════════════════════════════════════════════════════════════
 for b in 1..8 {
-  let c = CH[b].name
   let base = if b <= 2 then 26 + b * 3 else if b <= 4 then 34 + (b - 3) * 2 else 40
-  marimba_bar(b, MARV[c], base)
+  marimba_bar(b, MARV[CH[b].name], base)
 }
-// Pad from bar 3, swelling in.
+// Pad from bar 3, swelling in: a new voicing at every change of chord.
 {
-  let v = notes("D3 A3 Fp4 Cp4")
-  for b in 3..8 {
-    if b > 3 and CH[b] == CH[b - 1] { continue }
-    v = nearest_chord(v, CH[b], 'C3', 'D5')
-    hold_chord(PADS, b, 0, v, if b == 3 then 16 else 32, 0)
-    if b == 3 { for p in PADS { for r in 1..5 { vol_slide(p, at(3, r), 1) } } }
-  }
+  let bars = changes(3..8)
+  let v = voicings(notes("D3 A3 Fp4 Cp4"), [CH[b] for b in bars], 'C3', 'D5')
+  for i, b in bars { hold_chord(PADS, b, 0, v[i], if b == 3 then 16 else 32, 0) }
+  for p in PADS { for r in 1..5 { vol_slide(p, at(3, r), 1) } }
   for p in PADS { keyoff(p, at(9)) }
 }
 // Bass, hats and tines from bar 5; toms into the theme.
@@ -397,23 +396,16 @@ fill_toms(24, 8)
 // ═════════════════════════════════════════════════════════════════════════════
 {
   // Pad: one attack at bar 25, then the triads MORPH — every change is a glide.
-  let v = notes("Bb3 D4 F4")
-  hold_chord(PADS, 25, 0, v, 48, 0)
-  for k in 1..<8 {
-    let nv = nearest_chord(v, CHAIN[k], 'D3', 'A4')
-    glide_chord(PADS, at(25 + 2 * k), v, nv, 4)
-    v = nv
-  }
+  let pv = [notes("Bb3 D4 F4")] + voicings(notes("Bb3 D4 F4"), CHAIN[1..<8], 'D3', 'A4')
+  hold_chord(PADS, 25, 0, pv[0], 48, 0)
+  for k in 1..<8 { glide_chord(PADS, at(25 + 2 * k), pv[k - 1], pv[k], 4) }
   for p in PADS[0..<3] { keyoff(p, at(41)) }
   // Strings join at bar 33 an octave up, gliding the same way.
-  let w = nearest_chord(notes("E4 G4 C5 E5"), CHAIN[4], 'C4', 'G5')
-  hold_chord(STRS, 33, 0, w, 10, 0)
+  let first = nearest_chord(notes("E4 G4 C5 E5"), CHAIN[4], 'C4', 'G5')
+  let sv = [first] + voicings(first, CHAIN[5..<8], 'A3', 'G5')
+  hold_chord(STRS, 33, 0, sv[0], 10, 0)
   for s in STRS { for r in 1..3 by 2 { vol_slide(s, at(33, r), 1) } }   // a milder swell
-  for k in 5..<8 {
-    let nw = nearest_chord(w, CHAIN[k], 'A3', 'G5')
-    glide_chord(STRS, at(25 + 2 * k), w, nw, 4)
-    w = nw
-  }
+  for k in 5..<8 { glide_chord(STRS, at(25 + 2 * k), sv[k - 5], sv[k - 4], 4) }
   for s in STRS { keyoff(s, at(41)) }
 }
 // Bass: half-time roots, ripping up the neutral third into each new chord.
@@ -438,9 +430,8 @@ fill_toms(24, 8)
 }
 // Vibes: the chord tones in eighths.
 for k in 0..<8 {
-  let chd = CHAIN[k]
-  let rs = period() * 3 + chd.root
-  if rs < 'Ab3' { rs += period() }
+  let low = period() * 3 + CHAIN[k].root
+  let rs = if low < 'Ab3' then low + period() else low
   let tones = [rs, rs + 18, rs + 31, rs + 41, rs + 49]
   vibes_bar(25 + 2 * k, tones, [0, 1, 2, 3, 4, 3, 2], 19)
   vibes_bar(26 + 2 * k, tones, [1, 2, 3, 4, 2, 3, 1], 18)
@@ -508,12 +499,10 @@ for [r, n, v] in [[8, "tomHM", 34], [10, "tomLM", 30], [12, "flHi", 28], [13, "f
   hit(str3, at(48), 'Gt5', 42)   // the 11th harmonic
   for s in STRS { keyoff(s, at(49)) }
   for p in PADS { keyoff(p, at(49)) }
-  // Vibes: soft eighths through each chord.
+  // Vibes: soft eighths through each chord, the 9th and the 11th joining.
   for b in 41..48 {
     let k = b - 41
-    let tones = ['D4', 'A4', seventh[k], third[k] + 31]
-    if b == 47 { push(tones, 'E5') }
-    if b == 48 { push(tones, 'E5', 'Gt5') }
+    let tones = ['D4', 'A4', seventh[k], third[k] + 31] + (if b == 47 then ['E5'] else if b == 48 then ['E5', 'Gt5'] else [])
     let idx = if b < 47 then [0, 1, 2, 3, 2, 1, 3] else if b == 47 then [0, 1, 2, 3, 4, 3, 4] else [1, 2, 3, 4, 5, 4, 5]
     vibes_bar(b, tones, idx, if b < 45 then 19 else 22)
   }
@@ -547,22 +536,22 @@ melody(lead, at(49), THEME_MAJOR, vol: 56)
 melody(flute, at(49), THEME_MAJOR, vol: 17, transpose: 31, vib: [$70, $10])
 dr(cym, 49, 0, "crash", 58)
 dr(cym, 53, 0, "crash2", 50)
+for b in 49..56 {
+  let c = CH[b].name
+  groove_a(b, variant: b % 2, tamb: true, open: b % 2 == 0 and b != 56, fill_from: if b == 56 then 10 else 14)
+  bass_bar(b, if c == "D7h" then (if (b - 49) % 4 == 0 then "D7a" else "D7b") else c)
+  ep_comp(b, EPV[c], b % 2 == 0)
+  marimba_bar(b, MARV[c], 24)
+  guitar_bar(b, GTRV[c], -4)
+}
+// Strings and pad move at each change of chord: the strings voice-led from a
+// 4:5:6:7 on D, the pad's three notes voiced afresh from the same open triad.
 {
-  let w = notes("D4 F#4 A4 Cp4")
-  for b in 49..56 {
-    let c = CH[b].name
-    groove_a(b, variant: b % 2, tamb: true, open: b % 2 == 0 and b != 56, fill_from: if b == 56 then 10 else 14)
-    bass_bar(b, if c == "D7h" then (if (b - 49) % 4 == 0 then "D7a" else "D7b") else c)
-    ep_comp(b, EPV[c], b % 2 == 0)
-    marimba_bar(b, MARV[c], 24)
-    guitar_bar(b, GTRV[c], -4)
-    if b == 49 or CH[b] != CH[b - 1] {
-      if b > 49 { w = nearest_chord(w, CH[b], 'A3', 'A5') }
-      hold_chord(STRS, b, 0, w, 24, 0)
-    }
-    if b == 49 or CH[b] != CH[b - 1] {
-      hold_chord(PADS[0..<3], b, 0, nearest_chord(notes("D3 A3 F#4"), CH[b], 'C3', 'C5', n: 3), 35, 0)
-    }
+  let bars = changes(49..56)
+  let sv = [notes("D4 F#4 A4 Cp4")] + voicings(notes("D4 F#4 A4 Cp4"), [CH[b] for b in slice(bars, 1)], 'A3', 'A5')
+  for i, b in bars {
+    hold_chord(STRS, b, 0, sv[i], 24, 0)
+    hold_chord(PADS[0..<3], b, 0, nearest_chord(notes("D3 A3 F#4"), CH[b], 'C3', 'C5', n: 3), 35, 0)
   }
 }
 snare_fill(56, 10, [36, 42, 48, 54])
@@ -583,7 +572,7 @@ melody(flute, at(57), replace(TAG, "~F#6:28v", "D7:28v"), vol: 24, transpose: -3
 for r in at(62)..<at(63) { vol_fine(lead, r, -3); vol_fine(flute, r, -2) }
 dr(cym, 57, 0, "crash", 54)
 {
-  let w = notes("D4 F#4 A4 Cp4")
+  let sv = voicings(notes("D4 F#4 A4 Cp4"), [CH[b] for b in 57..60], 'A3', 'A5')
   for b in 57..60 {
     let c = CH[b].name
     groove_a(b, variant: b % 2, tamb: true, open: b == 58, fill_from: if b == 60 then 4 else 14)
@@ -591,12 +580,11 @@ dr(cym, 57, 0, "crash", 54)
     ep_comp(b, EPV[c], b % 2 == 0)
     marimba_bar(b, MARV[c], 26)
     guitar_bar(b, GTRV[c], -2)
-    w = nearest_chord(w, CH[b], 'A3', 'A5')
-    hold_chord(STRS, b, 0, w, 28, 0)
+    hold_chord(STRS, b, 0, sv[b - 57], 28, 0)
     hold_chord(PADS[0..<3], b, 0, nearest_chord(notes("D3 A3 F#4"), CH[b], 'C3', 'C5', n: 3), 38, 0)
   }
 }
-snare_fill(60, 4, filter([30, 0, 34, 38, 0, 42, 46, 50, 54, 58], fn(v) => v != 0))
+snare_fill(60, 4, [v for v in [30, 0, 34, 38, 0, 42, 46, 50, 54, 58] if v != 0])
 for [r, n, v] in [[5, "tomHi", 44], [8, "tomHM", 48], [11, "flHi", 52]] { dr(tom, 60, r, n, v) }
 
 // 61: the chord. Everyone strikes; then it rings down and the marimba keeps time.
@@ -625,36 +613,34 @@ for b in 62..64 {
 }
 
 // ── the Project message ──────────────────────────────────────────────────────
-// (A named function can be used before it is written: the song block above
-// reads this one, so the notes on the piece can come after the piece.)
-fn about() {
-  return """
-    Huygens' Clock is a contemporary instrumental in 31-tone equal temperament and 7/8 time: sixty-four bars, every one counted 2+2+3. It is generated procedurally, by a program written in Microtone's own music language, to show what the 31-TET grid can do; the last paragraph of this note says where to find it.
+// (The song block at the top reads it: every name can be used anywhere in the
+// file, so the notes on the piece can come after the piece.)
+let ABOUT = """
+  Huygens' Clock is a contemporary instrumental in 31-tone equal temperament and 7/8 time: sixty-four bars, every one counted 2+2+3. It is generated procedurally, by a program written in Microtone's own music language, to show what the 31-TET grid can do; the last paragraph of this note says where to find it.
 
-    The title is two inventions of one man. Christiaan Huygens built the first pendulum clock in 1656, and in 1691 he proposed dividing the octave into 31 equal steps. The marimba figure that opens the piece and closes it is the clock, fourteen sixteenths to the bar, ticking in sevens. Everything else is the tuning.
+  The title is two inventions of one man. Christiaan Huygens built the first pendulum clock in 1656, and in 1691 he proposed dividing the octave into 31 equal steps. The marimba figure that opens the piece and closes it is the clock, fourteen sixteenths to the bar, ticking in sevens. Everything else is the tuning.
 
-    A step of 31-TET is 38.7 cents, a little less than a quarter tone. Its major third is within a cent of the pure 5/4, and its harmonic seventh within about a cent of 7/4, the seventh that barbershop singers lean into and a piano cannot play. Between the minor and the major third it has a neutral third (close to 11/9), and outside them a subminor (7/6) and a supermajor (9/7) third. The piece is built from exactly those.
+  A step of 31-TET is 38.7 cents, a little less than a quarter tone. Its major third is within a cent of the pure 5/4, and its harmonic seventh within about a cent of 7/4, the seventh that barbershop singers lean into and a piano cannot play. Between the minor and the major third it has a neutral third (close to 11/9), and outside them a subminor (7/6) and a supermajor (9/7) third. The piece is built from exactly those.
 
-    Bars 1–8: the clock alone, then the band arriving.
+  Bars 1–8: the clock alone, then the band arriving.
 
-    Bars 9–16: the theme, on a septimal blues pentatonic: D, F half-flat (7/6), G, A, C half-flat (7/4). The tonic chord is 12:14:18:21. The dominant and the chord before it are both harmonic seventh chords (4:5:6:7); in 31-TET a German sixth is exactly that chord, which is why the turnaround slides home so smoothly.
+  Bars 9–16: the theme, on a septimal blues pentatonic: D, F half-flat (7/6), G, A, C half-flat (7/4). The tonic chord is 12:14:18:21. The dominant and the chord before it are both harmonic seventh chords (4:5:6:7); in 31-TET a German sixth is exactly that chord, which is why the turnaround slides home so smoothly.
 
-    Bars 17–24: a synth solo over the same loop. Listen for bends of a single step.
+  Bars 17–24: a synth solo over the same loop. Listen for bends of a single step.
 
-    Bars 25–40: major chords climbing by neutral thirds: B flat, D half-flat, F, A half-flat, C, E half-flat, G, B half-flat. Two neutral thirds make a perfect fifth, so every other chord lands on the circle of fifths and the ones between sit exactly halfway. Two notes of each chord move by a single step and the third by a neutral second; the pad and the strings glide into each chord instead of striking it, and the flute's long notes bend by one step as the harmony turns under them.
+  Bars 25–40: major chords climbing by neutral thirds: B flat, D half-flat, F, A half-flat, C, E half-flat, G, B half-flat. Two neutral thirds make a perfect fifth, so every other chord lands on the circle of fifths and the ones between sit exactly halfway. Two notes of each chord move by a single step and the third by a neutral second; the pad and the strings glide into each chord instead of striking it, and the flute's long notes bend by one step as the harmony turns under them.
 
-    Bars 41–48: over a D pedal, the third climbs one step a bar through all five thirds 31-TET has (subminor, minor, neutral, major, supermajor), and then the harmonic series assembles itself: the seventh, the ninth, the eleventh.
+  Bars 41–48: over a D pedal, the third climbs one step a bar through all five thirds 31-TET has (subminor, minor, neutral, major, supermajor), and then the harmonic series assembles itself: the seventh, the ninth, the eleventh.
 
-    Bars 49–56: the theme again, its third raised from 7/6 to 5/4, over a 4:5:6:7 tonic.
+  Bars 49–56: the theme again, its third raised from 7/6 to 5/4, over a 4:5:6:7 tonic.
 
-    Bars 57–64: German sixth and dominant once more, then the harmonic series on D (4:5:6:7:9:11) while the clock runs down.
+  Bars 57–64: German sixth and dominant once more, then the harmonic series on D (4:5:6:7:9:11) while the clock runs down.
 
-    Every note sits on the 31-TET grid, and the Timeline is set to 31-TET notation, so the names you read are the notes you hear: D, Dt and Dp are D, D half-sharp and D half-flat. The beat bands are set for 7/8, a line every eighth and a bar every fourteen rows.
+  Every note sits on the 31-TET grid, and the Timeline is set to 31-TET notation, so the names you read are the notes you hear: D, Dt and Dp are D, D half-sharp and D half-flat. The beat bands are set for 7/8, a line every eighth and a bar every fourteen rows.
 
-    The instruments are General MIDI patches from the GeneralUser GS soundfont by S. Christian Collins, the one Microtone bundles. Its samples are tuned for twelve-tone music, a few cents either way, and up to eight on the pad: nothing in a piano, but a fifth of a step here. So the script measures where every zone the song plays really sounds and re-tunes it onto the 31-TET grid, to within about a cent. The corrections are ordinary per-zone detune: open the Instruments view to see them.
+  The instruments are General MIDI patches from the GeneralUser GS soundfont by S. Christian Collins, the one Microtone bundles. Its samples are tuned for twelve-tone music, a few cents either way, and up to eight on the pad: nothing in a piano, but a fifth of a step here. So the script measures where every zone the song plays really sounds and re-tunes it onto the 31-TET grid, to within about a cent. The corrections are ordinary per-zone detune: open the Instruments view to see them.
 
-    The master is Microtone's own chain, saved with the project: a 25 Hz high-pass, four bands of EQ, a 2:1 compressor, stereo width at 130% and a limiter holding −0.2 dB, for about −14 LUFS. Bypass it in the Mastering view to hear the mix underneath.
+  The master is Microtone's own chain, saved with the project: a 25 Hz high-pass, four bands of EQ, a 2:1 compressor, stereo width at 130% and a limiter holding −0.2 dB, for about −14 LUFS. Bypass it in the Mastering view to hear the mix underneath.
 
-    Nothing in this project was played or placed by hand. The notes, the instrument bank, the re-tuning, the mix and the master are all computed by a program in Taud Motif Language, and this project is its output: the same program always builds the same song. The program travels inside the project. Open the Motif view to read it, change it and build the song again. You can still edit the project like any other, but a rebuild starts again from the program.
-    """
-}
+  Nothing in this project was played or placed by hand. The notes, the instrument bank, the re-tuning, the mix and the master are all computed by a program in Taud Motif Language, and this project is its output: the same program always builds the same song. The program travels inside the project. Open the Motif view to read it, change it and build the song again. You can still edit the project like any other, but a rebuild starts again from the program.
+  """

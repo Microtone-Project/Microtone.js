@@ -173,6 +173,15 @@ export class Voice {
     // that spawned them.
     this.fmParent = null;
 
+    // ── OPL channel (Metainstrument type 8, item 209) ──
+    // The sounding chip channel (engine/opl.js OplState) of a voice playing an
+    // OPL instrument, or null — which is what the mixer branches on. Kept on
+    // the voice across notes so a retrigger the New Note Action cuts can key
+    // the same channel on again, envelopes where they stand (`oplCarry` is
+    // that hand-over, set by maybeSpawnBackgroundForNNA for triggerNote).
+    this.opl = null;
+    this.oplCarry = false;
+
     // Two-axis volume AND pan model (TAUD_NOTE_EFFECTS.md §3). Both axes work
     // the same way on either side: the instrument seeds the NOTE axis and the
     // pattern's lane commands own the LANE axis, and the two combine at

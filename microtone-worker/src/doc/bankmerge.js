@@ -1175,6 +1175,31 @@ export function planCreateFm(destDoc, picks, name = "") {
 }
 
 /**
+ * Plan a new OPL instrument (item 209): one type-8 record (TAUD_FILE_FORMAT §7.7) in
+ * the first free top-level slot. Nothing is copied and no child is made — the
+ * patch IS the instrument. `record` is the whole 256-byte record; `name` the
+ * escaped INam text. Returns {error} or a planImport-shaped plan.
+ */
+export function planCreateOpl(destDoc, record, name = "") {
+  if (destDoc.sampleInstImage === null) {
+    return { error: "This project has no sample+instrument image." };
+  }
+  const used = new Set(destDoc.usedInstrumentSlots());
+  let slot = 1;
+  while (slot <= 255 && used.has(slot)) slot++;
+  if (slot > 255) {
+    return { error: "No free instrument slots left in $01–$FF (note-addressable range)." };
+  }
+  const insts = [{
+    srcSlot: -1, destSlot: slot, topLevel: true, record, ixmpBlob: null, ixmpCount: 0,
+  }];
+  return metaPlan(insts, inamPayloadWith(destDoc, [[slot, name]]), {
+    metaSlot: slot,
+    childSlots: [],
+  });
+}
+
+/**
  * Append layers to an EXISTING metainstrument (item 113) — the Layers tab's
  * "Add layers…". Same copy-into-a-child rule as planCreateMeta; the meta's
  * current table is kept and the new layers land after it, so the foreground

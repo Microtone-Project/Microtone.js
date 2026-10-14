@@ -10,7 +10,11 @@ Limits:
     - Sample bin is 8 MB (8388608 bytes); if all samples together exceed
       this, every sample is globally resampled down (with c2spd adjusted)
       so pitch is preserved.
-    - AdLib instruments are skipped.
+    - AdLib melody instruments become Taud OPL instruments (Metainstrument type
+      8): the instrument's twelve register bytes, played by the engine's own
+      OPL channel at the instrument's C2SPD, on OpenMPT's reading of how ST3
+      drives the chip (see "AdLib instruments" below).  The AdLib DRUM types
+      3…7 are silent, as they are in ST3 and OpenMPT.
 
 Effect support:
     Full A..Z dispatch per TAUD_NOTE_EFFECTS.md "ProTracker to Taud conversion
@@ -22,6 +26,25 @@ Effect support:
     pan column. Y (panbrello) converts
     to Taud Y. S5 selects the panbrello LFO waveform. S8x converts to a pan
     column SET of round(x * 4.2), mapping nibble 0-15 directly to pan 0-63.
+
+AdLib instruments, as OpenMPT plays them (soundlib/OPL.cpp, Sndmix.cpp,
+S3MTools.cpp — openmpt123 is the oracle every number here was checked against):
+    - The instrument record's bytes 0x10…0x1B are the patch: D00…D0B, the
+      modulator then the carrier for registers 0x20, 0x40, 0x60, 0x80 and 0xE0,
+      then 0xC0.  The wave selects keep all three bits (OpenMPT runs the chip
+      in OPL3 mode).  C2SPD 0 reads as 8363, below 1024 as 1024, and an ST3
+      file's AdLib C2SPD keeps only its low 16 bits.
+    - Volume reaches the chip as total level: `63 − (63 − TL)·(v′+1)/64` on the
+      carrier, v′ being the 0…64 volume scaled to 0…63 — so volume 32 is 23 dB
+      down, not 6, and volume 0 is 47 dB down, not silence.  A volume SET and
+      the default volume are converted on that curve (`opl_volume`); a volume
+      SLIDE stays a linear slide, which is where the conversion is approximate.
+    - `^^^` keys the channel off — "OPL voices are not cut but enter the
+      release portion of their envelope" — where a sample is cut.
+    - An AdLib channel (types 16…29) starts centred, whatever the panning
+      table says, as OpenMPT reads an ST3 file.
+    - Loudness against the samples is OpenMPT's own calibration, "as loud as in
+      DOSBox and a real SoundBlaster 16": `OPL_LEVEL_OCTET`.
 """
 
 import argparse
@@ -48,6 +71,7 @@ from taud_common import (
     finalize_cue_sheet, set_cue_instruction, CUE_INST_HALT,
     normalise_sample, encode_song_entry, compress_blob,
     build_project_data, detect_subsongs,
+    OPL_KIND_2OP, opl_block, build_opl_record, tracker_opl_gain,
 )
 
 
@@ -55,12 +79,51 @@ from taud_common import (
 
 S3M_MAGIC        = b"SCRM"
 S3M_TYPE_PCM     = 1
+S3M_TYPE_ADMEL   = 2     # an AdLib melody instrument (3…7 are the drums ST3 never played)
 S3M_NOTE_EMPTY   = 0xFF
 S3M_NOTE_OFF     = 0xFE
 S3M_ORDER_SKIP   = 0xFE
 S3M_ORDER_END    = 0xFF
 
 SIGNATURE        = b"s3m2taud/TSVM "    # 14 bytes
+
+# ── AdLib instruments ───────────────────────────────────────────────────────
+
+#: How far an OPL voice sits under a sample in OpenMPT, as the record's initial
+#: attenuation octet (TAUD_FILE_FORMAT §7.5).  Measured with openmpt123
+#: (2026-10-14): a full-volume AdLib sine is 5.40 dB under a full-scale square
+#: sample there (5.49 in a mono file), both centred, and 2.98 dB under it once
+#: both are converted and rendered here — so the OPL voices give up another
+#: 2.4 dB.  OpenMPT's own figure is its `m_nVSTiVolume = 36` for an S3M, "as
+#: loud as in DOSBox and a real SoundBlaster 16".
+OPL_LEVEL_OCTET = 140      # −2.375 dB
+
+
+#: S3M volume 0…64 on an AdLib channel → the linear gain the chip makes of it.
+opl_gain = tracker_opl_gain
+
+
+def opl_volume(vol: int, total_level: int) -> int:
+    """`opl_gain` on Taud's 6-bit linear volume axis."""
+    return max(0, min(63, round(63.0 * opl_gain(vol, total_level))))
+
+
+def opl_carrier_tl(inst) -> int:
+    """The total level the volume scales: the carrier's (D03)."""
+    return inst.opl[3] & 63
+
+
+def opl_record(inst) -> bytes:
+    """An AdLib instrument as a Taud OPL instrument (TAUD_FILE_FORMAT §7.7)."""
+    d = inst.opl
+    ops = [(d[0], d[2], d[4], d[6], d[8]), (d[1], d[3], d[5], d[7], d[9])]
+    block = opl_block(OPL_KIND_2OP, ops, feedback=(d[10] >> 1) & 7, cnt_a=d[10] & 1)
+    rec = bytearray(build_opl_record(
+        block, rate=min(inst.c2spd, 0xFFFF), nna=1,
+        note_volume=round(255 * opl_gain(inst.volume, opl_carrier_tl(inst)))))
+    rec[251] = OPL_LEVEL_OCTET if OPL_LEVEL_OCTET != 159 else 0
+    return bytes(rec)
+
 
 # ST3's single shared memory slot backs these effects.
 ST3_SHARED_EFFECTS = frozenset({
@@ -129,7 +192,7 @@ def parse_s3m(data: bytes) -> S3MHeader:
 
 class S3MInstrument:
     __slots__ = ('itype','filename','memseg','length','loop_begin','loop_end',
-                 'volume','flags','c2spd','name','sample_data','signed')
+                 'volume','flags','c2spd','name','sample_data','signed','opl')
 
 def parse_instruments(data: bytes, h: S3MHeader) -> list:
     insts = []
@@ -158,6 +221,16 @@ def parse_instruments(data: bytes, h: S3MHeader) -> list:
         inst.name     = data[ptr + 0x30:ptr + 0x4C].rstrip(b'\x00').decode('latin-1', errors='replace')
         inst.signed   = (h.sample_type == 1)
         inst.sample_data = b''
+        inst.opl = None
+
+        if inst.itype == S3M_TYPE_ADMEL:
+            # The patch lives where a sample's length and loop would (OpenMPT
+            # S3MTools.cpp).  ST3 reads only the low 16 bits of an AdLib C2SPD.
+            inst.opl = bytes(data[ptr + 0x10:ptr + 0x1C])
+            c2 = struct.unpack_from('<I', data, ptr + 0x20)[0]
+            if (h.cwt_v & 0xF000) == 0x1000:
+                c2 &= 0xFFFF
+            inst.c2spd = 8363 if c2 == 0 else max(1024, c2)
 
         if inst.itype == S3M_TYPE_PCM:
             sample_off = inst.memseg * 16
@@ -501,6 +574,10 @@ def build_sample_inst_bin(instruments: list) -> tuple:
         taud_idx = i + 1
         if i >= 256:
             break
+        if inst is not None and inst.itype == S3M_TYPE_ADMEL:
+            inst_bin[taud_idx * 256:(taud_idx + 1) * 256] = opl_record(inst)
+            vprint(f"  instrument[{taud_idx}] '{inst.name}' AdLib, C2SPD {inst.c2spd}")
+            continue
         if inst is None or inst.itype != S3M_TYPE_PCM:
             continue
         ptr      = offsets.get(i, 0) & 0xFFFFFFFF
@@ -570,7 +647,8 @@ def _default_channel_pan(ch_setting: int) -> int:
 
 def build_pattern(s3m_grid: list, ch_idx: int, default_pan: int,
                   linear_slides: bool, inst_vols: dict = None,
-                  amiga_mode: bool = False) -> bytes:
+                  amiga_mode: bool = False, opl_tl: dict = None,
+                  entry_inst: int = 0) -> bytes:
     """Build a 512-byte Taud pattern for one S3M channel.
 
     Volume column: explicit S3M cell vol -> SEL_SET; M/N/K/L vol slides folded
@@ -580,25 +658,38 @@ def build_pattern(s3m_grid: list, ch_idx: int, default_pan: int,
     doesn't need to emit SEL_SET=Sv on plain trigger rows.
     Pan column: row 0 emits SEL_SET = default_pan to position the channel;
     other rows default to SEL_FINE/0 unless an X/P/etc effect overrides.
+
+    On an AdLib instrument (`opl_tl` maps its 1-based index to its carrier's
+    total level) a volume SET goes through the chip's own curve and `^^^` is
+    a key-off.  `entry_inst` is the instrument the channel holds when the
+    pattern begins, from the order list.
     """
     if inst_vols is None:
         inst_vols = {}
+    if opl_tl is None:
+        opl_tl = {}
     out = bytearray(PATTERN_BYTES)
     rows = s3m_grid[ch_idx] if ch_idx < len(s3m_grid) else [S3MRow()] * PATTERN_ROWS
-    last_inst = 0             # 1-based; tracks which instrument is loaded on this channel
+    last_inst = entry_inst    # 1-based; tracks which instrument is loaded on this channel
     for r, row in enumerate(rows[:PATTERN_ROWS]):
         note = encode_note(row.note)
         inst = row.inst   # S3M 1-based -> Taud 1-based
 
         if row.inst > 0:
             last_inst = row.inst
+        adlib = last_inst in opl_tl
+        if adlib and row.note == S3M_NOTE_OFF:
+            # OpenMPT: "OPL voices are not cut but enter the release portion
+            # of their envelope" — and ST3 can still change their volume.
+            note = NOTE_KEYOFF
 
         op, arg, vol_override, pan_override = encode_effect(
             row.effect, row.effect_arg, ch_idx, r, amiga_mode=amiga_mode)
 
         # -- Volume column --
         if row.vol >= 0:
-            vol_sel, vol_value = SEL_SET, min(row.vol, 0x3F)
+            vol_sel, vol_value = SEL_SET, (opl_volume(row.vol, opl_tl[last_inst]) if adlib
+                                           else min(row.vol, 0x3F))
             if vol_override is not None and vol_override[0] != SEL_SET:
                 vprint(f"    ch{ch_idx} row{r}: dropped vol slide "
                        f"(cell already carries explicit volume)")
@@ -764,7 +855,7 @@ def _per_pattern_bxx_s3m(patterns: list):
 def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
                             positions: list, sample_ratio: dict,
                             inst_vols: dict, active_channels: list,
-                            *, song_label: str = 'song') -> tuple:
+                            *, song_label: str = 'song', opl_tl: dict = None) -> tuple:
     """Build pattern bin + cue sheet + song-entry kwargs for one subsong.
 
     Returns (pat_comp, cue_comp, entry_kwargs). The caller fills in
@@ -836,6 +927,21 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
         vprint(f"  warning: [{song_label}]: {crossings} Bxx target(s) cross "
                f"subsong boundary; clamped to cue 0")
 
+    # The instrument each channel holds as each pattern begins, the first
+    # time the order list reaches it — what an AdLib volume or note-off on a
+    # row before the pattern's own first instrument byte belongs to.
+    entry_inst = {}
+    holding = [0] * 32
+    for src_pat in cue_list:
+        grid = pats[src_pat] if src_pat < len(pats) else None
+        if grid is None:
+            continue
+        for ch in range(32):
+            entry_inst.setdefault((src_pat, ch), holding[ch])
+            for row in grid[ch]:
+                if row.inst > 0:
+                    holding[ch] = row.inst
+
     # Pattern bin: emit only patterns this song uses (densely indexed).
     default_pans = [_default_channel_pan(h.channel_settings[ch])
                     for ch in active_channels]
@@ -845,7 +951,9 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
         for vi, ch in enumerate(active_channels):
             pat_bin += build_pattern(grid, ch, default_pans[vi],
                                       h.linear_slides, inst_vols,
-                                      amiga_mode=not h.linear_slides)
+                                      amiga_mode=not h.linear_slides,
+                                      opl_tl=opl_tl,
+                                      entry_inst=entry_inst.get((src_pat, ch), 0))
 
     pat_bin = rescale_offset_effects_per_slot(bytes(pat_bin), P_used, C, sample_ratio)
     orig_count = P_used * C
@@ -917,6 +1025,10 @@ def assemble_taud(h: S3MHeader, instruments: list, patterns: list,
         if inst is not None and inst.itype == S3M_TYPE_PCM
     }
 
+    # 1-based AdLib instrument index → its carrier's total level.
+    opl_tl = {i + 1: opl_carrier_tl(inst) for i, inst in enumerate(instruments)
+              if inst is not None and inst.itype == S3M_TYPE_ADMEL}
+
     # ── Detect subsongs ──────────────────────────────────────────────────────
     subsongs = detect_subsongs(h.order_list, _per_pattern_bxx_s3m(patterns),
                                terminators=(S3M_ORDER_END,),
@@ -938,7 +1050,7 @@ def assemble_taud(h: S3MHeader, instruments: list, patterns: list,
         label = f"song {i}" if n_songs > 1 else "song"
         song_payloads.append(_build_song_payload_s3m(
             h, patterns, ss['positions'], sample_ratio, inst_vols,
-            active_channels, song_label=label))
+            active_channels, song_label=label, opl_tl=opl_tl))
 
     # ── Layout offsets and song table ────────────────────────────────────────
     song_table_off = TAUD_HEADER_SIZE + comp_size

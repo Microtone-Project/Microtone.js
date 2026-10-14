@@ -15,13 +15,15 @@ What this converter does:
       step sequencer, so the greatest common divisor of every delta IS the
       original tick, and `240 ÷ gcd` the rows per beat.  Every observed GCD
       divides 240, so no event is ever quantised away.
-    - compiles each patch the song names into a Taud FM operator rack
-      (opl2taud), fitted to the notes that song actually plays it at
-    - writes eleven channels, one per OPL voice — channel IS voice in this
+    - writes each patch the song names as a Taud OPL instrument (opl2taud), the
+      chip's own registers played by the engine's own OPL channel — the five
+      rhythm-mode drums as the chip's five drums
+    - writes eleven lanes, one per AdLib voice — lane IS voice in this
       format, so there is no allocation to do — with notes, pitch bends,
       volumes and tempo changes on the grid
-    - declares the song's tuning as the chip's own middle C, so a converted
-      note sounds at the frequency the AdLib card would have given it
+    - declares the song's tuning as concert pitch, A4 at 440 Hz: the chip's
+      own middle C is 0.6 cents above it, inside the F-number rounding, so a
+      converted note still lands on the F-number the AdLib driver wrote
 
 Bends are the hard part and the biggest source of loss: IMS uses 2.6 million of
 them across the reference corpus — they are not an ornament, they are how the
@@ -283,13 +285,10 @@ def delta_gcd(song: dict) -> int:
 #: Rows a beat above this are not worth a pattern grid — 48 already makes a
 #: 24-bar section a 1152-row song — so a finer source tick is quantised.
 MAX_ROWS_PER_BEAT = 48
-#: Taud's tick rate is the resolution of every envelope and every per-tick
-#: effect, so the converter buys as many ticks a row as it can: at 800 BPM a
-#: tick is 3.1 ms, against 20 ms at a tracker-ordinary 125.  Not the register's
-#: 1048: the release is a Volume Fadeout, a 12-bit step taken once a TICK
-#: (opl2taud.release_fadeout), so its longest tail is 1024 ticks — 3.2 s here,
-#: 2.4 s at 1048 — and a fifth of the patches in the IMS banks (release rates
-#: 1-3) would lose most of what is left of theirs for a 0.7 ms sharper tick.
+#: Taud's tick rate is the resolution of every per-tick effect, so the
+#: converter buys as many ticks a row as it can: at 800 BPM a tick is 3.1 ms,
+#: against 20 ms at a tracker-ordinary 125.  The OPL envelopes themselves run at
+#: the chip's own 49716 Hz in the engine and do not care.
 MAX_BPM = 800
 MIN_BPM = TAUD_BPM_MIN
 MAX_TICK_RATE = 127
@@ -305,10 +304,9 @@ def speed_bpm_for(seconds: float):
 
     A Taud row lasts `speed × 2.5 ÷ BPM` seconds, so the pair is one equation
     with a free parameter — and the parameter is spent on the shortest TICK the
-    MAX_BPM ceiling allows, because the tick is the resolution of every envelope
-    and every per-tick effect the engine has.  At 800 BPM a tick is 3.1 ms against
-    20 ms at a tracker-ordinary 125, which is the difference between an OPL
-    percussive attack surviving the conversion and being smeared over a row."""
+    MAX_BPM ceiling allows, because the tick is the resolution of every per-tick
+    effect the engine has: at 800 BPM a tick is 3.1 ms against 20 ms at a
+    tracker-ordinary 125."""
     if seconds <= 0:
         return 6, 125
     speed = min(MAX_TICK_RATE, int(MAX_BPM * seconds / 2.5))
@@ -324,21 +322,42 @@ def tempo_effect(bpm: int):
 
 # ── Instrument pass ──────────────────────────────────────────────────────────
 
+#: The rhythm channel each drum role sits on, for finding its partner's patch.
+ROLE_VOICE = {role: voice for voice, role in opl.RHYTHM_KIND.items()}
+
+
+def instrument_key(role: str, idx, current) -> tuple:
+    """What makes two notes the same Taud instrument: the patch, the role it is
+    played in, and — for the snare, cymbal and hi-hat, which build their sound
+    partly out of another drum's operator — the patch on that drum's channel
+    (None while it still holds the driver's default)."""
+    if role in opl.PARTNER_ROLE:
+        return (idx, role, current[ROLE_VOICE[opl.PARTNER_ROLE[role]]])
+    return (idx, role, None)
+
+
 def collect_patch_usage(song: dict, seq):
-    """{(patch index, kind): set of chip notes} — what the song actually plays,
-    which is what the key banding is fitted to."""
-    melodic_only = not song['percussive']
+    """{instrument key: number of notes} — the patches the song actually plays,
+    in the roles it plays them in."""
     current = [None] * 11
+    played = [False] * 11
     usage = {}
     for _tick, kind, voice, a, _b in seq:
         if kind == PATCH:
             current[voice] = a
+            if played[voice]:
+                # A patch loaded over a note that may still be ringing reaches
+                # that note on the chip (see build_cells), so it needs a slot
+                # even if no note of its own ever plays it.
+                key = instrument_key(voice_role(song, voice), a, current)
+                usage.setdefault(key, 0)
         elif kind == NOTE_ON:
+            played[voice] = True
             idx = current[voice]
             if idx is None:
                 continue
-            usage.setdefault((idx, voice_role(song, voice)), set()).add(
-                max(0, a - opl.MIDI_TO_CHIP))
+            key = instrument_key(voice_role(song, voice), idx, current)
+            usage[key] = usage.get(key, 0) + 1
     return usage
 
 
@@ -382,6 +401,10 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
         rows_of_events.setdefault(row, []).append((kind, voice, a, b))
 
     patch = [None] * num_voices
+    # §6 of the IMS library's ENGINE_SPEC: the tom carries the only drum pitch,
+    # and the snare's channel — which the hi-hat shares — sits seven semitones
+    # above it; the cymbal shares the tom's.
+    tom_note = opl.DEFAULT_TOM_NOTE
     volume = [DEFAULT_VOLUME] * num_voices
     bend = [MID_PITCH] * num_voices
     note = [None] * num_voices
@@ -396,7 +419,8 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
         if ended:
             break
         events = rows_of_events[row]
-        trigger = [None] * num_voices          # (chip note, patch index)
+        trigger = [None] * num_voices          # (chip note, instrument key)
+        repatched = [False] * num_voices
         released = [False] * num_voices
         vol_changed = [False] * num_voices
         bend_changed = [False] * num_voices
@@ -408,6 +432,7 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
                 tempo_rows[row] = song['tempo'] * (a + b / 128.0)
                 continue
             if kind == PATCH:
+                repatched[voice] = repatched[voice] or patch[voice] != a
                 patch[voice] = a
             elif kind == VOLUME:
                 volume[voice] = a
@@ -422,23 +447,43 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
                 # A note-on carries a volume change AND a trigger in one event.
                 volume[voice] = b
                 vol_changed[voice] = True
-                trigger[voice] = (max(0, a - opl.MIDI_TO_CHIP), patch[voice])
+                chip_note = max(0, a - opl.MIDI_TO_CHIP)
+                role = voice_role(song, voice)
+                # The drums' channel pitches move in EVENT order: a tom struck
+                # before a snare in the same tick retunes the snare first.
+                if role == 'tom':
+                    tom_note = chip_note
+                pitch = (tom_note + opl.TOM_TO_SD if role in ('sd', 'hh')
+                         else tom_note if role == 'tc' else chip_note)
+                trigger[voice] = (pitch, instrument_key(role, patch[voice], patch))
                 released[voice] = False
 
         for v in range(num_voices):
+            # A patch change reaches a note that is still sounding or releasing:
+            # the driver writes the new registers into the keyed channel, and a
+            # release then runs at the NEW patch's rate.  An instrument byte with
+            # no note does the same to a Taud OPL voice (TAUD_ENGINE_SPEC
+            # §5.5.2), so one is written wherever a note has played before.
+            repatch = repatched[v] and trigger[v] is None and note[v] is not None
             if trigger[v] is None and not released[v] and not vol_changed[v] \
-                    and not bend_changed[v]:
+                    and not bend_changed[v] and not repatch:
                 continue
             cell = cells.setdefault((v, row), Cell())
             role = voice_role(song, v)
-            if trigger[v] is not None:
-                chip_note, idx = trigger[v]
-                slot = slot_of.get((idx, role), 0)
+            if repatch:
+                slot = slot_of.get(instrument_key(role, patch[v], patch), 0)
                 if slot:
-                    if role in ('sd', 'tc', 'hh'):
-                        # Pitchless: the chip builds these three out of bits of
-                        # two accumulators, so their note number means nothing.
-                        cell.note = opl.TAUD_C4
+                    cell.inst = slot
+            if trigger[v] is not None:
+                chip_note, key = trigger[v]
+                slot = slot_of.get(key, 0)
+                if slot:
+                    if role in ('sd', 'hh', 'tc', 'tom'):
+                        # A drum sounds at its CHANNEL's pitch, which only the
+                        # tom sets (the snare and the hi-hat seven semitones
+                        # above it, the cymbal at it), and none is ever bent
+                        # (§6); the file's own note means nothing to the others.
+                        cell.note = opl.note_word(chip_note)
                     else:
                         cell.note = opl.note_word_bent(chip_note, bend_offset(song, bend[v]))
                     cell.inst = slot
@@ -447,18 +492,16 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
                     sounding[v] = True
             elif released[v]:
                 cell.note = NOTE_KEYOFF
-                # The release itself is the instrument's Volume Fadeout, not
-                # anything written here — see opl2taud.release_fadeout.  An
-                # earlier version of this converter forced a key lift from the
-                # pattern (`S $D041`) instead; the fadeout models the chip
-                # better, needs no effect column, and works the same when a
-                # bank instrument is played by hand rather than from a row.
+                # A key-off keys the OPL channel off: its operators release at
+                # their own rates, exactly as the driver's 0xB0 write does.
                 sounding[v] = False
 
             level = level_of.get((patch[v], role), 0)
             vol = volume_column(volume[v], level)
-            if vol_changed[v] or trigger[v] is not None:
-                if written_vol[v] != vol or trigger[v] is not None:
+            # An instrument byte re-seeds the note volume from the instrument, so
+            # a repatched cell restates the channel's own.
+            if vol_changed[v] or trigger[v] is not None or cell.inst:
+                if written_vol[v] != vol or trigger[v] is not None or cell.inst:
                     cell.vol_sel = SEL_SET
                     cell.vol_val = vol
                     written_vol[v] = vol
@@ -467,7 +510,7 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
             # tick 0 — so the pitch is exact at every row boundary, and what is
             # lost is only the shape between two rows.
             if trigger[v] is None and sounding[v] and note[v] is not None \
-                    and role not in ('sd', 'tc', 'hh'):
+                    and role in ('melodic', 'bd'):
                 want = opl.note_word_bent(note[v], bend_offset(song, bend[v]))
                 delta = want - cur_pitch[v]
                 if delta and cell.eff == TOP_NONE:
@@ -548,8 +591,7 @@ def carrier_level(patch, role: str) -> int:
     return patch.car['totalLevel'] & 63
 
 
-def assemble_taud(song, banks, *, mixing_vol=DEFAULT_MIXING_VOL, max_bands=4,
-                  feedback_scale=1.0, with_project_data=True):
+def assemble_taud(song, banks, *, mixing_vol=DEFAULT_MIXING_VOL, with_project_data=True):
     seq = implay_end(song, list(ims_sequence(song)))
     if not seq:
         sys.exit("error: no events in this IMS file")
@@ -569,36 +611,48 @@ def assemble_taud(song, banks, *, mixing_vol=DEFAULT_MIXING_VOL, max_bands=4,
 
     # ── Instruments ──────────────────────────────────────────────────────────
     usage = collect_patch_usage(song, seq)
-    entries, keys = [], []
-    for key in sorted(usage):
-        idx, role = key
-        name = song['patch_names'][idx] if idx < len(song['patch_names']) else ''
+
+    def patch_of(idx, role):
+        name = song['patch_names'][idx] if idx is not None and idx < len(song['patch_names']) else ''
         patch = opl.resolve_patch(name, *banks) if name else None
+        return patch, name
+
+    entries, keys = [], []
+    for key in sorted(usage, key=lambda k: tuple(-1 if x is None else x if isinstance(x, int) else str(x) for x in k)):
+        idx, role, partner_idx = key
+        patch, name = patch_of(idx, role)
         if patch is None:
             # FILE_FORMATS §1.4: IMPLAY plays the driver's built-in timbre.
             vprint(f"  warning: patch '{name or idx}' is in no bank; "
                    f"using IMPLAY's built-in {role} default")
             patch = default_patch(role)
-        entries.append({'patch': patch, 'kind': role, 'notes': sorted(usage[key]),
-                        'name': name or f'patch {idx}'})
+        entry = {'patch': patch, 'kind': role, 'name': name or f'patch {idx}'}
+        if role in opl.PARTNER_ROLE:
+            # The partner drum's patch, or the driver's default for it while the
+            # song has loaded none; its channel sits seven semitones from this
+            # drum's, below it for the hi-hat (channel 8 under channel 7) and
+            # above it for the cymbal.
+            prole = opl.PARTNER_ROLE[role]
+            partner = patch_of(partner_idx, prole)[0] if partner_idx is not None else None
+            entry['partner_mult'] = opl.partner_multiple(partner or default_patch(prole))
+            entry['partner_detune'] = {'hh': -1, 'tc': 1, 'sd': 0}[role] * \
+                round(opl.TOM_TO_SD * 4096 / 12)
+        entries.append(entry)
         keys.append(key)
     if len(entries) > opl.MAIN_SLOTS:
-        vprint(f"  warning: {len(entries)} patch/role pairs > {opl.MAIN_SLOTS} "
-               f"instrument slots; dropping the least used")
-        order = sorted(range(len(entries)), key=lambda i: -len(usage[keys[i]]))
+        vprint(f"  warning: {len(entries)} instruments > {opl.MAIN_SLOTS} "
+               f"slots; dropping the least used")
+        order = sorted(range(len(entries)), key=lambda i: -usage[keys[i]])
         keep = set(order[:opl.MAIN_SLOTS])
         entries = [e for i, e in enumerate(entries) if i in keep]
         keys = [k for i, k in enumerate(keys) if i in keep]
 
-    bank = opl.build_bank(entries, bpm=bpm, max_bands=max_bands,
-                          feedback_scale=feedback_scale)
+    bank = opl.build_bank(entries)
     slot_of = dict(zip(keys, bank['slots']))
-    level_of = {k: carrier_level(e['patch'], e['kind'])
+    level_of = {(k[0], k[1]): carrier_level(e['patch'], e['kind'])
                 for k, e in zip(keys, entries)}
-    resolved = sum(1 for e in entries if e['patch'] is not None)
-    vprint(f"  instruments: {resolved}/{len(entries)} patches resolved, "
-           f"{sum(1 for n in bank['instrument_names'][opl.AUX_BASE:] if n)} operators, "
-           f"{bank['pool_bytes']} bytes of samples")
+    vprint(f"  instruments: {len(set(bank['slots']) - {0})} OPL instruments "
+           f"for {len(entries)} patch/role pairs")
 
     # ── Patterns ─────────────────────────────────────────────────────────────
     cells, num_rows = build_cells(song, seq, row_ticks, (speed, bpm), slot_of,
@@ -705,10 +759,6 @@ def main():
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--mixingvol', type=int, default=DEFAULT_MIXING_VOL,
                     dest='mixing_vol', help='Song mixing volume, 0…255')
-    ap.add_argument('--ksl-bands', type=int, default=4,
-                    help='Key bands per operator for KSL/KSR (1 disables banding)')
-    ap.add_argument('--feedback-scale', type=float, default=1.0,
-                    help='Fudge factor on OPL feedback depth (1.0 = as the chip)')
     ap.add_argument('--no-project-data', action='store_true',
                     help='Omit the title / instrument / sample name section')
     args = ap.parse_args()
@@ -732,8 +782,6 @@ def main():
         vprint("  warning: no bank given; every patch will be silent")
 
     taud = assemble_taud(song, banks, mixing_vol=args.mixing_vol,
-                         max_bands=args.ksl_bands,
-                         feedback_scale=args.feedback_scale,
                          with_project_data=not args.no_project_data)
     with open(args.output, 'wb') as f:
         f.write(taud)

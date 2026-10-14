@@ -3,7 +3,9 @@
 // values; live playback cursor overlay), Zones (Ixmp rectangle map with live
 // trigger overlay), Layers (a metainstrument's layer table) and FM (a type-4
 // rack: the same table read as operators, plus the algorithm that wires them —
-// item 159). Reference: taut_views.mjs instrument tab + openAdvancedInstEdit.
+// item 159) and OPL (a type-8 voice: one chip channel's operators, item 209 —
+// IMS Studio's operator editor, theimsarchive-web studio/instpanel.js).
+// Reference: taut_views.mjs instrument tab + openAdvancedInstEdit.
 
 import {
   setInstFieldOp, setInstBytesOp, setEnvDragOp, setEnvPointOp, setEnvArrayOp,
@@ -46,6 +48,12 @@ import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import { hex2, rangeToStr } from "../notenames.js";
 import { noteGlyphCanvas, rangeGlyphCanvas } from "../noteglyph.js";
 import { fmGraphSvg } from "../fmgraph.js";
+import {
+  oplFields, oplOpBytes, oplKindBytes, oplSwitchBytes, oplChannelBytes,
+  oplPartnerMultBytes, oplPartnerDetuneBytes, oplOperatorCount, oplHasPartner, oplBadge,
+  OPL_OP_FIELDS, OPL_KIND_2OP, OPL_KIND_4OP, OPL_KIND_BD, OPL_KIND_SD, OPL_KIND_TOM,
+  OPL_KIND_TC, OPL_KIND_HH,
+} from "../../doc/opledit.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
 import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
 // A fixed-pitch layer's field takes a note WORD, and the query parser is
@@ -89,6 +97,20 @@ const ENV_TABS = [
 function roleTabDef(inst, wantFilter) {
   const SLOT1 = { key: "pfEnvelopes", loopKey: "pfEnvLoop", susKey: "pfEnvSustainWord" };
   const SLOT2 = { key: "pf2Envelopes", loopKey: "pf2EnvLoop", susKey: "pf2EnvSustainWord" };
+  if (inst?.isOpl) {
+    // An OPL instrument's second slot holds its patch (TAUD_FILE_FORMAT §7.7), so
+    // both tabs edit the one slot left; claiming the other role takes it over.
+    const role1 = envPresent(inst.pfEnvLoop) ? ((inst.pfEnvLoop >>> 7) & 1) === 1 : null;
+    return {
+      ...SLOT1,
+      labelKey: wantFilter ? "inst.envFilter" : "inst.envPitch",
+      max: 255,
+      role: wantFilter ? "filter" : "pitch",
+      roleActive: role1 === wantFilter,
+      liveIdx: wantFilter ? "getVoiceEnvFilterIndex" : "getVoiceEnvPitchIndex",
+      liveTime: wantFilter ? "getVoiceEnvFilterTime" : "getVoiceEnvPitchTime",
+    };
+  }
   const role1 = envPresent(inst.pfEnvLoop) ? ((inst.pfEnvLoop >>> 7) & 1) === 1 : null;
   const role2 = envPresent(inst.pf2EnvLoop) ? ((inst.pf2EnvLoop >>> 7) & 1) === 1 : null;
   let slot, active;
@@ -232,7 +254,11 @@ export class InstrumentsView {
     metaBtn.title = t("inst.newMetaKindTitle");
     metaBtn.addEventListener("click", async () => {
       const { showNewMetaKind } = await import("../popups/newmeta.js");
-      adopt(await showNewMetaKind(this.store));
+      const res = await showNewMetaKind(this.store);
+      // Whatever was made opens where it is built: its layers, its rack, or —
+      // an OPL instrument having a General tab too — its patch.
+      if (res) this.tab = metaTabKey(this.store.doc.instruments[res.firstSlot]);
+      adopt(res);
     });
     // Two rows of three, in the order they are reached for: the three ways a
     // slot gets filled from OUTSIDE the project, then the three that make
@@ -303,10 +329,15 @@ export class InstrumentsView {
     this.tabBar.innerHTML = "";
     const inst = this.store.doc?.instruments[this.selected];
     const metaTab = inst?.isFm ? ["fm", t("inst.tabFm")] : ["meta", t("inst.tabLayers")];
+    const envTabs = [["env0", t("inst.tabVolEnv")], ["env1", t("inst.tabPanEnv")],
+      ["pitch", t("inst.tabPitch")], ["filter", t("inst.tabFilter")]];
+    // An OPL instrument is an ordinary one around a chip channel: its patch
+    // first, then everything an ordinary one has but the keyboard map.
     const tabs = inst?.isMeta
       ? [metaTab, ["metaopts", t("inst.tabMetaOptions")]]
-      : [["general", t("inst.tabGeneral")], ["env0", t("inst.tabVolEnv")], ["env1", t("inst.tabPanEnv")],
-         ["pitch", t("inst.tabPitch")], ["filter", t("inst.tabFilter")], ["zones", t("inst.tabZones")]];
+      : inst?.isOpl
+        ? [["opl", t("inst.tabOpl")], ["general", t("inst.tabGeneral")], ...envTabs]
+        : [["general", t("inst.tabGeneral")], ...envTabs, ["zones", t("inst.tabZones")]];
     // A tab this instrument has not got is snapped to its first one, in either
     // direction: a metainstrument has no envelopes and an ordinary instrument
     // has no layer table, so simply keeping `this.tab` across a selection
@@ -352,6 +383,7 @@ export class InstrumentsView {
     else if (this.tab === "zones") this.renderZones(inst);
     else if (this.tab === "meta") this.renderMeta(inst);
     else if (this.tab === "fm") this.renderFm(inst);
+    else if (this.tab === "opl") this.renderOpl(inst);
     else if (this.tab === "metaopts") this.renderMetaOptions(inst);
   }
 
@@ -1057,6 +1089,19 @@ export class InstrumentsView {
         [[0, t("inst.dcaCut")], [1, t("inst.dcaOff")], [2, t("inst.dcaFade")]],
         (v) => this.setField("dupCheckFlag", (inst.dupCheckFlag & ~0x0c) | (v << 2))),
     );
+
+    if (inst.isOpl) {
+      // No sample to point at: what is left of the sample group is the rate the
+      // instrument reads its pitch from (its C2SPD) and the percussion flag.
+      this.group(t("opl.grpVoice"),
+        this.numRow(t("opl.rate"), inst.samplingRate, 0, 65535, (v) => this.setField("samplingRate", v),
+          { ann: (v) => (v === 0 ? t("opl.rateDefault") : v + " Hz") }),
+        this.checkRow(t("inst.percussion"), ((inst.loopMode >> 4) & 1) !== 0,
+          (on) => this.setField("loopMode", (inst.loopMode & ~0x10) | (on ? 0x10 : 0))),
+      );
+      this.group(t("inst.grpTuning"), this.detuneRow(inst));
+      return;
+    }
 
     // Sample section — the visual play/loop/sustain editor lives in a modal
     // (same style as the Samples-tab editor, but scoped to THIS instrument).
@@ -2239,6 +2284,181 @@ export class InstrumentsView {
     return wrap;
   }
 
+  /**
+   * The OPL tab (item 209): IMS Studio's operator editor on a type-8 record.
+   * One group per operator, its envelope sketched at the top, then the channel
+   * its pair plays on — feedback and connection belong to the channel, not to
+   * either operator — and for the noise drums the partner they read. Every
+   * field edits the patch's bytes in one undoable step and leaves the panel
+   * standing (a held spinner keeps stepping); only the sketches redraw.
+   */
+  renderOpl(inst) {
+    const slot = this.selected;
+    const f = oplFields(inst);
+    const nOps = oplOperatorCount(f.kind);
+    const apply = (pairs, key) => {
+      this.applyQuiet(setInstBytesOp(slot, pairs, this.oplGesture(key)));
+      this.refreshOplSketches();
+      this.refreshListBadge(slot);
+    };
+    const field = (label, control, title = "") => {
+      const row = document.createElement("label");
+      row.className = "inst-field";
+      if (title) row.title = title;
+      const span = document.createElement("span");
+      span.textContent = label;
+      row.append(span, control);
+      return row;
+    };
+    const num = (value, max, onChange, min = 0) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = min; input.max = max; input.value = value;
+      input.addEventListener("change", () => onChange(clampN(Math.round(+input.value || 0), min, max)));
+      return input;
+    };
+    const check = (value, onChange) => {
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = !!value;
+      input.addEventListener("change", () => onChange(input.checked ? 1 : 0));
+      return input;
+    };
+    const select = (value, options, onChange) => {
+      const sel = document.createElement("select");
+      for (const [v, text] of options) sel.appendChild(new Option(text, v, false, v === value));
+      sel.addEventListener("change", () => onChange(+sel.value));
+      return sel;
+    };
+
+    // ── the instrument: what kind of channel, and the chip-wide switches ──
+    const kinds = [
+      [OPL_KIND_2OP, t("opl.kind2op")], [OPL_KIND_4OP, t("opl.kind4op")],
+      [OPL_KIND_BD, t("opl.kindBd")], [OPL_KIND_SD, t("opl.kindSd")], [OPL_KIND_TOM, t("opl.kindTom")],
+      [OPL_KIND_TC, t("opl.kindTc")], [OPL_KIND_HH, t("opl.kindHh")],
+    ];
+    this.group(t("opl.grpChannel"),
+      this.selectRow(t("opl.kind"), f.kind, kinds, (v) => {
+        this.store.undo.apply(setInstBytesOp(slot, oplKindBytes(inst, v)));
+        this.refreshListBadge(slot);
+      }),
+      this.checkRow(t("opl.deepTremolo"), f.deepTremolo,
+        (on) => this.store.undo.apply(setInstBytesOp(slot, oplSwitchBytes(inst, "deepTremolo", on))),
+        { title: t("opl.deepTremoloTitle") }),
+      this.checkRow(t("opl.deepVibrato"), f.deepVibrato,
+        (on) => this.store.undo.apply(setInstBytesOp(slot, oplSwitchBytes(inst, "deepVibrato", on))),
+        { title: t("opl.deepVibratoTitle") }),
+      this.checkRow(t("opl.nts"), f.nts,
+        (on) => this.store.undo.apply(setInstBytesOp(slot, oplSwitchBytes(inst, "nts", on))),
+        { title: t("opl.ntsTitle") }),
+      this.checkRow(t("opl.lowFnum"), f.lowFnum,
+        (on) => this.store.undo.apply(setInstBytesOp(slot, oplSwitchBytes(inst, "lowFnum", on))),
+        { title: t("opl.lowFnumTitle") }),
+    );
+
+    // ── the operators, a grid per pair ──
+    const single = nOps === 1;
+    const names = nOps === 4
+      ? [1, 2, 3, 4].map((n) => t("opl.opN", { n }))
+      : single ? [t("opl.op")] : [t("opl.mod"), t("opl.car")];
+    const operator = (o) => {
+      const box = document.createElement("div");
+      box.className = "inst-group opl-op";
+      const head = document.createElement("div");
+      head.className = "inst-group-head";
+      head.textContent = names[o];
+      box.append(head, oplEnvelopeSvg(f.ops[o], o));
+      for (const fd of OPL_OP_FIELDS) {
+        const val = f.ops[o][fd.key];
+        const control = fd.max === 1
+          ? check(val, (v) => apply(oplOpBytes(inst, o, fd.key, v), `op${o}.${fd.key}`))
+          : num(val, fd.max, (v) => apply(oplOpBytes(inst, o, fd.key, v), `op${o}.${fd.key}`));
+        box.appendChild(field(t(`opl.f.${fd.key}`), control, t(`opl.f.${fd.key}Title`)));
+      }
+      return box;
+    };
+    const channel = (p) => {
+      const box = document.createElement("div");
+      box.className = "inst-group opl-chan";
+      const head = document.createElement("div");
+      head.className = "inst-group-head";
+      head.textContent = nOps === 4 ? t("opl.pair", { n: p + 1 }) : t("opl.channel");
+      box.appendChild(head);
+      // The chip applies feedback to operator 1 alone: channel B's has nowhere to act.
+      if (p === 0) {
+        box.appendChild(field(t("opl.fb"),
+          num(f.feedback, 7, (v) => apply(oplChannelBytes(inst, 0, "feedback", v), "fb")),
+          t("opl.fbTitle")));
+      }
+      box.appendChild(field(t("opl.cnt"),
+        select(p === 0 ? f.cntA : f.cntB, [[0, t("opl.cntFm")], [1, t("opl.cntAdd")]],
+          (v) => apply(oplChannelBytes(inst, p, "cnt", v), `cnt${p}`)),
+        t("opl.cntTitle")));
+      return box;
+    };
+    const partner = () => {
+      const box = document.createElement("div");
+      box.className = "inst-group opl-chan";
+      const head = document.createElement("div");
+      head.className = "inst-group-head";
+      head.textContent = t("opl.partner");
+      box.append(head,
+        field(t("opl.partnerMult"),
+          num(f.partnerMult, 15, (v) => apply(oplPartnerMultBytes(v), "pmult")),
+          t("opl.partnerMultTitle")));
+      if (f.kind !== OPL_KIND_SD) {
+        // Shown in cents: the field is 4096-TET units from the drum's own pitch.
+        box.appendChild(field(t("opl.partnerPitch"),
+          num(Math.round((f.partnerDetune * 1200) / 4096), 9600,
+            (v) => apply(oplPartnerDetuneBytes((v * 4096) / 1200), "pdet"), -9600),
+          t("opl.partnerPitchTitle")));
+      }
+      return box;
+    };
+
+    const ops = document.createElement("div");
+    ops.className = "opl-edit";
+    for (let p = 0; p * 2 < nOps; p++) {
+      const grid = document.createElement("div");
+      grid.className = "inst-grid";
+      grid.appendChild(operator(2 * p));
+      if (2 * p + 1 < nOps) grid.appendChild(operator(2 * p + 1));
+      if (!single) grid.appendChild(channel(p));
+      else if (oplHasPartner(f.kind)) grid.appendChild(partner());
+      ops.appendChild(grid);
+    }
+    if (single) ops.appendChild(Object.assign(document.createElement("p"),
+      { className: "dim opl-note", textContent: t("opl.drumNote") }));
+    ops.appendChild(Object.assign(document.createElement("p"),
+      { className: "dim opl-note", textContent: t("opl.envNote") }));
+    this.panel.appendChild(ops);
+    this._oplSlot = slot;
+  }
+
+  /** One coalescing gesture per field: a run of steps on one spinner — a held
+   *  + button, a burst of arrow keys — is one undo step, and a pause of more
+   *  than a moment starts the next (IMS Studio's rule, studio/instpanel.js). */
+  oplGesture(key) {
+    const now = performance.now();
+    const k = `${this.selected}:${key}`;
+    if (this._oplGestureKey !== k || now - this._oplGestureAt > 700) {
+      this._oplGestureId = "opl" + now + Math.random();
+    }
+    this._oplGestureKey = k;
+    this._oplGestureAt = now;
+    return this._oplGestureId;
+  }
+
+  /** Redraw the envelope sketches after a field edit, leaving the fields be. */
+  refreshOplSketches() {
+    const inst = this.store.doc?.instruments[this._oplSlot];
+    if (!inst?.isOpl) return;
+    const f = oplFields(inst);
+    for (const svg of this.panel.querySelectorAll("svg.opl-env[data-op]")) {
+      svg.replaceWith(oplEnvelopeSvg(f.ops[+svg.dataset.op], +svg.dataset.op));
+    }
+  }
+
   frame() {
     if (!this.visible) return;
     if (this.advanced) {
@@ -2255,6 +2475,34 @@ function escape(s) {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+/**
+ * A sketch of one OPL operator's envelope (IMS Studio's): attack up, decay to
+ * the sustain level, a hold while the key is down if the operator sustains,
+ * then release. Times are drawn on the chip's own doubling scale — each rate
+ * step halves the time — so the shape reads the way the numbers do.
+ */
+function oplEnvelopeSvg(op, index) {
+  const W = 150, H = 48;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("class", "opl-env");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.dataset.op = String(index);
+  const time = (rate) => (rate === 0 ? 1.2 : Math.min(1, 1.6 / (1 + rate)));
+  const level = 1 - op.tl / 63;
+  const sus = level * (1 - op.sl / 15);
+  const a = time(op.ar) * 40, d = time(op.dr) * 40, hold = op.eg ? 30 : 0, r = time(op.rr) * 40;
+  const y = (v) => H - 4 - v * (H - 8);
+  const pts = [[2, y(0)], [2 + a, y(level)], [2 + a + d, y(sus)],
+    [2 + a + d + hold, y(op.eg ? sus : sus * 0.4)], [Math.min(W - 2, 2 + a + d + hold + r), y(0)]];
+  const line = document.createElementNS(NS, "polyline");
+  line.setAttribute("points", pts.map((p) => p.join(",")).join(" "));
+  line.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.appendChild(line);
+  return svg;
+}
+
 function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 /** What the list row and the detail header say this instrument IS. An FM rack
@@ -2262,11 +2510,12 @@ function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
  *  you are looking at ("FM·4" is a patch; "FM·1" is a sample with extra steps). */
 /** Which tab an instrument opens on: its rack, its layer table, or General. */
 function metaTabKey(inst) {
-  return inst?.isFm ? "fm" : inst?.isMeta ? "meta" : "general";
+  return inst?.isFm ? "fm" : inst?.isMeta ? "meta" : inst?.isOpl ? "opl" : "general";
 }
 
 function instKindBadge(inst) {
   if (inst.isFm) return `FM·${inst.metaLayers.length}`;
+  if (inst.isOpl) return oplBadge(inst);
   if (inst.isMeta) return "META";
   const patches = inst.extraPatches;
   if (!patches) return "";

@@ -1,6 +1,6 @@
 # Taud Conversion Notes
 
-This document describes how music in other formats becomes Taud: what maps cleanly, what has to be approximated, and where the traps are. It covers ProTracker (`.mod`), ScreamTracker 3 (`.s3m`), FastTracker 2 (`.xm`), ImpulseTracker (`.it`), Monotone (`.mon`) and Standard MIDI plus SoundFont 2 (`.mid` + `.sf2`).
+This document describes how music in other formats becomes Taud: what maps cleanly, what has to be approximated, and where the traps are. It covers ProTracker (`.mod`), ScreamTracker 3 (`.s3m`), FastTracker 2 (`.xm`), ImpulseTracker (`.it`), Monotone (`.mon`), Standard MIDI plus SoundFont 2 (`.mid` + `.sf2`), and the AdLib music of Iyagi Music Sound (`.ims` + `.bnk`) and the Korean OPL3 tracker (`.sop`).
 
 It is written for two audiences at once. If you are **using** a converter, the per-format sections tell you what to expect from your file and which options change it. If you are **writing** one, they tell you which decisions are forced by the target format and which are judgement calls that the reference converters have already made one way.
 
@@ -177,7 +177,7 @@ The two share ProTracker's handler, its speed nibble, its accumulator and its sp
 
 S3M instrument numbers are 1-based on disk and in cells, and Taud's cell instrument byte preserves that: 0 means "no instrument change", 1…255 select a slot. The converter passes the raw byte through with no subtract-1, writes the instrument bin at `index × 64`, and leaves slot 0 empty.
 
-AdLib/OPL instruments are skipped — there is no FM synthesis in Taud.
+AdLib instruments become OPL instruments ([§3.5](#3-5-adlib-instruments)).
 
 ### 3.2 Shared-memory recall
 
@@ -193,6 +193,19 @@ ST3 backs effects `D`, `E`, `F`, `I`, `J`, `K`, `L`, `Q`, `R` and `S` with a **s
 ### 3.4 Default panning
 
 Row 0 of every pattern emits a pan-column SET derived from the S3M channel-setting byte — channels 0…7 left (`$10`), 8…15 right (`$2F`), otherwise centre (`$1F`). Every other row emits the FINE-0 no-op unless an `X`, `P` or `S $8x` overrides it.
+
+### 3.5 AdLib instruments
+
+An S3M instrument of type 2 is an **AdLib melody instrument**: twelve register bytes for one two-operator channel of a YM3812, where a sample instrument has its sample. It becomes an **OPL instrument** — Metainstrument type 8 ([File Format §7.7](TAUD_FILE_FORMAT.md)) — which the engine plays as the chip plays it ([Engine Spec §5.5.2](TAUD_ENGINE_SPEC.md)), so the registers go across bit for bit and nothing is compiled. The AdLib **drum** types 3…7 stay silent, as they are in ST3 and in OpenMPT.
+
+ST3 is long gone from any machine that would play it, so **OpenMPT is the reference** here, and `openmpt123` the oracle every number below was checked against:
+
+- **The patch** is bytes `$10…$1B`: the modulator then the carrier for registers `$20`, `$40`, `$60`, `$80` and `$E0`, then `$C0`. The wave selects keep all three bits, because OpenMPT runs the chip in OPL3 mode.
+- **Pitch** comes from the instrument's C2SPD, which becomes the OPL instrument's rate: at 8363 the note C-4 sounds concert middle C, which is OpenMPT's mapping. A C2SPD of 0 reads as 8363, one below 1024 as 1024, and an ST3 file's AdLib C2SPD keeps only its low 16 bits.
+- **Volume is total level, not gain.** OpenMPT turns the 0…64 volume into the carrier's attenuation, `63 − (63 − TL)·(v′ + 1) ÷ 64` with `v′` the volume scaled to 0…63 — so volume 32 is 23 dB down rather than 6, and volume 0 is 47 dB down rather than silence. The default volume and every volume SET are converted on that curve. A volume **slide** stays a linear slide, which is where the conversion is approximate; and the volume column is six linear bits, so a level quieter than about −36 dB has no step of its own.
+- **`^^^` keys the channel off.** OpenMPT: "OPL voices are not cut but enter the release portion of their envelope". On a sample it is still the cut it always was.
+- **An AdLib channel starts centred**, whatever the panning table says, as OpenMPT reads an ST3 file.
+- **Loudness against the samples** is OpenMPT's own calibration — its `m_nVSTiVolume` of 36 for an S3M, "as loud as in DOSBox and a real SoundBlaster 16". There a full-volume AdLib sine sits 5.40 dB under a full-scale square sample, both centred; converted and rendered here it sat 2.98 dB under, so every OPL instrument carries another 2.4 dB of attenuation in its record.
 
 ## 4. FastTracker 2 — `.xm`
 
@@ -256,7 +269,7 @@ Each IT instrument becomes **one** Taud instrument, whose base record carries th
 
 Per-patch fields mirror what the base record would have stored for that sample — loop points and mode, default volume and pan, auto-vibrato — so a patched note behaves exactly as a base-record note on the same sample would.
 
-Volume, panning and pitch-or-filter envelopes convert natively, with up to 25 nodes, both sustain and loop regions, and the `P` presence bit set whenever nodes are emitted. Auto-vibrato, fadeout, pitch-pan centre and separation, default pan, volume and pan swing, and initial filter cutoff and resonance all forward to their instrument fields. AdLib instruments are skipped.
+Volume, panning and pitch-or-filter envelopes convert natively, with up to 25 nodes, both sustain and loop regions, and the `P` presence bit set whenever nodes are emitted. Auto-vibrato, fadeout, pitch-pan centre and separation, default pan, volume and pan swing, and initial filter cutoff and resonance all forward to their instrument fields. OpenMPT's OPL samples become OPL instruments ([§5.8](#5-8-opl-samples)).
 
 IT2.14/IT2.15 **compressed samples** are decoded during conversion. The compression flag is per sample (bit 2 of the sample's `cvt` byte), *not* global via the file's `cwt` — reading it globally mis-decodes mixed files.
 
@@ -308,6 +321,15 @@ A–Z dispatch per the Note Effects reference, with the IT-specific readings:
 Memory cohorts are resolved eagerly: `D`, `K` and `L` share one; `E` and `F` optionally link with `G` per the header's flag bit 5. Volume-column pitch-slide, tone-portamento and vibrato sub-commands move to the main effect slot when it is free and are dropped otherwise.
 
 Global and mixing volume are IT's 0…128, scaled by 255/128 and rounded.
+
+### 5.8 OPL samples
+
+Impulse Tracker never had AdLib instruments, but OpenMPT stores its own OPL instruments in IT-structured files (`.mptm`, and an `.it` it has loaded one into) as an ordinary sample header whose `cvt` byte is `$40`, the "sample data" being the same twelve register bytes as an S3M AdLib instrument ([§3.5](#3-5-adlib-instruments)). Each becomes an OPL instrument and keeps the IT instrument around it — its envelopes, NNA, fadeout and the rest. Everything §3.5 says holds, with these differences:
+
+- **The curve goes everywhere OpenMPT multiplies a volume in**: the default volume, a volume SET, the sample's and the instrument's global volume, and the volume envelope's nodes. Slides, fadeout and the song's own volumes stay linear.
+- **The filter cutoff is the modulator's level.** OpenMPT reads an instrument's cutoff as "modulator intensity for FM instruments": a set, enabled cutoff is folded into the modulator's total level on the same curve and the instrument's own filter is opened. A pitch/filter envelope in filter mode drove the modulator the same way and has nothing to drive here, so it is dropped rather than turned into a filter sweep.
+- **There is no keyboard map**: an instrument whose sample is OPL plays it on every note.
+- **No extra attenuation.** OpenMPT plays an IT-structured file's OPL at its `VSTV` song setting, 48 unless the file says otherwise, where an S3M gets 36; a full-volume OPL sine sits 2.90 dB under a full-scale square sample there and 2.98 dB under it converted. A file that sets its own `VSTV` is not read.
 
 ## 6. Monotone — `.mon`
 
@@ -448,95 +470,45 @@ The shared bank spans the **union** of every song's instruments, so the 8 MiB po
 
 ## 8. AdLib and Iyagi Music Sound — `.ims` + `.bnk`
 
-**Iyagi Music Sound** is the music format of *Iyagi*, the Korean BBS terminal of the early 1990s: an AdLib `.rol` score converted to a MIDI-shaped event stream at 240 ticks per beat, played on a YM3812 (OPL2). Two things make it unlike every other source here. The song **names** its instruments instead of storing them, so a companion `.bnk` bank is not optional — without one nothing sounds. And its instruments are not samples at all but **two-operator FM patches**, which is why this is the one conversion whose output is Metainstrument type 4.
+**Iyagi Music Sound** is the music format of *Iyagi*, the Korean BBS terminal of the early 1990s: an AdLib `.rol` score converted to a MIDI-shaped event stream at 240 ticks per beat, played on a YM3812 (OPL2). Two things make it unlike every other source here. The song **names** its instruments instead of storing them, so a companion `.bnk` bank is not optional — without one nothing sounds. And its instruments are not samples at all but **two-operator FM patches** for a YM3812, so its output has no samples either: every instrument is an **OPL instrument**, Metainstrument type 8, which the engine plays as the chip does.
 
 ### 8.1 The grid comes from the delta times
 
 ROL was a step sequencer, and the converter that turned it into an event stream only rescaled the clock — so the **greatest common divisor of every delta time IS the composer's original tick**, and `240 ÷ gcd` is the rows per beat. Every GCD observed across 1128 reference songs divides 240, so the grid is exact and no event is quantised away. Header byte 50 states the same number outright in the 59 files that set it, and it agrees with the GCD in all of them; it is a cross-check, not a shortcut, because the other 1069 leave it zero.
 
-Speed and BPM are then one equation with a free parameter — a row lasts `speed × 2.5 ÷ BPM` seconds — and the parameter is spent on making the **tick as short as an 800 BPM ceiling allows**. That is not cosmetic: the tick is the resolution of every envelope in the engine, and an OPL percussive attack of two milliseconds smeared over a 20 ms tick is a different instrument. A typical song lands between 700 and 800 BPM, so its tick is about 3.3 ms rather than 20. The ceiling stops short of the register's 1048 on purpose: an operator's release is a Volume Fadeout (§8.2), a step taken once a tick, so the longest tail it can draw is 1024 ticks — 3.2 s at 800 BPM, 2.4 s at 1048 — and a fifth of the patches in the IMS banks have a release slow enough to lose the difference. A tempo change re-solves the same equation and writes `A` and `T` on two lanes of the same row.
+Speed and BPM are then one equation with a free parameter — a row lasts `speed × 2.5 ÷ BPM` seconds — and the parameter is spent on making the **tick as short as an 800 BPM ceiling allows**. The tick is the resolution of every per-tick effect, and the bends of §8.6 are made of them. A typical song lands between 700 and 800 BPM, so its tick is about 3.3 ms rather than 20. (The chip's own envelopes run at its own 49 716 Hz in the engine and do not depend on the tick at all.) A tempo change re-solves the same equation and writes `A` and `T` on two lanes of the same row.
 
-### 8.2 An OPL patch is an FM rack
+### 8.2 An OPL patch is an OPL instrument
 
-Each patch the song names is compiled into a type-4 Metainstrument ([File Format §7.6](TAUD_FILE_FORMAT.md)), whose operators are ordinary instruments holding one cycle of the chip's own phase table — 1024 unsigned bytes, the resolution the chip itself reads at, in each of its four wave shapes. The rest maps field for field:
+Each patch the song names is written as a type-8 Metainstrument ([File Format §7.7](TAUD_FILE_FORMAT.md)): an ordinary instrument record with the patch's registers where its sample would be, which the engine runs as the chip runs them — its log-sine and exponential tables, its envelope generator, key scaling, feedback, the tremolo and vibrato LFOs and the rhythm drums' phase equations, at the chip's own 49 716 Hz ([Engine Spec §5.5.2](TAUD_ENGINE_SPEC.md)). So nothing is compiled; the registers are written down.
 
 | OPL | Taud |
 |---|---|
-| `waveSel` | which of the four single-cycle samples the operator's instrument points at |
-| `totalLevel` (0…63, 0.75 dB a step) | the rack entry's mix octet |
-| `multiple` | the rack entry's detune, as a frequency ratio in 4096-TET units |
-| attack / decay / sustain / release / `eg` | the operator instrument's volume envelope, in real seconds |
-| `ksl` (key level scaling) and `ksr` (key rate scaling) | pitch-BANDED entries — §8.3 |
-| `feedback` | a `$08xx` z⁻¹ tap on the modulator, scaled by a DC operator |
-| `connection` | FM is `$0001 $0400`; additive is a DC gate ring-modulating the sum |
-| `am` (tremolo) | **nothing** — 1.0 dB at 3.7 Hz has no Taud analogue |
-| `vib` | the instrument's auto-vibrato, at the chip's ±7 cents and ~6.08 Hz — §8.2a |
+| a patch's operator and connection registers | the record's OPL block, bit for bit |
+| a rhythm-mode drum | the instrument's kind — §8.4 |
+| channel volume | the volume column, on the driver's decibel curve — §8.5 |
+| key-on and key-off | a note and a key-off |
+| `am`, `vib`, `ksl`, `ksr`, feedback, wave select | the chip's own, run by the engine |
 
-Two of those need saying properly.
+**Every instrument gets NNA = Note Cut**, which on an OPL instrument means what a retrigger means on the chip: the next note keys the **same** channel on again, its envelopes carried on from wherever they had got to rather than started from silence. Any other NNA would leave a ghost of the old note ringing beside the new one, which an OPL channel cannot do — it is monophonic.
 
-**The modulator's mix octet is its modulation index.** On the chip a full-scale operator displaces the next one's phase by 4084 out of a 1024-step cycle — 3.988 whole cycles, or 8π — and a Taud modulator at unity sweeps ±1 cycle, so a modulator's octet carries a fixed ×3.988 (octet 231 at total level 0) that a carrier's does not. Get this wrong by a factor of two and every patch comes out dull, which is exactly what happened: it read 1.994 until 2026-09-18, because the reference player's own FM path had been scaled to match the 4π that Yamaha states for **feedback** — the only modulation figure the manual gives — and the converter inherited the same halving. Both were wrong together, so nothing disagreed. A full-scale modulator is twice the strongest feedback, not equal to it.
+**The release is the chip's.** A key-off switches each operator's envelope to its release rate wherever it had got to, attack and decay included, which is what made a release so hard to carry when the patch had to be compiled into something else. Until 2026-10-14 this conversion built an FM rack out of single-cycle samples for every patch, and with it went a list of approximations — the modulation index, the feedback scale, release as a fadeout, key scaling as pitch bands, auto-vibrato standing in for the chip's LFO. All of them are gone. Against the IMS Archive player over 43 corpus songs the envelope of a conversion now correlates at 0.993 on average; on `000-TEMA` the rack conversion's level was 1.87 dB off and its waveform correlation 0.66, and the OPL instruments' are 0.25 dB and 0.957.
 
-**A constant is a DC operator.** A rack has no word that pushes a literal, so where the conversion needs to scale something by a number — the feedback tap, which the chip shifts down by `8 − feedback` — the algorithm ring-modulates by an operator whose sample is a constant `+1` and whose mix octet *is* the factor.
+Two readings follow the hardware rather than the application manual (Engine Spec §5.5.2): **key scale rate** reads the F-number's top bit unless the note-select switch says otherwise, and **key scale level**'s two gentler settings keep the fraction the chip keeps. The IMS Archive player took the same two readings on 2026-10-14, so the engine and the player now agree to the bit.
 
-**And that factor tracks the modulation index.** The tap reads the modulator's own rack entries, so it arrives already carrying the modulator's mix gain — which is the modulation index. The residual is therefore `2^(feedback − 8)`, which puts feedback 7 at 1.994 cycles: the 4π the manual states. Get the two out of step and every patch with feedback is wrong by the ratio; doubling the index without halving this made them all twice as gritty as the chip, which is audible as FM that is overdone rather than merely bright. Fitted by measurement as well as derived — log-spectral distance to the emulator's rendering of the same 1:1 patch, over 40 harmonics, falls from 12.00 dB to 3.24 dB at feedback 1 and from 10.52 to 5.79 at feedback 3. At feedback 7 the two are within noise (6.81 against 6.84), because there the chip's **two-sample averaging** of the feedback path dominates the difference and the rack has a single `z⁻¹` tap. That residual is structural, and not a reason to fudge the scale. The same trick does additive patches: operator 0's envelope belongs to the whole note, so an additive patch, whose two operators must each keep their own, makes operator 0 a DC **gate** that shapes nothing and holds open long enough for both to finish.
+### 8.3 A drum is twice as loud as the same operator on a melodic channel
 
-**Every operator gets NNA = Note Cut**, and this is the one field where a wrong answer is not a shade of timbre but a song that never stops. An OPL channel is monophonic: keying a note on it replaces whatever it was playing, with no tail at all. Operator 0 is the rack's principal, so its New Note Action is the whole rack's ([Engine Spec §5.5.1](TAUD_ENGINE_SPEC.md#5-5-1-type-4-fm-racks)) — and Note Off, which is what the field's zero encodes, leaves a ghost of the entire rack ringing behind every note the song plays. There is no fadeout to end one either, because on this chip the **envelope** is what ends a note, so a sustaining patch rings until the song does. It is the same answer §5.3 gives for sample-mode instruments, and for the same reason.
-
-**The key-off release is the Volume Fadeout's, not the envelope's.** This is the field that decides whether a converted AdLib song sounds right, and getting it from the envelope is not possible.
-
-On the chip a key-off switches the envelope to its RELEASE RATE **wherever it had got to**. A Taud key-off only lets the sustain LOOP go, so a playhead still in the attack or the decay has to walk the rest of those nodes before it reaches any release node — and a note the chip would have dropped in 20 ms takes a third of a second. Key lift is the format's answer to exactly that, but it is the fifth New Note Action ([File Format §byte 186](TAUD_FILE_FORMAT.md)) and so a choice *against* Note Cut, which the operators need for the monophony above. The two cannot both be had.
-
-The **fadeout** can, because it has no playhead: on key-off it drains from wherever the note had got to, at a fixed rate — structurally the same thing the chip does. So each operator carries a fadeout derived from its own OPL release rate, and the envelope's release nodes become the fallback rather than the mechanism.
-
-The conversion is the one `midi2taud` uses for SoundFont releases, and for the same reason. **The engine's fadeout is linear in AMPLITUDE; the chip's release is linear in dB**, 96 dB of it — which is also the span of a SoundFont release, so the two problems are the same problem. Matching them on time-to-the-floor makes the linear fade sound far longer, because it is still at −6 dB at half its length and −20 dB only at 90%, by which point the chip is silent. A tail is perceived to end around −18…−24 dB, so the linear fade is made to complete in a **quarter** of the chip's release time, which puts the two there together. Then `fadeStep = 2560 ÷ (fade_sec × bpm)`, the fadeout being per tick and ticks being tempo-relative — which is why a bank is compiled against a destination tempo.
-
-Measured against a reference OPL2 (same patch both sides, one isolated note, time to fall 10 dB after a key-off). Released from **full sustain**, where the envelope's own release nodes were already doing a reasonable job:
-
-| Carrier release | Chip | Taud |
-|---|---|---|
-| `R 1` | 1.083 s | 1.270 s |
-| `R 3` | 0.275 s | 0.240 s |
-| `R 7` | 0.040 s | 0.032 s |
-| `R 10` and faster | 8 ms and under | 20 ms |
-
-The case this is really for is a key-off arriving **before** the envelope has reached sustain, which is most of them — over 35 patch shapes released 120 ms in, the tail went from a median of 6.3× the chip's length to **2.0×**, and the worst case from 916× to 10×. That worst case is the honest shape of the old failure: a patch the chip drops in 2 ms took **1.8 seconds**, because the note had to walk out an attack and a decay it had barely started.
-
-The 20 ms floor is deliberate: it is the shortest fade worth writing, and below it one instant release is not distinguishable from another. A release RATE of 0 is not "slow" but "never" (§3-1-5), so such an operator gets **no** fadeout and rings until something retriggers it — the chip's own behaviour, and the one case where a key-off really does nothing.
-
-Two things this does not need, and that is the point of it: no effect column (an earlier version of this converter forced a key lift from the pattern with `S $D041` on every key-off row), and no pattern at all — a `.bnk` instrument played by hand off the keyboard releases exactly as one in a converted song does.
-
-### 8.2a Auto-vibrato is two numbers that must be measured, not derived
-
-An operator's `vib` bit opts into the chip's shared LFO: **6.078 Hz**, and ±7 cents with the depth bit clear, which the AdLib driver never sets. It becomes the instrument's own auto-vibrato, which is what an OPL operator's `vib` really is — per operator, per voice, free-running.
-
-Both numbers reach the engine indirectly, and both are easy to get wrong in a way that is loud:
-
-- **The speed byte is a phase increment, not a rate.** The LFO phase runs over 1024 steps and advances by `speed` once a TICK, so one cycle is `1024 ÷ speed` ticks — which means the musical rate depends on the song's tempo, and a converter has to fit the byte to the BPM it is writing. At a converted song's usual ~510 BPM that is `speed = 30`.
-- **The depth byte is 0…255 for ±1 semitone**, applied as `lfo × depth × 43 >> 12` against a ±127 LFO. ±7 cents is therefore `depth = 18`, not some fraction of 127.
-
-Deriving either from the field name instead of the engine's arithmetic rendered the chip's fast, narrow shimmer as a **0.80 Hz, ±76 cent wobble** — eight times too slow and eleven times too deep. It sounds exactly like what it is: a pitch bend that cannot keep up. 32 of the 134 operators in one reference `.sop` set the bit, so it is not a corner case, and it is pinned by a test rather than left to a comment.
-
-**Neither ramp may be set.** FT2's vibrato *sweep* (byte 176) and IT's vibrato *rate* (byte 188) both swell the depth in over the first ticks of a note. The chip's LFO is free-running and every note joins it at full depth, so both bytes stay zero — a sweep would make every vibrato'd note bloom instead of shimmer.
-
-### 8.3 Key scaling becomes key bands
-
-`ksl` attenuates an operator for playing high and `ksr` speeds its envelope up; neither has an expression in a mix octet or a list of times in seconds. What a rack *can* do is gate an entry by pitch — so an operator becomes several entries over disjoint key bands, each pointing at its own instrument carrying that band's envelope and level. Only one of them is ever inside a trigger's rectangle, so the rack still sounds one voice per operator and the cost is instrument slots rather than voices. The bands are fitted to the notes the song actually plays the patch at, which is why most patches need only one or two.
-
-### 8.3a A drum is twice as loud as the same operator on a melodic channel
-
-In rhythm mode the chip sums channels 6, 7 and 8 into its accumulator **twice over**, so the five drums sit 6 dB above where their operators would sit on a melodic voice. A Taud instrument has no such quirk, so the factor goes on the drum itself — on whichever of its operators reaches the mix, and never on a modulator, whose octet is a phase deviation rather than a level. `RHYTHM_MIX` is the one constant.
-
-Leaving it out is audible and was: a rhythm-mode song came out mild, 3 dB down on the mix and 4 dB down on its peaks, with the drums sitting behind the melodic parts instead of driving them. It is worth knowing that this one claim is **second-hand** — every emulator that implements it reports it as verified against a real YM3812, but the application manual documents the drums only as tonal advice and says nothing about the mix, so it has no first-party table behind it the way the envelope clock does.
+In rhythm mode the chip sums channels 6, 7 and 8 into its accumulator **twice over**, so the five drums sit 6 dB above where their operators would sit on a melodic channel. The engine does that itself for an OPL instrument whose kind is a drum, so a converter writes nothing for it — and must not compensate for it either. It is worth knowing that this one claim is **second-hand**: every emulator that implements it reports it as verified against a real YM3812, but the application manual documents the drums only as tonal advice and says nothing about the mix.
 
 ### 8.4 Rhythm mode
 
-`soundMode == 1` puts five drums on channels 6…10, and three of them are not oscillators at all: the chip throws away the hi-hat's, snare's and top cymbal's phase accumulators' low bits and builds a phase out of single bits of two of them XORed against its noise LFSR. There is no rack that does that, so those three are **rendered to a looped waveform** at unit envelope and the OPL envelope is carried by the instrument record exactly as it would have been by a rack operator. The bass drum is an ordinary two-operator voice and the tom an ordinary oscillator; both stay racks and keep their pitch.
+`soundMode == 1` puts five drums on channels 6…10, and each becomes an OPL instrument of its own kind: the **bass drum** a two-operator channel, the **tom** one plain operator, and the **snare**, **cymbal** and **hi-hat** one operator each whose phase is built, as the chip builds it, out of single bits of two phase accumulators XORed against its noise generator. The second accumulator belongs to a **partner**: the hi-hat's operator for the snare and the cymbal, the cymbal's for the hi-hat. The partner is another channel of the chip, so the instrument records what the drum needs of it: its multiplier, taken from the patch the partner's own drum plays, and its channel's pitch against the drum's own.
 
-The three rendered drums are baked at the driver's starting tom pitch, because channel 7 and 8's F-numbers — which is what their timbre is built from — follow the tom. A song that plays tom notes shifts them on the chip and does not here.
+The pitches follow the driver. It tunes channel 8 — tom and cymbal — to the tom's note and channel 7 — hi-hat and snare — seven semitones above it, so the converter walks the song in event order and writes each drum's note from the tom note in force when it was struck: the cymbal at the tom's pitch, the snare and hi-hat seven semitones up, and every partner seven semitones away, up or down. What it does not follow is a drum already sounding when a later tom note moves its channel: on the chip that drum is retuned under its own feet, and here it keeps the pitch it was struck at.
 
 ### 8.5 Volume is logarithmic
 
-`An vv`, and the velocity byte of a note-on, both set **channel** volume 0…127 — and AdLib's volume is not a linear gain. The driver scales the operator's 6-bit *amplitude*, which is a 0.75 dB-per-step logarithmic quantity, so volume 64 is 23 dB down and not 6. Converting it as if it were linear makes every fade in the format arrive far too late and far too suddenly. The exact curve depends on the operator's own total level, so the converter tracks which patch is on the lane and writes the resulting gain into the **volume column** — leaving the effect column free for the pitch bends, which need it far more.
+`An vv`, and the velocity byte of a note-on, both set **channel** volume 0…127 — and AdLib's volume is not a linear gain. The driver scales the operator's 6-bit *amplitude*, which is a 0.75 dB-per-step logarithmic quantity, so volume 64 is 23 dB down and not 6. Converting it as if it were linear makes every fade in the format arrive far too late and far too suddenly. The exact curve depends on the operator's own total level, so the converter tracks which patch is on the lane and writes the resulting gain into the **volume column** — leaving the effect column free for the pitch bends, which need it far more. The engine applies an OPL instrument's volume as attenuation on the operators that reach the output, which is what the driver did, so what reaches the chip is the level the driver wrote, to the nearest of the column's 64 steps.
 
 ### 8.6 Bends are the loss
 
@@ -544,12 +516,11 @@ IMS uses 2.6 million pitch-bend events across the reference corpus. They are not
 
 ### 8.7 Everything else
 
-- **Tuning is A4 at 440 Hz and the notation index is 12-TET**, which the engine reads as an exact identity — nothing is scaled at playback. The chip's own middle C is 261.719 Hz, six tenths of a cent above concert, and declaring *that* instead would make a converted note sound exactly where an AdLib card put it; the trade was made the other way, because 0.6 cents is inaudible and a song fractionally out of tune with everything it might be remixed alongside is not. Every note moves by the same amount, so nothing within the song shifts relative to anything else.
+- **Tuning is A4 at 440 Hz and the notation index is 12-TET**, which the engine reads as an exact identity — nothing is scaled at playback. The chip's own middle C is 261.719 Hz, six tenths of a cent above concert, but that is inside the F-number's rounding: the engine re-derives the F-number from the sounding frequency, and a concert-pitch note lands on the one the AdLib driver wrote.
 - **A cue is a whole number of bars.** A pattern holds 64 rows and 64 is not a multiple of every bar this format produces — 12 rows a beat in 4/4 is 48, which would leave every cue straddling a bar line. A cue therefore plays the largest power-of-two count of bars that fits in a pattern, said with the `LEN` instruction (and `halt at x` on the last cue, which is one instruction rather than two sharing a cue's two words). Only a bar longer than a pattern falls back to the full 64.
-- **Interpolation is off**: an OPL operator reads its phase table with no filtering at all, and its aliasing is part of the sound.
-- **Mixing volume is 90**, which puts one converted voice at exactly the 0.249 of full scale a single full operator reached on the chip's 16-bit DAC. Matching the headroom is what keeps a song's dynamics where they were. A drum reaches twice that (§8.3a), and carries the factor on its own instrument rather than in this number.
+- **Mixing volume is 90**, which puts one converted voice at exactly the 0.249 of full scale a single full operator reached on the chip's 16-bit DAC. Matching the headroom is what keeps a song's dynamics where they were. A drum reaches twice that (§8.3).
 - **Titles are 2-byte Johab Korean** and are decoded and written as the project name, through the `\uHHHH` escape convention names ride. The title is the only attribution these files carry and it usually holds the artist as well, so it is kept whole.
-- **Patch changes mid-note** are applied at the next trigger, not immediately as the chip does.
+- **A patch change while a note sounds takes effect at once**, as on the chip, where the driver rewrites the keyed channel's registers and the release then runs at the new patch's rates. The converter writes an instrument byte with no note over the ringing note, which swaps the patch into the sounding channel, and restates the volume, whose curve depends on the new patch.
 - **An unresolved patch name is a silent slot with the name preserved**, never a failed conversion. Resolution is most-specific-first and case-INSENSITIVE: exact matching resolves 29 % of the corpus's references and case-folded matching 99.95 %.
 
 ## 9. The Korean OPL3 tracker — `.sop`
@@ -566,7 +537,7 @@ Three things make it easier to convert than its `.ims` sibling:
 
 and one thing makes it harder: it is a **YMF262** format. Twenty tracks, stereo panning, eight wave shapes, and instruments that may be four operators rather than two. Taud has room for all of it, so — unlike playing the same file on an OPL2, where 298 of the 336 reference files ask for more melodic voices than the chip has — nothing here is a reduction.
 
-Everything in §8.2 (an OPL patch is an FM rack), §8.3 (key scaling becomes key bands), §8.4 (the rendered rhythm drums) and §8.5 (volume is logarithmic) applies unchanged: the two formats feed the same instrument compiler. What follows is only what differs.
+Everything in §8.2 (an OPL patch is an OPL instrument), §8.3 and §8.4 (the rhythm drums) and §8.5 (volume is logarithmic) applies unchanged: the two formats share one instrument writer. One flag differs: Note keeps every F-number between 343 and 685, an octave block lower than the AdLib driver picks for the same note, and key scale rate and level read the block — so every SOP instrument sets the OPL instrument's **low F-number range** switch, and is as bright and as quick as Note made it. What follows is the rest of what differs.
 
 ### 9.1 One file tick is one row, and one track is one lane
 
@@ -578,38 +549,38 @@ Speed and BPM are solved as in §8.1, against the same 800 BPM ceiling and for t
 
 ### 9.2 A four-operator instrument stays four operators
 
-A type-0 instrument is two operator pairs, and on a YMF262 two channels are joined to play all four as one voice. The two halves each keep their own `CNT` bit, and reading `CNT` as *"this half's first operator goes straight to the output instead of modulating"* gives the chip's four published connections at once:
+A type-0 instrument is two operator pairs, and on a YMF262 two channels are joined to play all four as one voice. It becomes a four-operator OPL instrument. The two halves each keep their own `CNT` bit, as the instrument's two channels' connections, and reading `CNT` as *"this half's first operator goes straight to the output instead of modulating"* gives the chip's four published connections at once:
 
 ```
   0,0   1 → 2 → 3 → 4          0,1   1 → 2 → 3, and 4
   1,0   1, and 2 → 3 → 4       1,1   1, and 2 → 3, and 4
 ```
 
-Each becomes the rack's RPN algorithm directly — a chain is a modulator's value left on the stack and read by the next operator, and the chains are summed. Feedback belongs to operator 1 alone, because operator 3 is fed by the chain rather than by itself; the slave half's feedback byte has nowhere to act and the chip ignores it too.
+Feedback belongs to operator 1 alone, because operator 3 is fed by the chain rather than by itself; the slave half's feedback has nowhere to act and the chip ignores it too.
 
-Two consequences worth knowing. **A wide rack always carries a DC gate**, where a two-operator one only needs it when it is additive: with two to four operators reaching the output there is no single one whose envelope is the whole note's. And **key banding is capped at three bands** rather than four, because four operators at four bands would want eighteen of the sixteen entries a rack holds; the cap is applied before anything is allocated, by sizing the operator table and the algorithm against the record's 252 bytes.
-
-61 of the 336 reference files carry four-operator instruments. **Only a mode-1 track plays one as four operators**, because Note joins a pair when the channel-mode table says so and never because of the instrument: a type-0 instrument on any other track plays its first pair alone, as it does in Note (30 tracks in 7 files). The reverse — a two-operator instrument on a mode-1 track — leaves the pair joined in Note, with operators 3 and 4 still holding the previous instrument; a rack cannot carry that over, so it plays as two operators. That is 1163 notes, 1140 of them in `4OPDANCE.SOP`.
+61 of the 336 reference files carry four-operator instruments. **Only a mode-1 track plays one as four operators**, because Note joins a pair when the channel-mode table says so and never because of the instrument: a type-0 instrument on any other track plays its first pair alone, as it does in Note (30 tracks in 7 files). The reverse — a two-operator instrument on a mode-1 track — leaves the pair joined in Note, with operators 3 and 4 still holding the previous instrument; an instrument cannot carry another's operators over, so it plays as two operators. That is 1163 notes, 1140 of them in `4OPDANCE.SOP`.
 
 ### 9.3 Panning moves the lane
 
-A SOP sets panning per track and it survives every note after it, which is the per-**lane** axis — so it is written as `S $80xx` and not into the panning column, whose SET is the per-note one. The format's three values are 0 = right, 1 = middle, 2 = left, and the chip's stereo switches really are hard, so `$FF`, `$80` and `$00` are the honest reading of them.
+A SOP sets panning per track and it survives every note after it, which is the per-**lane** axis — so it is written as `S $80xx` and not into the panning column, whose SET is the per-note one. The format's three values are 0 = right, 1 = middle, 2 = left, and the chip's stereo switches really are hard, so `$FF`, `$80` and `$00` are the honest reading of them.
 
-Any other value Note writes into the chip's 0xC0 register as it stands, which clears both stereo switches and silences the channel until the next valid pan. Five events in the corpus do it; in `V_1.SOP` it is the whole of track 19. The converter silences the lane through the **volume column** — every volume it writes is 0 until a valid pan comes — so the effect column is not spent on it. What such a value also does to the channel's feedback bits, until its next instrument, a rack cannot follow.
+They are not equal in power, though. A centred channel is at full level on **both** outputs and a hard-panned one on one, so the centre carries twice the power; Taud's pan law spends equal energy at every position. A hard-panned lane therefore gives the 3 dB back through its volume column.
 
-A pitch slide takes the effect column ahead of panning on a row that wants both, because a late pitch is heard and a late pan barely is. Whichever loses is retried on the next row — an empty one, if need be — since the converter re-derives both from the state it has actually written.
+Any other value Note writes into the chip's 0xC0 register as it stands, which clears both stereo switches and silences the channel until the next valid pan. Five events in the corpus do it; in `V_1.SOP` it is the whole of track 19. The converter silences the lane through the **volume column** — every volume it writes is 0 until a valid pan comes — so the effect column is not spent on it. What such a value also does to the channel's feedback bits, until its next instrument, the OPL instrument does not follow.
+
+A pitch slide takes the effect column ahead of panning on a row that wants both, because a late pitch is heard and a late pan barely is. Whichever loses is retried on the next row — an empty one, if need be — since the converter re-derives both from the state it has actually written. A tempo change outranks a pan in the same way: it needs some lane's effect column on its row, and on a row where every lane is panning — the opening row of most files — the pan moves to that lane's next free row rather than the tempo being lost.
 
 ### 9.4 Pitch, length, tempo and global volume
 
 **Pitch** is an unsigned byte about a centre of 100, one semitone either way, and it is followed with fine pitch slides exactly as §8.6 describes. The pitches themselves are Note's, not the AdLib driver's: Note shifts the value right by two and reads a table of 25 rows a semitone, so a bend moves in 1/25 of a semitone, and its semitones are a shade wider than equal temperament. That table is the Ad Lib driver's integer recipe run at 25 steps, and it reproduces every entry of the one inside `NOTE.EXE`; middle C is anchored at concert C4 as in §8.7, and every other note keeps its distance from it on Note's table. Notes above SOP pitch 107 sound as 107, as they do in Note. In rhythm mode only the bass drum follows pitch events.
 
-**A note's length is its own**, so a key-off is written where the length runs out. **A note that starts while the track's previous one still sounds is a slur**: Note moves the pitch and does not strike again, and the manual draws it as a feature. It is written as a fine slide on the sounding note, which lands on tick 0 as Note's does — or, for a leap of an octave or more, as the note with `G $FFFF`, which reaches it on the next tick without re-triggering. An overlapping drum hit makes no sound at all. A note that starts exactly where the last one ends is struck. 133 575 note pairs in 284 of 347 files overlap. The release itself is still the instrument's Volume Fadeout (§8.2), not anything in the pattern.
+**A note's length is its own**, so a key-off is written where the length runs out. **A note that starts while the track's previous one still sounds is a slur**: Note moves the pitch and does not strike again, and the manual draws it as a feature. It is written as a fine slide on the sounding note, which lands on tick 0 as Note's does — or, for a leap of an octave or more, as the note with `G $FFFF`, which reaches it on the next tick without re-triggering. An overlapping drum hit makes no sound at all. A note that starts exactly where the last one ends is struck. 133 575 note pairs in 284 of 347 files overlap. The release itself is still the instrument's Volume Fadeout (§8.2), not anything in the pattern.
 
-**The control track is a disjoint code space** carrying tempo and global volume, and both are playhead-scope, so they go on whichever lane has its effect column free that row. Tempo is a BPM outright, not the multiplier an `.ims` tempo event is. Global volume is 0…127 scaled onto Taud's 0…$FF (`V $xx00`); it is how a SOP fades a whole song at once.
+**The control track is a disjoint code space** carrying tempo and global volume. Tempo is playhead-scope, so it goes on whichever lane has its effect column free that row; it is a BPM outright, not the multiplier an `.ims` tempo event is. **Global volume** is how a SOP fades a whole song at once, and Note applies it the way it applies a track's volume: it scales every channel's 0…127 volume, which the driver then turns into total level. So it is no linear gain either, and it is not written as one — each lane's volume column carries `volume × global ÷ 127` on the curve of §8.5, and the header's global volume stays at full.
 
 The two code spaces are disjoint in the format but not in Note's reader, which reads every code 1…8 on every track. One file outside the corpus, `MUSIC1.SOP`, has a tempo of 161 on track 0 under the control track's 157 — a reader that keeps the spaces apart refuses the whole file, and HTS plays nothing. The converter reads it as Note does and plays it as Note's player does (SOP_FORMAT §4.3): a tempo on a sequenced track is ignored, so `MUSIC1.SOP` plays at 157, and a global volume there is honoured like the control track's, the one at tick 0 joining the song header. A code outside 1…8 is still refused, because Note would read no value for it and the walk would lose its alignment.
 
-Whichever of the two is already in force at tick 0 goes into the **song header** rather than into a cell — 325 of the 336 files set one or both at tick 0. Writing them as cells as well would only fight the twenty panning commands the tracks themselves put on row 0. `basicTempo` is not the tempo: Note writes 120 into it and never reads it, and a song with no tempo at tick 0 starts at 120.
+A tempo already in force at tick 0 goes into the **song header** rather than into a cell — 325 of the 336 files set a tempo or a global volume at tick 0. Writing it as a cell as well would only fight the twenty panning commands the tracks themselves put on row 0. `basicTempo` is not the tempo: Note writes 120 into it and never reads it, and a song with no tempo at tick 0 starts at 120.
 
 Every tempo is the one **Note's timer** actually ran: 4 × bpm interrupts a second, one tick every 240 ÷ `tickBeat` of them, with the divisor rounded down — so 120 is 120.04 — and a rate under 19 Hz left at the timer's 18.2 Hz default, so tempos 2…4 play at about 4.55 (`4OPDANCE.SOP` asks for them).
 
@@ -620,10 +591,10 @@ Every tempo is the one **Note's timer** actually ran: 4 × bpm interrupts a seco
 - **A bad instrument index changes nothing, never a failure.** 324 selections across 7 files name an instrument past the end of the table — one asks for index 119 out of 20 — and rather more land on a credits line. In Note either one loads nothing, so the instrument already on the track keeps playing, and that is what the converter does.
 - **A track that never selects an instrument gets slot 0**, Note's default. `ST-BGM.SOP` needs it: 4878 notes and not a single instrument-select event. Slot 0 holds an instrument in every file that relies on it; where it did not, the first instrument that yields a patch would stand in.
 - **A track starts at volume 96**, Note's default, not the driver's 127 — 12 dB down. 254 tracks in 46 files play notes before their first volume event.
-- **The hi-hat's and tom's feedback nibble is kept.** Note writes byte 5's low four bits to those two drums' channels (they are the modulator slots), and ignores it on the snare and cymbal. The rendered hi-hat and the single-operator tom rack do not model feedback yet, so for now it is carried but not heard.
-- **Wave selects run 0…7**, not 0…3. The YMF262's four extra shapes add no table — they are the same quarter sine read differently — and all eight are built, on demand, so an OPL2 conversion still carries only the four it uses.
-- **Mixing volume is 54, not §8.7's 90.** That number puts one converted voice at exactly the level one chip voice had, which is right for an `.ims`'s eleven — a SOP has twenty, each exactly as loud, and at 90 a conversion runs a median 7.1 dB hot and clips. The player solved the same problem by measurement and backs a YMF262 off to 0.42 of full scale against a YM3812's 0.7; carrying that ratio across gives 90 × 0.42 ÷ 0.7. Measured over twenty seconds each of twelve reference files against the library's own YMF262 rendering: at 90, seven of the twelve clip and the worst loses 1.45 % of its samples to the clamp; at 54 the worst is 0.005 %. About 3 dB of level difference remains and is deliberately not chased — it is not one number across the corpus (−0.3 dB to +6.1 dB), and the two renderings differ in ways that account for it.
-- **Tuning, interpolation and the whole-bars cue** are §8.7's, unchanged.
+- **The hi-hat's and tom's feedback nibble is kept, and not heard.** Note writes byte 5's low four bits to those two drums' channels (they are the modulator slots), and ignores it on the snare and cymbal. In rhythm mode the chip itself gives the operators of channels 7 and 8 no modulation input at all, feedback included, so it does nothing on the hardware either.
+- **Wave selects run 0…7**, not 0…3: the YMF262's four extra shapes, which the engine plays — they are the same quarter sine read differently.
+- **Mixing volume is 54, not §8.7's 90.** That number puts one converted voice at exactly the level one chip voice had, which is right for an `.ims`'s eleven — a SOP has twenty, each exactly as loud, and at 90 a conversion runs a median 7.1 dB hot and clips. The player solved the same problem by measurement and backs a YMF262 off to 0.42 of full scale against a YM3812's 0.7; carrying that ratio across gives 90 × 0.42 ÷ 0.7. Measured over twenty seconds each of twelve reference files against the library's own YMF262 rendering: at 90, seven of the twelve clip and the worst loses 1.45 % of its samples to the clamp; at 54 the worst is 0.005 %. Since the instruments became OPL instruments the conversion follows the library's rendering closely enough to say so in one number: 54 is the library at a gain of 0.6, within a few tenths of a decibel, over fourteen corpus files.
+- **Tuning and the whole-bars cue** are §8.7's, unchanged.
 - **The "special event"** (§4.2 code 1) is passed over. It is a sync marker the manual says is for driving other programs from the music, and Note's own player ignores it. Seven occurrences in the whole corpus.
 
 ### 9.6 Version 0.2 — four tracks of recorded samples
@@ -632,12 +603,12 @@ Four `.sop` files say version **0.2**: the music of the game *개미맨*, kept i
 
 The game's player is the reference for these four files, as Note's is for the rest, and the converter follows it the way the library does (SOP_FORMAT §10.6, §10.7):
 
-- **A WAV track is a lane, and a sample an ordinary instrument**: one-shot, no envelope, New Note Action cut, sharing the pool and the slot numbering with the FM racks. The signed bytes become Taud's unsigned ones by the same XOR the game applies for its Sound Blaster.
+- **A WAV track is a lane, and a sample an ordinary instrument**: one-shot, no envelope, New Note Action cut, sharing the slot numbering with the OPL instruments. The signed bytes become Taud's unsigned ones by the same XOR the game applies for its Sound Blaster.
 - **Note 24 plays the recording as it was made.** The instrument stores the file's rate and is detuned up three octaves, so note 24 — C1 on the grid — sounds at the recorded rate and every note keeps its own name. Pitch is equal temperament, as the library plays it; the game reads a hand-rounded period table within a fraction of a percent of it. Pitch events bend in twelfths of a semitone and stop at a semitone either way.
 - **A note's length is how long its sample plays**: where the note ends the lane gets a note cut, not a key-off, because the game's note-off stops the voice and a sample has no release to play. A note that starts while the last one sounds slurs, as on the FM tracks.
 - **Selecting a slot that holds no sample silences the track** until a sample is selected again — the opposite of an FM track, where a bad selection changes nothing. Every known WAV track selects FM slot 0 at tick 0.
-- **Volume is linear**: `(v >> 1) + 1` of 64, onto Taud's 0…63, so 0 is quiet rather than silent. A full-scale sample is as loud as one full-level operator, which is the library's choice; on `op.sop` the converted samples alone come within 0.4 dB (RMS) of the library's rendering of the same, and every hit lands within 10 ms of it. §9.5's FM residual is left where it is: on `op.sop` the FM runs 6.4 dB hot, so there the samples sit that much lower against it than the library plays them.
-- **Panning is about 64.** On an FM track the game turns it into Note's three switches — below 64 is right, 64 the middle, above 64 left — and read the version-0.1 way every one of those 64s is an invalid value that silences its lane, which is how these files came out before the converter knew the version. On a WAV track it is a gradual balance, the other way round, and goes to `S $80xx` doubled.
+- **Volume is linear**: `(v >> 1) + 1` of 64, onto Taud's 0…63, so 0 is quiet rather than silent. A full-scale sample is as loud as one full-level operator, which is the library's choice; on `op.sop` the converted samples alone come within 0.4 dB (RMS) of the library's rendering of the same, and every hit lands within 10 ms of it. The balance between the two is left where it is: on `op.sop` the FM runs 5.8 dB hot against the samples, so there they sit that much lower against it than the library plays them.
+- **Panning is about 64.** On an FM track the game turns it into Note's three switches — below 64 is right, 64 the middle, above 64 left — and read the version-0.1 way every one of those 64s is an invalid value that silences its lane, which is how these files came out before the converter knew the version. On a WAV track it is a gradual balance, the other way round, and goes to `S $80xx` doubled.
 - **Tempo is the game's clock**, not Note's: it counts the timer to the tick, so a tempo plays as written on average — 110 is 110.001 — and never faster than the game's 35 Hz interrupt.
 
 ## 10. Verifying a conversion

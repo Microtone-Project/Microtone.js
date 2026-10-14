@@ -50,14 +50,23 @@
         check("with no project, the editor offers the example", text() === MOTIF_EXAMPLE && view.origin === "draft");
 
         // ── a program with a mistake: the error points at its line ──
-        const bad = "tml 1\nsong { bars: 2, tuning: \"12-TET\" }\ninstrument P { bank: 0, program: 0 }\nlane a { inst: P }\nhit(a, 0, 'C4', 40)\nhit(a, 0, 'D4', 40)\n";
+        // (TML 2, its song declared last; then the same mistake in TML 1)
+        const bad = "tml 2\nhit(a, 0, 'C4', 40)\nlane a { inst: P }\ninstrument P { bank: 0, program: 0 }\nsong { bars: 2, tuning: \"12-TET\" }\nhit(a, 0, 'D4', 40)\n";
         await loadBytes("bad.tml", new TextEncoder().encode(bad));
         const err = await waitFor(() => view.msgs.querySelector(".motif-err"), 30000);
         check(`a .tml opens in the view: "${view.fileName}"`, text() === bad && view.fileName === "bad.tml" && store.doc === null);
         check(`its clash is reported at 6:1 ("${err.textContent}")`, /^6:1 /.test(err.textContent) && /two different notes/.test(err.textContent));
         check("…and the gutter marks line 6", view.gutter.querySelector(".motif-err-line")?.textContent === "6");
+        view.setText("tml 1\nsong { bars: 2, tuning: \"12-TET\" }\ninstrument P { bank: 0, program: 0 }\nlane a { inst: P }\nhit(a, 0, 'C4', 40)\nhit(a, 0, 'D4', 40)\n", "draft");
+        await view.runBuild();
+        const err1 = await waitFor(() => view.msgs.querySelector(".motif-err"), 30000);
+        check(`a TML 1 program's clash too, at 6:1 ("${err1.textContent}")`, /^6:1 /.test(err1.textContent));
+        view.setText("tml 2\nlet x = 1\nx += 1\n", "draft");
+        await view.runBuild();
+        const err2 = await waitFor(() => view.msgs.querySelector(".motif-err"), 30000);
+        check(`TML 2 says what to write instead of x += 1 ("${err2.textContent.slice(0, 60)}…")`, /^3:3 /.test(err2.textContent) && /never changes a name/.test(err2.textContent));
 
-        // ── an endless loop can be cancelled ──
+        // ── an endless loop can be cancelled (TML 1: TML 2 has no while) ──
         view.setText("tml 1\nlet i = 0\nwhile true { i += 1 }\n", "draft");
         const running = view.runBuild();
         await waitFor(() => view.buildBtn.textContent === "Cancel", 5000);
@@ -88,16 +97,16 @@
         const touch = await fetchBytes("../../assets/MicrotoneTouch.tsii");
         let asked = null;
         view.resolvePack = async (name) => { asked = name; return touch; };
-        view.setText(`tml 1
-song { title: "Racks", bars: 1, bar_rows: 16, tuning: "12-TET", global_volume: 255 }
+        view.setText(`tml 2
+hit(a, 0, 'C4', 60)
+hit(b, 4, 'G4', 50)
+lane a { inst: BELL }
+lane b { inst: STACK }
 instrument SINE  { wave: "sine", envelope: [[0, 63], [1, 20]] }
 instrument PLUCK { pack: "MicrotoneTouch.tsii", slot: "Pluck" }
 instrument STACK { layers: [{ inst: SINE }, { inst: PLUCK, gain: -6 }] }
 instrument BELL  { fm: { operators: [{ inst: SINE }, { inst: SINE, ratio: 3.5 }], algorithm: "0[1]" } }
-lane a { inst: BELL }
-lane b { inst: STACK }
-hit(a, 0, 'C4', 60)
-hit(b, 4, 'G4', 50)
+song { title: "Racks", bars: 1, bar_rows: 16, tuning: "12-TET", global_volume: 255 }
 `, "draft");
         await view.runBuild();
         await waitFor(() => store.fileName === "Racks.taud", 120000);
@@ -105,6 +114,58 @@ hit(b, 4, 'G4', 50)
         check(`a pack ("${asked}"), a wave, layers and an FM rack in one project: ${insts.length} instruments`,
           asked === "MicrotoneTouch.tsii" && insts.some((i) => i.isFm) && insts.some((i) => i.isMeta && !i.isFm) &&
           insts.length === 4);
+
+        // ── the same tune in both versions builds the same song ──
+        const tune1 = `tml 1
+song { title: "Twice", bars: 2, bar_rows: 8, tuning: "12-TET" }
+instrument P { bank: 0, program: 0 }
+lane a { inst: P }
+let notes_ = notes("C4 E4 G4 C5")
+for i, n in notes_ { hit(a, i * 2, n, 40) }
+melody(a, 8, "G4:4v E4:4")
+`;
+        const tune2 = `tml 2
+melody(a, 8, "G4:4v E4:4")
+for i, n in NOTES { hit(a, i * 2, n, 40) }
+let NOTES = notes("C4 E4 G4 C5")
+lane a { inst: P }
+instrument P { bank: 0, program: 0 }
+song { title: "Twice", bars: 2, bar_rows: 8, tuning: "12-TET" }
+`;
+        const lanesOf = () => JSON.stringify(Array.from(store.doc.songs[0].patterns, (p) => Array.from(p)));
+        store.doc.dirty = false;
+        view.setText(tune1, "draft");
+        await view.runBuild();
+        await waitFor(() => store.fileName === "Twice.taud" && view.job === null, 120000);
+        const built1 = lanesOf();
+        store.doc.dirty = false;
+        view.setText(tune2, "draft");
+        await view.runBuild();
+        await waitFor(() => view.job === null && view.text.value === tune2 && view.origin === "doc", 120000);
+        check("a TML 1 tune and the same tune in TML 2, written backwards, build the same patterns", lanesOf() === built1 && built1.length > 10);
+
+        // ── backwards and slower: the same song as the notes written out ──
+        const head = 'tml 2\nsong { title: "Turned", bars: 4, bar_rows: 8, tuning: "12-TET" }\ninstrument P { bank: 0, program: 0 }\nlane a { inst: P }\n';
+        const turned = head + 'let motif = melody(a, 0, "C4:2 E4:2 G4:4", vol: 40)\nseq(motif, reverse(motif), stretch(motif, 2))\n';
+        const written = head + 'melody(a, 0, "C4:2 E4:2 G4:4 G4:4 E4:2 C4:2 C4:4 E4:4 G4:8", vol: 40)\n';
+        store.doc.dirty = false;
+        view.setText(written, "draft");
+        await view.runBuild();
+        await waitFor(() => store.fileName === "Turned.taud" && view.job === null && view.origin === "doc", 120000);
+        const writtenOut = lanesOf();
+        store.doc.dirty = false;
+        view.setText(turned, "draft");
+        await view.runBuild();
+        await waitFor(() => view.job === null && view.text.value === turned && view.origin === "doc", 120000);
+        check("seq(motif, reverse(motif), stretch(motif, 2)) builds the notes written out", lanesOf() === writtenOut);
+        await view.previewCall(view.current().callAt(turned.indexOf("reverse(") + 2));
+        await waitFor(() => store.audio?.isPlaying(), 10000);
+        const revRows = [...win.document.querySelectorAll(".motif-preview-table tr")].slice(1)
+          .map((tr) => tr.children[2].textContent.trim()).filter((n) => /^[A-G]/.test(n));
+        check(`Preview of reverse(motif) plays it backwards: ${revRows.join(" ")}`, revRows.join(" ") === "G4 E4 C4");
+        view.stopPreview();
+        // back to the Structure tab, as a click on it does
+        [...win.document.querySelectorAll(".motif-dock-tab")].find((t) => t.textContent === "Structure")?.click();
 
         // ── a project built by Motif carries its program ──
         store.doc.dirty = false; // skip the discard confirm

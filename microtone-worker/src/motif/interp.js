@@ -3,10 +3,17 @@
 // cannot reach the page, the network, the file system or the clock, and it
 // runs on a budget of steps and a bounded call depth, so the worst a hostile
 // file can do is fail to build. (The values it computes with are values.js.)
+//
+// A TML 1 program runs top to bottom, and its music builtins write into the
+// song as it goes. A TML 2 program is read declaratively: every name a block
+// defines (a let, a fn, a lane, an instrument) can be used anywhere in that
+// block — a let is computed the first time it is needed — and the block's
+// music is every phrase its statements make, put together (hooks.music()), so
+// the order the statements are written in changes nothing.
 
 import { MotifError } from "./lexer.js";
 import {
-  DEFAULT_STEPS, DEFAULT_DEPTH, Rec, Range, Closure, Builtin, Handle, typeName, truthy, equal, show,
+  DEFAULT_STEPS, DEFAULT_DEPTH, Rec, Range, Closure, Builtin, Handle, Phrase, Thunk, typeName, truthy, equal, show,
   fail, asNumber, asInt, asString, asRecord, toList, checkSize, entriesOf,
 } from "./values.js";
 
@@ -23,15 +30,18 @@ export class Scope {
 const BREAK = { sig: "break" };
 const CONTINUE = { sig: "continue" };
 
+const an = (word) => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`);
+
 // ── the interpreter ──
 
 export class Interp {
   /**
    * @param builtins  Map name → value: everything a program can see besides
    *                  its own definitions
-   * @param hooks     {declare(node, value, scope, interp)} for song / instrument
-   *                  / lane / master / section declarations, and
-   *                  {pitch(text, pos)} for 'D5' literals
+   * @param hooks     {declare(node, scope, interp, index)} for song / instrument
+   *                  / lane / master / section declarations,
+   *                  {pitch(text, pos)} for 'D5' literals, and (TML 2)
+   *                  {music()} → an accumulator of phrases (phrase.js Music)
    */
   constructor({ builtins, hooks = {}, steps = DEFAULT_STEPS, depth = DEFAULT_DEPTH } = {}) {
     this.root = new Scope(null, true);
@@ -42,6 +52,13 @@ export class Interp {
     this.stepLimit = steps;
     this.maxDepth = depth;
     this.stack = []; // [{name, pos}] of the TML calls in progress
+    this.v2 = false;
+    /** TML 2: the offset of the call a preview captures, and how many
+     *  evaluations of it are in progress. */
+    this.captureAt = null;
+    this.capturing = 0;
+    /** TML 2: the music the program made (its song, before resolve()). */
+    this.result = null;
   }
 
   tick(pos) {
@@ -51,8 +68,15 @@ export class Interp {
   }
 
   run(program) {
+    this.v2 = program.version >= 2;
     try {
-      this.execBody(program.body, this.global);
+      if (this.v2) {
+        const music = this.hooks.music();
+        this.execBlock2(program.body, this.global, music, true);
+        this.result = music.phrase();
+      } else {
+        this.execBody(program.body, this.global);
+      }
     } catch (err) {
       throw this.wrap(err, program.pos);
     }
@@ -81,13 +105,171 @@ export class Interp {
     // Named functions are visible from the top of their block, so a file can
     // read top-down and two functions can call each other.
     for (const st of body) {
-      if (st.k === "fn") this.declare(scope, st.name, new Closure(st.name, st.params, st.body, false, scope), st.pos);
+      if (st.k === "fn") this.declare(scope, st.name, new Closure(st.name, st.params, st.body, st.expr === true, scope), st.pos);
     }
     for (const st of body) {
       const sig = this.exec(st, scope);
       if (sig) return sig;
     }
     return null;
+  }
+
+  // ── TML 2 ──
+
+  /**
+   * A TML 2 block: its definitions first (functions; lets as thunks; at the
+   * top, the declarations — the song, then the master, the instruments, the
+   * lanes and the sections, each kind in the order written), then every let
+   * computed in the order written (each after whatever it needs), then its
+   * statements, whose music goes into `music`. Returns a return signal or null.
+   */
+  execBlock2(body, scope, music, top = false) {
+    const lets = [];
+    for (const st of body) {
+      if (st.k === "fn") this.declare(scope, st.name, new Closure(st.name, st.params, st.body, st.expr === true, scope), st.pos);
+      else if (st.k === "let") lets.push(...this.defineLet(st, scope));
+    }
+    if (top) this.declareAll(body, scope);
+    for (const t of lets) this.force(t, t.pos);
+    for (const st of body) {
+      const sig = this.exec2(st, scope, music);
+      if (sig) return sig;
+    }
+    return null;
+  }
+
+  /** A let's names, bound to thunks; returns the thunks to compute. */
+  defineLet(st, scope) {
+    const whole = new Thunk(() => this.eval(st.value, scope));
+    whole.pos = st.pos;
+    if (st.target.k === "ident") {
+      whole.name = st.target.name;
+      this.declare(scope, st.target.name, whole, st.target.pos);
+      return [whole];
+    }
+    const out = [whole];
+    const bindPat = (pat, get) => {
+      if (pat.k === "ident") {
+        const t = new Thunk(get);
+        t.name = pat.name;
+        t.pos = pat.pos;
+        this.declare(scope, pat.name, t, pat.pos);
+        out.push(t);
+        return;
+      }
+      pat.items.forEach((p, i) => bindPat(p, () => this.unpack(pat, get(), i)));
+    };
+    bindPat(st.target, () => this.force(whole, st.pos));
+    return out;
+  }
+
+  unpack(pat, value, i) {
+    const xs = value instanceof Range ? toList(value) : value;
+    if (!Array.isArray(xs)) throw new MotifError(`cannot unpack ${typeName(value)} into [${pat.items.length} names]`, pat.pos);
+    if (xs.length !== pat.items.length) {
+      throw new MotifError(`cannot unpack a list of ${xs.length} into ${pat.items.length} names`, pat.pos);
+    }
+    return xs[i];
+  }
+
+  /** A thunk's value, computing it the first time. */
+  force(t, pos) {
+    if (t.state === 2) return t.value;
+    if (t.state === 1) {
+      throw new MotifError(`${t.name ? `"${t.name}"` : "this let"} is defined in terms of itself`, pos);
+    }
+    t.state = 1;
+    try {
+      t.value = t.compute();
+    } catch (err) {
+      t.state = 0;
+      throw this.wrap(err, t.pos);
+    }
+    t.state = 2;
+    t.compute = null;
+    return t.value;
+  }
+
+  /** The top's declarations: lanes and instruments are numbered in the order
+   *  written, whatever order their names are first needed in. */
+  declareAll(body, scope) {
+    const rank = { song: 0, master: 1, instrument: 2, lane: 3 };
+    const decls = [];
+    let instruments = 0, lanes = 0;
+    for (const st of body) {
+      if (st.k === "section") { decls.push([st, null, 4]); continue; }
+      if (st.k !== "decl") continue;
+      let t = null;
+      if (st.kind === "instrument" || st.kind === "lane") {
+        const index = st.kind === "instrument" ? instruments++ : lanes++;
+        t = new Thunk(() => this.hooks.declare(st, scope, this, index));
+        t.name = st.name;
+        t.pos = st.pos;
+        this.declare(scope, st.name, t, st.namePos);
+      }
+      decls.push([st, t, rank[st.kind]]);
+    }
+    decls.sort((a, b) => a[2] - b[2]); // stable: each kind stays in the order written
+    for (const [st, t] of decls) {
+      this.tick(st.pos);
+      try {
+        if (t) this.force(t, st.pos);
+        else this.hooks.declare(st, scope, this);
+      } catch (err) {
+        throw this.wrap(err, st.pos);
+      }
+    }
+  }
+
+  exec2(st, scope, music) {
+    switch (st.k) {
+      case "fn": case "let": case "decl": case "section": return null;
+      default: break;
+    }
+    this.tick(st.pos);
+    try {
+      switch (st.k) {
+        case "expr": this.addMusic(music, this.eval(st.expr, scope)); return null;
+        case "block": return this.execBlock2(st.body, new Scope(scope), music);
+        case "if": {
+          if (truthy(this.eval(st.cond, scope))) return this.execBlock2(st.then.body, new Scope(scope), music);
+          if (st.else) return this.execBlock2(st.else.body, new Scope(scope), music);
+          return null;
+        }
+        case "for": {
+          const it = this.eval(st.iter, scope);
+          for (const [k, v] of entriesOf(it)) {
+            const inner = new Scope(scope);
+            if (st.key) this.bind(st.key, k, inner, true);
+            this.bind(st.item, v, inner, true);
+            if (st.cond && !truthy(this.eval(st.cond, inner))) continue;
+            const sig = this.execBlock2(st.body.body, inner, music);
+            if (sig) return sig;
+          }
+          return null;
+        }
+        case "return":
+          return { sig: "return", value: st.value ? this.eval(st.value, scope) : null };
+        default: throw new MotifError(`internal error: statement ${st.k}`, st.pos);
+      }
+    } catch (err) {
+      throw this.wrap(err, st.pos);
+    }
+  }
+
+  /** A statement's value into its block's music: a phrase, none, or a list of them. */
+  addMusic(music, v) {
+    if (v === null || v === undefined) return;
+    if (v instanceof Phrase) { music.add(v); return; }
+    if (Array.isArray(v)) {
+      const bad = v.find((x) => !(x === null || x instanceof Phrase || Array.isArray(x)));
+      if (bad !== undefined) {
+        throw fail(`this line makes a list with ${an(typeName(bad))} in it, and nothing uses it: in TML 2 a line on its own is music (phrases); name a value with let`);
+      }
+      for (const x of v) this.addMusic(music, x);
+      return;
+    }
+    throw fail(`this line makes ${an(typeName(v))} and nothing uses it: in TML 2 a line on its own is music (a phrase); name a value with let`);
   }
 
   declare(scope, name, value, pos) {
@@ -216,6 +398,18 @@ export class Interp {
       if (name === "to") return v.to;
       if (name === "step") return v.step;
     }
+    if (v instanceof Phrase) {
+      if (name === "from") return v.from;
+      if (name === "to") return v.to;
+      if (name === "rows") return v.to - v.from;
+      if (name === "lanes") {
+        const lanes = new Set();
+        for (const [l, rows] of v.cells) if (rows.size) lanes.add(l);
+        for (const part of v.soft) if (part.self) lanes.add(part.lane);
+        return [...lanes].sort((a, b) => a.index - b.index).map((l) => l.handle);
+      }
+      throw new MotifError(`a phrase has no field "${name}" (it has from, to, rows and lanes)`, pos);
+    }
     throw new MotifError(`${typeName(v)} has no field "${name}"`, pos);
   }
 
@@ -231,7 +425,8 @@ export class Interp {
       case "ident": {
         const s = scope.find(e.name);
         if (!s) throw new MotifError(`"${e.name}" is not defined`, e.pos);
-        return s.vars.get(e.name);
+        const v = s.vars.get(e.name);
+        return v instanceof Thunk ? this.force(v, e.pos) : v;
       }
       case "pitch":
         if (!this.hooks.pitch) throw new MotifError("pitches are not available here", e.pos);
@@ -243,6 +438,30 @@ export class Interp {
         return out;
       }
       case "list": return e.items.map((x) => this.eval(x, scope));
+      case "comp": {
+        const out = [];
+        const walk = (i, sc) => {
+          if (i === e.clauses.length) {
+            out.push(this.eval(e.expr, sc));
+            checkSize(out.length);
+            return;
+          }
+          const c = e.clauses[i];
+          if (c.k === "if") {
+            if (truthy(this.eval(c.cond, sc))) walk(i + 1, sc);
+            return;
+          }
+          for (const [k, v] of entriesOf(this.eval(c.iter, sc))) {
+            this.tick(c.pos);
+            const inner = new Scope(sc);
+            if (c.key) this.bind(c.key, k, inner, true);
+            this.bind(c.item, v, inner, true);
+            walk(i + 1, inner);
+          }
+        };
+        walk(0, scope);
+        return out;
+      }
       case "rec": {
         const r = new Rec();
         for (const en of e.entries) r.m.set(en.key, this.eval(en.value, scope));
@@ -278,10 +497,17 @@ export class Interp {
       }
       case "field": return this.getField(this.eval(e.x, scope), e.name, e.pos);
       case "call": {
-        const f = this.eval(e.f, scope);
-        const args = e.args.map((a) => this.eval(a, scope));
-        const named = e.named.length ? e.named.map((n) => [n.name, this.eval(n.value, scope), n.pos]) : null;
-        return this.call(f, args, named, e.pos, e.f.k === "ident" ? e.f.name : null);
+        // a preview (TML 2) captures everything this call makes, arguments and all
+        const cap = this.captureAt !== null && e.pos.offset === this.captureAt;
+        if (cap) this.capturing++;
+        try {
+          const f = this.eval(e.f, scope);
+          const args = e.args.map((a) => this.eval(a, scope));
+          const named = e.named.length ? e.named.map((n) => [n.name, this.eval(n.value, scope), n.pos]) : null;
+          return this.call(f, args, named, e.pos, e.f.k === "ident" ? e.f.name : null);
+        } finally {
+          if (cap) this.capturing--;
+        }
       }
       default: throw new MotifError(`internal error: expression ${e.k}`, e.pos);
     }
@@ -418,6 +644,18 @@ export class Interp {
       else throw new MotifError(`${name}() needs its "${p.name}" argument`, pos);
     }
     if (f.expr) return this.eval(f.body, scope);
+    if (this.v2) {
+      // a function's value is the music its body makes, with any phrase it
+      // returns; or what it returns, when it makes no music
+      const music = this.hooks.music();
+      const sig = this.execBlock2(f.body.body, scope, music);
+      const ret = sig ? sig.value : null;
+      const made = music.phrase();
+      if (ret === null) return made;
+      if (made === null) return ret;
+      if (ret instanceof Phrase) { music.add(ret); return music.phrase(); }
+      throw new MotifError(`${name}() makes music and also returns ${an(typeName(ret))}: a function gives back one or the other (or a list of both)`, pos);
+    }
     const sig = this.execBody(f.body.body, scope);
     return sig ? sig.value : null;
   }

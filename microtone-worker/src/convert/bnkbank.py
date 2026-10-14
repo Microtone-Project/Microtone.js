@@ -9,7 +9,7 @@ ORCHESTRATES the canonical functions so there is still exactly one BNK→Taud
 mapping implementation.
 
     bnkbank.py list  <in.bnk> <out.json>
-    bnkbank.py build <in.bnk> <selection.json> <out.tsii> [--bpm N] [--ksl-bands N]
+    bnkbank.py build <in.bnk> <selection.json> <out.tsii>
 
 list  → out.json: [{"index": I, "name": "..."}], bank order. `index` is the
         patch's position in parse_bnk's `patches` list, NOT the bank's own
@@ -18,14 +18,11 @@ list  → out.json: [{"index": I, "name": "..."}], bank order. `index` is the
         and case-folded, which would silently merge duplicates here).
 build → selection.json holds [index, index, ...] in the order the app wants
         them placed; emits a .tsii whose directly-addressable slots ($01..$FF)
-        are those patches in that order, each an ordinary two-operator FM
-        rack (opl2taud's 'melodic' kind — there is no song here to say which
-        channels, if any, were rhythm mode), ready for the app's bank-merge
-        import.
-
---bpm should be the DESTINATION song's BPM: a patch's auto-vibrato speed is
-tempo-relative (opl2taud.vibrato_fields), so the bank matches that tempo
-exactly.
+        are those patches in that order, each a two-operator OPL instrument
+        (Metainstrument type 8; opl2taud's 'melodic' role — there is no song
+        here to say which channels, if any, were rhythm mode), ready for the
+        app's bank-merge import.  Two identical patches still get a slot each,
+        so slot n is always the n-th patch picked.
 """
 import argparse
 import json
@@ -60,7 +57,7 @@ def cmd_build(args):
             sys.exit(f"error: patch index {i} out of range")
         entries.append({"patch": patches[i], "kind": "melodic", "name": patches[i].name})
 
-    out = build_bank(entries, bpm=args.bpm, max_bands=args.ksl_bands)
+    out = build_bank(entries, share=False)
     tsii = assemble_tsii(out)
     with open(args.output, "wb") as f:
         f.write(tsii)
@@ -78,8 +75,6 @@ def main():
     bp.add_argument("input")
     bp.add_argument("selection")
     bp.add_argument("output")
-    bp.add_argument("--bpm", type=float, default=125.0)
-    bp.add_argument("--ksl-bands", type=int, default=4, dest="ksl_bands")
     bp.set_defaults(fn=cmd_build)
     args = ap.parse_args()
     args.fn(args)

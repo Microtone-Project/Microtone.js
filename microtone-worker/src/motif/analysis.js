@@ -10,7 +10,9 @@
 // variables share a scope with its body, and a function's parameters with its
 // body; a named function is visible from the top of its block; a let, a lane
 // and an instrument from the end of their own statement on — and from inside
-// any function written in their scope, which runs later.
+// any function written in their scope, which runs later. In TML 2 every name
+// a block defines is visible throughout the block, and a comprehension's
+// variables belong to the comprehension.
 
 import { parse } from "./parser.js";
 import { BUILTIN_NAMES } from "./highlight.js";
@@ -58,6 +60,7 @@ class Analyzer {
     this.encl = [];         // the named functions being walked, innermost last
     this.structure = [];
     this.dups = [];         // names declared twice in one scope
+    this.v2 = false;
   }
 
   sym(name, kind, pos, extra = {}) {
@@ -110,6 +113,7 @@ class Analyzer {
   // ── statements ──
 
   program(ast) {
+    this.v2 = ast.version >= 2;
     const top = new AScope(null);
     this.block(ast.body, top);
     this.outline(ast.body);
@@ -118,14 +122,16 @@ class Analyzer {
   /** Declare what a block declares up front (the hoisted functions, and the
    *  lets, lanes and instruments, not yet visible), then walk it. */
   block(body, scope) {
+    // TML 1: visible once their statement is done (∞ until then); TML 2: everywhere in the block
+    const later = this.v2 ? -Infinity : Infinity;
     for (const st of body) {
       if (st.k === "fn") {
         st.sym = this.declare(scope, st.name, "function", st.namePos, { visibleFrom: -Infinity, node: st, params: [] });
       } else if (st.k === "let") {
         st.syms = [];
-        this.pattern(st.target, scope, "variable", st.syms, Infinity);
+        this.pattern(st.target, scope, "variable", st.syms, later);
       } else if (st.k === "decl" && (st.kind === "instrument" || st.kind === "lane")) {
-        st.sym = this.declare(scope, st.name, st.kind, st.namePos, { visibleFrom: Infinity });
+        st.sym = this.declare(scope, st.name, st.kind, st.namePos, { visibleFrom: later });
       }
     }
     for (const st of body) this.stmt(st, scope);
@@ -139,7 +145,7 @@ class Analyzer {
         const syms = st.syms;
         if (st.value.k === "fnlit" && syms.length === 1) syms[0].fnNode = st.value;
         this.expr(st.value, scope, syms.length === 1 ? syms[0] : null);
-        for (const s of syms) s.visibleFrom = s.start;
+        if (!this.v2) for (const s of syms) s.visibleFrom = s.start;
         return;
       }
       case "assign": {
@@ -166,13 +172,14 @@ class Analyzer {
         const inner = new AScope(scope);
         if (st.key) this.pattern(st.key, inner, "loop");
         this.pattern(st.item, inner, "loop");
+        if (st.cond) this.expr(st.cond, inner);
         this.block(st.body.body, inner);
         return;
       }
       case "return": if (st.value) this.expr(st.value, scope); return;
       case "decl": {
         this.expr(st.value, scope);
-        if (st.sym) st.sym.visibleFrom = st.sym.start;
+        if (st.sym && !this.v2) st.sym.visibleFrom = st.sym.start;
         return;
       }
       case "section":
@@ -202,7 +209,7 @@ class Analyzer {
       params.push(this.declare(inner, p.name, "parameter", p.pos, { owner: sym }));
     }
     if (sym) sym.params = params;
-    if (node.k === "fnlit" && node.expr) this.expr(node.body, inner);
+    if (node.expr) this.expr(node.body, inner);
     else this.block(node.body.body, inner);
     if (sym) this.encl.pop();
     return params;
@@ -216,6 +223,20 @@ class Analyzer {
       case "ident": this.ref(scope, e); return;
       case "interp": for (const p of e.parts) if (typeof p !== "string") this.expr(p, scope); return;
       case "list": for (const x of e.items) this.expr(x, scope); return;
+      case "comp": {
+        // each `for` opens a scope for its variables, seen by what follows it
+        let sc = scope;
+        for (const c of e.clauses) {
+          if (c.k === "if") { this.expr(c.cond, sc); continue; }
+          this.expr(c.iter, sc);
+          sc = new AScope(sc);
+          // (the element comes first in the text, before the `for` that names them)
+          if (c.key) this.pattern(c.key, sc, "loop", null, -Infinity);
+          this.pattern(c.item, sc, "loop", null, -Infinity);
+        }
+        this.expr(e.expr, sc);
+        return;
+      }
       case "rec": for (const en of e.entries) this.expr(en.value, scope); return;
       case "fnlit": {
         // a lambda bound by `let f = fn(…)` is that name's function; any other
@@ -268,7 +289,7 @@ class Analyzer {
           else if (s.k === "block") walk(s.body);
         }
       };
-      walk(st.body.body);
+      if (!st.expr) walk(st.body.body);
       return item("function", st.name, `(${st.params.map((p) => p.name).join(", ")})`, st.namePos.offset, kids.length ? kids : null);
     };
     const out = this.structure;

@@ -213,6 +213,10 @@ export class TrackerState {
     this.tickInRow = 0;
     this.samplesIntoTick = 0.0;
     this.firstRow = true;
+    // The OPL chip clock (item 209): output frames mixed since the last
+    // transport reset. Every OPL voice reads the chip's envelope counter and
+    // LFOs off it, so a playhead's OPL voices are one chip (engine/opl.js).
+    this.oplFrame = 0;
     // Always MAX_VOICES so 64-lane mode has slots for every lane, plus
     // the dedicated jam bank above them (JAM_VOICE_BASE…, item 140) — the tick
     // and mix loops run the whole array, the row loop only the lanes.
@@ -543,6 +547,7 @@ export class Playhead {
     ts.tuningRatio = 1.0;
     ts.cuePos = 0; ts.rowIndex = 0; ts.tickInRow = 0;
     ts.samplesIntoTick = 0.0; ts.firstRow = true;
+    ts.oplFrame = 0;
     ts.pendingOrderJump = -1; ts.pendingRowJump = -1;
     ts.pendingRowJumpLocal = false;
     ts.patternDelayRemaining = 0; ts.patternDelayActive = false;
@@ -630,6 +635,7 @@ export class Playhead {
       it.layerRelPan = 0; it.layerRelElevation = 0;
       it.layerPitchMod = 0; it.pitchModDelta = 0;
       it.fmRig = null; it.fmOperator = false; it.fmParent = null;
+      it.opl = null; it.oplCarry = false;
       // "What's playing" state — cleared alongside the volume reset so a stale
       // instrumentId can't survive into a fresh session (AudioAdapter.kt:5130-5142).
       it.instrumentId = 0;

@@ -1,7 +1,7 @@
 // New-metainstrument popup (item 72) and the Layers tab's "Add layers…" (item
 // 113) — one picker over the project's ordinary instruments, with a COUNT per
 // row rather than a checkbox. The "Meta…" toolbox button enters through
-// showNewMetaKind, which asks layered-or-FM first (item 167).
+// showNewMetaKind, which asks layered, FM or OPL first (items 167, 209).
 //
 // The count is the whole point. Picking one instrument three times is how a
 // unison/chord stack is built ("a chorded piano out of one piano"): the source
@@ -12,7 +12,8 @@
 // Metainstruments are not offered: the engine resolves layers with triggerNote,
 // which never re-enters the meta branch, so metas can't nest.
 
-import { planCreateMeta, planCreateFm, planAddMetaLayers } from "../../doc/bankmerge.js";
+import { planCreateMeta, planCreateFm, planCreateOpl, planAddMetaLayers } from "../../doc/bankmerge.js";
+import { defaultOplRecord } from "../../doc/opledit.js";
 import { importBankOp } from "../../doc/ops.js";
 import { META_MAX_LAYERS, metaLayers } from "../../doc/metaedit.js";
 import { FM_MAX_OPERATORS, fmProgramOf, fmBudget, fmCanAddOperator } from "../../doc/fmedit.js";
@@ -249,6 +250,16 @@ function kindDiagram(kind) {
     });
     plus.textContent = "+";
     svg.appendChild(plus);
+  } else if (kind === "opl") {
+    // One chip channel: a modulator bending a carrier inside the channel's
+    // outline, and the channel the only thing that reaches the speaker — no
+    // children at all, which is the point of drawing it this way.
+    svg.append(
+      svgEl("rect", { x: 6, y: 14, width: 112, height: 44, rx: 6, fill: "none",
+        stroke: "currentColor", "stroke-width": 1.2, opacity: 0.7 }),
+      box(16, 28), line(46, 36, 66, 36, true), head(68, 36), box(70, 28),
+      line(118, 36, 132, 36), head(132, 36), out(136, 36),
+    );
   } else {
     // A chain: each child bends the next (dashed = modulation, not audio), and
     // only the last box has a solid line to the speaker.
@@ -273,30 +284,45 @@ function kindDiagram(kind) {
  */
 export async function showNewMetaKind(store) {
   if (!store.doc) return null;
-  // Both kinds draw on the same candidates, so the empty case is answered
-  // BEFORE the chooser rather than after it: picking a kind and only then being
-  // told there is nothing to build with is a wasted decision.
-  if (layerCandidates(store.doc).length === 0) {
-    alert(t("newkind.noCandidates"));
-    return null;
-  }
-  const kind = await pickMetaKind();
+  // The layered and FM kinds draw on the same candidates; the OPL instrument draws
+  // on none — it is a chip channel, not a table of instruments — so with
+  // nothing to build from it is the only card offered, rather than the
+  // chooser being refused outright.
+  const haveCandidates = layerCandidates(store.doc).length > 0;
+  const kind = await pickMetaKind(haveCandidates);
   if (kind === "meta") return showNewMeta(store);
   if (kind === "fm") return showNewFm(store);
+  if (kind === "opl") return createOpl(store);
   return null;
 }
 
-/** Resolves "meta", "fm", or null on cancel. */
-function pickMetaKind() {
+/**
+ * A new OPL instrument (item 209): IMS Studio's starting patch in the first free
+ * slot, ready for the OPL tab. Resolves {firstSlot, count} like the pickers.
+ */
+function createOpl(store) {
+  const plan = planCreateOpl(store.doc, defaultOplRecord(), "OPL");
+  if (plan.error) { alert(plan.error); return null; }
+  store.undo.apply(importBankOp(plan));
+  return { firstSlot: plan.metaSlot, count: 1 };
+}
+
+/** Resolves "meta", "fm", "opl", or null on cancel. Without `haveCandidates`
+ *  the two kinds built from other instruments are shown but disabled. */
+function pickMetaKind(haveCandidates = true) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
     dlg.className = "modal kind-modal";
     const cards = el("div", "kind-cards");
     const finish = (kind) => { dlg.close(); dlg.remove(); resolve(kind); };
 
-    for (const kind of ["meta", "fm"]) {
+    for (const kind of ["meta", "fm", "opl"]) {
       const card = el("button", "kind-card");
       card.type = "button";
+      if (kind !== "opl" && !haveCandidates) {
+        card.disabled = true;
+        card.title = t("newkind.noCandidates");
+      }
       card.append(
         kindDiagram(kind),
         el("span", "kind-card-name", t(`newkind.${kind}`)),
@@ -317,7 +343,7 @@ function pickMetaKind() {
     dlg.addEventListener("cancel", () => finish(null));
     dlg.addEventListener("keydown", (e) => e.stopPropagation());
     dlg.showModal();
-    cards.firstChild.focus();
+    (cards.querySelector(".kind-card:not(:disabled)") ?? cancelBtn).focus();
   });
 }
 

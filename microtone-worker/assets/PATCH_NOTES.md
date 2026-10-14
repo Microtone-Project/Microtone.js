@@ -6,6 +6,19 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-15
 
+OPL instruments arrive: one channel of the FM chip that played AdLib and Sound Blaster music, sounding as the chip did — and AdLib songs, banks and tracker modules now arrive as them.
+
+- **A new kind of instrument**: Instruments → Meta… → OPL instrument makes one channel of the Yamaha OPL2/OPL3 chip — two or four sine operators with the chip's own envelopes, eight waveforms, tremolo and vibrato, or one of its five rhythm drums. It needs no samples, takes no pool space and costs one voice.
+- **An OPL tab** edits it the way IMS Studio does: the kind, the chip's switches, one group per operator with its envelope sketched at the top, the channel's feedback and connection, and the partner a snare, cymbal or hi-hat reads. Holding a spinner is one undo step, and a note already sounding hears an edit at once.
+- **Still an instrument**: volume, pan and pitch/filter envelopes, fadeout, New Note Action and the filter all work around the chip's sound, and an OPL instrument can be a layer of a Layered metainstrument.
+- **AdLib songs sound like AdLib songs**: `.ims` and `.sop` files now arrive as OPL instruments rather than FM Racks built from single-cycle samples, so envelopes, key scaling, feedback, tremolo, vibrato and the rhythm drums are the chip's own, and a converted song follows the original player's dynamics far more closely.
+- **AdLib `.bnk` banks** picked in Instruments → Import… become OPL instruments too.
+- **Scream Tracker AdLib instruments now play**: an `.s3m`'s AdLib instruments, and the OPL instruments OpenMPT saves into `.it` files, used to be dropped; they arrive as OPL instruments at the pitch, level and loudness OpenMPT gives them.
+- **A patch change over a ringing note** in an `.ims` or `.sop` takes effect at once, as on the chip, instead of waiting for the next note.
+- **Fixed: tempo changes went missing from some `.sop` songs** — on a row where every lane also changed its panning the tempo change was dropped; the pan now moves to the next row instead.
+- **Fixed: a `.sop` song's whole-song fades came out too late and too sudden** — its global volume was applied as a plain gain; it now follows the chip's volume curve, as in the original player.
+- **Fixed: hard-panned lanes of a `.sop` song were 3 dB too loud** against centred ones, which the chip plays on both sides at once.
+
 Bosanquet–Wilson, Wicki–Hayden and the Harmonic Table now follow the song's tuning, and take all four rows of the keyboard.
 
 - **The same keyboard in every tuning**: each is worked out from the tuning's own fifth, so a whole tone is two steps of 12-TET, five of 31-TET and nine of 53-TET. Until now they used 12-TET's numbers in every tuning, which anywhere else made them different keyboards with the same names.
@@ -21,10 +34,14 @@ The Welcome page now ends with a row of sites we like: the demoscene, tracker-mu
 
 Motif arrives: write a song as a program in the Taud Motif Language, and Microtone builds the whole project from it — notes, instruments, mix and master.
 
-- **A new Motif tab** (Shift+F7) holds a program and builds it with **Build** (Ctrl+Enter). The program describes the song (its tuning, tempo, length, instruments and lanes, its melodies and chords) and the rules that make the rest: loops, functions, chance, mirror images and other transformations of a line.
+- **A new Motif tab** (Shift+F7) holds a program and builds it with **Build** (Ctrl+Enter). The program describes the song (its tuning, tempo, length, instruments and lanes, its melodies and chords) and the rules that make the rest: functions, chance, mirror images and other transformations.
+- **A program says what the song is**, not what to do in which order: every line on its own is part of the music, a name can be used anywhere in its block, and nothing once named changes, so the parts of a program can be written in any order and the song stays the same.
+- **Music is a value**: name a melody or a bar of drums once, then move it, repeat it, string it after another, transpose it, turn it upside down, play it on another lane — or play it backwards, or at half or double speed.
+- **Backwards and stretched the musical way**: reversing turns round the notes and the rests between them, each as long as it was, so a swell becomes a fade and a glide runs the other way; stretching draws a vibrato or a slide out over the new length and slows a glide to match.
+- **Music that fits round the rest**: a ride can play under the crashes, a second voice can follow what another lane plays, and vibratos and volume ramps step round what is already there, wherever in the program they are written.
 - **What it builds is an ordinary project**: patterns and cues, an instrument bank from the bundled GeneralUser GS soundfont (or a soundfont you name), the zones the song never plays pruned away, and optionally every zone it does play re-tuned onto the grid of your tuning. Edit it, play it and save it like any other.
 - **Any tuning Microtone has a notation for**, by name, plus any equal division of the octave and scales of your own given in cents; pitches are written as the Timeline writes them, so 'Cp4' is C half-flat in 31-TET.
-- **Chance is repeatable**: the random choices a program makes come from a seeded stream, so the same program always builds the same song, and a new seed rolls the dice again.
+- **Chance is repeatable**: every random choice is keyed to the song's seed and to what it is for, so the same program always builds the same song, changing one part never reshuffles another, and a new seed rolls the dice again.
 - **Mistakes point at their line**: an error stops the build and shows its line and column, marked in the margin, with the calls that led to it; a misspelt option suggests the one you meant, and two notes clashing on one row are named with their lane and bar.
 - **Safe to share**: a program can do nothing but make music — it cannot reach your files, the network or the page, and it runs apart from the page, so even one that never ends can be cancelled and cannot freeze the app.
 - **The project keeps its program**: open it later and the Motif tab shows the program it was built from, ready to change and build again. Open a `.tml` file like any other file to build it, and **Save .tml…** downloads the program you are writing.
@@ -32,7 +49,7 @@ Motif arrives: write a song as a program in the Taud Motif Language, and Microto
 - **The editor follows your names**: put the caret in a name and every other place it is used lights up, the places that set it in a colour of their own; the selection is drawn under the text, so the colours stay readable inside it.
 - **Rename** (Shift+F6, or right-click a name) changes a name everywhere it means the same thing, and refuses a new name that would change what the program does; one undo takes it back.
 - **A side panel** beside the program: Structure outlines its sections, instruments, lanes, functions and variables, and Call hierarchy (Ctrl+Alt+H) shows what calls a function and what it calls. It folds away to a strip at the edge.
-- **Preview** a call: right-click a `melody(…)`, a `hit(…)` or a function of your own to hear what that call writes, through the open project's instruments, without building the song.
+- **Preview** a call: right-click a `melody(…)`, a `hit(…)` or a function of your own to hear what that call makes, as the song plays it, through the open project's instruments, without building the song.
 - **Instruments beyond the soundfont**: a program can play instruments from a pack (a `.tsii` bank, or another project), generated waveforms with their own envelopes, layered instruments stacked from others, and FM racks whose operators and algorithm it writes itself.
 - **Huygens' Clock is now a Motif program**: the demo song is built from one, and carries it — load the demo, open the Motif tab, and read how the piece is made. The song sounds exactly as it did.
 - **Docs → Motif Language** is the language's full reference, and the User Manual has a chapter on the Motif tab.
