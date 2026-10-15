@@ -1002,6 +1002,8 @@ FourCC prefixes indicate scope, and `.tsii`/`.tpif` splitting relies on them:
 | `S` | Sample |
 | `s` | Song |
 
+Following FourCC are reserved and **MUST NOT** be used: `RIFF`, `RIFX`, `LIST`, `FORM`, `PROP`, `JUNK`, `PAD `, `CAT `, and `INFO`.
+
 ### 9.1 `xHDR` — extended header
 
 Only a format-version-2 (or later) file **MAY** carry this section; otherwise the file is **INVALID**. Its presence **MUST** be mirrored by the header version byte's `x` bit.
