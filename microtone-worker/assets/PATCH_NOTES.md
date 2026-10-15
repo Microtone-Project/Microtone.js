@@ -6,6 +6,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-16
 
+Playing from the middle of a song now sounds like the song does there: every lane keeps the panning, volume and effects the song gave it earlier, at the song's tempo at that point.
+
+- **Play from the cursor or from a cue** (**Enter**, **▶ Cue**) first runs silently through everything before that row, in the song's own order with its jumps and loops, so each lane starts with the volume, panning, bitcrusher and overdrive settings, instrument and effect memory it would have had — and the tempo, speed and global volume are the song's at that point too. Until now every lane started in the centre at full volume.
+- A row the song never reaches when played from the start — after a halt, past a pattern break, beyond a loop that never ends — is picked up by going through the cues in order instead. Notes still ringing from earlier rows are not restarted; each lane waits for its next note.
+- **Fixed: playing a song again started at the tempo, speed and global volume the last play had ended on** — they were never put back; every play now starts from the song's own.
+- A speed set with the mouse wheel over **Spd** now lasts until you next press Play.
+
 The Duplicate Check can now watch the whole lane: an instrument set to *Lane* gives way to whatever note comes next on its lane.
 
 - **Duplicate Check Type: Lane** (Instruments → General): every note arriving on the lane counts as a duplicate, whichever instrument plays it and whether or not the row names one, and the Duplicate Check Action — cut, off or fade — is applied to everything this instrument still has sounding there. Note, Sample and Instrument only match the same instrument (or, for formant instruments, one made from the same pool range), so until now nothing could make an instrument give way to a different one.

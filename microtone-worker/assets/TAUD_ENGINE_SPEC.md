@@ -410,7 +410,7 @@ A **type-8** Metainstrument is an **OPL instrument** ([File Format §7.7](TAUD_F
 
 The chip model is the IMS Archive's clean-room OPL core (iyagimusic-js `src/opl/`, written from Yamaha's *YM3812 Application Manual* and the published die description), number for number. Two readings — the key-scale-rate split and the key-scale level's rounding — follow the silicon where the application manual says otherwise; the IMS Archive core took the same two readings on 2026-10-14, so the two agree to the bit. Everything is integer arithmetic or IEEE doubles, the two ROM tables are stated rather than computed, and the only transcendental is `2 ^ rational`, so independent implementations agree bit for bit.
 
-**The chip clock.** Each playhead keeps one counter, `F`, of the output frames it has mixed — playing or jamming — reset to 0 by a full reset and by a play-from-row reset ([§15](#15-transport-reset)). Output frame `F` falls on chip sample
+**The chip clock.** Each playhead keeps one counter, `F`, of the output frames it has mixed — playing or jamming — reset to 0 by a full reset, by a play-from-row reset and by a chase ([§15](#15-transport-reset)). Output frame `F` falls on chip sample
 
 ```
 k    = ⌊F × 3579545 ÷ (72 × output_rate)⌋
@@ -1557,9 +1557,22 @@ Returning the LANES is not the same thing as leaving the playhead's tempo alone,
 
 Emptying the background pool is the part that is easy to omit and audible when omitted: a stop leaves ghosts active, and a replay resumes them.
 
-Both resets also return the playhead's **OPL chip clock** ([§5.5.2](#5-5-2-type-8-opl-instruments)) to 0, so a song played from a row meets the chip's envelope counter and LFOs exactly where a render from that row does.
+Both resets — and the chase below — also return the playhead's **OPL chip clock** ([§5.5.2](#5-5-2-type-8-opl-instruments)) to 0, so a song played from a row meets the chip's envelope counter and LFOs exactly where a render from that row does.
 
 A host loading a new document **MUST** perform a full reset before uploading it, and **MUST** then upload the song's own mastering chain — or the neutral one when the file declares none. Nothing in a file describes the lane state the previous song left behind, so a document loaded on top of another inherits its panning, its lane volumes and its mastering otherwise.
+
+### 15.1 The chase
+
+A play-from-row reset returns every lane to the song's start, which is right for a replay and wrong for a listener who asks to hear the song from its middle: a lane the song panned in its first bar plays from the centre, at full volume, at the song's starting tempo. A **chase** starts playback at a row in the state the song itself arrives there with. It runs in four steps.
+
+1. **The song start.** Everything a freshly loaded song begins with: the position at cue 0, row 0, with the per-play state of a play-from-row reset; the song's own tempo, tick rate, global volume and mixing volume, which the host supplies, since the engine holds no song table; the tone and interpolation modes from the file's global behaviour flags; the Amiga LED filter off and the post-mix filter states cleared; every lane at its **power-on** state — every register, the effect memory, every LFO phase and counter as a lane that has never played has them, the three volume registers at the cell format's full scale — except the host's per-lane mute and fader levels; and the per-instrument runtime state (invert-loop masks, sample modifications, filter overrides) cleared. The jam bank, the tuning, the surround model and the mastering parameters are not touched.
+2. **The walk.** From there the song's row events and tick passes run exactly as playback runs them — the row event, its tick passes ([§2.1](#2-1-ticks-and-rows), a fine pattern delay's extra ticks included), then the row advance with its jumps, pattern loops, pattern delays and the cues' flow instructions — but **nothing is mixed**: no sample is read, no output frame is produced, and nothing clocked per sample advances (the extended sample-modification clock of [§8.5](#8-5-sample-modifications) among it). The walk stops at the **first** arrival at the target row, before that row's event; a pattern delay repeating a row is not an arrival.
+3. **The fallback.** When the song's own path does not reach the row, the engine goes back to the song start and walks the cues **in their order** instead: every row of every cue once, up to the cue's row limit, ignoring the flow instructions, the halts and the `B`, `C` and `S $Bx` jumps, but still repeating a row for a pattern delay, which is not flow. It stops before the target row, or at the end of the target's cue when the row lies beyond it. The song's path has failed to reach the row when a halt cue ends it; when it enters a cue at a row it has entered that cue at before — nothing that decides the flow outlives a cue change, so from there it repeats for ever; when it goes past the last cue that holds a pattern or an instruction while the target lies before that cue; or when 65 536 rows have gone by, which only pattern loops feeding each other for ever can cause.
+4. **The hand-over.** The per-play half of a play-from-row reset: row, tick and jump state, every voice deactivated, the background pool emptied, the interrupt latch and its arguments cleared, the mastering chain's delay lines and envelopes and the OPL chip clock reset. The position is set to the target row, and playback applies that row as its first.
+
+Everything else the walk wrote is kept: lane volume and every panning axis, glissando, the bitcrusher and overdrive, the `S $7x` overrides, the effect memory, the lane's instrument and note registers, the pattern-loop and Ditto state of the target's cue, the per-instrument runtime state, and the playhead's tempo, tick rate and global volume. What the walk does not hand over is sound. A note sounding at the target row is not carried over — each lane is silent until its next note — and an interrupt the walk passes is dropped, not delivered.
+
+Because nothing is mixed, the walk never sees a sample run out: a note it starts sounds until the song itself ends it — a cut, a fade, a key-off whose fadeout reaches zero, the next note. A tick-pass effect that acts only on a sounding voice, the lane-volume and panning slides among them, can therefore move a lane during the walk where playback would have found that voice already silent. An implementation **MUST** reproduce this rather than correct it: the chase is defined by the walk, not by a render, so that every implementation lands on the same state.
 
 ## 16. Effects
 
@@ -1602,3 +1615,4 @@ An implementation conforms when all of the following hold.
 - The limiter's ceiling is never exceeded, on any material, in either peak mode.
 - A multichannel delivery masters the channel bus per §12.3: identical filtering on every channel, the dynamics detectors linked across all of them, and no stereo width.
 - The output stage narrows to binary32 before clamping, and runs the dither loop entirely in binary32 against a seeded generator.
+- A play-from-row reset returns every lane to the song's start and keeps the playhead's tempo; a chase walks the song's own path from the song start with every row event and tick pass and nothing mixed, stops at the first arrival, falls back to the cue order when that path never arrives, and keeps the lanes' state while deactivating every voice.

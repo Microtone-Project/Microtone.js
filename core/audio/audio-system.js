@@ -328,6 +328,8 @@ export class AudioSystem {
   stop(ph = 0) { this._post({ t: CMD.STOP, ph }); }
   setCuePosition(ph, pos) { this._post({ t: CMD.SET_CUE_POSITION, ph, pos }); }
   setTrackerRow(ph, row) { this._post({ t: CMD.SET_TRACKER_ROW, ph, row }); }
+  /** Cue + row with the song's state there (item 215) — engine chaseTrackerRow. */
+  chaseTrackerRow(ph, cue, row) { this._post({ t: CMD.CHASE_TRACKER_ROW, ph, cue, row }); }
   setBPM(ph, bpm) { this._post({ t: CMD.SET_BPM, ph, bpm }); }
   setTickRate(ph, rate) { this._post({ t: CMD.SET_TICK_RATE, ph, rate }); }
   setTuning(ph, baseNote, freq) { this._post({ t: CMD.SET_TUNING, ph, baseNote, freq }); }

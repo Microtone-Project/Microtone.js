@@ -43,6 +43,7 @@ const FILES = [
   "core/engine/effects.js",
   "core/engine/row.js",
   "core/engine/tick.js",
+  "core/engine/chase.js",
   "core/engine/mixer.js",
   "core/engine/engine.js",
   "core/worklet/protocol.js",

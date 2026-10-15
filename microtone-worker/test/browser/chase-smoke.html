@@ -1,0 +1,93 @@
+<!doctype html><meta charset="utf-8"><title>play from the middle (item 215)</title>
+<pre id="out">running… (needs a real audio-capable browser; ~5s)</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/Huygens_clock.taud" style="width:1200px;height:700px"></iframe>
+<script type="module">
+// Drives the REAL app: Enter on a cursor in the middle of the song must start
+// the lanes where the song has them there — the chase, through the protocol,
+// whichever engine host this page gets (render worker or worklet) — and the
+// Play-song button must start from the song's own tempo even after a play
+// that moved it. The expected figures come from a chase run here, on a second
+// engine loaded from the same file; test/node/chase.test.js holds that chase
+// to a real render.
+import { parseTaud } from "../../core/format/taud-parse.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { setSamplingRate } from "../../core/engine/constants.js";
+import { loadIntoEngine } from "../../core/audio/offline-render.js";
+
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; console.log("CHASE: " + s); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+const until = async (fn, ms, what) => {
+  const end = Date.now() + ms;
+  while (!fn()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await sleep(20); }
+};
+
+const CUE = 1, ROW = 8;
+
+(async () => {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone?.store.doc; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); log("\nFAILURES: 1"); return; }
+  const { store, timeline } = M;
+  for (let i = 0; i < 200 && win.document.getElementById("splash"); i++) await sleep(50);
+
+  // ── what the lanes hold at (CUE, ROW), from a chase on a second engine ──
+  const doc = parseTaud(new Uint8Array(await (await fetch("../../assets/demo_projects/Huygens_clock.taud")).arrayBuffer()));
+  const song = doc.songs[0];
+  setSamplingRate(48000);
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, doc, 0);
+  eng.chaseTrackerRow(0, CUE, ROW);
+  const ts = eng.playheads[0].trackerState;
+  const moved = [];
+  for (let vi = 0; vi < eng.channelCount(); vi++) {
+    const v = ts.voices[vi];
+    if (v.channelPan !== 0x80 || v.channelVolume !== ts.volMax) moved.push({ vi, pan: v.channelPan, vol: v.channelVolume });
+  }
+  check(moved.length >= 3, "premise: the song has lanes off their defaults by then",
+    moved.map((m) => `L${m.vi} ${m.pan}/${m.vol}`).join(" "));
+
+  // ── Enter on the Timeline cursor at (CUE, ROW) ──────────────────────────
+  let abs = -1;
+  for (let r = 0; r < 4096 && abs < 0; r++) {
+    const loc = timeline.locate(r);
+    if (loc && loc.entry.cue === CUE && loc.rowInCue === ROW) abs = r;
+  }
+  check(abs >= 0, "the Timeline shows the row", `absolute row ${abs}`);
+  store.cursor.row = abs;
+  const enter = () => win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+  enter();
+  await until(() => store.audio?.isPlaying() && store.audio.getCuePosition() === CUE, 8000, "the song to start at the cursor");
+  await sleep(60); // a snapshot or two
+  const a = store.audio;
+  check(a.getCuePosition() === CUE && a.getTrackerRow() >= ROW && a.getTrackerRow() < ROW + 4,
+    "playback starts at the cursor", `cue ${a.getCuePosition()} row ${a.getTrackerRow()}`);
+  for (const m of moved) {
+    const pan = a.getVoiceChannelAzimuth(m.vi), vol = a.getVoiceChannelVolume(m.vi);
+    check(pan === m.pan && vol === m.vol, `lane ${m.vi} plays where the song has it`,
+      `pan ${pan} (song ${m.pan}), volume ${vol} (song ${m.vol})`);
+  }
+  check(a.getBPM() === eng.getBPM(0) && a.getTickRate() === eng.getTickRate(0),
+    "the tempo and speed are the song's there", `${a.getBPM()}/${a.getTickRate()}`);
+
+  // ── a tempo the last play left behind does not outlive it ───────────────
+  enter(); // stop
+  await until(() => !store.audio.isPlaying(), 4000, "the song to stop");
+  store.audio.setBPM(0, song.bpm + 37); // what a T effect would have left
+  await sleep(60);
+  win.document.getElementById("playSong").click();
+  await until(() => store.audio.isPlaying(), 4000, "the song to start again");
+  await sleep(60);
+  check(store.audio.getBPM() === song.bpm, "Play song starts at the song's own tempo",
+    `${store.audio.getBPM()} (song ${song.bpm})`);
+  store.audio.stop(0);
+
+  log(`\nFAILURES: ${fails}`);
+})().catch((e) => { log(`ERROR ${e.message}`); log("\nFAILURES: 1"); });
+</script>

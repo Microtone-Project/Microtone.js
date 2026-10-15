@@ -41,9 +41,12 @@ async function ready({ timeout }) {
     async play(cue = 0, row = 0) {
       await window.__microtoneEnsureAudio();
       store.sync.flushPatterns();
-      store.audio.resetSampleFxState(0);
-      store.audio.setCuePosition(0, cue);
-      store.audio.setTrackerRow(0, row);
+      const song = store.song;
+      store.audio.setBPM(0, song.bpm);
+      store.audio.setTickRate(0, song.tickRate > 0 ? song.tickRate : 6);
+      store.audio.setSongGlobalVolume(0, song.globalVolume);
+      store.audio.setSongMixingVolume(0, song.mixingVolume);
+      store.audio.chaseTrackerRow(0, cue, row);
       store.audio.play(0);
       await until(() => store.audio.isPlaying(), 5000, "the song to start");
     },

@@ -1133,9 +1133,15 @@ async function playFrom(cue, row) {
   if (!store.doc) return;
   await ensureAudio(); // guarantees store.sync exists for the loaded doc
   store.sync.flushPatterns();
-  store.audio.resetSampleFxState(0);
-  store.audio.setCuePosition(0, cue);
-  store.audio.setTrackerRow(0, row);
+  // The song's own starting tempo, speed and volumes — where the chase sets
+  // out from, and what the last play's T / A / V had moved (item 215).
+  const song = store.song;
+  store.audio.setBPM(0, song.bpm);
+  store.audio.setTickRate(0, song.tickRate > 0 ? song.tickRate : 6);
+  store.audio.setSongGlobalVolume(0, song.globalVolume);
+  store.audio.setSongMixingVolume(0, song.mixingVolume);
+  // Every lane as the song leaves it at (cue, row), not at its defaults.
+  store.audio.chaseTrackerRow(0, cue, row);
   store.audio.play(0);
 }
 

@@ -40,6 +40,7 @@ export const CMD = Object.freeze({
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
   SET_TRACKER_ROW: "setTrackerRow",                // {ph, row}
+  CHASE_TRACKER_ROW: "chaseTrackerRow",            // {ph, cue, row} — play-from-row with the song's state (item 215)
   RESET_PARAMS: "resetParams",                     // {ph}
   RESET_SAMPLE_FX_STATE: "resetSampleFxState",     // {ph} — invert masks, funk windows, notefx 2/3
   JAM_NOTE: "jamNote",                             // {ph, voice, note, inst}

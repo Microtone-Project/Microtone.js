@@ -519,11 +519,21 @@ export function resetPatternLoopState(ts) {
  * Called once when tickInRow has just wrapped past tickRate.
  */
 export function advanceRow(eng, ts, playhead) {
+  advanceRowPosition(eng, ts, playhead);
+  applyTrackerRow(eng, ts, playhead);
+}
+
+/**
+ * advanceRow's first half: move the position to the row that plays next —
+ * the same row again while a pattern delay (S$Ex) repeats it, else wherever a
+ * pending B/C/S$Bx jump or the cue's end sends it — without applying it. A
+ * chase (chase.js) needs the two apart, to stop BEFORE the row it is after.
+ */
+export function advanceRowPosition(eng, ts, playhead) {
   // Pattern delay (S$Ex): replay the same row patternDelayRemaining more times.
   if (ts.patternDelayRemaining > 0) {
     ts.patternDelayRemaining--;
     ts.patternDelayActive = true;
-    applyTrackerRow(eng, ts, playhead);
     return;
   }
   ts.patternDelayActive = false;
@@ -558,5 +568,4 @@ export function advanceRow(eng, ts, playhead) {
       resetPatternLoopState(ts);
     }
   }
-  applyTrackerRow(eng, ts, playhead);
 }

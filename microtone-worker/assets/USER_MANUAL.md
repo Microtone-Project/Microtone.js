@@ -106,6 +106,8 @@ The app warns before discarding unsaved changes, and autosaves your work — see
 | **▶ Cue** button | Play from the cue under the cursor |
 | **follow** checkbox | Scroll the view with playback |
 
+Playing from the middle picks the song up as it stands there. Before the first row sounds, Microtone runs silently through everything that comes before it — in the song's own order, jumps and loops included — so every lane starts with the volume, panning, bitcrusher and overdrive settings, instrument and effect memory it would have had if you had played from the start, and the tempo, speed and global volume are the song's at that point too. Notes still ringing from earlier rows are not restarted: each lane is silent until its next note. A row the song never reaches when played from the start — after a halt, past a pattern break, or beyond a loop that never ends — is picked up by going through the cues in order instead.
+
 Audio starts in a suspended state (browsers require a user gesture before
 sound); the first click or key press activates it — the badge in the top bar
 shows `audio @ … Hz` once running. Jamming on the piano keys works immediately,
@@ -930,7 +932,8 @@ slide the wheel walks the signed delta (…−2, −1, +1, +2…) and stops eith
 side of zero, since the direction is the symbol cell's business. Hovering the
 top-bar **Oct** / **Inst** / **Step** / **Spd** displays and wheeling changes the jam
 octave, steps through the used instrument slots, changes the input step, or
-nudges the live playback speed.
+nudges the live playback speed (until the next time you press Play, which
+starts at the song's own speed).
 
 ### Nudging with Ctrl+arrows
 

@@ -29,6 +29,7 @@ import { triggerMetaOrNote, triggerNote } from "./trigger.js";
 import { startCutRamp } from "./sampler.js";
 import { applyKeyLift } from "./envelope.js";
 import { reconstructDittoState } from "./row.js";
+import { chaseSongPath, chaseCueOrder } from "./chase.js";
 
 // Scratch instrument slot for the raw-sample preview (jamSample). It sits just
 // past the 1024 addressable bank slots so an audition never borrows a real one;
@@ -273,22 +274,9 @@ export class TaudEngine {
   setTrackerRow(ph, row) {
     const ts = this.playheads[ph].trackerState;
     ts.rowIndex = Math.min(Math.max(row, 0), 63);
-    ts.tickInRow = 0;
-    ts.samplesIntoTick = 0.0;
-    ts.firstRow = true;
-    // A replay meets the OPL chip where a render from the start does (§15).
-    ts.oplFrame = 0;
-    ts.pendingOrderJump = -1;
-    ts.pendingRowJump = -1;
-    ts.pendingRowJumpLocal = false;
-    ts.patternDelayRemaining = 0;
-    ts.patternDelayActive = false;
-    ts.sexWinningChannel = -1;
-    ts.finePatternDelayExtra = 0;
-    ts.pendingInterrupts = 0;
-    ts.interruptArgs.fill(0);
+    // Timing, jumps, voices, the ghost pool, the mastering chain's state.
+    ts.resetPlayState();
     for (const v of ts.voices) {
-      v.active = false;
       // Clear per-voice pattern-loop (S$Bx) + Ditto (effect 7) memory so a replay
       // never resumes effect status from the previous play (item 44). These are
       // transient playback state, not song settings — the same rationale as the
@@ -334,19 +322,54 @@ export class TaudEngine {
       v.nnaOverride = -1;
       v.volEnvOn = true; v.panEnvOn = true; v.pitchEnvOn = true; v.filterEnvOn = true;
     }
-    ts.backgroundVoices.length = 0; // drop lingering NNA ghosts from a prior play
-    // The mastering chain (item 178) is per-PLAY transient in exactly the sense
-    // the ghost pool is: a compressor still holding six decibels of reduction
-    // from before the seek, and a look-ahead buffer still holding two
-    // milliseconds of the previous playback, both bleed the old take into the
-    // new one. Its PARAMETERS are the song's and are left alone, like the tempo.
-    ts.mastering?.reset();
-    // …and the meter's integration describes one playback, so it starts again
-    // with it — including the bit histogram, which is cumulative by design.
-    ts.masterMeter?.resetAll();
     // Re-arm any Pattern-Ditto (effect 7) region that a mid-pattern start lands
     // inside, so a ghosted (repeated) row sounds when you play from it (item 81).
     reconstructDittoState(this, ts, ts.rowIndex);
+  }
+
+  /**
+   * Put the playhead on row `row` of cue `cue` in the state the song itself
+   * arrives there with — the CHASE (item 215, TAUD_ENGINE_SPEC.md §15.1) —
+   * where setCuePosition + setTrackerRow put every lane back to the song's
+   * start instead. From the song's start, every row event and tick pass of
+   * the song's own path to that row is run with nothing mixed (chase.js), so
+   * the lanes' volume, panning and colouring, their effect memory and
+   * instrument, the tempo, the tick rate and the global volume are what a
+   * play from the start would have there; then the per-play reset, so no
+   * voice is sounding and the ghost pool and the mastering chain are empty.
+   * Ready for play().
+   *
+   * The song's starting tempo, tick rate and volumes are taken from the
+   * playhead: the engine has no song table, so a host sets the file's own
+   * first (setBPM …), as it does when it loads the song. A row the song's
+   * path never reaches is chased through the cues in order instead; returns
+   * false when that happened. The desk's faders and mutes are left as they
+   * are; every voice is stopped, the jam bank's included, as setTrackerRow
+   * stops them.
+   */
+  chaseTrackerRow(ph, cue, row) {
+    const p = this.playheads[ph];
+    const ts = p.trackerState;
+    cue &= NUM_CUES - 1;
+    row = Math.min(Math.max(row, 0), 63);
+    const start = {
+      bpm: p.bpm, tickRate: p.tickRate,
+      globalVolume: p.globalVolume, mixingVolume: p.mixingVolume,
+    };
+    const wasPlaying = p.isPlaying;
+    p.isPlaying = true; // the walk's halt test: a halt cue clears it
+    p.resetToSongStart(start);
+    const reached = chaseSongPath(this, ts, p, cue, row);
+    if (!reached) {
+      p.resetToSongStart(start);
+      chaseCueOrder(this, ts, p, cue, row);
+    }
+    p.isPlaying = wasPlaying;
+    p.position = cue;
+    ts.cuePos = cue;
+    ts.rowIndex = row;
+    ts.resetPlayState();
+    return reached;
   }
 
   setTrackerMixerFlags(ph, flags) {

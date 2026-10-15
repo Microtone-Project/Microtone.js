@@ -91,6 +91,7 @@ export function applyAudioCommand(eng, m) {
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
     case CMD.SET_TRACKER_ROW: eng.setTrackerRow(m.ph, m.row); return true;
+    case CMD.CHASE_TRACKER_ROW: eng.chaseTrackerRow(m.ph, m.cue, m.row); return true;
     case CMD.RESET_PARAMS: eng.resetParams(m.ph); return true;
     case CMD.RESET_SAMPLE_FX_STATE: eng.resetSampleFxState(m.ph); return true;
     case CMD.JAM_NOTE: eng.jamNote(m.ph, m.voice, m.note, m.inst, m.audition); return true;
@@ -108,7 +109,8 @@ export function applyAudioCommand(eng, m) {
  *  must flush the audio ring so no stale buffered tail plays after them). */
 export function isTransportReset(t) {
   return t === CMD.PLAY || t === CMD.STOP ||
-    t === CMD.SET_CUE_POSITION || t === CMD.SET_TRACKER_ROW || t === CMD.RESET_PARAMS;
+    t === CMD.SET_CUE_POSITION || t === CMD.SET_TRACKER_ROW ||
+    t === CMD.CHASE_TRACKER_ROW || t === CMD.RESET_PARAMS;
 }
 
 /** Detached copy of instrument `slot`'s S$Fx invert-loop bit mask (reply payload). */
