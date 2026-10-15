@@ -508,15 +508,17 @@ At the default 50 Hz tick rate: stored 1 ≈ 20.5 s, stored 32 ≈ 640 ms, store
 #### Byte 195 — Duplicate Check
 
 ```
-0b 0000 dcdt
+0b AATT aatt
 ```
 
 | Bits | Field |
 |---|---|
-| `dt` (0…1) | Duplicate Check **Type**: 0 = off, 1 = note, 2 = sample, 3 = instrument |
-| `dc` (2…3) | Duplicate Check **Action**: 0 = note cut, 1 = note off, 2 = note fade |
+| `TTtt` (4…5, 0…1) | Duplicate Check **Type**, a four-bit number: 0 = off, 1 = note, 2 = sample, 3 = instrument, 4 = lane |
+| `AAaa` (6…7, 2…3) | Duplicate Check **Action**, a four-bit number: 0 = note cut, 1 = note off, 2 = note fade |
 
-IT-only semantics; FT2-sourced instruments leave this 0. The values consulted at trigger time belong to the *existing* voice's instrument, not the incoming note's, so two instruments on one lane can behave asymmetrically — which is IT-correct.
+**Each field is ONE four-bit number split in two**, its low two bits where the field's two bits always were (`tt` at bits 0…1, `aa` at bits 2…3) and its high two bits above them (`TT` at bits 4…5, `AA` at bits 6…7): Type = `TT << 2 | tt`, Action = `AA << 2 | aa`. A record written before the fields were widened has zeros where the high bits now sit and reads exactly as it did. Types 5…15 are undefined and **MUST** read as 0, off; Actions 3…15 are undefined, and a voice the check matches under one is left alone.
+
+Types 0…3 and the three Actions are ImpulseTracker's; FT2-sourced instruments leave the byte 0. Type 4, **lane**, is Taud's own: every note arriving on the lane is a duplicate, whatever instrument plays it ([Engine Specification §5.6](TAUD_ENGINE_SPEC.md)). The values consulted at trigger time belong to the *existing* voice's instrument, not the incoming note's, so two instruments on one lane can behave asymmetrically — which is IT-correct.
 
 #### Byte 171 versus byte 196
 
@@ -1391,3 +1393,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-11 | `PMtf` — Motif source: the Taud Motif Language program a project was built from, carried in the project |
 | 2026-10-14 | Metainstrument type 8 — OPL instruments: an ordinary record with a YM3812 / YMF262 channel in place of its sample, the patch in the second pitch/filter slot |
 | 2026-10-14 | Metainstrument type 1 — formant instruments: an ordinary record whose sample is a glottal source, a vocal tract (the vowel as tongue and lips, the glide and r-colouring, three consonant slots with their pool recipes or the engine's noise generator, the pitch rules) in the second pitch/filter slot |
+| 2026-10-15 | Byte 195's Duplicate Check Type and Action widened to four-bit numbers, each split around the old two-bit field (`0b AATT aatt`); Type 4, lane |

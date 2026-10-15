@@ -7,7 +7,7 @@
 
 import { MAX_BG_VOICES, ATTACK_RAMP_SAMPLES } from "./constants.js";
 import { Voice, isSoundingChild } from "./voice.js";
-import { patchIsStereo, patchVibratoInherits, layerNote } from "./inst.js";
+import { patchIsStereo, patchVibratoInherits, layerNote, DCT_LANE } from "./inst.js";
 import {
   FmRig, cloneFmRig, fmReferencedOperators, fmSeedGains, dropFmOperators,
 } from "./fm.js";
@@ -774,7 +774,14 @@ function principalOf(eng, instId, note) {
 
 /**
  * IT-style Duplicate Check (DCT/DCA), run BEFORE NNA on every fresh foreground
- * trigger. Reference: schismtracker effects.c:1664-1764.
+ * trigger. Reference: schismtracker effects.c csf_check_nna.
+ *
+ * Type 4, Lane (item 216), is Taud's own: every note arriving on the lane is
+ * a duplicate, whatever plays it — a note with no instrument byte included,
+ * which plays the lane's current instrument. Types 1-3 still ask only about a
+ * note that names its instrument. (IT checks a bare note too, against the
+ * lane's instrument, and its Note Cut then leaves the bare note itself at
+ * volume 0 — measured with openmpt123; not followed here.)
  *
  * Formant instruments (item 212) read it as one voice speaking: their
  * "sample" is the POOL RANGE they are made from, so DCT Sample matches any
@@ -784,6 +791,8 @@ function principalOf(eng, instId, note) {
  * crossfade (as NNA Note Cut's is) rather than a step.
  */
 export function applyDuplicateCheck(eng, ts, channel, instId, note) {
+  const bare = instId === 0;
+  if (bare) instId = ts.voices[channel].instrumentId;
   if (instId === 0) return;
   const [newInstId, newNote] = principalOf(eng, instId, note);
   const newInst = eng.instruments[newInstId];
@@ -794,6 +803,7 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
   const isDuplicate = (v) => {
     const existInst = eng.instruments[v.instrumentId];
     if (v.formant !== null && (v.formant.phase >= PHASE_CODA || v.rampOutSamples > 0)) return false;
+    if (bare && existInst.duplicateCheckType !== DCT_LANE) return false;
     switch (existInst.duplicateCheckType) {
       case 1: return v.noteVal === newNote && v.instrumentId === newInstId;
       case 2:
@@ -805,6 +815,7 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
                v.activeSamplePtr === newSmpPtr &&
                v.activeSampleLength === newSmpLen;
       case 3: return v.instrumentId === newInstId;
+      case DCT_LANE: return true;
       default: return false;
     }
   };

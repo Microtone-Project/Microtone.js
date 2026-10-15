@@ -6,6 +6,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-16
 
+The Duplicate Check can now watch the whole lane: an instrument set to *Lane* gives way to whatever note comes next on its lane.
+
+- **Duplicate Check Type: Lane** (Instruments → General): every note arriving on the lane counts as a duplicate, whichever instrument plays it and whether or not the row names one, and the Duplicate Check Action — cut, off or fade — is applied to everything this instrument still has sounding there. Note, Sample and Instrument only match the same instrument (or, for formant instruments, one made from the same pool range), so until now nothing could make an instrument give way to a different one.
+- Songs and instruments made before keep behaving exactly as they did.
+
 Formant instruments arrive: an instrument that sings, turning any looped tone in the pool into a singer that says a syllable on every note.
 
 - **A new kind of instrument**: Instruments → Meta… → Formant instrument sings its sample through a model of the vocal tract — up to two consonants, a glide ([j] [ɥ] [ɰ] [w]), a vowel that can be r-coloured, and a final consonant spoken when the key is let go — so a note can be *sa*, *stra*, *kwan* or *sjɚn*. It costs one voice.
@@ -16,7 +21,7 @@ Formant instruments arrive: an instrument that sings, turning any looped tone in
 - **Edits you hear as you make them**: a note held while you drag the vowel or the roundness follows it.
 - **Vowels that sing like singers**: the vowel rises a little with the pitch the way a higher singer's does, and on high notes it opens the jaw as a soprano does.
 - **Even loudness**: however loud or quiet the source, however bright or dark — a plain tone or whichever stretch of a recorded voice each vowel chose — it is brought to one level, and the vowel and consonants shape it by ear, so an [i] sounds as loud as an [a] rather than merely measuring the same; changing the vowel changes the timbre, not the loudness.
-- **Key-off speaks the last consonant**; a note cut, note fade or fast fade ends the vowel without it, and a new note lets the old one finish its consonant underneath while its vowel stops — a new formant instrument checks for duplicates by the pool range it is made from, so the syllables of a word, each its own instrument, never sing over one another.
+- **Key-off speaks the last consonant**; a note cut, note fade or fast fade ends the vowel without it. A new formant instrument's Duplicate Check is *Lane → Off*, so any note that follows on the lane, whatever plays it, lets the old syllable say its last consonant underneath as the next begins, and its short fadeout lets a syllable with no last consonant die away instead of singing on under the next.
 - **`S $Afgr` changes the vowel** from the pattern — how open, how front, how rounded — at the start of a note or gliding mid-note, so one instrument can sing a whole text.
 - **One Pitch/Filter tab** for OPL and formant instruments, which have room for only one such envelope: a Pitch | Filter switch at its top says which it is, instead of two tabs editing the same envelope.
 

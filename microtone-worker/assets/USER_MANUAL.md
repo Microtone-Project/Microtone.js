@@ -1712,25 +1712,31 @@ A new formant instrument takes every sample and recording in the pool as its ran
 the source that suits [a] best, sings [a] and opens on its **Formant** tab.
 
 **How a note sings.** A note says its onset consonants, then holds the vowel.
-A **key-off** speaks the coda and ends the note. A **note cut** stops it at
-once, and a **note fade** or **fast fade** fades the vowel away without ever
-saying the coda. With the New Note Action at *Note Off* — what a new one uses —
-a new note on the lane lets the old one finish its coda while it starts its own
-syllable, the way connected speech runs one word into the next.
+A **key-off** speaks the coda and ends the note; a syllable with no coda goes
+on singing its vowel through the release, until the fadeout ends it. A **note
+cut** stops it at once, and a **note fade** or **fast fade** fades the vowel
+away without ever saying the coda.
 
-What it does not let the old note do is keep singing its vowel. A new formant
-instrument's **Duplicate Check** is *Sample → Note Cut*, and for formant
-instruments "the same sample" means **made from the same pool range** — so the
-next syllable, whether this instrument says it or another one made from the
-same range, ends the old syllable's vowel in a quick crossfade. A coda already
-being spoken is left to finish. Words spelt out syllable by syllable, an
-instrument each, then speak as one voice; set the Duplicate Check to *Off* to
-let syllables overlap, as a choir's would.
+**Each syllable gives way to the next.** A new formant instrument's New Note
+Action is *Note Off*, and its **Duplicate Check** is *Lane → Off*: whenever
+any note arrives on the lane — this instrument's, another formant
+instrument's, or a plain sampled one — every syllable of it still singing its
+vowel there is keyed off. Each speaks its coda while the lane starts the next
+syllable, the way connected speech runs one word into the next, and a coda
+already being spoken is left to finish. Words spelt out syllable by syllable,
+an instrument each, run together this way.
 
-A key-off also
-releases the envelopes and starts the fadeout as on any instrument, so a
-fadeout shorter than the coda cuts the coda short; a new formant instrument has
-none.
+A key-off also releases the envelopes and starts the fadeout as on any
+instrument. A new formant instrument's fadeout is 32, about two-thirds of a
+second at 125 BPM: a syllable with no coda fades away under the next one
+rather than singing on beneath it, and a coda is heard out, a little quieter
+at its end. The fadeout is how long such a syllable lingers — shorten it for a
+cleaner join, or lengthen it to let syllables overlap, as a choir's would — and
+a fadeout shorter than a coda cuts the coda short. For a quick crossfade
+instead, the vowel ending the moment the next syllable starts and its coda
+unsaid, set the Duplicate Check to *Sample → Cut*: for formant instruments
+"the same sample" means **made from the same pool range**, so any syllable
+made from that range ends the old one's vowel.
 
 **The vowel follows the note.** A singer pitched higher has a smaller vocal
 tract, so the vowel's formants rise a little with the pitch, and once a note climbs past the vowel's
@@ -1791,7 +1797,7 @@ either way.
 
 ### Editing an instrument
 
-- **General** — global volume, volume swing, fadeout; default pan (which becomes **default azimuth**, and on a spatial song **default elevation**, once the song has a surround model — see [Surround panning](#surround-panning)), pan swing, pitch-pan separation and centre; wide-range detune (with hex-word and cents readouts); **New Note Action** (cut / continue / off / fade / key-lift), Duplicate Check Type and Action; filter mode (**ImpulseTracker** or **SoundFont2**) with cutoff and resonance shown in Hz/dB for SF2 mode. The Sample section binds the sample and opens the **play/loop/sustain marker editor** — draggable play-start, loop-start and loop-end markers, loop mode (off / forward / ping-pong / one-shot) and sustain, affecting this instrument slot only. Play start, loop start and loop end are all spinners here too, so a number read off the waveform's hairline can simply be typed in. **Auto loop** searches the sample for a loop region that plays without an audible click and writes the two markers for you: pick *cleanest*, *balanced* or *longest* (how much of a tick you will accept in exchange for keeping more of the sample) and it reports how long the loop is and how loud its seam is, in dB below the sound carrying it. It searches for whichever loop mode is set — forward and ping-pong click in different ways and want different loop points — and it only ever writes when you ask, so the numbers stay yours to adjust afterwards.
+- **General** — global volume, volume swing, fadeout; default pan (which becomes **default azimuth**, and on a spatial song **default elevation**, once the song has a surround model — see [Surround panning](#surround-panning)), pan swing, pitch-pan separation and centre; wide-range detune (with hex-word and cents readouts); **New Note Action** (cut / continue / off / fade / key-lift), Duplicate Check Type (never / note / sample / instrument / **lane** — any note arriving on the lane, whatever plays it) and Action (cut / off / fade); filter mode (**ImpulseTracker** or **SoundFont2**) with cutoff and resonance shown in Hz/dB for SF2 mode. The Sample section binds the sample and opens the **play/loop/sustain marker editor** — draggable play-start, loop-start and loop-end markers, loop mode (off / forward / ping-pong / one-shot) and sustain, affecting this instrument slot only. Play start, loop start and loop end are all spinners here too, so a number read off the waveform's hairline can simply be typed in. **Auto loop** searches the sample for a loop region that plays without an audible click and writes the two markers for you: pick *cleanest*, *balanced* or *longest* (how much of a tick you will accept in exchange for keeping more of the sample) and it reports how long the loop is and how loud its seam is, in dB below the sound carrying it. It searches for whichever loop mode is set — forward and ping-pong click in different ways and want different loop points — and it only ever writes when you ask, so the numbers stay yours to adjust afterwards.
   - **From the list**, under *Sample ptr*, is the same binding as a list rather than an address: every sample in the pool, plus the [recordings loaded into memory](#long-recordings-in-memory) in a group of their own. Choosing one writes its pointer, length, rate and loop into this record in a single undo step; choosing a recording points the instrument at its first 65535 bytes, which the spinners then move. It is a copy, not a link — the list is *derived* from what the instruments point at, so a row can appear or disappear as you use it, and the row shown is always the one this record's own pointer lands on.
 - **Vol env / Pan env / Pitch / Filter** — envelope graphs. Drag nodes vertically for values, horizontally for timing; a checkbox switches to a logarithmic timescale. The pitch/filter tab follows the instrument's envelope role.
   - An **OPL** or **formant** instrument has room for only one pitch-or-filter envelope, so it shows a single **Pitch/Filter** tab, with an **Envelope role** switch — **Pitch** or **Filter** — at its top. Switching keeps the nodes and reads them the other way.

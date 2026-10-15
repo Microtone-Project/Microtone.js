@@ -6037,7 +6037,7 @@ function buildFormantRecord(block, src, {
   const d = detune & 0xffff;
   r[184] = d & 0xff; r[185] = (d >>> 8) & 0xff;
   r[186] = (nna & 3) | (((nna >>> 2) & 1) << 5);
-  r[195] = (dct & 3) | ((dca & 3) << 2);
+  r[195] = packDupCheck(dct, dca);
   r[196] = noteVolume & 0xff;
   r.set(block.subarray(0, FORMANT_BLOCK_LEN), FORMANT_BLOCK_START);
   const p = src.ptr ?? 0;
@@ -6045,6 +6045,19 @@ function buildFormantRecord(block, src, {
   r[FORMANT_BLOCK_START + 1] = (p >>> 8) & 0xff;
   r[FORMANT_BLOCK_START + 2] = (p >>> 16) & 0xff;
   return r;
+}
+
+/** Duplicate Check Type 4 (item 216): every note arriving on the lane. */
+const DCT_LANE = 4;
+
+/**
+ * Byte 195, the Duplicate Check (§7.1): `0b AATT aatt`. The Type nibble is
+ * TTtt and the Action nibble AAaa, each split so that its LOW two bits sit
+ * where the two-bit field always sat (bits 0-1 and 2-3) — a record written
+ * before the nibbles existed reads exactly as it did.
+ */
+function packDupCheck(type, action) {
+  return (type & 0x03) | ((action & 0x03) << 2) | ((type & 0x0c) << 2) | ((action & 0x0c) << 4);
 }
 
 /**
@@ -6246,8 +6259,9 @@ class TaudInst {
     const v = this.sampleDetune & 0xffff;
     return v >= 0x8000 ? v - 0x10000 : v;
   }
-  get duplicateCheckType() { return this.dupCheckFlag & 0x03; }
-  get duplicateCheckAction() { return (this.dupCheckFlag >>> 2) & 0x03; }
+  /** Byte 195's two nibbles, `0b AATT aatt` (packDupCheck). */
+  get duplicateCheckType() { return (this.dupCheckFlag & 0x03) | ((this.dupCheckFlag >>> 2) & 0x0c); }
+  get duplicateCheckAction() { return ((this.dupCheckFlag >>> 2) & 0x03) | ((this.dupCheckFlag >>> 4) & 0x0c); }
   /** byte 173 bit 4: false = ImpulseTracker filter units, true = SoundFont. */
   get filterSfMode() { return ((this.fadeoutHigh >>> 4) & 1) !== 0; }
   get isMeta() { return this.metaLayers !== null; }
@@ -6761,7 +6775,7 @@ class TaudInst {
       case 192: this.panEnvSustainWord = (this.panEnvSustainWord & 0x00ff) | (byte << 8); break;
       case 193: this.pfEnvSustainWord = (this.pfEnvSustainWord & 0xff00) | byte; break;
       case 194: this.pfEnvSustainWord = (this.pfEnvSustainWord & 0x00ff) | (byte << 8); break;
-      case 195: this.dupCheckFlag = byte & 0x0f; break;
+      case 195: this.dupCheckFlag = byte & 0xff; break;
       case 196: this.defaultNoteVolume = byte & 0xff; break;
       case 197: this.pf2EnvLoop = (this.pf2EnvLoop & 0xff00) | byte; break;
       case 198: this.pf2EnvLoop = (this.pf2EnvLoop & 0x00ff) | (byte << 8); break;
@@ -11978,7 +11992,14 @@ function principalOf(eng, instId, note) {
 
 /**
  * IT-style Duplicate Check (DCT/DCA), run BEFORE NNA on every fresh foreground
- * trigger. Reference: schismtracker effects.c:1664-1764.
+ * trigger. Reference: schismtracker effects.c csf_check_nna.
+ *
+ * Type 4, Lane (item 216), is Taud's own: every note arriving on the lane is
+ * a duplicate, whatever plays it — a note with no instrument byte included,
+ * which plays the lane's current instrument. Types 1-3 still ask only about a
+ * note that names its instrument. (IT checks a bare note too, against the
+ * lane's instrument, and its Note Cut then leaves the bare note itself at
+ * volume 0 — measured with openmpt123; not followed here.)
  *
  * Formant instruments (item 212) read it as one voice speaking: their
  * "sample" is the POOL RANGE they are made from, so DCT Sample matches any
@@ -11988,6 +12009,8 @@ function principalOf(eng, instId, note) {
  * crossfade (as NNA Note Cut's is) rather than a step.
  */
 function applyDuplicateCheck(eng, ts, channel, instId, note) {
+  const bare = instId === 0;
+  if (bare) instId = ts.voices[channel].instrumentId;
   if (instId === 0) return;
   const [newInstId, newNote] = principalOf(eng, instId, note);
   const newInst = eng.instruments[newInstId];
@@ -11998,6 +12021,7 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
   const isDuplicate = (v) => {
     const existInst = eng.instruments[v.instrumentId];
     if (v.formant !== null && (v.formant.phase >= PHASE_CODA || v.rampOutSamples > 0)) return false;
+    if (bare && existInst.duplicateCheckType !== DCT_LANE) return false;
     switch (existInst.duplicateCheckType) {
       case 1: return v.noteVal === newNote && v.instrumentId === newInstId;
       case 2:
@@ -12009,6 +12033,7 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
                v.activeSamplePtr === newSmpPtr &&
                v.activeSampleLength === newSmpLen;
       case 3: return v.instrumentId === newInstId;
+      case DCT_LANE: return true;
       default: return false;
     }
   };

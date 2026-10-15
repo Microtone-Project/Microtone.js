@@ -876,7 +876,7 @@ Either then takes the slot's tilt — for tilt `t` with `c = |t| ÷ 128`, `t > 0
 
 ### 5.6 Duplicate Check
 
-Duplicate Check (DCT/DCA) fires on every fresh foreground trigger that carries an instrument byte, **before** the NNA spawn. It does not fire on tone portamento, on key-off, on note cut, or on an empty cell.
+Duplicate Check (DCT/DCA) fires on every fresh foreground trigger, **before** the NNA spawn. It does not fire on tone portamento, on key-off, on note cut, or on an empty cell. A trigger with no instrument byte plays the lane's current instrument and is checked as that instrument, but only the **lane** type can match it: types 1…3 match only a trigger that carries an instrument byte. (ImpulseTracker checks such a note against types 1…3 as well, and its note cut then leaves the incoming note at volume 0; Taud follows neither.)
 
 The values consulted belong to the **existing** voice's instrument, not the incoming note's, so two instruments sharing a lane can behave asymmetrically. Targets are the lane's foreground voice and every background voice that lane spawned; each is tested independently against the incoming (instrument, note) pair.
 
@@ -888,6 +888,9 @@ The values consulted belong to the **existing** voice's instrument, not the inco
 | 1 — note | Same note word **and** same instrument |
 | 2 — sample | Same instrument **and** same canonical sample, matched by pointer and length |
 | 3 — instrument | Same instrument |
+| 4 — lane | Always: any note arriving on the lane, whatever instrument plays it |
+
+Types 5…15 never match. Type 4 is Taud's own: it lets an instrument's notes give way to *whatever* the lane plays next — a note of another instrument included, which types 1…3 never match.
 
 | Action | Effect on a matching voice |
 |---|---|
@@ -895,10 +898,13 @@ The values consulted belong to the **existing** voice's instrument, not the inco
 | 1 — note off | Set key-off (releasing sustain, applying key lift, and starting the fadeout if one is configured) |
 | 2 — note fade | Begin fading immediately, with no sustain release, so sample and envelope loops continue |
 
+Actions 3…15 do nothing: a voice matched under one is left as it was.
+
 **Formant instruments** ([§5.5.3](#5-5-3-type-1-formant-instruments)) are checked as ONE VOICE SPEAKING — the syllables of a word, each its own instrument, on one lane:
 
 - For type 2 a voice sounding a formant instrument matches an incoming formant instrument made from the **same pool range** (block bytes +11…+16 equal), whichever instruments the two are: the range is what a formant instrument is made from, as a sample is what an ordinary one plays.
 - What the check ends is the **vowel**. A formant voice already speaking its coda, or already ramping out, is never a target — the coda ends the note itself.
+- Type 4 with action 1 keys off every syllable on the lane still in its vowel, so each speaks its coda as the lane moves on, whatever the next note is. A syllable with no coda goes on singing its vowel through its release ([§5.5.3](#5-5-3-type-1-formant-instruments)): its fadeout or its volume envelope is what ends it.
 - Action 0 does not zero a formant voice: it ramps it out over the attack ramp ([§8.7](#8-7-the-attack-ramp)) — the foreground voice through a ghost, as Note Cut's New Note Action does ([§5.7](#5-7-new-note-actions)) — so the next syllable crossfades in rather than splicing on.
 
 ### 5.7 New Note Actions
@@ -1585,7 +1591,7 @@ An implementation conforms when all of the following hold.
 - Every envelope, the volume one included, is read only when its `P` presence bit is set.
 - The volume envelope's cut rule fires on a zero-valued terminator with no active wrap.
 - NNA ghosts carry the complete voice state, including both filter topologies' delay lines.
-- Duplicate Check runs before the NNA spawn and consults the *existing* voice's instrument.
+- Duplicate Check runs before the NNA spawn and consults the *existing* voice's instrument; its lane type matches every note arriving on the lane, one without an instrument byte included, and types 1…3 never match such a note.
 - A note delay's trigger re-binds the instrument for the remainder of that tick.
 - Sample ends and envelope cuts ramp out over 8 ms; volume changes ramp over 2 ms, and `current_mix_volume` snaps rather than ramps on a trigger.
 - A fresh trigger separately fades `ramp_gain` in from silence over a ~⅔ ms half-cosine attack ramp, inherited by an NNA ghost spawned mid-ramp.

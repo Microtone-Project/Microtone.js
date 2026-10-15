@@ -65,8 +65,8 @@
         log(`a new slot $${slot.toString(16)} is a type-1 formant instrument with a source: ` +
           ok(inst().isFormant && !inst().isMeta && inst().sampleLength > 0));
         const fade = inst().volumeFadeoutLow | ((inst().fadeoutHigh & 0x0f) << 8);
-        log(`…no fadeout, Duplicate Check Sample → Note Cut: ` +
-          ok(fade === 0 && inst().duplicateCheckType === 2 && inst().duplicateCheckAction === 0));
+        log(`…fadeout 32, Duplicate Check Lane → Note Off: ` +
+          ok(fade === 32 && inst().duplicateCheckType === 4 && inst().duplicateCheckAction === 1));
         await waitFor(() => iv.panel.querySelector(".fmt-chart-svg"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +

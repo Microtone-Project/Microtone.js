@@ -64,7 +64,7 @@ import { parseFieldValue } from "../../doc/patternquery.js";
 import { themeColors } from "../theme.js";
 import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
 import { isStereoSample } from "../../doc/document.js";
-import { baseStereoPatchIndex } from "../../../core/engine/inst.js";
+import { baseStereoPatchIndex, packDupCheck, DCT_LANE } from "../../../core/engine/inst.js";
 import {
   annHex2, annFilter, annFadeout, annSfCutoff, annSfReso, azimuthLabel, elevationLabel,
   SEG_MINIFLOAT_MAP,
@@ -1110,12 +1110,15 @@ export class InstrumentsView {
           const base = inst.instrumentFlag & ~0x23;
           this.setField("instrumentFlag", v === 4 ? (base | 0x20) : (base | (v & 3)));
         }),
-      this.selectRow(t("inst.dct"), inst.dupCheckFlag & 3,
-        [[0, t("inst.dctNever")], [1, t("inst.dctNote")], [2, t("inst.dctSample")], [3, t("inst.dctInstrument")]],
-        (v) => this.setField("dupCheckFlag", (inst.dupCheckFlag & ~3) | v)),
-      this.selectRow(t("inst.dca"), (inst.dupCheckFlag >> 2) & 3,
+      // Byte 195 holds two split nibbles (packDupCheck), so each button
+      // re-packs both rather than masking bits in place.
+      this.selectRow(t("inst.dct"), inst.duplicateCheckType,
+        [[0, t("inst.dctNever")], [1, t("inst.dctNote")], [2, t("inst.dctSample")], [3, t("inst.dctInstrument")],
+         [DCT_LANE, t("inst.dctLane")]],
+        (v) => this.setField("dupCheckFlag", packDupCheck(v, inst.duplicateCheckAction))),
+      this.selectRow(t("inst.dca"), inst.duplicateCheckAction,
         [[0, t("inst.dcaCut")], [1, t("inst.dcaOff")], [2, t("inst.dcaFade")]],
-        (v) => this.setField("dupCheckFlag", (inst.dupCheckFlag & ~0x0c) | (v << 2))),
+        (v) => this.setField("dupCheckFlag", packDupCheck(inst.duplicateCheckType, v))),
     );
 
     if (inst.isOpl) {

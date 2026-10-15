@@ -587,7 +587,7 @@ export function buildFormantRecord(block, src, {
   const d = detune & 0xffff;
   r[184] = d & 0xff; r[185] = (d >>> 8) & 0xff;
   r[186] = (nna & 3) | (((nna >>> 2) & 1) << 5);
-  r[195] = (dct & 3) | ((dca & 3) << 2);
+  r[195] = packDupCheck(dct, dca);
   r[196] = noteVolume & 0xff;
   r.set(block.subarray(0, FORMANT_BLOCK_LEN), FORMANT_BLOCK_START);
   const p = src.ptr ?? 0;
@@ -595,6 +595,19 @@ export function buildFormantRecord(block, src, {
   r[FORMANT_BLOCK_START + 1] = (p >>> 8) & 0xff;
   r[FORMANT_BLOCK_START + 2] = (p >>> 16) & 0xff;
   return r;
+}
+
+/** Duplicate Check Type 4 (item 216): every note arriving on the lane. */
+export const DCT_LANE = 4;
+
+/**
+ * Byte 195, the Duplicate Check (§7.1): `0b AATT aatt`. The Type nibble is
+ * TTtt and the Action nibble AAaa, each split so that its LOW two bits sit
+ * where the two-bit field always sat (bits 0-1 and 2-3) — a record written
+ * before the nibbles existed reads exactly as it did.
+ */
+export function packDupCheck(type, action) {
+  return (type & 0x03) | ((action & 0x03) << 2) | ((type & 0x0c) << 2) | ((action & 0x0c) << 4);
 }
 
 /**
@@ -796,8 +809,9 @@ export class TaudInst {
     const v = this.sampleDetune & 0xffff;
     return v >= 0x8000 ? v - 0x10000 : v;
   }
-  get duplicateCheckType() { return this.dupCheckFlag & 0x03; }
-  get duplicateCheckAction() { return (this.dupCheckFlag >>> 2) & 0x03; }
+  /** Byte 195's two nibbles, `0b AATT aatt` (packDupCheck). */
+  get duplicateCheckType() { return (this.dupCheckFlag & 0x03) | ((this.dupCheckFlag >>> 2) & 0x0c); }
+  get duplicateCheckAction() { return ((this.dupCheckFlag >>> 2) & 0x03) | ((this.dupCheckFlag >>> 4) & 0x0c); }
   /** byte 173 bit 4: false = ImpulseTracker filter units, true = SoundFont. */
   get filterSfMode() { return ((this.fadeoutHigh >>> 4) & 1) !== 0; }
   get isMeta() { return this.metaLayers !== null; }
@@ -1311,7 +1325,7 @@ export class TaudInst {
       case 192: this.panEnvSustainWord = (this.panEnvSustainWord & 0x00ff) | (byte << 8); break;
       case 193: this.pfEnvSustainWord = (this.pfEnvSustainWord & 0xff00) | byte; break;
       case 194: this.pfEnvSustainWord = (this.pfEnvSustainWord & 0x00ff) | (byte << 8); break;
-      case 195: this.dupCheckFlag = byte & 0x0f; break;
+      case 195: this.dupCheckFlag = byte & 0xff; break;
       case 196: this.defaultNoteVolume = byte & 0xff; break;
       case 197: this.pf2EnvLoop = (this.pf2EnvLoop & 0xff00) | byte; break;
       case 198: this.pf2EnvLoop = (this.pf2EnvLoop & 0x00ff) | (byte << 8); break;

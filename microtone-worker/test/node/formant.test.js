@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
-import { TaudInst, buildFormantRecord } from "../../core/engine/inst.js";
+import { TaudInst, buildFormantRecord, DCT_LANE } from "../../core/engine/inst.js";
 import * as F from "../../core/engine/formant.js";
 import { META_TYPE_FORMANT, FORMANT_RECORD_HEADER } from "../../core/engine/formant.js";
 import { SAMPLEINST_SIZE, SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
@@ -568,6 +568,56 @@ test("Duplicate Check Sample: the next syllable from any formant instrument on t
   assert.equal(seen.end, 0, "…and ends the note itself");
 });
 
+/** `rec` with a new formant instrument's note actions (item 216): its New
+ *  Note Action, Duplicate Check and fadeout, read off the default record. */
+function withDefaultActions(rec) {
+  const d = defaultFormantRecord(null, 0, 0, 0);
+  for (const o of [172, 173, 186, 195]) rec[o] = d[o];
+  return rec;
+}
+
+test("a new formant instrument's notes end one another: the default Lane → Note Off and its fadeout", () => {
+  const voices = (ts) => ts.backgroundVoices.filter((v) => v.active && v.formant !== null);
+  const run = (rec) => {
+    const seen = {};
+    render(rec, [0, 4, 8, 12].map((row, i) => ({ row, note: 0x4000 + 0x200 * i, inst: 1 })), ms(2300), {
+      at: [[1500, (eng) => { seen.mid = voices(eng.playheads[0].trackerState); }],
+           [2250, (eng) => { seen.end = voices(eng.playheads[0].trackerState).length; }]],
+    });
+    return seen;
+  };
+  // [a] has no coda, so a key-off leaves it singing: the fadeout is what ends it.
+  const { mid, end } = run(withDefaultActions(formantRecord()));
+  assert.ok(mid.length > 0 && mid.every((v) => v.keyOff), "every older syllable is keyed off");
+  assert.equal(end, 0, "…and gone within the fadeout, 640 ms after the last key-off");
+  const noFade = withDefaultActions(formantRecord());
+  noFade[172] = 0; noFade[173] &= 0xf0;
+  assert.equal(run(noFade).end, 3, "without it, every one would sing on under the next");
+});
+
+test("Lane → Note Off: the next syllable lets the old one speak its coda, whichever instrument says it", () => {
+  const timing = 192;                    // [n]'s coda takes 270 ms
+  const coded = (fields) => formantRecord({ slots: [0, 0, id("n")], timing }, fields);
+  const codaHeard = (A, B) => {
+    let coda = false;
+    const probe = (eng) => {
+      for (const v of eng.playheads[0].trackerState.backgroundVoices) {
+        if (v.active && v.formant !== null && v.formant.phase === F.PHASE_CODA) coda = true;
+      }
+    };
+    render(A, [{ row: 0, note: 0x4000, inst: 1 }, { row: 4, note: 0x4400, inst: 2 }], ms(800), {
+      more: [B], at: [[500, probe], [560, probe], [620, probe]],
+    });
+    return coda;
+  };
+  // Another syllable from the same range: the old default cut the vowel, coda and all.
+  const sameRange = withDefaultActions(formantRecord({ slots: [id("s"), 0, 0] }));
+  assert.equal(codaHeard(coded({ dct: 2, dca: 0 }), sameRange), false, "Sample → Note Cut: no coda");
+  assert.equal(codaHeard(withDefaultActions(coded()), sameRange), true, "Lane → Note Off: the coda is spoken");
+  // …and after a plain sampled note, as it always did (the New Note Action alone would).
+  assert.equal(codaHeard(withDefaultActions(coded()), plainRecord(SAW)), true, "after a sampled note");
+});
+
 test("a note that starts ahead of a quiet loop is held to the level by the louder stretch it plays", () => {
   // The record plays from byte 0: 6400 bytes of full-scale body, then the
   // quiet loop. Gain and harmonics come from the loudest stretch played —
@@ -805,10 +855,10 @@ test("a new formant instrument sings [a] on the best source, in a range covering
   assert.equal(inst.formant.rangeHi, NOISE.ptr + NOISE.len > SQUARE.ptr + SQUARE.len ? NOISE.ptr + NOISE.len : SQUARE.ptr + SQUARE.len);
   assert.equal(nearestVowelMark(inst.formant.front, inst.formant.open, inst.formant.round).ipa, "a");
   assert.equal(formantSyllable(inst), "sa");
-  assert.equal(inst.volumeFadeoutLow | ((inst.fadeoutHigh & 0x0f) << 8), 0, "no fadeout");
+  assert.equal(inst.volumeFadeoutLow | ((inst.fadeoutHigh & 0x0f) << 8), 32, "a fadeout, which ends a syllable with no coda");
   assert.equal(inst.newNoteAction, 0, "New Note Action: Note Off");
-  assert.equal(inst.duplicateCheckType, 2, "Duplicate Check: Sample…");
-  assert.equal(inst.duplicateCheckAction, 0, "…→ Note Cut");
+  assert.equal(inst.duplicateCheckType, DCT_LANE, "Duplicate Check: Lane…");
+  assert.equal(inst.duplicateCheckAction, 1, "…→ Note Off");
   assert.equal(inst.formant.slots[0].ptr, NOISE.ptr);
 });
 

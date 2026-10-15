@@ -1182,6 +1182,7 @@ export default {
   "inst.dctNote": "노트",
   "inst.dctSample": "샘플",
   "inst.dctInstrument": "악기",
+  "inst.dctLane": "레인",
   "inst.dcaCut": "컷",
   "inst.dcaOff": "오프",
   "inst.dcaFade": "페이드",

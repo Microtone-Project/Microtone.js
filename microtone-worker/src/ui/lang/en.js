@@ -1199,6 +1199,7 @@ export default {
   "inst.dctNote": "Note",
   "inst.dctSample": "Sample",
   "inst.dctInstrument": "Instrument",
+  "inst.dctLane": "Lane",
   "inst.dcaCut": "Cut",
   "inst.dcaOff": "Off",
   "inst.dcaFade": "Fade",

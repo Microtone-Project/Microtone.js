@@ -21,7 +21,7 @@ import {
   META_TYPE_FORMANT, FormantPatch, encodeFormantBlock, CONSONANTS, consonantNeedsNoise,
   vowelCoordsOf, vowelF1F2, vowelFormants, vowelAtPitch, noteHz, timingScale,
 } from "../../core/engine/formant.js";
-import { buildFormantRecord } from "../../core/engine/inst.js";
+import { buildFormantRecord, DCT_LANE } from "../../core/engine/inst.js";
 
 export {
   META_TYPE_FORMANT, CONSONANTS, vowelF1F2, vowelFormants, vowelAtPitch, noteHz,
@@ -193,14 +193,20 @@ export function formantSourceFlagByte(inst, e) {
   return [[14, (inst.loopMode & ~0x07) | (e.loopMode & 0x07)]];
 }
 
+/** A new formant instrument's fadeout (defaultFormantRecord). */
+export const FORMANT_DEFAULT_FADEOUT = 32;
+
 /**
  * A new type-1 record: the source (a census entry, or null for none yet), its
  * C4 rate, the pool range, and the vowel [a] with no consonants — a sung "ah"
- * until the editor says otherwise. Note Off is its New Note Action, so a new
- * note lets the old one finish its coda in the background; its Duplicate
- * Check is Sample → Note Cut, which for formant instruments means "made from
- * the same pool range" — so the next syllable, whichever formant instrument
- * says it, ends the old one's VOWEL (a coda being spoken is left to finish).
+ * until the editor says otherwise. Note Off is its New Note Action, and its
+ * Duplicate Check is Lane → Note Off (item 216): ANY note arriving on the
+ * lane, whatever instrument plays it, keys off every syllable of this one
+ * still singing its vowel there, so each speaks its coda in the background
+ * while the next begins. A syllable with no coda goes on singing its vowel
+ * through its release, so the fadeout is what ends it: 32 = 32 ticks, about
+ * 0.64 s at 125 BPM — slow enough that a coda is heard out, at the cost of
+ * one ending a little quieter than it began.
  */
 export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
   const p = new FormantPatch();
@@ -216,7 +222,7 @@ export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
     loopStart: looped ? source.loopStart : 0,
     loopEnd: looped ? source.loopEnd : 0,
     loopMode: source ? source.loopMode & 0x07 : 0,
-  }, { nna: 0, dct: 2, dca: 0 });
+  }, { nna: 0, dct: DCT_LANE, dca: 1, fadeout: FORMANT_DEFAULT_FADEOUT });
 }
 
 // ── the chart's marks ──────────────────────────────────────────────────────
