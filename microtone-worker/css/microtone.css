@@ -2251,7 +2251,6 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border-radius: 4px;
 }
 .psg-wave polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
-.psg-wave .psg-zero { stroke: var(--border); stroke-width: 1; }
 .psg-wave.live { border-color: var(--accent); }
 .psg-wave.live polyline { stroke: var(--accent); }
 .psg-wave-label { fill: var(--accent); font-size: 9px; font-family: "Roboto Mono", monospace; }
