@@ -6,6 +6,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-16
 
+OPL instruments are now a source for every kind of metainstrument: Layered, FM Rack and formant instruments all accept them, and will accept the PSG instruments on their way in the same way.
+
+- **An FM Rack's operators can be OPL instruments**: modulated, the chip channel's phase is bent the way the chip bends its own carriers; modulating, it bends the next operator as a sample does. Until now a rack skipped them.
+- **A formant instrument can sing with an OPL instrument** instead of a sample: **Sung from** on the Formant tab picks one, copies it in as part of the formant instrument and plays it at its own tuning, through the vowel and consonants as a sample would be. *Its sample* switches back.
+- **Fixed: a metainstrument of a kind this version does not know played as a Layered one**; it now stays silent until a version that knows it opens the song.
+
 Interrupt markers get a dialog of their own.
 
 - **The command palette's interrupt… button** replaces the row of sixteen number buttons on the note column. It asks which interrupt, `Int0` to `IntF`, and for an optional 16-bit argument: given one, it writes the marker and `: MMMM` on the row; left blank, only the marker.

@@ -8,7 +8,7 @@ import {
 } from "./opl.js";
 import {
   FormantPatch, decodeFormantBlock, FORMANT_BLOCK_START, FORMANT_BLOCK_LEN,
-  FORMANT_RECORD_HEADER, META_TYPE_FORMANT,
+  FORMANT_RECORD_HEADER, META_TYPE_FORMANT, formantSourceInstOf,
 } from "./formant.js";
 
 
@@ -315,6 +315,43 @@ export function layerNote(layer, noteVal) {
  *  count + bytes 2..3 sentinel, then 10 bytes per layer. */
 export const META_MAX_LAYERS = 25;
 
+// ── Metainstrument tiers ──────────────────────────────────────────────────
+// The type nibble is split into two tiers, and the split is the whole of the
+// recursion rule (§7.4):
+//
+//   0…7    HIGH META — a kind assembled out of something else: Layered (0),
+//          Formant (1), FM (4). Its table, or its glottal source, names
+//          SOURCES it sounds through.
+//   8…13   LOW META — a kind that is a sound generator of its own, standing
+//          where an ordinary instrument's sample stands: OPL (8), PSG (to
+//          come). It holds no table and names nothing, so it cannot recurse.
+//   14, 15 RESERVED.
+//
+// A high meta MUST be able to take a low meta as a source — as a layer, as an
+// operator, as a formant's glottal source — exactly as it takes an ordinary
+// instrument. A high meta never takes a high meta, with the one exception the
+// format has always had: a layer may name a formant instrument, which has no
+// table and so cannot recurse either.
+//
+// The two words are the code's own. The format and the manual speak of the
+// kinds by name.
+export const META_TIER_NONE = -1;     // an ordinary instrument
+export const META_TIER_HIGH = 0;
+export const META_TIER_LOW = 1;
+export const META_TIER_RESERVED = 2;
+export const META_HIGH_FIRST = 0;
+export const META_HIGH_LAST = 7;
+export const META_LOW_FIRST = 8;
+export const META_LOW_LAST = 13;
+
+/** The tier a type nibble belongs to. */
+export function metaTierOf(type) {
+  const t = type & 0x0f;
+  if (t <= META_HIGH_LAST) return META_TIER_HIGH;
+  if (t <= META_LOW_LAST) return META_TIER_LOW;
+  return META_TIER_RESERVED;
+}
+
 // ── Metainstrument types (record byte 0, high nibble) ─────────────────────
 /** Type 0 — LAYERED: every layer whose rectangle covers the trigger sounds on
  *  its own voice, mixed in parallel (§7.4). */
@@ -342,6 +379,8 @@ export const META_TYPE_FM = 4;
  * patch. Not a layer table, so `isMeta` stays false and everything that asks
  * "is this an ordinary instrument?" — the trigger, the porta re-attack, the
  * envelope walkers — treats it as one; `isOpl` is what the renderer asks.
+ * The first low-meta kind: a layer, an FM operator and a formant
+ * instrument's glottal source may all be one.
  */
 export const META_TYPE_OPL = 8;
 /** A type-8 record's first four bytes: the type nibble, a reserved count
@@ -560,14 +599,19 @@ export function buildOplRecord(block, {
  * second pitch/filter envelope would be, and an ordinary instrument's neutral
  * defaults elsewhere. `src` = {ptr, len, rate, playStart, loopStart, loopEnd,
  * loopMode}; the block's own pointer bytes are overwritten with `src.ptr`.
- * `fields` overrides the rest by name, as buildOplRecord's do.
+ * `fields` overrides the rest by name, as buildOplRecord's do; `sourceInst`
+ * names an OPL instrument to sing with in place of the sample.
  */
 export function buildFormantRecord(block, src, {
   detune = 0, nna = 0, fadeout = 0, pan = 0x80, percussion = false,
-  globalVolume = 0xff, noteVolume = 0xff, dct = 0, dca = 0,
+  globalVolume = 0xff, noteVolume = 0xff, dct = 0, dca = 0, sourceInst = 0,
 } = {}) {
   const r = new Uint8Array(256);
   for (let i = 0; i < 4; i++) r[i] = FORMANT_RECORD_HEADER[i];
+  // The source instrument (§7.8), 0 for the sample: bits 8…9 in byte 0's two
+  // low bits, bits 0…7 in byte 1.
+  r[0] |= (sourceInst >>> 8) & 0x03;
+  r[1] = sourceInst & 0xff;
   const w16 = (o, v) => { r[o] = v & 0xff; r[o + 1] = (v >>> 8) & 0xff; };
   w16(4, src.len ?? 0);
   w16(6, src.rate ?? 0);
@@ -822,6 +866,31 @@ export class TaudInst {
   get isOpl() { return this.opl !== null; }
   /** True for a type-1 formant instrument: the sample through a vocal tract (§7.8). */
   get isFormant() { return this.formant !== null; }
+  /** The instrument's tier (the block at META_TIER_*): NONE for an ordinary
+   *  instrument, else the tier of its type nibble. */
+  get metaTier() {
+    if (this.opl !== null) return META_TIER_LOW;
+    if (this.formant !== null) return META_TIER_HIGH;
+    if (this.metaLayers !== null) return metaTierOf(this.metaType);
+    return META_TIER_NONE;
+  }
+  get isHighMeta() { return this.metaTier === META_TIER_HIGH; }
+  get isLowMeta() { return this.metaTier === META_TIER_LOW; }
+  /**
+   * Every instrument this one names as a source, as 10-bit slots in record
+   * order: a table's layers or operators (a muted operator, index 0, left out),
+   * and a formant instrument's chip source. What everything that follows
+   * instrument references — renumbering, deleting, cleanup, an import's closure
+   * — walks, so a new kind of source is followed everywhere at once.
+   */
+  get sourceSlots() {
+    const out = [];
+    if (this.metaLayers !== null) {
+      for (const l of this.metaLayers) if (l.instIdx >= 1) out.push(l.instIdx & 0x3ff);
+    }
+    if (this.formant !== null && this.formant.srcInst >= 1) out.push(this.formant.srcInst);
+    return out;
+  }
 
   get defaultCutoff16() {
     if (this.cutoffOverride >= 0) return this.cutoffOverride;
@@ -981,6 +1050,7 @@ export class TaudInst {
     for (let i = 0; i < FORMANT_BLOCK_LEN; i++) raw[i] = b[FORMANT_BLOCK_START + i] & 0xff;
     this.formantRaw = raw;
     this.formant = decodeFormantBlock(raw, 0, this.formant ?? new FormantPatch());
+    this.formant.srcInst = formantSourceInstOf(b[0], b[1]);
     this.samplePtr = this.formant.srcPtr;
     const n = Math.min(256, b.length);
     for (let i = 4; i < n; i++) {
@@ -1172,6 +1242,9 @@ export class TaudInst {
     if (this.formant !== null) {
       // A type-1 record (§7.8): the header, then the tract block with the
       // source pointer — `samplePtr`, wherever an editor has moved it — first.
+      // The header's first two bytes also carry the source instrument.
+      if (o === 0) return FORMANT_RECORD_HEADER[0] | ((this.formant.srcInst >>> 8) & 0x03);
+      if (o === 1) return this.formant.srcInst & 0xff;
       if (o <= 3) return FORMANT_RECORD_HEADER[o];
       if (o >= FORMANT_BLOCK_START && o < FORMANT_BLOCK_START + FORMANT_BLOCK_LEN) {
         const r = o - FORMANT_BLOCK_START;
@@ -1251,7 +1324,17 @@ export class TaudInst {
 
   setByte(o, byte) {
     if (this.formant !== null) {
-      if (o <= 3) return; // the header is the record's kind, not a field
+      // The header is the record's kind — but for the source instrument it
+      // carries in byte 1 and byte 0's two low bits (§7.8).
+      if (o === 0) {
+        this.formant.srcInst = formantSourceInstOf(byte, this.formant.srcInst & 0xff);
+        return;
+      }
+      if (o === 1) {
+        this.formant.srcInst = formantSourceInstOf(this.formant.srcInst >>> 8, byte);
+        return;
+      }
+      if (o <= 3) return;
       if (o >= FORMANT_BLOCK_START && o < FORMANT_BLOCK_START + FORMANT_BLOCK_LEN) {
         const r = o - FORMANT_BLOCK_START;
         if (r < 3) {

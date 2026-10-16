@@ -6,7 +6,8 @@
 //              recording, all of them, or typed addresses — and the source the
 //              vowel is sung with, which the recipe machine CHOOSES: the loop in
 //              the range that best suits the vowel, chosen again whenever the
-//              range or the vowel changes
+//              range or the vowel changes. Or an OPL instrument sings in the
+//              sample's place, copied in as a sub-instrument of this one
 //   Vowel      the tongue on Lindsey's acoustic vowel chart as a 2D slider
 //              (log F1 down, log F2 right to left, as Praat's VowelEditor
 //              draws it), the IPA marked on it, and the lips' roundness
@@ -20,7 +21,8 @@
 // sounding note hears it at once and one undo takes it back. Drags go through
 // applyQuiet and repaint in place, as the General tab's sliders do.
 
-import { setInstBytesOp, compositeOp } from "../../doc/ops.js";
+import { setInstBytesOp, compositeOp, importBankOp } from "../../doc/ops.js";
+import { planSetFormantSource } from "../../doc/bankmerge.js";
 import {
   formantFields, formantFieldBytes, formantVowelBytes, formantRangeBytes, formantSlotBytes,
   formantSourceBytes, formantSourceFlagByte, slotFromRecipe, slotIsRecipe, VOWEL_MARKS, nearestVowelMark,
@@ -435,8 +437,38 @@ export function renderFormantTab(view, inst) {
   srcRow.append(el("span", "sl-label", t("fmt.source")), srcText, againBtn);
   srcRow.title = t("fmt.sourceTitle");
   paintSource();
-  view.group(t("fmt.grpMaterial"), rangePick, addrRow, srcRow,
-    machine.cands.length === 0 ? el("p", "dim fmt-note", t("fmt.rangeEmpty")) : null);
+
+  // What the vowel is sung WITH: the sample above, or an OPL instrument's
+  // voice in its place. Picking one copies it in as this instrument's own
+  // sub-instrument, as a layer is, so the source is edited from here.
+  const chip = inst.formant.srcInst >= 1 && doc.instruments[inst.formant.srcInst]?.isOpl
+    ? inst.formant.srcInst : 0;
+  const instLabel = (s) => `$${s.toString(16).toUpperCase().padStart(s > 0xff ? 3 : 2, "0")} ` +
+    (unescapeName(doc.instrumentName(s)) || "");
+  const oplItems = doc.selectableInstrumentSlots()
+    .filter((s) => s !== slot && doc.instruments[s].isOpl)
+    .map((s) => [String(s), instLabel(s)]);
+  const sungPick = view.pickRow(t("fmt.sungFrom"), String(chip),
+    [["0", t("fmt.sungFromSample")], ...(chip ? [[String(chip), instLabel(chip)]] : [])],
+    (v) => {
+      const to = Number(v);
+      if (to === chip) return;
+      const plan = planSetFormantSource(doc, slot, to);
+      if (plan.error) { alert(plan.error); return; }
+      view.store.undo.apply(importBankOp(plan));
+    },
+    [[t("fmt.sungFromGroup"), oplItems]]);
+  sungPick.title = t("fmt.sungFromTitle");
+  if (chip) {
+    const editBtn = el("button", "", t("fmt.sungFromEdit"));
+    editBtn.type = "button";
+    editBtn.addEventListener("click", () => view.openChild(chip, slot));
+    sungPick.append(editBtn);
+    srcRow.classList.add("dim");
+    srcText.textContent += ` · ${t("fmt.sourceIdle")}`;
+  }
+  view.group(t("fmt.grpMaterial"), rangePick, addrRow, sungPick, srcRow,
+    machine.cands.length === 0 && !chip ? el("p", "dim fmt-note", t("fmt.rangeEmpty")) : null);
 
   // ── Vowel ──
   const readout = el("div", "fmt-readout");

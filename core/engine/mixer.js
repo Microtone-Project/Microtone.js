@@ -52,6 +52,18 @@ const stereoPair = [0.0, 0.0];
  * stereo-shaped stays mono here.
  */
 function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
+  // An FM rack (item 159) replaces the voice's own sample fetch, and nothing
+  // else: the filter, the voice FX and every gain below still act on the
+  // finished patch exactly as they act on a sampled one. It is asked first
+  // because its operator 0 may itself be an OPL channel (§5.5.1), which the
+  // rack reads — the voice it sounds on is the rack's, not the chip's.
+  if (voice.fmRig !== null) {
+    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
+      renderFmVoice(eng, ts, voice, interpMode, spt, ts.oplFrame + n)));
+    out[0] = s;
+    out[1] = s;
+    return out;
+  }
   // An OPL channel (item 209) replaces the sample fetch the same way, and
   // reads the playhead's chip clock at this frame (opl.js). The note volume
   // it has already applied, as the chip's drivers do, in the operators'
@@ -63,23 +75,13 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
     out[1] = s;
     return out;
   }
-  // A voice sounding a formant instrument (item 212) fetches its sample as any
-  // voice does and plays
-  // it through the tract; the filter, the voice FX and the gains then act on
-  // the tract's output as they act on a sample.
+  // A voice sounding a formant instrument (item 212) fetches its sample — or
+  // runs the OPL channel it is sourced from, on the same chip clock — and
+  // plays it through the tract; the filter, the voice FX and the gains then
+  // act on the tract's output as they act on a sample.
   if (voice.formant !== null) {
     const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
-      renderFormantVoice(eng, voice, inst, interpMode)));
-    out[0] = s;
-    out[1] = s;
-    return out;
-  }
-  // An FM rack (item 159) replaces the voice's own sample fetch, and nothing
-  // else: the filter, the voice FX and every gain below still act on the
-  // finished patch exactly as they act on a sampled one.
-  if (voice.fmRig !== null) {
-    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
-      renderFmVoice(eng, ts, voice, interpMode, spt)));
+      renderFormantVoice(eng, voice, inst, interpMode, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
     return out;
@@ -241,8 +243,10 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
     advanceVolumeRamp(voice, volDiv);
     advancePitchRamp(voice, spt);
     // An OPL voice took its note volume into the operators (opl.js), so the
-    // mix volume must not be applied a second time here.
-    const mixVol = voice.opl !== null ? 1.0 : voice.currentMixVolume;
+    // mix volume must not be applied a second time here — unless the chip is
+    // operator 0 of a rack, which reads it at unity and leaves the note's
+    // volume to the finished patch, as for any rack (§5.5.1).
+    const mixVol = voice.opl !== null && voice.fmRig === null ? 1.0 : voice.currentMixVolume;
     const perVoiceGain = effEnvVol * voice.fadeoutVolume * mixVol *
       swingScale * instGv * faderGain * voice.layerMixGain * voice.activeAttenGain;
     const vol = perVoiceGain * globalGain;
@@ -355,7 +359,8 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
     const effEnvVol = bg.hasVolEnv && bg.volEnvOn ? bg.envVolMix : 1.0;
     advanceVolumeRamp(bg, volDiv);
     advancePitchRamp(bg, spt);
-    const vol = (effEnvVol * bg.fadeoutVolume * (bg.opl !== null ? 1.0 : bg.currentMixVolume) *
+    const vol = (effEnvVol * bg.fadeoutVolume *
+      (bg.opl !== null && bg.fmRig === null ? 1.0 : bg.currentMixVolume) *
       swingScale * gvol * mvol * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain *
       playhead.masterVolume) / 255.0;
     let lGain = 0.0;

@@ -77,10 +77,7 @@ export class InstLookup {
     if (!doc) return [];
     const children = new Set();
     const used = doc.usedInstrumentSlots();
-    for (const s of used) {
-      const layers = doc.instruments[s].metaLayers;
-      if (layers) for (const l of layers) children.add(l.instIdx);
-    }
+    for (const s of used) for (const k of doc.instruments[s].sourceSlots) children.add(k);
     return used.filter((s) => s >= 1 && s <= 0xff && !children.has(s));
   }
 

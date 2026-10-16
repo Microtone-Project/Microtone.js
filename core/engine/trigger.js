@@ -7,7 +7,9 @@
 
 import { MAX_BG_VOICES, ATTACK_RAMP_SAMPLES } from "./constants.js";
 import { Voice, isSoundingChild } from "./voice.js";
-import { patchIsStereo, patchVibratoInherits, layerNote, DCT_LANE } from "./inst.js";
+import {
+  patchIsStereo, patchVibratoInherits, layerNote, DCT_LANE, META_TYPE_LAYERED,
+} from "./inst.js";
 import {
   FmRig, cloneFmRig, fmReferencedOperators, fmSeedGains, dropFmOperators,
 } from "./fm.js";
@@ -15,7 +17,10 @@ import { META_MIX_GAIN, attenGainOf, EffectOp, clamp } from "./tables.js";
 import { envPresent, envCarry, applyKeyLift, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { computePlaybackRate, startCutRamp } from "./sampler.js";
 import { OplState, oplKeyOn, cloneOplState, OPL_C4_RATE } from "./opl.js";
-import { FormantState, formantNoteOn, cloneFormantState, PHASE_CODA } from "./formant.js";
+import {
+  FormantState, formantNoteOn, cloneFormantState, PHASE_CODA,
+  formantChipSource, formantChipRate, formantKeySource,
+} from "./formant.js";
 import { random } from "./rng.js";
 import {
   applyPanSet, applyPanSlide, applyElevation, SURROUND_STEREO, SURROUND_SPATIAL,
@@ -300,6 +305,16 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
     triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVol);
     return;
   }
+  // A table of a kind this engine does not know — a type nibble it has no
+  // reading for — sounds nothing (§7.4): its entries have the Layered shape,
+  // but what they mean is the kind's.
+  if (inst.metaType !== META_TYPE_LAYERED) {
+    voice.active = false;
+    voice.layerMixGain = 1.0;
+    voice.layerRelDetune = 0;
+    voice.layerFixedNote = -1;
+    return;
+  }
   let layers = inst.resolveMetaLayers(noteVal, seedVol);
   // What each layer SOUNDS, which for a fixed-pitch layer (item 179) is its own
   // note and not the trigger's. The gating above still asked about the trigger:
@@ -423,11 +438,13 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
 function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVol) {
   const ops = inst.metaLayers;
   const program = inst.fmProgram;
+  // An operator is an ordinary instrument or a low meta (an OPL channel,
+  // read as the chip reads its carriers — fm.js). A high meta is not: a
+  // formant instrument, a layer table or another rack is a sound made OUT of
+  // sources, and taking one as a source would be recursion (§7.4).
   const sounds = (o) =>
-    o.instIdx >= 1 && o.instIdx <= 1023 && !eng.instruments[o.instIdx].isMeta &&
-    // An OPL instrument is a channel, not a waveform a rack can read (§7.7);
-    // a formant instrument is a sound made of a waveform, not one (§7.8).
-    !eng.instruments[o.instIdx].isOpl && !eng.instruments[o.instIdx].isFormant &&
+    o.instIdx >= 1 && o.instIdx <= 1023 &&
+    !eng.instruments[o.instIdx].isMeta && !eng.instruments[o.instIdx].isHighMeta &&
     noteVal >= o.pitchStart && noteVal <= o.pitchEnd &&
     seedVol >= o.volStart && seedVol <= o.volEnd;
   // No algorithm, or no principal operator, is silence — the same answer the
@@ -549,6 +566,10 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // resolvePatch answers null for both.
   const patch = inst.resolvePatch(noteVal, seedVolForLookup);
   applyActiveSample(voice, inst, patch);
+  // A formant instrument sung from an OPL instrument (§7.8) takes the chip's
+  // C2SPD where its sample's rate would be: the pitch is the chip's.
+  const formantChip = inst.formant !== null ? formantChipSource(eng.instruments, inst) : null;
+  if (formantChip !== null) voice.activeSamplingRate = formantChipRate(formantChip);
   voice.tonePortaTarget = -1; // fresh note trigger cancels any running porta
   voice.samplePos = voice.activeSamplePlayStart;
   voice.forward = true;
@@ -743,6 +764,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   if (inst.formant !== null) {
     if (voice.formant === null) voice.formant = new FormantState();
     formantNoteOn(voice.formant, inst.formant);
+    formantKeySource(voice.formant, formantChip !== null ? formantChip.opl : null);
   } else {
     voice.formant = null;
   }

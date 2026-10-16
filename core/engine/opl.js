@@ -464,6 +464,10 @@ export class OplState {
     // The note volume as an attenuation, cached on the volume it came from.
     this.vol = -1;
     this.volAtt = 0;
+    // Phase modulation from outside the chip, in 1/1024 of a cycle, added to
+    // every OUTPUT operator's phase while it is set: what an FM rack reading
+    // this channel as an operator writes (§5.5.1). 0 on every other path.
+    this.pm = 0;
   }
 }
 
@@ -694,15 +698,19 @@ export function oplChipStep(st, k) {
   const outputs = patch.outputs;
   const va = st.volAtt;
   const x0 = (ops[0].am ? trem : 0) + ((outputs & 1) !== 0 ? va : 0);
+  // Outside phase modulation reaches the operators the channel OUTPUTS, the
+  // way the chip's own modulator reaches its carrier; 0 changes nothing.
+  const pm = st.pm;
+  const p0 = (outputs & 1) !== 0 ? pm : 0;
   switch (patch.kind) {
     case OPL_KIND_2OP: case OPL_KIND_BD: {
       oplAdvanceEnvelope(st, 0, ops[0], k);
       oplAdvanceEnvelope(st, 1, ops[1], k);
       const x1 = (ops[1].am ? trem : 0) + va;
-      const m = operate(st, 0, ops[0], feedbackOf(st, patch.feedback), x0, vibrato);
+      const m = operate(st, 0, ops[0], feedbackOf(st, patch.feedback) + p0, x0, vibrato);
       const v = patch.cntA
-        ? m + operate(st, 1, ops[1], 0, x1, vibrato)
-        : operate(st, 1, ops[1], m, x1, vibrato);
+        ? m + operate(st, 1, ops[1], pm, x1, vibrato)
+        : operate(st, 1, ops[1], m + pm, x1, vibrato);
       return patch.kind === OPL_KIND_BD ? OPL_RHYTHM_MIX * v : v;
     }
     case OPL_KIND_4OP: {
@@ -710,23 +718,24 @@ export function oplChipStep(st, k) {
       const x1 = ops[1].am ? trem : 0;
       const x2 = (ops[2].am ? trem : 0) + ((outputs & 4) !== 0 ? va : 0);
       const x3 = (ops[3].am ? trem : 0) + va;
-      const o1 = operate(st, 0, ops[0], feedbackOf(st, patch.feedback), x0, vibrato);
+      const p2 = (outputs & 4) !== 0 ? pm : 0;
+      const o1 = operate(st, 0, ops[0], feedbackOf(st, patch.feedback) + p0, x0, vibrato);
       if (!patch.cntA) {
         const o2 = operate(st, 1, ops[1], o1, x1, vibrato);
-        const o3 = operate(st, 2, ops[2], o2, x2, vibrato);
+        const o3 = operate(st, 2, ops[2], o2 + p2, x2, vibrato);
         return patch.cntB
-          ? o3 + operate(st, 3, ops[3], 0, x3, vibrato)
-          : operate(st, 3, ops[3], o3, x3, vibrato);
+          ? o3 + operate(st, 3, ops[3], pm, x3, vibrato)
+          : operate(st, 3, ops[3], o3 + pm, x3, vibrato);
       }
       const o2 = operate(st, 1, ops[1], 0, x1, vibrato);
-      const o3 = operate(st, 2, ops[2], o2, x2, vibrato);
+      const o3 = operate(st, 2, ops[2], o2 + p2, x2, vibrato);
       return patch.cntB
-        ? o1 + o3 + operate(st, 3, ops[3], 0, x3, vibrato)
-        : o1 + operate(st, 3, ops[3], o3, x3, vibrato);
+        ? o1 + o3 + operate(st, 3, ops[3], pm, x3, vibrato)
+        : o1 + operate(st, 3, ops[3], o3 + pm, x3, vibrato);
     }
     case OPL_KIND_TOM:
       oplAdvanceEnvelope(st, 0, ops[0], k);
-      return OPL_RHYTHM_MIX * operate(st, 0, ops[0], 0, x0, vibrato);
+      return OPL_RHYTHM_MIX * operate(st, 0, ops[0], pm, x0, vibrato);
     case OPL_KIND_SD: case OPL_KIND_TC: case OPL_KIND_HH: {
       oplAdvanceEnvelope(st, 0, ops[0], k);
       // Every accumulator advances before any of the three is sampled, and
@@ -746,7 +755,7 @@ export function oplChipStep(st, k) {
           ? (xor << 9) | (xor ^ noise ? 0x0d0 : 0x034)
           : (xor << 9) | 0x100;
       }
-      return OPL_RHYTHM_MIX * rhythmOperator(st, 0, ops[0], phase, x0);
+      return OPL_RHYTHM_MIX * rhythmOperator(st, 0, ops[0], (phase + pm) & 0x3ff, x0);
     }
     default:
       return 0;
@@ -760,7 +769,7 @@ export function oplChipStep(st, k) {
  * counts as finished too, so a patch that can never sound does not hold a
  * voice for ever.
  */
-function channelAlive(st) {
+export function oplChannelAlive(st) {
   const patch = st.patch;
   const outputs = patch.outputs;
   for (let i = 0; i < 4; i++) {
@@ -796,12 +805,25 @@ function volumeAttenuation(vol) {
  */
 export function renderOplVoice(voice, frame) {
   const st = voice.opl;
+  if (st.patch === null) return 0;
+  const s = oplRender(st, frame, voice.currentPlaybackRate, voice.currentMixVolume, voice.keyOff);
+  if (!oplChannelAlive(st)) voice.active = false;
+  return s;
+}
+
+/**
+ * The channel `st` at output frame `frame`, played at playback rate `rate`
+ * with note volume `vol`, keyed off once `keyOff` is — renderOplVoice's whole
+ * work but the voice's own deactivation, so that a chip channel can be read
+ * by something other than the voice it sounds on: an FM rack reading it as an
+ * operator, a formant instrument as its glottal source. Both read it at unity
+ * volume, since the note's volume is theirs to apply to what they make of it.
+ */
+export function oplRender(st, frame, rate, vol, keyOff) {
   const patch = st.patch;
   if (patch === null) return 0;
-  if (voice.keyOff && st.keyed) oplKeyOff(st);
-  const rate = voice.currentPlaybackRate;
+  if (keyOff && st.keyed) oplKeyOff(st);
   if (rate !== st.rate || patch.gen !== st.gen) retune(st, rate);
-  const vol = voice.currentMixVolume;
   if (vol !== st.vol) { st.vol = vol; st.volAtt = volumeAttenuation(vol); }
   const k = chipIndex(frame);
   const frac = fracBox[0];
@@ -820,6 +842,5 @@ export function renderOplVoice(voice, frame) {
     st.last = st.cur;
     st.cur = oplChipStep(st, st.k);
   }
-  if (!channelAlive(st)) voice.active = false;
   return (st.last + (st.cur - st.last) * frac) * OUTPUT_SCALE;
 }

@@ -5094,6 +5094,10 @@ class OplState {
     // The note volume as an attenuation, cached on the volume it came from.
     this.vol = -1;
     this.volAtt = 0;
+    // Phase modulation from outside the chip, in 1/1024 of a cycle, added to
+    // every OUTPUT operator's phase while it is set: what an FM rack reading
+    // this channel as an operator writes (§5.5.1). 0 on every other path.
+    this.pm = 0;
   }
 }
 
@@ -5324,15 +5328,19 @@ function oplChipStep(st, k) {
   const outputs = patch.outputs;
   const va = st.volAtt;
   const x0 = (ops[0].am ? trem : 0) + ((outputs & 1) !== 0 ? va : 0);
+  // Outside phase modulation reaches the operators the channel OUTPUTS, the
+  // way the chip's own modulator reaches its carrier; 0 changes nothing.
+  const pm = st.pm;
+  const p0 = (outputs & 1) !== 0 ? pm : 0;
   switch (patch.kind) {
     case OPL_KIND_2OP: case OPL_KIND_BD: {
       oplAdvanceEnvelope(st, 0, ops[0], k);
       oplAdvanceEnvelope(st, 1, ops[1], k);
       const x1 = (ops[1].am ? trem : 0) + va;
-      const m = operate(st, 0, ops[0], feedbackOf(st, patch.feedback), x0, vibrato);
+      const m = operate(st, 0, ops[0], feedbackOf(st, patch.feedback) + p0, x0, vibrato);
       const v = patch.cntA
-        ? m + operate(st, 1, ops[1], 0, x1, vibrato)
-        : operate(st, 1, ops[1], m, x1, vibrato);
+        ? m + operate(st, 1, ops[1], pm, x1, vibrato)
+        : operate(st, 1, ops[1], m + pm, x1, vibrato);
       return patch.kind === OPL_KIND_BD ? OPL_RHYTHM_MIX * v : v;
     }
     case OPL_KIND_4OP: {
@@ -5340,23 +5348,24 @@ function oplChipStep(st, k) {
       const x1 = ops[1].am ? trem : 0;
       const x2 = (ops[2].am ? trem : 0) + ((outputs & 4) !== 0 ? va : 0);
       const x3 = (ops[3].am ? trem : 0) + va;
-      const o1 = operate(st, 0, ops[0], feedbackOf(st, patch.feedback), x0, vibrato);
+      const p2 = (outputs & 4) !== 0 ? pm : 0;
+      const o1 = operate(st, 0, ops[0], feedbackOf(st, patch.feedback) + p0, x0, vibrato);
       if (!patch.cntA) {
         const o2 = operate(st, 1, ops[1], o1, x1, vibrato);
-        const o3 = operate(st, 2, ops[2], o2, x2, vibrato);
+        const o3 = operate(st, 2, ops[2], o2 + p2, x2, vibrato);
         return patch.cntB
-          ? o3 + operate(st, 3, ops[3], 0, x3, vibrato)
-          : operate(st, 3, ops[3], o3, x3, vibrato);
+          ? o3 + operate(st, 3, ops[3], pm, x3, vibrato)
+          : operate(st, 3, ops[3], o3 + pm, x3, vibrato);
       }
       const o2 = operate(st, 1, ops[1], 0, x1, vibrato);
-      const o3 = operate(st, 2, ops[2], o2, x2, vibrato);
+      const o3 = operate(st, 2, ops[2], o2 + p2, x2, vibrato);
       return patch.cntB
-        ? o1 + o3 + operate(st, 3, ops[3], 0, x3, vibrato)
-        : o1 + operate(st, 3, ops[3], o3, x3, vibrato);
+        ? o1 + o3 + operate(st, 3, ops[3], pm, x3, vibrato)
+        : o1 + operate(st, 3, ops[3], o3 + pm, x3, vibrato);
     }
     case OPL_KIND_TOM:
       oplAdvanceEnvelope(st, 0, ops[0], k);
-      return OPL_RHYTHM_MIX * operate(st, 0, ops[0], 0, x0, vibrato);
+      return OPL_RHYTHM_MIX * operate(st, 0, ops[0], pm, x0, vibrato);
     case OPL_KIND_SD: case OPL_KIND_TC: case OPL_KIND_HH: {
       oplAdvanceEnvelope(st, 0, ops[0], k);
       // Every accumulator advances before any of the three is sampled, and
@@ -5376,7 +5385,7 @@ function oplChipStep(st, k) {
           ? (xor << 9) | (xor ^ noise ? 0x0d0 : 0x034)
           : (xor << 9) | 0x100;
       }
-      return OPL_RHYTHM_MIX * rhythmOperator(st, 0, ops[0], phase, x0);
+      return OPL_RHYTHM_MIX * rhythmOperator(st, 0, ops[0], (phase + pm) & 0x3ff, x0);
     }
     default:
       return 0;
@@ -5390,7 +5399,7 @@ function oplChipStep(st, k) {
  * counts as finished too, so a patch that can never sound does not hold a
  * voice for ever.
  */
-function channelAlive(st) {
+function oplChannelAlive(st) {
   const patch = st.patch;
   const outputs = patch.outputs;
   for (let i = 0; i < 4; i++) {
@@ -5426,12 +5435,25 @@ function volumeAttenuation(vol) {
  */
 function renderOplVoice(voice, frame) {
   const st = voice.opl;
+  if (st.patch === null) return 0;
+  const s = oplRender(st, frame, voice.currentPlaybackRate, voice.currentMixVolume, voice.keyOff);
+  if (!oplChannelAlive(st)) voice.active = false;
+  return s;
+}
+
+/**
+ * The channel `st` at output frame `frame`, played at playback rate `rate`
+ * with note volume `vol`, keyed off once `keyOff` is — renderOplVoice's whole
+ * work but the voice's own deactivation, so that a chip channel can be read
+ * by something other than the voice it sounds on: an FM rack reading it as an
+ * operator, a formant instrument as its glottal source. Both read it at unity
+ * volume, since the note's volume is theirs to apply to what they make of it.
+ */
+function oplRender(st, frame, rate, vol, keyOff) {
   const patch = st.patch;
   if (patch === null) return 0;
-  if (voice.keyOff && st.keyed) oplKeyOff(st);
-  const rate = voice.currentPlaybackRate;
+  if (keyOff && st.keyed) oplKeyOff(st);
   if (rate !== st.rate || patch.gen !== st.gen) retune(st, rate);
-  const vol = voice.currentMixVolume;
   if (vol !== st.vol) { st.vol = vol; st.volAtt = volumeAttenuation(vol); }
   const k = chipIndex(frame);
   const frac = fracBox[0];
@@ -5450,7 +5472,6 @@ function renderOplVoice(voice, frame) {
     st.last = st.cur;
     st.cur = oplChipStep(st, st.k);
   }
-  if (!channelAlive(st)) voice.active = false;
   return (st.last + (st.cur - st.last) * frac) * OUTPUT_SCALE;
 }
 
@@ -5765,6 +5786,43 @@ function layerNote(layer, noteVal) {
  *  count + bytes 2..3 sentinel, then 10 bytes per layer. */
 const META_MAX_LAYERS = 25;
 
+// ── Metainstrument tiers ──────────────────────────────────────────────────
+// The type nibble is split into two tiers, and the split is the whole of the
+// recursion rule (§7.4):
+//
+//   0…7    HIGH META — a kind assembled out of something else: Layered (0),
+//          Formant (1), FM (4). Its table, or its glottal source, names
+//          SOURCES it sounds through.
+//   8…13   LOW META — a kind that is a sound generator of its own, standing
+//          where an ordinary instrument's sample stands: OPL (8), PSG (to
+//          come). It holds no table and names nothing, so it cannot recurse.
+//   14, 15 RESERVED.
+//
+// A high meta MUST be able to take a low meta as a source — as a layer, as an
+// operator, as a formant's glottal source — exactly as it takes an ordinary
+// instrument. A high meta never takes a high meta, with the one exception the
+// format has always had: a layer may name a formant instrument, which has no
+// table and so cannot recurse either.
+//
+// The two words are the code's own. The format and the manual speak of the
+// kinds by name.
+const META_TIER_NONE = -1;     // an ordinary instrument
+const META_TIER_HIGH = 0;
+const META_TIER_LOW = 1;
+const META_TIER_RESERVED = 2;
+const META_HIGH_FIRST = 0;
+const META_HIGH_LAST = 7;
+const META_LOW_FIRST = 8;
+const META_LOW_LAST = 13;
+
+/** The tier a type nibble belongs to. */
+function metaTierOf(type) {
+  const t = type & 0x0f;
+  if (t <= META_HIGH_LAST) return META_TIER_HIGH;
+  if (t <= META_LOW_LAST) return META_TIER_LOW;
+  return META_TIER_RESERVED;
+}
+
 // ── Metainstrument types (record byte 0, high nibble) ─────────────────────
 /** Type 0 — LAYERED: every layer whose rectangle covers the trigger sounds on
  *  its own voice, mixed in parallel (§7.4). */
@@ -5792,6 +5850,8 @@ const META_TYPE_FM = 4;
  * patch. Not a layer table, so `isMeta` stays false and everything that asks
  * "is this an ordinary instrument?" — the trigger, the porta re-attack, the
  * envelope walkers — treats it as one; `isOpl` is what the renderer asks.
+ * The first low-meta kind: a layer, an FM operator and a formant
+ * instrument's glottal source may all be one.
  */
 const META_TYPE_OPL = 8;
 /** A type-8 record's first four bytes: the type nibble, a reserved count
@@ -6010,14 +6070,19 @@ function buildOplRecord(block, {
  * second pitch/filter envelope would be, and an ordinary instrument's neutral
  * defaults elsewhere. `src` = {ptr, len, rate, playStart, loopStart, loopEnd,
  * loopMode}; the block's own pointer bytes are overwritten with `src.ptr`.
- * `fields` overrides the rest by name, as buildOplRecord's do.
+ * `fields` overrides the rest by name, as buildOplRecord's do; `sourceInst`
+ * names an OPL instrument to sing with in place of the sample.
  */
 function buildFormantRecord(block, src, {
   detune = 0, nna = 0, fadeout = 0, pan = 0x80, percussion = false,
-  globalVolume = 0xff, noteVolume = 0xff, dct = 0, dca = 0,
+  globalVolume = 0xff, noteVolume = 0xff, dct = 0, dca = 0, sourceInst = 0,
 } = {}) {
   const r = new Uint8Array(256);
   for (let i = 0; i < 4; i++) r[i] = FORMANT_RECORD_HEADER[i];
+  // The source instrument (§7.8), 0 for the sample: bits 8…9 in byte 0's two
+  // low bits, bits 0…7 in byte 1.
+  r[0] |= (sourceInst >>> 8) & 0x03;
+  r[1] = sourceInst & 0xff;
   const w16 = (o, v) => { r[o] = v & 0xff; r[o + 1] = (v >>> 8) & 0xff; };
   w16(4, src.len ?? 0);
   w16(6, src.rate ?? 0);
@@ -6272,6 +6337,31 @@ class TaudInst {
   get isOpl() { return this.opl !== null; }
   /** True for a type-1 formant instrument: the sample through a vocal tract (§7.8). */
   get isFormant() { return this.formant !== null; }
+  /** The instrument's tier (the block at META_TIER_*): NONE for an ordinary
+   *  instrument, else the tier of its type nibble. */
+  get metaTier() {
+    if (this.opl !== null) return META_TIER_LOW;
+    if (this.formant !== null) return META_TIER_HIGH;
+    if (this.metaLayers !== null) return metaTierOf(this.metaType);
+    return META_TIER_NONE;
+  }
+  get isHighMeta() { return this.metaTier === META_TIER_HIGH; }
+  get isLowMeta() { return this.metaTier === META_TIER_LOW; }
+  /**
+   * Every instrument this one names as a source, as 10-bit slots in record
+   * order: a table's layers or operators (a muted operator, index 0, left out),
+   * and a formant instrument's chip source. What everything that follows
+   * instrument references — renumbering, deleting, cleanup, an import's closure
+   * — walks, so a new kind of source is followed everywhere at once.
+   */
+  get sourceSlots() {
+    const out = [];
+    if (this.metaLayers !== null) {
+      for (const l of this.metaLayers) if (l.instIdx >= 1) out.push(l.instIdx & 0x3ff);
+    }
+    if (this.formant !== null && this.formant.srcInst >= 1) out.push(this.formant.srcInst);
+    return out;
+  }
 
   get defaultCutoff16() {
     if (this.cutoffOverride >= 0) return this.cutoffOverride;
@@ -6431,6 +6521,7 @@ class TaudInst {
     for (let i = 0; i < FORMANT_BLOCK_LEN; i++) raw[i] = b[FORMANT_BLOCK_START + i] & 0xff;
     this.formantRaw = raw;
     this.formant = decodeFormantBlock(raw, 0, this.formant ?? new FormantPatch());
+    this.formant.srcInst = formantSourceInstOf(b[0], b[1]);
     this.samplePtr = this.formant.srcPtr;
     const n = Math.min(256, b.length);
     for (let i = 4; i < n; i++) {
@@ -6622,6 +6713,9 @@ class TaudInst {
     if (this.formant !== null) {
       // A type-1 record (§7.8): the header, then the tract block with the
       // source pointer — `samplePtr`, wherever an editor has moved it — first.
+      // The header's first two bytes also carry the source instrument.
+      if (o === 0) return FORMANT_RECORD_HEADER[0] | ((this.formant.srcInst >>> 8) & 0x03);
+      if (o === 1) return this.formant.srcInst & 0xff;
       if (o <= 3) return FORMANT_RECORD_HEADER[o];
       if (o >= FORMANT_BLOCK_START && o < FORMANT_BLOCK_START + FORMANT_BLOCK_LEN) {
         const r = o - FORMANT_BLOCK_START;
@@ -6701,7 +6795,17 @@ class TaudInst {
 
   setByte(o, byte) {
     if (this.formant !== null) {
-      if (o <= 3) return; // the header is the record's kind, not a field
+      // The header is the record's kind — but for the source instrument it
+      // carries in byte 1 and byte 0's two low bits (§7.8).
+      if (o === 0) {
+        this.formant.srcInst = formantSourceInstOf(byte, this.formant.srcInst & 0xff);
+        return;
+      }
+      if (o === 1) {
+        this.formant.srcInst = formantSourceInstOf(this.formant.srcInst >>> 8, byte);
+        return;
+      }
+      if (o <= 3) return;
       if (o >= FORMANT_BLOCK_START && o < FORMANT_BLOCK_START + FORMANT_BLOCK_LEN) {
         const r = o - FORMANT_BLOCK_START;
         if (r < 3) {
@@ -8960,12 +9064,47 @@ function advanceVolumeRamp(voice, div = 63.0) {
 
 
 
+
 // ── The record ──────────────────────────────────────────────────────────────
 
 /** Byte 0's type nibble for this kind (§7.4). */
 const META_TYPE_FORMANT = 1;
-/** Bytes 0…3: the type, a reserved byte, and the metainstrument sentinel. */
+/** Bytes 0…3: the type, the source instrument (none), and the metainstrument
+ *  sentinel. */
 const FORMANT_RECORD_HEADER = Object.freeze([0x10, 0x00, 0xff, 0xff]);
+
+/**
+ * The SOURCE INSTRUMENT a type-1 record names in its header (§7.8): bits 0…7
+ * in byte 1, bits 8…9 in byte 0's two low bits. 0 is none — the record's own
+ * sample is the glottal source, as it always was. Anything else names an
+ * instrument whose voice is the source instead, which has to be one of the
+ * chip kinds (OPL); a record naming anything else sings with its sample.
+ */
+function formantSourceInstOf(b0, b1) {
+  return ((b0 & 0x03) << 8) | (b1 & 0xff);
+}
+
+/**
+ * The instrument a formant instrument `inst` is sung from, out of
+ * `instruments`, or null when it sings with its own sample: the header names
+ * none, or names itself, or names an instrument that is not an OPL one. An
+ * OPL instrument is a sound generator in its own right, so its voice can be
+ * the glottal source where a sample would be; anything built out of sources
+ * cannot.
+ */
+function formantChipSource(instruments, inst) {
+  const i = inst.formant.srcInst;
+  if (i < 1 || i > 1023 || i === inst.index) return null;
+  const src = instruments[i];
+  return src !== undefined && src !== null && src.opl !== null ? src : null;
+}
+
+/** The rate a chip source plays the part of the sample's rate at C4 with:
+ *  its own C2SPD, 0 reading as the tracker convention, as on the chip
+ *  instrument itself (§7.7). */
+function formantChipRate(src) {
+  return src.samplingRate === 0 ? OPL_C4_RATE : src.samplingRate;
+}
 /** The tract block takes the second pitch/filter slot, as OPL's patch does. */
 const FORMANT_BLOCK_START = 197;
 const FORMANT_BLOCK_LEN = 54;
@@ -9005,6 +9144,7 @@ class FormantSlot {
 class FormantPatch {
   constructor() {
     this.srcPtr = 0;
+    this.srcInst = 0;      // the header's source instrument (formantSourceInstOf), 0 = the sample
     this.front = 200;
     this.open = 255;
     this.round = 0;
@@ -9899,6 +10039,9 @@ class FormantState {
     this.nTilt = 0; this.nTiltC = 0.0; this.nGain = 1.0; this.nZ = 0.0;
     this.nGen = false;                     // the generator rather than a sample
     this.nSeed = NOISE_SEED;
+    // The glottal source when it is an OPL channel (formantChipSource), keyed
+    // with the note; null when the source is the record's sample.
+    this.src = null;
     // Scratch.
     this.V = new Float64Array(5); this.VB = new Float64Array(5);
     this.F = new Float64Array(5); this.B = new Float64Array(5);
@@ -9935,7 +10078,34 @@ function cloneFormantState(src, dst = new FormantState()) {
   dst.nStep = src.nStep; dst.nTilt = src.nTilt; dst.nTiltC = src.nTiltC; dst.nGain = src.nGain;
   dst.nZ = src.nZ;
   dst.nGen = src.nGen; dst.nSeed = src.nSeed;
+  dst.src = src.src !== null ? cloneOplState(src.src) : null;
   return dst;
+}
+
+/**
+ * Key the note's glottal source: an OPL channel playing `chip` (an OplPatch),
+ * from silence as any fresh note's channel starts — or no channel, the
+ * record's sample being the source, when `chip` is null.
+ */
+function formantKeySource(st, chip) {
+  if (chip === null) { st.src = null; return; }
+  if (st.src === null) st.src = new OplState();
+  oplKeyOn(st.src, chip, false);
+  st.sgDue = true;
+}
+
+/**
+ * An instrument byte without a retrigger hands the note a new record's source
+ * (§5.2): a channel already sounding takes the new patch where it stands, as
+ * an OPL note does; a sampled source handed a chip gets a fresh channel; a
+ * chip handed a sample gives it up.
+ */
+function formantRelatchSource(st, chip) {
+  if (chip === null) { st.src = null; return; }
+  if (st.src === null) { formantKeySource(st, chip); return; }
+  st.src.patch = chip;
+  st.src.gen = -1;
+  st.sgDue = true;
 }
 
 /**
@@ -10010,6 +10180,9 @@ function formantRestart(st) {
   formantNoteOn(st, st.patch);
   st.vFront = f; st.vOpen = o; st.vRound = r; st.ownVowel = own;
   st.sg = sg; st.sm = sm; st.sgDue = due;   // the same sample: the same measurements
+  // A chip source is re-keyed as Q re-keys an OPL note: the attack from where
+  // each envelope stands, the phase from zero (§5.5.2).
+  if (st.src !== null && st.src.patch !== null) oplKeyOn(st.src, st.src.patch, true);
 }
 
 /**
@@ -10237,6 +10410,7 @@ function cascadeNorm(co, f0, w, wK) {
  * SOURCE_MEASURE_MAX bytes of a stretch.
  */
 function measureSource(eng, voice, st) {
+  if (st.src !== null) { measureChipSource(voice, st); return; }
   const bin = eng.sampleBin;
   const mode = voice.activeLoopMode & 3;
   const looped = (mode === 1 || mode === 2) && voice.activeSampleLoopEnd > voice.activeSampleLoopStart;
@@ -10380,6 +10554,93 @@ function sourceHarmonics(bin, p, span, whole, P, st) {
   sourceMemo.set(key, { w: w.slice(0, K + 1), K });
 }
 
+/** Output frames of a chip source a note is measured over (≈ 85 ms): past the
+ *  attack of all but the slowest patch, and one loudest window's worth of
+ *  room to find it in four times over. */
+const CHIP_MEASURE = 4096;
+const chipBuf = new Float64Array(CHIP_MEASURE);
+const chipScratch = new OplState();
+/** Measurements of chip sources already made, per patch, by its decode and
+ *  the rate played: a pure memo, as sourceMemo is. */
+const chipMemo = new WeakMap();
+const chipAc = new Float64Array(2);
+
+/**
+ * measureSource for a source that is an OPL channel. The chip has no bytes to
+ * read, so the note's own channel is run apart — from key-on, at the note's
+ * rate, at unity volume, on a channel of its own so the note's is untouched —
+ * for CHIP_MEASURE output frames, and that is measured the way a one-shot
+ * sample is: the gain from the loudest window, its mean taken out first, and
+ * its harmonics from the same window, Hann-windowed and read at k ÷ P cycles a
+ * frame, P being the period in output frames at the note's pitch. A chip's
+ * spectrum moves with its pitch (key scaling, the block an F-number falls in),
+ * so unlike a sample's it is measured at the pitch it is sung at.
+ */
+function measureChipSource(voice, st) {
+  const patch = st.src.patch;
+  const pr = voice.snapPlaybackRate ? voice.playbackRate : voice.currentPlaybackRate;
+  const key = `${patch.gen}:${pr}`;
+  let memo = chipMemo.get(patch);
+  if (memo === undefined) { memo = new Map(); chipMemo.set(patch, memo); }
+  const hit = memo.get(key);
+  if (hit !== undefined) {
+    st.sm = hit.sm; st.sg = hit.sg; st.hw.set(hit.w); st.hwK = hit.K;
+    return;
+  }
+  const x = chipBuf;
+  oplKeyOn(chipScratch, patch, false);
+  for (let i = 0; i < CHIP_MEASURE; i++) x[i] = oplRender(chipScratch, i, pr, 1.0, false);
+  // The loudest window, every half window; the first of equals wins.
+  const acF = (p, n) => {
+    let sum = 0.0, sq = 0.0;
+    for (let i = 0; i < n; i++) { const v = x[p + i]; sum += v; sq += v * v; }
+    const mean = sum / n;
+    chipAc[0] = mean;
+    chipAc[1] = sq / n - mean * mean;
+    return chipAc;
+  };
+  let at = 0, best = -1.0;
+  for (let o = 0; o + SOURCE_WINDOW <= CHIP_MEASURE; o += SOURCE_WINDOW >> 1) {
+    const ac = acF(o, SOURCE_WINDOW)[1];
+    if (ac > best) { best = ac; at = o; }
+  }
+  const [mean, ac] = acF(at, SOURCE_WINDOW);
+  st.sm = mean;
+  st.sg = ac > 1e-12
+    ? Math.min(Math.max(FORMANT_LEVEL / Math.sqrt(ac), 1 / SOURCE_GAIN_MAX), SOURCE_GAIN_MAX)
+    : 1.0;
+  // The period in output frames: the chip sounds pr × rate × 261.63 ÷ 8363 Hz.
+  const P = pr > 0 ? OPL_C4_RATE / (pr * LINEAR_FREQ_C4_HZ) : 0;
+  const K = P >= 2 ? Math.min(NORM_HARMONICS, Math.floor(P / 2)) : 0;
+  const w = st.hw;
+  let sum = 0.0;
+  if (K >= 1) {
+    const N = SOURCE_WINDOW;
+    const y = srcDft;
+    for (let i = 0; i < N; i++) {
+      y[i] = (x[at + i] - mean) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+    }
+    for (let k = 1; k <= K; k++) {
+      const om = (2 * Math.PI * k) / P;
+      const c1 = Math.cos(om), s1 = Math.sin(om);
+      let c = 1.0, s = 0.0, re = 0.0, im = 0.0;
+      for (let i = 0; i < N; i++) {
+        re += y[i] * c;
+        im -= y[i] * s;
+        const nc = c * c1 - s * s1;
+        s = s * c1 + c * s1;
+        c = nc;
+      }
+      w[k] = re * re + im * im;
+      sum += w[k];
+    }
+  }
+  if (sum > 0) st.hwK = K;
+  else sawHarmonics(st);
+  if (memo.size >= SOURCE_MEMO_MAX) memo.clear();
+  memo.set(key, { sm: st.sm, sg: st.sg, w: st.hw.slice(0, st.hwK + 1), K: st.hwK });
+}
+
 /** A sawtooth's harmonics, 1 ÷ k² for k ≤ 64: what a source with no period
  *  to measure is taken to be. */
 function sawHarmonics(st) {
@@ -10395,6 +10656,11 @@ function sawHarmonics(st) {
 function voiceF0(voice) {
   const rate = voice.activeSamplingRate;
   const pr = voice.snapPlaybackRate ? voice.playbackRate : voice.currentPlaybackRate;
+  // A chip source sounds what the chip makes of the rate (opl.js retune), and
+  // the chip reads every rate against the tracker convention's 8363.
+  if (voice.formant !== null && voice.formant.src !== null) {
+    return (pr * SAMPLING_RATE * LINEAR_FREQ_C4_HZ) / OPL_C4_RATE;
+  }
   return rate > 0 ? (pr * SAMPLING_RATE * LINEAR_FREQ_C4_HZ) / rate : 0.0;
 }
 
@@ -10579,15 +10845,31 @@ function tractRes(co, i, cy, j, x) {
 }
 
 /**
- * One output sample of a voice sounding a formant instrument: the source
- * fetched as any sample is and brought to FORMANT_LEVEL, through the cascade
- * with the aspiration, plus the frication through the parallel bank. The mixer applies the filter, the voice
- * FX and every gain after this, exactly as for a sampled voice.
+ * A chip source's next sample: the note's OPL channel at output frame `frame`,
+ * at the voice's rate and at unity volume (the note's volume is the mixer's to
+ * apply to the tract's output), keyed off with the voice. A channel that has
+ * rung out while the vowel is still singing has nothing left to sing with, and
+ * the note ramps out, as a sampled note does at its sample's end; in a
+ * consonant the tract's own clock decides.
  */
-function renderFormantVoice(eng, voice, inst, interpMode) {
+function chipSource(voice, st, frame) {
+  const s = oplRender(st.src, frame, voice.currentPlaybackRate, 1.0, voice.keyOff);
+  if (st.phase === PHASE_VOWEL && !oplChannelAlive(st.src)) startRampOut(voice);
+  return s;
+}
+
+/**
+ * One output sample of a voice sounding a formant instrument: the source
+ * fetched as any sample is — or run, when it is an OPL channel — and brought to
+ * FORMANT_LEVEL, through the cascade with the aspiration, plus the frication
+ * through the parallel bank. The mixer applies the filter, the voice FX and
+ * every gain after this, exactly as for a sampled voice. `frame` is the
+ * playhead's chip clock at this sample.
+ */
+function renderFormantVoice(eng, voice, inst, interpMode, frame) {
   const st = voice.formant;
   if (st.sgDue) { measureSource(eng, voice, st); st.sgDue = false; }
-  const g = fetchTrackerSample(eng, voice, inst, interpMode);
+  const g = st.src !== null ? chipSource(voice, st, frame) : fetchTrackerSample(eng, voice, inst, interpMode);
   if (st.phase === PHASE_DONE) return 0.0;
   if (st.ctl <= 0) {
     formantControl(voice, st);
@@ -10794,6 +11076,12 @@ function applyTaudVoiceFx(voice, sample, st = voice) {
 // envelope, filter, auto-vibrato and detune all keep working. Modulate a
 // single-cycle loop and the result is textbook phase modulation; modulate a
 // drum hit and it is something no DX7 could do.
+//
+// An operator may also be a low-meta instrument — an OPL channel — which is a
+// generator rather than a waveform to read at an offset. It is read as the
+// chip reads its own carriers: the modulation goes into the phase of the
+// operators the channel outputs.
+
 
 
 
@@ -10898,22 +11186,46 @@ function fmCycleFrames(v) {
 }
 
 /**
+ * An OPL operator's value at output frame `frame`, read with `offset` cycles
+ * of phase modulation. One cycle is one cycle of the chip's own sine — 1024 of
+ * its phase steps — which is also how far a carrier on the chip moves for a
+ * modulator at that value, so a rack modulating a chip channel is the chip's
+ * own FM carried one stage further out. Read at unity volume: an operator's
+ * level is its mix octet, and the note's volume belongs to the finished patch.
+ * A channel that has rung out ends its operator, as a one-shot's end does.
+ */
+function fmChipOperator(v, frame, offset) {
+  const st = v.opl;
+  st.pm = offset === 0 ? 0 : Math.round(offset * 1024);
+  const s = oplRender(st, frame, v.currentPlaybackRate, 1.0, v.keyOff);
+  st.pm = 0;
+  if (!oplChannelAlive(st)) v.active = false;
+  return s;
+}
+
+/**
  * One operator, evaluated at most ONCE per output sample. Naming an operator
  * twice in one algorithm — the natural way to write "operator 5 modulates both
  * 4 and 2" — gives the same value both times, because an operator is one
  * oscillator with one phase and not a function that can be called again.
  *
  * `offset` is the phase modulation in units of the operator's own cycle; 0 is
- * a free-running read.
+ * a free-running read. `frame` is the playhead's chip clock at this sample,
+ * which an OPL operator runs on.
  */
-function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
+function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
   if (rig.done[k] !== 0) return rig.cur[k];
   rig.done[k] = 1;
   const v = rig.voices[k];
   if (v === null || !v.active) { rig.cur[k] = 0.0; return 0.0; }
   const inst = eng.instruments[v.instrumentId];
-  const frames = offset === 0 ? 0 : offset * fmCycleFrames(v);
-  let s = fetchTrackerSample(eng, v, inst, interpMode, frames);
+  let s;
+  if (v.opl !== null) {
+    s = fmChipOperator(v, frame, offset);
+  } else {
+    const frames = offset === 0 ? 0 : offset * fmCycleFrames(v);
+    s = fetchTrackerSample(eng, v, inst, interpMode, frames);
+  }
   let g = rig.gain[k];
   if (k !== 0) {
     // Operator 0 is the lane's own voice: the mixer runs its filter, its
@@ -10964,7 +11276,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
  * so the underflow and overflow guards here are the belt to that braces: a rig
  * whose program is null renders silence and never reaches this loop at all.
  */
-function renderFmVoice(eng, ts, voice, interpMode, spt) {
+function renderFmVoice(eng, ts, voice, interpMode, spt, frame) {
   const rig = voice.fmRig;
   const prog = rig.program;
   if (prog === null) return 0.0;
@@ -11005,7 +11317,7 @@ function renderFmVoice(eng, ts, voice, interpMode, spt) {
       continue;
     }
     const offset = cls === FM_WORD_MOD && sp > 0 ? stack[--sp] : 0.0;
-    if (sp < FM_STACK_MAX) stack[sp++] = fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset);
+    if (sp < FM_STACK_MAX) stack[sp++] = fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame);
   }
 
   // The z⁻¹ taps move on together, AFTER the whole program: a feedback word
@@ -11630,6 +11942,16 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
     triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVol);
     return;
   }
+  // A table of a kind this engine does not know — a type nibble it has no
+  // reading for — sounds nothing (§7.4): its entries have the Layered shape,
+  // but what they mean is the kind's.
+  if (inst.metaType !== META_TYPE_LAYERED) {
+    voice.active = false;
+    voice.layerMixGain = 1.0;
+    voice.layerRelDetune = 0;
+    voice.layerFixedNote = -1;
+    return;
+  }
   let layers = inst.resolveMetaLayers(noteVal, seedVol);
   // What each layer SOUNDS, which for a fixed-pitch layer (item 179) is its own
   // note and not the trigger's. The gating above still asked about the trigger:
@@ -11753,11 +12075,13 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
 function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVol) {
   const ops = inst.metaLayers;
   const program = inst.fmProgram;
+  // An operator is an ordinary instrument or a low meta (an OPL channel,
+  // read as the chip reads its carriers — fm.js). A high meta is not: a
+  // formant instrument, a layer table or another rack is a sound made OUT of
+  // sources, and taking one as a source would be recursion (§7.4).
   const sounds = (o) =>
-    o.instIdx >= 1 && o.instIdx <= 1023 && !eng.instruments[o.instIdx].isMeta &&
-    // An OPL instrument is a channel, not a waveform a rack can read (§7.7);
-    // a formant instrument is a sound made of a waveform, not one (§7.8).
-    !eng.instruments[o.instIdx].isOpl && !eng.instruments[o.instIdx].isFormant &&
+    o.instIdx >= 1 && o.instIdx <= 1023 &&
+    !eng.instruments[o.instIdx].isMeta && !eng.instruments[o.instIdx].isHighMeta &&
     noteVal >= o.pitchStart && noteVal <= o.pitchEnd &&
     seedVol >= o.volStart && seedVol <= o.volEnd;
   // No algorithm, or no principal operator, is silence — the same answer the
@@ -11879,6 +12203,10 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // resolvePatch answers null for both.
   const patch = inst.resolvePatch(noteVal, seedVolForLookup);
   applyActiveSample(voice, inst, patch);
+  // A formant instrument sung from an OPL instrument (§7.8) takes the chip's
+  // C2SPD where its sample's rate would be: the pitch is the chip's.
+  const formantChip = inst.formant !== null ? formantChipSource(eng.instruments, inst) : null;
+  if (formantChip !== null) voice.activeSamplingRate = formantChipRate(formantChip);
   voice.tonePortaTarget = -1; // fresh note trigger cancels any running porta
   voice.samplePos = voice.activeSamplePlayStart;
   voice.forward = true;
@@ -12073,6 +12401,7 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   if (inst.formant !== null) {
     if (voice.formant === null) voice.formant = new FormantState();
     formantNoteOn(voice.formant, inst.formant);
+    formantKeySource(voice.formant, formantChip !== null ? formantChip.opl : null);
   } else {
     voice.formant = null;
   }
@@ -13667,6 +13996,10 @@ function applyTrackerRow(eng, ts, playhead) {
 function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
                               reAttack = false, mayCarry = false) {
   applyActiveSample(voice, newInst, newPatch);
+  // A formant instrument sung from an OPL instrument takes the chip's C2SPD
+  // where its sample's rate would be, as on a trigger (trigger.js).
+  const formantChip = newInst.formant !== null ? formantChipSource(eng.instruments, newInst) : null;
+  if (formantChip !== null) voice.activeSamplingRate = formantChipRate(formantChip);
   // An OPL voice takes the new patch onto the channel it is sounding, as a
   // driver writes a patch change into a keyed channel; an instrument byte on a
   // porta row then re-attacks its envelopes without restarting the phase — the
@@ -13689,11 +14022,15 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   // tract (formantRelatch); a sampled note handed one starts its tract at the
   // vowel, since the note's onset is long past. Neither replays an onset — the
   // re-attack is the envelopes', not the syllable's.
+  // Its source follows the record, a chip channel taking a new patch where it
+  // stands (formantRelatchSource).
   if (newInst.formant !== null && voice.formant !== null) {
     formantRelatch(voice.formant, newInst.formant);
+    formantRelatchSource(voice.formant, formantChip !== null ? formantChip.opl : null);
   } else if (newInst.formant !== null) {
     voice.formant = new FormantState();
     formantStartAtVowel(voice.formant, newInst.formant);
+    formantKeySource(voice.formant, formantChip !== null ? formantChip.opl : null);
   } else {
     voice.formant = null;
   }
@@ -14967,6 +15304,18 @@ const stereoPair = [0.0, 0.0];
  * stereo-shaped stays mono here.
  */
 function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
+  // An FM rack (item 159) replaces the voice's own sample fetch, and nothing
+  // else: the filter, the voice FX and every gain below still act on the
+  // finished patch exactly as they act on a sampled one. It is asked first
+  // because its operator 0 may itself be an OPL channel (§5.5.1), which the
+  // rack reads — the voice it sounds on is the rack's, not the chip's.
+  if (voice.fmRig !== null) {
+    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
+      renderFmVoice(eng, ts, voice, interpMode, spt, ts.oplFrame + n)));
+    out[0] = s;
+    out[1] = s;
+    return out;
+  }
   // An OPL channel (item 209) replaces the sample fetch the same way, and
   // reads the playhead's chip clock at this frame (opl.js). The note volume
   // it has already applied, as the chip's drivers do, in the operators'
@@ -14978,23 +15327,13 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
     out[1] = s;
     return out;
   }
-  // A voice sounding a formant instrument (item 212) fetches its sample as any
-  // voice does and plays
-  // it through the tract; the filter, the voice FX and the gains then act on
-  // the tract's output as they act on a sample.
+  // A voice sounding a formant instrument (item 212) fetches its sample — or
+  // runs the OPL channel it is sourced from, on the same chip clock — and
+  // plays it through the tract; the filter, the voice FX and the gains then
+  // act on the tract's output as they act on a sample.
   if (voice.formant !== null) {
     const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
-      renderFormantVoice(eng, voice, inst, interpMode)));
-    out[0] = s;
-    out[1] = s;
-    return out;
-  }
-  // An FM rack (item 159) replaces the voice's own sample fetch, and nothing
-  // else: the filter, the voice FX and every gain below still act on the
-  // finished patch exactly as they act on a sampled one.
-  if (voice.fmRig !== null) {
-    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
-      renderFmVoice(eng, ts, voice, interpMode, spt)));
+      renderFormantVoice(eng, voice, inst, interpMode, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
     return out;
@@ -15156,8 +15495,10 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
     advanceVolumeRamp(voice, volDiv);
     advancePitchRamp(voice, spt);
     // An OPL voice took its note volume into the operators (opl.js), so the
-    // mix volume must not be applied a second time here.
-    const mixVol = voice.opl !== null ? 1.0 : voice.currentMixVolume;
+    // mix volume must not be applied a second time here — unless the chip is
+    // operator 0 of a rack, which reads it at unity and leaves the note's
+    // volume to the finished patch, as for any rack (§5.5.1).
+    const mixVol = voice.opl !== null && voice.fmRig === null ? 1.0 : voice.currentMixVolume;
     const perVoiceGain = effEnvVol * voice.fadeoutVolume * mixVol *
       swingScale * instGv * faderGain * voice.layerMixGain * voice.activeAttenGain;
     const vol = perVoiceGain * globalGain;
@@ -15270,7 +15611,8 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
     const effEnvVol = bg.hasVolEnv && bg.volEnvOn ? bg.envVolMix : 1.0;
     advanceVolumeRamp(bg, volDiv);
     advancePitchRamp(bg, spt);
-    const vol = (effEnvVol * bg.fadeoutVolume * (bg.opl !== null ? 1.0 : bg.currentMixVolume) *
+    const vol = (effEnvVol * bg.fadeoutVolume *
+      (bg.opl !== null && bg.fmRig === null ? 1.0 : bg.currentMixVolume) *
       swingScale * gvol * mvol * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain *
       playhead.masterVolume) / 255.0;
     let lGain = 0.0;

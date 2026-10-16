@@ -13,6 +13,11 @@
 // envelope, filter, auto-vibrato and detune all keep working. Modulate a
 // single-cycle loop and the result is textbook phase modulation; modulate a
 // drum hit and it is something no DX7 could do.
+//
+// An operator may also be a low-meta instrument — an OPL channel — which is a
+// generator rather than a waveform to read at an offset. It is read as the
+// chip reads its own carriers: the modulation goes into the phase of the
+// operators the channel outputs.
 
 import { ATTACK_RAMP_SAMPLES } from "./constants.js";
 import {
@@ -22,6 +27,7 @@ import {
 import { META_MIX_GAIN } from "./tables.js";
 import { fetchTrackerSample, advanceVolumeRamp, advancePitchRamp } from "./sampler.js";
 import { applyVoiceFilter } from "./filter.js";
+import { oplRender, oplChannelAlive } from "./opl.js";
 
 /**
  * The live rack behind one sounding note. Allocated per trigger, hung off the
@@ -121,22 +127,46 @@ function fmCycleFrames(v) {
 }
 
 /**
+ * An OPL operator's value at output frame `frame`, read with `offset` cycles
+ * of phase modulation. One cycle is one cycle of the chip's own sine — 1024 of
+ * its phase steps — which is also how far a carrier on the chip moves for a
+ * modulator at that value, so a rack modulating a chip channel is the chip's
+ * own FM carried one stage further out. Read at unity volume: an operator's
+ * level is its mix octet, and the note's volume belongs to the finished patch.
+ * A channel that has rung out ends its operator, as a one-shot's end does.
+ */
+function fmChipOperator(v, frame, offset) {
+  const st = v.opl;
+  st.pm = offset === 0 ? 0 : Math.round(offset * 1024);
+  const s = oplRender(st, frame, v.currentPlaybackRate, 1.0, v.keyOff);
+  st.pm = 0;
+  if (!oplChannelAlive(st)) v.active = false;
+  return s;
+}
+
+/**
  * One operator, evaluated at most ONCE per output sample. Naming an operator
  * twice in one algorithm — the natural way to write "operator 5 modulates both
  * 4 and 2" — gives the same value both times, because an operator is one
  * oscillator with one phase and not a function that can be called again.
  *
  * `offset` is the phase modulation in units of the operator's own cycle; 0 is
- * a free-running read.
+ * a free-running read. `frame` is the playhead's chip clock at this sample,
+ * which an OPL operator runs on.
  */
-function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
+function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
   if (rig.done[k] !== 0) return rig.cur[k];
   rig.done[k] = 1;
   const v = rig.voices[k];
   if (v === null || !v.active) { rig.cur[k] = 0.0; return 0.0; }
   const inst = eng.instruments[v.instrumentId];
-  const frames = offset === 0 ? 0 : offset * fmCycleFrames(v);
-  let s = fetchTrackerSample(eng, v, inst, interpMode, frames);
+  let s;
+  if (v.opl !== null) {
+    s = fmChipOperator(v, frame, offset);
+  } else {
+    const frames = offset === 0 ? 0 : offset * fmCycleFrames(v);
+    s = fetchTrackerSample(eng, v, inst, interpMode, frames);
+  }
   let g = rig.gain[k];
   if (k !== 0) {
     // Operator 0 is the lane's own voice: the mixer runs its filter, its
@@ -187,7 +217,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset) {
  * so the underflow and overflow guards here are the belt to that braces: a rig
  * whose program is null renders silence and never reaches this loop at all.
  */
-export function renderFmVoice(eng, ts, voice, interpMode, spt) {
+export function renderFmVoice(eng, ts, voice, interpMode, spt, frame) {
   const rig = voice.fmRig;
   const prog = rig.program;
   if (prog === null) return 0.0;
@@ -228,7 +258,7 @@ export function renderFmVoice(eng, ts, voice, interpMode, spt) {
       continue;
     }
     const offset = cls === FM_WORD_MOD && sp > 0 ? stack[--sp] : 0.0;
-    if (sp < FM_STACK_MAX) stack[sp++] = fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset);
+    if (sp < FM_STACK_MAX) stack[sp++] = fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame);
   }
 
   // The z⁻¹ taps move on together, AFTER the whole program: a feedback word

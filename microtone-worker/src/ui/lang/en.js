@@ -958,8 +958,8 @@ export default {
   "newmeta.create": "Create",
   "newmeta.noCandidates": "This project has no ordinary instruments to layer (a metainstrument can't be layered inside another one).",
   "newfm.title": "New FM Rack metainstrument",
-  "newfm.hint": "Pick the instruments to use as operators, in the order you want them. The FIRST one becomes operator 0 — the principal, which sounds on the channel and whose envelope is the note's length. The rack starts wired as a plain chain: the last operator modulates the one before it, all the way down into operator 0. Each pick is COPIED into a sub-instrument slot ($100+) and shares its samples, so no pool space is used. An operator's LOOP is the cycle it modulates by, so single-cycle waveforms give textbook FM and anything longer gives something stranger.",
-  "newfm.noCandidates": "This project has no ordinary instruments to use as operators (a metainstrument can't be one).",
+  "newfm.hint": "Pick the instruments to use as operators, in the order you want them. The FIRST one becomes operator 0 — the principal, which sounds on the channel and whose envelope is the note's length. The rack starts wired as a plain chain: the last operator modulates the one before it, all the way down into operator 0. Each pick is COPIED into a sub-instrument slot ($100+) and shares its samples, so no pool space is used. An operator's LOOP is the cycle it modulates by, so single-cycle waveforms give textbook FM and anything longer gives something stranger. An OPL instrument can be an operator too: the rack bends its channel's phase the way the chip bends its own carriers.",
+  "newfm.noCandidates": "This project has no instruments to use as operators — an ordinary one or an OPL one (a metainstrument or a formant instrument can't be one).",
 
   // ── New OPL instrument + the OPL tab (an FM sound chip's channel, type 8) ──
   "newkind.opl": "OPL instrument",
@@ -1053,6 +1053,12 @@ export default {
   "fmt.source": "Source",
   "fmt.sourceTitle": "The sample the vowel is sung with, chosen automatically: of everything in the range, the looped stretch that suits this vowel best — a plain tone rich in overtones like a sawtooth, or a recording of the vowel itself. It is chosen again whenever the range or the vowel changes; a sample that does not loop is given a loop. S $Afgr in a pattern moves the vowel, not the source.",
   "fmt.sourceNone": "(none)",
+  "fmt.sungFrom": "Sung from",
+  "fmt.sungFromTitle": "What the vowel is sung with: the sample chosen below, or the voice of an OPL instrument in its place, played at that instrument's own tuning and shaped by this one's tract, consonants and envelopes. Picking an OPL instrument copies it in as part of this one; Edit opens the copy.",
+  "fmt.sungFromSample": "Its sample (the source below)",
+  "fmt.sungFromGroup": "OPL instruments",
+  "fmt.sungFromEdit": "Edit",
+  "fmt.sourceIdle": "not sung while an OPL instrument is the source",
   "fmt.grpVowel": "Vowel",
   "fmt.chartLabel": "Vowel chart",
   "fmt.chartTitle": "Drag to move the tongue. Everything is drawn where it sounds: up is a closer vowel (a lower first formant), left a fronter one (a higher second formant), as Geoff Lindsey's chart and Praat's vowel editor draw them. The shaded region is everywhere the tongue can take the vowel with the lips as Roundness has them; rounding the lips moves the region, and the vowel with it, back and down. Faded symbols need the other lip setting — click one to take that vowel, lips included.",

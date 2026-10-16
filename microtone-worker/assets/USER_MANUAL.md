@@ -1594,6 +1594,12 @@ pitch × velocity rectangle per row — and the editor gives each kind its own t
 over it (**Layers** and **FM**). What differs is what those entries *mean*: side
 by side, or fed into one another.
 
+**OPL instruments are sources for all of them.** A Layered metainstrument, an FM
+Rack and a [formant instrument](#formant-instruments) each accept an
+[OPL instrument](#opl-instruments) as a source — a layer, an operator, or the
+voice a formant instrument sings with — just as they accept an ordinary one.
+The PSG instruments that are on their way will be accepted the same way.
+
 ### Building a Layered metainstrument
 
 **Meta… → Layered** picks any number of ordinary instruments and stacks them
@@ -1615,7 +1621,8 @@ note will now cost.
 Every layer starts at unity mix (159 = 0 dB) across the whole note and velocity
 range; spread and narrow them on the new instrument's **Layers** tab.
 Metainstruments of either kind are not offered as picks — the engine resolves a
-layer directly to a sample, so metainstruments cannot be nested.
+layer directly to a sample, so metainstruments cannot be nested. OPL and formant
+instruments are: they layer like any other.
 
 ### Building an FM Rack
 
@@ -1650,8 +1657,11 @@ sweeps a whole cycle either way, and every decibel above that is brighter. Point
 an operator at a drum hit or a long sustained sample instead and it scrubs
 through the whole thing — a much stranger noise, and a perfectly good one.
 
-Metainstruments are not offered as picks: an operator resolves straight to a
-sample.
+An OPL instrument can be an operator too, in either role: modulated, its
+channel is bent the way the chip bends its own carriers; modulating, its output
+bends the next operator like any other. Metainstruments and formant instruments
+are not offered as picks: an operator is a source, and they are made out of
+one.
 
 ### OPL instruments
 
@@ -1677,8 +1687,8 @@ chip does when a note is retriggered; any other NNA lets the old note ring on
 beside the new one, as a sampled instrument would.
 
 An OPL instrument may be a **layer** of a Layered metainstrument, which is how
-two chip patches are stacked into one sound, but not an **operator** of an FM
-Rack: a rack's operators are read as samples, and an OPL instrument has none.
+two chip patches are stacked into one sound, an **operator** of an FM Rack, and
+the voice a **formant instrument** sings with.
 
 ### Formant instruments
 
@@ -1771,6 +1781,12 @@ a sung text writes one on each syllable whose vowel differs. A note without one
 sings the instrument's vowel as it stands — edit the vowel while a note holds
 and you hear it move; a note given its own keeps it.
 
+**It can sing with an OPL instrument instead of a sample.** Pick one under
+**Sung from** on the Formant tab and the vowel is sung with that chip patch, at
+its own tuning; the sample stays where it was, for when you switch back. The
+OPL instrument is copied in as part of the formant instrument, and **Edit**
+beside it opens the copy.
+
 A formant instrument may be a **layer** of a Layered metainstrument, but not an
 operator of an FM Rack.
 
@@ -1816,7 +1832,7 @@ either way.
   - **Carry** (beside *Envelope present*) makes a new note **continue** this envelope instead of restarting it: the playhead stays where the last note left it, so a slow pan sweep or a filter opening can run across a whole phrase of repeated notes rather than resetting on each one. Each envelope carries — or does not — on its own. It is ignored where there is nothing worth keeping: after a key-off, and on a note that changes instrument. This is also what makes a run of notes tied by `G` sound the same whether or not each row names its instrument.
 - **Zones** — the Ixmp key/velocity zone map with a live trigger overlay showing which zone each incoming note lands in. The **Advanced Edit…** button opens the full patch editor (below).
 - **Formant** (formant instruments) — the vocal tract. A formant instrument has the General tab (where its sample is the source) and the envelope tabs as well, but no Zones: one source sings every key.
-  - **Material**: the **Pool range** — pick one sample, one recording in memory, or *All samples and recordings* from the list, or type the two pool **Addresses** below it. Then the **Source**, which the instrument chooses itself: the looped stretch of the range that suits the vowel best, shown with where it comes from (a window of a recording reads *R00 @ 12.34 s*), its loop, the vowel it was chosen for and its badness. A sample that does not loop is given a loop, and so is one whose own loop sits in its faded tail (a quiet loop costs: it is lifted, noise and all, to the instrument's level); the source is tuned so that the instrument's middle C is middle C, and a note plays from the loop — not from whatever comes before it in the sample. An instrument that does start ahead of its loop is held to its level by the louder of the two; **Choose again** brings it up to date. It is chosen again in the same undo step whenever you change the range or the vowel; **Choose again** does it on demand, after editing the samples, say. Moving the vowel with `S $Afgr` in a pattern does not change the source.
+  - **Material**: the **Pool range** — pick one sample, one recording in memory, or *All samples and recordings* from the list, or type the two pool **Addresses** below it. Then the **Source**, which the instrument chooses itself: the looped stretch of the range that suits the vowel best, shown with where it comes from (a window of a recording reads *R00 @ 12.34 s*), its loop, the vowel it was chosen for and its badness. A sample that does not loop is given a loop, and so is one whose own loop sits in its faded tail (a quiet loop costs: it is lifted, noise and all, to the instrument's level); the source is tuned so that the instrument's middle C is middle C, and a note plays from the loop — not from whatever comes before it in the sample. An instrument that does start ahead of its loop is held to its level by the louder of the two; **Choose again** brings it up to date. It is chosen again in the same undo step whenever you change the range or the vowel; **Choose again** does it on demand, after editing the samples, say. Moving the vowel with `S $Afgr` in a pattern does not change the source. **Sung from**, above it, is what the vowel is sung with: *Its sample* — the Source — or one of the project's OPL instruments, copied in as part of this one; **Edit** opens the copy, and the Source then waits, unused, until you switch back.
   - **Vowel**: the vowel chart, drawn as Geoff Lindsey draws it — the first formant down the side, the second across, high on the left — with every IPA vowel marked where it sounds. The ring is the **tongue**: drag it to move the vowel, and the shaded region is everywhere the tongue can go. **Roundness** is the **lips**: rounding them lowers every formant — a little for [i] → [y], a great deal for [ɯ] → [u] — so the region and the ring move back and down as you round, and you hear it. Vowels that need the other lip setting are faded; click any symbol to take that vowel, lips included. Below them, the vowel's formants and the `S $Afgr` that sets it in a pattern. A note already sounding follows every edit.
   - **Syllable**: **Onset**, **Onset, second**, **Glide**, **R-colouring** and **Coda** — consonant, consonant, glide, vowel, r, consonant. **Glide** picks the semivowel said between the onset and the vowel, or none; **R-colouring** colours the vowel with an r the whole note through — its third formant falls to that of the [ɝ] in *heard*, and a front vowel is drawn back under it ([ə] becomes [ɚ]); the readout shows the result. For **Onset** and **Coda**, click one to pick its consonant from an IPA chart, each symbol coloured by how well it can be made — green good, amber fair, red poor — or **No consonant**. A consonant that hisses or pops takes its best recipe, usually the **noise generator**, and the list beside it offers the others, best first: the generator, or a sample with where in it the noise starts (@), how fast it is played (×) and whether it is brightened or darkened. Every one is brought to the same level. Nasals, *l*, *r*, *w*, *j* and the like are made from the voice alone and need no sample.
   - **Pitch and timing**: **Size follows pitch** (how far the formants rise with the note — 64 is what research on singers points to, 0 keeps one size), the **Reference note** at which the chart's formants hold exactly (C3, a man's speaking pitch), **Consonant length** (×2 is twice as slow) and **Vowel glide**, how long `S $Afgr` takes to move the vowel.

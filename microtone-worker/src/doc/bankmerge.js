@@ -22,7 +22,9 @@ import { sampleSpans } from "./document.js";
 import {
   regionSpans, buildRegionPayload, MAX_REGION_CHANNELS,
 } from "./sampleregions.js";
-import { formantInstSpans, formantRecordSpans, retargetFormantRecord } from "./formantedit.js";
+import {
+  formantInstSpans, formantRecordSpans, retargetFormantRecord, remapFormantSource,
+} from "./formantedit.js";
 import {
   metaLayers, metaRecordOf, defaultLayer, linkCount, repointLayer,
 } from "./metaedit.js";
@@ -78,11 +80,10 @@ export function buildIxmpSection(entries) {
   return out;
 }
 
-/** Slots a meta instrument's layer table references (used slots only). */
+/** Slots a metainstrument names as sources — its layer table, or a formant
+ *  instrument's OPL source (used slots only). */
 function layerDeps(srcDoc, slot, srcUsed) {
-  const inst = srcDoc.instruments[slot];
-  if (!inst.isMeta) return [];
-  return inst.metaLayers.map((l) => l.instIdx).filter((d) => srcUsed.has(d));
+  return srcDoc.instruments[slot].sourceSlots.filter((d) => srcUsed.has(d));
 }
 
 /**
@@ -314,8 +315,10 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     if (inst.isMeta) {
       remapMetaLayerSlots(rec, slotMap);
     } else if (inst.isFormant) {
-      // Its pointers are the block's and the slots', not bytes 0…3 (§7.8).
+      // Its pointers are the block's and the slots', not bytes 0…3 (§7.8);
+      // its source instrument, if it has one, travels with it.
       retargetFormantRecord(rec, (ptr, len) => sampleMap.get(sampleKey(ptr, len)));
+      remapFormantSource(rec, (s) => slotMap.get(s));
     } else {
       if (inst.sampleLength > 0) {
         const ptr = sampleMap.get(sampleKey(inst.samplePtr, inst.sampleLength));
@@ -1345,6 +1348,43 @@ export function planUnlinkMetaLayer(destDoc, metaSlot, layerIdx) {
   });
 }
 
+/**
+ * Sing formant instrument `formantSlot` from OPL instrument `srcSlot` (§7.8),
+ * or from its own sample again when `srcSlot` is 0. The same copy-into-a-child
+ * rule as a layer's: the OPL instrument is copied to a $100+ sub-instrument the
+ * formant instrument owns, so editing the source never edits the instrument it
+ * was picked from, and that one stays where it was in the list. One undo step.
+ */
+export function planSetFormantSource(destDoc, formantSlot, srcSlot) {
+  if (destDoc.sampleInstImage === null) {
+    return { error: "This project has no sample+instrument image." };
+  }
+  const slot = formantSlot & 0x3ff;
+  const inst = destDoc.instruments[slot];
+  if (!inst?.isFormant) return { error: "That instrument is not a formant instrument." };
+  const record = destDoc.instRecordBytes(slot);
+  const pointAt = (to) => {
+    record[0] = (record[0] & 0xfc) | ((to >>> 8) & 0x03);
+    record[1] = to & 0xff;
+  };
+  const self = { srcSlot: -1, destSlot: slot, topLevel: true, record, ixmpBlob: null, ixmpCount: 0 };
+  if ((srcSlot & 0x3ff) === 0) {
+    pointAt(0);
+    return metaPlan([self], null, { metaSlot: slot, childSlots: [] });
+  }
+  const src = srcSlot & 0x3ff;
+  const used = new Set(destDoc.usedInstrumentSlots());
+  if (!used.has(src) || !destDoc.instruments[src].isOpl) {
+    return { error: "A formant instrument can be sung only from an OPL instrument." };
+  }
+  const child = allocChildSlot(new Set(used));
+  if (child < 0) return { error: "No free sub-instrument slots left in $100–$3FF." };
+  pointAt(child);
+  return metaPlan([copyEntry(destDoc, src, child), self],
+    inamPayloadWith(destDoc, [[child, destDoc.instrumentName(src)]]),
+    { metaSlot: slot, childSlots: [child] });
+}
+
 // ── item 114: duplicate an instrument already in this project ────────────────
 
 /**
@@ -1437,11 +1477,13 @@ export function planDuplicateInstruments(destDoc, slots) {
     for (const [srcChild, destChild] of children) {
       const entry = copyEntry(destDoc, srcChild, destChild);
       if (destDoc.instruments[srcChild].isMeta) remapMetaLayerSlots(entry.record, slotMap);
+      remapFormantSource(entry.record, (s) => slotMap.get(s));
       insts.push(entry);
       names.push([destChild, destDoc.instrumentName(srcChild)]); // children keep the name
     }
     const top = copyEntry(destDoc, src, dest, true);
     if (destDoc.instruments[src].isMeta) remapMetaLayerSlots(top.record, slotMap);
+    remapFormantSource(top.record, (s) => slotMap.get(s));
     insts.push(top);
 
     const copyName = duplicateInstrumentName(usedNames, destDoc.instrumentName(src));
