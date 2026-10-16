@@ -36,8 +36,9 @@ export function psgWaveName(w) {
 }
 
 /**
- * The waveform window: two cycles of `wave` on ±1 with the zero line, as small
- * as the OPL envelope sketch beside it. `live` draws it in the accent colour
+ * The waveform window: two cycles of `wave` in volts, 0 V (the lane's −1) along
+ * the bottom and a faint line at ½ V (the lane's 0), as small as the OPL
+ * envelope sketch beside it. `live` draws it in the accent colour
  * and names it, for a waveform the auto-advance has moved.
  */
 function waveSvg(wave, invert, index, live = false) {
@@ -51,14 +52,14 @@ function waveSvg(wave, invert, index, live = false) {
   svg.dataset.osc = String(index);
   const zero = document.createElementNS(SVG_NS, "line");
   zero.setAttribute("x1", 0); zero.setAttribute("x2", W);
-  zero.setAttribute("y1", H / 2); zero.setAttribute("y2", H / 2);
+  zero.setAttribute("y1", H / 2); zero.setAttribute("y2", H / 2);   // ½ V, the lane's 0
   zero.setAttribute("class", "psg-zero");
   zero.setAttribute("vector-effect", "non-scaling-stroke");
   svg.appendChild(zero);
   // A step drawn as a step: each point holds until the next, so a pulse's
   // edges stand upright and a 4-bit wave shows its stairs.
   const pts = psgWavePoints(wave, invert, 128, 2);
-  const y = (v) => 4 + (1 - v) * ((H - 8) / 2);
+  const y = (v) => 4 + (1 - v) * (H - 8);    // 1 V (+1) at the top, 0 V (−1) at the bottom
   const coords = [];
   for (let i = 0; i < pts.length; i++) {
     const x0 = (i / pts.length) * W, x1 = ((i + 1) / pts.length) * W;

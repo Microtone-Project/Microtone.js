@@ -1699,7 +1699,7 @@ generators of 8-bit consoles and home computers. Each plays one of sixteen
 waveforms — DC, seven pulse widths, a saw, a triangle, three 1-bit noises, a
 4-bit saw and triangle like the Famicom's, and silence — under an envelope that
 is the OPL chip's own, with its tremolo and vibrato. The two are **added** or
-**multiplied** (ring modulation). It takes no pool space and costs **one
+**multiplied**. It takes no pool space and costs **one
 voice**. A new one starts as a square wave on A, with a triangle an octave down
 on B, muted, ready on its **PSG** tab.
 
@@ -1708,8 +1708,18 @@ instrument with the oscillators where its sample would be, so it keeps every
 envelope, the fadeout, the New Note Action, the filter and the panning around
 them.
 
-**The waveforms.** Waveforms 1 to 7 are pulses whose low part is that many
-eighths of the cycle, so 4 is the square. The three noises repeat after exactly
+**The waveforms.** Each oscillator is a 0-to-1-volt generator, the way a
+chip's output is, and its volts are spread over the lane's whole range: 0 V is
+the bottom, 1 V the top. Waveforms 1 to 7 are pulses whose low part is that
+many eighths of the cycle, so 4 is the square. **Invert** turns a waveform over
+within 0 to 1 V: inverted DC is $F, inverted $F is DC, and an inverted pulse is
+the opposite width. DC and $F are steady levels at the top and the bottom, so
+on their own you hear them only as the note starts and stops.
+
+**Multiplying** happens in volts, before the spreading: a pulse on A times a
+triangle on B lets the triangle through while the pulse is high and holds the
+bottom while it is low, and B set to DC simply passes A through. The envelopes
+act afterwards, so a note always starts and ends from silence. The three noises repeat after exactly
 32767, 2047 and 127 steps: the long one is plain noise with a faint pitch, the
 short one rings like metal. A noise follows the note it is played at.
 

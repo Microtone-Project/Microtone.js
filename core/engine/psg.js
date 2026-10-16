@@ -7,10 +7,13 @@
 // by multiplying them (TAUD_FILE_FORMAT.md §7.9). This module is that pair,
 // one per sounding voice.
 //
-// Each oscillator is a waveform (DC, seven pulse widths, saw, triangle, three
-// 1-bit noises with fixed repetition cycles, a 4-bit saw and triangle, and
-// silence) under an envelope that is the OPL chip's own, number for number:
-// the same attack / decay / sustain / release rates, sustain levels, total
+// Each oscillator is a 0-to-1-volt generator playing a waveform (DC, seven
+// pulse widths, saw, triangle, three 1-bit noises with fixed repetition
+// cycles, a 4-bit saw and triangle, and silence). The pair is added or
+// multiplied in volts, and the volts are then mapped onto the lane's whole
+// range, 0 V to −1 and 1 V to +1; each oscillator's envelope scales what the
+// mapping makes of it, so a silenced oscillator sits at 0, not at −1. That
+// envelope is the OPL chip's own, number for number: the same attack / decay / sustain / release rates, sustain levels, total
 // level, key-scale rate and level, multiplier, and the same tremolo and
 // vibrato. So the PSG shares the OPL instrument's clock arrangement (opl.js):
 // every voice runs at the chip's 49716 Hz on its playhead's chip clock
@@ -106,10 +109,10 @@ export const PSG_NOISE_STEPS_PER_CYCLE = 16;
  * (x¹¹ + x⁹ + 1) between them.
  */
 function psgLfsrTable(bits, tapA, tapB, len) {
-  const t = new Int8Array(len);
+  const t = new Uint8Array(len);
   let r = 1;
   for (let i = 0; i < len; i++) {
-    t[i] = (r & 1) !== 0 ? 1 : -1;
+    t[i] = r & 1;
     const fb = ((r >>> tapA) ^ (r >>> tapB)) & 1;
     r = (r >>> 1) | (fb << (bits - 1));
   }
@@ -130,29 +133,30 @@ const PSG_TWO28 = 268435456;
 const PSG_NOISE_WRAP = 32767 * 2047 * 127;
 
 /**
- * Waveform `w` at 32-bit phase `p`, on ±1, before the invert flag — the noises
- * excepted, whose value is the table bit at `noisePos` and which ignore the
- * phase. Shared with the editor's waveform preview (psgedit.js), so what the
- * window draws is what the engine plays.
+ * Waveform `w` at 32-bit phase `p`, on 0…1, before the invert flag — the
+ * noises excepted, whose value is the table bit at `noisePos` and which ignore
+ * the phase. An oscillator is a 0-to-1-volt generator, as a PSG's DAC is: DC is
+ * 1, silence is 0, and inverting one gives the other. Shared with the editor's
+ * waveform preview (psgedit.js), so what the window draws is what plays.
  */
 export function psgWaveValue(w, p, noisePos = 0) {
   switch (w) {
     case PSG_WAVE_DC: return 1;
     case 1: case 2: case 3: case 4: case 5: case 6: case 7:
-      return (p >>> 29) < 8 - w ? 1 : -1;
-    case PSG_WAVE_SAW: return 1 - (2 * p) / PSG_TWO32;
+      return (p >>> 29) < 8 - w ? 1 : 0;
+    case PSG_WAVE_SAW: return 1 - p / PSG_TWO32;
     case PSG_WAVE_TRIANGLE: {
       const x = p / PSG_TWO32;
-      return x < 0.5 ? -1 + 4 * x : 3 - 4 * x;
+      return x < 0.5 ? 2 * x : 2 - 2 * x;
     }
     case PSG_WAVE_NOISE_LONG: case PSG_WAVE_NOISE_MID: case PSG_WAVE_NOISE_SHORT: {
       const t = PSG_NOISE_TABLE_SET[w];
       return t[noisePos % t.length];
     }
-    case PSG_WAVE_SAW4: return ((15 - (p >>> 28)) * 2) / 15 - 1;
+    case PSG_WAVE_SAW4: return (15 - (p >>> 28)) / 15;
     case PSG_WAVE_TRIANGLE4: {
       const s = p >>> 27;                        // 32 steps a cycle
-      return ((s < 16 ? s : 31 - s) * 2) / 15 - 1;
+      return (s < 16 ? s : 31 - s) / 15;
     }
     default: return 0;
   }
@@ -329,6 +333,7 @@ export class PsgState {
     this.state = new Uint8Array(2);
     this.env = new Int32Array(2).fill(OPL_ENV_MAX);
     this.ksrOffset = new Int32Array(2);
+    this.gain = new Float64Array(2);        // this chip sample's gain, 0…4084 (psgOscStep)
     this.kslAtt = new Int32Array(2);
     this.inc = new Float64Array(2);
     // The internal status (see the head of this file): kept across key-ons
@@ -353,7 +358,7 @@ export function clonePsgState(src) {
   s.patch = src.patch;
   s.gen = src.gen; s.rate = src.rate;
   s.state.set(src.state); s.env.set(src.env);
-  s.ksrOffset.set(src.ksrOffset); s.kslAtt.set(src.kslAtt); s.inc.set(src.inc);
+  s.ksrOffset.set(src.ksrOffset); s.gain.set(src.gain); s.kslAtt.set(src.kslAtt); s.inc.set(src.inc);
   s.phase.set(src.phase); s.noise.set(src.noise);
   s.adv.set(src.adv); s.advCount.set(src.advCount); s.lfo.set(src.lfo);
   s.keyed = src.keyed;
@@ -463,11 +468,17 @@ function psgRetune(st, rate) {
 
 const PSG_ENV_TO_LOG = 8;
 const PSG_TL_TO_LOG = 32;
-/** Oscillator output to the engine's ±1: a full-level oscillator is the same
- *  height as a full-scale OPL operator, so the two kinds sit level together. */
+/** Oscillator output to the engine's scale: a full-level oscillator swings the
+ *  lane's whole ±1, the height of a full-scale OPL operator. */
 const PSG_OUTPUT_SCALE = 1 / 4096;
 
-/** Oscillator `i` for one chip sample at chip clock `k`, advancing it. */
+/**
+ * Oscillator `i` for one chip sample at chip clock `k`, advancing it. Returns
+ * its waveform in VOLTS, 0…1 with the invert applied, and leaves its gain —
+ * envelope, level, key scaling, tremolo, 0…4084 — in `st.gain[i]`. The two
+ * stay apart because the pair is mixed in volts and only then mapped onto the
+ * lane, where the gain acts (psgChipStep).
+ */
 function psgOscStep(st, i, k) {
   const patch = st.patch;
   const osc = patch.osc[i];
@@ -485,15 +496,14 @@ function psgOscStep(st, i, k) {
   const steps = Math.floor(next / PSG_TWO28) - Math.floor(old / PSG_TWO28);
   if (steps !== 0) st.noise[i] = (st.noise[i] + steps) % PSG_NOISE_WRAP;
   st.phase[i] = next >= PSG_TWO32 ? next - PSG_TWO32 * Math.floor(next / PSG_TWO32) : next;
-  if (st.state[i] === EG_OFF) return 0;
+  if (st.state[i] === EG_OFF) { st.gain[i] = 0; return 0; }
   let att = (st.env[i] + st.kslAtt[i]) * PSG_ENV_TO_LOG + psgLevel(patch, i) * PSG_TL_TO_LOG;
   if (osc.tremolo !== 0) att += OPL_TREMOLO_TABLE[osc.tremolo - 1][lk % OPL_TREMOLO_PERIOD];
+  st.gain[i] = oplExpand(att);
   const w = psgCurrentWave(st, i);
   const p = (st.phase[i] + st.pm) % PSG_TWO32;
-  let v = psgWaveValue(w, p, st.noise[i]);
-  if (v === 0) return 0;
-  if (osc.invert) v = -v;
-  return v * oplExpand(att);
+  const v = psgWaveValue(w, p, st.noise[i]);
+  return osc.invert ? 1 - v : v;             // 0…1 turned over: DC ↔ silence
 }
 
 /**
@@ -505,11 +515,18 @@ function psgOscStep(st, i, k) {
 export function psgChipStep(st, k) {
   const a = psgOscStep(st, 0, k);
   const b = psgOscStep(st, 1, k);
+  const ga = st.gain[0], gb = st.gain[1];
   const patch = st.patch;
   const ma = psgMuted(patch, 0), mb = psgMuted(patch, 1);
-  if (ma) return mb ? 0 : b;
-  if (mb) return a;
-  return patch.multiply ? (a * b) / 4084 : a + b;
+  // Volts to the lane: 0 V is −1, 1 V is +1, and the gain scales the result,
+  // so an oscillator the envelope has silenced sits at 0, not at −1.
+  if (ma) return mb ? 0 : (2 * b - 1) * gb;
+  if (mb) return (2 * a - 1) * ga;
+  // Multiplied in volts, then mapped: 0 V on either side is −1, DC (1 V) on
+  // one side leaves the other as it is, and the two gains multiply.
+  return patch.multiply
+    ? (2 * a * b - 1) * ((ga * gb) / 4084)
+    : (2 * a - 1) * ga + (2 * b - 1) * gb;
 }
 
 /** Whether oscillator `i` can still make a sound (opl.js oplChannelAlive's rule). */
@@ -527,7 +544,8 @@ export function psgChannelAlive(st) {
 
 /**
  * The channel `st` at output frame `frame`, played at playback rate `rate`,
- * keyed off once `keyOff` is, on the engine's ±1 scale. The note volume is
+ * keyed off once `keyOff` is, on the lane's ±1: the oscillators' 0…1 volts
+ * mapped onto it, scaled by their envelopes. The note volume is
  * NOT applied: the mixer applies it to the pair's output, as to a sample's, so
  * the multiplying mix does not square it.
  */

@@ -919,35 +919,40 @@ per chip sample, and its key scaling is §5.5.2's for a melodic channel at `hz` 
 inc   = phase_inc;  if VV ≠ 0 and vibrato(lk, VV) ≠ 1: inc = round(inc × vibrato(lk, VV))
 steps = ⌊(phase + inc) ÷ 2^28⌋ − ⌊phase ÷ 2^28⌋;   noise_pos += steps
 phase = (phase + inc) mod 2^32
-if the envelope is OFF: value = 0
-else: att   = (env + ksl_att) × 8 + level × 32 + (TT ≠ 0 ? tremolo(lk, TT) : 0)
-      w     = the waveform playing (below)
-      value = WAVE[w](phase + pm) × (invert ? −1 : 1) × EXPAND(att)
+if the envelope is OFF: gain = 0
+else: att  = (env + ksl_att) × 8 + level × 32 + (TT ≠ 0 ? tremolo(lk, TT) : 0)
+      gain = EXPAND(att)                                       0…4084
+w = the waveform playing (below)
+v = WAVE[w](phase + pm);  if invert: v = 1 − v                 volts, 0…1
 ```
 
-`tremolo` and `vibrato` are §5.5.2's LFOs with depth 1 the shallow and 2 the deep, read at `lk` rather than `k`. `level` is the oscillator's level as it stands, the record's or one `S $Axxx` wrote (below). `pm` is an FM rack's modulation, 0 otherwise. EXPAND is §5.5.2's. `WAVE[w](p)`, for 32-bit `p`:
+`tremolo` and `vibrato` are §5.5.2's LFOs with depth 1 the shallow and 2 the deep, read at `lk` rather than `k`. `level` is the oscillator's level as it stands, the record's or one `S $Axxx` wrote (below). `pm` is an FM rack's modulation, 0 otherwise. EXPAND is §5.5.2's. `WAVE[w](p)`, for 32-bit `p`, is in volts, 0…1: an oscillator is a 0-to-1-volt generator, and the pair maps its volts onto the lane (below).
 
 | `w` | Value |
 |---|---|
 | 0 | 1 |
-| 1…7 | `p >> 29 < 8 − w` ? 1 : −1 |
-| 8 | 1 − 2p ÷ 2^32 |
-| 9 | with `x = p ÷ 2^32`: `x < ½` ? −1 + 4x : 3 − 4x |
-| 10, 11, 12 | ±1, the noise's bit at `noise_pos` (below) |
-| 13 | (15 − (p >> 28)) × 2 ÷ 15 − 1 |
-| 14 | with `s = p >> 27`: (`s < 16` ? s : 31 − s) × 2 ÷ 15 − 1 |
+| 1…7 | `p >> 29 < 8 − w` ? 1 : 0 |
+| 8 | 1 − p ÷ 2^32 |
+| 9 | with `x = p ÷ 2^32`: `x < ½` ? 2x : 2 − 2x |
+| 10, 11, 12 | 1 or 0, the noise's bit at `noise_pos` (below) |
+| 13 | (15 − (p >> 28)) ÷ 15 |
+| 14 | with `s = p >> 27`: (`s < 16` ? s : 31 − s) ÷ 15 |
 | 15 | 0 |
 
-The three noises repeat on exactly 32767, 2047 and 127 steps. Their sequences are the implementation's own, as the format allows; this one reads the output bit of Fibonacci shift registers of 15 bits (taps 0 and 1), 11 bits (taps 0 and 2) and 7 bits (taps 0 and 1), seeded with 1, a set bit meaning +1. `noise_pos` wraps at 32767 × 2047 × 127, which every cycle divides.
+The three noises repeat on exactly 32767, 2047 and 127 steps. Their sequences are the implementation's own, as the format allows; this one reads the output bit of Fibonacci shift registers of 15 bits (taps 0 and 1), 11 bits (taps 0 and 2) and 7 bits (taps 0 and 1), seeded with 1, the bit itself the value. `noise_pos` wraps at 32767 × 2047 × 127, which every cycle divides.
 
-**The pair.** `c[k]` runs both oscillators every chip sample, muted or not, and then mixes what is not muted:
+**The pair.** `c[k]` runs both oscillators every chip sample, muted or not; it mixes what is not muted **in volts**, maps the volts onto the lane's whole range — 0 V to −1, 1 V to +1 — and only then applies the gains:
 
 ```
-a = oscillator A,  b = oscillator B
-c = A muted ? (B muted ? 0 : b) : B muted ? a : multiplicative ? a × b ÷ 4084 : a + b
+(a, ga) = oscillator A's volts and gain,  (b, gb) = oscillator B's
+A muted and B muted:  c = 0
+A muted:              c = (2b − 1) × gb
+B muted:              c = (2a − 1) × ga
+additive:             c = (2a − 1) × ga + (2b − 1) × gb
+multiplicative:       c = (2ab − 1) × ga × gb ÷ 4084
 ```
 
-so that a mute is a no-op on the other oscillator in either model, as the format requires, and a mute lifted mid-note finds the oscillator where it would have been. The product is scaled by full scale, 4084, so it stays on the oscillators' own scale.
+so that a mute is a no-op on the other oscillator in either model, as the format requires, and a mute lifted mid-note finds the oscillator where it would have been. Because the gain acts after the mapping, an oscillator its envelope has silenced — released, not yet attacked, or at the bottom of its level — sits at 0 on the lane, and a note starts and ends there without a step. A full-level oscillator swings the whole ±1: DC holds +1 and `$F` (0 V) holds −1. The product is taken in volts, so 0 V on either side maps to −1 whatever the other is doing, and DC (1 V) passes the other through; the two gains multiply, scaled by full scale (4084). An additive pair at full level reaches ±2, as an OPL additive pair does.
 
 **The note volume** is the gain chain's, applied to the finished pair as to a sample ([§10.2](#10-2-the-gain-chain)). This is where a PSG voice differs from an OPL one, and on purpose: taken into each oscillator, the note volume would be squared by the multiplying mix.
 
@@ -1707,7 +1712,7 @@ An implementation conforms when all of the following hold.
 - A fresh trigger separately fades `ramp_gain` in from silence over a ~⅔ ms half-cosine attack ramp, inherited by an NNA ghost spawned mid-ramp.
 - Pitch glides toward the tick's target on an (interval × time) budget, so a vibrato is smoothed across the tick while an arpeggio step or a fast portamento arrival still lands at once.
 - An OPL voice runs the chip at 49716.05 Hz on its playhead's chip clock, from the stated integer tables, with the note volume in its output operators' attenuation, and is read back by linear interpolation; a retrigger its New Note Action cuts keys the same channel on, envelopes carried.
-- A PSG voice runs both oscillators on the same chip clock under the OPL envelope, the noises on their exact cycles, mixes them with a mute a no-op on the other, applies the note volume to the finished pair, keeps each oscillator's internal status across notes unless its X flag is set, and reads its auto-advance, levels and mutes through the instrument's `S $Axxx` overlay, which only a per-instrument runtime reset clears.
+- A PSG voice runs both oscillators on the same chip clock under the OPL envelope, the noises on their exact cycles, mixes them in volts with a mute a no-op on the other, maps 0…1 V onto the lane's −1…+1 before the gains act, applies the note volume to the finished pair, keeps each oscillator's internal status across notes unless its X flag is set, and reads its auto-advance, levels and mutes through the instrument's `S $Axxx` overlay, which only a per-instrument runtime reset clears.
 - A planar or spatial song that uses only ordinary pan renders bit-identically to the stereo model.
 - The mastering chain runs between the narrowing and the clamp, in the order §12.1 fixes, and a song that declares none renders as though the stage did not exist.
 - The limiter's ceiling is never exceeded, on any material, in either peak mode.

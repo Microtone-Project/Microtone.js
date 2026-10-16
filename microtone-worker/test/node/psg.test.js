@@ -71,11 +71,17 @@ const rms = (a, from = 0, to = a.length) => {
   for (let i = from; i < to; i++) s += a[i] * a[i];
   return Math.sqrt(s / Math.max(1, to - from));
 };
+/** Frequency from upward crossings of the window's mean — a PSG voice is
+ *  0…1, so it crosses its own middle, not zero. */
 function zeroCrossHz(a, from, to) {
+  let mean = 0;
+  for (let i = from; i < to; i++) mean += a[i];
+  mean /= Math.max(1, to - from);
   let first = -1, last = -1, n = 0;
   for (let i = from + 1; i < to; i++) {
-    if (a[i - 1] < 0 && a[i] >= 0) {
-      const t = i - 1 + (-a[i - 1]) / (a[i] - a[i - 1]);
+    const x0 = a[i - 1] - mean, x1 = a[i] - mean;
+    if (x0 < 0 && x1 >= 0) {
+      const t = i - 1 + (-x0) / (x1 - x0);
       if (first < 0) first = t; else n++;
       last = t;
     }
@@ -150,22 +156,32 @@ test("the pulses are high for (8 − n) eighths, as drawn", () => {
     for (let e = 0; e < 8; e++) highs.push(P.psgWaveValue(w, e * 2 ** 29 + 1) > 0 ? 1 : 0);
     assert.deepEqual(highs, Array.from({ length: 8 }, (_, e) => (e < 8 - w ? 1 : 0)), `wave ${w}`);
   }
-  assert.equal(P.psgWaveValue(0, 12345), 1, "DC is +1");
-  assert.equal(P.psgWaveValue(0xf, 12345), 0, "F is silence");
+  for (let w = 1; w <= 7; w++) {
+    assert.equal(P.psgWaveValue(w, 1), 1, `pulse ${w} is 1 high`);
+    assert.equal(P.psgWaveValue(w, 2 ** 32 - 1), 0, `…and 0 low`);
+  }
+  assert.equal(P.psgWaveValue(0, 12345), 1, "DC is 1");
+  assert.equal(P.psgWaveValue(0xf, 12345), 0, "F is silence, 0");
 });
 
-test("saw, triangle and the 4-bit pair span ±1", () => {
+test("every waveform is a 0-to-1 generator: saw, triangle and the 4-bit pair span 0…1", () => {
   const at = (w, x) => P.psgWaveValue(w, Math.floor(x * 2 ** 32));
   assert.equal(at(8, 0), 1);
-  assert.ok(at(8, 0.999999) < -0.99, "the saw slopes down");
-  assert.equal(at(9, 0), -1);
+  assert.ok(at(8, 0.999999) < 0.01, "the saw slopes down to 0");
+  assert.equal(at(9, 0), 0);
   assert.equal(at(9, 0.5), 1, "the triangle rises, then falls");
+  for (let w = 0; w <= 15; w++) {
+    for (let i = 0; i < 97; i++) {
+      const v = P.psgWaveValue(w, Math.floor((i / 97) * 2 ** 32), i * 13);
+      assert.ok(v >= 0 && v <= 1, `wave ${w} stays in 0…1 (${v})`);
+    }
+  }
   const saw4 = new Set(), tri4 = new Set();
   for (let i = 0; i < 64; i++) { saw4.add(at(0xd, i / 64)); tri4.add(at(0xe, i / 64)); }
   assert.equal(saw4.size, 16, "sixteen levels");
   assert.equal(tri4.size, 16);
-  assert.equal(Math.max(...saw4), 1); assert.equal(Math.min(...saw4), -1);
-  assert.equal(at(0xe, 0), -1); assert.equal(at(0xe, 15.5 / 32), 1);
+  assert.equal(Math.max(...saw4), 1); assert.equal(Math.min(...saw4), 0);
+  assert.equal(at(0xe, 0), 0); assert.equal(at(0xe, 15.5 / 32), 1);
 });
 
 test("each noise repeats on exactly its own cycle", () => {
@@ -221,11 +237,53 @@ test("additive sums the pair, multiplicative rings it, and a muted one is passed
   }
 });
 
-test("the invert flag turns the waveform over", () => {
-  const up = render({ muteB: true, osc: [{ ...HELD, wave: 0 }, sq()] }, null, 4800);
-  const down = render({ muteB: true, osc: [{ ...HELD, wave: 0, invert: true }, sq()] }, null, 4800);
-  assert.ok(up[3000] > 0.1, "DC is +1");
-  assert.ok(Math.abs(up[3000] + down[3000]) < 1e-6, "…and −1 inverted");
+test("0 V maps to −1 and 1 V to +1 on the lane: DC and silence are each other's inverse", () => {
+  const voice = (wave, invert) => render({ muteB: true, osc: [{ ...HELD, wave, invert }, sq()] }, null, 4800);
+  const dc = voice(0, false), dcInv = voice(0, true), f = voice(0xf, false), fInv = voice(0xf, true);
+  const peak = dc[3000];
+  assert.ok(peak > 0.1, "DC is the top of the range");
+  assert.ok(Math.abs(f[3000] + peak) < 1e-6, "$F, 0 V, is the bottom of it");
+  assert.deepEqual(dcInv, f, "inverted DC is $F, sample for sample");
+  assert.deepEqual(fInv, dc, "inverted $F is DC");
+  // A full-level square swings the whole range, symmetric about 0.
+  const sqv = render({ muteB: true, osc: [sq(), sq()] }, null, 9600);
+  let lo = Infinity, hi = -Infinity, sum = 0;
+  for (let i = 2400; i < 9600; i++) { lo = Math.min(lo, sqv[i]); hi = Math.max(hi, sqv[i]); sum += sqv[i]; }
+  assert.ok(Math.abs(hi - peak) < 1e-3 && Math.abs(lo + peak) < 1e-3, `±${peak} (got ${lo}…${hi})`);
+  assert.ok(Math.abs(sum / 7200) < 0.02 * peak, "a square on 0…1 V is centred on the lane");
+  // A pulse inverted is the complementary one: $1 is high 7/8 of the cycle,
+  // turned over it is high 1/8, as $7 is (shifted by the rest of the cycle).
+  const p1 = voice(1, true), p7 = voice(7, false);
+  const m1 = p1.slice(2400).reduce((x, y) => x + y, 0) / 2400, m7 = p7.slice(2400).reduce((x, y) => x + y, 0) / 2400;
+  assert.ok(Math.abs(m1 - m7) < 0.02 * peak, `~$1 sounds as $7 (means ${m1} vs ${m7})`);
+});
+
+test("the envelope scales the mapped signal: a silenced oscillator sits at 0, not −1", () => {
+  // Level 63 is −47 dB: a $F at that level is all but 0, where an envelope
+  // applied in volts would have left it at −1.
+  const quiet = render({ muteB: true, osc: [{ ...HELD, wave: 0xf, tl: 63 }, sq()] }, null, 4800);
+  const loud = render({ muteB: true, osc: [{ ...HELD, wave: 0xf, tl: 0 }, sq()] }, null, 4800);
+  assert.ok(Math.abs(quiet[3000]) < 0.01 * Math.abs(loud[3000]), `${quiet[3000]} vs ${loud[3000]}`);
+  // Before its attack a voice is at 0 too: the first sample of a slow attack is silent.
+  const slow = render({ muteB: true, osc: [{ ...HELD, wave: 0xf, ar: 2 }, sq()] }, null, 256);
+  assert.ok(Math.abs(slow[10]) < 1e-3, "no step to −1 at the note's start");
+});
+
+test("multiplying in volts: 0 V on either side is −1, and DC passes the other through", () => {
+  const A = sq(), B = { ...HELD, wave: 9, mult: 3 };
+  const aAlone = render({ muteB: true, osc: [A, B] }, null, 9600);
+  const timesDc = render({ multiply: true, osc: [A, { ...HELD, wave: 0 }] }, null, 9600);
+  for (let i = 2400; i < 9600; i += 11) assert.ok(Math.abs(timesDc[i] - aAlone[i]) < 1e-3, `A × DC = A at ${i}`);
+  // Square × triangle: wherever the square is at 0 V the product is 0 V, the
+  // bottom of the range; elsewhere it is the triangle, mapped.
+  const mul = render({ multiply: true, osc: [A, B] }, null, 9600);
+  const peak = render({ muteB: true, osc: [{ ...HELD, wave: 0 }, B] }, null, 4800)[3000];
+  let atFloor = 0, above = 0;
+  for (let i = 2400; i < 9600; i++) {
+    if (Math.abs(mul[i] + peak) < 1e-3) atFloor++;
+    else if (mul[i] > -peak) above++;
+  }
+  assert.ok(atFloor > 2000 && above > 2000, `gated half the time (${atFloor} at the floor, ${above} above)`);
 });
 
 test("a key-off releases both oscillators and the voice ends with them", () => {

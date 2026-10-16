@@ -105,8 +105,8 @@ export function psgBadge(inst) {
 
 /**
  * Samples of one waveform for the preview window, `n` points over `cycles`
- * cycles, on ±1 — the engine's own psgWaveValue, so the window draws what
- * plays. A noise is drawn as its first bits at its own clock (sixteen a cycle).
+ * cycles, on 0…1 — the engine's own psgWaveValue, inverted as the engine
+ * inverts it (1 − v), so the window draws what plays. A noise is drawn as its first bits at its own clock (sixteen a cycle).
  */
 export function psgWavePoints(wave, invert, n = 128, cycles = 2) {
   const out = new Float64Array(n);
@@ -114,7 +114,7 @@ export function psgWavePoints(wave, invert, n = 128, cycles = 2) {
     const x = (i / n) * cycles;
     const phase = Math.floor((x - Math.floor(x)) * 4294967296);
     const v = psgWaveValue(wave, phase, Math.floor(x * PSG_NOISE_STEPS_PER_CYCLE));
-    out[i] = invert ? -v : v;
+    out[i] = invert ? 1 - v : v;
   }
   return out;
 }

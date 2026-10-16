@@ -1006,7 +1006,7 @@ As with the OPL kind, the patch takes the place of the **second pitch/filter env
 
 | Bit | Field |
 |---|---|
-| `m` (0) | **Mix model**: 0 = additive, A + B; 1 = multiplicative, A × B (ring modulation) |
+| `m` (0) | **Mix model**: 0 = additive, A + B; 1 = multiplicative, A × B, taken in volts (below) |
 | 1 | **RESERVED** |
 | `Y` (2) | **Mute oscillator B** |
 | `X` (3) | **Mute oscillator A** |
@@ -1022,27 +1022,27 @@ A muted oscillator is left out of the mix, and the mixer **MUST** then be a no-o
 | +1 | `dddd_ssss` | `d` **decay rate**; `s` **sustain level** |
 | +2 | `rrrr_mmmm` | `r` **release rate**; `m` **multiplier** |
 | +3 | `KKLL_LLLL` | `K` **key-scale level**; `L` **level** (total level, as attenuation) |
-| +4 | `VVTT_IXsR` | `R` **key-scale rate**; `s` **sustain** (the envelope holds at the sustain level while the key is down); `X` **reset on trigger** (below); `I` **invert**; `TT` **tremolo** depth; `VV` **vibrato** depth |
+| +4 | `VVTT_IXsR` | `R` **key-scale rate**; `s` **sustain** (the envelope holds at the sustain level while the key is down); `X` **reset on trigger** (below); `I` **invert** (`1 − v`, below); `TT` **tremolo** depth; `VV` **vibrato** depth |
 | +5 | `U8` | **Auto-advance**: every this many ticks a pulse waveform (`$1`…`$7`) steps to the next width, bouncing between the two ends: `1 2 3 4 5 6 7 6 5 4 3 2 1 2 …`. It starts from the record's waveform heading up (so `$7` heads down). DC and every other waveform hold. 0 = off, 1 the fastest, 255 the slowest |
 
-Attack, decay, sustain level, release, multiplier, level, key-scale level, key-scale rate and sustain follow the **OPL operator's semantics exactly** — the same fields as registers `$20`…`$80` of [§7.7](#7-7-metainstrument-type-8-opl-instruments), with the same values meaning the same rates, steps and levels. `TT` and `VV` are the chip's tremolo and vibrato, taken one oscillator at a time: tremolo 0 off, 1 = 1 dB, 2 = 4.8 dB, at 3.7 Hz; vibrato 0 off, 1 = 7 cents, 2 = 14 cents, at 6.1 Hz; the value 3 is **RESERVED** for both and reads as off. **Invert** turns the waveform upside down.
+Attack, decay, sustain level, release, multiplier, level, key-scale level, key-scale rate and sustain follow the **OPL operator's semantics exactly** — the same fields as registers `$20`…`$80` of [§7.7](#7-7-metainstrument-type-8-opl-instruments), with the same values meaning the same rates, steps and levels. `TT` and `VV` are the chip's tremolo and vibrato, taken one oscillator at a time: tremolo 0 off, 1 = 1 dB, 2 = 4.8 dB, at 3.7 Hz; vibrato 0 off, 1 = 7 cents, 2 = 14 cents, at 6.1 Hz; the value 3 is **RESERVED** for both and reads as off. **Invert** turns the waveform over within its 0…1 range.
 
 #### Waveforms
 
-Every waveform spans the whole ±1 range.
+An oscillator is a **0-to-1-volt generator**: every waveform spans 0 V to 1 V, as a PSG's DAC does. **Invert** turns a value `v` into `1 − v`, so DC and silence are each other's inverse and an inverted pulse is the complementary pulse. The pair is mixed **in volts** — multiplied, A × B is the product of the two voltages, so DC (1 V) leaves the other oscillator as it is and 0 V on either side is 0 V — and the result is mapped onto the lane's **full range**: 0 V is −1.0, 1 V is +1.0. Each oscillator's envelope and level scale the mapped signal, not the volts, so an oscillator its envelope has silenced is at 0.0 on the lane while a full-level `$F` holds −1.0. How the engine composes the two is [Engine Specification §5.5.4](TAUD_ENGINE_SPEC.md).
 
 | `w` | Waveform |
 |---|---|
-| `$0` | **DC**: +1 (−1 inverted) |
-| `$1`…`$7` | **Pulse**: high for (8 − `w`) eighths of the cycle, then low for `w` eighths — `$1` is `‾‾‾‾‾‾‾_`, `$4` the square `‾‾‾‾____`, `$7` is `‾_______` |
-| `$8` | **Saw**, falling from +1 to −1 |
-| `$9` | **Triangle**, rising from −1 to +1 and falling back |
+| `$0` | **DC**: 1 V, +1.0 on the lane (0 V inverted, which is `$F`) |
+| `$1`…`$7` | **Pulse**: 1 for (8 − `w`) eighths of the cycle, then 0 for `w` eighths — `$1` is `‾‾‾‾‾‾‾_`, `$4` the square `‾‾‾‾____`, `$7` is `‾_______` |
+| `$8` | **Saw**, falling from 1 to 0 |
+| `$9` | **Triangle**, rising from 0 to 1 and falling back |
 | `$A` | **1-bit noise** repeating every **32767** steps — slightly tonal |
 | `$B` | **1-bit noise** repeating every **2047** steps — more tonal |
 | `$C` | **1-bit noise** repeating every **127** steps — metallic rather than noisy |
 | `$D` | **4-bit saw**: the saw on sixteen levels |
 | `$E` | **4-bit triangle**: the triangle on sixteen levels, as the Famicom's |
-| `$F` | **Silence**, 0 |
+| `$F` | **Silence**: 0 V, −1.0 on the lane (1 V inverted, which is `$0`) |
 
 The noises' actual bit sequences are **implementation-defined**. An implementation **MAY** run a linear-feedback shift register or read a pregenerated table, as long as each sequence is statistically white and repeats on **exactly** its stated cycle. A noise is clocked by its oscillator's phase, sixteen steps a cycle, so it moves with the note it is played at.
 

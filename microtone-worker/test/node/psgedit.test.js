@@ -114,11 +114,12 @@ test("the mixer switches, and the badge that names the multiplying mix", () => {
 
 test("the waveform window draws what the engine plays", () => {
   const sq = psgWavePoints(4, false, 16, 1);
-  assert.deepEqual([...sq], [1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1, -1]);
-  assert.deepEqual([...psgWavePoints(0, true, 4, 1)], [-1, -1, -1, -1], "inverted DC");
+  assert.deepEqual([...sq], [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual([...psgWavePoints(0, true, 4, 1)], [0, 0, 0, 0], "inverted DC is 0");
+  assert.deepEqual([...psgWavePoints(15, true, 4, 1)], [1, 1, 1, 1], "inverted silence is DC");
   assert.deepEqual([...psgWavePoints(15, false, 4, 1)], [0, 0, 0, 0], "silence");
   const noise = psgWavePoints(0xc, false, 256, 2);
-  assert.ok(noise.every((v) => v === 1 || v === -1) && noise.some((v) => v === 1) && noise.some((v) => v === -1));
+  assert.ok(noise.every((v) => v === 1 || v === 0) && noise.some((v) => v === 1) && noise.some((v) => v === 0));
 });
 
 test("a formant instrument may be sung from a PSG instrument", () => {

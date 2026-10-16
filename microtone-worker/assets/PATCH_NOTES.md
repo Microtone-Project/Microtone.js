@@ -6,7 +6,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-16
 
-PSG instruments arrive: two 8-bit-style oscillators in place of a sample, added together or multiplied.
+PSG instruments arrive: two 8-bit-style oscillators in place of a sample, added together or multiplied. Each is a 0-to-1-volt generator as a chip's output is, multiplied in volts and then spread over the lane's whole range, so a pulse times another waveform gates it, and inverted DC is $F.
 
 - **A new kind of instrument**: Instruments → Meta… → PSG instrument makes one. Each of its two oscillators plays one of sixteen waveforms — DC, seven pulse widths, saw, triangle, three 1-bit noises that repeat after exactly 32767, 2047 and 127 steps, a 4-bit saw and triangle, and silence — under the OPL chip's own envelope, tremolo and vibrato. It needs no samples and costs one voice.
 - **Auto-advance** sweeps a pulse through its widths by itself as the note plays, up to the narrowest and back; **Reset on trigger** starts an oscillator afresh on every note, where otherwise it carries on from the last one as a real chip does; muting one oscillator plays the other exactly as it is, in either mix.
