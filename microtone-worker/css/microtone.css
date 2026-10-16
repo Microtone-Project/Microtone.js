@@ -3097,6 +3097,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .motif-hl .t-par { color: var(--code-param); }
 .motif-hl .t-op { color: var(--code-op); }
 .motif-hl .t-name { color: var(--code-name); font-style: italic; }
+/* a local variable, wherever it is named, over whatever colour it has */
+.motif-hl .t-loc { text-decoration: underline; text-underline-offset: 0.15em; }
 /* the side panel (Structure, Call hierarchy, Preview) and the strip of tabs
    it folds away to */
 .motif-side {
