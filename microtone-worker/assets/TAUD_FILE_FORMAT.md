@@ -599,6 +599,16 @@ A **Metainstrument** is an instrument whose record carries a **table of other in
 
 Every other value is **RESERVED**. A reader that does not know a type **MUST** treat the record as sounding nothing, not as type 0 — the table's *entries* have the same shape in every kind, but what they mean does not.
 
+The nibble is split in two ranges, and the split says what a kind may name as a source:
+
+| `t` | The kinds | Defined |
+|---|---|---|
+| 0…7 | built **out of sources** — the instruments a table names, or a formant instrument's glottal source | Layered, Formant, FM Rack |
+| 8…13 | that **make a sound of their own**, standing where an ordinary instrument's sample stands; they hold no table and name nothing | OPL; a PSG is to come |
+| 14…15 | **RESERVED** | — |
+
+Every kind of types 0…7 **MUST** be able to take every kind of types 8…13 as a source, as it takes an ordinary instrument: as a layer, as an operator, and as a formant instrument's source. Since a kind of types 8…13 names nothing, nothing it is part of can recurse. A future kind is given a type from the range that says what it is, so a reader knows which way round it can be used before it knows the kind.
+
 Types 1 and 8 are the kinds with no table. Everything this section says about the header's byte 1 and about entries — the table below, the two rules after it, the Layered and rack semantics — is about the kinds that have one; a type-1 record's own layout is [§7.8](#7-8-metainstrument-type-1-formant-instruments), a type-8 record's [§7.7](#7-7-metainstrument-type-8-opl-instruments).
 
 #### The header, and the table
@@ -631,7 +641,7 @@ The two remaining fields are the ones each kind reads its own way: in a Layered 
 
 Two rules hold for **every** kind:
 
-- **Recursion is forbidden.** An entry index **MUST** resolve to an ordinary instrument in `$001`…`$3FF`. An entry pointing at another Metainstrument, or at instrument 0, is skipped by the engine. The exceptions are the two kinds that hold no table and so cannot recurse: a **layer** of a type-0 record **MAY** name a type-1 or a type-8 instrument, and sounds it like any other. An **operator** of a type-4 rack **MUST NOT**: a rack reads its operators as waveforms, and an OPL voice is a channel, not a waveform, while a formant instrument is a sound made of a waveform rather than one — the engine skips either as it skips any other Metainstrument.
+- **Recursion is forbidden.** An entry index **MUST** resolve to an ordinary instrument in `$001`…`$3FF`, or to a kind of types 8…13. An entry pointing at any other Metainstrument, or at instrument 0, is skipped by the engine. The one exception is a kind that holds no table and so cannot recurse although it is of types 0…7: a **layer** of a type-0 record **MAY** name a type-1 instrument, and sounds it like any other. An **operator** of a type-4 rack **MUST NOT**: a formant instrument is a sound made out of a source rather than one, and the engine skips it as it skips any other Metainstrument. An operator **MAY** name a type-8 instrument; how a rack reads a chip channel is the engine's business ([Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md)).
 - Entry indices are 10 bits, so a Metainstrument **MAY** name instruments in the auxiliary bin (`$100`…`$3FF`), which a pattern cell cannot reach.
 
 #### Type 0 — Layered
@@ -680,7 +690,7 @@ A type-4 Metainstrument is an **FM Rack**: the second kind of the family defined
 | 4 | — | Operator records, 10 bytes each — the [§7.4](#7-4-metainstrument-records) entry layout, field for field |
 | 4 + 10·*n* | `U16`… | The **algorithm**: RPN words, terminated by `$FFFF` |
 
-The operator's mix octet is its **output level**, and its sample detune is its **frequency ratio** — one octave up is `+4096`, a perfect twelfth `+6485`. Those are the two numbers an FM operator has always had; the pitch and volume rectangles are the third thing, and they gate the operator exactly as they gate a layer: an operator whose rectangle excludes the trigger is **silent** for that note, which is how key scaling and velocity-switched brightness are written.
+An operator is an ordinary instrument or an OPL instrument ([§7.7](#7-7-metainstrument-type-8-opl-instruments)), never a formant instrument ([§7.4](#7-4-metainstrument-records)). The operator's mix octet is its **output level**, and its sample detune is its **frequency ratio** — one octave up is `+4096`, a perfect twelfth `+6485`. Those are the two numbers an FM operator has always had; the pitch and volume rectangles are the third thing, and they gate the operator exactly as they gate a layer: an operator whose rectangle excludes the trigger is **silent** for that note, which is how key scaling and velocity-switched brightness are written.
 
 Both halves live in the **252 bytes** the record has after its header — 10 a operator, 2 a word, 2 for the terminator. More operators means less room for the algorithm, and an editor **SHOULD** show that as one figure rather than two limits.
 
@@ -827,8 +837,8 @@ A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whos
 
 | Offset | Type | Field |
 |---|---|---|
-| 0 | `U8` | `$10` — type 1. The low nibble is **RESERVED** |
-| 1 | `U8` | **RESERVED**, 0 |
+| 0 | `U8` | `0b 0001_00hh` — type 1; `hh` the **source instrument**'s bits 8…9 (below). Bits 2…3 are **RESERVED** |
+| 1 | `U8` | The **source instrument**, bits 0…7: 0 for none — the sample is the source — or an OPL instrument (below) |
 | 2 | `U8` | Sentinel — **MUST** be `$FF` |
 | 3 | `U8` | Sentinel — **MUST** be `$FF` |
 | 4…14 | — | As [§7.1](#7-1-byte-map): the source's length, rate at C4, play start, loop start, loop end and flags. Its **pointer** is at byte 197 |
@@ -837,6 +847,14 @@ A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whos
 | 251…255 | — | As [§7.1](#7-1-byte-map) |
 
 The block takes the place of the **second pitch/filter envelope slot**, as an OPL patch does, so a formant instrument has exactly one: bytes 19, 121 and 193, playing the pitch or the filter role as its `m` bit says. A formant instrument has **no Ixmp patch list**: its one source is its sample, and an `Ixmp` entry naming a type-1 instrument is **IGNORED**.
+
+#### The source instrument
+
+Bytes 0 and 1 name a **source instrument**, a 10-bit index: 0, or the record's own index, for none. When it names a type-8 instrument the vowel is sung from that instrument's voice instead of the sample — its patch, at its own C2SPD standing for the rate at C4 — and the sample fields are not read, though a writer **SHOULD** keep them: setting the field back to 0 sings the sample again. Any kind of types 8…13 may stand here, as it may as a layer or an operator ([§7.4](#7-4-metainstrument-records)); a reader that cannot sound the kind named, or finds anything else there — an ordinary instrument, a Metainstrument of types 0…7 — sings the sample. How the engine runs and measures a chip source is [Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md). Records written before the field existed have 0 there, which is what they always meant.
+
+The source instrument is a reference like a layer's: an editor that renumbers, deletes or copies instruments **MUST** follow it, as it follows a layer table.
+
+#### The sampled source
 
 The source's rate at C4 **MUST** be the rate at which note `$5000` sounds middle C, 261.63 Hz — for a single-cycle loop, the loop's length times 261.63. The engine reads the voice's fundamental from it to make the vowel follow the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)), so a source tuned elsewhere has formants that follow the wrong pitch. A looped source rich in overtones — a sawtooth is the textbook one — is what the tract expects. Its level and its spectrum do not matter: the engine calibrates the source by its RMS to a full-scale sawtooth's, and its filters keep the loudness of what passes through them, so no vowel and no pitch is heard louder or quieter than another. A looped source **SHOULD** play from its loop — play start = loop start: the loop is what sustains the vowel, and what comes before it, in a window of a recording, is whatever was said before.
 
@@ -957,7 +975,7 @@ A type-1 record points into the pool at up to **four** places — the source and
 
 #### Where a formant instrument may stand
 
-A **layer** of a type-0 record **MAY** name a type-1 instrument, which sounds like any other; under strict layering, having no keyboard map, it resolves no patch and is dropped. An **operator** of a type-4 rack **MUST NOT**: a rack reads its operators as waveforms, and a formant instrument is a sound made of one — the engine skips it as it skips a Metainstrument.
+A **layer** of a type-0 record **MAY** name a type-1 instrument, which sounds like any other; under strict layering, having no keyboard map, it resolves no patch and is dropped. An **operator** of a type-4 rack **MUST NOT**: a formant instrument is a sound made out of a source rather than one — the engine skips it as it skips a Metainstrument. Nor may it be another formant instrument's source.
 
 ## 8. `.tsii` and `.tpif`
 
@@ -1362,10 +1380,10 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - No pattern number in a cue exceeds `$7FFE` except the `$7FFF` sentinel.
 - Every `Ixmp` entry names a distinct instrument, and no two patches of one instrument have overlapping rectangles.
 - Every `sMst` entry names a distinct song, and its parameter block is at least as long as the record version it declares.
-- Every Metainstrument layer index resolves to an ordinary instrument in `$001`…`$3FF`, or, in a type-0 record, to a type-8 one.
+- Every Metainstrument layer or operator index resolves to an ordinary instrument in `$001`…`$3FF` or to a type-8 one, or, in a type-0 record, to a type-1 one.
 - Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.6](#7-6-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
-- Every type-8 record's kind is 0…6, its reserved bytes are zero, and no rack names it as an operator ([§7.7](#7-7-metainstrument-type-8-opl-instruments)).
-- Every type-1 record's reserved bytes are zero, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.8](#7-8-metainstrument-type-1-formant-instruments)).
+- Every type-8 record's kind is 0…6 and its reserved bytes are zero ([§7.7](#7-7-metainstrument-type-8-opl-instruments)).
+- Every type-1 record's reserved bytes are zero, its source instrument is 0 or a type-8 instrument, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.8](#7-8-metainstrument-type-1-formant-instruments)).
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
 
@@ -1396,3 +1414,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-14 | Metainstrument type 8 — OPL instruments: an ordinary record with a YM3812 / YMF262 channel in place of its sample, the patch in the second pitch/filter slot |
 | 2026-10-14 | Metainstrument type 1 — formant instruments: an ordinary record whose sample is a glottal source, a vocal tract (the vowel as tongue and lips, the glide and r-colouring, three consonant slots with their pool recipes or the engine's noise generator, the pitch rules) in the second pitch/filter slot |
 | 2026-10-15 | Byte 195's Duplicate Check Type and Action widened to four-bit numbers, each split around the old two-bit field (`0b AATT aatt`); Type 4, lane |
+| 2026-10-16 | The Metainstrument type nibble split in two ranges: 0…7 the kinds built out of sources, 8…13 the kinds that make a sound of their own (OPL; PSG to come), 14…15 reserved. A kind of the first range takes one of the second as a source: an FM operator **MAY** be an OPL instrument, and a formant instrument's header names a **source instrument** (bytes 0…1) sung in place of its sample |

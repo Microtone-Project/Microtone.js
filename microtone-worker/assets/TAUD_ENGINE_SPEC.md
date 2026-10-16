@@ -340,6 +340,8 @@ A **Metainstrument** is an instrument whose record names other instruments inste
 
 A type the engine does not know **MUST** sound nothing rather than fall back to type 0.
 
+**What a kind may take as a source** follows from where its type sits in the nibble. Types **0…7** are the kinds built out of sources — Layered, Formant and FM; types **8…13** are the kinds that make a sound of their own where an ordinary instrument's sample is — OPL, and the PSG to come; **14** and **15** are reserved. A kind of the first range **MUST** take a kind of the second as a source, exactly as it takes an ordinary instrument: as a layer, as an FM operator, and as a formant instrument's glottal source. A kind of the second range names nothing, so nothing it is part of can recurse. A kind of the first range is never a source, with the one exception the family has always had — a layer may be a formant instrument, which has no table and so cannot recurse either.
+
 #### Type 0 — Layered
 
 The rules below are written for the Layered kind, where they are easiest to state, but not all of them stop there: [§5.5.1](#5-5-1-type-4-fm-racks) says which a rack inherits **unchanged** — the release of the previous note, the per-tick sync of a child to its parent, and the pattern's reach over every voice sounding one note — and which are the Layered kind's own, the soundfield below being the plainest of them.
@@ -368,13 +370,13 @@ Every tick thereafter, a layer child re-synchronises to its parent: pitch (paren
 
 **What counts as sounding the note** is the foreground voice, its layer children and a live rack's operands — and nothing else. A rack the pattern has already released and left ringing in the background ([§5.5.1](#5-5-1-type-4-fm-racks)) still names the lane that spawned it, but it is a background voice and **MUST** take no row-driven effect: an engine that reads the lane number alone will reach back into a note it has let go, on every one of the commands above.
 
-Layer indices are 10 bits, so layers **MAY** live in the auxiliary instrument bin, which a pattern cell cannot reach. A layer index pointing at another Metainstrument, or at instrument 0, is skipped. Both rules belong to the family, not to this kind: a rack's operator indices are read the same way.
+Layer indices are 10 bits, so layers **MAY** live in the auxiliary instrument bin, which a pattern cell cannot reach. A layer index pointing at another Metainstrument, or at instrument 0, is skipped — unless it is a kind of types 8…13, or a formant instrument, either of which a layer sounds like any instrument. Both rules belong to the family, not to this kind: a rack's operator indices are read the same way, with the formant instrument the one difference (below).
 
 #### 5.5.1 Type 4 — FM racks
 
 A **type-4** Metainstrument is an **FM Rack** ([File Format §7.6](TAUD_FILE_FORMAT.md)). It reads the same table as an *operator rack* and carries an RPN algorithm saying how its operators feed each other. Everything above turns on layers being **parallel**; a rack is the other arrangement, and the difference shows up in one sentence: **a rack is one voice, not one per entry.** Its operators are operands, and only the algorithm's result is a sound.
 
-An operator's **oscillator is an ordinary instrument** — sample, loop, envelopes, filter, auto-vibrato and all. That is what this is for. A single-cycle looped waveform gives textbook FM; anything longer gives something a chip could not.
+An operator's **oscillator is an ordinary instrument** — sample, loop, envelopes, filter, auto-vibrato and all. That is what this is for. A single-cycle looped waveform gives textbook FM; anything longer gives something a chip could not. An operator **MAY** also be an OPL instrument ([below](#an-opl-operator)), whose channel is a generator rather than a waveform to read at an offset. It **MUST NOT** be a formant instrument, which is a sound made out of a source rather than one: the engine skips it as it skips a Metainstrument.
 
 **Triggering.** The engine collects the operators the algorithm names by a `$00xx` or `$04xx` word AND whose rectangle contains the trigger, gating them on the same narrowed six-bit volume axis as a layer's. Operator 0 sounds on the lane's foreground voice, at the note plus its own detune; each other surviving operator takes a voice of its own, bound to the lane exactly as a layer child is and carrying the same *relative* detune — so the per-tick sync of [§5.5](#5-5-metainstruments), `Q`'s whole-instrument retrigger, and the release of the previous note all apply unchanged. If the algorithm does not verify, or operator 0 does not survive, the lane goes **silent**.
 
@@ -392,6 +394,15 @@ where `cycle` is the operator's **loop length** when it loops, and its whole sam
 
 Measuring the depth in cycles is what makes the mix octet read as a modulation index in the ordinary sense: at unity the modulator sweeps the carrier ±1 whole cycle, and the octet table's +24 dB reaches ±16. A modulator is scaled by its own mix octet before it ever reaches this word, so an operator's level *is* its index when it modulates and its volume when it carries — as it is on every FM instrument ever built.
 
+##### An OPL operator
+
+An operator whose instrument is an OPL instrument is its channel ([§5.5.2](#5-5-2-type-8-opl-instruments)), keyed with the note and run on the playhead's chip clock exactly as on a voice of its own — its pitch, its key-off, its end — with two differences:
+
+- **It runs at unity note volume.** Its output operators take no note-volume attenuation; an operator's level is its mix octet, as for any operator, and the note's volume reaches the finished patch through operator 0. A rack whose operator 0 is an OPL instrument therefore takes the note volume in the mixer, as every rack does, and not in the chip.
+- **Phase modulation goes into the chip.** A `$04xx` word's value *m* is added, as `round(m × 1024)`, to the phase of every operator the channel **outputs** — the operators its connection sums — on every chip sample computed for this output frame, as the chip's own modulators add their output to a carrier's phase: `p = ((phase >> 10) + mod + round(m × 1024)) & 1023`. One unit of *m* is one cycle of the chip's sine, which is also how far the chip itself moves a carrier for a modulator at that value. A rhythm voice whose phase is dictated takes it on the dictated phase, `(phase + round(m × 1024)) & 1023`. A free-running read adds nothing, and a modulator at −∞ dB leaves the channel exactly as it runs on its own.
+
+Every other part of an operator's value — its own envelopes, fadeout, global volume, initial attenuation and filter for an operator past the first, the anti-click ramps, the mixer's treatment of operator 0 — is as for any operator. An OPL channel that can no longer sound ends its operator, as a one-shot's end does; for operator 0 that is the end of the note.
+
 **The stack.** Words run in order, every word every sample; the value left on the stack at the end is the patch. `$08xx` pushes what its operator produced on the *previous* output sample, and every operator's tap advances together after the whole program has run — so a tap reads last sample's value wherever it sits, which is what lets a rack close a feedback loop in one pass. `$08xx` on an operator the algorithm does not sound reads 0.
 
 **Cost.** A rack costs one voice against the lane plus one background voice per sounding operator beyond the first, and one sample fetch per sounding operator per output sample. A released rack keeps that whole cost for as long as it rings, because what rings is the rack and not a snapshot of it. Unlike a layered metainstrument, none of it reaches the mix as a separate source: however many operators a rack has, it is one note in one place.
@@ -406,7 +417,7 @@ Past-note actions (`S $70`…`$72`) do not reach a metainstrument's lane at all
 
 #### 5.5.2 Type 8 — OPL instruments
 
-A **type-8** Metainstrument is an **OPL instrument** ([File Format §7.7](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is one channel of a Yamaha YM3812 / YMF262. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter and the voice effects, the whole gain chain — with four differences, each stated below: where the sample would be read, the chip is run; the note volume reaches the chip's operators instead of the finished signal; a retrigger can hand the channel over instead of ghosting it; and there is no attack ramp. An OPL instrument resolves no Ixmp patch.
+A **type-8** Metainstrument is an **OPL instrument** ([File Format §7.7](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is one channel of a Yamaha YM3812 / YMF262. It is the first of the kinds of types 8…13, and so a source every kind of types 0…7 takes: a layer, an FM operator ([§5.5.1](#an-opl-operator)), and a formant instrument's glottal source ([§5.5.3](#sung-from-an-opl-instrument)). Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter and the voice effects, the whole gain chain — with four differences, each stated below: where the sample would be read, the chip is run; the note volume reaches the chip's operators instead of the finished signal; a retrigger can hand the channel over instead of ghosting it; and there is no attack ramp. An OPL instrument resolves no Ixmp patch.
 
 The chip model is the IMS Archive's clean-room OPL core (iyagimusic-js `src/opl/`, written from Yamaha's *YM3812 Application Manual* and the published die description), number for number. Two readings — the key-scale-rate split and the key-scale level's rounding — follow the silicon where the application manual says otherwise; the IMS Archive core took the same two readings on 2026-10-14, so the two agree to the bit. Everything is integer arithmetic or IEEE doubles, the two ROM tables are stated rather than computed, and the only transcendental is `2 ^ rational`, so independent implementations agree bit for bit.
 
@@ -594,6 +605,17 @@ w(k) = re² + im²
 ```
 
 With `P < 2`, `N < 2`, or every `w(k)` 0, the source is taken to be a sawtooth: `w(k) = 1 ÷ k²` for k = 1…64. A sample's harmonics stay the same harmonics at any speed it is played, so they are measured once a note; an implementation **MAY** keep them for the same bytes, since they come out the same.
+
+##### Sung from an OPL instrument
+
+A record whose header names a **source instrument** ([File Format §7.8](TAUD_FILE_FORMAT.md)) that is an OPL instrument — not 0, not the record itself — is sung from that instrument's channel instead of its sample. Naming any other instrument, or none, is singing the sample. What the source instrument brings is its **patch** and its **C2SPD**, nothing else: its envelopes, volumes, detune and New Note Action are not read, since the note is the formant instrument's.
+
+- **The rate.** The C2SPD (0 reads as 8363) stands where the sample's rate at C4 would: the voice's active sampling rate is it, so the note plays the chip at the pitch the OPL instrument plays it at on its own.
+- **The source.** `g` is an OPL channel keyed with the note, from silence, and run on the playhead's chip clock as an OPL voice's is ([§5.5.2](#5-5-2-type-8-opl-instruments)) — at unity note volume, since the mixer applies the note's volume to the tract's output; keyed off with the voice. The sample is not read. While the vowel is sung, a channel that can no longer sound ramps the note out (the 8 ms sample-end ramp, [§8](#8-the-sampler)); in a consonant the tract's own clock ends it.
+- **The fundamental** the pitch rules read is what the chip sounds: `f0 = playback_rate × output_rate × 261.6255653005986 ÷ 8363`.
+- **The measurement.** A channel has no bytes to measure, so the note's patch is run apart — a fresh channel keyed at output frame 0 on a clock of its own, at the note's playback rate and unity volume, never keyed off — for 4096 output frames, `x[0…4095]`. The stretch is its loudest window: 1024 frames at offsets 0, 512, … 3072, the first of equals winning. `SM`, `AC` and `SG` are taken over that window as above, with `x` for `b`; its harmonics too, windowed (`x[n] − SM` times the Hann window above) and read at `ωk = 2π k ÷ P` with `P = 8363 ÷ (playback_rate × 261.6255653005986)`, the period in output frames, and `K = min(64, ⌊P ÷ 2⌋)`; the sawtooth stands in as above. A chip's spectrum moves with its pitch — key scaling, the block an F-number falls in — so it is measured at the note's own rate; an implementation **MAY** keep a measurement for the same patch at the same rate.
+- **`Q`'s retrigger** re-keys the channel as it re-keys an OPL note — the attack from where each envelope stands, the phase from zero — and keeps the measurement.
+- **An instrument byte without a retrigger** hands the note the new record's source: a sounding channel takes the new patch where it stands, as an OPL note does; a sampled note handed a chip source gets a fresh channel; a chip handed a sampled source gives it up. The source is measured again.
 
 ##### Equal loudness
 
@@ -872,7 +894,7 @@ Either then takes the slot's tilt — for tilt `t` with `c = |t| ÷ 128`, `t > 0
 - **A Duplicate Check** ([§5.6](#5-6-duplicate-check)) treats formant instruments made from one pool range as one voice speaking, and ends the vowel, never a coda.
 - **`Q`'s retrigger** says the syllable again from its onset, on the vowel it is singing now — its own, if it has one, staying its own.
 - **An instrument byte without a retrigger** ([§5.2](#5-2-note-events)) hands a sounding formant syllable the new record's tract: its vowel glides to the new record's over the new glide time and from then on follows that record as it is edited (at once, with a glide of 0 or before the note's first update); the source gain is measured again, the pitch rules become the new record's, and a coda that has not begun becomes the new record's; consonants already under way finish as they started, and nothing restarts. A sampled note handed a formant instrument starts its tract at the vowel, its onset long past.
-- A **layer** of a type-0 record may be a formant instrument and sounds like any other; an FM rack's operator may not ([§5.5.1](#5-5-1-type-4-fm-racks)).
+- A **layer** of a type-0 record may be a formant instrument and sounds like any other; an FM rack's operator may not ([§5.5.1](#5-5-1-type-4-fm-racks)), nor may a formant instrument's own source.
 
 ### 5.6 Duplicate Check
 

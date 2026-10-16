@@ -187,12 +187,15 @@ test("remapPatternsOp on WHEN: cleanup preserves what each cue plays; undo byte-
 });
 
 test("usedInstrumentSlots: pattern cells + meta-layer closure", () => {
-  // inst 5 used by a cell; meta 5 has layer child 200 (also a used slot)
+  // inst 5 used by a cell; meta 5 has layer child 200 (also a used slot),
+  // which is a formant instrument sung from the OPL instrument 300
   const song = { patterns: [[{ instrment: 5 }, ...new Array(63).fill({ instrment: 0 })]], cues: [] };
-  const allUsed = new Set([5, 200, 99]);
-  const instAt = (s) => (s === 5 ? { metaLayers: [{ instIdx: 200 }] } : null);
+  const allUsed = new Set([5, 200, 300, 99]);
+  const instAt = (s) => (s === 5 ? { metaLayers: [{ instIdx: 200 }], sourceSlots: [200] }
+    : s === 200 ? { metaLayers: null, sourceSlots: [300] } : null);
   const used = usedInstrumentSlots(song, allUsed, instAt);
   assert.ok(used.has(5) && used.has(200), "cell inst + its meta child are used");
+  assert.ok(used.has(300), "…and the child's own source");
   assert.ok(!used.has(99), "unreferenced slot is not used");
 });
 

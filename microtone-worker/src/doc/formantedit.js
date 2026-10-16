@@ -188,6 +188,39 @@ export function formantSourceBytes(e, c4Rate) {
   ];
 }
 
+/**
+ * …the source INSTRUMENT (§7.8): an OPL instrument whose voice is sung in
+ * place of the sample, or 0 for the sample. It lives in the header — byte 1,
+ * and byte 0's two low bits under the type nibble — so the sample's own fields
+ * are left as they are, and setting it back to 0 sings the sample again.
+ */
+export function formantSourceInstBytes(slot) {
+  const s = slot & 0x3ff;
+  return [[0, (META_TYPE_FORMANT << 4) | (s >>> 8)], [1, s & 0xff]];
+}
+
+/**
+ * Point a raw type-1 record's source instrument through `fn(slot)`, which
+ * returns the new slot, or undefined when the old one does not survive — the
+ * record then sings its sample again rather than name a stranger. A record
+ * with no source instrument is left alone. Returns whether it changed.
+ */
+export function remapFormantSource(rec, fn) {
+  if (!isFormantRecord(rec)) return false;
+  const s = ((rec[0] & 0x03) << 8) | rec[1];
+  if (s === 0) return false;
+  const to = (fn(s) ?? 0) & 0x3ff;
+  if (to === s) return false;
+  rec[0] = (rec[0] & 0xfc) | (to >>> 8);
+  rec[1] = to & 0xff;
+  return true;
+}
+
+/** Is `inst` one a formant instrument can be sung from: an OPL instrument. */
+export function canSourceFormant(inst) {
+  return !!inst?.isOpl;
+}
+
 /** The loop-mode bits of byte 14 for a source, keeping the record's other bits. */
 export function formantSourceFlagByte(inst, e) {
   return [[14, (inst.loopMode & ~0x07) | (e.loopMode & 0x07)]];

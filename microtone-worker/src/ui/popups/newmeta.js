@@ -194,9 +194,17 @@ function pickerModal(store, {
   });
 }
 
-/** Ordinary (layerable) instruments — everything but the metas. */
+/** Ordinary (layerable) instruments — everything but the metas: an OPL
+ *  instrument and a formant instrument both layer like any other. */
 function layerCandidates(doc) {
   return doc.selectableInstrumentSlots().filter((s) => !doc.instruments[s].isMeta);
+}
+
+/** …and the ones a rack can take as operators: an ordinary instrument or an
+ *  OPL one. A formant instrument is a sound made from a source, not a source,
+ *  and the engine would skip it (§7.6). */
+function operatorCandidates(doc) {
+  return layerCandidates(doc).filter((s) => !doc.instruments[s].isHighMeta);
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -455,7 +463,7 @@ export function showAddMetaLayers(store, metaSlot) {
 export function showNewFm(store) {
   const doc = store.doc;
   if (!doc) return Promise.resolve(null);
-  const candidates = layerCandidates(doc);
+  const candidates = operatorCandidates(doc);
   if (candidates.length === 0) {
     alert(t("newfm.noCandidates"));
     return Promise.resolve(null);
@@ -490,7 +498,7 @@ export function showAddFmOperators(store, metaSlot) {
     alert(t("fm.fullRack", { max: FM_MAX_OPERATORS }));
     return Promise.resolve(null);
   }
-  const candidates = layerCandidates(doc);
+  const candidates = operatorCandidates(doc);
   if (candidates.length === 0) {
     alert(t("newfm.noCandidates"));
     return Promise.resolve(null);

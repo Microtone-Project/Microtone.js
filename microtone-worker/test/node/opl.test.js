@@ -240,7 +240,7 @@ test("any other New Note Action ghosts the channel, and both keep sounding", () 
   assert.equal(ghosts[0].opl.k, ts.voices[0].opl.k, "…on the same chip clock");
 });
 
-test("an OPL instrument as a layer sounds; as a rack operator it is skipped", async () => {
+test("an OPL instrument sounds as a layer and as a rack operator", async () => {
   const { buildMetaRecord, makeMetaLayer, META_TYPE_FM } = await import("../../core/engine/inst.js");
   const eng = new TaudEngine();
   eng.uploadInstrument(0x101, oplInst(SINE));
@@ -248,18 +248,20 @@ test("an OPL instrument as a layer sounds; as a rack operator it is skipped", as
     makeMetaLayer(0x101, 159, 0, 0, 0xffff, 0, 63),
     makeMetaLayer(0x101, 159, 4096, 0, 0xffff, 0, 63),
   ]));
-  eng.uploadInstrument(2, buildMetaRecord([makeMetaLayer(0x101, 159, 0, 0, 0xffff, 0, 63)],
-    { type: META_TYPE_FM }));
   loadSong(eng, [{ row: 0, note: 0x5000, inst: 1 }]);
   const a = renderLeft(eng, 12000);
   assert.ok(rms(a, 4800) > 0.01, "a layered OPL patch sounds");
   assert.equal(ts0(eng).backgroundVoices.filter((v) => v.opl !== null).length, 1, "both layers");
+  // A rack's operator may be a channel too (the rack reads it as the chip
+  // reads a carrier): alone, the rack is the bare patch at the note's pitch.
   const eng2 = new TaudEngine();
   eng2.uploadInstrument(0x101, oplInst(SINE));
   eng2.uploadInstrument(2, buildMetaRecord([makeMetaLayer(0x101, 159, 0, 0, 0xffff, 0, 63)],
     { type: META_TYPE_FM }));
   loadSong(eng2, [{ row: 0, note: 0x5000, inst: 2 }]);
-  assert.equal(rms(renderLeft(eng2, 12000), 4800), 0, "a rack cannot read a channel");
+  const b = renderLeft(eng2, 12000);
+  assert.ok(rms(b, 4800) > 0.01, "a rack reads a channel");
+  assert.ok(Math.abs(zeroCrossHz(b, 4800, 12000) - C4_HZ) < 1, "at the note's pitch");
 });
 
 test("a muted lane's channel is frozen rather than caught up", () => {

@@ -16,7 +16,7 @@ import { EffectOp } from "../../core/engine/tables.js";
 import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
 import { sampleSpans } from "./document.js";
 import { regionSpans } from "./sampleregions.js";
-import { formantRecordSpans } from "./formantedit.js";
+import { formantRecordSpans, remapFormantSource } from "./formantedit.js";
 import { emptyPatternBytes } from "./patterntools.js";
 
 const PAT_MASK = 0x7fff;
@@ -161,13 +161,12 @@ export function usedInstrumentSlots(song, allUsedSlots, instAt) {
     if (!p) continue;
     for (const cell of p) if (cell.instrment !== 0) used.add(cell.instrment & 0xff);
   }
-  // Meta-layer dependency closure (a used meta pulls in its children).
+  // Source dependency closure (a used meta pulls in its children — layers,
+  // operators, a formant instrument's OPL source).
   const queue = [...used];
   while (queue.length) {
-    const s = queue.pop();
-    const layers = instAt(s)?.metaLayers;
-    if (layers) for (const l of layers) {
-      const c = l.instIdx & 0x3ff;
+    const inst = instAt(queue.pop());
+    if (inst) for (const c of inst.sourceSlots) {
       if (allUsedSlots.has(c) && !used.has(c)) { used.add(c); queue.push(c); }
     }
   }
@@ -240,9 +239,8 @@ export function planBankCleanup(doc) {
   }
   const queue = [...used];
   while (queue.length) {
-    const layers = instAt(queue.pop())?.metaLayers;
-    if (layers) for (const l of layers) {
-      const c = l.instIdx & 0x3ff;
+    const inst = instAt(queue.pop());
+    if (inst) for (const c of inst.sourceSlots) {
       if (allUsed.has(c) && !used.has(c)) { used.add(c); queue.push(c); }
     }
   }
@@ -358,9 +356,11 @@ export function planRenumberInstrument(doc, from, to, { remapPatterns = false } 
   // layer's low 8 index bits live at its byte 0, bits 8..9 in the top two bits
   // of its vol-start byte (+8). A meta that moved is patched at its NEW record.
   for (const s of used) {
+    const base = recOff(s === from ? to : s);
+    // A formant instrument names its OPL source in its header (§7.8).
+    remapFormantSource(image.subarray(base, base + 256), (k) => (k === from ? to : k));
     const layers = doc.instruments[s].metaLayers;
     if (!layers) continue;
-    const base = recOff(s === from ? to : s);
     for (const l of layers) {
       if ((l.instIdx & 0x3ff) !== from) continue;
       image[base + l.rawOffset] = to & 0xff;
@@ -914,17 +914,16 @@ export function planDeleteSample(doc, sample) {
 
 // ── instrument delete ──
 
-/** Metainstruments (used slots) that carry `slot` as one of their layers — the
- *  "parents" a delete has to rewire. Returns [{slot, layers}] (layers = how many
- *  of that meta's layers reference this sub-instrument). */
+/** Metainstruments (used slots) that carry `slot` as one of their sources — a
+ *  layer, an operator, a formant instrument's OPL source — the "parents" a
+ *  delete has to rewire. Returns [{slot, layers}] (layers = how many of that
+ *  meta's sources reference this sub-instrument). */
 export function metainstrumentParents(doc, slot) {
   const s = slot & 0x3ff;
   const parents = [];
   for (const m of doc.usedInstrumentSlots()) {
     if (m === s) continue;
-    const layers = doc.instruments[m].metaLayers;
-    if (!layers) continue;
-    const n = layers.filter((l) => (l.instIdx & 0x3ff) === s).length;
+    const n = doc.instruments[m].sourceSlots.filter((k) => k === s).length;
     if (n > 0) parents.push({ slot: m, layers: n });
   }
   return parents;
@@ -962,16 +961,15 @@ export function uniqueSampleSpans(doc, slot) {
 export function classifyMetaChildren(doc, metaSlot) {
   const m = metaSlot & 0x3ff;
   const inst = doc.instruments[m];
-  if (!inst?.isMeta || !inst.metaLayers) return { autoChildren: [], lowChildren: [] };
+  if (!inst || inst.sourceSlots.length === 0) return { autoChildren: [], lowChildren: [] };
   const used = doc.usedInstrumentSlots();
-  const kids = [...new Set(inst.metaLayers.map((l) => l.instIdx & 0x3ff))].filter((k) => k !== m);
+  const kids = [...new Set(inst.sourceSlots)].filter((k) => k !== m);
   const autoChildren = [];
   const lowChildren = [];
   for (const kid of kids) {
     const referencedElsewhere = used.some((o) => {
       if (o === m || o === kid) return false;
-      const ml = doc.instruments[o].metaLayers;
-      return ml && ml.some((l) => (l.instIdx & 0x3ff) === kid);
+      return doc.instruments[o].sourceSlots.includes(kid);
     });
     if (referencedElsewhere) continue; // still a layer of another meta — keep it
     if (kid >= 0x100) autoChildren.push(kid);
@@ -1029,6 +1027,12 @@ export function planDeleteInstrument(doc, slot, { freeSamples = false, reassignT
   for (const o of doc.usedInstrumentSlots()) {
     if (deleteSet.has(o)) continue;
     const oi = doc.instruments[o];
+    // A formant instrument whose OPL source goes sings its own sample again.
+    if (oi.isFormant && deleteSet.has(oi.formant.srcInst)) {
+      remapFormantSource(image.subarray(recOff(o), recOff(o) + 256), () => undefined);
+      rewiredMetas.push(o);
+      continue;
+    }
     if (!oi.metaLayers || !oi.metaLayers.some((l) => deleteSet.has(l.instIdx & 0x3ff))) continue;
     // A type-4 rack is addressed BY POSITION, so a doomed operator is MUTED in
     // place rather than repacked out — compacting the table would slide every

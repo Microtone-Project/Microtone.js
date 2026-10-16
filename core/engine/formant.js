@@ -29,13 +29,50 @@
 import { SAMPLING_RATE, SAMPLE_BIN_TOTAL, LINEAR_FREQ_C4_HZ, MIDDLE_C } from "./constants.js";
 import { attenGainOf } from "./tables.js";
 import { PCM_U8, fetchTrackerSample, startRampOut } from "./sampler.js";
+import {
+  OplState, oplKeyOn, oplRender, oplChannelAlive, cloneOplState, OPL_C4_RATE,
+} from "./opl.js";
 
 // ── The record ──────────────────────────────────────────────────────────────
 
 /** Byte 0's type nibble for this kind (§7.4). */
 export const META_TYPE_FORMANT = 1;
-/** Bytes 0…3: the type, a reserved byte, and the metainstrument sentinel. */
+/** Bytes 0…3: the type, the source instrument (none), and the metainstrument
+ *  sentinel. */
 export const FORMANT_RECORD_HEADER = Object.freeze([0x10, 0x00, 0xff, 0xff]);
+
+/**
+ * The SOURCE INSTRUMENT a type-1 record names in its header (§7.8): bits 0…7
+ * in byte 1, bits 8…9 in byte 0's two low bits. 0 is none — the record's own
+ * sample is the glottal source, as it always was. Anything else names an
+ * instrument whose voice is the source instead, which has to be one of the
+ * chip kinds (OPL); a record naming anything else sings with its sample.
+ */
+export function formantSourceInstOf(b0, b1) {
+  return ((b0 & 0x03) << 8) | (b1 & 0xff);
+}
+
+/**
+ * The instrument a formant instrument `inst` is sung from, out of
+ * `instruments`, or null when it sings with its own sample: the header names
+ * none, or names itself, or names an instrument that is not an OPL one. An
+ * OPL instrument is a sound generator in its own right, so its voice can be
+ * the glottal source where a sample would be; anything built out of sources
+ * cannot.
+ */
+export function formantChipSource(instruments, inst) {
+  const i = inst.formant.srcInst;
+  if (i < 1 || i > 1023 || i === inst.index) return null;
+  const src = instruments[i];
+  return src !== undefined && src !== null && src.opl !== null ? src : null;
+}
+
+/** The rate a chip source plays the part of the sample's rate at C4 with:
+ *  its own C2SPD, 0 reading as the tracker convention, as on the chip
+ *  instrument itself (§7.7). */
+export function formantChipRate(src) {
+  return src.samplingRate === 0 ? OPL_C4_RATE : src.samplingRate;
+}
 /** The tract block takes the second pitch/filter slot, as OPL's patch does. */
 export const FORMANT_BLOCK_START = 197;
 export const FORMANT_BLOCK_LEN = 54;
@@ -75,6 +112,7 @@ export class FormantSlot {
 export class FormantPatch {
   constructor() {
     this.srcPtr = 0;
+    this.srcInst = 0;      // the header's source instrument (formantSourceInstOf), 0 = the sample
     this.front = 200;
     this.open = 255;
     this.round = 0;
@@ -969,6 +1007,9 @@ export class FormantState {
     this.nTilt = 0; this.nTiltC = 0.0; this.nGain = 1.0; this.nZ = 0.0;
     this.nGen = false;                     // the generator rather than a sample
     this.nSeed = NOISE_SEED;
+    // The glottal source when it is an OPL channel (formantChipSource), keyed
+    // with the note; null when the source is the record's sample.
+    this.src = null;
     // Scratch.
     this.V = new Float64Array(5); this.VB = new Float64Array(5);
     this.F = new Float64Array(5); this.B = new Float64Array(5);
@@ -1005,7 +1046,34 @@ export function cloneFormantState(src, dst = new FormantState()) {
   dst.nStep = src.nStep; dst.nTilt = src.nTilt; dst.nTiltC = src.nTiltC; dst.nGain = src.nGain;
   dst.nZ = src.nZ;
   dst.nGen = src.nGen; dst.nSeed = src.nSeed;
+  dst.src = src.src !== null ? cloneOplState(src.src) : null;
   return dst;
+}
+
+/**
+ * Key the note's glottal source: an OPL channel playing `chip` (an OplPatch),
+ * from silence as any fresh note's channel starts — or no channel, the
+ * record's sample being the source, when `chip` is null.
+ */
+export function formantKeySource(st, chip) {
+  if (chip === null) { st.src = null; return; }
+  if (st.src === null) st.src = new OplState();
+  oplKeyOn(st.src, chip, false);
+  st.sgDue = true;
+}
+
+/**
+ * An instrument byte without a retrigger hands the note a new record's source
+ * (§5.2): a channel already sounding takes the new patch where it stands, as
+ * an OPL note does; a sampled source handed a chip gets a fresh channel; a
+ * chip handed a sample gives it up.
+ */
+export function formantRelatchSource(st, chip) {
+  if (chip === null) { st.src = null; return; }
+  if (st.src === null) { formantKeySource(st, chip); return; }
+  st.src.patch = chip;
+  st.src.gen = -1;
+  st.sgDue = true;
 }
 
 /**
@@ -1080,6 +1148,9 @@ export function formantRestart(st) {
   formantNoteOn(st, st.patch);
   st.vFront = f; st.vOpen = o; st.vRound = r; st.ownVowel = own;
   st.sg = sg; st.sm = sm; st.sgDue = due;   // the same sample: the same measurements
+  // A chip source is re-keyed as Q re-keys an OPL note: the attack from where
+  // each envelope stands, the phase from zero (§5.5.2).
+  if (st.src !== null && st.src.patch !== null) oplKeyOn(st.src, st.src.patch, true);
 }
 
 /**
@@ -1307,6 +1378,7 @@ function cascadeNorm(co, f0, w, wK) {
  * SOURCE_MEASURE_MAX bytes of a stretch.
  */
 function measureSource(eng, voice, st) {
+  if (st.src !== null) { measureChipSource(voice, st); return; }
   const bin = eng.sampleBin;
   const mode = voice.activeLoopMode & 3;
   const looped = (mode === 1 || mode === 2) && voice.activeSampleLoopEnd > voice.activeSampleLoopStart;
@@ -1450,6 +1522,93 @@ function sourceHarmonics(bin, p, span, whole, P, st) {
   sourceMemo.set(key, { w: w.slice(0, K + 1), K });
 }
 
+/** Output frames of a chip source a note is measured over (≈ 85 ms): past the
+ *  attack of all but the slowest patch, and one loudest window's worth of
+ *  room to find it in four times over. */
+const CHIP_MEASURE = 4096;
+const chipBuf = new Float64Array(CHIP_MEASURE);
+const chipScratch = new OplState();
+/** Measurements of chip sources already made, per patch, by its decode and
+ *  the rate played: a pure memo, as sourceMemo is. */
+const chipMemo = new WeakMap();
+const chipAc = new Float64Array(2);
+
+/**
+ * measureSource for a source that is an OPL channel. The chip has no bytes to
+ * read, so the note's own channel is run apart — from key-on, at the note's
+ * rate, at unity volume, on a channel of its own so the note's is untouched —
+ * for CHIP_MEASURE output frames, and that is measured the way a one-shot
+ * sample is: the gain from the loudest window, its mean taken out first, and
+ * its harmonics from the same window, Hann-windowed and read at k ÷ P cycles a
+ * frame, P being the period in output frames at the note's pitch. A chip's
+ * spectrum moves with its pitch (key scaling, the block an F-number falls in),
+ * so unlike a sample's it is measured at the pitch it is sung at.
+ */
+function measureChipSource(voice, st) {
+  const patch = st.src.patch;
+  const pr = voice.snapPlaybackRate ? voice.playbackRate : voice.currentPlaybackRate;
+  const key = `${patch.gen}:${pr}`;
+  let memo = chipMemo.get(patch);
+  if (memo === undefined) { memo = new Map(); chipMemo.set(patch, memo); }
+  const hit = memo.get(key);
+  if (hit !== undefined) {
+    st.sm = hit.sm; st.sg = hit.sg; st.hw.set(hit.w); st.hwK = hit.K;
+    return;
+  }
+  const x = chipBuf;
+  oplKeyOn(chipScratch, patch, false);
+  for (let i = 0; i < CHIP_MEASURE; i++) x[i] = oplRender(chipScratch, i, pr, 1.0, false);
+  // The loudest window, every half window; the first of equals wins.
+  const acF = (p, n) => {
+    let sum = 0.0, sq = 0.0;
+    for (let i = 0; i < n; i++) { const v = x[p + i]; sum += v; sq += v * v; }
+    const mean = sum / n;
+    chipAc[0] = mean;
+    chipAc[1] = sq / n - mean * mean;
+    return chipAc;
+  };
+  let at = 0, best = -1.0;
+  for (let o = 0; o + SOURCE_WINDOW <= CHIP_MEASURE; o += SOURCE_WINDOW >> 1) {
+    const ac = acF(o, SOURCE_WINDOW)[1];
+    if (ac > best) { best = ac; at = o; }
+  }
+  const [mean, ac] = acF(at, SOURCE_WINDOW);
+  st.sm = mean;
+  st.sg = ac > 1e-12
+    ? Math.min(Math.max(FORMANT_LEVEL / Math.sqrt(ac), 1 / SOURCE_GAIN_MAX), SOURCE_GAIN_MAX)
+    : 1.0;
+  // The period in output frames: the chip sounds pr × rate × 261.63 ÷ 8363 Hz.
+  const P = pr > 0 ? OPL_C4_RATE / (pr * LINEAR_FREQ_C4_HZ) : 0;
+  const K = P >= 2 ? Math.min(NORM_HARMONICS, Math.floor(P / 2)) : 0;
+  const w = st.hw;
+  let sum = 0.0;
+  if (K >= 1) {
+    const N = SOURCE_WINDOW;
+    const y = srcDft;
+    for (let i = 0; i < N; i++) {
+      y[i] = (x[at + i] - mean) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+    }
+    for (let k = 1; k <= K; k++) {
+      const om = (2 * Math.PI * k) / P;
+      const c1 = Math.cos(om), s1 = Math.sin(om);
+      let c = 1.0, s = 0.0, re = 0.0, im = 0.0;
+      for (let i = 0; i < N; i++) {
+        re += y[i] * c;
+        im -= y[i] * s;
+        const nc = c * c1 - s * s1;
+        s = s * c1 + c * s1;
+        c = nc;
+      }
+      w[k] = re * re + im * im;
+      sum += w[k];
+    }
+  }
+  if (sum > 0) st.hwK = K;
+  else sawHarmonics(st);
+  if (memo.size >= SOURCE_MEMO_MAX) memo.clear();
+  memo.set(key, { sm: st.sm, sg: st.sg, w: st.hw.slice(0, st.hwK + 1), K: st.hwK });
+}
+
 /** A sawtooth's harmonics, 1 ÷ k² for k ≤ 64: what a source with no period
  *  to measure is taken to be. */
 function sawHarmonics(st) {
@@ -1465,6 +1624,11 @@ function sawHarmonics(st) {
 function voiceF0(voice) {
   const rate = voice.activeSamplingRate;
   const pr = voice.snapPlaybackRate ? voice.playbackRate : voice.currentPlaybackRate;
+  // A chip source sounds what the chip makes of the rate (opl.js retune), and
+  // the chip reads every rate against the tracker convention's 8363.
+  if (voice.formant !== null && voice.formant.src !== null) {
+    return (pr * SAMPLING_RATE * LINEAR_FREQ_C4_HZ) / OPL_C4_RATE;
+  }
   return rate > 0 ? (pr * SAMPLING_RATE * LINEAR_FREQ_C4_HZ) / rate : 0.0;
 }
 
@@ -1649,15 +1813,31 @@ function tractRes(co, i, cy, j, x) {
 }
 
 /**
- * One output sample of a voice sounding a formant instrument: the source
- * fetched as any sample is and brought to FORMANT_LEVEL, through the cascade
- * with the aspiration, plus the frication through the parallel bank. The mixer applies the filter, the voice
- * FX and every gain after this, exactly as for a sampled voice.
+ * A chip source's next sample: the note's OPL channel at output frame `frame`,
+ * at the voice's rate and at unity volume (the note's volume is the mixer's to
+ * apply to the tract's output), keyed off with the voice. A channel that has
+ * rung out while the vowel is still singing has nothing left to sing with, and
+ * the note ramps out, as a sampled note does at its sample's end; in a
+ * consonant the tract's own clock decides.
  */
-export function renderFormantVoice(eng, voice, inst, interpMode) {
+function chipSource(voice, st, frame) {
+  const s = oplRender(st.src, frame, voice.currentPlaybackRate, 1.0, voice.keyOff);
+  if (st.phase === PHASE_VOWEL && !oplChannelAlive(st.src)) startRampOut(voice);
+  return s;
+}
+
+/**
+ * One output sample of a voice sounding a formant instrument: the source
+ * fetched as any sample is — or run, when it is an OPL channel — and brought to
+ * FORMANT_LEVEL, through the cascade with the aspiration, plus the frication
+ * through the parallel bank. The mixer applies the filter, the voice FX and
+ * every gain after this, exactly as for a sampled voice. `frame` is the
+ * playhead's chip clock at this sample.
+ */
+export function renderFormantVoice(eng, voice, inst, interpMode, frame) {
   const st = voice.formant;
   if (st.sgDue) { measureSource(eng, voice, st); st.sgDue = false; }
-  const g = fetchTrackerSample(eng, voice, inst, interpMode);
+  const g = st.src !== null ? chipSource(voice, st, frame) : fetchTrackerSample(eng, voice, inst, interpMode);
   if (st.phase === PHASE_DONE) return 0.0;
   if (st.ctl <= 0) {
     formantControl(voice, st);

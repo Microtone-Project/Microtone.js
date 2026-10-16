@@ -283,16 +283,18 @@ export class Document {
     return [...this._usedSlots].sort((a, b) => a - b);
   }
 
-  /** Slots referenced as a layer of some metainstrument (its sub-instruments).
-   *  The editor never lets you select these directly (item 59) — they are
+  /** Slots referenced as a source of some metainstrument — a layer, an
+   *  operator, a formant instrument's OPL source (its sub-instruments). The
+   *  editor never lets you select these directly (item 59) — they are
    *  components of a metainstrument, not standalone playable instruments. */
   metaChildSlots() {
     const kids = new Set();
     for (const s of this.usedInstrumentSlots()) {
-      const layers = this.instruments[s]?.metaLayers;
       // A muted FM operator (index 0) is a hole in a rack, not a child — the
-      // rack keeps the row so the algorithm's numbering survives (§7.6).
-      if (layers) for (const l of layers) if (l.instIdx >= 1) kids.add(l.instIdx & 0x3ff);
+      // rack keeps the row so the algorithm's numbering survives (§7.6) —
+      // and sourceSlots leaves it out.
+      const inst = this.instruments[s];
+      if (inst) for (const k of inst.sourceSlots) kids.add(k);
     }
     return kids;
   }
