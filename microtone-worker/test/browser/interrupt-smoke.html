@@ -1,0 +1,99 @@
+<!doctype html><meta charset="utf-8"><title>interrupt marker dialog</title>
+<pre id="out">running…</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1200px;height:700px"></iframe>
+<script type="module">
+// The note column's interrupt dialog driven through the REAL app: the command
+// palette carries ONE interrupt button (not sixteen), and the dialog it opens
+// writes `IntN` alone, or `IntN` and `: MMMM` when an argument is given.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+(async () => {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); log("FAILURES: 1"); return; }
+  for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
+  await sleep(200);
+
+  const { store, timeline } = M;
+  const { SUB_NOTE } = await import("../../src/ui/edit.js");
+  const { EffectOp } = await import("../../core/engine/tables.js");
+  const { setCellOp } = await import("../../src/doc/ops.js");
+  const doc = win.document;
+  const palHost = doc.getElementById("cmdPalette");
+
+  store.record = true;
+  // A row far enough down to be blank in most songs, then blanked anyway.
+  store.cursor = { row: 3, ch: 0, sub: SUB_NOTE, nib: 0 };
+  store.emit("cursor");
+  await sleep(80);
+  const target = () => timeline.cursorCell();
+  const blank = () => {
+    const tc = target();
+    store.undo.apply(setCellOp(store.songIndex, tc.pat, tc.rowInCue,
+      { note: 0, instrment: 0, effect: 0, effectArg: 0, effect2: 0, effectArg2: 0 }));
+  };
+  blank();
+  await sleep(80);
+
+  const intBtns = [...palHost.querySelectorAll("button")].filter((b) => /interrupt/i.test(b.textContent));
+  check(intBtns.length === 1, "the note palette has exactly one interrupt button", `${intBtns.length}`);
+  const hexBtns = [...palHost.querySelectorAll("button")].filter((b) => /^[0-9A-F]$/.test(b.textContent));
+  check(hexBtns.length === 0, "the sixteen bare hex buttons are gone", `${hexBtns.length}`);
+
+  const openDlg = async () => {
+    [...palHost.querySelectorAll("button")].find((b) => /interrupt/i.test(b.textContent)).click();
+    for (let i = 0; i < 40 && !doc.querySelector("dialog.interrupt-modal"); i++) await sleep(25);
+    return doc.querySelector("dialog.interrupt-modal");
+  };
+  const fill = (dlg, n, arg) => {
+    const sel = dlg.querySelector("select");
+    sel.value = String(n); sel.dispatchEvent(new win.Event("change"));
+    const inp = dlg.querySelector("input.interrupt-arg");
+    inp.value = arg; inp.dispatchEvent(new win.Event("input"));
+  };
+  const okBtn = (dlg) => [...dlg.querySelectorAll(".modal-buttons button")][0];
+
+  // ── no argument: IntN only ──
+  let dlg = await openDlg();
+  check(!!dlg, "the button opens the dialog");
+  fill(dlg, 5, "");
+  okBtn(dlg).click();
+  await sleep(80);
+  let c = target().cell;
+  check(c.note === 0x0015, "Int5 written", c.note.toString(16));
+  check(c.effect === 0 && c.effectArg === 0, "no argument → the effect slot is left alone");
+  check(!doc.querySelector("dialog.interrupt-modal"), "the dialog closes on OK");
+
+  // ── with an argument: IntN and : MMMM ──
+  dlg = await openDlg();
+  check(dlg.querySelector("select").value === "5", "reopening picks the cell's interrupt up");
+  fill(dlg, 0xc, "beef");
+  okBtn(dlg).click();
+  await sleep(80);
+  c = target().cell;
+  check(c.note === 0x001c, "IntC written", c.note.toString(16));
+  check(c.effect === EffectOp.OP_COLON && c.effectArg === 0xbeef, ": BEEF written",
+    `${c.effect.toString(16)} ${c.effectArg.toString(16)}`);
+
+  // ── a bad argument blocks OK; Cancel writes nothing ──
+  dlg = await openDlg();
+  check(dlg.querySelector("input.interrupt-arg").value === "BEEF", "reopening picks the argument up");
+  fill(dlg, 1, "12345");
+  check(okBtn(dlg).disabled, "five hex digits disable OK");
+  [...dlg.querySelectorAll(".modal-buttons button")][1].click();
+  await sleep(80);
+  c = target().cell;
+  check(c.note === 0x001c && c.effectArg === 0xbeef, "Cancel leaves the cell as it was");
+
+  blank();
+  log(`\nFAILURES: ${fails}`);
+})();
+</script>

@@ -6,6 +6,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-16
 
+Interrupt markers get a dialog of their own.
+
+- **The command palette's interrupt… button** replaces the row of sixteen number buttons on the note column. It asks which interrupt, `Int0` to `IntF`, and for an optional 16-bit argument: given one, it writes the marker and `: MMMM` on the row; left blank, only the marker.
+
 Playing from the middle of a song now sounds like the song does there: every lane keeps the panning, volume and effects the song gave it earlier, at the song's tempo at that point.
 
 - **Play from the cursor or from a cue** (**Enter**, **▶ Cue**) first runs silently through everything before that row, in the song's own order with its jumps and loops, so each lane starts with the volume, panning, bitcrusher and overdrive settings, instrument and effect memory it would have had — and the tempo, speed and global volume are the song's at that point too. Until now every lane started in the centre at full volume.
