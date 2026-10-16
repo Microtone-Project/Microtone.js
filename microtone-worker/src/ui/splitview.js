@@ -41,10 +41,14 @@ export class SplitView {
    *                 a dead end, item 104.1)
    * @param onAdopt  (from, to, view) => move that view's instance between
    *                 panes; see close()
+   * @param onFocus  fired AT ONCE when a press hands a pane the keyboard,
+   *                 ahead of the onChange that follows the release; see
+   *                 _pressFocus()
    */
-  constructor(host, { onChange = () => {}, enabled = () => true, onAdopt = null } = {}) {
+  constructor(host, { onChange = () => {}, enabled = () => true, onAdopt = null, onFocus = () => {} } = {}) {
     this.host = host;
     this.onChange = onChange;
+    this.onFocus = onFocus;
     this.enabled = enabled;
     this.onAdopt = onAdopt;
     this.ratio = 0.5;      // pane 0's share of the split axis
@@ -111,7 +115,7 @@ export class SplitView {
     pane.btn.addEventListener("click", () => (this.isSplit ? this.close(i) : this.split()));
     // Clicking anywhere in a pane hands it the keyboard. Capture, so a view
     // that stops the event on the way up still moves the focus.
-    el.addEventListener("pointerdown", () => this.setFocus(i), true);
+    el.addEventListener("pointerdown", () => this._pressFocus(i), true);
     return pane;
   }
 
@@ -141,6 +145,28 @@ export class SplitView {
     this.focus = i;
     this.refresh();
     this.onChange();
+  }
+
+  /** A press in pane `i` hands it the keyboard — but the press is usually
+   *  ALSO a click on something in that pane. onChange re-shows the pane's
+   *  view (several rebuild their DOM on show) and re-docks the instrument
+   *  lookup and the keymap strip into it, which run now would replace or
+   *  shift the very element under the pointer, so the release would land
+   *  elsewhere and the click would never fire. So the chrome and onFocus
+   *  follow at once (the click may ask which view has the keyboard), and
+   *  onChange waits until the press is over and its click delivered. */
+  _pressFocus(i) {
+    if (this.focus === i || this.panes[i].view === null) return;
+    this.focus = i;
+    this.refresh();
+    this.onFocus();
+    const done = () => {
+      removeEventListener("pointerup", done, true);
+      removeEventListener("pointercancel", done, true);
+      setTimeout(() => this.onChange(), 0); // the click comes right after the pointerup
+    };
+    addEventListener("pointerup", done, true);
+    addEventListener("pointercancel", done, true);
   }
 
   /** Put `name` in pane `i` (a tab click). The other pane is left alone even
