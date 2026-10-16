@@ -194,7 +194,7 @@ export function formantSourceFlagByte(inst, e) {
 }
 
 /** A new formant instrument's fadeout (defaultFormantRecord). */
-export const FORMANT_DEFAULT_FADEOUT = 32;
+export const FORMANT_DEFAULT_FADEOUT = 256;
 
 /**
  * A new type-1 record: the source (a census entry, or null for none yet), its
@@ -222,7 +222,7 @@ export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
     loopStart: looped ? source.loopStart : 0,
     loopEnd: looped ? source.loopEnd : 0,
     loopMode: source ? source.loopMode & 0x07 : 0,
-  }, { nna: 0, dct: DCT_LANE, dca: 1, fadeout: FORMANT_DEFAULT_FADEOUT });
+  }, { nna: 0, dct: DCT_LANE, dca: 0, fadeout: FORMANT_DEFAULT_FADEOUT });
 }
 
 // ── the chart's marks ──────────────────────────────────────────────────────
