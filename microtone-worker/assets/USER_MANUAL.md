@@ -797,10 +797,15 @@ wave that arrives on the fill: the composer places them, the game answers them.
 Press **b** on the note column to place `I·0`, then **Ctrl+↑** / **Ctrl+↓** or
 the mouse wheel to pick which of the sixteen it is, `I·0` through `I·F`. The marker makes
 no sound at all and disturbs nothing on its lane — a note already ringing
-there carries on ringing. The command palette has a button for each number.
+there carries on ringing.
 
-To hand the program a **number** with it, put a `:` effect on the same row and
-type the value: anything from `$0000` to `$FFFF`. Which lamp, which line of
+The command palette's **interrupt…** button opens a dialog asking for both
+halves at once: which interrupt, and an optional argument of up to four hex
+digits. With an argument it writes the marker and a `: MMMM` effect on the
+row; left blank, it writes only the marker and leaves the effects alone.
+
+To hand the program a **number** with it by hand, put a `:` effect on the same
+row and type the value: anything from `$0000` to `$FFFF`. Which lamp, which line of
 dialogue, how hard to shake the screen — it means whatever the two of you agree
 it means. A marker with no `:` beside it sends `0`.
 

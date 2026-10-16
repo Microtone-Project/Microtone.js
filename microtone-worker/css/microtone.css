@@ -1841,6 +1841,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .panner {
   min-width: 648px;
 }
+.interrupt-modal .modal-field input.interrupt-arg { font-family: var(--mono, monospace); flex: 0 1 7rem; }
+.interrupt-modal .modal-field input.interrupt-arg[aria-invalid="true"] { outline: 1px solid var(--err-fg); }
 
 /* ── new-project modal ── */
 .np-modal { max-width: min(760px, calc(94vw / var(--ui-zoom, 1))); }

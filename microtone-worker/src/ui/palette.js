@@ -121,7 +121,7 @@ export class CommandPalette {
     // one even though ctx.sub and ctx.cell.effect haven't moved.
     // Item 181: which INTERRUPT the note column holds (and only that — an
     // ordinary note changes nothing on this bar, so putting the whole note word
-    // in the key would rebuild 21 buttons on every cursor step down a column).
+    // in the key would rebuild the whole bar on every cursor step down a column).
     const intNote = ctx.cell && ctx.cell.note >= 0x0010 && ctx.cell.note <= 0x001f
       ? ctx.cell.note : -1;
     // Item 187: the note column's hint names the keys of the ACTIVE layout, so
@@ -166,14 +166,15 @@ export class CommandPalette {
         btn(t("pal.sentFade"), t("pal.sentFadeTitle"), () => ctx.apply({ note: 0x0003 }));
         btn(t("pal.sentFastFade"), t("pal.sentFastFadeTitle"), () => ctx.apply({ note: 0x0004 }));
         btn(t("pal.clear"), t("pal.clearNoteTitle"), () => ctx.apply({ note: 0, instrment: 0 }));
-        // Interrupt markers (item 181). Sixteen of them, so they get their own
-        // label and a row of bare hex digits rather than sixteen "Int n"
-        // buttons — the fx chooser next door already reads this way.
-        label(t("pal.interrupt"));
-        for (let n = 0; n < 16; n++) {
-          btn(n.toString(16).toUpperCase(), t("pal.interruptTitle"),
-            () => ctx.apply({ note: 0x0010 + n }), ctx.cell?.note === 0x0010 + n);
-        }
+        // Interrupt markers (item 181): one button opening a dialog that asks
+        // for the number AND the optional `: MMMM` argument, rather than a row
+        // of sixteen bare hex digits that could only ever write the first half.
+        btn(t("pal.interrupt"), t("pal.interruptTitle"), async () => {
+          const { showInterruptDialog } = await import("./popups/interrupt.js");
+          await showInterruptDialog(ctx);
+          this.lastKey = null;
+          this.refresh();
+        }, intNote >= 0);
         // The hint describes the KEYBOARD, so it has to follow the active
         // layout: the piano rows it names are only true of the piano layout
         // (item 187). Asked of PIANO_KEYMAP rather than of whatever is default,
