@@ -975,6 +975,8 @@ const viewCopies = new Map();
 // The view area: one pane or two, each with its own tabs (item 148).
 const split = new SplitView($("splitHost"), {
   onChange: () => applyViews(),
+  // The rest of applyViews waits for the press to end (see _pressFocus).
+  onFocus: () => { store.view = split.view; },
   enabled: viewEnabled,
   onAdopt: (from, to, name) => adoptPaneView(from, to, name),
 });

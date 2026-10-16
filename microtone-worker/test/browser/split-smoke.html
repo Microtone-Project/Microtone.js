@@ -140,6 +140,32 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(store.views.join() === "pattern,samples" && strip.hidden,
     "…and the strip goes once no pane shows the Timeline", store.views.join());
 
+  // ── 5b. a press on the OTHER pane is still a click on what it pressed ────
+  // The press hands that pane the keyboard; re-showing its view (Samples
+  // rebuilds its DOM on show) must wait until the click has landed, or the
+  // button is gone by the release and the click never fires.
+  {
+    const btn = [...hostOf(1, "samples").querySelectorAll("button")]
+      .find((b) => !b.disabled && rect(b).width > 0);
+    const r = rect(btn);
+    const at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+      bubbles: true, pointerId: 3 };
+    check(split.focus === 0, "pane 0 has the keyboard before the press", String(split.focus));
+    btn.dispatchEvent(new win.PointerEvent("pointerdown", at));
+    check(split.focus === 1 && store.view === "samples" && panes[1].classList.contains("focused"),
+      "a press on the other pane hands it the keyboard at once", store.view);
+    check(btn.isConnected && doc.elementFromPoint(at.clientX, at.clientY) === btn,
+      "…without rebuilding or moving what is under the pointer");
+    btn.dispatchEvent(new win.PointerEvent("pointerup", at));
+    // (Not clicked for real — whatever a Samples button does is not this
+    // test's business. The release landing on the same element IS the click.)
+    check(btn.isConnected && doc.elementFromPoint(at.clientX, at.clientY) === btn,
+      "…so the release lands on the same button, and the click fires");
+    await sleep(200);
+    check(store.views.join() === "pattern,samples" && store.view === "samples",
+      "…and the views catch up once the press is over", store.views.join());
+  }
+
   // ── 6. the direction follows the shape of the canvas ─────────────────────
   tab(0, "timeline").click(); // Timeline | Samples — the strip is out again
   await sleep(200);
