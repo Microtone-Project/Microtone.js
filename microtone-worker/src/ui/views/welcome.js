@@ -50,7 +50,7 @@ const FRIENDS = [
   ["pouet-javaap-man.gif", "https://www.pouet.net/", "pouët.net"],
   ["soundtrackermuseum.gif", "https://soundtracker-museum.com/", "Soundtracker Museum"],
   ["xenwiki.gif", "https://en.xen.wiki/w/Main_Page", "Xenharmonic Wiki"],
-  ["scaleworkshop.gif", "https://sevish.com/scaleworkshop/", "Scale Workshop"],
+  ["scaleworkshop.gif", "https://scaleworkshop.plainsound.org/", "Scale Workshop"],
   ["microtone.gif", "https://microtone.cc/", "Microtone"],
 ];
 
