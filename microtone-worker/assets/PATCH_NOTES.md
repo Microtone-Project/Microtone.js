@@ -42,6 +42,11 @@ Formant instruments arrive: an instrument that sings, turning any looped tone in
 - **`S $Afgr` changes the vowel** from the pattern — how open, how front, how rounded — at the start of a note or gliding mid-note, so one instrument can sing a whole text.
 - **One Pitch/Filter tab** for OPL and formant instruments, which have room for only one such envelope: a Pitch | Filter switch at its top says which it is, instead of two tabs editing the same envelope.
 
+The Motif editor colours a name by what it refers to, not only where it is declared.
+
+- **Inside a function, every use of a parameter is maroon**, as it is in the parameter list; **every use of a lane or an instrument is magenta and italic**, as at its declaration — `kick` in `dr(kick, bar, 0)`, `KIT` in `lane kick { inst: KIT }`.
+- **Local variables are underlined**, where they are declared and wherever they are used: a function's `let`s, a loop's variables, a block's names. The program's own top-level `let`s are not.
+
 ## 2026-10-15
 
 OPL instruments arrive: one channel of the FM chip that played AdLib and Sound Blaster music, sounding as the chip did — and AdLib songs, banks and tracker modules now arrive as them.

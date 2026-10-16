@@ -2536,6 +2536,7 @@ A program is **declarative**: it describes the song rather than giving orders in
 - **Open .tml…** loads a program from a file without building it, and **Save .tml…** downloads the one in the editor. **Example** starts again from a short example song.
 - Tab indents by two spaces (Shift+Tab takes them away); press Esc first to move on to the next control with Tab.
 - The program is coloured as you type: keywords, declarations, numbers, strings, pitches, comments, calls and fields each have their own colour, and the line the caret is on is lit. The light themes use the Syntello scheme on a white page, the dark ones Dimtello on a grey one.
+- Names are coloured by what they refer to, wherever they are used: a function's parameters in maroon, lanes and instruments in magenta italics, and the variables a function, a loop or a block declares for itself underlined. A name you are still typing takes its colour as soon as the program reads correctly again.
 
 ### Finding your way around a program
 

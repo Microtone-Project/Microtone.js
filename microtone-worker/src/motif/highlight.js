@@ -8,7 +8,13 @@
 //   t-kw keyword · t-decl declaration word · t-num number · t-str string ·
 //   t-esc escape and ${ } · t-pitch 'D5' · t-com comment · t-fn call ·
 //   t-bi call of a builtin · t-fnd function being declared · t-par parameter ·
-//   t-fld field or named argument · t-name declared lane/instrument · t-op operator
+//   t-fld field or named argument · t-name declared lane/instrument · t-op operator ·
+//   t-loc local variable (alongside any of the others)
+//
+// Given an analysis of the program (analysis.js), a name is drawn by what it
+// refers to rather than only where it stands: every use of a parameter is a
+// parameter, every use of a lane or an instrument a t-name, and a variable a
+// block, a loop or a function declares is local wherever it is named.
 
 import { KEYWORDS } from "./lexer.js";
 import { stdlib, stdlib2 } from "./stdlib.js";
@@ -138,8 +144,9 @@ function interpEnd(src, i) {
   return n;
 }
 
-/** A string token's HTML: its text, escapes and ${…} parts. */
-function stringHtml(s, triple) {
+/** A string token's HTML: its text, escapes and ${…} parts. The token starts
+ *  at offset `at` of the text `names` are placed in. */
+function stringHtml(s, triple, names, at) {
   const q = triple ? 3 : 1;
   let out = `<span class="t-str">${esc(s.slice(0, q))}`;
   let lit = "";
@@ -165,7 +172,7 @@ function stringHtml(s, triple) {
       flush();
       const j = Math.min(interpEnd(s, i + 2), end);
       const inner = s.slice(i + 2, s[j - 1] === "}" ? j - 1 : j);
-      out += `${span("t-esc", "${")}</span>${highlightTML(inner)}<span class="t-str">${s[j - 1] === "}" ? span("t-esc", "}") : ""}`;
+      out += `${span("t-esc", "${")}</span>${highlight(inner, names, at + i + 2)}<span class="t-str">${s[j - 1] === "}" ? span("t-esc", "}") : ""}`;
       i = j;
       continue;
     }
@@ -177,12 +184,59 @@ function stringHtml(s, triple) {
   return out + "</span>";
 }
 
+/** The class a name is drawn with for what it refers to, or null. */
+function symClass(sym) {
+  if (sym.kind === "parameter") return "t-par";
+  if (sym.kind === "lane" || sym.kind === "instrument") return "t-name";
+  // the program's own lets are global; any other scope's are local
+  if ((sym.kind === "variable" || sym.kind === "loop") && sym.scope?.parent) return "t-loc";
+  return null;
+}
+
+/**
+ * The names analysis `a` (analysis.js) resolved, in `src`: offset → {name,
+ * cls}. When `src` has been edited since the text `a` is of, the names before
+ * and after the edit keep theirs, moved with the text; those within it wait
+ * for the next analysis.
+ */
+function resolvedNames(a, src) {
+  const out = new Map();
+  if (!a?.ok) return out;
+  const old = a.source;
+  const max = Math.min(old.length, src.length);
+  let p = 0;
+  while (p < max && old.charCodeAt(p) === src.charCodeAt(p)) p++;
+  let q = 0;
+  while (q < max - p && old.charCodeAt(old.length - 1 - q) === src.charCodeAt(src.length - 1 - q)) q++;
+  const tail = old.length - q, shift = src.length - old.length;
+  for (const o of a.occ) {
+    if (o.named) continue; // a named argument stays a field
+    const cls = symClass(o.sym);
+    if (!cls) continue;
+    // (a name the edit touches, `ba` typed on to `bar`, is told apart by its text)
+    if (o.end <= p) out.set(o.start, { name: o.sym.name, cls });
+    else if (o.start >= tail) out.set(o.start + shift, { name: o.sym.name, cls });
+  }
+  return out;
+}
+
 const DECL_BLOCK = new Set(["song", "master"]);
 const DECL_NAMED = new Set(["instrument", "lane"]);
 
-/** TML source → highlighted HTML (every character, in order). */
-export function highlightTML(src) {
+/**
+ * TML source → highlighted HTML (every character, in order). `analysis`, from
+ * analysis.js, of this text or of one it has since been edited from, colours
+ * the names by what they refer to.
+ */
+export function highlightTML(src, analysis = null) {
+  return highlight(src, resolvedNames(analysis, src), 0);
+}
+
+/** `src`, which starts at offset `base` of the text `names` are placed in. */
+function highlight(src, names, base) {
   const toks = scan(src);
+  let at = base;
+  for (const t of toks) { t.at = at; at += t.s.length; }
   // the significant tokens' indices, for looking ahead and behind past spaces
   const sig = [];
   toks.forEach((t, i) => { if (t.k !== "ws" && t.k !== "com") sig.push(i); });
@@ -234,11 +288,19 @@ export function highlightTML(src) {
     if (next?.s === ":") { cls[ti] = "t-fld"; continue; }
     if (prev?.s === ".") { cls[ti] = "t-fld"; continue; }
   }
+  // what the analysis says each name is
+  if (names.size) {
+    toks.forEach((t, i) => {
+      const r = t.k === "id" ? names.get(t.at) : null;
+      if (!r || r.name !== t.s) return;
+      cls[i] = r.cls === "t-loc" ? (cls[i] ? `${cls[i]} t-loc` : "t-loc") : r.cls;
+    });
+  }
   let out = "";
   toks.forEach((t, i) => {
     if (t.k === "ws") out += esc(t.s);
     else if (t.k === "com") out += span("t-com", t.s);
-    else if (t.k === "str") out += stringHtml(t.s, t.triple);
+    else if (t.k === "str") out += stringHtml(t.s, t.triple, names, t.at);
     else out += span(cls[i], t.s);
   });
   return out;

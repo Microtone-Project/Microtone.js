@@ -8,7 +8,9 @@
 // same text highlighted (motif/highlight.js) in the Syntello / Dimtello
 // colours the theme gives the --code-* tokens. Both use one monospace face with
 // no synthesised bold or italic, so their glyphs line up exactly; the <pre>
-// follows the textarea's scroll by a transform. Under the text, the marks
+// follows the textarea's scroll by a transform. The names in it are coloured by
+// what the latest analysis says they are (a parameter, a lane, a local), so
+// it is painted again when an analysis comes in. Under the text, the marks
 // (motifmarks.js): the selection, and the other uses of the name at the caret.
 //
 // The program is analysed as it is typed (motif/analysis.js) — what each name
@@ -78,6 +80,8 @@ export class MotifView {
     this.errorLine = 0;
     this.docSeen = undefined;   // the document the text was last chosen for
     this.painted = null;        // the text the overlay was last highlighted from
+    this.paintedWith = null;    // …the analysis it coloured the names by
+    this.paintedHtml = "";      // …and what that made
     this.caretLine = 0;         // the line the caret row is drawn on
     this.analysis = null;       // the last analysis of a program that parsed
     this.analysedText = null;   // …and the text it was of
@@ -340,10 +344,21 @@ export class MotifView {
    *  program, so it keeps up with typing without being deferred). */
   paint() {
     const v = this.text.value;
-    if (v === this.painted) return;
-    this.painted = v;
+    if (v === this.painted && this.analysis === this.paintedWith) return;
+    // until the text is analysed again, the names keep what the last analysis made of them
+    this.paintedWith = this.analysis;
     // the trailing line break keeps an empty last line as tall as the textarea's
-    this.hl.innerHTML = highlightTML(v) + "\n";
+    const html = highlightTML(v, this.analysis) + "\n";
+    if (v === this.painted) {
+      // the same text, its names seen afresh: nothing moves, so the marks stay
+      if (html !== this.paintedHtml) {
+        this.hl.innerHTML = this.paintedHtml = html;
+        this.marks.index();
+      }
+      return;
+    }
+    this.painted = v;
+    this.hl.innerHTML = this.paintedHtml = html;
     this.marks.index();
     this.onScroll();
     this.updateCaretLine();
@@ -386,6 +401,7 @@ export class MotifView {
     if (a.ok) {
       this.analysis = a;
       this.analysedText = text;
+      this.paint();
       this.panel.setStructure(a.structure);
       if (this.callsRoot) this.refreshCalls();
     } else {
