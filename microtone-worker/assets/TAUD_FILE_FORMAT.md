@@ -1023,7 +1023,7 @@ A muted oscillator is left out of the mix, and the mixer **MUST** then be a no-o
 | +2 | `rrrr_mmmm` | `r` **release rate**; `m` **multiplier** |
 | +3 | `KKLL_LLLL` | `K` **key-scale level**; `L` **level** (total level, as attenuation) |
 | +4 | `VVTT_IXsR` | `R` **key-scale rate**; `s` **sustain** (the envelope holds at the sustain level while the key is down); `X` **reset on trigger** (below); `I` **invert**; `TT` **tremolo** depth; `VV` **vibrato** depth |
-| +5 | `U8` | **Auto-advance**: every this many ticks a waveform of 0…7 steps to the next, 7 wrapping to 0. 0 = off, 1 the fastest, 255 the slowest |
+| +5 | `U8` | **Auto-advance**: every this many ticks a pulse waveform (`$1`…`$7`) steps to the next width, bouncing between the two ends: `1 2 3 4 5 6 7 6 5 4 3 2 1 2 …`. It starts from the record's waveform heading up (so `$7` heads down). DC and every other waveform hold. 0 = off, 1 the fastest, 255 the slowest |
 
 Attack, decay, sustain level, release, multiplier, level, key-scale level, key-scale rate and sustain follow the **OPL operator's semantics exactly** — the same fields as registers `$20`…`$80` of [§7.7](#7-7-metainstrument-type-8-opl-instruments), with the same values meaning the same rates, steps and levels. `TT` and `VV` are the chip's tremolo and vibrato, taken one oscillator at a time: tremolo 0 off, 1 = 1 dB, 2 = 4.8 dB, at 3.7 Hz; vibrato 0 off, 1 = 7 cents, 2 = 14 cents, at 6.1 Hz; the value 3 is **RESERVED** for both and reads as off. **Invert** turns the waveform upside down.
 

@@ -5837,7 +5837,7 @@ class PsgState {
     // unless the oscillator's X flag says otherwise.
     this.phase = new Float64Array(2);       // 0 ≤ phase < 2³², integral
     this.noise = new Float64Array(2);       // noise steps taken, mod PSG_NOISE_WRAP
-    this.adv = new Uint8Array(2);           // waveform auto-advance steps, mod 8
+    this.adv = new Uint8Array(2);           // waveform auto-advance steps, mod PSG_ADVANCE_CYCLE
     this.advCount = new Int32Array(2);      // ticks toward the next advance
     this.lfo = new Float64Array(2);         // chip sample the LFOs run from
     this.keyed = false;
@@ -5906,27 +5906,41 @@ function psgReattack(st) {
   st.keyed = true;
 }
 
-/** The waveform oscillator `i` is playing now: its record's, moved on by the
- *  auto-advance when the record's is DC or a pulse. */
+/**
+ * The auto-advance's walk: the pulse widths up from 1 to 7 and back down,
+ * bouncing at each end without repeating it — 1 2 3 4 5 6 7 6 5 4 3 2 1 2 …,
+ * twelve steps a round. A pulse joins it at its own width, heading up (so 7
+ * starts down); DC is no width and is not walked.
+ */
+const PSG_ADVANCE_WALK = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2]);
+const PSG_ADVANCE_CYCLE = PSG_ADVANCE_WALK.length;
+
+/** Whether waveform `w` is one the auto-advance walks: a pulse, 1…7. */
+function psgAdvances(w) {
+  return w >= 1 && w <= PSG_WAVE_PULSE_LAST;
+}
+
+/** The waveform oscillator `i` is playing now: its record's, moved along the
+ *  walk by the auto-advance when the record's is a pulse. */
 function psgCurrentWave(st, i) {
   const w = st.patch.osc[i].wave;
-  return w <= PSG_WAVE_PULSE_LAST ? (w + st.adv[i]) & 7 : w;
+  return psgAdvances(w) ? PSG_ADVANCE_WALK[(w - 1 + st.adv[i]) % PSG_ADVANCE_CYCLE] : w;
 }
 
 /**
  * One tick of the auto-advance (the tick pass, tick.js): every `N` ticks an
- * oscillator whose waveform is 0…7 steps to the next, round from 7 to 0. N is
- * the overlay's when `S $Axxx` has written one, else the record's; 0 holds.
+ * oscillator whose waveform is a pulse takes one step of the walk. N is the
+ * overlay's when `S $Axxx` has written one, else the record's; 0 holds.
  */
 function psgTick(st) {
   const patch = st.patch;
   if (patch === null) return;
   for (let i = 0; i < 2; i++) {
     const n = psgAdvance(patch, i);
-    if (n === 0 || patch.osc[i].wave > PSG_WAVE_PULSE_LAST) { st.advCount[i] = 0; continue; }
+    if (n === 0 || !psgAdvances(patch.osc[i].wave)) { st.advCount[i] = 0; continue; }
     if (++st.advCount[i] >= n) {
       st.advCount[i] = 0;
-      st.adv[i] = (st.adv[i] + 1) & 7;
+      st.adv[i] = (st.adv[i] + 1) % PSG_ADVANCE_CYCLE;
     }
   }
 }

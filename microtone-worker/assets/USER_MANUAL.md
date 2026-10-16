@@ -1713,9 +1713,11 @@ eighths of the cycle, so 4 is the square. The three noises repeat after exactly
 32767, 2047 and 127 steps: the long one is plain noise with a faint pitch, the
 short one rings like metal. A noise follows the note it is played at.
 
-**Auto-advance** steps a DC or pulse waveform on to the next one every so many
-ticks, 7 wrapping round to 0 — the sweeping-pulse sound 8-bit music makes with
-a duty-cycle table. 0 is off and 1 the fastest.
+**Auto-advance** steps a pulse waveform on to the next width every so many
+ticks, up to 7 and back down to 1 and up again — `1 2 3 4 5 6 7 6 5 4 3 2 1 2 …`,
+starting from the pulse the oscillator is set to — the sweeping-pulse sound
+8-bit music makes with a duty-cycle table. DC and the other waveforms stay put.
+0 is off and 1 the fastest.
 
 **Reset on trigger.** A real chip's oscillators keep counting between notes, and
 so do these: a new note on the lane carries on from the last one's phase, noise

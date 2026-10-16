@@ -1057,7 +1057,7 @@ export default {
   "psg.f.vibrato": "Vibrato",
   "psg.f.vibratoTitle": "Wobble the pitch at 6.1 Hz, by 7 or 14 cents, as the OPL chip does.",
   "psg.f.advance": "Auto-advance",
-  "psg.f.advanceTitle": "Every this many ticks, step a DC or pulse waveform to the next (7 wraps to 0). 0 is off, 1 the fastest. S $A0xx and S $A8xx change it while the song plays.",
+  "psg.f.advanceTitle": "Every this many ticks, step a pulse waveform to the next width, up to 7 and back down to 1 and up again (1 2 … 7 6 … 2 1 2 …). DC and the other waveforms hold. 0 is off, 1 the fastest. S $A0xx and S $A8xx change it while the song plays.",
   "psg.liveNote": "During playback, a level, auto-advance or mute that S $Axxx has written, and a waveform the auto-advance has moved, are shown in the accent colour. They last until the song is played again from the start.",
   "psg.liveTitle": "Set by S $Axxx during playback; the record's own value comes back on the next playback.",
   "psg.wave0": "DC",

@@ -255,28 +255,42 @@ test("a retrigger the NNA cuts keys the SAME pair on, envelopes where they stand
   assert.equal(ts0(eng).backgroundVoices.length, 0, "no ghost");
 });
 
-test("auto-advance steps a pulse every N ticks, round from 7 to 0", () => {
+test("auto-advance bounces a pulse 1 → 7 → 1, one step every N ticks", () => {
+  /** The waveform after each of `steps` steps, from a record waveform `wave`. */
+  const walk = (wave, steps, n = 1) => {
+    const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave, advance: n }, sq()] }));
+    const st = new P.PsgState();
+    P.psgKeyOn(st, patch, false);
+    const out = [];
+    for (let t = 0; t < steps * n; t++) {
+      P.psgTick(st);
+      if ((t + 1) % n === 0) out.push(P.psgCurrentWave(st, 0));
+    }
+    return out;
+  };
+  assert.deepEqual(walk(1, 14), [2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1, 2, 3], "up, back down, up again");
+  assert.deepEqual(walk(7, 8), [6, 5, 4, 3, 2, 1, 2, 3], "7 starts down");
+  assert.deepEqual(walk(4, 6), [5, 6, 7, 6, 5, 4], "a middle width starts up");
+  const two = walk(4, 24);
+  assert.deepEqual(two.slice(12), two.slice(0, 12), "twelve steps a round");
+  assert.deepEqual(walk(3, 3, 3), [4, 5, 6], "N ticks a step");
+  // Every width but the ends appears twice a round, the ends once.
+  const round = walk(1, 12);
+  for (let w = 1; w <= 7; w++) assert.equal(round.filter((x) => x === w).length, w === 1 || w === 7 ? 1 : 2, `width ${w}`);
+  // DC and every non-pulse waveform hold.
+  for (const w of [0, 8, 9, 0xa, 0xd, 0xf]) assert.deepEqual(walk(w, 5), [w, w, w, w, w], `wave ${w} holds`);
+
+  // …and the engine runs it in its tick pass: two ticks a step from 6.
   const eng = new TaudEngine();
   eng.uploadInstrument(1, psgInst({ muteB: true, osc: [sq({ wave: 6, advance: 2 }), sq()] }));
   loadSong(eng, [{ row: 0, note: 0x5000, inst: 1 }]);
-  const st = () => ts0(eng).voices[0].psg;
   const seen = [];
-  for (let n = 0; n < 12; n++) {
-    renderLeft(eng, TRACKER_CHUNK);
-    seen.push(P.psgCurrentWave(st(), 0));
+  for (let t = 0; t < 12; t++) {
+    renderLeft(eng, ticks(1));
+    const w = P.psgCurrentWave(ts0(eng).voices[0].psg, 0);
+    if (seen.at(-1) !== w) seen.push(w);
   }
-  // Rendering more ticks walks 6 → 7 → 0 → 1…, two ticks a step.
-  renderLeft(eng, ticks(8));
-  const walked = P.psgCurrentWave(st(), 0);
-  assert.ok(seen.includes(6));
-  assert.notEqual(walked, 6);
-  assert.equal((walked - 6 + 8) % 8, st().adv[0] % 8, "the advance is modulo 8 from the record's");
-  // A waveform past 7 does not advance.
-  const eng2 = new TaudEngine();
-  eng2.uploadInstrument(1, psgInst({ muteB: true, osc: [{ ...HELD, wave: 9, advance: 1 }, sq()] }));
-  loadSong(eng2, [{ row: 0, note: 0x5000, inst: 1 }]);
-  renderLeft(eng2, ticks(10));
-  assert.equal(P.psgCurrentWave(ts0(eng2).voices[0].psg, 0), 9);
+  assert.deepEqual(seen.slice(0, 5), [6, 7, 6, 5, 4], "6, up to 7, back down");
 });
 
 test("internal status carries from note to note, unless the X flag resets it", () => {
