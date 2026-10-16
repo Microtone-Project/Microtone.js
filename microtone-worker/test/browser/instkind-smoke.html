@@ -68,7 +68,7 @@
         // ── cancelling the chooser ──
         let dlg = await openChooser();
         const cards = [...dlg.querySelectorAll(".kind-card")];
-        const cardsOk = cards.length === 4 && cards.every((c) =>
+        const cardsOk = cards.length === 5 && cards.every((c) =>
           c.querySelector(".kind-diagram") && c.querySelector(".kind-card-name") &&
           c.querySelector(".kind-card-sub") && c.querySelector(".kind-card-body")?.textContent.length > 80);
         log(`chooser: ${cards.length} cards, each with a diagram, a name, a subtitle and prose (${cardsOk ? "ok" : "FAIL"})`);

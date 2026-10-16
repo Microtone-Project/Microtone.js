@@ -75,6 +75,7 @@ export class AudioSystem {
     this.engineTarget = null;   // where engine commands go: worklet port or the worker
     this.invertMasks = new Map(); // slot → Uint8Array (latest queried S$Fx invert mask)
     this.sampleMods = new Map(); // slot → notefx 2/3 modification state (item 130)
+    this.psgStates = new Map();  // slot → PSG run-time state (§7.9), null when not PSG
     this.modMasks = new Map();   // slot → Uint8Array (its inversion mask)
     this.wideCells = false; // format v3's 16-byte cell (set by loadDocument)
     this.monitorMode = 0;   // #998.3 fold/binaural — re-sent on every song load
@@ -183,6 +184,7 @@ export class AudioSystem {
     } else if (m.t === MSG.INVERT_MASK) {
       this.invertMasks.set(m.slot, new Uint8Array(m.mask));
       if (m.mod) this.sampleMods.set(m.slot, m.mod);
+      this.psgStates.set(m.slot, m.psg ?? null);
       if (m.modMask) this.modMasks.set(m.slot, new Uint8Array(m.modMask));
     } else if (m.t === MSG.PROFILE) {
       // Enrich the worklet report with main-side facts it cannot see.
@@ -440,6 +442,9 @@ export class AudioSystem {
   /** Latest queried notefx 2/3 modification for `slot` (item 130), or null.
    *  Arrives with the invert mask — one query answers for all of it. */
   getSampleMod(slot) { return this.sampleMods.get(slot) ?? null; }
+  /** A PSG instrument's live overlay and waveforms (engine getInstrumentPsgState),
+   *  from the last requestInvertMask reply for `slot`; null when none. */
+  getPsgState(slot) { return this.psgStates.get(slot) ?? null; }
   /** …and its inversion mask (Uint8Array; empty when the operation is not one). */
   getModMask(slot) { return this.modMasks.get(slot) ?? null; }
 

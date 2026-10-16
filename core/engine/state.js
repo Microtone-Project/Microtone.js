@@ -599,6 +599,7 @@ export class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
       inst.cutoffOverride = -1;
       inst.resonanceOverride = -1;
     }
@@ -708,7 +709,7 @@ export class Playhead {
       it.layerRelPan = 0; it.layerRelElevation = 0;
       it.layerPitchMod = 0; it.pitchModDelta = 0;
       it.fmRig = null; it.fmOperator = false; it.fmParent = null;
-      it.opl = null; it.oplCarry = false; it.formant = null;
+      it.opl = null; it.oplCarry = false; it.psg = null; it.psgCarry = false; it.formant = null;
       // "What's playing" state — cleared alongside the volume reset so a stale
       // instrumentId can't survive into a fresh session (AudioAdapter.kt:5130-5142).
       it.instrumentId = 0;
@@ -747,6 +748,7 @@ export class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
       inst.cutoffOverride = -1;
       inst.resonanceOverride = -1;
     }
@@ -780,6 +782,7 @@ export class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
     }
   }
 }

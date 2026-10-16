@@ -28,6 +28,7 @@ import { META_MIX_GAIN } from "./tables.js";
 import { fetchTrackerSample, advanceVolumeRamp, advancePitchRamp } from "./sampler.js";
 import { applyVoiceFilter } from "./filter.js";
 import { oplRender, oplChannelAlive } from "./opl.js";
+import { psgRender, psgChannelAlive } from "./psg.js";
 
 /**
  * The live rack behind one sounding note. Allocated per trigger, hung off the
@@ -145,6 +146,19 @@ function fmChipOperator(v, frame, offset) {
 }
 
 /**
+ * A PSG operator, read the same way: the modulation goes into both
+ * oscillators' phase, one cycle being one cycle of the oscillator.
+ */
+function fmPsgOperator(v, frame, offset) {
+  const st = v.psg;
+  st.pm = offset === 0 ? 0 : Math.round((offset - Math.floor(offset)) * 4294967296) % 4294967296;
+  const s = psgRender(st, frame, v.currentPlaybackRate, v.keyOff);
+  st.pm = 0;
+  if (!psgChannelAlive(st)) v.active = false;
+  return s;
+}
+
+/**
  * One operator, evaluated at most ONCE per output sample. Naming an operator
  * twice in one algorithm — the natural way to write "operator 5 modulates both
  * 4 and 2" — gives the same value both times, because an operator is one
@@ -163,6 +177,8 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
   let s;
   if (v.opl !== null) {
     s = fmChipOperator(v, frame, offset);
+  } else if (v.psg !== null) {
+    s = fmPsgOperator(v, frame, offset);
   } else {
     const frames = offset === 0 ? 0 : offset * fmCycleFrames(v);
     s = fetchTrackerSample(eng, v, inst, interpMode, frames);

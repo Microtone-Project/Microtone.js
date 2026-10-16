@@ -25,7 +25,7 @@ import { setInstBytesOp, compositeOp, importBankOp } from "../../doc/ops.js";
 import { planSetFormantSource } from "../../doc/bankmerge.js";
 import {
   formantFields, formantFieldBytes, formantVowelBytes, formantRangeBytes, formantSlotBytes,
-  formantSourceBytes, formantSourceFlagByte, slotFromRecipe, slotIsRecipe, VOWEL_MARKS, nearestVowelMark,
+  formantSourceBytes, formantSourceFlagByte, canSourceFormant, slotFromRecipe, slotIsRecipe, VOWEL_MARKS, nearestVowelMark,
   formantGrBytes, rhoticIpa,
   vowelEffectArg, vowelF1F2, vowelFormants, vowelCoordsOf, noteHz, timingScale, CONSONANTS,
 } from "../../doc/formantedit.js";
@@ -438,15 +438,15 @@ export function renderFormantTab(view, inst) {
   srcRow.title = t("fmt.sourceTitle");
   paintSource();
 
-  // What the vowel is sung WITH: the sample above, or an OPL instrument's
-  // voice in its place. Picking one copies it in as this instrument's own
+  // What the vowel is sung WITH: the sample above, or a chip instrument's
+  // voice (OPL or PSG) in its place. Picking one copies it in as this instrument's own
   // sub-instrument, as a layer is, so the source is edited from here.
-  const chip = inst.formant.srcInst >= 1 && doc.instruments[inst.formant.srcInst]?.isOpl
+  const chip = inst.formant.srcInst >= 1 && canSourceFormant(doc.instruments[inst.formant.srcInst])
     ? inst.formant.srcInst : 0;
   const instLabel = (s) => `$${s.toString(16).toUpperCase().padStart(s > 0xff ? 3 : 2, "0")} ` +
     (unescapeName(doc.instrumentName(s)) || "");
   const oplItems = doc.selectableInstrumentSlots()
-    .filter((s) => s !== slot && doc.instruments[s].isOpl)
+    .filter((s) => s !== slot && canSourceFormant(doc.instruments[s]))
     .map((s) => [String(s), instLabel(s)]);
   const sungPick = view.pickRow(t("fmt.sungFrom"), String(chip),
     [["0", t("fmt.sungFromSample")], ...(chip ? [[String(chip), instLabel(chip)]] : [])],

@@ -51,8 +51,8 @@
         metaBtn.click();
         const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
         const cards = [...dlg.querySelectorAll(".kind-card")];
-        log(`kind chooser shows four cards, OPL third and enabled: ` +
-          ok(cards.length === 4 && !cards[2].disabled &&
+        log(`kind chooser shows five cards, OPL third and enabled: ` +
+          ok(cards.length === 5 && !cards[2].disabled &&
              cards[2].querySelector(".kind-card-name").textContent === "OPL instrument"));
         cards[2].click();
         const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));

@@ -1431,6 +1431,27 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 
 **Implementation.** Openness = `$f × 17`, frontness = `$g × 17`, roundness = `$r × 17`: the tongue and lips of TAUD_FILE_FORMAT.md §7.8. Before the voice's first control update — the trigger row — the vowel is set outright; otherwise it glides linearly from where it stands, restarting at every new `S $Afgr`, and the last step lands exactly on the target. The note now has a vowel of its own, which edits to the instrument's vowel no longer move, until its next trigger. Every voice sounding the note takes it, layer children included. See TAUD_ENGINE_SPEC.md §5.5.3.
 
+## S $Axxx — PSG register write
+
+**Plain.** On a PSG instrument (a type-9 metainstrument), changes one of its oscillators' settings while the song plays, without touching the instrument itself:
+
+| Argument | Effect |
+|---|---|
+| `S $A0xx` | Oscillator A's **auto-advance** to `$xx` ticks (`$00` stops it) |
+| `S $A1xx`, `$xx` ≤ `$3F` | Oscillator A's **level** to `$xx` (0 the loudest, each step 0.75 dB quieter) |
+| `S $A8xx` | Oscillator B's auto-advance to `$xx` |
+| `S $A9xx`, `$xx` ≤ `$3F` | Oscillator B's level to `$xx` |
+| `S $AF00` | Unmute both oscillators |
+| `S $AF01` | Mute oscillator A (and unmute B) |
+| `S $AF02` | Mute oscillator B (and unmute A) |
+| `S $AF03` | Mute both |
+
+Every other argument is **RESERVED** and does nothing. The write is the **instrument's**: every note of it hears it at once and goes on hearing it, the next notes included, until the song is played again from the start. The `$AF0x` writes set both mutes, so `S $AF01` also lifts a mute the instrument's own record puts on oscillator B. On a formant instrument the same command is `S $Afgr`, above; on any other instrument it does nothing.
+
+**Compatibility.** Taud only.
+
+**Implementation.** The write goes into a per-instrument overlay over the record's auto-advance, level and mute fields (TAUD_FILE_FORMAT.md §7.9): each overlay field is either unset, in which case the record's value stands, or the value written. The overlay **MUST NOT** change the record, and **MUST** be cleared exactly when invert loop's mask is (`S $F0xx`, below): on a song-start or stop-and-replay reset, so a clean replay reproduces the same audio. A mute is a no-op on the other oscillator, and a muted oscillator keeps running, so `S $AF00` brings it back where it would have been. Every voice sounding the note takes the write, layer children and FM operators included. See TAUD_ENGINE_SPEC.md §5.5.4.
+
 ## S $Bx00 — Pattern loop
 
 **Plain.** Sets a loop point and loops within a pattern. `S $B000` marks the current row as the loop start (per lane, not per song); `S $Bx00` with $x > 0 returns playback to the saved row and plays the intervening range `$x` more times (so `$B200` plays the loop twice total beyond the initial pass).

@@ -10,6 +10,7 @@
 //  - Voice-index clamps mirror the delegate exactly (readbacks clamp to
 //    NUM_VOICES-1; jamNote to MAX_VOICES-1).
 
+import { psgCurrentWave } from "./psg.js";
 import {
   SAMPLE_BIN_TOTAL, NUM_PATTERNS, NUM_CUES, NUM_VOICES, MAX_VOICES,
   JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES,
@@ -772,6 +773,38 @@ export class TaudEngine {
       // for the Samples view's overlay — same idea as SNAP_V_FUNK_POS/LEN
       // above, but this state is the INSTRUMENT's, not a voice's.
       modFunkWalk: inst.modFunkWalk, modFunkPos: inst.modFunkPos, modFunkLen: inst.modFunkLen,
+    };
+  }
+
+  /**
+   * A PSG instrument's live state (§7.9), for the PSG tab's playback display,
+   * or null for any other instrument: the S $Axxx overlay (each field −1 while
+   * the record's own value stands) and the waveform each oscillator is playing
+   * now on the first sounding voice of it — a lane's before a ghost's — which
+   * the auto-advance moves; null when nothing is sounding it.
+   */
+  getInstrumentPsgState(slot) {
+    const patch = this.instruments[slot & 0x3ff].psg;
+    if (patch === null) return null;
+    let wave = null;
+    for (const p of this.playheads) {
+      const ts = p.trackerState;
+      if (ts === null || ts === undefined || wave !== null) continue;
+      for (const list of [ts.voices, ts.backgroundVoices]) {
+        for (const v of list) {
+          if (v.active && v.psg !== null && v.psg.patch === patch) {
+            wave = [psgCurrentWave(v.psg, 0), psgCurrentWave(v.psg, 1)];
+            break;
+          }
+        }
+        if (wave !== null) break;
+      }
+    }
+    return {
+      rtAdvance: [patch.rtAdvance[0], patch.rtAdvance[1]],
+      rtLevel: [patch.rtLevel[0], patch.rtLevel[1]],
+      rtMute: patch.rtMute,
+      wave,
     };
   }
 

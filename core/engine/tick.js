@@ -13,6 +13,7 @@ import {
 } from "./tables.js";
 import { computePlaybackRate, startFastFade, startCutRamp } from "./sampler.js";
 import { oplKeyOn } from "./opl.js";
+import { psgKeyOn, psgTick } from "./psg.js";
 import { formantRestart } from "./formant.js";
 import { refreshVoiceFilter } from "./filter.js";
 import { isSoundingChild } from "./voice.js";
@@ -508,6 +509,15 @@ export function applyTrackerTick(eng, ts, playhead) {
     }
   }
 
+  // PSG waveform auto-advance (§5.5.4): one tick toward each oscillator's next
+  // step, on every sounding pair — a lane's, a ghost's, an FM operator's.
+  for (const voice of ts.voices) {
+    if (voice.psg !== null && voice.active) psgTick(voice.psg);
+  }
+  for (const voice of ts.backgroundVoices) {
+    if (voice.psg !== null && voice.active) psgTick(voice.psg);
+  }
+
   // Invert loop (S $F0xx) — advance the per-instrument XOR mask (PT2 updateFunk).
   for (const voice of ts.voices) {
     if (voice.invertSpeed === 0 || !voice.active) continue;
@@ -954,6 +964,9 @@ function restartVoice(v) {
   // An OPL channel restarts the way the chip re-keys one: the attack begins
   // from wherever each envelope stands, the phase from zero (§5.5.2).
   if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, true);
+  // …and a PSG pair the same way; an oscillator with its X flag set restarts
+  // its internal status here too, as at any key-on (§5.5.4).
+  if (v.psg !== null && v.psg.patch !== null) psgKeyOn(v.psg, v.psg.patch, true);
   // A voice sounding a formant instrument says its syllable again (item 212).
   if (v.formant !== null) formantRestart(v.formant);
 }

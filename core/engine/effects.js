@@ -17,6 +17,7 @@ import { patchAt } from "./inst.js";
 import { isSoundingChild } from "./voice.js";
 import { applyPastNoteAction } from "./trigger.js";
 import { formantSetVowel } from "./formant.js";
+import { psgWriteRegister } from "./psg.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL,
   applyPanSet, applyPanSlide, applyElevation, anglesFromSpatialArg,
@@ -500,9 +501,14 @@ export function applySEffect(eng, ts, voice, vi, arg) {
     case 0xa:
       // S $Afgr — on a voice sounding a formant instrument (item 212), the vowel: openness f,
       // frontness g, roundness r. The note's whole tract hears it, layer
-      // children included; on any other instrument it does nothing.
+      // children included.
+      // S $Axxx — on a voice sounding a PSG instrument (§7.9), a register
+      // write into that INSTRUMENT's run-time overlay: auto-advance, level,
+      // mute. It lasts across notes until the next playback, as invert loop's
+      // mask does. On any other instrument it does nothing.
       forEachLayerTarget(ts, voice, vi, (v) => {
         if (v.formant !== null) formantSetVowel(v.formant, x, (arg >>> 4) & 0xf, arg & 0xf);
+        else if (v.psg !== null && v.psg.patch !== null) psgWriteRegister(v.psg.patch, arg & 0xfff);
       });
       break;
     case 0x8:

@@ -21,6 +21,7 @@ import {
 import { applyVoiceFilter, applyTaudVoiceFx } from "./filter.js";
 import { renderFmVoice } from "./fm.js";
 import { renderOplVoice } from "./opl.js";
+import { renderPsgVoice } from "./psg.js";
 import { renderFormantVoice } from "./formant.js";
 import { CHAN_MODE_MATRIX } from "./inst.js";
 import {
@@ -71,6 +72,16 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
   if (voice.opl !== null) {
     const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
       renderOplVoice(voice, ts.oplFrame + n)));
+    out[0] = s;
+    out[1] = s;
+    return out;
+  }
+  // A PSG pair (§7.9) on the same chip clock. Unlike OPL it leaves the note
+  // volume to the gain chain below, as a sample does: its multiplying mix
+  // would otherwise square it.
+  if (voice.psg !== null) {
+    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
+      renderPsgVoice(voice, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
     return out;

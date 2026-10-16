@@ -133,6 +133,7 @@ class TaudProcessor extends AudioWorkletProcessor {
         this.port.postMessage({
           t: MSG.INVERT_MASK, slot: m.slot, mask: buf,
           mod: eng.getInstrumentSampleMod(m.slot), modMask: modBuf,
+          psg: eng.getInstrumentPsgState(m.slot),
         }, [buf, modBuf]);
         break;
       }

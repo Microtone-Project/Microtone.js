@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PSG instrument smoke: create a type-9 instrument, edit it, play it, watch S $Axxx</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- REAL time: the playback legs need the audio thread running. Run with
+         node tools/browser-smoke.js test/browser/psg-smoke.html 90 -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1280px;height:800px"></iframe>
+  <script type="module">
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = (fn, ms = 8000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 40);
+    });
+    const ok = (cond) => (cond ? "ok" : "FAIL");
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => {
+          const w = frame.contentWindow;
+          return w && w.__microtone?.store.doc ? w : null;
+        }, 20000);
+        win.alert = (m) => log("alert: " + m);
+        const { store, masterStrip } = win.__microtone;
+        const doc = store.doc;
+        const wdoc = win.document;
+        log("app loaded");
+
+        // ── "Meta…" offers a PSG card, and it makes a type-9 instrument ──
+        // Opened through its tab, in a pane, so the app gives it frames — the
+        // playback display below is drawn from the view's frame().
+        wdoc.querySelector('#tabs button[data-view="instruments"]').click();
+        await sleep(300);
+        const iv = win.__microtone.instrumentsView;
+        const before = new Set(doc.usedInstrumentSlots());
+        const metaBtn = [...iv.listEl.querySelectorAll(".side-toolbar-inst button")]
+          .find((b) => b.textContent === "Meta…");
+        metaBtn.click();
+        const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
+        const cards = [...dlg.querySelectorAll(".kind-card")];
+        const psgCard = cards.find((c) => c.querySelector(".kind-card-name").textContent === "PSG instrument");
+        log(`kind chooser shows five cards, PSG fourth with its diagram: ` +
+          ok(cards.length === 5 && cards[3] === psgCard && !psgCard.disabled &&
+             !!psgCard.querySelector("svg.kind-diagram")));
+        psgCard.click();
+        const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
+        const inst = () => doc.instruments[slot];
+        log(`a new slot $${slot.toString(16)} is a type-9 PSG instrument: ` +
+          ok(inst().isPsg && !inst().isMeta && inst().isLowMeta));
+        log(`…named "${doc.instrumentName(slot)}", selected: ` +
+          ok(doc.instrumentName(slot) === "PSG" && iv.selected === slot));
+        await waitFor(() => iv.panel.querySelector(".psg-edit"));
+        const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
+        log(`tabs ${tabs.join("|")}: ` +
+          ok(tabs.join("|") === "PSG|General|Vol env|Pan env|Pitch/Filter" && iv.tab === "psg"));
+        const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
+        log(`list badge "${badge()}": ${ok(badge() === "PSG")}`);
+        const oscs = () => iv.panel.querySelectorAll(".psg-osc");
+        log(`two oscillators, each with a waveform window and an envelope sketch: ` +
+          ok(oscs().length === 2 && iv.panel.querySelectorAll("svg.psg-wave").length === 2 &&
+             iv.panel.querySelectorAll("svg.opl-env").length === 2));
+        const waveLabel = (o) => oscs()[o].querySelector("svg.psg-wave").getAttribute("aria-label");
+        log(`windows draw A as "${waveLabel(0)}", B as "${waveLabel(1)}": ` +
+          ok(waveLabel(0) === "4 · Pulse 4/8" && waveLabel(1) === "9 · Triangle"));
+
+        // ── a field edit writes the block and redraws the window ──
+        const fieldOf = (o, label) => [...oscs()[o].querySelectorAll(".inst-field")]
+          .find((f) => f.firstChild.textContent === label)?.querySelector("input, select");
+        const waveSel = fieldOf(0, "Waveform");
+        waveSel.value = "13";
+        waveSel.dispatchEvent(new win.Event("change"));
+        await sleep(40);
+        log(`waveform → D lands in byte 199 and the window redraws: ` +
+          ok((inst().psgRaw[2] >> 4) === 0xd && waveLabel(0) === "D · 4-bit saw"));
+        store.undo.undo();
+        await sleep(40);
+        const mixSel = iv.panel.querySelector(".opl-chan select");
+        mixSel.value = "1";
+        mixSel.dispatchEvent(new win.Event("change"));
+        await waitFor(() => inst().psg.multiply);
+        await sleep(40);
+        log(`Multiplicative sets bit 0 of byte 197, badge "${badge()}": ${ok(badge() === "PSG·×")}`);
+        store.undo.undo();
+        await waitFor(() => !inst().psg.multiply);
+        await sleep(40);
+        log(`…and undo puts the badge back to "${badge()}": ${ok(badge() === "PSG")}`);
+
+        // ── the General tab: a rate where the sample was ──
+        const tabBtn = (label) => [...iv.tabBar.querySelectorAll("button")].find((b) => b.textContent === label);
+        tabBtn("General").click();
+        await waitFor(() => iv.tab === "general" && iv.panel.querySelector(".inst-rows"));
+        const heads = [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);
+        log(`General has a PSG instrument group and no Sample group: ` +
+          ok(heads.includes("PSG instrument") && !heads.includes("Sample")));
+        tabBtn("PSG").click();
+        await waitFor(() => iv.panel.querySelector(".psg-edit"));
+
+        // ── a jam note sounds it ──
+        await waitFor(() => store.audio, 15000);
+        const audio = store.audio;
+        try { await audio.ctx?.resume?.(); } catch { /* headless autoplay flag */ }
+        const voice = audio.jamVoice(0);
+        audio.jamNote(0, voice, 0x5000, slot, true);
+        await waitFor(() => audio.getVoiceActive(voice) && audio.getVoiceInstrument(voice) === slot, 5000)
+          .catch(() => null);
+        log(`a jam note sounds the PSG instrument: ` +
+          ok(audio.getVoiceActive(voice) && audio.getVoiceInstrument(voice) === slot));
+        let peak = 0, frames = 0;
+        const readout = masterStrip?.readout;
+        for (let i = 0; i < 40 && readout; i++) {
+          await sleep(30);
+          const r = audio.readAnalysis(readout);
+          frames += r.frames;
+          for (let c = 0; c < r.meterCount; c++) peak = Math.max(peak, r.peak[c]);
+        }
+        log(frames > 0
+          ? `…and the master meter sees it (peak ${peak.toFixed(3)}): ${ok(peak > 0.01)}`
+          : `…master meter tap is off in this layout — skipped`);
+        audio.jamKeyOff(0, voice);
+        await waitFor(() => !audio.getVoiceActive(voice), 6000).catch(() => null);
+        log(`key-off releases it and the voice ends: ${ok(!audio.getVoiceActive(voice))}`);
+
+        // ── playback: S $Axxx and the auto-advance show in the accent colour ──
+        const { setCellOp } = await import("../../src/doc/ops.js");
+        const pat = store.song.cues[0][0] & 0x7fff;
+        const S = 0x1c;
+        store.undo.apply(setCellOp(store.songIndex, pat, 0,
+          { note: 0x5000, instrment: slot, effect: S, effectArg: 0xa001 }));  // A advances every tick
+        store.undo.apply(setCellOp(store.songIndex, pat, 1, { effect: S, effectArg: 0xa110 }));  // A's level $10
+        store.undo.apply(setCellOp(store.songIndex, pat, 2, { effect: S, effectArg: 0xaf02 }));  // B muted, A not
+        const levelIn = () => fieldOf(0, "Level");
+        const advIn = () => fieldOf(0, "Auto-advance");
+        const muteA = () => [...iv.panel.querySelectorAll(".opl-chan .inst-field")]
+          .find((f) => f.firstChild.textContent === "Mute A").querySelector("input");
+        const muteB = () => [...iv.panel.querySelectorAll(".opl-chan .inst-field")]
+          .find((f) => f.firstChild.textContent === "Mute B").querySelector("input");
+        const recordLevel = +levelIn().value;
+        wdoc.getElementById("playSong").click();
+        await waitFor(() => levelIn().classList.contains("psg-live") && +levelIn().value === 0x10, 10000)
+          .catch(() => null);
+        log(`S $A110 shows A's level as 16, in the accent colour: ` +
+          ok(levelIn().classList.contains("psg-live") && +levelIn().value === 16));
+        log(`S $A001 shows A's auto-advance as 1, live: ` +
+          ok(advIn().classList.contains("psg-live") && +advIn().value === 1));
+        await waitFor(() => oscs()[0].querySelector("svg.psg-wave.live"), 6000).catch(() => null);
+        const liveWin = oscs()[0].querySelector("svg.psg-wave.live");
+        log(`the auto-advance moves A's window off its record's waveform, drawn live: ` +
+          ok(!!liveWin && liveWin.getAttribute("aria-label") !== "4 · Pulse 4/8"));
+        await waitFor(() => muteB().classList.contains("psg-live"), 6000).catch(() => null);
+        log(`S $AF02 shows B muted and A not, live: ` +
+          ok(muteB().checked && !muteA().checked && muteB().classList.contains("psg-live")));
+        const accent = win.getComputedStyle(levelIn()).color;
+        const plain = win.getComputedStyle(fieldOf(0, "Attack")).color;
+        log(`…in a colour of its own (${accent} vs ${plain}): ${ok(accent !== plain)}`);
+        log(`the record itself is untouched: ` +
+          ok((inst().psgRaw[5] & 63) === recordLevel && inst().psgRaw[7] === 0));
+
+        // ?hold=ms keeps the song playing a while first, for a screenshot of
+        // the live display (the checks above have already made their point).
+        const hold = Number(new URLSearchParams(location.search).get("hold") ?? 0);
+        if (hold > 0) { log("HOLDING"); await sleep(hold); }
+        wdoc.getElementById("stopBtn").click();
+        await waitFor(() => !levelIn().classList.contains("psg-live"), 6000).catch(() => null);
+        log(`stopping puts the record's values back: ` +
+          ok(!levelIn().classList.contains("psg-live") && +levelIn().value === recordLevel &&
+             +advIn().value === 0 && !oscs()[0].querySelector("svg.psg-wave.live") &&
+             muteB().checked === inst().psg.muteB));
+
+        // ── it survives a save/reload round trip ──
+        const bytes = doc.toBytes();
+        const { Document } = await import("../../src/doc/document.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
+        const back = new Document(parseTaud(bytes)).instruments[slot];
+        log(`round trip keeps a type-9 record with the same patch: ` +
+          ok(back.isPsg && String([...back.psgRaw]) === String([...inst().psgRaw])));
+
+        log("RESULT: " + (out.some((l) => l.includes("FAIL")) ? "FAIL" : "PASS"));
+      } catch (e) {
+        log("ERROR " + (e?.stack ?? e));
+        log("RESULT: FAIL");
+      }
+    })();
+  </script>
+</body>
+</html>

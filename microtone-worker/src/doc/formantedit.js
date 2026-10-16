@@ -216,9 +216,10 @@ export function remapFormantSource(rec, fn) {
   return true;
 }
 
-/** Is `inst` one a formant instrument can be sung from: an OPL instrument. */
+/** Is `inst` one a formant instrument can be sung from: an OPL or a PSG
+ *  instrument — a chip, a generator of its own. */
 export function canSourceFormant(inst) {
-  return !!inst?.isOpl;
+  return !!(inst?.isOpl || inst?.isPsg);
 }
 
 /** The loop-mode bits of byte 14 for a source, keeping the record's other bits. */

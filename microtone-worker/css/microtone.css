@@ -2239,6 +2239,25 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .opl-env polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
 .opl-note { margin: 0.1rem 0; font-size: 0.85rem; }
 
+/* The PSG tab (views/instpsg.js): the OPL tab's layout, with a waveform window
+   above each oscillator's envelope sketch. What S $Axxx and the auto-advance
+   have changed during playback is drawn in the accent colour, as the Samples
+   tab draws invert loop's mask. */
+.psg-wave {
+  width: 100%;
+  height: 48px;
+  background: var(--cv-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.psg-wave polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
+.psg-wave .psg-zero { stroke: var(--border); stroke-width: 1; }
+.psg-wave.live { border-color: var(--accent); }
+.psg-wave.live polyline { stroke: var(--accent); }
+.psg-wave-label { fill: var(--accent); font-size: 9px; font-family: "Roboto Mono", monospace; }
+.psg-edit .inst-field input.psg-live { color: var(--accent); border-color: var(--accent); }
+.psg-edit .inst-field input[type="checkbox"].psg-live { outline: 1px solid var(--accent); outline-offset: 1px; }
+
 /* ── Formant tab (item 212, views/instformant.js) ──
    The vowel chart is an SVG drawn in theme tokens; every IPA symbol, there and
    in the consonant picker, is Open Sans at its full width ("wdth" 100), the

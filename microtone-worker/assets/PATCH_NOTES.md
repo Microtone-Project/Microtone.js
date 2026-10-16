@@ -6,7 +6,16 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-16
 
-OPL instruments are now a source for every kind of metainstrument: Layered, FM Rack and formant instruments all accept them, and will accept the PSG instruments on their way in the same way.
+PSG instruments arrive: two 8-bit-style oscillators in place of a sample, added together or multiplied.
+
+- **A new kind of instrument**: Instruments → Meta… → PSG instrument makes one. Each of its two oscillators plays one of sixteen waveforms — DC, seven pulse widths, saw, triangle, three 1-bit noises that repeat after exactly 32767, 2047 and 127 steps, a 4-bit saw and triangle, and silence — under the OPL chip's own envelope, tremolo and vibrato. It needs no samples and costs one voice.
+- **Auto-advance** steps a pulse through its widths by itself as the note plays; **Reset on trigger** starts an oscillator afresh on every note, where otherwise it carries on from the last one as a real chip does; muting one oscillator plays the other exactly as it is, in either mix.
+- **A PSG tab** edits it the way the OPL tab edits an operator, with a small window drawing each oscillator's waveform above its envelope.
+- **`S $Axxx` changes it from a pattern**: an oscillator's auto-advance (`$A0xx`, `$A8xx`), its level (`$A1xx`, `$A9xx`) and the mutes (`$AF00`…`$AF03`). A change lasts until the song is played again from the start, and while the song plays the PSG tab shows it, and the waveform the auto-advance has reached, in the accent colour.
+- A PSG instrument can be a layer, an FM Rack operator, and the voice a formant instrument sings with, as an OPL instrument can.
+- **Fixed: undoing an edit that changes an instrument's list badge** — an OPL instrument's kind, say — left the old badge in the list.
+
+OPL instruments are now a source for every kind of metainstrument: Layered, FM Rack and formant instruments all accept them, and PSG instruments the same way.
 
 - **An FM Rack's operators can be OPL instruments**: modulated, the chip channel's phase is bent the way the chip bends its own carriers; modulating, it bends the next operator as a sample does. Until now a rack skipped them.
 - **A formant instrument can sing with an OPL instrument** instead of a sample: **Sung from** on the Formant tab picks one, copies it in as part of the formant instrument and plays it at its own tuning, through the vowel and consonants as a sample would be. *Its sample* switches back.

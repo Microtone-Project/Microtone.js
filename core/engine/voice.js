@@ -181,6 +181,13 @@ export class Voice {
     // that hand-over, set by maybeSpawnBackgroundForNNA for triggerNote).
     this.opl = null;
     this.oplCarry = false;
+    // ── PSG pair (Metainstrument type 9) ──
+    // The sounding oscillator pair (engine/psg.js PsgState) of a voice playing
+    // a PSG instrument, or null. Kept on the voice across notes, as OPL's is —
+    // an oscillator's internal status lives here — and `psgCarry` hands a
+    // NNA-cut retrigger the envelopes where they stand.
+    this.psg = null;
+    this.psgCarry = false;
 
     // ── Formant instrument (Metainstrument type 1, item 212) ──
     // The tract this voice's sample is sounding through (engine/formant.js

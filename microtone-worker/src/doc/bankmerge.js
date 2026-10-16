@@ -1221,7 +1221,8 @@ export function planCreateFm(destDoc, picks, name = "") {
 /**
  * Plan a new OPL instrument (item 209): one type-8 record (TAUD_FILE_FORMAT §7.7) in
  * the first free top-level slot. Nothing is copied and no child is made — the
- * patch IS the instrument. `record` is the whole 256-byte record; `name` the
+ * patch IS the instrument. Any other kind that is one record and nothing else
+ * (a PSG instrument, §7.9; a formant instrument, §7.8) is planned the same way. `record` is the whole 256-byte record; `name` the
  * escaped INam text. Returns {error} or a planImport-shaped plan.
  */
 export function planCreateOpl(destDoc, record, name = "") {
@@ -1374,8 +1375,8 @@ export function planSetFormantSource(destDoc, formantSlot, srcSlot) {
   }
   const src = srcSlot & 0x3ff;
   const used = new Set(destDoc.usedInstrumentSlots());
-  if (!used.has(src) || !destDoc.instruments[src].isOpl) {
-    return { error: "A formant instrument can be sung only from an OPL instrument." };
+  if (!used.has(src) || !(destDoc.instruments[src].isOpl || destDoc.instruments[src].isPsg)) {
+    return { error: "A formant instrument can be sung only from an OPL or a PSG instrument." };
   }
   const child = allocChildSlot(new Set(used));
   if (child < 0) return { error: "No free sub-instrument slots left in $100–$3FF." };
