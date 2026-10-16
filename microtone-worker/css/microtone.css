@@ -1430,7 +1430,12 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 .inst-lookup .il-head {
   padding: 0.35rem 0.6rem;
   border-bottom: 1px solid var(--border);
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-variation-settings:
+    "wdth" 96 !important;
+  letter-spacing: 0.06em;
 }
 .inst-lookup .il-list { overflow-y: auto; }
 .inst-lookup .il-row {
@@ -3760,8 +3765,16 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-size: 0.85rem;
   color: var(--dim);
 }
-.mst-unit-name { flex: 1; color: var(--fg); font-weight: 600; }
-.mst-scope-head span:first-child { flex: 1; color: var(--fg); font-weight: 600; }
+.mst-unit-name,
+.mst-scope-head span:first-child {
+  flex: 1;
+  color: var(--fg);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.8rem;
+  margin-left: 0.08rem;
+}
 .mst-stagetag {
   color: var(--accent);
   font-variant-numeric: tabular-nums;
@@ -3834,8 +3847,13 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--fg);
-  font-size: 0.8rem;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-variation-settings:
+    "wdth" 96 !important;
+  letter-spacing: 0.06em;
 }
 .mst-eq-curve { width: 100%; display: block; margin-bottom: 0.3rem; }
 
