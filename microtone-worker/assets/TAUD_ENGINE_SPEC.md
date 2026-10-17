@@ -337,10 +337,11 @@ A **Metainstrument** is an instrument whose record names other instruments inste
 | 1 | **Formant** | has no table: the record is an ordinary instrument whose sample is a **glottal source sung through a vocal tract**, one syllable a note. [§5.5.3](#5-5-3-type-1-formant-instruments). |
 | 4 | **FM Rack** | reads the entries as **operators** and the words after them as an algorithm: **one voice**, whatever that algorithm produces. [§5.5.1](#5-5-1-type-4-fm-racks). |
 | 8 | **OPL** | has no table: the record is an ordinary instrument whose sample is **one channel of an OPL FM chip**. [§5.5.2](#5-5-2-type-8-opl-instruments). |
+| 9 | **PSG** | has no table: the record is an ordinary instrument whose sample is **two PSG oscillators**, added or multiplied. [§5.5.4](#5-5-4-type-9-psg-instruments). |
 
 A type the engine does not know **MUST** sound nothing rather than fall back to type 0.
 
-**What a kind may take as a source** follows from where its type sits in the nibble. Types **0…7** are the kinds built out of sources — Layered, Formant and FM; types **8…13** are the kinds that make a sound of their own where an ordinary instrument's sample is — OPL, and the PSG to come; **14** and **15** are reserved. A kind of the first range **MUST** take a kind of the second as a source, exactly as it takes an ordinary instrument: as a layer, as an FM operator, and as a formant instrument's glottal source. A kind of the second range names nothing, so nothing it is part of can recurse. A kind of the first range is never a source, with the one exception the family has always had — a layer may be a formant instrument, which has no table and so cannot recurse either.
+**What a kind may take as a source** follows from where its type sits in the nibble. Types **0…7** are the kinds built out of sources — Layered, Formant and FM; types **8…13** are the kinds that make a sound of their own where an ordinary instrument's sample is — OPL and PSG; **14** and **15** are reserved. A kind of the first range **MUST** take a kind of the second as a source, exactly as it takes an ordinary instrument: as a layer, as an FM operator, and as a formant instrument's glottal source. A kind of the second range names nothing, so nothing it is part of can recurse. A kind of the first range is never a source, with the one exception the family has always had — a layer may be a formant instrument, which has no table and so cannot recurse either.
 
 #### Type 0 — Layered
 
@@ -400,6 +401,8 @@ An operator whose instrument is an OPL instrument is its channel ([§5.5.2](#5-5
 
 - **It runs at unity note volume.** Its output operators take no note-volume attenuation; an operator's level is its mix octet, as for any operator, and the note's volume reaches the finished patch through operator 0. A rack whose operator 0 is an OPL instrument therefore takes the note volume in the mixer, as every rack does, and not in the chip.
 - **Phase modulation goes into the chip.** A `$04xx` word's value *m* is added, as `round(m × 1024)`, to the phase of every operator the channel **outputs** — the operators its connection sums — on every chip sample computed for this output frame, as the chip's own modulators add their output to a carrier's phase: `p = ((phase >> 10) + mod + round(m × 1024)) & 1023`. One unit of *m* is one cycle of the chip's sine, which is also how far the chip itself moves a carrier for a modulator at that value. A rhythm voice whose phase is dictated takes it on the dictated phase, `(phase + round(m × 1024)) & 1023`. A free-running read adds nothing, and a modulator at −∞ dB leaves the channel exactly as it runs on its own.
+
+An operator whose instrument is a **PSG instrument** is its oscillator pair ([§5.5.4](#5-5-4-type-9-psg-instruments)), keyed and run the same way. A `$04xx` word's value *m* goes into the phase of **both** oscillators, as `frac(m) × 2^32` added to the phase each reads, so one cycle of modulation is one cycle of the oscillator; the noises, which are read by step rather than by phase, are untouched by it. A pair never takes the note volume into its oscillators ([§5.5.4](#5-5-4-type-9-psg-instruments)), so as an operator it runs at its own level, and the note's volume reaches the finished patch through operator 0 as for any rack.
 
 Every other part of an operator's value — its own envelopes, fadeout, global volume, initial attenuation and filter for an operator past the first, the anti-click ramps, the mixer's treatment of operator 0 — is as for any operator. An OPL channel that can no longer sound ends its operator, as a one-shot's end does; for operator 0 that is the end of the note.
 
@@ -608,7 +611,7 @@ With `P < 2`, `N < 2`, or every `w(k)` 0, the source is taken to be a sawtooth: 
 
 ##### Sung from an OPL instrument
 
-A record whose header names a **source instrument** ([File Format §7.8](TAUD_FILE_FORMAT.md)) that is an OPL instrument — not 0, not the record itself — is sung from that instrument's channel instead of its sample. Naming any other instrument, or none, is singing the sample. What the source instrument brings is its **patch** and its **C2SPD**, nothing else: its envelopes, volumes, detune and New Note Action are not read, since the note is the formant instrument's.
+A record whose header names a **source instrument** ([File Format §7.8](TAUD_FILE_FORMAT.md)) that is an OPL instrument — not 0, not the record itself — is sung from that instrument's channel instead of its sample. A **PSG instrument** there is sung from in the same way, its oscillator pair ([§5.5.4](#5-5-4-type-9-psg-instruments)) standing where the channel stands in every rule below; its measurement runs a pair from rest, internal status and all, so that it does not depend on what the lane played before. Naming any other instrument, or none, is singing the sample. What the source instrument brings is its **patch** and its **C2SPD**, nothing else: its envelopes, volumes, detune and New Note Action are not read, since the note is the formant instrument's.
 
 - **The rate.** The C2SPD (0 reads as 8363) stands where the sample's rate at C4 would: the voice's active sampling rate is it, so the note plays the chip at the pitch the OPL instrument plays it at on its own.
 - **The source.** `g` is an OPL channel keyed with the note, from silence, and run on the playhead's chip clock as an OPL voice's is ([§5.5.2](#5-5-2-type-8-opl-instruments)) — at unity note volume, since the mixer applies the note's volume to the tract's output; keyed off with the voice. The sample is not read. While the vowel is sung, a channel that can no longer sound ramps the note out (the 8 ms sample-end ramp, [§8](#8-the-sampler)); in a consonant the tract's own clock ends it.
@@ -895,6 +898,84 @@ Either then takes the slot's tilt — for tilt `t` with `c = |t| ÷ 128`, `t > 0
 - **`Q`'s retrigger** says the syllable again from its onset, on the vowel it is singing now — its own, if it has one, staying its own.
 - **An instrument byte without a retrigger** ([§5.2](#5-2-note-events)) hands a sounding formant syllable the new record's tract: its vowel glides to the new record's over the new glide time and from then on follows that record as it is edited (at once, with a glide of 0 or before the note's first update); the source gain is measured again, the pitch rules become the new record's, and a coda that has not begun becomes the new record's; consonants already under way finish as they started, and nothing restarts. A sampled note handed a formant instrument starts its tract at the vowel, its onset long past.
 - A **layer** of a type-0 record may be a formant instrument and sounds like any other; an FM rack's operator may not ([§5.5.1](#5-5-1-type-4-fm-racks)), nor may a formant instrument's own source.
+
+#### 5.5.4 Type 9 — PSG instruments
+
+A **type-9** Metainstrument is a **PSG instrument** ([File Format §7.9](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is two oscillators, A and B. It is the second of the kinds of types 8…13, and so a source every kind of types 0…7 takes: a layer, an FM operator ([§5.5.1](#an-opl-operator)), and a formant instrument's glottal source ([§5.5.3](#sung-from-an-opl-instrument)). Everything the engine does to an ordinary instrument it does to this one, the gain chain included and the note volume with it, with three differences: where the sample would be read the pair is run; a retrigger can hand the pair over instead of ghosting it; and there is no attack ramp. A PSG instrument resolves no Ixmp patch.
+
+**The clock.** A PSG voice runs on its playhead's **OPL chip clock** ([§5.5.2](#5-5-2-type-8-opl-instruments)): it computes the pair's value `c[k]` at every chip sample `k` up to the frame's, reads back `(c[k−1] + (c[k] − c[k−1]) × frac) ÷ 4096`, anchors a fresh pair at its first rendered frame, and freezes rather than catches up across a gap of more than eight chip samples, exactly as an OPL voice does. A full-level oscillator is therefore one full-scale sample, level with an OPL operator. Nothing is band-limited: the pair's edges alias as a chip's do.
+
+**Pitch and key scaling.** With `hz` the channel frequency of §5.5.2 (the record's C2SPD, 8363 when 0), each oscillator's 32-bit phase advances by
+
+```
+inc = clamp(round(hz × MULT_X2[mult] × 2^32 ÷ (2 × 49716.0486111…)), 0, 2^32 − 1)
+```
+
+per chip sample, and its key scaling is §5.5.2's for a melodic channel at `hz` — the block and F-number with the ordinary ceiling, NTS clear — giving `ksr_off` and `ksl_att`. Both are recomputed whenever the playback rate or the patch changes.
+
+**An oscillator.** At chip sample `k`, oscillator `n` first advances its envelope by §5.5.2's generator, unchanged (AR, DR, SL, RR, the sustain bit as EGT, `ksr_off`). Then, with `lk = k − origin`:
+
+```
+inc   = phase_inc;  if VV ≠ 0 and vibrato(lk, VV) ≠ 1: inc = round(inc × vibrato(lk, VV))
+steps = ⌊(phase + inc) ÷ 2^28⌋ − ⌊phase ÷ 2^28⌋;   noise_pos += steps
+phase = (phase + inc) mod 2^32
+if the envelope is OFF: gain = 0
+else: att  = (env + ksl_att) × 8 + level × 32 + (TT ≠ 0 ? tremolo(lk, TT) : 0)
+      gain = EXPAND(att)                                       0…4084
+w = the waveform playing (below)
+v = WAVE[w](phase + pm);  if invert: v = 1 − v                 volts, 0…1
+```
+
+`tremolo` and `vibrato` are §5.5.2's LFOs with depth 1 the shallow and 2 the deep, read at `lk` rather than `k`. `level` is the oscillator's level as it stands, the record's or one `S $Axxx` wrote (below). `pm` is an FM rack's modulation, 0 otherwise. EXPAND is §5.5.2's. `WAVE[w](p)`, for 32-bit `p`, is in volts, 0…1: an oscillator is a 0-to-1-volt generator, and the pair maps its volts onto the lane (below).
+
+| `w` | Value |
+|---|---|
+| 0 | 1 |
+| 1…7 | `p >> 29 < 8 − w` ? 1 : 0 |
+| 8 | 1 − p ÷ 2^32 |
+| 9 | with `x = p ÷ 2^32`: `x < ½` ? 2x : 2 − 2x |
+| 10, 11, 12 | 1 or 0, the noise's bit at `noise_pos` (below) |
+| 13 | (15 − (p >> 28)) ÷ 15 |
+| 14 | with `s = p >> 27`: (`s < 16` ? s : 31 − s) ÷ 15 |
+| 15 | 0 |
+
+The three noises repeat on exactly 32767, 2047 and 127 steps. Their sequences are the implementation's own, as the format allows; this one reads the output bit of Fibonacci shift registers of 15 bits (taps 0 and 1), 11 bits (taps 0 and 2) and 7 bits (taps 0 and 1), seeded with 1, the bit itself the value. `noise_pos` wraps at 32767 × 2047 × 127, which every cycle divides.
+
+**The pair.** `c[k]` runs both oscillators every chip sample, muted or not; it mixes what is not muted **in volts**, maps the volts onto the lane's whole range — 0 V to −1, 1 V to +1 — and only then applies the gains:
+
+```
+(a, ga) = oscillator A's volts and gain,  (b, gb) = oscillator B's
+A muted and B muted:  c = 0
+A muted:              c = (2b − 1) × gb
+B muted:              c = (2a − 1) × ga
+additive:             c = (2a − 1) × ga + (2b − 1) × gb
+multiplicative:       c = (2ab − 1) × ga × gb ÷ 4084
+```
+
+so that a mute is a no-op on the other oscillator in either model, as the format requires, and a mute lifted mid-note finds the oscillator where it would have been. Because the gain acts after the mapping, an oscillator its envelope has silenced — released, not yet attacked, or at the bottom of its level — sits at 0 on the lane, and a note starts and ends there without a step. A full-level oscillator swings the whole ±1: DC holds +1 and `$F` (0 V) holds −1. The product is taken in volts, so 0 V on either side maps to −1 whatever the other is doing, and DC (1 V) passes the other through; the two gains multiply, scaled by full scale (4084). An additive pair at full level reaches ±2, as an OPL additive pair does.
+
+**The note volume** is the gain chain's, applied to the finished pair as to a sample ([§10.2](#10-2-the-gain-chain)). This is where a PSG voice differs from an OPL one, and on purpose: taken into each oscillator, the note volume would be squared by the multiplying mix.
+
+**The auto-advance** counts in **quarter ticks**. A quarter tick is a quarter of the playhead's tick: quarter `q` of a tick begins at the first frame whose position in the tick, `samples_into_tick × 4 ÷ samples_per_tick`, has reached `q`. Quarter 0 is the tick pass itself; quarters 1…3 are run by the mixer at their own frames — it ends a span of frames at a quarter's frame as it ends one at a tick's — and by a chase straight after each tick it walks, so a chased song arrives where a played one does. Spans are cut at quarters only while some voice of the playhead sounds a pair.
+
+At each quarter, every active voice sounding a pair — a lane's, a ghost's, an FM operator's — counts one per oscillator whose record waveform `w` is a pulse, 1…7, and whose auto-advance `N` (the record's, or one `S $Axxx` wrote) is not 0; on reaching `N` the count resets and the oscillator's position in its pattern steps by one, mod the pattern's length. The waveform playing is
+
+```
+PATTERN = (1,2,3,4,5,6,7,6,5,4,3,2), (1,3,5,7,5,3), (1,4,7,4), (1,4)      by byte +6
+w'      = ((w − 1 + PATTERN[p][position mod length] − 1) mod 7) + 1    for a record waveform w of 1…7
+```
+
+and the record's own otherwise: the walk counts among the seven pulses, wrapping from 7 to 1, since DC is no pulse width. `N = 0`, or a record waveform that is DC or past 7, holds the count at 0. A pattern changed mid-note is read at the position the oscillator has reached, mod its own length.
+
+**The note.** A trigger keys the pair on: both envelopes to ATTACK. A fresh pair starts with both at `env = 511` and anchors at its first rendered frame; a voice whose New Note Action is note cut and whose next note is a PSG instrument hands the pair over instead, envelopes where they stand and no ghost, exactly as an OPL channel is handed over ([§5.5.2](#5-5-2-type-8-opl-instruments)). Any other New Note Action ghosts the pair, internal status and all. `Q`'s retrigger keys it on with the envelopes carried; a key-off puts both in RELEASE; an instrument byte on a tone-portamento row re-attacks both without touching anything else.
+
+**Internal status** is an oscillator's `phase`, `noise_pos`, auto-advance position and quarter count, and its LFO `origin`. The lane's voice keeps them from note to note, from one PSG instrument to another included, unless the oscillator's `X` flag is set (a note of any other kind drops the pair, and the next PSG note starts one afresh): then every key-on — a trigger, a handed-over retrigger, `Q` — sets the four to 0 and the origin to the chip sample of the pair's next rendered frame. Without `X` the origin is 0, so the LFOs run on the chip clock itself and every such oscillator on the playhead moves together, as on a chip. A voice that has never sounded a pair starts with all of it at 0.
+
+**`S $Axxx`** on a voice sounding a pair writes a register of that pair's **instrument** ([Note Effects](TAUD_NOTE_EFFECTS.md)): an overlay over the record that every voice of the instrument reads at once, leaves the record untouched, and lasts across notes until the per-instrument runtime state is cleared ([§15](#15-transport-reset)) — invert loop's mask's lifetime ([§8.4](#8-4-invert-loop-and-funk-repeat)). An edit to the record leaves the overlay standing.
+
+**The end of the note.** After each frame the voice deactivates once neither oscillator can sound again, by §5.5.2's rule for an operator; whether one is muted does not enter into it. A held DC sounds for ever, as a held sample loop does.
+
+An OPL voice's last word applies here too: a PSG voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)).
 
 ### 5.6 Duplicate Check
 
@@ -1571,9 +1652,9 @@ Interrupts are how a song drives something outside itself: lighting cues, subtit
 
 A transport reset restores a well-defined starting state, and getting its scope right prevents a family of "mysteriously lingering" bugs.
 
-A **full reset** sets BPM 125, tick rate 6, global and mixing volume `$80`, clears the tuning, restores the tone and interpolation modes from the file's global behaviour flags, re-installs the surround model, clears the Amiga filter states, returns the mastering chain to neutral, deactivates every voice, empties the background pool, clears every per-voice effect and envelope state (funk repeat's loop window among it), and clears the per-instrument runtime state (invert-loop masks and filter overrides).
+A **full reset** sets BPM 125, tick rate 6, global and mixing volume `$80`, clears the tuning, restores the tone and interpolation modes from the file's global behaviour flags, re-installs the surround model, clears the Amiga filter states, returns the mastering chain to neutral, deactivates every voice, empties the background pool, clears every per-voice effect and envelope state (funk repeat's loop window among it), and clears the per-instrument runtime state (invert-loop masks, filter overrides and the PSG instruments' `S $Axxx` overlays).
 
-A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-lane pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, returns every lane to its song-start position, volume and colouring (the bitcrusher and the overdrive among it), and clears the mastering chain's delay lines and envelopes — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo. The chain's PARAMETERS are the song's and survive, like the tempo; its STATE is per-play, like the ghost pool. A compressor still holding six decibels of reduction from before a seek, and a look-ahead buffer still holding two milliseconds of the previous playback, are both the lingering-state bug this section exists to prevent.
+A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-lane pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, clears the per-instrument runtime state as the full reset does, returns every lane to its song-start position, volume and colouring (the bitcrusher and the overdrive among it), and clears the mastering chain's delay lines and envelopes — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo. The chain's PARAMETERS are the song's and survive, like the tempo; its STATE is per-play, like the ghost pool. A compressor still holding six decibels of reduction from before a seek, and a look-ahead buffer still holding two milliseconds of the previous playback, are both the lingering-state bug this section exists to prevent.
 
 Returning the LANES is not the same thing as leaving the playhead's tempo alone, and both halves matter. Lane volume and every panning axis (lane position and elevation, the note axis, the spherical slide target), glissando, the bitcrusher and overdrive settings (`8 $xyzz` and `9 $x0zz`, the clipper they share included) and the `S $7x` per-note overrides are all written by the song's own effects and reset by nothing else — a trigger deliberately leaves them, since they belong to the lane rather than the note — so a play that does not clear them starts wherever the last one finished. What a reset **MUST NOT** touch is the host's own mixer: per-lane mute and fader levels belong to whoever is listening, not to the song, and a replay that silently unmutes a lane is its own bug.
 
@@ -1607,6 +1688,7 @@ Opcodes are base-36 digit values: `0`…`9` are `$00`…`$09` and `A`…`Z` are 
 | `:` | Row | On an interrupt row, that interrupt's argument ([§14](#14-interrupts-and-the-host-interface)); otherwise argument extension — hands its argument to whichever other effect shares the row, resolved once per row before either slot dispatches ([Note Effects](TAUD_NOTE_EFFECTS.md#-xxxx--interrupt-argument-and-argument-extension)), and a bare no-op outside Format 3 |
 | `1` | Playhead | Set the global behaviour flags — tone mode and interpolation — from the argument's high byte |
 | `5` / `6` | Instrument | Cutoff / resonance override, `$FFFF` to clear |
+| `S $Axxx` | Instrument | On a PSG instrument, a register write into the instrument's run-time overlay ([§5.5.4](#5-5-4-type-9-psg-instruments)); on a formant instrument, `S $Afgr`, the note's vowel |
 | `7` | Lane, row-time | Pattern Ditto ([§5.9](#5-9-pattern-ditto)) |
 | `8` / `9` | Voice | Bitcrusher / overdrive ([§10.1](#10-1-voice-effects)) |
 | `A` / `T` | Playhead | Tick rate / tempo |
@@ -1632,6 +1714,7 @@ An implementation conforms when all of the following hold.
 - A fresh trigger separately fades `ramp_gain` in from silence over a ~⅔ ms half-cosine attack ramp, inherited by an NNA ghost spawned mid-ramp.
 - Pitch glides toward the tick's target on an (interval × time) budget, so a vibrato is smoothed across the tick while an arpeggio step or a fast portamento arrival still lands at once.
 - An OPL voice runs the chip at 49716.05 Hz on its playhead's chip clock, from the stated integer tables, with the note volume in its output operators' attenuation, and is read back by linear interpolation; a retrigger its New Note Action cuts keys the same channel on, envelopes carried.
+- A PSG voice runs both oscillators on the same chip clock under the OPL envelope, the noises on their exact cycles, mixes them in volts with a mute a no-op on the other, maps 0…1 V onto the lane's −1…+1 before the gains act, applies the note volume to the finished pair, keeps each oscillator's internal status across notes unless its X flag is set, and reads its auto-advance, levels and mutes through the instrument's `S $Axxx` overlay, which only a per-instrument runtime reset clears.
 - A planar or spatial song that uses only ordinary pan renders bit-identically to the stereo model.
 - The mastering chain runs between the narrowing and the clamp, in the order §12.1 fixes, and a song that declares none renders as though the stage did not exist.
 - The limiter's ceiling is never exceeded, on any material, in either peak mode.

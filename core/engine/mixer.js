@@ -21,6 +21,7 @@ import {
 import { applyVoiceFilter, applyTaudVoiceFx } from "./filter.js";
 import { renderFmVoice } from "./fm.js";
 import { renderOplVoice } from "./opl.js";
+import { renderPsgVoice } from "./psg.js";
 import { renderFormantVoice } from "./formant.js";
 import { CHAN_MODE_MATRIX } from "./inst.js";
 import {
@@ -28,7 +29,8 @@ import {
 } from "./spatial.js";
 import { applyTrackerRow, advanceRow } from "./row.js";
 import { TAP_PRE, TAP_POST } from "./loudness.js";
-import { applyTrackerTick, advanceSampleModExtended } from "./tick.js";
+import { applyTrackerTick, advanceSampleModExtended, psgQuarterPass, psgLive } from "./tick.js";
+import { psgQuarterAt } from "./psg.js";
 
 const fround = Math.fround;
 
@@ -71,6 +73,16 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
   if (voice.opl !== null) {
     const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
       renderOplVoice(voice, ts.oplFrame + n)));
+    out[0] = s;
+    out[1] = s;
+    return out;
+  }
+  // A PSG pair (§7.9) on the same chip clock. Unlike OPL it leaves the note
+  // volume to the gain chain below, as a sample does: its multiplying mix
+  // would otherwise square it.
+  if (voice.psg !== null) {
+    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
+      renderPsgVoice(voice, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
     return out;
@@ -491,6 +503,16 @@ export function generateTrackerAudio(eng, playhead, out) {
         applyTrackerTick(eng, ts, playhead);
       }
     }
+    // ── PSG quarter ticks (§5.5.4) ──
+    // The auto-advance counts in quarter ticks: the tick pass ran the first,
+    // and a span that reaches a later quarter's frame starts there, so each
+    // runs at its own frame. Only while a PSG pair sounds — otherwise spans
+    // are cut exactly as they always were.
+    const quarters = psgLive(ts);
+    if (quarters) {
+      const q = psgQuarterAt(ts.samplesIntoTick, sptFirst);
+      while (ts.psgQuarter < q) { ts.psgQuarter++; psgQuarterPass(ts); }
+    }
     // ── …and the span runs until the frame whose clock will fire next ──
     // The same `+= 1.0` per frame the clock always took, so the counter lands
     // where it always did; the firing frame is left for the next span's top.
@@ -499,6 +521,7 @@ export function generateTrackerAudio(eng, playhead, out) {
     while (n1 < TRACKER_CHUNK) {
       const next = ts.samplesIntoTick + 1.0;
       if (next >= sptRest) break;
+      if (quarters && psgQuarterAt(next, sptRest) > ts.psgQuarter) break;
       ts.samplesIntoTick = next;
       n1++;
     }

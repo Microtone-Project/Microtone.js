@@ -1570,7 +1570,7 @@ Two rows of three: the top row fills a slot from outside the project, the bottom
 - **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes an [OPL instrument](#opl-instruments), playable across the whole keyboard.
 - **Record…** — record from the microphone; the take opens in the Sample Lab.
 - **Paint…** — draw a waveform by hand and add it as an instrument.
-- **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments — or an **OPL instrument**, made out of nothing, or a **formant instrument**, made out of the pool's samples. A chooser asks which first — **Layered**, where every child is heard and the mixer sums them, **FM Rack**, where the children modulate each other and only operator 0 is heard, **OPL instrument**, one channel of the sound chip that played AdLib and Sound Blaster music, or **Formant instrument**, which sings a syllable. All four are described below.
+- **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments — or an **OPL** or **PSG instrument**, made out of nothing, or a **formant instrument**, made out of the pool's samples. A chooser asks which first — **Layered**, where every child is heard and the mixer sums them, **FM Rack**, where the children modulate each other and only operator 0 is heard, **OPL instrument**, one channel of the sound chip that played AdLib and Sound Blaster music, **PSG instrument**, two 8-bit-style oscillators, or **Formant instrument**, which sings a syllable. All five are described below.
 
 All imports are single undo steps.
 
@@ -1594,11 +1594,11 @@ pitch × velocity rectangle per row — and the editor gives each kind its own t
 over it (**Layers** and **FM**). What differs is what those entries *mean*: side
 by side, or fed into one another.
 
-**OPL instruments are sources for all of them.** A Layered metainstrument, an FM
-Rack and a [formant instrument](#formant-instruments) each accept an
-[OPL instrument](#opl-instruments) as a source — a layer, an operator, or the
-voice a formant instrument sings with — just as they accept an ordinary one.
-The PSG instruments that are on their way will be accepted the same way.
+**OPL and PSG instruments are sources for all of them.** A Layered
+metainstrument, an FM Rack and a [formant instrument](#formant-instruments) each
+accept an [OPL instrument](#opl-instruments) or a [PSG instrument](#psg-instruments)
+as a source — a layer, an operator, or the voice a formant instrument sings
+with — just as they accept an ordinary one.
 
 ### Building a Layered metainstrument
 
@@ -1621,8 +1621,8 @@ note will now cost.
 Every layer starts at unity mix (159 = 0 dB) across the whole note and velocity
 range; spread and narrow them on the new instrument's **Layers** tab.
 Metainstruments of either kind are not offered as picks — the engine resolves a
-layer directly to a sample, so metainstruments cannot be nested. OPL and formant
-instruments are: they layer like any other.
+layer directly to a sample, so metainstruments cannot be nested. OPL, PSG and
+formant instruments are: they layer like any other.
 
 ### Building an FM Rack
 
@@ -1659,7 +1659,8 @@ through the whole thing — a much stranger noise, and a perfectly good one.
 
 An OPL instrument can be an operator too, in either role: modulated, its
 channel is bent the way the chip bends its own carriers; modulating, its output
-bends the next operator like any other. Metainstruments and formant instruments
+bends the next operator like any other. So can a PSG instrument: modulated, both
+of its oscillators are bent (its noises, which are not read by phase, are not). Metainstruments and formant instruments
 are not offered as picks: an operator is a source, and they are made out of
 one.
 
@@ -1689,6 +1690,81 @@ beside the new one, as a sampled instrument would.
 An OPL instrument may be a **layer** of a Layered metainstrument, which is how
 two chip patches are stacked into one sound, an **operator** of an FM Rack, and
 the voice a **formant instrument** sings with.
+
+### PSG instruments
+
+**Meta… → PSG instrument** makes another instrument with **no sample at all**:
+two oscillators, **A** and **B**, in the style of the programmable sound
+generators of 8-bit consoles and home computers. Each plays one of sixteen
+waveforms — DC, seven pulse widths, a saw, a triangle, three 1-bit noises, a
+4-bit saw and triangle like the Famicom's, and silence — under an envelope that
+is the OPL chip's own, with its tremolo and vibrato. The two are **added** or
+**multiplied**. It takes no pool space and costs **one
+voice**. A new one starts as a square wave on A, with a triangle an octave down
+on B, muted, ready on its **PSG** tab.
+
+In the file it is metainstrument type 9: like an OPL instrument, an ordinary
+instrument with the oscillators where its sample would be, so it keeps every
+envelope, the fadeout, the New Note Action, the filter and the panning around
+them.
+
+**The waveforms.** Each oscillator is a 0-to-1-volt generator, the way a
+chip's output is, and its volts are spread over the lane's whole range: 0 V is
+the bottom, 1 V the top. Waveforms 1 to 7 are pulses whose low part is that
+many eighths of the cycle, so 4 is the square. **Invert** turns a waveform over
+within 0 to 1 V: inverted DC is $F, inverted $F is DC, and an inverted pulse is
+the opposite width. DC and $F are steady levels at the top and the bottom, so
+on their own you hear them only as the note starts and stops.
+
+**Multiplying** happens in volts, before the spreading: a pulse on A times a
+triangle on B lets the triangle through while the pulse is high and holds the
+bottom while it is low, and B set to DC simply passes A through. The envelopes
+act afterwards, so a note always starts and ends from silence. The three noises repeat after exactly
+32767, 2047 and 127 steps: the long one is plain noise with a faint pitch, the
+short one rings like metal. A noise follows the note it is played at.
+
+**Auto-advance** walks the waveform through a **Pattern** by itself as the
+note plays — the sweeping-pulse sound 8-bit music makes with a duty-cycle table.
+Its speed is in quarter ticks: 4 takes a step every tick, 1 four steps a tick,
+0 is off. The pattern counts from the waveform the oscillator is set to, 1
+being that waveform and 7 six steps on, wrapping from pulse 7 round to pulse 1 —
+DC is not a pulse width, so it is never stepped to. From pulse 4, the first
+pattern plays 4 5 6 7 1 2 3 2 1 7 6 5:
+
+- `1 2 3 4 5 6 7 6 5 4 3 2` — up six and back down, one step at a time
+- `1 3 5 7 5 3` — the same sweep two steps at a time
+- `1 4 7 4` — three steps at a time
+- `1 4` — back and forth between two
+
+Only the pulses (1 to 7) advance; DC and the other waveforms stay put. The
+**Pattern** picker names each pattern by the waveforms it will actually play
+from the oscillator's waveform — from pulse 4 the first one reads `456712321765`
+— and follows when you change the waveform; for DC and the waveforms that do
+not advance it shows the offsets above.
+
+**Reset on trigger.** A real chip's oscillators keep counting between notes, and
+so do these: a new note on the lane carries on from the last one's phase, noise
+and auto-advance. Tick **Reset on trigger** on an oscillator to start it afresh
+on every note instead, which is what you want for a sound that should begin the
+same way each time.
+
+**Muting** an oscillator leaves the other one exactly as it is, in either mix:
+muting B of a multiplied pair gives you A alone, not silence.
+
+**Changing it from a pattern.** `S $Axxx` changes an oscillator while the song
+plays: `S $A0xx` and `S $A8xx` set A's or B's auto-advance, `S $A1xx` and
+`S $A9xx` (up to `$3F`) its level, and `S $AF00`…`S $AF03` the mutes — none,
+A, B, both. The change belongs to the **instrument**, so every later note of it
+keeps it, until the song is played again from the start. While the song plays
+the PSG tab shows these changes in the accent colour: the level, auto-advance
+and mute fields show what `S $Axxx` has set, and each oscillator's waveform
+window shows the waveform the auto-advance has moved it to. They return to the
+instrument's own settings when playback stops.
+
+As with an OPL channel, a PSG instrument whose **New Note Action** is *Note Cut*
+plays a new note on the same pair, its envelopes carrying on; any other NNA lets
+the old note ring on beside the new one. It may be a **layer**, an **operator**
+of an FM Rack, and the voice a **formant instrument** sings with.
 
 ### Formant instruments
 
@@ -1781,11 +1857,11 @@ a sung text writes one on each syllable whose vowel differs. A note without one
 sings the instrument's vowel as it stands — edit the vowel while a note holds
 and you hear it move; a note given its own keeps it.
 
-**It can sing with an OPL instrument instead of a sample.** Pick one under
-**Sung from** on the Formant tab and the vowel is sung with that chip patch, at
-its own tuning; the sample stays where it was, for when you switch back. The
-OPL instrument is copied in as part of the formant instrument, and **Edit**
-beside it opens the copy.
+**It can sing with an OPL or PSG instrument instead of a sample.** Pick one
+under **Sung from** on the Formant tab and the vowel is sung with that chip
+patch, at its own tuning; the sample stays where it was, for when you switch
+back. The chip instrument is copied in as part of the formant instrument, and
+**Edit** beside it opens the copy.
 
 A formant instrument may be a **layer** of a Layered metainstrument, but not an
 operator of an FM Rack.
@@ -1824,7 +1900,7 @@ either way.
 - **General** — global volume, volume swing, fadeout; default pan (which becomes **default azimuth**, and on a spatial song **default elevation**, once the song has a surround model — see [Surround panning](#surround-panning)), pan swing, pitch-pan separation and centre; wide-range detune (with hex-word and cents readouts); **New Note Action** (cut / continue / off / fade / key-lift), Duplicate Check Type (never / note / sample / instrument / **lane** — any note arriving on the lane, whatever plays it) and Action (cut / off / fade); filter mode (**ImpulseTracker** or **SoundFont2**) with cutoff and resonance shown in Hz/dB for SF2 mode. The Sample section binds the sample and opens the **play/loop/sustain marker editor** — draggable play-start, loop-start and loop-end markers, loop mode (off / forward / ping-pong / one-shot) and sustain, affecting this instrument slot only. Play start, loop start and loop end are all spinners here too, so a number read off the waveform's hairline can simply be typed in. **Auto loop** searches the sample for a loop region that plays without an audible click and writes the two markers for you: pick *cleanest*, *balanced* or *longest* (how much of a tick you will accept in exchange for keeping more of the sample) and it reports how long the loop is and how loud its seam is, in dB below the sound carrying it. It searches for whichever loop mode is set — forward and ping-pong click in different ways and want different loop points — and it only ever writes when you ask, so the numbers stay yours to adjust afterwards.
   - **From the list**, under *Sample ptr*, is the same binding as a list rather than an address: every sample in the pool, plus the [recordings loaded into memory](#long-recordings-in-memory) in a group of their own. Choosing one writes its pointer, length, rate and loop into this record in a single undo step; choosing a recording points the instrument at its first 65535 bytes, which the spinners then move. It is a copy, not a link — the list is *derived* from what the instruments point at, so a row can appear or disappear as you use it, and the row shown is always the one this record's own pointer lands on.
 - **Vol env / Pan env / Pitch / Filter** — envelope graphs. Drag nodes vertically for values, horizontally for timing; a checkbox switches to a logarithmic timescale. The pitch/filter tab follows the instrument's envelope role.
-  - An **OPL** or **formant** instrument has room for only one pitch-or-filter envelope, so it shows a single **Pitch/Filter** tab, with an **Envelope role** switch — **Pitch** or **Filter** — at its top. Switching keeps the nodes and reads them the other way.
+  - An **OPL**, **PSG** or **formant** instrument has room for only one pitch-or-filter envelope, so it shows a single **Pitch/Filter** tab, with an **Envelope role** switch — **Pitch** or **Filter** — at its top. Switching keeps the nodes and reads them the other way.
   - **＋ Add node** and **－ Remove node** act on the node the spinners point at: adding splits the segment after it, or extends the envelope when that node is the last one, and removing merges its segment into the one before it so the timing after stays put. Node 0 is anchored at t=0 and cannot be removed; removing the last node shortens the envelope.
   - **Envelope present** is what makes the envelope sound at all: untick it and the nodes are kept but ignored — on the Vol env tab the instrument then plays at full level, on Pan env at the lane's own pan. Editing a node ticks it again if it was not already ticked, in the same undo step: adding a node, dragging one, or typing its value or segment length — an envelope you are shaping is one you mean to hear. On the Pitch and Filter tabs the tick is also what claims the record's shared slot for that role. The patch envelopes in **Advanced Edit** work the same way.
   - That first tick switches **Sustain** on with it and carries its start and end to the new last node, so an envelope you are building arrives holding its final level until key-off rather than needing two more boxes found before any of it is audible. Untick either box and it stays unticked — the pair is only ever set by the click that brings the envelope into existence.
@@ -1832,7 +1908,7 @@ either way.
   - **Carry** (beside *Envelope present*) makes a new note **continue** this envelope instead of restarting it: the playhead stays where the last note left it, so a slow pan sweep or a filter opening can run across a whole phrase of repeated notes rather than resetting on each one. Each envelope carries — or does not — on its own. It is ignored where there is nothing worth keeping: after a key-off, and on a note that changes instrument. This is also what makes a run of notes tied by `G` sound the same whether or not each row names its instrument.
 - **Zones** — the Ixmp key/velocity zone map with a live trigger overlay showing which zone each incoming note lands in. The **Advanced Edit…** button opens the full patch editor (below).
 - **Formant** (formant instruments) — the vocal tract. A formant instrument has the General tab (where its sample is the source) and the envelope tabs as well, but no Zones: one source sings every key.
-  - **Material**: the **Pool range** — pick one sample, one recording in memory, or *All samples and recordings* from the list, or type the two pool **Addresses** below it. Then the **Source**, which the instrument chooses itself: the looped stretch of the range that suits the vowel best, shown with where it comes from (a window of a recording reads *R00 @ 12.34 s*), its loop, the vowel it was chosen for and its badness. A sample that does not loop is given a loop, and so is one whose own loop sits in its faded tail (a quiet loop costs: it is lifted, noise and all, to the instrument's level); the source is tuned so that the instrument's middle C is middle C, and a note plays from the loop — not from whatever comes before it in the sample. An instrument that does start ahead of its loop is held to its level by the louder of the two; **Choose again** brings it up to date. It is chosen again in the same undo step whenever you change the range or the vowel; **Choose again** does it on demand, after editing the samples, say. Moving the vowel with `S $Afgr` in a pattern does not change the source. **Sung from**, above it, is what the vowel is sung with: *Its sample* — the Source — or one of the project's OPL instruments, copied in as part of this one; **Edit** opens the copy, and the Source then waits, unused, until you switch back.
+  - **Material**: the **Pool range** — pick one sample, one recording in memory, or *All samples and recordings* from the list, or type the two pool **Addresses** below it. Then the **Source**, which the instrument chooses itself: the looped stretch of the range that suits the vowel best, shown with where it comes from (a window of a recording reads *R00 @ 12.34 s*), its loop, the vowel it was chosen for and its badness. A sample that does not loop is given a loop, and so is one whose own loop sits in its faded tail (a quiet loop costs: it is lifted, noise and all, to the instrument's level); the source is tuned so that the instrument's middle C is middle C, and a note plays from the loop — not from whatever comes before it in the sample. An instrument that does start ahead of its loop is held to its level by the louder of the two; **Choose again** brings it up to date. It is chosen again in the same undo step whenever you change the range or the vowel; **Choose again** does it on demand, after editing the samples, say. Moving the vowel with `S $Afgr` in a pattern does not change the source. **Sung from**, above it, is what the vowel is sung with: *Its sample* — the Source — or one of the project's OPL or PSG instruments, copied in as part of this one; **Edit** opens the copy, and the Source then waits, unused, until you switch back.
   - **Vowel**: the vowel chart, drawn as Geoff Lindsey draws it — the first formant down the side, the second across, high on the left — with every IPA vowel marked where it sounds. The ring is the **tongue**: drag it to move the vowel, and the shaded region is everywhere the tongue can go. **Roundness** is the **lips**: rounding them lowers every formant — a little for [i] → [y], a great deal for [ɯ] → [u] — so the region and the ring move back and down as you round, and you hear it. Vowels that need the other lip setting are faded; click any symbol to take that vowel, lips included. Below them, the vowel's formants and the `S $Afgr` that sets it in a pattern. A note already sounding follows every edit.
   - **Syllable**: **Onset**, **Onset, second**, **Glide**, **R-colouring** and **Coda** — consonant, consonant, glide, vowel, r, consonant. **Glide** picks the semivowel said between the onset and the vowel, or none; **R-colouring** colours the vowel with an r the whole note through — its third formant falls to that of the [ɝ] in *heard*, and a front vowel is drawn back under it ([ə] becomes [ɚ]); the readout shows the result. For **Onset** and **Coda**, click one to pick its consonant from an IPA chart, each symbol coloured by how well it can be made — green good, amber fair, red poor — or **No consonant**. A consonant that hisses or pops takes its best recipe, usually the **noise generator**, and the list beside it offers the others, best first: the generator, or a sample with where in it the noise starts (@), how fast it is played (×) and whether it is brightened or darkened. Every one is brought to the same level. Nasals, *l*, *r*, *w*, *j* and the like are made from the voice alone and need no sample.
   - **Pitch and timing**: **Size follows pitch** (how far the formants rise with the note — 64 is what research on singers points to, 0 keeps one size), the **Reference note** at which the chart's formants hold exactly (C3, a man's speaking pitch), **Consonant length** (×2 is twice as slow) and **Vowel glide**, how long `S $Afgr` takes to move the vowel.
@@ -1843,6 +1919,10 @@ either way.
   - After each operator pair, the **channel** it plays on: **Feedback** (on the first pair only — the chip has no other) and **Connection**, *FM* (the first operator bends the second) or *Additive* (both are heard).
   - The **Snare**, **Cymbal** and **Hi-hat** mix their operator with the chip's noise and with a **partner** operator's phase, on the channel beside them: the partner's **Multiple**, and — for the cymbal and the hi-hat, whose partner sits on another channel — its **pitch** in cents from the drum's own.
   - Every field is one undo step per gesture — holding a spinner's + is one step, not twenty — and a voice already sounding the instrument hears an edit at once, as a chip channel does when its registers are rewritten.
+- **PSG** (PSG instruments) — the two oscillators, laid out as the OPL tab lays out its operators. A PSG instrument has the General tab and the envelope tabs as well, but no Zones.
+  - One group per **oscillator**: a small window drawing its **Waveform**, the envelope sketched below it, then the waveform picker, **Attack**, **Decay**, **Sustain level**, **Release**, **Level**, **Key scale level** and **Multiple**, the **Sustain** and **Key scale rate** switches — every one the OPL operator's, with the same meaning — and the PSG's own: **Invert**, **Reset on trigger**, **Tremolo** (off, 1 dB or 4.8 dB), **Vibrato** (off, 7 or 14 cents), **Auto-advance** (in quarter ticks) and its **Pattern**.
+  - The **Mixer** group: **Mix**, *Additive* or *Multiplicative*, and **Mute A** and **Mute B**.
+  - During playback, what `S $Axxx` and the auto-advance have changed is shown in the accent colour — the level, auto-advance and mute fields, and the waveform window — and put back when playback stops. Edits work as on the OPL tab: one undo step per gesture, heard at once.
 - **Layers** (the Layered kind) — a Layered metainstrument plays several sub-instruments at once, and this table is the whole editor for that stack. Each row carries an editable **mix** (0–255, 159 = 0 dB, live dB readout), a **detune** in cents with ◂ ▸ buttons that step a whole degree of the song's own notation, and the **pitch** and **velocity** bounds that decide when the layer sounds at all. The ▸ beside row 0 marks the foreground layer: the first layer covering a trigger plays on the lane itself and the rest spawn background voices, so the order here is priority — **drag a row by the handle in its # column** to change it. The handle is a button as well as a grip: focus it and ↑ ↓ move the row without a pointer.
   - **Add layers…** brings in more instruments (the same picker, counts and all), **Duplicate** makes another voice of the layer's own sub-instrument ready to detune, and **Chord…** does a whole chord or unison spread in one action, using the same just intervals, chords and inversions as the [chord maker](#the-chord-maker). **Preview** there sounds the stack before you commit to it — the layer's own instrument at every pitch the panel lists — and stops on a second press, after a couple of seconds, or as soon as you pick a different chord. The layer you start from is the voice nearest unison and stays where it is, so an inversion decides which note of the chord that layer plays and the rest are placed around it.
   - Duplicated layers are **linked**: they share one sub-instrument, badged *linked ×n*, so editing it moves every voice of the stack together. When one voice needs to differ, **Unlink** gives that layer its own copy.
@@ -2788,7 +2868,7 @@ sidebar (also at [Note Effects](#effects)).
 | P | Pan slide | `$xy00` — left/right |
 | Q | Retrigger | `$xy00` — every y ticks, x = volume modifier |
 | R | Tremolo | `$xy00` — speed, depth |
-| S | Special | delays, cuts, loops, waveforms, NNA overrides, invert loop… · `$Afgr` a formant instrument's vowel |
+| S | Special | delays, cuts, loops, waveforms, NNA overrides, invert loop… · `$Afgr` a formant instrument's vowel · `$Axxx` a PSG instrument's registers |
 | T | Tempo | `$xx00` set · `$FFxx` … `$FCxx` extended (xx non-zero; up to 1048 BPM) · `$000y/$001y` slide |
 | U | Fine vibrato | `$xy00` |
 | V | Global volume | `$xx00` (00–FF) |

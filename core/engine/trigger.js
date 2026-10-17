@@ -17,6 +17,7 @@ import { META_MIX_GAIN, attenGainOf, EffectOp, clamp } from "./tables.js";
 import { envPresent, envCarry, applyKeyLift, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { computePlaybackRate, startCutRamp } from "./sampler.js";
 import { OplState, oplKeyOn, cloneOplState, OPL_C4_RATE } from "./opl.js";
+import { PsgState, psgKeyOn, clonePsgState } from "./psg.js";
 import {
   FormantState, formantNoteOn, cloneFormantState, PHASE_CODA,
   formantChipSource, formantChipRate, formantKeySource,
@@ -54,9 +55,10 @@ export function applyActiveSample(voice, inst, patch) {
     voice.activeSamplePlayStart = inst.samplePlayStart;
     voice.activeSampleLoopStart = inst.sampleLoopStart;
     voice.activeSampleLoopEnd = inst.sampleLoopEnd;
-    // An OPL instrument's rate is its C2SPD, and a record that leaves it 0 plays at
-    // the tracker convention (§7.7) — the pitch has to come from somewhere.
-    voice.activeSamplingRate = inst.opl !== null && inst.samplingRate === 0
+    // An OPL or PSG instrument's rate is its C2SPD, and a record that leaves it
+    // 0 plays at the tracker convention (§7.7, §7.9) — the pitch has to come
+    // from somewhere.
+    voice.activeSamplingRate = inst.chipPatch !== null && inst.samplingRate === 0
       ? OPL_C4_RATE : inst.samplingRate;
     voice.activeSampleDetune = inst.sampleDetuneSigned;
     voice.activeLoopMode = inst.loopMode;
@@ -553,6 +555,9 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // anything below marks the voice active.
   const oplCarry = voice.oplCarry && voice.active && voice.opl !== null;
   voice.oplCarry = false;
+  // …and a PSG pair handed over the same way keeps its envelopes too.
+  const psgCarry = voice.psgCarry && voice.active && voice.psg !== null;
+  voice.psgCarry = false;
   if (instId !== 0) voice.instrumentId = instId;
   const inst = eng.instruments[voice.instrumentId];
   // Resolve the Ixmp patch for this trigger (volume axis = pre-patch seed).
@@ -615,10 +620,10 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   voice.rampOutSamples = 0;
   voice.rampOutGain = 0.0;
   // Arm the Attack fade-in (item 139); see constants.js ATTACK_RAMP_SAMPLES.
-  // Not on an OPL voice: its attack IS the chip's envelope, which starts from
-  // silence on a fresh channel and from where it stood on a carried one — a
-  // fade on top would soften every attack-rate-15 patch the chip plays hard.
-  voice.attackRampSamples = inst.opl !== null ? 0 : ATTACK_RAMP_SAMPLES;
+  // Not on an OPL or PSG voice: its attack IS the chip's envelope, which starts
+  // from silence on a fresh channel and from where it stood on a carried one —
+  // a fade on top would soften every attack-rate-15 patch the chip plays hard.
+  voice.attackRampSamples = inst.chipPatch !== null ? 0 : ATTACK_RAMP_SAMPLES;
   voice.autoVibPhase = 0;
   voice.autoVibTicksSinceTrigger = 0;
   voice.nesDpcmCounter = 63;
@@ -759,12 +764,22 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   } else {
     voice.opl = null;
   }
+  // The PSG pair (§7.9): keyed on here, carried or fresh, the voice object's
+  // own state reused — which is what keeps an oscillator's internal status
+  // (phase, noise, auto-advance) from note to note on the lane, unless its X
+  // flag resets it at this key-on (psg.js psgKeyOn).
+  if (inst.psg !== null) {
+    if (voice.psg === null) voice.psg = new PsgState();
+    psgKeyOn(voice.psg, inst.psg, psgCarry);
+  } else {
+    voice.psg = null;
+  }
   // A formant instrument (item 212): every trigger is a fresh syllable, onset
   // and all. The voice object's previous state is reused — a ghost took a copy.
   if (inst.formant !== null) {
     if (voice.formant === null) voice.formant = new FormantState();
     formantNoteOn(voice.formant, inst.formant);
-    formantKeySource(voice.formant, formantChip !== null ? formantChip.opl : null);
+    formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;
   }
@@ -948,6 +963,12 @@ export function maybeSpawnBackgroundForNNA(eng, ts, voice, channel, incomingInst
     voice.oplCarry = true;
     return;
   }
+  if (nna === 1 && voice.psg !== null && voice.fmRig === null &&
+      eng.instruments[incomingInst !== 0 ? incomingInst : voice.instrumentId].isPsg) {
+    // A PSG note cut by a PSG note re-keys the same pair, as OPL does (§5.5.4).
+    voice.psgCarry = true;
+    return;
+  }
   if (nna === 1) {
     // Note Cut. The voice is about to be REUSED for the new note, so "cut" used
     // to mean dropping the old one wherever its waveform happened to be — a step
@@ -1125,6 +1146,7 @@ export function ghostVoice(src, channel) {
   // takes a copy, clock and envelopes and all, and the lane keeps its own to
   // re-key for the next note.
   v.opl = src.opl !== null ? cloneOplState(src.opl) : null;
+  v.psg = src.psg !== null ? clonePsgState(src.psg) : null;
   // The ghost of a voice sounding a formant instrument is the syllable it was
   // saying: a released one goes
   // on into its coda in the background (formant.js reads the ghost's key-off).

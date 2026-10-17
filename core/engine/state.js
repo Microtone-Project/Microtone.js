@@ -217,6 +217,9 @@ export class TrackerState {
     // transport reset. Every OPL voice reads the chip's envelope counter and
     // LFOs off it, so a playhead's OPL voices are one chip (engine/opl.js).
     this.oplFrame = 0;
+    // The quarter of the current tick the PSG auto-advance has reached, 0…3
+    // (tick.js psgQuarterPass): the tick pass sets 0, the mixer runs 1…3.
+    this.psgQuarter = 0;
     // Always MAX_VOICES so 64-lane mode has slots for every lane, plus
     // the dedicated jam bank above them (JAM_VOICE_BASE…, item 140) — the tick
     // and mix loops run the whole array, the row loop only the lanes.
@@ -421,6 +424,7 @@ export class TrackerState {
     this.firstRow = true;
     // A replay meets the OPL chip where a render from the start does (§15).
     this.oplFrame = 0;
+    this.psgQuarter = 0;
     this.pendingOrderJump = -1;
     this.pendingRowJump = -1;
     this.pendingRowJumpLocal = false;
@@ -599,6 +603,7 @@ export class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
       inst.cutoffOverride = -1;
       inst.resonanceOverride = -1;
     }
@@ -621,6 +626,7 @@ export class Playhead {
     ts.cuePos = 0; ts.rowIndex = 0; ts.tickInRow = 0;
     ts.samplesIntoTick = 0.0; ts.firstRow = true;
     ts.oplFrame = 0;
+    ts.psgQuarter = 0;
     ts.pendingOrderJump = -1; ts.pendingRowJump = -1;
     ts.pendingRowJumpLocal = false;
     ts.patternDelayRemaining = 0; ts.patternDelayActive = false;
@@ -708,7 +714,7 @@ export class Playhead {
       it.layerRelPan = 0; it.layerRelElevation = 0;
       it.layerPitchMod = 0; it.pitchModDelta = 0;
       it.fmRig = null; it.fmOperator = false; it.fmParent = null;
-      it.opl = null; it.oplCarry = false; it.formant = null;
+      it.opl = null; it.oplCarry = false; it.psg = null; it.psgCarry = false; it.formant = null;
       // "What's playing" state — cleared alongside the volume reset so a stale
       // instrumentId can't survive into a fresh session (AudioAdapter.kt:5130-5142).
       it.instrumentId = 0;
@@ -747,6 +753,7 @@ export class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
       inst.cutoffOverride = -1;
       inst.resonanceOverride = -1;
     }
@@ -780,6 +787,7 @@ export class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
     }
   }
 }

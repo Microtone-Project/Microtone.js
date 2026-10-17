@@ -29,9 +29,11 @@
 import { SAMPLING_RATE, SAMPLE_BIN_TOTAL, LINEAR_FREQ_C4_HZ, MIDDLE_C } from "./constants.js";
 import { attenGainOf } from "./tables.js";
 import { PCM_U8, fetchTrackerSample, startRampOut } from "./sampler.js";
+import { OplState, oplKeyOn, oplRender, OPL_C4_RATE } from "./opl.js";
 import {
-  OplState, oplKeyOn, oplRender, oplChannelAlive, cloneOplState, OPL_C4_RATE,
-} from "./opl.js";
+  isPsgPatch, newChipState, chipStateFits, chipKeyOn, chipRender, chipAlive,
+  cloneChipState, chipSoundKey,
+} from "./chip.js";
 
 // ── The record ──────────────────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ export const FORMANT_RECORD_HEADER = Object.freeze([0x10, 0x00, 0xff, 0xff]);
  * in byte 1, bits 8…9 in byte 0's two low bits. 0 is none — the record's own
  * sample is the glottal source, as it always was. Anything else names an
  * instrument whose voice is the source instead, which has to be one of the
- * chip kinds (OPL); a record naming anything else sings with its sample.
+ * chip kinds (OPL, PSG); a record naming anything else sings with its sample.
  */
 export function formantSourceInstOf(b0, b1) {
   return ((b0 & 0x03) << 8) | (b1 & 0xff);
@@ -55,16 +57,16 @@ export function formantSourceInstOf(b0, b1) {
 /**
  * The instrument a formant instrument `inst` is sung from, out of
  * `instruments`, or null when it sings with its own sample: the header names
- * none, or names itself, or names an instrument that is not an OPL one. An
- * OPL instrument is a sound generator in its own right, so its voice can be
- * the glottal source where a sample would be; anything built out of sources
- * cannot.
+ * none, or names itself, or names an instrument that is not a chip one. An
+ * OPL or PSG instrument is a sound generator in its own right, so its voice
+ * can be the glottal source where a sample would be; anything built out of
+ * sources cannot.
  */
 export function formantChipSource(instruments, inst) {
   const i = inst.formant.srcInst;
   if (i < 1 || i > 1023 || i === inst.index) return null;
   const src = instruments[i];
-  return src !== undefined && src !== null && src.opl !== null ? src : null;
+  return src !== undefined && src !== null && src.chipPatch !== null ? src : null;
 }
 
 /** The rate a chip source plays the part of the sample's rate at C4 with:
@@ -1007,7 +1009,7 @@ export class FormantState {
     this.nTilt = 0; this.nTiltC = 0.0; this.nGain = 1.0; this.nZ = 0.0;
     this.nGen = false;                     // the generator rather than a sample
     this.nSeed = NOISE_SEED;
-    // The glottal source when it is an OPL channel (formantChipSource), keyed
+    // The glottal source when it is a chip channel (formantChipSource), keyed
     // with the note; null when the source is the record's sample.
     this.src = null;
     // Scratch.
@@ -1046,19 +1048,20 @@ export function cloneFormantState(src, dst = new FormantState()) {
   dst.nStep = src.nStep; dst.nTilt = src.nTilt; dst.nTiltC = src.nTiltC; dst.nGain = src.nGain;
   dst.nZ = src.nZ;
   dst.nGen = src.nGen; dst.nSeed = src.nSeed;
-  dst.src = src.src !== null ? cloneOplState(src.src) : null;
+  dst.src = src.src !== null ? cloneChipState(src.src) : null;
   return dst;
 }
 
 /**
- * Key the note's glottal source: an OPL channel playing `chip` (an OplPatch),
+ * Key the note's glottal source: a chip channel playing `chip` (an OplPatch or
+ * a PsgPatch),
  * from silence as any fresh note's channel starts — or no channel, the
  * record's sample being the source, when `chip` is null.
  */
 export function formantKeySource(st, chip) {
   if (chip === null) { st.src = null; return; }
-  if (st.src === null) st.src = new OplState();
-  oplKeyOn(st.src, chip, false);
+  if (!chipStateFits(st.src, chip)) st.src = newChipState(chip);
+  chipKeyOn(st.src, chip, false);
   st.sgDue = true;
 }
 
@@ -1070,7 +1073,7 @@ export function formantKeySource(st, chip) {
  */
 export function formantRelatchSource(st, chip) {
   if (chip === null) { st.src = null; return; }
-  if (st.src === null) { formantKeySource(st, chip); return; }
+  if (!chipStateFits(st.src, chip)) { formantKeySource(st, chip); return; }
   st.src.patch = chip;
   st.src.gen = -1;
   st.sgDue = true;
@@ -1150,7 +1153,7 @@ export function formantRestart(st) {
   st.sg = sg; st.sm = sm; st.sgDue = due;   // the same sample: the same measurements
   // A chip source is re-keyed as Q re-keys an OPL note: the attack from where
   // each envelope stands, the phase from zero (§5.5.2).
-  if (st.src !== null && st.src.patch !== null) oplKeyOn(st.src, st.src.patch, true);
+  if (st.src !== null && st.src.patch !== null) chipKeyOn(st.src, st.src.patch, true);
 }
 
 /**
@@ -1547,7 +1550,7 @@ const chipAc = new Float64Array(2);
 function measureChipSource(voice, st) {
   const patch = st.src.patch;
   const pr = voice.snapPlaybackRate ? voice.playbackRate : voice.currentPlaybackRate;
-  const key = `${patch.gen}:${pr}`;
+  const key = `${chipSoundKey(patch)}:${pr}`;
   let memo = chipMemo.get(patch);
   if (memo === undefined) { memo = new Map(); chipMemo.set(patch, memo); }
   const hit = memo.get(key);
@@ -1556,8 +1559,16 @@ function measureChipSource(voice, st) {
     return;
   }
   const x = chipBuf;
-  oplKeyOn(chipScratch, patch, false);
-  for (let i = 0; i < CHIP_MEASURE; i++) x[i] = oplRender(chipScratch, i, pr, 1.0, false);
+  if (isPsgPatch(patch)) {
+    // A PSG pair keeps its internal status across key-ons, so it is measured
+    // on a channel of its own every time: from rest, as a fresh lane meets it.
+    const psg = newChipState(patch);
+    chipKeyOn(psg, patch, false);
+    for (let i = 0; i < CHIP_MEASURE; i++) x[i] = chipRender(psg, i, pr, false);
+  } else {
+    oplKeyOn(chipScratch, patch, false);
+    for (let i = 0; i < CHIP_MEASURE; i++) x[i] = oplRender(chipScratch, i, pr, 1.0, false);
+  }
   // The loudest window, every half window; the first of equals wins.
   const acF = (p, n) => {
     let sum = 0.0, sq = 0.0;
@@ -1821,8 +1832,8 @@ function tractRes(co, i, cy, j, x) {
  * consonant the tract's own clock decides.
  */
 function chipSource(voice, st, frame) {
-  const s = oplRender(st.src, frame, voice.currentPlaybackRate, 1.0, voice.keyOff);
-  if (st.phase === PHASE_VOWEL && !oplChannelAlive(st.src)) startRampOut(voice);
+  const s = chipRender(st.src, frame, voice.currentPlaybackRate, voice.keyOff);
+  if (st.phase === PHASE_VOWEL && !chipAlive(st.src)) startRampOut(voice);
   return s;
 }
 

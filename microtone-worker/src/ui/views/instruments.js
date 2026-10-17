@@ -4,7 +4,8 @@
 // trigger overlay), Layers (a metainstrument's layer table) and FM (a type-4
 // rack: the same table read as operators, plus the algorithm that wires them —
 // item 159) and OPL (a type-8 voice: one chip channel's operators, item 209 —
-// IMS Studio's operator editor, theimsarchive-web studio/instpanel.js).
+// IMS Studio's operator editor, theimsarchive-web studio/instpanel.js) and PSG
+// (a type-9 voice: two oscillators under the chip's envelopes, instpsg.js).
 // Reference: taut_views.mjs instrument tab + openAdvancedInstEdit.
 
 import {
@@ -55,7 +56,10 @@ import {
   OPL_KIND_TC, OPL_KIND_HH,
 } from "../../doc/opledit.js";
 import { formantBadge } from "../../doc/formantedit.js";
+import { oplEnvelopeSvg } from "../oplsketch.js";
 import { renderFormantTab } from "./instformant.js";
+import { renderPsgTab, psgTabFrame } from "./instpsg.js";
+import { psgBadge } from "../../doc/psgedit.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
 import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
 // A fixed-pitch layer's field takes a note WORD, and the query parser is
@@ -128,7 +132,7 @@ function roleTabDef(inst, wantFilter) {
  * rather than two tabs both editing the same envelope.
  */
 function hasOnePfSlot(inst) {
-  return !!(inst?.isOpl || inst?.isFormant);
+  return !!(inst?.isOpl || inst?.isPsg || inst?.isFormant);
 }
 
 /** The tab definition for that one slot, in whichever role its `m` bit names. */
@@ -361,6 +365,8 @@ export class InstrumentsView {
       ? [metaTab, ["metaopts", t("inst.tabMetaOptions")]]
       : inst?.isOpl
         ? [["opl", t("inst.tabOpl")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
+        : inst?.isPsg
+        ? [["psg", t("inst.tabPsg")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
         : inst?.isFormant
           ? [["formant", t("inst.tabFormant")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
           : [["general", t("inst.tabGeneral")], ...envTabs, ["zones", t("inst.tabZones")]];
@@ -390,8 +396,10 @@ export class InstrumentsView {
     // adv-active makes the panel fill the detail pane so the patch-list
     // separator reaches the bottom of the available space (item 63).
     this.panel.classList.toggle("adv-active", this.advanced);
+    // The selected row's badge follows every edit that re-renders the panel,
+    // an undo included — an OPL kind, a PSG mix model, an Ixmp zone count.
+    this.refreshListBadge(this.selected);
     if (this.advanced) {
-      this.refreshListBadge(this.selected);
       this.advEditor.render();
       return;
     }
@@ -411,6 +419,7 @@ export class InstrumentsView {
     else if (this.tab === "meta") this.renderMeta(inst);
     else if (this.tab === "fm") this.renderFm(inst);
     else if (this.tab === "opl") this.renderOpl(inst);
+    else if (this.tab === "psg") renderPsgTab(this, inst);
     else if (this.tab === "formant") renderFormantTab(this, inst);
     else if (this.tab === "metaopts") this.renderMetaOptions(inst);
   }
@@ -1121,10 +1130,10 @@ export class InstrumentsView {
         (v) => this.setField("dupCheckFlag", packDupCheck(inst.duplicateCheckType, v))),
     );
 
-    if (inst.isOpl) {
+    if (inst.isOpl || inst.isPsg) {
       // No sample to point at: what is left of the sample group is the rate the
       // instrument reads its pitch from (its C2SPD) and the percussion flag.
-      this.group(t("opl.grpVoice"),
+      this.group(t(inst.isPsg ? "psg.grpVoice" : "opl.grpVoice"),
         this.numRow(t("opl.rate"), inst.samplingRate, 0, 65535, (v) => this.setField("samplingRate", v),
           { ann: (v) => (v === 0 ? t("opl.rateDefault") : v + " Hz") }),
         this.checkRow(t("inst.percussion"), ((inst.loopMode >> 4) & 1) !== 0,
@@ -2517,40 +2526,15 @@ export class InstrumentsView {
       if (this.tab.startsWith("env") && this.envCanvas) this.drawEnvGraph();
       if (this.tab === "zones" && this.zoneCanvas) this.drawZones();
     }
+    // The PSG tab shows the instrument's live overlay while playing, and puts
+    // the record's values back once it stops.
+    if (!this.advanced && this.tab === "psg") psgTabFrame(this);
     this.updateLiveDots();
   }
 }
 
 function escape(s) {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-}
-
-/**
- * A sketch of one OPL operator's envelope (IMS Studio's): attack up, decay to
- * the sustain level, a hold while the key is down if the operator sustains,
- * then release. Times are drawn on the chip's own doubling scale — each rate
- * step halves the time — so the shape reads the way the numbers do.
- */
-function oplEnvelopeSvg(op, index) {
-  const W = 150, H = 48;
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(NS, "svg");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svg.setAttribute("class", "opl-env");
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.dataset.op = String(index);
-  const time = (rate) => (rate === 0 ? 1.2 : Math.min(1, 1.6 / (1 + rate)));
-  const level = 1 - op.tl / 63;
-  const sus = level * (1 - op.sl / 15);
-  const a = time(op.ar) * 40, d = time(op.dr) * 40, hold = op.eg ? 30 : 0, r = time(op.rr) * 40;
-  const y = (v) => H - 4 - v * (H - 8);
-  const pts = [[2, y(0)], [2 + a, y(level)], [2 + a + d, y(sus)],
-    [2 + a + d + hold, y(op.eg ? sus : sus * 0.4)], [Math.min(W - 2, 2 + a + d + hold + r), y(0)]];
-  const line = document.createElementNS(NS, "polyline");
-  line.setAttribute("points", pts.map((p) => p.join(",")).join(" "));
-  line.setAttribute("vector-effect", "non-scaling-stroke");
-  svg.appendChild(line);
-  return svg;
 }
 
 function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -2561,12 +2545,13 @@ function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 /** Which tab an instrument opens on: its rack, its layer table, or General. */
 function metaTabKey(inst) {
   return inst?.isFm ? "fm" : inst?.isMeta ? "meta" : inst?.isOpl ? "opl"
-    : inst?.isFormant ? "formant" : "general";
+    : inst?.isPsg ? "psg" : inst?.isFormant ? "formant" : "general";
 }
 
 function instKindBadge(inst) {
   if (inst.isFm) return `FM·${inst.metaLayers.length}`;
   if (inst.isOpl) return oplBadge(inst);
+  if (inst.isPsg) return psgBadge(inst);
   if (inst.isFormant) return formantBadge(inst);
   if (inst.isMeta) return "META";
   const patches = inst.extraPatches;

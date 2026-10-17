@@ -20,7 +20,7 @@
 import { NUM_CUES, PATTERN_EMPTY } from "./constants.js";
 import { INST_NOP } from "./state.js";
 import { applyTrackerRow, advanceRowPosition, resetPatternLoopState } from "./row.js";
-import { applyTrackerTick } from "./tick.js";
+import { applyTrackerTick, psgQuarterPass } from "./tick.js";
 
 /**
  * How many rows chaseSongPath follows the song for before it gives up on it.
@@ -35,6 +35,9 @@ function chaseRow(eng, ts, playhead) {
   applyTrackerRow(eng, ts, playhead);
   do {
     applyTrackerTick(eng, ts, playhead);
+    // The tick's other three PSG quarters, which the mixer would have run.
+    for (let q = 1; q <= 3; q++) psgQuarterPass(ts);
+    ts.psgQuarter = 3;
     ts.tickInRow++;
   } while (ts.tickInRow < playhead.tickRate + ts.finePatternDelayExtra);
   ts.tickInRow = 0;

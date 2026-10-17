@@ -50,6 +50,8 @@ const ENGINE = [
   "core/engine/loudness.js",
   "core/engine/samplemod.js",
   "core/engine/opl.js",
+  "core/engine/psg.js",        // …after opl.js (whose envelope and LFOs it runs), before inst.js
+  "core/engine/chip.js",       // …the two chip kinds as one, for formant.js
   "core/engine/inst.js",
   "core/engine/voice.js",
   "core/engine/state.js",

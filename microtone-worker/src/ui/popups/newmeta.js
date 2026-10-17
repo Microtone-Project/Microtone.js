@@ -1,7 +1,8 @@
 // New-metainstrument popup (item 72) and the Layers tab's "Add layers…" (item
 // 113) — one picker over the project's ordinary instruments, with a COUNT per
 // row rather than a checkbox. The "Meta…" toolbox button enters through
-// showNewMetaKind, which asks layered, FM or OPL first (items 167, 209).
+// showNewMetaKind, which asks layered, FM, OPL, PSG or formant first (items
+// 167, 209, 212).
 //
 // The count is the whole point. Picking one instrument three times is how a
 // unison/chord stack is built ("a chorded piano out of one piano"): the source
@@ -14,6 +15,7 @@
 
 import { planCreateMeta, planCreateFm, planCreateOpl, planAddMetaLayers } from "../../doc/bankmerge.js";
 import { defaultOplRecord } from "../../doc/opledit.js";
+import { defaultPsgRecord } from "../../doc/psgedit.js";
 import { defaultFormantRecord } from "../../doc/formantedit.js";
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
 import { importBankOp } from "../../doc/ops.js";
@@ -194,14 +196,14 @@ function pickerModal(store, {
   });
 }
 
-/** Ordinary (layerable) instruments — everything but the metas: an OPL
- *  instrument and a formant instrument both layer like any other. */
+/** Ordinary (layerable) instruments — everything but the metas: an OPL or
+ *  PSG instrument and a formant instrument all layer like any other. */
 function layerCandidates(doc) {
   return doc.selectableInstrumentSlots().filter((s) => !doc.instruments[s].isMeta);
 }
 
-/** …and the ones a rack can take as operators: an ordinary instrument or an
- *  OPL one. A formant instrument is a sound made from a source, not a source,
+/** …and the ones a rack can take as operators: an ordinary instrument or a
+ *  chip one (OPL, PSG). A formant instrument is a sound made from a source, not a source,
  *  and the engine would skip it (§7.6). */
 function operatorCandidates(doc) {
   return layerCandidates(doc).filter((s) => !doc.instruments[s].isHighMeta);
@@ -282,6 +284,26 @@ function kindDiagram(kind) {
       box(16, 28), line(46, 36, 66, 36, true), head(68, 36), box(70, 28),
       line(118, 36, 132, 36), head(132, 36), out(136, 36),
     );
+  } else if (kind === "psg") {
+    // Two oscillators — a pulse and a triangle, drawn as what they are —
+    // meeting at a mixer, and the mixer the only thing that reaches the speaker.
+    svg.append(
+      svgEl("rect", { x: 6, y: 6, width: 112, height: 60, rx: 6, fill: "none",
+        stroke: "currentColor", "stroke-width": 1.2, opacity: 0.7 }),
+      svgEl("path", { d: "M 14 26 h 7 v -10 h 7 v 10 h 7 v -10 h 7 v 10", fill: "none",
+        stroke: "currentColor", "stroke-width": 1.3, "stroke-linejoin": "round" }),
+      svgEl("path", { d: "M 14 56 l 7 -10 l 7 10 l 7 -10 l 7 10", fill: "none",
+        stroke: "currentColor", "stroke-width": 1.3, "stroke-linejoin": "round" }),
+      line(48, 21, 76, 34), line(48, 51, 76, 38),
+      svgEl("circle", { cx: 84, cy: 36, r: 8, fill: "none", stroke: "currentColor", "stroke-width": 1.3 }),
+      line(118, 36, 132, 36), line(92, 36, 118, 36), head(132, 36), out(136, 36),
+    );
+    const plus = svgEl("text", {
+      x: 84, y: 36, "text-anchor": "middle", "dominant-baseline": "central",
+      "font-size": 11, fill: "currentColor", opacity: 0.85,
+    });
+    plus.textContent = "±";
+    svg.appendChild(plus);
   } else {
     // A chain: each child bends the next (dashed = modulation, not audio), and
     // only the last box has a solid line to the speaker.
@@ -318,6 +340,7 @@ export async function showNewMetaKind(store) {
   if (kind === "meta") return showNewMeta(store);
   if (kind === "fm") return showNewFm(store);
   if (kind === "opl") return createOpl(store);
+  if (kind === "psg") return createPsg(store);
   if (kind === "formant") return createFormant(store);
   return null;
 }
@@ -353,7 +376,18 @@ function createOpl(store) {
   return { firstSlot: plan.metaSlot, count: 1 };
 }
 
-/** Resolves "meta", "fm", "opl", "formant", or null on cancel. Without
+/**
+ * A new PSG instrument: a square on oscillator A, a triangle muted beside it,
+ * in the first free slot, ready for the PSG tab. Resolves {firstSlot, count}.
+ */
+function createPsg(store) {
+  const plan = planCreateOpl(store.doc, defaultPsgRecord(), "PSG");
+  if (plan.error) { alert(plan.error); return null; }
+  store.undo.apply(importBankOp(plan));
+  return { firstSlot: plan.metaSlot, count: 1 };
+}
+
+/** Resolves "meta", "fm", "opl", "psg", "formant", or null on cancel. Without
  *  `haveCandidates` the two kinds built from other instruments are shown but
  *  disabled; without `haveSamples`, the one built from the pool. */
 function pickMetaKind(haveCandidates = true, haveSamples = true) {
@@ -363,7 +397,7 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
     const cards = el("div", "kind-cards");
     const finish = (kind) => { dlg.close(); dlg.remove(); resolve(kind); };
 
-    for (const kind of ["meta", "fm", "opl", "formant"]) {
+    for (const kind of ["meta", "fm", "opl", "psg", "formant"]) {
       const card = el("button", "kind-card");
       card.type = "button";
       if ((kind === "meta" || kind === "fm") && !haveCandidates) {

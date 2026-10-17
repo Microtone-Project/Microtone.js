@@ -193,7 +193,7 @@ const KSL_SHIFT = Int32Array.from([-1, 1, 2, 0]);
 /** MULT, doubled so ×0.5 stays an integer. */
 export const OPL_MULTIPLE_X2 = Int32Array.from([1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30]);
 /** Sustain level in envelope steps: 3 dB a step, and 15 is −93 dB. */
-const SUSTAIN_LEVEL = Int32Array.from([0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 496]);
+export const OPL_SUSTAIN_LEVEL = Int32Array.from([0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 496]);
 /** Envelope rate duty patterns (RL = 0…3 takes 4, 5, 6 or 7 steps of 8). */
 const EG_DUTY = [
   Int32Array.from([1, 0, 1, 0, 1, 0, 1, 0]),
@@ -219,6 +219,8 @@ function triangle(p, period) {
 }
 
 /** [depth] → per-sample attenuation to add, in 1/256-log2 units. */
+export const OPL_TREMOLO_PERIOD = TREMOLO_PERIOD;
+export const OPL_VIBRATO_PERIOD = VIBRATO_PERIOD;
 const TREMOLO_TABLE = [0, 1].map((d) => {
   const t = new Float64Array(TREMOLO_PERIOD);
   for (let p = 0; p < TREMOLO_PERIOD; p++) t[p] = TREMOLO_STEPS[d] * ENV_TO_LOG * triangle(p, TREMOLO_PERIOD);
@@ -233,6 +235,10 @@ const VIBRATO_TABLE = [0, 1].map((d) => {
   }
   return t;
 });
+/** The two LFOs' tables, [shallow, deep], for the PSG instrument (psg.js),
+ *  whose oscillators take the chip's tremolo and vibrato one at a time. */
+export const OPL_TREMOLO_TABLE = TREMOLO_TABLE;
+export const OPL_VIBRATO_TABLE = VIBRATO_TABLE;
 
 // ── Waveforms ─────────────────────────────────────────────────────────────
 // A 10-bit phase to a log-domain attenuation, with the sign left in
@@ -349,7 +355,7 @@ export function decodeOplPatch(bytes, at = 0, into = new OplPatch()) {
     op.ksr = (r20 >> 4) & 1; op.mult = r20 & 0x0f;
     op.ksl = (r40 >> 6) & 3; op.tl = r40 & 0x3f;
     op.ar = (r60 >> 4) & 0x0f; op.dr = r60 & 0x0f;
-    op.sl = SUSTAIN_LEVEL[(r80 >> 4) & 0x0f]; op.rr = r80 & 0x0f;
+    op.sl = OPL_SUSTAIN_LEVEL[(r80 >> 4) & 0x0f]; op.rr = r80 & 0x0f;
     op.ws = rE0 & 7;
   }
   into.outputs = oplOutputMask(into.kind, into.cntA, into.cntB);
@@ -511,6 +517,29 @@ function chipIndex(frame) {
   return k;
 }
 
+/** chipIndex for a module that runs on the same chip clock (psg.js): the
+ *  chip sample output frame `frame` falls on; oplChipFrac() is how far past. */
+export function oplChipIndex(frame) { return chipIndex(frame); }
+export function oplChipFrac() { return fracBox[0]; }
+
+/**
+ * The key scaling an operator at `hz` takes, as retune() works it out for a
+ * melodic channel (NTS 0, the ordinary F-number ceiling): `out[0]` the rate
+ * offset KSR adds to every envelope rate, `out[1]` the key-scale level in
+ * envelope units. For a generator that borrows the chip's envelope (psg.js).
+ */
+export function oplKeyScaling(hz, ksr, ksl, out) {
+  const bf = oplBlockFnum(hz, false);
+  const block = bf >> 10, fnum = bf & 1023;
+  const ksv = (block << 1) | ((fnum >> 9) & 1);
+  let kslBase = KSL_ROM[(fnum >> 6) & 15] - 8 * (7 - block);
+  if (kslBase < 0) kslBase = 0;
+  out[0] = ksr ? ksv : ksv >> 2;
+  const shift = KSL_SHIFT[ksl & 3];
+  out[1] = shift < 0 ? 0 : (kslBase << 2) >> shift;
+  return out;
+}
+
 /** A deterministic, non-zero start for a drum's noise register: any non-zero
  *  23-bit state is a point on the LFSR's one cycle, so this is the chip's
  *  free-running noise met at an arbitrary moment, as a real key-on meets it. */
@@ -608,7 +637,7 @@ function retune(st, rate) {
 
 /** One envelope tick for operator `i` at chip sample `eg` (the reference
  *  core's #advanceEnvelope, Table 3-6 of the application manual). */
-function oplAdvanceEnvelope(st, i, op, eg) {
+export function oplAdvanceEnvelope(st, i, op, eg) {
   const state = st.state[i];
   if (state === EG_OFF) return;
   const rateParam = state === EG_ATTACK ? op.ar

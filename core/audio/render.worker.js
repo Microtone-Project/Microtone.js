@@ -160,6 +160,7 @@ function handleMessage(m) {
       self.postMessage({
         t: MSG.INVERT_MASK, slot: m.slot, mask: buf,
         mod: engine.getInstrumentSampleMod(m.slot), modMask: modBuf,
+        psg: engine.getInstrumentPsgState(m.slot),
       }, [buf, modBuf]);
       break;
     }

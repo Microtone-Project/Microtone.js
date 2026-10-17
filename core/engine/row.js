@@ -12,6 +12,7 @@ import {
 import { applyKeyLift, envPresent, envCarry, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { startFastFade, startCutRamp } from "./sampler.js";
 import { OplState, oplKeyOn, oplReattack } from "./opl.js";
+import { PsgState, psgKeyOn, psgReattack } from "./psg.js";
 import {
   FormantState, formantRelatch, formantStartAtVowel,
   formantChipSource, formantChipRate, formantKeySource, formantRelatchSource,
@@ -396,6 +397,17 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   } else {
     voice.opl = null;
   }
+  // A PSG pair takes a new patch the same way, its internal status kept.
+  if (newInst.psg !== null && voice.psg !== null) {
+    voice.psg.patch = newInst.psg;
+    voice.psg.gen = -1;
+    if (reAttack) psgReattack(voice.psg);
+  } else if (newInst.psg !== null) {
+    voice.psg = new PsgState();
+    psgKeyOn(voice.psg, newInst.psg, false);
+  } else {
+    voice.psg = null;
+  }
   // A voice sounding a formant instrument (item 212) keeps saying its syllable under the new record's
   // tract (formantRelatch); a sampled note handed one starts its tract at the
   // vowel, since the note's onset is long past. Neither replays an onset — the
@@ -404,11 +416,11 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   // stands (formantRelatchSource).
   if (newInst.formant !== null && voice.formant !== null) {
     formantRelatch(voice.formant, newInst.formant);
-    formantRelatchSource(voice.formant, formantChip !== null ? formantChip.opl : null);
+    formantRelatchSource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else if (newInst.formant !== null) {
     voice.formant = new FormantState();
     formantStartAtVowel(voice.formant, newInst.formant);
-    formantKeySource(voice.formant, formantChip !== null ? formantChip.opl : null);
+    formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;
   }

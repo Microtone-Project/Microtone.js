@@ -4824,7 +4824,7 @@ const KSL_SHIFT = Int32Array.from([-1, 1, 2, 0]);
 /** MULT, doubled so ×0.5 stays an integer. */
 const OPL_MULTIPLE_X2 = Int32Array.from([1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30]);
 /** Sustain level in envelope steps: 3 dB a step, and 15 is −93 dB. */
-const SUSTAIN_LEVEL = Int32Array.from([0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 496]);
+const OPL_SUSTAIN_LEVEL = Int32Array.from([0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 496]);
 /** Envelope rate duty patterns (RL = 0…3 takes 4, 5, 6 or 7 steps of 8). */
 const EG_DUTY = [
   Int32Array.from([1, 0, 1, 0, 1, 0, 1, 0]),
@@ -4850,6 +4850,8 @@ function triangle(p, period) {
 }
 
 /** [depth] → per-sample attenuation to add, in 1/256-log2 units. */
+const OPL_TREMOLO_PERIOD = TREMOLO_PERIOD;
+const OPL_VIBRATO_PERIOD = VIBRATO_PERIOD;
 const TREMOLO_TABLE = [0, 1].map((d) => {
   const t = new Float64Array(TREMOLO_PERIOD);
   for (let p = 0; p < TREMOLO_PERIOD; p++) t[p] = TREMOLO_STEPS[d] * ENV_TO_LOG * triangle(p, TREMOLO_PERIOD);
@@ -4864,6 +4866,10 @@ const VIBRATO_TABLE = [0, 1].map((d) => {
   }
   return t;
 });
+/** The two LFOs' tables, [shallow, deep], for the PSG instrument (psg.js),
+ *  whose oscillators take the chip's tremolo and vibrato one at a time. */
+const OPL_TREMOLO_TABLE = TREMOLO_TABLE;
+const OPL_VIBRATO_TABLE = VIBRATO_TABLE;
 
 // ── Waveforms ─────────────────────────────────────────────────────────────
 // A 10-bit phase to a log-domain attenuation, with the sign left in
@@ -4980,7 +4986,7 @@ function decodeOplPatch(bytes, at = 0, into = new OplPatch()) {
     op.ksr = (r20 >> 4) & 1; op.mult = r20 & 0x0f;
     op.ksl = (r40 >> 6) & 3; op.tl = r40 & 0x3f;
     op.ar = (r60 >> 4) & 0x0f; op.dr = r60 & 0x0f;
-    op.sl = SUSTAIN_LEVEL[(r80 >> 4) & 0x0f]; op.rr = r80 & 0x0f;
+    op.sl = OPL_SUSTAIN_LEVEL[(r80 >> 4) & 0x0f]; op.rr = r80 & 0x0f;
     op.ws = rE0 & 7;
   }
   into.outputs = oplOutputMask(into.kind, into.cntA, into.cntB);
@@ -5140,6 +5146,29 @@ function chipIndex(frame) {
   else if (rem >= den) { k++; rem -= den; }
   fracBox[0] = rem / den;
   return k;
+}
+
+/** chipIndex for a module that runs on the same chip clock (psg.js): the
+ *  chip sample output frame `frame` falls on; oplChipFrac() is how far past. */
+function oplChipIndex(frame) { return chipIndex(frame); }
+function oplChipFrac() { return fracBox[0]; }
+
+/**
+ * The key scaling an operator at `hz` takes, as retune() works it out for a
+ * melodic channel (NTS 0, the ordinary F-number ceiling): `out[0]` the rate
+ * offset KSR adds to every envelope rate, `out[1]` the key-scale level in
+ * envelope units. For a generator that borrows the chip's envelope (psg.js).
+ */
+function oplKeyScaling(hz, ksr, ksl, out) {
+  const bf = oplBlockFnum(hz, false);
+  const block = bf >> 10, fnum = bf & 1023;
+  const ksv = (block << 1) | ((fnum >> 9) & 1);
+  let kslBase = KSL_ROM[(fnum >> 6) & 15] - 8 * (7 - block);
+  if (kslBase < 0) kslBase = 0;
+  out[0] = ksr ? ksv : ksv >> 2;
+  const shift = KSL_SHIFT[ksl & 3];
+  out[1] = shift < 0 ? 0 : (kslBase << 2) >> shift;
+  return out;
 }
 
 /** A deterministic, non-zero start for a drum's noise register: any non-zero
@@ -5476,11 +5505,666 @@ function oplRender(st, frame, rate, vol, keyOff) {
   return (st.last + (st.cur - st.last) * frac) * OUTPUT_SCALE;
 }
 
+// ══ core/engine/psg.js ══
+// PSG instruments — Metainstrument type 9. Two oscillators in place of a sample.
+//
+// A type-9 instrument is an ORDINARY instrument record — envelopes, fadeout,
+// New Note Action, Duplicate Check, default volume and pan, auto-vibrato, the
+// one pitch/filter envelope it keeps — whose sample is replaced by a pair of
+// programmable-sound-generator oscillators, A and B, mixed by adding them or
+// by multiplying them (TAUD_FILE_FORMAT.md §7.9). This module is that pair,
+// one per sounding voice.
+//
+// Each oscillator is a 0-to-1-volt generator playing a waveform (DC, seven
+// pulse widths, saw, triangle, three 1-bit noises with fixed repetition
+// cycles, a 4-bit saw and triangle, and silence). The pair is added or
+// multiplied in volts, and the volts are then mapped onto the lane's whole
+// range, 0 V to −1 and 1 V to +1; each oscillator's envelope scales what the
+// mapping makes of it, so a silenced oscillator sits at 0, not at −1. That
+// envelope is the OPL chip's own, number for number: the same attack / decay / sustain / release rates, sustain levels, total
+// level, key-scale rate and level, multiplier, and the same tremolo and
+// vibrato. So the PSG shares the OPL instrument's clock arrangement (opl.js):
+// every voice runs at the chip's 49716 Hz on its playhead's chip clock
+// (`ts.oplFrame`), is read back by linear interpolation, and steps its
+// envelopes on the same samples an OPL voice beside it does. A PSG voice is
+// deliberately not band-limited; its edges alias the way a chip's do.
+//
+// What is NOT the chip's is the oscillator's "internal status" — its phase,
+// the noise generator's position, the waveform auto-advance and the origin
+// its tremolo and vibrato run from. A PSG channel keeps all of it across the
+// notes a lane plays, as a real PSG keeps counting between key-ons; an
+// oscillator whose X flag is set starts it afresh at every trigger instead.
+//
+// The record bytes are the patch; `S $Axxx` writes a handful of them at run
+// time (auto-advance, level, mute — TAUD_NOTE_EFFECTS.md) into a per-
+// instrument overlay that lasts until the next playback, as invert loop's
+// mask does. Nothing here touches the record.
+//
+// Everything is integer or IEEE-double computation; the noise tables are
+// generated at load from integer shift registers, and the only transcendental
+// is the OPL tables' `2 ** rational`.
+
+
+
+/** A PSG instrument plays at its C2SPD exactly as an OPL one does: 0 reads as
+ *  the tracker convention, 8363, at which note $5000 sounds concert C4. */
+const PSG_C4_RATE = OPL_C4_RATE;
+const PSG_HZ_PER_SPS = LINEAR_FREQ_C4_HZ / OPL_C4_RATE;
+
+// ── The record ────────────────────────────────────────────────────────────
+// The patch occupies the second pitch/filter envelope slot, bytes 197…250,
+// as OPL's does (§7.9). Offsets below are relative to PSG_BLOCK_START.
+
+const PSG_BLOCK_START = 197;
+const PSG_BLOCK_LEN = 54;
+/** `0b 0000 XY0m`: m the mix model, Y mute B, X mute A. */
+const PSG_B_FLAGS = 0;
+/** RESERVED. */
+const PSG_B_RESERVED = 1;
+/** Oscillator A's twelve bytes (record 199…210), then oscillator B's
+ *  (211…222); 223…250 are RESERVED. */
+const PSG_B_OSC = 2;
+const PSG_OSC_BYTES = 12;
+/** Within an oscillator's twelve (+7…+11 RESERVED). */
+const PSG_O_WAVE_AR = 0;   // 0b wwww aaaa
+const PSG_O_DR_SL = 1;     // 0b dddd ssss
+const PSG_O_RR_MULT = 2;   // 0b rrrr mmmm
+const PSG_O_KSL_TL = 3;    // 0b KK LLLLLL
+const PSG_O_FLAGS = 4;     // 0b VVTT IXsR
+const PSG_O_ADVANCE = 5;   // auto-advance period, QUARTER ticks (0 = off, 4 = a tick)
+const PSG_O_PATTERN = 6;   // 0b 0000 00pp: which auto-advance pattern
+
+const PSG_MIX_MULTIPLY = 0x01;
+const PSG_MUTE_B = 0x04;
+const PSG_MUTE_A = 0x08;
+
+const PSG_OF_KSR = 0x01;
+const PSG_OF_SUSTAIN = 0x02;
+const PSG_OF_RESET = 0x04;
+const PSG_OF_INVERT = 0x08;
+const PSG_OF_TREMOLO_SHIFT = 4;
+const PSG_OF_VIBRATO_SHIFT = 6;
+
+// ── Waveforms ─────────────────────────────────────────────────────────────
+
+const PSG_WAVE_DC = 0x0;
+/** 1…7: pulses, high for (8 − n) eighths of the cycle and low for n. */
+const PSG_WAVE_PULSE_LAST = 0x7;
+const PSG_WAVE_SAW = 0x8;
+const PSG_WAVE_TRIANGLE = 0x9;
+const PSG_WAVE_NOISE_LONG = 0xa;
+const PSG_WAVE_NOISE_MID = 0xb;
+const PSG_WAVE_NOISE_SHORT = 0xc;
+const PSG_WAVE_SAW4 = 0xd;
+const PSG_WAVE_TRIANGLE4 = 0xe;
+const PSG_WAVE_SILENCE = 0xf;
+
+/** The exact repetition cycle of each noise, in noise steps. */
+const PSG_NOISE_CYCLES = Object.freeze({ 0xa: 32767, 0xb: 2047, 0xc: 127 });
+/** Noise steps per oscillator cycle: a noise is clocked at sixteen times the
+ *  note, as the SID's is, so it moves with the pitch it is played at. */
+const PSG_NOISE_STEPS_PER_CYCLE = 16;
+
+/**
+ * One period of a Fibonacci shift register's output, `taps` its feedback bits
+ * from a seed of 1. A maximal register of n bits repeats every 2ⁿ − 1 steps,
+ * so all three cycles are authentic registers: 15 bits (x¹⁵ + x¹⁴ + 1) and 7
+ * bits (x⁷ + x⁶ + 1), the two a Famicom's noise channel runs in, and 11 bits
+ * (x¹¹ + x⁹ + 1) between them.
+ */
+function psgLfsrTable(bits, tapA, tapB, len) {
+  const t = new Uint8Array(len);
+  let r = 1;
+  for (let i = 0; i < len; i++) {
+    t[i] = r & 1;
+    const fb = ((r >>> tapA) ^ (r >>> tapB)) & 1;
+    r = (r >>> 1) | (fb << (bits - 1));
+  }
+  return t;
+}
+const PSG_NOISE_TABLE_SET = Object.freeze({
+  0xa: psgLfsrTable(15, 0, 1, 32767),
+  0xb: psgLfsrTable(11, 0, 2, 2047),
+  0xc: psgLfsrTable(7, 0, 1, 127),
+});
+const PSG_NOISE_TABLES = PSG_NOISE_TABLE_SET;
+
+const PSG_TWO32 = 4294967296;
+const PSG_TWO28 = 268435456;
+/** The noise counter wraps at a common multiple of the three cycles (32767 =
+ *  7·31·151, 2047 = 23·89 and 127 are pairwise coprime), so every noise stays
+ *  exact across the wrap. ≈ 8.5 × 10⁹: an integer a double holds exactly. */
+const PSG_NOISE_WRAP = 32767 * 2047 * 127;
+
+/**
+ * Waveform `w` at 32-bit phase `p`, on 0…1, before the invert flag — the
+ * noises excepted, whose value is the table bit at `noisePos` and which ignore
+ * the phase. An oscillator is a 0-to-1-volt generator, as a PSG's DAC is: DC is
+ * 1, silence is 0, and inverting one gives the other. Shared with the editor's
+ * waveform preview (psgedit.js), so what the window draws is what plays.
+ */
+function psgWaveValue(w, p, noisePos = 0) {
+  switch (w) {
+    case PSG_WAVE_DC: return 1;
+    case 1: case 2: case 3: case 4: case 5: case 6: case 7:
+      return (p >>> 29) < 8 - w ? 1 : 0;
+    case PSG_WAVE_SAW: return 1 - p / PSG_TWO32;
+    case PSG_WAVE_TRIANGLE: {
+      const x = p / PSG_TWO32;
+      return x < 0.5 ? 2 * x : 2 - 2 * x;
+    }
+    case PSG_WAVE_NOISE_LONG: case PSG_WAVE_NOISE_MID: case PSG_WAVE_NOISE_SHORT: {
+      const t = PSG_NOISE_TABLE_SET[w];
+      return t[noisePos % t.length];
+    }
+    case PSG_WAVE_SAW4: return (15 - (p >>> 28)) / 15;
+    case PSG_WAVE_TRIANGLE4: {
+      const s = p >>> 27;                        // 32 steps a cycle
+      return (s < 16 ? s : 31 - s) / 15;
+    }
+    default: return 0;
+  }
+}
+
+/** Whether `w` is one of the noises. */
+function psgIsNoise(w) {
+  return w >= PSG_WAVE_NOISE_LONG && w <= PSG_WAVE_NOISE_SHORT;
+}
+
+// ── The patch ─────────────────────────────────────────────────────────────
+
+/** One oscillator's twelve bytes, unpacked. `sl` is in envelope steps, as an
+ *  OplOperator's is, so the chip's envelope generator reads it unchanged. */
+class PsgOscillator {
+  constructor() {
+    this.wave = 0;
+    this.ar = 0; this.dr = 0; this.sl = 0; this.rr = 0;
+    this.mult = 0; this.ksl = 0; this.tl = 0;
+    this.ksr = 0; this.eg = 0; this.reset = false; this.invert = false;
+    this.tremolo = 0;   // 0 off, 1 = 1 dB, 2 = 4.8 dB (3 RESERVED, read as off)
+    this.vibrato = 0;   // 0 off, 1 = 7 cents, 2 = 14 cents (3 RESERVED, read as off)
+    this.advance = 0;   // auto-advance period in quarter ticks, 0 = off
+    this.pattern = 0;   // auto-advance pattern, 0…3 (PSG_ADVANCE_PATTERNS)
+  }
+}
+
+/**
+ * A decoded type-9 patch, decoded IN PLACE by decodePsgPatch so a sounding
+ * voice hears an edit at once, as an OPL patch does. `gen` counts decodes.
+ *
+ * The run-time overlay `S $Axxx` writes lives here too, beside the decode but
+ * never touched by it: `rtAdvance` / `rtLevel` per oscillator and `rtMute`,
+ * each −1 while the record's own value stands. It is per INSTRUMENT, lasts
+ * across notes, and is cleared on a new playback (psgClearRuntime), exactly
+ * as invert loop's mask is.
+ */
+class PsgPatch {
+  constructor() {
+    this.gen = 0;
+    this.multiply = false;
+    this.muteA = false;
+    this.muteB = false;
+    this.osc = [new PsgOscillator(), new PsgOscillator()];
+    this.rtAdvance = Int16Array.from([-1, -1]);
+    this.rtLevel = Int16Array.from([-1, -1]);
+    this.rtMute = -1;
+    /** Counts overlay writes, so a memo of what the patch sounds like (a
+     *  formant instrument's measurement of its source) knows it is stale. */
+    this.rtGen = 0;
+  }
+}
+
+/** Unpack the 54-byte block (`bytes[at…]`) into `into`. */
+function decodePsgPatch(bytes, at = 0, into = new PsgPatch()) {
+  const f = bytes[at + PSG_B_FLAGS] & 0xff;
+  into.multiply = (f & PSG_MIX_MULTIPLY) !== 0;
+  into.muteA = (f & PSG_MUTE_A) !== 0;
+  into.muteB = (f & PSG_MUTE_B) !== 0;
+  for (let i = 0; i < 2; i++) {
+    const o = at + PSG_B_OSC + i * PSG_OSC_BYTES;
+    const osc = into.osc[i];
+    const b0 = bytes[o] & 0xff, b1 = bytes[o + 1] & 0xff, b2 = bytes[o + 2] & 0xff;
+    const b3 = bytes[o + 3] & 0xff, b4 = bytes[o + 4] & 0xff;
+    osc.wave = b0 >> 4; osc.ar = b0 & 15;
+    osc.dr = b1 >> 4; osc.sl = OPL_SUSTAIN_LEVEL[b1 & 15];
+    osc.rr = b2 >> 4; osc.mult = b2 & 15;
+    osc.ksl = b3 >> 6; osc.tl = b3 & 63;
+    osc.ksr = b4 & PSG_OF_KSR ? 1 : 0;
+    osc.eg = b4 & PSG_OF_SUSTAIN ? 1 : 0;
+    osc.reset = (b4 & PSG_OF_RESET) !== 0;
+    osc.invert = (b4 & PSG_OF_INVERT) !== 0;
+    const tt = (b4 >> PSG_OF_TREMOLO_SHIFT) & 3;
+    const vv = (b4 >> PSG_OF_VIBRATO_SHIFT) & 3;
+    osc.tremolo = tt === 3 ? 0 : tt;
+    osc.vibrato = vv === 3 ? 0 : vv;
+    osc.advance = bytes[o + PSG_O_ADVANCE] & 0xff;
+    osc.pattern = bytes[o + PSG_O_PATTERN] & 3;
+  }
+  into.gen++;
+  return into;
+}
+
+/**
+ * Pack a patch description into the 54-byte block — decodePsgPatch's inverse.
+ * `osc` are field-shaped {wave, ar, dr, sl (the 4-bit FIELD), rr, mult, ksl,
+ * tl, ksr, eg, reset, invert, tremolo, vibrato, advance, pattern}; missing ones zero.
+ */
+function encodePsgPatch({ multiply = false, muteA = false, muteB = false, osc = [] } = {}) {
+  const b = new Uint8Array(PSG_BLOCK_LEN);
+  b[PSG_B_FLAGS] = (multiply ? PSG_MIX_MULTIPLY : 0) | (muteA ? PSG_MUTE_A : 0) |
+    (muteB ? PSG_MUTE_B : 0);
+  for (let i = 0; i < 2; i++) {
+    const s = osc[i];
+    if (!s) continue;
+    const o = PSG_B_OSC + i * PSG_OSC_BYTES;
+    b[o] = (((s.wave ?? 0) & 15) << 4) | ((s.ar ?? 0) & 15);
+    b[o + 1] = (((s.dr ?? 0) & 15) << 4) | ((s.sl ?? 0) & 15);
+    b[o + 2] = (((s.rr ?? 0) & 15) << 4) | ((s.mult ?? 0) & 15);
+    b[o + 3] = (((s.ksl ?? 0) & 3) << 6) | ((s.tl ?? 0) & 63);
+    b[o + 4] = (s.ksr ? PSG_OF_KSR : 0) | (s.eg ? PSG_OF_SUSTAIN : 0) |
+      (s.reset ? PSG_OF_RESET : 0) | (s.invert ? PSG_OF_INVERT : 0) |
+      (((s.tremolo ?? 0) & 3) << PSG_OF_TREMOLO_SHIFT) |
+      (((s.vibrato ?? 0) & 3) << PSG_OF_VIBRATO_SHIFT);
+    b[o + PSG_O_ADVANCE] = (s.advance ?? 0) & 0xff;
+    b[o + PSG_O_PATTERN] = (s.pattern ?? 0) & 3;
+  }
+  return b;
+}
+
+// ── The run-time overlay (S $Axxx) ────────────────────────────────────────
+
+/** Drop every run-time write: the patch sounds as its record says again. */
+function psgClearRuntime(patch) {
+  if (patch.rtAdvance[0] === -1 && patch.rtAdvance[1] === -1 &&
+      patch.rtLevel[0] === -1 && patch.rtLevel[1] === -1 && patch.rtMute === -1) return;
+  patch.rtAdvance.fill(-1);
+  patch.rtLevel.fill(-1);
+  patch.rtMute = -1;
+  patch.rtGen++;
+}
+
+/**
+ * `S $Axxx` on a voice sounding this patch, `reg` the argument's low twelve
+ * bits. $000…$0FF and $800…$8FF set oscillator A's or B's auto-advance;
+ * $100…$13F and $900…$93F its level; $F00…$F03 the two mutes outright (bit 0
+ * A, bit 1 B). Anything else is RESERVED and does nothing. Returns whether
+ * the write was one.
+ */
+function psgWriteRegister(patch, reg) {
+  const r = reg & 0xfff;
+  const i = (r & 0x800) !== 0 ? 1 : 0;
+  const hi = (r >>> 8) & 0x7;
+  if (r >= 0xf00) {
+    if (r > 0xf03) return false;
+    patch.rtMute = r & 3;
+  } else if (hi === 0) {
+    patch.rtAdvance[i] = r & 0xff;
+  } else if (hi === 1 && (r & 0xff) <= 0x3f) {
+    patch.rtLevel[i] = r & 0x3f;
+  } else {
+    return false;
+  }
+  patch.rtGen++;
+  return true;
+}
+
+/** Oscillator `i`'s level (TL, 0…63) as it sounds now: the overlay's or the record's. */
+function psgLevel(patch, i) {
+  const v = patch.rtLevel[i];
+  return v >= 0 ? v : patch.osc[i].tl;
+}
+/** …its auto-advance period. */
+function psgAdvance(patch, i) {
+  const v = patch.rtAdvance[i];
+  return v >= 0 ? v : patch.osc[i].advance;
+}
+/** …whether it is muted. */
+function psgMuted(patch, i) {
+  if (patch.rtMute >= 0) return ((patch.rtMute >> i) & 1) !== 0;
+  return i === 0 ? patch.muteA : patch.muteB;
+}
+
+// ── The voice ─────────────────────────────────────────────────────────────
+
+/**
+ * One sounding PSG channel — two oscillators — hung off a Voice as
+ * `voice.psg`. The field names that oplAdvanceEnvelope reads (`state`, `env`,
+ * `ksrOffset`) are the OPL channel's, so the chip's envelope generator runs
+ * on this unchanged.
+ */
+class PsgState {
+  constructor() {
+    this.patch = null;
+    this.gen = -1;
+    this.rate = -1;
+    this.state = new Uint8Array(2);
+    this.env = new Int32Array(2).fill(OPL_ENV_MAX);
+    this.ksrOffset = new Int32Array(2);
+    this.gain = new Float64Array(2);        // this chip sample's gain, 0…4084 (psgOscStep)
+    this.kslAtt = new Int32Array(2);
+    this.inc = new Float64Array(2);
+    // The internal status (see the head of this file): kept across key-ons
+    // unless the oscillator's X flag says otherwise.
+    this.phase = new Float64Array(2);       // 0 ≤ phase < 2³², integral
+    this.noise = new Float64Array(2);       // noise steps taken, mod PSG_NOISE_WRAP
+    this.adv = new Uint8Array(2);           // auto-advance position in its pattern
+    this.advCount = new Int32Array(2);      // quarter ticks toward the next advance
+    this.lfo = new Float64Array(2);         // chip sample the LFOs run from
+    this.keyed = false;
+    this.k = -1;
+    this.cur = 0;
+    this.last = 0;
+    /** Phase modulation from an FM rack, a 32-bit phase offset (fm.js). */
+    this.pm = 0;
+  }
+}
+
+/** A copy for an NNA ghost: the whole channel, mid-note. */
+function clonePsgState(src) {
+  const s = new PsgState();
+  s.patch = src.patch;
+  s.gen = src.gen; s.rate = src.rate;
+  s.state.set(src.state); s.env.set(src.env);
+  s.ksrOffset.set(src.ksrOffset); s.gain.set(src.gain); s.kslAtt.set(src.kslAtt); s.inc.set(src.inc);
+  s.phase.set(src.phase); s.noise.set(src.noise);
+  s.adv.set(src.adv); s.advCount.set(src.advCount); s.lfo.set(src.lfo);
+  s.keyed = src.keyed;
+  s.k = src.k; s.cur = src.cur; s.last = src.last;
+  return s;
+}
+
+/**
+ * Key the channel on. `carry` keeps the envelopes where they stand (a
+ * retrigger its New Note Action cuts, as OPL's); without it both start from
+ * silence and the channel joins the chip clock at the first frame it renders.
+ * The internal status is kept, oscillator by oscillator, unless that
+ * oscillator's X flag resets it here.
+ */
+function psgKeyOn(st, patch, carry) {
+  st.patch = patch;
+  st.gen = -1;
+  st.rate = -1;
+  if (!carry) {
+    st.env.fill(OPL_ENV_MAX);
+    st.cur = 0;
+    st.last = 0;
+    st.k = NaN;
+  }
+  for (let i = 0; i < 2; i++) {
+    st.state[i] = EG_ATTACK;
+    if (patch.osc[i].reset) {
+      st.phase[i] = 0;
+      st.noise[i] = 0;
+      st.adv[i] = 0;
+      st.advCount[i] = 0;
+      st.lfo[i] = NaN;                     // anchored at the first frame rendered
+    }
+  }
+  st.keyed = true;
+}
+
+/** Key off: both oscillators go to their release. */
+function psgKeyOff(st) {
+  for (let i = 0; i < 2; i++) if (st.state[i] !== EG_OFF) st.state[i] = EG_RELEASE;
+  st.keyed = false;
+}
+
+/** Re-attack both oscillators from where they stand — an instrument byte on a
+ *  tone-portamento row, or Q's retrigger (spec §5.5.4). */
+function psgReattack(st) {
+  for (let i = 0; i < 2; i++) st.state[i] = EG_ATTACK;
+  st.keyed = true;
+}
+
+/**
+ * The auto-advance's four patterns (byte +6), as OFFSETS from the record's
+ * waveform among the seven pulses: 1 is the waveform itself and 7 is six
+ * pulses on, wrapping from $7 to $1 — DC is no pulse width and is never
+ * walked to — so a record waveform of 4 walks 4 5 6 7 1 2 3 2 1 7 6 5 under
+ * pattern 0. Each pattern starts at its first entry and repeats.
+ */
+const PSG_ADVANCE_PATTERNS = Object.freeze([
+  Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2]),
+  Uint8Array.from([1, 3, 5, 7, 5, 3]),
+  Uint8Array.from([1, 4, 7, 4]),
+  Uint8Array.from([1, 4]),
+]);
+
+/** Whether waveform `w` is one the auto-advance walks: a pulse, 1…7. DC and
+ *  everything past the pulses hold. */
+function psgAdvances(w) {
+  return w >= 1 && w <= PSG_WAVE_PULSE_LAST;
+}
+
+/** The pulse a pattern's offset `k` plays from record pulse `w`: 1 is `w`,
+ *  counting on among the seven pulses and wrapping from 7 to 1. The editor's
+ *  pattern labels go through this too, so they name what plays. */
+function psgPatternWave(w, k) {
+  return ((w - 1 + k - 1) % 7) + 1;
+}
+
+/** The waveform oscillator `i` is playing now: its record's, moved along its
+ *  pattern by the auto-advance when the record's is a pulse. */
+function psgCurrentWave(st, i) {
+  const osc = st.patch.osc[i];
+  const w = osc.wave;
+  if (!psgAdvances(w)) return w;
+  const pat = PSG_ADVANCE_PATTERNS[osc.pattern];
+  return psgPatternWave(w, pat[st.adv[i] % pat.length]);
+}
+
+/**
+ * One QUARTER tick of the auto-advance: an oscillator whose record waveform is
+ * a pulse, 1…7, counts one, and every `N` quarters (byte +5, 4 = once a tick) takes the
+ * next step of its pattern. N is the overlay's when `S $Axxx` has written one,
+ * else the record's; 0 holds. The tick pass runs the first quarter of every
+ * tick and the mixer the other three at their own frames (tick.js
+ * psgQuarterPass, mixer.js).
+ */
+function psgQuarterTick(st) {
+  const patch = st.patch;
+  if (patch === null) return;
+  for (let i = 0; i < 2; i++) {
+    const n = psgAdvance(patch, i);
+    if (n === 0 || !psgAdvances(patch.osc[i].wave)) { st.advCount[i] = 0; continue; }
+    if (++st.advCount[i] >= n) {
+      st.advCount[i] = 0;
+      st.adv[i] = (st.adv[i] + 1) % PSG_ADVANCE_PATTERNS[patch.osc[i].pattern].length;
+    }
+  }
+}
+
+/** The quarter of its tick a playhead is in, `into` frames into a tick of
+ *  `spt` frames: 0…3. */
+function psgQuarterAt(into, spt) {
+  const q = Math.floor((into * 4) / spt);
+  return q < 0 ? 0 : q > 3 ? 3 : q;
+}
+
+const psgScaleBox = new Int32Array(2);
+
+/** Recompute the frequency-derived values for the voice's current pitch. */
+function psgRetune(st, rate) {
+  const patch = st.patch;
+  const hz = rate * SAMPLING_RATE * PSG_HZ_PER_SPS;
+  for (let i = 0; i < 2; i++) {
+    const osc = patch.osc[i];
+    oplKeyScaling(hz, osc.ksr, osc.ksl, psgScaleBox);
+    st.ksrOffset[i] = psgScaleBox[0];
+    st.kslAtt[i] = psgScaleBox[1];
+    const inc = Math.round((hz * OPL_MULTIPLE_X2[osc.mult] * PSG_TWO32) / (2 * OPL_RATE));
+    st.inc[i] = inc < 0 ? 0 : inc >= PSG_TWO32 ? PSG_TWO32 - 1 : inc;
+  }
+  st.rate = rate;
+  st.gen = patch.gen;
+}
+
+const PSG_ENV_TO_LOG = 8;
+const PSG_TL_TO_LOG = 32;
+/** Oscillator output to the engine's scale: a full-level oscillator swings the
+ *  lane's whole ±1, the height of a full-scale OPL operator. */
+const PSG_OUTPUT_SCALE = 1 / 4096;
+
+/**
+ * Oscillator `i` for one chip sample at chip clock `k`, advancing it. Returns
+ * its waveform in VOLTS, 0…1 with the invert applied, and leaves its gain —
+ * envelope, level, key scaling, tremolo, 0…4084 — in `st.gain[i]`. The two
+ * stay apart because the pair is mixed in volts and only then mapped onto the
+ * lane, where the gain acts (psgChipStep).
+ */
+function psgOscStep(st, i, k) {
+  const patch = st.patch;
+  const osc = patch.osc[i];
+  oplAdvanceEnvelope(st, i, osc, k);
+  if (Number.isNaN(st.lfo[i])) st.lfo[i] = k;
+  const lk = k - st.lfo[i];
+  let inc = st.inc[i];
+  if (osc.vibrato !== 0) {
+    const vib = OPL_VIBRATO_TABLE[osc.vibrato - 1][lk % OPL_VIBRATO_PERIOD];
+    if (vib !== 1) inc = Math.round(inc * vib);
+  }
+  // The noise is clocked by the phase: one step each 1/16 of a cycle crossed.
+  const old = st.phase[i];
+  const next = old + inc;
+  const steps = Math.floor(next / PSG_TWO28) - Math.floor(old / PSG_TWO28);
+  if (steps !== 0) st.noise[i] = (st.noise[i] + steps) % PSG_NOISE_WRAP;
+  st.phase[i] = next >= PSG_TWO32 ? next - PSG_TWO32 * Math.floor(next / PSG_TWO32) : next;
+  if (st.state[i] === EG_OFF) { st.gain[i] = 0; return 0; }
+  let att = (st.env[i] + st.kslAtt[i]) * PSG_ENV_TO_LOG + psgLevel(patch, i) * PSG_TL_TO_LOG;
+  if (osc.tremolo !== 0) att += OPL_TREMOLO_TABLE[osc.tremolo - 1][lk % OPL_TREMOLO_PERIOD];
+  st.gain[i] = oplExpand(att);
+  const w = psgCurrentWave(st, i);
+  const p = (st.phase[i] + st.pm) % PSG_TWO32;
+  const v = psgWaveValue(w, p, st.noise[i]);
+  return osc.invert ? 1 - v : v;             // 0…1 turned over: DC ↔ silence
+}
+
+/**
+ * The pair's next chip sample at chip clock `k`. Both oscillators always run,
+ * muted or not, so a mute lifted mid-note brings the oscillator back where it
+ * would have been; the mixer then adds or multiplies what is not muted, and
+ * with one of the two muted it passes the other through untouched (§7.9).
+ */
+function psgChipStep(st, k) {
+  const a = psgOscStep(st, 0, k);
+  const b = psgOscStep(st, 1, k);
+  const ga = st.gain[0], gb = st.gain[1];
+  const patch = st.patch;
+  const ma = psgMuted(patch, 0), mb = psgMuted(patch, 1);
+  // Volts to the lane: 0 V is −1, 1 V is +1, and the gain scales the result,
+  // so an oscillator the envelope has silenced sits at 0, not at −1.
+  if (ma) return mb ? 0 : (2 * b - 1) * gb;
+  if (mb) return (2 * a - 1) * ga;
+  // Multiplied in volts, then mapped: 0 V on either side is −1, DC (1 V) on
+  // one side leaves the other as it is, and the two gains multiply.
+  return patch.multiply
+    ? (2 * a * b - 1) * ((ga * gb) / 4084)
+    : (2 * a - 1) * ga + (2 * b - 1) * gb;
+}
+
+/** Whether oscillator `i` can still make a sound (opl.js oplChannelAlive's rule). */
+function psgOscAlive(st, i) {
+  const s = st.state[i];
+  if (s === EG_OFF) return false;
+  return !(st.env[i] >= OPL_ENV_MAX && (s !== EG_ATTACK || st.patch.osc[i].ar === 0));
+}
+
+/** Whether the channel can still make a sound: either oscillator can. */
+function psgChannelAlive(st) {
+  if (st.patch === null) return false;
+  return psgOscAlive(st, 0) || psgOscAlive(st, 1);
+}
+
+/**
+ * The channel `st` at output frame `frame`, played at playback rate `rate`,
+ * keyed off once `keyOff` is, on the lane's ±1: the oscillators' 0…1 volts
+ * mapped onto it, scaled by their envelopes. The note volume is
+ * NOT applied: the mixer applies it to the pair's output, as to a sample's, so
+ * the multiplying mix does not square it.
+ */
+function psgRender(st, frame, rate, keyOff) {
+  const patch = st.patch;
+  if (patch === null) return 0;
+  if (keyOff && st.keyed) psgKeyOff(st);
+  if (rate !== st.rate || patch.gen !== st.gen) psgRetune(st, rate);
+  const k = oplChipIndex(frame);
+  const frac = oplChipFrac();
+  if (Number.isNaN(st.k) || k - st.k > 8) st.k = k - 1;
+  while (st.k < k) {
+    st.k++;
+    st.last = st.cur;
+    st.cur = psgChipStep(st, st.k);
+  }
+  return (st.last + (st.cur - st.last) * frac) * PSG_OUTPUT_SCALE;
+}
+
+/** renderPsgVoice: psgRender for the voice it sounds on, which it ends once
+ *  nothing can sound. */
+function renderPsgVoice(voice, frame) {
+  const st = voice.psg;
+  if (st.patch === null) return 0;
+  const s = psgRender(st, frame, voice.currentPlaybackRate, voice.keyOff);
+  if (!psgChannelAlive(st)) voice.active = false;
+  return s;
+}
+
+// ══ core/engine/chip.js ══
+// The low-meta generators as one kind of thing: an OPL channel (opl.js) or a
+// PSG pair (psg.js), for the high metas that take either as a source — a
+// formant instrument singing from one (formant.js) — without asking which.
+//
+// A chip state is an OplState or a PsgState, and the patch it plays an
+// OplPatch or a PsgPatch; every function here dispatches on that. The volume
+// argument is the OPL channel's (its drivers put the note volume in the
+// operators); a PSG pair takes none, and is always read at unity here.
+
+
+
+/** Whether `patch` is a PSG patch (else an OPL one). */
+function isPsgPatch(patch) { return patch instanceof PsgPatch; }
+
+/** A fresh channel for `patch`'s kind. */
+function newChipState(patch) {
+  return patch instanceof PsgPatch ? new PsgState() : new OplState();
+}
+
+/** Whether `st` can play `patch` (the same kind of channel). */
+function chipStateFits(st, patch) {
+  return st !== null && (patch instanceof PsgPatch) === (st instanceof PsgState);
+}
+
+function chipKeyOn(st, patch, carry) {
+  if (st instanceof PsgState) psgKeyOn(st, patch, carry);
+  else oplKeyOn(st, patch, carry);
+}
+
+/** The channel at output frame `frame`, at unity volume. */
+function chipRender(st, frame, rate, keyOff) {
+  return st instanceof PsgState
+    ? psgRender(st, frame, rate, keyOff)
+    : oplRender(st, frame, rate, 1.0, keyOff);
+}
+
+function chipAlive(st) {
+  return st instanceof PsgState ? psgChannelAlive(st) : oplChannelAlive(st);
+}
+
+function cloneChipState(st) {
+  return st instanceof PsgState ? clonePsgState(st) : cloneOplState(st);
+}
+
+/** A key the measurement memo can hold a patch's sound by: its decode, and for
+ *  a PSG patch its S $Axxx overlay too, which changes what it sounds like. */
+function chipSoundKey(patch) {
+  return patch instanceof PsgPatch ? `${patch.gen}.${patch.rtGen}` : `${patch.gen}`;
+}
+
 // ══ core/engine/inst.js ══
 // Taud instrument data model — port of AudioAdapter.kt TaudInstEnvPoint (5246),
 // TaudInstPatch (5261), MetaLayer (5312), TaudInst (5378-5766).
 // Envelope point `offset` is the ThreeFiveMiniUfloat LUT index (0..255);
 // use minifloatToDouble(pt.offset) for seconds.
+
 
 
 
@@ -5795,8 +6479,8 @@ const META_MAX_LAYERS = 25;
 //          Formant (1), FM (4). Its table, or its glottal source, names
 //          SOURCES it sounds through.
 //   8…13   LOW META — a kind that is a sound generator of its own, standing
-//          where an ordinary instrument's sample stands: OPL (8), PSG (to
-//          come). It holds no table and names nothing, so it cannot recurse.
+//          where an ordinary instrument's sample stands: OPL (8), PSG (9).
+//          It holds no table and names nothing, so it cannot recurse.
 //   14, 15 RESERVED.
 //
 // A high meta MUST be able to take a low meta as a source — as a layer, as an
@@ -5858,6 +6542,16 @@ const META_TYPE_OPL = 8;
 /** A type-8 record's first four bytes: the type nibble, a reserved count
  *  byte, and the two `$FF` sentinels that make it a Metainstrument at all. */
 const OPL_RECORD_HEADER = Object.freeze([0x80, 0x00, 0xff, 0xff]);
+/**
+ * Type 9 — PSG: an ordinary instrument record with two programmable-sound-
+ * generator oscillators in place of its sample (psg.js, §7.9). Laid out as
+ * the OPL kind is: bytes 0…3 the header, every ordinary field after them
+ * keeping its meaning, and the second pitch/filter slot (bytes 197…250)
+ * carrying the patch. The second low-meta kind; `isPsg` is what the renderer
+ * asks.
+ */
+const META_TYPE_PSG = 9;
+const PSG_RECORD_HEADER = Object.freeze([0x90, 0x00, 0xff, 0xff]);
 
 /**
  * Operators an FM rack can hold. The whole rack — 10 bytes an operator plus the
@@ -6040,12 +6734,22 @@ function buildMetaRecord(layers, {
  * C2SPD. `fields` overrides any of them by name: {rate, detune, nna, fadeout,
  * pan, percussion, globalVolume, noteVolume}.
  */
-function buildOplRecord(block, {
+function buildOplRecord(block, fields = {}) {
+  return buildChipRecord(OPL_RECORD_HEADER, block, OPL_BLOCK_START, OPL_BLOCK_LEN, fields);
+}
+
+/** A whole type-9 record around a 54-byte PSG patch block (§7.9), with
+ *  buildOplRecord's defaults and overrides. */
+function buildPsgRecord(block, fields = {}) {
+  return buildChipRecord(PSG_RECORD_HEADER, block, PSG_BLOCK_START, PSG_BLOCK_LEN, fields);
+}
+
+function buildChipRecord(header, block, blockStart, blockLen, {
   rate = 8363, detune = 0, nna = 1, fadeout = 0, pan = 0x80, percussion = false,
   globalVolume = 0xff, noteVolume = 0xff,
 } = {}) {
   const r = new Uint8Array(256);
-  for (let i = 0; i < 4; i++) r[i] = OPL_RECORD_HEADER[i];
+  for (let i = 0; i < 4; i++) r[i] = header[i];
   r[6] = rate & 0xff; r[7] = (rate >>> 8) & 0xff;
   r[14] = percussion ? 0x10 : 0;
   for (let i = 0; i < 25; i++) r[21 + 2 * i] = 0x3f;   // vol env nodes (absent)
@@ -6061,7 +6765,7 @@ function buildOplRecord(block, {
   r[184] = d & 0xff; r[185] = (d >>> 8) & 0xff;
   r[186] = (nna & 3) | (((nna >>> 2) & 1) << 5);
   r[196] = noteVolume & 0xff;
-  r.set(block.subarray(0, OPL_BLOCK_LEN), OPL_BLOCK_START);
+  r.set(block.subarray(0, blockLen), blockStart);
   return r;
 }
 
@@ -6202,6 +6906,11 @@ class TaudInst {
     // IN PLACE on every write, so a sounding voice hears an edit at once.
     this.oplRaw = null;
     this.opl = null;
+    // PSG (type 9): the patch block's raw 54 bytes and its decoded form, or
+    // null for every other instrument. Decoded in place, as OPL's is; the
+    // decoded patch also carries the run-time overlay S $Axxx writes.
+    this.psgRaw = null;
+    this.psg = null;
     // Formant instrument (type 1, item 212): the tract block's raw 54 bytes and its
     // decoded form, or null for every other instrument. Updated in place, as
     // OPL's is. Bytes 0…2 of the raw block are NOT authoritative — the source
@@ -6336,12 +7045,17 @@ class TaudInst {
   get isFm() { return this.metaLayers !== null && this.metaType === META_TYPE_FM; }
   /** True for a type-8 OPL instrument: the chip in place of the sample (§7.7). */
   get isOpl() { return this.opl !== null; }
+  /** True for a type-9 PSG instrument: two oscillators in place of the sample (§7.9). */
+  get isPsg() { return this.psg !== null; }
+  /** The chip patch a high meta sounds this instrument through when it takes
+   *  it as a source — the OPL or the PSG patch — or null for anything else. */
+  get chipPatch() { return this.opl ?? this.psg; }
   /** True for a type-1 formant instrument: the sample through a vocal tract (§7.8). */
   get isFormant() { return this.formant !== null; }
   /** The instrument's tier (the block at META_TIER_*): NONE for an ordinary
    *  instrument, else the tier of its type nibble. */
   get metaTier() {
-    if (this.opl !== null) return META_TIER_LOW;
+    if (this.opl !== null || this.psg !== null) return META_TIER_LOW;
     if (this.formant !== null) return META_TIER_HIGH;
     if (this.metaLayers !== null) return metaTierOf(this.metaType);
     return META_TIER_NONE;
@@ -6382,7 +7096,7 @@ class TaudInst {
     const patches = this.extraPatches;
     // An OPL instrument and a formant instrument have no keyboard map (§7.7, §7.8):
     // a list a project carries for either is ignored on every path.
-    if (patches === null || this.opl !== null || this.formant !== null) return null;
+    if (patches === null || this.opl !== null || this.psg !== null || this.formant !== null) return null;
     for (const p of patches) {
       if (noteVal >= p.pitchStart && noteVal <= p.pitchEnd &&
           rowVolume >= p.volumeStart && rowVolume <= p.volumeEnd) return p;
@@ -6409,11 +7123,15 @@ class TaudInst {
     const sp = ((b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16)) + (b[3] & 0xff) * 0x1000000;
     if (((sp >>> 16) & 0xffff) === 0xffff && ((b[0] >>> 4) & 0x0f) === META_TYPE_OPL) {
       this.loadOplRecord(b);
+    } else if (((sp >>> 16) & 0xffff) === 0xffff && ((b[0] >>> 4) & 0x0f) === META_TYPE_PSG) {
+      this.loadPsgRecord(b);
     } else if (((sp >>> 16) & 0xffff) === 0xffff && ((b[0] >>> 4) & 0x0f) === META_TYPE_FORMANT) {
       this.loadFormantRecord(b);
     } else if (((sp >>> 16) & 0xffff) === 0xffff) {
       this.oplRaw = null;
       this.opl = null;
+      this.psgRaw = null;
+      this.psg = null;
       this.formantRaw = null;
       this.formant = null;
       const type = (b[0] >>> 4) & 0x0f;
@@ -6465,6 +7183,8 @@ class TaudInst {
       this.fmProgram = null;
       this.oplRaw = null;
       this.opl = null;
+      this.psgRaw = null;
+      this.psg = null;
       this.formantRaw = null;
       this.formant = null;
       const n = Math.min(256, b.length);
@@ -6487,6 +7207,8 @@ class TaudInst {
     this.extraPatches = null;
     this.formantRaw = null;
     this.formant = null;
+    this.psgRaw = null;
+    this.psg = null;
     const raw = new Uint8Array(OPL_BLOCK_LEN);
     for (let i = 0; i < OPL_BLOCK_LEN; i++) raw[i] = b[OPL_BLOCK_START + i] & 0xff;
     this.oplRaw = raw;
@@ -6500,6 +7222,45 @@ class TaudInst {
     this.pf2EnvLoop = 0;
     this.pf2EnvSustainWord = 0;
     this.pf2Envelopes = makeEnv(0x80);
+  }
+
+  /**
+   * The type-9 branch of loadRecord, laid out exactly as the type-8 one: the
+   * header where the sample pointer was, the PSG patch where the second
+   * pitch/filter envelope was. The decoded patch object is reused across
+   * reloads, so the S $Axxx overlay it carries survives an edit, as invert
+   * loop's mask survives one.
+   */
+  loadPsgRecord(b) {
+    this.metaLayers = null;
+    this.metaRaw = null;
+    this.metaStrict = false;
+    this.metaType = META_TYPE_PSG;
+    this.fmProgram = null;
+    this.extraPatches = null;
+    this.formantRaw = null;
+    this.formant = null;
+    this.oplRaw = null;
+    this.opl = null;
+    const raw = new Uint8Array(PSG_BLOCK_LEN);
+    for (let i = 0; i < PSG_BLOCK_LEN; i++) raw[i] = b[PSG_BLOCK_START + i] & 0xff;
+    this.psgRaw = raw;
+    this.psg = decodePsgPatch(raw, 0, this.psg ?? new PsgPatch());
+    this.samplePtr = 0;
+    const n = Math.min(256, b.length);
+    for (let i = 4; i < n; i++) {
+      if (i >= PSG_BLOCK_START && i < PSG_BLOCK_START + PSG_BLOCK_LEN) continue;
+      this.setByte(i, b[i] & 0xff);
+    }
+    this.pf2EnvLoop = 0;
+    this.pf2EnvSustainWord = 0;
+    this.pf2Envelopes = makeEnv(0x80);
+  }
+
+  /** Drop the S $Axxx overlay (a new playback, §7.9): the patch sounds as its
+   *  record says again. A no-op on anything but a PSG instrument. */
+  resetPsgRuntime() {
+    if (this.psg !== null) psgClearRuntime(this.psg);
   }
 
   /**
@@ -6518,6 +7279,8 @@ class TaudInst {
     this.extraPatches = null;
     this.oplRaw = null;
     this.opl = null;
+    this.psgRaw = null;
+    this.psg = null;
     const raw = new Uint8Array(FORMANT_BLOCK_LEN);
     for (let i = 0; i < FORMANT_BLOCK_LEN; i++) raw[i] = b[FORMANT_BLOCK_START + i] & 0xff;
     this.formantRaw = raw;
@@ -6732,6 +7495,13 @@ class TaudInst {
         return this.oplRaw[o - OPL_BLOCK_START];
       }
     }
+    if (this.psg !== null) {
+      // A type-9 record (§7.9), laid out as a type-8 one.
+      if (o <= 3) return PSG_RECORD_HEADER[o];
+      if (o >= PSG_BLOCK_START && o < PSG_BLOCK_START + PSG_BLOCK_LEN) {
+        return this.psgRaw[o - PSG_BLOCK_START];
+      }
+    }
     if (o >= 21 && o <= 70) return this._envPointGet(this.volEnvelopes, 21, o);
     if (o >= 71 && o <= 120) return this._envPointGet(this.panEnvelopes, 71, o);
     if (o >= 121 && o <= 170) return this._envPointGet(this.pfEnvelopes, 121, o);
@@ -6826,6 +7596,14 @@ class TaudInst {
       if (o >= OPL_BLOCK_START && o < OPL_BLOCK_START + OPL_BLOCK_LEN) {
         this.oplRaw[o - OPL_BLOCK_START] = byte & 0xff;
         decodeOplPatch(this.oplRaw, 0, this.opl);
+        return;
+      }
+    }
+    if (this.psg !== null) {
+      if (o <= 3) return;
+      if (o >= PSG_BLOCK_START && o < PSG_BLOCK_START + PSG_BLOCK_LEN) {
+        this.psgRaw[o - PSG_BLOCK_START] = byte & 0xff;
+        decodePsgPatch(this.psgRaw, 0, this.psg);
         return;
       }
     }
@@ -7075,6 +7853,13 @@ class Voice {
     // that hand-over, set by maybeSpawnBackgroundForNNA for triggerNote).
     this.opl = null;
     this.oplCarry = false;
+    // ── PSG pair (Metainstrument type 9) ──
+    // The sounding oscillator pair (engine/psg.js PsgState) of a voice playing
+    // a PSG instrument, or null. Kept on the voice across notes, as OPL's is —
+    // an oscillator's internal status lives here — and `psgCarry` hands a
+    // NNA-cut retrigger the envelopes where they stand.
+    this.psg = null;
+    this.psgCarry = false;
 
     // ── Formant instrument (Metainstrument type 1, item 212) ──
     // The tract this voice's sample is sounding through (engine/formant.js
@@ -7727,6 +8512,9 @@ class TrackerState {
     // transport reset. Every OPL voice reads the chip's envelope counter and
     // LFOs off it, so a playhead's OPL voices are one chip (engine/opl.js).
     this.oplFrame = 0;
+    // The quarter of the current tick the PSG auto-advance has reached, 0…3
+    // (tick.js psgQuarterPass): the tick pass sets 0, the mixer runs 1…3.
+    this.psgQuarter = 0;
     // Always MAX_VOICES so 64-lane mode has slots for every lane, plus
     // the dedicated jam bank above them (JAM_VOICE_BASE…, item 140) — the tick
     // and mix loops run the whole array, the row loop only the lanes.
@@ -7931,6 +8719,7 @@ class TrackerState {
     this.firstRow = true;
     // A replay meets the OPL chip where a render from the start does (§15).
     this.oplFrame = 0;
+    this.psgQuarter = 0;
     this.pendingOrderJump = -1;
     this.pendingRowJump = -1;
     this.pendingRowJumpLocal = false;
@@ -8109,6 +8898,7 @@ class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
       inst.cutoffOverride = -1;
       inst.resonanceOverride = -1;
     }
@@ -8131,6 +8921,7 @@ class Playhead {
     ts.cuePos = 0; ts.rowIndex = 0; ts.tickInRow = 0;
     ts.samplesIntoTick = 0.0; ts.firstRow = true;
     ts.oplFrame = 0;
+    ts.psgQuarter = 0;
     ts.pendingOrderJump = -1; ts.pendingRowJump = -1;
     ts.pendingRowJumpLocal = false;
     ts.patternDelayRemaining = 0; ts.patternDelayActive = false;
@@ -8218,7 +9009,7 @@ class Playhead {
       it.layerRelPan = 0; it.layerRelElevation = 0;
       it.layerPitchMod = 0; it.pitchModDelta = 0;
       it.fmRig = null; it.fmOperator = false; it.fmParent = null;
-      it.opl = null; it.oplCarry = false; it.formant = null;
+      it.opl = null; it.oplCarry = false; it.psg = null; it.psgCarry = false; it.formant = null;
       // "What's playing" state — cleared alongside the volume reset so a stale
       // instrumentId can't survive into a fresh session (AudioAdapter.kt:5130-5142).
       it.instrumentId = 0;
@@ -8257,6 +9048,7 @@ class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
       inst.cutoffOverride = -1;
       inst.resonanceOverride = -1;
     }
@@ -8290,6 +9082,7 @@ class Playhead {
     for (const inst of this.parent.instruments) {
       inst.invertMask = null;
       inst.resetMod();
+      inst.resetPsgRuntime();
     }
   }
 }
@@ -9066,6 +9859,7 @@ function advanceVolumeRamp(voice, div = 63.0) {
 
 
 
+
 // ── The record ──────────────────────────────────────────────────────────────
 
 /** Byte 0's type nibble for this kind (§7.4). */
@@ -9079,7 +9873,7 @@ const FORMANT_RECORD_HEADER = Object.freeze([0x10, 0x00, 0xff, 0xff]);
  * in byte 1, bits 8…9 in byte 0's two low bits. 0 is none — the record's own
  * sample is the glottal source, as it always was. Anything else names an
  * instrument whose voice is the source instead, which has to be one of the
- * chip kinds (OPL); a record naming anything else sings with its sample.
+ * chip kinds (OPL, PSG); a record naming anything else sings with its sample.
  */
 function formantSourceInstOf(b0, b1) {
   return ((b0 & 0x03) << 8) | (b1 & 0xff);
@@ -9088,16 +9882,16 @@ function formantSourceInstOf(b0, b1) {
 /**
  * The instrument a formant instrument `inst` is sung from, out of
  * `instruments`, or null when it sings with its own sample: the header names
- * none, or names itself, or names an instrument that is not an OPL one. An
- * OPL instrument is a sound generator in its own right, so its voice can be
- * the glottal source where a sample would be; anything built out of sources
- * cannot.
+ * none, or names itself, or names an instrument that is not a chip one. An
+ * OPL or PSG instrument is a sound generator in its own right, so its voice
+ * can be the glottal source where a sample would be; anything built out of
+ * sources cannot.
  */
 function formantChipSource(instruments, inst) {
   const i = inst.formant.srcInst;
   if (i < 1 || i > 1023 || i === inst.index) return null;
   const src = instruments[i];
-  return src !== undefined && src !== null && src.opl !== null ? src : null;
+  return src !== undefined && src !== null && src.chipPatch !== null ? src : null;
 }
 
 /** The rate a chip source plays the part of the sample's rate at C4 with:
@@ -10040,7 +10834,7 @@ class FormantState {
     this.nTilt = 0; this.nTiltC = 0.0; this.nGain = 1.0; this.nZ = 0.0;
     this.nGen = false;                     // the generator rather than a sample
     this.nSeed = NOISE_SEED;
-    // The glottal source when it is an OPL channel (formantChipSource), keyed
+    // The glottal source when it is a chip channel (formantChipSource), keyed
     // with the note; null when the source is the record's sample.
     this.src = null;
     // Scratch.
@@ -10079,19 +10873,20 @@ function cloneFormantState(src, dst = new FormantState()) {
   dst.nStep = src.nStep; dst.nTilt = src.nTilt; dst.nTiltC = src.nTiltC; dst.nGain = src.nGain;
   dst.nZ = src.nZ;
   dst.nGen = src.nGen; dst.nSeed = src.nSeed;
-  dst.src = src.src !== null ? cloneOplState(src.src) : null;
+  dst.src = src.src !== null ? cloneChipState(src.src) : null;
   return dst;
 }
 
 /**
- * Key the note's glottal source: an OPL channel playing `chip` (an OplPatch),
+ * Key the note's glottal source: a chip channel playing `chip` (an OplPatch or
+ * a PsgPatch),
  * from silence as any fresh note's channel starts — or no channel, the
  * record's sample being the source, when `chip` is null.
  */
 function formantKeySource(st, chip) {
   if (chip === null) { st.src = null; return; }
-  if (st.src === null) st.src = new OplState();
-  oplKeyOn(st.src, chip, false);
+  if (!chipStateFits(st.src, chip)) st.src = newChipState(chip);
+  chipKeyOn(st.src, chip, false);
   st.sgDue = true;
 }
 
@@ -10103,7 +10898,7 @@ function formantKeySource(st, chip) {
  */
 function formantRelatchSource(st, chip) {
   if (chip === null) { st.src = null; return; }
-  if (st.src === null) { formantKeySource(st, chip); return; }
+  if (!chipStateFits(st.src, chip)) { formantKeySource(st, chip); return; }
   st.src.patch = chip;
   st.src.gen = -1;
   st.sgDue = true;
@@ -10183,7 +10978,7 @@ function formantRestart(st) {
   st.sg = sg; st.sm = sm; st.sgDue = due;   // the same sample: the same measurements
   // A chip source is re-keyed as Q re-keys an OPL note: the attack from where
   // each envelope stands, the phase from zero (§5.5.2).
-  if (st.src !== null && st.src.patch !== null) oplKeyOn(st.src, st.src.patch, true);
+  if (st.src !== null && st.src.patch !== null) chipKeyOn(st.src, st.src.patch, true);
 }
 
 /**
@@ -10580,7 +11375,7 @@ const chipAc = new Float64Array(2);
 function measureChipSource(voice, st) {
   const patch = st.src.patch;
   const pr = voice.snapPlaybackRate ? voice.playbackRate : voice.currentPlaybackRate;
-  const key = `${patch.gen}:${pr}`;
+  const key = `${chipSoundKey(patch)}:${pr}`;
   let memo = chipMemo.get(patch);
   if (memo === undefined) { memo = new Map(); chipMemo.set(patch, memo); }
   const hit = memo.get(key);
@@ -10589,8 +11384,16 @@ function measureChipSource(voice, st) {
     return;
   }
   const x = chipBuf;
-  oplKeyOn(chipScratch, patch, false);
-  for (let i = 0; i < CHIP_MEASURE; i++) x[i] = oplRender(chipScratch, i, pr, 1.0, false);
+  if (isPsgPatch(patch)) {
+    // A PSG pair keeps its internal status across key-ons, so it is measured
+    // on a channel of its own every time: from rest, as a fresh lane meets it.
+    const psg = newChipState(patch);
+    chipKeyOn(psg, patch, false);
+    for (let i = 0; i < CHIP_MEASURE; i++) x[i] = chipRender(psg, i, pr, false);
+  } else {
+    oplKeyOn(chipScratch, patch, false);
+    for (let i = 0; i < CHIP_MEASURE; i++) x[i] = oplRender(chipScratch, i, pr, 1.0, false);
+  }
   // The loudest window, every half window; the first of equals wins.
   const acF = (p, n) => {
     let sum = 0.0, sq = 0.0;
@@ -10854,8 +11657,8 @@ function tractRes(co, i, cy, j, x) {
  * consonant the tract's own clock decides.
  */
 function chipSource(voice, st, frame) {
-  const s = oplRender(st.src, frame, voice.currentPlaybackRate, 1.0, voice.keyOff);
-  if (st.phase === PHASE_VOWEL && !oplChannelAlive(st.src)) startRampOut(voice);
+  const s = chipRender(st.src, frame, voice.currentPlaybackRate, voice.keyOff);
+  if (st.phase === PHASE_VOWEL && !chipAlive(st.src)) startRampOut(voice);
   return s;
 }
 
@@ -11089,6 +11892,7 @@ function applyTaudVoiceFx(voice, sample, st = voice) {
 
 
 
+
 /**
  * The live rack behind one sounding note. Allocated per trigger, hung off the
  * lane's foreground Voice as `voice.fmRig`, and dropped the moment that
@@ -11205,6 +12009,19 @@ function fmChipOperator(v, frame, offset) {
 }
 
 /**
+ * A PSG operator, read the same way: the modulation goes into both
+ * oscillators' phase, one cycle being one cycle of the oscillator.
+ */
+function fmPsgOperator(v, frame, offset) {
+  const st = v.psg;
+  st.pm = offset === 0 ? 0 : Math.round((offset - Math.floor(offset)) * 4294967296) % 4294967296;
+  const s = psgRender(st, frame, v.currentPlaybackRate, v.keyOff);
+  st.pm = 0;
+  if (!psgChannelAlive(st)) v.active = false;
+  return s;
+}
+
+/**
  * One operator, evaluated at most ONCE per output sample. Naming an operator
  * twice in one algorithm — the natural way to write "operator 5 modulates both
  * 4 and 2" — gives the same value both times, because an operator is one
@@ -11223,6 +12040,8 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
   let s;
   if (v.opl !== null) {
     s = fmChipOperator(v, frame, offset);
+  } else if (v.psg !== null) {
+    s = fmPsgOperator(v, frame, offset);
   } else {
     const frames = offset === 0 ? 0 : offset * fmCycleFrames(v);
     s = fetchTrackerSample(eng, v, inst, interpMode, frames);
@@ -11665,6 +12484,7 @@ function advanceAutoVibrato(voice, inst) {
 
 
 
+
 /**
  * Scratch out-box for triggerNote: [notePan, noteElevation, present] as the
  * INSTRUMENT left them for the trigger just run — `present` is 0 when the
@@ -11692,9 +12512,10 @@ function applyActiveSample(voice, inst, patch) {
     voice.activeSamplePlayStart = inst.samplePlayStart;
     voice.activeSampleLoopStart = inst.sampleLoopStart;
     voice.activeSampleLoopEnd = inst.sampleLoopEnd;
-    // An OPL instrument's rate is its C2SPD, and a record that leaves it 0 plays at
-    // the tracker convention (§7.7) — the pitch has to come from somewhere.
-    voice.activeSamplingRate = inst.opl !== null && inst.samplingRate === 0
+    // An OPL or PSG instrument's rate is its C2SPD, and a record that leaves it
+    // 0 plays at the tracker convention (§7.7, §7.9) — the pitch has to come
+    // from somewhere.
+    voice.activeSamplingRate = inst.chipPatch !== null && inst.samplingRate === 0
       ? OPL_C4_RATE : inst.samplingRate;
     voice.activeSampleDetune = inst.sampleDetuneSigned;
     voice.activeLoopMode = inst.loopMode;
@@ -12191,6 +13012,9 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // anything below marks the voice active.
   const oplCarry = voice.oplCarry && voice.active && voice.opl !== null;
   voice.oplCarry = false;
+  // …and a PSG pair handed over the same way keeps its envelopes too.
+  const psgCarry = voice.psgCarry && voice.active && voice.psg !== null;
+  voice.psgCarry = false;
   if (instId !== 0) voice.instrumentId = instId;
   const inst = eng.instruments[voice.instrumentId];
   // Resolve the Ixmp patch for this trigger (volume axis = pre-patch seed).
@@ -12253,10 +13077,10 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   voice.rampOutSamples = 0;
   voice.rampOutGain = 0.0;
   // Arm the Attack fade-in (item 139); see constants.js ATTACK_RAMP_SAMPLES.
-  // Not on an OPL voice: its attack IS the chip's envelope, which starts from
-  // silence on a fresh channel and from where it stood on a carried one — a
-  // fade on top would soften every attack-rate-15 patch the chip plays hard.
-  voice.attackRampSamples = inst.opl !== null ? 0 : ATTACK_RAMP_SAMPLES;
+  // Not on an OPL or PSG voice: its attack IS the chip's envelope, which starts
+  // from silence on a fresh channel and from where it stood on a carried one —
+  // a fade on top would soften every attack-rate-15 patch the chip plays hard.
+  voice.attackRampSamples = inst.chipPatch !== null ? 0 : ATTACK_RAMP_SAMPLES;
   voice.autoVibPhase = 0;
   voice.autoVibTicksSinceTrigger = 0;
   voice.nesDpcmCounter = 63;
@@ -12397,12 +13221,22 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   } else {
     voice.opl = null;
   }
+  // The PSG pair (§7.9): keyed on here, carried or fresh, the voice object's
+  // own state reused — which is what keeps an oscillator's internal status
+  // (phase, noise, auto-advance) from note to note on the lane, unless its X
+  // flag resets it at this key-on (psg.js psgKeyOn).
+  if (inst.psg !== null) {
+    if (voice.psg === null) voice.psg = new PsgState();
+    psgKeyOn(voice.psg, inst.psg, psgCarry);
+  } else {
+    voice.psg = null;
+  }
   // A formant instrument (item 212): every trigger is a fresh syllable, onset
   // and all. The voice object's previous state is reused — a ghost took a copy.
   if (inst.formant !== null) {
     if (voice.formant === null) voice.formant = new FormantState();
     formantNoteOn(voice.formant, inst.formant);
-    formantKeySource(voice.formant, formantChip !== null ? formantChip.opl : null);
+    formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;
   }
@@ -12586,6 +13420,12 @@ function maybeSpawnBackgroundForNNA(eng, ts, voice, channel, incomingInst = 0) {
     voice.oplCarry = true;
     return;
   }
+  if (nna === 1 && voice.psg !== null && voice.fmRig === null &&
+      eng.instruments[incomingInst !== 0 ? incomingInst : voice.instrumentId].isPsg) {
+    // A PSG note cut by a PSG note re-keys the same pair, as OPL does (§5.5.4).
+    voice.psgCarry = true;
+    return;
+  }
   if (nna === 1) {
     // Note Cut. The voice is about to be REUSED for the new note, so "cut" used
     // to mean dropping the old one wherever its waveform happened to be — a step
@@ -12763,6 +13603,7 @@ function ghostVoice(src, channel) {
   // takes a copy, clock and envelopes and all, and the lane keeps its own to
   // re-key for the next note.
   v.opl = src.opl !== null ? cloneOplState(src.opl) : null;
+  v.psg = src.psg !== null ? clonePsgState(src.psg) : null;
   // The ghost of a voice sounding a formant instrument is the syllable it was
   // saying: a released one goes
   // on into its coda in the background (formant.js reads the ghost's key-off).
@@ -12903,6 +13744,7 @@ function rowSlidesSpatially(row) {
 // applyEffectRow (3216), applySEffect (3538), forEachLayerTarget (3633),
 // applyFilterParamEffect (3650), applyRetrigVolMod (4090).
 // Behavioural contract: TAUD_NOTE_EFFECTS.md; implementation truth: the Kotlin.
+
 
 
 
@@ -13391,9 +14233,14 @@ function applySEffect(eng, ts, voice, vi, arg) {
     case 0xa:
       // S $Afgr — on a voice sounding a formant instrument (item 212), the vowel: openness f,
       // frontness g, roundness r. The note's whole tract hears it, layer
-      // children included; on any other instrument it does nothing.
+      // children included.
+      // S $Axxx — on a voice sounding a PSG instrument (§7.9), a register
+      // write into that INSTRUMENT's run-time overlay: auto-advance, level,
+      // mute. It lasts across notes until the next playback, as invert loop's
+      // mask does. On any other instrument it does nothing.
       forEachLayerTarget(ts, voice, vi, (v) => {
         if (v.formant !== null) formantSetVowel(v.formant, x, (arg >>> 4) & 0xf, arg & 0xf);
+        else if (v.psg !== null && v.psg.patch !== null) psgWriteRegister(v.psg.patch, arg & 0xfff);
       });
       break;
     case 0x8:
@@ -13631,6 +14478,7 @@ function applyRetrigVolMod(vol, x, step = 1, max = 0x3f) {
 // ══ core/engine/row.js ══
 // Row processing + cue advance — port of AudioAdapter.kt applyTrackerRow (2948),
 // advanceTrackerCue (4101), resetPatternLoopState (4117), advanceRow (4343).
+
 
 
 
@@ -14019,6 +14867,17 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   } else {
     voice.opl = null;
   }
+  // A PSG pair takes a new patch the same way, its internal status kept.
+  if (newInst.psg !== null && voice.psg !== null) {
+    voice.psg.patch = newInst.psg;
+    voice.psg.gen = -1;
+    if (reAttack) psgReattack(voice.psg);
+  } else if (newInst.psg !== null) {
+    voice.psg = new PsgState();
+    psgKeyOn(voice.psg, newInst.psg, false);
+  } else {
+    voice.psg = null;
+  }
   // A voice sounding a formant instrument (item 212) keeps saying its syllable under the new record's
   // tract (formantRelatch); a sampled note handed one starts its tract at the
   // vowel, since the note's onset is long past. Neither replays an onset — the
@@ -14027,11 +14886,11 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   // stands (formantRelatchSource).
   if (newInst.formant !== null && voice.formant !== null) {
     formantRelatch(voice.formant, newInst.formant);
-    formantRelatchSource(voice.formant, formantChip !== null ? formantChip.opl : null);
+    formantRelatchSource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else if (newInst.formant !== null) {
     voice.formant = new FormantState();
     formantStartAtVowel(voice.formant, newInst.formant);
-    formantKeySource(voice.formant, formantChip !== null ? formantChip.opl : null);
+    formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;
   }
@@ -14211,6 +15070,7 @@ function advanceRowPosition(eng, ts, playhead) {
 // binding MUST be re-fetched — triggerNote may have swapped the voice's
 // instrument, and the rest of the tick (playback-rate recompute, envelopes,
 // fadeout) must see the instrument that just fired (AudioAdapter.kt:3727-3733).
+
 
 
 
@@ -14698,6 +15558,11 @@ function applyTrackerTick(eng, ts, playhead) {
     }
   }
 
+  // PSG waveform auto-advance (§5.5.4): the tick's first quarter. The mixer
+  // runs the other three at their own frames.
+  ts.psgQuarter = 0;
+  psgQuarterPass(ts);
+
   // Invert loop (S $F0xx) — advance the per-instrument XOR mask (PT2 updateFunk).
   for (const voice of ts.voices) {
     if (voice.invertSpeed === 0 || !voice.active) continue;
@@ -15115,6 +15980,29 @@ function stepExtendedModOnce(ts, voice, inst, g, sampleLen) {
  * cleared. What Q's retrigger does to a voice — and, since a metainstrument is
  * one note, to each of its layer children as well (item 154).
  */
+/**
+ * One quarter tick of every sounding PSG pair's auto-advance — a lane's, a
+ * ghost's, an FM operator's (§5.5.4). Quarter 0 is the tick pass's; quarters
+ * 1…3 are the mixer's, at the frames a quarter of the tick apart, and the
+ * chase's, straight after each tick it walks.
+ */
+function psgQuarterPass(ts) {
+  for (const voice of ts.voices) {
+    if (voice.psg !== null && voice.active) psgQuarterTick(voice.psg);
+  }
+  for (const voice of ts.backgroundVoices) {
+    if (voice.psg !== null && voice.active) psgQuarterTick(voice.psg);
+  }
+}
+
+/** Whether any voice of the playhead is sounding a PSG pair: the mixer cuts
+ *  its spans at quarter ticks only then, so nothing else renders differently. */
+function psgLive(ts) {
+  for (const voice of ts.voices) if (voice.psg !== null && voice.active) return true;
+  for (const voice of ts.backgroundVoices) if (voice.psg !== null && voice.active) return true;
+  return false;
+}
+
 function restartVoice(v) {
   v.samplePos = v.activeSamplePlayStart; // patch-aware
   v.keyOff = false;
@@ -15144,6 +16032,9 @@ function restartVoice(v) {
   // An OPL channel restarts the way the chip re-keys one: the attack begins
   // from wherever each envelope stands, the phase from zero (§5.5.2).
   if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, true);
+  // …and a PSG pair the same way; an oscillator with its X flag set restarts
+  // its internal status here too, as at any key-on (§5.5.4).
+  if (v.psg !== null && v.psg.patch !== null) psgKeyOn(v.psg, v.psg.patch, true);
   // A voice sounding a formant instrument says its syllable again (item 212).
   if (v.formant !== null) formantRestart(v.formant);
 }
@@ -15185,6 +16076,9 @@ function chaseRow(eng, ts, playhead) {
   applyTrackerRow(eng, ts, playhead);
   do {
     applyTrackerTick(eng, ts, playhead);
+    // The tick's other three PSG quarters, which the mixer would have run.
+    for (let q = 1; q <= 3; q++) psgQuarterPass(ts);
+    ts.psgQuarter = 3;
     ts.tickInRow++;
   } while (ts.tickInRow < playhead.tickRate + ts.finePatternDelayExtra);
   ts.tickInRow = 0;
@@ -15283,6 +16177,8 @@ function chaseCueOrder(eng, ts, playhead, cue, row) {
 
 
 
+
+
 const fround = Math.fround;
 
 /** Scratch pair for fetchTrackerSampleStereo — one voice is mixed at a time. */
@@ -15324,6 +16220,16 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
   if (voice.opl !== null) {
     const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
       renderOplVoice(voice, ts.oplFrame + n)));
+    out[0] = s;
+    out[1] = s;
+    return out;
+  }
+  // A PSG pair (§7.9) on the same chip clock. Unlike OPL it leaves the note
+  // volume to the gain chain below, as a sample does: its multiplying mix
+  // would otherwise square it.
+  if (voice.psg !== null) {
+    const s = applyTaudVoiceFx(voice, applyVoiceFilter(voice,
+      renderPsgVoice(voice, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
     return out;
@@ -15744,6 +16650,16 @@ function generateTrackerAudio(eng, playhead, out) {
         applyTrackerTick(eng, ts, playhead);
       }
     }
+    // ── PSG quarter ticks (§5.5.4) ──
+    // The auto-advance counts in quarter ticks: the tick pass ran the first,
+    // and a span that reaches a later quarter's frame starts there, so each
+    // runs at its own frame. Only while a PSG pair sounds — otherwise spans
+    // are cut exactly as they always were.
+    const quarters = psgLive(ts);
+    if (quarters) {
+      const q = psgQuarterAt(ts.samplesIntoTick, sptFirst);
+      while (ts.psgQuarter < q) { ts.psgQuarter++; psgQuarterPass(ts); }
+    }
     // ── …and the span runs until the frame whose clock will fire next ──
     // The same `+= 1.0` per frame the clock always took, so the counter lands
     // where it always did; the firing frame is left for the next span's top.
@@ -15752,6 +16668,7 @@ function generateTrackerAudio(eng, playhead, out) {
     while (n1 < TRACKER_CHUNK) {
       const next = ts.samplesIntoTick + 1.0;
       if (next >= sptRest) break;
+      if (quarters && psgQuarterAt(next, sptRest) > ts.psgQuarter) break;
       ts.samplesIntoTick = next;
       n1++;
     }
@@ -15908,6 +16825,7 @@ function generateTrackerAudio(eng, playhead, out) {
 //    playback addresses the 8 MB pool directly (as the Kotlin engine does).
 //  - Voice-index clamps mirror the delegate exactly (readbacks clamp to
 //    NUM_VOICES-1; jamNote to MAX_VOICES-1).
+
 
 
 
@@ -16662,6 +17580,38 @@ class TaudEngine {
       // for the Samples view's overlay — same idea as SNAP_V_FUNK_POS/LEN
       // above, but this state is the INSTRUMENT's, not a voice's.
       modFunkWalk: inst.modFunkWalk, modFunkPos: inst.modFunkPos, modFunkLen: inst.modFunkLen,
+    };
+  }
+
+  /**
+   * A PSG instrument's live state (§7.9), for the PSG tab's playback display,
+   * or null for any other instrument: the S $Axxx overlay (each field −1 while
+   * the record's own value stands) and the waveform each oscillator is playing
+   * now on the first sounding voice of it — a lane's before a ghost's — which
+   * the auto-advance moves; null when nothing is sounding it.
+   */
+  getInstrumentPsgState(slot) {
+    const patch = this.instruments[slot & 0x3ff].psg;
+    if (patch === null) return null;
+    let wave = null;
+    for (const p of this.playheads) {
+      const ts = p.trackerState;
+      if (ts === null || ts === undefined || wave !== null) continue;
+      for (const list of [ts.voices, ts.backgroundVoices]) {
+        for (const v of list) {
+          if (v.active && v.psg !== null && v.psg.patch === patch) {
+            wave = [psgCurrentWave(v.psg, 0), psgCurrentWave(v.psg, 1)];
+            break;
+          }
+        }
+        if (wave !== null) break;
+      }
+    }
+    return {
+      rtAdvance: [patch.rtAdvance[0], patch.rtAdvance[1]],
+      rtLevel: [patch.rtLevel[0], patch.rtLevel[1]],
+      rtMute: patch.rtMute,
+      wave,
     };
   }
 
