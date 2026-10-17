@@ -175,7 +175,7 @@ export const SOP_SONG_RHYTHM = makeSop({
  * A four-operator instrument on two tracks: track 0 is joined to four operators
  * by the channel-mode table, track 1 merely selects the type-0 instrument, which
  * Note plays as its first operator pair alone (§3.3). The two halves' CNT bits
- * are 0 and 1, which is the connection `1 → 2 → 3, and 4`.
+ * are 0 and 1, which is the connection `1 → 2, and 3 → 4`.
  */
 export const SOP_SONG_4OP = makeSop({
   title: "SOP WIDE",

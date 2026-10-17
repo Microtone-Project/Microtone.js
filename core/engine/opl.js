@@ -401,14 +401,17 @@ export function encodeOplPatch({
  * Which operators reach the output — the ones a driver scales by channel
  * volume (ENGINE_SPEC §4, §10 of the IMS library), and the ones the note
  * volume reaches here. A melodic pair: the carrier, and the modulator too when
- * additive. Four operators: the reading of each half's CNT bit as "this half's
- * first operator goes straight out", plus operator 4 always. A rhythm drum:
+ * additive. Four operators: operator 4 always, operator 1 when CNT A is set,
+ * and the other pair's last operator when CNT B is — operator 2 when CNT A is
+ * clear, operator 3 when it is set (the YMF262 data sheet's four connection
+ * figures, catalogue 4MF262A6, p. 13). A rhythm drum:
  * its one operator, or the bass drum's carrier (and modulator when additive).
  */
 export function oplOutputMask(kind, cntA, cntB) {
   switch (kind) {
     case OPL_KIND_2OP: case OPL_KIND_BD: return cntA ? 0b11 : 0b10;
-    case OPL_KIND_4OP: return 0b1000 | (cntA ? 0b0001 : 0) | (cntB ? 0b0100 : 0);
+    case OPL_KIND_4OP:
+      return 0b1000 | (cntA ? 0b0001 : 0) | (cntB ? (cntA ? 0b0100 : 0b0010) : 0);
     case OPL_KIND_SD: case OPL_KIND_TOM: case OPL_KIND_TC: case OPL_KIND_HH: return 0b1;
     default: return 0;
   }
@@ -717,7 +720,9 @@ function feedbackOf(st, fb) {
  * The chip's next sample for this channel, at chip clock `k`. Mirrors the
  * reference core's #twoOp / #fourOp / #generateRhythm for one channel, the
  * per-sample LFO values included; the integer it returns is the channel's
- * contribution to the chip's accumulator (a drum's already doubled).
+ * contribution to the chip's accumulator (a drum's already doubled). The four
+ * four-operator connections are the YMF262 data sheet's (catalogue 4MF262A6,
+ * p. 13): CNT A 0, CNT B 1 is OP1 → OP2 plus OP3 → OP4.
  */
 export function oplChipStep(st, k) {
   const patch = st.patch;
@@ -744,17 +749,21 @@ export function oplChipStep(st, k) {
     }
     case OPL_KIND_4OP: {
       for (let i = 0; i < 4; i++) oplAdvanceEnvelope(st, i, ops[i], k);
-      const x1 = ops[1].am ? trem : 0;
+      const x1 = (ops[1].am ? trem : 0) + ((outputs & 2) !== 0 ? va : 0);
       const x2 = (ops[2].am ? trem : 0) + ((outputs & 4) !== 0 ? va : 0);
       const x3 = (ops[3].am ? trem : 0) + va;
+      const p1 = (outputs & 2) !== 0 ? pm : 0;
       const p2 = (outputs & 4) !== 0 ? pm : 0;
       const o1 = operate(st, 0, ops[0], feedbackOf(st, patch.feedback) + p0, x0, vibrato);
       if (!patch.cntA) {
-        const o2 = operate(st, 1, ops[1], o1, x1, vibrato);
-        const o3 = operate(st, 2, ops[2], o2 + p2, x2, vibrato);
-        return patch.cntB
-          ? o3 + operate(st, 3, ops[3], pm, x3, vibrato)
-          : operate(st, 3, ops[3], o3 + pm, x3, vibrato);
+        const o2 = operate(st, 1, ops[1], o1 + p1, x1, vibrato);
+        if (patch.cntB) {
+          // Two pairs side by side: 1 → 2, and 3 → 4.
+          const o3 = operate(st, 2, ops[2], 0, x2, vibrato);
+          return o2 + operate(st, 3, ops[3], o3 + pm, x3, vibrato);
+        }
+        const o3 = operate(st, 2, ops[2], o2, x2, vibrato);
+        return operate(st, 3, ops[3], o3 + pm, x3, vibrato);
       }
       const o2 = operate(st, 1, ops[1], 0, x1, vibrato);
       const o3 = operate(st, 2, ops[2], o2 + p2, x2, vibrato);

@@ -164,8 +164,12 @@ test("key-scale level is halved in envelope units, as the chip does it", () => {
 test("which operators take the note volume", () => {
   assert.equal(O.oplOutputMask(O.OPL_KIND_2OP, 0, 0), 0b10, "FM: the carrier");
   assert.equal(O.oplOutputMask(O.OPL_KIND_2OP, 1, 0), 0b11, "additive: both");
-  assert.equal(O.oplOutputMask(O.OPL_KIND_4OP, 0, 0), 0b1000);
-  assert.equal(O.oplOutputMask(O.OPL_KIND_4OP, 1, 1), 0b1101);
+  // Four operators, by (CNT A, CNT B): the YMF262 data sheet's figures
+  // (catalogue 4MF262A6, p. 13) send these operators to OUT.
+  assert.equal(O.oplOutputMask(O.OPL_KIND_4OP, 0, 0), 0b1000, "4");
+  assert.equal(O.oplOutputMask(O.OPL_KIND_4OP, 0, 1), 0b1010, "2 and 4");
+  assert.equal(O.oplOutputMask(O.OPL_KIND_4OP, 1, 0), 0b1001, "1 and 4");
+  assert.equal(O.oplOutputMask(O.OPL_KIND_4OP, 1, 1), 0b1101, "1, 3 and 4");
   assert.equal(O.oplOutputMask(O.OPL_KIND_HH, 0, 0), 0b1);
 });
 
@@ -308,7 +312,7 @@ function writeOp(chip, off, o) {
   chip.write(0xe0 + off, o.ws);
 }
 /** Run our channel for `n` chip samples from a cold key-on, keying off at `off`. */
-function ours(patch, fnum, block, n, off, noise = 1) {
+function ours(patch, fnum, block, n, off, noise = 1, raw = false) {
   const st = new O.OplState();
   O.oplKeyOn(st, O.decodeOplPatch(O.encodeOplPatch(patch)), false);
   const hz = (fnum * O.OPL_RATE) / (1 << (20 - block));
@@ -320,11 +324,33 @@ function ours(patch, fnum, block, n, off, noise = 1) {
   const out = new Float32Array(n);
   for (let k = 0; k < n; k++) {
     if (k === off) O.oplKeyOff(st);
-    out[k] = Math.fround(O.oplChipStep(st, k) / 16384);
+    const v = O.oplChipStep(st, k);
+    out[k] = raw ? v : Math.fround(v / 16384);
   }
   return out;
 }
 const firstMismatch = (a, b) => a.findIndex((x, i) => x !== b[i]);
+
+test("CNT A 0, CNT B 1 is two FM pairs side by side, as the YMF262 data sheet draws it", () => {
+  // Catalogue 4MF262A6, p. 13: OP1 → OP2 and OP3 → OP4, the two summed at OUT.
+  // So the four-operator channel is, integer for integer, a two-operator FM
+  // channel on operators 1 and 2 (with the feedback) plus one on 3 and 4.
+  const rnd = lcg(4262);
+  for (let trial = 0; trial < 8; trial++) {
+    const ops = Array.from({ length: 4 }, () => randomOp(rnd));
+    const fb = rnd() & 7, block = 1 + (rnd() % 6), fnum = 512 + (rnd() % 512);
+    const N = 6000, OFF = 4000;
+    const four = ours({ kind: O.OPL_KIND_4OP, feedback: fb, cntA: 0, cntB: 1, ops },
+      fnum, block, N, OFF, 1, true);
+    const a = ours({ kind: O.OPL_KIND_2OP, feedback: fb, cntA: 0, ops: ops.slice(0, 2) },
+      fnum, block, N, OFF, 1, true);
+    const b = ours({ kind: O.OPL_KIND_2OP, feedback: 0, cntA: 0, ops: ops.slice(2) },
+      fnum, block, N, OFF, 1, true);
+    const sum = a.map((x, i) => x + b[i]);
+    assert.equal(firstMismatch(four, sum), -1, `trial ${trial}`);
+    assert.ok(four.some((x) => x !== 0), `trial ${trial} renders sound`);
+  }
+});
 
 test("two- and four-operator channels match the reference core bit for bit",
   { skip: !haveRef && "iyagimusic-js is not beside this repository" }, async () => {

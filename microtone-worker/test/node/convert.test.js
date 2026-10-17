@@ -1580,7 +1580,7 @@ test("sop2taud: a four-operator instrument becomes a four-operator OPL instrumen
   assert.notEqual(wide, narrow, "one instrument, played two ways, is two voices");
   assert.equal(wide.opl.kind, OPL_KIND_4OP);
   assert.equal(narrow.opl.kind, OPL_KIND_2OP);
-  // The two halves' CNT bits, 0 and 1: `1 → 2 → 3, and 4`.
+  // The two halves' CNT bits, 0 and 1: `1 → 2, and 3 → 4`.
   assert.deepEqual([wide.opl.cntA, wide.opl.cntB], [0, 1]);
   assert.equal(wide.opl.feedback, 3);
   assert.equal(wide.opl.ops[3].ws, 5, "an OPL3 waveform, kept");
