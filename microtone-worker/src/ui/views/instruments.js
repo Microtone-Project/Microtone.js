@@ -125,8 +125,8 @@ function roleTabDef(inst, wantFilter) {
 }
 
 /**
- * An OPL instrument's second slot holds its patch (TAUD_FILE_FORMAT §7.7) and a
- * formant instrument's its tract (§7.8), so either has ONE pitch/filter
+ * An OPL instrument's second slot holds its patch (TAUD_FILE_FORMAT §7.8) and a
+ * formant instrument's its tract (§7.6), so either has ONE pitch/filter
  * envelope, and which of the two it is is the slot's own `m` bit. The editor
  * shows it as one Pitch/Filter tab with that bit as a switch at its top,
  * rather than two tabs both editing the same envelope.
@@ -2047,7 +2047,7 @@ export class InstrumentsView {
    * An algorithm mid-edit does not always verify, and a rack that does not
    * verify has no business in the document: the File Format's validity
    * checklist (§10) says a writer never produces one, the engine silences it
-   * (§7.6 "a reader MUST verify"), and a record it cannot decode reads back as
+   * (§7.7 "a reader MUST verify"), and a record it cannot decode reads back as
    * NO algorithm at all — which is how an unfinished edit used to take the
    * whole patch with it. So it is held HERE instead, painted red with a banner
    * over it, and the document keeps the last rack that worked (and keeps

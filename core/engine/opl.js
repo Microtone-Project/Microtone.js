@@ -4,7 +4,7 @@
 // New Note Action, Duplicate Check, default volume and pan, auto-vibrato, the
 // one pitch/filter envelope it keeps — whose sample is replaced by a patch for
 // a YM3812 / YMF262 channel: two operators, four, or one of the five rhythm-
-// mode drums (TAUD_FILE_FORMAT.md §7.7). This module is that channel, one per
+// mode drums (TAUD_FILE_FORMAT.md §7.8). This module is that channel, one per
 // sounding voice.
 //
 // The operator model is the IMS Archive's clean-room OPL core (iyagimusic-js
@@ -68,7 +68,7 @@ const HZ_PER_SPS = LINEAR_FREQ_C4_HZ / OPL_C4_RATE;
 
 // ── The record ────────────────────────────────────────────────────────────
 // The patch occupies what an ordinary record spends on its SECOND pitch/
-// filter envelope slot, bytes 197…250 (§7.7). Offsets below are relative to
+// filter envelope slot, bytes 197…250 (§7.8). Offsets below are relative to
 // OPL_BLOCK_START.
 
 export const OPL_BLOCK_START = 197;

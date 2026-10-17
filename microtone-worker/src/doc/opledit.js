@@ -1,5 +1,5 @@
 // OPL instrument editing (item 209) — the patch of a type-8 instrument as fields,
-// and the record bytes that carry them (TAUD_FILE_FORMAT §7.7).
+// and the record bytes that carry them (TAUD_FILE_FORMAT §7.8).
 //
 // A type-8 record is an ordinary instrument record, so everything but the patch
 // is edited the ordinary way; the patch lives in bytes 197…250 and is edited as

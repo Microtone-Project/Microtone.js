@@ -1,6 +1,6 @@
 // FM operator racks — Metainstrument type 4 (item 159). No Kotlin counterpart
 // yet: this is a Microtone-first format extension, specified in
-// TAUD_FILE_FORMAT.md §7.6 and TAUD_ENGINE_SPEC.md §5.5.1.
+// TAUD_FILE_FORMAT.md §7.7 and TAUD_ENGINE_SPEC.md §5.5.1.
 //
 // A layered metainstrument (type 0) is `n` instruments sounding side by side.
 // A type-4 rack is the opposite arrangement: the same 10-byte table, but its

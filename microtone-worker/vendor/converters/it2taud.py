@@ -1801,7 +1801,7 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
 # ── OPL samples ───────────────────────────────────────────────────────────────
 
 #: How far an OPL voice sits under a sample in OpenMPT, as the record's initial
-#: attenuation octet (TAUD_FILE_FORMAT §7.5).  Measured with openmpt123
+#: attenuation octet (TAUD_FILE_FORMAT §7.10).  Measured with openmpt123
 #: (2026-10-14): in an IT-structured file a full-volume OPL sine is 2.90 dB
 #: under a full-scale square sample, both centred — OpenMPT's `VSTV` of 48
 #: against an S3M's 36, the 2.5 dB the two formats differ by.
@@ -2578,7 +2578,7 @@ def assemble_taud(h: ITHeader, samples: list, instruments: list,
                     taud_slot = ii + 1
                     if taud_slot >= 256: continue
                     if taud_slot in opl_tl:
-                        continue        # an OPL instrument has no keyboard map (§7.7)
+                        continue        # an OPL instrument has no keyboard map (§7.8)
                     patches = _build_it_ixmp_patches(inst, samples, extras_offsets,
                                                      extras_offsets_r)
                     if patches:

@@ -56,7 +56,7 @@ export function applyActiveSample(voice, inst, patch) {
     voice.activeSampleLoopStart = inst.sampleLoopStart;
     voice.activeSampleLoopEnd = inst.sampleLoopEnd;
     // An OPL or PSG instrument's rate is its C2SPD, and a record that leaves it
-    // 0 plays at the tracker convention (§7.7, §7.9) — the pitch has to come
+    // 0 plays at the tracker convention (§7.8, §7.9) — the pitch has to come
     // from somewhere.
     voice.activeSamplingRate = inst.chipPatch !== null && inst.samplingRate === 0
       ? OPL_C4_RATE : inst.samplingRate;
@@ -566,12 +566,12 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   if (volOverride >= 0) seedVolForLookup = narrow(volOverride);
   else if (instId !== 0) seedVolForLookup = rowVolumeFromDefault(inst, null);
   else seedVolForLookup = narrow(voice.noteVolume);
-  // An OPL instrument has no keyboard map: its sound is its one patch (§7.7);
-  // nor has a formant instrument: its sample is the one glottal source (§7.8).
+  // An OPL instrument has no keyboard map: its sound is its one patch (§7.8);
+  // nor has a formant instrument: its sample is the one glottal source (§7.6).
   // resolvePatch answers null for both.
   const patch = inst.resolvePatch(noteVal, seedVolForLookup);
   applyActiveSample(voice, inst, patch);
-  // A formant instrument sung from an OPL instrument (§7.8) takes the chip's
+  // A formant instrument sung from an OPL instrument (§7.6) takes the chip's
   // C2SPD where its sample's rate would be: the pitch is the chip's.
   const formantChip = inst.formant !== null ? formantChipSource(eng.instruments, inst) : null;
   if (formantChip !== null) voice.activeSamplingRate = formantChipRate(formantChip);

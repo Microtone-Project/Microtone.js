@@ -1,5 +1,5 @@
 // Formant instrument editing (item 212) — the tract block of a type-1 instrument as
-// fields, the record bytes that carry them (TAUD_FILE_FORMAT §7.8), and the
+// fields, the record bytes that carry them (TAUD_FILE_FORMAT §7.6), and the
 // pool spans such a record claims.
 //
 // A type-1 record is an ordinary instrument record whose sample is the glottal
@@ -189,7 +189,7 @@ export function formantSourceBytes(e, c4Rate) {
 }
 
 /**
- * …the source INSTRUMENT (§7.8): an OPL instrument whose voice is sung in
+ * …the source INSTRUMENT (§7.6): an OPL instrument whose voice is sung in
  * place of the sample, or 0 for the sample. It lives in the header — byte 1,
  * and byte 0's two low bits under the type nibble — so the sample's own fields
  * are left as they are, and setting it back to 0 sings the sample again.

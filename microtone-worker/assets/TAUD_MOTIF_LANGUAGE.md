@@ -285,7 +285,7 @@ Every instrument also takes:
 |---|---|---|
 | `name` | the soundfont's or pack's name; else the instrument's own | The instrument's name in the project |
 | `retune` | `true` for soundfont presets and layers, `false` otherwise | Whether the song's `retune` measures this instrument — drums and noises are better left out, and a waveform is in tune already |
-| `layer_gain` | — | (A layered preset from a soundfont or a pack.) Decibels applied to every one of its layers, as the layer-mix octet that comes nearest (TAUD_FILE_FORMAT.md §7.5) |
+| `layer_gain` | — | (A layered preset from a soundfont or a pack.) Decibels applied to every one of its layers, as the layer-mix octet that comes nearest (TAUD_FILE_FORMAT.md §7.10) |
 | `keep_layers` | all | (The same.) Which of its layers to keep, numbered from 0; the others are removed |
 | `min_fadeout` | — | Every zone fades out at least this fast (in the engine's fadeout units, which a soundfont's release becomes at the song's tempo) |
 | `fadeout` | — | Every layer and zone fades out at exactly this rate |
@@ -293,7 +293,7 @@ Every instrument also takes:
 | `envelope` | — | (A waveform.) Its volume envelope: up to 25 `[seconds, volume]` points, volume 0–63, the last held; at most 15.75 s between two points |
 | `sustain` | — | (A waveform with an envelope.) The point it holds while the key is down (`sustain: 1`), or a range of points it loops through (`sustain: 1..3`) |
 | `percussion` | `false` | (Layers or an FM rack.) Marks the instrument as percussion |
-| `strict` | `false` | (Layers.) Strict layering: a layer whose own zones do not cover a note stays silent for it, rather than falling back to its base sample (TAUD_FILE_FORMAT.md §7.4) |
+| `strict` | `false` | (Layers.) Strict layering: a layer whose own zones do not cover a note stays silent for it, rather than falling back to its base sample (TAUD_FILE_FORMAT.md §7.5) |
 
 **Layers.** Each layer is a record:
 
@@ -318,7 +318,7 @@ A layer over a layered instrument stands in for all of that instrument's layers 
 | `detune` | 0 | Added to the ratio, in cents |
 | `notes`, `vols` | everything | The pitches and volumes it plays for; outside them it is silent (key scaling, velocity-switched brightness) |
 
-The algorithm is written the way the Instruments view's FM tab reads one back: `0` is operator 0 free-running; `0[1]` is operator 0 with its phase modulated by operator 1, so `0[1[2]]` is a chain of three; `1'` is what operator 1 put out one sample before (a feedback tap, so `0[0']` is operator 0 feeding back into itself); `a + b` mixes, `a * b` ring-modulates, `-a` inverts, and parentheses group. Without one, the rack is a chain: the last operator into the one before it, all the way down to operator 0. Operator 0 is the principal — its envelope, its fadeout and its ending are the note's (TAUD_FILE_FORMAT.md §7.6). An algorithm that does not make a playable rack is an error.
+The algorithm is written the way the Instruments view's FM tab reads one back: `0` is operator 0 free-running; `0[1]` is operator 0 with its phase modulated by operator 1, so `0[1[2]]` is a chain of three; `1'` is what operator 1 put out one sample before (a feedback tap, so `0[0']` is operator 0 feeding back into itself); `a + b` mixes, `a * b` ring-modulates, `-a` inverts, and parentheses group. Without one, the rack is a chain: the last operator into the one before it, all the way down to operator 0. Operator 0 is the principal — its envelope, its fadeout and its ending are the note's (TAUD_FILE_FORMAT.md §7.7). An algorithm that does not make a playable rack is an error.
 
 **Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are written), then the instruments from packs, the waveforms and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
 

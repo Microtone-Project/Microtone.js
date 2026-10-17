@@ -291,7 +291,7 @@ export class Document {
     const kids = new Set();
     for (const s of this.usedInstrumentSlots()) {
       // A muted FM operator (index 0) is a hole in a rack, not a child — the
-      // rack keeps the row so the algorithm's numbering survives (§7.6) —
+      // rack keeps the row so the algorithm's numbering survives (§7.7) —
       // and sourceSlots leaves it out.
       const inst = this.instruments[s];
       if (inst) for (const k of inst.sourceSlots) kids.add(k);

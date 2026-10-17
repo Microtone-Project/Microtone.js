@@ -888,7 +888,7 @@ IXMP_CHAN_DISCRETE = 0       # XY stereo, 4-track quad — one channel per speak
 IXMP_CHAN_MATRIX   = 1       # M/S stereo, ambisonic B-format — decoded before panning
 
 
-# ── OPL instruments — Metainstrument type 8 (TAUD_FILE_FORMAT.md §7.7) ───────────
+# ── OPL instruments — Metainstrument type 8 (TAUD_FILE_FORMAT.md §7.8) ───────────
 #
 # An ordinary instrument record with one channel of a YM3812 / YMF262 where its
 # sample would be: the Metainstrument header in bytes 0…3, the C2SPD in the

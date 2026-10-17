@@ -144,7 +144,7 @@ const EQ_BAND = {
 };
 const camel = (k) => k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
-/** dB → the decibel octet (TAUD_FILE_FORMAT.md §7.5): $9F is unity. */
+/** dB → the decibel octet (TAUD_FILE_FORMAT.md §7.10): $9F is unity. */
 export function dbOctet(db) {
   let best = 0, bd = Infinity;
   for (let o = 1; o < 256; o++) {
@@ -613,7 +613,7 @@ export class PhraseWriter {
 for (const m of ["hit", "keyOff", "glide", "glideSpeed", "word", "clash"]) PhraseWriter.prototype[m] = Score.prototype[m];
 
 /**
- * An FM algorithm in the FM editor's own notation → its RPN words (§7.6).
+ * An FM algorithm in the FM editor's own notation → its RPN words (§7.7).
  * `0` is operator 0 free-running; `0[1]` is operator 0 phase-modulated by 1
  * (so `0[1[2]]` is a chain); `1'` is what operator 1 put out one sample ago (a
  * feedback tap, so `0[0']` is self-feedback); `a + b` mixes, `a * b`

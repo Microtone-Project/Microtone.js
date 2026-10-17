@@ -1,4 +1,4 @@
-// Metainstrument type 1 — the FORMANT INSTRUMENT (item 212; TAUD_FILE_FORMAT §7.8,
+// Metainstrument type 1 — the FORMANT INSTRUMENT (item 212; TAUD_FILE_FORMAT §7.6,
 // TAUD_ENGINE_SPEC §5.5.3).
 //
 // An ordinary instrument record whose sample is a GLOTTAL SOURCE, played
@@ -44,7 +44,7 @@ export const META_TYPE_FORMANT = 1;
 export const FORMANT_RECORD_HEADER = Object.freeze([0x10, 0x00, 0xff, 0xff]);
 
 /**
- * The SOURCE INSTRUMENT a type-1 record names in its header (§7.8): bits 0…7
+ * The SOURCE INSTRUMENT a type-1 record names in its header (§7.6): bits 0…7
  * in byte 1, bits 8…9 in byte 0's two low bits. 0 is none — the record's own
  * sample is the glottal source, as it always was. Anything else names an
  * instrument whose voice is the source instead, which has to be one of the
@@ -71,7 +71,7 @@ export function formantChipSource(instruments, inst) {
 
 /** The rate a chip source plays the part of the sample's rate at C4 with:
  *  its own C2SPD, 0 reading as the tracker convention, as on the chip
- *  instrument itself (§7.7). */
+ *  instrument itself (§7.8). */
 export function formantChipRate(src) {
   return src.samplingRate === 0 ? OPL_C4_RATE : src.samplingRate;
 }
@@ -105,7 +105,7 @@ export class FormantSlot {
     this.offset = 0;  // where in it the noise starts
     this.rate = 0;    // the rate it is read at, Hz — the recipe's speed
     this.tilt = 0;    // S8 spectral tilt: + brightens, − darkens
-    this.gain = 0;    // decibel octet (§7.5), 0 = unity
+    this.gain = 0;    // decibel octet (§7.10), 0 = unity
   }
 }
 

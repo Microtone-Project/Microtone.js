@@ -28,7 +28,7 @@ const op = (slot, mix = 159, detune = 0, lo = 0x0000, hi = 0xffff, vlo = 0, vhi 
   makeMetaLayer(slot, mix, detune, lo, hi, vlo, vhi);
 
 /** A 256-frame looping sine in `slot` — a single-cycle waveform, which is what
- *  makes the modulation index read as "cycles" the way §7.6 says it does.
+ *  makes the modulation index read as "cycles" the way §7.7 says it does.
  *  `nna` / `dct` / `dca` / `fadeout` are the voice-lifetime fields item 191 is
  *  about: on an operator 0 they are the RACK's. */
 function uploadCycle(eng, slot, ptr, { nna = 0, dct = 0, dca = 0, fadeout = 0 } = {}) {
