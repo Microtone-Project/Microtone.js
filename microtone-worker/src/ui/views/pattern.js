@@ -1047,6 +1047,12 @@ class PatternPane {
         ctx.fillStyle = C.rowBeat;
         ctx.fillRect(0, y, W, ROW_H);
       }
+      // Layers: cursor-row bar, then the block selection, then the caret — a
+      // one-row block on the cursor's row would otherwise vanish under the bar.
+      if (row === this.cursor.row) {
+        ctx.fillStyle = C.cursor;
+        ctx.fillRect(GUTTER_W, y, this.cellChars() * CHAR_W + 8, ROW_H);
+      }
       if (sb && row >= sb.r0 && row <= sb.r1) {
         ctx.fillStyle = C.sel;
         if (sb.colLo === 0 && sb.colHi >= this.lastCol()) {
@@ -1058,8 +1064,6 @@ class PatternPane {
         }
       }
       if (row === this.cursor.row) {
-        ctx.fillStyle = C.cursor;
-        ctx.fillRect(GUTTER_W, y, this.cellChars() * CHAR_W + 8, ROW_H);
         const [cpos, cw] = subCharPos(this.cursor.sub, this.cursor.nib, this.wide());
         // Amber record caret only on the active column; reference panes show
         // a plain cursor so it's clear which one edits will land in.
