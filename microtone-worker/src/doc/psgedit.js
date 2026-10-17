@@ -31,7 +31,7 @@ const FIELD_BITS = {
   vibrato: [4, PSG_OF_VIBRATO_SHIFT, 3], tremolo: [4, PSG_OF_TREMOLO_SHIFT, 3],
   invert: [4, 3, 1], reset: [4, 2, 1], eg: [4, 1, 1], ksr: [4, 0, 1],
   advance: [5, 0, 255],
-  pattern: [7, 0, 3],
+  pattern: [6, 0, 3],
 };
 
 /** The envelope fields, in the order the OPL tab shows an operator's. */

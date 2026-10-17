@@ -120,8 +120,9 @@ test("the oscillator bytes are the layout the format gives them", () => {
     wave: 0xd, ar: 0xa, dr: 0x3, sl: 0x5, rr: 0x7, mult: 0x2, ksl: 2, tl: 0x21,
     ksr: 1, eg: 1, reset: true, invert: true, tremolo: 2, vibrato: 1, advance: 0x40, pattern: 3,
   }] });
-  // 199…210 of the record are 2…13 of the block: +6 and +8…+11 reserved.
-  assert.deepEqual([...b.subarray(2, 14)], [0xda, 0x35, 0x72, 0xa1, 0x6f, 0x40, 0, 3, 0, 0, 0, 0]);
+  // 199…210 of the record are 2…13 of the block: the pattern at +6, +7…+11 reserved.
+  assert.deepEqual([...b.subarray(2, 14)], [0xda, 0x35, 0x72, 0xa1, 0x6f, 0x40, 3, 0, 0, 0, 0, 0]);
+  assert.equal(P.PSG_O_PATTERN, 6);
   assert.equal(P.PSG_OSC_BYTES, 12);
   assert.equal(P.PSG_B_OSC + P.PSG_OSC_BYTES, 14, "oscillator B starts at block 14, record 211");
   const d = P.decodePsgPatch(b).osc[0];
@@ -315,7 +316,7 @@ test("a retrigger the NNA cuts keys the SAME pair on, envelopes where they stand
   assert.equal(ts0(eng).backgroundVoices.length, 0, "no ghost");
 });
 
-test("auto-advance walks its pattern as offsets from the record's waveform, mod 8", () => {
+test("auto-advance walks its pattern as offsets among the pulses, wrapping 7 to 1", () => {
   /** The waveform after each of `steps` steps, `n` quarter ticks a step. */
   const walk = (wave, pattern, steps, n = 1) => {
     const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave, advance: n, pattern }, sq()] }));
@@ -333,16 +334,22 @@ test("auto-advance walks its pattern as offsets from the record's waveform, mod 
   assert.deepEqual(walk(1, 1, 7), [3, 5, 7, 5, 3, 1, 3], "p=1: 135753");
   assert.deepEqual(walk(1, 2, 5), [4, 7, 4, 1, 4], "p=2: 1474");
   assert.deepEqual(walk(1, 3, 4), [4, 1, 4, 1], "p=3: 14");
-  // From $4 they are offsets, wrapping mod 8 — DC included.
-  assert.deepEqual(walk(4, 0, 12), [5, 6, 7, 0, 1, 2, 1, 0, 7, 6, 5, 4]);
-  assert.deepEqual(walk(4, 1, 6), [6, 0, 2, 0, 6, 4]);
-  assert.deepEqual(walk(4, 2, 4), [7, 2, 7, 4]);
+  // From $4 they are offsets among the seven pulses, wrapping from $7 to $1:
+  // DC is no pulse width and is never stepped to.
+  assert.deepEqual(walk(4, 0, 12), [5, 6, 7, 1, 2, 3, 2, 1, 7, 6, 5, 4], "4 5 6 7 1 2 3 2 1 7 6 5");
+  assert.deepEqual(walk(4, 1, 6), [6, 1, 3, 1, 6, 4]);
+  assert.deepEqual(walk(4, 2, 4), [7, 3, 7, 4]);
   assert.deepEqual(walk(4, 3, 2), [7, 4]);
-  assert.deepEqual(walk(0, 3, 2), [3, 0], "DC advances too");
+  for (let w = 1; w <= 7; w++) {
+    for (let p = 0; p < 4; p++) {
+      for (const x of walk(w, p, 12)) assert.ok(x >= 1 && x <= 7, `pulse ${w}, pattern ${p} stays a pulse (${x})`);
+    }
+  }
+  assert.deepEqual(walk(0, 3, 2), [0, 0], "DC holds");
   // N quarter ticks a step.
   assert.deepEqual(walk(1, 0, 3, 4), [2, 3, 4], "4 quarters a step");
   // Every non-pulse waveform holds.
-  for (const w of [8, 9, 0xa, 0xd, 0xf]) assert.deepEqual(walk(w, 0, 5), [w, w, w, w, w], `wave ${w} holds`);
+  for (const w of [0, 8, 9, 0xa, 0xd, 0xf]) assert.deepEqual(walk(w, 0, 5), [w, w, w, w, w], `wave ${w} holds`);
   // A pattern changed mid-note is read at the position reached, mod its length.
   const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave: 1, advance: 1, pattern: 0 }, sq()] }));
   const st = new P.PsgState();

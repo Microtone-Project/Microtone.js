@@ -958,14 +958,14 @@ so that a mute is a no-op on the other oscillator in either model, as the format
 
 **The auto-advance** counts in **quarter ticks**. A quarter tick is a quarter of the playhead's tick: quarter `q` of a tick begins at the first frame whose position in the tick, `samples_into_tick × 4 ÷ samples_per_tick`, has reached `q`. Quarter 0 is the tick pass itself; quarters 1…3 are run by the mixer at their own frames — it ends a span of frames at a quarter's frame as it ends one at a tick's — and by a chase straight after each tick it walks, so a chased song arrives where a played one does. Spans are cut at quarters only while some voice of the playhead sounds a pair.
 
-At each quarter, every active voice sounding a pair — a lane's, a ghost's, an FM operator's — counts one per oscillator whose record waveform `w` is 0…7 and whose auto-advance `N` (the record's, or one `S $Axxx` wrote) is not 0; on reaching `N` the count resets and the oscillator's position in its pattern steps by one, mod the pattern's length. The waveform playing is
+At each quarter, every active voice sounding a pair — a lane's, a ghost's, an FM operator's — counts one per oscillator whose record waveform `w` is a pulse, 1…7, and whose auto-advance `N` (the record's, or one `S $Axxx` wrote) is not 0; on reaching `N` the count resets and the oscillator's position in its pattern steps by one, mod the pattern's length. The waveform playing is
 
 ```
-PATTERN = (1,2,3,4,5,6,7,6,5,4,3,2), (1,3,5,7,5,3), (1,4,7,4), (1,4)      by byte +7
-w'      = (w + PATTERN[p][position mod length] − 1) mod 8        for a record waveform w of 0…7
+PATTERN = (1,2,3,4,5,6,7,6,5,4,3,2), (1,3,5,7,5,3), (1,4,7,4), (1,4)      by byte +6
+w'      = ((w − 1 + PATTERN[p][position mod length] − 1) mod 7) + 1    for a record waveform w of 1…7
 ```
 
-and the record's own otherwise. `N = 0`, or a record waveform past 7, holds the count at 0. A pattern changed mid-note is read at the position the oscillator has reached, mod its own length.
+and the record's own otherwise: the walk counts among the seven pulses, wrapping from 7 to 1, since DC is no pulse width. `N = 0`, or a record waveform that is DC or past 7, holds the count at 0. A pattern changed mid-note is read at the position the oscillator has reached, mod its own length.
 
 **The note.** A trigger keys the pair on: both envelopes to ATTACK. A fresh pair starts with both at `env = 511` and anchors at its first rendered frame; a voice whose New Note Action is note cut and whose next note is a PSG instrument hands the pair over instead, envelopes where they stand and no ghost, exactly as an OPL channel is handed over ([§5.5.2](#5-5-2-type-8-opl-instruments)). Any other New Note Action ghosts the pair, internal status and all. `Q`'s retrigger keys it on with the envelopes carried; a key-off puts both in RELEASE; an instrument byte on a tone-portamento row re-attacks both without touching anything else.
 

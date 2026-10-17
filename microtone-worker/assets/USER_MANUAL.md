@@ -1727,14 +1727,16 @@ short one rings like metal. A noise follows the note it is played at.
 note plays — the sweeping-pulse sound 8-bit music makes with a duty-cycle table.
 Its speed is in quarter ticks: 4 takes a step every tick, 1 four steps a tick,
 0 is off. The pattern counts from the waveform the oscillator is set to, 1
-being that waveform and 7 six steps on (wrapping from 7 back to 0):
+being that waveform and 7 six steps on, wrapping from pulse 7 round to pulse 1 —
+DC is not a pulse width, so it is never stepped to. From pulse 4, the first
+pattern plays 4 5 6 7 1 2 3 2 1 7 6 5:
 
 - `1 2 3 4 5 6 7 6 5 4 3 2` — up six and back down, one step at a time
 - `1 3 5 7 5 3` — the same sweep two steps at a time
 - `1 4 7 4` — three steps at a time
 - `1 4` — back and forth between two
 
-Only DC and the pulses (0 to 7) advance; the other waveforms stay put.
+Only the pulses (1 to 7) advance; DC and the other waveforms stay put.
 
 **Reset on trigger.** A real chip's oscillators keep counting between notes, and
 so do these: a new note on the lane carries on from the last one's phase, noise

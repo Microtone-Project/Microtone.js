@@ -5565,14 +5565,14 @@ const PSG_B_RESERVED = 1;
  *  (211…222); 223…250 are RESERVED. */
 const PSG_B_OSC = 2;
 const PSG_OSC_BYTES = 12;
-/** Within an oscillator's twelve (+6 and +8…+11 RESERVED). */
+/** Within an oscillator's twelve (+7…+11 RESERVED). */
 const PSG_O_WAVE_AR = 0;   // 0b wwww aaaa
 const PSG_O_DR_SL = 1;     // 0b dddd ssss
 const PSG_O_RR_MULT = 2;   // 0b rrrr mmmm
 const PSG_O_KSL_TL = 3;    // 0b KK LLLLLL
 const PSG_O_FLAGS = 4;     // 0b VVTT IXsR
 const PSG_O_ADVANCE = 5;   // auto-advance period, QUARTER ticks (0 = off, 4 = a tick)
-const PSG_O_PATTERN = 7;   // 0b 0000 00pp: which auto-advance pattern
+const PSG_O_PATTERN = 6;   // 0b 0000 00pp: which auto-advance pattern
 
 const PSG_MIX_MULTIPLY = 0x01;
 const PSG_MUTE_B = 0x04;
@@ -5917,10 +5917,11 @@ function psgReattack(st) {
 }
 
 /**
- * The auto-advance's four patterns (byte +7), as OFFSETS from the record's
- * waveform: 1 is the waveform itself and 7 is six steps on, all mod 8, so a
- * record waveform of 4 walks 4 5 6 7 0 1 2 1 0 7 6 5 under pattern 0. Each
- * pattern starts at its first entry and repeats.
+ * The auto-advance's four patterns (byte +6), as OFFSETS from the record's
+ * waveform among the seven pulses: 1 is the waveform itself and 7 is six
+ * pulses on, wrapping from $7 to $1 — DC is no pulse width and is never
+ * walked to — so a record waveform of 4 walks 4 5 6 7 1 2 3 2 1 7 6 5 under
+ * pattern 0. Each pattern starts at its first entry and repeats.
  */
 const PSG_ADVANCE_PATTERNS = Object.freeze([
   Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2]),
@@ -5929,24 +5930,25 @@ const PSG_ADVANCE_PATTERNS = Object.freeze([
   Uint8Array.from([1, 4]),
 ]);
 
-/** Whether waveform `w` is one the auto-advance walks: DC or a pulse, 0…7. */
+/** Whether waveform `w` is one the auto-advance walks: a pulse, 1…7. DC and
+ *  everything past the pulses hold. */
 function psgAdvances(w) {
-  return w >= 0 && w <= PSG_WAVE_PULSE_LAST;
+  return w >= 1 && w <= PSG_WAVE_PULSE_LAST;
 }
 
 /** The waveform oscillator `i` is playing now: its record's, moved along its
- *  pattern by the auto-advance when the record's is 0…7. */
+ *  pattern by the auto-advance when the record's is a pulse. */
 function psgCurrentWave(st, i) {
   const osc = st.patch.osc[i];
   const w = osc.wave;
   if (!psgAdvances(w)) return w;
   const pat = PSG_ADVANCE_PATTERNS[osc.pattern];
-  return (w + pat[st.adv[i] % pat.length] - 1) & 7;
+  return ((w - 1 + pat[st.adv[i] % pat.length] - 1) % 7) + 1;
 }
 
 /**
  * One QUARTER tick of the auto-advance: an oscillator whose record waveform is
- * 0…7 counts one, and every `N` quarters (byte +5, 4 = once a tick) takes the
+ * a pulse, 1…7, counts one, and every `N` quarters (byte +5, 4 = once a tick) takes the
  * next step of its pattern. N is the overlay's when `S $Axxx` has written one,
  * else the record's; 0 holds. The tick pass runs the first quarter of every
  * tick and the mixer the other three at their own frames (tick.js
