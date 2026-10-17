@@ -7,7 +7,7 @@
  *  attribute on <html>.
  * ══════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,450;0,700;1,450&family=Open+Sans:ital,wdth,wght@0,75..100,300..800;1,75..100,300..800&family=Geist:wght@400..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Chivo+Mono:ital,wght@0,100..900;1,100..900&family=Open+Sans:ital,wdth,wght@0,75..100,300..800;1,75..100,300..800&family=Geist:wght@400..900&display=swap');
 
 /* ── THEME: DARK (default) — taut.js-inspired slate + amber ───────────── */
 :root,
@@ -451,7 +451,7 @@
  * glyph baseline sits off against the new font, tune GLYPH.baselineOffset
  * in src/ui/glyphs.js (live slider: test/browser/glyph-gallery.html). */
 :root {
-  --cv-font: "Roboto Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --cv-font: "Chivo Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
 }
 
 /* ── SCRIM ─────────────────────────────────────────────────────────────
@@ -1378,6 +1378,10 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 }
 .wheelable:hover { background: var(--panel-2); color: var(--fg); }
 
+#octDisp, #instDisp, #stepDisp, #posCue, #posRow, #posBpm, #posSpd {
+  font-family: "Chivo Mono", ui-monospace, monospace; /* TODO narrower font? */
+}
+
 /* UI zoom (item 198.4) — a [−] 100% [+] group beside the language button.
  * Wheelable like Oct/Inst, so the percentage itself is a control; clicking it
  * goes back to 100%. The two buttons keep the topbar's own chrome, hence
@@ -1501,7 +1505,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .meta-bar .meta-tally { margin-left: auto; font-size: 0.85rem; }
 .meta-table td { vertical-align: middle; white-space: nowrap; }
-.meta-table .idxCell { font-family: "Roboto Mono", monospace; }
+.meta-table .idxCell { font-family: "Chivo Mono", monospace; }
 .meta-table .meta-fg { color: var(--accent); margin-right: 0.2rem; }
 .meta-table .meta-link { margin-left: 0.4rem; }
 /* Note readouts are PAINTED (noteglyph.js), so they carry the song's own
@@ -1572,7 +1576,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* The expression readout. It is the thing most people will actually read, so
    it gets the monospace and the accent rather than the word list below it. */
 .fm-formula {
-  font-family: "Roboto Mono", monospace; color: var(--accent-2);
+  font-family: "Chivo Mono", monospace; color: var(--accent-2);
   overflow-x: auto; max-width: 100%;
 }
 .fm-formula.bad { color: var(--err-fg); font-style: italic; }
@@ -1594,13 +1598,13 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    is legible as "this one, earlier" rather than as another operator. */
 .fm-graph-box.tap { stroke: var(--accent-2); stroke-dasharray: 3 2; }
 .fm-graph-num {
-  fill: var(--fg); font-family: "Roboto Mono", monospace; font-size: 13px;
+  fill: var(--fg); font-family: "Chivo Mono", monospace; font-size: 13px;
 }
 .fm-graph-junction { fill: var(--panel); stroke: var(--accent-2); stroke-width: 1.5; }
 .fm-graph-sign { fill: var(--fg); font-size: 13px; }
 .fm-graph-out { fill: none; stroke: var(--dim); stroke-width: 1.5; }
 .fm-graph-outlabel {
-  fill: var(--dim); font-family: "Roboto Mono", monospace; font-size: 11px;
+  fill: var(--dim); font-family: "Chivo Mono", monospace; font-size: 11px;
 }
 
 .fm-words { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.5rem; }
@@ -1609,10 +1613,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.1rem 0.25rem; border-radius: 0.25rem;
 }
 .fm-word.bad { background: var(--err-bg); }
-.fm-word-idx { font-family: "Roboto Mono", monospace; min-width: 1.6rem; text-align: right; }
+.fm-word-idx { font-family: "Chivo Mono", monospace; min-width: 1.6rem; text-align: right; }
 .fm-word-class { min-width: 7.5rem; }
 .fm-word-arg { min-width: 9rem; }
-.fm-word-depth { font-family: "Roboto Mono", monospace; min-width: 2.4rem; }
+.fm-word-depth { font-family: "Chivo Mono", monospace; min-width: 2.4rem; }
 .fm-word .meta-act { margin-right: 0; }
 
 /* Per-row count stepper in the metainstrument picker. */
@@ -1623,7 +1627,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-picker .meta-pick-row { gap: 0.3rem; padding: 0.15rem 0.4rem; }
 .meta-picker .meta-count {
   min-width: 2.2rem; text-align: center;
-  color: var(--dim); font-family: "Roboto Mono", monospace; font-size: 0.85rem;
+  color: var(--dim); font-family: "Chivo Mono", monospace; font-size: 0.85rem;
 }
 .meta-picker .picked .meta-count { color: var(--accent); }
 .meta-picker .meta-pick-hit {
@@ -1656,7 +1660,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .meta-chord-voice { display: flex; gap: 0.6rem; align-items: baseline; }
 .meta-chord-voice .meta-chord-note {
-  font-family: "Roboto Mono", monospace; min-width: 4rem;
+  font-family: "Chivo Mono", monospace; min-width: 4rem;
   display: inline-flex; align-items: center;
 }
 /* The root row's emphasis moved to its label: the note itself is a painted
@@ -1704,7 +1708,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.15rem 0.35rem;
   font-size: 0.85rem;
 }
-.find-bar .fb-val { width: 8em; font-family: "Roboto Mono", monospace; }
+.find-bar .fb-val { width: 8em; font-family: "Chivo Mono", monospace; }
 .find-bar button { padding: 0.15rem 0.55rem; font-size: 0.85rem; }
 .find-bar .fb-step { min-width: 1.8rem; }
 /* The two readouts share the space left over, and the count is pinned to the
@@ -2069,7 +2073,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .side-row:hover { background: var(--panel-2); }
 .side-row.sel { background: var(--cv-cursor); }
-.side-row .idx { color: var(--accent); font-family: "Roboto Mono", monospace; }
+.side-row .idx { color: var(--accent); font-family: "Chivo Mono", monospace; }
 /* Play-indicator lamp (item 27/169) — brightness (--lamp, 0..1, set on the
    ROW by each view's frame(); the dot just inherits it) follows lamp.js's
    volume-driven, slewed, probabilistic-sum ballistics — see there for why.
@@ -2181,7 +2185,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border);
 }
-.inst-name-idx { color: var(--accent); font-family: "Roboto Mono", monospace; font-weight: 600; }
+.inst-name-idx { color: var(--accent); font-family: "Chivo Mono", monospace; font-weight: 600; }
 .inst-dup-btn { flex: 0 0 auto; }
 .inst-renum-btn { flex: 0 0 auto; }
 .inst-del-btn { flex: 0 0 auto; }
@@ -2258,7 +2262,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .psg-wave polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
 .psg-wave.live { border-color: var(--accent); }
 .psg-wave.live polyline { stroke: var(--accent); }
-.psg-wave-label { fill: var(--accent); font-size: 9px; font-family: "Roboto Mono", monospace; }
+.psg-wave-label { fill: var(--accent); font-size: 9px; font-family: "Chivo Mono", monospace; }
 .psg-edit .inst-field input.psg-live { color: var(--accent); border-color: var(--accent); }
 .psg-edit .inst-field input[type="checkbox"].psg-live { outline: 1px solid var(--accent); outline-offset: 1px; }
 
@@ -2450,7 +2454,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pat-input {
   width: 4.5rem;
   text-align: center;
-  font-family: "Roboto Mono", monospace;
+  font-family: "Chivo Mono", monospace;
   background: var(--panel-2);
   color: var(--accent);
   border: 1px solid var(--border);
@@ -2467,7 +2471,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0 0.1rem 0.3rem;
   font-size: 0.8rem;
 }
-.pattern-pane-hd .pane-num { color: var(--dim); font-family: "Roboto Mono", monospace; }
+.pattern-pane-hd .pane-num { color: var(--dim); font-family: "Chivo Mono", monospace; }
 .pattern-pane-hd .pat-input { width: 3.8rem; padding: 0.15rem; }
 .pattern-pane-hd .pat-name-input {
   flex: 1 1 4rem;
@@ -2486,7 +2490,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
  * data is there. */
 .pattern-pane-hd .pane-fx2 {
   flex: 0 0 auto;
-  font-family: "Roboto Mono", monospace;
+  font-family: "Chivo Mono", monospace;
   font-size: 0.75rem;
   padding: 0.05rem 0.3rem;
 }
@@ -2543,7 +2547,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-size: 0.9rem;
 }
 .import-row:hover { background: var(--panel); }
-.import-row .idx { color: var(--accent); font-family: "Roboto Mono", monospace; }
+.import-row .idx { color: var(--accent); font-family: "Chivo Mono", monospace; }
 .import-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .import-row .note { color: var(--dim); font-size: 0.78rem; }
 .import-error { color: var(--err-fg); margin: 0.4rem 0 0; }
@@ -2687,7 +2691,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pool-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
 /* Fixed height so the canvas does not jump as the pointer crosses the map. */
 .pool-hover {
-  color: var(--fg2); font-family: "Roboto Mono", monospace; font-size: 0.78rem;
+  color: var(--fg2); font-family: "Chivo Mono", monospace; font-size: 0.78rem;
   min-height: 1.2em; margin: 0.3rem 0 0;
 }
 .pool-notes { color: var(--dim); font-size: 0.82rem; margin: 0.2rem 0 0; padding-left: 1.1rem; }
@@ -2725,11 +2729,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pw-bar button { padding: 0.1rem 0.5rem; font-size: 0.8rem; }
 .pw-zoom { font-variant-numeric: tabular-nums; min-width: 9rem; }
 .pw-readout {
-  font-family: "Roboto Mono", monospace; font-size: 0.76rem; color: var(--fg2);
+  font-family: "Chivo Mono", monospace; font-size: 0.76rem; color: var(--fg2);
   flex: 1 1 12rem; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pw-sel { color: var(--accent); font-family: "Roboto Mono", monospace; font-size: 0.76rem; }
+.pw-sel { color: var(--accent); font-family: "Chivo Mono", monospace; font-size: 0.76rem; }
 /* Audition (item 175): the play/stop toggle and the loop latch beside it. */
 .pw-play { min-width: 2rem; font-size: 0.75rem; }
 .pw-play.on, .pw-bar button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
@@ -2992,7 +2996,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 
 .help-cols { display: flex; gap: 2rem; }
 .help-cols dl { flex: 1; margin: 0; }
-.help-cols dt { color: var(--accent); font-family: "Roboto Mono", monospace; margin-top: 0.4rem; }
+.help-cols dt { color: var(--accent); font-family: "Chivo Mono", monospace; margin-top: 0.4rem; }
 .help-cols dd { margin: 0 0 0 0.2rem; color: var(--dim); font-size: 0.9rem; }
 
 .proj-title {
@@ -3017,7 +3021,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.4rem 0.5rem;
-  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-family: "Chivo Mono", ui-monospace, monospace;
   font-size: 0.86rem;
   line-height: 1.45;
 }
@@ -3050,7 +3054,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* One face, one size, no synthesised bold or italic and no kerning: the
    highlighted <pre> sits under the textarea glyph for glyph. */
 .motif-gutter, .motif-hl, .motif-text {
-  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-family: "Chivo Mono", ui-monospace, monospace;
   font-size: 0.85rem;
   line-height: 1.45;
   font-synthesis: none;
@@ -3178,7 +3182,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-size: 0.85rem;
 }
 .motif-tree-row:hover { background: var(--panel-2); border-color: transparent; }
-.motif-tree-name { font-family: "Roboto Mono", ui-monospace, monospace; font-size: 0.8rem; white-space: nowrap; }
+.motif-tree-name { font-family: "Chivo Mono", ui-monospace, monospace; font-size: 0.8rem; white-space: nowrap; }
 .motif-tree-detail { color: var(--dim); font-size: 0.78rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .motif-tree-count { margin-left: auto; color: var(--dim); font-size: 0.78rem; }
 .motif-twisty {
@@ -3198,7 +3202,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .motif-calls-bar { display: flex; gap: 0.3rem; margin: 0.2rem 0.2rem 0.3rem; }
 .motif-calls-bar button { font-size: 0.8rem; }
 .motif-calls-bar button.on { border-color: var(--accent); }
-.motif-preview-table { border-collapse: collapse; margin: 0.3rem 0.2rem; font-family: "Roboto Mono", ui-monospace, monospace; font-size: 0.75rem; }
+.motif-preview-table { border-collapse: collapse; margin: 0.3rem 0.2rem; font-family: "Chivo Mono", ui-monospace, monospace; font-size: 0.75rem; }
 .motif-preview-table th { text-align: left; color: var(--dim); font-weight: 600; }
 .motif-preview-table th, .motif-preview-table td { padding: 0 0.6rem 0 0; white-space: nowrap; }
 /* on a narrow screen the panel lies over the editor rather than squeezing it */
@@ -3222,7 +3226,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .motif-msgs .motif-ok { color: var(--ok-fg); }
 .motif-msgs .motif-trace { color: var(--dim); padding-left: 1.5rem; }
 .motif-pos {
-  font-family: "Roboto Mono", monospace;
+  font-family: "Chivo Mono", monospace;
   font-size: 0.8rem;
   padding: 0 0.35rem;
   margin-right: 0.2rem;
