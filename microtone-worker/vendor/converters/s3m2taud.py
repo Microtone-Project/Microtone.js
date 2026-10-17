@@ -90,7 +90,7 @@ SIGNATURE        = b"s3m2taud/TSVM "    # 14 bytes
 # ── AdLib instruments ───────────────────────────────────────────────────────
 
 #: How far an OPL voice sits under a sample in OpenMPT, as the record's initial
-#: attenuation octet (TAUD_FILE_FORMAT §7.5).  Measured with openmpt123
+#: attenuation octet (TAUD_FILE_FORMAT §7.10).  Measured with openmpt123
 #: (2026-10-14): a full-volume AdLib sine is 5.40 dB under a full-scale square
 #: sample there (5.49 in a mono file), both centred, and 2.98 dB under it once
 #: both are converted and rendered here — so the OPL voices give up another
@@ -114,7 +114,7 @@ def opl_carrier_tl(inst) -> int:
 
 
 def opl_record(inst) -> bytes:
-    """An AdLib instrument as a Taud OPL instrument (TAUD_FILE_FORMAT §7.7)."""
+    """An AdLib instrument as a Taud OPL instrument (TAUD_FILE_FORMAT §7.8)."""
     d = inst.opl
     ops = [(d[0], d[2], d[4], d[6], d[8]), (d[1], d[3], d[5], d[7], d[9])]
     block = opl_block(OPL_KIND_2OP, ops, feedback=(d[10] >> 1) & 7, cnt_a=d[10] & 1)

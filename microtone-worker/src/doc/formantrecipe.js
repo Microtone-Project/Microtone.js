@@ -105,7 +105,7 @@ export function poolSpan(doc) {
 const pad2 = (n) => String(n).padStart(2, "0");
 
 
-/** Nearest decibel octet (TAUD_FILE_FORMAT §7.5) to a linear gain. */
+/** Nearest decibel octet (TAUD_FILE_FORMAT §7.10) to a linear gain. */
 export function gainOctet(lin) {
   let best = 159, bd = Infinity;
   for (let o = 1; o < 256; o++) {

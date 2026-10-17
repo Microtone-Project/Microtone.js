@@ -8,7 +8,7 @@ An AdLib .BNK patch is two YM3812 operators plus a connection and a feedback
 setting; a `.sop` instrument is the same thing as register bytes, or four
 operators for the YMF262's joined channels, or one of the rhythm mode's five
 drums.  A Taud type-8 Metainstrument is exactly that: an ordinary instrument
-record with one OPL channel where its sample would be (TAUD_FILE_FORMAT.md §7.7),
+record with one OPL channel where its sample would be (TAUD_FILE_FORMAT.md §7.8),
 which the engine runs as the chip runs it — its own log-sine and exponential
 tables, its envelope generator and its counter, key scaling, feedback, the
 tremolo and vibrato LFOs, the drums' phase equations — at the chip's own

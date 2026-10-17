@@ -398,7 +398,7 @@ A cue is *empty* when every lane word is `$7FFF` and both instruction words are 
 
 Each instrument occupies 256 bytes in the instrument bin. Envelopes are described by three independent regions per envelope, and the record carries two pitch-or-filter envelope slots, which is what lets a single instrument hold both.
 
-If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a value no real sample pointer can take, since the 8 MiB pool caps pointers at `$7FFFFF` — the record is a **Metainstrument** and bytes 0…3 are reinterpreted per [§7.4](#7-4-metainstrument-records). Three kinds keep this byte map for everything but their first four bytes and their second pitch/filter slot: the OPL and PSG instruments ([§7.7](#7-7-metainstrument-type-8-opl-instruments), [§7.9](#7-9-metainstrument-type-9-psg-instruments)), which have no sample, and the formant instrument ([§7.8](#7-8-metainstrument-type-1-formant-instruments)), whose sample is a glottal source.
+If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a value no real sample pointer can take, since the 8 MiB pool caps pointers at `$7FFFFF` — the record is a **Metainstrument** and bytes 0…3 are reinterpreted per [§7.4](#7-4-metainstrument-records). Three kinds keep this byte map for everything but their first four bytes and their second pitch/filter slot: the OPL and PSG instruments ([§7.8](#7-8-metainstrument-type-8-opl-instruments), [§7.9](#7-9-metainstrument-type-9-psg-instruments)), which have no sample, and the formant instrument ([§7.6](#7-6-metainstrument-type-1-formant-instruments)), whose sample is a glottal source.
 
 ### 7.1 Byte map
 
@@ -441,7 +441,7 @@ If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a va
 | 197 | `U16` | Pitch/filter envelope LOOP word, slot 2 |
 | 199 | `U16` | Pitch/filter envelope SUSTAIN word, slot 2 |
 | 201 | `U16 × 25` | Pitch/filter envelope nodes, slot 2 |
-| 251 | `U8` | Initial attenuation, as a decibel octet ([§7.5](#7-5-the-decibel-octet-table)); 0 = unity |
+| 251 | `U8` | Initial attenuation, as a decibel octet ([§7.10](#7-10-the-decibel-octet-table)); 0 = unity |
 | 252 | `U8` | Default cutoff, low bits (SoundFont mode only) |
 | 253 | `U8` | Default resonance, low bits (SoundFont mode only) |
 | 254 | `S8` | Panning elevation, ignored in stereo mode |
@@ -592,10 +592,10 @@ A **Metainstrument** is an instrument whose record carries a **table of other in
 
 | `t` | Kind | The table is | What sounds |
 |---|---|---|---|
-| 0 | **Layered** | a list of **layers** | every layer whose rectangle contains the trigger, **in parallel**, one voice each — [below](#type-0-layered) |
-| 1 | **Formant** | **absent** — the record is an ordinary instrument whose sample is a glottal source, with a vocal tract where its second pitch/filter slot would be | **one voice**: a sung syllable — [§7.8](#7-8-metainstrument-type-1-formant-instruments) |
-| 4 | **FM Rack** | an **operator rack**, with an RPN algorithm packed after it | **one voice**: the value the algorithm produces — [§7.6](#7-6-metainstrument-type-4-fm-operator-racks) |
-| 8 | **OPL** | **absent** — the record is an ordinary instrument with an OPL patch where its sample would be | **one voice**: one channel of a YM3812 / YMF262 FM chip — [§7.7](#7-7-metainstrument-type-8-opl-instruments) |
+| 0 | **Layered** | a list of **layers** | every layer whose rectangle contains the trigger, **in parallel**, one voice each — [§7.5](#7-5-metainstrument-type-0-layered-instruments) |
+| 1 | **Formant** | **absent** — the record is an ordinary instrument whose sample is a glottal source, with a vocal tract where its second pitch/filter slot would be | **one voice**: a sung syllable — [§7.6](#7-6-metainstrument-type-1-formant-instruments) |
+| 4 | **FM Rack** | an **operator rack**, with an RPN algorithm packed after it | **one voice**: the value the algorithm produces — [§7.7](#7-7-metainstrument-type-4-fm-operator-racks) |
+| 8 | **OPL** | **absent** — the record is an ordinary instrument with an OPL patch where its sample would be | **one voice**: one channel of a YM3812 / YMF262 FM chip — [§7.8](#7-8-metainstrument-type-8-opl-instruments) |
 | 9 | **PSG** | **absent** — the record is an ordinary instrument with two oscillators where its sample would be | **one voice**: two programmable-sound-generator oscillators, added or multiplied — [§7.9](#7-9-metainstrument-type-9-psg-instruments) |
 
 Every other value is **RESERVED**. A reader that does not know a type **MUST** treat the record as sounding nothing, not as type 0 — the table's *entries* have the same shape in every kind, but what they mean does not.
@@ -610,7 +610,7 @@ The nibble is split in two ranges, and the split says what a kind may name as a 
 
 Every kind of types 0…7 **MUST** be able to take every kind of types 8…13 as a source, as it takes an ordinary instrument: as a layer, as an operator, and as a formant instrument's source. Since a kind of types 8…13 names nothing, nothing it is part of can recurse. A future kind is given a type from the range that says what it is, so a reader knows which way round it can be used before it knows the kind.
 
-Types 1, 8 and 9 are the kinds with no table. Everything this section says about the header's byte 1 and about entries — the table below, the two rules after it, the Layered and rack semantics — is about the kinds that have one; a type-1 record's own layout is [§7.8](#7-8-metainstrument-type-1-formant-instruments), a type-8 record's [§7.7](#7-7-metainstrument-type-8-opl-instruments), a type-9 record's [§7.9](#7-9-metainstrument-type-9-psg-instruments).
+Types 1, 8 and 9 are the kinds with no table. Everything this section says about the header's byte 1 and about entries — the table below, the two rules after it, the Layered and rack semantics of [§7.5](#7-5-metainstrument-type-0-layered-instruments) and [§7.7](#7-7-metainstrument-type-4-fm-operator-racks) — is about the kinds that have one; a type-1 record's own layout is [§7.6](#7-6-metainstrument-type-1-formant-instruments), a type-8 record's [§7.8](#7-8-metainstrument-type-8-opl-instruments), a type-9 record's [§7.9](#7-9-metainstrument-type-9-psg-instruments).
 
 #### The header, and the table
 
@@ -622,32 +622,32 @@ Types 1, 8 and 9 are the kinds with no table. Everything this section says about
 | 3 | `U8` | Sentinel — **MUST** be `$FF` |
 | 4 | — | Entry records, 10 bytes each |
 
-Bytes 0…3 alias the base record's sample pointer, and the two `$FF` sentinels are what put `$FFFF` in its high half. In byte 0: `t` is the **type**, `P` marks the instrument as percussion, and `s` selects **strict layering** (a type-0 rule, below). Legacy files leave byte 0 as `$00`, which is why type 0 is the Layered kind.
+Bytes 0…3 alias the base record's sample pointer, and the two `$FF` sentinels are what put `$FFFF` in its high half. In byte 0: `t` is the **type**, `P` marks the instrument as percussion, and `s` selects **strict layering** (a type-0 rule, [§7.5](#7-5-metainstrument-type-0-layered-instruments)). Legacy files leave byte 0 as `$00`, which is why type 0 is the Layered kind.
 
 Each entry — a *layer* in a type-0 record, an *operator* in a type-4 one:
 
 | Offset | Type | Field |
 |---|---|---|
 | +0 | `U8` | Entry instrument index, low 8 bits |
-| +1 | `U8` | Mix volume as a decibel octet ([§7.5](#7-5-the-decibel-octet-table)) |
+| +1 | `U8` | Mix volume as a decibel octet ([§7.10](#7-10-the-decibel-octet-table)) |
 | +2 | `S16` | Sample detune, in 4096-TET units |
 | +4 | `U16` | Pitch range low (full range = `$0000`) |
 | +6 | `U16` | Pitch range high, inclusive (full range = `$FFFF`) |
 | +8 | `U8` | bits 0…5 = volume range low (0…63); bits 6…7 = entry instrument index bits 8…9 |
-| +9 | `U8` | bits 0…5 = volume range high, inclusive; bit 6 = **fixed pitch** (type 0 only, below); bit 7 **RESERVED** |
+| +9 | `U8` | bits 0…5 = volume range high, inclusive; bit 6 = **fixed pitch** (type 0 only, [§7.5](#7-5-metainstrument-type-0-layered-instruments)); bit 7 **RESERVED** |
 
 The four range fields define a rectangle over the same pitch × volume space as an Ixmp patch. An entry fires only when the trigger falls inside its rectangle, which is how key- and velocity-conditional layering — and, in a rack, velocity-switched brightness — is expressed.
 
-The two remaining fields are the ones each kind reads its own way: in a Layered record the mix octet is the layer's **mix level** and the detune is its **detune**, while in a rack they are the operator's **output level** and its **frequency ratio** ([§7.6](#7-6-metainstrument-type-4-fm-operator-racks)). The bytes are identical; the meaning is the kind's. Byte +9's bit 6 belongs to the Layered kind alone: in every other kind it is **RESERVED**, a reader **MUST** ignore it, and a writer **MUST** write 0.
+The two remaining fields are the ones each kind reads its own way: in a Layered record the mix octet is the layer's **mix level** and the detune is its **detune**, while in a rack they are the operator's **output level** and its **frequency ratio** ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)). The bytes are identical; the meaning is the kind's. Byte +9's bit 6 belongs to the Layered kind alone: in every other kind it is **RESERVED**, a reader **MUST** ignore it, and a writer **MUST** write 0.
 
 Two rules hold for **every** kind:
 
 - **Recursion is forbidden.** An entry index **MUST** resolve to an ordinary instrument in `$001`…`$3FF`, or to a kind of types 8…13. An entry pointing at any other Metainstrument, or at instrument 0, is skipped by the engine. The one exception is a kind that holds no table and so cannot recurse although it is of types 0…7: a **layer** of a type-0 record **MAY** name a type-1 instrument, and sounds it like any other. An **operator** of a type-4 rack **MUST NOT**: a formant instrument is a sound made out of a source rather than one, and the engine skips it as it skips any other Metainstrument. An operator **MAY** name a type-8 or a type-9 instrument; how a rack reads a chip channel is the engine's business ([Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md)).
 - Entry indices are 10 bits, so a Metainstrument **MAY** name instruments in the auxiliary bin (`$100`…`$3FF`), which a pattern cell cannot reach.
 
-#### Type 0 — Layered
+### 7.5 Metainstrument type 0 — layered instruments
 
-The table is a list of layers, and every layer whose rectangle contains the trigger sounds **at the same time**, each on its own voice.
+A type-0 Metainstrument is a **Layered** instrument: the first kind of the family defined in [§7.4](#7-4-metainstrument-records), and the kind every legacy Metainstrument is. Its record is the [§7.4](#7-4-metainstrument-records) header and table and nothing more. The table is a list of layers, and every layer whose rectangle contains the trigger sounds **at the same time**, each on its own voice.
 
 - Layer rectangles **MAY** overlap; that is the entire point. (Overlap within a single ordinary instrument's Ixmp patch list remains **INVALID** — layering lives here instead.)
 - The same ordinary instrument **MAY** be listed several times at different detune and mix level, which reproduces SoundFont detune stacks without spending extra instrument slots.
@@ -662,26 +662,155 @@ This is how a layer that carries a **sound** rather than a note is written: a ke
 
 **Strict layering** (byte 0, bit 0) addresses a subtle failure. A layer's rectangle is a single bounding box, but the layer instrument's own Ixmp zones may cover only part of it — a drum layer holding scattered keys has a box spanning the gaps between them. Under legacy semantics a trigger landing in such a gap still fires the layer and, matching no patch, falls through to that instrument's base sample, sounding a wrong instrument (a closed hi-hat under an open one). With strict layering the engine drops the layer for that note instead. A producer setting this bit **MUST** also place each layer instrument's canonical zone in its own Ixmp patch list, so that a non-match unambiguously means "no zone covers this trigger".
 
-### 7.5 The decibel octet table
+### 7.6 Metainstrument type 1 — formant instruments
 
-Two fields — Metainstrument layer mix volume and instrument/patch initial attenuation — encode gain as an octet on a *perceptually significant* scale rather than a linear one. Octet **159 is 0 dB (unity)**; the scale is finest near unity and coarsens outward:
+A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whose sample is a **glottal source** — the buzz a singer's vocal folds make — played through a model of the **vocal tract** that shapes it into a sung syllable: up to two consonants, a glide, a vowel that may be r-coloured, and a consonant spoken when the key is released. It is the second kind of the family defined in [§7.4](#7-4-metainstrument-records), and like the OPL and PSG kinds ([§7.8](#7-8-metainstrument-type-8-opl-instruments), [§7.9](#7-9-metainstrument-type-9-psg-instruments)) it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-1 record **is an ordinary instrument record**, field for field: its sample fields describe the source, and its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato, filter and detune all mean exactly what [§7.1](#7-1-byte-map) says.
 
-| Octet range | Step | dB at the range's edges |
+| Offset | Type | Field |
 |---|---|---|
-| 255…232 | 0.5 dB | +24 down to +12.5 |
-| 231…208 | 0.25 dB | +12 down to +6.25 |
-| 207…112 | 0.125 dB | +6 down to −5.875 |
-| 111…88 | 0.25 dB | −6 down to −11.75 |
-| 87…64 | 0.5 dB | −12 down to −23.5 |
-| 63…2 | 1 dB | −24 down to −85 |
-| 1 | — | −86 dB |
-| 0 | — | −∞ (silence) |
+| 0 | `U8` | `0b 0001_00hh` — type 1; `hh` the **source instrument**'s bits 8…9 (below). Bits 2…3 are **RESERVED** |
+| 1 | `U8` | The **source instrument**, bits 0…7: 0 for none — the sample is the source — or an OPL or PSG instrument (below) |
+| 2 | `U8` | Sentinel — **MUST** be `$FF` |
+| 3 | `U8` | Sentinel — **MUST** be `$FF` |
+| 4…14 | — | As [§7.1](#7-1-byte-map): the source's length, rate at C4, play start, loop start, loop end and flags. Its **pointer** is at byte 197 |
+| 15…196 | — | As [§7.1](#7-1-byte-map) |
+| 197…250 | — | The **tract block** (below) |
+| 251…255 | — | As [§7.1](#7-1-byte-map) |
 
-Linear amplitude is `10^(dB ÷ 20)`. **Octet 0 means unity, not silence, in the two *initial attenuation* fields** (byte 251 and the Ixmp `x` block), where it is the unset sentinel that keeps legacy files — whose reserved bytes were zero — unaffected. In the Metainstrument layer mix field, 0 is genuine silence.
+The block takes the place of the **second pitch/filter envelope slot**, as an OPL patch does, so a formant instrument has exactly one: bytes 19, 121 and 193, playing the pitch or the filter role as its `m` bit says. A formant instrument has **no Ixmp patch list**: its one source is its sample, and an `Ixmp` entry naming a type-1 instrument is **IGNORED**.
 
-### 7.6 Metainstrument type 4 — FM operator racks
+#### The source instrument
 
-A type-4 Metainstrument is an **FM Rack**: the second kind of the family defined in [§7.4](#7-4-metainstrument-records), sharing its header and its 10-byte table entry field for field. What differs is what the entries are and what follows them — they are **operators**, not layers sounding side by side, and the bytes after the table say how they feed each other. The whole rack is **one voice**.
+Bytes 0 and 1 name a **source instrument**, a 10-bit index: 0, or the record's own index, for none. When it names a type-8 or a type-9 instrument the vowel is sung from that instrument's voice instead of the sample — its patch, at its own C2SPD standing for the rate at C4 — and the sample fields are not read, though a writer **SHOULD** keep them: setting the field back to 0 sings the sample again. Any kind of types 8…13 may stand here, as it may as a layer or an operator ([§7.4](#7-4-metainstrument-records)); a reader that cannot sound the kind named, or finds anything else there — an ordinary instrument, a Metainstrument of types 0…7 — sings the sample. How the engine runs and measures a chip source is [Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md). Records written before the field existed have 0 there, which is what they always meant.
+
+The source instrument is a reference like a layer's: an editor that renumbers, deletes or copies instruments **MUST** follow it, as it follows a layer table.
+
+#### The sampled source
+
+The source's rate at C4 **MUST** be the rate at which note `$5000` sounds middle C, 261.63 Hz — for a single-cycle loop, the loop's length times 261.63. The engine reads the voice's fundamental from it to make the vowel follow the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)), so a source tuned elsewhere has formants that follow the wrong pitch. A looped source rich in overtones — a sawtooth is the textbook one — is what the tract expects. Its level and its spectrum do not matter: the engine calibrates the source by its RMS to a full-scale sawtooth's, and its filters keep the loudness of what passes through them, so no vowel and no pitch is heard louder or quieter than another. A looped source **SHOULD** play from its loop — play start = loop start: the loop is what sustains the vowel, and what comes before it, in a window of a recording, is whatever was said before.
+
+#### The tract block
+
+Offsets are from byte 197.
+
+| Offset | Type | Field |
+|---|---|---|
+| +0 | `U24` | The source's **pointer** into the pool |
+| +3 | `U8` | Vowel: **frontness** of the tongue — 0 back, 255 front |
+| +4 | `U8` | Vowel: **openness** of the tongue (its height, inverted) — 0 close, 255 open |
+| +5 | `U8` | Vowel: **roundness** of the lips — 0 spread, 255 rounded |
+| +6 | `U8` | **Size tracking**: the formants rise with the note as its (byte ÷ 256)th power. 64 is ¼; 0 holds one size at every pitch |
+| +7 | `U16` | **Reference note**: the note word at which the vowels' formants (a man's) are sung unscaled. `$4000` (C3) is a man's speaking pitch |
+| +9 | `U8` | **Vowel glide**, in 2 ms units: how long `S $Afgr`, or an instrument change, takes to move the vowel |
+| +10 | `U8` | **Consonant timing**: every consonant time is multiplied by 2^((byte − 128) ÷ 64), so 128 is as written, 64 twice as quick and 192 twice as slow |
+| +11 | `U24` | **Pool range**, start |
+| +14 | `U24` | Pool range, end, exclusive |
+| +17 | 12 bytes × 3 | **Consonant slots**: onset 1, onset 2, coda |
+| +53 | `U8` | **Glide and r-colouring**: bits 0–2 the glide G ([below](#the-glide-and-r-colouring)) — 0 none, 1 [j], 2 [ɥ], 3 [ɰ], 4 [w], 5–7 **RESERVED** and sounding as none; bit 7 R, the vowel r-coloured; bits 3–6 **RESERVED**, 0 |
+
+The **onset** is slots 0 and 1, in that order, whichever of them name a consonant; then the **glide** (byte +53), the **vowel**, r-coloured or not (byte +53 again); the **coda** is slot 2, spoken on a key-off. So a note is one syllable, CCGVRC at most.
+
+Each consonant slot:
+
+| Offset | Type | Field |
+|---|---|---|
+| +0 | `U8` | Consonant id ([below](#consonant-ids)); 0 = none |
+| +1 | `U24` | Noise sample: pointer into the pool |
+| +4 | `U16` | Noise sample: length in bytes |
+| +6 | `U16` | Offset into it where the noise starts |
+| +8 | `U16` | The rate it is read at, in Hz |
+| +10 | `S8` | **Tilt**: positive brightens, negative darkens; \|tilt\| ÷ 128 is the filter's coefficient |
+| +11 | `U8` | Gain, as a decibel octet ([§7.10](#7-10-the-decibel-octet-table)); 0 = unity |
+
+The sample fields are the consonant's **recipe**: which span of the pool sounds its hiss, its burst or its breath, from where, how fast, and how coloured — chosen by an editor for the job, since nothing in a pool is made to be a consonant. The consonant itself (its tract, its timing, the shape of its frication) is the engine's, by id. Only plosives, affricates, fricatives and the aspirates `h ɦ ħ ʕ` read their noise; a slot naming any other consonant **SHOULD** carry a zero length, and a reader **MUST** ignore its sample fields.
+
+A slot whose consonant reads noise but which has **no sample** — fewer than two bytes from its offset to its end, or a rate of 0 — sounds the engine's own **noise generator**: white noise at the level the source is brought to, through the slot's tilt and gain ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)). Its pointer, length, offset and rate **SHOULD** then all be 0. White noise is what the consonants' frication was modelled on, so the generator is the natural default; a sample earns its place by what it has that white noise has not — a click for a stop, a recorded breath's own colour. A sample's gain **SHOULD** bring its noise to the generator's density in the band its consonant uses, so that a recipe changes the noise's colour and not its loudness.
+
+#### The vowel
+
+A vowel is where the **tongue** is — how open and how front — and what the **lips** do: the three things the IPA describes a vowel by, and bytes +3…+5. What they sound like is read off the sixteen **cardinal vowels** as Catford measures them for a man's speech (*A Practical Introduction to Phonetics*, 2nd ed., p. 154), which give every tongue position twice, lips spread and lips rounded:
+
+| Openness | Front, spread | Front, rounded | Back, spread | Back, rounded |
+|---|---|---|---|---|
+| 0 — close | [i] 240, 2400 | [y] 235, 2100 | [ɯ] 300, 1390 | [u] 250, 595 |
+| 85 — close-mid | [e] 390, 2300 | [ø] 370, 1900 | [ɤ] 460, 1310 | [o] 360, 640 |
+| 170 — open-mid | [ɛ] 610, 1900 | [œ] 585, 1710 | [ʌ] 600, 1170 | [ɔ] 500, 700 |
+| 255 — open | [a] 850, 1610 | [ɶ] 820, 1530 | [ɑ] 750, 940 | [ɒ] 700, 760 |
+
+(F1, F2 in Hz.) Front is frontness 255, back 0; spread is roundness 0, rounded 255. Between them F1 and F2 are interpolated in **log frequency**: linearly in openness between the two rows it lies between, and bilinearly in frontness × roundness across the four columns:
+
+```
+x = frontness ÷ 255      r = roundness ÷ 255      h = openness ÷ 85,  row i = min(2, ⌊h⌋),  u = h − i
+log Fn(column c) = log Fn[i][c] + u × (log Fn[i+1][c] − log Fn[i][c])          n = 1, 2
+log Fn = x(1−r)·log Fn(front spread) + x·r·log Fn(front rounded)
+       + (1−x)(1−r)·log Fn(back spread) + (1−x)·r·log Fn(back rounded)
+```
+
+So every cardinal vowel is exactly where Catford measured it, and rounding the lips lowers a vowel's formants by what his pairs say rounding does: a little for [i] → [y], a great deal for [ɯ] → [u]. The three higher formants follow:
+
+```
+F3 = F3u × (F3r ÷ F3u)^r      F3u = max(2500, F2 + 700)      F3r = max(2200, F2 + 250)
+F4 = max(3500, F3 + 400)      F5  = max(4500, F4 + 500)
+```
+
+Spread, F3 rides above a front vowel's F2 as American English's do (Hillenbrand et al. 1995); rounded, it closes in on F2, as in French [y] and Klatt's [u]. The engine then moves the whole vowel with the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
+
+**R-coloured**, the vowel's F3 falls to that of an [ɝ] and F2 is held under it in an [ɝ]'s proportion — so a front vowel r-coloured is drawn back — with F4 held under an [ɝ]'s too. The [ɝ] is Hillenbrand et al.'s (1995, *heard*, the mean of 45 men: F1 475, F2 1379, F3 1711, F4 3335 Hz):
+
+```
+F3 = min(F3, 1711)      F2 = min(F2, F3 × 1379 ÷ 1711)      F4 = min(max(3500, F3 + 400), 3335)
+```
+
+applied before F4 and F5 are derived; F1 stays the vowel's own. [ə] r-coloured is that [ɚ]/[ɝ].
+
+An editor shows the vowel on **Lindsey's acoustic vowel chart** — the first formant down, the second right to left, both on a log scale, the plane Praat's vowel editor draws, on which Geoff Lindsey proposed a sound-based vowel chart to replace the IPA's quadrilateral — at the F1 and F2 these bytes sound. The tongue's square then maps to a region of that plane that moves with the lips.
+
+#### The glide and r-colouring
+
+The syllable's **G** is a semivowel between the onset and the vowel: a vowel said without being the syllable's peak. Each starts ON its syllabic counterpart's point of the chart, at that vowel's formants (unrounded or rounded as it is, never r-coloured), and glides into the syllable's vowel; its timing and its quieter voicing are those of the approximant of the same name in the consonant table ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
+
+| Code | Glide | Counterpart | Frontness, openness, roundness | Approximant id |
+|---|---|---|---|---|
+| 1 | [j] | [i] | 255, 0, 0 | 83 |
+| 2 | [ɥ] | [y] | 255, 0, 255 | 86 |
+| 3 | [ɰ] | [ɯ] | 0, 0, 0 | 84 |
+| 4 | [w] | [u] | 0, 0, 255 | 85 |
+
+The same four remain consonants too (ids 83…86), for a slot; as G they are the vowel's own glide, after the slots' consonants.
+
+**R** r-colours the vowel the whole note through, as [ɚ], [ɝ] or [a˞] are written ([above](#the-vowel)).
+
+#### Consonant ids
+
+The ids are the format's: a record stores one per slot, and an id never moves or changes meaning. Ids not listed here, up to 255, are **RESERVED** and sound as no consonant.
+
+| Ids | Manner | Consonants |
+|---|---|---|
+| 1…16 | Plosives | 1 [p] · 2 [b] · 3 [t] · 4 [d] · 5 [ʈ] · 6 [ɖ] · 7 [c] · 8 [ɟ] · 9 [k] · 10 [g] · 11 [q] · 12 [ɢ] · 13 [ʔ] · 14 [pʰ] · 15 [tʰ] · 16 [kʰ] |
+| 32…38 | Nasals | 32 [m] · 33 [ɱ] · 34 [n] · 35 [ɳ] · 36 [ɲ] · 37 [ŋ] · 38 [ɴ] |
+| 40…42 | Trills | 40 [ʙ] · 41 [r] · 42 [ʀ] |
+| 44…46 | Taps | 44 [ⱱ] · 45 [ɾ] · 46 [ɽ] |
+| 48…74 | Fricatives | 48 [ɸ] · 49 [β] · 50 [f] · 51 [v] · 52 [θ] · 53 [ð] · 54 [s] · 55 [z] · 56 [ʃ] · 57 [ʒ] · 58 [ʂ] · 59 [ʐ] · 60 [ç] · 61 [ʝ] · 62 [x] · 63 [ɣ] · 64 [χ] · 65 [ʁ] · 66 [ħ] · 67 [ʕ] · 68 [h] · 69 [ɦ] · 70 [ɬ] · 71 [ɮ] · 72 [ɕ] · 73 [ʑ] · 74 [ʍ] |
+| 80…91 | Approximants | 80 [ʋ] · 81 [ɹ] · 82 [ɻ] · 83 [j] · 84 [ɰ] · 85 [w] · 86 [ɥ] · 88 [l] · 89 [ɭ] · 90 [ʎ] · 91 [ʟ] |
+| 96…105 | Affricates | 96 [t͡s] · 97 [d͡z] · 98 [t͡ʃ] · 99 [d͡ʒ] · 100 [t͡ɕ] · 101 [d͡ʑ] · 102 [ʈ͡ʂ] · 103 [ɖ͡ʐ] · 104 [p͡f] · 105 [k͡x] |
+
+What each sounds like — its tract, its timing, its frication — is [Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md).
+
+#### The pool range
+
+Bytes +11…+16 name the span of the pool the instrument is **made from**. Playback reads them in one place only: the Duplicate Check's *sample* type, which for formant instruments matches those made from the same range ([Engine Specification §5.6](TAUD_ENGINE_SPEC.md)). Otherwise they are an editor's: the source and every slot's recipe are chosen among the samples lying wholly inside the range, and from whatever part of a pool region ([§9.9](#9-9-srgn-sample-pool-regions)) it covers — a long recording is used a window at a time, an instrument's span being at most 65535 bytes, and each window a record points at becomes a census span of its own. A producer **SHOULD** keep the source and every slot's sample within the range. A writer with no range writes 0 and 0.
+
+#### Pool references
+
+A type-1 record points into the pool at up to **four** places — the source and the three slots — where every other record points at one. Each is a span of the census exactly as an instrument's sample is ([§9.4](#9-4-snam-sample-name-table)): a producer deriving the census **MUST** count all four, and an editor that moves, frees or copies pool bytes **MUST** follow all four. Bytes 0…3 are the header, never a pointer: an editor that writes a moved sample's pointer there destroys the record.
+
+#### Where a formant instrument may stand
+
+A **layer** of a type-0 record **MAY** name a type-1 instrument, which sounds like any other; under strict layering, having no keyboard map, it resolves no patch and is dropped. An **operator** of a type-4 rack **MUST NOT**: a formant instrument is a sound made out of a source rather than one — the engine skips it as it skips a Metainstrument. Nor may it be another formant instrument's source.
+
+### 7.7 Metainstrument type 4 — FM operator racks
+
+A type-4 Metainstrument is an **FM Rack**: the third kind of the family defined in [§7.4](#7-4-metainstrument-records), sharing its header and its 10-byte table entry field for field. What differs is what the entries are and what follows them — they are **operators**, not layers sounding side by side, and the bytes after the table say how they feed each other. The whole rack is **one voice**.
 
 | Offset | Type | Field |
 |---|---|---|
@@ -691,7 +820,7 @@ A type-4 Metainstrument is an **FM Rack**: the second kind of the family defined
 | 4 | — | Operator records, 10 bytes each — the [§7.4](#7-4-metainstrument-records) entry layout, field for field |
 | 4 + 10·*n* | `U16`… | The **algorithm**: RPN words, terminated by `$FFFF` |
 
-An operator is an ordinary instrument or an OPL instrument ([§7.7](#7-7-metainstrument-type-8-opl-instruments)), never a formant instrument ([§7.4](#7-4-metainstrument-records)). The operator's mix octet is its **output level**, and its sample detune is its **frequency ratio** — one octave up is `+4096`, a perfect twelfth `+6485`. Those are the two numbers an FM operator has always had; the pitch and volume rectangles are the third thing, and they gate the operator exactly as they gate a layer: an operator whose rectangle excludes the trigger is **silent** for that note, which is how key scaling and velocity-switched brightness are written.
+An operator is an ordinary instrument, an OPL instrument ([§7.8](#7-8-metainstrument-type-8-opl-instruments)) or a PSG instrument ([§7.9](#7-9-metainstrument-type-9-psg-instruments)), never a formant instrument ([§7.4](#7-4-metainstrument-records)). The operator's mix octet is its **output level**, and its sample detune is its **frequency ratio** — one octave up is `+4096`, a perfect twelfth `+6485`. Those are the two numbers an FM operator has always had; the pitch and volume rectangles are the third thing, and they gate the operator exactly as they gate a layer: an operator whose rectangle excludes the trigger is **silent** for that note, which is how key scaling and velocity-switched brightness are written.
 
 Both halves live in the **252 bytes** the record has after its header — 10 a operator, 2 a word, 2 for the terminator. More operators means less room for the algorithm, and an editor **SHOULD** show that as one figure rather than two limits.
 
@@ -733,9 +862,9 @@ The strictness is deliberate. The tail of a 256-byte record is whatever the writ
 
 The rest of what the words mean at playback — the unit phase modulation is measured in, and what a rack costs the mixer — is the engine's business: [Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md).
 
-### 7.7 Metainstrument type 8 — OPL instruments
+### 7.8 Metainstrument type 8 — OPL instruments
 
-A type-8 Metainstrument is an **OPL instrument**: one channel of a Yamaha YM3812 (OPL2) or YMF262 (OPL3) FM synthesis chip, sounding where an ordinary instrument sounds its sample. It is the third kind of the family defined in [§7.4](#7-4-metainstrument-records), and the one that does not fit its pattern: it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-8 record **is an ordinary instrument record**, field for field — its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato and detune all mean exactly what [§7.1](#7-1-byte-map) says. What the chip replaces is the sample.
+A type-8 Metainstrument is an **OPL instrument**: one channel of a Yamaha YM3812 (OPL2) or YMF262 (OPL3) FM synthesis chip, sounding where an ordinary instrument sounds its sample. It is the fourth kind of the family defined in [§7.4](#7-4-metainstrument-records), and the first of types 8…13: like a formant instrument, it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-8 record **is an ordinary instrument record**, field for field — its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato and detune all mean exactly what [§7.1](#7-1-byte-map) says. What the chip replaces is the sample.
 
 | Offset | Type | Field |
 |---|---|---|
@@ -832,152 +961,6 @@ The AdLib driver keeps channel 7 seven semitones above channel 8, which is `+238
 
 How the chip runs all of this — the envelope generator, the phase, the key scaling, the drums' phase equations, the clock it all keeps — is the engine's business: [Engine Specification §5.5.2](TAUD_ENGINE_SPEC.md).
 
-### 7.8 Metainstrument type 1 — formant instruments
-
-A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whose sample is a **glottal source** — the buzz a singer's vocal folds make — played through a model of the **vocal tract** that shapes it into a sung syllable: up to two consonants, a glide, a vowel that may be r-coloured, and a consonant spoken when the key is released. It is the fourth kind of the family defined in [§7.4](#7-4-metainstrument-records), and like the OPL kind it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-1 record **is an ordinary instrument record**, field for field: its sample fields describe the source, and its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato, filter and detune all mean exactly what [§7.1](#7-1-byte-map) says.
-
-| Offset | Type | Field |
-|---|---|---|
-| 0 | `U8` | `0b 0001_00hh` — type 1; `hh` the **source instrument**'s bits 8…9 (below). Bits 2…3 are **RESERVED** |
-| 1 | `U8` | The **source instrument**, bits 0…7: 0 for none — the sample is the source — or an OPL or PSG instrument (below) |
-| 2 | `U8` | Sentinel — **MUST** be `$FF` |
-| 3 | `U8` | Sentinel — **MUST** be `$FF` |
-| 4…14 | — | As [§7.1](#7-1-byte-map): the source's length, rate at C4, play start, loop start, loop end and flags. Its **pointer** is at byte 197 |
-| 15…196 | — | As [§7.1](#7-1-byte-map) |
-| 197…250 | — | The **tract block** (below) |
-| 251…255 | — | As [§7.1](#7-1-byte-map) |
-
-The block takes the place of the **second pitch/filter envelope slot**, as an OPL patch does, so a formant instrument has exactly one: bytes 19, 121 and 193, playing the pitch or the filter role as its `m` bit says. A formant instrument has **no Ixmp patch list**: its one source is its sample, and an `Ixmp` entry naming a type-1 instrument is **IGNORED**.
-
-#### The source instrument
-
-Bytes 0 and 1 name a **source instrument**, a 10-bit index: 0, or the record's own index, for none. When it names a type-8 or a type-9 instrument the vowel is sung from that instrument's voice instead of the sample — its patch, at its own C2SPD standing for the rate at C4 — and the sample fields are not read, though a writer **SHOULD** keep them: setting the field back to 0 sings the sample again. Any kind of types 8…13 may stand here, as it may as a layer or an operator ([§7.4](#7-4-metainstrument-records)); a reader that cannot sound the kind named, or finds anything else there — an ordinary instrument, a Metainstrument of types 0…7 — sings the sample. How the engine runs and measures a chip source is [Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md). Records written before the field existed have 0 there, which is what they always meant.
-
-The source instrument is a reference like a layer's: an editor that renumbers, deletes or copies instruments **MUST** follow it, as it follows a layer table.
-
-#### The sampled source
-
-The source's rate at C4 **MUST** be the rate at which note `$5000` sounds middle C, 261.63 Hz — for a single-cycle loop, the loop's length times 261.63. The engine reads the voice's fundamental from it to make the vowel follow the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)), so a source tuned elsewhere has formants that follow the wrong pitch. A looped source rich in overtones — a sawtooth is the textbook one — is what the tract expects. Its level and its spectrum do not matter: the engine calibrates the source by its RMS to a full-scale sawtooth's, and its filters keep the loudness of what passes through them, so no vowel and no pitch is heard louder or quieter than another. A looped source **SHOULD** play from its loop — play start = loop start: the loop is what sustains the vowel, and what comes before it, in a window of a recording, is whatever was said before.
-
-#### The tract block
-
-Offsets are from byte 197.
-
-| Offset | Type | Field |
-|---|---|---|
-| +0 | `U24` | The source's **pointer** into the pool |
-| +3 | `U8` | Vowel: **frontness** of the tongue — 0 back, 255 front |
-| +4 | `U8` | Vowel: **openness** of the tongue (its height, inverted) — 0 close, 255 open |
-| +5 | `U8` | Vowel: **roundness** of the lips — 0 spread, 255 rounded |
-| +6 | `U8` | **Size tracking**: the formants rise with the note as its (byte ÷ 256)th power. 64 is ¼; 0 holds one size at every pitch |
-| +7 | `U16` | **Reference note**: the note word at which the vowels' formants (a man's) are sung unscaled. `$4000` (C3) is a man's speaking pitch |
-| +9 | `U8` | **Vowel glide**, in 2 ms units: how long `S $Afgr`, or an instrument change, takes to move the vowel |
-| +10 | `U8` | **Consonant timing**: every consonant time is multiplied by 2^((byte − 128) ÷ 64), so 128 is as written, 64 twice as quick and 192 twice as slow |
-| +11 | `U24` | **Pool range**, start |
-| +14 | `U24` | Pool range, end, exclusive |
-| +17 | 12 bytes × 3 | **Consonant slots**: onset 1, onset 2, coda |
-| +53 | `U8` | **Glide and r-colouring**: bits 0–2 the glide G ([below](#the-glide-and-r-colouring)) — 0 none, 1 [j], 2 [ɥ], 3 [ɰ], 4 [w], 5–7 **RESERVED** and sounding as none; bit 7 R, the vowel r-coloured; bits 3–6 **RESERVED**, 0 |
-
-The **onset** is slots 0 and 1, in that order, whichever of them name a consonant; then the **glide** (byte +53), the **vowel**, r-coloured or not (byte +53 again); the **coda** is slot 2, spoken on a key-off. So a note is one syllable, CCGVRC at most.
-
-Each consonant slot:
-
-| Offset | Type | Field |
-|---|---|---|
-| +0 | `U8` | Consonant id ([below](#consonant-ids)); 0 = none |
-| +1 | `U24` | Noise sample: pointer into the pool |
-| +4 | `U16` | Noise sample: length in bytes |
-| +6 | `U16` | Offset into it where the noise starts |
-| +8 | `U16` | The rate it is read at, in Hz |
-| +10 | `S8` | **Tilt**: positive brightens, negative darkens; \|tilt\| ÷ 128 is the filter's coefficient |
-| +11 | `U8` | Gain, as a decibel octet ([§7.5](#7-5-the-decibel-octet-table)); 0 = unity |
-
-The sample fields are the consonant's **recipe**: which span of the pool sounds its hiss, its burst or its breath, from where, how fast, and how coloured — chosen by an editor for the job, since nothing in a pool is made to be a consonant. The consonant itself (its tract, its timing, the shape of its frication) is the engine's, by id. Only plosives, affricates, fricatives and the aspirates `h ɦ ħ ʕ` read their noise; a slot naming any other consonant **SHOULD** carry a zero length, and a reader **MUST** ignore its sample fields.
-
-A slot whose consonant reads noise but which has **no sample** — fewer than two bytes from its offset to its end, or a rate of 0 — sounds the engine's own **noise generator**: white noise at the level the source is brought to, through the slot's tilt and gain ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)). Its pointer, length, offset and rate **SHOULD** then all be 0. White noise is what the consonants' frication was modelled on, so the generator is the natural default; a sample earns its place by what it has that white noise has not — a click for a stop, a recorded breath's own colour. A sample's gain **SHOULD** bring its noise to the generator's density in the band its consonant uses, so that a recipe changes the noise's colour and not its loudness.
-
-#### The vowel
-
-A vowel is where the **tongue** is — how open and how front — and what the **lips** do: the three things the IPA describes a vowel by, and bytes +3…+5. What they sound like is read off the sixteen **cardinal vowels** as Catford measures them for a man's speech (*A Practical Introduction to Phonetics*, 2nd ed., p. 154), which give every tongue position twice, lips spread and lips rounded:
-
-| Openness | Front, spread | Front, rounded | Back, spread | Back, rounded |
-|---|---|---|---|---|
-| 0 — close | [i] 240, 2400 | [y] 235, 2100 | [ɯ] 300, 1390 | [u] 250, 595 |
-| 85 — close-mid | [e] 390, 2300 | [ø] 370, 1900 | [ɤ] 460, 1310 | [o] 360, 640 |
-| 170 — open-mid | [ɛ] 610, 1900 | [œ] 585, 1710 | [ʌ] 600, 1170 | [ɔ] 500, 700 |
-| 255 — open | [a] 850, 1610 | [ɶ] 820, 1530 | [ɑ] 750, 940 | [ɒ] 700, 760 |
-
-(F1, F2 in Hz.) Front is frontness 255, back 0; spread is roundness 0, rounded 255. Between them F1 and F2 are interpolated in **log frequency**: linearly in openness between the two rows it lies between, and bilinearly in frontness × roundness across the four columns:
-
-```
-x = frontness ÷ 255      r = roundness ÷ 255      h = openness ÷ 85,  row i = min(2, ⌊h⌋),  u = h − i
-log Fn(column c) = log Fn[i][c] + u × (log Fn[i+1][c] − log Fn[i][c])          n = 1, 2
-log Fn = x(1−r)·log Fn(front spread) + x·r·log Fn(front rounded)
-       + (1−x)(1−r)·log Fn(back spread) + (1−x)·r·log Fn(back rounded)
-```
-
-So every cardinal vowel is exactly where Catford measured it, and rounding the lips lowers a vowel's formants by what his pairs say rounding does: a little for [i] → [y], a great deal for [ɯ] → [u]. The three higher formants follow:
-
-```
-F3 = F3u × (F3r ÷ F3u)^r      F3u = max(2500, F2 + 700)      F3r = max(2200, F2 + 250)
-F4 = max(3500, F3 + 400)      F5  = max(4500, F4 + 500)
-```
-
-Spread, F3 rides above a front vowel's F2 as American English's do (Hillenbrand et al. 1995); rounded, it closes in on F2, as in French [y] and Klatt's [u]. The engine then moves the whole vowel with the note ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
-
-**R-coloured**, the vowel's F3 falls to that of an [ɝ] and F2 is held under it in an [ɝ]'s proportion — so a front vowel r-coloured is drawn back — with F4 held under an [ɝ]'s too. The [ɝ] is Hillenbrand et al.'s (1995, *heard*, the mean of 45 men: F1 475, F2 1379, F3 1711, F4 3335 Hz):
-
-```
-F3 = min(F3, 1711)      F2 = min(F2, F3 × 1379 ÷ 1711)      F4 = min(max(3500, F3 + 400), 3335)
-```
-
-applied before F4 and F5 are derived; F1 stays the vowel's own. [ə] r-coloured is that [ɚ]/[ɝ].
-
-An editor shows the vowel on **Lindsey's acoustic vowel chart** — the first formant down, the second right to left, both on a log scale, the plane Praat's vowel editor draws, on which Geoff Lindsey proposed a sound-based vowel chart to replace the IPA's quadrilateral — at the F1 and F2 these bytes sound. The tongue's square then maps to a region of that plane that moves with the lips.
-
-#### The glide and r-colouring
-
-The syllable's **G** is a semivowel between the onset and the vowel: a vowel said without being the syllable's peak. Each starts ON its syllabic counterpart's point of the chart, at that vowel's formants (unrounded or rounded as it is, never r-coloured), and glides into the syllable's vowel; its timing and its quieter voicing are those of the approximant of the same name in the consonant table ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)).
-
-| Code | Glide | Counterpart | Frontness, openness, roundness | Approximant id |
-|---|---|---|---|---|
-| 1 | [j] | [i] | 255, 0, 0 | 83 |
-| 2 | [ɥ] | [y] | 255, 0, 255 | 86 |
-| 3 | [ɰ] | [ɯ] | 0, 0, 0 | 84 |
-| 4 | [w] | [u] | 0, 0, 255 | 85 |
-
-The same four remain consonants too (ids 83…86), for a slot; as G they are the vowel's own glide, after the slots' consonants.
-
-**R** r-colours the vowel the whole note through, as [ɚ], [ɝ] or [a˞] are written ([above](#the-vowel)).
-
-#### Consonant ids
-
-The ids are the format's: a record stores one per slot, and an id never moves or changes meaning. Ids not listed here, up to 255, are **RESERVED** and sound as no consonant.
-
-| Ids | Manner | Consonants |
-|---|---|---|
-| 1…16 | Plosives | 1 [p] · 2 [b] · 3 [t] · 4 [d] · 5 [ʈ] · 6 [ɖ] · 7 [c] · 8 [ɟ] · 9 [k] · 10 [g] · 11 [q] · 12 [ɢ] · 13 [ʔ] · 14 [pʰ] · 15 [tʰ] · 16 [kʰ] |
-| 32…38 | Nasals | 32 [m] · 33 [ɱ] · 34 [n] · 35 [ɳ] · 36 [ɲ] · 37 [ŋ] · 38 [ɴ] |
-| 40…42 | Trills | 40 [ʙ] · 41 [r] · 42 [ʀ] |
-| 44…46 | Taps | 44 [ⱱ] · 45 [ɾ] · 46 [ɽ] |
-| 48…74 | Fricatives | 48 [ɸ] · 49 [β] · 50 [f] · 51 [v] · 52 [θ] · 53 [ð] · 54 [s] · 55 [z] · 56 [ʃ] · 57 [ʒ] · 58 [ʂ] · 59 [ʐ] · 60 [ç] · 61 [ʝ] · 62 [x] · 63 [ɣ] · 64 [χ] · 65 [ʁ] · 66 [ħ] · 67 [ʕ] · 68 [h] · 69 [ɦ] · 70 [ɬ] · 71 [ɮ] · 72 [ɕ] · 73 [ʑ] · 74 [ʍ] |
-| 80…91 | Approximants | 80 [ʋ] · 81 [ɹ] · 82 [ɻ] · 83 [j] · 84 [ɰ] · 85 [w] · 86 [ɥ] · 88 [l] · 89 [ɭ] · 90 [ʎ] · 91 [ʟ] |
-| 96…105 | Affricates | 96 [t͡s] · 97 [d͡z] · 98 [t͡ʃ] · 99 [d͡ʒ] · 100 [t͡ɕ] · 101 [d͡ʑ] · 102 [ʈ͡ʂ] · 103 [ɖ͡ʐ] · 104 [p͡f] · 105 [k͡x] |
-
-What each sounds like — its tract, its timing, its frication — is [Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md).
-
-#### The pool range
-
-Bytes +11…+16 name the span of the pool the instrument is **made from**. Playback reads them in one place only: the Duplicate Check's *sample* type, which for formant instruments matches those made from the same range ([Engine Specification §5.6](TAUD_ENGINE_SPEC.md)). Otherwise they are an editor's: the source and every slot's recipe are chosen among the samples lying wholly inside the range, and from whatever part of a pool region ([§9.9](#9-9-srgn-sample-pool-regions)) it covers — a long recording is used a window at a time, an instrument's span being at most 65535 bytes, and each window a record points at becomes a census span of its own. A producer **SHOULD** keep the source and every slot's sample within the range. A writer with no range writes 0 and 0.
-
-#### Pool references
-
-A type-1 record points into the pool at up to **four** places — the source and the three slots — where every other record points at one. Each is a span of the census exactly as an instrument's sample is ([§9.4](#9-4-snam-sample-name-table)): a producer deriving the census **MUST** count all four, and an editor that moves, frees or copies pool bytes **MUST** follow all four. Bytes 0…3 are the header, never a pointer: an editor that writes a moved sample's pointer there destroys the record.
-
-#### Where a formant instrument may stand
-
-A **layer** of a type-0 record **MAY** name a type-1 instrument, which sounds like any other; under strict layering, having no keyboard map, it resolves no patch and is dropped. An **operator** of a type-4 rack **MUST NOT**: a formant instrument is a sound made out of a source rather than one — the engine skips it as it skips a Metainstrument. Nor may it be another formant instrument's source.
-
 ### 7.9 Metainstrument type 9 — PSG instruments
 
 A type-9 Metainstrument is a **PSG instrument**: two **programmable-sound-generator** oscillators, A and B, sounding where an ordinary instrument sounds its sample, and mixed either by adding them or by multiplying them. It is the second kind of types 8…13 ([§7.4](#7-4-metainstrument-records)) and is laid out as the OPL kind is: apart from its first four bytes and its second pitch/filter envelope slot, a type-9 record **is an ordinary instrument record**, field for field, and what the oscillators replace is the sample.
@@ -989,7 +972,7 @@ A type-9 Metainstrument is a **PSG instrument**: two **programmable-sound-genera
 | 2 | `U8` | Sentinel — **MUST** be `$FF` |
 | 3 | `U8` | Sentinel — **MUST** be `$FF` |
 | 4 | `U16` | **RESERVED**, 0 |
-| 6 | `U16` | The voice's **C2SPD**, as an OPL instrument's ([§7.7](#7-7-metainstrument-type-8-opl-instruments)): 8363 sounds note `$5000` at concert C4; 0 reads as 8363 |
+| 6 | `U16` | The voice's **C2SPD**, as an OPL instrument's ([§7.8](#7-8-metainstrument-type-8-opl-instruments)): 8363 sounds note `$5000` at concert C4; 0 reads as 8363 |
 | 8 | `U16 × 3` | **RESERVED**, 0 |
 | 14 | `U8` | As [§7.1](#7-1-byte-map), except that the loop bits `pp` and `s` are **RESERVED** |
 | 15…196 | — | As [§7.1](#7-1-byte-map) |
@@ -1027,7 +1010,7 @@ A muted oscillator is left out of the mix, and the mixer **MUST** then be a no-o
 | +6 | `0000_00pp` | `p` **auto-advance pattern** (below); bits 2…7 **RESERVED** |
 | +7…+11 | — | **RESERVED**, 0 |
 
-Attack, decay, sustain level, release, multiplier, level, key-scale level, key-scale rate and sustain follow the **OPL operator's semantics exactly** — the same fields as registers `$20`…`$80` of [§7.7](#7-7-metainstrument-type-8-opl-instruments), with the same values meaning the same rates, steps and levels. `TT` and `VV` are the chip's tremolo and vibrato, taken one oscillator at a time: tremolo 0 off, 1 = 1 dB, 2 = 4.8 dB, at 3.7 Hz; vibrato 0 off, 1 = 7 cents, 2 = 14 cents, at 6.1 Hz; the value 3 is **RESERVED** for both and reads as off. **Invert** turns the waveform over within its 0…1 range.
+Attack, decay, sustain level, release, multiplier, level, key-scale level, key-scale rate and sustain follow the **OPL operator's semantics exactly** — the same fields as registers `$20`…`$80` of [§7.8](#7-8-metainstrument-type-8-opl-instruments), with the same values meaning the same rates, steps and levels. `TT` and `VV` are the chip's tremolo and vibrato, taken one oscillator at a time: tremolo 0 off, 1 = 1 dB, 2 = 4.8 dB, at 3.7 Hz; vibrato 0 off, 1 = 7 cents, 2 = 14 cents, at 6.1 Hz; the value 3 is **RESERVED** for both and reads as off. **Invert** turns the waveform over within its 0…1 range.
 
 #### Auto-advance patterns
 
@@ -1064,6 +1047,23 @@ The noises' actual bit sequences are **implementation-defined**. An implementati
 An oscillator has an **internal status**: its phase, its noise generator's position, its auto-advance (where it stands in its pattern, and how many quarter ticks it has counted toward the next step), and the point its tremolo and vibrato run from. With `X` clear, the status carries from note to note on the lane, as a real PSG's counters keep running between key-ons. With `X` set, every note trigger resets it. The status runs whatever the waveform, silence included: a silent oscillator's tremolo and vibrato keep moving.
 
 `S $Axxx` writes an oscillator's auto-advance and level and the two mutes at run time ([Note Effects](TAUD_NOTE_EFFECTS.md)). Those writes are not stored in the record. How the engine runs all of this is [Engine Specification §5.5.4](TAUD_ENGINE_SPEC.md).
+
+### 7.10 The decibel octet table
+
+Two fields — Metainstrument layer mix volume and instrument/patch initial attenuation — encode gain as an octet on a *perceptually significant* scale rather than a linear one. Octet **159 is 0 dB (unity)**; the scale is finest near unity and coarsens outward:
+
+| Octet range | Step | dB at the range's edges |
+|---|---|---|
+| 255…232 | 0.5 dB | +24 down to +12.5 |
+| 231…208 | 0.25 dB | +12 down to +6.25 |
+| 207…112 | 0.125 dB | +6 down to −5.875 |
+| 111…88 | 0.25 dB | −6 down to −11.75 |
+| 87…64 | 0.5 dB | −12 down to −23.5 |
+| 63…2 | 1 dB | −24 down to −85 |
+| 1 | — | −86 dB |
+| 0 | — | −∞ (silence) |
+
+Linear amplitude is `10^(dB ÷ 20)`. **Octet 0 means unity, not silence, in the two *initial attenuation* fields** (byte 251 and the Ixmp `x` block), where it is the unset sentinel that keeps legacy files — whose reserved bytes were zero — unaffected. In the Metainstrument layer mix field, 0 is genuine silence.
 
 ## 8. `.tsii` and `.tpif`
 
@@ -1133,7 +1133,7 @@ Instrument names, separated by `$1E`, in instrument-index order. UTF-8.
 
 ### 9.4 `SNam` — sample name table
 
-Sample names, separated by `$1E`, in sample-pool order. UTF-8. Taud has no sample records — a "sample" is a span in the pool referenced by instruments — so this table is ordered by the deduplicated census of spans that a producer derives from the instrument bin and the Ixmp patches. A formant instrument contributes its source and each consonant slot's noise sample ([§7.8](#7-8-metainstrument-type-1-formant-instruments)).
+Sample names, separated by `$1E`, in sample-pool order. UTF-8. Taud has no sample records — a "sample" is a span in the pool referenced by instruments — so this table is ordered by the deduplicated census of spans that a producer derives from the instrument bin and the Ixmp patches. A formant instrument contributes its source and each consonant slot's noise sample ([§7.6](#7-6-metainstrument-type-1-formant-instruments)).
 
 Pool regions ([§9.9](#9-9-srgn-sample-pool-regions)) are **not** part of that census and contribute no entry here: nothing references them, and they carry their own names.
 
@@ -1469,10 +1469,10 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Every `Ixmp` entry names a distinct instrument, and no two patches of one instrument have overlapping rectangles.
 - Every `sMst` entry names a distinct song, and its parameter block is at least as long as the record version it declares.
 - Every Metainstrument layer or operator index resolves to an ordinary instrument in `$001`…`$3FF` or to a type-8 or type-9 one, or, in a type-0 record, to a type-1 one.
-- Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.6](#7-6-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
-- Every type-8 record's kind is 0…6 and its reserved bytes are zero ([§7.7](#7-7-metainstrument-type-8-opl-instruments)).
+- Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
+- Every type-8 record's kind is 0…6 and its reserved bytes are zero ([§7.8](#7-8-metainstrument-type-8-opl-instruments)).
 - Every type-9 record's reserved bytes and bits are zero, and no oscillator's tremolo or vibrato depth is 3 ([§7.9](#7-9-metainstrument-type-9-psg-instruments)).
-- Every type-1 record's reserved bytes are zero, its source instrument is 0 or a type-8 or type-9 instrument, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.8](#7-8-metainstrument-type-1-formant-instruments)).
+- Every type-1 record's reserved bytes are zero, its source instrument is 0 or a type-8 or type-9 instrument, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.6](#7-6-metainstrument-type-1-formant-instruments)).
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
 

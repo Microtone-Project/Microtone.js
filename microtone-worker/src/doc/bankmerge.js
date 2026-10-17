@@ -315,7 +315,7 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     if (inst.isMeta) {
       remapMetaLayerSlots(rec, slotMap);
     } else if (inst.isFormant) {
-      // Its pointers are the block's and the slots', not bytes 0…3 (§7.8);
+      // Its pointers are the block's and the slots', not bytes 0…3 (§7.6);
       // its source instrument, if it has one, travels with it.
       retargetFormantRecord(rec, (ptr, len) => sampleMap.get(sampleKey(ptr, len)));
       remapFormantSource(rec, (s) => slotMap.get(s));
@@ -1219,10 +1219,10 @@ export function planCreateFm(destDoc, picks, name = "") {
 }
 
 /**
- * Plan a new OPL instrument (item 209): one type-8 record (TAUD_FILE_FORMAT §7.7) in
+ * Plan a new OPL instrument (item 209): one type-8 record (TAUD_FILE_FORMAT §7.8) in
  * the first free top-level slot. Nothing is copied and no child is made — the
  * patch IS the instrument. Any other kind that is one record and nothing else
- * (a PSG instrument, §7.9; a formant instrument, §7.8) is planned the same way. `record` is the whole 256-byte record; `name` the
+ * (a PSG instrument, §7.9; a formant instrument, §7.6) is planned the same way. `record` is the whole 256-byte record; `name` the
  * escaped INam text. Returns {error} or a planImport-shaped plan.
  */
 export function planCreateOpl(destDoc, record, name = "") {
@@ -1265,7 +1265,7 @@ export function planAddMetaLayers(destDoc, metaSlot, picks) {
   const existing = metaLayers(meta);
   const total = existing.length + [...counts.values()].reduce((a, b) => a + b, 0);
   // A rack's ceiling is lower than a layer table's, and it is not just a count:
-  // the operators and the algorithm share the record's 252 bytes (§7.6).
+  // the operators and the algorithm share the record's 252 bytes (§7.7).
   if (meta.isFm) {
     const words = meta.fmProgram === null ? 0 : meta.fmProgram.length;
     if (total > FM_MAX_OPERATORS) {
@@ -1350,7 +1350,7 @@ export function planUnlinkMetaLayer(destDoc, metaSlot, layerIdx) {
 }
 
 /**
- * Sing formant instrument `formantSlot` from OPL instrument `srcSlot` (§7.8),
+ * Sing formant instrument `formantSlot` from OPL instrument `srcSlot` (§7.6),
  * or from its own sample again when `srcSlot` is 0. The same copy-into-a-child
  * rule as a layer's: the OPL instrument is copied to a $100+ sub-instrument the
  * formant instrument owns, so editing the source never edits the instrument it

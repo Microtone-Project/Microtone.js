@@ -184,7 +184,7 @@ test("declarations say what is wrong with them", () => {
   assert.match(err(HEAD("bars: 1") + "master { eq: [{ type: \"notch\" }] }").message, /low_shelf/);
 });
 
-test("layer gains are decibel octets (§7.5)", () => {
+test("layer gains are decibel octets (§7.10)", () => {
   assert.equal(dbOctet(0), 0x9f);
   assert.equal(dbOctet(3), 0xb7);
   assert.equal(dbOctet(-3), 0x87);

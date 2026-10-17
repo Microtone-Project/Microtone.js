@@ -196,7 +196,7 @@ Row 0 of every pattern emits a pan-column SET derived from the S3M channel-setti
 
 ### 3.5 AdLib instruments
 
-An S3M instrument of type 2 is an **AdLib melody instrument**: twelve register bytes for one two-operator channel of a YM3812, where a sample instrument has its sample. It becomes an **OPL instrument** — Metainstrument type 8 ([File Format §7.7](TAUD_FILE_FORMAT.md)) — which the engine plays as the chip plays it ([Engine Spec §5.5.2](TAUD_ENGINE_SPEC.md)), so the registers go across bit for bit and nothing is compiled. The AdLib **drum** types 3…7 stay silent, as they are in ST3 and in OpenMPT.
+An S3M instrument of type 2 is an **AdLib melody instrument**: twelve register bytes for one two-operator channel of a YM3812, where a sample instrument has its sample. It becomes an **OPL instrument** — Metainstrument type 8 ([File Format §7.8](TAUD_FILE_FORMAT.md)) — which the engine plays as the chip plays it ([Engine Spec §5.5.2](TAUD_ENGINE_SPEC.md)), so the registers go across bit for bit and nothing is compiled. The AdLib **drum** types 3…7 stay silent, as they are in ST3 and in OpenMPT.
 
 ST3 is long gone from any machine that would play it, so **OpenMPT is the reference** here, and `openmpt123` the oracle every number below was checked against:
 
@@ -423,7 +423,7 @@ By default the full zone map is kept as Ixmp patches, so imported instruments st
 
 Stereo SF2 samples are mixed to mono by default; an option keeps them as genuine stereo pairs at double the pool cost.
 
-SoundFont's **`keynum`** generator — a zone that overrides the played key, so it always sounds one pitch — has a home in the target now: a type-0 layer's **fixed-pitch** flag ([File Format §7.4](TAUD_FILE_FORMAT.md#7-4-metainstrument-records)) says exactly that, with the layer's detune field carrying the absolute note. The converter does **not** read it yet, so a `keynum` zone imports as an ordinary pitched layer and plays that part of the patch transposed by whatever key strikes it. It is worth knowing which way the error runs: too high up the keyboard, and audible mostly on the fixed clicks and thumps such zones are used for.
+SoundFont's **`keynum`** generator — a zone that overrides the played key, so it always sounds one pitch — has a home in the target now: a type-0 layer's **fixed-pitch** flag ([File Format §7.5](TAUD_FILE_FORMAT.md#7-5-metainstrument-type-0-layered-instruments)) says exactly that, with the layer's detune field carrying the absolute note. The converter does **not** read it yet, so a `keynum` zone imports as an ordinary pitched layer and plays that part of the patch transposed by whatever key strikes it. It is worth knowing which way the error runs: too high up the keyboard, and audible mostly on the fixed clicks and thumps such zones are used for.
 
 **Far-loop samples** get special treatment. A looped sample whose loop point sits past the 65 535-frame cap even at 32 kHz — multi-second sustain instruments in large banks — would otherwise force the whole sample to be resampled down until it fits, muffling it. By default such a sample instead gets a *synthesised* loop at 32 kHz plus a 10-second decay: the genuine sustain loop is traded for full bandwidth. An option restores the real loop and accepts the muffling.
 
@@ -480,7 +480,7 @@ Speed and BPM are then one equation with a free parameter — a row lasts `speed
 
 ### 8.2 An OPL patch is an OPL instrument
 
-Each patch the song names is written as a type-8 Metainstrument ([File Format §7.7](TAUD_FILE_FORMAT.md)): an ordinary instrument record with the patch's registers where its sample would be, which the engine runs as the chip runs them — its log-sine and exponential tables, its envelope generator, key scaling, feedback, the tremolo and vibrato LFOs and the rhythm drums' phase equations, at the chip's own 49 716 Hz ([Engine Spec §5.5.2](TAUD_ENGINE_SPEC.md)). So nothing is compiled; the registers are written down.
+Each patch the song names is written as a type-8 Metainstrument ([File Format §7.8](TAUD_FILE_FORMAT.md)): an ordinary instrument record with the patch's registers where its sample would be, which the engine runs as the chip runs them — its log-sine and exponential tables, its envelope generator, key scaling, feedback, the tremolo and vibrato LFOs and the rhythm drums' phase equations, at the chip's own 49 716 Hz ([Engine Spec §5.5.2](TAUD_ENGINE_SPEC.md)). So nothing is compiled; the registers are written down.
 
 | OPL | Taud |
 |---|---|

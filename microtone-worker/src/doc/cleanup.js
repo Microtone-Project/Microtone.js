@@ -357,7 +357,7 @@ export function planRenumberInstrument(doc, from, to, { remapPatterns = false } 
   // of its vol-start byte (+8). A meta that moved is patched at its NEW record.
   for (const s of used) {
     const base = recOff(s === from ? to : s);
-    // A formant instrument names its OPL source in its header (§7.8).
+    // A formant instrument names its OPL source in its header (§7.6).
     remapFormantSource(image.subarray(base, base + 256), (k) => (k === from ? to : k));
     const layers = doc.instruments[s].metaLayers;
     if (!layers) continue;

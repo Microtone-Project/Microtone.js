@@ -332,7 +332,7 @@ export async function buildProject(source, host) {
     doc._resetInstrumentCache();
   }
 
-  // ── layer gains, into each metainstrument's layer table (§7.5's octets) ──
+  // ── layer gains, into each metainstrument's layer table (§7.10's octets) ──
   const gains = score.instruments.filter((i) => i.layerGain !== null);
   if (gains.length) {
     for (const i of gains) {

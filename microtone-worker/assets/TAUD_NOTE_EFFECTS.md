@@ -1429,7 +1429,7 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 
 **Compatibility.** Taud only.
 
-**Implementation.** Openness = `$f × 17`, frontness = `$g × 17`, roundness = `$r × 17`: the tongue and lips of TAUD_FILE_FORMAT.md §7.8. Before the voice's first control update — the trigger row — the vowel is set outright; otherwise it glides linearly from where it stands, restarting at every new `S $Afgr`, and the last step lands exactly on the target. The note now has a vowel of its own, which edits to the instrument's vowel no longer move, until its next trigger. Every voice sounding the note takes it, layer children included. See TAUD_ENGINE_SPEC.md §5.5.3.
+**Implementation.** Openness = `$f × 17`, frontness = `$g × 17`, roundness = `$r × 17`: the tongue and lips of TAUD_FILE_FORMAT.md §7.6. Before the voice's first control update — the trigger row — the vowel is set outright; otherwise it glides linearly from where it stands, restarting at every new `S $Afgr`, and the last step lands exactly on the target. The note now has a vowel of its own, which edits to the instrument's vowel no longer move, until its next trigger. Every voice sounding the note takes it, layer children included. See TAUD_ENGINE_SPEC.md §5.5.3.
 
 ## S $Axxx — PSG register write
 

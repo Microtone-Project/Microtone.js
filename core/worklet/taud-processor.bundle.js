@@ -4635,7 +4635,7 @@ function extModTouches(g, invert, f, stepIndex, i) {
 // New Note Action, Duplicate Check, default volume and pan, auto-vibrato, the
 // one pitch/filter envelope it keeps — whose sample is replaced by a patch for
 // a YM3812 / YMF262 channel: two operators, four, or one of the five rhythm-
-// mode drums (TAUD_FILE_FORMAT.md §7.7). This module is that channel, one per
+// mode drums (TAUD_FILE_FORMAT.md §7.8). This module is that channel, one per
 // sounding voice.
 //
 // The operator model is the IMS Archive's clean-room OPL core (iyagimusic-js
@@ -4698,7 +4698,7 @@ const HZ_PER_SPS = LINEAR_FREQ_C4_HZ / OPL_C4_RATE;
 
 // ── The record ────────────────────────────────────────────────────────────
 // The patch occupies what an ordinary record spends on its SECOND pitch/
-// filter envelope slot, bytes 197…250 (§7.7). Offsets below are relative to
+// filter envelope slot, bytes 197…250 (§7.8). Offsets below are relative to
 // OPL_BLOCK_START.
 
 const OPL_BLOCK_START = 197;
@@ -6509,11 +6509,11 @@ function metaTierOf(type) {
 
 // ── Metainstrument types (record byte 0, high nibble) ─────────────────────
 /** Type 0 — LAYERED: every layer whose rectangle covers the trigger sounds on
- *  its own voice, mixed in parallel (§7.4). */
+ *  its own voice, mixed in parallel (§7.5). */
 const META_TYPE_LAYERED = 0;
 /**
  * Type 1 — FORMANT (item 212): an ordinary instrument record whose sample is a
- * glottal source played through a vocal tract (formant.js, §7.8). Like the OPL
+ * glottal source played through a vocal tract (formant.js, §7.6). Like the OPL
  * kind it has no table: bytes 0…3 are the header, the second pitch/filter slot
  * carries the tract, and the source's pool pointer — which the header took —
  * lives at the start of that block. `samplePtr` mirrors it, so everything that
@@ -6528,7 +6528,7 @@ const META_TYPE_LAYERED = 0;
 const META_TYPE_FM = 4;
 /**
  * Type 8 — OPL (item 209): an ordinary instrument record with a YM3812 /
- * YMF262 channel in place of its sample (§7.7). No table: bytes 0…3 are the
+ * YMF262 channel in place of its sample (§7.8). No table: bytes 0…3 are the
  * Metainstrument header, every ordinary field after them keeps its meaning,
  * and the second pitch/filter envelope slot (bytes 197…250) carries the
  * patch. Not a layer table, so `isMeta` stays false and everything that asks
@@ -6564,7 +6564,7 @@ const FM_MAX_OPERATORS = 16;
 /** Bytes of a 256-byte record the operator rack and its program share. */
 const FM_BUDGET_BYTES = 252;
 
-// ── RPN word classes (§7.6) ──────────────────────────────────────────────
+// ── RPN word classes (§7.7) ──────────────────────────────────────────────
 // A word is read as (class, operand): the top nibble pair picks the class and
 // the low 10 bits the operator it addresses. $FFxx is the operator space, which
 // no operand word can collide with because an operand's index is 10-bit.
@@ -6726,7 +6726,7 @@ function buildMetaRecord(layers, {
 }
 
 /**
- * A whole type-8 record around a 54-byte OPL patch block (§7.7): the header,
+ * A whole type-8 record around a 54-byte OPL patch block (§7.8): the header,
  * the patch where the second pitch/filter envelope would be, and an ordinary
  * instrument's neutral defaults everywhere else — no envelopes, full global
  * volume, centre pan, the filter open, full default note volume, the tracker
@@ -6769,7 +6769,7 @@ function buildChipRecord(header, block, blockStart, blockLen, {
 }
 
 /**
- * A whole type-1 record around a 54-byte tract block (§7.8): the header, the
+ * A whole type-1 record around a 54-byte tract block (§7.6): the header, the
  * source sample's fields where an ordinary sample's are, the block where the
  * second pitch/filter envelope would be, and an ordinary instrument's neutral
  * defaults elsewhere. `src` = {ptr, len, rate, playStart, loopStart, loopEnd,
@@ -6783,7 +6783,7 @@ function buildFormantRecord(block, src, {
 } = {}) {
   const r = new Uint8Array(256);
   for (let i = 0; i < 4; i++) r[i] = FORMANT_RECORD_HEADER[i];
-  // The source instrument (§7.8), 0 for the sample: bits 8…9 in byte 0's two
+  // The source instrument (§7.6), 0 for the sample: bits 8…9 in byte 0's two
   // low bits, bits 0…7 in byte 1.
   r[0] |= (sourceInst >>> 8) & 0x03;
   r[1] = sourceInst & 0xff;
@@ -7040,16 +7040,16 @@ class TaudInst {
   get filterSfMode() { return ((this.fadeoutHigh >>> 4) & 1) !== 0; }
   get isMeta() { return this.metaLayers !== null; }
   /** True for a type-4 rack: the layer table is an OPERATOR rack read by
-   *  `fmProgram`, not a set of parallel layers (§7.6). */
+   *  `fmProgram`, not a set of parallel layers (§7.7). */
   get isFm() { return this.metaLayers !== null && this.metaType === META_TYPE_FM; }
-  /** True for a type-8 OPL instrument: the chip in place of the sample (§7.7). */
+  /** True for a type-8 OPL instrument: the chip in place of the sample (§7.8). */
   get isOpl() { return this.opl !== null; }
   /** True for a type-9 PSG instrument: two oscillators in place of the sample (§7.9). */
   get isPsg() { return this.psg !== null; }
   /** The chip patch a high meta sounds this instrument through when it takes
    *  it as a source — the OPL or the PSG patch — or null for anything else. */
   get chipPatch() { return this.opl ?? this.psg; }
-  /** True for a type-1 formant instrument: the sample through a vocal tract (§7.8). */
+  /** True for a type-1 formant instrument: the sample through a vocal tract (§7.6). */
   get isFormant() { return this.formant !== null; }
   /** The instrument's tier (the block at META_TIER_*): NONE for an ordinary
    *  instrument, else the tier of its type nibble. */
@@ -7093,7 +7093,7 @@ class TaudInst {
   /** First Ixmp patch whose pitch+volume rectangle contains the trigger, else null. */
   resolvePatch(noteVal, rowVolume) {
     const patches = this.extraPatches;
-    // An OPL instrument and a formant instrument have no keyboard map (§7.7, §7.8):
+    // An OPL instrument and a formant instrument have no keyboard map (§7.8, §7.6):
     // a list a project carries for either is ignored on every path.
     if (patches === null || this.opl !== null || this.psg !== null || this.formant !== null) return null;
     for (const p of patches) {
@@ -7115,7 +7115,7 @@ class TaudInst {
 
   /** Load a full 256-byte record; detects the Metainstrument sentinel
    *  (samplePtr high 16 bits == 0xFFFF) and parses its layer table — which for
-   *  a type-4 record is an operator rack followed by an RPN program (§7.6). */
+   *  a type-4 record is an operator rack followed by an RPN program (§7.7). */
   loadRecord(b) {
     this.cutoffOverride = -1;
     this.resonanceOverride = -1;
@@ -7264,7 +7264,7 @@ class TaudInst {
 
   /**
    * The type-1 branch of loadRecord: an ordinary record, except that bytes
-   * 0…3 are the header and bytes 197…250 are the tract block (§7.8), whose
+   * 0…3 are the header and bytes 197…250 are the tract block (§7.6), whose
    * first three bytes are the source's pool pointer. An Ixmp list, if the
    * project carries one for this slot, is uploaded afterwards as for any
    * instrument: a patch replaces the source within its rectangle.
@@ -7474,7 +7474,7 @@ class TaudInst {
 
   getByteNormal(o) {
     if (this.formant !== null) {
-      // A type-1 record (§7.8): the header, then the tract block with the
+      // A type-1 record (§7.6): the header, then the tract block with the
       // source pointer — `samplePtr`, wherever an editor has moved it — first.
       // The header's first two bytes also carry the source instrument.
       if (o === 0) return FORMANT_RECORD_HEADER[0] | ((this.formant.srcInst >>> 8) & 0x03);
@@ -7487,7 +7487,7 @@ class TaudInst {
       }
     }
     if (this.opl !== null) {
-      // A type-8 record (§7.7): the header where the sample pointer was, the
+      // A type-8 record (§7.8): the header where the sample pointer was, the
       // patch where the second pitch/filter envelope was.
       if (o <= 3) return OPL_RECORD_HEADER[o];
       if (o >= OPL_BLOCK_START && o < OPL_BLOCK_START + OPL_BLOCK_LEN) {
@@ -7566,7 +7566,7 @@ class TaudInst {
   setByte(o, byte) {
     if (this.formant !== null) {
       // The header is the record's kind — but for the source instrument it
-      // carries in byte 1 and byte 0's two low bits (§7.8).
+      // carries in byte 1 and byte 0's two low bits (§7.6).
       if (o === 0) {
         this.formant.srcInst = formantSourceInstOf(byte, this.formant.srcInst & 0xff);
         return;
@@ -9826,7 +9826,7 @@ function advanceVolumeRamp(voice, div = 63.0) {
 }
 
 // ══ core/engine/formant.js ══
-// Metainstrument type 1 — the FORMANT INSTRUMENT (item 212; TAUD_FILE_FORMAT §7.8,
+// Metainstrument type 1 — the FORMANT INSTRUMENT (item 212; TAUD_FILE_FORMAT §7.6,
 // TAUD_ENGINE_SPEC §5.5.3).
 //
 // An ordinary instrument record whose sample is a GLOTTAL SOURCE, played
@@ -9868,7 +9868,7 @@ const META_TYPE_FORMANT = 1;
 const FORMANT_RECORD_HEADER = Object.freeze([0x10, 0x00, 0xff, 0xff]);
 
 /**
- * The SOURCE INSTRUMENT a type-1 record names in its header (§7.8): bits 0…7
+ * The SOURCE INSTRUMENT a type-1 record names in its header (§7.6): bits 0…7
  * in byte 1, bits 8…9 in byte 0's two low bits. 0 is none — the record's own
  * sample is the glottal source, as it always was. Anything else names an
  * instrument whose voice is the source instead, which has to be one of the
@@ -9895,7 +9895,7 @@ function formantChipSource(instruments, inst) {
 
 /** The rate a chip source plays the part of the sample's rate at C4 with:
  *  its own C2SPD, 0 reading as the tracker convention, as on the chip
- *  instrument itself (§7.7). */
+ *  instrument itself (§7.8). */
 function formantChipRate(src) {
   return src.samplingRate === 0 ? OPL_C4_RATE : src.samplingRate;
 }
@@ -9929,7 +9929,7 @@ class FormantSlot {
     this.offset = 0;  // where in it the noise starts
     this.rate = 0;    // the rate it is read at, Hz — the recipe's speed
     this.tilt = 0;    // S8 spectral tilt: + brightens, − darkens
-    this.gain = 0;    // decibel octet (§7.5), 0 = unity
+    this.gain = 0;    // decibel octet (§7.10), 0 = unity
   }
 }
 
@@ -11866,7 +11866,7 @@ function applyTaudVoiceFx(voice, sample, st = voice) {
 // ══ core/engine/fm.js ══
 // FM operator racks — Metainstrument type 4 (item 159). No Kotlin counterpart
 // yet: this is a Microtone-first format extension, specified in
-// TAUD_FILE_FORMAT.md §7.6 and TAUD_ENGINE_SPEC.md §5.5.1.
+// TAUD_FILE_FORMAT.md §7.7 and TAUD_ENGINE_SPEC.md §5.5.1.
 //
 // A layered metainstrument (type 0) is `n` instruments sounding side by side.
 // A type-4 rack is the opposite arrangement: the same 10-byte table, but its
@@ -12512,7 +12512,7 @@ function applyActiveSample(voice, inst, patch) {
     voice.activeSampleLoopStart = inst.sampleLoopStart;
     voice.activeSampleLoopEnd = inst.sampleLoopEnd;
     // An OPL or PSG instrument's rate is its C2SPD, and a record that leaves it
-    // 0 plays at the tracker convention (§7.7, §7.9) — the pitch has to come
+    // 0 plays at the tracker convention (§7.8, §7.9) — the pitch has to come
     // from somewhere.
     voice.activeSamplingRate = inst.chipPatch !== null && inst.samplingRate === 0
       ? OPL_C4_RATE : inst.samplingRate;
@@ -13022,12 +13022,12 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   if (volOverride >= 0) seedVolForLookup = narrow(volOverride);
   else if (instId !== 0) seedVolForLookup = rowVolumeFromDefault(inst, null);
   else seedVolForLookup = narrow(voice.noteVolume);
-  // An OPL instrument has no keyboard map: its sound is its one patch (§7.7);
-  // nor has a formant instrument: its sample is the one glottal source (§7.8).
+  // An OPL instrument has no keyboard map: its sound is its one patch (§7.8);
+  // nor has a formant instrument: its sample is the one glottal source (§7.6).
   // resolvePatch answers null for both.
   const patch = inst.resolvePatch(noteVal, seedVolForLookup);
   applyActiveSample(voice, inst, patch);
-  // A formant instrument sung from an OPL instrument (§7.8) takes the chip's
+  // A formant instrument sung from an OPL instrument (§7.6) takes the chip's
   // C2SPD where its sample's rate would be: the pitch is the chip's.
   const formantChip = inst.formant !== null ? formantChipSource(eng.instruments, inst) : null;
   if (formantChip !== null) voice.activeSamplingRate = formantChipRate(formantChip);

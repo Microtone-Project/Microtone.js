@@ -219,7 +219,7 @@ export function planPoolDefrag(doc) {
     // A Metainstrument's bytes 0…3 are the $FFFF sentinel, its type nibble and
     // its layer count — not a pointer, and never to be written as one.
     // A formant instrument's header sits there too, and its pointers — the source
-    // and one per consonant slot — are elsewhere (item 212, §7.8).
+    // and one per consonant slot — are elsewhere (item 212, §7.6).
     if (inst.isFormant) {
       const record = doc.instRecordBytes(slot);
       if (retargetFormantRecord(record, (p) => map(p)) === 0) continue;

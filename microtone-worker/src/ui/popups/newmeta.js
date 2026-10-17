@@ -204,7 +204,7 @@ function layerCandidates(doc) {
 
 /** …and the ones a rack can take as operators: an ordinary instrument or a
  *  chip one (OPL, PSG). A formant instrument is a sound made from a source, not a source,
- *  and the engine would skip it (§7.6). */
+ *  and the engine would skip it (§7.7). */
 function operatorCandidates(doc) {
   return layerCandidates(doc).filter((s) => !doc.instruments[s].isHighMeta);
 }
