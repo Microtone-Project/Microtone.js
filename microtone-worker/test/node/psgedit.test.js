@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { SAMPLEINST_SIZE } from "../../core/format/taud-const.js";
+import * as P from "../../core/engine/psg.js";
 import { PSG_BLOCK_START, PSG_B_OSC, PSG_OSC_BYTES } from "../../core/engine/psg.js";
 import { buildFormantRecord } from "../../core/engine/inst.js";
 import * as F from "../../core/engine/formant.js";
@@ -18,7 +19,7 @@ import { planCreateOpl, planSetFormantSource } from "../../src/doc/bankmerge.js"
 import { canSourceFormant } from "../../src/doc/formantedit.js";
 import {
   psgFields, psgOscillator, psgOscBytes, psgSwitchBytes, defaultPsgRecord, psgBadge,
-  psgWavePoints, PSG_ENV_FIELDS,
+  psgWavePoints, PSG_ENV_FIELDS, psgPatternLabels, PSG_PATTERN_LABELS,
 } from "../../src/doc/psgedit.js";
 
 function emptyProject() {
@@ -141,4 +142,27 @@ test("a formant instrument may be sung from a PSG instrument", () => {
   assert.ok(child >= 0x100, "copied in as a sub-instrument");
   assert.ok(doc.instruments[child].isPsg);
   assert.deepEqual([...doc.instruments[child].psgRaw], [...doc.instruments[slot].psgRaw]);
+});
+
+test("the pattern picker names each pattern by the waveforms it actually plays", () => {
+  assert.deepEqual(psgPatternLabels(4), ["456712321765", "461316", "4737", "47"], "from pulse 4");
+  assert.deepEqual(psgPatternLabels(1), PSG_PATTERN_LABELS, "from pulse 1 the offsets are the waveforms");
+  assert.deepEqual(PSG_PATTERN_LABELS, ["123456765432", "135753", "1474", "14"]);
+  // DC and the non-pulses play no pattern: the offsets stand.
+  for (const w of [0, 8, 9, 0xa, 0xf]) assert.deepEqual(psgPatternLabels(w), PSG_PATTERN_LABELS, `wave ${w}`);
+  // Every label is exactly what the engine walks: the record's waveform, then
+  // each step, for one lap of the pattern.
+  for (let w = 1; w <= 7; w++) {
+    for (let p = 0; p < 4; p++) {
+      const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ wave: w, ar: 15, advance: 1, pattern: p }, {}] }));
+      const st = new P.PsgState();
+      P.psgKeyOn(st, patch, false);
+      let played = String(P.psgCurrentWave(st, 0));
+      for (let q = 1; q < P.PSG_ADVANCE_PATTERNS[p].length; q++) {
+        P.psgQuarterTick(st);
+        played += P.psgCurrentWave(st, 0);
+      }
+      assert.equal(psgPatternLabels(w)[p], played, `pulse ${w}, pattern ${p}`);
+    }
+  }
 });

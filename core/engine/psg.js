@@ -434,6 +434,13 @@ export function psgAdvances(w) {
   return w >= 1 && w <= PSG_WAVE_PULSE_LAST;
 }
 
+/** The pulse a pattern's offset `k` plays from record pulse `w`: 1 is `w`,
+ *  counting on among the seven pulses and wrapping from 7 to 1. The editor's
+ *  pattern labels go through this too, so they name what plays. */
+export function psgPatternWave(w, k) {
+  return ((w - 1 + k - 1) % 7) + 1;
+}
+
 /** The waveform oscillator `i` is playing now: its record's, moved along its
  *  pattern by the auto-advance when the record's is a pulse. */
 export function psgCurrentWave(st, i) {
@@ -441,7 +448,7 @@ export function psgCurrentWave(st, i) {
   const w = osc.wave;
   if (!psgAdvances(w)) return w;
   const pat = PSG_ADVANCE_PATTERNS[osc.pattern];
-  return ((w - 1 + pat[st.adv[i] % pat.length] - 1) % 7) + 1;
+  return psgPatternWave(w, pat[st.adv[i] % pat.length]);
 }
 
 /**

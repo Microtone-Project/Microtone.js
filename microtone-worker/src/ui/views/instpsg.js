@@ -16,7 +16,7 @@
 
 import { setInstBytesOp } from "../../doc/ops.js";
 import {
-  psgFields, psgOscBytes, psgSwitchBytes, psgWavePoints, PSG_ENV_FIELDS, PSG_PATTERN_LABELS,
+  psgFields, psgOscBytes, psgSwitchBytes, psgWavePoints, PSG_ENV_FIELDS, psgPatternLabels,
 } from "../../doc/psgedit.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
 import { t } from "../i18n.js";
@@ -171,10 +171,12 @@ export function renderPsgTab(view, inst) {
     const adv = num(of.advance, 255, (v) => apply(psgOscBytes(inst, o, "advance", v), `${o}.advance`));
     live.advance[o] = { input: adv, record: of.advance };
     box.appendChild(field(t("psg.f.advance"), adv, t("psg.f.advanceTitle")));
-    const pat = field(t("psg.f.pattern"),
-      select(of.pattern, PSG_PATTERN_LABELS.map((text, v) => [v, text]),
-        (v) => apply(psgOscBytes(inst, o, "pattern", v), `${o}.pattern`)),
-      t("psg.f.patternTitle"));
+    // Each pattern named by the waveforms it plays from this oscillator's own,
+    // rewritten whenever that changes (refreshSketches).
+    const patSel = select(of.pattern, psgPatternLabels(of.wave).map((text, v) => [v, text]),
+      (v) => apply(psgOscBytes(inst, o, "pattern", v), `${o}.pattern`));
+    patSel.dataset.psgPattern = String(o);
+    const pat = field(t("psg.f.pattern"), patSel, t("psg.f.patternTitle"));
     pat.classList.add("psg-pattern");
     box.appendChild(pat);
     return box;
@@ -197,6 +199,11 @@ function refreshSketches(view, slot) {
   const f = psgFields(inst);
   for (const svg of view.panel.querySelectorAll("svg.opl-env[data-op]")) {
     svg.replaceWith(oplEnvelopeSvg(f.osc[+svg.dataset.op], +svg.dataset.op));
+  }
+  // The pattern picker names what each pattern plays from the waveform now set.
+  for (const sel of view.panel.querySelectorAll("select[data-psg-pattern]")) {
+    const labels = psgPatternLabels(f.osc[+sel.dataset.psgPattern].wave);
+    labels.forEach((text, v) => { if (sel.options[v].text !== text) sel.options[v].text = text; });
   }
   const live = view._psgLive;
   for (const svg of view.panel.querySelectorAll("svg.psg-wave[data-osc]")) {

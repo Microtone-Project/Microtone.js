@@ -82,6 +82,17 @@
         const fieldOf = (o, label) => [...oscs()[o].querySelectorAll(".inst-field")]
           .find((f) => f.firstChild.textContent === label)?.querySelector("input, select");
         const waveSel = fieldOf(0, "Waveform");
+        // The pattern picker names what each pattern plays from the waveform set.
+        const patternTexts = () => [...fieldOf(0, "Pattern").options].map((o) => o.text);
+        log(`pattern picker reads from pulse 4: ${patternTexts().join(" | ")}: ` +
+          ok(patternTexts().join("|") === "456712321765|461316|4737|47"));
+        waveSel.value = "2";
+        waveSel.dispatchEvent(new win.Event("change"));
+        await sleep(40);
+        log(`…and follows the waveform to pulse 2: ${patternTexts().join(" | ")}: ` +
+          ok(patternTexts().join("|") === "234567176543|246164|2515|25"));
+        store.undo.undo();
+        await sleep(40);
         waveSel.value = "13";
         waveSel.dispatchEvent(new win.Event("change"));
         await sleep(40);

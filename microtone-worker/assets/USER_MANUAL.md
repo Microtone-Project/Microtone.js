@@ -1736,7 +1736,11 @@ pattern plays 4 5 6 7 1 2 3 2 1 7 6 5:
 - `1 4 7 4` — three steps at a time
 - `1 4` — back and forth between two
 
-Only the pulses (1 to 7) advance; DC and the other waveforms stay put.
+Only the pulses (1 to 7) advance; DC and the other waveforms stay put. The
+**Pattern** picker names each pattern by the waveforms it will actually play
+from the oscillator's waveform — from pulse 4 the first one reads `456712321765`
+— and follows when you change the waveform; for DC and the waveforms that do
+not advance it shows the offsets above.
 
 **Reset on trigger.** A real chip's oscillators keep counting between notes, and
 so do these: a new note on the lane carries on from the last one's phase, noise

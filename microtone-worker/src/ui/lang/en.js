@@ -1059,7 +1059,7 @@ export default {
   "psg.f.advance": "Auto-advance",
   "psg.f.advanceTitle": "How often the waveform takes the next step of its pattern, in quarter ticks: 4 is once a tick, 1 four times a tick, 0 off. Only the pulses (1 to 7) advance; DC and the other waveforms stay put. S $A0xx and S $A8xx change it while the song plays.",
   "psg.f.pattern": "Pattern",
-  "psg.f.patternTitle": "The steps the auto-advance walks, counted among the pulses from the waveform above: 1 is that pulse, 2 the next, up to 7 six on, wrapping from pulse 7 to pulse 1 (DC is never stepped to). Each pattern repeats.",
+  "psg.f.patternTitle": "The steps the auto-advance walks. Each pattern is shown as the waveforms it plays from the waveform above, and the list follows when that changes. Patterns step among the pulses, wrapping from pulse 7 to pulse 1, and never to DC; for DC or a waveform that does not advance, the list shows the steps as offsets, 1 being the waveform itself. Each pattern repeats.",
   "psg.liveNote": "During playback, a level, auto-advance or mute that S $Axxx has written, and a waveform the auto-advance has moved, are shown in the accent colour. They last until the song is played again from the start.",
   "psg.liveTitle": "Set by S $Axxx during playback; the record's own value comes back on the next playback.",
   "psg.wave0": "DC",

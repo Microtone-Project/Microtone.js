@@ -16,7 +16,7 @@ import {
   PSG_OF_KSR, PSG_OF_SUSTAIN, PSG_OF_RESET, PSG_OF_INVERT,
   PSG_OF_TREMOLO_SHIFT, PSG_OF_VIBRATO_SHIFT,
   PSG_WAVE_PULSE_LAST, PSG_NOISE_CYCLES, PSG_NOISE_STEPS_PER_CYCLE,
-  PSG_ADVANCE_PATTERNS, encodePsgPatch, psgWaveValue, psgIsNoise,
+  PSG_ADVANCE_PATTERNS, encodePsgPatch, psgWaveValue, psgIsNoise, psgAdvances, psgPatternWave,
 } from "../../core/engine/psg.js";
 import { buildPsgRecord } from "../../core/engine/inst.js";
 
@@ -100,8 +100,19 @@ export function defaultPsgRecord() {
 }
 
 /** What the list badge says a PSG instrument is: ×, when it multiplies. */
-/** The auto-advance patterns as the editor names them: the offsets each walks. */
+/** The auto-advance patterns as offsets, the way the format writes them. */
 export const PSG_PATTERN_LABELS = PSG_ADVANCE_PATTERNS.map((p) => [...p].join(""));
+
+/**
+ * The four patterns as the waveforms they actually play from record waveform
+ * `wave` — from pulse 4, pattern 0 reads 456712321765 — through the engine's
+ * own psgPatternWave. A waveform the auto-advance does not walk (DC, or
+ * anything past the pulses) plays no pattern, so its labels are the offsets.
+ */
+export function psgPatternLabels(wave) {
+  if (!psgAdvances(wave)) return PSG_PATTERN_LABELS;
+  return PSG_ADVANCE_PATTERNS.map((p) => [...p].map((k) => psgPatternWave(wave, k)).join(""));
+}
 
 export function psgBadge(inst) {
   return inst.psg.multiply ? "PSG·×" : "PSG";
