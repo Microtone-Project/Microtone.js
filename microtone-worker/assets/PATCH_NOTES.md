@@ -4,7 +4,7 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
-## 2026-10-16
+## 2026-10-18
 
 PSG instruments arrive: two 8-bit-style oscillators in place of a sample, added together or multiplied. Each is a 0-to-1-volt generator as a chip's output is, multiplied in volts and then spread over the lane's whole range, so a pulse times another waveform gates it, and inverted DC is $F.
 
@@ -20,6 +20,13 @@ OPL instruments are now a source for every kind of metainstrument: Layered, FM R
 - **An FM Rack's operators can be OPL instruments**: modulated, the chip channel's phase is bent the way the chip bends its own carriers; modulating, it bends the next operator as a sample does. Until now a rack skipped them.
 - **A formant instrument can sing with an OPL instrument** instead of a sample: **Sung from** on the Formant tab picks one, copies it in as part of the formant instrument and plays it at its own tuning, through the vowel and consonants as a sample would be. *Its sample* switches back.
 - **Fixed: a metainstrument of a kind this version does not know played as a Layered one**; it now stays silent until a version that knows it opens the song.
+
+The Motif editor colours a name by what it refers to, not only where it is declared.
+
+- **Inside a function, every use of a parameter is maroon**, as it is in the parameter list; **every use of a lane or an instrument is magenta and italic**, as at its declaration — `kick` in `dr(kick, bar, 0)`, `KIT` in `lane kick { inst: KIT }`.
+- **Local variables are underlined**, where they are declared and wherever they are used: a function's `let`s, a loop's variables, a block's names. The program's own top-level `let`s are not.
+
+## 2026-10-16
 
 Interrupt markers get a dialog of their own.
 
@@ -50,11 +57,6 @@ Formant instruments arrive: an instrument that sings, turning any looped tone in
 - **Key-off speaks the last consonant**; a note cut, note fade or fast fade ends the vowel without it. A new formant instrument's Duplicate Check is *Lane → Off*, so any note that follows on the lane, whatever plays it, lets the old syllable say its last consonant underneath as the next begins, and its short fadeout lets a syllable with no last consonant die away instead of singing on under the next.
 - **`S $Afgr` changes the vowel** from the pattern — how open, how front, how rounded — at the start of a note or gliding mid-note, so one instrument can sing a whole text.
 - **One Pitch/Filter tab** for OPL and formant instruments, which have room for only one such envelope: a Pitch | Filter switch at its top says which it is, instead of two tabs editing the same envelope.
-
-The Motif editor colours a name by what it refers to, not only where it is declared.
-
-- **Inside a function, every use of a parameter is maroon**, as it is in the parameter list; **every use of a lane or an instrument is magenta and italic**, as at its declaration — `kick` in `dr(kick, bar, 0)`, `KIT` in `lane kick { inst: KIT }`.
-- **Local variables are underlined**, where they are declared and wherever they are used: a function's `let`s, a loop's variables, a block's names. The program's own top-level `let`s are not.
 
 ## 2026-10-15
 
