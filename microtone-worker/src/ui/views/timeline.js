@@ -1780,12 +1780,12 @@ export class TimelineView {
       // A row BAND (a trough drag) is marked in the trough too — the grid
       // highlight alone leaves it invisible wherever the lanes are empty,
       // which is exactly where a row edit is easiest to get wrong.
-      if (rowBand && absRow >= sb.r0 && absRow <= sb.r1) {
-        ctx.fillStyle = C.sel;
-        ctx.fillRect(0, y, GUTTER_W - 4, ROW_H);
-      }
       if (absRow === cursor.row) {
         ctx.fillStyle = C.cursor;
+        ctx.fillRect(0, y, GUTTER_W - 4, ROW_H);
+      }
+      if (rowBand && absRow >= sb.r0 && absRow <= sb.r1) {
+        ctx.fillStyle = C.sel;
         ctx.fillRect(0, y, GUTTER_W - 4, ROW_H);
       }
       ctx.textAlign = "left";
@@ -1799,6 +1799,13 @@ export class TimelineView {
       // cells
       for (const { ch, x, w: colW } of strips) {
         const fx2 = this.fx2On(ch);
+        // Layers: cursor cell, then the block selection, then the caret — a
+        // one-row block through the cursor's cell would otherwise vanish there.
+        const onCursor = absRow === cursor.row && ch === cursor.ch;
+        if (onCursor) {
+          ctx.fillStyle = C.cursor;
+          ctx.fillRect(x - 2, y, colW - 2, ROW_H);
+        }
         if (sb && absRow >= sb.r0 && absRow <= sb.r1 && ch >= sb.c0 && ch <= sb.c1) {
           ctx.fillStyle = C.sel;
           if (sb.colLo === 0 && sb.colHi >= this.lastColFor(ch)) {
@@ -1809,9 +1816,7 @@ export class TimelineView {
             ctx.fillRect(x + 2 + cs * CHAR_W - 1, y, (ce - cs) * CHAR_W + 2, ROW_H);
           }
         }
-        if (absRow === cursor.row && ch === cursor.ch) {
-          ctx.fillStyle = C.cursor;
-          ctx.fillRect(x - 2, y, colW - 2, ROW_H);
+        if (onCursor) {
           // sub-column caret: amber in record mode, blue otherwise
           const [cpos, cw] = subCharPos(cursor.sub ?? 0, cursor.nib ?? 0, this.wide());
           ctx.fillStyle = store.record ? C.caret : C.caretNav;
