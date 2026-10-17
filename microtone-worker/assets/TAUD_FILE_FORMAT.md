@@ -936,12 +936,12 @@ In the two `$C0` bytes, bits 4…7 — the chip's stereo switches, and channel B
 | 5 top cymbal | 1 | A rhythm voice, twice the level |
 | 6 hi-hat | 1 | A rhythm voice, twice the level |
 
-The four chains of a four-operator patch, by (channel A, channel B) connection:
+The four chains of a four-operator patch, by (channel A, channel B) connection. Channel A is the chip's channel *n* and holds operators 1 and 2; channel B is channel *n* + 3 and holds operators 3 and 4. These are the four connection figures of Yamaha's YMF262 data sheet (catalogue 4MF262A6, November 1994, p. 13), where A is `CNT(Cn)` and B is `CNT(Cn+3)`:
 
 | A, B | Chain |
 |---|---|
 | 0, 0 | 1 → 2 → 3 → 4 |
-| 0, 1 | 1 → 2 → 3, and 4 |
+| 0, 1 | 1 → 2, and 3 → 4 |
 | 1, 0 | 1, and 2 → 3 → 4 |
 | 1, 1 | 1, and 2 → 3, and 4 |
 

@@ -284,11 +284,12 @@ TOM_TO_SD = 7
 PARTNER_ROLE = {'sd': 'hh', 'tc': 'hh', 'hh': 'tc'}
 
 #: The four-operator connections, as chains of operator indices: each operator
-#: modulates the next, and each chain's last one reaches the mix.  The YMF262's
-#: published figure keyed by the two halves' CNT bits.
+#: modulates the next, and each chain's last one reaches the mix.  The YMF262
+#: data sheet's figures (catalogue 4MF262A6, p. 13), keyed by the two halves'
+#: CNT bits, (CNT(Cn), CNT(Cn+3)).
 CHAINS_FOUR_OP = {
     (0, 0): [[0, 1, 2, 3]],
-    (0, 1): [[0, 1, 2], [3]],
+    (0, 1): [[0, 1], [2, 3]],
     (1, 0): [[0], [1, 2, 3]],
     (1, 1): [[0], [1, 2], [3]],
 }

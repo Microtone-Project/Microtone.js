@@ -549,10 +549,10 @@ Speed and BPM are solved as in §8.1, against the same 800 BPM ceiling and for t
 
 ### 9.2 A four-operator instrument stays four operators
 
-A type-0 instrument is two operator pairs, and on a YMF262 two channels are joined to play all four as one voice. It becomes a four-operator OPL instrument. The two halves each keep their own `CNT` bit, as the instrument's two channels' connections, and reading `CNT` as *"this half's first operator goes straight to the output instead of modulating"* gives the chip's four published connections at once:
+A type-0 instrument is two operator pairs, and on a YMF262 two channels are joined to play all four as one voice. It becomes a four-operator OPL instrument. The two halves each keep their own `CNT` bit, as the instrument's two channels' connections, which pick among the chip's four published connections (the YMF262 data sheet, catalogue 4MF262A6, p. 13):
 
 ```
-  0,0   1 → 2 → 3 → 4          0,1   1 → 2 → 3, and 4
+  0,0   1 → 2 → 3 → 4          0,1   1 → 2, and 3 → 4
   1,0   1, and 2 → 3 → 4       1,1   1, and 2 → 3, and 4
 ```
 

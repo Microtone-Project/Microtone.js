@@ -20,6 +20,7 @@ OPL and PSG instruments, the two kinds that make a sound of their own, can now b
 - **An FM Rack's operators can be OPL or PSG instruments**: modulated, an OPL instrument's phase is bent the way the chip bends its own carriers, and a PSG instrument's bends both of its oscillators; modulating, either bends the next operator as a sample does. Until now a rack skipped them.
 - **A formant instrument can sing with an OPL or a PSG instrument** instead of a sample: **Sung from** on the Formant tab picks one, copies it in as part of the formant instrument and plays it at its own tuning, through the vowel and consonants as a sample would be. *Its sample* switches back.
 - **Fixed: a metainstrument of a kind this version does not know played as a Layered one**; it now stays silent until a version that knows it opens the song.
+- **Fixed: a four-operator OPL instrument whose first pair is set to *FM* and second to *Additive* was wired wrongly.** It chained operators 1, 2 and 3 and added operator 4 on its own; it now plays as two FM pairs added together, operator 1 into 2 and operator 3 into 4, which is how Yamaha's YMF262 data sheet draws that connection. Instruments using it, including ones converted from `.sop` files, now sound as they do on the chip.
 
 The Motif editor colours a name by what it refers to, not only where it is declared.
 
