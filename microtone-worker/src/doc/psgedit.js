@@ -16,7 +16,7 @@ import {
   PSG_OF_KSR, PSG_OF_SUSTAIN, PSG_OF_RESET, PSG_OF_INVERT,
   PSG_OF_TREMOLO_SHIFT, PSG_OF_VIBRATO_SHIFT,
   PSG_WAVE_PULSE_LAST, PSG_NOISE_CYCLES, PSG_NOISE_STEPS_PER_CYCLE,
-  encodePsgPatch, psgWaveValue, psgIsNoise,
+  PSG_ADVANCE_PATTERNS, encodePsgPatch, psgWaveValue, psgIsNoise,
 } from "../../core/engine/psg.js";
 import { buildPsgRecord } from "../../core/engine/inst.js";
 
@@ -31,6 +31,7 @@ const FIELD_BITS = {
   vibrato: [4, PSG_OF_VIBRATO_SHIFT, 3], tremolo: [4, PSG_OF_TREMOLO_SHIFT, 3],
   invert: [4, 3, 1], reset: [4, 2, 1], eg: [4, 1, 1], ksr: [4, 0, 1],
   advance: [5, 0, 255],
+  pattern: [7, 0, 3],
 };
 
 /** The envelope fields, in the order the OPL tab shows an operator's. */
@@ -99,6 +100,9 @@ export function defaultPsgRecord() {
 }
 
 /** What the list badge says a PSG instrument is: ×, when it multiplies. */
+/** The auto-advance patterns as the editor names them: the offsets each walks. */
+export const PSG_PATTERN_LABELS = PSG_ADVANCE_PATTERNS.map((p) => [...p].join(""));
+
 export function psgBadge(inst) {
   return inst.psg.multiply ? "PSG·×" : "PSG";
 }

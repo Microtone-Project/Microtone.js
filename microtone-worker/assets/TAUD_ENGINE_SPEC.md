@@ -956,18 +956,20 @@ so that a mute is a no-op on the other oscillator in either model, as the format
 
 **The note volume** is the gain chain's, applied to the finished pair as to a sample ([§10.2](#10-2-the-gain-chain)). This is where a PSG voice differs from an OPL one, and on purpose: taken into each oscillator, the note volume would be squared by the multiplying mix.
 
-**The auto-advance.** In each tick pass, every active voice sounding a pair — a lane's, a ghost's, an FM operator's — counts one tick per oscillator whose record waveform is a pulse, 1…7, and whose auto-advance `N` (the record's, or one `S $Axxx` wrote) is not 0; on reaching `N` the count resets and the oscillator's advance steps by one, mod 12. The waveform playing is
+**The auto-advance** counts in **quarter ticks**. A quarter tick is a quarter of the playhead's tick: quarter `q` of a tick begins at the first frame whose position in the tick, `samples_into_tick × 4 ÷ samples_per_tick`, has reached `q`. Quarter 0 is the tick pass itself; quarters 1…3 are run by the mixer at their own frames — it ends a span of frames at a quarter's frame as it ends one at a tick's — and by a chase straight after each tick it walks, so a chased song arrives where a played one does. Spans are cut at quarters only while some voice of the playhead sounds a pair.
+
+At each quarter, every active voice sounding a pair — a lane's, a ghost's, an FM operator's — counts one per oscillator whose record waveform `w` is 0…7 and whose auto-advance `N` (the record's, or one `S $Axxx` wrote) is not 0; on reaching `N` the count resets and the oscillator's position in its pattern steps by one, mod the pattern's length. The waveform playing is
 
 ```
-WALK = 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2
-w'   = WALK[(w − 1 + advance) mod 12]          for a record waveform w of 1…7
+PATTERN = (1,2,3,4,5,6,7,6,5,4,3,2), (1,3,5,7,5,3), (1,4,7,4), (1,4)      by byte +7
+w'      = (w + PATTERN[p][position mod length] − 1) mod 8        for a record waveform w of 0…7
 ```
 
-and the record's own otherwise: the walk bounces between the two widths without repeating either end, and joins it at the record's own width heading up, so a record of 7 heads down. `N = 0`, or a record waveform that is DC or not a pulse, holds the count at 0.
+and the record's own otherwise. `N = 0`, or a record waveform past 7, holds the count at 0. A pattern changed mid-note is read at the position the oscillator has reached, mod its own length.
 
 **The note.** A trigger keys the pair on: both envelopes to ATTACK. A fresh pair starts with both at `env = 511` and anchors at its first rendered frame; a voice whose New Note Action is note cut and whose next note is a PSG instrument hands the pair over instead, envelopes where they stand and no ghost, exactly as an OPL channel is handed over ([§5.5.2](#5-5-2-type-8-opl-instruments)). Any other New Note Action ghosts the pair, internal status and all. `Q`'s retrigger keys it on with the envelopes carried; a key-off puts both in RELEASE; an instrument byte on a tone-portamento row re-attacks both without touching anything else.
 
-**Internal status** is an oscillator's `phase`, `noise_pos`, auto-advance and tick count, and its LFO `origin`. The lane's voice keeps them from note to note, from one PSG instrument to another included, unless the oscillator's `X` flag is set (a note of any other kind drops the pair, and the next PSG note starts one afresh): then every key-on — a trigger, a handed-over retrigger, `Q` — sets the four to 0 and the origin to the chip sample of the pair's next rendered frame. Without `X` the origin is 0, so the LFOs run on the chip clock itself and every such oscillator on the playhead moves together, as on a chip. A voice that has never sounded a pair starts with all of it at 0.
+**Internal status** is an oscillator's `phase`, `noise_pos`, auto-advance position and quarter count, and its LFO `origin`. The lane's voice keeps them from note to note, from one PSG instrument to another included, unless the oscillator's `X` flag is set (a note of any other kind drops the pair, and the next PSG note starts one afresh): then every key-on — a trigger, a handed-over retrigger, `Q` — sets the four to 0 and the origin to the chip sample of the pair's next rendered frame. Without `X` the origin is 0, so the LFOs run on the chip clock itself and every such oscillator on the playhead moves together, as on a chip. A voice that has never sounded a pair starts with all of it at 0.
 
 **`S $Axxx`** on a voice sounding a pair writes a register of that pair's **instrument** ([Note Effects](TAUD_NOTE_EFFECTS.md)): an overlay over the record that every voice of the instrument reads at once, leaves the record untouched, and lasts across notes until the per-instrument runtime state is cleared ([§15](#15-transport-reset)) — invert loop's mask's lifetime ([§8.4](#8-4-invert-loop-and-funk-repeat)). An edit to the record leaves the overlay standing.
 

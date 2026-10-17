@@ -1723,11 +1723,18 @@ act afterwards, so a note always starts and ends from silence. The three noises 
 32767, 2047 and 127 steps: the long one is plain noise with a faint pitch, the
 short one rings like metal. A noise follows the note it is played at.
 
-**Auto-advance** steps a pulse waveform on to the next width every so many
-ticks, up to 7 and back down to 1 and up again — `1 2 3 4 5 6 7 6 5 4 3 2 1 2 …`,
-starting from the pulse the oscillator is set to — the sweeping-pulse sound
-8-bit music makes with a duty-cycle table. DC and the other waveforms stay put.
-0 is off and 1 the fastest.
+**Auto-advance** walks the waveform through a **Pattern** by itself as the
+note plays — the sweeping-pulse sound 8-bit music makes with a duty-cycle table.
+Its speed is in quarter ticks: 4 takes a step every tick, 1 four steps a tick,
+0 is off. The pattern counts from the waveform the oscillator is set to, 1
+being that waveform and 7 six steps on (wrapping from 7 back to 0):
+
+- `1 2 3 4 5 6 7 6 5 4 3 2` — up six and back down, one step at a time
+- `1 3 5 7 5 3` — the same sweep two steps at a time
+- `1 4 7 4` — three steps at a time
+- `1 4` — back and forth between two
+
+Only DC and the pulses (0 to 7) advance; the other waveforms stay put.
 
 **Reset on trigger.** A real chip's oscillators keep counting between notes, and
 so do these: a new note on the lane carries on from the last one's phase, noise
@@ -1907,7 +1914,7 @@ either way.
   - The **Snare**, **Cymbal** and **Hi-hat** mix their operator with the chip's noise and with a **partner** operator's phase, on the channel beside them: the partner's **Multiple**, and — for the cymbal and the hi-hat, whose partner sits on another channel — its **pitch** in cents from the drum's own.
   - Every field is one undo step per gesture — holding a spinner's + is one step, not twenty — and a voice already sounding the instrument hears an edit at once, as a chip channel does when its registers are rewritten.
 - **PSG** (PSG instruments) — the two oscillators, laid out as the OPL tab lays out its operators. A PSG instrument has the General tab and the envelope tabs as well, but no Zones.
-  - One group per **oscillator**: a small window drawing its **Waveform**, the envelope sketched below it, then the waveform picker, **Attack**, **Decay**, **Sustain level**, **Release**, **Level**, **Key scale level** and **Multiple**, the **Sustain** and **Key scale rate** switches — every one the OPL operator's, with the same meaning — and the PSG's own: **Invert**, **Reset on trigger**, **Tremolo** (off, 1 dB or 4.8 dB), **Vibrato** (off, 7 or 14 cents) and **Auto-advance**.
+  - One group per **oscillator**: a small window drawing its **Waveform**, the envelope sketched below it, then the waveform picker, **Attack**, **Decay**, **Sustain level**, **Release**, **Level**, **Key scale level** and **Multiple**, the **Sustain** and **Key scale rate** switches — every one the OPL operator's, with the same meaning — and the PSG's own: **Invert**, **Reset on trigger**, **Tremolo** (off, 1 dB or 4.8 dB), **Vibrato** (off, 7 or 14 cents), **Auto-advance** (in quarter ticks) and its **Pattern**.
   - The **Mixer** group: **Mix**, *Additive* or *Multiplicative*, and **Mute A** and **Mute B**.
   - During playback, what `S $Axxx` and the auto-advance have changed is shown in the accent colour — the level, auto-advance and mute fields, and the waveform window — and put back when playback stops. Edits work as on the OPL tab: one undo step per gesture, heard at once.
 - **Layers** (the Layered kind) — a Layered metainstrument plays several sub-instruments at once, and this table is the whole editor for that stack. Each row carries an editable **mix** (0–255, 159 = 0 dB, live dB readout), a **detune** in cents with ◂ ▸ buttons that step a whole degree of the song's own notation, and the **pitch** and **velocity** bounds that decide when the layer sounds at all. The ▸ beside row 0 marks the foreground layer: the first layer covering a trigger plays on the lane itself and the rest spawn background voices, so the order here is priority — **drag a row by the handle in its # column** to change it. The handle is a button as well as a grip: focus it and ↑ ↓ move the row without a pointer.

@@ -29,7 +29,8 @@ import {
 } from "./spatial.js";
 import { applyTrackerRow, advanceRow } from "./row.js";
 import { TAP_PRE, TAP_POST } from "./loudness.js";
-import { applyTrackerTick, advanceSampleModExtended } from "./tick.js";
+import { applyTrackerTick, advanceSampleModExtended, psgQuarterPass, psgLive } from "./tick.js";
+import { psgQuarterAt } from "./psg.js";
 
 const fround = Math.fround;
 
@@ -502,6 +503,16 @@ export function generateTrackerAudio(eng, playhead, out) {
         applyTrackerTick(eng, ts, playhead);
       }
     }
+    // ── PSG quarter ticks (§5.5.4) ──
+    // The auto-advance counts in quarter ticks: the tick pass ran the first,
+    // and a span that reaches a later quarter's frame starts there, so each
+    // runs at its own frame. Only while a PSG pair sounds — otherwise spans
+    // are cut exactly as they always were.
+    const quarters = psgLive(ts);
+    if (quarters) {
+      const q = psgQuarterAt(ts.samplesIntoTick, sptFirst);
+      while (ts.psgQuarter < q) { ts.psgQuarter++; psgQuarterPass(ts); }
+    }
     // ── …and the span runs until the frame whose clock will fire next ──
     // The same `+= 1.0` per frame the clock always took, so the counter lands
     // where it always did; the firing frame is left for the next span's top.
@@ -510,6 +521,7 @@ export function generateTrackerAudio(eng, playhead, out) {
     while (n1 < TRACKER_CHUNK) {
       const next = ts.samplesIntoTick + 1.0;
       if (next >= sptRest) break;
+      if (quarters && psgQuarterAt(next, sptRest) > ts.psgQuarter) break;
       ts.samplesIntoTick = next;
       n1++;
     }

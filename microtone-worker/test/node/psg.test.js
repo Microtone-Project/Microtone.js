@@ -118,10 +118,12 @@ test("a type-9 record is an ordinary record with the oscillators where the sampl
 test("the oscillator bytes are the layout the format gives them", () => {
   const b = P.encodePsgPatch({ osc: [{
     wave: 0xd, ar: 0xa, dr: 0x3, sl: 0x5, rr: 0x7, mult: 0x2, ksl: 2, tl: 0x21,
-    ksr: 1, eg: 1, reset: true, invert: true, tremolo: 2, vibrato: 1, advance: 0x40,
+    ksr: 1, eg: 1, reset: true, invert: true, tremolo: 2, vibrato: 1, advance: 0x40, pattern: 3,
   }] });
-  // 199…204 of the record are 2…7 of the block.
-  assert.deepEqual([...b.subarray(2, 8)], [0xda, 0x35, 0x72, 0xa1, 0x6f, 0x40]);
+  // 199…210 of the record are 2…13 of the block: +6 and +8…+11 reserved.
+  assert.deepEqual([...b.subarray(2, 14)], [0xda, 0x35, 0x72, 0xa1, 0x6f, 0x40, 0, 3, 0, 0, 0, 0]);
+  assert.equal(P.PSG_OSC_BYTES, 12);
+  assert.equal(P.PSG_B_OSC + P.PSG_OSC_BYTES, 14, "oscillator B starts at block 14, record 211");
   const d = P.decodePsgPatch(b).osc[0];
   assert.deepEqual(
     [d.wave, d.ar, d.dr, d.rr, d.mult, d.ksl, d.tl, d.ksr, d.eg, d.reset, d.invert, d.tremolo, d.vibrato],
@@ -313,48 +315,87 @@ test("a retrigger the NNA cuts keys the SAME pair on, envelopes where they stand
   assert.equal(ts0(eng).backgroundVoices.length, 0, "no ghost");
 });
 
-test("auto-advance bounces a pulse 1 → 7 → 1, one step every N ticks", () => {
-  /** The waveform after each of `steps` steps, from a record waveform `wave`. */
-  const walk = (wave, steps, n = 1) => {
-    const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave, advance: n }, sq()] }));
+test("auto-advance walks its pattern as offsets from the record's waveform, mod 8", () => {
+  /** The waveform after each of `steps` steps, `n` quarter ticks a step. */
+  const walk = (wave, pattern, steps, n = 1) => {
+    const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave, advance: n, pattern }, sq()] }));
     const st = new P.PsgState();
     P.psgKeyOn(st, patch, false);
     const out = [];
-    for (let t = 0; t < steps * n; t++) {
-      P.psgTick(st);
-      if ((t + 1) % n === 0) out.push(P.psgCurrentWave(st, 0));
+    for (let q = 0; q < steps * n; q++) {
+      P.psgQuarterTick(st);
+      if ((q + 1) % n === 0) out.push(P.psgCurrentWave(st, 0));
     }
     return out;
   };
-  assert.deepEqual(walk(1, 14), [2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1, 2, 3], "up, back down, up again");
-  assert.deepEqual(walk(7, 8), [6, 5, 4, 3, 2, 1, 2, 3], "7 starts down");
-  assert.deepEqual(walk(4, 6), [5, 6, 7, 6, 5, 4], "a middle width starts up");
-  const two = walk(4, 24);
-  assert.deepEqual(two.slice(12), two.slice(0, 12), "twelve steps a round");
-  assert.deepEqual(walk(3, 3, 3), [4, 5, 6], "N ticks a step");
-  // Every width but the ends appears twice a round, the ends once.
-  const round = walk(1, 12);
-  for (let w = 1; w <= 7; w++) assert.equal(round.filter((x) => x === w).length, w === 1 || w === 7 ? 1 : 2, `width ${w}`);
-  // DC and every non-pulse waveform hold.
-  for (const w of [0, 8, 9, 0xa, 0xd, 0xf]) assert.deepEqual(walk(w, 5), [w, w, w, w, w], `wave ${w} holds`);
+  // From $1 the offsets read as the waveforms themselves.
+  assert.deepEqual(walk(1, 0, 13), [2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1, 2], "p=0: 123456765432");
+  assert.deepEqual(walk(1, 1, 7), [3, 5, 7, 5, 3, 1, 3], "p=1: 135753");
+  assert.deepEqual(walk(1, 2, 5), [4, 7, 4, 1, 4], "p=2: 1474");
+  assert.deepEqual(walk(1, 3, 4), [4, 1, 4, 1], "p=3: 14");
+  // From $4 they are offsets, wrapping mod 8 — DC included.
+  assert.deepEqual(walk(4, 0, 12), [5, 6, 7, 0, 1, 2, 1, 0, 7, 6, 5, 4]);
+  assert.deepEqual(walk(4, 1, 6), [6, 0, 2, 0, 6, 4]);
+  assert.deepEqual(walk(4, 2, 4), [7, 2, 7, 4]);
+  assert.deepEqual(walk(4, 3, 2), [7, 4]);
+  assert.deepEqual(walk(0, 3, 2), [3, 0], "DC advances too");
+  // N quarter ticks a step.
+  assert.deepEqual(walk(1, 0, 3, 4), [2, 3, 4], "4 quarters a step");
+  // Every non-pulse waveform holds.
+  for (const w of [8, 9, 0xa, 0xd, 0xf]) assert.deepEqual(walk(w, 0, 5), [w, w, w, w, w], `wave ${w} holds`);
+  // A pattern changed mid-note is read at the position reached, mod its length.
+  const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave: 1, advance: 1, pattern: 0 }, sq()] }));
+  const st = new P.PsgState();
+  P.psgKeyOn(st, patch, false);
+  for (let q = 0; q < 5; q++) P.psgQuarterTick(st);
+  patch.osc[0].pattern = 3;
+  assert.equal(P.psgCurrentWave(st, 0), 4, "position 5 of a 2-step pattern is its second entry");
+});
 
-  // …and the engine runs it in its tick pass: two ticks a step from 6.
+test("the speed is in quarter ticks, and the mixer runs each quarter at its own frame", () => {
+  /** How many times oscillator A's waveform changes over `nTicks` ticks,
+   *  sampled at every frame-chunk. */
+  const changes = (advance, nTicks) => {
+    const eng = new TaudEngine();
+    eng.uploadInstrument(1, psgInst({ muteB: true, osc: [sq({ wave: 1, advance }), sq()] }));
+    loadSong(eng, [{ row: 0, note: 0x5000, inst: 1 }]);
+    let last = -1, n = 0;
+    const chunks = Math.round(ticks(nTicks) / TRACKER_CHUNK);
+    for (let c = 0; c < chunks; c++) {
+      renderLeft(eng, TRACKER_CHUNK);
+      const w = P.psgCurrentWave(ts0(eng).voices[0].psg, 0);
+      if (last >= 0 && w !== last) n++;
+      last = w;
+    }
+    return n;
+  };
+  // 10 ticks: four steps a tick at speed 1, one at 4, one every two at 8. A
+  // quarter is 240 frames here, longer than a chunk, so none is missed.
+  assert.ok(Math.abs(changes(1, 10) - 40) <= 1, `speed 1: ${changes(1, 10)} steps`);
+  assert.ok(Math.abs(changes(4, 10) - 10) <= 1, `speed 4: ${changes(4, 10)} steps`);
+  assert.ok(Math.abs(changes(8, 10) - 5) <= 1, `speed 8: ${changes(8, 10)} steps`);
+  // The quarters are evenly spaced: speed 2 is two steps a tick, never two in
+  // one chunk and never a tick without one.
+  assert.ok(Math.abs(changes(2, 10) - 20) <= 1, `speed 2: ${changes(2, 10)} steps`);
+});
+
+test("a chase runs a tick's four quarters, as playing it does", () => {
   const eng = new TaudEngine();
-  eng.uploadInstrument(1, psgInst({ muteB: true, osc: [sq({ wave: 6, advance: 2 }), sq()] }));
+  eng.uploadInstrument(1, psgInst({ muteB: true, osc: [sq({ wave: 1, advance: 1, pattern: 0 }), sq()] }));
   loadSong(eng, [{ row: 0, note: 0x5000, inst: 1 }]);
-  const seen = [];
-  for (let t = 0; t < 12; t++) {
-    renderLeft(eng, ticks(1));
-    const w = P.psgCurrentWave(ts0(eng).voices[0].psg, 0);
-    if (seen.at(-1) !== w) seen.push(w);
-  }
-  assert.deepEqual(seen.slice(0, 5), [6, 7, 6, 5, 4], "6, up to 7, back down");
+  // Row 1 starts 6 ticks in: 24 quarters, so 24 steps (two laps of 12) — the
+  // position the chase leaves the lane's pair at, as playing would.
+  eng.chaseTrackerRow(0, 0, 1);
+  const st = ts0(eng).voices[0].psg;
+  assert.ok(st !== null);
+  assert.equal(st.adv[0], 24 % 12, "24 steps — a chase running only each tick's first quarter would reach 6");
 });
 
 test("internal status carries from note to note, unless the X flag resets it", () => {
   const run = (reset) => {
     const eng = new TaudEngine();
-    eng.uploadInstrument(1, psgInst({ muteB: true, osc: [sq({ wave: 1, advance: 1, reset }), sq()] },
+    // Speed 8 quarters: a step every two ticks, so the walk never laps.
+    eng.uploadInstrument(1, psgInst({ muteB: true, osc: [sq({ wave: 1, advance: 8, reset }), sq()] },
       { nna: 0 }));
     loadSong(eng, [{ row: 0, note: 0x5000, inst: 1 }, { row: 1, note: 0x5000, inst: 1 }]);
     renderLeft(eng, ticks(5.5));          // inside the last tick before row 1
@@ -425,7 +466,7 @@ test("S $Axxx writes the instrument, lasts across notes, and is gone on a new pl
 
 test("the live state reports the waveform a sounding voice is playing", () => {
   const eng = new TaudEngine();
-  eng.uploadInstrument(1, psgInst({ osc: [sq({ wave: 2, advance: 1 }), { ...HELD, wave: 9 }] }));
+  eng.uploadInstrument(1, psgInst({ osc: [sq({ wave: 2, advance: 4 }), { ...HELD, wave: 9 }] }));
   loadSong(eng, [{ row: 0, note: 0x5000, inst: 1 }]);
   assert.equal(eng.getInstrumentPsgState(1).wave, null, "nothing sounding yet");
   renderLeft(eng, ticks(3));

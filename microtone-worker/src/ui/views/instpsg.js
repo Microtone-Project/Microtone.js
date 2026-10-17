@@ -5,7 +5,7 @@
 // per oscillator, with the envelope sketched at its top under a window that
 // draws the waveform, then the same AR DR SL RR TL KSL MULT fields and the
 // Sustain / Key scale rate switches, then what is the PSG's own — invert,
-// reset on trigger, tremolo and vibrato depths, auto-advance. The mixer's
+// reset on trigger, tremolo and vibrato depths, auto-advance and its pattern. The mixer's
 // group (add or multiply, and the two mutes) sits above both.
 //
 // During playback the tab shows what `S $Axxx` and the auto-advance have done
@@ -16,7 +16,7 @@
 
 import { setInstBytesOp } from "../../doc/ops.js";
 import {
-  psgFields, psgOscBytes, psgSwitchBytes, psgWavePoints, PSG_ENV_FIELDS,
+  psgFields, psgOscBytes, psgSwitchBytes, psgWavePoints, PSG_ENV_FIELDS, PSG_PATTERN_LABELS,
 } from "../../doc/psgedit.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
 import { t } from "../i18n.js";
@@ -171,6 +171,12 @@ export function renderPsgTab(view, inst) {
     const adv = num(of.advance, 255, (v) => apply(psgOscBytes(inst, o, "advance", v), `${o}.advance`));
     live.advance[o] = { input: adv, record: of.advance };
     box.appendChild(field(t("psg.f.advance"), adv, t("psg.f.advanceTitle")));
+    const pat = field(t("psg.f.pattern"),
+      select(of.pattern, PSG_PATTERN_LABELS.map((text, v) => [v, text]),
+        (v) => apply(psgOscBytes(inst, o, "pattern", v), `${o}.pattern`)),
+      t("psg.f.patternTitle"));
+    pat.classList.add("psg-pattern");
+    box.appendChild(pat);
     return box;
   };
 

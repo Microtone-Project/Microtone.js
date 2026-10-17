@@ -59,16 +59,18 @@ export const PSG_BLOCK_LEN = 54;
 export const PSG_B_FLAGS = 0;
 /** RESERVED. */
 export const PSG_B_RESERVED = 1;
-/** Oscillator A's six bytes, then oscillator B's. */
+/** Oscillator A's twelve bytes (record 199…210), then oscillator B's
+ *  (211…222); 223…250 are RESERVED. */
 export const PSG_B_OSC = 2;
-export const PSG_OSC_BYTES = 6;
-/** Within an oscillator's six. */
+export const PSG_OSC_BYTES = 12;
+/** Within an oscillator's twelve (+6 and +8…+11 RESERVED). */
 export const PSG_O_WAVE_AR = 0;   // 0b wwww aaaa
 export const PSG_O_DR_SL = 1;     // 0b dddd ssss
 export const PSG_O_RR_MULT = 2;   // 0b rrrr mmmm
 export const PSG_O_KSL_TL = 3;    // 0b KK LLLLLL
 export const PSG_O_FLAGS = 4;     // 0b VVTT IXsR
-export const PSG_O_ADVANCE = 5;   // auto-advance period, ticks (0 = off)
+export const PSG_O_ADVANCE = 5;   // auto-advance period, QUARTER ticks (0 = off, 4 = a tick)
+export const PSG_O_PATTERN = 7;   // 0b 0000 00pp: which auto-advance pattern
 
 export const PSG_MIX_MULTIPLY = 0x01;
 export const PSG_MUTE_B = 0x04;
@@ -169,7 +171,7 @@ export function psgIsNoise(w) {
 
 // ── The patch ─────────────────────────────────────────────────────────────
 
-/** One oscillator's six bytes, unpacked. `sl` is in envelope steps, as an
+/** One oscillator's twelve bytes, unpacked. `sl` is in envelope steps, as an
  *  OplOperator's is, so the chip's envelope generator reads it unchanged. */
 export class PsgOscillator {
   constructor() {
@@ -179,7 +181,8 @@ export class PsgOscillator {
     this.ksr = 0; this.eg = 0; this.reset = false; this.invert = false;
     this.tremolo = 0;   // 0 off, 1 = 1 dB, 2 = 4.8 dB (3 RESERVED, read as off)
     this.vibrato = 0;   // 0 off, 1 = 7 cents, 2 = 14 cents (3 RESERVED, read as off)
-    this.advance = 0;   // auto-advance period in ticks, 0 = off
+    this.advance = 0;   // auto-advance period in quarter ticks, 0 = off
+    this.pattern = 0;   // auto-advance pattern, 0…3 (PSG_ADVANCE_PATTERNS)
   }
 }
 
@@ -233,6 +236,7 @@ export function decodePsgPatch(bytes, at = 0, into = new PsgPatch()) {
     osc.tremolo = tt === 3 ? 0 : tt;
     osc.vibrato = vv === 3 ? 0 : vv;
     osc.advance = bytes[o + PSG_O_ADVANCE] & 0xff;
+    osc.pattern = bytes[o + PSG_O_PATTERN] & 3;
   }
   into.gen++;
   return into;
@@ -241,7 +245,7 @@ export function decodePsgPatch(bytes, at = 0, into = new PsgPatch()) {
 /**
  * Pack a patch description into the 54-byte block — decodePsgPatch's inverse.
  * `osc` are field-shaped {wave, ar, dr, sl (the 4-bit FIELD), rr, mult, ksl,
- * tl, ksr, eg, reset, invert, tremolo, vibrato, advance}; missing ones zero.
+ * tl, ksr, eg, reset, invert, tremolo, vibrato, advance, pattern}; missing ones zero.
  */
 export function encodePsgPatch({ multiply = false, muteA = false, muteB = false, osc = [] } = {}) {
   const b = new Uint8Array(PSG_BLOCK_LEN);
@@ -259,7 +263,8 @@ export function encodePsgPatch({ multiply = false, muteA = false, muteB = false,
       (s.reset ? PSG_OF_RESET : 0) | (s.invert ? PSG_OF_INVERT : 0) |
       (((s.tremolo ?? 0) & 3) << PSG_OF_TREMOLO_SHIFT) |
       (((s.vibrato ?? 0) & 3) << PSG_OF_VIBRATO_SHIFT);
-    b[o + 5] = (s.advance ?? 0) & 0xff;
+    b[o + PSG_O_ADVANCE] = (s.advance ?? 0) & 0xff;
+    b[o + PSG_O_PATTERN] = (s.pattern ?? 0) & 3;
   }
   return b;
 }
@@ -340,8 +345,8 @@ export class PsgState {
     // unless the oscillator's X flag says otherwise.
     this.phase = new Float64Array(2);       // 0 ≤ phase < 2³², integral
     this.noise = new Float64Array(2);       // noise steps taken, mod PSG_NOISE_WRAP
-    this.adv = new Uint8Array(2);           // waveform auto-advance steps, mod PSG_ADVANCE_CYCLE
-    this.advCount = new Int32Array(2);      // ticks toward the next advance
+    this.adv = new Uint8Array(2);           // auto-advance position in its pattern
+    this.advCount = new Int32Array(2);      // quarter ticks toward the next advance
     this.lfo = new Float64Array(2);         // chip sample the LFOs run from
     this.keyed = false;
     this.k = -1;
@@ -410,32 +415,42 @@ export function psgReattack(st) {
 }
 
 /**
- * The auto-advance's walk: the pulse widths up from 1 to 7 and back down,
- * bouncing at each end without repeating it — 1 2 3 4 5 6 7 6 5 4 3 2 1 2 …,
- * twelve steps a round. A pulse joins it at its own width, heading up (so 7
- * starts down); DC is no width and is not walked.
+ * The auto-advance's four patterns (byte +7), as OFFSETS from the record's
+ * waveform: 1 is the waveform itself and 7 is six steps on, all mod 8, so a
+ * record waveform of 4 walks 4 5 6 7 0 1 2 1 0 7 6 5 under pattern 0. Each
+ * pattern starts at its first entry and repeats.
  */
-const PSG_ADVANCE_WALK = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2]);
-export const PSG_ADVANCE_CYCLE = PSG_ADVANCE_WALK.length;
+export const PSG_ADVANCE_PATTERNS = Object.freeze([
+  Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2]),
+  Uint8Array.from([1, 3, 5, 7, 5, 3]),
+  Uint8Array.from([1, 4, 7, 4]),
+  Uint8Array.from([1, 4]),
+]);
 
-/** Whether waveform `w` is one the auto-advance walks: a pulse, 1…7. */
+/** Whether waveform `w` is one the auto-advance walks: DC or a pulse, 0…7. */
 export function psgAdvances(w) {
-  return w >= 1 && w <= PSG_WAVE_PULSE_LAST;
+  return w >= 0 && w <= PSG_WAVE_PULSE_LAST;
 }
 
-/** The waveform oscillator `i` is playing now: its record's, moved along the
- *  walk by the auto-advance when the record's is a pulse. */
+/** The waveform oscillator `i` is playing now: its record's, moved along its
+ *  pattern by the auto-advance when the record's is 0…7. */
 export function psgCurrentWave(st, i) {
-  const w = st.patch.osc[i].wave;
-  return psgAdvances(w) ? PSG_ADVANCE_WALK[(w - 1 + st.adv[i]) % PSG_ADVANCE_CYCLE] : w;
+  const osc = st.patch.osc[i];
+  const w = osc.wave;
+  if (!psgAdvances(w)) return w;
+  const pat = PSG_ADVANCE_PATTERNS[osc.pattern];
+  return (w + pat[st.adv[i] % pat.length] - 1) & 7;
 }
 
 /**
- * One tick of the auto-advance (the tick pass, tick.js): every `N` ticks an
- * oscillator whose waveform is a pulse takes one step of the walk. N is the
- * overlay's when `S $Axxx` has written one, else the record's; 0 holds.
+ * One QUARTER tick of the auto-advance: an oscillator whose record waveform is
+ * 0…7 counts one, and every `N` quarters (byte +5, 4 = once a tick) takes the
+ * next step of its pattern. N is the overlay's when `S $Axxx` has written one,
+ * else the record's; 0 holds. The tick pass runs the first quarter of every
+ * tick and the mixer the other three at their own frames (tick.js
+ * psgQuarterPass, mixer.js).
  */
-export function psgTick(st) {
+export function psgQuarterTick(st) {
   const patch = st.patch;
   if (patch === null) return;
   for (let i = 0; i < 2; i++) {
@@ -443,9 +458,16 @@ export function psgTick(st) {
     if (n === 0 || !psgAdvances(patch.osc[i].wave)) { st.advCount[i] = 0; continue; }
     if (++st.advCount[i] >= n) {
       st.advCount[i] = 0;
-      st.adv[i] = (st.adv[i] + 1) % PSG_ADVANCE_CYCLE;
+      st.adv[i] = (st.adv[i] + 1) % PSG_ADVANCE_PATTERNS[patch.osc[i].pattern].length;
     }
   }
+}
+
+/** The quarter of its tick a playhead is in, `into` frames into a tick of
+ *  `spt` frames: 0…3. */
+export function psgQuarterAt(into, spt) {
+  const q = Math.floor((into * 4) / spt);
+  return q < 0 ? 0 : q > 3 ? 3 : q;
 }
 
 const psgScaleBox = new Int32Array(2);

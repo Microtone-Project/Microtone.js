@@ -2263,6 +2263,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .psg-wave.live { border-color: var(--accent); }
 .psg-wave.live polyline { stroke: var(--accent); }
 .psg-wave-label { fill: var(--accent); font-size: 9px; font-family: "Chivo Mono", monospace; }
+/* Twelve digits of the longest auto-advance pattern, in the picker's width. */
+.psg-edit .psg-pattern .mt-pick, .psg-edit .psg-pattern select {
+  font-variation-settings: "wdth" 75; letter-spacing: -0.01em;
+}
 .psg-edit .inst-field input.psg-live { color: var(--accent); border-color: var(--accent); }
 .psg-edit .inst-field input[type="checkbox"].psg-live { outline: 1px solid var(--accent); outline-offset: 1px; }
 

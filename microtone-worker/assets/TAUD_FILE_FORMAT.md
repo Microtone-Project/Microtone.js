@@ -995,9 +995,9 @@ A type-9 Metainstrument is a **PSG instrument**: two **programmable-sound-genera
 | 15…196 | — | As [§7.1](#7-1-byte-map) |
 | 197 | `U8` | Instrument flags: `0b 0000_XY0m` (below) |
 | 198 | `U8` | **RESERVED**, 0 |
-| 199 | `U8 × 6` | Oscillator A (below) |
-| 205 | `U8 × 6` | Oscillator B, laid out as A |
-| 211…250 | — | **RESERVED**, 0 |
+| 199 | `U8 × 12` | Oscillator A (below) |
+| 211 | `U8 × 12` | Oscillator B, laid out as A |
+| 223…250 | — | **RESERVED**, 0 |
 | 251…255 | — | As [§7.1](#7-1-byte-map) |
 
 As with the OPL kind, the patch takes the place of the **second pitch/filter envelope slot**, so a PSG instrument has exactly one, and it has **no Ixmp patch list**: an `Ixmp` entry naming a type-9 instrument is **IGNORED**.
@@ -1014,7 +1014,7 @@ As with the OPL kind, the patch takes the place of the **second pitch/filter env
 
 A muted oscillator is left out of the mix, and the mixer **MUST** then be a no-op: with one oscillator muted, the output is the other one, unchanged, in either model. With both muted the instrument is silent. A muted oscillator keeps running, so lifting the mute mid-note ([`S $Axxx`](TAUD_NOTE_EFFECTS.md)) brings it back where it would have been.
 
-#### An oscillator's six bytes
+#### An oscillator's twelve bytes
 
 | Byte | Bits | Field |
 |---|---|---|
@@ -1023,9 +1023,23 @@ A muted oscillator is left out of the mix, and the mixer **MUST** then be a no-o
 | +2 | `rrrr_mmmm` | `r` **release rate**; `m` **multiplier** |
 | +3 | `KKLL_LLLL` | `K` **key-scale level**; `L` **level** (total level, as attenuation) |
 | +4 | `VVTT_IXsR` | `R` **key-scale rate**; `s` **sustain** (the envelope holds at the sustain level while the key is down); `X` **reset on trigger** (below); `I` **invert** (`1 − v`, below); `TT` **tremolo** depth; `VV` **vibrato** depth |
-| +5 | `U8` | **Auto-advance**: every this many ticks a pulse waveform (`$1`…`$7`) steps to the next width, bouncing between the two ends: `1 2 3 4 5 6 7 6 5 4 3 2 1 2 …`. It starts from the record's waveform heading up (so `$7` heads down). DC and every other waveform hold. 0 = off, 1 the fastest, 255 the slowest |
+| +5 | `U8` | **Auto-advance** speed, in **quarter ticks**: a waveform of `$0`…`$7` takes the next step of its pattern (+7) every this many quarter ticks — 4 is once a tick, 1 four times a tick, 255 every 63¾ ticks. 0 = off. Every other waveform holds |
+| +6 | `U8` | **RESERVED**, 0 |
+| +7 | `0000_00pp` | `p` **auto-advance pattern** (below); bits 2…7 **RESERVED** |
+| +8…+11 | — | **RESERVED**, 0 |
 
 Attack, decay, sustain level, release, multiplier, level, key-scale level, key-scale rate and sustain follow the **OPL operator's semantics exactly** — the same fields as registers `$20`…`$80` of [§7.7](#7-7-metainstrument-type-8-opl-instruments), with the same values meaning the same rates, steps and levels. `TT` and `VV` are the chip's tremolo and vibrato, taken one oscillator at a time: tremolo 0 off, 1 = 1 dB, 2 = 4.8 dB, at 3.7 Hz; vibrato 0 off, 1 = 7 cents, 2 = 14 cents, at 6.1 Hz; the value 3 is **RESERVED** for both and reads as off. **Invert** turns the waveform over within its 0…1 range.
+
+#### Auto-advance patterns
+
+The pattern is a list of **offsets from the record's waveform** `w` (byte +0's high nibble), not of waveforms: offset `k` plays waveform `(w + k − 1) mod 8`, so 1 is `w` itself and 7 is six steps on. An oscillator walks its pattern from the first entry, one entry each step, and starts it again after the last.
+
+| `p` | Offsets | From `w = $4` |
+|---|---|---|
+| 0 | `1 2 3 4 5 6 7 6 5 4 3 2` | `4 5 6 7 0 1 2 1 0 7 6 5` |
+| 1 | `1 3 5 7 5 3` | `4 6 0 2 0 6` |
+| 2 | `1 4 7 4` | `4 7 2 7` |
+| 3 | `1 4` | `4 7` |
 
 #### Waveforms
 
@@ -1048,7 +1062,7 @@ The noises' actual bit sequences are **implementation-defined**. An implementati
 
 #### Internal status
 
-An oscillator has an **internal status**: its phase, its noise generator's position, its auto-advance (how far it has moved the waveform, and how many ticks it has counted toward the next step), and the point its tremolo and vibrato run from. With `X` clear, the status carries from note to note on the lane, as a real PSG's counters keep running between key-ons. With `X` set, every note trigger resets it. The status runs whatever the waveform, silence included: a silent oscillator's tremolo and vibrato keep moving.
+An oscillator has an **internal status**: its phase, its noise generator's position, its auto-advance (where it stands in its pattern, and how many quarter ticks it has counted toward the next step), and the point its tremolo and vibrato run from. With `X` clear, the status carries from note to note on the lane, as a real PSG's counters keep running between key-ons. With `X` set, every note trigger resets it. The status runs whatever the waveform, silence included: a silent oscillator's tremolo and vibrato keep moving.
 
 `S $Axxx` writes an oscillator's auto-advance and level and the two mutes at run time ([Note Effects](TAUD_NOTE_EFFECTS.md)). Those writes are not stored in the record. How the engine runs all of this is [Engine Specification §5.5.4](TAUD_ENGINE_SPEC.md).
 

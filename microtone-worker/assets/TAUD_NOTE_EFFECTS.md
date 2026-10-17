@@ -1437,7 +1437,7 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 
 | Argument | Effect |
 |---|---|
-| `S $A0xx` | Oscillator A's **auto-advance** to `$xx` ticks (`$00` stops it) |
+| `S $A0xx` | Oscillator A's **auto-advance** speed to `$xx` quarter ticks (`$04` is once a tick, `$00` stops it) |
 | `S $A1xx`, `$xx` ≤ `$3F` | Oscillator A's **level** to `$xx` (0 the loudest, each step 0.75 dB quieter) |
 | `S $A8xx` | Oscillator B's auto-advance to `$xx` |
 | `S $A9xx`, `$xx` ≤ `$3F` | Oscillator B's level to `$xx` |

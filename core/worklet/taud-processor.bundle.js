@@ -5560,16 +5560,18 @@ const PSG_BLOCK_LEN = 54;
 const PSG_B_FLAGS = 0;
 /** RESERVED. */
 const PSG_B_RESERVED = 1;
-/** Oscillator A's six bytes, then oscillator B's. */
+/** Oscillator A's twelve bytes (record 199…210), then oscillator B's
+ *  (211…222); 223…250 are RESERVED. */
 const PSG_B_OSC = 2;
-const PSG_OSC_BYTES = 6;
-/** Within an oscillator's six. */
+const PSG_OSC_BYTES = 12;
+/** Within an oscillator's twelve (+6 and +8…+11 RESERVED). */
 const PSG_O_WAVE_AR = 0;   // 0b wwww aaaa
 const PSG_O_DR_SL = 1;     // 0b dddd ssss
 const PSG_O_RR_MULT = 2;   // 0b rrrr mmmm
 const PSG_O_KSL_TL = 3;    // 0b KK LLLLLL
 const PSG_O_FLAGS = 4;     // 0b VVTT IXsR
-const PSG_O_ADVANCE = 5;   // auto-advance period, ticks (0 = off)
+const PSG_O_ADVANCE = 5;   // auto-advance period, QUARTER ticks (0 = off, 4 = a tick)
+const PSG_O_PATTERN = 7;   // 0b 0000 00pp: which auto-advance pattern
 
 const PSG_MIX_MULTIPLY = 0x01;
 const PSG_MUTE_B = 0x04;
@@ -5670,7 +5672,7 @@ function psgIsNoise(w) {
 
 // ── The patch ─────────────────────────────────────────────────────────────
 
-/** One oscillator's six bytes, unpacked. `sl` is in envelope steps, as an
+/** One oscillator's twelve bytes, unpacked. `sl` is in envelope steps, as an
  *  OplOperator's is, so the chip's envelope generator reads it unchanged. */
 class PsgOscillator {
   constructor() {
@@ -5680,7 +5682,8 @@ class PsgOscillator {
     this.ksr = 0; this.eg = 0; this.reset = false; this.invert = false;
     this.tremolo = 0;   // 0 off, 1 = 1 dB, 2 = 4.8 dB (3 RESERVED, read as off)
     this.vibrato = 0;   // 0 off, 1 = 7 cents, 2 = 14 cents (3 RESERVED, read as off)
-    this.advance = 0;   // auto-advance period in ticks, 0 = off
+    this.advance = 0;   // auto-advance period in quarter ticks, 0 = off
+    this.pattern = 0;   // auto-advance pattern, 0…3 (PSG_ADVANCE_PATTERNS)
   }
 }
 
@@ -5734,6 +5737,7 @@ function decodePsgPatch(bytes, at = 0, into = new PsgPatch()) {
     osc.tremolo = tt === 3 ? 0 : tt;
     osc.vibrato = vv === 3 ? 0 : vv;
     osc.advance = bytes[o + PSG_O_ADVANCE] & 0xff;
+    osc.pattern = bytes[o + PSG_O_PATTERN] & 3;
   }
   into.gen++;
   return into;
@@ -5742,7 +5746,7 @@ function decodePsgPatch(bytes, at = 0, into = new PsgPatch()) {
 /**
  * Pack a patch description into the 54-byte block — decodePsgPatch's inverse.
  * `osc` are field-shaped {wave, ar, dr, sl (the 4-bit FIELD), rr, mult, ksl,
- * tl, ksr, eg, reset, invert, tremolo, vibrato, advance}; missing ones zero.
+ * tl, ksr, eg, reset, invert, tremolo, vibrato, advance, pattern}; missing ones zero.
  */
 function encodePsgPatch({ multiply = false, muteA = false, muteB = false, osc = [] } = {}) {
   const b = new Uint8Array(PSG_BLOCK_LEN);
@@ -5760,7 +5764,8 @@ function encodePsgPatch({ multiply = false, muteA = false, muteB = false, osc = 
       (s.reset ? PSG_OF_RESET : 0) | (s.invert ? PSG_OF_INVERT : 0) |
       (((s.tremolo ?? 0) & 3) << PSG_OF_TREMOLO_SHIFT) |
       (((s.vibrato ?? 0) & 3) << PSG_OF_VIBRATO_SHIFT);
-    b[o + 5] = (s.advance ?? 0) & 0xff;
+    b[o + PSG_O_ADVANCE] = (s.advance ?? 0) & 0xff;
+    b[o + PSG_O_PATTERN] = (s.pattern ?? 0) & 3;
   }
   return b;
 }
@@ -5841,8 +5846,8 @@ class PsgState {
     // unless the oscillator's X flag says otherwise.
     this.phase = new Float64Array(2);       // 0 ≤ phase < 2³², integral
     this.noise = new Float64Array(2);       // noise steps taken, mod PSG_NOISE_WRAP
-    this.adv = new Uint8Array(2);           // waveform auto-advance steps, mod PSG_ADVANCE_CYCLE
-    this.advCount = new Int32Array(2);      // ticks toward the next advance
+    this.adv = new Uint8Array(2);           // auto-advance position in its pattern
+    this.advCount = new Int32Array(2);      // quarter ticks toward the next advance
     this.lfo = new Float64Array(2);         // chip sample the LFOs run from
     this.keyed = false;
     this.k = -1;
@@ -5911,32 +5916,42 @@ function psgReattack(st) {
 }
 
 /**
- * The auto-advance's walk: the pulse widths up from 1 to 7 and back down,
- * bouncing at each end without repeating it — 1 2 3 4 5 6 7 6 5 4 3 2 1 2 …,
- * twelve steps a round. A pulse joins it at its own width, heading up (so 7
- * starts down); DC is no width and is not walked.
+ * The auto-advance's four patterns (byte +7), as OFFSETS from the record's
+ * waveform: 1 is the waveform itself and 7 is six steps on, all mod 8, so a
+ * record waveform of 4 walks 4 5 6 7 0 1 2 1 0 7 6 5 under pattern 0. Each
+ * pattern starts at its first entry and repeats.
  */
-const PSG_ADVANCE_WALK = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2]);
-const PSG_ADVANCE_CYCLE = PSG_ADVANCE_WALK.length;
+const PSG_ADVANCE_PATTERNS = Object.freeze([
+  Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2]),
+  Uint8Array.from([1, 3, 5, 7, 5, 3]),
+  Uint8Array.from([1, 4, 7, 4]),
+  Uint8Array.from([1, 4]),
+]);
 
-/** Whether waveform `w` is one the auto-advance walks: a pulse, 1…7. */
+/** Whether waveform `w` is one the auto-advance walks: DC or a pulse, 0…7. */
 function psgAdvances(w) {
-  return w >= 1 && w <= PSG_WAVE_PULSE_LAST;
+  return w >= 0 && w <= PSG_WAVE_PULSE_LAST;
 }
 
-/** The waveform oscillator `i` is playing now: its record's, moved along the
- *  walk by the auto-advance when the record's is a pulse. */
+/** The waveform oscillator `i` is playing now: its record's, moved along its
+ *  pattern by the auto-advance when the record's is 0…7. */
 function psgCurrentWave(st, i) {
-  const w = st.patch.osc[i].wave;
-  return psgAdvances(w) ? PSG_ADVANCE_WALK[(w - 1 + st.adv[i]) % PSG_ADVANCE_CYCLE] : w;
+  const osc = st.patch.osc[i];
+  const w = osc.wave;
+  if (!psgAdvances(w)) return w;
+  const pat = PSG_ADVANCE_PATTERNS[osc.pattern];
+  return (w + pat[st.adv[i] % pat.length] - 1) & 7;
 }
 
 /**
- * One tick of the auto-advance (the tick pass, tick.js): every `N` ticks an
- * oscillator whose waveform is a pulse takes one step of the walk. N is the
- * overlay's when `S $Axxx` has written one, else the record's; 0 holds.
+ * One QUARTER tick of the auto-advance: an oscillator whose record waveform is
+ * 0…7 counts one, and every `N` quarters (byte +5, 4 = once a tick) takes the
+ * next step of its pattern. N is the overlay's when `S $Axxx` has written one,
+ * else the record's; 0 holds. The tick pass runs the first quarter of every
+ * tick and the mixer the other three at their own frames (tick.js
+ * psgQuarterPass, mixer.js).
  */
-function psgTick(st) {
+function psgQuarterTick(st) {
   const patch = st.patch;
   if (patch === null) return;
   for (let i = 0; i < 2; i++) {
@@ -5944,9 +5959,16 @@ function psgTick(st) {
     if (n === 0 || !psgAdvances(patch.osc[i].wave)) { st.advCount[i] = 0; continue; }
     if (++st.advCount[i] >= n) {
       st.advCount[i] = 0;
-      st.adv[i] = (st.adv[i] + 1) % PSG_ADVANCE_CYCLE;
+      st.adv[i] = (st.adv[i] + 1) % PSG_ADVANCE_PATTERNS[patch.osc[i].pattern].length;
     }
   }
+}
+
+/** The quarter of its tick a playhead is in, `into` frames into a tick of
+ *  `spt` frames: 0…3. */
+function psgQuarterAt(into, spt) {
+  const q = Math.floor((into * 4) / spt);
+  return q < 0 ? 0 : q > 3 ? 3 : q;
 }
 
 const psgScaleBox = new Int32Array(2);
@@ -8480,6 +8502,9 @@ class TrackerState {
     // transport reset. Every OPL voice reads the chip's envelope counter and
     // LFOs off it, so a playhead's OPL voices are one chip (engine/opl.js).
     this.oplFrame = 0;
+    // The quarter of the current tick the PSG auto-advance has reached, 0…3
+    // (tick.js psgQuarterPass): the tick pass sets 0, the mixer runs 1…3.
+    this.psgQuarter = 0;
     // Always MAX_VOICES so 64-lane mode has slots for every lane, plus
     // the dedicated jam bank above them (JAM_VOICE_BASE…, item 140) — the tick
     // and mix loops run the whole array, the row loop only the lanes.
@@ -8684,6 +8709,7 @@ class TrackerState {
     this.firstRow = true;
     // A replay meets the OPL chip where a render from the start does (§15).
     this.oplFrame = 0;
+    this.psgQuarter = 0;
     this.pendingOrderJump = -1;
     this.pendingRowJump = -1;
     this.pendingRowJumpLocal = false;
@@ -8885,6 +8911,7 @@ class Playhead {
     ts.cuePos = 0; ts.rowIndex = 0; ts.tickInRow = 0;
     ts.samplesIntoTick = 0.0; ts.firstRow = true;
     ts.oplFrame = 0;
+    ts.psgQuarter = 0;
     ts.pendingOrderJump = -1; ts.pendingRowJump = -1;
     ts.pendingRowJumpLocal = false;
     ts.patternDelayRemaining = 0; ts.patternDelayActive = false;
@@ -15521,14 +15548,10 @@ function applyTrackerTick(eng, ts, playhead) {
     }
   }
 
-  // PSG waveform auto-advance (§5.5.4): one tick toward each oscillator's next
-  // step, on every sounding pair — a lane's, a ghost's, an FM operator's.
-  for (const voice of ts.voices) {
-    if (voice.psg !== null && voice.active) psgTick(voice.psg);
-  }
-  for (const voice of ts.backgroundVoices) {
-    if (voice.psg !== null && voice.active) psgTick(voice.psg);
-  }
+  // PSG waveform auto-advance (§5.5.4): the tick's first quarter. The mixer
+  // runs the other three at their own frames.
+  ts.psgQuarter = 0;
+  psgQuarterPass(ts);
 
   // Invert loop (S $F0xx) — advance the per-instrument XOR mask (PT2 updateFunk).
   for (const voice of ts.voices) {
@@ -15947,6 +15970,29 @@ function stepExtendedModOnce(ts, voice, inst, g, sampleLen) {
  * cleared. What Q's retrigger does to a voice — and, since a metainstrument is
  * one note, to each of its layer children as well (item 154).
  */
+/**
+ * One quarter tick of every sounding PSG pair's auto-advance — a lane's, a
+ * ghost's, an FM operator's (§5.5.4). Quarter 0 is the tick pass's; quarters
+ * 1…3 are the mixer's, at the frames a quarter of the tick apart, and the
+ * chase's, straight after each tick it walks.
+ */
+function psgQuarterPass(ts) {
+  for (const voice of ts.voices) {
+    if (voice.psg !== null && voice.active) psgQuarterTick(voice.psg);
+  }
+  for (const voice of ts.backgroundVoices) {
+    if (voice.psg !== null && voice.active) psgQuarterTick(voice.psg);
+  }
+}
+
+/** Whether any voice of the playhead is sounding a PSG pair: the mixer cuts
+ *  its spans at quarter ticks only then, so nothing else renders differently. */
+function psgLive(ts) {
+  for (const voice of ts.voices) if (voice.psg !== null && voice.active) return true;
+  for (const voice of ts.backgroundVoices) if (voice.psg !== null && voice.active) return true;
+  return false;
+}
+
 function restartVoice(v) {
   v.samplePos = v.activeSamplePlayStart; // patch-aware
   v.keyOff = false;
@@ -16020,6 +16066,9 @@ function chaseRow(eng, ts, playhead) {
   applyTrackerRow(eng, ts, playhead);
   do {
     applyTrackerTick(eng, ts, playhead);
+    // The tick's other three PSG quarters, which the mixer would have run.
+    for (let q = 1; q <= 3; q++) psgQuarterPass(ts);
+    ts.psgQuarter = 3;
     ts.tickInRow++;
   } while (ts.tickInRow < playhead.tickRate + ts.finePatternDelayExtra);
   ts.tickInRow = 0;
@@ -16105,6 +16154,7 @@ function chaseCueOrder(eng, ts, playhead, cue, row) {
 // round like Kotlin's .toFloat()). pcm32fToPcm8 runs Kotlin-Float semantics via
 // Math.fround at every arithmetic step, and draws its TPDF dither from the
 // engine's seeded xorshift32 stream — so the U8 output is deterministic.
+
 
 
 
@@ -16590,6 +16640,16 @@ function generateTrackerAudio(eng, playhead, out) {
         applyTrackerTick(eng, ts, playhead);
       }
     }
+    // ── PSG quarter ticks (§5.5.4) ──
+    // The auto-advance counts in quarter ticks: the tick pass ran the first,
+    // and a span that reaches a later quarter's frame starts there, so each
+    // runs at its own frame. Only while a PSG pair sounds — otherwise spans
+    // are cut exactly as they always were.
+    const quarters = psgLive(ts);
+    if (quarters) {
+      const q = psgQuarterAt(ts.samplesIntoTick, sptFirst);
+      while (ts.psgQuarter < q) { ts.psgQuarter++; psgQuarterPass(ts); }
+    }
     // ── …and the span runs until the frame whose clock will fire next ──
     // The same `+= 1.0` per frame the clock always took, so the counter lands
     // where it always did; the firing frame is left for the next span's top.
@@ -16598,6 +16658,7 @@ function generateTrackerAudio(eng, playhead, out) {
     while (n1 < TRACKER_CHUNK) {
       const next = ts.samplesIntoTick + 1.0;
       if (next >= sptRest) break;
+      if (quarters && psgQuarterAt(next, sptRest) > ts.psgQuarter) break;
       ts.samplesIntoTick = next;
       n1++;
     }

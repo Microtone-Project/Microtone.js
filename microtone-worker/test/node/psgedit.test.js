@@ -52,7 +52,8 @@ const edit = (doc, slot, pairs) => doc.undo.apply(setInstBytesOp(slot, pairs));
 /** Every oscillator field and its range, the editor's and the PSG's own. */
 const ALL_FIELDS = [...PSG_ENV_FIELDS,
   { key: "wave", max: 15 }, { key: "invert", max: 1 }, { key: "reset", max: 1 },
-  { key: "tremolo", max: 3 }, { key: "vibrato", max: 3 }, { key: "advance", max: 255 }];
+  { key: "tremolo", max: 3 }, { key: "vibrato", max: 3 }, { key: "advance", max: 255 },
+  { key: "pattern", max: 3 }];
 
 test("a new PSG instrument is a square with a muted triangle, in the first free slot", () => {
   const { doc, slot } = withPsg();
@@ -91,6 +92,7 @@ test("every oscillator field writes its own bits and nothing else", () => {
       // The decoded patch the engine plays follows at once.
       if (key === "tl") assert.equal(inst.psg.osc[o].tl, value);
       if (key === "wave") assert.equal(inst.psg.osc[o].wave, value);
+      if (key === "pattern") assert.equal(inst.psg.osc[o].pattern, value);
       doc.undo.undo();
       assert.deepEqual(psgOscillator(inst, o), before);
     }
