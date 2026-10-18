@@ -227,7 +227,7 @@ function buildTetrachords() {
 // a perfect interval, so only the quality tunings have them, and only those
 // get the arto-diminished and tendo-augmented triads.
 //
-// THE RULE, then, run over every equal tuning from 11 to 53 and 96 (by size,
+// THE RULE, then, run over every equal tuning from 11 to 96 (by size,
 // like the higher-limit family, so a Notation Maker table gets it too):
 //   - BY EAR, every pair at ±22.5-30°, both ends included — 16-TET's pair and
 //     31-TET's 8/7 one sit exactly on the 30° edge, and so do 11- and 26-TET's;
@@ -256,7 +256,7 @@ function buildTetrachords() {
 /** Equal tunings the diatonic families (arto/tendo, neutral) are worked out
  *  for, by size. Below 11 every chord is a slice of a five-note scale. */
 const DIATONIC_FAMILY_EDOS = [
-  ...Array.from({ length: 53 - 11 + 1 }, (_, i) => 11 + i), 96,
+  ...Array.from({ length: 96 - 11 + 1 }, (_, i) => 11 + i),
 ];
 
 /**
@@ -470,7 +470,7 @@ function buildExtraclassical() {
 // first inversion — is dropped, as is one whose notes collide in the
 // tuning, so no tuning offers the same pitches twice.
 //
-// WHICH TUNINGS: every equal division of the octave from 5 to 53, and 96 —
+// WHICH TUNINGS: every equal division of the octave from 5 to 96 —
 // by SIZE, not by notation number, so a tuning the project has no built-in
 // notation for (14-, 21-, 27-TET …) still gets its chords the moment a
 // Notation Maker table divides the octave equally (equalDivisions below).
@@ -492,7 +492,7 @@ const HL_PER_LIMIT = 12;
 
 /** The equal tunings that get a higher-limit vocabulary, by size. */
 const HIGHER_LIMIT_EDOS = [
-  ...Array.from({ length: 53 - 5 + 1 }, (_, i) => 5 + i), 96,
+  ...Array.from({ length: 96 - 5 + 1 }, (_, i) => 5 + i),
 ];
 
 /** Degrees of `edo` nearest harmonic `h`, and how far out that is in cents. */
