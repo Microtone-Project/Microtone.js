@@ -227,44 +227,110 @@ function buildTetrachords() {
 // a perfect interval, so only the quality tunings have them, and only those
 // get the arto-diminished and tendo-augmented triads.
 //
+// THE RULE, then, run over every equal tuning from 11 to 53 and 96 (by size,
+// like the higher-limit family, so a Notation Maker table gets it too):
+//   - BY EAR, every pair at ±22.5-30°, both ends included — 16-TET's pair and
+//     31-TET's 8/7 one sit exactly on the 30° edge, and so do 11- and 26-TET's;
+//   - SPELT, the quality pair of a proper diatonic with an even chroma, kept
+//     between 31-TET's ±20° and 17-TET's ±36° (the two the wiki itself
+//     discusses) — past that it is a second and a fourth, not a pair of
+//     thirds (37-TET would spell a 162 ¢ "arto third");
+//   - NATIVE, a proper diatonic's own thirds when its fifth is as sharp as
+//     22-TET's or sharper.
+// A tuning with more than one pair tags each with the just pair it is
+// nearest (8/7·21/16, 15/13·13/10, 7/6·9/7) when that is within 20 ¢, or with
+// its own cents when it is not or another pair already took the tag.
+//
 // NOT offered, and why: 12-TET (and the 12-note historical notations) is too
 // coarse to place a third a quarter tone outside major, and its own thirds
 // sit at ±12.9°, nowhere near far enough out to arrive there by themselves;
 // 5- and 10-TET have a pair but too few degrees to voice it — every
-// extraclassical chord there is just a slice of the pentatonic scale. Nor do
-// we sweep for ANY well-tuned 7/6-9/7 or 8/7-21/16 pair a fine tuning happens
-// to contain (53-TET has three such, 96-TET four): the wiki never does that,
-// and three near-identical vocabularies 23 ¢ apart is a menu, not a choice.
+// extraclassical chord there is just a slice of the pentatonic scale, and
+// the families start at 11 for that reason. Nor do we sweep for ANY
+// well-tuned 7/6-9/7 or 8/7-21/16 pair a fine tuning happens to contain
+// (53-TET has three such, 96-TET four): the wiki never does that, and three
+// near-identical vocabularies 23 ¢ apart is a menu, not a choice. The one
+// exception is 43-TET, whose 8/7·21/16 and 7/6·9/7 pairs (±32°, ±18°) were
+// chosen by hand when it was added (XC_EXTRA_PAIRS).
+
+/** Equal tunings the diatonic families (arto/tendo, neutral) are worked out
+ *  for, by size. Below 11 every chord is a slice of a five-note scale. */
+const DIATONIC_FAMILY_EDOS = [
+  ...Array.from({ length: 53 - 11 + 1 }, (_, i) => 11 + i), 96,
+];
 
 /**
- * Per-tuning arto/tendo data. `fifth` and the pair degrees are counts of that
- * tuning's own steps; `half` is half a chroma where the tuning HAS one (the
- * quality ladder), null otherwise. `ji` names the pair for the menu and is
- * carried only by tunings with more than one — the just ratios each pair is
- * nearest, which is the wiki's own way of telling arto/tendo tunings apart.
- * Pairs are listed widest latitude first.
+ * An EDO's diatonic, read off its chain of best fifths: the large and small
+ * steps L and s, whether they make a proper 5L2s (3L + s is the fifth), and
+ * half its chroma L − s where a proper diatonic has an even, non-zero one —
+ * the step of the quality ladder — else null.
  */
-const EXTRACLASSICAL_TUNINGS = [
-  // notation   edo  fifth  half  pairs (arto third, tendo third)
-  { notation: 150, edo: 15, fifth: 9,  half: null, pairs: [{ a: 3, t: 6 }] },
-  { notation: 160, edo: 16, fifth: 9,  half: null, pairs: [{ a: 3, t: 6 }] },
-  { notation: 170, edo: 17, fifth: 10, half: 1,    pairs: [{ a: 3, t: 7 }] },
-  { notation: 190, edo: 19, fifth: 11, half: null, pairs: [{ a: 4, t: 7 }] },
-  { notation: 220, edo: 22, fifth: 13, half: null, pairs: [{ a: 5, t: 8 }] },
-  { notation: 240, edo: 24, fifth: 14, half: 1,    pairs: [{ a: 5, t: 9 }] },
-  { notation: 310, edo: 31, fifth: 18, half: 1,    pairs: [
-    { a: 6, t: 12, ji: "8/7·21/16" }, { a: 7, t: 11, ji: "7/6·9/7" }] },
-  { notation: 410, edo: 41, fifth: 24, half: 2,    pairs: [
-    { a: 8, t: 16, ji: "8/7·21/16" }, { a: 9, t: 15, ji: "7/6·9/7" }] },
-  { notation: 430, edo: 43, fifth: 25, half: null, pairs: [
-    { a: 8, t: 17, ji: "8/7·21/16" }, { a: 9, t: 16, ji: "15/13·13/10" },
-    { a: 10, t: 15, ji: "7/6·9/7" }] },
-  { notation: 530, edo: 53, fifth: 31, half: null, pairs: [{ a: 11, t: 20 }] },
-  { notation: 531, edo: 53, fifth: 31, half: null, pairs: [{ a: 11, t: 20 }] },
-  { notation: 960, edo: 96, fifth: 56, half: 4,    pairs: [
-    { a: 19, t: 37, ji: "8/7·21/16" }, { a: 20, t: 36, ji: "15/13·13/10" },
-    { a: 21, t: 35, ji: "7/6·9/7" }] },
-];
+function diatonicOf(edo) {
+  const fifth = Math.round(edo * Math.log2(1.5));
+  const chain = [-1, 0, 1, 2, 3, 4, 5]
+    .map((i) => (((i * fifth) % edo) + edo) % edo).sort((a, b) => a - b);
+  const steps = chain.map((v, i) => (i === 6 ? edo + chain[0] - v : chain[i + 1] - v));
+  const L = Math.max(...steps), s = Math.min(...steps);
+  const proper = s > 0 && 3 * L + s === fifth;
+  const chroma = L - s;
+  return { fifth, L, s, proper, half: proper && chroma > 0 && chroma % 2 === 0 ? chroma / 2 : null };
+}
+
+/** Where a third sits between root and fifth: 0° dead centre, ±90° the fifth. */
+const latitude = (third, fifth) => (third / fifth - 0.5) * 180;
+const LAT_EPS = 1e-9;
+const XC_BY_EAR = [22.5, 30];
+const XC_SPELT = [20, 36];
+const SUPERPYTH_FIFTH_CENTS = (13 * 1200) / 22;
+const XC_JI_PAIRS = [
+  { ji: "8/7·21/16", a: 8 / 7, t: 21 / 16 },
+  { ji: "15/13·13/10", a: 15 / 13, t: 13 / 10 },
+  { ji: "7/6·9/7", a: 7 / 6, t: 9 / 7 },
+].map(({ ji, a, t }) => ({ ji, a: 1200 * Math.log2(a), t: 1200 * Math.log2(t) }));
+const XC_JI_TOLERANCE_CENTS = 20;
+/** Arto degrees picked by hand, by tuning size; the tendo is the fifth less it. */
+const XC_EXTRA_PAIRS = { 43: [8, 10] };
+
+/**
+ * One tuning's arto/tendo data, or null when it has no pair. `fifth` and the
+ * pair degrees are counts of its own steps; `half` is half a chroma where the
+ * tuning HAS one (the quality ladder), null otherwise; `ji` tags each pair
+ * where there is more than one. Pairs are listed widest latitude first.
+ */
+function extraclassicalTuning(edo) {
+  const { fifth, L, s, proper, half } = diatonicOf(edo);
+  const step = 1200 / edo;
+  const within = (a, [lo, hi]) => {
+    const lat = -latitude(a, fifth);
+    return lat >= lo - LAT_EPS && lat <= hi + LAT_EPS;
+  };
+  const found = new Set();
+  for (let a = 1; 2 * a < fifth; a++) if (within(a, XC_BY_EAR)) found.add(a);
+  if (half !== null && within(L + s - half, XC_SPELT)) found.add(L + s - half);
+  if (proper && fifth * step >= SUPERPYTH_FIFTH_CENTS - LAT_EPS) found.add(L + s);
+  for (const a of XC_EXTRA_PAIRS[edo] ?? []) found.add(a);
+  if (found.size === 0) return null;
+  const pairs = [...found].sort((x, y) => x - y).map((a) => ({ a, t: fifth - a }));
+  if (pairs.length > 1) {
+    const taken = new Map();
+    for (const pair of pairs) {
+      const errOf = (j) => Math.max(Math.abs(pair.a * step - j.a), Math.abs(pair.t * step - j.t));
+      const best = XC_JI_PAIRS.reduce((x, y) => (errOf(y) < errOf(x) ? y : x));
+      pair.err = errOf(best);
+      if (pair.err > XC_JI_TOLERANCE_CENTS) continue;
+      const rival = taken.get(best.ji);
+      if (rival && rival.err <= pair.err) continue;
+      if (rival) rival.ji = undefined;
+      pair.ji = best.ji;
+      taken.set(best.ji, pair);
+    }
+    for (const pair of pairs) {
+      pair.ji ??= `${Math.round(pair.a * step)}·${Math.round(pair.t * step)} cents`;
+      delete pair.err;
+    }
+  }
+  return { edo, fifth, half, pairs };
+}
 
 /** The whole interval vocabulary a pair generates, in degrees of its tuning. */
 function extraclassicalVocab(tuning, pair) {
@@ -335,7 +401,7 @@ function degreeShapeUsable(degrees, edo) {
  */
 function buildExtraclassical() {
   const out = [];
-  for (const tuning of EXTRACLASSICAL_TUNINGS) {
+  for (const tuning of DIATONIC_FAMILY_EDOS.map(extraclassicalTuning).filter(Boolean)) {
     const seen = new Set();
     for (const pair of tuning.pairs) {
       const v = extraclassicalVocab(tuning, pair);
@@ -346,9 +412,9 @@ function buildExtraclassical() {
         if (seen.has(sig)) continue;
         seen.add(sig);
         out.push({
-          id: `xc${tuning.notation}-${pair.a}-${shape.id}`,
+          id: `xc${tuning.edo}-${pair.a}-${shape.id}`,
           group: "extraclassical",
-          notation: tuning.notation,
+          edo: tuning.edo,
           key: `chord.preset.xc.${shape.id}`,
           ...(tuning.pairs.length > 1 ? { variant: pair.ji } : {}),
           voices: degrees.map((d) => ({ mode: "key", step: d })),
@@ -593,29 +659,46 @@ function buildHigherLimit() {
 // exactly; an odd one cannot, and the two degrees either side of the centre
 // are precisely the wiki's ARTONEUTRAL (flat of centre, 11/9 territory) and
 // TENDONEUTRAL (sharp of centre, 16/13) — offered only where the step is fine
-// enough for both halves to still read as neutral, which among our notations
-// means 53-TET (±11 ¢) and not 12-, 15-, 19- or 22-TET (±27 ¢ to ±50 ¢: their
-// thirds are plain major and minor, which is the whole reason 12-TET has no
-// neutral third). 16-TET is excluded from the other end — its fifth is so flat
-// that half of it is 337 ¢, under the band — and 5-, 7- and 10-TET on the same
-// grounds as the arto/tendo family, too few degrees to voice a chord with.
+// enough for both halves to still read as neutral, within 12 ¢ of the centre:
+// 50-TET (±12 ¢) and 53-TET (±11 ¢), but not 43-TET (±14 ¢, whose 335 ¢ is
+// nearer 17/14 than 11/9), and not 12-, 15-, 19- or 22-TET (±27 ¢ to ±50 ¢:
+// their thirds are plain major and minor, which is the whole reason 12-TET
+// has no neutral third). 16-TET is excluded from the other end — its fifth is
+// so flat that half of it is 337 ¢, under the band — and 5-, 7- and 10-TET on
+// the same grounds as the arto/tendo family, too few degrees to voice a
+// chord with. And it needs a proper diatonic with distinct major and minor
+// thirds: the centre of the third category is only a centre where there is
+// something either side of it. 20- and 30-TET halve their 720 ¢ fifth at
+// 360 ¢, but with no diatonic their "neutral seventh" lands 31 ¢ off 11/6,
+// nearer a major seventh; 14-, 21-, 28- and 35-TET's diatonic is 7-TET's,
+// whose major and minor third are one and the same 343 ¢. The rule runs over
+// the same tunings, by size, as that family.
 //
 // The mixed sevenths are the one thing NOT derived: a neutral triad under the
 // tuning's own minor or major seventh is the commonest neutral chord in
 // practice, and those two sevenths are what the neutral seventh sits between,
 // so the tuning's diatonic m7 (4L+2s) and M7 (5L+s) are carried here too.
-const NEUTRAL_TUNINGS = [
-  // notation   edo  fifth  m7  M7   neutral third(s); `ji` only where two
-  { notation: 170, edo: 17, fifth: 10, m7: 14, M7: 16, thirds: [{ n: 5 }] },
-  { notation: 240, edo: 24, fifth: 14, m7: 20, M7: 22, thirds: [{ n: 7 }] },
-  { notation: 310, edo: 31, fifth: 18, m7: 26, M7: 28, thirds: [{ n: 9 }] },
-  { notation: 410, edo: 41, fifth: 24, m7: 34, M7: 38, thirds: [{ n: 12 }] },
-  { notation: 530, edo: 53, fifth: 31, m7: 44, M7: 49, thirds: [
-    { n: 15, ji: "11/9" }, { n: 16, ji: "16/13" }] },
-  { notation: 531, edo: 53, fifth: 31, m7: 44, M7: 49, thirds: [
-    { n: 15, ji: "11/9" }, { n: 16, ji: "16/13" }] },
-  { notation: 960, edo: 96, fifth: 56, m7: 80, M7: 88, thirds: [{ n: 28 }] },
-];
+const NEUTRAL_BAND = [341, 361];
+const NEUTRAL_SPLIT_CENTS = 12;
+
+/** One tuning's neutral data, or null when it cannot spell a neutral third:
+ *  degrees of its own steps, and `ji` on each third only where there are two. */
+function neutralTuning(edo) {
+  const { fifth, L, s, proper } = diatonicOf(edo);
+  const step = 1200 / edo;
+  const centre = (fifth * step) / 2;
+  if (!proper || L === s) return null;
+  if (centre < NEUTRAL_BAND[0] - LAT_EPS || centre > NEUTRAL_BAND[1] + LAT_EPS) return null;
+  let thirds;
+  if (fifth % 2 === 0) {
+    thirds = [{ n: fifth / 2 }];
+  } else {
+    const lo = (fifth - 1) / 2;
+    if (centre - lo * step > NEUTRAL_SPLIT_CENTS + LAT_EPS) return null;
+    thirds = [{ n: lo, ji: "11/9" }, { n: lo + 1, ji: "16/13" }];
+  }
+  return { edo, fifth, thirds, m7: 4 * L + 2 * s, M7: 5 * L + s };
+}
 
 /** What one neutral third generates, in degrees of its tuning. */
 function neutralVocab(tuning, third) {
@@ -647,7 +730,7 @@ const NEUTRAL_SHAPES = [
 /** Every neutral chord of every tuning that can spell a neutral third. */
 function buildNeutral() {
   const out = [];
-  for (const tuning of NEUTRAL_TUNINGS) {
+  for (const tuning of DIATONIC_FAMILY_EDOS.map(neutralTuning).filter(Boolean)) {
     const seen = new Set();
     for (const third of tuning.thirds) {
       const v = neutralVocab(tuning, third);
@@ -658,9 +741,9 @@ function buildNeutral() {
         if (seen.has(sig)) continue;
         seen.add(sig);
         out.push({
-          id: `nt${tuning.notation}-${third.n}-${shape.id}`,
+          id: `nt${tuning.edo}-${third.n}-${shape.id}`,
           group: "neutral",
-          notation: tuning.notation,
+          edo: tuning.edo,
           key: `chord.preset.nt.${shape.id}`,
           ...(tuning.thirds.length > 1 ? { variant: third.ji } : {}),
           voices: degrees.map((d) => ({ mode: "key", step: d })),
@@ -723,8 +806,9 @@ export const CHORD_PRESETS = [
   { id: "detune",  group: "spread", key: "chord.preset.detune",  voices: [
     { mode: "ratio", ratio: 0.994 }, { mode: "ratio", ratio: 1 }, { mode: "ratio", ratio: 1.006 },
   ] },
-  // ── higher-limit, neutral, arto/tendo and tetrachords: one group per
-  //    tuning, and only its own tuning sees any of them (items 167, 141) ──
+  // ── higher-limit, neutral, arto/tendo and tetrachords: only a tuning's
+  //    own chords are on its menu — the first three by its size, the
+  //    tetrachords by notation (items 167, 141) ──
   ...buildHigherLimit(),
   ...buildNeutral(),
   ...buildExtraclassical(),
@@ -751,9 +835,10 @@ export function equalDivisions(pitchPreset) {
 /**
  * The presets offered for a project in `pitchPreset`'s notation: everything
  * tuning-independent, plus the tuning-locked families of THIS tuning — by
- * notation number (tetrachords, neutral, arto/tendo), or by size for the
- * higher-limit chords, which follow any equal octave division. A preset with
- * neither field is always on the menu.
+ * notation number for the tetrachords, whose names are the wiki's for that
+ * notation, and by size for the rest (higher-limit, neutral, arto/tendo),
+ * which follow any equal octave division. A preset with neither field is
+ * always on the menu.
  */
 export function chordPresetsFor(pitchPreset) {
   const index = pitchPreset?.index ?? -1;
