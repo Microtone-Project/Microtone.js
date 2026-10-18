@@ -779,6 +779,8 @@ export default {
   "chord.unitsTitle": "Raw 4096-TET offset (0x1000 = an octave). Hex is accepted: 0x100",
   "chord.ratioTitle": "Playback ratio, 2 = an octave up. N:M and N/M are accepted too, e.g. 3:2 or 3/2 for a perfect fifth",
   "chord.cents": "{v} cents",
+  "chord.maxError": "max error {v} cents",
+  "chord.noteErrors": "Each note against just intonation, from the bass: {list} cents",
   "chord.voiceRead": "×{ratio} · {cents} cents",
   "chord.voiceOffGrid": " · off by {delta} cents",
   "chord.offGridTitle": "Cents away from the nearest degree of the song's notation — the note glyph names that degree",

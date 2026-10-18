@@ -768,6 +768,8 @@ export default {
   "chord.unitsTitle": "4096-TET 원시 오프셋 (0x1000 = 한 옥타브). 16진수도 가능합니다: 0x100",
   "chord.ratioTitle": "재생 배율, 2 = 한 옥타브 위. N:M, N/M 표기도 가능합니다 (예: 완전5도는 3:2 또는 3/2)",
   "chord.cents": "{v}센트",
+  "chord.maxError": "최대 오차 {v}센트",
+  "chord.noteErrors": "베이스부터 각 음의 순정률 대비 오차: {list}센트",
   "chord.voiceRead": "×{ratio} · {cents}센트",
   "chord.voiceOffGrid": " · {delta}센트 벗어남",
   "chord.offGridTitle": "곡의 음률에서 가장 가까운 도수와의 센트 차이 — 음표 글리프는 그 도수를 나타냅니다",

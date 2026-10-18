@@ -8,7 +8,7 @@ import {
   JI_INTERVALS, CHORD_GROUPS, CHORD_PRESETS, MAX_UNITS, MAX_VOICES, UNITS_PER_OCTAVE,
   applyChordPreset, buildChord, chordLength, chordPresetLabel, chordPresetsFor,
   defaultVoice, defaultVoices, degreeUnits, invertVoiceSpecs, jiById,
-  chordPresetById, equalDivisions, maxInversion, presetVoiceCount, voiceNote, voiceRatio,
+  chordLimitLabel, chordPresetById, chordPresetTitle, equalDivisions, maxInversion, presetVoiceCount, voiceNote, voiceRatio,
   voiceUnits,
 } from "../../src/doc/chord.js";
 import en from "../../src/ui/lang/en.js";
@@ -291,6 +291,23 @@ test("higher-limit chords are harmonic-series chords on the tuning's own degrees
         `${p.id} note ${i} is ${(v.step * 1200) / edo} ¢, near ${want[i].toFixed(0)} ¢`);
     });
   }
+  for (const p of HL) {
+    const { edo, harmonics: h, utonal } = p;
+    const just = h.map((n) => 1200 * Math.log2(n / h[0]));
+    const at = utonal ? just.map((c) => just[just.length - 1] - c).reverse() : just;
+    const tempered = p.voices.map((v) => (v.step * 1200) / edo);
+    p.errors.forEach((e, i) => assert.ok(Math.abs(e - (tempered[i] - at[i])) <= 0.05,
+      `${p.id} note ${i} error`));
+    let worst = 0;
+    for (let i = 0; i < h.length; i++) {
+      for (let j = i + 1; j < h.length; j++) {
+        worst = Math.max(worst, Math.abs(tempered[j] - tempered[i] - (at[j] - at[i])));
+      }
+    }
+    assert.ok(Math.abs(p.worst - worst) <= 0.05, `${p.id} worst interval error`);
+    assert.ok(p.worst >= Math.max(...p.errors.map(Math.abs)) - 0.05, `${p.id} worst covers the bass`);
+    assert.ok(Math.abs(p.limitError) <= 8, `${p.id} limit is in tune`);
+  }
   const deg = (id) => chordPresetById(id).voices.map((v) => v.step);
   // 31-TET's septimal staples, on the degrees every 31-TET player knows
   assert.deepEqual(deg("hl31-4.5.6.7"), [0, 10, 18, 25], "harmonic seventh");
@@ -342,9 +359,20 @@ test("higher-limit chords are their own group, before neutral, and named", () =>
   for (const l of new Set(HL.map((p) => p.limit))) {
     assert.ok(en[`chord.limit.${l}`] && ko[`chord.limit.${l}`], `limit ${l} is named`);
   }
-  const t = (k) => en[k];
-  assert.equal(chordPresetLabel(chordPresetById("hl31-4.5.6.7"), t), "Septimal (7) · 4:5:6:7");
-  assert.equal(chordPresetLabel(chordPresetById("hl31-u4.5.6.7"), t), "Septimal (7) · 1/(4:5:6:7)");
+  const t = (k, params) => Object.entries(params ?? {})
+    .reduce((s, [p, v]) => s.replaceAll(`{${p}}`, String(v)), en[k]);
+  // the optgroup carries the limit and its harmonic's error; the row, its
+  // ratio and the worst interval in it
+  assert.equal(chordLimitLabel(chordPresetById("hl31-4.5.6.7"), t), "Septimal (7) · −1.1 cents");
+  assert.equal(chordLimitLabel(chordPresetById("hl23-8.9.13"), t), "Tridecimal (13) · −5.7 cents");
+  assert.equal(chordPresetLabel(chordPresetById("hl31-4.5.6.7"), t), "4:5:6:7 · max error 6.0 cents");
+  assert.equal(chordPresetLabel(chordPresetById("hl31-u4.5.6.7"), t),
+    "1/(4:5:6:7) · max error 6.0 cents");
+  assert.equal(chordPresetTitle(chordPresetById("hl31-4.5.6.7"), t),
+    "Each note against just intonation, from the bass: 0, +0.8, −5.2, −1.1 cents");
+  assert.equal(chordLimitLabel(chordPresetById("major"), t), "");
+  assert.equal(chordPresetTitle(chordPresetById("major"), t), "");
+  assert.ok(ko["chord.maxError"] && ko["chord.noteErrors"]);
   // a degree-mode chord inverts like the neutral ones
   const cents = (id, inv) => applyChordPreset(id, inv, P31).filter((v) => v.on)
     .map((v) => Math.round((voiceUnits(v, P31) * 1200) / UNITS_PER_OCTAVE));

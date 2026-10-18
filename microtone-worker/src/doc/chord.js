@@ -450,6 +450,7 @@ function higherLimits(good) {
 }
 
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+const round1 = (x) => Math.round(x * 10) / 10 || 0;
 const oddPart = (n) => { while (n % 2 === 0) n /= 2; return n; };
 
 /**
@@ -530,6 +531,19 @@ function buildHigherLimit() {
             if (seen.has(cls)) continue;
             seen.add(cls);
             const ratio = set.join(":");
+            // How far each note is from just, seen from the bass, and the
+            // worst of every interval in the chord — a mapping error can add
+            // up between two upper notes as well as from the root.
+            const just = set.map((n) => 1200 * Math.log2(n / set[0]));
+            const justAt = utonalForm ? just.map((c) => just[just.length - 1] - c).reverse() : just;
+            const errors = degrees.map((x, i) => round1((x * 1200) / edo - justAt[i]));
+            let worst = 0;
+            for (let i = 0; i < degrees.length; i++) {
+              for (let j = i + 1; j < degrees.length; j++) {
+                worst = Math.max(worst, Math.abs(((degrees[j] - degrees[i]) * 1200) / edo
+                  - (justAt[j] - justAt[i])));
+              }
+            }
             chords.push({
               id: `hl${edo}-${utonalForm ? "u" : ""}${set.join(".")}`,
               group: "higherlimit",
@@ -539,6 +553,9 @@ function buildHigherLimit() {
               utonal: utonalForm,
               key: `chord.limit.${limit}`,
               variant: utonalForm ? `1/(${ratio})` : ratio,
+              limitError: round1(harmonicError(edo, limit)),
+              errors,
+              worst: round1(worst),
               voices: degrees.map((x) => ({ mode: "key", step: x })),
             });
           }
@@ -752,12 +769,35 @@ export function chordPresetsFor(pitchPreset) {
  * the source calls it anything — the pattern IS the name in that literature.
  * An arto/tendo chord carries its pair's just ratios where its tuning has more
  * than one pair, since the name alone would then name two different chords.
+ * A higher-limit chord is its ratio and its worst interval error: the limit's
+ * name heads its optgroup (chordLimitLabel), so the row need not repeat it.
  */
 export function chordPresetLabel(preset, translate) {
   if (!preset) return "";
   if (preset.steps) return preset.name ? `${preset.steps} · ${preset.name}` : preset.steps;
+  if (preset.limit !== undefined) {
+    return `${preset.variant} · ${translate("chord.maxError", { v: preset.worst.toFixed(1) })}`;
+  }
   const name = translate(preset.key);
   return preset.variant ? `${name} · ${preset.variant}` : name;
+}
+
+const signedCents = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
+
+/** The optgroup heading over a higher-limit chord: the limit, and how far the
+ *  tuning's nearest degree is from its harmonic. "" for any other preset. */
+export function chordLimitLabel(preset, translate) {
+  if (preset?.limit === undefined) return "";
+  return `${translate(preset.key)} · ${translate("chord.cents", { v: signedCents(preset.limitError) })}`;
+}
+
+/** A higher-limit chord's tooltip: every note against just, from the bass.
+ *  "" for any other preset. */
+export function chordPresetTitle(preset, translate) {
+  if (preset?.errors === undefined) return "";
+  return translate("chord.noteErrors", {
+    list: preset.errors.map((e, i) => (i === 0 ? "0" : signedCents(e))).join(", "),
+  });
 }
 
 /** The preset entry for an id, or null — an unknown id is silence, not a throw. */
