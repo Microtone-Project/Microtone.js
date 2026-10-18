@@ -32,7 +32,7 @@ export const GLYPH = {
   // parts of a cell (letter, octave digit) sit on the FONT's own baseline,
   // which moves when the grid font changes (--cv-font) — tune this until the
   // vectors line up with the new font. Live slider in glyph-gallery.html.
-  baselineOffset: -0.03,
+  baselineOffset: 0.00,
 
   // sentinels (fractions of the full 4-char cell)
   keyoffW: 0.76,      // box width
