@@ -607,6 +607,9 @@ export class PoolWave {
       const rowTo = Math.min(to, rowFrom + this.bytesPerRow);
       const y = i * ROW_H;
       const xOf = (byte) => GUTTER_W + ((byte - rowFrom) / this.bytesPerRow) * waveW;
+      // Where this line's bytes run out: the full width on every line but the
+      // last, which stops short wherever the scope ends.
+      const lineW = xOf(rowTo) - GUTTER_W;
 
       // address gutter
       ctx.fillStyle = C.dim;
@@ -615,7 +618,7 @@ export class PoolWave {
       // the line's own ground: free pool is the panel's "free" colour, so a
       // region or a claim reads as something ON it.
       ctx.fillStyle = C.poolFree;
-      ctx.fillRect(GUTTER_W, y, waveW, WAVE_H);
+      ctx.fillRect(GUTTER_W, y, lineW, WAVE_H);
 
       // Which pixel columns of this line ANYTHING claims. A swept hole is all
       // zero bytes, and zero is not silence in U8 — it is full negative — so an
@@ -725,13 +728,15 @@ export class PoolWave {
       const baseY = y + WAVE_H / 2;
       ctx.fillStyle = C.waveMid ?? C.dim;
       ctx.globalAlpha = 0.5;
-      ctx.fillRect(GUTTER_W, Math.round(baseY), waveW, 1);
+      ctx.fillRect(GUTTER_W, Math.round(baseY), lineW, 1);
       ctx.globalAlpha = 1;
       ctx.fillStyle = C.wave;
-      const bytes = rowTo - rowFrom;
-      if (bytes <= 0) continue;
-      if (bytes <= waveW) {
-        const bw = Math.max(1, waveW / bytes);
+      if (rowTo <= rowFrom) continue;
+      // Scaled by the LINE's byte count, not by the bytes left on it, so a short
+      // last line lines up with the claims above it instead of stretching to
+      // the right edge.
+      if (this.bytesPerRow <= waveW) {
+        const bw = Math.max(1, waveW / this.bytesPerRow);
         for (let b = rowFrom; b < rowTo; b++) {
           const v = bin[b];
           const bx = ((b - rowFrom) / this.bytesPerRow) * waveW;
@@ -740,9 +745,10 @@ export class PoolWave {
           ctx.fillRect(GUTTER_W + bx, Math.min(baseY, yv), bw, Math.max(1, Math.abs(baseY - yv)));
         }
       } else {
-        for (let col = 0; col < waveW; col++) {
-          const b0 = rowFrom + Math.floor((col * bytes) / waveW);
-          const b1 = rowFrom + Math.floor(((col + 1) * bytes) / waveW);
+        const cols = Math.min(waveW, Math.ceil(lineW));
+        for (let col = 0; col < cols; col++) {
+          const b0 = rowFrom + Math.floor((col * this.bytesPerRow) / waveW);
+          const b1 = Math.min(rowTo, rowFrom + Math.floor(((col + 1) * this.bytesPerRow) / waveW));
           if (b1 <= b0) continue;
           const step = Math.max(1, ((b1 - b0) / 8) | 0);
           let mn = 255, mx = 0;
