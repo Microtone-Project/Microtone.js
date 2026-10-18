@@ -6,6 +6,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-18
 
+The chord maker learns higher-limit harmony, and its neutral and arto/tendo chords reach every equal tuning that can play them, not only the ones that have a built-in notation.
+
+- **A new Higher-limit family** comes before Neutral, with chords on the harmonics past 5 that a tuning plays in tune, one heading per limit: **Septimal (7)**, **Nonal (9)**, **Undecimal (11)** and so on up to 35. 31-TET gets septimal; 23-TET gets the nine harmonics the Xenharmonic Wiki lists for it; 12-TET gets 17 and 19, its semitone and minor third.
+- **Every chord shows its error in cents.** The heading gives the limit's own harmonic (`Septimal (7) · −1.1 cents`), each chord its worst interval (`4:5:6:7 · max error 6.0 cents`), and its tooltip every note against just intonation.
+- **Neutral and arto/tendo chords are worked out for every equal tuning from 11- to 53-TET, and 96-TET**, by the same rules that picked the old list. So 13- and 26-TET now have arto and tendo chords (26-TET's are close to 8/7 and 21/16), and 11-TET has them too; 23-TET still has neither, and 11-, 13-, 23- and 26-TET have no neutral third.
+- **These families follow the tuning's size**: a table you make with the Notation Maker that divides the octave equally gets them as a built-in one would.
+
 PSG instruments arrive: two 8-bit-style oscillators in place of a sample, added together or multiplied. Each is a 0-to-1-volt generator as a chip's output is, multiplied in volts and then spread over the lane's whole range, so a pulse times another waveform gates it, and inverted DC is $F.
 
 - **A new kind of instrument**: Instruments → Meta… → PSG instrument makes one. Each of its two oscillators plays one of sixteen waveforms — DC, seven pulse widths, saw, triangle, three 1-bit noises that repeat after exactly 32767, 2047 and 127 steps, a 4-bit saw and triangle, and silence — under the OPL chip's own envelope, tremolo and vibrato. It needs no samples and costs one voice.

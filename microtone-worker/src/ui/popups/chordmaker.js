@@ -18,8 +18,8 @@
 
 import {
   JI_INTERVALS, CHORD_GROUPS, MAX_VOICES, UNITS_PER_OCTAVE,
-  applyChordPreset, buildChord, chordLength, chordPresetById, chordPresetLabel, chordPresetsFor,
-  maxInversion, voiceNote, voiceRatio, voiceUnits,
+  applyChordPreset, buildChord, chordLength, chordLimitLabel, chordPresetById, chordPresetLabel,
+  chordPresetTitle, chordPresetsFor, maxInversion, voiceNote, voiceRatio, voiceUnits,
 } from "../../doc/chord.js";
 import { presetForNotation, gridDelta } from "../../../core/tuning/pitchtables.js";
 import { paintNoteCell } from "../glyphs.js";
@@ -86,8 +86,22 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
     let family = chordPresetById(presetId)?.group ?? families[0];
     const familyOptions = families
       .map((g) => `<option value="${g}">${esc(t(`chord.group.${g}`))}</option>`).join("");
-    const presetOptionsFor = (g) => menu.filter((p) => p.group === g)
-      .map((p) => `<option value="${esc(p.id)}">${esc(chordPresetLabel(p, t))}</option>`).join("");
+    // The higher-limit family runs to a hundred chords in a rich tuning, so its
+    // menu is split again, one optgroup per limit (septimal, nonal …).
+    const presetOptionsFor = (g) => {
+      const option = (p) => {
+        const title = chordPresetTitle(p, t);
+        return `<option value="${esc(p.id)}"${title ? ` title="${esc(title)}"` : ""}>${
+          esc(chordPresetLabel(p, t))}</option>`;
+      };
+      const list = menu.filter((p) => p.group === g);
+      if (!list.some((p) => p.limit !== undefined)) return list.map(option).join("");
+      const limits = [...new Set(list.map((p) => p.limit))];
+      return limits.map((l) => {
+        const mine = list.filter((p) => p.limit === l);
+        return `<optgroup label="${esc(chordLimitLabel(mine[0], t))}">${mine.map(option).join("")}</optgroup>`;
+      }).join("");
+    };
 
     dlg.innerHTML = `
       <h3>${esc(t("chord.title", { name: name || t("lab.untitled") }))}</h3>

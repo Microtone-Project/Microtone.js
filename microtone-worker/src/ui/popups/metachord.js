@@ -14,8 +14,8 @@
 // adds one above and one below instead of transposing the whole stack down.
 
 import {
-  CHORD_GROUPS, applyChordPreset, chordPresetLabel, chordPresetsFor,
-  maxInversion, voiceUnits, UNITS_PER_OCTAVE,
+  CHORD_GROUPS, applyChordPreset, chordLimitLabel, chordPresetLabel, chordPresetTitle,
+  chordPresetsFor, maxInversion, voiceUnits, UNITS_PER_OCTAVE,
 } from "../../doc/chord.js";
 import {
   metaLayers, metaRecordOf, stackLayer, clampDetune, clampLayerPitch, META_MAX_LAYERS,
@@ -118,11 +118,20 @@ export function showChordStack(store, metaSlot, layerIdx) {
     const sel = document.createElement("select");
     const renderPresets = () => {
       sel.replaceChildren();
+      // Higher-limit chords come one optgroup per limit, as in the Sample Lab.
+      let parent = sel, limit;
       for (const p of menu.filter((q) => q.group === family)) {
+        if (p.limit !== undefined && p.limit !== limit) {
+          limit = p.limit;
+          parent = document.createElement("optgroup");
+          parent.label = chordLimitLabel(p, t);
+          sel.appendChild(parent);
+        }
         const o = document.createElement("option");
         o.value = p.id;
         o.textContent = chordPresetLabel(p, t);
-        sel.appendChild(o);
+        o.title = chordPresetTitle(p, t);
+        parent.appendChild(o);
       }
       sel.value = presetId;
       if (!sel.value) {
