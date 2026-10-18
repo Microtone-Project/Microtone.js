@@ -86,8 +86,16 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
     let family = chordPresetById(presetId)?.group ?? families[0];
     const familyOptions = families
       .map((g) => `<option value="${g}">${esc(t(`chord.group.${g}`))}</option>`).join("");
-    const presetOptionsFor = (g) => menu.filter((p) => p.group === g)
-      .map((p) => `<option value="${esc(p.id)}">${esc(chordPresetLabel(p, t))}</option>`).join("");
+    // The higher-limit family runs to a hundred chords in a rich tuning, so its
+    // menu is split again, one optgroup per limit (septimal, nonal …).
+    const presetOptionsFor = (g) => {
+      const option = (p) => `<option value="${esc(p.id)}">${esc(chordPresetLabel(p, t))}</option>`;
+      const list = menu.filter((p) => p.group === g);
+      if (!list.some((p) => p.limit !== undefined)) return list.map(option).join("");
+      const limits = [...new Set(list.map((p) => p.limit))];
+      return limits.map((l) => `<optgroup label="${esc(t(`chord.limit.${l}`))}">${
+        list.filter((p) => p.limit === l).map(option).join("")}</optgroup>`).join("");
+    };
 
     dlg.innerHTML = `
       <h3>${esc(t("chord.title", { name: name || t("lab.untitled") }))}</h3>

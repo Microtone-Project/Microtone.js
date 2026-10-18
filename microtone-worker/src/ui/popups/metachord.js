@@ -118,11 +118,19 @@ export function showChordStack(store, metaSlot, layerIdx) {
     const sel = document.createElement("select");
     const renderPresets = () => {
       sel.replaceChildren();
+      // Higher-limit chords come one optgroup per limit, as in the Sample Lab.
+      let parent = sel, limit;
       for (const p of menu.filter((q) => q.group === family)) {
+        if (p.limit !== undefined && p.limit !== limit) {
+          limit = p.limit;
+          parent = document.createElement("optgroup");
+          parent.label = t(`chord.limit.${limit}`);
+          sel.appendChild(parent);
+        }
         const o = document.createElement("option");
         o.value = p.id;
         o.textContent = chordPresetLabel(p, t);
-        sel.appendChild(o);
+        parent.appendChild(o);
       }
       sel.value = presetId;
       if (!sel.value) {

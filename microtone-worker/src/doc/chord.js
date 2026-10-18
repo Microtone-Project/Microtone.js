@@ -75,7 +75,7 @@ export function defaultVoices(presetId = "major") {
  * vocabulary this size stays readable in a `<select>`.
  */
 export const CHORD_GROUPS = ["triad", "seventh", "added", "extended", "spread",
-  "neutral", "extraclassical", "tetrachord"];
+  "higherlimit", "neutral", "extraclassical", "tetrachord"];
 
 // ── Tetrachords (item 141) ───────────────────────────────────────────────────
 // A tetrachord is the ancient Greeks' unit of scale construction: four pitches
@@ -359,6 +359,198 @@ function buildExtraclassical() {
   return out;
 }
 
+// ── Higher-limit harmony: septimal, nonal, undecimal … ───────────────────────
+// Chords on the harmonics past 5 — 7 (septimal), 9 (nonal), 11 (undecimal),
+// 13 (tridecimal) and on up to 35 — in each tuning that actually HAS them.
+// Which harmonics a tuning has is the whole question, and the Xenharmonic
+// Wiki answers it per EDO: "the lowest harmonics well-approximated by 23edo
+// are 9, 13, 15, 17, 21, 23, 31, 33 and 35", while 31-TET, famously, is the
+// septimal meantone and nothing past that.
+//
+// A harmonic h is WELL APPROXIMATED when the nearest degree to it is within
+// 8 ¢ AND within a quarter of a step. The cents bound is the one that
+// reproduces the wiki's 23edo list exactly — everything it keeps is ≤ 7.4 ¢
+// out (15/8), everything it drops ≥ 10 ¢ (25/16) — and it is what rules out
+// 22-TET's 7 (+13 ¢) and 31-TET's 9 and 11 (−10 ¢, −9 ¢). The quarter step is
+// the wiki's own 25 % relative-error line, which only bites once the step is
+// finer than 32 ¢: a 96-TET degree is 12.5 ¢, so "within 6 ¢" is merely what
+// the nearest degree always is, not a sign that the harmonic is there.
+//
+// A harmonic gets its own LIMIT only when it is NEW — well approximated, and
+// not just the product of two well-approximated harmonics below it. 31-TET's
+// 15, 21, 25 and 35 are all in tune, but they are 3·5, 3·7, 5·5 and 5·7, so
+// septimal is its one higher limit; 23-TET's 15 is new, because its 3 and 5
+// (−24 ¢, −21 ¢) are not there to make it. That gives (the full table is in
+// test/node/chord.test.js):
+//     12-TET 17, 19            22-TET 11, 17, 29, 31    31-TET 7
+//     23-TET 9, 13, 15, 17, 21, 23, 31, 33, 35         53-TET 7, 13, 19
+// 12-TET's two are the wiki's 2.3.17.19 reading of it (19/16 is its minor
+// third, 17/16 its semitone), and they belong here for the same reason as
+// any other: they are harmonics it plays in tune.
+//
+// THE CHORDS are harmonic-series chords: a set of harmonics a:b:c(:d) in
+// lowest terms (OTONAL), or the same set as subharmonics, 1/(a:b:c) (UTONAL —
+// the mirror image, so 1/(4:5:6) is the minor triad). Each one is
+//   - in close position (its span is under an octave; the inversion selector
+//     does the rest),
+//   - built only from the tuning's well-approximated harmonics up to the
+//     limit and their products (6:7:9 is septimal in 31-TET: 9 is 3·3, even
+//     though 9 itself is 10 ¢ out), with each harmonic counted by its OWN
+//     nearest degree — 23-TET's 9 is four steps whatever its 3 does,
+//   - and uses the limit's own harmonic, so no limit repeats the one below.
+// They are ranked simplest first by their largest harmonic (the integer
+// limit), triads ahead of tetrads, and each limit keeps its first twelve. A
+// chord that only re-voices one already offered — 5:6:7:8 is 4:5:6:7 in
+// first inversion — is dropped, as is one whose notes collide in the
+// tuning, so no tuning offers the same pitches twice.
+//
+// WHICH TUNINGS: every equal division of the octave from 5 to 53, and 96 —
+// by SIZE, not by notation number, so a tuning the project has no built-in
+// notation for (14-, 21-, 27-TET …) still gets its chords the moment a
+// Notation Maker table divides the octave equally (equalDivisions below).
+// Not the historical 12-note notations, which are not equal, nor
+// Bohlen-Pierce, whose period is the 3rd harmonic itself; and no harmonics
+// past 35, where the wiki's list stops. A tuning whose harmonics are all out
+// (5-TET's 7 is −8.8 ¢, 9-TET has none at all) simply has no entries, and a
+// coarse one can lose a limit whose chords all collide (7-TET's 29, 8-TET's
+// 19, 14-TET's 25, 15-TET's 35).
+
+const HL_MAX_HARMONIC = 35;
+const HL_MAX_ERROR_CENTS = 8;
+/** Highest harmonic a chord may stand on — far past where any limit's twelve
+ *  simplest chords live, except a harmonic that stands ALONE in its tuning:
+ *  with nothing below it to pair with, its one close chord is itself stacked,
+ *  as 23-TET's 64:72:81 (nonal) and 45-TET's 120:128:225 (quindecimal) are. */
+const HL_MAX_MEMBER = 256;
+const HL_PER_LIMIT = 12;
+
+/** The equal tunings that get a higher-limit vocabulary, by size. */
+const HIGHER_LIMIT_EDOS = [
+  ...Array.from({ length: 53 - 5 + 1 }, (_, i) => 5 + i), 96,
+];
+
+/** Degrees of `edo` nearest harmonic `h`, and how far out that is in cents. */
+const harmonicDegree = (edo, h) => Math.round(edo * Math.log2(h));
+const harmonicError = (edo, h) => (harmonicDegree(edo, h) - edo * Math.log2(h)) * (1200 / edo);
+
+/** The odd harmonics 3…35 that `edo` plays in tune. */
+function wellApproximated(edo) {
+  const out = [];
+  for (let h = 3; h <= HL_MAX_HARMONIC; h += 2) {
+    const err = Math.abs(harmonicError(edo, h));
+    if (err <= HL_MAX_ERROR_CENTS && err <= 1200 / edo / 4) out.push(h);
+  }
+  return out;
+}
+
+/** The new harmonics ≥ 7 of a tuning, given its well-approximated ones. */
+function higherLimits(good) {
+  const derived = (h) => good.some((a) => a < h && h % a === 0 && good.includes(h / a));
+  return good.filter((h) => h >= 7 && !derived(h));
+}
+
+const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+const oddPart = (n) => { while (n % 2 === 0) n /= 2; return n; };
+
+/**
+ * Every harmonic up to HL_MAX_MEMBER that `ids` (odd harmonics) can build, as
+ * [harmonic, degree] pairs ascending. A product counts each factor by its own
+ * nearest degree; one that two factorings would put on different degrees is
+ * ambiguous and left out (none of the tunings above has one, but a degree
+ * that depends on how you spell it is not a degree).
+ */
+function subgroupHarmonics(edo, ids) {
+  const memo = new Map([[1, 0]]);
+  const oddDegree = (m) => {
+    if (memo.has(m)) return memo.get(m);
+    let d = null;
+    for (const g of ids) {
+      if (m % g !== 0) continue;
+      const rest = oddDegree(m / g);
+      if (rest === null || Number.isNaN(rest)) continue;
+      const here = rest + harmonicDegree(edo, g);
+      if (d !== null && d !== here) { d = NaN; break; }
+      d = here;
+    }
+    memo.set(m, d);
+    return d;
+  };
+  const out = [];
+  for (let n = 1; n <= HL_MAX_MEMBER; n++) {
+    const m = oddPart(n);
+    const d = oddDegree(m);
+    if (d !== null && !Number.isNaN(d)) out.push([n, d + Math.round(Math.log2(n / m)) * edo]);
+  }
+  return out;
+}
+
+/** A chord's pitch classes seen from each of its notes, smallest first — the
+ *  same for every inversion of one chord, and only for those. */
+function inversionClass(degrees, edo) {
+  let best = null;
+  for (const bass of degrees) {
+    const pcs = degrees.map((d) => (((d - bass) % edo) + edo) % edo).sort((a, b) => a - b).join(",");
+    if (best === null || pcs < best) best = pcs;
+  }
+  return best;
+}
+
+/** Every higher-limit chord of every tuning that has a limit past 5. */
+function buildHigherLimit() {
+  const out = [];
+  for (const edo of HIGHER_LIMIT_EDOS) {
+    const good = wellApproximated(edo);
+    const seen = new Set();
+    for (const limit of higherLimits(good)) {
+      const members = subgroupHarmonics(edo, good.filter((g) => g <= limit));
+      const degreeOf = new Map(members);
+      const chords = [];
+      // Grow chords top note first, in rising order, so the simplest come out
+      // first and the search can stop as soon as the limit has its twelve.
+      for (let top = 0; top < members.length && chords.length < HL_PER_LIMIT; top++) {
+        const [m] = members[top];
+        const below = members.slice(0, top).map(([n]) => n).filter((n) => 2 * n > m);
+        const sets = [];
+        for (let i = 0; i < below.length; i++) {
+          for (let j = i + 1; j < below.length; j++) {
+            sets.push([below[i], below[j], m]);
+            for (let k = j + 1; k < below.length; k++) sets.push([below[i], below[j], below[k], m]);
+          }
+        }
+        sets.sort((a, b) => a.length - b.length || a.reduce((s, n) => s + n) - b.reduce((s, n) => s + n));
+        for (const set of sets) {
+          if (set.reduce(gcd) !== 1 || !set.some((n) => oddPart(n) % limit === 0)) continue;
+          const d = set.map((n) => degreeOf.get(n));
+          const otonal = d.map((x) => x - d[0]);
+          const utonal = d.map((x) => d[d.length - 1] - x).reverse();
+          for (const [degrees, utonalForm] of [[otonal, false], [utonal, true]]) {
+            if (chords.length >= HL_PER_LIMIT) break;
+            if (!degreeShapeUsable(degrees, edo)) continue;
+            const cls = inversionClass(degrees, edo);
+            if (seen.has(cls)) continue;
+            seen.add(cls);
+            const ratio = set.join(":");
+            chords.push({
+              id: `hl${edo}-${utonalForm ? "u" : ""}${set.join(".")}`,
+              group: "higherlimit",
+              edo,
+              limit,
+              harmonics: set,
+              utonal: utonalForm,
+              key: `chord.limit.${limit}`,
+              variant: utonalForm ? `1/(${ratio})` : ratio,
+              voices: degrees.map((x) => ({ mode: "key", step: x })),
+            });
+          }
+          if (chords.length >= HL_PER_LIMIT) break;
+        }
+      }
+      out.push(...chords);
+    }
+  }
+  return out;
+}
+
 // ── Neutral harmony (item 167, follow-up) ────────────────────────────────────
 // A neutral third is the CENTRE of the third category — "the point around
 // which the qualities of that category are symmetric" — which in practice
@@ -514,21 +706,44 @@ export const CHORD_PRESETS = [
   { id: "detune",  group: "spread", key: "chord.preset.detune",  voices: [
     { mode: "ratio", ratio: 0.994 }, { mode: "ratio", ratio: 1 }, { mode: "ratio", ratio: 1.006 },
   ] },
-  // ── neutral, arto/tendo and tetrachords: one group per tuning, and only
-  //    its own tuning sees any of them (items 167, 141) ──
+  // ── higher-limit, neutral, arto/tendo and tetrachords: one group per
+  //    tuning, and only its own tuning sees any of them (items 167, 141) ──
+  ...buildHigherLimit(),
   ...buildNeutral(),
   ...buildExtraclassical(),
   ...buildTetrachords(),
 ];
 
 /**
+ * How many equal steps `pitchPreset` divides the octave into, or null when it
+ * does not — an absolute table (ProTracker), a non-octave period
+ * (Bohlen-Pierce), unequal steps (the historical 12-note notations), or no
+ * table at all. Built-in and Notation Maker tables alike: each degree may sit
+ * one 4096-TET unit off the exact division, which is how they are rounded.
+ */
+export function equalDivisions(pitchPreset) {
+  const table = pitchPreset?.table ?? [];
+  const n = table.length;
+  if (n === 0 || pitchPreset.interval !== UNITS_PER_OCTAVE) return null;
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(table[i] - (i * UNITS_PER_OCTAVE) / n) > 1) return null;
+  }
+  return n;
+}
+
+/**
  * The presets offered for a project in `pitchPreset`'s notation: everything
- * tuning-independent, plus the tetrachords of THIS tuning. A preset with no
- * `notation` field is always on the menu.
+ * tuning-independent, plus the tuning-locked families of THIS tuning — by
+ * notation number (tetrachords, neutral, arto/tendo), or by size for the
+ * higher-limit chords, which follow any equal octave division. A preset with
+ * neither field is always on the menu.
  */
 export function chordPresetsFor(pitchPreset) {
   const index = pitchPreset?.index ?? -1;
-  return CHORD_PRESETS.filter((p) => p.notation === undefined || p.notation === index);
+  const edo = CHORD_PRESETS.some((p) => p.edo !== undefined) ? equalDivisions(pitchPreset) : null;
+  return CHORD_PRESETS.filter((p) => (p.edo !== undefined
+    ? p.edo === edo
+    : p.notation === undefined || p.notation === index));
 }
 
 /**
