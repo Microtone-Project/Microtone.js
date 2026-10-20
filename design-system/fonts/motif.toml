@@ -4,14 +4,14 @@
 # The fonts land in core/fonts/ (what both sites serve) and a proof
 # sheet of every variant in build/proof/.
 
-version = "1.000"
-date = "2026-10-20"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
+version = "1.001"
+date = "2026-10-21"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
 
 # ── the two numbers ─────────────────────────────────────────────────────────
 
 [grid]                # "Motif Grid": pattern editor, timeline, cues, chord and notation makers
-widen = 8             # percent: every Chivo glyph this much wider; the 600-unit cell stays
-margin = 14           # units: a widened glyph stops this far short of the cell edge
+widen = 20            # percent: every Chivo glyph this much wider; the 600-unit cell stays
+margin = 12           # units: a widened glyph stops this far short of the cell edge
 centred = "·-−+"      # set on the capitals' middle, with the Kite marks (the grid's natural is −)
 
 [transport]           # "Motif Transport": the transport readouts
@@ -37,7 +37,7 @@ widen = 22            # units each side, before the variant's own widening
 margin = 10           # never closer than this to the cell edge
 
 [zero]                # …and the zero a touch narrower than its neighbours
-narrow = 5            # percent, on top of the variant's own widening or narrowing
+narrow = 10           # percent, on top of the variant's own widening or narrowing
 
 [symbols]
 weight = 0.80         # the drawn symbols' strokes against the letters' stems (Chivo's '#' is ~0.75)
