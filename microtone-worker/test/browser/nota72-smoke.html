@@ -21,7 +21,7 @@ const setEqualDivisions = async (doc, dlg, n) => {
   await sleep(60);
   const eq = [...doc.querySelectorAll("dialog.modal")].find((d) => d !== dlg && d.open);
   eq.querySelector("input").value = String(n);
-  eq.querySelector(".modal-buttons button").click();
+  eq.querySelector(".modal-buttons .proceed").click();
   await sleep(80);
 };
 const symOf = (tr) => [...tr.querySelectorAll("select")].map((s) => s.value).join("");

@@ -73,7 +73,7 @@
           c.querySelector(".kind-card-sub") && c.querySelector(".kind-card-body")?.textContent.length > 80);
         log(`chooser: ${cards.length} cards, each with a diagram, a name, a subtitle and prose (${cardsOk ? "ok" : "FAIL"})`);
         const before = store.doc.selectableInstrumentSlots().length;
-        [...dlg.querySelectorAll(".modal-buttons button")].at(-1).click();
+        dlg.querySelector(".modal-buttons .act-cancel").click();
         await sleep(150);
         const cancelOk = !d.querySelector("dialog.kind-modal") &&
           store.doc.selectableInstrumentSlots().length === before;
@@ -87,7 +87,7 @@
           if (!picker) return false;
           const title = picker.querySelector("h3").textContent;
           const tally = picker.querySelector(".import-tally").textContent;
-          [...picker.querySelectorAll(".modal-buttons button")].at(-1).click();
+          picker.querySelector(".modal-buttons .act-cancel").click();
           await sleep(150);
           log(`card ${idx} → "${title}" / tally "${tally}"`);
           return wantOk(title, tally) && !d.querySelector("dialog.import-modal");

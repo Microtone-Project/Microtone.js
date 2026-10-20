@@ -42,7 +42,7 @@ const RANGE_LO_SENTINELS = new Set([0x0000, 0x0020]);
 const RANGE_HI_SENTINEL = 0xffff;
 
 /** Which ends of a zone/layer range are OPEN — shared so the text form below
- *  and the glyph form (noteglyph.js rangeGlyph) collapse them alike. */
+ *  and the glyph form (components/noteglyph.js rangeGlyph) collapse them alike. */
 export function rangeBoundsOpen(lo, hi) {
   return { openLo: RANGE_LO_SENTINELS.has(lo), openHi: hi === RANGE_HI_SENTINEL };
 }

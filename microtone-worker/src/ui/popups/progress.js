@@ -7,7 +7,7 @@
 // of reach — but it stays invisible for a moment, and a quick job never
 // flashes it.
 
-import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { setIconLabel } from "../icons.js";
 
 export function showProgress(title, { cancellable = false, holdBack = false } = {}) {
@@ -23,18 +23,12 @@ export function showProgress(title, { cancellable = false, holdBack = false } = 
   const pct = document.createElement("div");
   pct.className = "progress-pct dim";
   pct.textContent = "0%";
-  const btnRow = document.createElement("div");
-  btnRow.className = "modal-buttons";
-
+  // While it runs, the row holds Cancel (when the job can be stopped); once it
+  // has failed there is nothing left to abandon, so it holds one Close.
   const controller = new AbortController();
-  const closeBtn = document.createElement("button");
-  if (cancellable) {
-    closeBtn.textContent = t("common.cancel");
-    closeBtn.addEventListener("click", (e) => { e.preventDefault(); controller.abort(); });
-    btnRow.appendChild(closeBtn);
-  } else {
-    btnRow.hidden = true;
-  }
+  const { row: btnRow, cancel: cancelBtn } = actionRow({ cancel: true });
+  if (cancellable) cancelBtn.addEventListener("click", (e) => { e.preventDefault(); controller.abort(); });
+  else btnRow.hidden = true;
 
   dlg.append(h, bar, pct, btnRow);
   document.body.appendChild(dlg);
@@ -56,10 +50,9 @@ export function showProgress(title, { cancellable = false, holdBack = false } = 
       running = false;
       spin.classList.add("stopped");
       setIconLabel(pct, "close", message);
-      closeBtn.textContent = t("common.close");
-      closeBtn.onclick = (e) => { e.preventDefault(); dlg.close(); dlg.remove(); };
-      btnRow.appendChild(closeBtn); // a popup that could not be cancelled has none yet
-      btnRow.hidden = false;
+      const { row, dismiss: closeBtn } = actionRow({ dismiss: true });
+      closeBtn.addEventListener("click", (e) => { e.preventDefault(); dlg.close(); dlg.remove(); });
+      btnRow.replaceWith(row);
       closeBtn.focus();
     },
   };

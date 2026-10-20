@@ -19,7 +19,7 @@ import * as online from "../../../core/storage/online.js";
 import { ZSTD_LEVEL_SAVE } from "../../../core/format/zstd.js";
 import { withSaveProgress } from "../saveprogress.js";
 import { download } from "../../storage/import-export.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal, showNotice } from "../components/modal.js";
 import { showProgress } from "../popups/progress.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
@@ -234,7 +234,7 @@ export class OnlineSection {
     // The window reports back by broadcast (online.onAuthChange), which
     // refreshes this view; nothing to wait for here.
     if (!online.signIn(mode, { name })) {
-      await showModal({ title: t("files.online.popupBlocked"), okLabel: t("common.ok") });
+      await showNotice({ title: t("files.online.popupBlocked"), okLabel: t("common.ok") });
     }
   }
 
@@ -448,7 +448,7 @@ export class OnlineSection {
   /** Tell the person. A failed SAVE also says where the work can go instead:
    *  the document is still open and still unsaved, so nothing is lost yet. */
   async report(err, name = "", { saving = false } = {}) {
-    await showModal({
+    await showNotice({
       title: this.message(err, name),
       body: saving ? t("files.online.keepLocal") : null,
       okLabel: t("common.ok"),

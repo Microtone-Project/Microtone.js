@@ -10,7 +10,7 @@
 
 import { TaudPlayer } from "../taudplay/index.js";
 import { applyIcons } from "./icons.js";
-import { startControlEnhancer } from "./widgets/spinner.js";
+import { startControlEnhancer } from "./components/spinner.js";
 import { holdBrowserZoom } from "./zoom.js";
 import { canvasMonoFont, loadCanvasFonts } from "./fonts.js";
 

@@ -16,6 +16,7 @@
 // lie in the readout and stamp over the work the next time it was touched.
 
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { noteToStr, noteCentsOff } from "../notenames.js";
 import { resolveNoteSymbol } from "../../../core/tuning/pitchtables.js";
 import {
@@ -137,10 +138,8 @@ export function showKeymapManual(spec, preset, octave, legend = defaultLegend) {
     };
     grid.addEventListener("input", refresh);
 
-    const btnRow = el("div", "modal-buttons");
-    const okBtn = el("button", "", t("keymanual.apply"));
-    const cancelBtn = el("button", "", t("common.cancel"));
-    btnRow.append(okBtn, cancelBtn);
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn } =
+      actionRow({ cancel: true, proceed: t("keymanual.apply") });
     dlg.appendChild(btnRow);
 
     document.body.appendChild(dlg);

@@ -48,7 +48,7 @@
         await new Promise((r) => setTimeout(r, 30));
         dlg = doc.querySelector("dialog.about-modal");
         const aboutOk = !!dlg && dlg.textContent.includes(t("about.thanks"));
-        dlg.querySelector(".modal-buttons button").click();
+        dlg.querySelector(".modal-buttons .act-dismiss").click();
         log(`about popup translated: ${aboutOk ? "ok" : "FAIL"}`);
 
         // Retune popup (project view openRetune → showModal in the iframe realm)

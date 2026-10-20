@@ -32,7 +32,7 @@ import {
   classifyMetaChildren, uniqueSampleSpansForSet,
 } from "../../doc/cleanup.js";
 import { planDuplicateInstruments } from "../../doc/bankmerge.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal } from "../components/modal.js";
 import { AdvancedZoneEditor } from "./instadvanced.js";
 import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
@@ -43,11 +43,11 @@ import { minifloatToDouble, minifloatFromDouble } from "../../../core/engine/min
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
 } from "../../doc/envedit.js";
-import { mapSpinner } from "../widgets/spinner.js";
-import { dragGrip, focusGrip } from "../widgets/dragsort.js";
+import { mapSpinner } from "../components/spinner.js";
+import { dragGrip, focusGrip } from "../components/dragsort.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import { hex2, rangeToStr } from "../notenames.js";
-import { noteGlyph, rangeGlyph } from "../noteglyph.js";
+import { noteGlyph, rangeGlyph } from "../components/noteglyph.js";
 import { MOTIF } from "../../../core/fonts/motifglyphs.js";
 import { fmGraphSvg } from "../fmgraph.js";
 import {

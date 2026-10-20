@@ -13,8 +13,8 @@
 // line's baseline, takes the line's size and the theme's colours, and is read
 // by a screen reader as what it is. Styling: .note-glyph in css/microtone.css.
 
-import { noteCellText } from "./cellpaint.js";
-import { rangeBoundsOpen } from "./notenames.js";
+import { noteCellText } from "../cellpaint.js";
+import { rangeBoundsOpen } from "../notenames.js";
 
 /**
  * A span holding `items` left to right: a NUMBER is a note word, spelled as a

@@ -31,7 +31,7 @@ import { unescapeName } from "../../../core/format/names.js";
 import {
   annFadeout, annFilter, annSfCutoff, annSfReso, SEG_MINIFLOAT_MAP,
 } from "../units.js";
-import { mapSpinner } from "../widgets/spinner.js";
+import { mapSpinner } from "../components/spinner.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
 

@@ -327,7 +327,7 @@
       ok(offCell.classList.contains("off"), "an emptied field reads as silent");
       ok(offCell.querySelector(".keymanual-note").textContent.length > 0,
          "…and says so rather than going blank");
-      dlg.querySelectorAll("button")[0].click();
+      dlg.querySelector(".modal-buttons .proceed").click();
       await sleep(400);
       const spec = store.keymap;
       ok(spec.x === 0 && spec.y === 0, "applying clears the generator");

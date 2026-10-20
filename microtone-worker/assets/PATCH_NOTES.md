@@ -4,6 +4,38 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## 2026-10-21
+
+Every dialog lays out its buttons the same way: Cancel at the left end, and the action the dialog is for at the right end, filled in the accent colour with a bolder label.
+
+- **Cancel is always the button at the bottom left**, in every dialog from Find & Change to the Sample Lab, so it is where your hand expects it; Esc still does the same.
+- **The main action — Apply, Create, Import, Export, Save — is always at the bottom right**, filled in the accent colour with a bolder label, so you can see at a glance what the dialog is about to do.
+- **Other actions such as Preview and Record sit just to the left of the main action**, on the far side of the dialog from Cancel.
+- **In the Sample Lab, when you are editing a sample the song already uses, Replace is the main action**, with Import as new beside it; opened on new audio, Import is the main action.
+- **A message that only needs reading** — a name already taken, an import that failed, nothing to retune — now has a single OK instead of OK and Cancel that did the same thing.
+- **About, the keyboard help and the panner** keep a single Close at the bottom right, since there is nothing in them to confirm or undo.
+- **Microtone Touch's sheets follow the same order**: Cancel on the left, the highlighted action on the right, other choices just before it.
+
+Microtone draws in a typeface of its own, Motif: Chivo Mono recut for the grid, the transport, the Motif editor and every other fixed-width field, with every tracker symbol drawn to match the letters — and Microtone Touch writes its notes in it too.
+
+- **The Timeline, Cues and Patterns grids, the chord and notation makers and the keymap** use Motif Grid: the letters and digits are fuller in the same cell, so a pattern reads more easily at the same size.
+- **The capital O is square and wide and the zero narrow and oval**, the way old HP terminals told them apart, so `0` and `O` no longer look alike — still without a slash or dot through the zero.
+- **Accidentals, Kite ticks, the volume and panning slide marks, key-off, cut, fade and fast-fade are now part of the font**, drawn with the same strokes as the letters, so they match the note names' weight and line up with them.
+- **Kite's up tick now sits at the top of the letters and its down tick at the bottom**, so the two read apart at a glance; a double tick spans the letters' height.
+- **The dots of an empty cell, the dash of a natural and the + and − of a fine slide** sit on the middle of the note names, level with the Kite marks, and the volume and panning slide marks are one chevron turned four ways, the same size whichever way it points.
+- **Accidentals in a two-cell slot are matched to one width by eye**, so a sharp and a flat look equally wide, and double and triple flats are written as on a score: full-size flats, each bowl leaning on the next stem. Triple and quadruple sharps are each drawn as one sign, the quadruple's two double sharps enlarged and overlapping.
+- **The twelve Shi'er lü names come from the same font**, sized and weighted to sit beside the octave digit.
+- **The notes shown outside the grids** — the chord maker's notes, the Notation Maker's previews, a metainstrument's layers and its chord stack — are now ordinary text in the grid's font, so they sit level with the words beside them and stay sharp at any zoom.
+- **The transport readouts** (Oct, Inst, Step, Cue, Row, BPM, Spd) use a narrower cut, Motif Transport, so they take less room in the top bar.
+- **Every other number, hex field and readout** — instrument and pattern numbers, Find & Change, the Notation Maker's cents and units, the interrupt dialog, the labels on the envelope and sample views, the project message — uses Motif Mono: the same letters at Chivo Mono's own widths, strictly fixed-width, so columns of values line up.
+- **Find & Change names the note you typed in the song's own notation**, spelled as the grid spells it, instead of always in 12-TET letters.
+- **The command palette's buttons show the signs the grid writes** — key-off, cut, fade and fast-fade, the volume and panning slide marks, fine + and − — instead of stand-ins like ===, ^^^ and ˄.
+- **The Notation Maker's tick and accidental pickers show each sign as the grid draws it, with its name beside it**; on a phone, whose picker uses its own font, the name is what tells them apart. The dialog is a little wider so the whole table fits.
+- **The Motif editor and the manual's code** use Motif Code: `i`, `I` and `l` are narrower and `M`, `m`, `W` and `w` wider, with stems as heavy as the letters around them at every weight, while digits and punctuation keep their columns; bold and italic keep exactly the same widths, so the caret never drifts.
+- **The instrument editor's vibrato wave buttons** show the waveform itself instead of its name; the name is in the tooltip.
+- **Microtone Touch writes its notes in Motif Grid**, on the keys and in the grid: demisharps, demiflats and Kite's up and down ticks now appear as the real signs instead of stand-ins like C+, Dd and arrows.
+- **These fonts come with the app** rather than from a font service, so the desktop app shows them offline as well; neither Chivo Mono nor Roboto Mono are no longer downloaded at all.
+
 ## 2026-10-18
 
 The chord maker learns higher-limit harmony, and its neutral and arto/tendo chords reach every equal tuning that can play them, not only the ones that have a built-in notation.

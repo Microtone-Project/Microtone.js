@@ -30,7 +30,7 @@
     });
     const clickOk = async (win) => {
       const dlg = await waitFor(() => win.document.querySelector("dialog.modal"));
-      dlg.querySelector(".modal-buttons button").click();
+      dlg.querySelector(".modal-buttons .proceed").click();
       return dlg;
     };
 
@@ -59,7 +59,7 @@
         const dup = sv.duplicateSample();
         const dlg = await waitFor(() => win.document.querySelector("dialog.modal"));
         const suggested = dlg.querySelector("input")?.value ?? "";
-        dlg.querySelector(".modal-buttons button").click();
+        dlg.querySelector(".modal-buttons .proceed").click();
         await dup;
         ok(sv.list.length === countBefore + 1, `b1 the census gained an entry (${countBefore} → ${sv.list.length})`);
         ok(store.undo.undoStack.length === undoBefore + 1, "b2 one undo step");
@@ -89,7 +89,7 @@
         ok(/dangling/.test(body), `c1 the warning says dangling pointer`);
         ok(users.every((u) => body.includes("$" + u.toString(16).padStart(2, "0"))),
           `c2 …and names every affected instrument (${users.map((u) => "$" + u.toString(16)).join(" ")})`);
-        dlg2.querySelector(".modal-buttons button").click();
+        dlg2.querySelector(".modal-buttons .proceed").click();
         await del;
         ok(!sv.list.some((e) => e.ptr === victim.ptr && e.len === victim.len), "c3 the sample is gone");
         ok(users.every((u) => store.doc.instruments[u].sampleLength === 0), "c4 its users kept their slot and lost the sample");

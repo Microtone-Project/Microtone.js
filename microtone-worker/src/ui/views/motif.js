@@ -26,14 +26,14 @@ import { opName } from "../../motif/music.js";
 import { CodeMarks } from "./motifmarks.js";
 import { MotifPanel } from "./motifpanel.js";
 import { playCapture } from "../motifpreview.js";
-import { showContextMenu } from "../widgets/contextmenu.js";
+import { showContextMenu } from "../components/contextmenu.js";
 import { ICON } from "../icons.js";
 import { MOTIF_EXAMPLE } from "../motifexample.js";
 import { MOTIF_FOURCC, BUNDLED_SOUNDFONT } from "../../motif/build.js";
 import { highlightTML } from "../../motif/highlight.js";
 import { getBundledSoundfont, pickUserSoundfont, lastUserSoundfont } from "../soundfont.js";
 import { pickFile, download } from "../../storage/import-export.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal } from "../components/modal.js";
 import { applyIcons } from "../icons.js";
 import { t } from "../i18n.js";
 

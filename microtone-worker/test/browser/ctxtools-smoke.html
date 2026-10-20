@@ -65,7 +65,7 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
       input.dispatchEvent(new win.Event("input", { bubbles: true }));
       input.dispatchEvent(new win.Event("change", { bubbles: true }));
     }
-    m.querySelector(".modal-buttons button").click();
+    m.querySelector(".modal-buttons .proceed").click();
     await sleep(140);
     return true;
   };
@@ -413,7 +413,7 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
     await sleep(50);
     check(!dith.disabled, "…and back again when continuous is chosen");
   }
-  imodal?.querySelectorAll(".modal-buttons button")[1].click(); // Cancel
+  imodal?.querySelector(".modal-buttons .act-cancel").click(); // Cancel
   await sleep(80);
   store.undo.undo();  // drop the note seed
   await sleep(60);

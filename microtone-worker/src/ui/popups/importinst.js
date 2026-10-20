@@ -17,6 +17,7 @@ import { importBankOp } from "../../doc/ops.js";
 import { pickFile } from "../../storage/import-export.js";
 import { listSf2Presets, buildSf2Bank, listBnkPresets, buildBnkBank } from "../../convert/convert.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 const hex3 = (n) => "$" + n.toString(16).toUpperCase().padStart(3, "0");
 
@@ -117,13 +118,8 @@ export async function showImportInstruments(store) {
     errEl.className = "import-error";
     errEl.hidden = true;
 
-    const btnRow = document.createElement("div");
-    btnRow.className = "modal-buttons";
-    const okBtn = document.createElement("button");
-    okBtn.textContent = "Import";
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = t("common.cancel");
-    btnRow.append(okBtn, cancelBtn);
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn } =
+      actionRow({ cancel: true, proceed: "Import" });
 
     dlg.append(h, hint, bar, list, info, errEl, btnRow);
     document.body.appendChild(dlg);
@@ -209,12 +205,8 @@ export function importFromSf2(store, fileName, sf2Bytes) {
     stereoLab.append(stereoBox, document.createTextNode(" " + t("import.sf2Stereo")));
     const errEl = el("p", "import-error", "");
     errEl.hidden = true;
-    const btnRow = document.createElement("div");
-    btnRow.className = "modal-buttons";
-    const okBtn = el("button", "", "Import");
-    okBtn.disabled = true;
-    const cancelBtn = el("button", "", t("common.cancel"));
-    btnRow.append(okBtn, cancelBtn);
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn } =
+      actionRow({ cancel: true, proceed: { label: "Import", disabled: true } });
 
     dlg.append(h, bar, list, stereoLab, statusEl, errEl, btnRow);
     document.body.appendChild(dlg);
@@ -333,12 +325,8 @@ export function importFromBnk(store, fileName, bnkBytes) {
     const statusEl = el("p", "dim", "");
     const errEl = el("p", "import-error", "");
     errEl.hidden = true;
-    const btnRow = document.createElement("div");
-    btnRow.className = "modal-buttons";
-    const okBtn = el("button", "", "Import");
-    okBtn.disabled = true;
-    const cancelBtn = el("button", "", t("common.cancel"));
-    btnRow.append(okBtn, cancelBtn);
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn } =
+      actionRow({ cancel: true, proceed: { label: "Import", disabled: true } });
 
     dlg.append(h, bar, list, statusEl, errEl, btnRow);
     document.body.appendChild(dlg);

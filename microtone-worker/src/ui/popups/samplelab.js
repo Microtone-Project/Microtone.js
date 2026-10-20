@@ -40,10 +40,11 @@ import {
 import { encodeFloatWav } from "../../audio/wavwrite.js";
 import { download } from "../../storage/import-export.js";
 import { sanitiseName } from "../../audio/stem-export.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal } from "../components/modal.js";
 import { themeColors } from "../theme.js";
 import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { icon, setIconLabel } from "../icons.js";
 import { uiDpr, localPoint, toLayout } from "../zoom.js";
 
@@ -200,12 +201,15 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
         <label>${esc(t("lab.rate"))} <input type="number" class="lab-rate" min="1" max="${rateCeil}" value="${Math.min(srcRate, rateCeil)}"></label>
         <span class="lab-fit dim"></span>
       </div>
-      <p class="dim lab-hint">${esc(t("lab.hint"))}</p>
-      <div class="modal-buttons">
-        ${replaceTarget ? `<button class="lab-replace" title="${esc(t("lab.replaceTitle"))}">${esc(t("lab.replace"))}</button>` : ""}
-        <button class="lab-ok">${esc(t(replaceTarget ? "lab.importNew" : "lab.import"))}</button>
-        <button class="lab-cancel">${esc(t("common.cancel"))}</button>
-      </div>`;
+      <p class="dim lab-hint">${esc(t("lab.hint"))}</p>`;
+    // Editing a pooled sample, the Lab is FOR writing the edit back: Replace is
+    // the Proceed and importing a copy the alternative. Opened on new audio,
+    // importing is all there is.
+    const importSpec = { label: t(replaceTarget ? "lab.importNew" : "lab.import"), className: "lab-ok" };
+    const replaceSpec = { label: t("lab.replace"), title: t("lab.replaceTitle"), className: "lab-replace" };
+    dlg.append(actionRow(replaceTarget
+      ? { cancel: { className: "lab-cancel" }, alternatives: [importSpec], proceed: replaceSpec }
+      : { cancel: { className: "lab-cancel" }, proceed: importSpec }).row);
     document.body.appendChild(dlg);
 
     const $ = (q) => dlg.querySelector(q);

@@ -24,6 +24,7 @@ import { themeColors } from "../theme.js";
 import { paintSpatialDot } from "../spatialdot.js";
 import { azimuthLabel, elevationLabel, panLabel } from "../units.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { localPoint } from "../zoom.js";
 
 const DIAL = 210;        // dial canvas size (CSS px)
@@ -289,11 +290,9 @@ export function showPanner(store, target) {
     onlyLab.title = t("panner.onlyThisTitle");
     viewOpts.appendChild(onlyLab);
 
-    const btnRow = document.createElement("div");
-    btnRow.className = "modal-buttons";
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = t("common.close");
-    btnRow.appendChild(closeBtn);
+    // Every edit lands as it is made, so there is nothing to commit or
+    // abandon: one Close.
+    const { row: btnRow, dismiss: closeBtn } = actionRow({ dismiss: true });
 
     dlg.append(h, info, dials, fields, cmds, viewOpts, btnRow);
     document.body.appendChild(dlg);

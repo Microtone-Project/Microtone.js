@@ -34,7 +34,7 @@ import { showHelp } from "./popups/help.js";
 import { showAbout } from "./popups/about.js";
 import { showWarmthSplash } from "./popups/warmth.js";
 import { showNewProject } from "./popups/newproject.js";
-import { showModal } from "./widgets/modal.js";
+import { showModal } from "./components/modal.js";
 import * as opfs from "../storage/opfs.js";
 import { pickFile } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
@@ -59,7 +59,7 @@ import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
 import { ZSTD_LEVEL_SAVE, ZSTD_LEVEL_AUTOSAVE } from "../../core/format/zstd.js";
 import { withSaveProgress, saveInProgress } from "./saveprogress.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
-import { startControlEnhancer } from "./widgets/spinner.js";
+import { startControlEnhancer } from "./components/spinner.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
 initZoom();  // …and before anything measures itself: the factor scales the layout

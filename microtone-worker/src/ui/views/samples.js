@@ -30,7 +30,7 @@ import { importBankOp, cleanupBankOp } from "../../doc/ops.js";
 import {
   regionSpans, regionBytes, wholeMemoryRegion, POOL_SIZE, DEFAULT_RATE,
 } from "../../doc/sampleregions.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal } from "../components/modal.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { PoolPanel } from "./poolpanel.js";

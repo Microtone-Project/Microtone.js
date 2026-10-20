@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>modal field layout (widgets/modal.js)</title>
+  <title>modal field layout (components/modal.js)</title>
   <link rel="stylesheet" href="../../css/microtone.css" />
   <style>
     /* The dialog is the subject; give it a page to sit on that looks like the
@@ -44,7 +44,7 @@
         if (theme) document.documentElement.dataset.theme = theme;
         const win = window;
         const doc = document;
-        const { showModal } = await import("../../src/ui/widgets/modal.js");
+        const { showModal } = await import("../../src/ui/components/modal.js");
 
         // ?form=misc is the OTHER shape this helper builds — a text field, a
         // number, and an option with no hint — so a change made for the import

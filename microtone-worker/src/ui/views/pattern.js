@@ -33,8 +33,8 @@ import { CUE_EMPTY } from "../../../core/format/taud-const.js";
 import { SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
 import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
-import { showModal } from "../widgets/modal.js";
-import { showContextMenu } from "../widgets/contextmenu.js";
+import { showModal } from "../components/modal.js";
+import { showContextMenu } from "../components/contextmenu.js";
 import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";
 import { clipboardItems, openMenuAtCursor } from "../gridmenu.js";
 import {

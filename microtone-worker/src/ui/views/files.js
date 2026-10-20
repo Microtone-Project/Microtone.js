@@ -12,7 +12,7 @@ import { pickFile, download, downloadBlob } from "../../storage/import-export.js
 import { converterFor, CONVERT_ACCEPT } from "../../convert/convert.js";
 import { isImac } from "../../convert/imac.js";
 import { isSketch } from "../../../core/sketch/mtsk.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal, showNotice } from "../components/modal.js";
 import { renderToWavAsync } from "../../../core/audio/offline-render.js";
 import {
   renderStemsAsync, labelStems, encodeWav24Mono, stemFileName, sanitiseName, StemZip,
@@ -218,7 +218,7 @@ export class FilesView {
     if (!name.endsWith(".taud")) name += ".taud";
     if (!name || name === oldName) return;
     if ((await opfs.list()).some((f) => f.name === name)) {
-      await showModal({ title: t("files.renameExists", { name }), okLabel: t("common.ok") });
+      await showNotice({ title: t("files.renameExists", { name }), okLabel: t("common.ok") });
       return;
     }
     await opfs.rename(oldName, name);
@@ -411,7 +411,7 @@ export class FilesView {
       cap = Math.min(Math.max(parseInt(result.cap || "300", 10), 1), 3600);
       if (prefix) break;
       // The prefix is the one mandatory option — ask again rather than guess.
-      await showModal({ title: t("files.stemsNeedPrefix"), okLabel: t("common.ok") });
+      await showNotice({ title: t("files.stemsNeedPrefix"), okLabel: t("common.ok") });
     }
 
     const songIndex = this.cb.songIndex?.() ?? 0;

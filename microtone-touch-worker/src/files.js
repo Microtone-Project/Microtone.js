@@ -122,12 +122,12 @@ function entrySheet(ctx, entry, changed) {
   const body = showSheet(ctx, `
     <h2>${esc(entry.name)}</h2>
     <p>${esc([place(entry.where), when(entry.modified), detail(entry), open ? t("files.openNow") : ""].filter(Boolean).join(" · "))}</p>
-    <div class="row">
-      <button type="button" class="tbtn primary" data-act="open">${tHtml("files.openBtn")}</button>
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.close")}</button>
       <button type="button" class="tbtn" data-act="rename">${tHtml("files.rename")}</button>
       <button type="button" class="tbtn" data-act="copy">${tHtml(entry.where === "local" ? "files.copyOnline" : "files.copyLocal")}</button>
       <button type="button" class="tbtn" data-act="delete">${tHtml("files.delete")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.close")}</button>
+      <button type="button" class="tbtn primary" data-act="open">${tHtml("files.openBtn")}</button>
     </div>`);
   const on = (name, fn) => { body.querySelector(`[data-act="${name}"]`).onclick = fn; };
   on("open", () => openEntry(ctx, entry));
@@ -140,9 +140,9 @@ function renameSheet(ctx, entry, changed) {
   const body = showSheet(ctx, `
     <h2>${tHtml("rename.title")}</h2>
     <label>${tHtml("saveAs.name")}<input type="text" name="name" value="${esc(entry.name)}" maxlength="${library.NAME_MAX}" autocomplete="off" enterkeyhint="done"></label>
-    <div class="row">
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button>
       <button type="button" class="tbtn primary" data-act="rename">${tHtml("rename.rename")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   const input = body.querySelector('[name="name"]');
@@ -218,9 +218,9 @@ function deleteSheet(ctx, entry, changed) {
   const body = showSheet(ctx, `
     <h2>${tHtml("delete.title", { name: entry.name })}</h2>
     <p>${tHtml(entry.where === "local" ? "delete.bodyLocal" : "delete.bodyOnline")}${open ? ` ${tHtml("delete.stillOpen")}` : ""}</p>
-    <div class="row">
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button>
       <button type="button" class="tbtn primary" data-act="delete">${tHtml("delete.delete")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   body.querySelector('[data-act="delete"]').onclick = async (e) => {
@@ -270,7 +270,7 @@ export async function openLoad(ctx) {
       out += `<ul class="files-list" data-list="online">${rowsHtml(r.entries, ctx, { more: false })}</ul>`;
     }
   }
-  out += `<div class="row"><button class="tbtn" value="close">${tHtml("sheet.cancel")}</button></div>`;
+  out += `<div class="row actions"><button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button></div>`;
   const body = showSheet(ctx, out);
   body.querySelectorAll("[data-list]").forEach((ul) => {
     ul.onclick = (e) => {

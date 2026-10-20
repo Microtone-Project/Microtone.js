@@ -25,8 +25,9 @@ const setField = (dlg, name, value) => {
   el.value = value;
   return el;
 };
-const clickOk = (dlg) => dlg.querySelector(".modal-buttons button").click();
-const clickCancel = (dlg) => dlg.querySelectorAll(".modal-buttons button")[1].click();
+const clickOk = (dlg) => dlg.querySelector(".modal-buttons .proceed").click();
+const clickCancel = (dlg) => dlg.querySelector(".modal-buttons .act-cancel").click();
+const clickDismiss = (dlg) => dlg.querySelector(".modal-buttons .act-dismiss").click();
 
 (async () => {
  try {
@@ -57,7 +58,7 @@ const clickCancel = (dlg) => dlg.querySelectorAll(".modal-buttons button")[1].cl
         info ? "" : "no dialog — silently returned, the old bug");
   check("…and names the current table", !!info && /12-TET/.test(info.textContent),
         info?.querySelector("p")?.textContent?.slice(0, 60));
-  if (info) clickOk(info);
+  if (info) clickDismiss(info); // a notice: one button
   await sleep(80);
 
   // ── 2. Detune the song like an Amiga period table, then retune to its OWN

@@ -2,7 +2,7 @@
 // square cells, each an SVG glyph over its name, rather than a list of text
 // rows. Callers pass the items; the widget owns placement and dismissal.
 //
-// Built on <dialog>.showModal() like widgets/modal.js, for three things that
+// Built on <dialog>.showModal() like components/modal.js, for three things that
 // come free with it: Escape → `cancel`, focus containment, and app.js's global
 // key handler skipping anything inside a dialog (so the piano/transport keys
 // stay quiet while the menu is up). The backdrop is transparent — a click on it

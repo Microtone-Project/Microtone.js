@@ -57,7 +57,7 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
       const input = dlg.querySelector(`[name="${name}"]`);
       if (input) input.value = String(v);
     }
-    dlg.querySelector(".modal-buttons button").click();
+    dlg.querySelector(".modal-buttons .proceed").click();
     await sleep(120);
     return true;
   };

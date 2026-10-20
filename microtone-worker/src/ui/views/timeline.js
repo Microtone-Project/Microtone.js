@@ -28,7 +28,7 @@ import { themeColors } from "../theme.js";
 import { canvasFont } from "../fonts.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { paintSpatialDot } from "../spatialdot.js";
-import { showContextMenu } from "../widgets/contextmenu.js";
+import { showContextMenu } from "../components/contextmenu.js";
 import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";
 import {
   clipboardItems, channelItems, newPatternItem, insertChannelAt,

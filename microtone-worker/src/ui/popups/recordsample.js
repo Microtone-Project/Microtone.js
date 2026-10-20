@@ -6,7 +6,8 @@
 
 import { openSampleLab } from "./samplelab.js";
 import { t } from "../i18n.js";
-import { icon, setIconLabel } from "../icons.js";
+import { actionRow } from "../components/actions.js";
+import { setIconLabel } from "../icons.js";
 
 const MAX_REC_SECONDS = 120;
 const METER_W = 260, METER_H = 16;
@@ -106,12 +107,12 @@ function runRecorderModal(stream) {
       <h3>${esc(t("rec.title"))}</h3>
       <canvas class="rec-meter" width="${METER_W}" height="${METER_H}"></canvas>
       <div class="rec-status dim">${esc(t("rec.ready"))}</div>
-      <p class="dim rec-hint">${esc(t("rec.hint", { max: MAX_REC_SECONDS }))}</p>
-      <div class="modal-buttons">
-        <button class="rec-toggle">${icon("record")}${esc(t("rec.record"))}</button>
-        <button class="rec-use" disabled>${esc(t("rec.use"))}</button>
-        <button class="rec-cancel">${esc(t("common.cancel"))}</button>
-      </div>`;
+      <p class="dim rec-hint">${esc(t("rec.hint", { max: MAX_REC_SECONDS }))}</p>`;
+    dlg.append(actionRow({
+      cancel: { className: "rec-cancel" },
+      alternatives: [{ label: t("rec.record"), icon: "record", className: "rec-toggle" }],
+      proceed: { label: t("rec.use"), className: "rec-use", disabled: true },
+    }).row);
     document.body.appendChild(dlg);
     const meter = dlg.querySelector(".rec-meter");
     const status = dlg.querySelector(".rec-status");

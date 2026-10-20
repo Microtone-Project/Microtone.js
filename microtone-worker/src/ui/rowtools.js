@@ -15,7 +15,7 @@
 
 import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
-import { showModal } from "./widgets/modal.js";
+import { showModal } from "./components/modal.js";
 import {
   planInsertRows, planDeleteRows, planInsertCue, planSplitCue, planCutCue,
   splitPointAt,

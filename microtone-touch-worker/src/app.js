@@ -626,7 +626,7 @@ function openLaneSheet(lane) {
     <div class="chips">${PRESETS.map((p) => `
       <button type="button" class="tbtn" data-preset="${p.id}" aria-pressed="${p.id === cur.preset}">${esc(presetName(p.id))}</button>`).join("")}
     </div>
-    <div class="row">
+    <div class="row actions">
       <button type="button" class="tbtn" data-act="mute" aria-pressed="${cur.mute}">${tHtml(cur.mute ? "lane.unmute" : "lane.mute")}</button>
       <button type="button" class="tbtn" data-act="clear">${tHtml("lane.clear", { section: SECTION_NAMES[ui.section] })}</button>
       <button class="tbtn" value="close">${tHtml("sheet.done")}</button>
@@ -661,7 +661,7 @@ function openSectionSheet() {
   const name = SECTION_NAMES[ui.section];
   showSheet(`
     <h2>${tHtml("section.title", { name })}</h2>
-    <div class="row">
+    <div class="row actions">
       <button type="button" class="tbtn" data-act="left" ${ui.section === 0 ? "disabled" : ""}>${tHtml("section.earlier")}</button>
       <button type="button" class="tbtn" data-act="right" ${ui.section === n - 1 ? "disabled" : ""}>${tHtml("section.later")}</button>
       <button type="button" class="tbtn" data-act="clear">${tHtml("section.clear")}</button>
@@ -704,7 +704,7 @@ function openFxSheet() {
       <span>${tHtml(`fx.${id}`)}</span>${levels.map((lv, i) => `
       <button type="button" class="tbtn" data-fx="${id}" data-lv="${i}" aria-pressed="${c.fx === id && (c.lv ?? 1) === i}">${tHtml(lv)}</button>`).join("")}`).join("")}
     </div>
-    <div class="row">
+    <div class="row actions">
       <button type="button" class="tbtn" data-fx="" ${c.fx ? "" : "disabled"}>${tHtml("fx.none")}</button>
       <button class="tbtn" value="close">${tHtml("sheet.done")}</button>
     </div>`, (body) => {
@@ -733,7 +733,7 @@ function openTempoSheet() {
     </div>
     <input type="range" min="40" max="240" value="${sketch.bpm}" data-range>
     <label class="check"><input type="checkbox" name="loop" ${sketch.loop ? "checked" : ""}> ${tHtml("tempo.loop")}</label>
-    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
+    <div class="row actions"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
     const set = (v) => {
       const bpm = Math.min(240, Math.max(40, Math.round(v)));
       edit(() => { sketch.bpm = bpm; });
@@ -756,7 +756,7 @@ function openTuningSheet() {
       <button type="button" class="tbtn" data-tuning="${tu.id}" aria-pressed="${tu.id === sketch.tuning}">${esc(tuningName(tu.id))}</button>`).join("")}
     </div>
     <p>${tHtml("tuning.moves")}</p>
-    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
+    <div class="row actions"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
     body.querySelectorAll("[data-tuning]").forEach((b) => b.addEventListener("click", () => {
       closeSheet();
       if (b.dataset.tuning !== sketch.tuning) setTuning(b.dataset.tuning);
@@ -772,7 +772,7 @@ function openThemeSheet() {
       <button type="button" class="tbtn" data-theme-id="${id}" aria-pressed="${id === themeChoice()}">${tHtml(`theme.${id}`)}</button>`).join("")}
     </div>
     <p>${tHtml("theme.note")}</p>
-    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
+    <div class="row actions"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
     const chips = [...body.querySelectorAll("[data-theme-id]")];
     for (const b of chips) {
       b.addEventListener("click", () => {
@@ -795,7 +795,7 @@ function openLangSheet() {
       <button type="button" class="tbtn" data-lang="${id}" aria-pressed="${id === langChoice()}"${id === "system" ? "" : ` lang="${id}"`}>${esc(langLabel(id))}</button>`).join("")}
     </div>
     <p>${tHtml("lang.note")}</p>
-    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
+    <div class="row actions"><button class="tbtn" value="close">${tHtml("sheet.done")}</button></div>`, (body) => {
     body.querySelectorAll("[data-lang]").forEach((b) => b.addEventListener("click", () => {
       setLang(b.dataset.lang);
       openLangSheet();

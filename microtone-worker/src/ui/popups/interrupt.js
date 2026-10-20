@@ -10,6 +10,7 @@
 
 import { EffectOp } from "../../../core/engine/tables.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 const INT_BASE = 0x0010;
 
@@ -134,13 +135,7 @@ export function showInterruptDialog(target) {
     hint.className = "modal-hint";
     form.appendChild(hint);
 
-    const btnRow = document.createElement("div");
-    btnRow.className = "modal-buttons";
-    const ok = document.createElement("button");
-    ok.textContent = t("common.ok");
-    const cancel = document.createElement("button");
-    cancel.textContent = t("common.cancel");
-    btnRow.append(ok, cancel);
+    const { row: btnRow, proceed: ok, cancel } = actionRow({ cancel: true, proceed: t("common.ok") });
 
     dlg.append(h, info, form, btnRow);
     document.body.appendChild(dlg);

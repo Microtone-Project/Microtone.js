@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" data-theme="dim">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Microtone Design System</title>
+  <meta name="description" content="The Microtone design system: tokens, type, rules and components, live, in every theme." />
+  <!-- The machine-readable half: the same content as data. -->
+  <link rel="alternate" type="application/json" href="../tokens.json" title="tokens" />
+  <link rel="alternate" type="application/json" href="../components.json" title="components and rules" />
+  <link rel="alternate" type="text/markdown" href="../README.md" title="guide" />
+  <link rel="icon" href="../../microtone-worker/favicon.svg" />
+  <!-- The app's own stylesheet: every specimen below is drawn by it. -->
+  <link rel="stylesheet" href="../../microtone-worker/css/microtone.css" />
+  <link rel="stylesheet" href="docs.css" />
+  <script>
+    // Theme before first paint, as the app does it.
+    try { const t = localStorage.getItem("microtone-ds-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+</head>
+<body>
+  <header class="ds-top">
+    <span class="brand-container ds-brand"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span></span>
+    <span class="ds-title">Design system</span>
+    <span class="ds-grow"></span>
+    <span class="ds-themes" role="group" aria-label="Theme">
+      <button type="button" data-theme-pick="dark">Dark</button>
+      <button type="button" data-theme-pick="dim">Dim</button>
+      <button type="button" data-theme-pick="light">Light</button>
+      <button type="button" data-theme-pick="warmth">Warmth</button>
+    </span>
+  </header>
+  <div class="ds-shell">
+    <nav class="ds-nav" aria-label="Contents">
+      <a href="#overview">Overview</a>
+      <a href="#rules">Rules</a>
+      <a href="#colour">Colour</a>
+      <a href="#contrast">Contrast</a>
+      <a href="#type">Type</a>
+      <a href="#shape">Shape and weight</a>
+      <a href="#components">Components</a>
+      <div class="ds-subnav" id="navComponents"></div>
+      <a href="#icons">Icons</a>
+      <a href="#guide">Guide</a>
+    </nav>
+    <main class="ds-main" id="main">
+      <section id="overview">
+        <h1>Microtone design system</h1>
+        <p class="ds-lead">The tracker's interface is a working instrument panel: dense, flat, hairline-ruled, lit by a few saturated inks that each mean one thing. Everything on this page is drawn by the app's own stylesheet and components, so switching the theme above shows exactly what the app shows.</p>
+        <div class="ds-cards">
+          <a class="ds-card" href="../README.md"><b>README.md</b><span>The rules and the reasons — start here.</span></a>
+          <a class="ds-card" href="../tokens.json"><b>tokens.json</b><span>Every token, per theme, with contrast. Generated from the stylesheet.</span></a>
+          <a class="ds-card" href="../components.json"><b>components.json</b><span>The component library and the rules, as data.</span></a>
+          <a class="ds-card" href="../notes.json"><b>notes.json</b><span>What each token is for; the text styles.</span></a>
+        </div>
+        <p class="dim ds-small" id="stamp"></p>
+      </section>
+      <section id="rules"><h2>Rules</h2><div id="ruleList"></div></section>
+      <section id="colour"><h2>Colour</h2>
+        <p class="dim">Click a name to copy <code>var(--name)</code>. The large swatch is the live token in the current theme; the four small ones are dark, dim, light and warmth.</p>
+        <div id="colourList"></div>
+      </section>
+      <section id="contrast"><h2>Contrast</h2>
+        <p class="dim">WCAG 2 ratios, computed from the tokens. Text needs 4.5:1 (3:1 at 24px and up, and for control borders); the source's failing pairs are kept and flagged, not hidden.</p>
+        <div id="contrastTable"></div>
+      </section>
+      <section id="type"><h2>Type</h2><div id="typeList"></div></section>
+      <section id="shape"><h2>Shape and weight</h2><div id="shapeList"></div></section>
+      <section id="components"><h2>Components</h2>
+        <p class="dim">The library lives in <code>microtone-worker/src/ui/components/</code> (linked as <code>design-system/components</code>). Each demo below runs the real module.</p>
+        <div id="componentList"></div>
+      </section>
+      <section id="icons"><h2>Icons</h2><div id="iconList"></div></section>
+      <section id="guide"><h2>Guide</h2><div class="ds-guide" id="guideText"></div></section>
+    </main>
+  </div>
+  <div class="ds-toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="docs.js"></script>
+</body>
+</html>

@@ -15,7 +15,7 @@ import { planImportRegion } from "../../doc/bankmerge.js";
 import { importBankOp } from "../../doc/ops.js";
 import { largestFreeRun } from "../../doc/sampleregions.js";
 import { sampleSpans } from "../../doc/document.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal } from "../components/modal.js";
 import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 

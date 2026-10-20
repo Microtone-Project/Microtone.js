@@ -26,7 +26,7 @@ import { paintKeymapBoard, defaultLegend } from "../keymapboard.js";
 import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
 import { KEYMAP_FOURCC } from "../keymaplib.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal, showNotice } from "../components/modal.js";
 import { showKeymapManual } from "../popups/keymapmanual.js";
 import {
   resolveKeymap, keymapNote, keymapStats,
@@ -435,7 +435,7 @@ export class KeymapView {
     const name = (result.name || "").trim();
     if (!name || name === old) return;
     if (this.lib.savedNameTaken(name, old)) {
-      await showModal({ title: t("keymap.renameExists", { name }), okLabel: t("common.ok") });
+      await showNotice({ title: t("keymap.renameExists", { name }), okLabel: t("common.ok") });
       return;
     }
     const next = await this.lib.rename(old, name);
@@ -466,7 +466,7 @@ export class KeymapView {
       this.draftIsBuiltin = false;
       await this._commit();
     } catch (err) {
-      await showModal({ title: t("keymap.importFailed"), body: String(err.message ?? err) });
+      await showNotice({ title: t("keymap.importFailed"), body: String(err.message ?? err), okLabel: t("common.ok") });
     }
   }
 

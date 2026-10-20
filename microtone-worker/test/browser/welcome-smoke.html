@@ -143,7 +143,7 @@
         const about = doc.querySelector("dialog.about-modal");
         const aboutOk = [...about.querySelectorAll("a")].some((a) => a.href.includes("ko-fi.com")) &&
           [...about.querySelectorAll("a")].some((a) => a.href.includes("github.com/sponsors"));
-        about.querySelector(".modal-buttons button").click();
+        about.querySelector(".modal-buttons .act-dismiss").click();
         log(`About popup still carries both links: ${aboutOk ? "ok" : "FAIL"}`);
 
         // ── item 104.1: the File tab is no longer a one-way trip ──
@@ -231,7 +231,7 @@
         const picker = doc3.querySelector("dialog.demo-modal");
         const pickRows = picker?.querySelectorAll(".demo-row").length ?? 0;
         const pickerOk = !!picker?.open && pickRows === manifest.demos.length;
-        picker?.querySelector(".modal-buttons button").click();
+        picker?.querySelector(".modal-buttons .act-cancel").click();
         await sleep(100);
         const closedOk = !doc3.querySelector("dialog.demo-modal");
         log(`File tab "${t("files.demos")}" picker (${pickRows} row(s)), cancels clean: ` +

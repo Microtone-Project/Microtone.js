@@ -108,7 +108,7 @@
           /·\s*-?\d+/.test(detAnn.textContent));
         check("the layer range is spelled too",
           !!rows()[0].querySelector(".meta-rng-ann .note-glyph"));
-        const { noteGlyph } = await win.eval('import("/src/ui/noteglyph.js")');
+        const { noteGlyph } = await win.eval('import("/src/ui/components/noteglyph.js")');
         const { pitchTablePresets } = await win.eval('import("/core/tuning/pitchtables.js")');
         // C4 + a quarter tone; the ink counts too (an off-grid note is yellow).
         const spelt = (preset) => {

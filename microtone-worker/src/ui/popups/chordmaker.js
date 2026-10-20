@@ -22,10 +22,11 @@ import {
   chordPresetTitle, chordPresetsFor, maxInversion, voiceNote, voiceRatio, voiceUnits,
 } from "../../doc/chord.js";
 import { presetForNotation, gridDelta } from "../../../core/tuning/pitchtables.js";
-import { noteGlyph } from "../noteglyph.js";
+import { noteGlyph } from "../components/noteglyph.js";
 import { themeColors } from "../theme.js";
 import { t } from "../i18n.js";
-import { icon, setIconLabel } from "../icons.js";
+import { actionRow } from "../components/actions.js";
+import { setIconLabel } from "../icons.js";
 import { uiDpr, toLayout } from "../zoom.js";
 
 const WAVE_H = 96;
@@ -122,12 +123,12 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       <div class="chord-voices"></div>
       <p class="dim chord-hint">${esc(t("chord.hint", { notation: preset?.name ?? "12-TET" }))}</p>
       <canvas class="chord-wave"></canvas>
-      <div class="chord-info dim"></div>
-      <div class="modal-buttons">
-        <button class="chord-play">${icon("play")}${esc(t("chord.preview"))}</button>
-        <button class="chord-ok">${esc(t("chord.apply"))}</button>
-        <button class="chord-cancel">${esc(t("common.cancel"))}</button>
-      </div>`;
+      <div class="chord-info dim"></div>`;
+    dlg.append(actionRow({
+      cancel: { className: "chord-cancel" },
+      alternatives: [{ label: t("chord.preview"), icon: "play", className: "chord-play" }],
+      proceed: { label: t("chord.apply"), className: "chord-ok" },
+    }).row);
     document.body.appendChild(dlg);
 
     const $ = (q) => dlg.querySelector(q);

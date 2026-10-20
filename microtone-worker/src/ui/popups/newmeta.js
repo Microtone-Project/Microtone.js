@@ -23,6 +23,7 @@ import { META_MAX_LAYERS, metaLayers } from "../../doc/metaedit.js";
 import { FM_MAX_OPERATORS, fmProgramOf, fmBudget, fmCanAddOperator } from "../../doc/fmedit.js";
 import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 const hex3 = (n) => "$" + n.toString(16).toUpperCase().padStart(3, "0");
 
@@ -157,10 +158,7 @@ function pickerModal(store, {
 
     const errEl = el("p", "import-error", "");
     errEl.hidden = true;
-    const btnRow = el("div", "modal-buttons");
-    const okBtn = el("button", "", okLabel);
-    const cancelBtn = el("button", "", t("common.cancel"));
-    btnRow.append(okBtn, cancelBtn);
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn } = actionRow({ cancel: true, proceed: okLabel });
 
     const budget = cap - existing;
     const picker = buildPicker(doc, candidates, budget, (total) => {
@@ -418,9 +416,8 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
       cards.appendChild(card);
     }
 
-    const btnRow = el("div", "modal-buttons");
-    const cancelBtn = el("button", "", t("common.cancel"));
-    btnRow.appendChild(cancelBtn);
+    // Choosing a card IS the proceed.
+    const { row: btnRow, cancel: cancelBtn } = actionRow({ cancel: true });
     cancelBtn.addEventListener("click", (e) => { e.preventDefault(); finish(null); });
 
     dlg.append(el("h3", "", t("newkind.title")), el("p", "dim", t("newkind.hint")), cards, btnRow);

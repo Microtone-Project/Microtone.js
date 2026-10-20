@@ -10,8 +10,8 @@ import { INST_NOP, INST_GOBACK, INST_SKIP, INST_JUMP, INST_PATLEN, INST_HALTAT, 
 import { setCuesOp } from "../../doc/ops.js";
 import { lookahead } from "../edit.js";
 import { makeCueBlock, cueBlockIndex, mergeCueWord } from "../../doc/clipboard.js";
-import { showModal } from "../widgets/modal.js";
-import { showContextMenu } from "../widgets/contextmenu.js";
+import { showModal } from "../components/modal.js";
+import { showContextMenu } from "../components/contextmenu.js";
 import { ICON } from "../icons.js";
 import { LongPress, longPressable, paintPerimeterGauge } from "../longpress.js";
 import {

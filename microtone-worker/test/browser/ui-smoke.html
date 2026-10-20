@@ -49,7 +49,7 @@
         // item 95: the patch notes deep-link into the docs viewer
         const patchLink = aboutDlg?.querySelector('a[href="docs.html#patchnotes"]');
         const patchLinkOk = !!patchLink && patchLink.target === "_blank";
-        aboutDlg?.querySelector(".modal-buttons button")?.click();
+        aboutDlg?.querySelector(".modal-buttons .act-dismiss")?.click();
         const aboutClosed = !win.document.querySelector("dialog.about-modal");
         log(`About popup opens + closes (patch-notes link ${patchLinkOk}): ${aboutOk && patchLinkOk && aboutClosed ? "ok" : "FAIL"}`);
 
@@ -256,7 +256,10 @@
           // Cancel path: an edit in the Lab reaches nothing until it is committed
           let { p: closed, dlg } = openLab();
           const btns = [...dlg.querySelectorAll(".modal-buttons button")].map((b) => b.textContent);
-          const btnOk = btns[0] === "Replace" && btns[1] === "Import as new" && btns[2] === "Cancel";
+          // Cancel at the left end, Proceed (Replace: the Lab edits a pooled
+          // sample) at the right end, the alternative just before it
+          const btnOk = btns[0] === "Cancel" && btns[1] === "Import as new" && btns[2] === "Replace" &&
+            dlg.querySelector(".modal-buttons .proceed")?.textContent === "Replace";
           const opButtons = [...dlg.querySelectorAll(".lab-ops button")].map((b) => b.textContent);
           const hasOps = ["Normalise", "Fade in", "Fade out", "Reverse", "Invert", "Remove DC", "Crop", "Cut"]
             .every((x) => opButtons.includes(x));
@@ -307,7 +310,7 @@
           const wrote = doc.instruments[slot].sampleLoopStart === 9;
           const scoped = other === undefined || doc.instruments[other].sampleLoopStart !== 9 ||
             loopBefore === 9;
-          [...dlg.querySelectorAll(".modal-buttons button")][1].click(); // Cancel
+          dlg.querySelector(".modal-buttons .act-cancel").click(); // Cancel
           await closed;
           const instRolled = doc.instruments[slot].sampleLoopStart === loopBefore;
           log(`inst sample editor (3 markers, single slot, cancel restores): ${openOk && wrote && scoped && instRolled ? "ok" : "FAIL"}`);
@@ -369,7 +372,7 @@
           const ppOk = !!wantPP && doc.instruments[slot].sampleLoopStart === wantPP.loopStart &&
             doc.instruments[slot].sampleLoopEnd === wantPP.loopEnd &&
             status.textContent.includes("turns");
-          [...dlg.querySelectorAll(".modal-buttons button")][1].click(); // Cancel
+          dlg.querySelector(".modal-buttons .act-cancel").click(); // Cancel
           await closed;
           const allRolled = doc.instruments[slot].sampleLoopStart === loopBefore;
           log(`auto loop resolver (mode-gated, both modes, one undo step, readout clears on hand edit): ${offDisabled && onEnabled && found && handEdit && resolverUndone && ppOk && allRolled ? "ok" : "FAIL"}`);
@@ -387,7 +390,7 @@
           const p = newInstrumentFromSample(store, s);
           const dlg = [...win.document.querySelectorAll("dialog.modal")].pop();
           dlg.querySelector('input[name="name"]').value = "SmokeFromSample";
-          [...dlg.querySelectorAll(".modal-buttons button")][0].click(); // Create
+          dlg.querySelector(".modal-buttons .proceed").click(); // Create
           const res = await p;
           const slot = res?.firstSlot;
           const inst = slot != null ? doc.instruments[slot] : null;
@@ -537,7 +540,7 @@
               const inp = dlg.querySelector(`[name="${name}"]`);
               inp.value = val;
             }
-            [...dlg.querySelectorAll(".modal-buttons button")][0].click(); // Apply
+            dlg.querySelector(".modal-buttons .proceed").click(); // Apply
             await new Promise((r) => setTimeout(r, 20));
           };
           await runPopup("Volume…", { mult: "2", add: "0" });
@@ -701,8 +704,7 @@
           const dlg = win.document.querySelector("dialog.modal");
           const opened = !!dlg && store.record === recWas; // popup, no record toggle
           if (dlg) {
-            const btns = [...dlg.querySelectorAll(".modal-buttons button")];
-            btns[btns.length - 1].click(); // Cancel
+            dlg.querySelector(".modal-buttons .act-cancel").click();
             await new Promise((r2) => setTimeout(r2, 20));
           }
           // on a channel column Space keeps its record-toggle double action

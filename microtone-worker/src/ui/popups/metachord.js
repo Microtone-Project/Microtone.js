@@ -23,10 +23,11 @@ import {
 import { setMetaRecordOp } from "../../doc/ops.js";
 import { ANCHOR_NOTE } from "../../../core/tuning/pitchtables.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../../../core/engine/constants.js";
-import { noteGlyph } from "../noteglyph.js";
+import { noteGlyph } from "../components/noteglyph.js";
 import { setIconLabel } from "../icons.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 /** How long a preview rings before it releases itself. A stack of sustaining
  *  layers would otherwise drone until the dialog closed. */
@@ -153,12 +154,11 @@ export function showChordStack(store, metaSlot, layerIdx) {
     const errEl = el("p", "import-error", "");
     errEl.hidden = true;
 
-    const btnRow = el("div", "modal-buttons");
-    const playBtn = el("button", "");
-    setIconLabel(playBtn, "play", t("chord.preview"));
-    const okBtn = el("button", "", t("meta.chordApply"));
-    const cancelBtn = el("button", "", t("common.cancel"));
-    btnRow.append(playBtn, okBtn, cancelBtn);
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn, alternatives: [playBtn] } = actionRow({
+      cancel: true,
+      alternatives: [{ label: t("chord.preview"), icon: "play" }],
+      proceed: t("meta.chordApply"),
+    });
 
     /** Only the inversions this chord has, same as the Sample Lab's menu. */
     const renderInversions = () => {

@@ -102,7 +102,7 @@
         log(`a rebuilt option list re-syncs the arrows: ${reOk ? "ok" : "FAIL"}`);
 
         // ── mapped spinner: stored units under the buttons, prose in the box ──
-        const { mapSpinner } = await win.eval('import("/src/ui/widgets/spinner.js")');
+        const { mapSpinner } = await win.eval('import("/src/ui/components/spinner.js")');
         const { SEG_MINIFLOAT_MAP } = await win.eval('import("/src/ui/units.js")');
         const { minifloatToDouble } = await win.eval('import("/core/engine/minifloat.js")');
         const mapped = doc.createElement("input");

@@ -11,6 +11,7 @@
 // permission. See assets/demo_projects/README.md for the terms.
 
 import { t } from "./i18n.js";
+import { actionRow } from "./components/actions.js";
 import { setIconLabel } from "./icons.js";
 
 // Module-relative, so the list is found wherever the app is served from
@@ -129,11 +130,7 @@ export function showDemoPicker() {
     const body = document.createElement("div");
     body.className = "demo-list";
     body.appendChild(demoNote(t("welcome.loading")));
-    const row = document.createElement("div");
-    row.className = "modal-buttons";
-    const cancel = document.createElement("button");
-    cancel.textContent = t("common.cancel");
-    row.appendChild(cancel);
+    const { row, cancel } = actionRow({ cancel: true });
     dlg.append(h, intro, body, row);
     document.body.appendChild(dlg);
 

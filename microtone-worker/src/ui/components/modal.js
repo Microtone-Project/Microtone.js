@@ -1,7 +1,8 @@
 // Minimal modal helper over <dialog>. Builds a form-style dialog from field
-// specs and resolves with the values (or null on cancel).
+// specs and resolves with the values (or null on cancel); `showNotice` is its
+// one-button sibling for something the person only has to read.
 
-import { t } from "../i18n.js";
+import { actionRow } from "./actions.js";
 
 export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
   return new Promise((resolve) => {
@@ -118,13 +119,7 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
       sync();
     }
     dlg.appendChild(form);
-    const row = document.createElement("div");
-    row.className = "modal-buttons";
-    const ok = document.createElement("button");
-    ok.textContent = okLabel;
-    const cancel = document.createElement("button");
-    cancel.textContent = t("common.cancel");
-    row.append(ok, cancel);
+    const { row, proceed: ok, cancel } = actionRow({ cancel: true, proceed: okLabel });
     dlg.appendChild(row);
     document.body.appendChild(dlg);
 
@@ -152,5 +147,36 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
     if (first) first.focus();
     // `select: true` on the first field: its text starts selected, to be typed over
     if (first && fields[0]?.select) first.select?.();
+  });
+}
+
+/**
+ * A notice: a title, optionally a sentence, and ONE button that closes it —
+ * "that name is taken", "the import failed". Nothing to commit and nothing to
+ * abandon, so it has neither Cancel nor a Proceed (actions.js, `dismiss`).
+ * Resolves once it is closed, by the button, Enter or Esc.
+ */
+export function showNotice({ title, body = null, okLabel = "OK" }) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement("dialog");
+    dlg.className = "modal modal-text";
+    const h = document.createElement("h3");
+    h.textContent = title;
+    dlg.appendChild(h);
+    if (body) {
+      const p = document.createElement("p");
+      p.className = "dim";
+      p.textContent = body;
+      dlg.appendChild(p);
+    }
+    const { row, dismiss } = actionRow({ dismiss: okLabel });
+    dlg.appendChild(row);
+    document.body.appendChild(dlg);
+    const finish = () => { dlg.close(); dlg.remove(); resolve(); };
+    dismiss.addEventListener("click", (e) => { e.preventDefault(); finish(); });
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); finish(); });
+    dlg.addEventListener("keydown", (e) => e.stopPropagation());
+    dlg.showModal();
+    dismiss.focus();
   });
 }

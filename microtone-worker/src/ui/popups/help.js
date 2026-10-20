@@ -2,6 +2,7 @@
 // descriptions come from i18n.
 
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 export function showHelp() {
   const dlg = document.createElement("dialog");
@@ -55,10 +56,11 @@ export function showHelp() {
     rows.map(([k, d]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(d)}</dd>`).join("") + "</dl>";
   dlg.innerHTML = `
     <h3>${escapeHtml(t("help.title"))}</h3>
-    <div class="help-cols">${dl(col1)}${dl(col2)}</div>
-    <div class="modal-buttons"><button>${escapeHtml(t("common.close"))}</button></div>`;
+    <div class="help-cols">${dl(col1)}${dl(col2)}</div>`;
+  const { row, dismiss } = actionRow({ dismiss: true });
+  dlg.append(row);
   document.body.appendChild(dlg);
-  dlg.querySelector("button").addEventListener("click", () => { dlg.close(); dlg.remove(); });
+  dismiss.addEventListener("click", () => { dlg.close(); dlg.remove(); });
   dlg.addEventListener("cancel", () => dlg.remove());
   dlg.addEventListener("keydown", (e) => e.stopPropagation());
   dlg.showModal();

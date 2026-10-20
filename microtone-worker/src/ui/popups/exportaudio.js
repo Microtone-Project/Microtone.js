@@ -15,6 +15,7 @@ import {
 import { SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
 import { speakerDiagram } from "../speakerdiagram.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 const RATES = [32000, 44100, 48000, 96000];
 
@@ -143,13 +144,7 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
     const size = document.createElement("p");
     size.className = "dim export-hint";
 
-    const row = document.createElement("div");
-    row.className = "modal-buttons";
-    const ok = document.createElement("button");
-    ok.textContent = t("export.render");
-    const cancel = document.createElement("button");
-    cancel.textContent = t("common.cancel");
-    row.append(ok, cancel);
+    const { row, proceed: ok, cancel } = actionRow({ cancel: true, proceed: t("export.render") });
 
     dlg.append(h, intro, cards, opts, monitorHint, masterHint, size, row);
     document.body.appendChild(dlg);

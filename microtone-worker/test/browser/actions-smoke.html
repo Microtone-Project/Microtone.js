@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>dialog actions smoke</title>
+  <link rel="stylesheet" href="../../css/microtone.css" />
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <img src="/hang" hidden>
+  <script type="module">
+    // The design system's dialog-actions and proceed-style rules (item 221,
+    // design-system/README.md) in a real browser, in all four themes: Cancel at
+    // the left end of the row, Proceed at the right end, alternatives right
+    // beside Proceed, a lone Dismiss at the right end; Proceed filled apart from
+    // every other button, its label 200 heavier and readable on its fill. Then
+    // the two dialog helpers, end to end: Enter proceeds, Cancel and Esc
+    // cancel, a notice has one button.
+    //
+    //   node tools/browser-smoke.js test/browser/actions-smoke.html
+    import { actionRow } from "../../src/ui/components/actions.js";
+    import { showModal, showNotice } from "../../src/ui/components/modal.js";
+
+    const out = [];
+    let failures = 0;
+    const log = (l) => { out.push(l); document.getElementById("out").textContent = out.join("\n"); };
+    const check = (what, ok, detail = "") => {
+      if (!ok) failures++;
+      log(`${ok ? "PASS" : "FAIL"} ${what}${detail === "" ? "" : ` — ${detail}`}`);
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const box = (el) => el.getBoundingClientRect();
+    const near = (a, b) => Math.abs(a - b) <= 1;
+
+    /** WCAG contrast of two computed rgb() colours. */
+    const lum = (css) => {
+      const [r, g, b] = css.match(/[\d.]+/g).slice(0, 3).map((v) => Number(v) / 255)
+        .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    /** A custom property as the browser resolves a colour. */
+    const resolved = (name) => {
+      const probe = document.createElement("span");
+      probe.style.color = `var(${name})`;
+      document.body.appendChild(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    };
+
+    async function rowsIn(theme) {
+      document.documentElement.dataset.theme = theme;
+      const dlg = document.createElement("dialog");
+      dlg.className = "modal";
+      dlg.style.width = "520px";
+      const status = document.createElement("span");
+      status.textContent = "3 issues";
+      const full = actionRow({
+        cancel: true, alternatives: [{ label: "Preview", icon: "play" }], proceed: "Apply", extras: [status],
+      });
+      const lone = actionRow({ cancel: true });
+      const done = actionRow({ dismiss: true });
+      dlg.append(full.row, lone.row, done.row);
+      document.body.appendChild(dlg);
+      dlg.showModal();
+      await sleep(30);
+
+      const r = box(full.row), c = box(full.cancel), a = box(full.alternatives[0]), p = box(full.proceed);
+      check(`${theme}: Cancel at the left end`, near(c.left, r.left), `${c.left} vs ${r.left}`);
+      check(`${theme}: Proceed at the right end`, near(p.right, r.right), `${p.right} vs ${r.right}`);
+      check(`${theme}: the alternative right beside Proceed`,
+        a.right < p.left && p.left - a.right <= 12 && a.left > c.right + 40, `gap ${p.left - a.right}`);
+      check(`${theme}: one line, DOM order = visual order`,
+        near(c.top, p.top) && [...full.row.children].every((el, i, all) => i === 0 || box(all[i - 1]).right <= box(el).left));
+      const lc = box(lone.cancel), lr = box(lone.row);
+      check(`${theme}: a lone Cancel stays at the left end`, near(lc.left, lr.left));
+      const dd = box(done.dismiss), dr = box(done.row);
+      check(`${theme}: a lone Dismiss sits at the right end`, near(dd.right, dr.right));
+
+      const cs = getComputedStyle(full.proceed), cc = getComputedStyle(full.cancel), ca = getComputedStyle(full.alternatives[0]);
+      check(`${theme}: Proceed's label at least 200 heavier`,
+        Number(cs.fontWeight) - Number(cc.fontWeight) >= 200 && cc.fontWeight === ca.fontWeight,
+        `${cs.fontWeight} vs ${cc.fontWeight}`);
+      const paint = (s) => `${s.backgroundColor} ${s.backgroundImage}`;
+      check(`${theme}: Proceed is coloured apart from Cancel and the alternative`,
+        paint(cs) !== paint(cc) && paint(cc) === paint(ca), paint(cs));
+      check(`${theme}: Proceed's ink is readable on its fill`,
+        ratio(cs.color, resolved("--proceed-bg")) >= 4.5, ratio(cs.color, resolved("--proceed-bg")).toFixed(2));
+      check(`${theme}: Cancel and Dismiss are plain buttons`,
+        getComputedStyle(done.dismiss).fontWeight === cc.fontWeight && paint(getComputedStyle(done.dismiss)) === paint(cc));
+      dlg.close();
+      dlg.remove();
+    }
+
+    (async () => {
+      try {
+        await Promise.race([document.fonts.ready, sleep(2000)]);
+        for (const theme of ["dark", "dim", "light", "warmth"]) await rowsIn(theme);
+        document.documentElement.dataset.theme = "dim";
+
+        // ── showModal: Enter proceeds with the values ──
+        let p = showModal({ title: "Rename", fields: [{ name: "name", label: "Name", value: "song" }], okLabel: "Rename" });
+        await sleep(20);
+        let dlg = document.querySelector("dialog.modal");
+        const kids = [...dlg.querySelector(".modal-buttons").children];
+        check("showModal: [Cancel] … [Rename]",
+          kids.length === 2 && kids[0].matches(".act-cancel") && kids[1].matches(".proceed") && kids[1].textContent === "Rename");
+        const input = dlg.querySelector("input");
+        input.value = "renamed";
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        check("showModal: Enter in a field proceeds", (await p)?.name === "renamed");
+
+        // ── …Cancel and Esc resolve null ──
+        p = showModal({ title: "Delete?", okLabel: "Delete" });
+        await sleep(20);
+        document.querySelector("dialog.modal .act-cancel").click();
+        check("showModal: Cancel resolves null", (await p) === null);
+        p = showModal({ title: "Delete?", okLabel: "Delete" });
+        await sleep(20);
+        document.querySelector("dialog.modal").dispatchEvent(new Event("cancel"));
+        check("showModal: Esc resolves null", (await p) === null);
+
+        // ── showNotice: one button, nothing to cancel ──
+        p = showNotice({ title: "That name is taken", okLabel: "OK" });
+        await sleep(20);
+        dlg = document.querySelector("dialog.modal");
+        const nb = [...dlg.querySelectorAll("button")];
+        check("showNotice: one Dismiss, no Cancel, no Proceed",
+          nb.length === 1 && nb[0].matches(".act-dismiss") && document.activeElement === nb[0]);
+        nb[0].click();
+        await p;
+        check("showNotice: closes on its button", !document.querySelector("dialog.modal"));
+      } catch (err) {
+        failures++;
+        log(`THREW: ${err.message}\n${err.stack}`);
+      }
+      log(`\nFAILURES: ${failures}`);
+    })();
+  </script>
+</body>
+</html>

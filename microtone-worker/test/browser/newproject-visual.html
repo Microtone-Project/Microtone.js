@@ -13,7 +13,7 @@
     import { showNewProject } from "../../src/ui/popups/newproject.js";
     // The app starts this at boot (app.js); a standalone page has to say so
     // itself or the dialog's spinners and dropdowns render bare (item 156).
-    import { startControlEnhancer } from "../../src/ui/widgets/spinner.js";
+    import { startControlEnhancer } from "../../src/ui/components/spinner.js";
     startControlEnhancer();
     const params = new URLSearchParams(location.search);
     if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");

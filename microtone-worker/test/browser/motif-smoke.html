@@ -194,7 +194,7 @@ song { title: "Twice", bars: 2, bar_rows: 8, tuning: "12-TET" }
         const renaming = view.rename(drAt);
         const field = await waitFor(() => doc_.querySelector("dialog input"), 5000);
         field.value = "drum";
-        doc_.querySelector("dialog .modal-buttons button").click();
+        doc_.querySelector("dialog .modal-buttons .proceed").click();
         await renaming;
         const drums = (text().match(/\bdrum\(/g) || []).length;
         check(`Rename dr → drum changes ${drums} places and leaves no dr( behind`, drums > 40 && !/\bdr\(/.test(text()));

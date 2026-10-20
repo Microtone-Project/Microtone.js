@@ -72,7 +72,7 @@ export function monoPalette(colour) {
 
 /**
  * The note cell as Motif Grid text — the one spelling both the canvas grids
- * and the DOM readouts use (noteglyph.js). `ink` names the palette entry it
+ * and the DOM readouts use (components/noteglyph.js). `ink` names the palette entry it
  * is drawn in: "note", "offGrid" (taut's yellow for a pitch off the
  * preset's grid), "sentinel" or "dim"; `faint` is the empty cell's 40%.
  * rawMode forces hex4 for playable notes (the taut rawNoteView toggle).

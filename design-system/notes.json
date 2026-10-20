@@ -1,0 +1,382 @@
+{
+  "$comment": "Curated half of design-system/tokens.json: what each token is for, the text styles, the contrast pairs to report and the theme notes. The VALUES come from the stylesheets; tools/design-tokens.js merges the two. A token added to microtone.css without a note here (or a trailing comment there) fails test/node/design-system.test.js.",
+  "themes": {
+    "dark": "Slate and amber, after taut.js. What :root declares, so a page without data-theme draws in it.",
+    "dim": "Neutral grey midway between dark and light; the theme the app boots into.",
+    "light": "Light grounds; every accent re-mixed darker (amber becomes burnt orange).",
+    "warmth": "The Analogue Warmth Edition: beige moulded plastic, with the texture tokens on top. Joins the theme cycle only while in season and is never saved."
+  },
+  "usage": {
+    "bg": "App background, the ground under every view; also the active tab's fill so it joins the view below it.",
+    "panel": "Bars and panels: top bar, status bar, pane heads, toolbox, command palette, modals and menus.",
+    "panel-2": "Raised controls on a panel: buttons, inputs, value controls, inactive tabs, the highlighted menu cell.",
+    "fg": "Primary text and note glyphs, on bg, panel and panel-2. Clears 7:1 on every ground in every theme.",
+    "fg2": "Key-off glyphs in the grid; kept clearly brighter than dim so key-offs never read as empty cells.",
+    "dim": "Secondary text: hints, captions, inactive tabs, empty grid cells, the step buttons of a value control. On bg and panel, at 0.82rem or larger; not on panel-2, where it misses 4.5:1 in most themes (see contrast).",
+    "accent": "Amber in the dark themes, burnt orange on light grounds: focus and hover borders, the active tab and tool, palette labels, sentinels and off-grid notes, and the Proceed button's fill (proceed-bg). Also the accent-color of every native checkbox, radio and slider. In warmth it is weak on bg; use it on panel or panel-2 there.",
+    "accent-2": "Cyan-blue: the instrument column, links, pan ticks and the selection-mode chip.",
+    "meter": "Green: VU bars, the volume column and live dots.",
+    "meter-bg": "Meter troughs and the idle ring of the loading spinner.",
+    "border": "Every 1px hairline: control outlines, bar rules, pane seams, menu dividers. Below the 3:1 control-border floor in every theme as shipped, so a state is carried by the accent border, never by border alone.",
+    "ok-bg": "Ground of the 'audio on' badge.",
+    "ok-fg": "Text of the 'audio on' badge, on ok-bg.",
+    "err-bg": "Ground of the 'audio off' badge and of warnings.",
+    "err-fg": "Text of the 'audio off' badge and warnings, on err-bg; also the clip-lamp ink on the Mastering canvas.",
+    "rec-fg": "Record armed: the dot, the label and the hover border of the armed button. Weakest on rec-bg in dim; there it always rides with the record dot icon.",
+    "rec-border": "Record armed: the button's resting border.",
+    "rec-bg": "Record armed: the button's fill.",
+    "cv-bg": "Canvas ground for waveforms, envelopes and the splash grid.",
+    "cv-row-beat": "Pattern grid: the primary beat row band.",
+    "cv-row-bar": "Pattern grid: the secondary beat (bar) row band.",
+    "cv-playhead": "Pattern grid: the row that is playing.",
+    "cv-cursor": "Pattern grid: the cursor cell.",
+    "cv-caret": "Pattern grid: the sub-column caret in record mode (amber family).",
+    "cv-caret-nav": "Pattern grid: the sub-column caret in navigate mode (blue family).",
+    "cv-cue-line": "Pattern grid: the rule between cues.",
+    "cv-col-pan": "Pattern grid: pan column ink; also the effect ink in the splash grid.",
+    "cv-sel": "Pattern grid: block selection fill.",
+    "cv-ditto": "Pattern grid: ghost cells repeated by a pattern ditto.",
+    "cv-fx-op": "Effect column: the opcode letter (and an S/Z sub-command nibble).",
+    "cv-fx-a1": "Effect column: argument field 1.",
+    "cv-fx-a2": "Effect column: argument field 2.",
+    "cv-fx-a3": "Effect column: argument field 3.",
+    "cv-fx-ext": "Effect column: a ':' extension cell and the cell it pairs with.",
+    "cv-oct-red": "Register ramp stop 1 (the bottom of the keyboard). The ramp is ordered by hue only; it colours a 2px register stripe, never text.",
+    "cv-oct-yellow": "Register ramp stop 2 (low-middle).",
+    "cv-oct-green": "Register ramp stop 3 (high-middle).",
+    "cv-oct-blue": "Register ramp stop 4 (the top of the keyboard).",
+    "cv-pitch-pole": "Absolute-pitch plot: the rose ticks and the contour joining them, a hue nothing else in the cells wears.",
+    "cv-pitch-axis": "Absolute-pitch plot: the neutral centre rule behind the ticks.",
+    "cv-wave": "Waveform trace.",
+    "cv-wave-loop": "Waveform loop-region shading.",
+    "cv-wave-mid": "Waveform centre baseline.",
+    "cv-wave-invert": "Loop bytes the invert loop (S $F0xx) has inverted live.",
+    "cv-wave-funk": "Where funk repeat (Z $F0xx) has walked the loop to.",
+    "cv-play-cursor": "Envelope nodes and live envelope markers.",
+    "cv-wave-cursor": "Live play-position hairline over a waveform; hot pink so it never disappears into the trace or a modified byte.",
+    "cv-env-line": "Envelope polyline and zone strokes.",
+    "cv-env-node": "Envelope node dots.",
+    "cv-env-sus": "Envelope sustain-region shading.",
+    "cv-env-loop": "Envelope loop-region shading (translucent).",
+    "cv-live": "Live envelope cursor.",
+    "cv-pool-used": "Sample-memory panel: bytes a sample claims.",
+    "cv-pool-shared": "Sample-memory panel: bytes more than one census row claims.",
+    "cv-pool-free": "Sample-memory panel: unclaimed, swept space.",
+    "cv-pool-stale": "Sample-memory panel: unclaimed space still holding old audio.",
+    "cv-pool-region": "Pool map: a long recording loaded into memory.",
+    "cv-pool-c0": "Pool-map block cycle 1 of 5 (blue). Neighbouring blocks take consecutive entries, so the order matters more than the set.",
+    "cv-pool-c1": "Pool-map block cycle 2 of 5 (rose).",
+    "cv-pool-c2": "Pool-map block cycle 3 of 5 (cyan).",
+    "cv-pool-c3": "Pool-map block cycle 4 of 5 (violet).",
+    "cv-pool-c4": "Pool-map block cycle 5 of 5: separates by lightness, not hue (pale on dark grounds, near-black on light).",
+    "brand": "The wordmark's red half ('Micro') and the mark's ink.",
+    "brand2": "The wordmark's second half ('tone'), near-white on dark grounds and slate on light ones.",
+    "scrim": "The veil behind a modal, and behind the manual's contents drawer on a phone; one neutral black for every theme.",
+    "proceed-bg": "The Proceed button's fill: the one action a dialog is for (components/actions.js). The theme's accent, so 'the one that will happen' wears the hue that already means 'this one'.",
+    "proceed-fg": "The Proceed button's label, on proceed-bg; set at weight-proceed.",
+    "proceed-hover": "The Proceed button's fill under the pointer: a step further from proceed-fg than proceed-bg.",
+    "code-bg": "Motif editor: the page under the code (the Dimtello grey in the dark themes, the Syntello white in the light ones).",
+    "code-fg": "Motif editor: plain code text and the caret.",
+    "code-caret-row": "Motif editor: the band behind the caret's line.",
+    "code-sel": "Motif editor: the selection, drawn under the text (motifmarks.js).",
+    "code-occ-read": "Motif editor: other occurrences of the name under the caret, where it is read.",
+    "code-occ-write": "Motif editor: other occurrences of the name under the caret, where it is written.",
+    "code-gutter-bg": "Motif editor: the line-number gutter's ground.",
+    "code-gutter-fg": "Motif editor: line numbers.",
+    "code-gutter-here": "Motif editor: the caret line's number.",
+    "code-kw": "Motif editor: keywords (bold).",
+    "code-decl": "Motif editor: declaration keywords — song, instrument, lane, section (bold).",
+    "code-num": "Motif editor: numbers (bold).",
+    "code-str": "Motif editor: strings.",
+    "code-esc": "Motif editor: escapes inside a string.",
+    "code-pitch": "Motif editor: pitch literals (italic).",
+    "code-com": "Motif editor: comments (italic).",
+    "code-fn": "Motif editor: function calls; builtins in italic.",
+    "code-fn-decl": "Motif editor: a function's name where it is declared.",
+    "code-field": "Motif editor: record fields.",
+    "code-param": "Motif editor: parameters.",
+    "code-op": "Motif editor: operators.",
+    "code-name": "Motif editor: names given to music (italic).",
+    "code-err": "Motif editor: the line number of an error (bold).",
+    "abs-grain": "Warmth only: the fine grain moulded into the case, laid over every bar and panel.",
+    "abs-bevel": "Warmth only: the highlight-and-shade pair that makes an edge look bevelled.",
+    "abs-cap": "Warmth only: a membrane keycap at rest — the fill of every button.",
+    "abs-cap-down": "Warmth only: a membrane keycap pressed.",
+    "radius-sm": "Inputs, selects, badges, chips, find-bar fields, wheelable readouts.",
+    "radius-md": "Buttons, value controls, context-menu cells, the splash grid; tabs take it on their top corners only.",
+    "radius-lg": "Modals, context menus, the meters canvas, drop zones.",
+    "weight-button": "Every button label.",
+    "weight-proceed": "The Proceed button's label. At least weight-button + 200: the rule is the difference, not the number.",
+    "cv-font": "Motif Grid: the tracker grids, the chord and notation makers, the keymap, and every note written as a symbol (noteglyph.js).",
+    "mono-font": "Motif Mono: what is typed or read as a value — hex and number fields, indexes, readouts, key names, canvas labels (fonts.js canvasMonoFont).",
+    "transport-font": "Motif Transport: the transport readouts (Oct, Inst, Step, Cue, Row, BPM, Spd), 10% narrower.",
+    "code-font": "Motif Code: the Motif editor and its panels, the manual's code."
+  },
+  "contrast": [
+    [
+      "fg",
+      [
+        "bg",
+        "panel",
+        "panel-2"
+      ]
+    ],
+    [
+      "fg2",
+      [
+        "bg",
+        "panel"
+      ]
+    ],
+    [
+      "dim",
+      [
+        "bg",
+        "panel",
+        "panel-2"
+      ]
+    ],
+    [
+      "accent",
+      [
+        "bg",
+        "panel",
+        "panel-2"
+      ]
+    ],
+    [
+      "accent-2",
+      [
+        "bg",
+        "panel"
+      ]
+    ],
+    [
+      "meter",
+      [
+        "bg",
+        "panel"
+      ]
+    ],
+    [
+      "proceed-fg",
+      [
+        "proceed-bg",
+        "proceed-hover"
+      ]
+    ],
+    [
+      "ok-fg",
+      [
+        "ok-bg"
+      ]
+    ],
+    [
+      "err-fg",
+      [
+        "err-bg"
+      ]
+    ],
+    [
+      "rec-fg",
+      [
+        "rec-bg"
+      ]
+    ],
+    [
+      "border",
+      [
+        "panel",
+        "panel-2"
+      ]
+    ],
+    [
+      "code-fg",
+      [
+        "code-bg"
+      ]
+    ]
+  ],
+  "textStyles": [
+    {
+      "name": "Wordmark",
+      "family": "display",
+      "styles": [
+        {
+          "name": "wordmark-hero",
+          "fontSize": "2.4rem",
+          "lineHeight": 1.05,
+          "fontWeight": 900,
+          "fontStyle": "italic",
+          "sample": "Microtone",
+          "usage": "The welcome screen hero (.wc-brand). Geist 900 oblique; Micro in brand, tone in brand2."
+        },
+        {
+          "name": "wordmark-splash",
+          "fontSize": "2rem",
+          "fontWeight": 900,
+          "fontStyle": "italic",
+          "sample": "Microtone",
+          "usage": "The boot splash (.splash-brand)."
+        },
+        {
+          "name": "wordmark-bar",
+          "fontSize": "1.333rem",
+          "fontWeight": 900,
+          "fontStyle": "italic",
+          "sample": "Microtone",
+          "usage": "The top-bar brand that opens About (.brand-container); 1.7rem inside the About modal."
+        }
+      ]
+    },
+    {
+      "name": "Interface",
+      "family": "ui",
+      "styles": [
+        {
+          "name": "heading",
+          "fontSize": "1.4rem",
+          "fontWeight": 700,
+          "sample": "Export audio",
+          "usage": "Page and player headings (h1)."
+        },
+        {
+          "name": "button",
+          "fontSize": "0.95rem",
+          "fontWeight": 400,
+          "sample": "Import MIDI…",
+          "usage": "Default button label at weight-button; 1.1rem for button.big. Open Sans at wdth 86.67 with tabular figures, as everywhere in the chrome."
+        },
+        {
+          "name": "proceed",
+          "fontSize": "0.95rem",
+          "fontWeight": 600,
+          "sample": "Apply",
+          "usage": "The Proceed button's label: weight-proceed, 200 heavier than every other button, on proceed-bg."
+        },
+        {
+          "name": "body",
+          "fontSize": "0.95rem",
+          "lineHeight": 1.45,
+          "fontWeight": 400,
+          "sample": "Projects live in your browser’s private storage.",
+          "usage": "Prose in modals (.modal-text p) and the welcome tagline."
+        },
+        {
+          "name": "compact",
+          "fontSize": "0.85rem",
+          "fontWeight": 400,
+          "sample": "Oct 4 · Inst 01 · Step 1",
+          "usage": "Status bar, badges, toolbox and command-palette buttons, find bar fields; wdth 96."
+        },
+        {
+          "name": "hint",
+          "fontSize": "0.82rem",
+          "fontWeight": 400,
+          "sample": "Shift-click to extend the block",
+          "usage": "Palette hints and secondary links, set in dim."
+        },
+        {
+          "name": "tab",
+          "fontSize": "0.8rem",
+          "fontWeight": 600,
+          "letterSpacing": "0",
+          "sample": "TIMELINE",
+          "usage": "Tab labels: uppercase, wdth 100, min-width 72pt."
+        },
+        {
+          "name": "label",
+          "fontSize": "0.8rem",
+          "fontWeight": 400,
+          "sample": "Effect",
+          "usage": "Palette and find-bar row labels, set in accent."
+        },
+        {
+          "name": "menu-cell",
+          "fontSize": "0.72rem",
+          "lineHeight": 1.2,
+          "fontWeight": 400,
+          "sample": "Insert rows above",
+          "usage": "Context-menu cell captions under a 30px icon."
+        }
+      ]
+    },
+    {
+      "name": "Grid",
+      "family": "cv-font",
+      "styles": [
+        {
+          "name": "grid",
+          "fontSize": "12px",
+          "lineHeight": "18px",
+          "fontWeight": 400,
+          "sample": "00 C-4 01 40 A04",
+          "usage": "The tracker grids (canvas pattern cells), the chord and notation makers, the keymap: Motif Grid, which draws every accidental, tick, slide mark and sentinel as a character."
+        },
+        {
+          "name": "value",
+          "fontSize": "0.85rem",
+          "fontWeight": 400,
+          "sample": "$FF",
+          "usage": "Typed hex and number values, indexes and inline readouts: Motif Mono.",
+          "family": "mono-font"
+        }
+      ]
+    },
+    {
+      "name": "Transport",
+      "family": "transport-font",
+      "styles": [
+        {
+          "name": "transport",
+          "fontSize": "0.95rem",
+          "fontWeight": 400,
+          "sample": "Row 1F  BPM 125  Spd 6",
+          "usage": "The transport readouts in the top bar: Motif Transport, everything 10% narrower."
+        }
+      ]
+    },
+    {
+      "name": "Code",
+      "family": "code-font",
+      "styles": [
+        {
+          "name": "code",
+          "fontSize": "0.9rem",
+          "lineHeight": 1.45,
+          "fontWeight": 400,
+          "sample": "lane bass = melody(\"C3 E3 G3\")",
+          "usage": "The Motif editor and the manual's code: Motif Code, where i I l are narrower and M m W w wider, and bold and italic keep the roman's advances."
+        }
+      ]
+    }
+  ],
+  "touchUsage": {
+    "row-beat": "Grid: the primary beat row band (the tracker's cv-row-beat).",
+    "row-bar": "Grid: the secondary beat (bar) row band (the tracker's cv-row-bar).",
+    "row-play": "Grid: the row that is playing (the tracker's cv-playhead).",
+    "cursor": "Grid: the cursor cell, and a pressed chip (the tracker's cv-cursor).",
+    "fx-ink": "Grid: the effect tag on a cell (the tracker's cv-fx-op).",
+    "key-natural": "Keyboard: the fill of a natural key.",
+    "key-natural-ink": "Keyboard: a natural key's label.",
+    "key-near": "Keyboard: the fill of a key one inflection from a natural (a Kite tick, a demisharp or demiflat).",
+    "key-near-ink": "Keyboard: that key's label.",
+    "key-accidental": "Keyboard: the fill of an accidental key.",
+    "key-accidental-ink": "Keyboard: an accidental key's label.",
+    "key-edge": "Keyboard: the 1px edge round every key.",
+    "key-tonic": "Keyboard: the 3px edge round the tonic.",
+    "key-down": "Keyboard: a key held down (the accent).",
+    "key-down-ink": "Keyboard: a held key's label.",
+    "key-ghost": "Keyboard: the ring on a key the song is playing.",
+    "lane-0": "Lane 1's hue: its header, its cells' note ink and its keys' label. One hue per lane; neighbours differ in hue AND lightness.",
+    "lane-1": "Lane 2's hue.",
+    "lane-2": "Lane 3's hue.",
+    "lane-3": "Lane 4's hue.",
+    "lane-4": "Lane 5's hue.",
+    "lane-5": "Lane 6's hue.",
+    "lane-6": "Lane 7's hue.",
+    "lane-7": "Lane 8's hue.",
+    "note-font": "Motif Grid: every note Touch spells, on the keys, in the grid and in the effect sheet's title.",
+    "gap": "The gap between grid cells and bar controls."
+  }
+}

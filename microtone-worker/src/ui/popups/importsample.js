@@ -8,7 +8,7 @@ import { pickFile } from "../../storage/import-export.js";
 import { decodeAudioToFloat } from "../audiodecode.js";
 import { planExistingSampleAsInstrument } from "../../doc/bankmerge.js";
 import { importBankOp } from "../../doc/ops.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal } from "../components/modal.js";
 import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 

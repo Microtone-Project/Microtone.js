@@ -53,8 +53,8 @@
         const usedBefore = doc.usedInstrumentSlots().length;
         const p1 = iv.deleteInstrument();
         const dlg1 = await waitFor(() => win.document.querySelector("dialog.modal"));
-        // leave "reassign" blank → dangling; click OK (first modal button)
-        dlg1.querySelector(".modal-buttons button").click();
+        // leave "reassign" blank → dangling; click OK (the Proceed)
+        dlg1.querySelector(".modal-buttons .proceed").click();
         await p1;
         const goneOk = !doc.usedInstrumentSlots().includes(target) &&
           doc.usedInstrumentSlots().length === usedBefore - 1 &&
@@ -74,7 +74,7 @@
         // First delete-with-dangle again, then use the Project op to fix it.
         const p2 = iv.deleteInstrument();
         (await waitFor(() => win.document.querySelector("dialog.modal")))
-          .querySelector(".modal-buttons button").click();
+          .querySelector(".modal-buttons .proceed").click();
         await p2;
         log(`re-deleted $${target.toString(16)} (${refsOf(target)} dangling)`);
 
@@ -89,7 +89,7 @@
         const dlg3 = await waitFor(() => win.document.querySelector("dialog.modal"));
         dlg3.querySelector('input[name="from"]').value = target.toString(16);
         dlg3.querySelector('input[name="to"]').value = spare.toString(16);
-        dlg3.querySelector(".modal-buttons button").click();
+        dlg3.querySelector(".modal-buttons .proceed").click();
         await p3;
         const reassignOk = refsOf(target) === 0 && refsOf(spare) === spareRefsBefore + danglingRefs;
         log(`global change-instrument $${target.toString(16)}→$${spare.toString(16)} fixes danglers: ${reassignOk ? "ok" : "FAIL"}`);
@@ -105,7 +105,7 @@
         const p4 = iv.deleteInstrument();
         const dlg4 = await waitFor(() => win.document.querySelector("dialog.modal"));
         const bodyTxt = dlg4.querySelector("p")?.textContent || "";
-        dlg4.querySelector(".modal-buttons button").click();
+        dlg4.querySelector(".modal-buttons .proceed").click();
         await p4;
         const cascadeOk = !doc.usedInstrumentSlots().includes(meta) &&
           kids.every((k) => k >= 0x100 && !doc.usedInstrumentSlots().includes(k)) &&

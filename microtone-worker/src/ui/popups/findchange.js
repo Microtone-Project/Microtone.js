@@ -35,9 +35,10 @@ import {
 import { setCellsBytesOp } from "../../doc/ops.js";
 import { cellToBytes } from "../../doc/clipboard.js";
 import { hex4 } from "../notenames.js";
-import { noteGlyph } from "../noteglyph.js";
+import { noteGlyph } from "../components/noteglyph.js";
 import { FX_INFO, fxName, fxArg } from "../palette.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { icon } from "../icons.js";
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
@@ -150,11 +151,11 @@ function openQueryDialog(store, {
               `<option value="${s.id}">${esc(scopeName(s))}</option>`).join("")}
           </select></label>`}
         <span class="fc-count"></span>
-      </div>
-      <div class="modal-buttons">
-        <button type="button" class="fc-ok">${esc(t(findOnly ? "find.doFind" : "common.apply"))}</button>
-        <button type="button" class="fc-cancel">${esc(t("common.cancel"))}</button>
       </div>`;
+    dlg.append(actionRow({
+      cancel: { className: "fc-cancel" },
+      proceed: { label: t(findOnly ? "find.doFind" : "common.apply"), className: "fc-ok" },
+    }).row);
     document.body.appendChild(dlg);
 
     const $ = (q) => dlg.querySelector(q);
@@ -329,7 +330,7 @@ function openQueryDialog(store, {
     /** What one operand came out as, in the column's own dialect — with the
      *  note NAME beside a note word, which is the whole reason the readout is
      *  worth the space. Nodes: the value in Motif Mono (.fc-num), the note as
-     *  the grids spell it in the song's notation (noteglyph.js). */
+     *  the grids spell it in the song's notation (components/noteglyph.js). */
     function readoutFor(row, field, isMult) {
       const f = fieldById(field);
       const out = [];

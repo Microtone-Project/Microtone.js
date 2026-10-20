@@ -59,7 +59,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     const inp = dlg.querySelector("input.interrupt-arg");
     inp.value = arg; inp.dispatchEvent(new win.Event("input"));
   };
-  const okBtn = (dlg) => [...dlg.querySelectorAll(".modal-buttons button")][0];
+  const okBtn = (dlg) => dlg.querySelector(".modal-buttons .proceed");
 
   // ── no argument: IntN only ──
   let dlg = await openDlg();
@@ -88,7 +88,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(dlg.querySelector("input.interrupt-arg").value === "BEEF", "reopening picks the argument up");
   fill(dlg, 1, "12345");
   check(okBtn(dlg).disabled, "five hex digits disable OK");
-  [...dlg.querySelectorAll(".modal-buttons button")][1].click();
+  dlg.querySelector(".modal-buttons .act-cancel").click();
   await sleep(80);
   c = target().cell;
   check(c.note === 0x001c && c.effectArg === 0xbeef, "Cancel leaves the cell as it was");

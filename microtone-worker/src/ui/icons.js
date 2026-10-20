@@ -1,4 +1,4 @@
-// Vector icons for the icon-cell context menu (widgets/contextmenu.js).
+// Vector icons for the icon-cell context menu (components/contextmenu.js).
 //
 // Plain inline SVG markup on a 24×24 grid, stroked in `currentColor` so the
 // theme's ink and the hover/disabled states apply without a second palette —

@@ -2,7 +2,7 @@
 // a small scrollable pane. Stays up for the whole conversion; on failure the
 // spinner freezes red and a Close button appears (the log stays readable).
 
-import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 export function showImportProgress(title) {
   const dlg = document.createElement("dialog");
@@ -13,12 +13,8 @@ export function showImportProgress(title) {
   h.append(spin, document.createTextNode(" " + title));
   const pane = document.createElement("pre");
   pane.className = "import-log";
-  const btnRow = document.createElement("div");
-  btnRow.className = "modal-buttons";
+  const { row: btnRow, dismiss: closeBtn } = actionRow({ dismiss: true });
   btnRow.hidden = true;
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = t("common.close");
-  btnRow.appendChild(closeBtn);
   dlg.append(h, pane, btnRow);
   document.body.appendChild(dlg);
 

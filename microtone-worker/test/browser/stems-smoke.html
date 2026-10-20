@@ -80,7 +80,7 @@
           dlg.querySelector('input[name="prefix"]').value = prefix;
           dlg.querySelector('select[name="mode"]').value = mode;
           dlg.querySelector('input[name="cap"]').value = String(cap);
-          [...dlg.querySelectorAll(".modal-buttons button")][0].click(); // Render
+          dlg.querySelector(".modal-buttons .proceed").click(); // Render
           for (let i = 0; i < 600 && !captured; i++) await new Promise((r) => setTimeout(r, 100));
           if (!captured) throw new Error("no download after 60 s");
           const zip = new Uint8Array(await captured.arrayBuffer());
@@ -92,15 +92,15 @@
         await new Promise((r) => setTimeout(r, 100));
         let dlg = [...win.document.querySelectorAll("dialog.modal")].pop();
         dlg.querySelector('input[name="prefix"]').value = "   ";
-        [...dlg.querySelectorAll(".modal-buttons button")][0].click();
+        dlg.querySelector(".modal-buttons .proceed").click();
         await new Promise((r) => setTimeout(r, 150));
         const warn = [...win.document.querySelectorAll("dialog.modal")].pop();
         const warnOk = warn && /prefix is required/.test(warn.textContent);
-        [...warn.querySelectorAll(".modal-buttons button")][0].click(); // OK → asks again
+        warn.querySelector(".modal-buttons .act-dismiss").click(); // OK → asks again
         await new Promise((r) => setTimeout(r, 150));
         dlg = [...win.document.querySelectorAll("dialog.modal")].pop();
         const reaskOk = !!dlg.querySelector('input[name="prefix"]');
-        [...dlg.querySelectorAll(".modal-buttons button")][1].click(); // Cancel
+        dlg.querySelector(".modal-buttons .act-cancel").click(); // Cancel
         await new Promise((r) => setTimeout(r, 100));
         const closedOk = !win.document.querySelector("dialog.modal");
         log(`empty prefix refused, re-asks, cancels out: ${warnOk && reaskOk && closedOk ? "ok" : "FAIL"}`);

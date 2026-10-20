@@ -21,6 +21,7 @@ import { importBankOp, setSampleBytesOp, multiSampleBytesOp } from "../../doc/op
 import { sampleSpans } from "../../doc/document.js";
 import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { LINEAR_FREQ_C4_HZ } from "../../../core/engine/constants.js";
 import { toLayout } from "../zoom.js";
 
@@ -173,11 +174,11 @@ function openPaintModal(opts) {
       </div>
       <canvas class="wave-paint" width="${cssMaxW - 48}" height="${LANE_H * bufs.length}"></canvas>
       <p class="wave-hint">${esc(t("wave.hint"))}${bufs.length > 1 ? " · " + esc(t("wave.stereoHint")) : ""}</p>
-      ${opts.showName ? `<div class="wave-row"><label>${esc(t("wave.name"))} <input type="text" class="wave-name" value="${esc(t("wave.defaultName"))}"></label></div>` : ""}
-      <div class="modal-buttons">
-        <button class="wave-cancel">${esc(t("common.cancel"))}</button>
-        <button class="wave-ok">${esc(opts.okLabel)}</button>
-      </div>`;
+      ${opts.showName ? `<div class="wave-row"><label>${esc(t("wave.name"))} <input type="text" class="wave-name" value="${esc(t("wave.defaultName"))}"></label></div>` : ""}`;
+    dlg.append(actionRow({
+      cancel: { className: "wave-cancel" },
+      proceed: { label: opts.okLabel, className: "wave-ok" },
+    }).row);
     document.body.appendChild(dlg);
 
     const canvas = dlg.querySelector(".wave-paint");

@@ -1,0 +1,170 @@
+{
+  "$comment": "The Microtone design system's component manifest and rules, for people and for tools. Hand-written; test/node/design-system.test.js checks that every module under components/ is listed, that every export named here exists, that every class named here is styled in microtone.css, and that every token named here exists in tokens.json. Read design-system/README.md first.",
+  "name": "Microtone",
+  "library": {
+    "path": "microtone-worker/src/ui/components/",
+    "link": "design-system/components",
+    "import": "Import a component by its REAL path (../components/actions.js from src/ui/popups/). The design-system/components link is for reading; a module loaded through it resolves its own imports (../i18n.js) against the link and breaks.",
+    "stylesheet": "microtone-worker/css/microtone.css"
+  },
+  "rules": [
+    {
+      "id": "dialog-actions",
+      "title": "Dialog actions: Cancel left, Proceed right",
+      "text": "Every dialog's action row is built by actionRow(). Cancel sits at the LEFT end (Esc does the same). Proceed — the one action the dialog is for — sits at the RIGHT end (Enter does the same where the dialog has typed fields). Non-cancelling alternatives (Preview, Record, Import as new, Clear) are PREPENDED to Proceed: immediately left of it, in the right-hand group. A dialog with nothing to commit and nothing to abandon (About, a notice, a finished log, a panel whose edits apply live) has ONE Dismiss button at the right end, and neither Cancel nor Proceed. DOM order equals visual order equals Tab order.",
+      "enforcedBy": ["microtone-worker/src/ui/components/actions.js", "microtone-worker/test/node/design-system.test.js", "microtone-worker/test/browser/actions-smoke.html"],
+      "exceptions": ["The Analogue Warmth Edition's splash (popups/warmth.js) is a parody advert with its own centred button."]
+    },
+    {
+      "id": "proceed-style",
+      "title": "Proceed is the one coloured, heavier button",
+      "text": "The Proceed button (class `proceed`) is filled with proceed-bg (the accent) and inked proceed-fg; its label is set at weight-proceed, at least 200 heavier than weight-button. No other button is filled with the accent or heavier (the armed Record toggle wears its own red: a state, not an action). Microtone Touch's `.tbtn.primary` is the same thing under its own name.",
+      "tokens": ["proceed-bg", "proceed-fg", "proceed-hover", "weight-button", "weight-proceed"]
+    },
+    {
+      "id": "colour-tokens",
+      "title": "Every colour is a token",
+      "text": "Every colour in the app, DOM and canvas alike, is a custom property declared on :root in microtone.css once per theme (dark, dim, light, warmth). Canvas views read them through src/ui/theme.js. Never hard-code a colour in a view, a popup or an inline style: reuse a token or add one (in all four themes, with a note in design-system/notes.json or a trailing comment), then run node tools/design-tokens.js."
+    },
+    {
+      "id": "one-meaning-per-hue",
+      "title": "One meaning per hue",
+      "text": "accent is focus, hover, 'this one is active' and Proceed; accent-2 is instruments, links and selection; meter is level and liveness; rec-fg is record armed. Don't borrow one for decoration. Colours that must be told apart differ in lightness, not hue alone."
+    },
+    {
+      "id": "native-controls",
+      "title": "Native form controls are themed centrally",
+      "text": ":root { accent-color: var(--accent) } paints every checkbox, radio, range slider and <progress>. Never restate accent-color on a widget. A control that cannot be native (a canvas fader, a custom switch) paints itself from var(--accent)."
+    },
+    {
+      "id": "type-tokens",
+      "title": "Faces by token, never by name",
+      "text": "Chrome is Open Sans (narrowed, tabular figures); the wordmark alone is Geist. Every monospace is a Motif face through its token: --cv-font (Motif Grid: grids and notes as symbols), --mono-font (Motif Mono: values someone types or reads), --transport-font (Motif Transport), --code-font (Motif Code). Never a bare `monospace`, Chivo Mono or Roboto Mono."
+    },
+    {
+      "id": "notes-as-text",
+      "title": "A note outside the grids is text",
+      "text": "Spell a note with noteGlyph()/rangeGlyph() (components/noteglyph.js): a .note-glyph span in --cv-font, in the song's own notation. Never draw a note into a small DOM canvas."
+    },
+    {
+      "id": "change-driven",
+      "title": "Write the DOM only on change",
+      "text": "The frame loop visits every open view 60 times a second: compare before writing textContent, never read layout after a write in the same frame, and repaint canvases on change (gridKey/restKey), not on schedule."
+    },
+    {
+      "id": "voice",
+      "title": "Words",
+      "text": "Plain, exact British English (colour, centre). Sentence case for buttons, menus and titles; uppercase only in tab labels. An ellipsis (…) on a label means a dialog follows. No exclamation marks, no emoji. One of the parts a song is written on is a LANE (never a channel or voice in prose). Effect codes in docs: `S $7300` — opcode, no-break space, dollar sign, argument, in backticks."
+    }
+  ],
+  "components": [
+    {
+      "name": "ActionRow",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/actions.js",
+      "exports": ["actionRow", "actionButton", "ROLE_CLASS"],
+      "summary": "The button row at the foot of every dialog, laid out by role: Cancel at the left end, extras and alternatives, Proceed at the right end — or one Dismiss at the right end.",
+      "api": "actionRow({ cancel?, alternatives?: spec[], proceed?, dismiss?, extras?: Node[], className? }) → { row, cancel, proceed, dismiss, alternatives }. A spec is a label string, true (the role's default label: Cancel / Close), or { label, icon, iconAfter, title, className, disabled }. dismiss throws beside cancel or proceed.",
+      "classes": ["modal-buttons", "act-cancel", "proceed"],
+      "hooks": ["act-alt", "act-dismiss"],
+      "tokens": ["proceed-bg", "proceed-fg", "proceed-hover", "weight-button", "weight-proceed"],
+      "rules": ["dialog-actions", "proceed-style"],
+      "example": "const { row, cancel, proceed } = actionRow({ cancel: true, alternatives: [{ label: t(\"chord.preview\"), icon: \"play\" }], proceed: t(\"chord.apply\") });\ndlg.append(row);"
+    },
+    {
+      "name": "Modal",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/modal.js",
+      "exports": ["showModal", "showNotice"],
+      "summary": "A form dialog on a native <dialog>, built from field specs: captions in one column, controls ending on one right edge, hints under their field; resolves with the values or null. showNotice is its one-button sibling for something only to be read.",
+      "api": "showModal({ title, body?, fields: [{ name, label, type?: 'text'|'number'|'select'|'checkbox', value?, options?, min?, max?, placeholder?, hint?, hints?, enabledWhen?: { field, is? | not? }, select? }], okLabel }) → Promise<values|null>. showNotice({ title, body?, okLabel }) → Promise<void>.",
+      "classes": ["modal", "modal-text", "modal-form", "modal-field", "modal-label", "modal-check", "modal-hint", "modal-disabled"],
+      "tokens": ["panel", "border", "scrim", "dim", "radius-lg"],
+      "rules": ["dialog-actions"],
+      "example": "const r = await showModal({ title: t(\"files.renameTitle\", { name: old }), fields: [{ name: \"name\", label: t(\"files.name\"), value: old }], okLabel: t(\"common.rename\") });\nif (!r) return; // Cancel, Esc"
+    },
+    {
+      "name": "ValueControl",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/spinner.js",
+      "exports": ["mapSpinner", "setMapped", "parseNumberText", "enhanceControls", "syncControls", "startControlEnhancer", "stopControlEnhancer"],
+      "summary": "Every number field and dropdown as a three-segment group: the native control in the middle, − and + (or ‹ and ›) step buttons either side, one hairline round the three that turns accent on focus. The native element is kept, so call sites need nothing.",
+      "api": "Automatic: startControlEnhancer() upgrades every <input type=number> and <select> as views build them; opt one out with data-mt=\"off\". mapSpinner(input, { toDisplay, fromDisplay, step }, raw) shows a stored value in other units (seconds, dB, hex).",
+      "classes": ["mt-spin", "mt-pick", "mt-step"],
+      "tokens": ["panel-2", "border", "accent", "dim", "fg", "radius-md"],
+      "rules": ["native-controls"]
+    },
+    {
+      "name": "ContextMenu",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/contextmenu.js",
+      "exports": ["showContextMenu"],
+      "summary": "The icon-cell menu pinned to the pointer: rows of square cells, an icon over a caption; exactly one highlighted cell, moved alike by the arrows and the pointer.",
+      "api": "showContextMenu(x, y, rows: [[{ id, label, icon, title?, disabled? }]], { keyboard? }) → Promise<id|null>. icon is inline SVG from icons.js ICON.",
+      "classes": ["ctxmenu", "ctx-grid", "ctx-row", "ctx-cell", "ctx-icon", "ctx-name"],
+      "tokens": ["panel", "panel-2", "accent", "border", "radius-lg", "radius-md"]
+    },
+    {
+      "name": "DragGrip",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/dragsort.js",
+      "exports": ["dragGrip", "focusGrip"],
+      "summary": "A drag handle that reorders sibling rows in place, by pointer (mouse and touch) or by ↑ ↓ on the focused grip; the reorder commits once, on release.",
+      "api": "dragGrip({ index, count, rowSel = 'tr', title, onMove(from, to, via) }) → <button>. focusGrip(root, index) after a re-render.",
+      "classes": ["drag-grip"],
+      "tokens": ["dim", "fg", "panel-2"]
+    },
+    {
+      "name": "NoteGlyph",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/noteglyph.js",
+      "exports": ["noteRun", "noteGlyph", "rangeGlyph"],
+      "summary": "A note spelled exactly as the grids spell it — the song's own notation, Kite ticks, lü, off-grid ink — as ordinary text in Motif Grid.",
+      "api": "noteGlyph(note, preset) → <span class=note-glyph>. rangeGlyph(lo, hi, preset, wholeText). noteRun(items, preset): numbers are notes, strings dim separators.",
+      "classes": ["note-glyph", "ng-note", "ng-offGrid", "ng-sentinel", "ng-dim", "ng-sep", "ng-faint"],
+      "tokens": ["fg", "fg2", "dim", "accent", "cv-font"],
+      "rules": ["notes-as-text", "type-tokens"]
+    },
+    {
+      "name": "Button",
+      "kind": "css",
+      "summary": "The one pushbutton: a panel-2 key, a border hairline, radius-md corners, the border turning accent on hover. A plain <button> gets it all; there is no .btn class.",
+      "api": "<button> · button.big (the one primary action of a page) · .icon-btn (icon only, top bar) · .proceed (a dialog's Proceed — use actionRow) · .rec / .rec.on (record arm) · an icon first as <svg class=btn-ico> from icons.js (btn-ico after for a trailing arrow).",
+      "classes": ["big", "icon-btn", "proceed", "rec", "btn-ico"],
+      "tokens": ["panel-2", "border", "accent", "fg", "rec-fg", "rec-bg", "rec-border", "radius-md", "weight-button"],
+      "rules": ["proceed-style"]
+    },
+    {
+      "name": "Badge",
+      "kind": "css",
+      "summary": "A small status chip: err-fg on err-bg, or ok-fg on ok-bg with .on; .sel-mode is the outlined accent-2 chip of block-selection mode. The text says the state; colour never carries it alone.",
+      "api": "<span class=badge>Audio off</span> · <span class=\"badge on\">Audio on</span> · <span class=sel-mode>SEL</span>",
+      "classes": ["badge", "sel-mode"],
+      "tokens": ["err-fg", "err-bg", "ok-fg", "ok-bg", "accent-2", "radius-sm"]
+    },
+    {
+      "name": "Tabs",
+      "kind": "css",
+      "summary": "The pane tab strip: uppercase labels on panel-2 keys rounded at the top; the active tab fills with bg and inks accent, joining the view below.",
+      "api": "<div class=pane-head><div class=tabs><button class=active>…</button>…</div><button class=pane-btn>…</button></div> · .subtabs for the smaller in-panel strip.",
+      "classes": ["pane-head", "tabs", "pane-btn", "subtabs"],
+      "tokens": ["panel", "panel-2", "bg", "accent", "border", "radius-md"]
+    },
+    {
+      "name": "Toolbar",
+      "kind": "css",
+      "summary": "The app's bars — top bar, toolbox, command palette, status bar — one strip on panel ruled from the view by a border hairline.",
+      "api": ".topbar (wordmark, transport, globals; .tb-sep rules, .grow pushes right) · .toolbox (the view's tools, .active) · .cmd-palette (.pal-label, buttons, .pal-hint) · .statusbar (.pos pairs: a dim caption and an fg value).",
+      "classes": ["topbar", "toolbox", "cmd-palette", "pal-label", "pal-hint", "statusbar", "pos", "tb-sep"],
+      "tokens": ["panel", "border", "accent", "dim", "fg"]
+    },
+    {
+      "name": "Wordmark",
+      "kind": "css",
+      "summary": "The typeset name: 'Micro' in brand, 'tone' in brand2, Geist 900 oblique, a dim superscript TM drawn by CSS.",
+      "api": "<span class=\"brand brand-red\">Micro</span><span class=\"brand brand-white\">tone</span><span class=\"brand brand-tm\"></span> inside .brand-container (top bar) or .wc-brand (welcome). Never recolour a half, set it upright, or type the TM.",
+      "classes": ["brand-container", "brand", "brand-red", "brand-white", "brand-tm", "wc-brand"],
+      "tokens": ["brand", "brand2", "dim"]
+    }
+  ]
+}

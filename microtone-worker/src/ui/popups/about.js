@@ -11,6 +11,7 @@
 // a release needs; test/node/version.test.js keeps it shipped.
 
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { linkTouch } from "../touchlink.js";
 
 const THANKS = [
@@ -56,11 +57,12 @@ export function showAbout() {
       <a href="https://github.com/sponsors/curioustorvald" target="_blank" rel="noopener">${esc(t("topbar.sponsor"))}</a>
     </p>
     <h4>${esc(t("about.thanks"))}</h4>
-    ${thanksList}
-    <div class="modal-buttons"><button>${esc(t("common.close"))}</button></div>`;
+    ${thanksList}`;
+  const { row, dismiss } = actionRow({ dismiss: true });
+  dlg.append(row);
   linkTouch(dlg.querySelector("[data-touch]"));
   document.body.appendChild(dlg);
-  dlg.querySelector(".modal-buttons button").addEventListener("click", () => { dlg.close(); dlg.remove(); });
+  dismiss.addEventListener("click", () => { dlg.close(); dlg.remove(); });
   dlg.addEventListener("cancel", () => dlg.remove());
   dlg.addEventListener("keydown", (e) => e.stopPropagation());
   dlg.showModal();

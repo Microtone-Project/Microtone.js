@@ -54,7 +54,7 @@ export function fail(ctx, title, text) {
   showSheet(ctx, `
     <h2>${esc(title)}</h2>
     <p class="err">${esc(text)}</p>
-    <div class="row"><button class="tbtn" value="close">${tHtml("sheet.close")}</button></div>`);
+    <div class="row actions"><button class="tbtn" value="close">${tHtml("sheet.close")}</button></div>`);
 }
 
 /** Saved: the page learns where, the sheet goes, and whatever was waiting
@@ -144,10 +144,10 @@ function offerReplace(ctx, snap, opts, where, replace) {
   const body = showSheet(ctx, `
     <h2>${tHtml("replace.title")}</h2>
     <p>${tHtml(where === "local" ? "replace.bodyLocal" : "replace.bodyOnline", { name })}</p>
-    <div class="row">
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button>
       <button type="button" class="tbtn" data-act="replace">${tHtml("replace.replace")}</button>
       <button type="button" class="tbtn primary" data-act="rename">${tHtml("replace.rename")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>`);
   act(body, "replace").onclick = (e) => { e.target.disabled = true; replace(); };
   act(body, "rename").onclick = () => openSaveAs(ctx, opts, { name });
@@ -158,10 +158,10 @@ function offerConflict(ctx, snap, opts) {
   const body = showSheet(ctx, `
     <h2>${tHtml("conflict.title")}</h2>
     <p>${tHtml("conflict.body", { name })}</p>
-    <div class="row">
-      <button type="button" class="tbtn primary" data-act="new">${tHtml("conflict.saveNew")}</button>
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button>
       <button type="button" class="tbtn" data-act="replace">${tHtml("replace.replace")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
+      <button type="button" class="tbtn primary" data-act="new">${tHtml("conflict.saveNew")}</button>
     </div>`);
   act(body, "new").onclick = () => openSaveAs(ctx, opts, { name: t("conflict.copyName", { name }) });
   act(body, "replace").onclick = async (e) => {
@@ -186,19 +186,20 @@ function offerConflict(ctx, snap, opts) {
 export function openSaveAs(ctx, opts = {}, { name = ctx.sketch().name } = {}) {
   const wasOnline = ctx.home()?.where === "online";
   const share = canShare();
+  // The two places to save are the sheet's proceeds: the one it was saved to
+  // before is the primary, and sits last, at the right end.
+  const dest = (where, primary = false) =>
+    `<button type="button" class="tbtn${primary ? " primary" : ""}" data-act="${where}"${where === "online" ? " disabled" : ""}>${tHtml(`saveAs.${where}`)}</button>`;
   const body = showSheet(ctx, `
     <h2>${tHtml("saveAs.title")}</h2>
     <label>${tHtml("saveAs.name")}<input type="text" name="name" value="${esc(name)}" maxlength="${library.NAME_MAX}" autocomplete="off" enterkeyhint="done"></label>
-    <div class="row">
-      <button type="button" class="tbtn ${wasOnline ? "" : "primary"}" data-act="local">${tHtml("saveAs.local")}</button>
-      <button type="button" class="tbtn ${wasOnline ? "primary" : ""}" data-act="online" disabled>${tHtml("saveAs.online")}</button>
-    </div>
+    <div class="row actions">${wasOnline ? dest("local") + dest("online", true) : dest("online") + dest("local", true)}</div>
     <p data-online>${tHtml("saveAs.checking")}</p>
     <p>${tHtml("saveAs.fileNote")}</p>
-    <div class="row">
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button>
       ${share ? `<button type="button" class="tbtn" data-act="share">${tHtml("saveAs.share")}</button>` : ""}
       <button type="button" class="tbtn" data-act="download">${tHtml("saveAs.download")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   const input = body.querySelector('[name="name"]');
@@ -291,9 +292,9 @@ export function offerSignIn(ctx, st, { then, why = "" }) {
     <h2>${tHtml("signIn.title")}</h2>
     <p>${why ? esc(why) : tHtml("signIn.why")}</p>
     ${dev ? `<input type="text" name="devName" placeholder="${tHtml("signIn.devName")}" autocomplete="off">` : ""}
-    <div class="row">
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button>
       <button type="button" class="tbtn primary" data-act="signin">${tHtml("signIn.signIn")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
     </div>
     <p class="err" data-err hidden></p>`);
   const err = body.querySelector("[data-err]");
@@ -320,10 +321,10 @@ export function keepOrDiscard(ctx, then) {
   const body = showSheet(ctx, `
     <h2>${tHtml("unsaved.title")}</h2>
     <p>${tHtml(ctx.home() ? "unsaved.body" : "unsaved.bodyNowhere", { name: ctx.sketch().name })}</p>
-    <div class="row">
-      <button type="button" class="tbtn primary" data-act="save">${tHtml("unsaved.save")}</button>
+    <div class="row actions">
+      <button class="tbtn cancel" value="close">${tHtml("sheet.cancel")}</button>
       <button type="button" class="tbtn" data-act="discard">${tHtml("unsaved.discard")}</button>
-      <button class="tbtn" value="close">${tHtml("sheet.cancel")}</button>
+      <button type="button" class="tbtn primary" data-act="save">${tHtml("unsaved.save")}</button>
     </div>`);
   act(body, "save").onclick = (e) => { e.target.disabled = true; save(ctx, { after: then }); };
   act(body, "discard").onclick = () => { ctx.sheet.close(); then(); };

@@ -38,7 +38,7 @@
       if (!dlg) throw new Error("the command popup never opened");
       dlg.querySelector("[name=kind]").value = kind;
       dlg.querySelector("[name=arg]").value = argHex;
-      dlg.querySelector(".modal-buttons button").click();
+      dlg.querySelector(".modal-buttons .proceed").click();
       await tick(10);
     };
 

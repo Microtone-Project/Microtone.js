@@ -14,6 +14,7 @@ import { resolveLoopRegion, residualDb, LOOP_POLICIES } from "../../doc/looptune
 import { themeColors } from "../theme.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { setIconLabel } from "../icons.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../../../core/engine/constants.js";
 import { uiDpr, localPoint } from "../zoom.js";
@@ -296,13 +297,8 @@ function buildShell(store, { title, info, className, resolve }) {
   const canvas = document.createElement("canvas");
   canvas.className = "smp-canvas";
 
-  const btnRow = document.createElement("div");
-  btnRow.className = "modal-buttons";
-  const applyBtn = document.createElement("button");
-  applyBtn.textContent = t("common.apply");
-  const cancelBtn = document.createElement("button");
-  cancelBtn.textContent = t("common.cancel");
-  btnRow.append(applyBtn, cancelBtn);
+  const { row: btnRow, proceed: applyBtn, cancel: cancelBtn } =
+    actionRow({ cancel: true, proceed: t("common.apply") });
 
   dlg.append(h, infoEl, canvas, btnRow);
   document.body.appendChild(dlg);

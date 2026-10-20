@@ -41,7 +41,7 @@
           await sleep(40);
           const dlg = doc.querySelector("dialog.modal");
           dlg.querySelector('[name="name"]').value = "Renamed via Project";
-          [...dlg.querySelectorAll(".modal-buttons button")][0].click(); // OK
+          dlg.querySelector(".modal-buttons .proceed").click(); // OK
           await sleep(40);
         } catch (e) { threw = true; }
         const renamed = win.__microtone.store.doc.meta.songMeta[0]?.name === "Renamed via Project";

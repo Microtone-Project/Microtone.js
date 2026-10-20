@@ -71,7 +71,7 @@
         const opts = [...dlg1.querySelectorAll("select option")].map((o) => o.textContent);
         log(`picker offers ${opts.length}: ${opts.join(" | ")} → ${opts.length === 2 && /V02\.sop/.test(opts[0]) && /FIX\.ims/.test(opts[1]) ? "ok" : "FAIL"}`);
         dlg1.querySelector("select").value = "0";
-        dlg1.querySelector(".modal-buttons button").click();
+        dlg1.querySelector(".modal-buttons .proceed").click();
         await p1;
         const song = store.doc?.songs[0];
         const sample = store.doc?.instruments.find((i) => i && !i.isMeta && i.sampleDetune === 3 * 4096);
@@ -83,7 +83,7 @@
         const p2 = loadBytes("SONG-c0ffee.imac", IMAC);
         const dlg2 = await waitFor(() => win.document.querySelector("dialog.modal"));
         dlg2.querySelector("select").value = "1";
-        dlg2.querySelector(".modal-buttons button").click();
+        dlg2.querySelector(".modal-buttons .proceed").click();
         await p2;
         const racks = store.doc.instruments.filter((i) => i && i.isMeta && i.metaType === 4).length;
         const imsOk = store.fileName === "FIX.taud" && racks > 0;

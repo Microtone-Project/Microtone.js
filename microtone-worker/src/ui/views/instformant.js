@@ -41,6 +41,7 @@ import {
 import { unescapeName } from "../../../core/format/names.js";
 import { noteToStr } from "../notenames.js";
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const POOL_END = 0x800000;
@@ -305,12 +306,12 @@ function pickConsonant(best, current) {
     const scroller = el("div", "fmt-cons-scroll");
     scroller.appendChild(table);
     const legend = el("p", "dim fmt-cons-legend", t("fmt.pickHint"));
-    const btnRow = el("div", "modal-buttons");
-    const noneBtn = el("button", "", t("fmt.consClear"));
-    const cancelBtn = el("button", "", t("common.cancel"));
+    // Picking a cell IS the proceed; clearing is the one other way out that
+    // changes something.
+    const { row: btnRow, cancel: cancelBtn, alternatives: [noneBtn] } =
+      actionRow({ cancel: true, alternatives: [t("fmt.consClear")] });
     noneBtn.addEventListener("click", (e) => { e.preventDefault(); finish(0); });
     cancelBtn.addEventListener("click", (e) => { e.preventDefault(); finish(null); });
-    btnRow.append(noneBtn, cancelBtn);
     dlg.append(el("h3", "", t("fmt.pickTitle")), legend, scroller, btnRow);
     document.body.appendChild(dlg);
     dlg.addEventListener("cancel", () => finish(null));

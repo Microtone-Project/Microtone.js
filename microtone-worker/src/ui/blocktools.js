@@ -16,7 +16,7 @@
 
 import { ICON, fxGlyph } from "./icons.js";
 import { t } from "./i18n.js";
-import { showModal } from "./widgets/modal.js";
+import { showModal } from "./components/modal.js";
 import { COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2, SUB_PAN } from "./edit.js";
 import { scaleVolumeAt, transformPanAt, changeInstrumentAt } from "../doc/patterntools.js";
 import { setCellsBytesOp, setCellsFieldsOp, bulkNotesOp } from "../doc/ops.js";

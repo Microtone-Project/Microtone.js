@@ -22,7 +22,7 @@ import {
 } from "../../../core/tuning/pitchtables.js";
 import { defToPreset } from "../../doc/notation.js";
 import { Song } from "../../doc/document.js";
-import { showModal } from "../widgets/modal.js";
+import { showModal, showNotice } from "../components/modal.js";
 import {
   decodeProjectString, encodeProjectString, escapeNonAscii, unescapeName,
 } from "../../../core/format/names.js";
@@ -847,7 +847,7 @@ export class ProjectView {
     const isCleanup = newPreset.index === currentPreset.index && method === "pitch";
     if (isCleanup) {
       if (survey.wouldChange === 0) {
-        await showModal({
+        await showNotice({
           title: t("retune.title"),
           body: t("retune.nothingToDo", { name: currentPreset.name }),
           okLabel: t("common.ok"),

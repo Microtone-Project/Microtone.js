@@ -26,6 +26,7 @@
   --rec-border: #7a3434;
   --ok-fg: #9df0ae;
   --err-fg: #ffb0b0;
+  --proceed-bg: #ffc043;  --proceed-fg: #16181d;  /* the tracker's Proceed */
   --brand: #ff4362;   /* the wordmark, in the tracker's own two inks */
   --brand2: #eeeeee;
 
@@ -75,6 +76,7 @@
   --rec-border: #8a4141;
   --ok-fg: #9df0ae;
   --err-fg: #ffb0b0;
+  --proceed-bg: #ffc043;  --proceed-fg: #16181d;
   --brand: #ff4362;
   --brand2: #eeeeee;
 
@@ -125,6 +127,7 @@
   --rec-border: #d99d9d;
   --ok-fg: #1d6b32;
   --err-fg: #a03434;
+  --proceed-bg: #a44500;  --proceed-fg: #ffffff;
   --brand: #f20046;
   --brand2: #404758;
 
@@ -174,6 +177,8 @@
   --note-font: "Motif Grid", ui-monospace, "SF Mono", "Noto Sans Mono", Menlo, monospace;
   --tap: 40px;     /* the smallest thing a thumb should have to hit */
   --gap: 5px;
+  --weight-button: 400;   /* the tracker's two button weights */
+  --weight-proceed: 600;  /* Proceed: --weight-button + 200, never less */
   accent-color: var(--accent);
 }
 
@@ -659,8 +664,19 @@ button, select, input { font: inherit; color: inherit; }
 .sheet .check input { width: 20px; height: 20px; margin: 0; }
 .sheet p { margin: 0; color: var(--fg2); }
 .sheet .row { display: flex; gap: 8px; flex-wrap: wrap; }
+/* A sheet's action row follows the tracker's dialogs (design-system/README.md,
+ * "Dialog actions"): Cancel at the left end, Proceed — the one filled,
+ * heavier button — at the right end, other actions just before it, and a
+ * lone Done or Close at the right end. */
+.sheet .row.actions { justify-content: flex-end; }
+.sheet .row.actions > .cancel { margin-inline-end: auto; }
 .sheet .tbtn { height: 42px; }
-.sheet .primary { border-color: var(--accent); color: var(--accent); }
+.tbtn.primary {
+  background: var(--proceed-bg);
+  border-color: var(--proceed-bg);
+  color: var(--proceed-fg);
+  font-weight: var(--weight-proceed);
+}
 .sheet input[type="text"] {
   height: 42px;
   border-radius: 8px;

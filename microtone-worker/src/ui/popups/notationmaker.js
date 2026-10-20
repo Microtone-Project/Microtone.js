@@ -24,10 +24,11 @@
 //     offsets are unsigned. The "No interval" chip switches modes.
 
 import { t } from "../i18n.js";
-import { showModal } from "../widgets/modal.js";
+import { actionRow } from "../components/actions.js";
+import { showModal } from "../components/modal.js";
 import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
-import { noteGlyph } from "../noteglyph.js";
+import { noteGlyph } from "../components/noteglyph.js";
 import { MOTIF, MUSIC } from "../../../core/fonts/motifglyphs.js";
 import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol } from "../../../core/tuning/pitchtables.js";
 import {
@@ -126,14 +127,17 @@ export function showNotationMaker(store) {
           </div>
         </div>
         <div class="nota-editor" data-f="editor"></div>
-      </div>
-      <div class="modal-buttons nota-btns">
-        <label class="nota-assign"><input type="checkbox" data-f="assign" checked>
-          ${esc(t("nota.useForSong"))}</label>
-        <span class="nota-issues dim" data-f="issues"></span>
-        <button data-f="save">${esc(t("nota.save"))}</button>
-        <button data-f="cancel">${esc(t("common.cancel"))}</button>
       </div>`;
+    // The option rides Save, so it sits with the actions, just before it.
+    const foot = document.createElement("template");
+    foot.innerHTML = `<span class="nota-issues dim" data-f="issues"></span>
+      <label class="nota-assign"><input type="checkbox" data-f="assign" checked>
+        ${esc(t("nota.useForSong"))}</label>`;
+    const acts = actionRow({ cancel: true, proceed: t("nota.save"), className: "nota-btns",
+      extras: [...foot.content.childNodes] });
+    acts.cancel.dataset.f = "cancel";
+    acts.proceed.dataset.f = "save";
+    dlg.append(acts.row);
     document.body.appendChild(dlg);
     const $ = (name) => dlg.querySelector(`[data-f="${name}"]`);
 

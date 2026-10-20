@@ -11,6 +11,7 @@
 //     beatPri, beatSec, timeSigNum, timeSigDen, baseNote, baseFreq }
 
 import { t } from "../i18n.js";
+import { actionRow } from "../components/actions.js";
 import { pitchTablePresets } from "../../../core/tuning/pitchtables.js";
 import { BPM_MIN, BPM_MAX } from "../../../core/engine/constants.js";
 
@@ -161,11 +162,11 @@ export function showNewProject({ fromBank = null, bankName = null } = {}) {
             <div class="np-preview" data-f="preview"></div>
           </fieldset>
         </div>
-      </div>
-      <div class="modal-buttons">
-        <button class="np-ok">${esc(t("common.create"))}</button>
-        <button class="np-cancel">${esc(t("common.cancel"))}</button>
       </div>`;
+    dlg.append(actionRow({
+      cancel: { className: "np-cancel" },
+      proceed: { label: t("common.create"), className: "np-ok" },
+    }).row);
 
     document.body.appendChild(dlg);
     const q = (sel) => dlg.querySelector(sel);

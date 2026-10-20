@@ -70,6 +70,12 @@
   --err-bg: #5c2e2e;  --err-fg: #ffb0b0;   /* "audio off" badge, warnings */
   --rec-fg: #ff5c5c;  --rec-border: #7a3434;  --rec-bg: #3d2229;  /* record ARMED */
 
+  /* the Proceed button — the one action a dialog is for (components/actions.js):
+   * filled with the accent, so "the one that will happen" wears the hue that
+   * already means "this one"; its ink is the darkest ground, its hover a step
+   * further from it */
+  --proceed-bg: #ffc043;  --proceed-fg: #16181d;  --proceed-hover: #ffd47a;
+
   /* canvas: pattern grids (Timeline / Cues / Patterns) */
   --cv-bg: #1f232b;         /* waveform / envelope canvas ground */
   --cv-row-beat: #20242d;   /* primary beat row band */
@@ -214,6 +220,7 @@
   --ok-bg: #2e5c38;   --ok-fg: #9df0ae;
   --err-bg: #6b3838;  --err-fg: #ffb0b0;
   --rec-fg: #ff5c5c;  --rec-border: #8a4141;  --rec-bg: #55353c;
+  --proceed-bg: #ffc043;  --proceed-fg: #16181d;  --proceed-hover: #ffd47a;
 
   /* canvas: pattern grids (Timeline / Cues / Patterns) */
   --cv-bg: #34363b;
@@ -299,6 +306,7 @@
   --ok-bg: #d3ecd8;   --ok-fg: #1d6b32;
   --err-bg: #f4d9d9;  --err-fg: #a03434;
   --rec-fg: #c22f2f;  --rec-border: #d99d9d;  --rec-bg: #fbe3e3;
+  --proceed-bg: #a44500;  --proceed-fg: #ffffff;  --proceed-hover: #873900;
 
   /* canvas: pattern grids */
   --cv-bg: #eceef2;
@@ -398,6 +406,7 @@
   --ok-bg: #c3d69c;   --ok-fg: #2c5416;
   --err-bg: #e7c0a4;  --err-fg: #8a260c;
   --rec-fg: #9c2317;  --rec-border: #b2855f;  --rec-bg: #e3bda9;
+  --proceed-bg: #93330a;  --proceed-fg: #fbf3dc;  --proceed-hover: #7a2a08;
 
   /* canvas: pattern grids — the LCD window */
   --cv-bg: #cbc79c;
@@ -487,7 +496,7 @@
  *   --cv-font         Motif Grid: the tracker grids (Timeline / Cues / Patterns
  *                     canvases, the chord and notation makers, the keymap) and
  *                     every note written as a symbol outside them
- *                     (src/ui/noteglyph.js). Canvas views read it through
+ *                     (src/ui/components/noteglyph.js). Canvas views read it through
  *                     src/ui/fonts.js, which also force-loads the face (canvas
  *                     fillText never triggers a download on its own) and
  *                     repaints once it arrives. Every mark in a note cell is a
@@ -509,6 +518,18 @@
   --mono-font: "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
   --transport-font: "Motif Transport", "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
   --code-font: "Motif Code", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+}
+
+/* ── SHAPE AND WEIGHT ──────────────────────────────────────────────────
+ * The lengths and weights the components share, named once so a new
+ * component takes them from here and design-system/tokens.json can state
+ * them. Theme-independent: a theme changes colours, never shapes. */
+:root {
+  --radius-sm: 4px;       /* inputs, selects, badges, chips */
+  --radius-md: 6px;       /* buttons, value controls, menu cells, tab tops */
+  --radius-lg: 8px;       /* modals, menus, canvas frames, drop zones */
+  --weight-button: 400;   /* every button label */
+  --weight-proceed: 600;  /* the Proceed label: --weight-button + 200, never less */
 }
 
 /* ── SCRIM ─────────────────────────────────────────────────────────────
@@ -615,7 +636,7 @@ h1 .sub { color: var(--dim); font-weight: normal; font-size: 1rem; }
 
 .drop {
   border: 2px dashed var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 1rem 1.5rem;
   background: var(--panel);
 }
@@ -641,19 +662,31 @@ button {
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.2rem 0.6rem;
   cursor: pointer;
   font-size: 0.95rem;
+  font-weight: var(--weight-button);
 }
 button:hover { border-color: var(--accent); }
 button.big { font-size: 1.1rem; padding: 0.45rem 1.2rem; }
+/* PROCEED — the one action a dialog is for (components/actions.js puts it at
+ * the right end of the row). The only button filled with the accent, and the
+ * only one whose label is heavier than the rest. */
+button.proceed {
+  background: var(--proceed-bg);
+  border-color: var(--proceed-bg);
+  color: var(--proceed-fg);
+  font-weight: var(--weight-proceed);
+}
+button.proceed:hover:not(:disabled) { background: var(--proceed-hover); border-color: var(--proceed-hover); }
+button.proceed:disabled { opacity: 0.45; cursor: default; }
 
 select, input[type="range"] {
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .status span { color: var(--dim); }
@@ -662,7 +695,7 @@ select, input[type="range"] {
 .badge {
   background: var(--err-bg);
   color: var(--err-fg);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.15rem 0.5rem;
   font-size: 0.85rem;
 }
@@ -674,7 +707,7 @@ select, input[type="range"] {
 .sel-mode {
   color: var(--accent-2);
   border: 1px solid var(--accent-2);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0 0.4rem;
   font-size: 0.85rem;
 }
@@ -689,7 +722,7 @@ select, input[type="range"] {
   display: block;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .player-head {
@@ -713,7 +746,7 @@ select, input[type="range"] {
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--panel);
   color: var(--dim);
   font-size: 0.85rem;
@@ -864,7 +897,7 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
 .support-btn {
   font-size: 0.82rem;
   padding: 0.2rem 0.6rem;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   text-decoration: none;
   border: 1px solid var(--border);
   color: var(--fg);
@@ -972,7 +1005,7 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
 .split-host.is-split .pane:not(.focused) .tabs button.active { color: var(--fg); }
 
 .tabs button {
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
   border-bottom: none;
   padding: 0.3rem 0.9rem;
   background: var(--panel-2);
@@ -1430,7 +1463,7 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 
 .wheelable {
   cursor: ns-resize;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: background 80ms;
 }
 .wheelable:hover { background: var(--panel-2); color: var(--fg); }
@@ -1565,7 +1598,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-table .idxCell { font-family: var(--mono-font); }
 .meta-table .meta-fg { color: var(--accent); margin-right: 0.2rem; }
 .meta-table .meta-link { margin-left: 0.4rem; }
-/* Note readouts are PAINTED (noteglyph.js), so they carry the song's own
+/* Note readouts are PAINTED (components/noteglyph.js), so they carry the song's own
    notation rather than 12-EDO letter names — the canvas has to line up with
    the units/cents text beside it. */
 .meta-table .meta-det-ann,
@@ -1574,7 +1607,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   display: inline-flex; align-items: baseline; gap: 0.15rem;
 }
 /* A note spelled as the grids spell it, as text in their font
-   (src/ui/noteglyph.js): each .ng-note is one note cell — four cells of Motif
+   (src/ui/components/noteglyph.js): each .ng-note is one note cell — four cells of Motif
    Grid, and a cell is exactly 1ch — in the ink the grids paint it in. Being
    text, it sits on the line's baseline at the line's size. */
 .note-glyph {
@@ -1725,7 +1758,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 
 /* Chord stack preview. */
 .meta-chord-preview {
-  border: 1px solid var(--border); border-radius: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--panel-2); padding: 0.4rem 0.6rem; margin: 0.4rem 0;
 }
 .meta-chord-voice { display: flex; gap: 0.6rem; align-items: baseline; }
@@ -1773,7 +1806,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.15rem 0.35rem;
   font-size: 0.85rem;
 }
@@ -1793,11 +1826,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 1rem 1.4rem;
   min-width: 320px;
 }
-/* Form dialogs built by widgets/modal.js: prose sets their width, so cap it at
+/* Form dialogs built by components/modal.js: prose sets their width, so cap it at
    a readable measure rather than letting one long paragraph span the viewport. */
 .modal-text { max-width: min(560px, calc(94vw / var(--ui-zoom, 1))); }
 .modal-text p { margin: 0.4rem 0 0.8rem; line-height: 1.45; text-align: justify; hyphens: auto; }
@@ -1808,11 +1841,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.25rem 0.4rem;
   margin-left: 0.5rem;
 }
-/* Fields built by widgets/modal.js. One row per field, and a caption column
+/* Fields built by components/modal.js. One row per field, and a caption column
    wide enough that every control starts at the same x — a dialog of settings
    should read as a form, not as a list of sentences with a box on the end of
    each. A caption longer than the column pushes its own control right rather
@@ -1852,9 +1885,17 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   text-align: left;
   hyphens: manual;
 }
-.modal-buttons { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+/* The action row (components/actions.js builds every one): Cancel at the left
+   end, then whatever goes with the actions, then the alternatives, then Proceed
+   at the right end. The DOM is already in that order; all this adds is the
+   push that sends Cancel to the far left and the rest to the far right. */
+.modal-buttons {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+  gap: 0.5rem; margin-top: 1rem;
+}
+.modal-buttons > .act-cancel { margin-inline-end: auto; }
 
-/* ── icon-cell context menu (widgets/contextmenu.js) ──
+/* ── icon-cell context menu (components/contextmenu.js) ──
    A <dialog> pinned to the pointer instead of centred, so it drops the default
    margin/inset; the backdrop stays transparent because the menu is a transient
    overlay, not a modal task. */
@@ -1867,7 +1908,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
 .ctxmenu::backdrop { background: transparent; }
@@ -1888,7 +1929,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: transparent;
   color: var(--fg);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font: inherit;
   font-size: 0.72rem;
@@ -1931,14 +1972,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .np-grid { display: flex; gap: 1.2rem; align-items: stretch; }
 .np-col { display: flex; flex-direction: column; gap: 0.7rem; flex: 1 1 0; min-width: 0; }
 .np-col-right { flex: 0 0 236px; }
-.np-sec { border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.7rem 0.55rem; margin: 0; }
+.np-sec { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.3rem 0.7rem 0.55rem; margin: 0; }
 .np-sec-grow { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .np-sec legend { color: var(--accent); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; font-variation-settings: "wdth" 96 !important; padding: 0 0.35rem; }
 .np-field { display: flex; align-items: center; gap: 0.5rem; margin: 0.28rem 0; color: var(--dim); font-size: 0.88rem; }
 .np-field > span:first-child { flex: 0 0 5.5rem; }
 .np-field input[type="number"], .np-field input[type="text"], .np-field select {
   background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.2rem 0.35rem; font: inherit;
+  border-radius: var(--radius-sm); padding: 0.2rem 0.35rem; font: inherit;
 }
 .np-field input[type="number"] { width: 4.5rem; }
 .np-field input[type="text"] { flex: 1 1 auto; min-width: 0; }
@@ -1952,7 +1993,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .np-blink { display: block; }
 .np-tap {
   background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.15rem 0.9rem; cursor: pointer; font: inherit;
+  border-radius: var(--radius-sm); padding: 0.15rem 0.9rem; cursor: pointer; font: inherit;
 }
 .np-tap:hover { border-color: var(--accent-2); }
 .np-tap.hit { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
@@ -1961,11 +2002,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .np-chips { display: inline-flex; gap: 0.3rem; }
 .np-chip {
   background: var(--panel-2); color: var(--dim); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.15rem 0.6rem; cursor: pointer; font: inherit;
+  border-radius: var(--radius-sm); padding: 0.15rem 0.6rem; cursor: pointer; font: inherit;
 }
 .np-chip.sel { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
 
-.np-notelist { position: relative; flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;
+.np-notelist { position: relative; flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--panel-2); max-height: 220px; min-height: 120px; outline: none; }
 .np-notelist:focus-visible { border-color: var(--accent-2); }
 .np-note { display: flex; align-items: center; gap: 0.45rem; padding: 0.15rem 0.5rem; cursor: pointer; font-size: 0.82rem; color: var(--fg); }
@@ -1979,7 +2020,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .np-note-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .np-preview { display: flex; gap: 0.4rem; }
-.np-prev-col { flex: 1 1 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.np-prev-col { flex: 1 1 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .np-prev-row { padding: 0.02rem 0.4rem; font-family: var(--cv-font, monospace); font-size: 0.74rem; color: var(--dim); text-align: right; background: var(--cv-bg); }
 .np-prev-row.beat { background: var(--cv-row-beat); color: var(--fg); }
 .np-prev-row.bar { background: var(--cv-row-bar); color: var(--accent); }
@@ -1993,11 +2034,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* ── Notation Maker (item 61) ── */
 /* Wide enough for the degree table's symbol pickers, which name each sign
    beside it (the names are what a phone's picker shows). */
-.nota-modal { max-width: min(1120px, calc(96vw / var(--ui-zoom, 1))); width: min(1120px, calc(96vw / var(--ui-zoom, 1))); }
+.nota-modal { max-width: min(1200px, calc(96vw / var(--ui-zoom, 1))); width: min(1200px, calc(96vw / var(--ui-zoom, 1))); }
 .nota-hint { margin: 0.2rem 0 0.7rem; font-size: 0.82rem; }
 .nota-grid { display: flex; gap: 1rem; align-items: stretch; min-height: 340px; }
 .nota-left { flex: 0 0 215px; display: flex; flex-direction: column; gap: 0.5rem; }
-.nota-slots { flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); max-height: 380px; }
+.nota-slots { flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); max-height: 380px; }
 .nota-slot { display: flex; align-items: center; gap: 0.4rem; padding: 0.18rem 0.5rem; cursor: pointer; font-size: 0.82rem; color: var(--fg); }
 .nota-slot:hover { background: var(--panel); }
 .nota-slot.sel { background: var(--cv-cursor); }
@@ -2014,16 +2055,16 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .nota-field input[type="number"] { width: 6.5rem; }
 .nota-field input, .nota-editor select {
   background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.15rem 0.3rem; font: inherit;
+  border-radius: var(--radius-sm); padding: 0.15rem 0.3rem; font: inherit;
 }
 .nota-chip {
   background: var(--panel-2); color: var(--dim); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.12rem 0.55rem; cursor: pointer; font: inherit;
+  border-radius: var(--radius-sm); padding: 0.12rem 0.55rem; cursor: pointer; font: inherit;
 }
 .nota-chip.sel { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
 .nota-tools { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .nota-tools button { font-size: 0.82rem; }
-.nota-degrees { flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; max-height: min(600px, calc(90vh / var(--ui-zoom, 1))); }
+.nota-degrees { flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: min(600px, calc(90vh / var(--ui-zoom, 1))); }
 .nota-degrees table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
 .nota-degrees th { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-weight: 500; text-align: left; padding: 0.15rem 0.4rem; font-size: 0.75rem; }
 .nota-degrees td { padding: 0.08rem 0.3rem; white-space: nowrap; }
@@ -2043,8 +2084,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    read down a column: Motif Mono (the spinner's own field included). */
 .nota-modal .nota-num, .nota-modal .mt-spin > input.nota-num { font-family: var(--mono-font); }
 .nota-add { align-self: flex-start; font-size: 0.82rem; }
-.nota-btns { display: flex; align-items: center; gap: 0.6rem; }
-.nota-assign { display: flex; align-items: center; gap: 0.3rem; color: var(--dim); font-size: 0.85rem; margin-right: auto; }
+.nota-btns { gap: 0.6rem; }
+.nota-assign { display: flex; align-items: center; gap: 0.3rem; color: var(--dim); font-size: 0.85rem; }
 .nota-issues { font-size: 0.78rem; color: var(--accent-2); max-width: 22rem; }
 
 @media (max-width: 680px) {
@@ -2132,7 +2173,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: linear-gradient(90deg, var(--meter-bg) 35%, var(--border) 50%, var(--meter-bg) 65%) 0 0 / 300% 100%;
   animation: files-skel-sweep 1.4s ease-in-out infinite;
 }
-.files-skel-btn { width: 9rem; height: 1.9rem; border-radius: 4px; }
+.files-skel-btn { width: 9rem; height: 1.9rem; border-radius: var(--radius-sm); }
 .files-skel-table tr:nth-child(2) .files-skel { animation-delay: 0.15s; }
 .files-skel-table tr:nth-child(3) .files-skel { animation-delay: 0.3s; }
 @keyframes files-skel-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
@@ -2212,7 +2253,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .wave-canvas {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   touch-action: none;
 }
 /* The Samples-view waveform reads out the byte under the pointer (item 171),
@@ -2234,7 +2275,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   height: auto;
   background: var(--cv-bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   touch-action: none;
   cursor: crosshair;
 }
@@ -2297,7 +2338,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.2rem 0.4rem;
   font-size: 0.95rem;
 }
@@ -2313,7 +2354,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.15rem 0.35rem;
   width: 7.5rem;
 }
@@ -2329,7 +2370,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   height: 48px;
   background: var(--cv-bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 .opl-env polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
 .opl-note { margin: 0.1rem 0; font-size: 0.85rem; }
@@ -2343,7 +2384,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   height: 48px;
   background: var(--cv-bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 .psg-wave polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
 .psg-wave.live { border-color: var(--accent); }
@@ -2363,7 +2404,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fmt-chart { max-width: 560px; margin-bottom: 0.3rem; }
 .fmt-chart-svg {
   display: block; width: 100%; height: auto; touch-action: none; cursor: crosshair;
-  background: var(--cv-bg); border: 1px solid var(--border); border-radius: 6px;
+  background: var(--cv-bg); border: 1px solid var(--border); border-radius: var(--radius-md);
   user-select: none; -webkit-user-select: none;
 }
 .fmt-region { fill: var(--panel-2); stroke: var(--border); stroke-width: 1; }
@@ -2405,7 +2446,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fmt-cons-manner { text-align: left; }
 .fmt-cons {
   font-size: 1rem; min-width: 1.7rem; padding: 0.05rem 0.15rem; margin: 1px;
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 .fmt-cons.good { color: var(--meter); }
 .fmt-cons.fair { color: var(--accent); }
@@ -2436,7 +2477,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.12rem 0.3rem;
   width: 100%;
 }
@@ -2479,7 +2520,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .env-ctl input[type="number"] {
   background: var(--panel-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 0.12rem 0.3rem; width: 4.5rem;
 }
 .env-ctl.chk { gap: 0.3rem; }
@@ -2524,7 +2565,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .adv-num input[type="number"] { width: 5.5rem; }
 .adv-num select {
   background: var(--panel-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 0.12rem 0.3rem; max-width: 16rem;
 }
 .adv-num .sl-ann { color: var(--fg); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
@@ -2551,7 +2592,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--accent);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.25rem;
 }
 /* Responsive row of pattern "view windows"; each column scrolls on its own. */
@@ -2572,7 +2613,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.15rem 0.3rem;
   font-size: 0.8rem;
 }
@@ -2600,7 +2641,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pattern-canvas {
   display: block;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   touch-action: none;
   -webkit-touch-callout: none;
 }
@@ -2619,7 +2660,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.2rem 0.4rem;
   flex: 1;
   min-width: 8rem;
@@ -2628,7 +2669,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   max-height: calc(50vh / var(--ui-zoom, 1));
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
 }
 .import-row {
@@ -2662,7 +2703,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .import-log {
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.4rem 0.6rem;
   height: 4.8em;            /* ~4 lines */
   overflow-y: auto;
@@ -2684,7 +2725,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   height: 0.8rem;
   margin: 0.8rem 0 0.3rem;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   overflow: hidden;
 }
@@ -2697,7 +2738,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .sample-editor { max-width: 780px; }
 /* Spatial panner (#998.6) */
 .panner-dials { display: flex; gap: 0.8rem; justify-content: center; margin: 0.4rem 0; }
-.panner-dial { border: 1px solid var(--border); border-radius: 4px; cursor: crosshair; touch-action: none; }
+.panner-dial { border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: crosshair; touch-action: none; }
 .panner-fields { display: flex; gap: 1.2rem; align-items: baseline; flex-wrap: wrap; margin: 0.2rem 0; }
 .panner-fields .modal-field { margin: 0.2rem 0; }
 .panner-fields input[type="number"] { width: 5rem; }
@@ -2717,7 +2758,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
   width: 110px; padding: 0.4rem 0.3rem 0.5rem; cursor: pointer;
   background: var(--panel-2); color: var(--dim);
-  border: 1px solid var(--border); border-radius: 6px; font: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius-md); font: inherit;
 }
 .export-card:hover { color: var(--fg); border-color: var(--accent-2); }
 .export-card.selected { color: var(--fg); border-color: var(--accent); background: var(--panel); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -2729,7 +2770,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .export-opts input[type="number"] { width: 5rem; }
 .export-hint { font-size: 0.8rem; margin: 0.15rem 0; }
 
-.smp-canvas { display: block; margin: 0.4rem 0; cursor: ew-resize; border: 1px solid var(--border); border-radius: 4px; }
+.smp-canvas { display: block; margin: 0.4rem 0; cursor: ew-resize; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .smp-fields, .smp-ops { display: flex; gap: 0.8rem; align-items: baseline; flex-wrap: wrap; margin: 0.4rem 0; }
 .smp-fields label { color: var(--dim); font-size: 0.85rem; }
 .smp-fields input[type="number"] {
@@ -2737,14 +2778,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.15rem 0.3rem;
 }
 .smp-fields select {
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 /* Auto loop resolver (item 176): the policy picker sits in the op row and has
    to read as one control with the Find button beside it, and its readout is a
@@ -2753,7 +2794,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 .smp-ops label.smp-auto { color: var(--dim); font-size: 0.85rem; }
 .smp-ops select:disabled, .smp-ops button:disabled { opacity: 0.4; cursor: default; }
@@ -2777,7 +2818,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   display: block;
   background: var(--cv-bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   touch-action: none;
 }
 /* The live voice ticks: their own layer, so the map is not repainted per frame. */
@@ -2837,7 +2878,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--cv-bg);
 }
 .pw-spacer { position: relative; width: 100%; }
@@ -2847,10 +2888,6 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* ── Sample Lab (items 83/84/109) ── */
 .samplelab-modal { max-width: min(1280px, calc(94vw / var(--ui-zoom, 1))); }
 .samplelab-modal .lab-info { margin: 0.2rem 0 0.4rem; font-size: 0.85rem; }
-/* Replace overwrites a sample the song is already playing — it reads as the
-   weightier of the two commits, and greys out when a chop makes it meaningless. */
-.lab-replace { border-color: var(--accent); color: var(--accent); }
-.lab-replace:disabled { border-color: var(--border); color: var(--dim); }
 .lab-tools {
   display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;
   margin: 0.35rem 0; color: var(--dim); font-size: 0.85rem;
@@ -2861,26 +2898,26 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .lab-chopctl { display: inline-flex; align-items: center; gap: 0.5rem; }
 .lab-wave {
   display: block; cursor: crosshair; touch-action: none;
-  border: 1px solid var(--border); border-radius: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 .lab-chunks { display: flex; gap: 0.3rem; flex-wrap: wrap; margin: 0.35rem 0; }
 .lab-chunk {
   display: inline-flex; align-items: center; gap: 0.25rem;
-  border: 1px solid var(--border); border-radius: 4px; padding: 0.1rem 0.35rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.1rem 0.35rem;
   background: var(--panel-2);
 }
 .lab-chunk button { background: none; border: none; color: var(--fg); cursor: pointer; padding: 0.05rem 0.2rem; }
 .lab-chunk.off { opacity: 0.45; }
 .lab-chunk.off button { text-decoration: line-through; }
-.lab-eq { border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.6rem; margin: 0.35rem 0; }
+.lab-eq { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.4rem 0.6rem; margin: 0.35rem 0; }
 .lab-eqbands { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.35rem; }
 .lab-eqband { display: flex; gap: 0.6rem; align-items: center; color: var(--dim); font-size: 0.85rem; }
 .lab-eqband .lab-eqkind { width: 6.5rem; color: var(--fg2); }
 .lab-eqband input[type="number"] {
   width: 4.6rem; background: var(--panel-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.3rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.15rem 0.3rem;
 }
-.lab-eqgraph { display: block; border: 1px solid var(--border); border-radius: 4px; }
+.lab-eqgraph { display: block; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .lab-eqhint { font-size: 0.78rem; }
 .lab-row { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; margin: 0.4rem 0; color: var(--dim); }
 .lab-row .lab-name { width: 14rem; }
@@ -2901,7 +2938,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
      widest reading is "×1.9632 · +1167.8 cents · grid −32", never clipped) */
   grid-template-columns: auto 1.1rem 6.4rem minmax(7rem, 1fr) auto auto auto 16rem;
   padding: 0.15rem 0.4rem; font-size: 0.85rem; color: var(--dim);
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 .chord-voice.off { opacity: 0.5; }
 .chord-voice .cv-num { color: var(--fg2); text-align: right; }
@@ -2909,7 +2946,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .chord-voice input[type="number"],
 .chord-voice input[type="text"] {
   background: var(--panel); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.12rem 0.25rem; font-size: 0.82rem;
+  border-radius: var(--radius-sm); padding: 0.12rem 0.25rem; font-size: 0.82rem;
 }
 .chord-voice .cv-val { display: block; min-width: 0; }
 .chord-voice .cv-val > * { width: 100%; }
@@ -2922,7 +2959,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .chord-hint { font-size: 0.78rem; margin: 0.5rem 0 0; }
 .chord-wave {
   display: block; width: 100%; margin-top: 0.4rem;
-  border: 1px solid var(--border); border-radius: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 .chord-info { font-size: 0.85rem; margin: 0.35rem 0 0; }
 
@@ -2937,7 +2974,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fc-legend { font-size: 0.9rem; color: var(--fg2); margin-bottom: 0.3rem; }
 .fc-legend .dim { font-size: 0.82rem; margin-left: 0.4rem; }
 .fc-cond {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--panel-2); padding: 0.35rem 0.45rem; margin-bottom: 0.35rem;
 }
 /* The OR between conditions belongs to the pair, not to either one — it sits
@@ -2958,7 +2995,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fc-act { padding: 0.15rem 0.45rem; }
 .fc-row select, .fc-row input[type="text"] {
   background: var(--panel); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.12rem 0.25rem; font-size: 0.82rem;
+  border-radius: var(--radius-sm); padding: 0.12rem 0.25rem; font-size: 0.82rem;
   min-width: 0; width: 100%;
 }
 /* What is typed is a value — a note word, hex, a multiplier — and reads back
@@ -2988,14 +3025,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .fc-foot select {
   background: var(--panel-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 4px; padding: 0.12rem 0.25rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.12rem 0.25rem;
 }
 .fc-count { color: var(--fg2); font-variant-numeric: tabular-nums; }
 .fc-count.fc-none { color: var(--dim); }
 
 /* ── mic recorder (item 83.1) ── */
 .record-modal { max-width: 420px; }
-.rec-meter { display: block; margin: 0.5rem 0 0.3rem; border: 1px solid var(--border); border-radius: 4px; }
+.rec-meter { display: block; margin: 0.5rem 0 0.3rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .rec-hint { font-size: 0.8rem; }
 
 /* ── About popup (brand click) ── */
@@ -3070,7 +3107,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
   padding: 0.7rem 0.7rem 0.8rem; cursor: pointer; text-align: center;
   background: var(--panel-2); color: var(--dim);
-  border: 1px solid var(--border); border-radius: 6px; font: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius-md); font: inherit;
 }
 .kind-card:hover, .kind-card:focus-visible {
   color: var(--fg); border-color: var(--accent); background: var(--panel);
@@ -3115,7 +3152,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.4rem 0.5rem;
   font-family: var(--mono-font);
   font-size: 0.86rem;
@@ -3143,7 +3180,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   min-width: 0;
   display: flex;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--code-bg);
   overflow: hidden;
 }
@@ -3233,7 +3270,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   overflow: hidden;
 }
@@ -3357,7 +3394,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.4rem 0.9rem;
   background: var(--cv-bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-family: var(--cv-font);
   font-size: 12px;
 }
@@ -3401,7 +3438,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* ── VALUE CONTROLS (item 156) ─────────────────────────────────────────
  * Every number field and dropdown in the app is a button GROUP: the control
  * itself is the middle segment, flanked by step buttons, with one continuous
- * border round the three. Built by src/ui/widgets/spinner.js, which wraps the
+ * border round the three. Built by src/ui/components/spinner.js, which wraps the
  * NATIVE element rather than replacing it — so the platform still does the
  * typing, the validation and the option list, and this file only has to take
  * its chrome off and re-draw the frame.
@@ -3419,7 +3456,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   flex: 0 0 auto;
   max-width: 100%;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--panel-2);
   overflow: hidden;
 }
@@ -3601,6 +3638,19 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 [data-theme="warmth"] .rec.on {
   background: linear-gradient(180deg, #eecab8 0%, #e3bda9 52%, #d5aa93 100%);
 }
+/* …and so does Proceed: a burnt-orange cap, the one coloured key on the
+ * dialog, moulded like the rest. */
+[data-theme="warmth"] button.proceed {
+  background: linear-gradient(180deg, #ad4a1c 0%, var(--proceed-bg) 55%, #7e2b08 100%);
+  border-color: #6a2306;
+  color: var(--proceed-fg);
+}
+[data-theme="warmth"] button.proceed:hover:not(:disabled) {
+  background: linear-gradient(180deg, #9a3f17 0%, var(--proceed-hover) 55%, #6a2306 100%);
+}
+[data-theme="warmth"] button.proceed:active:not(:disabled) {
+  background: linear-gradient(180deg, #6a2306, var(--proceed-hover));
+}
 
 /* Tabs are caps too, but a SELECTED tab is not a pressed one — it is the
  * panel's own surface come forward, so it loses the drop shadow and keeps
@@ -3690,7 +3740,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 [data-theme="warmth"] ::-webkit-scrollbar-thumb {
   background: var(--abs-cap);
   border: 1px solid #9d8c62;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 [data-theme="warmth"] ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #f1e8ce, #d3c69b); }
 [data-theme="warmth"] ::-webkit-scrollbar-corner { background: #c9bb92; }
@@ -3838,7 +3888,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.3rem 0.5rem;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 .mst-title { font-weight: 600; letter-spacing: 0.02em; }
 .mst-rack, .mst-panel {
@@ -3856,7 +3906,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .mst-unit, .mst-scope {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 .mst-unit-head, .mst-scope-head {
   display: flex;
@@ -3865,7 +3915,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.25rem 0.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
   font-size: 0.85rem;
   color: var(--dim);
 }
@@ -3920,7 +3970,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.1rem 0.3rem;
   width: 100%;
   font-variant-numeric: tabular-nums;
@@ -3941,7 +3991,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 
 .mst-band {
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.3rem 0.4rem;
   display: flex;
   flex-direction: column;
@@ -3991,7 +4041,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .mst-readout {
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.2rem 0.3rem;
   text-align: center;
   position: relative;
@@ -4062,7 +4112,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 0.75rem;
   padding: 0 0.2rem;
   /* The Bit usage header carries TWO of these (depth and span, item 188) beside
@@ -4269,7 +4319,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.25rem 0.15rem;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 .keymanual-cell input {
   width: 100%;

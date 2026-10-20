@@ -78,12 +78,12 @@ async function bootFrame(id, needDoc) {
   check(!!dlg, "rename dialog opens");
   if (dlg) {
     check(dlg.textContent.includes("Rename demo.taud"), "dialog title names the file", dlg.querySelector("h3")?.textContent);
-    const okBtn = dlg.querySelector(".modal-buttons button");
+    const okBtn = dlg.querySelector(".modal-buttons .proceed");
     check(okBtn && okBtn.textContent === en["common.rename"], "OK button reads Rename", okBtn?.textContent);
     const nameInput = dlg.querySelector("input");
     check(nameInput && nameInput.value === "demo.taud", "name field seeded with current name", nameInput?.value);
-    // Cancel — second button — so nothing touches OPFS.
-    dlg.querySelectorAll(".modal-buttons button")[1].click();
+    // Cancel, so nothing touches OPFS.
+    dlg.querySelector(".modal-buttons .act-cancel").click();
     await sleep(30);
     check(!doc.querySelector("dialog.modal"), "dialog closes on cancel");
   }
