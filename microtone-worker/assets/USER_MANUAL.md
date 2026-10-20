@@ -1917,8 +1917,8 @@ either way.
 - **OPL** (OPL instruments) — the chip's own controls, laid out as the chip lays them out. An OPL instrument has the General tab and the envelope tabs as well, but no Zones: one chip channel plays every key.
   - **Kind** is what the channel is: a **2-op** or **4-op** melodic channel, or one of the five rhythm drums — **Bass drum**, **Snare**, **Tom**, **Cymbal** and **Hi-hat**. Switching kinds keeps the operators a kind does not show, so a trip to another kind and back loses nothing; the first switch to 4-op starts the second pair as a copy of the first.
   - **Deep tremolo** and **Deep vibrato** widen the chip's tremolo from 1 to 4.8 dB and its vibrato from 7 to 14 cents. **Note select (NTS)** moves which bit of the pitch Key scale rate follows. **Low F-number range** picks the chip's octave block the way the Korean OPL3 tracker did; Key scale rate and Key scale level read the block, so an imported `.sop` keeps the brightness and envelope speeds it had there. On the real chip all four are shared by every channel; here each instrument keeps its own.
+  - **Algorithm** draws the operators as the chip's data sheet draws them, the signal running left to right into OUT — a wire into a box is modulation, wires that meet are heard together — beside the channel's two controls. **Feedback** bends operator 1's phase by its own output, 0 none to 7 the most; operator 1 is the only one the chip feeds back, and the curl over its box is dashed while Feedback is 0. **Connection** joins the operators: on a 2-op channel and the bass drum, *FM* (operator 1 bends operator 2, and only 2 is heard) or *Additive* (both are heard); on a 4-op channel, one of the chip's four connections, written as the diagram draws them — *1 → 2 → 3 → 4*, *1 → 2 + 3 → 4*, *1 + 2 → 3 → 4* and *1 + 2 → 3 + 4*, an arrow where one operator bends the next and a plus where two are heard side by side. The snare, tom, cymbal and hi-hat are one operator each, drawn going straight out, with neither control.
   - One group per **operator**, its envelope sketched at the top: **Attack**, **Decay**, **Sustain level** and **Release** (each 0…15, the sketch drawn on the chip's own doubling time scale), **Level** (0 the loudest, 0.75 dB a step), **Key scale level**, **Multiple**, **Waveform** (0…3 the OPL2's, 4…7 the OPL3's), and the **Tremolo**, **Vibrato**, **Sustain** and **Key scale rate** switches. Hover a field for what it does.
-  - After each operator pair, the **channel** it plays on: **Feedback** (on the first pair only — the chip has no other) and **Connection**, *FM* (the first operator bends the second) or *Additive* (both are heard).
   - The **Snare**, **Cymbal** and **Hi-hat** mix their operator with the chip's noise and with a **partner** operator's phase, on the channel beside them: the partner's **Multiple**, and — for the cymbal and the hi-hat, whose partner sits on another channel — its **pitch** in cents from the drum's own.
   - Every field is one undo step per gesture — holding a spinner's + is one step, not twenty — and a voice already sounding the instrument hears an edit at once, as a chip channel does when its registers are rewritten.
 - **PSG** (PSG instruments) — the two oscillators, laid out as the OPL tab lays out its operators. A PSG instrument has the General tab and the envelope tabs as well, but no Zones.
@@ -2812,8 +2812,15 @@ dot/arrows), a **letter** A–Z and an **accidental** (♮ ♯ ♭ demi, double,
 triple, quadruple) — with a live preview drawn by the same glyph engine as the
 grids. **Equal divisions…** refills the table with N equal steps of the
 period; the two **Auto-name** tools assign symbols by nearest quarter-tone or
-as a plain letter sequence. The letter sequence spreads the degrees over all
-26 letters and tells the ones sharing a letter apart by a variant ladder:
+as a plain letter sequence. Where the nearest quarter-tone would name two
+degrees alike — as it does in 31, 41 or 53 equal steps, or any scale that
+crowds two degrees near one quarter-tone — the whole scale is named Kite's way
+instead: each 12-TET name goes to the degree nearest it, with the dot, and the
+degrees between are counted off from those with up and down ticks, two at most
+either way. A scale too dense for that (over five degrees to a semitone) is
+counted off from the quarter-tone names instead, as the 96-TET (Kite) preset
+is. The letter sequence spreads the degrees over all 26 letters and tells the
+ones sharing a letter apart by a variant ladder:
 ticks while a letter carries up to five degrees, then accidentals (♭♭♭ … 𝄪𝄪),
 then both crossed — enough for a unique symbol per degree up to 1300 of them.
 Degree 0 is always the base note — **Middle C

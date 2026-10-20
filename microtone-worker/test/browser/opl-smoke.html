@@ -69,9 +69,38 @@
         log(`list badge "${badge()}": ${ok(badge() === "OPL")}`);
         const opGroups = () => iv.panel.querySelectorAll(".opl-op");
         const chanGroups = () => iv.panel.querySelectorAll(".opl-chan");
-        log(`two operators + one channel group, two envelope sketches: ` +
-          ok(opGroups().length === 2 && chanGroups().length === 1 &&
+        const algo = () => iv.panel.querySelector(".opl-conn");
+        const algoFields = () => algo().querySelectorAll(".inst-field");
+        const cntSelect = () => [...algoFields()].find((l) => l.textContent.startsWith("Connection"))
+          ?.querySelector("select");
+        const fbInput = () => [...algoFields()].find((l) => l.textContent.startsWith("Feedback"))
+          ?.querySelector("input");
+        const boxes = () => algo().querySelectorAll("svg.fm-graph .fm-graph-box");
+        const curls = () => algo().querySelectorAll("svg.fm-graph .fm-graph-fb");
+        const boxRows = () => new Set([...boxes()].map((b) => b.getAttribute("y"))).size;
+        log(`two operators, two envelope sketches, no per-pair channel group: ` +
+          ok(opGroups().length === 2 && chanGroups().length === 0 &&
              iv.panel.querySelectorAll("svg.opl-env").length === 2));
+        log(`the Algorithm group comes first: a diagram of 2 boxes, Feedback, Connection FM|Additive: ` +
+          ok(iv.panel.querySelector(".opl-edit").firstElementChild === algo() &&
+             boxes().length === 2 && algoFields().length === 2 &&
+             [...cntSelect().options].map((o) => o.text).join("|") === "FM|Additive"));
+        log(`…operator 1 alone carries the feedback curl, dashed at Feedback 0: ` +
+          ok(curls().length === 1 && curls()[0].classList.contains("idle") &&
+             +curls()[0].closest(".fm-graph-cell").querySelector(".fm-graph-num").textContent === 1));
+        fbInput().value = "5";
+        fbInput().dispatchEvent(new win.Event("change"));
+        await sleep(30);
+        log(`Feedback 5 lands in the record and the curl goes solid, the field staying put: ` +
+          ok(inst().opl.feedback === 5 && curls().length === 1 && !curls()[0].classList.contains("idle") &&
+             fbInput().value === "5"));
+        cntSelect().value = "1";
+        cntSelect().dispatchEvent(new win.Event("change"));
+        await sleep(30);
+        log(`Additive: the two boxes stand on two lanes: ${ok(inst().opl.cntA === 1 && boxRows() === 2)}`);
+        store.undo.undo();
+        store.undo.undo();
+        await waitFor(() => inst().opl.feedback === 0 && inst().opl.cntA === 0);
 
         // ── a field edit writes the patch, keeps the field, redraws the sketch ──
         const tlInput = () => opGroups()[0].querySelectorAll(".inst-field input")[4];
@@ -111,15 +140,36 @@
           .find((b) => b.textContent === label);
         kindBtn("4-op").click();
         await waitFor(() => opGroups().length === 4);
-        log(`4-op: four operators in two pairs, feedback on the first pair only: ` +
-          ok(chanGroups().length === 2 &&
-             chanGroups()[0].querySelectorAll(".inst-field").length === 2 &&
-             chanGroups()[1].querySelectorAll(".inst-field").length === 1));
+        log(`4-op: four operators in two pair grids, one Feedback and one four-way Connection: ` +
+          ok(iv.panel.querySelectorAll(".opl-edit > .inst-grid").length === 2 &&
+             chanGroups().length === 0 && algoFields().length === 2 &&
+             [...cntSelect().options].map((o) => o.text).join("|") ===
+               "1 → 2 → 3 → 4|1 → 2 + 3 → 4|1 + 2 → 3 → 4|1 + 2 → 3 + 4"));
+        log(`…the diagram: four boxes in one chain, one curl: ` +
+          ok(boxes().length === 4 && boxRows() === 1 && curls().length === 1));
+        const cntDepth = store.undo.undoStack.length;
+        cntSelect().value = "1";
+        cntSelect().dispatchEvent(new win.Event("change"));
+        await sleep(30);
+        log(`1 → 2 + 3 → 4 is CNT A 0, CNT B 1 in one undo step, drawn as two lanes: ` +
+          ok(inst().opl.cntA === 0 && inst().opl.cntB === 1 &&
+             store.undo.undoStack.length === cntDepth + 1 && boxRows() === 2 && cntSelect().value === "1"));
+        cntSelect().value = "3";
+        cntSelect().dispatchEvent(new win.Event("change"));
+        await sleep(30);
+        log(`1 + 2 → 3 + 4 is both bits, three lanes: ` +
+          ok(inst().opl.cntA === 1 && inst().opl.cntB === 1 && boxRows() === 3));
+        log(`…a quick second pick is the same gesture, one undo step: ` +
+          ok(store.undo.undoStack.length === cntDepth + 1));
+        store.undo.undo();
+        await waitFor(() => inst().opl.cntA === 0 && inst().opl.cntB === 0);
         log(`…badge "${badge()}", record kind ${inst().opl.kind}: ${ok(badge() === "OPL·4" && inst().opl.kind === 1)}`);
         kindBtn("Snare").click();
         await waitFor(() => opGroups().length === 1);
         log(`snare: one operator, a partner multiple, no partner pitch (it shares the hi-hat's channel): ` +
           ok(chanGroups().length === 1 && chanGroups()[0].querySelectorAll(".inst-field").length === 1));
+        log(`…its diagram is one box with no curl, and no channel fields: ` +
+          ok(boxes().length === 1 && curls().length === 0 && algoFields().length === 0));
         kindBtn("Cymbal").click();
         await waitFor(() => inst().opl.kind === 5);
         await sleep(30);
@@ -134,8 +184,9 @@
         kindBtn("Bass drum").click();
         await waitFor(() => inst().opl.kind === 2);
         await sleep(30);
-        log(`bass drum: both operators and their channel: ` +
-          ok(opGroups().length === 2 && chanGroups().length === 1));
+        log(`bass drum: both operators, Feedback and an FM|Additive Connection: ` +
+          ok(opGroups().length === 2 && chanGroups().length === 0 && algoFields().length === 2 &&
+             cntSelect().options.length === 2 && boxes().length === 2 && curls().length === 1));
         kindBtn("2-op").click();
         await waitFor(() => inst().opl.kind === 0);
 

@@ -128,6 +128,13 @@ export function oplChannelBytes(inst, channel, key, value) {
   return [[OPL_BLOCK_START + at, v]];
 }
 
+/** …both channels' connections in one step: a four-operator connection by
+ *  its number in the data sheet's order, CNT A · 2 + CNT B (doc/oplgraph.js). */
+export function oplConnectionBytes(inst, connection) {
+  return [...oplChannelBytes(inst, 0, "cnt", connection >> 1),
+    ...oplChannelBytes(inst, 1, "cnt", connection & 1)];
+}
+
 /** …the rhythm partner's multiplier. */
 export function oplPartnerMultBytes(value) {
   return [[OPL_BLOCK_START + OPL_B_PARTNER_MULT, value & 15]];

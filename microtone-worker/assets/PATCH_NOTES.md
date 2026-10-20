@@ -6,6 +6,17 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-21
 
+The OPL tab draws how an instrument's operators are joined, and a four-operator instrument picks its connection from one list of the chip's four.
+
+- **An Algorithm group now heads the OPL tab**: the operators drawn as the chip's data sheet draws them, in the same diagram as the FM Rack's, with Feedback and Connection beside it. The picture redraws as you change either, and keeps its size, so nothing jumps while you step through the choices.
+- **A 4-op instrument has a single Connection** — 1 → 2 → 3 → 4, 1 → 2 + 3 → 4, 1 + 2 → 3 → 4 or 1 + 2 → 3 + 4 — in place of an FM/Additive switch under each pair that left you to work out which of the four you had.
+- **The feedback curl sits on operator 1 alone**, the only operator the chip feeds back, and is dashed while Feedback is 0.
+
+The Notation Maker's Auto-name (nearest) no longer spells two degrees alike: a scale finer than quarter-tones is named with Kite's ups and downs instead.
+
+- **A 31-, 41- or 53-step scale is named with Kite's ticks** — each 12-TET name on the degree nearest it, the degrees between counted up or down from those — wherever nearest quarter-tone names used to give several degrees the same symbol. Equal divisions… and Import .scl… name a new scale the same way.
+- **A scale too dense for that is named from the quarter-tone names with ticks**, as the 96-TET (Kite) preset is; a scale whose nearest names are already all different is named exactly as before.
+
 Every dialog lays out its buttons the same way: Cancel at the left end, and the action the dialog is for at the right end, filled in the accent colour with a bolder label.
 
 - **Cancel is always the button at the bottom left**, in every dialog from Find & Change to the Sample Lab, so it is where your hand expects it; Esc still does the same.
@@ -20,6 +31,7 @@ Microtone draws in a typeface of its own, Motif: Chivo Mono recut for the grid, 
 
 - **The Timeline, Cues and Patterns grids, the chord and notation makers and the keymap** use Motif Grid: the letters and digits are fuller in the same cell, so a pattern reads more easily at the same size.
 - **The capital O is square and wide and the zero narrow and oval**, the way old HP terminals told them apart, so `0` and `O` no longer look alike — still without a slash or dot through the zero.
+- **C, G and c are more open than in Chivo Mono**, their ends stopping further round the curve, so a C or G in a pattern is not taken for O, 0 or 6, nor a c for e or o — even in bold.
 - **Accidentals, Kite ticks, the volume and panning slide marks, key-off, cut, fade and fast-fade are now part of the font**, drawn with the same strokes as the letters, so they match the note names' weight and line up with them.
 - **Kite's up tick now sits at the top of the letters and its down tick at the bottom**, so the two read apart at a glance; a double tick spans the letters' height.
 - **The dots of an empty cell, the dash of a natural and the + and − of a fine slide** sit on the middle of the note names, level with the Kite marks, and the volume and panning slide marks are one chevron turned four ways, the same size whichever way it points.

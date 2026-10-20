@@ -51,12 +51,13 @@ import { noteGlyph, rangeGlyph } from "../components/noteglyph.js";
 import { MOTIF } from "../../../core/fonts/motifglyphs.js";
 import { fmGraphSvg } from "../fmgraph.js";
 import {
-  oplFields, oplOpBytes, oplKindBytes, oplSwitchBytes, oplChannelBytes,
+  oplFields, oplOpBytes, oplKindBytes, oplSwitchBytes, oplChannelBytes, oplConnectionBytes,
   oplPartnerMultBytes, oplPartnerDetuneBytes, oplOperatorCount, oplHasPartner, oplBadge,
   OPL_OP_FIELDS, OPL_KIND_2OP, OPL_KIND_4OP, OPL_KIND_BD, OPL_KIND_SD, OPL_KIND_TOM,
   OPL_KIND_TC, OPL_KIND_HH,
 } from "../../doc/opledit.js";
 import { formantBadge } from "../../doc/formantedit.js";
+import { oplGraph, oplGraphCanvas } from "../../doc/oplgraph.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
 import { renderFormantTab } from "./instformant.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
@@ -2425,11 +2426,45 @@ export class InstrumentsView {
         { title: t("opl.lowFnumTitle") }),
     );
 
-    // ── the operators, a grid per pair ──
+    // ── the algorithm: the operators drawn as the chip's data sheet draws
+    // them, in the FM Rack's diagram, beside the two fields that change it —
+    // feedback, which only operator 1 has, and the connection, one of two for
+    // a pair and one of four for four operators. Both are the channel's, not
+    // either operator's, so they sit here rather than under one. ──
     const single = nOps === 1;
-    const names = nOps === 4
-      ? [1, 2, 3, 4].map((n) => t("opl.opN", { n }))
-      : single ? [t("opl.op")] : [t("opl.mod"), t("opl.car")];
+    const names = oplOperatorNames(nOps);
+    const algorithm = () => {
+      const box = document.createElement("div");
+      box.className = "inst-group opl-conn";
+      const head = document.createElement("div");
+      head.className = "inst-group-head";
+      head.textContent = t("opl.grpAlgorithm");
+      const body = document.createElement("div");
+      body.className = "opl-conn-body";
+      body.appendChild(oplGraphFrame(f));
+      if (!single) {
+        const fields = document.createElement("div");
+        fields.className = "opl-conn-fields";
+        fields.append(
+          field(t("opl.fb"),
+            num(f.feedback, 7, (v) => apply(oplChannelBytes(inst, 0, "feedback", v), "fb")),
+            t("opl.fbTitle")),
+          nOps === 4
+            ? field(t("opl.cnt"),
+              select(f.cntA * 2 + f.cntB, [0, 1, 2, 3].map((c) => [c, t(`opl.cnt4.${c}`)]),
+                (v) => apply(oplConnectionBytes(inst, v), "cnt")),
+              t("opl.cnt4Title"))
+            : field(t("opl.cnt"),
+              select(f.cntA, [[0, t("opl.cntFm")], [1, t("opl.cntAdd")]],
+                (v) => apply(oplChannelBytes(inst, 0, "cnt", v), "cnt")),
+              t("opl.cntTitle")));
+        body.appendChild(fields);
+      }
+      box.append(head, body);
+      return box;
+    };
+
+    // ── the operators, a grid per pair ──
     const operator = (o) => {
       const box = document.createElement("div");
       box.className = "inst-group opl-op";
@@ -2444,25 +2479,6 @@ export class InstrumentsView {
           : num(val, fd.max, (v) => apply(oplOpBytes(inst, o, fd.key, v), `op${o}.${fd.key}`));
         box.appendChild(field(t(`opl.f.${fd.key}`), control, t(`opl.f.${fd.key}Title`)));
       }
-      return box;
-    };
-    const channel = (p) => {
-      const box = document.createElement("div");
-      box.className = "inst-group opl-chan";
-      const head = document.createElement("div");
-      head.className = "inst-group-head";
-      head.textContent = nOps === 4 ? t("opl.pair", { n: p + 1 }) : t("opl.channel");
-      box.appendChild(head);
-      // The chip applies feedback to operator 1 alone: channel B's has nowhere to act.
-      if (p === 0) {
-        box.appendChild(field(t("opl.fb"),
-          num(f.feedback, 7, (v) => apply(oplChannelBytes(inst, 0, "feedback", v), "fb")),
-          t("opl.fbTitle")));
-      }
-      box.appendChild(field(t("opl.cnt"),
-        select(p === 0 ? f.cntA : f.cntB, [[0, t("opl.cntFm")], [1, t("opl.cntAdd")]],
-          (v) => apply(oplChannelBytes(inst, p, "cnt", v), `cnt${p}`)),
-        t("opl.cntTitle")));
       return box;
     };
     const partner = () => {
@@ -2487,12 +2503,14 @@ export class InstrumentsView {
 
     const ops = document.createElement("div");
     ops.className = "opl-edit";
+    ops.appendChild(algorithm());
+    // A grid per pair, so a four-operator patch's second pair starts a row of
+    // its own instead of wrapping in beside the first.
     for (let p = 0; p * 2 < nOps; p++) {
       const grid = document.createElement("div");
       grid.className = "inst-grid";
       grid.appendChild(operator(2 * p));
       if (2 * p + 1 < nOps) grid.appendChild(operator(2 * p + 1));
-      if (!single) grid.appendChild(channel(p));
       else if (oplHasPartner(f.kind)) grid.appendChild(partner());
       ops.appendChild(grid);
     }
@@ -2518,7 +2536,8 @@ export class InstrumentsView {
     return this._oplGestureId;
   }
 
-  /** Redraw the envelope sketches after a field edit, leaving the fields be. */
+  /** Redraw the envelope sketches and the algorithm diagram after a field
+   *  edit, leaving the fields be. */
   refreshOplSketches() {
     const inst = this.store.doc?.instruments[this._oplSlot];
     if (!inst?.isOpl) return;
@@ -2526,6 +2545,7 @@ export class InstrumentsView {
     for (const svg of this.panel.querySelectorAll("svg.opl-env[data-op]")) {
       svg.replaceWith(oplEnvelopeSvg(f.ops[+svg.dataset.op], +svg.dataset.op));
     }
+    this.panel.querySelector(".opl-graph")?.replaceWith(oplGraphFrame(f));
   }
 
   frame() {
@@ -2548,6 +2568,37 @@ function escape(s) {
 }
 
 function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+/** What the OPL tab calls each of `nOps` operators. */
+function oplOperatorNames(nOps) {
+  return nOps === 4 ? [1, 2, 3, 4].map((n) => t("opl.opN", { n }))
+    : nOps === 1 ? [t("opl.op")] : [t("opl.mod"), t("opl.car")];
+}
+
+/**
+ * The OPL tab's algorithm diagram (doc/oplgraph.js, painted by the FM Rack's
+ * fmGraphSvg): the operators numbered as the data sheet numbers them, named in
+ * their tooltips as the groups below name them, and the feedback curl on
+ * operator 1 — dashed while Feedback is 0.
+ */
+function oplGraphFrame(f) {
+  const nOps = oplOperatorCount(f.kind);
+  const names = oplOperatorNames(nOps);
+  const frame = document.createElement("div");
+  frame.className = "fm-graph-frame opl-graph";
+  frame.title = t("opl.graphTitle");
+  // Every connection is drawn on the canvas of the largest, so stepping
+  // through them moves nothing else on the tab: not the fields beside it, not
+  // the operators below.
+  frame.append(fmGraphSvg(oplGraph(nOps, f.cntA, f.cntB, f.feedback), {
+    label: (k) => String(k + 1),
+    title: (k) => names[k],
+    loopTitle: (k, n) => t("opl.fbLoop", { n }),
+    outLabel: t("fm.out"),
+    canvas: oplGraphCanvas(nOps),
+  }));
+  return frame;
+}
 
 /** What the list row and the detail header say this instrument IS. An FM rack
  *  carries its operator count, because that is the number that tells you what

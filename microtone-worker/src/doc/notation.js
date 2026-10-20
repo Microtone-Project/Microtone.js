@@ -35,6 +35,8 @@
 // ([tick][letter][accidental], single-char = CJK), converted to/from the Taud
 // charset here. The byte values are transcribed from taut.js `sym` (taut.js:45).
 
+import { ANCHOR_NOTE } from "../../core/tuning/pitchtables.js";
+
 // ── notation-value ↔ slot mapping ──
 
 export const NOTA_SLOTS = 16;
@@ -403,10 +405,96 @@ function sequenceSyms(n) {
   return out;
 }
 
+// Kite fallback for "nearest" (item 223). A scale with two degrees nearer one
+// quarter-tone name than any other — 31, 41 or 53 divisions, say — would be
+// spelled twice over, and a notation that spells two notes alike cannot be read.
+// So such a scale is named the way the shipped Kite tables are, over the twelve
+// sharp names of 41-TET (Kite), else the twenty-four quarter-tone names of
+// 96-TET (Kite): each name goes to the degree nearest it, spelled with the big
+// dot, and the degrees between two of those anchors are counted off from them:
+// up from the anchor below for those nearer it, down from the one above for the
+// rest (a degree midway goes down), at most two ticks each way. The ticks count
+// the scale's own degrees, so this names any scale, not only an equal one; it
+// is not Kite's chain-of-fifths spelling of an EDO, whose sharps come from the
+// EDO's fifth — those tables ship as presets.
+const KITE_GRIDS = [
+  ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"],
+  NEAREST_24.map((s) => s.slice(1)),
+];
+
+/** The degrees that share a cell's octave digit, so may not share a name: the
+ *  whole period of an interval system, and each 12-TET octave of an absolute
+ *  table, whose cells take the digit from the pitch (pitchtables.js absOctave). */
+function nameGroups(def) {
+  const groups = new Map();
+  const base = def.base || ANCHOR_NOTE;
+  def.table.forEach((units, i) => {
+    const key = def.interval === 0 ? Math.floor((base + units - ANCHOR_NOTE) / 0x1000) : 0;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(i);
+  });
+  return [...groups.values()];
+}
+
+function spellsTwice(def, syms) {
+  return nameGroups(def).some((g) => new Set(g.map((i) => syms[i])).size < g.length);
+}
+
+/** Kite names over `names` (one octave's grid, ascending from C), or null when
+ *  a run between two anchors needs more than two ticks either way. */
+function kiteSyms(def, names) {
+  const n = names.length;
+  const out = new Array(def.table.length);
+  const pc = (i) => ((def.table[i] % 0x1000) + 0x1000) % 0x1000;
+  // A degree's nearest name, circularly, so the top of the octave reads as the
+  // next C from below.
+  const near = (i) => Math.round((pc(i) * n) / 0x1000) % n;
+  const off = (i) => {
+    const d = Math.abs(pc(i) - (near(i) * 0x1000) / n);
+    return Math.min(d, 0x1000 - d);
+  };
+  for (const group of nameGroups(def)) {
+    const anchor = new Map(); // name → the degree nearest it
+    for (const i of group) {
+      const a = anchor.get(near(i));
+      if (a === undefined || off(i) < off(a)) anchor.set(near(i), i);
+    }
+    const isAnchor = new Set(anchor.values());
+    // Round the octave from an anchor, so every run of unnamed degrees has an
+    // anchor before it and one after (past the end, the first again).
+    const order = group.slice().sort((a, b) => pc(a) - pc(b) || a - b);
+    const first = order.findIndex((i) => isAnchor.has(i));
+    const ring = [...order.slice(first), ...order.slice(0, first)];
+    // Pitch along the ring, the degrees past the wrap an octave up.
+    const at = ring.map((i, k) => pc(i) + (k >= order.length - first ? 0x1000 : 0));
+    for (let k = 0; k < ring.length;) {
+      const below = ring[k];
+      let j = k + 1;
+      while (j < ring.length && !isAnchor.has(ring[j])) j++;
+      const above = ring[j % ring.length];
+      const top = j < ring.length ? at[j] : at[0] + 0x1000;
+      const run = ring.slice(k + 1, j);
+      const ups = at.slice(k + 1, j).filter((u) => u - at[k] < top - u).length;
+      if (ups > 2 || run.length - ups > 2) return null;
+      out[below] = TICK_ASC[TICK_NEUTRAL] + names[near(below)];
+      run.forEach((i, m) => {
+        out[i] = m < ups
+          ? TICK_ASC[TICK_NEUTRAL + m + 1] + names[near(below)]
+          : TICK_ASC[TICK_NEUTRAL - (run.length - m)] + names[near(above)];
+      });
+      k = j;
+    }
+  }
+  return out;
+}
+
 /**
  * Generate a full sym list for a definition:
  *   'nearest'  nearest quarter-tone name (12-TET letters + demi accidentals),
- *              wrapped into the octave — a musical starting point;
+ *              wrapped into the octave — a musical starting point; when that
+ *              would spell two degrees alike, Kite's ups and downs over the
+ *              nearest 12-TET names, or quarter-tone names for a scale too
+ *              dense for those (kiteSyms above);
  *   'sequence' ascending letters A, B, C…, sharing letters by variant once a
  *              scale outruns the alphabet — a neutral scheme for scales that
  *              fight diatonic names.
@@ -418,6 +506,11 @@ export function autoAssignSyms(def, mode = "nearest") {
   for (let i = 0; i < n; i++) {
     const deg = ((Math.round((def.table[i] * 24) / 0x1000) % 24) + 24) % 24;
     out.push(NEAREST_24[deg]);
+  }
+  if (!spellsTwice(def, out)) return out;
+  for (const names of KITE_GRIDS) {
+    const kite = kiteSyms(def, names);
+    if (kite !== null) return kite;
   }
   return out;
 }

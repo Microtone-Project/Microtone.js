@@ -1694,6 +1694,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fm-graph-wire { fill: none; stroke: var(--dim); stroke-width: 1.5; }
 .fm-graph-arrow { fill: var(--dim); }
 .fm-graph-loop { stroke: var(--accent-2); }
+/* A feedback path at depth 0 (an OPL operator 1 with Feedback 0): still drawn,
+   because the chip has it, but dashed and dim, because nothing goes round it. */
+.fm-graph-fb.idle .fm-graph-loop { stroke: var(--dim); stroke-dasharray: 3 2; }
 .fm-graph-box {
   fill: var(--panel); stroke: var(--accent); stroke-width: 1.5;
 }
@@ -2374,6 +2377,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .opl-env polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
 .opl-note { margin: 0.1rem 0; font-size: 0.85rem; }
+/* The algorithm: the connection diagram, with the channel's Feedback and
+   Connection beside it (below it, when the panel is narrow). */
+.opl-conn-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem 1.2rem; }
+.opl-conn .fm-graph-frame { margin-bottom: 0; }
+.opl-conn-fields { display: flex; flex-direction: column; gap: 0.28rem; min-width: 210px; }
 
 /* The PSG tab (views/instpsg.js): the OPL tab's layout, with a waveform window
    above each oscillator's envelope sketch. What S $Axxx and the auto-advance
@@ -3542,6 +3550,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 
 /* Where the bare control used to carry the width, the group carries it now. */
 .inst-field .mt-spin, .inst-field .mt-pick { width: 9.5rem; }
+/* …wider beside the OPL algorithm, where a four-operator connection reads
+   "1 + 2 → 3 + 4" in full. */
+.opl-conn .inst-field .mt-spin, .opl-conn .inst-field .mt-pick { width: 12rem; }
 .slider-row .mt-spin { width: 100%; }
 .env-ctl .mt-spin { width: 7rem; }
 .meta-table .mt-spin { width: 8.5em; }

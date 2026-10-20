@@ -171,6 +171,40 @@ test("autoAssignSyms: nearest quarter-tone and letter-sequence modes", () => {
   assert.equal(autoAssignSyms(eq26, "sequence")[25], " Z-");
 });
 
+// "Nearest" spells two degrees alike as soon as a scale is denser than the
+// quarter-tone grid anywhere. It then names the scale with Kite's ticks, over
+// the 12-TET names, else the quarter-tone names, the way the shipped Kite
+// tables are spelled.
+test("autoAssignSyms: nearest falls back to Kite ticks rather than spell two degrees alike", () => {
+  const edo = (n) => ({ interval: 0x1000, table: Array.from({ length: n }, (_, i) => Math.round((i * 0x1000) / n)) });
+  const TICKS = new Set(["D", "d", ".", "u", "U"]);
+  for (const n of [31, 36, 41, 53, 72, 96, 120]) {
+    const syms = autoAssignSyms(edo(n), "nearest");
+    assert.equal(new Set(syms).size, n, `${n}-EDO names every degree once`);
+    // A tick-bearing table: every degree has a tick, the unmarked ones the big dot.
+    assert.ok(syms.every((s) => TICKS.has(s[0])), `${n}-EDO: a tick on every degree`);
+    for (const s of syms) assert.equal(taudToSymToken(symTokenToTaud(s)), s, `${n}-EDO ${s} round-trips`);
+  }
+  // 41: C, then the degrees up to C♯ counted off from the two of them.
+  assert.deepEqual(autoAssignSyms(edo(41), "nearest").slice(0, 5), [".C-", "uC-", "dC#", ".C#", "uC#"]);
+  // 53 needs both ticks each way; its last degree is a tick below the next C.
+  const s53 = autoAssignSyms(edo(53), "nearest");
+  assert.deepEqual(s53.slice(0, 5), [".C-", "uC-", "DC#", "dC#", ".C#"]);
+  assert.equal(s53[52], "dC-");
+  // 72 is six to a semitone, past two ticks each way: quarter-tone names, as 96-TET (Kite).
+  assert.deepEqual(autoAssignSyms(edo(72), "nearest").slice(0, 4), [".C-", "uC-", "dCt", ".Ct"]);
+  // One extra degree beside a plain 12-TET: the whole scale is spelled Kite's way.
+  const extra = { interval: 0x1000, table: [0, 0x22, ...Array.from({ length: 11 }, (_, i) => Math.round(((i + 1) * 0x1000) / 12))] };
+  assert.deepEqual(autoAssignSyms(extra, "nearest").slice(0, 4), [".C-", "uC-", ".C#", ".D-"]);
+  // Unchanged where nearest names are already unique: 24-EDO above, and an
+  // absolute table whose octaves repeat their names (each octave has its own digit).
+  const twoOctaves = { interval: 0, table: Array.from({ length: 24 }, (_, i) => Math.round((i * 0x1000) / 12)) };
+  const abs = autoAssignSyms(twoOctaves, "nearest");
+  assert.deepEqual([abs[0], abs[12]], [" C-", " C-"]);
+  // Too dense for either grid: the nearest names, as before.
+  assert.equal(autoAssignSyms(edo(144), "nearest")[1], " C-");
+});
+
 // Item 72.1: past 26 degrees the old scheme ran A..Z then restarted at A with a
 // tick, so degree 27 read "·A" — a step DOWN from the Z before it. Degrees now
 // spread evenly over all 26 letters, told apart by a variant ladder sized to fit.

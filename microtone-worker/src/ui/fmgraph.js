@@ -12,6 +12,9 @@
 //
 // Nothing is hard-coded to a theme: strokes and fills are `currentColor` and CSS
 // variables, so the diagram follows the palette like the rest of the app.
+//
+// The OPL tab draws its connections with it too (doc/oplgraph.js), and IMS
+// Studio carries a verbatim copy, so it imports nothing.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -37,20 +40,36 @@ const PAD_TOP_PLAIN = 4;
 const PAD_TOP_LOOP = 15;
 
 /**
- * Paint `graph` (doc/fmedit.js fmGraph) as an `<svg>`.
+ * Paint `graph` (doc/fmlayout.js fmTreeGraph: an FM Rack's fmGraph, an OPL
+ * connection's oplGraph) as an `<svg>`.
  *
  * `label(k)` names operator k in its box — the index by default; `title(k)`
- * fills its tooltip. `outLabel` names the sink.
+ * fills its tooltip, and `loopTitle(k, feedback)` its feedback curl's. A curl
+ * whose cell says its depth is 0 is drawn idle: the path is there, nothing
+ * goes round it. `outLabel` names the sink.
+ *
+ * `canvas` ({cols, rows}) draws on a canvas at least that big, the picture
+ * keeping OUT at the right-hand end and centred on the height, so diagrams
+ * drawn on one canvas — an OPL channel's connections — replace one another
+ * without moving anything around them.
  */
-export function fmGraphSvg(graph, { label = String, title = null, outLabel = "OUT" } = {}) {
+export function fmGraphSvg(graph, {
+  label = String, title = null, loopTitle = null, outLabel = "OUT", canvas = null,
+} = {}) {
   const loops = graph.cells.some((c) => c.selfFeedback);
   const padTop = loops ? PAD_TOP_LOOP : PAD_TOP_PLAIN;
-  const width = PAD_X * 2 + graph.cols * COL_PITCH + OUT_W;
-  const height = padTop + PAD_BOTTOM + (graph.rows - 1) * ROW_PITCH + BOX_H;
+  const cols = Math.max(graph.cols, canvas?.cols ?? 0);
+  const rows = Math.max(graph.rows, canvas?.rows ?? 0);
+  const width = PAD_X * 2 + cols * COL_PITCH + OUT_W;
+  const height = padTop + PAD_BOTTOM + (rows - 1) * ROW_PITCH + BOX_H;
+  // Everything below is placed on the graph's own grid; the view box widens
+  // it leftwards and evenly up and down.
+  const dx = (cols - graph.cols) * COL_PITCH;
+  const dy = ((rows - graph.rows) * ROW_PITCH) / 2;
 
   const svg = el("svg", {
     class: "fm-graph",
-    viewBox: `0 0 ${width} ${height}`,
+    viewBox: `${-dx} ${-dy} ${width} ${height}`,
     width, height,
     role: "img",
   });
@@ -115,14 +134,17 @@ export function fmGraphSvg(graph, { label = String, title = null, outLabel = "OU
       if (c.selfFeedback) {
         // The curl over the box: an operator reading its own last sample. Drawn
         // as the loop rather than as a second box, because that is the idiom.
-        g.append(el("path", {
+        const loop = el("g", { class: `fm-graph-fb${c.feedback === 0 ? " idle" : ""}` });
+        loop.append(el("path", {
           class: "fm-graph-wire fm-graph-loop",
           d: `M${x + BOX_W - 5} ${y} C${x + BOX_W + 6} ${y - 13} ${x - 6} ${y - 13} ${x + 5} ${y}`,
         }));
-        g.append(el("path", {
+        loop.append(el("path", {
           class: "fm-graph-arrow",
           d: `M${x + 5} ${y} l-3.5 -5 h7 z`,
         }));
+        if (loopTitle !== null) loop.append(el("title", {}, loopTitle(c.op, c.feedback)));
+        g.append(loop);
       }
       if (title !== null) g.append(el("title", {}, title(c.op)));
     } else {

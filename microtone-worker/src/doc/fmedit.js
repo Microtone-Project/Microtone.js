@@ -19,6 +19,7 @@ import {
   FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FM_WORD_OP, FmOp, META_TYPE_FM,
 } from "../../core/engine/inst.js";
 import { metaFlags } from "./metaedit.js";
+import { fmTreeGraph } from "./fmlayout.js";
 
 export { FM_MAX_OPERATORS, FM_BUDGET_BYTES, FmOp, META_TYPE_FM };
 
@@ -282,77 +283,12 @@ export function fmTree(program, opCount) {
 }
 
 /**
- * Place the tree on a grid for the algorithm diagram — the FM chip's own
- * picture, which says in one glance what the formula says in one sentence.
- *
- * `col` counts modulation depth AWAY from the output, so column 0 is the
- * carrier and the deepest modulator has the highest column; the painter mirrors
- * that into left-to-right, which puts the signal flow the way it is read.
- * `row` is a lane: parallel carriers get one each, a chain stays on one.
- *
- * Every node returns the rows it occupies and the ANCHORS its parent draws a
- * wire from — a list, because a sum has no box of its own and its branches
- * converge directly on whatever consumes them, exactly as several carriers
- * converge on OUTPUT.
- *
- * Returns {cells, edges, cols, rows, outRow} in grid coordinates, or null.
+ * The algorithm diagram's grid (doc/fmlayout.js fmTreeGraph) for this program:
+ * {cells, edges, cols, rows, outRow}, or null when the program does not verify.
  */
 export function fmGraph(program, opCount) {
   const tree = fmTree(program, opCount);
-  if (tree === null) return null;
-  const cells = [];
-  const edges = [];
-  const root = placeFmNode(tree, 0, 0, cells, edges);
-  let cols = 1;
-  for (const c of cells) if (c.col + 1 > cols) cols = c.col + 1;
-  const outRow = (root.height - 1) >> 1;
-  for (const a of root.anchors) edges.push({ from: a, to: { col: -1, row: outRow } });
-  return { cells, edges, cols, rows: root.height, outRow };
-}
-
-/** One node of fmGraph's placement. See its comment for the contract. */
-function placeFmNode(node, col, row, cells, edges) {
-  if (node.kind === "tap") {
-    cells.push({ kind: "op", op: node.op, tap: true, col, row });
-    return { height: 1, anchors: [{ col, row }] };
-  }
-  if (node.kind === "op") {
-    // An operator read through its OWN previous output is the self-feedback
-    // loop every FM chip draws as a curl on the box, so it is one box here too
-    // rather than a box wired to a copy of itself.
-    if (node.mod !== null && node.mod.kind === "tap" && node.mod.op === node.op) {
-      cells.push({ kind: "op", op: node.op, selfFeedback: true, col, row });
-      return { height: 1, anchors: [{ col, row }] };
-    }
-    if (node.mod === null) {
-      cells.push({ kind: "op", op: node.op, col, row });
-      return { height: 1, anchors: [{ col, row }] };
-    }
-    const m = placeFmNode(node.mod, col + 1, row, cells, edges);
-    const r = row + ((m.height - 1) >> 1);
-    cells.push({ kind: "op", op: node.op, col, row: r });
-    for (const a of m.anchors) edges.push({ from: a, to: { col, row: r } });
-    return { height: m.height, anchors: [{ col, row: r }] };
-  }
-  if (node.kind === "add") {
-    // No box: a sum is what the wires already do where they meet.
-    const a = placeFmNode(node.a, col, row, cells, edges);
-    const b = placeFmNode(node.b, col, row + a.height, cells, edges);
-    return { height: a.height + b.height, anchors: [...a.anchors, ...b.anchors] };
-  }
-  // mul / neg — these DO need a mark, because meeting wires would read as a sum.
-  const kids = node.kind === "mul" ? [node.a, node.b] : [node.a];
-  const anchors = [];
-  let h = 0;
-  for (const kid of kids) {
-    const k = placeFmNode(kid, col + 1, row + h, cells, edges);
-    h += k.height;
-    anchors.push(...k.anchors);
-  }
-  const r = row + ((h - 1) >> 1);
-  cells.push({ kind: node.kind, col, row: r });
-  for (const a of anchors) edges.push({ from: a, to: { col, row: r } });
-  return { height: h, anchors: [{ col, row: r }] };
+  return tree === null ? null : fmTreeGraph(tree);
 }
 
 /**

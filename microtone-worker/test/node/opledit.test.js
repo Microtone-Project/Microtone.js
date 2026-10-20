@@ -14,6 +14,7 @@ import { importBankOp, setInstBytesOp } from "../../src/doc/ops.js";
 import { planCreateOpl } from "../../src/doc/bankmerge.js";
 import {
   oplFields, oplOperator, oplOpBytes, oplKindBytes, oplSwitchBytes, oplChannelBytes,
+  oplConnectionBytes,
   oplPartnerMultBytes, oplPartnerDetuneBytes, oplOperatorCount, oplHasPartner,
   defaultOplRecord, oplBadge, OPL_OP_FIELDS,
   OPL_KIND_2OP, OPL_KIND_4OP, OPL_KIND_BD, OPL_KIND_SD, OPL_KIND_TOM, OPL_KIND_TC, OPL_KIND_HH,
@@ -106,6 +107,15 @@ test("the chip switches, the channels and the partner", () => {
   let f = oplFields(inst);
   assert.deepEqual([f.feedback, f.cntA, f.cntB], [5, 1, 1]);
   assert.equal(inst.opl.feedback, 5);
+  // A four-operator connection is both channels' bits, written together, in
+  // the data sheet's order CNT A · 2 + CNT B; feedback rides along untouched.
+  for (const connection of [2, 0, 1, 3]) {
+    const depth = doc.undo.undoStack.length;
+    edit(doc, slot, oplConnectionBytes(inst, connection));
+    f = oplFields(inst);
+    assert.deepEqual([f.cntA, f.cntB, f.feedback], [connection >> 1, connection & 1, 5]);
+    assert.equal(doc.undo.undoStack.length, depth + 1, "one undo step");
+  }
   edit(doc, slot, oplPartnerMultBytes(3));
   edit(doc, slot, oplPartnerDetuneBytes(-2389));
   f = oplFields(inst);
