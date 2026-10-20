@@ -92,7 +92,7 @@ missing.
 | `src/lattice.js` | Isomorphic layouts, derived from each tuning's own fifth, each turned so the head key's octaves stand in a vertical column (or lie in a row); the degree run's strips; the fat-finger touch zones |
 | `src/keyboard.js` | The canvas keyboard and drum pads, multi-touch; one fat-finger touch is told to the app as one finger per key |
 | `src/grid.js` | The pattern grid |
-| `src/notes.js` | Note names as plain text |
+| `src/notes.js` | Note names as text, in Motif Grid — the tracker's grid font, from `../core/fonts/`, so quarter-tone accidentals and Kite's ticks read as themselves |
 | `src/saving.js` | Save, Save as…, the sign-in and the conflicts they may need, the `.taud` to take away |
 | `src/library.js` | Sketches kept on this phone (IndexedDB) |
 | `src/files.js` | The Files panel and the Load… sheet: both places' sketches, opened, renamed, copied, deleted |

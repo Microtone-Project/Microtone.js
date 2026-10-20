@@ -47,7 +47,8 @@ import { mapSpinner } from "../widgets/spinner.js";
 import { dragGrip, focusGrip } from "../widgets/dragsort.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import { hex2, rangeToStr } from "../notenames.js";
-import { noteGlyphCanvas, rangeGlyphCanvas } from "../noteglyph.js";
+import { noteGlyph, rangeGlyph } from "../noteglyph.js";
+import { MOTIF } from "../../../core/fonts/motifglyphs.js";
 import { fmGraphSvg } from "../fmgraph.js";
 import {
   oplFields, oplOpBytes, oplKindBytes, oplSwitchBytes, oplChannelBytes,
@@ -66,6 +67,7 @@ import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
 // already the app's one place that reads "$5000" and "C-4" as the same thing.
 import { parseFieldValue } from "../../doc/patternquery.js";
 import { themeColors } from "../theme.js";
+import { canvasMonoFont } from "../fonts.js";
 import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
 import { isStereoSample } from "../../doc/document.js";
 import { baseStereoPatchIndex, packDupCheck, DCT_LANE } from "../../../core/engine/inst.js";
@@ -987,11 +989,14 @@ export class InstrumentsView {
     lab.className = "sl-label"; lab.textContent = label;
     const group = document.createElement("div");
     group.className = "sl-buttons";
-    options.forEach(([v, text]) => {
+    // An option may carry {glyph, cls}: the button then shows the glyph and
+    // keeps the text as its tooltip and accessible name.
+    options.forEach(([v, text, look]) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.textContent = text;
-      b.className = v === value ? "active" : "";
+      b.textContent = look?.glyph ?? text;
+      if (look?.glyph) { b.title = text; b.setAttribute("aria-label", text); }
+      b.className = [v === value ? "active" : "", look?.cls ?? ""].filter(Boolean).join(" ");
       b.addEventListener("click", () => onChange(v));
       group.appendChild(b);
     });
@@ -1098,10 +1103,15 @@ export class InstrumentsView {
         : this.sliderRow(t("inst.resonance"), inst.defaultResonance, 0, 255, fSet("defaultResonance"), { ann: annFilter }),
     );
 
+    // Each waveform button shows its wave in Motif Grid's waveform glyphs —
+    // two periods, so the button is a generous target — and names it in the
+    // tooltip.
+    const wave = (g) => ({ glyph: g + g, cls: "wave-btn" });
     this.group(t("inst.grpVibrato"),
       this.selectRow(t("inst.vibWaveLabel"), (inst.instrumentFlag >> 2) & 7,
-        [[0, t("inst.vibSine")], [1, t("inst.vibRampDown")], [2, t("inst.vibSquare")],
-         [3, t("inst.vibRandom")], [4, t("inst.vibRampUp")]],
+        [[0, t("inst.vibSine"), wave(MOTIF.WAVE_SINE)], [1, t("inst.vibRampDown"), wave(MOTIF.WAVE_RAMP_DOWN)],
+         [2, t("inst.vibSquare"), wave(MOTIF.WAVE_SQUARE)], [3, t("inst.vibRandom"), wave(MOTIF.WAVE_RANDOM)],
+         [4, t("inst.vibRampUp"), wave(MOTIF.WAVE_RAMP_UP)]],
         flagSet(7, 2)),
       this.sliderRow(t("inst.vibSpeed"), inst.vibratoSpeed, 0, 255, fSet("vibratoSpeed"), { ann: annHex2 }),
       this.sliderRow(t("inst.vibDepth"), inst.vibratoDepth, 0, 255, fSet("vibratoDepth"), { ann: annHex2 }),
@@ -1488,7 +1498,7 @@ export class InstrumentsView {
     const Y = (v) => h - 14 - (v / tabDef.max) * (h - 28);
 
     // ── grids ── magnitude (horizontal, value labels) + time (vertical, seconds)
-    ctx.font = "9px monospace";
+    ctx.font = canvasMonoFont(9);
     ctx.textAlign = "left";
     ctx.strokeStyle = C.border;
     for (let g = 0; g <= 4; g++) {
@@ -1706,7 +1716,7 @@ export class InstrumentsView {
       ctx.strokeRect(x + 0.5, y + 0.5, pw - 1, ph - 1);
       ctx.globalAlpha = 1;
       ctx.fillStyle = C.fg;
-      ctx.font = "10px monospace";
+      ctx.font = canvasMonoFont(10);
       if (pw > 30) {
         // A stereo zone (Ixmp 's') is tagged, since two zones that look alike
         // on the map can differ by costing twice the pool bytes.
@@ -1871,13 +1881,13 @@ export class InstrumentsView {
         stepNoteInTable(clampN(ANCHOR_NOTE + units, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
     }, entry.detune);
     centsIn.addEventListener("change", () => commit({ detune: centsIn.rawValue }));
-    // The note the detune lands on, painted in the SONG's notation (the
-    // grids' own glyph painter) rather than spelled in 12-EDO — the − +
+    // The note the detune lands on, spelled in the SONG's notation (the
+    // grids' own spelling) rather than in 12-EDO — the − +
     // buttons already step degrees of this table, so the readout has to agree
     // with them. The raw 4096-TET units stay as text beside the glyph.
     const detAnn = Object.assign(document.createElement("span"), { className: "dim meta-det-ann" });
     detAnn.append(
-      noteGlyphCanvas(clampN(fixed ? entry.detune : ANCHOR_NOTE + entry.detune, 0x20, 0xffff), preset),
+      noteGlyph(clampN(fixed ? entry.detune : ANCHOR_NOTE + entry.detune, 0x20, 0xffff), preset),
       ` · ${entry.detune}`);
     detCell.append(centsIn, detAnn);
     // The flag itself. It lives beside the field it re-reads, because that is
@@ -1899,7 +1909,7 @@ export class InstrumentsView {
     // them on the Layers tab"; until item 113 there was nothing here to narrow.
     const rngCell = tr.querySelector(".rngCell");
     const rngAnn = Object.assign(document.createElement("span"), { className: "dim meta-rng-ann" });
-    rngAnn.append(rangeGlyphCanvas(entry.pitchStart, entry.pitchEnd, preset, t("range.whole")));
+    rngAnn.append(rangeGlyph(entry.pitchStart, entry.pitchEnd, preset, t("range.whole")));
     rngCell.append(
       this.metaNumIn(entry.pitchStart, 0, 0xffff, (v) => commit({ pitchStart: v }),
         t("meta.pitchLoTitle")),

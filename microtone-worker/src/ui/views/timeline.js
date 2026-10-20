@@ -8,7 +8,7 @@ import {
   AZIMUTH_TURN, ELEVATION_QUARTER, SURROUND_SPATIAL, lateralProjection,
 } from "../../../core/engine/spatial.js";
 import { hex2, hex4, fxColonWarns } from "../notenames.js";
-import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
+import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../cellpaint.js";
 import {
   interpretEditKey, capKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,

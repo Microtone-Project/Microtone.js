@@ -42,7 +42,7 @@ const RANGE_LO_SENTINELS = new Set([0x0000, 0x0020]);
 const RANGE_HI_SENTINEL = 0xffff;
 
 /** Which ends of a zone/layer range are OPEN — shared so the text form below
- *  and the glyph form (noteglyph.js rangeGlyphCanvas) collapse them alike. */
+ *  and the glyph form (noteglyph.js rangeGlyph) collapse them alike. */
 export function rangeBoundsOpen(lo, hi) {
   return { openLo: RANGE_LO_SENTINELS.has(lo), openHi: hi === RANGE_HI_SENTINEL };
 }
@@ -146,7 +146,7 @@ const S_LAYOUT = {
  * by fxLayout to colour a correctly-paired `:` (and the command it extends)
  * by what the COMBINED argument means, rather than each cell's own isolated
  * layout. Callers only need to pass this when the pairing isn't flagged by
- * fxColonWarns; a flagged cell paints flat (glyphs.js paintFxCell), so an
+ * fxColonWarns; a flagged cell paints flat (cellpaint.js paintFxCell), so an
  * unflagged caller passing 0 just gets the ordinary per-effect layout back.
  */
 export function fxArgFields(effect, arg, pairedOp = 0) {
@@ -275,8 +275,9 @@ function fxLayout(effect, arg, pairedOp = 0) {
 // happening to the value), a tick for a per-tick slide, and +/− for the
 // one-shot fine slides — whose argument is the magnitude 00..1F, the direction
 // having moved into the symbol. "···" is the $C0 no-op sentinel (empty cell).
-// The grids paint the ticks as vectors (glyphs.paintVolPanCell); these strings
-// are the text fallback and what the tests read.
+// The grids paint the ticks in the Motif Grid font's own slide marks
+// (cellpaint.paintVolPanCell); these strings are the text fallback and what
+// the tests read.
 const VOL_SYM = { set: " ", up: "˄", down: "˅", fineUp: "+", fineDown: "−", none: "·" };
 const PAN_SYM = { set: " ", up: "˃", down: "˂", fineUp: "+", fineDown: "−", none: "·" };
 

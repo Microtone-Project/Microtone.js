@@ -97,30 +97,30 @@
         await sleep(20);
         check("+ steps up a degree", layers()[0].detune > beforeStep);
 
-        // ── the note readouts are PAINTED in the song's own notation ──
-        // Not "is there a canvas": the SAME note painted against two different
-        // pitch tables must come out as different pixels, which is the only
-        // way to tell a notation-aware readout from a 12-EDO one.
+        // ── the note readouts are SPELLED in the song's own notation ──
+        // Not "is there a glyph": the SAME note spelled against two different
+        // pitch tables must come out as different text, which is the only way
+        // to tell a notation-aware readout from a 12-EDO one.
         const detAnn = rows()[0].querySelector(".meta-det-ann");
-        const detCv = detAnn?.querySelector("canvas.note-glyph");
-        check("the detune readout is a painted note glyph", !!detCv);
+        const detG = detAnn?.querySelector(".note-glyph");
+        check("the detune readout is a note glyph", !!detG && detG.textContent.length > 0);
         check("…with the raw units still beside it as text",
           /·\s*-?\d+/.test(detAnn.textContent));
-        check("the layer range is painted too",
-          !!rows()[0].querySelector(".meta-rng-ann canvas.note-glyph"));
-        const { noteGlyphCanvas } = await win.eval('import("/src/ui/noteglyph.js")');
+        check("the layer range is spelled too",
+          !!rows()[0].querySelector(".meta-rng-ann .note-glyph"));
+        const { noteGlyph } = await win.eval('import("/src/ui/noteglyph.js")');
         const { pitchTablePresets } = await win.eval('import("/core/tuning/pitchtables.js")');
-        const pixels = (preset) => {
-          const cv = noteGlyphCanvas(0x50ab, preset); // C4 + a quarter tone
-          const px = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
-          return Array.from(px).join(",");
+        // C4 + a quarter tone; the ink counts too (an off-grid note is yellow).
+        const spelt = (preset) => {
+          const g = noteGlyph(0x50ab, preset);
+          return g.firstChild.className + "|" + g.textContent;
         };
-        const in12 = pixels(pitchTablePresets[120]);
-        const in24 = pixels(pitchTablePresets[240]);
-        const in31 = pixels(pitchTablePresets[310]);
-        check("a note paints differently in 24-TET than in 12-TET", in12 !== in24);
+        const in12 = spelt(pitchTablePresets[120]);
+        const in24 = spelt(pitchTablePresets[240]);
+        const in31 = spelt(pitchTablePresets[310]);
+        check("a note spells differently in 24-TET than in 12-TET", in12 !== in24);
         check("…and differently again in 31-TET", in24 !== in31);
-        check("…and the glyph is not blank", /[1-9]/.test(in24));
+        check("…and the glyph is not blank", in24.split("|")[1].trim().length > 0);
 
         // ── the gating rectangle is editable at last ──
         nums(0)[4].value = "16";             // volStart

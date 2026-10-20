@@ -21,19 +21,17 @@
     }
     .ctl input, .ctl button { background: #262b35; color: #d8dce4; border: 1px solid #404655; }
     .ctl input[type="range"] { width: 220px; }
-    #blVal { color: #f5a623; min-width: 6ch; display: inline-block; }
+    #wVal { color: #f5a623; min-width: 4ch; display: inline-block; }
     #fontStat { color: #f5a623; }
   </style>
 </head>
 <body>
   <div class="ctl">
-    <label>font <input id="fontName" value="Roboto Mono" size="18"
-      title="Any Google Fonts family (fetched live) — or a locally installed one"></label>
-    <button id="loadFont">load webfont</button>
+    <span>Motif Grid (design-system/fonts) through src/ui/cellpaint.js —</span>
+    <label>weight <input id="wght" type="range" min="100" max="900" step="10" value="400"></label>
+    <span id="wVal">400</span>
     <span id="fontStat"></span>
-    <label>baseline offset <input id="bl" type="range" min="-0.25" max="0.25" step="0.005" value="0"></label>
-    <span id="blVal">0.000</span>
-    <span>← copy into GLYPH.baselineOffset (src/ui/glyphs.js); fraction of row height, + = vectors down</span>
+    <span>rebuild: <code>python3 build.py</code> in design-system/fonts, then reload</span>
   </div>
 
   <h3>sentinels: key-off · cut · fade · fast-fade | empty · reserved · interrupt</h3>
@@ -56,8 +54,12 @@
     empty · G 16-bit · H speed+depth · D nibbles+rsvd · A byte+rsvd · 8 clip/depth/skip · 9 clip/rsvd/amp ·
     E fine marker+12-bit · T slide · S$80 pan · S$D delay/action/delay · S$C nibble+rsvd · Z speed</h3>
   <div class="row" id="fxc" data-width="1100"></div>
+  <h3>every Motif Grid symbol, by code point (Kite U+F000…F004 · slides F00C…F00F · two-cell accidentals F010…F018 · sentinels F030…F033 · waveforms F040…F044, each written twice) and the one-cell Unicode accidentals</h3>
+  <div class="row" id="pua" data-width="1400"></div>
+  <div class="row" id="uni" data-width="900"></div>
   <script type="module">
-    import { paintNoteCell, paintVolPanCell, paintFxCell, GLYPH } from "../../src/ui/glyphs.js";
+    import { paintNoteCell, paintVolPanCell, paintFxCell } from "../../src/ui/cellpaint.js";
+    import { MOTIF, MUSIC } from "../../core/fonts/motifglyphs.js";
     import { pitchTablePresets, ANCHOR_NOTE } from "../../core/tuning/pitchtables.js";
 
     const CH = 13, RH = 26; // big cells for inspection
@@ -117,8 +119,8 @@
       return ctx;
     }
 
-    let family = null; // null → local fallback stack only
-    const fontStr = () => `20px ${family ? `"${family}", ` : ""}ui-monospace, monospace`;
+    let weight = 400;
+    const fontStr = (px = 20) => `${weight} ${px}px "Motif Grid", ui-monospace, monospace`;
 
     const p12 = pitchTablePresets[120];
     const degreeNotes = (preset, count, from = 0) => {
@@ -166,56 +168,33 @@
         }
         console.log("GALLERY: drew " + id);
       }
+      const pua = Object.values(MOTIF).map((c) => (c >= "\uF040" ? c + c : c)).join(" ");
+      for (const [cv, pal] of stripsOf("pua")) {
+        const ctx = ctxOf(cv);
+        ctx.fillStyle = pal.note;
+        ctx.fillText(pua, 8, 20);
+      }
+      for (const [cv, pal] of stripsOf("uni")) {
+        const ctx = ctxOf(cv);
+        ctx.fillStyle = pal.note;
+        ctx.fillText(Object.values(MUSIC).join(" ") + "  黃大太夾姑仲蕤林夷南無應  O0O0 0123456789ABCDEF", 8, 20);
+      }
       console.log("GALLERY: done");
     }
 
-    // ── baseline-offset slider: mutates the GLYPH tunable live ──
-    const bl = document.getElementById("bl");
-    const blVal = document.getElementById("blVal");
-    bl.addEventListener("input", () => {
-      GLYPH.baselineOffset = parseFloat(bl.value);
-      blVal.textContent = GLYPH.baselineOffset.toFixed(3);
+    const w = document.getElementById("wght");
+    w.addEventListener("input", () => {
+      weight = Number(w.value);
+      document.getElementById("wVal").textContent = String(weight);
       repaint();
     });
-    bl.value = GLYPH.baselineOffset;
-    blVal.textContent = GLYPH.baselineOffset.toFixed(3);
 
-    // ── webfont loader: inject a Google Fonts stylesheet for the typed
-    //    family, force-load it (canvas never triggers the download), repaint ──
     const stat = document.getElementById("fontStat");
-    async function loadWebfont() {
-      const name = document.getElementById("fontName").value.trim();
-      if (!name) { family = null; repaint(); return; }
-      stat.textContent = "loading…";
-      const id = "gf-" + name.replace(/\W+/g, "-");
-      if (!document.getElementById(id)) {
-        const link = document.createElement("link");
-        link.id = id;
-        link.rel = "stylesheet";
-        link.href = "https://fonts.googleapis.com/css2?family=" +
-          name.trim().replace(/\s+/g, "+") + ":wght@400;700&display=swap";
-        const loaded = new Promise((res) => { link.onload = res; link.onerror = res; });
-        document.head.appendChild(link);
-        await loaded;
-      }
-      try {
-        const faces = await document.fonts.load(`20px "${name}"`);
-        stat.textContent = faces.length > 0
-          ? `"${name}" loaded (${faces.length} face${faces.length === 1 ? "" : "s"})`
-          : `"${name}" not found — falling back (locally installed fonts still apply)`;
-      } catch {
-        stat.textContent = `"${name}" — Font Loading API unavailable, using fallback`;
-      }
-      family = name;
+    document.fonts.load(fontStr()).then((faces) => {
+      stat.textContent = faces.length ? "font loaded" : "Motif Grid not found — check css/microtone.css's @font-face";
       repaint();
-    }
-    document.getElementById("loadFont").addEventListener("click", loadWebfont);
-    document.getElementById("fontName").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") loadWebfont();
     });
-
-    repaint();       // immediate (fallback stack)
-    loadWebfont();   // then swap in the default webfont when it arrives
+    repaint();
   </script>
 </body>
 </html>

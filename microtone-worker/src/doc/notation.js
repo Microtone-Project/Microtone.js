@@ -426,7 +426,7 @@ export function autoAssignSyms(def, mode = "nearest") {
 
 /**
  * Definition → a pitch-table preset consumable by everything in
- * core/tuning/pitchtables.js / glyphs.js (index = the internal notation value).
+ * core/tuning/pitchtables.js / cellpaint.js (index = the internal notation value).
  * An interval-less definition (interval 0) becomes an ABSOLUTE preset: the
  * table is every note the notation can express, offset from the definition's
  * base note — or C4 when it declares none, which `presetBase` supplies.

@@ -156,7 +156,22 @@
   --lane-7: #a3249a;
 }
 
+/* ── Motif Grid: the notes' face ─────────────────────────────────────────── *
+ * The tracker's grid font (design-system/fonts, served from core/fonts/ to
+ * both sites): every note Touch names — the grid, the keys, the origin key's
+ * readout, a sheet's title — is spelled in it (src/notes.js), quarter-tone
+ * accidentals and Kite's ticks included. The ticks are private-use characters
+ * no other font has, so anything that shows a note must be in --note-font;
+ * the platform's monospace behind it is for the words a cell can hold
+ * (a key-off, the drum names) in a script Motif lacks. */
+@font-face {
+  font-family: "Motif Grid";
+  src: url("../core/fonts/motif-grid.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+
 :root {
+  --note-font: "Motif Grid", ui-monospace, "SF Mono", "Noto Sans Mono", Menlo, monospace;
   --tap: 40px;     /* the smallest thing a thumb should have to hit */
   --gap: 5px;
   accent-color: var(--accent);
@@ -474,7 +489,7 @@ button, select, input { font: inherit; color: inherit; }
 .grid {
   display: grid;
   grid-template-columns: 2.2em repeat(8, minmax(2.9em, 1fr));
-  font: 13px/1 ui-monospace, "SF Mono", "Roboto Mono", "Noto Sans Mono", Menlo, monospace;
+  font: 13px/1 var(--note-font);
   min-width: max-content;
 }
 .gh, .gr, .gc {
@@ -521,14 +536,16 @@ button, select, input { font: inherit; color: inherit; }
   position: absolute;
   right: 2px;
   top: 2px;
-  font: 700 9px/1 system-ui, sans-serif;
+  font: 700 9px/1 var(--note-font);
   color: var(--fx-ink);
 }
 
 /* ── the keyboard ────────────────────────────────────────────────────────── */
 
 .keyhead { border-bottom: 1px solid var(--border); }
-.oct { min-width: 2.4em; text-align: center; font-variant-numeric: tabular-nums; }
+.oct { min-width: 2.4em; text-align: center; font-family: var(--note-font); }
+/* A note named inside a sentence (the effect sheet's title). */
+.note { font-family: var(--note-font); }
 .lane-tag {
   color: var(--lane-colour, var(--dim)); font-weight: 600; white-space: nowrap;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; /* gives way before the buttons do */

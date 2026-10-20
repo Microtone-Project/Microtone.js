@@ -26,6 +26,7 @@ import {
 import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { noteToStr, rangeToStr, hex4 } from "../notenames.js";
 import { themeColors } from "../theme.js";
+import { canvasMonoFont } from "../fonts.js";
 import { unescapeName } from "../../../core/format/names.js";
 import {
   annFadeout, annFilter, annSfCutoff, annSfReso, SEG_MINIFLOAT_MAP,
@@ -388,7 +389,7 @@ export class AdvancedZoneEditor {
       ctx.strokeRect(x + 0.5, y + 0.5, pw - 1, ph - 1);
       ctx.globalAlpha = 1;
       ctx.fillStyle = selP ? C.fg : C.dim;
-      ctx.font = "10px monospace";
+      ctx.font = canvasMonoFont(10);
       if (pw > 14) ctx.fillText(i.toString(16).toUpperCase(), x + 2, y + 10);
     });
 
@@ -402,7 +403,7 @@ export class AdvancedZoneEditor {
 
     // pitch axis labels
     ctx.fillStyle = C.dim;
-    ctx.font = "9px monospace";
+    ctx.font = canvasMonoFont(9);
     ctx.textAlign = "left";
     ctx.fillText(noteToStr(g.lo), 1, h - 3);
     ctx.textAlign = "right";
@@ -960,7 +961,7 @@ export class AdvancedZoneEditor {
     const X = (i) => Xt(times[i]);
     const Y = (v) => h - 14 - (v / kind.max) * (h - 28);
 
-    ctx.font = "9px monospace";
+    ctx.font = canvasMonoFont(9);
     ctx.strokeStyle = C.border;
     for (let gl = 0; gl <= 4; gl++) {
       const val = (kind.max * gl) / 4;
@@ -1108,7 +1109,7 @@ export class AdvancedZoneEditor {
     const smp = this.selSample();
     if (!smp || smp.len <= 0 || !this.doc.sampleBin) {
       ctx.fillStyle = C.dim;
-      ctx.font = "11px monospace";
+      ctx.font = canvasMonoFont(11);
       ctx.fillText(t("adv.noSample"), 8, 20);
       return;
     }

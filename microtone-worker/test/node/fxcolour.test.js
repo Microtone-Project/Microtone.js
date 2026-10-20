@@ -213,7 +213,7 @@ test("2/3 correctly paired with `:`: base layout unchanged, `:` inherits each ni
 
 test("a flagged (fxColonWarns) pairing never reaches contextual colouring — the view paints flat red instead", () => {
   // pairedOp alone doesn't gate correctness — callers only pass it when
-  // fxColonWarns is false (glyphs.js paintFxCell takes the red branch
+  // fxColonWarns is false (cellpaint.js paintFxCell takes the red branch
   // first). Sanity: an UNSUPPORTED target still falls through fxLayout's
   // pairedOp branch to its own default layout, since only J/O/2/3 match it.
   assert.equal(map(EffectOp.OP_COLON, 0x1234, EffectOp.OP_H), "1111", "H doesn't match either branch");

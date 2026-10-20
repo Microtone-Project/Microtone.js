@@ -1,0 +1,48 @@
+# Motif — how the Microtone fonts are built from Chivo Mono.
+#
+# Change a number, run `python3 build.py` in this directory, reload the app.
+# The fonts land in core/fonts/ (what both sites serve) and a proof
+# sheet of every variant in build/proof/.
+
+version = "1.000"
+date = "2026-10-20"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
+
+# ── the two numbers ─────────────────────────────────────────────────────────
+
+[grid]                # "Motif Grid": pattern editor, timeline, cues, chord and notation makers
+widen = 8             # percent: every Chivo glyph this much wider; the 600-unit cell stays
+margin = 14           # units: a widened glyph stops this far short of the cell edge
+centred = "·-−+"      # set on the capitals' middle, with the Kite marks (the grid's natural is −)
+
+[transport]           # "Motif Transport": the transport readouts
+narrow = 10           # percent: every glyph AND its cell this much narrower
+
+# ── the rest ────────────────────────────────────────────────────────────────
+
+[code]                # "Motif Code": the Motif tab's editor, roman and italic
+narrow_letters = "iIl"
+narrow_factor = 0.75
+wide_letters = "MmWw"
+wide_factor = 1.25    # digits and punctuation keep the 600-unit cell
+extrapolate = 1.0     # how far past Black a narrowed letter may borrow its stems from
+
+[stems]
+compensate = 1.0      # 1: a widened or narrowed glyph keeps its stems' thickness; 0: plain stretch
+extrapolate = 0.1     # how far past Thin/Black (in normalised weight) compensation may reach
+
+[capital_O]           # HP-terminal O: square and wide beside the narrow, oval 0
+exponent = 3.4        # superellipse exponent of the outer contour: 2 is an ellipse
+exponent_inner = 3.8  # …and of the counter
+widen = 22            # units each side, before the variant's own widening
+margin = 10           # never closer than this to the cell edge
+
+[zero]                # …and the zero a touch narrower than its neighbours
+narrow = 5            # percent, on top of the variant's own widening or narrowing
+
+[symbols]
+weight = 0.80         # the drawn symbols' strokes against the letters' stems (Chivo's '#' is ~0.75)
+beam = 1.15           # a sharp's or natural's crossbars against its stems
+
+[cjk]                 # the twelve lü, from Chiron Hei HK
+weights = [200, 500, 900]   # Chiron's weight at Motif's Thin, Medium and Black masters
+scale = 1.0           # within their two-cell box

@@ -1,7 +1,8 @@
 // Canvas webfont plumbing. The tracker-grid typeface is the --cv-font custom
-// property in css/microtone.css; the canvas views build their ctx.font
-// through canvasFont() so ANY webfont declared there (Google @import,
-// @font-face, FontFace API) works. One catch makes this module necessary:
+// property in css/microtone.css, and the one for labels and numbers is
+// --mono-font; the canvas views build their ctx.font through canvasFont() /
+// canvasMonoFont() so ANY webfont declared there (@font-face, FontFace API)
+// works. One catch makes this module necessary:
 // canvas fillText never TRIGGERS a webfont download — only DOM usage does —
 // so an undownloaded face silently renders as the fallback forever.
 // loadCanvasFonts() force-loads the stack through the CSS Font Loading API
@@ -9,27 +10,38 @@
 
 const FALLBACK = 'ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace';
 
-let _family = null;
+const _families = new Map();
 
-/** The --cv-font family stack (cached — getComputedStyle is too slow for
- *  per-frame reads; see refreshCanvasFont). */
-export function canvasFontFamily() {
-  if (_family === null) {
-    _family = getComputedStyle(document.documentElement)
-      .getPropertyValue("--cv-font").trim() || FALLBACK;
+/** A family stack from a custom property (cached — getComputedStyle is too
+ *  slow for per-frame reads; see refreshCanvasFont). */
+function familyOf(token) {
+  let f = _families.get(token);
+  if (f === undefined) {
+    f = getComputedStyle(document.documentElement).getPropertyValue(token).trim() || FALLBACK;
+    _families.set(token, f);
   }
-  return _family;
+  return f;
+}
+
+/** The --cv-font family stack. */
+export function canvasFontFamily() {
+  return familyOf("--cv-font");
 }
 
 /** ctx.font string for the tracker grid at `px`. */
 export function canvasFont(px) {
-  return `${px}px ${canvasFontFamily()}`;
+  return `${px}px ${familyOf("--cv-font")}`;
 }
 
-/** Drop the cached family — call when --cv-font may have changed (theme
- *  switch, live experimentation from the console). */
+/** ctx.font string for a canvas's labels and numbers at `px` (Motif Mono). */
+export function canvasMonoFont(px) {
+  return `${px}px ${familyOf("--mono-font")}`;
+}
+
+/** Drop the cached families — call when --cv-font or --mono-font may have
+ *  changed (theme switch, live experimentation from the console). */
 export function refreshCanvasFont() {
-  _family = null;
+  _families.clear();
 }
 
 /**
@@ -39,7 +51,7 @@ export function refreshCanvasFont() {
  */
 export async function loadCanvasFonts(sizes, onReady) {
   try {
-    await Promise.all(sizes.map((px) => document.fonts.load(canvasFont(px))));
+    await Promise.all(sizes.flatMap((px) => [canvasFont(px), canvasMonoFont(px)].map((f) => document.fonts.load(f))));
     await document.fonts.ready;
   } catch { /* no Font Loading API / blocked fetch — the fallback stack stands */ }
   onReady?.();

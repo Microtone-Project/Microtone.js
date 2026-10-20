@@ -21,6 +21,7 @@
 // and "Cut instrument" mints an instrument that plays exactly those bytes.
 
 import { themeColors, pickInk } from "../theme.js";
+import { canvasMonoFont } from "../fonts.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { sampleSpans } from "../../doc/document.js";
 import { regionSpans, POOL_SIZE, DEFAULT_RATE } from "../../doc/sampleregions.js";
@@ -597,7 +598,7 @@ export class PoolWave {
     this._census = census;
     this._regions = regions;
 
-    ctx.font = "10px monospace";
+    ctx.font = canvasMonoFont(10);
     ctx.textBaseline = "alphabetic";
 
     for (let i = 0; i < visible; i++) {

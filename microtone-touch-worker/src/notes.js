@@ -1,23 +1,30 @@
-// Note names as plain text, from the tuning's own symbol table.
+// Note names as text, from the tuning's own symbol table, in the tracker's
+// grid font.
 //
-// The tracker paints its accidentals as glyphs on a canvas; Touch writes them
-// as TEXT, on keys and in cells, so every character here has to exist in a
-// phone's stock fonts. Sharps and flats do (♯ ♭); the quarter-tone and Kite
-// symbols in the Musical Symbols block often do not, so those fall back to
-// the plain-text spellings microtonal writing already uses: C+ / Dd for the
-// half-sharp and half-flat, arrows for Kite's up and down ticks.
+// Touch writes its notes as TEXT, on keys and in cells, in Motif Grid
+// (css/touch.css --note-font; the fonts are core/fonts/, shared with the
+// tracker), so every sign a tuning has reads as itself: the quarter-tone
+// accidentals, Kite's ticks, the double and triple flats. The spelling is the
+// tracker's one-cell one (a Kite note cell's), less the two marks a key does
+// without: the natural's dash and Kite's dot on an unmarked degree, so a white
+// key is just its letter. Unicode has no triple or quadruple sharp; those are
+// written as the sharps they are made of. Whatever shows one of these strings
+// must be in --note-font: the ticks are private-use characters no other font
+// has.
 
 import { resolveNoteSymbol } from "../core/tuning/pitchtables.js";
+import { MOTIF, MUSIC } from "../core/fonts/motifglyphs.js";
 import { NOTE_OFF } from "./sketch.js";
 import { t } from "./i18n.js";
 
-const TICK = { " ": "", ".": "", u: "↑", d: "↓", U: "⇈", D: "⇊" };
+const TICK = { " ": "", ".": "", u: MOTIF.KITE_UP, d: MOTIF.KITE_DOWN, U: MOTIF.KITE_UP2, D: MOTIF.KITE_DOWN2 };
 const ACC = {
-  "-": "", "#": "♯", b: "♭", t: "+", p: "d",
-  x: "x", B: "♭♭", 3: "♯x", T: "♭♭♭", 4: "xx",
+  "-": "", "#": MUSIC.SHARP, b: MUSIC.FLAT, t: MUSIC.HALF_SHARP, p: MUSIC.REVERSED_FLAT,
+  x: MUSIC.DOUBLE_SHARP, B: MUSIC.DOUBLE_FLAT, 3: MUSIC.SHARP + MUSIC.DOUBLE_SHARP,
+  T: MUSIC.TRIPLE_FLAT, 4: MUSIC.DOUBLE_SHARP + MUSIC.DOUBLE_SHARP,
 };
 
-/** The pitch class alone: "C♯", "↑D", "E+". */
+/** The pitch class alone: "C♯", Kite's up-tick D, E demisharp. */
 export function noteClass(note, preset) {
   const s = resolveNoteSymbol(note, preset);
   if (!s) return "?";

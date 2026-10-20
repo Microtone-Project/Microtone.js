@@ -22,15 +22,13 @@ import {
   chordPresetTitle, chordPresetsFor, maxInversion, voiceNote, voiceRatio, voiceUnits,
 } from "../../doc/chord.js";
 import { presetForNotation, gridDelta } from "../../../core/tuning/pitchtables.js";
-import { paintNoteCell } from "../glyphs.js";
-import { canvasFont } from "../fonts.js";
+import { noteGlyph } from "../noteglyph.js";
 import { themeColors } from "../theme.js";
 import { t } from "../i18n.js";
 import { icon, setIconLabel } from "../icons.js";
 import { uiDpr, toLayout } from "../zoom.js";
 
 const WAVE_H = 96;
-const GLYPH_CHAR_W = 9, GLYPH_H = 20;
 const REBUILD_DEBOUNCE_MS = 180;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -172,12 +170,9 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
           <input type="number" class="cv-oct" min="-4" max="4" step="1"></label>
         <label class="cv-gain-l">${esc(t("chord.level"))}
           <input type="number" class="cv-gain" min="-24" max="6" step="0.5"></label>
-        <canvas class="cv-glyph"></canvas>
+        <span class="cv-glyph"></span>
         <span class="cv-read"></span>`;
       voicesEl.appendChild(row);
-      const cv = row.querySelector(".cv-glyph");
-      cv.width = (GLYPH_CHAR_W * 4 + 4) * dpr; cv.height = GLYPH_H * dpr;
-      cv.style.width = GLYPH_CHAR_W * 4 + 4 + "px"; cv.style.height = GLYPH_H + "px";
       rows.push(row);
 
       const v = () => voices[i];
@@ -257,18 +252,15 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
     function paintVoiceReadout(row, v) {
       const units = voiceUnits(v, preset);
       const note = voiceNote(v, preset);
-      const cv = row.querySelector(".cv-glyph");
-      const ctx = cv.getContext("2d");
-      const C = themeColors();
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = C.cvBg;
-      ctx.fillRect(0, 0, cv.width, cv.height);
-      ctx.font = canvasFont(13);
-      ctx.textBaseline = "middle";
-      ctx.globalAlpha = v.on ? 1 : 0.4;
-      paintNoteCell(ctx, note, preset, 2, 0, GLYPH_CHAR_W, GLYPH_H,
-        { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent });
-      ctx.globalAlpha = 1;
+      // The note, spelled as the grids spell it (rebuilt only when it changes).
+      const box = row.querySelector(".cv-glyph");
+      const glyph = noteGlyph(note, preset);
+      const key = glyph.firstChild.className + "|" + glyph.textContent;
+      if (box.dataset.key !== key) {
+        box.dataset.key = key;
+        box.replaceChildren(glyph);
+      }
+      box.classList.toggle("cv-off", !v.on);
 
       const delta = gridDelta(note, preset);
       const read = row.querySelector(".cv-read");

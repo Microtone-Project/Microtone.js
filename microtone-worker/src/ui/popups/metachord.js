@@ -23,7 +23,7 @@ import {
 import { setMetaRecordOp } from "../../doc/ops.js";
 import { ANCHOR_NOTE } from "../../../core/tuning/pitchtables.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../../../core/engine/constants.js";
-import { noteGlyphCanvas } from "../noteglyph.js";
+import { noteGlyph } from "../noteglyph.js";
 import { setIconLabel } from "../icons.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
@@ -187,7 +187,7 @@ export function showChordStack(store, metaSlot, layerIdx) {
       for (const r of rows) {
         const units = clampLayerPitch(base, base.detune + r.d);
         const line = el("div", "meta-chord-voice" + (r.root ? " root" : ""));
-        // Painted in the song's own notation, like every other note readout —
+        // Spelled in the song's own notation, like every other note readout —
         // a stack built from degrees of a 31-TET table must not report itself
         // in 12-EDO letter names.
         const noteEl = el("span", "meta-chord-note");
@@ -197,7 +197,7 @@ export function showChordStack(store, metaSlot, layerIdx) {
         const note = Math.min(
           Math.max(base.fixedPitch ? units : ANCHOR_NOTE + units, 0x20), 0xffff);
         voiceNotes.push(note);
-        noteEl.appendChild(noteGlyphCanvas(note, pitchPreset));
+        noteEl.appendChild(noteGlyph(note, pitchPreset));
         line.append(noteEl, el("span", "dim", r.root ? t("meta.chordRoot") : signedCents(r.d)));
         preview.appendChild(line);
       }

@@ -1,7 +1,8 @@
 # core — what every Microtone app shares
 
 Plain ES modules with no build step and no dependencies beyond what is vendored
-in `vendor/`: two decompressors and the Zstandard encoder saves use. Nothing here imports from outside `core/`, and
+in `vendor/`: two decompressors and the Zstandard encoder saves use. The fonts in `fonts/` are built
+elsewhere (`design-system/fonts/`) and committed. Nothing here imports from outside `core/`, and
 nothing here knows which app is using it.
 
 | Path | Contents |
@@ -13,6 +14,7 @@ nothing here knows which app is using it.
 | `tuning/` | The pitch-table presets every notation is drawn from, and a tuning's own intervals (`intervals.js`), which both apps build their isomorphic keyboards from |
 | `storage/` | The online-projects client (the server is `microtone-worker/server/`) |
 | `sketch/` | Microtone Touch's `.mtsk` sketch file (`mtsk.js`) and the instrument pack every sketch plays through (`pack.js`) — shared because the tracker opens sketches too |
+| `fonts/` | Motif, the typefaces both apps draw in (built by `design-system/fonts/`, never edited by hand), their licence, and `motifglyphs.js`, the names of their symbols' code points |
 | `vendor/` | fflate and fzstd, single-file ESM, and zstd's encoder as WebAssembly in an ES module (see `vendor/VENDOR-VERSIONS.md`) |
 
 ## How the apps reach it

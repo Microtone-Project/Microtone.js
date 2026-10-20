@@ -8,7 +8,7 @@
 // Reference: taut.js VIEW_PATTERN_DETAILS + PREVIEW_CUE_IDX.
 
 import { hex2, fxColonWarns } from "../notenames.js";
-import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../glyphs.js";
+import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../cellpaint.js";
 import { transposePatternNotes, transposeUnitKeys } from "../../../core/tuning/pitchtables.js";
 import {
   interpretEditKey, capKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,

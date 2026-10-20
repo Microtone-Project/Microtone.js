@@ -77,6 +77,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Microtone">
   <link rel="stylesheet" href="css/microtone.css" />
+  <!-- The grid's and the transport's faces, asked for at once rather than when
+       the stylesheet is first applied: the first frame of the grids and the
+       readouts is drawn in them. -->
+  <link rel="preload" href="core/fonts/motif-grid.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="core/fonts/motif-transport.woff2" as="font" type="font/woff2" crossorigin>
     <!-- The wordmark's face, Geist (as microtone.css has it), without holding up
        the first paint: the veil must be on screen while the rest loads, and
        the mark sets itself in sans-serif until the font arrives. -->

@@ -7,7 +7,47 @@
  *  attribute on <html>.
  * ══════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Chivo+Mono:ital,wght@0,100..900;1,100..900&family=Open+Sans:ital,wdth,wght@0,75..100,300..800;1,75..100,300..800&family=Geist:wght@400..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wdth,wght@0,75..100,300..800;1,75..100,300..800&family=Geist:wght@400..900&display=swap');
+
+/* ── MOTIF: Microtone's own faces (design-system/fonts, item 220) ────────
+ * Chivo Mono rebuilt for four jobs, served from core/fonts/ (Microtone
+ * Touch draws in them too; the stacks are the FONT STACKS block below).
+ * Each is variable on weight, so font-weight works from 100 to 900.
+ *   Motif Grid       the tracker grids, chord and notation makers (--cv-font):
+ *                    letters 8% fuller in the same cell, a square O beside a
+ *                    narrow 0, and the accidentals, Kite ticks, slide marks,
+ *                    sentinels, vibrato waveforms and twelve lü the grids paint
+ *                    (code points: core/fonts/motifglyphs.js)
+ *   Motif Transport  the transport readouts: everything 10% narrower
+ *   Motif Code       the Motif editor and the manual's code: i I l narrow and
+ *                    M m W w wide, digits and punctuation on the 600 cell
+ *   Motif Mono       every other monospace: Chivo Mono's own widths, strictly
+ *                    on the cell, with Motif's O and zero */
+@font-face {
+  font-family: "Motif Grid";
+  src: url("../core/fonts/motif-grid.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Motif Transport";
+  src: url("../core/fonts/motif-transport.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Motif Code";
+  src: url("../core/fonts/motif-code.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Motif Code";
+  src: url("../core/fonts/motif-code-italic.woff2") format("woff2");
+  font-weight: 100 900; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: "Motif Mono";
+  src: url("../core/fonts/motif-mono.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
 
 /* ── THEME: DARK (default) — taut.js-inspired slate + amber ───────────── */
 :root,
@@ -442,16 +482,33 @@
   --code-name: #871094;  --code-err: #f50000;
 }
 
-/* ── CANVAS GRID FONT ──────────────────────────────────────────────────
- * The tracker-grid typeface (Timeline / Cues / Patterns canvases). Canvas
- * views read this through src/ui/fonts.js, which also force-loads the
- * webfont faces (canvas fillText never triggers a download on its own) and
- * repaints once they arrive. To test another font: add it to the @import
- * line above (or any @font-face) and put its family first here. If the
- * glyph baseline sits off against the new font, tune GLYPH.baselineOffset
- * in src/ui/glyphs.js (live slider: test/browser/glyph-gallery.html). */
+/* ── FONT STACKS ───────────────────────────────────────────────────────
+ * Every monospace in the app is a Motif face, named here once:
+ *   --cv-font         Motif Grid: the tracker grids (Timeline / Cues / Patterns
+ *                     canvases, the chord and notation makers, the keymap) and
+ *                     every note written as a symbol outside them
+ *                     (src/ui/noteglyph.js). Canvas views read it through
+ *                     src/ui/fonts.js, which also force-loads the face (canvas
+ *                     fillText never triggers a download on its own) and
+ *                     repaints once it arrives. Every mark in a note cell is a
+ *                     character of Motif Grid (src/ui/cellpaint.js). Gallery:
+ *                     test/browser/glyph-gallery.html.
+ *   --mono-font       Motif Mono: what is typed or read as a value — hex and
+ *                     number fields, instrument / pattern / layer numbers,
+ *                     readouts, key names, the project message (an IT song
+ *                     message is fixed-width text). Canvas labels take it
+ *                     through fonts.js too.
+ *   --transport-font  Motif Transport: the transport readouts.
+ *   --code-font       Motif Code: the Motif editor and its panels, the
+ *                     manual's code.
+ * Motif Mono carries every character Chivo Mono has, so it stands behind
+ * Grid and Transport for the odd one they leave out (ƒ, ‥, –); past it, the
+ * platform's own monospace (Hangul, mostly). */
 :root {
-  --cv-font: "Chivo Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --cv-font: "Motif Grid", "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --mono-font: "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --transport-font: "Motif Transport", "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --code-font: "Motif Code", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
 }
 
 /* ── SCRIM ─────────────────────────────────────────────────────────────
@@ -1379,7 +1436,7 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 .wheelable:hover { background: var(--panel-2); color: var(--fg); }
 
 #octDisp, #instDisp, #stepDisp, #posCue, #posRow, #posBpm, #posSpd {
-  font-family: "Chivo Mono", ui-monospace, monospace; /* TODO narrower font? */
+  font-family: var(--transport-font);
 }
 
 /* UI zoom (item 198.4) — a [−] 100% [+] group beside the language button.
@@ -1505,7 +1562,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .meta-bar .meta-tally { margin-left: auto; font-size: 0.85rem; }
 .meta-table td { vertical-align: middle; white-space: nowrap; }
-.meta-table .idxCell { font-family: "Chivo Mono", monospace; }
+.meta-table .idxCell { font-family: var(--mono-font); }
 .meta-table .meta-fg { color: var(--accent); margin-right: 0.2rem; }
 .meta-table .meta-link { margin-left: 0.4rem; }
 /* Note readouts are PAINTED (noteglyph.js), so they carry the song's own
@@ -1514,9 +1571,22 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-table .meta-det-ann,
 .meta-table .meta-rng-ann {
   margin-left: 0.4rem; font-size: 0.8rem;
-  display: inline-flex; align-items: center; gap: 0.15rem;
+  display: inline-flex; align-items: baseline; gap: 0.15rem;
 }
-.note-glyph { vertical-align: middle; }
+/* A note spelled as the grids spell it, as text in their font
+   (src/ui/noteglyph.js): each .ng-note is one note cell — four cells of Motif
+   Grid, and a cell is exactly 1ch — in the ink the grids paint it in. Being
+   text, it sits on the line's baseline at the line's size. */
+.note-glyph {
+  font-family: var(--cv-font);
+  white-space: pre;
+  font-kerning: none; font-variant-ligatures: none; letter-spacing: 0;
+}
+.note-glyph .ng-note { display: inline-block; min-width: 4ch; color: var(--fg); }
+.note-glyph .ng-offGrid { color: var(--accent); }
+.note-glyph .ng-sentinel { color: var(--fg2); }
+.note-glyph .ng-dim, .note-glyph .ng-sep { color: var(--dim); }
+.note-glyph .ng-faint { opacity: 0.4; }
 .meta-table .rngCell .meta-num,
 .meta-table .velCell .meta-num { width: 4em; margin-right: 0.25rem; }
 /* The fixed-pitch switch (item 179) sits under the field it re-reads, small
@@ -1576,7 +1646,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* The expression readout. It is the thing most people will actually read, so
    it gets the monospace and the accent rather than the word list below it. */
 .fm-formula {
-  font-family: "Chivo Mono", monospace; color: var(--accent-2);
+  font-family: var(--mono-font); color: var(--accent-2);
   overflow-x: auto; max-width: 100%;
 }
 .fm-formula.bad { color: var(--err-fg); font-style: italic; }
@@ -1598,13 +1668,13 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    is legible as "this one, earlier" rather than as another operator. */
 .fm-graph-box.tap { stroke: var(--accent-2); stroke-dasharray: 3 2; }
 .fm-graph-num {
-  fill: var(--fg); font-family: "Chivo Mono", monospace; font-size: 13px;
+  fill: var(--fg); font-family: var(--mono-font); font-size: 13px;
 }
 .fm-graph-junction { fill: var(--panel); stroke: var(--accent-2); stroke-width: 1.5; }
 .fm-graph-sign { fill: var(--fg); font-size: 13px; }
 .fm-graph-out { fill: none; stroke: var(--dim); stroke-width: 1.5; }
 .fm-graph-outlabel {
-  fill: var(--dim); font-family: "Chivo Mono", monospace; font-size: 11px;
+  fill: var(--dim); font-family: var(--mono-font); font-size: 11px;
 }
 
 .fm-words { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.5rem; }
@@ -1613,10 +1683,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.1rem 0.25rem; border-radius: 0.25rem;
 }
 .fm-word.bad { background: var(--err-bg); }
-.fm-word-idx { font-family: "Chivo Mono", monospace; min-width: 1.6rem; text-align: right; }
+.fm-word-idx { font-family: var(--mono-font); min-width: 1.6rem; text-align: right; }
 .fm-word-class { min-width: 7.5rem; }
 .fm-word-arg { min-width: 9rem; }
-.fm-word-depth { font-family: "Chivo Mono", monospace; min-width: 2.4rem; }
+.fm-word-depth { font-family: var(--mono-font); min-width: 2.4rem; }
 .fm-word .meta-act { margin-right: 0; }
 
 /* Per-row count stepper in the metainstrument picker. */
@@ -1627,7 +1697,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-picker .meta-pick-row { gap: 0.3rem; padding: 0.15rem 0.4rem; }
 .meta-picker .meta-count {
   min-width: 2.2rem; text-align: center;
-  color: var(--dim); font-family: "Chivo Mono", monospace; font-size: 0.85rem;
+  color: var(--dim); font-family: var(--mono-font); font-size: 0.85rem;
 }
 .meta-picker .picked .meta-count { color: var(--accent); }
 .meta-picker .meta-pick-hit {
@@ -1659,12 +1729,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   background: var(--panel-2); padding: 0.4rem 0.6rem; margin: 0.4rem 0;
 }
 .meta-chord-voice { display: flex; gap: 0.6rem; align-items: baseline; }
-.meta-chord-voice .meta-chord-note {
-  font-family: "Chivo Mono", monospace; min-width: 4rem;
-  display: inline-flex; align-items: center;
-}
-/* The root row's emphasis moved to its label: the note itself is a painted
-   glyph now, and accent is what the painter uses for an OFF-GRID pitch. */
+.meta-chord-voice .meta-chord-note { min-width: 4rem; }
+/* The root row's emphasis moved to its label: the note itself is spelled in
+   the grids' inks, and accent is what they use for an OFF-GRID pitch. */
 .meta-chord-voice.root span.dim { color: var(--accent); }
 
 .cmd-palette {
@@ -1684,6 +1751,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .cmd-palette button.active { color: var(--accent); border-color: var(--accent); }
 .pal-label { color: var(--accent); font-size: 0.8rem; margin-right: 0.3rem; }
 .pal-hint { color: var(--dim); font-size: 0.82rem; margin-left: 0.4rem; }
+/* The sign a palette button writes, as the grid draws it. */
+.pal-sign { font-family: var(--cv-font); }
 
 /* ── the find bar (item 177) ──
    Sits between the command palette and the status line: the same ground and
@@ -1708,7 +1777,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.15rem 0.35rem;
   font-size: 0.85rem;
 }
-.find-bar .fb-val { width: 8em; font-family: "Chivo Mono", monospace; }
+.find-bar .fb-val { width: 8em; font-family: var(--mono-font); }
 .find-bar button { padding: 0.15rem 0.55rem; font-size: 0.85rem; }
 .find-bar .fb-step { min-width: 1.8rem; }
 /* The two readouts share the space left over, and the count is pinned to the
@@ -1850,7 +1919,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .panner {
   min-width: 648px;
 }
-.interrupt-modal .modal-field input.interrupt-arg { font-family: var(--mono, monospace); flex: 0 1 7rem; }
+.interrupt-modal .modal-field input.interrupt-arg { font-family: var(--mono-font); flex: 0 1 7rem; }
+/* Int0…IntF is the note column's own word: a value, so Motif Mono (the second
+   selector outranks the picker group's `font: inherit`). */
+.interrupt-modal select.interrupt-num, .interrupt-modal .mt-pick > select.interrupt-num { font-family: var(--mono-font); }
 .interrupt-modal .modal-field input.interrupt-arg[aria-invalid="true"] { outline: 1px solid var(--err-fg); }
 
 /* ── new-project modal ── */
@@ -1919,7 +1991,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 
 /* ── Notation Maker (item 61) ── */
-.nota-modal { max-width: min(960px, calc(96vw / var(--ui-zoom, 1))); width: min(960px, calc(96vw / var(--ui-zoom, 1))); }
+/* Wide enough for the degree table's symbol pickers, which name each sign
+   beside it (the names are what a phone's picker shows). */
+.nota-modal { max-width: min(1120px, calc(96vw / var(--ui-zoom, 1))); width: min(1120px, calc(96vw / var(--ui-zoom, 1))); }
 .nota-hint { margin: 0.2rem 0 0.7rem; font-size: 0.82rem; }
 .nota-grid { display: flex; gap: 1rem; align-items: stretch; min-height: 340px; }
 .nota-left { flex: 0 0 215px; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -1952,10 +2026,22 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .nota-degrees { flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; max-height: min(600px, calc(90vh / var(--ui-zoom, 1))); }
 .nota-degrees table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
 .nota-degrees th { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-weight: 500; text-align: left; padding: 0.15rem 0.4rem; font-size: 0.75rem; }
-.nota-degrees td { padding: 0.08rem 0.4rem; white-space: nowrap; }
+.nota-degrees td { padding: 0.08rem 0.3rem; white-space: nowrap; }
 .nota-degrees input[type="number"] { width: 5.5rem; }
 .nota-degrees button { padding: 0 0.4rem; }
-.nota-preview { display: block; border: 1px solid var(--border); border-radius: 3px; }
+.nota-preview, .chord-voice .cv-glyph {
+  display: inline-block; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--cv-bg); padding: 0.05rem 0.3rem; line-height: 1.35;
+}
+/* The symbol pickers write their signs in the grid's face — the option list
+   too, wherever the platform lets the page's font reach it (a phone's picker
+   does not; the names beside the signs are for that). The second selector
+   outranks the picker group's own `font: inherit`. */
+.nota-degrees select.nota-sym, .nota-degrees .mt-pick > select.nota-sym,
+.nota-degrees select.nota-sym option { font-family: var(--cv-font); }
+/* Cents, 4096-TET units, the base note and the slot values are numbers to
+   read down a column: Motif Mono (the spinner's own field included). */
+.nota-modal .nota-num, .nota-modal .mt-spin > input.nota-num { font-family: var(--mono-font); }
 .nota-add { align-self: flex-start; font-size: 0.82rem; }
 .nota-btns { display: flex; align-items: center; gap: 0.6rem; }
 .nota-assign { display: flex; align-items: center; gap: 0.3rem; color: var(--dim); font-size: 0.85rem; margin-right: auto; }
@@ -2073,7 +2159,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .side-row:hover { background: var(--panel-2); }
 .side-row.sel { background: var(--cv-cursor); }
-.side-row .idx { color: var(--accent); font-family: "Chivo Mono", monospace; }
+.side-row .idx { color: var(--accent); font-family: var(--mono-font); }
 /* Play-indicator lamp (item 27/169) — brightness (--lamp, 0..1, set on the
    ROW by each view's frame(); the dot just inherits it) follows lamp.js's
    volume-driven, slewed, probabilistic-sum ballistics — see there for why.
@@ -2185,7 +2271,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border);
 }
-.inst-name-idx { color: var(--accent); font-family: "Chivo Mono", monospace; font-weight: 600; }
+.inst-name-idx { color: var(--accent); font-family: var(--mono-font); font-weight: 600; }
 .inst-dup-btn { flex: 0 0 auto; }
 .inst-renum-btn { flex: 0 0 auto; }
 .inst-del-btn { flex: 0 0 auto; }
@@ -2262,7 +2348,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .psg-wave polyline { fill: none; stroke: var(--meter); stroke-width: 1.5; }
 .psg-wave.live { border-color: var(--accent); }
 .psg-wave.live polyline { stroke: var(--accent); }
-.psg-wave-label { fill: var(--accent); font-size: 9px; font-family: "Chivo Mono", monospace; }
+.psg-wave-label { fill: var(--accent); font-size: 9px; font-family: var(--mono-font); }
 /* Twelve digits of the longest auto-advance pattern, in the picker's width. */
 .psg-edit .psg-pattern .mt-pick, .psg-edit .psg-pattern select {
   font-variation-settings: "wdth" 75; letter-spacing: -0.01em;
@@ -2338,7 +2424,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .slider-row {
   display: grid;
-  grid-template-columns: 10rem 8rem minmax(4.5rem, 1fr) 11rem;
+  grid-template-columns: 10rem 8rem minmax(5.5rem, 1fr) 11rem;
   align-items: center;
   gap: 0.5rem;
   color: var(--dim);
@@ -2360,6 +2446,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .slider-row .sl-hint { grid-column: 3 / -1; font-size: 0.82rem; line-height: 1.3; }
 .slider-row .sl-buttons button { padding: 0.15rem 0.6rem; font-size: 0.85rem; color: var(--dim); }
 .slider-row .sl-buttons button.active { color: var(--accent); border-color: var(--accent); }
+/* The vibrato waveform buttons: each wave drawn twice in Motif Grid's
+   edge-to-edge waveform glyphs, so the two periods join. */
+.slider-row .sl-buttons button.wave-btn { font-family: var(--cv-font); font-size: 1rem; line-height: 1; padding: 0.2rem 0.5rem; letter-spacing: 0; }
 .slider-row .sl-check { grid-column: 2 / -1; display: flex; align-items: center; gap: 0.35rem; color: var(--fg); justify-self: start; }
 .slider-row input.sl-num.wide { width: 100%; }
 .slider-row input.sl-range { width: 100%; }
@@ -2458,7 +2547,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pat-input {
   width: 4.5rem;
   text-align: center;
-  font-family: "Chivo Mono", monospace;
+  font-family: var(--mono-font);
   background: var(--panel-2);
   color: var(--accent);
   border: 1px solid var(--border);
@@ -2475,7 +2564,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0 0.1rem 0.3rem;
   font-size: 0.8rem;
 }
-.pattern-pane-hd .pane-num { color: var(--dim); font-family: "Chivo Mono", monospace; }
+.pattern-pane-hd .pane-num { color: var(--dim); font-family: var(--mono-font); }
 .pattern-pane-hd .pat-input { width: 3.8rem; padding: 0.15rem; }
 .pattern-pane-hd .pat-name-input {
   flex: 1 1 4rem;
@@ -2494,7 +2583,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
  * data is there. */
 .pattern-pane-hd .pane-fx2 {
   flex: 0 0 auto;
-  font-family: "Chivo Mono", monospace;
+  font-family: var(--mono-font);
   font-size: 0.75rem;
   padding: 0.05rem 0.3rem;
 }
@@ -2551,7 +2640,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-size: 0.9rem;
 }
 .import-row:hover { background: var(--panel); }
-.import-row .idx { color: var(--accent); font-family: "Chivo Mono", monospace; }
+.import-row .idx { color: var(--accent); font-family: var(--mono-font); }
 .import-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .import-row .note { color: var(--dim); font-size: 0.78rem; }
 .import-error { color: var(--err-fg); margin: 0.4rem 0 0; }
@@ -2615,7 +2704,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .panner-read { margin-left: 0.5rem; font-size: 0.85rem; }
 .panner-cmds { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; margin: 0.4rem 0; }
 .panner-cmds .modal-field { margin: 0; }
-.panner-cmds input[type="text"] { width: 4rem; font-family: var(--mono, monospace); }
+.panner-cmds input[type="text"] { width: 4rem; font-family: var(--mono-font); }
 .panner-opts { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; margin: 0.1rem 0 0.3rem; }
 .panner-opts label { color: var(--dim); font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem; }
 
@@ -2695,7 +2784,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pool-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
 /* Fixed height so the canvas does not jump as the pointer crosses the map. */
 .pool-hover {
-  color: var(--fg2); font-family: "Chivo Mono", monospace; font-size: 0.78rem;
+  color: var(--fg2); font-family: var(--mono-font); font-size: 0.78rem;
   min-height: 1.2em; margin: 0.3rem 0 0;
 }
 .pool-notes { color: var(--dim); font-size: 0.82rem; margin: 0.2rem 0 0; padding-left: 1.1rem; }
@@ -2733,11 +2822,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .pw-bar button { padding: 0.1rem 0.5rem; font-size: 0.8rem; }
 .pw-zoom { font-variant-numeric: tabular-nums; min-width: 9rem; }
 .pw-readout {
-  font-family: "Chivo Mono", monospace; font-size: 0.76rem; color: var(--fg2);
+  font-family: var(--mono-font); font-size: 0.76rem; color: var(--fg2);
   flex: 1 1 12rem; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pw-sel { color: var(--accent); font-family: "Chivo Mono", monospace; font-size: 0.76rem; }
+.pw-sel { color: var(--accent); font-family: var(--mono-font); font-size: 0.76rem; }
 /* Audition (item 175): the play/stop toggle and the loop latch beside it. */
 .pw-play { min-width: 2rem; font-size: 0.75rem; }
 .pw-play.on, .pw-bar button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
@@ -2826,7 +2915,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .chord-voice .cv-val > * { width: 100%; }
 .chord-voice .cv-oct-l, .chord-voice .cv-gain-l { white-space: nowrap; }
 .chord-voice .cv-oct, .chord-voice .cv-gain { width: 3.6rem; }
-.chord-voice .cv-glyph { border: 1px solid var(--border); border-radius: 3px; }
+.chord-voice .cv-glyph.cv-off { opacity: 0.4; }
 .chord-voice .cv-read {
   color: var(--fg2); white-space: nowrap; font-variant-numeric: tabular-nums;
 }
@@ -2872,6 +2961,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border-radius: 4px; padding: 0.12rem 0.25rem; font-size: 0.82rem;
   min-width: 0; width: 100%;
 }
+/* What is typed is a value — a note word, hex, a multiplier — and reads back
+   as one: Motif Mono, with the note beside it in the grid's own spelling. */
+.fc-row input.fc-val, .fc-read .fc-num { font-family: var(--mono-font); }
 .fc-vals { display: flex; gap: 0.3rem; align-items: center; min-width: 0; }
 .fc-vals .fc-and { color: var(--dim); flex: 0 0 auto; }
 .fc-read {
@@ -3000,7 +3092,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 
 .help-cols { display: flex; gap: 2rem; }
 .help-cols dl { flex: 1; margin: 0; }
-.help-cols dt { color: var(--accent); font-family: "Chivo Mono", monospace; margin-top: 0.4rem; }
+.help-cols dt { color: var(--accent); font-family: var(--mono-font); margin-top: 0.4rem; }
 .help-cols dd { margin: 0 0 0 0.2rem; color: var(--dim); font-size: 0.9rem; }
 
 .proj-title {
@@ -3025,7 +3117,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.4rem 0.5rem;
-  font-family: "Chivo Mono", ui-monospace, monospace;
+  font-family: var(--mono-font);
   font-size: 0.86rem;
   line-height: 1.45;
 }
@@ -3056,9 +3148,11 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   overflow: hidden;
 }
 /* One face, one size, no synthesised bold or italic and no kerning: the
-   highlighted <pre> sits under the textarea glyph for glyph. */
+   highlighted <pre> sits under the textarea glyph for glyph. Motif Code is
+   proportional only in i I l M m W w, and its bold and italic keep the
+   roman's advances, so both layers still measure alike. */
 .motif-gutter, .motif-hl, .motif-text {
-  font-family: "Chivo Mono", ui-monospace, monospace;
+  font-family: var(--code-font);
   font-size: 0.85rem;
   line-height: 1.45;
   font-synthesis: none;
@@ -3186,7 +3280,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-size: 0.85rem;
 }
 .motif-tree-row:hover { background: var(--panel-2); border-color: transparent; }
-.motif-tree-name { font-family: "Chivo Mono", ui-monospace, monospace; font-size: 0.8rem; white-space: nowrap; }
+.motif-tree-name { font-family: var(--code-font); font-size: 0.8rem; white-space: nowrap; }
 .motif-tree-detail { color: var(--dim); font-size: 0.78rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .motif-tree-count { margin-left: auto; color: var(--dim); font-size: 0.78rem; }
 .motif-twisty {
@@ -3206,7 +3300,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .motif-calls-bar { display: flex; gap: 0.3rem; margin: 0.2rem 0.2rem 0.3rem; }
 .motif-calls-bar button { font-size: 0.8rem; }
 .motif-calls-bar button.on { border-color: var(--accent); }
-.motif-preview-table { border-collapse: collapse; margin: 0.3rem 0.2rem; font-family: "Chivo Mono", ui-monospace, monospace; font-size: 0.75rem; }
+.motif-preview-table { border-collapse: collapse; margin: 0.3rem 0.2rem; font-family: var(--mono-font); font-size: 0.75rem; }
 .motif-preview-table th { text-align: left; color: var(--dim); font-weight: 600; }
 .motif-preview-table th, .motif-preview-table td { padding: 0 0.6rem 0 0; white-space: nowrap; }
 /* on a narrow screen the panel lies over the editor rather than squeezing it */
@@ -3230,7 +3324,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .motif-msgs .motif-ok { color: var(--ok-fg); }
 .motif-msgs .motif-trace { color: var(--dim); padding-left: 1.5rem; }
 .motif-pos {
-  font-family: "Chivo Mono", monospace;
+  font-family: var(--code-font);
   font-size: 0.8rem;
   padding: 0 0.35rem;
   margin-right: 0.2rem;
@@ -3422,7 +3516,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-table .mt-step { min-width: 1.2rem; padding: 0 0.3rem; }
 .np-freq .mt-spin { width: 9rem; }
 .nota-field .mt-spin { width: 9rem; }
-.nota-degrees .mt-spin { width: 100%; }
+/* A fixed width: at 100% the cell took the field's intrinsic twenty characters
+   of Motif Mono, and the table ran off the dialog. */
+.nota-degrees .mt-spin { width: 8rem; }
 .wavepaint-modal .mt-spin { width: 8.5rem; }
 .panner-fields .mt-spin { width: 7.5rem; }
 .lab-row .mt-spin { width: 8.5rem; }

@@ -99,16 +99,8 @@
         const read1 = ch.read(1);
         ok(/×1\.2500/.test(read1) && /\+386/.test(read1) && /−13|-13/.test(read1),
           `a3 just-third readout names ratio, cents and grid offset (got "${read1}")`);
-        const glyphPainted = (() => {
-          const cv = dlg.querySelectorAll(".chord-voice")[1].querySelector(".cv-glyph");
-          const px = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
-          const first = [px[0], px[1], px[2]];
-          for (let i = 4; i < px.length; i += 4) {
-            if (px[i] !== first[0] || px[i + 1] !== first[1] || px[i + 2] !== first[2]) return true;
-          }
-          return false;
-        })();
-        ok(glyphPainted, "a4 the voice paints a note glyph");
+        const glyph = dlg.querySelectorAll(".chord-voice")[1].querySelector(".cv-glyph .ng-note");
+        ok(!!glyph && /^E/.test(glyph.textContent), `a4 the voice spells its note glyph (${glyph?.textContent})`);
 
         // a5: the four modes are independent, per note
         ch.setVoice(0, { on: true, mode: "ji", ji: "3/2" });

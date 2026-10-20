@@ -14,7 +14,8 @@
 // moves the rest, and lets go of or adds whatever is left over.
 //
 // Painting is change-driven: the canvas is redrawn when its size, its
-// configuration, the theme or the set of held keys changes — never on a timer.
+// configuration, the theme or the set of held keys changes, and once when the
+// notes' font arrives — never on a timer.
 
 import { layoutSteps, keyDegree, pixelToHex, visibleKeys, fatZone, fatPoints, hexCentre } from "./lattice.js";
 import { noteForDegree, resolveNoteSymbol } from "../core/tuning/pitchtables.js";
@@ -44,7 +45,7 @@ const DRUM_NOTE = 0x5000; // a hit plays its sample at its own rate (C4)
 const TOKENS = [
   "--bg", "--panel", "--key-natural", "--key-natural-ink", "--key-near", "--key-near-ink",
   "--key-accidental", "--key-accidental-ink", "--key-edge", "--key-tonic", "--key-down",
-  "--key-down-ink", "--key-ghost", "--dim",
+  "--key-down-ink", "--key-ghost", "--dim", "--note-font",
 ];
 
 export class Keyboard {
@@ -69,6 +70,9 @@ export class Keyboard {
     this._readColours();
 
     new ResizeObserver(() => this._resize()).observe(canvas.parentElement);
+    // The keys are named in Motif Grid, and canvas text never fetches a
+    // webfont itself: ask for it, and paint again once it is in.
+    document.fonts?.load(`600 16px ${this.colours["--note-font"]}`).then(() => this.paint(), () => {});
 
     canvas.addEventListener("pointerdown", (e) => this._down(e));
     canvas.addEventListener("pointermove", (e) => this._move(e));
@@ -286,11 +290,11 @@ export class Keyboard {
         ctx.stroke();
       }
       ctx.fillStyle = ink;
-      ctx.font = `600 ${font}px system-ui, sans-serif`;
+      ctx.font = `600 ${font}px ${c["--note-font"]}`;
       const label = noteClass(key.note, this.cfg.preset);
       ctx.fillText(label, x, isTonic ? y - font * 0.3 : y);
       if (isTonic) {
-        ctx.font = `${Math.round(font * 0.75)}px system-ui, sans-serif`;
+        ctx.font = `${Math.round(font * 0.75)}px ${c["--note-font"]}`;
         ctx.fillText(String(resolveNoteSymbol(key.note, this.cfg.preset)?.octave ?? ""), x, y + font * 0.6);
       }
     }

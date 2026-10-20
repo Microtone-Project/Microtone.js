@@ -12,6 +12,7 @@ import { TaudPlayer } from "../taudplay/index.js";
 import { applyIcons } from "./icons.js";
 import { startControlEnhancer } from "./widgets/spinner.js";
 import { holdBrowserZoom } from "./zoom.js";
+import { canvasMonoFont, loadCanvasFonts } from "./fonts.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -215,7 +216,7 @@ function drawColumns(chans, W, H) {
   const panY = top + meterH + 4;
 
   const stride = labelStride(colW, 15);
-  ctx.font = "10px monospace";
+  ctx.font = canvasMonoFont(10);
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   for (let vi = 0; vi < chans; vi++) {
@@ -254,7 +255,7 @@ function drawRows(chans, W, H) {
 
   const fontPx = Math.max(7, Math.min(11, Math.round(rowH * 0.5)));
   const stride = labelStride(rowH, fontPx + 5);
-  ctx.font = `${fontPx}px monospace`;
+  ctx.font = canvasMonoFont(fontPx);
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   for (let vi = 0; vi < chans; vi++) {
@@ -294,6 +295,9 @@ function drawMeters() {
   $("speed").textContent = player.speed || "—";
   requestAnimationFrame(drawMeters);
 }
+// The lane numbers are canvas text, which never fetches a webfont itself; the
+// meters repaint every frame, so the face only has to be asked for.
+loadCanvasFonts([10]);
 requestAnimationFrame(drawMeters);
 
 // ── ?load= bootstrap (demo links) ──

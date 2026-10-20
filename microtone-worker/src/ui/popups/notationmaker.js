@@ -27,9 +27,8 @@ import { t } from "../i18n.js";
 import { showModal } from "../widgets/modal.js";
 import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
-import { themeColors } from "../theme.js";
-import { canvasFont } from "../fonts.js";
-import { paintNoteCell } from "../glyphs.js";
+import { noteGlyph } from "../noteglyph.js";
+import { MOTIF, MUSIC } from "../../../core/fonts/motifglyphs.js";
 import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol } from "../../../core/tuning/pitchtables.js";
 import {
   NOTA_SLOTS, notationValueForSlot, buildNotaPayload, parseTaudnot, buildTaudnot,
@@ -39,8 +38,28 @@ import {
 
 const TICKS = [" ", ".", "u", "d", "U", "D"];
 const ACCS = ["-", "#", "b", "t", "p", "x", "B", "3", "T", "4"];
-const ACC_LABELS = { "-": "♮", "#": "♯", b: "♭", t: "♯̸ demi", p: "ɔ demi", x: "𝄪", B: "♭♭", 3: "♯𝄪", T: "♭♭♭", 4: "𝄪𝄪" };
-const TICK_LABELS = { " ": "·", ".": "●", u: "˄", d: "˅", U: "˄˄", D: "˅˅" };
+// The pickers' options: the sign as Motif Grid draws it, then its name. A
+// phone's own picker ignores the page's font (and has no glyph at all for the
+// Kite ticks), so there the name is what reads. The sign sits in a two-cell
+// field so the names line up — in no-break spaces, since an option's own
+// spaces collapse.
+const TICK_SIGNS = {
+  " ": "", ".": MOTIF.KITE_DOT, u: MOTIF.KITE_UP, d: MOTIF.KITE_DOWN, U: MOTIF.KITE_UP2, D: MOTIF.KITE_DOWN2,
+};
+const TICK_NAMES = { " ": "none", ".": "dot", u: "up", d: "down", U: "up2", D: "down2" };
+const ACC_SIGNS = {
+  "-": MUSIC.NATURAL, "#": MUSIC.SHARP, b: MUSIC.FLAT, t: MUSIC.HALF_SHARP, p: MUSIC.REVERSED_FLAT,
+  x: MUSIC.DOUBLE_SHARP, B: MUSIC.DOUBLE_FLAT, 3: MUSIC.SHARP + MUSIC.DOUBLE_SHARP,
+  T: MUSIC.TRIPLE_FLAT, 4: MUSIC.DOUBLE_SHARP + MUSIC.DOUBLE_SHARP,
+};
+const ACC_NAMES = {
+  "-": "natural", "#": "sharp", b: "flat", t: "demisharp", p: "demiflat", x: "doubleSharp",
+  B: "doubleFlat", 3: "tripleSharp", T: "tripleFlat", 4: "quadSharp",
+};
+const NBSP = "\u00A0";
+const signLabel = (sign, name) => sign + NBSP.repeat(3 - [...sign].length) + name;
+const tickLabel = (o) => signLabel(TICK_SIGNS[o], t(`nota.tick.${TICK_NAMES[o]}`));
+const accLabel = (o) => signLabel(ACC_SIGNS[o], t(`nota.acc.${ACC_NAMES[o]}`));
 const OCTAVE = 0x1000;
 const TRITAVE = 0x195c;
 const TETRAVE = 0x2000;
@@ -139,7 +158,7 @@ export function showNotationMaker(store) {
         const value = notationValueForSlot(s);
         row.innerHTML = `<span class="nota-slot-num">${s}</span>` +
           `<span class="nota-slot-name">${i >= 0 ? esc(defs[i].name || t("nota.unnamed")) : esc(t("nota.emptySlot"))}</span>` +
-          `<span class="dim nota-slot-val">${value.toString(16).toUpperCase()}</span>`;
+          `<span class="dim nota-slot-val nota-num">${value.toString(16).toUpperCase()}</span>`;
         row.addEventListener("click", () => {
           if (i >= 0) { sel = i; }
           else { defs.push(seedDef(s)); sel = defs.length - 1; }
@@ -149,22 +168,12 @@ export function showNotationMaker(store) {
       }
     }
 
-    // ── glyph preview cell ──
-    function previewCanvas(def, idx) {
-      const cv = document.createElement("canvas");
-      const charW = 9, rowH = 20;
-      cv.width = charW * 4 + 4; cv.height = rowH;
-      cv.className = "nota-preview";
-      const ctx = cv.getContext("2d");
-      const C = themeColors();
-      ctx.fillStyle = C.cvBg;
-      ctx.fillRect(0, 0, cv.width, cv.height);
-      ctx.font = canvasFont(13);
-      ctx.textBaseline = "middle";
+    // ── glyph preview cell: the degree spelled as the grids spell it ──
+    function previewGlyph(def, idx) {
       const note = Math.min(Math.max(defBase(def) + def.table[idx], 0x20), 0xffff);
-      paintNoteCell(ctx, note, defToPreset(def), 2, 0, charW, rowH,
-        { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent });
-      return cv;
+      const g = noteGlyph(note, defToPreset(def));
+      g.classList.add("nota-preview");
+      return g;
     }
 
     // ── editor pane ──
@@ -211,6 +220,7 @@ export function showNotationMaker(store) {
       intLb.append(t("nota.interval") + " ");
       const intIn = document.createElement("input");
       intIn.type = "number";
+      intIn.classList.add("nota-num");
       intIn.step = "0.01";
       intIn.dataset.k = "interval";
       if (absolute) {
@@ -229,7 +239,7 @@ export function showNotationMaker(store) {
       intLb.appendChild(intIn);
       intLb.append(" " + t("nota.cents") + " ");
       const intHex = document.createElement("span");
-      intHex.className = "dim";
+      intHex.className = "dim nota-num";
       intHex.textContent = `($${def.interval.toString(16).toUpperCase()})`;
       intLb.appendChild(intHex);
       // The 0 chip is absolute mode. Switching away parks the base note in a
@@ -264,6 +274,7 @@ export function showNotationMaker(store) {
         baseLb.append(t("nota.baseNote") + " ");
         const baseIn = document.createElement("input");
         baseIn.type = "text";
+        baseIn.classList.add("nota-num");
         baseIn.size = 6;
         baseIn.dataset.k = "base";
         const eff = defBase(def);
@@ -380,13 +391,14 @@ export function showNotationMaker(store) {
         // degree number — plain decimal (item 72.3): this is a table index the
         // user counts with, not a timeline degree label (those stay base-36).
         const tdN = document.createElement("td");
-        tdN.className = "dim";
+        tdN.className = "dim nota-num";
         tdN.textContent = String(i);
         tr.appendChild(tdN);
         // cents
         const tdC = document.createElement("td");
         const cIn = document.createElement("input");
         cIn.type = "number";
+        cIn.classList.add("nota-num");
         cIn.step = "0.01";
         cIn.dataset.k = "cents" + i;
         cIn.value = unitsToCents(units).toFixed(2);
@@ -400,20 +412,21 @@ export function showNotationMaker(store) {
         tr.appendChild(tdC);
         // 4096-TET units
         const tdU = document.createElement("td");
-        tdU.className = "dim";
+        tdU.className = "dim nota-num";
         tdU.textContent = "$" + units.toString(16).toUpperCase().padStart(3, "0");
         tr.appendChild(tdU);
         // symbol pickers — a decoded 3-char DSL token, or a raw single char
         // (imported CJK / escape) shown read-only until a picker replaces it.
         const isDsl = tok.length === 3;
-        const mkSel = (opts, labels, cur, apply, key) => {
+        const mkSel = (opts, label, cur, apply, key) => {
           const td = document.createElement("td");
           const s = document.createElement("select");
+          s.className = "nota-sym";
           s.dataset.k = key + i;
           for (const o of opts) {
             const el = document.createElement("option");
             el.value = o;
-            el.textContent = labels ? labels[o] : o;
+            el.textContent = label ? label(o) : o;
             s.appendChild(el);
           }
           if (!isDsl) {
@@ -434,12 +447,12 @@ export function showNotationMaker(store) {
           p[idx] = v;
           def.syms[i] = p.join("");
         };
-        tr.appendChild(mkSel(TICKS, TICK_LABELS, parts[0], setPart(0), "tick"));
+        tr.appendChild(mkSel(TICKS, tickLabel, parts[0], setPart(0), "tick"));
         tr.appendChild(mkSel([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"], null, parts[1], setPart(1), "letter"));
-        tr.appendChild(mkSel(ACCS, ACC_LABELS, parts[2], setPart(2), "acc"));
+        tr.appendChild(mkSel(ACCS, accLabel, parts[2], setPart(2), "acc"));
         // live glyph preview
         const tdP = document.createElement("td");
-        tdP.appendChild(previewCanvas(def, i));
+        tdP.appendChild(previewGlyph(def, i));
         tr.appendChild(tdP);
         // remove
         const tdX = document.createElement("td");

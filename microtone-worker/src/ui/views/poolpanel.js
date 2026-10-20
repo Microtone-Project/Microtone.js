@@ -16,6 +16,7 @@
 // A live tick per sounding voice rides on top while the song plays.
 
 import { themeColors, pickInk } from "../theme.js";
+import { canvasMonoFont } from "../fonts.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { poolMap, claimsIn, POOL_SIZE } from "../../doc/poolmap.js";
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
@@ -325,7 +326,7 @@ export class PoolPanel {
     const ctx = this.canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, height);
-    ctx.font = "9px monospace";
+    ctx.font = canvasMonoFont(9);
     ctx.textBaseline = "alphabetic";
     for (const b of bands) {
       if (b.kind === "pool") this.drawPool(ctx, b, C);

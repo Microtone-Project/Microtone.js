@@ -202,7 +202,7 @@ export const EffectOp = Object.freeze({
 /** Which opcodes read `:`'s argument when paired with it (effects.js's `ext`
  *  parameter) — J, O and the sample-mod pair. Shared with the UI so the
  *  pattern grid's "this pairing needs a second look" highlight (see
- *  glyphs.js paintFxCell) agrees with what the engine actually does. */
+ *  cellpaint.js paintFxCell) agrees with what the engine actually does. */
 export const EXT_CAPABLE_OPS = Object.freeze(new Set([
   EffectOp.OP_J, EffectOp.OP_O, EffectOp.OP_2, EffectOp.OP_3,
 ]));

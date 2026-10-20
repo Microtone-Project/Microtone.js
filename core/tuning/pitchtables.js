@@ -12,14 +12,15 @@
 // the built-in example.
 //
 // `sym` carries one 3-char token per degree, transcribed from taut's custom-
-// font sym strings into a compact DSL rendered by src/ui/glyphs.js:
+// font sym strings into a compact DSL rendered by src/ui/cellpaint.js in the
+// Motif Grid font:
 //   [0] tick:   ' ' none · '.' Kite big-dot · 'u'/'d' up/down tick ·
 //               'U'/'D' double up/down tick
 //   [1] letter: A-J note letter (H/J are Bohlen-Pierce)
 //   [2] accidental: '-' natural · '#' sharp · 'b' flat · 't' demisharp ·
 //               'p' demiflat · 'x' double sharp · 'B' double flat ·
 //               '3' triple sharp · 'T' triple flat · '4' quadruple sharp
-// Shi'er lü uses single CJK tokens rendered with a conventional font.
+// Shi'er lü uses single CJK tokens (the font carries those twelve too).
 
 import { MIDDLE_C } from "../engine/constants.js";
 

@@ -34,7 +34,8 @@ import {
 } from "../../doc/patternquery.js";
 import { setCellsBytesOp } from "../../doc/ops.js";
 import { cellToBytes } from "../../doc/clipboard.js";
-import { noteToStr, hex4 } from "../notenames.js";
+import { hex4 } from "../notenames.js";
+import { noteGlyph } from "../noteglyph.js";
 import { FX_INFO, fxName, fxArg } from "../palette.js";
 import { t } from "../i18n.js";
 import { icon } from "../icons.js";
@@ -327,23 +328,30 @@ function openQueryDialog(store, {
 
     /** What one operand came out as, in the column's own dialect — with the
      *  note NAME beside a note word, which is the whole reason the readout is
-     *  worth the space. */
+     *  worth the space. Nodes: the value in Motif Mono (.fc-num), the note as
+     *  the grids spell it in the song's notation (noteglyph.js). */
     function readoutFor(row, field, isMult) {
       const f = fieldById(field);
-      const parts = [];
+      const out = [];
+      const num = (text) => {
+        const el = document.createElement("span");
+        el.className = "fc-num";
+        el.textContent = text;
+        return el;
+      };
       for (const key of ["a", "b"]) {
         const raw = row[key];
         if (raw === undefined || raw === "") continue;
+        if (out.length) out.push(" · ");
         const mult = isMult(key);
         const v = mult ? parseMultiplier(raw) : parseFieldValue(field, raw);
-        if (v === null) { parts.push(t("find.badValue")); continue; }
-        if (mult) { parts.push("×" + v); continue; }
-        let text = formatFieldValue(field, v, wide);
-        if (f?.kind === "note") text += " " + noteToStr(v);
-        else if (f?.hex) text += ` (${v})`;
-        parts.push(text);
+        if (v === null) { out.push(t("find.badValue")); continue; }
+        if (mult) { out.push(num("×" + v)); continue; }
+        const text = formatFieldValue(field, v, wide);
+        if (f?.kind === "note") out.push(num(text), " ", noteGlyph(v, store.pitchPreset));
+        else out.push(num(f?.hex ? `${text} (${v})` : text));
       }
-      return parts.join(" · ");
+      return out;
     }
 
     /** Re-read every operand and re-run the query. Called on every keystroke,
@@ -354,13 +362,13 @@ function openQueryDialog(store, {
       for (const el of dlg.querySelectorAll(".fc-term")) {
         const term = query.predicate[+el.dataset.ci]?.[+el.dataset.ti];
         if (!term) continue;
-        el.querySelector(".fc-read").textContent = readoutFor(term, term.field, () => false);
+        el.querySelector(".fc-read").replaceChildren(...readoutFor(term, term.field, () => false));
       }
       for (const el of dlg.querySelectorAll(".fc-act")) {
         const action = query.actions[+el.dataset.ai];
         if (!action) continue;
-        el.querySelector(".fc-read").textContent =
-          readoutFor(action, action.field, (k) => operandIsMultiplier(action.op, k === "a" ? 0 : 1));
+        el.querySelector(".fc-read").replaceChildren(
+          ...readoutFor(action, action.field, (k) => operandIsMultiplier(action.op, k === "a" ? 0 : 1)));
       }
       const compiled = compileQuery(query);
       const res = runPatternQuery(scopeCells(), compiled, wide);

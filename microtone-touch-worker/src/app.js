@@ -36,7 +36,7 @@ import { fitBrand, initMenu } from "./topbar.js";
 import { initSplit } from "./split.js";
 import { THEMES, themeChoice, setTheme, initTheme } from "./theme.js";
 import { openAbout } from "./about.js";
-import { t, tHtml, initLang, setLang, langChoice, LANGS } from "./i18n.js";
+import { t, tHtml, html, initLang, setLang, langChoice, LANGS } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "microtone-touch:sketch";
@@ -698,7 +698,7 @@ function openFxSheet() {
   if (!c || c.n === NOTE_OFF) { toast(t("fx.needNote")); return; }
   const levels = FX.slide.args.map((_, i) => `fx.level${i}`);
   showSheet(`
-    <h2>${tHtml("fx.title", { note: c.d !== undefined ? drumName(c.d) : noteLabel(c.n, tuning()) })}</h2>
+    <h2>${tHtml("fx.title", { note: c.d !== undefined ? drumName(c.d) : html(`<span class="note">${noteLabel(c.n, tuning())}</span>`) })}</h2>
     <p>${tHtml("fx.lasts")}</p>
     <div class="fx-grid">${FX_IDS.map((id) => `
       <span>${tHtml(`fx.${id}`)}</span>${levels.map((lv, i) => `

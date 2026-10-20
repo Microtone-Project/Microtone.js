@@ -11,6 +11,7 @@ import {
 import { t } from "./i18n.js";
 import { PIANO_KEYMAP } from "./keymap.js";
 import { EffectOp, EXT_CAPABLE_OPS } from "../../core/engine/tables.js";
+import { MOTIF } from "../../core/fonts/motifglyphs.js";
 
 // Effect reference (TAUD_NOTE_EFFECTS.md digest): opcode → button label (l).
 // The displayed name/argument-format text is looked up in the language table
@@ -142,9 +143,16 @@ export class CommandPalette {
       s.textContent = text;
       this.host.appendChild(s);
     };
-    const btn = (text, title, onClick, active = false) => {
+    // A word, then the sign the grid draws for it (.pal-sign, Motif Grid).
+    const btn = (text, title, onClick, active = false, sign = "") => {
       const b = document.createElement("button");
       b.textContent = text;
+      if (sign) {
+        const s = document.createElement("span");
+        s.className = "pal-sign";
+        s.textContent = sign;
+        b.append(" ", s);
+      }
       b.title = title ?? "";
       if (active) b.classList.add("active");
       b.addEventListener("click", () => { onClick(); this.lastKey = null; this.refresh(); });
@@ -161,10 +169,11 @@ export class CommandPalette {
     switch (ctx.sub) {
       case SUB_NOTE:
         label(t("pal.note"));
-        btn(t("pal.sentKeyOff"), t("pal.sentKeyOffTitle"), () => ctx.apply({ note: 0x0001 }));
-        btn(t("pal.sentCut"), t("pal.sentCutTitle"), () => ctx.apply({ note: 0x0002 }));
-        btn(t("pal.sentFade"), t("pal.sentFadeTitle"), () => ctx.apply({ note: 0x0003 }));
-        btn(t("pal.sentFastFade"), t("pal.sentFastFadeTitle"), () => ctx.apply({ note: 0x0004 }));
+        btn(t("pal.sentKeyOff"), t("pal.sentKeyOffTitle"), () => ctx.apply({ note: 0x0001 }), false, MOTIF.KEY_OFF);
+        btn(t("pal.sentCut"), t("pal.sentCutTitle"), () => ctx.apply({ note: 0x0002 }), false, MOTIF.NOTE_CUT);
+        btn(t("pal.sentFade"), t("pal.sentFadeTitle"), () => ctx.apply({ note: 0x0003 }), false, MOTIF.FADE);
+        btn(t("pal.sentFastFade"), t("pal.sentFastFadeTitle"), () => ctx.apply({ note: 0x0004 }), false,
+          MOTIF.FAST_FADE);
         btn(t("pal.clear"), t("pal.clearNoteTitle"), () => ctx.apply({ note: 0, instrment: 0 }));
         // Interrupt markers (item 181): one button opening a dialog that asks
         // for the number AND the optional `: MMMM` argument, rather than a row
@@ -196,10 +205,10 @@ export class CommandPalette {
         const op = volPanOp(ctx.cell.volume, ctx.cell.volumeEff, false, wide);
         const pick = (o) => () => { const f = volPanSelect(false, o, ctx.cell, wide); if (f) ctx.apply(f); };
         btn(t("pal.volSet"), t("pal.volSetTitle"), pick("set"), op === "set");
-        btn(t("pal.slideUp"), t("pal.slideUpTitle"), pick("up"), op === "up");
-        btn(t("pal.slideDn"), t("pal.slideDnTitle"), pick("down"), op === "down");
-        btn(t("pal.fineUp"), t("pal.volFineUpTitle"), pick("fineUp"), op === "fineUp");
-        btn(t("pal.fineDn"), t("pal.volFineDnTitle"), pick("fineDown"), op === "fineDown");
+        btn(t("pal.slideUp"), t("pal.slideUpTitle"), pick("up"), op === "up", MOTIF.VOL_UP);
+        btn(t("pal.slideDn"), t("pal.slideDnTitle"), pick("down"), op === "down", MOTIF.VOL_DOWN);
+        btn(t("pal.fineUp"), t("pal.volFineUpTitle"), pick("fineUp"), op === "fineUp", "+");
+        btn(t("pal.fineDn"), t("pal.volFineDnTitle"), pick("fineDown"), op === "fineDown", "−");
         btn(t("pal.clear"), t("pal.noopTitle"), () => ctx.apply({ volume: 0, volumeEff: 3 }));
         hint(t("pal.volHint"));
         break;
@@ -209,10 +218,10 @@ export class CommandPalette {
         const op = volPanOp(panVal, ctx.cell.panEff, true, wide);
         const pick = (o) => () => { const f = volPanSelect(true, o, ctx.cell, wide); if (f) ctx.apply(f); };
         btn(t("pal.panSet"), t("pal.panSetTitle"), pick("set"), op === "set");
-        btn(t("pal.slideLeft"), t("pal.slideLeftTitle"), pick("down"), op === "down");
-        btn(t("pal.slideRight"), t("pal.slideRightTitle"), pick("up"), op === "up");
-        btn(t("pal.fineUp"), t("pal.panFineUpTitle"), pick("fineUp"), op === "fineUp");
-        btn(t("pal.fineDn"), t("pal.panFineDnTitle"), pick("fineDown"), op === "fineDown");
+        btn(t("pal.slideLeft"), t("pal.slideLeftTitle"), pick("down"), op === "down", MOTIF.PAN_LEFT);
+        btn(t("pal.slideRight"), t("pal.slideRightTitle"), pick("up"), op === "up", MOTIF.PAN_RIGHT);
+        btn(t("pal.fineUp"), t("pal.panFineUpTitle"), pick("fineUp"), op === "fineUp", "+");
+        btn(t("pal.fineDn"), t("pal.panFineDnTitle"), pick("fineDown"), op === "fineDown", "−");
         btn(t("pal.clear"), t("pal.noopTitle"), () => ctx.apply(
           wide ? { azimuth: 0, elevation: 0, panEff: 3 } : { pan: 0, panEff: 3 }));
         hint(t(wide ? "pal.panHintWide" : "pal.panHint"));

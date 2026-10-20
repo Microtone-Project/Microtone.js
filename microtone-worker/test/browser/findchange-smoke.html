@@ -107,9 +107,11 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
 
   // ── 3. the readout says what it parsed ──────────────────────────────────
   await fill(() => termRow(0, 0), undefined, "ge", "C-4");
-  check(termRow(0, 0).querySelector(".fc-read").textContent === "$5000 C-4",
-    "a note operand reads back as its word AND its name",
-    termRow(0, 0).querySelector(".fc-read").textContent);
+  const noteRead = termRow(0, 0).querySelector(".fc-read");
+  check(noteRead.querySelector(".fc-num")?.textContent === "$5000"
+    && noteRead.querySelector(".note-glyph .ng-note")?.textContent === "C\uF01B4",
+    "a note operand reads back as its word AND its name, spelled as the grid spells it",
+    noteRead.textContent);
   await fill(() => termRow(0, 0), "vol", "ge", "30");
   check(termRow(0, 0).querySelector(".fc-read").textContent === "$30 (48)",
     "a column value is hex, with the decimal beside it",

@@ -109,6 +109,7 @@ export function showInterruptDialog(target) {
     };
 
     const numSel = document.createElement("select");
+    numSel.className = "interrupt-num";
     for (let n = 0; n < 16; n++) {
       const o = document.createElement("option");
       o.value = String(n);

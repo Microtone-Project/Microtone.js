@@ -77,7 +77,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   await sleep(50);
   const rows = dlg.querySelectorAll(".nota-degrees tbody tr");
   check("19 degrees after equal division", rows.length === 19);
-  check("each degree has a glyph preview", dlg.querySelectorAll("canvas.nota-preview").length === 19);
+  check("each degree has a glyph preview", dlg.querySelectorAll(".nota-preview .ng-note").length === 19);
 
   // ── edit degree 1's letter ──
   const letterSel = rows[1].querySelectorAll("select")[1];
