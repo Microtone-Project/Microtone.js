@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from motiffont import assemble, cjk, symbols  # noqa: E402
+from motiffont.apertures import open_aperture  # noqa: E402
 from motiffont.varglyph import VarGlyph, master_glyphsets, source_glyph, bounds, translate  # noqa: E402
 from motiffont.widths import Stems, rescale, fitted_rescale, hp_capital_o, matched_weights  # noqa: E402
 
@@ -68,9 +69,20 @@ class Source:
         angle = self.font["post"].italicAngle
         self.slant = math.tan(math.radians(-angle)) if angle else 0.0
         self.y0 = self.font["OS/2"].sxHeight / 2
+        cmap = self.font.getBestCmap()
+        self.apertures = {cmap[ord(ch)]: units for ch, units in cfg["apertures"].items() if units}
 
     def glyph(self, name, unicode=None):
         return source_glyph(self.font, self.sets, name, unicode)
+
+    def letter(self, name, cfg):
+        """Chivo's glyph, or Motif's own drawing of it: the square O, the
+        opened C G c."""
+        if name == "O":
+            return capital_o(self, cfg)
+        if name in self.apertures:
+            return open_aperture(self.glyph(name), self.apertures[name])
+        return self.glyph(name)
 
 
 def capital_o(src, cfg):
@@ -105,7 +117,7 @@ def build_monospaced(cfg, family, file_stem, unicodes, scale, fit_margin, extra,
     centred_names = {cmap[ord(ch)] for ch in centred if ord(ch) in cmap}
     derived = []
     for name in font.getGlyphOrder():
-        vg = capital_o(src, cfg) if name == "O" else src.glyph(name)
+        vg = src.letter(name, cfg)
         k = scale * zero if name == "zero" else scale
         # Widening keeps the cell; narrowing narrows it with the glyph.
         advance = vg.advance if scale >= 1 else round(vg.advance * scale)
@@ -151,13 +163,13 @@ def build_code(cfg, italic, mono=False):
     for name in font.getGlyphOrder():
         if name in factor:
             s = factor[name]
-            g = src.glyph(name)
+            g = src.letter(name, cfg)
             vg = rescale(g, lambda t: s, round(600 * s), src.stems, comp, src.slant, src.y0,
                          tx_of_t=weights[base[name]],
                          keep=_lone_mark(g, xh if base[name].islower() else cap))
             moved[name] = _anchor_mover(s, 600, round(600 * s), src.slant, src.y0)
-        elif name == "O":
-            vg = capital_o(src, cfg)
+        elif name == "O" or name in src.apertures:
+            vg = src.letter(name, cfg)
         elif name == "zero":
             k = 1 - cfg["zero"]["narrow"] / 100
             vg = rescale(src.glyph(name), lambda t: k, 600, src.stems, comp, src.slant, src.y0)

@@ -7,15 +7,18 @@ and Microtone Touch both serve it.
 
 | Family | File | Used by | What changes |
 |---|---|---|---|
-| **Motif Grid** | `motif-grid.woff2` | Timeline, Cues, Patterns, chord and notation makers, keymap (`--cv-font`), every note shown as a symbol outside them, vibrato wave buttons; Microtone Touch's notes (grid, keys) | every glyph 8% wider in the same 600-unit cell; ASCII, `·`, `−`, the symbols below and the lü only |
+| **Motif Grid** | `motif-grid.woff2` | Timeline, Cues, Patterns, chord and notation makers, keymap (`--cv-font`), every note shown as a symbol outside them, vibrato wave buttons; Microtone Touch's notes (grid, keys) | every glyph 20% wider in the same 600-unit cell; ASCII, `·`, `−`, the symbols below and the lü only |
 | **Motif Transport** | `motif-transport.woff2` | the transport readouts (Oct, Inst, Step, Cue, Row, BPM, Spd) | every glyph and its cell 10% narrower; ASCII only |
 | **Motif Code** | `motif-code.woff2`, `motif-code-italic.woff2` | the Motif editor, the manual's code | restricted proportional: `i I l` ×0.75, `M m W w` ×1.25 (stems as heavy as `n`'s and `H`'s at every weight), digits and punctuation stay on the cell; all of Chivo Mono's characters |
 | **Motif Mono** | `motif-mono.woff2` | every other monospace in the tracker (`--mono-font`): hex and number fields, indexes, readouts, key names, canvas labels; also what Grid and Transport fall back to | Motif Code with every letter left on the cell — Chivo Mono's own widths, strictly monospaced; all of Chivo Mono's characters |
 
 In all of them the capital **O is square and wide** and the **zero narrow and
 oval**, the way HP's terminals told them apart — no slashed or dotted zero.
-Every face is variable on weight, 100–900, with Chivo's own three masters
-(Thin, Medium, Black); the drawn symbols and the lü follow the weight too.
+**C, G and c are opened**: their terminals end further round the bowl than
+Chivo's, so C and G stand apart from O, 0 and 6, and c from e and o, at grid
+sizes and at heavy weights. Every face is variable on weight, 100–900, with
+Chivo's own three masters (Thin, Medium, Black); the drawn symbols and the lü
+follow the weight too.
 
 Why separate families rather than a width axis: some browsers lack
 `font-variation-settings`, and unlike body text the grid cannot tolerate a
@@ -37,12 +40,12 @@ and installable `.ttf` copies into `build/` (not committed).
 
 **To try other widths**, change the two numbers at the top of `motif.toml` —
 `[grid] widen` and `[transport] narrow` — rebuild, and reload the app. Every
-other dial (the O's squareness, the code face's letters and factors, the
-symbols' stroke weight, the lü's weights and size) is in the same file with a
-comment. `test/node/motif-font.test.js` (run from `microtone-worker/`) reads
-the shipped fonts and fails if they no longer match `motif.toml`, or lack a
-character the cell painter writes — so a config edit that was never rebuilt
-shows up there.
+other dial (the O's squareness, the apertures of C G c, the code face's
+letters and factors, the symbols' stroke weight, the lü's weights and size) is
+in the same file with a comment. `test/node/motif-font.test.js` (run from
+`microtone-worker/`) reads the shipped fonts and fails if they no longer match
+`motif.toml`, or lack a character the cell painter writes — so a config edit
+that was never rebuilt shows up there.
 
 ## How it is made
 
@@ -73,6 +76,14 @@ glyphsLib/fontmake, so `sources/` holds the compiled release rather than the
 - **The O** (`widths.py hp_capital_o`) is redrawn as a superellipse in each
   master's own box, pushed out by `[capital_O] widen`, keeping the master's
   stroke thicknesses; italic O is drawn upright and slanted after.
+- **The apertures** (`apertures.py`): Chivo cuts the arms of C, G and c level,
+  about where the bowl turns vertical. Each cut moves `[apertures]` units
+  further from the middle and stays level; the outer and inner curves into it,
+  from the bowl's top or bottom, are refitted as the same curves made shorter,
+  every spline keeping its points (least squares on the TrueType off-curve
+  points, within 1 unit of Chivo's curve), so the masters still interpolate.
+  The cuts are found in the outline, not named, and the accented forms follow
+  their letter; ¢ and © are drawn separately in Chivo and keep its closed c.
 - **The symbols** (`symbols.py`, `stroke.py`) are centre lines stroked with an
   *elliptical* nib whose axes are Chivo's vertical stem and horizontal bar at
   that weight (times `[symbols] weight`), so a symbol's verticals, horizontals
