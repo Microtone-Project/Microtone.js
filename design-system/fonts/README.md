@@ -47,11 +47,25 @@ in the same file with a comment. `test/node/motif-font.test.js` (run from
 `motif.toml`, or lack a character the cell painter writes — so a config edit
 that was never rebuilt shows up there.
 
+## The Motif Code release
+
+Motif Code is also released as a font of its own, from the sibling repository
+`../motif-code/` (beside this checkout): the variable fonts, a static font for
+every named weight, WOFF2s and specimen pictures, built by its
+`build_dist_package.py`. It carries a copy of `motiffont/`, `sources/`,
+`motif.toml`, `OFL.txt` and the Syntello scheme; after a change to the code
+face, run `python3 build_dist_package.py --sync` there (it copies them from
+here, then builds), bump `version` in `motif.toml` if the shapes changed, and
+add a line to that README's *Versions*. Its WOFF2s are byte for byte the
+`motif-code*.woff2` this build writes.
+
 ## How it is made
 
 Everything is fontTools working on Chivo Mono's own variable TTF — no
 glyphsLib/fontmake, so `sources/` holds the compiled release rather than the
-`.glyphs` file (its outlines are the same).
+`.glyphs` file (its outlines are the same). `motiffont/faces.py` makes each
+face into a finished font; `build.py` only says where Microtone keeps them, so
+the release repository can build the code face from the same package.
 
 - **Wider and narrower without getting bolder or lighter** (`widths.py`). A
   plain stretch thickens every vertical stem by the stretch. Instead each
