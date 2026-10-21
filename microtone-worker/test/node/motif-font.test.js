@@ -176,6 +176,7 @@ test("Motif Code: i I l narrow, M m W w wide, digits and punctuation on the cell
     }
     assert.equal(f.width(MUSIC.SHARP), CELL);
     assert.equal(f.width(LU[0]), 2 * CELL);
+    assert.equal(f.width("—"), config("code", "emdash_advance"), "the em dash's wider cell");
   }
   // The editor lays its textarea over a highlighted <pre> whose tokens may be
   // italic: a character must measure the same in both.

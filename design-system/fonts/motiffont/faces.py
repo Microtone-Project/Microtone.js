@@ -130,9 +130,13 @@ def build_code(cfg, sources, italic, mono=False):
     del font["HVAR"]
     factor, base = ({}, {}) if mono else code_factors(font, c)
     # Chivo's hyphen is less than half the + and =, so "-=" reads as ".=";
-    # the code face lengthens it (and its raised .cap form) about its middle.
-    hy = font.getBestCmap()[0x2D]
-    hyphens = set() if mono else {g for g in font.getGlyphOrder() if g.split(".")[0] == hy}
+    # the code face lengthens it, and the en and em dashes after it so the
+    # three stay apart (the em dash on a wider cell). Their raised .cap forms
+    # follow.
+    cmap = font.getBestCmap()
+    bars = {} if mono else {cmap[cp]: (c[key], c.get(key + "_advance", 600))
+                            for cp, key in ((0x2D, "hyphen"), (0x2013, "endash"), (0x2014, "emdash"))}
+    bars.update({g: bars[g.split(".")[0]] for g in font.getGlyphOrder() if g.split(".")[0] in bars})
     glyf = font["glyf"]
     moved = {}
     # Each narrowed or widened letter takes its stems from where they match
@@ -157,8 +161,8 @@ def build_code(cfg, sources, italic, mono=False):
         elif name == "zero":
             k = 1 - cfg["zero"]["narrow"] / 100
             vg = rescale(src.glyph(name), lambda t: k, 600, src.stems, comp, src.slant, src.y0)
-        elif name in hyphens:
-            vg = _lengthen(src.glyph(name), c["hyphen"], src.slant, src.y0)
+        elif name in bars:
+            vg = _lengthen(src.glyph(name), *bars[name], src.slant, src.y0)
         elif glyf[name].isComposite() and _reaches(glyf, name, factor):
             vg = src.glyph(name)  # decomposed: its parts are about to change shape
         else:
@@ -213,15 +217,18 @@ def _lone_mark(vg, height):
     return set(above) if len(above) == 1 else set()
 
 
-def _lengthen(vg, length, slant, y0):
+def _lengthen(vg, length, advance, slant, y0):
     """A level bar made `length` units long at every weight, about its own
-    middle: the points left of the middle move left, the rest right. Italic
-    bars are measured and moved along the slant, so they keep their angle."""
+    middle, on a cell `advance` wide (centred as it was): the points left of
+    the middle move left, the rest right. Italic bars are measured and moved
+    along the slant, so they keep their angle."""
+    shift = (advance - vg.advance) / 2
     def fn(t, ol):
         u = [x - slant * (y - y0) for c in ol for x, y, _ in c]
         mid, d = (min(u) + max(u)) / 2, (length - (max(u) - min(u))) / 2
-        return [[(x + (d if x - slant * (y - y0) > mid else -d), y, on) for x, y, on in c] for c in ol]
-    return vg.map(fn)
+        return [[(x + shift + (d if x - slant * (y - y0) > mid else -d), y, on) for x, y, on in c]
+                for c in ol]
+    return VarGlyph(vg.name, advance, {t: fn(t, vg.masters[t]) for t in vg.masters}, vg.unicode)
 
 
 def _reaches(glyf, name, targets, seen=None):

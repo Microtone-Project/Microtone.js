@@ -25,7 +25,10 @@ narrow_factor = 0.75
 wide_letters = "MmWw"
 wide_factor = 1.25    # digits and punctuation keep the 600-unit cell
 extrapolate = 1.0     # how far past Black a narrowed letter may borrow its stems from
-hyphen = 360          # units: the hyphen's length (Chivo's is 253; + and = are 512), so -= is not .=
+hyphen = 400          # units: the hyphen's length (Chivo's is 253; + and = are 512), so -= is not .=
+endash = 512          # …the en dash's (Chivo's 400), so the three dashes stay apart
+emdash = 640          # …the em dash's (Chivo's 600, edge to edge)
+emdash_advance = 750  # …on a cell this wide, like M and W
 
 [stems]
 compensate = 1.0      # 1: a widened or narrowed glyph keeps its stems' thickness; 0: plain stretch
