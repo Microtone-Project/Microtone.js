@@ -97,8 +97,10 @@ test("S$Dx note delay fires on a FRESH channel (stale-inst re-bind)", () => {
 // immediate) trigger — the half of S$Dxny neither engine implemented before
 // (Kotlin's applySEffect literally no-ops case 0xD; only the row-level "delay
 // to tick $x" existed). One tick-fire event happens per elapsed samplesPerTick
-// (= SAMPLING_RATE·2.5/bpm = 640 samples here); tick index k's event lands at
-// cumulative sample count (k+1)·640 (see mixer.js generateTrackerAudio).
+// (= SAMPLING_RATE·2.5/bpm = 640 samples here); an event scheduled for tick k of
+// a row lands k·640 samples into it, at the boundary that starts tick k (item
+// 232; it used to land at (k+1)·640, a tick late — see mixer.js
+// generateTrackerAudio and tick.js applyTickEvents).
 test("S$Dxny schedules the $n action at tick $x+$y (note cut 2 ticks after a delayed trigger)", () => {
   const eng = makeTestEngine();
   const pat = new Uint8Array(512);
@@ -119,16 +121,60 @@ test("S$Dxny schedules the $n action at tick $x+$y (note cut 2 ticks after a del
   eng.play(0);
   const v = eng.playheads[0].trackerState.voices[0];
 
-  renderSamples(eng, 1024); // < tick1's 1280-sample fire point — still nothing
+  renderSamples(eng, 512); // < tick1's 640-sample fire point — still nothing
   assert.equal(v.active, false, "voice must not sound before the delay tick");
 
-  renderSamples(eng, 512); // cumulative 1536: past tick1 (1280), before tick3 (2560)
+  renderSamples(eng, 512); // cumulative 1024: past tick1 (640), before tick3 (1920)
   assert.equal(v.active, true, "delayed trigger fired");
   assert.equal(v.noteActionTick, 3, "action scheduled at x+y = 1+2");
 
-  renderSamples(eng, 1536); // cumulative 3072: past tick3 (2560)
+  renderSamples(eng, 1536); // cumulative 2560: past tick3 (1920) and its cut ramp
   assert.equal(v.active, false, "the $n=1 (note cut) follow-up action fired");
   assert.equal(v.noteActionTick, -1, "consumed, not re-armed");
+});
+
+// item 232: an event a row schedules for tick x fires x ticks into the row —
+// ProTracker's EDx / ECx as openmpt123 renders them — and a delay of speed − 1
+// stays in its own row. Both used to land a tick late (the tick pass that ENDS
+// tick x fired them), which put S $D5 at speed 6 on the next row's first tick.
+test("S$Dx triggers and S$Cx cuts exactly x ticks into the row (item 232)", () => {
+  const run = (arg) => {
+    const eng = makeTestEngine();
+    const pat = new Uint8Array(512);
+    for (let r = 0; r < 64; r++) { pat[r * 8 + 3] = 0xc0; pat[r * 8 + 4] = 0xc0; }
+    pat[0] = 0x00; pat[1] = 0x50; pat[2] = 1;
+    pat[5] = 0x1c; pat[6] = arg & 0xff; pat[7] = arg >>> 8;
+    eng.uploadPattern(0, pat);
+    const cue = new Uint8Array(64);
+    for (let ch = 0; ch < 32; ch++) { cue[ch * 2] = 0xff; cue[ch * 2 + 1] = 0x7f; }
+    cue[0] = 0x00; cue[1] = 0x00;
+    eng.uploadCue(0, cue);
+    eng.setBPM(0, 125); eng.setTickRate(0, 6); eng.setMasterVolume(0, 255);
+    eng.setCuePosition(0, 0);
+    eng.play(0);
+    const ts = eng.playheads[0].trackerState;
+    // the first chunk whose end is past the event, sampled chunk by chunk
+    const out = new Uint8Array(TRACKER_CHUNK * 2);
+    let frames = 0;
+    return (pred, limit) => {
+      while (frames < limit) {
+        eng.renderChunk(0, out); frames += TRACKER_CHUNK;
+        if (pred(ts.voices[0], ts)) return frames;
+      }
+      return -1;
+    };
+  };
+  for (const x of [1, 3, 5]) {
+    const until = run(0xd000 | (x << 8));
+    const at = until((v) => v.active, 6 * 640);
+    // fired in the chunk that holds sample x·640, and still on row 0
+    assert.ok(at >= x * 640 && at < x * 640 + TRACKER_CHUNK, `S $D${x}: fired by sample ${at}, wanted ${x * 640}`);
+  }
+  for (const x of [2, 5]) {
+    const until = run(0xc000 | (x << 8));
+    const at = until((v) => v.noteWasCut, 6 * 640);
+    assert.ok(at >= x * 640 && at < x * 640 + TRACKER_CHUNK, `S $C${x}: cut by sample ${at}, wanted ${x * 640}`);
+  }
 });
 
 test("a note cut RAMPS to silence instead of stepping to it (item 140)", () => {
@@ -398,7 +444,7 @@ test("S$Dxny: a zero $y schedules no action at all", () => {
   eng.play(0);
   const v = eng.playheads[0].trackerState.voices[0];
 
-  renderSamples(eng, 1536); // past the delayed trigger (tick1 @1280)
+  renderSamples(eng, 1536); // past the delayed trigger (tick1 @640)
   assert.equal(v.active, true, "delayed trigger still fires");
   assert.equal(v.noteActionTick, -1, "y=0 never arms a follow-up action");
 
@@ -432,12 +478,12 @@ test("S$Dxny's $n action arms on a note-less row (Kxx-style deferred key-off)", 
   eng.play(0);
   const v = eng.playheads[0].trackerState.voices[0];
 
-  renderSamples(eng, 5500); // past row0's trigger, before row1 tick2's 5760-sample fire point
+  renderSamples(eng, 4900); // past row0's trigger, before row1 tick2's fire point (3840 + 1280)
   assert.equal(v.active, true, "note from row0 still sounding");
   assert.equal(v.keyOff, false, "row1 tick2 hasn't fired yet");
   assert.equal(v.noteActionTick, 2, "armed at x+y = 0+2 even with no note on row1");
 
-  renderSamples(eng, 700); // cumulative 6200: past row1 tick2 (5760)
+  renderSamples(eng, 700); // cumulative 5600: past row1 tick2 (5120)
   assert.equal(v.keyOff, true, "the $n=0 (note off) action fired on the currently-sounding voice");
   assert.equal(v.noteActionTick, -1, "consumed, not re-armed");
 });

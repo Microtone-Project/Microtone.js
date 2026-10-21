@@ -2685,13 +2685,15 @@ A mistake stops the build and is listed under the editor with its line and colum
 
 ### Instruments and soundfonts
 
-An `instrument` comes from one of five places:
+An `instrument` comes from one of seven places:
 
 - **A soundfont preset**, by bank and program number, built into the project by the same converter **Import MIDI…** uses. A song plays from the bundled GeneralUser GS unless it names another `soundfont`; then the app asks for that file the first time it is needed in a session.
 - **An instrument pack** — a `.tsii` bank, or a whole project — by its slot number there or its name. The app asks for the file the first time a build needs it. This is how a song plays instruments a program cannot make: samples you processed yourself, presets from several soundfonts, anything you built in the Instruments view.
 - **A waveform**: one cycle of a sine, a triangle, a saw, a square, noise or one of OPL's eight, looped and tuned, with an envelope if you give it one.
+- **An OPL chip**: one channel of the YM3812 / YMF262, written field for field as the Instruments view's OPL tab shows it — the kind (two or four operators, or one of the chip's five drums), the connection, the feedback, and each operator's multiple, level, envelope and waveform.
+- **A PSG chip**: two oscillators, added or multiplied, each with its waveform (pulses, saw, triangle, the noises, the 4-bit saw and triangle), envelope, tremolo, vibrato and auto-advance, as the PSG tab shows them.
 - **Layers** of other instruments: a layered metainstrument, each layer with its own level, detune, key range and volume range, or a fixed pitch.
-- **An FM rack**: operators reading other instruments (waveforms, usually), each with its frequency ratio and level, wired by an algorithm written as the FM tab reads one back — `0[1]` is operator 0 modulated by operator 1. A build keeps only the zones the song plays, and with `retune: true` in the song it also measures every zone the song plays and corrects its tuning onto the grid — soundfont samples are tuned for twelve-tone music, and a few cents off is a fifth of a step in 31-TET.
+- **An FM rack**: operators reading other instruments (waveforms, usually, or the chips), each with its frequency ratio and level, wired by an algorithm written as the FM tab reads one back — `0[1]` is operator 0 modulated by operator 1. A build keeps only the zones the song plays, and with `retune: true` in the song it also measures every zone the song plays and corrects its tuning onto the grid — soundfont samples are tuned for twelve-tone music, and a few cents off is a fifth of a step in 31-TET.
 
 The same program always builds the same project. Every random choice is keyed to the song's `seed` and to what it is for (`chance(0.35, "drop", row)`), so changing one part of a program never reshuffles another; change the seed to hear another roll of the dice.
 

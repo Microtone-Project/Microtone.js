@@ -29,7 +29,7 @@ import {
 } from "./spatial.js";
 import { applyTrackerRow, advanceRow } from "./row.js";
 import { TAP_PRE, TAP_POST } from "./loudness.js";
-import { applyTrackerTick, advanceSampleModExtended, psgQuarterPass, psgLive } from "./tick.js";
+import { applyTrackerTick, applyTickEvents, advanceSampleModExtended, psgQuarterPass, psgLive } from "./tick.js";
 import { psgQuarterAt } from "./psg.js";
 
 const fround = Math.fround;
@@ -494,6 +494,9 @@ export function generateTrackerAudio(eng, playhead, out) {
         if (ts.tickInRow >= playhead.tickRate + ts.finePatternDelayExtra) {
           ts.tickInRow = 0;
           advanceRow(eng, ts, playhead);
+        } else {
+          // what the row scheduled for the tick now starting (item 232)
+          applyTickEvents(eng, ts, playhead);
         }
       }
     } else { // jamActive: evolve envelopes only, never advance the song

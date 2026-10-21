@@ -267,6 +267,8 @@ Notations that list a fixed set of notes rather than repeating a period, such as
 instrument EP   { bank: 0, program: 4, layer_gain: 3 }
 instrument SINE { wave: "sine", envelope: [[0, 63], [0.4, 30], [2, 0]] }
 instrument BELL { fm: { operators: [{ inst: SINE }, { inst: SINE, ratio: 3.5, level: -6 }], algorithm: "0[1]" } }
+instrument HAT  { opl: { kind: "hi_hat", operators: [{ decay: 10, sustain_level: 15, sustain: false, release: 10 }] } }
+instrument BUZZ { psg: { a: { waveform: "pulse2", decay: 6, sustain_level: 15, sustain: false } } }
 ```
 
 Declaring an instrument binds its name. A song has at most 255. Each has exactly one **source**:
@@ -278,6 +280,8 @@ Declaring an instrument binds its name. A song has at most 255. Each has exactly
 | A waveform | `wave`, `length` | One cycle of `"sine"`, `"triangle"`, `"saw"`, `"square"`, `"noise"` or one of OPL's eight (`"opl0"` … `"opl7"`), `length` samples long (256 unless given), looped and tuned so C4 sounds at C4 — the Sample Lab's paint presets |
 | Layers | `layers` | A layered metainstrument: a list of layers over other instruments, each sounding on its own voice (below) |
 | An FM rack | `fm` | An FM operator rack: operators reading other instruments, combined by an algorithm, on one voice (below) |
+| An OPL chip | `opl` | One channel of a Yamaha YM3812 / YMF262 FM chip, sounding where a sample would: its kind, its connection and its operators, as the Instruments view's OPL tab sets them (below) |
+| A PSG chip | `psg` | Two programmable-sound-generator oscillators, added or multiplied, sounding where a sample would, as the Instruments view's PSG tab sets them (below) |
 
 Every instrument also takes:
 
@@ -290,9 +294,9 @@ Every instrument also takes:
 | `min_fadeout` | — | Every zone fades out at least this fast (in the engine's fadeout units, which a soundfont's release becomes at the song's tempo) |
 | `fadeout` | — | Every layer and zone fades out at exactly this rate |
 | `nna` | — | The New Note Action: `"off"`, `"cut"`, `"continue"` or `"fade"` |
-| `envelope` | — | (A waveform.) Its volume envelope: up to 25 `[seconds, volume]` points, volume 0–63, the last held; at most 15.75 s between two points |
-| `sustain` | — | (A waveform with an envelope.) The point it holds while the key is down (`sustain: 1`), or a range of points it loops through (`sustain: 1..3`) |
-| `percussion` | `false` | (Layers or an FM rack.) Marks the instrument as percussion |
+| `envelope` | — | (A waveform, an OPL or a PSG instrument.) Its volume envelope: up to 25 `[seconds, volume]` points, volume 0–63, the last held; at most 15.75 s between two points |
+| `sustain` | — | (One with an envelope.) The point it holds while the key is down (`sustain: 1`), or a range of points it loops through (`sustain: 1..3`) |
+| `percussion` | `false` | (Layers, an FM rack, an OPL or a PSG instrument.) Marks the instrument as percussion |
 | `strict` | `false` | (Layers.) Strict layering: a layer whose own zones do not cover a note stays silent for it, rather than falling back to its base sample (TAUD_FILE_FORMAT.md §7.5) |
 
 **Layers.** Each layer is a record:
@@ -312,7 +316,7 @@ A layer over a layered instrument stands in for all of that instrument's layers 
 
 | Field | Default | |
 |---|---|---|
-| `inst` | — | **Required.** The instrument it reads: one sample, not a metainstrument (a `wave`, usually) |
+| `inst` | — | **Required.** The instrument it reads: one sample or one chip — a `wave`, usually, or an `opl` or `psg` instrument — not a metainstrument |
 | `level` | 0 | Its output level, in decibels |
 | `ratio` | 1 | Its frequency ratio: 2 an octave up, 3.5 a minor seventh above that |
 | `detune` | 0 | Added to the ratio, in cents |
@@ -320,7 +324,77 @@ A layer over a layered instrument stands in for all of that instrument's layers 
 
 The algorithm is written the way the Instruments view's FM tab reads one back: `0` is operator 0 free-running; `0[1]` is operator 0 with its phase modulated by operator 1, so `0[1[2]]` is a chain of three; `1'` is what operator 1 put out one sample before (a feedback tap, so `0[0']` is operator 0 feeding back into itself); `a + b` mixes, `a * b` ring-modulates, `-a` inverts, and parentheses group. Without one, the rack is a chain: the last operator into the one before it, all the way down to operator 0. Operator 0 is the principal — its envelope, its fadeout and its ending are the note's (TAUD_FILE_FORMAT.md §7.7). An algorithm that does not make a playable rack is an error.
 
-**Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are written), then the instruments from packs, the waveforms and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
+**OPL instruments.** `opl` is a record of the chip channel's settings and its `operators`, every one a register value the OPL tab edits ([TAUD_FILE_FORMAT.md §7.8](TAUD_FILE_FORMAT.md)):
+
+| Field | Default | |
+|---|---|---|
+| `kind` | `"2op"` | `"2op"` or `"4op"`, or one of the chip's five rhythm-mode drums: `"bass_drum"`, `"snare"`, `"tom"`, `"cymbal"`, `"hi_hat"` |
+| `operators` | — | **Required.** Two for a `2op` and a `bass_drum`, four for a `4op`, one for every other drum (below) |
+| `connection` | `"fm"` | (`2op`, `bass_drum`.) `"fm"`: operator 1 bends operator 2's phase and only operator 2 is heard; `"additive"`: both are heard. (`4op`.) One of the OPL tab's four, `"1>2>3>4"`, `"1>2+3>4"`, `"1+2>3>4"` or `"1+2>3+4"` — an arrow (`>`, `->` or `→`) is one operator bending the next, a plus two heard side by side — or its place in that list, 0–3 |
+| `feedback` | 0 | (`2op`, `4op`, `bass_drum`.) 0–7: how much operator 1 bends its own phase |
+| `deep_tremolo`, `deep_vibrato` | `false` | Tremolo of 4.8 dB instead of 1 dB, vibrato of 14 cents instead of 7, for the operators that have them |
+| `note_select` | `false` | Which bit of the pitch key-scale rate follows (the chip's NTS) |
+| `low_fnum` | `false` | Drive the chip with F-numbers 343…685 a block, as the SOP player does |
+| `partner_multiple` | 1 | (`snare`, `cymbal`, `hi_hat`.) The multiple of the partner operator whose phase the drum mixes in |
+| `partner_pitch` | 700 for a `cymbal`, −700 for a `hi_hat` | (`cymbal`, `hi_hat`.) How far, in cents, the partner's channel sits from the drum's own pitch |
+
+Each operator is a record:
+
+| Field | Default | |
+|---|---|---|
+| `multiple` | 1 | The operator's frequency as a multiple of the note, 0–15: 0 is a half, then 1 to 10, 12 and 15 (11 plays as 10, 13 as 12, 14 as 15) |
+| `level` | 0 | Total level, as attenuation, 0–63: 0 the loudest, each step 0.75 dB quieter. On a modulator it sets how hard it bends |
+| `attack`, `decay`, `release` | 15, 0, 7 | Rates, 0–15: 0 never, 15 at once |
+| `sustain_level` | 0 | Where the decay stops, 0–15: 0 at the peak, each step 3 dB lower, 15 at −93 dB |
+| `sustain` | `true` | Hold at the sustain level while the note is held; `false` lets the release follow the decay at once — what a drum wants |
+| `waveform` | 0 | 0 sine, 1 half sine, 2 rectified sine, 3 quarter-sine pulses; 4–7 the OPL3's alternating sine, camel sine, square and logarithmic saw |
+| `tremolo`, `vibrato` | `false` | The chip's 3.7 Hz tremolo and 6.1 Hz vibrato |
+| `key_scale_level` | 0 | How much quieter higher notes are, in the chip's order: 0 none, 1 3 dB per octave, 2 1.5 dB, 3 6 dB |
+| `key_scale_rate` | `false` | Make the envelope quicker on higher notes |
+
+So an operator written `{}` is a sine at full level, held while the note is, that speaks at once and lets go within a second.
+
+```
+instrument ORGAN { opl: { kind: "4op", connection: "1+2>3+4", operators: [
+  { multiple: 1 }, { multiple: 4, level: 30, decay: 5, sustain_level: 7 },   // 8', and a click on the 4'
+  { multiple: 2, level: 5 }, { multiple: 3, level: 10 },                      // 4' and 2⅔'
+] } }
+instrument KICK { opl: { kind: "bass_drum", feedback: 4, operators: [
+  { multiple: 0, level: 18, decay: 8, sustain_level: 15, sustain: false },
+  { decay: 7, sustain_level: 15, sustain: false, release: 10 },
+] } }
+```
+
+**PSG instruments.** `psg` is a record of the mixer and the two oscillators, `a` and `b` ([TAUD_FILE_FORMAT.md §7.9](TAUD_FILE_FORMAT.md)):
+
+| Field | Default | |
+|---|---|---|
+| `a`, `b` | — | The two oscillators (below); at least one. An oscillator left out is muted |
+| `mix` | `"additive"` | `"additive"`, A + B, or `"multiplicative"`, A × B taken as 0-to-1-volt signals |
+| `mute_a`, `mute_b` | `true` for one left out | Leave an oscillator out of the mix. It keeps running, so `S $AF00` brings it back where it would have been |
+
+Each oscillator is a record of an OPL operator's `multiple`, `level`, `attack`, `decay`, `sustain_level`, `release`, `sustain`, `key_scale_level` and `key_scale_rate`, with the same meanings and defaults, and:
+
+| Field | Default | |
+|---|---|---|
+| `waveform` | `"pulse4"` | 0–15, or by name: `"dc"`; `"pulse1"` … `"pulse7"`, low for that many eighths of the cycle (`"pulse4"` the square); `"saw"`, `"triangle"`; the 1-bit noises `"noise32767"`, `"noise2047"` and `"noise127"` (white to metallic), clocked sixteen steps a cycle, so the note sets their colour; `"saw4"` and `"triangle4"` on sixteen levels; `"silence"` |
+| `tremolo`, `vibrato` | 0 | Depth 0–2: tremolo of 1 dB or 4.8 dB at 3.7 Hz, vibrato of 7 or 14 cents at 6.1 Hz |
+| `invert` | `false` | Turn the waveform over within its 0…1 V |
+| `reset` | `false` | Start the oscillator afresh at every note — its phase, its noise, its auto-advance and its tremolo and vibrato — rather than running on from the note before |
+| `advance` | 0 | Auto-advance, in quarter ticks, 0–255: a pulse takes the next step of its pattern every this many (4 is once a tick); 0 is off, and only the pulses advance |
+| `pattern` | 0 | Which of the four auto-advance patterns it walks, 0–3 |
+
+```
+instrument SUB   { psg: { a: { waveform: "triangle4" } } }                    // the Famicom's triangle
+instrument CLOCK { psg: { mix: "multiplicative",                               // ring modulation
+  a: { waveform: "triangle", decay: 7, sustain_level: 15, sustain: false, reset: true },
+  b: { waveform: "pulse4", multiple: 3, decay: 6, sustain_level: 15, sustain: false, reset: true },
+} }
+```
+
+An OPL or a PSG instrument holds no sample and is in tune as it is, so `retune` leaves it alone unless asked. It may be a layer and an FM operator. Its New Note Action is `"cut"` unless given, and a chip note cut by a note of the same chip is not cut at all: the next note keys the same channel on again from wherever its envelopes stand, as on the chip itself. `nna: "off"` lets the old note go into its release on a voice of its own instead, so notes on one lane overlap; `"continue"` leaves a held note sounding for good.
+
+**Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are written), then the instruments from packs, the waveforms, the OPL and PSG instruments and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
 
 ### 7.4 `lane`
 
@@ -605,7 +679,7 @@ A build turns the song's music into a project in these steps:
 2. **Compile.** Each lane's cells in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
 3. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 63 in format 2 and 255 in format 3 — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
 4. **Pans.** Each lane with a `pan` gets `S $8xxx` on the song's first row, in a pattern of its own when its first pattern is used anywhere else.
-5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
+5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, OPL and PSG instruments new records of their own, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
 6. **Instruments.** `keep_layers`, `nna` and `fadeout` are applied.
 7. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `keep_layers` left some layers behind, every instrument nothing plays.
 8. **Adjustments.** `min_fadeout`, then `layer_gain`.
@@ -682,3 +756,9 @@ next():
 |---|---|---|
 | 2 | 2026-10-14 | Declarative: music is a value (phrases, §8.2) that can be combined and transformed — played backwards and stretched among the rest — names can be used anywhere in their block, nothing changes once made, fitted music (§8.6), keyed randomness (§10), comprehensions, `for … if` and `fn name() =>` |
 | 1 | 2026-10-11 | The first version |
+
+Additions that leave every program building as it did, in either version:
+
+| Date | |
+|---|---|
+| 2026-10-22 | OPL and PSG chip instruments, `opl` and `psg` (§7.3) |

@@ -80,11 +80,11 @@ Per emitted frame:
 
 1. Advance the sample counter. If it has not reached `samples_per_tick`, skip to step 5.
 2. Subtract `samples_per_tick` and run the **tick pass** ([§6](#6-the-tick-pass)) for the current `tickInRow`.
-3. Increment `tickInRow`. If it is still below `tick_rate + fine_pattern_delay_extra`, skip to step 5.
+3. Increment `tickInRow`. If it is still below `tick_rate + fine_pattern_delay_extra`, run the **scheduled events** ([§6.3](#6-3-scheduled-events)) for the new `tickInRow` and skip to step 5.
 4. Reset `tickInRow` to 0 and **advance the row** — resolve pending jumps and pattern delays, then run the **row pass** ([§5](#5-the-row-pass)) for the new row.
 5. Mix every active voice into this frame ([§10](#10-mixing)).
 
-The consequence worth internalising: a row's events fire at the boundary that *ends* the previous row, and the row's own tick passes then run with `tickInRow` = 0…`tick_rate − 1`. Effects that act "on tick 0" therefore act on the first tick pass after their row's events, and effects that act "on ticks after the first" skip that pass.
+The consequence worth internalising: a row's events fire at the boundary that *ends* the previous row, and the row's own tick passes then run with `tickInRow` = 0…`tick_rate − 1`. Effects that act "on tick 0" therefore act on the first tick pass after their row's events, and effects that act "on ticks after the first" skip that pass. What a row schedules for a later tick of itself — a note cut, a delayed note, a delayed note's follow-up — fires the way the row's own events do, at the boundary that *starts* that tick: `S $D3` sounds exactly three ticks into its row, and its note meets its first tick pass one tick after it is struck, as a row's own note does.
 
 At the very start of playback the engine runs one row pass before any frames, so row 0 sounds from the first sample.
 
@@ -1138,29 +1138,26 @@ Because the region is derived at play time from the arming row, an engine that s
 
 The tick pass runs once per tick, per voice, and is where everything continuous happens. For each foreground voice, in order:
 
-1. **Scheduled note cut** (`S $Cx`): if this is the scheduled tick, zero the note and row volume — leaving lane volume alone — and mark the note cut.
-2. **Note delay** (`S $Dx`): if this is the scheduled tick, perform the deferred event. For a pitch, that means the full trigger sequence of [§5.3](#5-3-trigger-sequence). **The instrument binding MUST be re-read afterwards** — the trigger may have swapped the voice's instrument, and the rest of this tick must see the instrument that just fired.
-3. **Scheduled follow-up action** (`S $Dxny`): if this is the scheduled tick, apply note off, note cut, continue, note fade or forced key lift. Forced key lift overrides the instrument's own New Note Action, exactly as `S $73`…`S $76` override it — and, like them, it commands **the whole note**: on a metainstrument it **MUST** lift every layer child and every operand too, not the foreground voice alone. The per-tick sync cannot deliver this one, because all it hands a child is that child's own instrument's key-lift answer, which is exactly what the command exists to override.
-4. If the voice is inactive, advance its volume envelope anyway and move on — an inactive voice still needs its envelope walked so that a re-trigger or a scheduled event sees a coherent state.
-5. **Pitch slides** (`E`, `F` coarse) on ticks after the first, in the current tone mode.
-6. **Tone portamento** on ticks after the first: step toward the target and stop exactly on it, in note space or Hz space per the tone mode.
-7. **Volume slides** — the effect-column coarse slide and the volume-column slides — on ticks after the first.
-8. **Lane-volume slide** (`N`), the **pan-column slides** (note axis) and effect `P`'s slide (lane axis), on ticks after the first.
-9. **Spatial slide** (`Z`) on ticks after the first ([§11.5](#11-5-the-z-slide)).
-10. **Tremor** (`I`): advance the on/off phase counter; while off, force the row volume to 0.
-11. **Vibrato** (`H`, `U`): `delta = (lfo × depth) >> shift`, where the shift is 6 for `H` and 8 for `U` — the finer of the two. The result overlays the note for this tick only; the underlying note word is untouched. Phase advances by `speed`, modulo 1088.
-12. **Glissando** (`S $1x`): snap the *sounding* pitch to the nearest 12-TET semitone while leaving the note word smooth.
-13. **Tremolo** (`R`): `row_volume = clamp(note_volume + ((lfo × depth) >> 9), 0, 63)`.
-14. **Panbrello** (`Y`): `panbrello_offset = (lfo × depth) >> 7`. This is a signed offset the mixer sums with the two pan axes ([§10.3](#10-3-panning)), **not** a write to either of them — so the LFO swings around wherever the lane and the note have put the voice, without consuming the instrument's own pan seed, and the same offset steers the surround models ([§11](#11-the-spatial-model)). On a tick where `Y` is not active the same step sets it to 0, so a row without `Y` puts the voice back on its base pan. That zero **MUST** be written here and not in the row reset ([§5.1](#5-1-per-row-reset)): a row boundary runs the row pass *after* this one, so a value the row pass clears is still cleared while the new row's first tick renders — one tick of dead centre in the middle of a sweep that spans several rows.
-15. **Arpeggio** (`J`): the tick index modulo 3 selects offset 0, the first argument byte or the second, each shifted left 8 bits (one argument byte is 256 units ≈ 0.75 semitones). This *overrides* the sounding pitch for the tick.
-16. **Retrigger** (`Q`): count ticks and, on reaching the interval, restart the sample at the active play start, clear key-off, reset all four envelope playheads (re-seeding the pitch and filter ones past zero-duration nodes), reset the fadeout, auto-vibrato and filter history, and apply the retrigger volume modifier.
-17. **Auto-vibrato** ([§6.1](#6-1-auto-vibrato)), added on top of the sounding pitch.
-18. **Pitch envelope** contribution ([§7.4](#7-4-pitch-and-filter-envelope-application)).
-19. Compute the final pitch, clamp it to `$0020`…`$FFFF`, and update the playback rate.
-20. **Filter envelope** applied to the cutoff, then refresh the filter coefficients if cutoff or resonance changed.
-21. **Fadeout**: while key-off or note-fading, subtract `fadeout_step ÷ 1024` from the fadeout multiplier, clamped at 0; at 0 the voice deactivates. A `fadeout_step` of 0 never fades.
-22. **Advance the volume and pan envelopes**, then set the per-sample envelope slope for the coming tick.
-23. **Advance the pitch and filter envelopes**.
+1. If the voice is inactive, advance its volume envelope anyway and move on — an inactive voice still needs its envelope walked so that a re-trigger or a scheduled event sees a coherent state.
+2. **Pitch slides** (`E`, `F` coarse) on ticks after the first, in the current tone mode.
+3. **Tone portamento** on ticks after the first: step toward the target and stop exactly on it, in note space or Hz space per the tone mode.
+4. **Volume slides** — the effect-column coarse slide and the volume-column slides — on ticks after the first.
+5. **Lane-volume slide** (`N`), the **pan-column slides** (note axis) and effect `P`'s slide (lane axis), on ticks after the first.
+6. **Spatial slide** (`Z`) on ticks after the first ([§11.5](#11-5-the-z-slide)).
+7. **Tremor** (`I`): advance the on/off phase counter; while off, force the row volume to 0.
+8. **Vibrato** (`H`, `U`): `delta = (lfo × depth) >> shift`, where the shift is 6 for `H` and 8 for `U` — the finer of the two. The result overlays the note for this tick only; the underlying note word is untouched. Phase advances by `speed`, modulo 1088.
+9. **Glissando** (`S $1x`): snap the *sounding* pitch to the nearest 12-TET semitone while leaving the note word smooth.
+10. **Tremolo** (`R`): `row_volume = clamp(note_volume + ((lfo × depth) >> 9), 0, 63)`.
+11. **Panbrello** (`Y`): `panbrello_offset = (lfo × depth) >> 7`. This is a signed offset the mixer sums with the two pan axes ([§10.3](#10-3-panning)), **not** a write to either of them — so the LFO swings around wherever the lane and the note have put the voice, without consuming the instrument's own pan seed, and the same offset steers the surround models ([§11](#11-the-spatial-model)). On a tick where `Y` is not active the same step sets it to 0, so a row without `Y` puts the voice back on its base pan. That zero **MUST** be written here and not in the row reset ([§5.1](#5-1-per-row-reset)): a row boundary runs the row pass *after* this one, so a value the row pass clears is still cleared while the new row's first tick renders — one tick of dead centre in the middle of a sweep that spans several rows.
+12. **Arpeggio** (`J`): the tick index modulo 3 selects offset 0, the first argument byte or the second, each shifted left 8 bits (one argument byte is 256 units ≈ 0.75 semitones). This *overrides* the sounding pitch for the tick.
+13. **Retrigger** (`Q`): count ticks and, on reaching the interval, restart the sample at the active play start, clear key-off, reset all four envelope playheads (re-seeding the pitch and filter ones past zero-duration nodes), reset the fadeout, auto-vibrato and filter history, and apply the retrigger volume modifier.
+14. **Auto-vibrato** ([§6.1](#6-1-auto-vibrato)), added on top of the sounding pitch.
+15. **Pitch envelope** contribution ([§7.4](#7-4-pitch-and-filter-envelope-application)).
+16. Compute the final pitch, clamp it to `$0020`…`$FFFF`, and update the playback rate.
+17. **Filter envelope** applied to the cutoff, then refresh the filter coefficients if cutoff or resonance changed.
+18. **Fadeout**: while key-off or note-fading, subtract `fadeout_step ÷ 1024` from the fadeout multiplier, clamped at 0; at 0 the voice deactivates. A `fadeout_step` of 0 never fades.
+19. **Advance the volume and pan envelopes**, then set the per-sample envelope slope for the coming tick.
+20. **Advance the pitch and filter envelopes**.
 
 Then, once per tick at playhead scope: the tempo slide, the global volume slide, the invert-loop mask advance and the funk-repeat walk. Finally the background voices run their own reduced pass — layer-child re-synchronisation, all four envelopes, fadeout, auto-vibrato, pitch and filter envelopes, coefficient refresh — and fully faded ghosts are reaped.
 
@@ -1198,6 +1195,16 @@ An 8-bit speed byte therefore spans the same rate range as a 4-bit nibble with 1
 | 3 — random | A fresh uniform byte, biased to −$80…+$7F |
 
 Waveform 3 is genuinely random and is the reason some songs never render bit-identically twice ([§13](#13-determinism)).
+
+### 6.3 Scheduled events
+
+At the boundary that starts tick `t` of a row — `t` at least 1 and below `tick_rate + fine_pattern_delay_extra`, after the tick pass of tick `t − 1` ([§2.2](#2-2-order-of-events) step 3) — for each foreground voice, in order:
+
+1. **Scheduled note cut** (`S $Cx`): if `t` is the scheduled tick, zero the note and row volume — leaving lane volume alone — and mark the note cut.
+2. **Note delay** (`S $Dx`): if `t` is the scheduled tick, perform the deferred event. For a pitch, that means the full trigger sequence of [§5.3](#5-3-trigger-sequence), exactly as for a row's own note: its first tick pass is the next one.
+3. **Scheduled follow-up action** (`S $Dxny`): if `t` is the scheduled tick, apply note off, note cut, continue, note fade or forced key lift. Forced key lift overrides the instrument's own New Note Action, exactly as `S $73`…`S $76` override it — and, like them, it commands **the whole note**: on a metainstrument it **MUST** lift every layer child and every operand too, not the foreground voice alone. The per-tick sync cannot deliver this one, because all it hands a child is that child's own instrument's key-lift answer, which is exactly what the command exists to override.
+
+An event scheduled for a tick its row does not reach never fires: the next row's reset clears it ([§5.1](#5-1-per-row-reset)). These events **MUST NOT** run inside the tick pass. The tick pass of tick `t` runs when tick `t` *ends*, so an event fired there sounds a tick late, and a delay of `tick_rate − 1` lands on the next row's first tick.
 
 ## 7. Envelopes
 
@@ -1506,7 +1513,7 @@ left  = cos(π · pan ÷ 512)
 right = sin(π · pan ÷ 512)
 ```
 
-where `envelope_pan_offset` is `clamp(round(env_pan × 255), 0, 255) − 128` when the pan envelope is present and enabled, and 0 otherwise, and `panbrello_offset` is the `Y` LFO's signed contribution ([§6](#6-the-tick-pass) step 14), 0 on any row that does not run `Y`. There is no runtime choice of panning law.
+where `envelope_pan_offset` is `clamp(round(env_pan × 255), 0, 255) − 128` when the pan envelope is present and enabled, and 0 otherwise, and `panbrello_offset` is the `Y` LFO's signed contribution ([§6](#6-the-tick-pass) step 11), 0 on any row that does not run `Y`. There is no runtime choice of panning law.
 
 `note_pan` is the per-note axis (TAUD_NOTE_EFFECTS.md §3a), a signed offset that is 0 unless an instrument or the panning column has written it — which is why a song that never touches it renders exactly as it did when the engine held one pan register. Note that the clamp is on the SUM: two axes that each sit inside the range can still add to a position outside it, and in a stereo song that saturates. The surround models wrap instead ([§11](#11-the-spatial-model)), so the identity between models holds for a summed position on the front arc.
 
@@ -1793,7 +1800,7 @@ An implementation conforms when all of the following hold.
 - The volume envelope's cut rule fires on a zero-valued terminator with no active wrap.
 - NNA ghosts carry the complete voice state, including both filter topologies' delay lines.
 - Duplicate Check runs before the NNA spawn and consults the *existing* voice's instrument; its lane type matches every note arriving on the lane, one without an instrument byte included, and types 1…3 never match such a note.
-- A note delay's trigger re-binds the instrument for the remainder of that tick.
+- A note cut, a delayed note event and its follow-up action fire at the boundary that starts their tick, after the previous tick pass, never inside a tick pass: `S $Dx` sounds exactly x ticks into its row.
 - Sample ends and envelope cuts ramp out over 8 ms; volume changes ramp over 2 ms, and `current_mix_volume` snaps rather than ramps on a trigger.
 - A fresh trigger separately fades `ramp_gain` in from silence over a ~⅔ ms half-cosine attack ramp, inherited by an NNA ghost spawned mid-ramp.
 - Pitch glides toward the tick's target on an (interval × time) budget, so a vibrato is smoothed across the tick while an arpeggio step or a fast portamento arrival still lands at once.

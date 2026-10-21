@@ -12,38 +12,38 @@
     "changing_waves": {
       "file": "test/corpus/changing_waves.taud",
       "frames": 960000,
-      "u8": "187777679d08894d660e87376cdc9c50f5ed7d542f7abf3b04f0717127dd94bf",
-      "f32": "05ac9c67108fdd97b33e9de32d879134383aca6111740acec56bc4001474f02f"
+      "u8": "6ddd881ad395edcc4ee1b4b7a3bb2233aa5cc66ba47729a3c76cab6a3205505d",
+      "f32": "75d2efa0d62f4ad4d4150c92d6fcd831981ff844c71a1bf58bd4e4ca70ab63d4"
     },
     "Circus galop": {
       "file": "test/corpus/Circus galop.taud",
       "frames": 960000,
-      "u8": "d2041096937340c2172b504634770a7f72523ba3c111ea70413cfad755caaee6",
-      "f32": "41f22970efa7b0f7a5d7c699900bf360a48ff40a13a611c1d36d82c1ff5aa45d"
+      "u8": "ca2d532b5e5bde7b8b7e67df05ca8b19229f12fe0768c9f7d3fdf30ba55223bf",
+      "f32": "3daf9fde3d396a65ad022a4c3e34e880ddde280d9b8a780b2b5f8f153f671b64"
     },
     "flourish": {
       "file": "test/corpus/flourish.taud",
       "frames": 960000,
-      "u8": "37eede1b4700d880400dec34853f22ef82dab61cf4354c3af28094d9af7f756b",
-      "f32": "f3541fd99ef4d18f31ef20998b14e2dd88bd9939cac030ff40e08a412e93da71"
+      "u8": "754b05990fccb81a80b221456259706b94802b5350b892ebb82177afe4a7f168",
+      "f32": "e47c396204bb745cac09bc23b7c892d5ad2be0f71e3cf84b041f116742fce90d"
     },
     "Insaniq2": {
       "file": "test/corpus/Insaniq2.taud",
       "frames": 960000,
-      "u8": "fb227741d40dd725b5a2f9a21079d428ec2025bada85bf11a7633f70fc2cfdb1",
-      "f32": "d05620be06d369c72e94bce12d5f525ed0307d9840f76091171422a9ac78c33f"
+      "u8": "4a8bbc0f0c1eba88caeaba4cd57ed2dd2aff963dd3b37a2673642c910076ef17",
+      "f32": "3c487c4d472ba2717d18e1d5fbf016295a2f805644ed73884649223edc96ef0e"
     },
     "M_E1M1": {
       "file": "test/corpus/M_E1M1.taud",
       "frames": 960000,
-      "u8": "be0f86b58a24faf4cd104475f5a585dde0b5923e3af6828bdadf398c28861789",
-      "f32": "a0b8c50a5aa379d832068d626d5c0559f0de12a4ea65ec35e8d9ceaab75c844f"
+      "u8": "f1160da761153cec6b2b979809a060c776d61b2e36e30d716a4b1107f283ae16",
+      "f32": "90a51357df85aeec13815e9edc078649351d3570c44d190fbad540bcf247e5f2"
     },
     "Onestop": {
       "file": "test/corpus/Onestop.taud",
       "frames": 960000,
-      "u8": "5634dee7c6402e94b0d681c2fa8d13873c972d600b179f485b4dc5dca7cac8e6",
-      "f32": "412d63e9df51c4a64eeed12ef1b37552daa6d82146728e3948ca8bf8afcac8f1"
+      "u8": "82b9db405e4f68fcf19fe6f99c01aaccf77654ad2317587b53c3f422049052eb",
+      "f32": "b391e4eb7e11a399a442178d0c563f976878cafe1de5a6d869d80c6cfd723e75"
     },
     "slumberjack": {
       "file": "test/corpus/slumberjack.taud",
@@ -54,39 +54,39 @@
     "town": {
       "file": "test/corpus/town.taud",
       "frames": 960000,
-      "u8": "6051d018fe104cc4c2a616a1d3cde46ed425c15541beed16b1bfcb6d44c6ab1d",
-      "f32": "45d841601cc932857aa31fc6afe0e02313e6b0ca46d4dd621332b57bb917e2e4"
+      "u8": "fec94214550012c242a20277b80782d4285943ca7809452d483f0e2ea67d88b0",
+      "f32": "1a44d6cb324e7927980382882c0edfec86e9ed00e976c6908be83104eae3056c"
     },
     "WHEN": {
       "file": "test/corpus/WHEN.taud",
       "frames": 960000,
-      "u8": "9aac7ae51cc5cf3ccfdffc49b826d2bdc4bb8529c6ea9be36ea3d447842926e1",
-      "f32": "b5fd86ec9e7f6ed97ec3157fa549800a3310716eeebc7b934b009d1cd856097a"
+      "u8": "601ad235b8709791be9cad1a9da69f41757d249617c972aef2fcdf883a8a0311",
+      "f32": "49a48dc2351b1e77975b4159af5ab830f84b1ba26fe7c279efe2883499ac2554"
     },
     "16uba_baion": {
       "file": "assets/demo_projects/16uba_baion.taud",
       "frames": 960000,
-      "u8": "60109186d9c42b00b3c183de39188ab248cfe2e40456741b3bc49a43f20a1e58",
-      "f32": "9187edef659da8be8601feafd89be8492542066128abbda38a349fa5ef9f44f4"
+      "u8": "d8c26b327d6af4f246064f6fba89218270932d762ce291e916b714be80fee848",
+      "f32": "12beeeacaaf9e6098c223204f90fc062a70782007a3ef2d5155a200a918b3d47"
     },
     "Temjin_speaki": {
       "file": "assets/demo_projects/Temjin_speaki.taud",
       "frames": 960000,
-      "u8": "d55b59753e72dd924a04419d301e38b5801d58b35a1eacfd45184b2da6e933a7",
-      "f32": "b2144d80319b007cfc428d9709e7acbda3d0f2ee1a246ce8dc23b51f77c13962"
+      "u8": "bd06031111d3e736aa3f1825fd00612a781dc8f7709e0fc486882dfb50665cc4",
+      "f32": "b305fb9613d2e58d1ef26375323a908d0b916fc02eedd1dac153dc78c1de5dc9"
     },
     "WHEN_AMBI": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "frames": 960000,
-      "u8": "76e3220aead079fb0d6bd498f111d9f0cdee8b083f03835699bcc47f605fd696",
-      "f32": "450a004eb6df0b233db549f3ea6526cc9a5b63056465dbedccabd568d2298573"
+      "u8": "86a127cec1ad6300de2fc6a3326149c36595549ab5e2ce7ee97c734997c9a545",
+      "f32": "58e63897d257e90feaef7105e230397582eee0dfc18ff59ea903f05cfcd7bc29"
     },
     "WHEN_AMBI@binaural": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "monitor": 1,
       "frames": 960000,
-      "u8": "9b733e5438f1f685df0ab6e477f8c1082335bbe16223502b8fd145e776e48b73",
-      "f32": "2e432eeacd4b5e0e748f777f2f6f3ccd60d344a06dd4a3473a5324311eb259c0"
+      "u8": "7acc26639722bd6dbd9a7df7e39eceb166b7d0370d521a1f9549e0feda213452",
+      "f32": "8523ef892ecb5bb7ce9ee5d06d72403fde9af9a84992bc06ed95d0806579a1b7"
     },
     "Huygens_clock": {
       "file": "assets/demo_projects/Huygens_clock.taud",

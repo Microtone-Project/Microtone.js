@@ -4,6 +4,18 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## Version 3.13.2 (2026-10-22)
+
+Motif programs can declare OPL and PSG chip instruments themselves, field for field as the Instruments view's OPL and PSG tabs show them.
+
+- **OPL instruments in Motif**: `opl: { kind, connection, feedback, operators: [...] }` makes one channel of the OPL chip — two or four operators, or one of its five drums — with each operator's multiple, level, attack, decay, sustain level, release, waveform, tremolo, vibrato and key scaling.
+- **PSG instruments in Motif**: `psg: { mix, a, b }` makes the two-oscillator PSG, each oscillator with its waveform (by number or by name: `"pulse2"`, `"triangle4"`, `"noise127"`…), envelope, tremolo, vibrato, invert, reset and auto-advance; an oscillator you leave out is muted.
+- A chip instrument can take a volume envelope, and can be a layer of a layered instrument or an operator of an FM rack, so a song made of chips no longer needs an instrument pack built beside it.
+
+Delayed notes and note cuts now land on the tick they name.
+
+- **Fixed: a note delayed with `S $Dx` sounded one tick late**, and a delay of one less than the speed slipped onto the next row; a note cut `S $Cx` and the follow-up action of `S $Dxny` were late by a tick too — they fired at the end of their tick instead of its start. ProTracker, ScreamTracker, Impulse Tracker and FastTracker songs that use note delays and cuts now keep the timing they were written with.
+
 ## Version 3.13.1 (2026-10-22)
 
 A PSG instrument with vibrato or tremolo no longer cuts out the whole mix in a pattern preview or a jam.
