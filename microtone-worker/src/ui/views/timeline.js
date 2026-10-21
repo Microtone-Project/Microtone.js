@@ -25,7 +25,7 @@ import {
   fxPasteRemap, remapFxBytes,
 } from "../../doc/clipboard.js";
 import { themeColors } from "../theme.js";
-import { canvasFont } from "../fonts.js";
+import { canvasFont, canvasCodeFont } from "../fonts.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { paintSpatialDot } from "../spatialdot.js";
 import { showContextMenu } from "../components/contextmenu.js";
@@ -1712,6 +1712,7 @@ export class TimelineView {
         const nm = unescapeName(this.store.doc.patternName(patNum));
         if (nm) {
           ctx.save();
+          ctx.font = canvasCodeFont(FONT_PX);
           ctx.beginPath();
           ctx.rect(x + 2, NAME_Y - 8, colW - 6, 16);
           ctx.clip();
@@ -1731,7 +1732,7 @@ export class TimelineView {
         ctx.globalAlpha = 1;
         ctx.fillStyle = C.fg2;
         ctx.textAlign = "center";
-        ctx.fillText("MUTE", x + (colW - 2) / 2, (VU_Y + PAN_Y) / 2 + 3);
+        ctx.fillText("M U T E", x + (colW - 2) / 2, (VU_Y + PAN_Y) / 2 + 3);
         ctx.textAlign = "left";
       }
     }

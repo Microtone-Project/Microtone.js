@@ -85,15 +85,31 @@ export const FB_FRONT = 3;      // U8 vowel: frontness of the tongue
 export const FB_OPEN = 4;       // U8 vowel: openness (height) of the tongue
 export const FB_ROUND = 5;      // U8 vowel: rounding of the lips
 export const FB_TRACK = 6;      // U8 size tracking: exponent = byte ÷ 256
-export const FB_REF = 7;        // U16 reference note: where the chart's (adult male) formants hold
+export const FB_REF = 7;        // U16 reference note (bits 0–14; 0 = no vowel) and nasalisation (bit 15)
 export const FB_GLIDE = 9;      // U8 vowel glide for S $Afgr, in 2 ms units
 export const FB_TIMING = 10;    // U8 consonant timing: scale = 2^((byte − 128) ÷ 64)
 export const FB_RANGE_LO = 11;  // U24 the pool range the instrument is made from (editor's)
 export const FB_RANGE_HI = 14;  // U24 …its exclusive end
 export const FB_SLOTS = 17;     // three consonant slots, 12 bytes each
-export const FB_GR = 53;        // U8 the glide (bits 0–2) and rhoticity (bit 7): CCGVRC's G and R
+export const FB_GR = 53;        // U8 the glide (bits 0–2), the onset's secondary articulation
+                                //   (bits 3–4), the coda's release (bits 5–6) and rhoticity (bit 7)
 export const FORMANT_SLOTS = 3; // onset C1, onset C2, coda C
 export const FORMANT_SLOT_BYTES = 12;
+
+/** The reference note a record with NO vowel (reference bits 0…14 all 0)
+ *  sizes its consonants by: C3, a man's speaking pitch, the default. */
+export const FORMANT_DEFAULT_REF = 0x4000;
+
+/** The onset's secondary articulation (FB_GR bits 3–4), and the coda's own
+ *  articulation (bits 5–6), which shares the two in the middle. */
+export const ART_NONE = 0;
+export const ART_PALATAL = 1;    // ʲ — the tongue body raised as for [i]
+export const ART_DARK = 2;       // ˠ / ˤ — the back of the tongue drawn back
+export const ART_GLOTTAL = 3;    // ˀ — a glottal closure with the consonant
+export const CODA_RELEASED = 0;
+export const CODA_UNRELEASED = 1; // ̚ — a stop's closure is never released
+export const CODA_DARK = 2;
+export const CODA_GLOTTAL = 3;
 
 /** One consonant slot: which consonant, and the recipe it is sounded with. A
  *  slot with no sample (length 0) sounds the engine's own noise generator. */
@@ -119,11 +135,14 @@ export class FormantPatch {
     this.open = 255;
     this.round = 0;
     this.track = 64;
-    this.refNote = 0x4000;
+    this.refNote = 0x4000; // bits 0…14 of the word; 0 = the syllable has NO vowel (formantHasVowel)
+    this.nasal = false;    // bit 15: the vowel nasalised
     this.glide = 20;
     this.timing = 128;
     this.semivowel = 0;    // G: 0 none, 1 [j], 2 [ɥ], 3 [ɰ], 4 [w] (SEMIVOWELS)
     this.rhotic = false;   // R: the vowel r-coloured
+    this.secondary = 0;    // the onset's last consonant: ART_NONE / _PALATAL / _DARK / _GLOTTAL
+    this.codaArt = 0;      // the coda: CODA_RELEASED / _UNRELEASED / _DARK / _GLOTTAL
     this.rangeLo = 0;
     this.rangeHi = 0;
     this.slots = [new FormantSlot(), new FormantSlot(), new FormantSlot()];
@@ -140,13 +159,17 @@ export function decodeFormantBlock(raw, off, patch = new FormantPatch()) {
   patch.open = raw[off + FB_OPEN] & 0xff;
   patch.round = raw[off + FB_ROUND] & 0xff;
   patch.track = raw[off + FB_TRACK] & 0xff;
-  patch.refNote = fu16(raw, off + FB_REF);
+  const ref = fu16(raw, off + FB_REF);
+  patch.refNote = ref & 0x7fff;
+  patch.nasal = (ref & 0x8000) !== 0;
   patch.glide = raw[off + FB_GLIDE] & 0xff;
   patch.timing = raw[off + FB_TIMING] & 0xff;
   patch.rangeLo = fu24(raw, off + FB_RANGE_LO);
   patch.rangeHi = fu24(raw, off + FB_RANGE_HI);
   const gr = raw[off + FB_GR] & 0xff;
   patch.semivowel = (gr & 7) <= 4 ? gr & 7 : 0;
+  patch.secondary = (gr >>> 3) & 3;
+  patch.codaArt = (gr >>> 5) & 3;
   patch.rhotic = (gr & 0x80) !== 0;
   for (let i = 0; i < FORMANT_SLOTS; i++) {
     const o = off + FB_SLOTS + i * FORMANT_SLOT_BYTES;
@@ -172,12 +195,13 @@ export function encodeFormantBlock(patch, out = new Uint8Array(FORMANT_BLOCK_LEN
   out[off + FB_OPEN] = patch.open & 0xff;
   out[off + FB_ROUND] = patch.round & 0xff;
   out[off + FB_TRACK] = patch.track & 0xff;
-  p16(off + FB_REF, patch.refNote);
+  p16(off + FB_REF, (patch.refNote & 0x7fff) | (patch.nasal ? 0x8000 : 0));
   out[off + FB_GLIDE] = patch.glide & 0xff;
   out[off + FB_TIMING] = patch.timing & 0xff;
   p24(off + FB_RANGE_LO, patch.rangeLo);
   p24(off + FB_RANGE_HI, patch.rangeHi);
-  out[off + FB_GR] = (patch.semivowel & 7) | (patch.rhotic ? 0x80 : 0);
+  out[off + FB_GR] = (patch.semivowel & 7) | ((patch.secondary & 3) << 3) | ((patch.codaArt & 3) << 5) |
+    (patch.rhotic ? 0x80 : 0);
   for (let i = 0; i < FORMANT_SLOTS; i++) {
     const o = off + FB_SLOTS + i * FORMANT_SLOT_BYTES;
     const s = patch.slots[i];
@@ -190,6 +214,17 @@ export function encodeFormantBlock(patch, out = new Uint8Array(FORMANT_BLOCK_LEN
     out[o + 11] = s.gain & 0xff;
   }
   return out;
+}
+
+/** Does the record's syllable have a vowel? Without one (reference note 0) it
+ *  is a SYLLABIC CONSONANT: its last onset consonant is held as the nucleus. */
+export function formantHasVowel(patch) {
+  return patch.refNote !== 0;
+}
+
+/** The reference note the record's formants are sized by. */
+export function formantRefNote(patch) {
+  return patch.refNote !== 0 ? patch.refNote : FORMANT_DEFAULT_REF;
 }
 
 // ── The vowel ───────────────────────────────────────────────────────────────
@@ -392,6 +427,23 @@ export function vowelAtPitch(front, open, round, f0, refHz, track, F, B, rhotic 
 // row it has (w j r l f v θ ð s z ʃ tʃ dʒ p b t d k g m n); VOTs are Lisker &
 // Abramson 1964 (aspirated English p t k 58/70/80 ms); the rest are filled by
 // place analogy.
+//
+// Klatt's table is "appropriate only for consonants before front vowels", and
+// a VELAR is where that matters: the tongue's back meets the palate wherever
+// the vowel puts it, so a velar's F2 and F3 are the vowel's, drawn together
+// (the "velar pinch"), not a place of their own — locus equations put a
+// velar's F2 at voicing onset within a few hundred Hz of the vowel's, slope
+// ≈ 0.9–1.0 (Sussman et al. 1991; Iskarous et al. 2010), where an alveolar's
+// is pulled to ≈ 1.8 kHz (slope ≈ 0.4–0.5). Rows marked `dorsal` take their
+// F2/F3 from the sound they meet (blendInto). And a velar's burst excites the
+// resonance of the cavity in front of the closure, which is F2 before a
+// non-front vowel — "A2 should be set to about 60 dB" (Klatt 1980 §V.B):
+// `bankBack` — and F3 before a front one, where the table gives A3 53. That
+// 53 was set on a synthesiser running at 10 kHz, whose output stopped at
+// 5 kHz; here the upper resonators' skirts run on to 6 kHz and more and
+// outweigh it, and the burst comes out spread over 3–5 kHz like a [t]'s. So
+// the front cavity is given Klatt's 60 dB front or back: k ɡ kʰ bursts are
+// compact, at 1.0–1.3 kHz before [u] [o] [ɑ] and 2.3–3 kHz before [a] [e] [i].
 
 export const MANNER_STOP = 1;
 export const MANNER_AFFRICATE = 2;
@@ -427,7 +479,8 @@ const K_T = [0, 30, 45, 57, 63, 0];
 const K_D = [0, 47, 60, 62, 60, 0];
 const K_RETRO_STOP = [0, 50, 55, 50, 45, 0];
 const K_PALATAL_STOP = [0, 45, 55, 50, 40, 0];
-const K_K = [0, 53, 43, 45, 45, 0];
+const K_K_FRONT = [0, 60, 43, 45, 45, 0];
+const K_K_BACK = [60, 53, 43, 45, 45, 0];
 const K_UVULAR = [55, 45, 35, 30, 30, 0];
 const K_F = [0, 0, 0, 0, 0, 57];
 const K_PHI = [0, 0, 0, 0, 0, 55];
@@ -449,11 +502,15 @@ const K_NONE = [0, 0, 0, 0, 0, 0];
  * vot, trans, av, fnz). `dur` is the manner's main part: a fricative's or an
  * affricate's frication, a nasal's murmur, an approximant's steady state, a
  * tap's closure. `av` is the voicing level during it (voiced obstruents,
- * nasals, approximants); `fnz` a nasal's zero.
+ * nasals, approximants); `fnz` a nasal's zero. `dorsal`: the place follows
+ * the vowel (a velar); `bankBack`: the bank before a back vowel, or null.
  */
-function consRow(id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av = 0, fnz = 0) {
-  return Object.freeze({ id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av, fnz });
+function consRow(id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av = 0, fnz = 0,
+  { dorsal = false, bankBack = null } = {}) {
+  return Object.freeze({ id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av, fnz, dorsal, bankBack });
 }
+const FMT_VELAR_STOP = Object.freeze({ dorsal: true, bankBack: K_K_BACK });
+const FMT_VELAR = Object.freeze({ dorsal: true });
 
 const ROWS = [
   // Plosives — dur is the closure a stop makes when something precedes it.
@@ -465,14 +522,14 @@ const ROWS = [
   consRow(6, "ɖ", MN_S, true, PLACE_RETROFLEX, [200, 1500, 1900], [60, 100, 170], K_RETRO_STOP, -12, 0, 8, 0, 45),
   consRow(7, "c", MN_S, false, PLACE_PALATAL, [300, 2100, 2900], [250, 160, 330], K_PALATAL_STOP, -10, 0, 15, 22, 50),
   consRow(8, "ɟ", MN_S, true, PLACE_PALATAL, [200, 2100, 2900], [60, 150, 280], K_PALATAL_STOP, -12, 0, 12, 0, 50),
-  consRow(9, "k", MN_S, false, PLACE_VELAR, [300, 1990, 2850], [250, 160, 330], K_K, -10, 0, 20, 25, 50),
-  consRow(10, "g", MN_S, true, PLACE_VELAR, [200, 1990, 2850], [60, 150, 280], K_K, -12, 0, 15, 0, 50),
+  consRow(9, "k", MN_S, false, PLACE_VELAR, [300, 1990, 2850], [250, 160, 330], K_K_FRONT, -10, 0, 20, 25, 50, 0, 0, FMT_VELAR_STOP),
+  consRow(10, "ɡ", MN_S, true, PLACE_VELAR, [200, 1990, 2850], [60, 150, 280], K_K_FRONT, -12, 0, 15, 0, 50, 0, 0, FMT_VELAR_STOP),
   consRow(11, "q", MN_S, false, PLACE_UVULAR, [400, 1200, 2400], [250, 150, 300], K_UVULAR, -10, 0, 20, 25, 50),
   consRow(12, "ɢ", MN_S, true, PLACE_UVULAR, [250, 1200, 2400], [60, 120, 250], K_UVULAR, -12, 0, 15, 0, 50),
   consRow(13, "ʔ", MN_Q, false, PLACE_GLOTTAL, [0, 0, 0], [0, 0, 0], K_NONE, 0, 0, 0, 0, 0),
   consRow(14, "pʰ", MN_S, false, PLACE_BILABIAL, [400, 1100, 2150], [300, 150, 220], K_LABIAL, -12, 0, 5, 58, 40),
   consRow(15, "tʰ", MN_S, false, PLACE_ALVEOLAR, [400, 1600, 2600], [300, 120, 250], K_T, -10, 0, 10, 70, 45),
-  consRow(16, "kʰ", MN_S, false, PLACE_VELAR, [300, 1990, 2850], [250, 160, 330], K_K, -10, 0, 20, 80, 50),
+  consRow(16, "kʰ", MN_S, false, PLACE_VELAR, [300, 1990, 2850], [250, 160, 330], K_K_FRONT, -10, 0, 20, 80, 50, 0, 0, FMT_VELAR_STOP),
   // Nasals — Klatt's murmur: F1 480 cancelled by a zero at 450 Hz, leaving
   // the nasal pole at 270 Hz; place is the wide-bandwidth F2/F3.
   consRow(32, "m", MN_N, true, PLACE_BILABIAL, [480, 1270, 2130], [40, 200, 200], K_NONE, 0, 60, 0, 0, 35, 0.5, 450),
@@ -480,7 +537,7 @@ const ROWS = [
   consRow(34, "n", MN_N, true, PLACE_ALVEOLAR, [480, 1340, 2470], [40, 300, 300], K_NONE, 0, 60, 0, 0, 35, 0.5, 450),
   consRow(35, "ɳ", MN_N, true, PLACE_RETROFLEX, [480, 1400, 1900], [40, 300, 300], K_NONE, 0, 60, 0, 0, 35, 0.5, 450),
   consRow(36, "ɲ", MN_N, true, PLACE_PALATAL, [480, 2000, 2900], [40, 300, 300], K_NONE, 0, 60, 0, 0, 40, 0.5, 450),
-  consRow(37, "ŋ", MN_N, true, PLACE_VELAR, [480, 1900, 2700], [40, 300, 300], K_NONE, 0, 60, 0, 0, 40, 0.5, 450),
+  consRow(37, "ŋ", MN_N, true, PLACE_VELAR, [480, 1900, 2700], [40, 300, 300], K_NONE, 0, 60, 0, 0, 40, 0.5, 450, FMT_VELAR),
   consRow(38, "ɴ", MN_N, true, PLACE_UVULAR, [480, 1200, 2400], [40, 300, 300], K_NONE, 0, 60, 0, 0, 40, 0.5, 450),
   // Trills — two closures of a 40 ms cycle.
   consRow(40, "ʙ", MN_TR, true, PLACE_BILABIAL, [300, 1100, 2150], [70, 110, 130], K_NONE, 0, 40, 0, 0, 50),
@@ -505,8 +562,8 @@ const ROWS = [
   consRow(59, "ʐ", MN_FR, true, PLACE_RETROFLEX, [240, 1600, 2000], [60, 100, 250], K_RETRO, -11, 90, 0, 0, 40, 0.35),
   consRow(60, "ç", MN_FR, false, PLACE_PALATAL, [300, 2100, 3000], [200, 150, 300], K_C, -12, 110, 0, 0, 45),
   consRow(61, "ʝ", MN_FR, true, PLACE_PALATAL, [240, 2100, 3000], [60, 150, 300], K_C, -16, 80, 0, 0, 45, 0.35),
-  consRow(62, "x", MN_FR, false, PLACE_VELAR, [300, 1700, 2600], [200, 150, 300], K_X, -14, 110, 0, 0, 45),
-  consRow(63, "ɣ", MN_FR, true, PLACE_VELAR, [240, 1700, 2600], [60, 150, 300], K_X, -18, 80, 0, 0, 45, 0.35),
+  consRow(62, "x", MN_FR, false, PLACE_VELAR, [300, 1700, 2600], [200, 150, 300], K_X, -14, 110, 0, 0, 45, 0, 0, FMT_VELAR),
+  consRow(63, "ɣ", MN_FR, true, PLACE_VELAR, [240, 1700, 2600], [60, 150, 300], K_X, -18, 80, 0, 0, 45, 0.35, 0, FMT_VELAR),
   consRow(64, "χ", MN_FR, false, PLACE_UVULAR, [400, 1200, 2400], [200, 150, 300], K_CHI, -13, 110, 0, 0, 45),
   consRow(65, "ʁ", MN_FR, true, PLACE_UVULAR, [300, 1200, 2400], [80, 150, 300], K_CHI, -17, 80, 0, 0, 45, 0.35),
   consRow(66, "ħ", MN_H, false, PLACE_PHARYNGEAL, [700, 1100, 2500], [300, 150, 300], K_NONE, -16, 90, 0, 0, 30),
@@ -540,7 +597,7 @@ const ROWS = [
   consRow(102, "ʈ͡ʂ", MN_AF, false, PLACE_RETROFLEX, [300, 1600, 2000], [200, 100, 250], K_RETRO, -7, 70, 10, 0, 45),
   consRow(103, "ɖ͡ʐ", MN_AF, true, PLACE_RETROFLEX, [240, 1600, 2000], [60, 100, 250], K_RETRO, -11, 60, 10, 0, 45),
   consRow(104, "p͡f", MN_AF, false, PLACE_LABIODENTAL, [340, 1100, 2080], [200, 120, 150], K_F, -16, 70, 5, 0, 40),
-  consRow(105, "k͡x", MN_AF, false, PLACE_VELAR, [300, 1800, 2700], [250, 160, 330], K_X, -12, 70, 20, 0, 50),
+  consRow(105, "k͡x", MN_AF, false, PLACE_VELAR, [300, 1800, 2700], [250, 160, 330], K_X, -12, 70, 20, 0, 50, 0, 0, FMT_VELAR),
 ];
 
 /** id → row, for every id the format defines; undefined elsewhere. */
@@ -625,37 +682,74 @@ export function trackAt(tr, t) {
   return tr[tr.length - 1];
 }
 
-/** The values a vowel starts at, as an onset's next sound. */
+/** The values a vowel starts at, as an onset's next sound — oral, and nasalised
+ *  (the velum already lowered as the vowel begins). */
 const VOWEL_START = Object.freeze({ av: 1, ah: 0, af: 0, nz: 0 });
+const NASAL_VOWEL_START = Object.freeze({ av: 1, ah: 0, af: 0, nz: 1 });
+
+/** A GLOTTALISED consonant (ˀ): the glottis stays shut this long past the
+ *  consonant's own release — or, before a sonorant, at its start — and the
+ *  voicing then comes in this fast; a stop's voicing lags its burst by no
+ *  more than GLOT_LAG. In a coda, its voicing stops in GLOT_STOP. */
+const GLOT_CATCH = 10;
+const GLOT_RISE = 2;
+const GLOT_LAG = 10;
+const GLOT_STOP = 3;
+/** What a hissing nucleus takes to let its hiss go before the coda. */
+const NUCLEUS_RELEASE = 10;
+
+/** A closed track `tr` with a glottal catch at its START: 0 until t0, back on
+ *  the track's own value by t1 — a sonorant said after a glottal stop. */
+function catchTrack(tr, t0, t1) {
+  const out = [0, 0, t0, 0, t1, trackAt(tr, t1)];
+  for (let i = 0; i < tr.length; i += 2) if (tr[i] > t1) out.push(tr[i], tr[i + 1]);
+  return Float64Array.from(out);
+}
 
 /**
  * An ONSET consonant's tracks. `first` = nothing precedes it (so a stop has no
  * audible closure); `nx` = the next sound's start values; `k` = the timing
- * scale. Returns {end, w, av, ah, af, nz}.
+ * scale; `art` = its secondary articulation, of which only the glottal one
+ * changes a track (ART_GLOTTAL: no breath, and the voicing held off by a
+ * glottal catch). Returns {end, w, av, ah, af, nz}.
+ *
+ * Every oral consonant's nasality holds 0 until its own part is over, so a
+ * nasalised vowel after it (nx.nz = 1) lowers the velum through the
+ * transition alone.
  */
-export function onsetTracks(r, first, nx, k) {
+export function onsetTracks(r, first, nx, k, art = ART_NONE) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const tr = r.trans * k, dur = r.dur * k;
-  let end;
+  const glot = art === ART_GLOTTAL;
+  const catchAt = (t) => av.at(0, 0).at(t + GLOT_CATCH * k, 0).at(t + (GLOT_CATCH + GLOT_RISE) * k, nx.av);
+  let end, sonorant = false;
   switch (r.manner) {
     case MANNER_STOP: {
       const cl = first ? 0 : CLOSURE_MS * k;
       const tb = cl + r.burst * k;
+      af.at(0, 0).at(cl, 0).at(cl, L).at(tb, 0.3 * L).at(tb + 2 * k, 0);
+      ah.at(0, 0);
+      w.at(0, 1).at(tb, 1).at(tb + 1 * k, 0.5).at(tb + tr, 0);
+      nz.at(0, 0).at(tb, 0);
+      if (glot) {
+        // The glottis shut through the closure — no voice bar, no breath —
+        // and the voicing in at once, a short lag after the burst.
+        const tv = tb + Math.min(r.vot, GLOT_LAG) * k;
+        av.at(0, 0).at(tv, 0).at(tv + GLOT_RISE * k, nx.av);
+        end = Math.max(tv + GLOT_RISE * k, tb + tr);
+        break;
+      }
       const tv = tb + r.vot * k;
       if (r.voiced) {
         av.at(0, cl > 0 ? 0.25 : 0.3).at(cl, cl > 0 ? 0.25 : 0.3).at(tb, 0.3).at(tb + 10 * k, nx.av);
       } else {
         av.at(0, 0).at(tv, 0).at(tv + 10 * k, nx.av);
       }
-      af.at(0, 0).at(cl, 0).at(cl, L).at(tb, 0.3 * L).at(tb + 2 * k, 0);
-      ah.at(0, 0);
       if (!r.voiced && r.vot > 0) {
         const La = L * dbGain(ASPIRATION_DB);
         ah.at(tb, 0).at(tb + 3 * k, La).at(tv, 0.7 * La).at(tv + 10 * k, nx.ah);
       }
-      w.at(0, 1).at(tb, 1).at(tb + 1 * k, 0.5).at(tb + tr, 0);
-      nz.at(0, 0);
       end = Math.max(tv + 10 * k, tb + tr);
       break;
     }
@@ -664,32 +758,38 @@ export function onsetTracks(r, first, nx, k) {
       const tb = cl + r.burst * k;
       const tf = tb + dur;
       af.at(0, 0).at(cl, 0).at(cl, L).at(tb, 0.8 * L).at(tf - 10 * k, L).at(tf + 10 * k, nx.af);
-      if (r.voiced) av.at(0, 0.3).at(tf, 0.3).at(tf + 15 * k, nx.av);
+      if (glot) catchAt(tf);
+      else if (r.voiced) av.at(0, 0.3).at(tf, 0.3).at(tf + 15 * k, nx.av);
       else av.at(0, 0).at(tf, 0).at(tf + 15 * k, nx.av);
       ah.at(0, 0);
       w.at(0, 1).at(tf, 1).at(tf + tr, 0);
-      nz.at(0, 0);
+      nz.at(0, 0).at(tf, 0);
       end = Math.max(tf + 15 * k, tf + tr);
+      if (glot) end = Math.max(end, tf + (GLOT_CATCH + GLOT_RISE) * k);
       break;
     }
     case MANNER_FRICATIVE: {
       af.at(0, 0).at(10 * k, L).at(dur - 10 * k, L).at(dur + 10 * k, nx.af);
-      if (r.voiced) av.at(0, r.av).at(dur, r.av).at(dur + 15 * k, nx.av);
+      if (glot) catchAt(dur);
+      else if (r.voiced) av.at(0, r.av).at(dur, r.av).at(dur + 15 * k, nx.av);
       else av.at(0, 0).at(dur - 5 * k, 0).at(dur + 15 * k, nx.av);
       ah.at(0, 0);
       w.at(0, 1).at(dur, 1).at(dur + tr, 0);
-      nz.at(0, 0);
+      nz.at(0, 0).at(dur, 0);
       end = Math.max(dur + 15 * k, dur + tr);
+      if (glot) end = Math.max(end, dur + (GLOT_CATCH + GLOT_RISE) * k);
       break;
     }
     case MANNER_ASPIRATE: {
       ah.at(0, 0).at(10 * k, L).at(dur - 10 * k, L).at(dur + 10 * k, nx.ah);
-      if (r.voiced) av.at(0, r.av).at(dur, r.av).at(dur + 10 * k, nx.av);
+      if (glot) catchAt(dur);
+      else if (r.voiced) av.at(0, r.av).at(dur, r.av).at(dur + 10 * k, nx.av);
       else av.at(0, 0).at(dur - 10 * k, 0).at(dur + 10 * k, nx.av);
       af.at(0, 0);
       w.at(0, 1).at(dur, 1).at(dur + tr, 0);
-      nz.at(0, 0);
+      nz.at(0, 0).at(dur, 0);
       end = Math.max(dur + 10 * k, dur + tr);
+      if (glot) end = Math.max(end, dur + (GLOT_CATCH + GLOT_RISE) * k);
       break;
     }
     case MANNER_NASAL: {
@@ -698,20 +798,23 @@ export function onsetTracks(r, first, nx, k) {
       w.at(0, 1).at(dur, 1).at(dur + 5 * k, 0.5).at(dur + tr, 0);
       ah.at(0, 0); af.at(0, 0);
       end = Math.max(dur + 10 * k, dur + tr);
+      sonorant = true;
       break;
     }
     case MANNER_APPROX: {
       av.at(0, r.av).at(dur, r.av).at(dur + tr * 0.5, nx.av);
       w.at(0, 1).at(dur, 1).at(dur + tr, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0).at(dur, 0);
       end = dur + tr;
+      sonorant = true;
       break;
     }
     case MANNER_TAP: {
       av.at(0, 0.2).at(dur, 0.2).at(dur + 5 * k, nx.av);
       w.at(0, 1).at(dur, 1).at(dur + tr, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0).at(dur, 0);
       end = Math.max(dur + 5 * k, dur + tr);
+      sonorant = true;
       break;
     }
     case MANNER_TRILL: {
@@ -721,34 +824,162 @@ export function onsetTracks(r, first, nx, k) {
         .at(c, 0.12).at(c + shut, 0.12).at(c + shut + 3 * k, nx.av);
       const tail = c + shut + 3 * k;
       w.at(0, 1).at(tail, 1).at(tail + tr, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0).at(tail, 0);
       end = tail + tr;
+      sonorant = true;
       break;
     }
     default: { // MANNER_GLOTTAL: a hard onset, and after a consonant a held glottis
       const cl = first ? 0 : 30 * k;
       av.at(0, 0).at(cl, 0).at(cl + 3 * k, nx.av);
       w.at(0, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0).at(cl, 0);
       end = cl + 3 * k;
       break;
     }
   }
+  let avT = av.close(end, nx.av);
+  // A glottalised sonorant is said after a glottal stop: the catch comes first.
+  if (glot && sonorant) avT = catchTrack(avT, GLOT_CATCH * k, (GLOT_CATCH + GLOT_RISE) * k);
   return {
     end,
     w: w.close(end, 0),
-    av: av.close(end, nx.av),
+    av: avT,
     ah: ah.close(end, nx.ah),
     af: af.close(end, nx.af),
     nz: nz.close(end, nx.nz),
   };
 }
 
-/** A CODA consonant's tracks: from the vowel's values into silence. */
-export function codaTracks(r, k) {
+/**
+ * A NUCLEUS's tracks: the consonant a syllable with no vowel is held on — a
+ * syllabic consonant. It starts as an onset consonant does (`first`, `k` and
+ * `art` as there) and then HOLDS what it can sustain: a fricative or an
+ * affricate its frication, an aspirate its breath, a voiceless stop its
+ * aspiration, a voiced stop and every sonorant its voicing — at the vowel's
+ * level, being the syllable's peak — a trill its trilling, cycle on cycle.
+ * Past `end` every track holds its last value, but a trill's time wraps back
+ * by `loop` ms, so its second cycle repeats. Returns {end, loop, w, av, ah,
+ * af, nz}.
+ */
+export function nucleusTracks(r, first, k, art = ART_NONE) {
+  const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
+  const L = dbGain(r.lvl);
+  const dur = r.dur * k;
+  const glot = art === ART_GLOTTAL;
+  let end, loop = 0, sonorant = false;
+  w.at(0, 1);
+  switch (r.manner) {
+    case MANNER_STOP: {
+      const cl = first ? 0 : CLOSURE_MS * k;
+      const tb = cl + r.burst * k;
+      af.at(0, 0).at(cl, 0).at(cl, L).at(tb, 0.3 * L).at(tb + 2 * k, 0);
+      ah.at(0, 0);
+      if (glot) {
+        const tv = tb + GLOT_LAG * k;
+        av.at(0, 0).at(tv, 0).at(tv + GLOT_RISE * k, r.voiced ? 1 : 0);
+        end = tv + GLOT_RISE * k;
+      } else if (r.voiced) {
+        const a = cl > 0 ? 0.25 : 0.3;
+        av.at(0, a).at(cl, a).at(tb, 0.3).at(tb + 10 * k, 1);
+        end = tb + 10 * k;
+      } else {
+        av.at(0, 0);
+        if (r.vot > 0) {
+          const La = L * dbGain(ASPIRATION_DB);
+          ah.at(tb, 0).at(tb + 3 * k, La).at(tb + 10 * k, 0.7 * La);
+        }
+        end = tb + 10 * k;
+      }
+      nz.at(0, 0);
+      break;
+    }
+    case MANNER_AFFRICATE: {
+      const cl = first ? 0 : CLOSURE_MS * k;
+      const tb = cl + r.burst * k;
+      af.at(0, 0).at(cl, 0).at(cl, L).at(tb, 0.8 * L).at(tb + 10 * k, L);
+      av.at(0, r.voiced && !glot ? 0.3 : 0);
+      ah.at(0, 0); nz.at(0, 0);
+      end = tb + 10 * k;
+      break;
+    }
+    case MANNER_FRICATIVE: {
+      af.at(0, 0).at(10 * k, L);
+      av.at(0, r.voiced && !glot ? r.av : 0);
+      ah.at(0, 0); nz.at(0, 0);
+      end = 10 * k;
+      break;
+    }
+    case MANNER_ASPIRATE: {
+      ah.at(0, 0).at(10 * k, L);
+      av.at(0, r.voiced && !glot ? r.av : 0);
+      af.at(0, 0); nz.at(0, 0);
+      end = 10 * k;
+      break;
+    }
+    case MANNER_NASAL: {
+      av.at(0, 1);
+      nz.at(0, 1);
+      ah.at(0, 0); af.at(0, 0);
+      end = 0;
+      sonorant = true;
+      break;
+    }
+    case MANNER_APPROX: {
+      av.at(0, 1);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      end = 0;
+      sonorant = true;
+      break;
+    }
+    case MANNER_TAP: {    // the tap, then the voicing held where it let go
+      av.at(0, 0.2).at(dur, 0.2).at(dur + 5 * k, 1);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      end = dur + 5 * k;
+      sonorant = true;
+      break;
+    }
+    case MANNER_TRILL: {  // two cycles; the second repeats
+      const c = dur, shut = c * 0.375;
+      for (let n = 0; n < 2; n++) {
+        const o = n * c;
+        av.at(o, 0.12).at(o + shut, 0.12).at(o + shut + 3 * k, 0.7).at(o + c - 3 * k, 0.7);
+      }
+      av.at(2 * c, 0.12);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      end = 2 * c;
+      loop = c;
+      sonorant = true;
+      break;
+    }
+    default: {            // MANNER_GLOTTAL: the glottis shut, and nothing to hold
+      av.at(0, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      end = 0;
+      break;
+    }
+  }
+  const held = (t) => t.close(end, t.p[t.p.length - 1]);
+  let avT = held(av);
+  if (glot && sonorant) avT = catchTrack(avT, GLOT_CATCH * k, (GLOT_CATCH + GLOT_RISE) * k);
+  return { end, loop, w: held(w), av: avT, ah: held(ah), af: held(af), nz: held(nz) };
+}
+
+/**
+ * A CODA consonant's tracks: from the sound before it into silence. That sound
+ * is the vowel — voicing 1, nasality 0, or 1 for a nasalised vowel — or, in a
+ * syllable with no vowel, the nucleus as it holds: `v0` and `z0` are its
+ * voicing and nasality. `art` is the coda's own articulation: UNRELEASED
+ * takes a stop's or an affricate's release away (no burst, no breath, the
+ * closure the end of it); GLOTTAL ends the voicing in a glottal stop where it
+ * would otherwise fade, and breathes no aspiration; DARK changes no track.
+ */
+export function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const tr = r.trans * k, dur = r.dur * k;
+  const glot = art === CODA_GLOTTAL;
+  const gs = GLOT_STOP * k;
   let end;
   switch (r.manner) {
     case MANNER_STOP:
@@ -756,12 +987,17 @@ export function codaTracks(r, k) {
       const tc = tr + CLOSURE_MS * k;        // the release
       const tb = tc + r.burst * k;
       w.at(0, 0).at(tr, 0.5).at(tr + 5 * k, 1);
-      if (r.voiced) av.at(0, 1).at(tr, 1).at(tr + 8 * k, 0.25).at(tc, 0.2).at(tc + 5 * k, 0);
-      else av.at(0, 1).at(tr, 1).at(tr + 8 * k, 0);
-      if (r.manner === MANNER_STOP) {
+      if (glot) av.at(0, v0).at(tr, v0).at(tr + gs, 0);
+      else if (r.voiced) av.at(0, v0).at(tr, v0).at(tr + 8 * k, 0.25).at(tc, 0.2).at(tc + 5 * k, 0);
+      else av.at(0, v0).at(tr, v0).at(tr + 8 * k, 0);
+      if (art === CODA_UNRELEASED) {
+        af.at(0, 0);
+        ah.at(0, 0);
+        end = r.voiced ? tc + 5 * k : tr + 8 * k;
+      } else if (r.manner === MANNER_STOP) {
         af.at(0, 0).at(tc, 0).at(tc, 0.7 * L).at(tb, 0.2 * L).at(tb + 2 * k, 0);
         ah.at(0, 0);
-        if (!r.voiced && r.vot > 0) {
+        if (!glot && !r.voiced && r.vot > 0) {
           const La = L * dbGain(ASPIRATION_DB);
           ah.at(tb, 0).at(tb + 2 * k, 0.5 * La).at(tb + 30 * k, 0);
         }
@@ -771,70 +1007,99 @@ export function codaTracks(r, k) {
         ah.at(0, 0);
         end = tb + dur + 20 * k;
       }
-      nz.at(0, 0);
+      nz.at(0, z0).at(tr + 5 * k, 0);
       break;
     }
     case MANNER_FRICATIVE: {
       const a = Math.max(tr - 15 * k, 0);
       w.at(0, 0).at(tr, 1);
-      if (r.voiced) av.at(0, 1).at(tr, r.av).at(tr + dur, 0.7 * r.av).at(tr + dur + 30 * k, 0);
-      else av.at(0, 1).at(a, 1).at(tr + 5 * k, 0);
+      if (glot) av.at(0, v0).at(a, v0).at(a + gs, 0);
+      else if (r.voiced) av.at(0, v0).at(tr, r.av).at(tr + dur, 0.7 * r.av).at(tr + dur + 30 * k, 0);
+      else av.at(0, v0).at(a, v0).at(tr + 5 * k, 0);
       af.at(0, 0).at(a, 0).at(tr + 5 * k, L).at(tr + dur, 0.8 * L).at(tr + dur + 30 * k, 0);
-      ah.at(0, 0); nz.at(0, 0);
+      ah.at(0, 0); nz.at(0, z0).at(tr, 0);
       end = tr + dur + 30 * k;
       break;
     }
     case MANNER_ASPIRATE: {
       w.at(0, 0).at(15 * k, 1);
-      if (r.voiced) av.at(0, 1).at(20 * k, r.av).at(dur, 0.5 * r.av).at(dur + 20 * k, 0);
-      else av.at(0, 1).at(20 * k, 0);
+      if (glot) av.at(0, v0).at(gs, 0);
+      else if (r.voiced) av.at(0, v0).at(20 * k, r.av).at(dur, 0.5 * r.av).at(dur + 20 * k, 0);
+      else av.at(0, v0).at(20 * k, 0);
       ah.at(0, 0).at(10 * k, L).at(dur, 0.5 * L).at(dur + 30 * k, 0);
-      af.at(0, 0); nz.at(0, 0);
+      af.at(0, 0); nz.at(0, z0).at(15 * k, 0);
       end = dur + 30 * k;
       break;
     }
     case MANNER_NASAL: {
       w.at(0, 0).at(tr, 1);
-      nz.at(0, 0).at(Math.max(tr - 5 * k, 0), 0).at(tr, 1);
-      av.at(0, 1).at(tr, r.av).at(tr + dur, 0.8 * r.av).at(tr + dur + 40 * k, 0);
+      nz.at(0, z0).at(Math.max(tr - 5 * k, 0), z0).at(tr, 1);
+      av.at(0, v0).at(tr, r.av).at(tr + dur, 0.8 * r.av);
+      end = tr + dur + (glot ? gs : 40 * k);
+      av.at(end, 0);
       ah.at(0, 0); af.at(0, 0);
-      end = tr + dur + 40 * k;
       break;
     }
     case MANNER_APPROX: {
       w.at(0, 0).at(tr, 1);
-      av.at(0, 1).at(tr, r.av).at(tr + dur, 0.8 * r.av).at(tr + dur + 40 * k, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
-      end = tr + dur + 40 * k;
+      av.at(0, v0).at(tr, r.av).at(tr + dur, 0.8 * r.av);
+      end = tr + dur + (glot ? gs : 40 * k);
+      av.at(end, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, z0).at(tr, 0);
       break;
     }
     case MANNER_TAP: {
       w.at(0, 0).at(tr, 1);
-      av.at(0, 1).at(tr, 1).at(tr + 3 * k, 0.2).at(tr + dur, 0.2).at(tr + dur + 3 * k, 0.6)
-        .at(tr + dur + 40 * k, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
-      end = tr + dur + 40 * k;
+      av.at(0, v0).at(tr, v0).at(tr + 3 * k, 0.2).at(tr + dur, 0.2);
+      if (glot) {
+        end = tr + dur + gs;
+      } else {
+        av.at(tr + dur + 3 * k, 0.6);
+        end = tr + dur + 40 * k;
+      }
+      av.at(end, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, z0).at(tr, 0);
       break;
     }
     case MANNER_TRILL: {
       const c = dur, shut = c * 0.375;
       w.at(0, 0).at(tr, 1);
-      av.at(0, 1).at(tr, 0.7).at(tr + 3 * k, 0.12).at(tr + shut, 0.12).at(tr + shut + 3 * k, 0.7)
-        .at(tr + c - 3 * k, 0.7).at(tr + c, 0.12).at(tr + c + shut, 0.12)
-        .at(tr + c + shut + 3 * k, 0.6).at(tr + c + shut + 35 * k, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
-      end = tr + c + shut + 35 * k;
+      av.at(0, v0).at(tr, 0.7).at(tr + 3 * k, 0.12).at(tr + shut, 0.12).at(tr + shut + 3 * k, 0.7)
+        .at(tr + c - 3 * k, 0.7).at(tr + c, 0.12).at(tr + c + shut, 0.12);
+      if (glot) {
+        end = tr + c + shut + gs;
+      } else {
+        av.at(tr + c + shut + 3 * k, 0.6);
+        end = tr + c + shut + 35 * k;
+      }
+      av.at(end, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, z0).at(tr, 0);
       break;
     }
     default: { // MANNER_GLOTTAL: the glottis shuts on the vowel
       w.at(0, 0);
-      av.at(0, 1).at(6 * k, 0);
-      ah.at(0, 0); af.at(0, 0); nz.at(0, 0);
+      av.at(0, v0).at(6 * k, 0);
+      ah.at(0, 0); af.at(0, 0); nz.at(0, z0).at(6 * k, 0);
       end = 6 * k;
       break;
     }
   }
   return { end, w: w.close(end, 1), av: av.close(end, 0), ah: ah.close(end, 0), af: af.close(end, 0), nz: nz.close(end, 0) };
+}
+
+/** A coda after a nucleus that hisses (frication `a0` or breath `h0`): the
+ *  hiss lets go over `rel` ms first, voicing `v0` and nasality `z0` held, and
+ *  the coda's own tracks `t` follow it. */
+function afterRelease(t, rel, v0, a0, h0, z0) {
+  const sh = (tr, head) => {
+    const o = head.slice();
+    for (let i = 0; i < tr.length; i += 2) o.push(tr[i] + rel, tr[i + 1]);
+    return Float64Array.from(o);
+  };
+  return {
+    end: t.end + rel,
+    w: sh(t.w, [0, 0]), av: sh(t.av, [0, v0]), ah: sh(t.ah, [0, h0]), af: sh(t.af, [0, a0]), nz: sh(t.nz, [0, z0]),
+  };
 }
 
 /** Timing byte → scale on every consonant time. */
@@ -948,14 +1213,26 @@ const PAR_F = [3300, 3750, 4900], PAR_B = [250, 200, 1000];
 
 /** One consonant as it sounds: its row, its slot's recipe, its tracks. */
 class FormantSegment {
-  constructor(row, slot, tr) {
+  constructor(row, slot, tr, art = ART_NONE) {
     this.row = row;
     this.slot = slot;
     this.end = tr.end;
     this.w = tr.w; this.av = tr.av; this.ah = tr.ah; this.af = tr.af; this.nz = tr.nz;
     this.next = null; // the onset consonant that follows, or null for the vowel
+    this.art = art;   // its articulation as blendInto reads it: ART_NONE, _PALATAL or _DARK
+    this.loop = tr.loop ?? 0;  // a held nucleus's repeat, ms (a trill's cycle)
+    // A coda after a hissing nucleus: its own noise starts this far in, the
+    // nucleus's going on until then through the nucleus's bank (`prevRow`).
+    this.noiseAt = 0;
+    this.prevRow = null;
+    this.prevArt = ART_NONE;
   }
 }
+
+/** The articulation blendInto gives a segment: a secondary articulation's
+ *  tongue (palatal or dark) — the glottal one changes the tracks, not the
+ *  tract. */
+const tractArt = (a) => (a === ART_PALATAL || a === ART_DARK ? a : ART_NONE);
 
 /** Per-voice tract state — what the record's sample is played through. */
 export class FormantState {
@@ -967,6 +1244,11 @@ export class FormantState {
     this.coda = null;         // Segment, built at note-on
     this.t = 0.0;             // ms into the current segment
     this.codaVeto = false;    // a fade came first: the coda never sounds
+    this.codaNoise = false;   // the coda's own noise has started
+    // A syllable with no vowel: its last onset consonant, held as the
+    // nucleus (null when there is a vowel), and whether it has come to hold.
+    this.nucleus = null;
+    this.held = false;
     this.fresh = true;        // no control update yet since note-on
     this.upd = 48;            // samples per control update (≈ 1 ms)
     this.ctl = 0;             // samples until the next one
@@ -1027,6 +1309,9 @@ export function cloneFormantState(src, dst = new FormantState()) {
   dst.coda = src.coda;
   dst.t = src.t;
   dst.codaVeto = src.codaVeto;
+  dst.codaNoise = src.codaNoise;
+  dst.nucleus = src.nucleus;
+  dst.held = src.held;
   dst.fresh = src.fresh;
   dst.upd = src.upd; dst.ctl = src.ctl; dst.normCount = src.normCount;
   dst.ownVowel = src.ownVowel; dst.rejoin = src.rejoin;
@@ -1087,15 +1372,23 @@ export function formantRelatchSource(st, chip) {
 export function formantNoteOn(st, patch) {
   st.patch = patch;
   const k = timingScale(patch.timing);
+  const vowel = formantHasVowel(patch);
   const rows = [];
   for (let i = 0; i < 2; i++) {
     const r = CONSONANTS[patch.slots[i].cons];
     if (r !== undefined) rows.push([r, patch.slots[i]]);
   }
+  // With no vowel, the last onset consonant is the nucleus — or, with no
+  // onset, the coda's consonant, which then leaves no coda after it.
+  let coda = true;
+  if (!vowel && rows.length === 0) {
+    const r = CONSONANTS[patch.slots[2].cons];
+    if (r !== undefined) { rows.push([r, patch.slots[2]]); coda = false; }
+  }
   // The glide, if any: on its semivowel for the approximant's steady time,
   // then into the vowel over its transition, its voicing rising to the
-  // vowel's over the first half of that.
-  const sv = SEMIVOWELS[patch.semivowel] ?? null;
+  // vowel's over the first half of that. A syllable with no vowel has none.
+  const sv = vowel ? SEMIVOWELS[patch.semivowel] ?? null : null;
   st.sv = sv; st.svT = 0.0;
   if (sv !== null) {
     const r = CONSONANTS[sv.row];
@@ -1105,13 +1398,20 @@ export function formantNoteOn(st, patch) {
     st.svAv = new FormantTrack().at(0, r.av).at(dur, r.av).at(dur + tr * 0.5, 1).close(st.svEnd, 1);
   }
   // Built back to front: each consonant ends where the next one starts — the
-  // last on the glide, when there is one.
+  // last on the glide, when there is one, and a nasalised vowel's velum
+  // already lowered. The last consonant carries the secondary articulation;
+  // without a vowel it is the nucleus, and holds.
+  const nasal = vowel && patch.nasal;
   const segs = new Array(rows.length);
-  let nx = sv !== null ? { av: st.svAv[1], ah: 0, af: 0, nz: 0 } : VOWEL_START;
+  let nx = sv !== null ? { av: st.svAv[1], ah: 0, af: 0, nz: nasal ? 1 : 0 }
+    : nasal ? NASAL_VOWEL_START : VOWEL_START;
   let next = null;
   for (let i = rows.length - 1; i >= 0; i--) {
     const [r, slot] = rows[i];
-    const s = new FormantSegment(r, slot, onsetTracks(r, i === 0, nx, k));
+    const art = i === rows.length - 1 ? patch.secondary : ART_NONE;
+    const tracks = !vowel && i === rows.length - 1
+      ? nucleusTracks(r, i === 0, k, art) : onsetTracks(r, i === 0, nx, k, art);
+    const s = new FormantSegment(r, slot, tracks, tractArt(art));
     s.next = next;
     segs[i] = s;
     next = s;
@@ -1119,11 +1419,13 @@ export function formantNoteOn(st, patch) {
   }
   st.onset = segs;
   st.seg = 0;
-  const cr = CONSONANTS[patch.slots[2].cons];
-  st.coda = cr !== undefined ? new FormantSegment(cr, patch.slots[2], codaTracks(cr, k)) : null;
+  st.nucleus = !vowel && segs.length > 0 ? segs[segs.length - 1] : null;
+  st.held = false;
+  st.coda = coda ? buildCoda(st, patch, k) : null;
   st.phase = segs.length > 0 ? PHASE_ONSET : PHASE_VOWEL;
   st.t = 0.0;
   st.codaVeto = false;
+  st.codaNoise = false;
   st.fresh = true;
   st.upd = Math.max(1, Math.round(SAMPLING_RATE / 1000));
   st.ctl = 0;
@@ -1136,8 +1438,41 @@ export function formantNoteOn(st, patch) {
   st.nv = 1.0; st.nvStep = 0.0; st.nvGoal = 1.0;
   st.cy.fill(0); st.by.fill(0);
   st.nOn = false; st.nZ = 0.0;
+  // No vowel and no consonant: nothing to say. The syllable is over at once.
+  if (!vowel && segs.length === 0) { st.phase = PHASE_CODA; st.coda = SILENT_CODA; st.codaNoise = true; }
   if (st.phase === PHASE_ONSET) startNoise(st, segs[0]);
 }
+
+/**
+ * The coda a record gives a note: slot 2's consonant, from the vowel — or, in
+ * a syllable with no vowel, from its nucleus as it holds, a hissing nucleus
+ * letting its hiss go first. Null with no coda consonant.
+ */
+function buildCoda(st, patch, k) {
+  const cr = CONSONANTS[patch.slots[2].cons];
+  if (cr === undefined) return null;
+  const art = patch.codaArt;
+  const tract = art === CODA_DARK ? ART_DARK : ART_NONE;
+  const nuc = st.nucleus;
+  if (nuc === null) {
+    const z0 = patch.nasal && formantHasVowel(patch) ? 1 : 0;
+    return new FormantSegment(cr, patch.slots[2], codaTracks(cr, k, 1, z0, art), tract);
+  }
+  const last = (tr) => tr[tr.length - 1];
+  const v0 = last(nuc.av), z0 = last(nuc.nz), a0 = last(nuc.af), h0 = last(nuc.ah);
+  const hiss = a0 > 0 || h0 > 0;
+  let tracks = codaTracks(cr, k, v0, z0, art);
+  if (hiss) tracks = afterRelease(tracks, NUCLEUS_RELEASE * k, v0, a0, h0, z0);
+  const seg = new FormantSegment(cr, patch.slots[2], tracks, tract);
+  if (hiss) { seg.noiseAt = NUCLEUS_RELEASE * k; seg.prevRow = nuc.row; seg.prevArt = nuc.art; }
+  return seg;
+}
+
+/** The coda of a syllable with nothing to say: over before it starts. */
+const SILENT_CODA = new FormantSegment(null, null, {
+  end: 0, w: Float64Array.of(0, 1), av: Float64Array.of(0, 0), ah: Float64Array.of(0, 0),
+  af: Float64Array.of(0, 0), nz: Float64Array.of(0, 0),
+});
 
 /**
  * Q's retrigger (tick.js restartVoice): the note says its syllable again from
@@ -1162,7 +1497,8 @@ export function formantRestart(st) {
  * glide time and then follows that record's vowel as any note of it does,
  * the pitch rules become the new record's, and a coda that has
  * not begun becomes the new record's coda; consonants already under way
- * finish as they started. Nothing restarts — the note is still sounding.
+ * finish as they started. Nothing restarts — the note is still sounding, and
+ * keeps the nucleus it has: a vowel, or a syllabic consonant.
  */
 export function formantRelatch(st, patch) {
   st.patch = patch;
@@ -1172,17 +1508,26 @@ export function formantRelatch(st, patch) {
   if (st.glideLeft > 0) { st.ownVowel = true; st.rejoin = true; }
   else { st.ownVowel = false; st.rejoin = false; }
   if (st.phase === PHASE_ONSET || st.phase === PHASE_VOWEL) {
-    const cr = CONSONANTS[patch.slots[2].cons];
-    st.coda = cr !== undefined
-      ? new FormantSegment(cr, patch.slots[2], codaTracks(cr, timingScale(patch.timing))) : null;
+    st.coda = buildCoda(st, patch, timingScale(patch.timing));
   }
 }
 
 /** A sampled note handed a formant instrument mid-note: the tract starts at
- *  the vowel, with the coda ready — the note's onset was its sample's. */
+ *  the vowel — or a syllable with no vowel at its nucleus, holding — with the
+ *  coda ready: the note's onset was its sample's. */
 export function formantStartAtVowel(st, patch) {
   formantNoteOn(st, patch);
   st.sv = null;   // the glide, like the onset, is long past
+  if (st.phase === PHASE_CODA) return;   // nothing to say
+  if (st.nucleus !== null) {
+    st.onset = [st.nucleus];
+    st.seg = 0;
+    st.phase = PHASE_ONSET;
+    st.t = st.nucleus.end;
+    st.held = true;
+    startNoise(st, st.nucleus);
+    return;
+  }
   st.onset = [];
   st.seg = 0;
   st.phase = PHASE_VOWEL;
@@ -1653,19 +1998,72 @@ function segAmps(seg, t, out) {
   return out;
 }
 
+/** The tongue a secondary articulation holds behind a consonant (front, open,
+ *  round): ART_PALATAL [i]'s; ART_DARK the back of the tongue drawn back —
+ *  velarised or pharyngealised — midway between [ʌ] and [ɑ], where F2 falls to
+ *  about 1.05 kHz: a dark [ɫ]'s, and about where Arabic's emphatic consonants
+ *  leave a vowel ([a]'s F2 1514 Hz after a plain consonant, 1122 after an
+ *  emphatic one, pooled over the speakers of "Arabic emphatic consonants as
+ *  produced by English speakers", Heliyon, February 2023). Its F2 and F3 at a
+ *  man's size. */
+const ART_TONGUE = [null, [255, 0, 0], [0, 212, 0]];
+const ART_F = ART_TONGUE.map((t) => (t === null ? null : vowelFormants(t[0], t[1], t[2], new Float64Array(5))));
+/** A velar's F2 and F3 meet as close as the order rule lets two formants
+ *  come: F3 ÷ F2 = 1.15, about the geometric mean of the two it meets. */
+const PINCH = Math.sqrt(1.15);
+/** A nasalised vowel's F1 rises this much at a man's size (Klatt 1980 §V.B). */
+const NASAL_F1 = 100;
+
 /**
  * Configure the tract for this update: the consonant's own tract blended with
  * the next sound's by w. `cfg` = [F1 F2 F3 B1 B2 B3] of the consonant at this
- * voice's size, a zero meaning "the vowel's".
+ * voice's size, a zero meaning "the vowel's". A secondary articulation `art`
+ * (palatal, dark) puts its tongue's F2 and F3 in the consonant's; otherwise a
+ * velar (`row.dorsal`) takes them from the sound it meets, drawn together
+ * about their geometric mean — the tongue's back meets the palate where that
+ * sound puts it.
  */
-function blendInto(row, w, s, F, B, NF, NB) {
+function blendInto(row, w, s, F, B, NF, NB, art = ART_NONE) {
+  let c2 = 0, c3 = 0;
+  if (art !== ART_NONE) {
+    const T = ART_F[art];
+    c2 = T[1] * s; c3 = T[2] * s;
+  } else if (row.dorsal) {
+    const p = Math.sqrt(NF[1] * NF[2]);
+    c2 = p / PINCH; c3 = p * PINCH;
+  }
   for (let n = 0; n < 3; n++) {
-    const cf = row.F[n] > 0 ? row.F[n] * s : NF[n];
+    const cf = n === 1 && c2 > 0 ? c2 : n === 2 && c3 > 0 ? c3 : row.F[n] > 0 ? row.F[n] * s : NF[n];
     const cb = row.B[n] > 0 ? row.B[n] * s : NB[n];
     F[n] = NF[n] + w * (cf - NF[n]);
     B[n] = NB[n] + w * (cb - NB[n]);
   }
   F[3] = NF[3]; F[4] = NF[4]; B[3] = NB[3]; B[4] = NB[4];
+}
+
+/** How front the vowel a consonant meets is, 0 (back) … 1 (front): the
+ *  vowel's tongue, or the glide's while it sounds. */
+function metFront(st) {
+  let x = st.vFront;
+  if (st.sv !== null) x += trackAt(st.svW, st.svT) * (st.sv.front - x);
+  return Math.min(Math.max(x / 255, 0), 1);
+}
+
+/** Where a consonant's nasal zero opens to, in a syllable with nasality
+ *  beyond its nasal consonants: its own zero, drawn toward the zero of the
+ *  sound it meets (`met`) as its tract is — or, with none of its own, that
+ *  sound's. `fnp` is the pole: a sound with no zero has it there. */
+function segZero(row, w, s, met, fnp, ceil) {
+  if (!(row.fnz > 0)) return met;
+  const own = Math.min(row.fnz * s, ceil);
+  return met === fnp ? own : met + w * (own - met);
+}
+
+/** …the zero of the sound an onset consonant heads for: the first nasal of
+ *  the consonants after it, or the vowel's (`vz`). */
+function onsetMetZero(seg, s, vz, ceil) {
+  for (let n = seg.next; n !== null; n = n.next) if (n.row.fnz > 0) return Math.min(n.row.fnz * s, ceil);
+  return vz;
 }
 
 const nextF = new Float64Array(5), nextB = new Float64Array(5);
@@ -1679,17 +2077,27 @@ function formantControl(voice, st) {
 
   // A fade before the coda has started takes the coda away for good.
   if (voice.noteFading && st.phase !== PHASE_CODA) st.codaVeto = true;
-  // Sequencer: walk past finished onset consonants into the vowel.
+  // Sequencer: walk past finished onset consonants into the vowel. A nucleus
+  // never finishes: it holds, a trill's time wrapping back by its cycle.
   while (st.phase === PHASE_ONSET && st.t >= st.onset[st.seg].end) {
-    st.t -= st.onset[st.seg].end;
+    const cur = st.onset[st.seg];
+    if (cur === st.nucleus) {
+      st.held = true;
+      if (cur.loop > 0) while (st.t >= cur.end) st.t -= cur.loop;
+      break;
+    }
+    st.t -= cur.end;
     st.seg++;
     if (st.seg >= st.onset.length) { st.phase = PHASE_VOWEL; st.nOn = false; }
     else startNoise(st, st.onset[st.seg]);
   }
-  if (st.phase === PHASE_VOWEL && voice.keyOff && !st.codaVeto && st.coda !== null) {
+  const holding = st.phase === PHASE_ONSET && st.held;
+  if ((st.phase === PHASE_VOWEL || holding) && voice.keyOff && !st.codaVeto && st.coda !== null) {
     st.phase = PHASE_CODA;
     st.t = 0.0;
-    startNoise(st, st.coda);
+    // After a hissing nucleus the coda's own noise waits for the hiss to go.
+    st.codaNoise = st.coda.noiseAt <= 0;
+    if (st.codaNoise) startNoise(st, st.coda);
   }
   if (st.phase === PHASE_CODA && st.t >= st.coda.end) {
     st.phase = PHASE_DONE;
@@ -1697,6 +2105,10 @@ function formantControl(voice, st) {
     st.nOn = false;
     startRampOut(voice);
     return;
+  }
+  if (st.phase === PHASE_CODA && !st.codaNoise && st.t >= st.coda.noiseAt) {
+    st.codaNoise = true;
+    startNoise(st, st.coda);
   }
 
   // The vowel: the record's as it stands, or a glide, then the pitch rules.
@@ -1714,10 +2126,13 @@ function formantControl(voice, st) {
   } else if (!st.ownVowel) {
     st.vOpen = patch.open; st.vFront = patch.front; st.vRound = patch.round;
   }
+  // A syllable with no vowel still has the tongue's rest — the vowel bytes —
+  // for what its consonants take from "the vowel's": F4, F5, [h]'s formants.
+  const sung = st.nucleus === null;
   const f0 = voiceF0(voice);
   const V = st.V, VB = st.VB;
-  const ref = noteHz(patch.refNote);
-  const s = vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, ref, patch.track, V, VB, patch.rhotic);
+  const ref = noteHz(formantRefNote(patch));
+  const s = vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, ref, patch.track, V, VB, sung && patch.rhotic);
   // The glide: from the semivowel to the vowel, in log frequency. Held on the
   // semivowel through the onset, so the consonants head for it.
   if (st.sv !== null) {
@@ -1731,25 +2146,54 @@ function formantControl(voice, st) {
       }
     }
   }
+  const ceil = 0.45 * SAMPLING_RATE;
+  const fnp = Math.min(FNP * s, ceil);
+  // Nasalised, as Klatt makes it: F1 a hundred hertz higher (at a man's
+  // size), the order kept, and the nasal zero opened midway between that F1
+  // and the nasal pole — a pole-zero pair beside F1 that takes its strength.
+  const nasalV = sung && patch.nasal;
+  let vz = fnp;
+  if (nasalV) {
+    V[0] = Math.min(V[0] + NASAL_F1 * s, ceil);
+    VB[0] = Math.max(V[0] / 10, 50);
+    for (let n = 1; n < 5; n++) if (V[n] < V[n - 1] * 1.15) V[n] = Math.min(V[n - 1] * 1.15, ceil);
+    vz = (V[0] + fnp) / 2;
+  }
+  const nasality = nasalV || (st.nucleus !== null && st.nucleus.row.fnz > 0);
 
   // The tract this update.
   const F = st.F, B = st.B;
   let nzAmt = 0.0;
   let seg = null;
+  let zf = fnp;
   if (st.phase === PHASE_ONSET) {
     seg = st.onset[st.seg];
     // The sound this consonant is heading for: the next consonant as it
     // starts, or the vowel.
-    if (seg.next !== null) blendInto(seg.next.row, seg.next.w[1], s, nextF, nextB, V, VB);
+    if (seg.next !== null) blendInto(seg.next.row, seg.next.w[1], s, nextF, nextB, V, VB, seg.next.art);
     else { nextF.set(V); nextB.set(VB); }
-    blendInto(seg.row, trackAt(seg.w, st.t), s, F, B, nextF, nextB);
+    const w = trackAt(seg.w, st.t);
+    blendInto(seg.row, w, s, F, B, nextF, nextB, seg.art);
     nzAmt = trackAt(seg.nz, st.t);
+    if (nasality) zf = segZero(seg.row, w, s, onsetMetZero(seg, s, vz, ceil), fnp, ceil);
     segAmps(seg, st.t, ampNow);
     segAmps(seg, st.t + dt, ampNext);
   } else if (st.phase === PHASE_CODA) {
     seg = st.coda;
-    blendInto(seg.row, trackAt(seg.w, st.t), s, F, B, V, VB);
+    const w = trackAt(seg.w, st.t);
+    // From the vowel — or, with none, from the nucleus as it held.
+    const nuc = st.nucleus;
+    if (nuc !== null) {
+      blendInto(nuc.row, 1, s, nextF, nextB, V, VB, nuc.art);
+      blendInto(seg.row, w, s, F, B, nextF, nextB, seg.art);
+    } else {
+      blendInto(seg.row, w, s, F, B, V, VB, seg.art);
+    }
     nzAmt = trackAt(seg.nz, st.t);
+    if (nasality) {
+      const met = nuc !== null ? (nuc.row.fnz > 0 ? Math.min(nuc.row.fnz * s, ceil) : fnp) : vz;
+      zf = segZero(seg.row, w, s, met, fnp, ceil);
+    }
     segAmps(seg, st.t, ampNow);
     segAmps(seg, st.t + dt, ampNext);
   } else {
@@ -1757,29 +2201,36 @@ function formantControl(voice, st) {
     const gl = st.sv !== null;
     ampNow[0] = gl ? trackAt(st.svAv, st.svT) : 1; ampNow[1] = 0; ampNow[2] = 0;
     ampNext[0] = gl ? trackAt(st.svAv, st.svT + dt) : 1; ampNext[1] = 0; ampNext[2] = 0;
+    if (nasalV) { nzAmt = 1; zf = vz; }
   }
-  const ceil = 0.45 * SAMPLING_RATE;
   const casc = st.casc;
-  const fnp = Math.min(FNP * s, ceil);
-  const fnz = seg !== null && seg.row.fnz > 0 ? Math.min(seg.row.fnz * s, ceil) : fnp;
+  // Without nasality the zero opens only to a nasal consonant's own.
+  const fnz = nasality ? zf : seg !== null && seg.row.fnz > 0 ? Math.min(seg.row.fnz * s, ceil) : fnp;
   setRes(casc, 0, fnp, BNP * s);
   setRes(casc, 3, fnp + nzAmt * (fnz - fnp), BNZ * s);
   for (let n = 0; n < 5; n++) {
     setRes(casc, 6 + (4 - n) * 3, Math.min(F[n], ceil), Math.min(B[n], ceil));
   }
-  // The parallel bank, while a consonant can be fricating.
+  // The parallel bank, while a consonant can be fricating — in a coda after
+  // a hissing nucleus, the nucleus's bank until the coda's own noise starts.
   if (seg !== null && st.nOn) {
-    const bank = st.bank, g = st.bankGain, a = seg.row.bank;
+    const prev = st.phase === PHASE_CODA && !st.codaNoise;
+    const row = prev ? seg.prevRow : seg.row;
+    const art = prev ? seg.prevArt : seg.art;
+    const bank = st.bank, g = st.bankGain, a = row.bank, ab = row.bankBack;
     setPeakRes(bank, 0, Math.min(F[1], ceil), Math.min(B[1], ceil));
     setPeakRes(bank, 3, Math.min(F[2], ceil), Math.min(B[2], ceil));
     for (let j = 0; j < 3; j++) {
       setPeakRes(bank, 6 + j * 3, Math.min(PAR_F[j] * s, ceil), Math.min(PAR_B[j] * s, ceil));
     }
-    for (let j = 0; j < 5; j++) {
-      const gj = a[j] > 0 ? dbGain(a[j] - 60) : 0;
-      g[j] = (j & 1) === 0 ? gj : -gj;
+    // A velar's bank follows the vowel it meets from front (the row's) to
+    // back (`bankBack`), its own tongue's when it has a secondary one.
+    const back = ab === null ? 0 : art === ART_PALATAL ? 0 : art === ART_DARK ? 1 : 1 - metFront(st);
+    for (let j = 0; j < 6; j++) {
+      let gj = a[j] > 0 ? dbGain(a[j] - 60) : 0;
+      if (ab !== null) gj += back * ((ab[j] > 0 ? dbGain(ab[j] - 60) : 0) - gj);
+      g[j] = j === 5 || (j & 1) === 0 ? gj : -gj;
     }
-    g[5] = a[5] > 0 ? dbGain(a[5] - 60) : 0;
     st.nb = bankNorm(bank, g);
   }
 
@@ -1787,8 +2238,10 @@ function formantControl(voice, st) {
   // consonant at every update, since a consonant's tract moves (a coda's F1
   // sweeping over a harmonic, a nasal's pole left uncancelled) and its level
   // is meant to be its voicing track's alone, not whatever its tract makes of
-  // the vowel's correction; in the vowel every NORM_EVERY updates.
-  if (st.fresh || st.normCount <= 0 || st.phase !== PHASE_VOWEL) {
+  // the vowel's correction; in the vowel, and a nucleus holding, every
+  // NORM_EVERY updates.
+  const steady = st.phase === PHASE_VOWEL || (st.phase === PHASE_ONSET && st.held);
+  if (st.fresh || st.normCount <= 0 || !steady) {
     st.nvGoal = cascadeNorm(casc, f0, st.hw, st.hwK);
     st.normCount = NORM_EVERY;
   }
@@ -1796,7 +2249,7 @@ function formantControl(voice, st) {
   // Eased in a quarter of the way an update — except in a consonant when the
   // goal FALLS: a resonance building up is met at once, while one ringing out
   // (a goal rising) still holds the energy it stored and is let go gently.
-  const nvEnd = st.fresh || (st.phase !== PHASE_VOWEL && st.nvGoal < st.nv)
+  const nvEnd = st.fresh || (!steady && st.nvGoal < st.nv)
     ? st.nvGoal : st.nv + (st.nvGoal - st.nv) * 0.25;
   if (st.fresh) st.nv = nvEnd;
 
@@ -1827,13 +2280,14 @@ function tractRes(co, i, cy, j, x) {
  * A chip source's next sample: the note's OPL channel at output frame `frame`,
  * at the voice's rate and at unity volume (the note's volume is the mixer's to
  * apply to the tract's output), keyed off with the voice. A channel that has
- * rung out while the vowel is still singing has nothing left to sing with, and
- * the note ramps out, as a sampled note does at its sample's end; in a
- * consonant the tract's own clock decides.
+ * rung out while the vowel — or a voiced nucleus, holding — is still singing
+ * has nothing left to sing with, and the note ramps out, as a sampled note
+ * does at its sample's end; in a consonant the tract's own clock decides.
  */
 function chipSource(voice, st, frame) {
   const s = chipRender(st.src, frame, voice.currentPlaybackRate, voice.keyOff);
-  if (st.phase === PHASE_VOWEL && !chipAlive(st.src)) startRampOut(voice);
+  const sustaining = st.phase === PHASE_VOWEL || (st.phase === PHASE_ONSET && st.held && st.av > 0);
+  if (sustaining && !chipAlive(st.src)) startRampOut(voice);
   return s;
 }
 

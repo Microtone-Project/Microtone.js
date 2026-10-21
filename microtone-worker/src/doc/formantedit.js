@@ -17,7 +17,8 @@
 import {
   FORMANT_BLOCK_START, FORMANT_BLOCK_LEN, FORMANT_SLOTS, FORMANT_SLOT_BYTES, FB_SLOTS,
   FB_FRONT, FB_OPEN, FB_ROUND, FB_TRACK, FB_REF, FB_GLIDE, FB_TIMING, FB_RANGE_LO, FB_RANGE_HI, FB_GR,
-  SEMIVOWELS,
+  SEMIVOWELS, FORMANT_DEFAULT_REF, ART_NONE, ART_PALATAL, ART_DARK, ART_GLOTTAL,
+  CODA_RELEASED, CODA_UNRELEASED, CODA_DARK, CODA_GLOTTAL,
   META_TYPE_FORMANT, FormantPatch, encodeFormantBlock, CONSONANTS, consonantNeedsNoise,
   vowelCoordsOf, vowelF1F2, vowelFormants, vowelAtPitch, noteHz, timingScale,
 } from "../../core/engine/formant.js";
@@ -25,7 +26,8 @@ import { buildFormantRecord, DCT_LANE } from "../../core/engine/inst.js";
 
 export {
   META_TYPE_FORMANT, CONSONANTS, vowelF1F2, vowelFormants, vowelAtPitch, noteHz,
-  timingScale, vowelCoordsOf,
+  timingScale, vowelCoordsOf, FORMANT_DEFAULT_REF, ART_NONE, ART_PALATAL, ART_DARK, ART_GLOTTAL,
+  CODA_RELEASED, CODA_UNRELEASED, CODA_DARK, CODA_GLOTTAL,
 };
 
 const B = FORMANT_BLOCK_START;
@@ -89,13 +91,16 @@ export function retargetFormantRecord(rec, fn) {
 
 // ── fields ─────────────────────────────────────────────────────────────────
 
-/** The block as the editor reads it. */
+/** The block as the editor reads it. `refNote` is the reference word's
+ *  note (bits 0…14), 0 when the syllable has no vowel; `vowel` says the same. */
 export function formantFields(inst) {
   const f = inst.formant;
   return {
     front: f.front, open: f.open, round: f.round,
-    track: f.track, refNote: f.refNote, glide: f.glide, timing: f.timing,
+    track: f.track, refNote: f.refNote, nasal: f.nasal, vowel: f.refNote !== 0,
+    glide: f.glide, timing: f.timing,
     rangeLo: f.rangeLo, rangeHi: f.rangeHi, semivowel: f.semivowel, rhotic: f.rhotic,
+    secondary: f.secondary, codaArt: f.codaArt,
     slots: f.slots.map((s) => ({ ...s })),
   };
 }
@@ -104,14 +109,22 @@ const BYTE_FIELDS = {
   front: FB_FRONT, open: FB_OPEN, round: FB_ROUND, track: FB_TRACK, glide: FB_GLIDE, timing: FB_TIMING,
 };
 
-/** [[recordOffset, byte]] pairs that set one of the block's byte fields. */
+/** [[recordOffset, byte]] pairs that set one of the block's byte fields. The
+ *  reference note shares its word with the nasal bit: formantRefBytes. */
 export function formantFieldBytes(key, value) {
   if (key in BYTE_FIELDS) return [[B + BYTE_FIELDS[key], Math.max(0, Math.min(255, Math.round(value)))]];
-  if (key === "refNote") {
-    const v = Math.max(0x20, Math.min(0xffff, Math.round(value)));
-    return [[B + FB_REF, v & 0xff], [B + FB_REF + 1, (v >>> 8) & 0xff]];
-  }
   throw new Error(`formantFieldBytes: no field ${key}`);
+}
+
+/**
+ * …the reference word: the reference note (bits 0…14) and the vowel's
+ * nasalisation (bit 15). A note of 0 says the syllable has NO vowel — a
+ * syllabic consonant — so a sung reference is kept clear of it (≥ $20).
+ */
+export function formantRefBytes(refNote, nasal) {
+  const v = refNote === 0 ? 0 : Math.max(0x20, Math.min(0x7fff, Math.round(refNote)));
+  const w = v | (nasal ? 0x8000 : 0);
+  return [[B + FB_REF, w & 0xff], [B + FB_REF + 1, (w >>> 8) & 0xff]];
 }
 
 /** …the vowel, all three coordinates in one edit (the 2D slider's drag). */
@@ -120,15 +133,47 @@ export function formantVowelBytes(front, open, round) {
     ...formantFieldBytes("round", round)];
 }
 
-/** …the glide (G: 0 none, 1…4 SEMIVOWELS) and the r-colouring (R), one byte. */
-export function formantGrBytes(semivowel, rhotic) {
-  return [[B + FB_GR, ((semivowel | 0) & 7) | (rhotic ? 0x80 : 0)]];
+/** …byte +53, from fields: the glide (G: 0 none, 1…4 SEMIVOWELS), the
+ *  onset's secondary articulation, the coda's articulation and the
+ *  r-colouring (R). Pass the fields as they stand with one of them changed. */
+export function formantGrBytes({ semivowel = 0, secondary = 0, codaArt = 0, rhotic = false }) {
+  return [[B + FB_GR, ((semivowel | 0) & 7) | (((secondary | 0) & 3) << 3) | (((codaArt | 0) & 3) << 5) |
+    (rhotic ? 0x80 : 0)]];
+}
+
+/** The range an instrument made from NOTHING in the pool writes — sung from a
+ *  source instrument, its consonants the generator's: an empty range that is
+ *  not 0…0 (which says no range was written, and an editor reads as the
+ *  whole pool). */
+export const FORMANT_RANGE_NONE = 0x800000;
+
+/** Is [lo, hi) the "nothing in the pool" range? */
+export function isNoPoolRange(lo, hi) {
+  return hi <= lo && !(lo === 0 && hi === 0);
 }
 
 /** …the pool range, [lo, hi). */
 export function formantRangeBytes(lo, hi) {
   const p = (o, v) => [[o, v & 0xff], [o + 1, (v >>> 8) & 0xff], [o + 2, (v >>> 16) & 0xff]];
   return [...p(B + FB_RANGE_LO, lo), ...p(B + FB_RANGE_HI, hi)];
+}
+
+/**
+ * Everything that makes a record take NOTHING from the pool: the range set to
+ * none, the source's sample fields cleared (pointer, length, rate, play start,
+ * loop and its mode — so it claims no pool bytes), and every slot that reads
+ * a sample handed to the generator, its consonant kept. With a source
+ * instrument, what is left is sung from the chip alone.
+ */
+export function formantPoolFreeBytes(inst) {
+  const out = [...formantRangeBytes(FORMANT_RANGE_NONE, FORMANT_RANGE_NONE)];
+  out.push([B, 0], [B + 1, 0], [B + 2, 0]);
+  for (let o = 4; o <= 13; o++) out.push([o, 0]);
+  out.push([14, inst.loopMode & ~0x07]);
+  inst.formant.slots.forEach((s, i) => {
+    if (s.len > 0) out.push(...formantSlotBytes(i, { cons: s.cons, ptr: 0, len: 0, offset: 0, rate: 0, tilt: 0, gain: 0 }));
+  });
+  return out;
 }
 
 /**
@@ -240,7 +285,9 @@ export const FORMANT_DEFAULT_FADEOUT = 256;
  * while the next begins. A syllable with no coda goes on singing its vowel
  * through its release, so the fadeout is what ends it: 32 = 32 ticks, about
  * 0.64 s at 125 BPM — slow enough that a coda is heard out, at the cost of
- * one ending a little quieter than it began.
+ * one ending a little quieter than it began. A record made from nothing in
+ * the pool (range FORMANT_RANGE_NONE, no source) is sung from a source
+ * instrument its caller names (bankmerge planCreateFormant).
  */
 export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
   const p = new FormantPatch();
@@ -307,13 +354,38 @@ export function rhoticIpa(ipa) {
   return ipa === "ə" ? "ɚ" : ipa === "ɜ" ? "ɝ" : ipa + "\u02DE";
 }
 
-/** The syllable a record says, in IPA — CCGVRC: the onset, the glide, the
- *  nearest vowel mark (r-coloured when R), the coda. */
+/** The IPA marks of the articulations: a secondary articulation after the
+ *  onset ([pʲ], [tˠ], [kˀ]) and the coda's ([k̚], [lˠ], [tˀ]). */
+export const SECONDARY_MARKS = Object.freeze(["", "\u02B2", "\u02E0", "\u02C0"]);
+export const CODA_MARKS = Object.freeze(["", "\u031A", "\u02E0", "\u02C0"]);
+/** A syllabic consonant's mark: the line below ([n̩]), or above for a letter
+ *  that descends ([ŋ̍]). */
+const DESCENDERS = new Set([..."gɡjŋɲɳɟʝɣɥɰɻqɢpβçʐʑʂɽɭʎ"]);
+export function syllabicIpa(ipa) {
+  const base = [...ipa];
+  return ipa + (base.some((ch) => DESCENDERS.has(ch)) ? "\u030D" : "\u0329");
+}
+
+/** The syllable a record says, in IPA — CCGVRC: the onset (its last consonant
+ *  marked with the secondary articulation), the glide, the nearest vowel mark
+ *  (nasalised, r-coloured), the coda with its own mark. A syllable with no
+ *  vowel spells its nucleus syllabic ([n̩], [t͡ʃ̩]) and no glide. */
 export function formantSyllable(inst) {
   const f = inst.formant;
   const c = (i) => CONSONANTS[f.slots[i].cons]?.ipa ?? "";
-  const v = nearestVowelMark(f.front, f.open, f.round)?.ipa ?? "";
-  return c(0) + c(1) + (SEMIVOWELS[f.semivowel]?.ipa ?? "") + (v && f.rhotic ? rhoticIpa(v) : v) + c(2);
+  const on = [c(0), c(1)].filter((x) => x !== "");
+  const coda = c(2);
+  const mark = SECONDARY_MARKS[f.secondary] ?? "";
+  if (f.refNote === 0) {
+    if (on.length === 0) return coda ? syllabicIpa(coda) : "";
+    const last = on.pop();
+    return on.join("") + syllabicIpa(last) + mark + (coda ? coda + (CODA_MARKS[f.codaArt] ?? "") : "");
+  }
+  if (on.length > 0) on[on.length - 1] += mark;
+  let v = nearestVowelMark(f.front, f.open, f.round)?.ipa ?? "";
+  if (v && f.nasal) v += "\u0303";
+  if (v && f.rhotic) v = rhoticIpa(v);
+  return on.join("") + (SEMIVOWELS[f.semivowel]?.ipa ?? "") + v + (coda ? coda + (CODA_MARKS[f.codaArt] ?? "") : "");
 }
 
 /** What the list badge says a formant instrument is. */

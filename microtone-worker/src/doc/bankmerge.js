@@ -1350,6 +1350,33 @@ export function planUnlinkMetaLayer(destDoc, metaSlot, layerIdx) {
 }
 
 /**
+ * Plan a new formant instrument (§7.6) sung from the chip instrument `srcSlot`
+ * (OPL or PSG) — the kind made with no samples at all: `record` is the
+ * type-1 record, which this points at a copy of `srcSlot` in a fresh $100+
+ * sub-instrument, as planSetFormantSource does for one already made. Both
+ * land in one plan, so creating it is one undo step. Returns {error} or a
+ * planImport-shaped plan.
+ */
+export function planCreateFormant(destDoc, record, name, srcSlot) {
+  const plan = planCreateOpl(destDoc, record, name);
+  if (plan.error) return plan;
+  const src = srcSlot & 0x3ff;
+  const used = new Set(destDoc.usedInstrumentSlots());
+  if (!used.has(src) || !(destDoc.instruments[src].isOpl || destDoc.instruments[src].isPsg)) {
+    return { error: "A formant instrument can be sung only from an OPL or a PSG instrument." };
+  }
+  used.add(plan.metaSlot);
+  const child = allocChildSlot(used);
+  if (child < 0) return { error: "No free sub-instrument slots left in $100–$3FF." };
+  const self = plan.insts[0];
+  self.record[0] = (self.record[0] & 0xfc) | ((child >>> 8) & 0x03);
+  self.record[1] = child & 0xff;
+  return metaPlan([copyEntry(destDoc, src, child), self],
+    inamPayloadWith(destDoc, [[plan.metaSlot, name], [child, destDoc.instrumentName(src)]]),
+    { metaSlot: plan.metaSlot, childSlots: [child] });
+}
+
+/**
  * Sing formant instrument `formantSlot` from OPL instrument `srcSlot` (§7.6),
  * or from its own sample again when `srcSlot` is 0. The same copy-into-a-child
  * rule as a layer's: the OPL instrument is copied to a $100+ sub-instrument the

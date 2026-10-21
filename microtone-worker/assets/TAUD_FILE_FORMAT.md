@@ -664,7 +664,7 @@ This is how a layer that carries a **sound** rather than a note is written: a ke
 
 ### 7.6 Metainstrument type 1 — formant instruments
 
-A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whose sample is a **glottal source** — the buzz a singer's vocal folds make — played through a model of the **vocal tract** that shapes it into a sung syllable: up to two consonants, a glide, a vowel that may be r-coloured, and a consonant spoken when the key is released. It is the second kind of the family defined in [§7.4](#7-4-metainstrument-records), and like the OPL and PSG kinds ([§7.8](#7-8-metainstrument-type-8-opl-instruments), [§7.9](#7-9-metainstrument-type-9-psg-instruments)) it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-1 record **is an ordinary instrument record**, field for field: its sample fields describe the source, and its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato, filter and detune all mean exactly what [§7.1](#7-1-byte-map) says.
+A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whose sample is a **glottal source** — the buzz a singer's vocal folds make — played through a model of the **vocal tract** that shapes it into a sung syllable: up to two consonants, a glide, a vowel that may be nasalised or r-coloured — or no vowel at all, the last consonant held in its place — and a consonant spoken when the key is released. It is the second kind of the family defined in [§7.4](#7-4-metainstrument-records), and like the OPL and PSG kinds ([§7.8](#7-8-metainstrument-type-8-opl-instruments), [§7.9](#7-9-metainstrument-type-9-psg-instruments)) it has no table. Apart from its first four bytes and its second pitch/filter envelope slot, a type-1 record **is an ordinary instrument record**, field for field: its sample fields describe the source, and its volume, panning and pitch-or-filter envelopes, fadeout, New Note Action, Duplicate Check, global and default note volume, default pan, pitch-pan separation, swing, auto-vibrato, filter and detune all mean exactly what [§7.1](#7-1-byte-map) says.
 
 | Offset | Type | Field |
 |---|---|---|
@@ -700,15 +700,21 @@ Offsets are from byte 197.
 | +4 | `U8` | Vowel: **openness** of the tongue (its height, inverted) — 0 close, 255 open |
 | +5 | `U8` | Vowel: **roundness** of the lips — 0 spread, 255 rounded |
 | +6 | `U8` | **Size tracking**: the formants rise with the note as its (byte ÷ 256)th power. 64 is ¼; 0 holds one size at every pitch |
-| +7 | `U16` | **Reference note**: the note word at which the vowels' formants (a man's) are sung unscaled. `$4000` (C3) is a man's speaking pitch |
+| +7 | `U16` | **Reference word**. Bits 0–14, the **reference note**: the note word at which the vowels' formants (a man's) are sung unscaled — `$4000` (C3) is a man's speaking pitch — or **0: the syllable has no vowel** ([below](#the-nucleus)). Bit 15, **nasalised**: the vowel is said with the velum lowered ([below](#nasalisation)) |
 | +9 | `U8` | **Vowel glide**, in 2 ms units: how long `S $Afgr`, or an instrument change, takes to move the vowel |
 | +10 | `U8` | **Consonant timing**: every consonant time is multiplied by 2^((byte − 128) ÷ 64), so 128 is as written, 64 twice as quick and 192 twice as slow |
 | +11 | `U24` | **Pool range**, start |
 | +14 | `U24` | Pool range, end, exclusive |
 | +17 | 12 bytes × 3 | **Consonant slots**: onset 1, onset 2, coda |
-| +53 | `U8` | **Glide and r-colouring**: bits 0–2 the glide G ([below](#the-glide-and-r-colouring)) — 0 none, 1 [j], 2 [ɥ], 3 [ɰ], 4 [w], 5–7 **RESERVED** and sounding as none; bit 7 R, the vowel r-coloured; bits 3–6 **RESERVED**, 0 |
+| +53 | `U8` | **Glide, articulations and r-colouring**: bits 0–2 the glide G ([below](#the-glide-and-r-colouring)) — 0 none, 1 [j], 2 [ɥ], 3 [ɰ], 4 [w], 5–7 **RESERVED** and sounding as none; bits 3–4 the onset's **secondary articulation** and bits 5–6 the coda's **release** ([below](#the-articulations)); bit 7 R, the vowel r-coloured |
 
-The **onset** is slots 0 and 1, in that order, whichever of them name a consonant; then the **glide** (byte +53), the **vowel**, r-coloured or not (byte +53 again); the **coda** is slot 2, spoken on a key-off. So a note is one syllable, CCGVRC at most.
+```
+[0 1 2] [3 4] [5 6] [7]
+ glide   2nd   coda  R
+         art.  rel.
+```
+
+The **onset** is slots 0 and 1, in that order, whichever of them name a consonant, its last carrying the secondary articulation; then the **glide** (byte +53), the **vowel**, nasalised or not (byte +7's bit 15), r-coloured or not (byte +53 again); the **coda** is slot 2, spoken on a key-off and released as byte +53 says. So a note is one syllable, CCGVRC at most. Records written before byte +53's bits 3–6 and byte +7's bit 15 had a meaning have them 0 — no articulation, a plain release, an oral vowel — which is what those records always meant.
 
 Each consonant slot:
 
@@ -780,13 +786,45 @@ The same four remain consonants too (ids 83…86), for a slot; as G they are the
 
 **R** r-colours the vowel the whole note through, as [ɚ], [ɝ] or [a˞] are written ([above](#the-vowel)).
 
+#### Nasalisation
+
+Byte +7's bit 15 **nasalises** the vowel — French [ɑ̃] [ɔ̃] [ɛ̃], Portuguese [ɐ̃] — the velum lowered the whole vowel through: its first formant rises a little, and a nasal pole and zero beside it take its strength, as Klatt synthesises a nasalised vowel. The consonants before and after it lower and raise the velum on their way in and out ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md)). It applies to the vowel alone: a syllable with no vowel ignores it.
+
+#### The nucleus
+
+A reference note of **0** says the syllable has **no vowel**: a **syllabic consonant** is its peak. The last onset consonant is the **nucleus** — or, with no onset consonant, the coda's, which then leaves no coda — and it is **held** as long as the key is, as a vowel would be: a nasal or an approximant its voicing (a hummed [ŋ̍], [m̩], [n̩], [ɴ̩], a [l̩] or [ɹ̩]), a trill its trilling ([r̩]), a fricative or an affricate its frication ([s̩], [t͡ʃ̩]), an aspirate its breath ([h̩]), a voiceless stop its aspiration, a voiced stop its voicing at its place. A key-off speaks the coda from it. With no consonant at all, the syllable says nothing.
+
+The formants such a syllable is sized by are taken at C3 (`$4000`), the default reference; the glide G, R and the nasal bit say nothing without a vowel; the vowel bytes +3…+5 still say where the tongue rests, so a consonant whose tract is "the vowel's" ([h], say) takes its colour from them.
+
+#### The articulations
+
+Bits 3–4 of byte +53 add a **secondary articulation** to the onset's last consonant — before the glide, as [pʲa] or [kˀa] are written:
+
+| Code | Mark | Articulation | What it does |
+|---|---|---|---|
+| 0 | | none | |
+| 1 | ʲ | palatalised | the tongue body raised as for [i], behind the consonant — its second and third formants [i]'s |
+| 2 | ˠ / ˤ | velarised or pharyngealised | the back of the tongue drawn back — its second and third formants those of a tongue between [ʌ] and [ɑ], F2 about 1.05 kHz: a dark [ɫ], an Arabic emphatic |
+| 3 | ˀ | glottalised | a glottal closure with the consonant: no aspiration, the voicing held off and then in at once — after a stop's burst, an affricate's or a fricative's frication, or before a sonorant, which is said after a glottal stop. Korean's tense ㄲ ㄸ ㅃ ㅆ ㅉ |
+
+There is no labialised articulation: a [kʷ] is made with the glide [w] and a shorter consonant timing.
+
+Bits 5–6 say how the **coda** is released:
+
+| Code | Mark | Release | What it does |
+|---|---|---|---|
+| 0 | | released | as the consonant has it |
+| 1 | ◌̚ | unreleased | a stop's or an affricate's closure is made and never opened: no burst, no breath. Every Korean final stop is said so. Other consonants are released as written |
+| 2 | ˠ / ˤ | velarised or pharyngealised | as the onset's code 2, on the coda |
+| 3 | ˀ | glottalised | the voicing ends in a glottal stop where it would otherwise fade, and a stop breathes no aspiration |
+
 #### Consonant ids
 
 The ids are the format's: a record stores one per slot, and an id never moves or changes meaning. Ids not listed here, up to 255, are **RESERVED** and sound as no consonant.
 
 | Ids | Manner | Consonants |
 |---|---|---|
-| 1…16 | Plosives | 1 [p] · 2 [b] · 3 [t] · 4 [d] · 5 [ʈ] · 6 [ɖ] · 7 [c] · 8 [ɟ] · 9 [k] · 10 [g] · 11 [q] · 12 [ɢ] · 13 [ʔ] · 14 [pʰ] · 15 [tʰ] · 16 [kʰ] |
+| 1…16 | Plosives | 1 [p] · 2 [b] · 3 [t] · 4 [d] · 5 [ʈ] · 6 [ɖ] · 7 [c] · 8 [ɟ] · 9 [k] · 10 [ɡ] · 11 [q] · 12 [ɢ] · 13 [ʔ] · 14 [pʰ] · 15 [tʰ] · 16 [kʰ] |
 | 32…38 | Nasals | 32 [m] · 33 [ɱ] · 34 [n] · 35 [ɳ] · 36 [ɲ] · 37 [ŋ] · 38 [ɴ] |
 | 40…42 | Trills | 40 [ʙ] · 41 [r] · 42 [ʀ] |
 | 44…46 | Taps | 44 [ⱱ] · 45 [ɾ] · 46 [ɽ] |
@@ -798,7 +836,9 @@ What each sounds like — its tract, its timing, its frication — is [Engine Sp
 
 #### The pool range
 
-Bytes +11…+16 name the span of the pool the instrument is **made from**. Playback reads them in one place only: the Duplicate Check's *sample* type, which for formant instruments matches those made from the same range ([Engine Specification §5.6](TAUD_ENGINE_SPEC.md)). Otherwise they are an editor's: the source and every slot's recipe are chosen among the samples lying wholly inside the range, and from whatever part of a pool region ([§9.9](#9-9-srgn-sample-pool-regions)) it covers — a long recording is used a window at a time, an instrument's span being at most 65535 bytes, and each window a record points at becomes a census span of its own. A producer **SHOULD** keep the source and every slot's sample within the range. A writer with no range writes 0 and 0.
+Bytes +11…+16 name the span of the pool the instrument is **made from**. Playback reads them in one place only: the Duplicate Check's *sample* type, which for formant instruments matches those made from the same range ([Engine Specification §5.6](TAUD_ENGINE_SPEC.md)). Otherwise they are an editor's: the source and every slot's recipe are chosen among the samples lying wholly inside the range, and from whatever part of a pool region ([§9.9](#9-9-srgn-sample-pool-regions)) it covers — a long recording is used a window at a time, an instrument's span being at most 65535 bytes, and each window a record points at becomes a census span of its own. A producer **SHOULD** keep the source and every slot's sample within the range. A writer with no range writes 0 and 0, which an editor may read as the whole pool.
+
+Any other **empty** range — end ≤ start — says the instrument is made from **nothing in the pool**: it is sung from its source instrument, and every consonant that reads noise sounds the generator. Such a record **SHOULD** have no source sample (length 0, pointer 0) and no slot sample, so it claims no pool bytes, and a writer **SHOULD** write `$800000` for both ends. It is how a formant instrument is made in a project with no samples at all, from an OPL or a PSG instrument. For the Duplicate Check, two such records are made from the same range.
 
 #### Pool references
 
@@ -1472,7 +1512,7 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
 - Every type-8 record's kind is 0…6 and its reserved bytes are zero ([§7.8](#7-8-metainstrument-type-8-opl-instruments)).
 - Every type-9 record's reserved bytes and bits are zero, and no oscillator's tremolo or vibrato depth is 3 ([§7.9](#7-9-metainstrument-type-9-psg-instruments)).
-- Every type-1 record's reserved bytes are zero, its source instrument is 0 or a type-8 or type-9 instrument, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.6](#7-6-metainstrument-type-1-formant-instruments)).
+- Every type-1 record's reserved bytes are zero, its source instrument is 0 or a type-8 or type-9 instrument, an empty pool range other than 0…0 goes with no source sample, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.6](#7-6-metainstrument-type-1-formant-instruments)).
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
 
@@ -1505,3 +1545,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-15 | Byte 195's Duplicate Check Type and Action widened to four-bit numbers, each split around the old two-bit field (`0b AATT aatt`); Type 4, lane |
 | 2026-10-16 | The Metainstrument type nibble split in two ranges: 0…7 the kinds built out of sources, 8…13 the kinds that make a sound of their own (OPL; PSG to come), 14…15 reserved. A kind of the first range takes one of the second as a source: an FM operator **MAY** be an OPL instrument, and a formant instrument's header names a **source instrument** (bytes 0…1) sung in place of its sample |
 | 2026-10-16 | Metainstrument type 9 — PSG instruments: an ordinary record with two oscillators in place of its sample (sixteen waveforms, the OPL operator's envelope, tremolo and vibrato, auto-advance), added or multiplied, the patch in the second pitch/filter slot. The second kind of types 8…13: a layer, an FM operator and a formant instrument's source **MAY** be one |
+| 2026-10-21 | Formant instruments: a reference note of 0 is a syllable with **no vowel**, its last consonant held as a syllabic consonant; the reference word's bit 15 **nasalises** the vowel; byte +53's bits 3–4 a **secondary articulation** on the onset (palatalised, velarised/pharyngealised, glottalised) and bits 5–6 the **coda's release** (unreleased, velarised/pharyngealised, glottalised); an empty pool range other than 0…0 is an instrument made from **nothing in the pool** |

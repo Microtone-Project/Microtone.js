@@ -23,12 +23,14 @@ import { SAMPLEINST_SIZE, SAMPLEBIN_SIZE } from "../../core/format/taud-const.js
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { importBankOp, cleanupBankOp, setInstBytesOp } from "../../src/doc/ops.js";
-import { planCreateOpl, planImport } from "../../src/doc/bankmerge.js";
+import { planCreateOpl, planCreateFormant, planImport } from "../../src/doc/bankmerge.js";
+import { defaultOplRecord } from "../../src/doc/opledit.js";
 import { planPoolDefrag } from "../../src/doc/pooldefrag.js";
 import { planDeleteSample } from "../../src/doc/cleanup.js";
 import {
   defaultFormantRecord, formantRecordSpans, formantSlotBytes, formantVowelBytes, slotFromRecipe,
   VOWEL_MARKS, nearestVowelMark, vowelEffectArg, formantSyllable, isFormantRecord,
+  formantRefBytes, formantGrBytes, formantPoolFreeBytes, isNoPoolRange, FORMANT_RANGE_NONE,
 } from "../../src/doc/formantedit.js";
 import { FormantMachine, rangeCandidates, spanOf, poolSpan, gainOctet } from "../../src/doc/formantrecipe.js";
 import { buildRegionPayload } from "../../src/doc/sampleregions.js";
@@ -87,12 +89,13 @@ function fillPool(bin) {
 }
 
 function patchBytes({ front = 200, open = 255, round = 0, slots = [0, 0, 0], track = 64, timing = 128, glide = 20,
-  src = SAW, generator = false, gain = 0, range = [0, 0], semivowel = 0, rhotic = false } = {}) {
+  src = SAW, generator = false, gain = 0, range = [0, 0], semivowel = 0, rhotic = false,
+  ref = 0x4000, nasal = false, secondary = 0, codaArt = 0 } = {}) {
   const p = new F.FormantPatch();
   [p.rangeLo, p.rangeHi] = range;
-  p.semivowel = semivowel; p.rhotic = rhotic;
+  p.semivowel = semivowel; p.rhotic = rhotic; p.secondary = secondary; p.codaArt = codaArt;
   p.srcPtr = src.ptr; p.front = front; p.open = open; p.round = round;
-  p.track = track; p.timing = timing; p.glide = glide; p.refNote = 0x4000;
+  p.track = track; p.timing = timing; p.glide = glide; p.refNote = ref; p.nasal = nasal;
   slots.forEach((c, i) => {
     const s = p.slots[i];
     s.cons = c;
@@ -748,9 +751,221 @@ test("every consonant in the table onsets and codas without a step in its tracks
     const c = F.codaTracks(r, 1);
     for (const k of ["av", "ah", "af"]) assert.equal(c[k][c[k].length - 1], 0, `${r.ipa} coda ${k} ends silent`);
     assert.equal(c.av[1], 1, `${r.ipa} coda starts at the vowel`);
+    // …and so does every variant: glottalised onsets, codas from a nasalised
+    // vowel or a nucleus at half voice, each coda articulation, the nucleus.
+    const forward = (t, what) => {
+      for (const k of ["w", "av", "ah", "af", "nz"]) {
+        for (let i = 2; i < t[k].length; i += 2) assert.ok(t[k][i] >= t[k][i - 2], `${r.ipa} ${what} ${k} times run forward`);
+        assert.ok(t[k].every(Number.isFinite), `${r.ipa} ${what} ${k} finite`);
+      }
+    };
+    const g = F.onsetTracks(r, false, { av: 1, ah: 0, af: 0, nz: 1 }, 1, F.ART_GLOTTAL);
+    forward(g, "ˀ onset");
+    assert.equal(g.av[g.av.length - 1], 1, `${r.ipa} ˀ onset ends on the vowel`);
+    assert.equal(g.nz[g.nz.length - 1], 1, `${r.ipa} onset ends on a nasalised vowel's velum`);
+    for (const art of [0, 1, 2, 3]) {
+      const ca = F.codaTracks(r, 1, 0.5, 1, art);
+      forward(ca, `coda ${art}`);
+      for (const k of ["av", "ah", "af", "nz"]) assert.equal(ca[k][ca[k].length - 1], 0, `${r.ipa} coda ${art} ${k} ends silent`);
+      assert.deepEqual([ca.av[1], ca.nz[1]], [0.5, 1], `${r.ipa} coda ${art} starts where it is told`);
+    }
+    const n = F.nucleusTracks(r, true, 1);
+    forward(n, "nucleus");
+    assert.ok(n.end >= 0 && n.loop >= 0 && (n.loop === 0 || n.loop <= n.end), `${r.ipa} nucleus holds`);
   }
   assert.equal(F.CONSONANT_LIST.length, new Set(F.CONSONANT_LIST.map((r) => r.id)).size, "ids are unique");
   assert.ok(F.CONSONANT_LIST.every((r) => r.id > 0 && r.id < 112));
+});
+
+// ── items 224–225: velars, the nucleus, nasalisation, the articulations ──
+
+/** A burst's spectrum: power (dB) on a 1/12-octave grid, 300 Hz…10 kHz, of
+ *  N samples from i0 (Hann, direct DFT): its peak frequency, and how far its
+ *  middle (0.8–3.5 kHz) stands over its top (from 4 kHz) at their maxima. */
+function burstShape(a, i0, N) {
+  let pk = 0, pkDb = -Infinity, mid = -Infinity, top = -Infinity;
+  for (let f = 300; f <= 10000; f *= 2 ** (1 / 12)) {
+    const w = (2 * Math.PI * f) / SAMPLING_RATE;
+    let re = 0, im = 0;
+    for (let i = 0; i < N; i++) {
+      const h = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
+      re += a[i0 + i] * h * Math.cos(w * i); im -= a[i0 + i] * h * Math.sin(w * i);
+    }
+    const d = 10 * Math.log10(re * re + im * im + 1e-30);
+    if (f >= 600 && d > pkDb) { pkDb = d; pk = f; }
+    if (f >= 800 && f < 3500) mid = Math.max(mid, d);
+    if (f >= 4000) top = Math.max(top, d);
+  }
+  return { peak: pk, compact: mid - top };
+}
+const firstSound = (a, thr = 0.002) => a.findIndex((x) => Math.abs(x) > thr);
+const VOWEL_AT = { i: [255, 0, 0], e: [255, 85, 0], a: [255, 255, 0], ɑ: [0, 255, 0], o: [0, 85, 255], u: [0, 0, 255] };
+
+test("a velar is made where its vowel puts the tongue: a compact burst at the front cavity's resonance, low before back vowels and high before front ones", () => {
+  const shape = (c, v) => {
+    const [front, open, round] = VOWEL_AT[v];
+    const res = render(formantRecord({ slots: [id(c), 0, 0], front, open, round, generator: true }),
+      [{ row: 0, note: 0x4000, inst: 1 }], ms(200)).res;
+    return burstShape(res, firstSound(res), ms(12));
+  };
+  for (const c of ["k", "kʰ"]) {
+    const p = Object.fromEntries(Object.keys(VOWEL_AT).map((v) => [v, shape(c, v)]));
+    for (const v of ["u", "o", "ɑ"]) assert.ok(p[v].peak > 800 && p[v].peak < 1600, `[${c}${v}] burst at ${p[v].peak.toFixed(0)} Hz`);
+    for (const v of ["e", "i"]) assert.ok(p[v].peak > 2400 && p[v].peak < 3400, `[${c}${v}] burst at ${p[v].peak.toFixed(0)} Hz`);
+    assert.ok(p.u.peak < p.o.peak + 1 && p.ɑ.peak < p.a.peak && p.a.peak < p.e.peak && p.e.peak <= p.i.peak, "it follows the vowel");
+    for (const v of Object.keys(p)) assert.ok(p[v].compact > 1, `[${c}${v}] compact: middle ${p[v].compact.toFixed(1)} dB over the top`);
+  }
+  // …where a [t]'s is spread up high whatever the vowel: the place cue.
+  for (const v of Object.keys(VOWEL_AT)) {
+    const [front, open, round] = VOWEL_AT[v];
+    const res = render(formantRecord({ slots: [id("t"), 0, 0], front, open, round, generator: true }),
+      [{ row: 0, note: 0x4000, inst: 1 }], ms(200)).res;
+    const t = burstShape(res, firstSound(res), ms(12));
+    assert.ok(t.compact < -8 && t.peak > 3500, `[t${v}] diffuse and high: ${t.peak.toFixed(0)} Hz, ${t.compact.toFixed(1)} dB`);
+  }
+});
+
+/** The tract's F1…F3 as the voice has them after `t` ms of a note. */
+function tractAt(rec, t, cells = [{ row: 0, note: 0x4000, inst: 1 }]) {
+  let F = null;
+  render(rec, cells, ms(t + 30), { at: [[t, (eng) => { F = [...eng.playheads[0].trackerState.voices[0].formant.F]; }]] });
+  return F;
+}
+
+test("a secondary articulation puts its tongue behind the onset's last consonant: ʲ [i]'s, ˠ/ˤ the back drawn back", () => {
+  const F2 = (secondary) => tractAt(formantRecord({ slots: [id("m"), 0, 0], secondary }), 30)[1];
+  const plain = F2(0), pal = F2(1), dark = F2(2), glot = F2(3);
+  assert.ok(Math.abs(plain - 1270) < 1, `[m] ${plain.toFixed(0)}`);
+  assert.ok(Math.abs(pal - 2400) < 1, `[mʲ] at [i]'s F2: ${pal.toFixed(0)}`);
+  assert.ok(Math.abs(dark - 1050) < 15, `[mˠ] drawn back: ${dark.toFixed(0)}`);
+  assert.equal(glot, plain, "ˀ is the glottis's, not the tongue's");
+  // A palatalised velar is palatal, whatever the vowel.
+  const k = (secondary) => tractAt(formantRecord({ slots: [id("k"), 0, 0], front: 0, open: 0, round: 255, secondary }), 12)[1];
+  assert.ok(k(1) > 1.5 * k(0), "[kʲu] fronted");
+});
+
+test("ˀ: a glottalised stop breathes no aspiration and its voice comes in at once; a glottalised sonorant follows a glottal stop", () => {
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }];
+  const plain = render(formantRecord({ slots: [id("kʰ"), 0, 0], generator: true }), cells, ms(400)).res;
+  const glot = render(formantRecord({ slots: [id("kʰ"), 0, 0], generator: true, secondary: 3 }), cells, ms(400)).res;
+  const steady = rms(plain, 250, 350);
+  const voiced = (a) => { for (let t = 0; t < 200; t++) if (rms(a, t, t + 2) > steady * 0.5) return t; return 999; };
+  assert.ok(voiced(glot) + 40 < voiced(plain), `voice at ${voiced(glot)} ms against ${voiced(plain)}`);
+  assert.ok(db(rms(glot, 23, 30)) < db(rms(plain, 23, 30)) - 10, "no breath after the burst");
+  const m = render(formantRecord({ slots: [id("m"), 0, 0] }), cells, ms(200)).res;
+  const mq = render(formantRecord({ slots: [id("m"), 0, 0], secondary: 3 }), cells, ms(200)).res;
+  assert.ok(rms(mq, 0, 8) < rms(m, 0, 8) * 0.05 && rms(mq, 20, 40) > rms(m, 20, 40) * 0.5, "[ʔm]: the catch, then the murmur");
+});
+
+test("a coda's release: ◌̚ never opens, ˀ stops the voice at once, ˠ/ˤ draws the tongue back", () => {
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }, { row: 4, note: 0x0001 }];
+  const run = (c, codaArt) => render(formantRecord({ slots: [0, 0, id(c)], generator: true, codaArt }), cells, ms(800)).res;
+  // [k]: closure by key-off + 55 ms, release at + 100.
+  const k = run("k", 0), k0 = run("k", 1);
+  const off = ms(480), burst = (a) => rms(a, 480 + 98, 480 + 125);
+  assert.ok(burst(k) > rms(k, 545, 575) * 4, "released: a burst after the closure");
+  assert.ok(burst(k0) === 0 && rms(k0, 560, 800) === 0, "unreleased: the closure is the end of it");
+  assert.ok(Math.abs(rms(k0, 480, 520) - rms(k, 480, 520)) < 1e-9, "…the same until then");
+  // [n]: a murmur that fades over 40 ms, or stops in 3.
+  const n = run("n", 0), nq = run("n", 3);
+  const after = 480 + 35 + 60;
+  assert.ok(rms(nq, after + 8, after + 30) === 0 && rms(n, after + 8, after + 30) > 0, "ˀ: the voice stopped short");
+  // [t] dark: its tongue's F2.
+  const t = (codaArt) => tractAt(formantRecord({ slots: [0, 0, id("t")], codaArt }), 600, cells)[1];
+  assert.ok(Math.abs(t(0) - 1600) < 1 && Math.abs(t(2) - 1050) < 15, `[tˠ] ${t(2).toFixed(0)} against [t] ${t(0).toFixed(0)}`);
+});
+
+test("Klatt's nasalised vowel: F1 up, a pole and a zero beside it taking its strength — and the same loudness", () => {
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }];
+  const f0 = noteF0(0x4000);
+  const oral = render(formantRecord({ front: 255, open: 255 }), cells, ms(500)).res;
+  const nasal = render(formantRecord({ front: 255, open: 255, nasal: true }), cells, ms(500)).res;
+  const band = (a, lo, hi) => {
+    let p = 0;
+    for (let k = 1; k * f0 < hi; k++) {
+      if (k * f0 < lo) continue;
+      const w = (2 * Math.PI * k * f0) / SAMPLING_RATE;
+      let re = 0, im = 0;
+      for (let i = ms(200); i < ms(450); i++) { re += a[i] * Math.cos(w * i); im -= a[i] * Math.sin(w * i); }
+      p += re * re + im * im;
+    }
+    return 10 * Math.log10(p);
+  };
+  const f1 = (a) => band(a, 700, 1100) - band(a, 1350, 1900);
+  assert.ok(f1(nasal) < f1(oral) - 3, `F1 weaker: ${f1(nasal).toFixed(1)} against ${f1(oral).toFixed(1)} dB under F2`);
+  assert.ok(Math.abs(loudDb(nasal, 200, 450, f0) - loudDb(oral, 200, 450, f0)) < 1, "as loud");
+  // Into and out of it: no step at the consonants, and the velum shut in an oral one.
+  const tan = render(formantRecord({ slots: [id("t"), 0, id("n")], front: 0, open: 85, round: 255, nasal: true }),
+    [...cells, { row: 4, note: 0x0001 }], ms(800)).res;
+  assert.ok(tan.every(Number.isFinite) && rms(tan, 700, 800) === 0, "[tɔ̃n] ends");
+  const nz = F.onsetTracks(F.CONSONANTS[id("t")], true, { av: 1, ah: 0, af: 0, nz: 1 }, 1).nz;
+  assert.equal(F.trackAt(nz, 10), 0, "the velum shut through the [t]'s closure and burst");
+  assert.equal(nz[nz.length - 1], 1, "…and open as the vowel begins");
+});
+
+test("a syllable with no vowel holds its last consonant — hummed, hissed, trilled — and speaks its coda from it", () => {
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }, { row: 4, note: 0x0001 }];
+  const run = (opts) => render(formantRecord({ ref: 0, generator: true, ...opts }), cells, ms(900)).res;
+  const steady = (a, t0, t1) => db(rms(a, t0, t1));
+  // [ŋ̍]: no transition to anything, as long as the key — and with no coda, on.
+  const ng = run({ slots: [id("ŋ"), 0, 0] });
+  assert.ok(Math.abs(steady(ng, 50, 150) - steady(ng, 300, 450)) < 0.5, "held");
+  assert.ok(Math.abs(steady(ng, 700, 900) - steady(ng, 300, 450)) < 0.5, "no coda: on through the release");
+  // [t͡ʃ̩]: the frication held; [s̩t]: the hiss lets go and the coda follows.
+  const ch = run({ slots: [id("t͡ʃ"), 0, 0] });
+  assert.ok(Math.abs(steady(ch, 60, 200) - steady(ch, 250, 450)) < 1, "chhh held");
+  const st = run({ slots: [id("s"), 0, id("t")] });
+  assert.ok(rms(st, 500, 530) < rms(st, 100, 400) * 0.1, "the hiss let go: the closure");
+  assert.ok(rms(st, 560, 600) > rms(st, 500, 530) * 2 && rms(st, 700, 900) === 0, "the release, then the end");
+  // [r̩]: trilled, a cycle every 40 ms.
+  const r = run({ slots: [id("r"), 0, 0] });
+  const env = [];
+  for (let t = 100; t < 460; t += 2) env.push(rms(r, t, t + 2));
+  const mean = env.reduce((x, y) => x + y, 0) / env.length;
+  let best = -Infinity, at = 0;
+  for (let lag = 10; lag <= 30; lag++) {   // 20…60 ms
+    let c = 0;
+    for (let i = 0; i + lag < env.length; i++) c += (env[i] - mean) * (env[i + lag] - mean);
+    if (c > best) { best = c; at = lag * 2; }
+  }
+  assert.ok(Math.abs(at - 40) <= 2, `trill period ${at} ms`);
+  // The coda's consonant, with no onset, is the one held — and the note says
+  // nothing more on a key-off; with neither, nothing at all.
+  const m = run({ slots: [0, 0, id("m")] });
+  assert.ok(Math.abs(steady(m, 300, 450) - steady(m, 700, 900)) < 0.5, "[m̩] from the coda slot, held");
+  assert.ok(run({}).every((x) => x === 0), "no vowel, no consonant: silence");
+  // No vowel, no glide, no colouring, no nasal vowel.
+  const plainN = run({ slots: [id("n"), 0, 0] });
+  const decorated = run({ slots: [id("n"), 0, 0], semivowel: 4, rhotic: true, nasal: true });
+  assert.ok(plainN.every((x, i) => x === decorated[i]), "G, R and the nasal vowel need a vowel");
+});
+
+test("the new fields have their bytes, old records have none of them, and the syllable spells them", () => {
+  const p = new F.FormantPatch();
+  Object.assign(p, { refNote: 0x4567, nasal: true, semivowel: 2, secondary: 3, codaArt: 1, rhotic: true });
+  const b = F.encodeFormantBlock(p);
+  assert.deepEqual([b[F.FB_REF], b[F.FB_REF + 1]], [0x67, 0xc5], "nasal is the reference word's bit 15");
+  assert.equal(b[F.FB_GR], 0b1_01_11_010, "G, then the secondary articulation, the coda's, R");
+  const q = F.decodeFormantBlock(b, 0);
+  assert.deepEqual([q.refNote, q.nasal, q.semivowel, q.secondary, q.codaArt, q.rhotic], [0x4567, true, 2, 3, 1, true]);
+  const old = F.decodeFormantBlock(patchBytes(), 0);
+  assert.deepEqual([old.refNote, old.nasal, old.secondary, old.codaArt], [0x4000, false, 0, 0]);
+  assert.ok(F.formantHasVowel(old) && !F.formantHasVowel({ refNote: 0 }));
+  assert.equal(F.formantRefNote({ refNote: 0 }), F.FORMANT_DEFAULT_REF);
+  assert.deepEqual(formantRefBytes(0x4567, true).map(([, v]) => v), [0x67, 0xc5]);
+  assert.deepEqual(formantRefBytes(5, false).map(([, v]) => v), [0x20, 0], "a sung reference stays clear of 0");
+  assert.deepEqual(formantRefBytes(0, true).map(([, v]) => v), [0, 0x80], "…and 0 is no vowel");
+  assert.equal(formantGrBytes({ semivowel: 4, secondary: 1, codaArt: 2, rhotic: false })[0][1], 0b0_10_01_100);
+  const spell = (o) => {
+    const inst = new TaudInst(3);
+    inst.loadRecord(formantRecord(o));
+    return formantSyllable(inst);
+  };
+  assert.equal(spell({ slots: [id("p"), 0, 0], front: 255, open: 255, secondary: 1 }), "pʲa");
+  assert.equal(spell({ slots: [id("t"), 0, id("k")], front: 0, open: 170, round: 255, nasal: true, codaArt: 1 }), "tɔ̃k̚");
+  assert.equal(spell({ slots: [id("n"), 0, 0], ref: 0 }), "n̩");
+  assert.equal(spell({ slots: [id("s"), id("ŋ"), id("t")], ref: 0, codaArt: 3 }), "sŋ̍tˀ");
+  assert.equal(spell({ slots: [0, 0, id("m")], ref: 0 }), "m̩");
 });
 
 // ── the recipe machine ───────────────────────────────────────────────────
@@ -860,6 +1075,41 @@ test("a new formant instrument sings [a] on the best source, in a range covering
   assert.equal(inst.duplicateCheckType, DCT_LANE, "Duplicate Check: Lane…");
   assert.equal(inst.duplicateCheckAction, 1, "…→ Note Off");
   assert.equal(inst.formant.slots[0].ptr, NOISE.ptr);
+});
+
+test("with nothing in the pool a formant instrument is sung from an OPL instrument, in one step — and any can be made to take nothing from it", () => {
+  const doc = project([]);
+  assert.equal(doc.sampleList().length, 0, "no samples at all");
+  const opl = planCreateOpl(doc, defaultOplRecord(), "OPL");
+  doc.undo.apply(importBankOp(opl));
+  const before = Buffer.from(doc.toBytes());
+  const plan = planCreateFormant(doc, defaultFormantRecord(null, 0, FORMANT_RANGE_NONE, FORMANT_RANGE_NONE),
+    "Formant", opl.metaSlot);
+  assert.ok(!plan.error, plan.error);
+  doc.undo.apply(importBankOp(plan));
+  const slot = plan.metaSlot, inst = doc.instruments[slot];
+  assert.ok(inst.isFormant && isNoPoolRange(inst.formant.rangeLo, inst.formant.rangeHi), "made from nothing in the pool");
+  assert.ok(!isNoPoolRange(0, 0), "…which no range written does not say");
+  const child = inst.formant.srcInst;
+  assert.ok(child >= 0x100 && doc.instruments[child].isOpl, "sung from its own copy of the OPL instrument");
+  assert.equal(formantRecordSpans(doc.instRecordBytes(slot)).length, 0, "it claims no pool bytes");
+  assert.equal(doc.sampleList().length, 0);
+  const { res } = render(doc.instRecordBytes(slot), [{ row: 0, note: 0x4000, inst: 1 }], ms(300),
+    { at: [[0, (eng) => eng.uploadInstrument(child, doc.instRecordBytes(child))]] });
+  assert.ok(rms(res, 100, 300) > 0.01, "it sings, from the chip");
+  doc.undo.undo();
+  assert.ok(Buffer.from(doc.toBytes()).equals(before), "one undo step takes it and its copy away");
+  assert.ok(planCreateFormant(doc, defaultFormantRecord(null, 0, 0, 0), "F", 7).error, "only from a chip instrument");
+  // One made from the pool, made to take nothing from it: its consonants on the generator.
+  const { doc: d2, slot: s2 } = withFormant();
+  assert.ok(formantRecordSpans(d2.instRecordBytes(s2)).length > 0);
+  d2.undo.apply(setInstBytesOp(s2, formantPoolFreeBytes(d2.instruments[s2])));
+  const i2 = d2.instruments[s2];
+  assert.equal(formantRecordSpans(d2.instRecordBytes(s2)).length, 0, "nothing claimed");
+  assert.ok(isNoPoolRange(i2.formant.rangeLo, i2.formant.rangeHi));
+  assert.equal(i2.formant.slots[0].cons, id("s"), "the consonant kept…");
+  assert.equal(i2.formant.slots[0].len, 0, "…on the generator");
+  assert.ok(!d2.sampleList().some((e) => e.users.includes(s2)));
 });
 
 test("the census counts a consonant's noise as the formant instrument's sample", () => {

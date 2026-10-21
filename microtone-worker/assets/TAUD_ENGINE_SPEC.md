@@ -561,7 +561,7 @@ An OPL voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)): its attack
 
 #### 5.5.3 Type 1 — formant instruments
 
-A **type-1** Metainstrument is a **formant instrument** ([File Format §7.6](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is a glottal source, played through a model of the vocal tract that sings it as one syllable — up to two consonants, a glide, a vowel that may be r-coloured, and a coda consonant spoken on the key-off: CCGVRC. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter, the voice effects, the attack ramp and the whole gain chain — with the tract inserted between the sample fetch and the voice filter. A formant instrument resolves no Ixmp patch.
+A **type-1** Metainstrument is a **formant instrument** ([File Format §7.6](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is a glottal source, played through a model of the vocal tract that sings it as one syllable — up to two consonants, a glide, a vowel that may be nasalised or r-coloured (or no vowel, the last consonant held in its place), and a coda consonant spoken on the key-off: CCGVRC. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter, the voice effects, the attack ramp and the whole gain chain — with the tract inserted between the sample fetch and the voice filter. A formant instrument resolves no Ixmp patch.
 
 The tract is Klatt's cascade/parallel formant synthesiser (D. H. Klatt, *Software for a cascade/parallel formant synthesizer*, JASA 67(3), 1980): a **cascade** of resonators carries everything voiced or aspirated, a **parallel** bank carries frication. Where Klatt's sources are an impulse train and a noise generator, a formant instrument's are samples: its own sample is the voicing, and each consonant slot names a span of the pool as its noise — or, naming none, has Klatt's noise generator after all. One output sample:
 
@@ -615,7 +615,7 @@ With `P < 2`, `N < 2`, or every `w(k)` 0, the source is taken to be a sawtooth: 
 A record whose header names a **source instrument** ([File Format §7.6](TAUD_FILE_FORMAT.md)) that is an OPL instrument — not 0, not the record itself — is sung from that instrument's channel instead of its sample. A **PSG instrument** there is sung from in the same way, its oscillator pair ([§5.5.4](#5-5-4-type-9-psg-instruments)) standing where the channel stands in every rule below; its measurement runs a pair from rest, internal status and all, so that it does not depend on what the lane played before. Naming any other instrument, or none, is singing the sample. What the source instrument brings is its **patch** and its **C2SPD**, nothing else: its envelopes, volumes, detune and New Note Action are not read, since the note is the formant instrument's.
 
 - **The rate.** The C2SPD (0 reads as 8363) stands where the sample's rate at C4 would: the voice's active sampling rate is it, so the note plays the chip at the pitch the OPL instrument plays it at on its own.
-- **The source.** `g` is an OPL channel keyed with the note, from silence, and run on the playhead's chip clock as an OPL voice's is ([§5.5.2](#5-5-2-type-8-opl-instruments)) — at unity note volume, since the mixer applies the note's volume to the tract's output; keyed off with the voice. The sample is not read. While the vowel is sung, a channel that can no longer sound ramps the note out (the 8 ms sample-end ramp, [§8](#8-the-sampler)); in a consonant the tract's own clock ends it.
+- **The source.** `g` is an OPL channel keyed with the note, from silence, and run on the playhead's chip clock as an OPL voice's is ([§5.5.2](#5-5-2-type-8-opl-instruments)) — at unity note volume, since the mixer applies the note's volume to the tract's output; keyed off with the voice. The sample is not read. While the vowel is sung — or a nucleus is holding ([below](#the-syllable)) with its voicing, at this update, above 0 — a channel that can no longer sound ramps the note out (the 8 ms sample-end ramp, [§8](#8-the-sampler)); otherwise the tract's own clock ends it.
 - **The fundamental** the pitch rules read is what the chip sounds: `f0 = playback_rate × output_rate × 261.6255653005986 ÷ 8363`.
 - **The measurement.** A channel has no bytes to measure, so the note's patch is run apart — a fresh channel keyed at output frame 0 on a clock of its own, at the note's playback rate and unity volume, never keyed off — for 4096 output frames, `x[0…4095]`. The stretch is its loudest window: 1024 frames at offsets 0, 512, … 3072, the first of equals winning. `SM`, `AC` and `SG` are taken over that window as above, with `x` for `b`; its harmonics too, windowed (`x[n] − SM` times the Hann window above) and read at `ωk = 2π k ÷ P` with `P = 8363 ÷ (playback_rate × 261.6255653005986)`, the period in output frames, and `K = min(64, ⌊P ÷ 2⌋)`; the sawtooth stands in as above. A chip's spectrum moves with its pitch — key scaling, the block an F-number falls in — so it is measured at the note's own rate; an implementation **MAY** keep a measurement for the same patch at the same rate.
 - **`Q`'s retrigger** re-keys the channel as it re-keys an OPL note — the attack from where each envelope stands, the phase from zero — and keeps the measurement.
@@ -675,7 +675,7 @@ At every update the vowel is the tongue and lips (frontness, openness, roundness
 
 ```
 f0  = r × rate × 261.6255653005986 ÷ active_sampling_rate     (0 when the rate is 0)
-ref = 261.6255653005986 × 2^((reference_note − $5000) ÷ 4096)
+ref = 261.6255653005986 × 2^((reference_note − $5000) ÷ 4096)    (reference_note = the word's bits 0…14, $4000 when they are 0)
 s   = f0 > 0 ? (f0 ÷ ref)^(size_tracking ÷ 256) : 1
 ```
 
@@ -686,6 +686,18 @@ s   = f0 > 0 ? (f0 ÷ ref)^(size_tracking ÷ 256) : 1
 3. The five formants of [File Format §7.6](TAUD_FILE_FORMAT.md) are read at that openness and multiplied by `s`; then, if the vowel is tuned, F1 = f0 exactly (fully open, F1 alone goes on following f0).
 4. **Order.** For n = 2…5 in turn, Fn = max(Fn, 1.15 × F(n−1)). Then every formant is capped at 45% of the output rate.
 5. **Bandwidths** are Bn = max(Fn ÷ 10, 50 Hz) — Praat's vowel-editor Q of 10, with Klatt's 50 Hz floor for a close vowel.
+
+A syllable with no vowel ([below](#the-syllable)) reads its vowel the same way, never r-coloured: it is where the tongue rests, what a consonant whose row says "the vowel's" takes, and the source of F4 and F5.
+
+**Nasalised.** With the reference word's bit 15 set and the syllable sung on a vowel, after the glide (below) has been blended in — Klatt's recipe (1980 §V.B), "increasing F1 by about 100 Hz, and … setting the frequency of the nasal zero to be the average of this new F1 value and 270 Hz":
+
+```
+F1  = min(F1 + 100 × s, 0.45 × rate)          B1 = max(F1 ÷ 10, 50)
+Fn  = min(max(Fn, 1.15 × F(n−1)), 0.45 × rate)   for n = 2…5 in turn
+FNZv = (F1 + FNP) ÷ 2                            the vowel's nasal zero (FNP below)
+```
+
+That vowel is THE vowel for everything after it, as the glide's is.
 
 ##### The tract normaliser
 
@@ -713,14 +725,14 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 6 | ɖ | stop | yes | 200 1500 1900 | 60 100 170 | 0 50 55 50 45 0 | -12 | 0 | 8 | 0 | 45 | 0 | 0 |
 | 7 | c | stop | no | 300 2100 2900 | 250 160 330 | 0 45 55 50 40 0 | -10 | 0 | 15 | 22 | 50 | 0 | 0 |
 | 8 | ɟ | stop | yes | 200 2100 2900 | 60 150 280 | 0 45 55 50 40 0 | -12 | 0 | 12 | 0 | 50 | 0 | 0 |
-| 9 | k | stop | no | 300 1990 2850 | 250 160 330 | 0 53 43 45 45 0 | -10 | 0 | 20 | 25 | 50 | 0 | 0 |
-| 10 | g | stop | yes | 200 1990 2850 | 60 150 280 | 0 53 43 45 45 0 | -12 | 0 | 15 | 0 | 50 | 0 | 0 |
+| 9 | k | stop | no | 300 1990 2850 | 250 160 330 | 0 60 43 45 45 0 | -10 | 0 | 20 | 25 | 50 | 0 | 0 |
+| 10 | ɡ | stop | yes | 200 1990 2850 | 60 150 280 | 0 60 43 45 45 0 | -12 | 0 | 15 | 0 | 50 | 0 | 0 |
 | 11 | q | stop | no | 400 1200 2400 | 250 150 300 | 55 45 35 30 30 0 | -10 | 0 | 20 | 25 | 50 | 0 | 0 |
 | 12 | ɢ | stop | yes | 250 1200 2400 | 60 120 250 | 55 45 35 30 30 0 | -12 | 0 | 15 | 0 | 50 | 0 | 0 |
 | 13 | ʔ | glottal | no | 0 0 0 | 0 0 0 | 0 0 0 0 0 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 14 | pʰ | stop | no | 400 1100 2150 | 300 150 220 | 0 0 0 0 0 63 | -12 | 0 | 5 | 58 | 40 | 0 | 0 |
 | 15 | tʰ | stop | no | 400 1600 2600 | 300 120 250 | 0 30 45 57 63 0 | -10 | 0 | 10 | 70 | 45 | 0 | 0 |
-| 16 | kʰ | stop | no | 300 1990 2850 | 250 160 330 | 0 53 43 45 45 0 | -10 | 0 | 20 | 80 | 50 | 0 | 0 |
+| 16 | kʰ | stop | no | 300 1990 2850 | 250 160 330 | 0 60 43 45 45 0 | -10 | 0 | 20 | 80 | 50 | 0 | 0 |
 | 32 | m | nasal | yes | 480 1270 2130 | 40 200 200 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
 | 33 | ɱ | nasal | yes | 480 1200 2100 | 40 200 200 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
 | 34 | n | nasal | yes | 480 1340 2470 | 40 300 300 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
@@ -783,6 +795,22 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 104 | p͡f | affricate | no | 340 1100 2080 | 200 120 150 | 0 0 0 0 0 57 | -16 | 70 | 5 | 0 | 40 | 0 | 0 |
 | 105 | k͡x | affricate | no | 300 1800 2700 | 250 160 330 | 57 50 40 35 30 0 | -12 | 70 | 20 | 0 | 50 | 0 | 0 |
 
+**Velars.** Klatt's table is "appropriate only for consonants before front vowels", and at a velar that shows: the back of the tongue meets the palate wherever the vowel puts it, so a velar has no place of its own. Locus equations (F2 at voicing onset regressed on the vowel's F2) give a velar a slope of about 0.9–1.0 — its F2 starts close to the vowel's — where an alveolar's, about 0.4–0.5, is pulled toward 1.8 kHz (Sussman, McCaffrey & Matthews 1991; Iskarous, Fowler & Whalen 2010). The **velars** — ids 9 [k], 10 [ɡ], 16 [kʰ], 37 [ŋ], 62 [x], 63 [ɣ], 105 [k͡x] — take their F2 and F3 not from the row but from the sound they meet, `N` ([below](#the-tract)), drawn together about their geometric mean as closely as the order rule lets two formants come — the "velar pinch":
+
+```
+P = sqrt(N2 × N3)      C2 = P ÷ sqrt(1.15)      C3 = P × sqrt(1.15)
+```
+
+A velar's burst excites the resonance of the cavity in front of its closure: F2 before a non-front vowel, where Klatt puts A2 at "about 60 dB", and F3 before a front one. The table's 53 dB for A3 was set on a synthesiser running at 10 kHz, whose output ended at 5 kHz; at the engine's rates the upper resonators' skirts reach past 6 kHz and outweigh it, and the burst would be spread over 3–5 kHz like a [t]'s. So [k], [ɡ] and [kʰ] give the front cavity 60 dB either way: their bank is the row's, A2…AB `0 60 43 45 45 0`, before a front vowel, and `60 53 43 45 45 0` — Klatt's A2 of 60 added, his A3 of 53 kept — before a back one, each gain `gj` ([below](#the-tract)) crossfaded linearly between the two by how back the vowel they meet is:
+
+```
+back = 1 − x ÷ 255                     x = the vowel's frontness — the glide's while it sounds:
+                                         x = v + wG × (xG − v), v the vowel's, xG the semivowel's (below)
+gj   = gj(front row) + back × (gj(back row) − gj(front row))
+```
+
+— or `back = 0` with a palatal secondary articulation and `back = 1` with a dark one ([below](#the-articulations)). Their bursts are then compact, at about 1.0–1.3 kHz before [u] [o] [ɑ] and 2.3–3 kHz before [a] [e] [i].
+
 A consonant sounds as five piecewise-linear **tracks** of its own time `t` in ms:
 
 | Track | Meaning |
@@ -795,45 +823,73 @@ A consonant sounds as five piecewise-linear **tracks** of its own time `t` in ms
 
 A track is a list of points `(t, v)` with non-decreasing times; a point given an earlier time than the one before it takes that one's time instead, so two points at one time make a step. Its value at `t` is the first point's value at or before the first point's time, the last point's after the last, and between two points of different times the straight line between them; at a time two points share, the later one's value holds. Each track ends with a point at the consonant's **end**, on the value the next sound starts at — appended at `end` when the track stops earlier, or as a second point at its last time when it already stops there on another value.
 
-With `k` the timing scale of [File Format §7.6](TAUD_FILE_FORMAT.md), every time below is multiplied by `k` (`dur`, `burst`, `VOT`, `trans` and the literal constants alike). `L = 10^(level ÷ 20)`, `La = L × 10^(−6 ÷ 20)` (a stop's aspiration), and `CL = 50 ms` is a closure. An ONSET consonant ends on the values its **next** sound starts at — `nx.av`, `nx.ah`, `nx.af`, `nx.nz`: the next consonant's tracks at its time 0, or for the vowel 1, 0, 0, 0. `first` is true for the syllable's first consonant: nothing precedes it, so a stop has no audible closure (`cl = first ? 0 : CL`).
+With `k` the timing scale of [File Format §7.6](TAUD_FILE_FORMAT.md), every time below is multiplied by `k` (`dur`, `burst`, `VOT`, `trans` and the literal constants alike). `L = 10^(level ÷ 20)`, `La = L × 10^(−6 ÷ 20)` (a stop's aspiration), and `CL = 50 ms` is a closure. An ONSET consonant ends on the values its **next** sound starts at — `nx.av`, `nx.ah`, `nx.af`, `nx.nz`: the next consonant's tracks at its time 0, or for the vowel 1, 0, 0, 0 — 1, 0, 0, 1 for a nasalised vowel, its velum already lowered. `first` is true for the syllable's first consonant: nothing precedes it, so a stop has no audible closure (`cl = first ? 0 : CL`).
 
 | Manner | Onset tracks | end |
 |---|---|---|
-| Stop | `tb = cl + burst`, `tv = tb + VOT`. **av**: voiced (0, a) (cl, a) (tb, 0.3) (tb+10, nx.av) with a = cl > 0 ? 0.25 : 0.3; voiceless (0, 0) (tv, 0) (tv+10, nx.av). **af**: (0, 0) (cl, 0) (cl, L) (tb, 0.3L) (tb+2, 0). **ah**: (0, 0), and for a voiceless stop with VOT > 0 then (tb, 0) (tb+3, La) (tv, 0.7La) (tv+10, nx.ah). **w**: (0, 1) (tb, 1) (tb+1, 0.5) (tb+trans, 0). **nz**: (0, 0) | max(tv+10, tb+trans) |
-| Affricate | `tb = cl + burst`, `tf = tb + dur`. **af**: (0, 0) (cl, 0) (cl, L) (tb, 0.8L) (tf−10, L) (tf+10, nx.af). **av**: voiced (0, 0.3) (tf, 0.3) (tf+15, nx.av); voiceless (0, 0) (tf, 0) (tf+15, nx.av). **ah** (0, 0). **w** (0, 1) (tf, 1) (tf+trans, 0). **nz** (0, 0) | max(tf+15, tf+trans) |
-| Fricative | **af**: (0, 0) (10, L) (dur−10, L) (dur+10, nx.af). **av**: voiced (0, av) (dur, av) (dur+15, nx.av); voiceless (0, 0) (dur−5, 0) (dur+15, nx.av). **ah** (0, 0). **w** (0, 1) (dur, 1) (dur+trans, 0). **nz** (0, 0) | max(dur+15, dur+trans) |
-| Aspirate | **ah**: (0, 0) (10, L) (dur−10, L) (dur+10, nx.ah). **av**: voiced (0, av) (dur, av) (dur+10, nx.av); voiceless (0, 0) (dur−10, 0) (dur+10, nx.av). **af** (0, 0). **w** (0, 1) (dur, 1) (dur+trans, 0). **nz** (0, 0) | max(dur+10, dur+trans) |
+| Stop | `tb = cl + burst`, `tv = tb + VOT`. **av**: voiced (0, a) (cl, a) (tb, 0.3) (tb+10, nx.av) with a = cl > 0 ? 0.25 : 0.3; voiceless (0, 0) (tv, 0) (tv+10, nx.av). **af**: (0, 0) (cl, 0) (cl, L) (tb, 0.3L) (tb+2, 0). **ah**: (0, 0), and for a voiceless stop with VOT > 0 then (tb, 0) (tb+3, La) (tv, 0.7La) (tv+10, nx.ah). **w**: (0, 1) (tb, 1) (tb+1, 0.5) (tb+trans, 0). **nz**: (0, 0) (tb, 0) | max(tv+10, tb+trans) |
+| Affricate | `tb = cl + burst`, `tf = tb + dur`. **af**: (0, 0) (cl, 0) (cl, L) (tb, 0.8L) (tf−10, L) (tf+10, nx.af). **av**: voiced (0, 0.3) (tf, 0.3) (tf+15, nx.av); voiceless (0, 0) (tf, 0) (tf+15, nx.av). **ah** (0, 0). **w** (0, 1) (tf, 1) (tf+trans, 0). **nz** (0, 0) (tf, 0) | max(tf+15, tf+trans) |
+| Fricative | **af**: (0, 0) (10, L) (dur−10, L) (dur+10, nx.af). **av**: voiced (0, av) (dur, av) (dur+15, nx.av); voiceless (0, 0) (dur−5, 0) (dur+15, nx.av). **ah** (0, 0). **w** (0, 1) (dur, 1) (dur+trans, 0). **nz** (0, 0) (dur, 0) | max(dur+15, dur+trans) |
+| Aspirate | **ah**: (0, 0) (10, L) (dur−10, L) (dur+10, nx.ah). **av**: voiced (0, av) (dur, av) (dur+10, nx.av); voiceless (0, 0) (dur−10, 0) (dur+10, nx.av). **af** (0, 0). **w** (0, 1) (dur, 1) (dur+trans, 0). **nz** (0, 0) (dur, 0) | max(dur+10, dur+trans) |
 | Nasal | **av**: (0, av) (dur, av) (dur+10, nx.av). **nz**: (0, 1) (dur, 1) (dur+10, nx.nz). **w**: (0, 1) (dur, 1) (dur+5, 0.5) (dur+trans, 0). **ah**, **af** (0, 0) | max(dur+10, dur+trans) |
-| Approximant | **av**: (0, av) (dur, av) (dur + trans ÷ 2, nx.av). **w**: (0, 1) (dur, 1) (dur+trans, 0). **ah**, **af**, **nz** (0, 0) | dur+trans |
-| Tap | **av**: (0, 0.2) (dur, 0.2) (dur+5, nx.av). **w**: (0, 1) (dur, 1) (dur+trans, 0). **ah**, **af**, **nz** (0, 0) | max(dur+5, dur+trans) |
-| Trill | `c = dur`, `sh = 0.375c`. **av**: (0, 0.12) (sh, 0.12) (sh+3, 0.7) (c−3, 0.7) (c, 0.12) (c+sh, 0.12) (c+sh+3, nx.av). **w**: (0, 1) (c+sh+3, 1) (c+sh+3+trans, 0). **ah**, **af**, **nz** (0, 0) | c+sh+3+trans |
-| Glottal stop | `g = first ? 0 : 30`. **av**: (0, 0) (g, 0) (g+3, nx.av). **w**, **ah**, **af**, **nz** (0, 0) | g+3 |
+| Approximant | **av**: (0, av) (dur, av) (dur + trans ÷ 2, nx.av). **w**: (0, 1) (dur, 1) (dur+trans, 0). **nz** (0, 0) (dur, 0). **ah**, **af** (0, 0) | dur+trans |
+| Tap | **av**: (0, 0.2) (dur, 0.2) (dur+5, nx.av). **w**: (0, 1) (dur, 1) (dur+trans, 0). **nz** (0, 0) (dur, 0). **ah**, **af** (0, 0) | max(dur+5, dur+trans) |
+| Trill | `c = dur`, `sh = 0.375c`. **av**: (0, 0.12) (sh, 0.12) (sh+3, 0.7) (c−3, 0.7) (c, 0.12) (c+sh, 0.12) (c+sh+3, nx.av). **w**: (0, 1) (c+sh+3, 1) (c+sh+3+trans, 0). **nz** (0, 0) (c+sh+3, 0). **ah**, **af** (0, 0) | c+sh+3+trans |
+| Glottal stop | `g = first ? 0 : 30`. **av**: (0, 0) (g, 0) (g+3, nx.av). **nz** (0, 0) (g, 0). **w**, **ah**, **af** (0, 0) | g+3 |
 
-A CODA starts on the vowel's values and ends in silence: every track but `w` closes on 0, and `w` on 1.
+An oral consonant's `nz` holds 0 until its own part is over, so a nasalised vowel after it lowers the velum through the transition alone.
+
+The onset's **last** consonant may be **glottalised** ([below](#the-articulations)); its tracks are the table's but for these. It breathes no aspiration: **ah** is (0, 0) — an aspirate's own **ah** excepted. A **stop**'s voicing waits for a lag after the burst, then comes in at once: `tv = tb + min(VOT, 10)`, **av** (0, 0) (tv, 0) (tv+2, nx.av), voiced or not; end max(tv+2, tb+trans). An **affricate**'s, a **fricative**'s or an **aspirate**'s voicing waits through a glottal catch after its own part — `te` = tf, dur, dur: **av** (0, 0) (te+10, 0) (te+12, nx.av); end at least te+12. A **nasal**, **approximant**, **tap** or **trill** is said after a glottal stop: its **av**, built as the table says, is replaced by (0, 0) (10, 0) (12, av(12)) followed by every point of it after 12 ms. A glottal stop is as it is.
+
+A syllable with no vowel holds its **nucleus** ([below](#the-syllable)) on these tracks, which start as an onset consonant's do (`cl` as above) and then hold — past `end` every track keeps its last value, except that a trill's time, once it passes `end`, is taken back by `loop` as often as it takes to bring it under `end`, so its second cycle repeats:
+
+| Manner | Nucleus tracks (`w` is (0, 1) throughout) | end | loop |
+|---|---|---|---|
+| Stop | `tb = cl + burst`. **af**: (0, 0) (cl, 0) (cl, L) (tb, 0.3L) (tb+2, 0). Voiced: **av** (0, a) (cl, a) (tb, 0.3) (tb+10, 1), a as in the onset, **ah** (0, 0). Voiceless: **av** (0, 0), **ah** (0, 0), and with VOT > 0 then (tb, 0) (tb+3, La) (tb+10, 0.7La). **nz** (0, 0) | tb+10 | 0 |
+| Affricate | `tb = cl + burst`. **af**: (0, 0) (cl, 0) (cl, L) (tb, 0.8L) (tb+10, L). **av** (0, voiced ? 0.3 : 0). **ah**, **nz** (0, 0) | tb+10 | 0 |
+| Fricative | **af**: (0, 0) (10, L). **av** (0, voiced ? av : 0). **ah**, **nz** (0, 0) | 10 | 0 |
+| Aspirate | **ah**: (0, 0) (10, L). **av** (0, voiced ? av : 0). **af**, **nz** (0, 0) | 10 | 0 |
+| Nasal | **av** (0, 1). **nz** (0, 1). **ah**, **af** (0, 0) | 0 | 0 |
+| Approximant | **av** (0, 1). **ah**, **af**, **nz** (0, 0) | 0 | 0 |
+| Tap | **av**: (0, 0.2) (dur, 0.2) (dur+5, 1). **ah**, **af**, **nz** (0, 0) | dur+5 | 0 |
+| Trill | `c = dur`, `sh = 0.375c`. **av**: for n = 0, 1 with o = n·c: (o, 0.12) (o+sh, 0.12) (o+sh+3, 0.7) (o+c−3, 0.7); then (2c, 0.12). **ah**, **af**, **nz** (0, 0) | 2c | c |
+| Glottal stop | **av**, **ah**, **af**, **nz** (0, 0) | 0 | 0 |
+
+A sonorant nucleus voices at the vowel's level, being the syllable's peak. **Glottalised**, a stop nucleus breathes no aspiration and its voicing is **av** (0, 0) (tb+10, 0) (tb+12, voiced ? 1 : 0), end tb+12; an affricate's, a fricative's or an aspirate's voicing is 0; a sonorant's takes the catch above.
+
+A CODA starts on the values of the sound before it — for the vowel, voicing `v0 = 1` and nasality `z0 = 0`, or 1 for a nasalised vowel — and ends in silence: every track but `w` closes on 0, and `w` on 1.
 
 | Manner | Coda tracks | end |
 |---|---|---|
-| Stop, affricate | `tc = trans + CL` (the release), `tb = tc + burst`. **w**: (0, 0) (trans, 0.5) (trans+5, 1). **av**: voiced (0, 1) (trans, 1) (trans+8, 0.25) (tc, 0.2) (tc+5, 0); voiceless (0, 1) (trans, 1) (trans+8, 0). **nz** (0, 0). Stop: **af** (0, 0) (tc, 0) (tc, 0.7L) (tb, 0.2L) (tb+2, 0); **ah** (0, 0), and for a voiceless stop with VOT > 0 then (tb, 0) (tb+2, 0.5La) (tb+30, 0). Affricate: **af** (0, 0) (tc, 0) (tc, L) (tb+dur, 0.6L) (tb+dur+20, 0); **ah** (0, 0) | stop tb+35; affricate tb+dur+20 |
-| Fricative | `a = max(trans−15, 0)`. **w**: (0, 0) (trans, 1). **av**: voiced (0, 1) (trans, av) (trans+dur, 0.7av) (trans+dur+30, 0); voiceless (0, 1) (a, 1) (trans+5, 0). **af**: (0, 0) (a, 0) (trans+5, L) (trans+dur, 0.8L) (trans+dur+30, 0). **ah**, **nz** (0, 0) | trans+dur+30 |
-| Aspirate | **w**: (0, 0) (15, 1). **av**: voiced (0, 1) (20, av) (dur, 0.5av) (dur+20, 0); voiceless (0, 1) (20, 0). **ah**: (0, 0) (10, L) (dur, 0.5L) (dur+30, 0). **af**, **nz** (0, 0) | dur+30 |
-| Nasal | **w**: (0, 0) (trans, 1). **nz**: (0, 0) (max(trans−5, 0), 0) (trans, 1). **av**: (0, 1) (trans, av) (trans+dur, 0.8av) (trans+dur+40, 0). **ah**, **af** (0, 0) | trans+dur+40 |
-| Approximant | **w**: (0, 0) (trans, 1). **av**: (0, 1) (trans, av) (trans+dur, 0.8av) (trans+dur+40, 0). **ah**, **af**, **nz** (0, 0) | trans+dur+40 |
-| Tap | **w**: (0, 0) (trans, 1). **av**: (0, 1) (trans, 1) (trans+3, 0.2) (trans+dur, 0.2) (trans+dur+3, 0.6) (trans+dur+40, 0). **ah**, **af**, **nz** (0, 0) | trans+dur+40 |
-| Trill | `c = dur`, `sh = 0.375c`. **w**: (0, 0) (trans, 1). **av**: (0, 1) (trans, 0.7) (trans+3, 0.12) (trans+sh, 0.12) (trans+sh+3, 0.7) (trans+c−3, 0.7) (trans+c, 0.12) (trans+c+sh, 0.12) (trans+c+sh+3, 0.6) (trans+c+sh+35, 0). **ah**, **af**, **nz** (0, 0) | trans+c+sh+35 |
-| Glottal stop | **w** (0, 0). **av**: (0, 1) (6, 0). **ah**, **af**, **nz** (0, 0) | 6 |
+| Stop, affricate | `tc = trans + CL` (the release), `tb = tc + burst`. **w**: (0, 0) (trans, 0.5) (trans+5, 1). **av**: voiced (0, v0) (trans, v0) (trans+8, 0.25) (tc, 0.2) (tc+5, 0); voiceless (0, v0) (trans, v0) (trans+8, 0). **nz** (0, z0) (trans+5, 0). Stop: **af** (0, 0) (tc, 0) (tc, 0.7L) (tb, 0.2L) (tb+2, 0); **ah** (0, 0), and for a voiceless stop with VOT > 0 then (tb, 0) (tb+2, 0.5La) (tb+30, 0). Affricate: **af** (0, 0) (tc, 0) (tc, L) (tb+dur, 0.6L) (tb+dur+20, 0); **ah** (0, 0) | stop tb+35; affricate tb+dur+20 |
+| Fricative | `a = max(trans−15, 0)`. **w**: (0, 0) (trans, 1). **av**: voiced (0, v0) (trans, av) (trans+dur, 0.7av) (trans+dur+30, 0); voiceless (0, v0) (a, v0) (trans+5, 0). **af**: (0, 0) (a, 0) (trans+5, L) (trans+dur, 0.8L) (trans+dur+30, 0). **nz** (0, z0) (trans, 0). **ah** (0, 0) | trans+dur+30 |
+| Aspirate | **w**: (0, 0) (15, 1). **av**: voiced (0, v0) (20, av) (dur, 0.5av) (dur+20, 0); voiceless (0, v0) (20, 0). **ah**: (0, 0) (10, L) (dur, 0.5L) (dur+30, 0). **nz** (0, z0) (15, 0). **af** (0, 0) | dur+30 |
+| Nasal | **w**: (0, 0) (trans, 1). **nz**: (0, z0) (max(trans−5, 0), z0) (trans, 1). **av**: (0, v0) (trans, av) (trans+dur, 0.8av) (trans+dur+40, 0). **ah**, **af** (0, 0) | trans+dur+40 |
+| Approximant | **w**: (0, 0) (trans, 1). **av**: (0, v0) (trans, av) (trans+dur, 0.8av) (trans+dur+40, 0). **nz** (0, z0) (trans, 0). **ah**, **af** (0, 0) | trans+dur+40 |
+| Tap | **w**: (0, 0) (trans, 1). **av**: (0, v0) (trans, v0) (trans+3, 0.2) (trans+dur, 0.2) (trans+dur+3, 0.6) (trans+dur+40, 0). **nz** (0, z0) (trans, 0). **ah**, **af** (0, 0) | trans+dur+40 |
+| Trill | `c = dur`, `sh = 0.375c`. **w**: (0, 0) (trans, 1). **av**: (0, v0) (trans, 0.7) (trans+3, 0.12) (trans+sh, 0.12) (trans+sh+3, 0.7) (trans+c−3, 0.7) (trans+c, 0.12) (trans+c+sh, 0.12) (trans+c+sh+3, 0.6) (trans+c+sh+35, 0). **nz** (0, z0) (trans, 0). **ah**, **af** (0, 0) | trans+c+sh+35 |
+| Glottal stop | **w** (0, 0). **av**: (0, v0) (6, 0). **nz** (0, z0) (6, 0). **ah**, **af** (0, 0) | 6 |
+
+A coda's **release** ([below](#the-articulations)) changes it so. **Unreleased**, a stop or an affricate has **af** and **ah** (0, 0) and ends when its voicing does — voiced at tc+5, voiceless at trans+8; any other consonant is released as written. **Glottalised**, its voicing stops in 3 ms where it would otherwise fade, and a stop breathes no aspiration: a stop's or an affricate's **av** is (0, v0) (trans, v0) (trans+3, 0); a fricative's (0, v0) (a, v0) (a+3, 0); an aspirate's (0, v0) (3, 0); a nasal's or an approximant's ends (trans+dur, 0.8av) (trans+dur+3, 0), and a tap's (trans+dur, 0.2) (trans+dur+3, 0), a trill's (trans+c+sh, 0.12) (trans+c+sh+3, 0), each ending there; a glottal stop is as it is.
+
+After a **nucleus**, `v0` and `z0` are the nucleus's **av** and **nz** as they hold (each track's last value). A nucleus that hisses — its **af** or **ah** holding above 0, as `a0` and `h0` — first lets the hiss go over `rel = 10` ms (times `k`): the coda's tracks are preceded by **av** (0, v0), **af** (0, a0), **ah** (0, h0), **w** (0, 0), **nz** (0, z0), and every one of their points is moved `rel` later, the end with them.
 
 ##### The syllable
 
-At a trigger the engine builds the syllable afresh from the record: the **onset** is slots 0 and 1, in that order, whichever of them name a defined consonant — built back to front, since each ends where the next starts, the last on the glide's values when there is one — then the **glide** (below), and the **coda** is slot 2. The note starts in its onset (or, with none, in its vowel) at time 0, with every filter of the tract at rest, singing the record's vowel. Each control update, in this order:
+At a trigger the engine builds the syllable afresh from the record: the **onset** is slots 0 and 1, in that order, whichever of them name a defined consonant — built back to front, since each ends where the next starts, the last on the glide's values when there is one (or a nasalised vowel's) and carrying the secondary articulation — then the **glide** (below), and the **coda** is slot 2, built from the vowel's values and with its release.
+
+A record with **no vowel** (reference note 0) has no glide, and its last onset consonant is the **nucleus**, built on the nucleus tracks above; with no onset consonant, slot 2's consonant is the nucleus and there is no coda; with no consonant at all, the syllable is over before it starts. Its coda is built from the nucleus's held values (above).
+
+The note starts in its onset (or, with none, in its vowel) at time 0, with every filter of the tract at rest, singing the record's vowel. Each control update, in this order:
 
 1. If the voice is note-fading and the coda has not begun, the coda is **vetoed** for this note.
-2. While in the onset and the current consonant's time has reached its end, its end is subtracted from the time and the next consonant starts (its noise reader too); after the last, the vowel.
-3. In the vowel, if the voice is keyed off, the coda is not vetoed and the record has one, the coda starts at time 0.
+2. While in the onset and the current consonant's time has reached its end, its end is subtracted from the time and the next consonant starts (its noise reader too); after the last, the vowel. The nucleus never ends: once its time reaches its end it is **holding**, and a looped nucleus's time is taken back by its loop while it is at or past its end.
+3. In the vowel, or with the nucleus holding, if the voice is keyed off, the coda is not vetoed and the record has one, the coda starts at time 0, and its noise reader too — except after a nucleus that hisses, when the nucleus's noise goes on and the coda's starts once the coda's time reaches `rel`.
 4. In the coda, once its time reaches its end, the syllable is **over**: from then on the tract outputs 0, and the voice starts its sample-end ramp-out ([§12](#12-output-stage)).
 5. The vowel glide advances (below), the vowel is read at the pitch, the tract is configured, and `NV` updates for it.
-6. The time advances by `dt` — in the onset and the coda; the vowel has no clock. The glide's clock advances by `dt` in the vowel and the coda, and once it reaches the glide's end the glide is over.
+6. The time advances by `dt` — in the onset (the nucleus included) and the coda; the vowel has no clock. The glide's clock advances by `dt` in the vowel and the coda, and once it reaches the glide's end the glide is over.
 
-So **a key-off speaks the coda and ends the note**; a key-off during the onset waits for it, and a syllable with no coda goes on singing its vowel through its release. A key-off reaches the voice's envelopes and fadeout as on any instrument, at the same moment the coda starts: a fadeout or a release faster than the coda is heard cutting it short. A **note cut** ends the voice outright, and a **note fade** or **fast fade** fades the vowel without ever speaking the coda — a key-off that follows a fade does not bring it back. A note-off New Note Action keys off the ghost, which speaks its coda in the background while the lane starts the next syllable; a ghost carries a copy of the whole tract.
+So **a key-off speaks the coda and ends the note**; a key-off during the onset waits for it, and a syllable with no coda goes on singing its vowel — or holding its nucleus — through its release. A key-off reaches the voice's envelopes and fadeout as on any instrument, at the same moment the coda starts: a fadeout or a release faster than the coda is heard cutting it short. A **note cut** ends the voice outright, and a **note fade** or **fast fade** fades the vowel without ever speaking the coda — a key-off that follows a fade does not bring it back. A note-off New Note Action keys off the ghost, which speaks its coda in the background while the lane starts the next syllable; a ghost carries a copy of the whole tract.
 
 ##### The glide
 
@@ -852,6 +908,19 @@ Fn = Fn × (FGn ÷ Fn)^g        Bn = Bn × (BGn ÷ Bn)^g          n = 1…5   (l
 
 That blended vowel is THE vowel for everything after it — the normaliser, an onset consonant's target, the coda's. In the vowel the voicing is `avG(clock)` across the update (`avG(clock + dt)` at its end) instead of 1. A sampled note handed a formant instrument ([§5.2](#5-2-note-events)) has no glide, its onset being long past; `Q`'s retrigger says the glide again with the syllable; an instrument change leaves a glide under way to finish as it started.
 
+##### The articulations
+
+Byte +53's bits 3–4 ([File Format §7.6](TAUD_FILE_FORMAT.md)) give the onset's **last** consonant — the nucleus, in a syllable with no vowel — a secondary articulation, and bits 5–6 give the coda its release:
+
+| Code | Onset (bits 3–4) | Coda (bits 5–6) |
+|---|---|---|
+| 0 | none | released |
+| 1 | **palatal** ʲ: its tract's F2, F3 ([below](#the-tract)) | **unreleased** ◌̚: its tracks ([above](#the-consonants)) |
+| 2 | **dark** ˠ/ˤ: its tract's F2, F3 | **dark** ˠ/ˤ: its tract's F2, F3 |
+| 3 | **glottalised** ˀ: its tracks | **glottalised** ˀ: its tracks |
+
+A velar's bank reads a palatal consonant as met by a front vowel and a dark one as met by a back one ([above](#the-consonants)).
+
 ##### The tract
 
 In the vowel the tract is the vowel's five formants. In a consonant it is the consonant's configuration `C` — F1…F3 and B1…B3 of its row, each multiplied by `s`, or the next configuration's where the row says 0 — blended into the configuration `N` of the sound it is heading for:
@@ -861,7 +930,9 @@ Fn = Nn + w × (Cn − Nn),   Bn = NBn + w × (CBn − NBn)       n = 1…3
 F4, F5, B4, B5 = the vowel's
 ```
 
-An onset consonant's `N` is the next consonant's own configuration blended into the vowel by that consonant's `w` at its time 0, or the vowel itself; a coda's is the vowel. Every value is capped at 45% of the output rate.
+An onset consonant's `N` is the next consonant's own configuration blended into the vowel by that consonant's `w` at its time 0, or the vowel itself; a coda's is the vowel — or, after a nucleus, the nucleus's configuration, its `w` at 1. The nucleus, holding, is its own configuration (`w` 1) blended into the vowel. Every value is capped at 45% of the output rate.
+
+`C2` and `C3` are not always the row's. A consonant with a **secondary articulation** ([below](#the-articulations)) — palatal or dark — has those of its tongue, at the voice's size: F2 and F3 of [File Format §7.6](TAUD_FILE_FORMAT.md) at frontness 255, openness 0, roundness 0 ([i]: 2400, 3100 Hz) for palatal, and at frontness 0, openness 212, roundness 0 (≈ 1050, 2500 Hz) for dark, each times `s`. Otherwise a **velar** has the pinch of `N` ([above](#the-consonants)).
 
 The **cascade**, in this order: the nasal pole at FNP = 270 s Hz, BNP = 100 s; the nasal zero at FNZ = FNP + nz × (FNZrow × s − FNP) with BNZ = 100 s (FNZrow = FNP for a consonant with no zero, and in the vowel) — so at `nz = 0` the zero cancels the pole exactly; then F5, F4, F3, F2, F1. Each resonator is Klatt's, unity gain at DC:
 
@@ -869,6 +940,16 @@ The **cascade**, in this order: the nasal pole at FNP = 270 s Hz, BNP = 100 s; t
 C = −e^(−2π B ÷ rate),   Bc = 2 e^(−π B ÷ rate) cos(2π F ÷ rate),   A = 1 − Bc − C
 resonator:      y[n] = A x[n] + Bc y[n−1] + C y[n−2]
 antiresonator:  y[n] = (x[n] − Bc x[n−1] − C x[n−2]) ÷ A          (the inverse of the resonator at FNZ, BNZ)
+```
+
+The nasal zero is set so unless the syllable has **nasality** beyond its nasal consonants — a nasalised vowel, or a nasal nucleus. Then the zero opens toward where the sound a consonant meets has its own, `Zm`: the vowel's FNZv for a nasalised vowel, a nasal's FNZrow × s, and FNP for a sound with none. An onset consonant meets the first nasal among the consonants after it, or the vowel; a coda meets the vowel or the nucleus. With `Zc = FNZrow × s` for a consonant with a zero of its own:
+
+```
+FNZtarget = Zm                        a consonant with no zero of its own
+          = Zc                        one with a zero, when Zm = FNP
+          = Zm + w × (Zc − Zm)        one with a zero, otherwise
+FNZ = FNP + nz × (FNZtarget − FNP)    in a consonant
+FNZ = FNZv                            in a nasalised vowel (nz = 1)
 ```
 
 The **parallel bank**, run while a consonant reads noise: five resonators at F2, F3 (the blended ones), 3300 s, 3750 s and 4900 s Hz, with bandwidths B2, B3, 250 s, 200 s, 1000 s — Klatt's F4…F6 — each scaled to **unity gain at its own frequency** (its `A` replaced by `|1 − Bc e^(−jω) − C e^(−2jω)|` at ω = 2π F ÷ rate), summed with **alternating signs** — `+` for F2, `−` F3, `+` F4, `−` F5, `+` F6 — at gains `gj = 10^((Aj − 60) ÷ 20)` (0 where Aj is 0), plus the noise itself at `gB = 10^((AB − 60) ÷ 20)`. A bank shapes the noise; it does not set its loudness. `NB` makes white noise leave it as loud as it entered, its response `G` taken whole (the signs cancel or reinforce between formants) and weighted by [equal loudness](#equal-loudness) over a sixth-octave grid:
@@ -880,7 +961,7 @@ G(fi) = gB + Σj gj Aj ÷ (1 − Bcj e^(−jω) − Cj e^(−2jω))             
 NB = sqrt( Σi Wi ÷ Σi Wi |G(fi)|² )                                  (0 when the denominator is)
 ```
 
-`cos ω`, `sin ω`, `cos 2ω`, `sin 2ω` are the grid's, computed once. The consonant's own level is `L`, in its tracks.
+`cos ω`, `sin ω`, `cos 2ω`, `sin 2ω` are the grid's, computed once. The consonant's own level is `L`, in its tracks. A velar's gains follow the vowel ([above](#the-consonants)). In a coda after a hissing nucleus, until the coda's own noise starts, the bank is the nucleus's — its amplitudes, its articulation — at the blended F2 and F3.
 
 ##### The noise
 
@@ -1007,8 +1088,8 @@ Actions 3…15 do nothing: a voice matched under one is left as it was.
 **Formant instruments** ([§5.5.3](#5-5-3-type-1-formant-instruments)) are checked as ONE VOICE SPEAKING — the syllables of a word, each its own instrument, on one lane:
 
 - For type 2 a voice sounding a formant instrument matches an incoming formant instrument made from the **same pool range** (block bytes +11…+16 equal), whichever instruments the two are: the range is what a formant instrument is made from, as a sample is what an ordinary one plays.
-- What the check ends is the **vowel**. A formant voice already speaking its coda, or already ramping out, is never a target — the coda ends the note itself.
-- Type 4 with action 1 keys off every syllable on the lane still in its vowel, so each speaks its coda as the lane moves on, whatever the next note is. A syllable with no coda goes on singing its vowel through its release ([§5.5.3](#5-5-3-type-1-formant-instruments)): its fadeout or its volume envelope is what ends it.
+- What the check ends is the **vowel** — or, in a syllable with no vowel, the nucleus. A formant voice already speaking its coda, or already ramping out, is never a target — the coda ends the note itself.
+- Type 4 with action 1 keys off every syllable on the lane still in its vowel (or onset, or nucleus), so each speaks its coda as the lane moves on, whatever the next note is. A syllable with no coda goes on singing its vowel — or holding its nucleus — through its release ([§5.5.3](#5-5-3-type-1-formant-instruments)): its fadeout or its volume envelope is what ends it.
 - Action 0 does not zero a formant voice: it ramps it out over the attack ramp ([§8.7](#8-7-the-attack-ramp)) — the foreground voice through a ghost, as Note Cut's New Note Action does ([§5.7](#5-7-new-note-actions)) — so the next syllable crossfades in rather than splicing on.
 
 ### 5.7 New Note Actions

@@ -6,6 +6,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## 2026-10-21
 
+Formant instruments say more kinds of syllable — a consonant held with no vowel, nasalised vowels, palatalised, dark and glottalised consonants, unreleased codas — and can be made with no samples at all.
+
+- **Fixed: [k], [ɡ] and [kʰ] sounded like [t] before every vowel but [ɛ]** — a velar was made at one fixed place, right only for [ɛ]; it is now made where the vowel puts the tongue, its burst low before [u] and high before [i], and [ŋ], [x] and [ɣ] follow the vowel the same way.
+- **A syllable with no vowel**: set Nucleus to *no vowel* and the last onset consonant is held as long as the key — a hummed [ŋ̍] or [m̩], a long [s̩] or [t͡ʃ̩], a rolled [r̩] — and the coda is said from it on the key-off.
+- **Nasalised vowels**, as French *bon* and *un*: the nose opens through the vowel, and the consonants around it lead in and out of it.
+- **Secondary articulation** on the onset: palatalised [pʲ], velarised or pharyngealised [tˠ], and glottalised [kˀ], with no breath and the voice in at once, as Korean's tense consonants.
+- **Coda release**: an unreleased stop that closes and never opens, as Korean's [kuk̚], a dark coda such as [ɫ], or a glottalised one whose voice stops short.
+- **No samples needed**: a formant instrument can take *Nothing from the pool* and sing from an OPL or PSG instrument alone, its consonants on the noise generator, and Meta… makes one that way in a project with only OPL and PSG instruments.
+
 The OPL tab draws how an instrument's operators are joined, and a four-operator instrument picks its connection from one list of the chip's four.
 
 - **An Algorithm group now heads the OPL tab**: the operators drawn as the chip's data sheet draws them, in the same diagram as the FM Rack's, with Feedback and Connection beside it. The picture redraws as you change either, and keeps its size, so nothing jumps while you step through the choices.

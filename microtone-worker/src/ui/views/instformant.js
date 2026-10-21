@@ -3,18 +3,23 @@
 // Four groups, in the order an instrument is made:
 //
 //   Material   the pool range the instrument is made from — a sample, a
-//              recording, all of them, or typed addresses — and the source the
-//              vowel is sung with, which the recipe machine CHOOSES: the loop in
-//              the range that best suits the vowel, chosen again whenever the
-//              range or the vowel changes. Or an OPL instrument sings in the
-//              sample's place, copied in as a sub-instrument of this one
+//              recording, all of them, typed addresses, or nothing at all —
+//              and the source the vowel is sung with, which the recipe machine
+//              CHOOSES: the loop in the range that best suits the vowel, chosen
+//              again whenever the range or the vowel changes. Or an OPL or PSG
+//              instrument sings in the sample's place, copied in as a
+//              sub-instrument of this one — with nothing from the pool, it is
+//              the only source and the consonants are the noise generator's
 //   Vowel      the tongue on Lindsey's acoustic vowel chart as a 2D slider
 //              (log F1 down, log F2 right to left, as Praat's VowelEditor
 //              draws it), the IPA marked on it, and the lips' roundness
-//              beside it, which moves both
+//              beside it, which moves both; whether there is a vowel at all
+//              (without one the last onset consonant is held — syllabic), and
+//              whether it is nasalised
 //   Syllable   the two onset consonants and the coda, each picked from an IPA
 //              chart coloured by how well the range can make it, and each
-//              sounded by a recipe from a list sorted best first
+//              sounded by a recipe from a list sorted best first; the onset's
+//              secondary articulation, and how the coda is released
 //   Pitch      how the formants follow the note, and the consonants' pace
 //
 // Every edit is a setInstBytesOp on the tract block (formantedit.js), so a
@@ -26,7 +31,8 @@ import { planSetFormantSource } from "../../doc/bankmerge.js";
 import {
   formantFields, formantFieldBytes, formantVowelBytes, formantRangeBytes, formantSlotBytes,
   formantSourceBytes, formantSourceFlagByte, canSourceFormant, slotFromRecipe, slotIsRecipe, VOWEL_MARKS, nearestVowelMark,
-  formantGrBytes, rhoticIpa,
+  formantGrBytes, rhoticIpa, formantRefBytes, isNoPoolRange, formantPoolFreeBytes, FORMANT_RANGE_NONE,
+  FORMANT_DEFAULT_REF,
   vowelEffectArg, vowelF1F2, vowelFormants, vowelCoordsOf, noteHz, timingScale, CONSONANTS,
 } from "../../doc/formantedit.js";
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
@@ -59,6 +65,16 @@ function svg(name, attrs = {}) {
   const n = document.createElementNS(SVG_NS, name);
   for (const k in attrs) n.setAttribute(k, attrs[k]);
   return n;
+}
+
+/** A reference note set aside when the vowel is switched off (its word then
+ *  says "no vowel"), so switching it back on restores it — per instrument. */
+const refMemo = new WeakMap();
+
+/** A row shown but not usable: what it sets means nothing as things are. */
+function disableRow(row) {
+  row.classList.add("dim");
+  for (const c of row.querySelectorAll("button, input, select")) c.disabled = true;
 }
 
 // ── the machine, kept per document while its material is unchanged ─────────
@@ -350,8 +366,11 @@ export function renderFormantTab(view, inst) {
   // The RANGE is the user's; the SOURCE is the machine's. Whenever the range
   // or the vowel moves, the source is chosen again for them — the loop in the
   // range that best suits the vowel — in the same undo step as the edit.
+  // A record made from nothing in the pool has an empty range, and the machine
+  // nothing to choose from: no source, and the generator for every consonant.
+  const noPool = isNoPoolRange(f.rangeLo, f.rangeHi);
   let lo = f.rangeLo, hi = f.rangeHi;
-  if (hi <= lo) [lo, hi] = poolSpan(doc);  // a record with no range: everything
+  if (hi <= lo && !noPool) [lo, hi] = poolSpan(doc);  // a record with no range: everything
   const machine = machineFor(doc, lo, hi);
   const vowel = { front: f.front, open: f.open, round: f.round };
   const vowelFor = (v) => ({ ...v, track: f.track, refNote: f.refNote });
@@ -373,7 +392,8 @@ export function renderFormantTab(view, inst) {
   // addresses typed in.
   const census = doc.sampleList(), regions = doc.sampleRegions();
   const [alo, ahi] = poolSpan(doc);
-  const items = [["all", t("fmt.rangeAllItems"), alo, ahi]];
+  const items = [["all", t("fmt.rangeAllItems"), alo, ahi],
+    ["none", t("fmt.rangeNone"), FORMANT_RANGE_NONE, FORMANT_RANGE_NONE]];
   const sampleItems = census.map((e) => [`s${e.ptr}:${e.len}`,
     `${String(e.index).padStart(3, "0")} ${unescapeName(e.name) || t("smp.namePlaceholder")} · ${fmtBytes(e.len)} · ${hex6(e.ptr)}`,
     e.ptr, e.ptr + e.len]);
@@ -386,6 +406,7 @@ export function renderFormantTab(view, inst) {
   const rangePick = view.pickRow(t("fmt.range"), current ? current[0] : "",
     [...(current ? [] : [["", t("fmt.rangeCustom")]]), ...items.map(pick)],
     (v) => {
+      if (v === "none") { if (!noPool) apply(formantPoolFreeBytes(inst)); return; }
       const it = all.find((x) => x[0] === v);
       if (it && it[3] > it[2]) setRange(it[2], it[3]);
     },
@@ -468,15 +489,22 @@ export function renderFormantTab(view, inst) {
     srcRow.classList.add("dim");
     srcText.textContent += ` · ${t("fmt.sourceIdle")}`;
   }
-  view.group(t("fmt.grpMaterial"), rangePick, addrRow, sungPick, srcRow,
-    machine.cands.length === 0 && !chip ? el("p", "dim fmt-note", t("fmt.rangeEmpty")) : null);
+  // Made from nothing in the pool, the addresses and the sampled source say
+  // nothing: what is left is the source instrument, or silence.
+  addrRow.hidden = noPool;
+  srcRow.hidden = noPool;
+  const materialNote = noPool
+    ? el("p", "dim fmt-note", chip ? t("fmt.noPoolNote", { inst: instLabel(chip) }) : t("fmt.noPoolSilent"))
+    : machine.cands.length === 0 && !chip ? el("p", "dim fmt-note", t("fmt.rangeEmpty")) : null;
+  view.group(t("fmt.grpMaterial"), rangePick, addrRow, sungPick, srcRow, materialNote);
 
   // ── Vowel ──
   const readout = el("div", "fmt-readout");
   const paintReadout = () => {
     const F = vowelFormants(vowel.front, vowel.open, vowel.round, new Float64Array(5), f.rhotic);
     const m = nearestVowelMark(vowel.front, vowel.open, vowel.round);
-    const ipa = m ? (f.rhotic ? rhoticIpa(m.ipa) : m.ipa) : "?";
+    const v = m ? m.ipa + (f.nasal ? "\u0303" : "") : "?";
+    const ipa = m && f.rhotic ? rhoticIpa(v) : v;
     const arg = vowelEffectArg(vowel.front, vowel.open, vowel.round);
     const fx = "S\u00a0$" + arg.toString(16).toUpperCase().padStart(4, "0");
     readout.textContent = t("fmt.readout", {
@@ -512,7 +540,24 @@ export function renderFormantTab(view, inst) {
     vowelEdit(gid);
   }, { ann: (v) => (v < 64 ? t("fmt.spread") : v > 191 ? t("fmt.rounded") : t("fmt.halfRounded")) });
   roundRow.title = t("fmt.roundTitle");
-  view.group(t("fmt.grpVowel"), chart.node, roundRow, readout);
+  // Is there a vowel at all? Without one the syllable's last onset consonant
+  // is its nucleus, held as long as the key is (the reference word reads 0);
+  // the chart's tongue is then only where the consonants rest.
+  const vowelRow = view.selectRow(t("fmt.nucleus"), f.vowel ? 1 : 0,
+    [[1, t("fmt.nucleusVowel")], [0, t("fmt.nucleusNone")]],
+    (v) => {
+      if ((v === 1) === f.vowel) return;
+      if (v === 0) { refMemo.set(inst, f.refNote); apply(formantRefBytes(0, f.nasal)); }
+      else apply(formantRefBytes(refMemo.get(inst) ?? FORMANT_DEFAULT_REF, f.nasal));
+    });
+  vowelRow.title = t("fmt.nucleusTitle");
+  const nasalRow = view.selectRow(t("fmt.nasal"), f.nasal ? 1 : 0,
+    [[0, t("fmt.nasalOff")], [1, t("fmt.nasalOn")]],
+    (v) => { if ((v === 1) !== f.nasal) apply(formantRefBytes(f.refNote, v === 1)); });
+  nasalRow.title = t("fmt.nasalTitle");
+  if (!f.vowel) disableRow(nasalRow);
+  view.group(t("fmt.grpVowel"), chart.node, roundRow, vowelRow, nasalRow, readout,
+    f.vowel ? null : el("p", "dim fmt-note", t("fmt.noVowelNote")));
 
   // ── Syllable ──
   const best = machine.bestPerConsonant(f.timing);
@@ -558,28 +603,48 @@ export function renderFormantTab(view, inst) {
     }
     return row;
   };
+  // Byte +53 is four fields; each row writes it with one of them changed.
+  const grWith = (change) => formantGrBytes({
+    semivowel: f.semivowel, secondary: f.secondary, codaArt: f.codaArt, rhotic: f.rhotic, ...change,
+  });
+  // The onset's secondary articulation, on its last consonant — before the
+  // glide, as [pʲa] or [kˀa] are written.
+  const secRow = view.selectRow(t("fmt.secondary"), f.secondary,
+    [[0, t("fmt.secNone"), { glyph: "—" }], [1, t("fmt.secPalatal"), { glyph: "C\u02B2" }],
+      [2, t("fmt.secDark"), { glyph: "C\u02E0/\u02E4" }], [3, t("fmt.secGlottal"), { glyph: "C\u02C0" }]],
+    (v) => { if (v !== f.secondary) apply(grWith({ secondary: v })); });
+  secRow.classList.add("fmt-sv", "fmt-art");
+  secRow.title = t("fmt.secondaryTitle");
   // The glide (G) and the r-colouring (R), between the onset and the coda —
-  // the syllable is CCGVRC.
+  // the syllable is CCGVRC. A syllable with no vowel has neither.
   const glideRow = view.selectRow(t("fmt.semivowel"), f.semivowel,
     [[0, "—"], ...SEMIVOWELS.slice(1).map((sv) => [sv.code, sv.ipa])],
-    (v) => { if (v !== f.semivowel) apply(formantGrBytes(v, f.rhotic)); });
+    (v) => { if (v !== f.semivowel) apply(grWith({ semivowel: v })); });
   glideRow.classList.add("fmt-sv");
   glideRow.title = t("fmt.semivowelTitle");
   const rhoticRow = view.selectRow(t("fmt.rhotic"), f.rhotic ? 1 : 0,
     [[0, t("fmt.rhoticOff")], [1, t("fmt.rhoticOn")]],
-    (v) => { if ((v === 1) !== f.rhotic) apply(formantGrBytes(f.semivowel, v === 1)); });
+    (v) => { if ((v === 1) !== f.rhotic) apply(grWith({ rhotic: v === 1 })); });
   rhoticRow.title = t("fmt.rhoticTitle");
+  if (!f.vowel) { disableRow(glideRow); disableRow(rhoticRow); }
+  // How the coda lets go.
+  const codaArtRow = view.selectRow(t("fmt.codaArt"), f.codaArt,
+    [[0, t("fmt.codaReleased"), { glyph: "—" }], [1, t("fmt.codaUnreleased"), { glyph: "C\u031A" }],
+      [2, t("fmt.secDark"), { glyph: "C\u02E0/\u02E4" }], [3, t("fmt.codaGlottal"), { glyph: "C\u02C0" }]],
+    (v) => { if (v !== f.codaArt) apply(grWith({ codaArt: v })); });
+  codaArtRow.classList.add("fmt-sv", "fmt-art");
+  codaArtRow.title = t("fmt.codaArtTitle");
   view.group(t("fmt.grpSyllable"),
-    slotRow(0, "fmt.onset1"), slotRow(1, "fmt.onset2"), glideRow, rhoticRow, slotRow(2, "fmt.coda"),
-    el("p", "dim fmt-note", t("fmt.syllableNote")));
+    slotRow(0, "fmt.onset1"), slotRow(1, "fmt.onset2"), secRow, glideRow, rhoticRow, slotRow(2, "fmt.coda"),
+    codaArtRow, el("p", "dim fmt-note", t("fmt.syllableNote")));
 
   // ── Pitch and timing ──
   view.group(t("fmt.grpPitch"),
     view.sliderRow(t("fmt.track"), f.track, 0, 255,
       (v, gid) => applyQuiet(formantFieldBytes("track", v), gid),
       { ann: (v) => t("fmt.trackAnn", { k: (v / 256).toFixed(2) }) }),
-    view.sliderRow(t("fmt.ref"), f.refNote, 0x2000, 0x7000,
-      (v, gid) => applyQuiet(formantFieldBytes("refNote", v), gid),
+    view.sliderRow(t("fmt.ref"), f.vowel ? f.refNote : FORMANT_DEFAULT_REF, 0x2000, 0x7000,
+      (v, gid) => applyQuiet(formantRefBytes(v, f.nasal), gid),
       { ann: (v) => `${noteToStr(v)} · ${noteHz(v).toFixed(1)} Hz` }),
     view.sliderRow(t("fmt.timing"), f.timing, 0, 255,
       (v, gid) => applyQuiet(formantFieldBytes("timing", v), gid),
@@ -592,7 +657,10 @@ export function renderFormantTab(view, inst) {
   const last = notes[notes.length - 1];
   if (last) {
     last.querySelector(".slider-row:nth-child(1)")?.setAttribute("title", t("fmt.trackTitle"));
-    last.querySelector(".slider-row:nth-child(2)")?.setAttribute("title", t("fmt.refTitle"));
+    const refRow = last.querySelector(".slider-row:nth-child(2)");
+    refRow?.setAttribute("title", t(f.vowel ? "fmt.refTitle" : "fmt.refNoVowelTitle"));
+    // With no vowel the word holds no note: the consonants are sized at C3.
+    if (refRow && !f.vowel) disableRow(refRow);
     last.querySelector(".slider-row:nth-child(3)")?.setAttribute("title", t("fmt.timingTitle"));
     last.querySelector(".slider-row:nth-child(4)")?.setAttribute("title", t("fmt.glideTitle"));
   }

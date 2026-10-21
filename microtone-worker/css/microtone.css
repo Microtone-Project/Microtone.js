@@ -2441,6 +2441,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fmt-dash { color: var(--dim); }
 .slider-row.fmt-slot { grid-template-columns: 10rem 3.4rem minmax(0, 1fr); }
 .fmt-slot-cons { font-size: 1.05rem; min-width: 3rem; }
+/* An articulation is a mark on a consonant, shown on phonology's placeholder
+   for one (Cʲ, C̚), large enough that a superscript reads at all. */
+.fmt-art .sl-buttons button { font-size: 1.05rem; line-height: 1.2; }
 .fmt-slot-cons.empty { color: var(--dim); }
 .fmt-recipe { min-width: 0; max-width: 100%; }
 .fmt-cons-modal { max-width: min(1120px, calc(96vw / var(--ui-zoom, 1))); }

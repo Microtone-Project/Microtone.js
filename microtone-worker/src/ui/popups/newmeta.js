@@ -13,10 +13,10 @@
 // Metainstruments are not offered: the engine resolves layers with triggerNote,
 // which never re-enters the meta branch, so metas can't nest.
 
-import { planCreateMeta, planCreateFm, planCreateOpl, planAddMetaLayers } from "../../doc/bankmerge.js";
+import { planCreateMeta, planCreateFm, planCreateOpl, planCreateFormant, planAddMetaLayers } from "../../doc/bankmerge.js";
 import { defaultOplRecord } from "../../doc/opledit.js";
 import { defaultPsgRecord } from "../../doc/psgedit.js";
-import { defaultFormantRecord } from "../../doc/formantedit.js";
+import { defaultFormantRecord, canSourceFormant, FORMANT_RANGE_NONE } from "../../doc/formantedit.js";
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
 import { importBankOp } from "../../doc/ops.js";
 import { META_MAX_LAYERS, metaLayers } from "../../doc/metaedit.js";
@@ -331,9 +331,10 @@ export async function showNewMetaKind(store) {
   // nothing to build from it is the only card offered, rather than the
   // chooser being refused outright.
   const haveCandidates = layerCandidates(store.doc).length > 0;
-  // A formant instrument is made from the pool's samples rather than from
-  // instruments: with none, its card is shown but disabled.
-  const haveSamples = store.doc.sampleList().length > 0 || store.doc.sampleRegions().length > 0;
+  // A formant instrument is made from the pool's samples, or sung from an OPL
+  // or a PSG instrument: with neither, its card is shown but disabled.
+  const haveSamples = store.doc.sampleList().length > 0 || store.doc.sampleRegions().length > 0 ||
+    chipSources(store.doc).length > 0;
   const kind = await pickMetaKind(haveCandidates, haveSamples);
   if (kind === "meta") return showNewMeta(store);
   if (kind === "fm") return showNewFm(store);
@@ -343,15 +344,31 @@ export async function showNewMetaKind(store) {
   return null;
 }
 
+/** The instruments a formant instrument can be sung from: OPL and PSG. */
+function chipSources(doc) {
+  return doc.selectableInstrumentSlots().filter((s) => canSourceFormant(doc.instruments[s]));
+}
+
 /**
  * A new formant instrument (item 212): its range every sample and recording in
  * the pool, its
  * source the one the recipe machine ranks best, singing [a] with no consonants
- * yet — the Formant tab is where it becomes a syllable. Resolves {firstSlot,
+ * yet — the Formant tab is where it becomes a syllable. With nothing in the
+ * pool, it is made from nothing in it: sung from the first OPL or PSG
+ * instrument, its consonants the noise generator's. Resolves {firstSlot,
  * count} like the pickers.
  */
 function createFormant(store) {
   const doc = store.doc;
+  if (doc.sampleList().length === 0 && doc.sampleRegions().length === 0) {
+    const chip = chipSources(doc)[0];
+    if (chip === undefined) return null;
+    const record = defaultFormantRecord(null, 0, FORMANT_RANGE_NONE, FORMANT_RANGE_NONE);
+    const plan = planCreateFormant(doc, record, "Formant", chip);
+    if (plan.error) { alert(plan.error); return null; }
+    store.undo.apply(importBankOp(plan));
+    return { firstSlot: plan.metaSlot, count: 1 };
+  }
   const [lo, hi] = poolSpan(doc);
   const machine = new FormantMachine(doc.sampleBin, rangeCandidates(doc, lo, hi));
   // Chosen for the vowel a new one sings, [a] at C3 (formant.js FormantPatch).

@@ -38,6 +38,11 @@ export function canvasMonoFont(px) {
   return `${px}px ${familyOf("--mono-font")}`;
 }
 
+/** ctx.font string for a canvas's labels and numbers at `px` (Motif Code). */
+export function canvasCodeFont(px) {
+  return `${px}px ${familyOf("--code-font")}`;
+}
+
 /** Drop the cached families — call when --cv-font or --mono-font may have
  *  changed (theme switch, live experimentation from the console). */
 export function refreshCanvasFont() {
@@ -51,7 +56,7 @@ export function refreshCanvasFont() {
  */
 export async function loadCanvasFonts(sizes, onReady) {
   try {
-    await Promise.all(sizes.flatMap((px) => [canvasFont(px), canvasMonoFont(px)].map((f) => document.fonts.load(f))));
+    await Promise.all(sizes.flatMap((px) => [canvasFont(px), canvasMonoFont(px), canvasCodeFont(px)].map((f) => document.fonts.load(f))));
     await document.fonts.ready;
   } catch { /* no Font Loading API / blocked fetch — the fallback stack stands */ }
   onReady?.();

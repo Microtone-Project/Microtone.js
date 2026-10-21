@@ -209,6 +209,44 @@
           await waitFor(() => inst().formant.semivowel === 0 && !inst().formant.rhotic);
         }
 
+        // ── the nucleus, nasalisation, the articulations (items 224.1–224.4) ──
+        {
+          const rowOf = (label) => [...iv.panel.querySelectorAll(".slider-row")]
+            .find((r) => r.querySelector(".sl-label")?.textContent === label);
+          const press = (row, text) => [...row.querySelectorAll(".sl-buttons button")]
+            .find((b) => b.textContent === text || b.title === text).click();
+          const depth0 = store.undo.undoStack.length;
+          const sec = await waitFor(() => rowOf("Secondary articulation"));
+          const secBtns = [...sec.querySelectorAll(".sl-buttons button")].map((b) => b.textContent);
+          log(`the Secondary articulation row offers ${secBtns.join(" ")}: ` +
+            ok(secBtns.join(" ") === "— C\u02B2 C\u02E0/\u02E4 C\u02C0" &&
+               /Open Sans/.test(win.getComputedStyle(sec.querySelector(".sl-buttons button")).fontFamily)));
+          press(sec, "C\u02B2");
+          await waitFor(() => inst().formant.secondary === 1);
+          press(await waitFor(() => rowOf("Coda release")), "C\u031A");
+          await waitFor(() => inst().formant.codaArt === 1);
+          press(await waitFor(() => rowOf("Nasalised")), "nasalised");
+          await waitFor(() => inst().formant.nasal === true);
+          const read = await waitFor(() => iv.panel.querySelector(".fmt-readout")?.textContent);
+          log(`ʲ, ◌̚ and nasalised set the record (secondary 1, coda 1, nasal) and the readout nasalises: "${read}": ` +
+            ok(inst().formant.secondary === 1 && inst().formant.codaArt === 1 && inst().formant.refNote === 0x4000 &&
+               /\u0303/.test(read)));
+          press(await waitFor(() => rowOf("Nucleus")), "no vowel — syllabic consonant");
+          await waitFor(() => inst().formant.refNote === 0);
+          const dimmed = ["Glide", "R-colouring", "Nasalised", "Reference note"].map((l) => rowOf(l));
+          log(`no vowel: reference word 0 with the nasal bit kept, Glide, R, Nasalised and the reference dimmed: ` +
+            ok(inst().formant.nasal === true && dimmed.every((r) => r?.classList.contains("dim") &&
+               [...r.querySelectorAll("button, input")].every((c) => c.disabled))));
+          log(`…and the panel says so: ${ok([...iv.panel.querySelectorAll(".fmt-note")].some((n) => /No vowel/.test(n.textContent)))}`);
+          press(await waitFor(() => rowOf("Nucleus")), "vowel");
+          await waitFor(() => inst().formant.refNote !== 0);
+          log(`the vowel back on restores its reference note ($${inst().formant.refNote.toString(16)}): ` +
+            ok(inst().formant.refNote === 0x4000 && inst().formant.nasal === true));
+          log(`five edits, five undo steps: ${ok(store.undo.undoStack.length === depth0 + 5)}`);
+          for (let i = 0; i < 5; i++) store.undo.undo();
+          await waitFor(() => inst().formant.secondary === 0 && inst().formant.codaArt === 0 && !inst().formant.nasal);
+        }
+
         // ── it sings: a jam note sounds, and its key-off speaks the coda ──
         await waitFor(() => store.audio, 15000);
         const audio = store.audio;
@@ -293,6 +331,28 @@
           log(`the /s/ recipes include the recording's hiss: ${ok(recipeOpts.some((t) => /R\d\d @/.test(t)))}`);
         }
 
+        // ── nothing from the pool: an OPL source and the generator alone ──
+        {
+          const rangeSel = await waitFor(() => iv.panel.querySelector(".inst-rows select.sl-pick"));
+          const noneOpt = [...rangeSel.querySelectorAll("option")].find((o) => o.value === "none");
+          log(`the range picker offers "${noneOpt?.textContent}": ${ok(!!noneOpt)}`);
+          const depth0 = store.undo.undoStack.length;
+          rangeSel.value = "none";
+          rangeSel.dispatchEvent(new win.Event("change"));
+          await waitFor(() => inst().formant.rangeHi <= inst().formant.rangeLo && inst().formant.rangeLo !== 0);
+          log(`it empties the range and takes the source and every slot's sample away, one undo step: ` +
+            ok(inst().sampleLength === 0 && inst().formant.slots.every((x) => x.len === 0) &&
+               inst().formant.slots[0].cons === 54 && store.undo.undoStack.length === depth0 + 1));
+          await waitFor(() => iv.panel.querySelector(".fmt-range")?.hidden);
+          log(`…the addresses and the source are hidden, and the note says what is left: ` +
+            ok(iv.panel.querySelector(".fmt-source").hidden &&
+               [...iv.panel.querySelectorAll(".fmt-note")].some((n) => /Nothing to sing|sung from a sample it does not have|silent/i.test(n.textContent))));
+          const opts = [...iv.panel.querySelectorAll(".fmt-recipe option")].map((e) => e.textContent);
+          log(`…the /s/ recipes are the generator alone (${opts.join(" / ")}): ${ok(opts.length === 1 && /noise generator/.test(opts[0]))}`);
+          store.undo.undo();
+          await waitFor(() => inst().sampleLength > 0);
+        }
+
         // ── it survives a save/reload round trip ──
         const bytes = doc.toBytes();
         const { Document } = await import("../../src/doc/document.js");
@@ -302,6 +362,7 @@
           ok(back.isFormant && String([...back.formantRaw.subarray(3)]) === String([...inst().formantRaw.subarray(3)]) &&
              back.samplePtr === inst().samplePtr));
 
+        log("FAILURES: " + out.filter((l) => l.includes("FAIL")).length);
         log("RESULT: " + (out.some((l) => l.includes("FAIL")) ? "FAIL" : "PASS"));
       } catch (e) {
         log("EXCEPTION: " + (e && e.stack ? e.stack : e));
