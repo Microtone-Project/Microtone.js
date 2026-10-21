@@ -57,6 +57,12 @@ Microtone draws in a typeface of its own, Motif: Chivo Mono recut for the grid, 
 - **Microtone Touch writes its notes in Motif Grid**, on the keys and in the grid: demisharps, demiflats and Kite's up and down ticks now appear as the real signs instead of stand-ins like C+, Dd and arrows.
 - **These fonts come with the app** rather than from a font service, so the desktop app shows them offline as well; neither Chivo Mono nor Roboto Mono are no longer downloaded at all.
 
+The design system — the colours, type, rules and live components both apps are built from — is now published at [microtone.cc/design-system](https://microtone.cc/design-system/).
+
+- **Linked from the documentation**: *Design System* sits under the document list in the docs viewer's contents, and opens the page in a new tab.
+- The page lists every colour token with its contrast ratios, and shows each component drawn by the app's own stylesheet.
+
+
 ## 2026-10-18
 
 The chord maker learns higher-limit harmony, and its neutral and arto/tendo chords reach every equal tuning that can play them, not only the ones that have a built-in notation.

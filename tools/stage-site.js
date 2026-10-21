@@ -25,10 +25,13 @@
 // minus the caller's `exclude` patterns. Other symlinks are skipped: they point
 // outside the tree. Where git is unavailable (a bare tarball), the two
 // directories are walked instead.
+//
+// `--design-system` (the tracker's deploy only) also lays the design system's
+// docs page in at /design-system/ — see stageDesignSystem().
 
 import { execFileSync } from "node:child_process";
 import {
-  copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync,
+  copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -137,16 +140,76 @@ export function stageSite({ site, out, exclude = [] }) {
   return { files: files.length, bytes };
 }
 
+/**
+ * The design system's docs page, published at /design-system/ of a staged
+ * tracker site (`out` is that site's directory, already staged).
+ *
+ * In the repository the page sits at design-system/docs/ and reaches the app
+ * through the layout the repo root is served in (`../../microtone-worker/css/…`,
+ * `../tokens.json`). On the site the tracker's own files ARE the root, and the
+ * page's data files sit beside it, so the copies of index.html and docs.js are
+ * rewritten for that layout:
+ *
+ *   ../../microtone-worker/X  →  ../X          (the site's /X)
+ *   ../tokens.json …          →  tokens.json   (README.md, components.json, notes.json)
+ *
+ * The sources keep the repository layout (that is what the docs README tells
+ * people to open locally); a reference this rewrite did not turn into one that
+ * resolves in the staged tree is an error here, not a broken page on the site.
+ * Only the page and its four data files ship — not fonts/ (Python sources and
+ * the retired fonts' originals) and not the `components` link.
+ */
+export const DESIGN_SYSTEM_FILES = {
+  // staged name → source under design-system/
+  "index.html": "docs/index.html",
+  "docs.js": "docs/docs.js",
+  "docs.css": "docs/docs.css",
+  "README.md": "README.md",
+  "tokens.json": "tokens.json",
+  "components.json": "components.json",
+  "notes.json": "notes.json",
+};
+
+export function rewriteDesignSystemPage(text) {
+  return text
+    .replaceAll("../../microtone-worker/", "../")
+    .replace(/(["'(])\.\.\/(README\.md|tokens\.json|components\.json|notes\.json)/g, "$1$2");
+}
+
+export function stageDesignSystem({ out }) {
+  const dir = join(resolve(out), "design-system");
+  mkdirSync(dir, { recursive: true });
+  for (const [name, src] of Object.entries(DESIGN_SYSTEM_FILES)) {
+    const from = join(ROOT, "design-system", src);
+    if (!existsSync(from)) throw new Error(`stage-site: design-system/${src} is missing`);
+    if (/\.(html|js)$/.test(name)) {
+      const text = rewriteDesignSystemPage(readFileSync(from, "utf8"));
+      // Anything still naming the repository layout would 404 on the site.
+      // (Prose that merely names a path is fine; a URL in an attribute or an
+      // import is not.)
+      const stray = text.match(/(?:from\s+|import\(|src=|href=|fetch\()\s*["'][^"']*microtone-worker\/[^"']*["']/g);
+      if (stray) throw new Error(`stage-site: design-system/${src} still reaches into microtone-worker/: ${stray.join(", ")}`);
+      writeFileSync(join(dir, name), text);
+    } else {
+      copyFileSync(from, join(dir, name));
+    }
+  }
+  return Object.keys(DESIGN_SYSTEM_FILES).length;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [site, outArg] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const withDesignSystem = args.includes("--design-system");
+  const [site, outArg] = args.filter((a) => !a.startsWith("--"));
   if (!site || !outArg) {
-    console.error("usage: node tools/stage-site.js <site-dir> <out-dir>");
+    console.error("usage: node tools/stage-site.js <site-dir> <out-dir> [--design-system]");
     process.exit(2);
   }
   const out = resolve(outArg);
   try {
     const { files, bytes } = stageSite({ site, out });
-    console.log(`stage-site: ${files} files, ${(bytes / 1048576).toFixed(1)} MiB → ${relative(ROOT, out) || out}`);
+    const extra = withDesignSystem ? stageDesignSystem({ out }) : 0;
+    console.log(`stage-site: ${files + extra} files, ${(bytes / 1048576).toFixed(1)} MiB → ${relative(ROOT, out) || out}${extra ? " (with /design-system/)" : ""}`);
   } catch (e) {
     console.error(e.message);
     process.exit(1);

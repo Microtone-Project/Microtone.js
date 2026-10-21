@@ -6,7 +6,10 @@
 // Served from the REPO ROOT (design-system/README.md, "Viewing the docs"): the
 // components are imported by their real path under microtone-worker/, never
 // through design-system/components, whose relative imports would resolve
-// against the link.
+// against the link. microtone.cc/design-system/ serves a staged copy of this
+// page with those paths rewritten (tools/stage-site.js), so keep every URL in
+// the page and in index.html in the `../../microtone-worker/…` / `../<data>.json`
+// shape that rewrite knows.
 
 import { actionRow } from "../../microtone-worker/src/ui/components/actions.js";
 import { showModal, showNotice } from "../../microtone-worker/src/ui/components/modal.js";

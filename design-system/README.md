@@ -18,7 +18,9 @@ The stylesheet `microtone-worker/css/microtone.css` is the source of truth for e
 
 ## Viewing the docs
 
-Serve the REPO ROOT and open `design-system/docs/`:
+Published at [microtone.cc/design-system](https://microtone.cc/design-system/): the deploy lays the page and its four data files (`README.md`, `tokens.json`, `components.json`, `notes.json`) in beside the tracker, with their paths rewritten for the site's layout (`tools/stage-site.js`, `--design-system`). Edit the sources under `design-system/`, never the staged copy.
+
+Locally, serve the REPO ROOT and open `design-system/docs/`:
 
 ```sh
 python3 microtone-worker/tools/test-server.py     # from the repo root; port 8932

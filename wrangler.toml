@@ -10,6 +10,10 @@
 # the asset directory. The branch "version command" (`npx wrangler versions
 # upload`) reads everything from here too.
 #
+# The staged copy also carries the design system's docs page at /design-system/
+# (the --design-system flag: its page, scripts and four data files, with their
+# paths rewritten for the site's layout — tools/stage-site.js).
+#
 # The asset directory is a STAGED COPY, build/microtone-worker, made by the
 # [build] command below before every deploy, upload and `wrangler dev`.
 # microtone-worker/ reaches core/ through a symlink, and the asset upload does
@@ -42,7 +46,7 @@ main = "microtone-worker/server/worker.js"
 compatibility_date = "2026-07-10"
 
 [build]
-command = "node tools/stage-site.js microtone-worker build/microtone-worker"
+command = "node tools/stage-site.js microtone-worker build/microtone-worker --design-system"
 watch_dir = ["core", "microtone-worker/src", "microtone-worker/css", "microtone-worker/assets", "microtone-worker/server"]
 
 [assets]

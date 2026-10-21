@@ -4,7 +4,7 @@
 // matches the main app — shared `microtone-theme` localStorage + data-theme,
 // the same three-way cycle and the same default.
 //
-// Seven documents, all fetched from assets/ and rendered live: the User Manual
+// Eight documents, all fetched from assets/ and rendered live: the User Manual
 // (USER_MANUAL.md), the Note Effects reference (TAUD_NOTE_EFFECTS.md), the
 // three Taud reference specifications (item 997 — TAUD_ENGINE_SPEC.md,
 // TAUD_FILE_FORMAT.md, TAUD_CONVERSION_NOTES.md; these are the canonical texts,
@@ -12,6 +12,7 @@
 // copy), the Microtone Touch sketch format (MICROTONE_SKETCH_FORMAT.md — item
 // 206; Microtone's own, not mirrored) and the Patch Notes (PATCH_NOTES.md —
 // item 95; kept up to date as TODO items land, see CLAUDE.md "Patch notes").
+// Below them the TOC links out to the design system's docs page.
 //
 // On a phone (docs.html's 720px media query) the TOC is a drawer: the ☰
 // button in the top bar slides it over the page, and picking a heading, the
@@ -83,10 +84,17 @@ function setTocOpen(open) {
   tocBtn.setAttribute("aria-expanded", String(open));
 }
 
+// Not a document of this viewer but a page of the site: the design system's
+// docs. The absolute URL is deliberate — /design-system/ exists only on the
+// deployed site (the desktop app and a local server do not carry it), and in
+// the desktop app an external link opens in the system browser.
+const DESIGN_SYSTEM_URL = "https://microtone.cc/design-system/";
+
 function docList(activeId) {
   const items = DOCS.map((d) =>
     `<button class="toc-doc${d.id === activeId ? " active" : ""}" data-doc="${d.id}">${d.title}</button>`).join("");
-  return `<div class="toc-section">${items}</div>`;
+  const external = `<a class="toc-link" href="${DESIGN_SYSTEM_URL}" target="_blank" rel="noopener">Design System</a>`;
+  return `<div class="toc-section">${items}${external}</div>`;
 }
 
 async function selectDoc(id, anchor) {

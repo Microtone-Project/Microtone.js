@@ -54,6 +54,13 @@
       padding: 0.3rem 0.5rem; border-radius: 5px; cursor: pointer; font-size: 0.95rem;
     }
     .toc-doc:hover { background: var(--panel-2); }
+    /* A link out of the viewer, set like the document buttons but marked with
+       an arrow: it leaves the page rather than switching documents. */
+    .docs-toc a.toc-link {
+      color: var(--fg); padding: 0.3rem 0.5rem; font-size: 0.95rem; border-radius: 5px;
+    }
+    .docs-toc a.toc-link::after { content: " \2197"; color: var(--dim); }
+    .docs-toc a.toc-link:hover { background: var(--panel-2); color: var(--fg); }
     .toc-doc.active { background: var(--panel-2); color: var(--accent); font-weight: 600; }
     .docs-toc a {
       display: block; color: var(--dim); text-decoration: none;

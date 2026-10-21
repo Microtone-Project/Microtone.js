@@ -11,6 +11,8 @@
 //     actionRow() (no hand-built .modal-buttons, no Cancel of its own), in the
 //     order Cancel · extras · alternatives · Proceed — and Microtone Touch's
 //     sheets keep the same order by hand;
+//   - the docs page's publication at microtone.cc/design-system/: the staged
+//     copy of the page reaches only files the staged site has;
 //   - the proceed-style rule: Proceed's label at least 200 heavier than every
 //     other button's, its ink readable on its fill in every theme.
 //
@@ -19,9 +21,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, readlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { buildTokens, serialise, contrast } from "../../../tools/design-tokens.js";
+import { DESIGN_SYSTEM_FILES, stageDesignSystem } from "../../../tools/stage-site.js";
 
 const REPO = new URL("../../../", import.meta.url);
 const read = (p) => readFileSync(new URL(p, REPO), "utf8");
@@ -215,4 +220,33 @@ test("Microtone Touch's sheets: Cancel first, the primary last, in every action 
     }
   }
   assert.ok(rows >= 8, `found only ${rows} action rows — has the markup moved?`);
+});
+
+// ── published at /design-system/ ────────────────────────────────────────────
+
+test("the staged docs page reaches only files the site has", () => {
+  const out = mkdtempSync(join(tmpdir(), "mt-ds-"));
+  try {
+    stageDesignSystem({ out });
+    const dir = join(out, "design-system");
+    assert.deepEqual(readdirSync(dir).sort(), Object.keys(DESIGN_SYSTEM_FILES).sort());
+    // The site's root is microtone-worker/ + core/, with the page's own files
+    // under /design-system/. A reference resolves to one or the other.
+    const exists = (rel) => existsSync(join(dir, rel))
+      || existsSync(new URL(rel.replace(/^\.\.\//, "microtone-worker/"), REPO))
+      || (rel.startsWith("../core/") && existsSync(new URL(rel.slice(3), REPO)));
+    let refs = 0;
+    for (const name of ["index.html", "docs.js", "docs.css"]) {
+      const text = readFileSync(join(dir, name), "utf8");
+      for (const m of text.matchAll(/(?:from\s+|import\(|src=|href=|fetch\(|url\()\s*["']?(\.{0,2}\/?[\w][^"')\s]*)["']?/g)) {
+        const ref = m[1];
+        if (/^(#|https?:|data:|mailto:)/.test(ref) || !/\.(js|css|json|md|svg|png|woff2)$/.test(ref)) continue;
+        refs++;
+        assert.ok(exists(ref), `${name}: ${ref} does not resolve on the site`);
+      }
+    }
+    assert.ok(refs >= 20, `checked only ${refs} references — has the page's markup moved?`);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });
