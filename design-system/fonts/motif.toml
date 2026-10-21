@@ -4,8 +4,8 @@
 # The fonts land in core/fonts/ (what both sites serve) and a proof
 # sheet of every variant in build/proof/.
 
-version = "1.002"
-date = "2026-10-21"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
+version = "1.003"
+date = "2026-10-22"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
 
 # ── the two numbers ─────────────────────────────────────────────────────────
 
@@ -25,6 +25,7 @@ narrow_factor = 0.75
 wide_letters = "MmWw"
 wide_factor = 1.25    # digits and punctuation keep the 600-unit cell
 extrapolate = 1.0     # how far past Black a narrowed letter may borrow its stems from
+hyphen = 360          # units: the hyphen's length (Chivo's is 253; + and = are 512), so -= is not .=
 
 [stems]
 compensate = 1.0      # 1: a widened or narrowed glyph keeps its stems' thickness; 0: plain stretch
