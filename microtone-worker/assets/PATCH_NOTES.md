@@ -6,6 +6,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## Version 3.13.1 (2026-10-22)
 
+A PSG instrument with vibrato or tremolo no longer cuts out the whole mix in a pattern preview or a jam.
+
+- **Fixed: the whole mix could cut out with a click when a PSG instrument with vibrato or tremolo played** in a pattern preview, a Motif preview or a jam, after an instrument with the X flag had sounded on the same lane or key — its vibrato and tremolo still counted from where the X instrument had started them, which the new playback had moved into the future. An oscillator without X now always runs them in step with every other.
+
 The envelope graphs zoom with the mouse wheel, and dragging a node sideways moves that node and nothing else.
 
 - **The wheel zooms an envelope graph** about the pointer, as in MilkyTracker: Shift+wheel or a drag on empty graph scrolls, and a double-click on empty graph shows the whole envelope again. Zooming back out stops once on the whole envelope before going further out, and a thin bar along the top shows where you are. Advanced Edit's patch envelopes zoom the same way.

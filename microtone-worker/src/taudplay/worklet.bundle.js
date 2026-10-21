@@ -5539,10 +5539,12 @@ function oplRender(st, frame, rate, vol, keyOff) {
 // deliberately not band-limited; its edges alias the way a chip's do.
 //
 // What is NOT the chip's is the oscillator's "internal status" — its phase,
-// the noise generator's position, the waveform auto-advance and the origin
-// its tremolo and vibrato run from. A PSG channel keeps all of it across the
-// notes a lane plays, as a real PSG keeps counting between key-ons; an
-// oscillator whose X flag is set starts it afresh at every trigger instead.
+// the noise generator's position and the waveform auto-advance. A PSG channel
+// keeps all of it across the notes a lane plays, as a real PSG keeps counting
+// between key-ons; an oscillator whose X flag is set starts it afresh at every
+// trigger instead. The origin its tremolo and vibrato run from follows the
+// same flag but is never carried: X puts it at the note's first frame, and
+// without X it is the chip clock's 0, as on a chip.
 //
 // The record bytes are the patch; `S $Axxx` writes a handful of them at run
 // time (auto-advance, level, mute — TAUD_NOTE_EFFECTS.md) into a per-
@@ -5858,7 +5860,7 @@ class PsgState {
     this.noise = new Float64Array(2);       // noise steps taken, mod PSG_NOISE_WRAP
     this.adv = new Uint8Array(2);           // auto-advance position in its pattern
     this.advCount = new Int32Array(2);      // quarter ticks toward the next advance
-    this.lfo = new Float64Array(2);         // chip sample the LFOs run from
+    this.lfo = new Float64Array(2);         // chip sample the LFOs run from (set at every key-on)
     this.keyed = false;
     this.k = -1;
     this.cur = 0;
@@ -5887,7 +5889,10 @@ function clonePsgState(src) {
  * retrigger its New Note Action cuts, as OPL's); without it both start from
  * silence and the channel joins the chip clock at the first frame it renders.
  * The internal status is kept, oscillator by oscillator, unless that
- * oscillator's X flag resets it here.
+ * oscillator's X flag resets it here. The LFO origin is never kept: X anchors
+ * it at the first frame rendered, and without X it is the chip clock's own 0 —
+ * an origin an earlier X note anchored would otherwise outlive a replay, which
+ * restarts the clock below it (a negative table index, then NaN).
  */
 function psgKeyOn(st, patch, carry) {
   st.patch = patch;
@@ -5907,6 +5912,8 @@ function psgKeyOn(st, patch, carry) {
       st.adv[i] = 0;
       st.advCount[i] = 0;
       st.lfo[i] = NaN;                     // anchored at the first frame rendered
+    } else {
+      st.lfo[i] = 0;                       // the chip clock itself
     }
   }
   st.keyed = true;

@@ -418,6 +418,40 @@ test("internal status carries from note to note, unless the X flag resets it", (
   assert.ok(a1 < b1, "reset by the trigger");
 });
 
+/** A saw on oscillator A with both LFOs, B muted; `reset` is its X flag. */
+const lfoPair = (reset) => ({ muteB: true, osc: [sq({ wave: P.PSG_WAVE_SAW, vibrato: 1, tremolo: 1, reset }), sq()] });
+
+test("the LFO origin is set at every key-on: X anchors it, and without X it is the chip clock's 0", () => {
+  const x = P.decodePsgPatch(P.encodePsgPatch(lfoPair(true)));
+  const plain = P.decodePsgPatch(P.encodePsgPatch(lfoPair(false)));
+  const st = new P.PsgState();
+  const run = (from, n) => Array.from({ length: n }, (_, f) => P.psgRender(st, from + f, 1, false));
+  P.psgKeyOn(st, x, false);
+  run(200000, 10);
+  assert.ok(st.lfo[0] > 0, "X anchored the origin at the note's first frame");
+  P.psgKeyOn(st, plain, false);
+  assert.equal(st.lfo[0], 0, "the next note without X is back on the chip clock");
+  run(200010, 10);
+  // A replay restarts the chip clock below the origin X anchored: an origin
+  // carried over would read the LFO tables at a negative index, then NaN.
+  P.psgKeyOn(st, plain, false);
+  for (const v of run(0, 64)) assert.ok(Number.isFinite(v));
+});
+
+test("a note without X replayed after an X note sounds, and never NaN", () => {
+  const eng = new TaudEngine();
+  eng.uploadInstrument(1, psgInst(lfoPair(true)));
+  eng.uploadInstrument(2, psgInst(lfoPair(false)));
+  loadSong(eng, [{ row: 4, note: 0x5000, inst: 1 }, { row: 8, note: 0x5000, inst: 2 }]);
+  renderLeft(eng, ticks(6 * 10));
+  eng.stop(0);
+  eng.setTrackerRow(0, 8);               // the lane keeps its pair; the chip clock restarts
+  eng.play(0);
+  const replay = renderLeft(eng, ticks(6));
+  assert.ok(replay.every(Number.isFinite), "no NaN on the mix bus");
+  assert.ok(rms(replay) > 0.01, "and the note sounds");
+});
+
 // ── S $Axxx ──────────────────────────────────────────────────────────────
 
 test("S $Axxx decodes to the overlay's registers, and nothing else", () => {
