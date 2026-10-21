@@ -474,6 +474,7 @@ class EqStage {
 export class CompressorStage {
   constructor() {
     this.grDb = 0;        // current gain reduction, dB (negative)
+    this.levelDb = -120;  // the detector's last reading, dB — for a meter only
     this.rms = 0;         // RMS detector's mean-square state
     this.rmsCoef = 0;
     this.attackCoef = 0; this.releaseCoef = 0;
@@ -492,7 +493,7 @@ export class CompressorStage {
     // ignore a single cycle of a bass note, short enough to follow a phrase.
     this.rmsCoef = onePole(10, rate);
   }
-  reset() { this.grDb = 0; this.rms = 0; }
+  reset() { this.grDb = 0; this.rms = 0; this.levelDb = -120; }
 
   /** Update the envelope from the frame's linked detector and return the
    *  linear gain to apply (makeup folded in). */
@@ -540,6 +541,7 @@ export class CompressorStage {
     // −120 dBFS floor: below it the gain computer has nothing to say and the
     // logarithm has nowhere to go.
     const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
+    this.levelDb = levelDb;
     const over = levelDb - this.thresh;
     const half = this.knee * 0.5;
     let targetDb;

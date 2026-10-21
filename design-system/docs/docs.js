@@ -16,6 +16,7 @@ import { showModal, showNotice } from "../../microtone-worker/src/ui/components/
 import { startControlEnhancer } from "../../microtone-worker/src/ui/components/spinner.js";
 import { showContextMenu } from "../../microtone-worker/src/ui/components/contextmenu.js";
 import { dragGrip, focusGrip } from "../../microtone-worker/src/ui/components/dragsort.js";
+import { makeFoldable } from "../../microtone-worker/src/ui/components/fold.js";
 import { noteRun, rangeGlyph } from "../../microtone-worker/src/ui/components/noteglyph.js";
 import { BTN_ICON, ICON, icon } from "../../microtone-worker/src/ui/icons.js";
 import { renderMarkdown } from "../../microtone-worker/src/ui/markdown.js";
@@ -441,6 +442,41 @@ const DEMOS = {
     };
     draw();
     box.append(table);
+  },
+
+  Fold(box) {
+    const out = el("div", "ds-out");
+    const unit = (name, open, withMix) => {
+      const u = el("section", "mst-unit imx-unit");
+      const head = el("div", "mst-unit-head");
+      const title = el("span", "mst-unit-name", name);
+      head.append(title);
+      if (withMix) {
+        const mix = el("label", "imx-mix");
+        const r = el("input");
+        r.type = "range";
+        mix.append(el("span", "", "Mix"), r);
+        head.append(mix);
+      }
+      const sw = el("label", "mst-switch");
+      const c = el("input");
+      c.type = "checkbox";
+      c.checked = open;
+      sw.append(c);
+      head.append(sw);
+      const body = el("div", "mst-unit-body");
+      body.append(el("p", "mst-hint", "The body folds away; the titlebar's switch and slider keep working."));
+      u.append(head, body);
+      // A demo key, so the page remembers it as the app would.
+      makeFoldable(u, {
+        head, body, name: title, key: `ds-demo.${name}`, open, label: "Show or hide the settings",
+        onToggle: (o) => { out.textContent = `${name}: ${o ? "open" : "folded"} (remembered)`; },
+      });
+      return u;
+    };
+    const col = el("div", "ds-fold");
+    col.append(unit("Compressor", true, true), unit("Limiter", false, false));
+    box.append(col, out);
   },
 
   NoteGlyph(box) {

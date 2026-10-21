@@ -36,6 +36,7 @@ function painted(cv) {
   const doc = win.document;
   const { store } = M;
   const { parseTaud } = await import("../../core/format/taud-parse.js");
+  const { makeImixMeterReadout, IMX_TAP_STAGES } = await import("../../core/engine/imix.js");
 
   // ── 1. the tab ───────────────────────────────────────────────────────────
   doc.querySelector('[data-view="instruments"]').click();
@@ -74,13 +75,55 @@ function painted(cv) {
   await sleep(80);
   check(store.doc.instruments[slot].imixId === 1 && !!store.doc.imixBlock(1), "redo puts both back");
 
+  // ── 2b. folding, and the settings of a piece not yet inserted ─────────────
+  const unitEl = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"]`);
+  check([...doc.querySelectorAll(".imx-unit")].every((u) => u.classList.contains("folded")),
+    "an untouched unit that is not in the chain starts folded");
+  check(!!unitEl("verb").querySelector(".imx-mix"), "a reverb's Mix slider is in its titlebar even before it is inserted");
+  check(!unitEl("limi").querySelector(".imx-mix"), "a limiter has no Mix slider");
+  unitEl("dlay").querySelector(".fold-toggle").click();
+  await sleep(40);
+  check(!unitEl("dlay").classList.contains("folded") && unitEl("dlay").querySelector(".fold-toggle").getAttribute("aria-expanded") === "true",
+    "the twisty unfolds it");
+  check(!store.doc.imixBlock(1).equipment.dlay, "…which inserts nothing: a piece not in the chain folds for the session");
+  const dlayRows = unitEl("dlay").querySelectorAll(".mst-unit-body .mst-row").length;
+  check(dlayRows >= 6, "an uninserted unit, unfolded, shows its settings", String(dlayRows));
+  const dlayBox = unitEl("dlay");
+  const fb = [...dlayBox.querySelectorAll(".mst-row")].find((r) => r.querySelector(".mst-lab")?.textContent === "Feedback");
+  const fbNum = fb.querySelector("input.mst-num");
+  fbNum.value = "50";
+  fbNum.dispatchEvent(new Event("change"));
+  await sleep(80);
+  const dl = store.doc.imixBlock(1).equipment.dlay;
+  check(!!dl && dl.bypass === true && Math.abs(dl.feedback - 0.5) < 1e-6,
+    "changing a setting inserts the piece switched OFF, with the new value", JSON.stringify(dl && { b: dl.bypass, f: dl.feedback }));
+  check(dl?.folded === false, "…and its record takes the fold it was shown with (open)");
+  check(unitEl("dlay") === dlayBox, "…without rebuilding the rack (a drag in progress survives)");
+  check(unitEl("dlay").classList.contains("mst-off"), "…and the unit still reads as off");
+  const undoBeforeFold = store.undo.undoStack.length;
+  store.doc.dirty = false;
+  unitEl("dlay").querySelector(".mst-unit-name").click();
+  await sleep(40);
+  check(unitEl("dlay").classList.contains("folded"), "the unit's name folds it too");
+  check(store.doc.imixBlock(1).equipment.dlay.folded === true, "…and the fold is the block's: its flag is set");
+  check(store.undo.undoStack.length === undoBeforeFold, "…with no undo step");
+  check(store.doc.dirty === true, "…but the file is unsaved");
+  check(parseTaud(store.doc.toBytes()).imix.find((x) => x.id === 1)?.equipment.dlay.folded === true,
+    "…and a save carries it");
+  unitEl("verb").querySelector(".fold-toggle").click();
+  iv.renderPanel();
+  await sleep(80);
+  check(unitEl("dlay") !== dlayBox && unitEl("dlay").classList.contains("folded") && !unitEl("verb").classList.contains("folded"),
+    "the fold state survives a rebuild of the rack");
+  const deqNames = [...unitEl("deq1").querySelectorAll(".mst-band-head > span:first-child")].map((x) => x.textContent);
+  check(deqNames[0] === "Low shelf" && deqNames[deqNames.length - 1] === "High shelf",
+    "the dynamic EQ lists the high shelf last", deqNames.join(" | "));
+
   // ── 3. the titlebar switch inserts, then bypasses ─────────────────────────
   const sw = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"] .mst-unit-head input[type=checkbox]`);
   sw("verb").click();
   await sleep(80);
   check(!!store.doc.imixBlock(1).equipment.verb, "switching the reverb on inserts it");
-  check(!!doc.querySelector('.imx-unit[data-equipment="verb"] .imx-mix'), "…and its titlebar grows a Mix slider");
-  check(!doc.querySelector('.imx-unit[data-equipment="limi"] .imx-mix'), "a limiter has no Mix slider");
   sw("verb").click();
   await sleep(80);
   check(store.doc.imixBlock(1).equipment.verb?.bypass === true,
@@ -99,12 +142,16 @@ function painted(cv) {
   // ── 4. sharing ───────────────────────────────────────────────────────────
   iv.selected = other; iv.refresh();
   await sleep(80);
-  const sel = [...doc.querySelectorAll(".imx-head select")].find((s) => s.options.length > 1);
+  const sel = [...doc.querySelectorAll(".imx-head select")].find((s) => s.options[0]?.value === "" && s.options.length > 1);
   check(!!sel, "another instrument can pick the chain up");
-  sel.value = String(slot);
+  check([...sel.options].some((o) => o.value === "1" && o.textContent.startsWith("Chain 1")), "the picker lists chains by number");
+  sel.value = "1";
   sel.dispatchEvent(new Event("change"));
   await sleep(80);
   check(store.doc.instruments[other].imixId === 1, "…and then names block 1 too");
+  await sleep(40);
+  check(unitEl("dlay").classList.contains("folded") && !unitEl("verb").classList.contains("folded"),
+    "another instrument on the chain sees its units folded as the chain was left");
   check(doc.querySelector(".imx-head").textContent.includes("Shared with"), "the tab says who shares it");
   const indep = [...doc.querySelectorAll(".imx-head button")].find((x) => x.textContent === "Make independent");
   indep.click();
@@ -112,6 +159,25 @@ function painted(cv) {
   check(store.doc.instruments[other].imixId === 2, "Make independent copies it to block 2",
     String(store.doc.instruments[other].imixId));
   check(!!store.doc.imixBlock(2)?.equipment.verb, "…settings and all");
+  // Going back to chain 1 leaves chain 2 with nobody on it; it must still be
+  // reachable from the picker until the project is saved.
+  const pick = (v) => {
+    // The chain picker is the select whose first entry is its blank prompt.
+    const s2 = [...doc.querySelectorAll(".imx-head select")].find((x) => x.options[0]?.value === "");
+    if (!s2) return false;
+    s2.value = v;
+    s2.dispatchEvent(new Event("change"));
+    return true;
+  };
+  check(pick("1"), "chain 1 is in the picker");
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 1, "…and the instrument goes back to it");
+  const opt2 = [...doc.querySelectorAll(".imx-head select")].find((x) => x.options[0]?.value === "")
+    ?.querySelector('option[value="2"]');
+  check(!!opt2 && opt2.textContent.includes("unused"), "a chain nobody uses is still listed, marked unused", opt2?.textContent ?? "missing");
+  check(pick("2"), "…and can be picked");
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 2, "…putting the instrument back on it");
   // A chain nobody uses survives the session, and is retired by the save.
   [...doc.querySelectorAll(".imx-head button")].find((x) => x.textContent === "Remove chain").click();
   await sleep(80);
@@ -131,14 +197,46 @@ function painted(cv) {
     String(store.audio.imixMeterSlot));
   doc.getElementById("playSong")?.click();
   await sleep(4000);
-  const r = store.audio.readImixMeter({
-    peak: new Float64Array(4), truePeak: new Float64Array(4), meanSquare: new Float64Array(4),
-    clip: new Float64Array(4), comp: new Float64Array(6), deq1: new Float64Array(6), deq2: new Float64Array(6),
-  });
+  const r = store.audio.readImixMeter(makeImixMeterReadout());
   check(r.slot === slot, "the snapshot meters that instrument", String(r.slot));
   const cvs = ["imx-levels", "imx-spectrum", "imx-gonio"].map((c) => doc.querySelector("canvas." + c));
   check(cvs.every(painted), "levels, spectrum and goniometer painted", cvs.map((c) => (painted(c) ? "y" : "n")).join(""));
   check(painted(doc.querySelector("canvas.imx-gr")), "the gain-reduction meter painted");
+  // The instrument rests between notes: watch the ring for a while.
+  let rung = false;
+  for (let i = 0; i < 40 && !rung; i++) {
+    const q = store.audio.readImixMeter(makeImixMeterReadout());
+    rung = !!q.stageRings?.[IMX_TAP_STAGES.indexOf("comp")].some((v) => v !== 0);
+    if (!rung) await sleep(100);
+  }
+  check(rung, "the tap rings the compressor's input");
+  check(r.unisCents === -1, "no unison in the chain: its live reading says so", String(r.unisCents));
+  if (unitEl("comp").classList.contains("folded")) unitEl("comp").querySelector(".fold-toggle").click();
+  if (unitEl("satu").classList.contains("folded")) unitEl("satu").querySelector(".fold-toggle").click();
+  await sleep(300);
+  check(painted(doc.querySelector('canvas.imx-curve[data-curve="comp"]')), "the compressor's spectrum painted");
+  check(painted(doc.querySelector("canvas.imx-transfer")), "the saturator's transfer curve painted");
+  const thr = doc.querySelector('canvas.imx-thresh[data-thresh="comp"]');
+  check(painted(thr), "the compressor's threshold strip painted");
+  check(r.compLvl[0] > -120 || store.audio.readImixMeter(makeImixMeterReadout()).compLvl[0] > -120,
+    "the snapshot carries the compressor's detector level");
+  // Drag its first row to three-quarters of the way along (−60 … 0 dB → about −15 dB).
+  {
+    const rr = thr.getBoundingClientRect();
+    const zoom = rr.width / thr.clientWidth;
+    const xAt = (fr) => rr.left + (30 + fr * (thr.clientWidth - 30 - 62)) * zoom;
+    const y = rr.top + (14 + 9) * zoom;
+    const undoAt = store.undo.undoStack.length;
+    const pe = (type, x) => thr.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 7, button: 0 }));
+    pe("pointerdown", xAt(0.5));
+    pe("pointermove", xAt(0.6));
+    pe("pointermove", xAt(0.75));
+    pe("pointerup", xAt(0.75));
+    await sleep(60);
+    const th = store.doc.imixBlock(1).equipment.comp.bands[0].threshDb;
+    check(Math.abs(th - -15) < 0.6, "dragging a threshold strip sets that band's threshold", String(th));
+    check(store.undo.undoStack.length === undoAt + 1, "…as one undo step", `${undoAt} → ${store.undo.undoStack.length}`);
+  }
   doc.getElementById("stopBtn")?.click();
   store.audio.stop(0);
   await sleep(100);

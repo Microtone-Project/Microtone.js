@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import * as M from "../../core/engine/imix.js";
 import {
   parseImixSection, buildImixSection, buildImixBlock, encodeEquipment, freeImixId, IMIX_FOURCC,
+  imixWithFolded, imixCarryFolds,
 } from "../../core/format/imix-section.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK } from "../../core/engine/constants.js";
@@ -445,6 +446,9 @@ test("the snapshot carries the Mixing tab's block for the metered instrument", a
   loadIntoEngine(eng, doc, 0);
   const b = M.defaultImixBlock(1);
   b.equipment.limi = M.defaultEquipment("limi");
+  b.equipment.comp = M.defaultEquipment("comp");
+  b.equipment.unis = M.defaultEquipment("unis");
+  b.equipment.equ1 = { ...M.defaultEquipment("equ1"), bypass: true };
   eng.setImix([b]);
   for (let s = 1; s < 64; s++) eng.instruments[s].imixId = 1;
   eng.imixGen++;
@@ -468,7 +472,89 @@ test("the snapshot carries the Mixing tab's block for the metered instrument", a
   let energy = 0;
   for (let i = 0; i < 2 * P.SNAP_IM_RING_FRAMES; i++) energy += f[P.SNAP_IM_BASE + P.SNAP_IM_RING + i] ** 2;
   assert.ok(energy > 0, "the post-chain ring holds the instrument");
+  const ringEnergy = (id) => {
+    const o = P.SNAP_IM_BASE + P.SNAP_IM_STAGE_RINGS + M.IMX_TAP_STAGES.indexOf(id) * P.SNAP_IM_RING_FRAMES;
+    let e = 0;
+    for (let i = 0; i < P.SNAP_IM_RING_FRAMES; i++) e += f[o + i] ** 2;
+    return e;
+  };
+  assert.ok(ringEnergy("comp") > 0, "the compressor's input is rung");
+  assert.equal(ringEnergy("equ1"), 0, "a bypassed equaliser has no input of its own");
+  assert.equal(ringEnergy("deq2"), 0, "nor has a piece that is not in the chain");
+  const cents = f[P.SNAP_IM_BASE + P.SNAP_IM_UNIS_CENTS];
+  assert.ok(Math.abs(cents - 15) < 1e-4, `the unison's live detune (${cents})`);
+  assert.ok(Math.abs(f[P.SNAP_IM_BASE + P.SNAP_IM_UNIS_WIDTH] - 0.8) < 1e-6, "…and width");
+  const lvl = f[P.SNAP_IM_BASE + P.SNAP_IM_COMP_LVL];
+  assert.ok(lvl > -120 && lvl <= 6, `the compressor's detector level is carried (${lvl} dB)`);
+  assert.equal(f[P.SNAP_IM_BASE + P.SNAP_IM_DEQ1_LVL], -120, "an absent dynamic EQ reads nothing");
   eng.setImixMeter(0, -1);
   fillSnapshotInto(eng, 0, f);
   assert.equal(f[P.SNAP_IM_BASE + P.SNAP_IM_FRAMES], 0, "the tap is gone");
+});
+
+test("display responses: a compressor at rest is its make-up, and its bands sum flat", () => {
+  const e = M.defaultEquipment("comp");
+  e.bands = [M.defaultCompBand(), M.defaultCompBand(), M.defaultCompBand()];
+  e.crossovers = M.defaultCrossovers(3);
+  e.bands.forEach((x) => { x.makeupDb = 3; });
+  const chain = new M.InstrumentChain({ id: 1, enabled: true, order: 0, equipment: { comp: e }, unknown: [] });
+  for (const f of [30, 200, 1000, 5000, 15000]) {
+    assert.ok(Math.abs(chain.stageResponseDb("comp", f) - 3) < 1e-6, `flat +3 dB at ${f} Hz`);
+  }
+  chain.showGains("comp", new Float64Array([0, 0, -12, 0, 0, 0]));
+  assert.ok(chain.stageResponseDb("comp", 15000) < -8, "the top band's reduction shows above its crossover");
+  assert.ok(Math.abs(chain.stageResponseDb("comp", 30) - 3) < 0.1, "…and not at the bottom");
+  // The saturator's transfer: odd curves through the origin, and all dry is the identity.
+  const sat = M.defaultEquipment("satu");
+  assert.equal(M.imxSatTransfer(sat, 0), 0);
+  assert.ok(Math.abs(M.imxSatTransfer(sat, 0.5) + M.imxSatTransfer(sat, -0.5)) < 1e-12);
+  assert.equal(M.imxSatTransfer({ ...sat, dry: 255 }, 0.3), 0.3);
+});
+
+test("the folded flag: bit 6 beside the bypass, set in place, out of the undo history", async () => {
+  const b = fullBlock(3);
+  b.equipment.comp.folded = true;
+  b.equipment.verb.bypass = true;
+  const payload = buildImixSection([b]);
+  const back = parseImixSection(payload).blocks.get(3);
+  assert.equal(back.equipment.comp.folded, true, "decoded");
+  assert.equal(back.equipment.verb.folded, false);
+  assert.equal(back.equipment.verb.bypass, true, "…beside an untouched bypass");
+  assert.ok(M.imixBlockEqual(back, { ...back, equipment: { ...back.equipment, comp: { ...back.equipment.comp, folded: false } } }),
+    "a block that differs only in folding is the same chain");
+
+  // In place: one byte moves, and nothing else in the section.
+  const f = imixWithFolded(payload, 3, "verb", true);
+  assert.notEqual(f, payload);
+  assert.equal([...f].filter((x, i) => x !== payload[i]).length, 1, "exactly one byte changes");
+  assert.equal(parseImixSection(f).blocks.get(3).equipment.verb.folded, true);
+  assert.equal(parseImixSection(f).blocks.get(3).equipment.verb.bypass, true, "the bypass bit stays");
+  assert.equal(imixWithFolded(payload, 3, "comp", true), payload, "already folded: the same payload back");
+  assert.equal(imixWithFolded(payload, 9, "comp", false), payload, "no such block: unchanged");
+
+  // Carrying: a replacement takes the folds standing now.
+  const other = buildImixSection([fullBlock(3)]);
+  const carried = imixCarryFolds(other, f);
+  const cb = parseImixSection(carried).blocks.get(3);
+  assert.equal(cb.equipment.comp.folded, true);
+  assert.equal(cb.equipment.verb.folded, true);
+  assert.equal(cb.equipment.verb.bypass, false, "only the fold is carried");
+
+  // Through the document: a fold is no undo step, and undoing an edit keeps it.
+  const doc = new Document(parseTaud(await readFile(DEMO)));
+  doc.setSection(IMIX_FOURCC, payload);
+  doc.dirty = false;
+  const undo = new UndoStack(doc);
+  const edited = { ...doc.imixBlock(3) };
+  edited.equipment = { ...edited.equipment, itrm: { ...edited.equipment.itrm, gainDb: 6 } };
+  undo.apply(setImixOp(doc.imixPayloadWith(3, edited)));
+  assert.equal(doc.setImixFolded(3, "itrm", true), true);
+  assert.equal(doc.dirty, true, "folding marks the file unsaved");
+  assert.equal(undo.undoStack.length, 1, "…but takes no undo step");
+  undo.undo();
+  assert.equal(doc.imixBlock(3).equipment.itrm.gainDb, 0, "the edit is undone");
+  assert.equal(doc.imixBlock(3).equipment.itrm.folded, true, "…and the fold made since stays");
+  undo.redo();
+  assert.equal(doc.imixBlock(3).equipment.itrm.folded, true, "…through the redo too");
+  assert.equal(doc.setImixFolded(3, "nope", true), false, "a piece the block lacks: nothing to fold");
 });

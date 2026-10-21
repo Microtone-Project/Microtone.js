@@ -9,10 +9,26 @@
 // in the block (§9.15: equipment is never retired once touched) and the switch
 // bypasses it.
 //
+// Every unit folds to its titlebar (components/fold.js). The fold is the
+// BLOCK's, saved with it — the folded flag beside each piece's bypass (§9.15) —
+// so every instrument on a chain opens it alike; it is written straight into
+// the section and never enters the undo history. A piece not in the chain has
+// no record to hold it, so its fold lives for the session and is written into
+// the record the moment the piece is inserted. That piece still shows its
+// settings at their defaults: moving one inserts the piece switched OFF
+// (touched, so it stays — but nothing sounds different until its switch says
+// so).
+//
 // Rebuilds vs refreshes, as in the Mastering tab: a slider drag is a stream of
 // edits, so an edit only REPAINTS values (refreshValues); the DOM is rebuilt
-// when the block's SHAPE changes — a piece inserted, a band added, the chain
-// swapped for another — which no drag can do.
+// when the block's SHAPE changes — a band added, a shape picked, the chain
+// swapped for another — which no drag can do. Inserting a piece is NOT a new
+// shape: its body was already drawn from the same defaults.
+//
+// The plots (the spectra in the equalisers, the dynamic EQs and the
+// compressor, the saturator's transfer, the unison's copies) paint from the
+// frame loop while the bus runs and for REST_MS after, on an edit, and when
+// the hairline cursor moves over a spectrum — never on a schedule.
 
 import {
   IMX_PIPELINES, IMX_WET_APPLICABLE, IMX_RANGE, FX16,
@@ -20,22 +36,27 @@ import {
   IMX_VERB, IMX_DLAY, IMX_LIMI, IMX_MXTL,
   IMX_EQ_SHAPES, IMX_EQ_MAX_BANDS, IMX_EQ_BELL, IMX_SLOPES, IMX_COMP_MAX_BANDS,
   IMX_DEQ_BANDS, IMX_SAT_CURVES, IMX_UNIS_MIN_VOICES, IMX_UNIS_MAX_VOICES,
-  IMX_LFO_WAVES, IMX_RING_FRAMES,
+  IMX_LFO_WAVES, IMX_RING_FRAMES, IMX_TAP_STAGES,
+  IMX_DEQ_LOW_SHELF_BAND, IMX_DEQ_HIGH_SHELF_BAND,
   defaultEquipment, defaultImixBlock, defaultCompBand, defaultCrossovers,
-  normaliseImixBlock, imixBlockEqual, isCutShape, InstrumentChain,
-  makeImixMeterReadout,
+  normaliseImixBlock, normaliseEquipment, imixBlockEqual, isCutShape, InstrumentChain,
+  makeImixMeterReadout, imxSatTransfer, unisonPositions,
 } from "../../../core/engine/imix.js";
 import { COMP_PEAK, COMP_RMS } from "../../../core/engine/mastering.js";
 import { SAMPLING_RATE } from "../../../core/engine/constants.js";
 import { SURROUND_STEREO } from "../../../core/engine/spatial.js";
 import { Fft, hannWindow, spectrumDb, tiltDbAt } from "../../../core/engine/fft.js";
+import {
+  freqAt, colOfFreq, fmtDb, stepColumns, drawSpecGround, fillBands, strokeColumns,
+  trackCursor, drawCursor,
+} from "./imixplots.js";
 import { setImixOp, setInstFieldOp, compositeOp } from "../../doc/ops.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { showNotice } from "../components/modal.js";
+import { makeFoldable } from "../components/fold.js";
 import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
-import { uiDpr } from "../zoom.js";
-import { RAD_BANDS } from "../radiation.js";
+import { uiDpr, localPoint } from "../zoom.js";
 import { t } from "../i18n.js";
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -52,10 +73,24 @@ const SPEC_ATTACK = 0.55;
 const SPEC_RELEASE_DB_S = 42;
 const SPEC_HOLD_FALL_DB_S = 8;
 const CURVE_DB = 24;          // the EQ curve's ± axis
+const MONITOR_SPEC_H = 220;
+const UNIT_SPEC_H = 120;
+/** The threshold strips: a row per band on the threshold's own scale. */
+const THR_ROW_H = 18;
+const THR_TOP = 14;          // the axis labels above the rows
+const THR_LABEL_W = 30;
+const THR_VALUE_W = 62;
+const THR_FALL_DB_S = 30;
 /** How long the monitors keep painting after the bus last ran, so the
  *  ballistics come to rest instead of freezing mid-fall. */
 const REST_MS = 2000;
 const frac = (db, lo, hi) => clamp((db - lo) / (hi - lo), 0, 1);
+/** The dynamic EQ's bands as the rack lists them: the low shelf, the four
+ *  bells, the high shelf — low to high, whatever their slots in the file. */
+const DEQ_ORDER = [IMX_DEQ_LOW_SHELF_BAND, 2, 3, 4, 5, IMX_DEQ_HIGH_SHELF_BAND];
+const deqShort = (i) => (i === IMX_DEQ_LOW_SHELF_BAND ? "LS" : i === IMX_DEQ_HIGH_SHELF_BAND ? "HS" : `B${i - 1}`);
+/** Octaves a band-pass of quality q spans between its −3 dB points. */
+const octavesOfQ = (q) => (2 * Math.asinh(1 / (2 * q))) / Math.LN2;
 
 /** The unit each equipment's name is looked up under. */
 const NAME_KEY = {
@@ -95,9 +130,22 @@ export class MixingPanel {
       this.specTilt[k] = tiltDbAt((k * SAMPLING_RATE) / IMX_RING_FRAMES);
     }
     this.specCols = null; this.specPre = null; this.specHold = null;
+    this.specCursor = null;
     this.gonioGain = 1;
     /** A chain kept off the audio path purely to draw the EQ curve with. */
     this.curveChain = null;
+    /** Per piece: a chain holding only that piece, in circuit — its own
+     *  response for the unit's plot, whether or not the piece is in the block. */
+    this.unitChains = new Map();
+    /** Per spectral piece: { cols, bins } — its input spectrum's columns. */
+    this.unitSpec = new Map();
+    /** The plots inside the units: { canvas, paint(C, live, dt) }. */
+    this.plots = [];
+    /** A cursor moved over a resting plot: the next frame repaints. */
+    this._cursorDirty = false;
+    this._ghosts = new Map();
+    /** Open or not, per `${block}:${piece}`, for pieces the block does not hold. */
+    this._ghostOpen = new Map();
 
     this.store.on("edit", (tags) => {
       if (!this.root?.isConnected) return;
@@ -116,14 +164,46 @@ export class MixingPanel {
   get blockId() { return this.inst?.imixId ?? 0; }
   get block() { return this.blockId ? this.doc.imixBlock(this.blockId) : null; }
 
+  /** A piece's settings: the block's, or — while it is not in the chain — the
+   *  defaults it would be inserted with. */
+  eqp(id) {
+    const e = this.block?.equipment[id];
+    if (e) return e;
+    if (!this._ghosts.has(id)) this._ghosts.set(id, normaliseEquipment(id, defaultEquipment(id)));
+    return this._ghosts.get(id);
+  }
+
+  /** Is piece `id`'s unit open? The block's flag, or the session's for a
+   *  piece not yet in it (shut until opened). */
+  unitOpen(id) {
+    const e = this.block?.equipment[id];
+    if (e) return !e.folded;
+    return this._ghostOpen.get(`${this.blockId}:${id}`) ?? false;
+  }
+
+  setUnitOpen(id, open) {
+    this._ghostOpen.set(`${this.blockId}:${id}`, open);
+    if (this.block?.equipment[id] && this.doc.setImixFolded(this.blockId, id, !open)) this.store.emit("status");
+  }
+
+  /** A piece being inserted, folded as its unit is shown. */
+  inserted(id, extra = {}) {
+    return { ...defaultEquipment(id), ...extra, folded: !this.unitOpen(id) };
+  }
+
+  /** Is the piece in the block and not bypassed? */
+  inCircuit(id) {
+    const e = this.block?.equipment[id];
+    return !!e && !e.bypass;
+  }
+
   /** What decides the DOM: which pieces are in, how many bands each has. */
   shapeKey() {
     const b = this.block;
     if (!b) return `none:${this.blockId}`;
     const parts = [b.id, b.order];
     for (const id of IMX_PIPELINES[0]) {
-      const e = b.equipment[id];
-      if (!e) { parts.push("-"); continue; }
+      const e = this.eqp(id);
       parts.push(`${id}:${e.bands?.length ?? 0}:${e.sync ?? ""}:` +
         `${e.detuneLfo?.sync ?? ""}${e.widthLfo?.sync ?? ""}:` +
         `${(e.bands ?? []).map((x) => `${x.shape ?? ""}${x.unlinked ? "u" : ""}`).join("")}`);
@@ -145,8 +225,14 @@ export class MixingPanel {
     else this.refreshValues();
   }
 
+  /** Edit one piece. A piece not yet in the chain is inserted, switched off:
+   *  touching a setting is touching the piece, but only its switch puts it in
+   *  circuit. */
   editEquipment(id, mutate, control = null) {
-    this.edit((b) => { mutate(b.equipment[id]); }, control ? `${id}:${control}` : null);
+    this.edit((b) => {
+      if (!b.equipment[id]) b.equipment[id] = this.inserted(id, { bypass: true });
+      mutate(b.equipment[id]);
+    }, control ? `${id}:${control}` : null);
   }
 
   beginGesture() { this.gesture = `imx-${Date.now()}-${Math.random()}`; }
@@ -164,9 +250,9 @@ export class MixingPanel {
     ]));
   }
 
-  useChainOf(otherSlot) {
-    const id = this.doc.instruments[otherSlot]?.imixId ?? 0;
-    if (id === 0 || id === this.blockId) return;
+  /** Put this instrument on block `id` (any block of the project, used or not). */
+  useChain(id) {
+    if (id === 0 || id === this.blockId || !this.doc.imixBlock(id)) return;
     this.store.undo.apply(setInstFieldOp(this.slot, "imixId", id));
   }
 
@@ -187,23 +273,32 @@ export class MixingPanel {
     this.store.undo.apply(setInstFieldOp(this.slot, "imixId", 0));
   }
 
-  /** Every OTHER instrument that has a chain, as [slot, label]. */
+  /** Every OTHER chain of the project, as [id, label] — by its block, not by
+   *  the instruments on it, so a chain nobody uses any more (it stays until the
+   *  project is saved) can still be gone back to. */
   otherChains() {
     const doc = this.doc;
     const out = [];
-    for (const s of doc.selectableInstrumentSlots()) {
-      if (s === this.slot) continue;
-      const id = doc.instruments[s].imixId;
-      if (id === 0 || !doc.imixBlock(id)) continue;
-      out.push([s, `${hex3(s)} ${unescapeName(doc.instrumentName(s)) || t("inst.unnamed")}`]);
+    for (const b of doc.imixBlocks()) {
+      if (b.id === this.blockId) continue;
+      const users = doc.imixUsers(b.id).filter((s) => s !== this.slot);
+      out.push([b.id, users.length === 0
+        ? t("imix.chainUnused", { id: b.id })
+        : t("imix.chainUsers", { id: b.id, list: users.map((s) => this.instLabel(s)).join(", ") })]);
     }
     return out;
+  }
+
+  instLabel(s) {
+    return `${hex3(s)} ${unescapeName(this.doc.instrumentName(s)) || t("inst.unnamed")}`;
   }
 
   // ── building ──
 
   render(host) {
     this.controls = [];
+    this.plots = [];
+    this.unitChains.clear();
     this.root = document.createElement("div");
     this.root.className = "imx-tab";
     host.appendChild(this.root);
@@ -253,7 +348,7 @@ export class MixingPanel {
     use.title = t("imix.useChainTitle");
     const o0 = document.createElement("option");
     o0.value = "";
-    o0.textContent = t("imix.useChainOf");
+    o0.textContent = t("imix.useChain");
     use.appendChild(o0);
     for (const [s, label] of others) {
       const o = document.createElement("option");
@@ -262,7 +357,7 @@ export class MixingPanel {
       use.appendChild(o);
     }
     use.disabled = others.length === 0;
-    use.addEventListener("change", () => { if (use.value !== "") this.useChainOf(+use.value); });
+    use.addEventListener("change", () => { if (use.value !== "") this.useChain(+use.value); });
 
     if (!block) {
       head.appendChild(note("imix.none"));
@@ -299,7 +394,7 @@ export class MixingPanel {
     shared.textContent = users.length === 0
       ? t("imix.notShared")
       : t("imix.sharedWith", {
-        list: users.map((s) => `${hex3(s)} ${unescapeName(doc.instrumentName(s)) || t("inst.unnamed")}`).join(", "),
+        list: users.map((s) => this.instLabel(s)).join(", "),
       });
     head.appendChild(shared);
     if (block.unknown.length > 0) {
@@ -312,7 +407,8 @@ export class MixingPanel {
     return head;
   }
 
-  /** One piece of equipment: a titlebar (name · mix · switch) and its body. */
+  /** One piece of equipment: a titlebar (fold · name · mix · switch) and its
+   *  body — the settings, at their defaults while the piece is not inserted. */
   unit(id) {
     const box = document.createElement("section");
     box.className = "mst-unit mst-switchable imx-unit";
@@ -323,28 +419,34 @@ export class MixingPanel {
     name.className = "mst-unit-name";
     name.textContent = t(NAME_KEY[id]);
     head.appendChild(name);
-    const e = this.block.equipment[id];
-    if (e && IMX_WET_APPLICABLE.has(id)) head.appendChild(this.mixSlider(id));
-    const sw = this.switchEl("", () => {
-      const x = this.block?.equipment[id];
-      return !!x && !x.bypass;
-    }, (on) => this.edit((b) => {
-      if (!b.equipment[id]) b.equipment[id] = defaultEquipment(id);
+    if (IMX_WET_APPLICABLE.has(id)) head.appendChild(this.mixSlider(id));
+    const sw = this.switchEl("", () => this.inCircuit(id), (on) => this.edit((b) => {
+      if (!b.equipment[id]) b.equipment[id] = this.inserted(id);
       else b.equipment[id].bypass = !on;
     }));
-    sw.title = t(e ? "imix.bypassTitle" : "imix.insertTitle");
     head.appendChild(sw);
-    this.controls.push({ refresh: () => box.classList.toggle("mst-off", !(this.block?.equipment[id] && !this.block.equipment[id].bypass)) });
     const body = document.createElement("div");
     body.className = "mst-unit-body";
     box.append(head, body);
-    if (!e) {
-      const p = document.createElement("p");
-      p.className = "mst-hint";
-      p.textContent = t("imix.notInserted");
-      body.appendChild(p);
-      return box;
-    }
+    const hint = document.createElement("p");
+    hint.className = "mst-hint";
+    hint.textContent = t("imix.notInserted");
+    body.appendChild(hint);
+    const fold = makeFoldable(box, {
+      head, body, name, label: t("imix.foldTitle"),
+      get: () => this.unitOpen(id), set: (open) => this.setUnitOpen(id, open),
+      onToggle: (open) => { if (open) this.paintPlots(false, 0); },
+    });
+    this.controls.push({
+      refresh: () => {
+        fold.sync();
+        const present = !!this.block?.equipment[id];
+        box.classList.toggle("mst-off", !this.inCircuit(id));
+        if (hint.hidden !== present) hint.hidden = present;
+        const title = t(present ? "imix.bypassTitle" : "imix.insertTitle");
+        if (sw.title !== title) sw.title = title;
+      },
+    });
     switch (id) {
       case IMX_ITRM: body.append(this.num(id, "imix.gain", "gainDb", "trimDb", { unit: "dB", digits: 1 })); break;
       case IMX_EQU1:
@@ -374,7 +476,7 @@ export class MixingPanel {
     range.min = 0; range.max = 255; range.step = 1;
     const val = document.createElement("span");
     val.className = "imx-mixval";
-    const get = () => this.block?.equipment[id]?.dry ?? 0;
+    const get = () => this.eqp(id).dry ?? 0;
     const paint = () => {
       const dry = get();
       if (this._dragging !== range) range.value = String(255 - dry);
@@ -397,12 +499,8 @@ export class MixingPanel {
   // ── equipment bodies ──
 
   bodyEq(id, body) {
-    const cv = document.createElement("canvas");
-    cv.className = "mst-eq-curve imx-curve";
-    cv.dataset.curve = id;
-    body.appendChild(cv);
-    this.controls.push({ refresh: () => this.drawCurve(cv, [id]) });
-    const e = this.block.equipment[id];
+    body.appendChild(this.unitPlot(id));
+    const e = this.eqp(id);
     e.bands.forEach((_, i) => body.appendChild(this.eqBand(id, i)));
     if (e.bands.length < IMX_EQ_MAX_BANDS) {
       const add = document.createElement("button");
@@ -426,10 +524,10 @@ export class MixingPanel {
     del.className = "imx-del";
     del.textContent = t("imix.removeBand");
     del.addEventListener("click", () => this.editEquipment(id, (x) => { x.bands.splice(i, 1); }));
-    head.append(name, del, this.switchEl("", () => this.block?.equipment[id]?.bands[i]?.on ?? false,
+    head.append(name, del, this.switchEl("", () => this.eqp(id).bands[i]?.on ?? false,
       (on) => this.editEquipment(id, (x) => { x.bands[i].on = on; })));
     box.appendChild(head);
-    const band = () => this.block?.equipment[id]?.bands[i];
+    const band = () => this.eqp(id).bands[i];
     const shapes = [];
     for (let s = 0; s < IMX_EQ_SHAPES; s++) shapes.push([s, t(`imix.shape${s}`)]);
     box.appendChild(this.choiceRow("imix.shape", shapes, () => band()?.shape ?? 0,
@@ -458,7 +556,8 @@ export class MixingPanel {
 
   bodyComp(body) {
     const id = IMX_COMP;
-    const e = () => this.block?.equipment[id];
+    const e = () => this.eqp(id);
+    body.append(this.unitPlot(id), this.thresholdStrip(id));
     const counts = [];
     for (let n = 1; n <= IMX_COMP_MAX_BANDS; n++) counts.push([n, String(n)]);
     body.append(
@@ -506,12 +605,9 @@ export class MixingPanel {
   }
 
   bodyDeq(id, body) {
-    const cv = document.createElement("canvas");
-    cv.className = "mst-eq-curve imx-curve";
-    body.appendChild(cv);
-    this.controls.push({ refresh: () => this.drawCurve(cv, [id]) });
-    const e = () => this.block?.equipment[id];
-    for (let i = 0; i < IMX_DEQ_BANDS; i++) {
+    body.append(this.unitPlot(id), this.thresholdStrip(id));
+    const e = () => this.eqp(id);
+    for (const i of DEQ_ORDER) {
       const box = document.createElement("div");
       box.className = "mst-band";
       const head = document.createElement("div");
@@ -559,8 +655,12 @@ export class MixingPanel {
     const id = IMX_SATU;
     const curves = [];
     for (let c = 0; c < IMX_SAT_CURVES; c++) curves.push([c, t(`imix.curve${c}`)]);
+    const cv = document.createElement("canvas");
+    cv.className = "mst-canvas imx-transfer";
+    this.plots.push({ canvas: cv, paint: (C) => this.drawTransfer(cv, C) });
     body.append(
-      this.choiceRow("imix.curve", curves, () => this.block?.equipment[id]?.curve ?? 0,
+      cv,
+      this.choiceRow("imix.curve", curves, () => this.eqp(id).curve ?? 0,
         (v) => this.editEquipment(id, (x) => { x.curve = v; })),
       this.num(id, "imix.drive", "driveDb", "satDriveDb", { unit: "dB", digits: 1 }),
       this.num(id, "imix.inTrim", "inDb", "satTrimDb", { unit: "dB", digits: 1 }),
@@ -576,9 +676,13 @@ export class MixingPanel {
     const hint = document.createElement("p");
     hint.className = "mst-hint";
     hint.textContent = t("imix.unisHint");
+    const cv = document.createElement("canvas");
+    cv.className = "mst-canvas imx-unison";
+    this.plots.push({ canvas: cv, paint: (C, live) => this.drawUnison(cv, C, live) });
     body.append(
       hint,
-      this.choiceRow("imix.voices", voices, () => this.block?.equipment[id]?.voices ?? 4,
+      cv,
+      this.choiceRow("imix.voices", voices, () => this.eqp(id).voices ?? 4,
         (v) => this.editEquipment(id, (x) => { x.voices = v; })),
       this.num(id, "imix.detune", "detune", "unisDetune", { unit: "¢", digits: 1 }),
       this.num(id, "imix.width", "width", "unisWidth", { unit: "%", digits: 0, scale: 100 }),
@@ -597,7 +701,7 @@ export class MixingPanel {
     name.textContent = t(titleKey);
     head.appendChild(name);
     box.appendChild(head);
-    const l = () => this.block?.equipment[id]?.[key];
+    const l = () => this.eqp(id)[key];
     const waves = [];
     for (let w = 0; w < IMX_LFO_WAVES; w++) waves.push([w, t(`imix.wave${w}`)]);
     const sync = l().sync;
@@ -631,7 +735,7 @@ export class MixingPanel {
       this.num(id, "imix.size", "size", "verbSize", { unit: "%", digits: 0, scale: 100 }),
       this.num(id, "imix.decay", "decay", "verbDecay", { unit: "s", digits: 2, log: true }),
       this.num(id, "imix.damping", "damping", "verbDamping", { unit: "Hz", digits: 0, log: true }),
-      this.numRow("imix.preDelay", "verbPreDelay", () => this.block?.equipment[id]?.preDelay ?? 0,
+      this.numRow("imix.preDelay", "verbPreDelay", () => this.eqp(id).preDelay ?? 0,
         (v) => this.editEquipment(id, (x) => { x.preDelay = v; }, "pre"),
         { unit: "ms", digits: 1, fx: true, scale: 1000 }),
     );
@@ -639,7 +743,7 @@ export class MixingPanel {
 
   bodyDelay(body) {
     const id = IMX_DLAY;
-    const e = () => this.block?.equipment[id];
+    const e = () => this.eqp(id);
     const hint = document.createElement("p");
     hint.className = "mst-hint";
     hint.textContent = t(e().sync ? "imix.syncHint" : "imix.secondsHint");
@@ -673,14 +777,14 @@ export class MixingPanel {
       this.num(id, "imix.gain", "gainDb", "limGainDb", { unit: "dB", digits: 1 }),
       this.num(id, "imix.ceiling", "ceilingDb", "limCeilingDb", { unit: "dB", digits: 1 }),
       this.num(id, "imix.release", "releaseMs", "limReleaseMs", { unit: "ms", digits: 0, log: true }),
-      this.checkRow("imix.truePeak", "imix.truePeakTitle", () => this.block?.equipment[id]?.truePeak ?? false,
+      this.checkRow("imix.truePeak", "imix.truePeakTitle", () => this.eqp(id).truePeak ?? false,
         (on) => this.editEquipment(id, (x) => { x.truePeak = on; })),
     );
   }
 
   bodyMix(body) {
     const id = IMX_MXTL;
-    const flag = (lab, key) => this.checkRow(lab, null, () => this.block?.equipment[id]?.[key] ?? false,
+    const flag = (lab, key) => this.checkRow(lab, null, () => this.eqp(id)[key] ?? false,
       (on) => this.editEquipment(id, (x) => { x[key] = on; }));
     body.append(
       this.num(id, "imix.gain", "gainDb", "mxGainDb", { unit: "dB", digits: 1 }),
@@ -695,7 +799,7 @@ export class MixingPanel {
 
   /** A number row bound to equipment field `key`. */
   num(id, labelKey, key, rangeKey, opts) {
-    return this.numRow(labelKey, rangeKey, () => this.block?.equipment[id]?.[key] ?? 0,
+    return this.numRow(labelKey, rangeKey, () => this.eqp(id)[key] ?? 0,
       (v) => this.editEquipment(id, (x) => { x[key] = v; }, key), opts);
   }
 
@@ -813,7 +917,42 @@ export class MixingPanel {
   refreshValues() {
     const b = this.block;
     if (b && this.curveChain) this.curveChain.setBlock(b);
+    for (const [id, chain] of this.unitChains) chain.setBlock(this.onlyBlock(id));
     for (const c of this.controls) c.refresh();
+    this.paintPlots(false, 0);
+  }
+
+  /** A block holding piece `id` alone, in circuit — what its unit draws. */
+  onlyBlock(id) {
+    return { id: 1, enabled: true, order: 0, equipment: { [id]: { ...this.eqp(id), bypass: false } }, unknown: [] };
+  }
+
+  unitChain(id) {
+    let c = this.unitChains.get(id);
+    if (!c) {
+      c = new InstrumentChain(this.onlyBlock(id), SAMPLING_RATE, 2, true);
+      this.unitChains.set(id, c);
+    }
+    return c;
+  }
+
+  /** The spectrum inside an equaliser, a dynamic EQ or the compressor. */
+  unitPlot(id) {
+    const cv = document.createElement("canvas");
+    cv.className = "mst-eq-curve imx-curve";
+    cv.dataset.curve = id;
+    this.unitChain(id);
+    const plot = { canvas: cv, cursor: null, paint: (C, live, dt) => this.drawUnitSpectrum(id, plot, C, live, dt) };
+    plot.cursor = trackCursor(cv, () => { this._cursorDirty = true; });
+    this.plots.push(plot);
+    return cv;
+  }
+
+  /** Paint every unit plot. `live` = the bus ran this frame. */
+  paintPlots(live, dt) {
+    if (!this.root?.isConnected) return;
+    const C = themeColors();
+    for (const p of this.plots) p.paint(C, live, dt);
   }
 
   // ── monitors ──
@@ -857,6 +996,7 @@ export class MixingPanel {
     this.grCanvas = mk("imx-gr");
     scope("imix.reduction").body.appendChild(this.grCanvas);
     this.specCanvas = mk("imx-spectrum");
+    this.specCursor = trackCursor(this.specCanvas, () => { this._cursorDirty = true; });
     const tilt = document.createElement("span");
     tilt.className = "mst-stagetag";
     tilt.textContent = t("imix.tilt");
@@ -903,14 +1043,19 @@ export class MixingPanel {
     const fresh = r.frames > 0 && r.slot === this.slot;
     if (fresh) this.lastLive = now;
     // Change-driven: paint while the bus runs, and for a moment after so the
-    // ballistics settle; a still picture is not repainted.
-    if (!fresh && now - this.lastLive > REST_MS) return;
-    this.ingest(fresh, now, dt);
+    // ballistics settle; a still picture is not repainted — unless a cursor
+    // moved over it, which redraws it as it stands (no time passes for it).
+    const resting = !fresh && now - this.lastLive > REST_MS;
+    if (resting && !this._cursorDirty) return;
+    this._cursorDirty = false;
+    const step = resting ? 0 : dt;
+    this.ingest(fresh, now, step);
     const C = themeColors();
     this.drawLevels(C, now);
     this.drawReduction(C);
-    this.drawSpectrum(C, fresh, dt);
+    this.drawSpectrum(C, fresh, step);
     this.drawGonio(C, fresh);
+    for (const p of this.plots) p.paint(C, fresh, step);
   }
 
   ingest(fresh, now, dt) {
@@ -983,9 +1128,9 @@ export class MixingPanel {
     }
     for (const [id, arr] of [[IMX_DEQ1, this.gr.deq1], [IMX_DEQ2, this.gr.deq2]]) {
       if (!on(id)) continue;
-      e[id].bands.forEach((band, i) => {
-        if (band.on) rows.push([`${t(id === IMX_DEQ1 ? "imix.deqShort1" : "imix.deqShort2")} ${i === 0 ? "LS" : i === 1 ? "HS" : `B${i - 1}`}`, arr[i], true]);
-      });
+      for (const i of DEQ_ORDER) {
+        if (e[id].bands[i].on) rows.push([`${t(id === IMX_DEQ1 ? "imix.deqShort1" : "imix.deqShort2")} ${deqShort(i)}`, arr[i], true]);
+      }
     }
     if (on(IMX_LIMI)) rows.push([t("imix.limi"), this.gr.lim, false]);
     const rowH = 16;
@@ -1029,7 +1174,7 @@ export class MixingPanel {
   /** The spectrum after the chain (band-inked), before it (a line), a held
    *  peak, and the static EQ curve of the chain over it on a ±24 dB axis. */
   drawSpectrum(C, fresh, dt) {
-    const box = this.ctxFor(this.specCanvas, 150);
+    const box = this.ctxFor(this.specCanvas, MONITOR_SPEC_H);
     if (!box) return;
     const { ctx, w, h } = box;
     const cols = Math.max(2, Math.round(w));
@@ -1039,109 +1184,57 @@ export class MixingPanel {
       this.specHold = new Float64Array(cols).fill(SPEC_MIN_DB);
     }
     const r = this.readout;
-    const fOf = (x) => 20 * Math.exp((x / (cols - 1)) * Math.log(1000));
     if (fresh) {
       // The pair's mono sum, unrolled out of the frame-interleaved ring.
       const ring = r.ring;
       const mono = this.specMono;
       for (let k = 0; k < IMX_RING_FRAMES; k++) mono[k] = (ring[k * 2] + ring[k * 2 + 1]) * 0.5;
-      spectrumDb(this.fft, this.specWin, this.specNorm, mono, r.write, this.specBins, SPEC_MIN_DB - 24);
-      spectrumDb(this.fft, this.specWin, this.specNorm, r.ringPre, r.write, this.specBinsPre, SPEC_MIN_DB - 24);
-      for (let k = 1; k < this.specBins.length; k++) {
-        this.specBins[k] += this.specTilt[k];
-        this.specBinsPre[k] += this.specTilt[k];
-      }
+      this.spectrum(mono, r.write, this.specBins);
+      this.spectrum(r.ringPre, r.write, this.specBinsPre);
     }
-    const binHz = SAMPLING_RATE / IMX_RING_FRAMES;
-    const nBins = this.specBins.length;
     const fall = (SPEC_RELEASE_DB_S * dt) / 1000;
     const holdFall = (SPEC_HOLD_FALL_DB_S * dt) / 1000;
-    const colOf = (bins, x) => {
-      const f0 = 20 * Math.exp(((x - 0.5) / (cols - 1)) * Math.log(1000));
-      const f1 = 20 * Math.exp(((x + 0.5) / (cols - 1)) * Math.log(1000));
-      const k0 = Math.max(1, Math.floor(f0 / binHz));
-      const k1 = Math.min(nBins - 1, Math.ceil(f1 / binHz));
-      let v = SPEC_MIN_DB;
-      for (let k = k0; k <= k1; k++) if (bins[k] > v) v = bins[k];
-      return v;
-    };
-    for (let x = 0; x < cols; x++) {
-      const tgt = fresh ? colOf(this.specBins, x) : SPEC_MIN_DB;
-      const tgtPre = fresh ? colOf(this.specBinsPre, x) : SPEC_MIN_DB;
-      const cur = this.specCols[x];
-      this.specCols[x] = tgt > cur ? cur + (tgt - cur) * SPEC_ATTACK : Math.max(tgt, cur - fall);
-      const cp = this.specPre[x];
-      this.specPre[x] = tgtPre > cp ? cp + (tgtPre - cp) * SPEC_ATTACK : Math.max(tgtPre, cp - fall);
-      this.specHold[x] = Math.max(this.specCols[x], this.specHold[x] - holdFall);
-    }
-    ctx.fillStyle = C.meterBg;
-    ctx.fillRect(0, 0, w, h);
+    stepColumns(this.specCols, fresh ? this.specBins : null, IMX_RING_FRAMES, SPEC_MIN_DB, SPEC_ATTACK, fall);
+    stepColumns(this.specPre, fresh ? this.specBinsPre : null, IMX_RING_FRAMES, SPEC_MIN_DB, SPEC_ATTACK, fall);
+    for (let x = 0; x < cols; x++) this.specHold[x] = Math.max(this.specCols[x], this.specHold[x] - holdFall);
+    const axes = { lo: SPEC_MIN_DB, hi: SPEC_MAX_DB, curveDb: this.curveChain ? CURVE_DB : 0 };
+    drawSpecGround(ctx, w, h, C, axes);
     const yOf = (db) => h - frac(db, SPEC_MIN_DB, SPEC_MAX_DB) * h;
-    // Frequency grid.
-    ctx.font = canvasMonoFont(9);
-    ctx.fillStyle = C.border;
-    for (const f of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) {
-      const x = (Math.log(f / 20) / Math.log(1000)) * (cols - 1);
-      ctx.fillRect(Math.round(x), 0, 1, h);
-    }
-    ctx.fillStyle = C.dim;
-    for (const [f, s] of [[100, "100"], [1000, "1k"], [10000, "10k"]]) {
-      const x = (Math.log(f / 20) / Math.log(1000)) * (cols - 1);
-      ctx.fillText(s, Math.round(x) + 2, h - 3);
-    }
-    // After the chain: the five bands' inks, as the Mastering tab draws them.
-    ctx.globalAlpha = 0.55;
-    let band = 0;
-    let x = 0;
-    while (x < cols) {
-      while (band < RAD_BANDS.length - 1 && fOf(x) >= RAD_BANDS[band].hi) band++;
-      let end = x;
-      while (end + 1 < cols && fOf(end + 1) < RAD_BANDS[band].hi) end++;
-      ctx.fillStyle = C[RAD_BANDS[band].ink];
-      ctx.beginPath();
-      ctx.moveTo(x, h);
-      for (let i = x; i <= end; i++) ctx.lineTo(i, yOf(this.specCols[i]));
-      ctx.lineTo(end, h);
-      ctx.closePath();
-      ctx.fill();
-      x = end + 1;
-    }
-    ctx.globalAlpha = 1;
-    // Before it, and the held peak.
-    const line = (arr, ink, width) => {
-      ctx.strokeStyle = ink;
-      ctx.lineWidth = width;
-      ctx.beginPath();
-      for (let i = 0; i < cols; i++) {
-        const y = yOf(arr[i]);
-        if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
-      }
-      ctx.stroke();
-    };
-    line(this.specPre, C.dim, 1);
-    line(this.specHold, C.accent2, 1);
+    // After the chain: the five bands' inks, as the Mastering tab draws them;
+    // before it, a line; and the held peak.
+    fillBands(ctx, this.specCols, yOf, h, C);
+    strokeColumns(ctx, this.specPre, yOf, C.dim, 1);
+    strokeColumns(ctx, this.specHold, yOf, C.accent2, 1);
     // The chain's static EQ, on its own ±24 dB axis.
     if (this.curveChain) {
       ctx.strokeStyle = C.accent;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       for (let i = 0; i < cols; i += 2) {
-        const db = this.curveChain.responseDb(fOf(i));
+        const db = this.curveChain.responseDb(freqAt(i, cols));
         const y = h / 2 - clamp(db / CURVE_DB, -1, 1) * (h / 2 - 4);
         if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
       }
       ctx.stroke();
     }
+    drawCursor(ctx, w, h, C, this.specCursor, axes);
+  }
+
+  /** One mono ring's spectrum into `bins`, with the display tilt. */
+  spectrum(ring, write, bins) {
+    spectrumDb(this.fft, this.specWin, this.specNorm, ring, write, bins, SPEC_MIN_DB - 24);
+    for (let k = 1; k < bins.length; k++) bins[k] += this.specTilt[k];
   }
 
   /** M/S Lissajous of the pair after the chain: mono stands up the middle,
    *  a left-only sound leans left, out-of-phase material lies flat. The
    *  correlation of the window is the bar under it. */
   drawGonio(C, fresh) {
-    const box = this.ctxFor(this.gonioCanvas, 196);
+    const box = this.ctxFor(this.gonioCanvas, 200);
     if (!box) return;
     const { ctx, w, h } = box;
-    const size = Math.min(w, h - 20);
+    // Room under the square for the correlation bar and its caption.
+    const size = Math.min(w, h - 32);
     const cx = w / 2, cy = size / 2;
     ctx.fillStyle = C.meterBg;
     ctx.fillRect(cx - size / 2, 0, size, size);
@@ -1175,7 +1268,9 @@ export class MixingPanel {
     this.gonioGain = want < this.gonioGain ? want : this.gonioGain + (want - this.gonioGain) * 0.05;
     const g = this.gonioGain * (size / 2) * Math.SQRT1_2;
     if (fresh) {
-      ctx.fillStyle = C.meter;
+      // Yellow, not the meter's green: the correlation bar under the cloud is
+      // green, and the two are different readings.
+      ctx.fillStyle = C.gonio;
       ctx.globalAlpha = 0.6;
       for (let k = 0; k < n; k++) {
         const j = (wr - 1 - k) & (IMX_RING_FRAMES - 1);
@@ -1197,43 +1292,392 @@ export class MixingPanel {
     ctx.fillStyle = C.border;
     ctx.fillRect(mid, by - 1, 1, 10);
     ctx.fillStyle = C.dim;
-    ctx.fillText(`${t("imix.correlation")} ${fresh ? corr.toFixed(2) : "—"}`, bx, by + 20);
+    ctx.fillText(`${t("imix.correlation")} ${fresh ? corr.toFixed(2) : "—"}`, bx, by + 21);
   }
 
-  /** One equaliser's static response, drawn in its own unit. */
-  drawCurve(cv, ids) {
-    const box = this.ctxFor(cv, 70);
+  /**
+   * The plot inside an equaliser, a dynamic EQ or the compressor: what goes
+   * INTO the piece (a line — the tap rings each one's input), what comes out
+   * (band-inked: the input moved by the piece's response, which for these is
+   * all the piece does to a steady spectrum), and the response itself on a
+   * ±24 dB axis. A dynamic EQ and the compressor draw that response as it
+   * stands this moment — the gains the meter reads — with the resting one
+   * beside it and the difference shaded: that shading IS the dynamics.
+   */
+  drawUnitSpectrum(id, plot, C, live, dt) {
+    const box = this.ctxFor(plot.canvas, UNIT_SPEC_H);
     if (!box) return;
     const { ctx, w, h } = box;
-    const C = themeColors();
-    const block = this.block;
-    if (!block) return;
-    const only = { ...normaliseImixBlock(block), equipment: {} };
-    for (const id of ids) {
-      const e = block.equipment[id];
-      if (e) only.equipment[id] = { ...e, bypass: false };
+    const cols = Math.max(2, Math.round(w));
+    let st = this.unitSpec.get(id);
+    if (!st || st.cols.length !== cols) {
+      st = {
+        cols: new Float64Array(cols).fill(SPEC_MIN_DB),
+        out: new Float64Array(cols),
+        resp: new Float64Array(cols),
+        rest: new Float64Array(cols),
+        bins: new Float64Array(IMX_RING_FRAMES >> 1),
+      };
+      this.unitSpec.set(id, st);
     }
-    const chain = new InstrumentChain(only, SAMPLING_RATE, 2, true);
-    ctx.fillStyle = C.meterBg;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = C.border;
-    ctx.fillRect(0, Math.round(h / 2), w, 1);
-    for (const f of [100, 1000, 10000]) {
-      const x = (Math.log(f / 20) / Math.log(1000)) * (w - 1);
-      ctx.fillRect(Math.round(x), 0, 1, h);
+    // Only a piece in circuit has an input of its own to show.
+    const k = IMX_TAP_STAGES.indexOf(id);
+    const r = this.readout;
+    const fed = live && this.inCircuit(id) && r.stageRings !== null;
+    if (fed) this.spectrum(r.stageRings[k], r.stageWrite[k], st.bins);
+    stepColumns(st.cols, fed ? st.bins : null, IMX_RING_FRAMES, SPEC_MIN_DB, SPEC_ATTACK, (SPEC_RELEASE_DB_S * dt) / 1000);
+
+    const chain = this.unitChain(id);
+    const dynamic = id !== IMX_EQU1 && id !== IMX_EQU2;
+    const gains = !this.inCircuit(id) ? null
+      : id === IMX_COMP ? this.gr.comp : id === IMX_DEQ1 ? this.gr.deq1 : id === IMX_DEQ2 ? this.gr.deq2 : null;
+    const fill = (arr) => {
+      // Every other column, joined straight: a response is smooth at this scale.
+      for (let x = 0; x < cols; x += 2) arr[x] = chain.stageResponseDb(id, freqAt(x, cols));
+      for (let x = 1; x < cols; x += 2) arr[x] = x + 1 < cols ? (arr[x - 1] + arr[x + 1]) / 2 : arr[x - 1];
+    };
+    if (dynamic) {
+      chain.showGains(id, null);
+      fill(st.rest);
+      chain.showGains(id, gains);
     }
-    ctx.strokeStyle = C.accent;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let x = 0; x < w; x += 2) {
-      const f = 20 * Math.exp((x / (w - 1)) * Math.log(1000));
-      const db = chain.responseDb(f);
-      const y = h / 2 - clamp(db / CURVE_DB, -1, 1) * (h / 2 - 3);
-      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    fill(st.resp);
+
+    const axes = { lo: SPEC_MIN_DB, hi: SPEC_MAX_DB, curveDb: CURVE_DB };
+    drawSpecGround(ctx, w, h, C, axes);
+    const yOf = (db) => h - frac(db, SPEC_MIN_DB, SPEC_MAX_DB) * h;
+    const yCurve = (db) => h / 2 - clamp(db / CURVE_DB, -1, 1) * (h / 2 - 4);
+    for (let x = 0; x < cols; x++) st.out[x] = st.cols[x] > SPEC_MIN_DB ? st.cols[x] + st.resp[x] : SPEC_MIN_DB;
+    fillBands(ctx, st.out, yOf, h, C, 0.45);
+    strokeColumns(ctx, st.cols, yOf, C.dim, 1);
+
+    const e = this.eqp(id);
+    if (id === IMX_COMP) this.drawCompBands(ctx, w, h, C, e, gains);
+    if (dynamic) {
+      // The dynamics: from the resting response to the live one.
+      ctx.fillStyle = C.accent;
+      ctx.globalAlpha = 0.22;
+      ctx.beginPath();
+      ctx.moveTo(0, yCurve(st.rest[0]));
+      for (let x = 1; x < cols; x++) ctx.lineTo(x, yCurve(st.rest[x]));
+      for (let x = cols - 1; x >= 0; x--) ctx.lineTo(x, yCurve(st.resp[x]));
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([3, 3]);
+      strokeColumns(ctx, st.rest, yCurve, C.dim, 1);
+      ctx.setLineDash([]);
     }
-    ctx.stroke();
+    strokeColumns(ctx, st.resp, yCurve, this.inCircuit(id) ? C.accent : C.dim, 1.5);
+    if (id === IMX_DEQ1 || id === IMX_DEQ2) this.drawDeqMarks(ctx, w, h, C, e, st.resp, yCurve);
+    drawCursor(ctx, w, h, C, plot.cursor, axes);
+  }
+
+  // ── threshold strips ──
+
+  /** The bands a strip shows, as [band index, label]: every compressor band;
+   *  a dynamic EQ's bands that are on, low shelf first, high shelf last. */
+  thresholdRows(id) {
+    const e = this.eqp(id);
+    if (id === IMX_COMP) {
+      return e.bands.map((_, k) => [k, e.bands.length === 1 ? t("imix.allShort") : String(k + 1)]);
+    }
+    return DEQ_ORDER.filter((i) => e.bands[i].on).map((i) => [i, deqShort(i)]);
+  }
+
+  /**
+   * The compressor's or a dynamic EQ's THRESHOLDS: a row per band on the
+   * threshold's own scale (−60 … 0 dB), the band's detector level as a bar —
+   * green up to the threshold, accent above it, the part the band acts on —
+   * and the threshold as a marker you drag. A compressor shades its knee; a
+   * dynamic EQ marks, dotted, the level where its band reaches its range and
+   * moves no further. The level is what the band's own detector hears: a
+   * multiband compressor's band, a dynamic EQ band's sense filter.
+   */
+  thresholdStrip(id) {
+    const cv = document.createElement("canvas");
+    cv.className = "mst-canvas imx-thresh";
+    cv.dataset.thresh = id;
+    cv.title = t("imix.threshTitle");
+    const plot = { canvas: cv, paint: (C, live, dt) => this.drawThresholds(id, cv, C, live, dt) };
+    this.plots.push(plot);
+    const [lo, hi] = IMX_RANGE.compThreshDb;
+    let drag = null;
+    const at = (ev) => {
+      const p = localPoint(cv, ev);
+      const w = cv.clientWidth;
+      const x0 = THR_LABEL_W, span = w - THR_LABEL_W - THR_VALUE_W;
+      const db = lo + clamp((p.x - x0) / span, 0, 1) * (hi - lo);
+      return { row: Math.floor((p.y - THR_TOP) / THR_ROW_H), db: Math.round(db * 10) / 10 };
+    };
+    const set = (band, db) => this.editEquipment(id, (x) => { x.bands[band].threshDb = db; }, `b${band}threshDb`);
+    cv.addEventListener("pointerdown", (ev) => {
+      const { row, db } = at(ev);
+      const rows = this.thresholdRows(id);
+      if (row < 0 || row >= rows.length) return;
+      drag = rows[row][0];
+      try { cv.setPointerCapture(ev.pointerId); } catch { /* synthetic pointer */ }
+      this.beginGesture();
+      set(drag, db);
+      ev.preventDefault();
+    });
+    cv.addEventListener("pointermove", (ev) => {
+      if (drag === null) return;
+      set(drag, at(ev).db);
+    });
+    const end = () => { if (drag !== null) { drag = null; this.endGesture(); } };
+    cv.addEventListener("pointerup", end);
+    cv.addEventListener("pointercancel", end);
+    return cv;
+  }
+
+  drawThresholds(id, cv, C, live, dt) {
+    const rows = this.thresholdRows(id);
+    const box = this.ctxFor(cv, THR_TOP + Math.max(1, rows.length) * THR_ROW_H + 2);
+    if (!box) return;
+    const { ctx, w } = box;
+    const e = this.eqp(id);
+    const [lo, hi] = IMX_RANGE.compThreshDb;
+    const x0 = THR_LABEL_W, span = w - THR_LABEL_W - THR_VALUE_W;
+    const xOf = (db) => x0 + clamp((db - lo) / (hi - lo), 0, 1) * span;
+    // Each band's level: up at once, down at THR_FALL_DB_S, like a peak meter.
+    let lv = this._thrLvl?.get(id);
+    if (!lv) { lv = new Float64Array(IMX_DEQ_BANDS).fill(-120); (this._thrLvl ??= new Map()).set(id, lv); }
+    const src = live && this.inCircuit(id)
+      ? (id === IMX_COMP ? this.readout.compLvl : id === IMX_DEQ1 ? this.readout.deq1Lvl : this.readout.deq2Lvl)
+      : null;
+    const fall = (THR_FALL_DB_S * dt) / 1000;
+    for (let i = 0; i < lv.length; i++) {
+      const tgt = src && i < src.length ? src[i] : -120;
+      lv[i] = tgt > lv[i] ? tgt : Math.max(tgt, lv[i] - fall);
+    }
     ctx.font = canvasMonoFont(9);
     ctx.fillStyle = C.dim;
-    ctx.fillText(`±${CURVE_DB} dB`, 3, 10);
+    ctx.textAlign = "center";
+    for (let db = lo; db <= hi; db += 12) {
+      const x = xOf(db);
+      ctx.fillRect(Math.round(x), THR_TOP - 3, 1, 3);
+      ctx.fillText(fmtDb(db, 0), clamp(x, x0 + 8, x0 + span - 6), THR_TOP - 4);
+    }
+    ctx.textAlign = "left";
+    if (rows.length === 0) {
+      ctx.fillText(t("imix.threshNone"), x0, THR_TOP + 12);
+      return;
+    }
+    const on = this.inCircuit(id);
+    rows.forEach(([i, label], r) => {
+      const b = e.bands[i];
+      const y = THR_TOP + r * THR_ROW_H;
+      const yb = y + 3, hb = THR_ROW_H - 6;
+      ctx.fillStyle = b.on ? C.fg : C.dim;
+      ctx.font = canvasMonoFont(10);
+      ctx.fillText(label, 2, y + 13);
+      ctx.fillStyle = C.meterBg;
+      ctx.fillRect(x0, yb, span, hb);
+      const xt = xOf(b.threshDb);
+      if (id === IMX_COMP && b.kneeDb > 0) {
+        // The knee: the band starts to act half a knee below the threshold.
+        ctx.fillStyle = C.accent;
+        ctx.globalAlpha = 0.18;
+        const k0 = xOf(b.threshDb - b.kneeDb / 2), k1 = xOf(b.threshDb + b.kneeDb / 2);
+        ctx.fillRect(k0, yb, k1 - k0, hb);
+        ctx.globalAlpha = 1;
+      }
+      const xl = xOf(lv[i]);
+      if (lv[i] > lo && b.on) {
+        ctx.fillStyle = C.meter;
+        ctx.fillRect(x0, yb + 3, Math.min(xl, xt) - x0, hb - 6);
+        if (xl > xt) {
+          ctx.fillStyle = C.accent;
+          ctx.fillRect(xt, yb + 3, xl - xt, hb - 6);
+        }
+      }
+      if (id !== IMX_COMP && b.ratio > 1) {
+        // Where the band has moved its full range and stops.
+        const full = b.threshDb + b.rangeDb / (1 - 1 / b.ratio);
+        if (full < hi) {
+          ctx.strokeStyle = C.dim;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 2]);
+          ctx.beginPath();
+          ctx.moveTo(Math.round(xOf(full)) + 0.5, yb);
+          ctx.lineTo(Math.round(xOf(full)) + 0.5, yb + hb);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      // The threshold itself: a bar across the row and a tab above it.
+      ctx.fillStyle = on && b.on ? C.fg : C.dim;
+      ctx.fillRect(Math.round(xt) - 1, y + 1, 2, THR_ROW_H - 2);
+      ctx.beginPath();
+      ctx.moveTo(xt - 3, y);
+      ctx.lineTo(xt + 3, y);
+      ctx.lineTo(xt, y + 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.font = canvasMonoFont(10);
+      ctx.textAlign = "right";
+      ctx.fillStyle = b.on ? C.fg : C.dim;
+      ctx.fillText(`${fmtDb(b.threshDb)} dB`, w - 2, y + 13);
+      ctx.textAlign = "left";
+    });
+  }
+
+  /** The compressor's bands: the crossovers, and each band's reduction. */
+  drawCompBands(ctx, w, h, C, e, gains) {
+    const xs = [0, ...e.crossovers.map((f) => colOfFreq(f, w)), w];
+    ctx.font = canvasMonoFont(10);
+    ctx.textAlign = "center";
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = C.fg;
+    ctx.lineWidth = 1;
+    for (let k = 1; k < xs.length - 1; k++) {
+      ctx.beginPath();
+      ctx.moveTo(Math.round(xs[k]) + 0.5, 0);
+      ctx.lineTo(Math.round(xs[k]) + 0.5, h);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    for (let k = 0; k < e.bands.length; k++) {
+      const mid = (xs[k] + xs[k + 1]) / 2;
+      const b = e.bands[k];
+      ctx.fillStyle = b.on ? C.fg : C.dim;
+      const s = !b.on ? t("imix.bandOff") : `${fmtDb(gains ? gains[k] : 0)} dB`;
+      ctx.fillText(s, clamp(mid, 26, w - 26), 12);
+    }
+    ctx.textAlign = "left";
+  }
+
+  /** A dynamic EQ's bands on its response: a mark where each one acts, and —
+   *  for a band that senses elsewhere — the range it listens to, along the foot. */
+  drawDeqMarks(ctx, w, h, C, e, resp, yCurve) {
+    ctx.font = canvasMonoFont(9);
+    ctx.textAlign = "center";
+    for (const i of DEQ_ORDER) {
+      const b = e.bands[i];
+      if (!b.on) continue;
+      const x = clamp(colOfFreq(b.freq, w), 0, w - 1);
+      const y = yCurve(resp[Math.round(x)] ?? 0);
+      ctx.fillStyle = C.accent;
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C.fg;
+      ctx.fillText(deqShort(i), clamp(x, 8, w - 8), y > 16 ? y - 6 : y + 14);
+      if (!b.unlinked) continue;
+      // Low shelf senses below its frequency, high shelf above, a bell the
+      // octaves its Q spans.
+      let f0, f1;
+      if (i === IMX_DEQ_LOW_SHELF_BAND) { f0 = 20; f1 = b.senseFreq; }
+      else if (i === IMX_DEQ_HIGH_SHELF_BAND) { f0 = b.senseFreq; f1 = 20000; }
+      else {
+        const half = octavesOfQ(b.senseQ) / 2;
+        f0 = b.senseFreq * 2 ** -half; f1 = b.senseFreq * 2 ** half;
+      }
+      const x0 = clamp(colOfFreq(f0, w), 0, w), x1 = clamp(colOfFreq(f1, w), 0, w);
+      const yb = h - 16;
+      ctx.fillStyle = C.dim;
+      ctx.fillRect(x0, yb, Math.max(1, x1 - x0), 2);
+      ctx.fillRect(x0, yb - 3, 1, 8);
+      ctx.fillRect(x1 - 1, yb - 3, 1, 8);
+      ctx.fillText(`${deqShort(i)} ${t("imix.senses")}`, clamp((x0 + x1) / 2, 24, w - 24), yb - 4);
+    }
+    ctx.textAlign = "left";
+  }
+
+  /** The saturator's transfer: input across, output up, both ±1.5 of full
+   *  scale, the straight line for comparison. Static — it is the settings. */
+  drawTransfer(cv, C) {
+    const box = this.ctxFor(cv, 150);
+    if (!box) return;
+    const { ctx, w, h } = box;
+    const size = Math.min(w, h);
+    const x0 = Math.round((w - size) / 2);
+    const R = 1.5;
+    const X = (v) => x0 + ((v + R) / (2 * R)) * size;
+    const Y = (v) => h / 2 - (v / (2 * R)) * size;
+    ctx.fillStyle = C.meterBg;
+    ctx.fillRect(x0, (h - size) / 2, size, size);
+    ctx.fillStyle = C.border;
+    for (const v of [-1, -0.5, 0, 0.5, 1]) {
+      ctx.fillRect(Math.round(X(v)), (h - size) / 2, 1, size);
+      ctx.fillRect(x0, Math.round(Y(v)), size, 1);
+    }
+    ctx.font = canvasMonoFont(9);
+    ctx.fillStyle = C.dim;
+    ctx.fillText("+1", X(0) + 3, Y(1) - 2);
+    ctx.fillText("−1", X(0) + 3, Y(-1) + 10);
+    ctx.textAlign = "right";
+    ctx.fillText(t("imix.satIn"), x0 + size - 3, Y(0) - 3);
+    ctx.textAlign = "left";
+    ctx.fillText(t("imix.satOut"), X(0) + 3, (h - size) / 2 + 10);
+    ctx.strokeStyle = C.dim;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(X(-R), Y(-R)); ctx.lineTo(X(R), Y(R));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const p = this.eqp(IMX_SATU);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, (h - size) / 2, size, size);
+    ctx.clip();
+    ctx.strokeStyle = this.inCircuit(IMX_SATU) ? C.accent : C.dim;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i <= size; i++) {
+      const v = -R + (i / size) * 2 * R;
+      const y = Y(imxSatTransfer(p, v));
+      if (i === 0) ctx.moveTo(x0 + i, y); else ctx.lineTo(x0 + i, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * The unison's copies: where each sits across the stereo field (top) and
+   * how far it is detuned (bottom), as the LFOs have them this moment while
+   * the bus runs — in the meter's green — and at the settings otherwise.
+   */
+  drawUnison(cv, C, live) {
+    const box = this.ctxFor(cv, 74);
+    if (!box) return;
+    const { ctx, w, h } = box;
+    const p = this.eqp(IMX_UNIS);
+    const r = this.readout;
+    const now = live && this.inCircuit(IMX_UNIS) && r.unisCents >= 0;
+    const cents = now ? r.unisCents : p.detune;
+    const width = now ? r.unisWidth : p.width;
+    // The detune axis spans what the LFO can reach, so a sweep is visible.
+    const span = clamp(Math.max(1, p.detune * (1 + p.detuneLfo.depth)), 1, 100);
+    const pos = unisonPositions(p.voices, p.spacing);
+    const pad = 22;
+    const span0 = w - pad * 2;
+    ctx.font = canvasMonoFont(9);
+    const row = (y, label, lo, hi, val) => {
+      ctx.fillStyle = C.meterBg;
+      ctx.fillRect(pad, y, span0, 18);
+      ctx.fillStyle = C.border;
+      ctx.fillRect(Math.round(pad + span0 / 2), y, 1, 18);
+      ctx.fillStyle = C.dim;
+      ctx.textAlign = "right";
+      ctx.fillText(lo, pad - 3, y + 13);
+      ctx.textAlign = "left";
+      ctx.fillText(hi, w - pad + 3, y + 13);
+      ctx.fillStyle = now ? C.meter : C.accent;
+      for (let k = 0; k < pos.length; k++) {
+        const x = pad + ((clamp(val(pos[k]), -1, 1) + 1) / 2) * span0;
+        ctx.fillRect(Math.round(x) - 1, y + 3, 3, 12);
+      }
+      ctx.fillStyle = C.dim;
+      ctx.fillText(label, pad + 3, y - 3);
+    };
+    row(14, t("imix.unisPan"), "L", "R", (q) => q * width);
+    row(50, t("imix.unisDetune", { c: span.toFixed(span < 10 ? 1 : 0) }), "−", "+", (q) => (q * cents) / span);
+    ctx.textAlign = "right";
+    ctx.fillStyle = now ? C.fg : C.dim;
+    ctx.fillText(`${Math.round(width * 100)}% · ±${cents.toFixed(1)} ¢`, w - pad, 11);
+    ctx.textAlign = "left";
   }
 }

@@ -18,7 +18,7 @@ import {
 } from "../../core/format/mastering-section.js";
 import { defaultMastering } from "../../core/engine/mastering.js";
 import {
-  IMIX_FOURCC, parseImixSection, buildImixSection, freeImixId,
+  IMIX_FOURCC, parseImixSection, buildImixSection, freeImixId, imixWithFolded,
 } from "../../core/format/imix-section.js";
 import { parseRegionPayload } from "./sampleregions.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
@@ -472,6 +472,22 @@ export class Document {
     const map = new Map(this.imixMap().blocks);
     if (block === null) map.delete(id); else map.set(id, block);
     return buildImixSection(map.values());
+  }
+
+  /**
+   * Fold or unfold piece `fourcc` of block `id` in the editor (§9.15's `f`).
+   * Not an op: folding is how the chain is shown, so it never enters the undo
+   * history — like the beat grid, it only marks the file unsaved. Returns
+   * whether anything changed (false for a piece the block does not hold).
+   */
+  setImixFolded(id, fourcc, folded) {
+    const sec = this.projSections.find((s) => s.fourcc === IMIX_FOURCC);
+    if (!sec) return false;
+    const next = imixWithFolded(sec.payload, id, fourcc, folded);
+    if (next === sec.payload) return false;
+    this.setSection(IMIX_FOURCC, next);
+    this.dirty = true;
+    return true;
   }
 
   /** The lowest IMix id no block holds, or 0 when all 255 are taken. */

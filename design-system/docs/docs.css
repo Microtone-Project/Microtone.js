@@ -166,6 +166,7 @@ pre {
   border-radius: var(--radius-sm); padding: 0.15rem 0.35rem; width: 9rem;
 }
 .ds-drag { border-collapse: collapse; }
+.ds-fold { display: flex; flex-direction: column; gap: 0.5rem; max-width: 34rem; }
 .ds-drag td { padding: 0.2rem 0.6rem; border-bottom: 1px solid var(--border); }
 
 /* ── icons ── */

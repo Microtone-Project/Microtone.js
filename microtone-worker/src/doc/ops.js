@@ -13,6 +13,7 @@ import {
   parsePatchesBlob, writePatchesBlob, makeInstPatch, baseStereoPatchIndex, BASE_TO_PATCH_FIELD,
 } from "../../core/engine/inst.js";
 import { TaudPlayData } from "../../core/engine/state.js";
+import { imixCarryFolds } from "../../core/format/imix-section.js";
 import { CUE_EMPTY, MAX_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
 
 /**
@@ -980,7 +981,9 @@ export function setImixOp(payload, control = null, gestureId = null) {
     apply(doc) {
       const i = doc.projSections.findIndex((s) => s.fourcc === "IMix");
       const prev = i >= 0 ? doc.projSections[i].payload : null;
-      doc.setSection("IMix", payload);
+      // The folds standing now stay as they are: folding is not in the undo
+      // history (§9.15), so neither an edit nor its undo moves one.
+      doc.setSection("IMix", imixCarryFolds(payload, prev));
       doc.dirty = true;
       return setImixOp(prev, control, gestureId);
     },

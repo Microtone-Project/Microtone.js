@@ -1517,9 +1517,11 @@ Every payload begins with four **common bytes**:
 
 | Offset | Type | Field |
 |---|---|---|
-| +0 | `U8` | `0b b000 vvvv` — `b` the equipment is **bypassed**, `vvvv` the payload version (0 for every payload defined here) |
+| +0 | `U8` | `0b bf00 vvvv` — `b` the equipment is **bypassed**, `f` its panel is **folded** in an editor (below), `vvvv` the payload version (0 for every payload defined here) |
 | +1 | `U8` | **Dry amount**, 0…255: 0 is all wet, 255 all dry. **MUST** be 0 for equipment that has no wet/dry (below) |
 | +2 | `U16` | **RESERVED** |
+
+`f` is the editor's, not the player's: it says the piece's panel was folded shut to its titlebar when the file was saved, so an editor reopens the chain as it was left — the same for every instrument on the block. Playback **MUST** ignore it. An editor **SHOULD** keep it out of its undo history (folding is not an edit to the sound), and a block that only differs in it is the same chain.
 
 #### The pipeline
 
@@ -1694,4 +1696,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-16 | The Metainstrument type nibble split in two ranges: 0…7 the kinds built out of sources, 8…13 the kinds that make a sound of their own (OPL; PSG to come), 14…15 reserved. A kind of the first range takes one of the second as a source: an FM operator **MAY** be an OPL instrument, and a formant instrument's header names a **source instrument** (bytes 0…1) sung in place of its sample |
 | 2026-10-16 | Metainstrument type 9 — PSG instruments: an ordinary record with two oscillators in place of its sample (sixteen waveforms, the OPL operator's envelope, tremolo and vibrato, auto-advance), added or multiplied, the patch in the second pitch/filter slot. The second kind of types 8…13: a layer, an FM operator and a formant instrument's source **MAY** be one |
 | 2026-10-21 | Formant instruments: a reference note of 0 is a syllable with **no vowel**, its last consonant held as a syllabic consonant; the reference word's bit 15 **nasalises** the vowel; byte +53's bits 3–4 a **secondary articulation** on the onset (palatalised, velarised/pharyngealised, glottalised) and bits 5–6 the **coda's release** (unreleased, velarised/pharyngealised, glottalised); an empty pool range other than 0…0 is an instrument made from **nothing in the pool** |
-| 2026-10-22 | `IMix` — instrument mixing chains: byte 255 of every record names a block of up to twelve pieces of equipment in a fixed pipeline, and the fourth Project-Data section a player must honour. An FM rack's operators and algorithm now share bytes 4…253 (250 bytes; was 4…255), leaving byte 255 to every kind |
+| 2026-10-22 | `IMix` — instrument mixing chains: byte 255 of every record names a block of up to twelve pieces of equipment in a fixed pipeline, and the fourth Project-Data section a player must honour; each piece's common flags carry, beside its bypass, whether an editor shows it folded. An FM rack's operators and algorithm now share bytes 4…253 (250 bytes; was 4…255), leaving byte 255 to every kind |

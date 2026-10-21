@@ -47,6 +47,13 @@
       "text": "Spell a note with noteGlyph()/rangeGlyph() (components/noteglyph.js): a .note-glyph span in --cv-font, in the song's own notation. Never draw a note into a small DOM canvas."
     },
     {
+      "id": "folding",
+      "title": "Panels fold to their titlebar",
+      "text": "A panel that can fold is built with makeFoldable() (components/fold.js): a caret twisty at the LEFT end of its titlebar, pointing down while open and right while shut, and the panel's name beside it as a second pointer target (the twisty alone is in the Tab order). Only the BODY folds: the titlebar's own controls — a switch, a Mix slider, a readout — stay live while the panel is shut. Folding is never an undo step. Where the panel's subject is saved in the project and the format has a place for the fold (an IMix equipment's folded flag, beside its bypass — TAUD_FILE_FORMAT.md §9.15) the state is saved there through get/set; otherwise it is the viewer's, in localStorage per kind of panel (key). A panel nobody has touched takes the caller's default — open what is in use, shut what is not.",
+      "tokens": ["dim", "accent"],
+      "enforcedBy": ["microtone-worker/src/ui/components/fold.js", "microtone-worker/test/browser/mixing-smoke.html"]
+    },
+    {
       "id": "change-driven",
       "title": "Write the DOM only on change",
       "text": "The frame loop visits every open view 60 times a second: compare before writing textContent, never read layout after a write in the same frame, and repaint canvases on change (gridKey/restKey), not on schedule."
@@ -113,6 +120,18 @@
       "api": "dragGrip({ index, count, rowSel = 'tr', title, onMove(from, to, via) }) → <button>. focusGrip(root, index) after a re-render.",
       "classes": ["drag-grip"],
       "tokens": ["dim", "fg", "panel-2"]
+    },
+    {
+      "name": "Fold",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/fold.js",
+      "exports": ["makeFoldable", "foldOpen"],
+      "summary": "Folds a titlebar-over-body panel shut to its titlebar: a caret twisty at the left end, the name as a second target, the state kept by the caller (in the project) or per viewer under a key.",
+      "api": "makeFoldable(box, { head, body, name?, get?(), set?(open), key?, open = true, label?, onToggle?(open) }) → { toggle, isOpen(), setOpen(open), sync() }. get/set keep the state in the caller's model (sync() after it moved underneath); key keeps it in localStorage. foldOpen(key, fallback) reads a stored state.",
+      "example": "const fold = makeFoldable(unit, { head, body, name, label: t(\"imix.foldTitle\"), get: () => !piece.folded, set: (open) => doc.setImixFolded(chain, id, !open) });",
+      "classes": ["fold-toggle", "fold-name", "folded", "fold-body"],
+      "tokens": ["dim", "accent", "radius-sm"],
+      "rules": ["folding"]
     },
     {
       "name": "NoteGlyph",

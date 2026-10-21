@@ -36,7 +36,8 @@ import {
   SNAP_MM_HIST_ENTROPY,
   SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
   SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
-  SNAP_IM_RING_FRAMES,
+  SNAP_IM_RING_FRAMES, SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS,
+  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -654,7 +655,9 @@ export class AudioSystem {
    * snapshot. `out` is a makeImixMeterReadout()-shaped object; its `ring` (the
    * stereo pair after the chain, frame-interleaved) and `ringPre` (the mono
    * sum before it) are live views into the snapshot, read backwards from
-   * `write`. `frames` is 0 while the tap is off or the bus did not run.
+   * `write`; so are `stageRings` (the input of each IMX_TAP_STAGES piece,
+   * read back from its `stageWrite`). `frames` is 0 while the tap is off or
+   * the bus did not run.
    */
   readImixMeter(out) {
     const f = this.snapshot;
@@ -677,6 +680,22 @@ export class AudioSystem {
     }
     out.ring = f.subarray(b + SNAP_IM_RING, b + SNAP_IM_RING + 2 * SNAP_IM_RING_FRAMES);
     out.ringPre = f.subarray(b + SNAP_IM_RING_PRE, b + SNAP_IM_RING_PRE + SNAP_IM_RING_FRAMES);
+    out.unisCents = f[b + SNAP_IM_UNIS_CENTS];
+    out.unisWidth = f[b + SNAP_IM_UNIS_WIDTH];
+    for (let i = 0; i < out.compLvl.length; i++) out.compLvl[i] = f[b + SNAP_IM_COMP_LVL + i];
+    for (let i = 0; i < out.deq1Lvl.length; i++) {
+      out.deq1Lvl[i] = f[b + SNAP_IM_DEQ1_LVL + i];
+      out.deq2Lvl[i] = f[b + SNAP_IM_DEQ2_LVL + i];
+    }
+    const nst = out.stageWrite.length;
+    if (out.stageRings === null || out.stageRings[0].buffer !== f.buffer) {
+      out.stageRings = [];
+      for (let k = 0; k < nst; k++) {
+        const o = b + SNAP_IM_STAGE_RINGS + k * SNAP_IM_RING_FRAMES;
+        out.stageRings.push(f.subarray(o, o + SNAP_IM_RING_FRAMES));
+      }
+    }
+    for (let k = 0; k < nst; k++) out.stageWrite[k] = f[b + SNAP_IM_STAGE_WRITE + k] | 0;
     return out;
   }
 }

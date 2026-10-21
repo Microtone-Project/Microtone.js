@@ -10,7 +10,7 @@
 //   n × { FourCC · U32 size · payload[size] }
 //
 // and the section is its blocks, back to back. Every payload starts with four
-// common bytes — bypass + version, the dry amount, two reserved — and then the
+// common bytes — bypass, folded + version, the dry amount, two reserved — and then the
 // equipment's own parameters, every float a binary32, every quantity that
 // ACCUMULATES (a rate, a delay time) a U32 in 16.16 fixed point.
 //
@@ -77,7 +77,7 @@ function decodeEquipment(id, p) {
   const f32 = (o) => dv.getFloat32(o, true);
   const fixed = FIXED_SIZE[id];
   if (fixed !== undefined && p.length !== fixed) fail(`${id} payload is ${p.length} bytes, not ${fixed}`);
-  const common = { bypass: (p[0] & 0x80) !== 0, dry: p[1] };
+  const common = { bypass: (p[0] & 0x80) !== 0, folded: (p[0] & 0x40) !== 0, dry: p[1] };
   if (!IMX_WET_APPLICABLE.has(id) && p[1] !== 0) fail(`${id} has no wet/dry, yet carries ${p[1]}`);
   switch (id) {
     case IMX_ITRM: return { ...common, gainDb: f32(4) };
@@ -298,7 +298,7 @@ class Out {
 export function encodeEquipment(id, eIn) {
   const e = normaliseEquipment(id, eIn);
   const w = new Out();
-  w.u8(e.bypass ? 0x80 : 0);
+  w.u8((e.bypass ? 0x80 : 0) | (e.folded ? 0x40 : 0));
   w.u8(IMX_WET_APPLICABLE.has(id) ? e.dry : 0);
   w.zeros(2);
   switch (id) {
@@ -388,6 +388,63 @@ export function buildImixSection(blocks, keep = null) {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let o = 0;
   for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// ── the folded flags, in place ──────────────────────────────────────────────
+// Folding is the editor's view of a chain, kept in the file but out of the undo
+// history (§9.15). So it is set in the BYTES — no decode, no re-encode, nothing
+// else in the section touched — and a whole-section replacement (an edit, an
+// undo) carries the folds standing at that moment over to what it installs.
+
+const FOLDED = 0x40;
+
+/** Call fn(blockId, fourcc, offsetOfFlagsByte) for every record the framing
+ *  delimits. Stops at the first block that cannot be delimited. */
+function eachRecord(b, fn) {
+  let o = 0;
+  while (o + 4 <= b.length) {
+    const id = b[o];
+    const n = b[o + 3];
+    let p = o + 4 + 4 * n;
+    for (let i = 0; i < n; i++) {
+      if (p + 8 > b.length) return;
+      const size = u32At(b, p + 4);
+      if (p + 8 + size > b.length) return;
+      if (size >= 4) fn(id, fourccAt(b, p), p + 8);
+      p += 8 + size;
+    }
+    o = p;
+  }
+}
+
+/** A copy of the section `payload` with the piece `fourcc` of block `blockId`
+ *  folded or not — or `payload` itself when it holds no such piece. */
+export function imixWithFolded(payload, blockId, fourcc, folded) {
+  if (!payload) return payload;
+  let at = -1;
+  eachRecord(payload, (id, fc, o) => { if (id === blockId && fc === fourcc) at = o; });
+  if (at < 0) return payload;
+  const want = folded ? payload[at] | FOLDED : payload[at] & ~FOLDED;
+  if (want === payload[at]) return payload;
+  const out = Uint8Array.from(payload);
+  out[at] = want;
+  return out;
+}
+
+/** `target` with the folded flag of every piece that `source` also holds
+ *  taken from `source` (a piece only `target` holds keeps its own). */
+export function imixCarryFolds(target, source) {
+  if (!target || !source) return target;
+  const folds = new Map();
+  eachRecord(source, (id, fc, o) => folds.set(`${id}:${fc}`, (source[o] & FOLDED) !== 0));
+  let out = target;
+  eachRecord(target, (id, fc, o) => {
+    const f = folds.get(`${id}:${fc}`);
+    if (f === undefined || f === ((out[o] & FOLDED) !== 0)) return;
+    if (out === target) out = Uint8Array.from(target);
+    out[o] = f ? out[o] | FOLDED : out[o] & ~FOLDED;
+  });
   return out;
 }
 

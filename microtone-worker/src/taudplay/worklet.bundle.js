@@ -2785,6 +2785,7 @@ class EqStage {
 class CompressorStage {
   constructor() {
     this.grDb = 0;        // current gain reduction, dB (negative)
+    this.levelDb = -120;  // the detector's last reading, dB — for a meter only
     this.rms = 0;         // RMS detector's mean-square state
     this.rmsCoef = 0;
     this.attackCoef = 0; this.releaseCoef = 0;
@@ -2803,7 +2804,7 @@ class CompressorStage {
     // ignore a single cycle of a bass note, short enough to follow a phrase.
     this.rmsCoef = onePole(10, rate);
   }
-  reset() { this.grDb = 0; this.rms = 0; }
+  reset() { this.grDb = 0; this.rms = 0; this.levelDb = -120; }
 
   /** Update the envelope from the frame's linked detector and return the
    *  linear gain to apply (makeup folded in). */
@@ -2851,6 +2852,7 @@ class CompressorStage {
     // −120 dBFS floor: below it the gain computer has nothing to say and the
     // logarithm has nowhere to go.
     const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
+    this.levelDb = levelDb;
     const over = levelDb - this.thresh;
     const half = this.knee * 0.5;
     let targetDb;
@@ -4381,6 +4383,9 @@ function normaliseEquipment(id, e) {
   if (!e || typeof e !== "object") e = d;
   const out = {
     bypass: !!e.bypass,
+    // The editor's: the piece's panel is folded shut (§9.15). Playback never
+    // reads it.
+    folded: !!e.folded,
     dry: IMX_WET_APPLICABLE.has(id) ? imxByte(e.dry, 0, 255, d.dry) : 0,
   };
   switch (id) {
@@ -4554,7 +4559,10 @@ function imixBlockEqual(a, b) {
 
 function imixComparable(b) {
   const n = normaliseImixBlock(b);
-  return { ...n, unknown: n.unknown.map((u) => [u.fourcc, [...u.bytes]]) };
+  // Folding is how an editor shows the chain, not the chain (§9.15).
+  const equipment = {};
+  for (const [id, e] of Object.entries(n.equipment)) equipment[id] = { ...e, folded: false };
+  return { ...n, equipment, unknown: n.unknown.map((u) => [u.fourcc, [...u.bytes]]) };
 }
 
 // ── LFO ─────────────────────────────────────────────────────────────────────
@@ -4811,6 +4819,7 @@ class ImxDeq {
     this.rel = new Float64Array(IMX_DEQ_BANDS);
     this.live = [];
     this.gr = new Float64Array(IMX_DEQ_BANDS);    // reading for the meter
+    this.lvl = new Float64Array(IMX_DEQ_BANDS).fill(-120);  // loudest sense level of the span, dB
   }
   configure(p, rate) {
     this.p = p;
@@ -4852,6 +4861,7 @@ class ImxDeq {
     const nch = ctx.nch;
     const bands = this.p.bands;
     this.gr.fill(0);
+    this.lvl.fill(-120);
     for (let n = n0; n < n1; n++) {
       if (this.ctl === 0) for (const i of live) this._setAct(i);
       this.ctl = this.ctl + 1 === IMX_CONTROL_PERIOD ? 0 : this.ctl + 1;
@@ -4867,6 +4877,7 @@ class ImxDeq {
           if (a > level) level = a;
         }
         const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
+        if (levelDb > this.lvl[i]) this.lvl[i] = levelDb;
         const over = levelDb - b.threshDb;
         let amt = over > 0 ? over * (1 - 1 / b.ratio) : 0;
         if (amt > b.rangeDb) amt = b.rangeDb;
@@ -4891,6 +4902,13 @@ class ImxDeq {
     for (const i of this.live) db += biquadDb(this.act[i], freq, rate);
     return db;
   }
+  /** For a display copy only: put the bands' dynamic gains (dB per band, as
+   *  the meter reads them; null = at rest) into the act filters, so
+   *  responseDb draws the equaliser as it stands at that moment. */
+  showGains(env) {
+    if (env) this.env.set(env); else this.env.fill(0);
+    if (this.p) for (const i of this.live) this._setAct(i);
+  }
 }
 
 /**
@@ -4914,6 +4932,8 @@ class ImxComp {
     this.cap = 0;
     this.p = null;
     this.gr = new Float64Array(IMX_COMP_MAX_BANDS);
+    this.lvl = new Float64Array(IMX_COMP_MAX_BANDS).fill(-120);  // loudest detector reading of the span, dB
+    this.showGr = new Float64Array(IMX_COMP_MAX_BANDS);
   }
   configure(p, rate) {
     this.p = p;
@@ -4971,6 +4991,7 @@ class ImxComp {
     const n = this.bandsN;
     const dry = ctx.dry;
     this.gr.fill(0);
+    this.lvl.fill(-120);
     if (n === 1) {
       if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
       const comp = this.comps[0];
@@ -4979,6 +5000,7 @@ class ImxComp {
           const g = comp.stepPlanar(data, i, stride, nch);
           for (let c = 0; c < nch; c++) data[c * stride + i] *= g;
           if (comp.grDb < this.gr[0]) this.gr[0] = comp.grDb;
+          if (comp.levelDb > this.lvl[0]) this.lvl[0] = comp.levelDb;
         }
       }
       mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
@@ -5025,6 +5047,7 @@ class ImxComp {
         const g = comp.stepPlanar(b, i, stride, nch);
         for (let c = 0; c < nch; c++) b[c * stride + i] *= g;
         if (comp.grDb < this.gr[k]) this.gr[k] = comp.grDb;
+        if (comp.levelDb > this.lvl[k]) this.lvl[k] = comp.levelDb;
       }
     }
     for (let c = 0; c < nch; c++) {
@@ -5037,6 +5060,48 @@ class ImxComp {
     }
     mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
   }
+  /** For a display copy only: the bands' gain reductions (dB, ≤ 0; null = at
+   *  rest) that responseDb draws the compressor at. */
+  showGains(gr) {
+    if (gr) this.showGr.set(gr.subarray ? gr.subarray(0, IMX_COMP_MAX_BANDS) : gr);
+    else this.showGr.fill(0);
+  }
+  /**
+   * The compressor's response at `freq` (dB) at the gains showGains gave it:
+   * every band at its reduction plus its make-up, weighted by its crossover
+   * magnitudes, and the wet/dry against the dry sum. The bands carry one
+   * phase (the all-pass matching above), so their magnitudes add.
+   */
+  responseDb(freq, rate) {
+    const p = this.p;
+    const n = this.bandsN;
+    if (!p || n === 0) return 0;
+    let sum = 0;
+    for (let k = 0; k < n; k++) {
+      let m = 1;
+      // An LR4 section pair is one Butterworth section squared.
+      for (let j = 0; j < k; j++) m *= 10 ** (biquadDb(this.hp[j][0], freq, rate) / 10);
+      if (k < n - 1) m *= 10 ** (biquadDb(this.lp[k][0], freq, rate) / 10);
+      const b = p.bands[k];
+      sum += (b.on ? dbToGain(this.showGr[k] + b.makeupDb) : 1) * m;
+    }
+    const d = p.dry / 255;
+    const y = sum * (1 - d) + d;
+    return y > 1e-9 ? 20 * Math.log10(y) : -180;
+  }
+}
+
+/**
+ * The saturator's static transfer at input sample `x` — drive, trims, bias,
+ * curve and wet/dry, with the bias's own offset taken out the way the DC
+ * blocker takes it out of a steady signal. For the display; the audio path
+ * runs the anti-aliased form in ImxSat.
+ */
+function imxSatTransfer(p, x) {
+  const u = x * dbToGain(p.inDb) * dbToGain(p.driveDb) + p.bias;
+  const wet = (satF(p.curve, u) - satF(p.curve, p.bias)) * dbToGain(p.outDb);
+  const d = p.dry / 255;
+  return wet * (1 - d) + x * d;
 }
 
 // Saturator transfer functions f and their antiderivatives F (F(0) = 0) —
@@ -5206,6 +5271,9 @@ class ImxUnison {
     this.ctl = 0;
     this.p = null;
     this.rate = SAMPLING_RATE;
+    // The detune (cents) and width the last control period set: the meter's.
+    this.curCents = 0;
+    this.curWidth = 0;
   }
   configure(p, rate) {
     this.p = p;
@@ -5250,6 +5318,8 @@ class ImxUnison {
     cents = cents < 0 ? 0 : cents > 100 ? 100 : cents;
     let width = p.width * (1 + wl);
     width = width < 0 ? 0 : width > 1 ? 1 : width;
+    this.curCents = cents;
+    this.curWidth = width;
     for (let k = 0; k < nv; k++) {
       const r = 2 ** ((this.pos[k] * cents) / 1200);
       // The sweep moves (1 − r) samples per sample across a window of `win`:
@@ -5715,6 +5785,9 @@ class InstrumentChain {
     this.block = null;
     this.ctx = { nch, stereo, bpm: 125, dry: 0, dryBuf: null };
     this._stride = 0;
+    /** The Mixing tab's tap while it meters this bus (else null): told the
+     *  span each piece is about to process, so it can record what goes in. */
+    this.probe = null;
     this.setBlock(block);
   }
 
@@ -5796,7 +5869,9 @@ class InstrumentChain {
     for (let n = n1 - 1; n >= n0 && lastIn < 0; n--) {
       for (let c = 0; c < nch; c++) if (data[c * stride + n] !== 0) { lastIn = n; break; }
     }
+    const probe = this.probe;
     for (const a of this.active) {
+      if (probe !== null) probe.stageIn(a.id, n0, n1);
       ctx.dry = a.dry;
       a.stage.process(data, stride, n0, n1, ctx);
     }
@@ -5827,13 +5902,16 @@ class InstrumentChain {
   }
 
   /** Gain-reduction readings of the span just processed (dB), for the meter:
-   *  comp bands (≤ 0), the two dynamic EQs' bands (signed), the limiter (≤ 0). */
+   *  comp bands (≤ 0), the two dynamic EQs' bands (signed), the limiter (≤ 0);
+   *  and the loudest detector reading of every comp and dynamic-EQ band (dB,
+   *  −120 = nothing), which is what each band's threshold is compared with. */
   readGr(out) {
     out.comp.fill(0); out.deq1.fill(0); out.deq2.fill(0); out.lim = 0;
+    out.compLvl.fill(-120); out.deq1Lvl.fill(-120); out.deq2Lvl.fill(-120);
     for (const a of this.active) {
-      if (a.id === IMX_COMP) out.comp.set(a.stage.gr);
-      else if (a.id === IMX_DEQ1) out.deq1.set(a.stage.gr);
-      else if (a.id === IMX_DEQ2) out.deq2.set(a.stage.gr);
+      if (a.id === IMX_COMP) { out.comp.set(a.stage.gr); out.compLvl.set(a.stage.lvl); }
+      else if (a.id === IMX_DEQ1) { out.deq1.set(a.stage.gr); out.deq1Lvl.set(a.stage.lvl); }
+      else if (a.id === IMX_DEQ2) { out.deq2.set(a.stage.gr); out.deq2Lvl.set(a.stage.lvl); }
       else if (a.id === IMX_LIMI) out.lim = a.stage.gr;
     }
     return out;
@@ -5848,6 +5926,29 @@ class InstrumentChain {
       if (a.stage instanceof ImxEq || a.stage instanceof ImxDeq) db += a.stage.responseDb(freq, this.rate);
     }
     return db;
+  }
+
+  /** For a display copy: give piece `id` the dynamic gains the meter read
+   *  (a dynamic EQ's signed band gains, a compressor's reductions; null =
+   *  at rest) before stageResponseDb draws it. */
+  showGains(id, gains) {
+    const s = this.stages.get(id);
+    if (s && s.p && s.showGains) s.showGains(gains);
+  }
+
+  /** One piece's own magnitude response at `freq` (dB): an equaliser's, a
+   *  dynamic EQ's or a compressor's (at the gains showGains gave them). */
+  stageResponseDb(id, freq) {
+    const s = this.stages.get(id);
+    if (!s || !s.responseDb) return 0;
+    return s.responseDb(freq, this.rate);
+  }
+
+  /** The unison stage while it is in the chain (its curCents and curWidth
+   *  are what its last control period set), or null. */
+  unisonNow() {
+    for (const a of this.active) if (a.id === IMX_UNIS) return a.stage;
+    return null;
   }
 }
 
@@ -5866,6 +5967,9 @@ function makeImixGrReadout() {
     deq1: new Float64Array(IMX_DEQ_BANDS),
     deq2: new Float64Array(IMX_DEQ_BANDS),
     lim: 0,
+    compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
+    deq1Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
+    deq2Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
   };
 }
 
@@ -5971,6 +6075,9 @@ function imixBlockMap(blocks) {
 const IMX_RING_FRAMES = 2048;
 const IMX_TAP_PRE = 0;
 const IMX_TAP_POST = 1;
+/** The pieces whose INPUT the tap also rings (mono), for the spectra drawn
+ *  inside their units — in this order in the readout and the snapshot. */
+const IMX_TAP_STAGES = Object.freeze([IMX_EQU1, IMX_DEQ1, IMX_COMP, IMX_EQU2, IMX_DEQ2]);
 
 /**
  * Fold one frame of a bus to the stereo pair the meters read: the pair itself,
@@ -5996,8 +6103,11 @@ function imxMeterPair(bus, n, out) {
  * What the Mixing tab draws for ONE instrument's bus: level figures on both
  * sides of the chain (peak, true peak, energy, samples at full scale), the
  * chain's gain reductions, a stereo ring after the chain (goniometer and
- * spectrometer) and a mono ring before it (the spectrometer's comparison).
- * Like every tap here it exists only while the view that reads it is up.
+ * spectrometer) and a mono ring before it (the spectrometer's comparison);
+ * a mono ring at the input of each IMX_TAP_STAGES piece (the chain's probe —
+ * a piece out of circuit leaves its ring as it was), and the unison's
+ * detune and width. Like every tap here it exists only while the view that
+ * reads it is up.
  */
 class ImixMeterTap {
   constructor(slot) {
@@ -6015,9 +6125,17 @@ class ImixMeterTap {
     this.grSpan = makeImixGrReadout();
     this._pair = [0, 0];
     this._preWrite = 0;
+    this.stageRings = IMX_TAP_STAGES.map(() => new Float32Array(IMX_RING_FRAMES));
+    this.stageWrite = new Int32Array(IMX_TAP_STAGES.length);
+    this._bus = null;
+    this.unisLive = false;
+    this.unisCents = 0;
+    this.unisWidth = 0;
   }
   resetAll() {
     this.ring.fill(0); this.ringPre.fill(0);
+    for (const r of this.stageRings) r.fill(0);
+    this.stageWrite.fill(0);
     this.write = 0; this._preWrite = 0;
     for (const p of this.probes) p.reset();
     this._clearInterval();
@@ -6026,6 +6144,8 @@ class ImixMeterTap {
     this.peak.fill(0); this.truePeak.fill(0); this.sumSq.fill(0); this.clip.fill(0);
     this.frames = 0;
     this.gr.comp.fill(0); this.gr.deq1.fill(0); this.gr.deq2.fill(0); this.gr.lim = 0;
+    this.gr.compLvl.fill(-120); this.gr.deq1Lvl.fill(-120); this.gr.deq2Lvl.fill(-120);
+    this.unisLive = false;
   }
   _stage(stage, bus, n0, n1) {
     const pair = this._pair;
@@ -6054,7 +6174,21 @@ class ImixMeterTap {
     }
   }
   /** The bus as it enters the chain. */
-  pushPre(bus, n0, n1) { this._stage(IMX_TAP_PRE, bus, n0, n1); }
+  pushPre(bus, n0, n1) { this._bus = bus; this._stage(IMX_TAP_PRE, bus, n0, n1); }
+  /** The chain's probe: piece `id` is about to process [n0, n1) of the bus. */
+  stageIn(id, n0, n1) {
+    const k = IMX_TAP_STAGES.indexOf(id);
+    if (k < 0 || this._bus === null) return;
+    const ring = this.stageRings[k];
+    const pair = this._pair;
+    let w = this.stageWrite[k];
+    for (let n = n0; n < n1; n++) {
+      imxMeterPair(this._bus, n, pair);
+      ring[w] = (pair[0] + pair[1]) * 0.5;
+      w = (w + 1) & (IMX_RING_FRAMES - 1);
+    }
+    this.stageWrite[k] = w;
+  }
   /** …and as it leaves, with the chain's gain reductions over the span. */
   pushPost(bus, n0, n1) {
     this._stage(IMX_TAP_POST, bus, n0, n1);
@@ -6067,6 +6201,12 @@ class ImixMeterTap {
       if (Math.abs(g.deq2[i]) > Math.abs(gr.deq2[i])) gr.deq2[i] = g.deq2[i];
     }
     if (g.lim < gr.lim) gr.lim = g.lim;
+    for (const k of ["compLvl", "deq1Lvl", "deq2Lvl"]) {
+      const a = g[k], b = gr[k];
+      for (let i = 0; i < a.length; i++) if (a[i] > b[i]) b[i] = a[i];
+    }
+    const u = bus.chain.unisonNow();
+    if (u !== null) { this.unisLive = true; this.unisCents = u.curCents; this.unisWidth = u.curWidth; }
   }
   /** Hand the interval's figures to `out` and start the next interval. */
   drain(out) {
@@ -6078,8 +6218,13 @@ class ImixMeterTap {
     out.clip.set(this.clip);
     out.comp.set(this.gr.comp); out.deq1.set(this.gr.deq1); out.deq2.set(this.gr.deq2);
     out.lim = this.gr.lim;
+    out.compLvl.set(this.gr.compLvl); out.deq1Lvl.set(this.gr.deq1Lvl); out.deq2Lvl.set(this.gr.deq2Lvl);
     out.ring = this.ring;
     out.ringPre = this.ringPre;
+    out.unisCents = this.unisLive ? this.unisCents : -1;
+    out.unisWidth = this.unisWidth;
+    out.stageWrite.set(this.stageWrite);
+    out.stageRings = this.stageRings;
     this._clearInterval();
     return out;
   }
@@ -6093,7 +6238,15 @@ function makeImixMeterReadout() {
     meanSquare: new Float64Array(4), clip: new Float64Array(4),
     comp: new Float64Array(IMX_COMP_MAX_BANDS), deq1: new Float64Array(IMX_DEQ_BANDS),
     deq2: new Float64Array(IMX_DEQ_BANDS), lim: 0,
+    // The loudest detector reading of each band over the interval (dB; −120 =
+    // nothing) — what its threshold is compared with.
+    compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
+    deq1Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
+    deq2Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
     ring: null, ringPre: null,
+    // The unison's live detune (cents; −1 = it did not run) and width.
+    unisCents: -1, unisWidth: 0,
+    stageWrite: new Int32Array(IMX_TAP_STAGES.length), stageRings: null,
   };
 }
 
@@ -19251,9 +19404,9 @@ function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
       continue;
     }
     const metered = meter !== null && meter.slot === bus.slot;
-    if (metered) meter.pushPre(bus, n0, n1);
+    if (metered) { meter.pushPre(bus, n0, n1); chain.probe = meter; }
     chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
-    if (metered) meter.pushPost(bus, n0, n1);
+    if (metered) { chain.probe = null; meter.pushPost(bus, n0, n1); }
     const d = bus.data;
     if (spatial === null) {
       const accL = ts.mixAccL;

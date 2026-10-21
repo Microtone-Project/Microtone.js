@@ -39,6 +39,7 @@ const VAR_KEYS = {
   bg: "--bg", panel: "--panel", panel2: "--panel-2", fg: "--fg", fg2: "--fg2", dim: "--dim",
   accent: "--accent", accent2: "--accent-2", meter: "--meter",
   meterBg: "--meter-bg", border: "--border",
+  gonio: "--cv-gonio", // the Mixing tab's goniometer dots (item 217)
   // Status inks, for canvases that have to shout: the Mastering view's clip
   // lamps and its latched over-scale tip (item 178).
   errFg: "--err-fg", errBg: "--err-bg",

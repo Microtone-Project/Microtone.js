@@ -51,6 +51,7 @@ import {
   SPECTRUM_TILT_DB_PER_OCT,
 } from "../../../core/engine/fft.js";
 import { RAD_BANDS } from "../radiation.js";
+import { drawSpecGround, drawCursor, trackCursor } from "./imixplots.js";
 import { SAMPLING_RATE } from "../../../core/engine/constants.js";
 import {
   analyseSongAsync, gainForTruePeak, gainForLoudness, trimForLoudness,
@@ -136,6 +137,8 @@ const CLIP_FADE_FRACTION = 0.25;
 /** Spectrometer scale, in dBFS — what the EQ graph's analyser draws between. */
 const SPEC_MIN_DB = -96;
 const SPEC_MAX_DB = -6;
+const EQ_GRAPH_H = 120;
+const EQ_GRAPH_DB = 18;   // the response curve's ± axis
 /** Per-column ballistics for it: snap up, fall away. A spectrum that strobes is
  *  unreadable, and one that only ever rises is a peak-hold, not an analyser. */
 const SPEC_ATTACK = 0.55;
@@ -638,7 +641,8 @@ export class MasteringView {
     // The response curve sits inside the unit: an EQ you cannot see is a set of
     // numbers, and the whole point of four bands is the shape they make.
     this.eqCanvas = document.createElement("canvas");
-    this.eqCanvas.className = "mst-eq-curve";
+    this.eqCanvas.className = "mst-eq-curve mst-eq-graph";
+    this.eqCursor = trackCursor(this.eqCanvas, () => {}); // the frame loop repaints it anyway
     u.body.appendChild(this.eqCanvas);
     for (let i = 0; i < EQ_BANDS; i++) u.body.appendChild(this.eqBand(i));
     return u;
@@ -1790,38 +1794,27 @@ export class MasteringView {
     this.bitCells.ent.textContent = r.histEntropy.toFixed(2);
   }
 
+  /** The EQ graph: the spectrometer on the Mixing tab's ground — frequency
+   *  rules, level rules every 12 dB at the left, the curve's ±18 dB at the
+   *  right — the response curve, and the hairline cursor reading the axes. */
   drawEqCurve(C, dt) {
-    const box = this.ctxFor(this.eqCanvas, 110);
+    const box = this.ctxFor(this.eqCanvas, EQ_GRAPH_H);
     if (!box) return;
     const { ctx, w, h } = box;
-    ctx.fillStyle = C.cvBg;
-    ctx.fillRect(0, 0, w, h);
+    const axes = { lo: SPEC_MIN_DB, hi: SPEC_MAX_DB, curveDb: EQ_GRAPH_DB, ground: C.cvBg };
+    drawSpecGround(ctx, w, h, C, axes);
     this.drawSpectrometer(ctx, w, h, C, dt);
-    const SPAN = 18; // ±dB the plot shows
-    const y0 = h / 2;
-    ctx.strokeStyle = C.border;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, y0 + 0.5); ctx.lineTo(w, y0 + 0.5);
-    ctx.stroke();
-    ctx.fillStyle = C.dim;
-    ctx.font = "9px system-ui, sans-serif";
-    ctx.textAlign = "left";
-    for (const f of [100, 1000, 10000]) {
-      const x = (Math.log(f / 20) / Math.log(20000 / 20)) * w;
-      ctx.fillRect(x, 0, 1, h);
-      ctx.fillText(f >= 1000 ? `${f / 1000}k` : String(f), x + 2, h - 2);
-    }
     const { freq, db } = responseCurve(this.curveChain, 20, 20000, Math.max(64, Math.round(w)));
     ctx.strokeStyle = this.params.eqOn || this.params.hpOn ? C.accent : C.dim;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (let i = 0; i < freq.length; i++) {
       const x = (i / (freq.length - 1)) * w;
-      const y = y0 - clamp(db[i], -SPAN, SPAN) * (h / 2 / SPAN);
+      const y = h / 2 - clamp(db[i] / EQ_GRAPH_DB, -1, 1) * (h / 2 - 4);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
+    drawCursor(ctx, w, h, C, this.eqCursor, axes);
   }
 
   /**

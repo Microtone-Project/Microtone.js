@@ -487,9 +487,9 @@ function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
       continue;
     }
     const metered = meter !== null && meter.slot === bus.slot;
-    if (metered) meter.pushPre(bus, n0, n1);
+    if (metered) { meter.pushPre(bus, n0, n1); chain.probe = meter; }
     chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
-    if (metered) meter.pushPost(bus, n0, n1);
+    if (metered) { chain.probe = null; meter.pushPost(bus, n0, n1); }
     const d = bus.data;
     if (spatial === null) {
       const accL = ts.mixAccL;

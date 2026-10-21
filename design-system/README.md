@@ -69,6 +69,10 @@ Native checkboxes, radios, sliders and progress bars are themed once, by `:root 
 
 Don't borrow one for decoration. Colours that must be told apart differ in lightness, not in hue alone.
 
+### Panels fold to their titlebar
+
+A panel built as a titlebar over a body — a rack unit, an inspector section — folds with `makeFoldable()` (`components/fold.js`), never with a hand-made toggle. A caret twisty sits at the left end of the titlebar, pointing down while open and right while shut, and the panel's name beside it toggles too (the twisty alone is in the Tab order). Only the body folds: the titlebar's own switch, Mix slider or readout keeps working while the panel is shut. Folding is never an undo step. Where it is kept depends on what the panel shows: when that is saved in the project and the format has a place for the fold — a mixing chain's equipment has a *folded* flag beside its bypass — it is saved there (pass `get`/`set`), so the file reopens as it was left and everyone on that chain sees it alike; otherwise it is the viewer's, in `localStorage` per kind of panel (pass `key`). A panel nobody has touched takes its caller's default: open what is in use, shut what is not.
+
 ### Write the DOM only on change
 
 The frame loop visits every open view 60 times a second. Compare before writing `textContent`, never read layout after a write in the same frame, and repaint a canvas when what it shows changes, not on a schedule.
@@ -140,6 +144,7 @@ The library is `microtone-worker/src/ui/components/`, linked here as `components
 | ValueControl | `spinner.js` | every number field and dropdown as a − value + group, applied automatically |
 | ContextMenu | `contextmenu.js` | the icon-cell menu pinned to the pointer |
 | DragGrip | `dragsort.js` | a handle that reorders rows, by pointer or ↑ ↓ |
+| Fold | `fold.js` | folds a titlebar-over-body panel shut, remembered per viewer |
 | NoteGlyph | `noteglyph.js` | a note spelled as the grids spell it, as text |
 
 Pure-CSS components — Button, Badge, Tabs, Toolbar, Wordmark — are classes in `microtone.css`; `components.json` names them and `docs/` shows them.

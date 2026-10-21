@@ -63,6 +63,7 @@
   --accent-2: #78DCE7;      /* blue: instrument column, links, pan ticks */
   --meter: #8be400;         /* green: VU bars, volume column, live dots */
   --meter-bg: #2a2f3a;      /* meter troughs */
+  --cv-gonio: #f4ce23;      /* yellow: the goniometer's dot cloud */
   --border: #404655;
 
   /* status colours */
@@ -214,6 +215,7 @@
   --accent-2: #78DCE7;
   --meter: #8be400;
   --meter-bg: #4b4f55;
+  --cv-gonio: #f8d224;
   --border: #565b62;
 
   /* status colours */
@@ -300,6 +302,7 @@
   --accent-2: #1d66b8;
   --meter: #1c9450;
   --meter-bg: #cfd4dd;
+  --cv-gonio: #a08400;
   --border: #c2c7d1;
 
   /* status colours */
@@ -400,6 +403,7 @@
   --accent-2: #1a5478;      /* faded ink-blue — the labels round the jacks */
   --meter: #2c6f1f;         /* the green LED, seen through tinted plastic */
   --meter-bg: #ab9c74;
+  --cv-gonio: #6e5c00;
   --border: #a08f66;        /* mould line / panel gap */
 
   /* status colours */
@@ -1575,6 +1579,25 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 .drag-grip:active:not(:disabled) { cursor: grabbing; }
 .drag-grip:disabled { opacity: 0.25; cursor: default; }
 .drag-grip .btn-ico { width: 1.1em; height: 1.1em; }
+
+/* Folding panels (components/fold.js). The twisty is a bare caret at the
+   titlebar's left end — like the grip, a real button that must not read as an
+   action: no border, no fill. It points down while the panel is open and
+   right while it is shut; only the body folds, so the titlebar's own controls
+   stay where they were. */
+.fold-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0.05rem; margin: 0 -0.1rem 0 -0.2rem;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--dim); box-shadow: none; flex: none;
+}
+.fold-toggle:hover { color: var(--accent); border-color: transparent; }
+.fold-toggle .btn-ico { width: 1.05em; height: 1.05em; transition: transform 0.12s ease; }
+.folded .fold-toggle .btn-ico { transform: rotate(-90deg); }
+.fold-name { cursor: pointer; user-select: none; }
+.fold-name:hover { color: var(--accent); }
+.folded > .fold-body { display: none; }
+@media (prefers-reduced-motion: reduce) { .fold-toggle .btn-ico { transition: none; } }
 /* The row being dragged. It is the real row, moving through the list under the
    pointer, so it is marked rather than ghosted — a half-transparent row is
    hard to read against the ones it is being placed between. */
@@ -4024,6 +4047,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   letter-spacing: 0.06em;
 }
 .mst-eq-curve { width: 100%; display: block; margin-bottom: 0.3rem; }
+.mst-eq-graph { cursor: crosshair; }
 
 /* A segmented switch: pre/post, and the plot's series picker. */
 .mst-seg { display: inline-flex; }
@@ -4165,20 +4189,36 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* The monitors stay in view while the rack scrolls past them. */
 .imx-monitors { position: sticky; top: 0; }
 .imx-unit .mst-unit-head { flex-wrap: wrap; }
-/* Wet/dry in the titlebar, reported as the WET share. */
+/* The name takes its own width, not the bar's: the Mix slider gets the rest,
+   and the switch keeps the right end whether or not there is a slider. */
+.imx-unit .mst-unit-name { flex: 0 1 auto; }
+.imx-unit .mst-unit-head > .mst-switch { margin-left: auto; }
+/* Folded, the titlebar is the whole unit. */
+.imx-unit.folded .mst-unit-head { border-bottom: 0; border-radius: var(--radius-md); }
+/* Wet/dry in the titlebar, reported as the WET share — long enough to set by
+   ear, which a 100-step range in a few rem was not. */
 .imx-mix {
   display: inline-flex;
+  flex: 1 1 12rem;
+  max-width: 24rem;
+  margin-left: auto;
   align-items: center;
   gap: 0.3rem;
   color: var(--dim);
   font-size: 0.75rem;
   text-transform: none;
 }
-.imx-mix input[type="range"] { width: 6.5rem; }
+.imx-mix input[type="range"] { flex: 1; min-width: 6rem; width: auto; }
 .imx-mixval { min-width: 2.6rem; text-align: right; font-family: var(--mono-font); color: var(--fg); }
 .imx-add { align-self: flex-start; font-size: 0.82rem; }
 .imx-del { margin-left: auto; margin-right: 0.4rem; font-size: 0.72rem; padding: 0 0.4rem; }
-.imx-curve { height: 70px; }
+.imx-curve { height: 120px; cursor: crosshair; }
+.imx-spectrum { cursor: crosshair; }
+.imx-transfer { height: 150px; }
+.imx-unison { height: 74px; }
+/* A threshold strip is dragged sideways, on a finger too: the canvas owns the
+   gesture, as a drag grip does. */
+.imx-thresh { cursor: ew-resize; touch-action: none; margin-bottom: 0.2rem; }
 @media (max-width: 1100px) {
   .imx-grid { grid-template-columns: 1fr; }
   .imx-monitors { position: static; order: -1; }

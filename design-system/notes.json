@@ -17,6 +17,7 @@
     "accent-2": "Cyan-blue: the instrument column, links, pan ticks and the selection-mode chip.",
     "meter": "Green: VU bars, the volume column and live dots.",
     "meter-bg": "Meter troughs and the idle ring of the loading spinner.",
+    "cv-gonio": "Yellow: the dots of a goniometer (the Mixing tab's). Kept off meter green because the correlation bar under the cloud is green, and the two must not read as one thing.",
     "border": "Every 1px hairline: control outlines, bar rules, pane seams, menu dividers. Below the 3:1 control-border floor in every theme as shipped, so a state is carried by the accent border, never by border alone.",
     "ok-bg": "Ground of the 'audio on' badge.",
     "ok-fg": "Text of the 'audio on' badge, on ok-bg.",

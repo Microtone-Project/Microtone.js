@@ -10,7 +10,7 @@
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
 import { TOTAL_VOICES, NUM_INTERRUPTS } from "../engine/constants.js";
-import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS } from "../engine/imix.js";
+import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS, IMX_TAP_STAGES } from "../engine/imix.js";
 
 export const CMD = Object.freeze({
   INIT: "init",
@@ -254,8 +254,19 @@ export const SNAP_IM_LEVELS = SNAP_IM_DEQ2 + IMX_DEQ_BANDS;   // 2 stages × 2 c
 export const SNAP_IM_RING = SNAP_IM_LEVELS + 2 * 2 * SNAP_MM_C_STRIDE;
 export const SNAP_IM_RING_FRAMES = IMX_RING_FRAMES;
 export const SNAP_IM_RING_PRE = SNAP_IM_RING + 2 * IMX_RING_FRAMES;
+// The unison's live detune (cents; −1 = it did not run) and width, then a
+// mono ring at the input of each IMX_TAP_STAGES piece, each with its own
+// write index — 40 KiB more on the wire, and only while the tab is up.
+export const SNAP_IM_UNIS_CENTS = SNAP_IM_RING_PRE + IMX_RING_FRAMES;
+export const SNAP_IM_UNIS_WIDTH = SNAP_IM_UNIS_CENTS + 1;
+// …then each comp and dynamic-EQ band's loudest detector reading (dB).
+export const SNAP_IM_COMP_LVL = SNAP_IM_UNIS_WIDTH + 1;
+export const SNAP_IM_DEQ1_LVL = SNAP_IM_COMP_LVL + IMX_COMP_MAX_BANDS;
+export const SNAP_IM_DEQ2_LVL = SNAP_IM_DEQ1_LVL + IMX_DEQ_BANDS;
+export const SNAP_IM_STAGE_WRITE = SNAP_IM_DEQ2_LVL + IMX_DEQ_BANDS;
+export const SNAP_IM_STAGE_RINGS = SNAP_IM_STAGE_WRITE + IMX_TAP_STAGES.length;
 
-export const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_RING_PRE + IMX_RING_FRAMES;
+export const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RING_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt
