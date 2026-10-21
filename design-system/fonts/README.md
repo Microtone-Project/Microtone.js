@@ -9,7 +9,7 @@ and Microtone Touch both serve it.
 |---|---|---|---|
 | **Motif Grid** | `motif-grid.woff2` | Timeline, Cues, Patterns, chord and notation makers, keymap (`--cv-font`), every note shown as a symbol outside them, vibrato wave buttons; Microtone Touch's notes (grid, keys) | every glyph 20% wider in the same 600-unit cell; ASCII, `·`, `−`, the symbols below and the lü only |
 | **Motif Transport** | `motif-transport.woff2` | the transport readouts (Oct, Inst, Step, Cue, Row, BPM, Spd) | every glyph and its cell 10% narrower; ASCII only |
-| **Motif Code** | `motif-code.woff2`, `motif-code-italic.woff2` | the Motif editor, the manual's code | restricted proportional: `i I l` ×0.75, `M m W w` ×1.25 (stems as heavy as `n`'s and `H`'s at every weight), digits and punctuation stay on the cell; all of Chivo Mono's characters |
+| **Motif Code** | `motif-code.woff2`, `motif-code-italic.woff2` | the Motif editor, the manual's code | restricted proportional: `i I l` ×0.75, `M m W w` ×1.25 (stems as heavy as `n`'s and `H`'s at every weight), digits and punctuation stay on the cell; the hyphen lengthened (`[code] hyphen`) so `-=` does not read as `.=`; all of Chivo Mono's characters |
 | **Motif Mono** | `motif-mono.woff2` | every other monospace in the tracker (`--mono-font`): hex and number fields, indexes, readouts, key names, canvas labels; also what Grid and Transport fall back to | Motif Code with every letter left on the cell — Chivo Mono's own widths, strictly monospaced; all of Chivo Mono's characters |
 
 In all of them the capital **O is square and wide** and the **zero narrow and

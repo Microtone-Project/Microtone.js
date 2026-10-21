@@ -129,6 +129,10 @@ def build_code(cfg, sources, italic, mono=False):
     assemble.subset_font(font, list(font.getBestCmap()), features)
     del font["HVAR"]
     factor, base = ({}, {}) if mono else code_factors(font, c)
+    # Chivo's hyphen is less than half the + and =, so "-=" reads as ".=";
+    # the code face lengthens it (and its raised .cap form) about its middle.
+    hy = font.getBestCmap()[0x2D]
+    hyphens = set() if mono else {g for g in font.getGlyphOrder() if g.split(".")[0] == hy}
     glyf = font["glyf"]
     moved = {}
     # Each narrowed or widened letter takes its stems from where they match
@@ -153,6 +157,8 @@ def build_code(cfg, sources, italic, mono=False):
         elif name == "zero":
             k = 1 - cfg["zero"]["narrow"] / 100
             vg = rescale(src.glyph(name), lambda t: k, 600, src.stems, comp, src.slant, src.y0)
+        elif name in hyphens:
+            vg = _lengthen(src.glyph(name), c["hyphen"], src.slant, src.y0)
         elif glyf[name].isComposite() and _reaches(glyf, name, factor):
             vg = src.glyph(name)  # decomposed: its parts are about to change shape
         else:
@@ -205,6 +211,17 @@ def _lone_mark(vg, height):
     when there are several (ï's two dots would collide)."""
     above = [i for i, c in enumerate(vg.masters[0.0]) if min(p[1] for p in c) > height * 0.95]
     return set(above) if len(above) == 1 else set()
+
+
+def _lengthen(vg, length, slant, y0):
+    """A level bar made `length` units long at every weight, about its own
+    middle: the points left of the middle move left, the rest right. Italic
+    bars are measured and moved along the slant, so they keep their angle."""
+    def fn(t, ol):
+        u = [x - slant * (y - y0) for c in ol for x, y, _ in c]
+        mid, d = (min(u) + max(u)) / 2, (length - (max(u) - min(u))) / 2
+        return [[(x + (d if x - slant * (y - y0) > mid else -d), y, on) for x, y, on in c] for c in ol]
+    return vg.map(fn)
 
 
 def _reaches(glyf, name, targets, seen=None):
