@@ -180,25 +180,32 @@ function armModXfade(ts, instId) {
   }
 }
 
-export function applyTrackerTick(eng, ts, playhead) {
-  const tickSec = 2.5 / playhead.bpm;
-  // Samples-per-tick — used to spread the per-tick envVolume jump across the
-  // upcoming tick interval. Recomputed every tick (BPM can change mid-row).
-  const spt = SAMPLING_RATE * tickSec;
+/**
+ * What a row scheduled for a later tick of itself: the note cut (S $Cx), the
+ * delayed note event (S $Dx) and the S $Dxny follow-up action. They fire at
+ * the boundary that STARTS their tick, as a row's own events fire at the
+ * boundary that starts the row (TAUD_ENGINE_SPEC.md §2.2): the mixer's clock
+ * runs this after the tick pass and the tickInRow increment, whenever the row
+ * goes on, so S $D3 sounds three ticks into the row and its note meets its
+ * first tick pass one tick after it is struck, as a row's note does. Inside the
+ * tick pass they fired one tick late (item 232): S $D1 sounded at tick 2, and a
+ * delay of speed − 1 on the next row's first tick.
+ */
+export function applyTickEvents(eng, ts, playhead) {
+  const t = ts.tickInRow;
   for (let vi = 0; vi < ts.voices.length; vi++) {
     const voice = ts.voices[vi];
-    if (!voice.active && voice.noteDelayTick < 0 && voice.noteActionTick < 0) continue;
-    let inst = eng.instruments[voice.instrumentId];
+    if (voice.cutAtTick !== t && voice.noteDelayTick !== t && voice.noteActionTick !== t) continue;
 
     // Note cut: zero noteVolume/rowVolume, leave channelVolume alone.
-    if (voice.cutAtTick === ts.tickInRow) {
+    if (voice.cutAtTick === t) {
       voice.noteVolume = 0;
       voice.rowVolume = 0;
       voice.noteWasCut = true;
     }
 
     // Note delay — fire the deferred event when the requested tick arrives.
-    if (voice.noteDelayTick === ts.tickInRow) {
+    if (voice.noteDelayTick === t) {
       switch (voice.delayedNote) {
         case 0x0001: // delayed KEY_OFF
           voice.keyOff = true;
@@ -230,13 +237,11 @@ export function applyTrackerTick(eng, ts, playhead) {
           break;
       }
       voice.noteDelayTick = -1;
-      // Re-bind: triggerNote may have swapped in a new instrument (see header note).
-      inst = eng.instruments[voice.instrumentId];
     }
 
     // S$Dxny follow-up action — fires $y ticks after the (possibly deferred)
     // trigger, independent of whether that trigger left the voice active.
-    if (voice.noteActionTick === ts.tickInRow) {
+    if (voice.noteActionTick === t) {
       switch (voice.delayedAction) {
         case 0: // Note off
           voice.keyOff = true;
@@ -266,8 +271,19 @@ export function applyTrackerTick(eng, ts, playhead) {
           break;
       }
       voice.noteActionTick = -1;
-      inst = eng.instruments[voice.instrumentId];
     }
+  }
+}
+
+export function applyTrackerTick(eng, ts, playhead) {
+  const tickSec = 2.5 / playhead.bpm;
+  // Samples-per-tick — used to spread the per-tick envVolume jump across the
+  // upcoming tick interval. Recomputed every tick (BPM can change mid-row).
+  const spt = SAMPLING_RATE * tickSec;
+  for (let vi = 0; vi < ts.voices.length; vi++) {
+    const voice = ts.voices[vi];
+    if (!voice.active && voice.noteDelayTick < 0 && voice.noteActionTick < 0) continue;
+    let inst = eng.instruments[voice.instrumentId];
 
     if (!voice.active) {
       advanceEnvelope(voice, tickSec);

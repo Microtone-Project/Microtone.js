@@ -6,8 +6,9 @@
 //   bank         the instruments, which is where each gets its slot: the
 //                soundfont presets → a .tsii made by the app's own SF2 driver
 //                (sf2bank.py) at the song's tempo; then instruments imported
-//                from packs, generated waveforms, and the metainstruments
-//                (layers, FM racks) built over them
+//                from packs, generated waveforms, OPL and PSG chip
+//                instruments, and the metainstruments (layers, FM racks)
+//                built over them
 //   compile      the score → patterns, cues, pattern names (compile.js)
 //   assemble     bank + song + texts + notation + master → a Document
 //   instruments  layer choice, New Note Action and fadeout overrides
@@ -24,6 +25,7 @@ import { buildMasteringSection } from "../../core/format/mastering-section.js";
 import { defaultMastering } from "../../core/engine/mastering.js";
 import {
   parsePatchesBlob, writePatchesBlob, buildMetaRecord, makeMetaLayer, META_TYPE_FM, META_MAX_LAYERS,
+  buildOplRecord, buildPsgRecord,
 } from "../../core/engine/inst.js";
 import { LINEAR_FREQ_C4_HZ } from "../../core/engine/constants.js";
 import { SAMPLEBIN_SIZE, SAMPLEINST_SIZE, CAPTURE_SIGNATURE } from "../../core/format/taud-const.js";
@@ -444,14 +446,15 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
     if (plan.error) throw new MotifError(`instrument ${i.id}: ${plan.error}`);
     importBankOp(plan).apply(work);
     i.slot = plan.insts[0].destSlot;
-    if (i.envelope) {
-      work._rebuildInstRegion();
-      const inst = work.instruments[i.slot];
-      for (let k = 0; k < 25; k++) inst.volEnvelopes[k] = i.envelope.nodes[Math.min(k, i.envelope.nodes.length - 1)];
-      inst.volEnvLoop = 0x2000; // P: present
-      inst.volEnvSustainWord = i.envelope.susWord;
-      writeRecord(work, i.slot, inst);
-    }
+    if (i.envelope) giveEnvelope(work, i);
+  }
+
+  // chip instruments: an OPL or PSG patch in a record of its own, no samples
+  for (const i of others) {
+    if (i.kind !== "opl" && i.kind !== "psg") continue;
+    const record = (i.kind === "opl" ? buildOplRecord : buildPsgRecord)(i.block, { percussion: i.percussion });
+    i.slot = placeRecord(work, i, record);
+    if (i.envelope) giveEnvelope(work, i);
   }
 
   // metainstruments, in the order they are declared (one may be made of another)
@@ -459,17 +462,7 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
     if (i.kind !== "layers" && i.kind !== "fm") continue;
     work._rebuildInstRegion();
     const record = i.kind === "layers" ? layeredRecord(work, i) : rackRecord(work, i);
-    const taken = new Set(work.usedInstrumentSlots());
-    let slot = 1;
-    while (slot <= 255 && taken.has(slot)) slot++;
-    if (slot > 255) throw new MotifError(`instrument ${i.id}: no free instrument slots left in $01–$FF`);
-    work.sampleInstImage.set(record, SAMPLEBIN_SIZE + slot * 256);
-    work._resetInstrumentCache();
-    i.slot = slot;
-    const parts = splitNameTable(sectionOf(work, "INam") ?? null);
-    while (parts.length <= slot) parts.push(new Uint8Array(0));
-    parts[slot] = utf8(i.name ?? i.id);
-    work.setSection("INam", joinNameTable(parts));
+    i.slot = placeRecord(work, i, record);
   }
   work._rebuildInstRegion();
   return {
@@ -477,6 +470,32 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
     ixmp: work.ixmp,
     projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix"].includes(x.fourcc)),
   };
+}
+
+/** A whole new record in the lowest free slot, named; returns the slot. */
+function placeRecord(work, i, record) {
+  work._rebuildInstRegion(); // an import's decoded edits into the image first, or the cache reset drops them
+  const taken = new Set(work.usedInstrumentSlots());
+  let slot = 1;
+  while (slot <= 255 && taken.has(slot)) slot++;
+  if (slot > 255) throw new MotifError(`instrument ${i.id}: no free instrument slots left in $01–$FF`);
+  work.sampleInstImage.set(record, SAMPLEBIN_SIZE + slot * 256);
+  work._resetInstrumentCache();
+  const parts = splitNameTable(sectionOf(work, "INam") ?? null);
+  while (parts.length <= slot) parts.push(new Uint8Array(0));
+  parts[slot] = utf8(i.name ?? i.id);
+  work.setSection("INam", joinNameTable(parts));
+  return slot;
+}
+
+/** The volume envelope a wave, OPL or PSG instrument declares. */
+function giveEnvelope(work, i) {
+  work._rebuildInstRegion();
+  const inst = work.instruments[i.slot];
+  for (let k = 0; k < 25; k++) inst.volEnvelopes[k] = i.envelope.nodes[Math.min(k, i.envelope.nodes.length - 1)];
+  inst.volEnvLoop = 0x2000; // P: present
+  inst.volEnvSustainWord = i.envelope.susWord;
+  writeRecord(work, i.slot, inst);
 }
 
 /** Write a decoded instrument back into the image. */

@@ -22,6 +22,8 @@ import { tuningFrom } from "./tuning.js";
 import { mulberry32 } from "./stdlib.js";
 import { FM_MAX_OPERATORS, META_MAX_LAYERS, FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp } from "../../core/engine/inst.js";
 import { minifloatFromDouble } from "../../core/engine/minifloat.js";
+import { encodeOplPatch, OPL_KIND_OPERATORS } from "../../core/engine/opl.js";
+import { encodePsgPatch } from "../../core/engine/psg.js";
 import { fmValidate } from "../doc/fmedit.js";
 import { Phrase, truthy } from "./values.js";
 import {
@@ -118,6 +120,7 @@ const INSTRUMENT = {
   pack: str, slot: any,                            // an instrument of a .tsii pack
   wave: oneOf(Object.fromEntries(WAVES.map((w) => [w, w]))), length: int(2, 65535), // a waveform
   layers: any, fm: any,                            // a metainstrument
+  opl: any, psg: any,                              // a chip of its own
   // what it is called and how it plays
   name: str, retune: bool, layer_gain: num(-86, 24), min_fadeout: int(0, 4095), fadeout: int(0, 4095),
   nna: oneOf({ off: 0, cut: 1, continue: 2, fade: 3 }), keep_layers: any,
@@ -126,6 +129,43 @@ const INSTRUMENT = {
 const LAYER = { inst: any, gain: num(-86, 24), detune: num(-9600, 9600), notes: any, vols: any, fixed: any };
 const OPERATOR = { inst: any, level: num(-86, 24), ratio: num(1 / 256, 256), detune: num(-9600, 9600), notes: any, vols: any };
 const FM = { operators: any, algorithm: str };
+
+// The chip instruments, in the Instruments view's own words (its OPL and PSG
+// tabs), snake_case: every field is the register value the tab edits.
+const OPL_KINDS = { "2op": 0, "4op": 1, bass_drum: 2, snare: 3, tom: 4, cymbal: 5, hi_hat: 6 };
+const OPL = {
+  kind: oneOf(OPL_KINDS), connection: any, feedback: int(0, 7),
+  deep_tremolo: bool, deep_vibrato: bool, note_select: bool, low_fnum: bool,
+  partner_multiple: int(0, 15), partner_pitch: num(-9600, 9600), operators: any,
+};
+const OPL_OPERATOR = {
+  multiple: int(0, 15), level: int(0, 63), attack: int(0, 15), decay: int(0, 15), sustain_level: int(0, 15),
+  release: int(0, 15), sustain: bool, waveform: int(0, 7), tremolo: bool, vibrato: bool,
+  key_scale_level: int(0, 3), key_scale_rate: bool,
+};
+/** A four-operator patch's connections, as the OPL tab lists them: an arrow is
+ *  one operator modulating the next, a plus two heard side by side. */
+const OPL_CHAINS = ["1>2>3>4", "1>2+3>4", "1+2>3>4", "1+2>3+4"];
+/** The PSG's sixteen waveforms by name (or by number, 0…15). */
+export const PSG_WAVES = ["dc", "pulse1", "pulse2", "pulse3", "pulse4", "pulse5", "pulse6", "pulse7",
+  "saw", "triangle", "noise32767", "noise2047", "noise127", "saw4", "triangle4", "silence"];
+const PSG = { mix: oneOf({ additive: false, multiplicative: true }), mute_a: bool, mute_b: bool, a: any, b: any };
+const PSG_OSCILLATOR = {
+  waveform: (v, what) => {
+    if (typeof v === "string") {
+      const w = PSG_WAVES.indexOf(v);
+      if (w < 0) throw fail(`${what} is 0…15 or one of ${PSG_WAVES.map((x) => `"${x}"`).join(", ")}${suggest(v, PSG_WAVES)}`);
+      return w;
+    }
+    return int(0, 15)(v, what);
+  },
+  multiple: int(0, 15), level: int(0, 63), attack: int(0, 15), decay: int(0, 15), sustain_level: int(0, 15),
+  release: int(0, 15), sustain: bool, key_scale_level: int(0, 3), key_scale_rate: bool,
+  reset: bool, invert: bool, tremolo: int(0, 2), vibrato: int(0, 2), advance: int(0, 255), pattern: int(0, 3),
+};
+/** An operator's or an oscillator's envelope when the program says nothing: a
+ *  held tone at full level that speaks at once and lets go in about 0.6 s. */
+const CHIP_ENVELOPE = { attack: 15, decay: 0, sustain_level: 0, release: 7, sustain: true };
 const LANE = { inst: any, pan: int(0, 511), label: str, trim: num(0, 1000), jitter: int(0, 255) };
 
 // The master block: snake_case spellings of the engine's mastering record.
@@ -230,10 +270,10 @@ export class Score {
     const has = (k) => o[k] !== undefined;
     const kinds = [
       (has("bank") || has("program")) && "sf2", has("pack") && "pack", has("wave") && "wave",
-      has("layers") && "layers", has("fm") && "fm",
+      has("layers") && "layers", has("fm") && "fm", has("opl") && "opl", has("psg") && "psg",
     ].filter(Boolean);
     if (!kinds.length) {
-      throw fail(`${what} needs a source: a soundfont preset (bank and program), an instrument from a pack (pack and slot), a waveform (wave), layers of other instruments (layers), or an FM rack (fm)`);
+      throw fail(`${what} needs a source: a soundfont preset (bank and program), an instrument from a pack (pack and slot), a waveform (wave), layers of other instruments (layers), an FM rack (fm), or an OPL or PSG chip (opl, psg)`);
     }
     if (kinds.length > 1) throw fail(`${what} has more than one source (${kinds.join(" and ")}); give it one`);
     const kind = kinds[0];
@@ -242,12 +282,12 @@ export class Score {
     };
     only("slot", ["pack"], "an instrument from a pack");
     only("length", ["wave"], "a wave instrument");
-    only("envelope", ["wave"], "a wave instrument (a soundfont's or a pack's instruments carry their own)");
-    only("sustain", ["wave"], "a wave instrument with an envelope");
+    only("envelope", ["wave", "opl", "psg"], "a wave, OPL or PSG instrument (a soundfont's or a pack's instruments carry their own)");
+    only("sustain", ["wave", "opl", "psg"], "a wave, OPL or PSG instrument with an envelope");
     only("keep_layers", ["sf2", "pack"], "a layered preset from a soundfont or a pack");
     only("layer_gain", ["sf2", "pack"], "a layered preset from a soundfont or a pack (a layers instrument gives each layer its own gain)");
     only("strict", ["layers"], "a layers instrument");
-    only("percussion", ["layers", "fm"], "a layers or fm instrument");
+    only("percussion", ["layers", "fm", "opl", "psg"], "a layers, fm, OPL or PSG instrument");
     const inst = {
       // provisional — the build gives each instrument its real slot (the same
       // one, for a song of soundfont presets alone)
@@ -269,9 +309,13 @@ export class Score {
         if (o.slot < 1 || o.slot > 1023) throw fail(`${what}'s slot is 1…1023 (or the instrument's name)`);
       } else asString(o.slot, `${what}'s slot`);
       inst.packSlot = o.slot;
-    } else if (kind === "wave") {
-      inst.wave = o.wave;
-      inst.length = o.length ?? 256;
+    } else if (kind === "wave" || kind === "opl" || kind === "psg") {
+      if (kind === "wave") {
+        inst.wave = o.wave;
+        inst.length = o.length ?? 256;
+      } else {
+        inst.block = kind === "opl" ? this.oplOf(o.opl, `${what}'s opl`) : this.psgOf(o.psg, `${what}'s psg`);
+      }
       if (has("envelope")) inst.envelope = this.envelopeOf(o.envelope, o.sustain ?? null, what);
       else if (has("sustain")) throw fail(`${what}: sustain needs an envelope`);
     } else if (kind === "layers") {
@@ -352,6 +396,74 @@ export class Score {
     const units = Math.round(4096 * Math.log2(o.ratio ?? 1)) + Math.round(((o.detune ?? 0) * 4096) / 1200);
     if (units < -0x8000 || units > 0x7fff) throw fail(`${what}'s ratio is out of range`);
     return { ref, level: o.level ?? 0, detune: units, pitchStart, pitchEnd, volStart, volEnd };
+  }
+
+  /** An `opl` record → the 54-byte patch block (TAUD_FILE_FORMAT.md §7.8). */
+  oplOf(v, what) {
+    const o = readOptions(v, OPL, what);
+    const kind = o.kind ?? 0;
+    const name = Object.keys(OPL_KINDS)[kind];
+    const drum = kind >= 3;                     // the one-operator rhythm voices
+    const partnered = kind === 3 || kind === 5 || kind === 6;
+    if (drum && o.connection !== undefined) throw fail(`${what}: a ${name} has one operator, so no connection`);
+    if (drum && o.feedback !== undefined) throw fail(`${what}: a ${name} has no feedback (only a 2op, 4op or bass_drum does)`);
+    if (!partnered && (o.partner_multiple !== undefined || o.partner_pitch !== undefined)) {
+      throw fail(`${what}: only a snare, cymbal or hi_hat has a partner`);
+    }
+    if (kind === 3 && o.partner_pitch !== undefined) throw fail(`${what}: a snare reads its partner on its own channel, so it has no partner_pitch`);
+    let cntA = 0, cntB = 0;
+    if (o.connection !== undefined) {
+      if (kind === 1) {
+        const c = typeof o.connection === "number" ? asInt(o.connection, `${what}'s connection`)
+          : OPL_CHAINS.indexOf(asString(o.connection, `${what}'s connection`).replace(/\s+/g, "").replace(/→|->/g, ">"));
+        if (c < 0 || c > 3) throw fail(`${what}'s connection is one of ${OPL_CHAINS.map((x) => `"${x}"`).join(", ")} (or 0…3)`);
+        cntA = c >> 1; cntB = c & 1;
+      } else {
+        cntA = oneOf({ fm: 0, additive: 1 })(o.connection, `${what}'s connection`);
+      }
+    }
+    if (o.operators === undefined) throw fail(`${what} needs operators: a list of ${OPL_KIND_OPERATORS[kind]}`);
+    const list = asList(o.operators, `${what}'s operators`);
+    if (list.length !== OPL_KIND_OPERATORS[kind]) {
+      throw fail(`a ${name} has ${OPL_KIND_OPERATORS[kind]} operator${OPL_KIND_OPERATORS[kind] === 1 ? "" : "s"}, not ${list.length}`);
+    }
+    const ops = list.map((op, i) => {
+      const f = { ...CHIP_ENVELOPE, multiple: 1, ...readOptions(op, OPL_OPERATOR, `${what}'s operator ${i + 1}`) };
+      return {
+        am: f.tremolo ? 1 : 0, vib: f.vibrato ? 1 : 0, eg: f.sustain ? 1 : 0, ksr: f.key_scale_rate ? 1 : 0,
+        mult: f.multiple, ksl: f.key_scale_level ?? 0, tl: f.level ?? 0,
+        ar: f.attack, dr: f.decay, sl: f.sustain_level, rr: f.release, ws: f.waveform ?? 0,
+      };
+    });
+    // the AdLib driver keeps the hi-hat's channel seven semitones above the cymbal's
+    const pitch = o.partner_pitch ?? (kind === 5 ? 700 : kind === 6 ? -700 : 0);
+    return encodeOplPatch({
+      kind, deepTremolo: o.deep_tremolo ?? false, deepVibrato: o.deep_vibrato ?? false,
+      nts: o.note_select ?? false, lowFnum: o.low_fnum ?? false, feedback: o.feedback ?? 0, cntA, cntB,
+      partnerMult: partnered ? (o.partner_multiple ?? 1) : 0,
+      partnerDetune: kind === 5 || kind === 6 ? Math.round((pitch * 4096) / 1200) : 0,
+      ops,
+    });
+  }
+
+  /** A `psg` record → the 54-byte patch block (TAUD_FILE_FORMAT.md §7.9). An
+   *  oscillator the program leaves out is muted (it still runs, silent). */
+  psgOf(v, what) {
+    const o = readOptions(v, PSG, what);
+    if (o.a === undefined && o.b === undefined) throw fail(`${what} needs an oscillator: a, b or both`);
+    const osc = ["a", "b"].map((k) => {
+      const f = { ...CHIP_ENVELOPE, waveform: 4, multiple: 1, ...(o[k] === undefined ? {} : readOptions(o[k], PSG_OSCILLATOR, `${what}'s ${k}`)) };
+      return {
+        wave: f.waveform, ar: f.attack, dr: f.decay, sl: f.sustain_level, rr: f.release, mult: f.multiple,
+        ksl: f.key_scale_level ?? 0, tl: f.level ?? 0, ksr: f.key_scale_rate ?? false, eg: f.sustain,
+        reset: f.reset ?? false, invert: f.invert ?? false, tremolo: f.tremolo ?? 0, vibrato: f.vibrato ?? 0,
+        advance: f.advance ?? 0, pattern: f.pattern ?? 0,
+      };
+    });
+    return encodePsgPatch({
+      multiply: o.mix ?? false, osc,
+      muteA: o.mute_a ?? o.a === undefined, muteB: o.mute_b ?? o.b === undefined,
+    });
   }
 
   /** [[seconds, value 0…63], …] → envelope nodes (each node's offset is the

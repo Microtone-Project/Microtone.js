@@ -302,7 +302,8 @@ class Analyzer {
         const v = st.value;
         const src2 = field(v, "bank") !== undefined ? "soundfont" : field(v, "pack") !== undefined ? "pack"
           : field(v, "wave") !== undefined ? "wave" : field(v, "layers") !== undefined ? "layers"
-          : field(v, "fm") !== undefined ? "fm" : "";
+          : field(v, "fm") !== undefined ? "fm" : field(v, "opl") !== undefined ? "opl"
+          : field(v, "psg") !== undefined ? "psg" : "";
         out.push(item("instrument", st.name, src2, st.namePos.offset));
       } else if (st.k === "decl" && st.kind === "lane") {
         const inst = field(st.value, "inst");
