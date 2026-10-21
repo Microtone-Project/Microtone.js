@@ -10,6 +10,7 @@
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
 import { TOTAL_VOICES, NUM_INTERRUPTS } from "../engine/constants.js";
+import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS } from "../engine/imix.js";
 
 export const CMD = Object.freeze({
   INIT: "init",
@@ -36,6 +37,8 @@ export const CMD = Object.freeze({
   SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
   SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
   SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
+  SET_IMIX: "setImix",                             // {blocks} — item 217, the instruments' IMix chains
+  SET_IMIX_METER: "setImixMeter",                  // {ph, slot} — item 217 Mixing-tab tap (slot < 0 = off)
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
@@ -231,7 +234,28 @@ export const SNAP_SPEC_BASE = SNAP_HIST_BASE + SNAP_HIST_BINS;
 export const SNAP_SPEC_FRAMES = SPEC_FRAMES;
 export const SNAP_SPEC_STAGES = TAP_STAGES;
 
-export const SNAP_FLOATS = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
+// ── Mixing-tab meter (item 217), after the spectrum rings ──
+// One instrument's bus: zero frames while the tap is off or the bus did not
+// run. Gain reductions are the extreme over the interval (comp and limiter
+// ≤ 0; a dynamic EQ's band is signed — a boost is positive). Then, per stage
+// (0 = into the chain, 1 = out of it) and channel, the four level figures the
+// Mastering tab's meters use; then a stereo ring after the chain (frame
+// interleaved L, R) and a mono one before it, read backwards from RING_WRITE.
+export const SNAP_IM_BASE = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
+export const SNAP_IM_FRAMES = 0;
+export const SNAP_IM_SLOT = 1;
+export const SNAP_IM_RING_WRITE = 2;
+export const SNAP_IM_LIM_GR = 3;
+export const SNAP_IM_COMP_GR = 4;
+export const SNAP_IM_DEQ1 = SNAP_IM_COMP_GR + IMX_COMP_MAX_BANDS;
+export const SNAP_IM_DEQ2 = SNAP_IM_DEQ1 + IMX_DEQ_BANDS;
+export const SNAP_IM_LEVELS = SNAP_IM_DEQ2 + IMX_DEQ_BANDS;   // 2 stages × 2 ch × SNAP_MM_C_STRIDE
+// (every SNAP_IM_* offset is RELATIVE to SNAP_IM_BASE)
+export const SNAP_IM_RING = SNAP_IM_LEVELS + 2 * 2 * SNAP_MM_C_STRIDE;
+export const SNAP_IM_RING_FRAMES = IMX_RING_FRAMES;
+export const SNAP_IM_RING_PRE = SNAP_IM_RING + 2 * IMX_RING_FRAMES;
+
+export const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_RING_PRE + IMX_RING_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt

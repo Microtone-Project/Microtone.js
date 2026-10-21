@@ -29,6 +29,8 @@ const FILES = [
   "core/engine/mastering.js", // …and both of these before state.js too, which
   "core/engine/loudness.js",  // builds a chain and a meter tap (item 178);
                              // loudness.js reads analysis.js's oversampler
+  "core/engine/imix.js",      // …the instrument chains (item 217): after the
+                             // mastering stages it reuses, before state.js
   "core/engine/samplemod.js",  // …before sampler.js (readSamplePoint) and inst.js
   "core/engine/opl.js",        // …before inst.js (a type-8 record decodes its patch)
   "core/engine/psg.js",        // …after opl.js (whose envelope and LFOs it runs), before inst.js

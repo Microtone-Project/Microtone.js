@@ -62,7 +62,7 @@
         iv.renderPanel();
         await waitFor(() => iv.panel.querySelector(".fm-algo"));
         const tabLabels = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
-        log(`tab bar is FM + Options: ${ok(tabLabels.join("|") === "FM|Options")}`);
+        log(`tab bar is FM + Options + Mixing: ${ok(tabLabels.join("|") === "FM|Options|Mixing")}`);
         const rows = iv.panel.querySelectorAll(".meta-table tbody tr");
         log(`operator rack painted ${rows.length} rows: ${ok(rows.length === 4)}`);
         const words = iv.panel.querySelectorAll(".fm-word");

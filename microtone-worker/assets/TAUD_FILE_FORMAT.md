@@ -445,7 +445,7 @@ If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a va
 | 252 | `U8` | Default cutoff, low bits (SoundFont mode only) |
 | 253 | `U8` | Default resonance, low bits (SoundFont mode only) |
 | 254 | `S8` | Panning elevation, ignored in stereo mode |
-| 255 | `Byte` | **RESERVED** |
+| 255 | `U8` | IMix id — the mixing chain the instrument's voices pass through ([§9.15](#9-15-imix-instrument-mixing-chains)); 0 = none |
 
 **The instrument's default position.** In a stereo song byte 177 is the pan value it has always been. In a surround song the same byte is the **low eight bits of a 9-bit azimuth** — byte 14's `A` bit supplies the ninth — read in the units of `S $8xxx` (0 = left, 128 = front, 256 = right, 384 = behind), and byte 254 is the elevation in effect `X`'s signed units (128 = 90°). This is the same relationship `S $80xx` has with `S $8xxx`, so every file written before these bits existed stays valid: `A` clear puts the default on the front arc, which is exactly what its pan byte always meant, and a stereo song never reads either extra field.
 
@@ -862,7 +862,7 @@ A type-4 Metainstrument is an **FM Rack**: the third kind of the family defined 
 
 An operator is an ordinary instrument, an OPL instrument ([§7.8](#7-8-metainstrument-type-8-opl-instruments)) or a PSG instrument ([§7.9](#7-9-metainstrument-type-9-psg-instruments)), never a formant instrument ([§7.4](#7-4-metainstrument-records)). The operator's mix octet is its **output level**, and its sample detune is its **frequency ratio** — one octave up is `+4096`, a perfect twelfth `+6485`. Those are the two numbers an FM operator has always had; the pitch and volume rectangles are the third thing, and they gate the operator exactly as they gate a layer: an operator whose rectangle excludes the trigger is **silent** for that note, which is how key scaling and velocity-switched brightness are written.
 
-Both halves live in the **252 bytes** the record has after its header — 10 a operator, 2 a word, 2 for the terminator. More operators means less room for the algorithm, and an editor **SHOULD** show that as one figure rather than two limits.
+Both halves live in the **250 bytes** the record has between its header and its last two bytes — bytes 4…253, 10 an operator, 2 a word, 2 for the terminator. Byte 255 is the instrument's IMix id, as in every record ([§7.1](#7-1-byte-map)), and byte 254 stays clear so no word straddles it. More operators means less room for the algorithm, and an editor **SHOULD** show that as one figure rather than two limits.
 
 #### Words
 
@@ -886,7 +886,7 @@ The `$04xx` class is what makes an RPN program able to express FM at all. A modu
 
 #### Validity
 
-A reader **MUST** verify the algorithm before playing it, and a rack whose algorithm does not verify **MUST** sound nothing. An algorithm verifies when, reading words in order from the first to the terminator or the record's end:
+A reader **MUST** verify the algorithm before playing it, and a rack whose algorithm does not verify **MUST** sound nothing. An algorithm verifies when, reading words in order from the first to the terminator or the end of byte 253:
 
 - every word is a defined operand or operator, and every operand's index is below the operator count;
 - no word pops more than the stack holds, and the stack never exceeds **16** entries;
@@ -1253,11 +1253,12 @@ If your samples are already pre-tuned for your system, leave the project's tunin
 
 ### 9.8 Reading Project Data on a device that ignores it
 
-Nothing in Project Data is required to play a song correctly, with three exceptions that a conforming *player* **MUST** honour:
+Nothing in Project Data is required to play a song correctly, with four exceptions that a conforming *player* **MUST** honour:
 
 - `xHDR`, because it changes the cue stride.
 - `Ixmp`, because it changes which samples an instrument plays.
 - `sMst`, because it is the chain the song is delivered through ([§9.12](#9-12-smst-song-mastering)).
+- `IMix`, because it is the chains the instruments are mixed through ([§9.15](#9-15-imix-instrument-mixing-chains)).
 
 Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all, and `PMtf` ([§9.14](#9-14-pmtf-motif-source)), the program a project was built from.
 
@@ -1495,6 +1496,152 @@ A Motif build writes it so that the project carries its own recipe: an editor ca
 
 A file **SHOULD** hold at most one `PMtf`. An editor that does not build Motif programs **MUST** keep the section's bytes untouched when saving. The language is not part of this specification; it is defined in the Taud Motif Language reference (TAUD_MOTIF_LANGUAGE.md), which also says how a build turns a program into the rest of this file.
 
+### 9.15 `IMix` — instrument mixing chains
+
+The **mixing chains** an instrument's voices pass through before they join the master: equalisers, dynamics, a saturator, a unison, a tape delay, a reverb, a limiter and a mix tool, in a fixed order. Their behaviour is specified in full in the **Engine Specification** §12.4; this section is the byte layout.
+
+Instrument-scoped (the `I` prefix), so a `.tsii` bank carries the chains of its instruments. An instrument names its chain in **byte 255** of its record ([§7.1](#7-1-byte-map)); 0 there means it has none. Two or more instruments **MAY** name the same block: they then share its **settings**, and each still runs its **own** instance of the chain — a block is a set of settings, never a shared bus. Like `sMst`, this section is one a conforming *player* **MUST** honour ([§9.8](#9-8-reading-project-data-on-a-device-that-ignores-it)).
+
+The payload is a concatenation of blocks, at most 255 of them:
+
+| Type | Field |
+|---|---|
+| `U8` | IMix id, 1…255 — what byte 255 names |
+| `U8` | **RESERVED** |
+| `U8` | Status flags `0b nnnn 000e` — `e` the chain is enabled, `nnnn` the pipeline order (below) |
+| `U8` | Equipment count *n* |
+| `FourCC × n` | The equipment the block holds — a table of contents; its order does not matter, the pipeline is fixed |
+| *n* × record | Each: `FourCC` equipment identifier, `U32` payload size (the common bytes included), then the payload |
+
+Every payload begins with four **common bytes**:
+
+| Offset | Type | Field |
+|---|---|---|
+| +0 | `U8` | `0b b000 vvvv` — `b` the equipment is **bypassed**, `vvvv` the payload version (0 for every payload defined here) |
+| +1 | `U8` | **Dry amount**, 0…255: 0 is all wet, 255 all dry. **MUST** be 0 for equipment that has no wet/dry (below) |
+| +2 | `U16` | **RESERVED** |
+
+#### The pipeline
+
+| `nnnn` | Order |
+|---|---|
+| 0 | `itrm` → `equ1` → `deq1` → `comp` → `equ2` → `deq2` → `unis` → `satu` → `dlay` → `verb` → `limi` → `mxtl` |
+| 1 | `itrm` → `equ1` → `deq1` → `comp` → `equ2` → `deq2` → `unis` → `satu` → `verb` → `dlay` → `limi` → `mxtl` |
+
+Every other value is **RESERVED**. A block holds only the equipment that has been **touched** — inserted into the chain at some point; equipment it does not hold is not in the chain. **Equipment does not retire once touched**: a writer **MUST** keep a piece in its block for as long as the block exists, bypassed rather than removed, and an equipment identifier, once defined, is never withdrawn or given another meaning. Blocks, on the other hand, **are** retired: a block no instrument names **SHOULD** be dropped, and an editor **MUST** do so only when it saves — never as a side effect of an edit, so an instrument taken off a chain and put back finds it as it was.
+
+#### The equipment
+
+All floats are IEEE **binary32**, little-endian; every quantity that **accumulates** — an LFO's rate, a delay time — is a `U32` in **16.16 fixed point**. A reader **MUST** clamp a value outside its range rather than reject the block. Offsets are within the payload, so +0…+3 are the common bytes. "Wet/dry" says whether the dry amount means anything.
+
+**`itrm` — input trim** (8 bytes; no wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `F32` | Gain, dB — −24…+24 |
+
+**`equ1`, `equ2` — equalisers** (8 + 16 × *k* bytes; no wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Band count *k*, 0…8 |
+| +5 | `Byte[3]` | **RESERVED** |
+| +8 | `Band × k` | 16 bytes each: `U8` flags (bit 0 = enabled), `U8` shape, `U8` slope, `U8` **RESERVED**, `F32` frequency (Hz, 20…20000), `F32` gain (dB, −24…+24), `F32` Q (0.1…18) |
+
+Shapes: 0 high-pass (low cut), 1 low shelf, 2 bell, 3 high shelf, 4 low-pass (high cut), 5 notch. The slope is the cut shapes' alone — *s* gives (*s* + 1) × 12 dB per octave, *s* = 0…3 — and **MUST** be 0 on every other shape.
+
+**`comp` — compressor, one to six bands** (8 + 4 × (*k* − 1) + 28 × *k* bytes; wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Band count *k*, 1…6 — one band is an ordinary compressor |
+| +5 | `U8` | Detector — 0 peak, 1 RMS |
+| +6 | `U16` | **RESERVED** |
+| +8 | `F32 × (k − 1)` | Crossover frequencies, Hz, 20…20000, **strictly ascending** |
+| … | `Band × k` | 28 bytes each: `U8` flags (bit 0 = enabled), `Byte[3]` **RESERVED**, `F32` threshold (dBFS, −60…0), `F32` ratio (1…20), `F32` attack (ms, 0.1…300), `F32` release (ms, 5…3000), `F32` knee (dB, 0…24), `F32` make-up (dB, −12…+24) |
+
+**`deq1`, `deq2` — dynamic equalisers** (272 bytes; no wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `Byte[4]` | **RESERVED** |
+| +8 | `Band × 6` | 44 bytes each, below |
+
+Band 0 is a low shelf, band 1 a high shelf, bands 2…5 bells. Each band: `U8` flags — bit 0 enabled, bit 1 **unlinked** (it senses a range of its own), bit 2 **boost** (it rises above the threshold; clear, it cuts) — `Byte[3]` **RESERVED**, then `F32` × 10: act frequency (Hz, 20…20000), act Q (0.1…18), static gain (dB, −24…+24), sense frequency, sense Q, threshold (dBFS, −60…0), ratio (1…20), attack (ms, 0.1…300), release (ms, 5…3000), range (dB, 0…24). A band that is **not** unlinked **MUST** carry its act frequency and Q in the sense fields.
+
+**`satu` — saturator** (24 bytes; wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Curve — 0 tape (tanh), 1 soft clip, 2 hard clip, 3 tube (asymmetric), 4 wavefolder |
+| +5 | `Byte[3]` | **RESERVED** |
+| +8 | `F32` | Drive, dB — 0…36 |
+| +12 | `F32` | Input trim, dB — −24…+24 |
+| +16 | `F32` | Output trim, dB — −24…+24 |
+| +20 | `F32` | Bias — −1…+1 |
+
+**`unis` — unison** (44 bytes; wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Voices, 2…8 |
+| +5 | `Byte[3]` | **RESERVED** |
+| +8 | `F32` | Detune, cents — 0…100 |
+| +12 | `F32` | Width — 0…1 |
+| +16 | `F32` | Voice spacing — 0 uniform … 1 bell; meaningless below four voices |
+| +20 | `LFO` | The detune's LFO, 12 bytes |
+| +32 | `LFO` | The width's LFO, 12 bytes |
+
+An **LFO** record: `U8` waveform (0 sine, 1 triangle, 2 square, 3 saw up, 4 saw down, 5 random sample-and-hold), `U8` flags (bit 0 **trigger on note**: every note of the instrument restarts the cycle; bit 1 **sync**: the rate is a period in quarter ticks), `U16` **RESERVED**, `U32` rate — 16.16 **hertz** (0.01…40) when not synced, a 16.16 period in **quarter ticks** (1…4096; a tick is four) when synced — and `F32` depth, 0…1.
+
+**`verb` — reverb** (24 bytes; wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `Byte[4]` | **RESERVED** |
+| +8 | `F32` | Size — 0…1 |
+| +12 | `F32` | Decay (RT60), seconds — 0.1…30 |
+| +16 | `F32` | Damping, Hz — 1000…20000 |
+| +20 | `U32` | Pre-delay, 16.16 seconds — 0…0.5 |
+
+**`dlay` — tape delay** (32 bytes; wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Flags: bit 0 **sync** (the time is in quarter ticks), bit 1 **ping-pong** |
+| +5 | `Byte[3]` | **RESERVED** |
+| +8 | `U32` | Time — 16.16 seconds (0.001…4) when not synced, 16.16 quarter ticks (0.25…1024) when synced; never longer than 4 seconds at playback |
+| +12 | `F32` | Feedback — 0…1.2 |
+| +16 | `F32` | High cut in the feedback path, Hz — 500…20000 |
+| +20 | `F32` | Low cut in the feedback path, Hz — 20…2000 |
+| +24 | `F32` | Wow and flutter — 0…1 |
+| +28 | `F32` | Drive of the feedback path's saturation, dB — 0…24 |
+
+**`limi` — limiter** (20 bytes; no wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Flags: bit 0 = true-peak ceiling |
+| +5 | `Byte[3]` | **RESERVED** |
+| +8 | `F32` | Ceiling, dBTP — −24…0 |
+| +12 | `F32` | Release, ms — 1…1000 |
+| +16 | `F32` | Input gain, dB — −12…+24 |
+
+**`mxtl` — mix tool** (16 bytes; no wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Flags: bit 0 swap left and right, bit 1 invert left, bit 2 invert right |
+| +5 | `Byte[3]` | **RESERVED** |
+| +8 | `F32` | Gain, dB — −24…+24 |
+| +12 | `F32` | Stereo width — 0…2, where 1 is the identity |
+
+#### Reading a block
+
+Any **contradictory** configuration makes a block **INVALID**: an id of 0; two blocks under one id; an undefined pipeline order; an equipment list that names a piece twice or disagrees with the records that follow it; a known payload of the wrong size for its version and counts; a dry amount on equipment that has no wet/dry; an undefined shape, slope, curve, detector or waveform; a slope on a shape that has none; an equaliser of more than 8 bands, a compressor of 0 or more than 6, a unison of fewer than 2 voices or more than 8; crossovers that are not strictly ascending; a linked dynamic-EQ band whose sense fields differ from its act fields. A reader **MUST NOT** play an invalid block: the instruments that name it play as if they had none, and a reader **SHOULD** say so. A block that cannot even be delimited ends the walk.
+
+Equipment a reader does not know — an unknown identifier, or a known one at a payload version above the one it understands — **MUST** be skipped by playback, **SHOULD** be reported once when the file is opened, and **MUST** be written back unchanged by an editor that saves the block. A block holding nothing but unknown or bypassed equipment changes nothing.
+
 ## 10. Validity checklist
 
 A writer producing a file that any conforming reader will accept must satisfy all of the following.
@@ -1509,7 +1656,8 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Every `Ixmp` entry names a distinct instrument, and no two patches of one instrument have overlapping rectangles.
 - Every `sMst` entry names a distinct song, and its parameter block is at least as long as the record version it declares.
 - Every Metainstrument layer or operator index resolves to an ordinary instrument in `$001`…`$3FF` or to a type-8 or type-9 one, or, in a type-0 record, to a type-1 one.
-- Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)), and the two together fit 252 bytes.
+- Every type-4 rack holds 1…16 operators, its algorithm verifies ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)), and the two together fit 250 bytes (bytes 4…253).
+- Every instrument's byte 255 is 0 or the id of an `IMix` block the file carries, and every `IMix` block is valid ([§9.15](#9-15-imix-instrument-mixing-chains)).
 - Every type-8 record's kind is 0…6 and its reserved bytes are zero ([§7.8](#7-8-metainstrument-type-8-opl-instruments)).
 - Every type-9 record's reserved bytes and bits are zero, and no oscillator's tremolo or vibrato depth is 3 ([§7.9](#7-9-metainstrument-type-9-psg-instruments)).
 - Every type-1 record's reserved bytes are zero, its source instrument is 0 or a type-8 or type-9 instrument, an empty pool range other than 0…0 goes with no source sample, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.6](#7-6-metainstrument-type-1-formant-instruments)).
@@ -1546,3 +1694,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-16 | The Metainstrument type nibble split in two ranges: 0…7 the kinds built out of sources, 8…13 the kinds that make a sound of their own (OPL; PSG to come), 14…15 reserved. A kind of the first range takes one of the second as a source: an FM operator **MAY** be an OPL instrument, and a formant instrument's header names a **source instrument** (bytes 0…1) sung in place of its sample |
 | 2026-10-16 | Metainstrument type 9 — PSG instruments: an ordinary record with two oscillators in place of its sample (sixteen waveforms, the OPL operator's envelope, tremolo and vibrato, auto-advance), added or multiplied, the patch in the second pitch/filter slot. The second kind of types 8…13: a layer, an FM operator and a formant instrument's source **MAY** be one |
 | 2026-10-21 | Formant instruments: a reference note of 0 is a syllable with **no vowel**, its last consonant held as a syllabic consonant; the reference word's bit 15 **nasalises** the vowel; byte +53's bits 3–4 a **secondary articulation** on the onset (palatalised, velarised/pharyngealised, glottalised) and bits 5–6 the **coda's release** (unreleased, velarised/pharyngealised, glottalised); an empty pool range other than 0…0 is an instrument made from **nothing in the pool** |
+| 2026-10-22 | `IMix` — instrument mixing chains: byte 255 of every record names a block of up to twelve pieces of equipment in a fixed pipeline, and the fourth Project-Data section a player must honour. An FM rack's operators and algorithm now share bytes 4…253 (250 bytes; was 4…255), leaving byte 255 to every kind |

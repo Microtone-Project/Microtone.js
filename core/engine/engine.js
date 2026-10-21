@@ -26,6 +26,7 @@ import {
   SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, voiceAzimuth, voiceElevation,
 } from "./spatial.js";
 import { generateTrackerAudio } from "./mixer.js";
+import { imixBlockMap } from "./imix.js";
 import { triggerMetaOrNote, triggerNote } from "./trigger.js";
 import { startCutRamp } from "./sampler.js";
 import { applyKeyLift } from "./envelope.js";
@@ -73,6 +74,12 @@ export class TaudEngine {
     // mixer hands each voice's PRE-PAN mono contribution to `add()`; nothing
     // else about the render changes, so the main output stays bit-identical.
     this.stemBus = null;
+    // Instrument mixing chains (item 217): the project's IMix blocks by id.
+    // Like the instruments, they belong to the engine, not to a playhead;
+    // `imixGen` counts every change to them or to an instrument record, and a
+    // playhead rebuilds its route table when it sees a new count.
+    this.imixBlocks = new Map();
+    this.imixGen = 0;
   }
 
   channelCount() { return this.is64ChannelMode ? MAX_VOICES : NUM_VOICES; }
@@ -118,6 +125,7 @@ export class TaudEngine {
       this.instruments[instIdx].loadRecord(rec);
     }
     for (const inst of this.instruments) inst.extraPatches = null;
+    this.imixGen++; // byte 255 of every record may have moved
     return image.length;
   }
 
@@ -137,6 +145,7 @@ export class TaudEngine {
     const rec = new Uint8Array(256);
     for (let i = 0; i < Math.min(256, bytes.length); i++) rec[i] = bytes[i] & 0xff;
     inst.loadRecord(rec);
+    this.imixGen++;
   }
 
   /**
@@ -434,6 +443,25 @@ export class TaudEngine {
    */
   setMastering(ph, params) { this.playheads[ph].trackerState.setMastering(params); }
   getMastering(ph) { return this.playheads[ph].trackerState.masteringParams; }
+
+  /**
+   * The project's instrument mixing chains (item 217, TAUD_ENGINE_SPEC.md
+   * §12.4): every IMix block, as decoded from the file's `IMix` section. An
+   * instrument whose byte 255 names one of them mixes through it on every
+   * playhead. Replaces the whole set; a block that keeps its id keeps its
+   * running state, so a host may push the set on every edit.
+   *
+   * Like the mastering chain, a conforming player MUST install what the file
+   * declares.
+   */
+  setImix(blocks) {
+    this.imixBlocks = imixBlockMap(blocks);
+    this.imixGen++;
+  }
+  getImix() { return [...this.imixBlocks.values()]; }
+
+  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus. */
+  setImixMeter(ph, slot) { this.playheads[ph].trackerState.setImixMeter(slot); }
 
   /**
    * Install (or drop) the Mastering view's metering tap (loudness.js). Like the

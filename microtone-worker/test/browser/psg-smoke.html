@@ -67,7 +67,7 @@
         await waitFor(() => iv.panel.querySelector(".psg-edit"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +
-          ok(tabs.join("|") === "PSG|General|Vol env|Pan env|Pitch/Filter" && iv.tab === "psg"));
+          ok(tabs.join("|") === "PSG|General|Vol env|Pan env|Pitch/Filter|Mixing" && iv.tab === "psg"));
         const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
         log(`list badge "${badge()}": ${ok(badge() === "PSG")}`);
         const oscs = () => iv.panel.querySelectorAll(".psg-osc");

@@ -28,6 +28,9 @@ export function metaFlags(inst) {
     strict: (b0 & 0x01) !== 0,
     percussion: (b0 & 0x02) !== 0,
     type: (b0 >>> 4) & 0x0f,
+    // Not a flag, but the one other byte a repack must carry over: the
+    // instrument's mixing chain (item 217, byte 255).
+    imixId: inst?.metaRaw ? inst.metaRaw[255] & 0xff : 0,
   };
 }
 

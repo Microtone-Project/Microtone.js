@@ -34,16 +34,20 @@ import {
   SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
   SNAP_MM_HIST_ENTROPY,
+  SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
+  SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
 } from "./protocol.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, displayPanByte, displayAngles,
 } from "../engine/spatial.js";
 import { ANALYSIS_MAX_METERS, makeAnalysisReadout } from "../engine/analysis.js";
 import { makeMasterMeterReadout } from "../engine/loudness.js";
+import { makeImixMeterReadout } from "../engine/imix.js";
 
 /** Reused drain targets — the snapshot path never allocates. */
 const analysisReadout = makeAnalysisReadout();
 const masterMeterReadout = makeMasterMeterReadout();
+const imixMeterReadout = makeImixMeterReadout();
 /** …and the scratch [azimuth, elevation] the position readout writes into. */
 const angleBox = new Float64Array(2);
 
@@ -87,6 +91,8 @@ export function applyAudioCommand(eng, m) {
     case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
     case CMD.SET_MASTER_METER:
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
+    case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
+    case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
@@ -239,6 +245,39 @@ export function fillSnapshotInto(eng, playhead, f) {
   }
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);
+  fillImixMeterInto(ts, f);
+}
+
+/**
+ * Mixing-tab block (item 217): one instrument bus's levels on both sides of
+ * its chain, the chain's gain reductions and the two rings. With the tap off
+ * only the "no frames" marker is written.
+ */
+function fillImixMeterInto(ts, f) {
+  const b = SNAP_IM_BASE;
+  const tap = ts.imixMeter;
+  if (tap === null) {
+    f[b + SNAP_IM_FRAMES] = 0;
+    f[b + SNAP_IM_SLOT] = -1;
+    return;
+  }
+  const r = tap.drain(imixMeterReadout);
+  f[b + SNAP_IM_FRAMES] = r.frames;
+  f[b + SNAP_IM_SLOT] = r.slot;
+  f[b + SNAP_IM_RING_WRITE] = r.write;
+  f[b + SNAP_IM_LIM_GR] = r.lim;
+  f.set(r.comp, b + SNAP_IM_COMP_GR);
+  f.set(r.deq1, b + SNAP_IM_DEQ1);
+  f.set(r.deq2, b + SNAP_IM_DEQ2);
+  for (let i = 0; i < 4; i++) {
+    const o = b + SNAP_IM_LEVELS + i * SNAP_MM_C_STRIDE;
+    f[o + SNAP_MM_C_PEAK] = r.peak[i];
+    f[o + SNAP_MM_C_TRUE_PEAK] = r.truePeak[i];
+    f[o + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
+    f[o + SNAP_MM_C_CLIP] = r.clip[i];
+  }
+  f.set(r.ring, b + SNAP_IM_RING);
+  f.set(r.ringPre, b + SNAP_IM_RING_PRE);
 }
 
 /**

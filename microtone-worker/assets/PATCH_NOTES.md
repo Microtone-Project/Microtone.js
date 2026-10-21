@@ -4,6 +4,19 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## Version 4.0.0 (2026-10-22)
+
+Every instrument can now have its own mixing chain — equalisers, dynamics, unison, saturation, tape delay, reverb and a limiter — saved in the song and heard wherever it plays.
+
+- **The Mixing tab**, the last tab of every instrument, builds the chain: input trim, two equalisers, two dynamic EQs, a compressor of one to six bands, unison, a saturator, a tape delay, a reverb, a limiter and a mix tool, in a fixed order, the only choice being whether the delay feeds the reverb or the reverb the delay.
+- **Instruments can share a chain's settings**: *Use the chain of…* puts an instrument on another's chain, every control then moves for both, and each still runs its own copy — a compressor on the kick never ducks the snare. *Make independent* splits them again.
+- **Switching a piece on inserts it, switching it off bypasses it**: inserted equipment keeps its settings for good, and the delay, reverb, unison, saturator and compressor each have a wet/dry Mix slider in their titlebar.
+- **The tape delay can count in quarter ticks**, so its echoes follow the tempo — and bend like tape when the tempo changes — and the unison's detune and width each have an LFO that can follow the tempo and restart on every note.
+- **Four monitors on the instrument's own bus**: levels before and after the chain, gain reduction for every compressor band, dynamic-EQ band and the limiter, a spectrum with the chain's EQ curve over it, and a goniometer with its correlation.
+- **Surround songs keep their positioning**: the chain runs over the instrument's whole sound field, with the stereo-only controls set aside.
+- A chain no instrument uses is kept while you work and dropped when you save; a project from a newer version with equipment this one does not know says so once, keeps it, and plays the rest of the chain.
+- An FM Rack's operators and algorithm now share 250 bytes of the record rather than 252, which no algorithm the editor builds comes near.
+
 ## Version 3.13.1 (2026-10-22)
 
 A PSG instrument with vibrato or tremolo no longer cuts out the whole mix in a pattern preview or a jam.

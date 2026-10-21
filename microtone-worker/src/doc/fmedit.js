@@ -114,7 +114,7 @@ export function fmValidate(program, opCount) {
   return { ok: true, depth, at: -1, error: null };
 }
 
-/** Bytes of the 252 this rack spends, and how many are left. */
+/** Bytes of the 250 this rack spends, and how many are left. */
 export function fmBudget(opCount, programLength) {
   const used = fmRecordBytes(opCount, programLength);
   return { used, total: FM_BUDGET_BYTES, free: FM_BUDGET_BYTES - used };

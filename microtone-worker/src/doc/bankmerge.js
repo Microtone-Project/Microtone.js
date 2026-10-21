@@ -19,6 +19,7 @@ import {
   patchChannelPtrs, makeInstPatch, writePatchesBlob, CHAN_MODE_DISCRETE,
 } from "../../core/engine/inst.js";
 import { sampleSpans } from "./document.js";
+import { buildImixSection, freeImixId } from "../../core/format/imix-section.js";
 import {
   regionSpans, buildRegionPayload, MAX_REGION_CHANNELS,
 } from "./sampleregions.js";
@@ -363,6 +364,34 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     insts.push({ srcSlot, destSlot: slotMap.get(srcSlot), topLevel: topLevel.has(srcSlot), record: rec, ixmpBlob, ixmpCount });
   }
 
+  // ── IMix (item 217): an imported instrument brings its mixing chain. Each
+  //    source block lands under a fresh id here, once per import, so two
+  //    instruments that shared a chain still share it and none of the
+  //    project's own chains is touched. A record naming a block its file does
+  //    not hold comes over with no chain. ──
+  let imixPayload;
+  const srcBlocks = typeof srcDoc.imixMap === "function" ? srcDoc.imixMap().blocks : new Map();
+  const destBlocks = new Map(destDoc.imixMap().blocks);
+  const imixIds = new Map();
+  for (const it of insts) {
+    const sid = it.record[255];
+    if (sid === 0) continue;
+    if (!imixIds.has(sid)) {
+      const blk = srcBlocks.get(sid);
+      let did = 0;
+      if (blk) {
+        did = freeImixId(new Set(destBlocks.keys()));
+        if (did === 0) return { error: "No free mixing-chain id left in this project (255 in use)." };
+        destBlocks.set(did, { ...blk, id: did });
+      }
+      imixIds.set(sid, did);
+    }
+    it.record[255] = imixIds.get(sid);
+    // A metainstrument's record is applied verbatim, so the byte above is all
+    // it takes; every other kind decodes byte 255 into its reserved tail.
+  }
+  if (destBlocks.size !== destDoc.imixMap().blocks.size) imixPayload = buildImixSection(destBlocks.values());
+
   // ── INam: splice imported names in by destination slot ──
   const srcInam = splitNameTable(sectionPayload(srcDoc, "INam"));
   const destInamPayload = sectionPayload(destDoc, "INam");
@@ -398,6 +427,7 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     insts,
     samples: newSamples,
     inamPayload,
+    imixPayload,
     snamNames,
     writeSnam,
     slotMap,
@@ -1265,7 +1295,7 @@ export function planAddMetaLayers(destDoc, metaSlot, picks) {
   const existing = metaLayers(meta);
   const total = existing.length + [...counts.values()].reduce((a, b) => a + b, 0);
   // A rack's ceiling is lower than a layer table's, and it is not just a count:
-  // the operators and the algorithm share the record's 252 bytes (§7.7).
+  // the operators and the algorithm share the record's 250 bytes (§7.7).
   if (meta.isFm) {
     const words = meta.fmProgram === null ? 0 : meta.fmProgram.length;
     if (total > FM_MAX_OPERATORS) {
@@ -1273,7 +1303,7 @@ export function planAddMetaLayers(destDoc, metaSlot, picks) {
     }
     if (fmRecordBytes(total, words) > FM_BUDGET_BYTES) {
       return { error: `That would not fit the record: ${total} operators and a ${words}-word algorithm need ` +
-        `${fmRecordBytes(total, words)} of 252 bytes.` };
+        `${fmRecordBytes(total, words)} of ${FM_BUDGET_BYTES} bytes.` };
     }
   } else if (total > META_MAX_LAYERS) {
     return { error: `A metainstrument holds at most ${META_MAX_LAYERS} layers (${total} would result).` };
@@ -1583,6 +1613,8 @@ export function applyPlan(doc, plan) {
     doc.setSection("Ixmp", doc.ixmp.length > 0 ? buildIxmpSection(doc.ixmp) : null);
   }
   if (plan.inamPayload !== null) doc.setSection("INam", plan.inamPayload);
+  // Mixing chains an import brought (item 217); `undefined` leaves them alone.
+  if (plan.imixPayload !== undefined) doc.setSection("IMix", plan.imixPayload);
   // Pool regions (item 175). `undefined` leaves the section alone — only the
   // plans that add, rename or drop a region carry the field; `null` removes it,
   // which is what the last region's deletion means.

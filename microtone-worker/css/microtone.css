@@ -4135,6 +4135,55 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   min-width: 0;
 }
 
+/* ── Mixing tab (item 217): an instrument's IMix chain ─────────────────────
+ * The Mastering tab's units, rows and scopes, in the Instruments view's detail
+ * pane: the chain's header across the top, the twelve pieces of equipment in
+ * pipeline order on the left, the four monitors on the right. The pane is
+ * narrower than the Mastering view, so the two columns fold into one sooner,
+ * and the monitors come FIRST then — what you are listening to belongs above
+ * the controls you are about to reach for. */
+.imx-tab { display: flex; flex-direction: column; gap: 0.5rem; }
+.imx-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.imx-head .mst-hint { margin: 0; }
+.imx-headbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.imx-headbar select { max-width: 18rem; min-width: 0; }
+.imx-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 3fr) minmax(260px, 2fr);
+  gap: 0.5rem;
+  align-items: start;
+}
+.imx-rack, .imx-monitors { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+/* The monitors stay in view while the rack scrolls past them. */
+.imx-monitors { position: sticky; top: 0; }
+.imx-unit .mst-unit-head { flex-wrap: wrap; }
+/* Wet/dry in the titlebar, reported as the WET share. */
+.imx-mix {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--dim);
+  font-size: 0.75rem;
+  text-transform: none;
+}
+.imx-mix input[type="range"] { width: 6.5rem; }
+.imx-mixval { min-width: 2.6rem; text-align: right; font-family: var(--mono-font); color: var(--fg); }
+.imx-add { align-self: flex-start; font-size: 0.82rem; }
+.imx-del { margin-left: auto; margin-right: 0.4rem; font-size: 0.72rem; padding: 0 0.4rem; }
+.imx-curve { height: 70px; }
+@media (max-width: 1100px) {
+  .imx-grid { grid-template-columns: 1fr; }
+  .imx-monitors { position: static; order: -1; }
+}
+
 /* ── keymap tab (item 187) ───────────────────────────────────────────────
  * Three columns: the layout library, the board, and the generator panel. The
  * board is a canvas so it can reuse the grid's own glyph painter — a cap shows

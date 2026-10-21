@@ -1053,6 +1053,7 @@ export function planDeleteInstrument(doc, slot, { freeSamples = false, reassignT
         percussion: (oi.metaRaw[0] & 0x02) !== 0,
         type: oi.metaType,
         program: oi.fmProgram,
+        imixId: oi.imixId,
       }), recOff(o));
       rewiredMetas.push(o);
     }

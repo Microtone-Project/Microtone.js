@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Mixing tab visual harness (screenshot / layout tuning)</title>
+</head>
+<body style="margin:0">
+  <!-- Leaves the Instruments view's Mixing tab (item 217) on screen with every
+       piece of equipment inserted and the song playing, so the rack and the
+       four monitors are all painted at once. ?theme=light|dim|dark for the
+       themes (the app's own URL parameter); ?scroll=N scrolls the rack down
+       N pixels; ?w= sets the frame width (default 1580). -->
+  <img src="/hang" hidden>
+  <iframe id="app" style="height:980px;border:0"></iframe>
+  <script type="module">
+    (async () => {
+      const q = new URLSearchParams(location.search);
+      const frame = document.getElementById("app");
+      frame.style.width = (q.get("w") ?? "1580") + "px";
+      frame.src = "../../index.html?load=assets/demo_projects/Huygens_clock.taud" +
+        (q.get("theme") ? `&theme=${q.get("theme")}` : "");
+      const win = await new Promise((resolve) => {
+        const poll = setInterval(() => {
+          const w = frame.contentWindow;
+          if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+        }, 50);
+      });
+      const M = win.__microtone;
+      const doc = win.document;
+      const imix = await import("../../core/engine/imix.js");
+      const { setImixOp, setInstFieldOp, compositeOp } = await import("../../src/doc/ops.js");
+      doc.querySelector('[data-view="instruments"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const iv = M.instrumentsView;
+      const store = M.store;
+      const slot = store.doc.selectableInstrumentSlots()[0];
+      const b = imix.defaultImixBlock(1);
+      for (const id of imix.IMX_EQUIPMENT) b.equipment[id] = imix.defaultEquipment(id);
+      b.equipment.equ1.bands[1].gainDb = 4;
+      b.equipment.equ1.bands[3].gainDb = -3;
+      b.equipment.deq1.bands[2].on = true;
+      b.equipment.comp.bands = [imix.defaultCompBand(), imix.defaultCompBand()];
+      b.equipment.comp.crossovers = [400];
+      store.undo.apply(compositeOp([
+        setImixOp(store.doc.imixPayloadWith(1, b)),
+        setInstFieldOp(slot, "imixId", 1),
+      ]));
+      iv.selected = slot;
+      iv.tab = "mixing";
+      iv.refresh();
+      await win.__microtoneEnsureAudio?.();
+      doc.getElementById("playSong")?.click();
+      const sc = +(q.get("scroll") ?? 0);
+      if (sc) setTimeout(() => { doc.querySelector(".side-detail").scrollTop = sc; }, 300);
+      document.title = "READY";
+    })();
+  </script>
+</body>
+</html>

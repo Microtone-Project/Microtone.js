@@ -1,0 +1,159 @@
+<!doctype html><meta charset="utf-8"><title>instrument mixing chains (item 217)</title>
+<pre id="out">running… (needs a real audio-capable browser; ~12s)</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/Huygens_clock.taud" style="width:1500px;height:1100px"></iframe>
+<script type="module">
+// Drives the REAL app: the Instruments view's Mixing tab giving an instrument
+// a chain (byte 255 + the IMix section, one undo step), inserting equipment
+// through the titlebar switches, the engine picking the chain up, the meter
+// tap living and dying with the tab, the four monitors painting while the song
+// plays, sharing and un-sharing a chain, and a save retiring the chain nobody
+// uses. The DSP and the codec are unit-tested in test/node/imix*.test.js.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; console.log("IMX: " + s); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+function painted(cv) {
+  if (!cv || !cv.width || !cv.height) return false;
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+  const r0 = d[0], g0 = d[1], b0 = d[2];
+  for (let i = 4; i < d.length; i += 4) {
+    if (d[i] !== r0 || d[i + 1] !== g0 || d[i + 2] !== b0) return true;
+  }
+  return false;
+}
+
+(async () => {
+  try {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone?.store.doc; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); return; }
+  const doc = win.document;
+  const { store } = M;
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
+
+  // ── 1. the tab ───────────────────────────────────────────────────────────
+  doc.querySelector('[data-view="instruments"]').click();
+  await sleep(200);
+  const iv = M.instrumentsView;
+  const slots = store.doc.selectableInstrumentSlots();
+  const slot = slots[0], other = slots[1];
+  iv.selected = slot; iv.refresh();
+  await sleep(50);
+  const tabBtn = [...doc.querySelectorAll(".subtabs button")].find((b) => b.textContent === "Mixing");
+  check(!!tabBtn, "every instrument has a Mixing tab");
+  tabBtn.click();
+  await sleep(100);
+  check(iv.tab === "mixing", "the tab opens");
+  check(store.doc.instruments[slot].imixId === 0, "the demo's instruments start with no chain");
+  const newBtn = [...doc.querySelectorAll(".imx-head button")].find((b) => b.textContent === "New chain");
+  check(!!newBtn, "a chainless instrument offers a new chain");
+
+  // ── 2. a new chain: section + byte 255, one undo step ─────────────────────
+  const undoBefore = store.undo.undoStack.length;
+  newBtn.click();
+  await sleep(80);
+  const id = store.doc.instruments[slot].imixId;
+  check(id === 1, "New chain takes id 1", String(id));
+  check(!!store.doc.imixBlock(1), "…and writes its block");
+  check(store.undo.undoStack.length === undoBefore + 1, "one undo step",
+    `${undoBefore} → ${store.undo.undoStack.length}`);
+  check(doc.querySelectorAll(".imx-unit").length === 12, "twelve pieces of equipment",
+    String(doc.querySelectorAll(".imx-unit").length));
+  check([...doc.querySelectorAll(".imx-unit")].every((u) => u.classList.contains("mst-off")),
+    "…none of them in the chain yet");
+  store.undo.undo();
+  await sleep(80);
+  check(store.doc.instruments[slot].imixId === 0 && !store.doc.imixBlock(1), "undo takes both back");
+  store.undo.redo();
+  await sleep(80);
+  check(store.doc.instruments[slot].imixId === 1 && !!store.doc.imixBlock(1), "redo puts both back");
+
+  // ── 3. the titlebar switch inserts, then bypasses ─────────────────────────
+  const sw = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"] .mst-unit-head input[type=checkbox]`);
+  sw("verb").click();
+  await sleep(80);
+  check(!!store.doc.imixBlock(1).equipment.verb, "switching the reverb on inserts it");
+  check(!!doc.querySelector('.imx-unit[data-equipment="verb"] .imx-mix'), "…and its titlebar grows a Mix slider");
+  check(!doc.querySelector('.imx-unit[data-equipment="limi"] .imx-mix'), "a limiter has no Mix slider");
+  sw("verb").click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.verb?.bypass === true,
+    "switching it off BYPASSES it — the piece stays in the block");
+  sw("verb").click();
+  sw("satu").click();
+  await sleep(60);
+  sw("dlay").click();
+  await sleep(60);
+  sw("comp").click();
+  await sleep(80);
+  const b = store.doc.imixBlock(1);
+  check(["verb", "satu", "dlay", "comp"].every((k) => b.equipment[k] && !b.equipment[k].bypass),
+    "four pieces in circuit", Object.keys(b.equipment).join(","));
+
+  // ── 4. sharing ───────────────────────────────────────────────────────────
+  iv.selected = other; iv.refresh();
+  await sleep(80);
+  const sel = [...doc.querySelectorAll(".imx-head select")].find((s) => s.options.length > 1);
+  check(!!sel, "another instrument can pick the chain up");
+  sel.value = String(slot);
+  sel.dispatchEvent(new Event("change"));
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 1, "…and then names block 1 too");
+  check(doc.querySelector(".imx-head").textContent.includes("Shared with"), "the tab says who shares it");
+  const indep = [...doc.querySelectorAll(".imx-head button")].find((x) => x.textContent === "Make independent");
+  indep.click();
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 2, "Make independent copies it to block 2",
+    String(store.doc.instruments[other].imixId));
+  check(!!store.doc.imixBlock(2)?.equipment.verb, "…settings and all");
+  // A chain nobody uses survives the session, and is retired by the save.
+  [...doc.querySelectorAll(".imx-head button")].find((x) => x.textContent === "Remove chain").click();
+  await sleep(80);
+  check(!!store.doc.imixBlock(2), "removing the instrument from block 2 keeps the block in memory");
+  const saved = parseTaud(store.doc.toBytes());
+  check(saved.imix.map((x) => x.id).join() === "1", "the save retires block 2 and keeps block 1",
+    saved.imix.map((x) => x.id).join());
+  const rec = saved.sampleInstImage.subarray(8 * 1024 * 1024 + slot * 256, 8 * 1024 * 1024 + slot * 256 + 256);
+  check(rec[255] === 1, "byte 255 of the instrument's record names block 1", String(rec[255]));
+
+  // ── 5. the engine hears it, and the monitors paint ────────────────────────
+  iv.selected = slot; iv.refresh();
+  await sleep(100);
+  await win.__microtoneEnsureAudio?.();
+  await sleep(200);
+  check(store.audio.imixMeterSlot === slot, "the meter tap is on the instrument the tab shows",
+    String(store.audio.imixMeterSlot));
+  doc.getElementById("playSong")?.click();
+  await sleep(4000);
+  const r = store.audio.readImixMeter({
+    peak: new Float64Array(4), truePeak: new Float64Array(4), meanSquare: new Float64Array(4),
+    clip: new Float64Array(4), comp: new Float64Array(6), deq1: new Float64Array(6), deq2: new Float64Array(6),
+  });
+  check(r.slot === slot, "the snapshot meters that instrument", String(r.slot));
+  const cvs = ["imx-levels", "imx-spectrum", "imx-gonio"].map((c) => doc.querySelector("canvas." + c));
+  check(cvs.every(painted), "levels, spectrum and goniometer painted", cvs.map((c) => (painted(c) ? "y" : "n")).join(""));
+  check(painted(doc.querySelector("canvas.imx-gr")), "the gain-reduction meter painted");
+  doc.getElementById("stopBtn")?.click();
+  store.audio.stop(0);
+  await sleep(100);
+
+  // ── 6. the tap dies with the tab ─────────────────────────────────────────
+  [...doc.querySelectorAll(".subtabs button")][0].click();
+  await sleep(120);
+  check(store.audio.imixMeterSlot === -1, "another tab switches the tap off", String(store.audio.imixMeterSlot));
+  doc.querySelector('[data-view="timeline"]').click();
+  await sleep(100);
+  check(store.audio.imixMeterSlot === -1, "…and so does leaving the view");
+  } catch (err) {
+    fails++;
+    log("EXCEPTION " + (err?.stack ?? err));
+  }
+  log(`FAILURES: ${fails}`);
+})();
+</script>

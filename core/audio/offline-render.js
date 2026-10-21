@@ -43,6 +43,8 @@ export function loadIntoEngine(eng, doc, songIndex = 0) {
   // conforming player would produce, so the chain belongs on every render path,
   // not only on the one the editor listens to.
   eng.setMastering(0, song.mastering ?? doc.meta?.mastering?.[songIndex] ?? null);
+  // …and the instruments' mixing chains (item 217), for the same reason.
+  eng.setImix(doc.imix ?? []);
 
   for (const entry of doc.ixmp) eng.uploadInstrumentPatches(entry.instId, entry.blob);
 }

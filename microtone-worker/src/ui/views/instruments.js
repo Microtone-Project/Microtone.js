@@ -60,6 +60,7 @@ import { oplGraph, oplGraphCanvas } from "../../doc/oplgraph.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
 import { renderFormantTab } from "./instformant.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
+import { MixingPanel } from "./instmixing.js";
 import { psgBadge } from "../../doc/psgedit.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
 import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
@@ -168,6 +169,7 @@ export class InstrumentsView {
     this.envAxis = new EnvAxis(); // the envelope graph's log map + zoom (envgraph.js)
     this.advanced = false; // Advanced Edit (Ixmp patch editor, item 49b) active
     this.advEditor = new AdvancedZoneEditor(this);
+    this.mixing = new MixingPanel(this); // the Mixing tab (item 217)
     this.lamps = new Map(); // slot -> Lamp (item 169); outlives refresh() rebuilds
     this._lampLastMs = 0;
 
@@ -215,7 +217,7 @@ export class InstrumentsView {
   }
 
   show() { this.visible = true; this.refresh(); }
-  hide() { this.visible = false; this._fmDraft = null; }
+  hide() { this.visible = false; this._fmDraft = null; this.mixing.syncTap(); }
 
   refresh() {
     const doc = this.store.doc;
@@ -368,6 +370,9 @@ export class InstrumentsView {
         : inst?.isFormant
           ? [["formant", t("inst.tabFormant")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
           : [["general", t("inst.tabGeneral")], ...envTabs, ["zones", t("inst.tabZones")]];
+    // Every kind has a mixing chain (item 217): its last tab, after everything
+    // that makes the sound, as the chain comes after the voices in the mix.
+    if (inst) tabs.push(["mixing", t("inst.tabMixing")]);
     // A tab this instrument has not got is snapped to its first one, in either
     // direction: a metainstrument has no envelopes and an ordinary instrument
     // has no layer table, so simply keeping `this.tab` across a selection
@@ -420,6 +425,8 @@ export class InstrumentsView {
     else if (this.tab === "psg") renderPsgTab(this, inst);
     else if (this.tab === "formant") renderFormantTab(this, inst);
     else if (this.tab === "metaopts") this.renderMetaOptions(inst);
+    else if (this.tab === "mixing") this.mixing.render(this.panel);
+    this.mixing.syncTap();
   }
 
   /** A base-record field edit. When `key` is one of the sample-geometry
@@ -1972,7 +1979,7 @@ export class InstrumentsView {
     tally.className = "dim meta-tally";
     tally.textContent = t("fm.tally", { n: ops.length, max: FM_MAX_OPERATORS });
     // The memory meter (item 159.1). Operators and algorithm come out of the
-    // same 252 bytes, so one bar for both is the only honest way to show it.
+    // same 250 bytes, so one bar for both is the only honest way to show it.
     const meter = document.createElement("div");
     meter.className = "fm-meter";
     meter.title = t("fm.meterTitle");
@@ -2421,6 +2428,8 @@ export class InstrumentsView {
     // The PSG tab shows the instrument's live overlay while playing, and puts
     // the record's values back once it stops.
     if (!this.advanced && this.tab === "psg") psgTabFrame(this);
+    if (!this.advanced && this.tab === "mixing") this.mixing.frame();
+    else this.mixing.syncTap();
     this.updateLiveDots();
   }
 }

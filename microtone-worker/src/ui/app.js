@@ -3,7 +3,7 @@
 // + Cues + Files views. Samples/Instruments/Project views come with M7.
 
 import { parseTaud } from "../../core/format/taud-parse.js";
-import { Document, combineTpif } from "../doc/document.js";
+import { Document, combineTpif, BANK_SECTIONS } from "../doc/document.js";
 import { DocSync } from "../doc/sync.js";
 import { UndoStack } from "../doc/undo.js";
 import { AudioSystem } from "../../core/audio/audio-system.js";
@@ -34,7 +34,7 @@ import { showHelp } from "./popups/help.js";
 import { showAbout } from "./popups/about.js";
 import { showWarmthSplash } from "./popups/warmth.js";
 import { showNewProject } from "./popups/newproject.js";
-import { showModal } from "./components/modal.js";
+import { showModal, showNotice } from "./components/modal.js";
 import * as opfs from "../storage/opfs.js";
 import { pickFile } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
@@ -271,13 +271,14 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
       store.doc.ixmp = parsed.ixmp.map((e) => ({ instId: e.instId, count: e.count, blob: Uint8Array.from(e.blob) }));
       store.doc._instruments = null; // re-decode from the new image
       store.doc._instrumentsEdited = false;
-      // Carry the bank's name tables + Ixmp/SRgn sections over; keep song
+      // Carry the bank's name tables + Ixmp/SRgn/IMix sections over; keep song
       // sections. SRgn travels with the bank because a region names POOL bytes,
-      // and the pool is exactly what a .tsii replaces (item 175).
+      // and the pool is exactly what a .tsii replaces (item 175); IMix because
+      // the instruments' byte 255 names its blocks (item 217).
       store.doc.projSections = store.doc.projSections.filter(
-        (s) => !["INam", "SNam", "Ixmp", "SRgn"].includes(s.fourcc));
+        (s) => !BANK_SECTIONS.includes(s.fourcc));
       for (const s of parsed.projSections) {
-        if (["INam", "SNam", "Ixmp", "SRgn"].includes(s.fourcc)) {
+        if (BANK_SECTIONS.includes(s.fourcc)) {
           store.doc.projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(s.payload) });
         }
       }
@@ -374,6 +375,30 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
     store.emit("saved", name);
   }
   updateStatus();
+  warnImixProblems(store.doc);
+}
+
+/**
+ * Item 217: say ONCE, as a project loads, that some of its mixing-chain
+ * equipment is not something this version knows (it is kept, saved back
+ * unchanged, and skipped by playback) or that a chain contradicts itself
+ * (dropped: its instruments play dry). Nothing is said for a file without
+ * either, which is every file this version writes.
+ */
+function warnImixProblems(doc) {
+  const problems = doc?.imixMap().problems ?? [];
+  if (problems.length === 0) return;
+  const lines = [];
+  const unknown = problems.filter((p) => p.kind === "unknown");
+  const invalid = problems.filter((p) => p.kind === "invalid");
+  if (unknown.length > 0) {
+    const what = [...new Set(unknown.flatMap((p) => p.detail))].join(", ");
+    lines.push(t("imix.warnUnknown", { what, chains: unknown.map((p) => p.id).join(", ") }));
+  }
+  if (invalid.length > 0) {
+    lines.push(t("imix.warnInvalid", { chains: invalid.map((p) => `${p.id} (${p.detail})`).join("; ") }));
+  }
+  showNotice({ title: t("imix.warnTitle"), body: lines.join(" ") });
 }
 
 function updateStatus() {
@@ -476,7 +501,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   }
   if (fromBank) {
     for (const s of fromBank.projSections) {
-      if (["INam", "SNam", "Ixmp"].includes(s.fourcc)) {
+      if (["INam", "SNam", "Ixmp", "IMix"].includes(s.fourcc)) {
         projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(s.payload) });
       }
     }

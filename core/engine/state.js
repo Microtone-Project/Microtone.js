@@ -12,6 +12,7 @@ import { SURROUND_STEREO, SURROUND_SPATIAL, SpatialBus, StereoRenderer } from ".
 import { MONITOR_FOLD, MONITOR_BINAURAL, BinauralRenderer } from "./binaural.js";
 import { ANALYSIS_OFF, AnalysisTap } from "./analysis.js";
 import { MasterChain, defaultMastering, masteringEngaged } from "./mastering.js";
+import { IMX_ROUTE_SLOTS, ImixMeterTap } from "./imix.js";
 import {
   MasterMeterTap, DEFAULT_BIT_DEPTH,
   HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT,
@@ -261,6 +262,19 @@ export class TrackerState {
     // for one. Independent of the strip's tap: different signal, different
     // question, and both are opt-in.
     this.masterMeter = null;
+    // Per-instrument mixing chains (item 217, imix.js). The route table maps
+    // an instrument slot to its bus, or null for the plain path; it is rebuilt
+    // whenever the engine's blocks or instrument records change (imixGen) or
+    // the song's channel layout does. `imixTrig` flags the slots a note
+    // started on since their bus last ran — the LFOs that retrigger on a note
+    // read it. `imixMeter` is the Mixing tab's tap, null unless it asked.
+    this.imixGen = -1;
+    this.imixRate = 0;
+    this.imixBuses = new Map();
+    this.imixRoutes = new Array(IMX_ROUTE_SLOTS).fill(null);
+    this.imixList = [];
+    this.imixTrig = new Uint8Array(IMX_ROUTE_SLOTS);
+    this.imixMeter = null;
     // Per-voice soundscope ring, ditto (item 179). The Kotlin device fills
     // `Voice.scopeBuffer` unconditionally because a TSVM guest can read the
     // scope window through MMIO whenever it likes; nothing here can, so the
@@ -347,6 +361,8 @@ export class TrackerState {
     this.spatial = this.surroundModel === SURROUND_STEREO
       ? null
       : new SpatialBus(renderer ?? new StereoRenderer(), TRACKER_CHUNK);
+    // The instrument buses are in the song's channel layout, which just moved.
+    this.imixGen = -1;
     this.setAnalysis(this.analysisTarget); // the tap's shape follows the model
   }
 
@@ -399,6 +415,13 @@ export class TrackerState {
       span === HIST_SPAN_LONG || span === HIST_SPAN_SHORT ? span : HIST_SPAN_ALL;
   }
 
+  /** Install (or drop, with a negative slot) the Mixing tab's tap on one
+   *  instrument's bus (item 217). */
+  setImixMeter(slot) {
+    if (slot < 0) { this.imixMeter = null; return; }
+    if (this.imixMeter === null || this.imixMeter.slot !== slot) this.imixMeter = new ImixMeterTap(slot);
+  }
+
   drainInterrupts() {
     const m = this.pendingInterrupts;
     this.pendingInterrupts = 0;
@@ -442,9 +465,14 @@ export class TrackerState {
     // milliseconds of the previous playback, both bleed the old take into the
     // new one. Its PARAMETERS are the song's and are left alone, like the tempo.
     this.mastering?.reset();
+    // …and the instruments' chains (item 217) for the same reason: a reverb
+    // tail or a delay line still holding the previous take is that take.
+    for (const bus of this.imixList) bus.chain.reset();
+    this.imixTrig.fill(0);
     // …and the meter's integration describes one playback, so it starts again
     // with it — including the bit histogram, which is cumulative by design.
     this.masterMeter?.resetAll();
+    this.imixMeter?.resetAll();
   }
 }
 
@@ -646,6 +674,10 @@ export class Playhead {
     // one. The song's own `sMst` parameters are pushed straight after.
     ts.setMastering(defaultMastering());
     ts.masterMeter?.resetAll();
+    // The instrument chains' PARAMETERS are the engine's, like the instruments
+    // themselves; their running state is the playback's.
+    for (const bus of ts.imixList) bus.chain.reset();
+    ts.imixTrig.fill(0);
     for (const it of ts.voices) {
       it.active = false;
       it.noteVolume = ts.volMax;

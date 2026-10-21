@@ -247,9 +247,10 @@
         // metainstrument arrives with strict layering already on (flourish's
         // does), and a leg that assumed $00 would be testing the corpus.
         const tabBtns = () => [...instrumentsView.tabBar.querySelectorAll("button")];
-        check("a metainstrument has two sub-tabs", tabBtns().length === 2);
+        check("a metainstrument has three sub-tabs", tabBtns().length === 3);
         check("…Layers first", tabBtns()[0].textContent === "Layers");
         check("…then Options", tabBtns()[1].textContent === "Options");
+        check("…then Mixing, as every instrument has", tabBtns()[2].textContent === "Mixing");
         tabBtns()[1].click();
         await sleep(40);
         const boxes = () => [...panel().querySelectorAll(".slider-row.check input")];

@@ -48,6 +48,7 @@ const ENGINE = [
   "core/engine/analysis.js",
   "core/engine/mastering.js",
   "core/engine/loudness.js",
+  "core/engine/imix.js",       // …after mastering.js and analysis.js, whose stages it reuses
   "core/engine/samplemod.js",
   "core/engine/opl.js",
   "core/engine/psg.js",        // …after opl.js (whose envelope and LFOs it runs), before inst.js
@@ -88,6 +89,7 @@ const REPO_FILES = [
   "core/format/taud-const.js",
   "core/format/compress.js",
   "core/format/mastering-section.js",
+  "core/format/imix-section.js",
   "core/format/taud-parse.js",
   "src/taudplay/protocol.js",
   "src/taudplay/faders.js",

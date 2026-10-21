@@ -264,7 +264,7 @@ export async function buildProject(source, host) {
         if (!l) throw new MotifError(`instrument ${i.id} has layers 0–${inst.metaLayers.length - 1}; there is no layer ${k}`);
         return l;
       });
-      doc.sampleInstImage.set(buildMetaRecord(keep, { strict: inst.metaStrict, percussion: inst.isPercussion, type: inst.metaType }), SAMPLEBIN_SIZE + i.slot * 256);
+      doc.sampleInstImage.set(buildMetaRecord(keep, { strict: inst.metaStrict, percussion: inst.isPercussion, type: inst.metaType, imixId: inst.imixId }), SAMPLEBIN_SIZE + i.slot * 256);
     }
     doc._resetInstrumentCache();
     for (const i of score.instruments) {
@@ -475,7 +475,7 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
   return {
     sampleInstImage: work.sampleInstImage,
     ixmp: work.ixmp,
-    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp"].includes(x.fourcc)),
+    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix"].includes(x.fourcc)),
   };
 }
 

@@ -248,7 +248,7 @@ export const gainToDb = (g) => (g > 0 ? 20 * Math.log10(g) : -Infinity);
 // makes a multichannel master well defined: the same filter, coefficient for
 // coefficient, on all of them (§12.3 of the engine spec).
 
-class Biquad {
+export class Biquad {
   constructor(channels = 2) {
     this.b0 = 1; this.b1 = 0; this.b2 = 0; this.a1 = 0; this.a2 = 0;
     this.x1 = new Float64Array(channels); this.x2 = new Float64Array(channels);
@@ -302,6 +302,40 @@ class Biquad {
               (A + 1) + (A - 1) * cw + tsa,
               -2 * ((A - 1) + (A + 1) * cw),
               (A + 1) + (A - 1) * cw - tsa);
+  }
+
+  /** RBJ low-pass (item 217's cut filters and crossovers). */
+  lowPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ band-pass, constant 0 dB peak gain (a dynamic EQ's sensor). */
+  bandPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(alpha, 0, -alpha, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ notch. */
+  notch(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1, -2 * cw, 1, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ all-pass. At Q = 1/√2 it is exactly what a Linkwitz–Riley 4th-order
+   *  low-pass and high-pass at the same frequency sum to — the phase a
+   *  multiband split owes the bands that did not pass through that crossover. */
+  allPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1 - alpha, -2 * cw, 1 + alpha, 1 + alpha, -2 * cw, 1 - alpha);
   }
 
   highShelf(freq, gainDb, q, rate) {
@@ -437,7 +471,7 @@ class EqStage {
  * envelope would pull the whole sound field about whenever one direction got
  * loud.
  */
-class CompressorStage {
+export class CompressorStage {
   constructor() {
     this.grDb = 0;        // current gain reduction, dB (negative)
     this.rms = 0;         // RMS detector's mean-square state
@@ -545,7 +579,7 @@ class CompressorStage {
  *
  * The cost is 2D of latency, which is why D is one millisecond and not ten.
  */
-class LimiterStage {
+export class LimiterStage {
   constructor(channels = 2) {
     this.nch = channels;
     this.d = 0;
@@ -663,7 +697,7 @@ class LimiterStage {
 }
 
 /** One-pole smoothing coefficient for a time constant in milliseconds. */
-function onePole(ms, rate) {
+export function onePole(ms, rate) {
   const n = (ms / 1000) * rate;
   return n <= 0 ? 1 : 1 - Math.exp(-1 / n);
 }
@@ -860,7 +894,7 @@ export class MasterChain {
 }
 
 /** |H(e^{jw})| of one configured section, in dB. */
-function biquadDb(s, freq, rate) {
+export function biquadDb(s, freq, rate) {
   const w = (2 * Math.PI * freq) / rate;
   const cw = Math.cos(w), sw = Math.sin(w);
   const c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);

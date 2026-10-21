@@ -70,7 +70,7 @@
         await waitFor(() => iv.panel.querySelector(".fmt-chart-svg"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +
-          ok(tabs.join("|") === "Formant|General|Vol env|Pan env|Pitch/Filter" && iv.tab === "formant"));
+          ok(tabs.join("|") === "Formant|General|Vol env|Pan env|Pitch/Filter|Mixing" && iv.tab === "formant"));
         const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
         log(`list badge "${badge()}": ${ok(badge() === "FMNT")}`);
         const heads = [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);

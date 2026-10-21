@@ -18,6 +18,7 @@ import {
 } from "./taud-const.js";
 import { decomp } from "./compress.js";
 import { parseMasteringSection } from "./mastering-section.js";
+import { IMIX_FOURCC, parseImixSection } from "./imix-section.js";
 
 function u16(b, o) { return b[o] | (b[o + 1] << 8); }
 function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16)) + b[o + 3] * 0x1000000; }
@@ -137,7 +138,8 @@ export function parseSMetSection(payload) {
  *   projSections: [{fourcc, payload: Uint8Array}],  // verbatim, in file order
  *   ixmp: [{instId, count, blob}],               // decoded view of the Ixmp section
  *   meta: { projectName, songMeta: {idx: {...}},  // decoded views of PNam / sMet
- *           mastering: {idx: {...}} }             // …and of sMst (§9.12)
+ *           mastering: {idx: {...}} },            // …and of sMst (§9.12)
+ *   imix: [block], imixProblems: [{kind, id, detail}],  // …and of IMix (§9.15)
  * }
  */
 export function parseTaud(file) {
@@ -273,6 +275,14 @@ export function parseTaud(file) {
     songMeta: smetSec ? parseSMetSection(smetSec.payload) : {},
     mastering,
   };
+  // The instruments' mixing chains (item 217, §9.15) — another section a
+  // player has to honour, so decoded here for the same reason sMst is.
+  const imixSec = findSec(IMIX_FOURCC);
+  const imixParsed = imixSec ? parseImixSection(imixSec.payload) : { blocks: new Map(), problems: [] };
+  const imix = [...imixParsed.blocks.values()];
 
-  return { kind, fmtVer, is64Channel, signature, sampleInstImage, songs, projSections, ixmp, meta };
+  return {
+    kind, fmtVer, is64Channel, signature, sampleInstImage, songs, projSections, ixmp, meta,
+    imix, imixProblems: imixParsed.problems,
+  };
 }

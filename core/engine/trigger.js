@@ -286,6 +286,9 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   // not the layer child triggerNote resolves it to). A note with no instrument
   // byte keeps the last one, matching what the pattern shows.
   if (instId !== 0) voice.displayInst = instId;
+  // A note on an instrument with a mixing chain (item 217): its bus restarts
+  // the LFOs that retrigger on a note, at the top of the span this lands in.
+  ts.imixTrig[(voice.displayInst || voice.instrumentId) & 0x3ff] = 1;
   releaseLayerChildren(eng, ts, vi);
   dropFmOperators(ts, vi);
   const inst = instId !== 0 ? eng.instruments[instId] : eng.instruments[voice.instrumentId];

@@ -34,6 +34,9 @@ import {
   SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
   SNAP_MM_HIST_ENTROPY,
+  SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
+  SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
+  SNAP_IM_RING_FRAMES,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -83,6 +86,7 @@ export class AudioSystem {
     this.masterMeterOn = false; // item 178 Mastering-view tap; that view owns it
     this.masterMeterDepth = DEFAULT_BIT_DEPTH; // …and which output its census describes
     this.masterMeterSpan = 0;                  // …over the whole take (HIST_SPAN_*), or a rolling window of it
+    this.imixMeterSlot = -1; // item 217 Mixing-tab tap: the instrument it meters (-1 = off)
     this.profile = null;    // latest worklet profiler report (opt-in; null when off)
     this.onProfile = null;  // optional callback(profile) when a report arrives
   }
@@ -317,6 +321,12 @@ export class AudioSystem {
     if (this.masterMeterOn) {
       this.setMasterMeter(0, true, this.masterMeterDepth, this.masterMeterSpan);
     }
+    // The instruments' mixing chains (item 217) — project-wide, like the
+    // instruments, and pushed whether the file has any or not, so a document
+    // without them clears the previous one's. The Mixing tab's tap survives
+    // a rebuild too.
+    this.setImix(doc.imix ?? []);
+    if (this.imixMeterSlot >= 0) this.setImixMeter(0, this.imixMeterSlot);
 
     for (const entry of doc.ixmp) {
       const bytes = entry.blob.slice().buffer;
@@ -379,6 +389,15 @@ export class AudioSystem {
       t: CMD.SET_MASTER_METER, ph, on: !!on, scramble: !!on,
       bitDepth: this.masterMeterDepth, histSpan: this.masterMeterSpan,
     });
+  }
+  /** Item 217: install the project's IMix blocks (an array of decoded blocks;
+   *  empty = no instrument has a chain). */
+  setImix(blocks) { this._post({ t: CMD.SET_IMIX, blocks: blocks ?? [] }); }
+  /** Item 217: meter one instrument's bus for the Mixing tab (slot < 0 = off).
+   *  Costs nothing while off; that tab turns it off when it is not on screen. */
+  setImixMeter(ph, slot) {
+    if (ph === 0) this.imixMeterSlot = slot;
+    this._post({ t: CMD.SET_IMIX_METER, ph, slot });
   }
   resetParams(ph = 0) { this._post({ t: CMD.RESET_PARAMS, ph }); }
   resetSampleFxState(ph = 0) { this._post({ t: CMD.RESET_SAMPLE_FX_STATE, ph }); }
@@ -628,5 +647,36 @@ export class AudioSystem {
   masterSpectrumRing(stage) {
     const o = SNAP_SPEC_BASE + (stage & 1) * SNAP_SPEC_FRAMES;
     return this.snapshot.subarray(o, o + SNAP_SPEC_FRAMES);
+  }
+
+  /**
+   * Item 217: the Mixing tab's block — one instrument bus, as of the last
+   * snapshot. `out` is a makeImixMeterReadout()-shaped object; its `ring` (the
+   * stereo pair after the chain, frame-interleaved) and `ringPre` (the mono
+   * sum before it) are live views into the snapshot, read backwards from
+   * `write`. `frames` is 0 while the tap is off or the bus did not run.
+   */
+  readImixMeter(out) {
+    const f = this.snapshot;
+    const b = SNAP_IM_BASE;
+    out.frames = f[b + SNAP_IM_FRAMES];
+    out.slot = f[b + SNAP_IM_SLOT];
+    out.write = f[b + SNAP_IM_RING_WRITE] | 0;
+    out.lim = f[b + SNAP_IM_LIM_GR];
+    for (let i = 0; i < out.comp.length; i++) out.comp[i] = f[b + SNAP_IM_COMP_GR + i];
+    for (let i = 0; i < out.deq1.length; i++) {
+      out.deq1[i] = f[b + SNAP_IM_DEQ1 + i];
+      out.deq2[i] = f[b + SNAP_IM_DEQ2 + i];
+    }
+    for (let i = 0; i < 4; i++) {
+      const o = b + SNAP_IM_LEVELS + i * SNAP_MM_C_STRIDE;
+      out.peak[i] = f[o + SNAP_MM_C_PEAK];
+      out.truePeak[i] = f[o + SNAP_MM_C_TRUE_PEAK];
+      out.meanSquare[i] = f[o + SNAP_MM_C_MEAN_SQUARE];
+      out.clip[i] = f[o + SNAP_MM_C_CLIP];
+    }
+    out.ring = f.subarray(b + SNAP_IM_RING, b + SNAP_IM_RING + 2 * SNAP_IM_RING_FRAMES);
+    out.ringPre = f.subarray(b + SNAP_IM_RING_PRE, b + SNAP_IM_RING_PRE + SNAP_IM_RING_FRAMES);
+    return out;
   }
 }

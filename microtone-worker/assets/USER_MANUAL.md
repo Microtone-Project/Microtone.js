@@ -1958,6 +1958,7 @@ either way.
   - That first tick switches **Sustain** on with it and carries its start and end to the new last node, so an envelope you are building arrives holding its final level until key-off rather than needing two more boxes found before any of it is audible. Untick either box and it stays unticked — the pair is only ever set by the click that brings the envelope into existence.
   - A **Sustain** point sitting on the last node follows it when you add another, so an envelope that holds its final level until key-off keeps doing that instead of turning into a hold halfway through. Sustain and loop points left pointing past the end are pulled back in when the envelope gets shorter.
   - **Carry** (beside *Envelope present*) makes a new note **continue** this envelope instead of restarting it: the playhead stays where the last note left it, so a slow pan sweep or a filter opening can run across a whole phrase of repeated notes rather than resetting on each one. Each envelope carries — or does not — on its own. It is ignored where there is nothing worth keeping: after a key-off, and on a note that changes instrument. This is also what makes a run of notes tied by `G` sound the same whether or not each row names its instrument.
+- **Mixing** — the instrument's [mixing chain](#mixing-chains): its own equalisers, dynamics, unison, saturator, delay, reverb and limiter, with four monitors. Every kind of instrument has this tab.
 - **Zones** — the Ixmp key/velocity zone map with a live trigger overlay showing which zone each incoming note lands in. The **Advanced Edit…** button opens the full patch editor (below).
 - **Formant** (formant instruments) — the vocal tract. A formant instrument has the General tab (where its sample is the source) and the envelope tabs as well, but no Zones: one source sings every key.
   - **Material**: the **Pool range** — pick one sample, one recording in memory, *All samples and recordings*, or *Nothing from the pool* (an OPL or PSG source and the noise generator alone; the addresses and the Source are then hidden, and every consonant's sample is handed to the generator) from the list, or type the two pool **Addresses** below it. Then the **Source**, which the instrument chooses itself: the looped stretch of the range that suits the vowel best, shown with where it comes from (a window of a recording reads *R00 @ 12.34 s*), its loop, the vowel it was chosen for and its badness. A sample that does not loop is given a loop, and so is one whose own loop sits in its faded tail (a quiet loop costs: it is lifted, noise and all, to the instrument's level); the source is tuned so that the instrument's middle C is middle C, and a note plays from the loop — not from whatever comes before it in the sample. An instrument that does start ahead of its loop is held to its level by the louder of the two; **Choose again** brings it up to date. It is chosen again in the same undo step whenever you change the range or the vowel; **Choose again** does it on demand, after editing the samples, say. Moving the vowel with `S $Afgr` in a pattern does not change the source. **Sung from**, above it, is what the vowel is sung with: *Its sample* — the Source — or one of the project's OPL or PSG instruments, copied in as part of this one; **Edit** opens the copy, and the Source then waits, unused, until you switch back.
@@ -1983,7 +1984,7 @@ either way.
   - The last layer cannot be removed (a metainstrument with no entries in its table is not one); delete the whole instrument instead.
 - **FM** (the FM Rack kind) — the operator table above, the algorithm below. It is the same table as the Layers tab's, because a rack is the same record read another way, with two columns renamed for what they mean here: **level** is the operator's output level, which doubles as its modulation index when it modulates something, and **ratio** is its detune from the played note — an octave up is a 2:1 modulator, a twelfth is the inharmonic one that makes bells. The pitch and velocity bounds still gate: an operator whose bounds exclude the note falls silent for it, which is how a patch gets brighter as you play harder.
   - The ▸ beside row 0 marks the **principal** operator, whose envelope is the note's own. **Drag an operator by its handle** (↑ ↓ with the handle focused) and the algorithm is renumbered with it — the patch sounds exactly the same, but this is how the principal is chosen. The algorithm's own words reorder the same way.
-  - The meter in the toolbar is the real limit. The operator table and the algorithm share one 252-byte record — 10 bytes an operator, 2 a word — so more operators means less room for wiring, and the bar shows both at once.
+  - The meter in the toolbar is the real limit. The operator table and the algorithm share 250 bytes of the record — 10 bytes an operator, 2 a word — so more operators means less room for wiring, and the bar shows both at once.
   - **Algorithm** is the wiring, shown three ways. The line beside the heading is the patch as an expression: `0[1[2]] + 3` reads "operator 2 modulates 1 modulates 0, and 3 is a second carrier beside it". Under it is the **diagram** — the picture an FM chip's manual prints, turned on its side so the signal runs left to right into OUT. A box is an operator, a wire into one is modulation, a curl over one is an operator modulating itself, and wires that meet are summed; a ring modulation or an inversion gets a mark of its own. Below that is the same patch as an editable list, one word a row.
   - The diagram only appears while the algorithm verifies — there is no picture of a patch that does not resolve, and half a picture would read as a working one.
 - **Options** (both metainstrument kinds) — the record's own flag byte, which describes the whole instrument rather than any one entry in its table. It is quoted in hex beside the description, because that is what the file holds and what a bug report has to say.
@@ -2008,6 +2009,40 @@ An instrument may carry a list of **Ixmp patches**: per-zone sample bindings ove
 - **Vol / Pan / Filter / Pitch** sub-tabs — per-patch envelope overrides. Ticking *Patch overrides the … envelope* copies the base instrument's envelope as a starting point; the graph then edits exactly like the base envelope tabs (drag nodes, wheel zoom, add/remove, sustain/loop ranges, log timescale). **Wave** shows the bound sample with live play positions.
 
 Jamming on the piano keys while the panel is open auditions the instrument live; the map, list and envelope graphs all follow the sounding voices. **‹ Back** returns to the normal tabs.
+
+### Mixing chains
+
+Every instrument can have a **mixing chain**: its notes sum into a bus of their own, the chain processes that bus, and the result joins the song. It is the per-track insert rack of a desk, saved in the file — anything that plays the `.taud` correctly plays it through the same chains. The **Mixing** tab, the last tab of every kind of instrument, is where it is built.
+
+**The chain is a numbered block, and instruments name it.** *New chain* gives the instrument an empty chain under the next free number (up to 255 in a project); *Use the chain of…* puts it on the chain another instrument already uses. Instruments on one chain **share every setting** — moving a control moves it for all of them, and the tab lists who else is on it — but each still runs its **own copy**, so a compressor on the kick never ducks the snare and one instrument's echoes never feed another's. *Make independent* copies the chain to a new number for this instrument alone; *Remove chain* takes the instrument off it. A chain no instrument uses is kept for the rest of the session — put the instrument back and it is as you left it — and dropped from the file the next time you save. A duplicated instrument starts on its original's chain.
+
+**Twelve pieces of equipment, in a fixed order:**
+
+| Equipment | What it does |
+|---|---|
+| **Input trim** | gain into the chain |
+| **Equaliser 1** | up to eight bands: high-pass, low shelf, bell, high shelf, low-pass, notch; the cuts at 12 to 48 dB/octave |
+| **Dynamic EQ 1** | a low shelf, a high shelf and four bells, each moving only when the signal crosses its threshold — cutting or boosting — and, with *Sense elsewhere*, listening to a different range from the one it changes |
+| **Compressor** | one band, or up to six with crossovers between them |
+| **Equaliser 2**, **Dynamic EQ 2** | a second pair, after the compressor |
+| **Unison** | two to eight copies, detuned and — in a stereo song — spread across the width, each with an LFO that can follow the tempo and restart on every note |
+| **Saturator** | tape, soft clip, hard clip, tube or wavefolder, with drive, bias and trims |
+| **Tape delay** | in milliseconds, or in quarter ticks so it follows the tempo — a tempo change bends the echoes as tape would — with feedback through a high and a low cut, wow and flutter, drive and ping-pong |
+| **Reverb** | size, decay, damping and pre-delay |
+| **Limiter** | a look-ahead brickwall, the Mastering tab's, with an input gain |
+| **Mix tool** | gain, stereo width, swap and polarity |
+
+The only choice of order is whether the tape delay feeds the reverb or the reverb feeds the delay (the selector beside the chain's switch).
+
+**Switching a piece on inserts it, and from then on it stays.** A piece you have never switched on is not in the chain at all; switch it on and it is inserted at its starting settings, and switching it off afterwards *bypasses* it — its settings are kept, and it costs nothing while it is out. The equalisers start flat and the dynamic EQ with every band off, so inserting them changes nothing until you move a control. Where a piece has a **Mix** slider in its titlebar — the compressor, unison, saturator, delay and reverb — it sets how much of the processed sound replaces the dry one; the delay and the reverb start mostly dry, as effects added to the sound. A multiband compressor's dry signal is its bands recombined untouched, so a parallel mix does not hollow out the crossovers.
+
+**Where it sits.** The chain is fed the instrument's notes with everything that shapes them — note and lane volume, the envelopes, the lane's fader and mute, the panning — and comes before the song's global volume (`V` and `W`) and the Mastering tab. A metainstrument's layers go through the **metainstrument's** chain, not their own, and a note left ringing by its New Note Action goes through the chain of the instrument it was. The limiter's look-ahead delays its instrument by 2 ms; nothing else in the chain moves an instrument in time.
+
+**In a surround song** the chain runs over the instrument's whole sound field, so its positioning survives: the filters act alike on every channel and the dynamics hear all of them together. Stereo width, the swap, the unison's spread and the delay's ping-pong mean nothing there and are skipped; the tab says so.
+
+**The monitors**, on the right, meter this instrument's bus while the tab is open: **Levels** (with *Pre* and *Post* — into the chain and out of it), **Gain reduction** for every compressor band, dynamic-EQ band (a boost reads to the right) and the limiter, the **Spectrum** (after the chain in the Mastering tab's band colours, before it as a line, a held peak, and the chain's equaliser curve over it on a ±24 dB scale, tilted +3 dB/octave like the Mastering tab's), and a **Goniometer** with its correlation — mono stands up the middle, a left-heavy sound leans left, and out-of-phase material lies flat, with the bar going red.
+
+A project made by a newer version may hold equipment this one does not know; it says so once as the project opens, keeps that equipment and saves it back unchanged, and plays the chain without it.
 
 ## Mastering (F6)
 
@@ -2173,7 +2208,7 @@ can still be working on the 5.1 one. The limiter's ceiling holds on every
 channel of the file it writes; it is not a promise about what somebody's
 decoder does with those channels afterwards.
 
-Stems are per-lane and by definition pre-master.
+Stems are per-lane and by definition pre-master — and pre-chain: a stem holds the notes before any instrument's [mixing chain](#mixing-chains).
 
 ## Project (F7)
 

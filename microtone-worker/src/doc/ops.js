@@ -6,7 +6,7 @@
 // Dirty tags: {kind:"pattern", song, pat} | {kind:"cue", song, cue}
 //           | {kind:"scalar", song, key} | {kind:"inst", slot} | {kind:"bank"}
 //           | {kind:"ixmp", slot} | {kind:"section", fourcc} | {kind:"resync", song}
-//           | {kind:"mastering", song}
+//           | {kind:"mastering", song} | {kind:"imix"}
 
 import { applyPlan, captureBankState, restoreBankState, buildIxmpSection } from "./bankmerge.js";
 import {
@@ -960,6 +960,31 @@ export function setMasteringOp(song, payload, control = null, gestureId = null) 
       return setMasteringOp(song, prev, control, gestureId);
     },
     dirty: () => [{ kind: "mastering", song }],
+  };
+}
+
+/**
+ * Replace the `IMix` section (item 217, §9.15) — every instrument mixing chain
+ * in the project — as one invertible step. Like setMasteringOp it goes through
+ * the section: an edit rebuilds the payload and the inverse restores the exact
+ * previous bytes. `control` coalesces a drag on one control into one undo step.
+ *
+ * Which instrument uses which block is not here: that is byte 255 of the
+ * instrument's record, set with setInstFieldOp(slot, "imixId", id).
+ */
+export function setImixOp(payload, control = null, gestureId = null) {
+  return {
+    type: "setImix",
+    payload, control, gestureId,
+    coalesceKey: control === null ? null : `imix:${control}`,
+    apply(doc) {
+      const i = doc.projSections.findIndex((s) => s.fourcc === "IMix");
+      const prev = i >= 0 ? doc.projSections[i].payload : null;
+      doc.setSection("IMix", payload);
+      doc.dirty = true;
+      return setImixOp(prev, control, gestureId);
+    },
+    dirty: () => [{ kind: "imix" }],
   };
 }
 

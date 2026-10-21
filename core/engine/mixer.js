@@ -31,6 +31,7 @@ import { applyTrackerRow, advanceRow } from "./row.js";
 import { TAP_PRE, TAP_POST } from "./loudness.js";
 import { applyTrackerTick, advanceSampleModExtended, psgQuarterPass, psgLive } from "./tick.js";
 import { psgQuarterAt } from "./psg.js";
+import { syncImixRoutes } from "./imix.js";
 
 const fround = Math.fround;
 
@@ -228,6 +229,12 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
   const instGv = voiceInst.instGlobalVolume / 255.0;
   const swingScale = 1.0 + voice.randomVolBias / 255.0;
   const faderGain = (255 - voice.fader) / 255.0;
+  // An instrument with a mixing chain (item 217) mixes into its own bus,
+  // ahead of the song's global gain — which the bus's output gets instead.
+  const route = ts.imixRoutes[(voice.displayInst || voice.instrumentId) & 0x3ff];
+  const busData = route === null ? null : route.data;
+  const busSpace = route === null ? null : route.space;
+  if (route !== null) route.fed = true;
 
   for (let n = n0; n < n1; n++) {
     if (!voice.active) { // ramped out earlier in this span
@@ -306,7 +313,18 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
       voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
     }
     if (stems !== null) stems.add(voice, vi, n, sScope * vol * rampGain);
-    if (spatial === null) {
+    if (busData !== null) {
+      if (busSpace === null) {
+        busData[n] += sL * perVoiceGain * lGain * rampGain;
+        busData[TRACKER_CHUNK + n] += sR * perVoiceGain * rGain * rampGain;
+      } else {
+        const g = spatialVoiceGains(spatial, voice);
+        busSpace.addSource(n, sL * perVoiceGain, g, 0, rampGain);
+        if (voice.activeChanCount === 2) {
+          busSpace.addSource(n, sR * perVoiceGain, g, spatial.numChannels, rampGain);
+        }
+      }
+    } else if (spatial === null) {
       accL[n] += sL * vol * lGain * rampGain;
       accR[n] += sR * vol * rGain * rampGain;
     } else {
@@ -356,6 +374,12 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
   const instGv = bgInst.instGlobalVolume / 255.0;
   const swingScale = 1.0 + bg.randomVolBias / 255.0;
   const faderGain = (255 - bgFader) / 255.0;
+  // A ghost and a layer child mix through the chain of the instrument the
+  // NOTE named — a metainstrument's, not its layer's (item 217).
+  const route = ts.imixRoutes[(bg.displayInst || bg.instrumentId) & 0x3ff];
+  const busData = route === null ? null : route.data;
+  const busSpace = route === null ? null : route.space;
+  if (route !== null) route.fed = true;
 
   for (let n = n0; n < n1; n++) {
     if (!bg.active) continue; // ramped out earlier in this span
@@ -408,7 +432,22 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
       const sBg = bg.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
       stems.add(bg, bg.sourceChannel, n, sBg * vol * rampGain);
     }
-    if (spatial === null) {
+    if (busData !== null) {
+      // The same chain without the three song-level gains the bus is ahead of.
+      const bvol = effEnvVol * bg.fadeoutVolume *
+        (bg.opl !== null && bg.fmRig === null ? 1.0 : bg.currentMixVolume) *
+        swingScale * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain;
+      if (busSpace === null) {
+        busData[n] += sL * bvol * lGain * rampGain;
+        busData[TRACKER_CHUNK + n] += sR * bvol * rGain * rampGain;
+      } else {
+        const g = spatialVoiceGains(spatial, bg);
+        busSpace.addSource(n, sL * bvol, g, 0, rampGain);
+        if (bg.activeChanCount === 2) {
+          busSpace.addSource(n, sR * bvol, g, spatial.numChannels, rampGain);
+        }
+      }
+    } else if (spatial === null) {
       accL[n] += sL * vol * lGain * rampGain;
       accR[n] += sR * vol * rGain * rampGain;
     } else {
@@ -423,6 +462,48 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
       abus.addSource(n, sL * vol, ag, 0, rampGain);
       if (bg.activeChanCount === 2) {
         abus.addSource(n, sR * vol, ag, abus.numChannels, rampGain);
+      }
+    }
+  }
+}
+
+/**
+ * Run each instrument bus's chain over [n0, n1) and add its output to the
+ * master — the stereo accumulators, or the object bus channel for channel (the
+ * instrument bus shares its layout, so no re-positioning happens here). A bus
+ * whose chain is idle and was not fed is skipped outright: its output is the
+ * silence already in the buffer.
+ */
+function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
+  const spatial = ts.spatial;
+  const meter = ts.imixMeter;
+  const trig = ts.imixTrig;
+  for (let b = 0; b < buses.length; b++) {
+    const bus = buses[b];
+    if (trig[bus.slot] !== 0) { trig[bus.slot] = 0; bus.chain.noteOn(); }
+    const chain = bus.chain;
+    if (chain.idle && !bus.fed) {
+      chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, false);
+      continue;
+    }
+    const metered = meter !== null && meter.slot === bus.slot;
+    if (metered) meter.pushPre(bus, n0, n1);
+    chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
+    if (metered) meter.pushPost(bus, n0, n1);
+    const d = bus.data;
+    if (spatial === null) {
+      const accL = ts.mixAccL;
+      const accR = ts.mixAccR;
+      for (let n = n0; n < n1; n++) {
+        accL[n] += d[n] * globalGain;
+        accR[n] += d[TRACKER_CHUNK + n] * globalGain;
+      }
+    } else {
+      const sd = spatial.data;
+      const nch = bus.nch;
+      for (let c = 0; c < nch; c++) {
+        const o = c * TRACKER_CHUNK;
+        for (let n = n0; n < n1; n++) sd[o + n] += d[o + n] * globalGain;
       }
     }
   }
@@ -470,6 +551,13 @@ export function generateTrackerAudio(eng, playhead, out) {
     ts.firstRow = false;
     applyTrackerRow(eng, ts, playhead);
   }
+
+  // Instrument mixing chains (item 217): bring the route table up to date
+  // with the blocks, the records and the channel layout. `buses` is empty for
+  // every song that has no engaged chain, and then nothing below costs a thing.
+  if (ts.imixGen !== eng.imixGen || ts.imixRate !== SAMPLING_RATE) syncImixRoutes(eng, ts);
+  const buses = ts.imixList;
+  const nBuses = buses.length;
 
   // The rate and the Amiga coefficients are settable module bindings (item
   // 108) — read them ONCE per chunk so the per-sample loop below works on
@@ -535,6 +623,7 @@ export function generateTrackerAudio(eng, playhead, out) {
       accL.fill(0.0, n0, n1);
       accR.fill(0.0, n0, n1);
     }
+    for (let b = 0; b < nBuses; b++) buses[b].clear(n0, n1);
     if (!extModClockLive(eng, voices, bgVoices)) {
       for (let vi = 0; vi < nVoices; vi++) {
         mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n0, n1, sptFirst, sptRest, globalGain);
@@ -554,6 +643,10 @@ export function generateTrackerAudio(eng, playhead, out) {
         }
       }
     }
+
+    // Every instrument bus runs its chain over the span and joins the mix,
+    // scaled by the song's global gain, in ascending slot order.
+    if (nBuses > 0) runImixBuses(ts, playhead, buses, n0, n1, globalGain);
 
     for (let n = n0; n < n1; n++) {
       let mixL;
