@@ -19,7 +19,6 @@ import {
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { encodeNameTable } from "../../doc/cleanup.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
-import { minifloatToDouble, minifloatFromDouble } from "../../../core/engine/minifloat.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
 } from "../../doc/envedit.js";
@@ -34,10 +33,7 @@ import {
 import { mapSpinner } from "../components/spinner.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
-
-// Fraction of the env plot width the time axis uses (item 37 headroom rule,
-// same constant as the base-instrument envelope tabs).
-const ENV_TIME_FRAC = 0.8;
+import { EnvAxis, paintEnvGraph, attachEnvGraph } from "../envgraph.js";
 
 // The four patch envelope blocks. `mbit` is the LOOP-word role marker written
 // when the editor CREATES the block (bit 7: 1 = filter, 0 = pitch — spec Note
@@ -98,7 +94,7 @@ export class AdvancedZoneEditor {
     this.selIdx = 0;       // selected list row; patches.length = the base row
     this.envKind = 0;      // 0..3 = ENV_KINDS, 4 = Wave
     this.selNode = 0;      // env node targeted by the spinners
-    this.logTime = false;  // logarithmic env time axis
+    this.envAxis = new EnvAxis(); // env graph's log map + zoom (envgraph.js)
     this.dragState = null; // env node drag {idx, gestureId}
     this._liveSig = "~";
     this._voicePeak = [];  // per-voice peak effective volume (map blob Y proxy)
@@ -748,14 +744,23 @@ export class AdvancedZoneEditor {
     }
     const canvas = document.createElement("canvas");
     canvas.className = "env-canvas adv-envcv";
+    canvas.title = t("env.graphTitle");
     box.appendChild(canvas);
     this.envCanvas = { canvas, kind, patchIdx: this.selIdx };
-    canvas.addEventListener("pointerdown", (e) => this.envPointerDown(e));
-    canvas.addEventListener("pointermove", (e) => this.envPointerMove(e));
-    canvas.addEventListener("pointerup", () => {
-      const dragged = this.dragState !== null;
-      this.dragState = null;
-      if (dragged) this.render();
+    this.envAxis.bind(`${this.slot}:${this.selIdx}:${kind.key}`);
+    attachEnvGraph(canvas, this.envAxis, {
+      env: () => this.curEnv(),
+      max: kind.max,
+      begin: (idx) => {
+        this.selNode = idx;
+        this.dragState = { idx, gestureId: `advenv${Date.now()}` };
+      },
+      change: (idx, change) => this.envDragStep(kind, idx, change),
+      end: (dragged) => {
+        this.dragState = null;
+        if (dragged) this.render();
+      },
+      paint: () => this.drawEnv(),
     });
     box.appendChild(this.buildEnvControls(p, kind));
   }
@@ -863,7 +868,8 @@ export class AdvancedZoneEditor {
       // this for itself — otherwise a zone could never carry.
       this.chk(t("env.carry"), envCarry(loopW), (on) => setWordBit(kind.loopKey, 6, on),
         t("env.carryTitle")),
-      this.chk(t("env.logTimescale"), this.logTime, (on) => { this.logTime = on; this.drawEnv(); }));
+      this.chk(t("env.logTimescale"), this.envAxis.log,
+        (on) => { this.envAxis.setLog(on); this.drawEnv(); }));
     return wrap;
   }
 
@@ -906,19 +912,7 @@ export class AdvancedZoneEditor {
     });
   }
 
-  // ── envelope graph (linear/log time, drag = 2D node edit) ─────────────────
-
-  envTimeFrac(tv, total) {
-    if (!this.logTime) return total > 0 ? tv / total : 0;
-    const t0 = Math.max(total / 400, 1e-4);
-    return Math.log((tv + t0) / t0) / Math.log((total + t0) / t0);
-  }
-
-  envFracTime(f, total) {
-    if (!this.logTime) return f * total;
-    const t0 = Math.max(total / 400, 1e-4);
-    return t0 * (Math.pow((total + t0) / t0, f) - 1);
-  }
+  // ── envelope graph (the shared one: envgraph.js) ──────────────────────────
 
   /** Current selected patch's env for the open tab (fresh objects each edit). */
   curEnv() {
@@ -927,153 +921,40 @@ export class AdvancedZoneEditor {
     return p && kind ? p[kind.key] : null;
   }
 
-  envGeometry(env) {
-    const canvas = this.envCanvas.canvas;
-    const w = canvas.clientWidth;
-    const times = [0];
-    for (let i = 0; i < 24; i++) times.push(times[i] + minifloatToDouble(env[i].offset));
-    const active = envActiveCount(env);
-    const total = Math.max(times[active - 1], 0.25);
-    return { w, times, total };
-  }
-
   drawEnv() {
     if (!this.envCanvas || !this.envCanvas.canvas.isConnected) return;
     const env = this.curEnv();
     if (!env) return;
     const { canvas, kind } = this.envCanvas;
     const p = this.patches()[this.selIdx];
-    const dpr = uiDpr();
-    const w = Math.max(240, canvas.parentElement.clientWidth - 2);
-    const h = 180;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    const C = themeColors();
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = C.cvBg;
-    ctx.fillRect(0, 0, w, h);
-
-    const { times, total } = this.envGeometry(env);
-    const Xt = (tv) => 10 + this.envTimeFrac(tv, total) * (w - 20) * ENV_TIME_FRAC;
-    const X = (i) => Xt(times[i]);
-    const Y = (v) => h - 14 - (v / kind.max) * (h - 28);
-
-    ctx.font = canvasMonoFont(9);
-    ctx.strokeStyle = C.border;
-    for (let gl = 0; gl <= 4; gl++) {
-      const val = (kind.max * gl) / 4;
-      const y = Y(val);
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath(); ctx.moveTo(10, y); ctx.lineTo(w - 10, y); ctx.stroke();
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = C.dim;
-      ctx.fillText(String(Math.round(val)), 1, y - 1.5);
-    }
-    ctx.globalAlpha = 1;
-
-    const shade = (word, color) => {
-      if (((word >> 5) & 1) === 0) return;
-      const s = (word >> 8) & 0x1f;
-      const e = word & 0x1f;
-      ctx.fillStyle = color;
-      ctx.fillRect(X(Math.min(s, 24)), 0, Math.max(X(Math.min(e, 24)) - X(Math.min(s, 24)), 2), h);
-    };
-    shade(p[kind.susKey], C.envSus);
-    shade(p[kind.loopKey], C.envLoop);
-
-    const active = envActiveCount(env);
-    ctx.strokeStyle = C.envLine;
-    ctx.beginPath();
-    for (let i = 0; i < active; i++) {
-      const x = X(i), y = Y(env[i].value);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    ctx.fillStyle = C.envNode;
-    for (let i = 0; i < active; i++) {
-      ctx.beginPath();
-      ctx.arc(X(i), Y(env[i].value), 3.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (this.selNode >= 0 && this.selNode < active) {
-      ctx.strokeStyle = C.playCursor;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(X(this.selNode), Y(env[this.selNode].value), 6, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 1;
-    }
-
     // live cursor: only voices that resolved THIS patch (sample identity match)
+    const live = [];
     const audio = this.store.audio;
     if (audio && p) {
-      ctx.fillStyle = C.live;
       for (let vi = 0; vi < TOTAL_VOICES; vi++) {
         if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.slot) continue;
         if (audio.getVoiceSamplePtr(vi) !== p.samplePtr ||
             audio.getVoiceSampleLength(vi) !== p.sampleLength) continue;
-        const idx = audio[kind.liveIdx](vi);
-        const tv = audio[kind.liveTime](vi);
-        if (idx < 0 || idx > 24) continue;
-        const x = Xt(Math.min(times[Math.min(idx, 24)] + tv, total));
-        ctx.fillRect(x - 1, 0, 2, h);
+        live.push({ idx: audio[kind.liveIdx](vi), t: audio[kind.liveTime](vi) });
       }
     }
+    paintEnvGraph(canvas, Math.max(240, canvas.parentElement.clientWidth - 2), 180, {
+      env, max: kind.max, axis: this.envAxis,
+      sus: p[kind.susKey], loop: p[kind.loopKey], selected: this.selNode, live,
+    });
   }
 
-  envHit(e) {
-    const env = this.curEnv();
-    const x = localPoint(this.envCanvas.canvas, e).x;
-    const { w, times, total } = this.envGeometry(env);
-    const active = envActiveCount(env);
-    let best = -1, bestD = 12;
-    for (let i = 0; i < active; i++) {
-      const nx = 10 + this.envTimeFrac(times[i], total) * (w - 20) * ENV_TIME_FRAC;
-      const d = Math.abs(nx - x);
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return best;
-  }
-
-  envPointerDown(e) {
-    const idx = this.envHit(e);
-    if (idx < 0) return;
-    this.selNode = idx;
-    this.envCanvas.canvas.setPointerCapture(e.pointerId);
-    this.dragState = { idx, gestureId: `advenv${Date.now()}` };
-    this.envPointerMove(e);
-  }
-
-  envPointerMove(e) {
-    if (!this.dragState || !this.envCanvas) return;
-    const env = this.curEnv();
-    if (!env) return;
-    const { canvas, kind } = this.envCanvas;
-    const h = canvas.clientHeight;
-    const idx = this.dragState.idx;
-    const { x, y } = localPoint(canvas, e);
-    const v = clampN(Math.round(((h - 14 - y) / (h - 28)) * kind.max), 0, kind.max);
-    let prevOffset;
-    if (idx > 0) {
-      const { w, times, total } = this.envGeometry(env);
-      // headroom rule (item 37): frac may exceed 1 up to 1/ENV_TIME_FRAC so the
-      // last node can be dragged rightwards to extend the envelope
-      const frac = clampN((x - 10) / ((w - 20) * ENV_TIME_FRAC), 0, 1 / ENV_TIME_FRAC);
-      const wantTime = this.envFracTime(frac, total);
-      prevOffset = minifloatFromDouble(Math.max(wantTime - times[idx - 1], 0));
-    }
+  /** One step of a node drag, into the patch blob under the gesture's id. */
+  envDragStep(kind, idx, change) {
     this._commit((ps) => {
       const q = ps[this.selIdx];
       const en = q?.[kind.key];
       if (!en) return;
-      en[idx].value = v;
-      if (prevOffset !== undefined) en[idx - 1].offset = prevOffset;
+      en[idx].value = change.value;
+      if (change.prevOffset !== undefined) en[idx - 1].offset = change.prevOffset;
+      if (change.offset !== undefined) en[idx].offset = change.offset;
       claimPresence(q, kind);
     }, { gestureId: this.dragState.gestureId });
-    this.drawEnv();
   }
 
   // ── wave scope ─────────────────────────────────────────────────────────────

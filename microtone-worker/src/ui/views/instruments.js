@@ -39,7 +39,6 @@ import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import { showImportInstruments, importFromSf2 } from "../popups/importinst.js";
 import { getSoundfont } from "../soundfont.js";
-import { minifloatToDouble, minifloatFromDouble } from "../../../core/engine/minifloat.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
 } from "../../doc/envedit.js";
@@ -79,12 +78,8 @@ import {
 import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
-import { uiDpr, localPoint } from "../zoom.js";
-
-// Fraction of the envelope graph's plottable width the time axis uses; the
-// rightmost 1−ENV_TIME_FRAC stays empty so the last node can always be grabbed
-// and dragged further right to extend the envelope (item 37).
-const ENV_TIME_FRAC = 0.8;
+import { uiDpr } from "../zoom.js";
+import { EnvAxis, paintEnvGraph, attachEnvGraph } from "../envgraph.js";
 
 const ENV_TABS = [
   { key: "volEnvelopes", loopKey: "volEnvLoop", susKey: "volEnvSustainWord", labelKey: "inst.tabVolEnv",
@@ -170,7 +165,7 @@ export class InstrumentsView {
     this.visible = false;
     this.dragState = null;
     this.selectedNode = 0; // envelope node targeted by the spinner controls
-    this.envLogTime = false; // logarithmic time axis for the envelope graph
+    this.envAxis = new EnvAxis(); // the envelope graph's log map + zoom (envgraph.js)
     this.advanced = false; // Advanced Edit (Ixmp patch editor, item 49b) active
     this.advEditor = new AdvancedZoneEditor(this);
     this.lamps = new Map(); // slot -> Lamp (item 169); outlives refresh() rebuilds
@@ -1223,21 +1218,27 @@ export class InstrumentsView {
 
     const canvas = document.createElement("canvas");
     canvas.className = "wave-canvas";
+    canvas.title = t("env.graphTitle");
     this.panel.appendChild(canvas);
     this.envCanvas = { canvas, env, tabDef, inst, head };
+    this.envAxis.bind(`${this.selected}:${tabDef.key}`);
 
     const active = envActiveCount(env);
     this.selectedNode = Math.min(Math.max(this.selectedNode, 0), active - 1);
     this.drawEnvGraph();
 
-    canvas.addEventListener("pointerdown", (e) => this.envPointerDown(e));
-    canvas.addEventListener("pointermove", (e) => this.envPointerMove(e));
-    canvas.addEventListener("pointerup", () => {
-      const dragged = this.dragState !== null;
-      this.dragState = null;
-      // Re-render was suppressed during the drag; settle header + spinners now
-      // (a role claim can change which slot each tab resolves to).
-      if (dragged) this.renderPanel();
+    attachEnvGraph(canvas, this.envAxis, {
+      env: () => env,
+      max: tabDef.max,
+      begin: (idx) => this.envDragBegin(idx),
+      change: (idx, change) => this.envDragStep(idx, change),
+      end: (dragged) => {
+        this.dragState = null;
+        // Re-render was suppressed during the drag; settle header + spinners now
+        // (a role claim can change which slot each tab resolves to).
+        if (dragged) this.renderPanel();
+      },
+      paint: () => this.drawEnvGraph(),
     });
 
     this.panel.appendChild(this.buildEnvControls(inst, tabDef, env, active));
@@ -1430,8 +1431,8 @@ export class InstrumentsView {
     // Final row: logarithmic time-axis toggle for the graph above, plus (on
     // Vol/Pan tabs) the envelope-present toggle. Pitch/Filter presence is the
     // role claim, so those tabs show only the log toggle.
-    const logChk = chk(t("env.logTimescale"), this.envLogTime,
-      (on) => { this.envLogTime = on; this.drawEnvGraph(); });
+    const logChk = chk(t("env.logTimescale"), this.envAxis.log,
+      (on) => { this.envAxis.setLog(on); this.drawEnvGraph(); });
     // "Envelope present" — for Vol/Pan it toggles the LOOP-word P bit directly;
     // for Pitch/Filter (role) tabs it claims/releases the resolved slot's role
     // (item 36), so the checkbox tracks roleActive.
@@ -1452,184 +1453,44 @@ export class InstrumentsView {
     return wrap;
   }
 
-  /** Fraction 0..1 of the time axis for time `t` (linear or log). */
-  envTimeFrac(t, total) {
-    if (!this.envLogTime) return total > 0 ? t / total : 0;
-    const t0 = Math.max(total / 400, 1e-4);
-    return Math.log((t + t0) / t0) / Math.log((total + t0) / t0);
-  }
-
-  /** Inverse of envTimeFrac: seconds for axis fraction `f`. */
-  envFracTime(f, total) {
-    if (!this.envLogTime) return f * total;
-    const t0 = Math.max(total / 400, 1e-4);
-    return t0 * (Math.pow((total + t0) / t0, f) - 1);
-  }
-
-  envGeometry() {
-    const { canvas, env } = this.envCanvas;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    // cumulative time axis; span only the ACTIVE envelope (to its terminator).
-    const times = [0];
-    for (let i = 0; i < 24; i++) times.push(times[i] + minifloatToDouble(env[i].offset));
-    const active = envActiveCount(env);
-    const total = Math.max(times[active - 1], 0.25);
-    return { w, h, times, total };
-  }
-
+  /** Paint the envelope graph in place: a drag step, the wheel, playback. */
   drawEnvGraph() {
     const { canvas, env, tabDef, inst } = this.envCanvas;
-    const dpr = uiDpr();
-    const w = Math.max(200, this.right.clientWidth - 20);
-    const h = 240;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    const C = themeColors();
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = C.cvBg;
-    ctx.fillRect(0, 0, w, h);
-
-    const { times, total } = this.envGeometry();
-    const Xt = (t) => 10 + this.envTimeFrac(t, total) * (w - 20) * ENV_TIME_FRAC;
-    const X = (i) => Xt(times[i]);
-    const Y = (v) => h - 14 - (v / tabDef.max) * (h - 28);
-
-    // ── grids ── magnitude (horizontal, value labels) + time (vertical, seconds)
-    ctx.font = canvasMonoFont(9);
-    ctx.textAlign = "left";
-    ctx.strokeStyle = C.border;
-    for (let g = 0; g <= 4; g++) {
-      const val = (tabDef.max * g) / 4;
-      const y = Y(val);
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath(); ctx.moveTo(10, y); ctx.lineTo(w - 10, y); ctx.stroke();
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = C.dim;
-      ctx.fillText(String(Math.round(val)), 1, y - 1.5);
-    }
-    // Time gridlines: log mode uses a 1/2/5-decade ladder (spreads in log
-    // space); linear mode uses evenly-spaced "nice" steps.
-    for (const t of envTimeTicks(total, this.envLogTime)) {
-      const x = Xt(t);
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h - 12); ctx.stroke();
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = C.dim;
-      ctx.fillText((t < 1 ? t.toFixed(2) : t.toFixed(1)) + "s", x + 1, h - 3);
-    }
-    ctx.globalAlpha = 1;
-
-    // sustain / loop region shading
-    const shade = (word, color) => {
-      if (((word >> 5) & 1) === 0) return;
-      const s = (word >> 8) & 0x1f;
-      const e = word & 0x1f;
-      ctx.fillStyle = color;
-      ctx.fillRect(X(Math.min(s, 24)), 0, Math.max(X(Math.min(e, 24)) - X(Math.min(s, 24)), 2), h);
-    };
-    shade(inst[tabDef.susKey], C.envSus);
-    shade(inst[tabDef.loopKey], C.envLoop);
-
-    // polyline + nodes (active nodes only — up to the terminator)
-    const activeCount = envActiveCount(env);
-    ctx.strokeStyle = C.envLine;
-    ctx.beginPath();
-    for (let i = 0; i < activeCount; i++) {
-      const x = X(i);
-      const y = Y(env[i].value);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    ctx.fillStyle = C.envNode;
-    for (let i = 0; i < activeCount; i++) {
-      ctx.beginPath();
-      ctx.arc(X(i), Y(env[i].value), 3.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // highlight the spinner-selected node
-    if (this.selectedNode >= 0 && this.selectedNode < activeCount) {
-      ctx.strokeStyle = C.playCursor;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(X(this.selectedNode), Y(env[this.selectedNode].value), 6, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 1;
-    }
-
     // live playback cursor for THIS envelope's role — every tab (vol / pan /
     // pitch / filter) has its own snapshot index+time accessor on tabDef.
+    const live = [];
     const audio = this.store.audio;
     if (audio && tabDef.liveIdx) {
-      ctx.fillStyle = C.live;
       for (let vi = 0; vi < TOTAL_VOICES; vi++) {
         if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.selected) continue;
-        const idx = audio[tabDef.liveIdx](vi);
-        const t = audio[tabDef.liveTime](vi);
-        if (idx < 0 || idx > 24) continue;
-        const base = times[Math.min(idx, 24)];
-        const x = Xt(Math.min(base + t, total));
-        ctx.fillRect(x - 1, 0, 2, h);
+        live.push({ idx: audio[tabDef.liveIdx](vi), t: audio[tabDef.liveTime](vi) });
       }
     }
+    paintEnvGraph(canvas, Math.max(200, this.right.clientWidth - 20), 240, {
+      env, max: tabDef.max, axis: this.envAxis,
+      sus: inst[tabDef.susKey], loop: inst[tabDef.loopKey],
+      selected: this.selectedNode, live,
+    });
   }
 
-  envHit(e) {
-    const { x, y } = localPoint(this.envCanvas.canvas, e);
-    const { w, times, total } = this.envGeometry();
-    const active = envActiveCount(this.envCanvas.env);
-    let best = -1, bestD = 12;
-    for (let i = 0; i < active; i++) {
-      const nx = 10 + this.envTimeFrac(times[i], total) * (w - 20) * ENV_TIME_FRAC;
-      const d = Math.abs(nx - x);
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return { idx: best, y };
-  }
-
-  envPointerDown(e) {
-    const hit = this.envHit(e);
-    if (hit.idx < 0) return;
-    this.selectedNode = hit.idx; // sync the spinner target to the grabbed node
-    this.envCanvas.canvas.setPointerCapture(e.pointerId);
-    const gestureId = `envdrag${Date.now()}`;
-    // Shaping an absent envelope first makes it present (LOOP-word P bit 13),
-    // and on an inactive Pitch/Filter tab claims the role too (m-bit 7: set =
-    // filter, clear = pitch). The claim rides the drag's first step (below).
+  /** A graph node was grabbed: it becomes the spinners' node. Shaping an
+   *  absent envelope first makes it present (LOOP-word P bit 13), and on an
+   *  inactive Pitch/Filter tab claims the role too (m-bit 7: set = filter,
+   *  clear = pitch). The claim rides the drag's first step (envDragStep). */
+  envDragBegin(idx) {
+    this.selectedNode = idx;
     const { tabDef, head } = this.envCanvas;
     const claim = this.envPresenceClaimOp(tabDef);
-    this.dragState = { idx: hit.idx, gestureId, claim };
+    this.dragState = { idx, gestureId: `envdrag${Date.now()}`, claim };
     if (claim !== null) {
       if (tabDef.role) tabDef.roleActive = true;
       if (head) head.innerHTML = envHeaderHtml(tabDef, true);
     }
-    this.envPointerMove(e);
   }
 
-  envPointerMove(e) {
-    if (!this.dragState) return;
-    const { canvas, tabDef } = this.envCanvas;
-    const h = canvas.clientHeight;
-    const idx = this.dragState.idx;
-    const { x, y } = localPoint(canvas, e);
-    const v = Math.round(((h - 14 - y) / (h - 28)) * tabDef.max);
-    const change = { value: Math.min(Math.max(v, 0), tabDef.max) };
-    // Horizontal drag re-times the PRECEDING segment (env[idx-1].offset),
-    // quantised to the ThreeFiveMiniUfloat grid. Node 0 is fixed at t=0.
-    if (idx > 0) {
-      const { w, times, total } = this.envGeometry();
-      // Divide by the reserved plot width so dragging into the rightmost
-      // headroom (frac > 1, up to 1/ENV_TIME_FRAC) extends the envelope.
-      const frac = Math.min(Math.max((x - 10) / ((w - 20) * ENV_TIME_FRAC), 0), 1 / ENV_TIME_FRAC);
-      const wantTime = this.envFracTime(frac, total);
-      const seg = Math.max(wantTime - times[idx - 1], 0);
-      change.prevOffset = minifloatFromDouble(seg);
-    }
-    const op = setEnvDragOp(this.selected, tabDef.key, idx, change, this.dragState.gestureId);
+  envDragStep(idx, change) {
+    const op = setEnvDragOp(this.selected, this.envCanvas.tabDef.key, idx, change,
+      this.dragState.gestureId);
     const claim = this.dragState.claim;
     if (claim !== null) {
       // Bundled under the DRAG's own coalesce key, so every later move of the
@@ -1642,7 +1503,6 @@ export class InstrumentsView {
     } else {
       this.store.undo.apply(op);
     }
-    this.drawEnvGraph();
   }
 
   renderZones(inst) {
@@ -2553,7 +2413,9 @@ export class InstrumentsView {
     if (this.advanced) {
       this.advEditor.frame();
     } else if (this.store.audio?.isPlaying()) {
-      if (this.tab.startsWith("env") && this.envCanvas) this.drawEnvGraph();
+      // Every envelope tab, the Pitch/Filter ones included (they used to sit
+      // still while their playheads moved).
+      if (this.envCanvas?.canvas.isConnected) this.drawEnvGraph();
       if (this.tab === "zones" && this.zoneCanvas) this.drawZones();
     }
     // The PSG tab shows the instrument's live overlay while playing, and puts
@@ -2661,27 +2523,3 @@ const MIX_DB_MAP = {
 };
 const annHex4 = (v) => "$" + (v & 0xffff).toString(16).toUpperCase().padStart(4, "0");
 const annHex6 = (v) => "$" + (v & 0xffffff).toString(16).toUpperCase().padStart(6, "0");
-
-/** A "nice" time-grid interval (1/2/5 × 10ⁿ) giving ~5-8 gridlines. */
-function niceTimeStep(total) {
-  const raw = total / 6;
-  const pow = Math.pow(10, Math.floor(Math.log10(raw || 1)));
-  const norm = raw / pow;
-  const mult = norm < 1.5 ? 1 : norm < 3.5 ? 2 : norm < 7.5 ? 5 : 10;
-  return Math.max(mult * pow, 0.01);
-}
-
-/** Time gridline positions (seconds). Linear mode: evenly-spaced nice steps.
- *  Log mode: a 1/2/5-per-decade ladder (spreads legibly in log space). */
-function envTimeTicks(total, log) {
-  const ticks = [];
-  if (log) {
-    const ladder = [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15];
-    ticks.push(0);
-    for (const t of ladder) if (t <= total + 1e-9) ticks.push(t);
-  } else {
-    const step = niceTimeStep(total);
-    for (let t = 0; t <= total + 1e-9; t += step) ticks.push(t);
-  }
-  return ticks;
-}

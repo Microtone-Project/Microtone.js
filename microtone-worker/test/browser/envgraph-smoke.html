@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>envelope graph smoke</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1200px;height:760px"></iframe>
+  <script type="module">
+    // Item 227 — the envelope graph (src/ui/envgraph.js) on an instrument's
+    // Vol env tab, driven by real pointer and wheel events on its canvas:
+    //
+    // - a last node dragged into the headroom extends the envelope by the
+    //   distance dragged, however many moves it takes (the axis used to
+    //   re-fit at every move, so it ran away: a second became ten in a flick);
+    // - an interior node moves between its neighbours and the node after it
+    //   keeps its time; Shift+drag takes the nodes after it along;
+    // - a press beside a node does not move it sideways;
+    // - 8 ms → 4 ms by dragging, at the last node and at an interior one;
+    // - the wheel zooms about the pointer, the fit is a detent, a double-click
+    //   fits, a drag on empty graph scrolls, the log map keeps a zoomed window
+    //   on its seconds, and another envelope starts fitted.
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    let failures = 0;
+    const check = (name, ok, detail = "") => {
+      if (!ok) failures++;
+      log(`${name}${detail ? ` (${detail})` : ""}: ${ok ? "ok" : "FAIL"}`);
+    };
+    const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await new Promise((resolve) => {
+          const poll = setInterval(() => {
+            const w = frame.contentWindow;
+            if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+          }, 100);
+        });
+        const { store, instrumentsView: iv } = win.__microtone;
+        const { setEnvArrayOp } = await import("../../src/doc/ops.js");
+        const { envTimes, envGraphSize } = await import("../../src/ui/envgraph.js");
+        const { ENV_MAX_NODES, minifloatNearest } = await import("../../src/doc/envedit.js");
+        log("app loaded, doc ready");
+
+        const slot = store.doc.usedInstrumentSlots().find((s) => !store.doc.instruments[s].isMeta);
+        // On screen for real: the graph is measured and hit by its layout.
+        win.document.querySelector('#tabs button[data-view="instruments"]').click();
+        await new Promise((r) => setTimeout(r, 200));
+        iv.selected = slot;
+        iv.tab = "env0";
+        iv.refresh();
+
+        const env = () => store.doc.instruments[slot].volEnvelopes;
+        const times = () => envTimes(env());
+        /** Write a volume envelope from [value, seconds] pairs (the last one's
+         *  seconds 0: the terminator) and show it fitted. */
+        const setShape = (...pairs) => {
+          const nodes = Array.from({ length: ENV_MAX_NODES }, () => ({ value: 0, offset: 0 }));
+          pairs.forEach(([value, sec], i) => {
+            nodes[i] = { value, offset: sec === 0 ? 0 : minifloatNearest(sec, 1) };
+          });
+          store.undo.apply(setEnvArrayOp(slot, "volEnvelopes", nodes));
+          iv.envAxis.fit();
+          iv.renderPanel();
+        };
+        const cv = () => iv.envCanvas.canvas;
+        const size = () => envGraphSize(cv());
+        const scale = () => iv.envAxis.scale(size().w, times().total);
+        // Picture pixels → client coordinates: past the border, and through
+        // the squeeze of a border-box canvas.
+        const clientX = (px) => {
+          const c = cv();
+          return c.getBoundingClientRect().left + c.clientLeft + px * (c.clientWidth / size().w);
+        };
+        const pictureX = (cx) => {
+          const c = cv();
+          return (cx - c.getBoundingClientRect().left - c.clientLeft) * (size().w / c.clientWidth);
+        };
+        const xOf = (t) => clientX(scale().x(t));
+        const yOf = (v) => {
+          const c = cv(), h = size().h;
+          return c.getBoundingClientRect().top + c.clientTop +
+            (h - 14 - (v / 63) * (h - 28)) * (c.clientHeight / h);
+        };
+        /** One pointer gesture on the canvas as it stands now (a node drag
+         *  re-renders the panel when it ends, so the canvas is held). */
+        const gesture = (x, y, moves, opts = {}) => {
+          const c = cv();
+          const ev = (type, cx) => c.dispatchEvent(new win.PointerEvent(type, {
+            clientX: cx, clientY: y, pointerId: 5, button: 0, bubbles: true, ...opts,
+          }));
+          ev("pointerdown", x);
+          for (const mx of moves) ev("pointermove", mx);
+          ev("pointerup", moves.length ? moves[moves.length - 1] : x);
+        };
+        const wheel = (x, deltaY, opts = {}) => cv().dispatchEvent(new win.WheelEvent("wheel", {
+          clientX: x, clientY: cv().getBoundingClientRect().top + 30, deltaY, deltaMode: 0,
+          bubbles: true, cancelable: true, ...opts,
+        }));
+        const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+        // ── the last node into the headroom: no runaway ──
+        setShape([63, 0.5], [40, 0.5], [0, 0]);
+        {
+          const edge = clientX(size().w - 12);
+          const wantEnd = scale().t(size().w - 12); // the press's scale, held
+          const moves = [];
+          for (let i = 0; i < 40; i++) moves.push(edge - (i % 2) * 0.5);
+          gesture(xOf(times().times[2]), yOf(0), moves);
+          const end = times().times[2];
+          check("last node into the headroom extends by the distance dragged",
+            near(end, wantEnd, 0.02) && end < 1.3, `end ${end.toFixed(3)} s, pointer at ${wantEnd.toFixed(3)} s`);
+          store.undo.undo();
+          iv.renderPanel();
+        }
+
+        // ── an interior node keeps the next one where it was ──
+        setShape([63, 0.25], [40, 0.5], [20, 0.25], [0, 0]);
+        {
+          const before = times();
+          const depth = store.undo.undoStack.length;
+          const x = xOf(before.times[1]);
+          gesture(x, yOf(40), [x - 30, x + 20, x + 50]);
+          const after = times();
+          check("an interior node moves between its neighbours",
+            after.times[1] > before.times[1] && after.times[2] === before.times[2] &&
+            after.times[3] === before.times[3] && store.undo.undoStack.length === depth + 1,
+            `node 1 ${before.times[1].toFixed(4)}→${after.times[1].toFixed(4)}, ` +
+            `node 2 ${before.times[2].toFixed(4)}→${after.times[2].toFixed(4)}`);
+          store.undo.undo();
+          iv.renderPanel();
+
+          // A press 8 px beside the node selects it without moving it.
+          gesture(xOf(before.times[1]) - 8, yOf(40), []);
+          check("a press beside a node leaves its time alone",
+            times().times[1] === before.times[1] && iv.selectedNode === 1);
+          if (store.undo.undoStack.length > depth) store.undo.undo();
+          iv.renderPanel();
+
+          // Shift+drag: the segment after the node is kept, so the rest moves.
+          const x1 = xOf(before.times[1]);
+          gesture(x1, yOf(40), [x1 + 20, x1 + 40], { shiftKey: true });
+          const carried = times();
+          const moved = carried.times[1] - before.times[1];
+          check("Shift+drag takes the nodes after it along",
+            moved > 0 && near(carried.times[2] - before.times[2], moved, 1e-9),
+            `+${moved.toFixed(4)} s`);
+          store.undo.undo();
+          iv.renderPanel();
+        }
+
+        // ── 8 ms → 4 ms by dragging ──
+        setShape([63, 0.5], [40, 0.008], [0, 0]);
+        {
+          const t = times().times;
+          const x = xOf(t[2]);
+          gesture(x, yOf(0), [xOf(t[1] + 0.004)]);
+          check("the last node drags to a 4 ms segment", env()[1].offset === 1,
+            `code ${env()[1].offset}`);
+          store.undo.undo();
+          iv.renderPanel();
+        }
+        setShape([0, 0.008], [63, 0.492], [40, 0]);
+        {
+          const t = times().times;
+          const x = xOf(t[1]);
+          gesture(x, yOf(63), [xOf(0.004)]);
+          const after = times().times;
+          check("an interior node drags to a 4 ms attack", env()[0].offset === 1 &&
+            near(after[2], t[2], 0.004), `code ${env()[0].offset}, next ${t[2]}→${after[2]}`);
+          store.undo.undo();
+          iv.renderPanel();
+        }
+
+        // ── the wheel ──
+        setShape([63, 0.25], [40, 0.5], [20, 0.25], [0, 0]);
+        {
+          const r = cv().getBoundingClientRect();
+          // A MouseEvent's clientX is a whole pixel (a PointerEvent's is not).
+          const px = Math.round(clientX(size().w * 0.4));
+          const tUnder = scale().t(pictureX(px));
+          const fitSpan = scale().t1 - scale().t0;
+          wheel(px, -300);
+          const zoomedIn = iv.envAxis.pin !== null;
+          const span = scale().t1 - scale().t0;
+          check("wheel up zooms in about the pointer",
+            zoomedIn && span < fitSpan && near(scale().t(pictureX(px)), tUnder, 1e-9),
+            `span ${fitSpan.toFixed(3)}→${span.toFixed(3)} s, ` +
+            `under the pointer ${tUnder.toFixed(6)}→${scale().t(pictureX(px)).toFixed(6)} s`);
+          wheel(px, 300);
+          check("zooming back out stops on the fit", iv.envAxis.pin === null);
+          wheel(px, 300);
+          check("and the next notch goes past it",
+            iv.envAxis.pin !== null && scale().t1 - scale().t0 > fitSpan);
+          wheel(px, -600);
+          check("zooming in from past the fit stops on it too", iv.envAxis.pin === null);
+
+          // A drag on a node holds the zoomed window; the window stays after.
+          wheel(px, -600);
+          const pinned = { ...iv.envAxis.pin };
+          const x2 = xOf(times().times[2]);
+          gesture(x2, yOf(20), [x2 + 15]);
+          check("a node drag keeps the zoom", iv.envAxis.pin !== null &&
+            iv.envAxis.pin.u0 === pinned.u0 && iv.envAxis.pin.u1 === pinned.u1 && iv.envAxis.held === null);
+          store.undo.undo();
+          iv.renderPanel();
+
+          // Empty graph: a drag scrolls, Shift+wheel scrolls, a double-click fits.
+          const empty = xOf((times().times[1] + times().times[2]) / 2);
+          const u0 = iv.envAxis.pin.u0;
+          gesture(empty, r.top + 30, [empty - 10, empty - 60]);
+          const scrolled = iv.envAxis.pin.u0;
+          check("a drag on empty graph scrolls", scrolled > u0 &&
+            near(iv.envAxis.pin.u1 - scrolled, pinned.u1 - pinned.u0, 1e-12));
+          wheel(px, 100, { shiftKey: true });
+          check("Shift+wheel scrolls", iv.envAxis.pin.u0 > scrolled);
+
+          // The log map keeps a pinned window on the same seconds.
+          const t0 = scale().t0, t1 = scale().t1;
+          const logChk = [...iv.panel.querySelectorAll("label")]
+            .find((l) => /Log timescale/.test(l.textContent))?.querySelector("input");
+          logChk.checked = true; fire(logChk, "change");
+          const logOk = iv.envAxis.log && near(scale().t0, t0, 1e-9) && near(scale().t1, t1, 1e-9);
+          iv.renderPanel();
+          const logChk2 = [...iv.panel.querySelectorAll("label")]
+            .find((l) => /Log timescale/.test(l.textContent))?.querySelector("input");
+          logChk2.checked = false; fire(logChk2, "change");
+          check("the log timescale keeps a zoomed window", logOk && !iv.envAxis.log &&
+            near(scale().t0, t0, 1e-9));
+
+          const e2 = xOf((times().times[1] + times().times[2]) / 2);
+          cv().dispatchEvent(new win.MouseEvent("dblclick", {
+            clientX: e2, clientY: r.top + 30, bubbles: true,
+          }));
+          check("a double-click on empty graph fits it", iv.envAxis.pin === null);
+
+          wheel(px, -300);
+          iv.tab = "env1";
+          iv.renderPanel();
+          check("another envelope starts fitted", iv.envAxis.pin === null);
+          iv.tab = "env0";
+          iv.renderPanel();
+        }
+
+        store.undo.undo(); // the last setShape
+        log(`FAILURES: ${failures}`);
+      } catch (err) {
+        log(`ERROR ${err.message}\n${err.stack}`);
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+</body>
+</html>

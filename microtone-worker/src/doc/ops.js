@@ -475,8 +475,10 @@ export function setEnvPointOp(slot, envKey, idx, point, gestureId = null) {
 }
 
 /** Envelope-node DRAG: one op for the 2D gesture — value of node idx plus the
- *  duration of the preceding segment (env[idx-1].offset, minifloat index).
- *  Single coalesce key so a drag is one undo step. */
+ *  duration of the preceding segment (env[idx-1].offset, minifloat index) and
+ *  of its own (`offset`: an interior node trades time between the two, item
+ *  227). Single coalesce key so a drag is one undo step — which keeps the
+ *  FIRST step's inverse, so that step must name every field a later one sets. */
 export function setEnvDragOp(slot, envKey, idx, change, gestureId = null) {
   return {
     type: "setEnvDrag",
@@ -492,6 +494,10 @@ export function setEnvDragOp(slot, envKey, idx, change, gestureId = null) {
       if (change.prevOffset !== undefined && idx > 0) {
         prev.prevOffset = env[idx - 1].offset;
         env[idx - 1].offset = change.prevOffset;
+      }
+      if (change.offset !== undefined) {
+        prev.offset = env[idx].offset;
+        env[idx].offset = change.offset;
       }
       doc.markInstUsed(slot);
       doc.dirty = true;

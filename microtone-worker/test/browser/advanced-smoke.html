@@ -287,10 +287,35 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   const nBack = envActiveCount(patchEnv());
   const t20 = nAdded === nStart + 1 && nBack === nStart;
   log(`patch env node add/remove (${nStart}→${nAdded}→${nBack}): ${t20 ? "ok" : "FAIL"}`);
+
+  // Item 227 — the patch graph is the shared one (ui/envgraph.js): a sideways
+  // drag moves an interior node BETWEEN its neighbours, so the node after it
+  // keeps its time, and the whole gesture is one undo step.
+  const { envTimes } = await import("../../src/ui/envgraph.js");
+  envBtn("＋")?.click(); envBtn("＋")?.click();      // the tail twice: an interior node
+  const adv = iv.advEditor;
+  const pcv = adv.envCanvas.canvas;
+  const pBefore = envTimes(patchEnv());
+  const pIdx = pBefore.active - 2;
+  const pSc = adv.envAxis.scale(pcv.clientWidth, pBefore.total);
+  const pr = pcv.getBoundingClientRect();
+  const pAt = { clientX: pr.left + pSc.x(pBefore.times[pIdx]), clientY: pr.top + 20, pointerId: 7, button: 0 };
+  const pDepth = store.undo.undoStack.length;
+  const pPtr = (type, dx) =>
+    pcv.dispatchEvent(new win.PointerEvent(type, { ...pAt, clientX: pAt.clientX + dx }));
+  pPtr("pointerdown", 0); pPtr("pointermove", -6); pPtr("pointermove", -12); pPtr("pointerup", -12);
+  const pAfter = envTimes(patchEnv());
+  const t21 = pAfter.times[pIdx] < pBefore.times[pIdx] &&
+    pAfter.times[pIdx + 1] === pBefore.times[pIdx + 1] && pAfter.total === pBefore.total &&
+    store.undo.undoStack.length === pDepth + 1;
+  log(`patch env drag keeps the next node (${pBefore.times[pIdx].toFixed(4)}→` +
+      `${pAfter.times[pIdx].toFixed(4)}, next ${pBefore.times[pIdx + 1].toFixed(4)}→` +
+      `${pAfter.times[pIdx + 1].toFixed(4)}): ${t21 ? "ok" : "FAIL"}`);
+  store.undo.undo(); store.undo.undo(); store.undo.undo();  // the drag + two appends
   store.undo.undo(); store.undo.undo(); store.undo.undo();  // node edits + the override
 
   const pass = t1 && t2 && t3 && t4 && t5 && t6 && t7 && t8 && t9 && t10 && t11 &&
-    t12 && t13 && t14 && t15 && t16 && t17 && t18 && t19 && t20;
+    t12 && t13 && t14 && t15 && t16 && t17 && t18 && t19 && t20 && t21;
   log(pass ? "RESULT: PASS" : "RESULT: FAIL");
  } catch (err) {
   log(`RESULT: ERROR ${err.message}\n${err.stack}`);

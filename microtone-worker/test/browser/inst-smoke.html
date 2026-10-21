@@ -162,8 +162,8 @@
         const logChk = [...iv.panel.querySelectorAll("label")]
           .find((l) => /Log timescale/.test(l.textContent))?.querySelector("input");
         logChk.checked = true; fire(logChk, "change");
-        const logOk = !!logChk && iv.envLogTime === true;
-        log(`env log-time toggle: present=${!!logChk} flag=${iv.envLogTime} (${logOk ? "ok" : "FAIL"})`);
+        const logOk = !!logChk && iv.envAxis.log === true;
+        log(`env log-time toggle: present=${!!logChk} flag=${iv.envAxis.log} (${logOk ? "ok" : "FAIL"})`);
 
         // Pitch/Filter "Envelope present" claim toggle (item 36): the role tabs
         // now carry the checkbox; ON claims the resolved slot, OFF releases it.
@@ -353,14 +353,15 @@
         const cv = iv.envCanvas.canvas;
         cv.setPointerCapture = () => {};
         const r = cv.getBoundingClientRect();
-        const h = cv.clientHeight;
+        const h = parseFloat(cv.style.height); // the painted height (envgraph.js)
         const want = node0 === 30 ? 31 : 30;
         const at = { clientX: r.left + 10, clientY: r.top + (h - 14 - (want / 63) * (h - 28)), pointerId: 1 };
         const depth = store.undo.undoStack.length;
-        iv.envPointerDown(at);
-        iv.envPointerMove({ ...at, clientY: at.clientY + 1 });
-        iv.envPointerMove(at);
-        cv.dispatchEvent(new win.PointerEvent("pointerup"));
+        const ptr = (type, o) => cv.dispatchEvent(new win.PointerEvent(type, { ...o, button: 0 }));
+        ptr("pointerdown", at);
+        ptr("pointermove", { ...at, clientY: at.clientY + 1 });
+        ptr("pointermove", at);
+        ptr("pointerup", at);
         const dragClaim = volP() && volInst().volEnvelopes[0].value === want &&
           store.undo.undoStack.length === depth + 1;
         store.undo.undo();

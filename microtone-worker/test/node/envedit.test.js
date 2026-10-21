@@ -14,10 +14,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  ENV_MAX_NODES, envActiveCount, envAddNode, envRemoveNode,
-  envFollowTailSustain, envClampWrap,
+  ENV_MAX_NODES, ENV_MAX_SEGMENT, envActiveCount, envAddNode, envRemoveNode,
+  envFollowTailSustain, envClampWrap, envDragNode, minifloatNearest,
 } from "../../src/doc/envedit.js";
-import { minifloatFromDouble, minifloatToDouble } from "../../core/engine/minifloat.js";
+import { minifloatFromDouble, minifloatToDouble, MINIFLOAT_LUT } from "../../core/engine/minifloat.js";
 
 /** A 25-slot array from `[value, seconds]` pairs; the rest are zero nodes.
  *  The last pair given gets offset 0 — the terminator — unless it says
@@ -158,4 +158,114 @@ test("wrap indices are pulled back inside a shortened envelope", () => {
   assert.equal(envClampWrap(word(false, 9, 9), 2), word(false, 1, 1));
   assert.equal(envClampWrap(0x2000 | word(true, 7, 7), 4) & 0x2000, 0x2000,
     "the P bit is not a wrap index");
+});
+
+// ── dragging a node sideways (item 227) ─────────────────────────────────────
+
+/** Cumulative node times of an envelope after a drag result is written in. */
+function timesAfter(e, idx, res) {
+  const nodes = e.map((n) => ({ ...n }));
+  nodes[idx - 1].offset = res.prevOffset;
+  if (res.offset !== undefined) nodes[idx].offset = res.offset;
+  const times = [0];
+  for (let i = 0; i < ENV_MAX_NODES - 1; i++) times.push(times[i] + secs(nodes[i]));
+  return { nodes, times };
+}
+
+test("the drag quantiser takes the NEAREST code, and never the terminator", () => {
+  for (let i = 0; i < 256; i++) assert.equal(minifloatNearest(MINIFLOAT_LUT[i]), i);
+  // The shortest segment, 1/256 s, was out of a drag's reach: the engine's
+  // fromFloat takes the even code of the two around a value, so everything
+  // between 3.9 and 7.8 ms landed on 7.8, and anything shorter on code 0 —
+  // which ends the envelope at that node.
+  assert.equal(minifloatFromDouble(0.004), 2, "the quirk this works around");
+  assert.equal(minifloatNearest(0.004, 1), 1);
+  assert.equal(minifloatNearest(0.001, 1), 1, "an open segment stays open");
+  assert.equal(minifloatNearest(-3, 1), 1);
+  assert.equal(minifloatNearest(Number.NaN, 1), 1);
+  assert.equal(minifloatNearest(99), 255);
+  // Halfway between two codes goes down; past it, up.
+  const mid = (MINIFLOAT_LUT[40] + MINIFLOAT_LUT[41]) / 2;
+  assert.equal(minifloatNearest(mid), 40);
+  assert.equal(minifloatNearest(mid + 1e-6), 41);
+});
+
+test("an interior node moves between its neighbours and the envelope keeps its length", () => {
+  const e = env([63, 0.25], [40, 0.5], [20, 0.25], [0, 0]);
+  const before = timesAfter(e, 1, { prevOffset: e[0].offset, offset: e[1].offset }).times;
+  // Slack of half a step of the coarser grid (1/64 s for the half-second
+  // segment): that is how often a pair keeping the sum exact comes round.
+  for (let want = 0.01; want < 0.74; want += 0.0137) {
+    const res = envDragNode(e, 1, want, { slack: 1 / 128 });
+    const { times } = timesAfter(e, 1, res);
+    assert.ok(Math.abs(times[1] - want) <= 1 / 128, `node 1 follows the pointer to ${want}`);
+    assert.equal(times[2], before[2], `node 2 stays put (want ${want})`);
+    assert.equal(times[3], before[3], "and so does the end");
+  }
+  // Pushed onto a neighbour, it stops one step short: neither segment may
+  // close, since a zero offset would end the envelope there.
+  const left = envDragNode(e, 1, -1);
+  assert.equal(left.prevOffset, 1);
+  const right = envDragNode(e, 1, 5);
+  assert.equal(right.offset, 1);
+  assert.equal(envActiveCount(timesAfter(e, 1, right).nodes), 4);
+});
+
+test("with no slack the node goes where it is put, and the next one barely moves", () => {
+  // 0.1 s + 10 s: the long segment's grid is a quarter-second, so with the node
+  // placed to its own resolution the node after may shift — by at most half
+  // that step, and never cumulatively within one gesture (every step starts
+  // from the envelope the gesture found).
+  const e = env([63, 0.1], [40, 10], [0, 0]);
+  const end = secs(e[0]) + secs(e[1]);
+  for (let want = 0.01; want < 2; want += 0.037) {
+    const { times } = timesAfter(e, 1, envDragNode(e, 1, want));
+    assert.ok(Math.abs(times[2] - end) <= 0.125, `end at ${times[2]} for ${want}`);
+    const own = Math.abs(minifloatToDouble(minifloatNearest(want, 1)) - want);
+    assert.ok(Math.abs(times[1] - want) <= own + 1e-12, `node 1 at ${times[1]} for ${want}`);
+  }
+  // Back where it started: every code exactly as it was, at any slack.
+  for (const slack of [0, 0.01, 0.3]) {
+    assert.deepEqual(envDragNode(e, 1, secs(e[0]), { slack }),
+      { prevOffset: e[0].offset, offset: e[1].offset });
+  }
+});
+
+test("a 4 ms attack can be dragged to before a long segment", () => {
+  // 8 ms → 4 ms with half a second after it: no pair at 4 ms keeps the sum
+  // exact (the half-second grid is 1/128 s), and holding out for one snapped
+  // the node back to 8 ms. A few pixels of slack at an ordinary zoom still
+  // reaches it; the next node gives way by under 4 ms.
+  const e = env([0, 0.008], [63, 0.492], [40, 0]);
+  const res = envDragNode(e, 1, 0.004, { slack: 0.003 });
+  assert.equal(res.prevOffset, 1);
+  const { times } = timesAfter(e, 1, res);
+  assert.ok(Math.abs(times[2] - (secs(e[0]) + secs(e[1]))) < 0.004);
+});
+
+test("the last node moves the end by exactly the distance dragged", () => {
+  const e = env([63, 0.5], [40, 0.5], [0, 0]);
+  const res = envDragNode(e, 2, 1.1);
+  assert.deepEqual(Object.keys(res), ["prevOffset"], "its own offset stays the terminator");
+  assert.ok(Math.abs(timesAfter(e, 2, res).times[2] - 1.1) < 0.008);
+  // 8 ms → 4 ms by dragging: the shortest segment is reachable.
+  const short = env([63, 0.5], [40, 0.008], [0, 0]);
+  assert.equal(minifloatToDouble(envDragNode(short, 2, 0.5 + 0.004).prevOffset), 1 / 256);
+  // A segment holds 15.75 s at most, and that is where a long drag stops.
+  assert.equal(minifloatToDouble(envDragNode(e, 2, 999).prevOffset), ENV_MAX_SEGMENT);
+});
+
+test("a Shift-drag re-times the segment before the node and carries the rest", () => {
+  const e = env([63, 0.25], [40, 0.5], [20, 0.25], [0, 0]);
+  const res = envDragNode(e, 1, 0.5, { carry: true });
+  assert.equal(res.offset, e[1].offset, "the segment after is untouched, but named");
+  const { times } = timesAfter(e, 1, res);
+  assert.equal(times[1], 0.5);
+  assert.equal(times[2] - times[1], secs(e[1]), "everything after moved with it");
+});
+
+test("node 0 is anchored, and a node past the end is no node", () => {
+  const e = env([63, 0.5], [40, 0]);
+  assert.equal(envDragNode(e, 0, 0.3), null);
+  assert.equal(envDragNode(e, 2, 0.3), null);
 });

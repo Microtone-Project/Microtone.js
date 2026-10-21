@@ -4,7 +4,19 @@ The website is deployed continuously, so every entry below is one dated batch of
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
-## 2026-10-21
+## Version 3.13.1 (2026-10-22)
+
+The envelope graphs zoom with the mouse wheel, and dragging a node sideways moves that node and nothing else.
+
+- **The wheel zooms an envelope graph** about the pointer, as in MilkyTracker: Shift+wheel or a drag on empty graph scrolls, and a double-click on empty graph shows the whole envelope again. Zooming back out stops once on the whole envelope before going further out, and a thin bar along the top shows where you are. Advanced Edit's patch envelopes zoom the same way.
+- **Dragging a node sideways keeps the envelope's length**: the node moves between its neighbours and the nodes after it stay put. Hold Shift to take them along, as every drag used to.
+- **Fixed: dragging the last node a little too far turned a one-second envelope into ten** — the graph re-scaled itself under the pointer at every move; it now holds still until you let go, so the envelope grows by exactly as far as you drag.
+- **Fixed: a segment could not be dragged shorter than 8 ms** — a drag reached only every other storable length; it now reaches all of them, down to the shortest (about 4 ms).
+- **Fixed: dragging a node onto the one before it cut the envelope off there**, dropping every node after it; a node now stops one step short.
+- **Fixed: clicking a node to select it could shift its timing slightly** — the node jumped to the pointer; it now keeps its place until you drag.
+- **Fixed: the playback cursor stood still on the Pitch and Filter envelope tabs** while the song played.
+
+## Version 3.13.0 (2026-10-21)
 
 Formant instruments say more kinds of syllable — a consonant held with no vowel, nasalised vowels, palatalised, dark and glottalised consonants, unreleased codas — and can be made with no samples at all.
 
@@ -63,7 +75,7 @@ The design system — the colours, type, rules and live components both apps are
 - The page lists every colour token with its contrast ratios, and shows each component drawn by the app's own stylesheet.
 
 
-## 2026-10-18
+## Version 3.12.2 (2026-10-18)
 
 The chord maker learns higher-limit harmony, and its neutral and arto/tendo chords reach every equal tuning that can play them, not only the ones that have a built-in notation.
 
@@ -92,7 +104,7 @@ The Motif editor colours a name by what it refers to, not only where it is decla
 - **Inside a function, every use of a parameter is maroon**, as it is in the parameter list; **every use of a lane or an instrument is magenta and italic**, as at its declaration — `kick` in `dr(kick, bar, 0)`, `KIT` in `lane kick { inst: KIT }`.
 - **Local variables are underlined**, where they are declared and wherever they are used: a function's `let`s, a loop's variables, a block's names. The program's own top-level `let`s are not.
 
-## 2026-10-16
+## Version 3.11.2 (2026-10-16)
 
 Interrupt markers get a dialog of their own.
 
@@ -124,7 +136,7 @@ Formant instruments arrive: an instrument that sings, turning any looped tone in
 - **`S $Afgr` changes the vowel** from the pattern — how open, how front, how rounded — at the start of a note or gliding mid-note, so one instrument can sing a whole text.
 - **One Pitch/Filter tab** for OPL and formant instruments, which have room for only one such envelope: a Pitch | Filter switch at its top says which it is, instead of two tabs editing the same envelope.
 
-## 2026-10-15
+## Version 3.11.0 (2026-10-15)
 
 OPL instruments arrive: one channel of the FM chip that played AdLib and Sound Blaster music, sounding as the chip did — and AdLib songs, banks and tracker modules now arrive as them.
 
