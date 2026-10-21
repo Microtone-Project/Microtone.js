@@ -87,7 +87,7 @@
           specsOk = specsOk && h1Ok && tocOk && tableOk && liveAnchors;
         }
 
-        // patch notes (item 95): reachable by its deep-link hash, dated h2s
+        // patch notes (item 95): reachable by its deep-link hash, versioned h2s
         win.location.hash = "#patchnotes";
         for (let i = 0; i < 80; i++) {
           if (/Patch Notes/i.test(doc.querySelector("#content h1")?.textContent || "")) break;
@@ -95,7 +95,7 @@
         }
         const patchOk = /Patch Notes/i.test(doc.querySelector("#content h1")?.textContent || "");
         const dates = [...doc.querySelectorAll("#content h2")].map((h) => h.textContent.trim());
-        const datesOk = dates.length > 5 && dates.every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+        const datesOk = dates.length > 5 && dates.every((d) => /^(Version \d+\.\d+\.\d+ \(\d{4}-\d{2}-\d{2}\)|\d{4}-\d{2}-\d{2})$/.test(d));
         log(`patch notes render: h1=${patchOk} dated sections=${dates.length} allDated=${datesOk}`);
 
         // TOC heading link scrolls (id target exists)

@@ -126,18 +126,27 @@ test("renders the real USER_MANUAL.md without throwing + builds a TOC", () => {
 
 // Item 95: the patch notes are a plain assets/*.md served by the same viewer.
 // The invariants worth pinning are the ones a future append can break: every
-// section is a bare ISO date, and the newest one comes first.
-test("PATCH_NOTES.md: dated sections, newest first, renders + TOCs", () => {
+// section is a "Version x.y.z (ISO date)" — or, before 3.5.0, a bare ISO date —
+// and the newest one comes first.
+test("PATCH_NOTES.md: versioned sections, newest first, renders + TOCs", () => {
   const md = readFileSync(fileURLToPath(new URL("../../assets/PATCH_NOTES.md", import.meta.url)), "utf8");
   const html = renderMarkdown(md);
   assert.match(html, /<h1 id="patch-notes">Patch Notes<\/h1>/);
   const toc = extractToc(md);
-  assert.ok(toc.length > 5, "one TOC entry per dated section");
-  assert.ok(toc.every((e) => e.level === 2 && /^\d{4}-\d{2}-\d{2}$/.test(e.text)),
-    "every section heading is a bare ISO date");
-  assert.equal(new Set(toc.map((e) => e.slug)).size, toc.length, "dates are unique");
-  const dates = toc.map((e) => e.text);
-  assert.deepEqual(dates, [...dates].sort().reverse(), "newest section first");
+  assert.ok(toc.length > 5, "one TOC entry per section");
+  assert.ok(toc.every((e) => e.level === 2 && /^(Version \d+\.\d+\.\d+ \(\d{4}-\d{2}-\d{2}\)|\d{4}-\d{2}-\d{2})$/.test(e.text)),
+    "every section heading is a version with its date, or a bare ISO date");
+  assert.equal(new Set(toc.map((e) => e.slug)).size, toc.length, "headings are unique");
+  const versions = toc.map((e) => e.text.match(/^Version (\d+)\.(\d+)\.(\d+)/)).filter(Boolean)
+    .map((m) => m.slice(1).map(Number));
+  const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+  assert.deepEqual(versions, [...versions].sort(cmp).reverse(), "newest version first");
+  const dates = toc.map((e) => e.text.match(/\d{4}-\d{2}-\d{2}/)[0]);
+  assert.deepEqual(dates, [...dates].sort().reverse(), "dates never go forward down the page");
+  // dated batches are the history from before versions were numbered: none after a version
+  const firstBare = toc.findIndex((e) => !e.text.startsWith("Version "));
+  assert.ok(firstBare < 0 || toc.slice(firstBare).every((e) => !e.text.startsWith("Version ")),
+    "bare dates only below the versioned sections");
 });
 
 // Item 104: the welcome screen's "what's new" panel excerpts the newest dated
@@ -199,7 +208,7 @@ test("sectionHeadlines: one per paragraph-then-list group, blank line required",
 test("PATCH_NOTES.md: the newest section yields a renderable teaser", () => {
   const md = readFileSync(fileURLToPath(new URL("../../assets/PATCH_NOTES.md", import.meta.url)), "utf8");
   const sec = firstSection(md);
-  assert.match(sec.title, /^\d{4}-\d{2}-\d{2}$/, "the teaser's heading is the date");
+  assert.match(sec.title, /^Version \d+\.\d+\.\d+ \(\d{4}-\d{2}-\d{2}\)$/, "the teaser's heading is the version and its date");
   const bullets = topLevelBullets(sec.body);
   assert.ok(bullets.length >= 3, "the newest batch has headline items to show");
   const html = renderMarkdown(bullets.slice(0, 5).map((b) => `- ${b}`).join("\n"));

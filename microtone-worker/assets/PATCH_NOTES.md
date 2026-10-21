@@ -1,6 +1,6 @@
 # Patch Notes
 
-The website is deployed continuously, so every entry below is one dated batch of work, newest first; the desktop app picks the batches up in its own updates. Dates are the day the work landed.
+Every entry below is one version of Microtone, newest first, with the date it was released; the website follows the newest one, and the desktop app picks each version up in its own updates. Entries from before version 3.5.0 are dated batches of work, as the versions were not yet numbered then.
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
@@ -78,7 +78,6 @@ The design system — the colours, type, rules and live components both apps are
 - **Linked from the documentation**: *Design System* sits under the document list in the docs viewer's contents, and opens the page in a new tab.
 - The page lists every colour token with its contrast ratios, and shows each component drawn by the app's own stylesheet.
 
-
 ## Version 3.12.2 (2026-10-18)
 
 The chord maker learns higher-limit harmony, and its neutral and arto/tendo chords reach every equal tuning that can play them, not only the ones that have a built-in notation.
@@ -87,6 +86,14 @@ The chord maker learns higher-limit harmony, and its neutral and arto/tendo chor
 - **Every chord shows its error in cents.** The heading gives the limit's own harmonic (`Septimal (7) · −1.1 cents`), each chord its worst interval (`4:5:6:7 · max error 6.0 cents`), and its tooltip every note against just intonation.
 - **Neutral and arto/tendo chords are worked out for every equal tuning from 11- to 53-TET, and 96-TET**, by the same rules that picked the old list. So 13- and 26-TET now have arto and tendo chords (26-TET's are close to 8/7 and 21/16), and 11-TET has them too; 23-TET still has neither, and 11-, 13-, 23- and 26-TET have no neutral third.
 - **These families follow the tuning's size**: a table you make with the Notation Maker that divides the octave equally gets them as a built-in one would.
+
+## Version 3.12.1 (2026-10-18)
+
+A four-operator OPL instrument wired as two FM pairs now plays the way the chip does.
+
+- **Fixed: a four-operator OPL instrument whose first pair is set to *FM* and second to *Additive* was wired wrongly.** It chained operators 1, 2 and 3 and added operator 4 on its own; it now plays as two FM pairs added together, operator 1 into 2 and operator 3 into 4, which is how Yamaha's YMF262 data sheet draws that connection. Instruments using it, including ones converted from `.sop` files, now sound as they do on the chip.
+
+## Version 3.12.0 (2026-10-18)
 
 PSG instruments arrive: two 8-bit-style oscillators in place of a sample, added together or multiplied. Each is a 0-to-1-volt generator as a chip's output is, multiplied in volts and then spread over the lane's whole range, so a pulse times another waveform gates it, and inverted DC is $F.
 
@@ -101,7 +108,6 @@ OPL and PSG instruments, the two kinds that make a sound of their own, can now b
 - **A Layered metainstrument can layer a PSG instrument**, as it already could an OPL one, under the same key and velocity ranges as any other layer.
 - **An FM Rack's operators can be OPL or PSG instruments**: modulated, an OPL instrument's phase is bent the way the chip bends its own carriers, and a PSG instrument's bends both of its oscillators; modulating, either bends the next operator as a sample does. Until now a rack skipped them.
 - **Fixed: a metainstrument of a kind this version does not know played as a Layered one**; it now stays silent until a version that knows it opens the song.
-- **Fixed: a four-operator OPL instrument whose first pair is set to *FM* and second to *Additive* was wired wrongly.** It chained operators 1, 2 and 3 and added operator 4 on its own; it now plays as two FM pairs added together, operator 1 into 2 and operator 3 into 4, which is how Yamaha's YMF262 data sheet draws that connection. Instruments using it, including ones converted from `.sop` files, now sound as they do on the chip.
 
 The Motif editor colours a name by what it refers to, not only where it is declared.
 
@@ -113,6 +119,8 @@ The Motif editor colours a name by what it refers to, not only where it is decla
 Interrupt markers get a dialog of their own.
 
 - **The command palette's interrupt… button** replaces the row of sixteen number buttons on the note column. It asks which interrupt, `Int0` to `IntF`, and for an optional 16-bit argument: given one, it writes the marker and `: MMMM` on the row; left blank, only the marker.
+
+## Version 3.11.0 (2026-10-16)
 
 Playing from the middle of a song now sounds like the song does there: every lane keeps the panning, volume and effects the song gave it earlier, at the song's tempo at that point.
 
@@ -140,7 +148,7 @@ Formant instruments arrive: an instrument that sings, turning any looped tone in
 - **`S $Afgr` changes the vowel** from the pattern — how open, how front, how rounded — at the start of a note or gliding mid-note, so one instrument can sing a whole text.
 - **One Pitch/Filter tab** for OPL and formant instruments, which have room for only one such envelope: a Pitch | Filter switch at its top says which it is, instead of two tabs editing the same envelope.
 
-## Version 3.11.0 (2026-10-15)
+## Version 3.10.0 (2026-10-14)
 
 OPL instruments arrive: one channel of the FM chip that played AdLib and Sound Blaster music, sounding as the chip did — and AdLib songs, banks and tracker modules now arrive as them.
 
@@ -194,13 +202,13 @@ Diagrams and bit layouts in the documentation now keep their line breaks.
 
 - **Fixed: diagrams in the docs ran together into one line** — a block indented by four spaces was read as an ordinary paragraph, so the User Manual's sketch of the value controls and the bit layout of `1 $xx00` in Note Effects lost their line breaks; they now show line for line, as code.
 
-## 2026-10-11
+## Version 3.9.2 (2026-10-11)
 
-11-TET, 13-TET, 23-TET and 26-TET joins the tunings, in the tracker and in Microtone Touch.
+11-TET, 13-TET, 23-TET and 26-TET join the tunings, in the tracker and in Microtone Touch.
 
-- **The chord maker does not know them**: 13- and 26-TET does not produce extraclassical nor neutral chords, and 11- and 23-TET are known as *oddball EDO*, meaning they refuse to be bound by the standard musical theory.
+- **The chord maker does not know them**: 13- and 26-TET do not produce extraclassical nor neutral chords, and 11- and 23-TET are known as *oddball EDO*, meaning they refuse to be bound by the standard musical theory.
 
-## 2026-10-10
+## Version 3.9.1 (2026-10-10)
 
 Instruments from a SoundFont now choose their velocity layer by loudness, so the volume column plays the sample the SoundFont would play at that volume, and converted MIDI files keep their dynamics.
 
@@ -210,12 +218,7 @@ Instruments from a SoundFont now choose their velocity layer by loudness, so the
 - **Layers that respond to velocity differently keep their own balance**: where a SoundFont stacks a layer with its own velocity curve over another, as the GeneralUser GS snare does in every velocity band, each layer now plays at its own level instead of both following one.
 - **What you converted or imported before keeps its old layers**: convert the file again, or add the instrument again, to get the corrected ones.
 
-Converted instruments now stay in tune when their samples have to be resampled, above all those from the bundled GeneralUser GS soundfont.
-
-- **Fixed: instruments from the bundled GeneralUser GS soundfont could play out of tune**: 43 of them by a quarter tone or more somewhere in their range, the marimba, kalimba, accordion and harpsichord among them, and 14 by a semitone or more near the top, the synth basses and leads among them, because shrinking a sample to 32 kHz rounded the two ends of its loop separately.
-- **Fixed: converting a large module or MIDI file could put instruments with short loops out of tune**, by up to a semitone and a half, when their samples had to be shrunk to fit; the converters rounded loops the same way.
-- **Every conversion from now on is on pitch**: a module or MIDI file converted now, and an instrument added with **New…** in the Instruments view.
-- **What you converted before keeps its old samples**: convert the file again, or add the instrument again, to get the corrected ones.
+## Version 3.9.0 (2026-10-10)
 
 A new demo song, *Huygens' Clock*, is a contemporary instrumental in 31-tone equal temperament and 7/8 time, generated procedurally.
 
@@ -223,7 +226,12 @@ A new demo song, *Huygens' Clock*, is a contemporary instrumental in 31-tone equ
 - **It is generated, not played**: every note, the instrument bank, the mix and the master are computed by a script that ships with Microtone's source code, and the project is its output. You can still open it and change it like any other project.
 - **It is a tour of 31-TET's harmony**: a theme on a septimal blues scale over harmonic seventh chords, major chords climbing by neutral thirds while the pad and strings glide between them, a breakdown that walks through all five of 31-TET's thirds, and an ending on the harmonic series. The Project tab's Message takes you through it bar by bar.
 
-## 2026-10-07
+Converted instruments now stay in tune when their samples have to be resampled, above all those from the bundled GeneralUser GS soundfont.
+
+- **Fixed: instruments from the bundled GeneralUser GS soundfont could play out of tune**: 43 of them by a quarter tone or more somewhere in their range, the marimba, kalimba, accordion and harpsichord among them, and 14 by a semitone or more near the top, the synth basses and leads among them, because shrinking a sample to 32 kHz rounded the two ends of its loop separately.
+- **Fixed: converting a large module or MIDI file could put instruments with short loops out of tune**, by up to a semitone and a half, when their samples had to be shrunk to fit; the converters rounded loops the same way.
+- **Every conversion from now on is on pitch**: a module or MIDI file converted now, and an instrument added with **New…** in the Instruments view.
+- **What you converted before keeps its old samples**: convert the file again, or add the instrument again, to get the corrected ones.
 
 Microtone Touch's menu can start a new sketch, and its Run keyboard now climbs an octave in both directions.
 
@@ -243,14 +251,14 @@ A pinch or a quick second tap no longer zooms the page in Microtone Touch, the t
 - **In the tracker, the − 100% + control in the top bar is the zoom**: it resizes the whole interface, and tapping the percentage takes it back to 100%.
 - **The manual still zooms**, since that is how you read it on a phone.
 
-## 2026-10-06
-
 Microtone Touch is out: a sketchpad for your phone at [touch.microtone.cc](https://touch.microtone.cc/), and a phone that visits microtone.cc now lands there.
 
 - **Microtone Touch sketches the notes a piano cannot play on a phone**: an isomorphic keyboard in 4- to 53-tone equal temperaments, Bohlen–Pierce and the twelve lü, eight lanes of preset instruments, and a pattern grid cut down to notes and a handful of effects. It speaks English and Korean, following your phone's language.
 - **A sketch saved online opens here as an ordinary project**: sign in to Touch with the same SceneID account, and the sketch is listed under File → Online projects, ready for everything the tracker can do.
 - **On a phone, microtone.cc now opens Touch** instead of the song player; a link that brings a song with it still opens the player. **Open the tracker** in Touch (or in the player) takes you to the tracker, and that phone keeps opening the tracker until you follow a link to Touch from it.
 - **The welcome screen and About link to Touch**, for a tablet that is at home in both.
+
+## Version 3.8.0 (2026-10-06)
 
 The keyboard strip under the grids can write notes now, not just play them.
 
@@ -267,7 +275,7 @@ Unticking Envelope present on a volume envelope now really switches it off.
 - **Shaping an envelope ticks Envelope present for you**: dragging a node or typing its value or segment length now does what adding a node already did, in the same undo step.
 - **An older project may play a volume envelope flat**: one shaped by dragging its nodes was never marked present, and is now ignored. Tick Envelope present on its Vol env tab to bring it back. The bundled demo songs are already fixed.
 
-## 2026-10-04
+## Version 3.7.1 (2026-10-04)
 
 43-TET (Kite) joins the tunings, in the tracker and in Microtone Touch.
 
@@ -278,6 +286,8 @@ The About box now says which version of Microtone you are running.
 
 - **Click the Microtone logo** in the top bar to see it, under the logo: the same version number the desktop app's updates go by.
 
+## Version 3.7.0 (2026-10-04)
+
 Songs can now run at up to 1048 BPM, nearly twice the old ceiling of 535.
 
 - **Type a tempo up to 1048** in the Project view and the New Project dialog, and tap one that fast too.
@@ -286,7 +296,7 @@ Songs can now run at up to 1048 BPM, nearly twice the old ceiling of 535.
 - **AdLib imports are finer-grained.** A song imported from Iyagi Music Sound (`.ims`) or Note (`.sop`) now plays at 700–800 BPM instead of around 500, so each tick lasts about 3 ms instead of 5: envelopes and percussive attacks follow the chip more closely, and tempos are reproduced more exactly. The price is the longest release tail, which now stops at about 3 seconds instead of 5; most instruments release far sooner than either.
 - **Fast MIDI files keep their real tempo.** A MIDI import whose tempo, at the grid it needs, came out above 535 BPM was clamped there and played too slowly; it can now go to 1048.
 
-## 2026-10-03
+## Version 3.6.0 (2026-10-03)
 
 Projects save smaller, and saving happens in the background.
 
@@ -296,7 +306,13 @@ Projects save smaller, and saving happens in the background.
 - **A save shows how far it has got**: the unsaved-changes dot in the status bar turns into a progress bar while Save, Save As, Export or an online save runs, and goes away when the project is saved.
 - **Nothing changes about opening files**: Microtone, TSVM and the Taud player have always read both kinds, and older projects open exactly as they did.
 
-## 2026-10-02
+## Version 3.5.1 (2026-10-03)
+
+The welcome screen links to the desktop app.
+
+- **The welcome screen links to the desktop app**: **Get the desktop app**, under the tagline, takes you to the newest release. The app itself does not show it.
+
+## Version 3.5.0 (2026-10-02)
 
 Microtone now comes as a desktop application for Linux, Windows and macOS, and keeps itself up to date.
 
@@ -305,7 +321,6 @@ Microtone now comes as a desktop application for Linux, Windows and macOS, and k
 - **Exports go through your system's Save dialog**, and closing the window asks first when the open project has unsaved changes.
 - **Online projects work in the app too.** **Sign in with SceneID** on the File tab opens your usual browser; sign in there — or do nothing, if you already are — and the browser hands you back to Microtone, which stays signed in until you sign out.
 - **Its projects are its own**, kept apart from any browser's: Export a project in one and open it in the other to move it across, or keep it in your online projects, which both can open.
-- **The welcome screen links to it**: **Get the desktop app**, under the tagline, takes you to the newest release. The app itself does not show it.
 
 ## 2026-10-01
 
