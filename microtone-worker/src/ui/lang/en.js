@@ -1344,7 +1344,7 @@ export default {
   "env.carry": "Carry",
   "env.carryTitle": "A new note on this lane continues this envelope from where the last one left it, instead of restarting it at node 0. Ignored after a key-off, and when the note changes instrument.",
   "env.logTimescale": "Log timescale",
-  "env.graphTitle": "Drag a node to shape the envelope; sideways it moves between its neighbours, Shift+drag takes the nodes after it along · wheel = zoom · Shift+wheel or drag empty space = scroll · double-click empty space = fit",
+  "env.graphTitle": "Drag a node to shape the envelope; sideways it moves between its neighbours, Shift+drag takes the nodes after it along · wheel or two-finger pinch = zoom · Shift+wheel or drag empty space = scroll · double-click empty space = fit",
   "env.addNode": "＋ Add node",
   "env.removeNode": "－ Remove node",
 

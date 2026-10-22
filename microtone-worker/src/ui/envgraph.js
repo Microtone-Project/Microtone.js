@@ -9,7 +9,9 @@
 // zooms about the pointer, as MilkyTracker's does, and PINS the window in
 // time, so it stops following the envelope's length; Shift+wheel, a sideways
 // wheel or a drag on empty graph scrolls it, a double-click there fits it
-// again, and zooming back out through the fit lands on it (a detent).
+// again, and zooming back out through the fit lands on it (a detent). On a
+// touch screen two fingers pinch the window: it zooms about the fingers and
+// follows them sideways.
 //
 // A drag HOLDS whatever window is on screen until the button comes up. The
 // fit used to re-measure the envelope at every pointer move, so a last node
@@ -35,6 +37,12 @@ const GRAB_PX = 12;
 const SLACK_PX = 3;
 /** A press on empty graph scrolls once it has moved this far, px. */
 const PAN_START_PX = 3;
+/** A finger that has pressed a node lets go of it for a pinch until it has
+ *  moved this far, px: a finger is not still, and a node must not jump to it
+ *  while a second finger may yet be on its way. */
+const TOUCH_START_PX = 8;
+/** A pinch snaps to the fit when its span lands within this share of it. */
+const PINCH_DETENT = 0.06;
 /** The narrowest window, seconds: a handful of the shortest segment. */
 const MIN_SPAN = 0.02;
 /** Zoom per pixel of wheel travel: a 100 px notch is about ×1.22. */
@@ -140,6 +148,20 @@ export class EnvAxis {
       return;
     }
     this.pin = next;
+  }
+
+  /** A pinch: the window as it was when the fingers landed (`from`), with
+   *  the seconds that were under pixel `x0` now under `x1`, `factor` (above 1
+   *  = in) times as close. Near the fit's span it snaps to the fit. */
+  pinch(from, factor, x0, x1, w, m) {
+    const k = w - 2 * PAD;
+    const at = from.u0 + ((x0 - PAD) / k) * (from.u1 - from.u0);
+    const span = (from.u1 - from.u0) / factor;
+    const u0 = at - ((x1 - PAD) / k) * span;
+    const next = this._clamp({ ref: from.ref, u0, u1: u0 + span }, m);
+    if (next === null) return;
+    const fit = m.total * FIT_U1;
+    this.pin = Math.abs(this._span(next) / fit - 1) < PINCH_DETENT ? null : next;
   }
 
   /** Window `from` scrolled by `dx` px (content following the pointer). */
@@ -314,8 +336,8 @@ export function paintEnvGraph(canvas, w, h, o) {
 }
 
 /**
- * Wire a graph canvas to its editor: node drags, scrolling, the wheel zoom and
- * a double-click to fit. `h` holds the editor's side, every hook asked at the
+ * Wire a graph canvas to its editor: node drags, scrolling, the wheel zoom, a
+ * two-finger pinch and a double-click to fit. `h` holds the editor's side, every hook asked at the
  * moment it is needed, since the envelope changes under a drag:
  *
  * - `env()` — the node array as it stands; `max` — the value axis' top
@@ -328,6 +350,7 @@ export function paintEnvGraph(canvas, w, h, o) {
  */
 export function attachEnvGraph(canvas, axis, h) {
   let drag = null;
+  const pts = new Map(); // the fingers that count: pointerId → picture point
   const width = () => envGraphSize(canvas).w;
 
   const step = (e) => {
@@ -347,28 +370,73 @@ export function attachEnvGraph(canvas, axis, h) {
     h.paint();
   };
 
-  canvas.addEventListener("pointerdown", (e) => {
-    if (drag || (e.button ?? 0) > 1) return;
-    const env = h.env();
-    const m = envTimes(env);
-    const { x } = picturePoint(canvas, e);
-    const sc = axis.scale(width(), m.total);
-    const idx = e.button === 1 ? -1 : hitNode(sc, m, x);
+  // A finger's press on a node waits (`pending`) until it moves or lifts, so
+  // that a second finger arriving first makes a pinch and leaves the node be.
+  const engage = (e) => {
+    drag.pending = false;
+    axis.hold(drag.total);
+    h.begin(drag.idx);
+    step(e);
+  };
+
+  const capture = (e) => {
     try { canvas.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
-    if (idx < 0) {
-      drag = { pan: true, x0: x, from: { ...axis.window(m.total) }, moving: false };
+  };
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if ((e.button ?? 0) > 1) return;
+    const m = envTimes(h.env());
+    if (drag) {
+      // A second finger turns a scroll, or a press on a node that has not
+      // moved, into a pinch. A node already being dragged keeps the drag.
+      if (e.pointerType !== "touch" || !drag.touch || drag.pinch || pts.size !== 1
+          || !(drag.pan || drag.pending)) return;
+      capture(e);
+      pts.set(e.pointerId, picturePoint(canvas, e));
+      const ids = [...pts.keys()];
+      drag = { pinch: true, touch: true, ids, from: { ...axis.window(m.total) },
+               start: ids.map((id) => pts.get(id)) };
       return;
     }
-    axis.hold(m.total);
-    drag = { idx, grab: x - sc.x(m.times[idx]), orig: envCopy(env), total: m.total };
-    h.begin(idx);
-    step(e);
+    const env = h.env();
+    const p = picturePoint(canvas, e);
+    const sc = axis.scale(width(), m.total);
+    const idx = e.button === 1 ? -1 : hitNode(sc, m, p.x);
+    capture(e);
+    const touch = e.pointerType === "touch";
+    if (touch) pts.set(e.pointerId, p);
+    if (idx < 0) {
+      drag = { id: e.pointerId, touch, pan: true, x0: p.x, from: { ...axis.window(m.total) }, moving: false };
+      return;
+    }
+    drag = { id: e.pointerId, touch, idx, grab: p.x - sc.x(m.times[idx]), orig: envCopy(env),
+             total: m.total, pending: touch, x0: p.x, y0: p.y };
+    if (!touch) engage(e);
   });
 
   canvas.addEventListener("pointermove", (e) => {
     if (!drag) return;
+    const p = picturePoint(canvas, e);
+    if (drag.pinch) {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, p);
+      const [a0, b0] = drag.start;
+      const [a, b] = drag.ids.map((id) => pts.get(id));
+      const d0 = Math.hypot(b0.x - a0.x, b0.y - a0.y);
+      // Fingers that landed on top of each other have no distance to scale by.
+      if (d0 < 1) return;
+      axis.pinch(drag.from, Math.hypot(b.x - a.x, b.y - a.y) / d0,
+        (a0.x + b0.x) / 2, (a.x + b.x) / 2, width(), envTimes(h.env()));
+      h.paint();
+      return;
+    }
+    if (e.pointerId !== drag.id) return;
+    if (drag.pending) {
+      if (Math.hypot(p.x - drag.x0, p.y - drag.y0) >= TOUCH_START_PX) engage(e);
+      return;
+    }
     if (!drag.pan) { step(e); return; }
-    const dx = picturePoint(canvas, e).x - drag.x0;
+    const dx = p.x - drag.x0;
     if (!drag.moving && Math.abs(dx) < PAN_START_PX) return;
     drag.moving = true;
     canvas.style.cursor = "grabbing";
@@ -376,8 +444,17 @@ export function attachEnvGraph(canvas, axis, h) {
     h.paint();
   });
 
-  const finish = () => {
+  const finish = (e) => {
+    pts.delete(e.pointerId);
     if (!drag) return;
+    if (drag.pinch) {
+      // The finger left behind starts nothing: it is no press of its own.
+      if (drag.ids.includes(e.pointerId)) { drag = null; pts.clear(); }
+      return;
+    }
+    if (e.pointerId !== drag.id) return;
+    // A tap on a node still selects it and puts it where it was touched.
+    if (drag.pending && e.type === "pointerup") engage(e);
     const dragged = !drag.pan;
     drag = null;
     axis.release();

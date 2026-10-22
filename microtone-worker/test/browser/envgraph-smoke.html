@@ -20,7 +20,10 @@
     // - 8 ms → 4 ms by dragging, at the last node and at an interior one;
     // - the wheel zooms about the pointer, the fit is a detent, a double-click
     //   fits, a drag on empty graph scrolls, the log map keeps a zoomed window
-    //   on its seconds, and another envelope starts fitted.
+    //   on its seconds, and another envelope starts fitted;
+    // - on a touch screen two fingers pinch the window (about their midpoint,
+    //   following them sideways, snapping to the fit), and a finger on a node
+    //   waits to see whether a second joins it before it moves anything.
     const out = [];
     const log = (line) => {
       out.push(line);
@@ -246,6 +249,101 @@
           iv.renderPanel();
           check("another envelope starts fitted", iv.envAxis.pin === null);
           iv.tab = "env0";
+          iv.renderPanel();
+        }
+
+        // ── two fingers pinch the window (touch pointers, one id each) ──
+        setShape([63, 0.25], [40, 0.5], [20, 0.25], [0, 0]);
+        {
+          const r = cv().getBoundingClientRect();
+          const cy = r.top + 30;
+          const fitSpan = scale().t1 - scale().t0;
+          const finger = (type, id, cx, cyy = cy) => cv().dispatchEvent(new win.PointerEvent(type, {
+            clientX: cx, clientY: cyy, pointerId: id, pointerType: "touch", isPrimary: id === 11,
+            button: 0, bubbles: true,
+          }));
+          const depth = store.undo.undoStack.length;
+          const mid = Math.round(clientX(size().w * 0.5));
+          const tMid = scale().t(pictureX(mid));
+
+          // Fingers 60 px apart either side of an empty spot, spreading to 180.
+          finger("pointerdown", 11, mid - 30);
+          finger("pointerdown", 12, mid + 30);
+          finger("pointermove", 11, mid - 60);
+          finger("pointermove", 12, mid + 60);
+          finger("pointermove", 11, mid - 90);
+          finger("pointermove", 12, mid + 90);
+          const span = scale().t1 - scale().t0;
+          check("spreading two fingers zooms in about their midpoint",
+            iv.envAxis.pin !== null && near(span, fitSpan / 3, fitSpan * 1e-6) &&
+            near(scale().t(pictureX(mid)), tMid, 1e-9),
+            `span ${fitSpan.toFixed(3)}→${span.toFixed(3)} s, midpoint ${tMid.toFixed(4)}→${scale().t(pictureX(mid)).toFixed(4)} s`);
+
+          // Both fingers sliding right drag the content with them.
+          const before = scale().t(pictureX(mid));
+          finger("pointermove", 11, mid - 40);
+          finger("pointermove", 12, mid + 140);
+          check("sliding both fingers scrolls the window with them",
+            near(scale().t(pictureX(mid + 50)), before, 1e-9),
+            `the time under the start now sits 50 px right`);
+
+          // The first finger up ends the pinch; the other one starts nothing.
+          const pin = { ...iv.envAxis.pin };
+          finger("pointerup", 12, mid + 140);
+          finger("pointermove", 11, mid + 60);
+          finger("pointerup", 11, mid + 60);
+          check("a finger left behind after a pinch scrolls nothing",
+            iv.envAxis.pin.u0 === pin.u0 && iv.envAxis.pin.u1 === pin.u1 && iv.envAxis.held === null);
+          check("and the pinch edited nothing", store.undo.undoStack.length === depth);
+
+          // Pinching back in lands on the fit: the detent.
+          finger("pointerdown", 21, mid - 90);
+          finger("pointerdown", 22, mid + 90);
+          finger("pointermove", 21, mid - 30);
+          finger("pointermove", 22, mid + 30);
+          check("pinching back to the fit's span snaps to it", iv.envAxis.pin === null);
+          finger("pointercancel", 21, mid - 30);
+          finger("pointercancel", 22, mid + 30);
+
+          // A press on a node waits for a second finger: no node moves.
+          const nodeX = xOf(times().times[1]);
+          const orig = env().map((n) => ({ ...n }));
+          finger("pointerdown", 31, nodeX, yOf(40));
+          finger("pointerdown", 32, nodeX + 80, yOf(40));
+          finger("pointermove", 32, nodeX + 160, yOf(40));
+          finger("pointermove", 31, nodeX - 20, yOf(40));
+          finger("pointerup", 31, nodeX - 20, yOf(40));
+          finger("pointerup", 32, nodeX + 160, yOf(40));
+          check("a pinch that starts on a node leaves the node alone",
+            JSON.stringify(env()) === JSON.stringify(orig) && store.undo.undoStack.length === depth &&
+            iv.envAxis.pin !== null);
+          iv.envAxis.fit();
+          iv.renderPanel();
+
+          // A node dragged by a finger is not taken over by a second one.
+          const x1 = xOf(times().times[1]);
+          const t1 = times().times[1];
+          finger("pointerdown", 41, x1, yOf(40));
+          finger("pointermove", 41, x1 + 20, yOf(40));
+          finger("pointerdown", 42, x1 - 90, yOf(40));
+          finger("pointermove", 42, x1 - 150, yOf(40));
+          const mid41 = times().times[1];
+          finger("pointermove", 41, x1 + 40, yOf(40));
+          check("a second finger does not take over a node drag",
+            iv.envAxis.pin === null && times().times[1] > mid41 - 1e-9 && mid41 > t1,
+            `node 1 ${t1.toFixed(4)}→${mid41.toFixed(4)}→${times().times[1].toFixed(4)} s`);
+          finger("pointerup", 42, x1 - 150, yOf(40));
+          finger("pointerup", 41, x1 + 40, yOf(40));
+          store.undo.undo();
+          iv.renderPanel();
+
+          // A tap on a node selects it and puts it where it was touched.
+          const tx = xOf(times().times[2]);
+          finger("pointerdown", 51, tx, yOf(63));
+          finger("pointerup", 51, tx, yOf(63));
+          check("a tap on a node selects it and sets its value",
+            iv.selectedNode === 2 && env()[2].value > 55, `node ${iv.selectedNode}, value ${env()[2].value}`);
+          store.undo.undo();
           iv.renderPanel();
         }
 

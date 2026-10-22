@@ -149,6 +149,9 @@ Full ProTracker dispatch per the Note Effects conversion table, with these folds
 | `6xy` (vibrato + volume slide) | `K` verbatim |
 | `Dxx` (pattern break) | `C`, BCD-decoded |
 | `E0x` (LED filter) | `S $0x` |
+| `EC0` (note cut at tick 0) | Volume column SET 0 |
+
+`EC0` is not `S $C000`. ProTracker cuts at tick 0 — the note is silent from its first sample and the channel stays at volume 0, so a note struck next without a sample number is silent too — while `S $C0` is ScreamTracker's, which the engine ignores. The converter writes the volume the cut leaves behind, a volume column SET to 0; `ECx` for `x` from 1 up stays `S $Cx00`.
 
 `Axy` routes through the effect column rather than the volume column for a specific reason: when a row carries both `Cxx` and `Axy`, the volume column can encode only one of them, and the slide is the half that gets lost — five ticks of slide per row, which is audible. Keeping the slide in the effect slot preserves both.
 
@@ -251,7 +254,7 @@ XM has no New Note Action — every new note unconditionally retriggers the chan
 
 ### 4.6 Effects
 
-Full XM dispatch per the Note Effects conversion table. Volume-column commands fold into the Taud volume column when they can, or occupy the main effect slot when it is free, and are dropped otherwise — the same policy `it2taud` uses. `E5x` (set finetune) becomes `S $5x`. Position jump and pattern break are remapped to Taud cue indices after any pattern splitting.
+Full XM dispatch per the Note Effects conversion table. Volume-column commands fold into the Taud volume column when they can, or occupy the main effect slot when it is free, and are dropped otherwise — the same policy `it2taud` uses. `E5x` (set finetune) becomes `S $5x`. `EC0` is the same case as in ProTracker (§2.3) and becomes a volume column SET to 0; FastTracker 2 runs the effect after the volume column, so it beats a volume written beside it. Position jump and pattern break are remapped to Taud cue indices after any pattern splitting.
 
 `Kxx` (delayed key-off) carries no note-column entry of its own in XM — it acts on whatever is already sounding — so it cannot become `S $Dx00` on a `NOTE_KEYOFF` sentinel the way a note-column key-off can; that path fires the key-off at `$x` and leaves nothing else to defer. Instead it becomes `S $D00xx` (`x`=0, `n`=0 note off, `y`=`xx` clamped to the 4-bit range, i.e. `min(xx, $F)`, never a truncating mask — `K10` must land on `y=$F`, not silently become a no-op at `y=0`) and the row's own note column is left empty, letting the engine's follow-up-action mechanism apply the note-off to the sounding voice at the right tick. `K00` (arg 0) has no follow-up window to defer into — `S $D`'s action never arms when `$y` is zero — so it still forces an immediate `NOTE_KEYOFF` instead. One gap survives the fix: the FT2-only quirk where a key-off on a vol-env-off instrument hard-mutes the volume (see the `keyoff_zero_rows` gating below) cannot be replayed on the deferred tick without re-losing the delay, so it is skipped for a delayed `Kxx` — only the real note-off fires.
 

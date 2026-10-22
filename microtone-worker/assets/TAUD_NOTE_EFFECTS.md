@@ -1486,7 +1486,7 @@ The crucial bug fix relative to ST3: the loop-counter decrement **MUST** happen 
 
 **Plain.** Silences the note on tick `$x` of the current row by forcing the lane's output volume to 0. The sample continues running internally, so a later volume-change or retrigger event can resume audio.
 
-**Compatibility.** ST3 `SCx` maps directly. ProTracker `ECx` also maps directly. ST3 ignores `SC0` (treats it as no cut at all); Taud preserves this.
+**Compatibility.** ST3 `SCx` maps directly. ProTracker and FastTracker 2 `ECx` map directly for `x` from 1 up. ST3 ignores `SC0` (treats it as no cut at all); Taud preserves this. Both of those trackers differ: `EC0` silences the note at once and leaves the lane at volume 0, so a converter writes it as a volume column SET to 0 and never as `S $C000`.
 
 **Implementation.** On tick `$x`, the engine **MUST** set `output_volume = 0` but **MUST** leave `base_volume` unchanged. If `$x ≥ speed`, the cut **MUST NOT** fire. If `$x == 0`, the command **MUST** be ignored. The engine **MUST** set the `note_was_cut` flag so that a later Q retrigger on the same row is suppressed.
 
@@ -1820,7 +1820,7 @@ This table maps each PT effect to its Taud equivalent. Arguments follow PT's two
 | `E $9x` | `Q $0x00` | Retrigger |
 | `E $Ax` | Volume column `3.$1x` | Fine volume slide up |
 | `E $Bx` | Volume column `3.$0x` | Fine volume slide down |
-| `E $Cx` | `S $Cx00` | Note cut |
+| `E $Cx` | `S $Cx00` | Note cut. `E $C0` is the volume column SET 0 instead: `S $C000` is ScreamTracker's no-op |
 | `E $Dx` | `S $Dx00` | Note delay |
 | `E $Ex` | `S $Ex00` | Pattern delay |
 | `E $Fx` | `S $F0yy` (invert loop) | The byte is ambiguous — PT 1.0 meant Funk Repeat, PT 1.1B onwards Invert Loop — so emit the invert loop, which is the one every player since implements. `Z $F0yy` is Funk Repeat, for modules known to predate 1.1B. `yy = funk_table[x]` either way |
