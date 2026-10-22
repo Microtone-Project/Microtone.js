@@ -1569,12 +1569,14 @@ Two rows of three: the top row fills a slot from outside the project, the bottom
 
 - **New…** — pick presets from the bundled GeneralUser-GS SoundFont (or your own `.sf2`) and merge them in.
 - **Sample…** — build instruments from any audio file (`.wav`, `.mp3`, `.ogg`, `.flac`, …). The audio is decoded to mono and opens in the [Sample Lab](#the-sample-lab) for cropping, EQ and chopping before it is committed to the engine's 8-bit format.
-- **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes an [OPL instrument](#opl-instruments), playable across the whole keyboard.
+- **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.tsii`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes an [OPL instrument](#opl-instruments), playable across the whole keyboard.
 - **Record…** — record from the microphone; the take opens in the Sample Lab.
 - **Paint…** — draw a waveform by hand and add it as an instrument.
 - **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments — or an **OPL** or **PSG instrument**, made out of nothing, or a **formant instrument**, made out of the pool's samples or sung from an OPL or PSG instrument. A chooser asks which first — **Layered**, where every child is heard and the mixer sums them, **FM Rack**, where the children modulate each other and only operator 0 is heard, **OPL instrument**, one channel of the sound chip that played AdLib and Sound Blaster music, **PSG instrument**, two 8-bit-style oscillators, or **Formant instrument**, which sings a syllable. All five are described below.
 
 All imports are single undo steps.
+
+Below the list, **Export…** saves instruments as a `.tsii` bank — a file of instruments and their samples with no songs, which **Import…** reads like a project and **Open…** loads as a project's whole instrument set. Every instrument starts ticked; untick the ones to leave out. A metainstrument takes the instruments it is built from even when they are unticked, the instruments keep their numbers so the bank still matches the project's patterns, and only the samples the chosen instruments use go with them. Recordings in memory go too unless you clear their box. The project itself is not changed.
 
 ### Metainstruments: the family, and its two kinds
 

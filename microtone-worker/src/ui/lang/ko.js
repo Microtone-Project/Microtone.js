@@ -939,6 +939,8 @@ export default {
   "inst.addTitle": "내장된 GeneralUser-GS 사운드폰트(또는 선택한 .sf2)에서 악기를 추가합니다",
   "inst.import": "가져오기…",
   "inst.importTitle": ".taud, .tsii, .sf2 파일에서 악기(샘플·패치 포함)를 가져옵니다",
+  "inst.export": "내보내기…",
+  "inst.exportTitle": "악기(샘플·패치 포함)를 .tsii 뱅크로 저장합니다",
   "inst.newFromSample": "샘플…",
   "inst.newFromSampleTitle": "오디오 파일(.wav, .mp3, .ogg, .flac 등)로 악기를 만듭니다 — 샘플 랩이 열립니다",
   "inst.record": "녹음…",
@@ -2459,6 +2461,14 @@ export default {
   "import.sf2StereoTitle": "스테레오 샘플 쌍으로 만들어진 사운드폰트 악기가 모노로 합쳐지지 않고 두 채널을 모두 유지합니다(Ixmp 스테레오 패치). 스테레오 악기마다 풀 용량을 두 배로 쓰므로 많이 선택하면 리샘플이 더 강해질 수 있습니다.",
   "import.cantRead": "{name}을(를) 읽을 수 없습니다: {err}",
   "import.noInstruments": "{name}에 악기가 없습니다.",
+
+  // ── instrument bank export (.tsii) ──
+  "bankExport.title": "악기 내보내기",
+  "bankExport.hint": "빼고 싶은 악기는 체크를 해제하세요. 메타악기는 자신을 이루는 악기를 항상 함께 가져갑니다. 악기 번호는 그대로 유지되므로 뱅크는 이 프로젝트의 패턴과 계속 맞습니다.",
+  "bankExport.tally": "{of}개 중 {n}개 · 샘플 {size}",
+  "bankExport.regions": "메모리 안의 녹음 포함 ({n}개, {size})",
+  "bankExport.regionsTitle": "메모리에 올린 녹음은 뱅크에 속합니다. 악기만 필요하면 빼세요.",
+  "bankExport.export": "내보내기",
 
   // ── 부팅 스플래시 (item 67) ──
   "splash.msg.1": "파형 망상 조직 중…",

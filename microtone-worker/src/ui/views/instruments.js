@@ -318,6 +318,19 @@ export class InstrumentsView {
       this.listEl.appendChild(row);
       this.rowEls.push({ el: row, slot });
     }
+    // The bank goes out from the foot of the list it is made of (item 229).
+    const foot = document.createElement("div");
+    foot.className = "side-foot-inst";
+    const exportBtn = document.createElement("button");
+    exportBtn.textContent = t("inst.export");
+    exportBtn.title = t("inst.exportTitle");
+    exportBtn.disabled = slots.length === 0;
+    exportBtn.addEventListener("click", async () => {
+      const { showExportBank } = await import("../popups/exportbank.js");
+      await showExportBank(this.store, { badgeOf: instKindBadge });
+    });
+    foot.appendChild(exportBtn);
+    this.listEl.appendChild(foot);
     this.renderTabs();
     this.renderPanel();
   }

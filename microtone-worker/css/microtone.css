@@ -3137,6 +3137,18 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Export… (item 229) closes the list: it acts on the instruments above it, so
+   it stays pinned beneath them however long the list runs. */
+.side-foot-inst {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
+  z-index: 1;
+}
 
 /* ── "Meta…" kind chooser (popups/newmeta.js) ──
    Four cards, two by two, each a picture, a name and a paragraph: the choice

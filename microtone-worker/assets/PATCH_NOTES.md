@@ -6,6 +6,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## Version 4.0.0 (2026-10-22)
 
+Instruments can be saved as a `.tsii` bank: **Export…** at the foot of the Instruments list.
+
+- **Choose what goes**: every instrument starts ticked, and unticking one leaves it out; a metainstrument always takes the instruments it is built from, and only the samples the chosen instruments play are written, so a bank of three instruments is the size of three.
+- **Instruments keep their numbers**, so the bank still matches the project's patterns, and opening it over a project or importing from it brings back the same instruments, with their patches, names and mixing chains.
+- Recordings in memory go with the bank unless you clear their box; the project itself is not changed.
+
 Imported tracker modules now play their volume slides, silent samples and repeated patterns as the originals do.
 
 - **Fixed: volume slides in imported `.mod` and `.xm` files went wrong** — `A $F0` slid up once instead of on every tick, `A $Fx` and `A $xF` became fine slides, and `A $xy` with both digits set did nothing; the importer read them the way ScreamTracker reads its own volume slide.

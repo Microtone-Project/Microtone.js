@@ -950,6 +950,8 @@ export default {
   "inst.addTitle": "Add instruments from the bundled GeneralUser-GS soundfont (or a picked .sf2)",
   "inst.import": "Import…",
   "inst.importTitle": "Import instruments (with samples and patches) from a .taud, .tsii or .sf2 file",
+  "inst.export": "Export…",
+  "inst.exportTitle": "Save instruments (with their samples and patches) as a .tsii bank",
   "inst.newFromSample": "Sample…",
   "inst.newFromSampleTitle": "Create instruments from an audio file (.wav, .mp3, .ogg, .flac, …) — opens the Sample Lab",
   "inst.record": "Record…",
@@ -2524,6 +2526,14 @@ export default {
   "import.sf2StereoTitle": "SoundFont instruments built from a stereo sample pair keep both channels (an Ixmp stereo patch) instead of being mixed to mono. Costs twice the pool bytes per stereo instrument, so a big selection may be resampled harder to fit.",
   "import.cantRead": "Can't read {name}: {err}",
   "import.noInstruments": "{name} contains no instruments.",
+
+  // ── instrument bank export (.tsii) ──
+  "bankExport.title": "Export instruments",
+  "bankExport.hint": "Untick an instrument to leave it out. A metainstrument always takes the instruments it is built from. Instrument numbers stay as they are, so the bank still matches this project's patterns.",
+  "bankExport.tally": "{n} of {of} · {size} of samples",
+  "bankExport.regions": "Include recordings in memory ({n}, {size})",
+  "bankExport.regionsTitle": "Recordings loaded into memory belong to the bank. Leave them out when only the instruments are wanted.",
+  "bankExport.export": "Export",
 
   // ── boot splash (item 67) — whimsical loading lines, Sims-style. The
   // splash inline script in index.html imports this module directly (before

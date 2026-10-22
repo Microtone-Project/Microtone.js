@@ -5,16 +5,18 @@
 //   bank        — remove unused instruments and their now-orphaned samples
 //   instrument  — renumber one instrument, following every reference to it (73)
 //   ixmp        — drop unreachable instrument patches (74)
+//   export      — a .tsii of chosen instruments, slot numbers kept (229)
 //
 // Cue words: `cues[cue][ch]` low 15 bits = the lane's pattern index (0x7FFF =
 // empty); bit 15 is one bit of the cue's packed instruction word, so a pattern
 // remap must preserve it.
 
-import { CUE_EMPTY, PATTERN_SIZE, SAMPLEBIN_SIZE } from "../../core/format/taud-const.js";
+import { CUE_EMPTY, PATTERN_SIZE, SAMPLEBIN_SIZE, TAUD_VERSION } from "../../core/format/taud-const.js";
 import { writePatchesBlob, buildMetaRecord, layerNote } from "../../core/engine/inst.js";
 import { EffectOp } from "../../core/engine/tables.js";
 import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
-import { sampleSpans } from "./document.js";
+import { sampleSpans, BANK_SECTIONS } from "./document.js";
+import { buildIxmpSection } from "./bankmerge.js";
 import { regionSpans } from "./sampleregions.js";
 import { formantRecordSpans, remapFormantSource } from "./formantedit.js";
 import { emptyPatternBytes } from "./patterntools.js";
@@ -300,6 +302,118 @@ export function planBankCleanup(doc) {
     ixmp: prune.ixmp, report: prune.report,
     removedInstruments: unused.length, freedSampleBytes,
     removedPatches: prune.removedPatches, removedBlobs: prune.removedBlobs,
+  };
+}
+
+// ── bank export (item 229) ──
+
+/** The slots an export of `slots` carries: those, plus every instrument they
+ *  are built from (layers, operators, a formant instrument's source),
+ *  transitively — a metainstrument without its sources plays nothing. */
+export function bankExportClosure(doc, slots) {
+  const all = new Set(doc.usedInstrumentSlots());
+  const keep = new Set();
+  const queue = [];
+  for (const s of slots) if (all.has(s) && !keep.has(s)) { keep.add(s); queue.push(s); }
+  while (queue.length) {
+    for (const c of doc.instruments[queue.pop()].sourceSlots) {
+      if (all.has(c) && !keep.has(c)) { keep.add(c); queue.push(c); }
+    }
+  }
+  return keep;
+}
+
+/** What an export of `slots` holds — {instruments, sampleBytes} — without
+ *  building it: the export dialog's tally, recounted on every tick. */
+export function bankExportSize(doc, slots) {
+  const keep = bankExportClosure(doc, slots);
+  const census = censusForSlots((s) => doc.instruments[s], keep);
+  return { instruments: keep.size, sampleBytes: census.reduce((n, sp) => n + sp.len, 0) };
+}
+
+/**
+ * Plan a `.tsii` of the instruments `slots` (and what they are built from):
+ * the project's own bank with every other instrument taken out, in the shape
+ * parseTaud returns, so `new Document(plan).toSaveBytes(…)` writes the file.
+ *
+ * Slot numbers are KEPT — a bank stands beside songs that name its
+ * instruments by number (a .tpif loads over it), so an export of $03 and $11
+ * is $03 and $11, not $01 and $02. Kept records go out verbatim with their
+ * whole Ixmp patch sets (no pruning: the bank has no patterns to say which
+ * patches are reachable); pool bytes no kept instrument points at are zeroed,
+ * as a cleanup does, and the names realign to what is left. Pool regions
+ * travel with the bank unless `regions` is false. IMix blocks no kept
+ * instrument names are retired by the Document's own save.
+ *
+ * Returns null when the project has no bank. Pure w.r.t. the doc except a
+ * _rebuildInstRegion() to make the image current first.
+ */
+export function planBankExport(doc, slots, { regions = true } = {}) {
+  if (!doc.sampleInstImage) return null;
+  doc._rebuildInstRegion(); // flush pending inst edits into the image
+  const instAt = (s) => doc.instruments[s];
+  const keep = bankExportClosure(doc, slots);
+  const dropped = doc.usedInstrumentSlots().filter((s) => !keep.has(s));
+
+  const image = doc.sampleInstImage.slice();
+  for (const s of dropped) image.fill(0, SAMPLEBIN_SIZE + s * 256, SAMPLEBIN_SIZE + (s + 1) * 256);
+
+  const census = censusForSlots(instAt, keep);
+  const keptRegions = regions ? doc.sampleRegions() : [];
+  const keepSpans = [
+    ...census,
+    ...keptRegions.flatMap(regionSpans).map((sp) => ({ ptr: sp.ptr, len: sp.len })),
+  ].sort((a, b) => a.ptr - b.ptr);
+  const pool = image.subarray(0, SAMPLEBIN_SIZE);
+  let cursor = 0;
+  for (const sp of keepSpans) {
+    if (sp.ptr > cursor) pool.fill(0, cursor, sp.ptr);
+    cursor = Math.max(cursor, sp.ptr + sp.len);
+  }
+  pool.fill(0, Math.min(cursor, SAMPLEBIN_SIZE), SAMPLEBIN_SIZE);
+  const sampleBytes = census.reduce((n, sp) => n + sp.len, 0);
+
+  const inamArr = doc._nameTable("INam").slice();
+  for (const s of dropped) if (s < inamArr.length) inamArr[s] = "";
+  while (inamArr.length && inamArr[inamArr.length - 1] === "") inamArr.pop();
+
+  // SNam lines up with the census, as in planBankCleanup.
+  const oldNameByKey = new Map();
+  for (const e of doc.sampleList()) oldNameByKey.set(e.ptr + ":" + e.len, e.name);
+  const snamArr = census.filter((sp) => sp.chan === 0).map((sp) => oldNameByKey.get(sp.key) ?? "");
+  while (snamArr.length && snamArr[snamArr.length - 1] === "") snamArr.pop();
+
+  const ixmp = doc.ixmp
+    .filter((e) => keep.has(e.instId & 0x3ff))
+    .map((e) => ({ instId: e.instId, count: e.count, blob: Uint8Array.from(e.blob) }));
+
+  // Only the bank's own sections (§8: a .tsii carries I- and S-scoped data).
+  const rebuilt = {
+    INam: encodeNameTable(inamArr),
+    SNam: encodeNameTable(snamArr),
+    Ixmp: ixmp.length > 0 ? buildIxmpSection(ixmp) : null,
+    SRgn: keptRegions.length > 0 ? undefined : null, // undefined = verbatim
+  };
+  const projSections = [];
+  for (const s of doc.projSections) {
+    if (!BANK_SECTIONS.includes(s.fourcc)) continue;
+    const payload = rebuilt[s.fourcc] === undefined ? s.payload : rebuilt[s.fourcc];
+    if (payload !== null) projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(payload) });
+  }
+
+  return {
+    kind: "tsii",
+    fmtVer: TAUD_VERSION, // a bank is the same in a v2 and a v3 file (§5.5)
+    is64Channel: false,
+    signature: doc.signature,
+    sampleInstImage: image,
+    songs: [],
+    projSections,
+    ixmp,
+    meta: { projectName: null, songMeta: {} },
+    instruments: keep.size,
+    regions: keptRegions.length,
+    sampleBytes,
   };
 }
 
