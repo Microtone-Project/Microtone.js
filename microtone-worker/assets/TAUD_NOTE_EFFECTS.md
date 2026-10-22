@@ -703,7 +703,7 @@ Taud splits T by which byte carries the value:
 
 **Plain.** Sets the Taud tempo byte to `$xx`. The resulting BPM is `$xx + $19`: Taud byte $00 → 25 BPM, $64 → 125 BPM (default), $FF → 280 BPM. The low byte is ignored — except under a high byte of $FB…$FF, where a non-zero low byte makes it the extended form below.
 
-**Compatibility.** ST3 `Txx` (where `xx ∈ $20..$FF`) stores BPM directly; converters **MUST** convert with `taud_byte = xx − $18`. Taud byte $07 corresponds to ST3's minimum BPM of 32; Taud bytes below $07 are inexpressible in ST3 and **SHOULD** round up to $07 (BPM 32) when exporting. OpenMPT's extended tempo slides (`T $0x` down, `T $1x` up) in S3M files map to Taud `T $00xx` — see below.
+**Compatibility.** ST3 `Txx` (where `xx ∈ $20..$FF`) stores BPM directly; converters **MUST** convert with `taud_byte = xx − $19`. Taud byte $07 corresponds to ST3's minimum BPM of 32; Taud bytes below $07 are inexpressible in ST3 and **SHOULD** round up to $07 (BPM 32) when exporting. OpenMPT's extended tempo slides (`T $0x` down, `T $1x` up) in S3M files map to Taud `T $00xx` — see below.
 
 ProTracker `Fxx` with `xx ≥ $20` maps to Taud `T $(xx − $19)00`; `Fxx` with `xx < $20` maps to A (speed) instead.
 
@@ -1825,7 +1825,7 @@ This table maps each PT effect to its Taud equivalent. Arguments follow PT's two
 | `E $Ex` | `S $Ex00` | Pattern delay |
 | `E $Fx` | `S $F0yy` (invert loop) | The byte is ambiguous — PT 1.0 meant Funk Repeat, PT 1.1B onwards Invert Loop — so emit the invert loop, which is the one every player since implements. `Z $F0yy` is Funk Repeat, for modules known to predate 1.1B. `yy = funk_table[x]` either way |
 | `F $xx` (xx < $20) | `A $xx00` | Set speed |
-| `F $xx` (xx ≥ $20) | `T $(xx−$18)00` | Set tempo |
+| `F $xx` (xx ≥ $20) | `T $(xx−$19)00` | Set tempo |
 
 ## Miscellaneous implementation details
 
