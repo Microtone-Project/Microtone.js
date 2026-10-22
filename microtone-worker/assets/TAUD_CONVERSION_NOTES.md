@@ -86,7 +86,9 @@ Looping is a cue **JMP** back to the loop-start cue, replacing that cue's HALT. 
 
 Most trackers back their effects with per-effect or shared memory: re-issuing a command with a `$00` argument recalls the last non-zero one. Taud has memory too, but **its cohorts are narrower than ST3's or IT's**, so a naive pass-through changes which value gets recalled.
 
-The reference converters therefore **resolve recalls eagerly**: they walk the patterns in order-list order, per lane, tracking the source's own memory model, and substitute the concrete value before encoding. The known limitation is honest and worth stating: a pattern reached from several order entries is rewritten on its first visit, so a later visit may diverge from the original if the memory state differed. In practice this is inaudible on real modules, but it is a real difference and a converter **SHOULD** document it rather than pretend otherwise.
+The reference converters therefore **resolve recalls eagerly**: they walk the song in play order, per lane, tracking the source's own memory model, and substitute the concrete value before encoding. A pattern reached from several order entries is the trap: the value its `$00` recalls depends on what was played before it, which can differ from one visit to the next. So `mod2taud`, `s3m2taud` and `it2taud` give **every order position its own copy** of its pattern before any of these walks, resolve each copy where it is played, and then merge the copies that came out identical (the pattern deduplication every converter already runs). A song whose shared patterns recall the same values everywhere — nearly every real module — converts exactly as it would have without the copies; one that does not gets each visit right. A converter that resolves recalls in place on the shared pattern instead gets every visit after the first one wrong whenever the memory differed, and **SHOULD** at least say so.
+
+The same goes for anything else a walk decides from what came before: `it2taud` drops a porta row's instrument byte only when it names the instrument the channel already holds, and `s3m2taud` gives an AdLib row the instrument it inherits from the previous pattern — both per position.
 
 ### 1.7 Volume and pan columns
 
@@ -142,20 +144,24 @@ Full ProTracker dispatch per the Note Effects conversion table, with these folds
 | Source | Becomes |
 |---|---|
 | `Cxx` (set volume) | Volume column SET |
-| `Axy` (volume slide) | Effect-column `D` — **not** the volume column |
+| `Axy` (volume slide) | Effect-column `D` with the acting nibble; `AFy` the volume column's slide up 15 |
 | `EAx` / `EBx` (fine volume slide) | Volume column |
 | `8xx`, `E8x` (panning) | Pan column |
-| `5xy` (porta + volume slide) | `L` verbatim |
-| `6xy` (vibrato + volume slide) | `K` verbatim |
+| `5xy` (porta + volume slide) | `L`, the acting nibble |
+| `6xy` (vibrato + volume slide) | `K`, the acting nibble |
 | `Dxx` (pattern break) | `C`, BCD-decoded |
 | `E0x` (LED filter) | `S $0x` |
 | `EC0` (note cut at tick 0) | Volume column SET 0 |
 
 `EC0` is not `S $C000`. ProTracker cuts at tick 0 — the note is silent from its first sample and the channel stays at volume 0, so a note struck next without a sample number is silent too — while `S $C0` is ScreamTracker's, which the engine ignores. The converter writes the volume the cut leaves behind, a volume column SET to 0; `ECx` for `x` from 1 up stays `S $Cx00`.
 
-`Axy` routes through the effect column rather than the volume column for a specific reason: when a row carries both `Cxx` and `Axy`, the volume column can encode only one of them, and the slide is the half that gets lost — five ticks of slide per row, which is audible. Keeping the slide in the effect slot preserves both.
+**ProTracker's volume slide is not ScreamTracker's.** `Axy` slides up by `x` whenever `x` is set and down by `y` otherwise, and an `$F` nibble is simply a speed of 15 — ProTracker's fine slides are `EAx` and `EBx`. Taud's D took its forms from ScreamTracker's `Dxy`, where `DF0`, `DFy` and `DxF` are fine slides and a byte with both nibbles set slides neither way, so passing the byte across verbatim turns `AF0` into one step of 15 instead of fifteen per tick and `A35` into silence. The converter keeps only the nibble that acts: `A35` → `D $3000`, `A0F` → `D $0F00`, and `AFy` — the one speed D cannot say — becomes the volume column's slide up by 15, which steps exactly like D (a ProTracker cell holds one effect, so the column is always free). `5xy` and `6xy` keep the acting nibble the same way: `L` and `K` already read `$F` as a speed, but with both nibbles set they let **down** win where ProTracker lets up win. FastTracker 2 reads `Axy`, `5xy` and `6xy` as ProTracker does and `xm2taud` maps them alike, except that an XM cell may already hold a volume-column command, and then `AFy` falls back to `D $E000`, up 14.
 
-`5xy` and `6xy` map to `L` and `K` verbatim rather than being split into a portamento plus a volume-column slide, for the same reason: the split loses the slide on any row that also needs a volume SET.
+`5xy` and `6xy` map to `L` and `K` rather than being split into a portamento plus a volume-column slide: the split loses the slide on any row that also needs a volume SET.
+
+**A sample's default volume of 0 is a volume**, not "unstated": it becomes Default Note Volume 1, which the engine rounds to note volume 0, because DNV 0 is the sentinel for "full" (an Ixmp patch's for "inherit"). The ScreamTracker, FastTracker 2 and ImpulseTracker converters do the same.
+
+**Recalls are resolved where they are played** ([§1.6](#1-6-effect-memory)): a pattern played after two different vibratos recalls each in its place.
 
 Sample finetune is pre-baked into each instrument's sampling rate, so notes stay clean.
 
@@ -196,7 +202,7 @@ AdLib instruments become OPL instruments ([§3.5](#3-5-adlib-instruments)).
 
 ### 3.2 Shared-memory recall
 
-ST3 backs effects `D`, `E`, `F`, `I`, `J`, `K`, `L`, `Q`, `R` and `S` with a **single per-channel memory slot**, so a `$00` argument on any of them recalls whatever any of them last set. Taud's cohorts are narrower, so the converter resolves every such recall eagerly ([§1.6](#1-6-effect-memory)).
+ST3 backs effects `D`, `E`, `F`, `I`, `J`, `K`, `L`, `Q`, `R` and `S` with a **single per-channel memory slot**, so a `$00` argument on any of them recalls whatever any of them last set. Taud's cohorts are narrower, so the converter resolves every such recall eagerly ([§1.6](#1-6-effect-memory)). A pattern played in several places is resolved in each of them, since the one slot makes the recalled value depend on everything played before it.
 
 ### 3.3 Numeric quirks
 
@@ -266,7 +272,7 @@ XM has no New Note Action — every new note unconditionally retriggers the chan
 
 ### 4.6 Effects
 
-Full XM dispatch per the Note Effects conversion table. Volume-column commands fold into the Taud volume column when they can, or occupy the main effect slot when it is free, and are dropped otherwise — the same policy `it2taud` uses. `E5x` (set finetune) becomes `S $5x`. `EC0` is the same case as in ProTracker (§2.3) and becomes a volume column SET to 0; FastTracker 2 runs the effect after the volume column, so it beats a volume written beside it. Position jump and pattern break are remapped to Taud cue indices after any pattern splitting.
+Full XM dispatch per the Note Effects conversion table. Volume-column commands fold into the Taud volume column when they can, or occupy the main effect slot when it is free, and are dropped otherwise — the same policy `it2taud` uses. `E5x` (set finetune) becomes `S $5x`. `EC0` is the same case as in ProTracker (§2.3) and becomes a volume column SET to 0; FastTracker 2 runs the effect after the volume column, so it beats a volume written beside it. Position jump and pattern break are remapped to Taud cue indices after any pattern splitting. `Axy`, `5xy` and `6xy` keep only the slide nibble that acts, as in ProTracker (§2.3), with the one fallback that section describes for a row whose volume column is taken.
 
 `Kxx` (delayed key-off) carries no note-column entry of its own in XM — it acts on whatever is already sounding — so it cannot become `S $Dx00` on a `NOTE_KEYOFF` sentinel the way a note-column key-off can; that path fires the key-off at `$x` and leaves nothing else to defer. Instead it becomes `S $D00xx` (`x`=0, `n`=0 note off, `y`=`xx` clamped to the 4-bit range, i.e. `min(xx, $F)`, never a truncating mask — `K10` must land on `y=$F`, not silently become a no-op at `y=0`) and the row's own note column is left empty, letting the engine's follow-up-action mechanism apply the note-off to the sounding voice at the right tick. `K00` (arg 0) has no follow-up window to defer into — `S $D`'s action never arms when `$y` is zero — so it still forces an immediate `NOTE_KEYOFF` instead. One gap survives the fix: the FT2-only quirk where a key-off on a vol-env-off instrument hard-mutes the volume (see the `keyoff_zero_rows` gating below) cannot be replayed on the deferred tick without re-losing the delay, so it is skipped for a delayed `Kxx` — only the real note-off fires.
 

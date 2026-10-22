@@ -1799,14 +1799,14 @@ This table maps each PT effect to its Taud equivalent. Arguments follow PT's two
 | `2 $xx` | `E $00xx` (Amiga mode, `f` set) | Portamento down; raw PT period units, applied in period space |
 | `3 $xx` | `G round($0xxx × 64/3)` | Portamento to note; G is always linear (4096-TET units) regardless of mode |
 | `4 $xy` | `H $xxyy` | Vibrato; nibble-repeat each byte. |
-| `5 $xy` | `L $xy00` | Combined portamento + volume slide; argument byte verbatim (PT `500` recall is resolved to the previous 5xy by the converter, then emitted as L $xy00) |
-| `6 $xy` | `K $xy00` | Combined vibrato + volume slide; argument byte verbatim (PT `600` recall is resolved to the previous 6xy by the converter, then emitted as K $xy00) |
+| `5 $xy` | `L $xy00` | Combined portamento + volume slide. Only the slide nibble that acts crosses: ProTracker slides up by `x` whenever it is set and L lets down win, so `5 $35` becomes `L $3000`. An `$F` nibble is a speed of 15, as in L. `5 $00` is a portamento with no slide and becomes `G $0000` |
+| `6 $xy` | `K $xy00` | Combined vibrato + volume slide, the slide nibble chosen as for `5`. `6 $00` is a vibrato with no slide and becomes `H $0000` |
 | `7 $xy` | `R $xxyy` | Tremolo; nibble-repeat |
 | `8 $xx` | `S $80xx` or panning column `0.$xx` | Fine pan |
 | `9 $xx` | `O $xx00` | Sample offset |
-| `A $xy` | Vo ume column `1.$xy` | Volume slide |
+| `A $xy` | `D $x000` or `D $0y00`; `A $Fy` → volume column `1.$0F` | Volume slide. ProTracker slides up by `x` whenever it is set, else down by `y`, and an `$F` is a speed of 15 — never a fine slide (those are `E $Ax` / `E $Bx`). D reads `$F` nibbles as fine slides, so up-by-15 takes the volume column's slide up, which steps the same |
 | `B $xx` | `B $00xx` | Position jump |
-| `C $xx` | Vo ume column `0.$xx` | Set volume |
+| `C $xx` | Volume column `0.$xx` | Set volume |
 | `D $xx` | `C $00xx` (after BCD decode) | Pattern break |
 | `E $0x` | `S $0x00` | Set low-pass filter |
 | `E $1x` | `F $F00x` (Amiga mode, `f` set) | Fine pitch slide up; raw PT period units, applied in period space at tick 0 |

@@ -54,6 +54,7 @@ import struct
 import sys
 
 from taud_common import (
+    dnv_from_volume64,
     set_verbose, vprint,
     TAUD_MAGIC, TAUD_VERSION, TAUD_HEADER_SIZE, TAUD_SONG_ENTRY,
     SAMPLEBIN_SIZE, INSTBIN_SIZE, SAMPLEINST_SIZE,
@@ -457,24 +458,19 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0,
     return (TOP_NONE, 0, None, None)
 
 
-def resolve_st3_recalls(patterns: list, order_list: list, num_channels: int) -> None:
+def resolve_st3_recalls(cue_grids: list, num_channels: int) -> None:
     """In-place: replace ST3 zero-arg recalls with the last non-zero arg.
 
     ST3 backs D/E/F/I/J/K/L/Q/R/S with a single per-channel memory slot.
     Taud's narrower cohort model can't recover this, so we eagerly resolve
-    by walking patterns in order-list order and rewriting recall args.
+    by walking the song's patterns in play order and rewriting recall args.
 
-    Limitation: patterns reused across multiple order entries are mutated
-    once (with the memory state from their first visit); subsequent visits
-    may differ from ST3 if cross-pattern memory state changed in between.
+    `cue_grids` holds one PRIVATE copy of its pattern per cue
+    (_build_song_payload_s3m), so a pattern played in several places resolves
+    each of its recalls against the memory of the place it is played in.
     """
     last_arg = [0] * num_channels
-    for order in order_list:
-        if order >= S3M_ORDER_END:
-            break
-        if order >= len(patterns):
-            continue
-        grid = patterns[order]
+    for grid in cue_grids:
         for r in range(PATTERN_ROWS):
             for ch in range(num_channels):
                 if ch >= len(grid):
@@ -624,7 +620,7 @@ def build_sample_inst_bin(instruments: list) -> tuple:
         inst_bin[base + 182] = 0xFF # filter cutoff = off
         inst_bin[base + 183] = 0xFF # filter resonance = off
         inst_bin[base + 186] = 1 # NNA: note cut
-        inst_bin[base + 196] = min(0xFF, round(min(inst.volume, 64) * 255 / 64))       # DNV
+        inst_bin[base + 196] = dnv_from_volume64(inst.volume)                                # DNV
 
         vprint(f"  instrument[{base // INST_STRIDE}] '{inst.name}' ptr: '{ptr}', sampling rate: '{inst.c2spd}'")
         if inst.c2spd > 65535:
@@ -752,7 +748,7 @@ def build_cue_sheet(order_list: list, num_pats_s3m: int, num_channels: int,
     return finalize_cue_sheet(sheet)[0]
 
 
-def relocate_late_note_delays(patterns: list, order_list: list,
+def relocate_late_note_delays(cue_grids: list,
                               num_channels: int, initial_speed: int) -> None:
     """Move SDx-delayed notes to the next row when x ≥ tick speed.
 
@@ -760,14 +756,7 @@ def relocate_late_note_delays(patterns: list, order_list: list,
     speed, the trigger never lands. When the next row in the same channel is
     empty, relocate the note (with delay = x − speed) so it actually plays.
     """
-    visited = set()
-    for order in order_list:
-        if order >= S3M_ORDER_END:
-            break
-        if order >= len(patterns) or order in visited:
-            continue
-        visited.add(order)
-        grid = patterns[order]
+    for cue, grid in enumerate(cue_grids):
         speed = initial_speed
         for r in range(PATTERN_ROWS):
             for ch in range(min(num_channels, len(grid))):
@@ -802,22 +791,17 @@ def relocate_late_note_delays(patterns: list, order_list: list,
                 row.vol        = -1
                 row.effect     = 0
                 row.effect_arg = 0
-                vprint(f"  fix: pat{order} ch{ch} row{r}: SD{x:X} ≥ speed{speed}, "
+                vprint(f"  fix: cue{cue} ch{ch} row{r}: SD{x:X} ≥ speed{speed}, "
                        f"moved note to row{r+1}"
                        + (f" with SD{new_delay:X}" if new_delay > 0 else ""))
 
 
-def find_initial_bpm_speed(patterns: list, order_list: list,
+def find_initial_bpm_speed(cue_grids: list,
                            default_speed: int, default_tempo: int) -> tuple:
-    """Scan first pattern in order for Axx/Txx in row 0 of any channel."""
+    """Scan the first cue's pattern for Axx/Txx in row 0 of any channel."""
     speed = default_speed or 6
     tempo = default_tempo or 125
-    for order in order_list:
-        if order >= S3M_ORDER_END:
-            break
-        if order >= len(patterns):
-            continue
-        grid = patterns[order]
+    for grid in cue_grids[:1]:
         for ch_rows in grid:
             row = ch_rows[0]
             if row.effect == EFF_A and row.effect_arg > 0:
@@ -859,26 +843,17 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
     """Build pattern bin + cue sheet + song-entry kwargs for one subsong.
 
     Returns (pat_comp, cue_comp, entry_kwargs). The caller fills in
-    `song_offset` from the global layout. `patterns_template` is deep-copied
-    so per-song stateful walks (recall resolution, late-note-delay
-    relocation, Bxx remap) don't leak into the next subsong.
+    `song_offset` from the global layout.
+
+    Every cue gets a PRIVATE copy of its pattern before the stateful walks
+    (recall resolution, late-note-delay relocation, Bxx remap), so a pattern
+    played in several places resolves ST3's shared-memory recalls against the
+    memory of each place rather than of its first visit; deduplicate_patterns
+    merges the copies that come out alike, so a song without such a pattern
+    converts exactly as it did. The copies also keep `patterns_template`
+    intact for the next subsong.
     """
-    pats = copy.deepcopy(patterns_template)
     virtual_orders = [h.order_list[pos] for pos in positions]
-
-    vprint(f"  [{song_label}] resolving ST3 shared-memory recalls…")
-    resolve_st3_recalls(pats, virtual_orders, 32)
-    warn_st3_quirks(pats, virtual_orders, 32)
-
-    init_speed, _ = find_initial_bpm_speed(pats, virtual_orders,
-                                           h.initial_speed, h.initial_tempo)
-    relocate_late_note_delays(pats, virtual_orders, 32, init_speed)
-
-    speed, tempo = find_initial_bpm_speed(pats, virtual_orders,
-                                          h.initial_speed, h.initial_tempo)
-    tempo = max(25, min(280, tempo))
-    bpm_stored = (tempo - 25) & 0xFF
-    vprint(f"  [{song_label}] initial speed={speed}, tempo(BPM)={tempo}")
 
     # Cue list (source pattern indices) and pos→cue mapping. Skip orders that
     # already terminate (S3M_ORDER_END) or point past the pattern table.
@@ -886,35 +861,32 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
     pos_to_cue = {}
     for pos in positions:
         order = h.order_list[pos]
-        if order >= S3M_ORDER_END or order >= len(pats):
+        if order >= S3M_ORDER_END or order >= len(patterns_template):
             continue
         pos_to_cue[pos] = len(cue_list)
         cue_list.append(order)
+    pats = [copy.deepcopy(patterns_template[src]) for src in cue_list]
 
-    # Densely renumber the patterns this song actually emits.
-    used_ordered = []
-    seen = set()
-    for src_pat in cue_list:
-        if src_pat not in seen:
-            used_ordered.append(src_pat)
-            seen.add(src_pat)
-    pat_idx_remap = {src: i for i, src in enumerate(used_ordered)}
-    P_used = len(used_ordered)
+    vprint(f"  [{song_label}] resolving ST3 shared-memory recalls…")
+    resolve_st3_recalls(pats, 32)
+    # Read-only, and once per SOURCE pattern: the template serves.
+    warn_st3_quirks(patterns_template, virtual_orders, 32)
+
+    init_speed, _ = find_initial_bpm_speed(pats, h.initial_speed, h.initial_tempo)
+    relocate_late_note_delays(pats, 32, init_speed)
+
+    speed, tempo = find_initial_bpm_speed(pats, h.initial_speed, h.initial_tempo)
+    tempo = max(25, min(280, tempo))
+    bpm_stored = (tempo - 25) & 0xFF
+    vprint(f"  [{song_label}] initial speed={speed}, tempo(BPM)={tempo}")
 
     C = len(active_channels)
-    if P_used * C > NUM_PATTERNS_MAX:
-        sys.exit(
-            f"error: [{song_label}] {P_used} patterns × {C} channels = "
-            f"{P_used*C} > {NUM_PATTERNS_MAX} Taud pattern limit."
-        )
+    P_used = len(pats)
 
     # Bxx remap: target source-position → cue-index. Cross-subsong jumps
-    # clamp to cue 0 (loop the subsong rather than jump out of bounds). Walk
-    # only the patterns this song actually emits.
+    # clamp to cue 0 (loop the subsong rather than jump out of bounds).
     crossings = 0
-    for src_pat in used_ordered:
-        if src_pat >= len(pats): continue
-        grid = pats[src_pat]
+    for grid in pats:
         for ch in range(min(32, len(grid))):
             for row in grid[ch]:
                 if row.effect == EFF_B:
@@ -927,39 +899,38 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
         vprint(f"  warning: [{song_label}]: {crossings} Bxx target(s) cross "
                f"subsong boundary; clamped to cue 0")
 
-    # The instrument each channel holds as each pattern begins, the first
-    # time the order list reaches it — what an AdLib volume or note-off on a
-    # row before the pattern's own first instrument byte belongs to.
+    # The instrument each channel holds as each cue begins — what an AdLib
+    # volume or note-off on a row before the pattern's own first instrument
+    # byte belongs to.
     entry_inst = {}
     holding = [0] * 32
-    for src_pat in cue_list:
-        grid = pats[src_pat] if src_pat < len(pats) else None
-        if grid is None:
-            continue
+    for cue, grid in enumerate(pats):
         for ch in range(32):
-            entry_inst.setdefault((src_pat, ch), holding[ch])
+            entry_inst[(cue, ch)] = holding[ch]
             for row in grid[ch]:
                 if row.inst > 0:
                     holding[ch] = row.inst
 
-    # Pattern bin: emit only patterns this song uses (densely indexed).
+    # Pattern bin: one pattern per cue and lane, merged by the dedupe below.
     default_pans = [_default_channel_pan(h.channel_settings[ch])
                     for ch in active_channels]
     pat_bin = bytearray()
-    for src_pat in used_ordered:
-        grid = pats[src_pat]
+    for cue, grid in enumerate(pats):
         for vi, ch in enumerate(active_channels):
             pat_bin += build_pattern(grid, ch, default_pans[vi],
                                       h.linear_slides, inst_vols,
                                       amiga_mode=not h.linear_slides,
                                       opl_tl=opl_tl,
-                                      entry_inst=entry_inst.get((src_pat, ch), 0))
+                                      entry_inst=entry_inst.get((cue, ch), 0))
 
     pat_bin = rescale_offset_effects_per_slot(bytes(pat_bin), P_used, C, sample_ratio)
     orig_count = P_used * C
     pat_bin, pat_remap, num_taud_pats = deduplicate_patterns(pat_bin, orig_count)
     vprint(f"  [{song_label}] patterns: {orig_count} → {num_taud_pats} unique "
            f"({orig_count - num_taud_pats} deduplicated)")
+    if num_taud_pats > NUM_PATTERNS_MAX:
+        sys.exit(f"error: [{song_label}] {num_taud_pats} unique patterns "
+                 f"> {NUM_PATTERNS_MAX} Taud pattern limit.")
 
     # Cue sheet
     sheet = bytearray(NUM_CUES * CUE_SIZE)
@@ -967,10 +938,9 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
         sheet[c*CUE_SIZE:c*CUE_SIZE+CUE_SIZE] = encode_cue([], 0)
 
     last_active = -1
-    for cue_idx, src_pat in enumerate(cue_list):
+    for cue_idx in range(P_used):
         if cue_idx >= NUM_CUES: break
-        new_pat_idx = pat_idx_remap[src_pat]
-        orig_pats = [new_pat_idx * C + v for v in range(C)]
+        orig_pats = [cue_idx * C + v for v in range(C)]
         sheet[cue_idx*CUE_SIZE:(cue_idx+1)*CUE_SIZE] = encode_cue(
             [pat_remap[p] for p in orig_pats], 0)
         last_active = cue_idx

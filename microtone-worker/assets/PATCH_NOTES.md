@@ -6,6 +6,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## Version 4.0.0 (2026-10-22)
 
+Imported tracker modules now play their volume slides, silent samples and repeated patterns as the originals do.
+
+- **Fixed: volume slides in imported `.mod` and `.xm` files went wrong** — `A $F0` slid up once instead of on every tick, `A $Fx` and `A $xF` became fine slides, and `A $xy` with both digits set did nothing; the importer read them the way ScreamTracker reads its own volume slide.
+- **Fixed: `5 $xy` and `6 $xy` with both digits set slid the volume down** in imported `.mod` and `.xm` files, where ProTracker and FastTracker 2 slide it up.
+- **Fixed: a sample whose default volume is 0 played at full volume** in imported `.mod`, `.s3m`, `.xm` and `.it` files, because a stored 0 means "no default"; it is silent now until the song gives it a volume, as in the original tracker.
+- **Fixed: a pattern played in several places of an imported `.mod`, `.s3m` or `.it` could recall the wrong slide, vibrato or other remembered value** — a command with a `$00` argument took the value from the pattern's first place in the song, and now takes the one played just before it wherever it is.
+
 Songs can be saved as ProTracker modules again: **Export .MOD…** on the File tab writes every song as a four-channel `.mod`.
 
 - **A module you imported comes back out as the same music** — its samples, finetunes, volumes and loops, every note and every effect — so a `.mod` can make the round trip through Microtone, microtonal ones included.

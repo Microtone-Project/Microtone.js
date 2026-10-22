@@ -304,6 +304,46 @@ def d_arg_to_col(arg: int):
     return (SEL_UP, hi)
 
 
+
+def dnv_from_volume64(volume: int) -> int:
+    """A tracker's 0…64 default volume as Default Note Volume (instrument byte
+    196, an Ixmp patch's DNV). DNV 0 is the "not stated" sentinel — the base
+    record reads it as full volume, a patch as "inherit the base's" — so a
+    source volume of 0 becomes DNV 1, which the engine rounds to note volume 0
+    (trigger.js rowVolumeFromDefault: (1 × 63 + 127) ÷ 255 = 0). Every other
+    volume maps as it always did, round(v × 255 ÷ 64), which never lands on 0.
+    """
+    v = max(0, min(64, volume))
+    return 1 if v == 0 else min(0xFF, round(v * 255 / 64))
+
+def pt_slide_nibbles(xy: int) -> int:
+    """The volume-slide byte of a ProTracker / FastTracker 2 `Axy`, `5xy` or
+    `6xy` with only the nibble that acts kept: the up nibble whenever it is set
+    (the trackers' rule), else the down one. Taud's D, K and L take
+    ScreamTracker's rule instead — with both set, DOWN wins (K and L) or
+    nothing moves (D) — so a byte with both nibbles set must not cross as is."""
+    up = (xy >> 4) & 0xF
+    return (up << 4) if up else (xy & 0xF)
+
+def pt_volume_slide(arg: int) -> tuple:
+    """ProTracker / FastTracker 2 `Axy` (volume slide) → (taud_op, arg16,
+    vol_override, pan_override), the shape encode_effect returns.
+
+    The two trackers read Axy alike and NOT as ScreamTracker reads Dxy: the up
+    nibble wins whenever it is set (`A35` slides up 3), and an $F nibble is an
+    ordinary speed of 15, never a fine slide (fine slides are EAx / EBx).
+    Taud's D takes ST3's reading — D $F000 and D $xF00 are fine slides, both
+    nibbles set slides neither way — so the arg is reduced to the one nibble
+    that acts, and up-by-15 (D's only collision) goes to the volume column's
+    slide up instead, which steps the same per non-first tick.
+    """
+    xy = pt_slide_nibbles(arg)
+    if xy == 0xF0:
+        return (TOP_NONE, 0, (SEL_UP, 0xF), None)
+    if xy:
+        return (TOP_D, xy << 8, None, None)
+    return (TOP_NONE, 0, None, None)
+
 _SINC_TABLE_CACHE = {}
 _KAISER_BETA = 8.0          # ~-70 dB stop-band, near-flat pass-band to the corner
 

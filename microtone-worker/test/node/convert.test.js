@@ -301,6 +301,88 @@ test("mod2taud turns EC0 into a volume of 0, since S $C0 is ScreamTracker's no-o
   assert.equal(c2.arg, 0xC300);
 });
 
+/** A one-lane "M.K." module of several patterns: `patterns` holds
+ *  { row: [period, effect, arg] } for lane 0, every note on sample 1, whose
+ *  default volume is `volume`. */
+function makeModPatterns(patterns, orders, { volume = 64 } = {}) {
+  const head = 20 + 31 * 30 + 1 + 1 + 128 + 4;
+  const buf = new Uint8Array(head + patterns.length * 1024 + 16);
+  const put = (off, s) => { for (let i = 0; i < s.length; i++) buf[off + i] = s.charCodeAt(i); };
+  put(20, "probe");
+  buf[20 + 23] = 8;                    // 8 words
+  buf[20 + 25] = volume;
+  buf[20 + 29] = 1;
+  for (let i = 1; i < 31; i++) buf[20 + i * 30 + 29] = 1;
+  const o = 20 + 31 * 30;
+  buf[o] = orders.length;
+  buf[o + 1] = 127;
+  orders.forEach((p, i) => { buf[o + 2 + i] = p; });
+  put(o + 2 + 128, "M.K.");
+  patterns.forEach((cells, p) => {
+    for (const [row, [period, fx, arg]] of Object.entries(cells)) {
+      const c = head + p * 1024 + Number(row) * 16;
+      buf[c] = (period >> 8) & 0x0f;
+      buf[c + 1] = period & 0xff;
+      buf[c + 2] = (period ? 1 << 4 : 0) | fx;
+      buf[c + 3] = arg;
+    }
+  });
+  return buf;
+}
+
+const modToTaud = (bytes) => parseTaud(runConverter(py, {
+  script: "mod2taud.py",
+  argv: buildArgv({ isMidi: false, inPath: "/in.mod", outPath: "/out.taud" }),
+  inputs: [{ path: "/in.mod", bytes }],
+  output: "/out.taud",
+  onLog: () => {},
+}));
+
+test("mod2taud reads Axy, 5xy and 6xy as ProTracker does: up wins, and $F is a speed", () => {
+  // ProTracker slides UP by x whenever x is set, else down by y, and an $F
+  // nibble is a speed of 15 — fine slides are EAx / EBx. Taud's D reads
+  // ScreamTracker's way (D $F000 and D $xF00 are fine slides, both nibbles
+  // slide neither way), so only the acting nibble crosses, and up-by-15 goes
+  // to the volume column's slide (D cannot say it).
+  const SEL_UP = 1, SEL_FINE = 3, TOP_D = 0x0d, TOP_K = 0x14, TOP_L = 0x15;
+  const cells = laneCells(modToTaud(makeModPatterns([{
+    0: [428, 0xa, 0xf0], 1: [0, 0xa, 0xf3], 2: [0, 0xa, 0x3f], 3: [0, 0xa, 0x35],
+    4: [0, 0xa, 0x0f], 5: [0, 0xa, 0x04], 6: [0, 0x5, 0x35], 7: [0, 0x6, 0xf2],
+  }], [0])), 0);
+  for (const r of [0, 1]) {
+    assert.equal(cells[r].op, 0, `A${r ? "F3" : "F0"} leaves the effect slot empty`);
+    assert.deepEqual([cells[r].vol >> 6, cells[r].vol & 0x3f], [SEL_UP, 15], "and slides up 15 per tick");
+  }
+  assert.deepEqual([cells[2].op, cells[2].arg], [TOP_D, 0x3000], "A3F slides up 3, not a fine slide");
+  assert.deepEqual([cells[3].op, cells[3].arg], [TOP_D, 0x3000], "A35 slides up 3, not nothing");
+  assert.deepEqual([cells[4].op, cells[4].arg], [TOP_D, 0x0f00], "A0F slides down 15");
+  assert.deepEqual([cells[5].op, cells[5].arg], [TOP_D, 0x0400]);
+  assert.deepEqual([cells[6].op, cells[6].arg], [TOP_L, 0x3000], "535: up 3, where L would let down win");
+  assert.deepEqual([cells[7].op, cells[7].arg], [TOP_K, 0xf000], "6F2: up 15");
+  assert.equal(cells[2].vol >> 6, SEL_FINE, "the volume column stays empty beside a D");
+});
+
+test("mod2taud gives a sample of volume 0 a default note volume that is silent", () => {
+  // Default Note Volume 0 means "not stated" — full volume — so a silent
+  // sample needs 1, which rounds to note volume 0.
+  const doc = new Document(modToTaud(makeModPatterns([{ 0: [428, 0, 0] }], [0], { volume: 0 })));
+  assert.equal(doc.instruments[1].defaultNoteVolume, 1);
+  const loud = new Document(modToTaud(makeModPatterns([{ 0: [428, 0, 0] }], [0], { volume: 64 })));
+  assert.equal(loud.instruments[1].defaultNoteVolume, 255);
+});
+
+test("mod2taud resolves a shared pattern's recalls in each place it is played", () => {
+  // Pattern 2's `400` follows 482 at its first order and 484 at its second;
+  // each must recall the vibrato played just before it there, as ProTracker
+  // does, rather than both taking the first visit's.
+  const TOP_H = 0x11;
+  const cells = laneCells(modToTaud(makeModPatterns([
+    { 0: [428, 0x4, 0x82] }, { 0: [428, 0x4, 0x84] }, { 0: [0, 0x4, 0x00] },
+  ], [0, 2, 1, 2])), 0);
+  assert.deepEqual([cells[64].op, cells[64].arg], [TOP_H, 0x8822], "after 482");
+  assert.deepEqual([cells[192].op, cells[192].arg], [TOP_H, 0x8844], "after 484");
+});
+
 /** A one-lane, 32-row XM with one looping 32-byte instrument, its cells given
  *  as { row: [note, inst, vol, effect, param] }: the shape of the .xm that the
  *  OpenMPT probes of EC0 used. */
@@ -348,6 +430,23 @@ test("xm2taud turns EC0 into a volume of 0, and it beats the volume column", () 
   assert.equal(cells[2].vol >> 6, SEL_FINE, "ECx for x > 0 leaves the volume column alone");
   assert.equal(cells[2].op, 0x1c, "and stays S $Cx00");
   assert.equal(cells[2].arg, 0xc300);
+});
+
+test("xm2taud reads Axy as FastTracker 2 does, and up-by-15 beside a volume column falls back to D", () => {
+  const run = (cells) => laneCells(parseTaud(runConverter(py, {
+    script: "xm2taud.py",
+    argv: ["/in.xm", "/out.taud"],
+    inputs: [{ path: "/in.xm", bytes: makeXm(cells) }],
+    output: "/out.taud",
+    onLog: () => {},
+  })), 0);
+  const SEL_SET = 0, SEL_UP = 1, TOP_D = 0x0d;
+  const cells = run({ 0: [49, 1, 0, 0x0a, 0xf0], 1: [0, 0, 0x30, 0x0a, 0xf0], 2: [0, 0, 0, 0x0a, 0x35] });
+  assert.equal(cells[0].op, 0);
+  assert.deepEqual([cells[0].vol >> 6, cells[0].vol & 0x3f], [SEL_UP, 15], "AF0: the volume column slides up 15");
+  assert.equal(cells[1].vol >> 6, SEL_SET, "a volume-column SET keeps its column");
+  assert.deepEqual([cells[1].op, cells[1].arg], [TOP_D, 0xe000], "and AF0 beside it is the nearest D, up 14");
+  assert.deepEqual([cells[2].op, cells[2].arg], [TOP_D, 0x3000], "A35 slides up 3");
 });
 
 test("mod2taud stamps notation 1 and its notes land on the ProTracker grid", () => {
@@ -1945,6 +2044,34 @@ function midRms(doc) {
 
 const FM_PATCH = adlibPatch({ mult: 1, tl: 18, ar: 15, dr: 3, sl: 5, eg: 0, ws: 2 },
   { mult: 2, tl: 4, ar: 15, dr: 2, sl: 4, eg: 0 }, { feedback: 5 });
+
+test("s3m2taud and it2taud resolve a shared pattern's recalls in each place it is played", () => {
+  // Pattern 2's D00 follows D04 at its first order and D30 at its second; each
+  // must recall the slide played just before it THERE (ST3's shared memory,
+  // IT's D/K/L cohort), not both the first visit's. Whatever the converter
+  // makes of a D, the recalled row must come out as the row it recalls.
+  const slide = (info) => [{ row: 0, ch: 0, note: info === 0 ? undefined : 0x40, cmd: 4, info }];
+  const fx = ({ vol, op, arg }) => ({ vol, op, arg });
+  const pick = (cells) => [64, 192].map((at) => fx(cells[at]));
+  const want = (cells) => [0, 128].map((at) => fx(cells[at]));
+  const s3m = laneCells(parseTaud(convert("recall.s3m", { bytes: makeS3m({
+    channels: [0],
+    instruments: [{ type: 1, data: SQUARE, loop: true, volume: 64, c2spd: 8363 }],
+    patterns: [slide(0x04).map((c) => ({ ...c, inst: 1 })), slide(0x30), slide(0)],
+    orders: [0, 2, 1, 2],
+  }) })), 0);
+  assert.notDeepEqual(want(s3m)[0], want(s3m)[1], "the two slides differ to begin with");
+  assert.deepEqual(pick(s3m), want(s3m), "S3M: each D00 is the D before it");
+  const it = laneCells(parseTaud(convert("recall.it", { bytes: makeIt({
+    channels: 1,
+    samples: [{ data: SQUARE, loop: true, vol: 64, gv: 64, c5: 8363 }],
+    patterns: [slide(0x04).map((c) => ({ ...c, note: 60, smp: 1 })),
+      slide(0x30).map((c) => ({ ...c, note: 60 })), slide(0)],
+    orders: [0, 2, 1, 2],
+  }) })), 0);
+  assert.notDeepEqual(want(it)[0], want(it)[1]);
+  assert.deepEqual(pick(it), want(it), "IT: each D00 is the D before it");
+});
 
 test("s3m2taud: an AdLib instrument becomes an OPL instrument at its C2SPD", () => {
   const song = makeS3m({
