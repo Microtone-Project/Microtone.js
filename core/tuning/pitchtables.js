@@ -54,7 +54,7 @@ const SYM_96 = (() => {
 // de-facto extension used by FT2/OpenMPT and PT clones — NOT in ProTracker's
 // source (PT itself clamps periods to 113..856), included so .mods written in
 // modern trackers stay on-grid.
-const PT_PERIODS = [
+export const PT_PERIODS = [
   1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907, // oct 0 (ext)
    856,  808,  762,  720,  678,  640,  604,  570,  538,  508, 480, 453, // oct 1
    428,  404,  381,  360,  339,  320,  302,  285,  269,  254, 240, 226, // oct 2

@@ -2747,6 +2747,15 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   white-space: pre-wrap;
 }
 
+/* ── ProTracker export findings (popups/exportmod.js) ──
+   A list per song, scrolling on its own so a project with many songs keeps its
+   buttons on screen. What stops the export reads in the error ink. */
+.modexport-songs { max-height: calc(50vh / var(--ui-zoom, 1)); overflow-y: auto; }
+.modexport-songs h4 { margin: 0.6rem 0 0.2rem; font-weight: inherit; color: var(--dim); }
+.modexport-list { margin: 0 0 0.4rem; padding-inline-start: 1.2rem; line-height: 1.45; }
+.modexport-list li + li { margin-top: 0.25rem; }
+.modexport-errors li:not(.dim) { color: var(--err-fg); }
+
 /* ── determinate progress popup (WAV export) ── */
 .progress-modal { min-width: 360px; max-width: 480px; }
 /* showProgress's holdBack: up at once, seen only if the wait outlasts a blink. */

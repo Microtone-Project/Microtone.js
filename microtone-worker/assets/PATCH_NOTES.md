@@ -6,6 +6,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## Version 4.0.0 (2026-10-22)
 
+Songs can be saved as ProTracker modules again: **Export .MOD…** on the File tab writes every song as a four-channel `.mod`.
+
+- **A module you imported comes back out as the same music** — its samples, finetunes, volumes and loops, every note and every effect — so a `.mod` can make the round trip through Microtone, microtonal ones included.
+- **Songs written here export too**, as long as they keep to what a module holds: four lanes of music, the Amiga period tone-slide mode, and ProTracker's own effects, tempos and speeds. Whatever is in the way is named in a dialog, with where it first happens, and anything that will not come across exactly is listed before you save.
+- **OPL and PSG instruments become samples**, played once through the engine at the level they have in the mix and looped where they sustain; a sample pitched too high or too long for ProTracker is resampled by whole octaves.
+- **Microtonal songs are written as raw Amiga periods**, the nearest the hardware can get to each note. ProTracker plays them, though its editor and some other trackers will not show them right, and the dialog says so.
+- Each song of a project becomes its own module, and several come zipped together.
+
 Every instrument can now have its own mixing chain — equalisers, dynamics, unison, saturation, tape delay, reverb and a limiter — saved in the song and heard wherever it plays.
 
 - **The Mixing tab**, the last tab of every instrument, builds the chain: input trim, two equalisers, two dynamic EQs, a compressor of one to six bands, unison, a saturator, a tape delay, a reverb, a limiter and a mix tool, in a fixed order, the only choice being whether the delay feeds the reverb or the reverb the delay.
