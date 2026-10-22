@@ -570,6 +570,11 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
         # E3x glissando control / E4x vibrato wave / E5x finetune /
         # E7x tremolo wave / E9x retrigger / EAx fine vol up / EBx fine
         # vol down / ECx note cut / EDx note delay / EEx pattern delay.
+        if sub == 0xC and val == 0:
+            # EC0 cuts at tick 0 in FastTracker 2 and leaves the channel at
+            # volume 0. S $C0 is ScreamTracker's no-op, so the cut becomes the
+            # volume it leaves behind (build_pattern lets it beat the column).
+            return (TOP_NONE, 0, (SEL_SET, 0), None)
         if sub in (0x3, 0x4, 0x7, 0xC, 0xD, 0xE):
             return (TOP_S, (sub << 12) | (val << 8), None, None)
         if sub == 0x5:
@@ -1244,7 +1249,10 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
         note_triggers = (1 <= cell.note <= 96)
 
         # ── Volume column resolution ────────────────────────────────────────
-        if vs != SEL_FINE or vv != 0:
+        if cell.effect == 0x0E and cell.effect_arg == 0xC0:
+            # The effect runs after the column, so EC0's volume of 0 wins.
+            vol_sel, vol_value = vol_override
+        elif vs != SEL_FINE or vv != 0:
             vol_sel, vol_value = vs, vv
         elif vol_override is not None:
             vol_sel, vol_value = vol_override

@@ -386,6 +386,12 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0) -> tuple:
             # Fine vol slide down.
             return (TOP_NONE, 0, (SEL_FINE, x & 0xF), None)
         if sub == 0xC:
+            if x == 0:
+                # EC0 cuts at tick 0 in ProTracker (the note is silent from the
+                # first sample, and the lane stays at volume 0 until a sample
+                # number sets it again). S $C0 is ScreamTracker's no-op, so the
+                # cut becomes the volume it leaves behind: volume column SET 0.
+                return (TOP_NONE, 0, (SEL_SET, 0), None)
             return (TOP_S, 0xC000 | (x << 8), None, None)
         if sub == 0xD:
             return (TOP_S, 0xD000 | (x << 8), None, None)

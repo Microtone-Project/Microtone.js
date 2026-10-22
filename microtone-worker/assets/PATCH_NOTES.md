@@ -22,6 +22,17 @@ Every instrument can now have its own mixing chain — equalisers, dynamics, uni
 - A chain no instrument uses is kept while you work and dropped when you save; a project from a newer version with equipment this one does not know says so once, keeps it, and plays the rest of the chain.
 - An FM Rack's operators and algorithm now share 250 bytes of the record rather than 252, which no algorithm the editor builds comes near.
 
+## Version 3.13.3 (2026-10-22)
+
+The envelope graphs zoom with a two-finger pinch on a touch screen.
+
+- **Pinch an envelope graph** to zoom its time axis about your fingers; sliding both fingers scrolls it as you go, and a pinch that comes close to the whole envelope snaps to it, as zooming back out with the wheel does.
+- **A finger on a node now waits to see whether a second one joins it**, so starting a pinch with a finger on a node no longer drags the node; it moves once the finger has travelled a few pixels, and a tap still selects it.
+
+A note cut on the first tick now silences the note when a `.mod` or `.xm` is imported.
+
+- **Fixed: `E $C0` in an imported ProTracker or FastTracker 2 module did nothing**, where both trackers silence the note at once and leave the lane at volume 0; the importer turned it into `S $C000`, which ScreamTracker's rule makes a no-op, and now writes the volume it leaves behind. `E $Cx` for `x` from 1 up was right all along.
+
 ## Version 3.13.2 (2026-10-22)
 
 Motif programs can declare OPL and PSG chip instruments themselves, field for field as the Instruments view's OPL and PSG tabs show them.

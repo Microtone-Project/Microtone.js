@@ -254,7 +254,7 @@ json.dumps({"out": out, "stderr": _err.getvalue()})
 /** A minimal 4-lane "M.K." module: one pattern, one note per row, each a
  *  period straight out of ProTracker's table. Synthesised rather than shipped
  *  as a corpus binary so the periods under test are visible right here. */
-function makeMod(periods) {
+function makeMod(periods, effects = {}) {
   const N_SAMPLES = 31, CH = 4, SAMPLE_WORDS = 8;
   const head = 20 + N_SAMPLES * 30 + 1 + 1 + 128 + 4;
   const buf = new Uint8Array(head + 1024 + SAMPLE_WORDS * 2);
@@ -273,10 +273,82 @@ function makeMod(periods) {
     const c = head + row * CH * 4;      // lane 0 of this row
     buf[c] = (period >> 8) & 0x0f;      // sample hi nibble 0 | period hi
     buf[c + 1] = period & 0xff;
-    buf[c + 2] = 1 << 4;                // sample 1 lo nibble, effect 0
+    const [fx, arg] = effects[row] ?? [0, 0];
+    buf[c + 2] = (1 << 4) | fx;         // sample 1 lo nibble, effect
+    buf[c + 3] = arg;
   });
   return buf;
 }
+
+test("mod2taud turns EC0 into a volume of 0, since S $C0 is ScreamTracker's no-op", () => {
+  // OpenMPT renders ProTracker's EC0 silent from the first sample, and a note
+  // that follows without a sample number stays silent: the lane's volume is 0.
+  // ECx for x > 0 stays the note cut it always was.
+  const out = runConverter(py, {
+    script: "mod2taud.py",
+    argv: buildArgv({ isMidi: false, inPath: "/in.mod", outPath: "/out.taud" }),
+    inputs: [{ path: "/in.mod", bytes: makeMod([428, 428, 428], { 0: [0xE, 0xC0], 2: [0xE, 0xC3] }) }],
+    output: "/out.taud",
+    onLog: () => {},
+  });
+  const [c0, , c2] = laneCells(parseTaud(out), 0);
+  const SEL_SET = 0, SEL_FINE = 3;       // the column's selector, top two bits
+  assert.equal(c0.op, 0, "EC0 must not leave an S command the engine ignores");
+  assert.equal(c0.vol >> 6, SEL_SET, "EC0 is the volume column's SET");
+  assert.equal(c0.vol & 0x3f, 0, "to 0");
+  assert.equal(c2.vol >> 6, SEL_FINE, "ECx for x > 0 leaves the volume column alone");
+  assert.equal(c2.op, 0x1c, "ECx stays S $Cx00");  // TOP_S
+  assert.equal(c2.arg, 0xC300);
+});
+
+/** A one-lane, 32-row XM with one looping 32-byte instrument, its cells given
+ *  as { row: [note, inst, vol, effect, param] }: the shape of the .xm that the
+ *  OpenMPT probes of EC0 used. */
+function makeXm(cells) {
+  const ROWS = 32;
+  const out = [];
+  const bytes = (...b) => out.push(...b);
+  const text = (str, n) => { for (let i = 0; i < n; i++) out.push(i < str.length ? str.charCodeAt(i) : 0); };
+  const u16 = (v) => bytes(v & 255, v >> 8);
+  const u32 = (v) => { u16(v & 0xffff); u16(v >>> 16); };
+  text("Extended Module: ", 17); text("probe", 20); bytes(0x1a); text("probe", 20); u16(0x0104);
+  u32(276);
+  [1, 0, 1, 1, 1, 1, 6, 125].forEach(u16);   // order length, restart, lanes, patterns, instruments, flags (linear), speed, tempo
+  bytes(0); for (let i = 0; i < 255; i++) bytes(0);
+  u32(9); bytes(0); u16(ROWS); u16(ROWS * 5);
+  for (let r = 0; r < ROWS; r++) bytes(...(cells[r] ?? [0, 0, 0, 0, 0]));
+  const inst0 = out.length;
+  u32(263); text("inst", 22); bytes(0); u16(1); u32(40);
+  while (out.length < inst0 + 263) bytes(0);
+  u32(32); u32(0); u32(32); bytes(64, 0, 1, 128, 0, 0); text("smp", 22);
+  let prev = 0;
+  for (let k = 0; k < 32; k++) { const v = k % 2 ? 100 : -100; bytes((v - prev) & 255); prev = v; }
+  return Uint8Array.from(out);
+}
+
+test("xm2taud turns EC0 into a volume of 0, and it beats the volume column", () => {
+  // OpenMPT renders FastTracker 2's EC0 as silent as ProTracker's: from the
+  // first sample of the row, and the lane stays at volume 0 until an instrument
+  // number sets it again. The effect runs after the volume column, so a volume
+  // typed beside it is the one that loses.
+  const run = (cells) => laneCells(parseTaud(runConverter(py, {
+    script: "xm2taud.py",
+    argv: ["/in.xm", "/out.taud"],
+    inputs: [{ path: "/in.xm", bytes: makeXm(cells) }],
+    output: "/out.taud",
+    onLog: () => {},
+  })), 0);
+  const SEL_SET = 0, SEL_FINE = 3;
+  const cells = run({ 0: [49, 1, 0, 0x0e, 0xc0], 1: [49, 1, 0x50, 0x0e, 0xc0], 2: [49, 1, 0, 0x0e, 0xc3] });
+  assert.equal(cells[0].op, 0, "EC0 must not leave an S command the engine ignores");
+  assert.equal(cells[0].vol >> 6, SEL_SET);
+  assert.equal(cells[0].vol & 0x3f, 0);
+  assert.equal(cells[1].vol >> 6, SEL_SET, "a volume-column 64 beside EC0 loses to it");
+  assert.equal(cells[1].vol & 0x3f, 0);
+  assert.equal(cells[2].vol >> 6, SEL_FINE, "ECx for x > 0 leaves the volume column alone");
+  assert.equal(cells[2].op, 0x1c, "and stays S $Cx00");
+  assert.equal(cells[2].arg, 0xc300);
+});
 
 test("mod2taud stamps notation 1 and its notes land on the ProTracker grid", () => {
   // A spread across PT's range, including all four entries whose octave is not
