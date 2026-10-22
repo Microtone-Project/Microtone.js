@@ -479,6 +479,38 @@ const DEMOS = {
     box.append(col, out);
   },
 
+  Pushbuttons(box) {
+    const out = el("div", "ds-out");
+    const bands = [["LS", true], ["B1", false], ["B2", true], ["B3", false], ["B4", false], ["HS", true]];
+    let sel = 0;
+    const bar = el("div", "imx-bandbar");
+    const seg = el("div", "mst-seg");
+    const power = el("button", "toggle", "On");
+    const dir = el("div", "mst-seg");
+    let boost = false;
+    const draw = () => {
+      seg.replaceChildren(...bands.map(([name, on], i) => {
+        const b = el("button", i === sel ? "active" : "");
+        b.setAttribute("aria-pressed", String(i === sel));
+        b.append(el("span", `seg-lamp${on ? " lit" : ""}`), name);
+        b.addEventListener("click", () => { sel = i; draw(); });
+        return b;
+      }));
+      power.setAttribute("aria-pressed", String(bands[sel][1]));
+      dir.replaceChildren(...[["Cut", false], ["Boost", true]].map(([label, v]) => {
+        const b = el("button", v === boost ? "active" : "", label);
+        b.setAttribute("aria-pressed", String(v === boost));
+        b.addEventListener("click", () => { boost = v; draw(); });
+        return b;
+      }));
+      out.textContent = `editing ${bands[sel][0]} (${bands[sel][1] ? "on" : "off"}) · above threshold: ${boost ? "boost" : "cut"}`;
+    };
+    power.addEventListener("click", () => { bands[sel][1] = !bands[sel][1]; draw(); });
+    bar.append(seg, power);
+    draw();
+    box.append(bar, dir, out);
+  },
+
   NoteGlyph(box) {
     const pick = el("select");
     for (const id of [120, 240, 310, 410, 530, 10123]) pick.append(new Option(pitchTablePresets[id].name, id));

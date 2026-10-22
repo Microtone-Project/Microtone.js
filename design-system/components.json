@@ -54,6 +54,13 @@
       "enforcedBy": ["microtone-worker/src/ui/components/fold.js", "microtone-worker/test/browser/mixing-smoke.html"]
     },
     {
+      "id": "pushbuttons",
+      "title": "Few choices are pushbuttons, not dropdowns",
+      "text": "A choice among two to about six named options that someone flips while listening (Cut | Boost, Pre | Post, which band to edit) is a segmented row of pushbuttons (.mst-seg; the chosen one .active with aria-pressed), not a <select>: every option stays visible and one press changes it. An on/off of a part is a TOGGLE pushbutton (button.toggle, aria-pressed), which wears the same active look while in. When the buttons of a row each pick an item that has an on/off of its own — a band — each carries a lamp (.seg-lamp, .lit in meter green when that item is on), so what is selected and what is sounding read at once; the toggle beside the row switches the selected item. A row of one button is the whole capsule (both ends rounded). Where they are pressed constantly while listening (the Mixing tab's units), segments and toggles share the ordinary button's type size, with wide sides and a 2rem-tall target, the segment ends rounded like a button.",
+      "tokens": ["accent", "cv-cursor", "meter", "meter-bg"],
+      "enforcedBy": ["microtone-worker/test/browser/mixing-smoke.html"]
+    },
+    {
       "id": "change-driven",
       "title": "Write the DOM only on change",
       "text": "The frame loop visits every open view 60 times a second: compare before writing textContent, never read layout after a write in the same frame, and repaint canvases on change (gridKey/restKey), not on schedule."
@@ -132,6 +139,15 @@
       "classes": ["fold-toggle", "fold-name", "folded", "fold-body"],
       "tokens": ["dim", "accent", "radius-sm"],
       "rules": ["folding"]
+    },
+    {
+      "name": "Pushbuttons",
+      "kind": "css",
+      "summary": "A segmented row of pushbuttons for one of a few named choices (the chosen one lit like a selected tab), a toggle pushbutton for an on/off, and a lamp on a row's buttons when each picks an item with its own on/off.",
+      "api": "<div class=mst-seg role=group><button class=active aria-pressed=true><span class=\"seg-lamp lit\"></span>LS</button><button aria-pressed=false>…</button></div> <button class=toggle aria-pressed=true>On</button>",
+      "classes": ["mst-seg", "toggle", "seg-lamp"],
+      "tokens": ["accent", "cv-cursor", "meter", "meter-bg", "border"],
+      "rules": ["pushbuttons"]
     },
     {
       "name": "NoteGlyph",

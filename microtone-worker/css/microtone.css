@@ -4056,8 +4056,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.15rem 0.6rem;
   font-size: 0.82rem;
 }
-.mst-seg button:first-child { border-radius: 4px 0 0 4px; }
-.mst-seg button:last-child { border-radius: 0 4px 4px 0; }
+.mst-seg button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.mst-seg button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+/* A row of one is both ends: the whole capsule, not a half-flat first button. */
+.mst-seg button:only-child { border-radius: var(--radius-sm); }
 /* Neighbours OVERLAP their shared 1px edge rather than the later one dropping
    its left border: a dropped border leaves an accent-bordered button (active,
    or hovered) missing that edge, so every segment but the first drew an open
@@ -4069,6 +4071,21 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .mst-seg button.active { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); z-index: 1; }
 .mst-seg button:hover { z-index: 2; }
 .mst-serieseg { align-self: flex-start; margin-top: 0.2rem; }
+
+/* Pushbuttons (design system: "Pushbuttons"). A TOGGLE pushbutton is a plain
+   button whose aria-pressed says whether it is in; pressed, it wears the
+   segmented row's active look, so "this one is in" reads the same everywhere.
+   A segmented row whose buttons each pick an item that has its own on/off — a
+   band — carries a LAMP per button: green (live) when that item is on, a dark
+   trough when it is off, so which band you are editing and which bands are
+   sounding read at once. */
+button.toggle[aria-pressed="true"] { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); }
+.seg-lamp {
+  display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em;
+  border-radius: 50%; vertical-align: 0.06em;
+  background: var(--meter-bg); border: 1px solid var(--border);
+}
+.seg-lamp.lit { background: var(--meter); border-color: var(--meter); }
 
 .mst-canvas { width: 100%; display: block; }
 .mst-readouts {
@@ -4219,6 +4236,22 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* A threshold strip is dragged sideways, on a finger too: the canvas owns the
    gesture, as a drag grip does. */
 .imx-thresh { cursor: ew-resize; touch-action: none; margin-bottom: 0.2rem; }
+/* The band picker: which band the controls below edit, and its on/off. */
+.imx-bandbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.15rem; }
+.imx-bandbar .mst-seg { flex-wrap: wrap; }
+/* The Mixing units' pushbuttons are pressed constantly, while listening, on a
+   touchscreen as often as with a mouse: the On button's own type size, wide
+   sides and a tall target — and the segment ends rounded as that button is,
+   so a lone segment and the On beside it are the same capsule. */
+.imx-unit .mst-seg button, .imx-unit button.toggle {
+  font-size: 0.95rem;
+  min-height: 2rem;
+  min-width: 3.2rem;
+  padding: 0.25rem 1rem;
+}
+.imx-unit .mst-seg button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.imx-unit .mst-seg button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.imx-unit .mst-seg button:only-child { border-radius: var(--radius-md); }
 @media (max-width: 1100px) {
   .imx-grid { grid-template-columns: 1fr; }
   .imx-monitors { position: static; order: -1; }

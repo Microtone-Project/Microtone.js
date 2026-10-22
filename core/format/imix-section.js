@@ -40,7 +40,7 @@ const KNOWN = new Set(IMX_EQUIPMENT);
 const LFO_BYTES = 12;
 const EQ_BAND = 16;
 const COMP_BAND = 28;
-const DEQ_BAND = 44;
+const DEQ_BAND = 48;
 
 /** The size of a known version-0 payload, or null when it depends on a count
  *  that has to be read first (equ, comp). */
@@ -132,7 +132,7 @@ function decodeEquipment(id, p) {
           freq: f32(o + 4), q: f32(o + 8), gainDb: f32(o + 12),
           senseFreq: f32(o + 16), senseQ: f32(o + 20),
           threshDb: f32(o + 24), ratio: f32(o + 28), attackMs: f32(o + 32),
-          releaseMs: f32(o + 36), rangeDb: f32(o + 40),
+          releaseMs: f32(o + 36), rangeDb: f32(o + 40), actorDb: f32(o + 44),
         };
         // A linked band senses where it acts, and its file says so.
         if (!unlinked && (b.senseFreq !== b.freq || b.senseQ !== b.q)) {
@@ -327,6 +327,7 @@ export function encodeEquipment(id, eIn) {
         w.u8((b.on ? 1 : 0) | (b.unlinked ? 2 : 0) | (b.boost ? 4 : 0)); w.zeros(3);
         w.f32(b.freq); w.f32(b.q); w.f32(b.gainDb); w.f32(b.senseFreq); w.f32(b.senseQ);
         w.f32(b.threshDb); w.f32(b.ratio); w.f32(b.attackMs); w.f32(b.releaseMs); w.f32(b.rangeDb);
+        w.f32(b.actorDb);
       }
       break;
     case IMX_SATU:

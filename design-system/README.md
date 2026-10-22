@@ -73,6 +73,10 @@ Don't borrow one for decoration. Colours that must be told apart differ in light
 
 A panel built as a titlebar over a body — a rack unit, an inspector section — folds with `makeFoldable()` (`components/fold.js`), never with a hand-made toggle. A caret twisty sits at the left end of the titlebar, pointing down while open and right while shut, and the panel's name beside it toggles too (the twisty alone is in the Tab order). Only the body folds: the titlebar's own switch, Mix slider or readout keeps working while the panel is shut. Folding is never an undo step. Where it is kept depends on what the panel shows: when that is saved in the project and the format has a place for the fold — a mixing chain's equipment has a *folded* flag beside its bypass — it is saved there (pass `get`/`set`), so the file reopens as it was left and everyone on that chain sees it alike; otherwise it is the viewer's, in `localStorage` per kind of panel (pass `key`). A panel nobody has touched takes its caller's default: open what is in use, shut what is not.
 
+### Few choices are pushbuttons, not dropdowns
+
+A choice among two to about six named options that someone flips while listening — Cut or Boost, Pre or Post, which band to edit — is a **segmented row of pushbuttons** (`.mst-seg`, the chosen one `.active`), not a dropdown: every option stays in sight and one press changes it. An on/off of a part is a **toggle pushbutton** (`button.toggle` with `aria-pressed`), which wears the same lit look while it is in. When each button of a row picks an item that has its own on/off — a band of a compressor or a dynamic EQ — each carries a **lamp** (`.seg-lamp`, green when that item is on), so what you are editing and what is sounding read at once; the toggle beside the row switches the item selected.
+
 ### Write the DOM only on change
 
 The frame loop visits every open view 60 times a second. Compare before writing `textContent`, never read layout after a write in the same frame, and repaint a canvas when what it shows changes, not on a schedule.
@@ -147,7 +151,7 @@ The library is `microtone-worker/src/ui/components/`, linked here as `components
 | Fold | `fold.js` | folds a titlebar-over-body panel shut, remembered per viewer |
 | NoteGlyph | `noteglyph.js` | a note spelled as the grids spell it, as text |
 
-Pure-CSS components — Button, Badge, Tabs, Toolbar, Wordmark — are classes in `microtone.css`; `components.json` names them and `docs/` shows them.
+Pure-CSS components — Button, Badge, Tabs, Toolbar, Pushbuttons, Wordmark — are classes in `microtone.css`; `components.json` names them and `docs/` shows them.
 
 A new reusable piece goes into `components/` as its own module, gets an entry in `components.json` (exports, classes, tokens, rules) and a live demo in `docs/`; the test fails until the manifest lists it.
 

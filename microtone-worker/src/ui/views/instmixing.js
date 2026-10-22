@@ -146,6 +146,8 @@ export class MixingPanel {
     this._ghosts = new Map();
     /** Open or not, per `${block}:${piece}`, for pieces the block does not hold. */
     this._ghostOpen = new Map();
+    /** The band each compressor / dynamic EQ is editing, by piece. */
+    this._bandSel = new Map();
 
     this.store.on("edit", (tags) => {
       if (!this.root?.isConnected) return;
@@ -579,16 +581,13 @@ export class MixingPanel {
           x.crossovers[k] = clamp(v, lo, hi);
         }, `x${k}`), { unit: "Hz", digits: 0, log: true, args: { n: k + 1 } }));
     }
-    cur.bands.forEach((_, i) => {
+    const rows = cur.bands.map((_, i) => [i,
+      cur.bands.length === 1 ? t("imix.allShort") : String(i + 1),
+      cur.bands.length === 1 ? t("imix.allBands") : t("imix.band", { n: i + 1 })]);
+    const boxes = cur.bands.map((_, i) => {
       const box = document.createElement("div");
       box.className = "mst-band";
-      const head = document.createElement("div");
-      head.className = "mst-band-head";
-      const name = document.createElement("span");
-      name.textContent = cur.bands.length === 1 ? t("imix.allBands") : t("imix.band", { n: i + 1 });
-      head.append(name, this.switchEl("", () => e()?.bands[i]?.on ?? false,
-        (on) => this.editEquipment(id, (x) => { x.bands[i].on = on; })));
-      box.appendChild(head);
+      box.dataset.band = String(i);
       const b = () => e()?.bands[i] ?? defaultCompBand();
       const row = (lab, key, range, opts) => this.numRow(lab, range, () => b()[key],
         (v) => this.editEquipment(id, (x) => { x.bands[i][key] = v; }, `b${i}${key}`), opts);
@@ -600,41 +599,39 @@ export class MixingPanel {
         row("imix.knee", "kneeDb", "compKneeDb", { unit: "dB", digits: 1 }),
         row("imix.makeup", "makeupDb", "compMakeupDb", { unit: "dB", digits: 1 }),
       );
-      body.appendChild(box);
+      return box;
     });
+    body.append(this.bandBar(id, rows, boxes), ...boxes);
   }
 
   bodyDeq(id, body) {
     body.append(this.unitPlot(id), this.thresholdStrip(id));
     const e = () => this.eqp(id);
-    for (const i of DEQ_ORDER) {
+    const rows = DEQ_ORDER.map((i) => [i, deqShort(i),
+      i === IMX_DEQ_LOW_SHELF_BAND ? t("imix.lowShelf") : i === IMX_DEQ_HIGH_SHELF_BAND ? t("imix.highShelf") : t("imix.bell", { n: i - 1 })]);
+    const boxes = DEQ_ORDER.map((i) => {
       const box = document.createElement("div");
       box.className = "mst-band";
-      const head = document.createElement("div");
-      head.className = "mst-band-head";
-      const name = document.createElement("span");
-      name.textContent = i === 0 ? t("imix.lowShelf") : i === 1 ? t("imix.highShelf") : t("imix.bell", { n: i - 1 });
-      head.append(name, this.switchEl("", () => e()?.bands[i]?.on ?? false,
-        (on) => this.editEquipment(id, (x) => { x.bands[i].on = on; })));
-      box.appendChild(head);
+      box.dataset.band = String(i);
       const b = () => e()?.bands[i];
       const row = (lab, key, range, opts) => this.numRow(lab, range, () => b()?.[key] ?? 0,
         (v) => this.editEquipment(id, (x) => {
           x.bands[i][key] = v;
-          // A linked band senses where it acts.
+          // A linked band's sensor listens where its actor acts.
           if (!x.bands[i].unlinked) { x.bands[i].senseFreq = x.bands[i].freq; x.bands[i].senseQ = x.bands[i].q; }
         }, `b${i}${key}`), opts);
       box.append(
-        this.choiceRow("imix.direction", [[0, t("imix.cut")], [1, t("imix.boost")]],
+        this.segRow("imix.direction", [[0, t("imix.cut")], [1, t("imix.boost")]],
           () => (b()?.boost ? 1 : 0), (v) => this.editEquipment(id, (x) => { x.bands[i].boost = v === 1; })),
-        row("imix.freq", "freq", "eqFreq", { unit: "Hz", digits: 0, log: true }),
-        row("imix.q", "q", "eqQ", { digits: 2, log: true }),
+        row("imix.actorFreq", "freq", "eqFreq", { unit: "Hz", digits: 0, log: true }),
+        row("imix.actorQ", "q", "eqQ", { digits: 2, log: true }),
         row("imix.staticGain", "gainDb", "eqGainDb", { unit: "dB", digits: 1 }),
         row("imix.threshold", "threshDb", "compThreshDb", { unit: "dB", digits: 1 }),
         row("imix.ratio", "ratio", "compRatio", { digits: 2, suffix: ":1", log: true }),
         row("imix.attack", "attackMs", "compAttackMs", { unit: "ms", digits: 1, log: true }),
         row("imix.release", "releaseMs", "compReleaseMs", { unit: "ms", digits: 0, log: true }),
         row("imix.range", "rangeDb", "deqRangeDb", { unit: "dB", digits: 1 }),
+        row("imix.actorGain", "actorDb", "deqActorDb", { unit: "dB", digits: 1 }),
         this.checkRow("imix.unlinked", "imix.unlinkedTitle", () => b()?.unlinked ?? false,
           (on) => this.editEquipment(id, (x) => {
             x.bands[i].unlinked = on;
@@ -647,8 +644,112 @@ export class MixingPanel {
           row("imix.senseQ", "senseQ", "eqQ", { digits: 2, log: true }),
         );
       }
-      body.appendChild(box);
-    }
+      return box;
+    });
+    body.append(this.bandBar(id, rows, boxes), ...boxes);
+  }
+
+  /** The band piece `id`'s controls are editing (session state, per kind). */
+  selectedBand(id, rows) {
+    const v = this._bandSel.get(id);
+    return rows.some(([i]) => i === v) ? v : rows[0][0];
+  }
+
+  selectBand(id, band) {
+    if (this._bandSel.get(id) === band) return;
+    this._bandSel.set(id, band);
+    for (const c of this.controls) if (c.band === id) c.refresh();
+  }
+
+  /**
+   * The band picker over a compressor's or a dynamic EQ's band controls: a
+   * segmented row of pushbuttons, one per band, each with a lamp saying
+   * whether that band is on; then a toggle pushbutton switching the SELECTED
+   * band in or out. Only the selected band's controls are shown. `rows` is
+   * [[band index, label, title]] in display order; `boxes` the controls, in
+   * the same order.
+   */
+  bandBar(id, rows, boxes) {
+    const bar = document.createElement("div");
+    bar.className = "imx-bandbar";
+    const seg = document.createElement("div");
+    seg.className = "mst-seg";
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", t("imix.bandPick"));
+    const lamps = [];
+    const buttons = rows.map(([i, label, title]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.title = title;
+      b.dataset.band = String(i);
+      const lamp = document.createElement("span");
+      lamp.className = "seg-lamp";
+      lamps.push(lamp);
+      b.append(lamp, label);
+      b.addEventListener("click", () => this.selectBand(id, i));
+      seg.appendChild(b);
+      return b;
+    });
+    const power = document.createElement("button");
+    power.type = "button";
+    power.className = "toggle imx-bandpower";
+    power.textContent = t("imix.enabled");
+    power.title = t("imix.bandPowerTitle");
+    const bandOn = (i) => !!this.eqp(id).bands[i]?.on;
+    power.addEventListener("click", () => {
+      const i = this.selectedBand(id, rows);
+      const on = !bandOn(i);
+      this.editEquipment(id, (x) => { x.bands[i].on = on; });
+    });
+    bar.append(seg, power);
+    this.controls.push({
+      band: id,
+      refresh: () => {
+        const sel = this.selectedBand(id, rows);
+        rows.forEach(([i], k) => {
+          const b = buttons[k];
+          if (b.classList.contains("active") !== (i === sel)) b.classList.toggle("active", i === sel);
+          b.setAttribute("aria-pressed", String(i === sel));
+          if (lamps[k].classList.contains("lit") !== bandOn(i)) lamps[k].classList.toggle("lit", bandOn(i));
+          if (boxes[k].hidden !== (i !== sel)) boxes[k].hidden = i !== sel;
+        });
+        const p = String(bandOn(sel));
+        if (power.getAttribute("aria-pressed") !== p) power.setAttribute("aria-pressed", p);
+      },
+    });
+    return bar;
+  }
+
+  /** Label · a segmented row of pushbuttons: one of a few named choices. */
+  segRow(labelKey, options, get, set) {
+    const row = document.createElement("div");
+    row.className = "mst-row mst-row-choice";
+    const lab = document.createElement("span");
+    lab.className = "mst-lab";
+    lab.textContent = t(labelKey);
+    const seg = document.createElement("div");
+    seg.className = "mst-seg";
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", t(labelKey));
+    const buttons = options.map(([value, text]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.addEventListener("click", () => set(value));
+      seg.appendChild(b);
+      return [value, b];
+    });
+    row.append(lab, seg);
+    this.controls.push({
+      refresh: () => {
+        const v = get();
+        for (const [value, b] of buttons) {
+          if (b.classList.contains("active") !== (value === v)) b.classList.toggle("active", value === v);
+          b.setAttribute("aria-pressed", String(value === v));
+        }
+      },
+    });
+    return row;
   }
 
   bodySat(body) {
@@ -1416,6 +1517,7 @@ export class MixingPanel {
       const rows = this.thresholdRows(id);
       if (row < 0 || row >= rows.length) return;
       drag = rows[row][0];
+      this.selectBand(id, drag);
       try { cv.setPointerCapture(ev.pointerId); } catch { /* synthetic pointer */ }
       this.beginGesture();
       set(drag, db);
@@ -1580,7 +1682,7 @@ export class MixingPanel {
       ctx.fillRect(x0, yb, Math.max(1, x1 - x0), 2);
       ctx.fillRect(x0, yb - 3, 1, 8);
       ctx.fillRect(x1 - 1, yb - 3, 1, 8);
-      ctx.fillText(`${deqShort(i)} ${t("imix.senses")}`, clamp((x0 + x1) / 2, 24, w - 24), yb - 4);
+      ctx.fillText(`${deqShort(i)} ${t("imix.sensor")}`, clamp((x0 + x1) / 2, 24, w - 24), yb - 4);
     }
     ctx.textAlign = "left";
   }

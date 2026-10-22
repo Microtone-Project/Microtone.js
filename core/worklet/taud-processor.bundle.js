@@ -4225,6 +4225,7 @@ const IMX_RANGE = Object.freeze({
   compMakeupDb: [-12, 24],
   xover: [20, 20000],
   deqRangeDb: [0, 24],
+  deqActorDb: [-24, 24],
   satDriveDb: [0, 36],
   satTrimDb: [-24, 24],
   satBias: [-1, 1],
@@ -4308,7 +4309,7 @@ function defaultDeqBands() {
     bands.push({
       on: false, unlinked: false, boost: false,
       freq: f, q, gainDb: 0, senseFreq: f, senseQ: q,
-      threshDb: -24, ratio: 3, attackMs: 5, releaseMs: 100, rangeDb: 6,
+      threshDb: -24, ratio: 3, attackMs: 5, releaseMs: 100, rangeDb: 6, actorDb: 0,
     });
   }
   return bands;
@@ -4451,6 +4452,7 @@ function normaliseEquipment(id, e) {
           attackMs: imxClamp(+b.attackMs, "compAttackMs", db.attackMs),
           releaseMs: imxClamp(+b.releaseMs, "compReleaseMs", db.releaseMs),
           rangeDb: imxClamp(+b.rangeDb, "deqRangeDb", db.rangeDb),
+          actorDb: imxClamp(+b.actorDb, "deqActorDb", db.actorDb),
         };
       });
       break;
@@ -4789,14 +4791,16 @@ class ImxEq {
 }
 
 /**
- * Dynamic equaliser. Each band has an ACT filter (a shelf or a bell) whose gain
- * is its static gain plus a dynamic part, and a SENSE filter (low-pass for the
- * low shelf, high-pass for the high one, band-pass for the bells) whose level
- * drives that dynamic part — at the act filter's own frequency, or, unlinked,
- * at a range of its own. Above the threshold the band moves by
- * (level − threshold)·(1 − 1/ratio) dB, at most `range`, downward (a cut) or
- * upward (a boost), with the attack and release a compressor has. The
- * detector is linked across the bus, like every dynamics detector here.
+ * Dynamic equaliser. Each band is a SENSOR and an ACTOR. The actor is a shelf
+ * or a bell whose gain is the band's static gain plus a dynamic part; the
+ * sensor (low-pass for the low shelf, high-pass for the high one, band-pass
+ * for the bells) is what hears the level that drives that dynamic part — at
+ * the actor's own frequency, or, unlinked, at a range of its own. Above the
+ * threshold the dynamic part e moves toward (level − threshold)·(1 − 1/ratio)
+ * dB, at most `range`, downward (a cut) or upward (a boost), with the attack
+ * and release a compressor has; the actor applies e × 10^(actor gain / 20),
+ * so the actor gain scales every movement (0 dB = as computed). The sensor is
+ * linked across the bus, like every dynamics detector here.
  *
  * The act filter's coefficients follow the gain every IMX_CONTROL_PERIOD
  * samples.
@@ -4810,7 +4814,8 @@ class ImxDeq {
       this.act.push(new Biquad(nch));
       this.sense.push(new Biquad(nch));
     }
-    this.env = new Float64Array(IMX_DEQ_BANDS);   // dynamic gain, dB (signed)
+    this.env = new Float64Array(IMX_DEQ_BANDS);   // dynamic gain, dB (signed), before the actor gain
+    this.actor = new Float64Array(IMX_DEQ_BANDS).fill(1);  // 10^(actorDb/20): what the actor multiplies e by
     this.ctl = 0;
     this.p = null;
     this.rate = SAMPLING_RATE;
@@ -4829,6 +4834,7 @@ class ImxDeq {
       if (!b.on) continue;
       this.live.push(i);
       this.atk[i] = onePole(b.attackMs, rate);
+      this.actor[i] = dbToGain(b.actorDb);
       this.rel[i] = onePole(b.releaseMs, rate);
       const s = this.sense[i];
       if (i === IMX_DEQ_LOW_SHELF_BAND) s.lowPass(b.senseFreq, b.senseQ, rate);
@@ -4839,7 +4845,7 @@ class ImxDeq {
   }
   _setAct(i) {
     const b = this.p.bands[i];
-    const g = b.gainDb + this.env[i];
+    const g = b.gainDb + this.env[i] * this.actor[i];
     const s = this.act[i];
     if (i === IMX_DEQ_LOW_SHELF_BAND) s.lowShelf(b.freq, g, b.q, this.rate);
     else if (i === IMX_DEQ_HIGH_SHELF_BAND) s.highShelf(b.freq, g, b.q, this.rate);
@@ -4884,7 +4890,8 @@ class ImxDeq {
         const cur = this.env[i];
         const away = (target < 0 ? -target : target) > (cur < 0 ? -cur : cur);
         this.env[i] = cur + (target - cur) * (away ? this.atk[i] : this.rel[i]);
-        const e = this.env[i];
+        // The meter reads what the actor applies.
+        const e = this.env[i] * this.actor[i];
         if ((e < 0 ? -e : e) > (this.gr[i] < 0 ? -this.gr[i] : this.gr[i])) this.gr[i] = e;
         const s = this.act[i];
         for (let c = 0; c < nch; c++) {
@@ -4905,7 +4912,9 @@ class ImxDeq {
    *  the meter reads them; null = at rest) into the act filters, so
    *  responseDb draws the equaliser as it stands at that moment. */
   showGains(env) {
-    if (env) this.env.set(env); else this.env.fill(0);
+    // `env` is the APPLIED dynamic gain (the meter's), so the actor comes back out.
+    if (env) for (let i = 0; i < IMX_DEQ_BANDS; i++) this.env[i] = env[i] / this.actor[i];
+    else this.env.fill(0);
     if (this.p) for (const i of this.live) this._setAct(i);
   }
 }

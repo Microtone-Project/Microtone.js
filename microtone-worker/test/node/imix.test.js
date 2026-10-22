@@ -558,3 +558,33 @@ test("the folded flag: bit 6 beside the bypass, set in place, out of the undo hi
   assert.equal(doc.imixBlock(3).equipment.itrm.folded, true, "…through the redo too");
   assert.equal(doc.setImixFolded(3, "nope", true), false, "a piece the block lacks: nothing to fold");
 });
+
+test("a dynamic EQ band's actor gain scales its dynamic part: static + e × 10^(actor/20)", () => {
+  const run = (actorDb) => {
+    const block = M.defaultImixBlock(1);
+    const e = M.defaultEquipment("deq1");
+    Object.assign(e.bands[2], { on: true, freq: 1000, senseFreq: 1000, threshDb: -40, ratio: 4, rangeDb: 12, attackMs: 1, gainDb: 2, actorDb });
+    block.equipment.deq1 = e;
+    const ch = new M.InstrumentChain(block, FS, 2, true);
+    const chunk = 128;
+    const buf = new Float64Array(2 * chunk);
+    let n = 0;
+    for (let k = 0; k < 200; k++) {
+      for (let i = 0; i < chunk; i++, n++) buf[i] = buf[chunk + i] = 0.5 * Math.sin((2 * Math.PI * 1000 * n) / FS);
+      ch.process(buf, chunk, 0, chunk, 125, true);
+    }
+    return ch.readGr(M.makeImixGrReadout()).deq1[2];
+  };
+  const plain = run(0), doubled = run(20 * Math.log10(2));
+  assert.ok(plain < -1, `the band cuts (${plain} dB)`);
+  // The record holds binary32, so the factor is that of the stored dB figure.
+  const factor = 10 ** (Math.fround(20 * Math.log10(2)) / 20);
+  assert.ok(Math.abs(doubled - factor * plain) < 1e-9, `+6.02 dB of actor gain doubles the cut (${plain} → ${doubled})`);
+  // The record carries it.
+  const b = M.defaultImixBlock(4);
+  b.equipment.deq2 = M.defaultEquipment("deq2");
+  b.equipment.deq2.bands[5].actorDb = -7.5;
+  const back = parseImixSection(buildImixSection([b])).blocks.get(4);
+  assert.equal(back.equipment.deq2.bands[5].actorDb, -7.5);
+  assert.equal(encodeEquipment("deq1", M.defaultEquipment("deq1")).length, 296, "296 bytes: six 48-byte bands");
+});

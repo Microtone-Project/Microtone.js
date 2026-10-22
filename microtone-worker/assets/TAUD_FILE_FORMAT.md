@@ -1562,14 +1562,14 @@ Shapes: 0 high-pass (low cut), 1 low shelf, 2 bell, 3 high shelf, 4 low-pass (hi
 | +8 | `F32 × (k − 1)` | Crossover frequencies, Hz, 20…20000, **strictly ascending** |
 | … | `Band × k` | 28 bytes each: `U8` flags (bit 0 = enabled), `Byte[3]` **RESERVED**, `F32` threshold (dBFS, −60…0), `F32` ratio (1…20), `F32` attack (ms, 0.1…300), `F32` release (ms, 5…3000), `F32` knee (dB, 0…24), `F32` make-up (dB, −12…+24) |
 
-**`deq1`, `deq2` — dynamic equalisers** (272 bytes; no wet/dry)
+**`deq1`, `deq2` — dynamic equalisers** (296 bytes; no wet/dry)
 
 | Offset | Type | Field |
 |---|---|---|
 | +4 | `Byte[4]` | **RESERVED** |
-| +8 | `Band × 6` | 44 bytes each, below |
+| +8 | `Band × 6` | 48 bytes each, below |
 
-Band 0 is a low shelf, band 1 a high shelf, bands 2…5 bells. Each band: `U8` flags — bit 0 enabled, bit 1 **unlinked** (it senses a range of its own), bit 2 **boost** (it rises above the threshold; clear, it cuts) — `Byte[3]` **RESERVED**, then `F32` × 10: act frequency (Hz, 20…20000), act Q (0.1…18), static gain (dB, −24…+24), sense frequency, sense Q, threshold (dBFS, −60…0), ratio (1…20), attack (ms, 0.1…300), release (ms, 5…3000), range (dB, 0…24). A band that is **not** unlinked **MUST** carry its act frequency and Q in the sense fields.
+Band 0 is a low shelf, band 1 a high shelf, bands 2…5 bells. Each band is a **sensor**, which hears the level, and an **actor**, the filter that moves ([Engine Spec §12.4](TAUD_ENGINE_SPEC.md)). Each band: `U8` flags — bit 0 enabled, bit 1 **unlinked** (the sensor listens to a range of its own), bit 2 **boost** (it rises above the threshold; clear, it cuts) — `Byte[3]` **RESERVED**, then `F32` × 11: actor frequency (Hz, 20…20000), actor Q (0.1…18), static gain (dB, −24…+24), sensor frequency, sensor Q, threshold (dBFS, −60…0), ratio (1…20), attack (ms, 0.1…300), release (ms, 5…3000), range (dB, 0…24), **actor gain** (dB, −24…+24: the actor applies the dynamic gain × 10^(actor gain ÷ 20); 0 = as computed). A band that is **not** unlinked **MUST** carry its actor frequency and Q in the sensor fields.
 
 **`satu` — saturator** (24 bytes; wet/dry)
 

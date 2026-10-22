@@ -115,9 +115,40 @@ function painted(cv) {
   await sleep(80);
   check(unitEl("dlay") !== dlayBox && unitEl("dlay").classList.contains("folded") && !unitEl("verb").classList.contains("folded"),
     "the fold state survives a rebuild of the rack");
-  const deqNames = [...unitEl("deq1").querySelectorAll(".mst-band-head > span:first-child")].map((x) => x.textContent);
-  check(deqNames[0] === "Low shelf" && deqNames[deqNames.length - 1] === "High shelf",
-    "the dynamic EQ lists the high shelf last", deqNames.join(" | "));
+  // The dynamic EQ's band picker: pushbuttons low to high, one band's controls at a time.
+  const deq = unitEl("deq1");
+  const bandBtns = [...deq.querySelectorAll(".imx-bandbar .mst-seg button")];
+  check(bandBtns.map((b) => b.textContent).join(" ") === "LS B1 B2 B3 B4 HS", "the dynamic EQ's band buttons run low shelf to high shelf",
+    bandBtns.map((b) => b.textContent).join(" "));
+  const shown = () => [...deq.querySelectorAll(".mst-band")].filter((x) => !x.hidden).map((x) => x.dataset.band);
+  check(shown().join() === "0", "only the selected band's controls show (the low shelf first)", shown().join());
+  bandBtns[5].click();
+  await sleep(30);
+  check(shown().join() === "1" && bandBtns[5].classList.contains("active"), "pressing HS shows the high shelf's", shown().join());
+  const power = deq.querySelector(".imx-bandbar button.toggle");
+  check(power.getAttribute("aria-pressed") === "false" && !bandBtns[5].querySelector(".seg-lamp").classList.contains("lit"),
+    "its On toggle and lamp say it is off");
+  power.click();
+  await sleep(60);
+  const hs = store.doc.imixBlock(1).equipment.deq1?.bands[1];
+  check(hs?.on === true && store.doc.imixBlock(1).equipment.deq1.bypass === true,
+    "the toggle switches the band on (inserting the dynamic EQ, switched off)");
+  check(power.getAttribute("aria-pressed") === "true" && bandBtns[5].querySelector(".seg-lamp").classList.contains("lit"),
+    "…and the toggle and the lamp light");
+  const boxHs = deq.querySelector('.mst-band[data-band="1"]');
+  const boost = [...boxHs.querySelectorAll(".mst-seg button")].find((b) => b.textContent === "Boost");
+  boost.click();
+  await sleep(60);
+  check(store.doc.imixBlock(1).equipment.deq1.bands[1].boost === true && boost.classList.contains("active"),
+    "Cut / Boost are pushbuttons, and Boost takes");
+  const actor = [...boxHs.querySelectorAll(".mst-row")].find((r) => r.querySelector(".mst-lab")?.textContent === "Actor gain");
+  check(!!actor, "a band has an Actor gain");
+  const an = actor.querySelector("input.mst-num");
+  an.value = "-6";
+  an.dispatchEvent(new Event("change"));
+  await sleep(60);
+  check(store.doc.imixBlock(1).equipment.deq1.bands[1].actorDb === -6, "…which the record keeps",
+    String(store.doc.imixBlock(1).equipment.deq1.bands[1].actorDb));
 
   // ── 3. the titlebar switch inserts, then bypasses ─────────────────────────
   const sw = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"] .mst-unit-head input[type=checkbox]`);
@@ -236,6 +267,13 @@ function painted(cv) {
     const th = store.doc.imixBlock(1).equipment.comp.bands[0].threshDb;
     check(Math.abs(th - -15) < 0.6, "dragging a threshold strip sets that band's threshold", String(th));
     check(store.undo.undoStack.length === undoAt + 1, "…as one undo step", `${undoAt} → ${store.undo.undoStack.length}`);
+  }
+  // The compressor's band picker: its own pushbuttons, and the strip selects too.
+  {
+    const comp = unitEl("comp");
+    const cb = [...comp.querySelectorAll(".imx-bandbar .mst-seg button")];
+    check(cb.length === store.doc.imixBlock(1).equipment.comp.bands.length, "the compressor has a button per band", String(cb.length));
+    check(!!comp.querySelector(".imx-bandbar button.toggle[aria-pressed=\"true\"]"), "…and its band is on");
   }
   doc.getElementById("stopBtn")?.click();
   store.audio.stop(0);
