@@ -173,6 +173,11 @@ test("glossary lookup: lemmas, longest first, no crossing punctuation", () => {
   assert.ok(targetHasTerm(entries[2], "레인을 모두"));
   assert.ok(!targetHasTerm(entries[2], "채널을 모두"));
   assert.ok(targetHasTerm({ source: "MIDI", targets: [], dnt: true }, "midi 파일"));
+  const name = { key: termKey("name"), source: "name", targets: ["이름"] };
+  const withName = new Map([[name.key, name]]);
+  assert.deepEqual(findTerms("Rename {name} to {new name}", withName), [], "nothing inside braces is a term");
+  assert.deepEqual(findTerms("The name of {lane} lane", byKey).map((h) => h.entry.source), ["lane"]);
+  assert.ok(!targetHasTerm({ source: "name", targets: [], dnt: true }, "{name} 바꾸기"), "nor does it satisfy one");
 });
 
 test("checks: each one fires on its mistake and nothing fires on a clean translation", () => {
@@ -189,6 +194,7 @@ test("checks: each one fires on its mistake and nothing fires on a clean transla
     seg("x1", "Close", "닫기"), seg("x2", "Close", "끝내기"),
     seg("css", "", "@import x", { technical: true }),
     seg("gl", "Mute this lane", "이 채널 음소거"),
+    seg("glph", "Lane {lane} of {lanes}", "{lane}/{lanes}번"),
   ], [{ key: "lane", source: "lane", targets: ["레인"] }]);
   const by = (key) => issues.filter((i) => i.segment.key === key).map((i) => i.check).sort();
   assert.deepEqual(by("ok"), []);
@@ -201,6 +207,8 @@ test("checks: each one fires on its mistake and nothing fires on a clean transla
   assert.deepEqual(by("kept"), []);
   assert.deepEqual(by("x1"), ["inconsistent"]);
   assert.deepEqual(by("gl"), ["glossary"]);
+  assert.deepEqual(by("glph").filter((c) => c === "glossary"), ["glossary"], "the word lane counts once, the placeholders not at all");
+  assert.equal(issues.filter((i) => i.segment.key === "glph" && i.check === "glossary").length, 1);
   assert.deepEqual(by("css"), []);
   const id = issues.find((i) => i.segment.key === "ph").id;
   assert.notEqual(runChecks([seg("ph", "{n} files", "파일 {c}개")]).find((i) => i.check === "placeholder").id, id,

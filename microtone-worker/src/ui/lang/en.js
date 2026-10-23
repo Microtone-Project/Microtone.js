@@ -2345,7 +2345,7 @@ export default {
   // ── import MIDI ──
   "midi.title": "Import {name}",
   "midi.body": "The MIDI is converted through a SoundFont's instruments.",
-  "midi.soundfont": "Soundfont",
+  "midi.soundfont": "SoundFont",
   "midi.bundled": "Bundled GeneralUser-GS",
   "midi.chooseSf2": "Choose an .sf2 file…",
   "midi.needSf": "MIDI import needs a soundfont — bundled GeneralUser or pick an .sf2",
@@ -2664,7 +2664,7 @@ export default {
   "motif.built": "Built in {s} s: {lanes} lanes, {patterns} patterns. Save it from the File tab.",
   "motif.builtKept": "Built, but the open project has unsaved changes, so it was kept.",
   "motif.cancelled": "Build cancelled.",
-  "motif.sfTitle": "Soundfont",
+  "motif.sfTitle": "SoundFont",
   "motif.sfAsk": "This song plays from the soundfont \u201C{name}\u201D. Pick that file to build it.",
   "motif.sfNoBundled": "The soundfont Microtone bundles is not available here. Pick a soundfont to build with.",
   "motif.sfPick": "Pick…",

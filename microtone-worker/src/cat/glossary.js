@@ -174,25 +174,33 @@ export function alignTerms(terms, pairs, { keep = 3, minTogether = 2 } = {}) {
   });
 }
 
+/**
+ * The text with every `{…}` span (a placeholder, or anything else in braces)
+ * blanked out to as many `|`: its insides are not words of the sentence, and
+ * `|` keeps the offsets and stops a term from spanning across it.
+ */
+export const maskBraces = (s) => s.replace(/\{[^{}]*\}/g, (m) => "|".repeat(m.length));
+
 /** The comparison form of a target term or text: case-folded, spaces collapsed. */
 const foldTarget = (s) => s.toLowerCase().replace(/\s+/g, " ");
 
 /** True when `target` carries one of the entry's translations. */
 export function targetHasTerm(entry, target) {
-  const t = foldTarget(target);
+  const t = foldTarget(maskBraces(target));
   const wanted = entry.dnt ? [entry.source, ...(entry.targets ?? [])] : entry.targets ?? [];
   return wanted.some((w) => w && t.includes(foldTarget(w)));
 }
 
 /**
  * The glossary entries a source contains, as character spans (longest match
- * first, no overlaps) — for highlighting and for the checks.
+ * first, no overlaps) — for highlighting and for the checks. Nothing inside
+ * braces counts: `{name}` is a placeholder, not the word "name".
  * @param byKey  Map termKey → entry (accepted entries only, normally)
  */
 export function findTerms(source, byKey, maxLen = 4) {
   const spans = [];
   const re = /[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}]|['’\-](?=[\p{L}\p{N}]))*/gu;
-  const ws = [...source.matchAll(re)].map((m) => ({ text: m[0], start: m.index, end: m.index + m[0].length }));
+  const ws = [...maskBraces(source).matchAll(re)].map((m) => ({ text: m[0], start: m.index, end: m.index + m[0].length }));
   const ls = ws.map((w) => lemma(w.text));
   for (let i = 0; i < ws.length;) {
     let hit = null;
