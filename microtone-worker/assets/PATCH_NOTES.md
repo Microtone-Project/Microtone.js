@@ -43,6 +43,13 @@ Every instrument can now have its own mixing chain — equalisers, dynamics, uni
 - A chain no instrument uses is kept while you work and dropped when you save; a project from a newer version with equipment this one does not know says so once, keeps it, and plays the rest of the chain.
 - An FM Rack's operators and algorithm now share 250 bytes of the record rather than 252, which no algorithm the editor builds comes near.
 
+Microtone can be translated in the browser: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
+
+- **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.
+- **Suggestions from what is already translated**: the nearest strings translated before, with what differs from them marked, and a search through every string.
+- **Inconsistencies found for you**: the same English translated two ways, a placeholder, key name or "…" lost on the way, a glossary term not used, and translations whose English has changed since they were written, with the change shown.
+- Work stays in your browser until you save, and saving gives you the language files to send in.
+
 ## Version 3.13.3 (2026-10-22)
 
 The envelope graphs zoom with a two-finger pinch on a touch screen.

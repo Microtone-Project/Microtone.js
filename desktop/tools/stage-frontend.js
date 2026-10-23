@@ -28,6 +28,8 @@ const DESKTOP_EXCLUDE = [
   ".assetsignore",
   "package-lock.json",  // puppeteer, for the browser smokes
   "sf2taudify.py",
+  "translation/",       // the translation workbench: a page of the website, not of the app
+  "src/cat/",
 ];
 
 try {

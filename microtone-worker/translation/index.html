@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/png" href="../favicon.png">
+  <link rel="apple-touch-icon" type="image/png" href="../favicon.png">
+  <title>Microtone Translation</title>
+  <link rel="stylesheet" href="../css/microtone.css" />
+  <link rel="stylesheet" href="cat.css" />
+  <script>
+    // The theme before the first paint, as docs.html does (src/cat/app.js
+    // owns it from there).
+    try {
+      const t = localStorage.getItem("microtone-theme");
+      if (t === "dark" || t === "dim" || t === "light") document.documentElement.dataset.theme = t;
+      else document.documentElement.dataset.theme = "dim";
+    } catch { document.documentElement.dataset.theme = "dim"; }
+  </script>
+</head>
+<body class="cat-body">
+  <header class="topbar cat-topbar">
+    <a class="brand-container cat-brand" href="../" title="Open Microtone"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span></a>
+    <span class="cat-title">Translation</span>
+    <label class="cat-lang" title="The language being translated into">
+      <span class="dim">into</span>
+      <select id="langSel"></select>
+    </label>
+    <div class="cat-progress" id="progress" title="Translated, of every string">
+      <div class="cat-progress-bar"><div class="cat-progress-fill" id="progressFill"></div></div>
+      <span id="progressText" class="dim"></span>
+    </div>
+    <span class="grow"></span>
+    <button id="saveBtn" data-icon="download" title="Write the translation files (Ctrl+S)">Save…</button>
+    <a class="cat-help-link" href="../docs.html" title="Microtone's documentation">Docs</a>
+    <button id="themeBtn" data-icon="theme" title="Cycle theme: dark → dim → light"></button>
+  </header>
+
+  <nav class="tabs cat-tabs" id="tabs">
+    <button data-view="segments" class="active">Strings</button>
+    <button data-view="glossary">Glossary</button>
+    <button data-view="issues">Issues</button>
+  </nav>
+
+  <main class="cat-main">
+    <section class="cat-view cat-segments" id="view-segments">
+      <div class="cat-listpane">
+        <div class="cat-filters">
+          <div class="mst-seg" id="statusSeg"></div>
+          <div class="mst-seg" id="corpusSeg"></div>
+        </div>
+        <div class="cat-searchrow">
+          <input type="search" id="search" placeholder="Search English, translation or key (Ctrl+F)" spellcheck="false" />
+          <button id="fillBtn" title="Translate every untranslated string whose English is already translated elsewhere, the same way">Fill from memory…</button>
+        </div>
+        <div class="cat-list" id="list" tabindex="0" role="listbox" aria-label="Strings"></div>
+        <div class="cat-listfoot dim" id="listFoot"></div>
+      </div>
+      <div class="cat-editor" id="editor"></div>
+    </section>
+
+    <section class="cat-view cat-glossary" id="view-glossary" hidden></section>
+    <section class="cat-view cat-issues" id="view-issues" hidden></section>
+  </main>
+
+  <footer class="statusbar cat-statusbar">
+    <span id="status"></span>
+    <span class="grow"></span>
+    <span class="dim cat-keys">Ctrl+Enter confirm · Alt+↑ ↓ previous / next · Ctrl+1…9 use a match · Ctrl+Shift+S copy the English</span>
+  </footer>
+
+  <script type="module" src="../src/cat/app.js"></script>
+</body>
+</html>

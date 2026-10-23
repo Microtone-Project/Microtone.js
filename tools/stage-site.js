@@ -27,7 +27,9 @@
 // directories are walked instead.
 //
 // `--design-system` (the tracker's deploy only) also lays the design system's
-// docs page in at /design-system/ — see stageDesignSystem().
+// docs page in at /design-system/ — see stageDesignSystem(). `--translation`
+// (the same) lays Microtone Touch's language tables in beside the
+// translation workbench — see stageTranslation().
 
 import { execFileSync } from "node:child_process";
 import {
@@ -197,19 +199,43 @@ export function stageDesignSystem({ out }) {
   return Object.keys(DESIGN_SYSTEM_FILES).length;
 }
 
+/**
+ * The translation workbench (translation/, served at /translation/) edits
+ * both apps' language tables. The tracker's are part of its site; Touch's are
+ * not, so a staged tracker site gets a copy of them at translation/touch/ —
+ * the first place src/cat/corpora.js looks for them. (Served from the
+ * repository root, the page finds the real ones instead.)
+ */
+export const TOUCH_LANG = "microtone-touch-worker/src/lang";
+
+export function stageTranslation({ out }) {
+  const dir = join(resolve(out), "translation", "touch");
+  if (!existsSync(join(resolve(out), "translation", "index.html"))) {
+    throw new Error("stage-site: --translation, but the staged site has no translation/index.html");
+  }
+  mkdirSync(dir, { recursive: true });
+  const tables = listFiles(TOUCH_LANG).filter((rel) => /^[^/]+\.js$/.test(rel));
+  if (!tables.includes("en.js")) throw new Error(`stage-site: no ${TOUCH_LANG}/en.js`);
+  for (const rel of tables) copyFileSync(join(ROOT, TOUCH_LANG, rel), join(dir, rel));
+  return tables.length;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const withDesignSystem = args.includes("--design-system");
+  const withTranslation = args.includes("--translation");
   const [site, outArg] = args.filter((a) => !a.startsWith("--"));
   if (!site || !outArg) {
-    console.error("usage: node tools/stage-site.js <site-dir> <out-dir> [--design-system]");
+    console.error("usage: node tools/stage-site.js <site-dir> <out-dir> [--design-system] [--translation]");
     process.exit(2);
   }
   const out = resolve(outArg);
   try {
     const { files, bytes } = stageSite({ site, out });
-    const extra = withDesignSystem ? stageDesignSystem({ out }) : 0;
-    console.log(`stage-site: ${files + extra} files, ${(bytes / 1048576).toFixed(1)} MiB → ${relative(ROOT, out) || out}${extra ? " (with /design-system/)" : ""}`);
+    const ds = withDesignSystem ? stageDesignSystem({ out }) : 0;
+    const tr = withTranslation ? stageTranslation({ out }) : 0;
+    const extras = [ds ? "/design-system/" : "", tr ? "/translation/touch/" : ""].filter(Boolean).join(", ");
+    console.log(`stage-site: ${files + ds + tr} files, ${(bytes / 1048576).toFixed(1)} MiB → ${relative(ROOT, out) || out}${extras ? ` (with ${extras})` : ""}`);
   } catch (e) {
     console.error(e.message);
     process.exit(1);

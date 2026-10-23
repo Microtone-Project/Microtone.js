@@ -28,7 +28,7 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 .ds-brand { cursor: default; }
-.ds-title { color: var(--dim); font-size: 0.95rem; }
+.ds-title { color: var(--fg); font-size: 0.95rem; }
 .ds-grow { flex: 1; }
 .ds-themes { display: flex; gap: 0.3rem; }
 .ds-themes button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
@@ -41,7 +41,7 @@ pre {
   border-right: 1px solid var(--border);
 }
 .ds-nav a { color: var(--fg); text-decoration: none; padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.9rem; }
-.ds-nav a:hover { background: var(--panel); }
+.ds-nav a:hover { background: var(--panel); color: var(--fg); }
 .ds-nav a.here { color: var(--accent); }
 .ds-subnav { display: flex; flex-direction: column; margin-left: 0.7rem; }
 .ds-subnav a { font-size: 0.82rem; color: var(--dim); }
