@@ -54,7 +54,7 @@ import { initTheme, toggleTheme, onThemeChange, currentTheme, isThemeName, WARMT
 import {
   initZoom, onZoomChange, zoomStep, resetZoom, zoomLabel, canZoomIn, canZoomOut, holdBrowserZoom,
 } from "./zoom.js";
-import { initI18n, applyDom, t, LANGS, changeLang, onLangChange, currentLang } from "./i18n.js";
+import { initI18n, applyDom, t, pickerLangs, changeLang, onLangChange, currentLang } from "./i18n.js";
 import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
 import { ZSTD_LEVEL_SAVE, ZSTD_LEVEL_AUTOSAVE } from "../../core/format/zstd.js";
 import { withSaveProgress, saveInProgress } from "./saveprogress.js";
@@ -1258,7 +1258,7 @@ $("langBtn").addEventListener("click", async () => {
     body: t("lang.body"),
     fields: [{
       name: "lang", label: t("lang.field"), type: "select", value: currentLang(),
-      options: Object.entries(LANGS).map(([value, label]) => ({ value, label })),
+      options: Object.entries(pickerLangs()).map(([value, label]) => ({ value, label })),
     }],
     okLabel: t("common.ok"),
   });

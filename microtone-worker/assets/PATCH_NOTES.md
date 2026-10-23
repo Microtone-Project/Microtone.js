@@ -49,6 +49,7 @@ Microtone can be translated in the browser: the translation workbench at [microt
 - **Suggestions from what is already translated**: the nearest strings translated before, with what differs from them marked, and a search through every string.
 - **Inconsistencies found for you**: the same English translated two ways, a placeholder, key name or "…" lost on the way, a glossary term not used, and translations whose English has changed since they were written, with the change shown.
 - Work stays in your browser until you save, and saving gives you the language files to send in.
+- **Opening Microtone with `?lang=debug`** at the end of its address shows every string as its name followed by the start of its English, so you can tell which string is which on screen; choose a language in the language picker to leave it.
 
 ## Version 3.13.3 (2026-10-22)
 
