@@ -298,6 +298,39 @@ function makeSeededRandom(seed = 1) {
   };
 }
 
+// ══ core/engine/dither.js ══
+// The 16-bit quantiser a CLEAN stereo WAV export writes (the gritty export is
+// the device's own noise-shaped 8-bit dither, pcm32fToPcm8 in mixer.js).
+//
+// Plain TPDF dither of one LSB peak, no noise shaping, off its own xorshift32
+// stream at the adapter's seed — so an export is the same file every time, and
+// the master meter's 16-bit bit-usage census (loudness.js), which runs the
+// same stream over the same bus from the start of an offline analysis, counts
+// exactly the codes the file holds.
+//
+// Not part of the device: nothing the engine plays goes through here, which is
+// why it owes TSVM nothing. libtaudplay carries the same arithmetic
+// (taud_encode_wav), operand order included.
+
+
+/** A fresh dither stream — the generator ditherS16 draws from. */
+function makeDither16() {
+  return makeXorshift32();
+}
+
+/**
+ * One float sample (nominal ±1) → a signed 16-bit code: clamp, scale by 32767
+ * (the undithered writer's scale), add a triangular −1…+1 LSB, round. Two draws
+ * per sample, the first one positive.
+ */
+function ditherS16(next, x) {
+  const v = x < -1 ? -1 : x > 1 ? 1 : x;
+  const a = next() & 0xffffff;
+  const b = next() & 0xffffff;
+  const q = Math.round(v * 32767 + (a - b) / 16777216);
+  return q < -32768 ? -32768 : q > 32767 ? 32767 : q;
+}
+
 // ══ core/engine/tables.js ══
 // Lookup tables + pitch math — port of AudioAdapter.kt companion object tables
 // (149-340), MOD_SIN_TABLE / FINETUNE_OFFSET (1406-1422), META_MIX_GAIN (1480),
@@ -3265,6 +3298,7 @@ function responseCurve(chain, lo = 20, hi = 20000, n = 256) {
 // song differ because of it.
 
 
+
 // ── K-weighting (BS.1770) ───────────────────────────────────────────────────
 // Two sections: a high-frequency shelf standing in for the head's acoustics,
 // then the RLB high-pass. The standard tabulates coefficients at 48 kHz only,
@@ -3823,6 +3857,9 @@ class MasterMeterTap {
     this.shortLag = Math.min(codes(HIST_SPAN_SEC[HIST_SPAN_SHORT]), this.codeRing.length);
     this.ringWrite = 0;
     this.ringFull = false;
+    /** The clean WAV export's dither stream (dither.js), restarted with the
+     *  census so a census from the top of the song draws what the file drew. */
+    this.dither16 = makeDither16();
     /** Which census `drain` reports (HIST_SPAN_*). A REPORTING choice, nothing
      *  more — see TrackerState.setMasterMeter. */
     this.histSpan = HIST_SPAN_ALL;
@@ -3850,6 +3887,7 @@ class MasterMeterTap {
     for (const h of this.histWin) if (h !== null) h.fill(0);
     this.ringWrite = 0;
     this.ringFull = false;
+    this.dither16 = makeDither16();
     for (const r of this.spec) r.fill(0);
     this.specWrite = 0;
     this.frames = 0;
@@ -3930,11 +3968,13 @@ class MasterMeterTap {
    *   * 8 bits is the DEVICE's output, so it is binned from the dithered,
    *     noise-shaped U8 buffer the engine actually produced. Re-quantising the
    *     float would miss the dither, which at eight bits is most of the point.
-   *   * 16 bits is what a stereo WAV export writes, and that path takes the
-   *     PRE-DITHER float bus straight to `round(clamp(x) × 32767)` — so the
-   *     census repeats exactly that. (An export resampled to another rate
-   *     re-quantises after the resampler; at the default 48 kHz, which is the
-   *     engine's own rate, the codes are identical.)
+   *   * 16 bits is what a clean stereo WAV export writes, and that path takes
+   *     the PRE-DITHER float bus through its own TPDF dither (dither.js) — so
+   *     the census repeats exactly that, off the same stream. (An export
+   *     resampled to another rate quantises after the resampler; at the
+   *     default 48 kHz, which is the engine's own rate, an analysis from the
+   *     top of the song counts the very codes the file holds.) The gritty
+   *     export is the 8-bit case: at 48 kHz it IS the device's buffer.
    */
   binOutput(u8, left, right, frames) {
     const h = this.hist;
@@ -3969,10 +4009,11 @@ class MasterMeterTap {
       this.ringFull = full;
       return;
     }
+    const next = this.dither16;
     for (let n = 0; n < frames; n++) {
-      const l = left[n], r = right[n];
-      const cl = (Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff;
-      const cr = (Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff;
+      // Left before right: the export draws its dither in interleaved order.
+      const cl = (ditherS16(next, left[n]) + 32768) & 0xffff;
+      const cr = (ditherS16(next, right[n]) + 32768) & 0xffff;
       h[cl] += 1;
       if (full) hl[ring[w]] -= 1;
       if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;

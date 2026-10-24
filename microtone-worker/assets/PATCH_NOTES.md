@@ -43,6 +43,22 @@ Every instrument can now have its own mixing chain — equalisers, dynamics, uni
 - A chain no instrument uses is kept while you work and dropped when you save; a project from a newer version with equipment this one does not know says so once, keeps it, and plays the rest of the chain.
 - An FM Rack's operators and algorithm now share 250 bytes of the record rather than 252, which no algorithm the editor builds comes near.
 
+A stereo WAV export now comes in two bit depths, chosen in the **Export audio…** dialog: **Clean** and **Gritty**.
+
+- **Clean** (the default) is 16-bit as before, now with a light dither, so quiet fades and reverb tails stay smooth instead of breaking into steps.
+- **Gritty** is 8-bit through the Taud device's own noise-shaped dither — the sound of the format's player, and at 48 kHz exactly the bytes it plays.
+- The Mastering tab's **Bit usage** panel counts the same dither, so its 16-bit reading still matches the file you export.
+- The taudplay player library writes both, from JavaScript and from C.
+
+A project can be switched between 32 and 64 lanes from the **Lanes** selector on the Project tab.
+
+- It changes every song at once and moves nothing: going to 64 adds 32 empty lanes, and Ctrl+Z switches back.
+- If a song runs past cue 4096 (the most a 64-lane cue sheet holds), or still has patterns on lanes 33–64 when you go back to 32, a message says which, and nothing changes.
+
+Importing instruments keeps a metainstrument's building blocks out of the note column's way.
+
+- **Fixed: importing instruments put a metainstrument's building blocks in `$01`–`$FF`**, where they crowded the instruments you play, whenever they were ticked as well (the picker's **All** ticks every row); they now always land in `$100`–`$3FF`.
+
 Microtone can be translated in the browser: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
 
 - **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.

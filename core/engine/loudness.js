@@ -29,6 +29,7 @@
 // song differ because of it.
 
 import { TruePeakDetector } from "./analysis.js";
+import { makeDither16, ditherS16 } from "./dither.js";
 
 // ── K-weighting (BS.1770) ───────────────────────────────────────────────────
 // Two sections: a high-frequency shelf standing in for the head's acoustics,
@@ -588,6 +589,9 @@ export class MasterMeterTap {
     this.shortLag = Math.min(codes(HIST_SPAN_SEC[HIST_SPAN_SHORT]), this.codeRing.length);
     this.ringWrite = 0;
     this.ringFull = false;
+    /** The clean WAV export's dither stream (dither.js), restarted with the
+     *  census so a census from the top of the song draws what the file drew. */
+    this.dither16 = makeDither16();
     /** Which census `drain` reports (HIST_SPAN_*). A REPORTING choice, nothing
      *  more — see TrackerState.setMasterMeter. */
     this.histSpan = HIST_SPAN_ALL;
@@ -615,6 +619,7 @@ export class MasterMeterTap {
     for (const h of this.histWin) if (h !== null) h.fill(0);
     this.ringWrite = 0;
     this.ringFull = false;
+    this.dither16 = makeDither16();
     for (const r of this.spec) r.fill(0);
     this.specWrite = 0;
     this.frames = 0;
@@ -695,11 +700,13 @@ export class MasterMeterTap {
    *   * 8 bits is the DEVICE's output, so it is binned from the dithered,
    *     noise-shaped U8 buffer the engine actually produced. Re-quantising the
    *     float would miss the dither, which at eight bits is most of the point.
-   *   * 16 bits is what a stereo WAV export writes, and that path takes the
-   *     PRE-DITHER float bus straight to `round(clamp(x) × 32767)` — so the
-   *     census repeats exactly that. (An export resampled to another rate
-   *     re-quantises after the resampler; at the default 48 kHz, which is the
-   *     engine's own rate, the codes are identical.)
+   *   * 16 bits is what a clean stereo WAV export writes, and that path takes
+   *     the PRE-DITHER float bus through its own TPDF dither (dither.js) — so
+   *     the census repeats exactly that, off the same stream. (An export
+   *     resampled to another rate quantises after the resampler; at the
+   *     default 48 kHz, which is the engine's own rate, an analysis from the
+   *     top of the song counts the very codes the file holds.) The gritty
+   *     export is the 8-bit case: at 48 kHz it IS the device's buffer.
    */
   binOutput(u8, left, right, frames) {
     const h = this.hist;
@@ -734,10 +741,11 @@ export class MasterMeterTap {
       this.ringFull = full;
       return;
     }
+    const next = this.dither16;
     for (let n = 0; n < frames; n++) {
-      const l = left[n], r = right[n];
-      const cl = (Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff;
-      const cr = (Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff;
+      // Left before right: the export draws its dither in interleaved order.
+      const cl = (ditherS16(next, left[n]) + 32768) & 0xffff;
+      const cr = (ditherS16(next, right[n]) + 32768) & 0xffff;
       h[cl] += 1;
       if (full) hl[ring[w]] -= 1;
       if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;

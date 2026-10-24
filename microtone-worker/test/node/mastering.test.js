@@ -51,7 +51,7 @@ import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { setMasteringOp } from "../../src/doc/ops.js";
-import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
+import { loadIntoEngine, renderSong, encodeWav } from "../../core/audio/offline-render.js";
 import { analyseSongAsync, gainForTruePeak, gainForLoudness, trimForLoudness }
   from "../../src/audio/master-analysis.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
@@ -491,13 +491,16 @@ test("…and both windows are exact on the 16-bit path too", () => {
     const buf = new Float64Array(codes / 2).fill(v);
     tap.binOutput(null, buf, buf, codes / 2);
   };
+  // The clean export's dither spreads a constant over one LSB either side, so
+  // a value's codes are the three around it.
   const codeOf = (v) => (Math.round(v * 32767) + 32768) & 0xffff;
+  const near = (h, v) => h[codeOf(v) - 1] + h[codeOf(v)] + h[codeOf(v) + 1];
   feed(0.5, long);
-  assert.equal(tap.histWin[HIST_SPAN_LONG][codeOf(0.5)], long);
-  assert.equal(tap.histWin[HIST_SPAN_SHORT][codeOf(0.5)], short);
+  assert.equal(near(tap.histWin[HIST_SPAN_LONG], 0.5), long);
+  assert.equal(near(tap.histWin[HIST_SPAN_SHORT], 0.5), short);
   feed(-0.5, short);
-  assert.equal(tap.histWin[HIST_SPAN_SHORT][codeOf(0.5)], 0, "rolled out of the moment");
-  assert.ok(tap.histWin[HIST_SPAN_LONG][codeOf(0.5)] > 0, "…still in the passage");
+  assert.equal(near(tap.histWin[HIST_SPAN_SHORT], 0.5), 0, "rolled out of the moment");
+  assert.ok(near(tap.histWin[HIST_SPAN_LONG], 0.5) > 0, "…still in the passage");
   assert.equal(censusTotal(tap.histWin[HIST_SPAN_LONG]), long);
   assert.equal(censusTotal(tap.histWin[HIST_SPAN_SHORT]), short);
   // No count can go negative, whatever order the codes arrive in — each window
@@ -991,17 +994,25 @@ test("the 8-bit census bins the dithered device codes", () => {
 test("the 16-bit census repeats exactly what the WAV encoder writes", () => {
   const tap = new MasterMeterTap(SAMPLING_RATE, { bitDepth: 16 });
   assert.equal(tap.hist.length, 65536);
+  // Out-of-range values, and a ramp long enough for the dither to matter.
   const values = [0, 0.5, -0.25, 1, -1, 2, -3];
+  for (let i = 0; i < 500; i++) values.push(Math.sin(i / 7) * 0.001);
   const l = Float32Array.from(values);
   const n = values.length;
-  // Same buffer both sides; the U8 argument must be ignored at this depth.
+  // Same buffer both sides; the U8 argument must be ignored at this depth
+  // (code 7 is nowhere near these values, so the count below would show it).
   tap.binOutput(new Uint8Array(n * 2).fill(7), l, l, n);
-  for (const v of values) {
-    const clamped = Math.max(-1, Math.min(1, v));
-    const code = Math.round(clamped * 32767) + 32768;  // encodeWav's own rule
-    assert.ok(tap.hist[code & 0xffff] >= 2, `${v} → code ${code}`);
+  // The clean file of that very pair, from the top, at the engine's rate:
+  // its dither stream is the census's, so the two counts agree code for code.
+  const inter = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) inter[i * 2] = inter[i * 2 + 1] = l[i];
+  const wav = encodeWav(inter, SAMPLING_RATE);
+  const dv = new DataView(wav.buffer, 44);
+  const want = new Float64Array(65536);
+  for (let i = 0; i < n * 2; i++) want[(dv.getInt16(i * 2, true) + 32768) & 0xffff] += 1;
+  for (let c = 0; c < 65536; c++) {
+    if (tap.hist[c] !== want[c]) assert.fail(`code ${c}: census ${tap.hist[c]}, file ${want[c]}`);
   }
-  assert.equal(tap.hist[7], 0, "the device buffer was not consulted");
 });
 
 test("the drain reports exact figures and a 256-bucket picture at either depth", () => {

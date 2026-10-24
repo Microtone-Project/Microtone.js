@@ -18,6 +18,7 @@ const FILES = [
   "core/engine/constants.js",
   "core/engine/minifloat.js",
   "core/engine/rng.js",
+  "core/engine/dither.js",
   "core/engine/tables.js",
   "core/engine/spatial.js",
   "core/engine/hrir-sadie.js",  // …which binaural.js decodes

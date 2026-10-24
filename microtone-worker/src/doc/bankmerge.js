@@ -6,7 +6,8 @@
 //   * samples dedupe by CONTENT against the destination pool and within the
 //     batch, then first-fit into free pool extents (8 MB budget);
 //   * top-level imports take free slots 1..255 (the pattern-cell instrument
-//     byte can't address higher); layer-only dependencies fill 1023 downward;
+//     byte can't address higher); every sub-instrument — a source of another
+//     instrument in the batch, picked or not — fills $3FF downward to $100;
 //   * instrument records and Ixmp blobs are kept verbatim except the
 //     remapped sample pointers / layer indices; INam entries splice by slot,
 //     SNam rebuilds by sample identity (ptr:len) AFTER apply so the name
@@ -227,16 +228,22 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
       if (!all.has(d)) { all.add(d); queue.push(d); }
     }
   }
-  const topLevel = new Set(selected);
+  // A sub-instrument is a component, not something to play (item 59), so it
+  // goes to the auxiliary range even when it was ticked — "All" ticks every
+  // row, and the source may well have kept it in $01–$FF.
+  const sources = new Set();
+  for (const s of all) for (const d of layerDeps(srcDoc, s, srcUsed)) sources.add(d);
+  const topLevel = new Set(selected.filter((s) => !sources.has(s)));
   const ordered = [...all].sort((a, b) => a - b);
 
   // ── destination slots: 1..255 ascending for note-addressable imports,
-  //    1023 downward for layer-only dependencies ──
+  //    $3FF downward to $100 for sub-instruments, which fall back to the low
+  //    range only once the auxiliary one is full ──
   const taken = new Set(destDoc.usedInstrumentSlots());
   const slotMap = new Map();
   let low = 1, high = 1023;
   const nextLow = () => { while (low <= 255 && taken.has(low)) low++; return low <= 255 ? low : null; };
-  const nextHigh = () => { while (high >= 1 && taken.has(high)) high--; return high >= 1 ? high : null; };
+  const nextHigh = () => { while (high >= 256 && taken.has(high)) high--; return high >= 256 ? high : null; };
   for (const srcSlot of ordered) {
     const dest = topLevel.has(srcSlot) ? nextLow() : (nextHigh() ?? nextLow());
     if (dest === null) {

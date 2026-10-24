@@ -304,7 +304,8 @@ export class FilesView {
 
   /**
    * Offline-render the current song through the engine to an audio file
-   * (#998.4). Stereo stays the 16-bit fold it always was; the surround and
+   * (#998.4). Stereo stays the fold it always was, clean (16-bit) or gritty
+   * (the device's 8-bit); the surround and
    * ambisonic targets re-render the same song with a different SpatialRenderer
    * installed and carry ADM metadata so the channels mean something.
    */
@@ -326,6 +327,7 @@ export class FilesView {
         outRate: this._lastExport?.outRate ?? 48000,
         cap: this._lastExport?.cap ?? 300,
         monitor: this._lastExport?.monitor,
+        quality: this._lastExport?.quality,
       },
     });
     if (!choice) return;
@@ -340,7 +342,7 @@ export class FilesView {
       let wav;
       try {
         wav = await renderToWavAsync(doc.toRenderable(songIndex), songIndex, choice.cap, {
-          outRate: choice.outRate, monitor: choice.monitor,
+          outRate: choice.outRate, monitor: choice.monitor, quality: choice.quality,
           onProgress: (f) => progress.set(f), signal: progress.signal,
         });
       } catch (err) {

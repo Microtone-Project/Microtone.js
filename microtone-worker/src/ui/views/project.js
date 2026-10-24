@@ -5,8 +5,9 @@
 import {
   setSongScalarOp, setTuningOp, retuneOp, remapPatternsOp, cleanupBankOp,
   changeInstrumentOp, bulkNotesOp, upgradeCellFormatOp, setProjectStringOp,
-  importBankOp,
+  importBankOp, laneModeBlocker, setLaneModeOp,
 } from "../../doc/ops.js";
+import { NUM_VOICES } from "../../../core/format/taud-const.js";
 import { tuningRatioOf } from "../../../core/engine/tables.js";
 import {
   TUNING_REF_C4_HZ, TUNING_DEFAULT_BASE_NOTE, TUNING_DEFAULT_FREQ_HZ, BPM_MIN, BPM_MAX,
@@ -103,6 +104,29 @@ export class ProjectView {
     this.store.undo.apply(upgradeCellFormatOp(this.store.songIndex, value));
     this.store.emit("format");
     await this.cb?.saveCopyAs?.(copyName);
+    this.refresh();
+  }
+
+  /**
+   * 32 or 64 lanes — a whole-project property, so it changes every song at
+   * once. Either way is undoable; what would not fit (a cue sheet past 4096
+   * cues, a pattern on lanes 33–64) is explained instead of being thrown away.
+   */
+  async setLaneMode(is64) {
+    const doc = this.store.doc;
+    if (!doc || is64 === doc.is64Channel) return;
+    const why = laneModeBlocker(doc, is64);
+    if (why !== null) {
+      this.refresh(); // put the selector back
+      await showNotice({
+        title: t(is64 ? "proj.lanes64Title" : "proj.lanes32Title"),
+        body: t(why === "cues" ? "proj.lanesBlockedCues" : "proj.lanesBlockedLanes"),
+      });
+      return;
+    }
+    this.store.undo.apply(setLaneModeOp(is64));
+    if (this.store.cursor.ch >= NUM_VOICES && !is64) this.store.cursor.ch = NUM_VOICES - 1;
+    this.store.emit("format");
     this.refresh();
   }
 
@@ -306,6 +330,13 @@ export class ProjectView {
     });
     notationRow.appendChild(makerBtn);
 
+    // Project-wide, like the three strings: the lane count is one flag for the
+    // whole file (§9.1), not a song scalar.
+    const lanesRow = sel(t("proj.lanes"), doc.is64Channel ? 64 : 32, [
+      [32, t("proj.lanes32")], [64, t("proj.lanes64")],
+    ], (v) => this.setLaneMode(v === 64));
+    lanesRow.title = t("proj.lanesTitle");
+
     const beats = this.store.beats();
     const grid = document.createElement("div");
     grid.className = "inst-grid";
@@ -313,6 +344,7 @@ export class ProjectView {
       nameRow,
       authorRow,
       copyrightRow,
+      lanesRow,
       num(t("proj.bpm"), song.bpm, BPM_MIN, BPM_MAX, (v) => this.op("bpm", v)),
       num(t("proj.speedTicks"), song.tickRate, 1, 127, (v) => this.op("tickRate", v)),
       // Row highlighting (item 136.1) — the grids' beat/bar banding. Display

@@ -299,6 +299,39 @@ function makeSeededRandom(seed = 1) {
   };
 }
 
+// ══ core/engine/dither.js ══
+// The 16-bit quantiser a CLEAN stereo WAV export writes (the gritty export is
+// the device's own noise-shaped 8-bit dither, pcm32fToPcm8 in mixer.js).
+//
+// Plain TPDF dither of one LSB peak, no noise shaping, off its own xorshift32
+// stream at the adapter's seed — so an export is the same file every time, and
+// the master meter's 16-bit bit-usage census (loudness.js), which runs the
+// same stream over the same bus from the start of an offline analysis, counts
+// exactly the codes the file holds.
+//
+// Not part of the device: nothing the engine plays goes through here, which is
+// why it owes TSVM nothing. libtaudplay carries the same arithmetic
+// (taud_encode_wav), operand order included.
+
+
+/** A fresh dither stream — the generator ditherS16 draws from. */
+function makeDither16() {
+  return makeXorshift32();
+}
+
+/**
+ * One float sample (nominal ±1) → a signed 16-bit code: clamp, scale by 32767
+ * (the undithered writer's scale), add a triangular −1…+1 LSB, round. Two draws
+ * per sample, the first one positive.
+ */
+function ditherS16(next, x) {
+  const v = x < -1 ? -1 : x > 1 ? 1 : x;
+  const a = next() & 0xffffff;
+  const b = next() & 0xffffff;
+  const q = Math.round(v * 32767 + (a - b) / 16777216);
+  return q < -32768 ? -32768 : q > 32767 ? 32767 : q;
+}
+
 // ══ core/engine/tables.js ══
 // Lookup tables + pitch math — port of AudioAdapter.kt companion object tables
 // (149-340), MOD_SIN_TABLE / FINETUNE_OFFSET (1406-1422), META_MIX_GAIN (1480),
@@ -3266,6 +3299,7 @@ function responseCurve(chain, lo = 20, hi = 20000, n = 256) {
 // song differ because of it.
 
 
+
 // ── K-weighting (BS.1770) ───────────────────────────────────────────────────
 // Two sections: a high-frequency shelf standing in for the head's acoustics,
 // then the RLB high-pass. The standard tabulates coefficients at 48 kHz only,
@@ -3824,6 +3858,9 @@ class MasterMeterTap {
     this.shortLag = Math.min(codes(HIST_SPAN_SEC[HIST_SPAN_SHORT]), this.codeRing.length);
     this.ringWrite = 0;
     this.ringFull = false;
+    /** The clean WAV export's dither stream (dither.js), restarted with the
+     *  census so a census from the top of the song draws what the file drew. */
+    this.dither16 = makeDither16();
     /** Which census `drain` reports (HIST_SPAN_*). A REPORTING choice, nothing
      *  more — see TrackerState.setMasterMeter. */
     this.histSpan = HIST_SPAN_ALL;
@@ -3851,6 +3888,7 @@ class MasterMeterTap {
     for (const h of this.histWin) if (h !== null) h.fill(0);
     this.ringWrite = 0;
     this.ringFull = false;
+    this.dither16 = makeDither16();
     for (const r of this.spec) r.fill(0);
     this.specWrite = 0;
     this.frames = 0;
@@ -3931,11 +3969,13 @@ class MasterMeterTap {
    *   * 8 bits is the DEVICE's output, so it is binned from the dithered,
    *     noise-shaped U8 buffer the engine actually produced. Re-quantising the
    *     float would miss the dither, which at eight bits is most of the point.
-   *   * 16 bits is what a stereo WAV export writes, and that path takes the
-   *     PRE-DITHER float bus straight to `round(clamp(x) × 32767)` — so the
-   *     census repeats exactly that. (An export resampled to another rate
-   *     re-quantises after the resampler; at the default 48 kHz, which is the
-   *     engine's own rate, the codes are identical.)
+   *   * 16 bits is what a clean stereo WAV export writes, and that path takes
+   *     the PRE-DITHER float bus through its own TPDF dither (dither.js) — so
+   *     the census repeats exactly that, off the same stream. (An export
+   *     resampled to another rate quantises after the resampler; at the
+   *     default 48 kHz, which is the engine's own rate, an analysis from the
+   *     top of the song counts the very codes the file holds.) The gritty
+   *     export is the 8-bit case: at 48 kHz it IS the device's buffer.
    */
   binOutput(u8, left, right, frames) {
     const h = this.hist;
@@ -3970,10 +4010,11 @@ class MasterMeterTap {
       this.ringFull = full;
       return;
     }
+    const next = this.dither16;
     for (let n = 0; n < frames; n++) {
-      const l = left[n], r = right[n];
-      const cl = (Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff;
-      const cr = (Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff;
+      // Left before right: the export draws its dither in interleaved order.
+      const cl = (ditherS16(next, left[n]) + 32768) & 0xffff;
+      const cr = (ditherS16(next, right[n]) + 32768) & 0xffff;
       h[cl] += 1;
       if (full) hl[ring[w]] -= 1;
       if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;
@@ -20813,6 +20854,17 @@ class StreamResampler {
 
 
 
+
+
+
+/**
+ * The two stereo WAV characters. CLEAN is 16-bit with a plain TPDF dither
+ * (dither.js); GRITTY is 8-bit through the device's own noise-shaped dither —
+ * at the engine's rate, the very bytes the device would have played.
+ */
+const WAV_CLEAN = "clean";
+const WAV_GRITTY = "gritty";
+
 /** Load a parsed .taud (or Document-adapted) song into a fresh engine. */
 function loadIntoEngine(eng, doc, songIndex = 0) {
   const song = doc.songs[songIndex];
@@ -20942,13 +20994,17 @@ async function renderSongAsync(eng, seconds, { onProgress = null, signal = null,
   };
 }
 
-/** Encode a rendered f32 mix bus (engine rate) as a 16-bit stereo WAV at
- *  `outRate`; the 48 kHz default needs no resampling at all (item 108).
+/** Encode a rendered f32 mix bus (engine rate) as a stereo WAV at `outRate`;
+ *  the 48 kHz default needs no resampling at all (item 108). `quality` is
+ *  WAV_CLEAN (16-bit, TPDF-dithered) or WAV_GRITTY (8-bit, noise-shaped like
+ *  the device). Either dither starts afresh, so a render is one file every time.
  *  Exported for taudplay (item 179), whose renderer writes the same files. */
-function encodeWav(f32, outRate = 48000) {
+function encodeWav(f32, outRate = 48000, quality = WAV_CLEAN) {
   const pcm = resampleInterleaved(f32, 2, SAMPLING_RATE, outRate);
+  const gritty = quality === WAV_GRITTY;
+  const bytesPer = gritty ? 1 : 2;
   const numSamples = pcm.length; // interleaved stereo samples
-  const dataBytes = numSamples * 2;
+  const dataBytes = numSamples * bytesPer;
   const buf = new ArrayBuffer(44 + dataBytes);
   const dv = new DataView(buf);
   const wstr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
@@ -20957,17 +21013,36 @@ function encodeWav(f32, outRate = 48000) {
   wstr(8, "WAVE");
   wstr(12, "fmt ");
   dv.setUint32(16, 16, true);
-  dv.setUint16(20, 1, true);           // PCM
-  dv.setUint16(22, 2, true);           // stereo
+  dv.setUint16(20, 1, true);                      // PCM
+  dv.setUint16(22, 2, true);                      // stereo
   dv.setUint32(24, outRate, true);
-  dv.setUint32(28, outRate * 4, true); // byte rate (16-bit stereo)
-  dv.setUint16(32, 4, true);           // block align
-  dv.setUint16(34, 16, true);          // bits
+  dv.setUint32(28, outRate * 2 * bytesPer, true); // byte rate
+  dv.setUint16(32, 2 * bytesPer, true);           // block align
+  dv.setUint16(34, 8 * bytesPer, true);           // bits
   wstr(36, "data");
   dv.setUint32(40, dataBytes, true);
-  for (let i = 0; i < numSamples; i++) {
-    const v = Math.max(-1, Math.min(1, pcm[i]));
-    dv.setInt16(44 + i * 2, Math.round(v * 32767), true);
+  if (gritty) {
+    // pcm32fToPcm8 reads the engine's dither state off its first argument and
+    // takes the two sides apart, so it is fed a fresh state and a block at a
+    // time; WAV's unsigned 8-bit centre is the device's own bias.
+    const state = { xorshift32: makeXorshift32(), ditherError: new Float32Array(4) };
+    const out = new Uint8Array(buf, 44);
+    const BLOCK = 4096;
+    const l = new Float32Array(BLOCK), r = new Float32Array(BLOCK);
+    const block = new Uint8Array(BLOCK * 2);
+    const frames = numSamples >> 1;
+    for (let f0 = 0; f0 < frames; f0 += BLOCK) {
+      const n = Math.min(BLOCK, frames - f0);
+      for (let k = 0; k < n; k++) {
+        l[k] = pcm[(f0 + k) * 2];
+        r[k] = pcm[(f0 + k) * 2 + 1];
+      }
+      pcm32fToPcm8(state, l, r, n, block);
+      out.set(block.subarray(0, n * 2), f0 * 2);
+    }
+  } else {
+    const next = makeDither16();
+    for (let i = 0; i < numSamples; i++) dv.setInt16(44 + i * 2, ditherS16(next, pcm[i]), true);
   }
   return new Uint8Array(buf);
 }
@@ -20982,15 +21057,16 @@ function applyMonitor(eng, monitor) {
   if (monitor === "binaural") eng.setMonitorMode(0, MONITOR_BINAURAL);
 }
 
-/** Offline-render a Document's song to a 16-bit stereo WAV, resampled to
- *  `outRate` (default 48 kHz), taken from the pre-dither float mix bus (no
- *  dithering). Returns {bytes, seconds, halted}. */
-function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold") {
+/** Offline-render a Document's song to a stereo WAV, resampled to `outRate`
+ *  (default 48 kHz), taken from the pre-dither float mix bus and quantised as
+ *  `quality` says (encodeWav). Returns {bytes, seconds, halted}. */
+function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold",
+                            quality = WAV_CLEAN) {
   const eng = new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = renderSong(eng, maxSeconds);
-  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted };
+  return { bytes: encodeWav(r.f32, outRate, quality), seconds: r.frames / SAMPLING_RATE, halted: r.halted };
 }
 
 /** Async twin of renderToWav — yields to the event loop so a progress UI can
@@ -20998,13 +21074,15 @@ function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = 
  *  plus `aborted`; `bytes` is null when aborted. */
 async function renderToWavAsync(docLike, songIndex, maxSeconds,
                                        { outRate = 48000, onProgress = null, signal = null,
-                                         monitor = "fold" } = {}) {
+                                         monitor = "fold", quality = WAV_CLEAN } = {}) {
   const eng = new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = await renderSongAsync(eng, maxSeconds, { onProgress, signal });
   if (r.aborted) return { bytes: null, seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: true };
-  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: false };
+  return {
+    bytes: encodeWav(r.f32, outRate, quality), seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: false,
+  };
 }
 
 // ══ src/taudplay/protocol.js ══

@@ -196,10 +196,26 @@ test("encodeWav is the tracker's own encoder", () => {
   const f32 = new Float32Array([0, 0.5, -0.5, 1, -1, 0]);
   const wav = encodeWav(f32, SAMPLING_RATE);
   const dv = new DataView(wav.buffer);
-  assert.equal(dv.getInt16(44, true), 0);
-  assert.equal(dv.getInt16(46, true), Math.round(0.5 * 32767));
-  assert.equal(dv.getInt16(50, true), 32767);
-  assert.equal(dv.getInt16(52, true), -32767);
+  assert.equal(dv.getUint16(34, true), 16, "clean is 16-bit");
+  // Clean adds a triangular dither of one LSB either way, nothing more.
+  const near = (got, want) => assert.ok(Math.abs(got - want) <= 1, `${got} vs ${want}`);
+  near(dv.getInt16(44, true), 0);
+  near(dv.getInt16(46, true), Math.round(0.5 * 32767));
+  near(dv.getInt16(50, true), 32767);
+  near(dv.getInt16(52, true), -32767);
+  assert.deepEqual(encodeWav(f32, SAMPLING_RATE), wav, "…and the same file every time");
+});
+
+test("a gritty WAV is the device's own 8-bit output", () => {
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, parseTaud(SLUMBER), 0);
+  const ref = renderSong(eng, 2);
+  const r = new TaudRenderer(SLUMBER);
+  const wav = r.toWav(2, { quality: "gritty" });
+  const dv = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+  assert.equal(dv.getUint16(34, true), 8, "8-bit");
+  assert.equal(dv.getUint16(32, true), 2, "block align");
+  assert.deepEqual(wav.subarray(44), ref.u8, "at 48 kHz, the very bytes the device plays");
 });
 
 // ── interrupts: the song calling out (item 181) ─────────────────────────────

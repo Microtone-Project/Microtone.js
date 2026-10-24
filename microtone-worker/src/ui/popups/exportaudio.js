@@ -13,6 +13,7 @@ import {
   AUDIO_EXPORT_FORMATS, exportFormat,
 } from "../../audio/surround-export.js";
 import { SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
+import { WAV_CLEAN, WAV_GRITTY } from "../../../core/audio/offline-render.js";
 import { speakerDiagram } from "../speakerdiagram.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
@@ -42,7 +43,7 @@ export function targetKindFor(formatId, surroundModel) {
 
 /**
  * @param opts {surroundModel, mastered, fileName, defaults}
- * @returns Promise<null | {format, outRate, cap, monitor}>
+ * @returns Promise<null | {format, outRate, cap, monitor, quality}>
  */
 export function showExportAudio({ surroundModel = 0, mastered = false, defaults = {} } = {}) {
   return new Promise((resolve) => {
@@ -50,6 +51,9 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
     let outRate = defaults.outRate ?? 48000;
     let cap = defaults.cap ?? 300;
     let monitor = defaults.monitor ?? (surroundModel === SURROUND_STEREO ? "fold" : "binaural");
+    // Clean or gritty: the stereo file's depth and dither. The multichannel
+    // targets are always 24-bit, so it rides the stereo target alone.
+    let quality = defaults.quality ?? WAV_CLEAN;
 
     const dlg = document.createElement("dialog");
     dlg.className = "modal export-audio";
@@ -64,6 +68,7 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
     const cards = document.createElement("div");
     cards.className = "export-cards";
     const cardEls = new Map();
+    let stereoSub = null; // the stereo card's depth follows the quality choice
     for (const f of AUDIO_EXPORT_FORMATS) {
       const b = document.createElement("button");
       b.type = "button";
@@ -76,7 +81,10 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
       const sub = document.createElement("span");
       sub.className = "export-card-sub";
       const kind = targetKindFor(f.id, surroundModel);
-      sub.textContent = `${t("export.channels", { n: f.channels })} · ${f.bits}-bit · ${t(`export.kind.${kind}`)}`;
+      const subText = (bits) =>
+        `${t("export.channels", { n: f.channels })} · ${bits}-bit · ${t(`export.kind.${kind}`)}`;
+      sub.textContent = subText(f.bits);
+      if (f.kind === "stereo") stereoSub = { sub, subText };
       b.append(name, sub);
       b.title = t(`export.fmtTitle.${f.id}`);
       b.addEventListener("click", (e) => { e.preventDefault(); format = f.id; refresh(); });
@@ -113,6 +121,13 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
     const monitorHint = document.createElement("p");
     monitorHint.className = "dim export-hint";
     monitorHint.textContent = t("export.downmixHint");
+
+    const qualitySel = mkSelect("export.quality", quality, [
+      [WAV_CLEAN, t("export.qualityClean")],
+      [WAV_GRITTY, t("export.qualityGritty")],
+    ], (v) => { quality = v; });
+    const qualityField = qualitySel.parentElement;
+    qualityField.title = t("export.qualityHint");
 
     mkSelect("export.rate", outRate, RATES.map((r) => [r, `${r} Hz`]), (v) => { outRate = Number(v); });
 
@@ -157,10 +172,14 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
       const foldable = f.kind === "stereo" && surroundModel !== SURROUND_STEREO;
       monitorField.hidden = !foldable;
       monitorHint.hidden = !foldable;
+      qualityField.hidden = f.kind !== "stereo";
+      const stereoBits = quality === WAV_GRITTY ? 8 : 16;
+      if (stereoSub) stereoSub.sub.textContent = stereoSub.subText(stereoBits);
       // Only worth saying when the song HAS a chain and the target would miss it.
       masterHint.hidden = f.kind === "stereo" || !mastered;
       // …and a rough idea of what is about to land in the downloads folder.
-      const bytes = cap * outRate * f.channels * (f.bits >> 3);
+      const bits = f.kind === "stereo" ? stereoBits : f.bits;
+      const bytes = cap * outRate * f.channels * (bits >> 3);
       size.textContent = t("export.sizeHint", {
         mb: (bytes / 1048576).toFixed(0), n: f.channels,
       });
@@ -173,7 +192,8 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
     };
     ok.addEventListener("click", (e) => {
       e.preventDefault();
-      finish({ format, outRate, cap, monitor: exportFormat(format).kind === "stereo" ? monitor : "fold" });
+      const stereo = exportFormat(format).kind === "stereo";
+      finish({ format, outRate, cap, monitor: stereo ? monitor : "fold", quality });
     });
     cancel.addEventListener("click", (e) => { e.preventDefault(); finish(null); });
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); finish(null); });
@@ -190,9 +210,13 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
         if (o.outRate !== undefined) outRate = o.outRate;
         if (o.cap !== undefined) cap = o.cap;
         if (o.monitor !== undefined) monitor = o.monitor;
+        if (o.quality !== undefined) quality = o.quality;
         refresh();
       },
-      state: () => ({ format, outRate, cap, monitor, monitorShown: !monitorField.hidden }),
+      state: () => ({
+        format, outRate, cap, monitor, quality,
+        monitorShown: !monitorField.hidden, qualityShown: !qualityField.hidden,
+      }),
       ok: () => ok.click(),
       cancel: () => cancel.click(),
     };

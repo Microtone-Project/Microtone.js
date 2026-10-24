@@ -5,7 +5,18 @@
 import { TaudEngine } from "../engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE, MAX_VOICES, NUM_VOICES } from "../engine/constants.js";
 import { MONITOR_BINAURAL } from "../engine/binaural.js";
+import { pcm32fToPcm8 } from "../engine/mixer.js";
+import { makeDither16, ditherS16 } from "../engine/dither.js";
+import { makeXorshift32 } from "../engine/rng.js";
 import { resampleInterleaved } from "./resampler.js";
+
+/**
+ * The two stereo WAV characters. CLEAN is 16-bit with a plain TPDF dither
+ * (dither.js); GRITTY is 8-bit through the device's own noise-shaped dither —
+ * at the engine's rate, the very bytes the device would have played.
+ */
+export const WAV_CLEAN = "clean";
+export const WAV_GRITTY = "gritty";
 
 /** Load a parsed .taud (or Document-adapted) song into a fresh engine. */
 export function loadIntoEngine(eng, doc, songIndex = 0) {
@@ -136,13 +147,17 @@ export async function renderSongAsync(eng, seconds, { onProgress = null, signal 
   };
 }
 
-/** Encode a rendered f32 mix bus (engine rate) as a 16-bit stereo WAV at
- *  `outRate`; the 48 kHz default needs no resampling at all (item 108).
+/** Encode a rendered f32 mix bus (engine rate) as a stereo WAV at `outRate`;
+ *  the 48 kHz default needs no resampling at all (item 108). `quality` is
+ *  WAV_CLEAN (16-bit, TPDF-dithered) or WAV_GRITTY (8-bit, noise-shaped like
+ *  the device). Either dither starts afresh, so a render is one file every time.
  *  Exported for taudplay (item 179), whose renderer writes the same files. */
-export function encodeWav(f32, outRate = 48000) {
+export function encodeWav(f32, outRate = 48000, quality = WAV_CLEAN) {
   const pcm = resampleInterleaved(f32, 2, SAMPLING_RATE, outRate);
+  const gritty = quality === WAV_GRITTY;
+  const bytesPer = gritty ? 1 : 2;
   const numSamples = pcm.length; // interleaved stereo samples
-  const dataBytes = numSamples * 2;
+  const dataBytes = numSamples * bytesPer;
   const buf = new ArrayBuffer(44 + dataBytes);
   const dv = new DataView(buf);
   const wstr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
@@ -151,17 +166,36 @@ export function encodeWav(f32, outRate = 48000) {
   wstr(8, "WAVE");
   wstr(12, "fmt ");
   dv.setUint32(16, 16, true);
-  dv.setUint16(20, 1, true);           // PCM
-  dv.setUint16(22, 2, true);           // stereo
+  dv.setUint16(20, 1, true);                      // PCM
+  dv.setUint16(22, 2, true);                      // stereo
   dv.setUint32(24, outRate, true);
-  dv.setUint32(28, outRate * 4, true); // byte rate (16-bit stereo)
-  dv.setUint16(32, 4, true);           // block align
-  dv.setUint16(34, 16, true);          // bits
+  dv.setUint32(28, outRate * 2 * bytesPer, true); // byte rate
+  dv.setUint16(32, 2 * bytesPer, true);           // block align
+  dv.setUint16(34, 8 * bytesPer, true);           // bits
   wstr(36, "data");
   dv.setUint32(40, dataBytes, true);
-  for (let i = 0; i < numSamples; i++) {
-    const v = Math.max(-1, Math.min(1, pcm[i]));
-    dv.setInt16(44 + i * 2, Math.round(v * 32767), true);
+  if (gritty) {
+    // pcm32fToPcm8 reads the engine's dither state off its first argument and
+    // takes the two sides apart, so it is fed a fresh state and a block at a
+    // time; WAV's unsigned 8-bit centre is the device's own bias.
+    const state = { xorshift32: makeXorshift32(), ditherError: new Float32Array(4) };
+    const out = new Uint8Array(buf, 44);
+    const BLOCK = 4096;
+    const l = new Float32Array(BLOCK), r = new Float32Array(BLOCK);
+    const block = new Uint8Array(BLOCK * 2);
+    const frames = numSamples >> 1;
+    for (let f0 = 0; f0 < frames; f0 += BLOCK) {
+      const n = Math.min(BLOCK, frames - f0);
+      for (let k = 0; k < n; k++) {
+        l[k] = pcm[(f0 + k) * 2];
+        r[k] = pcm[(f0 + k) * 2 + 1];
+      }
+      pcm32fToPcm8(state, l, r, n, block);
+      out.set(block.subarray(0, n * 2), f0 * 2);
+    }
+  } else {
+    const next = makeDither16();
+    for (let i = 0; i < numSamples; i++) dv.setInt16(44 + i * 2, ditherS16(next, pcm[i]), true);
   }
   return new Uint8Array(buf);
 }
@@ -176,15 +210,16 @@ function applyMonitor(eng, monitor) {
   if (monitor === "binaural") eng.setMonitorMode(0, MONITOR_BINAURAL);
 }
 
-/** Offline-render a Document's song to a 16-bit stereo WAV, resampled to
- *  `outRate` (default 48 kHz), taken from the pre-dither float mix bus (no
- *  dithering). Returns {bytes, seconds, halted}. */
-export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold") {
+/** Offline-render a Document's song to a stereo WAV, resampled to `outRate`
+ *  (default 48 kHz), taken from the pre-dither float mix bus and quantised as
+ *  `quality` says (encodeWav). Returns {bytes, seconds, halted}. */
+export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold",
+                            quality = WAV_CLEAN) {
   const eng = new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = renderSong(eng, maxSeconds);
-  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted };
+  return { bytes: encodeWav(r.f32, outRate, quality), seconds: r.frames / SAMPLING_RATE, halted: r.halted };
 }
 
 /** Async twin of renderToWav — yields to the event loop so a progress UI can
@@ -192,11 +227,13 @@ export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, mon
  *  plus `aborted`; `bytes` is null when aborted. */
 export async function renderToWavAsync(docLike, songIndex, maxSeconds,
                                        { outRate = 48000, onProgress = null, signal = null,
-                                         monitor = "fold" } = {}) {
+                                         monitor = "fold", quality = WAV_CLEAN } = {}) {
   const eng = new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = await renderSongAsync(eng, maxSeconds, { onProgress, signal });
   if (r.aborted) return { bytes: null, seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: true };
-  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: false };
+  return {
+    bytes: encodeWav(r.f32, outRate, quality), seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: false,
+  };
 }

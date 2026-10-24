@@ -56,7 +56,25 @@
         const deleted = win.__microtone.store.doc.songs.length === songsBeforeDel - 1;
         log(`delete button: deleted=${deleted} threw=${delThrew}`);
 
-        const pass = added && renamed && !threw && deleted && !delThrew;
+        // Lanes: 32 → 64 from the selector, the view and the engine follow, Ctrl+Z goes back.
+        const lanesSel = [...projectView.root.querySelectorAll("label.inst-field")]
+          .find((l) => l.firstChild?.textContent === "Lanes")?.querySelector("select");
+        let lanes = !!lanesSel && lanesSel.value === "32" && !store.doc.is64Channel;
+        if (lanesSel) {
+          lanesSel.value = "64";
+          lanesSel.dispatchEvent(new Event("change"));
+          await sleep(60);
+          const sel2 = [...projectView.root.querySelectorAll("label.inst-field")]
+            .find((l) => l.firstChild?.textContent === "Lanes")?.querySelector("select");
+          lanes = lanes && store.doc.is64Channel && store.doc.channelCount === 64 && sel2?.value === "64" &&
+            projectView.root.querySelector("p.dim").textContent.includes("64 lanes");
+          store.undo.undo();
+          await sleep(60);
+          lanes = lanes && !store.doc.is64Channel;
+        }
+        log(`lanes selector: 32 → 64 → undo ok=${lanes}`);
+
+        const pass = added && renamed && !threw && deleted && !delThrew && lanes;
         log(pass ? "RESULT: PASS" : "RESULT: FAIL");
       } catch (err) {
         log(`RESULT: ERROR ${err.message}\n${err.stack}`);
