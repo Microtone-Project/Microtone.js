@@ -4,8 +4,8 @@
 # The fonts land in core/fonts/ (what both sites serve) and a proof
 # sheet of every variant in build/proof/.
 
-version = "1.004"
-date = "2026-10-23"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
+version = "1.005"
+date = "2026-10-24"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
 
 # ── the two numbers ─────────────────────────────────────────────────────────
 
@@ -39,10 +39,17 @@ exponent_inner = 3.8  # …and of the counter
 widen = 22            # units each side, before the variant's own widening
 margin = 10           # never closer than this to the cell edge
 
-[apertures]           # C G c opened: units each terminal's cut moves away from the middle,
+[apertures]           # C G c e 5 6 9 opened: units each terminal's cut moves away from the middle,
 C = 50                # still level, the arms leading to it the same curves only shorter
-G = 50
+G = 60
 c = 36
+e = 42
+5 = 40
+6 = 44
+9 = 44
+
+[in_cell]             # percent: letters drawn this much wider in their own cell (the advance stays,
+z = 18                # the stems keep their thickness) — Chivo's z is narrower than x and n beside it
 
 [zero]                # …and the zero a touch narrower than its neighbours
 narrow = 10           # percent, on top of the variant's own widening or narrowing

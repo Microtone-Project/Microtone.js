@@ -50,18 +50,30 @@ class Source:
         self.y0 = self.font["OS/2"].sxHeight / 2
         cmap = self.font.getBestCmap()
         self.apertures = {cmap[ord(ch)]: units for ch, units in cfg["apertures"].items() if units}
+        self.widened = {cmap[ord(ch)]: pct for ch, pct in cfg["in_cell"].items() if pct}
+        self.comp = cfg["stems"]["compensate"]
 
     def glyph(self, name, unicode=None):
         return source_glyph(self.font, self.sets, name, unicode)
 
+    def redrawn(self, name):
+        """Whether Motif draws `name` itself (see letter())."""
+        return name == "O" or name in self.apertures or name in self.widened
+
     def letter(self, name, cfg):
         """Chivo's glyph, or Motif's own drawing of it: the square O, the
-        opened C G c."""
+        opened C G c e 5 6 9, the wider z."""
         if name == "O":
             return capital_o(self, cfg)
+        vg = self.glyph(name)
         if name in self.apertures:
-            return open_aperture(self.glyph(name), self.apertures[name])
-        return self.glyph(name)
+            vg = open_aperture(vg, self.apertures[name])
+        if name in self.widened:
+            # Wider in its own cell: the advance stays, the stems keep their
+            # thickness.
+            k = 1 + self.widened[name] / 100
+            vg = rescale(vg, lambda t: k, vg.advance, self.stems, self.comp, self.slant, self.y0)
+        return vg
 
 
 def capital_o(src, cfg):
@@ -156,7 +168,7 @@ def build_code(cfg, sources, italic, mono=False):
                          tx_of_t=weights[base[name]],
                          keep=_lone_mark(g, xh if base[name].islower() else cap))
             moved[name] = _anchor_mover(s, 600, round(600 * s), src.slant, src.y0)
-        elif name == "O" or name in src.apertures:
+        elif src.redrawn(name):
             vg = src.letter(name, cfg)
         elif name == "zero":
             k = 1 - cfg["zero"]["narrow"] / 100

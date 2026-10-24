@@ -73,7 +73,7 @@ export default {
   "toolbox.radarTitle": "Expand the lane headers into surround radars",
   "toolbox.fx2On": "2nd FX: on",
   "toolbox.fx2Off": "2nd FX: off",
-  "toolbox.fx2Title": "Show the second effect column on every lane and every pattern column (version-3 projects). One lane at a time: right-click its header, or use a pattern column's E2 button",
+  "toolbox.fx2Title": "Show the second effect column on every lane and every pattern column (version-3 projects). One lane at a time: right-click its header, or use a pattern column's fx2 button",
   "toolbox.binauralOn": "Binaural: on",
   "toolbox.binauralOff": "Binaural: off",
   "toolbox.binauralTitle": "Monitor surround songs through a measured head model — height and front/back become audible on headphones (off = the stereo downmix)",

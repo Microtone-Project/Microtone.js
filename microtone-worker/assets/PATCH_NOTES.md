@@ -51,6 +51,11 @@ Microtone can be translated in the browser: the translation workbench at [microt
 - Work stays in your browser until you save, and saving gives you the language files to send in.
 - **Opening Microtone with `?lang=debug`** at the end of its address shows every string as its name followed by the start of its English, so you can tell which string is which on screen; choose a language in the language picker to leave it.
 
+Motif, Microtone's typeface, tells more of its letters and digits apart.
+
+- **e, 5, 6 and 9 are more open**, their ends stopping further round the curve like C, G and c, so a 6 is not taken for a b or 0, a 9 for a q, a 5 for an S, or an e for an o — even in bold; G opens a little further too.
+- **The z is as wide as the letters beside it**: Chivo Mono's was noticeably narrower than n and x, which left a gap in the middle of words like `nzn`.
+
 ## Version 3.13.3 (2026-10-22)
 
 The envelope graphs zoom with a two-finger pinch on a touch screen.
