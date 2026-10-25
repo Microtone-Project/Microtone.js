@@ -27,7 +27,8 @@
  * converge directly on whatever consumes them, exactly as several carriers
  * converge on OUTPUT.
  *
- * Returns {cells, edges, cols, rows, outRow} in grid coordinates.
+ * Returns {cells, edges, cols, rows, outRow} in grid coordinates. An edge into
+ * a product's junction from its second operand carries `side: "bottom"`.
  */
 export function fmTreeGraph(tree) {
   const cells = [];
@@ -35,7 +36,9 @@ export function fmTreeGraph(tree) {
   const root = placeFmNode(tree, 0, 0, cells, edges);
   let cols = 1;
   for (const c of cells) if (c.col + 1 > cols) cols = c.col + 1;
-  const outRow = (root.height - 1) >> 1;
+  // OUT sits level with what feeds it: a product's junction is level with its
+  // first operand, not with the middle of everything it reads.
+  const outRow = root.anchors.length === 1 ? root.anchors[0].row : (root.height - 1) >> 1;
   for (const a of root.anchors) edges.push({ from: a, to: { col: -1, row: outRow } });
   return { cells, edges, cols, rows: root.height, outRow };
 }
@@ -73,16 +76,20 @@ function placeFmNode(node, col, row, cells, edges) {
     return { height: a.height + b.height, anchors: [...a.anchors, ...b.anchors] };
   }
   // mul / neg — these DO need a mark, because meeting wires would read as a sum.
-  const kids = node.kind === "mul" ? [node.a, node.b] : [node.a];
-  const anchors = [];
-  let h = 0;
-  for (const kid of kids) {
-    const k = placeFmNode(kid, col + 1, row + h, cells, edges);
-    h += k.height;
-    anchors.push(...k.anchors);
-  }
-  const r = row + ((h - 1) >> 1);
+  // A product's two operands must not meet the way a sum's branches do, or
+  // `(a + b) × c` reads as a three-way sum: the first operand comes in from
+  // the LEFT, as everything else does, and the second is placed under it and
+  // comes in from BELOW (`side: "bottom"`), so wires meeting from the left
+  // always mean addition.
+  const a = placeFmNode(node.a, col + 1, row, cells, edges);
+  const r = row + ((a.height - 1) >> 1);
   cells.push({ kind: node.kind, col, row: r });
-  for (const a of anchors) edges.push({ from: a, to: { col, row: r } });
+  for (const an of a.anchors) edges.push({ from: an, to: { col, row: r } });
+  let h = a.height;
+  if (node.kind === "mul") {
+    const b = placeFmNode(node.b, col + 1, row + a.height, cells, edges);
+    for (const an of b.anchors) edges.push({ from: an, to: { col, row: r }, side: "bottom" });
+    h += b.height;
+  }
   return { height: h, anchors: [{ col, row: r }] };
 }

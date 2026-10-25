@@ -43,6 +43,17 @@ Every instrument can now have its own mixing chain — equalisers, dynamics, uni
 - A chain no instrument uses is kept while you work and dropped when you save; a project from a newer version with equipment this one does not know says so once, keeps it, and plays the rest of the chain.
 - An FM Rack's operators and algorithm now share 250 bytes of the record rather than 252, which no algorithm the editor builds comes near.
 
+An FM Rack can now be built and played in **Easy Mode**: forty presets, and operators with a level, an octave multiplier, a detune and an envelope each, wired by dragging.
+
+- **Meta… → FM Rack starts in Easy Mode**: choose a preset and the rack makes its own sine operators, with no instruments to pick — so a project with no samples at all can have one. Switch Easy Mode off in the dialog to build one from your instruments as before.
+- **The Easy tab** sits in front of the FM tab and shows the same rack. The preset can be changed at any time, keeping the operators' settings; the wiring can be drawn by hand, dragging an operator onto the one it should modulate, onto itself for feedback or onto OUT to hear it, or pressed into the routing grid beneath.
+- **Each operator** has a level, a multiplier in octaves (1 is +1 octave, −1 is −1 octave), a fine detune of up to half an octave, and its own volume envelope in the usual editor, right below.
+- **Feedback** is counted as on classic FM synths, 0 to 7, from none through π/16 up to 4π.
+- **Output and Shared DSP…**: the instrument's level, and its envelopes, filter, fadeout and note actions, applied to the finished sound.
+- **Any FM Rack can go into Easy Mode** from its Options tab, sounding as it did; one that uses ring modulation or inversion is told why it can't. An edit on the FM tab that the Easy tab could not show is held until you undo it or apply it and leave Easy Mode.
+- **`S $Axxx` is now called Instrument Sound Control**, and an FM Rack takes it too: `S $Apsd` gives operator `p` a vibrato of its own for the note, at speed `s` and depth `d`.
+- The FM tab's formula leaves out the round brackets that changed nothing, so `2[(0 + 1)]` now reads `2[0 + 1]`, and its diagram draws a ring modulation with one operand coming in from the left and the other from below, so wires meeting from the left always mean a sum.
+
 A stereo WAV export now comes in two bit depths, chosen in the **Export audio…** dialog: **Clean** and **Gritty**.
 
 - **Clean** (the default) is 16-bit as before, now with a light dither, so quiet fades and reverb tails stay smooth instead of breaking into steps.

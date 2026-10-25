@@ -1423,15 +1423,23 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 
 **Implementation.** Write `channel_pan = arg & $FF`. The mixer sums it with `note_pan` and the pan envelope (§3a) and applies the equal-energy law to the total: `left_gain = cos(π × position ÷ 512)`, `right_gain = sin(π × position ÷ 512)`, both before the global volume stage.
 
-## S $Afgr — Formant vowel
+## S $Axxx — Instrument Sound Control
 
-**Plain.** On a formant instrument (a type-1 metainstrument), moves the vowel the note is singing: `$f` is its openness, `$g` its frontness and `$r` its roundness, each 0…F. Openness and frontness are where the tongue is, roundness what the lips do. Openness 0 is a close vowel like [i] or [u], F an open one like [a]; frontness 0 is a back vowel ([u] [o] [ɔ], or [ɯ] [ɤ] [ʌ] with the lips spread), F a front one ([i] [e] [ɛ]); roundness 0 is spread lips, F rounded — the same tongue that sings [i] sings [y] with the lips rounded. So `S $A0F0` is [i], `S $A0FF` is [y], `S $A00F` is [u], `S $AFF0` is [a], and `S $A880` is [ə], the middle of the chart. Written on the row that triggers the note, it is the note's vowel from the very start, consonants included; written later, the vowel glides there over the instrument's own glide time. Without one, a note sings the instrument's vowel, and follows it while it is being edited; with one, the note keeps it. The next note starts from the instrument's vowel again, so a sung text writes one on every syllable whose vowel differs from the instrument's. On any other instrument it does nothing.
+**Plain.** One command whose argument the INSTRUMENT reads: each kind of instrument that takes it says below what its three digits mean, and on any other instrument it does nothing. The kinds that take it are the ones with a sound of their own to control — a formant instrument's vowel, a PSG instrument's oscillators, an FM rack's operators — so a pattern can play with the part of the sound that makes the instrument what it is, without a command per kind.
+
+**Compatibility.** Taud only.
+
+**Implementation.** The engine dispatches on what the lane's note is sounding: an FM rack takes the command whole (its operators take nothing from it on their own account); otherwise every voice sounding the note reads it as its own instrument says.
+
+### On a formant instrument — `S $Afgr`, the vowel
+
+**Plain.** On a formant instrument (a type-1 metainstrument), moves the vowel the note is singing: `$f` is its openness, `$g` its frontness and `$r` its roundness, each 0…F. Openness and frontness are where the tongue is, roundness what the lips do. Openness 0 is a close vowel like [i] or [u], F an open one like [a]; frontness 0 is a back vowel ([u] [o] [ɔ], or [ɯ] [ɤ] [ʌ] with the lips spread), F a front one ([i] [e] [ɛ]); roundness 0 is spread lips, F rounded — the same tongue that sings [i] sings [y] with the lips rounded. So `S $A0F0` is [i], `S $A0FF` is [y], `S $A00F` is [u], `S $AFF0` is [a], and `S $A880` is [ə], the middle of the chart. Written on the row that triggers the note, it is the note's vowel from the very start, consonants included; written later, the vowel glides there over the instrument's own glide time. Without one, a note sings the instrument's vowel, and follows it while it is being edited; with one, the note keeps it. The next note starts from the instrument's vowel again, so a sung text writes one on every syllable whose vowel differs from the instrument's. On any other instrument it means what that instrument's subsection says, or nothing.
 
 **Compatibility.** Taud only.
 
 **Implementation.** Openness = `$f × 17`, frontness = `$g × 17`, roundness = `$r × 17`: the tongue and lips of TAUD_FILE_FORMAT.md §7.6. Before the voice's first control update — the trigger row — the vowel is set outright; otherwise it glides linearly from where it stands, restarting at every new `S $Afgr`, and the last step lands exactly on the target. The note now has a vowel of its own, which edits to the instrument's vowel no longer move, until its next trigger. Every voice sounding the note takes it, layer children included. See TAUD_ENGINE_SPEC.md §5.5.3.
 
-## S $Axxx — PSG register write
+### On a PSG instrument — `S $Axxx`, a register write
 
 **Plain.** On a PSG instrument (a type-9 metainstrument), changes one of its oscillators' settings while the song plays, without touching the instrument itself:
 
@@ -1446,11 +1454,19 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 | `S $AF02` | Mute oscillator B (and unmute A) |
 | `S $AF03` | Mute both |
 
-Every other argument is **RESERVED** and does nothing. The write is the **instrument's**: every note of it hears it at once and goes on hearing it, the next notes included, until the song is played again from the start. The `$AF0x` writes set both mutes, so `S $AF01` also lifts a mute the instrument's own record puts on oscillator B. On a formant instrument the same command is `S $Afgr`, above; on any other instrument it does nothing.
+Every other argument is **RESERVED** and does nothing. The write is the **instrument's**: every note of it hears it at once and goes on hearing it, the next notes included, until the song is played again from the start. The `$AF0x` writes set both mutes, so `S $AF01` also lifts a mute the instrument's own record puts on oscillator B. On a formant instrument and on an FM rack the same command means what their subsections say; on any other instrument it does nothing.
 
 **Compatibility.** Taud only.
 
-**Implementation.** The write goes into a per-instrument overlay over the record's auto-advance, level and mute fields (TAUD_FILE_FORMAT.md §7.9): each overlay field is either unset, in which case the record's value stands, or the value written. The overlay **MUST NOT** change the record, and **MUST** be cleared exactly when invert loop's mask is (`S $F0xx`, below): on a song-start or stop-and-replay reset, so a clean replay reproduces the same audio. A mute is a no-op on the other oscillator, and a muted oscillator keeps running, so `S $AF00` brings it back where it would have been. Every voice sounding the note takes the write, layer children and FM operators included. See TAUD_ENGINE_SPEC.md §5.5.4.
+**Implementation.** The write goes into a per-instrument overlay over the record's auto-advance, level and mute fields (TAUD_FILE_FORMAT.md §7.9): each overlay field is either unset, in which case the record's value stands, or the value written. The overlay **MUST NOT** change the record, and **MUST** be cleared exactly when invert loop's mask is (`S $F0xx`, below): on a song-start or stop-and-replay reset, so a clean replay reproduces the same audio. A mute is a no-op on the other oscillator, and a muted oscillator keeps running, so `S $AF00` brings it back where it would have been. Every voice sounding the note takes the write, layer children included — but not a PSG instrument that is an FM rack's operator: on a rack the command is the rack's (below). See TAUD_ENGINE_SPEC.md §5.5.4.
+
+### On an FM rack — `S $Apsd`, an operator's auto-vibrato
+
+**Plain.** Gives operator `$p` of the rack a vibrato of its own for the note now sounding: speed `$s`, depth `$d`, each 0…F. Shaking one operator's pitch and not the others' is what makes a rack's timbre move — a modulator's vibrato is heard as a shimmer in the tone rather than as a wobble in the note — so `S $A2F8` on a bell gives its third operator a fast, half-deep vibrato. `$s` or `$d` of 0 switches it off. The next note of the rack starts from each operator instrument's own auto-vibrato again.
+
+`$p` counts the rack's **operators**, not its table: when operator 0 of the table is a principal that only shapes the finished sound — the layout an editor's Easy Mode writes — `$p` = 0 is the table's entry 1, `$p` = 1 its entry 2, and so on, and the principal itself cannot be named. In every other rack the principal is an oscillator like the rest, and `$p` = 0 is entry 0. An operator not sounding this note, or past the rack's end, takes nothing.
+
+**Implementation.** On the lane's live rack, resolve `k = p + 1` when the principal is DSP-only (the program ends `$0000 $FF01` and names operator 0 nowhere else — TAUD_ENGINE_SPEC.md §5.5.1) and `k = p` otherwise, and set that operator's voice's active auto-vibrato speed to `$s × 17` and depth to `$d × 17`. Its waveform, sweep and rate stay the instrument's; its phase and sweep counter are not reset. The values are the VOICE's, so the next trigger reads all four from the instrument again. A rack that has been released and rings in the background takes nothing.
 
 ## S $Bx00 — Pattern loop
 

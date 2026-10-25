@@ -532,13 +532,15 @@ export function fmRecordBytes(n, words) {
  */
 export function buildMetaRecord(layers, {
   strict = false, percussion = false, type = META_TYPE_LAYERED, program = null, imixId = 0,
+  easy = false,
 } = {}) {
   const fm = type === META_TYPE_FM;
   const use = layers.slice(0, fm ? FM_MAX_OPERATORS : META_MAX_LAYERS);
   const b = new Uint8Array(256);
   // samplePtr high 16 bits = 0xFFFF is the Metainstrument sentinel; the low
   // bytes carry the flags (byte 0) and the layer count (byte 1) instead.
-  b[0] = ((type & 0x0f) << 4) | (strict ? 0x01 : 0) | (percussion ? 0x02 : 0);
+  // Bit 0: strict layering (type 0) or Easy Mode (type 4) — one bit, two kinds.
+  b[0] = ((type & 0x0f) << 4) | ((fm ? easy : strict) ? 0x01 : 0) | (percussion ? 0x02 : 0);
   b[1] = use.length & 0xff;
   b[2] = 0xff;
   b[3] = 0xff;
@@ -1037,7 +1039,9 @@ export class TaudInst {
       }
       this.metaLayers = layers.length === 0 ? null : layers;
       this.metaRaw = this.metaLayers !== null ? Uint8Array.from(b.slice(0, 256)) : null;
-      this.metaStrict = this.metaLayers !== null && (b[0] & 0x01) !== 0;
+      // Bit 0 is strict layering in a Layered record only; in a rack it is the
+      // editor's Easy Mode mark (§7.7), which the engine does not read.
+      this.metaStrict = this.metaLayers !== null && !fm && (b[0] & 0x01) !== 0;
       this.metaType = this.metaLayers !== null ? type : META_TYPE_LAYERED;
       this.fmProgram = this.metaLayers !== null && fm
         ? decodeFmProgram(b, o, layers.length) : null;

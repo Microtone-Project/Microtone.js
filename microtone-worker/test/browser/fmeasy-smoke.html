@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FM Easy Mode smoke: make a rack from a preset, wire it by grid and by drag, leave and refuse</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1280px;height:900px"></iframe>
+  <script type="module">
+    // Item 247, end to end through the real UI: the New FM dialog in Easy
+    // Mode, the Easy tab's preset, routing grid, drag wiring, multiplier,
+    // envelope and feedback controls, the FM tab holding an edit Easy Mode
+    // can't show, and the Options toggle refusing a rack it can't convert.
+    const out = [];
+    let failures = 0;
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const check = (what, cond) => { if (!cond) failures++; log(`${what}: ${cond ? "ok" : "FAIL"}`); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = (fn, ms = 8000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 50);
+    });
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => {
+          const w = frame.contentWindow;
+          return w && w.__microtone?.store.doc ? w : null;
+        });
+        const { store, instrumentsView: iv } = win.__microtone;
+        const d = win.document;
+        const fe = await import("../../src/doc/fmeasy.js");
+        const fmedit = await import("../../src/doc/fmedit.js");
+        const decode = (slot) => {
+          const inst = store.doc.instruments[slot];
+          return fe.easyDecode(fmedit.fmOperators(inst), fmedit.fmProgramOf(inst));
+        };
+        log("app loaded");
+
+        // ── New FM, in Easy Mode ──
+        d.querySelector('#tabs button[data-view="instruments"]').click();
+        await sleep(300);
+        [...d.querySelectorAll(".side-toolbar-inst button")][5].click();
+        const chooser = await waitFor(() => d.querySelector("dialog.kind-modal"));
+        [...chooser.querySelectorAll(".kind-card")][1].click();
+        const dlg = await waitFor(() => d.querySelector("dialog.import-modal"));
+        const toggle = dlg.querySelector("button.toggle");
+        check("the FM dialog opens in Easy Mode", toggle?.getAttribute("aria-pressed") === "true");
+        check("…with the instrument picker put away", dlg.querySelector(".meta-picker")?.closest("[hidden]") !== null);
+        const sel = dlg.querySelector(".fm-easy-new select");
+        check("forty presets offered", sel?.querySelectorAll("option").length === 40);
+        sel.value = "5"; // 0[0′] + 3[2[1]]
+        sel.dispatchEvent(new win.Event("change"));
+        check("the picture follows the preset", dlg.querySelectorAll(".fm-graph-box").length === 4);
+        dlg.querySelector("input.import-filter").value = "Easy smoke";
+        dlg.querySelector(".modal-buttons .proceed").click();
+        await waitFor(() => !d.querySelector("dialog.import-modal"));
+        const slot = iv.selected;
+        const inst = store.doc.instruments[slot];
+        check(`a rack was made in $${slot.toString(16)} with the Easy bit`, inst?.isFm && (inst.metaRaw[0] & 1) === 1);
+        check("it reads as preset 5", decode(slot).ok && fe.easyPresetOf(decode(slot).model) === 5);
+        await waitFor(() => iv.panel.querySelector(".fm-easy-routing"));
+        const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
+        check(`tab bar leads with Easy [${tabs.join(" | ")}]`, tabs[0] === "Easy" && tabs[1] === "FM");
+        check("formula readout is the preset's", iv.panel.querySelector(".fm-formula")?.textContent === "0[0′] + 3[2[1]]");
+
+        // ── the routing grid ──
+        const grid = iv.panel.querySelector(".fm-easy-grid");
+        check("grid: 4 rows of 4 operators + OUT", grid.querySelectorAll("tbody tr").length === 4 &&
+          grid.querySelectorAll("tbody tr:first-child button").length === 5);
+        // Row 1, column OUT: make operator 1 a carrier too.
+        grid.querySelectorAll("tbody tr")[1].querySelectorAll("button")[4].click();
+        await sleep(100);
+        check("pressing a cell rewires the rack", decode(slot).model.carriers.join() === "0,1,3");
+        store.undo.undo();
+        iv.renderPanel();
+        await sleep(100);
+        check("…and undo puts it back", decode(slot).model.carriers.join() === "0,3");
+
+        // ── dragging in the diagram: operator 2 onto OUT ──
+        const svgBox = (sel) => iv.panel.querySelector(`.fm-easy-diagram ${sel}`);
+        const from = svgBox('[data-op="2"]:not([data-tap]) rect');
+        const to = svgBox("[data-out] rect");
+        const at = (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+        const p0 = at(from), p1 = at(to);
+        const opts = (p) => ({ bubbles: true, clientX: p.x, clientY: p.y, pointerId: 7, button: 0, isPrimary: true });
+        from.dispatchEvent(new win.PointerEvent("pointerdown", opts(p0)));
+        iv.panel.querySelector(".fm-easy-diagram").dispatchEvent(new win.PointerEvent("pointermove", opts(p1)));
+        check("dragging draws a wire", iv.panel.querySelector(".fm-easy-rubber") !== null);
+        iv.panel.querySelector(".fm-easy-diagram").dispatchEvent(new win.PointerEvent("pointerup", opts(p1)));
+        await sleep(150);
+        check("dropping operator 2 on OUT makes it a carrier", decode(slot).model.carriers.join() === "0,2,3");
+        store.undo.undo();
+        iv.renderPanel();
+        await sleep(100);
+
+        // ── an operator's multiplier and envelope ──
+        const rows = iv.panel.querySelectorAll(".fm-easy-table tbody tr");
+        const mult = rows[1].querySelectorAll("input")[1];
+        mult.value = "1";
+        mult.dispatchEvent(new win.Event("change"));
+        await sleep(100);
+        check("multiplier 1 is +4096 on operator 1's detune", decode(slot).model.ops[1].detune === 4096);
+        check("the multiplier is explained on the tab", /1 is \+1 octave/.test(iv.panel.querySelector(".fm-easy-hint")?.textContent ?? ""));
+        iv.panel.querySelectorAll(".fm-easy-table tbody tr")[2].querySelector("button.toggle").click();
+        await sleep(150);
+        const opSlot = decode(slot).model.ops[2].instIdx;
+        const heads = [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);
+        check(`Envelope opens operator 2's volume envelope [${heads.join(" | ")}] (envSlot $${iv.envSlot?.toString(16)})`,
+          iv.envSlot === opSlot && iv.panel.querySelector(".wave-canvas") !== null &&
+          heads.some((h) => /operator 2/.test(h)));
+        // An envelope edit lands on the OPERATOR's instrument, not the rack.
+        const opBefore = store.doc.instruments[opSlot].volEnvLoop;
+        iv.setEnvWordBit("volEnvLoop", 13, true);
+        await sleep(100);
+        check("an envelope edit goes to the operator's instrument",
+          (store.doc.instruments[opSlot].volEnvLoop & 0x2000) !== 0 && opBefore !== store.doc.instruments[opSlot].volEnvLoop &&
+          store.doc.instruments[slot].isFm);
+
+        // ── switching preset on the fly ──
+        const preset = iv.panel.querySelector(".fm-easy-bar select");
+        preset.value = "9";
+        preset.dispatchEvent(new win.Event("change"));
+        await sleep(200);
+        const m9 = decode(slot).model;
+        check("preset 9 rewires to six operators", fe.easyPresetOf(m9) === 9 && m9.ops.length === 6 &&
+          m9.ops.every((o) => o.instIdx >= 0x100));
+        check("…keeping operator 1's multiplier", m9.ops[1].detune === 4096);
+
+        // ── feedback depth ──
+        const fb = iv.panel.querySelector(".fm-easy-fb select");
+        fb.value = "3";
+        fb.dispatchEvent(new win.Event("change"));
+        await sleep(150);
+        check("feedback 3 (π/4) sets the loop's octet", decode(slot).model.feedback[0].octet === fe.EASY_FB_OCTETS[3]);
+
+        // ── the FM tab holds an edit Easy Mode can't show ──
+        iv.tab = "fm";
+        iv.renderTabs(); iv.renderPanel();
+        await sleep(100);
+        check("the FM tab says the rack is in Easy Mode", iv.panel.querySelector(".fm-easy-hint") !== null);
+        const ops = fmedit.fmOperators(inst), prog = fmedit.fmProgramOf(inst);
+        const ring = prog.slice(0, -2).concat([fmedit.fmWord("osc", 1), 0xff01, fmedit.fmWord("osc", 0), 0xff01]);
+        const before = store.doc.instRecordBytes(slot).slice();
+        iv.applyFmRack(slot, ops, ring);
+        await sleep(100);
+        check("a ring modulation is held, not applied", store.doc.instRecordBytes(slot).every((b, i) => b === before[i]) &&
+          iv.panel.querySelector(".fm-warn button") !== null);
+        iv.panel.querySelector(".fm-warn button").click();
+        await sleep(150);
+        check("Apply and leave Easy Mode applies it with the bit cleared",
+          (store.doc.instruments[slot].metaRaw[0] & 1) === 0 && !decode(slot).ok);
+        check("…and the Easy tab is gone", ![...iv.tabBar.querySelectorAll("button")].some((b) => b.textContent === "Easy"));
+
+        // ── Options refuses to convert it back, and says why ──
+        iv.tab = "metaopts";
+        iv.renderTabs(); iv.renderPanel();
+        await sleep(100);
+        const boxes = [...iv.panel.querySelectorAll(".slider-row.check input")];
+        boxes[2].click();
+        const notice = await waitFor(() => d.querySelector("dialog.modal-text"));
+        check(`conversion refused: "${notice.querySelector("p")?.textContent}"`, /ring-modulates/.test(notice.textContent));
+        notice.querySelector(".act-dismiss").click();
+        await sleep(100);
+        check("…and nothing changed", (store.doc.instruments[slot].metaRaw[0] & 1) === 0);
+
+        // Undo the leave, and Easy Mode is back with its tab.
+        store.undo.undo();
+        iv.refresh();
+        await sleep(150);
+        check("undo brings Easy Mode back", (store.doc.instruments[slot].metaRaw[0] & 1) === 1 && decode(slot).ok);
+      } catch (e) {
+        failures++;
+        log(`exception: ${e.stack ?? e}`);
+      }
+      log(`FAILURES: ${failures}`);
+    })();
+  </script>
+  <img src="/hang" alt="" />
+</body>
+</html>

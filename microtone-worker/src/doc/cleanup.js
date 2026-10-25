@@ -1164,6 +1164,7 @@ export function planDeleteInstrument(doc, slot, { freeSamples = false, reassignT
     } else {
       image.set(buildMetaRecord(kept, {
         strict: oi.metaStrict,
+        easy: fm && (oi.metaRaw[0] & 0x01) !== 0,
         percussion: (oi.metaRaw[0] & 0x02) !== 0,
         type: oi.metaType,
         program: oi.fmProgram,

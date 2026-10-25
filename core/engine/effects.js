@@ -18,6 +18,7 @@ import { isSoundingChild } from "./voice.js";
 import { applyPastNoteAction } from "./trigger.js";
 import { formantSetVowel } from "./formant.js";
 import { psgWriteRegister } from "./psg.js";
+import { fmSetOperatorVibrato } from "./fm.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL,
   applyPanSet, applyPanSlide, applyElevation, anglesFromSpatialArg,
@@ -499,6 +500,13 @@ export function applySEffect(eng, ts, voice, vi, arg) {
       break;
     }
     case 0xa:
+      // S $Apsd — on an FM rack (§5.5.1), operator p's auto-vibrato: speed
+      // s × 17, depth d × 17, for this note. The rack takes the command
+      // whole, so a PSG operator inside it takes no register write.
+      if (voice.fmRig !== null) {
+        fmSetOperatorVibrato(voice.fmRig, x, (arg >>> 4) & 0xf, arg & 0xf);
+        break;
+      }
       // S $Afgr — on a voice sounding a formant instrument (item 212), the vowel: openness f,
       // frontness g, roundness r. The note's whole tract hears it, layer
       // children included.

@@ -81,7 +81,8 @@
         [...iv.tabBar.querySelectorAll("button")][1].click();
         await waitFor(() => iv.panel.querySelector(".slider-row.check"));
         const flagBoxes = [...iv.panel.querySelectorAll(".slider-row.check input")];
-        log(`two flags listed: ${ok(flagBoxes.length === 2)}`);
+        // The two record flags, then Easy Mode (item 247) in a group of its own.
+        log(`two flags and Easy Mode listed: ${ok(flagBoxes.length === 3)}`);
         log(`percussion is offered on a rack: ${ok(!flagBoxes[0].disabled)}`);
         log(`strict layering is greyed out on one: ${ok(flagBoxes[1].disabled)}`);
         flagBoxes[0].click();

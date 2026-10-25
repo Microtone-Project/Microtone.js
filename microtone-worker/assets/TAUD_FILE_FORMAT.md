@@ -622,7 +622,7 @@ Types 1, 8 and 9 are the kinds with no table. Everything this section says about
 | 3 | `U8` | Sentinel — **MUST** be `$FF` |
 | 4 | — | Entry records, 10 bytes each |
 
-Bytes 0…3 alias the base record's sample pointer, and the two `$FF` sentinels are what put `$FFFF` in its high half. In byte 0: `t` is the **type**, `P` marks the instrument as percussion, and `s` selects **strict layering** (a type-0 rule, [§7.5](#7-5-metainstrument-type-0-layered-instruments)). Legacy files leave byte 0 as `$00`, which is why type 0 is the Layered kind.
+Bytes 0…3 alias the base record's sample pointer, and the two `$FF` sentinels are what put `$FFFF` in its high half. In byte 0: `t` is the **type**, `P` marks the instrument as percussion, and `s` selects **strict layering** (a type-0 rule, [§7.5](#7-5-metainstrument-type-0-layered-instruments)); in a type-4 rack the same bit is the **Easy Mode** mark, an editor's note that players ignore ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)). Legacy files leave byte 0 as `$00`, which is why type 0 is the Layered kind.
 
 Each entry — a *layer* in a type-0 record, an *operator* in a type-4 one:
 
@@ -854,7 +854,7 @@ A type-4 Metainstrument is an **FM Rack**: the third kind of the family defined 
 
 | Offset | Type | Field |
 |---|---|---|
-| 0 | `U8` | `0b 0100_00P0` — type 4, `P` = percussion |
+| 0 | `U8` | `0b 0100_00PE` — type 4, `P` = percussion, `E` = **Easy Mode** (below) |
 | 1 | `U8` | Operator count, 1…16 |
 | 2…3 | `U8`×2 | Sentinels, `$FF $FF` |
 | 4 | — | Operator records, 10 bytes each — the [§7.4](#7-4-metainstrument-records) entry layout, field for field |
@@ -901,6 +901,20 @@ The strictness is deliberate. The tail of a 256-byte record is whatever the writ
 - **Operator 0 is the principal.** It sounds on the lane's own voice, so its envelope, its fadeout, its instrument global volume and its sample ending belong to the whole note; its own mix octet applies to its operand alone. A rack whose operator 0 is gated out, or points at nothing, sounds nothing.
 
 The rest of what the words mean at playback — the unit phase modulation is measured in, and what a rack costs the mixer — is the engine's business: [Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md).
+
+#### Easy Mode
+
+Byte 0's bit 0 — strict layering in a type-0 record — is in a rack the **Easy Mode** mark: an editor's note that this rack is laid out in the fixed shape below and is to be shown as one. A player **MUST** ignore it; nothing about playback depends on it, and clearing it changes no sound.
+
+| Entries | What they are |
+|---|---|
+| 0 | The **principal**: DSP-only ([Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md)) — the program ends `$0000 $FF01` and names it nowhere else. Its instrument is a constant 1.0, so its envelopes, filter, pan, fadeout and note actions are the whole instrument's, and its output level the instrument's level |
+| 1 … *n* | The **operators**, numbered 0 … *n* − 1 from entry 1: oscillators, each on an instrument of its own, so each has its own volume envelope. An operator's frequency is its detune field, read as a whole number of octaves (`round(detune ÷ 4096)`, −8 … 7) and what is left (−2048 … 2047) |
+| after them | The **constants**: one per feedback loop deeper or shallower than one cycle — a constant 1.0 read only as `a′ × c`, the loop from operator *a*. The loop's depth is the constant's level |
+
+A loop's depth is counted in the classic unit — 0, π/16, π/8, π/4, π/2, π, 2π, 4π radians of phase per unit of output, numbered 0…7. The rack measures phase in cycles, so these are 1/32 … 2, and an editor writes the decibel octets nearest them: `$00`, `$39`, `$3F`, `$4B`, `$57`, `$6F`, `$9F`, `$CF` (within 1.2 %). Depth 6 is exactly one cycle and is written as a bare tap, with no constant.
+
+The mark is a promise the editor keeps, not one a reader may rely on: a record whose mark is set but which does not read in this shape is an ordinary rack, and an editor **SHOULD** say so rather than guess. What reads in this shape is decided the engine's way — every operator defined where the program first names it — so the words may come in any order, a modulator shared by DUP or by naming it again, the constants anywhere in the table; an editor that rewrites the rack **MAY** put them back in a canonical order, since that changes nothing that sounds.
 
 ### 7.8 Metainstrument type 8 — OPL instruments
 
@@ -1697,3 +1711,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-16 | Metainstrument type 9 — PSG instruments: an ordinary record with two oscillators in place of its sample (sixteen waveforms, the OPL operator's envelope, tremolo and vibrato, auto-advance), added or multiplied, the patch in the second pitch/filter slot. The second kind of types 8…13: a layer, an FM operator and a formant instrument's source **MAY** be one |
 | 2026-10-21 | Formant instruments: a reference note of 0 is a syllable with **no vowel**, its last consonant held as a syllabic consonant; the reference word's bit 15 **nasalises** the vowel; byte +53's bits 3–4 a **secondary articulation** on the onset (palatalised, velarised/pharyngealised, glottalised) and bits 5–6 the **coda's release** (unreleased, velarised/pharyngealised, glottalised); an empty pool range other than 0…0 is an instrument made from **nothing in the pool** |
 | 2026-10-22 | `IMix` — instrument mixing chains: byte 255 of every record names a block of up to twelve pieces of equipment in a fixed pipeline, and the fourth Project-Data section a player must honour; each piece's common flags carry, beside its bypass, whether an editor shows it folded. An FM rack's operators and algorithm now share bytes 4…253 (250 bytes; was 4…255), leaving byte 255 to every kind |
+| 2026-10-25 | Type-4 racks: byte 0's bit 0 is the **Easy Mode** mark, an editor's note that the rack is laid out as a DSP-only principal, its operators, then the constants that set its feedback depths (§7.7). Players ignore it |

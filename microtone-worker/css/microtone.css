@@ -1736,6 +1736,39 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   fill: var(--dim); font-family: var(--mono-font); font-size: 11px;
 }
 
+/* The FM Easy tab (item 247): the same diagram with live boxes, a routing
+   grid under it, then the operators and their loops. */
+.fm-easy-bar { flex-wrap: wrap; gap: 0.6rem; }
+.fm-easy-field { display: inline-flex; align-items: center; gap: 0.4rem; }
+.fm-easy-hint { font-size: 0.82rem; margin: 0.3rem 0 0.6rem; }
+.fm-easy-diagram .fm-graph { touch-action: none; }
+.fm-easy-diagram [data-op], .fm-easy-diagram [data-out] { cursor: grab; }
+.fm-easy-dragging, .fm-easy-dragging [data-op] { cursor: grabbing; }
+.fm-easy-target .fm-graph-box, .fm-easy-target .fm-graph-out { fill: var(--cv-cursor); stroke-width: 2.5; }
+.fm-easy-rubber {
+  stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none;
+}
+.fm-easy-tray { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: -0.2rem 0 0.6rem; }
+.fm-easy-chip {
+  font-family: var(--mono-font); padding: 0 0.45rem; cursor: grab; touch-action: none;
+  background: var(--panel-2); border: 1px dashed var(--dim); border-radius: var(--radius-sm);
+}
+.fm-easy-chip.fm-easy-target { border-color: var(--accent); background: var(--cv-cursor); }
+.fm-easy-grid { border-collapse: collapse; margin: 0 0 0.6rem; font-family: var(--mono-font); font-size: 0.85rem; }
+.fm-easy-grid th { padding: 0 0.35rem; color: var(--dim); font-weight: normal; }
+.fm-easy-grid td { padding: 0.08rem; }
+.fm-easy-cell { min-width: 1.8rem; padding: 0 0.3rem; font-family: var(--mono-font); color: var(--dim); }
+.fm-easy-cell.on { color: var(--accent); border-color: var(--accent); }
+/* A cell that would close a loop is a FEEDBACK cell: the loop's own ink. */
+.fm-easy-cell.fb.on { color: var(--accent-2); border-color: var(--accent-2); }
+.fm-easy-table tr.fm-easy-sel .idxCell { color: var(--accent); }
+.fm-easy-ops .meta-bar h4, .fm-easy-fb h4 { margin: 0; }
+.fm-easy-fb { margin: 0.6rem 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; }
+.fm-easy-fb h4, .fm-easy-fb p { flex-basis: 100%; }
+.fm-easy-loop { font-family: var(--mono-font); }
+.fm-easy-lost-actions { margin-top: 0.4rem; }
+.fm-easy-new .fm-graph-frame { margin-top: 0.5rem; }
+
 .fm-words { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.5rem; }
 .fm-word {
   display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;

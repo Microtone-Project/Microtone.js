@@ -391,21 +391,21 @@ test("metaRecordWithFlags sets and clears each bit, keeping the other", () => {
     makeMetaLayer(1, 159, 0, 0x0000, 0xffff, 0, 63),
     makeMetaLayer(2, 100, -341, 0x1000, 0x8000, 3, 60),
   ]));
-  assert.deepEqual(metaFlags(inst), { strict: false, percussion: false, type: 0, imixId: 0 });
+  assert.deepEqual(metaFlags(inst), { strict: false, easy: false, percussion: false, type: 0, imixId: 0 });
 
   const perc = new TaudInst(0);
   perc.loadRecord(metaRecordWithFlags(inst, { percussion: true }));
-  assert.deepEqual(metaFlags(perc), { strict: false, percussion: true, type: 0, imixId: 0 });
+  assert.deepEqual(metaFlags(perc), { strict: false, easy: false, percussion: true, type: 0, imixId: 0 });
   assert.equal(perc.isPercussion, true, "the getter every retuner asks reads it");
 
   const both = new TaudInst(0);
   both.loadRecord(metaRecordWithFlags(perc, { strict: true }));
-  assert.deepEqual(metaFlags(both), { strict: true, percussion: true, type: 0, imixId: 0 });
+  assert.deepEqual(metaFlags(both), { strict: true, easy: false, percussion: true, type: 0, imixId: 0 });
   assert.equal(both.metaStrict, true);
 
   const off = new TaudInst(0);
   off.loadRecord(metaRecordWithFlags(both, { percussion: false }));
-  assert.deepEqual(metaFlags(off), { strict: true, percussion: false, type: 0, imixId: 0 });
+  assert.deepEqual(metaFlags(off), { strict: true, easy: false, percussion: false, type: 0, imixId: 0 });
   assert.equal(off.isPercussion, false);
 });
 

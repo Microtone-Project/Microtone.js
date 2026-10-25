@@ -1668,6 +1668,36 @@ of its oscillators are bent (its noises, which are not read by phase, are not). 
 are not offered as picks: an operator is a source, and they are made out of
 one.
 
+### FM Easy Mode
+
+An FM Rack can be worked in **Easy Mode**: the same rack, shown in the shape a
+classic six-operator FM synth is played in. It is how **Meta… → FM Rack** starts
+out — choose one of forty **presets**, give it a name, and the rack makes its own
+operators, a sine each, without anything to pick. (Switch Easy Mode off in the
+dialog to build one out of your own instruments instead.) An existing rack goes
+into Easy Mode from its **Options** tab.
+
+The **Easy** tab then sits in front of the FM tab. Both show the same rack: what
+you change on one is there on the other.
+
+- **Preset** rewires the rack to one of the forty: two of two operators, six of four, and the thirty-two six-operator algorithms. It can be changed at any time; the operators keep their levels, frequencies and envelopes, extra ones are dropped and missing ones are added.
+- **Routing** draws the wiring and lets you change it by hand. Drag an operator onto another to make it modulate that one, onto itself for feedback, or onto **OUT** to hear it; drag the same way again to undo it. A connection that would close a loop becomes a feedback loop. The grid under the picture says the same thing — a row per operator, a column per place its output can go — and pressing a cell connects or disconnects it.
+- Each **operator** has a **level**, a **multiplier** and a **detune**. The multiplier is in octaves: 1 is +1 octave, 0 no change, −1 is −1 octave, −2 is −2 octaves. The detune is a finer shift on top of it, up to half an octave either way. **Envelope** shows the operator's own volume envelope below the table, in the same editor as an instrument's.
+- **Feedback** is counted as on those synths: 0 is none, then 1…7 doubles each step from π/16 up to 4π.
+- **Output** is the whole instrument's level, and **Shared DSP…** opens the *principal* — the one part of the rack that is not an oscillator. Its volume and pan envelopes, filter, fadeout and New Note Action are the instrument's own, applied to the finished sound of all the operators together.
+
+On the FM tab the Easy rack is an ordinary one: the principal is operator 0,
+multiplying everything else (`… × 0` in the formula), the operators follow it, and
+each feedback depth is one more operator, a constant. An edit there that the Easy
+tab could not show — a ring modulation, say — is held with a note above it, until
+you either undo it or choose **Apply and leave Easy Mode**. Turning Easy Mode off
+in Options changes nothing but the tabs.
+
+`S $Apsd` — *Instrument Sound Control* on an FM rack — gives operator `p` (as the
+Easy tab numbers them) a vibrato of its own for the note: speed `s` and depth `d`,
+each 0…F. On a modulator it is heard as the tone shimmering rather than the pitch
+wobbling.
+
 ### OPL instruments
 
 **Meta… → OPL instrument** makes an instrument with **no sample at all**: one
@@ -1755,8 +1785,8 @@ same way each time.
 **Muting** an oscillator leaves the other one exactly as it is, in either mix:
 muting B of a multiplied pair gives you A alone, not silence.
 
-**Changing it from a pattern.** `S $Axxx` changes an oscillator while the song
-plays: `S $A0xx` and `S $A8xx` set A's or B's auto-advance, `S $A1xx` and
+**Changing it from a pattern.** `S $Axxx`, *Instrument Sound Control*, changes
+an oscillator while the song plays: `S $A0xx` and `S $A8xx` set A's or B's auto-advance, `S $A1xx` and
 `S $A9xx` (up to `$3F`) its level, and `S $AF00`…`S $AF03` the mutes — none,
 A, B, both. The change belongs to the **instrument**, so every later note of it
 keeps it, until the song is played again from the start. While the song plays
@@ -1853,8 +1883,8 @@ merely as strong on a meter. Changing the vowel changes the timbre, not the
 loudness; set the volume with the instrument's own controls as on any
 instrument.
 
-**Changing the vowel in a pattern.** `S $Afgr` moves the vowel of the note on
-its lane: `$f` is how open it is, `$g` how front, `$r` how rounded, each 0…F.
+**Changing the vowel in a pattern.** `S $Afgr` — *Instrument Sound Control* on a
+formant instrument — moves the vowel of the note on its lane: `$f` is how open it is, `$g` how front, `$r` how rounded, each 0…F.
 `S $A0F0` is [i], `S $A0FF` is [y], `S $A00F` is [u], `S $AFF0` is [a];
 the Formant tab shows the command for whatever vowel you set there. On the row
 that starts the note it is that note's vowel from the start; later in the note
@@ -2996,7 +3026,7 @@ sidebar (also at [Note Effects](#effects)).
 | P | Pan slide | `$xy00` — left/right |
 | Q | Retrigger | `$xy00` — every y ticks, x = volume modifier |
 | R | Tremolo | `$xy00` — speed, depth |
-| S | Special | delays, cuts, loops, waveforms, NNA overrides, invert loop… · `$Afgr` a formant instrument's vowel · `$Axxx` a PSG instrument's registers |
+| S | Special | delays, cuts, loops, waveforms, NNA overrides, invert loop… · `$Axxx` instrument sound control: `$Afgr` a formant instrument's vowel, a PSG instrument's registers, `$Apsd` operator p's auto-vibrato speed s and depth d on an FM rack |
 | T | Tempo | `$xx00` set · `$FFxx` … `$FCxx` extended (xx non-zero; up to 1048 BPM) · `$000y/$001y` slide |
 | U | Fine vibrato | `$xy00` |
 | V | Global volume | `$xx00` (00–FF) |
