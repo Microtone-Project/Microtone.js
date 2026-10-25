@@ -2210,7 +2210,7 @@ export default {
   "proj.tuneAak262": "C4 @ 262 Hz — Chinese a-ak convention",
   "proj.tuneHyangak311": "C4 @ 311 Hz — Korean hyang-ak (Gugak Center)",
   "proj.tuningPatterns": " · patterns: {pat} · cues used: {cues}",
-  "proj.remapNotes": "Remap notes onto a different tuning system: ",
+  "proj.remapNotes": "Remap notes onto a different tuning system",
   "proj.colBpm": "BPM",
   "proj.colSpeed": "speed",
   "proj.colOperation": "operation",

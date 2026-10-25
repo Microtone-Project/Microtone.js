@@ -384,24 +384,6 @@ export class ProjectView {
 
     this.root.appendChild(this.buildTuning(song));
 
-    const tuning = document.createElement("p");
-    tuning.className = "dim";
-    // (The beat/bar divisions used to be read out here; they are two editable
-    // fields in the grid above now — item 136.1.)
-    const tuningTxt =
-      t("proj.tuningPatterns", { pat: song.patterns.length, cues: song.lastUsedCue() + 1 });
-    tuning.textContent = tuningTxt.replace(/^ · /, "");
-    this.root.appendChild(tuning);
-
-    const retuneP = document.createElement("p");
-    retuneP.className = "dim";
-    retuneP.append(document.createTextNode(t("proj.remapNotes")));
-    const retuneBtn = document.createElement("button");
-    retuneBtn.textContent = t("toolbox.retune");
-    retuneBtn.addEventListener("click", () => this.openRetune(preset));
-    retuneP.appendChild(retuneBtn);
-    this.root.appendChild(retuneP);
-
     const songsTableHead = document.createElement("h3");
     songsTableHead.className = "files-songs-head";
     songsTableHead.textContent = t("files.songsHead");
@@ -443,7 +425,7 @@ export class ProjectView {
     this.root.appendChild(songsTable);
 
     const songBar = document.createElement("div");
-    songBar.className = "toolbox";
+    songBar.className = "toolbox-transparent";
     songBar.style.borderBottom = "none";
     songBar.style.padding = "0.4rem 0";
     const addBtn = document.createElement("button");
@@ -457,7 +439,7 @@ export class ProjectView {
     houseHead.textContent = t("clean.title");
     this.root.appendChild(houseHead);
     const houseBar = document.createElement("div");
-    houseBar.className = "toolbox";
+    houseBar.className = "toolbox-transparent";
     houseBar.style.borderBottom = "none";
     houseBar.style.padding = "0.4rem 0";
     houseBar.style.flexWrap = "wrap";
@@ -481,13 +463,14 @@ export class ProjectView {
     globHead.textContent = t("glob.title");
     this.root.appendChild(globHead);
     const globBar = document.createElement("div");
-    globBar.className = "toolbox";
+    globBar.className = "toolbox-transparent";
     globBar.style.borderBottom = "none";
     globBar.style.padding = "0.4rem 0";
     globBar.style.flexWrap = "wrap";
     globBar.append(
       hbtn(t("glob.transpose"), t("glob.transposeTitle"), () => this.transposeGlobal()),
       hbtn(t("glob.changeInst"), t("glob.changeInstTitle"), () => this.changeInstrumentGlobal()),
+      hbtn(t("toolbox.retune"), t("proj.remapNotes"), () => this.openRetune(preset))
     );
     this.root.appendChild(globBar);
     // 85.00: every global operation stops at the current song's edge.

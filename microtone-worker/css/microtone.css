@@ -613,6 +613,10 @@ button {
               0 0 2.0px rgba(0, 0, 0, 0.1);
 }
 
+button.active {
+  font-weight: 500;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -1496,13 +1500,16 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 .zoom-ctl:hover > b { color: var(--fg); }
 .zoom-ctl > button { padding: 0.1rem 0.4rem; line-height: 1; }
 
-.toolbox {
+.toolbox, .toolbox-transparent {
   display: flex;
   gap: 0.4rem;
   align-items: center;
   padding: 0.3rem 0.8rem;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+}
+.toolbox-transparent {
+  background: unset;
 }
 .toolbox button { padding: 0.2rem 0.7rem; font-size: 0.85rem; }
 .toolbox button.active { color: var(--accent); border-color: var(--accent); }
@@ -1753,7 +1760,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-family: var(--mono-font); padding: 0 0.45rem; cursor: grab; touch-action: none;
   background: var(--panel-2); border: 1px dashed var(--dim); border-radius: var(--radius-sm);
 }
-.fm-easy-chip.fm-easy-target { border-color: var(--accent); background: var(--cv-cursor); }
+.fm-easy-chip.fm-easy-target { border-color: var(--accent); color: var(--accent); font-weight: 500; }
 .fm-easy-grid { border-collapse: collapse; margin: 0 0 0.6rem; font-family: var(--mono-font); font-size: 0.85rem; }
 .fm-easy-grid th { padding: 0 0.35rem; color: var(--dim); font-weight: normal; }
 .fm-easy-grid td { padding: 0.08rem; }
@@ -4122,7 +4129,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    shows a closed outline even next to the active segment. */
 .mst-seg button { position: relative; }
 .mst-seg button + button { margin-left: -1px; }
-.mst-seg button.active { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); z-index: 1; }
+.mst-seg button.active { color: var(--accent); border-color: var(--accent); z-index: 1; }
 .mst-seg button:hover { z-index: 2; }
 .mst-serieseg { align-self: flex-start; margin-top: 0.2rem; }
 
@@ -4133,7 +4140,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    band — carries a LAMP per button: green (live) when that item is on, a dark
    trough when it is off, so which band you are editing and which bands are
    sounding read at once. */
-button.toggle[aria-pressed="true"] { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); }
+button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); font-weight: 500; }
 .seg-lamp {
   display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em;
   border-radius: 50%; vertical-align: 0.06em;
