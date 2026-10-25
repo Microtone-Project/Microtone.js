@@ -2224,9 +2224,9 @@ export default {
   // ── Mastering view (item 178) ──
   "mst.title": "Mastering",
   "mst.noDoc": "Open a project to master it.",
-  "mst.chainOn": "chain",
-  "mst.pre": "pre",
-  "mst.post": "post",
+  "mst.chainOn": "On",
+  "mst.pre": "Pre",
+  "mst.post": "Post",
   "mst.preTitle": "Measure the mix going INTO the chain",
   "mst.postTitle": "Measure what comes OUT — this is what the file holds",
   "mst.reset": "Reset chain",
