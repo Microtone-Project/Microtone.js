@@ -6,28 +6,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 
 ## Version 4.0.0 (2026-10-22)
 
-Instruments can be saved as a `.tsii` bank: **Export…** at the foot of the Instruments list.
-
-- **Choose what goes**: every instrument starts ticked, and unticking one leaves it out; a metainstrument always takes the instruments it is built from, and only the samples the chosen instruments play are written, so a bank of three instruments is the size of three.
-- **Instruments keep their numbers**, so the bank still matches the project's patterns, and opening it over a project or importing from it brings back the same instruments, with their patches, names and mixing chains.
-- Recordings in memory go with the bank unless you clear their box; the project itself is not changed.
-
-Imported tracker modules now play their volume slides, silent samples and repeated patterns as the originals do.
-
-- **Fixed: volume slides in imported `.mod` and `.xm` files went wrong** — `A $F0` slid up once instead of on every tick, `A $Fx` and `A $xF` became fine slides, and `A $xy` with both digits set did nothing; the importer read them the way ScreamTracker reads its own volume slide.
-- **Fixed: `5 $xy` and `6 $xy` with both digits set slid the volume down** in imported `.mod` and `.xm` files, where ProTracker and FastTracker 2 slide it up.
-- **Fixed: a sample whose default volume is 0 played at full volume** in imported `.mod`, `.s3m`, `.xm` and `.it` files, because a stored 0 means "no default"; it is silent now until the song gives it a volume, as in the original tracker.
-- **Fixed: a pattern played in several places of an imported `.mod`, `.s3m` or `.it` could recall the wrong slide, vibrato or other remembered value** — a command with a `$00` argument took the value from the pattern's first place in the song, and now takes the one played just before it wherever it is.
-
-Songs can be saved as ProTracker modules again: **Export .MOD…** on the File tab writes every song as a four-channel `.mod`.
-
-- **A module you imported comes back out as the same music** — its samples, finetunes, volumes and loops, every note and every effect — so a `.mod` can make the round trip through Microtone, microtonal ones included.
-- **Songs written here export too**, as long as they keep to what a module holds: four lanes of music, the Amiga period tone-slide mode, and ProTracker's own effects, tempos and speeds. Whatever is in the way is named in a dialog, with where it first happens, and anything that will not come across exactly is listed before you save.
-- **OPL and PSG instruments become samples**, played once through the engine at the level they have in the mix and looped where they sustain; a sample pitched too high or too long for ProTracker is resampled by whole octaves.
-- **Microtonal songs are written as raw Amiga periods**, the nearest the hardware can get to each note. ProTracker plays them, though its editor and some other trackers will not show them right, and the dialog says so.
-- Each song of a project becomes its own module, and several come zipped together.
-
-Every instrument can now have its own mixing chain — equalisers, dynamics, unison, saturation, tape delay, reverb and a limiter — saved in the song and heard wherever it plays.
+**Every instrument can now have its own mixing chain** — equalisers, dynamics, unison, saturation, tape delay, reverb and a limiter — saved in the song and heard wherever it plays.
 
 - **The Mixing tab**, the last tab of every instrument, builds the chain: input trim, two equalisers, two dynamic EQs, a compressor of one to six bands, unison, a saturator, a tape delay, a reverb, a limiter and a mix tool, in a fixed order, the only choice being whether the delay feeds the reverb or the reverb the delay.
 - **Instruments can share a chain's settings**: *Use chain…* puts an instrument on any chain of the project, every control then moves for all the instruments on it, and each still runs its own copy — a compressor on the kick never ducks the snare. *Make independent* splits them again, and a chain left with nobody on it stays in the list until you save.
@@ -43,7 +22,7 @@ Every instrument can now have its own mixing chain — equalisers, dynamics, uni
 - A chain no instrument uses is kept while you work and dropped when you save; a project from a newer version with equipment this one does not know says so once, keeps it, and plays the rest of the chain.
 - An FM Rack's operators and algorithm now share 250 bytes of the record rather than 252, which no algorithm the editor builds comes near.
 
-An FM Rack can now be built and played in **Easy Mode**: forty presets, and operators with a level, an octave multiplier, a detune and an envelope each, wired by dragging.
+**An FM Rack can now be built and played in Easy Mode**: forty presets, and operators with a level, an octave multiplier, a detune and an envelope each, wired by dragging.
 
 - **Meta… → FM Rack starts in Easy Mode**: choose a preset and the rack makes its own sine operators, with no instruments to pick — so a project with no samples at all can have one. Switch Easy Mode off in the dialog to build one from your instruments as before.
 - **The Easy tab** sits in front of the FM tab and shows the same rack. The preset can be changed at any time, keeping the operators' settings; the wiring can be drawn by hand, dragging an operator onto the one it should modulate, onto itself for feedback or onto OUT to hear it, or pressed into the routing grid beneath.
@@ -54,6 +33,34 @@ An FM Rack can now be built and played in **Easy Mode**: forty presets, and oper
 - **`S $Axxx` is now called Instrument Sound Control**, and an FM Rack takes it too: `S $Apsd` gives operator `p` a vibrato of its own for the note, at speed `s` and depth `d`.
 - The FM tab's formula leaves out the round brackets that changed nothing, so `2[(0 + 1)]` now reads `2[0 + 1]`, and its diagram draws a ring modulation with one operand coming in from the left and the other from below, so wires meeting from the left always mean a sum.
 
+**Songs can be saved as ProTracker modules again**: **Export .MOD…** on the File tab writes every song as a four-channel `.mod`.
+
+- **A module you imported comes back out as the same music** — its samples, finetunes, volumes and loops, every note and every effect — so a `.mod` can make the round trip through Microtone, microtonal ones included.
+- **Songs written here export too**, as long as they keep to what a module holds: four lanes of music, the Amiga period tone-slide mode, and ProTracker's own effects, tempos and speeds. Whatever is in the way is named in a dialog, with where it first happens, and anything that will not come across exactly is listed before you save.
+- **OPL and PSG instruments become samples**, played once through the engine at the level they have in the mix and looped where they sustain; a sample pitched too high or too long for ProTracker is resampled by whole octaves.
+- **Microtonal songs are written as raw Amiga periods**, the nearest the hardware can get to each note. ProTracker plays them, though its editor and some other trackers will not show them right, and the dialog says so.
+- Each song of a project becomes its own module, and several come zipped together.
+
+**Microtone can be translated in the browser**: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
+
+- **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.
+- **Suggestions from what is already translated**: the nearest strings translated before, with what differs from them marked, and a search through every string.
+- **Inconsistencies found for you**: the same English translated two ways, a placeholder, key name or "…" lost on the way, a glossary term not used, and translations whose English has changed since they were written, with the change shown.
+- Work stays in your browser until you save, and saving gives you the language files to send in.
+- **Opening Microtone with `?lang=debug`** at the end of its address shows every string as its name followed by the start of its English, so you can tell which string is which on screen; choose a language in the language picker to leave it.
+
+A project can be switched between 32 and 64 lanes from the **Lanes** selector on the Project tab.
+
+- It changes every song at once and moves nothing: going to 64 adds 32 empty lanes, and Ctrl+Z switches back.
+- If a song runs past cue 4096 (the most a 64-lane cue sheet holds), or still has patterns on lanes 33–64 when you go back to 32, a message says which, and nothing changes.
+
+Imported tracker modules now play their volume slides, silent samples and repeated patterns as the originals do.
+
+- **Fixed: volume slides in imported `.mod` and `.xm` files went wrong** — `A $F0` slid up once instead of on every tick, `A $Fx` and `A $xF` became fine slides, and `A $xy` with both digits set did nothing; the importer read them the way ScreamTracker reads its own volume slide.
+- **Fixed: `5 $xy` and `6 $xy` with both digits set slid the volume down** in imported `.mod` and `.xm` files, where ProTracker and FastTracker 2 slide it up.
+- **Fixed: a sample whose default volume is 0 played at full volume** in imported `.mod`, `.s3m`, `.xm` and `.it` files, because a stored 0 means "no default"; it is silent now until the song gives it a volume, as in the original tracker.
+- **Fixed: a pattern played in several places of an imported `.mod`, `.s3m` or `.it` could recall the wrong slide, vibrato or other remembered value** — a command with a `$00` argument took the value from the pattern's first place in the song, and now takes the one played just before it wherever it is.
+
 A stereo WAV export now comes in two bit depths, chosen in the **Export audio…** dialog: **Clean** and **Gritty**.
 
 - **Clean** (the default) is 16-bit as before, now with a light dither, so quiet fades and reverb tails stay smooth instead of breaking into steps.
@@ -61,22 +68,15 @@ A stereo WAV export now comes in two bit depths, chosen in the **Export audio…
 - The Mastering tab's **Bit usage** panel counts the same dither, so its 16-bit reading still matches the file you export.
 - The taudplay player library writes both, from JavaScript and from C.
 
-A project can be switched between 32 and 64 lanes from the **Lanes** selector on the Project tab.
+Instruments can be saved as a `.tsii` bank: **Export…** at the foot of the Instruments list.
 
-- It changes every song at once and moves nothing: going to 64 adds 32 empty lanes, and Ctrl+Z switches back.
-- If a song runs past cue 4096 (the most a 64-lane cue sheet holds), or still has patterns on lanes 33–64 when you go back to 32, a message says which, and nothing changes.
+- **Choose what goes**: every instrument starts ticked, and unticking one leaves it out; a metainstrument always takes the instruments it is built from, and only the samples the chosen instruments play are written, so a bank of three instruments is the size of three.
+- **Instruments keep their numbers**, so the bank still matches the project's patterns, and opening it over a project or importing from it brings back the same instruments, with their patches, names and mixing chains.
+- Recordings in memory go with the bank unless you clear their box; the project itself is not changed.
 
 Importing instruments keeps a metainstrument's building blocks out of the note column's way.
 
 - **Fixed: importing instruments put a metainstrument's building blocks in `$01`–`$FF`**, where they crowded the instruments you play, whenever they were ticked as well (the picker's **All** ticks every row); they now always land in `$100`–`$3FF`.
-
-Microtone can be translated in the browser: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
-
-- **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.
-- **Suggestions from what is already translated**: the nearest strings translated before, with what differs from them marked, and a search through every string.
-- **Inconsistencies found for you**: the same English translated two ways, a placeholder, key name or "…" lost on the way, a glossary term not used, and translations whose English has changed since they were written, with the change shown.
-- Work stays in your browser until you save, and saving gives you the language files to send in.
-- **Opening Microtone with `?lang=debug`** at the end of its address shows every string as its name followed by the start of its English, so you can tell which string is which on screen; choose a language in the language picker to leave it.
 
 Motif, Microtone's typeface, tells more of its letters and digits apart.
 

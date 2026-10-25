@@ -1741,7 +1741,7 @@
         "easy.operators": "Operators",
         "easy.addOp": "Add operator",
         "easy.addOpTitle": "Add a sine operator, wired to nothing yet",
-        "easy.colOp": "op",
+        "easy.colOp": "#",
         "easy.colMult": "multiplier",
         "easy.colDetune": "detune",
         "easy.levelTitle": "Output level: how loud this operator is when heard, and how far it bends what it modulates",
