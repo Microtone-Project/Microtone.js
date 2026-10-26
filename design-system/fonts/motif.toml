@@ -13,6 +13,7 @@ date = "2026-10-24"   # stamped into the fonts, so a rebuild is byte-for-byte re
 widen = 20            # percent: every Chivo glyph this much wider; the 600-unit cell stays
 margin = 12           # units: a widened glyph stops this far short of the cell edge
 centred = "·-−+"      # set on the capitals' middle, with the Kite marks (the grid's natural is −)
+narrow-zero = 20
 
 [transport]           # "Motif Transport": the transport readouts
 narrow = 10           # percent: every glyph AND its cell this much narrower

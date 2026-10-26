@@ -129,6 +129,42 @@ def build_monospaced(cfg, sources, family, unicodes, scale, fit_margin, extra, c
     _add(font, extra(src, cell) + derived)
     return _finish(font, cfg, family, italic=False, fixed_pitch=True)
 
+def build_grid(cfg, sources, family, unicodes, scale, fit_margin, extra, centred="",
+                     natural2=False):
+    """Grid and Transport: every Chivo glyph rescaled by the same factor.
+    The characters in `centred` are moved up or down to sit on the middle of
+    the capitals, where the Kite marks and the tracker's digits sit."""
+    src = Source(sources / ROMAN, cfg)
+    comp = cfg["stems"]["compensate"]
+    font = TTFont(src.path)
+    assemble.subset_font(font, unicodes, [])
+    del font["HVAR"]  # rebuilt from gvar once every advance is final
+    cell = round(600 * scale) if scale < 1 else 600
+    zero = 1 - cfg["grid"]["narrow-zero"] / 100
+    cmap = font.getBestCmap()
+    centred_names = {cmap[ord(ch)] for ch in centred if ord(ch) in cmap}
+    derived = []
+    minus = cmap.get(0x2212)
+    for name in font.getGlyphOrder():
+        vg = src.letter(name, cfg)
+        k = scale * zero if name == "zero" else scale
+        # Widening keeps the cell; narrowing narrows it with the glyph.
+        advance = vg.advance if scale >= 1 else round(vg.advance * scale)
+        if k > 1:
+            vg = fitted_rescale(vg, k, advance, src.stems, comp, fit_margin)
+        else:
+            vg = rescale(vg, lambda t: k, advance, src.stems, comp)
+        if name in centred_names:
+            vg = vg.map(lambda t, ol: translate(ol, 0, symbols.MID - (bounds(ol)[1] + bounds(ol)[3]) / 2))
+        assemble.put_glyph(font, vg)
+        if name == minus and natural2:
+            # The grid's natural: this minus centred on two cells, so a note
+            # cell is one string of characters, in a canvas or in the DOM.
+            derived.append(VarGlyph("uniF01B", 2 * vg.advance,
+                                    {t: translate(ol, vg.advance / 2, 0) for t, ol in vg.masters.items()},
+                                    0xF01B))
+    _add(font, extra(src, cell) + derived)
+    return _finish(font, cfg, family, italic=False, fixed_pitch=True)
 
 def build_code(cfg, sources, italic, mono=False):
     """Motif Code: Chivo Mono with i I l narrow and M m W w wide, digits and

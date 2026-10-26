@@ -91,7 +91,7 @@ export function easyFbAmount(octet) {
 // ── frequency: multiplier and detune ────────────────────────────────────────
 
 export const EASY_MULT_MIN = -8;
-export const EASY_MULT_MAX = 7;
+export const EASY_MULT_MAX = 8;
 
 /**
  * An operator's detune field as the Easy tab shows it: a whole number of
