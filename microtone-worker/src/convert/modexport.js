@@ -570,9 +570,22 @@ function onTwelveToneGrid(note) {
   return Math.abs(off - Math.round(off)) * SEMITONE <= TWELVE_TONE_TOLERANCE;
 }
 
+/** A note sitting on ProTracker's own table: the "ProTracker Temperament"
+ *  notation writes exactly these pitches, and the table's two extension
+ *  octaves stray further from 12-TET (up to 71 units) than the grid test lets by. */
+function onProTrackerTable(note) {
+  const idx = PT_C4_INDEX + Math.round((note - MIDDLE_C) / SEMITONE);
+  if (idx < 0 || idx >= PT_PERIODS.length) return false;
+  const pitch = MIDDLE_C + 4096 * Math.log2(PT_REFERENCE_PERIOD / PT_PERIODS[idx]);
+  return Math.abs(note - pitch) <= TWELVE_TONE_TOLERANCE;
+}
+
 /** A played Taud note as the period that sounds it on this instrument. A
- *  12-tone song takes ProTracker's own table (and its finetune does the rest);
- *  a microtonal one writes the raw period. */
+ *  12-tone song — or one written in ProTracker's own temperament — takes
+ *  ProTracker's table (its finetune does the rest): the periods its editor can
+ *  name, and that the replayer finds in the finetune tables. A microtonal one
+ *  writes raw periods, which ProTracker plays snapped to the table but never
+ *  names. */
 function periodFor(note, plan, twelveTone) {
   if (twelveTone) {
     const semi = Math.round((note - MIDDLE_C) / SEMITONE) + plan.semis + 12 * plan.k;
@@ -822,7 +835,7 @@ export function exportModSong(doc, songIndex) {
   // ── notes → periods ──
   let twelveTone = true;
   for (const notes of notesOf.values()) {
-    if (!notes.every(onTwelveToneGrid)) { twelveTone = false; break; }
+    if (!notes.every((n) => onTwelveToneGrid(n) || onProTrackerTable(n))) { twelveTone = false; break; }
   }
   if (!twelveTone) warnings.add("microtonal");
   const zero = { finetune: 0, semis: 0, shift: 0, k: 0 };

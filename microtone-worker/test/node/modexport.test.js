@@ -286,6 +286,17 @@ test("a 12-tone song takes ProTracker's own periods, a microtonal one raw period
   assert.equal(cellOf(q.bytes, 0, 1, 0).period, Math.round(428 * 2 ** (-0.5 / 12)));
 });
 
+test("ProTracker Temperament notes come out as the table's own periods", () => {
+  const ptNote = (period) => Math.round(C4 + 4096 * Math.log2(428 / period));
+  // The table's extension octaves stray 35-71 units from 12-TET: that must not make the song microtonal.
+  const periods = [856, 428, 285, 113, 75];
+  const cells = {};
+  periods.forEach((p, i) => { cells[i] = { note: ptNote(p), ...(i === 0 ? { inst: 1 } : {}) }; });
+  const r = exportModSong(project({ patterns: { 0: cells }, cues: [[0]], instruments: [inst1] }), 0);
+  assert.deepEqual(codes(r.warnings), ["range"], "no microtonal warning");
+  assert.deepEqual(periods.map((_, i) => cellOf(r.bytes, 0, i, 0).period), periods);
+});
+
 test("a sample recorded high is resampled into ProTracker's range, its finetune kept", () => {
   // A 44.1 kHz sample played at C4 would need a period of 81 — past ProTracker's
   // B-3 (113). Down an octave it sounds as F-3 with a finetune of -2.
