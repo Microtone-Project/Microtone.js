@@ -112,7 +112,7 @@
         // NNA key-lift as the 5th option → flag bit 5 set, bits 0-1 clear.
         const nnaRow = findRow("New Note Action");
         const nnaOptCount = nnaRow.querySelectorAll(".sl-buttons button").length;
-        findBtn(nnaRow, "Key lift").click();
+        findBtn(nnaRow, "Release").click();
         const kl = ((inst.instrumentFlag >> 5) & 1) === 1 && (inst.instrumentFlag & 3) === 0;
         const nnaOk = nnaOptCount === 5 && kl;
         log(`NNA key-lift: options=${nnaOptCount} flag=0x${inst.instrumentFlag.toString(16)} (${nnaOk ? "ok" : "FAIL"})`);
