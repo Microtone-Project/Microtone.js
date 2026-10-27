@@ -14,7 +14,7 @@ from fontTools.ttLib import TTFont
 from . import assemble, cjk, symbols
 from .apertures import open_aperture
 from .varglyph import VarGlyph, master_glyphsets, source_glyph, bounds, translate
-from .widths import Stems, rescale, fitted_rescale, hp_capital_o, matched_weights
+from .widths import Stems, rescale, fitted_rescale, hp_capital_o, matched_weights, round_capital_d
 
 ROMAN, ITALIC = "ChivoMono-VF.ttf", "ChivoMono-Italic-VF.ttf"
 CHIRON_SUBSET = "ChironHeiHK-lu.otf"
@@ -51,6 +51,9 @@ class Source:
         cmap = self.font.getBestCmap()
         self.apertures = {cmap[ord(ch)]: units for ch, units in cfg["apertures"].items() if units}
         self.widened = {cmap[ord(ch)]: pct for ch, pct in cfg["in_cell"].items() if pct}
+        # D, and Ð and Đ, which Chivo draws as D plus a bar (Ď is a composite
+        # over D and follows it).
+        self.d_forms = {cmap[cp] for cp in (0x44, 0xD0, 0x110)}
         self.comp = cfg["stems"]["compensate"]
 
     def glyph(self, name, unicode=None):
@@ -58,13 +61,17 @@ class Source:
 
     def redrawn(self, name):
         """Whether Motif draws `name` itself (see letter())."""
-        return name == "O" or name in self.apertures or name in self.widened
+        return name == "O" or name in self.d_forms or name in self.apertures or name in self.widened
 
     def letter(self, name, cfg):
         """Chivo's glyph, or Motif's own drawing of it: the square O, the
-        opened C G c e 5 6 9, the wider z."""
+        round D, the opened C G c e 5 6 9, the wider z."""
         if name == "O":
             return capital_o(self, cfg)
+        if name in self.d_forms:
+            d = cfg["capital_D"]
+            return round_capital_d(self.glyph(name), d["exponent"], d["exponent_inner"], d["bowl"],
+                                   self.slant, self.y0)
         vg = self.glyph(name)
         if name in self.apertures:
             vg = open_aperture(vg, self.apertures[name])

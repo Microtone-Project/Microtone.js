@@ -86,6 +86,7 @@ Importing instruments keeps a metainstrument's building blocks out of the note c
 Motif, Microtone's typeface, tells more of its letters and digits apart.
 
 - **e, 5, 6 and 9 are more open**, their ends stopping further round the curve like C, G and c, so a 6 is not taken for a b or 0, a 9 for a q, a 5 for an S, or an e for an o — even in bold; G opens a little further too.
+- **The capital D has a round bowl**, so it stands apart from both the square O and the narrow, oval zero — in the grid's `D-4` as much as in a hex field reading `0D`.
 - **The z is as wide as the letters beside it**: Chivo Mono's was noticeably narrower than n and x, which left a gap in the middle of words like `nzn`.
 
 **The Timeline can narrow its cells to watch more lanes at once**: the **Cells** button in the toolbox switches between full cells, two slots and one.
