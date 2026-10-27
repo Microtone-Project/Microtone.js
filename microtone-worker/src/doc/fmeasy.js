@@ -96,10 +96,14 @@ export const EASY_MULT_MAX = 8;
 /**
  * An operator's detune field as the Easy tab shows it: a whole number of
  * octaves (the multiplier) and what is left over, in 4096-TET units within
- * half an octave either way. `detune = fine + 4096 × mult` exactly.
+ * half an octave either way. `detune = fine + 4096 × mult` exactly, except
+ * that the S16 field's top, 32767, is the multiplier 8 (32768) clamped, and so
+ * reads as mult 8, fine 0: a −1 left over would follow every lowering of the
+ * multiplier.
  */
 export function easySplitDetune(detune) {
   const d = detune | 0;
+  if (d === 32767) return { mult: EASY_MULT_MAX, fine: 0 };
   const mult = Math.round(d / 4096) + 0; // `+ 0`: never −0
   return { mult, fine: d - 4096 * mult };
 }

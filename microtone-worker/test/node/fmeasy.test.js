@@ -124,6 +124,13 @@ test("multiplier and detune are one field: detune = fine + 4096 × multiplier, f
   assert.equal(Object.is(easySplitDetune(-100).mult, -0), false, "never −0");
 });
 
+test("the S16 top is multiplier 8 with no fine: lowering the multiplier leaves no off-by-one", () => {
+  const top = easyJoinDetune(8, 0);
+  assert.equal(top, 32767);
+  assert.deepEqual(easySplitDetune(top), { mult: 8, fine: 0 });
+  assert.equal(easyJoinDetune(7, easySplitDetune(top).fine), 7 * 4096);
+});
+
 // ── reading a rack as Easy Mode ─────────────────────────────────────────────
 
 const ops4 = [entry(0x1ff), entry(0x100), entry(0x101), entry(0x102)];
