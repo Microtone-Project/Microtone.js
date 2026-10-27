@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  plotSeries, plotGeometry, octaveColour, plotPeriod, isPlottable, arpOffsets,
+  plotSeries, plotGeometry, octaveColour, plotPeriod, isPlottable, arpOffsets, plotNote,
   paintPitchTab,
   RE_ENTRY_ROWS, ANCHOR_OCTAVE,
 } from "../../src/ui/pitchplot.js";
@@ -361,4 +361,11 @@ test("evenSteps returns both endpoints, honours n, and is monotone along the pat
   // had overshot a stop and come back.
   const hues = many.map((c) => hexToOklch(c)[2]);
   for (let i = 1; i < hues.length; i++) assert.ok(hues[i] <= hues[i - 1] + 1e-6);
+});
+
+test("a row that shows a pitch plots the one it SOUNDS; a row that shows none stays empty", () => {
+  assert.equal(plotNote(0x5800, 0x5000), 0x5000, "a portamento's target plots where the glide still is");
+  assert.equal(plotNote(0x5800, null), 0x5800, "nothing known: the note as shown");
+  assert.equal(plotNote(0x0000, 0x5000), 0x0000, "a row the note only rings through is not marked");
+  assert.equal(plotNote(0x0001, 0x5000), 0x0001, "nor is a key-off");
 });

@@ -119,7 +119,7 @@ From top to bottom:
 
 - **Top bar** — transport, record toggle, undo/redo, octave / instrument / speed displays (hover and use the mouse wheel to change them), song selector, file buttons, the zoom control, language / theme / help buttons. Click the **Microtone** logo for the About box.
 - **Tabs** — the eight views, on **F1**–**F7** and **F9**. The strip belongs to the pane below it, so a split screen has one per pane, each ending in the button that splits the view (**⊞**) or closes that pane (**✕**).
-- **Toolbox** (Timeline and Patterns only) — **Retune…**, the **Raw** hex-note toggle, the **Ghosts** and **Pitch** drawing toggles, and the quick **Instruments** lookup panel.
+- **Toolbox** (Timeline and Patterns only) — **Retune…**, the **Raw** hex-note toggle, the **Ghosts** and **Pitch** drawing toggles, the Timeline's **Cells** width, and the quick **Instruments** lookup panel.
 - **The main view.**
 - **Command palette** — a context strip above the status bar showing the actions and documentation for the column under the cursor while recording.
 - **Status bar** — file name, project name, dirty marker, cue/row/BPM/speed position, and links to these docs.
@@ -278,6 +278,27 @@ A fine slide happens once on the row rather than every tick, so its argument is
 just a magnitude (00–1F) and the **+ / −** symbol carries the direction. Setting
 a fine slide's argument to zero empties the cell, since "shift by nothing" and
 "no command" are the same thing.
+
+### Narrow cells
+
+A full cell is twenty-odd characters wide, so a screen shows a handful of
+lanes. To **watch** a song on 32 or 64 lanes whole, press **Cells** in the
+toolbox: it steps through three widths, and this browser remembers the one you
+left it on.
+
+- **Cells: full** — every column, as above.
+- **Cells: 2 slots** — the first slot shows the note and instrument, or, on a row without them, the effect (then the second effect, when the lane shows one); the second slot shows the volume, or, without one, the panning.
+- **Cells: 1 slot** — the first slot alone. The lane headers lose the row with the lane's own volume and position, which no longer fits.
+
+In both narrow widths the lane header keeps the lane number, the pattern
+number, the meters and the note sounding now, which moves down to where the
+pattern name was; the name is still in the Cues view.
+
+They are made for watching, but you can still type into them: what you type
+goes to the column the slot is **showing** on that row, and into an empty slot
+it goes to the note, or to the volume. Arrow up and down and the cursor stands
+on whatever each row shows, then comes back to the column you put it on when a
+row shows that column again. A block selection is always whole cells here.
 
 ### Navigation
 
@@ -1014,6 +1035,13 @@ away, so scrolling far down (or deleting the tail of a long song) never bloats
 the save. The one caveat: *interior* gaps are kept — if you put content on cue 0
 and cue 2000 with nothing between, all 2001 cues are stored (compression keeps
 that cheap).
+
+**The lamps over the lane numbers.** While the song plays, each lane has a
+small **lamp** that lights whenever a row with anything on it — a note, a
+volume, a panning, an effect, a row a pattern ditto repeats — reaches the lane,
+and fades out after; beside it a **meter** shows the volume of the note
+sounding there. A lane that is busy but silent shows a flickering lamp and no
+level, so you can tell it from a lane that has nothing to do.
 
 **Block copy/paste.** Select a rectangle of lane cells by dragging with the
 mouse, with **Shift+arrows**, or a whole lane column at a time with **Ctrl+A**
@@ -3125,7 +3153,10 @@ one pitch draws one straight vertical line; a rising phrase leans right.
 ditto](#ditto-ghosts) repeats gets its tick like any other, and so does
 every row a slide or a portamento is travelling through — so `G $0080` between
 two written notes draws the curve you actually hear rather than a straight line
-between its ends. This does not depend on the **Ghosts** switch: that one
+between its ends. A note written under `G` is where the portamento is going,
+not where it is, so its tick stays on the pitch still sounding and the curve
+climbs from there; a fine slide on the note's own row (`F` `$Fxxx`, `S` `$2x`)
+is plotted where it lands. This does not depend on the **Ghosts** switch: that one
 decides whether the grey values are printed in the cells, and the shape of the
 part is true either way.
 

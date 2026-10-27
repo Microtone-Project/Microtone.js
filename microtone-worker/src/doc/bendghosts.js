@@ -670,12 +670,17 @@ export function createBendSim(opts = {}) {
      *   gap, or an empty cue slot) advances NOTHING — row.js skips a lane
      *   whose cue slot is empty before it resets any per-row state, so the
      *   voice simply rings on with everything it was holding.
-     * @param {object} runOpts  `rowLimit` (rows the cue plays) and `ditto`
-     *   (that pattern's dittoGhosts map, or null).
+     * @param {object} runOpts  `rowLimit` (rows the cue plays), `ditto`
+     *   (that pattern's dittoGhosts map, or null) and `pitches`: an array to
+     *   receive, row by row, the pitch SOUNDING at that row's tick 0 (null
+     *   where no note sounds) — written rows included, which is what the
+     *   ghosts leave out. A note under `G` is a target, not a pitch, and
+     *   `E $Fxxx` or `S $2x` move one before anyone hears it; the pitch plot
+     *   reads this to draw the note the row plays rather than the one typed.
      */
     run(pattern, runOpts = {}) {
       if (!pattern) return [];
-      const { rowLimit = pattern.length, ditto = null } = runOpts;
+      const { rowLimit = pattern.length, ditto = null, pitches = null } = runOpts;
       const out = new Array(pattern.length).fill(null);
       const n = Math.min(rowLimit, pattern.length);
 
@@ -692,6 +697,7 @@ export function createBendSim(opts = {}) {
           pan: panGhostValue(ts, v),
           elev: Math.round(voiceElevation(v)),
         };
+        if (pitches !== null) pitches[r] = v.active && v.noteVal >= 0x20 ? v.noteVal : null;
         if (prev !== null) {
           const g = { note: null, vol: null, pan: null, elev: 0 };
           if (noteBlank(row) && v.active && v.noteVal >= 0x20 &&

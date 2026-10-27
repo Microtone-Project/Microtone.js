@@ -40,8 +40,13 @@ import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
 import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
 import { laneVolumeCell, lanePanCell } from "../lanestate.js";
 import {
-  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, PLOT_CHARS,
+  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote, PLOT_CHARS,
 } from "../pitchplot.js";
+import {
+  CELLS_FULL, CELLS_ONE, EL_NOTE, EL_FX, EL_FX2, EL_VOL, EL_PAN,
+  narrowCellChars, cellPresence, narrowShown, narrowOrigins, narrowWalk, narrowResolve,
+  narrowCharPos, narrowCharToSub,
+} from "../narrowcell.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
@@ -62,6 +67,13 @@ const COL_W = Math.ceil(CELL_CHARS * CHAR_W) + 10;
 // strips are no longer all the same width.
 const COL_W_WIDE = Math.ceil(CELL_CHARS_WIDE * CHAR_W) + 10;
 const COL_W_WIDE_FX2 = Math.ceil(CELL_CHARS_WIDE_FX2 * CHAR_W) + 10;
+// The narrow cells (item 254): two slots, or one. Every lane is the same
+// width again in them — the second effect, where shown, takes its turn in
+// slot A rather than a group of its own.
+const colWNarrow = (mode, wide) => Math.ceil(narrowCellChars(mode, wide) * CHAR_W) + 10;
+/** The header row the lane state sits on, which a one-slot lane has no room
+ *  for — its header is that much shorter. */
+const LANE_ROW_H = 16;
 const CHAN_STEP_PX = 120; // ≈ one mouse-wheel notch; horizontal scroll's "one lane" reference
 
 export class TimelineView {
@@ -185,8 +197,17 @@ export class TimelineView {
 
   visibleRows() { return Math.floor((this.canvas.height / this.dpr - this.headerH()) / ROW_H); }
 
-  /** Header height — the surround radar (#998.6) expands it for every lane. */
-  headerH() { return HEADER_H + (this.radarOn() ? RADAR_H : 0); }
+  /** Header height — the surround radar (#998.6) expands it for every lane,
+   *  and a one-slot cell (item 254) drops the lane-state row. */
+  headerH() {
+    return HEADER_H + (this.radarOn() ? RADAR_H : 0) -
+      (this.cellMode() === CELLS_ONE ? LANE_ROW_H : 0);
+  }
+
+  /** The cell width in force (item 254): CELLS_FULL, CELLS_TWO or CELLS_ONE. */
+  cellMode() { return this.store.timelineCells | 0; }
+  /** Is the grid showing narrow cells? */
+  narrow() { return this.cellMode() !== CELLS_FULL; }
 
   /** True when the song is planar/spatial AND the radar toggle is on. */
   radarOn() {
@@ -200,11 +221,71 @@ export class TimelineView {
   /** Width of lane `ch`'s strip — per lane, because the second effect is
    *  exposed per lane. */
   colWFor(ch) {
+    if (this.narrow()) return colWNarrow(this.cellMode(), this.wide());
     if (!this.wide()) return COL_W;
     return this.fx2On(ch) ? COL_W_WIDE_FX2 : COL_W_WIDE;
   }
-  /** Cursor walk order within lane `ch` — six sub-columns, or eight. */
-  subPosFor(ch) { return subPositions(this.wide(), this.fx2On(ch)); }
+  /** Cursor walk order within lane `ch` — six sub-columns, or eight; in a
+   *  narrow cell, whatever row `row` shows (item 254). */
+  subPosFor(ch, row = this.store.cursor.row) {
+    if (this.narrow()) return narrowWalk(this.shownAt(row, ch), this.wide());
+    return subPositions(this.wide(), this.fx2On(ch));
+  }
+
+  /**
+   * What a narrow cell's slots show at (row, ch) — narrowcell.js. Ghosts
+   * count: the grid paints them where writing would go, so a slot holding
+   * one is showing that column. An empty cue slot shows its first columns.
+   */
+  shownAt(row, ch) {
+    const mode = this.cellMode();
+    const loc = this.locate(row);
+    const patNum = loc?.entry.info ? (this.store.song.cues[loc.entry.cue][ch] & 0x7fff) : PATTERN_EMPTY;
+    if (patNum === PATTERN_EMPTY) return narrowShown(mode, NOTHING_PRESENT);
+    const { entry, rowInCue } = loc;
+    const ghost = this.ghostsFor(patNum, entry.rowLimit)[rowInCue] ?? null;
+    const bend = this.bendsFor(ch, entry.cue)[rowInCue] ?? null;
+    return narrowShown(mode, cellPresence(this.patternFor(patNum)[rowInCue],
+      ghostShows(ghost, bend), this.fx2On(ch)));
+  }
+
+  /**
+   * Seat the cursor on the column its row's narrow cell is showing (item
+   * 254). The column it was PUT on is kept in `store.cellSeat.want`: a
+   * cursor whose sub-column is no longer the one last seated was moved by
+   * someone else (a click, Tab, another pane), and that is the new want.
+   * Writes the cursor in place and announces nothing — every caller is
+   * about to.
+   */
+  seatCursor() {
+    const store = this.store;
+    if (!this.narrow()) { store.cellSeat = null; return; }
+    const c = store.cursor;
+    let seat = store.cellSeat;
+    if (!seat || seat.sub !== c.sub || seat.nib !== c.nib) {
+      seat = { want: { sub: c.sub ?? 0, nib: c.nib ?? 0 } };
+    }
+    [c.sub, c.nib] = narrowResolve(this.shownAt(c.row, c.ch), this.wide(), seat.want.sub, seat.want.nib);
+    store.cellSeat = { want: seat.want, sub: c.sub, nib: c.nib };
+  }
+
+  /** The cursor was put on this column ON PURPOSE (an arrow, a click): it is
+   *  what a narrow cell's seat comes back to. */
+  wantCursor() {
+    if (!this.narrow()) return;
+    const c = this.store.cursor;
+    this.store.cellSeat = { want: { sub: c.sub, nib: c.nib }, sub: c.sub, nib: c.nib };
+  }
+
+  /** The cell width changed (the toolbox button): every column has moved, so
+   *  a block selection's sub-column band means nothing any more. */
+  cellsChanged() {
+    this.sel = null;
+    this.store.cellSeat = null;
+    this.seatCursor();
+    this.keepCursorVisible();
+    this.invalidate();
+  }
   /** The last logical column lane `ch` shows (what "the whole cell" means). */
   lastColFor(ch) { return this.fx2On(ch) ? COL_FX2 : COL_FX; }
 
@@ -430,6 +511,7 @@ export class TimelineView {
       this.canvas.setPointerCapture?.(e.pointerId);
     }
     this.store.cursor = hit;
+    this.wantCursor();
     this.store.emit("cursor");
     this.invalidate();
   }
@@ -474,6 +556,7 @@ export class TimelineView {
     this._troughDrag = { aRow: anchor };
     this.canvas.setPointerCapture?.(e.pointerId);
     this.store.cursor.row = row;
+    this.seatCursor();
     this.store.emit("cursor");
     this.invalidate();
   }
@@ -493,6 +576,7 @@ export class TimelineView {
       if (row < 0) return;
       this.selectRowBand(this._troughDrag.aRow, row);
       this.store.cursor.row = row;
+      this.seatCursor();
       this.store.emit("cursor");
       this.invalidate();
       return;
@@ -510,6 +594,7 @@ export class TimelineView {
     };
     const c = this.store.cursor;
     c.row = hit.row; c.ch = hit.ch; c.sub = hit.sub; c.nib = hit.nib;
+    this.wantCursor();
     this.store.emit("cursor");
     this.invalidate();
   }
@@ -582,9 +667,16 @@ export class TimelineView {
     const c = this.store.cursor;
     const strip = this.chanLayout().find((sp) => sp.ch === c.ch);
     if (!strip) return null;
-    const [cs, ce] = colCharRange(this.wide(), this.fx2On(c.ch))[subToCol(c.sub ?? 0)];
+    let mid;
+    if (this.narrow()) {
+      this.seatCursor();
+      mid = narrowCharPos(this.shownAt(c.row, c.ch), this.wide(), c.sub ?? 0, c.nib ?? 0) + 0.5;
+    } else {
+      const [cs, ce] = colCharRange(this.wide(), this.fx2On(c.ch))[subToCol(c.sub ?? 0)];
+      mid = (cs + ce) / 2;
+    }
     return {
-      x: strip.x + 2 + ((cs + ce) / 2) * CHAR_W,
+      x: strip.x + 2 + mid * CHAR_W,
       y: this.headerH() + (c.row - Math.floor(this.scrollRow)) * ROW_H + ROW_H / 2,
     };
   }
@@ -937,7 +1029,11 @@ export class TimelineView {
   selBounds() {
     const s = this.sel;
     if (!s) return null;
-    const aSub = s.aSub ?? 0, sub = s.sub ?? SUB_FX_ARG;
+    // A narrow cell has no sub-column geometry to draw a band in, so its
+    // blocks are whole cells (item 254).
+    const narrow = this.narrow();
+    const aSub = narrow ? 0 : s.aSub ?? 0;
+    const sub = narrow ? SUB_FX2_ARG : s.sub ?? SUB_FX_ARG;
     return {
       r0: Math.min(s.aRow, s.row), r1: Math.max(s.aRow, s.row),
       c0: Math.min(s.aCh, s.ch), c1: Math.max(s.aCh, s.ch),
@@ -948,6 +1044,7 @@ export class TimelineView {
   /** Logical columns the selection covers (for partial copy/paste/clear). */
   selCols() {
     const s = this.sel;
+    if (s && this.narrow()) return colsForSubs(0, lastSub(this.fx2On(s.ch)));
     return s ? colsForSubs(s.aSub ?? 0, s.sub ?? SUB_FX_ARG) : ALL_COLS;
   }
 
@@ -971,6 +1068,7 @@ export class TimelineView {
     c.row = clampInt(c.row + dRow, 0, map.totalRows - 1);
     c.ch = clampInt(c.ch + dCh, 0, chans - 1);
     this.clampCursorSub(); // the lane we landed on may show fewer columns
+    this.seatCursor();
     this.sel.row = c.row; this.sel.ch = c.ch; this.sel.sub = c.sub;
     this.keepCursorVisible();
     this.store.emit("cursor");
@@ -999,6 +1097,7 @@ export class TimelineView {
   stepSubCursor(dir) {
     const c = this.store.cursor;
     const chans = this.store.doc.channelCount;
+    this.seatCursor(); // a narrow walk is the row's: start from where it shows the cursor
     let idx = this.subPosFor(c.ch).findIndex(([s, n]) => s === c.sub && n === c.nib);
     if (idx < 0) idx = 0;
     idx += dir;
@@ -1008,6 +1107,7 @@ export class TimelineView {
       if (c.ch < chans - 1) { c.ch++; idx = 0; } else idx = this.subPosFor(c.ch).length - 1;
     }
     [c.sub, c.nib] = this.subPosFor(c.ch)[idx];
+    this.wantCursor();
   }
 
   /** Dedupe writes by (pat,row) — lanes sharing a pattern would otherwise
@@ -1120,7 +1220,9 @@ export class TimelineView {
     const strip = this.stripAt(x, true);
     if (!strip) return null;
     const charX = (x - strip.x - 2) / CHAR_W;
-    const [sub, nib] = charToSub(charX, this.wide(), this.fx2On(strip.ch));
+    const [sub, nib] = this.narrow()
+      ? narrowCharToSub(charX, this.shownAt(row, strip.ch), this.wide())
+      : charToSub(charX, this.wide(), this.fx2On(strip.ch));
     return { row, ch: strip.ch, sub, nib };
   }
 
@@ -1179,6 +1281,7 @@ export class TimelineView {
     c.row = clampInt(c.row + dRow, 0, map.totalRows - 1);
     c.ch = clampInt(c.ch + dCh, 0, chans - 1);
     this.clampCursorSub(); // the lane we landed on may show fewer columns
+    this.seatCursor();     // …or, narrow, a different one
     this.keepCursorVisible();
     this.store.emit("cursor");
   }
@@ -1266,13 +1369,15 @@ export class TimelineView {
       if (patNum === PATTERN_EMPTY) { sim.run(null); continue; }
       const pat = this.patternFor(patNum);
       const ditto = dittoGhosts(pat, e.rowLimit);
-      const bend = sim.run(pat, { rowLimit: e.rowLimit, ditto });
+      const pitches = [];
+      const bend = sim.run(pat, { rowLimit: e.rowLimit, ditto, pitches });
       for (let r = 0; r < e.rowLimit; r++) {
         const cell = pat[r];
         const g = ditto[r] ?? null;
         // A ditto repeat is a row that IS written down somewhere, so it
-        // speaks first; a bend trail only ever reports a pitch nothing wrote.
-        const note = g?.note ?? bend[r]?.note ?? cell.note;
+        // speaks first; a bend trail only ever reports a pitch nothing wrote
+        // — and either way the tick is the pitch that row SOUNDS (item 250).
+        const note = plotNote(g?.note ?? bend[r]?.note ?? cell.note, pitches[r]);
         // …and a ditto repeats the source row's EFFECT too, arpeggio included.
         const fx = g?.fx
           ? { effect: g.fx[0], effectArg: g.fx[1], effect2: 0, effectArg2: 0 }
@@ -1358,6 +1463,7 @@ export class TimelineView {
    */
   processEditKey(e, jam) {
     const c = this.store.cursor;
+    this.seatCursor(); // narrow: the key goes to the column the slot shows
     return this.editKey(e, jam, c.sub, c.nib, rawNoteView(this.store.rawNoteView, this.store.pitchPreset));
   }
 
@@ -1436,6 +1542,7 @@ export class TimelineView {
       if (!store.record) return false;
       const target = this.cursorCell();
       if (!target) return false;
+      this.seatCursor();
       const c = store.cursor;
       const fields = nudgeCursor(c.sub, c.nib, target.cell, dir, coarse, ctx);
       writes = fields ? [{ pat: target.pat, row: target.rowInCue, fields }] : [];
@@ -1510,7 +1617,7 @@ export class TimelineView {
     return `${s.gen}|${Math.floor(this.scrollRow)}|${this.scrollCh}|${this.canvas.width}x${this.canvas.height}@${this.dpr}` +
       `|${this.headerH()}|${playRow}|${c.row},${c.ch},${c.sub},${c.nib}|${s.record}` +
       `|${sel ? `${sel.aRow},${sel.aCh},${sel.row},${sel.ch}` : "-"}` +
-      `|${s.pitchPreset}|${s.rawNoteView}|${s.pitchPlot}|${s.ghosts}|${s.follow}`;
+      `|${s.pitchPreset}|${s.rawNoteView}|${s.pitchPlot}|${s.ghosts}|${s.follow}|${s.timelineCells}`;
   }
 
   /** Pattern number assigned to lane `ch` at the current play/cursor cue. */
@@ -1586,8 +1693,16 @@ export class TimelineView {
     // The radar (#998.6) slots in between the lane state and the name row.
     const radar = this.radarOn();
     const headerH = this.headerH();
-    const RADAR_Y = 57;
-    const NAME_Y = 62 + (radar ? RADAR_H : 0);
+    // Narrow cells (item 254) are for watching many lanes, so the header
+    // keeps what a watcher reads — the lane, the pattern, the meters and the
+    // note sounding, which moves down onto the name row (the name is the
+    // Cues tab's to show then). A one-slot lane is too narrow for the two
+    // lane-state cells, so their row goes, and everything below moves up.
+    const narrow = this.narrow();
+    const laneRow = this.cellMode() !== CELLS_ONE;
+    const lift = laneRow ? 0 : LANE_ROW_H;
+    const RADAR_Y = 57 - lift;
+    const NAME_Y = 62 + (radar ? RADAR_H : 0) - lift;
     const surroundModel = store.doc?.songs[store.songIndex]?.surroundModel ?? 0;
     const surroundSong = surroundModel !== 0;
     const spatialSong = surroundModel === SURROUND_SPATIAL;
@@ -1618,7 +1733,7 @@ export class TimelineView {
       // …and, between them, the hint that this lane is HIDING second effects
       // it actually carries — the column is off by default, so without this the
       // only way to find out is to turn it on lane by lane.
-      if (!this.fx2On(ch) && this.patternHasFx2(patNum)) {
+      if (!this.fx2On(ch) && this.patternHasFx2(patNum) && laneRow) {
         ctx.fillStyle = C.fxOp;
         ctx.globalAlpha = 0.75;
         ctx.fillText("ƒx2", x + 4 + 2.4 * CHAR_W, UP_MID);
@@ -1630,13 +1745,15 @@ export class TimelineView {
         ctx.fillText(hex4(patNum), x + colW - 6, UP_MID);
         ctx.textAlign = "left";
       }
-      // upper row centre: live note + instrument (only while sounding)
+      // upper row centre: live note + instrument (only while sounding) — or,
+      // narrow, the name row's centre
       if (audio && audio.getVoiceActive(ch)) {
         const groupX = x + Math.round((colW - 7 * CHAR_W) / 2);
-        paintNoteCell(ctx, audio.getVoiceNote(ch), store.pitchPreset, groupX, UP_Y,
+        const noteY = narrow ? NAME_Y - NOTE_H / 2 : UP_Y;
+        paintNoteCell(ctx, audio.getVoiceNote(ch), store.pitchPreset, groupX, noteY,
           CHAR_W, NOTE_H, headPal, store.rawNoteView);
         ctx.fillStyle = C.dim;
-        ctx.fillText(hex2(audio.getVoiceInstrument(ch)), groupX + 5 * CHAR_W, UP_MID);
+        ctx.fillText(hex2(audio.getVoiceInstrument(ch)), groupX + 5 * CHAR_W, noteY + NOTE_H / 2);
       }
 
       // VU
@@ -1697,10 +1814,12 @@ export class TimelineView {
       const volCell = laneVolumeCell(chanVol);
       const panCell = lanePanCell(surroundModel, chanAz, chanEl);
       const LANE_Y = LANE_MID - ROW_H / 2;
-      paintFxCell(ctx, volCell.effect, volCell.arg, x + 4, LANE_Y, CHAR_W, ROW_H,
-        volSet ? fxPal : restPal);
-      paintFxCell(ctx, panCell.effect, panCell.arg, x + colW - 8 - 5 * CHAR_W, LANE_Y,
-        CHAR_W, ROW_H, panSet ? fxPal : restPal);
+      if (laneRow) {
+        paintFxCell(ctx, volCell.effect, volCell.arg, x + 4, LANE_Y, CHAR_W, ROW_H,
+          volSet ? fxPal : restPal);
+        paintFxCell(ctx, panCell.effect, panCell.arg, x + colW - 8 - 5 * CHAR_W, LANE_Y,
+          CHAR_W, ROW_H, panSet ? fxPal : restPal);
+      }
 
       // expanded radar: the source as it really sits, seen from above
       if (radar) {
@@ -1708,7 +1827,7 @@ export class TimelineView {
       }
 
       // lower row: pattern name, centred + clipped to the column width
-      if (patNum !== null && patNum !== PATTERN_EMPTY) {
+      if (!narrow && patNum !== null && patNum !== PATTERN_EMPTY) {
         const nm = unescapeName(this.store.doc.patternName(patNum));
         if (nm) {
           ctx.save();
@@ -1738,7 +1857,9 @@ export class TimelineView {
     }
 
     // ── rows ──  (a header-only frame stops at the rules below)
+    if (!headerOnly) this.seatCursor(); // narrow: the cursor stands on what its row shows
     const cursor = store.cursor;
+    const cellMode = this.cellMode();
     const dittoPal = monoPalette(C.ditto); // ghost cells (pattern ditto)
     const sb = this.selBounds(); // block selection bounds (or null)
     const rowBand = this.isRowBand(); // …and whether it spans every lane
@@ -1809,7 +1930,7 @@ export class TimelineView {
         }
         if (sb && absRow >= sb.r0 && absRow <= sb.r1 && ch >= sb.c0 && ch <= sb.c1) {
           ctx.fillStyle = C.sel;
-          if (sb.colLo === 0 && sb.colHi >= this.lastColFor(ch)) {
+          if (narrow || (sb.colLo === 0 && sb.colHi >= this.lastColFor(ch))) {
             ctx.fillRect(x - 2, y, colW - 2, ROW_H); // whole cell
           } else { // partial column band
             const ccr = colCharRange(this.wide(), fx2);
@@ -1819,7 +1940,10 @@ export class TimelineView {
         }
         if (onCursor) {
           // sub-column caret: amber in record mode, blue otherwise
-          const [cpos, cw] = subCharPos(cursor.sub ?? 0, cursor.nib ?? 0, this.wide());
+          const [cpos, cw] = narrow
+            ? [narrowCharPos(this.shownAt(absRow, ch), this.wide(), cursor.sub ?? 0, cursor.nib ?? 0),
+              (cursor.sub ?? 0) === SUB_NOTE ? 4 : 1]
+            : subCharPos(cursor.sub ?? 0, cursor.nib ?? 0, this.wide());
           ctx.fillStyle = store.record ? C.caret : C.caretNav;
           ctx.fillRect(x + 2 + cpos * CHAR_W - 1, y, cw * CHAR_W + 2, ROW_H);
         }
@@ -1843,45 +1967,57 @@ export class TimelineView {
         // moved the pitch, the note volume or the panning, what that row's
         // tick 0 is actually holding.
         const bend = this.bendsFor(ch, entry.cue)[rowInCue] ?? null;
+        const wide = this.wide();
+        // Where each column is drawn, in characters from the cell's origin —
+        // the full cell's fixed groups, or in a narrow one (item 254) only the
+        // columns its slots are showing on this row; the rest are not drawn.
+        const at = cellMode === CELLS_FULL ? fullOrigins(wide)
+          : slotOrigins(narrowShown(cellMode, cellPresence(cell, ghostShows(ghost, bend), fx2)));
         // Note glyphs: taut-style vector accidentals/ticks/sentinels, CJK
         // Shi'er lü via a conventional font, hex4 for raw/off-grid notes.
         // A ditto ghost repeats a row that IS written down, so it speaks
         // first; a bend ghost reports a value nothing wrote at all.
-        const ghostNote = ghost?.note ?? bend?.note ?? null;
-        if (ghostNote !== null) {
-          paintNoteCell(ctx, ghostNote, store.pitchPreset, x + 2, y, CHAR_W, ROW_H,
-            dittoPal, store.rawNoteView);
-        } else {
-          paintNoteCell(ctx, cell.note, store.pitchPreset, x + 2, y, CHAR_W, ROW_H,
-            { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent },
-            store.rawNoteView);
-        }
-        const instS = ghost?.inst != null ? hex2(ghost.inst)
-          : cell.instrment !== 0 ? hex2(cell.instrment) : "··";
+        if (at.note !== null) {
+          const nx = x + 2 + at.note * CHAR_W;
+          const ghostNote = ghost?.note ?? bend?.note ?? null;
+          if (ghostNote !== null) {
+            paintNoteCell(ctx, ghostNote, store.pitchPreset, nx, y, CHAR_W, ROW_H,
+              dittoPal, store.rawNoteView);
+          } else {
+            paintNoteCell(ctx, cell.note, store.pitchPreset, nx, y, CHAR_W, ROW_H,
+              { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent },
+              store.rawNoteView);
+          }
+          const instS = ghost?.inst != null ? hex2(ghost.inst)
+            : cell.instrment !== 0 ? hex2(cell.instrment) : "··";
 
-        ctx.fillStyle = ghost?.inst != null ? C.ditto
-          : cell.instrment !== 0 ? C.accent2 : C.dim;
-        if (cell.instrment === 0 && !(ghost?.inst != null)) ctx.globalAlpha = 0.4;
-        ctx.fillText(instS, x + 2 + 5 * CHAR_W, y + ROW_H / 2);
-        ctx.globalAlpha = 1;
+          ctx.fillStyle = ghost?.inst != null ? C.ditto
+            : cell.instrment !== 0 ? C.accent2 : C.dim;
+          if (cell.instrment === 0 && !(ghost?.inst != null)) ctx.globalAlpha = 0.4;
+          ctx.fillText(instS, nx + 5 * CHAR_W, y + ROW_H / 2);
+          ctx.globalAlpha = 1;
+        }
         // vol/pan: symbol cell (vector ticks) + argument digits — item 87
-        const wide = this.wide();
         // A bend ghost reports the value itself, so it paints as a plain SET —
         // which is what typing that number into the cell would mean.
-        const ghostVol = ghost?.vol ?? (bend?.vol != null ? [bend.vol, 0] : null);
-        const vol = ghostVol ?? [cell.volume, cell.volumeEff];
-        paintVolPanCell(ctx, vol[0], vol[1], false, x + 2 + 8 * CHAR_W, y, CHAR_W, ROW_H,
-          { ink: ghostVol ? C.ditto : C.meter, dim: C.dim, wide });
+        if (at.vol !== null) {
+          const ghostVol = ghost?.vol ?? (bend?.vol != null ? [bend.vol, 0] : null);
+          const vol = ghostVol ?? [cell.volume, cell.volumeEff];
+          paintVolPanCell(ctx, vol[0], vol[1], false, x + 2 + at.vol * CHAR_W, y, CHAR_W, ROW_H,
+            { ink: ghostVol ? C.ditto : C.meter, dim: C.dim, wide });
+        }
         // A wide cell's panning column IS the azimuth, with the elevation in
         // front of it in its own ink (§5.5).
-        const ghostPan = ghost?.pan ?? (bend?.pan != null ? [bend.pan, 0] : null);
-        const pan = ghostPan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
-        paintVolPanCell(ctx, pan[0], pan[1], true, x + 2 + 12 * CHAR_W, y, CHAR_W, ROW_H,
-          { ink: ghostPan ? C.ditto : C.colPan, dim: C.dim, wide,
-            elevation: bend?.pan != null ? bend.elev : (wide ? cell.elevation : 0),
-            elevationInk: bend?.pan != null ? C.ditto : C.accent2,
-          // On the sphere, ear level is a stated position, not an absent one.
-          spatial: (store.doc?.songs[store.songIndex]?.surroundModel ?? 0) === SURROUND_SPATIAL });
+        if (at.pan !== null) {
+          const ghostPan = ghost?.pan ?? (bend?.pan != null ? [bend.pan, 0] : null);
+          const pan = ghostPan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
+          paintVolPanCell(ctx, pan[0], pan[1], true, x + 2 + at.pan * CHAR_W, y, CHAR_W, ROW_H,
+            { ink: ghostPan ? C.ditto : C.colPan, dim: C.dim, wide,
+              elevation: bend?.pan != null ? bend.elev : (wide ? cell.elevation : 0),
+              elevationInk: bend?.pan != null ? C.ditto : C.accent2,
+            // On the sphere, ear level is a stated position, not an absent one.
+            spatial: (store.doc?.songs[store.songIndex]?.surroundModel ?? 0) === SURROUND_SPATIAL });
+        }
         // Effect column: one shade of amber per argument field (item 120), or
         // — when this row's `:` needs a second look (fxColonWarns: `:` on the
         // first slot, paired with a command that ignores it, or a second `:`
@@ -1889,15 +2025,17 @@ export class TimelineView {
         // flag is per SLOT, so an interrupt row can redden the losing `:` and
         // leave the winning one painting normally.
         const warn = wide ? fxColonWarns(cell.effect, cell.effect2, ghost?.note ?? cell.note) : 0;
-        const fx = ghost?.fx ?? [cell.effect, cell.effectArg];
-        paintFxCell(ctx, fx[0], fx[1], x + 2 + (wide ? 19 : 16) * CHAR_W, y, CHAR_W, ROW_H,
-          ghost?.fx ? dittoPal : fxPal, (warn & 1) !== 0, cell.effect2);
+        if (at.fx !== null) {
+          const fx = ghost?.fx ?? [cell.effect, cell.effectArg];
+          paintFxCell(ctx, fx[0], fx[1], x + 2 + at.fx * CHAR_W, y, CHAR_W, ROW_H,
+            ghost?.fx ? dittoPal : fxPal, (warn & 1) !== 0, cell.effect2);
+        }
         // …and the second effect in the same inks, since it is the same column
         // twice (§5.5). Ditto never reaches it: effect 7 repeats the SOURCE
         // row's first effect, and the ghost map has no second slot to fill.
-        if (fx2) {
+        if (fx2 && at.fx2 !== null) {
           paintFxCell(ctx, cell.effect2, cell.effectArg2,
-            x + 2 + 25 * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect);
+            x + 2 + at.fx2 * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect);
         }
       }
     }
@@ -1959,3 +2097,32 @@ export class TimelineView {
 }
 
 function clampInt(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+/** The full cell's column origins, in characters (edit.js subCharPos). */
+function fullOrigins(wide) {
+  return { note: 0, vol: 8, pan: 12, fx: wide ? 19 : 16, fx2: 25 };
+}
+
+/** A narrow cell's: only the columns its slots show, the rest null. */
+function slotOrigins(shown) {
+  const o = narrowOrigins(shown);
+  return {
+    note: o[EL_NOTE] ?? null, vol: o[EL_VOL] ?? null, pan: o[EL_PAN] ?? null,
+    fx: o[EL_FX] ?? null, fx2: o[EL_FX2] ?? null,
+  };
+}
+
+/** A row with nothing in any column — what an empty cue slot shows. */
+const NOTHING_PRESENT = Object.freeze({ note: false, fx: false, fx2: false, vol: false, pan: false });
+
+/** What a ditto ghost and a bend ghost fill on a row, as cellPresence reads it. */
+function ghostShows(ghost, bend) {
+  if (!ghost && !bend) return null;
+  return {
+    note: ghost?.note != null || bend?.note != null,
+    inst: ghost?.inst != null,
+    fx: !!ghost?.fx,
+    vol: ghost?.vol != null || bend?.vol != null,
+    pan: ghost?.pan != null || bend?.pan != null,
+  };
+}

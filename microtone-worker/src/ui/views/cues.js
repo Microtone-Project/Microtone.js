@@ -8,7 +8,10 @@ import { cueInstructionWords } from "../../../core/format/taud-parse.js";
 import { cueInfo } from "../../doc/document.js";
 import { INST_NOP, INST_GOBACK, INST_SKIP, INST_JUMP, INST_PATLEN, INST_HALTAT, INST_HALT } from "../../../core/engine/state.js";
 import { setCuesOp } from "../../doc/ops.js";
-import { lookahead } from "../edit.js";
+import {
+  lookahead, subIsEmpty, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX2_OP,
+} from "../edit.js";
+import { dittoGhosts } from "../../doc/ditto.js";
 import { makeCueBlock, cueBlockIndex, mergeCueWord } from "../../doc/clipboard.js";
 import { showModal } from "../components/modal.js";
 import { showContextMenu } from "../components/contextmenu.js";
@@ -28,7 +31,20 @@ import { uiDpr, localPoint } from "../zoom.js";
 const FONT_PX = 13; // family comes from --cv-font via fonts.js
 const CHAR_W = 7.9;
 const ROW_H = 16;
-const HEADER_H = 22;
+// The header's two bands: the lane's lamps over the column names (item 252).
+const LAMP_BAND_H = 9;
+const NAME_BAND_H = 22;
+const HEADER_H = LAMP_BAND_H + NAME_BAND_H;
+const NAME_MID = LAMP_BAND_H + NAME_BAND_H / 2;
+/** How long a lane's event lamp takes to go out — long enough to be seen at
+ *  60 frames a second, short enough that a lane playing every row flickers
+ *  rather than holding steady, which is what tells it from one playing every
+ *  other row. */
+const LAMP_FADE_MS = 280;
+/** Rows a lamp looks back over when the playhead has moved more than one
+ *  since the last frame (a fast song) — and no further, so a jump across the
+ *  song does not light every lane it skipped over. */
+const LAMP_CATCH_UP = 8;
 const GUTTER_W = 52;             // cue index (4-digit hex)
 const CMD_W = Math.ceil(9 * CHAR_W); // "HALT@40 " per word
 const COL_W = Math.ceil(4 * CHAR_W) + 8; // 4 hex digits per lane (0000..7FFE)
@@ -75,9 +91,19 @@ export class CuesView {
     this.sel = null;
     this._drag = null; // active pointer-drag anchor {aCue, aCh, cmd}
     this.needsRedraw = true;
+    // The header's event lamps (item 252): when each lane last played a row
+    // with anything on it, and where the playhead was the frame before.
+    this._lampAt = new Float64Array(MAX_VOICES).fill(-Infinity);
+    this._lampPos = null;
+    this._lampDitto = new Map(); // pattern number → its ditto map, until an edit
+    this._meterKey = "";
 
-    store.on("doc", () => { this.cursor = { cue: 0, col: 0, nib: 0 }; this.sel = null; this.scrollCue = 0; this.invalidate(); });
-    store.on("edit", () => this.invalidate());
+    store.on("doc", () => {
+      this.cursor = { cue: 0, col: 0, nib: 0 }; this.sel = null; this.scrollCue = 0;
+      this._lampAt.fill(-Infinity); this._lampPos = null; this._lampDitto.clear();
+      this.invalidate();
+    });
+    store.on("edit", () => { this._lampDitto.clear(); this.invalidate(); });
 
     canvas.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -857,9 +883,99 @@ export class CuesView {
 
   frame() {
     if (!this.store.doc) return;
-    if (this.store.audio?.isPlaying()) this.needsRedraw = true; // playhead marker
+    const playing = this.store.audio?.isPlaying() === true;
+    if (playing) this.needsRedraw = true; // playhead marker
+    this.watchLamps(playing);
+    // Stopped, the lamps still fade out and a jammed note still moves its
+    // lane's meter — repainted when what they show has changed, not on spec.
+    const key = this.meterKey();
+    if (key !== this._meterKey) { this._meterKey = key; this.needsRedraw = true; }
     if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
     if (this.needsRedraw) { this.needsRedraw = false; this.draw(); }
+  }
+
+  /**
+   * Light the lamp of every lane whose row the playhead has just reached
+   * carries anything — a note, an instrument, a volume, a panning, an effect
+   * or a row a pattern ditto repeats. That is an EVENT for the lane, whether
+   * or not it makes a sound: a lane can be busy for bars with its meter
+   * flat, and an `M $0000` is as much the song talking to it as a note is.
+   */
+  watchLamps(playing) {
+    const audio = this.store.audio;
+    if (!playing || !audio) { this._lampPos = null; return; }
+    const cue = audio.getCuePosition();
+    const row = audio.getTrackerRow();
+    const last = this._lampPos;
+    if (last && last.cue === cue && last.row === row) return;
+    this._lampPos = { cue, row };
+    const from = last && last.cue === cue && row > last.row ? last.row + 1 : row;
+    const now = performance.now();
+    const words = this.store.song?.cues[cue];
+    if (!words) return;
+    const chans = this.store.doc.channelCount;
+    for (let ch = 0; ch < chans; ch++) {
+      const pat = words[ch] & 0x7fff;
+      if (pat === CUE_EMPTY) continue;
+      const pattern = this.store.doc.patternAt(this.store.songIndex, pat);
+      if (!pattern) continue;
+      let ditto = this._lampDitto.get(pat);
+      if (ditto === undefined) {
+        ditto = dittoGhosts(pattern, pattern.length);
+        this._lampDitto.set(pat, ditto);
+      }
+      for (let r = Math.max(from, row - LAMP_CATCH_UP + 1); r <= row; r++) {
+        const cell = pattern[r];
+        if (cell && (ditto[r] || !cellIsBlank(cell))) { this._lampAt[ch] = now; break; }
+      }
+    }
+  }
+
+  /** How lit lane `ch`'s lamp is, 1 (just now) to 0 (out). */
+  lampLevel(ch, now) {
+    return Math.max(0, 1 - (now - this._lampAt[ch]) / LAMP_FADE_MS);
+  }
+
+  /** Everything the header's lamps and meters show, coarsely, as one key —
+   *  the same reading twice paints the same pixels. */
+  meterKey() {
+    const audio = this.store.audio;
+    const chans = this.store.doc?.channelCount ?? 0;
+    const now = performance.now();
+    let key = "";
+    for (let ch = this.scrollCh; ch < chans; ch++) {
+      const vol = audio?.getVoiceActive(ch) ? audio.getVoiceEffectiveVolume(ch) : 0;
+      key += `${Math.round(vol * 32)},${Math.ceil(this.lampLevel(ch, now) * 16)};`;
+    }
+    return key;
+  }
+
+  /**
+   * The lamp band over one lane's name (item 252): the EVENT lamp, lit when
+   * a row with anything on it reaches the lane and fading out after, and
+   * beside it the lane's note volume — the same reading as the Timeline's
+   * meter, so a lane that is busy but silent shows a lamp and no level.
+   */
+  paintLaneLamps(ctx, C, x, ch, now) {
+    const y = 3, h = LAMP_BAND_H - 4;
+    ctx.fillStyle = C.meterBg;
+    ctx.fillRect(x, y, h, h);
+    const lit = this.lampLevel(ch, now);
+    if (lit > 0) {
+      ctx.globalAlpha = lit;
+      ctx.fillStyle = C.accent;
+      ctx.fillRect(x, y, h, h);
+      ctx.globalAlpha = 1;
+    }
+    const barX = x + h + 3, barW = COL_W - h - 13;
+    const barY = y + 1, barH = h - 2;
+    ctx.fillStyle = C.meterBg;
+    ctx.fillRect(barX, barY, barW, barH);
+    const audio = this.store.audio;
+    if (audio && audio.getVoiceActive(ch)) {
+      ctx.fillStyle = C.meter;
+      ctx.fillRect(barX, barY, Math.round(barW * Math.min(audio.getVoiceEffectiveVolume(ch), 1)), barH);
+    }
   }
 
   draw() {
@@ -880,7 +996,7 @@ export class CuesView {
 
     // header
     ctx.fillStyle = C.dim;
-    ctx.fillText("cue", 6, HEADER_H / 2);
+    ctx.fillText("cue", 6, NAME_MID);
     // The Cmd headers light up with the cursor the same way the lane headers
     // do below — they are columns you can select now, so they read as columns.
     for (let slot = 0; slot < 2; slot++) {
@@ -890,9 +1006,10 @@ export class CuesView {
         ctx.fillRect(GUTTER_W + slot * CMD_W, 0, CMD_W - 2, HEADER_H);
       }
       ctx.fillStyle = selected ? C.fg : C.dim;
-      ctx.fillText(`Cmd${slot + 1}`, GUTTER_W + slot * CMD_W + 4, HEADER_H / 2);
+      ctx.fillText(`Cmd${slot + 1}`, GUTTER_W + slot * CMD_W + 4, NAME_MID);
     }
     const visCh = Math.min(Math.floor((W - this.chanX(0)) / COL_W) + 1, chans - this.scrollCh);
+    const now = performance.now();
     for (let i = 0; i < visCh; i++) {
       const ch = this.scrollCh + i;
       // highlight the selected lane's header too, same idea as the
@@ -903,7 +1020,8 @@ export class CuesView {
         ctx.fillRect(this.chanX(i) - 2, 0, COL_W - 2, HEADER_H);
       }
       ctx.fillStyle = selected ? C.fg : C.dim;
-      ctx.fillText(String(ch + 1).padStart(2, "0"), this.chanX(i) + 4, HEADER_H / 2);
+      ctx.fillText(String(ch + 1).padStart(2, "0"), this.chanX(i) + 4, NAME_MID);
+      this.paintLaneLamps(ctx, C, this.chanX(i), ch, now);
     }
 
     const hiPat = this.highlightPattern();
@@ -1027,6 +1145,12 @@ export class CuesView {
     paintPerimeterGauge(ctx, this.hold.press?.rect ?? null, this.hold.progress(),
       C.accent, C.dim);
   }
+}
+
+/** Does this cell say nothing at all? (An event lamp's test, item 252.) */
+function cellIsBlank(cell) {
+  return cell.note === 0 && subIsEmpty(SUB_INST, cell) && subIsEmpty(SUB_VOL, cell) &&
+    subIsEmpty(SUB_PAN, cell) && subIsEmpty(SUB_FX_OP, cell) && subIsEmpty(SUB_FX2_OP, cell);
 }
 
 function kindOf(inst) {

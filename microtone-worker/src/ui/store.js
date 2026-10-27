@@ -55,6 +55,16 @@ export class Store {
      *  notation, and a grid that shows it unasked is a busier grid. A view
      *  preference like `ghosts`: never saved with the song. */
     this.pitchPlot = false;
+    /** The Timeline's cell width (item 254): 0 the full cell, 1 two slots
+     *  (note/effect, volume/panning), 2 one (note/effect) — narrowcell.js. A
+     *  view preference for MONITORING many lanes at once; never saved. */
+    this.timelineCells = 0;
+    /** Where a narrow Timeline cell's cursor WANTS to be, and where it was
+     *  last seated (narrowcell.js): a narrow slot shows a different column
+     *  from row to row, so the column the cursor stands on follows the row,
+     *  and the one it was put on is remembered to come back to. Null in a full
+     *  cell. Shared by both panes' Timelines, as the cursor is. */
+    this.cellSeat = null;
     this.cursor = { row: 0, ch: 0 }; // absolute song row + lane
     this.voiceMutes = new Array(64).fill(false); // per-lane mute (UI + engine)
     // Format v3's SECOND effect column (§5.5), exposed per lane (Timeline)

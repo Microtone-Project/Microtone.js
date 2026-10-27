@@ -11,10 +11,13 @@
 // WHAT IT PLOTS IS WHAT SOUNDS, not what is typed. A row repeated by a pattern
 // ditto gets its tick, and so does every row a slide or a portamento is
 // travelling through — which is what turns a `G $0080` from a straight line
-// between two written notes into the curve the ear actually hears. The caller
-// hands over the pitch in force at each row's tick 0 (the grids already
-// compute exactly that for their ghost cells), so this module never has to
-// know which of them was written down.
+// between two written notes into the curve the ear actually hears. A WRITTEN
+// note is plotted where it sounds too, which is not always where it is typed:
+// under `G` it is the portamento's target, and the tick stays on the pitch
+// still sounding until the glide gets there (plotNote). The caller hands over
+// the pitch in force at each row's tick 0 (the grids already compute exactly
+// that for their ghost cells), so this module never has to know which of them
+// was written down.
 //
 // An ARPEGGIO is the one row that is not a single pitch: `J $xxyy` cycles the
 // tick through three of them, so such a row draws all three, joined by a bar,
@@ -80,6 +83,20 @@ export function plotPeriod(preset) {
 
 /** Is this note word something the plot can place? */
 export function isPlottable(note) { return note >= FIRST_PITCH; }
+
+/**
+ * The note a row plots. `shown` is what the grid shows there — the written
+ * note, a ditto repeat's, or a bend ghost's — and `sounding` the pitch in
+ * force at the row's tick 0 (bendghosts.js `pitches`, null where nothing
+ * sounds). A row that shows a pitch plots the SOUNDING one, because the two
+ * differ exactly where a pitch effect rides on the note: under `G` the note is
+ * where the portamento is going, not where it is, and `E $Fxxx` or `S $2x`
+ * move it before anyone hears it. A row that shows no pitch stays unplotted —
+ * marking every row a note rings through would bury the notes themselves.
+ */
+export function plotNote(shown, sounding) {
+  return isPlottable(shown) && sounding != null ? sounding : shown;
+}
 
 /**
  * Walk one lane's rows and place each sounding pitch on its band.

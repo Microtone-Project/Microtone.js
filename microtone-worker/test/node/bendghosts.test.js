@@ -98,6 +98,19 @@ test("G keeps bending over rows carrying no command, and stops on arrival", () =
   assert.equal(g[5], null, "a finished porta leaves nothing behind");
 });
 
+test("`pitches` reports what each row SOUNDS at tick 0, written rows included", () => {
+  const p = blankPattern();
+  p[0].note = 0x5000; p[0].instrment = 1;
+  p[2].note = 0x5800; fx(p[2], EffectOp.OP_G, 0x0100);    // a target, not a pitch
+  p[6].note = 0x6000; fx(p[6], EffectOp.OP_F, 0xf020);    // fine slide on the trigger
+  p[8].note = 0x0002;                                      // note cut
+  const pitches = [];
+  bendGhosts(p, { ...OPTS, pitches });
+  assert.deepEqual(pitches.slice(0, 10),
+    [0x5000, 0x5000, 0x5000, 0x5500, 0x5800, 0x5800, 0x6020, 0x6020, null, null],
+    "the porta row still sounds the old note; the fine slide lands on its own row; a cut silences");
+});
+
 test("S $2x finetune ghosts like a fine slide — the result is nowhere on the row", () => {
   const p = blankPattern();
   p[0].note = 0x5000; p[0].instrment = 1;

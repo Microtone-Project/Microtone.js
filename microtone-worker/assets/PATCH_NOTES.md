@@ -4,7 +4,7 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
-## Version 4.0.0 (2026-10-22)
+## Version 4.0.0 (2026-10-28)
 
 **Every instrument can now have its own mixing chain** — equalisers, dynamics, unison, saturation, tape delay, reverb and a limiter — saved in the song and heard wherever it plays.
 
@@ -82,6 +82,17 @@ Motif, Microtone's typeface, tells more of its letters and digits apart.
 
 - **e, 5, 6 and 9 are more open**, their ends stopping further round the curve like C, G and c, so a 6 is not taken for a b or 0, a 9 for a q, a 5 for an S, or an e for an o — even in bold; G opens a little further too.
 - **The z is as wide as the letters beside it**: Chivo Mono's was noticeably narrower than n and x, which left a gap in the middle of words like `nzn`.
+
+**The Timeline can narrow its cells to watch more lanes at once**: the **Cells** button in the toolbox switches between full cells, two slots and one.
+
+- **Two slots**: the first shows the note and instrument, or the effect on a row with neither, or the second effect on a row with none of those; the second shows the volume, or the panning on a row with no volume.
+- **One slot** keeps only the first, and the header drops its lane-state row, so even more lanes fit.
+- **Narrow cells can still be edited**: what you type goes to the column the slot is showing, and in an empty cell to the note or the volume. Moving up and down, the cursor goes back to the column you put it on whenever a row shows it.
+- A narrow header shows the note playing where the pattern name was, a block selection takes whole cells, and the setting is remembered in your browser.
+
+**The Cues tab shows which lanes are playing**: a lamp over each lane number lights whenever a row with anything on it reaches the lane — a row a pattern ditto repeats included — and fades out, with a bar beside it showing the lane's volume.
+
+**The pitch plot follows the pitch you hear**: a note under a tone portamento (`G`) is plotted where the slide still is, not where it is heading, and the curve climbs from there; a note with `E $Fxxx` or `S $2x` is plotted at the pitch it actually starts on.
 
 ## Version 3.13.3 (2026-10-22)
 

@@ -25,6 +25,7 @@ import { SplitView, VIEWS } from "./splitview.js";
 import { JamKeyboard } from "./jam.js";
 import { InstLookup } from "./instlookup.js";
 import { SUB_NOTE } from "./edit.js";
+import { CELL_MODES } from "./narrowcell.js";
 import { CommandPalette } from "./palette.js";
 import { FindBar } from "./findbar.js";
 import { setCellOp } from "../doc/ops.js";
@@ -975,6 +976,7 @@ function refreshToolbox() {
   // Master strip (item 98) — a Timeline fixture, so the button only means
   // anything while a pane is showing one (item 148).
   $("tbMaster").hidden = !store.viewOpen("timeline");
+  refreshCellsBtn();
   $("tbMaster").textContent = t(masterStrip.visible ? "toolbox.masterOn" : "toolbox.masterOff");
   $("tbMaster").classList.toggle("active", masterStrip.visible);
 }
@@ -1361,6 +1363,33 @@ $("tbPitchPlot").addEventListener("click", () => {
   refreshPitchPlotBtn();
   invalidateGrids();
 });
+// Narrow Timeline cells (item 254): full, two slots, one — for watching a
+// 32- or 64-lane song whole rather than a handful of its lanes. Remembered
+// per browser like the pitch plot, and like it never part of a song.
+const CELLS_KEY = "microtone-timelinecells";
+try {
+  const m = Number(localStorage.getItem(CELLS_KEY));
+  store.timelineCells = m >= 0 && m < CELL_MODES ? m | 0 : 0;
+} catch { /* private mode — full cells, as anyway */ }
+eachView("timeline", (v) => { v.cellsChanged(); v.resize(); }); // any built before this ran
+function refreshCellsBtn() {
+  const btn = $("tbCells");
+  btn.hidden = !store.viewOpen("timeline");
+  btn.textContent = t(["toolbox.cellsFull", "toolbox.cellsTwo", "toolbox.cellsOne"][store.timelineCells]);
+  btn.classList.toggle("active", store.timelineCells !== 0);
+}
+$("tbCells").addEventListener("click", () => {
+  store.timelineCells = (store.timelineCells + 1) % CELL_MODES;
+  try {
+    if (store.timelineCells !== 0) localStorage.setItem(CELLS_KEY, String(store.timelineCells));
+    else localStorage.removeItem(CELLS_KEY);
+  } catch { /* private mode */ }
+  refreshCellsBtn();
+  // Every column has moved and the header may be shorter: re-measure.
+  eachView("timeline", (v) => { v.cellsChanged(); v.resize(); });
+  store.emit("cursor"); // the cursor may now stand on another column
+});
+refreshCellsBtn();
 // Second effect column (§5.5) — hidden by default, because most songs never
 // write one and it costs six characters of the widest column on screen. This
 // button is the ALL-lanes switch: on when anything is showing it, and one
