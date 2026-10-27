@@ -404,6 +404,18 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     // it takes; every other kind decodes byte 255 into its reserved tail.
   }
   if (destBlocks.size !== destDoc.imixMap().blocks.size) imixPayload = buildImixSection(destBlocks.values());
+  // …and its name (IMcn, item 247) goes with it to the new id.
+  let imcnPayload;
+  const srcImcn = splitNameTable(sectionPayload(srcDoc, "IMcn"));
+  if ([...imixIds].some(([sid, did]) => did !== 0 && (srcImcn[sid]?.length ?? 0) > 0)) {
+    const parts = splitNameTable(sectionPayload(destDoc, "IMcn"));
+    for (const [sid, did] of imixIds) {
+      if (did === 0 || (srcImcn[sid]?.length ?? 0) === 0) continue;
+      while (parts.length <= did) parts.push(new Uint8Array(0));
+      parts[did] = srcImcn[sid];
+    }
+    imcnPayload = joinNameTable(parts);
+  }
 
   // ── INam: splice imported names in by destination slot ──
   const srcInam = splitNameTable(sectionPayload(srcDoc, "INam"));
@@ -441,6 +453,7 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     samples: newSamples,
     inamPayload,
     imixPayload,
+    imcnPayload,
     snamNames,
     writeSnam,
     slotMap,
@@ -1899,6 +1912,7 @@ export function applyPlan(doc, plan) {
   if (plan.inamPayload !== null) doc.setSection("INam", plan.inamPayload);
   // Mixing chains an import brought (item 217); `undefined` leaves them alone.
   if (plan.imixPayload !== undefined) doc.setSection("IMix", plan.imixPayload);
+  if (plan.imcnPayload !== undefined) doc.setSection("IMcn", plan.imcnPayload);
   // Pool regions (item 175). `undefined` leaves the section alone — only the
   // plans that add, rename or drop a region carry the field; `null` removes it,
   // which is what the last region's deletion means.

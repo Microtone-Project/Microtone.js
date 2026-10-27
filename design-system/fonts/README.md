@@ -139,7 +139,7 @@ the release repository can build the code face from the same package.
 | U+F01B | 2 | the grid's natural: the minus centred on two cells, so a note is one string (`C` + U+F01B + `4`) |
 | U+F019 / U+F01A | 2 | two-cell triple sharp (♯𝄪) and quadruple sharp (𝄪𝄪, the two enlarged and overlapping), which Unicode has no code point for |
 | U+F030–U+F033 | 4 | note sentinels: key-off, note cut (three wedges), fade (three waves), fast fade (sinc with a wedge) |
-| U+F040–U+F044 | 2 | vibrato waveforms: sine, ramp down, square, random, ramp up — one period edge to edge, so `` draws two that join |
+| U+F040–U+F045 | 2 | vibrato and LFO waveforms: sine, ramp down, square, random, ramp up, triangle — one period edge to edge, so `` draws two that join |
 | 黃大太夾姑仲蕤林夷南無應 | 2 | the twelve lü (Grid and Code) |
 
 The grid's natural (the `-` of `C-4`) is U+F01B, the minus sign centred on

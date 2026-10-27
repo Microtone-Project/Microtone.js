@@ -4149,6 +4149,12 @@ button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--a
 .seg-lamp.lit { background: var(--meter); border-color: var(--meter); }
 
 .mst-canvas { width: 100%; display: block; }
+/* Instruments side by side (item 257: the Goniometer, then Bit usage): the
+   first at its own width, the last taking the rest; stacked when narrow. */
+.mst-scoperow { display: flex; gap: 0.5rem; align-items: stretch; flex-wrap: wrap; }
+.mst-scoperow > .mst-scope:last-child { flex: 1 1 22rem; min-width: 0; }
+.mst-gonio-unit { flex: 0 0 auto; }
+.mst-gonio { width: 168px; display: block; margin: 0 auto; }
 .mst-readouts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
@@ -4257,6 +4263,19 @@ button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--a
 .imx-head .mst-hint { margin: 0; }
 .imx-headbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .imx-headbar select { max-width: 18rem; min-width: 0; }
+/* The chain's name, edited where its title was; "Chain N" while it has none. */
+.imx-name {
+  flex: 0 1 14rem;
+  min-width: 7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.15rem 0.4rem;
+}
+.imx-name::placeholder { color: var(--fg); opacity: 0.75; }
 .imx-grid {
   display: grid;
   grid-template-columns: minmax(300px, 3fr) minmax(260px, 2fr);
@@ -4313,6 +4332,11 @@ button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--a
 .imx-unit .mst-seg button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
 .imx-unit .mst-seg button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
 .imx-unit .mst-seg button:only-child { border-radius: var(--radius-md); }
+/* An LFO's waveforms (item 247): pushbuttons drawing their shapes in Motif
+   Grid, as the vibrato's do — narrower than a word, so all six fit a unit. */
+.mst-seg button.wave-btn { font-family: var(--cv-font); letter-spacing: 0; line-height: 1; }
+.imx-unit .mst-seg button.wave-btn { min-width: 0; padding: 0.25rem 0.5rem; }
+.mst-row-choice .mst-seg { flex-wrap: wrap; justify-self: start; }
 @media (max-width: 1100px) {
   .imx-grid { grid-template-columns: 1fr; }
   .imx-monitors { position: static; order: -1; }

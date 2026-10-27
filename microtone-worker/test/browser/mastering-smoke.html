@@ -118,6 +118,30 @@ function painted(cv) {
   check(canvases.every(painted), "every live instrument painted",
     canvases.map((c) => (painted(c) ? "y" : "n")).join(""));
   check(painted(doc.querySelector(".mst-eq-curve")), "the EQ response curve painted");
+  // Item 257: the delivered pair's goniometer, a unit of its own left of the
+  // Bit usage unit, on the master strip's CRT beam — whose phosphor holds
+  // energy only where it traced.
+  const gonio = doc.querySelector(".mst-scoperow .mst-gonio-unit .mst-gonio");
+  const units = [...doc.querySelectorAll(".mst-scoperow > .mst-scope")];
+  check(units.length === 2 && units[0].contains(gonio) && units[1].contains(doc.querySelector(".mst-hist")),
+    "the Goniometer is a unit of its own, beside Bit usage");
+  check(units[0].querySelector(".mst-scope-head").textContent.startsWith("Goniometer"), "…titled Goniometer");
+  check(units[0].getBoundingClientRect().right <= units[1].getBoundingClientRect().left,
+    "…to its left");
+  check(units[0].querySelector(".mst-stagetag").textContent === "Post", "…reading the side Pre/Post is on");
+  check(view.gonioCorrSums.ll > 0 && view.gonioCorr > -1 && view.gonioCorr <= 1,
+    "…with its correlation measured", view.gonioCorr.toFixed(2));
+  const preBtn = [...doc.querySelectorAll(".mst-head .mst-seg button")].find((x) => x.textContent === "Pre");
+  preBtn.click();
+  await sleep(600);
+  check(units[0].querySelector(".mst-stagetag").textContent === "Pre" && view._gonioStage === 0,
+    "Pre switches the goniometer to the chain's input");
+  check((view.gonio.cell?.beam.energy.reduce((n, v) => n + (v > 0 ? 1 : 0), 0) ?? 0) > 50, "…and it traces it");
+  [...doc.querySelectorAll(".mst-head .mst-seg button")].find((x) => x.textContent === "Post").click();
+  await sleep(300);
+  const lit = view.gonio.cell?.beam.energy.reduce((n, v) => n + (v > 0 ? 1 : 0), 0) ?? 0;
+  check(lit > 50, "…and its beam traced the delivered pair", `${lit} lit pixels`);
+  check(painted(gonio), "…and painted");
   // The live spectrometer fills the same canvas from the bottom, so its columns
   // must have moved off the floor while the song is sounding.
   const specFloor = view.specCols && [...view.specCols].some((v) => v > -96 + 6);

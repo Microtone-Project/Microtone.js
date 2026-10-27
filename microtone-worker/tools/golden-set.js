@@ -47,6 +47,9 @@ export const GOLDEN_SET = {
   // across an ambisonic scene.
   "Huygens_clock@imix": { file: "assets/demo_projects/Huygens_clock.taud", imix: true },
   "WHEN_AMBI@imix": { file: "assets/demo_projects/WHEN_AMBI.taud", imix: true },
+  // Item 247: the same two chains in BUS mode — every instrument on a block
+  // summed into one bus — with the mix tool's DC blocker on.
+  "Huygens_clock@imixbus": { file: "assets/demo_projects/Huygens_clock.taud", imix: "bus" },
 };
 
 /**
@@ -55,10 +58,11 @@ export const GOLDEN_SET = {
  * a retriggering LFO and the tempo-synced delay are all exercised. Instruments
  * alternate between two blocks, the second with the other pipeline order.
  */
-export function goldenImixBlocks() {
+export function goldenImixBlocks(bus = false) {
   const make = (id, order) => {
     const b = IMX.defaultImixBlock(id);
     b.order = order;
+    b.bus = bus;
     for (const eq of IMX.IMX_EQUIPMENT) b.equipment[eq] = IMX.defaultEquipment(eq);
     b.equipment.equ1.bands[1].gainDb = 3;
     b.equipment.equ2.bands[0] = { on: true, shape: IMX.IMX_EQ_HIGH_PASS, slope: 1, freq: 60, gainDb: 0, q: 0.7 };
@@ -73,13 +77,14 @@ export function goldenImixBlocks() {
     b.equipment.satu.bias = 0.1;
     b.equipment.dlay.pingPong = true;
     b.equipment.mxtl.width = 1.2;
+    if (bus) b.equipment.mxtl.removeDc = true;
     return b;
   };
   return [make(1, 0), make(2, 1)];
 }
 
-function installGoldenImix(eng) {
-  eng.setImix(goldenImixBlocks());
+function installGoldenImix(eng, bus) {
+  eng.setImix(goldenImixBlocks(bus));
   for (let s = 1; s < 1024; s++) eng.instruments[s].imixId = (s & 1) === 1 ? 1 : 2;
   eng.imixGen++;
 }
@@ -97,7 +102,7 @@ export async function renderGolden(entry) {
     const eng = new TaudEngine();
     loadIntoEngine(eng, doc, 0);
     if (entry.monitor !== undefined) eng.setMonitorMode(0, entry.monitor);
-    if (entry.imix) installGoldenImix(eng);
+    if (entry.imix) installGoldenImix(eng, entry.imix === "bus");
     const r = renderSong(eng, GOLDEN_SECONDS);
     return {
       frames: r.frames,

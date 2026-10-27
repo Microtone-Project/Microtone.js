@@ -5,7 +5,7 @@
 // .tsii bank carries its chains. An instrument names its block in byte 255 of
 // its record; 0 there means it has none. A block is
 //
-//   U8 id (1…255) · U8 reserved · U8 status (0b nnnn 000e) · U8 n
+//   U8 id (1…255) · U8 reserved · U8 status (0b nnnn 00be) · U8 n
 //   FourCC × n            the equipment it holds
 //   n × { FourCC · U32 size · payload[size] }
 //
@@ -35,6 +35,9 @@ import {
 } from "../engine/imix.js";
 
 export const IMIX_FOURCC = "IMix";
+/** The chains' names (item 247, §9.16): a name table like `pNam`, entry n
+ *  naming block n (entry 0 is id 0, "no chain", and stays empty). */
+export const IMCN_FOURCC = "IMcn";
 
 const KNOWN = new Set(IMX_EQUIPMENT);
 const LFO_BYTES = 12;
@@ -165,7 +168,7 @@ function decodeEquipment(id, p) {
     case IMX_MXTL:
       return {
         ...common, swap: (p[4] & 1) !== 0, invL: (p[4] & 2) !== 0, invR: (p[4] & 4) !== 0,
-        gainDb: f32(8), width: f32(12),
+        removeDc: (p[4] & 8) !== 0, gainDb: f32(8), width: f32(12),
       };
     default:
       fail(`no decoder for ${id}`);
@@ -192,7 +195,7 @@ function decodeBlock(b, o) {
   for (let i = 0; i < n; i++) listed.push(fourccAt(b, p + 4 * i));
   if (new Set(listed).size !== listed.length) fail("equipment list names a piece twice");
   p += 4 * n;
-  const block = { id, enabled: (status & 1) !== 0, order, equipment: {}, unknown: [] };
+  const block = { id, enabled: (status & 1) !== 0, bus: (status & 2) !== 0, order, equipment: {}, unknown: [] };
   const seen = [];
   const unknownIds = [];
   for (let i = 0; i < n; i++) {
@@ -350,7 +353,7 @@ export function encodeEquipment(id, eIn) {
       w.u8(e.truePeak ? 1 : 0); w.zeros(3); w.f32(e.ceilingDb); w.f32(e.releaseMs); w.f32(e.gainDb);
       break;
     case IMX_MXTL:
-      w.u8((e.swap ? 1 : 0) | (e.invL ? 2 : 0) | (e.invR ? 4 : 0)); w.zeros(3);
+      w.u8((e.swap ? 1 : 0) | (e.invL ? 2 : 0) | (e.invR ? 4 : 0) | (e.removeDc ? 8 : 0)); w.zeros(3);
       w.f32(e.gainDb); w.f32(e.width);
       break;
     default: throw new Error(`imix: no encoder for ${id}`);
@@ -367,7 +370,7 @@ export function buildImixBlock(blockIn) {
   for (const u of b.unknown) recs.push([u.fourcc, u.bytes]);
   if (recs.length > 255) throw new Error("imix: more than 255 records in one block");
   const w = new Out();
-  w.u8(b.id); w.u8(0); w.u8((b.order << 4) | (b.enabled ? 1 : 0)); w.u8(recs.length);
+  w.u8(b.id); w.u8(0); w.u8((b.order << 4) | (b.bus ? 2 : 0) | (b.enabled ? 1 : 0)); w.u8(recs.length);
   for (const [fc] of recs) w.fourcc(fc);
   for (const [fc, bytes] of recs) {
     w.fourcc(fc); w.u32(bytes.length);

@@ -3,8 +3,10 @@
 // and four monitors on the instrument's own bus.
 //
 // The chain is the BLOCK's, not the instrument's: two instruments naming one
-// block share every setting (never the bus — each runs its own instance), so
-// this tab says who else is on it and offers to make a private copy. A piece
+// block share every setting — and, in bus mode, the bus itself (item 247:
+// separate mode gives each its own instance) — so this tab says who else is
+// on it and offers to make a private copy. The block's name is the IMcn
+// section's, "Chain N" while it has none. A piece
 // of equipment is absent until it is first switched on; from then on it stays
 // in the block (§9.15: equipment is never retired once touched) and the switch
 // bypasses it.
@@ -50,8 +52,11 @@ import {
   freqAt, colOfFreq, fmtDb, stepColumns, drawSpecGround, fillBands, strokeColumns,
   trackCursor, drawCursor,
 } from "./imixplots.js";
-import { setImixOp, setInstFieldOp, compositeOp } from "../../doc/ops.js";
-import { unescapeName } from "../../../core/format/names.js";
+import { setImixOp, setInstFieldOp, setSectionOp, compositeOp } from "../../doc/ops.js";
+import { IMCN_FOURCC } from "../../../core/format/imix-section.js";
+import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
+import { MOTIF } from "../../../core/fonts/motifglyphs.js";
+import { SCOPE_GAIN_MAX } from "../crtscope.js";
 import { showNotice } from "../components/modal.js";
 import { makeFoldable } from "../components/fold.js";
 import { themeColors } from "../theme.js";
@@ -91,6 +96,11 @@ const DEQ_ORDER = [IMX_DEQ_LOW_SHELF_BAND, 2, 3, 4, 5, IMX_DEQ_HIGH_SHELF_BAND];
 const deqShort = (i) => (i === IMX_DEQ_LOW_SHELF_BAND ? "LS" : i === IMX_DEQ_HIGH_SHELF_BAND ? "HS" : `B${i - 1}`);
 /** Octaves a band-pass of quality q spans between its −3 dB points. */
 const octavesOfQ = (q) => (2 * Math.asinh(1 / (2 * q))) / Math.LN2;
+
+/** The LFO waveforms' glyphs, in IMX_LFO_* order (Motif Grid; two periods
+ *  each, as the vibrato's buttons show them). */
+const LFO_GLYPH = [MOTIF.WAVE_SINE, MOTIF.WAVE_TRIANGLE, MOTIF.WAVE_SQUARE,
+  MOTIF.WAVE_RAMP_UP, MOTIF.WAVE_RAMP_DOWN, MOTIF.WAVE_RANDOM];
 
 /** The unit each equipment's name is looked up under. */
 const NAME_KEY = {
@@ -151,6 +161,11 @@ export class MixingPanel {
 
     this.store.on("edit", (tags) => {
       if (!this.root?.isConnected) return;
+      // A chain renamed (or a rename undone): every label naming it.
+      if (tags?.some?.((x) => x.kind === "section" && x.fourcc === IMCN_FOURCC)) {
+        this.view.renderPanel();
+        return;
+      }
       if (!tags?.some?.((x) => x.kind === "imix")) return;
       // An undo can insert a piece or add a band — that is a new shape.
       if (this.shapeKey() !== this._shape) this.view.renderPanel();
@@ -203,7 +218,7 @@ export class MixingPanel {
   shapeKey() {
     const b = this.block;
     if (!b) return `none:${this.blockId}`;
-    const parts = [b.id, b.order];
+    const parts = [b.id, b.order, b.bus];
     for (const id of IMX_PIPELINES[0]) {
       const e = this.eqp(id);
       parts.push(`${id}:${e.bands?.length ?? 0}:${e.sync ?? ""}:` +
@@ -285,10 +300,29 @@ export class MixingPanel {
       if (b.id === this.blockId) continue;
       const users = doc.imixUsers(b.id).filter((s) => s !== this.slot);
       out.push([b.id, users.length === 0
-        ? t("imix.chainUnused", { id: b.id })
-        : t("imix.chainUsers", { id: b.id, list: users.map((s) => this.instLabel(s)).join(", ") })]);
+        ? t("imix.chainUnused", { chain: this.chainLabel(b.id) })
+        : t("imix.chainUsers", { chain: this.chainLabel(b.id), list: users.map((s) => this.instLabel(s)).join(", ") })]);
     }
     return out;
+  }
+
+  /** How a chain is listed: its number, and its name when it has one. */
+  chainLabel(id) {
+    const name = unescapeName(this.doc.imixName(id));
+    return name ? t("imix.chainNamed", { id, name }) : t("imix.chainN", { id });
+  }
+
+  /** Name chain `id` (IMcn) — "" takes the name away, back to "Chain N". */
+  renameChain(id, text) {
+    const doc = this.doc;
+    const escaped = escapeNonAscii(text.trim());
+    if (!doc || escaped === doc.imixName(id)) return;
+    this.store.undo.apply(setSectionOp(IMCN_FOURCC, doc.buildImixNames(id, escaped)));
+  }
+
+  surroundSong() {
+    const song = this.doc?.songs[this.store.songIndex];
+    return !!song && song.surroundModel !== SURROUND_STEREO;
   }
 
   instLabel(s) {
@@ -368,12 +402,30 @@ export class MixingPanel {
       return head;
     }
 
-    const title = document.createElement("span");
-    title.className = "mst-title";
-    title.textContent = t("imix.chainN", { id: block.id });
+    // The chain's name, edited in place; unnamed, it reads "Chain N".
+    const title = document.createElement("input");
+    title.type = "text";
+    title.className = "imx-name";
+    title.value = unescapeName(doc.imixName(block.id));
+    title.placeholder = t("imix.chainN", { id: block.id });
+    title.title = t("imix.nameTitle", { id: block.id });
+    title.setAttribute("aria-label", t("imix.nameTitle", { id: block.id }));
+    title.spellcheck = false;
+    title.addEventListener("change", () => this.renameChain(block.id, title.value));
+    title.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") title.blur();
+      else if (e.key === "Escape") { title.value = unescapeName(doc.imixName(block.id)); title.blur(); }
+      e.stopPropagation(); // typing a name is not playing the keyboard
+    });
     const power = this.switchEl(t("imix.enabled"), () => this.block?.enabled ?? false,
       (on) => this.edit((b) => { b.enabled = on; }));
     power.title = t("imix.enabledTitle");
+    // Separate: one copy of the chain per instrument. Bus: one, over their sum.
+    const mode = this.segButtons(t("imix.mode"), [
+      [false, t("imix.modeSeparate"), t("imix.modeSeparateTitle")],
+      [true, t("imix.modeBus"), t("imix.modeBusTitle")],
+    ], () => this.block?.bus ?? false, (v) => this.edit((b) => { b.bus = v; }));
+    mode.classList.add("imx-mode");
     const order = this.choiceSelect([[0, t("imix.order0")], [1, t("imix.order1")]],
       () => this.block?.order ?? 0, (v) => this.edit((b) => { b.order = v; }));
     order.title = t("imix.orderTitle");
@@ -389,13 +441,13 @@ export class MixingPanel {
     remove.addEventListener("click", () => this.removeChain());
     const grow = document.createElement("div");
     grow.className = "grow";
-    bar.append(title, power, order, grow, indep, remove);
+    bar.append(title, power, mode, order, grow, indep, remove);
     head.appendChild(bar);
     const shared = document.createElement("p");
     shared.className = "mst-hint";
     shared.textContent = users.length === 0
-      ? t("imix.notShared")
-      : t("imix.sharedWith", {
+      ? t(block.bus ? "imix.notSharedBus" : "imix.notShared")
+      : t(block.bus ? "imix.sharedBus" : "imix.sharedWith", {
         list: users.map((s) => this.instLabel(s)).join(", "),
       });
     head.appendChild(shared);
@@ -727,19 +779,36 @@ export class MixingPanel {
     const lab = document.createElement("span");
     lab.className = "mst-lab";
     lab.textContent = t(labelKey);
+    row.append(lab, this.segButtons(t(labelKey), options, get, set));
+    return row;
+  }
+
+  /**
+   * A segmented row of pushbuttons, one of which is pressed. `options` is
+   * [[value, text, title?, glyph?]]: a button with a glyph shows it (in Motif
+   * Grid) and keeps the text as its tooltip and accessible name.
+   */
+  segButtons(label, options, get, set) {
     const seg = document.createElement("div");
     seg.className = "mst-seg";
     seg.setAttribute("role", "group");
-    seg.setAttribute("aria-label", t(labelKey));
-    const buttons = options.map(([value, text]) => {
+    seg.setAttribute("aria-label", label);
+    const buttons = options.map(([value, text, title, glyph]) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.textContent = text;
+      if (glyph) {
+        b.textContent = glyph;
+        b.className = "wave-btn";
+        b.title = text;
+        b.setAttribute("aria-label", text);
+      } else {
+        b.textContent = text;
+        if (title) b.title = title;
+      }
       b.addEventListener("click", () => set(value));
       seg.appendChild(b);
       return [value, b];
     });
-    row.append(lab, seg);
     this.controls.push({
       refresh: () => {
         const v = get();
@@ -749,7 +818,7 @@ export class MixingPanel {
         }
       },
     });
-    return row;
+    return seg;
   }
 
   bodySat(body) {
@@ -803,11 +872,12 @@ export class MixingPanel {
     head.appendChild(name);
     box.appendChild(head);
     const l = () => this.eqp(id)[key];
+    // The waveforms as pushbuttons drawing their shapes, like the vibrato's.
     const waves = [];
-    for (let w = 0; w < IMX_LFO_WAVES; w++) waves.push([w, t(`imix.wave${w}`)]);
+    for (let w = 0; w < IMX_LFO_WAVES; w++) waves.push([w, t(`imix.wave${w}`), null, LFO_GLYPH[w].repeat(2)]);
     const sync = l().sync;
     box.append(
-      this.choiceRow("imix.wave", waves, () => l()?.wave ?? 0,
+      this.segRow("imix.wave", waves, () => l()?.wave ?? 0,
         (v) => this.editEquipment(id, (x) => { x[key].wave = v; })),
       this.checkRow("imix.sync", "imix.syncTitle", () => l()?.sync ?? false,
         (on) => this.editEquipment(id, (x) => {
@@ -889,10 +959,15 @@ export class MixingPanel {
       (on) => this.editEquipment(id, (x) => { x[key] = on; }));
     body.append(
       this.num(id, "imix.gain", "gainDb", "mxGainDb", { unit: "dB", digits: 1 }),
-      this.num(id, "imix.width", "width", "mxWidth", { unit: "%", digits: 0, scale: 100 }),
+      // In a surround song, surround width (item 247): an ambisonic scene's
+      // directions against its W; a speaker layout leaves it out.
+      this.num(id, this.surroundSong() ? "imix.surroundWidth" : "imix.width", "width", "mxWidth",
+        { unit: "%", digits: 0, scale: 100 }),
       flag("imix.swap", "swap"),
       flag("imix.invL", "invL"),
       flag("imix.invR", "invR"),
+      this.checkRow("imix.removeDc", "imix.removeDcTitle", () => this.eqp(id).removeDc ?? false,
+        (on) => this.editEquipment(id, (x) => { x.removeDc = on; })),
     );
   }
 
@@ -1364,10 +1439,20 @@ export class MixingPanel {
       if (a > peak) peak = a;
       ll += l * l; rr += r * r; lr += l * r;
     }
-    // Auto-gain: fast up, slow down, so a quiet instrument still draws a shape.
-    const want = 0.9 / peak;
+    // Auto-gain: fast up, slow down, so a quiet instrument still draws a shape
+    // — up to the master strip's ceiling, so silence is not magnified into a
+    // runaway figure.
+    const want = Math.min(0.9 / peak, SCOPE_GAIN_MAX);
     this.gonioGain = want < this.gonioGain ? want : this.gonioGain + (want - this.gonioGain) * 0.05;
     const g = this.gonioGain * (size / 2) * Math.SQRT1_2;
+    // …and, while it draws, the magnification it draws at, as the master strip
+    // shows its own: the cloud's size is the gain's doing, the meters are the
+    // levels.
+    if (fresh) {
+      ctx.textAlign = "right";
+      ctx.fillText(`×${this.gonioGain.toFixed(this.gonioGain < 10 ? 2 : 1)}`, cx + size / 2 - 3, size - 4);
+      ctx.textAlign = "left";
+    }
     if (fresh) {
       // Yellow, not the meter's green: the correlation bar under the cloud is
       // green, and the two are different readings.

@@ -31,7 +31,7 @@ import {
   SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
   SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ,
   SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
-  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
+  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
   SNAP_MM_HIST_ENTROPY,
   SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
@@ -648,6 +648,15 @@ export class AudioSystem {
   masterSpectrumRing(stage) {
     const o = SNAP_SPEC_BASE + (stage & 1) * SNAP_SPEC_FRAMES;
     return this.snapshot.subarray(o, o + SNAP_SPEC_FRAMES);
+  }
+
+  /** One stage's stereo pair (0 = into the mastering chain, 1 = the master;
+   *  item 257), L, R interleaved, on the spectrum rings' cursor
+   *  (readMasterMeter().specWrite). A live view into the snapshot, like
+   *  scopeRing(). */
+  masterPairRing(stage) {
+    const o = SNAP_PAIR_BASE + (stage & 1) * 2 * SNAP_SPEC_FRAMES;
+    return this.snapshot.subarray(o, o + 2 * SNAP_SPEC_FRAMES);
   }
 
   /**

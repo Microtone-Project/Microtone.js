@@ -1469,7 +1469,7 @@ A song whose chain is the untouched default **SHOULD** contribute no entry, and 
 | 108 | `F32` | Make-up gain, dB — −12…+24 |
 | 112 | `U8` | Stereo-width flags: bit 0 = enabled |
 | 113 | `Byte[3]` | **RESERVED** |
-| 116 | `F32` | Width — 0…2, where 1 is the identity |
+| 116 | `F32` | Width — 0…2, where 1 is the identity; on an ambisonic delivery it is **surround width** (Engine Specification §12.3) |
 | 120 | `U8` | Limiter flags: bit 0 = enabled, bit 1 = true-peak ceiling |
 | 121 | `Byte[3]` | **RESERVED** |
 | 124 | `F32` | Ceiling, dBTP — −24…0 |
@@ -1514,7 +1514,7 @@ A file **SHOULD** hold at most one `PMtf`. An editor that does not build Motif p
 
 The **mixing chains** an instrument's voices pass through before they join the master: equalisers, dynamics, a saturator, a unison, a tape delay, a reverb, a limiter and a mix tool, in a fixed order. Their behaviour is specified in full in the **Engine Specification** §12.4; this section is the byte layout.
 
-Instrument-scoped (the `I` prefix), so a `.tsii` bank carries the chains of its instruments. An instrument names its chain in **byte 255** of its record ([§7.1](#7-1-byte-map)); 0 there means it has none. Two or more instruments **MAY** name the same block: they then share its **settings**, and each still runs its **own** instance of the chain — a block is a set of settings, never a shared bus. Like `sMst`, this section is one a conforming *player* **MUST** honour ([§9.8](#9-8-reading-project-data-on-a-device-that-ignores-it)).
+Instrument-scoped (the `I` prefix), so a `.tsii` bank carries the chains of its instruments. An instrument names its chain in **byte 255** of its record ([§7.1](#7-1-byte-map)); 0 there means it has none. Two or more instruments **MAY** name the same block: they then share its **settings**, and the block's **mode** says whether they share its **bus**. In **separate** mode each runs its **own** instance of the chain; in **bus** mode their voices sum into **one** bus and the chain runs once over the sum (Engine Specification §12.4). Like `sMst`, this section is one a conforming *player* **MUST** honour ([§9.8](#9-8-reading-project-data-on-a-device-that-ignores-it)). The blocks' names, which a player never needs, are `IMcn`'s ([§9.16](#9-16-imcn-mixing-chain-names)).
 
 The payload is a concatenation of blocks, at most 255 of them:
 
@@ -1522,7 +1522,7 @@ The payload is a concatenation of blocks, at most 255 of them:
 |---|---|
 | `U8` | IMix id, 1…255 — what byte 255 names |
 | `U8` | **RESERVED** |
-| `U8` | Status flags `0b nnnn 000e` — `e` the chain is enabled, `nnnn` the pipeline order (below) |
+| `U8` | Status flags `0b nnnn 00be` — `e` the chain is enabled, `b` **bus** mode (clear: separate mode), `nnnn` the pipeline order (below) |
 | `U8` | Equipment count *n* |
 | `FourCC × n` | The equipment the block holds — a table of contents; its order does not matter, the pipeline is fixed |
 | *n* × record | Each: `FourCC` equipment identifier, `U32` payload size (the common bytes included), then the payload |
@@ -1647,7 +1647,7 @@ An **LFO** record: `U8` waveform (0 sine, 1 triangle, 2 square, 3 saw up, 4 saw 
 
 | Offset | Type | Field |
 |---|---|---|
-| +4 | `U8` | Flags: bit 0 swap left and right, bit 1 invert left, bit 2 invert right |
+| +4 | `U8` | Flags: bit 0 swap left and right, bit 1 invert left, bit 2 invert right, bit 3 **remove DC** |
 | +5 | `Byte[3]` | **RESERVED** |
 | +8 | `F32` | Gain, dB — −24…+24 |
 | +12 | `F32` | Stereo width — 0…2, where 1 is the identity |
@@ -1657,6 +1657,12 @@ An **LFO** record: `U8` waveform (0 sine, 1 triangle, 2 square, 3 saw up, 4 saw 
 Any **contradictory** configuration makes a block **INVALID**: an id of 0; two blocks under one id; an undefined pipeline order; an equipment list that names a piece twice or disagrees with the records that follow it; a known payload of the wrong size for its version and counts; a dry amount on equipment that has no wet/dry; an undefined shape, slope, curve, detector or waveform; a slope on a shape that has none; an equaliser of more than 8 bands, a compressor of 0 or more than 6, a unison of fewer than 2 voices or more than 8; crossovers that are not strictly ascending; a linked dynamic-EQ band whose sense fields differ from its act fields. A reader **MUST NOT** play an invalid block: the instruments that name it play as if they had none, and a reader **SHOULD** say so. A block that cannot even be delimited ends the walk.
 
 Equipment a reader does not know — an unknown identifier, or a known one at a payload version above the one it understands — **MUST** be skipped by playback, **SHOULD** be reported once when the file is opened, and **MUST** be written back unchanged by an editor that saves the block. A block holding nothing but unknown or bypassed equipment changes nothing.
+
+### 9.16 `IMcn` — mixing chain names
+
+The names of the `IMix` blocks ([§9.15](#9-15-imix-instrument-mixing-chains)), separated by `$1E`, in block-id order: entry *n* names block *n*. Entry 0 stands for id 0, which is "no chain", and **SHOULD** be empty. UTF-8, like `pNam` ([§9.5](#9-5-pnam-pattern-name-table)), and trailing empty entries **MAY** be left out.
+
+Instrument-scoped, so a `.tsii` bank carries the names with the chains. A name changes nothing about playback. An empty entry, or one past the end of the table, is a block with no name, which an editor **SHOULD** show by its number. A name goes with its block: an editor that retires a block ([§9.15](#9-15-imix-instrument-mixing-chains)) **SHOULD** blank its entry in the same save, and one that moves a block to another id (a bank import) **SHOULD** move its name too.
 
 ## 10. Validity checklist
 
@@ -1712,3 +1718,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-21 | Formant instruments: a reference note of 0 is a syllable with **no vowel**, its last consonant held as a syllabic consonant; the reference word's bit 15 **nasalises** the vowel; byte +53's bits 3–4 a **secondary articulation** on the onset (palatalised, velarised/pharyngealised, glottalised) and bits 5–6 the **coda's release** (unreleased, velarised/pharyngealised, glottalised); an empty pool range other than 0…0 is an instrument made from **nothing in the pool** |
 | 2026-10-22 | `IMix` — instrument mixing chains: byte 255 of every record names a block of up to twelve pieces of equipment in a fixed pipeline, and the fourth Project-Data section a player must honour; each piece's common flags carry, beside its bypass, whether an editor shows it folded. An FM rack's operators and algorithm now share bytes 4…253 (250 bytes; was 4…255), leaving byte 255 to every kind |
 | 2026-10-25 | Type-4 racks: byte 0's bit 0 is the **Easy Mode** mark, an editor's note that the rack is laid out as a DSP-only principal, its operators, then the constants that set its feedback depths (§7.7). Players ignore it |
+| 2026-10-28 | `IMix`: the status byte's bit 1 is the block's **mode** — clear, every instrument naming it runs its own instance (as before); set, **bus** mode, they sum into one bus the chain runs over once. The mix tool's flag bit 3 **removes DC** (a one-pole at 3 Hz). `IMcn` — mixing chain names, a name table in block-id order. The `sMst` width and the mix tool's width are **surround width** on an ambisonic scene: every channel but W scaled (Engine Specification §12.3) |

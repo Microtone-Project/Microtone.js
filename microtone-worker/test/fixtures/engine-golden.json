@@ -107,6 +107,13 @@
       "frames": 960000,
       "u8": "f8d6ed052accea1448e5dc944c91302aa57b3232ea422ff3d2901960721d53a4",
       "f32": "2a5bc69797a9e49f3879ca09e729776a2b439542c46e9810a97eca90ed2c464a"
+    },
+    "Huygens_clock@imixbus": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "imix": "bus",
+      "frames": 960000,
+      "u8": "2532767026ba4ab5716c4dc19a1cd36972dbb222be528cc23ffd82582fe03d88",
+      "f32": "232652ffd30b26575791c82a36695f2848dd7a11a8c479821890574df18379a6"
     }
   }
 }

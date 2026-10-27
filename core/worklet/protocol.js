@@ -233,6 +233,10 @@ export const SNAP_HIST_BINS = HIST_BUCKETS;
 export const SNAP_SPEC_BASE = SNAP_HIST_BASE + SNAP_HIST_BINS;
 export const SNAP_SPEC_FRAMES = SPEC_FRAMES;
 export const SNAP_SPEC_STAGES = TAP_STAGES;
+// …and the pair on each side of the chain, frame-interleaved L, R, on the same
+// cursor: the Mastering view's goniometer (item 257). 32 KiB more, while the
+// view is up.
+export const SNAP_PAIR_BASE = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
 
 // ── Mixing-tab meter (item 217), after the spectrum rings ──
 // One instrument's bus: zero frames while the tap is off or the bus did not
@@ -241,7 +245,7 @@ export const SNAP_SPEC_STAGES = TAP_STAGES;
 // (0 = into the chain, 1 = out of it) and channel, the four level figures the
 // Mastering tab's meters use; then a stereo ring after the chain (frame
 // interleaved L, R) and a mono one before it, read backwards from RING_WRITE.
-export const SNAP_IM_BASE = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
+export const SNAP_IM_BASE = SNAP_PAIR_BASE + SNAP_SPEC_STAGES * 2 * SNAP_SPEC_FRAMES;
 export const SNAP_IM_FRAMES = 0;
 export const SNAP_IM_SLOT = 1;
 export const SNAP_IM_RING_WRITE = 2;

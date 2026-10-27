@@ -602,6 +602,11 @@ export class MasterMeterTap {
     this.spec = [];
     for (let s = 0; s < TAP_STAGES; s++) this.spec.push(new Float32Array(SPEC_FRAMES));
     this.specWrite = 0;
+    /** …and the PAIR per stage, frame-interleaved L, R, for the Mastering
+     *  view's goniometer and correlation meter (item 257). Same length and
+     *  cursor as the mono rings. */
+    this.pair = [];
+    for (let s = 0; s < TAP_STAGES; s++) this.pair.push(new Float32Array(SPEC_FRAMES * 2));
     this.frames = 0;
     this.compGrDb = 0;
     this.limGrDb = 0;
@@ -621,6 +626,7 @@ export class MasterMeterTap {
     this.ringFull = false;
     this.dither16 = makeDither16();
     for (const r of this.spec) r.fill(0);
+    for (const r of this.pair) r.fill(0);
     this.specWrite = 0;
     this.frames = 0;
     this.compGrDb = 0;
@@ -678,8 +684,10 @@ export class MasterMeterTap {
     // PRE writes at the same positions on the way past.
     const ring = this.spec[stage];
     let w = this.specWrite;
+    const pair = this.pair[stage];
     for (let n = 0; n < frames; n++) {
       ring[w] = (left[n] + right[n]) * 0.5;
+      pair[w * 2] = left[n]; pair[w * 2 + 1] = right[n];
       w = w + 1 === SPEC_FRAMES ? 0 : w + 1;
     }
     if (stage === TAP_POST) this.specWrite = w;
@@ -804,6 +812,7 @@ export class MasterMeterTap {
     else for (let i = 0; i < census.length; i++) this.buckets[i >> shift] += census[i];
     out.buckets = this.buckets;
     out.spec = this.spec;
+    out.pair = this.pair;
     out.specWrite = this.specWrite;
     this.sumZ.fill(0); this.sumSq.fill(0); this.peak.fill(0); this.clip.fill(0);
     this.apPeak.fill(0); this.apSumSq.fill(0);
@@ -820,7 +829,7 @@ export function makeMasterMeterReadout() {
   return {
     frames: 0, compGrDb: 0, limGrDb: 0, hist: null, histTotal: 0,
     buckets: null, bits: null, bitDepth: DEFAULT_BIT_DEPTH, histSpan: HIST_SPAN_ALL,
-    spec: null, specWrite: 0,
+    spec: null, pair: null, specWrite: 0,
     sumZ: new Float64Array(TAP_STAGES),
     apPeak: new Float64Array(TAP_STAGES),
     apSumSq: new Float64Array(TAP_STAGES),

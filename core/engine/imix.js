@@ -4,8 +4,11 @@
 // An instrument whose record names an IMix block (byte 255) does not mix its
 // voices straight into the master: they sum into the instrument's OWN bus,
 // that bus runs the block's chain, and the result joins the master. Two
-// instruments naming the same block share its SETTINGS, never its bus — each
-// runs its own instance, so a compressor on the kick never ducks the snare.
+// instruments naming the same block share its SETTINGS; whether they share its
+// BUS is the block's MODE (item 247). Separate, the default, gives each its own
+// instance, so a compressor on the kick never ducks the snare; bus mode sums
+// every instrument on the block into one bus and runs the chain once over the
+// sum — a group bus, where the kick DOES duck the snare.
 //
 // The pipeline is FIXED; a block only says which equipment it holds and how
 // each piece is set, and the order byte picks one of two arrangements:
@@ -196,6 +199,12 @@ export const IMX_RANGE = Object.freeze({
   mxWidth: [0, 2],
 });
 
+/** The mix tool's DC blocker (item 247): Opus's dc_reject, a one-pole at
+ *  3 Hz whose coefficient is `6.3 × 3 ÷ fs` — 6.3 standing in for 2π, as the
+ *  encoder writes it. */
+export const IMX_DC_HZ = 3;
+export const IMX_DC_K = 6.3;
+
 const imxClamp = (v, key, fallback) => {
   const [lo, hi] = IMX_RANGE[key];
   if (!Number.isFinite(v)) return Math.fround(fallback);
@@ -288,14 +297,15 @@ export function defaultEquipment(id) {
       highCut: 6000, lowCut: 120, wow: 0.2, driveDb: 3,
     };
     case IMX_LIMI: return { ...base, truePeak: false, ceilingDb: -1, releaseMs: 60, gainDb: 0 };
-    case IMX_MXTL: return { ...base, swap: false, invL: false, invR: false, gainDb: 0, width: 1 };
+    case IMX_MXTL: return { ...base, swap: false, invL: false, invR: false, removeDc: false, gainDb: 0, width: 1 };
     default: throw new Error(`imix: unknown equipment ${id}`);
   }
 }
 
-/** A new, empty, enabled block — no equipment until something is touched. */
+/** A new, empty, enabled block in separate mode — no equipment until
+ *  something is touched. */
 export function defaultImixBlock(id) {
-  return { id: id & 0xff, enabled: true, order: 0, equipment: {}, unknown: [] };
+  return { id: id & 0xff, enabled: true, bus: false, order: 0, equipment: {}, unknown: [] };
 }
 
 // ── Normalisation ───────────────────────────────────────────────────────────
@@ -441,6 +451,7 @@ export function normaliseEquipment(id, e) {
       out.swap = !!e.swap;
       out.invL = !!e.invL;
       out.invR = !!e.invR;
+      out.removeDc = !!e.removeDc;
       out.gainDb = imxClamp(+e.gainDb, "mxGainDb", 0);
       out.width = imxClamp(+e.width, "mxWidth", 1);
       break;
@@ -462,6 +473,8 @@ export function normaliseImixBlock(b) {
   const out = {
     id,
     enabled: b?.enabled === undefined ? true : !!b.enabled,
+    // Bus mode: every instrument naming the block sums into ONE bus (item 247).
+    bus: !!b?.bus,
     order: b?.order === 1 ? 1 : 0,
     equipment: {},
     unknown: Array.isArray(b?.unknown)
@@ -1653,20 +1666,42 @@ class ImxLimiter {
 }
 
 /**
- * Mix tool: gain, stereo width (mid/side, skipped at exactly 1), channel swap
- * and polarity. On a bus that is not a stereo pair the width and the swap mean
- * nothing and are skipped, and the polarity can only be the whole field's: it
- * is inverted when BOTH invert switches are on, and left alone otherwise.
+ * Mix tool: DC removal, gain, stereo width (mid/side, skipped at exactly 1),
+ * channel swap and polarity. On a bus that is not a stereo pair the width and
+ * the swap mean nothing and are skipped, and the polarity can only be the whole
+ * field's: it is inverted when BOTH invert switches are on, and left alone
+ * otherwise. On an AMBISONIC bus the width is surround width (item 247): every
+ * channel but W (bus channel 0) is scaled by it, the mastering chain's rule.
+ * The DC blocker runs first, on every channel: Opus's dc_reject
+ * (`y = x − m`, then `m = a·x + (1 − a)·m`, a = IMX_DC_K × IMX_DC_HZ ÷ fs).
  */
 class ImxMixTool {
-  constructor() { this.p = null; this.g = 1; }
-  configure(p) { this.p = p; this.g = dbToGain(p.gainDb); }
-  reset() {}
+  constructor(nch) { this.p = null; this.g = 1; this.a = 0; this.m = new Float64Array(nch); }
+  configure(p, rate) {
+    this.p = p;
+    this.g = dbToGain(p.gainDb);
+    this.a = (IMX_DC_K * IMX_DC_HZ) / rate;
+  }
+  reset() { this.m.fill(0); }
   get memory() { return 0; }
   process(data, stride, n0, n1, ctx) {
     const p = this.p;
     const nch = ctx.nch;
     const g = this.g;
+    if (p.removeDc) {
+      const a = this.a, b = 1 - a;
+      const mem = this.m;
+      for (let c = 0; c < nch; c++) {
+        const o = c * stride;
+        let m = mem[c];
+        for (let n = n0; n < n1; n++) {
+          const x = data[o + n];
+          data[o + n] = x - m;
+          m = a * x + b * m;
+        }
+        mem[c] = m;
+      }
+    }
     if (ctx.stereo && nch === 2) {
       const gl = (p.invL ? -g : g);
       const gr = (p.invR ? -g : g);
@@ -1683,6 +1718,13 @@ class ImxMixTool {
         data[stride + n] = r * gr;
       }
       return;
+    }
+    if (ctx.ambisonic && p.width !== 1) {
+      const w = p.width;
+      for (let c = 1; c < nch; c++) {
+        const o = c * stride;
+        for (let n = n0; n < n1; n++) data[o + n] *= w;
+      }
     }
     const gg = p.invL && p.invR ? -g : g;
     if (gg === 1) return;
@@ -1704,7 +1746,7 @@ function makeStage(id, nch) {
     case IMX_VERB: return new ImxVerb(nch);
     case IMX_DLAY: return new ImxDelay(nch);
     case IMX_LIMI: return new ImxLimiter(nch);
-    case IMX_MXTL: return new ImxMixTool();
+    case IMX_MXTL: return new ImxMixTool(nch);
     default: throw new Error(`imix: unknown equipment ${id}`);
   }
 }
@@ -1712,21 +1754,23 @@ function makeStage(id, nch) {
 // ── The chain ───────────────────────────────────────────────────────────────
 
 /**
- * One instrument's chain: the block's equipment in its pipeline's order,
- * running over that instrument's bus. Stateful; one per instrument per
- * playhead. `process` runs a span of the bus in place, and the result does not
+ * One bus's chain: the block's equipment in its pipeline's order, running
+ * over that bus — one instrument's, or in bus mode every instrument's on the
+ * block. Stateful; one per bus per playhead. `process` runs a span of the bus in place, and the result does not
  * depend on how the bus is cut into spans — every state, control counter and
  * phase is per sample.
  *
  * `nch` is the bus's width and `stereo` whether it is a left/right pair (a
  * stereo song, or the device's own render of a surround one) rather than a
- * speaker layout or an ambisonic scene.
+ * speaker layout or an ambisonic scene; `ambisonic` whether it is the last
+ * (channel 0 W, ACN order — an AmbiX export's, or the binaural monitor's).
  */
 export class InstrumentChain {
-  constructor(block, rate = SAMPLING_RATE, nch = 2, stereo = true) {
+  constructor(block, rate = SAMPLING_RATE, nch = 2, stereo = true, ambisonic = false) {
     this.rate = rate;
     this.nch = nch;
     this.stereo = stereo;
+    this.ambisonic = ambisonic && !stereo && nch > 1;
     this.stages = new Map();   // id → stage, kept across setBlock
     this.active = [];          // [{id, stage, dry}] in pipeline order
     this.dryBuf = null;
@@ -1734,7 +1778,7 @@ export class InstrumentChain {
     this.silentRun = 0;
     this.idleAfter = 0;
     this.block = null;
-    this.ctx = { nch, stereo, bpm: 125, dry: 0, dryBuf: null };
+    this.ctx = { nch, stereo, ambisonic: this.ambisonic, bpm: 125, dry: 0, dryBuf: null };
     this._stride = 0;
     /** The Mixing tab's tap while it meters this bus (else null): told the
      *  span each piece is about to process, so it can record what goes in. */
@@ -1776,7 +1820,8 @@ export class InstrumentChain {
     this.silentRun = 0;
   }
 
-  /** A note of this instrument has started: phase-reset its retriggering LFOs. */
+  /** A note of an instrument on this bus has started: phase-reset its
+   *  retriggering LFOs. */
   noteOn() {
     const u = this.stages.get(IMX_UNIS);
     if (u && u.p) u.retrigger();
@@ -1930,15 +1975,19 @@ export function makeImixGrReadout() {
 export const IMX_ROUTE_SLOTS = 1025;
 
 /**
- * One instrument's bus on one playhead: a chunk of channel-major binary64
- * (stride TRACKER_CHUNK) in the song's own channel layout — the stereo pair,
- * or, in a surround song, the object bus's channels, filled through a
- * SpatialBus of the same renderer so a voice lands in it exactly where it would
- * have landed in the master — and the chain that runs over it.
+ * One bus on one playhead: a chunk of channel-major binary64 (stride
+ * TRACKER_CHUNK) in the song's own channel layout — the stereo pair, or, in a
+ * surround song, the object bus's channels, filled through a SpatialBus of the
+ * same renderer so a voice lands in it exactly where it would have landed in
+ * the master — and the chain that runs over it. A separate-mode block gives
+ * every instrument naming it a bus of its own; a bus-mode block gives them ONE,
+ * which `slots` lists, ascending — `slot` is the first of them, and the place
+ * the bus takes in the mix.
  */
 export class InstrumentBus {
   constructor(slot, block, master, rate) {
     this.slot = slot;
+    this.slots = [slot];
     this.blockId = block.id;
     this.renderer = master === null ? null : master.renderer;
     if (master === null) {
@@ -1954,7 +2003,8 @@ export class InstrumentBus {
       this.stereo = this.nch === 2 && master.renderer.name === "stereo";
       this.data = this.space.data;
     }
-    this.chain = new InstrumentChain(block, rate, this.nch, this.stereo);
+    const scene = master !== null && /^(ambisonic|binaural)/.test(master.renderer.name);
+    this.chain = new InstrumentChain(block, rate, this.nch, this.stereo, scene);
     /** Did any voice write into the current span? */
     this.fed = false;
   }
@@ -1971,9 +2021,11 @@ export class InstrumentBus {
  * Rebuild a playhead's route table from the engine's blocks and instruments.
  * A slot gets a bus when its record names a block that exists and is engaged
  * (imixBlockEngaged); every other slot routes nowhere and its voices take the
- * plain path. A bus that survives — same slot, same layout — keeps its chain
- * and is only re-set, so editing a block while the song plays keeps the
- * reverb's tail ringing.
+ * plain path. In bus mode the first slot naming the block makes the bus and
+ * every later one joins it. A bus that survives — same first slot, same layout
+ * — keeps its chain and is only re-set, so editing a block while the song plays
+ * keeps the reverb's tail ringing (switching a block's mode included: the first
+ * slot's bus carries on either way).
  */
 export function syncImixRoutes(eng, ts) {
   ts.imixGen = eng.imixGen;
@@ -1981,11 +2033,19 @@ export function syncImixRoutes(eng, ts) {
   const master = ts.spatial;
   const old = ts.imixBuses;
   const next = new Map();
+  const shared = new Map(); // bus-mode block id → its bus
   for (let slot = 1; slot < 1024; slot++) {
     const id = eng.instruments[slot].imixId;
     if (id === 0) continue;
     const block = eng.imixBlocks.get(id);
     if (block === undefined || !imixBlockEngaged(block)) continue;
+    if (block.bus) {
+      const joined = shared.get(id);
+      if (joined !== undefined) {
+        joined.slots.push(slot);
+        continue;
+      }
+    }
     let bus = old.get(slot);
     if (bus !== undefined && bus.renderer === (master === null ? null : master.renderer) &&
         bus.chain.rate === SAMPLING_RATE) {
@@ -1994,13 +2054,15 @@ export function syncImixRoutes(eng, ts) {
     } else {
       bus = new InstrumentBus(slot, block, master, SAMPLING_RATE);
     }
+    bus.slots = [slot];
+    if (block.bus) shared.set(id, bus);
     next.set(slot, bus);
   }
   ts.imixBuses = next;
   ts.imixRoutes.fill(null);
   ts.imixList = [];
-  for (const [slot, bus] of next) {
-    ts.imixRoutes[slot] = bus;
+  for (const bus of next.values()) {
+    for (const s of bus.slots) ts.imixRoutes[s] = bus;
     ts.imixList.push(bus);
   }
   // Ascending slot order: the order the buses join the mix is part of the sum.

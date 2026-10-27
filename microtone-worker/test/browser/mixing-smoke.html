@@ -170,6 +170,25 @@ function painted(cv) {
   check(["verb", "satu", "dlay", "comp"].every((k) => b.equipment[k] && !b.equipment[k].bypass),
     "four pieces in circuit", Object.keys(b.equipment).join(","));
 
+  // ── 3b. item 247: the LFO's waveform pushbuttons and the mix tool's DC ──
+  const waveBtns = [...unitEl("unis").querySelectorAll(".mst-seg button.wave-btn")];
+  check(waveBtns.length === 12, "the unison's two LFOs have six waveform pushbuttons each", String(waveBtns.length));
+  check(waveBtns[1].title === "Triangle" && waveBtns[1].textContent === "\uF045\uF045",
+    "…the second draws a triangle in Motif Grid", waveBtns[1].title);
+  check(win.getComputedStyle(waveBtns[1]).fontFamily.includes("Motif Grid"), "…in the grid's face",
+    win.getComputedStyle(waveBtns[1]).fontFamily);
+  waveBtns[1].click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.unis?.detuneLfo.wave === 1, "pressing it sets the detune LFO to a triangle");
+  check(store.doc.imixBlock(1).equipment.unis?.bypass === true, "…inserting the unison switched off");
+  const waveNow = [...unitEl("unis").querySelectorAll(".mst-seg button.wave-btn")];
+  check(waveNow[1].classList.contains("active") && !waveNow[0].classList.contains("active"), "…and the button is the pressed one");
+  const dcRow = [...unitEl("mxtl").querySelectorAll(".mst-row-check")].find((r) => r.textContent.includes("Remove DC"));
+  check(!!dcRow, "the mix tool has Remove DC");
+  dcRow.querySelector("input").click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.mxtl?.removeDc === true, "…which the block records");
+
   // ── 4. sharing ───────────────────────────────────────────────────────────
   iv.selected = other; iv.refresh();
   await sleep(80);
@@ -184,6 +203,33 @@ function painted(cv) {
   check(unitEl("dlay").classList.contains("folded") && !unitEl("verb").classList.contains("folded"),
     "another instrument on the chain sees its units folded as the chain was left");
   check(doc.querySelector(".imx-head").textContent.includes("Shared with"), "the tab says who shares it");
+
+  // ── 4b. item 247: the chain's name and its two modes ──────────────────────
+  const nameIn = doc.querySelector(".imx-head .imx-name");
+  check(!!nameIn && nameIn.placeholder === "Chain 1" && nameIn.value === "", "an unnamed chain reads Chain 1", nameIn?.placeholder);
+  nameIn.value = "Drums";
+  nameIn.dispatchEvent(new Event("change"));
+  await sleep(80);
+  check(store.doc.imixName(1) === "Drums", "typing a name names the chain (IMcn)", store.doc.imixName(1));
+  check(doc.querySelector(".imx-head .imx-name")?.value === "Drums", "…and the field shows it");
+  const modeBtns = () => [...doc.querySelectorAll(".imx-head .imx-mode button")];
+  check(modeBtns().map((x) => x.textContent).join("|") === "Separate mode|Bus mode", "two mode pushbuttons",
+    modeBtns().map((x) => x.textContent).join("|"));
+  check(modeBtns()[0].classList.contains("active"), "…Separate mode pressed to start");
+  modeBtns()[1].click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === true, "Bus mode puts the block in bus mode");
+  check(modeBtns()[1].classList.contains("active") && !modeBtns()[0].classList.contains("active"), "…and is the pressed one");
+  check(doc.querySelector(".imx-head").textContent.includes("as one bus"), "the tab says they share one bus");
+  modeBtns()[0].click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === false, "Separate mode puts it back");
+  store.undo.undo();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === true, "…one undo step each");
+  store.undo.undo();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === false && store.doc.imixName(1) === "Drums", "…back to separate, the name kept");
   const indep = [...doc.querySelectorAll(".imx-head button")].find((x) => x.textContent === "Make independent");
   indep.click();
   await sleep(80);
@@ -200,6 +246,9 @@ function painted(cv) {
     s2.dispatchEvent(new Event("change"));
     return true;
   };
+  const opt1 = [...doc.querySelectorAll(".imx-head select")].find((x) => x.options[0]?.value === "")
+    ?.querySelector('option[value="1"]');
+  check(!!opt1 && opt1.textContent.startsWith("Chain 1 · Drums — "), "the picker lists a named chain by number and name", opt1?.textContent);
   check(pick("1"), "chain 1 is in the picker");
   await sleep(80);
   check(store.doc.instruments[other].imixId === 1, "…and the instrument goes back to it");

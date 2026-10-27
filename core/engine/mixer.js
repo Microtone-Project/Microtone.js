@@ -477,16 +477,25 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
 function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
   const spatial = ts.spatial;
   const meter = ts.imixMeter;
+  // The tap meters the bus its instrument mixes into — in bus mode (item 247)
+  // the one every instrument on the block shares.
+  const meterBus = meter === null ? null : ts.imixRoutes[meter.slot];
   const trig = ts.imixTrig;
   for (let b = 0; b < buses.length; b++) {
     const bus = buses[b];
-    if (trig[bus.slot] !== 0) { trig[bus.slot] = 0; bus.chain.noteOn(); }
+    // A note on ANY instrument of a shared bus retriggers its LFOs.
+    const slots = bus.slots;
+    let hit = false;
+    for (let k = 0; k < slots.length; k++) {
+      if (trig[slots[k]] !== 0) { trig[slots[k]] = 0; hit = true; }
+    }
+    if (hit) bus.chain.noteOn();
     const chain = bus.chain;
     if (chain.idle && !bus.fed) {
       chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, false);
       continue;
     }
-    const metered = meter !== null && meter.slot === bus.slot;
+    const metered = meterBus === bus;
     if (metered) { meter.pushPre(bus, n0, n1); chain.probe = meter; }
     chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
     if (metered) { chain.probe = null; meter.pushPost(bus, n0, n1); }

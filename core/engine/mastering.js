@@ -717,14 +717,20 @@ export function onePole(ms, rate) {
  * a multichannel delivery gets (item 178.1, engine spec §12.3): the same
  * parameters, the same coefficients and the same envelopes, but with every
  * channel filtered identically, ONE dynamics detector reading all of them, and
- * the stereo width stage skipped — a mid/side round trip has no meaning on six
- * speaker feeds or sixteen ambisonic channels, and forcing one would rotate the
- * sound field. Use `processPlanar` for those; `process` is the pair.
+ * the width stage either generalised or skipped. A mid/side round trip has no
+ * meaning on six speaker feeds, and forcing one would rotate the sound field,
+ * so a speaker layout skips it. An AMBISONIC scene (`ambisonic`: channel 0 is
+ * W, the rest the directional harmonics, ACN order) has a mid and a side of its
+ * own: W is what every direction shares, and the width scales every other
+ * channel against it — SURROUND WIDTH (item 247), which is the stereo stage
+ * exactly where the scene is decoded to the coincident pair W ± Y. Use
+ * `processPlanar` for these; `process` is the pair.
  */
 export class MasterChain {
-  constructor(params = null, rate = SAMPLING_RATE, channels = 2) {
+  constructor(params = null, rate = SAMPLING_RATE, channels = 2, ambisonic = false) {
     this.rate = rate;
     this.channels = channels;
+    this.ambisonic = ambisonic && channels > 1;
     this.hp = new HighPassStage(channels);
     this.eq = new EqStage(channels);
     this.comp = new CompressorStage();
@@ -825,7 +831,8 @@ export class MasterChain {
    * for the song; only two things differ from the pair, and both are forced by
    * what a channel bus is:
    *
-   *   * the stereo WIDTH stage is skipped — see the class docstring;
+   *   * the WIDTH stage scales an ambisonic scene's directional channels and
+   *     is skipped on any other bus — see the class docstring;
    *   * the compressor's and the limiter's detectors read every channel, so
    *     one gain moves the whole field and nothing about its geometry changes.
    *
@@ -848,6 +855,8 @@ export class MasterChain {
     const trim = this.trimGain;
     const out = this.outGain;
     const doHp = p.hpOn, doEq = p.eqOn, doComp = p.compOn, doLim = p.limOn;
+    const doWidth = this.ambisonic && p.widthOn && this.width !== 1;
+    const w = this.width;
     let compGr = 0;
     this.lim.grDb = 0;
 
@@ -864,6 +873,7 @@ export class MasterChain {
         for (let c = 0; c < nch; c++) data[c * stride + n] *= g;
         if (this.comp.grDb < compGr) compGr = this.comp.grDb;
       }
+      if (doWidth) for (let c = 1; c < nch; c++) data[c * stride + n] *= w;
       if (doLim) this.lim.stepPlanar(data, n, stride);
       if (out !== 1) for (let c = 0; c < nch; c++) data[c * stride + n] *= out;
     }

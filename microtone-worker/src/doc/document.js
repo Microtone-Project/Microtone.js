@@ -18,7 +18,7 @@ import {
 } from "../../core/format/mastering-section.js";
 import { defaultMastering } from "../../core/engine/mastering.js";
 import {
-  IMIX_FOURCC, parseImixSection, buildImixSection, freeImixId, imixWithFolded,
+  IMIX_FOURCC, IMCN_FOURCC, parseImixSection, buildImixSection, freeImixId, imixWithFolded,
 } from "../../core/format/imix-section.js";
 import { parseRegionPayload } from "./sampleregions.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
@@ -175,6 +175,14 @@ export class Song {
   }
 }
 
+/** A name table without its trailing empty entries; null when none is left. */
+function trimNameTable(payload) {
+  let n = payload.length;
+  while (n > 0 && payload[n - 1] === 0x1e) n--;
+  if (n === 0) return null;
+  return n === payload.length ? payload : payload.slice(0, n);
+}
+
 /**
  * Combine a .tpif (patterns/cues/sMet only — the song domain) with an
  * instrument bank into a full parsed shape for `new Document()`. Mirrors the
@@ -209,7 +217,7 @@ export function combineTpif(bank, tpif) {
  * taken out of a project takes these with it. `IMix` is one (item 217): an
  * instrument's byte 255 means nothing without the block it names.
  */
-export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC]);
+export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC]);
 
 export class Document {
   /** Build from the structure parseTaud returns. */
@@ -335,7 +343,7 @@ export class Document {
     }
   }
 
-  /** 0x1E-separated name-table lookup (INam / SNam / pNam). */
+  /** 0x1E-separated name-table lookup (INam / SNam / pNam / IMcn). */
   _nameTable(fourcc) {
     const sec = this.projSections.find((s) => s.fourcc === fourcc);
     if (!sec) return [];
@@ -374,6 +382,8 @@ export class Document {
   instrumentName(slot) { return this._namesOf("INam")[slot] ?? ""; }
   sampleName(index) { return this._namesOf("SNam")[index] ?? ""; }
   patternName(idx) { return this._namesOf("pNam")[idx] ?? ""; }
+  /** Mixing chain `id`'s name (IMcn, item 247), escaped; "" = unnamed. */
+  imixName(id) { return id > 0 ? this._namesOf(IMCN_FOURCC)[id] ?? "" : ""; }
 
   /**
    * One of the four project strings (§9.2): "PNam" / "PCom" / "PCpr" / "PMsg",
@@ -528,6 +538,25 @@ export class Document {
   }
 
   /**
+   * The `IMcn` section as a save writes it: a name goes with its chain, so the
+   * names of the blocks the save retires (and of ids that hold no block) are
+   * blanked. undefined = write the section as it is; null = drop it.
+   */
+  _imixNamesForSave() {
+    const sec = this.projSections.find((s) => s.fourcc === IMCN_FOURCC);
+    if (!sec) return undefined;
+    const { blocks } = this.imixMap();
+    const keep = this.referencedImixIds();
+    const names = this._nameTable(IMCN_FOURCC);
+    let changed = false;
+    for (let id = 0; id < names.length; id++) {
+      if (names[id] !== "" && (id === 0 || !blocks.has(id) || !keep.has(id))) { names[id] = ""; changed = true; }
+    }
+    if (!changed) return undefined;
+    return trimNameTable(new TextEncoder().encode(names.join("\x1e")));
+  }
+
+  /**
    * The keyboard layout the project carries (item 189.1, §9.13) as `.taudkey`
    * TEXT, or null when it carries none.
    *
@@ -582,6 +611,9 @@ export class Document {
   buildSampleNames(index, escaped) { return this._buildNameTable("SNam", index, escaped); }
   buildInstrumentNames(slot, escaped) { return this._buildNameTable("INam", slot, escaped); }
   buildPatternNames(idx, escaped) { return this._buildNameTable("pNam", idx, escaped); }
+  /** The IMcn payload with chain `id` named `escaped` ("" = unnamed), or null
+   *  when no chain would be left with a name. */
+  buildImixNames(id, escaped) { return trimNameTable(this._buildNameTable(IMCN_FOURCC, id, escaped)); }
 
   /**
    * Deduped sample census across base instruments + Ixmp patches, sorted by
@@ -766,9 +798,11 @@ export class Document {
     // The IMix retirement happens on the WRITTEN copy of the section list: the
     // document keeps every block until it is closed.
     const imix = this._imixForSave();
-    const projSections = imix === undefined ? this.projSections
-      : this.projSections.flatMap((s) => (s.fourcc !== IMIX_FOURCC ? [s]
-        : imix === null ? [] : [{ fourcc: IMIX_FOURCC, payload: imix }]));
+    const imcn = this._imixNamesForSave();
+    const swap = (s, fourcc, payload) => (payload === undefined || s.fourcc !== fourcc ? null
+      : payload === null ? [] : [{ fourcc, payload }]);
+    const projSections = imix === undefined && imcn === undefined ? this.projSections
+      : this.projSections.flatMap((s) => swap(s, IMIX_FOURCC, imix) ?? swap(s, IMCN_FOURCC, imcn) ?? [s]);
     return {
       kind: this.kind,
       // The cell layout the patterns below are encoded in — without it the

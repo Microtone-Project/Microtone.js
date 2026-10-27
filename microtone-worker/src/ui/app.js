@@ -502,7 +502,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   }
   if (fromBank) {
     for (const s of fromBank.projSections) {
-      if (["INam", "SNam", "Ixmp", "IMix"].includes(s.fourcc)) {
+      if (["INam", "SNam", "Ixmp", "IMix", "IMcn"].includes(s.fourcc)) {
         projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(s.payload) });
       }
     }

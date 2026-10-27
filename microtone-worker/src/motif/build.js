@@ -468,7 +468,7 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
   return {
     sampleInstImage: work.sampleInstImage,
     ixmp: work.ixmp,
-    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix"].includes(x.fourcc)),
+    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix", "IMcn"].includes(x.fourcc)),
   };
 }
 

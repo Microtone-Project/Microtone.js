@@ -149,7 +149,8 @@ export function showExportAudio({ surroundModel = 0, mastered = false, defaults 
 
     // The mastering chain (item 178) reaches a multichannel target too, but as
     // a MULTICHANNEL master (item 178.1): identical filtering per channel, the
-    // dynamics linked across all of them, no stereo width. That is a different
+    // dynamics linked across all of them, the width as surround width on an
+    // ambisonic scene and skipped on speaker feeds (item 247). That is a different
     // signal from the pair the Mastering tab meters, so say so where the choice
     // is made rather than letting someone find out by comparing files.
     const masterHint = document.createElement("p");
