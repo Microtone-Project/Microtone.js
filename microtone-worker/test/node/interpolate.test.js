@@ -414,6 +414,13 @@ test("the menu cell needs a BLOCK, not just the right column", () => {
   assert.ok(ids([COL_FX], { block: true }).endsWith("interpolate,findchange"));
   assert.ok(!ids([COL_FX], {}).includes("interpolate"));
   assert.equal(isBlockTool("interpolate"), true);
+  // Fill with effect (item 259) is a block's too, and only an effect column's:
+  // a band that merely includes the effect column is not asking for one.
+  assert.ok(ids([COL_FX], { block: true }).includes("fxFill,interpolate"));
+  assert.ok(ids([COL_FX2], { block: true, wide: true }).includes("fxFill"));
+  assert.ok(!ids([COL_FX], {}).includes("fxFill"));
+  assert.ok(!ids([COL_PAN, COL_FX], { block: true }).includes("fxFill"));
+  assert.equal(isBlockTool("fxFill"), true);
 });
 
 test("a curve's name and its description are separate strings", () => {

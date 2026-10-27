@@ -723,6 +723,223 @@ def deduplicate_patterns(pat_bin: bytes, num_pats: int) -> tuple:
     return b''.join(canonical), remap, len(canonical)
 
 
+# ── Lane-major pattern numbering (Microtone item 253) ──
+#
+# The order a song's patterns are numbered in, the same as Microtone's own
+# "Renumber patterns" (src/doc/cleanup.js planRenumberPatterns, which this
+# mirrors): lane 1's patterns in cue order take $0000, $0001, …, the next lane
+# starts at a round number — the next multiple of $10 after a lane of at most
+# $10 new patterns, of $100 after a longer one — and so on. When that runs past
+# the last pattern number every lane rounds to $10, and when even that does not
+# fit nothing is rounded. The gaps are blank patterns (they compress to almost
+# nothing).
+#
+# A BLANK pattern is not numbered at all: a cue slot that plays one becomes
+# CUE_EMPTY — but only where that cannot change the sound. A blank row still
+# ENDS whatever the lane's previous row left running (a vibrato, a slide, a
+# pending note delay); an empty slot skips the lane and lets it run on. So a
+# slot is emptied only when every row that can be the lane's last one before
+# that cue — through the cue flow, B jumps and C breaks, and any empty slots
+# in between — leaves nothing running.
+
+_BLANK_CELL = bytes([0, 0, 0, 0xC0, 0xC0, 0, 0, 0])
+_BLANK_PATTERN = _BLANK_CELL * PATTERN_ROWS
+_FX_B, _FX_C, _FX_DITTO = 0x0B, 0x0C, 0x07
+_RENUMBER_ROUNDING = ((0x10, 0x100), (0x10, 0x10), (1, 1))
+
+
+def _cue_words(cue: bytes, num_voices: int) -> list:
+    return [cue[ch * 2] | (cue[ch * 2 + 1] << 8) for ch in range(num_voices)]
+
+
+def _decode_inst(w: int):
+    """(kind, arg, rows) of one instruction word, as the engine reads it."""
+    b30, b31 = (w >> 8) & 0xFF, w & 0xFF
+    if w == 0:
+        return ('nop', 0, 64)
+    if b30 == CUE_INST_LEN:
+        return ('len', 0, (b31 & 0x3F) + 1)
+    if b30 == CUE_INST_HALT:
+        x = b31 & 0x3F
+        return ('halt', 0, (x or 64) if (b31 & 0xC0) == 0x40 else 64)
+    hi = b30 & 0xF0
+    arg = ((b30 & 0x0F) << 8) | b31
+    if hi == 0x80:
+        return ('bak', arg, 64)
+    if hi == 0x90:
+        return ('fwd', arg, 64)
+    if hi == 0xF0:
+        return ('jmp', arg, 64)
+    return ('nop', 0, 64)
+
+
+def _lingering_row(cell: bytes) -> bool:
+    """Does this row leave something running into the next one — an effect, or
+    a volume/panning column slide (selectors 1 and 2)?"""
+    return cell[5] != 0 or (cell[3] >> 6) in (1, 2) or (cell[4] >> 6) in (1, 2)
+
+
+def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
+                                 num_voices: int = NUM_VOICES,
+                                 pattern_names=None) -> tuple:
+    """Renumber a finished song lane-major (see above) and empty the cue slots
+    of blank patterns where that is safe.
+
+    `pat_bin` holds the song's patterns back to back (8-byte cells); `cue_bytes`
+    is the finished cue sheet (finalize_cue_sheet's bytes, instructions set),
+    `num_voices` channels wide. `pattern_names`, if given, is aligned to the
+    pattern indices; a named pattern is never treated as blank.
+
+    Returns (pat_bin, cue_bytes, num_patterns, num_cues, pattern_names), the
+    cue sheet trimmed again by finalize_cue_sheet. Patterns no cue plays are
+    kept (after the last lane) unless they are blank.
+    """
+    n_pats = len(pat_bin) // PATTERN_BYTES
+    names = list(pattern_names or [])
+    cue_size = num_voices * 2
+    n_cues = len(cue_bytes) // cue_size
+    pats = [bytes(pat_bin[i * PATTERN_BYTES:(i + 1) * PATTERN_BYTES]) for i in range(n_pats)]
+    blank = [p == _BLANK_PATTERN and not (i < len(names) and names[i]) for i, p in enumerate(pats)]
+    words = [_cue_words(cue_bytes[c * cue_size:(c + 1) * cue_size], num_voices) for c in range(n_cues)]
+    slot = lambda c, ch: words[c][ch] & 0x7FFF
+
+    def cell(p, r):
+        return pats[p][r * 8:(r + 1) * 8]
+
+    # Per cue: the rows that can be its last, and the cues that can follow it.
+    finals, succ = [], []
+    for c in range(n_cues):
+        w0 = w1 = 0
+        for ch in range(min(32, num_voices)):
+            if words[c][ch] & 0x8000:
+                if ch < 16:
+                    w0 |= 1 << ch
+                else:
+                    w1 |= 1 << (ch - 16)
+        i0, i1 = _decode_inst(w0), _decode_inst(w1)
+        limit = min(i0[2], i1[2])
+        is_halt = i0[0] == 'halt' or i1[0] == 'halt'
+        flow = i0 if i0[0] in ('bak', 'fwd', 'jmp') else i1 if i1[0] in ('bak', 'fwd', 'jmp') else None
+        rows, nxt = {limit - 1}, set()
+        for ch in range(num_voices):
+            s = slot(c, ch)
+            if s == CUE_EMPTY or s >= n_pats:
+                continue
+            for r in range(limit):
+                cl = cell(s, r)
+                if cl[5] == _FX_B:
+                    rows.add(r)
+                    nxt.add(cl[6] | (cl[7] << 8))
+                elif cl[5] == _FX_C:
+                    rows.add(r)
+        if not is_halt:
+            if flow is None:
+                nxt.add(c + 1)
+            elif flow[0] == 'bak':
+                nxt.add(max(c - flow[1], 0))
+            elif flow[0] == 'fwd':
+                nxt.add(c + flow[1])
+            else:
+                nxt.add(flow[1])
+        finals.append(sorted(rows))
+        succ.append([n for n in nxt if n < n_cues])
+
+    def lingers(p, c):
+        if any(pats[p][r * 8 + 5] == _FX_DITTO and (pats[p][r * 8 + 6] or pats[p][r * 8 + 7])
+               for r in range(PATTERN_ROWS)):
+            return True
+        return any(_lingering_row(cell(p, r)) for r in finals[c])
+
+    # Lane by lane: which cues can be ENTERED with something still running?
+    emptied = 0
+    for ch in range(num_voices):
+        dirty = [False] * n_cues
+        queue = []
+
+        def mark(c):
+            if not dirty[c]:
+                dirty[c] = True
+                queue.append(c)
+        for c in range(n_cues):
+            s = slot(c, ch)
+            if s == CUE_EMPTY or s >= n_pats or blank[s]:
+                continue
+            if lingers(s, c):
+                for n in succ[c]:
+                    mark(n)
+        while queue:
+            c = queue.pop()
+            if slot(c, ch) == CUE_EMPTY:
+                for n in succ[c]:
+                    mark(n)
+        for c in range(n_cues):
+            s = slot(c, ch)
+            if s != CUE_EMPTY and s < n_pats and blank[s] and not dirty[c]:
+                words[c][ch] = (words[c][ch] & 0x8000) | CUE_EMPTY
+                emptied += 1
+
+    # Lane-major groups, then whatever has content but plays nowhere.
+    seen, groups = set(), []
+    for ch in range(num_voices):
+        g = []
+        for c in range(n_cues):
+            s = slot(c, ch)
+            if s != CUE_EMPTY and s < n_pats and s not in seen:
+                seen.add(s)
+                g.append(s)
+        if g:
+            groups.append(g)
+    extra = [i for i in range(n_pats) if i not in seen and not blank[i]]
+    if extra:
+        groups.append(extra)
+
+    starts = None
+    for short, long in _RENUMBER_ROUNDING:
+        at, nxt = [], 0
+        for g in groups:
+            at.append(nxt)
+            nxt += len(g)
+            size = long if len(g) > 0x10 else short
+            nxt = -(-nxt // size) * size
+        last = at[-1] + len(groups[-1]) - 1 if groups else -1
+        if last < NUM_PATTERNS_MAX:
+            starts = at
+            break
+    if starts is None:
+        raise ValueError("renumber: more patterns than the format holds")
+
+    old_to_new = {}
+    for k, g in enumerate(groups):
+        for i, old in enumerate(g):
+            old_to_new[old] = starts[k] + i
+    count = (starts[-1] + len(groups[-1])) if groups else 0
+    if count == 0:
+        # Nothing plays anywhere: keep one blank so the song still has a pattern.
+        count = 1
+    out = bytearray(_BLANK_PATTERN * count)
+    new_names = [''] * count
+    for old, nn in old_to_new.items():
+        out[nn * PATTERN_BYTES:(nn + 1) * PATTERN_BYTES] = pats[old]
+        if old < len(names):
+            new_names[nn] = names[old] or ''
+    sheet = bytearray(cue_bytes)
+    for c in range(n_cues):
+        for ch in range(num_voices):
+            w = words[c][ch]
+            s = w & 0x7FFF
+            if s != CUE_EMPTY and s < n_pats:
+                w = (w & 0x8000) | old_to_new[s]
+            sheet[c * cue_size + ch * 2] = w & 0xFF
+            sheet[c * cue_size + ch * 2 + 1] = (w >> 8) & 0xFF
+    while new_names and not new_names[-1]:
+        new_names.pop()
+    if emptied:
+        vprint(f"  renumber: {emptied} blank cue slot(s) emptied; {count} pattern number(s), "
+               f"{len(old_to_new)} in use")
+    sheet, n_cues = finalize_cue_sheet(sheet, num_voices=num_voices)
+    return bytes(out), sheet, count, n_cues, new_names
+
+
 def encode_song_entry(song_offset: int, num_voices: int, num_patterns: int,
                       bpm_stored: int, tick_rate: int,
                       base_note: int, base_freq: float, flags_byte: int,

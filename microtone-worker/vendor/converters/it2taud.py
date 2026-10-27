@@ -91,6 +91,7 @@ from taud_common import (
     build_project_data, detect_subsongs,
     IXMP_PAN_NO_OVERRIDE, IXMP_CHAN_DISCRETE,
     OPL_KIND_2OP, opl_block, make_opl_record, tracker_opl_gain,
+    renumber_patterns_lane_major,
 )
 
 
@@ -2234,6 +2235,9 @@ def _build_song_payload(h: ITHeader, patterns_rows_template: list,
                f"for partial-length patterns")
 
     cue_bytes, num_cues = finalize_cue_sheet(sheet, num_voices=cue_voices)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253).
+    pat_bin, cue_bytes, num_taud_pats, num_cues, _ = renumber_patterns_lane_major(
+        pat_bin, cue_bytes, num_voices=cue_voices)
     pat_comp = compress_blob(bytes(pat_bin), f"[{song_label}] pattern bin")
     cue_comp = compress_blob(cue_bytes,      f"[{song_label}] cue sheet")
 

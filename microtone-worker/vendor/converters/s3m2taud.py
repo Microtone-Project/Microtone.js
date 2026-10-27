@@ -73,6 +73,7 @@ from taud_common import (
     normalise_sample, encode_song_entry, compress_blob,
     build_project_data, detect_subsongs,
     OPL_KIND_2OP, opl_block, build_opl_record, tracker_opl_gain,
+    renumber_patterns_lane_major,
 )
 
 
@@ -951,6 +952,8 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
         set_cue_instruction(sheet, 0, CUE_INST_HALT)
 
     cue_bytes, num_cues = finalize_cue_sheet(sheet)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253).
+    pat_bin, cue_bytes, num_taud_pats, num_cues, _ = renumber_patterns_lane_major(pat_bin, cue_bytes)
     pat_comp = compress_blob(bytes(pat_bin), f"[{song_label}] pattern bin")
     cue_comp = compress_blob(cue_bytes,      f"[{song_label}] cue sheet")
 

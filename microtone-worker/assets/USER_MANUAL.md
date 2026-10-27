@@ -362,6 +362,11 @@ one of note / volume / panning / effect, or volume and panning together — and
 draws a curve between the values the block already holds. See
 [Interpolate](#interpolate).
 
+**Fill with effect…** appears on a block in one effect column: pick an effect
+and type its argument, and every cell of the block gets that effect and
+argument in one undo step — `(none)` clears them. The quick effects beside it
+change only the effect letter and keep each cell's own argument.
+
 **Find & Change** closes that row whatever column you opened it on — it is the
 general case of the tools beside it and has no column of its own. See
 [Find & Change](#find-change-advanced-pattern-edit).
@@ -1019,8 +1024,7 @@ that cue.
 | Command | Meaning |
 |---|---|
 | **LEN** | Set this cue's pattern length (1–64 rows) |
-| **HALT** | Stop playback after this cue |
-| **HALT@** | Stop after N rows into this cue |
+| **HALT** | Stop playback after this cue — or, given a row count N, after N rows into it (shown as `HALT·N`; leave the argument empty for the whole cue) |
 | **BAK** | Go back N cues |
 | **FWD** | Skip forward N cues |
 | **JMP** | Jump to cue N |
@@ -2494,7 +2498,8 @@ than by bending the whole song around it.
 Five clean-up operations, each a single undo step:
 
 - **Cleanup patterns** — drop the patterns no cue references, renumber the survivors and rewrite the cues to match.
-- **Renumber patterns** — compact every pattern into play order, dropping the gaps.
+- **Renumber patterns** — number the patterns **lane by lane**: lane 1's patterns in cue order take `0000`, `0001`, …, and each next lane starts from a round number — the next multiple of `0010` after a lane of up to 16 patterns, of `0100` after a longer one (so lane 1 ending at `009F` puts lane 2 at `0100`) — so a pattern's number tells you its lane. If the numbers would run out, every lane rounds to `0010` instead, and failing that nothing is rounded. A pattern in two lanes keeps the number its first lane gave it; patterns no cue plays come last.
+  - **Blank patterns leave the cues**: where a cue played one, that lane now plays nothing (`7FFF`). The one exception is a blank that is doing something — a blank row still ends an effect the lane's previous row left running, such as a vibrato or a slide, where an empty slot would let it run on — and those stay, so the song sounds exactly as it did.
 - **Cleanup instruments & samples** — remove instruments no pattern plays (a used metainstrument keeps its sub-instruments, layers or operators) and free the sample data only they referenced. [Recordings loaded into memory](#long-recordings-in-memory) are never touched: nothing claims them by design, and they are source material rather than leftovers.
 - **Cleanup instrument patches** — remove [Ixmp patches](#advanced-edit-ixmp-patches) that can never be triggered: patches belonging to no instrument, patches with an empty rectangle or no sample, and patches lying entirely under a higher-priority one (remember the *first* matching patch wins, so a fully covered patch is dead weight).
 - **Defragment sample memory** — slide every sample down against the start of the pool, closing the [gaps](#sample-memory) that deleting and replacing samples leave behind. The other four free memory; this one is the only one that moves any. What it buys is the free space as **one run** instead of a dozen pieces too small to import into, and the confirmation says how big that run becomes before you commit. Every instrument, patch and recording that pointed into the moved memory is repointed with it, so nothing about the music changes — a defragmented project renders identically. Samples that overlap each other travel together, and a sample pointing *outside* the pool stops it: run **Cleanup instruments & samples** first, which drops the junk records that claim those addresses.

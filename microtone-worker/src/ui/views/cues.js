@@ -46,11 +46,13 @@ const LAMP_FADE_MS = 280;
  *  song does not light every lane it skipped over. */
 const LAMP_CATCH_UP = 8;
 const GUTTER_W = 52;             // cue index (4-digit hex)
-const CMD_W = Math.ceil(9 * CHAR_W); // "HALT@40 " per word
+const CMD_W = Math.ceil(9 * CHAR_W); // "HALT·40 " per word
 const COL_W = Math.ceil(4 * CHAR_W) + 8; // 4 hex digits per lane (0000..7FFE)
 
+// HALT and "halt at x" are ONE command to whoever reads the grid (item 258):
+// HALT with a row count is the second, without one the first.
 const INST_NAMES = {
-  [INST_NOP]: "", [INST_HALT]: "HALT", [INST_HALTAT]: "HALT@",
+  [INST_NOP]: "", [INST_HALT]: "HALT", [INST_HALTAT]: "HALT·",
   [INST_PATLEN]: "LEN·", [INST_GOBACK]: "BAK·", [INST_SKIP]: "FWD·", [INST_JUMP]: "JMP·",
 };
 
@@ -65,8 +67,9 @@ function instToStr(inst) {
 function encodeInstWord(kind, arg) {
   switch (kind) {
     case "nop": return 0;
-    case "halt": return 0x0100;
-    case "haltAt": return 0x0140 | (arg & 0x3f);
+    // A row count of 1-$3F halts there; none (or a whole pattern's worth,
+    // which is what "halt at 0" means) is the plain HALT.
+    case "halt": return arg >= 1 && arg <= 0x3f ? 0x0140 | arg : 0x0100;
     case "len": return 0x0200 | ((arg - 1) & 0x3f);
     case "bak": return 0x8000 | (arg & 0xfff);
     case "fwd": return 0x9000 | (arg & 0xfff);
@@ -853,18 +856,18 @@ export class CuesView {
           { value: "nop", label: t("cue.none") },
           { value: "len", label: t("cue.len") },
           { value: "halt", label: t("cue.halt") },
-          { value: "haltAt", label: t("cue.haltAt") },
           { value: "bak", label: t("cue.bak") },
           { value: "fwd", label: t("cue.fwd") },
           { value: "jmp", label: t("cue.jmp") },
         ]},
         // Hex like every other cue/row number (the grid shows args in hex too).
+        // A plain HALT has no row count, so its field starts empty.
         { name: "arg", label: t("cue.argument"),
-          value: (current.arg || 0).toString(16).toUpperCase() },
+          value: current.type === INST_HALT ? "" : (current.arg || 0).toString(16).toUpperCase() },
       ],
     });
     if (!result) return;
-    const arg = Math.min(0xfff, Math.max(0, parseInt(result.arg || "0", 16) || 0));
+    const arg = Math.min(0xfff, Math.max(0, parseInt(String(result.arg ?? "").trim() || "0", 16) || 0));
     const newWord = encodeInstWord(result.kind, arg);
     // Written through the growable cue op so a command on the phantom row
     // materialises the cue (edit past HALT).
@@ -1155,8 +1158,7 @@ function cellIsBlank(cell) {
 
 function kindOf(inst) {
   switch (inst.type) {
-    case INST_HALT: return "halt";
-    case INST_HALTAT: return "haltAt";
+    case INST_HALT: case INST_HALTAT: return "halt";
     case INST_PATLEN: return "len";
     case INST_GOBACK: return "bak";
     case INST_SKIP: return "fwd";

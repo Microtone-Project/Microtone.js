@@ -15,11 +15,13 @@ import { CUE_EMPTY, PATTERN_SIZE, SAMPLEBIN_SIZE, TAUD_VERSION } from "../../cor
 import { writePatchesBlob, buildMetaRecord, layerNote } from "../../core/engine/inst.js";
 import { EffectOp } from "../../core/engine/tables.js";
 import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
-import { sampleSpans, BANK_SECTIONS } from "./document.js";
+import { INST_GOBACK, INST_SKIP, INST_JUMP } from "../../core/engine/state.js";
+import { sampleSpans, BANK_SECTIONS, cueInfo } from "./document.js";
 import { buildIxmpSection } from "./bankmerge.js";
 import { regionSpans } from "./sampleregions.js";
 import { formantRecordSpans, remapFormantSource } from "./formantedit.js";
 import { emptyPatternBytes } from "./patterntools.js";
+import { cellToBytes, emptyCellBytes } from "./clipboard.js";
 
 const PAT_MASK = 0x7fff;
 
@@ -35,13 +37,6 @@ export function referencedPatterns(song) {
     }
   }
   return order;
-}
-
-/** Indices of materialised (non-null) patterns, ascending. */
-function materialisedPatterns(song) {
-  const out = [];
-  for (let i = 0; i < song.patterns.length; i++) if (song.patterns[i]) out.push(i);
-  return out;
 }
 
 /** New keep-order for "cleanup unused": only cue-referenced patterns, ascending
@@ -93,14 +88,194 @@ export function planMergeDuplicatePatterns(song, order) {
   return { order: merged, canon };
 }
 
-/** New keep-order for "renumber": referenced patterns in play (first-appearance)
- *  order, then any materialised-but-unreferenced patterns (ascending) so nothing
- *  with content is lost — just compacted and reordered. */
-export function planRenumberPatterns(song) {
-  const ref = referencedPatterns(song);
-  const refSet = new Set(ref);
-  const extra = materialisedPatterns(song).filter((i) => !refSet.has(i));
-  return [...ref, ...extra];
+// ── renumber (item 253) ──
+//
+// LANE-MAJOR: lane 1's patterns in cue order take 0000, 0001, …, then lane 2's
+// continue from a round number, and so on — so a pattern's number says which
+// lane it belongs to. A lane that numbered at most $10 new patterns leaves the
+// next lane to start at the next multiple of $10, a longer one at the next
+// multiple of $100 (ending at $000F → $0010, at $009F → $0100, at $0103 →
+// $0200). When that would run past the last pattern number every lane rounds
+// to $10 instead, and when even that does not fit, nothing is rounded.
+//
+// A BLANK pattern (every cell empty, no name) is not given a number at all: a
+// cue slot that played one is emptied to $7FFF — but only where that cannot
+// change the sound. The two are not the same thing to the engine. A blank row
+// is still a row: it ends whatever the lane's previous row left running (a
+// vibrato, a slide, a pending note delay), where an empty slot skips the lane
+// and lets it run on. So a slot is emptied only when every row that can be
+// the lane's last one before that cue — following the cue flow, `B` jumps and
+// `C` breaks, through any empty slots in between — leaves nothing running
+// (lingeringRow below). Everywhere else the blank pattern stays, numbered like
+// any other.
+
+const RENUMBER_ROUNDING = [[0x10, 0x100], [0x10, 0x10], [1, 1]];
+const PAT_LAST = 0x7ffe;
+
+/** Does this row leave something running into the next one — an effect in
+ *  either slot (vibrato, a slide, a note delay, anything with memory) or a
+ *  volume/panning column slide? A row without any of those leaves the lane in
+ *  the state a blank row would. */
+function lingeringRow(cell) {
+  return cell.effect !== 0 || cell.effect2 !== 0 ||
+    cell.volumeEff === 1 || cell.volumeEff === 2 ||
+    cell.panEff === 1 || cell.panEff === 2;
+}
+
+/** A pattern with a ditto (`7`) in it can replay an effect onto a row whose own
+ *  cell says nothing, so none of its rows can be trusted to end quietly. */
+function hasDitto(pattern) {
+  for (const cell of pattern) if (cell.effect === EffectOp.OP_7 && cell.effectArg !== 0) return true;
+  return false;
+}
+
+/**
+ * Plan the lane-major renumber. Returns { patterns, cues, pNam, emptied,
+ * rounding } — the new pattern array (null in the gaps the rounding leaves,
+ * which save as blank patterns), the cue words (sign bits kept), the name list
+ * aligned to the new numbers, how many cue slots were emptied, and the
+ * rounding that fitted ([size after a short lane, size after a long one]).
+ * Materialised patterns no cue plays keep their content: they follow the last
+ * lane as a group of their own. Pure — `song` is not touched.
+ */
+export function planRenumberPatterns(song, patternNames = [], wide = false) {
+  const nCues = song.cues.length;
+  const nLanes = song.cues.reduce((n, w) => Math.max(n, w.length), 0);
+  const blankBytes = emptyCellBytes(wide);
+  const blankCache = new Map();
+  const isBlank = (idx) => {
+    if (blankCache.has(idx)) return blankCache.get(idx);
+    const pat = song.patterns[idx];
+    let blank = !patternNames[idx];
+    if (blank && pat) {
+      outer: for (const cell of pat) {
+        const b = cellToBytes(cell, wide);
+        for (let i = 0; i < b.length; i++) if (b[i] !== blankBytes[i]) { blank = false; break outer; }
+      }
+    }
+    blankCache.set(idx, blank);
+    return blank;
+  };
+  const slot = (c, ch) => (song.cues[c][ch] ?? PAT_MASK) & PAT_MASK;
+
+  // Per cue: the rows that can be its last, and the cues that can follow it.
+  const finals = [], succ = [];
+  for (let c = 0; c < nCues; c++) {
+    const info = cueInfo(song.cues[c]);
+    const limit = info.rowLimit;
+    const rows = new Set([limit - 1]);
+    const next = new Set();
+    let natural = !info.isHalt;
+    for (let ch = 0; ch < nLanes; ch++) {
+      const pat = song.patterns[slot(c, ch)];
+      if (slot(c, ch) === PAT_MASK || !pat) continue;
+      for (let r = 0; r < limit; r++) {
+        const cell = pat[r];
+        for (const [op, arg] of [[cell.effect, cell.effectArg], [cell.effect2, cell.effectArg2]]) {
+          if (op === EffectOp.OP_B) { rows.add(r); next.add(arg); }
+          else if (op === EffectOp.OP_C) rows.add(r);
+        }
+      }
+    }
+    if (natural) {
+      const f = info.flow;
+      next.add(f?.type === INST_GOBACK ? Math.max(c - f.arg, 0)
+        : f?.type === INST_SKIP ? c + f.arg
+        : f?.type === INST_JUMP ? f.arg
+        : c + 1);
+    }
+    finals.push([...rows]);
+    succ.push([...next].filter((n) => n < nCues));
+  }
+
+  // Lane by lane: which cues can be ENTERED with something still running?
+  // Dirt starts at a real pattern whose possible last rows linger, and passes
+  // straight through an empty slot (the lane plays nothing there to stop it).
+  const cues = song.cues.map((w) => w.slice());
+  let emptied = 0;
+  for (let ch = 0; ch < nLanes; ch++) {
+    const dirty = new Uint8Array(nCues);
+    const queue = [];
+    const mark = (c) => { if (!dirty[c]) { dirty[c] = 1; queue.push(c); } };
+    for (let c = 0; c < nCues; c++) {
+      const s = slot(c, ch);
+      if (s === PAT_MASK || isBlank(s)) continue;
+      const pat = song.patterns[s];
+      if (!pat) continue;
+      if (hasDitto(pat) || finals[c].some((r) => lingeringRow(pat[r]))) succ[c].forEach(mark);
+    }
+    while (queue.length) {
+      const c = queue.pop();
+      if (slot(c, ch) === PAT_MASK) succ[c].forEach(mark);
+    }
+    for (let c = 0; c < nCues; c++) {
+      const s = slot(c, ch);
+      if (s !== PAT_MASK && isBlank(s) && !dirty[c]) {
+        cues[c][ch] = (cues[c][ch] & 0x8000) | PAT_MASK;
+        emptied++;
+      }
+    }
+  }
+
+  // The groups to number: each lane's patterns in cue order, first appearance
+  // only, then whatever has content but plays nowhere.
+  const seen = new Set();
+  const groups = [];
+  for (let ch = 0; ch < nLanes; ch++) {
+    const g = [];
+    for (let c = 0; c < nCues; c++) {
+      const s = (cues[c][ch] ?? PAT_MASK) & PAT_MASK;
+      if (s !== PAT_MASK && !seen.has(s)) { seen.add(s); g.push(s); }
+    }
+    if (g.length) groups.push(g);
+  }
+  const extra = [];
+  for (let i = 0; i < song.patterns.length; i++) {
+    if (!seen.has(i) && (song.patterns[i] || patternNames[i]) && !isBlank(i)) extra.push(i);
+  }
+  if (extra.length) groups.push(extra);
+
+  let starts = null, rounding = null;
+  for (const sizes of RENUMBER_ROUNDING) {
+    const at = [];
+    let next = 0;
+    for (const g of groups) {
+      at.push(next);
+      next += g.length;
+      const size = g.length > 0x10 ? sizes[1] : sizes[0];
+      next = Math.ceil(next / size) * size;
+    }
+    const last = groups.length ? at[at.length - 1] + groups[groups.length - 1].length - 1 : -1;
+    if (last <= PAT_LAST) { starts = at; rounding = sizes; break; }
+  }
+  if (!starts) throw new Error("renumber: more patterns than the format holds");
+
+  const oldToNew = new Map();
+  groups.forEach((g, k) => g.forEach((old, i) => oldToNew.set(old, starts[k] + i)));
+  const size = groups.length ? starts[starts.length - 1] + groups[groups.length - 1].length : 0;
+  const patterns = new Array(size).fill(null);
+  const names = new Array(size).fill("");
+  for (const [old, nn] of oldToNew) {
+    patterns[nn] = song.patterns[old] ?? null;
+    names[nn] = patternNames[old] ?? "";
+  }
+  for (const words of cues) {
+    for (let ch = 0; ch < words.length; ch++) {
+      const s = words[ch] & PAT_MASK;
+      if (s !== PAT_MASK) words[ch] = (words[ch] & 0x8000) | oldToNew.get(s);
+    }
+  }
+  while (names.length && names[names.length - 1] === "") names.pop();
+  return { patterns, cues, pNam: names, emptied, rounding };
+}
+
+/** True when a renumber plan leaves the song exactly as it is. */
+export function renumberIsIdentity(song, plan) {
+  if (plan.patterns.length !== song.patterns.length) return false;
+  for (let i = 0; i < plan.patterns.length; i++) {
+    if ((plan.patterns[i] ?? null) !== (song.patterns[i] ?? null)) return false;
+  }
+  return plan.cues.every((w, c) => w.every((v, ch) => v === song.cues[c][ch]));
 }
 
 /**

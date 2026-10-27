@@ -51,6 +51,7 @@ from taud_common import (
     cue_instruction_len, cue_instruction_halt_at,
     deduplicate_patterns, encode_song_entry, compress_blob, build_project_data,
     TAUD_BPM_MIN, tempo_effect_arg,
+    renumber_patterns_lane_major,
 )
 import opl2taud as opl
 from opl2taud import escape_non_ascii, volume_column
@@ -705,6 +706,8 @@ def assemble_taud(song, banks, *, mixing_vol=DEFAULT_MIXING_VOL, with_project_da
     # the song there, so the two never have to share a cue's two words.
     set_cue_instruction(sheet, num_cues - 1, cue_instruction_halt_at(cue_rows))
     cue_bytes, stored_cues = finalize_cue_sheet(sheet)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253).
+    pat_bin, cue_bytes, num_patterns, stored_cues, _ = renumber_patterns_lane_major(pat_bin, cue_bytes)
 
     # ── Container ────────────────────────────────────────────────────────────
     raw = bank['sample_bin'] + bank['inst_bin']

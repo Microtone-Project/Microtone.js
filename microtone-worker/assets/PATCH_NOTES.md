@@ -94,6 +94,17 @@ Motif, Microtone's typeface, tells more of its letters and digits apart.
 
 **The pitch plot follows the pitch you hear**: a note under a tone portamento (`G`) is plotted where the slide still is, not where it is heading, and the curve climbs from there; a note with `E $Fxxx` or `S $2x` is plotted at the pitch it actually starts on.
 
+**Renumber patterns now numbers them lane by lane**, so a pattern's number tells you which lane it belongs to.
+
+- Lane 1's patterns take `0000`, `0001`, … in cue order, and each next lane starts from a round number: the next multiple of `0010` after a lane of up to 16 patterns, of `0100` after a longer one. If the numbers would run out, every lane rounds to `0010`, and failing that nothing is rounded.
+- Blank patterns leave the cues: a lane that played one in a cue now plays nothing there — except where the blank row is what stops a vibrato or slide the lane's previous row left running, which stays, so the song sounds exactly as before.
+- Imported songs (MOD, S3M, XM, IT, MIDI, MON, IMS and SOP) arrive numbered the same way, and a MIDI import no longer sets aside a blank pattern `0000`.
+- The Project tab's song list counts the patterns a song actually plays, not its highest pattern number.
+
+**Fill with effect…** in the right-click menu of a block of effect cells writes one effect, with its argument, into every cell of the block.
+
+**HALT and HALT@ are one command now**: in the Cues tab's command popup, give HALT a row count to stop after that many rows (shown as `HALT·N`), or leave it empty to stop at the end of the pattern.
+
 ## Version 3.13.3 (2026-10-22)
 
 The envelope graphs zoom with a two-finger pinch on a touch screen.

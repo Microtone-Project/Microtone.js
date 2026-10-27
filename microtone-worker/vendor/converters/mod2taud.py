@@ -45,6 +45,7 @@ from taud_common import (
     finalize_cue_sheet, set_cue_instruction, CUE_INST_HALT,
     encode_song_entry, compress_blob,
     build_project_data, detect_subsongs,
+    renumber_patterns_lane_major,
 )
 
 
@@ -832,6 +833,8 @@ def _build_song_payload_mod(mod: dict, patterns_template: list,
         set_cue_instruction(sheet, 0, CUE_INST_HALT)
 
     cue_bytes, num_cues = finalize_cue_sheet(sheet)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253).
+    pat_bin, cue_bytes, num_taud_pats, num_cues, _ = renumber_patterns_lane_major(pat_bin, cue_bytes)
     pat_comp = compress_blob(bytes(pat_bin), f"[{song_label}] pattern bin")
     cue_comp = compress_blob(cue_bytes,      f"[{song_label}] cue sheet")
 

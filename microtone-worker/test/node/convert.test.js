@@ -1015,23 +1015,47 @@ test("midi2taud with GeneralUser-GS → parseable document (skips without the SF
       "a concert declaration must be the exact-identity tuning");
   });
 
-// Item 159 — pattern $0000 is the index an editor hands out for a newly-added
-// lane or cue, so a converted song must not have real music sitting there.
-test("midi2taud reserves pattern $0000 for silence (skips without the SF2)",
+// Item 253 — every converter numbers its patterns LANE BY LANE (lane 1's in
+// cue order from $0000, each next lane from a round number), the order
+// Microtone's own Renumber gives; a part resting through a cue plays nothing
+// there ($7FFF) rather than a blank pattern, wherever that sounds the same.
+/** The pattern numbers in the order they first appear, lane by lane. */
+function laneMajorFirsts(song) {
+  const seen = new Set(), order = [];
+  const lanes = song.cues.reduce((n, w) => Math.max(n, w.length), 0);
+  for (let ch = 0; ch < lanes; ch++) {
+    for (const w of song.cues) {
+      const p = w[ch] & 0x7fff;
+      if (p !== CUE_EMPTY && !seen.has(p)) { seen.add(p); order.push(p); }
+    }
+  }
+  return order;
+}
+const isBlankPat = (bytes) => bytes.every((b, i) => b === (i % 8 === 3 || i % 8 === 4 ? 0xc0 : 0));
+
+test("tracker converters number their patterns lane by lane (item 253)", () => {
+  for (const f of ["milky.xm", "TUTE.IT", "alternate past (31edo).mod"]) {
+    for (const song of parseTaud(convert(f)).songs) {
+      const firsts = laneMajorFirsts(song);
+      assert.equal(firsts[0], 0, `${f}: the first lane's first pattern is $0000`);
+      assert.ok(firsts.every((p, i) => i === 0 || p > firsts[i - 1]),
+        `${f}: numbers rise lane by lane (${firsts.slice(0, 12).join(",")}…)`);
+    }
+  }
+});
+
+test("midi2taud numbers lane by lane and rests on $7FFF, not a blank $0000 (skips without the SF2)",
   { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" },
   () => {
     for (const opts of [{}, { keepDuplicatePatterns: true }]) {
       const song = parseTaud(convert("M_E1M1.mid", opts)).songs[0];
-      const p0 = song.patterns[0];
-      let sounding = 0;
-      for (let r = 0; r < 64; r++) {
-        const o = r * 8;
-        // note / instrument / effect opcode — the vol+pan bytes are 0xC0 no-ops
-        // in a filler cell, so they say nothing about whether it sounds.
-        if (p0[o] || p0[o + 1] || p0[o + 2] || p0[o + 5]) sounding++;
-      }
-      assert.equal(sounding, 0,
-        `pattern $0000 must be silent (${sounding} rows carry something)`);
+      const firsts = laneMajorFirsts(song);
+      assert.equal(firsts[0], 0);
+      assert.ok(firsts.every((p, i) => i === 0 || p > firsts[i - 1]), "numbers rise lane by lane");
+      assert.ok(!isBlankPat(song.patterns[0]), "pattern $0000 is the first lane's music, not a filler");
+      const rests = song.cues.reduce((n, w) => n + [...w.slice(0, song.numVoices)]
+        .filter((x) => (x & 0x7fff) === CUE_EMPTY).length, 0);
+      assert.ok(rests > 0, "a resting part leaves its slot empty");
     }
   });
 

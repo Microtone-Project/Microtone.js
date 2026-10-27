@@ -71,6 +71,8 @@ Consequences:
 - **Splitting renumbers the order list**, so every `B` (position jump) and `C` (pattern break) target **MUST** be remapped to the new cue indices.
 - **A pattern loop (`S $Bx`) that straddles a split boundary cannot work**, because the loop is per-cue. Converters warn rather than silently mangling it.
 - **Deduplication pays for itself.** Identical 512-byte patterns collapse to one copy with a remap table; on a typical module most single-lane patterns are empty and fold into one.
+- **Number the patterns lane by lane** once the cue sheet is final (`taud_common.renumber_patterns_lane_major`, the same order Microtone's *Renumber patterns* gives): lane 1's patterns in cue order from `0000`, each next lane from the next multiple of `0010` — of `0100` after a lane of more than 16 — falling back to `0010` steps, then to none, when the numbers would run out.
+- **A blank pattern becomes the no-pattern sentinel — only where that sounds the same.** A blank row still *ends* whatever the lane's previous row left running (an effect, a volume or panning column slide); an empty slot skips the lane and lets it run on. So a slot is emptied only when every row that can be the lane's last one before that cue — through the cue flow, `B` jumps and `C` breaks, and any empty slots between — leaves nothing running, and a pattern holding a ditto (`7`) is never trusted to.
 
 ### 1.5 The cue sheet
 

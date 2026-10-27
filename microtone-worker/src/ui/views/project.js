@@ -13,7 +13,8 @@ import {
   TUNING_REF_C4_HZ, TUNING_DEFAULT_BASE_NOTE, TUNING_DEFAULT_FREQ_HZ, BPM_MIN, BPM_MAX,
 } from "../../../core/engine/constants.js";
 import {
-  planCleanupPatterns, planMergeDuplicatePatterns, planRenumberPatterns, applyPatternOrder,
+  referencedPatterns, planCleanupPatterns, planMergeDuplicatePatterns, planRenumberPatterns, renumberIsIdentity,
+  applyPatternOrder,
   encodeNameTable, planBankCleanup, planIxmpCleanup,
 } from "../../doc/cleanup.js";
 import { planPoolDefrag } from "../../doc/pooldefrag.js";
@@ -401,12 +402,14 @@ export class ProjectView {
       const tr = document.createElement("tr");
       if (i === this.store.songIndex) tr.className = "files-current";
       // Name, composer and copyright are this SONG's (sMet); the project's own
-      // three strings live in the fields at the top of the tab.
+      // three strings live in the fields at the top of the tab. Patterns = the
+      // ones its cues play, not the highest number: a renumbered song leaves
+      // gaps between lanes.
       tr.innerHTML =
         `<td>${i}</td><td>${esc(unescapeName(m?.name || "") || t("instList.unnamed"))}</td>` +
         `<td class="dim">${esc(unescapeName(m?.composer || ""))}</td>` +
         `<td class="dim">${esc(unescapeName(m?.copyright || ""))}</td><td>${s.numVoices}</td>` +
-        `<td>${s.patterns.length}</td><td>${s.bpm}</td><td>${s.tickRate}</td>`;
+        `<td>${referencedPatterns(s).length}</td><td>${s.bpm}</td><td>${s.tickRate}</td>`;
       const td = document.createElement("td");
       const rn = mkBtn(t("common.edit"), async () => {
         await this.cb.editSong?.(i);
@@ -568,12 +571,16 @@ export class ProjectView {
     this._applyRemap(order, canon);
   }
 
-  /** Compact + reorder ALL materialised patterns into play order (drops gaps). */
+  /** Renumber lane by lane (item 253): each lane's patterns in cue order from a
+   *  round number, blank patterns emptied out of the cues where that is safe —
+   *  see planRenumberPatterns. */
   renumberPatterns() {
     const store = this.store, song = store.song;
-    const order = planRenumberPatterns(song);
-    if (this._isIdentityOrder(order, song)) { alert(t("clean.nothing")); return; }
-    this._applyRemap(order);
+    const plan = planRenumberPatterns(song, store.doc._nameTable("pNam"), store.doc.wideCells === true);
+    if (renumberIsIdentity(song, plan)) { alert(t("clean.nothing")); return; }
+    store.undo.apply(remapPatternsOp(store.songIndex, plan.patterns, plan.cues, encodeNameTable(plan.pNam)));
+    store.emit("edit", [{ kind: "resync", song: store.songIndex }]);
+    this.refresh();
   }
 
   _isIdentityOrder(order, song) {

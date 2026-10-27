@@ -38,6 +38,29 @@ import { chaseSongPath, chaseCueOrder } from "./chase.js";
 // every `instruments[voice.instrumentId]` lookup indexes it directly (no & mask).
 const AUDITION_SLOT = 1024;
 
+/** The bytes of a pattern whose every cell is the no-op one: both column
+ *  selectors FINE by zero, everything else zero (file format §5.5). */
+function blankPatternBytes(wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  const out = new Uint8Array(64 * size);
+  for (let r = 0; r < 64; r++) {
+    if (wide) out[r * size + 8] = 0x33;
+    else { out[r * size + 3] = 0xc0; out[r * size + 4] = 0xc0; }
+  }
+  return out;
+}
+
+function isBlankPatternBytes(bytes, wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  if (bytes.length < 64 * size) return false;
+  for (let i = 0; i < 64 * size; i++) {
+    const k = i % size;
+    const want = wide ? (k === 8 ? 0x33 : 0) : (k === 3 || k === 4 ? 0xc0 : 0);
+    if ((bytes[i] & 0xff) !== want) return false;
+  }
+  return true;
+}
+
 function makePattern() {
   const rows = new Array(64);
   for (let i = 0; i < 64; i++) {
@@ -56,6 +79,7 @@ export class TaudEngine {
     // Pattern store — lazily allocated (memory scales with actual song size).
     this.playdata = new Array(NUM_PATTERNS).fill(null);
     this.emptyPattern = makePattern();
+    this.sharedBlank = [null, null]; // narrow, wide — see blankPattern()
     this.scratchPattern = makePattern();
     this.cueSheet = new Array(NUM_CUES);
     for (let i = 0; i < NUM_CUES; i++) this.cueSheet[i] = new PlayCue();
@@ -91,15 +115,44 @@ export class TaudEngine {
     return this.playdata[idx] ?? this.emptyPattern;
   }
 
-  /** Writable pattern idx, allocating its 64 rows on first access. */
+  /** Writable pattern idx, allocating its 64 rows on first access — and
+   *  copying the shared blank before anything is written over it. */
   patternFor(idx) {
     if (idx < 0 || idx >= NUM_PATTERNS) return this.scratchPattern;
     let p = this.playdata[idx];
     if (p === null) {
       p = makePattern();
       this.playdata[idx] = p;
+    } else if (p === this.sharedBlank[0] || p === this.sharedBlank[1]) {
+      p = p.map((c) => Object.assign(new TaudPlayData(), c));
+      this.playdata[idx] = p;
     }
     return p;
+  }
+
+  /** The one copy every slot holding a BLANK pattern shares (every cell the
+   *  no-op one), one per cell format. Read-only: playback never writes a
+   *  pattern cell, and patternFor copies it before an upload would. */
+  blankPattern() {
+    const k = this.wideCells ? 1 : 0;
+    if (this.sharedBlank[k] === null) {
+      const rows = makePattern();
+      this.decodePattern(rows, blankPatternBytes(this.wideCells));
+      this.sharedBlank[k] = rows;
+    }
+    return this.sharedBlank[k];
+  }
+
+  decodePattern(pat, bytes) {
+    if (this.wideCells) {
+      const n = Math.min(PATTERN_BYTES_WIDE, bytes.length);
+      for (let i = 0; i < n; i++) {
+        pat[(i / CELL_BYTES_WIDE) | 0].setByteWide(i % CELL_BYTES_WIDE, bytes[i] & 0xff);
+      }
+      return;
+    }
+    const n = Math.min(PATTERN_BYTES, bytes.length);
+    for (let i = 0; i < n; i++) pat[(i / CELL_BYTES) | 0].setByte(i % CELL_BYTES, bytes[i] & 0xff);
   }
 
   // ── content upload (AudioJSR223Delegate.kt:343-497, 610-640) ──
@@ -184,18 +237,16 @@ export class TaudEngine {
     this.playdata[slot & 0x7fff] = null;
   }
 
-  /** Upload 512 bytes (64 rows × 8) defining pattern slot. */
+  /** Upload 512 bytes (64 rows × 8) defining pattern slot. A blank pattern is
+   *  not stored but shared (blankPattern): a song renumbered lane by lane
+   *  (Microtone item 253) leaves thousands of them in the gaps between lanes. */
   uploadPattern(slot, bytes) {
-    const pat = this.patternFor(slot & 0x7fff);
-    if (this.wideCells) {
-      const n = Math.min(PATTERN_BYTES_WIDE, bytes.length);
-      for (let i = 0; i < n; i++) {
-        pat[(i / CELL_BYTES_WIDE) | 0].setByteWide(i % CELL_BYTES_WIDE, bytes[i] & 0xff);
-      }
+    const idx = slot & 0x7fff;
+    if (idx < NUM_PATTERNS && isBlankPatternBytes(bytes, this.wideCells)) {
+      this.playdata[idx] = this.blankPattern();
       return;
     }
-    const n = Math.min(PATTERN_BYTES, bytes.length);
-    for (let i = 0; i < n; i++) pat[(i / CELL_BYTES) | 0].setByte(i % CELL_BYTES, bytes[i] & 0xff);
+    this.decodePattern(this.patternFor(idx), bytes);
   }
 
   /**

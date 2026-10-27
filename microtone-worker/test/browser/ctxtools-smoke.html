@@ -118,7 +118,26 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   check(!!gCell && gCell.querySelector(".ctx-name").textContent === "Tone portamento",
     "…each named after the effect", gCell?.querySelector(".ctx-name")?.textContent);
   check(!!gCell?.querySelector("svg text"), "…and drawn as its own opcode letter");
+  check(!cell(dlg, "fxFill"), "…but no Fill without a block (one cell is typed, not filled)");
   await dismiss(dlg);
+
+  // ── 2b. an effect BLOCK → Fill writes the effect and its argument ──────
+  const fxAt = (row) => { const c = timeline.cellAt(row, 0);
+    const r = store.doc.patternAt(0, c.pat)?.[c.rowInCue]; return r ? [r.effect, r.effectArg] : null; };
+  timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_FX_OP, row: 2, ch: 0, sub: E.SUB_FX_ARG };
+  dlg = await menuAt(charX(0, COL_X.fx), rowY(1));
+  check(!!cell(dlg, "fxFill"), "an effect block offers Fill with effect (item 259)", rows(dlg)[1].join());
+  const depthF = store.undo.undoStack.length;
+  const beyond = fxAt(3);
+  cell(dlg, "fxFill").click();
+  check(await runModal({ op: "16", arg: "0123" }), "the Fill dialog opened from the menu");
+  check([0, 1, 2].every((r) => fxAt(r)?.[0] === 0x10 && fxAt(r)?.[1] === 0x0123),
+    "…every selected row now holds G $0123", JSON.stringify([0, 1, 2].map(fxAt)));
+  check(JSON.stringify(fxAt(3)) === JSON.stringify(beyond), "…and the row below the block is untouched");
+  check(store.undo.undoStack.length === depthF + 1, "…in one undo step");
+  store.undo.undo();
+  await sleep(60);
+  timeline.sel = null;
 
   // ── 3. a multi-column band offers each tool but NOT the effects ────────
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_PAN, row: 3, ch: 0, sub: E.SUB_FX_ARG };
@@ -427,7 +446,8 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   const cueCv = doc.getElementById("cuesCanvas");
   const cr = cueCv.getBoundingClientRect();
   cueCv.dispatchEvent(new win.MouseEvent("contextmenu", {
-    clientX: cr.left + 52 + 144 + 8, clientY: cr.top + 22 + 8,
+    // header = the lamp band (9) over the lane numbers (22)
+    clientX: cr.left + 52 + 144 + 8, clientY: cr.top + 31 + 8,
     bubbles: true, cancelable: true, button: 2 }));
   let cueDlg = null;
   for (let i = 0; i < 60 && !cueDlg; i++) { cueDlg = doc.querySelector("dialog.ctxmenu"); await sleep(20); }
