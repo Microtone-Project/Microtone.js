@@ -794,7 +794,7 @@ in time with the music, without that program having to guess where the beat is.
 A lighting cue on the downbeat, a subtitle that lands with the line, an enemy
 wave that arrives on the fill: the composer places them, the game answers them.
 
-Press **b** on the note column to place `I·0`, then **Ctrl+↑** / **Ctrl+↓** or
+Press **b** on the note column to place `I·0`, then **Ctrl+←** / **Ctrl+→** or
 the mouse wheel to pick which of the sixteen it is, `I·0` through `I·F`. The marker makes
 no sound at all and disturbs nothing on its lane — a note already ringing
 there carries on ringing.
@@ -944,8 +944,8 @@ starts at the song's own speed).
 
 **Ctrl+arrows** move what is already written, on the Timeline and in Patterns:
 
-- **Ctrl+←** / **Ctrl+→** — notes down / up a whole **period** (an octave, or a tritave in Bohlen–Pierce); instrument, volume, panning and effect arguments down / up by **16**, one whole hex digit.
-- **Ctrl+↓** / **Ctrl+↑** — notes down / up one **degree** of the pitch table (a semitone in 12-TET); numbers by **1**. An interrupt marker steps its number instead.
+- **Ctrl+↓** / **Ctrl+↑** — notes down / up a whole **period** (an octave, or a tritave in Bohlen–Pierce); instrument, volume, panning and effect arguments down / up by **16**, one whole hex digit.
+- **Ctrl+←** / **Ctrl+→** — notes down / up one **degree** of the pitch table (a semitone in 12-TET); numbers by **1**. An interrupt marker steps its number instead.
 
 With a block selected they move every cell in it, in the columns the selection
 covers — select just the note column and only the notes move — as one undo
@@ -1978,7 +1978,7 @@ either way.
 
 ### Editing an instrument
 
-- **General** — global volume, volume swing, fadeout; default pan (which becomes **default azimuth**, and on a spatial song **default elevation**, once the song has a surround model — see [Surround panning](#surround-panning)), pan swing, pitch-pan separation and centre; wide-range detune (with hex-word and cents readouts); **New Note Action** (cut / continue / off / fade / key-lift), Duplicate Check Type (never / note / sample / instrument / **lane** — any note arriving on the lane, whatever plays it) and Action (cut / off / fade); filter mode (**ImpulseTracker** or **SoundFont2**) with cutoff and resonance shown in Hz/dB for SF2 mode. The Sample section binds the sample and opens the **play/loop/sustain marker editor** — draggable play-start, loop-start and loop-end markers, loop mode (off / forward / ping-pong / one-shot) and sustain, affecting this instrument slot only. Play start, loop start and loop end are all spinners here too, so a number read off the waveform's hairline can simply be typed in. **Auto loop** searches the sample for a loop region that plays without an audible click and writes the two markers for you: pick *cleanest*, *balanced* or *longest* (how much of a tick you will accept in exchange for keeping more of the sample) and it reports how long the loop is and how loud its seam is, in dB below the sound carrying it. It searches for whichever loop mode is set — forward and ping-pong click in different ways and want different loop points — and it only ever writes when you ask, so the numbers stay yours to adjust afterwards.
+- **General** — global volume, volume swing, fadeout; default pan (which becomes **default azimuth**, and on a spatial song **default elevation**, once the song has a surround model — see [Surround panning](#surround-panning)), pan swing, pitch-pan separation and centre; wide-range detune (with hex-word and cents readouts); **New Note Action** (cut / continue / off / fade / release), Duplicate Check Type (never / note / sample / instrument / **lane** — any note arriving on the lane, whatever plays it) and Action (cut / off / fade); filter mode (**ImpulseTracker** or **SoundFont2**) with cutoff and resonance shown in Hz/dB for SF2 mode. The Sample section binds the sample and opens the **play/loop/sustain marker editor** — draggable play-start, loop-start and loop-end markers, loop mode (off / forward / ping-pong / one-shot) and sustain, affecting this instrument slot only. Play start, loop start and loop end are all spinners here too, so a number read off the waveform's hairline can simply be typed in. **Auto loop** searches the sample for a loop region that plays without an audible click and writes the two markers for you: pick *cleanest*, *balanced* or *longest* (how much of a tick you will accept in exchange for keeping more of the sample) and it reports how long the loop is and how loud its seam is, in dB below the sound carrying it. It searches for whichever loop mode is set — forward and ping-pong click in different ways and want different loop points — and it only ever writes when you ask, so the numbers stay yours to adjust afterwards.
   - **From the list**, under *Sample ptr*, is the same binding as a list rather than an address: every sample in the pool, plus the [recordings loaded into memory](#long-recordings-in-memory) in a group of their own. Choosing one writes its pointer, length, rate and loop into this record in a single undo step; choosing a recording points the instrument at its first 65535 bytes, which the spinners then move. It is a copy, not a link — the list is *derived* from what the instruments point at, so a row can appear or disappear as you use it, and the row shown is always the one this record's own pointer lands on.
 - **Vol env / Pan env / Pitch / Filter** — envelope graphs. Drag nodes vertically for values, horizontally for timing; a checkbox switches to a logarithmic timescale. The pitch/filter tab follows the instrument's envelope role.
   - **Dragging a node sideways** moves it between its neighbours: the nodes after it stay where they are, so the envelope keeps its length. Hold **Shift** to take the nodes after it along instead, as changing the **Seg** of the node before it does. The last node lengthens or shortens the envelope by exactly as far as you drag it — the graph's scale holds still until you let go, and the empty strip on the right is room to drag it into. A node stops one step short of its neighbour, since a segment of zero would end the envelope there.
@@ -3206,7 +3206,7 @@ centre of the scale.
 | z x c v | Key-off `===` · cut `^^^` · fade `~~~` · fast-fade `~^~` |
 | Shift+z x c v b | The same, on a layout that has taken the bottom row |
 | ' | Whichever sentinel you set it to on the Keymap tab |
-| b | Interrupt marker `I·0` — Ctrl+↑ ↓ or the wheel pick its number |
+| b | Interrupt marker `I·0` — Ctrl+← → or the wheel pick its number |
 | 0–9 A–F | Hex entry (instrument / volume / pan / fx argument) |
 | 1–Z | Effect opcode (base-36) |
 | ^ v / u d | Volume symbol cell: slide up / down |
@@ -3216,8 +3216,8 @@ centre of the scale.
 | ← → / Tab | Sub-column / next lane |
 | wheel · Shift+wheel | Scroll rows · lanes |
 | wheel on cursor cell | Step the hovered column (notes by one table degree) |
-| Ctrl+← / Ctrl+→ | Selection, or the cursor column in record mode: notes down / up a period, numbers by 16 |
-| Ctrl+↓ / Ctrl+↑ | The same by a degree (a semitone), numbers by 1 |
+| Ctrl+↓ / Ctrl+↑ | Selection, or the cursor column in record mode: notes down / up a period, numbers by 16 |
+| Ctrl+← / Ctrl+→ | The same by a degree (a semitone), numbers by 1 |
 
 ## Tips
 

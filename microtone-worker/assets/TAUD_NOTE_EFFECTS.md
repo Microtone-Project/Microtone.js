@@ -44,9 +44,9 @@ This manual extensively uses "tracker lingo" that may not sound intuitive to the
 
 * **Sample loops.** Held notes don't work the way a DAW sustain pedal does. The sample itself contains a loop region (loop_start..loop_end) that the playhead replays endlessly until the note is released or cut — "sustain" comes from the sample data, not from a held key.
 
-* **Note off, note cut, note fade.** Three distinct ways a note ends. **Note cut** (`^^^` or `S $Cx`) silences instantly. **Note off** (`===` or an NNA = NoteOff) releases the sustain loop and lets the volume envelope's release segment play out, then fades. **Note fade** keeps the sustain loop running but begins the fadeout decay — for soft tail-offs that still sound sustained.
+* **Key-off, note cut, note fade.** Three distinct ways a note ends. **Note cut** (`^^^` or `S $Cx`) silences instantly. **Key-off** (`===` or an NNA = Key-off) releases the sustain loop and lets the volume envelope's release segment play out, then fades. **Note fade** keeps the sustain loop running but begins the fadeout decay — for soft tail-offs that still sound sustained.
 
-* **NNA — New Note Action.** What happens to a still-playing note when a fresh note arrives on the same lane. There are five: Cut (drop the old voice), Continue (let it ring through), Note Off (release it), Note Fade (begin fadeout), and Key Lift (release it the way a MIDI key release does, starting the envelope's release stage at once). The displaced voice becomes a background *ghost* voice — still audible but no longer addressable from the pattern. This is the tracker's substitute for polyphony across DAW MIDI clips. The five are exclusive: Key Lift is an action in its own right, not a modifier on the other four.
+* **NNA — New Note Action.** What happens to a still-playing note when a fresh note arrives on the same lane. There are five: Cut (drop the old voice), Continue (let it ring through), Key-off (release it), Note Fade (begin fadeout), and Release (release it the way a MIDI key release does, starting the envelope's release stage at once). The displaced voice becomes a background *ghost* voice — still audible but no longer addressable from the pattern. This is the tracker's substitute for polyphony across DAW MIDI clips. The five are exclusive: Release is an action in its own right, not a modifier on the other four.
 
 * **Portamento.** Automatic pitch glide toward a target note (effect G). A row carrying both a note *and* a G does **not** re-trigger the sample; instead the note becomes the target and the already-sounding sample slides into it. Distinct from generic pitch slides (E/F), which move pitch by a fixed amount per tick with no target.
 
@@ -1353,11 +1353,11 @@ S $6x and S $Ex are orthogonal: when S $Ex is active the current row repeats `$x
 | $x | Operation | Description |
 |---|---|---|
 | $0 | Past Note Cut | Cuts all notes playing as a result of New Note Actions on the current lane |
-| $1 | Past Note Off | Sends a Note Off to all notes playing as a result of New Note Actions on the current lane |
+| $1 | Past Key-off | Sends a Key-off to all notes playing as a result of New Note Actions on the current lane |
 | $2 | Past Note Fade | Fades out all notes playing as a result of New Note Actions on the current lane |
 | $3 | NNA Note Cut | Sets the currently active note's New Note Action to Note Cut |
 | $4 | NNA Note Continue | Sets the currently active note's New Note Action to Continue |
-| $5 | NNA Note Off | Sets the currently active note's New Note Action to Note Off |
+| $5 | NNA Key-off | Sets the currently active note's New Note Action to Key-off |
 | $6 | NNA Note Fade | Sets the currently active note's New Note Action to Note Fade |
 | $7 | Volume Envelope Off | Disables the currently active note's volume envelope |
 | $8 | Volume Envelope On | Enables the currently active note's volume envelope |
@@ -1375,12 +1375,12 @@ When the instrument have both pitch and filter envelopes defined, $B/$C toggles 
 **Implementation.** Engines maintain a *mixer-private* background-voice pool per playhead, separate from the addressable foreground voices. When a fresh note retriggers a still-active foreground voice, the engine reads the effective NNA — the per-voice override set by `S $73..$76` if present, otherwise the instrument's default NNA (instrument record byte 186, low two bits) — and acts on the displaced voice as follows:
 
 - **Note Cut (1):** discard the foreground state; the clone exists only long enough to ramp out under the incoming note's attack, so the hand-over is a crossfade and not a splice.
-- **Note Off (0):** clone the foreground voice into the background pool and set its key-off flag, releasing any sustain loop. The clone's volume envelope plays out and fadeout decays from full.
+- **Key-off (0):** clone the foreground voice into the background pool and set its key-off flag, releasing any sustain loop. The clone's volume envelope plays out and fadeout decays from full.
 - **Continue (2):** clone the foreground voice into the background pool unchanged; envelopes and sample position continue from where they were.
 - **Note Fade (3):** clone the foreground voice into the background pool and immediately begin fadeout decay without releasing sustain. The volume envelope keeps looping its sustain region while fadeoutVolume drains to zero.
-- **Key Lift (4):** Note Off, and the release begins at once — the volume envelope playhead jumps straight to the sustain-end node instead of walking whatever pre-sustain nodes it had not reached. Read the NNA as the single five-value field it is ([TAUD_FILE_FORMAT.md](TAUD_FILE_FORMAT.md) byte 186): its high bit sits at bit 5 with the two low bits at 0-1, and treating that high bit as a separate flag invents actions the format does not define.
+- **Release (4):** Key-off, and the release begins at once — the volume envelope playhead jumps straight to the sustain-end node instead of walking whatever pre-sustain nodes it had not reached. Read the NNA as the single five-value field it is ([TAUD_FILE_FORMAT.md](TAUD_FILE_FORMAT.md) byte 186): its high bit sits at bit 5 with the two low bits at 0-1, and treating that high bit as a separate flag invents actions the format does not define.
 
-Note Fade and Note Off are distinct: Note Fade does **not** set key-off, so the volume envelope's sustain loop continues to cycle; Note Off does set key-off, breaking sustain. Both share the same fadeout slope (`volumeFadeoutLow + (fadeoutHigh & 0x0F << 8)` units per tick out of 1024).
+Note Fade and Key-off are distinct: Note Fade does **not** set key-off, so the volume envelope's sustain loop continues to cycle; Key-off does set key-off, breaking sustain. Both share the same fadeout slope (`volumeFadeoutLow + (fadeoutHigh & 0x0F << 8)` units per tick out of 1024).
 
 The background pool is reaped when a ghost's `fadeoutVolume` drops to zero or its sample finishes (non-looping). Pool size is implementation-defined; the reference engine caps it at 64 ghosts per playhead and evicts the oldest on overflow. Background voices receive only passive per-tick maintenance (envelope advance, fadeout decay, auto-vibrato, filter coefficient refresh) — no row-driven effects (vibrato/tremolo/arpeggio/Q-retrigger/cut/delay) ever target them, since they are not addressable from the pattern.
 
@@ -1388,7 +1388,7 @@ The background pool is reaped when a ghost's `fadeoutVolume` drops to zero or it
 
 `S $73..$76` write the per-voice NNA override on the **currently active foreground voice** so that *its* next NNA event uses the overridden action. The override is cleared on every fresh trigger. On a metainstrument's lane it commands every voice sounding the note, not the foreground alone — see the metainstrument note at the end of this section.
 
-`S $Dxn1` with `$n` = 4 is the **forced key lift**: it performs the sustain-end jump for this note whatever the instrument's own New Note Action says. That matters because key lift is the fifth NNA and so excludes the other four — an instrument that must be **Note Cut** when displaced cannot also be Key Lift, and this is how a pattern gives one note of it a MIDI-shaped release anyway. Being a command about the note, it **MUST** reach every voice sounding it, layer children and rack operands included: handing each child its own instrument's answer instead is handing it the very answer the command overrides. `$y` cannot be 0 (a zero `$y` carries no action), so the earliest a lift can land is one tick after the row.
+`S $Dxn1` with `$n` = 4 is the **forced Release**: it performs the sustain-end jump for this note whatever the instrument's own New Note Action says. That matters because Release is the fifth NNA and so excludes the other four — an instrument that must be **Note Cut** when displaced cannot also be Release, and this is how a pattern gives one note of it a MIDI-shaped release anyway. Being a command about the note, it **MUST** reach every voice sounding it, layer children and rack operands included: handing each child its own instrument's answer instead is handing it the very answer the command overrides. `$y` cannot be 0 (a zero `$y` carries no action), so the earliest a lift can land is one tick after the row.
 
 For an instrument that wants that release on **every** note rather than on one, the Volume Fadeout is the better tool and needs no effect column: it has no playhead, so on key-off it drains from wherever the note had got to, at a rate the record states. That is what [TAUD_CONVERSION_NOTES §7.5 and §8.2](TAUD_CONVERSION_NOTES.md) use to carry a SoundFont's and an OPL patch's release.
 
@@ -1512,11 +1512,11 @@ The crucial bug fix relative to ST3: the loop-counter decrement **MUST** happen 
 
 |`$n`|Action|
 |---|---|
-|0|Note off|
+|0|Key-off|
 |1|Note cut|
 |2|Note continue|
 |3|Note fade|
-|4|Key lift|
+|4|Release|
 
 Expressed in timeline, this effect does (assuming nonzero `$x` and `$y`):
 

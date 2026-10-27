@@ -1498,7 +1498,7 @@ function stepKeymap(dir) {
  *   Alt          the keyboard: ←/→ instrument, ↑/↓ octave
  *   Shift+Alt    the keyboard, finer: ←/→ transpose by a step, ↑/↓ layout
  *   Ctrl         the music: nudge the selection or the cursor's column —
- *                ←/→ by a period (16 for a number), ↑/↓ by a degree (1)
+ *                ←/→ by a degree (1 for a number), ↑/↓ by a period (16)
  *   Shift+Ctrl   navigation: ←/→ a lane, ↑/↓ a beat; with Alt as well,
  *                four lanes and a whole cue (a pattern, in Patterns)
  * Shift alone is the block selection and belongs to the views. Returns true
@@ -1528,7 +1528,7 @@ function arrowChord(e) {
   if (!shift) {
     if (alt) return false;
     if (view === "timeline" || view === "pattern") {
-      viewNamed(view).nudge(up, horiz);
+      viewNamed(view).nudge(up, !horiz);
       return true;
     }
     // Cues holds pattern numbers, not music, so its Ctrl+←/→ keeps widening a

@@ -14,7 +14,7 @@ body.cat-body {
 /* ── top bar ── */
 .cat-topbar { flex: 0 0 auto; flex-wrap: nowrap; min-width: 0; }
 .cat-brand { text-decoration: none; margin: 0 0.1rem 0 0; }
-.cat-title { font-weight: 700; color: var(--fg); }
+.cat-title { font-weight: 400; color: var(--fg); }
 .cat-lang { display: inline-flex; align-items: center; gap: 0.4rem; }
 .cat-lang select { padding: 0.15rem 0.3rem; }
 .cat-progress { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; min-width: 0; }

@@ -363,7 +363,7 @@ test("non-edit keys pass through", () => {
 });
 
 // ── Ctrl+arrows: nudge a column ──
-test("nudge note: ←/→ a period, ↑/↓ a degree (12-TET); sentinels hold", () => {
+test("nudge note: ↑/↓ a period, ←/→ a degree (12-TET); sentinels hold", () => {
   const nctx = { preset: pitchTablePresets[120] };
   const cell = new TaudPlayData(); cell.note = MIDDLE_C;
   assert.equal(nudgeColumn(COL_NOTE, cell, -1, true, nctx).note, MIDDLE_C - 0x1000);

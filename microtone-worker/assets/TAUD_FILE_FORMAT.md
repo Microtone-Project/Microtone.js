@@ -498,12 +498,12 @@ At the default 50 Hz tick rate: stored 1 ≈ 20.5 s, stored 32 ≈ 640 ms, store
 
 | Bits | Field |
 |---|---|
-| `Nnn` (0…1, 5) | New Note Action: 0 = note off, 1 = note cut, 2 = continue, 3 = note fade, 4 = key lift (see below) |
+| `Nnn` (0…1, 5) | New Note Action: 0 = key-off, 1 = note cut, 2 = continue, 3 = note fade, 4 = release (see below) |
 | `www` (2…4) | Auto-vibrato waveform: 0 = sine, 1 = ramp down, 2 = square, 3 = random, 4 = ramp up |
 
-**`Nnn` is ONE three-bit number, not two bits and a flag.** Bit 5 is its high bit, and the auto-vibrato waveform happens to sit between the halves; the five values above are the whole of it. An implementation that reads bit 5 as an independent "key lift" flag beside a two-bit action mints combinations the format does not define — "note cut with key lift" — which no editor can show and no writer has any way to mean. Values 5…7 are undefined and **MUST** read as 0, note off.
+**`Nnn` is ONE three-bit number, not two bits and a flag.** Bit 5 is its high bit, and the auto-vibrato waveform happens to sit between the halves; the five values above are the whole of it. An implementation that reads bit 5 as an independent "release" flag beside a two-bit action mints combinations the format does not define — "note cut with release" — which no editor can show and no writer has any way to mean. Values 5…7 are undefined and **MUST** read as 0, key-off.
 
-**Key lift** is the fifth action, Taud's own beside ImpulseTracker's four. It is a note off that additionally jumps the volume envelope straight to the sustain-end node on key-off, so the release nodes play at once instead of the playhead walking the remaining pre-sustain nodes first. This is exactly a MIDI key release; instruments with no volume-envelope sustain region are unaffected. Being one of the five, it is a **choice against** the other four: an instrument cannot both cut and lift, and one that wants a MIDI-shaped release is saying its New Note Action is a release.
+**Release** is the fifth action, Taud's own beside ImpulseTracker's four. It is a key-off that additionally jumps the volume envelope straight to the sustain-end node on key-off, so the release nodes play at once instead of the playhead walking the remaining pre-sustain nodes first. This is exactly a MIDI key release; instruments with no volume-envelope sustain region are unaffected. Being one of the five, it is a **choice against** the other four: an instrument cannot both cut and lift, and one that wants a MIDI-shaped release is saying its New Note Action is a release.
 
 #### Byte 195 — Duplicate Check
 
@@ -514,7 +514,7 @@ At the default 50 Hz tick rate: stored 1 ≈ 20.5 s, stored 32 ≈ 640 ms, store
 | Bits | Field |
 |---|---|
 | `TTtt` (4…5, 0…1) | Duplicate Check **Type**, a four-bit number: 0 = off, 1 = note, 2 = sample, 3 = instrument, 4 = lane |
-| `AAaa` (6…7, 2…3) | Duplicate Check **Action**, a four-bit number: 0 = note cut, 1 = note off, 2 = note fade |
+| `AAaa` (6…7, 2…3) | Duplicate Check **Action**, a four-bit number: 0 = note cut, 1 = key-off, 2 = note fade |
 
 **Each field is ONE four-bit number split in two**, its low two bits where the field's two bits always were (`tt` at bits 0…1, `aa` at bits 2…3) and its high two bits above them (`TT` at bits 4…5, `AA` at bits 6…7): Type = `TT << 2 | tt`, Action = `AA << 2 | aa`. A record written before the fields were widened has zeros where the high bits now sit and reads exactly as it did. Types 5…15 are undefined and **MUST** read as 0, off; Actions 3…15 are undefined, and a voice the check matches under one is left alone.
 

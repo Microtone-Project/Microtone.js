@@ -457,7 +457,7 @@ export { semiToNote, semiToNoteInTable };
 
 /**
  * One step of the note column, for the two controls that nudge a cell in place
- * — the mouse wheel and Ctrl+↑/↓.
+ * — the mouse wheel and Ctrl+←/→.
  *
  * Three kinds of note word behave differently, and only one of them is a pitch:
  * an interrupt marker (item 181) walks Int0…IntF and clamps at both ends, so a
@@ -501,9 +501,9 @@ function volPanNudge(isPan, cell, delta, wide) {
 }
 
 /**
- * Ctrl+arrows on one logical column of `cell`: `coarse` is Ctrl+←/→ (a note
+ * Ctrl+arrows on one logical column of `cell`: `coarse` is Ctrl+↑/↓ (a note
  * moves by one period of the tuning — an octave, a tritave — and a number by
- * 16), otherwise Ctrl+↑/↓ (a note moves one degree of the table, or one
+ * 16), otherwise Ctrl+←/→ (a note moves one degree of the table, or one
  * interrupt number, and a number by 1). `dir` is +1 up/right, −1 down/left.
  *
  * Only what is already written moves: an empty column stays empty, exactly as
@@ -630,7 +630,7 @@ function isClearKey(code) {
  * row, and on Shift+<same letter> once one does (interpretEditKey). The
  * interrupt is the odd one out and does NOT advance the row (item 181): it
  * usually shares a row with the note above it, and stepping its number with
- * Ctrl+↑/↓ is the next thing the hand wants to do.
+ * Ctrl+←/→ is the next thing the hand wants to do.
  */
 function zRowSentinel(code) {
   switch (code) {

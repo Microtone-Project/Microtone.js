@@ -228,7 +228,7 @@ Everything else — note volume, lane volume, pan, envelope positions, LFO phase
 | Note word | Action |
 |---|---|
 | `$0000` | No note event; see the special cases below |
-| `$0001` | **Key off** — set the key-off state, and apply key lift if the instrument asks for it |
+| `$0001` | **Key off** — set the note off state, and apply key lift if the instrument asks for it |
 | `$0002` | **Note cut** — deactivate the voice at once, and cut its layer children |
 | `$0003` | **Note fade** — begin the fadeout without releasing sustain |
 | `$0004` | **Fast fade** — begin a ≈ 0.3 s fadeout (below) |
@@ -347,7 +347,7 @@ A type the engine does not know **MUST** sound nothing rather than fall back to 
 
 The rules below are written for the Layered kind, where they are easiest to state, but not all of them stop there: [§5.5.1](#5-5-1-type-4-fm-racks) says which a rack inherits **unchanged** — the release of the previous note, the per-tick sync of a child to its parent, and the pattern's reach over every voice sounding one note — and which are the Layered kind's own, the soundfield below being the plainest of them.
 
-If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the lane's existing layer children: each is detached from the parent and given its own instrument's New Note Action (note off with key lift, cut, continue, or fade).
+If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the lane's existing layer children: each is detached from the parent and given its own instrument's New Note Action (key-off with release, cut, continue, or fade).
 
 Then it collects every layer whose rectangle contains the trigger, in record order. Under **strict layering** it additionally drops any layer whose own instrument resolves no patch at the (detuned) trigger. If nothing survives, the lane goes **silent** for this note — that is the correct outcome, not a fallback.
 
@@ -553,7 +553,7 @@ The noise register is the chip's 23-bit LFSR. A fresh channel's register is seed
 
 **The note.** A trigger keys the channel on. Ordinarily the channel is **fresh**: every operator at `env = 511`, its outputs zero, anchored at its first rendered frame. A voice whose New Note Action — the instrument's or `S $73`'s — is **note cut**, and which is struck by a note on an OPL instrument while it sounds one, is not ghosted at all: the incoming trigger keys the **same channel** on again, every envelope continuing from where it stands, as a driver retriggering a channel on the chip does. No ghost is made and no cut ramp runs. Every other New Note Action ghosts the voice as ever, and the ghost carries a copy of the whole channel — envelopes, accumulators, noise, clock position and its last two values.
 
-`Q`'s retrigger keys the channel on the same way, envelopes carried. A key-off — the pattern's, a ghost's release, a Duplicate Check note-off, past-note off — keys it off. An instrument byte on a tone-portamento row ([§5.2](#5-2-note-events)) re-attacks every operator from where it stands without restarting a phase, which is the chip's reading of "the envelopes restart and the sample position stays". An instrument change without a retrigger writes the new patch into the sounding channel, as a driver writes a patch change; a sampled voice handed an OPL instrument that way gets a fresh channel keyed on at its current note.
+`Q`'s retrigger keys the channel on the same way, envelopes carried. A key-off — the pattern's, a ghost's release, a Duplicate Check note-off, past-key-off — keys it off. An instrument byte on a tone-portamento row ([§5.2](#5-2-note-events)) re-attacks every operator from where it stands without restarting a phase, which is the chip's reading of "the envelopes restart and the sample position stays". An instrument change without a retrigger writes the new patch into the sounding channel, as a driver writes a patch change; a sampled voice handed an OPL instrument that way gets a fresh channel keyed on at its current note.
 
 An OPL voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)): its attack is the chip's envelope.
 
@@ -1084,7 +1084,7 @@ Types 5…15 never match. Type 4 is Taud's own: it lets an instrument's notes gi
 | Action | Effect on a matching voice |
 |---|---|
 | 0 — note cut | Zero the fadeout multiplier; the voice deactivates this tick |
-| 1 — note off | Set key-off (releasing sustain, applying key lift, and starting the fadeout if one is configured) |
+| 1 — key-off | Set key-off (releasing sustain, applying key lift, and starting the fadeout if one is configured) |
 | 2 — note fade | Begin fading immediately, with no sustain release, so sample and envelope loops continue |
 
 Actions 3…15 do nothing: a voice matched under one is left as it was.
@@ -1104,13 +1104,13 @@ On a metainstrument the override reaches **the whole note**: the foreground voic
 
 | NNA | Behaviour |
 |---|---|
-| 0 — Note Off | The ghost gets key-off, releasing sustain into its release stage |
+| 0 — Key-off | The ghost gets key-off, releasing sustain into its release stage |
 | 1 — Note Cut | The voice stops. The ghost exists only long enough to ramp out ([§8.7](#8-7-the-attack-ramp)) — the incoming note is fading in over the same span, so the pair is a crossfade rather than a splice |
 | 2 — Continue | The ghost keeps playing unchanged |
 | 3 — Note Fade | The ghost begins its fadeout immediately |
-| 4 — Key Lift | Note Off, and the release starts **now**: the volume envelope playhead jumps straight to the sustain-end node rather than walking the remaining pre-sustain nodes ([File Format §byte 186](TAUD_FILE_FORMAT.md)) |
+| 4 — Key Lift | Key-off, and the release starts **now**: the volume envelope playhead jumps straight to the sustain-end node rather than walking the remaining pre-sustain nodes ([File Format §byte 186](TAUD_FILE_FORMAT.md)) |
 
-**There are five actions, not four and a modifier.** Key lift is Taud's own beside ImpulseTracker's four, and an instrument choosing it is choosing *against* cutting, continuing and fading — it cannot cut and lift. The field is one three-bit number whose high bit happens to sit at bit 5 of the record byte; reading that bit separately produces actions the format does not define. The instrument's key-lift answer is consulted wherever a key-off is delivered — the pattern's key-off word, this ghost's release, a Duplicate Check note-off, past-note off — and it is the same question in all four places: *is this instrument's New Note Action 4?*
+**There are five actions, not four and a modifier.** Key lift is Taud's own beside ImpulseTracker's four, and an instrument choosing it is choosing *against* cutting, continuing and fading — it cannot cut and lift. The field is one three-bit number whose high bit happens to sit at bit 5 of the record byte; reading that bit separately produces actions the format does not define. The instrument's key-lift answer is consulted wherever a key-off is delivered — the pattern's key-off word, this ghost's release, a Duplicate Check note-off, past-key-off — and it is the same question in all four places: *is this instrument's New Note Action 4?*
 
 The ghost copy **MUST** carry the full playback state: both active views, both filter topologies' coefficients *and* delay lines, all four envelope playheads, the fadeout multiplier, the swing biases, the auto-vibrato phase, the spatial position and the stereo channel's own DSP history. A partial copy produces a click or a wrong-sounding tail at every NNA event; copying the filter but not its history is the classic instance. On a voice sounding an FM rack the state to copy is the **rack**, operands and feedback taps included, and the action read is operator 0's — [§5.5.1](#5-5-1-type-4-fm-racks) has that case in full.
 
@@ -1204,7 +1204,7 @@ At the boundary that starts tick `t` of a row — `t` at least 1 and below `tick
 
 1. **Scheduled note cut** (`S $Cx`): if `t` is the scheduled tick, zero the note and row volume — leaving lane volume alone — and mark the note cut.
 2. **Note delay** (`S $Dx`): if `t` is the scheduled tick, perform the deferred event. For a pitch, that means the full trigger sequence of [§5.3](#5-3-trigger-sequence), exactly as for a row's own note: its first tick pass is the next one.
-3. **Scheduled follow-up action** (`S $Dxny`): if `t` is the scheduled tick, apply note off, note cut, continue, note fade or forced key lift. Forced key lift overrides the instrument's own New Note Action, exactly as `S $73`…`S $76` override it — and, like them, it commands **the whole note**: on a metainstrument it **MUST** lift every layer child and every operand too, not the foreground voice alone. The per-tick sync cannot deliver this one, because all it hands a child is that child's own instrument's key-lift answer, which is exactly what the command exists to override.
+3. **Scheduled follow-up action** (`S $Dxny`): if `t` is the scheduled tick, apply key-off, note cut, continue, note fade or forced key lift. Forced key lift overrides the instrument's own New Note Action, exactly as `S $73`…`S $76` override it — and, like them, it commands **the whole note**: on a metainstrument it **MUST** lift every layer child and every operand too, not the foreground voice alone. The per-tick sync cannot deliver this one, because all it hands a child is that child's own instrument's key-lift answer, which is exactly what the command exists to override.
 
 An event scheduled for a tick its row does not reach never fires: the next row's reset clears it ([§5.1](#5-1-per-row-reset)). These events **MUST NOT** run inside the tick pass. The tick pass of tick `t` runs when tick `t` *ends*, so an event fired there sounds a tick late, and a delay of `tick_rate − 1` lands on the next row's first tick.
 
@@ -1269,7 +1269,7 @@ Background voices apply both identically — and **MUST** branch on the filter m
 
 ### 7.5 Key lift
 
-An instrument with the key-lift flag treats key-off as a true MIDI key release: the volume envelope playhead jumps straight to the sustain-end node, so the release nodes play at once instead of the playhead first walking the remaining pre-sustain nodes. It applies wherever key-off is delivered — the pattern key-off word, an NNA ghost's release, a Duplicate Check note-off, and past-note off. Instruments with no volume-envelope sustain region are unaffected, since there is no release boundary to jump to.
+An instrument with the key-lift flag treats key-off as a true MIDI key release: the volume envelope playhead jumps straight to the sustain-end node, so the release nodes play at once instead of the playhead first walking the remaining pre-sustain nodes. It applies wherever key-off is delivered — the pattern key-off word, an NNA ghost's release, a Duplicate Check note-off, and past-key-off. Instruments with no volume-envelope sustain region are unaffected, since there is no release boundary to jump to.
 
 ## 8. The sampler
 

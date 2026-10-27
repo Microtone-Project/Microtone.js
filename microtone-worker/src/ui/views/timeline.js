@@ -1406,8 +1406,8 @@ export class TimelineView {
 
   /**
    * Ctrl+arrows: nudge the block selection, or — with none — the cursor's
-   * column. `coarse` is Ctrl+←/→ (a note by a period, a number by 16), else
-   * Ctrl+↑/↓ (a degree, or 1). A selection moves in any mode, as Delete and
+   * column. `coarse` is Ctrl+↑/↓ (a note by a period, a number by 16), else
+   * Ctrl+←/→ (a degree, or 1). A selection moves in any mode, as Delete and
    * paste do; the lone cursor cell is an edit like typing, so record only.
    * Returns true when consumed.
    */
