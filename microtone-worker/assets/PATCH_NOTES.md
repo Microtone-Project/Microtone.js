@@ -110,6 +110,13 @@ Motif, Microtone's typeface, tells more of its letters and digits apart.
 
 **HALT and HALT@ are one command now**: in the Cues tab's command popup, give HALT a row count to stop after that many rows (shown as `HALT·N`), or leave it empty to stop at the end of the pattern.
 
+**On/off switches you can hit while listening**: the small tick boxes on the instrument panels are now pushbuttons with a lamp, and the mixing and mastering units go in and out on a flip switch.
+
+- **Lamp pushbuttons** take the place of the tick boxes in the Mixing and Mastering tabs, the instrument editor (envelopes, flags, the OPL and PSG switches, a layer's *Fixed*), the keymap, the chord and notation makers, the panner, the sample editor and the top bar's *follow*: the whole button is the target, and its lamp lights green while the option is on.
+- **Flip switches** put a piece of equipment in circuit or bypass it, at the right end of every Mixing and Mastering unit's titlebar and on every equaliser band (the Sample Lab's too): filled with the theme's colour while it is in, empty while it is out.
+- In the chord maker, a note's on/off is now the button carrying its number.
+- Fixed: the zoom − and + buttons, the icon buttons and *follow* sat shorter than the other buttons of the top bar; they all stand the same height now.
+
 ## Version 3.13.3 (2026-10-22)
 
 The envelope graphs zoom with a two-finger pinch on a touch screen.

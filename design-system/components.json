@@ -18,7 +18,7 @@
     {
       "id": "proceed-style",
       "title": "Proceed is the one coloured, heavier button",
-      "text": "The Proceed button (class `proceed`) is filled with proceed-bg (the accent) and inked proceed-fg; its label is set at weight-proceed, at least 200 heavier than weight-button. No other button is filled with the accent or heavier (the armed Record toggle wears its own red: a state, not an action). Microtone Touch's `.tbtn.primary` is the same thing under its own name.",
+      "text": "The Proceed button (class `proceed`) is filled with proceed-bg (the accent) and inked proceed-fg; its label is set at weight-proceed, at least 200 heavier than weight-button. No other button is filled with the accent or heavier (the armed Record toggle wears its own red, and a flip switch's track fills with the accent while ON: states, not actions). Microtone Touch's `.tbtn.primary` is the same thing under its own name.",
       "tokens": ["proceed-bg", "proceed-fg", "proceed-hover", "weight-button", "weight-proceed"]
     },
     {
@@ -34,7 +34,7 @@
     {
       "id": "native-controls",
       "title": "Native form controls are themed centrally",
-      "text": ":root { accent-color: var(--accent) } paints every checkbox, radio, range slider and <progress>. Never restate accent-color on a widget. A control that cannot be native (a canvas fader, a custom switch) paints itself from var(--accent)."
+      "text": ":root { accent-color: var(--accent) } paints every checkbox, radio, range slider and <progress>. Never restate accent-color on a widget. A control that cannot be native (a canvas fader, a flip switch) paints itself from var(--accent). On the instrument panels an on/off is never a checkbox (rule panel-switches); a checkbox remains the dialog form's option (showModal's checkbox field, an import list)."
     },
     {
       "id": "type-tokens",
@@ -56,9 +56,16 @@
     {
       "id": "pushbuttons",
       "title": "Few choices are pushbuttons, not dropdowns",
-      "text": "A choice among two to about six named options that someone flips while listening (Cut | Boost, Pre | Post, which band to edit) is a segmented row of pushbuttons (.mst-seg; the chosen one .active with aria-pressed), not a <select>: every option stays visible and one press changes it. An on/off of a part is a TOGGLE pushbutton (button.toggle, aria-pressed), which wears the same active look while in. When the buttons of a row each pick an item that has an on/off of its own — a band — each carries a lamp (.seg-lamp, .lit in meter green when that item is on), so what is selected and what is sounding read at once; the toggle beside the row switches the selected item. A row of one button is the whole capsule (both ends rounded). Where they are pressed constantly while listening (the Mixing tab's units), segments and toggles share the ordinary button's type size, with wide sides and a 2rem-tall target, the segment ends rounded like a button.",
+      "text": "A choice among two to about six named options that someone flips while listening (Cut | Boost, Pre | Post, which band to edit) is a segmented row of pushbuttons (.mst-seg; the chosen one .active with aria-pressed), not a <select>: every option stays visible and one press changes it. An on/off of a part is a TOGGLE pushbutton (button.toggle, aria-pressed), which wears the same active look while in — or, on the instrument panels, a lamp pushbutton (rule panel-switches). When the buttons of a row each pick an item that has an on/off of its own — a band — each carries a lamp (.seg-lamp, .lit in meter green when that item is on), so what is selected and what is sounding read at once; the lamp pushbutton beside the row switches the selected item. A row of one button is the whole capsule (both ends rounded). Where they are pressed constantly while listening (the Mixing tab's units), segments and toggles share the ordinary button's type size, with wide sides and a 2rem-tall target, the segment ends rounded like a button.",
       "tokens": ["accent", "cv-cursor", "meter", "meter-bg"],
       "enforcedBy": ["microtone-worker/test/browser/mixing-smoke.html"]
+    },
+    {
+      "id": "panel-switches",
+      "title": "On the instrument panels, an on/off is a lamp pushbutton or a flip switch",
+      "text": "A checkbox is too small a target for a control pressed while listening, on a touchscreen as often as with a mouse, so the instrument panels (Mixing, Mastering, the instrument editor, the keymap, the chord and notation makers, the panner, the sample editor, the top bar's Follow) have none. An OPTION — Sync, True peak, an envelope's Loop, a chain's On, a note of the chord maker — is a LAMP PUSHBUTTON (lampButton(), components/lampbutton.js): the whole button is the target, the lamp at its left (.seg-lamp, lit in meter green) says whether it is on, and the label stays the option's name; where the row already names the option the button says its state instead (On / Off). Putting a PIECE OF EQUIPMENT, or one band of it, in circuit or bypassing it is a FLIP SWITCH (flipSwitch(), components/flipswitch.js): a track and a knob at the right end of the piece's titlebar, ON with the knob at the right and the track filled with the accent, OFF with the knob at the left in the dim ink and no fill at all. Both keep their state with the caller: setOn() shows a state without reporting it, a press reports the new state through onChange, and neither writes the DOM unless the state moved. Dialog forms keep native checkboxes.",
+      "tokens": ["meter", "meter-bg", "accent", "proceed-fg", "dim", "border"],
+      "enforcedBy": ["microtone-worker/test/node/design-system.test.js", "microtone-worker/test/browser/mixing-smoke.html"]
     },
     {
       "id": "change-driven",
@@ -143,11 +150,36 @@
     {
       "name": "Pushbuttons",
       "kind": "css",
-      "summary": "A segmented row of pushbuttons for one of a few named choices (the chosen one lit like a selected tab), a toggle pushbutton for an on/off, and a lamp on a row's buttons when each picks an item with its own on/off.",
+      "summary": "A segmented row of pushbuttons for one of a few named choices (the chosen one lit like a selected tab), a toggle pushbutton for an on/off, and a lamp on a row's buttons when each picks an item with its own on/off. Their on/off sibling on the instrument panels is LampButton.",
       "api": "<div class=mst-seg role=group><button class=active aria-pressed=true><span class=\"seg-lamp lit\"></span>LS</button><button aria-pressed=false>…</button></div> <button class=toggle aria-pressed=true>On</button>",
       "classes": ["mst-seg", "toggle", "seg-lamp"],
       "tokens": ["accent", "cv-cursor", "meter", "meter-bg", "border"],
       "rules": ["pushbuttons"]
+    },
+    {
+      "name": "LampButton",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/lampbutton.js",
+      "exports": ["lampButton"],
+      "summary": "A pushbutton with a lamp: an option's on/off on the instrument panels, where a checkbox was too small a target. The lamp says whether it is on; the label stays the option's name, or says On / Off where the row already names it.",
+      "api": "lampButton({ label: string | [offText, onText], on = false, onChange?(on), title?, disabled?, className? }) → { button, isOn(), setOn(on) }. A press flips the state and reports it; setOn() shows a state without reporting it, and writes the DOM only when it moved. A fixed label is written once, so static text translated by data-i18n is not undone.",
+      "example": "const sync = lampButton({ label: t(\"imix.sync\"), title: t(\"imix.syncTitle\"), on: lfo.sync, onChange: (on) => edit((x) => { x.sync = on; }) });\nrow.append(sync.button);\nrefreshers.push(() => sync.setOn(lfo.sync));",
+      "classes": ["lamp-btn", "seg-lamp"],
+      "hooks": ["lamp-text"],
+      "tokens": ["meter", "meter-bg", "border", "panel-2", "fg", "accent", "radius-md"],
+      "rules": ["panel-switches", "change-driven"]
+    },
+    {
+      "name": "FlipSwitch",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/flipswitch.js",
+      "exports": ["flipSwitch"],
+      "summary": "A flip switch putting a piece of equipment, or one band of it, in circuit or bypassing it: ON fills the track with the accent and parks the knob at the right, OFF has no fill and the knob at the left. A button with role=switch, at the right end of the piece's titlebar.",
+      "api": "flipSwitch({ label (the accessible name: what it switches), on = false, onChange?(on), title?, disabled?, className? }) → { button, isOn(), setOn(on) }. aria-checked carries the state; the switch shows no text. The warmth theme's keycap moulding passes it by.",
+      "example": "const sw = flipSwitch({ label: t(\"imix.name.comp\"), on: inCircuit(), onChange: (on) => edit((b) => { b.equipment.comp.bypass = !on; }) });\nhead.append(sw.button); // after the name and the Mix slider",
+      "classes": ["flip-switch", "flip-knob"],
+      "tokens": ["accent", "proceed-fg", "dim"],
+      "rules": ["panel-switches", "folding", "change-driven"]
     },
     {
       "name": "NoteGlyph",

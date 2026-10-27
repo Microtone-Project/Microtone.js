@@ -59,6 +59,8 @@ import { MOTIF } from "../../../core/fonts/motifglyphs.js";
 import { SCOPE_GAIN_MAX } from "../crtscope.js";
 import { showNotice } from "../components/modal.js";
 import { makeFoldable } from "../components/fold.js";
+import { lampButton } from "../components/lampbutton.js";
+import { flipSwitch } from "../components/flipswitch.js";
 import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
 import { uiDpr, localPoint } from "../zoom.js";
@@ -417,9 +419,8 @@ export class MixingPanel {
       else if (e.key === "Escape") { title.value = unescapeName(doc.imixName(block.id)); title.blur(); }
       e.stopPropagation(); // typing a name is not playing the keyboard
     });
-    const power = this.switchEl(t("imix.enabled"), () => this.block?.enabled ?? false,
-      (on) => this.edit((b) => { b.enabled = on; }));
-    power.title = t("imix.enabledTitle");
+    const power = this.lamp(t("imix.enabled"), () => this.block?.enabled ?? false,
+      (on) => this.edit((b) => { b.enabled = on; }), t("imix.enabledTitle"));
     // Separate: one copy of the chain per instrument. Bus: one, over their sum.
     const mode = this.segButtons(t("imix.mode"), [
       [false, t("imix.modeSeparate"), t("imix.modeSeparateTitle")],
@@ -474,7 +475,7 @@ export class MixingPanel {
     name.textContent = t(NAME_KEY[id]);
     head.appendChild(name);
     if (IMX_WET_APPLICABLE.has(id)) head.appendChild(this.mixSlider(id));
-    const sw = this.switchEl("", () => this.inCircuit(id), (on) => this.edit((b) => {
+    const sw = this.flip(t(NAME_KEY[id]), () => this.inCircuit(id), (on) => this.edit((b) => {
       if (!b.equipment[id]) b.equipment[id] = this.inserted(id);
       else b.equipment[id].bypass = !on;
     }));
@@ -578,7 +579,7 @@ export class MixingPanel {
     del.className = "imx-del";
     del.textContent = t("imix.removeBand");
     del.addEventListener("click", () => this.editEquipment(id, (x) => { x.bands.splice(i, 1); }));
-    head.append(name, del, this.switchEl("", () => this.eqp(id).bands[i]?.on ?? false,
+    head.append(name, del, this.flip(t("imix.band", { n: i + 1 }), () => this.eqp(id).bands[i]?.on ?? false,
       (on) => this.editEquipment(id, (x) => { x.bands[i].on = on; })));
     box.appendChild(head);
     const band = () => this.eqp(id).bands[i];
@@ -742,18 +743,15 @@ export class MixingPanel {
       seg.appendChild(b);
       return b;
     });
-    const power = document.createElement("button");
-    power.type = "button";
-    power.className = "toggle imx-bandpower";
-    power.textContent = t("imix.enabled");
-    power.title = t("imix.bandPowerTitle");
     const bandOn = (i) => !!this.eqp(id).bands[i]?.on;
-    power.addEventListener("click", () => {
-      const i = this.selectedBand(id, rows);
-      const on = !bandOn(i);
-      this.editEquipment(id, (x) => { x.bands[i].on = on; });
+    const power = lampButton({
+      label: t("imix.enabled"), title: t("imix.bandPowerTitle"), className: "imx-bandpower",
+      onChange: (on) => {
+        const i = this.selectedBand(id, rows);
+        this.editEquipment(id, (x) => { x.bands[i].on = on; });
+      },
     });
-    bar.append(seg, power);
+    bar.append(seg, power.button);
     this.controls.push({
       band: id,
       refresh: () => {
@@ -765,8 +763,7 @@ export class MixingPanel {
           if (lamps[k].classList.contains("lit") !== bandOn(i)) lamps[k].classList.toggle("lit", bandOn(i));
           if (boxes[k].hidden !== (i !== sel)) boxes[k].hidden = i !== sel;
         });
-        const p = String(bandOn(sel));
-        if (power.getAttribute("aria-pressed") !== p) power.setAttribute("aria-pressed", p);
+        power.setOn(bandOn(sel));
       },
     });
     return bar;
@@ -1059,35 +1056,26 @@ export class MixingPanel {
     return row;
   }
 
+  /** An option's row: one lamp pushbutton, named for the option. */
   checkRow(labelKey, titleKey, get, set) {
     const row = document.createElement("div");
     row.className = "mst-row mst-row-check";
-    const wrap = document.createElement("label");
-    wrap.className = "mst-check";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.addEventListener("change", () => set(box.checked));
-    const txt = document.createElement("span");
-    txt.textContent = t(labelKey);
-    wrap.append(box, txt);
-    if (titleKey) wrap.title = t(titleKey);
-    row.appendChild(wrap);
-    this.controls.push({ refresh: () => { box.checked = !!get(); } });
+    row.appendChild(this.lamp(t(labelKey), get, set, titleKey ? t(titleKey) : ""));
     return row;
   }
 
-  switchEl(label, get, set) {
-    const wrap = document.createElement("label");
-    wrap.className = "mst-switch";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = !!get();
-    box.addEventListener("change", () => set(box.checked));
-    const txt = document.createElement("span");
-    txt.textContent = label;
-    wrap.append(box, txt);
-    this.controls.push({ refresh: () => { box.checked = !!get(); } });
-    return wrap;
+  /** A lamp pushbutton for an option, kept in step with the document. */
+  lamp(label, get, set, title = "") {
+    const b = lampButton({ label, title, on: get(), onChange: set });
+    this.controls.push({ refresh: () => b.setOn(get()) });
+    return b.button;
+  }
+
+  /** A flip switch putting a piece (or a band of one) in circuit, kept in step. */
+  flip(label, get, set) {
+    const s = flipSwitch({ label, on: get(), onChange: set });
+    this.controls.push({ refresh: () => s.setOn(get()) });
+    return s.button;
   }
 
   refreshValues() {

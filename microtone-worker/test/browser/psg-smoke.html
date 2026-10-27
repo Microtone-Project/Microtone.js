@@ -157,9 +157,10 @@
         const levelIn = () => fieldOf(0, "Level");
         const advIn = () => fieldOf(0, "Auto-advance");
         const muteA = () => [...iv.panel.querySelectorAll(".opl-chan .inst-field")]
-          .find((f) => f.firstChild.textContent === "Mute A").querySelector("input");
+          .find((f) => f.firstChild.textContent === "Mute A").querySelector("button.lamp-btn");
         const muteB = () => [...iv.panel.querySelectorAll(".opl-chan .inst-field")]
-          .find((f) => f.firstChild.textContent === "Mute B").querySelector("input");
+          .find((f) => f.firstChild.textContent === "Mute B").querySelector("button.lamp-btn");
+        const pressed = (b) => b.getAttribute("aria-pressed") === "true";
         const recordLevel = +levelIn().value;
         wdoc.getElementById("playSong").click();
         await waitFor(() => levelIn().classList.contains("psg-live") && +levelIn().value === 0x10, 10000)
@@ -174,7 +175,7 @@
           ok(!!liveWin && liveWin.getAttribute("aria-label") !== "4 · Pulse 4/8"));
         await waitFor(() => muteB().classList.contains("psg-live"), 6000).catch(() => null);
         log(`S $AF02 shows B muted and A not, live: ` +
-          ok(muteB().checked && !muteA().checked && muteB().classList.contains("psg-live")));
+          ok(pressed(muteB()) && !pressed(muteA()) && muteB().classList.contains("psg-live")));
         const accent = win.getComputedStyle(levelIn()).color;
         const plain = win.getComputedStyle(fieldOf(0, "Attack")).color;
         log(`…in a colour of its own (${accent} vs ${plain}): ${ok(accent !== plain)}`);
@@ -190,7 +191,7 @@
         log(`stopping puts the record's values back: ` +
           ok(!levelIn().classList.contains("psg-live") && +levelIn().value === recordLevel &&
              +advIn().value === 0 && !oscs()[0].querySelector("svg.psg-wave.live") &&
-             muteB().checked === inst().psg.muteB));
+             pressed(muteB()) === inst().psg.muteB));
 
         // ── it survives a save/reload round trip ──
         const bytes = doc.toBytes();

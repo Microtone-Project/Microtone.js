@@ -15,6 +15,7 @@ import { themeColors } from "../theme.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { lampButton } from "../components/lampbutton.js";
 import { setIconLabel } from "../icons.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../../../core/engine/constants.js";
 import { uiDpr, localPoint } from "../zoom.js";
@@ -88,12 +89,8 @@ export function openInstSampleEditor(store, slot) {
     }
     modeSel.addEventListener("change", () => applyFields({ loopMode: Number(modeSel.value) }));
     modeLab.appendChild(modeSel);
-    const susLab = document.createElement("label");
-    const susBox = document.createElement("input");
-    susBox.type = "checkbox";
-    susBox.addEventListener("change", () => applyFields({ sustain: susBox.checked }));
-    susLab.append(susBox, t("smp.sustain"));
-    fieldRow.append(modeLab, susLab);
+    const sus = lampButton({ label: t("smp.sustain"), onChange: (on) => applyFields({ sustain: on }) });
+    fieldRow.append(modeLab, sus.button);
 
     const opRow = document.createElement("div");
     opRow.className = "smp-ops";
@@ -217,7 +214,7 @@ export function openInstSampleEditor(store, slot) {
       });
       for (const m of MARKERS) spinners[m.key].value = f[m.key];
       modeSel.value = f.loopMode;
-      susBox.checked = f.sustain;
+      sus.setOn(f.sustain);
       // Modes 0 and 3 play straight to the end — there is no seam to resolve.
       const loops = f.loopMode === 1 || f.loopMode === 2;
       autoSel.disabled = autoBtn.disabled = !loops || resolving;

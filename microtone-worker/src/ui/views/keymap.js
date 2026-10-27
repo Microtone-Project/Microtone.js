@@ -27,6 +27,7 @@ import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
 import { KEYMAP_FOURCC } from "../keymaplib.js";
 import { showModal, showNotice } from "../components/modal.js";
+import { lampButton } from "../components/lampbutton.js";
 import { showKeymapManual } from "../popups/keymapmanual.js";
 import {
   resolveKeymap, keymapNote, keymapStats,
@@ -349,14 +350,11 @@ export class KeymapView {
       // put their keys in true columns. Drawing them staggered would be the
       // misleading picture, so this is a property of the reader's HARDWARE —
       // app configuration, like the Quote key, not part of any layout.
-      const ortho = document.createElement("input");
-      ortho.type = "checkbox";
-      ortho.checked = this.store.keymapOrtho === true;
-      ortho.addEventListener("change", () => {
-        this.lib.setOrtho(ortho.checked);
-        this.refresh();
+      const ortho = lampButton({
+        label: [t("common.off"), t("common.on")], on: this.store.keymapOrtho === true,
+        onChange: (on) => { this.lib.setOrtho(on); this.refresh(); },
       });
-      body.appendChild(labelled(t("keymap.ortho"), ortho));
+      body.appendChild(labelled(t("keymap.ortho"), ortho.button));
 
       const note = document.createElement("div");
       note.className = "keymap-sub";
@@ -710,21 +708,24 @@ function rowsField(rows, disabled, onChange) {
   const wrap = document.createElement("div");
   wrap.className = "keymap-rows";
   for (const name of ["N", "Q", "A", "Z"]) {
-    const label = document.createElement("label");
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = rows.includes(name);
-    box.disabled = disabled;
-    box.addEventListener("change", () => {
-      const next = ["N", "Q", "A", "Z"].filter((r) =>
-        r === name ? box.checked : rows.includes(r));
-      if (next.length > 0) onChange(next);
-      else box.checked = true; // a keymap with no rows is not a keymap
+    const lamp = lampButton({
+      label: t(`keymap.row.${name}`), on: rows.includes(name), disabled,
+      onChange: (on) => {
+        const next = ["N", "Q", "A", "Z"].filter((r) => (r === name ? on : rows.includes(r)));
+        if (next.length > 0) onChange(next);
+        else lamp.setOn(true); // a keymap with no rows is not a keymap
+      },
     });
-    label.append(box, document.createTextNode(t(`keymap.row.${name}`)));
-    wrap.appendChild(label);
+    wrap.appendChild(lamp.button);
   }
-  return labelled(t("keymap.rows"), wrap);
+  // Not a <label>: a label holding four buttons would send a click on its
+  // caption to the first of them.
+  const row = document.createElement("div");
+  row.className = "keymap-field";
+  const span = document.createElement("span");
+  span.textContent = t("keymap.rows");
+  row.append(span, wrap);
+  return row;
 }
 
 function readout(label, value, warn = false) {

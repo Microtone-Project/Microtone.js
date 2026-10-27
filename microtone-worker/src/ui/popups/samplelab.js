@@ -45,6 +45,7 @@ import { themeColors } from "../theme.js";
 import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { flipSwitch } from "../components/flipswitch.js";
 import { icon, setIconLabel } from "../icons.js";
 import { uiDpr, localPoint, toLayout } from "../zoom.js";
 
@@ -750,14 +751,14 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       bands.forEach((band) => {
         const row = document.createElement("div");
         row.className = "lab-eqband";
-        const en = document.createElement("input");
-        en.type = "checkbox";
-        en.checked = band.enabled !== false;
-        en.addEventListener("change", () => { band.enabled = en.checked; paintEqGraph(); });
         const kind = document.createElement("span");
         kind.className = "lab-eqkind";
         kind.textContent = t(`lab.eqBand.${band.type}`);
-        row.append(en, kind);
+        const en = flipSwitch({
+          label: kind.textContent, on: band.enabled !== false,
+          onChange: (on) => { band.enabled = on; paintEqGraph(); },
+        });
+        row.append(en.button, kind);
         const num = (key, min, max, step, unit) => {
           if (band[key] === undefined) return;
           const lab = document.createElement("label");

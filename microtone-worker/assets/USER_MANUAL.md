@@ -104,7 +104,7 @@ The app warns before discarding unsaved changes, and autosaves your work — see
 | **Shift+Enter** | Play from the start |
 | **▶ Song** button | Play from the start |
 | **▶ Cue** button | Play from the cue under the cursor |
-| **follow** checkbox | Scroll the view with playback |
+| **follow** button | Scroll the view with playback (its lamp is lit while it does) |
 
 Playing from the middle picks the song up as it stands there. Before the first row sounds, Microtone runs silently through everything that comes before it — in the song's own order, jumps and loops included — so every lane starts with the volume, panning, bitcrusher and overdrive settings, instrument and effect memory it would have had if you had played from the start, and the tempo, speed and global volume are the song's at that point too. Notes still ringing from earlier rows are not restarted: each lane is silent until its next note. A row the song never reaches when played from the start — after a halt, past a pattern break, or beyond a loop that never ends — is picked up by going through the cues in order instead.
 
@@ -2012,14 +2012,14 @@ either way.
 
 - **General** — global volume, volume swing, fadeout; default pan (which becomes **default azimuth**, and on a spatial song **default elevation**, once the song has a surround model — see [Surround panning](#surround-panning)), pan swing, pitch-pan separation and centre; wide-range detune (with hex-word and cents readouts); **New Note Action** (cut / continue / off / fade / release), Duplicate Check Type (never / note / sample / instrument / **lane** — any note arriving on the lane, whatever plays it) and Action (cut / off / fade); filter mode (**ImpulseTracker** or **SoundFont2**) with cutoff and resonance shown in Hz/dB for SF2 mode. The Sample section binds the sample and opens the **play/loop/sustain marker editor** — draggable play-start, loop-start and loop-end markers, loop mode (off / forward / ping-pong / one-shot) and sustain, affecting this instrument slot only. Play start, loop start and loop end are all spinners here too, so a number read off the waveform's hairline can simply be typed in. **Auto loop** searches the sample for a loop region that plays without an audible click and writes the two markers for you: pick *cleanest*, *balanced* or *longest* (how much of a tick you will accept in exchange for keeping more of the sample) and it reports how long the loop is and how loud its seam is, in dB below the sound carrying it. It searches for whichever loop mode is set — forward and ping-pong click in different ways and want different loop points — and it only ever writes when you ask, so the numbers stay yours to adjust afterwards.
   - **From the list**, under *Sample ptr*, is the same binding as a list rather than an address: every sample in the pool, plus the [recordings loaded into memory](#long-recordings-in-memory) in a group of their own. Choosing one writes its pointer, length, rate and loop into this record in a single undo step; choosing a recording points the instrument at its first 65535 bytes, which the spinners then move. It is a copy, not a link — the list is *derived* from what the instruments point at, so a row can appear or disappear as you use it, and the row shown is always the one this record's own pointer lands on.
-- **Vol env / Pan env / Pitch / Filter** — envelope graphs. Drag nodes vertically for values, horizontally for timing; a checkbox switches to a logarithmic timescale. The pitch/filter tab follows the instrument's envelope role.
+- **Vol env / Pan env / Pitch / Filter** — envelope graphs. Drag nodes vertically for values, horizontally for timing; the **Log timescale** button switches to a logarithmic timescale. The pitch/filter tab follows the instrument's envelope role.
   - **Dragging a node sideways** moves it between its neighbours: the nodes after it stay where they are, so the envelope keeps its length. Hold **Shift** to take the nodes after it along instead, as changing the **Seg** of the node before it does. The last node lengthens or shortens the envelope by exactly as far as you drag it — the graph's scale holds still until you let go, and the empty strip on the right is room to drag it into. A node stops one step short of its neighbour, since a segment of zero would end the envelope there.
   - **The mouse wheel zooms** the time axis about the pointer, and on a touch screen **two fingers pinch** it, zooming about the fingers and scrolling as they slide (a pinch that comes close to the whole envelope snaps to it). **Shift+wheel**, a sideways wheel, or dragging empty graph scrolls it, and a **double-click** on empty graph shows the whole envelope again. Zooming back out stops once on the whole envelope, then goes further out — room to drag the last node a long way. While zoomed, a thin bar along the top shows which part you are looking at.
   - Segment lengths are stored in steps: 1/256 s (about 4 ms) up to an eighth of a second, and twice as long with each doubling of length after that. A dragged node moves in its segment's steps, and the segments either side of it cannot always add up to exactly what they did, so the graph keeps the next node still unless that would put the dragged one more than a few pixels from the pointer. Zoomed in, the dragged node goes exactly where you put it, and the next one gives way by less than half a step.
   - An **OPL**, **PSG** or **formant** instrument has room for only one pitch-or-filter envelope, so it shows a single **Pitch/Filter** tab, with an **Envelope role** switch — **Pitch** or **Filter** — at its top. Switching keeps the nodes and reads them the other way.
   - **＋ Add node** and **－ Remove node** act on the node the spinners point at: adding splits the segment after it, or extends the envelope when that node is the last one, and removing merges its segment into the one before it so the timing after stays put. Node 0 is anchored at t=0 and cannot be removed; removing the last node shortens the envelope.
-  - **Envelope present** is what makes the envelope sound at all: untick it and the nodes are kept but ignored — on the Vol env tab the instrument then plays at full level, on Pan env at the lane's own pan. Editing a node ticks it again if it was not already ticked, in the same undo step: adding a node, dragging one, or typing its value or segment length — an envelope you are shaping is one you mean to hear. On the Pitch and Filter tabs the tick is also what claims the record's shared slot for that role. The patch envelopes in **Advanced Edit** work the same way.
-  - That first tick switches **Sustain** on with it and carries its start and end to the new last node, so an envelope you are building arrives holding its final level until key-off rather than needing two more boxes found before any of it is audible. Untick either box and it stays unticked — the pair is only ever set by the click that brings the envelope into existence.
+  - **Envelope present** is what makes the envelope sound at all: switch it off and the nodes are kept but ignored — on the Vol env tab the instrument then plays at full level, on Pan env at the lane's own pan. Editing a node switches it back on if it was off, in the same undo step: adding a node, dragging one, or typing its value or segment length — an envelope you are shaping is one you mean to hear. On the Pitch and Filter tabs switching it on is also what claims the record's shared slot for that role. The patch envelopes in **Advanced Edit** work the same way.
+  - Switching it on the first time switches **Sustain** on with it and carries its start and end to the new last node, so an envelope you are building arrives holding its final level until key-off rather than needing two more buttons found before any of it is audible. Switch either off and it stays off — the pair is only ever set by the click that brings the envelope into existence.
   - A **Sustain** point sitting on the last node follows it when you add another, so an envelope that holds its final level until key-off keeps doing that instead of turning into a hold halfway through. Sustain and loop points left pointing past the end are pulled back in when the envelope gets shorter.
   - **Carry** (beside *Envelope present*) makes a new note **continue** this envelope instead of restarting it: the playhead stays where the last note left it, so a slow pan sweep or a filter opening can run across a whole phrase of repeated notes rather than resetting on each one. Each envelope carries — or does not — on its own. It is ignored where there is nothing worth keeping: after a key-off, and on a note that changes instrument. This is also what makes a run of notes tied by `G` sound the same whether or not each row names its instrument.
 - **Mixing** — the instrument's [mixing chain](#mixing-chains): its own equalisers, dynamics, unison, saturator, delay, reverb and limiter, with four monitors. Every kind of instrument has this tab.
@@ -2043,7 +2043,7 @@ either way.
 - **Layers** (the Layered kind) — a Layered metainstrument plays several sub-instruments at once, and this table is the whole editor for that stack. Each row carries an editable **mix** (0–255, 159 = 0 dB, live dB readout), a **detune** in cents with ◂ ▸ buttons that step a whole degree of the song's own notation, and the **pitch** and **velocity** bounds that decide when the layer sounds at all. The ▸ beside row 0 marks the foreground layer: the first layer covering a trigger plays on the lane itself and the rest spawn background voices, so the order here is priority — **drag a row by the handle in its # column** to change it. The handle is a button as well as a grip: focus it and ↑ ↓ move the row without a pointer.
   - **Add layers…** brings in more instruments (the same picker, counts and all), **Duplicate** makes another voice of the layer's own sub-instrument ready to detune, and **Chord…** does a whole chord or unison spread in one action, using the same just intervals, chords and inversions as the [chord maker](#the-chord-maker). **Preview** there sounds the stack before you commit to it — the layer's own instrument at every pitch the panel lists — and stops on a second press, after a couple of seconds, or as soon as you pick a different chord. The layer you start from is the voice nearest unison and stays where it is, so an inversion decides which note of the chord that layer plays and the rest are placed around it.
   - Duplicated layers are **linked**: they share one sub-instrument, badged *linked ×n*, so editing it moves every voice of the stack together. When one voice needs to differ, **Unlink** gives that layer its own copy.
-  - **fixed** beside the detune makes the layer **non-melodic**: it sounds one note whatever key is played, and the field beside the box stops being a detune and becomes that note — an absolute pitch, typed as a word (`$5000`) or a name (`C-4`), with ◂ ▸ still stepping degrees of the song's notation. This is how a layer that is a *sound* rather than a *pitch* is written: the click of a hammer, a breath, a bar of noise under the low keys. The pitch bounds still decide which keys reach the layer — the flag only fixes what it plays when one does — and everything else about it, mix and velocity bounds included, works as before. Ticking or unticking the box keeps the note the row was showing, so nothing jumps.
+  - **Fixed** beside the detune makes the layer **non-melodic**: it sounds one note whatever key is played, and the field beside the button stops being a detune and becomes that note — an absolute pitch, typed as a word (`$5000`) or a name (`C-4`), with ◂ ▸ still stepping degrees of the song's notation. This is how a layer that is a *sound* rather than a *pitch* is written: the click of a hammer, a breath, a bar of noise under the low keys. The pitch bounds still decide which keys reach the layer — the flag only fixes what it plays when one does — and everything else about it, mix and velocity bounds included, works as before. Switching it on or off keeps the note the row was showing, so nothing jumps.
   - Each row's **Edit…** button opens that layer instrument in its own editor, with the same General / envelope / Zones tabs any instrument gets (its Advanced Edit lives on the Zones tab, as usual) — this is how you reach the sub-instruments of MIDI-imported instruments, whose layers are not listed on the left. A breadcrumb above the name walks back to the metainstrument that owns it.
   - The last layer cannot be removed (a metainstrument with no entries in its table is not one); delete the whole instrument instead.
 - **FM** (the FM Rack kind) — the operator table above, the algorithm below. It is the same table as the Layers tab's, because a rack is the same record read another way, with two columns renamed for what they mean here: **level** is the operator's output level, which doubles as its modulation index when it modulates something, and **ratio** is its detune from the played note — an octave up is a 2:1 modulator, a twelfth is the inharmonic one that makes bells. The pitch and velocity bounds still gate: an operator whose bounds exclude the note falls silent for it, which is how a patch gets brighter as you play harder.
@@ -2100,7 +2100,7 @@ Every instrument can have a **mixing chain**: its notes sum into a bus of their 
 
 The only choice of order is whether the tape delay feeds the reverb or the reverb feeds the delay (the selector beside the chain's switch).
 
-**Switching a piece on inserts it, and from then on it stays.** A piece you have never touched is not in the chain at all, but its settings are still there to look at, at their starting values; switch it on and it is inserted, or change one of its settings first and it is inserted switched *off*, keeping what you set. Switching a piece off *bypasses* it — its settings are kept, and it costs nothing while it is out. The equalisers start flat and the dynamic EQ with every band off, so inserting them changes nothing until you move a control. Where a piece has a **Mix** slider in its titlebar — the compressor, unison, saturator, delay and reverb — it sets how much of the processed sound replaces the dry one; the delay and the reverb start mostly dry, as effects added to the sound. A multiband compressor's dry signal is its bands recombined untouched, so a parallel mix does not hollow out the crossovers.
+**Switching a piece on inserts it, and from then on it stays.** Each piece has a **flip switch** at the right end of its titlebar, filled with the theme's colour while the piece is in circuit and empty while it is out; each equaliser band has one too. A piece you have never touched is not in the chain at all, but its settings are still there to look at, at their starting values; switch it on and it is inserted, or change one of its settings first and it is inserted switched *off*, keeping what you set. Switching a piece off *bypasses* it — its settings are kept, and it costs nothing while it is out. The equalisers start flat and the dynamic EQ with every band off, so inserting them changes nothing until you move a control. Where a piece has a **Mix** slider in its titlebar — the compressor, unison, saturator, delay and reverb — it sets how much of the processed sound replaces the dry one; the delay and the reverb start mostly dry, as effects added to the sound. A multiband compressor's dry signal is its bands recombined untouched, so a parallel mix does not hollow out the crossovers.
 
 **Every unit folds** to its titlebar with the arrow at its left end (or a click on its name); the switch and the Mix slider stay usable while it is folded. Which units are folded is saved with the chain, so the project reopens as you left it and every instrument on the chain shows it the same way; folding is not an edit to the sound, so it never takes an undo step (it does count as an unsaved change). A piece that is not in the chain yet starts folded, and is saved the way it was shown once it goes in.
 
@@ -2140,8 +2140,10 @@ that if the tool will not tell you what is wrong you can see it yourself.
 
 ### The rack
 
-Seven stages, in signal order, each with its own switch and one more for the
-chain as a whole. With everything off the chain is not merely transparent — it
+Seven stages, in signal order. Four of them — high-pass, equaliser, compressor
+and limiter — have a flip switch at the right end of their titlebar that
+bypasses them, and the **On** button at the top switches the chain as a whole.
+With everything off the chain is not merely transparent — it
 is absent, and the song renders exactly as it did before you opened the tab.
 
 1. **Input trim** — level going into everything below. Set it once so the compressor threshold means the same thing from song to song.
@@ -2149,7 +2151,7 @@ is absent, and the song renders exactly as it did before you opened the tab.
 3. **Equaliser** — four bands with the response curve drawn above them, over a live spectrum of the music. All four start switched on at 0 dB, where an EQ band is exactly the identity, so turning the equaliser on and reaching for a gain slider does what it looks like it should. Band 1 can be a low shelf or a bell, band 4 a high shelf or a bell; the middle two are always bells.
 4. **Compressor** — one band, with a soft knee. The detector is *linked* across the pair, so the stereo image stays where the mixer put it. **Peak** follows transients; **RMS** follows programme level over a 10 ms window and is the slower, gentler reading.
 5. **Stereo width** — scales the side signal against the middle. 100% leaves the mix exactly as it was; 0% is mono; above 100% pushes it wider, and the Levels meters will show you what that costs the mono sum. In a surround song it is called **Surround width**: the pair still gets the stereo width, and an ambisonic export gets the same law across its whole scene (see *multichannel master* below).
-6. **Limiter** — a look-ahead brickwall. The ceiling is a promise, not a target: it is arranged so that nothing can overshoot it, on any material. Tick **True-peak ceiling** and it holds that promise against the 4× oversampled peak instead of the sample peak, so the file is still under the ceiling after a resample or a lossy encode. The limiter costs 2 ms of latency while it is on.
+6. **Limiter** — a look-ahead brickwall. The ceiling is a promise, not a target: it is arranged so that nothing can overshoot it, on any material. Switch on **True-peak ceiling** and it holds that promise against the 4× oversampled peak instead of the sample peak, so the file is still under the ceiling after a resample or a lossy encode. The limiter costs 2 ms of latency while it is on.
 7. **Output gain** — the last thing in the chain, which means it sits *after* the limiter and can push the signal back over the ceiling. That is deliberate: it is the control the measure-and-set buttons write, and the meters will tell you if you have gone too far.
 
 Every control is one undo step per gesture — a whole slider drag is one Ctrl+Z.
@@ -2371,12 +2373,12 @@ with the lane instead of being nailed to the speakers.
 **Default azimuth** in a surround song — the full circle, not just the front
 half, so an instrument can sit behind you without a single command in the
 pattern — and a spatial song adds **Default elevation** beside it. Both apply on
-a note that carries an instrument number, and only when the instrument's *Use
-default pan* box is ticked. They are stored in bits that older files leave
+a note that carries an instrument number, and only when the instrument's *Enable
+default pan* is on. They are stored in bits that older files leave
 clear, so nothing you already have changes, and a stereo song ignores them
 entirely. An instrument's Ixmp zones can still override the azimuth (they carry
-their own pan) but not the height, and a zone's pan applies whether or not the
-box is ticked — the box gates the instrument's own default, not the zones'.
+their own pan) but not the height, and a zone's pan applies whether or not it
+is on — the switch gates the instrument's own default, not the zones'.
 
 **The panner.** Rather than working the angles out by hand, press **Panner…**
 on the Timeline or Patterns toolbox (a stereo song gets a half-circle instead;
@@ -2729,7 +2731,7 @@ named.
 It needs at least three rows to mean anything — on a two-row layout the top two
 rows *are* the whole board, and moving the whole board is what **Origin value**
 already does — so the field only appears once there are three, and the layout
-remembers the number if you untick a row and tick it back.
+remembers the number if you switch a row off and back on.
 
 A layout using the split is written as a version-2 `.taudkey`; everything else
 still writes version 1, so a file only becomes unreadable to an older build when
@@ -2886,7 +2888,7 @@ bank file. Drop the song and its `.bnk` together — or select both in **Open…
 and they are matched up; without one, the general AdLib bank that ships with
 Microtone resolves nearly every patch name in circulation.
 
-`.sop` files — the song format of a Korean **OPL3** tracker of the mid-to-late
+`.sop` files — the song format of a Korean **OPL3** sequencer of the mid-to-late
 1990s, found in the same collections — open the same way and need **no bank at
 all**: a `.sop` stores its instruments rather than naming them, so one file is
 the whole song. Being an OPL3 format it brings three things an `.ims` cannot:
@@ -2903,7 +2905,7 @@ playing ordinary sample instruments, as the game played them: the note C-1 sound
 the recording as it was made, a sample stops when its note ends, and selecting an
 instrument that is not a sample silences the part until one is selected again.
 
-`.imac` files come from **The IMS Archive**, where one file is one song with
+`.imac` files come from **[The IMS Archive](https://imsarchive.curioustorvald.com/)**, where one file is one song with
 every variant of it that was found — a revision, a slightly different copy,
 another person's arrangement — each with the bank and lyrics it travelled with.
 Open one and Microtone lists the `.ims` and `.sop` songs inside; pick one and it
@@ -3027,7 +3029,7 @@ Stepping and transposing in such a notation clamps at the ends of the table —
 the table **is** the tuning's whole range.
 
 **Save** stores the definitions as one undo step; with **Use for this song**
-ticked the current song's notation switches to the edited slot immediately.
+lit the current song's notation switches to the edited slot immediately.
 **Export .taudnot** shares a definition as a small standalone file.
 
 ## Effect commands

@@ -167,6 +167,8 @@ pre {
 }
 .ds-drag { border-collapse: collapse; }
 .ds-fold { display: flex; flex-direction: column; gap: 0.5rem; max-width: 34rem; }
+/* A demo's rack units are <section>s, as the app's are: not the page's sections. */
+.ds-demo section { margin-bottom: 0; }
 .ds-drag td { padding: 0.2rem 0.6rem; border-bottom: 1px solid var(--border); }
 
 /* ── icons ── */

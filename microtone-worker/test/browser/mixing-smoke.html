@@ -125,16 +125,18 @@ function painted(cv) {
   bandBtns[5].click();
   await sleep(30);
   check(shown().join() === "1" && bandBtns[5].classList.contains("active"), "pressing HS shows the high shelf's", shown().join());
-  const power = deq.querySelector(".imx-bandbar button.toggle");
-  check(power.getAttribute("aria-pressed") === "false" && !bandBtns[5].querySelector(".seg-lamp").classList.contains("lit"),
-    "its On toggle and lamp say it is off");
+  const power = deq.querySelector(".imx-bandbar button.lamp-btn");
+  check(power.getAttribute("aria-pressed") === "false" && !bandBtns[5].querySelector(".seg-lamp").classList.contains("lit")
+    && !power.querySelector(".seg-lamp").classList.contains("lit"),
+    "its On lamp pushbutton and the band's lamp say it is off");
   power.click();
   await sleep(60);
   const hs = store.doc.imixBlock(1).equipment.deq1?.bands[1];
   check(hs?.on === true && store.doc.imixBlock(1).equipment.deq1.bypass === true,
-    "the toggle switches the band on (inserting the dynamic EQ, switched off)");
-  check(power.getAttribute("aria-pressed") === "true" && bandBtns[5].querySelector(".seg-lamp").classList.contains("lit"),
-    "…and the toggle and the lamp light");
+    "the lamp pushbutton switches the band on (inserting the dynamic EQ, switched off)");
+  check(power.getAttribute("aria-pressed") === "true" && bandBtns[5].querySelector(".seg-lamp").classList.contains("lit")
+    && power.querySelector(".seg-lamp").classList.contains("lit"),
+    "…and both lamps light");
   const boxHs = deq.querySelector('.mst-band[data-band="1"]');
   const boost = [...boxHs.querySelectorAll(".mst-seg button")].find((b) => b.textContent === "Boost");
   boost.click();
@@ -151,14 +153,33 @@ function painted(cv) {
     String(store.doc.imixBlock(1).equipment.deq1.bands[1].actorDb));
 
   // ── 3. the titlebar switch inserts, then bypasses ─────────────────────────
-  const sw = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"] .mst-unit-head input[type=checkbox]`);
+  const sw = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"] .mst-unit-head button.flip-switch`);
+  check(!!sw("verb") && sw("verb").getAttribute("role") === "switch" && sw("verb").getAttribute("aria-checked") === "false"
+    && sw("verb").getAttribute("aria-label") === "Reverb",
+    "a piece's titlebar ends in a flip switch, named for the piece and off", sw("verb")?.getAttribute("aria-label"));
+  check(!doc.querySelector(".mixing-tab input[type=checkbox], .imx-tab input[type=checkbox]"), "the Mixing tab has no checkboxes");
   sw("verb").click();
   await sleep(80);
-  check(!!store.doc.imixBlock(1).equipment.verb, "switching the reverb on inserts it");
+  check(!!store.doc.imixBlock(1).equipment.verb && sw("verb").getAttribute("aria-checked") === "true",
+    "switching the reverb on inserts it, and the switch shows it on");
+  {
+    const cs = getComputedStyle(sw("verb"));
+    const ink = getComputedStyle(doc.documentElement).getPropertyValue("--accent").trim();
+    const probe = doc.createElement("span");
+    probe.style.color = ink;
+    doc.body.append(probe);
+    const accentRgb = getComputedStyle(probe).color;
+    probe.remove();
+    check(cs.backgroundColor === accentRgb, "ON fills the track with the accent", `${cs.backgroundColor} vs ${accentRgb}`);
+  }
   sw("verb").click();
   await sleep(80);
-  check(store.doc.imixBlock(1).equipment.verb?.bypass === true,
+  check(store.doc.imixBlock(1).equipment.verb?.bypass === true && sw("verb").getAttribute("aria-checked") === "false",
     "switching it off BYPASSES it — the piece stays in the block");
+  {
+    const cs = getComputedStyle(sw("verb"));
+    check(cs.backgroundColor === "rgba(0, 0, 0, 0)", "OFF fills nothing", cs.backgroundColor);
+  }
   sw("verb").click();
   sw("satu").click();
   await sleep(60);
@@ -185,7 +206,7 @@ function painted(cv) {
   check(waveNow[1].classList.contains("active") && !waveNow[0].classList.contains("active"), "…and the button is the pressed one");
   const dcRow = [...unitEl("mxtl").querySelectorAll(".mst-row-check")].find((r) => r.textContent.includes("Remove DC"));
   check(!!dcRow, "the mix tool has Remove DC");
-  dcRow.querySelector("input").click();
+  dcRow.querySelector("button.lamp-btn").click();
   await sleep(80);
   check(store.doc.imixBlock(1).equipment.mxtl?.removeDc === true, "…which the block records");
 
@@ -322,7 +343,7 @@ function painted(cv) {
     const comp = unitEl("comp");
     const cb = [...comp.querySelectorAll(".imx-bandbar .mst-seg button")];
     check(cb.length === store.doc.imixBlock(1).equipment.comp.bands.length, "the compressor has a button per band", String(cb.length));
-    check(!!comp.querySelector(".imx-bandbar button.toggle[aria-pressed=\"true\"]"), "…and its band is on");
+    check(!!comp.querySelector(".imx-bandbar button.lamp-btn[aria-pressed=\"true\"]"), "…and its band is on");
   }
   doc.getElementById("stopBtn")?.click();
   store.audio.stop(0);

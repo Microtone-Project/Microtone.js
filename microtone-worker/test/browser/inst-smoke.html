@@ -18,6 +18,9 @@
       document.getElementById("out").textContent = out.join("\n");
     };
     const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
+    // A lamp pushbutton is pressed only when it is not already in the state wanted.
+    const lampOn = (b) => b?.getAttribute("aria-pressed") === "true";
+    const setLamp = (b, on) => { if (lampOn(b) !== !!on) b.click(); };
 
     (async () => {
       try {
@@ -79,8 +82,8 @@
 
         // "Enable default pan" toggles pan LOOP word bit 7.
         const useDefBefore = (inst.panEnvLoop >> 7) & 1;
-        const useDefChk = findRow("Enable default pan").querySelector("input[type=checkbox]");
-        useDefChk.checked = !useDefBefore; fire(useDefChk, "change");
+        const useDefChk = findRow("Enable default pan").querySelector("button.lamp-btn");
+        setLamp(useDefChk, !useDefBefore);
         const useDefOk = !!useDefChk && ((inst.panEnvLoop >> 7) & 1) === (useDefBefore ? 0 : 1);
         log(`use default pan: bit7 ${useDefBefore}→${(inst.panEnvLoop >> 7) & 1} (${useDefOk ? "ok" : "FAIL"})`);
 
@@ -159,46 +162,46 @@
         // Envelope log-time toggle exists and flips the flag.
         iv.tab = "env0";
         iv.renderPanel();
-        const logChk = [...iv.panel.querySelectorAll("label")]
-          .find((l) => /Log timescale/.test(l.textContent))?.querySelector("input");
-        logChk.checked = true; fire(logChk, "change");
+        const logChk = [...iv.panel.querySelectorAll("button.lamp-btn")]
+          .find((l) => /Log timescale/.test(l.textContent));
+        setLamp(logChk, true);
         const logOk = !!logChk && iv.envAxis.log === true;
         log(`env log-time toggle: present=${!!logChk} flag=${iv.envAxis.log} (${logOk ? "ok" : "FAIL"})`);
 
         // Pitch/Filter "Envelope present" claim toggle (item 36): the role tabs
-        // now carry the checkbox; ON claims the resolved slot, OFF releases it.
+        // now carry the lamp pushbutton; ON claims the resolved slot, OFF releases it.
         const baseSlot = store.doc.usedInstrumentSlots().find((s) => !store.doc.instruments[s].isMeta);
         iv.selected = baseSlot;
         iv.tab = "pitch";
         iv.renderPanel();
-        const findPresent = () => [...iv.panel.querySelectorAll("label")]
-          .find((l) => /Envelope present/.test(l.textContent))?.querySelector("input");
+        const findPresent = () => [...iv.panel.querySelectorAll("button.lamp-btn")]
+          .find((l) => /Envelope present/.test(l.textContent));
         const hasPresent = !!findPresent();
-        let onC = findPresent(); onC.checked = true; fire(onC, "change");
+        let onC = findPresent(); setLamp(onC, true);
         iv.renderPanel();
-        const claimed = findPresent().checked === true; // roleActive → checkbox reflects it
-        let offC = findPresent(); offC.checked = false; fire(offC, "change");
+        const claimed = lampOn(findPresent()) === true; // roleActive → the lamp reflects it
+        let offC = findPresent(); setLamp(offC, false);
         iv.renderPanel();
-        const released = findPresent().checked === false;
+        const released = lampOn(findPresent()) === false;
         const roleToggleOk = hasPresent && claimed && released;
         log(`pitch env present toggle: has=${hasPresent} claimed=${claimed} released=${released} (${roleToggleOk ? "ok" : "FAIL"})`);
 
         // Item 169.1: every envelope tab carries a Carry box that writes LOOP-word
         // bit 6 of THAT envelope's own word, and only that one.
-        const carryChk = () => [...iv.panel.querySelectorAll("label")]
-          .find((l) => /^Carry/.test(l.textContent.trim()))?.querySelector("input");
+        const carryChk = () => [...iv.panel.querySelectorAll("button.lamp-btn")]
+          .find((l) => /^Carry/.test(l.textContent.trim()));
         iv.selected = baseSlot;
         iv.tab = "env0";
         iv.renderPanel();
         const carryHas = !!carryChk();
         const carryStart = (store.doc.instruments[baseSlot].volEnvLoop >> 6) & 1;
-        let cc = carryChk(); cc.checked = !carryStart; fire(cc, "change");
+        let cc = carryChk(); setLamp(cc, !carryStart);
         iv.renderPanel();
         const volW = store.doc.instruments[baseSlot].volEnvLoop;
-        const carrySet = ((volW >> 6) & 1) !== carryStart && carryChk().checked === !carryStart;
+        const carrySet = ((volW >> 6) & 1) !== carryStart && lampOn(carryChk()) === !carryStart;
         // …the pan envelope's word is untouched by the volume tab's box.
         const panUntouched = ((store.doc.instruments[baseSlot].panEnvLoop >> 6) & 1) === 0;
-        cc = carryChk(); cc.checked = !!carryStart; fire(cc, "change");
+        cc = carryChk(); setLamp(cc, !!carryStart);
         iv.renderPanel();
         const carryBack = ((store.doc.instruments[baseSlot].volEnvLoop >> 6) & 1) === carryStart;
         const carryOk = carryHas && carrySet && panUntouched && carryBack;
@@ -216,16 +219,16 @@
         for (const [tabId, label] of envTabs) {
           iv.tab = tabId;
           iv.renderPanel();
-          const findPresentChk = () => [...iv.panel.querySelectorAll("label")]
-            .find((l) => /Envelope present/.test(l.textContent))?.querySelector("input");
+          const findPresentChk = () => [...iv.panel.querySelectorAll("button.lamp-btn")]
+            .find((l) => /Envelope present/.test(l.textContent));
           let c = findPresentChk();
-          if (!c.checked) { c.checked = true; fire(c, "change"); iv.renderPanel(); }
+          if (!lampOn(c)) { setLamp(c, true); iv.renderPanel(); }
           const headOn = iv.panel.querySelector(".detail-info");
           const bOn = headOn?.querySelector("b");
           const onOk = headOn?.textContent.startsWith(`${label}: `) &&
             bOn?.classList.contains("env-present") && /present/i.test(bOn.textContent ?? "");
           c = findPresentChk();
-          c.checked = false; fire(c, "change"); iv.renderPanel();
+          setLamp(c, false); iv.renderPanel();
           const headOff = iv.panel.querySelector(".detail-info");
           const bOff = headOff?.querySelector("b");
           const offOk = headOff?.textContent.startsWith(`${label}: `) &&
@@ -249,10 +252,10 @@
         iv.selected = baseSlot;
         iv.tab = "env1";                       // Pan: presence is the P bit itself
         iv.renderPanel();
-        const presentChk = () => [...iv.panel.querySelectorAll("label")]
-          .find((l) => /Envelope present/.test(l.textContent))?.querySelector("input");
+        const presentChk = () => [...iv.panel.querySelectorAll("button.lamp-btn")]
+          .find((l) => /Envelope present/.test(l.textContent));
         let pc = presentChk();
-        if (pc.checked) { pc.checked = false; fire(pc, "change"); iv.renderPanel(); }
+        if (lampOn(pc)) { setLamp(pc, false); iv.renderPanel(); }
         const addFrom = panCount();
         // Park a DISABLED sustain on the tail: claiming presence has to arm it
         // and walk it to the appended node, all in the one click.
@@ -263,7 +266,7 @@
         const susBefore = panInst().panEnvSustainWord;
         envBtn(/Add node/).click();
         iv.renderPanel();
-        const addClaimed = (panInst().panEnvLoop & 0x2000) !== 0 && presentChk().checked === true;
+        const addClaimed = (panInst().panEnvLoop & 0x2000) !== 0 && lampOn(presentChk()) === true;
         const addGrew = panCount() === addFrom + 1;
         const armW = panInst().panEnvSustainWord;
         const armOk = ((armW >> 5) & 1) === 1 && ((armW >> 8) & 0x1f) === addFrom &&
@@ -308,15 +311,15 @@
         iv.tab = "pitch";
         iv.renderPanel();
         let ppc = presentChk();
-        if (ppc.checked) { ppc.checked = false; fire(ppc, "change"); iv.renderPanel(); }
+        if (lampOn(ppc)) { setLamp(ppc, false); iv.renderPanel(); }
         envBtn(/Add node/).click();
         iv.renderPanel();
         const pfWords = () => [panInst().pfEnvLoop, panInst().pf2EnvLoop];
-        const roleClaimOk = presentChk().checked === true &&
+        const roleClaimOk = lampOn(presentChk()) === true &&
           pfWords().some((w) => (w & 0x2000) !== 0 && (w & 0x80) === 0);
         store.undo.undo();
         iv.renderPanel();
-        const roleUndoOk = presentChk().checked === false;
+        const roleUndoOk = lampOn(presentChk()) === false;
         const env181Ok = addClaimed && addGrew && armOk && addUndoOk && remOk && susFollowOk &&
           susClampOk && roleClaimOk && roleUndoOk;
         log(`item181 env nodes: claim=${addClaimed} grew=${addGrew} susArm=${armOk} ` +
@@ -333,7 +336,7 @@
         iv.tab = "env0";
         iv.renderPanel();
         let vpc = presentChk();
-        if (vpc.checked) { vpc.checked = false; fire(vpc, "change"); iv.renderPanel(); }
+        if (lampOn(vpc)) { setLamp(vpc, false); iv.renderPanel(); }
         const unticked = !volP();
         iv.selectedNode = 0;
         iv.renderPanel();
@@ -343,7 +346,7 @@
         valueIn.value = String(node0 === 40 ? 41 : 40);
         fire(valueIn, "change");
         iv.renderPanel();
-        const fieldClaim = volP() && presentChk().checked === true;
+        const fieldClaim = volP() && lampOn(presentChk()) === true;
         store.undo.undo();
         iv.renderPanel();
         const fieldUndo = !volP() && volInst().volEnvelopes[0].value === node0;

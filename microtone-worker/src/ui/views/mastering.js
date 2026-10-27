@@ -62,6 +62,8 @@ import { themeColors } from "../theme.js";
 import { RMS_SLOW_MS, integrateCorrelation, CORR_SLEW_MS } from "./masterstrip.js";
 import { CrtScope, parseInk, slewTowards } from "../crtscope.js";
 import { t } from "../i18n.js";
+import { lampButton } from "../components/lampbutton.js";
+import { flipSwitch } from "../components/flipswitch.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
 /** Metering scale for the level bars, in dBFS. */
@@ -551,9 +553,8 @@ export class MasteringView {
     title.className = "mst-title";
     title.textContent = t("mst.title");
 
-    const power = this.switchEl(t("mst.chainOn"), () => this.params.on,
+    const power = this.lamp(t("mst.chainOn"), () => this.params.on,
       (on) => this.edit((p) => { p.on = on; }));
-    power.classList.add("mst-power");
 
     const seg = document.createElement("div");
     seg.className = "mst-seg";
@@ -614,8 +615,7 @@ export class MasteringView {
     name.textContent = t(titleKey);
     head.append(name);
     if (power) {
-      const sw = this.switchEl("", power.get, power.set);
-      head.appendChild(sw);
+      head.appendChild(this.flip(t(titleKey), power.get, power.set));
       box.classList.add("mst-switchable");
       this.controls.push({ el: box, refresh: () => box.classList.toggle("mst-off", !power.get()) });
     }
@@ -675,7 +675,7 @@ export class MasteringView {
     const name = document.createElement("span");
     name.textContent = t("mst.band", { n: i + 1 });
     head.append(name,
-      this.switchEl("", () => this.params.eq[i].on,
+      this.flip(t("mst.band", { n: i + 1 }), () => this.params.eq[i].on,
         (on) => this.edit((p) => { p.eq[i].on = on; })));
     box.appendChild(head);
     // Only the outer bands may be shelves (mastering.js normalises the rest),
@@ -765,19 +765,18 @@ export class MasteringView {
 
   // ── control widgets ──
 
-  /** A small on/off switch that reads its state from the document. */
-  switchEl(label, get, set) {
-    const wrap = document.createElement("label");
-    wrap.className = "mst-switch";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = !!get();
-    box.addEventListener("change", () => set(box.checked));
-    const txt = document.createElement("span");
-    txt.textContent = label;
-    wrap.append(box, txt);
-    this.controls.push({ el: wrap, refresh: () => { box.checked = !!get(); } });
-    return wrap;
+  /** A lamp pushbutton for an option, kept in step with the document. */
+  lamp(label, get, set, title = "") {
+    const b = lampButton({ label, title, on: get(), onChange: set });
+    this.controls.push({ el: b.button, refresh: () => b.setOn(get()) });
+    return b.button;
+  }
+
+  /** A flip switch putting a unit (or an EQ band) in circuit, kept in step. */
+  flip(label, get, set) {
+    const s = flipSwitch({ label, on: get(), onChange: set });
+    this.controls.push({ el: s.button, refresh: () => s.setOn(get()) });
+    return s.button;
   }
 
   dbRow(labelKey, key, control) {
@@ -871,20 +870,11 @@ export class MasteringView {
     return row;
   }
 
+  /** An option's row: one lamp pushbutton, named for the option. */
   checkRow(labelKey, titleKey, get, set) {
     const row = document.createElement("div");
     row.className = "mst-row mst-row-check";
-    const wrap = document.createElement("label");
-    wrap.className = "mst-check";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.addEventListener("change", () => set(box.checked));
-    const txt = document.createElement("span");
-    txt.textContent = t(labelKey);
-    wrap.append(box, txt);
-    if (titleKey) wrap.title = t(titleKey);
-    row.appendChild(wrap);
-    this.controls.push({ el: row, refresh: () => { box.checked = !!get(); } });
+    row.appendChild(this.lamp(t(labelKey), get, set, titleKey ? t(titleKey) : ""));
     return row;
   }
 

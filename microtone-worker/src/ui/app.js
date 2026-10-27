@@ -61,6 +61,7 @@ import { ZSTD_LEVEL_SAVE, ZSTD_LEVEL_AUTOSAVE } from "../../core/format/zstd.js"
 import { withSaveProgress, saveInProgress } from "./saveprogress.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./components/spinner.js";
+import { lampButton } from "./components/lampbutton.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
 initZoom();  // …and before anything measures itself: the factor scales the layout
@@ -1192,7 +1193,14 @@ function playCursor() {
 $("playSong").addEventListener("click", () => playFrom(0, 0));
 $("playCue").addEventListener("click", () => playFrom(playCursor().cue, 0));
 $("stopBtn").addEventListener("click", () => store.audio?.stop(0));
-$("follow").addEventListener("change", (e) => { store.follow = e.target.checked; });
+{
+  // Follow: a lamp pushbutton in the transport, lit while the grids scroll
+  // with the playhead. Its label is static text, relabelled by applyDom.
+  const follow = lampButton({ label: t("topbar.follow"), on: store.follow, onChange: (on) => { store.follow = on; } });
+  follow.button.id = "follow";
+  follow.button.querySelector(".lamp-text").dataset.i18n = "topbar.follow";
+  $("follow").replaceWith(follow.button);
+}
 
 /** A keymap strip cap, clicked in record mode (item 207): note entry into the
  *  grid the strip is docked under, which the click has already handed the

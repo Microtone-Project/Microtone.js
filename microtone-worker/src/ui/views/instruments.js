@@ -45,6 +45,7 @@ import {
 } from "../../doc/envedit.js";
 import { mapSpinner } from "../components/spinner.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
+import { lampButton } from "../components/lampbutton.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import { hex2, rangeToStr } from "../notenames.js";
 import { noteGlyph, rangeGlyph } from "../components/noteglyph.js";
@@ -979,8 +980,7 @@ export class InstrumentsView {
     this.renderPanel();
   }
 
-  /** label · checkbox (with on/off text) row. */
-  /** A labelled checkbox. `opts.hint` writes a line of explanation across the
+  /** label · lamp pushbutton (saying On / Off) row. `opts.hint` writes a line of explanation across the
    *  row's remaining columns — worth the space for a flag whose effect is not
    *  guessable from its name — and `opts.disabled` greys one out where it does
    *  not apply, which says more than leaving it out would. */
@@ -990,14 +990,10 @@ export class InstrumentsView {
     const lab = document.createElement("span");
     lab.className = "sl-label"; lab.textContent = label;
     if (title) lab.title = title;
-    const wrap = document.createElement("label");
-    wrap.className = "sl-check";
-    if (title) wrap.title = title;
-    const c = document.createElement("input");
-    c.type = "checkbox"; c.checked = checked; c.disabled = disabled;
-    c.addEventListener("change", () => onChange(c.checked));
-    wrap.append(c, document.createTextNode(checked ? t("inst.on") : t("inst.off")));
-    row.append(lab, wrap);
+    const { button } = lampButton({
+      label: [t("common.off"), t("common.on")], on: checked, onChange, title, disabled, className: "sl-check",
+    });
+    row.append(lab, button);
     if (hint) {
       const h = document.createElement("span");
       h.className = "sl-hint";
@@ -1409,16 +1405,8 @@ export class InstrumentsView {
       l.appendChild(inp);
       return l;
     };
-    const chk = (label, checked, onChange, title) => {
-      const l = document.createElement("label");
-      l.className = "env-ctl chk";
-      if (title) l.title = title;
-      const c = document.createElement("input");
-      c.type = "checkbox"; c.checked = checked;
-      c.addEventListener("change", () => onChange(c.checked));
-      l.append(c, document.createTextNode(label));
-      return l;
-    };
+    const chk = (label, checked, onChange, title) =>
+      lampButton({ label, on: checked, onChange, title, className: "env-chk" }).button;
     const btn = (label, title, onClick, disabled) => {
       const b = document.createElement("button");
       b.textContent = label; b.title = title; b.disabled = !!disabled;
@@ -1468,7 +1456,7 @@ export class InstrumentsView {
       (on) => { this.envAxis.setLog(on); this.drawEnvGraph(); });
     // "Envelope present" — for Vol/Pan it toggles the LOOP-word P bit directly;
     // for Pitch/Filter (role) tabs it claims/releases the resolved slot's role
-    // (item 36), so the checkbox tracks roleActive.
+    // (item 36), so the lamp tracks roleActive.
     wrap.appendChild(row(
       tabDef.role
         ? chk(t("env.present"), tabDef.roleActive, (on) => this.setRolePresent(tabDef, on))
@@ -1829,15 +1817,10 @@ export class InstrumentsView {
     // the only thing it changes: the rectangle above still decides which keys
     // reach this layer.
     if (allowFixed) {
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = fixed;
-      box.addEventListener("change", () => commit(fixedPitchFields(entry, box.checked)));
-      const lab = document.createElement("label");
-      lab.className = "meta-fixed";
-      lab.title = t("meta.fixedTitle");
-      lab.append(box, document.createTextNode(t("meta.fixed")));
-      detCell.append(lab);
+      detCell.append(lampButton({
+        label: t("meta.fixed"), on: fixed, title: t("meta.fixedTitle"), className: "meta-fixed",
+        onChange: (on) => commit(fixedPitchFields(entry, on)),
+      }).button);
     }
 
     // Gating rectangle. The new-meta hint has always told people to "narrow
@@ -2402,13 +2385,9 @@ export class InstrumentsView {
       input.addEventListener("change", () => onChange(clampN(Math.round(+input.value || 0), min, max)));
       return input;
     };
-    const check = (value, onChange) => {
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = !!value;
-      input.addEventListener("change", () => onChange(input.checked ? 1 : 0));
-      return input;
-    };
+    const check = (value, onChange) => lampButton({
+      label: [t("common.off"), t("common.on")], on: !!value, onChange: (on) => onChange(on ? 1 : 0),
+    }).button;
     const select = (value, options, onChange) => {
       const sel = document.createElement("select");
       for (const [v, text] of options) sel.appendChild(new Option(text, v, false, v === value));

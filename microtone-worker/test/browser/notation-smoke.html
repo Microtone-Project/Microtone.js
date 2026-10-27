@@ -88,7 +88,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
     dlg.querySelectorAll(".nota-degrees tbody tr")[1].querySelectorAll("select")[1].value === "Q");
 
   // ── save with assign ──
-  check("assign checkbox default on", dlg.querySelector('[data-f="assign"]').checked);
+  check("the Use for this song lamp starts lit", dlg.querySelector('[data-f="assign"]').getAttribute("aria-pressed") === "true");
   const saveBtn = dlg.querySelector('[data-f="save"]');
   check("save enabled (no issues)", !saveBtn.disabled);
   saveBtn.click();

@@ -884,7 +884,10 @@ select, input[type="range"] {
 .brand-tm::after { content: "TM" }
 
 .transport-controls { display: flex; gap: 0.3rem; align-items: center; }
-.chk { color: var(--dim); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem; }
+/* Every key on the top bar stands as tall as a worded one: an icon button's
+   line box is shorter, and a lamp pushbutton's own minimum is taller. The
+   spinner's step buttons are segments of the Song picker, not keys. */
+.topbar button:not(.mt-step) { min-height: 1.8rem; }
 
 /* Vector button labels (item 107) — ▶ ■ ⏺ ↶ ↷ ↻ ◐ ⬇ ↗ ♥ ⇤ ⇥ as SVG, since
    several of those code points are missing from the stock fonts on some phones
@@ -1498,7 +1501,7 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
   cursor: pointer;
 }
 .zoom-ctl:hover > b { color: var(--fg); }
-.zoom-ctl > button { padding: 0.1rem 0.4rem; line-height: 1; }
+.zoom-ctl > button { padding-left: 0.4rem; padding-right: 0.4rem; }
 
 .toolbox, .toolbox-transparent {
   display: flex;
@@ -1654,11 +1657,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-table .velCell .meta-num { width: 4em; margin-right: 0.25rem; }
 /* The fixed-pitch switch (item 179) sits under the field it re-reads, small
    enough not to compete with it and close enough to belong to it. */
-.meta-table .meta-fixed {
-  display: inline-flex; align-items: center; gap: 0.2rem;
-  margin-left: 0.5rem; font-size: 0.8rem; color: var(--dim);
-}
-.meta-table .meta-fixed input { margin: 0; }
+.meta-table button.meta-fixed { margin-left: 0.5rem; min-height: 1.6rem; font-size: 0.8rem; }
 .meta-table .meta-act {
   padding: 0.1rem 0.4rem; margin-right: 0.2rem; font-size: 0.85rem;
 }
@@ -2151,7 +2150,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .nota-modal .nota-num, .nota-modal .mt-spin > input.nota-num { font-family: var(--mono-font); }
 .nota-add { align-self: flex-start; font-size: 0.82rem; }
 .nota-btns { gap: 0.6rem; }
-.nota-assign { display: flex; align-items: center; gap: 0.3rem; color: var(--dim); font-size: 0.85rem; }
+button.nota-assign { font-size: 0.85rem; }
 .nota-issues { font-size: 0.78rem; color: var(--accent-2); max-width: 22rem; }
 
 @media (max-width: 680px) {
@@ -2430,7 +2429,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .opl-edit { display: grid; gap: 0.4rem; max-width: 960px; }
 .opl-edit .inst-grid { margin-bottom: 0.2rem; }
 .inst-group { display: flex; flex-direction: column; gap: 0.28rem; }
-.opl-edit .inst-field input[type="checkbox"] { width: auto; }
+.inst-field button.lamp-btn { min-width: 4.6rem; }
 .opl-env {
   width: 100%;
   height: 48px;
@@ -2466,7 +2465,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-variation-settings: "wdth" 75; letter-spacing: -0.01em;
 }
 .psg-edit .inst-field input.psg-live { color: var(--accent); border-color: var(--accent); }
-.psg-edit .inst-field input[type="checkbox"].psg-live { outline: 1px solid var(--accent); outline-offset: 1px; }
+.psg-edit .inst-field button.lamp-btn.psg-live { color: var(--accent); border-color: var(--accent); }
 
 /* ── Formant tab (item 212, views/instformant.js) ──
    The vowel chart is an SVG drawn in theme tokens; every IPA symbol, there and
@@ -2564,7 +2563,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* The vibrato waveform buttons: each wave drawn twice in Motif Grid's
    edge-to-edge waveform glyphs, so the two periods join. */
 .slider-row .sl-buttons button.wave-btn { font-family: var(--cv-font); font-size: 1rem; line-height: 1; padding: 0.2rem 0.5rem; letter-spacing: 0; }
-.slider-row .sl-check { grid-column: 2 / -1; display: flex; align-items: center; gap: 0.35rem; color: var(--fg); justify-self: start; }
+.slider-row .sl-check { grid-column: 2; justify-self: start; min-width: 4.6rem; }
 .slider-row input.sl-num.wide { width: 100%; }
 .slider-row input.sl-range { width: 100%; }
 .slider-row.noslider { grid-template-columns: 10rem 9rem minmax(4.5rem, 1fr); }
@@ -2597,7 +2596,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 0.12rem 0.3rem; width: 4.5rem;
 }
-.env-ctl.chk { gap: 0.3rem; }
+.env-row button.env-chk { font-size: 0.85rem; }
 .env-row button { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
 
 /* Advanced Edit (item 49b) — whole-panel Ixmp patch editor over .side-detail. */
@@ -3017,14 +3016,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .chord-voices { display: flex; flex-direction: column; gap: 0.25rem; }
 .chord-voice {
   display: grid; gap: 0.4rem; align-items: center;
-  /* on · № · mode · value · oct · dB · glyph · readout (fixed width: the
+  /* on (the № on a lamp pushbutton) · mode · value · oct · dB · glyph · readout (fixed width: the
      widest reading is "×1.9632 · +1167.8 cents · grid −32", never clipped) */
-  grid-template-columns: auto 1.1rem 6.4rem minmax(7rem, 1fr) auto auto auto 16rem;
+  grid-template-columns: 3.4rem 6.4rem minmax(7rem, 1fr) auto auto auto 16rem;
   padding: 0.15rem 0.4rem; font-size: 0.85rem; color: var(--dim);
   background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 .chord-voice.off { opacity: 0.5; }
-.chord-voice .cv-num { color: var(--fg2); text-align: right; }
+.chord-voice button.cv-on { min-height: 1.6rem; padding: 0.1rem 0.5rem; font-size: 0.85rem; }
 .chord-voice select,
 .chord-voice input[type="number"],
 .chord-voice input[type="text"] {
@@ -3706,7 +3705,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
  * grips (chromeless by design, and they say so with `background: none`),
  * the step buttons of a spinner group (segments of one well — see below)
  * and the pane's own close/split affordance. */
-[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn) {
+[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn, .flip-switch) {
   background: var(--abs-cap);
   border-color: #9d8c62;
   border-radius: 5px;
@@ -3717,10 +3716,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
               box-shadow 150ms cubic-bezier(0.22, 0.9, 0.28, 1),
               background 150ms ease-out;
 }
-[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn):hover {
+[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn, .flip-switch):hover {
   background: linear-gradient(180deg, #f1e8ce 0%, #e5dbba 52%, #d3c69b 100%);
 }
-[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn):active:not(:disabled) {
+[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn, .flip-switch):active:not(:disabled) {
   transform: translateY(1px);
   background: var(--abs-cap-down);
   box-shadow: inset 0 2px 3px rgba(74, 58, 24, 0.34);
@@ -4077,15 +4076,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .mst-range { width: 100%; }
 .mst-row select { width: 100%; padding: 0.1rem 0.3rem; font-size: 0.82rem; }
 
-.mst-switch, .mst-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--dim);
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-.mst-power { color: var(--fg); }
+/* An option row is one lamp pushbutton, across the row's columns. */
+.mst-row-check > .lamp-btn { grid-column: 1 / -1; font-size: 0.85rem; }
 
 .mst-band {
   border: 1px solid var(--border);
@@ -4147,6 +4139,57 @@ button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--a
   background: var(--meter-bg); border: 1px solid var(--border);
 }
 .seg-lamp.lit { background: var(--meter); border-color: var(--meter); }
+
+/* LAMP PUSHBUTTON (components/lampbutton.js): an option's on/off, where a
+   checkbox was too small a target. The lamp carries the state; the label stays
+   the option's name, in the button's own ink, so a column of options does not
+   turn into a wall of accent. */
+button.lamp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.75rem 0.2rem 0.6rem;
+  justify-self: start;
+  white-space: nowrap;
+}
+button.lamp-btn .seg-lamp { width: 0.62em; height: 0.62em; margin: 0; flex: 0 0 auto; vertical-align: 0; }
+button.lamp-btn:disabled { opacity: 0.45; cursor: default; }
+button.lamp-btn:disabled:hover { border-color: var(--border); }
+
+/* FLIP SWITCH (components/flipswitch.js): a piece of equipment, or a band of
+   one, in circuit or bypassed. ON fills the track with the accent and parks
+   the knob at the right; OFF has no fill at all, the knob at the left in the
+   dim ink. Not a keycap: the warmth theme's moulding passes it by. */
+button.flip-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.6rem;
+  height: 1.45rem;
+  padding: 0;
+  border: 1px solid var(--dim);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  vertical-align: middle;
+}
+.flip-knob {
+  position: absolute;
+  top: 50%;
+  left: 0.2rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  background: var(--dim);
+  transform: translateY(-50%);
+  transition: left 120ms ease-out, background 120ms ease-out;
+}
+button.flip-switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+button.flip-switch[aria-checked="true"] .flip-knob { left: calc(100% - 0.95rem - 0.2rem); background: var(--proceed-fg); }
+button.flip-switch:hover:not(:disabled) { border-color: var(--accent); }
+button.flip-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.flip-switch:disabled { opacity: 0.45; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .flip-knob { transition: none; } }
 
 .mst-canvas { width: 100%; display: block; }
 /* Instruments side by side (item 257: the Goniometer, then Bit usage): the
@@ -4289,7 +4332,7 @@ button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--a
 /* The name takes its own width, not the bar's: the Mix slider gets the rest,
    and the switch keeps the right end whether or not there is a slider. */
 .imx-unit .mst-unit-name { flex: 0 1 auto; }
-.imx-unit .mst-unit-head > .mst-switch { margin-left: auto; }
+.imx-unit .mst-unit-head > .flip-switch { margin-left: auto; }
 /* Folded, the titlebar is the whole unit. */
 .imx-unit.folded .mst-unit-head { border-bottom: 0; border-radius: var(--radius-md); }
 /* Wet/dry in the titlebar, reported as the WET share — long enough to set by
@@ -4323,7 +4366,7 @@ button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--a
    touchscreen as often as with a mouse: the On button's own type size, wide
    sides and a tall target — and the segment ends rounded as that button is,
    so a lone segment and the On beside it are the same capsule. */
-.imx-unit .mst-seg button, .imx-unit button.toggle {
+.imx-unit .mst-seg button, .imx-unit button.toggle, .imx-unit button.lamp-btn {
   font-size: 0.95rem;
   min-height: 2rem;
   min-width: 3.2rem;
@@ -4432,7 +4475,7 @@ button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--a
 .keymap-field input[type="number"] { width: 5rem; }
 .keymap-field select { max-width: 9.5rem; }
 .keymap-rows { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; }
-.keymap-rows label { display: flex; align-items: center; gap: 0.15rem; font-size: 0.75rem; }
+.keymap-rows button.lamp-btn { font-size: 0.75rem; min-height: 1.6rem; padding: 0.1rem 0.45rem; }
 .keymap-sub { color: var(--dim); font-size: 0.74rem; }
 .keymap-readout {
   display: flex;

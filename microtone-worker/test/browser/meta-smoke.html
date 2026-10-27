@@ -208,9 +208,9 @@
         // ── item 179: the fixed-pitch flag ──
         // The switch changes what the field beside it MEANS, so what is checked
         // is the pair: the box, the value it carries over, and the record bit.
-        const fixedBox = () => rows()[0].querySelector(".meta-fixed input");
+        const fixedBox = () => rows()[0].querySelector("button.meta-fixed");
         check("every layer row carries a fixed-pitch switch",
-          rows().every((_, r) => !!rows()[r].querySelector(".meta-fixed input")));
+          rows().every((_, r) => !!rows()[r].querySelector("button.meta-fixed")));
         const detBefore = layers()[0].detune;
         fixedBox().click();
         await sleep(40);
@@ -253,7 +253,8 @@
         check("…then Mixing, as every instrument has", tabBtns()[2].textContent === "Mixing");
         tabBtns()[1].click();
         await sleep(40);
-        const boxes = () => [...panel().querySelectorAll(".slider-row.check input")];
+        const boxes = () => [...panel().querySelectorAll(".slider-row.check button.lamp-btn")];
+        const on = (b) => b.getAttribute("aria-pressed") === "true";
         check("the Options tab is showing", instrumentsView.tab === "metaopts");
         check("…with the two record flags", boxes().length === 2);
         check("…named", [...panel().querySelectorAll(".sl-label")].map((e) => e.textContent)
@@ -270,7 +271,7 @@
             .includes("$" + rec0().toString(16).toUpperCase().padStart(2, "0")));
         const percWas = bit(0x02), strictWas = bit(0x01);
         check("the boxes start on what the record says",
-          boxes()[0].checked === percWas && boxes()[1].checked === strictWas);
+          on(boxes()[0]) === percWas && on(boxes()[1]) === strictWas);
 
         boxes()[0].click();
         await sleep(50);
@@ -278,7 +279,7 @@
         check("…which is what a retuner reads",
           doc.instruments[metaSlot].isPercussion === !percWas);
         check("…and the layer table is untouched", snapshot() === afterLayers);
-        check("…and the box comes back on the new state", boxes()[0].checked === !percWas);
+        check("…and the box comes back on the new state", on(boxes()[0]) === !percWas);
 
         boxes()[1].click();
         await sleep(50);

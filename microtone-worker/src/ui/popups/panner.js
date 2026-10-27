@@ -25,6 +25,7 @@ import { paintSpatialDot } from "../spatialdot.js";
 import { azimuthLabel, elevationLabel, panLabel } from "../units.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { lampButton } from "../components/lampbutton.js";
 import { localPoint } from "../zoom.js";
 
 const DIAL = 210;        // dial canvas size (CSS px)
@@ -277,18 +278,13 @@ export function showPanner(store, target) {
     // choice is remembered for the session, like the other view toggles.
     const viewOpts = document.createElement("div");
     viewOpts.className = "panner-opts";
-    const onlyLab = document.createElement("label");
-    const onlyBox = document.createElement("input");
-    onlyBox.type = "checkbox";
-    onlyBox.checked = store.pannerOwnOnly === true;
-    onlyBox.disabled = target === null; // nothing to single out in watch-only mode
-    onlyBox.addEventListener("change", () => {
-      store.pannerOwnOnly = onlyBox.checked;
-      refresh(false);
+    const setOnly = (on) => { store.pannerOwnOnly = on; refresh(false); };
+    const only = lampButton({
+      label: t("panner.onlyThis"), title: t("panner.onlyThisTitle"), on: store.pannerOwnOnly === true,
+      disabled: target === null, // nothing to single out in watch-only mode
+      onChange: setOnly,
     });
-    onlyLab.append(onlyBox, t("panner.onlyThis"));
-    onlyLab.title = t("panner.onlyThisTitle");
-    viewOpts.appendChild(onlyLab);
+    viewOpts.appendChild(only.button);
 
     // Every edit lands as it is made, so there is nothing to commit or
     // abandon: one Close.
@@ -598,7 +594,7 @@ export function showPanner(store, target) {
         el = e;
         refresh(false);
       },
-      onlyThis: (on) => { onlyBox.checked = on; onlyBox.dispatchEvent(new Event("change")); },
+      onlyThis: (on) => { only.setOn(on); setOnly(on); },
       place: () => placeBtn?.click(),
       target: () => targetBtn?.click(),
       slide: () => slideBtn?.click(),
