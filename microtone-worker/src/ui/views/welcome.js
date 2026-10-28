@@ -33,6 +33,7 @@ import { fillDemos } from "../demos.js";
 import { t, currentLang, onLangChange } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { linkTouch } from "../touchlink.js";
+import { ABOUT_PAGE } from "../popups/about.js";
 
 const RECENT_MAX = 6;     // rows in the Recent panel
 const NEWS_BULLETS = 4;   // headline items in the What's new panel
@@ -186,7 +187,12 @@ export class WelcomeView {
     gh.target = "_blank";
     gh.rel = "noopener";
     gh.textContent = "GitHub";
-    links.append(docs, dot(), keys, dot(), gh);
+    const why = document.createElement("a");
+    why.href = ABOUT_PAGE;
+    why.target = "_blank";
+    why.rel = "noopener";
+    why.textContent = t("welcome.why");
+    links.append(docs, dot(), keys, dot(), why, dot(), gh);
     p.appendChild(links);
     return p;
   }

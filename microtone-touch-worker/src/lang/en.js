@@ -289,6 +289,7 @@ export default {
   "about.blurb1": "Microtone Touch is a sketchpad for the notes a piano cannot play: an isomorphic keyboard in 4- to 53-tone equal temperaments, Bohlen–Pierce and the twelve lü, eight lanes of preset instruments, and a pattern grid cut down to notes and a handful of effects.",
   "about.blurb2": "A sketch is kept on your phone, or online with the account you use in Microtone — which opens it as an ordinary project, to carry on with everything the tracker can do.",
   "about.license": "Microtone Touch is free software distributed under the terms of the GNU General Public License version 3.",
+  "about.why": "Why Microtone?",
   "about.supportHead": "Keeping it free",
   "about.support": "Microtone has no ads, no tracking and no paid tier — and it is not going to grow any. It is written by one person in their spare time; donations and sponsorships cover the hosting and buy the hours that go into it.",
   "about.donate": "Donate",

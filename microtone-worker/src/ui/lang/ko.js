@@ -316,6 +316,7 @@ export default {
   "welcome.drop": "…또는 .taud·모듈·MIDI 파일을 이 화면 아무 곳에나 끌어다 놓으세요.",
   "welcome.docs": "문서",
   "welcome.shortcuts": "단축키",
+  "welcome.why": "왜 Microtone일까요?",
   "welcome.recent": "최근 프로젝트",
   "welcome.recentNone": "아직 아무것도 없습니다 — 저장한 프로젝트가 이곳에 실립니다.",
   "welcome.recentUnavailable": "브라우저 저장소를 쓸 수 없습니다(사생활 보호 모드?). 이곳에는 아무것도 남지 않으니 작업물을 내보내서 보관하세요.",
@@ -378,6 +379,7 @@ export default {
   "about.thanksEmpty": "후원자와 스폰서가 이곳에 실립니다 — 프로젝트를 지원해 주셔서 감사합니다!",
   "about.docs": "문서",
   "about.patchNotes": "패치 노트",
+  "about.why": "왜 Microtone일까요?",
   "about.version": "버전 {version}",
 
   // ── files view ──

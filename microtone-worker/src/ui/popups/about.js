@@ -14,6 +14,12 @@ import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { linkTouch } from "../touchlink.js";
 
+// The product page (microtone.cc/about/), by its full address: the desktop
+// shell sends an outside link to the system's browser, but would take a page
+// of the app's own for its main window (desktop/src/links.rs), and the desktop
+// bundle leaves the page out.
+export const ABOUT_PAGE = "https://microtone.cc/about/";
+
 const THANKS = [
   // ["Name", "note"], — donors/sponsors, newest first
 ];
@@ -46,6 +52,7 @@ export function showAbout() {
     <p>
       <a href="docs.html" target="_blank" rel="noopener">${esc(t("about.docs"))}</a> ·
       <a href="docs.html#patchnotes" target="_blank" rel="noopener">${esc(t("about.patchNotes"))}</a> ·
+      <a href="${ABOUT_PAGE}" target="_blank" rel="noopener">${esc(t("about.why"))}</a> ·
       <a data-touch>Microtone Touch</a> ·
       <a href="https://github.com/curioustorvald/Microtone.js" target="_blank" rel="noopener">GitHub</a> ·
       <a href="https://bsky.app/profile/did:plc:3enk4wk6acr23segkntcdzzc" target="_blank" rel="noopener">Bluesky</a>

@@ -321,6 +321,7 @@ export default {
   "welcome.drop": "…or drop a .taud, module or MIDI file anywhere on this page.",
   "welcome.docs": "Documentation",
   "welcome.shortcuts": "Keyboard shortcuts",
+  "welcome.why": "Why Microtone?",
   "welcome.recent": "Recent projects",
   "welcome.recentNone": "Nothing here yet — your projects will be listed as you save them.",
   "welcome.recentUnavailable": "In-browser storage is unavailable (private mode?), so nothing persists here. Export your work to keep it.",
@@ -387,6 +388,7 @@ export default {
   "about.thanksEmpty": "Donors and sponsors will be listed here — thank you for supporting the project!",
   "about.docs": "Documentation",
   "about.patchNotes": "Patch notes",
+  "about.why": "Why Microtone?",
   "about.version": "Version {version}",
 
   // ── files view ──

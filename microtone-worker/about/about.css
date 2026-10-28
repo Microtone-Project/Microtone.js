@@ -1,0 +1,387 @@
+/* microtone.cc/about — the product page.
+ *
+ * A parody of a creative suite's product site, so it borrows that genre's
+ * furniture — a promotion ribbon, a sticky bar with Free trial / Buy now, a
+ * logo wall, app tiles, plan cards, an accordion of questions — and sets it on
+ * a Swiss grid: twelve columns, flush left, numbered sections under a heavy
+ * rule, hairlines inside them. What it does NOT borrow is the landing-page
+ * look: no gradients, no glows, no shadows, no glass. Every colour is one of
+ * the app's tokens (css/microtone.css, all four themes), and the type keeps to
+ * the app's faces at five sizes: Geist for display and headings, Open Sans for
+ * reading, Motif Mono for labels and numbers, Motif Code for the program. */
+
+.about-page {
+  --ab-gutter: clamp(16px, 4vw, 48px);
+  --ab-max: 1360px;
+  --ab-display: clamp(2.4rem, 1.4rem + 4vw, 5.2rem);
+  --ab-h2: clamp(1.7rem, 1.2rem + 2vw, 3rem);
+  --ab-lead: 1.25rem;
+  --ab-body: 1rem;
+  --ab-small: 0.78rem;
+  font-size: var(--ab-body);
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--fg);
+}
+.about-page * { word-break: normal; overflow-wrap: break-word; }
+html:has(.about-page) { scroll-padding-top: 5rem; }
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.about-page) { scroll-behavior: smooth; }
+}
+
+.about-page a { color: var(--accent-2); text-underline-offset: 0.18em; }
+.about-page a:hover { color: var(--accent); }
+.about-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+:where(.about-page) :where(h1, h2, h3) { margin: 0; font-size: inherit; }
+.about-page p { margin: 0 0 1em; }
+
+/* ── the grid ─────────────────────────────────────────────────────────── */
+.ab-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: 24px;
+  max-width: var(--ab-max);
+  margin: 0 auto;
+  padding: 0 var(--ab-gutter);
+}
+.ab-grid > * { grid-column: 1 / -1; }
+
+/* ── type ─────────────────────────────────────────────────────────────── */
+.ab-display {
+  font-family: "Geist", sans-serif;
+  font-weight: 800;
+  font-size: var(--ab-display);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.4em;
+}
+.ab-h2 {
+  font-family: "Geist", sans-serif;
+  font-weight: 800;
+  font-size: var(--ab-h2);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+.ab-lead { font-size: var(--ab-lead); line-height: 1.4; }
+.ab-label, .ab-kicker, .ab-sec-no, .ab-fine, .about-page figcaption {
+  font-family: var(--mono-font);
+  font-size: var(--ab-small);
+  letter-spacing: 0.04em;
+}
+.ab-label { text-transform: uppercase; color: var(--dim); margin: 0 0 0.8rem; }
+.ab-kicker { color: var(--brand); text-transform: uppercase; margin-bottom: 1.2rem; }
+.ab-fine { color: var(--dim); }
+.ab-ref {
+  font-family: var(--mono-font);
+  font-size: 0.45em;
+  font-weight: 400;
+  letter-spacing: 0;
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 0.15em;
+  text-decoration: none;
+}
+.ab-ribbon .ab-ref, .ab-h2 .ab-ref { font-size: 0.6em; }
+
+/* ── buttons: flat pills, as the genre has them ───────────────────────── */
+.ab-btn {
+  display: inline-block;
+  padding: 0.55rem 1.3rem;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  font-family: "Open Sans", sans-serif;
+  font-weight: var(--weight-proceed);
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.about-page .ab-btn-buy { background: var(--proceed-bg); color: var(--proceed-fg); }
+.about-page .ab-btn-buy:hover { background: var(--proceed-hover); color: var(--proceed-fg); }
+.about-page .ab-btn-quiet { border-color: var(--fg); color: var(--fg); font-weight: var(--weight-button); }
+.about-page .ab-btn-quiet:hover { border-color: var(--accent); color: var(--accent); }
+.ab-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.8rem 0 1rem; }
+
+/* ── skip link ────────────────────────────────────────────────────────── */
+.ab-skip {
+  position: absolute; left: 1rem; top: -4rem; z-index: 20;
+  background: var(--panel); padding: 0.5rem 1rem; border: 1px solid var(--accent);
+}
+.ab-skip:focus { top: 1rem; }
+
+/* ── ribbon and navigation ────────────────────────────────────────────── */
+.ab-ribbon {
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem var(--ab-gutter);
+  font-size: 0.9rem;
+  text-align: center;
+}
+.ab-ribbon p { margin: 0; }
+.ab-ribbon b { font-weight: 700; }
+.ab-ribbon a:not(.ab-ref) { margin-left: 0.5em; font-weight: 600; }
+
+.ab-nav {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: 0.6rem var(--ab-gutter);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.about-page .ab-nav-brand { font-size: 1.5rem; margin: 0; text-decoration: none; }
+.ab-nav-links { display: flex; gap: 1.4rem; flex: 1; min-width: 0; }
+.about-page .ab-nav-links a { color: var(--fg); text-decoration: none; font-size: 0.95rem; white-space: nowrap; }
+.about-page .ab-nav-links a:hover { color: var(--accent); }
+.ab-nav-cta { display: flex; gap: 0.6rem; margin-left: auto; }
+.ab-nav-cta .ab-btn { padding: 0.35rem 1rem; font-size: 0.9rem; }
+
+/* ── sections: a heavy rule, the number, the heading, then the matter ── */
+.ab-section {
+  padding-top: 1.2rem;
+  padding-bottom: clamp(3rem, 6vw, 6rem);
+  row-gap: 2rem;
+}
+.ab-section::before {
+  content: "";
+  grid-column: 1 / -1;
+  border-top: 3px solid var(--fg);
+  margin-bottom: 0.4rem;
+}
+.ab-sec-head { grid-column: 1 / span 4; }
+.ab-sec-no { color: var(--brand); margin-bottom: 1rem; }
+.ab-sec-head + * { grid-column: 5 / -1; }
+
+/* ── hero ─────────────────────────────────────────────────────────────── */
+.ab-hero { padding-top: clamp(2.5rem, 7vw, 6rem); padding-bottom: clamp(2.5rem, 6vw, 5rem); row-gap: 2.5rem; align-items: start; }
+.ab-hero-copy { grid-column: 1 / span 6; }
+.ab-hero-copy .ab-display { font-size: clamp(2.4rem, 1.2rem + 3.4vw, 4.4rem); }
+.ab-hero-shot { grid-column: 7 / -1; margin: 0; padding-top: 2.4rem; }
+
+/* ── figures ──────────────────────────────────────────────────────────── */
+.ab-shot { margin: 0; }
+.ab-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--border); }
+.about-page figcaption { color: var(--dim); margin-top: 0.7rem; max-width: 70ch; }
+
+/* ── logo wall ────────────────────────────────────────────────────────── */
+.ab-trust {
+  max-width: var(--ab-max); margin: 0 auto;
+  padding: 1.6rem var(--ab-gutter) 2.6rem;
+  border-top: 1px solid var(--border);
+}
+.ab-logos {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: 0.8rem 2.6rem;
+}
+.ab-logos li {
+  font-family: "Geist", sans-serif;
+  font-weight: 800;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  color: var(--dim);
+}
+
+/* ── numbers ──────────────────────────────────────────────────────────── */
+.ab-stats { padding-bottom: clamp(3rem, 6vw, 5rem); row-gap: 1.6rem; }
+.ab-stat {
+  grid-column: span 2;
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+  display: flex; flex-direction: column; gap: 0.3rem;
+}
+.ab-num {
+  font-family: "Geist", sans-serif;
+  font-weight: 800;
+  font-size: clamp(2.4rem, 1.5rem + 2.6vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.ab-num small { font-size: 0.4em; margin-left: 0.1em; letter-spacing: 0; }
+.ab-what { color: var(--dim); font-size: 0.9rem; }
+
+/* ── the product family ───────────────────────────────────────────────── */
+.ab-apps {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+  gap: 2.4rem 24px;
+}
+.ab-app { display: flex; flex-direction: column; align-items: flex-start; }
+.ab-app h3 { font-family: "Geist", sans-serif; font-weight: 700; font-size: 1.15rem; margin: 1rem 0 0.4rem; }
+.ab-app p { color: var(--fg); flex: 1; }
+.ab-app a { font-weight: 600; }
+/* An app icon is a tile with the product's two letters, in the genre's
+   manner; each takes one of the app's inks so the five tell apart. */
+.ab-app-icon {
+  display: grid; place-items: center;
+  width: 3.4rem; height: 3.4rem;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  font-family: "Geist", sans-serif;
+  font-weight: 800;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+.ab-ink-brand { color: var(--brand); }
+.ab-ink-accent { color: var(--accent); }
+.ab-ink-accent2 { color: var(--accent-2); }
+.ab-ink-meter { color: var(--meter); }
+.ab-ink-fg { color: var(--fg); }
+
+/* ── features ─────────────────────────────────────────────────────────── */
+.ab-feature-copy .ab-lead { max-width: 44ch; margin-bottom: 1.2rem; }
+.ab-feature-copy p:not(.ab-lead) { max-width: 62ch; }
+.ab-feature-shot { grid-column: 5 / -1; }
+
+.ab-spec { grid-column: 5 / -1; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0 24px; }
+.ab-spec div { border-top: 1px solid var(--border); padding: 0.7rem 0 1rem; }
+.ab-spec dt { font-family: var(--mono-font); font-size: var(--ab-small); text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
+.ab-spec dd { margin: 0.3rem 0 0; font-family: "Geist", sans-serif; font-weight: 600; font-size: 1.05rem; }
+
+.ab-code { margin: 0; }
+.ab-code pre {
+  margin: 0;
+  padding: 1.4rem 1.6rem;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  font-family: var(--code-font);
+  font-synthesis: none;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.about-page code { font-family: var(--code-font); font-synthesis: none; }
+.ab-code .k { color: var(--code-kw); font-weight: 700; }
+.ab-code .s { color: var(--code-str); }
+.ab-code .c { color: var(--code-com); font-style: italic; }
+.ab-code .n { color: var(--code-num); }
+.ab-nowrap { white-space: nowrap; }
+
+/* ── Microtone Intelligence ───────────────────────────────────────────── */
+.ab-ai-body .ab-display { max-width: 14ch; }
+.ab-ai-body .ab-lead { max-width: 56ch; margin-bottom: 2.4rem; }
+
+/* ── tables ───────────────────────────────────────────────────────────── */
+.ab-table { width: 100%; max-width: 46rem; border-collapse: collapse; }
+.ab-table caption { text-align: left; }
+.ab-table th, .ab-table td { border-top: 1px solid var(--border); padding: 0.75rem 0; vertical-align: top; }
+.ab-table tr:last-child th, .ab-table tr:last-child td { border-bottom: 1px solid var(--border); }
+.ab-table th { text-align: left; font-weight: 400; padding-right: 1.5rem; }
+.ab-table td { text-align: right; font-family: "Geist", sans-serif; font-weight: 600; }
+
+/* ── plans ────────────────────────────────────────────────────────────── */
+.ab-tabs { display: flex; flex-wrap: wrap; gap: 0 1.8rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem; }
+.about-page .ab-tabs button {
+  background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0;
+  box-shadow: none;
+  padding: 0.6rem 0; margin-bottom: -1px;
+  color: var(--dim); font-size: 1rem; cursor: pointer;
+}
+.about-page .ab-tabs button:hover { color: var(--fg); }
+.about-page .ab-tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--fg); font-weight: 700; }
+
+.ab-plan-set { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 24px; margin-bottom: 3rem; }
+.ab-plan-set[hidden] { display: none; }
+.ab-plan {
+  display: flex; flex-direction: column; align-items: flex-start;
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--fg);
+  background: var(--panel);
+  padding: 1.4rem 1.4rem 1.6rem;
+}
+.ab-plan-best { border-top-color: var(--brand); }
+.ab-plan-wide { max-width: 34rem; }
+.ab-plan h3 { font-family: "Geist", sans-serif; font-weight: 800; font-size: 1.35rem; }
+.ab-plan-sub { color: var(--dim); font-size: 0.9rem; margin: 0.2rem 0 1.2rem; }
+.ab-badge { font-family: var(--mono-font); font-size: var(--ab-small); text-transform: uppercase; letter-spacing: 0.04em; color: var(--brand); margin: 0 0 0.6rem; }
+.ab-price { font-family: "Geist", sans-serif; font-weight: 800; font-size: 2.8rem; line-height: 1; letter-spacing: -0.03em; margin-bottom: 1.4rem; }
+.ab-price span { font-size: 0.4em; vertical-align: 0.95em; margin-right: 0.15em; letter-spacing: 0; }
+.ab-price small { display: block; margin-top: 0.4rem; font-family: "Open Sans", sans-serif; font-weight: 400; font-size: 0.8rem; letter-spacing: 0; color: var(--dim); }
+.ab-price-words { font-size: 2rem; }
+.ab-plan ul { list-style: none; margin: 0 0 1.6rem; padding: 0; flex: 1; }
+.ab-plan li { position: relative; padding: 0.3rem 0 0.3rem 1.6rem; }
+/* The tick is drawn, not typed: a stock phone font may not have one. */
+.ab-plan li::before {
+  content: "";
+  position: absolute; left: 0.2rem; top: 0.55rem;
+  width: 0.35rem; height: 0.7rem;
+  border: solid var(--meter); border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ── questions ────────────────────────────────────────────────────────── */
+.ab-faq details { border-top: 1px solid var(--border); }
+.ab-faq details:last-child { border-bottom: 1px solid var(--border); }
+.ab-faq summary {
+  list-style: none;
+  position: relative;
+  cursor: pointer;
+  padding: 1rem 2.5rem 1rem 0;
+  font-family: "Geist", sans-serif;
+  font-weight: 600;
+  font-size: 1.2rem;
+}
+.ab-faq summary::-webkit-details-marker { display: none; }
+.ab-faq summary:hover { color: var(--accent); }
+/* plus while shut, minus while open — two bars, so no glyph is needed */
+.ab-faq summary::before, .ab-faq summary::after {
+  content: "";
+  position: absolute; right: 0.4rem; top: 50%;
+  width: 1rem; height: 2px; margin-top: -1px;
+  background: currentColor;
+}
+.ab-faq summary::after { transform: rotate(90deg); }
+.ab-faq details[open] summary::after { transform: none; }
+.ab-faq details p { max-width: 62ch; font-size: 1.05rem; padding-bottom: 0.6rem; }
+
+/* ── the closing band ─────────────────────────────────────────────────── */
+.ab-close { padding-top: clamp(3rem, 7vw, 6rem); padding-bottom: clamp(3rem, 6vw, 5rem); border-top: 3px solid var(--fg); }
+.ab-close-line { grid-column: 1 / span 10; font-weight: 400; }
+.ab-close-line b { font-weight: 800; }
+
+/* ── fine print ───────────────────────────────────────────────────────── */
+.ab-fineprint { padding-bottom: 3rem; }
+.ab-fineprint ol {
+  grid-column: 1 / span 8;
+  margin: 0; padding: 1.2rem 0 0 1.4rem;
+  border-top: 1px solid var(--border);
+  color: var(--dim); font-size: 0.85rem;
+}
+.ab-fineprint li { margin-bottom: 0.4rem; }
+.ab-fineprint li:target { color: var(--fg); }
+
+/* ── footer ───────────────────────────────────────────────────────────── */
+.ab-footer { background: var(--panel); border-top: 1px solid var(--border); padding: 3rem 0 2rem; font-size: 0.9rem; }
+.ab-footer-cols { row-gap: 2rem; padding-bottom: 2.4rem; }
+.ab-footer-cols > * { grid-column: span 3; }
+.ab-footer nav a { display: block; color: var(--fg); text-decoration: none; padding: 0.2rem 0; }
+.ab-footer nav a:hover { color: var(--accent); }
+.ab-company { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; }
+.ab-company dt { color: var(--dim); }
+.ab-company dd { margin: 0; }
+.ab-legal { border-top: 1px solid var(--border); padding-top: 1.2rem; color: var(--dim); font-size: 0.82rem; row-gap: 0.4rem; }
+.ab-legal p { margin: 0; }
+.ab-legal ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.3rem 1.6rem; }
+.ab-region b { color: var(--fg); }
+
+/* ── narrower screens ─────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .ab-nav-links { display: none; }
+  .ab-stat { grid-column: span 4; }
+  .ab-footer-cols > * { grid-column: span 6; }
+}
+@media (max-width: 900px) {
+  .ab-hero-copy, .ab-hero-shot,
+  .ab-sec-head, .ab-sec-head + *, .ab-feature-shot, .ab-spec,
+  .ab-close-line, .ab-fineprint ol { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  .ab-stat { grid-column: span 6; }
+  .ab-footer-cols > * { grid-column: 1 / -1; }
+  .ab-nav { gap: 0.8rem; }
+  .ab-nav-cta .ab-btn-quiet { display: none; }
+  .ab-ribbon { font-size: 0.82rem; }
+  .ab-table td { text-align: left; }
+  .ab-table th, .ab-table td { display: block; }
+  .ab-table td { border-top: 0; padding-top: 0; }
+  .ab-table th { padding-bottom: 0.2rem; }
+}

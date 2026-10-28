@@ -44,6 +44,7 @@ function aboutHtml() {
       <p class="about-fine">${tHtml("about.license")}</p>
       <p>
         ${link("https://microtone.cc/?tracker=1", "Microtone")} ·
+        ${link("https://microtone.cc/about/", tHtml("about.why"))} ·
         ${link("https://github.com/curioustorvald/Microtone.js", "GitHub")} ·
         ${link("https://bsky.app/profile/did:plc:3enk4wk6acr23segkntcdzzc", "Bluesky")}
       </p>

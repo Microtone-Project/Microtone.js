@@ -136,6 +136,8 @@ Motif, Microtone's typeface, tells more of its letters and digits apart.
 - In the chord maker, a note's on/off is now the button carrying its number.
 - Fixed: the zoom − and + buttons, the icon buttons and *follow* sat shorter than the other buttons of the top bar; they all stand the same height now.
 
+**Microtone has a product page at last**: [microtone.cc/about](https://microtone.cc/about/) says what Microtone is, what it costs and why you might not want it anyway, and the About box, the welcome screen and Microtone Touch's About link to it as *Why Microtone?*.
+
 ## Version 3.13.3 (2026-10-22)
 
 The envelope graphs zoom with a two-finger pinch on a touch screen.

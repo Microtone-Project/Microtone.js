@@ -5,11 +5,486 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/png" href="../favicon.png"><!-- Website favicon -->
   <link rel="apple-touch-icon" type="image/png" href="../favicon.png"> <!-- Apple favicon -->
-  <title>Microtone</title>
+  <title>Microtone — the creative suite for one</title>
+  <link rel="canonical" href="https://microtone.cc/about/">
+  <meta name="description" content="Microtone: the industry-standard music tracker for tunings nobody asked for. Free, no account, no subscription, no AI, one developer.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Microtone">
+  <meta property="og:url" content="https://microtone.cc/about/">
+  <meta property="og:title" content="Microtone — the creative suite for one">
+  <meta property="og:description" content="The industry-standard music tracker for tunings nobody asked for. Free, no account, no subscription, no AI, one developer.">
+  <meta property="og:image" content="https://microtone.cc/screenshot.png">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="../css/microtone.css" />
   <link rel="stylesheet" href="about.css" />
+  <script>
+    // The app's theme before the first paint, as the manual and the
+    // translation workbench do (`microtone-theme`, shared with the tracker).
+    try {
+      const t = new URLSearchParams(location.search).get("theme") || localStorage.getItem("microtone-theme");
+      document.documentElement.dataset.theme = (t === "dark" || t === "dim" || t === "light") ? t : "dim";
+    } catch { document.documentElement.dataset.theme = "dim"; }
+  </script>
+  <script type="module" src="about.js"></script>
 </head>
 <body class="about-page">
+
+<a class="ab-skip" href="#main">Skip to content</a>
+
+<!-- ── the promotion ribbon ──────────────────────────────────────────── -->
+<aside class="ab-ribbon">
+  <p><b>Limited-time offer.</b> Save 100% on Microtone. Offer ends never.<a class="ab-ref" href="#fine-1">1</a> <a href="#plans">See plans</a></p>
+</aside>
+
+<!-- ── global navigation ─────────────────────────────────────────────── -->
+<header class="ab-nav">
+  <a class="ab-nav-brand brand-container" href="#top" aria-label="Microtone"><span class="brand brand-red">Micro</span><span class="brand brand-white">tone</span><span class="brand brand-tm"></span></a>
+  <nav class="ab-nav-links" aria-label="Sections">
+    <a href="#family">Products</a>
+    <a href="#features">Features</a>
+    <a href="#intelligence">AI</a>
+    <a href="#plans">Plans &amp; pricing</a>
+    <a href="#why">Why Microtone?</a>
+    <a href="../docs.html">Learn</a>
+  </nav>
+  <div class="ab-nav-cta">
+    <a class="ab-btn ab-btn-quiet" href="../">Free trial</a>
+    <a class="ab-btn ab-btn-buy" href="#plans">Buy now</a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ── hero ──────────────────────────────────────────────────────────── -->
+<section class="ab-hero ab-grid" id="top">
+  <div class="ab-hero-copy">
+    <p class="ab-kicker" data-version>Microtone</p>
+    <h1 class="ab-display">The industry standard for music in <span id="ab-tuning"><span class="ab-nowrap">43-tone</span> equal temperament</span>.<a class="ab-ref" href="#fine-2">2</a></h1>
+    <script>
+      // A different industry to lead on every visit — never the last one's.
+      // Run here, before the first paint, so the 43 above never flashes.
+      (function () {
+        var edo = function (n) { return '<span class="ab-nowrap">' + n + "-tone</span> equal temperament"; };
+        var TUNINGS = [
+          edo(43), edo(19), edo(31), edo(53), edo(22), edo(13), edo(5), edo(41), edo(17), edo(24),
+          "the Bohlen–Pierce scale", "the twelve lü", "just intonation", "quarter tones",
+          "a temperament you drew yourself", edo(12) + " (also)",
+        ];
+        var last = -1;
+        try { last = Number(localStorage.getItem("microtone-about:tuning") ?? -1); } catch (e) {}
+        var i = Math.floor(Math.random() * (TUNINGS.length - 1));
+        if (i >= last && last >= 0) i += 1;
+        document.getElementById("ab-tuning").innerHTML = TUNINGS[i];
+        try { localStorage.setItem("microtone-about:tuning", String(i)); } catch (e) {}
+      })();
+    </script>
+    <p class="ab-lead">A music tracker for the notes a piano cannot play. Every pitch sits on a grid of 4096 steps per octave, so 19-TET, 31-TET, Bohlen–Pierce and the twelve lü are as at home as twelve. It runs in a browser tab, and that is the entire install.</p>
+    <div class="ab-actions">
+      <a class="ab-btn ab-btn-buy" href="#plans">Buy now</a>
+      <a class="ab-btn ab-btn-quiet" href="../">Start free trial</a>
+    </div>
+    <p class="ab-fine">Starting at US$0.00/mo. Annual plan, paid monthly, cancel by closing the tab.</p>
+  </div>
+  <figure class="ab-hero-shot ab-shot">
+    <img src="shot-1.webp" width="1280" height="800" alt="Microtone's Timeline playing a song: a pattern grid of hexadecimal rows and notes, with the master strip's scopes and meters on the right.">
+    <figcaption>Fig. 1 — The Timeline. Rows, hexadecimal numbers and a goniometer. Exactly as 1995 intended.</figcaption>
+  </figure>
+</section>
+
+<!-- ── the logo wall ─────────────────────────────────────────────────── -->
+<section class="ab-trust" aria-label="Customers">
+  <p class="ab-label">Trusted by creative professionals at</p>
+  <ul class="ab-logos">
+    <li>The developer’s flat</li>
+    <li>One ambisonic enthusiast</li>
+    <li>A TSVM virtual machine</li>
+    <li>Your browser, probably</li>
+    <li>Owners of a 19-TET guitar (both)</li>
+  </ul>
+</section>
+
+<!-- ── the numbers ───────────────────────────────────────────────────── -->
+<section class="ab-stats ab-grid" aria-label="In numbers">
+  <div class="ab-stat"><span class="ab-num">4096</span><span class="ab-what">pitch steps per octave</span></div>
+  <div class="ab-stat"><span class="ab-num">0</span><span class="ab-what">piano rolls</span></div>
+  <div class="ab-stat"><span class="ab-num">0</span><span class="ab-what">bytes of telemetry</span></div>
+  <div class="ab-stat"><span class="ab-num">1</span><span class="ab-what">developer, in their spare time</span></div>
+  <div class="ab-stat"><span class="ab-num">1.3<small>MB</small></span><span class="ab-what">of documentation, text only</span></div>
+  <div class="ab-stat"><span class="ab-num">1995</span><span class="ab-what">the year the workflow was finished</span></div>
+</section>
+
+<!-- ── the product family ────────────────────────────────────────────── -->
+<section class="ab-section ab-grid" id="family">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">01</p>
+    <h2 class="ab-h2">All apps.<br>Every one of them free, all five of them.</h2>
+  </header>
+  <ul class="ab-apps">
+    <li class="ab-app">
+      <span class="ab-app-icon ab-ink-brand" aria-hidden="true">Mt</span>
+      <h3>Microtone</h3>
+      <p>The tracker. Patterns, cues, a mastering chain and a keyboard laid out as a hexagonal lattice, in a browser tab.</p>
+      <a href="../">Open</a>
+    </li>
+    <li class="ab-app">
+      <span class="ab-app-icon ab-ink-accent" aria-hidden="true">To</span>
+      <h3>Microtone Touch</h3>
+      <p>A sketchpad for phones and tablets: an isomorphic keyboard, eight lanes and a grid cut down to the notes. Everything you liked about the tracker, minus most of it.</p>
+      <a href="https://touch.microtone.cc/">Open</a>
+    </li>
+    <li class="ab-app">
+      <span class="ab-app-icon ab-ink-accent2" aria-hidden="true">Mo</span>
+      <h3>Motif</h3>
+      <p>Write a whole song as a program. For when placing every note by hand was not taking long enough.</p>
+      <a href="../docs.html#motif">Read the language</a>
+    </li>
+    <li class="ab-app">
+      <span class="ab-app-icon ab-ink-meter" aria-hidden="true">tp</span>
+      <h3>taudplay</h3>
+      <p>The player on its own, for games and pages: a transport, one fader per lane, and the song’s own interrupts. LGPL-3.0. There will not be a second fader.</p>
+      <a href="https://github.com/Microtone-Project/microtone-taudplay">Get the library</a>
+    </li>
+    <li class="ab-app">
+      <span class="ab-app-icon ab-ink-fg" aria-hidden="true">Dk</span>
+      <h3>Microtone Desktop</h3>
+      <p>The same tracker in a window that is not your browser, for Linux, Windows and macOS. It updates itself, which is more than can be said for its workflow.</p>
+      <a href="https://github.com/Microtone-Project/Microtone.js/releases/latest">Download</a>
+    </li>
+  </ul>
+</section>
+
+<!-- ── features ──────────────────────────────────────────────────────── -->
+<div id="features">
+
+<section class="ab-section ab-grid ab-feature">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">02</p>
+    <h2 class="ab-h2">Any tuning.<br>Including that one.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Pick 12, 19, 24, 31 or 41-TET, Shi’er lü or Bohlen–Pierce, or draw your own in the Notation Maker, and the editor writes, shows and steps in its degrees. Retune a whole song from one tuning to another without rewriting a note.</p>
+    <p>Your computer keyboard becomes a forty-key isomorphic instrument — Bosanquet–Wilson, Wicki–Hayden, Harmonic Table — fitted to whatever the song is in. We cannot, however, guarantee that your audience will remain in the room.</p>
+  </div>
+  <figure class="ab-shot ab-feature-shot">
+    <img src="shot-8.webp" width="1280" height="800" loading="lazy" alt="The Keymap tab: the computer keyboard drawn as forty coloured hexagons, Bosanquet–Wilson fitted to 19-TET, each key naming its note and its distance from twelve-tone tuning.">
+    <figcaption>Fig. 2 — Bosanquet–Wilson in 19-TET. All nineteen degrees under the fingers, and every one of them labelled with how far it is from a piano.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature ab-feature-text">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">03</p>
+    <h2 class="ab-h2">Immersive audio.<br>Weird, now in three dimensions.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">A song chooses stereo, the full circle or the full sphere, and the pan column carries a real angle. Each lane is a source at an azimuth and a height, auditioned over headphones as you write.</p>
+    <p>Export stereo, quadraphonic, 5.1, 7.1 or ambisonic B-format from first to third order — or stems, one WAV per lane in a ZIP. The music is still in 43-TET. It is merely coming from above you now.</p>
+  </div>
+  <dl class="ab-spec">
+    <div><dt>Panning models</dt><dd>Stereo · planar 360° · sphere</dd></div>
+    <div><dt>Ambisonics</dt><dd>B-format, 1st–3rd order, AmbiX</dd></div>
+    <div><dt>Surround</dt><dd>4.0 · 5.1 · 7.1</dd></div>
+    <div><dt>Ceiling speakers required</dt><dd>No, but they would help</dd></div>
+  </dl>
+</section>
+
+<section class="ab-section ab-grid ab-feature">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">04</p>
+    <h2 class="ab-h2">Studio-grade mixing.<a class="ab-ref" href="#fine-3">3</a></h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Every instrument gets a chain of its own — equaliser, dynamic EQ, compressor, saturator, unison, delay, reverb — ahead of the master bus, with meters on its own signal. Instruments that name one chain share it.</p>
+    <p>Envelopes, filters, panning and note-stealing per instrument, plus metainstruments: a layered kit that sounds several instruments side by side, or an FM rack that wires them into one another. SoundFont patches come in with every zone they brought.</p>
+  </div>
+  <figure class="ab-shot ab-feature-shot">
+    <img src="shot-9.webp" width="1280" height="800" loading="lazy" alt="An instrument's Mixing tab: a chain of input trim, equaliser, dynamic EQ and compressor, with level, gain-reduction and spectrum meters beside it.">
+    <figcaption>Fig. 3 — A marimba with a compressor on it, for reasons.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature ab-flip">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">05</p>
+    <h2 class="ab-h2">Write&nbspit. Master&nbspit.<br>Blame one person for both.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Trim, high-pass, EQ, compressor and limiter, metered the way a mastering engineer asks for: short-term and integrated loudness, loudness range, true peak, crest, gain reduction. The chain you hear is the chain the export renders through.</p>
+    <p>There is an offline analysis of the whole song as well, so you can learn exactly how loud your 31-TET waltz is before anyone else has to.</p>
+  </div>
+  <figure class="ab-shot ab-feature-shot">
+    <img src="shot-6.webp" width="1280" height="800" loading="lazy" alt="The Mastering tab metering a song: the delivery chain down the left, loudness, levels and gain reduction on the right.">
+    <figcaption>Fig. 4 — −11.7 LUFS integrated. Broadcast-ready, should anyone ever broadcast it.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">06</p>
+    <h2 class="ab-h2">Songs as programs.<br>Same source, same bytes.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Motif builds a whole project — instruments, lanes, patterns, the master chain — from a program in the Taud Motif Language. Music is a value; a song is what its lines say, in any order.</p>
+    <p>A build is deterministic: the same program makes the same file, byte for byte, in your browser and on a server. Its randomness is seeded and written down. This makes Motif the most reproducible part of the whole process, the composer included.</p>
+    <p><a href="../docs.html#motif">The language, all of it</a></p>
+  </div>
+  <figure class="ab-code ab-feature-shot">
+<pre><code><span class="c">// Huygens' Clock — 31-TET, 7/8 (2+2+3)</span>
+<span class="k">let</span> THEME_MINOR = <span class="s">"""
+  D5:2 Fp5:2 G5:2 A5:2 ~Cp5:6v |
+  A5:3 G5:1 Fp5:4v D5:4v E5:2 |
+  F5:2 D5:2 G#5:6v F5:2 G#5:2 |
+  A5:4v Gp5:4v E5:2 C#5:2 E5:2
+  """</span>
+melody(lead, at(<span class="n">9</span>), THEME_MINOR, vol: <span class="n">55</span>)
+
+<span class="k">let</span> THEME_MAJOR = replace(THEME_MINOR, <span class="s">"Fp5"</span>, <span class="s">"F#5"</span>)
+melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class="n">31</span>)</code></pre>
+    <figcaption>Fig. 5 — From the demo song. <code>Fp5</code> is a note a piano does not have. That is the point.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature ab-feature-text">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">07</p>
+    <h2 class="ab-h2">Seamless interoper­ability<br>with 1997.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">MOD, S3M, XM and IT open as projects, down to minute details; so do AdLib’s .ims and .mon. Import MIDI renders a .mid through a SoundFont, and a General MIDI bank ships with the app so it sounds before you go looking for one.</p>
+    <p>If your module uses an obscure feature from an obscure tracker released by three people in 1997, please consider preserving that tracker as a virtual machine. Invert Loop and Funk Repeat, however, work exactly as they do in ProTracker, so there’s that.</p>
+  </div>
+  <dl class="ab-spec">
+    <div><dt>Opens</dt><dd>.taud · .mod · .s3m · .xm · .it · .ims · .sop · .mon · .mid</dd></div>
+    <div><dt>Exports</dt><dd>WAV · stems · .mod · instrument banks</dd></div>
+    <div><dt>Runs on</dt><dd>Your own computer. All of it.</dd></div>
+    <div><dt>Server required</dt><dd>No</dd></div>
+  </dl>
+</section>
+
+</div>
+
+<!-- ── the AI section ────────────────────────────────────────────────── -->
+<section class="ab-section ab-ai ab-grid" id="intelligence">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">08</p>
+    <p class="ab-label">New</p>
+  </header>
+  <div class="ab-ai-body">
+    <h2 class="ab-display">Introducing Microtone Intelligence.</h2>
+    <p class="ab-lead">It does nothing. Microtone has no generative AI in it. It will not write your chorus, suggest a chord, master your track from a text prompt, or finish your song while you sleep. Every note in a Microtone project was put there by someone who meant it — or by a random number generator they seeded and named themselves.</p>
+    <table class="ab-table">
+      <caption class="ab-label">Microtone Intelligence, at a glance</caption>
+      <tbody>
+        <tr><th scope="row">Generative credits per month</th><td>0</td></tr>
+        <tr><th scope="row">Models</th><td>0</td></tr>
+        <tr><th scope="row">Your music used to train them</th><td>Not possible; see above</td></tr>
+        <tr><th scope="row">Hallucinated notes</th><td>Only the ones you wrote</td></tr>
+        <tr><th scope="row">Whose fault the song is</th><td>Yours</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── plans ─────────────────────────────────────────────────────────── -->
+<section class="ab-section ab-grid" id="plans">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">09</p>
+    <h2 class="ab-h2">Plans &amp; pricing.<br>Find the one that is free.</h2>
+  </header>
+  <div class="ab-plans">
+    <div class="ab-tabs" role="tablist" aria-label="Who is buying">
+      <button role="tab" id="tab-ind" aria-controls="plan-ind" aria-selected="true">Individuals</button>
+      <button role="tab" id="tab-biz" aria-controls="plan-biz" aria-selected="false" tabindex="-1">Business</button>
+      <button role="tab" id="tab-edu" aria-controls="plan-edu" aria-selected="false" tabindex="-1">Students &amp; teachers</button>
+      <button role="tab" id="tab-sch" aria-controls="plan-sch" aria-selected="false" tabindex="-1">Schools &amp; universities</button>
+    </div>
+
+    <div class="ab-plan-set" role="tabpanel" id="plan-ind" aria-labelledby="tab-ind">
+      <article class="ab-plan">
+        <h3>Microtone</h3>
+        <p class="ab-plan-sub">Single app</p>
+        <p class="ab-price"><span>US$</span>0.00<small>/mo incl. VAT</small></p>
+        <ul>
+          <li>The tracker, every feature</li>
+          <li>Projects kept in your browser</li>
+          <li>Online projects, if you sign in</li>
+        </ul>
+        <a class="ab-btn ab-btn-buy" href="../">Buy now</a>
+      </article>
+      <article class="ab-plan ab-plan-best">
+        <p class="ab-badge">Most popular<a class="ab-ref" href="#fine-4">4</a></p>
+        <h3>Microtone All Apps</h3>
+        <p class="ab-plan-sub">Everything on this page</p>
+        <p class="ab-price"><span>US$</span>0.00<small>/mo incl. VAT</small></p>
+        <ul>
+          <li>Microtone, Touch, Motif and taudplay</li>
+          <li>The desktop app for three platforms</li>
+          <li>1.3 MB of manual</li>
+          <li>Save 0% against buying them separately</li>
+        </ul>
+        <a class="ab-btn ab-btn-buy" href="../">Buy now</a>
+      </article>
+      <article class="ab-plan">
+        <h3>Microtone Touch</h3>
+        <p class="ab-plan-sub">Phone plan</p>
+        <p class="ab-price"><span>US$</span>0.00<small>/mo incl. VAT</small></p>
+        <ul>
+          <li>4- to 53-tone equal temperaments</li>
+          <li>Eight lanes, preset instruments</li>
+          <li>Sends the sketch on to the tracker</li>
+        </ul>
+        <a class="ab-btn ab-btn-buy" href="https://touch.microtone.cc/">Buy now</a>
+      </article>
+    </div>
+
+    <div class="ab-plan-set" role="tabpanel" id="plan-biz" aria-labelledby="tab-biz" hidden>
+      <article class="ab-plan ab-plan-wide">
+        <h3>Microtone for teams</h3>
+        <p class="ab-plan-sub">Per seat, billed annually</p>
+        <p class="ab-price"><span>US$</span>0.00<small>/seat/mo</small></p>
+        <ul>
+          <li>Volume discount: also 100%</li>
+          <li>Central licence management: there are no licences to manage</li>
+          <li>Admin console: everyone already has the same version</li>
+          <li>Single sign-on: you do not need to sign on even once</li>
+        </ul>
+        <a class="ab-btn ab-btn-buy" href="../">Buy for my team</a>
+      </article>
+    </div>
+
+    <div class="ab-plan-set" role="tabpanel" id="plan-edu" aria-labelledby="tab-edu" hidden>
+      <article class="ab-plan ab-plan-wide">
+        <h3>Microtone for students and teachers</h3>
+        <p class="ab-plan-sub">Proof of enrolment not required</p>
+        <p class="ab-price"><span>US$</span>0.00<small>/mo</small></p>
+        <ul>
+          <li>Save 100% — the same as everyone else</li>
+          <li>Introductory price that never goes up after the first year</li>
+          <li>A tracker workflow your teacher may remember from school</li>
+        </ul>
+        <a class="ab-btn ab-btn-buy" href="../">Buy now</a>
+      </article>
+    </div>
+
+    <div class="ab-plan-set" role="tabpanel" id="plan-sch" aria-labelledby="tab-sch" hidden>
+      <article class="ab-plan ab-plan-wide">
+        <h3>Schools and universities</h3>
+        <p class="ab-plan-sub">Site licence</p>
+        <p class="ab-price ab-price-words">Contact sales</p>
+        <ul>
+          <li>There is no sales</li>
+          <li>There is an issue tracker, which is better</li>
+          <li>Deployment: send the class a link</li>
+        </ul>
+        <a class="ab-btn ab-btn-buy" href="https://github.com/curioustorvald/Microtone.js/issues">Contact sales</a>
+      </article>
+    </div>
+
+    <table class="ab-table ab-compare">
+      <caption class="ab-label">Compare what’s included</caption>
+      <tbody>
+        <tr><th scope="row">Account required</th><td>No</td></tr>
+        <tr><th scope="row">Telemetry</th><td>None</td></tr>
+        <tr><th scope="row">Subscription</th><td>None</td></tr>
+        <tr><th scope="row">Install</th><td>None, or one, if you would rather</td></tr>
+        <tr><th scope="row">Cloud storage</th><td>Your browser’s own; online projects if you sign in</td></tr>
+        <tr><th scope="row">Early termination fee</th><td>None. Leave whenever. We’ll be fine.</td></tr>
+        <tr><th scope="row">Source code</th><td>All of it, under the GPL</td></tr>
+        <tr><th scope="row">Support</th><td>A manual. A long one.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── the FAQ (why_microtone.md) ────────────────────────────────────── -->
+<section class="ab-section ab-grid" id="why">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">10</p>
+    <h2 class="ab-h2">Why Microtone?</h2>
+  </header>
+  <div class="ab-faq">
+    <details open><summary>Why should I choose Microtone?</summary>
+      <p>You don’t. Existing products like <i>Renoise</i> offer a much more modernised workflow. Microtone’s workflow is stuck firmly in the <i>Impulse Tracker</i> era, and we see no compelling reason to fix what wasn’t broken in 1995.</p></details>
+    <details open><summary>Does Microtone have a piano roll?</summary>
+      <p>No. We believe in the freedom to make your own mistakes, one cell at a time.</p></details>
+    <details open><summary>Can I use it to make music in any tuning system?</summary>
+      <p>Yes. Microtone supports an absurd variety of equal divisions of the octave, including ones you probably won’t enjoy listening to. Whether you’re composing in 19-EDO or 43-EDO, we’ve got you covered. We cannot, however, guarantee that your audience will remain in the room.</p></details>
+    <details open><summary>Why would I need 43-tone equal temperament?</summary>
+      <p>We don’t know. But we made it work anyway.</p></details>
+    <details open><summary>Does Microtone support modern audio effects?</summary>
+      <p>Yes. You can build mixing chains, tweak your instruments, and route audio in all sorts of interesting ways. We even support ambisonics, in case you want to make your weird music weird in three dimensions.</p></details>
+    <details open><summary>Can I import my existing tracker modules?</summary>
+      <p>Probably. We support several familiar module formats, namely IT, S3M, MOD and XM, down to minute details. If your module uses an obscure feature from an obscure tracker released by three people in 1997, please consider preserving that tracker as a virtual machine. Invert Loop (PT 1.2+) and Funk Repeat (~PT 1.1), however, work identically to <i>ProTracker</i>, so there’s that.</p></details>
+    <details open><summary>Is Microtone easy to learn?</summary>
+      <p>If you learned Impulse Tracker in 1997, welcome home. If you didn’t, our 1.3-megabyte, text-only documentation <em>might</em> help. We wrote it in an attempt to spare you from learning everything the <em>harder</em> way, which is how we did it.</p></details>
+    <details open><summary>Does Microtone require an account?</summary>
+      <p>No.</p></details>
+    <details open><summary>Does it collect telemetry?</summary>
+      <p>No.</p></details>
+    <details open><summary>Does it have a subscription?</summary>
+      <p>No.</p></details>
+    <details open><summary>So what’s the catch?</summary>
+      <p>We made it ourselves.</p></details>
+    <details open><summary>Is Microtone open source?</summary>
+      <p>Yes. You can inspect the source code, study our questionable decisions, and fork the project to make the tracker you actually wanted.</p></details>
+    <details open><summary>Is Microtone revolutionary?</summary>
+      <p>Absolutely not. We combined a workflow from the 1990s, a browser, some modern audio technology, and an unreasonable interest in alternative tuning systems. Then we spent a frankly disproportionate amount of time making the whole thing work.</p></details>
+    <details open><summary>Who is Microtone for, then?</summary>
+      <p>People who want to make music in unusual tuning systems, tracker enthusiasts who prefer patterns to piano rolls, and anyone who has ever thought, “Surely someone has made a native n-EDO tracker at some point.”</p></details>
+    <details open><summary>And if I don’t care about any of that?</summary>
+      <p>There are plenty of excellent alternatives. Go use them. We’ll be fine.</p></details>
+  </div>
+</section>
+
+<!-- ── the closing band ──────────────────────────────────────────────── -->
+<section class="ab-close ab-grid">
+  <p class="ab-display ab-close-line"><b>Microtone.</b> A music tracker for people who know exactly what they want to do, even if nobody else understands why.</p>
+  <div class="ab-actions ab-close-actions">
+    <a class="ab-btn ab-btn-buy" href="../">Buy now for US$0.00</a>
+    <a class="ab-btn ab-btn-quiet" href="https://touch.microtone.cc/">Get Microtone Touch</a>
+  </div>
+</section>
+
+<!-- ── the fine print ────────────────────────────────────────────────── -->
+<section class="ab-fineprint ab-grid" aria-label="Terms">
+  <ol>
+    <li id="fine-1">Offer valid in every country with a web browser. Cannot be combined with other offers, there being none. Microtone reserves the right to end this offer, and has no plans to.</li>
+    <li id="fine-2">In a field of one, by our own measurement. Reload the page for another industry Microtone leads; there are plenty, and we lead every one of them by the same margin.</li>
+    <li id="fine-3">Studio not included.</li>
+    <li id="fine-4">Among people who picked a plan on this page. No plan is required to use any of the apps.</li>
+  </ol>
+</section>
+
+</main>
+
+<!-- ── footer ────────────────────────────────────────────────────────── -->
+<footer class="ab-footer">
+  <div class="ab-grid ab-footer-cols">
+    <nav aria-label="Products"><h2 class="ab-label">Products</h2>
+      <a href="../">Microtone</a><a href="https://touch.microtone.cc/">Microtone Touch</a><a href="../docs.html#motif">Motif</a><a href="https://github.com/Microtone-Project/microtone-taudplay">taudplay</a><a href="https://github.com/Microtone-Project/Microtone.js/releases/latest">Desktop</a><a href="../player.html">Player</a></nav>
+    <nav aria-label="Learn"><h2 class="ab-label">Learn</h2>
+      <a href="../docs.html">User manual</a><a href="../docs.html#effects">Note effects</a><a href="../docs.html#engine">Engine specification</a><a href="../docs.html#patchnotes">Patch notes</a><a href="../design-system/">Design system</a></nav>
+    <nav aria-label="Support"><h2 class="ab-label">Support</h2>
+      <a href="https://ko-fi.com/curioustorvald">Donate</a><a href="https://github.com/sponsors/curioustorvald">Sponsor</a><a href="https://github.com/curioustorvald/Microtone.js/issues">Report a problem</a><a href="https://github.com/curioustorvald/Microtone.js">Source code</a></nav>
+    <div><h2 class="ab-label">Company</h2>
+      <dl class="ab-company">
+        <dt>About us</dt><dd>One person</dd>
+        <dt>Careers</dt><dd>No</dd>
+        <dt>Investor relations</dt><dd>There are no investors</dd>
+        <dt>Newsroom</dt><dd><a href="../docs.html#patchnotes">The patch notes</a></dd>
+        <dt>Social</dt><dd><a href="https://bsky.app/profile/did:plc:3enk4wk6acr23segkntcdzzc">Bluesky</a></dd>
+      </dl></div>
+  </div>
+  <div class="ab-grid ab-legal">
+    <p class="ab-region">Region: <b>Earth</b> (English)</p>
+    <p>© 2026 Microtone. All rights reserved, and then given away under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License v3</a>.</p>
+    <ul>
+      <li>Privacy: there is nothing of yours to keep private from us</li>
+      <li>Cookies: one, and only if you sign in</li>
+      <li>Do not sell or share my personal information: we couldn’t if we tried</li>
+    </ul>
+  </div>
+</footer>
 
 </body>
 </html>

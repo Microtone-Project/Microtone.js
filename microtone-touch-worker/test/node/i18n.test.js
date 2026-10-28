@@ -228,6 +228,8 @@ test("i18n: sent by microtone.cc's redirect, the veil says so — once — and o
 test("i18n: every link to Microtone asks for the tracker, or a phone is sent straight back", () => {
   const links = [indexHtml, read("src/about.js")].flatMap((text) =>
     [...text.matchAll(/https:\/\/microtone\.cc\/[^"'\s)]*/g)].map((m) => m[0]));
-  assert.ok(links.length >= 3, "the veil's note, the menu and About");
-  for (const href of links) assert.equal(href, "https://microtone.cc/?tracker=1");
+  // The product page is not the tracker: a static page, which sends no phone anywhere.
+  const tracker = links.filter((href) => href !== "https://microtone.cc/about/");
+  assert.ok(tracker.length >= 3, "the veil's note, the menu and About");
+  for (const href of tracker) assert.equal(href, "https://microtone.cc/?tracker=1");
 });

@@ -284,6 +284,7 @@ export default {
   "about.blurb1": "Microtone Touch는 피아노로 낼 수 없는 음을 위한 스케치패드입니다. 4평균율부터 53평균율까지, 볼렌-피어스와 십이율을 연주하는 아이소모픽 건반, 프리셋 악기를 하나씩 맡는 여덟 개의 레인, 그리고 음표와 몇 가지 이펙트만 남긴 패턴 격자로 이루어져 있습니다.",
   "about.blurb2": "스케치는 휴대폰에, 또는 Microtone에서 쓰는 계정으로 온라인에 보관합니다. Microtone은 스케치를 일반 프로젝트로 열어 주므로, 트래커의 모든 기능으로 이어서 작업할 수 있습니다.",
   "about.license": "Microtone Touch는 GNU 일반 공중 사용 허가서 제3판에 의해 배포되는 자유 소프트웨어입니다.",
+  "about.why": "왜 Microtone일까요?",
   "about.supportHead": "무료로 지켜 가기",
   "about.support": "Microtone에는 광고도, 추적기도, 유료 등급도 없으며 앞으로도 만들지 않습니다. 한 사람이 여유 시간에 만들고 있으며, 후원과 스폰서가 서버 비용과 여기에 들어가는 시간을 지탱합니다.",
   "about.donate": "후원",

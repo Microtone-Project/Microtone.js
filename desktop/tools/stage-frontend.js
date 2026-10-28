@@ -30,6 +30,7 @@ const DESKTOP_EXCLUDE = [
   "sf2taudify.py",
   "translation/",       // the translation workbench: a page of the website, not of the app
   "src/cat/",
+  "about/",             // the product page: the app links to microtone.cc/about/ itself
 ];
 
 try {
