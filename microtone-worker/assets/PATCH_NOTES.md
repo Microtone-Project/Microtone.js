@@ -56,6 +56,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 - **A chord stack becomes a layered instrument instead**: when the lanes always strike together, always the same chord, Microtone offers one layered metainstrument, each lane's instrument a layer at its interval, played on one lane, with nothing rendered at all.
 - It takes two undo steps: the first Ctrl+Z puts the music back, the second removes the new instrument.
 
+**Formant instruments learn twelve more consonants**, and the Formant tab shows the vowels a playing song has moved.
+
+- **Breathy-voiced stops** [bʱ] [dʱ] [ɖʱ] [ɡʱ], released with a murmur of breath into the vowel as Hindi says them, and the aspirated retroflex [ʈʰ], in the consonant chart's *Aspirated* row.
+- **[sʰ]**, the Korean ㅅ: its hiss, then a breath before the vowel, in a new *Aspirated fricative* row.
+- **More affricates**: [c͡ç], [ɟ͡ʝ], [t͡θ], [d͡ð], [ɡ͡ɣ] and the glottal [ʔ͡h].
+- **The vowel chart follows the song**: while it plays, every note of the instrument that `S $Afgr` has given a vowel of its own is a dot in the accent colour, with a dashed line to where it is gliding, and the vowels and their commands are named under the readout.
+- **Lifting a piano key lets a syllable finish**: jamming a formant instrument on the computer keyboard, the key-off says the syllable's last consonant before the note stops, as a key-off in a pattern does; a syllable without one stops at once as before.
+
 **Microtone can be translated in the browser**: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
 
 - **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.
@@ -63,6 +71,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 - **Inconsistencies found for you**: the same English translated two ways, a placeholder, key name or "…" lost on the way, a glossary term not used, and translations whose English has changed since they were written, with the change shown.
 - Work stays in your browser until you save, and saving gives you the language files to send in.
 - **Opening Microtone with `?lang=debug`** at the end of its address shows every string as its name followed by the start of its English, so you can tell which string is which on screen; choose a language in the language picker to leave it.
+
+**The Timeline can narrow its cells to watch more lanes at once**: the **Cells** button in the toolbox switches between full cells, two slots and one.
+
+- **Two slots**: the first shows the note and instrument, or the effect on a row with neither, or the second effect on a row with none of those; the second shows the volume, or the panning on a row with no volume.
+- **One slot** keeps only the first, and the header drops its lane-state row, so even more lanes fit.
+- **Narrow cells can still be edited**: what you type goes to the column the slot is showing, and in an empty cell to the note or the volume. Moving up and down, the cursor goes back to the column you put it on whenever a row shows it.
+- A narrow header shows the note playing where the pattern name was, a block selection takes whole cells, and the setting is remembered in your browser.
 
 A project can be switched between 32 and 64 lanes from the **Lanes** selector on the Project tab.
 
@@ -99,13 +114,6 @@ Motif, Microtone's typeface, tells more of its letters and digits apart.
 - **The capital D has a round bowl**, so it stands apart from both the square O and the narrow, oval zero — in the grid's `D-4` as much as in a hex field reading `0D`.
 - **The z is as wide as the letters beside it**: Chivo Mono's was noticeably narrower than n and x, which left a gap in the middle of words like `nzn`.
 
-**The Timeline can narrow its cells to watch more lanes at once**: the **Cells** button in the toolbox switches between full cells, two slots and one.
-
-- **Two slots**: the first shows the note and instrument, or the effect on a row with neither, or the second effect on a row with none of those; the second shows the volume, or the panning on a row with no volume.
-- **One slot** keeps only the first, and the header drops its lane-state row, so even more lanes fit.
-- **Narrow cells can still be edited**: what you type goes to the column the slot is showing, and in an empty cell to the note or the volume. Moving up and down, the cursor goes back to the column you put it on whenever a row shows it.
-- A narrow header shows the note playing where the pattern name was, a block selection takes whole cells, and the setting is remembered in your browser.
-
 **The Cues tab shows which lanes are playing**: a lamp over each lane number lights whenever a row with anything on it reaches the lane — a row a pattern ditto repeats included — and fades out, with a bar beside it showing the lane's volume.
 
 **The pitch plot follows the pitch you hear**: a note under a tone portamento (`G`) is plotted where the slide still is, not where it is heading, and the curve climbs from there; a note with `E $Fxxx` or `S $2x` is plotted at the pitch it actually starts on.
@@ -127,14 +135,6 @@ Motif, Microtone's typeface, tells more of its letters and digits apart.
 - **Flip switches** put a piece of equipment in circuit or bypass it, at the right end of every Mixing and Mastering unit's titlebar and on every equaliser band (the Sample Lab's too): filled with the theme's colour while it is in, empty while it is out.
 - In the chord maker, a note's on/off is now the button carrying its number.
 - Fixed: the zoom − and + buttons, the icon buttons and *follow* sat shorter than the other buttons of the top bar; they all stand the same height now.
-
-**Formant instruments learn twelve more consonants**, and the Formant tab shows the vowels a playing song has moved.
-
-- **Breathy-voiced stops** [bʱ] [dʱ] [ɖʱ] [ɡʱ], released with a murmur of breath into the vowel as Hindi says them, and the aspirated retroflex [ʈʰ], in the consonant chart's *Aspirated* row.
-- **[sʰ]**, the Korean ㅅ: its hiss, then a breath before the vowel, in a new *Aspirated fricative* row.
-- **More affricates**: [c͡ç], [ɟ͡ʝ], [t͡θ], [d͡ð], [ɡ͡ɣ] and the glottal [ʔ͡h].
-- **The vowel chart follows the song**: while it plays, every note of the instrument that `S $Afgr` has given a vowel of its own is a dot in the accent colour, with a dashed line to where it is gliding, and the vowels and their commands are named under the readout.
-- **Lifting a piano key lets a syllable finish**: jamming a formant instrument on the computer keyboard, the key-off says the syllable's last consonant before the note stops, as a key-off in a pattern does; a syllable without one stops at once as before.
 
 ## Version 3.13.3 (2026-10-22)
 
