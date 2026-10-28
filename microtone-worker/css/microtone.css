@@ -4086,6 +4086,10 @@ button.nota-assign { font-size: 0.85rem; }
 
 /* An option row is one lamp pushbutton, across the row's columns. */
 .mst-row-check > .lamp-btn { grid-column: 1 / -1; font-size: 0.85rem; }
+/* Options that belong together (the mix tool's Swap · Invert · Remove DC), side
+   by side, wrapping only when the unit is too narrow for them. */
+.mst-row-lamps { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.mst-row-lamps > .lamp-btn { font-size: 0.85rem; }
 
 .mst-band {
   border: 1px solid var(--border);

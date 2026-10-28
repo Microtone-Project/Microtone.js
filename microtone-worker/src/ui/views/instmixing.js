@@ -952,19 +952,20 @@ export class MixingPanel {
 
   bodyMix(body) {
     const id = IMX_MXTL;
-    const flag = (lab, key) => this.checkRow(lab, null, () => this.eqp(id)[key] ?? false,
-      (on) => this.editEquipment(id, (x) => { x[key] = on; }));
+    const flag = (lab, key, title = "") => this.lamp(t(lab), () => this.eqp(id)[key] ?? false,
+      (on) => this.editEquipment(id, (x) => { x[key] = on; }), title);
     body.append(
       this.num(id, "imix.gain", "gainDb", "mxGainDb", { unit: "dB", digits: 1 }),
       // In a surround song, surround width (item 247): an ambisonic scene's
       // directions against its W; a speaker layout leaves it out.
       this.num(id, this.surroundSong() ? "imix.surroundWidth" : "imix.width", "width", "mxWidth",
         { unit: "%", digits: 0, scale: 100 }),
-      flag("imix.swap", "swap"),
-      flag("imix.invL", "invL"),
-      flag("imix.invR", "invR"),
-      this.checkRow("imix.removeDc", "imix.removeDcTitle", () => this.eqp(id).removeDc ?? false,
-        (on) => this.editEquipment(id, (x) => { x.removeDc = on; })),
+      this.lampRow(
+        flag("imix.swap", "swap"),
+        flag("imix.invL", "invL"),
+        flag("imix.invR", "invR"),
+        flag("imix.removeDc", "removeDc", t("imix.removeDcTitle")),
+      ),
     );
   }
 
@@ -1061,6 +1062,14 @@ export class MixingPanel {
     const row = document.createElement("div");
     row.className = "mst-row mst-row-check";
     row.appendChild(this.lamp(t(labelKey), get, set, titleKey ? t(titleKey) : ""));
+    return row;
+  }
+
+  /** Several lamp pushbuttons side by side, on one row. */
+  lampRow(...lamps) {
+    const row = document.createElement("div");
+    row.className = "mst-row mst-row-lamps";
+    row.append(...lamps);
     return row;
   }
 

@@ -204,9 +204,14 @@ function painted(cv) {
   check(store.doc.imixBlock(1).equipment.unis?.bypass === true, "…inserting the unison switched off");
   const waveNow = [...unitEl("unis").querySelectorAll(".mst-seg button.wave-btn")];
   check(waveNow[1].classList.contains("active") && !waveNow[0].classList.contains("active"), "…and the button is the pressed one");
-  const dcRow = [...unitEl("mxtl").querySelectorAll(".mst-row-check")].find((r) => r.textContent.includes("Remove DC"));
-  check(!!dcRow, "the mix tool has Remove DC");
-  dcRow.querySelector("button.lamp-btn").click();
+  const lampRow = unitEl("mxtl").querySelector(".mst-row-lamps");
+  const lamps = lampRow ? [...lampRow.querySelectorAll("button.lamp-btn")] : [];
+  check(lamps.length === 4, "the mix tool's four options share one row");
+  const tops = lamps.map((b) => Math.round(b.getBoundingClientRect().top));
+  check(tops.length === 4 && tops.every((y) => y === tops[0]), "…side by side", tops);
+  const dcBtn = lamps.find((b) => b.textContent.includes("Remove DC"));
+  check(!!dcBtn, "the mix tool has Remove DC");
+  dcBtn.click();
   await sleep(80);
   check(store.doc.imixBlock(1).equipment.mxtl?.removeDc === true, "…which the block records");
 
