@@ -46,6 +46,16 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 - **Microtonal songs are written as raw Amiga periods**, the nearest the hardware can get to each note. ProTracker plays them, though its editor and some other trackers will not show them right, and the dialog says so.
 - Each song of a project becomes its own module, and several come zipped together.
 
+**A block of music can be rendered into a sample**, ProTracker's pattern-to-sample trick: **To sample…** in the toolbox, or *To sample* in the right-click menu, plays the block into a new sample and puts one note of it where the block was, freeing the lanes it took.
+
+- **On the Timeline** it takes the selected block — Ctrl+A selects a whole lane, Ctrl+→ the lane beside it as well. **In the Patterns tab** it takes the selected rows, or the whole pattern when nothing is selected.
+- **What you see is what is rendered**: the rows are played top to bottom as the grid shows them, with jumps, breaks and pattern loops left out, and every lane arrives at the block with the instrument, volume and effects it would have had playing the song from the start.
+- **The sample replays at the level the block had**, triggered at full volume on a centred lane, and stays in tune in a song tuned away from A = 440. It starts at the block's first note and keeps the last notes' release.
+- **It opens in the Sample Lab** before anything is imported, so you can listen to it, trim it, choose its rate, or make it mono, as with any recording.
+- **The song's own commands stay**: tempo, speed, global volume, jumps, pattern delays and interrupts are left where they were in the cleared cells, and a lane whose next note leans on the instrument it was playing gets that instrument written in.
+- **A chord stack becomes a layered instrument instead**: when the lanes always strike together, always the same chord, Microtone offers one layered metainstrument, each lane's instrument a layer at its interval, played on one lane, with nothing rendered at all.
+- It takes two undo steps: the first Ctrl+Z puts the music back, the second removes the new instrument.
+
 **Microtone can be translated in the browser**: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
 
 - **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.

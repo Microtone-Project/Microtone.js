@@ -203,6 +203,11 @@ export const ICON = {
     '<circle cx="17.9" cy="7" r="1.4"/>' +
     '<circle cx="3.5" cy="19.5" r="2.2" fill="currentColor" stroke="none"/>' +
     '<circle cx="20.5" cy="10.5" r="2.2" fill="currentColor" stroke="none"/>'),
+  /** To sample (item 242): three lanes of notes folded into one waveform. */
+  toSample: SVG(
+    '<path d="M2.5 6h5M2.5 12h5M2.5 18h5"/>' +
+    '<path d="M8.5 12h2.8"/><path d="M10 10.2 11.8 12 10 13.8"/>' +
+    '<path d="M13.5 12c1.2-5 1.8-7.5 2.5-7.5s1.4 15 2.5 15 1.6-7.5 3-7.5"/>'),
   /** Panner: the surround dial seen from above — listener at the centre, front
    *  tick at the top, a source placed off to one side. */
   panner: SVG(

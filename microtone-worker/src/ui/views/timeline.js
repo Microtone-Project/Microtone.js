@@ -750,7 +750,7 @@ export class TimelineView {
       ? [...muteItems(store, ch), ...fx2Items(store, ch)]
       : (cells.length > 0
           ? blockToolItems(cols, { wide: store.doc.wideCells === true,
-              block: this.hasSelection() })
+              block: this.hasSelection(), render: this.hasSelection() })
           : []);
 
     const pick = await showContextMenu(e.clientX, e.clientY, [items, second],
@@ -758,7 +758,7 @@ export class TimelineView {
     if (isBlockTool(pick)) {
       const anchor = this.toolAnchor(hit, ch);
       if (await runBlockTool(pick, { store, cells, cols, lanes: this.toolLanes(hit, ch),
-        anchor, column: ch, scope: this.toolScope(cells) })) {
+        anchor, column: ch, scope: this.toolScope(cells), render: this.renderSpec() })) {
         this.invalidate();
       }
       return;
@@ -894,6 +894,13 @@ export class TimelineView {
     return t0
       ? { pat: t0.pat, row: t0.rowInCue, channel, rowLabel: String(row) }
       : { pat: -1, row: 0, channel, rowLabel: String(row) };
+  }
+
+  /** What To sample renders (item 242): the block selection — Ctrl+A makes it
+   *  a whole lane, Ctrl+→ more of them — or null with nothing selected. */
+  renderSpec() {
+    const b = this.selBounds();
+    return b ? { kind: "timeline", r0: b.r0, r1: b.r1, c0: b.c0, c1: b.c1 } : null;
   }
 
   /** Human label for the modals' "this applies to …" line. */

@@ -1,0 +1,152 @@
+<!doctype html><meta charset="utf-8"><title>To sample: toolbox, menus, the Lab, the rewrite</title>
+<pre id="out">running…</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1200px;height:700px"></iframe>
+<script type="module">
+// Pattern to sample (item 242) end to end in the app: the toolbox button asks
+// for a block on the Timeline, a block's right-click menu offers To sample, the
+// render opens in the Sample Lab, Import lands the instrument and then the
+// trigger (two undo steps); a chord stack is offered as a layered instrument;
+// the Patterns view renders a whole pattern with nothing selected.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+window.addEventListener("error", (e) => log("ERROR " + e.message));
+(async () => {
+ try {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  win.addEventListener("error", (e) => log("APP ERROR " + e.message));
+  win.addEventListener("unhandledrejection", (e) => log("APP REJECTION " + (e.reason?.stack ?? e.reason)));
+  for (let i = 0; i < 200 && !win.__microtone; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); return; }
+  for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
+  const doc = win.document;
+  const { store, timeline } = M;
+  const MIDDLE_C = 0x5000;
+  const waitFor = async (sel, ms = 8000) => {
+    for (let t = 0; t < ms; t += 40) { const el = doc.querySelector(sel); if (el) return el; await sleep(40); }
+    return null;
+  };
+  const gone = async (el, ms = 4000) => { for (let t = 0; t < ms && el.isConnected; t += 40) await sleep(40); return !el.isConnected; };
+  const cellOf = (cue, ch, row) => store.doc.patternAt(store.songIndex, store.song.cues[cue][ch] & 0x7fff)[row];
+  const menuIds = (dlg) => [...dlg.querySelectorAll(".ctx-row")]
+    .map((r) => [...r.querySelectorAll(".ctx-cell")].map((c) => c.dataset.id));
+
+  // ── 1. the toolbox button, and what it says with nothing selected ──────
+  const btn = doc.getElementById("tbToSample");
+  check(!!btn && !btn.hidden, "the toolbox carries To sample… with a song open");
+  check(btn.previousElementSibling?.id === "tbPanner", "…right next to the Panner");
+  timeline.sel = null;
+  btn.click();
+  let note = await waitFor("dialog.modal");
+  check(!!note && /Select a block/.test(note.textContent), "with no block it asks for one", note?.textContent.slice(0, 80));
+  note?.querySelector(".act-dismiss")?.click();
+  if (note) await gone(note);
+
+  // ── 2. a block's right-click menu → the Lab → Import ───────────────────
+  // Cue 1 rows 0–15 (song rows 64–79), lanes 0–2: a melody and its harmony.
+  timeline.sel = { aRow: 64, aCh: 0, aSub: 0, row: 79, ch: 2, sub: 4 };
+  timeline.centreRow(70);
+  timeline.invalidate();
+  await sleep(100);
+  const canvas = doc.getElementById("timeline");
+  const r = canvas.getBoundingClientRect();
+  const y = timeline.headerH() + (70 - Math.floor(timeline.scrollRow)) * 16 + 8;
+  canvas.dispatchEvent(new win.MouseEvent("contextmenu", {
+    clientX: r.left + 76 + 20, clientY: r.top + y, bubbles: true, cancelable: true, button: 2 }));
+  const menu = await waitFor("dialog.ctxmenu");
+  const second = menu ? menuIds(menu)[1] ?? [] : [];
+  check(second.includes("toSample"), "a block's second row offers To sample", second.join());
+  check(second.indexOf("toSample") === second.length - 2, "…just before Find & Change", second.join());
+  const instsBefore = store.doc.usedInstrumentSlots().length;
+  const undoBefore = store.undo.undoStack.length;
+  menu?.querySelector('.ctx-cell[data-id="toSample"]')?.click();
+  const lab = await waitFor("dialog.samplelab-modal", 15000);
+  check(!!lab, "the render opens in the Sample Lab");
+  check(!!lab && /rendered from/.test(lab.querySelector("h3")?.textContent ?? ""), "…saying where it came from",
+    lab?.querySelector("h3")?.textContent);
+  lab?.querySelector(".lab-ok")?.click();
+  if (lab) await gone(lab, 8000);
+  await sleep(200);
+  const slots = store.doc.usedInstrumentSlots();
+  check(slots.length === instsBefore + 1, "Import made one instrument", `${instsBefore} → ${slots.length}`);
+  const trig = cellOf(1, 0, 2);
+  check(trig.note === MIDDLE_C && slots.includes(trig.instrment) && trig.instrment !== 1,
+    "the block's first note is now a C-4 of it", `${trig.note.toString(16)} / ${trig.instrment}`);
+  check(cellOf(1, 1, 2).note === 0 && cellOf(1, 2, 8).note === 0, "and the rest of the block is clear");
+  const inst = store.doc.instruments[trig.instrment];
+  check(inst.initialAttenOctet > 0, "the new instrument carries the block's level in its attenuation",
+    String(inst.initialAttenOctet));
+  check(store.undo.undoStack.length === undoBefore + 2, "two undo steps", String(store.undo.undoStack.length - undoBefore));
+  store.undo.undo();
+  check(cellOf(1, 0, 2).note === 0x4c00, "the first Ctrl+Z brings the music back");
+  check(store.doc.usedInstrumentSlots().length === instsBefore + 1, "…and keeps the instrument");
+  store.undo.undo();
+  check(store.doc.usedInstrumentSlots().length === instsBefore, "the second removes the instrument");
+
+  // ── 3. a chord stack → a layered instrument ─────────────────────────────
+  // Three new patterns in a new cue: C–E–G on rows 0 and 8, key-offs on 6 and
+  // 14, all instrument 1.
+  const song = store.song;
+  const cue = song.cues.length;
+  const words = new Uint16Array(64).fill(0x7fff);
+  const shape = [0, 0x555, 0x955];
+  for (let ch = 0; ch < 3; ch++) {
+    const pat = song.patterns.length;
+    const cells = store.doc.ensurePattern(store.songIndex, pat);
+    words[ch] = pat;
+    for (const [row, root] of [[0, 0x4000], [8, 0x4200]]) { cells[row].note = root + shape[ch]; cells[row].instrment = 1; }
+    for (const row of [6, 14]) cells[row].note = 1;
+  }
+  song.cues.push(words);
+  timeline.map = null;
+  const start = song.songMap().entries[cue].startRow;
+  timeline.sel = { aRow: start, aCh: 0, aSub: 0, row: start + 15, ch: 2, sub: 4 };
+  btn.click();
+  const stackDlg = await waitFor("dialog.modal");
+  check(!!stackDlg?.querySelector('select[name="as"]'), "a chord stack is offered as a layered instrument",
+    stackDlg?.querySelector("h3")?.textContent);
+  stackDlg?.querySelector(".modal-buttons .proceed")?.click();
+  await sleep(300);
+  const meta = cellOf(cue, 0, 0).instrment;
+  check(store.doc.instruments[meta]?.isMeta === true, "…and becomes one", String(meta));
+  check(cellOf(cue, 0, 8).instrment === meta && cellOf(cue, 1, 0).note === 0 && cellOf(cue, 2, 8).note === 0,
+    "played on the lane of the lowest note, the others cleared");
+  check(store.doc.instruments[meta]?.metaLayers?.map((l) => l.detune).join() === "0,1365,2389",
+    "each lane a layer at its interval", store.doc.instruments[meta]?.metaLayers?.map((l) => l.detune).join());
+
+  // ── 4. the Patterns view: no selection = the whole pattern ─────────────
+  doc.querySelector('#tabs button[data-view="pattern"]').click();
+  await sleep(200);
+  const pv = M.patternView;
+  pv.setPattern(3);
+  pv.clearSelection();
+  const pc = pv.active.canvas;
+  const pr = pc.getBoundingClientRect();
+  pc.dispatchEvent(new win.MouseEvent("contextmenu", {
+    clientX: pr.left + 60, clientY: pr.top + 40, bubbles: true, cancelable: true, button: 2 }));
+  const pmenu = await waitFor("dialog.ctxmenu");
+  check(!!pmenu && menuIds(pmenu).at(-1).includes("toSample"), "the Patterns menu offers it with nothing selected",
+    pmenu ? menuIds(pmenu).join(" | ") : "no menu");
+  pmenu?.querySelector('.ctx-cell[data-id="toSample"]')?.click();
+  const lab2 = await waitFor("dialog.samplelab-modal", 15000);
+  check(!!lab2, "…and renders the pattern into the Lab");
+  lab2?.querySelector(".lab-ok")?.click();
+  if (lab2) await gone(lab2, 8000);
+  await sleep(200);
+  const p3 = store.doc.patternAt(store.songIndex, 3);
+  check(p3[2].note === MIDDLE_C && store.doc.instruments[p3[2].instrment] !== undefined && p3[5].note === 0,
+    "the pattern's first note is the trigger, the rest cleared", `${p3[2].note.toString(16)} ${p3[5].note.toString(16)}`);
+ } catch (e) {
+  fails++;
+  log("EXCEPTION " + (e.stack ?? e));
+ }
+ log(`FAILURES: ${fails}`);
+})();
+</script>

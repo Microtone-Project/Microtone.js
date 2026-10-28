@@ -469,7 +469,7 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
  *  existing pooled sample's loop (item 40). */
 export function buildFreshInstRecord({ samplePtr, sampleLength, samplingRate,
                                        sampleLoopStart = 0, sampleLoopEnd = 0, loopMode = 0,
-                                       sampleDetune = 0 }) {
+                                       sampleDetune = 0, initialAttenOctet = 0 }) {
   const inst = new TaudInst(0);
   inst.samplePtr = samplePtr;
   inst.sampleLength = sampleLength;
@@ -478,6 +478,7 @@ export function buildFreshInstRecord({ samplePtr, sampleLength, samplingRate,
   inst.sampleLoopEnd = sampleLoopEnd;
   inst.loopMode = loopMode;
   inst.sampleDetune = sampleDetune;
+  inst.initialAttenOctet = initialAttenOctet & 0xff;
   const rec = new Uint8Array(256);
   for (let i = 0; i < 256; i++) rec[i] = inst.getByteNormal(i);
   return rec;
@@ -496,7 +497,8 @@ export function planSampleImport(destDoc, item) {
 
 /**
  * The N-sample generalisation (item 84 — the Sample Lab's chopper lands every
- * kept chunk in ONE undo step): `items` is [{nameBytes, pcm, rate, loop, pcmR, detune}].
+ * kept chunk in ONE undo step): `items` is [{nameBytes, pcm, rate, loop, pcmR, detune,
+ * attenOctet}].
  * Each item becomes its own instrument (free $01–$FF slots ascending, in item
  * order); PCM dedupes against the pool AND within the batch; INam/SNam names
  * land per item (a deduped span keeps its existing name; for a batch-internal
@@ -506,6 +508,10 @@ export function planSampleImport(destDoc, item) {
  * caller is the only one that passes it, to land a freshly painted cycle
  * exactly on middle C at C-4 rather than at whatever pitch its raw length
  * happens to loop at.
+ *
+ * `attenOctet` (byte 251, the decibel octet; 0 = unity) defaults to 0 — a
+ * pattern rendered to a sample (item 242) is kept near full scale for its 8
+ * bits and carries the rest of its level here.
  *
  * `pcmR` (same length as `pcm`) makes the item STEREO (item 90): the right
  * channel takes its own pool span and the instrument gets a single full-range
@@ -576,6 +582,7 @@ export function planMultiSampleImport(destDoc, items) {
       record: buildFreshInstRecord({
         samplePtr: ptrs[i], sampleLength: len, samplingRate: rate,
         sampleLoopEnd: loopEnd, loopMode, sampleDetune: detune,
+        initialAttenOctet: it.attenOctet ?? 0,
       }),
       ixmpBlob: stereo
         ? writePatchesBlob([makeInstPatch({
@@ -1217,6 +1224,62 @@ export function planCreateMeta(destDoc, picks, name = "") {
     .map((it) => [it.destSlot, destDoc.instrumentName(it.srcSlot)]);
   names.push([metaSlot, name]);
 
+  return metaPlan(insts, inamPayloadWith(destDoc, names), {
+    metaSlot,
+    childSlots: insts.filter((it) => it.srcSlot >= 0).map((it) => it.destSlot),
+  });
+}
+
+/**
+ * Plan a layered metainstrument for a CHORD STACK (item 242): `layers` is
+ * [{slot, detune}] in table order, the first being the foreground layer. The
+ * same copy-into-$100+ rule as planCreateMeta, with each instrument copied
+ * once however many layers sound it (linked, item 113), and every layer at
+ * unity mix over the full rectangle. The meta is marked percussion when every
+ * layer's instrument is. Returns {error} or a planImport-shaped plan.
+ */
+export function planChordMeta(destDoc, layers, name = "") {
+  if (destDoc.sampleInstImage === null) {
+    return { error: "This project has no sample+instrument image." };
+  }
+  const used = new Set(destDoc.usedInstrumentSlots());
+  if (!layers?.length) return { error: "No instruments selected." };
+  if (layers.length > META_MAX_LAYERS) {
+    return { error: `A metainstrument holds at most ${META_MAX_LAYERS} layers (${layers.length} selected).` };
+  }
+  if (layers.some((l) => !used.has(l.slot) || destDoc.instruments[l.slot].isMeta)) {
+    return { error: "A metainstrument can't be layered inside another metainstrument." };
+  }
+  const taken = new Set(used);
+  let metaSlot = 1;
+  while (metaSlot <= 255 && taken.has(metaSlot)) metaSlot++;
+  if (metaSlot > 255) {
+    return { error: "No free instrument slots left in $01–$FF (note-addressable range)." };
+  }
+  taken.add(metaSlot);
+
+  const insts = [];
+  const childOf = new Map();
+  for (const { slot } of layers) {
+    if (childOf.has(slot)) continue;
+    const child = allocChildSlot(taken);
+    if (child < 0) return { error: "No free sub-instrument slots left in $100–$3FF." };
+    childOf.set(slot, child);
+    insts.push(copyEntry(destDoc, slot, child));
+  }
+  const table = layers.map((l) => makeMetaLayer(childOf.get(l.slot), 159, l.detune, 0x0000, 0xffff, 0, 63));
+  const percussion = layers.every((l) => destDoc.instruments[l.slot].isPercussion);
+  insts.push({
+    srcSlot: -1,
+    destSlot: metaSlot,
+    topLevel: true,
+    record: buildMetaRecord(table, { percussion }),
+    ixmpBlob: null,
+    ixmpCount: 0,
+  });
+  const names = insts.filter((it) => it.srcSlot >= 0)
+    .map((it) => [it.destSlot, destDoc.instrumentName(it.srcSlot)]);
+  names.push([metaSlot, name]);
   return metaPlan(insts, inamPayloadWith(destDoc, names), {
     metaSlot,
     childSlots: insts.filter((it) => it.srcSlot >= 0).map((it) => it.destSlot),

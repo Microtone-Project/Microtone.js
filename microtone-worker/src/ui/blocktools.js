@@ -67,6 +67,8 @@ const TOOL_ITEM = {
     icon: ICON.interpolate, title: t("ctx.interpolateTitle") }),
   fxFill: () => ({ id: "fxFill", label: t("ctx.fxFill"), icon: ICON.cmdFill,
     title: t("ctx.fxFillTitle") }),
+  toSample: () => ({ id: "toSample", label: t("ctx.toSample"), icon: ICON.toSample,
+    title: t("ctx.toSampleTitle") }),
 };
 
 /**
@@ -110,12 +112,17 @@ export function interpKinds(cols, wide = false) {
  *
  * `block` says a selection exists, which is the one thing Interpolate needs on
  * top of the right columns (item 181).
+ *
+ * `render` offers To sample (item 242) beside Find & Change: like it, it is
+ * about the block and not about a column. The view decides — a Timeline needs
+ * a block selection, a pattern is a whole pattern without one.
  */
-export function blockToolItems(cols, { wide = false, block = false } = {}) {
+export function blockToolItems(cols, { wide = false, block = false, render = false } = {}) {
   // Interpolate needs a BLOCK, not the one cell under the pointer: two control
   // points is its floor, and a single row can never hold two. Offering it there
   // would be offering a cell that could only ever answer "no".
   const interp = block && interpKinds(cols, wide) ? [TOOL_ITEM.interpolate()] : [];
+  const toSample = render ? [TOOL_ITEM.toSample()] : [];
   // Either effect column alone gets the quick palette, writing to that column's
   // own slot — `fx:` is effect 1, `fx2:` the second effect (§5.5). A block of
   // one also gets Fill (item 259): the palette changes only the opcode, Fill
@@ -130,7 +137,7 @@ export function blockToolItems(cols, { wide = false, block = false } = {}) {
         title: `${info.l} ${fxName(info)} — ${fxArg(info)}` };
     });
     const fill = block ? [TOOL_ITEM.fxFill()] : [];
-    return [...quick, ...fill, ...interp, TOOL_ITEM.findchange()];
+    return [...quick, ...fill, ...interp, ...toSample, TOOL_ITEM.findchange()];
   }
   const items = [];
   for (const col of cols) {
@@ -138,7 +145,7 @@ export function blockToolItems(cols, { wide = false, block = false } = {}) {
     if (tool) items.push(TOOL_ITEM[tool]());
     if (col === COL_PAN) items.push(TOOL_ITEM.panner());
   }
-  items.push(...interp, TOOL_ITEM.findchange());
+  items.push(...interp, ...toSample, TOOL_ITEM.findchange());
   return items;
 }
 
@@ -187,8 +194,8 @@ function applyCellBytes(ctx, fn) {
  * channel, rowLabel}` the panner reads its starting position off, and `column`
  * the lane the block sits in when the view HAS lanes — a Taud pattern is one
  * lane, so the Patterns view leaves it out and Find & Change works the
- * column out from the cue list instead. Resolves true when the document
- * changed.
+ * column out from the cue list instead. `render` is the view's renderSpec() —
+ * what To sample renders. Resolves true when the document changed.
  */
 export async function runBlockTool(id, ctx) {
   if (id.startsWith("fx2:")) return applyQuickFx(ctx, parseInt(id.slice(4), 10), true);
@@ -202,6 +209,11 @@ export async function runBlockTool(id, ctx) {
     case "interpolate": return interpolateTool(ctx);
     case "fxFill": return fxFillTool(ctx);
     case "findchange": return findChangeTool(ctx);
+    case "toSample": {
+      if (!ctx.render) return false;
+      const { patternToSample } = await import("./pattosample.js");
+      return patternToSample(ctx.store, ctx.render);
+    }
   }
   return false;
 }

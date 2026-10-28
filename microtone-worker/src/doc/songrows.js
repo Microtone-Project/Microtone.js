@@ -68,7 +68,7 @@ const PAT_MASK = 0x7fff;
 export const PATTERN_ROWS = 64;
 
 // ── instruction word encoders (the decoders are engine/state.js) ──
-const encLen = (rows) => 0x0200 | ((rows - 1) & 0x3f);
+export const encLen = (rows) => 0x0200 | ((rows - 1) & 0x3f);
 // "halt at x", where x = 0 spells the full 64 rows.
 const encHaltAt = (rows) => 0x0140 | (rows & 0x3f);
 const FLOW_TOP = { [INST_GOBACK]: 0x8000, [INST_SKIP]: 0x9000, [INST_JUMP]: 0xf000 };

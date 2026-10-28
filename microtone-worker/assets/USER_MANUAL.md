@@ -371,6 +371,11 @@ change only the effect letter and keep each cell's own argument.
 general case of the tools beside it and has no column of its own. See
 [Find & Change](#find-change-advanced-pattern-edit).
 
+**To sample** sits just before it once a block is selected (in the Patterns
+editor, always: there it takes the whole pattern when nothing is selected) and
+renders the block into a sample that one note then plays. See
+[To sample](#to-sample).
+
 Each tool acts on the **selected block** — which on the Timeline may span
 lanes and cross several patterns — or on the single cell you clicked when
 nothing is selected, in one undo step either way. The Panner reads its starting
@@ -1325,6 +1330,65 @@ stays greyed out until something really would change, and the whole edit is one
 **Ctrl+Z** however many patterns it crossed. The query is kept for as long as
 the tab is open, so running it again with one field changed does not mean
 retyping the other six.
+
+### To sample
+
+**To sample…** in the toolbox, or *To sample* in the right-click menu, plays a
+block of music into a new sample and puts one note of that sample where the
+block was — ProTracker's pattern-to-sample trick. Four lanes of drums become
+one lane, and the three it frees are yours again.
+
+**What it takes.** On the Timeline, the selected block: rows by lanes, across
+as many patterns as it crosses. **Ctrl+A** selects the cursor's whole lane and
+**Ctrl+→** the lane beside it as well. In the Patterns editor, the selected rows
+of the pattern, or the whole pattern when nothing is selected. With nothing
+selected on the Timeline it asks you to select a block first.
+
+**What is rendered is what the grid shows.** The rows are played top to bottom
+as you see them: jumps (`B`), breaks (`C`) and pattern loops (`S $Bx`) are left
+out, and so are the cues' own jumps and halts. On the Timeline every lane
+arrives at the block as it would playing the song from the start — with the
+instrument, volume, panning and effect memory it had there — and the song's
+tempo changes play as they do in the song, whichever lane they are written on.
+Nothing outside the block sounds. A block in the Patterns editor is played the
+way its **Preview** plays it: on its own, from a clean start, at the song's
+tempo.
+
+**The sample.** It starts at the block's first note and runs to the block's
+end, then on while the last notes release (two seconds at most — a note that
+holds for ever is faded out there), with any silence at the end trimmed. It is
+made to replay **at the level the block had**, when it is triggered at full
+volume on a centred lane: it is kept near full scale for the sake of its eight
+bits, and the instrument's initial attenuation carries the rest. In a song
+tuned away from A = 440 the sample is detuned to match, so its C-4 plays it as
+it was made. The mastering chain is not in the render, since the sample goes
+through it again when it plays; the instruments' own mixing chains are.
+
+**It opens in the Sample Lab** before anything is imported: listen to it, trim
+it, cut its tail, choose its rate (a long block is squeezed to fit one sample,
+the rate following), fold it to mono, as with any take. *Import* creates the
+instrument; cancelling leaves the song as it was.
+
+**The rewrite.** Every cell of the block is cleared, except for what belongs to
+the song rather than to the lane — tempo (`T`), speed (`A`), global volume
+(`V`, `W`), jumps and breaks (`B`, `C`), pattern loops and delays (`S $Bx`,
+`S $Ex`, `S $6x`) and interrupt notes — and the block's first note becomes a
+C-4 of the new instrument. A lane whose next note after the block names no
+instrument, and so leans on the one the lane was playing, gets that instrument
+written into it, so the music after the block goes on as before.
+
+**A chord stack becomes a layered instrument instead.** When the lanes of the
+block always strike together, always the same chord — every note row the same
+on every lane except for the note and the instrument, each lane keeping one
+instrument and one interval throughout — *To sample* offers a **layered
+metainstrument** first: each lane's instrument as a layer detuned by its
+interval, played on the lane of the lowest note. Nothing is rendered, every
+note still sounds through its own instrument, and the stack's key-offs and
+effects stay as they were. Only the lanes' different panning is lost. Choose
+*A rendered sample* to render it anyway.
+
+Either way it takes **two undo steps**: the first **Ctrl+Z** puts the music
+back, the second removes the new instrument.
 
 ## Samples (F4)
 

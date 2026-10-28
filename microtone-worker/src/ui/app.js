@@ -965,6 +965,7 @@ function refreshToolbox() {
   // Every song has a pan space to place things in: the Panner draws a stereo
   // song's as a half-circle, so only the surround-only toggles follow the model.
   $("tbPanner").hidden = !store.doc;
+  $("tbToSample").hidden = !store.doc;
   $("tbRadar").hidden = !surround;
   $("tbRadar").textContent = t(store.surroundMeters ? "toolbox.radarOn" : "toolbox.radarOff");
   $("tbBinaural").hidden = !surround;
@@ -1439,6 +1440,16 @@ $("tbPanner").addEventListener("click", async () => {
   const { showPanner } = await import("./popups/panner.js");
   await showPanner(store, cursorCellTarget());
   invalidateGrids();
+});
+// To sample (item 242) — the Timeline's block, or the Patterns view's selection
+// or whole pattern, rendered into a sample that one trigger then replaces. The
+// grid the keyboard is in decides, else whichever grid is open.
+$("tbToSample").addEventListener("click", async () => {
+  if (!store.doc) return;
+  const name = store.view === "timeline" || store.view === "pattern" ? store.view
+    : store.viewOpen("timeline") ? "timeline" : "pattern";
+  const { patternToSample } = await import("./pattosample.js");
+  if (await patternToSample(store, viewNamed(name)?.renderSpec() ?? null)) invalidateGrids();
 });
 // Master strip (item 98): the mastering panel down the right-hand edge —
 // vectorscopes, RMS/peak metering and the song's global-volume fader. Visible

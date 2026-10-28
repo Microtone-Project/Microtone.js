@@ -82,8 +82,11 @@ const DEFAULT_BANDS = () => ([
  * @param replaceTarget the sampleList() census entry `data` was read out of
  *        (item 109). Its presence is what offers "Replace": the edit is written
  *        back over those pool bytes and every instrument bound to them follows.
+ * @param importExtras fields every imported item carries into
+ *        planMultiSampleImport — a rendered pattern (item 242) brings its
+ *        `attenOctet` and `detune`, which say how the take must replay
  */
-export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", confirmDiscard = false, openChord = false, replaceTarget = null }) {
+export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", confirmDiscard = false, openChord = false, replaceTarget = null, importExtras = null }) {
   const srcChans = (Array.isArray(data) ? data : [data]).filter((c) => c && c.length > 0);
   if (!store.doc || srcChans.length === 0) return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -930,6 +933,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
         const r = renderChunk(c);
         if (r.clipped) clippedCount++;
         return {
+          ...importExtras,
           nameBytes: enc.encode(escapeNonAscii(kept.length > 1 ? `${nm} ${i + 1}` : nm)),
           pcm: r.pcm, pcmR: r.pcmR, rate: r.rate,
         };
