@@ -13,7 +13,7 @@
 .about-page {
   --ab-gutter: clamp(16px, 4vw, 48px);
   --ab-max: 1360px;
-  --ab-display: clamp(2.4rem, 1.4rem + 4vw, 5.2rem);
+  --ab-display: clamp(2.4rem, 1.4rem + 4vw, 4.2rem);
   --ab-h2: clamp(1.7rem, 1.2rem + 2vw, 3rem);
   --ab-lead: 1.25rem;
   --ab-body: 1rem;
@@ -38,8 +38,8 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
 /* ── the grid ─────────────────────────────────────────────────────────── */
 .ab-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  column-gap: 24px;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  column-gap: 18px;
   max-width: var(--ab-max);
   margin: 0 auto;
   padding: 0 var(--ab-gutter);
@@ -52,7 +52,7 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
   font-weight: 800;
   font-size: var(--ab-display);
   line-height: 1.02;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.05em;
   margin: 0 0 0.4em;
 }
 .ab-h2 {
@@ -152,9 +152,9 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
 
 /* ── hero ─────────────────────────────────────────────────────────────── */
 .ab-hero { padding-top: clamp(2.5rem, 7vw, 6rem); padding-bottom: clamp(2.5rem, 6vw, 5rem); row-gap: 2.5rem; align-items: start; }
-.ab-hero-copy { grid-column: 1 / span 6; }
-.ab-hero-copy .ab-display { font-size: clamp(2.4rem, 1.2rem + 3.4vw, 4.4rem); }
-.ab-hero-shot { grid-column: 7 / -1; margin: 0; padding-top: 2.4rem; }
+.ab-hero-copy { grid-column: 1 / span 7; }
+.ab-hero-copy .ab-display { font-size: clamp(2.4rem, 1.2rem + 3.4vw, 4.0rem); }
+.ab-hero-shot { grid-column: 8 / -1; margin: 0; padding-top: 2.4rem; }
 
 /* ── figures ──────────────────────────────────────────────────────────── */
 .ab-shot { margin: 0; }
