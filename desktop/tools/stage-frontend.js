@@ -26,7 +26,6 @@ const DESKTOP_EXCLUDE = [
   "tools/",             // golden renders, bundlers, the test server
   "_headers",           // Cloudflare's; tauri.conf.json sets the same two headers
   ".assetsignore",
-  "package-lock.json",  // puppeteer, for the browser smokes
   "sf2taudify.py",
   "translation/",       // the translation workbench: a page of the website, not of the app
   "src/cat/",
