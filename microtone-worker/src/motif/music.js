@@ -31,6 +31,10 @@ import {
   cellList, stepOf, mergeCells, fittedPart, vibratoRows, volRampRows,
 } from "./phrase.js";
 import { reversePhrase, stretchPhrase } from "./retime.js";
+import { str, bool, int, num, oneOf, any, suggest, readOptions } from "./options.js";
+import { chainOf } from "./chain.js";
+import { readIpaSyllable, xsampaToIpa, consonantId, vowelOf } from "./syllable.js";
+import { FormantPatch, SEMIVOWELS, CONSONANTS, FORMANT_DEFAULT_REF } from "../../core/engine/formant.js";
 
 export const KEY_OFF = 0x0001;
 export const NOTE_CUT = 0x0002;
@@ -56,52 +60,6 @@ export function opName(b) {
 
 // ── option schemas ──
 
-const str = (v, what) => asString(v, what);
-const bool = (v, what) => { if (typeof v !== "boolean") throw fail(`${what} must be true or false, not ${typeName(v)}`); return v; };
-const int = (lo, hi) => (v, what) => {
-  asInt(v, what);
-  if (v < lo || v > hi) throw fail(`${what} must be ${lo}…${hi}, not ${v}`);
-  return v;
-};
-const num = (lo, hi) => (v, what) => {
-  asNumber(v, what);
-  if (v < lo || v > hi) throw fail(`${what} must be ${lo}…${hi}, not ${v}`);
-  return v;
-};
-const oneOf = (map) => (v, what) => {
-  if (typeof v === "string" && Object.prototype.hasOwnProperty.call(map, v)) return map[v];
-  throw fail(`${what} must be one of ${Object.keys(map).map((k) => `"${k}"`).join(", ")}`);
-};
-const any = (v) => v;
-
-/** "did you mean …?" for a misspelt option. */
-function suggest(word, options) {
-  const dist = (a, b) => {
-    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...new Array(b.length).fill(0)]);
-    for (let j = 1; j <= b.length; j++) d[0][j] = j;
-    for (let i = 1; i <= a.length; i++) {
-      for (let j = 1; j <= b.length; j++) {
-        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-      }
-    }
-    return d[a.length][b.length];
-  };
-  let best = null, bd = 3;
-  for (const o of options) { const x = dist(word, o); if (x < bd) { bd = x; best = o; } }
-  return best ? ` (did you mean "${best}"?)` : "";
-}
-
-function readOptions(value, schema, what) {
-  const r = asRecord(value, what);
-  const out = {};
-  for (const [k, v] of r.m) {
-    const check = schema[k];
-    if (!check) throw fail(`${what} has no option "${k}"${suggest(k, Object.keys(schema))}`);
-    out[k] = check(v, `${what}'s ${k}`);
-  }
-  return out;
-}
-
 const SONG = {
   title: str, composer: str, copyright: str, message: str,
   tuning: any, a4: num(1, 100000), tempo: int(25, 1048), speed: int(1, 127),
@@ -121,10 +79,12 @@ const INSTRUMENT = {
   wave: oneOf(Object.fromEntries(WAVES.map((w) => [w, w]))), length: int(2, 65535), // a waveform
   layers: any, fm: any,                            // a metainstrument
   opl: any, psg: any,                              // a chip of its own
+  formant: any,                                    // a sung syllable
   // what it is called and how it plays
   name: str, retune: bool, layer_gain: num(-86, 24), min_fadeout: int(0, 4095), fadeout: int(0, 4095),
   nna: oneOf({ off: 0, cut: 1, continue: 2, fade: 3 }), keep_layers: any,
   envelope: any, sustain: any, strict: bool, percussion: bool,
+  chain: any,                                      // its mixing chain
 };
 const LAYER = { inst: any, gain: num(-86, 24), detune: num(-9600, 9600), notes: any, vols: any, fixed: any };
 const OPERATOR = { inst: any, level: num(-86, 24), ratio: num(1 / 256, 256), detune: num(-9600, 9600), notes: any, vols: any };
@@ -166,6 +126,22 @@ const PSG_OSCILLATOR = {
 /** An operator's or an oscillator's envelope when the program says nothing: a
  *  held tone at full level that speaks at once and lets go in about 0.6 s. */
 const CHIP_ENVELOPE = { attack: 15, decay: 0, sustain_level: 0, release: 7, sustain: true };
+// The formant instrument, in the Formant tab's words: the syllable as text
+// (IPA or X-SAMPA), and every field of the tract block it sets, which a
+// program may also give one by one — each overriding what the syllable says.
+const FORMANT = {
+  syl_ipa: str, syl_sampa: str, source: any,
+  onset: any, coda: any, vowel: any, glide: any,
+  front: int(0, 255), open: int(0, 255), round: int(0, 255), nasalised: bool, r_coloured: bool,
+  secondary: oneOf({ none: 0, palatalised: 1, velarised: 2, pharyngealised: 2, glottalised: 3 }),
+  coda_release: oneOf({ released: 0, unreleased: 1, velarised: 2, pharyngealised: 2, glottalised: 3 }),
+  size_follows_pitch: num(0, 255 / 256), reference: any, consonant_length: num(0.25, 2 ** (127 / 64)),
+  vowel_glide: num(0, 510),
+};
+const FORMANT_CONSONANT = { consonant: any, tilt: int(-128, 127), gain: num(-86, 24) };
+/** The waveform a formant instrument is sung with when the program names none:
+ *  the textbook glottal source. */
+const FORMANT_SOURCE_WAVE = "saw";
 const LANE = { inst: any, pan: int(0, 511), label: str, trim: num(0, 1000), jitter: int(0, 255) };
 
 // The master block: snake_case spellings of the engine's mastering record.
@@ -271,9 +247,10 @@ export class Score {
     const kinds = [
       (has("bank") || has("program")) && "sf2", has("pack") && "pack", has("wave") && "wave",
       has("layers") && "layers", has("fm") && "fm", has("opl") && "opl", has("psg") && "psg",
+      has("formant") && "formant",
     ].filter(Boolean);
     if (!kinds.length) {
-      throw fail(`${what} needs a source: a soundfont preset (bank and program), an instrument from a pack (pack and slot), a waveform (wave), layers of other instruments (layers), an FM rack (fm), or an OPL or PSG chip (opl, psg)`);
+      throw fail(`${what} needs a source: a soundfont preset (bank and program), an instrument from a pack (pack and slot), a waveform (wave), layers of other instruments (layers), an FM rack (fm), an OPL or PSG chip (opl, psg), or a sung syllable (formant)`);
     }
     if (kinds.length > 1) throw fail(`${what} has more than one source (${kinds.join(" and ")}); give it one`);
     const kind = kinds[0];
@@ -282,12 +259,13 @@ export class Score {
     };
     only("slot", ["pack"], "an instrument from a pack");
     only("length", ["wave"], "a wave instrument");
-    only("envelope", ["wave", "opl", "psg"], "a wave, OPL or PSG instrument (a soundfont's or a pack's instruments carry their own)");
-    only("sustain", ["wave", "opl", "psg"], "a wave, OPL or PSG instrument with an envelope");
+    only("envelope", ["wave", "opl", "psg", "formant"], "a wave, OPL, PSG or formant instrument (a soundfont's or a pack's instruments carry their own)");
+    only("sustain", ["wave", "opl", "psg", "formant"], "a wave, OPL, PSG or formant instrument with an envelope");
     only("keep_layers", ["sf2", "pack"], "a layered preset from a soundfont or a pack");
     only("layer_gain", ["sf2", "pack"], "a layered preset from a soundfont or a pack (a layers instrument gives each layer its own gain)");
     only("strict", ["layers"], "a layers instrument");
-    only("percussion", ["layers", "fm", "opl", "psg"], "a layers, fm, OPL or PSG instrument");
+    only("percussion", ["layers", "fm", "opl", "psg", "formant"], "a layers, fm, OPL, PSG or formant instrument");
+    if (kind === "formant" && o.retune === true) throw fail(`${what}: a formant instrument sings at the note's own pitch, so there is nothing to retune`);
     const inst = {
       // provisional — the build gives each instrument its real slot (the same
       // one, for a song of soundfont presets alone)
@@ -296,6 +274,7 @@ export class Score {
       layerGain: o.layer_gain ?? null, minFadeout: o.min_fadeout ?? null,
       fadeout: o.fadeout ?? null, nna: o.nna ?? null, keepLayers: null,
       strict: o.strict ?? false, percussion: o.percussion ?? false,
+      chain: has("chain") ? this.chainFor(o.chain, `${what}'s chain`) : null,
     };
     if (kind === "sf2") {
       if (!has("bank") || !has("program")) throw fail(`${what} needs bank and program: the soundfont preset it plays`);
@@ -309,8 +288,10 @@ export class Score {
         if (o.slot < 1 || o.slot > 1023) throw fail(`${what}'s slot is 1…1023 (or the instrument's name)`);
       } else asString(o.slot, `${what}'s slot`);
       inst.packSlot = o.slot;
-    } else if (kind === "wave" || kind === "opl" || kind === "psg") {
-      if (kind === "wave") {
+    } else if (kind === "wave" || kind === "opl" || kind === "psg" || kind === "formant") {
+      if (kind === "formant") {
+        Object.assign(inst, this.formantOf(o.formant, `${what}'s formant`));
+      } else if (kind === "wave") {
         inst.wave = o.wave;
         inst.length = o.length ?? 256;
       } else {
@@ -464,6 +445,117 @@ export class Score {
       multiply: o.mix ?? false, osc,
       muteA: o.mute_a ?? o.a === undefined, muteB: o.mute_b ?? o.b === undefined,
     });
+  }
+
+  /**
+   * A `formant` record → {patch: the tract block's fields (a FormantPatch with
+   * no pool pointers yet), formantSource: {wave} or {ref: an OPL or PSG
+   * instrument}}. The syllable is read first, then every field given by name
+   * over it.
+   */
+  formantOf(v, what) {
+    const o = readOptions(v, FORMANT, what);
+    if (o.syl_ipa !== undefined && o.syl_sampa !== undefined) throw fail(`${what}: give the syllable once, as syl_ipa or as syl_sampa`);
+    const p = new FormantPatch();
+    if (o.syl_ipa !== undefined || o.syl_sampa !== undefined) {
+      const ipa = o.syl_ipa ?? xsampaToIpa(o.syl_sampa, `${what}'s syl_sampa`);
+      const syl = readIpaSyllable(ipa, o.syl_ipa !== undefined ? `${what}'s syl_ipa` : `${what}'s syl_sampa ([${ipa}])`);
+      syl.onset.forEach((id, k) => { p.slots[k].cons = id; });
+      p.slots[2].cons = syl.coda;
+      p.secondary = syl.secondary;
+      p.codaArt = syl.release;
+      p.semivowel = syl.glide;
+      if (syl.vowel) Object.assign(p, syl.vowel);
+      else p.refNote = 0;
+      p.nasal = syl.nasal;
+      p.rhotic = syl.rhotic;
+    }
+    const consonant = (c, w) => {
+      if (c === null) return { cons: 0 };
+      if (typeof c === "string") return { cons: consonantId(c, w) };
+      if (typeof c === "number") {
+        asInt(c, w);
+        if (!CONSONANTS[c]) throw fail(`${w}: there is no consonant ${c} (the ids are TAUD_FILE_FORMAT.md §7.6's)`);
+        return { cons: c };
+      }
+      const f = readOptions(c, FORMANT_CONSONANT, w);
+      if (f.consonant === undefined) throw fail(`${w} needs consonant: the consonant it is`);
+      const out = consonant(f.consonant, `${w}'s consonant`);
+      if (f.tilt !== undefined) out.tilt = f.tilt;
+      if (f.gain !== undefined) out.gain = f.gain === 0 ? 0 : dbOctet(f.gain); // 0 is unity here
+      return out;
+    };
+    const setSlot = (k, c) => { p.slots[k].cons = c.cons; p.slots[k].tilt = c.tilt ?? 0; p.slots[k].gain = c.gain ?? 0; };
+    if (o.onset !== undefined) {
+      const list = o.onset === null ? [] : asList(o.onset, `${what}'s onset`);
+      if (list.length > 2) throw fail(`${what}'s onset is at most two consonants, not ${list.length}`);
+      for (let k = 0; k < 2; k++) setSlot(k, k < list.length ? consonant(list[k], `${what}'s onset ${k + 1}`) : { cons: 0 });
+    }
+    if (o.coda !== undefined) setSlot(2, consonant(o.coda, `${what}'s coda`));
+    if (o.vowel !== undefined) {
+      if (o.vowel === null) p.refNote = 0;
+      else {
+        if (p.refNote === 0) p.refNote = FORMANT_DEFAULT_REF;
+        if (typeof o.vowel === "string") {
+          const vw = vowelOf(o.vowel, `${what}'s vowel`);
+          Object.assign(p, { front: vw.front, open: vw.open, round: vw.round });
+          if (vw.nasal) p.nasal = true;
+          if (vw.rhotic) p.rhotic = true;
+        } else {
+          const xs = asList(o.vowel, `${what}'s vowel`);
+          if (xs.length !== 3) throw fail(`${what}'s vowel is a chart mark ("a"), [front, open, round] or none`);
+          [p.front, p.open, p.round] = xs.map((x, k) => int(0, 255)(x, `${what}'s vowel ${["front", "open", "round"][k]}`));
+        }
+      }
+    }
+    for (const k of ["front", "open", "round"]) if (o[k] !== undefined) p[k] = o[k];
+    if (o.nasalised !== undefined) p.nasal = o.nasalised;
+    if (o.r_coloured !== undefined) p.rhotic = o.r_coloured;
+    if (o.glide !== undefined) {
+      const g = o.glide === null || o.glide === "none" ? 0 : SEMIVOWELS.findIndex((x) => x && x.ipa === o.glide);
+      if (g < 0) throw fail(`${what}'s glide is "j", "ɥ", "ɰ", "w" or none`);
+      p.semivowel = g;
+    }
+    if (o.secondary !== undefined) p.secondary = o.secondary;
+    if (o.coda_release !== undefined) p.codaArt = o.coda_release;
+    if (o.size_follows_pitch !== undefined) p.track = Math.round(o.size_follows_pitch * 256);
+    if (o.consonant_length !== undefined) p.timing = Math.max(0, Math.min(255, Math.round(128 + 64 * Math.log2(o.consonant_length))));
+    if (o.vowel_glide !== undefined) p.glide = Math.round(o.vowel_glide / 2);
+    if (o.reference !== undefined) {
+      if (p.refNote === 0) throw fail(`${what}: a syllable with no vowel has no reference note (its consonants are sized as at C3)`);
+      const w = this.tuning.word(asInt(o.reference, `${what}'s reference`));
+      if (w < 0x20 || w > 0x7fff) throw fail(`${what}'s reference is a pitch up to the note word $7FFF`);
+      p.refNote = w;
+    }
+    if (p.refNote === 0 && !p.slots.some((s) => s.cons !== 0)) throw fail(`${what} says nothing: it has no vowel and no consonant`);
+    let formantSource;
+    const src = o.source ?? FORMANT_SOURCE_WAVE;
+    if (typeof src === "string") {
+      if (!WAVES.includes(src)) throw fail(`${what}'s source is a waveform (${WAVES.map((x) => `"${x}"`).join(", ")}) or an OPL or PSG instrument${suggest(src, WAVES)}`);
+      formantSource = { wave: src };
+    } else {
+      const ref = instrumentOf(src, `${what}'s source`);
+      if (ref.kind !== "opl" && ref.kind !== "psg") throw fail(`${what}'s source is a waveform or an OPL or PSG instrument; ${ref.id} is not a chip`);
+      formantSource = { ref };
+    }
+    return { patch: p, formantSource };
+  }
+
+  /** `chain NAME { … }`: a mixing chain instruments can name. */
+  declareChain(name, value) {
+    this.needSong("a chain");
+    const c = chainOf(value, `chain ${name}`, name);
+    c.id = name;
+    c.handle = new Handle("chain", { name, label: c.name });
+    c.handle.chain = c;
+    return c.handle;
+  }
+
+  /** An instrument's `chain`: a declared chain, or a record of its own. */
+  chainFor(v, what) {
+    if (v instanceof Handle && v.kind === "chain") return v.chain;
+    if (v instanceof Rec) return { ...chainOf(v, what, null), id: null };
+    throw fail(`${what} is a chain (declared with chain NAME { … }) or a record of the pieces it holds, not ${typeName(v)}`);
   }
 
   /** [[seconds, value 0…63], …] → envelope nodes (each node's offset is the
@@ -1307,6 +1399,11 @@ export function musicHooks(score) {
         }
         case "lane": {
           const h = score.declareLane(st.name, value, index);
+          if (index === null) interp.declare(scope, st.name, h, st.namePos);
+          return h;
+        }
+        case "chain": {
+          const h = score.declareChain(st.name, value);
           if (index === null) interp.declare(scope, st.name, h, st.namePos);
           return h;
         }

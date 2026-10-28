@@ -116,7 +116,7 @@ A name is ASCII letters, digits and `_`, not starting with a digit; case matters
 
 `tml` `let` `fn` `for` `in` `while` `if` `then` `else` `return` `break` `continue` `and` `or` `not` `true` `false` `none`
 
-(`while`, `break` and `continue` belong to TML 1, §13.) `song`, `instrument`, `lane`, `master` and `section` are declarations only at the start of a statement, and `by` only after a range, so all six may still be used as names (`fn dr(lane, bar)` is fine).
+(`while`, `break` and `continue` belong to TML 1, §13.) `song`, `instrument`, `lane`, `chain`, `master` and `section` are declarations only at the start of a statement, and `by` only after a range, so all seven may still be used as names (`fn dr(lane, bar)` is fine).
 
 ## 4. Values
 
@@ -218,7 +218,7 @@ The body of a function, a branch of an `if`, the body of a `for` and a bare `{ }
 
 ## 7. Declarations
 
-Declarations stand at the top of the program, never inside a block or a function: each says what the song is. They may come in any order. The song is read first, then the master, the instruments, the lanes and the sections; lanes are numbered, and instruments take their slots, in the order they are written.
+Declarations stand at the top of the program, never inside a block or a function: each says what the song is. They may come in any order. The song is read first, then the master, the mixing chains, the instruments, the lanes and the sections; lanes are numbered, and instruments take their slots, in the order they are written.
 
 ### 7.1 `song`
 
@@ -269,6 +269,7 @@ instrument SINE { wave: "sine", envelope: [[0, 63], [0.4, 30], [2, 0]] }
 instrument BELL { fm: { operators: [{ inst: SINE }, { inst: SINE, ratio: 3.5, level: -6 }], algorithm: "0[1]" } }
 instrument HAT  { opl: { kind: "hi_hat", operators: [{ decay: 10, sustain_level: 15, sustain: false, release: 10 }] } }
 instrument BUZZ { psg: { a: { waveform: "pulse2", decay: 6, sustain_level: 15, sustain: false } } }
+instrument KA   { formant: { syl_ipa: "kʰa" }, chain: ROOM }
 ```
 
 Declaring an instrument binds its name. A song has at most 255. Each has exactly one **source**:
@@ -282,6 +283,7 @@ Declaring an instrument binds its name. A song has at most 255. Each has exactly
 | An FM rack | `fm` | An FM operator rack: operators reading other instruments, combined by an algorithm, on one voice (below) |
 | An OPL chip | `opl` | One channel of a Yamaha YM3812 / YMF262 FM chip, sounding where a sample would: its kind, its connection and its operators, as the Instruments view's OPL tab sets them (below) |
 | A PSG chip | `psg` | Two programmable-sound-generator oscillators, added or multiplied, sounding where a sample would, as the Instruments view's PSG tab sets them (below) |
+| A sung syllable | `formant` | A formant instrument: consonants, a vowel and a consonant spoken on the key-off, sung through a model of the vocal tract — written in the IPA, in X-SAMPA or field by field, as the Instruments view's Formant tab sets it (below) |
 
 Every instrument also takes:
 
@@ -294,10 +296,11 @@ Every instrument also takes:
 | `min_fadeout` | — | Every zone fades out at least this fast (in the engine's fadeout units, which a soundfont's release becomes at the song's tempo) |
 | `fadeout` | — | Every layer and zone fades out at exactly this rate |
 | `nna` | — | The New Note Action: `"off"`, `"cut"`, `"continue"` or `"fade"` |
-| `envelope` | — | (A waveform, an OPL or a PSG instrument.) Its volume envelope: up to 25 `[seconds, volume]` points, volume 0–63, the last held; at most 15.75 s between two points |
+| `envelope` | — | (A waveform, an OPL, a PSG or a formant instrument.) Its volume envelope: up to 25 `[seconds, volume]` points, volume 0–63, the last held; at most 15.75 s between two points |
 | `sustain` | — | (One with an envelope.) The point it holds while the key is down (`sustain: 1`), or a range of points it loops through (`sustain: 1..3`) |
-| `percussion` | `false` | (Layers, an FM rack, an OPL or a PSG instrument.) Marks the instrument as percussion |
+| `percussion` | `false` | (Layers, an FM rack, an OPL, a PSG or a formant instrument.) Marks the instrument as percussion |
 | `strict` | `false` | (Layers.) Strict layering: a layer whose own zones do not cover a note stays silent for it, rather than falling back to its base sample (TAUD_FILE_FORMAT.md §7.5) |
+| `chain` | none | Its mixing chain (§7.7): a chain declared with `chain NAME { … }`, which instruments share, or a record of the same pieces, a chain of its own |
 
 **Layers.** Each layer is a record:
 
@@ -316,7 +319,7 @@ A layer over a layered instrument stands in for all of that instrument's layers 
 
 | Field | Default | |
 |---|---|---|
-| `inst` | — | **Required.** The instrument it reads: one sample or one chip — a `wave`, usually, or an `opl` or `psg` instrument — not a metainstrument |
+| `inst` | — | **Required.** The instrument it reads: one sample or one chip — a `wave`, usually, or an `opl` or `psg` instrument — not a metainstrument, nor a formant instrument |
 | `level` | 0 | Its output level, in decibels |
 | `ratio` | 1 | Its frequency ratio: 2 an octave up, 3.5 a minor seventh above that |
 | `detune` | 0 | Added to the ratio, in cents |
@@ -394,7 +397,51 @@ instrument CLOCK { psg: { mix: "multiplicative",                               /
 
 An OPL or a PSG instrument holds no sample and is in tune as it is, so `retune` leaves it alone unless asked. It may be a layer and an FM operator. Its New Note Action is `"cut"` unless given, and a chip note cut by a note of the same chip is not cut at all: the next note keys the same channel on again from wherever its envelopes stand, as on the chip itself. `nna: "off"` lets the old note go into its release on a voice of its own instead, so notes on one lane overlap; `"continue"` leaves a held note sounding for good.
 
-**Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are written), then the instruments from packs, the waveforms, the OPL and PSG instruments and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
+**Formant instruments.** `formant` is a record saying the **syllable** a note sings and what it is sung **with** ([TAUD_FILE_FORMAT.md §7.6](TAUD_FILE_FORMAT.md)). A note says up to two consonants (the **onset**), an optional **glide**, then holds the **vowel** — nasalised or r-coloured if asked — for as long as the key is down; a key-off speaks the **coda**, one consonant, and ends the note. A syllable may have no vowel: then the last onset consonant is held in its place — a hummed [ŋ̍], a long [s̩].
+
+The syllable is written as text, in either of two alphabets, or field by field, or both — each field given by name overriding what the text says:
+
+| Field | Default | |
+|---|---|---|
+| `syl_ipa` | — | The syllable in the IPA, as the Formant tab spells it: `"kʰa"`, `"[pʲa]"`, `"tɔ̃k̚"`, `"n̩"` (below) |
+| `syl_sampa` | — | The same in X-SAMPA: `"k_ha"`, `"p_ja"`, `"tO~k_}"`, `"n="`. One of the two, not both |
+| `source` | `"saw"` | What the vowel is sung with: a waveform (one of the `wave` names), a single cycle of which becomes the instrument's own sample; or an `opl` or `psg` instrument, whose voice is sung in place of a sample — the instrument then takes nothing from the sample pool, and its consonants' noise is the engine's noise generator |
+| `onset` | the syllable's | A list of up to two consonants, each an IPA string (`"s"`, `"t͡ʃ"`), a consonant id (TAUD_FILE_FORMAT.md §7.6), or a record `{ consonant, tilt, gain }`: `tilt`, −128…127, brightens (above 0) or darkens the consonant's noise, `gain` (dB) sets its level. `[]` or `none` for no onset |
+| `coda` | the syllable's | One consonant, as for `onset`, or `none` |
+| `vowel` | [a] | A vowel of the chart as IPA (`"ɛ"`, `"ɑ̃"`, `"ɚ"`), its tongue and lips as `[front, open, round]` (each 0–255: back 0 to front 255, close 0 to open 255, spread 0 to rounded 255), or `none` for no vowel |
+| `front`, `open`, `round` | the vowel's | One coordinate of the vowel, 0–255, given alone |
+| `nasalised` | `false` | The vowel said with the velum lowered, as French [ɑ̃] |
+| `r_coloured` | `false` | The vowel coloured with an r, as American English [ɚ] |
+| `glide` | the syllable's | The semivowel between the onset and the vowel: `"j"`, `"ɥ"`, `"ɰ"`, `"w"` or `none` |
+| `secondary` | the syllable's | A second gesture on the onset's last consonant: `"none"`, `"palatalised"` (ʲ), `"velarised"` or `"pharyngealised"` (ˠ, ˤ — the same dark tongue), `"glottalised"` (ˀ) |
+| `coda_release` | the syllable's | How the coda lets go: `"released"`, `"unreleased"` (◌̚), `"velarised"` or `"pharyngealised"`, `"glottalised"` |
+| `size_follows_pitch` | 0.25 | How far the formants rise with the note, as a power of its pitch (0–0.996); 0 keeps one size at every pitch |
+| `reference` | C3 (the note word `$4000`) | The pitch at which the vowel chart's formants (a man's) are sung exactly. A syllable with no vowel has none |
+| `consonant_length` | 1 | Every consonant's timing, longer or shorter: 2 is twice as slow, 0.5 twice as quick (0.25–3.96) |
+| `vowel_glide` | 40 | How long, in milliseconds, `S $Afgr` takes to move the vowel (0–510, in steps of 2) |
+
+With neither a syllable nor a field, a formant instrument sings [a]. Its New Note Action is `"off"`, and the next note on its lane, whatever plays it, keys off every syllable of it still singing there — each speaks its coda as the next begins; its fadeout is the Formant tab's 256. `nna` and `fadeout` change those. It sings at the note's own pitch, so it has nothing to `retune`. It may be a layer, but never an FM operator: it is a sound made out of a source rather than one.
+
+**Writing a syllable.** A syllable is up to two consonants, a glide, one vowel and one consonant — every part but the vowel optional — written with the letters the Formant tab's charts show:
+
+- **Consonants** are the tab's: [p b t d ʈ ɖ c ɟ k ɡ q ɢ ʔ]; the aspirated and breathy [pʰ tʰ kʰ ʈʰ bʱ dʱ ɖʱ ɡʱ sʰ]; the nasals [m ɱ n ɳ ɲ ŋ ɴ]; the trills [ʙ r ʀ]; the taps [ⱱ ɾ ɽ]; the fricatives [ɸ β f v θ ð s z ʃ ʒ ʂ ʐ ç ʝ x ɣ χ ʁ ħ ʕ h ɦ ɬ ɮ ɕ ʑ ʍ]; the approximants [ʋ ɹ ɻ j ɰ w ɥ l ɭ ʎ ʟ]; and the affricates, written with a tie bar — [t͡s d͡z t͡ʃ d͡ʒ t͡ɕ d͡ʑ ʈ͡ʂ ɖ͡ʐ p͡f k͡x c͡ç ɟ͡ʝ t͡θ d͡ð ɡ͡ɣ ʔ͡h] — or as the ligatures ʦ ʣ ʧ ʤ ʨ ʥ. Without a tie, [ts] is two consonants, [t] then [s]. A plain `g` is [ɡ]; a voiced stop written aspirated ([dʰ]) or with the breathy mark ([d̤]) is the breathy [dʱ].
+- **Vowels** are the chart's marks: [i y ɨ ʉ ɯ u ɪ ʏ ʊ e ø ɘ ɵ ɤ o ə ɛ œ ɜ ɞ ʌ ɔ æ ɐ a ɶ ɑ ɒ]. ◌̃ after one nasalises it (as do ã ẽ ĩ õ ũ ỹ), ˞ r-colours it, and [ɚ] and [ɝ] are [ə] and [ɜ] r-coloured. A syllable has one vowel; a diphthong is a vowel moved with `S $Afgr`.
+- **The glide** is [j], [ɥ], [ɰ] or [w] straight before the vowel: `"kwa"`, `"sja"`. Anywhere else, or with a mark of its own, it is a consonant.
+- **Marks** after the onset's last consonant: ʲ palatalised; ˠ or ˤ velarised or pharyngealised; ˀ glottalised (and ◌͈, as Korean's tense consonants are written). [ɫ] is a velarised [l]. After the coda: ◌̚ unreleased, and ˠ ˤ ˀ as for the onset.
+- **No vowel**: the consonant held in the vowel's place carries the syllabic mark, ◌̩ or ◌̍: `"n̩"`, `"ŋ̍"`, `"sŋ̍"`, `"t͡ʃ̩"`.
+- Square brackets or slashes around the syllable are allowed and ignored. Length (ː), stress (ˈ) and syllable breaks are not: a note is one syllable, as long as it is held.
+
+**X-SAMPA** is read into the IPA first, by its own chart (J. C. Wells, 1995): `_` before a diacritic attaches it — `_h` ʰ, `_t` breathy, `_j` or `'` ʲ, `_G` ˠ, `_?\` ˤ, `_e` velarised or pharyngealised, `_}` ◌̚, `~` or `_~` nasalised, `=` or `_=` syllabic — and anywhere else ties two letters into an affricate: `t_S` is [t͡ʃ], `k_x` [k͡x], `?_h` [ʔ͡h]. A grave accent after a vowel r-colours it — `@` and `3` followed by one are [ɚ] and [ɝ] — and after `t d n r s z l r\` it makes the consonant retroflex. X-SAMPA has no mark for glottalisation, so Motif reads `_?` as one (`"s_?al"`, Korean 쌀).
+
+```
+instrument KA   { formant: { syl_ipa: "kʰa" } }                               // sung from a saw
+instrument HUM  { formant: { syl_sampa: "N=", source: BUZZ }, nna: "fade" }   // a hummed [ŋ̍], sung from a PSG
+instrument KUK  { formant: { syl_ipa: "kuk̚", consonant_length: 0.8 } }        // Korean 국
+instrument AIR  { formant: { onset: [{ consonant: "s", tilt: 40 }], vowel: [255, 0, 0], round: 120,
+  coda: "n", nasalised: true, reference: 'A3' } }
+```
+
+**Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are written), then the instruments from packs, the waveforms, the OPL and PSG instruments, the formant instruments and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
 
 ### 7.4 `lane`
 
@@ -438,6 +485,41 @@ The song's mastering chain (the Mastering view's), saved with the project. An op
 | `width_on`, `width` | Stereo width (1 is unchanged) |
 | `lim_on`, `lim_true_peak`, `lim_ceiling_db`, `lim_release_ms` | Limiter |
 | `out_gain_db` | Output gain, dB |
+
+### 7.7 `chain`
+
+```
+chain ROOM { name: "Room", mode: "bus", reverb: { size: 0.7, decay: 2.5, mix: 0.3 }, compressor: { threshold: -20, ratio: 4 } }
+instrument PAD  { bank: 0, program: 89, chain: ROOM }
+instrument LEAD { wave: "saw", chain: { tape_delay: { time_ticks: 12, feedback: 0.4 }, limiter: {} } }
+```
+
+A **mixing chain**: the equipment an instrument's sound goes through on its way to the master, as the Instruments view's Mixing tab builds it ([TAUD_FILE_FORMAT.md §9.15](TAUD_FILE_FORMAT.md)). Declaring one binds its name, which an instrument's `chain` takes; every instrument naming it is on the same chain. A record given to `chain` straight away is a chain of that instrument's own. The pieces always run in the chain's fixed order — input trim, equaliser 1, dynamic EQ 1, compressor, equaliser 2, dynamic EQ 2, unison, saturator, tape delay, reverb, limiter, mix tool — whatever order they are written in. A piece written is in the chain, starting from the settings the Mixing tab inserts it with; a piece not written is not in it.
+
+| Option | Default | |
+|---|---|---|
+| `name` | the declared name (none for a record given to an instrument) | The chain's name in the project |
+| `on` | `true` | The whole chain switched in; `false` leaves the instruments sounding as if they had none |
+| `mode` | `"separate"` | `"separate"`: every instrument on the chain runs its own copy of it. `"bus"`: their sounds are summed and the chain runs once over the sum, as a group bus on a desk |
+| `order` | `"delay_reverb"` | Whether the tape delay feeds the reverb or, `"reverb_delay"`, the reverb feeds the delay |
+| the pieces | — | `input_trim`, `equaliser_1`, `dynamic_eq_1`, `compressor`, `equaliser_2`, `dynamic_eq_2`, `unison`, `saturator`, `tape_delay`, `reverb`, `limiter`, `mix_tool`: a record each (below) |
+
+Every piece takes `on` (default `true`; `false` keeps it in the chain, bypassed), and the compressor, unison, saturator, tape delay and reverb take `mix`, 0–1: how much of the processed sound replaces the dry one. Each value must lie in the range the Mixing tab offers for it; one outside it is an error. Gains and levels are in dB, frequencies in Hz and times in milliseconds, unless the field says ticks: a time in ticks follows the tempo, in quarter-tick steps.
+
+| Piece | Fields (defaults: the Mixing tab's) |
+|---|---|
+| `input_trim` | `gain` |
+| `equaliser_1`, `equaliser_2` | `bands`: up to eight `{ shape, freq, gain, q, slope, on }`. `shape` (required) is `"high_pass"`, `"low_shelf"`, `"bell"`, `"high_shelf"`, `"low_pass"` or `"notch"`; `slope`, 12, 24, 36 or 48 dB per octave, is the two passes' alone. Without `bands`, the four flat bands the tab starts with |
+| `dynamic_eq_1`, `dynamic_eq_2` | The six bands by name — `low_shelf`, `bell_1` … `bell_4`, `high_shelf` — each `{ freq, q, gain, threshold, ratio, attack, release, range, actor_gain, above, sensor_freq, sensor_q, on }`. A band written is on. `gain` is the static gain; `above`, `"cut"` or `"boost"`, is what the band does above the threshold, and `actor_gain` how strongly; `sensor_freq` or `sensor_q` lets it listen somewhere other than where it acts |
+| `compressor` | `detector` (`"peak"` or `"rms"`), then either one band's `threshold`, `ratio`, `attack`, `release`, `knee` and `make_up`, or `bands`, a list of one to six such records (with `on`), split at `crossovers` (Hz, rising, one fewer than the bands) |
+| `unison` | `voices` (2–8), `detune` (cents), `width`, `spacing`, and `detune_lfo` and `width_lfo`, each `{ waveform, rate, period_ticks, depth, restart }`: `waveform` `"sine"`, `"triangle"`, `"square"`, `"saw_up"`, `"saw_down"` or `"random"`; `rate` in Hz, or `period_ticks` to follow the tempo; `restart` starts it again at each note |
+| `saturator` | `curve` (`"tape"`, `"soft_clip"`, `"hard_clip"`, `"tube"`, `"wavefolder"`), `drive`, `input`, `output`, `bias` |
+| `tape_delay` | `time` (ms) or `time_ticks`, `feedback`, `high_cut`, `low_cut`, `wow`, `drive`, `ping_pong` |
+| `reverb` | `size`, `decay` (seconds), `damping` (Hz), `pre_delay` (ms) |
+| `limiter` | `ceiling`, `release` (ms), `gain`, `true_peak` |
+| `mix_tool` | `gain`, `width`, `swap`, `invert_left`, `invert_right`, `remove_dc` |
+
+A chain no instrument names is not saved. The build numbers the chains in the order the instruments that use them are written, after any chain an instrument from a pack brought along, which an instrument's own `chain` replaces. An instrument heard only as a layer of a metainstrument goes through the metainstrument's chain, not its own.
 
 ## 8. Music
 
@@ -679,10 +761,10 @@ A build turns the song's music into a project in these steps:
 2. **Compile.** Each lane's cells in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
 3. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 63 in format 2 and 255 in format 3 — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
 4. **Pans.** Each lane with a `pan` gets `S $8xxx` on the song's first row, in a pattern of its own when its first pattern is used anywhere else.
-5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, OPL and PSG instruments new records of their own, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
+5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, OPL and PSG instruments new records of their own, formant instruments records of their own over a new cycle of their waveform (identical cycles shared) or naming their chip, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
 6. **Instruments.** `keep_layers`, `nna` and `fadeout` are applied.
 7. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `keep_layers` left some layers behind, every instrument nothing plays.
-8. **Adjustments.** `min_fadeout`, then `layer_gain`.
+8. **Adjustments.** `min_fadeout`, then `layer_gain`, then the mixing chains (§7.7), each a block of the project's that its instruments name.
 9. **Re-tuning** (when the song asks for it). Soundfont samples are tuned for twelve-tone music, a few cents either way — nothing in a piano, a fifth of a step in 31-TET. For each combination of zones the song's notes trigger, a held note is rendered, its pitch measured, and those zones' detune moved by the error; three passes, so the last measures the result. Layers a note sounds together move together, so a deliberately detuned pair keeps its spread.
 10. **Source.** The program itself is saved in the project, in a `PMtf` section (TAUD_FILE_FORMAT.md §9.14), so that the Motif view can show it, and build it again.
 
@@ -690,7 +772,7 @@ The project is new and unsaved when the build finishes; save it like any other.
 
 ### In Microtone
 
-The **Motif** tab (Shift+F7) holds a program and builds it. When the open project was built by Motif, the tab shows its program; otherwise it holds a draft of your own, kept in the browser. **Build** (Ctrl+Enter) runs the program away from the page, so a long one never freezes the app, and **Cancel** stops it. An error stops the build and is shown with its line and column — click the position to go there — and, inside a function, the calls that led to it. Opening a `.tml` file anywhere a project can be opened puts it in the tab and builds it. The editor colours the program as it is typed — keywords, declarations, numbers, strings, pitches, comments, calls, fields, and each name by what it refers to: a parameter, a lane or an instrument, or a local variable (underlined) — in the Syntello scheme on the light themes and Dimtello (a grey page) on the dark ones, and lights the line the caret is on. A song that plays a soundfont other than the bundled one, or instruments from a pack, asks for that file the first time a build needs it.
+The **Motif** tab (Shift+F7) holds a program and builds it. When the open project was built by Motif, the tab shows its program; otherwise it holds a draft of your own, kept in the browser. **Build** (Ctrl+Enter) runs the program away from the page, so a long one never freezes the app, and **Cancel** stops it. An error stops the build and is shown with its line and column — click the position to go there — and, inside a function, the calls that led to it. Opening a `.tml` file anywhere a project can be opened puts it in the tab and builds it. The editor colours the program as it is typed — keywords, declarations, numbers, strings, pitches, comments, calls, fields, and each name by what it refers to: a parameter, a lane, an instrument or a chain, or a local variable (underlined) — in the Syntello scheme on the light themes and Dimtello (a grey page) on the dark ones, and lights the line the caret is on. A song that plays a soundfont other than the bundled one, or instruments from a pack, asks for that file the first time a build needs it.
 
 The editor reads the program as it is typed, by the scope rules of §6 (or, for a TML 1 program, of §13): the caret in a name marks the other places it is used, and right-clicking a name offers **Rename**, which changes the name wherever it refers to the same definition — named arguments and `{ name }` shorthands included — and refuses a new name that would make any name in the program refer to something else. A side panel outlines the program (**Structure**) and shows what calls a function and what it calls (**Call hierarchy**). **Preview**, on a call, runs the program and plays only what that call makes — each time it is made, as the song plays it — through the open project's instruments.
 
@@ -714,7 +796,7 @@ node tools/motif.js song.tml [out.taud] [-v] [--check] [--no-source] [--signatur
 | Lists and strings | 1 000 000 items or characters |
 | Fitted music | 16 deep (music a `follow` makes may itself have fitted parts) |
 | Source | 2 MiB |
-| Lanes, instruments | 64, 255 |
+| Lanes, instruments, mixing chains | 64, 255, 255 |
 
 Every error names its line and column, and a mistake inside a function also lists the calls that led to it, innermost first. Errors are written to be acted on: a misspelt option suggests the one that was probably meant; a clash names the lane, the bar, the row and both values, at the line that brought the second; a bar line that falls mid-bar says how many rows in it falls; a TML 1 statement in a TML 2 program says what to write instead.
 
@@ -762,3 +844,4 @@ Additions that leave every program building as it did, in either version:
 | Date | |
 |---|---|
 | 2026-10-22 | OPL and PSG chip instruments, `opl` and `psg` (§7.3) |
+| 2026-10-28 | Formant instruments, `formant`, their syllables written in the IPA or X-SAMPA (§7.3); mixing chains, `chain` (§7.7) |

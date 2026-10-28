@@ -64,6 +64,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 - **The vowel chart follows the song**: while it plays, every note of the instrument that `S $Afgr` has given a vowel of its own is a dot in the accent colour, with a dashed line to where it is gliding, and the vowels and their commands are named under the readout.
 - **Lifting a piano key lets a syllable finish**: jamming a formant instrument on the computer keyboard, the key-off says the syllable's last consonant before the note stops, as a key-off in a pattern does; a syllable without one stops at once as before.
 
+**Motif programs can sing, and mix their instruments**: a Motif song can declare formant instruments, their syllables typed in the IPA or X-SAMPA, and give any instrument a mixing chain.
+
+- **Formant instruments in Motif**: `formant: { syl_ipa: "kʰa" }` sings [kʰa], and `syl_sampa: "k_ha"` says the same in X-SAMPA — onsets, glides, nasalised and r-coloured vowels, secondary articulations, unreleased codas and syllabic consonants such as a hummed [ŋ̍] are all written as the Formant tab spells them.
+- Every setting of the Formant tab can also be given by name — the consonants (each with its own brightness and level), the vowel as a chart symbol or as frontness, openness and roundness, consonant length, size follows pitch, the reference note — each overriding the typed syllable.
+- A formant instrument sings from a cycle of a waveform, a saw unless you name another, or from one of the program's OPL or PSG instruments.
+- **Mixing chains in Motif**: `chain ROOM { … }` declares a chain that instruments share by naming it, in separate or bus mode, and a chain written straight into an instrument is its own; every piece of the Mixing tab is there, by the tab's own names, from the input trim to the mix tool.
+- A setting outside the range the Mixing tab offers is an error that says the range, rather than being quietly clamped.
+
 **Microtone can be translated in the browser**: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
 
 - **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.

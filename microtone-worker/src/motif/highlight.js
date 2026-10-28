@@ -8,12 +8,12 @@
 //   t-kw keyword · t-decl declaration word · t-num number · t-str string ·
 //   t-esc escape and ${ } · t-pitch 'D5' · t-com comment · t-fn call ·
 //   t-bi call of a builtin · t-fnd function being declared · t-par parameter ·
-//   t-fld field or named argument · t-name declared lane/instrument · t-op operator ·
+//   t-fld field or named argument · t-name declared lane/instrument/chain · t-op operator ·
 //   t-loc local variable (alongside any of the others)
 //
 // Given an analysis of the program (analysis.js), a name is drawn by what it
 // refers to rather than only where it stands: every use of a parameter is a
-// parameter, every use of a lane or an instrument a t-name, and a variable a
+// parameter, every use of a lane, an instrument or a chain a t-name, and a variable a
 // block, a loop or a function declares is local wherever it is named.
 
 import { KEYWORDS } from "./lexer.js";
@@ -187,7 +187,7 @@ function stringHtml(s, triple, names, at) {
 /** The class a name is drawn with for what it refers to, or null. */
 function symClass(sym) {
   if (sym.kind === "parameter") return "t-par";
-  if (sym.kind === "lane" || sym.kind === "instrument") return "t-name";
+  if (sym.kind === "lane" || sym.kind === "instrument" || sym.kind === "chain") return "t-name";
   // the program's own lets are global; any other scope's are local
   if ((sym.kind === "variable" || sym.kind === "loop") && sym.scope?.parent) return "t-loc";
   return null;
@@ -221,7 +221,7 @@ function resolvedNames(a, src) {
 }
 
 const DECL_BLOCK = new Set(["song", "master"]);
-const DECL_NAMED = new Set(["instrument", "lane"]);
+const DECL_NAMED = new Set(["instrument", "lane", "chain"]);
 
 /**
  * TML source → highlighted HTML (every character, in order). `analysis`, from

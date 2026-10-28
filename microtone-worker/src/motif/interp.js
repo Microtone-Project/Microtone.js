@@ -191,17 +191,18 @@ export class Interp {
   }
 
   /** The top's declarations: lanes and instruments are numbered in the order
-   *  written, whatever order their names are first needed in. */
+   *  written, whatever order their names are first needed in. (A chain is
+   *  numbered by the instruments, so it needs no index of its own.) */
   declareAll(body, scope) {
-    const rank = { song: 0, master: 1, instrument: 2, lane: 3 };
+    const rank = { song: 0, master: 1, chain: 2, instrument: 3, lane: 4 };
     const decls = [];
     let instruments = 0, lanes = 0;
     for (const st of body) {
-      if (st.k === "section") { decls.push([st, null, 4]); continue; }
+      if (st.k === "section") { decls.push([st, null, 5]); continue; }
       if (st.k !== "decl") continue;
       let t = null;
-      if (st.kind === "instrument" || st.kind === "lane") {
-        const index = st.kind === "instrument" ? instruments++ : lanes++;
+      if (st.kind === "instrument" || st.kind === "lane" || st.kind === "chain") {
+        const index = st.kind === "instrument" ? instruments++ : st.kind === "lane" ? lanes++ : 0;
         t = new Thunk(() => this.hooks.declare(st, scope, this, index));
         t.name = st.name;
         t.pos = st.pos;

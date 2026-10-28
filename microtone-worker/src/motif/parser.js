@@ -227,14 +227,14 @@ export class Parser {
     }
   }
 
-  /** song {…} · master {…} · instrument NAME {…} · lane NAME {…} · section "name" bars */
+  /** song {…} · master {…} · chain NAME {…} · instrument NAME {…} · lane NAME {…} · section "name" bars */
   declaration(t) {
     const name = t.v;
     if ((name === "song" || name === "master") && this.isOp("{", 1)) {
       this.next();
       return { k: "decl", kind: name, name: null, value: this.expression(), pos: t.pos };
     }
-    if ((name === "instrument" || name === "lane") && this.peek(1).t === "ident" && this.isOp("{", 2)) {
+    if ((name === "instrument" || name === "lane" || name === "chain") && this.peek(1).t === "ident" && this.isOp("{", 2)) {
       this.next();
       const id = this.next();
       return { k: "decl", kind: name, name: id.v, namePos: id.pos, value: this.expression(), pos: t.pos };

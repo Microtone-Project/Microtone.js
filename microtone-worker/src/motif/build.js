@@ -7,8 +7,8 @@
 //                soundfont presets → a .tsii made by the app's own SF2 driver
 //                (sf2bank.py) at the song's tempo; then instruments imported
 //                from packs, generated waveforms, OPL and PSG chip
-//                instruments, and the metainstruments (layers, FM racks)
-//                built over them
+//                instruments, formant instruments, and the metainstruments
+//                (layers, FM racks) built over them
 //   compile      the score → patterns, cues, pattern names (compile.js)
 //   assemble     bank + song + texts + notation + master → a Document
 //   instruments  layer choice, New Note Action and fadeout overrides
@@ -16,6 +16,8 @@
 //                Housekeeping does (and every instrument nothing plays, when
 //                `keep_layers` left some behind)
 //   tweak        minimum fadeouts, layer gains
+//   chains       every mixing chain, into IMix (and its name into IMcn), each
+//                instrument's record naming its block
 //   retune       every zone the song plays, measured and moved onto the grid
 //   source       the TML itself, saved in the project (PMtf) so it can be
 //                opened, changed and rebuilt
@@ -25,8 +27,12 @@ import { buildMasteringSection } from "../../core/format/mastering-section.js";
 import { defaultMastering } from "../../core/engine/mastering.js";
 import {
   parsePatchesBlob, writePatchesBlob, buildMetaRecord, makeMetaLayer, META_TYPE_FM, META_MAX_LAYERS,
-  buildOplRecord, buildPsgRecord,
+  buildOplRecord, buildPsgRecord, buildFormantRecord, DCT_LANE,
 } from "../../core/engine/inst.js";
+import { encodeFormantBlock } from "../../core/engine/formant.js";
+import { FORMANT_RANGE_NONE, FORMANT_DEFAULT_FADEOUT } from "../doc/formantedit.js";
+import { IMIX_FOURCC, buildImixSection, freeImixId } from "../../core/format/imix-section.js";
+import { escapeNonAscii } from "../../core/format/names.js";
 import { LINEAR_FREQ_C4_HZ } from "../../core/engine/constants.js";
 import { SAMPLEBIN_SIZE, SAMPLEINST_SIZE, CAPTURE_SIGNATURE } from "../../core/format/taud-const.js";
 import { Document } from "../doc/document.js";
@@ -347,6 +353,31 @@ export async function buildProject(source, host) {
     doc._resetInstrumentCache();
   }
 
+  // ── mixing chains: one block per chain, numbered from the first instrument
+  //    that uses one (after any a pack brought along) ──
+  if (score.instruments.some((i) => i.chain)) {
+    progress("chains", 0);
+    const blocks = new Map(doc.imixMap().blocks);
+    const ids = new Map();
+    const named = [];
+    for (const i of score.instruments) {
+      if (!i.chain) continue;
+      let id = ids.get(i.chain);
+      if (id === undefined) {
+        id = freeImixId(new Set(blocks.keys()));
+        if (!id) throw new MotifError(`instrument ${i.id}: every mixing-chain number (1–255) is in use`);
+        const c = i.chain;
+        blocks.set(id, { id, enabled: c.enabled, bus: c.bus, order: c.order, equipment: c.equipment, unknown: [] });
+        ids.set(c, id);
+        if (c.name) named.push([id, c.name]);
+      }
+      recOf(i.slot)[255] = id;
+    }
+    doc.setSection(IMIX_FOURCC, buildImixSection([...blocks.values()]));
+    for (const [id, name] of named) doc.setSection("IMcn", doc.buildImixNames(id, escapeNonAscii(name)));
+    doc._resetInstrumentCache();
+  }
+
   // ── re-tuning ──
   let retuned = [];
   if (song.retune) {
@@ -457,6 +488,43 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
     if (i.envelope) giveEnvelope(work, i);
   }
 
+  // formant instruments: a syllable sung from a cycle of a waveform (a sample
+  // of its own, which the record then takes over in place) or from a chip
+  for (const i of others) {
+    if (i.kind !== "formant") continue;
+    const p = i.patch;
+    if (i.formantSource.wave) {
+      // 128 frames: its rate at C4, 128 × 261.63 Hz, fits the record's 16 bits
+      const pcm = waveform(i.formantSource.wave, FORMANT_CYCLE);
+      const rate = Math.round(LINEAR_FREQ_C4_HZ * FORMANT_CYCLE);
+      const plan = planSampleImport(work, { nameBytes: utf8(i.name ?? i.id), pcm, rate, detune: 0, loop: true });
+      if (plan.error) throw new MotifError(`instrument ${i.id}: ${plan.error}`);
+      importBankOp(plan).apply(work);
+      i.slot = plan.insts[0].destSlot;
+      work._rebuildInstRegion();
+      const w = work.instruments[i.slot];
+      p.srcPtr = w.samplePtr;
+      p.rangeLo = w.samplePtr;
+      p.rangeHi = w.samplePtr + w.sampleLength;
+      const record = buildFormantRecord(encodeFormantBlock(p), {
+        ptr: w.samplePtr, len: w.sampleLength, rate,
+        playStart: w.sampleLoopStart, loopStart: w.sampleLoopStart, loopEnd: w.sampleLoopEnd, loopMode: w.loopMode & 0x07,
+      }, { nna: 0, dct: DCT_LANE, fadeout: FORMANT_DEFAULT_FADEOUT, percussion: i.percussion });
+      work.sampleInstImage.set(record, SAMPLEBIN_SIZE + i.slot * 256);
+      work._resetInstrumentCache();
+    } else {
+      // made from nothing in the pool: sung from the chip, its noises the generator's
+      p.rangeLo = FORMANT_RANGE_NONE;
+      p.rangeHi = FORMANT_RANGE_NONE;
+      const record = buildFormantRecord(encodeFormantBlock(p), { loopMode: 0 }, {
+        nna: 0, dct: DCT_LANE, fadeout: FORMANT_DEFAULT_FADEOUT, percussion: i.percussion,
+        sourceInst: i.formantSource.ref.slot,
+      });
+      i.slot = placeRecord(work, i, record);
+    }
+    if (i.envelope) giveEnvelope(work, i);
+  }
+
   // metainstruments, in the order they are declared (one may be made of another)
   for (const i of others) {
     if (i.kind !== "layers" && i.kind !== "fm") continue;
@@ -471,6 +539,9 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
     projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix", "IMcn"].includes(x.fourcc)),
   };
 }
+
+/** A formant instrument's waveform source: one cycle this many frames long. */
+const FORMANT_CYCLE = 128;
 
 /** A whole new record in the lowest free slot, named; returns the slot. */
 function placeRecord(work, i, record) {
@@ -597,6 +668,9 @@ function rackRecord(work, i) {
     const ref = work.instruments[op.ref.slot];
     if (ref.isMeta) {
       throw new MotifError(`instrument ${i.id}: operator ${k} reads ${op.ref.id}, a metainstrument; an operator reads one sample (a wave, usually)`);
+    }
+    if (ref.isFormant) {
+      throw new MotifError(`instrument ${i.id}: operator ${k} reads ${op.ref.id}, a formant instrument — a sound made out of a source rather than one; an operator reads one sample (a wave, usually) or a chip`);
     }
     return makeMetaLayer(op.ref.slot, dbOctet(op.level), op.detune, op.pitchStart, op.pitchEnd, op.volStart, op.volEnd);
   });

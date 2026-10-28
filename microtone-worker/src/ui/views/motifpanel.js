@@ -30,6 +30,7 @@ const el = (tag, cls, text) => {
 const GROUPS = [
   ["song", ["song", "master"]],
   ["sections", ["section"]],
+  ["chains", ["chain"]],
   ["instruments", ["instrument"]],
   ["lanes", ["lane"]],
   ["functions", ["function"]],

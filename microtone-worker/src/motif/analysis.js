@@ -130,7 +130,7 @@ class Analyzer {
       } else if (st.k === "let") {
         st.syms = [];
         this.pattern(st.target, scope, "variable", st.syms, later);
-      } else if (st.k === "decl" && (st.kind === "instrument" || st.kind === "lane")) {
+      } else if (st.k === "decl" && (st.kind === "instrument" || st.kind === "lane" || st.kind === "chain")) {
         st.sym = this.declare(scope, st.name, st.kind, st.namePos, { visibleFrom: later });
       }
     }
@@ -303,8 +303,10 @@ class Analyzer {
         const src2 = field(v, "bank") !== undefined ? "soundfont" : field(v, "pack") !== undefined ? "pack"
           : field(v, "wave") !== undefined ? "wave" : field(v, "layers") !== undefined ? "layers"
           : field(v, "fm") !== undefined ? "fm" : field(v, "opl") !== undefined ? "opl"
-          : field(v, "psg") !== undefined ? "psg" : "";
+          : field(v, "psg") !== undefined ? "psg" : field(v, "formant") !== undefined ? "formant" : "";
         out.push(item("instrument", st.name, src2, st.namePos.offset));
+      } else if (st.k === "decl" && st.kind === "chain") {
+        out.push(item("chain", st.name, str(field(st.value, "name")) ?? "", st.namePos.offset));
       } else if (st.k === "decl" && st.kind === "lane") {
         const inst = field(st.value, "inst");
         out.push(item("lane", st.name, inst?.k === "ident" ? inst.name : "", st.namePos.offset));
