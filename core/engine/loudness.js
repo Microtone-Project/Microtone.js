@@ -29,6 +29,7 @@
 // song differ because of it.
 
 import { TruePeakDetector } from "./analysis.js";
+import { makeDither16, ditherS16 } from "./dither.js";
 
 // ── K-weighting (BS.1770) ───────────────────────────────────────────────────
 // Two sections: a high-frequency shelf standing in for the head's acoustics,
@@ -588,6 +589,9 @@ export class MasterMeterTap {
     this.shortLag = Math.min(codes(HIST_SPAN_SEC[HIST_SPAN_SHORT]), this.codeRing.length);
     this.ringWrite = 0;
     this.ringFull = false;
+    /** The clean WAV export's dither stream (dither.js), restarted with the
+     *  census so a census from the top of the song draws what the file drew. */
+    this.dither16 = makeDither16();
     /** Which census `drain` reports (HIST_SPAN_*). A REPORTING choice, nothing
      *  more — see TrackerState.setMasterMeter. */
     this.histSpan = HIST_SPAN_ALL;
@@ -598,6 +602,11 @@ export class MasterMeterTap {
     this.spec = [];
     for (let s = 0; s < TAP_STAGES; s++) this.spec.push(new Float32Array(SPEC_FRAMES));
     this.specWrite = 0;
+    /** …and the PAIR per stage, frame-interleaved L, R, for the Mastering
+     *  view's goniometer and correlation meter (item 257). Same length and
+     *  cursor as the mono rings. */
+    this.pair = [];
+    for (let s = 0; s < TAP_STAGES; s++) this.pair.push(new Float32Array(SPEC_FRAMES * 2));
     this.frames = 0;
     this.compGrDb = 0;
     this.limGrDb = 0;
@@ -615,7 +624,9 @@ export class MasterMeterTap {
     for (const h of this.histWin) if (h !== null) h.fill(0);
     this.ringWrite = 0;
     this.ringFull = false;
+    this.dither16 = makeDither16();
     for (const r of this.spec) r.fill(0);
+    for (const r of this.pair) r.fill(0);
     this.specWrite = 0;
     this.frames = 0;
     this.compGrDb = 0;
@@ -673,8 +684,10 @@ export class MasterMeterTap {
     // PRE writes at the same positions on the way past.
     const ring = this.spec[stage];
     let w = this.specWrite;
+    const pair = this.pair[stage];
     for (let n = 0; n < frames; n++) {
       ring[w] = (left[n] + right[n]) * 0.5;
+      pair[w * 2] = left[n]; pair[w * 2 + 1] = right[n];
       w = w + 1 === SPEC_FRAMES ? 0 : w + 1;
     }
     if (stage === TAP_POST) this.specWrite = w;
@@ -695,11 +708,13 @@ export class MasterMeterTap {
    *   * 8 bits is the DEVICE's output, so it is binned from the dithered,
    *     noise-shaped U8 buffer the engine actually produced. Re-quantising the
    *     float would miss the dither, which at eight bits is most of the point.
-   *   * 16 bits is what a stereo WAV export writes, and that path takes the
-   *     PRE-DITHER float bus straight to `round(clamp(x) × 32767)` — so the
-   *     census repeats exactly that. (An export resampled to another rate
-   *     re-quantises after the resampler; at the default 48 kHz, which is the
-   *     engine's own rate, the codes are identical.)
+   *   * 16 bits is what a clean stereo WAV export writes, and that path takes
+   *     the PRE-DITHER float bus through its own TPDF dither (dither.js) — so
+   *     the census repeats exactly that, off the same stream. (An export
+   *     resampled to another rate quantises after the resampler; at the
+   *     default 48 kHz, which is the engine's own rate, an analysis from the
+   *     top of the song counts the very codes the file holds.) The gritty
+   *     export is the 8-bit case: at 48 kHz it IS the device's buffer.
    */
   binOutput(u8, left, right, frames) {
     const h = this.hist;
@@ -734,10 +749,11 @@ export class MasterMeterTap {
       this.ringFull = full;
       return;
     }
+    const next = this.dither16;
     for (let n = 0; n < frames; n++) {
-      const l = left[n], r = right[n];
-      const cl = (Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff;
-      const cr = (Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff;
+      // Left before right: the export draws its dither in interleaved order.
+      const cl = (ditherS16(next, left[n]) + 32768) & 0xffff;
+      const cr = (ditherS16(next, right[n]) + 32768) & 0xffff;
       h[cl] += 1;
       if (full) hl[ring[w]] -= 1;
       if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;
@@ -796,6 +812,7 @@ export class MasterMeterTap {
     else for (let i = 0; i < census.length; i++) this.buckets[i >> shift] += census[i];
     out.buckets = this.buckets;
     out.spec = this.spec;
+    out.pair = this.pair;
     out.specWrite = this.specWrite;
     this.sumZ.fill(0); this.sumSq.fill(0); this.peak.fill(0); this.clip.fill(0);
     this.apPeak.fill(0); this.apSumSq.fill(0);
@@ -812,7 +829,7 @@ export function makeMasterMeterReadout() {
   return {
     frames: 0, compGrDb: 0, limGrDb: 0, hist: null, histTotal: 0,
     buckets: null, bits: null, bitDepth: DEFAULT_BIT_DEPTH, histSpan: HIST_SPAN_ALL,
-    spec: null, specWrite: 0,
+    spec: null, pair: null, specWrite: 0,
     sumZ: new Float64Array(TAP_STAGES),
     apPeak: new Float64Array(TAP_STAGES),
     apSumSq: new Float64Array(TAP_STAGES),

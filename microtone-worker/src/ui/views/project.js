@@ -5,14 +5,16 @@
 import {
   setSongScalarOp, setTuningOp, retuneOp, remapPatternsOp, cleanupBankOp,
   changeInstrumentOp, bulkNotesOp, upgradeCellFormatOp, setProjectStringOp,
-  importBankOp,
+  importBankOp, laneModeBlocker, setLaneModeOp,
 } from "../../doc/ops.js";
+import { NUM_VOICES } from "../../../core/format/taud-const.js";
 import { tuningRatioOf } from "../../../core/engine/tables.js";
 import {
   TUNING_REF_C4_HZ, TUNING_DEFAULT_BASE_NOTE, TUNING_DEFAULT_FREQ_HZ, BPM_MIN, BPM_MAX,
 } from "../../../core/engine/constants.js";
 import {
-  planCleanupPatterns, planMergeDuplicatePatterns, planRenumberPatterns, applyPatternOrder,
+  referencedPatterns, planCleanupPatterns, planMergeDuplicatePatterns, planRenumberPatterns, renumberIsIdentity,
+  applyPatternOrder,
   encodeNameTable, planBankCleanup, planIxmpCleanup,
 } from "../../doc/cleanup.js";
 import { planPoolDefrag } from "../../doc/pooldefrag.js";
@@ -103,6 +105,29 @@ export class ProjectView {
     this.store.undo.apply(upgradeCellFormatOp(this.store.songIndex, value));
     this.store.emit("format");
     await this.cb?.saveCopyAs?.(copyName);
+    this.refresh();
+  }
+
+  /**
+   * 32 or 64 lanes — a whole-project property, so it changes every song at
+   * once. Either way is undoable; what would not fit (a cue sheet past 4096
+   * cues, a pattern on lanes 33–64) is explained instead of being thrown away.
+   */
+  async setLaneMode(is64) {
+    const doc = this.store.doc;
+    if (!doc || is64 === doc.is64Channel) return;
+    const why = laneModeBlocker(doc, is64);
+    if (why !== null) {
+      this.refresh(); // put the selector back
+      await showNotice({
+        title: t(is64 ? "proj.lanes64Title" : "proj.lanes32Title"),
+        body: t(why === "cues" ? "proj.lanesBlockedCues" : "proj.lanesBlockedLanes"),
+      });
+      return;
+    }
+    this.store.undo.apply(setLaneModeOp(is64));
+    if (this.store.cursor.ch >= NUM_VOICES && !is64) this.store.cursor.ch = NUM_VOICES - 1;
+    this.store.emit("format");
     this.refresh();
   }
 
@@ -306,6 +331,13 @@ export class ProjectView {
     });
     notationRow.appendChild(makerBtn);
 
+    // Project-wide, like the three strings: the lane count is one flag for the
+    // whole file (§9.1), not a song scalar.
+    const lanesRow = sel(t("proj.lanes"), doc.is64Channel ? 64 : 32, [
+      [32, t("proj.lanes32")], [64, t("proj.lanes64")],
+    ], (v) => this.setLaneMode(v === 64));
+    lanesRow.title = t("proj.lanesTitle");
+
     const beats = this.store.beats();
     const grid = document.createElement("div");
     grid.className = "inst-grid";
@@ -313,6 +345,7 @@ export class ProjectView {
       nameRow,
       authorRow,
       copyrightRow,
+      lanesRow,
       num(t("proj.bpm"), song.bpm, BPM_MIN, BPM_MAX, (v) => this.op("bpm", v)),
       num(t("proj.speedTicks"), song.tickRate, 1, 127, (v) => this.op("tickRate", v)),
       // Row highlighting (item 136.1) — the grids' beat/bar banding. Display
@@ -352,24 +385,6 @@ export class ProjectView {
 
     this.root.appendChild(this.buildTuning(song));
 
-    const tuning = document.createElement("p");
-    tuning.className = "dim";
-    // (The beat/bar divisions used to be read out here; they are two editable
-    // fields in the grid above now — item 136.1.)
-    const tuningTxt =
-      t("proj.tuningPatterns", { pat: song.patterns.length, cues: song.lastUsedCue() + 1 });
-    tuning.textContent = tuningTxt.replace(/^ · /, "");
-    this.root.appendChild(tuning);
-
-    const retuneP = document.createElement("p");
-    retuneP.className = "dim";
-    retuneP.append(document.createTextNode(t("proj.remapNotes")));
-    const retuneBtn = document.createElement("button");
-    retuneBtn.textContent = t("toolbox.retune");
-    retuneBtn.addEventListener("click", () => this.openRetune(preset));
-    retuneP.appendChild(retuneBtn);
-    this.root.appendChild(retuneP);
-
     const songsTableHead = document.createElement("h3");
     songsTableHead.className = "files-songs-head";
     songsTableHead.textContent = t("files.songsHead");
@@ -387,12 +402,14 @@ export class ProjectView {
       const tr = document.createElement("tr");
       if (i === this.store.songIndex) tr.className = "files-current";
       // Name, composer and copyright are this SONG's (sMet); the project's own
-      // three strings live in the fields at the top of the tab.
+      // three strings live in the fields at the top of the tab. Patterns = the
+      // ones its cues play, not the highest number: a renumbered song leaves
+      // gaps between lanes.
       tr.innerHTML =
         `<td>${i}</td><td>${esc(unescapeName(m?.name || "") || t("instList.unnamed"))}</td>` +
         `<td class="dim">${esc(unescapeName(m?.composer || ""))}</td>` +
         `<td class="dim">${esc(unescapeName(m?.copyright || ""))}</td><td>${s.numVoices}</td>` +
-        `<td>${s.patterns.length}</td><td>${s.bpm}</td><td>${s.tickRate}</td>`;
+        `<td>${referencedPatterns(s).length}</td><td>${s.bpm}</td><td>${s.tickRate}</td>`;
       const td = document.createElement("td");
       const rn = mkBtn(t("common.edit"), async () => {
         await this.cb.editSong?.(i);
@@ -411,7 +428,7 @@ export class ProjectView {
     this.root.appendChild(songsTable);
 
     const songBar = document.createElement("div");
-    songBar.className = "toolbox";
+    songBar.className = "toolbox-transparent";
     songBar.style.borderBottom = "none";
     songBar.style.padding = "0.4rem 0";
     const addBtn = document.createElement("button");
@@ -425,7 +442,7 @@ export class ProjectView {
     houseHead.textContent = t("clean.title");
     this.root.appendChild(houseHead);
     const houseBar = document.createElement("div");
-    houseBar.className = "toolbox";
+    houseBar.className = "toolbox-transparent";
     houseBar.style.borderBottom = "none";
     houseBar.style.padding = "0.4rem 0";
     houseBar.style.flexWrap = "wrap";
@@ -449,13 +466,14 @@ export class ProjectView {
     globHead.textContent = t("glob.title");
     this.root.appendChild(globHead);
     const globBar = document.createElement("div");
-    globBar.className = "toolbox";
+    globBar.className = "toolbox-transparent";
     globBar.style.borderBottom = "none";
     globBar.style.padding = "0.4rem 0";
     globBar.style.flexWrap = "wrap";
     globBar.append(
       hbtn(t("glob.transpose"), t("glob.transposeTitle"), () => this.transposeGlobal()),
       hbtn(t("glob.changeInst"), t("glob.changeInstTitle"), () => this.changeInstrumentGlobal()),
+      hbtn(t("toolbox.retune"), t("proj.remapNotes"), () => this.openRetune(preset))
     );
     this.root.appendChild(globBar);
     // 85.00: every global operation stops at the current song's edge.
@@ -553,12 +571,16 @@ export class ProjectView {
     this._applyRemap(order, canon);
   }
 
-  /** Compact + reorder ALL materialised patterns into play order (drops gaps). */
+  /** Renumber lane by lane (item 253): each lane's patterns in cue order from a
+   *  round number, blank patterns emptied out of the cues where that is safe —
+   *  see planRenumberPatterns. */
   renumberPatterns() {
     const store = this.store, song = store.song;
-    const order = planRenumberPatterns(song);
-    if (this._isIdentityOrder(order, song)) { alert(t("clean.nothing")); return; }
-    this._applyRemap(order);
+    const plan = planRenumberPatterns(song, store.doc._nameTable("pNam"), store.doc.wideCells === true);
+    if (renumberIsIdentity(song, plan)) { alert(t("clean.nothing")); return; }
+    store.undo.apply(remapPatternsOp(store.songIndex, plan.patterns, plan.cues, encodeNameTable(plan.pNam)));
+    store.emit("edit", [{ kind: "resync", song: store.songIndex }]);
+    this.refresh();
   }
 
   _isIdentityOrder(order, song) {

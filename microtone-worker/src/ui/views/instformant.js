@@ -152,7 +152,9 @@ function regionPath(round) {
  * The chart as an element. `get()` answers the current {front, open, round};
  * `onDrag(front, open, gid)` is called through a drag and `onMark(mark)` when a
  * symbol is clicked, `onDragEnd()` when a drag lets go. Returns {node,
- * update(front, open, round)}.
+ * update(front, open, round), live(voices)} — `live` draws the sounding voices
+ * that sing a vowel of their own (item 240), each where it sounds now, with a
+ * line to where a glide is taking it; an empty list clears them.
  */
 function vowelChart(get, onDrag, onMark, onDragEnd = () => {}) {
   const wrap = el("div", "fmt-chart");
@@ -202,8 +204,29 @@ function vowelChart(get, onDrag, onMark, onDragEnd = () => {}) {
     s.appendChild(g);
   }
   const handle = svg("circle", { r: 7, class: "fmt-handle" });
-  s.appendChild(handle);
+  const liveLayer = svg("g", { class: "fmt-live" });
+  s.append(handle, liveLayer);
   wrap.appendChild(s);
+  const live = (voices) => {
+    while (liveLayer.childNodes.length > voices.length) liveLayer.lastChild.remove();
+    while (liveLayer.childNodes.length < voices.length) {
+      const g = svg("g");
+      g.append(svg("line", { class: "fmt-live-path" }), svg("circle", { r: 3, class: "fmt-live-target" }),
+        svg("circle", { r: 4.5, class: "fmt-live-dot" }));
+      liveLayer.appendChild(g);
+    }
+    voices.forEach((v, i) => {
+      const [line, target, dot] = liveLayer.childNodes[i].childNodes;
+      const [x, y] = pointOf(v.front, v.open, v.round);
+      const [tx, ty] = pointOf(v.toFront, v.toOpen, v.toRound);
+      const moving = Math.hypot(tx - x, ty - y) > 0.5;
+      dot.setAttribute("cx", x.toFixed(1)); dot.setAttribute("cy", y.toFixed(1));
+      target.setAttribute("cx", tx.toFixed(1)); target.setAttribute("cy", ty.toFixed(1));
+      line.setAttribute("x1", x.toFixed(1)); line.setAttribute("y1", y.toFixed(1));
+      line.setAttribute("x2", tx.toFixed(1)); line.setAttribute("y2", ty.toFixed(1));
+      target.style.display = line.style.display = moving ? "" : "none";
+    });
+  };
 
   let drawnRound = -1;
   const update = (front, open, round) => {
@@ -248,7 +271,7 @@ function vowelChart(get, onDrag, onMark, onDragEnd = () => {}) {
   s.addEventListener("pointercancel", end);
   const cur = get();
   update(cur.front, cur.open, cur.round);
-  return { node: wrap, update };
+  return { node: wrap, update, live };
 }
 
 // ── the consonant chart ─────────────────────────────────────────────────────
@@ -265,10 +288,12 @@ const PLACE_KEY = {
   [PLACE_ALVEOLOPALATAL]: "alveolopalatal", [PLACE_PALATAL]: "palatal", [PLACE_VELAR]: "velar",
   [PLACE_UVULAR]: "uvular", [PLACE_PHARYNGEAL]: "pharyngeal", [PLACE_GLOTTAL]: "glottal", [-1]: "other",
 };
-const ROWS = ["plosive", "aspirated", "nasal", "trill", "tap", "fricative", "latfric", "approx", "latapprox", "affricate"];
+const ROWS = ["plosive", "aspirated", "nasal", "trill", "tap", "fricative", "aspfric", "latfric", "approx", "latapprox", "affricate"];
 
 function rowOf(r) {
-  if (r.manner === MANNER_STOP) return r.ipa.endsWith("ʰ") ? "aspirated" : "plosive";
+  // Aspirated and breathy-voiced stops share a row: [pʰ] beside [bʱ].
+  if (r.manner === MANNER_STOP) return r.ipa.endsWith("ʰ") || r.ipa.endsWith("ʱ") ? "aspirated" : "plosive";
+  if (r.manner === MANNER_FRICATIVE && r.vot > 0) return "aspfric";
   if (r.manner === MANNER_GLOTTAL) return "plosive";
   if (r.manner === MANNER_NASAL) return "nasal";
   if (r.manner === MANNER_TRILL) return "trill";
@@ -533,6 +558,12 @@ export function renderFormantTab(view, inst) {
     () => view.renderPanel(),
   );
   paintReadout();
+  // While the song plays, the vowels S $Afgr has given sounding notes of this
+  // instrument: on the chart, and as the IPA and command beneath it.
+  const liveReadout = el("div", "fmt-readout fmt-live-readout");
+  liveReadout.hidden = true;
+  liveReadout.title = t("fmt.liveTitle");
+  view._formantLive = { slot, chart, line: liveReadout, key: "" };
   const roundRow = view.sliderRow(t("fmt.round"), f.round, 0, 255, (v, gid) => {
     vowel.round = v;
     chart.update(vowel.front, vowel.open, v);
@@ -556,7 +587,7 @@ export function renderFormantTab(view, inst) {
     (v) => { if ((v === 1) !== f.nasal) apply(formantRefBytes(f.refNote, v === 1)); });
   nasalRow.title = t("fmt.nasalTitle");
   if (!f.vowel) disableRow(nasalRow);
-  view.group(t("fmt.grpVowel"), chart.node, roundRow, vowelRow, nasalRow, readout,
+  view.group(t("fmt.grpVowel"), chart.node, roundRow, vowelRow, nasalRow, readout, liveReadout,
     f.vowel ? null : el("p", "dim fmt-note", t("fmt.noVowelNote")));
 
   // ── Syllable ──
@@ -664,4 +695,36 @@ export function renderFormantTab(view, inst) {
     last.querySelector(".slider-row:nth-child(3)")?.setAttribute("title", t("fmt.timingTitle"));
     last.querySelector(".slider-row:nth-child(4)")?.setAttribute("title", t("fmt.glideTitle"));
   }
+}
+
+/**
+ * Per frame while the Formant tab is open (item 240): ask the engine which of
+ * the instrument's sounding voices sing a vowel of their own — what `S $Afgr`
+ * gave them — and show them on the chart and under it, in the accent colour,
+ * as the PSG tab and the Samples view show what playback has done to theirs.
+ * The reply lands a frame later. Writes only when something moved; with
+ * playback stopped, clears them once.
+ */
+export function formantTabFrame(view) {
+  const live = view._formantLive;
+  if (!live || !live.line.isConnected) return;
+  const audio = view.store.audio;
+  const playing = !!audio?.isPlaying();
+  if (playing) audio.requestInvertMask(live.slot);
+  const voices = (playing ? audio.getFormantState(live.slot)?.voices : null) ?? [];
+  const key = voices.map((v) => [v.front, v.open, v.round, v.toFront, v.toOpen, v.toRound]
+    .map((x) => x.toFixed(1)).join(",")).join(";");
+  if (key === live.key) return;
+  live.key = key;
+  live.chart.live(voices);
+  live.line.hidden = voices.length === 0;
+  if (voices.length === 0) return;
+  // What each voice sings, or is gliding to: the nearest mark and the command.
+  const said = voices.map((v) => {
+    const m = nearestVowelMark(v.toFront, v.toOpen, v.toRound);
+    const arg = vowelEffectArg(v.toFront, v.toOpen, v.toRound);
+    return `[${m ? m.ipa : "?"}] S\u00a0$${arg.toString(16).toUpperCase().padStart(4, "0")}`;
+  });
+  const text = t("fmt.liveReadout", { list: [...new Set(said)].join(" · ") });
+  if (live.line.textContent !== text) live.line.textContent = text;
 }

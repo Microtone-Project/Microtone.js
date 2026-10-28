@@ -56,8 +56,8 @@ window.addEventListener('error', (e) => log('ERROR ' + e.message));
 
   const cueCv = doc.getElementById("cuesCanvas");
   // cues.js layout: GUTTER_W 52, CMD_W ceil(9*7.9)=72, COL_W ceil(4*7.9)+8=40,
-  // HEADER_H 22, ROW_H 16.
-  const CUE_G = 52, CMD_W = 72, CUE_COLW = 40, CUE_HDR = 22, CUE_ROWH = 16;
+  // HEADER_H 31 (the 9 px lamp band over the 22 px names), ROW_H 16.
+  const CUE_G = 52, CMD_W = 72, CUE_COLW = 40, CUE_HDR = 31, CUE_ROWH = 16;
   const cueX = (ch) => CUE_G + 2 * CMD_W + (ch - cuesView.scrollCh) * CUE_COLW + 8;
   const cueY = (row) => CUE_HDR + (row - cuesView.scrollCue) * CUE_ROWH + 8;
   const cuePat = (cue, ch) => store.song.cues[cue][ch] & 0x7fff;

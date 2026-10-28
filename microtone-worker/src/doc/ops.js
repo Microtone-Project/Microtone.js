@@ -6,14 +6,15 @@
 // Dirty tags: {kind:"pattern", song, pat} | {kind:"cue", song, cue}
 //           | {kind:"scalar", song, key} | {kind:"inst", slot} | {kind:"bank"}
 //           | {kind:"ixmp", slot} | {kind:"section", fourcc} | {kind:"resync", song}
-//           | {kind:"mastering", song}
+//           | {kind:"mastering", song} | {kind:"imix"}
 
 import { applyPlan, captureBankState, restoreBankState, buildIxmpSection } from "./bankmerge.js";
 import {
   parsePatchesBlob, writePatchesBlob, makeInstPatch, baseStereoPatchIndex, BASE_TO_PATCH_FIELD,
 } from "../../core/engine/inst.js";
 import { TaudPlayData } from "../../core/engine/state.js";
-import { CUE_EMPTY, MAX_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
+import { imixCarryFolds } from "../../core/format/imix-section.js";
+import { CUE_EMPTY, MAX_VOICES, NUM_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
 
 /**
  * Run several ops as ONE undo step — the combinator, not an op of its own.
@@ -963,6 +964,33 @@ export function setMasteringOp(song, payload, control = null, gestureId = null) 
   };
 }
 
+/**
+ * Replace the `IMix` section (item 217, §9.15) — every instrument mixing chain
+ * in the project — as one invertible step. Like setMasteringOp it goes through
+ * the section: an edit rebuilds the payload and the inverse restores the exact
+ * previous bytes. `control` coalesces a drag on one control into one undo step.
+ *
+ * Which instrument uses which block is not here: that is byte 255 of the
+ * instrument's record, set with setInstFieldOp(slot, "imixId", id).
+ */
+export function setImixOp(payload, control = null, gestureId = null) {
+  return {
+    type: "setImix",
+    payload, control, gestureId,
+    coalesceKey: control === null ? null : `imix:${control}`,
+    apply(doc) {
+      const i = doc.projSections.findIndex((s) => s.fourcc === "IMix");
+      const prev = i >= 0 ? doc.projSections[i].payload : null;
+      // The folds standing now stay as they are: folding is not in the undo
+      // history (§9.15), so neither an edit nor its undo moves one.
+      doc.setSection("IMix", imixCarryFolds(payload, prev));
+      doc.dirty = true;
+      return setImixOp(prev, control, gestureId);
+    },
+    dirty: () => [{ kind: "imix" }],
+  };
+}
+
 /** Refresh the live decoded TaudInst's patches from the (possibly just
  *  swapped) doc.ixmp list — last entry for the slot wins, mirroring the
  *  device upload order. */
@@ -1464,6 +1492,104 @@ function restoreCellFormatOp(song, surroundModel, before, gestureId = null) {
       doc._emptyPattern = null;
       doc.dirty = true;
       return upgradeCellFormatOp(song, surroundModel, gestureId);
+    },
+    dirty: () => [{ kind: "format" }],
+  };
+}
+
+/**
+ * What stops the project changing to 64 lanes (`is64`) or back to 32 without
+ * losing anything, or null when nothing does. The lane count is a whole-FILE
+ * property (the `xHDR` flag, §9.1) and it sets the cue sheet's stride, so the
+ * check runs over every song:
+ *   "cues"  — a song uses a cue past the 4096 a 64-lane sheet holds;
+ *   "lanes" — a cue still names a pattern on lane 33 or above.
+ */
+export function laneModeBlocker(doc, is64) {
+  if (is64 === doc.is64Channel) return null;
+  for (const song of doc.songs) {
+    if (is64) {
+      if (song.lastUsedCue() >= NUM_CUES_64) return "cues";
+    } else {
+      for (const words of song.cues) {
+        for (let ch = NUM_VOICES; ch < MAX_VOICES; ch++) {
+          if ((words[ch] & 0x7fff) !== CUE_EMPTY) return "lanes";
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Switch the project between 32 and 64 lanes. Nothing moves: lanes 1–32 keep
+ * their patterns (the cue sheet's two instruction words ride their sign bits
+ * in either mode), the new lanes start empty, and every song's lane count
+ * follows. Callers check laneModeBlocker first; the op itself only clears what
+ * the narrower mode cannot hold, and its inverse puts all of it back.
+ */
+export function setLaneModeOp(is64, gestureId = null) {
+  return {
+    type: "setLaneMode",
+    is64, gestureId,
+    apply(doc) {
+      const xi = doc.projSections.findIndex((sec) => sec.fourcc === "xHDR");
+      const before = {
+        is64: doc.is64Channel,
+        xhdr: xi < 0 ? null : { index: xi, payload: doc.projSections[xi].payload.slice() },
+        songs: doc.songs.map((sg) => ({ numVoices: sg.numVoices, cues: sg.cues.map((w) => w.slice()) })),
+      };
+      doc.is64Channel = is64;
+      if (is64) {
+        if (xi < 0) {
+          const payload = new Uint8Array(256);
+          payload[0] = 0x01;
+          doc.projSections.unshift({ fourcc: "xHDR", payload });
+        } else {
+          doc.projSections[xi].payload[0] |= 0x01;
+        }
+      } else if (xi >= 0) {
+        // A section left with no flag says nothing, so it goes rather than
+        // making the file claim an extended header it has no use for.
+        const payload = doc.projSections[xi].payload;
+        payload[0] &= ~0x01;
+        if (payload.every((b) => b === 0)) doc.projSections.splice(xi, 1);
+      }
+      for (const sg of doc.songs) {
+        // Only a song that filled the old width fills the new one: a converted
+        // song's lane count says how many lanes its source had.
+        if (is64 && sg.numVoices === NUM_VOICES) sg.numVoices = MAX_VOICES;
+        if (!is64 && sg.numVoices > NUM_VOICES) sg.numVoices = NUM_VOICES;
+        if (is64 && sg.cues.length > NUM_CUES_64) sg.cues.length = NUM_CUES_64;
+        // Words past the narrower width mean nothing to it; start the new lanes
+        // (or the dropped ones) empty, never with whatever an edit left there.
+        for (const w of sg.cues) w.fill(CUE_EMPTY, NUM_VOICES);
+      }
+      doc.dirty = true;
+      return restoreLaneModeOp(is64, before, gestureId);
+    },
+    dirty: () => [{ kind: "format" }],
+  };
+}
+
+/** Inverse of setLaneModeOp: the flag, the xHDR section and every cue as they were. */
+function restoreLaneModeOp(is64, before, gestureId = null) {
+  return {
+    type: "restoreLaneMode",
+    is64, gestureId,
+    apply(doc) {
+      doc.is64Channel = before.is64;
+      doc.projSections = doc.projSections.filter((sec) => sec.fourcc !== "xHDR");
+      if (before.xhdr !== null) {
+        doc.projSections.splice(before.xhdr.index, 0,
+          { fourcc: "xHDR", payload: before.xhdr.payload.slice() });
+      }
+      doc.songs.forEach((sg, i) => {
+        sg.numVoices = before.songs[i].numVoices;
+        sg.cues = before.songs[i].cues.map((w) => w.slice());
+      });
+      doc.dirty = true;
+      return setLaneModeOp(is64, gestureId);
     },
     dirty: () => [{ kind: "format" }],
   };

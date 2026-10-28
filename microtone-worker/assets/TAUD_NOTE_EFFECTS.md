@@ -44,9 +44,9 @@ This manual extensively uses "tracker lingo" that may not sound intuitive to the
 
 * **Sample loops.** Held notes don't work the way a DAW sustain pedal does. The sample itself contains a loop region (loop_start..loop_end) that the playhead replays endlessly until the note is released or cut — "sustain" comes from the sample data, not from a held key.
 
-* **Note off, note cut, note fade.** Three distinct ways a note ends. **Note cut** (`^^^` or `S $Cx`) silences instantly. **Note off** (`===` or an NNA = NoteOff) releases the sustain loop and lets the volume envelope's release segment play out, then fades. **Note fade** keeps the sustain loop running but begins the fadeout decay — for soft tail-offs that still sound sustained.
+* **Key-off, note cut, note fade.** Three distinct ways a note ends. **Note cut** (`^^^` or `S $Cx`) silences instantly. **Key-off** (`===` or an NNA = Key-off) releases the sustain loop and lets the volume envelope's release segment play out, then fades. **Note fade** keeps the sustain loop running but begins the fadeout decay — for soft tail-offs that still sound sustained.
 
-* **NNA — New Note Action.** What happens to a still-playing note when a fresh note arrives on the same lane. There are five: Cut (drop the old voice), Continue (let it ring through), Note Off (release it), Note Fade (begin fadeout), and Key Lift (release it the way a MIDI key release does, starting the envelope's release stage at once). The displaced voice becomes a background *ghost* voice — still audible but no longer addressable from the pattern. This is the tracker's substitute for polyphony across DAW MIDI clips. The five are exclusive: Key Lift is an action in its own right, not a modifier on the other four.
+* **NNA — New Note Action.** What happens to a still-playing note when a fresh note arrives on the same lane. There are five: Cut (drop the old voice), Continue (let it ring through), Key-off (release it), Note Fade (begin fadeout), and Release (release it the way a MIDI key release does, starting the envelope's release stage at once). The displaced voice becomes a background *ghost* voice — still audible but no longer addressable from the pattern. This is the tracker's substitute for polyphony across DAW MIDI clips. The five are exclusive: Release is an action in its own right, not a modifier on the other four.
 
 * **Portamento.** Automatic pitch glide toward a target note (effect G). A row carrying both a note *and* a G does **not** re-trigger the sample; instead the note becomes the target and the already-sounding sample slides into it. Distinct from generic pitch slides (E/F), which move pitch by a fixed amount per tick with no target.
 
@@ -1353,11 +1353,11 @@ S $6x and S $Ex are orthogonal: when S $Ex is active the current row repeats `$x
 | $x | Operation | Description |
 |---|---|---|
 | $0 | Past Note Cut | Cuts all notes playing as a result of New Note Actions on the current lane |
-| $1 | Past Note Off | Sends a Note Off to all notes playing as a result of New Note Actions on the current lane |
+| $1 | Past Key-off | Sends a Key-off to all notes playing as a result of New Note Actions on the current lane |
 | $2 | Past Note Fade | Fades out all notes playing as a result of New Note Actions on the current lane |
 | $3 | NNA Note Cut | Sets the currently active note's New Note Action to Note Cut |
 | $4 | NNA Note Continue | Sets the currently active note's New Note Action to Continue |
-| $5 | NNA Note Off | Sets the currently active note's New Note Action to Note Off |
+| $5 | NNA Key-off | Sets the currently active note's New Note Action to Key-off |
 | $6 | NNA Note Fade | Sets the currently active note's New Note Action to Note Fade |
 | $7 | Volume Envelope Off | Disables the currently active note's volume envelope |
 | $8 | Volume Envelope On | Enables the currently active note's volume envelope |
@@ -1375,12 +1375,12 @@ When the instrument have both pitch and filter envelopes defined, $B/$C toggles 
 **Implementation.** Engines maintain a *mixer-private* background-voice pool per playhead, separate from the addressable foreground voices. When a fresh note retriggers a still-active foreground voice, the engine reads the effective NNA — the per-voice override set by `S $73..$76` if present, otherwise the instrument's default NNA (instrument record byte 186, low two bits) — and acts on the displaced voice as follows:
 
 - **Note Cut (1):** discard the foreground state; the clone exists only long enough to ramp out under the incoming note's attack, so the hand-over is a crossfade and not a splice.
-- **Note Off (0):** clone the foreground voice into the background pool and set its key-off flag, releasing any sustain loop. The clone's volume envelope plays out and fadeout decays from full.
+- **Key-off (0):** clone the foreground voice into the background pool and set its key-off flag, releasing any sustain loop. The clone's volume envelope plays out and fadeout decays from full.
 - **Continue (2):** clone the foreground voice into the background pool unchanged; envelopes and sample position continue from where they were.
 - **Note Fade (3):** clone the foreground voice into the background pool and immediately begin fadeout decay without releasing sustain. The volume envelope keeps looping its sustain region while fadeoutVolume drains to zero.
-- **Key Lift (4):** Note Off, and the release begins at once — the volume envelope playhead jumps straight to the sustain-end node instead of walking whatever pre-sustain nodes it had not reached. Read the NNA as the single five-value field it is ([TAUD_FILE_FORMAT.md](TAUD_FILE_FORMAT.md) byte 186): its high bit sits at bit 5 with the two low bits at 0-1, and treating that high bit as a separate flag invents actions the format does not define.
+- **Release (4):** Key-off, and the release begins at once — the volume envelope playhead jumps straight to the sustain-end node instead of walking whatever pre-sustain nodes it had not reached. Read the NNA as the single five-value field it is ([TAUD_FILE_FORMAT.md](TAUD_FILE_FORMAT.md) byte 186): its high bit sits at bit 5 with the two low bits at 0-1, and treating that high bit as a separate flag invents actions the format does not define.
 
-Note Fade and Note Off are distinct: Note Fade does **not** set key-off, so the volume envelope's sustain loop continues to cycle; Note Off does set key-off, breaking sustain. Both share the same fadeout slope (`volumeFadeoutLow + (fadeoutHigh & 0x0F << 8)` units per tick out of 1024).
+Note Fade and Key-off are distinct: Note Fade does **not** set key-off, so the volume envelope's sustain loop continues to cycle; Key-off does set key-off, breaking sustain. Both share the same fadeout slope (`volumeFadeoutLow + (fadeoutHigh & 0x0F << 8)` units per tick out of 1024).
 
 The background pool is reaped when a ghost's `fadeoutVolume` drops to zero or its sample finishes (non-looping). Pool size is implementation-defined; the reference engine caps it at 64 ghosts per playhead and evicts the oldest on overflow. Background voices receive only passive per-tick maintenance (envelope advance, fadeout decay, auto-vibrato, filter coefficient refresh) — no row-driven effects (vibrato/tremolo/arpeggio/Q-retrigger/cut/delay) ever target them, since they are not addressable from the pattern.
 
@@ -1388,7 +1388,7 @@ The background pool is reaped when a ghost's `fadeoutVolume` drops to zero or it
 
 `S $73..$76` write the per-voice NNA override on the **currently active foreground voice** so that *its* next NNA event uses the overridden action. The override is cleared on every fresh trigger. On a metainstrument's lane it commands every voice sounding the note, not the foreground alone — see the metainstrument note at the end of this section.
 
-`S $Dxn1` with `$n` = 4 is the **forced key lift**: it performs the sustain-end jump for this note whatever the instrument's own New Note Action says. That matters because key lift is the fifth NNA and so excludes the other four — an instrument that must be **Note Cut** when displaced cannot also be Key Lift, and this is how a pattern gives one note of it a MIDI-shaped release anyway. Being a command about the note, it **MUST** reach every voice sounding it, layer children and rack operands included: handing each child its own instrument's answer instead is handing it the very answer the command overrides. `$y` cannot be 0 (a zero `$y` carries no action), so the earliest a lift can land is one tick after the row.
+`S $Dxn1` with `$n` = 4 is the **forced Release**: it performs the sustain-end jump for this note whatever the instrument's own New Note Action says. That matters because Release is the fifth NNA and so excludes the other four — an instrument that must be **Note Cut** when displaced cannot also be Release, and this is how a pattern gives one note of it a MIDI-shaped release anyway. Being a command about the note, it **MUST** reach every voice sounding it, layer children and rack operands included: handing each child its own instrument's answer instead is handing it the very answer the command overrides. `$y` cannot be 0 (a zero `$y` carries no action), so the earliest a lift can land is one tick after the row.
 
 For an instrument that wants that release on **every** note rather than on one, the Volume Fadeout is the better tool and needs no effect column: it has no playhead, so on key-off it drains from wherever the note had got to, at a rate the record states. That is what [TAUD_CONVERSION_NOTES §7.5 and §8.2](TAUD_CONVERSION_NOTES.md) use to carry a SoundFont's and an OPL patch's release.
 
@@ -1423,15 +1423,23 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 
 **Implementation.** Write `channel_pan = arg & $FF`. The mixer sums it with `note_pan` and the pan envelope (§3a) and applies the equal-energy law to the total: `left_gain = cos(π × position ÷ 512)`, `right_gain = sin(π × position ÷ 512)`, both before the global volume stage.
 
-## S $Afgr — Formant vowel
+## S $Axxx — Instrument Sound Control
 
-**Plain.** On a formant instrument (a type-1 metainstrument), moves the vowel the note is singing: `$f` is its openness, `$g` its frontness and `$r` its roundness, each 0…F. Openness and frontness are where the tongue is, roundness what the lips do. Openness 0 is a close vowel like [i] or [u], F an open one like [a]; frontness 0 is a back vowel ([u] [o] [ɔ], or [ɯ] [ɤ] [ʌ] with the lips spread), F a front one ([i] [e] [ɛ]); roundness 0 is spread lips, F rounded — the same tongue that sings [i] sings [y] with the lips rounded. So `S $A0F0` is [i], `S $A0FF` is [y], `S $A00F` is [u], `S $AFF0` is [a], and `S $A880` is [ə], the middle of the chart. Written on the row that triggers the note, it is the note's vowel from the very start, consonants included; written later, the vowel glides there over the instrument's own glide time. Without one, a note sings the instrument's vowel, and follows it while it is being edited; with one, the note keeps it. The next note starts from the instrument's vowel again, so a sung text writes one on every syllable whose vowel differs from the instrument's. On any other instrument it does nothing.
+**Plain.** One command whose argument the INSTRUMENT reads: each kind of instrument that takes it says below what its three digits mean, and on any other instrument it does nothing. The kinds that take it are the ones with a sound of their own to control — a formant instrument's vowel, a PSG instrument's oscillators, an FM rack's operators — so a pattern can play with the part of the sound that makes the instrument what it is, without a command per kind.
+
+**Compatibility.** Taud only.
+
+**Implementation.** The engine dispatches on what the lane's note is sounding: an FM rack takes the command whole (its operators take nothing from it on their own account); otherwise every voice sounding the note reads it as its own instrument says.
+
+### On a formant instrument — `S $Afgr`, the vowel
+
+**Plain.** On a formant instrument (a type-1 metainstrument), moves the vowel the note is singing: `$f` is its openness, `$g` its frontness and `$r` its roundness, each 0…F. Openness and frontness are where the tongue is, roundness what the lips do. Openness 0 is a close vowel like [i] or [u], F an open one like [a]; frontness 0 is a back vowel ([u] [o] [ɔ], or [ɯ] [ɤ] [ʌ] with the lips spread), F a front one ([i] [e] [ɛ]); roundness 0 is spread lips, F rounded — the same tongue that sings [i] sings [y] with the lips rounded. So `S $A0F0` is [i], `S $A0FF` is [y], `S $A00F` is [u], `S $AFF0` is [a], and `S $A880` is [ə], the middle of the chart. Written on the row that triggers the note, it is the note's vowel from the very start, consonants included; written later, the vowel glides there over the instrument's own glide time. Without one, a note sings the instrument's vowel, and follows it while it is being edited; with one, the note keeps it. The next note starts from the instrument's vowel again, so a sung text writes one on every syllable whose vowel differs from the instrument's. On any other instrument it means what that instrument's subsection says, or nothing.
 
 **Compatibility.** Taud only.
 
 **Implementation.** Openness = `$f × 17`, frontness = `$g × 17`, roundness = `$r × 17`: the tongue and lips of TAUD_FILE_FORMAT.md §7.6. Before the voice's first control update — the trigger row — the vowel is set outright; otherwise it glides linearly from where it stands, restarting at every new `S $Afgr`, and the last step lands exactly on the target. The note now has a vowel of its own, which edits to the instrument's vowel no longer move, until its next trigger. Every voice sounding the note takes it, layer children included. See TAUD_ENGINE_SPEC.md §5.5.3.
 
-## S $Axxx — PSG register write
+### On a PSG instrument — `S $Axxx`, a register write
 
 **Plain.** On a PSG instrument (a type-9 metainstrument), changes one of its oscillators' settings while the song plays, without touching the instrument itself:
 
@@ -1446,11 +1454,19 @@ In surround mode, the lower 9 bits encodes angle, $000 being left (0°), $080 be
 | `S $AF02` | Mute oscillator B (and unmute A) |
 | `S $AF03` | Mute both |
 
-Every other argument is **RESERVED** and does nothing. The write is the **instrument's**: every note of it hears it at once and goes on hearing it, the next notes included, until the song is played again from the start. The `$AF0x` writes set both mutes, so `S $AF01` also lifts a mute the instrument's own record puts on oscillator B. On a formant instrument the same command is `S $Afgr`, above; on any other instrument it does nothing.
+Every other argument is **RESERVED** and does nothing. The write is the **instrument's**: every note of it hears it at once and goes on hearing it, the next notes included, until the song is played again from the start. The `$AF0x` writes set both mutes, so `S $AF01` also lifts a mute the instrument's own record puts on oscillator B. On a formant instrument and on an FM rack the same command means what their subsections say; on any other instrument it does nothing.
 
 **Compatibility.** Taud only.
 
-**Implementation.** The write goes into a per-instrument overlay over the record's auto-advance, level and mute fields (TAUD_FILE_FORMAT.md §7.9): each overlay field is either unset, in which case the record's value stands, or the value written. The overlay **MUST NOT** change the record, and **MUST** be cleared exactly when invert loop's mask is (`S $F0xx`, below): on a song-start or stop-and-replay reset, so a clean replay reproduces the same audio. A mute is a no-op on the other oscillator, and a muted oscillator keeps running, so `S $AF00` brings it back where it would have been. Every voice sounding the note takes the write, layer children and FM operators included. See TAUD_ENGINE_SPEC.md §5.5.4.
+**Implementation.** The write goes into a per-instrument overlay over the record's auto-advance, level and mute fields (TAUD_FILE_FORMAT.md §7.9): each overlay field is either unset, in which case the record's value stands, or the value written. The overlay **MUST NOT** change the record, and **MUST** be cleared exactly when invert loop's mask is (`S $F0xx`, below): on a song-start or stop-and-replay reset, so a clean replay reproduces the same audio. A mute is a no-op on the other oscillator, and a muted oscillator keeps running, so `S $AF00` brings it back where it would have been. Every voice sounding the note takes the write, layer children included — but not a PSG instrument that is an FM rack's operator: on a rack the command is the rack's (below). See TAUD_ENGINE_SPEC.md §5.5.4.
+
+### On an FM rack — `S $Apsd`, an operator's auto-vibrato
+
+**Plain.** Gives operator `$p` of the rack a vibrato of its own for the note now sounding: speed `$s`, depth `$d`, each 0…F. Shaking one operator's pitch and not the others' is what makes a rack's timbre move — a modulator's vibrato is heard as a shimmer in the tone rather than as a wobble in the note — so `S $A2F8` on a bell gives its third operator a fast, half-deep vibrato. `$s` or `$d` of 0 switches it off. The next note of the rack starts from each operator instrument's own auto-vibrato again.
+
+`$p` counts the rack's **operators**, not its table: when operator 0 of the table is a principal that only shapes the finished sound — the layout an editor's Easy Mode writes — `$p` = 0 is the table's entry 1, `$p` = 1 its entry 2, and so on, and the principal itself cannot be named. In every other rack the principal is an oscillator like the rest, and `$p` = 0 is entry 0. An operator not sounding this note, or past the rack's end, takes nothing.
+
+**Implementation.** On the lane's live rack, resolve `k = p + 1` when the principal is DSP-only (the program ends `$0000 $FF01` and names operator 0 nowhere else — TAUD_ENGINE_SPEC.md §5.5.1) and `k = p` otherwise, and set that operator's voice's active auto-vibrato speed to `$s × 17` and depth to `$d × 17`. Its waveform, sweep and rate stay the instrument's; its phase and sweep counter are not reset. The values are the VOICE's, so the next trigger reads all four from the instrument again. A rack that has been released and rings in the background takes nothing.
 
 ## S $Bx00 — Pattern loop
 
@@ -1496,11 +1512,11 @@ The crucial bug fix relative to ST3: the loop-counter decrement **MUST** happen 
 
 |`$n`|Action|
 |---|---|
-|0|Note off|
+|0|Key-off|
 |1|Note cut|
 |2|Note continue|
 |3|Note fade|
-|4|Key lift|
+|4|Release|
 
 Expressed in timeline, this effect does (assuming nonzero `$x` and `$y`):
 
@@ -1799,14 +1815,14 @@ This table maps each PT effect to its Taud equivalent. Arguments follow PT's two
 | `2 $xx` | `E $00xx` (Amiga mode, `f` set) | Portamento down; raw PT period units, applied in period space |
 | `3 $xx` | `G round($0xxx × 64/3)` | Portamento to note; G is always linear (4096-TET units) regardless of mode |
 | `4 $xy` | `H $xxyy` | Vibrato; nibble-repeat each byte. |
-| `5 $xy` | `L $xy00` | Combined portamento + volume slide; argument byte verbatim (PT `500` recall is resolved to the previous 5xy by the converter, then emitted as L $xy00) |
-| `6 $xy` | `K $xy00` | Combined vibrato + volume slide; argument byte verbatim (PT `600` recall is resolved to the previous 6xy by the converter, then emitted as K $xy00) |
+| `5 $xy` | `L $xy00` | Combined portamento + volume slide. Only the slide nibble that acts crosses: ProTracker slides up by `x` whenever it is set and L lets down win, so `5 $35` becomes `L $3000`. An `$F` nibble is a speed of 15, as in L. `5 $00` is a portamento with no slide and becomes `G $0000` |
+| `6 $xy` | `K $xy00` | Combined vibrato + volume slide, the slide nibble chosen as for `5`. `6 $00` is a vibrato with no slide and becomes `H $0000` |
 | `7 $xy` | `R $xxyy` | Tremolo; nibble-repeat |
 | `8 $xx` | `S $80xx` or panning column `0.$xx` | Fine pan |
 | `9 $xx` | `O $xx00` | Sample offset |
-| `A $xy` | Vo ume column `1.$xy` | Volume slide |
+| `A $xy` | `D $x000` or `D $0y00`; `A $Fy` → volume column `1.$0F` | Volume slide. ProTracker slides up by `x` whenever it is set, else down by `y`, and an `$F` is a speed of 15 — never a fine slide (those are `E $Ax` / `E $Bx`). D reads `$F` nibbles as fine slides, so up-by-15 takes the volume column's slide up, which steps the same |
 | `B $xx` | `B $00xx` | Position jump |
-| `C $xx` | Vo ume column `0.$xx` | Set volume |
+| `C $xx` | Volume column `0.$xx` | Set volume |
 | `D $xx` | `C $00xx` (after BCD decode) | Pattern break |
 | `E $0x` | `S $0x00` | Set low-pass filter |
 | `E $1x` | `F $F00x` (Amiga mode, `f` set) | Fine pitch slide up; raw PT period units, applied in period space at tick 0 |

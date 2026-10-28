@@ -24,10 +24,17 @@ export { META_MAX_LAYERS, META_TYPE_LAYERED, META_TYPE_FM };
  *  nibble included, so a table edit can never turn a rack back into a stack. */
 export function metaFlags(inst) {
   const b0 = inst?.metaRaw ? inst.metaRaw[0] & 0xff : 0;
+  const type = (b0 >>> 4) & 0x0f;
+  // Bit 0 is one bit with two meanings: strict layering in a Layered record,
+  // Easy Mode in an FM rack (TAUD_FILE_FORMAT §7.7).
   return {
-    strict: (b0 & 0x01) !== 0,
+    strict: type !== META_TYPE_FM && (b0 & 0x01) !== 0,
+    easy: type === META_TYPE_FM && (b0 & 0x01) !== 0,
     percussion: (b0 & 0x02) !== 0,
-    type: (b0 >>> 4) & 0x0f,
+    type,
+    // Not a flag, but the one other byte a repack must carry over: the
+    // instrument's mixing chain (item 217, byte 255).
+    imixId: inst?.metaRaw ? inst.metaRaw[255] & 0xff : 0,
   };
 }
 
@@ -55,7 +62,7 @@ export function metaRecordOf(inst, layers, program = undefined) {
 /**
  * The record `inst` would have with some of its byte-0 FLAGS changed and
  * everything else — the whole entry table, and a rack's algorithm — kept.
- * `fields` is a metaFlags-shaped patch: {strict?, percussion?}.
+ * `fields` is a metaFlags-shaped patch: {strict?, easy?, percussion?}.
  *
  * The type nibble is NOT patchable through here on purpose: turning a stack
  * into a rack is not a flag, it is a different record with a different meaning

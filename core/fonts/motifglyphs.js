@@ -45,13 +45,14 @@ export const MOTIF = Object.freeze({
   NOTE_CUT: "\uF031",
   FADE: "\uF032",
   FAST_FADE: "\uF033",
-  // Vibrato waveforms, two cells, one period edge to edge — written twice
-  // they draw two seamless periods.
+  // Vibrato (and LFO) waveforms, two cells, one period edge to edge — written
+  // twice they draw two seamless periods.
   WAVE_SINE: "\uF040",
   WAVE_RAMP_DOWN: "\uF041",
   WAVE_SQUARE: "\uF042",
   WAVE_RANDOM: "\uF043",
   WAVE_RAMP_UP: "\uF044",
+  WAVE_TRIANGLE: "\uF045",
 });
 
 /** Unicode's own accidentals, one cell (Unicode 18.0 for the last five). */

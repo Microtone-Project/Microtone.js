@@ -83,15 +83,16 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
 
   // With a BLOCK selected, Interpolate joins every column it can fill — but
   // never the instrument column, where nothing sits halfway between 3 and 7.
+  // To sample (item 242) joins any Timeline block, just before Find & Change.
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_NOTE, row: 3, ch: 0, sub: E.SUB_NOTE };
   dlg = await menuAt(charX(0, COL_X.note), rowY(1));
-  check(rows(dlg)[1].join() === "transpose,interpolate,findchange",
+  check(rows(dlg)[1].join() === "transpose,interpolate,toSample,findchange",
     "a note block → Transpose and Interpolate", rows(dlg)[1].join());
   await dismiss(dlg);
 
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_INST, row: 3, ch: 0, sub: E.SUB_INST };
   dlg = await menuAt(charX(0, COL_X.inst), rowY(1));
-  check(rows(dlg)[1].join() === "instrument,findchange",
+  check(rows(dlg)[1].join() === "instrument,toSample,findchange",
     "an instrument block → no Interpolate", rows(dlg)[1].join());
   await dismiss(dlg);
   timeline.sel = null;
@@ -118,25 +119,44 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   check(!!gCell && gCell.querySelector(".ctx-name").textContent === "Tone portamento",
     "…each named after the effect", gCell?.querySelector(".ctx-name")?.textContent);
   check(!!gCell?.querySelector("svg text"), "…and drawn as its own opcode letter");
+  check(!cell(dlg, "fxFill"), "…but no Fill without a block (one cell is typed, not filled)");
   await dismiss(dlg);
+
+  // ── 2b. an effect BLOCK → Fill writes the effect and its argument ──────
+  const fxAt = (row) => { const c = timeline.cellAt(row, 0);
+    const r = store.doc.patternAt(0, c.pat)?.[c.rowInCue]; return r ? [r.effect, r.effectArg] : null; };
+  timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_FX_OP, row: 2, ch: 0, sub: E.SUB_FX_ARG };
+  dlg = await menuAt(charX(0, COL_X.fx), rowY(1));
+  check(!!cell(dlg, "fxFill"), "an effect block offers Fill with effect (item 259)", rows(dlg)[1].join());
+  const depthF = store.undo.undoStack.length;
+  const beyond = fxAt(3);
+  cell(dlg, "fxFill").click();
+  check(await runModal({ op: "16", arg: "0123" }), "the Fill dialog opened from the menu");
+  check([0, 1, 2].every((r) => fxAt(r)?.[0] === 0x10 && fxAt(r)?.[1] === 0x0123),
+    "…every selected row now holds G $0123", JSON.stringify([0, 1, 2].map(fxAt)));
+  check(JSON.stringify(fxAt(3)) === JSON.stringify(beyond), "…and the row below the block is untouched");
+  check(store.undo.undoStack.length === depthF + 1, "…in one undo step");
+  store.undo.undo();
+  await sleep(60);
+  timeline.sel = null;
 
   // ── 3. a multi-column band offers each tool but NOT the effects ────────
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_PAN, row: 3, ch: 0, sub: E.SUB_FX_ARG };
   dlg = await menuAt(charX(0, COL_X.pan), rowY(1));
-  check(rows(dlg)[1].join() === "pan,panner,findchange",
+  check(rows(dlg)[1].join() === "pan,panner,toSample,findchange",
     "pan + effects selected → only the pan tools, and no Interpolate", rows(dlg)[1].join());
   await dismiss(dlg);
 
   // …but volume AND panning together is the one band that DOES offer it.
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_VOL, row: 3, ch: 0, sub: E.SUB_PAN };
   dlg = await menuAt(charX(0, COL_X.vol), rowY(1));
-  check(rows(dlg)[1].join() === "volume,pan,panner,interpolate,findchange",
+  check(rows(dlg)[1].join() === "volume,pan,panner,interpolate,toSample,findchange",
     "volume + panning → one Interpolate for the pair", rows(dlg)[1].join());
   await dismiss(dlg);
 
   timeline.sel = { aRow: 0, aCh: 0, aSub: E.SUB_NOTE, row: 3, ch: 0, sub: E.SUB_FX_ARG };
   dlg = await menuAt(charX(0, COL_X.note), rowY(1));
-  check(rows(dlg)[1].join() === "transpose,instrument,volume,pan,panner,findchange",
+  check(rows(dlg)[1].join() === "transpose,instrument,volume,pan,panner,toSample,findchange",
     "the whole cell selected → every column tool, effects and Interpolate excluded", rows(dlg)[1].join());
   await dismiss(dlg);
 
@@ -287,11 +307,12 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
     return d;
   };
   // With nothing selected and an empty clipboard the FIRST row has nothing in
-  // it, and the widget drops empty rows — so the tools stand alone.
+  // it, and the widget drops empty rows — so the tools stand alone. To sample
+  // is there either way: with no selection it takes the whole pattern.
   pane.sel = null;
   store.clipboard = null;
   dlg = await pMenu(9, 3); // volume column
-  check(JSON.stringify(rows(dlg)) === '[["volume","findchange"]]',
+  check(JSON.stringify(rows(dlg)) === '[["volume","toSample","findchange"]]',
     "a Patterns column offers the volume tool, alone when there is nothing to copy",
     JSON.stringify(rows(dlg)));
   await dismiss(dlg);
@@ -299,7 +320,7 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   // With a selection, both rows are there.
   pane.sel = { aRow: 2, row: 5, aSub: E.SUB_VOL, sub: E.SUB_VOL };
   dlg = await pMenu(9, 3);
-  check(JSON.stringify(rows(dlg)) === '[["copy","cut"],["volume","interpolate","findchange"]]',
+  check(JSON.stringify(rows(dlg)) === '[["copy","cut"],["volume","interpolate","toSample","findchange"]]',
     "…and with a block selected, the clipboard row joins it — and Interpolate appears",
     JSON.stringify(rows(dlg)));
   await dismiss(dlg);
@@ -307,8 +328,8 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   pane.sel = null;
   dlg = await pMenu(17, 3); // effect column
   const pFx = rows(dlg)[rows(dlg).length - 1];
-  check(pFx.length === QUICK_FX.length + 1 && pFx[pFx.length - 1] === "findchange",
-    "…including the effect palette (plus Find & Change)", String(pFx.length));
+  check(pFx.length === QUICK_FX.length + 2 && pFx[pFx.length - 1] === "findchange",
+    "…including the effect palette (plus To sample and Find & Change)", String(pFx.length));
   await dismiss(dlg);
 
   // …and it really edits the pattern it was opened on.
@@ -427,7 +448,8 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   const cueCv = doc.getElementById("cuesCanvas");
   const cr = cueCv.getBoundingClientRect();
   cueCv.dispatchEvent(new win.MouseEvent("contextmenu", {
-    clientX: cr.left + 52 + 144 + 8, clientY: cr.top + 22 + 8,
+    // header = the lamp band (9) over the lane numbers (22)
+    clientX: cr.left + 52 + 144 + 8, clientY: cr.top + 31 + 8,
     bubbles: true, cancelable: true, button: 2 }));
   let cueDlg = null;
   for (let i = 0; i < 60 && !cueDlg; i++) { cueDlg = doc.querySelector("dialog.ctxmenu"); await sleep(20); }

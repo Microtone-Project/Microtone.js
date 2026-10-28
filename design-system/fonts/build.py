@@ -58,7 +58,7 @@ def main():
         cjk.subset_chiron(args.chiron, chiron)
         print(f"  refreshed {chiron.relative_to(HERE)}")
     built = []
-    built.append(save(faces.build_monospaced(cfg, SOURCES, "Motif Grid", ASCII + [MIDDOT, MINUS],
+    built.append(save(faces.build_grid(cfg, SOURCES, "Motif Grid", ASCII + [MIDDOT, MINUS],
                                              1 + cfg["grid"]["widen"] / 100, cfg["grid"]["margin"],
                                              faces.grid_extra(cfg), cfg["grid"]["centred"], natural2=True),
                       "motif-grid", "Motif Grid"))

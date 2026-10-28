@@ -1,0 +1,100 @@
+<!doctype html><meta charset="utf-8"><title>instrument bank export smoke (item 229)</title>
+<pre id="out">running…</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1200px;height:760px"></iframe>
+<script type="module">
+import { parseTaud } from "../../core/format/taud-parse.js";
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+window.addEventListener("error", (e) => log("ERROR: " + e.message));
+let failures = 0;
+const check = (label, ok, detail = "") => {
+  if (!ok) failures++;
+  log(`${label}: ${ok ? "ok" : "FAIL"}${detail ? " — " + detail : ""}`);
+};
+const until = async (fn, ms = 4000) => {
+  for (let t = 0; t < ms; t += 25) { const v = fn(); if (v) return v; await sleep(25); }
+  return null;
+};
+(async () => {
+ try {
+  const app = document.getElementById("app");
+  const win = await new Promise((resolve) => {
+    const poll = setInterval(() => {
+      const w = app.contentWindow;
+      if (w && w.document?.readyState === "complete") { clearInterval(poll); resolve(w); }
+    }, 50);
+  });
+  const M = await until(() => win.__microtone, 10000);
+  if (!M) { log("no __microtone"); log(`FAILURES: 1`); return; }
+  await until(() => M.store.doc && M.store.undo, 10000);
+  const { store, instrumentsView: iv } = M;
+  const doc = store.doc;
+  // Catch the download: the app clicks an <a download> holding a blob URL.
+  const downloads = [];
+  win.HTMLAnchorElement.prototype.click = function () {
+    if (this.download) downloads.push({ name: this.download, href: this.href });
+  };
+  iv.visible = true;
+  iv.refresh();
+
+  const foot = iv.listEl.querySelector(".side-foot-inst");
+  check("Export… sits at the foot of the list", !!foot && iv.listEl.lastElementChild === foot);
+  const exportBtn = foot.querySelector("button");
+  check("its label", exportBtn.textContent === "Export…", exportBtn.textContent);
+
+  // ── Cancel: nothing is saved ──
+  exportBtn.click();
+  let dlg = await until(() => win.document.querySelector("dialog.import-modal[open]"));
+  check("the dialog opens", !!dlg);
+  const slots = doc.selectableInstrumentSlots();
+  let boxes = [...dlg.querySelectorAll(".import-list input[type=checkbox]")];
+  check("one row per top-level instrument, all ticked",
+    boxes.length === slots.length && boxes.every((b) => b.checked), `${boxes.length}/${slots.length}`);
+  dlg.querySelector(".act-cancel").click();
+  await sleep(100);
+  check("Cancel closes it and saves nothing",
+    !win.document.querySelector("dialog.import-modal") && downloads.length === 0);
+
+  // ── None disables Export; one meta + one plain instrument go out ──
+  exportBtn.click();
+  dlg = await until(() => win.document.querySelector("dialog.import-modal[open]"));
+  const proceed = dlg.querySelector(".modal-buttons .proceed");
+  [...dlg.querySelectorAll(".import-bar button")][1].click(); // None
+  check("Export is disabled with nothing ticked", proceed.disabled === true);
+  const meta = slots.find((s) => doc.instruments[s].isMeta);
+  const plain = slots.find((s) => !doc.instruments[s].isMeta && !doc.instruments[s].sourceSlots.length);
+  boxes = [...dlg.querySelectorAll(".import-list input[type=checkbox]")];
+  for (const b of boxes) {
+    if ([meta, plain].includes(Number(b.dataset.slot))) {
+      b.checked = true;
+      b.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+  const tally = dlg.querySelector(".import-tally").textContent;
+  check("the tally counts the ticks", tally.startsWith(`2 of ${slots.length}`), tally);
+  check("Export is enabled again", proceed.disabled === false);
+  const before = doc.toBytes();
+  proceed.click();
+  const got = await until(() => downloads[0], 20000);
+  check("a .tsii is downloaded", !!got && got.name.endsWith(".tsii"), got?.name);
+  const bytes = new Uint8Array(await (await fetch(got.href)).arrayBuffer());
+  const parsed = parseTaud(bytes);
+  check("it is a bank with no songs", parsed.kind === "tsii" && parsed.songs.length === 0);
+  const zero = (s) => parsed.sampleInstImage.subarray(8388608 + s * 256, 8388608 + (s + 1) * 256).every((v) => v === 0);
+  const want = new Set([meta, plain, ...doc.instruments[meta].sourceSlots]);
+  const keptOk = [...want].every((s) => !zero(s));
+  const droppedOk = doc.usedInstrumentSlots().filter((s) => !want.has(s)).every(zero);
+  check("the meta, its layers and the plain instrument are kept, at their own numbers", keptOk);
+  check("everything else is left out", droppedOk);
+  const after = doc.toBytes();
+  check("the project is unchanged",
+    before.length === after.length && before.every((v, i) => v === after[i]) && !doc.dirty);
+ } catch (err) {
+  failures++;
+  log("EXCEPTION: " + (err.stack ?? err));
+ }
+ log(`FAILURES: ${failures}`);
+})();
+</script>

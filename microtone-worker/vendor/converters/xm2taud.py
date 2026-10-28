@@ -52,6 +52,7 @@ import struct
 import sys
 
 from taud_common import (
+    dnv_from_volume64, pt_slide_nibbles, pt_volume_slide,
     set_verbose, vprint,
     TAUD_MAGIC, TAUD_VERSION, TAUD_HEADER_SIZE, TAUD_SONG_ENTRY,
     SAMPLEBIN_SIZE, INSTBIN_SIZE, SAMPLEINST_SIZE, SAMPLE_LEN_LIMIT,
@@ -68,6 +69,7 @@ from taud_common import (
     CUE_INST_NOP, CUE_INST_HALT, cue_instruction_len,
     cue_instruction_halt_at,
     build_project_data, detect_subsongs,
+    renumber_patterns_lane_major,
 )
 
 
@@ -511,11 +513,13 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
         # plays the previously emitted slide rate. This avoids the volume-
         # column collision that the H+vol-col split form caused on rows
         # already carrying a vol-column SET.
-        return (TOP_L, (arg & 0xFF) << 8, None, None)
+        # Only the slide nibble that acts crosses: FT2 lets up win where L
+        # lets down win (pt_slide_nibbles).
+        return (TOP_L, pt_slide_nibbles(arg) << 8, None, None)
 
     if cmd == 0x06:
-        # Vibrato + vol slide → Taud K verbatim (same rationale as 0x05).
-        return (TOP_K, (arg & 0xFF) << 8, None, None)
+        # Vibrato + vol slide → Taud K (same rationale as 0x05).
+        return (TOP_K, pt_slide_nibbles(arg) << 8, None, None)
 
     if cmd == 0x07:
         hi = (arg >> 4) & 0xF
@@ -531,9 +535,11 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
         return (TOP_O, (arg & 0xFF) << 8, None, None)
 
     if cmd == 0x0A:
-        # Volume slide: high nybble = up, low nybble = down. Taud TOP_D
-        # uses the same nybble-pair layout in the high byte.
-        return (TOP_D, (arg & 0xFF) << 8, None, None)
+        # Volume slide, read as FT2 reads it (and ProTracker): the up nibble
+        # wins, and $F is a speed, never a fine slide — see pt_volume_slide.
+        # Up by 15 comes back as a volume-column slide; build_pattern falls
+        # back to D when the row's own volume column is taken.
+        return pt_volume_slide(arg)
 
     if cmd == 0x0B:
         # Position jump — order index translated to Taud cue at remap time.
@@ -1124,7 +1130,7 @@ def build_sample_inst_bin_xm(proxies: list) -> tuple:
         # default. Pre-2026-05-09 layout folded s.volume into IGV — see
         # terranmon §2350.
         inst_bin[base + 171] = 0xFF                                                  # IGV: continuous unity
-        inst_bin[base + 196] = min(0xFF, round(s.volume * 255 / 64))                 # DNV
+        inst_bin[base + 196] = dnv_from_volume64(s.volume)                                  # DNV
         # Fadeout: 12-bit. Low 8 bits at +172, high 4 bits at +173.
         inst_bin[base + 172] = s.fadeout & 0xFF
         inst_bin[base + 173] = (s.fadeout >> 8) & 0x0F
@@ -1195,7 +1201,7 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
         if (aux_eff is not None and cell.effect == 0x0A
                 and cell.effect_arg != 0):
             aux_op, aux_arg = aux_eff
-            d_arg = cell.effect_arg & 0xFF
+            d_arg = pt_slide_nibbles(cell.effect_arg & 0xFF)
             if aux_op == TOP_G:
                 # XM A + vol-col M → Taud L verbatim. Porta speed already
                 # lives in Taud's private G memory (vol-col aux → G $00xx).
@@ -1254,6 +1260,14 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
             vol_sel, vol_value = vol_override
         elif vs != SEL_FINE or vv != 0:
             vol_sel, vol_value = vs, vv
+            if (vol_override is not None and cell.effect == 0x0A
+                    and op == TOP_NONE):
+                # A$F0 (up 15) beside a volume-column command: the column
+                # keeps its own, and the slide takes the effect slot as the
+                # nearest D can say — up 14, since D $F000 is a fine slide.
+                op, arg16 = TOP_D, 0xE000
+                vprint(f"    ch{ch_idx} row{r}: A F0 beside a volume-column "
+                       f"command → D $E000 (up 14)")
         elif vol_override is not None:
             vol_sel, vol_value = vol_override
         else:
@@ -1444,6 +1458,8 @@ def _build_song_payload_xm(h: XMHeader, patterns_template: list,
                f"for partial-length patterns")
 
     cue_bytes, num_cues = finalize_cue_sheet(sheet)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253).
+    pat_bin, cue_bytes, num_taud_pats, num_cues, _ = renumber_patterns_lane_major(pat_bin, cue_bytes)
     pat_comp = compress_blob(bytes(pat_bin), f"[{song_label}] pattern bin")
     cue_comp = compress_blob(cue_bytes,      f"[{song_label}] cue sheet")
 

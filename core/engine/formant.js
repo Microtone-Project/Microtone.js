@@ -506,11 +506,14 @@ const K_NONE = [0, 0, 0, 0, 0, 0];
  * the vowel (a velar); `bankBack`: the bank before a back vowel, or null.
  */
 function consRow(id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av = 0, fnz = 0,
-  { dorsal = false, bankBack = null } = {}) {
-  return Object.freeze({ id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av, fnz, dorsal, bankBack });
+  { dorsal = false, bankBack = null, breath = false } = {}) {
+  return Object.freeze({ id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av, fnz, dorsal, bankBack, breath });
 }
 const FMT_VELAR_STOP = Object.freeze({ dorsal: true, bankBack: K_K_BACK });
 const FMT_VELAR = Object.freeze({ dorsal: true });
+/** `breath`: the row's frication is BREATH — its noise goes through the
+ *  cascade, as an aspirate's does, not through the parallel bank ([ʔ͡h]). */
+const FMT_BREATH = Object.freeze({ breath: true });
 
 const ROWS = [
   // Plosives — dur is the closure a stop makes when something precedes it.
@@ -530,6 +533,16 @@ const ROWS = [
   consRow(14, "pʰ", MN_S, false, PLACE_BILABIAL, [400, 1100, 2150], [300, 150, 220], K_LABIAL, -12, 0, 5, 58, 40),
   consRow(15, "tʰ", MN_S, false, PLACE_ALVEOLAR, [400, 1600, 2600], [300, 120, 250], K_T, -10, 0, 10, 70, 45),
   consRow(16, "kʰ", MN_S, false, PLACE_VELAR, [300, 1990, 2850], [250, 160, 330], K_K_FRONT, -10, 0, 20, 80, 50, 0, 0, FMT_VELAR_STOP),
+  // ʈʰ: Mikuteit & Reetz (2007, East Bengali) measure a retroflex aspirate's
+  // lag at 48 ms against the dental's 57; [tʰ]'s 70 scaled by that is 60.
+  consRow(17, "ʈʰ", MN_S, false, PLACE_RETROFLEX, [400, 1500, 1900], [300, 120, 250], K_RETRO_STOP, -10, 0, 10, 60, 45),
+  // The breathy-voiced (murmured) stops: a voiced stop whose `vot` is its
+  // release's noisy lag before clear voicing — Mikuteit & Reetz's after-closure
+  // time, 31 / 35 / 36 / 44 ms by place — and then BREATHY_SA of breathy voice.
+  consRow(18, "bʱ", MN_S, true, PLACE_BILABIAL, [200, 1100, 2150], [60, 110, 130], K_LABIAL, -14, 0, 5, 31, 40),
+  consRow(19, "dʱ", MN_S, true, PLACE_ALVEOLAR, [200, 1600, 2600], [60, 100, 170], K_D, -12, 0, 8, 35, 45),
+  consRow(20, "ɖʱ", MN_S, true, PLACE_RETROFLEX, [200, 1500, 1900], [60, 100, 170], K_RETRO_STOP, -12, 0, 8, 36, 45),
+  consRow(21, "ɡʱ", MN_S, true, PLACE_VELAR, [200, 1990, 2850], [60, 150, 280], K_K_FRONT, -12, 0, 15, 44, 50, 0, 0, FMT_VELAR_STOP),
   // Nasals — Klatt's murmur: F1 480 cancelled by a zero at 450 Hz, leaving
   // the nasal pole at 270 Hz; place is the wide-bandwidth F2/F3.
   consRow(32, "m", MN_N, true, PLACE_BILABIAL, [480, 1270, 2130], [40, 200, 200], K_NONE, 0, 60, 0, 0, 35, 0.5, 450),
@@ -575,6 +588,9 @@ const ROWS = [
   consRow(72, "ɕ", MN_FR, false, PLACE_ALVEOLOPALATAL, [300, 2000, 2900], [200, 120, 300], K_ALVPAL, -7, 120, 0, 0, 45),
   consRow(73, "ʑ", MN_FR, true, PLACE_ALVEOLOPALATAL, [240, 2000, 2900], [60, 120, 300], K_ALVPAL, -11, 90, 0, 0, 45, 0.35),
   consRow(74, "ʍ", MN_FR, false, PLACE_LABIOVELAR, [290, 610, 2150], [200, 80, 60], K_WH, -22, 90, 0, 0, 100),
+  // An aspirated fricative: `vot` is the breath after its frication — Korean
+  // ㅅ's 53 ms (Chang 2008), its frication ¾ of the tense [s*]'s, 120 → 90.
+  consRow(75, "sʰ", MN_FR, false, PLACE_ALVEOLAR, [320, 1390, 2530], [200, 80, 200], K_S, -8, 90, 0, 53, 40),
   // Approximants — Klatt: about 10 dB under the vowel, slow transitions.
   consRow(80, "ʋ", MN_AP, true, PLACE_LABIODENTAL, [300, 1100, 2200], [60, 90, 150], K_NONE, 0, 50, 0, 0, 70, 0.4),
   consRow(81, "ɹ", MN_AP, true, PLACE_ALVEOLAR, [310, 1060, 1380], [70, 100, 120], K_NONE, 0, 50, 0, 0, 90, 0.4),
@@ -598,6 +614,16 @@ const ROWS = [
   consRow(103, "ɖ͡ʐ", MN_AF, true, PLACE_RETROFLEX, [240, 1600, 2000], [60, 100, 250], K_RETRO, -11, 60, 10, 0, 45),
   consRow(104, "p͡f", MN_AF, false, PLACE_LABIODENTAL, [340, 1100, 2080], [200, 120, 150], K_F, -16, 70, 5, 0, 40),
   consRow(105, "k͡x", MN_AF, false, PLACE_VELAR, [300, 1800, 2700], [250, 160, 330], K_X, -12, 70, 20, 0, 50, 0, 0, FMT_VELAR),
+  // These pair a stop's burst with a fricative's tract and spectrum; a weak
+  // fricative's level is 6 dB up, as [p͡f]'s is.
+  consRow(106, "c͡ç", MN_AF, false, PLACE_PALATAL, [300, 2100, 3000], [200, 150, 300], K_C, -12, 70, 15, 0, 45),
+  consRow(107, "ɟ͡ʝ", MN_AF, true, PLACE_PALATAL, [240, 2100, 3000], [60, 150, 300], K_C, -16, 60, 12, 0, 45),
+  consRow(108, "t͡θ", MN_AF, false, PLACE_DENTAL, [320, 1290, 2540], [200, 90, 200], K_TH, -18, 70, 8, 0, 40),
+  consRow(109, "d͡ð", MN_AF, true, PLACE_DENTAL, [270, 1290, 2540], [60, 80, 170], K_TH, -22, 60, 8, 0, 40),
+  consRow(110, "ɡ͡ɣ", MN_AF, true, PLACE_VELAR, [240, 1800, 2700], [60, 150, 300], K_X, -16, 60, 15, 0, 50, 0, 0, FMT_VELAR),
+  // The glottal affricate: a glottal stop released into [h] — no oral burst,
+  // its breath [h]'s own, through the cascade at the vowel's formants.
+  consRow(111, "ʔ͡h", MN_AF, false, PLACE_GLOTTAL, [0, 0, 0], [300, 0, 0], K_NONE, -16, 50, 0, 0, 15, 0, 0, FMT_BREATH),
 ];
 
 /** id → row, for every id the format defines; undefined elsewhere. */
@@ -634,6 +660,17 @@ export function consonantNeedsNoise(r) {
 /** A stop's or affricate's closure when something precedes it, and the trill cycle. */
 const CLOSURE_MS = 50;
 const ASPIRATION_DB = -6;  // a stop's aspiration, against its own burst level
+/** A breathy-voiced stop's release: after its noisy lag (the row's `vot`) the
+ *  voice comes in BREATHY — the breath laid over it — for this long
+ *  (Mikuteit & Reetz 2007: 47 ms, twice a voiceless aspirate's), rising from
+ *  MURMUR_AV. Through the lag the breath carries the sound and the voice is
+ *  26 dB under the vowel's, the two together about 20 dB under it (Schiefer
+ *  & Kotten 1983 measured the breathy part 10–30 dB below the vowel's
+ *  steady part). */
+export const BREATHY_SA = 47;
+const MURMUR_AV = 0.05;
+/** Is the row a breathy-voiced stop ([bʱ]): voiced, with a release lag? */
+const isBreathy = (r) => r.manner === MANNER_STOP && r.voiced && r.vot > 0;
 const dbGain = (db) => 10 ** (db / 20);
 
 // ── Segment tracks ──────────────────────────────────────────────────────────
@@ -698,6 +735,10 @@ const GLOT_STOP = 3;
 /** What a hissing nucleus takes to let its hiss go before the coda. */
 const NUCLEUS_RELEASE = 10;
 
+/** Tracks with their two noise paths exchanged: frication built as a row's
+ *  `af` sounds through the cascade as `ah`, and the other way about. */
+const breathed = (t) => ({ ...t, ah: t.af, af: t.ah });
+
 /** A closed track `tr` with a glottal catch at its START: 0 until t0, back on
  *  the track's own value by t1 — a sonorant said after a glottal stop. */
 function catchTrack(tr, t0, t1) {
@@ -717,7 +758,7 @@ function catchTrack(tr, t0, t1) {
  * nasalised vowel after it (nx.nz = 1) lowers the velum through the
  * transition alone.
  */
-export function onsetTracks(r, first, nx, k, art = ART_NONE) {
+function onsetTracksOf(r, first, nx, k, art = ART_NONE) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const tr = r.trans * k, dur = r.dur * k;
@@ -741,6 +782,17 @@ export function onsetTracks(r, first, nx, k, art = ART_NONE) {
         break;
       }
       const tv = tb + r.vot * k;
+      if (isBreathy(r)) {
+        // The closure voiced; the release a noisy lag over a weak voice — its
+        // breath at the burst's own level, a breathy release's airflow being
+        // a voiceless aspirate's and more — then the voice rising through it.
+        const ts = tv + BREATHY_SA * k;
+        av.at(0, cl > 0 ? 0.25 : 0.3).at(cl, cl > 0 ? 0.25 : 0.3).at(tb, 0.3).at(tb + 3 * k, MURMUR_AV)
+          .at(tv, MURMUR_AV).at(ts, nx.av);
+        ah.at(tb, 0).at(tb + 3 * k, L).at(tv, 0.7 * L).at(ts, nx.ah);
+        end = Math.max(ts, tb + tr);
+        break;
+      }
       if (r.voiced) {
         av.at(0, cl > 0 ? 0.25 : 0.3).at(cl, cl > 0 ? 0.25 : 0.3).at(tb, 0.3).at(tb + 10 * k, nx.av);
       } else {
@@ -770,6 +822,18 @@ export function onsetTracks(r, first, nx, k, art = ART_NONE) {
     }
     case MANNER_FRICATIVE: {
       af.at(0, 0).at(10 * k, L).at(dur - 10 * k, L).at(dur + 10 * k, nx.af);
+      if (!glot && !r.voiced && r.vot > 0) {
+        // Aspirated: the frication gives way to breath, and the voice waits
+        // for the breath to end.
+        const tv = dur + r.vot * k;
+        const La = L * dbGain(ASPIRATION_DB);
+        ah.at(0, 0).at(dur - 10 * k, 0).at(dur, La).at(tv, 0.7 * La).at(tv + 10 * k, nx.ah);
+        av.at(0, 0).at(tv - 5 * k, 0).at(tv + 15 * k, nx.av);
+        w.at(0, 1).at(dur, 1).at(dur + tr, 0);
+        nz.at(0, 0).at(tv, 0);
+        end = Math.max(tv + 15 * k, dur + tr);
+        break;
+      }
       if (glot) catchAt(dur);
       else if (r.voiced) av.at(0, r.av).at(dur, r.av).at(dur + 15 * k, nx.av);
       else av.at(0, 0).at(dur - 5 * k, 0).at(dur + 15 * k, nx.av);
@@ -851,6 +915,12 @@ export function onsetTracks(r, first, nx, k, art = ART_NONE) {
   };
 }
 
+/** The onset tracks — a BREATH row's ([ʔ͡h]) frication is its aspiration. */
+export function onsetTracks(r, first, nx, k, art = ART_NONE) {
+  if (!r.breath) return onsetTracksOf(r, first, nx, k, art);
+  return breathed(onsetTracksOf(r, first, { av: nx.av, ah: nx.af, af: nx.ah, nz: nx.nz }, k, art));
+}
+
 /**
  * A NUCLEUS's tracks: the consonant a syllable with no vowel is held on — a
  * syllabic consonant. It starts as an onset consonant does (`first`, `k` and
@@ -862,7 +932,7 @@ export function onsetTracks(r, first, nx, k, art = ART_NONE) {
  * by `loop` ms, so its second cycle repeats. Returns {end, loop, w, av, ah,
  * af, nz}.
  */
-export function nucleusTracks(r, first, k, art = ART_NONE) {
+function nucleusTracksOf(r, first, k, art = ART_NONE) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const dur = r.dur * k;
@@ -879,6 +949,12 @@ export function nucleusTracks(r, first, k, art = ART_NONE) {
         const tv = tb + GLOT_LAG * k;
         av.at(0, 0).at(tv, 0).at(tv + GLOT_RISE * k, r.voiced ? 1 : 0);
         end = tv + GLOT_RISE * k;
+      } else if (isBreathy(r)) {
+        const a = cl > 0 ? 0.25 : 0.3;
+        const tv = tb + r.vot * k, ts = tv + BREATHY_SA * k;
+        av.at(0, a).at(cl, a).at(tb, 0.3).at(tb + 3 * k, MURMUR_AV).at(tv, MURMUR_AV).at(ts, 1);
+        ah.at(tb, 0).at(tb + 3 * k, L).at(tv, 0.7 * L).at(ts, 0);
+        end = ts;
       } else if (r.voiced) {
         const a = cl > 0 ? 0.25 : 0.3;
         av.at(0, a).at(cl, a).at(tb, 0.3).at(tb + 10 * k, 1);
@@ -965,6 +1041,12 @@ export function nucleusTracks(r, first, k, art = ART_NONE) {
   return { end, loop, w: held(w), av: avT, ah: held(ah), af: held(af), nz: held(nz) };
 }
 
+/** The nucleus tracks — a BREATH row's ([ʔ͡h]) frication is its aspiration. */
+export function nucleusTracks(r, first, k, art = ART_NONE) {
+  if (!r.breath) return nucleusTracksOf(r, first, k, art);
+  return breathed(nucleusTracksOf(r, first, k, art));
+}
+
 /**
  * A CODA consonant's tracks: from the sound before it into silence. That sound
  * is the vowel — voicing 1, nasality 0, or 1 for a nasalised vowel — or, in a
@@ -974,7 +1056,7 @@ export function nucleusTracks(r, first, k, art = ART_NONE) {
  * closure the end of it); GLOTTAL ends the voicing in a glottal stop where it
  * would otherwise fade, and breathes no aspiration; DARK changes no track.
  */
-export function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
+function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const tr = r.trans * k, dur = r.dur * k;
@@ -997,9 +1079,11 @@ export function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       } else if (r.manner === MANNER_STOP) {
         af.at(0, 0).at(tc, 0).at(tc, 0.7 * L).at(tb, 0.2 * L).at(tb + 2 * k, 0);
         ah.at(0, 0);
-        if (!glot && !r.voiced && r.vot > 0) {
+        if (!glot && r.vot > 0) {
           const La = L * dbGain(ASPIRATION_DB);
           ah.at(tb, 0).at(tb + 2 * k, 0.5 * La).at(tb + 30 * k, 0);
+          // A breathy stop's release is murmured: a weak voice under its breath.
+          if (r.voiced) av.at(tb, 0).at(tb + 2 * k, MURMUR_AV).at(tb + 30 * k, 0);
         }
         end = tb + 35 * k;
       } else {
@@ -1019,6 +1103,11 @@ export function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       af.at(0, 0).at(a, 0).at(tr + 5 * k, L).at(tr + dur, 0.8 * L).at(tr + dur + 30 * k, 0);
       ah.at(0, 0); nz.at(0, z0).at(tr, 0);
       end = tr + dur + 30 * k;
+      if (!glot && !r.voiced && r.vot > 0) {   // aspirated: its breath after it
+        const La = L * dbGain(ASPIRATION_DB);
+        ah.at(tr + dur, 0).at(tr + dur + 10 * k, 0.5 * La).at(tr + dur + (r.vot + 30) * k, 0);
+        end = tr + dur + (r.vot + 30) * k;
+      }
       break;
     }
     case MANNER_ASPIRATE: {
@@ -1085,6 +1174,12 @@ export function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
     }
   }
   return { end, w: w.close(end, 1), av: av.close(end, 0), ah: ah.close(end, 0), af: af.close(end, 0), nz: nz.close(end, 0) };
+}
+
+/** The coda tracks — a BREATH row's ([ʔ͡h]) frication is its aspiration. */
+export function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
+  if (!r.breath) return codaTracksOf(r, k, v0, z0, art);
+  return breathed(codaTracksOf(r, k, v0, z0, art));
 }
 
 /** A coda after a nucleus that hisses (frication `a0` or breath `h0`): the
@@ -1298,6 +1393,14 @@ export class FormantState {
     this.V = new Float64Array(5); this.VB = new Float64Array(5);
     this.F = new Float64Array(5); this.B = new Float64Array(5);
   }
+}
+
+/** Does a key-off END this syllable by itself? It does once its coda has
+ *  begun, or with one still to speak that no fade has vetoed; a syllable with
+ *  no coda would go on singing its vowel (or holding its nucleus). */
+export function formantEndsOnKeyOff(st) {
+  if (st.phase === PHASE_CODA || st.phase === PHASE_DONE) return true;
+  return st.coda !== null && !st.codaVeto;
 }
 
 /** A deep copy, for an NNA ghost (it keeps sounding the note it was). */

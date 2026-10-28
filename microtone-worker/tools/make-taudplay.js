@@ -40,6 +40,7 @@ const ENGINE = [
   "core/engine/constants.js",
   "core/engine/minifloat.js",
   "core/engine/rng.js",
+  "core/engine/dither.js",
   "core/engine/tables.js",
   "core/engine/spatial.js",
   "core/engine/hrir-sadie.js",
@@ -48,6 +49,7 @@ const ENGINE = [
   "core/engine/analysis.js",
   "core/engine/mastering.js",
   "core/engine/loudness.js",
+  "core/engine/imix.js",       // …after mastering.js and analysis.js, whose stages it reuses
   "core/engine/samplemod.js",
   "core/engine/opl.js",
   "core/engine/psg.js",        // …after opl.js (whose envelope and LFOs it runs), before inst.js
@@ -88,6 +90,7 @@ const REPO_FILES = [
   "core/format/taud-const.js",
   "core/format/compress.js",
   "core/format/mastering-section.js",
+  "core/format/imix-section.js",
   "core/format/taud-parse.js",
   "src/taudplay/protocol.js",
   "src/taudplay/faders.js",
@@ -330,7 +333,11 @@ let pcm = r.render(30, (rr, frame) => {
 ### \`TaudRenderer\` (anywhere)
 
 The same knob, probes, interrupts and transport, plus \`renderChunk()\`,
-\`render(seconds, onChunk)\` and \`toWav(seconds, { sampleRate })\`.
+\`render(seconds, onChunk)\` and \`toWav(seconds, { sampleRate, quality })\` —
+\`quality\` is \`"clean"\` (16-bit with a light TPDF dither, the default) or
+\`"gritty"\` (the device's own noise-shaped 8-bit dither; at 48 kHz, byte for
+byte what the Taud device plays). \`encodeWav(f32, rate, quality)\` is the
+same encoder on its own.
 
 ## What is *not* here
 

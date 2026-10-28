@@ -1,0 +1,249 @@
+/* The translation workbench (translation/index.html, src/cat/). Every colour
+ * is a token from ../css/microtone.css — nothing here declares one. */
+
+html, body { height: 100%; }
+body.cat-body {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh / var(--ui-zoom, 1));
+  height: calc(100dvh / var(--ui-zoom, 1));
+  overflow: hidden;
+}
+.grow { flex: 1; }
+
+/* ── top bar ── */
+.cat-topbar { flex: 0 0 auto; flex-wrap: nowrap; min-width: 0; }
+.cat-brand { text-decoration: none; margin: 0 0.1rem 0 0; }
+.cat-title { font-weight: 400; color: var(--fg); }
+.cat-lang { display: inline-flex; align-items: center; gap: 0.4rem; }
+.cat-lang select { padding: 0.15rem 0.3rem; }
+.cat-progress { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; min-width: 0; }
+.cat-progress-bar {
+  width: 9rem; height: 0.45rem; border-radius: var(--radius-sm);
+  background: var(--meter-bg); overflow: hidden; flex: 0 0 auto;
+}
+.cat-progress-fill { height: 100%; background: var(--meter); width: 0; }
+.cat-help-link { color: var(--accent-2); text-decoration: none; font-size: 0.9rem; }
+#saveBtn .cat-count { margin-left: 0.35rem; color: var(--accent); font-family: var(--mono-font); font-size: 0.85em; }
+
+.cat-tabs { flex: 0 0 auto; padding: 0.4rem 0.8rem 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+.cat-tabs button .cat-count { margin-left: 0.4rem; font-family: var(--mono-font); color: var(--dim); }
+
+.cat-main { flex: 1 1 auto; min-height: 0; display: flex; }
+.cat-view { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.cat-statusbar { flex: 0 0 auto; flex-wrap: nowrap; overflow: hidden; white-space: nowrap; }
+.cat-keys { overflow: hidden; text-overflow: ellipsis; }
+
+/* ── strings: the list beside the editor ── */
+.cat-segments { display: grid; grid-template-columns: minmax(0, 46fr) minmax(0, 54fr); }
+.cat-listpane {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  border-right: 1px solid var(--border); background: var(--bg);
+}
+.cat-filters, .cat-searchrow {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+  padding: 0.5rem 0.8rem 0; flex: 0 0 auto;
+}
+.cat-searchrow { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+.cat-filters .mst-seg button { font-size: 0.82rem; padding: 0.15rem 0.55rem; }
+.cat-filters .mst-seg .cat-n { margin-left: 0.3rem; font-family: var(--mono-font); color: var(--dim); font-size: 0.9em; }
+.cat-searchrow input[type="search"] { flex: 1 1 12rem; min-width: 0; }
+
+input[type="search"], input[type="text"].cat-input, textarea.cat-target {
+  background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0.25rem 0.45rem; font: inherit;
+}
+input[type="search"]:focus, input.cat-input:focus, textarea.cat-target:focus { outline: none; border-color: var(--accent); }
+
+.cat-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; position: relative; outline: none; }
+.cat-list-spacer { position: relative; }
+.cat-row {
+  position: absolute; left: 0; right: 0;
+  display: grid; grid-template-columns: 1.1rem minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto; column-gap: 0.6rem;
+  padding: 0.3rem 0.8rem 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border); cursor: pointer; box-sizing: border-box;
+}
+.cat-row:hover { background: var(--panel); }
+.cat-row.sel { background: var(--cv-cursor); }
+.cat-list:focus .cat-row.sel { box-shadow: inset 2px 0 0 var(--accent); }
+.cat-row .cat-lampcell { grid-row: 1 / 3; display: flex; align-items: center; justify-content: center; }
+.cat-row .cat-key {
+  grid-column: 2 / 4; font-family: var(--mono-font); font-size: 0.72rem; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cat-row .cat-src, .cat-row .cat-tgt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
+.cat-row .cat-tgt.empty { color: var(--dim); font-style: italic; }
+.cat-row .cat-flag { color: var(--accent); font-family: var(--mono-font); font-size: 0.72rem; margin-left: 0.4rem; }
+.cat-listfoot { flex: 0 0 auto; padding: 0.3rem 0.8rem; border-top: 1px solid var(--border); font-size: 0.8rem; }
+
+/* A status lamp: what a string needs, at a glance. */
+.cat-lamp {
+  width: 0.55rem; height: 0.55rem; border-radius: 50%; box-sizing: border-box;
+  border: 1.5px solid var(--dim); flex: 0 0 auto; display: inline-block;
+}
+.cat-lamp.translated { background: var(--meter); border-color: var(--meter); }
+.cat-lamp.untranslated { border-color: var(--err-fg); }
+.cat-lamp.stale { background: var(--accent); border-color: var(--accent); }
+.cat-lamp.edited { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent-2); }
+
+/* ── the editor ── */
+.cat-editor { overflow-y: auto; min-height: 0; min-width: 0; padding: 0.9rem 1.1rem 1.4rem; background: var(--bg); }
+.cat-editor:empty::before { content: "Pick a string on the left."; color: var(--dim); }
+.cat-ed-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.7rem; margin-bottom: 0.3rem; }
+.cat-ed-key { font-family: var(--mono-font); font-size: 0.9rem; color: var(--fg); word-break: break-all; }
+.cat-ed-corpus { font-size: 0.8rem; color: var(--dim); }
+.cat-ed-status { font-size: 0.78rem; padding: 0.05rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--dim); }
+.cat-ed-status.untranslated { color: var(--err-fg); border-color: var(--err-fg); }
+.cat-ed-status.stale { color: var(--accent); border-color: var(--accent); }
+.cat-ed-status.translated { color: var(--meter); border-color: var(--meter); }
+.cat-context { font-size: 0.82rem; color: var(--dim); margin: 0 0 0.7rem; }
+.cat-context .cat-section { color: var(--fg2); }
+.cat-context p { margin: 0.15rem 0 0; }
+
+.cat-label {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim);
+  margin: 0.9rem 0 0.3rem; font-weight: 600;
+}
+.cat-label .grow { flex: 1; }
+.cat-label button { text-transform: none; letter-spacing: 0; font-weight: var(--weight-button); font-size: 0.8rem; padding: 0.05rem 0.45rem; }
+
+.cat-source {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 0.5rem 0.65rem; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45;
+}
+textarea.cat-target {
+  display: block; width: 100%; box-sizing: border-box; resize: vertical;
+  min-height: 3.2rem; line-height: 1.45; padding: 0.5rem 0.65rem; border-radius: var(--radius-md);
+}
+.cat-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.cat-actions .grow { flex: 1; }
+.cat-actions label { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--dim); }
+
+/* Marks in the English: what must survive, and what the glossary knows. */
+.cat-ph { color: var(--accent-2); font-family: var(--mono-font); font-size: 0.92em; }
+.cat-code { font-family: var(--mono-font); font-size: 0.92em; color: var(--fg); background: var(--panel-2); border-radius: var(--radius-sm); padding: 0 0.15rem; }
+.cat-term { text-decoration: underline dotted var(--accent); text-underline-offset: 0.2em; cursor: pointer; }
+.cat-term:hover { color: var(--accent); }
+.cat-nbsp { background: var(--panel-2); border-radius: 2px; }
+.cat-ws { color: var(--dim); }
+
+/* A word diff: struck out what went, marked what came. */
+.cat-del { background: var(--err-bg); color: var(--err-fg); text-decoration: line-through; border-radius: 2px; }
+.cat-ins { background: var(--ok-bg); color: var(--ok-fg); border-radius: 2px; }
+
+.cat-stale {
+  border: 1px solid var(--accent); border-radius: var(--radius-md);
+  padding: 0.45rem 0.65rem; margin-top: 0.6rem; font-size: 0.88rem; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cat-stale .cat-stale-head { color: var(--accent); font-weight: 600; margin-bottom: 0.2rem; white-space: normal; }
+
+.cat-issue { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.88rem; padding: 0.2rem 0; }
+.cat-issue .cat-sev { font-family: var(--mono-font); font-size: 0.75rem; flex: 0 0 auto; }
+.cat-sev.error { color: var(--err-fg); }
+.cat-sev.warning { color: var(--accent); }
+.cat-sev.info { color: var(--dim); }
+.cat-issue .cat-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cat-issue button { font-size: 0.78rem; padding: 0 0.4rem; }
+.cat-issue.dismissed .cat-msg { color: var(--dim); text-decoration: line-through; }
+
+.cat-matches { display: flex; flex-direction: column; gap: 2px; }
+.cat-match {
+  display: grid; grid-template-columns: 2.6rem minmax(0, 1fr); gap: 0.15rem 0.6rem;
+  padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--panel); cursor: pointer; font-size: 0.88rem;
+}
+.cat-match:hover { border-color: var(--accent); }
+.cat-match .cat-score { grid-row: 1 / 4; font-family: var(--mono-font); color: var(--meter); font-size: 0.85rem; }
+.cat-match .cat-score.fuzzy { color: var(--accent); }
+.cat-match .cat-score kbd { display: block; color: var(--dim); font-size: 0.72rem; font-family: var(--mono-font); }
+.cat-match .cat-m-src, .cat-match .cat-m-tgt { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cat-match .cat-m-tgt { color: var(--fg); }
+.cat-match .cat-m-key { font-family: var(--mono-font); font-size: 0.72rem; color: var(--dim); overflow-wrap: anywhere; }
+.cat-none { color: var(--dim); font-size: 0.85rem; }
+
+.cat-terms { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.cat-chip {
+  display: inline-flex; gap: 0.35rem; align-items: baseline; font-size: 0.85rem;
+  border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.1rem 0.5rem; background: var(--panel);
+}
+button.cat-chip:hover { border-color: var(--accent); }
+.cat-chip .cat-chip-en { color: var(--dim); }
+.cat-chip.missing { border-color: var(--accent); }
+
+.cat-conc input { width: 100%; box-sizing: border-box; }
+.cat-conc-list { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 2px; max-height: 22rem; overflow-y: auto; }
+.cat-conc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.6rem; font-size: 0.85rem; padding: 0.25rem 0.4rem; border-radius: var(--radius-sm); cursor: pointer; }
+.cat-conc-row:hover { background: var(--panel); }
+mark.cat-hit { background: none; color: var(--accent); font-weight: 700; }
+
+/* ── glossary and issues: a toolbar over a table ── */
+.cat-glossary, .cat-issues { display: flex; flex-direction: column; min-height: 0; }
+.cat-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; align-items: center;
+  padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--border); background: var(--bg); flex: 0 0 auto;
+}
+.cat-toolbar .mst-seg button { font-size: 0.82rem; padding: 0.15rem 0.55rem; }
+.cat-toolbar .mst-seg .cat-n { margin-left: 0.3rem; font-family: var(--mono-font); color: var(--dim); font-size: 0.9em; }
+.cat-toolbar input[type="search"] { flex: 0 1 16rem; min-width: 8rem; }
+.cat-toolbar .cat-note { font-size: 0.82rem; color: var(--dim); }
+.cat-tablewrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+table.cat-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.cat-table th {
+  position: sticky; top: 0; z-index: 1; background: var(--panel); text-align: left;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); font-weight: 600;
+  padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border);
+}
+.cat-table td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.cat-table tr:hover td { background: var(--panel); }
+.cat-table td.num { font-family: var(--mono-font); text-align: right; white-space: nowrap; }
+.cat-table td.key { font-family: var(--mono-font); font-size: 0.78rem; color: var(--dim); min-width: 10rem; overflow-wrap: normal; word-break: normal; }
+.cat-table td.key .cat-link { text-align: left; overflow-wrap: anywhere; }
+.cat-table td.sev { width: 1%; white-space: nowrap; }
+.cat-table td.msg { min-width: 14rem; }
+.cat-table .cat-term-en { font-weight: 600; }
+.cat-table .cat-acts { white-space: nowrap; text-align: right; }
+.cat-table .cat-acts button { font-size: 0.8rem; padding: 0.05rem 0.45rem; margin-left: 0.25rem; }
+.cat-table input.cat-input { width: 100%; box-sizing: border-box; min-width: 6rem; }
+.cat-table .cat-proposals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.cat-table .cat-proposals button { font-size: 0.85rem; padding: 0.05rem 0.45rem; }
+.cat-table .cat-proposals .cat-dice { font-family: var(--mono-font); font-size: 0.72rem; color: var(--dim); margin-left: 0.3rem; }
+.cat-usage { font-family: var(--mono-font); font-size: 0.8rem; white-space: nowrap; }
+.cat-usage.partial { color: var(--accent); }
+.cat-usage.full { color: var(--meter); }
+button.cat-link { background: none; border: none; box-shadow: none; padding: 0; color: var(--accent-2); cursor: pointer; font: inherit; }
+button.cat-link:hover { text-decoration: underline; }
+.cat-empty { padding: 1.5rem 1rem; color: var(--dim); }
+.cat-more { padding: 0.6rem 0.8rem; }
+
+/* the Save dialog's file list */
+.cat-files { margin: 0.4rem 0 0.8rem; padding: 0; list-style: none; font-size: 0.88rem; }
+.cat-files li { padding: 0.15rem 0; }
+.cat-files code { font-family: var(--mono-font); font-size: 0.85rem; }
+.cat-dialog-wide { max-width: min(40rem, calc(100vw - 2rem)); }
+pre.cat-cmd { font-family: var(--mono-font); background: var(--panel-2); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; }
+
+/* ── narrow screens: the list over the editor ── */
+@media (max-width: 860px) {
+  .cat-segments { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(12rem, 42%) minmax(0, 1fr); }
+  .cat-listpane { border-right: none; border-bottom: 1px solid var(--border); }
+  .cat-keys { display: none; }
+  .cat-progress-bar { width: 5rem; }
+}
+@media (max-width: 600px) {
+  .cat-segments { grid-template-rows: minmax(14rem, 52%) minmax(0, 1fr); }
+  /* A row of pushbuttons never wraps (it would lose its joined edges): on a
+     phone it scrolls sideways inside its own strip instead of widening the page. */
+  .cat-filters, .cat-toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .cat-toolbar { flex-wrap: wrap; }
+  .cat-toolbar .mst-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .cat-filters .mst-seg button, .cat-toolbar .mst-seg button { white-space: nowrap; flex: 0 0 auto; }
+  .cat-topbar { gap: 0.5rem; padding: 0.4rem 16px; flex-wrap: wrap; }
+  .cat-progress, .cat-help-link { display: none; }
+  .cat-tabs { padding: 0.4rem 16px 0; }
+  .cat-filters, .cat-searchrow, .cat-toolbar { padding-left: 16px; padding-right: 16px; }
+  .cat-editor { padding: 0.8rem 16px 1.2rem; }
+  .cat-tabs button { min-width: 0; }
+}

@@ -10,6 +10,7 @@
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
 import { TOTAL_VOICES, NUM_INTERRUPTS } from "../engine/constants.js";
+import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS, IMX_TAP_STAGES } from "../engine/imix.js";
 
 export const CMD = Object.freeze({
   INIT: "init",
@@ -36,6 +37,8 @@ export const CMD = Object.freeze({
   SET_ANALYSIS: "setAnalysis",                     // {ph, target} — item 98 master-strip tap
   SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
   SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
+  SET_IMIX: "setImix",                             // {blocks} — item 217, the instruments' IMix chains
+  SET_IMIX_METER: "setImixMeter",                  // {ph, slot} — item 217 Mixing-tab tap (slot < 0 = off)
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
@@ -48,6 +51,7 @@ export const CMD = Object.freeze({
   JAM_STOP: "jamStop",                             // {ph} — every voice (panic)
   JAM_STOP_VOICE: "jamStopVoice",                  // {ph, voice} — one audition voice; voice < 0 = the whole jam bank
   JAM_KEY_OFF: "jamKeyOff",                        // {ph, voice} — RELEASE one audition voice (a key-off, not a cut)
+  JAM_RELEASE: "jamRelease",                       // {ph, voice} — a lifted piano key: key-off for a formant coda, else cut
   SET_VOICE_MUTE: "setVoiceMute",                  // {ph, voice, muted}
   SET_VOICE_FADER: "setVoiceFader",                // {ph, voice, fader}
   QUERY_INVERT_MASK: "queryInvertMask",            // {slot} → MSG.INVERT_MASK
@@ -230,8 +234,44 @@ export const SNAP_HIST_BINS = HIST_BUCKETS;
 export const SNAP_SPEC_BASE = SNAP_HIST_BASE + SNAP_HIST_BINS;
 export const SNAP_SPEC_FRAMES = SPEC_FRAMES;
 export const SNAP_SPEC_STAGES = TAP_STAGES;
+// …and the pair on each side of the chain, frame-interleaved L, R, on the same
+// cursor: the Mastering view's goniometer (item 257). 32 KiB more, while the
+// view is up.
+export const SNAP_PAIR_BASE = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
 
-export const SNAP_FLOATS = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
+// ── Mixing-tab meter (item 217), after the spectrum rings ──
+// One instrument's bus: zero frames while the tap is off or the bus did not
+// run. Gain reductions are the extreme over the interval (comp and limiter
+// ≤ 0; a dynamic EQ's band is signed — a boost is positive). Then, per stage
+// (0 = into the chain, 1 = out of it) and channel, the four level figures the
+// Mastering tab's meters use; then a stereo ring after the chain (frame
+// interleaved L, R) and a mono one before it, read backwards from RING_WRITE.
+export const SNAP_IM_BASE = SNAP_PAIR_BASE + SNAP_SPEC_STAGES * 2 * SNAP_SPEC_FRAMES;
+export const SNAP_IM_FRAMES = 0;
+export const SNAP_IM_SLOT = 1;
+export const SNAP_IM_RING_WRITE = 2;
+export const SNAP_IM_LIM_GR = 3;
+export const SNAP_IM_COMP_GR = 4;
+export const SNAP_IM_DEQ1 = SNAP_IM_COMP_GR + IMX_COMP_MAX_BANDS;
+export const SNAP_IM_DEQ2 = SNAP_IM_DEQ1 + IMX_DEQ_BANDS;
+export const SNAP_IM_LEVELS = SNAP_IM_DEQ2 + IMX_DEQ_BANDS;   // 2 stages × 2 ch × SNAP_MM_C_STRIDE
+// (every SNAP_IM_* offset is RELATIVE to SNAP_IM_BASE)
+export const SNAP_IM_RING = SNAP_IM_LEVELS + 2 * 2 * SNAP_MM_C_STRIDE;
+export const SNAP_IM_RING_FRAMES = IMX_RING_FRAMES;
+export const SNAP_IM_RING_PRE = SNAP_IM_RING + 2 * IMX_RING_FRAMES;
+// The unison's live detune (cents; −1 = it did not run) and width, then a
+// mono ring at the input of each IMX_TAP_STAGES piece, each with its own
+// write index — 40 KiB more on the wire, and only while the tab is up.
+export const SNAP_IM_UNIS_CENTS = SNAP_IM_RING_PRE + IMX_RING_FRAMES;
+export const SNAP_IM_UNIS_WIDTH = SNAP_IM_UNIS_CENTS + 1;
+// …then each comp and dynamic-EQ band's loudest detector reading (dB).
+export const SNAP_IM_COMP_LVL = SNAP_IM_UNIS_WIDTH + 1;
+export const SNAP_IM_DEQ1_LVL = SNAP_IM_COMP_LVL + IMX_COMP_MAX_BANDS;
+export const SNAP_IM_DEQ2_LVL = SNAP_IM_DEQ1_LVL + IMX_DEQ_BANDS;
+export const SNAP_IM_STAGE_WRITE = SNAP_IM_DEQ2_LVL + IMX_DEQ_BANDS;
+export const SNAP_IM_STAGE_RINGS = SNAP_IM_STAGE_WRITE + IMX_TAP_STAGES.length;
+
+export const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RING_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt

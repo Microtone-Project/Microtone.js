@@ -3,7 +3,7 @@
 // + Cues + Files views. Samples/Instruments/Project views come with M7.
 
 import { parseTaud } from "../../core/format/taud-parse.js";
-import { Document, combineTpif } from "../doc/document.js";
+import { Document, combineTpif, BANK_SECTIONS } from "../doc/document.js";
 import { DocSync } from "../doc/sync.js";
 import { UndoStack } from "../doc/undo.js";
 import { AudioSystem } from "../../core/audio/audio-system.js";
@@ -25,6 +25,7 @@ import { SplitView, VIEWS } from "./splitview.js";
 import { JamKeyboard } from "./jam.js";
 import { InstLookup } from "./instlookup.js";
 import { SUB_NOTE } from "./edit.js";
+import { CELL_MODES } from "./narrowcell.js";
 import { CommandPalette } from "./palette.js";
 import { FindBar } from "./findbar.js";
 import { setCellOp } from "../doc/ops.js";
@@ -34,7 +35,7 @@ import { showHelp } from "./popups/help.js";
 import { showAbout } from "./popups/about.js";
 import { showWarmthSplash } from "./popups/warmth.js";
 import { showNewProject } from "./popups/newproject.js";
-import { showModal } from "./components/modal.js";
+import { showModal, showNotice } from "./components/modal.js";
 import * as opfs from "../storage/opfs.js";
 import { pickFile } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
@@ -54,12 +55,13 @@ import { initTheme, toggleTheme, onThemeChange, currentTheme, isThemeName, WARMT
 import {
   initZoom, onZoomChange, zoomStep, resetZoom, zoomLabel, canZoomIn, canZoomOut, holdBrowserZoom,
 } from "./zoom.js";
-import { initI18n, applyDom, t, LANGS, changeLang, onLangChange, currentLang } from "./i18n.js";
+import { initI18n, applyDom, t, pickerLangs, changeLang, onLangChange, currentLang } from "./i18n.js";
 import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
 import { ZSTD_LEVEL_SAVE, ZSTD_LEVEL_AUTOSAVE } from "../../core/format/zstd.js";
 import { withSaveProgress, saveInProgress } from "./saveprogress.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./components/spinner.js";
+import { lampButton } from "./components/lampbutton.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
 initZoom();  // …and before anything measures itself: the factor scales the layout
@@ -271,13 +273,14 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
       store.doc.ixmp = parsed.ixmp.map((e) => ({ instId: e.instId, count: e.count, blob: Uint8Array.from(e.blob) }));
       store.doc._instruments = null; // re-decode from the new image
       store.doc._instrumentsEdited = false;
-      // Carry the bank's name tables + Ixmp/SRgn sections over; keep song
+      // Carry the bank's name tables + Ixmp/SRgn/IMix sections over; keep song
       // sections. SRgn travels with the bank because a region names POOL bytes,
-      // and the pool is exactly what a .tsii replaces (item 175).
+      // and the pool is exactly what a .tsii replaces (item 175); IMix because
+      // the instruments' byte 255 names its blocks (item 217).
       store.doc.projSections = store.doc.projSections.filter(
-        (s) => !["INam", "SNam", "Ixmp", "SRgn"].includes(s.fourcc));
+        (s) => !BANK_SECTIONS.includes(s.fourcc));
       for (const s of parsed.projSections) {
-        if (["INam", "SNam", "Ixmp", "SRgn"].includes(s.fourcc)) {
+        if (BANK_SECTIONS.includes(s.fourcc)) {
           store.doc.projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(s.payload) });
         }
       }
@@ -374,6 +377,30 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
     store.emit("saved", name);
   }
   updateStatus();
+  warnImixProblems(store.doc);
+}
+
+/**
+ * Item 217: say ONCE, as a project loads, that some of its mixing-chain
+ * equipment is not something this version knows (it is kept, saved back
+ * unchanged, and skipped by playback) or that a chain contradicts itself
+ * (dropped: its instruments play dry). Nothing is said for a file without
+ * either, which is every file this version writes.
+ */
+function warnImixProblems(doc) {
+  const problems = doc?.imixMap().problems ?? [];
+  if (problems.length === 0) return;
+  const lines = [];
+  const unknown = problems.filter((p) => p.kind === "unknown");
+  const invalid = problems.filter((p) => p.kind === "invalid");
+  if (unknown.length > 0) {
+    const what = [...new Set(unknown.flatMap((p) => p.detail))].join(", ");
+    lines.push(t("imix.warnUnknown", { what, chains: unknown.map((p) => p.id).join(", ") }));
+  }
+  if (invalid.length > 0) {
+    lines.push(t("imix.warnInvalid", { chains: invalid.map((p) => `${p.id} (${p.detail})`).join("; ") }));
+  }
+  showNotice({ title: t("imix.warnTitle"), body: lines.join(" ") });
 }
 
 function updateStatus() {
@@ -476,7 +503,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   }
   if (fromBank) {
     for (const s of fromBank.projSections) {
-      if (["INam", "SNam", "Ixmp"].includes(s.fourcc)) {
+      if (["INam", "SNam", "Ixmp", "IMix", "IMcn"].includes(s.fourcc)) {
         projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(s.payload) });
       }
     }
@@ -938,6 +965,7 @@ function refreshToolbox() {
   // Every song has a pan space to place things in: the Panner draws a stereo
   // song's as a half-circle, so only the surround-only toggles follow the model.
   $("tbPanner").hidden = !store.doc;
+  $("tbToSample").hidden = !store.doc;
   $("tbRadar").hidden = !surround;
   $("tbRadar").textContent = t(store.surroundMeters ? "toolbox.radarOn" : "toolbox.radarOff");
   $("tbBinaural").hidden = !surround;
@@ -950,6 +978,7 @@ function refreshToolbox() {
   // Master strip (item 98) — a Timeline fixture, so the button only means
   // anything while a pane is showing one (item 148).
   $("tbMaster").hidden = !store.viewOpen("timeline");
+  refreshCellsBtn();
   $("tbMaster").textContent = t(masterStrip.visible ? "toolbox.masterOn" : "toolbox.masterOff");
   $("tbMaster").classList.toggle("active", masterStrip.visible);
 }
@@ -1165,7 +1194,14 @@ function playCursor() {
 $("playSong").addEventListener("click", () => playFrom(0, 0));
 $("playCue").addEventListener("click", () => playFrom(playCursor().cue, 0));
 $("stopBtn").addEventListener("click", () => store.audio?.stop(0));
-$("follow").addEventListener("change", (e) => { store.follow = e.target.checked; });
+{
+  // Follow: a lamp pushbutton in the transport, lit while the grids scroll
+  // with the playhead. Its label is static text, relabelled by applyDom.
+  const follow = lampButton({ label: t("topbar.follow"), on: store.follow, onChange: (on) => { store.follow = on; } });
+  follow.button.id = "follow";
+  follow.button.querySelector(".lamp-text").dataset.i18n = "topbar.follow";
+  $("follow").replaceWith(follow.button);
+}
 
 /** A keymap strip cap, clicked in record mode (item 207): note entry into the
  *  grid the strip is docked under, which the click has already handed the
@@ -1233,7 +1269,7 @@ $("langBtn").addEventListener("click", async () => {
     body: t("lang.body"),
     fields: [{
       name: "lang", label: t("lang.field"), type: "select", value: currentLang(),
-      options: Object.entries(LANGS).map(([value, label]) => ({ value, label })),
+      options: Object.entries(pickerLangs()).map(([value, label]) => ({ value, label })),
     }],
     okLabel: t("common.ok"),
   });
@@ -1336,6 +1372,33 @@ $("tbPitchPlot").addEventListener("click", () => {
   refreshPitchPlotBtn();
   invalidateGrids();
 });
+// Narrow Timeline cells (item 254): full, two slots, one — for watching a
+// 32- or 64-lane song whole rather than a handful of its lanes. Remembered
+// per browser like the pitch plot, and like it never part of a song.
+const CELLS_KEY = "microtone-timelinecells";
+try {
+  const m = Number(localStorage.getItem(CELLS_KEY));
+  store.timelineCells = m >= 0 && m < CELL_MODES ? m | 0 : 0;
+} catch { /* private mode — full cells, as anyway */ }
+eachView("timeline", (v) => { v.cellsChanged(); v.resize(); }); // any built before this ran
+function refreshCellsBtn() {
+  const btn = $("tbCells");
+  btn.hidden = !store.viewOpen("timeline");
+  btn.textContent = t(["toolbox.cellsFull", "toolbox.cellsTwo", "toolbox.cellsOne"][store.timelineCells]);
+  btn.classList.toggle("active", store.timelineCells !== 0);
+}
+$("tbCells").addEventListener("click", () => {
+  store.timelineCells = (store.timelineCells + 1) % CELL_MODES;
+  try {
+    if (store.timelineCells !== 0) localStorage.setItem(CELLS_KEY, String(store.timelineCells));
+    else localStorage.removeItem(CELLS_KEY);
+  } catch { /* private mode */ }
+  refreshCellsBtn();
+  // Every column has moved and the header may be shorter: re-measure.
+  eachView("timeline", (v) => { v.cellsChanged(); v.resize(); });
+  store.emit("cursor"); // the cursor may now stand on another column
+});
+refreshCellsBtn();
 // Second effect column (§5.5) — hidden by default, because most songs never
 // write one and it costs six characters of the widest column on screen. This
 // button is the ALL-lanes switch: on when anything is showing it, and one
@@ -1377,6 +1440,16 @@ $("tbPanner").addEventListener("click", async () => {
   const { showPanner } = await import("./popups/panner.js");
   await showPanner(store, cursorCellTarget());
   invalidateGrids();
+});
+// To sample (item 242) — the Timeline's block, or the Patterns view's selection
+// or whole pattern, rendered into a sample that one trigger then replaces. The
+// grid the keyboard is in decides, else whichever grid is open.
+$("tbToSample").addEventListener("click", async () => {
+  if (!store.doc) return;
+  const name = store.view === "timeline" || store.view === "pattern" ? store.view
+    : store.viewOpen("timeline") ? "timeline" : "pattern";
+  const { patternToSample } = await import("./pattosample.js");
+  if (await patternToSample(store, viewNamed(name)?.renderSpec() ?? null)) invalidateGrids();
 });
 // Master strip (item 98): the mastering panel down the right-hand edge —
 // vectorscopes, RMS/peak metering and the song's global-volume fader. Visible
@@ -1473,7 +1546,7 @@ function stepKeymap(dir) {
  *   Alt          the keyboard: ←/→ instrument, ↑/↓ octave
  *   Shift+Alt    the keyboard, finer: ←/→ transpose by a step, ↑/↓ layout
  *   Ctrl         the music: nudge the selection or the cursor's column —
- *                ←/→ by a period (16 for a number), ↑/↓ by a degree (1)
+ *                ←/→ by a degree (1 for a number), ↑/↓ by a period (16)
  *   Shift+Ctrl   navigation: ←/→ a lane, ↑/↓ a beat; with Alt as well,
  *                four lanes and a whole cue (a pattern, in Patterns)
  * Shift alone is the block selection and belongs to the views. Returns true
@@ -1503,7 +1576,7 @@ function arrowChord(e) {
   if (!shift) {
     if (alt) return false;
     if (view === "timeline" || view === "pattern") {
-      viewNamed(view).nudge(up, horiz);
+      viewNamed(view).nudge(up, !horiz);
       return true;
     }
     // Cues holds pattern numbers, not music, so its Ctrl+←/→ keeps widening a

@@ -100,6 +100,15 @@ export function fmGraphSvg(graph, {
   for (const e of graph.edges) {
     const x1 = rightX(e.from.col, e.from.row);
     const y1 = cy(e.from.row);
+    if (e.side === "bottom") {
+      // A product's second operand: along its own lane to under the junction,
+      // then up into it, so it never merges with the first operand's wire.
+      const x2 = xOf(e.to.col) + BOX_W / 2;
+      const y2 = cy(e.to.row) + JUNCTION_R;
+      wires.append(el("path", { class: "fm-graph-wire", d: `M${x1} ${y1} H${x2} V${y2}` }));
+      wires.append(el("path", { class: "fm-graph-arrow", d: `M${x2} ${y2} l-3.5 5 h7 z` }));
+      continue;
+    }
     const x2 = leftX(e.to.col, e.to.row);
     const y2 = cy(e.to.row);
     // Straight along the lane, or an elbow through the gap between the columns
@@ -123,6 +132,10 @@ export function fmGraphSvg(graph, {
     const y = yOf(c.row);
     const g = el("g", { class: "fm-graph-cell" });
     if (c.kind === "op") {
+      // Hooks for an editor that drags wires between boxes (the FM Easy tab):
+      // the operator a box draws, and whether it is a feedback tap's copy.
+      g.setAttribute("data-op", String(c.op));
+      if (c.tap) g.setAttribute("data-tap", "");
       g.append(el("rect", {
         class: `fm-graph-box${c.tap ? " tap" : ""}`,
         x, y, width: BOX_W, height: BOX_H, rx: 3,
@@ -163,7 +176,7 @@ export function fmGraphSvg(graph, {
 
   const ox = xOf(-1);
   const oy = yOf(graph.outRow);
-  const out = el("g", { class: "fm-graph-cell" });
+  const out = el("g", { class: "fm-graph-cell", "data-out": "" });
   out.append(el("rect", {
     class: "fm-graph-out", x: ox, y: oy, width: OUT_W, height: BOX_H, rx: 3,
   }));

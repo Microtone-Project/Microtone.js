@@ -361,6 +361,11 @@ def wave_ramp_up(c):
     return stroke([(0, MID), (600, MID + a), (600, MID - a), (1200, MID)], c.nib, "vcut", "vcut")
 
 
+def wave_triangle(c):
+    a = WAVE_AMP
+    return stroke([(0, MID), (300, MID + a), (900, MID - a), (1200, MID)], c.nib, "vcut", "vcut")
+
+
 def wave_square(c):
     a = WAVE_AMP
     return stroke([(0, MID + a), (300, MID + a), (300, MID - a), (900, MID - a), (900, MID + a),
@@ -430,6 +435,7 @@ GRID_PUA = [
     (0xF042, "uniF042", 2, wave_square),
     (0xF043, "uniF043", 2, wave_random),
     (0xF044, "uniF044", 2, wave_ramp_up),
+    (0xF045, "uniF045", 2, wave_triangle),
 ]
 
 

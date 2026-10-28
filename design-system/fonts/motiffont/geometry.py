@@ -129,17 +129,35 @@ def superellipse(x0, y0, x1, y1, n, clockwise=True, per_quadrant=4):
     step = 360.0 / k
     # normal angle: 270° is the bottom; clockwise travel lowers it.
     angles = [270.0 - i * step if clockwise else 270.0 + i * step for i in range(k)]
+    return _se_run(cx, cy, a, b, n, angles, closed=True)
+
+
+def superellipse_arc(cx, cy, a, b, n, start, end, per_quadrant=4):
+    """The part of the superellipse centred on (cx, cy), semi-axes a and b,
+    whose normal turns from `start` to `end` degrees (0° points right, 90°
+    up; either way round): an open TrueType run, on-curve at both ends, built
+    as superellipse() builds the whole. The point count depends only on the
+    angle swept and per_quadrant."""
+    k = max(1, round(abs(end - start) / 90.0 * per_quadrant))
+    angles = [start + (end - start) * i / k for i in range(k + 1)]
+    return _se_run(cx, cy, a, b, n, angles, closed=False)
+
+
+def _se_run(cx, cy, a, b, n, angles, closed):
     pts = [_se_point(cx, cy, a, b, n, phi) for phi in angles]
     tans = [(-math.sin(math.radians(phi)), math.cos(math.radians(phi))) for phi in angles]
-    contour = []
-    for i in range(k):
+    k = len(angles)
+    run = []
+    for i in range(k if closed else k - 1):
         p, q = pts[i], pts[(i + 1) % k]
-        contour.append((p[0], p[1], True))
+        run.append((p[0], p[1], True))
         c = line_x_line(p, tans[i], q, tans[(i + 1) % k])
         if c is None:
             c = ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
-        contour.append((c[0], c[1], False))
-    return contour
+        run.append((c[0], c[1], False))
+    if not closed:
+        run.append((pts[-1][0], pts[-1][1], True))
+    return run
 
 
 def _se_point(cx, cy, a, b, n, phi):

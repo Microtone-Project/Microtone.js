@@ -65,6 +65,10 @@ const TOOL_ITEM = {
     icon: ICON.findchange, title: t("ctx.findchangeTitle") }),
   interpolate: () => ({ id: "interpolate", label: t("ctx.interpolate"),
     icon: ICON.interpolate, title: t("ctx.interpolateTitle") }),
+  fxFill: () => ({ id: "fxFill", label: t("ctx.fxFill"), icon: ICON.cmdFill,
+    title: t("ctx.fxFillTitle") }),
+  toSample: () => ({ id: "toSample", label: t("ctx.toSample"), icon: ICON.toSample,
+    title: t("ctx.toSampleTitle") }),
 };
 
 /**
@@ -108,14 +112,21 @@ export function interpKinds(cols, wide = false) {
  *
  * `block` says a selection exists, which is the one thing Interpolate needs on
  * top of the right columns (item 181).
+ *
+ * `render` offers To sample (item 242) beside Find & Change: like it, it is
+ * about the block and not about a column. The view decides — a Timeline needs
+ * a block selection, a pattern is a whole pattern without one.
  */
-export function blockToolItems(cols, { wide = false, block = false } = {}) {
+export function blockToolItems(cols, { wide = false, block = false, render = false } = {}) {
   // Interpolate needs a BLOCK, not the one cell under the pointer: two control
   // points is its floor, and a single row can never hold two. Offering it there
   // would be offering a cell that could only ever answer "no".
   const interp = block && interpKinds(cols, wide) ? [TOOL_ITEM.interpolate()] : [];
+  const toSample = render ? [TOOL_ITEM.toSample()] : [];
   // Either effect column alone gets the quick palette, writing to that column's
-  // own slot — `fx:` is effect 1, `fx2:` the second effect (§5.5).
+  // own slot — `fx:` is effect 1, `fx2:` the second effect (§5.5). A block of
+  // one also gets Fill (item 259): the palette changes only the opcode, Fill
+  // writes an effect AND its argument into every cell.
   if (cols.length === 1 && (cols[0] === COL_FX || cols[0] === COL_FX2)) {
     const prefix = cols[0] === COL_FX2 ? "fx2" : "fx";
     // The name and the argument format are i18n lookups, not fields on FX_INFO
@@ -125,7 +136,8 @@ export function blockToolItems(cols, { wide = false, block = false } = {}) {
       return { id: `${prefix}:${op}`, label: fxName(info), icon: fxGlyph(info.l),
         title: `${info.l} ${fxName(info)} — ${fxArg(info)}` };
     });
-    return [...quick, ...interp, TOOL_ITEM.findchange()];
+    const fill = block ? [TOOL_ITEM.fxFill()] : [];
+    return [...quick, ...fill, ...interp, ...toSample, TOOL_ITEM.findchange()];
   }
   const items = [];
   for (const col of cols) {
@@ -133,7 +145,7 @@ export function blockToolItems(cols, { wide = false, block = false } = {}) {
     if (tool) items.push(TOOL_ITEM[tool]());
     if (col === COL_PAN) items.push(TOOL_ITEM.panner());
   }
-  items.push(...interp, TOOL_ITEM.findchange());
+  items.push(...interp, ...toSample, TOOL_ITEM.findchange());
   return items;
 }
 
@@ -182,8 +194,8 @@ function applyCellBytes(ctx, fn) {
  * channel, rowLabel}` the panner reads its starting position off, and `column`
  * the lane the block sits in when the view HAS lanes — a Taud pattern is one
  * lane, so the Patterns view leaves it out and Find & Change works the
- * column out from the cue list instead. Resolves true when the document
- * changed.
+ * column out from the cue list instead. `render` is the view's renderSpec() —
+ * what To sample renders. Resolves true when the document changed.
  */
 export async function runBlockTool(id, ctx) {
   if (id.startsWith("fx2:")) return applyQuickFx(ctx, parseInt(id.slice(4), 10), true);
@@ -195,7 +207,13 @@ export async function runBlockTool(id, ctx) {
     case "pan": return panTool(ctx);
     case "panner": return pannerTool(ctx);
     case "interpolate": return interpolateTool(ctx);
+    case "fxFill": return fxFillTool(ctx);
     case "findchange": return findChangeTool(ctx);
+    case "toSample": {
+      if (!ctx.render) return false;
+      const { patternToSample } = await import("./pattosample.js");
+      return patternToSample(ctx.store, ctx.render);
+    }
   }
   return false;
 }
@@ -330,6 +348,60 @@ async function pannerTool(ctx) {
     },
   });
   return changed;
+}
+
+/**
+ * Fill (item 259): one effect, opcode AND argument, into every cell of the
+ * block's effect column — the Cues view's "Fill with command…" for notes. The
+ * dialog starts from the block's first cell, and "(none)" clears the column.
+ * Like Interpolate it writes through patterns a cue names but nobody has
+ * edited yet (setCellsBytesOp materialises them), since filling one in is not
+ * a no-op.
+ */
+async function fxFillTool(ctx) {
+  const { store, cells, cols, anchor } = ctx;
+  const wide = store.doc.wideCells === true;
+  const second = cols?.[0] === COL_FX2;
+  if (second && !wide) return false;
+  const slot = second ? 10 : 5;
+  const readCell = (pat, row) => {
+    const cell = (store.doc.patternAt(store.songIndex, pat) ?? store.doc.emptyPattern())[row];
+    return cell ? cellToBytes(cell, wide) : null;
+  };
+  const seed = anchor && anchor.pat >= 0 ? readCell(anchor.pat, anchor.row) : null;
+  const seedOp = seed && FX_INFO[seed[slot]] ? seed[slot] : 0;
+  const seedArg = seed && seedOp ? seed[slot + 1] | (seed[slot + 2] << 8) : 0;
+  const ops = Object.keys(FX_INFO).map(Number);
+  const result = await showModal({
+    title: t("fxfill.title"),
+    body: t("fxfill.body", { scope: ctx.scope }),
+    fields: [
+      { name: "op", label: t("fxfill.effect"), type: "select", value: String(seedOp),
+        options: [{ value: "0", label: t("fxfill.none") },
+          ...ops.map((op) => ({ value: String(op), label: `${FX_INFO[op].l} — ${fxName(FX_INFO[op])}` }))],
+        hints: Object.fromEntries([["0", t("fxfill.noneHint")],
+          ...ops.map((op) => [String(op), fxArg(FX_INFO[op])])]) },
+      { name: "arg", label: t("fxfill.arg"),
+        value: seedArg.toString(16).toUpperCase().padStart(4, "0"),
+        enabledWhen: { field: "op", not: "0" } },
+    ],
+    okLabel: t("common.apply"),
+  });
+  if (!result) return false;
+  const op = parseInt(result.op ?? "0", 10) & 0xff;
+  const argStr = String(result.arg ?? "").replace(/^\$/, "").trim();
+  const arg = op === 0 ? 0 : (parseInt(argStr || "0", 16) || 0) & 0xffff;
+  const writes = [];
+  for (const { pat, row } of cells) {
+    const bytes = readCell(pat, row);
+    if (!bytes) continue;
+    if (bytes[slot] === op && bytes[slot + 1] === (arg & 0xff) && bytes[slot + 2] === arg >>> 8) continue;
+    bytes[slot] = op; bytes[slot + 1] = arg & 0xff; bytes[slot + 2] = arg >>> 8;
+    writes.push({ pat, row, bytes });
+  }
+  if (!writes.length) return false;
+  store.undo.apply(setCellsBytesOp(store.songIndex, writes));
+  return true;
 }
 
 /** Write an effect opcode across the cells, keeping each one's argument — the

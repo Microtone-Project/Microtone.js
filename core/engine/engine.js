@@ -11,6 +11,7 @@
 //    NUM_VOICES-1; jamNote to MAX_VOICES-1).
 
 import { psgCurrentWave } from "./psg.js";
+import { formantEndsOnKeyOff } from "./formant.js";
 import {
   SAMPLE_BIN_TOTAL, NUM_PATTERNS, NUM_CUES, NUM_VOICES, MAX_VOICES,
   JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES,
@@ -26,16 +27,43 @@ import {
   SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, voiceAzimuth, voiceElevation,
 } from "./spatial.js";
 import { generateTrackerAudio } from "./mixer.js";
+import { imixBlockMap } from "./imix.js";
 import { triggerMetaOrNote, triggerNote } from "./trigger.js";
 import { startCutRamp } from "./sampler.js";
 import { applyKeyLift } from "./envelope.js";
 import { reconstructDittoState } from "./row.js";
 import { chaseSongPath, chaseCueOrder } from "./chase.js";
 
+/** How many sounding voices getInstrumentFormantState reports at most. */
+const FORMANT_LIVE_MAX = 8;
+
 // Scratch instrument slot for the raw-sample preview (jamSample). It sits just
 // past the 1024 addressable bank slots so an audition never borrows a real one;
 // every `instruments[voice.instrumentId]` lookup indexes it directly (no & mask).
 const AUDITION_SLOT = 1024;
+
+/** The bytes of a pattern whose every cell is the no-op one: both column
+ *  selectors FINE by zero, everything else zero (file format §5.5). */
+function blankPatternBytes(wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  const out = new Uint8Array(64 * size);
+  for (let r = 0; r < 64; r++) {
+    if (wide) out[r * size + 8] = 0x33;
+    else { out[r * size + 3] = 0xc0; out[r * size + 4] = 0xc0; }
+  }
+  return out;
+}
+
+function isBlankPatternBytes(bytes, wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  if (bytes.length < 64 * size) return false;
+  for (let i = 0; i < 64 * size; i++) {
+    const k = i % size;
+    const want = wide ? (k === 8 ? 0x33 : 0) : (k === 3 || k === 4 ? 0xc0 : 0);
+    if ((bytes[i] & 0xff) !== want) return false;
+  }
+  return true;
+}
 
 function makePattern() {
   const rows = new Array(64);
@@ -55,6 +83,7 @@ export class TaudEngine {
     // Pattern store — lazily allocated (memory scales with actual song size).
     this.playdata = new Array(NUM_PATTERNS).fill(null);
     this.emptyPattern = makePattern();
+    this.sharedBlank = [null, null]; // narrow, wide — see blankPattern()
     this.scratchPattern = makePattern();
     this.cueSheet = new Array(NUM_CUES);
     for (let i = 0; i < NUM_CUES; i++) this.cueSheet[i] = new PlayCue();
@@ -73,6 +102,12 @@ export class TaudEngine {
     // mixer hands each voice's PRE-PAN mono contribution to `add()`; nothing
     // else about the render changes, so the main output stays bit-identical.
     this.stemBus = null;
+    // Instrument mixing chains (item 217): the project's IMix blocks by id.
+    // Like the instruments, they belong to the engine, not to a playhead;
+    // `imixGen` counts every change to them or to an instrument record, and a
+    // playhead rebuilds its route table when it sees a new count.
+    this.imixBlocks = new Map();
+    this.imixGen = 0;
   }
 
   channelCount() { return this.is64ChannelMode ? MAX_VOICES : NUM_VOICES; }
@@ -84,15 +119,44 @@ export class TaudEngine {
     return this.playdata[idx] ?? this.emptyPattern;
   }
 
-  /** Writable pattern idx, allocating its 64 rows on first access. */
+  /** Writable pattern idx, allocating its 64 rows on first access — and
+   *  copying the shared blank before anything is written over it. */
   patternFor(idx) {
     if (idx < 0 || idx >= NUM_PATTERNS) return this.scratchPattern;
     let p = this.playdata[idx];
     if (p === null) {
       p = makePattern();
       this.playdata[idx] = p;
+    } else if (p === this.sharedBlank[0] || p === this.sharedBlank[1]) {
+      p = p.map((c) => Object.assign(new TaudPlayData(), c));
+      this.playdata[idx] = p;
     }
     return p;
+  }
+
+  /** The one copy every slot holding a BLANK pattern shares (every cell the
+   *  no-op one), one per cell format. Read-only: playback never writes a
+   *  pattern cell, and patternFor copies it before an upload would. */
+  blankPattern() {
+    const k = this.wideCells ? 1 : 0;
+    if (this.sharedBlank[k] === null) {
+      const rows = makePattern();
+      this.decodePattern(rows, blankPatternBytes(this.wideCells));
+      this.sharedBlank[k] = rows;
+    }
+    return this.sharedBlank[k];
+  }
+
+  decodePattern(pat, bytes) {
+    if (this.wideCells) {
+      const n = Math.min(PATTERN_BYTES_WIDE, bytes.length);
+      for (let i = 0; i < n; i++) {
+        pat[(i / CELL_BYTES_WIDE) | 0].setByteWide(i % CELL_BYTES_WIDE, bytes[i] & 0xff);
+      }
+      return;
+    }
+    const n = Math.min(PATTERN_BYTES, bytes.length);
+    for (let i = 0; i < n; i++) pat[(i / CELL_BYTES) | 0].setByte(i % CELL_BYTES, bytes[i] & 0xff);
   }
 
   // ── content upload (AudioJSR223Delegate.kt:343-497, 610-640) ──
@@ -118,6 +182,7 @@ export class TaudEngine {
       this.instruments[instIdx].loadRecord(rec);
     }
     for (const inst of this.instruments) inst.extraPatches = null;
+    this.imixGen++; // byte 255 of every record may have moved
     return image.length;
   }
 
@@ -137,6 +202,7 @@ export class TaudEngine {
     const rec = new Uint8Array(256);
     for (let i = 0; i < Math.min(256, bytes.length); i++) rec[i] = bytes[i] & 0xff;
     inst.loadRecord(rec);
+    this.imixGen++;
   }
 
   /**
@@ -175,18 +241,16 @@ export class TaudEngine {
     this.playdata[slot & 0x7fff] = null;
   }
 
-  /** Upload 512 bytes (64 rows × 8) defining pattern slot. */
+  /** Upload 512 bytes (64 rows × 8) defining pattern slot. A blank pattern is
+   *  not stored but shared (blankPattern): a song renumbered lane by lane
+   *  (Microtone item 253) leaves thousands of them in the gaps between lanes. */
   uploadPattern(slot, bytes) {
-    const pat = this.patternFor(slot & 0x7fff);
-    if (this.wideCells) {
-      const n = Math.min(PATTERN_BYTES_WIDE, bytes.length);
-      for (let i = 0; i < n; i++) {
-        pat[(i / CELL_BYTES_WIDE) | 0].setByteWide(i % CELL_BYTES_WIDE, bytes[i] & 0xff);
-      }
+    const idx = slot & 0x7fff;
+    if (idx < NUM_PATTERNS && isBlankPatternBytes(bytes, this.wideCells)) {
+      this.playdata[idx] = this.blankPattern();
       return;
     }
-    const n = Math.min(PATTERN_BYTES, bytes.length);
-    for (let i = 0; i < n; i++) pat[(i / CELL_BYTES) | 0].setByte(i % CELL_BYTES, bytes[i] & 0xff);
+    this.decodePattern(this.patternFor(idx), bytes);
   }
 
   /**
@@ -436,6 +500,25 @@ export class TaudEngine {
   getMastering(ph) { return this.playheads[ph].trackerState.masteringParams; }
 
   /**
+   * The project's instrument mixing chains (item 217, TAUD_ENGINE_SPEC.md
+   * §12.4): every IMix block, as decoded from the file's `IMix` section. An
+   * instrument whose byte 255 names one of them mixes through it on every
+   * playhead. Replaces the whole set; a block that keeps its id keeps its
+   * running state, so a host may push the set on every edit.
+   *
+   * Like the mastering chain, a conforming player MUST install what the file
+   * declares.
+   */
+  setImix(blocks) {
+    this.imixBlocks = imixBlockMap(blocks);
+    this.imixGen++;
+  }
+  getImix() { return [...this.imixBlocks.values()]; }
+
+  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus. */
+  setImixMeter(ph, slot) { this.playheads[ph].trackerState.setImixMeter(slot); }
+
+  /**
    * Install (or drop) the Mastering view's metering tap (loudness.js). Like the
    * strip's analysis tap this costs nothing while off, so a host turns it on
    * only while the view that reads it is on screen.
@@ -631,6 +714,24 @@ export class TaudEngine {
     applyKeyLift(voice, this.instruments[voice.instrumentId]);
   }
 
+  /**
+   * A computer-keyboard piano key LIFTED (the tracker's jam keyboard): a
+   * formant syllable that a key-off ends by itself — it has a coda to speak —
+   * is keyed off, so the coda is heard as a pattern key-off would sound it;
+   * anything else is cut as jamStopVoice cuts, since an ordinary instrument
+   * with no release, or a syllable with no coda, would otherwise sound on.
+   * JS-only (item 240), no Kotlin counterpart.
+   */
+  jamRelease(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const voice = ts.voices[Math.min(Math.max(vi, 0), TOTAL_VOICES - 1)];
+    if (voice.active && !voice.keyOff && voice.formant !== null && formantEndsOnKeyOff(voice.formant)) {
+      this.jamKeyOff(ph, vi);
+    } else {
+      this.jamStopVoice(ph, vi);
+    }
+  }
+
   // ── per-voice readbacks (delegate 144-325; clamps mirror the delegate) ──
 
   _voice(ph, vi) {
@@ -806,6 +907,38 @@ export class TaudEngine {
       rtMute: patch.rtMute,
       wave,
     };
+  }
+
+  /**
+   * A formant instrument's live state, for the Formant tab's playback display
+   * (item 240), or null for any other instrument: every sounding voice of it
+   * — lanes before ghosts, at most FORMANT_LIVE_MAX — whose vowel is its OWN
+   * (an `S $Afgr`, or an instrument change still gliding), as the chart bytes
+   * it stands at now, fractional mid-glide, and where a glide is heading. A
+   * voice singing the record's vowel is not listed: the record shows it.
+   */
+  getInstrumentFormantState(slot) {
+    const patch = this.instruments[slot & 0x3ff].formant;
+    if (patch === null) return null;
+    const voices = [];
+    for (const p of this.playheads) {
+      const ts = p.trackerState;
+      if (ts === null || ts === undefined) continue;
+      for (const list of [ts.voices, ts.backgroundVoices]) {
+        for (const v of list) {
+          if (voices.length >= FORMANT_LIVE_MAX) break;
+          const st = v.formant;
+          if (!v.active || st === null || st.patch !== patch || !st.ownVowel) continue;
+          const gliding = st.glideLeft > 0;
+          voices.push({
+            front: st.vFront, open: st.vOpen, round: st.vRound,
+            toFront: gliding ? st.tFront : st.vFront, toOpen: gliding ? st.tOpen : st.vOpen,
+            toRound: gliding ? st.tRound : st.vRound,
+          });
+        }
+      }
+    }
+    return { voices };
   }
 
   /** The modification's inversion mask, one bit per SAMPLE byte (item 130). */

@@ -30,7 +30,7 @@ for (const [label, entry] of Object.entries(GOLDEN_SET)) {
   const d = await renderGolden(entry);
   const prev = fixture.songs[label];
   const moved = prev && (prev.u8 !== d.u8 || prev.f32 !== d.f32 || prev.frames !== d.frames);
-  fixture.songs[label] = { file: entry.file, ...(entry.monitor !== undefined ? { monitor: entry.monitor } : {}), ...d };
+  fixture.songs[label] = { file: entry.file, ...(entry.monitor !== undefined ? { monitor: entry.monitor } : {}), ...(entry.imix ? { imix: entry.imix } : {}), ...d };
   console.log(`${label}: ${prev ? (moved ? "CHANGED" : "unchanged") : "new"} (${(performance.now() - t0).toFixed(0)} ms)`);
 }
 for (const label of Object.keys(fixture.songs)) {

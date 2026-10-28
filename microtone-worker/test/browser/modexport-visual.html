@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ProTracker export dialog visual harness (screenshot / layout tuning)</title>
+</head>
+<body>
+  <!-- Leaves the Export .MOD dialog (item 219) open for a screenshot, the same
+       harness shape as export-visual:
+         chromium --headless=new --window-size=1400,1000 --screenshot=/tmp/modexport.png \
+           "http://localhost:8932/test/browser/modexport-visual.html?theme=dark"
+       The default project fails the prerequisites (the blocked dialog);
+       ?load=<path> opens another — a converted .mod with a microtonal or
+       out-of-range note shows the warnings dialog. ?theme=light|dim|warmth. -->
+  <img src="/hang" hidden>
+  <iframe id="app" style="width:1360px;height:940px;border:0"></iframe>
+  <script type="module">
+    (async () => {
+      const params = new URLSearchParams(location.search);
+      const frame = document.getElementById("app");
+      frame.src = "../../index.html?load=" + (params.get("load") ?? "assets/demo_projects/Daisy_bell.taud");
+      const win = await new Promise((resolve) => {
+        const poll = setInterval(() => {
+          const w = frame.contentWindow;
+          if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+        }, 100);
+      });
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const theme = params.get("theme");
+      if (theme) (await win.eval('import("/src/ui/theme.js")')).applyTheme(theme);
+
+      const doc = win.document;
+      doc.querySelector('[data-view="files"]').click();
+      await sleep(150);
+      [...doc.querySelectorAll(".files-bar button")].find((b) => /\.MOD/.test(b.textContent)).click();
+    })();
+  </script>
+</body>
+</html>

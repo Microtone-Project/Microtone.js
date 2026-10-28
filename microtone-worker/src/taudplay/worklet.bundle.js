@@ -299,6 +299,39 @@ function makeSeededRandom(seed = 1) {
   };
 }
 
+// ══ core/engine/dither.js ══
+// The 16-bit quantiser a CLEAN stereo WAV export writes (the gritty export is
+// the device's own noise-shaped 8-bit dither, pcm32fToPcm8 in mixer.js).
+//
+// Plain TPDF dither of one LSB peak, no noise shaping, off its own xorshift32
+// stream at the adapter's seed — so an export is the same file every time, and
+// the master meter's 16-bit bit-usage census (loudness.js), which runs the
+// same stream over the same bus from the start of an offline analysis, counts
+// exactly the codes the file holds.
+//
+// Not part of the device: nothing the engine plays goes through here, which is
+// why it owes TSVM nothing. libtaudplay carries the same arithmetic
+// (taud_encode_wav), operand order included.
+
+
+/** A fresh dither stream — the generator ditherS16 draws from. */
+function makeDither16() {
+  return makeXorshift32();
+}
+
+/**
+ * One float sample (nominal ±1) → a signed 16-bit code: clamp, scale by 32767
+ * (the undithered writer's scale), add a triangular −1…+1 LSB, round. Two draws
+ * per sample, the first one positive.
+ */
+function ditherS16(next, x) {
+  const v = x < -1 ? -1 : x > 1 ? 1 : x;
+  const a = next() & 0xffffff;
+  const b = next() & 0xffffff;
+  const q = Math.round(v * 32767 + (a - b) / 16777216);
+  return q < -32768 ? -32768 : q > 32767 ? 32767 : q;
+}
+
 // ══ core/engine/tables.js ══
 // Lookup tables + pitch math — port of AudioAdapter.kt companion object tables
 // (149-340), MOD_SIN_TABLE / FINETUNE_OFFSET (1406-1422), META_MIX_GAIN (1480),
@@ -2615,6 +2648,40 @@ class Biquad {
               (A + 1) + (A - 1) * cw - tsa);
   }
 
+  /** RBJ low-pass (item 217's cut filters and crossovers). */
+  lowPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ band-pass, constant 0 dB peak gain (a dynamic EQ's sensor). */
+  bandPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(alpha, 0, -alpha, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ notch. */
+  notch(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1, -2 * cw, 1, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ all-pass. At Q = 1/√2 it is exactly what a Linkwitz–Riley 4th-order
+   *  low-pass and high-pass at the same frequency sum to — the phase a
+   *  multiband split owes the bands that did not pass through that crossover. */
+  allPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1 - alpha, -2 * cw, 1 + alpha, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
   highShelf(freq, gainDb, q, rate) {
     const A = 10 ** (gainDb / 40);
     const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
@@ -2751,6 +2818,7 @@ class EqStage {
 class CompressorStage {
   constructor() {
     this.grDb = 0;        // current gain reduction, dB (negative)
+    this.levelDb = -120;  // the detector's last reading, dB — for a meter only
     this.rms = 0;         // RMS detector's mean-square state
     this.rmsCoef = 0;
     this.attackCoef = 0; this.releaseCoef = 0;
@@ -2769,7 +2837,7 @@ class CompressorStage {
     // ignore a single cycle of a bass note, short enough to follow a phrase.
     this.rmsCoef = onePole(10, rate);
   }
-  reset() { this.grDb = 0; this.rms = 0; }
+  reset() { this.grDb = 0; this.rms = 0; this.levelDb = -120; }
 
   /** Update the envelope from the frame's linked detector and return the
    *  linear gain to apply (makeup folded in). */
@@ -2817,6 +2885,7 @@ class CompressorStage {
     // −120 dBFS floor: below it the gain computer has nothing to say and the
     // logarithm has nowhere to go.
     const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
+    this.levelDb = levelDb;
     const over = levelDb - this.thresh;
     const half = this.knee * 0.5;
     let targetDb;
@@ -2992,14 +3061,20 @@ function onePole(ms, rate) {
  * a multichannel delivery gets (item 178.1, engine spec §12.3): the same
  * parameters, the same coefficients and the same envelopes, but with every
  * channel filtered identically, ONE dynamics detector reading all of them, and
- * the stereo width stage skipped — a mid/side round trip has no meaning on six
- * speaker feeds or sixteen ambisonic channels, and forcing one would rotate the
- * sound field. Use `processPlanar` for those; `process` is the pair.
+ * the width stage either generalised or skipped. A mid/side round trip has no
+ * meaning on six speaker feeds, and forcing one would rotate the sound field,
+ * so a speaker layout skips it. An AMBISONIC scene (`ambisonic`: channel 0 is
+ * W, the rest the directional harmonics, ACN order) has a mid and a side of its
+ * own: W is what every direction shares, and the width scales every other
+ * channel against it — SURROUND WIDTH (item 247), which is the stereo stage
+ * exactly where the scene is decoded to the coincident pair W ± Y. Use
+ * `processPlanar` for these; `process` is the pair.
  */
 class MasterChain {
-  constructor(params = null, rate = SAMPLING_RATE, channels = 2) {
+  constructor(params = null, rate = SAMPLING_RATE, channels = 2, ambisonic = false) {
     this.rate = rate;
     this.channels = channels;
+    this.ambisonic = ambisonic && channels > 1;
     this.hp = new HighPassStage(channels);
     this.eq = new EqStage(channels);
     this.comp = new CompressorStage();
@@ -3100,7 +3175,8 @@ class MasterChain {
    * for the song; only two things differ from the pair, and both are forced by
    * what a channel bus is:
    *
-   *   * the stereo WIDTH stage is skipped — see the class docstring;
+   *   * the WIDTH stage scales an ambisonic scene's directional channels and
+   *     is skipped on any other bus — see the class docstring;
    *   * the compressor's and the limiter's detectors read every channel, so
    *     one gain moves the whole field and nothing about its geometry changes.
    *
@@ -3123,6 +3199,8 @@ class MasterChain {
     const trim = this.trimGain;
     const out = this.outGain;
     const doHp = p.hpOn, doEq = p.eqOn, doComp = p.compOn, doLim = p.limOn;
+    const doWidth = this.ambisonic && p.widthOn && this.width !== 1;
+    const w = this.width;
     let compGr = 0;
     this.lim.grDb = 0;
 
@@ -3139,6 +3217,7 @@ class MasterChain {
         for (let c = 0; c < nch; c++) data[c * stride + n] *= g;
         if (this.comp.grDb < compGr) compGr = this.comp.grDb;
       }
+      if (doWidth) for (let c = 1; c < nch; c++) data[c * stride + n] *= w;
       if (doLim) this.lim.stepPlanar(data, n, stride);
       if (out !== 1) for (let c = 0; c < nch; c++) data[c * stride + n] *= out;
     }
@@ -3228,6 +3307,7 @@ function responseCurve(chain, lo = 20, hi = 20000, n = 256) {
 // implementation can produce the same figure. It is metering, not playback, so
 // it is defined here rather than in TAUD_ENGINE_SPEC.md: no two renders of a
 // song differ because of it.
+
 
 
 // ── K-weighting (BS.1770) ───────────────────────────────────────────────────
@@ -3788,6 +3868,9 @@ class MasterMeterTap {
     this.shortLag = Math.min(codes(HIST_SPAN_SEC[HIST_SPAN_SHORT]), this.codeRing.length);
     this.ringWrite = 0;
     this.ringFull = false;
+    /** The clean WAV export's dither stream (dither.js), restarted with the
+     *  census so a census from the top of the song draws what the file drew. */
+    this.dither16 = makeDither16();
     /** Which census `drain` reports (HIST_SPAN_*). A REPORTING choice, nothing
      *  more — see TrackerState.setMasterMeter. */
     this.histSpan = HIST_SPAN_ALL;
@@ -3798,6 +3881,11 @@ class MasterMeterTap {
     this.spec = [];
     for (let s = 0; s < TAP_STAGES; s++) this.spec.push(new Float32Array(SPEC_FRAMES));
     this.specWrite = 0;
+    /** …and the PAIR per stage, frame-interleaved L, R, for the Mastering
+     *  view's goniometer and correlation meter (item 257). Same length and
+     *  cursor as the mono rings. */
+    this.pair = [];
+    for (let s = 0; s < TAP_STAGES; s++) this.pair.push(new Float32Array(SPEC_FRAMES * 2));
     this.frames = 0;
     this.compGrDb = 0;
     this.limGrDb = 0;
@@ -3815,7 +3903,9 @@ class MasterMeterTap {
     for (const h of this.histWin) if (h !== null) h.fill(0);
     this.ringWrite = 0;
     this.ringFull = false;
+    this.dither16 = makeDither16();
     for (const r of this.spec) r.fill(0);
+    for (const r of this.pair) r.fill(0);
     this.specWrite = 0;
     this.frames = 0;
     this.compGrDb = 0;
@@ -3873,8 +3963,10 @@ class MasterMeterTap {
     // PRE writes at the same positions on the way past.
     const ring = this.spec[stage];
     let w = this.specWrite;
+    const pair = this.pair[stage];
     for (let n = 0; n < frames; n++) {
       ring[w] = (left[n] + right[n]) * 0.5;
+      pair[w * 2] = left[n]; pair[w * 2 + 1] = right[n];
       w = w + 1 === SPEC_FRAMES ? 0 : w + 1;
     }
     if (stage === TAP_POST) this.specWrite = w;
@@ -3895,11 +3987,13 @@ class MasterMeterTap {
    *   * 8 bits is the DEVICE's output, so it is binned from the dithered,
    *     noise-shaped U8 buffer the engine actually produced. Re-quantising the
    *     float would miss the dither, which at eight bits is most of the point.
-   *   * 16 bits is what a stereo WAV export writes, and that path takes the
-   *     PRE-DITHER float bus straight to `round(clamp(x) × 32767)` — so the
-   *     census repeats exactly that. (An export resampled to another rate
-   *     re-quantises after the resampler; at the default 48 kHz, which is the
-   *     engine's own rate, the codes are identical.)
+   *   * 16 bits is what a clean stereo WAV export writes, and that path takes
+   *     the PRE-DITHER float bus through its own TPDF dither (dither.js) — so
+   *     the census repeats exactly that, off the same stream. (An export
+   *     resampled to another rate quantises after the resampler; at the
+   *     default 48 kHz, which is the engine's own rate, an analysis from the
+   *     top of the song counts the very codes the file holds.) The gritty
+   *     export is the 8-bit case: at 48 kHz it IS the device's buffer.
    */
   binOutput(u8, left, right, frames) {
     const h = this.hist;
@@ -3934,10 +4028,11 @@ class MasterMeterTap {
       this.ringFull = full;
       return;
     }
+    const next = this.dither16;
     for (let n = 0; n < frames; n++) {
-      const l = left[n], r = right[n];
-      const cl = (Math.round((l < -1 ? -1 : l > 1 ? 1 : l) * 32767) + 32768) & 0xffff;
-      const cr = (Math.round((r < -1 ? -1 : r > 1 ? 1 : r) * 32767) + 32768) & 0xffff;
+      // Left before right: the export draws its dither in interleaved order.
+      const cl = (ditherS16(next, left[n]) + 32768) & 0xffff;
+      const cr = (ditherS16(next, right[n]) + 32768) & 0xffff;
       h[cl] += 1;
       if (full) hl[ring[w]] -= 1;
       if (full || w >= lag) hs[ring[(w - lag + cap) % cap]] -= 1;
@@ -3996,6 +4091,7 @@ class MasterMeterTap {
     else for (let i = 0; i < census.length; i++) this.buckets[i >> shift] += census[i];
     out.buckets = this.buckets;
     out.spec = this.spec;
+    out.pair = this.pair;
     out.specWrite = this.specWrite;
     this.sumZ.fill(0); this.sumSq.fill(0); this.peak.fill(0); this.clip.fill(0);
     this.apPeak.fill(0); this.apSumSq.fill(0);
@@ -4012,7 +4108,7 @@ function makeMasterMeterReadout() {
   return {
     frames: 0, compGrDb: 0, limGrDb: 0, hist: null, histTotal: 0,
     buckets: null, bits: null, bitDepth: DEFAULT_BIT_DEPTH, histSpan: HIST_SPAN_ALL,
-    spec: null, specWrite: 0,
+    spec: null, pair: null, specWrite: 0,
     sumZ: new Float64Array(TAP_STAGES),
     apPeak: new Float64Array(TAP_STAGES),
     apSumSq: new Float64Array(TAP_STAGES),
@@ -4020,6 +4116,2268 @@ function makeMasterMeterReadout() {
     truePeak: new Float64Array(TAP_STAGES * 2),
     meanSquare: new Float64Array(TAP_STAGES * 2),
     clip: new Float64Array(TAP_STAGES * 2),
+  };
+}
+
+// ══ core/engine/imix.js ══
+// Per-instrument mixing chains — IMix (item 217, TAUD_ENGINE_SPEC.md §12.4,
+// TAUD_FILE_FORMAT.md §9.15).
+//
+// An instrument whose record names an IMix block (byte 255) does not mix its
+// voices straight into the master: they sum into the instrument's OWN bus,
+// that bus runs the block's chain, and the result joins the master. Two
+// instruments naming the same block share its SETTINGS; whether they share its
+// BUS is the block's MODE (item 247). Separate, the default, gives each its own
+// instance, so a compressor on the kick never ducks the snare; bus mode sums
+// every instrument on the block into one bus and runs the chain once over the
+// sum — a group bus, where the kick DOES duck the snare.
+//
+// The pipeline is FIXED; a block only says which equipment it holds and how
+// each piece is set, and the order byte picks one of two arrangements:
+//
+//   order 0: itrm → equ1 → deq1 → comp → equ2 → deq2 → unis → satu → dlay → verb → limi → mxtl
+//   order 1: itrm → equ1 → deq1 → comp → equ2 → deq2 → unis → satu → verb → dlay → limi → mxtl
+//
+// ── Where it sits in the gain structure ──
+// The bus is fed every per-voice gain the mixer applies (note and lane volume,
+// envelopes, fadeout, instrument global volume, swing, the lane fader, the
+// sample-end and attack ramps, the pan law) but NOT the song's global × mixing
+// × master volume: those are the master fader, and an insert chain sits ahead
+// of it. The chain's output is scaled by them as it joins the mix.
+//
+// ── Bit-exactness for everything else ──
+// A block that is switched off, or holds nothing that is not bypassed, makes
+// no bus at all: the instrument's voices take the plain path, and a song that
+// never touched the feature renders exactly as before it existed. Routing
+// through a bus — even an identity one — changes the order of the additions
+// and so the last bits of the sum, which is why "engaged" is decided here and
+// not by the arithmetic.
+//
+// ── Determinism ──
+// Everything that ACCUMULATES — an LFO's phase, a pitch shifter's sweep, a
+// tape delay's glide toward a new time, its wow and flutter — is integer
+// arithmetic on 16.16 fixed-point quantities (exact in binary64), so a port
+// steps through the same states. Filters and envelopes are binary64 like the
+// rest of the mix. The randomness an S&H LFO draws is its own xorshift32,
+// seeded with a constant, never the engine's dither stream.
+//
+// Not a port: like mastering.js, this file IS the reference implementation.
+
+
+
+
+
+// ── Identifiers ─────────────────────────────────────────────────────────────
+
+/** Every equipment FourCC this engine knows. An identifier is never retired or
+ *  reused (§9.15): a block that names one must mean the same thing forever. */
+const IMX_ITRM = "itrm";
+const IMX_EQU1 = "equ1";
+const IMX_DEQ1 = "deq1";
+const IMX_COMP = "comp";
+const IMX_EQU2 = "equ2";
+const IMX_DEQ2 = "deq2";
+const IMX_UNIS = "unis";
+const IMX_SATU = "satu";
+const IMX_DLAY = "dlay";
+const IMX_VERB = "verb";
+const IMX_LIMI = "limi";
+const IMX_MXTL = "mxtl";
+
+/** The two pipelines, indexed by the block's order nibble. */
+const IMX_PIPELINES = Object.freeze([
+  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
+    IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB, IMX_LIMI, IMX_MXTL]),
+  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
+    IMX_UNIS, IMX_SATU, IMX_VERB, IMX_DLAY, IMX_LIMI, IMX_MXTL]),
+]);
+
+/** Every known identifier, in pipeline-0 order. */
+const IMX_EQUIPMENT = IMX_PIPELINES[0];
+
+/** Equipment whose wet/dry byte means something. Everything else MUST carry 0
+ *  there — a mix control on a trim or a limiter is a contradiction (§9.15). */
+const IMX_WET_APPLICABLE = Object.freeze(new Set([
+  IMX_COMP, IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB,
+]));
+
+/** Highest equipment payload version this reader understands (all are 0). */
+const IMX_KNOWN_VERSION = 0;
+
+/** IMix ids are a byte, and 0 means "no chain". */
+const IMX_MAX_ID = 255;
+
+// Equaliser band shapes (§9.15). Value = the wire byte.
+const IMX_EQ_HIGH_PASS = 0;
+const IMX_EQ_LOW_SHELF = 1;
+const IMX_EQ_BELL = 2;
+const IMX_EQ_HIGH_SHELF = 3;
+const IMX_EQ_LOW_PASS = 4;
+const IMX_EQ_NOTCH = 5;
+const IMX_EQ_SHAPES = 6;
+/** Bands an equaliser holds at most. */
+const IMX_EQ_MAX_BANDS = 8;
+/** Cut-filter slopes: n → (n + 1) × 12 dB/octave. */
+const IMX_SLOPES = 4;
+
+/** Compressor bands: 1 is an ordinary compressor, up to 6 a multiband one. */
+const IMX_COMP_MAX_BANDS = 6;
+
+/** A dynamic equaliser's six bands, by index. */
+const IMX_DEQ_BANDS = 6;
+const IMX_DEQ_LOW_SHELF_BAND = 0;
+const IMX_DEQ_HIGH_SHELF_BAND = 1;
+
+// Saturator transfer functions.
+const IMX_SAT_TAPE = 0;   // tanh
+const IMX_SAT_SOFT = 1;   // cubic soft clip
+const IMX_SAT_HARD = 2;   // hard clip
+const IMX_SAT_TUBE = 3;   // asymmetric tanh: even harmonics
+const IMX_SAT_FOLD = 4;   // sine wavefolder
+const IMX_SAT_CURVES = 5;
+
+/** Unison voice count. */
+const IMX_UNIS_MIN_VOICES = 2;
+const IMX_UNIS_MAX_VOICES = 8;
+
+// LFO waveforms.
+const IMX_LFO_SINE = 0;
+const IMX_LFO_TRIANGLE = 1;
+const IMX_LFO_SQUARE = 2;
+const IMX_LFO_SAW_UP = 3;
+const IMX_LFO_SAW_DOWN = 4;
+const IMX_LFO_RANDOM = 5;
+const IMX_LFO_WAVES = 6;
+
+/** 16.16 fixed point: one unit. */
+const FX16 = 65536;
+const TWO32 = 4294967296;
+
+/** The longest delay a tape delay can hold, in seconds. */
+const IMX_DELAY_MAX_SEC = 4;
+/** …and a reverb's pre-delay. */
+const IMX_PREDELAY_MAX_SEC = 0.5;
+
+/**
+ * Modulated parameters (a unison's detune and width) are re-evaluated every
+ * this many samples — a free-running count per piece of equipment, NOT tied to
+ * the mixer's spans, so a render cut into other spans steps the same states.
+ */
+const IMX_CONTROL_PERIOD = 16;
+
+/**
+ * A chain whose input has been exactly zero, and whose output has stayed below
+ * IMX_IDLE_LEVEL, for longer than every delay inside it plus this margin, goes
+ * IDLE: its state is cleared and it stops running until a voice feeds it again.
+ * That is a rule of the engine, not an optimisation the output may differ by —
+ * the tail it cuts lies below −144 dBFS.
+ */
+const IMX_IDLE_LEVEL = 2 ** -24;
+const IMX_IDLE_MARGIN_SEC = 0.05;
+
+/** Parameter ranges, as the UI and the codec both clamp them. */
+const IMX_RANGE = Object.freeze({
+  trimDb: [-24, 24],
+  eqFreq: [20, 20000],
+  eqGainDb: [-24, 24],
+  eqQ: [0.1, 18],
+  compThreshDb: [-60, 0],
+  compRatio: [1, 20],
+  compAttackMs: [0.1, 300],
+  compReleaseMs: [5, 3000],
+  compKneeDb: [0, 24],
+  compMakeupDb: [-12, 24],
+  xover: [20, 20000],
+  deqRangeDb: [0, 24],
+  deqActorDb: [-24, 24],
+  satDriveDb: [0, 36],
+  satTrimDb: [-24, 24],
+  satBias: [-1, 1],
+  unisDetune: [0, 100],
+  unisWidth: [0, 1],
+  unisSpacing: [0, 1],
+  lfoDepth: [0, 1],
+  lfoHz: [655, 40 * FX16],          // 16.16 Hz: 0.01…40 Hz
+  lfoQt: [FX16, 4096 * FX16],       // 16.16 quarter ticks per cycle
+  verbSize: [0, 1],
+  verbDecay: [0.1, 30],
+  verbDamping: [1000, 20000],
+  verbPreDelay: [0, IMX_PREDELAY_MAX_SEC * FX16], // 16.16 seconds
+  dlaySec: [66, IMX_DELAY_MAX_SEC * FX16],        // 16.16 seconds: 1 ms…4 s
+  dlayQt: [FX16 / 4, 1024 * FX16],                // 16.16 quarter ticks
+  dlayFeedback: [0, 1.2],
+  dlayHighCut: [500, 20000],
+  dlayLowCut: [20, 2000],
+  dlayWow: [0, 1],
+  dlayDriveDb: [0, 24],
+  limCeilingDb: [-24, 0],
+  limReleaseMs: [1, 1000],
+  limGainDb: [-12, 24],
+  mxGainDb: [-24, 24],
+  mxWidth: [0, 2],
+});
+
+/** The mix tool's DC blocker (item 247): Opus's dc_reject, a one-pole at
+ *  3 Hz whose coefficient is `6.3 × 3 ÷ fs` — 6.3 standing in for 2π, as the
+ *  encoder writes it. */
+const IMX_DC_HZ = 3;
+const IMX_DC_K = 6.3;
+
+const imxClamp = (v, key, fallback) => {
+  const [lo, hi] = IMX_RANGE[key];
+  if (!Number.isFinite(v)) return Math.fround(fallback);
+  return Math.fround(v < lo ? lo : v > hi ? hi : v);
+};
+/** The 16.16 fields are U32 in the file: integers, clamped. */
+const imxClampFx = (v, key, fallback) => {
+  const [lo, hi] = IMX_RANGE[key];
+  if (!Number.isFinite(v)) return fallback;
+  const i = Math.round(v);
+  return i < lo ? lo : i > hi ? hi : i;
+};
+const imxByte = (v, lo, hi, fallback) => {
+  const i = Number.isFinite(v) ? Math.round(v) : fallback;
+  return i < lo ? lo : i > hi ? hi : i;
+};
+
+// ── Defaults ────────────────────────────────────────────────────────────────
+
+/** Default LFO: a slow sine at depth 0 — present, and changing nothing. */
+function defaultImixLfo() {
+  return { wave: IMX_LFO_SINE, retrigger: false, sync: false, rate: FX16 / 2, depth: 0 };
+}
+
+function defaultEqBands() {
+  return [
+    { on: true, shape: IMX_EQ_LOW_SHELF, slope: 0, freq: 100, gainDb: 0, q: Math.SQRT1_2 },
+    { on: true, shape: IMX_EQ_BELL, slope: 0, freq: 500, gainDb: 0, q: 1 },
+    { on: true, shape: IMX_EQ_BELL, slope: 0, freq: 2000, gainDb: 0, q: 1 },
+    { on: true, shape: IMX_EQ_HIGH_SHELF, slope: 0, freq: 8000, gainDb: 0, q: Math.SQRT1_2 },
+  ];
+}
+
+/** A compressor band's resting values. */
+function defaultCompBand() {
+  return { on: true, threshDb: -18, ratio: 3, attackMs: 10, releaseMs: 120, kneeDb: 6, makeupDb: 0 };
+}
+
+/** Where the crossovers of an n-band split start: log-spaced over 80 Hz…8 kHz. */
+function defaultCrossovers(n) {
+  const out = [];
+  for (let i = 1; i < n; i++) out.push(80 * 100 ** ((i - 1) / Math.max(1, n - 2)));
+  if (n === 2) out[0] = 400;
+  return out;
+}
+
+const DEQ_DEFAULT_FREQS = [100, 8000, 250, 1000, 3000, 6000];
+
+function defaultDeqBands() {
+  const bands = [];
+  for (let i = 0; i < IMX_DEQ_BANDS; i++) {
+    const f = DEQ_DEFAULT_FREQS[i];
+    const q = i < 2 ? Math.SQRT1_2 : 1;
+    bands.push({
+      on: false, unlinked: false, boost: false,
+      freq: f, q, gainDb: 0, senseFreq: f, senseQ: q,
+      threshDb: -24, ratio: 3, attackMs: 5, releaseMs: 100, rangeDb: 6, actorDb: 0,
+    });
+  }
+  return bands;
+}
+
+/** The resting dry amount of each kind (0 = all wet, 255 = all dry). A delay
+ *  or a reverb is an effect you add TO the sound; the rest replace it. */
+const DEFAULT_DRY = { [IMX_DLAY]: 179, [IMX_VERB]: 191 };
+
+/**
+ * A freshly inserted piece of equipment: enabled, and — wherever that is
+ * possible — changing nothing until a control moves (an EQ flat at 0 dB, a
+ * dynamic EQ with every band off). A saturator, a unison, a delay and a reverb
+ * cannot be inserted silently; they are the sound you asked for.
+ */
+function defaultEquipment(id) {
+  const base = { bypass: false, dry: DEFAULT_DRY[id] ?? 0 };
+  switch (id) {
+    case IMX_ITRM: return { ...base, gainDb: 0 };
+    case IMX_EQU1:
+    case IMX_EQU2: return { ...base, bands: defaultEqBands() };
+    case IMX_COMP: return { ...base, detector: COMP_PEAK, crossovers: [], bands: [defaultCompBand()] };
+    case IMX_DEQ1:
+    case IMX_DEQ2: return { ...base, bands: defaultDeqBands() };
+    case IMX_SATU: return { ...base, curve: IMX_SAT_TAPE, driveDb: 6, inDb: 0, outDb: 0, bias: 0 };
+    case IMX_UNIS: return {
+      ...base, voices: 4, detune: 15, width: 0.8, spacing: 0,
+      detuneLfo: defaultImixLfo(), widthLfo: defaultImixLfo(),
+    };
+    case IMX_VERB: return { ...base, size: 0.5, decay: 1.8, damping: 8000, preDelay: 1311 };
+    case IMX_DLAY: return {
+      ...base, sync: true, pingPong: false, time: 48 * FX16, feedback: 0.35,
+      highCut: 6000, lowCut: 120, wow: 0.2, driveDb: 3,
+    };
+    case IMX_LIMI: return { ...base, truePeak: false, ceilingDb: -1, releaseMs: 60, gainDb: 0 };
+    case IMX_MXTL: return { ...base, swap: false, invL: false, invR: false, removeDc: false, gainDb: 0, width: 1 };
+    default: throw new Error(`imix: unknown equipment ${id}`);
+  }
+}
+
+/** A new, empty, enabled block in separate mode — no equipment until
+ *  something is touched. */
+function defaultImixBlock(id) {
+  return { id: id & 0xff, enabled: true, bus: false, order: 0, equipment: {}, unknown: [] };
+}
+
+// ── Normalisation ───────────────────────────────────────────────────────────
+
+function normLfo(l) {
+  const d = defaultImixLfo();
+  if (!l || typeof l !== "object") return d;
+  const sync = !!l.sync;
+  return {
+    wave: imxByte(l.wave, 0, IMX_LFO_WAVES - 1, d.wave),
+    retrigger: !!l.retrigger,
+    sync,
+    rate: imxClampFx(l.rate, sync ? "lfoQt" : "lfoHz", sync ? 16 * FX16 : d.rate),
+    depth: imxClamp(+l.depth, "lfoDepth", d.depth),
+  };
+}
+
+/**
+ * Fill in and clamp one piece of equipment, narrowing every float to binary32
+ * — the file stores binary32, so the document must hold exactly what a save
+ * will hold (mastering.js explains the drift this prevents). Structure that
+ * cannot be clamped into sense (a band count, a shape byte) is clamped too:
+ * the CODEC is where malformed input is refused, and anything that reaches
+ * this function is the editor's own.
+ */
+function normaliseEquipment(id, e) {
+  const d = defaultEquipment(id);
+  if (!e || typeof e !== "object") e = d;
+  const out = {
+    bypass: !!e.bypass,
+    // The editor's: the piece's panel is folded shut (§9.15). Playback never
+    // reads it.
+    folded: !!e.folded,
+    dry: IMX_WET_APPLICABLE.has(id) ? imxByte(e.dry, 0, 255, d.dry) : 0,
+  };
+  switch (id) {
+    case IMX_ITRM:
+      out.gainDb = imxClamp(+e.gainDb, "trimDb", 0);
+      break;
+    case IMX_EQU1:
+    case IMX_EQU2: {
+      const src = Array.isArray(e.bands) ? e.bands.slice(0, IMX_EQ_MAX_BANDS) : d.bands;
+      out.bands = src.map((b) => ({
+        on: !!b.on,
+        shape: imxByte(b.shape, 0, IMX_EQ_SHAPES - 1, IMX_EQ_BELL),
+        slope: isCutShape(b.shape) ? imxByte(b.slope, 0, IMX_SLOPES - 1, 0) : 0,
+        freq: imxClamp(+b.freq, "eqFreq", 1000),
+        gainDb: imxClamp(+b.gainDb, "eqGainDb", 0),
+        q: imxClamp(+b.q, "eqQ", Math.SQRT1_2),
+      }));
+      break;
+    }
+    case IMX_COMP: {
+      const src = Array.isArray(e.bands) && e.bands.length > 0
+        ? e.bands.slice(0, IMX_COMP_MAX_BANDS) : d.bands;
+      out.detector = e.detector === COMP_RMS ? COMP_RMS : COMP_PEAK;
+      out.bands = src.map((b) => {
+        const db = defaultCompBand();
+        return {
+          on: b.on === undefined ? true : !!b.on,
+          threshDb: imxClamp(+b.threshDb, "compThreshDb", db.threshDb),
+          ratio: imxClamp(+b.ratio, "compRatio", db.ratio),
+          attackMs: imxClamp(+b.attackMs, "compAttackMs", db.attackMs),
+          releaseMs: imxClamp(+b.releaseMs, "compReleaseMs", db.releaseMs),
+          kneeDb: imxClamp(+b.kneeDb, "compKneeDb", db.kneeDb),
+          makeupDb: imxClamp(+b.makeupDb, "compMakeupDb", db.makeupDb),
+        };
+      });
+      // n bands, n − 1 crossovers, strictly ascending. A list that is not is
+      // re-spread rather than sorted: sorting would reassign bands' settings to
+      // different frequency ranges without saying so.
+      const n = out.bands.length;
+      let xs = Array.isArray(e.crossovers) ? e.crossovers.slice(0, n - 1) : [];
+      xs = xs.map((x) => imxClamp(+x, "xover", 1000));
+      let ok = xs.length === n - 1;
+      for (let i = 1; ok && i < xs.length; i++) if (!(xs[i] > xs[i - 1])) ok = false;
+      out.crossovers = ok ? xs : defaultCrossovers(n).map(Math.fround);
+      break;
+    }
+    case IMX_DEQ1:
+    case IMX_DEQ2: {
+      const dbands = defaultDeqBands();
+      out.bands = dbands.map((db, i) => {
+        const b = Array.isArray(e.bands) && e.bands[i] ? e.bands[i] : db;
+        const freq = imxClamp(+b.freq, "eqFreq", db.freq);
+        const q = imxClamp(+b.q, "eqQ", db.q);
+        const unlinked = !!b.unlinked;
+        return {
+          on: !!b.on, unlinked, boost: !!b.boost,
+          freq, q,
+          gainDb: imxClamp(+b.gainDb, "eqGainDb", 0),
+          // A linked band senses where it acts — and says so in the file.
+          senseFreq: unlinked ? imxClamp(+b.senseFreq, "eqFreq", freq) : freq,
+          senseQ: unlinked ? imxClamp(+b.senseQ, "eqQ", q) : q,
+          threshDb: imxClamp(+b.threshDb, "compThreshDb", db.threshDb),
+          ratio: imxClamp(+b.ratio, "compRatio", db.ratio),
+          attackMs: imxClamp(+b.attackMs, "compAttackMs", db.attackMs),
+          releaseMs: imxClamp(+b.releaseMs, "compReleaseMs", db.releaseMs),
+          rangeDb: imxClamp(+b.rangeDb, "deqRangeDb", db.rangeDb),
+          actorDb: imxClamp(+b.actorDb, "deqActorDb", db.actorDb),
+        };
+      });
+      break;
+    }
+    case IMX_SATU:
+      out.curve = imxByte(e.curve, 0, IMX_SAT_CURVES - 1, d.curve);
+      out.driveDb = imxClamp(+e.driveDb, "satDriveDb", d.driveDb);
+      out.inDb = imxClamp(+e.inDb, "satTrimDb", 0);
+      out.outDb = imxClamp(+e.outDb, "satTrimDb", 0);
+      out.bias = imxClamp(+e.bias, "satBias", 0);
+      break;
+    case IMX_UNIS:
+      out.voices = imxByte(e.voices, IMX_UNIS_MIN_VOICES, IMX_UNIS_MAX_VOICES, d.voices);
+      out.detune = imxClamp(+e.detune, "unisDetune", d.detune);
+      out.width = imxClamp(+e.width, "unisWidth", d.width);
+      out.spacing = imxClamp(+e.spacing, "unisSpacing", 0);
+      out.detuneLfo = normLfo(e.detuneLfo);
+      out.widthLfo = normLfo(e.widthLfo);
+      break;
+    case IMX_VERB:
+      out.size = imxClamp(+e.size, "verbSize", d.size);
+      out.decay = imxClamp(+e.decay, "verbDecay", d.decay);
+      out.damping = imxClamp(+e.damping, "verbDamping", d.damping);
+      out.preDelay = imxClampFx(e.preDelay, "verbPreDelay", d.preDelay);
+      break;
+    case IMX_DLAY:
+      out.sync = !!e.sync;
+      out.pingPong = !!e.pingPong;
+      out.time = imxClampFx(e.time, out.sync ? "dlayQt" : "dlaySec", out.sync ? d.time : FX16 / 4);
+      out.feedback = imxClamp(+e.feedback, "dlayFeedback", d.feedback);
+      out.highCut = imxClamp(+e.highCut, "dlayHighCut", d.highCut);
+      out.lowCut = imxClamp(+e.lowCut, "dlayLowCut", d.lowCut);
+      out.wow = imxClamp(+e.wow, "dlayWow", d.wow);
+      out.driveDb = imxClamp(+e.driveDb, "dlayDriveDb", d.driveDb);
+      break;
+    case IMX_LIMI:
+      out.truePeak = !!e.truePeak;
+      out.ceilingDb = imxClamp(+e.ceilingDb, "limCeilingDb", d.ceilingDb);
+      out.releaseMs = imxClamp(+e.releaseMs, "limReleaseMs", d.releaseMs);
+      out.gainDb = imxClamp(+e.gainDb, "limGainDb", 0);
+      break;
+    case IMX_MXTL:
+      out.swap = !!e.swap;
+      out.invL = !!e.invL;
+      out.invR = !!e.invR;
+      out.removeDc = !!e.removeDc;
+      out.gainDb = imxClamp(+e.gainDb, "mxGainDb", 0);
+      out.width = imxClamp(+e.width, "mxWidth", 1);
+      break;
+    default:
+      throw new Error(`imix: unknown equipment ${id}`);
+  }
+  return out;
+}
+
+/** True for the two shapes whose slope byte means something. */
+function isCutShape(shape) {
+  return shape === IMX_EQ_HIGH_PASS || shape === IMX_EQ_LOW_PASS;
+}
+
+/** A complete, clamped block — every touched piece normalised, unknown
+ *  records carried through verbatim. */
+function normaliseImixBlock(b) {
+  const id = imxByte(b?.id, 1, IMX_MAX_ID, 1);
+  const out = {
+    id,
+    enabled: b?.enabled === undefined ? true : !!b.enabled,
+    // Bus mode: every instrument naming the block sums into ONE bus (item 247).
+    bus: !!b?.bus,
+    order: b?.order === 1 ? 1 : 0,
+    equipment: {},
+    unknown: Array.isArray(b?.unknown)
+      ? b.unknown.map((u) => ({ fourcc: u.fourcc, bytes: Uint8Array.from(u.bytes) }))
+      : [],
+  };
+  for (const eqId of IMX_EQUIPMENT) {
+    const e = b?.equipment?.[eqId];
+    if (e) out.equipment[eqId] = normaliseEquipment(eqId, e);
+  }
+  return out;
+}
+
+/** Deep copy (blocks travel over postMessage and into undo records). */
+function cloneImixBlock(b) {
+  return normaliseImixBlock(b);
+}
+
+/**
+ * Would a chain built from this block change a sample? Off, or holding nothing
+ * that is not bypassed, is not "transparent" — it is ABSENT: no bus, the plain
+ * path. A piece that is in, whatever its settings, counts (an EQ flat at 0 dB
+ * still costs its sections, and pretending otherwise would make whether a bus
+ * exists depend on a gain value).
+ */
+function imixBlockEngaged(b) {
+  if (!b || !b.enabled) return false;
+  for (const id of IMX_EQUIPMENT) {
+    const e = b.equipment[id];
+    if (e && !e.bypass) return true;
+  }
+  return false;
+}
+
+/** Structural equality of two normalised blocks. */
+function imixBlockEqual(a, b) {
+  return JSON.stringify(imixComparable(a)) === JSON.stringify(imixComparable(b));
+}
+
+function imixComparable(b) {
+  const n = normaliseImixBlock(b);
+  // Folding is how an editor shows the chain, not the chain (§9.15).
+  const equipment = {};
+  for (const [id, e] of Object.entries(n.equipment)) equipment[id] = { ...e, folded: false };
+  return { ...n, equipment, unknown: n.unknown.map((u) => [u.fourcc, [...u.bytes]]) };
+}
+
+// ── LFO ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Phase increment per sample, a U32 on a 2^32-per-cycle phase.
+ *
+ *   Hz mode:   floor(R · 2^16 / fs), R the 16.16 rate in Hz.
+ *   sync mode: floor(2^51 · bpm / (5 · P · fs)), P the 16.16 period in
+ *              quarter ticks — a tick being fs · 2.5 / bpm samples.
+ *
+ * The sync form is computed in 64-bit integers (BigInt here, a Long in a
+ * port): its numerator passes 2^53. Both are recomputed only when the rate,
+ * the tempo or the sampling rate changes.
+ */
+function lfoIncrement(sync, rate, bpm, fs) {
+  let inc;
+  if (!sync) {
+    inc = Math.floor((rate * FX16) / fs);
+  } else {
+    const num = (1n << 51n) * BigInt(bpm | 0);
+    const den = 5n * BigInt(rate) * BigInt(fs | 0);
+    inc = Number(num / den);
+  }
+  // A cycle shorter than two samples is aliasing, not modulation.
+  return inc > 0x7fffffff ? 0x7fffffff : inc < 0 ? 0 : inc;
+}
+
+/** One LFO: a U32 phase, a waveform, and (for S&H) its own random stream. */
+class ImxLfo {
+  constructor() {
+    this.p = defaultImixLfo();
+    this.phase = 0;
+    this.inc = 0;
+    this.kSync = -1; this.kRate = -1; this.kBpm = -1; this.kFs = -1;
+    this.held = 0;
+    this.rng = 0x9e3779b9;
+  }
+  configure(p) { this.p = p; this.kSync = -1; }
+  reset() { this.phase = 0; this.held = 0; this.rng = 0x9e3779b9; }
+  /** Bring the increment up to date with the tempo (cheap when unchanged). */
+  tempo(bpm, fs) {
+    const sync = this.p.sync ? 1 : 0;
+    if (sync !== this.kSync || this.p.rate !== this.kRate || fs !== this.kFs ||
+        (sync === 1 && bpm !== this.kBpm)) {
+      this.kSync = sync; this.kRate = this.p.rate; this.kBpm = bpm; this.kFs = fs;
+      this.inc = lfoIncrement(this.p.sync, this.p.rate, bpm, fs);
+    }
+  }
+  /** Advance one sample. */
+  step() {
+    const next = this.phase + this.inc;
+    if (next >= TWO32) {
+      if (this.p.wave === IMX_LFO_RANDOM) this._draw();
+      this.phase = next - TWO32;
+    } else {
+      this.phase = next;
+    }
+  }
+  /** Advance `n` samples at once (an idle chain still keeps time). */
+  skip(n) {
+    const total = this.phase + this.inc * n;
+    const wraps = Math.floor(total / TWO32);
+    if (this.p.wave === IMX_LFO_RANDOM) for (let i = 0; i < wraps; i++) this._draw();
+    this.phase = total - wraps * TWO32;
+  }
+  _draw() {
+    let x = this.rng;
+    x ^= x << 13; x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5; x >>>= 0;
+    this.rng = x;
+    this.held = (x / TWO32) * 2 - 1;
+  }
+  /** The waveform at the current phase, in [−1, 1]. */
+  value() {
+    const ph = this.phase / TWO32;
+    switch (this.p.wave) {
+      case IMX_LFO_SINE: return Math.sin(2 * Math.PI * ph);
+      case IMX_LFO_TRIANGLE: return ph < 0.25 ? 4 * ph : ph < 0.75 ? 2 - 4 * ph : 4 * ph - 4;
+      case IMX_LFO_SQUARE: return ph < 0.5 ? 1 : -1;
+      case IMX_LFO_SAW_UP: return 2 * ph - 1;
+      case IMX_LFO_SAW_DOWN: return 1 - 2 * ph;
+      default: return this.held;
+    }
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Butterworth section Qs for a cascade of k second-order sections. */
+function butterQs(k) {
+  const qs = [];
+  for (let i = 1; i <= k; i++) qs.push(1 / (2 * Math.cos(((2 * i - 1) * Math.PI) / (4 * k))));
+  return qs;
+}
+
+/** 4-point, 3rd-order Hermite read of a circular buffer at a fractional delay
+ *  of `delay` samples behind write index `w` (which holds the newest sample).
+ *  `delay` MUST be at least 1. */
+function hermiteRead(buf, off, len, w, delay) {
+  const di = Math.floor(delay);
+  const f = delay - di;
+  let i0 = w - di + 1; if (i0 < 0) i0 += len; if (i0 >= len) i0 -= len;
+  let i1 = i0 - 1; if (i1 < 0) i1 += len;
+  let i2 = i1 - 1; if (i2 < 0) i2 += len;
+  let i3 = i2 - 1; if (i3 < 0) i3 += len;
+  const xm1 = buf[off + i0], x0 = buf[off + i1], x1 = buf[off + i2], x2 = buf[off + i3];
+  const c0 = x0;
+  const c1 = 0.5 * (x1 - xm1);
+  const c2 = xm1 - 2.5 * x0 + 2 * x1 - 0.5 * x2;
+  const c3 = 0.5 * (x2 - xm1) + 1.5 * (x0 - x1);
+  return ((c3 * f + c2) * f + c1) * f + c0;
+}
+
+/** sin²(π·i/4096) for i ∈ [0, 4096] — a pitch shifter's crossfade window. */
+const IMX_XFADE = (() => {
+  const t = new Float64Array(4097);
+  for (let i = 0; i <= 4096; i++) { const s = Math.sin((Math.PI * i) / 4096); t[i] = s * s; }
+  return t;
+})();
+
+function xfadeAt(phase) {
+  const x = (phase / TWO32) * 4096;
+  const i = Math.floor(x);
+  const f = x - i;
+  return IMX_XFADE[i] + (IMX_XFADE[i + 1] - IMX_XFADE[i]) * f;
+}
+
+/** Wet/dry crossfade, in place: data ← wet·(1 − d) + dry·d over [n0, n1). */
+function mixDry(data, dryBuf, nch, stride, n0, n1, d) {
+  if (d <= 0) return;
+  const w = 1 - d;
+  for (let c = 0; c < nch; c++) {
+    const o = c * stride;
+    for (let n = n0; n < n1; n++) data[o + n] = data[o + n] * w + dryBuf[o + n] * d;
+  }
+}
+
+function copySpan(src, dst, nch, stride, n0, n1) {
+  for (let c = 0; c < nch; c++) {
+    const o = c * stride;
+    for (let n = n0; n < n1; n++) dst[o + n] = src[o + n];
+  }
+}
+
+// ── The equipment ───────────────────────────────────────────────────────────
+// Every piece: configure(params, rate) (keeps state), reset(), and
+// process(data, stride, n0, n1, ctx) over a CHANNEL-MAJOR Float64Array in
+// place. `ctx` carries the bus's geometry ({nch, stereo}), the tempo, a dry
+// scratch buffer and the gain-reduction readings the meter wants.
+
+class ImxTrim {
+  constructor() { this.g = 1; }
+  configure(p) { this.g = dbToGain(p.gainDb); }
+  reset() {}
+  get memory() { return 0; }
+  process(data, stride, n0, n1, ctx) {
+    const g = this.g;
+    if (g === 1) return;
+    for (let c = 0; c < ctx.nch; c++) {
+      const o = c * stride;
+      for (let n = n0; n < n1; n++) data[o + n] *= g;
+    }
+  }
+}
+
+/** Up to eight bands; a cut band is a Butterworth cascade of up to four
+ *  sections, every other shape one RBJ section. A band that is off is not in
+ *  the list at all. */
+class ImxEq {
+  constructor(nch) {
+    this.nch = nch;
+    this.bands = [];   // per band: Biquad[] (allocated on demand)
+    this.live = [];    // the sections that run, in order
+  }
+  configure(p, rate) {
+    this.live = [];
+    for (let i = 0; i < p.bands.length; i++) {
+      const b = p.bands[i];
+      if (!this.bands[i]) this.bands[i] = [];
+      const secs = this.bands[i];
+      if (!b.on) continue;
+      const cut = isCutShape(b.shape);
+      const k = cut ? b.slope + 1 : 1;
+      while (secs.length < k) secs.push(new Biquad(this.nch));
+      // A 12 dB/octave cut is one section at the band's own Q (its resonance);
+      // a steeper one is a maximally flat Butterworth cascade, whose section
+      // Qs are not a choice.
+      const qs = cut && k > 1 ? butterQs(k) : [b.q];
+      for (let j = 0; j < k; j++) {
+        const s = secs[j];
+        switch (b.shape) {
+          case IMX_EQ_HIGH_PASS: s.highPass(b.freq, qs[j], rate); break;
+          case IMX_EQ_LOW_PASS: s.lowPass(b.freq, qs[j], rate); break;
+          case IMX_EQ_LOW_SHELF: s.lowShelf(b.freq, b.gainDb, b.q, rate); break;
+          case IMX_EQ_HIGH_SHELF: s.highShelf(b.freq, b.gainDb, b.q, rate); break;
+          case IMX_EQ_NOTCH: s.notch(b.freq, b.q, rate); break;
+          default: s.peaking(b.freq, b.gainDb, b.q, rate); break;
+        }
+        this.live.push(s);
+      }
+    }
+  }
+  reset() { for (const secs of this.bands) for (const s of secs) s.reset(); }
+  get memory() { return 0; }
+  process(data, stride, n0, n1, ctx) {
+    const live = this.live;
+    if (live.length === 0) return;
+    for (let c = 0; c < ctx.nch; c++) {
+      const o = c * stride;
+      for (let n = n0; n < n1; n++) {
+        let y = data[o + n];
+        for (let i = 0; i < live.length; i++) y = live[i].run(c, y);
+        data[o + n] = y;
+      }
+    }
+  }
+  /** Magnitude response at `freq` (dB) — for the display. */
+  responseDb(freq, rate) {
+    let db = 0;
+    for (const s of this.live) db += biquadDb(s, freq, rate);
+    return db;
+  }
+}
+
+/**
+ * Dynamic equaliser. Each band is a SENSOR and an ACTOR. The actor is a shelf
+ * or a bell whose gain is the band's static gain plus a dynamic part; the
+ * sensor (low-pass for the low shelf, high-pass for the high one, band-pass
+ * for the bells) is what hears the level that drives that dynamic part — at
+ * the actor's own frequency, or, unlinked, at a range of its own. Above the
+ * threshold the dynamic part e moves toward (level − threshold)·(1 − 1/ratio)
+ * dB, at most `range`, downward (a cut) or upward (a boost), with the attack
+ * and release a compressor has; the actor applies e × 10^(actor gain / 20),
+ * so the actor gain scales every movement (0 dB = as computed). The sensor is
+ * linked across the bus, like every dynamics detector here.
+ *
+ * The act filter's coefficients follow the gain every IMX_CONTROL_PERIOD
+ * samples.
+ */
+class ImxDeq {
+  constructor(nch) {
+    this.nch = nch;
+    this.act = [];
+    this.sense = [];
+    for (let i = 0; i < IMX_DEQ_BANDS; i++) {
+      this.act.push(new Biquad(nch));
+      this.sense.push(new Biquad(nch));
+    }
+    this.env = new Float64Array(IMX_DEQ_BANDS);   // dynamic gain, dB (signed), before the actor gain
+    this.actor = new Float64Array(IMX_DEQ_BANDS).fill(1);  // 10^(actorDb/20): what the actor multiplies e by
+    this.ctl = 0;
+    this.p = null;
+    this.rate = SAMPLING_RATE;
+    this.atk = new Float64Array(IMX_DEQ_BANDS);
+    this.rel = new Float64Array(IMX_DEQ_BANDS);
+    this.live = [];
+    this.gr = new Float64Array(IMX_DEQ_BANDS);    // reading for the meter
+    this.lvl = new Float64Array(IMX_DEQ_BANDS).fill(-120);  // loudest sense level of the span, dB
+  }
+  configure(p, rate) {
+    this.p = p;
+    this.rate = rate;
+    this.live = [];
+    for (let i = 0; i < IMX_DEQ_BANDS; i++) {
+      const b = p.bands[i];
+      if (!b.on) continue;
+      this.live.push(i);
+      this.atk[i] = onePole(b.attackMs, rate);
+      this.actor[i] = dbToGain(b.actorDb);
+      this.rel[i] = onePole(b.releaseMs, rate);
+      const s = this.sense[i];
+      if (i === IMX_DEQ_LOW_SHELF_BAND) s.lowPass(b.senseFreq, b.senseQ, rate);
+      else if (i === IMX_DEQ_HIGH_SHELF_BAND) s.highPass(b.senseFreq, b.senseQ, rate);
+      else s.bandPass(b.senseFreq, b.senseQ, rate);
+      this._setAct(i);
+    }
+  }
+  _setAct(i) {
+    const b = this.p.bands[i];
+    const g = b.gainDb + this.env[i] * this.actor[i];
+    const s = this.act[i];
+    if (i === IMX_DEQ_LOW_SHELF_BAND) s.lowShelf(b.freq, g, b.q, this.rate);
+    else if (i === IMX_DEQ_HIGH_SHELF_BAND) s.highShelf(b.freq, g, b.q, this.rate);
+    else s.peaking(b.freq, g, b.q, this.rate);
+  }
+  reset() {
+    for (const s of this.act) s.reset();
+    for (const s of this.sense) s.reset();
+    this.env.fill(0);
+    this.ctl = 0;
+    this.gr.fill(0);
+    if (this.p) for (const i of this.live) this._setAct(i);
+  }
+  get memory() { return 0; }
+  process(data, stride, n0, n1, ctx) {
+    const live = this.live;
+    if (live.length === 0) return;
+    const nch = ctx.nch;
+    const bands = this.p.bands;
+    this.gr.fill(0);
+    this.lvl.fill(-120);
+    for (let n = n0; n < n1; n++) {
+      if (this.ctl === 0) for (const i of live) this._setAct(i);
+      this.ctl = this.ctl + 1 === IMX_CONTROL_PERIOD ? 0 : this.ctl + 1;
+      for (let k = 0; k < live.length; k++) {
+        const i = live[k];
+        const b = bands[i];
+        // Sense on the band's INPUT (the bands run in series, so each one
+        // listens to what the bands before it have left).
+        let level = 0;
+        for (let c = 0; c < nch; c++) {
+          const sv = this.sense[i].run(c, data[c * stride + n]);
+          const a = sv < 0 ? -sv : sv;
+          if (a > level) level = a;
+        }
+        const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
+        if (levelDb > this.lvl[i]) this.lvl[i] = levelDb;
+        const over = levelDb - b.threshDb;
+        let amt = over > 0 ? over * (1 - 1 / b.ratio) : 0;
+        if (amt > b.rangeDb) amt = b.rangeDb;
+        const target = b.boost ? amt : -amt;
+        const cur = this.env[i];
+        const away = (target < 0 ? -target : target) > (cur < 0 ? -cur : cur);
+        this.env[i] = cur + (target - cur) * (away ? this.atk[i] : this.rel[i]);
+        // The meter reads what the actor applies.
+        const e = this.env[i] * this.actor[i];
+        if ((e < 0 ? -e : e) > (this.gr[i] < 0 ? -this.gr[i] : this.gr[i])) this.gr[i] = e;
+        const s = this.act[i];
+        for (let c = 0; c < nch; c++) {
+          const j = c * stride + n;
+          data[j] = s.run(c, data[j]);
+        }
+      }
+    }
+  }
+  /** Static response (every live band at its static gain plus its CURRENT
+   *  dynamic gain) — what the display draws. */
+  responseDb(freq, rate) {
+    let db = 0;
+    for (const i of this.live) db += biquadDb(this.act[i], freq, rate);
+    return db;
+  }
+  /** For a display copy only: put the bands' dynamic gains (dB per band, as
+   *  the meter reads them; null = at rest) into the act filters, so
+   *  responseDb draws the equaliser as it stands at that moment. */
+  showGains(env) {
+    // `env` is the APPLIED dynamic gain (the meter's), so the actor comes back out.
+    if (env) for (let i = 0; i < IMX_DEQ_BANDS; i++) this.env[i] = env[i] / this.actor[i];
+    else this.env.fill(0);
+    if (this.p) for (const i of this.live) this._setAct(i);
+  }
+}
+
+/**
+ * Compressor, one to six bands. One band is an ordinary compressor (the
+ * mastering chain's, with its detector linked across the bus). More is a
+ * multiband one: Linkwitz–Riley 4th-order crossovers in a cascade —
+ * band k is the low side of crossover k taken from the high side of k − 1 —
+ * and each band then passes through the all-pass of every LATER crossover, so
+ * all of them carry the same phase and their sum, uncompressed, is the input
+ * through one all-pass per crossover. That sum is also what the dry signal is
+ * for a multiband compressor's wet/dry: mixing against the untouched input
+ * would put notches at every crossover.
+ */
+class ImxComp {
+  constructor(nch) {
+    this.nch = nch;
+    this.bandsN = 0;
+    this.lp = []; this.hp = []; this.ap = [];  // per crossover: [s1, s2] / per band: Biquad[]
+    this.comps = [];
+    this.bufs = null;                          // per band, channel-major span scratch
+    this.cap = 0;
+    this.p = null;
+    this.gr = new Float64Array(IMX_COMP_MAX_BANDS);
+    this.lvl = new Float64Array(IMX_COMP_MAX_BANDS).fill(-120);  // loudest detector reading of the span, dB
+    this.showGr = new Float64Array(IMX_COMP_MAX_BANDS);
+  }
+  configure(p, rate) {
+    this.p = p;
+    const n = p.bands.length;
+    if (n !== this.bandsN) {
+      this.bandsN = n;
+      this.lp = []; this.hp = []; this.ap = [];
+      for (let k = 0; k < n - 1; k++) {
+        this.lp.push([new Biquad(this.nch), new Biquad(this.nch)]);
+        this.hp.push([new Biquad(this.nch), new Biquad(this.nch)]);
+      }
+      for (let k = 0; k < n; k++) {
+        const aps = [];
+        for (let j = k + 1; j < n - 1; j++) aps.push(new Biquad(this.nch));
+        this.ap.push(aps);
+      }
+      this.comps = [];
+      for (let k = 0; k < n; k++) this.comps.push(new CompressorStage());
+      this.bufs = null;
+    }
+    for (let k = 0; k < n - 1; k++) {
+      const f = p.crossovers[k];
+      for (const s of this.lp[k]) s.lowPass(f, Math.SQRT1_2, rate);
+      for (const s of this.hp[k]) s.highPass(f, Math.SQRT1_2, rate);
+    }
+    for (let k = 0; k < n; k++) {
+      for (let j = k + 1; j < n - 1; j++) this.ap[k][j - k - 1].allPass(p.crossovers[j], Math.SQRT1_2, rate);
+      const b = p.bands[k];
+      this.comps[k].configure({
+        compDetector: p.detector, compThreshDb: b.threshDb, compRatio: b.ratio,
+        compAttackMs: b.attackMs, compReleaseMs: b.releaseMs, compKneeDb: b.kneeDb,
+        compMakeupDb: b.makeupDb,
+      }, rate);
+    }
+  }
+  reset() {
+    for (const pair of this.lp) for (const s of pair) s.reset();
+    for (const pair of this.hp) for (const s of pair) s.reset();
+    for (const aps of this.ap) for (const s of aps) s.reset();
+    for (const c of this.comps) c.reset();
+    this.gr.fill(0);
+  }
+  get memory() { return 0; }
+  _scratch(stride) {
+    if (this.bufs === null || this.cap !== stride) {
+      this.cap = stride;
+      this.bufs = [];
+      for (let k = 0; k < this.bandsN; k++) this.bufs.push(new Float64Array(this.nch * stride));
+    }
+    return this.bufs;
+  }
+  process(data, stride, n0, n1, ctx) {
+    const nch = ctx.nch;
+    const p = this.p;
+    const n = this.bandsN;
+    const dry = ctx.dry;
+    this.gr.fill(0);
+    this.lvl.fill(-120);
+    if (n === 1) {
+      if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+      const comp = this.comps[0];
+      if (p.bands[0].on) {
+        for (let i = n0; i < n1; i++) {
+          const g = comp.stepPlanar(data, i, stride, nch);
+          for (let c = 0; c < nch; c++) data[c * stride + i] *= g;
+          if (comp.grDb < this.gr[0]) this.gr[0] = comp.grDb;
+          if (comp.levelDb > this.lvl[0]) this.lvl[0] = comp.levelDb;
+        }
+      }
+      mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+      return;
+    }
+    const bufs = this._scratch(stride);
+    // Split: rest ← input; band k ← LR4 low of rest; rest ← LR4 high of rest.
+    for (let c = 0; c < nch; c++) {
+      const o = c * stride;
+      for (let i = n0; i < n1; i++) {
+        let rest = data[o + i];
+        for (let k = 0; k < n - 1; k++) {
+          const [l1, l2] = this.lp[k];
+          const [h1, h2] = this.hp[k];
+          bufs[k][o + i] = l2.run(c, l1.run(c, rest));
+          rest = h2.run(c, h1.run(c, rest));
+        }
+        bufs[n - 1][o + i] = rest;
+        // Phase-match each band to the crossovers it did not pass through.
+        for (let k = 0; k < n - 2; k++) {
+          let y = bufs[k][o + i];
+          const aps = this.ap[k];
+          for (let j = 0; j < aps.length; j++) y = aps[j].run(c, y);
+          bufs[k][o + i] = y;
+        }
+      }
+    }
+    // The dry reference: the bands summed untouched.
+    if (dry > 0) {
+      for (let c = 0; c < nch; c++) {
+        const o = c * stride;
+        for (let i = n0; i < n1; i++) {
+          let s = 0;
+          for (let k = 0; k < n; k++) s += bufs[k][o + i];
+          ctx.dryBuf[o + i] = s;
+        }
+      }
+    }
+    for (let k = 0; k < n; k++) {
+      if (!p.bands[k].on) continue;   // an unused band passes, unprocessed
+      const comp = this.comps[k];
+      const b = bufs[k];
+      for (let i = n0; i < n1; i++) {
+        const g = comp.stepPlanar(b, i, stride, nch);
+        for (let c = 0; c < nch; c++) b[c * stride + i] *= g;
+        if (comp.grDb < this.gr[k]) this.gr[k] = comp.grDb;
+        if (comp.levelDb > this.lvl[k]) this.lvl[k] = comp.levelDb;
+      }
+    }
+    for (let c = 0; c < nch; c++) {
+      const o = c * stride;
+      for (let i = n0; i < n1; i++) {
+        let s = 0;
+        for (let k = 0; k < n; k++) s += bufs[k][o + i];
+        data[o + i] = s;
+      }
+    }
+    mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+  }
+  /** For a display copy only: the bands' gain reductions (dB, ≤ 0; null = at
+   *  rest) that responseDb draws the compressor at. */
+  showGains(gr) {
+    if (gr) this.showGr.set(gr.subarray ? gr.subarray(0, IMX_COMP_MAX_BANDS) : gr);
+    else this.showGr.fill(0);
+  }
+  /**
+   * The compressor's response at `freq` (dB) at the gains showGains gave it:
+   * every band at its reduction plus its make-up, weighted by its crossover
+   * magnitudes, and the wet/dry against the dry sum. The bands carry one
+   * phase (the all-pass matching above), so their magnitudes add.
+   */
+  responseDb(freq, rate) {
+    const p = this.p;
+    const n = this.bandsN;
+    if (!p || n === 0) return 0;
+    let sum = 0;
+    for (let k = 0; k < n; k++) {
+      let m = 1;
+      // An LR4 section pair is one Butterworth section squared.
+      for (let j = 0; j < k; j++) m *= 10 ** (biquadDb(this.hp[j][0], freq, rate) / 10);
+      if (k < n - 1) m *= 10 ** (biquadDb(this.lp[k][0], freq, rate) / 10);
+      const b = p.bands[k];
+      sum += (b.on ? dbToGain(this.showGr[k] + b.makeupDb) : 1) * m;
+    }
+    const d = p.dry / 255;
+    const y = sum * (1 - d) + d;
+    return y > 1e-9 ? 20 * Math.log10(y) : -180;
+  }
+}
+
+/**
+ * The saturator's static transfer at input sample `x` — drive, trims, bias,
+ * curve and wet/dry, with the bias's own offset taken out the way the DC
+ * blocker takes it out of a steady signal. For the display; the audio path
+ * runs the anti-aliased form in ImxSat.
+ */
+function imxSatTransfer(p, x) {
+  const u = x * dbToGain(p.inDb) * dbToGain(p.driveDb) + p.bias;
+  const wet = (satF(p.curve, u) - satF(p.curve, p.bias)) * dbToGain(p.outDb);
+  const d = p.dry / 255;
+  return wet * (1 - d) + x * d;
+}
+
+// Saturator transfer functions f and their antiderivatives F (F(0) = 0) —
+// the pair first-order antiderivative anti-aliasing needs:
+//   y[n] = (F(u[n]) − F(u[n−1])) / (u[n] − u[n−1])
+// which is the mean of f over the segment the signal just travelled, and
+// falls back to f at the midpoint when the segment is too short to divide by.
+const LN2 = Math.LN2;
+function lnCosh(x) {
+  const a = x < 0 ? -x : x;
+  return a + Math.log1p(Math.exp(-2 * a)) - LN2;
+}
+function satF(curve, x) {
+  switch (curve) {
+    case IMX_SAT_SOFT:
+      if (x >= 1) return 1;
+      if (x <= -1) return -1;
+      return 1.5 * (x - (x * x * x) / 3);
+    case IMX_SAT_HARD: return x > 1 ? 1 : x < -1 ? -1 : x;
+    case IMX_SAT_TUBE: return x >= 0 ? Math.tanh(x) : 0.5 * Math.tanh(2 * x);
+    case IMX_SAT_FOLD: return Math.sin(x);
+    default: return Math.tanh(x);
+  }
+}
+function satAD(curve, x) {
+  switch (curve) {
+    case IMX_SAT_SOFT: {
+      const a = x < 0 ? -x : x;
+      if (a >= 1) return a - 0.375;
+      const x2 = x * x;
+      return 1.5 * (x2 * 0.5 - (x2 * x2) / 12);
+    }
+    case IMX_SAT_HARD: {
+      const a = x < 0 ? -x : x;
+      return a > 1 ? a - 0.5 : x * x * 0.5;
+    }
+    case IMX_SAT_TUBE: return x >= 0 ? lnCosh(x) : 0.25 * lnCosh(2 * x);
+    case IMX_SAT_FOLD: return 1 - Math.cos(x);
+    default: return lnCosh(x);
+  }
+}
+const SAT_EPS = 1e-5;
+
+class ImxSat {
+  constructor(nch) {
+    this.nch = nch;
+    this.u1 = new Float64Array(nch);      // previous shaper input, per channel
+    this.dcX = new Float64Array(nch);
+    this.dcY = new Float64Array(nch);
+    this.p = null;
+    this.gIn = 1; this.gOut = 1; this.fb = 0; this.dcR = 0;
+  }
+  configure(p, rate) {
+    this.p = p;
+    this.gIn = dbToGain(p.inDb) * dbToGain(p.driveDb);
+    this.gOut = dbToGain(p.outDb);
+    this.fb = satF(p.curve, p.bias);
+    // A 5 Hz DC blocker follows an asymmetric curve: the offset an uneven
+    // shape adds depends on the signal, so f(bias) alone cannot remove it.
+    this.dcR = 1 - (2 * Math.PI * 5) / rate;
+    if (this._curve !== p.curve || this._bias !== p.bias) {
+      this._curve = p.curve; this._bias = p.bias;
+      this.u1.fill(p.bias);
+    }
+  }
+  reset() {
+    this.u1.fill(this.p ? this.p.bias : 0);
+    this.dcX.fill(0); this.dcY.fill(0);
+  }
+  get memory() { return 0; }
+  process(data, stride, n0, n1, ctx) {
+    const p = this.p;
+    const nch = ctx.nch;
+    const dry = ctx.dry;
+    if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+    const curve = p.curve, bias = p.bias, gIn = this.gIn, gOut = this.gOut, fb = this.fb;
+    const dc = bias !== 0 || curve === IMX_SAT_TUBE;
+    const R = this.dcR;
+    for (let c = 0; c < nch; c++) {
+      const o = c * stride;
+      let u1 = this.u1[c];
+      let F1 = satAD(curve, u1);
+      let dx = this.dcX[c], dy = this.dcY[c];
+      for (let n = n0; n < n1; n++) {
+        const u = data[o + n] * gIn + bias;
+        const d = u - u1;
+        let y;
+        let F0;
+        if (d > SAT_EPS || d < -SAT_EPS) {
+          F0 = satAD(curve, u);
+          y = (F0 - F1) / d;
+        } else {
+          F0 = satAD(curve, u);
+          y = satF(curve, (u + u1) * 0.5);
+        }
+        u1 = u; F1 = F0;
+        y -= fb;
+        if (dc) {
+          const yy = y - dx + R * dy;
+          dx = y; dy = yy; y = yy;
+        }
+        data[o + n] = y * gOut;
+      }
+      this.u1[c] = u1;
+      this.dcX[c] = dx; this.dcY[c] = dy;
+    }
+    mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+  }
+}
+
+/** The window a unison voice's pitch shifter sweeps, in seconds. */
+const UNIS_WINDOW_SEC = 0.025;
+
+/**
+ * Where voice k of n sits in [−1, 1]: uniform spacing blended toward the
+ * quantiles of a raised-cosine (bell) distribution, which crowds the voices
+ * toward the centre. For n < 4 the two coincide — two voices are the two
+ * edges and a third is the centre whatever the spacing.
+ */
+function unisonPositions(n, spacing) {
+  const out = new Float64Array(n);
+  // Below four voices the two spacings place the voices identically, and the
+  // uniform positions are the exact ones.
+  if (n < 4) spacing = 0;
+  for (let k = 0; k < n; k++) {
+    const q = n === 1 ? 0.5 : k / (n - 1);
+    const u = 2 * q - 1;
+    // F(x) = (x + 1)/2 + sin(πx)/(2π) is the bell's CDF on [−1, 1]; invert by
+    // bisection (monotone, and 64 halvings reach binary64's resolution).
+    let lo = -1, hi = 1;
+    for (let it = 0; it < 64; it++) {
+      const mid = (lo + hi) * 0.5;
+      const F = (mid + 1) * 0.5 + Math.sin(Math.PI * mid) / (2 * Math.PI);
+      if (F < q) lo = mid; else hi = mid;
+    }
+    const b = q === 0 ? -1 : q === 1 ? 1 : (lo + hi) * 0.5;
+    out[k] = (1 - spacing) * u + spacing * b;
+  }
+  return out;
+}
+
+/**
+ * Unison: 2…8 copies of the bus, each pitch-shifted by its share of the detune
+ * and, on a stereo bus, panned by its share of the width. A copy is a
+ * delay-line pitch shifter: two taps half a window apart sweeping the window
+ * at (1 − ratio) samples per sample, crossfaded by sin². The sweep is a U32
+ * phase (the accumulating quantity, so fixed point), its increment recomputed
+ * every IMX_CONTROL_PERIOD samples from the LFO-modulated detune.
+ *
+ * The copies sum at 1/√n, which holds the power of n uncorrelated copies at
+ * the input's. On a bus that is not a stereo pair the width means nothing and
+ * every copy keeps its channels.
+ */
+class ImxUnison {
+  constructor(nch) {
+    this.nch = nch;
+    this.len = 0;
+    this.buf = null;
+    this.w = 0;
+    this.win = 0;
+    this.phase = new Float64Array(IMX_UNIS_MAX_VOICES);
+    this.inc = new Float64Array(IMX_UNIS_MAX_VOICES);
+    this.pan = new Float64Array(IMX_UNIS_MAX_VOICES);
+    this.pos = null;
+    this.lfoD = new ImxLfo();
+    this.lfoW = new ImxLfo();
+    this.ctl = 0;
+    this.p = null;
+    this.rate = SAMPLING_RATE;
+    // The detune (cents) and width the last control period set: the meter's.
+    this.curCents = 0;
+    this.curWidth = 0;
+  }
+  configure(p, rate) {
+    this.p = p;
+    this.rate = rate;
+    const win = Math.round(UNIS_WINDOW_SEC * rate);
+    if (win !== this.win) {
+      this.win = win;
+      this.len = win + 8;
+      this.buf = new Float64Array(this.nch * this.len);
+      this.w = 0;
+    }
+    this.pos = unisonPositions(p.voices, p.spacing);
+    this.lfoD.configure(p.detuneLfo);
+    this.lfoW.configure(p.widthLfo);
+    this.ctl = 0;
+  }
+  reset() {
+    if (this.buf) this.buf.fill(0);
+    this.w = 0;
+    // Staggered start: voices that began in step would comb against each
+    // other until their sweeps drifted apart.
+    for (let k = 0; k < IMX_UNIS_MAX_VOICES; k++) this.phase[k] = Math.floor((k * TWO32) / IMX_UNIS_MAX_VOICES);
+    this.lfoD.reset();
+    this.lfoW.reset();
+    this.ctl = 0;
+  }
+  get memory() { return this.len; }
+  retrigger() {
+    if (this.p.detuneLfo.retrigger) this.lfoD.phase = 0;
+    if (this.p.widthLfo.retrigger) this.lfoW.phase = 0;
+  }
+  skip(frames, ctx) {
+    this.lfoD.tempo(ctx.bpm, this.rate); this.lfoW.tempo(ctx.bpm, this.rate);
+    this.lfoD.skip(frames); this.lfoW.skip(frames);
+  }
+  _control() {
+    const p = this.p;
+    const nv = p.voices;
+    const dl = this.lfoD.value() * p.detuneLfo.depth;
+    const wl = this.lfoW.value() * p.widthLfo.depth;
+    let cents = p.detune * (1 + dl);
+    cents = cents < 0 ? 0 : cents > 100 ? 100 : cents;
+    let width = p.width * (1 + wl);
+    width = width < 0 ? 0 : width > 1 ? 1 : width;
+    this.curCents = cents;
+    this.curWidth = width;
+    for (let k = 0; k < nv; k++) {
+      const r = 2 ** ((this.pos[k] * cents) / 1200);
+      // The sweep moves (1 − r) samples per sample across a window of `win`:
+      // as a U32 phase, (1 − r)·2^32 / win, rounded to an integer.
+      this.inc[k] = Math.round(((1 - r) * TWO32) / this.win);
+      this.pan[k] = this.pos[k] * width;
+    }
+  }
+  process(data, stride, n0, n1, ctx) {
+    const p = this.p;
+    const nch = ctx.nch;
+    const nv = p.voices;
+    const dry = ctx.dry;
+    if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+    this.lfoD.tempo(ctx.bpm, this.rate);
+    this.lfoW.tempo(ctx.bpm, this.rate);
+    const len = this.len, win = this.win, buf = this.buf;
+    const norm = 1 / Math.sqrt(nv);
+    const stereo = ctx.stereo && nch === 2;
+    for (let n = n0; n < n1; n++) {
+      if (this.ctl === 0) this._control();
+      this.ctl = this.ctl + 1 === IMX_CONTROL_PERIOD ? 0 : this.ctl + 1;
+      this.lfoD.step();
+      this.lfoW.step();
+      const w = this.w;
+      for (let c = 0; c < nch; c++) buf[c * len + w] = data[c * stride + n];
+      // Each voice's two taps, crossfaded.
+      if (stereo) {
+        let L = 0, R = 0;
+        for (let k = 0; k < nv; k++) {
+          const ph = this.phase[k];
+          const ph2 = ph >= 2147483648 ? ph - 2147483648 : ph + 2147483648;
+          const g1 = xfadeAt(ph);
+          const d1 = 2 + (ph / TWO32) * win;
+          const d2 = 2 + (ph2 / TWO32) * win;
+          const yl = hermiteRead(buf, 0, len, w, d1) * g1 + hermiteRead(buf, 0, len, w, d2) * (1 - g1);
+          const yr = hermiteRead(buf, len, len, w, d1) * g1 + hermiteRead(buf, len, len, w, d2) * (1 - g1);
+          // Stereo pan: a pair moved as a pair, its image intact at the centre.
+          const pp = this.pan[k];
+          if (pp >= 0) { L += yl * (1 - pp); R += yr + yl * pp; }
+          else { L += yl + yr * -pp; R += yr * (1 + pp); }
+          let nx = ph + this.inc[k];
+          if (nx >= TWO32) nx -= TWO32; else if (nx < 0) nx += TWO32;
+          this.phase[k] = nx;
+        }
+        data[n] = L * norm;
+        data[stride + n] = R * norm;
+      } else {
+        for (let c = 0; c < nch; c++) {
+          let s = 0;
+          for (let k = 0; k < nv; k++) {
+            const ph = this.phase[k];
+            const ph2 = ph >= 2147483648 ? ph - 2147483648 : ph + 2147483648;
+            const g1 = xfadeAt(ph);
+            s += hermiteRead(buf, c * len, len, w, 2 + (ph / TWO32) * win) * g1 +
+              hermiteRead(buf, c * len, len, w, 2 + (ph2 / TWO32) * win) * (1 - g1);
+          }
+          data[c * stride + n] = s * norm;
+        }
+        for (let k = 0; k < nv; k++) {
+          let nx = this.phase[k] + this.inc[k];
+          if (nx >= TWO32) nx -= TWO32; else if (nx < 0) nx += TWO32;
+          this.phase[k] = nx;
+        }
+      }
+      this.w = w + 1 === len ? 0 : w + 1;
+    }
+    mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+  }
+}
+
+/** Delay lines of the reverb at size 1, 48 kHz — mutually prime, 51…104 ms. */
+const VERB_LINES = [2473, 2767, 3217, 3557, 3907, 4127, 4639, 4999];
+/** Input diffusers (Schroeder all-passes), 48 kHz lengths. */
+const VERB_DIFFUSERS = [245, 371, 479, 605];
+const VERB_DIFFUSE_G = 0.5;
+
+/**
+ * Reverb: an eight-line feedback delay network with a Householder matrix
+ * (orthogonal, so the loop's energy is set by the line gains alone), a
+ * one-pole damping low-pass in every line, line gains from the decay time
+ * (−60 dB after `decay` seconds: g = 10^(−3·len / (decay·fs))), four
+ * Schroeder all-passes of input diffusion and a pre-delay.
+ *
+ * A stereo bus feeds its left channel to the even lines and its right to the
+ * odd ones and takes them back the same way. Any other bus feeds the network
+ * the mean of its channels and gives channel c the output of line c mod 8 —
+ * eight mutually decorrelated outputs spread over the field, which is what a
+ * diffuse tail is.
+ */
+class ImxVerb {
+  constructor(nch) {
+    this.nch = nch;
+    this.rate = 0;
+    this.lines = [];
+    this.lens = new Int32Array(8);
+    this.pos = new Int32Array(8);
+    this.g = new Float64Array(8);
+    this.z = new Float64Array(8);
+    this.damp = 0;
+    this.diff = [];
+    this.dpos = [];
+    this.pre = null; this.preLen = 0; this.prePos = 0; this.preD = 0;
+    this.p = null;
+    this.ins = 2;
+    this.o = new Float64Array(8);
+    this.f = new Float64Array(8);
+  }
+  configure(p, rate) {
+    this.p = p;
+    this.ins = this.nch === 2 ? 2 : 1;
+    if (rate !== this.rate || this.lines.length === 0) {
+      this.rate = rate;
+      this.lines = VERB_LINES.map((l) => new Float64Array(Math.ceil((l * rate) / 48000) + 2));
+      this.diff = [];
+      this.dpos = [];
+      for (let c = 0; c < this.ins; c++) {
+        this.diff.push(VERB_DIFFUSERS.map((l) => new Float64Array(Math.max(1, Math.round((l * rate) / 48000)))));
+        this.dpos.push(new Int32Array(VERB_DIFFUSERS.length));
+      }
+      this.preLen = Math.ceil(IMX_PREDELAY_MAX_SEC * rate) + 2;
+      this.pre = new Float64Array(this.ins * this.preLen);
+    }
+    const scale = (0.15 + 0.85 * p.size) * (rate / 48000);
+    for (let i = 0; i < 8; i++) {
+      const len = Math.max(16, Math.min(this.lines[i].length - 1, Math.round(VERB_LINES[i] * scale)));
+      this.lens[i] = len;
+      this.g[i] = 10 ** ((-3 * len) / (p.decay * rate));
+      if (this.pos[i] >= this.lines[i].length) this.pos[i] = 0;
+    }
+    this.damp = 1 - Math.exp((-2 * Math.PI * p.damping) / rate);
+    // Pre-delay in whole samples, from 16.16 seconds: floor(P·fs / 2^16).
+    this.preD = Math.min(this.preLen - 1, Math.floor((p.preDelay * rate) / FX16));
+  }
+  reset() {
+    for (const l of this.lines) l.fill(0);
+    this.pos.fill(0);
+    this.z.fill(0);
+    for (const ds of this.diff) for (const d of ds) d.fill(0);
+    for (const dp of this.dpos) dp.fill(0);
+    if (this.pre) this.pre.fill(0);
+    this.prePos = 0;
+  }
+  get memory() {
+    let m = this.preD;
+    for (let i = 0; i < 8; i++) m += this.lens[i];
+    for (const l of VERB_DIFFUSERS) m += Math.round((l * this.rate) / 48000);
+    return m;
+  }
+  _diffuse(c, x) {
+    const ds = this.diff[c];
+    const dp = this.dpos[c];
+    for (let i = 0; i < ds.length; i++) {
+      const d = ds[i];
+      const k = dp[i];
+      const v = d[k];
+      const y = v - VERB_DIFFUSE_G * x;
+      d[k] = x + VERB_DIFFUSE_G * y;
+      dp[i] = k + 1 === d.length ? 0 : k + 1;
+      x = y;
+    }
+    return x;
+  }
+  process(data, stride, n0, n1, ctx) {
+    const nch = ctx.nch;
+    const dry = ctx.dry;
+    if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+    const stereo = this.ins === 2;
+    const lines = this.lines, lens = this.lens, pos = this.pos, g = this.g, z = this.z;
+    const damp = this.damp;
+    const preLen = this.preLen, preD = this.preD;
+    const o = this.o, f = this.f;
+    for (let n = n0; n < n1; n++) {
+      // Inputs: per channel (stereo) or the mean of every channel.
+      let inL, inR;
+      if (stereo) { inL = data[n]; inR = data[stride + n]; }
+      else {
+        let s = 0;
+        for (let c = 0; c < nch; c++) s += data[c * stride + n];
+        inL = s / nch; inR = 0;
+      }
+      // Pre-delay.
+      const pp = this.prePos;
+      const rp = pp - preD < 0 ? pp - preD + preLen : pp - preD;
+      this.pre[pp] = inL;
+      const dL = this.pre[rp];
+      let dR = 0;
+      if (stereo) { this.pre[preLen + pp] = inR; dR = this.pre[preLen + rp]; }
+      this.prePos = pp + 1 === preLen ? 0 : pp + 1;
+      const xL = this._diffuse(0, dL);
+      const xR = stereo ? this._diffuse(1, dR) : xL;
+      // Read each line, damp it (one pole) and give it its decay gain.
+      let sum = 0;
+      for (let i = 0; i < 8; i++) {
+        const line = lines[i];
+        let r = pos[i] - lens[i];
+        if (r < 0) r += line.length;
+        const v = line[r];
+        o[i] = v;
+        z[i] += (v - z[i]) * damp;
+        f[i] = z[i] * g[i];
+        sum += f[i];
+      }
+      // Householder (I − (2/8)·11ᵀ), written back with the input.
+      const h = sum * 0.25;
+      for (let i = 0; i < 8; i++) {
+        const line = lines[i];
+        const inj = stereo ? ((i & 1) === 0 ? xL : xR) : xL;
+        line[pos[i]] = f[i] - h + inj * 0.5;
+        pos[i] = pos[i] + 1 === line.length ? 0 : pos[i] + 1;
+      }
+      if (stereo) {
+        data[n] = 0.5 * (o[0] - o[2] + o[4] - o[6]);
+        data[stride + n] = 0.5 * (o[1] - o[3] + o[5] - o[7]);
+      } else {
+        for (let c = 0; c < nch; c++) data[c * stride + n] = (c & 8 ? -0.5 : 0.5) * o[c & 7];
+      }
+    }
+    mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+  }
+}
+
+// Wow and flutter: two fixed sines on the read delay, 16.16 Hz rates.
+const WOW_RATE = FX16 / 2;              // 0.5 Hz
+const FLUTTER_RATE = 6 * FX16 + FX16 / 2; // 6.5 Hz
+const WOW_SEC = 0.002;
+const FLUTTER_SEC = 0.00015;
+/** The glide toward a new delay time: 1/2048 of the distance per sample. */
+const GLIDE_SHIFT = 2048;
+
+/**
+ * Tape delay. The time is 16.16 seconds or 16.16 quarter ticks (and follows
+ * the tempo); the read head GLIDES to a new time instead of jumping — as a
+ * tape machine's does, so a tempo change bends the echoes rather than clicking
+ * them — by an integer 1/2048 of the remaining distance every sample, held in
+ * 1/65536-sample units. The feedback path runs through a low cut, a high cut
+ * and a soft saturator (tanh(g·x)/g); ping-pong crosses the feedback between
+ * the channels of a stereo pair and feeds the pair's mid into the left.
+ */
+class ImxDelay {
+  constructor(nch) {
+    this.nch = nch;
+    this.len = 0;
+    this.buf = null;
+    this.w = 0;
+    this.d = 0;        // current delay, 1/65536 samples (an integer)
+    this.t = 0;        // target, same units
+    this.started = false;
+    this.wow = 0; this.flutter = 0;
+    this.wowInc = 0; this.flutInc = 0;
+    this.lc = new Biquad(nch);
+    this.hc = new Biquad(nch);
+    this.fbs = new Float64Array(nch);
+    this.xs = new Float64Array(nch);
+    this.p = null;
+    this.rate = SAMPLING_RATE;
+    this.g = 1;
+  }
+  configure(p, rate) {
+    this.p = p;
+    if (rate !== this.rate || this.buf === null) {
+      this.rate = rate;
+      this.len = Math.ceil(IMX_DELAY_MAX_SEC * rate) + 16;
+      this.buf = new Float64Array(this.nch * this.len);
+      this.w = 0;
+      this.started = false;
+    }
+    this.lc.highPass(p.lowCut, Math.SQRT1_2, rate);
+    this.hc.lowPass(p.highCut, Math.SQRT1_2, rate);
+    this.g = dbToGain(p.driveDb);
+    this.wowInc = Math.floor((WOW_RATE * FX16) / rate);
+    this.flutInc = Math.floor((FLUTTER_RATE * FX16) / rate);
+    this._key = "";
+  }
+  reset() {
+    if (this.buf) this.buf.fill(0);
+    this.w = 0;
+    this.lc.reset(); this.hc.reset();
+    this.fbs.fill(0);
+    this.wow = 0; this.flutter = 0;
+    this.started = false;
+  }
+  get memory() { return this.len; }
+  /** The target delay in 1/65536 samples for this tempo. */
+  _target(bpm) {
+    const p = this.p;
+    const fs = this.rate;
+    let t;
+    if (p.sync) {
+      // P quarter ticks · (fs · 2.5 / bpm) / 4 samples, ×2^16: P·fs·5 / (8·bpm).
+      t = Math.floor((p.time * fs * 5) / (8 * bpm));
+    } else {
+      t = p.time * fs;     // 16.16 seconds × fs = samples × 2^16, exactly
+    }
+    const lo = 2 * FX16;
+    const hi = (this.len - 8) * FX16;
+    return t < lo ? lo : t > hi ? hi : t;
+  }
+  skip(frames) {
+    this.wow = (this.wow + this.wowInc * frames) % TWO32;
+    this.flutter = (this.flutter + this.flutInc * frames) % TWO32;
+  }
+  process(data, stride, n0, n1, ctx) {
+    const p = this.p;
+    const nch = ctx.nch;
+    const dry = ctx.dry;
+    if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+    this.t = this._target(ctx.bpm);
+    if (!this.started) { this.d = this.t; this.started = true; }
+    const len = this.len, buf = this.buf;
+    const fs = this.rate;
+    const fb = p.feedback, g = this.g;
+    const wowAmp = p.wow * WOW_SEC * fs;
+    const flutAmp = p.wow * FLUTTER_SEC * fs;
+    const pingPong = p.pingPong && ctx.stereo && nch === 2;
+    const fbs = this.fbs, xs = this.xs;
+    for (let n = n0; n < n1; n++) {
+      // Glide (integer arithmetic on exact binary64 integers).
+      const diff = this.t - this.d;
+      if (diff >= GLIDE_SHIFT || diff <= -GLIDE_SHIFT) this.d += Math.trunc(diff / GLIDE_SHIFT);
+      else this.d = this.t;
+      let delay = this.d / FX16;
+      if (wowAmp !== 0) {
+        delay += wowAmp * Math.sin((2 * Math.PI * this.wow) / TWO32) +
+          flutAmp * Math.sin((2 * Math.PI * this.flutter) / TWO32);
+      }
+      if (delay < 2) delay = 2;
+      this.wow += this.wowInc; if (this.wow >= TWO32) this.wow -= TWO32;
+      this.flutter += this.flutInc; if (this.flutter >= TWO32) this.flutter -= TWO32;
+      const w = this.w;
+      // Read every channel first (the write below may cross them). The
+      // newest sample in the line is the PREVIOUS one, so D samples of delay
+      // is D − 1 behind it.
+      for (let c = 0; c < nch; c++) {
+        xs[c] = data[c * stride + n];
+        const y = hermiteRead(buf, c * len, len, w === 0 ? len - 1 : w - 1, delay - 1);
+        let f = this.hc.run(c, this.lc.run(c, y * fb));
+        f = Math.tanh(g * f) / g;
+        fbs[c] = f;
+        data[c * stride + n] = y;
+      }
+      if (pingPong) {
+        const mid = (xs[0] + xs[1]) * 0.5;
+        buf[w] = mid + fbs[1];
+        buf[len + w] = fbs[0];
+      } else {
+        for (let c = 0; c < nch; c++) buf[c * len + w] = xs[c] + fbs[c];
+      }
+      this.w = w + 1 === len ? 0 : w + 1;
+    }
+    mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+  }
+}
+
+/** The mastering chain's look-ahead limiter, on the bus, after a gain. */
+class ImxLimiter {
+  constructor(nch) {
+    this.stage = new LimiterStage(nch);
+    this.g = 1;
+    this.gr = 0;
+  }
+  configure(p, rate) {
+    this.g = dbToGain(p.gainDb);
+    this.stage.configure({
+      limCeilingDb: p.ceilingDb, limTruePeak: p.truePeak, limReleaseMs: p.releaseMs,
+    }, rate);
+  }
+  reset() { this.stage.reset(); this.gr = 0; }
+  get memory() { return this.stage.latency; }
+  process(data, stride, n0, n1, ctx) {
+    const g = this.g;
+    const nch = ctx.nch;
+    this.stage.grDb = 0;
+    for (let n = n0; n < n1; n++) {
+      if (g !== 1) for (let c = 0; c < nch; c++) data[c * stride + n] *= g;
+      this.stage.stepPlanar(data, n, stride);
+    }
+    this.gr = this.stage.grDb;
+  }
+}
+
+/**
+ * Mix tool: DC removal, gain, stereo width (mid/side, skipped at exactly 1),
+ * channel swap and polarity. On a bus that is not a stereo pair the width and
+ * the swap mean nothing and are skipped, and the polarity can only be the whole
+ * field's: it is inverted when BOTH invert switches are on, and left alone
+ * otherwise. On an AMBISONIC bus the width is surround width (item 247): every
+ * channel but W (bus channel 0) is scaled by it, the mastering chain's rule.
+ * The DC blocker runs first, on every channel: Opus's dc_reject
+ * (`y = x − m`, then `m = a·x + (1 − a)·m`, a = IMX_DC_K × IMX_DC_HZ ÷ fs).
+ */
+class ImxMixTool {
+  constructor(nch) { this.p = null; this.g = 1; this.a = 0; this.m = new Float64Array(nch); }
+  configure(p, rate) {
+    this.p = p;
+    this.g = dbToGain(p.gainDb);
+    this.a = (IMX_DC_K * IMX_DC_HZ) / rate;
+  }
+  reset() { this.m.fill(0); }
+  get memory() { return 0; }
+  process(data, stride, n0, n1, ctx) {
+    const p = this.p;
+    const nch = ctx.nch;
+    const g = this.g;
+    if (p.removeDc) {
+      const a = this.a, b = 1 - a;
+      const mem = this.m;
+      for (let c = 0; c < nch; c++) {
+        const o = c * stride;
+        let m = mem[c];
+        for (let n = n0; n < n1; n++) {
+          const x = data[o + n];
+          data[o + n] = x - m;
+          m = a * x + b * m;
+        }
+        mem[c] = m;
+      }
+    }
+    if (ctx.stereo && nch === 2) {
+      const gl = (p.invL ? -g : g);
+      const gr = (p.invR ? -g : g);
+      const w = p.width;
+      for (let n = n0; n < n1; n++) {
+        let l = data[n], r = data[stride + n];
+        if (p.swap) { const t = l; l = r; r = t; }
+        if (w !== 1) {
+          const m = (l + r) * 0.5;
+          const s = (l - r) * 0.5 * w;
+          l = m + s; r = m - s;
+        }
+        data[n] = l * gl;
+        data[stride + n] = r * gr;
+      }
+      return;
+    }
+    if (ctx.ambisonic && p.width !== 1) {
+      const w = p.width;
+      for (let c = 1; c < nch; c++) {
+        const o = c * stride;
+        for (let n = n0; n < n1; n++) data[o + n] *= w;
+      }
+    }
+    const gg = p.invL && p.invR ? -g : g;
+    if (gg === 1) return;
+    for (let c = 0; c < nch; c++) {
+      const o = c * stride;
+      for (let n = n0; n < n1; n++) data[o + n] *= gg;
+    }
+  }
+}
+
+function makeStage(id, nch) {
+  switch (id) {
+    case IMX_ITRM: return new ImxTrim();
+    case IMX_EQU1: case IMX_EQU2: return new ImxEq(nch);
+    case IMX_DEQ1: case IMX_DEQ2: return new ImxDeq(nch);
+    case IMX_COMP: return new ImxComp(nch);
+    case IMX_SATU: return new ImxSat(nch);
+    case IMX_UNIS: return new ImxUnison(nch);
+    case IMX_VERB: return new ImxVerb(nch);
+    case IMX_DLAY: return new ImxDelay(nch);
+    case IMX_LIMI: return new ImxLimiter(nch);
+    case IMX_MXTL: return new ImxMixTool(nch);
+    default: throw new Error(`imix: unknown equipment ${id}`);
+  }
+}
+
+// ── The chain ───────────────────────────────────────────────────────────────
+
+/**
+ * One bus's chain: the block's equipment in its pipeline's order, running
+ * over that bus — one instrument's, or in bus mode every instrument's on the
+ * block. Stateful; one per bus per playhead. `process` runs a span of the bus in place, and the result does not
+ * depend on how the bus is cut into spans — every state, control counter and
+ * phase is per sample.
+ *
+ * `nch` is the bus's width and `stereo` whether it is a left/right pair (a
+ * stereo song, or the device's own render of a surround one) rather than a
+ * speaker layout or an ambisonic scene; `ambisonic` whether it is the last
+ * (channel 0 W, ACN order — an AmbiX export's, or the binaural monitor's).
+ */
+class InstrumentChain {
+  constructor(block, rate = SAMPLING_RATE, nch = 2, stereo = true, ambisonic = false) {
+    this.rate = rate;
+    this.nch = nch;
+    this.stereo = stereo;
+    this.ambisonic = ambisonic && !stereo && nch > 1;
+    this.stages = new Map();   // id → stage, kept across setBlock
+    this.active = [];          // [{id, stage, dry}] in pipeline order
+    this.dryBuf = null;
+    this.idle = true;
+    this.silentRun = 0;
+    this.idleAfter = 0;
+    this.block = null;
+    this.ctx = { nch, stereo, ambisonic: this.ambisonic, bpm: 125, dry: 0, dryBuf: null };
+    this._stride = 0;
+    /** The Mixing tab's tap while it meters this bus (else null): told the
+     *  span each piece is about to process, so it can record what goes in. */
+    this.probe = null;
+    this.setBlock(block);
+  }
+
+  /** Install a block's settings. Delay lines and envelopes are kept, so a
+   *  control moved during playback does not click. */
+  setBlock(block) {
+    const b = normaliseImixBlock(block);
+    this.block = b;
+    const order = IMX_PIPELINES[b.order] ?? IMX_PIPELINES[0];
+    const was = new Set(this.active.map((a) => a.id));
+    this.active = [];
+    let memory = 0;
+    for (const id of order) {
+      const e = b.equipment[id];
+      if (!e || e.bypass) continue;  // bypassed equipment is not processed at all
+      let stage = this.stages.get(id);
+      if (!stage) {
+        stage = makeStage(id, this.nch);
+        this.stages.set(id, stage);
+      }
+      stage.configure(e, this.rate);
+      // A piece coming (back) into the chain starts clean: whatever it held
+      // when it was bypassed is a different moment of the song.
+      if (!was.has(id)) stage.reset();
+      this.active.push({ id, stage, dry: IMX_WET_APPLICABLE.has(id) ? e.dry / 255 : 0 });
+      memory += stage.memory;
+    }
+    this.idleAfter = memory + Math.round(IMX_IDLE_MARGIN_SEC * this.rate);
+  }
+
+  /** Clear every delay line, envelope and phase (a transport reset, §15). */
+  reset() {
+    for (const s of this.stages.values()) s.reset();
+    this.idle = true;
+    this.silentRun = 0;
+  }
+
+  /** A note of an instrument on this bus has started: phase-reset its
+   *  retriggering LFOs. */
+  noteOn() {
+    const u = this.stages.get(IMX_UNIS);
+    if (u && u.p) u.retrigger();
+  }
+
+  _buffers(stride) {
+    if (this._stride !== stride || this.dryBuf === null) {
+      this._stride = stride;
+      this.dryBuf = new Float64Array(this.nch * stride);
+      this.ctx.dryBuf = this.dryBuf;
+    }
+  }
+
+  /**
+   * Run [n0, n1) of the bus in place. `fed` says whether any voice wrote into
+   * this span — a chain that is idle and was not fed does nothing at all (its
+   * output is the zeros already in the buffer) except keep its LFOs in time.
+   */
+  process(data, stride, n0, n1, bpm, fed) {
+    const nch = this.nch;
+    const frames = n1 - n0;
+    const ctx = this.ctx;
+    ctx.bpm = bpm;
+    if (this.idle) {
+      // Wake on the first non-zero SAMPLE, not at the top of the span: where
+      // a chain starts must not depend on where the span was cut. Before it,
+      // an idle chain only keeps its LFOs in time.
+      const m = fed ? firstSignal(data, nch, stride, n0, n1) : -1;
+      if (m < 0) {
+        for (const a of this.active) if (a.stage.skip) a.stage.skip(frames, ctx);
+        return;
+      }
+      if (m > n0) for (const a of this.active) if (a.stage.skip) a.stage.skip(m - n0, ctx);
+      n0 = m;
+      this.idle = false;
+      this.silentRun = 0;
+    }
+    this._buffers(stride);
+    // The last non-zero input sample of the span: the idle rule needs it.
+    let lastIn = -1;
+    for (let n = n1 - 1; n >= n0 && lastIn < 0; n--) {
+      for (let c = 0; c < nch; c++) if (data[c * stride + n] !== 0) { lastIn = n; break; }
+    }
+    const probe = this.probe;
+    for (const a of this.active) {
+      if (probe !== null) probe.stageIn(a.id, n0, n1);
+      ctx.dry = a.dry;
+      a.stage.process(data, stride, n0, n1, ctx);
+    }
+    // Idle rule: count the trailing run of samples that had no input AND
+    // left the chain below the idle level, sample by sample, so where the
+    // chain stops does not depend on where the span was cut.
+    for (let n = n0; n < n1; n++) {
+      let quiet = n > lastIn;
+      if (quiet) {
+        for (let c = 0; c < nch; c++) {
+          const y = data[c * stride + n];
+          if (y >= IMX_IDLE_LEVEL || y <= -IMX_IDLE_LEVEL) { quiet = false; break; }
+        }
+      }
+      if (!quiet) { this.silentRun = 0; continue; }
+      if (++this.silentRun >= this.idleAfter) {
+        // Idle from the NEXT sample: clear state, and the rest of the span is
+        // what a cleared chain fed silence produces — silence.
+        for (let m = n + 1; m < n1; m++) for (let c = 0; c < nch; c++) data[c * stride + m] = 0;
+        const remain = n1 - (n + 1);
+        for (const s of this.stages.values()) s.reset();
+        for (const a of this.active) if (a.stage.skip && remain > 0) a.stage.skip(remain, ctx);
+        this.idle = true;
+        this.silentRun = 0;
+        break;
+      }
+    }
+  }
+
+  /** Gain-reduction readings of the span just processed (dB), for the meter:
+   *  comp bands (≤ 0), the two dynamic EQs' bands (signed), the limiter (≤ 0);
+   *  and the loudest detector reading of every comp and dynamic-EQ band (dB,
+   *  −120 = nothing), which is what each band's threshold is compared with. */
+  readGr(out) {
+    out.comp.fill(0); out.deq1.fill(0); out.deq2.fill(0); out.lim = 0;
+    out.compLvl.fill(-120); out.deq1Lvl.fill(-120); out.deq2Lvl.fill(-120);
+    for (const a of this.active) {
+      if (a.id === IMX_COMP) { out.comp.set(a.stage.gr); out.compLvl.set(a.stage.lvl); }
+      else if (a.id === IMX_DEQ1) { out.deq1.set(a.stage.gr); out.deq1Lvl.set(a.stage.lvl); }
+      else if (a.id === IMX_DEQ2) { out.deq2.set(a.stage.gr); out.deq2Lvl.set(a.stage.lvl); }
+      else if (a.id === IMX_LIMI) out.lim = a.stage.gr;
+    }
+    return out;
+  }
+
+  /** The static magnitude response (dB) of the chain's equalisers, at `freq` —
+   *  both static EQs, and both dynamic EQs at their current gains. The
+   *  display's curve; the dynamics have no frequency response to draw. */
+  responseDb(freq) {
+    let db = 0;
+    for (const a of this.active) {
+      if (a.stage instanceof ImxEq || a.stage instanceof ImxDeq) db += a.stage.responseDb(freq, this.rate);
+    }
+    return db;
+  }
+
+  /** For a display copy: give piece `id` the dynamic gains the meter read
+   *  (a dynamic EQ's signed band gains, a compressor's reductions; null =
+   *  at rest) before stageResponseDb draws it. */
+  showGains(id, gains) {
+    const s = this.stages.get(id);
+    if (s && s.p && s.showGains) s.showGains(gains);
+  }
+
+  /** One piece's own magnitude response at `freq` (dB): an equaliser's, a
+   *  dynamic EQ's or a compressor's (at the gains showGains gave them). */
+  stageResponseDb(id, freq) {
+    const s = this.stages.get(id);
+    if (!s || !s.responseDb) return 0;
+    return s.responseDb(freq, this.rate);
+  }
+
+  /** The unison stage while it is in the chain (its curCents and curWidth
+   *  are what its last control period set), or null. */
+  unisonNow() {
+    for (const a of this.active) if (a.id === IMX_UNIS) return a.stage;
+    return null;
+  }
+}
+
+/** The first frame in [n0, n1) with a non-zero sample on any channel, or −1. */
+function firstSignal(data, nch, stride, n0, n1) {
+  for (let n = n0; n < n1; n++) {
+    for (let c = 0; c < nch; c++) if (data[c * stride + n] !== 0) return n;
+  }
+  return -1;
+}
+
+/** A gain-reduction readout object for InstrumentChain.readGr. */
+function makeImixGrReadout() {
+  return {
+    comp: new Float64Array(IMX_COMP_MAX_BANDS),
+    deq1: new Float64Array(IMX_DEQ_BANDS),
+    deq2: new Float64Array(IMX_DEQ_BANDS),
+    lim: 0,
+    compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
+    deq1Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
+    deq2Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
+  };
+}
+
+// ── Buses and routing ───────────────────────────────────────────────────────
+
+/** Slots a route table covers: the 1024 bank slots and the audition slot. */
+const IMX_ROUTE_SLOTS = 1025;
+
+/**
+ * One bus on one playhead: a chunk of channel-major binary64 (stride
+ * TRACKER_CHUNK) in the song's own channel layout — the stereo pair, or, in a
+ * surround song, the object bus's channels, filled through a SpatialBus of the
+ * same renderer so a voice lands in it exactly where it would have landed in
+ * the master — and the chain that runs over it. A separate-mode block gives
+ * every instrument naming it a bus of its own; a bus-mode block gives them ONE,
+ * which `slots` lists, ascending — `slot` is the first of them, and the place
+ * the bus takes in the mix.
+ */
+class InstrumentBus {
+  constructor(slot, block, master, rate) {
+    this.slot = slot;
+    this.slots = [slot];
+    this.blockId = block.id;
+    this.renderer = master === null ? null : master.renderer;
+    if (master === null) {
+      this.space = null;
+      this.nch = 2;
+      this.stereo = true;
+      this.data = new Float64Array(2 * TRACKER_CHUNK);
+    } else {
+      this.space = new SpatialBus(master.renderer, TRACKER_CHUNK);
+      this.nch = this.space.numChannels;
+      // The device renders a surround song through a StereoRenderer: its two
+      // channels ARE a left/right pair, and the stereo-only controls apply.
+      this.stereo = this.nch === 2 && master.renderer.name === "stereo";
+      this.data = this.space.data;
+    }
+    const scene = master !== null && /^(ambisonic|binaural)/.test(master.renderer.name);
+    this.chain = new InstrumentChain(block, rate, this.nch, this.stereo, scene);
+    /** Did any voice write into the current span? */
+    this.fed = false;
+  }
+
+  /** Zero frames [n0, n1) of every channel. */
+  clear(n0, n1) {
+    const d = this.data;
+    for (let c = 0; c < this.nch; c++) d.fill(0, c * TRACKER_CHUNK + n0, c * TRACKER_CHUNK + n1);
+    this.fed = false;
+  }
+}
+
+/**
+ * Rebuild a playhead's route table from the engine's blocks and instruments.
+ * A slot gets a bus when its record names a block that exists and is engaged
+ * (imixBlockEngaged); every other slot routes nowhere and its voices take the
+ * plain path. In bus mode the first slot naming the block makes the bus and
+ * every later one joins it. A bus that survives — same first slot, same layout
+ * — keeps its chain and is only re-set, so editing a block while the song plays
+ * keeps the reverb's tail ringing (switching a block's mode included: the first
+ * slot's bus carries on either way).
+ */
+function syncImixRoutes(eng, ts) {
+  ts.imixGen = eng.imixGen;
+  ts.imixRate = SAMPLING_RATE;
+  const master = ts.spatial;
+  const old = ts.imixBuses;
+  const next = new Map();
+  const shared = new Map(); // bus-mode block id → its bus
+  for (let slot = 1; slot < 1024; slot++) {
+    const id = eng.instruments[slot].imixId;
+    if (id === 0) continue;
+    const block = eng.imixBlocks.get(id);
+    if (block === undefined || !imixBlockEngaged(block)) continue;
+    if (block.bus) {
+      const joined = shared.get(id);
+      if (joined !== undefined) {
+        joined.slots.push(slot);
+        continue;
+      }
+    }
+    let bus = old.get(slot);
+    if (bus !== undefined && bus.renderer === (master === null ? null : master.renderer) &&
+        bus.chain.rate === SAMPLING_RATE) {
+      bus.blockId = id;
+      bus.chain.setBlock(block);
+    } else {
+      bus = new InstrumentBus(slot, block, master, SAMPLING_RATE);
+    }
+    bus.slots = [slot];
+    if (block.bus) shared.set(id, bus);
+    next.set(slot, bus);
+  }
+  ts.imixBuses = next;
+  ts.imixRoutes.fill(null);
+  ts.imixList = [];
+  for (const bus of next.values()) {
+    for (const s of bus.slots) ts.imixRoutes[s] = bus;
+    ts.imixList.push(bus);
+  }
+  // Ascending slot order: the order the buses join the mix is part of the sum.
+  ts.imixList.sort((a, b) => a.slot - b.slot);
+}
+
+/** Validate-and-install shape for TaudEngine.setImix: an iterable of blocks
+ *  (or a Map id → block) → Map id → normalised block. */
+function imixBlockMap(blocks) {
+  const out = new Map();
+  if (!blocks) return out;
+  const list = blocks instanceof Map ? [...blocks.values()] : [...blocks];
+  for (const b of list) {
+    const n = normaliseImixBlock(b);
+    out.set(n.id, n);
+  }
+  return out;
+}
+
+// ── The Mixing tab's meter tap ──────────────────────────────────────────────
+
+/** Frames in the tap's rings — one spectrometer window. */
+const IMX_RING_FRAMES = 2048;
+const IMX_TAP_PRE = 0;
+const IMX_TAP_POST = 1;
+/** The pieces whose INPUT the tap also rings (mono), for the spectra drawn
+ *  inside their units — in this order in the readout and the snapshot. */
+const IMX_TAP_STAGES = Object.freeze([IMX_EQU1, IMX_DEQ1, IMX_COMP, IMX_EQU2, IMX_DEQ2]);
+
+/**
+ * Fold one frame of a bus to the stereo pair the meters read: the pair itself,
+ * a speaker layout's own monitor fold (stateless), or — for an ambisonic or a
+ * binaural scene — the coincident cardioid pair W ± Y. The binaural renderer's
+ * own decode is NOT called: it keeps a convolution history that belongs to the
+ * master bus.
+ */
+function imxMeterPair(bus, n, out) {
+  const d = bus.data;
+  if (bus.space === null || bus.stereo || bus.nch === 2) {
+    out[0] = d[n]; out[1] = d[TRACKER_CHUNK + n];
+  } else if (bus.renderer.name.startsWith("speakers")) {
+    bus.renderer.monitorStereo(d, TRACKER_CHUNK, n, out);
+  } else {
+    const w = d[n], y = d[TRACKER_CHUNK + n];
+    out[0] = 0.5 * (w + y); out[1] = 0.5 * (w - y);
+  }
+  return out;
+}
+
+/**
+ * What the Mixing tab draws for ONE instrument's bus: level figures on both
+ * sides of the chain (peak, true peak, energy, samples at full scale), the
+ * chain's gain reductions, a stereo ring after the chain (goniometer and
+ * spectrometer) and a mono ring before it (the spectrometer's comparison);
+ * a mono ring at the input of each IMX_TAP_STAGES piece (the chain's probe —
+ * a piece out of circuit leaves its ring as it was), and the unison's
+ * detune and width. Like every tap here it exists only while the view that
+ * reads it is up.
+ */
+class ImixMeterTap {
+  constructor(slot) {
+    this.slot = slot;
+    this.ring = new Float32Array(IMX_RING_FRAMES * 2);
+    this.ringPre = new Float32Array(IMX_RING_FRAMES);
+    this.write = 0;
+    this.probes = [new TruePeakProbe(), new TruePeakProbe(), new TruePeakProbe(), new TruePeakProbe()];
+    this.peak = new Float64Array(4);
+    this.truePeak = new Float64Array(4);
+    this.sumSq = new Float64Array(4);
+    this.clip = new Float64Array(4);
+    this.frames = 0;
+    this.gr = makeImixGrReadout();
+    this.grSpan = makeImixGrReadout();
+    this._pair = [0, 0];
+    this._preWrite = 0;
+    this.stageRings = IMX_TAP_STAGES.map(() => new Float32Array(IMX_RING_FRAMES));
+    this.stageWrite = new Int32Array(IMX_TAP_STAGES.length);
+    this._bus = null;
+    this.unisLive = false;
+    this.unisCents = 0;
+    this.unisWidth = 0;
+  }
+  resetAll() {
+    this.ring.fill(0); this.ringPre.fill(0);
+    for (const r of this.stageRings) r.fill(0);
+    this.stageWrite.fill(0);
+    this.write = 0; this._preWrite = 0;
+    for (const p of this.probes) p.reset();
+    this._clearInterval();
+  }
+  _clearInterval() {
+    this.peak.fill(0); this.truePeak.fill(0); this.sumSq.fill(0); this.clip.fill(0);
+    this.frames = 0;
+    this.gr.comp.fill(0); this.gr.deq1.fill(0); this.gr.deq2.fill(0); this.gr.lim = 0;
+    this.gr.compLvl.fill(-120); this.gr.deq1Lvl.fill(-120); this.gr.deq2Lvl.fill(-120);
+    this.unisLive = false;
+  }
+  _stage(stage, bus, n0, n1) {
+    const pair = this._pair;
+    const base = stage * 2;
+    for (let n = n0; n < n1; n++) {
+      imxMeterPair(bus, n, pair);
+      for (let c = 0; c < 2; c++) {
+        const x = pair[c];
+        const a = x < 0 ? -x : x;
+        const i = base + c;
+        if (a > this.peak[i]) this.peak[i] = a;
+        const tp = this.probes[i].push(x);
+        if (tp > this.truePeak[i]) this.truePeak[i] = tp;
+        this.sumSq[i] += x * x;
+        if (a >= 1) this.clip[i]++;
+      }
+      if (stage === IMX_TAP_POST) {
+        const w = this.write;
+        this.ring[w * 2] = pair[0];
+        this.ring[w * 2 + 1] = pair[1];
+        this.write = (w + 1) & (IMX_RING_FRAMES - 1);
+      } else {
+        this.ringPre[this._preWrite] = (pair[0] + pair[1]) * 0.5;
+        this._preWrite = (this._preWrite + 1) & (IMX_RING_FRAMES - 1);
+      }
+    }
+  }
+  /** The bus as it enters the chain. */
+  pushPre(bus, n0, n1) { this._bus = bus; this._stage(IMX_TAP_PRE, bus, n0, n1); }
+  /** The chain's probe: piece `id` is about to process [n0, n1) of the bus. */
+  stageIn(id, n0, n1) {
+    const k = IMX_TAP_STAGES.indexOf(id);
+    if (k < 0 || this._bus === null) return;
+    const ring = this.stageRings[k];
+    const pair = this._pair;
+    let w = this.stageWrite[k];
+    for (let n = n0; n < n1; n++) {
+      imxMeterPair(this._bus, n, pair);
+      ring[w] = (pair[0] + pair[1]) * 0.5;
+      w = (w + 1) & (IMX_RING_FRAMES - 1);
+    }
+    this.stageWrite[k] = w;
+  }
+  /** …and as it leaves, with the chain's gain reductions over the span. */
+  pushPost(bus, n0, n1) {
+    this._stage(IMX_TAP_POST, bus, n0, n1);
+    this.frames += n1 - n0;
+    const g = bus.chain.readGr(this.grSpan);
+    const gr = this.gr;
+    for (let i = 0; i < g.comp.length; i++) if (g.comp[i] < gr.comp[i]) gr.comp[i] = g.comp[i];
+    for (let i = 0; i < g.deq1.length; i++) {
+      if (Math.abs(g.deq1[i]) > Math.abs(gr.deq1[i])) gr.deq1[i] = g.deq1[i];
+      if (Math.abs(g.deq2[i]) > Math.abs(gr.deq2[i])) gr.deq2[i] = g.deq2[i];
+    }
+    if (g.lim < gr.lim) gr.lim = g.lim;
+    for (const k of ["compLvl", "deq1Lvl", "deq2Lvl"]) {
+      const a = g[k], b = gr[k];
+      for (let i = 0; i < a.length; i++) if (a[i] > b[i]) b[i] = a[i];
+    }
+    const u = bus.chain.unisonNow();
+    if (u !== null) { this.unisLive = true; this.unisCents = u.curCents; this.unisWidth = u.curWidth; }
+  }
+  /** Hand the interval's figures to `out` and start the next interval. */
+  drain(out) {
+    out.slot = this.slot;
+    out.frames = this.frames;
+    out.write = this.write;
+    out.peak.set(this.peak); out.truePeak.set(this.truePeak);
+    for (let i = 0; i < 4; i++) out.meanSquare[i] = this.frames > 0 ? this.sumSq[i] / this.frames : 0;
+    out.clip.set(this.clip);
+    out.comp.set(this.gr.comp); out.deq1.set(this.gr.deq1); out.deq2.set(this.gr.deq2);
+    out.lim = this.gr.lim;
+    out.compLvl.set(this.gr.compLvl); out.deq1Lvl.set(this.gr.deq1Lvl); out.deq2Lvl.set(this.gr.deq2Lvl);
+    out.ring = this.ring;
+    out.ringPre = this.ringPre;
+    out.unisCents = this.unisLive ? this.unisCents : -1;
+    out.unisWidth = this.unisWidth;
+    out.stageWrite.set(this.stageWrite);
+    out.stageRings = this.stageRings;
+    this._clearInterval();
+    return out;
+  }
+}
+
+/** A reusable readout for ImixMeterTap.drain. */
+function makeImixMeterReadout() {
+  return {
+    slot: -1, frames: 0, write: 0,
+    peak: new Float64Array(4), truePeak: new Float64Array(4),
+    meanSquare: new Float64Array(4), clip: new Float64Array(4),
+    comp: new Float64Array(IMX_COMP_MAX_BANDS), deq1: new Float64Array(IMX_DEQ_BANDS),
+    deq2: new Float64Array(IMX_DEQ_BANDS), lim: 0,
+    // The loudest detector reading of each band over the interval (dB; −120 =
+    // nothing) — what its threshold is compared with.
+    compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
+    deq1Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
+    deq2Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
+    ring: null, ringPre: null,
+    // The unison's live detune (cents; −1 = it did not run) and width.
+    unisCents: -1, unisWidth: 0,
+    stageWrite: new Int32Array(IMX_TAP_STAGES.length), stageRings: null,
   };
 }
 
@@ -6571,15 +8929,21 @@ const PSG_RECORD_HEADER = Object.freeze([0x90, 0x00, 0xff, 0xff]);
 
 /**
  * Operators an FM rack can hold. The whole rack — 10 bytes an operator plus the
- * program — has to fit the 252 bytes a record has left after the header, so this
- * is a floor on the room the program gets: 16 operators leave 92 bytes = 46
- * words, which is more than any 16-operator algorithm needs (n pushes + n−1
- * combining operators + END = 32 words at the very worst).
+ * program — has to fit the 250 bytes a record has left between the header and
+ * its last two bytes, so this is a floor on the room the program gets: 16
+ * operators leave 90 bytes = 45 words, which is more than any 16-operator
+ * algorithm needs (n pushes + n−1 combining operators + END = 32 words at the
+ * very worst).
  */
 const FM_MAX_OPERATORS = 16;
 
-/** Bytes of a 256-byte record the operator rack and its program share. */
-const FM_BUDGET_BYTES = 252;
+/** Bytes of a 256-byte record the operator rack and its program share: 4…253.
+ *  Byte 255 is every record's IMix id (item 217, §7.1) and byte 254 stays
+ *  clear so a program word never straddles it. */
+const FM_BUDGET_BYTES = 250;
+
+/** One past the last byte an FM program may occupy. */
+const FM_PROGRAM_END = 4 + FM_BUDGET_BYTES;
 
 // ── RPN word classes (§7.7) ──────────────────────────────────────────────
 // A word is read as (class, operand): the top nibble pair picks the class and
@@ -6656,7 +9020,7 @@ function decodeFmProgram(b, off, opCount) {
   const words = [];
   let depth = 0;
   let ended = false;
-  for (let o = off; o + 2 <= 256; o += 2) {
+  for (let o = off; o + 2 <= FM_PROGRAM_END; o += 2) {
     const w = (b[o] & 0xff) | ((b[o + 1] & 0xff) << 8);
     if (w === FmOp.END) { ended = true; break; }
     const arity = fmWordArity(w, opCount);
@@ -6666,13 +9030,13 @@ function decodeFmProgram(b, off, opCount) {
     if (depth > FM_STACK_MAX) return null;                 // stack overflow
     words.push(w);
   }
-  // A program that fills the record to the last byte ends there; one that stops
+  // A program that fills its area to the last byte ends there; one that stops
   // early must say so, or the words after it are being ignored by accident.
-  if (!ended && off + words.length * 2 + 2 <= 256) return null;
+  if (!ended && off + words.length * 2 + 2 <= FM_PROGRAM_END) return null;
   return depth >= 1 ? Uint16Array.from(words) : null;
 }
 
-/** Bytes an `n`-operator rack with a `words`-word program occupies of the 252 —
+/** Bytes an `n`-operator rack with a `words`-word program occupies of the 250 —
  *  the END terminator counted, because the record has to carry it too. */
 function fmRecordBytes(n, words) {
   return n * 10 + (words + 1) * 2;
@@ -6690,18 +9054,20 @@ function fmRecordBytes(n, words) {
  *
  * `type` picks the metainstrument kind (§7.4). META_TYPE_FM makes `layers` an
  * OPERATOR RACK and appends `program` — the RPN algorithm — after it, terminated
- * by END. Program words past the 252-byte budget are dropped, which is why the
+ * by END. Program words past the 250-byte budget are dropped, which is why the
  * editor keeps a memory meter: the rack and the algorithm share one record.
  */
 function buildMetaRecord(layers, {
-  strict = false, percussion = false, type = META_TYPE_LAYERED, program = null,
+  strict = false, percussion = false, type = META_TYPE_LAYERED, program = null, imixId = 0,
+  easy = false,
 } = {}) {
   const fm = type === META_TYPE_FM;
   const use = layers.slice(0, fm ? FM_MAX_OPERATORS : META_MAX_LAYERS);
   const b = new Uint8Array(256);
   // samplePtr high 16 bits = 0xFFFF is the Metainstrument sentinel; the low
   // bytes carry the flags (byte 0) and the layer count (byte 1) instead.
-  b[0] = ((type & 0x0f) << 4) | (strict ? 0x01 : 0) | (percussion ? 0x02 : 0);
+  // Bit 0: strict layering (type 0) or Easy Mode (type 4) — one bit, two kinds.
+  b[0] = ((type & 0x0f) << 4) | ((fm ? easy : strict) ? 0x01 : 0) | (percussion ? 0x02 : 0);
   b[1] = use.length & 0xff;
   b[2] = 0xff;
   b[3] = 0xff;
@@ -6732,13 +9098,16 @@ function buildMetaRecord(layers, {
     // everywhere above this line, and the terminator only exists because the
     // record's tail has to say where the algorithm stops.
     for (const w of prog) {
-      if ((w & 0xffff) === FmOp.END || o + 4 > 256) break;
+      if ((w & 0xffff) === FmOp.END || o + 4 > FM_PROGRAM_END) break;
       b[o] = w & 0xff;
       b[o + 1] = (w >>> 8) & 0xff;
       o += 2;
     }
-    if (o + 2 <= 256) { b[o] = 0xff; b[o + 1] = 0xff; }
+    if (o + 2 <= FM_PROGRAM_END) { b[o] = 0xff; b[o + 1] = 0xff; }
   }
+  // Byte 255 is the instrument's IMix block (item 217): a repack of an
+  // existing metainstrument hands it back, or the edit would drop the chain.
+  b[255] = imixId & 0xff;
   return b;
 }
 
@@ -7130,6 +9499,17 @@ class TaudInst {
     );
   }
 
+  /**
+   * The IMix block this instrument's voices mix through (item 217, byte 255;
+   * 0 = none). Every kind of record keeps the byte: a metainstrument in its
+   * verbatim record, every other kind in the reserved tail.
+   */
+  get imixId() { return this.metaRaw !== null ? this.metaRaw[255] : this.reserved[4]; }
+  set imixId(v) {
+    if (this.metaRaw !== null) this.metaRaw[255] = v & 0xff;
+    else this.reserved[4] = v & 0xff;
+  }
+
   /** Load a full 256-byte record; detects the Metainstrument sentinel
    *  (samplePtr high 16 bits == 0xFFFF) and parses its layer table — which for
    *  a type-4 record is an operator rack followed by an RPN program (§7.7). */
@@ -7186,7 +9566,9 @@ class TaudInst {
       }
       this.metaLayers = layers.length === 0 ? null : layers;
       this.metaRaw = this.metaLayers !== null ? Uint8Array.from(b.slice(0, 256)) : null;
-      this.metaStrict = this.metaLayers !== null && (b[0] & 0x01) !== 0;
+      // Bit 0 is strict layering in a Layered record only; in a rack it is the
+      // editor's Easy Mode mark (§7.7), which the engine does not read.
+      this.metaStrict = this.metaLayers !== null && !fm && (b[0] & 0x01) !== 0;
       this.metaType = this.metaLayers !== null ? type : META_TYPE_LAYERED;
       this.fmProgram = this.metaLayers !== null && fm
         ? decodeFmProgram(b, o, layers.length) : null;
@@ -8328,6 +10710,7 @@ function isSoundingChild(ts, bg, vi) {
 
 
 
+
 // ── PlayInstruction (4484-4494) — tagged objects ──
 const INST_NOP = 0;
 const INST_GOBACK = 1;
@@ -8572,6 +10955,19 @@ class TrackerState {
     // for one. Independent of the strip's tap: different signal, different
     // question, and both are opt-in.
     this.masterMeter = null;
+    // Per-instrument mixing chains (item 217, imix.js). The route table maps
+    // an instrument slot to its bus, or null for the plain path; it is rebuilt
+    // whenever the engine's blocks or instrument records change (imixGen) or
+    // the song's channel layout does. `imixTrig` flags the slots a note
+    // started on since their bus last ran — the LFOs that retrigger on a note
+    // read it. `imixMeter` is the Mixing tab's tap, null unless it asked.
+    this.imixGen = -1;
+    this.imixRate = 0;
+    this.imixBuses = new Map();
+    this.imixRoutes = new Array(IMX_ROUTE_SLOTS).fill(null);
+    this.imixList = [];
+    this.imixTrig = new Uint8Array(IMX_ROUTE_SLOTS);
+    this.imixMeter = null;
     // Per-voice soundscope ring, ditto (item 179). The Kotlin device fills
     // `Voice.scopeBuffer` unconditionally because a TSVM guest can read the
     // scope window through MMIO whenever it likes; nothing here can, so the
@@ -8658,6 +11054,8 @@ class TrackerState {
     this.spatial = this.surroundModel === SURROUND_STEREO
       ? null
       : new SpatialBus(renderer ?? new StereoRenderer(), TRACKER_CHUNK);
+    // The instrument buses are in the song's channel layout, which just moved.
+    this.imixGen = -1;
     this.setAnalysis(this.analysisTarget); // the tap's shape follows the model
   }
 
@@ -8710,6 +11108,13 @@ class TrackerState {
       span === HIST_SPAN_LONG || span === HIST_SPAN_SHORT ? span : HIST_SPAN_ALL;
   }
 
+  /** Install (or drop, with a negative slot) the Mixing tab's tap on one
+   *  instrument's bus (item 217). */
+  setImixMeter(slot) {
+    if (slot < 0) { this.imixMeter = null; return; }
+    if (this.imixMeter === null || this.imixMeter.slot !== slot) this.imixMeter = new ImixMeterTap(slot);
+  }
+
   drainInterrupts() {
     const m = this.pendingInterrupts;
     this.pendingInterrupts = 0;
@@ -8753,9 +11158,14 @@ class TrackerState {
     // milliseconds of the previous playback, both bleed the old take into the
     // new one. Its PARAMETERS are the song's and are left alone, like the tempo.
     this.mastering?.reset();
+    // …and the instruments' chains (item 217) for the same reason: a reverb
+    // tail or a delay line still holding the previous take is that take.
+    for (const bus of this.imixList) bus.chain.reset();
+    this.imixTrig.fill(0);
     // …and the meter's integration describes one playback, so it starts again
     // with it — including the bit histogram, which is cumulative by design.
     this.masterMeter?.resetAll();
+    this.imixMeter?.resetAll();
   }
 }
 
@@ -8957,6 +11367,10 @@ class Playhead {
     // one. The song's own `sMst` parameters are pushed straight after.
     ts.setMastering(defaultMastering());
     ts.masterMeter?.resetAll();
+    // The instrument chains' PARAMETERS are the engine's, like the instruments
+    // themselves; their running state is the playback's.
+    for (const bus of ts.imixList) bus.chain.reset();
+    ts.imixTrig.fill(0);
     for (const it of ts.voices) {
       it.active = false;
       it.noteVolume = ts.volMax;
@@ -10347,11 +12761,14 @@ const K_NONE = [0, 0, 0, 0, 0, 0];
  * the vowel (a velar); `bankBack`: the bank before a back vowel, or null.
  */
 function consRow(id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av = 0, fnz = 0,
-  { dorsal = false, bankBack = null } = {}) {
-  return Object.freeze({ id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av, fnz, dorsal, bankBack });
+  { dorsal = false, bankBack = null, breath = false } = {}) {
+  return Object.freeze({ id, ipa, manner, voiced, place, F, B, bank, lvl, dur, burst, vot, trans, av, fnz, dorsal, bankBack, breath });
 }
 const FMT_VELAR_STOP = Object.freeze({ dorsal: true, bankBack: K_K_BACK });
 const FMT_VELAR = Object.freeze({ dorsal: true });
+/** `breath`: the row's frication is BREATH — its noise goes through the
+ *  cascade, as an aspirate's does, not through the parallel bank ([ʔ͡h]). */
+const FMT_BREATH = Object.freeze({ breath: true });
 
 const ROWS = [
   // Plosives — dur is the closure a stop makes when something precedes it.
@@ -10371,6 +12788,16 @@ const ROWS = [
   consRow(14, "pʰ", MN_S, false, PLACE_BILABIAL, [400, 1100, 2150], [300, 150, 220], K_LABIAL, -12, 0, 5, 58, 40),
   consRow(15, "tʰ", MN_S, false, PLACE_ALVEOLAR, [400, 1600, 2600], [300, 120, 250], K_T, -10, 0, 10, 70, 45),
   consRow(16, "kʰ", MN_S, false, PLACE_VELAR, [300, 1990, 2850], [250, 160, 330], K_K_FRONT, -10, 0, 20, 80, 50, 0, 0, FMT_VELAR_STOP),
+  // ʈʰ: Mikuteit & Reetz (2007, East Bengali) measure a retroflex aspirate's
+  // lag at 48 ms against the dental's 57; [tʰ]'s 70 scaled by that is 60.
+  consRow(17, "ʈʰ", MN_S, false, PLACE_RETROFLEX, [400, 1500, 1900], [300, 120, 250], K_RETRO_STOP, -10, 0, 10, 60, 45),
+  // The breathy-voiced (murmured) stops: a voiced stop whose `vot` is its
+  // release's noisy lag before clear voicing — Mikuteit & Reetz's after-closure
+  // time, 31 / 35 / 36 / 44 ms by place — and then BREATHY_SA of breathy voice.
+  consRow(18, "bʱ", MN_S, true, PLACE_BILABIAL, [200, 1100, 2150], [60, 110, 130], K_LABIAL, -14, 0, 5, 31, 40),
+  consRow(19, "dʱ", MN_S, true, PLACE_ALVEOLAR, [200, 1600, 2600], [60, 100, 170], K_D, -12, 0, 8, 35, 45),
+  consRow(20, "ɖʱ", MN_S, true, PLACE_RETROFLEX, [200, 1500, 1900], [60, 100, 170], K_RETRO_STOP, -12, 0, 8, 36, 45),
+  consRow(21, "ɡʱ", MN_S, true, PLACE_VELAR, [200, 1990, 2850], [60, 150, 280], K_K_FRONT, -12, 0, 15, 44, 50, 0, 0, FMT_VELAR_STOP),
   // Nasals — Klatt's murmur: F1 480 cancelled by a zero at 450 Hz, leaving
   // the nasal pole at 270 Hz; place is the wide-bandwidth F2/F3.
   consRow(32, "m", MN_N, true, PLACE_BILABIAL, [480, 1270, 2130], [40, 200, 200], K_NONE, 0, 60, 0, 0, 35, 0.5, 450),
@@ -10416,6 +12843,9 @@ const ROWS = [
   consRow(72, "ɕ", MN_FR, false, PLACE_ALVEOLOPALATAL, [300, 2000, 2900], [200, 120, 300], K_ALVPAL, -7, 120, 0, 0, 45),
   consRow(73, "ʑ", MN_FR, true, PLACE_ALVEOLOPALATAL, [240, 2000, 2900], [60, 120, 300], K_ALVPAL, -11, 90, 0, 0, 45, 0.35),
   consRow(74, "ʍ", MN_FR, false, PLACE_LABIOVELAR, [290, 610, 2150], [200, 80, 60], K_WH, -22, 90, 0, 0, 100),
+  // An aspirated fricative: `vot` is the breath after its frication — Korean
+  // ㅅ's 53 ms (Chang 2008), its frication ¾ of the tense [s*]'s, 120 → 90.
+  consRow(75, "sʰ", MN_FR, false, PLACE_ALVEOLAR, [320, 1390, 2530], [200, 80, 200], K_S, -8, 90, 0, 53, 40),
   // Approximants — Klatt: about 10 dB under the vowel, slow transitions.
   consRow(80, "ʋ", MN_AP, true, PLACE_LABIODENTAL, [300, 1100, 2200], [60, 90, 150], K_NONE, 0, 50, 0, 0, 70, 0.4),
   consRow(81, "ɹ", MN_AP, true, PLACE_ALVEOLAR, [310, 1060, 1380], [70, 100, 120], K_NONE, 0, 50, 0, 0, 90, 0.4),
@@ -10439,6 +12869,16 @@ const ROWS = [
   consRow(103, "ɖ͡ʐ", MN_AF, true, PLACE_RETROFLEX, [240, 1600, 2000], [60, 100, 250], K_RETRO, -11, 60, 10, 0, 45),
   consRow(104, "p͡f", MN_AF, false, PLACE_LABIODENTAL, [340, 1100, 2080], [200, 120, 150], K_F, -16, 70, 5, 0, 40),
   consRow(105, "k͡x", MN_AF, false, PLACE_VELAR, [300, 1800, 2700], [250, 160, 330], K_X, -12, 70, 20, 0, 50, 0, 0, FMT_VELAR),
+  // These pair a stop's burst with a fricative's tract and spectrum; a weak
+  // fricative's level is 6 dB up, as [p͡f]'s is.
+  consRow(106, "c͡ç", MN_AF, false, PLACE_PALATAL, [300, 2100, 3000], [200, 150, 300], K_C, -12, 70, 15, 0, 45),
+  consRow(107, "ɟ͡ʝ", MN_AF, true, PLACE_PALATAL, [240, 2100, 3000], [60, 150, 300], K_C, -16, 60, 12, 0, 45),
+  consRow(108, "t͡θ", MN_AF, false, PLACE_DENTAL, [320, 1290, 2540], [200, 90, 200], K_TH, -18, 70, 8, 0, 40),
+  consRow(109, "d͡ð", MN_AF, true, PLACE_DENTAL, [270, 1290, 2540], [60, 80, 170], K_TH, -22, 60, 8, 0, 40),
+  consRow(110, "ɡ͡ɣ", MN_AF, true, PLACE_VELAR, [240, 1800, 2700], [60, 150, 300], K_X, -16, 60, 15, 0, 50, 0, 0, FMT_VELAR),
+  // The glottal affricate: a glottal stop released into [h] — no oral burst,
+  // its breath [h]'s own, through the cascade at the vowel's formants.
+  consRow(111, "ʔ͡h", MN_AF, false, PLACE_GLOTTAL, [0, 0, 0], [300, 0, 0], K_NONE, -16, 50, 0, 0, 15, 0, 0, FMT_BREATH),
 ];
 
 /** id → row, for every id the format defines; undefined elsewhere. */
@@ -10475,6 +12915,17 @@ function consonantNeedsNoise(r) {
 /** A stop's or affricate's closure when something precedes it, and the trill cycle. */
 const CLOSURE_MS = 50;
 const ASPIRATION_DB = -6;  // a stop's aspiration, against its own burst level
+/** A breathy-voiced stop's release: after its noisy lag (the row's `vot`) the
+ *  voice comes in BREATHY — the breath laid over it — for this long
+ *  (Mikuteit & Reetz 2007: 47 ms, twice a voiceless aspirate's), rising from
+ *  MURMUR_AV. Through the lag the breath carries the sound and the voice is
+ *  26 dB under the vowel's, the two together about 20 dB under it (Schiefer
+ *  & Kotten 1983 measured the breathy part 10–30 dB below the vowel's
+ *  steady part). */
+const BREATHY_SA = 47;
+const MURMUR_AV = 0.05;
+/** Is the row a breathy-voiced stop ([bʱ]): voiced, with a release lag? */
+const isBreathy = (r) => r.manner === MANNER_STOP && r.voiced && r.vot > 0;
 const dbGain = (db) => 10 ** (db / 20);
 
 // ── Segment tracks ──────────────────────────────────────────────────────────
@@ -10539,6 +12990,10 @@ const GLOT_STOP = 3;
 /** What a hissing nucleus takes to let its hiss go before the coda. */
 const NUCLEUS_RELEASE = 10;
 
+/** Tracks with their two noise paths exchanged: frication built as a row's
+ *  `af` sounds through the cascade as `ah`, and the other way about. */
+const breathed = (t) => ({ ...t, ah: t.af, af: t.ah });
+
 /** A closed track `tr` with a glottal catch at its START: 0 until t0, back on
  *  the track's own value by t1 — a sonorant said after a glottal stop. */
 function catchTrack(tr, t0, t1) {
@@ -10558,7 +13013,7 @@ function catchTrack(tr, t0, t1) {
  * nasalised vowel after it (nx.nz = 1) lowers the velum through the
  * transition alone.
  */
-function onsetTracks(r, first, nx, k, art = ART_NONE) {
+function onsetTracksOf(r, first, nx, k, art = ART_NONE) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const tr = r.trans * k, dur = r.dur * k;
@@ -10582,6 +13037,17 @@ function onsetTracks(r, first, nx, k, art = ART_NONE) {
         break;
       }
       const tv = tb + r.vot * k;
+      if (isBreathy(r)) {
+        // The closure voiced; the release a noisy lag over a weak voice — its
+        // breath at the burst's own level, a breathy release's airflow being
+        // a voiceless aspirate's and more — then the voice rising through it.
+        const ts = tv + BREATHY_SA * k;
+        av.at(0, cl > 0 ? 0.25 : 0.3).at(cl, cl > 0 ? 0.25 : 0.3).at(tb, 0.3).at(tb + 3 * k, MURMUR_AV)
+          .at(tv, MURMUR_AV).at(ts, nx.av);
+        ah.at(tb, 0).at(tb + 3 * k, L).at(tv, 0.7 * L).at(ts, nx.ah);
+        end = Math.max(ts, tb + tr);
+        break;
+      }
       if (r.voiced) {
         av.at(0, cl > 0 ? 0.25 : 0.3).at(cl, cl > 0 ? 0.25 : 0.3).at(tb, 0.3).at(tb + 10 * k, nx.av);
       } else {
@@ -10611,6 +13077,18 @@ function onsetTracks(r, first, nx, k, art = ART_NONE) {
     }
     case MANNER_FRICATIVE: {
       af.at(0, 0).at(10 * k, L).at(dur - 10 * k, L).at(dur + 10 * k, nx.af);
+      if (!glot && !r.voiced && r.vot > 0) {
+        // Aspirated: the frication gives way to breath, and the voice waits
+        // for the breath to end.
+        const tv = dur + r.vot * k;
+        const La = L * dbGain(ASPIRATION_DB);
+        ah.at(0, 0).at(dur - 10 * k, 0).at(dur, La).at(tv, 0.7 * La).at(tv + 10 * k, nx.ah);
+        av.at(0, 0).at(tv - 5 * k, 0).at(tv + 15 * k, nx.av);
+        w.at(0, 1).at(dur, 1).at(dur + tr, 0);
+        nz.at(0, 0).at(tv, 0);
+        end = Math.max(tv + 15 * k, dur + tr);
+        break;
+      }
       if (glot) catchAt(dur);
       else if (r.voiced) av.at(0, r.av).at(dur, r.av).at(dur + 15 * k, nx.av);
       else av.at(0, 0).at(dur - 5 * k, 0).at(dur + 15 * k, nx.av);
@@ -10692,6 +13170,12 @@ function onsetTracks(r, first, nx, k, art = ART_NONE) {
   };
 }
 
+/** The onset tracks — a BREATH row's ([ʔ͡h]) frication is its aspiration. */
+function onsetTracks(r, first, nx, k, art = ART_NONE) {
+  if (!r.breath) return onsetTracksOf(r, first, nx, k, art);
+  return breathed(onsetTracksOf(r, first, { av: nx.av, ah: nx.af, af: nx.ah, nz: nx.nz }, k, art));
+}
+
 /**
  * A NUCLEUS's tracks: the consonant a syllable with no vowel is held on — a
  * syllabic consonant. It starts as an onset consonant does (`first`, `k` and
@@ -10703,7 +13187,7 @@ function onsetTracks(r, first, nx, k, art = ART_NONE) {
  * by `loop` ms, so its second cycle repeats. Returns {end, loop, w, av, ah,
  * af, nz}.
  */
-function nucleusTracks(r, first, k, art = ART_NONE) {
+function nucleusTracksOf(r, first, k, art = ART_NONE) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const dur = r.dur * k;
@@ -10720,6 +13204,12 @@ function nucleusTracks(r, first, k, art = ART_NONE) {
         const tv = tb + GLOT_LAG * k;
         av.at(0, 0).at(tv, 0).at(tv + GLOT_RISE * k, r.voiced ? 1 : 0);
         end = tv + GLOT_RISE * k;
+      } else if (isBreathy(r)) {
+        const a = cl > 0 ? 0.25 : 0.3;
+        const tv = tb + r.vot * k, ts = tv + BREATHY_SA * k;
+        av.at(0, a).at(cl, a).at(tb, 0.3).at(tb + 3 * k, MURMUR_AV).at(tv, MURMUR_AV).at(ts, 1);
+        ah.at(tb, 0).at(tb + 3 * k, L).at(tv, 0.7 * L).at(ts, 0);
+        end = ts;
       } else if (r.voiced) {
         const a = cl > 0 ? 0.25 : 0.3;
         av.at(0, a).at(cl, a).at(tb, 0.3).at(tb + 10 * k, 1);
@@ -10806,6 +13296,12 @@ function nucleusTracks(r, first, k, art = ART_NONE) {
   return { end, loop, w: held(w), av: avT, ah: held(ah), af: held(af), nz: held(nz) };
 }
 
+/** The nucleus tracks — a BREATH row's ([ʔ͡h]) frication is its aspiration. */
+function nucleusTracks(r, first, k, art = ART_NONE) {
+  if (!r.breath) return nucleusTracksOf(r, first, k, art);
+  return breathed(nucleusTracksOf(r, first, k, art));
+}
+
 /**
  * A CODA consonant's tracks: from the sound before it into silence. That sound
  * is the vowel — voicing 1, nasality 0, or 1 for a nasalised vowel — or, in a
@@ -10815,7 +13311,7 @@ function nucleusTracks(r, first, k, art = ART_NONE) {
  * closure the end of it); GLOTTAL ends the voicing in a glottal stop where it
  * would otherwise fade, and breathes no aspiration; DARK changes no track.
  */
-function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
+function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
   const w = new FormantTrack(), av = new FormantTrack(), ah = new FormantTrack(), af = new FormantTrack(), nz = new FormantTrack();
   const L = dbGain(r.lvl);
   const tr = r.trans * k, dur = r.dur * k;
@@ -10838,9 +13334,11 @@ function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       } else if (r.manner === MANNER_STOP) {
         af.at(0, 0).at(tc, 0).at(tc, 0.7 * L).at(tb, 0.2 * L).at(tb + 2 * k, 0);
         ah.at(0, 0);
-        if (!glot && !r.voiced && r.vot > 0) {
+        if (!glot && r.vot > 0) {
           const La = L * dbGain(ASPIRATION_DB);
           ah.at(tb, 0).at(tb + 2 * k, 0.5 * La).at(tb + 30 * k, 0);
+          // A breathy stop's release is murmured: a weak voice under its breath.
+          if (r.voiced) av.at(tb, 0).at(tb + 2 * k, MURMUR_AV).at(tb + 30 * k, 0);
         }
         end = tb + 35 * k;
       } else {
@@ -10860,6 +13358,11 @@ function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       af.at(0, 0).at(a, 0).at(tr + 5 * k, L).at(tr + dur, 0.8 * L).at(tr + dur + 30 * k, 0);
       ah.at(0, 0); nz.at(0, z0).at(tr, 0);
       end = tr + dur + 30 * k;
+      if (!glot && !r.voiced && r.vot > 0) {   // aspirated: its breath after it
+        const La = L * dbGain(ASPIRATION_DB);
+        ah.at(tr + dur, 0).at(tr + dur + 10 * k, 0.5 * La).at(tr + dur + (r.vot + 30) * k, 0);
+        end = tr + dur + (r.vot + 30) * k;
+      }
       break;
     }
     case MANNER_ASPIRATE: {
@@ -10926,6 +13429,12 @@ function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
     }
   }
   return { end, w: w.close(end, 1), av: av.close(end, 0), ah: ah.close(end, 0), af: af.close(end, 0), nz: nz.close(end, 0) };
+}
+
+/** The coda tracks — a BREATH row's ([ʔ͡h]) frication is its aspiration. */
+function codaTracks(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
+  if (!r.breath) return codaTracksOf(r, k, v0, z0, art);
+  return breathed(codaTracksOf(r, k, v0, z0, art));
 }
 
 /** A coda after a nucleus that hisses (frication `a0` or breath `h0`): the
@@ -11139,6 +13648,14 @@ class FormantState {
     this.V = new Float64Array(5); this.VB = new Float64Array(5);
     this.F = new Float64Array(5); this.B = new Float64Array(5);
   }
+}
+
+/** Does a key-off END this syllable by itself? It does once its coda has
+ *  begun, or with one still to speak that no fade has vetoed; a syllable with
+ *  no coda would go on singing its vowel (or holding its nucleus). */
+function formantEndsOnKeyOff(st) {
+  if (st.phase === PHASE_CODA || st.phase === PHASE_DONE) return true;
+  return st.coda !== null && !st.codaVeto;
 }
 
 /** A deep copy, for an NNA ghost (it keeps sounding the note it was). */
@@ -12618,6 +15135,41 @@ function renderFmVoice(eng, ts, voice, interpMode, spt, frame) {
 }
 
 /**
+ * True when operator 0 is a DSP-ONLY principal: the program ends by
+ * multiplying everything above it by operator 0 (`$0000 $FF01`) and names it
+ * nowhere else, so it shapes the finished patch and is not one of the
+ * oscillators. That is the layout an editor's Easy Mode writes (a constant
+ * whose envelope, filter and pan are the whole instrument's), and it is what
+ * `S $Apsd` counts its operators past (§5.5.1).
+ */
+function fmPrincipalIsDsp(program) {
+  const n = program === null ? 0 : program.length;
+  if (n < 3 || program[n - 1] !== FmOp.MUL || program[n - 2] !== FM_WORD_OSC) return false;
+  for (let i = 0; i < n - 2; i++) {
+    const w = program[i];
+    if (w < FM_WORD_OP && (w & FM_INDEX_MASK) === 0) return false;
+  }
+  return true;
+}
+
+/**
+ * S $Apsd on a rack: operator p's auto-vibrato speed and depth, `s × 17` and
+ * `d × 17`, for the note now sounding. `p` counts the oscillators — from entry
+ * 1 when the principal is DSP-only, from entry 0 otherwise. The waveform, sweep
+ * and rate stay the operator instrument's own, and the next trigger reads all
+ * four from the instrument again, so the setting lasts exactly one note.
+ * An operator that is not sounding this note, or past the rack's end, takes
+ * nothing.
+ */
+function fmSetOperatorVibrato(rig, p, s, d) {
+  const k = fmPrincipalIsDsp(rig.program) ? p + 1 : p;
+  const v = k < rig.count ? rig.voices[k] : null;
+  if (v === null) return;
+  v.activeVibratoSpeed = s * 17;
+  v.activeVibratoDepth = d * 17;
+}
+
+/**
  * Detach and silence every operator the FOREGROUND voice of lane `vi` is
  * driving. Called where a layered meta releases its children — but an orphaned
  * operator is not a sound that should be allowed to finish: on its own it is a
@@ -13213,6 +15765,9 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
   // not the layer child triggerNote resolves it to). A note with no instrument
   // byte keeps the last one, matching what the pattern shows.
   if (instId !== 0) voice.displayInst = instId;
+  // A note on an instrument with a mixing chain (item 217): its bus restarts
+  // the LFOs that retrigger on a note, at the top of the span this lands in.
+  ts.imixTrig[(voice.displayInst || voice.instrumentId) & 0x3ff] = 1;
   releaseLayerChildren(eng, ts, vi);
   dropFmOperators(ts, vi);
   const inst = instId !== 0 ? eng.instruments[instId] : eng.instruments[voice.instrumentId];
@@ -14225,6 +16780,7 @@ function rowSlidesSpatially(row) {
 
 
 
+
 /** Scratch [azimuth, elevation] for the X / 4 argument decode. */
 const spatialArg = new Float64Array(2);
 
@@ -14701,6 +17257,13 @@ function applySEffect(eng, ts, voice, vi, arg) {
       break;
     }
     case 0xa:
+      // S $Apsd — on an FM rack (§5.5.1), operator p's auto-vibrato: speed
+      // s × 17, depth d × 17, for this note. The rack takes the command
+      // whole, so a PSG operator inside it takes no register write.
+      if (voice.fmRig !== null) {
+        fmSetOperatorVibrato(voice.fmRig, x, (arg >>> 4) & 0xf, arg & 0xf);
+        break;
+      }
       // S $Afgr — on a voice sounding a formant instrument (item 212), the vowel: openness f,
       // frontness g, roundness r. The note's whole tract hears it, layer
       // children included.
@@ -16667,6 +19230,7 @@ function chaseCueOrder(eng, ts, playhead, cue, row) {
 
 
 
+
 const fround = Math.fround;
 
 /** Scratch pair for fetchTrackerSampleStereo — one voice is mixed at a time. */
@@ -16863,6 +19427,12 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
   const instGv = voiceInst.instGlobalVolume / 255.0;
   const swingScale = 1.0 + voice.randomVolBias / 255.0;
   const faderGain = (255 - voice.fader) / 255.0;
+  // An instrument with a mixing chain (item 217) mixes into its own bus,
+  // ahead of the song's global gain — which the bus's output gets instead.
+  const route = ts.imixRoutes[(voice.displayInst || voice.instrumentId) & 0x3ff];
+  const busData = route === null ? null : route.data;
+  const busSpace = route === null ? null : route.space;
+  if (route !== null) route.fed = true;
 
   for (let n = n0; n < n1; n++) {
     if (!voice.active) { // ramped out earlier in this span
@@ -16941,7 +19511,18 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
       voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
     }
     if (stems !== null) stems.add(voice, vi, n, sScope * vol * rampGain);
-    if (spatial === null) {
+    if (busData !== null) {
+      if (busSpace === null) {
+        busData[n] += sL * perVoiceGain * lGain * rampGain;
+        busData[TRACKER_CHUNK + n] += sR * perVoiceGain * rGain * rampGain;
+      } else {
+        const g = spatialVoiceGains(spatial, voice);
+        busSpace.addSource(n, sL * perVoiceGain, g, 0, rampGain);
+        if (voice.activeChanCount === 2) {
+          busSpace.addSource(n, sR * perVoiceGain, g, spatial.numChannels, rampGain);
+        }
+      }
+    } else if (spatial === null) {
       accL[n] += sL * vol * lGain * rampGain;
       accR[n] += sR * vol * rGain * rampGain;
     } else {
@@ -16991,6 +19572,12 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
   const instGv = bgInst.instGlobalVolume / 255.0;
   const swingScale = 1.0 + bg.randomVolBias / 255.0;
   const faderGain = (255 - bgFader) / 255.0;
+  // A ghost and a layer child mix through the chain of the instrument the
+  // NOTE named — a metainstrument's, not its layer's (item 217).
+  const route = ts.imixRoutes[(bg.displayInst || bg.instrumentId) & 0x3ff];
+  const busData = route === null ? null : route.data;
+  const busSpace = route === null ? null : route.space;
+  if (route !== null) route.fed = true;
 
   for (let n = n0; n < n1; n++) {
     if (!bg.active) continue; // ramped out earlier in this span
@@ -17043,7 +19630,22 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
       const sBg = bg.activeChanCount === 2 ? (sL + sR) * 0.5 : sL;
       stems.add(bg, bg.sourceChannel, n, sBg * vol * rampGain);
     }
-    if (spatial === null) {
+    if (busData !== null) {
+      // The same chain without the three song-level gains the bus is ahead of.
+      const bvol = effEnvVol * bg.fadeoutVolume *
+        (bg.opl !== null && bg.fmRig === null ? 1.0 : bg.currentMixVolume) *
+        swingScale * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain;
+      if (busSpace === null) {
+        busData[n] += sL * bvol * lGain * rampGain;
+        busData[TRACKER_CHUNK + n] += sR * bvol * rGain * rampGain;
+      } else {
+        const g = spatialVoiceGains(spatial, bg);
+        busSpace.addSource(n, sL * bvol, g, 0, rampGain);
+        if (bg.activeChanCount === 2) {
+          busSpace.addSource(n, sR * bvol, g, spatial.numChannels, rampGain);
+        }
+      }
+    } else if (spatial === null) {
       accL[n] += sL * vol * lGain * rampGain;
       accR[n] += sR * vol * rGain * rampGain;
     } else {
@@ -17058,6 +19660,57 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
       abus.addSource(n, sL * vol, ag, 0, rampGain);
       if (bg.activeChanCount === 2) {
         abus.addSource(n, sR * vol, ag, abus.numChannels, rampGain);
+      }
+    }
+  }
+}
+
+/**
+ * Run each instrument bus's chain over [n0, n1) and add its output to the
+ * master — the stereo accumulators, or the object bus channel for channel (the
+ * instrument bus shares its layout, so no re-positioning happens here). A bus
+ * whose chain is idle and was not fed is skipped outright: its output is the
+ * silence already in the buffer.
+ */
+function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
+  const spatial = ts.spatial;
+  const meter = ts.imixMeter;
+  // The tap meters the bus its instrument mixes into — in bus mode (item 247)
+  // the one every instrument on the block shares.
+  const meterBus = meter === null ? null : ts.imixRoutes[meter.slot];
+  const trig = ts.imixTrig;
+  for (let b = 0; b < buses.length; b++) {
+    const bus = buses[b];
+    // A note on ANY instrument of a shared bus retriggers its LFOs.
+    const slots = bus.slots;
+    let hit = false;
+    for (let k = 0; k < slots.length; k++) {
+      if (trig[slots[k]] !== 0) { trig[slots[k]] = 0; hit = true; }
+    }
+    if (hit) bus.chain.noteOn();
+    const chain = bus.chain;
+    if (chain.idle && !bus.fed) {
+      chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, false);
+      continue;
+    }
+    const metered = meterBus === bus;
+    if (metered) { meter.pushPre(bus, n0, n1); chain.probe = meter; }
+    chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
+    if (metered) { chain.probe = null; meter.pushPost(bus, n0, n1); }
+    const d = bus.data;
+    if (spatial === null) {
+      const accL = ts.mixAccL;
+      const accR = ts.mixAccR;
+      for (let n = n0; n < n1; n++) {
+        accL[n] += d[n] * globalGain;
+        accR[n] += d[TRACKER_CHUNK + n] * globalGain;
+      }
+    } else {
+      const sd = spatial.data;
+      const nch = bus.nch;
+      for (let c = 0; c < nch; c++) {
+        const o = c * TRACKER_CHUNK;
+        for (let n = n0; n < n1; n++) sd[o + n] += d[o + n] * globalGain;
       }
     }
   }
@@ -17105,6 +19758,13 @@ function generateTrackerAudio(eng, playhead, out) {
     ts.firstRow = false;
     applyTrackerRow(eng, ts, playhead);
   }
+
+  // Instrument mixing chains (item 217): bring the route table up to date
+  // with the blocks, the records and the channel layout. `buses` is empty for
+  // every song that has no engaged chain, and then nothing below costs a thing.
+  if (ts.imixGen !== eng.imixGen || ts.imixRate !== SAMPLING_RATE) syncImixRoutes(eng, ts);
+  const buses = ts.imixList;
+  const nBuses = buses.length;
 
   // The rate and the Amiga coefficients are settable module bindings (item
   // 108) — read them ONCE per chunk so the per-sample loop below works on
@@ -17173,6 +19833,7 @@ function generateTrackerAudio(eng, playhead, out) {
       accL.fill(0.0, n0, n1);
       accR.fill(0.0, n0, n1);
     }
+    for (let b = 0; b < nBuses; b++) buses[b].clear(n0, n1);
     if (!extModClockLive(eng, voices, bgVoices)) {
       for (let vi = 0; vi < nVoices; vi++) {
         mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n0, n1, sptFirst, sptRest, globalGain);
@@ -17192,6 +19853,10 @@ function generateTrackerAudio(eng, playhead, out) {
         }
       }
     }
+
+    // Every instrument bus runs its chain over the span and joins the mix,
+    // scaled by the song's global gain, in ascending slot order.
+    if (nBuses > 0) runImixBuses(ts, playhead, buses, n0, n1, globalGain);
 
     for (let n = n0; n < n1; n++) {
       let mixL;
@@ -17330,10 +19995,38 @@ function generateTrackerAudio(eng, playhead, out) {
 
 
 
+
+
+/** How many sounding voices getInstrumentFormantState reports at most. */
+const FORMANT_LIVE_MAX = 8;
+
 // Scratch instrument slot for the raw-sample preview (jamSample). It sits just
 // past the 1024 addressable bank slots so an audition never borrows a real one;
 // every `instruments[voice.instrumentId]` lookup indexes it directly (no & mask).
 const AUDITION_SLOT = 1024;
+
+/** The bytes of a pattern whose every cell is the no-op one: both column
+ *  selectors FINE by zero, everything else zero (file format §5.5). */
+function blankPatternBytes(wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  const out = new Uint8Array(64 * size);
+  for (let r = 0; r < 64; r++) {
+    if (wide) out[r * size + 8] = 0x33;
+    else { out[r * size + 3] = 0xc0; out[r * size + 4] = 0xc0; }
+  }
+  return out;
+}
+
+function isBlankPatternBytes(bytes, wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  if (bytes.length < 64 * size) return false;
+  for (let i = 0; i < 64 * size; i++) {
+    const k = i % size;
+    const want = wide ? (k === 8 ? 0x33 : 0) : (k === 3 || k === 4 ? 0xc0 : 0);
+    if ((bytes[i] & 0xff) !== want) return false;
+  }
+  return true;
+}
 
 function makePattern() {
   const rows = new Array(64);
@@ -17353,6 +20046,7 @@ class TaudEngine {
     // Pattern store — lazily allocated (memory scales with actual song size).
     this.playdata = new Array(NUM_PATTERNS).fill(null);
     this.emptyPattern = makePattern();
+    this.sharedBlank = [null, null]; // narrow, wide — see blankPattern()
     this.scratchPattern = makePattern();
     this.cueSheet = new Array(NUM_CUES);
     for (let i = 0; i < NUM_CUES; i++) this.cueSheet[i] = new PlayCue();
@@ -17371,6 +20065,12 @@ class TaudEngine {
     // mixer hands each voice's PRE-PAN mono contribution to `add()`; nothing
     // else about the render changes, so the main output stays bit-identical.
     this.stemBus = null;
+    // Instrument mixing chains (item 217): the project's IMix blocks by id.
+    // Like the instruments, they belong to the engine, not to a playhead;
+    // `imixGen` counts every change to them or to an instrument record, and a
+    // playhead rebuilds its route table when it sees a new count.
+    this.imixBlocks = new Map();
+    this.imixGen = 0;
   }
 
   channelCount() { return this.is64ChannelMode ? MAX_VOICES : NUM_VOICES; }
@@ -17382,15 +20082,44 @@ class TaudEngine {
     return this.playdata[idx] ?? this.emptyPattern;
   }
 
-  /** Writable pattern idx, allocating its 64 rows on first access. */
+  /** Writable pattern idx, allocating its 64 rows on first access — and
+   *  copying the shared blank before anything is written over it. */
   patternFor(idx) {
     if (idx < 0 || idx >= NUM_PATTERNS) return this.scratchPattern;
     let p = this.playdata[idx];
     if (p === null) {
       p = makePattern();
       this.playdata[idx] = p;
+    } else if (p === this.sharedBlank[0] || p === this.sharedBlank[1]) {
+      p = p.map((c) => Object.assign(new TaudPlayData(), c));
+      this.playdata[idx] = p;
     }
     return p;
+  }
+
+  /** The one copy every slot holding a BLANK pattern shares (every cell the
+   *  no-op one), one per cell format. Read-only: playback never writes a
+   *  pattern cell, and patternFor copies it before an upload would. */
+  blankPattern() {
+    const k = this.wideCells ? 1 : 0;
+    if (this.sharedBlank[k] === null) {
+      const rows = makePattern();
+      this.decodePattern(rows, blankPatternBytes(this.wideCells));
+      this.sharedBlank[k] = rows;
+    }
+    return this.sharedBlank[k];
+  }
+
+  decodePattern(pat, bytes) {
+    if (this.wideCells) {
+      const n = Math.min(PATTERN_BYTES_WIDE, bytes.length);
+      for (let i = 0; i < n; i++) {
+        pat[(i / CELL_BYTES_WIDE) | 0].setByteWide(i % CELL_BYTES_WIDE, bytes[i] & 0xff);
+      }
+      return;
+    }
+    const n = Math.min(PATTERN_BYTES, bytes.length);
+    for (let i = 0; i < n; i++) pat[(i / CELL_BYTES) | 0].setByte(i % CELL_BYTES, bytes[i] & 0xff);
   }
 
   // ── content upload (AudioJSR223Delegate.kt:343-497, 610-640) ──
@@ -17416,6 +20145,7 @@ class TaudEngine {
       this.instruments[instIdx].loadRecord(rec);
     }
     for (const inst of this.instruments) inst.extraPatches = null;
+    this.imixGen++; // byte 255 of every record may have moved
     return image.length;
   }
 
@@ -17435,6 +20165,7 @@ class TaudEngine {
     const rec = new Uint8Array(256);
     for (let i = 0; i < Math.min(256, bytes.length); i++) rec[i] = bytes[i] & 0xff;
     inst.loadRecord(rec);
+    this.imixGen++;
   }
 
   /**
@@ -17473,18 +20204,16 @@ class TaudEngine {
     this.playdata[slot & 0x7fff] = null;
   }
 
-  /** Upload 512 bytes (64 rows × 8) defining pattern slot. */
+  /** Upload 512 bytes (64 rows × 8) defining pattern slot. A blank pattern is
+   *  not stored but shared (blankPattern): a song renumbered lane by lane
+   *  (Microtone item 253) leaves thousands of them in the gaps between lanes. */
   uploadPattern(slot, bytes) {
-    const pat = this.patternFor(slot & 0x7fff);
-    if (this.wideCells) {
-      const n = Math.min(PATTERN_BYTES_WIDE, bytes.length);
-      for (let i = 0; i < n; i++) {
-        pat[(i / CELL_BYTES_WIDE) | 0].setByteWide(i % CELL_BYTES_WIDE, bytes[i] & 0xff);
-      }
+    const idx = slot & 0x7fff;
+    if (idx < NUM_PATTERNS && isBlankPatternBytes(bytes, this.wideCells)) {
+      this.playdata[idx] = this.blankPattern();
       return;
     }
-    const n = Math.min(PATTERN_BYTES, bytes.length);
-    for (let i = 0; i < n; i++) pat[(i / CELL_BYTES) | 0].setByte(i % CELL_BYTES, bytes[i] & 0xff);
+    this.decodePattern(this.patternFor(idx), bytes);
   }
 
   /**
@@ -17734,6 +20463,25 @@ class TaudEngine {
   getMastering(ph) { return this.playheads[ph].trackerState.masteringParams; }
 
   /**
+   * The project's instrument mixing chains (item 217, TAUD_ENGINE_SPEC.md
+   * §12.4): every IMix block, as decoded from the file's `IMix` section. An
+   * instrument whose byte 255 names one of them mixes through it on every
+   * playhead. Replaces the whole set; a block that keeps its id keeps its
+   * running state, so a host may push the set on every edit.
+   *
+   * Like the mastering chain, a conforming player MUST install what the file
+   * declares.
+   */
+  setImix(blocks) {
+    this.imixBlocks = imixBlockMap(blocks);
+    this.imixGen++;
+  }
+  getImix() { return [...this.imixBlocks.values()]; }
+
+  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus. */
+  setImixMeter(ph, slot) { this.playheads[ph].trackerState.setImixMeter(slot); }
+
+  /**
    * Install (or drop) the Mastering view's metering tap (loudness.js). Like the
    * strip's analysis tap this costs nothing while off, so a host turns it on
    * only while the view that reads it is on screen.
@@ -17929,6 +20677,24 @@ class TaudEngine {
     applyKeyLift(voice, this.instruments[voice.instrumentId]);
   }
 
+  /**
+   * A computer-keyboard piano key LIFTED (the tracker's jam keyboard): a
+   * formant syllable that a key-off ends by itself — it has a coda to speak —
+   * is keyed off, so the coda is heard as a pattern key-off would sound it;
+   * anything else is cut as jamStopVoice cuts, since an ordinary instrument
+   * with no release, or a syllable with no coda, would otherwise sound on.
+   * JS-only (item 240), no Kotlin counterpart.
+   */
+  jamRelease(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const voice = ts.voices[Math.min(Math.max(vi, 0), TOTAL_VOICES - 1)];
+    if (voice.active && !voice.keyOff && voice.formant !== null && formantEndsOnKeyOff(voice.formant)) {
+      this.jamKeyOff(ph, vi);
+    } else {
+      this.jamStopVoice(ph, vi);
+    }
+  }
+
   // ── per-voice readbacks (delegate 144-325; clamps mirror the delegate) ──
 
   _voice(ph, vi) {
@@ -18104,6 +20870,38 @@ class TaudEngine {
       rtMute: patch.rtMute,
       wave,
     };
+  }
+
+  /**
+   * A formant instrument's live state, for the Formant tab's playback display
+   * (item 240), or null for any other instrument: every sounding voice of it
+   * — lanes before ghosts, at most FORMANT_LIVE_MAX — whose vowel is its OWN
+   * (an `S $Afgr`, or an instrument change still gliding), as the chart bytes
+   * it stands at now, fractional mid-glide, and where a glide is heading. A
+   * voice singing the record's vowel is not listed: the record shows it.
+   */
+  getInstrumentFormantState(slot) {
+    const patch = this.instruments[slot & 0x3ff].formant;
+    if (patch === null) return null;
+    const voices = [];
+    for (const p of this.playheads) {
+      const ts = p.trackerState;
+      if (ts === null || ts === undefined) continue;
+      for (const list of [ts.voices, ts.backgroundVoices]) {
+        for (const v of list) {
+          if (voices.length >= FORMANT_LIVE_MAX) break;
+          const st = v.formant;
+          if (!v.active || st === null || st.patch !== patch || !st.ownVowel) continue;
+          const gliding = st.glideLeft > 0;
+          voices.push({
+            front: st.vFront, open: st.vOpen, round: st.vRound,
+            toFront: gliding ? st.tFront : st.vFront, toOpen: gliding ? st.tOpen : st.vOpen,
+            toRound: gliding ? st.tRound : st.vRound,
+          });
+        }
+      }
+    }
+    return { voices };
   }
 
   /** The modification's inversion mask, one bit per SAMPLE byte (item 130). */
@@ -18401,6 +21199,17 @@ class StreamResampler {
 
 
 
+
+
+
+/**
+ * The two stereo WAV characters. CLEAN is 16-bit with a plain TPDF dither
+ * (dither.js); GRITTY is 8-bit through the device's own noise-shaped dither —
+ * at the engine's rate, the very bytes the device would have played.
+ */
+const WAV_CLEAN = "clean";
+const WAV_GRITTY = "gritty";
+
 /** Load a parsed .taud (or Document-adapted) song into a fresh engine. */
 function loadIntoEngine(eng, doc, songIndex = 0) {
   const song = doc.songs[songIndex];
@@ -18437,6 +21246,8 @@ function loadIntoEngine(eng, doc, songIndex = 0) {
   // conforming player would produce, so the chain belongs on every render path,
   // not only on the one the editor listens to.
   eng.setMastering(0, song.mastering ?? doc.meta?.mastering?.[songIndex] ?? null);
+  // …and the instruments' mixing chains (item 217), for the same reason.
+  eng.setImix(doc.imix ?? []);
 
   for (const entry of doc.ixmp) eng.uploadInstrumentPatches(entry.instId, entry.blob);
 }
@@ -18528,13 +21339,17 @@ async function renderSongAsync(eng, seconds, { onProgress = null, signal = null,
   };
 }
 
-/** Encode a rendered f32 mix bus (engine rate) as a 16-bit stereo WAV at
- *  `outRate`; the 48 kHz default needs no resampling at all (item 108).
+/** Encode a rendered f32 mix bus (engine rate) as a stereo WAV at `outRate`;
+ *  the 48 kHz default needs no resampling at all (item 108). `quality` is
+ *  WAV_CLEAN (16-bit, TPDF-dithered) or WAV_GRITTY (8-bit, noise-shaped like
+ *  the device). Either dither starts afresh, so a render is one file every time.
  *  Exported for taudplay (item 179), whose renderer writes the same files. */
-function encodeWav(f32, outRate = 48000) {
+function encodeWav(f32, outRate = 48000, quality = WAV_CLEAN) {
   const pcm = resampleInterleaved(f32, 2, SAMPLING_RATE, outRate);
+  const gritty = quality === WAV_GRITTY;
+  const bytesPer = gritty ? 1 : 2;
   const numSamples = pcm.length; // interleaved stereo samples
-  const dataBytes = numSamples * 2;
+  const dataBytes = numSamples * bytesPer;
   const buf = new ArrayBuffer(44 + dataBytes);
   const dv = new DataView(buf);
   const wstr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
@@ -18543,17 +21358,36 @@ function encodeWav(f32, outRate = 48000) {
   wstr(8, "WAVE");
   wstr(12, "fmt ");
   dv.setUint32(16, 16, true);
-  dv.setUint16(20, 1, true);           // PCM
-  dv.setUint16(22, 2, true);           // stereo
+  dv.setUint16(20, 1, true);                      // PCM
+  dv.setUint16(22, 2, true);                      // stereo
   dv.setUint32(24, outRate, true);
-  dv.setUint32(28, outRate * 4, true); // byte rate (16-bit stereo)
-  dv.setUint16(32, 4, true);           // block align
-  dv.setUint16(34, 16, true);          // bits
+  dv.setUint32(28, outRate * 2 * bytesPer, true); // byte rate
+  dv.setUint16(32, 2 * bytesPer, true);           // block align
+  dv.setUint16(34, 8 * bytesPer, true);           // bits
   wstr(36, "data");
   dv.setUint32(40, dataBytes, true);
-  for (let i = 0; i < numSamples; i++) {
-    const v = Math.max(-1, Math.min(1, pcm[i]));
-    dv.setInt16(44 + i * 2, Math.round(v * 32767), true);
+  if (gritty) {
+    // pcm32fToPcm8 reads the engine's dither state off its first argument and
+    // takes the two sides apart, so it is fed a fresh state and a block at a
+    // time; WAV's unsigned 8-bit centre is the device's own bias.
+    const state = { xorshift32: makeXorshift32(), ditherError: new Float32Array(4) };
+    const out = new Uint8Array(buf, 44);
+    const BLOCK = 4096;
+    const l = new Float32Array(BLOCK), r = new Float32Array(BLOCK);
+    const block = new Uint8Array(BLOCK * 2);
+    const frames = numSamples >> 1;
+    for (let f0 = 0; f0 < frames; f0 += BLOCK) {
+      const n = Math.min(BLOCK, frames - f0);
+      for (let k = 0; k < n; k++) {
+        l[k] = pcm[(f0 + k) * 2];
+        r[k] = pcm[(f0 + k) * 2 + 1];
+      }
+      pcm32fToPcm8(state, l, r, n, block);
+      out.set(block.subarray(0, n * 2), f0 * 2);
+    }
+  } else {
+    const next = makeDither16();
+    for (let i = 0; i < numSamples; i++) dv.setInt16(44 + i * 2, ditherS16(next, pcm[i]), true);
   }
   return new Uint8Array(buf);
 }
@@ -18568,15 +21402,16 @@ function applyMonitor(eng, monitor) {
   if (monitor === "binaural") eng.setMonitorMode(0, MONITOR_BINAURAL);
 }
 
-/** Offline-render a Document's song to a 16-bit stereo WAV, resampled to
- *  `outRate` (default 48 kHz), taken from the pre-dither float mix bus (no
- *  dithering). Returns {bytes, seconds, halted}. */
-function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold") {
+/** Offline-render a Document's song to a stereo WAV, resampled to `outRate`
+ *  (default 48 kHz), taken from the pre-dither float mix bus and quantised as
+ *  `quality` says (encodeWav). Returns {bytes, seconds, halted}. */
+function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold",
+                            quality = WAV_CLEAN) {
   const eng = new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = renderSong(eng, maxSeconds);
-  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted };
+  return { bytes: encodeWav(r.f32, outRate, quality), seconds: r.frames / SAMPLING_RATE, halted: r.halted };
 }
 
 /** Async twin of renderToWav — yields to the event loop so a progress UI can
@@ -18584,13 +21419,15 @@ function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = 
  *  plus `aborted`; `bytes` is null when aborted. */
 async function renderToWavAsync(docLike, songIndex, maxSeconds,
                                        { outRate = 48000, onProgress = null, signal = null,
-                                         monitor = "fold" } = {}) {
+                                         monitor = "fold", quality = WAV_CLEAN } = {}) {
   const eng = new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = await renderSongAsync(eng, maxSeconds, { onProgress, signal });
   if (r.aborted) return { bytes: null, seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: true };
-  return { bytes: encodeWav(r.f32, outRate), seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: false };
+  return {
+    bytes: encodeWav(r.f32, outRate, quality), seconds: r.frames / SAMPLING_RATE, halted: r.halted, aborted: false,
+  };
 }
 
 // ══ src/taudplay/protocol.js ══

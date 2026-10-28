@@ -6,7 +6,8 @@
 //   * samples dedupe by CONTENT against the destination pool and within the
 //     batch, then first-fit into free pool extents (8 MB budget);
 //   * top-level imports take free slots 1..255 (the pattern-cell instrument
-//     byte can't address higher); layer-only dependencies fill 1023 downward;
+//     byte can't address higher); every sub-instrument — a source of another
+//     instrument in the batch, picked or not — fills $3FF downward to $100;
 //   * instrument records and Ixmp blobs are kept verbatim except the
 //     remapped sample pointers / layer indices; INam entries splice by slot,
 //     SNam rebuilds by sample identity (ptr:len) AFTER apply so the name
@@ -19,6 +20,7 @@ import {
   patchChannelPtrs, makeInstPatch, writePatchesBlob, CHAN_MODE_DISCRETE,
 } from "../../core/engine/inst.js";
 import { sampleSpans } from "./document.js";
+import { buildImixSection, freeImixId } from "../../core/format/imix-section.js";
 import {
   regionSpans, buildRegionPayload, MAX_REGION_CHANNELS,
 } from "./sampleregions.js";
@@ -26,8 +28,14 @@ import {
   formantInstSpans, formantRecordSpans, retargetFormantRecord, remapFormantSource,
 } from "./formantedit.js";
 import {
-  metaLayers, metaRecordOf, defaultLayer, linkCount, repointLayer,
+  metaLayers, metaRecordOf, defaultLayer, linkCount, repointLayer, metaFlags,
 } from "./metaedit.js";
+import {
+  easyNeeds, easyFill, easyCompile, easyDecode, easySinePcm, easyDcPcm, easyCycleTuning,
+  EASY_SINE_FRAMES, EASY_PRINCIPAL_FADEOUT, OCTET_UNITY,
+} from "./fmeasy.js";
+import { fmValidate, fmOperators, fmProgramOf } from "./fmedit.js";
+import { FM_WORD_OSC, FmOp } from "../../core/engine/inst.js";
 
 const sampleKey = (ptr, len) => `${ptr}:${len}`;
 
@@ -226,16 +234,22 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
       if (!all.has(d)) { all.add(d); queue.push(d); }
     }
   }
-  const topLevel = new Set(selected);
+  // A sub-instrument is a component, not something to play (item 59), so it
+  // goes to the auxiliary range even when it was ticked — "All" ticks every
+  // row, and the source may well have kept it in $01–$FF.
+  const sources = new Set();
+  for (const s of all) for (const d of layerDeps(srcDoc, s, srcUsed)) sources.add(d);
+  const topLevel = new Set(selected.filter((s) => !sources.has(s)));
   const ordered = [...all].sort((a, b) => a - b);
 
   // ── destination slots: 1..255 ascending for note-addressable imports,
-  //    1023 downward for layer-only dependencies ──
+  //    $3FF downward to $100 for sub-instruments, which fall back to the low
+  //    range only once the auxiliary one is full ──
   const taken = new Set(destDoc.usedInstrumentSlots());
   const slotMap = new Map();
   let low = 1, high = 1023;
   const nextLow = () => { while (low <= 255 && taken.has(low)) low++; return low <= 255 ? low : null; };
-  const nextHigh = () => { while (high >= 1 && taken.has(high)) high--; return high >= 1 ? high : null; };
+  const nextHigh = () => { while (high >= 256 && taken.has(high)) high--; return high >= 256 ? high : null; };
   for (const srcSlot of ordered) {
     const dest = topLevel.has(srcSlot) ? nextLow() : (nextHigh() ?? nextLow());
     if (dest === null) {
@@ -363,6 +377,46 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     insts.push({ srcSlot, destSlot: slotMap.get(srcSlot), topLevel: topLevel.has(srcSlot), record: rec, ixmpBlob, ixmpCount });
   }
 
+  // ── IMix (item 217): an imported instrument brings its mixing chain. Each
+  //    source block lands under a fresh id here, once per import, so two
+  //    instruments that shared a chain still share it and none of the
+  //    project's own chains is touched. A record naming a block its file does
+  //    not hold comes over with no chain. ──
+  let imixPayload;
+  const srcBlocks = typeof srcDoc.imixMap === "function" ? srcDoc.imixMap().blocks : new Map();
+  const destBlocks = new Map(destDoc.imixMap().blocks);
+  const imixIds = new Map();
+  for (const it of insts) {
+    const sid = it.record[255];
+    if (sid === 0) continue;
+    if (!imixIds.has(sid)) {
+      const blk = srcBlocks.get(sid);
+      let did = 0;
+      if (blk) {
+        did = freeImixId(new Set(destBlocks.keys()));
+        if (did === 0) return { error: "No free mixing-chain id left in this project (255 in use)." };
+        destBlocks.set(did, { ...blk, id: did });
+      }
+      imixIds.set(sid, did);
+    }
+    it.record[255] = imixIds.get(sid);
+    // A metainstrument's record is applied verbatim, so the byte above is all
+    // it takes; every other kind decodes byte 255 into its reserved tail.
+  }
+  if (destBlocks.size !== destDoc.imixMap().blocks.size) imixPayload = buildImixSection(destBlocks.values());
+  // …and its name (IMcn, item 247) goes with it to the new id.
+  let imcnPayload;
+  const srcImcn = splitNameTable(sectionPayload(srcDoc, "IMcn"));
+  if ([...imixIds].some(([sid, did]) => did !== 0 && (srcImcn[sid]?.length ?? 0) > 0)) {
+    const parts = splitNameTable(sectionPayload(destDoc, "IMcn"));
+    for (const [sid, did] of imixIds) {
+      if (did === 0 || (srcImcn[sid]?.length ?? 0) === 0) continue;
+      while (parts.length <= did) parts.push(new Uint8Array(0));
+      parts[did] = srcImcn[sid];
+    }
+    imcnPayload = joinNameTable(parts);
+  }
+
   // ── INam: splice imported names in by destination slot ──
   const srcInam = splitNameTable(sectionPayload(srcDoc, "INam"));
   const destInamPayload = sectionPayload(destDoc, "INam");
@@ -398,6 +452,8 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     insts,
     samples: newSamples,
     inamPayload,
+    imixPayload,
+    imcnPayload,
     snamNames,
     writeSnam,
     slotMap,
@@ -413,7 +469,7 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
  *  existing pooled sample's loop (item 40). */
 export function buildFreshInstRecord({ samplePtr, sampleLength, samplingRate,
                                        sampleLoopStart = 0, sampleLoopEnd = 0, loopMode = 0,
-                                       sampleDetune = 0 }) {
+                                       sampleDetune = 0, initialAttenOctet = 0 }) {
   const inst = new TaudInst(0);
   inst.samplePtr = samplePtr;
   inst.sampleLength = sampleLength;
@@ -422,6 +478,7 @@ export function buildFreshInstRecord({ samplePtr, sampleLength, samplingRate,
   inst.sampleLoopEnd = sampleLoopEnd;
   inst.loopMode = loopMode;
   inst.sampleDetune = sampleDetune;
+  inst.initialAttenOctet = initialAttenOctet & 0xff;
   const rec = new Uint8Array(256);
   for (let i = 0; i < 256; i++) rec[i] = inst.getByteNormal(i);
   return rec;
@@ -440,7 +497,8 @@ export function planSampleImport(destDoc, item) {
 
 /**
  * The N-sample generalisation (item 84 — the Sample Lab's chopper lands every
- * kept chunk in ONE undo step): `items` is [{nameBytes, pcm, rate, loop, pcmR, detune}].
+ * kept chunk in ONE undo step): `items` is [{nameBytes, pcm, rate, loop, pcmR, detune,
+ * attenOctet}].
  * Each item becomes its own instrument (free $01–$FF slots ascending, in item
  * order); PCM dedupes against the pool AND within the batch; INam/SNam names
  * land per item (a deduped span keeps its existing name; for a batch-internal
@@ -450,6 +508,10 @@ export function planSampleImport(destDoc, item) {
  * caller is the only one that passes it, to land a freshly painted cycle
  * exactly on middle C at C-4 rather than at whatever pitch its raw length
  * happens to loop at.
+ *
+ * `attenOctet` (byte 251, the decibel octet; 0 = unity) defaults to 0 — a
+ * pattern rendered to a sample (item 242) is kept near full scale for its 8
+ * bits and carries the rest of its level here.
  *
  * `pcmR` (same length as `pcm`) makes the item STEREO (item 90): the right
  * channel takes its own pool span and the instrument gets a single full-range
@@ -486,37 +548,11 @@ export function planMultiSampleImport(destDoc, items) {
   }
 
   // ── pool: dedupe (census, then batch), first-fit the rest ──
-  const destCensus = destDoc.sampleList();
-  const destPool = destDoc.sampleBin;
-  const extents = freeExtents(destCensus, destDoc.sampleRegions());
-  const samples = [];
+  const pool = poolPlacer(destDoc);
+  const { samples } = pool;
+  const placeChannel = pool.place;
   const ptrs = [];
   const ptrsR = [];
-  let newSampleBytes = 0, dedupedSamples = 0;
-  // Place one channel's bytes: reuse an identical span if the pool (or this
-  // batch) already holds one, else first-fit a free extent. `nameBytes` is
-  // only carried by the FIRST channel — an extra channel is not a named sample.
-  const placeChannel = (pcm, nameBytes) => {
-    for (const e of destCensus) {
-      if (e.len === pcm.length && bytesEqual(destPool.subarray(e.ptr, e.ptr + e.len), pcm)) {
-        dedupedSamples++;
-        return { ptr: e.ptr };
-      }
-    }
-    for (const ns of samples) {
-      if (bytesEqual(ns.bytes, pcm)) { dedupedSamples++; return { ptr: ns.ptr }; }
-    }
-    const ext = extents.find((x) => x.len >= pcm.length);
-    if (!ext) {
-      return { error: `Sample pool full: needs ${pcm.length} more bytes and no free extent is large enough.` };
-    }
-    const ptr = ext.ptr;
-    ext.ptr += pcm.length;
-    ext.len -= pcm.length;
-    samples.push({ ptr, bytes: Uint8Array.from(pcm), srcKeys: [], nameBytes: nameBytes ?? new Uint8Array(0) });
-    newSampleBytes += pcm.length;
-    return { ptr };
-  };
   for (const it of items) {
     const left = placeChannel(it.pcm, it.nameBytes);
     if (left.error) return { error: left.error };
@@ -546,6 +582,7 @@ export function planMultiSampleImport(destDoc, items) {
       record: buildFreshInstRecord({
         samplePtr: ptrs[i], sampleLength: len, samplingRate: rate,
         sampleLoopEnd: loopEnd, loopMode, sampleDetune: detune,
+        initialAttenOctet: it.attenOctet ?? 0,
       }),
       ixmpBlob: stereo
         ? writePatchesBlob([makeInstPatch({
@@ -573,23 +610,63 @@ export function planMultiSampleImport(destDoc, items) {
     inamPayload = joinNameTable(parts);
   }
 
-  // SNam identity map (payload rebuilt from the real census after apply).
-  // A deduped sample keeps its existing name.
-  const snamNames = new Map();
-  const destSnam = splitNameTable(sectionPayload(destDoc, "SNam"));
-  destCensus.forEach((e, i) => snamNames.set(sampleKey(e.ptr, e.len), destSnam[i] ?? new Uint8Array(0)));
-  for (const ns of samples) snamNames.set(sampleKey(ns.ptr, ns.bytes.length), ns.nameBytes);
-  const writeSnam = anyName || sectionPayload(destDoc, "SNam") !== null;
-
   return {
     insts,
     samples,
     inamPayload,
-    snamNames,
-    writeSnam,
+    ...pool.snam(anyName),
     slotMap: new Map(insts.map((it) => [it.srcSlot, it.destSlot])),
-    newSampleBytes,
-    dedupedSamples,
+    newSampleBytes: pool.newSampleBytes(),
+    dedupedSamples: pool.dedupedSamples(),
+  };
+}
+
+/**
+ * Sample placement for a plan that brings NEW pcm into the pool: `place(pcm,
+ * nameBytes)` reuses an identical span if the pool (or this batch) already
+ * holds one, else first-fits a free extent, and returns {ptr} or {error}.
+ * `nameBytes` names a NEW span only — a deduped one keeps its existing name.
+ * `snam(anyName)` is the plan's {snamNames, writeSnam}: the SNam identity map,
+ * whose payload is rebuilt from the real census after apply.
+ */
+function poolPlacer(destDoc) {
+  const destCensus = destDoc.sampleList();
+  const destPool = destDoc.sampleBin;
+  const extents = freeExtents(destCensus, destDoc.sampleRegions());
+  const samples = [];
+  let newSampleBytes = 0, dedupedSamples = 0;
+  const place = (pcm, nameBytes) => {
+    for (const e of destCensus) {
+      if (e.len === pcm.length && bytesEqual(destPool.subarray(e.ptr, e.ptr + e.len), pcm)) {
+        dedupedSamples++;
+        return { ptr: e.ptr };
+      }
+    }
+    for (const ns of samples) {
+      if (bytesEqual(ns.bytes, pcm)) { dedupedSamples++; return { ptr: ns.ptr }; }
+    }
+    const ext = extents.find((x) => x.len >= pcm.length);
+    if (!ext) {
+      return { error: `Sample pool full: needs ${pcm.length} more bytes and no free extent is large enough.` };
+    }
+    const ptr = ext.ptr;
+    ext.ptr += pcm.length;
+    ext.len -= pcm.length;
+    samples.push({ ptr, bytes: Uint8Array.from(pcm), srcKeys: [], nameBytes: nameBytes ?? new Uint8Array(0) });
+    newSampleBytes += pcm.length;
+    return { ptr };
+  };
+  const snam = (anyName) => {
+    const snamNames = new Map();
+    const destSnam = splitNameTable(sectionPayload(destDoc, "SNam"));
+    destCensus.forEach((e, i) => snamNames.set(sampleKey(e.ptr, e.len), destSnam[i] ?? new Uint8Array(0)));
+    for (const ns of samples) snamNames.set(sampleKey(ns.ptr, ns.bytes.length), ns.nameBytes);
+    return { snamNames, writeSnam: anyName || sectionPayload(destDoc, "SNam") !== null };
+  };
+  return {
+    samples, place, snam,
+    newSampleBytes: () => newSampleBytes,
+    dedupedSamples: () => dedupedSamples,
   };
 }
 
@@ -1154,6 +1231,62 @@ export function planCreateMeta(destDoc, picks, name = "") {
 }
 
 /**
+ * Plan a layered metainstrument for a CHORD STACK (item 242): `layers` is
+ * [{slot, detune}] in table order, the first being the foreground layer. The
+ * same copy-into-$100+ rule as planCreateMeta, with each instrument copied
+ * once however many layers sound it (linked, item 113), and every layer at
+ * unity mix over the full rectangle. The meta is marked percussion when every
+ * layer's instrument is. Returns {error} or a planImport-shaped plan.
+ */
+export function planChordMeta(destDoc, layers, name = "") {
+  if (destDoc.sampleInstImage === null) {
+    return { error: "This project has no sample+instrument image." };
+  }
+  const used = new Set(destDoc.usedInstrumentSlots());
+  if (!layers?.length) return { error: "No instruments selected." };
+  if (layers.length > META_MAX_LAYERS) {
+    return { error: `A metainstrument holds at most ${META_MAX_LAYERS} layers (${layers.length} selected).` };
+  }
+  if (layers.some((l) => !used.has(l.slot) || destDoc.instruments[l.slot].isMeta)) {
+    return { error: "A metainstrument can't be layered inside another metainstrument." };
+  }
+  const taken = new Set(used);
+  let metaSlot = 1;
+  while (metaSlot <= 255 && taken.has(metaSlot)) metaSlot++;
+  if (metaSlot > 255) {
+    return { error: "No free instrument slots left in $01–$FF (note-addressable range)." };
+  }
+  taken.add(metaSlot);
+
+  const insts = [];
+  const childOf = new Map();
+  for (const { slot } of layers) {
+    if (childOf.has(slot)) continue;
+    const child = allocChildSlot(taken);
+    if (child < 0) return { error: "No free sub-instrument slots left in $100–$3FF." };
+    childOf.set(slot, child);
+    insts.push(copyEntry(destDoc, slot, child));
+  }
+  const table = layers.map((l) => makeMetaLayer(childOf.get(l.slot), 159, l.detune, 0x0000, 0xffff, 0, 63));
+  const percussion = layers.every((l) => destDoc.instruments[l.slot].isPercussion);
+  insts.push({
+    srcSlot: -1,
+    destSlot: metaSlot,
+    topLevel: true,
+    record: buildMetaRecord(table, { percussion }),
+    ixmpBlob: null,
+    ixmpCount: 0,
+  });
+  const names = insts.filter((it) => it.srcSlot >= 0)
+    .map((it) => [it.destSlot, destDoc.instrumentName(it.srcSlot)]);
+  names.push([metaSlot, name]);
+  return metaPlan(insts, inamPayloadWith(destDoc, names), {
+    metaSlot,
+    childSlots: insts.filter((it) => it.srcSlot >= 0).map((it) => it.destSlot),
+  });
+}
+
+/**
  * Plan a new type-4 FM rack (item 159) out of instruments already in the
  * project — planCreateMeta's twin, and deliberately the same copy-into-$100+
  * shape, because an operator is an ordinary instrument in every respect the
@@ -1218,6 +1351,263 @@ export function planCreateFm(destDoc, picks, name = "") {
   });
 }
 
+// ── FM Easy Mode (item 247) ─────────────────────────────────────────────────
+//
+// An Easy rack makes its own instruments: a sine for every operator, a
+// constant 1.0 for its principal and one more for the depth of its feedback
+// loops. Each operator has an instrument of its OWN, since its volume envelope
+// is what shapes it; the loops share one constant, and so may racks — a
+// constant has nothing to edit. Both waveforms dedupe against the pool, so a
+// project spends 256 + 16 bytes on them however many racks it has.
+
+const EASY_DC_FRAMES = 16;
+
+/** A looped single-cycle record over `ptr` (fmeasy's waveforms). */
+function easyCycleRecord(ptr, frames) {
+  const { samplingRate, detune } = easyCycleTuning(frames);
+  return buildFreshInstRecord({
+    samplePtr: ptr, sampleLength: frames, samplingRate,
+    sampleLoopEnd: frames, loopMode: 1, sampleDetune: detune,
+  });
+}
+
+/**
+ * A constant's record: 1.0 for ever, and nothing else about it. Its rate is
+ * 0, so it never moves off its first frame: the interpolator reads a constant
+ * exactly only where it reads no fraction, and a sinc read BETWEEN frames
+ * comes out a few tenths of a percent low, rippling with the note's pitch.
+ */
+function easyConstRecord(ptr) {
+  return buildFreshInstRecord({
+    samplePtr: ptr, sampleLength: EASY_DC_FRAMES, samplingRate: 0,
+    sampleLoopEnd: EASY_DC_FRAMES, loopMode: 1,
+  });
+}
+
+/** A fresh principal's record: the constant, with a release, so a note
+ *  rings out after its key is let go instead of holding for ever. */
+function easyPrincipalRecord(ptr) {
+  const r = easyConstRecord(ptr);
+  r[172] = EASY_PRINCIPAL_FADEOUT & 0xff;
+  r[173] = (r[173] & 0xf0) | ((EASY_PRINCIPAL_FADEOUT >>> 8) & 0x0f);
+  return r;
+}
+
+/**
+ * Plan an Easy Mode rack (fmeasy.js model) into `metaSlot`, or into a new
+ * top-level slot named `name` when `metaSlot` is null: every operator the
+ * model has no instrument for gets a fresh sine, a new rack a fresh principal,
+ * and loops that need a depth the rack's constant (or one already in the
+ * project, or a fresh one). The record is written with its Easy Mode bit, its
+ * other flags and IMix id kept. Returns {error} or a planImport-shaped plan
+ * with `metaSlot`, `childSlots` and the filled `model`.
+ */
+export function planEasyFm(destDoc, metaSlot, model, name = "") {
+  if (destDoc.sampleInstImage === null) {
+    return { error: "This project has no sample+instrument image." };
+  }
+  const used = new Set(destDoc.usedInstrumentSlots());
+  const taken = new Set(used);
+  let slot = metaSlot;
+  if (slot === null) {
+    slot = 1;
+    while (slot <= 255 && taken.has(slot)) slot++;
+    if (slot > 255) return { error: "No free instrument slots left in $01–$FF (note-addressable range)." };
+    taken.add(slot);
+  }
+  const inst = metaSlot === null ? null : destDoc.instruments[metaSlot];
+  const needs = easyNeeds(model);
+  const needPrincipal = (model.principal.instIdx & 0x3ff) === 0;
+
+  const pool = poolPlacer(destDoc);
+  const place = (pcm) => {
+    const r = pool.place(pcm, new Uint8Array(0));
+    if (r.error) throw new Error(r.error);
+    return r.ptr;
+  };
+  const insts = [];
+  const names = [];
+  const child = (record, label) => {
+    const c = allocChildSlot(taken);
+    if (c < 0) throw new Error("No free sub-instrument slots left in $100–$3FF.");
+    insts.push({ srcSlot: -(insts.length + 1), destSlot: c, topLevel: false, record, ixmpBlob: null, ixmpCount: 0 });
+    names.push([c, label]);
+    return c;
+  };
+
+  let filled;
+  try {
+    const sinePtr = needs.osc.length > 0 ? place(easySinePcm(EASY_SINE_FRAMES)) : -1;
+    const dcPtr = needPrincipal || needs.constant ? place(easyDcPcm(EASY_DC_FRAMES)) : -1;
+    const oscSlots = needs.osc.map((i) => child(easyCycleRecord(sinePtr, EASY_SINE_FRAMES), `FM op ${i}`));
+    let constSlot = needs.constSlot;
+    if (needs.constant) {
+      // A constant is the same record wherever it is, so one already in the
+      // project (another Easy rack's) is this rack's too.
+      const rec = easyConstRecord(dcPtr);
+      constSlot = 0;
+      for (const s of used) {
+        if (s < 0x100 || destDoc.instruments[s].isMeta) continue;
+        if (bytesEqual(destDoc.instRecordBytes(s), rec)) { constSlot = s; break; }
+      }
+      if (constSlot === 0) constSlot = child(rec, "FM const");
+    }
+    filled = easyFill(model, oscSlots, constSlot);
+    if (needPrincipal) filled.principal.instIdx = child(easyPrincipalRecord(dcPtr), "FM out");
+  } catch (e) {
+    return { error: e.message };
+  }
+
+  const { ops, program } = easyCompile(filled);
+  const verdict = fmValidate(program, ops.length);
+  if (ops.length > FM_MAX_OPERATORS || !verdict.ok) {
+    return { error: verdict.error === "budget" || ops.length > FM_MAX_OPERATORS
+      ? "This wiring does not fit in an FM rack's record." : "This wiring does not make a valid algorithm." };
+  }
+  const flags = inst ? metaFlags(inst) : { percussion: false, imixId: 0 };
+  insts.push({
+    srcSlot: -1000,
+    destSlot: slot,
+    topLevel: true,
+    record: buildMetaRecord(ops, {
+      type: META_TYPE_FM, program, easy: true,
+      percussion: flags.percussion, imixId: flags.imixId,
+    }),
+    ixmpBlob: null,
+    ixmpCount: 0,
+  });
+  if (metaSlot === null) names.push([slot, name]);
+
+  return {
+    insts,
+    samples: pool.samples,
+    inamPayload: inamPayloadWith(destDoc, names),
+    ...pool.snam(false),
+    slotMap: new Map(insts.map((it) => [it.srcSlot, it.destSlot])),
+    newSampleBytes: pool.newSampleBytes(),
+    dedupedSamples: pool.dedupedSamples(),
+    metaSlot: slot,
+    childSlots: insts.filter((it) => !it.topLevel).map((it) => it.destSlot),
+    model: filled,
+  };
+}
+
+/**
+ * What it takes to put an ordinary rack into Easy Mode: {kind: "flag"} when it
+ * already reads as one (only the bit is missing), {kind: "wrap", plan} when it
+ * can be made one, or {error, reason} (reason an fmeasy decode reason).
+ *
+ * Wrapping puts a new principal in front of the rack, the whole patch
+ * multiplied by it. The old principal's SHARED part — its envelopes but a
+ * pitch one, its filter, fadeout, global volume, swing, attenuation, note
+ * actions, pan and mixing chain — moves onto the new one, which the mixer
+ * then applies to the finished patch exactly as it applied the old one's; the
+ * old principal stays where it was as an operator, on a copy of its instrument
+ * with all of that taken off. So the patch sounds as it did. Per-zone
+ * envelopes in the old principal's keyboard map stay on the operator, where
+ * they now shape it alone.
+ */
+export function planEasyConvert(destDoc, metaSlot) {
+  const inst = destDoc.instruments[metaSlot];
+  if (!inst?.isFm) return { error: "Not an FM rack.", reason: "invalid" };
+  const ops = fmOperators(inst);
+  const program = fmProgramOf(inst);
+  const asIs = easyDecode(ops, program);
+  if (asIs.ok) return { kind: "flag" };
+
+  const shifted = program.map((w) => (w >= 0xff00 ? w : (w & ~0x3ff) | ((w & 0x3ff) + 1)));
+  const wrappedProg = [...shifted, FM_WORD_OSC | 0, FmOp.MUL];
+  const p0 = ops[0];
+  const wrappedOps = [{ ...p0, mixOctet: OCTET_UNITY, detune: 0 }, ...ops];
+  const decoded = easyDecode(wrappedOps, wrappedProg);
+  if (!decoded.ok) return { error: "This rack can't be shown in Easy Mode.", reason: decoded.reason };
+  if (wrappedOps.length > FM_MAX_OPERATORS || !fmValidate(wrappedProg, wrappedOps.length).ok) {
+    return { error: "This rack has no room for a principal.", reason: "full" };
+  }
+  const src = p0.instIdx & 0x3ff;
+  if (src === 0) return { error: "This rack has no principal operator.", reason: "invalid" };
+
+  const old = destDoc.instRecordBytes(src);
+  const used = new Set(destDoc.usedInstrumentSlots());
+  const taken = new Set(used);
+  const pool = poolPlacer(destDoc);
+  const dc = pool.place(easyDcPcm(EASY_DC_FRAMES), new Uint8Array(0));
+  if (dc.error) return { error: dc.error, reason: "pool" };
+
+  // The new principal: a constant carrying everything shared.
+  const principal = easyConstRecord(dc.ptr);
+  const copy = (from, to) => { for (let b = from; b <= to; b++) principal[b] = old[b]; };
+  principal[14] = (principal[14] & 0x0f) | (old[14] & 0x30); // percussion, azimuth
+  copy(15, 18);   // volume and pan LOOP words
+  copy(21, 120);  // volume and pan nodes
+  copy(171, 174); // global volume, fadeout + filter mode, volume swing
+  copy(177, 183); // default pan, pitch-pan, pan swing, cutoff, resonance
+  principal[186] = (principal[186] & ~0x23) | (old[186] & 0x23); // the New Note Action
+  copy(189, 192); // volume and pan SUSTAIN words
+  copy(195, 196); // Duplicate Check, default note volume
+  copy(251, 255); // attenuation, SoundFont filter bits, elevation, IMix
+  // …and a pitch/filter slot whose role is the FILTER. A chip instrument's
+  // second slot is its patch, and a formant's its tract: neither is a slot.
+  const chip = destDoc.instruments[src].isOpl || destDoc.instruments[src].isPsg;
+  const slots = chip ? [[19, 121, 193]] : [[19, 121, 193], [197, 201, 199]];
+  const isFilter = (loop) => ((loop >>> 7) & 1) === 1 && ((loop >>> 13) & 1) === 1;
+  const word = (r, o) => r[o] | (r[o + 1] << 8);
+  for (const [loop, nodes, sus] of slots) {
+    if (!isFilter(word(old, loop))) continue;
+    for (let b = 0; b < 2; b++) { principal[loop + b] = old[loop + b]; principal[sus + b] = old[sus + b]; }
+    for (let b = 0; b < 50; b++) principal[nodes + b] = old[nodes + b];
+  }
+
+  // The old principal, as an operator: the same record with the shared part off.
+  const op = Uint8Array.from(old);
+  const clearPresent = (o) => { op[o + 1] &= ~0x20; };
+  clearPresent(15); // volume envelope absent
+  clearPresent(17); // pan envelope absent
+  for (const [loop] of slots) if (isFilter(word(old, loop))) clearPresent(loop);
+  op[171] = 0xff;                // full global volume
+  op[172] = 0;                   // no fadeout…
+  op[173] &= 0xf0;               // …keeping the filter-mode bits
+  op[174] = 0;                   // no volume swing
+  op[182] = 0xff;                // filter off
+  op[183] = 0;
+  op[251] = 0;                   // unity attenuation
+  op[252] = 0; op[253] = 0;
+  op[255] = 0;                   // no mixing chain of its own
+
+  const pSlot = allocChildSlot(taken);
+  const oSlot = allocChildSlot(taken);
+  if (pSlot < 0 || oSlot < 0) return { error: "No free sub-instrument slots left in $100–$3FF.", reason: "slots" };
+  const blob = [...destDoc.ixmp].reverse().find((e) => (e.instId & 0x3ff) === src);
+  wrappedOps[0] = { ...wrappedOps[0], instIdx: pSlot };
+  wrappedOps[1] = { ...wrappedOps[1], instIdx: oSlot };
+  const flags = metaFlags(inst);
+  const insts = [
+    { srcSlot: -1, destSlot: pSlot, topLevel: false, record: principal, ixmpBlob: null, ixmpCount: 0 },
+    { srcSlot: -2, destSlot: oSlot, topLevel: false, record: op,
+      ixmpBlob: blob ? blob.blob : null, ixmpCount: blob ? blob.count : 0 },
+    { srcSlot: -1000, destSlot: metaSlot, topLevel: true, ixmpBlob: null, ixmpCount: 0,
+      record: buildMetaRecord(wrappedOps, {
+        type: META_TYPE_FM, program: wrappedProg, easy: true,
+        percussion: flags.percussion, imixId: flags.imixId,
+      }) },
+  ];
+  const opName = destDoc.instrumentName(src);
+  return {
+    kind: "wrap",
+    plan: {
+      insts,
+      samples: pool.samples,
+      inamPayload: inamPayloadWith(destDoc, [[pSlot, "FM out"], [oSlot, opName]]),
+      ...pool.snam(false),
+      slotMap: new Map(insts.map((it) => [it.srcSlot, it.destSlot])),
+      newSampleBytes: pool.newSampleBytes(),
+      dedupedSamples: pool.dedupedSamples(),
+      metaSlot,
+      childSlots: [pSlot, oSlot],
+    },
+  };
+}
+
 /**
  * Plan a new OPL instrument (item 209): one type-8 record (TAUD_FILE_FORMAT §7.8) in
  * the first free top-level slot. Nothing is copied and no child is made — the
@@ -1265,7 +1655,7 @@ export function planAddMetaLayers(destDoc, metaSlot, picks) {
   const existing = metaLayers(meta);
   const total = existing.length + [...counts.values()].reduce((a, b) => a + b, 0);
   // A rack's ceiling is lower than a layer table's, and it is not just a count:
-  // the operators and the algorithm share the record's 252 bytes (§7.7).
+  // the operators and the algorithm share the record's 250 bytes (§7.7).
   if (meta.isFm) {
     const words = meta.fmProgram === null ? 0 : meta.fmProgram.length;
     if (total > FM_MAX_OPERATORS) {
@@ -1273,7 +1663,7 @@ export function planAddMetaLayers(destDoc, metaSlot, picks) {
     }
     if (fmRecordBytes(total, words) > FM_BUDGET_BYTES) {
       return { error: `That would not fit the record: ${total} operators and a ${words}-word algorithm need ` +
-        `${fmRecordBytes(total, words)} of 252 bytes.` };
+        `${fmRecordBytes(total, words)} of ${FM_BUDGET_BYTES} bytes.` };
     }
   } else if (total > META_MAX_LAYERS) {
     return { error: `A metainstrument holds at most ${META_MAX_LAYERS} layers (${total} would result).` };
@@ -1583,6 +1973,9 @@ export function applyPlan(doc, plan) {
     doc.setSection("Ixmp", doc.ixmp.length > 0 ? buildIxmpSection(doc.ixmp) : null);
   }
   if (plan.inamPayload !== null) doc.setSection("INam", plan.inamPayload);
+  // Mixing chains an import brought (item 217); `undefined` leaves them alone.
+  if (plan.imixPayload !== undefined) doc.setSection("IMix", plan.imixPayload);
+  if (plan.imcnPayload !== undefined) doc.setSection("IMcn", plan.imcnPayload);
   // Pool regions (item 175). `undefined` leaves the section alone — only the
   // plans that add, rename or drop a region carry the field; `null` removes it,
   // which is what the last region's deletion means.

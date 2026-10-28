@@ -20,6 +20,7 @@ import {
 } from "../../doc/psgedit.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
 import { t } from "../i18n.js";
+import { lampButton } from "../components/lampbutton.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -104,13 +105,9 @@ export function renderPsgTab(view, inst) {
     });
     return input;
   };
-  const check = (value, onChange) => {
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = !!value;
-    input.addEventListener("change", () => onChange(input.checked ? 1 : 0));
-    return input;
-  };
+  const check = (value, onChange) => lampButton({
+    label: [t("common.off"), t("common.on")], on: !!value, onChange: (on) => onChange(on ? 1 : 0),
+  });
   const select = (value, options, onChange) => {
     const sel = document.createElement("select");
     for (const [v, text] of options) sel.appendChild(new Option(text, v, false, v === value));
@@ -129,9 +126,9 @@ export function renderPsgTab(view, inst) {
       }),
     t("psg.mixTitle")));
   for (const [i, key] of [[0, "muteA"], [1, "muteB"]]) {
-    const box = check(f[key], (v) => view.store.undo.apply(setInstBytesOp(slot, psgSwitchBytes(inst, key, v === 1))));
-    live.mute[i] = { input: box, record: f[key] };
-    mixer.appendChild(field(t(i === 0 ? "psg.muteA" : "psg.muteB"), box, t("psg.muteTitle")));
+    const lamp = check(f[key], (v) => view.store.undo.apply(setInstBytesOp(slot, psgSwitchBytes(inst, key, v === 1))));
+    live.mute[i] = { input: lamp.button, lamp, record: f[key] };
+    mixer.appendChild(field(t(i === 0 ? "psg.muteA" : "psg.muteB"), lamp.button, t("psg.muteTitle")));
   }
 
   // ── the oscillators ──
@@ -149,16 +146,16 @@ export function renderPsgTab(view, inst) {
     for (const fd of PSG_ENV_FIELDS) {
       const val = of[fd.key];
       const control = fd.max === 1
-        ? check(val, (v) => apply(psgOscBytes(inst, o, fd.key, v), `${o}.${fd.key}`))
+        ? check(val, (v) => apply(psgOscBytes(inst, o, fd.key, v), `${o}.${fd.key}`)).button
         : num(val, fd.max, (v) => apply(psgOscBytes(inst, o, fd.key, v), `${o}.${fd.key}`));
       if (fd.key === "tl") live.level[o] = { input: control, record: val };
       box.appendChild(field(t(`opl.f.${fd.key}`), control, t(`opl.f.${fd.key}Title`)));
     }
     box.appendChild(field(t("psg.f.invert"),
-      check(of.invert, (v) => apply(psgOscBytes(inst, o, "invert", v), `${o}.invert`)),
+      check(of.invert, (v) => apply(psgOscBytes(inst, o, "invert", v), `${o}.invert`)).button,
       t("psg.f.invertTitle")));
     box.appendChild(field(t("psg.f.reset"),
-      check(of.reset, (v) => apply(psgOscBytes(inst, o, "reset", v), `${o}.reset`)),
+      check(of.reset, (v) => apply(psgOscBytes(inst, o, "reset", v), `${o}.reset`)).button,
       t("psg.f.resetTitle")));
     const depth = (key, labels) => select(of[key] === 3 ? 0 : of[key],
       labels.map((text, v) => [v, text]),
@@ -225,7 +222,7 @@ function refreshSketches(view, slot) {
 /** A field showing an overlay value, or its record's own again. */
 function showLive(entry, value, isLive, title) {
   const input = entry.input;
-  if (input.type === "checkbox") input.checked = !!value;
+  if (entry.lamp) entry.lamp.setOn(value);
   else if (document.activeElement !== input) input.value = value;
   input.classList.toggle("psg-live", isLive);
   input.title = isLive ? title : "";

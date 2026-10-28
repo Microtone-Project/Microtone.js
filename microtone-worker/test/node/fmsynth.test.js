@@ -179,7 +179,7 @@ test("an unknown word is rejected, not stepped over", () => {
   assert.equal(decodeFmProgram(rec, at, 1), null);
 });
 
-test("the rack and the algorithm share one 252-byte budget", () => {
+test("the rack and the algorithm share one 250-byte budget", () => {
   // 16 operators is the cap precisely so the algorithm always has room left.
   assert.ok(fmRecordBytes(FM_MAX_OPERATORS, defaultFmProgram(FM_MAX_OPERATORS).length)
     <= FM_BUDGET_BYTES);
@@ -194,6 +194,10 @@ test("the rack and the algorithm share one 252-byte budget", () => {
   assert.notEqual(inst.fmProgram, null, "the truncated program still verifies");
   assert.ok(inst.fmProgram.length < 201, "…because it WAS truncated");
   assert.ok(fmRecordBytes(1, inst.fmProgram.length) <= FM_BUDGET_BYTES);
+  // Bytes 254 and 255 are never the program's: 255 is the record's IMix id
+  // (item 217) and 254 keeps a word from straddling it.
+  assert.equal(rec[254], 0);
+  assert.equal(rec[255], 0);
 });
 
 test("only $00xx and $04xx make an operator sound", () => {

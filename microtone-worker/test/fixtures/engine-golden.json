@@ -93,6 +93,27 @@
       "frames": 960000,
       "u8": "4e05eda3fb3145d84724501932fd5b64b749315f18b710af9cbcfaacc47ab155",
       "f32": "afbfc8c0ad662f875bdbc1505018e6fa35064330947cb165ab0e3272d52fa9c4"
+    },
+    "Huygens_clock@imix": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "imix": true,
+      "frames": 960000,
+      "u8": "c10b443285d7c5754cce5239e44abaad73b8c86709d44bdb434869a29a4714d3",
+      "f32": "4b7c0a58373f91e10828af7f2a11b6f73e47b2a4fabffcfde62c58ed47545193"
+    },
+    "WHEN_AMBI@imix": {
+      "file": "assets/demo_projects/WHEN_AMBI.taud",
+      "imix": true,
+      "frames": 960000,
+      "u8": "f8d6ed052accea1448e5dc944c91302aa57b3232ea422ff3d2901960721d53a4",
+      "f32": "2a5bc69797a9e49f3879ca09e729776a2b439542c46e9810a97eca90ed2c464a"
+    },
+    "Huygens_clock@imixbus": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "imix": "bus",
+      "frames": 960000,
+      "u8": "2532767026ba4ab5716c4dc19a1cd36972dbb222be528cc23ffd82582fe03d88",
+      "f32": "232652ffd30b26575791c82a36695f2848dd7a11a8c479821890574df18379a6"
     }
   }
 }

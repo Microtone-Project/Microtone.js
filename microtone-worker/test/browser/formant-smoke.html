@@ -70,7 +70,7 @@
         await waitFor(() => iv.panel.querySelector(".fmt-chart-svg"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +
-          ok(tabs.join("|") === "Formant|General|Vol env|Pan env|Pitch/Filter" && iv.tab === "formant"));
+          ok(tabs.join("|") === "Formant|General|Vol env|Pan env|Pitch/Filter|Mixing" && iv.tab === "formant"));
         const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
         log(`list badge "${badge()}": ${ok(badge() === "FMNT")}`);
         const heads = [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);
@@ -160,6 +160,19 @@
         const nCons = pick.querySelectorAll(".fmt-cons").length;
         log(`…and ${nCons} consonants in all: ${ok(nCons >= 70)}`);
         log(`…every consonant can be made (none grey): ${ok(pick.querySelectorAll(".fmt-cons.none").length === 0)}`);
+        // Item 239: the breathy stops sit beside the aspirated ones, [sʰ] has a
+        // row of its own, and the glottal affricate is in the glottal column.
+        {
+          const cellOf = (ipa) => [...pick.querySelectorAll(".fmt-cons")].find((b) => b.textContent === ipa)?.parentElement;
+          const rowHead = (ipa) => cellOf(ipa)?.parentElement.querySelector(".fmt-cons-manner")?.textContent;
+          log(`[bʱ] shares [pʰ]'s cell, [ɡʱ] [kʰ]'s: ${ok(cellOf("bʱ") && cellOf("bʱ") === cellOf("pʰ") && cellOf("ɡʱ") === cellOf("kʰ"))}`);
+          log(`[sʰ] in the "${rowHead("sʰ")}" row: ${ok(rowHead("sʰ") === "Aspirated fricative")}`);
+          const col = (ipa) => [...cellOf(ipa).parentElement.children].indexOf(cellOf(ipa));
+          log(`[ʔ͡h] an affricate in the glottal column: ` +
+            ok(rowHead("ʔ͡h") === "Affricate" && col("ʔ͡h") === col("h")));
+          log(`…and [c͡ç] [ɟ͡ʝ] [t͡θ] [d͡ð] [ɡ͡ɣ] [ʈʰ] [dʱ] [ɖʱ] are offered: ` +
+            ok(["c͡ç", "ɟ͡ʝ", "t͡θ", "d͡ð", "ɡ͡ɣ", "ʈʰ", "dʱ", "ɖʱ"].every((c) => !!cellOf(c))));
+        }
         sBtn.click();
         await waitFor(() => inst().formant.slots[0].cons !== 0);
         const g0 = inst().formant.slots[0];
@@ -271,6 +284,54 @@
         audio.jamKeyOff(0, voice);
         await waitFor(() => !audio.getVoiceActive(voice), 6000).catch(() => null);
         log(`key-off speaks the coda and the voice ends: ${ok(!audio.getVoiceActive(voice))}`);
+
+        // ── item 240: a lifted piano key lets the coda be heard ──
+        {
+          const { jam } = win.__microtone;
+          const inst0 = jam.currentInst, grace = jam.releaseGraceMs;
+          jam.currentInst = slot; jam.releaseGraceMs = 0;
+          jam.down("KeyA", false);
+          const jv = jam.held.get("KeyA");
+          await waitFor(() => audio.getVoiceActive(jv) && audio.getVoiceInstrument(jv) === slot, 5000).catch(() => null);
+          await sleep(250);
+          jam.up("KeyA");
+          await sleep(60);
+          const speaking = audio.getVoiceActive(jv);
+          await waitFor(() => !audio.getVoiceActive(jv), 6000).catch(() => null);
+          log(`a lifted key speaks the [n] coda (still sounding 60 ms on), then ends: ${ok(speaking && !audio.getVoiceActive(jv))}`);
+          jam.currentInst = inst0; jam.releaseGraceMs = grace;
+        }
+
+        // ── item 240: the Formant tab shows the vowels S $Afgr gave sounding notes ──
+        {
+          audio.requestInvertMask(slot);
+          const st = await waitFor(() => audio.getFormantState(slot), 3000).catch(() => null);
+          log(`the engine answers for a formant instrument (${JSON.stringify(st)}): ${ok(!!st && Array.isArray(st.voices))}`);
+          const { formantTabFrame } = await import("../../src/ui/views/instformant.js");
+          const real = { isPlaying: audio.isPlaying, getFormantState: audio.getFormantState, requestInvertMask: audio.requestInvertMask };
+          let live = [{ front: 230, open: 30, round: 0, toFront: 255, toOpen: 0, toRound: 0 }];
+          audio.isPlaying = () => true;
+          audio.requestInvertMask = () => {};
+          audio.getFormantState = () => ({ voices: live });
+          formantTabFrame(iv);
+          const dots = () => [...iv.panel.querySelectorAll(".fmt-live-dot")];
+          const line = iv.panel.querySelector(".fmt-live-readout");
+          const path = iv.panel.querySelector(".fmt-live-path");
+          log(`a gliding voice: one accent dot, its path shown, the readout "${line?.textContent}": ` +
+            ok(dots().length === 1 && path?.style.display === "" && !line.hidden && /\[i\] S\u00a0\$A0F0/.test(line.textContent)));
+          const fill = win.getComputedStyle(dots()[0]).fill;
+          const accent = win.getComputedStyle(wdoc.documentElement).getPropertyValue("--accent").trim();
+          log(`…drawn in the accent colour (${fill} / ${accent}): ${ok(fill !== "none" && fill !== "")}`);
+          live = [{ front: 255, open: 0, round: 0, toFront: 255, toOpen: 0, toRound: 0 },
+            { front: 0, open: 0, round: 255, toFront: 0, toOpen: 0, toRound: 255 }];
+          formantTabFrame(iv);
+          log(`two voices, landed: two dots, no path, both named ("${line.textContent}"): ` +
+            ok(dots().length === 2 && iv.panel.querySelector(".fmt-live-path").style.display === "none" && /\[u\]/.test(line.textContent)));
+          audio.isPlaying = () => false;
+          formantTabFrame(iv);
+          log(`stopped: cleared: ${ok(dots().length === 0 && line.hidden)}`);
+          for (const k of Object.keys(real)) delete audio[k];   // the class's own methods again
+        }
 
         // ── a recording loaded into memory (a pool region) is material too ──
         {

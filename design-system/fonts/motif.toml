@@ -4,8 +4,8 @@
 # The fonts land in core/fonts/ (what both sites serve) and a proof
 # sheet of every variant in build/proof/.
 
-version = "1.003"
-date = "2026-10-22"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
+version = "1.006"
+date = "2026-10-28"   # stamped into the fonts, so a rebuild is byte-for-byte repeatable
 
 # ── the two numbers ─────────────────────────────────────────────────────────
 
@@ -13,14 +13,14 @@ date = "2026-10-22"   # stamped into the fonts, so a rebuild is byte-for-byte re
 widen = 20            # percent: every Chivo glyph this much wider; the 600-unit cell stays
 margin = 12           # units: a widened glyph stops this far short of the cell edge
 centred = "·-−+"      # set on the capitals' middle, with the Kite marks (the grid's natural is −)
+narrow-zero = 14
 
 [transport]           # "Motif Transport": the transport readouts
 narrow = 10           # percent: every glyph AND its cell this much narrower
 
 # ── the rest ────────────────────────────────────────────────────────────────
-
 [code]                # "Motif Code": the Motif tab's editor, roman and italic
-narrow_letters = "iIl"
+narrow_letters = "fijltI"
 narrow_factor = 0.75
 wide_letters = "MmWw"
 wide_factor = 1.25    # digits and punctuation keep the 600-unit cell
@@ -40,10 +40,22 @@ exponent_inner = 3.8  # …and of the counter
 widen = 22            # units each side, before the variant's own widening
 margin = 10           # never closer than this to the cell edge
 
-[apertures]           # C G c opened: units each terminal's cut moves away from the middle,
+[capital_D]           # a round bowl, so D stands apart from the square O and the stemless 0
+exponent = 2.0        # superellipse exponent of the bowl's outer curve: 2 is an ellipse
+exponent_inner = 2.3  # …and of the counter's
+bowl = 1.0            # the bowl's width against half the D's height (1: as wide as a circle's)
+
+[apertures]           # C G c e 5 6 9 opened: units each terminal's cut moves away from the middle,
 C = 50                # still level, the arms leading to it the same curves only shorter
-G = 50
+G = 60
 c = 36
+e = 42
+5 = 40
+6 = 44
+9 = 44
+
+[in_cell]             # percent: letters drawn this much wider in their own cell (the advance stays,
+z = 18                # the stems keep their thickness) — Chivo's z is narrower than x and n beside it
 
 [zero]                # …and the zero a touch narrower than its neighbours
 narrow = 10           # percent, on top of the variant's own widening or narrowing

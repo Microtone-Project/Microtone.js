@@ -26,6 +26,7 @@ import { noteGlyph } from "../components/noteglyph.js";
 import { themeColors } from "../theme.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { lampButton } from "../components/lampbutton.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr, toLayout } from "../zoom.js";
 
@@ -118,7 +119,6 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
             <option value="source">${esc(t("chord.lenSource"))}</option>
             <option value="shortest">${esc(t("chord.lenShortest"))}</option>
           </select></label>
-        <label><input type="checkbox" class="chord-norm" checked> ${esc(t("chord.normalise"))}</label>
       </div>
       <div class="chord-voices"></div>
       <p class="dim chord-hint">${esc(t("chord.hint", { notation: preset?.name ?? "12-TET" }))}</p>
@@ -154,12 +154,11 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
     // shown, so switching modes never rebuilds (and never loses what the other
     // modes were set to — a note remembers its ratio while you try degrees).
     const rows = [];
+    const onLamps = [];
     for (let i = 0; i < MAX_VOICES; i++) {
       const row = document.createElement("div");
       row.className = "chord-voice";
       row.innerHTML = `
-        <input type="checkbox" class="cv-on" title="${esc(t("chord.onTitle"))}">
-        <span class="cv-num">${i + 1}</span>
         <select class="cv-mode">${modeOptions}</select>
         <span class="cv-val">
           <select class="cv-ji">${jiOptions}</select>
@@ -178,7 +177,13 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
 
       const v = () => voices[i];
       const q = (sel) => row.querySelector(sel);
-      q(".cv-on").addEventListener("change", () => { v().on = q(".cv-on").checked; touch(); });
+      // The note's on/off is a lamp pushbutton carrying the note's number.
+      const on = lampButton({
+        label: String(i + 1), title: t("chord.onTitle"), className: "cv-on",
+        onChange: (lit) => { v().on = lit; touch(); },
+      });
+      row.prepend(on.button);
+      onLamps.push(on);
       q(".cv-mode").addEventListener("change", () => { v().mode = q(".cv-mode").value; touch(); });
       q(".cv-ji").addEventListener("change", () => { v().ji = q(".cv-ji").value; touch(); });
       q(".cv-step").addEventListener("input", () => { v().step = parseInt(q(".cv-step").value, 10) || 0; touch(); });
@@ -229,7 +234,7 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
         const v = voices[i];
         const q = (sel) => row.querySelector(sel);
         row.classList.toggle("off", !v.on);
-        q(".cv-on").checked = !!v.on;
+        onLamps[i].setOn(v.on);
         q(".cv-mode").value = v.mode;
         q(".cv-ji").value = v.ji;
         setIfIdle(q(".cv-step"), String(v.step));
@@ -423,7 +428,11 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       seedFromPreset();
     });
     $(".chord-len").addEventListener("change", (e) => { lengthMode = e.target.value; touch(); });
-    $(".chord-norm").addEventListener("change", (e) => { normalise = e.target.checked; touch(); });
+    const norm = lampButton({
+      label: t("chord.normalise"), on: normalise, className: "chord-norm",
+      onChange: (on) => { normalise = on; touch(); },
+    });
+    $(".chord-head").append(norm.button);
 
     // ── audition (Web Audio — the mix is not pooled yet) ───────────────────
     function playPos() {
@@ -513,7 +522,7 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       setInversion: (n) => { inversion = n; $(".chord-inv").value = String(n); seedFromPreset(); },
       preset: () => ({ id: presetId, inversion, options: $(".chord-inv").options.length }),
       setLength: (m) => { lengthMode = m; $(".chord-len").value = m; touch(); },
-      setNormalise: (on) => { normalise = on; $(".chord-norm").checked = on; touch(); },
+      setNormalise: (on) => { normalise = on; norm.setOn(on); touch(); },
       units: (i) => voiceUnits(voices[i], preset),
       note: (i) => voiceNote(voices[i], preset),
       mix: () => ensureMix(),

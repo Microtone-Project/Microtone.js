@@ -32,6 +32,7 @@ import {
   classifyMetaChildren, uniqueSampleSpansForSet,
 } from "../../doc/cleanup.js";
 import { planDuplicateInstruments } from "../../doc/bankmerge.js";
+import { showNotice } from "../components/modal.js";
 import { showModal } from "../components/modal.js";
 import { AdvancedZoneEditor } from "./instadvanced.js";
 import { META_MIX_GAIN } from "../../../core/engine/tables.js";
@@ -44,6 +45,7 @@ import {
 } from "../../doc/envedit.js";
 import { mapSpinner } from "../components/spinner.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
+import { lampButton } from "../components/lampbutton.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import { hex2, rangeToStr } from "../notenames.js";
 import { noteGlyph, rangeGlyph } from "../components/noteglyph.js";
@@ -58,8 +60,12 @@ import {
 import { formantBadge } from "../../doc/formantedit.js";
 import { oplGraph, oplGraphCanvas } from "../../doc/oplgraph.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
-import { renderFormantTab } from "./instformant.js";
+import { renderFormantTab, formantTabFrame } from "./instformant.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
+import { renderFmEasyTab } from "./instfmeasy.js";
+import { easyDecode } from "../../doc/fmeasy.js";
+import { planEasyConvert } from "../../doc/bankmerge.js";
+import { MixingPanel } from "./instmixing.js";
 import { psgBadge } from "../../doc/psgedit.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
 import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
@@ -168,6 +174,7 @@ export class InstrumentsView {
     this.envAxis = new EnvAxis(); // the envelope graph's log map + zoom (envgraph.js)
     this.advanced = false; // Advanced Edit (Ixmp patch editor, item 49b) active
     this.advEditor = new AdvancedZoneEditor(this);
+    this.mixing = new MixingPanel(this); // the Mixing tab (item 217)
     this.lamps = new Map(); // slot -> Lamp (item 169); outlives refresh() rebuilds
     this._lampLastMs = 0;
 
@@ -215,7 +222,7 @@ export class InstrumentsView {
   }
 
   show() { this.visible = true; this.refresh(); }
-  hide() { this.visible = false; this._fmDraft = null; }
+  hide() { this.visible = false; this._fmDraft = null; this.mixing.syncTap(); }
 
   refresh() {
     const doc = this.store.doc;
@@ -316,6 +323,19 @@ export class InstrumentsView {
       this.listEl.appendChild(row);
       this.rowEls.push({ el: row, slot });
     }
+    // The bank goes out from the foot of the list it is made of (item 229).
+    const foot = document.createElement("div");
+    foot.className = "side-foot-inst";
+    const exportBtn = document.createElement("button");
+    exportBtn.textContent = t("inst.export");
+    exportBtn.title = t("inst.exportTitle");
+    exportBtn.disabled = slots.length === 0;
+    exportBtn.addEventListener("click", async () => {
+      const { showExportBank } = await import("../popups/exportbank.js");
+      await showExportBank(this.store, { badgeOf: instKindBadge });
+    });
+    foot.appendChild(exportBtn);
+    this.listEl.appendChild(foot);
     this.renderTabs();
     this.renderPanel();
   }
@@ -359,8 +379,11 @@ export class InstrumentsView {
     // first, then everything an ordinary one has but the keyboard map.
     // A formant instrument likewise: its tract first, then an ordinary
     // instrument's tabs (its sample, the glottal source, is on General).
+    // An FM rack in Easy Mode (item 247) leads with its Easy tab; the FM tab
+    // beside it is the same rack, word for word.
+    const easyTab = inst?.isFm && metaFlags(inst).easy ? [["fmeasy", t("inst.tabFmEasy")]] : [];
     const tabs = inst?.isMeta
-      ? [metaTab, ["metaopts", t("inst.tabMetaOptions")]]
+      ? [...easyTab, metaTab, ["metaopts", t("inst.tabMetaOptions")]]
       : inst?.isOpl
         ? [["opl", t("inst.tabOpl")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
         : inst?.isPsg
@@ -368,6 +391,9 @@ export class InstrumentsView {
         : inst?.isFormant
           ? [["formant", t("inst.tabFormant")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
           : [["general", t("inst.tabGeneral")], ...envTabs, ["zones", t("inst.tabZones")]];
+    // Every kind has a mixing chain (item 217): its last tab, after everything
+    // that makes the sound, as the chain comes after the voices in the mix.
+    if (inst) tabs.push(["mixing", t("inst.tabMixing")]);
     // A tab this instrument has not got is snapped to its first one, in either
     // direction: a metainstrument has no envelopes and an ordinary instrument
     // has no layer table, so simply keeping `this.tab` across a selection
@@ -407,6 +433,7 @@ export class InstrumentsView {
       this._fmDraft = null;
     }
     this.panel.innerHTML = "";
+    this._envSlot = null;
     if (inst) this.panel.appendChild(this.nameRow());
     if (this.tab === "general") this.renderGeneral(inst);
     else if (this.tab.startsWith("env")) this.renderEnv(inst, ENV_TABS[parseInt(this.tab.slice(3), 10)]);
@@ -416,10 +443,13 @@ export class InstrumentsView {
     else if (this.tab === "zones") this.renderZones(inst);
     else if (this.tab === "meta") this.renderMeta(inst);
     else if (this.tab === "fm") this.renderFm(inst);
+    else if (this.tab === "fmeasy") renderFmEasyTab(this, inst);
     else if (this.tab === "opl") this.renderOpl(inst);
     else if (this.tab === "psg") renderPsgTab(this, inst);
     else if (this.tab === "formant") renderFormantTab(this, inst);
     else if (this.tab === "metaopts") this.renderMetaOptions(inst);
+    else if (this.tab === "mixing") this.mixing.render(this.panel);
+    this.mixing.syncTap();
   }
 
   /** A base-record field edit. When `key` is one of the sample-geometry
@@ -950,8 +980,7 @@ export class InstrumentsView {
     this.renderPanel();
   }
 
-  /** label · checkbox (with on/off text) row. */
-  /** A labelled checkbox. `opts.hint` writes a line of explanation across the
+  /** label · lamp pushbutton (saying On / Off) row. `opts.hint` writes a line of explanation across the
    *  row's remaining columns — worth the space for a flag whose effect is not
    *  guessable from its name — and `opts.disabled` greys one out where it does
    *  not apply, which says more than leaving it out would. */
@@ -961,14 +990,10 @@ export class InstrumentsView {
     const lab = document.createElement("span");
     lab.className = "sl-label"; lab.textContent = label;
     if (title) lab.title = title;
-    const wrap = document.createElement("label");
-    wrap.className = "sl-check";
-    if (title) wrap.title = title;
-    const c = document.createElement("input");
-    c.type = "checkbox"; c.checked = checked; c.disabled = disabled;
-    c.addEventListener("change", () => onChange(c.checked));
-    wrap.append(c, document.createTextNode(checked ? t("inst.on") : t("inst.off")));
-    row.append(lab, wrap);
+    const { button } = lampButton({
+      label: [t("common.off"), t("common.on")], on: checked, onChange, title, disabled, className: "sl-check",
+    });
+    row.append(lab, button);
     if (hint) {
       const h = document.createElement("span");
       h.className = "sl-hint";
@@ -1205,6 +1230,10 @@ export class InstrumentsView {
     this.renderEnv(inst, onePfTabDef(inst));
   }
 
+  /** The instrument the envelope editor below edits: the selected one, or —
+   *  on the FM Easy tab — the operator whose envelope it is showing. */
+  get envSlot() { return this._envSlot ?? this.selected; }
+
   renderEnv(inst, tabDef) {
     const env = inst[tabDef.key];
     // Pitch/Filter "present" is whether THIS tab currently holds the role
@@ -1221,7 +1250,7 @@ export class InstrumentsView {
     canvas.title = t("env.graphTitle");
     this.panel.appendChild(canvas);
     this.envCanvas = { canvas, env, tabDef, inst, head };
-    this.envAxis.bind(`${this.selected}:${tabDef.key}`);
+    this.envAxis.bind(`${this.envSlot}:${tabDef.key}`);
 
     const active = envActiveCount(env);
     this.selectedNode = Math.min(Math.max(this.selectedNode, 0), active - 1);
@@ -1246,9 +1275,9 @@ export class InstrumentsView {
 
 
   setEnvWordBit(key, bit, on) {
-    const cur = this.store.doc.instruments[this.selected][key];
+    const cur = this.store.doc.instruments[this.envSlot][key];
     const nw = on ? (cur | (1 << bit)) : (cur & ~(1 << bit));
-    this.store.undo.apply(setInstFieldOp(this.selected, key, nw & 0xffff));
+    this.store.undo.apply(setInstFieldOp(this.envSlot, key, nw & 0xffff));
   }
 
   /** Pitch/Filter "envelope present" toggle. Turning it ON CLAIMS the resolved
@@ -1257,18 +1286,18 @@ export class InstrumentsView {
    *  the present bit. renderPanel re-runs after (inst edit) and re-resolves the
    *  tab's slot. */
   setRolePresent(tabDef, on) {
-    const cur = this.store.doc.instruments[this.selected][tabDef.loopKey];
+    const cur = this.store.doc.instruments[this.envSlot][tabDef.loopKey];
     const nw = on
       ? ((cur | 0x2000) & ~0x80) | (tabDef.role === "filter" ? 0x80 : 0)
       : (cur & ~0x2000);
-    this.store.undo.apply(setInstFieldOp(this.selected, tabDef.loopKey, nw & 0xffff));
+    this.store.undo.apply(setInstFieldOp(this.envSlot, tabDef.loopKey, nw & 0xffff));
   }
 
   setEnvWordField(key, shift, mask, val) {
-    const cur = this.store.doc.instruments[this.selected][key];
+    const cur = this.store.doc.instruments[this.envSlot][key];
     const v = Math.min(Math.max(val | 0, 0), mask);
     const nw = (cur & ~(mask << shift)) | (v << shift);
-    this.store.undo.apply(setInstFieldOp(this.selected, key, nw & 0xffff));
+    this.store.undo.apply(setInstFieldOp(this.envSlot, key, nw & 0xffff));
   }
 
   /** Insert a node after `sel`: split its segment (interior) or extend the tail.
@@ -1290,7 +1319,7 @@ export class InstrumentsView {
       ? this.envSustainFollowOp(tabDef, active - 1, active, arm)
       : (arm ? this.envSustainFollowOp(tabDef, -1, -1, true) : null);
     if (susOp !== null) ops.push(susOp);
-    ops.push(setEnvArrayOp(this.selected, tabDef.key, res.nodes));
+    ops.push(setEnvArrayOp(this.envSlot, tabDef.key, res.nodes));
     if (presenceOp !== null) ops.push(presenceOp);
     this.store.undo.apply(ops.length === 1 ? ops[0] : compositeOp(ops));
   }
@@ -1301,12 +1330,12 @@ export class InstrumentsView {
     const res = envRemoveNode(env, sel);
     if (res === null) return;
     this.selectedNode = res.selected;
-    const ops = [setEnvArrayOp(this.selected, tabDef.key, res.nodes)];
-    const inst = this.store.doc.instruments[this.selected];
+    const ops = [setEnvArrayOp(this.envSlot, tabDef.key, res.nodes)];
+    const inst = this.store.doc.instruments[this.envSlot];
     for (const key of [tabDef.susKey, tabDef.loopKey]) {
       const clamped = envClampWrap(inst[key], res.active);
       if (clamped !== (inst[key] & 0xffff)) {
-        ops.push(setInstFieldOp(this.selected, key, clamped));
+        ops.push(setInstFieldOp(this.envSlot, key, clamped));
       }
     }
     this.store.undo.apply(ops.length === 1 ? ops[0] : compositeOp(ops));
@@ -1320,14 +1349,14 @@ export class InstrumentsView {
    *  to hear. On a Pitch/Filter tab it is the ROLE CLAIM — P bit plus the
    *  m-bit. */
   envPresenceClaimOp(tabDef) {
-    const cur = this.store.doc.instruments[this.selected][tabDef.loopKey];
+    const cur = this.store.doc.instruments[this.envSlot][tabDef.loopKey];
     if (tabDef.role) {
       if (tabDef.roleActive) return null;
       const nw = ((cur | 0x2000) & ~0x80) | (tabDef.role === "filter" ? 0x80 : 0);
-      return setInstFieldOp(this.selected, tabDef.loopKey, nw & 0xffff);
+      return setInstFieldOp(this.envSlot, tabDef.loopKey, nw & 0xffff);
     }
     if (envPresent(cur)) return null;
-    return setInstFieldOp(this.selected, tabDef.loopKey, (cur | 0x2000) & 0xffff);
+    return setInstFieldOp(this.envSlot, tabDef.loopKey, (cur | 0x2000) & 0xffff);
   }
 
   /** One node edit from the fields below the graph, with the presence claim
@@ -1341,9 +1370,9 @@ export class InstrumentsView {
    *  and, when `arm` is set, switches the sustain on first so a just-claimed
    *  envelope's points move too (doc/envedit.js). Null when nothing changes. */
   envSustainFollowOp(tabDef, oldLast, newLast, arm = false) {
-    const cur = this.store.doc.instruments[this.selected][tabDef.susKey];
+    const cur = this.store.doc.instruments[this.envSlot][tabDef.susKey];
     const nw = envFollowTailSustain(cur, oldLast, newLast, arm);
-    return nw === (cur & 0xffff) ? null : setInstFieldOp(this.selected, tabDef.susKey, nw);
+    return nw === (cur & 0xffff) ? null : setInstFieldOp(this.envSlot, tabDef.susKey, nw);
   }
 
   /** Spinner/checkbox control panel below the envelope graph. */
@@ -1376,16 +1405,8 @@ export class InstrumentsView {
       l.appendChild(inp);
       return l;
     };
-    const chk = (label, checked, onChange, title) => {
-      const l = document.createElement("label");
-      l.className = "env-ctl chk";
-      if (title) l.title = title;
-      const c = document.createElement("input");
-      c.type = "checkbox"; c.checked = checked;
-      c.addEventListener("change", () => onChange(c.checked));
-      l.append(c, document.createTextNode(label));
-      return l;
-    };
+    const chk = (label, checked, onChange, title) =>
+      lampButton({ label, on: checked, onChange, title, className: "env-chk" }).button;
     const btn = (label, title, onClick, disabled) => {
       const b = document.createElement("button");
       b.textContent = label; b.title = title; b.disabled = !!disabled;
@@ -1401,10 +1422,10 @@ export class InstrumentsView {
         this.renderPanel();
       }),
       spin(t("env.value"), node.value, 0, max, 1, (v) =>
-        this.applyEnvNodeEdit(tabDef, setEnvPointOp(this.selected, tabDef.key, sel,
+        this.applyEnvNodeEdit(tabDef, setEnvPointOp(this.envSlot, tabDef.key, sel,
           { value: Math.min(Math.max(parseInt(v, 10) || 0, 0), max) }))),
       spinMapped(t("env.seg"), SEG_MINIFLOAT_MAP, node.offset, (code) =>
-        this.applyEnvNodeEdit(tabDef, setEnvPointOp(this.selected, tabDef.key, sel,
+        this.applyEnvNodeEdit(tabDef, setEnvPointOp(this.envSlot, tabDef.key, sel,
           { offset: code }))),
       btn(t("env.addNode"), t("adv.addNodeTitle"),
         () => this.addEnvNode(tabDef, env, sel, max), active >= 25),
@@ -1435,7 +1456,7 @@ export class InstrumentsView {
       (on) => { this.envAxis.setLog(on); this.drawEnvGraph(); });
     // "Envelope present" — for Vol/Pan it toggles the LOOP-word P bit directly;
     // for Pitch/Filter (role) tabs it claims/releases the resolved slot's role
-    // (item 36), so the checkbox tracks roleActive.
+    // (item 36), so the lamp tracks roleActive.
     wrap.appendChild(row(
       tabDef.role
         ? chk(t("env.present"), tabDef.roleActive, (on) => this.setRolePresent(tabDef, on))
@@ -1462,7 +1483,7 @@ export class InstrumentsView {
     const audio = this.store.audio;
     if (audio && tabDef.liveIdx) {
       for (let vi = 0; vi < TOTAL_VOICES; vi++) {
-        if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.selected) continue;
+        if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.envSlot) continue;
         live.push({ idx: audio[tabDef.liveIdx](vi), t: audio[tabDef.liveTime](vi) });
       }
     }
@@ -1489,7 +1510,7 @@ export class InstrumentsView {
   }
 
   envDragStep(idx, change) {
-    const op = setEnvDragOp(this.selected, this.envCanvas.tabDef.key, idx, change,
+    const op = setEnvDragOp(this.envSlot, this.envCanvas.tabDef.key, idx, change,
       this.dragState.gestureId);
     const claim = this.dragState.claim;
     if (claim !== null) {
@@ -1611,6 +1632,47 @@ export class InstrumentsView {
     if (this._gripPending) return;
     this._gripPending = true;
     queueMicrotask(() => { this._gripFocus = null; this._gripPending = false; });
+  }
+
+  /** A level field in decibels over a raw mix octet (the layer table's
+   *  mixing control, item 156.2), for the Easy tab. */
+  levelInput(octet, onCommit, title = "") {
+    const inp = document.createElement("input");
+    inp.className = "meta-num";
+    if (title) inp.title = title;
+    mapSpinner(inp, MIX_DB_MAP, octet);
+    inp.addEventListener("change", () => onCommit(inp.rawValue));
+    return inp;
+  }
+
+  /** A detune field in cents over 4096-TET units, kept within [min, max] and
+   *  stepping by degrees of the song's own pitch table, as the layer table's
+   *  does — for the Easy tab. */
+  detuneInput(units, min, max, onCommit, title = "") {
+    const preset = this.store.pitchPreset;
+    const clampU = (u) => clampN(Math.round(u), min, max);
+    const inp = document.createElement("input");
+    inp.className = "meta-num";
+    if (title) inp.title = title;
+    inp.dataset.mtDecTitle = t("meta.detuneDownTitle");
+    inp.dataset.mtIncTitle = t("meta.detuneUpTitle");
+    mapSpinner(inp, {
+      toDisplay: (u) => `${centsOfUnits(u).toFixed(1)} ¢`,
+      fromDisplay: (text) => {
+        const c = Number.parseFloat(String(text).replace("−", "-"));
+        return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
+      },
+      step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
+    }, units);
+    inp.addEventListener("change", () => onCommit(inp.rawValue));
+    return inp;
+  }
+
+  /** The volume envelope editor, at the end of the panel, over another
+   *  instrument than the selected one: an Easy rack's operator. */
+  renderOperatorEnv(slot) {
+    this._envSlot = slot;
+    this.renderEnv(this.store.doc.instruments[slot], ENV_TABS[0]);
   }
 
   /** A committing number input for the layer / operator tables. */
@@ -1755,15 +1817,10 @@ export class InstrumentsView {
     // the only thing it changes: the rectangle above still decides which keys
     // reach this layer.
     if (allowFixed) {
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = fixed;
-      box.addEventListener("change", () => commit(fixedPitchFields(entry, box.checked)));
-      const lab = document.createElement("label");
-      lab.className = "meta-fixed";
-      lab.title = t("meta.fixedTitle");
-      lab.append(box, document.createTextNode(t("meta.fixed")));
-      detCell.append(lab);
+      detCell.append(lampButton({
+        label: t("meta.fixed"), on: fixed, title: t("meta.fixedTitle"), className: "meta-fixed",
+        onChange: (on) => commit(fixedPitchFields(entry, on)),
+      }).button);
     }
 
     // Gating rectangle. The new-meta hint has always told people to "narrow
@@ -1909,6 +1966,41 @@ export class InstrumentsView {
         title: off ? t("meta.optsLayeredOnly") : "",
       });
     }));
+    // Easy Mode (item 247) is a flag too — the same bit as strict layering,
+    // which a rack has no use for — but turning it on can rebuild the rack.
+    if (inst.isFm) {
+      this.group(t("easy.optsHead"), this.checkRow(t("easy.mode"), flags.easy,
+        (on) => this.setEasyMode(slot, on), { hint: t("easy.modeHint") }));
+    }
+  }
+
+  /**
+   * Easy Mode on or off. Off only clears the bit: the rack sounds the same
+   * and its Easy tab goes. On sets it when the rack already reads as Easy
+   * Mode, puts a principal in front of it when that is all it lacks
+   * (bankmerge planEasyConvert), and otherwise says what stands in the way.
+   */
+  setEasyMode(slot, on) {
+    const doc = this.store.doc;
+    const inst = doc.instruments[slot];
+    if (!on) {
+      this.store.undo.apply(setMetaRecordOp(slot, metaRecordWithFlags(inst, { easy: false })));
+      this.refresh();
+      return;
+    }
+    const res = planEasyConvert(doc, slot);
+    if (res.error) {
+      showNotice({ title: t("easy.convertFail"), body: t(`easy.why.${res.reason}`) });
+      this.refresh();
+      return;
+    }
+    if (res.kind === "flag") {
+      this.store.undo.apply(setMetaRecordOp(slot, metaRecordWithFlags(inst, { easy: true })));
+    } else {
+      this.store.undo.apply(importBankOp(res.plan));
+    }
+    this.tab = "fmeasy";
+    this.refresh();
   }
 
   /**
@@ -1932,9 +2024,50 @@ export class InstrumentsView {
       return;
     }
     const inst = this.store.doc.instruments[slot];
+    // An Easy rack (item 247) takes only what its Easy tab can still show; an
+    // edit that would leave Easy Mode is held like an unverified one, and the
+    // banner offers to apply it and leave.
+    if (metaFlags(inst).easy) {
+      const easy = easyDecode(ops, program);
+      if (!easy.ok) {
+        this._fmDraft = { slot, ops, program, easyReason: easy.reason };
+        this.refresh();
+        return;
+      }
+    }
     this._fmDraft = null;
     this.store.undo.apply(setMetaRecordOp(slot, fmRecordOf(inst, ops, program)));
     this.refresh();
+  }
+
+  /** Apply the held draft with Easy Mode switched off — the banner's way out. */
+  applyFmDraftLeavingEasy() {
+    const d = this._fmDraft;
+    if (!d) return;
+    const inst = this.store.doc.instruments[d.slot];
+    this._fmDraft = null;
+    this.store.undo.apply(setMetaRecordOp(d.slot, fmRecordOf(inst, d.ops, d.program, { easy: false })));
+    this.refresh();
+  }
+
+  /** The strip over a draft held because it would leave Easy Mode. */
+  fmEasyWarning(draft) {
+    const box = document.createElement("div");
+    box.className = "fm-warn";
+    box.append(
+      Object.assign(document.createElement("strong"), { textContent: t("easy.heldTitle") }),
+      " ",
+      Object.assign(document.createElement("span"),
+        { textContent: `${t(`easy.why.${draft.easyReason}`)} — ${t("easy.heldBody")}` }));
+    const leave = document.createElement("button");
+    leave.textContent = t("easy.leaveApply");
+    leave.title = t("easy.leaveApplyTitle");
+    leave.addEventListener("click", () => this.applyFmDraftLeavingEasy());
+    const row = document.createElement("div");
+    row.className = "fm-easy-lost-actions";
+    row.append(leave);
+    box.append(row);
+    return box;
   }
 
   /**
@@ -1972,7 +2105,7 @@ export class InstrumentsView {
     tally.className = "dim meta-tally";
     tally.textContent = t("fm.tally", { n: ops.length, max: FM_MAX_OPERATORS });
     // The memory meter (item 159.1). Operators and algorithm come out of the
-    // same 252 bytes, so one bar for both is the only honest way to show it.
+    // same 250 bytes, so one bar for both is the only honest way to show it.
     const meter = document.createElement("div");
     meter.className = "fm-meter";
     meter.title = t("fm.meterTitle");
@@ -1987,6 +2120,11 @@ export class InstrumentsView {
     bar.append(addBtn, tally, meter, meterTxt);
     this.panel.appendChild(bar);
     if (!verdict.ok) this.panel.appendChild(this.fmWarning(verdict, draft !== null));
+    else if (draft?.easyReason) this.panel.appendChild(this.fmEasyWarning(draft));
+    else if (metaFlags(inst).easy) {
+      this.panel.appendChild(Object.assign(document.createElement("p"),
+        { className: "dim fm-easy-hint", textContent: t("easy.rawNote") }));
+    }
 
     // ── the rack ──
     const table = document.createElement("table");
@@ -2247,13 +2385,9 @@ export class InstrumentsView {
       input.addEventListener("change", () => onChange(clampN(Math.round(+input.value || 0), min, max)));
       return input;
     };
-    const check = (value, onChange) => {
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = !!value;
-      input.addEventListener("change", () => onChange(input.checked ? 1 : 0));
-      return input;
-    };
+    const check = (value, onChange) => lampButton({
+      label: [t("common.off"), t("common.on")], on: !!value, onChange: (on) => onChange(on ? 1 : 0),
+    }).button;
     const select = (value, options, onChange) => {
       const sel = document.createElement("select");
       for (const [v, text] of options) sel.appendChild(new Option(text, v, false, v === value));
@@ -2421,6 +2555,10 @@ export class InstrumentsView {
     // The PSG tab shows the instrument's live overlay while playing, and puts
     // the record's values back once it stops.
     if (!this.advanced && this.tab === "psg") psgTabFrame(this);
+    // The Formant tab likewise shows the vowels S $Afgr gave sounding notes.
+    if (!this.advanced && this.tab === "formant") formantTabFrame(this);
+    if (!this.advanced && this.tab === "mixing") this.mixing.frame();
+    else this.mixing.syncTap();
     this.updateLiveDots();
   }
 }
@@ -2467,7 +2605,7 @@ function oplGraphFrame(f) {
  *  you are looking at ("FM·4" is a patch; "FM·1" is a sample with extra steps). */
 /** Which tab an instrument opens on: its rack, its layer table, or General. */
 function metaTabKey(inst) {
-  return inst?.isFm ? "fm" : inst?.isMeta ? "meta" : inst?.isOpl ? "opl"
+  return inst?.isFm ? (metaFlags(inst).easy ? "fmeasy" : "fm") : inst?.isMeta ? "meta" : inst?.isOpl ? "opl"
     : inst?.isPsg ? "psg" : inst?.isFormant ? "formant" : "general";
 }
 

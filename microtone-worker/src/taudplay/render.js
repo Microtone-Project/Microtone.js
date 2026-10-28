@@ -187,19 +187,21 @@ export class TaudRenderer {
   }
 
   /**
-   * Play from the top and encode `seconds` as a 16-bit stereo WAV at
-   * `sampleRate` (48 kHz needs no resampling at all). Returns a Uint8Array
-   * ready to write to disk or hand to a Blob.
+   * Play from the top and encode `seconds` as a stereo WAV at `sampleRate`
+   * (48 kHz needs no resampling at all). `quality` is "clean" — 16-bit, with a
+   * light TPDF dither — or "gritty" — the device's own noise-shaped 8-bit,
+   * which at 48 kHz is byte for byte what the Taud device plays. Returns a
+   * Uint8Array ready to write to disk or hand to a Blob.
    */
-  toWav(seconds, { sampleRate = 48000, onChunk = null } = {}) {
+  toWav(seconds, { sampleRate = 48000, quality = "clean", onChunk = null } = {}) {
     this.play();
-    return encodeWav(this.render(seconds, onChunk), sampleRate);
+    return encodeWav(this.render(seconds, onChunk), sampleRate, quality);
   }
 
   _ts() { return this.engine.playheads[0].trackerState; }
 }
 
-/** Interleaved stereo float at the engine rate → a 16-bit stereo WAV at
- *  `outRate`. Re-exported from the tracker's own exporter, so a file written
+/** Interleaved stereo float at the engine rate → a stereo WAV at `outRate`,
+ *  "clean" (16-bit) or "gritty" (8-bit) as the third argument says. Re-exported from the tracker's own exporter, so a file written
  *  here is byte-for-byte the file the tracker would have written. */
 export { encodeWav };

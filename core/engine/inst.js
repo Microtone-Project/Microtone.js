@@ -402,15 +402,21 @@ export const PSG_RECORD_HEADER = Object.freeze([0x90, 0x00, 0xff, 0xff]);
 
 /**
  * Operators an FM rack can hold. The whole rack — 10 bytes an operator plus the
- * program — has to fit the 252 bytes a record has left after the header, so this
- * is a floor on the room the program gets: 16 operators leave 92 bytes = 46
- * words, which is more than any 16-operator algorithm needs (n pushes + n−1
- * combining operators + END = 32 words at the very worst).
+ * program — has to fit the 250 bytes a record has left between the header and
+ * its last two bytes, so this is a floor on the room the program gets: 16
+ * operators leave 90 bytes = 45 words, which is more than any 16-operator
+ * algorithm needs (n pushes + n−1 combining operators + END = 32 words at the
+ * very worst).
  */
 export const FM_MAX_OPERATORS = 16;
 
-/** Bytes of a 256-byte record the operator rack and its program share. */
-export const FM_BUDGET_BYTES = 252;
+/** Bytes of a 256-byte record the operator rack and its program share: 4…253.
+ *  Byte 255 is every record's IMix id (item 217, §7.1) and byte 254 stays
+ *  clear so a program word never straddles it. */
+export const FM_BUDGET_BYTES = 250;
+
+/** One past the last byte an FM program may occupy. */
+export const FM_PROGRAM_END = 4 + FM_BUDGET_BYTES;
 
 // ── RPN word classes (§7.7) ──────────────────────────────────────────────
 // A word is read as (class, operand): the top nibble pair picks the class and
@@ -487,7 +493,7 @@ export function decodeFmProgram(b, off, opCount) {
   const words = [];
   let depth = 0;
   let ended = false;
-  for (let o = off; o + 2 <= 256; o += 2) {
+  for (let o = off; o + 2 <= FM_PROGRAM_END; o += 2) {
     const w = (b[o] & 0xff) | ((b[o + 1] & 0xff) << 8);
     if (w === FmOp.END) { ended = true; break; }
     const arity = fmWordArity(w, opCount);
@@ -497,13 +503,13 @@ export function decodeFmProgram(b, off, opCount) {
     if (depth > FM_STACK_MAX) return null;                 // stack overflow
     words.push(w);
   }
-  // A program that fills the record to the last byte ends there; one that stops
+  // A program that fills its area to the last byte ends there; one that stops
   // early must say so, or the words after it are being ignored by accident.
-  if (!ended && off + words.length * 2 + 2 <= 256) return null;
+  if (!ended && off + words.length * 2 + 2 <= FM_PROGRAM_END) return null;
   return depth >= 1 ? Uint16Array.from(words) : null;
 }
 
-/** Bytes an `n`-operator rack with a `words`-word program occupies of the 252 —
+/** Bytes an `n`-operator rack with a `words`-word program occupies of the 250 —
  *  the END terminator counted, because the record has to carry it too. */
 export function fmRecordBytes(n, words) {
   return n * 10 + (words + 1) * 2;
@@ -521,18 +527,20 @@ export function fmRecordBytes(n, words) {
  *
  * `type` picks the metainstrument kind (§7.4). META_TYPE_FM makes `layers` an
  * OPERATOR RACK and appends `program` — the RPN algorithm — after it, terminated
- * by END. Program words past the 252-byte budget are dropped, which is why the
+ * by END. Program words past the 250-byte budget are dropped, which is why the
  * editor keeps a memory meter: the rack and the algorithm share one record.
  */
 export function buildMetaRecord(layers, {
-  strict = false, percussion = false, type = META_TYPE_LAYERED, program = null,
+  strict = false, percussion = false, type = META_TYPE_LAYERED, program = null, imixId = 0,
+  easy = false,
 } = {}) {
   const fm = type === META_TYPE_FM;
   const use = layers.slice(0, fm ? FM_MAX_OPERATORS : META_MAX_LAYERS);
   const b = new Uint8Array(256);
   // samplePtr high 16 bits = 0xFFFF is the Metainstrument sentinel; the low
   // bytes carry the flags (byte 0) and the layer count (byte 1) instead.
-  b[0] = ((type & 0x0f) << 4) | (strict ? 0x01 : 0) | (percussion ? 0x02 : 0);
+  // Bit 0: strict layering (type 0) or Easy Mode (type 4) — one bit, two kinds.
+  b[0] = ((type & 0x0f) << 4) | ((fm ? easy : strict) ? 0x01 : 0) | (percussion ? 0x02 : 0);
   b[1] = use.length & 0xff;
   b[2] = 0xff;
   b[3] = 0xff;
@@ -563,13 +571,16 @@ export function buildMetaRecord(layers, {
     // everywhere above this line, and the terminator only exists because the
     // record's tail has to say where the algorithm stops.
     for (const w of prog) {
-      if ((w & 0xffff) === FmOp.END || o + 4 > 256) break;
+      if ((w & 0xffff) === FmOp.END || o + 4 > FM_PROGRAM_END) break;
       b[o] = w & 0xff;
       b[o + 1] = (w >>> 8) & 0xff;
       o += 2;
     }
-    if (o + 2 <= 256) { b[o] = 0xff; b[o + 1] = 0xff; }
+    if (o + 2 <= FM_PROGRAM_END) { b[o] = 0xff; b[o + 1] = 0xff; }
   }
+  // Byte 255 is the instrument's IMix block (item 217): a repack of an
+  // existing metainstrument hands it back, or the edit would drop the chain.
+  b[255] = imixId & 0xff;
   return b;
 }
 
@@ -961,6 +972,17 @@ export class TaudInst {
     );
   }
 
+  /**
+   * The IMix block this instrument's voices mix through (item 217, byte 255;
+   * 0 = none). Every kind of record keeps the byte: a metainstrument in its
+   * verbatim record, every other kind in the reserved tail.
+   */
+  get imixId() { return this.metaRaw !== null ? this.metaRaw[255] : this.reserved[4]; }
+  set imixId(v) {
+    if (this.metaRaw !== null) this.metaRaw[255] = v & 0xff;
+    else this.reserved[4] = v & 0xff;
+  }
+
   /** Load a full 256-byte record; detects the Metainstrument sentinel
    *  (samplePtr high 16 bits == 0xFFFF) and parses its layer table — which for
    *  a type-4 record is an operator rack followed by an RPN program (§7.7). */
@@ -1017,7 +1039,9 @@ export class TaudInst {
       }
       this.metaLayers = layers.length === 0 ? null : layers;
       this.metaRaw = this.metaLayers !== null ? Uint8Array.from(b.slice(0, 256)) : null;
-      this.metaStrict = this.metaLayers !== null && (b[0] & 0x01) !== 0;
+      // Bit 0 is strict layering in a Layered record only; in a rack it is the
+      // editor's Easy Mode mark (§7.7), which the engine does not read.
+      this.metaStrict = this.metaLayers !== null && !fm && (b[0] & 0x01) !== 0;
       this.metaType = this.metaLayers !== null ? type : META_TYPE_LAYERED;
       this.fmProgram = this.metaLayers !== null && fm
         ? decodeFmProgram(b, o, layers.length) : null;

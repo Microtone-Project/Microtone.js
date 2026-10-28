@@ -63,6 +63,7 @@
   --accent-2: #78DCE7;      /* blue: instrument column, links, pan ticks */
   --meter: #8be400;         /* green: VU bars, volume column, live dots */
   --meter-bg: #2a2f3a;      /* meter troughs */
+  --cv-gonio: #f4ce23;      /* yellow: the goniometer's dot cloud */
   --border: #404655;
 
   /* status colours */
@@ -214,6 +215,7 @@
   --accent-2: #78DCE7;
   --meter: #8be400;
   --meter-bg: #4b4f55;
+  --cv-gonio: #f8d224;
   --border: #565b62;
 
   /* status colours */
@@ -300,6 +302,7 @@
   --accent-2: #1d66b8;
   --meter: #1c9450;
   --meter-bg: #cfd4dd;
+  --cv-gonio: #a08400;
   --border: #c2c7d1;
 
   /* status colours */
@@ -400,6 +403,7 @@
   --accent-2: #1a5478;      /* faded ink-blue — the labels round the jacks */
   --meter: #2c6f1f;         /* the green LED, seen through tinted plastic */
   --meter-bg: #ab9c74;
+  --cv-gonio: #6e5c00;
   --border: #a08f66;        /* mould line / panel gap */
 
   /* status colours */
@@ -607,6 +611,10 @@
 button {
   box-shadow: 0 0 1.0px rgba(0, 0, 0, 0.1),
               0 0 2.0px rgba(0, 0, 0, 0.1);
+}
+
+button.active {
+  font-weight: 500;
 }
 
 body {
@@ -876,7 +884,10 @@ select, input[type="range"] {
 .brand-tm::after { content: "TM" }
 
 .transport-controls { display: flex; gap: 0.3rem; align-items: center; }
-.chk { color: var(--dim); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem; }
+/* Every key on the top bar stands as tall as a worded one: an icon button's
+   line box is shorter, and a lamp pushbutton's own minimum is taller. The
+   spinner's step buttons are segments of the Song picker, not keys. */
+.topbar button:not(.mt-step) { min-height: 1.8rem; }
 
 /* Vector button labels (item 107) — ▶ ■ ⏺ ↶ ↷ ↻ ◐ ⬇ ↗ ♥ ⇤ ⇥ as SVG, since
    several of those code points are missing from the stock fonts on some phones
@@ -1490,15 +1501,18 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
   cursor: pointer;
 }
 .zoom-ctl:hover > b { color: var(--fg); }
-.zoom-ctl > button { padding: 0.1rem 0.4rem; line-height: 1; }
+.zoom-ctl > button { padding-left: 0.4rem; padding-right: 0.4rem; }
 
-.toolbox {
+.toolbox, .toolbox-transparent {
   display: flex;
   gap: 0.4rem;
   align-items: center;
   padding: 0.3rem 0.8rem;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+}
+.toolbox-transparent {
+  background: unset;
 }
 .toolbox button { padding: 0.2rem 0.7rem; font-size: 0.85rem; }
 .toolbox button.active { color: var(--accent); border-color: var(--accent); }
@@ -1575,6 +1589,25 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
 .drag-grip:active:not(:disabled) { cursor: grabbing; }
 .drag-grip:disabled { opacity: 0.25; cursor: default; }
 .drag-grip .btn-ico { width: 1.1em; height: 1.1em; }
+
+/* Folding panels (components/fold.js). The twisty is a bare caret at the
+   titlebar's left end — like the grip, a real button that must not read as an
+   action: no border, no fill. It points down while the panel is open and
+   right while it is shut; only the body folds, so the titlebar's own controls
+   stay where they were. */
+.fold-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0.05rem; margin: 0 -0.1rem 0 -0.2rem;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--dim); box-shadow: none; flex: none;
+}
+.fold-toggle:hover { color: var(--accent); border-color: transparent; }
+.fold-toggle .btn-ico { width: 1.05em; height: 1.05em; transition: transform 0.12s ease; }
+.folded .fold-toggle .btn-ico { transform: rotate(-90deg); }
+.fold-name { cursor: pointer; user-select: none; }
+.fold-name:hover { color: var(--accent); }
+.folded > .fold-body { display: none; }
+@media (prefers-reduced-motion: reduce) { .fold-toggle .btn-ico { transition: none; } }
 /* The row being dragged. It is the real row, moving through the list under the
    pointer, so it is marked rather than ghosted — a half-transparent row is
    hard to read against the ones it is being placed between. */
@@ -1624,11 +1657,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-table .velCell .meta-num { width: 4em; margin-right: 0.25rem; }
 /* The fixed-pitch switch (item 179) sits under the field it re-reads, small
    enough not to compete with it and close enough to belong to it. */
-.meta-table .meta-fixed {
-  display: inline-flex; align-items: center; gap: 0.2rem;
-  margin-left: 0.5rem; font-size: 0.8rem; color: var(--dim);
-}
-.meta-table .meta-fixed input { margin: 0; }
+.meta-table button.meta-fixed { margin-left: 0.5rem; min-height: 1.6rem; font-size: 0.8rem; }
 .meta-table .meta-act {
   padding: 0.1rem 0.4rem; margin-right: 0.2rem; font-size: 0.85rem;
 }
@@ -1712,6 +1741,39 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fm-graph-outlabel {
   fill: var(--dim); font-family: var(--mono-font); font-size: 11px;
 }
+
+/* The FM Easy tab (item 247): the same diagram with live boxes, a routing
+   grid under it, then the operators and their loops. */
+.fm-easy-bar { flex-wrap: wrap; gap: 0.6rem; }
+.fm-easy-field { display: inline-flex; align-items: center; gap: 0.4rem; }
+.fm-easy-hint { font-size: 0.82rem; margin: 0.3rem 0 0.6rem; }
+.fm-easy-diagram .fm-graph { touch-action: none; }
+.fm-easy-diagram [data-op], .fm-easy-diagram [data-out] { cursor: grab; }
+.fm-easy-dragging, .fm-easy-dragging [data-op] { cursor: grabbing; }
+.fm-easy-target .fm-graph-box, .fm-easy-target .fm-graph-out { fill: var(--cv-cursor); stroke-width: 2.5; }
+.fm-easy-rubber {
+  stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none;
+}
+.fm-easy-tray { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: -0.2rem 0 0.6rem; }
+.fm-easy-chip {
+  font-family: var(--mono-font); padding: 0 0.45rem; cursor: grab; touch-action: none;
+  background: var(--panel-2); border: 1px dashed var(--dim); border-radius: var(--radius-sm);
+}
+.fm-easy-chip.fm-easy-target { border-color: var(--accent); color: var(--accent); font-weight: 500; }
+.fm-easy-grid { border-collapse: collapse; margin: 0 0 0.6rem; font-family: var(--mono-font); font-size: 0.85rem; }
+.fm-easy-grid th { padding: 0 0.35rem; color: var(--dim); font-weight: normal; }
+.fm-easy-grid td { padding: 0.08rem; }
+.fm-easy-cell { min-width: 1.8rem; padding: 0 0.3rem; font-family: var(--mono-font); color: var(--dim); }
+.fm-easy-cell.on { color: var(--accent); border-color: var(--accent); }
+/* A cell that would close a loop is a FEEDBACK cell: the loop's own ink. */
+.fm-easy-cell.fb.on { color: var(--accent-2); border-color: var(--accent-2); }
+.fm-easy-table tr.fm-easy-sel .idxCell { color: var(--accent); }
+.fm-easy-ops .meta-bar h4, .fm-easy-fb h4 { margin: 0; }
+.fm-easy-fb { margin: 0.6rem 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; }
+.fm-easy-fb h4, .fm-easy-fb p { flex-basis: 100%; }
+.fm-easy-loop { font-family: var(--mono-font); }
+.fm-easy-lost-actions { margin-top: 0.4rem; }
+.fm-easy-new .fm-graph-frame { margin-top: 0.5rem; }
 
 .fm-words { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.5rem; }
 .fm-word {
@@ -2088,7 +2150,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .nota-modal .nota-num, .nota-modal .mt-spin > input.nota-num { font-family: var(--mono-font); }
 .nota-add { align-self: flex-start; font-size: 0.82rem; }
 .nota-btns { gap: 0.6rem; }
-.nota-assign { display: flex; align-items: center; gap: 0.3rem; color: var(--dim); font-size: 0.85rem; }
+button.nota-assign { font-size: 0.85rem; }
 .nota-issues { font-size: 0.78rem; color: var(--accent-2); max-width: 22rem; }
 
 @media (max-width: 680px) {
@@ -2367,7 +2429,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .opl-edit { display: grid; gap: 0.4rem; max-width: 960px; }
 .opl-edit .inst-grid { margin-bottom: 0.2rem; }
 .inst-group { display: flex; flex-direction: column; gap: 0.28rem; }
-.opl-edit .inst-field input[type="checkbox"] { width: auto; }
+.inst-field button.lamp-btn { min-width: 4.6rem; }
 .opl-env {
   width: 100%;
   height: 48px;
@@ -2403,7 +2465,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-variation-settings: "wdth" 75; letter-spacing: -0.01em;
 }
 .psg-edit .inst-field input.psg-live { color: var(--accent); border-color: var(--accent); }
-.psg-edit .inst-field input[type="checkbox"].psg-live { outline: 1px solid var(--accent); outline-offset: 1px; }
+.psg-edit .inst-field button.lamp-btn.psg-live { color: var(--accent); border-color: var(--accent); }
 
 /* ── Formant tab (item 212, views/instformant.js) ──
    The vowel chart is an SVG drawn in theme tokens; every IPA symbol, there and
@@ -2432,6 +2494,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .fmt-mark.off { opacity: 0.4; }
 .fmt-mark.off:hover, .fmt-mark.off:focus-visible { opacity: 1; }
 .fmt-handle { fill: none; stroke: var(--accent); stroke-width: 2.5; pointer-events: none; }
+/* Playback's own vowels (item 240): a sounding note S $Afgr moved, filled in
+   the accent as the PSG tab's live waveforms are drawn, and the line of its
+   glide to a hollow target. */
+.fmt-live { pointer-events: none; }
+.fmt-live-dot { fill: var(--accent); stroke: var(--cv-bg); stroke-width: 1.5; }
+.fmt-live-target { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.fmt-live-path { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.fmt-live-readout { color: var(--accent); }
 .fmt-readout { font-size: 0.85rem; color: var(--dim); font-variant-numeric: tabular-nums; }
 .fmt-note { margin: 0.2rem 0; font-size: 0.85rem; line-height: 1.4; max-width: 560px; }
 .slider-row.fmt-range { grid-template-columns: 10rem 6.2rem auto 6.2rem auto auto; }
@@ -2501,7 +2571,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* The vibrato waveform buttons: each wave drawn twice in Motif Grid's
    edge-to-edge waveform glyphs, so the two periods join. */
 .slider-row .sl-buttons button.wave-btn { font-family: var(--cv-font); font-size: 1rem; line-height: 1; padding: 0.2rem 0.5rem; letter-spacing: 0; }
-.slider-row .sl-check { grid-column: 2 / -1; display: flex; align-items: center; gap: 0.35rem; color: var(--fg); justify-self: start; }
+.slider-row .sl-check { grid-column: 2; justify-self: start; min-width: 4.6rem; }
 .slider-row input.sl-num.wide { width: 100%; }
 .slider-row input.sl-range { width: 100%; }
 .slider-row.noslider { grid-template-columns: 10rem 9rem minmax(4.5rem, 1fr); }
@@ -2534,7 +2604,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 0.12rem 0.3rem; width: 4.5rem;
 }
-.env-ctl.chk { gap: 0.3rem; }
+.env-row button.env-chk { font-size: 0.85rem; }
 .env-row button { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
 
 /* Advanced Edit (item 49b) — whole-panel Ixmp patch editor over .side-detail. */
@@ -2723,6 +2793,15 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   margin: 0.6rem 0 0;
   white-space: pre-wrap;
 }
+
+/* ── ProTracker export findings (popups/exportmod.js) ──
+   A list per song, scrolling on its own so a project with many songs keeps its
+   buttons on screen. What stops the export reads in the error ink. */
+.modexport-songs { max-height: calc(50vh / var(--ui-zoom, 1)); overflow-y: auto; }
+.modexport-songs h4 { margin: 0.6rem 0 0.2rem; font-weight: inherit; color: var(--dim); }
+.modexport-list { margin: 0 0 0.4rem; padding-inline-start: 1.2rem; line-height: 1.45; }
+.modexport-list li + li { margin-top: 0.25rem; }
+.modexport-errors li:not(.dim) { color: var(--err-fg); }
 
 /* ── determinate progress popup (WAV export) ── */
 .progress-modal { min-width: 360px; max-width: 480px; }
@@ -2945,14 +3024,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .chord-voices { display: flex; flex-direction: column; gap: 0.25rem; }
 .chord-voice {
   display: grid; gap: 0.4rem; align-items: center;
-  /* on · № · mode · value · oct · dB · glyph · readout (fixed width: the
+  /* on (the № on a lamp pushbutton) · mode · value · oct · dB · glyph · readout (fixed width: the
      widest reading is "×1.9632 · +1167.8 cents · grid −32", never clipped) */
-  grid-template-columns: auto 1.1rem 6.4rem minmax(7rem, 1fr) auto auto auto 16rem;
+  grid-template-columns: 3.4rem 6.4rem minmax(7rem, 1fr) auto auto auto 16rem;
   padding: 0.15rem 0.4rem; font-size: 0.85rem; color: var(--dim);
   background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 .chord-voice.off { opacity: 0.5; }
-.chord-voice .cv-num { color: var(--fg2); text-align: right; }
+.chord-voice button.cv-on { min-height: 1.6rem; padding: 0.1rem 0.5rem; font-size: 0.85rem; }
 .chord-voice select,
 .chord-voice input[type="number"],
 .chord-voice input[type="text"] {
@@ -3104,6 +3183,18 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Export… (item 229) closes the list: it acts on the instruments above it, so
+   it stays pinned beneath them however long the list runs. */
+.side-foot-inst {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
+  z-index: 1;
 }
 
 /* ── "Meta…" kind chooser (popups/newmeta.js) ──
@@ -3622,7 +3713,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
  * grips (chromeless by design, and they say so with `background: none`),
  * the step buttons of a spinner group (segments of one well — see below)
  * and the pane's own close/split affordance. */
-[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn) {
+[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn, .flip-switch) {
   background: var(--abs-cap);
   border-color: #9d8c62;
   border-radius: 5px;
@@ -3633,10 +3724,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
               box-shadow 150ms cubic-bezier(0.22, 0.9, 0.28, 1),
               background 150ms ease-out;
 }
-[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn):hover {
+[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn, .flip-switch):hover {
   background: linear-gradient(180deg, #f1e8ce 0%, #e5dbba 52%, #d3c69b 100%);
 }
-[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn):active:not(:disabled) {
+[data-theme="warmth"] button:not(.ctx-cell, .drag-grip, .mt-step, .pane-btn, .flip-switch):active:not(:disabled) {
   transform: translateY(1px);
   background: var(--abs-cap-down);
   box-shadow: inset 0 2px 3px rgba(74, 58, 24, 0.34);
@@ -3993,15 +4084,12 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .mst-range { width: 100%; }
 .mst-row select { width: 100%; padding: 0.1rem 0.3rem; font-size: 0.82rem; }
 
-.mst-switch, .mst-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--dim);
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-.mst-power { color: var(--fg); }
+/* An option row is one lamp pushbutton, across the row's columns. */
+.mst-row-check > .lamp-btn { grid-column: 1 / -1; font-size: 0.85rem; }
+/* Options that belong together (the mix tool's Swap · Invert · Remove DC), side
+   by side, wrapping only when the unit is too narrow for them. */
+.mst-row-lamps { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.mst-row-lamps > .lamp-btn { font-size: 0.85rem; }
 
 .mst-band {
   border: 1px solid var(--border);
@@ -4024,6 +4112,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   letter-spacing: 0.06em;
 }
 .mst-eq-curve { width: 100%; display: block; margin-bottom: 0.3rem; }
+.mst-eq-graph { cursor: crosshair; }
 
 /* A segmented switch: pre/post, and the plot's series picker. */
 .mst-seg { display: inline-flex; }
@@ -4032,8 +4121,10 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   padding: 0.15rem 0.6rem;
   font-size: 0.82rem;
 }
-.mst-seg button:first-child { border-radius: 4px 0 0 4px; }
-.mst-seg button:last-child { border-radius: 0 4px 4px 0; }
+.mst-seg button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.mst-seg button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+/* A row of one is both ends: the whole capsule, not a half-flat first button. */
+.mst-seg button:only-child { border-radius: var(--radius-sm); }
 /* Neighbours OVERLAP their shared 1px edge rather than the later one dropping
    its left border: a dropped border leaves an accent-bordered button (active,
    or hovered) missing that edge, so every segment but the first drew an open
@@ -4042,11 +4133,83 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    shows a closed outline even next to the active segment. */
 .mst-seg button { position: relative; }
 .mst-seg button + button { margin-left: -1px; }
-.mst-seg button.active { background: var(--cv-cursor); color: var(--fg); border-color: var(--accent); z-index: 1; }
+.mst-seg button.active { color: var(--accent); border-color: var(--accent); z-index: 1; }
 .mst-seg button:hover { z-index: 2; }
 .mst-serieseg { align-self: flex-start; margin-top: 0.2rem; }
 
+/* Pushbuttons (design system: "Pushbuttons"). A TOGGLE pushbutton is a plain
+   button whose aria-pressed says whether it is in; pressed, it wears the
+   segmented row's active look, so "this one is in" reads the same everywhere.
+   A segmented row whose buttons each pick an item that has its own on/off — a
+   band — carries a LAMP per button: green (live) when that item is on, a dark
+   trough when it is off, so which band you are editing and which bands are
+   sounding read at once. */
+button.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); font-weight: 500; }
+.seg-lamp {
+  display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em;
+  border-radius: 50%; vertical-align: 0.06em;
+  background: var(--meter-bg); border: 1px solid var(--border);
+}
+.seg-lamp.lit { background: var(--meter); border-color: var(--meter); }
+
+/* LAMP PUSHBUTTON (components/lampbutton.js): an option's on/off, where a
+   checkbox was too small a target. The lamp carries the state; the label stays
+   the option's name, in the button's own ink, so a column of options does not
+   turn into a wall of accent. */
+button.lamp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.75rem 0.2rem 0.6rem;
+  justify-self: start;
+  white-space: nowrap;
+}
+button.lamp-btn .seg-lamp { width: 0.62em; height: 0.62em; margin: 0; flex: 0 0 auto; vertical-align: 0; }
+button.lamp-btn:disabled { opacity: 0.45; cursor: default; }
+button.lamp-btn:disabled:hover { border-color: var(--border); }
+
+/* FLIP SWITCH (components/flipswitch.js): a piece of equipment, or a band of
+   one, in circuit or bypassed. ON fills the track with the accent and parks
+   the knob at the right; OFF has no fill at all, the knob at the left in the
+   dim ink. Not a keycap: the warmth theme's moulding passes it by. */
+button.flip-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.6rem;
+  height: 1.45rem;
+  padding: 0;
+  border: 1px solid var(--dim);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  vertical-align: middle;
+}
+.flip-knob {
+  position: absolute;
+  top: 50%;
+  left: 0.2rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  background: var(--dim);
+  transform: translateY(-50%);
+  transition: left 120ms ease-out, background 120ms ease-out;
+}
+button.flip-switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+button.flip-switch[aria-checked="true"] .flip-knob { left: calc(100% - 0.95rem - 0.2rem); background: var(--proceed-fg); }
+button.flip-switch:hover:not(:disabled) { border-color: var(--accent); }
+button.flip-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.flip-switch:disabled { opacity: 0.45; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .flip-knob { transition: none; } }
+
 .mst-canvas { width: 100%; display: block; }
+/* Instruments side by side (item 257: the Goniometer, then Bit usage): the
+   first at its own width, the last taking the rest; stacked when narrow. */
+.mst-scoperow { display: flex; gap: 0.5rem; align-items: stretch; flex-wrap: wrap; }
+.mst-scoperow > .mst-scope:last-child { flex: 1 1 22rem; min-width: 0; }
+.mst-gonio-unit { flex: 0 0 auto; }
+.mst-gonio { width: 168px; display: block; margin: 0 auto; }
 .mst-readouts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
@@ -4133,6 +4296,105 @@ body.dragsorting { cursor: grabbing; user-select: none; }
      a title that already takes `flex: 1`, and the view can be half a split
      pane. Let them shrink rather than push the row wider than the panel. */
   min-width: 0;
+}
+
+/* ── Mixing tab (item 217): an instrument's IMix chain ─────────────────────
+ * The Mastering tab's units, rows and scopes, in the Instruments view's detail
+ * pane: the chain's header across the top, the twelve pieces of equipment in
+ * pipeline order on the left, the four monitors on the right. The pane is
+ * narrower than the Mastering view, so the two columns fold into one sooner,
+ * and the monitors come FIRST then — what you are listening to belongs above
+ * the controls you are about to reach for. */
+.imx-tab { display: flex; flex-direction: column; gap: 0.5rem; }
+.imx-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.imx-head .mst-hint { margin: 0; }
+.imx-headbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.imx-headbar select { max-width: 18rem; min-width: 0; }
+/* The chain's name, edited where its title was; "Chain N" while it has none. */
+.imx-name {
+  flex: 0 1 14rem;
+  min-width: 7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.15rem 0.4rem;
+}
+.imx-name::placeholder { color: var(--fg); opacity: 0.75; }
+.imx-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 3fr) minmax(260px, 2fr);
+  gap: 0.5rem;
+  align-items: start;
+}
+.imx-rack, .imx-monitors { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+/* The monitors stay in view while the rack scrolls past them. */
+.imx-monitors { position: sticky; top: 0; }
+.imx-unit .mst-unit-head { flex-wrap: wrap; }
+/* The name takes its own width, not the bar's: the Mix slider gets the rest,
+   and the switch keeps the right end whether or not there is a slider. */
+.imx-unit .mst-unit-name { flex: 0 1 auto; }
+.imx-unit .mst-unit-head > .flip-switch { margin-left: auto; }
+/* Folded, the titlebar is the whole unit. */
+.imx-unit.folded .mst-unit-head { border-bottom: 0; border-radius: var(--radius-md); }
+/* Wet/dry in the titlebar, reported as the WET share — long enough to set by
+   ear, which a 100-step range in a few rem was not. */
+.imx-mix {
+  display: inline-flex;
+  flex: 1 1 12rem;
+  max-width: 24rem;
+  margin-left: auto;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--dim);
+  font-size: 0.75rem;
+  text-transform: none;
+}
+.imx-mix input[type="range"] { flex: 1; min-width: 6rem; width: auto; }
+.imx-mixval { min-width: 2.6rem; text-align: right; font-family: var(--mono-font); color: var(--fg); }
+.imx-add { align-self: flex-start; font-size: 0.82rem; }
+.imx-del { margin-left: auto; margin-right: 0.4rem; font-size: 0.72rem; padding: 0 0.4rem; }
+.imx-curve { height: 120px; cursor: crosshair; }
+.imx-spectrum { cursor: crosshair; }
+.imx-transfer { height: 150px; }
+.imx-unison { height: 74px; }
+/* A threshold strip is dragged sideways, on a finger too: the canvas owns the
+   gesture, as a drag grip does. */
+.imx-thresh { cursor: ew-resize; touch-action: none; margin-bottom: 0.2rem; }
+/* The band picker: which band the controls below edit, and its on/off. */
+.imx-bandbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.15rem; }
+.imx-bandbar .mst-seg { flex-wrap: wrap; }
+/* The Mixing units' pushbuttons are pressed constantly, while listening, on a
+   touchscreen as often as with a mouse: the On button's own type size, wide
+   sides and a tall target — and the segment ends rounded as that button is,
+   so a lone segment and the On beside it are the same capsule. */
+.imx-unit .mst-seg button, .imx-unit button.toggle, .imx-unit button.lamp-btn {
+  font-size: 0.95rem;
+  min-height: 2rem;
+  min-width: 3.2rem;
+  padding: 0.25rem 1rem;
+}
+.imx-unit .mst-seg button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.imx-unit .mst-seg button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.imx-unit .mst-seg button:only-child { border-radius: var(--radius-md); }
+/* An LFO's waveforms (item 247): pushbuttons drawing their shapes in Motif
+   Grid, as the vibrato's do — narrower than a word, so all six fit a unit. */
+.mst-seg button.wave-btn { font-family: var(--cv-font); letter-spacing: 0; line-height: 1; }
+.imx-unit .mst-seg button.wave-btn { min-width: 0; padding: 0.25rem 0.5rem; }
+.mst-row-choice .mst-seg { flex-wrap: wrap; justify-self: start; }
+@media (max-width: 1100px) {
+  .imx-grid { grid-template-columns: 1fr; }
+  .imx-monitors { position: static; order: -1; }
 }
 
 /* ── keymap tab (item 187) ───────────────────────────────────────────────
@@ -4225,7 +4487,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .keymap-field input[type="number"] { width: 5rem; }
 .keymap-field select { max-width: 9.5rem; }
 .keymap-rows { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; }
-.keymap-rows label { display: flex; align-items: center; gap: 0.15rem; font-size: 0.75rem; }
+.keymap-rows button.lamp-btn { font-size: 0.75rem; min-height: 1.6rem; padding: 0.1rem 0.45rem; }
 .keymap-sub { color: var(--dim); font-size: 0.74rem; }
 .keymap-readout {
   display: flex;

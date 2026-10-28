@@ -36,6 +36,9 @@
       log(`${name}${detail ? ` (${detail})` : ""}: ${ok ? "ok" : "FAIL"}`);
     };
     const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
+    // A lamp pushbutton is pressed only when it is not already in the state wanted.
+    const lampOn = (b) => b?.getAttribute("aria-pressed") === "true";
+    const setLamp = (b, on) => { if (lampOn(b) !== !!on) b.click(); };
 
     (async () => {
       try {
@@ -227,14 +230,14 @@
 
           // The log map keeps a pinned window on the same seconds.
           const t0 = scale().t0, t1 = scale().t1;
-          const logChk = [...iv.panel.querySelectorAll("label")]
-            .find((l) => /Log timescale/.test(l.textContent))?.querySelector("input");
-          logChk.checked = true; fire(logChk, "change");
+          const logChk = [...iv.panel.querySelectorAll("button.lamp-btn")]
+            .find((l) => /Log timescale/.test(l.textContent));
+          setLamp(logChk, true);
           const logOk = iv.envAxis.log && near(scale().t0, t0, 1e-9) && near(scale().t1, t1, 1e-9);
           iv.renderPanel();
-          const logChk2 = [...iv.panel.querySelectorAll("label")]
-            .find((l) => /Log timescale/.test(l.textContent))?.querySelector("input");
-          logChk2.checked = false; fire(logChk2, "change");
+          const logChk2 = [...iv.panel.querySelectorAll("button.lamp-btn")]
+            .find((l) => /Log timescale/.test(l.textContent));
+          setLamp(logChk2, false);
           check("the log timescale keeps a zoomed window", logOk && !iv.envAxis.log &&
             near(scale().t0, t0, 1e-9));
 

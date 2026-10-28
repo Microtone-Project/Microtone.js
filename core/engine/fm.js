@@ -285,6 +285,41 @@ export function renderFmVoice(eng, ts, voice, interpMode, spt, frame) {
 }
 
 /**
+ * True when operator 0 is a DSP-ONLY principal: the program ends by
+ * multiplying everything above it by operator 0 (`$0000 $FF01`) and names it
+ * nowhere else, so it shapes the finished patch and is not one of the
+ * oscillators. That is the layout an editor's Easy Mode writes (a constant
+ * whose envelope, filter and pan are the whole instrument's), and it is what
+ * `S $Apsd` counts its operators past (§5.5.1).
+ */
+export function fmPrincipalIsDsp(program) {
+  const n = program === null ? 0 : program.length;
+  if (n < 3 || program[n - 1] !== FmOp.MUL || program[n - 2] !== FM_WORD_OSC) return false;
+  for (let i = 0; i < n - 2; i++) {
+    const w = program[i];
+    if (w < FM_WORD_OP && (w & FM_INDEX_MASK) === 0) return false;
+  }
+  return true;
+}
+
+/**
+ * S $Apsd on a rack: operator p's auto-vibrato speed and depth, `s × 17` and
+ * `d × 17`, for the note now sounding. `p` counts the oscillators — from entry
+ * 1 when the principal is DSP-only, from entry 0 otherwise. The waveform, sweep
+ * and rate stay the operator instrument's own, and the next trigger reads all
+ * four from the instrument again, so the setting lasts exactly one note.
+ * An operator that is not sounding this note, or past the rack's end, takes
+ * nothing.
+ */
+export function fmSetOperatorVibrato(rig, p, s, d) {
+  const k = fmPrincipalIsDsp(rig.program) ? p + 1 : p;
+  const v = k < rig.count ? rig.voices[k] : null;
+  if (v === null) return;
+  v.activeVibratoSpeed = s * 17;
+  v.activeVibratoDepth = d * 17;
+}
+
+/**
  * Detach and silence every operator the FOREGROUND voice of lane `vi` is
  * driving. Called where a layered meta releases its children — but an orphaned
  * operator is not a sound that should be allowed to finish: on its own it is a

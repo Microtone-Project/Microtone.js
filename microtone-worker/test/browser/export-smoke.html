@@ -64,6 +64,13 @@ function riffChunks(bytes) {
     "every card carries its channel-configuration diagram");
   check(api.state().format === "stereo", "a stereo song defaults to stereo", api.state().format);
   check(!api.state().monitorShown, "no downmix choice for a stereo song (nothing to fold)");
+  // Clean or gritty: the stereo file's depth, offered for the stereo target only.
+  const stereoCard = dlg.querySelector('.export-card[data-format="stereo"]');
+  check(api.state().qualityShown && api.state().quality === "clean", "stereo offers a bit depth, clean first");
+  check(stereoCard.textContent.includes("16-bit"), "…and its card says 16-bit");
+  api.set({ quality: "gritty" });
+  check(stereoCard.textContent.includes("8-bit"), "gritty makes the card say 8-bit", stereoCard.textContent);
+  api.set({ quality: "clean" });
   // The cards are drawn from the layout tables: 5.1 has six speaker marks
   // (five boxes + the LFE box) and the LFE is labelled.
   const card51 = dlg.querySelector('.export-card[data-format="5.1"]');
@@ -76,6 +83,7 @@ function riffChunks(bytes) {
   check(dlg.querySelector('.export-card[data-format="5.1"]').classList.contains("selected"),
     "picking a card selects it");
   check(!api.state().monitorShown, "…and a speaker target has no stereo-downmix choice");
+  check(!api.state().qualityShown, "…nor a bit depth (it is always 24-bit)");
   api.cancel();
   await sleep(60);
   check(!doc.querySelector("dialog.export-audio"), "cancel closes it");
@@ -116,8 +124,8 @@ function riffChunks(bytes) {
   let pan = null;
   for (let i = 0; i < 100 && !pan; i++) { pan = doc.querySelector("dialog.panner"); await sleep(30); }
   check(!!pan, "panner opens");
-  const box = pan.querySelector(".panner-opts input[type=checkbox]");
-  check(!!box && !box.checked, "the dot filter starts off (watch every channel)");
+  const box = pan.querySelector(".panner-opts button.lamp-btn");
+  check(!!box && box.getAttribute("aria-pressed") === "false", "the dot filter starts off (watch every channel)");
   pan.__panner.onlyThis(true);
   await sleep(40);
   check(store.pannerOwnOnly === true, "the filter is remembered on the store");

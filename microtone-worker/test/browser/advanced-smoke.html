@@ -8,6 +8,9 @@ const log = (s) => { out.textContent += "\n" + s; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 window.addEventListener("error", (e) => log("ERROR: " + e.message));
 const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
+// A lamp pushbutton is pressed only when it is not already in the state wanted.
+const lampOn = (b) => b?.getAttribute("aria-pressed") === "true";
+const setLamp = (b, on) => { if (lampOn(b) !== !!on) b.click(); };
 (async () => {
  try {
   const app = document.getElementById("app");
@@ -104,9 +107,9 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   rows()[0].click();
   [...iv.panel.querySelectorAll(".adv-envtabs button")]
     .find((b) => b.textContent === "Filter").click();
-  const ovChk = [...iv.panel.querySelectorAll(".adv-envbox label")]
-    .find((l) => /overrides the/.test(l.textContent))?.querySelector("input");
-  ovChk.checked = true; fire(ovChk, "change");
+  const ovChk = [...iv.panel.querySelectorAll(".adv-envbox button.lamp-btn")]
+    .find((l) => /overrides the/.test(l.textContent));
+  setLamp(ovChk, true);
   const p0 = doc.instruments[slot].extraPatches[0];
   const t8 = p0.filterEnv !== null && (p0.filterEnvLoop & 0x2000) !== 0 &&
     (p0.filterEnvLoop & 0x80) !== 0 && !!iv.panel.querySelector(".adv-envcv");
@@ -209,10 +212,9 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   rows()[0].click();
   const numLabelStarting = (s) => [...iv.panel.querySelectorAll("label.adv-num")]
     .find((l) => l.firstChild && l.firstChild.textContent.trim().startsWith(s));
-  const extraChk = [...iv.panel.querySelectorAll("label.chk")]
+  const extraChk = [...iv.panel.querySelectorAll("button.lamp-btn")]
     .find((l) => l.textContent.includes("Extra block present"));
-  extraChk.querySelector("input").checked = true;
-  fire(extraChk.querySelector("input"), "change");
+  setLamp(extraChk, true);
   const p0e = doc.instruments[slot].extraPatches[0];
   const annOf = (s) => numLabelStarting(s)?.querySelector(".sl-ann")?.textContent ?? "";
   const modeLbl = numLabelStarting("Mode"); // renamed from "Filter units"
@@ -234,7 +236,7 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   // switch. Unchecked is the wire's inherit state ($FF waveform + four zeroes);
   // checking it seeds from the base record, so the tick alone changes nothing.
   rows()[0].click();
-  const vibChk = () => [...iv.panel.querySelectorAll("label.chk")]
+  const vibChk = () => [...iv.panel.querySelectorAll("button.lamp-btn")]
     .find((l) => l.textContent.includes("Auto-vibrato override"));
   // The four number boxes are labelled Speed / Sweep / Depth / Rate and appear
   // only while the override is on; when it is off the row is just the switch.
@@ -247,15 +249,15 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   const vibOffFields = vibNums();
   const inheritsAtRest = p0v().vibratoWaveform === 0xff && p0v().vibratoSpeed === 0 &&
     p0v().vibratoSweep === 0 && p0v().vibratoDepth === 0 && p0v().vibratoRate === 0;
-  const vibIn = vibChk()?.querySelector("input");
-  if (vibIn) { vibIn.checked = true; fire(vibIn, "change"); }
+  const vibIn = vibChk();
+  if (vibIn) setLamp(vibIn, true);
   const base = doc.instruments[slot];
   const seeded = p0v().vibratoWaveform === (base.vibratoWaveform & 7) &&
     p0v().vibratoSpeed === base.vibratoSpeed && p0v().vibratoSweep === base.vibratoSweep &&
     p0v().vibratoDepth === base.vibratoDepth && p0v().vibratoRate === base.vibratoRate;
   const vibOnFields = vibNums();
-  const vibIn2 = vibChk()?.querySelector("input");
-  if (vibIn2) { vibIn2.checked = false; fire(vibIn2, "change"); }
+  const vibIn2 = vibChk();
+  if (vibIn2) setLamp(vibIn2, false);
   const backToInherit = p0v().vibratoWaveform === 0xff && p0v().vibratoSpeed === 0 &&
     p0v().vibratoSweep === 0 && p0v().vibratoDepth === 0 && p0v().vibratoRate === 0;
   // 5 controls appear: the waveform selector plus speed / sweep / depth / rate.
@@ -274,9 +276,9 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   [...iv.panel.querySelectorAll(".adv-envtabs button")]
     .find((b) => b.textContent === "Filter").click();
   // The undo chain above put the override back to "defer", so claim it again.
-  const ovChk2 = [...iv.panel.querySelectorAll(".adv-envbox label")]
-    .find((l) => /overrides the/.test(l.textContent))?.querySelector("input");
-  ovChk2.checked = true; fire(ovChk2, "change");
+  const ovChk2 = [...iv.panel.querySelectorAll(".adv-envbox button.lamp-btn")]
+    .find((l) => /overrides the/.test(l.textContent));
+  setLamp(ovChk2, true);
   const patchEnv = () => doc.instruments[slot].extraPatches[0].filterEnv;
   const envBtn = (label) => [...iv.panel.querySelectorAll(".env-controls button")]
     .find((b) => b.textContent.trim() === label);

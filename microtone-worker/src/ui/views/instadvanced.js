@@ -31,6 +31,7 @@ import {
   annFadeout, annFilter, annSfCutoff, annSfReso, SEG_MINIFLOAT_MAP,
 } from "../units.js";
 import { mapSpinner } from "../components/spinner.js";
+import { lampButton } from "../components/lampbutton.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
 import { EnvAxis, paintEnvGraph, attachEnvGraph } from "../envgraph.js";
@@ -459,14 +460,7 @@ export class AdvancedZoneEditor {
   }
 
   chk(label, checked, onChange, title = "") {
-    const l = document.createElement("label");
-    l.className = "env-ctl chk";
-    if (title) l.title = title;
-    const c = document.createElement("input");
-    c.type = "checkbox"; c.checked = checked;
-    c.addEventListener("change", () => onChange(c.checked));
-    l.append(c, document.createTextNode(label));
-    return l;
+    return lampButton({ label, on: checked, onChange, title, className: "env-chk" }).button;
   }
 
   sel(label, value, options, onChange, title = "") {
@@ -547,7 +541,7 @@ export class AdvancedZoneEditor {
       ], (v) => this._field("loopMode", (p.loopMode & ~0x03) | (Number(v) & 0x03))),
       this.num(t("smp.loopStart"), p.loopStart, 0, 0xffff, (v) => this._field("loopStart", v)),
       this.num(t("smp.loopEnd"), p.loopEnd, 0, 0xffff, (v) => this._field("loopEnd", v)),
-      this.chk(t("smp.sustain").trim(), (p.loopMode & 0x04) !== 0,
+      this.chk(t("smp.sustain"), (p.loopMode & 0x04) !== 0,
         (on) => this._field("loopMode", on ? p.loopMode | 0x04 : p.loopMode & ~0x04)));
 
     // Channels (Ixmp 's' block, item 90). Channel 2 is another pool span of

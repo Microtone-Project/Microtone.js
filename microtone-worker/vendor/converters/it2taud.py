@@ -67,6 +67,7 @@ import struct
 import sys
 
 from taud_common import (
+    dnv_from_volume64,
     set_verbose, vprint,
     TAUD_MAGIC, TAUD_VERSION, TAUD_HEADER_SIZE, TAUD_SONG_ENTRY,
     SAMPLEBIN_SIZE, INSTBIN_SIZE, SAMPLEINST_SIZE, SAMPLE_LEN_LIMIT,
@@ -90,6 +91,7 @@ from taud_common import (
     build_project_data, detect_subsongs,
     IXMP_PAN_NO_OVERRIDE, IXMP_CHAN_DISCRETE,
     OPL_KIND_2OP, opl_block, make_opl_record, tracker_opl_gain,
+    renumber_patterns_lane_major,
 )
 
 
@@ -1057,10 +1059,14 @@ def encode_effect_it(cmd: int, arg: int, ch: int = 0, row: int = 0,
 
 # ── IT recall resolution ──────────────────────────────────────────────────────
 
-def resolve_it_recalls(patterns_rows: list, order_list: list,
+def resolve_it_recalls(cue_patterns: list,
                        num_channels: int, link_gef: bool,
                        old_effects: bool = False) -> None:
-    """Walk in order, resolve zero-arg recalls per-effect-per-channel.
+    """Walk in play order, resolve zero-arg recalls per-effect-per-channel.
+
+    `cue_patterns` holds one PRIVATE (grid, rows) copy per order position
+    (_build_song_payload), so a pattern played in several places resolves
+    each recall against the memory of the place it is played in.
 
     IT effect memory groups:
       - D / K / L: shared vol-slide cohort
@@ -1093,12 +1099,7 @@ def resolve_it_recalls(patterns_rows: list, order_list: list,
             return EFF_E   # EF cohort
         return cmd
 
-    for order in order_list:
-        if order >= IT_ORD_END:
-            break
-        if order >= len(patterns_rows):
-            continue
-        grid, rows = patterns_rows[order]
+    for grid, rows in cue_patterns:
         for r in range(rows):
             for ch in range(num_channels):
                 if ch >= len(grid):
@@ -1134,8 +1135,7 @@ def _row_carries_tone_porta(cell: 'ITRow') -> bool:
     return False
 
 
-def drop_porta_retriggers(patterns_rows: list, order_list: list,
-                          num_channels: int) -> int:
+def drop_porta_retriggers(cue_patterns: list, num_channels: int) -> int:
     """Strip the instrument byte from note rows tied by tone portamento.
 
     THE IMPULSE TRACKER BUG THIS WORKS AROUND. In IT, a row carrying a note, an
@@ -1174,17 +1174,12 @@ def drop_porta_retriggers(patterns_rows: list, order_list: list,
     key-off, and Taud's re-attack is much the closer of the two readings.
 
     Walks in play order, so "the instrument the channel already holds" is the
-    real one — same walk, and the same across-visits caveat, as
-    resolve_it_recalls. Returns the number of instrument bytes dropped.
+    real one — the same per-position walk as resolve_it_recalls. Returns the
+    number of instrument bytes dropped.
     """
     current = [0] * num_channels      # instrument each channel has loaded
     dropped = 0
-    for order in order_list:
-        if order >= IT_ORD_END:
-            break
-        if order >= len(patterns_rows):
-            continue
-        grid, rows = patterns_rows[order]
+    for grid, rows in cue_patterns:
         for r in range(rows):
             for ch in range(num_channels):
                 if ch >= len(grid):
@@ -1260,7 +1255,7 @@ def split_patterns(patterns_rows: list):
 
 
 def _remap_bc_effects(chunks: list, chunk_map: list,
-                      order_list: list, it_ord_to_taud_cue: dict,
+                      it_ord_to_taud_cue: dict,
                       num_channels: int,
                       *, default_target: int = None,
                       warn_label: str = '',
@@ -1345,7 +1340,7 @@ def _it_patch_fields(s):
     loop_mode = (2 if (has_loop and pingpong) else (1 if has_loop else 0)) | sustain_bit
 
     smp_vol  = min(getattr(s, 'vol', 64), 64)
-    dnv      = min(255, round(smp_vol * 255 / 64))
+    dnv      = dnv_from_volume64(smp_vol)
     smp_dfp  = getattr(s, 'dfp', 0)
     default_pan = (min(255, max(0, round((smp_dfp & 0x7F) * 255 / 64)))
                    if (smp_dfp & 0x80) else IXMP_PAN_NO_OVERRIDE)
@@ -1696,7 +1691,7 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
             default_note_vol = idata['default_note_vol']
         else:
             smp_vol_default = min(getattr(s, 'vol', 64), 64)
-            default_note_vol = min(255, round(smp_vol_default * 255 / 64))
+            default_note_vol = dnv_from_volume64(smp_vol_default)
         # IT fadeout (file-stored 0..1024 per ITTECH; some loaders accept up to 2048) maps
         # verbatim to Taud's 12-bit fadeStep. Schism's per-tick decrement is stored / 1024 of
         # unit volume (sndmix.c:331-339, effects.c:1261: accumulator 65536, decrement
@@ -1984,7 +1979,7 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
 
 # ── Main assembly ─────────────────────────────────────────────────────────────
 
-def relocate_late_note_delays(patterns_rows: list, order_list: list,
+def relocate_late_note_delays(cue_patterns: list,
                               num_channels: int, initial_speed: int) -> None:
     """Move SDx-delayed notes to the next row when x ≥ tick speed.
 
@@ -1992,14 +1987,7 @@ def relocate_late_note_delays(patterns_rows: list, order_list: list,
     speed, the trigger never lands. When the next row in the same channel is
     empty, relocate the note (with delay = x − speed) so it actually plays.
     """
-    visited = set()
-    for order in order_list:
-        if order >= IT_ORD_END:
-            break
-        if order >= len(patterns_rows) or order in visited:
-            continue
-        visited.add(order)
-        grid, rows = patterns_rows[order]
+    for cue, (grid, rows) in enumerate(cue_patterns):
         speed = initial_speed
         for r in range(rows):
             for ch in range(min(num_channels, len(grid))):
@@ -2041,19 +2029,16 @@ def relocate_late_note_delays(patterns_rows: list, order_list: list,
                 cell.aux_effect = None
                 cell.effect     = 0
                 cell.effect_arg = 0
-                vprint(f"  fix: pat{order} ch{ch} row{r}: SD{x:X} ≥ speed{speed}, "
+                vprint(f"  fix: position {cue} ch{ch} row{r}: SD{x:X} ≥ speed{speed}, "
                        f"moved note to row{r+1}"
                        + (f" with SD{new_delay:X}" if new_delay > 0 else ""))
 
 
-def find_initial_bpm_speed(patterns_rows: list, order_list: list,
+def find_initial_bpm_speed(cue_patterns: list,
                             default_speed: int, default_tempo: int) -> tuple:
     speed = default_speed or 6
     tempo = default_tempo or 125
-    for order in order_list:
-        if order >= IT_ORD_END: break
-        if order >= len(patterns_rows): continue
-        grid, _rows = patterns_rows[order]
+    for grid, _rows in cue_patterns[:1]:
         for ch_rows in grid:
             if not ch_rows: continue
             cell = ch_rows[0]
@@ -2126,25 +2111,38 @@ def _build_song_payload(h: ITHeader, patterns_rows_template: list,
     Returns (pat_comp, cue_comp, entry_kwargs). The caller fills in
     `song_offset` from the global layout before calling encode_song_entry.
 
-    `patterns_rows_template` is deep-copied so per-song stateful walks
-    (recall resolution, late-note-delay relocation, Bxx remap on chunks)
-    don't leak into the next subsong.
+    Every order position gets a PRIVATE copy of its pattern before the
+    stateful walks (recall resolution, porta-retrigger stripping, late-note-
+    delay relocation, Bxx remap on chunks), so a pattern played in several
+    places is read in the context of each — its `00` recalls and "the
+    instrument the channel already holds" are those of the place it plays in,
+    not of its first visit. Each copy is chunked on its own; the cues are
+    already one Taud pattern per cue and lane, and deduplicate_patterns
+    merges those that come out alike, so a song without such a pattern
+    converts exactly as it did. The copies also keep the template intact for
+    the next subsong.
     """
-    pats = copy.deepcopy(patterns_rows_template)
-    virtual_orders = [h.order_list[pos] for pos in positions]
+    # One copy per playable position, in play order; `virt_of` maps the
+    # position to its copy.
+    pats = []
+    virt_of = {}
+    for pos in positions:
+        order = h.order_list[pos]
+        if order >= IT_ORD_END or order >= len(patterns_rows_template):
+            continue
+        virt_of[pos] = len(pats)
+        pats.append(copy.deepcopy(patterns_rows_template[order]))
 
     vprint(f"  [{song_label}] resolving IT recalls…")
-    resolve_it_recalls(pats, virtual_orders, 64, h.link_gef,
-                       old_effects=h.old_effects)
+    resolve_it_recalls(pats, 64, h.link_gef, old_effects=h.old_effects)
 
-    n_dropped = drop_porta_retriggers(pats, virtual_orders, 64)
+    n_dropped = drop_porta_retriggers(pats, 64)
     if n_dropped:
         vprint(f"  [{song_label}] dropped {n_dropped} instrument byte(s) from "
                f"porta-tied rows (IT envelope-retrigger bug)")
 
-    init_speed, _ = find_initial_bpm_speed(pats, virtual_orders,
-                                           h.initial_speed, h.initial_tempo)
-    relocate_late_note_delays(pats, virtual_orders, 64, init_speed)
+    init_speed, _ = find_initial_bpm_speed(pats, h.initial_speed, h.initial_tempo)
+    relocate_late_note_delays(pats, 64, init_speed)
 
     chunks, chunk_map, chunk_lens = split_patterns(pats)
 
@@ -2161,34 +2159,26 @@ def _build_song_payload(h: ITHeader, patterns_rows_template: list,
     cue_list = []
     pos_to_cue = {}
     for pos in positions:
-        order = h.order_list[pos]
-        if order >= IT_ORD_END or order >= len(chunk_map):
+        if pos not in virt_of:
             continue
         pos_to_cue[pos] = len(cue_list)
-        for ci in chunk_map[order]:
+        for ci in chunk_map[virt_of[pos]]:
             cue_list.append(ci)
 
     # Bxx remap: source-position → cue-index. Cross-subsong Bxx targets clamp
     # to cue 0 (loop the subsong rather than jump out of bounds). Only walk
     # chunks that this song actually emits — avoids spurious warnings on
     # patterns owned by other subsongs.
-    _remap_bc_effects(chunks, chunk_map, virtual_orders, pos_to_cue, C,
+    _remap_bc_effects(chunks, chunk_map, pos_to_cue, C,
                       default_target=0, warn_label=song_label,
                       chunk_indices=set(cue_list))
 
-    speed, tempo = find_initial_bpm_speed(pats, virtual_orders,
-                                          h.initial_speed, h.initial_tempo)
+    speed, tempo = find_initial_bpm_speed(pats, h.initial_speed, h.initial_tempo)
     tempo = max(25, min(280, tempo))
     bpm_stored = (tempo - 25) & 0xFF
     vprint(f"  [{song_label}] initial speed={speed}, tempo={tempo} BPM")
 
     default_pans = [_it_default_pan(h.chnl_pan[ch]) for ch in active_channels]
-    total_taud_pats = len(cue_list) * C
-    if total_taud_pats > NUM_PATTERNS_MAX:
-        sys.exit(
-            f"error: [{song_label}] {len(cue_list)} cues × {C} channels = "
-            f"{total_taud_pats} > {NUM_PATTERNS_MAX} Taud pattern limit."
-        )
 
     pat_bin = bytearray()
     holding = {}                    # channel → the slot it holds, in play order
@@ -2210,6 +2200,9 @@ def _build_song_payload(h: ITHeader, patterns_rows_template: list,
     pat_bin, pat_remap, num_taud_pats = deduplicate_patterns(pat_bin, orig_count)
     vprint(f"  [{song_label}] patterns: {orig_count} → {num_taud_pats} unique "
            f"({orig_count - num_taud_pats} deduplicated)")
+    if num_taud_pats > NUM_PATTERNS_MAX:
+        sys.exit(f"error: [{song_label}] {num_taud_pats} unique patterns "
+                 f"> {NUM_PATTERNS_MAX} Taud pattern limit.")
 
     empty_cue = encode_cue([], 0, num_voices=cue_voices)
     sheet = bytearray(cue_cap * cue_size)
@@ -2242,6 +2235,9 @@ def _build_song_payload(h: ITHeader, patterns_rows_template: list,
                f"for partial-length patterns")
 
     cue_bytes, num_cues = finalize_cue_sheet(sheet, num_voices=cue_voices)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253).
+    pat_bin, cue_bytes, num_taud_pats, num_cues, _ = renumber_patterns_lane_major(
+        pat_bin, cue_bytes, num_voices=cue_voices)
     pat_comp = compress_blob(bytes(pat_bin), f"[{song_label}] pattern bin")
     cue_comp = compress_blob(cue_bytes,      f"[{song_label}] cue sheet")
 
@@ -2339,7 +2335,7 @@ def assemble_taud(h: ITHeader, samples: list, instruments: list,
             inst_vols[taud_slot] = min(smp_default_vol, 0x3F)
             smp_gv = min(getattr(src_smp, 'gv', 64), 64)
             inst_gv_255 = min(255, round(inst.gv * smp_gv * 255 / (128 * 64)))
-            default_note_vol_255 = min(255, round(smp_default_vol * 255 / 64))
+            default_note_vol_255 = dnv_from_volume64(smp_default_vol)
 
             # IT pitch-pan centre: note number 0..119 (C-5 = 60). The Taud
             # representation is the absolute 4096-TET note value used in patterns

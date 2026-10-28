@@ -82,6 +82,8 @@ export class FilesView {
     setIconLabel(exportBtn, "download", t("files.export"), { after: true });
     const wavBtn = mkBtn(t("files.exportWav"), () => this.exportWav());
     const stemsBtn = mkBtn(t("files.exportStems"), () => this.exportStems());
+    const modBtn = mkBtn(t("files.exportMod"), () => this.exportMod());
+    modBtn.title = t("files.exportModTitle");
     // …and the one action that is about the DISK rather than the document
     // (item 198.2): every project in this browser, in one archive. Enabled
     // below, once the listing says there is something to put in it.
@@ -90,8 +92,8 @@ export class FilesView {
     allBtn.title = t("files.downloadAllTitle");
     allBtn.disabled = true;
     // doc-scoped actions grey out until something is loaded
-    for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn]) b.disabled = !doc;
-    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, allBtn);
+    for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn, modBtn]) b.disabled = !doc;
+    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, modBtn, allBtn);
     page.push(bar);
 
     if (!ok) {
@@ -302,7 +304,8 @@ export class FilesView {
 
   /**
    * Offline-render the current song through the engine to an audio file
-   * (#998.4). Stereo stays the 16-bit fold it always was; the surround and
+   * (#998.4). Stereo stays the fold it always was, clean (16-bit) or gritty
+   * (the device's 8-bit); the surround and
    * ambisonic targets re-render the same song with a different SpatialRenderer
    * installed and carry ADM metadata so the channels mean something.
    */
@@ -324,6 +327,7 @@ export class FilesView {
         outRate: this._lastExport?.outRate ?? 48000,
         cap: this._lastExport?.cap ?? 300,
         monitor: this._lastExport?.monitor,
+        quality: this._lastExport?.quality,
       },
     });
     if (!choice) return;
@@ -338,7 +342,7 @@ export class FilesView {
       let wav;
       try {
         wav = await renderToWavAsync(doc.toRenderable(songIndex), songIndex, choice.cap, {
-          outRate: choice.outRate, monitor: choice.monitor,
+          outRate: choice.outRate, monitor: choice.monitor, quality: choice.quality,
           onProgress: (f) => progress.set(f), signal: progress.signal,
         });
       } catch (err) {
@@ -458,6 +462,32 @@ export class FilesView {
     console.info(`Stems: ${render.stems.length} tracks, ${render.seconds.toFixed(1)}s, ` +
       `${(bytes / 1048576).toFixed(1)} MiB in ${(performance.now() - t0).toFixed(0)}ms`);
     downloadBlob(new Blob(chunks, { type: "application/zip" }), `${prefix}-stems.zip`);
+  }
+
+  /**
+   * Every song as a four-channel ProTracker module (item 219), one .mod each —
+   * zipped when there is more than one. What the export found is shown first:
+   * a song that fails a prerequisite stops it, anything a module will not keep
+   * is said before it is saved, and a clean export saves straight away.
+   */
+  async exportMod() {
+    const { doc, fileName } = this.cb.currentDoc();
+    if (!doc) return;
+    const { exportModSongs, modFileName } = await import("../../convert/modexport.js");
+    const results = exportModSongs(doc);
+    if (results.some((r) => r.bytes === null || r.warnings.length > 0)) {
+      const { showModExport } = await import("../popups/exportmod.js");
+      if (!(await showModExport(results))) return;
+    }
+    // A project opened from a module may still carry its name.
+    const base = sanitiseName((fileName ?? "untitled.taud").replace(/\.(taud|mod)$/i, ""), "song");
+    if (results.length === 1) {
+      download(results[0].bytes, modFileName(base, 0, 1));
+      return;
+    }
+    const zip = new StemZip();
+    for (const r of results) zip.addFile(modFileName(base, r.songIndex, results.length), r.bytes);
+    downloadBlob(new Blob(zip.finish(), { type: "application/zip" }), `${base}-mod.zip`);
   }
 }
 

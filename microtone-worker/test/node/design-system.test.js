@@ -145,6 +145,21 @@ function trackerSources() {
   return out;
 }
 
+// ── instrument panels: lamp pushbuttons and flip switches, no checkboxes ────
+
+test("the instrument panels make no checkboxes: an on/off is a lamp pushbutton or a flip switch", () => {
+  const PANELS = [
+    "views/instmixing.js", "views/mastering.js", "views/instruments.js", "views/instadvanced.js",
+    "views/instpsg.js", "views/keymap.js", "popups/chordmaker.js", "popups/notationmaker.js",
+    "popups/panner.js", "popups/sampleeditor.js",
+  ].map((f) => `microtone-worker/src/ui/${f}`);
+  for (const f of PANELS) {
+    assert.doesNotMatch(read(f), /type\s*=\s*["']?checkbox|\.type = "checkbox"/, `${f} makes a checkbox — use lampButton() or flipSwitch()`);
+  }
+  // The top bar's Follow is built by app.js, not written into the page.
+  assert.doesNotMatch(read("microtone-worker/index.html"), /type="checkbox"/, "index.html carries a checkbox");
+});
+
 test("every tracker dialog builds its action row with actionRow()", () => {
   // The warmth splash is a parody advert with its own centred button.
   const EXEMPT = new Set(["microtone-worker/src/ui/popups/warmth.js", `${COMPONENTS}actions.js`]);

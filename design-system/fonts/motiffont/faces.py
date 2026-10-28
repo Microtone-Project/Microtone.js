@@ -14,7 +14,7 @@ from fontTools.ttLib import TTFont
 from . import assemble, cjk, symbols
 from .apertures import open_aperture
 from .varglyph import VarGlyph, master_glyphsets, source_glyph, bounds, translate
-from .widths import Stems, rescale, fitted_rescale, hp_capital_o, matched_weights
+from .widths import Stems, rescale, fitted_rescale, hp_capital_o, matched_weights, round_capital_d
 
 ROMAN, ITALIC = "ChivoMono-VF.ttf", "ChivoMono-Italic-VF.ttf"
 CHIRON_SUBSET = "ChironHeiHK-lu.otf"
@@ -50,18 +50,37 @@ class Source:
         self.y0 = self.font["OS/2"].sxHeight / 2
         cmap = self.font.getBestCmap()
         self.apertures = {cmap[ord(ch)]: units for ch, units in cfg["apertures"].items() if units}
+        self.widened = {cmap[ord(ch)]: pct for ch, pct in cfg["in_cell"].items() if pct}
+        # D, and Ð and Đ, which Chivo draws as D plus a bar (Ď is a composite
+        # over D and follows it).
+        self.d_forms = {cmap[cp] for cp in (0x44, 0xD0, 0x110)}
+        self.comp = cfg["stems"]["compensate"]
 
     def glyph(self, name, unicode=None):
         return source_glyph(self.font, self.sets, name, unicode)
 
+    def redrawn(self, name):
+        """Whether Motif draws `name` itself (see letter())."""
+        return name == "O" or name in self.d_forms or name in self.apertures or name in self.widened
+
     def letter(self, name, cfg):
         """Chivo's glyph, or Motif's own drawing of it: the square O, the
-        opened C G c."""
+        round D, the opened C G c e 5 6 9, the wider z."""
         if name == "O":
             return capital_o(self, cfg)
+        if name in self.d_forms:
+            d = cfg["capital_D"]
+            return round_capital_d(self.glyph(name), d["exponent"], d["exponent_inner"], d["bowl"],
+                                   self.slant, self.y0)
+        vg = self.glyph(name)
         if name in self.apertures:
-            return open_aperture(self.glyph(name), self.apertures[name])
-        return self.glyph(name)
+            vg = open_aperture(vg, self.apertures[name])
+        if name in self.widened:
+            # Wider in its own cell: the advance stays, the stems keep their
+            # thickness.
+            k = 1 + self.widened[name] / 100
+            vg = rescale(vg, lambda t: k, vg.advance, self.stems, self.comp, self.slant, self.y0)
+        return vg
 
 
 def capital_o(src, cfg):
@@ -117,6 +136,42 @@ def build_monospaced(cfg, sources, family, unicodes, scale, fit_margin, extra, c
     _add(font, extra(src, cell) + derived)
     return _finish(font, cfg, family, italic=False, fixed_pitch=True)
 
+def build_grid(cfg, sources, family, unicodes, scale, fit_margin, extra, centred="",
+                     natural2=False):
+    """Grid and Transport: every Chivo glyph rescaled by the same factor.
+    The characters in `centred` are moved up or down to sit on the middle of
+    the capitals, where the Kite marks and the tracker's digits sit."""
+    src = Source(sources / ROMAN, cfg)
+    comp = cfg["stems"]["compensate"]
+    font = TTFont(src.path)
+    assemble.subset_font(font, unicodes, [])
+    del font["HVAR"]  # rebuilt from gvar once every advance is final
+    cell = round(600 * scale) if scale < 1 else 600
+    zero = 1 - cfg["grid"]["narrow-zero"] / 100
+    cmap = font.getBestCmap()
+    centred_names = {cmap[ord(ch)] for ch in centred if ord(ch) in cmap}
+    derived = []
+    minus = cmap.get(0x2212)
+    for name in font.getGlyphOrder():
+        vg = src.letter(name, cfg)
+        k = scale * zero if name == "zero" else scale
+        # Widening keeps the cell; narrowing narrows it with the glyph.
+        advance = vg.advance if scale >= 1 else round(vg.advance * scale)
+        if k > 1:
+            vg = fitted_rescale(vg, k, advance, src.stems, comp, fit_margin)
+        else:
+            vg = rescale(vg, lambda t: k, advance, src.stems, comp)
+        if name in centred_names:
+            vg = vg.map(lambda t, ol: translate(ol, 0, symbols.MID - (bounds(ol)[1] + bounds(ol)[3]) / 2))
+        assemble.put_glyph(font, vg)
+        if name == minus and natural2:
+            # The grid's natural: this minus centred on two cells, so a note
+            # cell is one string of characters, in a canvas or in the DOM.
+            derived.append(VarGlyph("uniF01B", 2 * vg.advance,
+                                    {t: translate(ol, vg.advance / 2, 0) for t, ol in vg.masters.items()},
+                                    0xF01B))
+    _add(font, extra(src, cell) + derived)
+    return _finish(font, cfg, family, italic=False, fixed_pitch=True)
 
 def build_code(cfg, sources, italic, mono=False):
     """Motif Code: Chivo Mono with i I l narrow and M m W w wide, digits and
@@ -156,7 +211,7 @@ def build_code(cfg, sources, italic, mono=False):
                          tx_of_t=weights[base[name]],
                          keep=_lone_mark(g, xh if base[name].islower() else cap))
             moved[name] = _anchor_mover(s, 600, round(600 * s), src.slant, src.y0)
-        elif name == "O" or name in src.apertures:
+        elif src.redrawn(name):
             vg = src.letter(name, cfg)
         elif name == "zero":
             k = 1 - cfg["zero"]["narrow"] / 100

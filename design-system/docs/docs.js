@@ -16,6 +16,9 @@ import { showModal, showNotice } from "../../microtone-worker/src/ui/components/
 import { startControlEnhancer } from "../../microtone-worker/src/ui/components/spinner.js";
 import { showContextMenu } from "../../microtone-worker/src/ui/components/contextmenu.js";
 import { dragGrip, focusGrip } from "../../microtone-worker/src/ui/components/dragsort.js";
+import { makeFoldable } from "../../microtone-worker/src/ui/components/fold.js";
+import { lampButton } from "../../microtone-worker/src/ui/components/lampbutton.js";
+import { flipSwitch } from "../../microtone-worker/src/ui/components/flipswitch.js";
 import { noteRun, rangeGlyph } from "../../microtone-worker/src/ui/components/noteglyph.js";
 import { BTN_ICON, ICON, icon } from "../../microtone-worker/src/ui/icons.js";
 import { renderMarkdown } from "../../microtone-worker/src/ui/markdown.js";
@@ -441,6 +444,113 @@ const DEMOS = {
     };
     draw();
     box.append(table);
+  },
+
+  Fold(box) {
+    const out = el("div", "ds-out");
+    const unit = (name, open, withMix) => {
+      const u = el("section", "mst-unit imx-unit");
+      const head = el("div", "mst-unit-head");
+      const title = el("span", "mst-unit-name", name);
+      head.append(title);
+      if (withMix) {
+        const mix = el("label", "imx-mix");
+        const r = el("input");
+        r.type = "range";
+        mix.append(el("span", "", "Mix"), r);
+        head.append(mix);
+      }
+      head.append(flipSwitch({ label: name, on: open }).button);
+      const body = el("div", "mst-unit-body");
+      body.append(el("p", "mst-hint", "The body folds away; the titlebar's switch and slider keep working."));
+      u.append(head, body);
+      // A demo key, so the page remembers it as the app would.
+      makeFoldable(u, {
+        head, body, name: title, key: `ds-demo.${name}`, open, label: "Show or hide the settings",
+        onToggle: (o) => { out.textContent = `${name}: ${o ? "open" : "folded"} (remembered)`; },
+      });
+      return u;
+    };
+    const col = el("div", "ds-fold");
+    col.append(unit("Compressor", true, true), unit("Limiter", false, false));
+    box.append(col, out);
+  },
+
+  Pushbuttons(box) {
+    const out = el("div", "ds-out");
+    const bands = [["LS", true], ["B1", false], ["B2", true], ["B3", false], ["B4", false], ["HS", true]];
+    let sel = 0;
+    const bar = el("div", "imx-bandbar");
+    const seg = el("div", "mst-seg");
+    const power = lampButton({ label: "On", onChange: (on) => { bands[sel][1] = on; draw(); } });
+    const dir = el("div", "mst-seg");
+    let boost = false;
+    const draw = () => {
+      seg.replaceChildren(...bands.map(([name, on], i) => {
+        const b = el("button", i === sel ? "active" : "");
+        b.setAttribute("aria-pressed", String(i === sel));
+        b.append(el("span", `seg-lamp${on ? " lit" : ""}`), name);
+        b.addEventListener("click", () => { sel = i; draw(); });
+        return b;
+      }));
+      power.setOn(bands[sel][1]);
+      dir.replaceChildren(...[["Cut", false], ["Boost", true]].map(([label, v]) => {
+        const b = el("button", v === boost ? "active" : "", label);
+        b.setAttribute("aria-pressed", String(v === boost));
+        b.addEventListener("click", () => { boost = v; draw(); });
+        return b;
+      }));
+      out.textContent = `editing ${bands[sel][0]} (${bands[sel][1] ? "on" : "off"}) · above threshold: ${boost ? "boost" : "cut"}`;
+    };
+    bar.append(seg, power.button);
+    draw();
+    // Sized as the Mixing tab's units size them: segments and the lamp alike.
+    const unit = el("div", "imx-unit");
+    unit.append(bar, dir);
+    box.append(unit, out);
+  },
+
+  LampButton(box) {
+    const out = el("div", "ds-out");
+    const opts = { sync: true, retrigger: false, pingPong: false };
+    const say = () => {
+      out.textContent = Object.entries(opts).map(([k, v]) => `${k} ${v ? "on" : "off"}`).join(" · ");
+    };
+    const row = el("div", "ds-row");
+    for (const [key, label] of [["sync", "Sync to tempo"], ["retrigger", "Restart on each note"], ["pingPong", "Ping-pong"]]) {
+      row.append(lampButton({ label, on: opts[key], onChange: (on) => { opts[key] = on; say(); } }).button);
+    }
+    row.append(lampButton({ label: "Disabled", disabled: true }).button);
+    // Where the row names the option, the button says its state.
+    const named = el("div", "ds-row");
+    named.append(el("span", "dim", "Percussion"),
+      lampButton({ label: ["Off", "On"], onChange: (on) => { out.textContent = `percussion ${on ? "on" : "off"}`; } }).button);
+    box.append(row, named, out);
+    say();
+  },
+
+  FlipSwitch(box) {
+    const out = el("div", "ds-out");
+    const col = el("div", "ds-fold");
+    for (const [name, on] of [["Compressor", true], ["Saturation", false]]) {
+      const u = el("section", "mst-unit imx-unit");
+      const head = el("div", "mst-unit-head");
+      const title = el("span", "mst-unit-name", name);
+      const body = el("div", "mst-unit-body");
+      body.append(el("p", "mst-hint", "A bypassed piece fades its settings; the switch is the only thing that moves."));
+      const sw = flipSwitch({
+        label: name, on,
+        onChange: (v) => { u.classList.toggle("mst-off", !v); out.textContent = `${name}: ${v ? "in circuit" : "bypassed"}`; },
+      });
+      u.classList.toggle("mst-off", !on);
+      head.append(title, sw.button);
+      u.append(head, body);
+      col.append(u);
+    }
+    const row = el("div", "ds-row");
+    row.append(flipSwitch({ label: "Disabled, on", on: true, disabled: true }).button,
+      flipSwitch({ label: "Disabled, off", disabled: true }).button);
+    box.append(col, row, out);
   },
 
   NoteGlyph(box) {

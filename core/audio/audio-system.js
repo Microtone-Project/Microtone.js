@@ -31,9 +31,13 @@ import {
   SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
   SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ,
   SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
-  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
+  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
   SNAP_MM_HIST_ENTROPY,
+  SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
+  SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
+  SNAP_IM_RING_FRAMES, SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS,
+  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -76,6 +80,7 @@ export class AudioSystem {
     this.invertMasks = new Map(); // slot → Uint8Array (latest queried S$Fx invert mask)
     this.sampleMods = new Map(); // slot → notefx 2/3 modification state (item 130)
     this.psgStates = new Map();  // slot → PSG run-time state (§7.9), null when not PSG
+    this.formantStates = new Map();  // slot → formant voices' own vowels (§7.6), null when not formant
     this.modMasks = new Map();   // slot → Uint8Array (its inversion mask)
     this.wideCells = false; // format v3's 16-byte cell (set by loadDocument)
     this.monitorMode = 0;   // #998.3 fold/binaural — re-sent on every song load
@@ -83,6 +88,7 @@ export class AudioSystem {
     this.masterMeterOn = false; // item 178 Mastering-view tap; that view owns it
     this.masterMeterDepth = DEFAULT_BIT_DEPTH; // …and which output its census describes
     this.masterMeterSpan = 0;                  // …over the whole take (HIST_SPAN_*), or a rolling window of it
+    this.imixMeterSlot = -1; // item 217 Mixing-tab tap: the instrument it meters (-1 = off)
     this.profile = null;    // latest worklet profiler report (opt-in; null when off)
     this.onProfile = null;  // optional callback(profile) when a report arrives
   }
@@ -185,6 +191,7 @@ export class AudioSystem {
       this.invertMasks.set(m.slot, new Uint8Array(m.mask));
       if (m.mod) this.sampleMods.set(m.slot, m.mod);
       this.psgStates.set(m.slot, m.psg ?? null);
+      this.formantStates.set(m.slot, m.formant ?? null);
       if (m.modMask) this.modMasks.set(m.slot, new Uint8Array(m.modMask));
     } else if (m.t === MSG.PROFILE) {
       // Enrich the worklet report with main-side facts it cannot see.
@@ -317,6 +324,12 @@ export class AudioSystem {
     if (this.masterMeterOn) {
       this.setMasterMeter(0, true, this.masterMeterDepth, this.masterMeterSpan);
     }
+    // The instruments' mixing chains (item 217) — project-wide, like the
+    // instruments, and pushed whether the file has any or not, so a document
+    // without them clears the previous one's. The Mixing tab's tap survives
+    // a rebuild too.
+    this.setImix(doc.imix ?? []);
+    if (this.imixMeterSlot >= 0) this.setImixMeter(0, this.imixMeterSlot);
 
     for (const entry of doc.ixmp) {
       const bytes = entry.blob.slice().buffer;
@@ -380,6 +393,15 @@ export class AudioSystem {
       bitDepth: this.masterMeterDepth, histSpan: this.masterMeterSpan,
     });
   }
+  /** Item 217: install the project's IMix blocks (an array of decoded blocks;
+   *  empty = no instrument has a chain). */
+  setImix(blocks) { this._post({ t: CMD.SET_IMIX, blocks: blocks ?? [] }); }
+  /** Item 217: meter one instrument's bus for the Mixing tab (slot < 0 = off).
+   *  Costs nothing while off; that tab turns it off when it is not on screen. */
+  setImixMeter(ph, slot) {
+    if (ph === 0) this.imixMeterSlot = slot;
+    this._post({ t: CMD.SET_IMIX_METER, ph, slot });
+  }
   resetParams(ph = 0) { this._post({ t: CMD.RESET_PARAMS, ph }); }
   resetSampleFxState(ph = 0) { this._post({ t: CMD.RESET_SAMPLE_FX_STATE, ph }); }
   jamNote(ph, voice, note, inst, audition = false) { this._post({ t: CMD.JAM_NOTE, ph, voice, note, inst, audition }); }
@@ -393,6 +415,9 @@ export class AudioSystem {
   /** Release one audition voice the way a pattern key-off releases a lane:
    *  the envelope's release plays out, where jamStopVoice cuts. */
   jamKeyOff(ph, voice) { this._post({ t: CMD.JAM_KEY_OFF, ph, voice }); }
+  /** A lifted piano key: a formant syllable with a coda to speak is keyed off
+   *  (its coda is heard), anything else cut as jamStopVoice cuts. */
+  jamRelease(ph, voice) { this._post({ t: CMD.JAM_RELEASE, ph, voice }); }
   /** Voice index of jam-bank slot `i` — the audition voices, above every song
    *  lane: no fader, no mute, and never written to by playback. */
   jamVoice(i) { return JAM_VOICE_BASE + (((i | 0) % JAM_VOICES) + JAM_VOICES) % JAM_VOICES; }
@@ -445,6 +470,10 @@ export class AudioSystem {
   /** A PSG instrument's live overlay and waveforms (engine getInstrumentPsgState),
    *  from the last requestInvertMask reply for `slot`; null when none. */
   getPsgState(slot) { return this.psgStates.get(slot) ?? null; }
+  /** A formant instrument's sounding voices that S $Afgr has given a vowel of
+   *  their own (engine getInstrumentFormantState), from the same reply; null
+   *  when none. */
+  getFormantState(slot) { return this.formantStates.get(slot) ?? null; }
   /** …and its inversion mask (Uint8Array; empty when the operation is not one). */
   getModMask(slot) { return this.modMasks.get(slot) ?? null; }
 
@@ -628,5 +657,63 @@ export class AudioSystem {
   masterSpectrumRing(stage) {
     const o = SNAP_SPEC_BASE + (stage & 1) * SNAP_SPEC_FRAMES;
     return this.snapshot.subarray(o, o + SNAP_SPEC_FRAMES);
+  }
+
+  /** One stage's stereo pair (0 = into the mastering chain, 1 = the master;
+   *  item 257), L, R interleaved, on the spectrum rings' cursor
+   *  (readMasterMeter().specWrite). A live view into the snapshot, like
+   *  scopeRing(). */
+  masterPairRing(stage) {
+    const o = SNAP_PAIR_BASE + (stage & 1) * 2 * SNAP_SPEC_FRAMES;
+    return this.snapshot.subarray(o, o + 2 * SNAP_SPEC_FRAMES);
+  }
+
+  /**
+   * Item 217: the Mixing tab's block — one instrument bus, as of the last
+   * snapshot. `out` is a makeImixMeterReadout()-shaped object; its `ring` (the
+   * stereo pair after the chain, frame-interleaved) and `ringPre` (the mono
+   * sum before it) are live views into the snapshot, read backwards from
+   * `write`; so are `stageRings` (the input of each IMX_TAP_STAGES piece,
+   * read back from its `stageWrite`). `frames` is 0 while the tap is off or
+   * the bus did not run.
+   */
+  readImixMeter(out) {
+    const f = this.snapshot;
+    const b = SNAP_IM_BASE;
+    out.frames = f[b + SNAP_IM_FRAMES];
+    out.slot = f[b + SNAP_IM_SLOT];
+    out.write = f[b + SNAP_IM_RING_WRITE] | 0;
+    out.lim = f[b + SNAP_IM_LIM_GR];
+    for (let i = 0; i < out.comp.length; i++) out.comp[i] = f[b + SNAP_IM_COMP_GR + i];
+    for (let i = 0; i < out.deq1.length; i++) {
+      out.deq1[i] = f[b + SNAP_IM_DEQ1 + i];
+      out.deq2[i] = f[b + SNAP_IM_DEQ2 + i];
+    }
+    for (let i = 0; i < 4; i++) {
+      const o = b + SNAP_IM_LEVELS + i * SNAP_MM_C_STRIDE;
+      out.peak[i] = f[o + SNAP_MM_C_PEAK];
+      out.truePeak[i] = f[o + SNAP_MM_C_TRUE_PEAK];
+      out.meanSquare[i] = f[o + SNAP_MM_C_MEAN_SQUARE];
+      out.clip[i] = f[o + SNAP_MM_C_CLIP];
+    }
+    out.ring = f.subarray(b + SNAP_IM_RING, b + SNAP_IM_RING + 2 * SNAP_IM_RING_FRAMES);
+    out.ringPre = f.subarray(b + SNAP_IM_RING_PRE, b + SNAP_IM_RING_PRE + SNAP_IM_RING_FRAMES);
+    out.unisCents = f[b + SNAP_IM_UNIS_CENTS];
+    out.unisWidth = f[b + SNAP_IM_UNIS_WIDTH];
+    for (let i = 0; i < out.compLvl.length; i++) out.compLvl[i] = f[b + SNAP_IM_COMP_LVL + i];
+    for (let i = 0; i < out.deq1Lvl.length; i++) {
+      out.deq1Lvl[i] = f[b + SNAP_IM_DEQ1_LVL + i];
+      out.deq2Lvl[i] = f[b + SNAP_IM_DEQ2_LVL + i];
+    }
+    const nst = out.stageWrite.length;
+    if (out.stageRings === null || out.stageRings[0].buffer !== f.buffer) {
+      out.stageRings = [];
+      for (let k = 0; k < nst; k++) {
+        const o = b + SNAP_IM_STAGE_RINGS + k * SNAP_IM_RING_FRAMES;
+        out.stageRings.push(f.subarray(o, o + SNAP_IM_RING_FRAMES));
+      }
+    }
+    for (let k = 0; k < nst; k++) out.stageWrite[k] = f[b + SNAP_IM_STAGE_WRITE + k] | 0;
+    return out;
   }
 }

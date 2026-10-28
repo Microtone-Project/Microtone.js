@@ -31,19 +31,25 @@ import {
   SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
   SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ,
   SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
-  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES,
+  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
   SNAP_MM_HIST_ENTROPY,
+  SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
+  SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
+  SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS, SNAP_IM_RING_FRAMES,
+  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL,
 } from "./protocol.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, displayPanByte, displayAngles,
 } from "../engine/spatial.js";
 import { ANALYSIS_MAX_METERS, makeAnalysisReadout } from "../engine/analysis.js";
 import { makeMasterMeterReadout } from "../engine/loudness.js";
+import { makeImixMeterReadout } from "../engine/imix.js";
 
 /** Reused drain targets — the snapshot path never allocates. */
 const analysisReadout = makeAnalysisReadout();
 const masterMeterReadout = makeMasterMeterReadout();
+const imixMeterReadout = makeImixMeterReadout();
 /** …and the scratch [azimuth, elevation] the position readout writes into. */
 const angleBox = new Float64Array(2);
 
@@ -87,6 +93,8 @@ export function applyAudioCommand(eng, m) {
     case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
     case CMD.SET_MASTER_METER:
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
+    case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
+    case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
@@ -99,6 +107,7 @@ export function applyAudioCommand(eng, m) {
     case CMD.JAM_STOP: eng.jamStop(m.ph); return true;
     case CMD.JAM_STOP_VOICE: eng.jamStopVoice(m.ph, m.voice); return true;
     case CMD.JAM_KEY_OFF: eng.jamKeyOff(m.ph, m.voice); return true;
+    case CMD.JAM_RELEASE: eng.jamRelease(m.ph, m.voice); return true;
     case CMD.SET_VOICE_MUTE: eng.setVoiceMute(m.ph, m.voice, m.muted); return true;
     case CMD.SET_VOICE_FADER: eng.setVoiceFader(m.ph, m.voice, m.fader); return true;
     default: return false;
@@ -239,6 +248,48 @@ export function fillSnapshotInto(eng, playhead, f) {
   }
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);
+  fillImixMeterInto(ts, f);
+}
+
+/**
+ * Mixing-tab block (item 217): one instrument bus's levels on both sides of
+ * its chain, the chain's gain reductions and the two rings. With the tap off
+ * only the "no frames" marker is written.
+ */
+function fillImixMeterInto(ts, f) {
+  const b = SNAP_IM_BASE;
+  const tap = ts.imixMeter;
+  if (tap === null) {
+    f[b + SNAP_IM_FRAMES] = 0;
+    f[b + SNAP_IM_SLOT] = -1;
+    return;
+  }
+  const r = tap.drain(imixMeterReadout);
+  f[b + SNAP_IM_FRAMES] = r.frames;
+  f[b + SNAP_IM_SLOT] = r.slot;
+  f[b + SNAP_IM_RING_WRITE] = r.write;
+  f[b + SNAP_IM_LIM_GR] = r.lim;
+  f.set(r.comp, b + SNAP_IM_COMP_GR);
+  f.set(r.deq1, b + SNAP_IM_DEQ1);
+  f.set(r.deq2, b + SNAP_IM_DEQ2);
+  for (let i = 0; i < 4; i++) {
+    const o = b + SNAP_IM_LEVELS + i * SNAP_MM_C_STRIDE;
+    f[o + SNAP_MM_C_PEAK] = r.peak[i];
+    f[o + SNAP_MM_C_TRUE_PEAK] = r.truePeak[i];
+    f[o + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
+    f[o + SNAP_MM_C_CLIP] = r.clip[i];
+  }
+  f.set(r.ring, b + SNAP_IM_RING);
+  f.set(r.ringPre, b + SNAP_IM_RING_PRE);
+  f[b + SNAP_IM_UNIS_CENTS] = r.unisCents;
+  f[b + SNAP_IM_UNIS_WIDTH] = r.unisWidth;
+  f.set(r.compLvl, b + SNAP_IM_COMP_LVL);
+  f.set(r.deq1Lvl, b + SNAP_IM_DEQ1_LVL);
+  f.set(r.deq2Lvl, b + SNAP_IM_DEQ2_LVL);
+  for (let k = 0; k < r.stageRings.length; k++) {
+    f[b + SNAP_IM_STAGE_WRITE + k] = r.stageWrite[k];
+    f.set(r.stageRings[k], b + SNAP_IM_STAGE_RINGS + k * SNAP_IM_RING_FRAMES);
+  }
 }
 
 /**
@@ -297,6 +348,7 @@ function fillMasterMeterInto(ts, f) {
   f[SNAP_MM_SPEC_WRITE] = r.specWrite;
   for (let s = 0; s < SNAP_MM_STAGES; s++) {
     f.set(r.spec[s], SNAP_SPEC_BASE + s * SNAP_SPEC_FRAMES);
+    f.set(r.pair[s], SNAP_PAIR_BASE + s * 2 * SNAP_SPEC_FRAMES);
   }
 }
 

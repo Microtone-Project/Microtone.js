@@ -228,7 +228,7 @@ Everything else — note volume, lane volume, pan, envelope positions, LFO phase
 | Note word | Action |
 |---|---|
 | `$0000` | No note event; see the special cases below |
-| `$0001` | **Key off** — set the key-off state, and apply key lift if the instrument asks for it |
+| `$0001` | **Key off** — set the note off state, and apply key lift if the instrument asks for it |
 | `$0002` | **Note cut** — deactivate the voice at once, and cut its layer children |
 | `$0003` | **Note fade** — begin the fadeout without releasing sustain |
 | `$0004` | **Fast fade** — begin a ≈ 0.3 s fadeout (below) |
@@ -347,7 +347,7 @@ A type the engine does not know **MUST** sound nothing rather than fall back to 
 
 The rules below are written for the Layered kind, where they are easiest to state, but not all of them stop there: [§5.5.1](#5-5-1-type-4-fm-racks) says which a rack inherits **unchanged** — the release of the previous note, the per-tick sync of a child to its parent, and the pattern's reach over every voice sounding one note — and which are the Layered kind's own, the soundfield below being the plainest of them.
 
-If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the lane's existing layer children: each is detached from the parent and given its own instrument's New Note Action (note off with key lift, cut, continue, or fade).
+If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the lane's existing layer children: each is detached from the parent and given its own instrument's New Note Action (key-off with release, cut, continue, or fade).
 
 Then it collects every layer whose rectangle contains the trigger, in record order. Under **strict layering** it additionally drops any layer whose own instrument resolves no patch at the (detuned) trigger. If nothing survives, the lane goes **silent** for this note — that is the correct outcome, not a fallback.
 
@@ -409,6 +409,8 @@ Every other part of an operator's value — its own envelopes, fadeout, global v
 **The stack.** Words run in order, every word every sample; the value left on the stack at the end is the patch. `$08xx` pushes what its operator produced on the *previous* output sample, and every operator's tap advances together after the whole program has run — so a tap reads last sample's value wherever it sits, which is what lets a rack close a feedback loop in one pass. `$08xx` on an operator the algorithm does not sound reads 0.
 
 **Cost.** A rack costs one voice against the lane plus one background voice per sounding operator beyond the first, and one sample fetch per sounding operator per output sample. A released rack keeps that whole cost for as long as it rings, because what rings is the rack and not a snapshot of it. Unlike a layered metainstrument, none of it reaches the mix as a separate source: however many operators a rack has, it is one note in one place.
+
+**A DSP-only principal.** Operator 0 is **DSP-only** when the program's last two words are `$0000 $FF01` and no other word names operator 0, in any class: the whole patch is multiplied by it and it is read nowhere else. Its instrument is then the instrument's shared processing and not one of its oscillators — a constant (an editor's Easy Mode writes a looped sample of `$FF`, at rate 0 so the read never leaves its first frame and the interpolator returns exactly 1.0), whose envelope, filter and pan the mixer applies to the finished patch as it applies any principal's. Nothing in playback changes for it: the rule exists for **`S $Apsd`** ([Note Effects](TAUD_NOTE_EFFECTS.md), Instrument Sound Control), which on a live rack sets operator *k*'s active auto-vibrato speed to `s × 17` and depth to `d × 17` for the note, *k* = *p* + 1 when the principal is DSP-only and *k* = *p* otherwise; an operator that is not sounding, or *k* past the rack's end, takes nothing. On a rack the command is the rack's alone, so a PSG operator in it takes no register write from it.
 
 **Operator 0's voice lifetime is the rack's.** The principal is the lane's own voice, so everything the engine asks about a voice's *life* — its New Note Action, its key lift, its Duplicate Check type and action, its fadeout — is asked of operator 0's instrument and of nothing else. A rack's own record states none of them, and the operators past the first are never asked: an operand is not a note, and it has no lifetime apart from the note it is shaping.
 
@@ -551,7 +553,7 @@ The noise register is the chip's 23-bit LFSR. A fresh channel's register is seed
 
 **The note.** A trigger keys the channel on. Ordinarily the channel is **fresh**: every operator at `env = 511`, its outputs zero, anchored at its first rendered frame. A voice whose New Note Action — the instrument's or `S $73`'s — is **note cut**, and which is struck by a note on an OPL instrument while it sounds one, is not ghosted at all: the incoming trigger keys the **same channel** on again, every envelope continuing from where it stands, as a driver retriggering a channel on the chip does. No ghost is made and no cut ramp runs. Every other New Note Action ghosts the voice as ever, and the ghost carries a copy of the whole channel — envelopes, accumulators, noise, clock position and its last two values.
 
-`Q`'s retrigger keys the channel on the same way, envelopes carried. A key-off — the pattern's, a ghost's release, a Duplicate Check note-off, past-note off — keys it off. An instrument byte on a tone-portamento row ([§5.2](#5-2-note-events)) re-attacks every operator from where it stands without restarting a phase, which is the chip's reading of "the envelopes restart and the sample position stays". An instrument change without a retrigger writes the new patch into the sounding channel, as a driver writes a patch change; a sampled voice handed an OPL instrument that way gets a fresh channel keyed on at its current note.
+`Q`'s retrigger keys the channel on the same way, envelopes carried. A key-off — the pattern's, a ghost's release, a Duplicate Check note-off, past-key-off — keys it off. An instrument byte on a tone-portamento row ([§5.2](#5-2-note-events)) re-attacks every operator from where it stands without restarting a phase, which is the chip's reading of "the envelopes restart and the sample position stays". An instrument change without a retrigger writes the new patch into the sounding channel, as a driver writes a patch change; a sampled voice handed an OPL instrument that way gets a fresh channel keyed on at its current note.
 
 An OPL voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)): its attack is the chip's envelope.
 
@@ -713,7 +715,7 @@ NVgoal = clamp(sqrt(Pref ÷ P), 1/256, 16)          (16 when P = 0; 1 when f0 is
 
 ##### The consonants
 
-Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of parameters: the tract it is made with — F1…F3 and B1…B3 in Hz at an adult man's size, a 0 meaning "the vowel's" — its frication spectrum as Klatt's parallel amplitudes A2…A6 and AB in dB (0 = off), its noise level in dB against the vowel, and its timing in ms: `dur` (a fricative's or an affricate's frication, a nasal's murmur, an approximant's steady state, a tap's closure, a trill's cycle), the burst, the voice onset time, and the formant transition into the next sound. `av` is the voicing during the main part, and FNZ a nasal's zero. Klatt 1980 Table III supplies every row it has (w j r l f v θ ð s z ʃ t͡ʃ d͡ʒ p b t d k g m n); the voice onset times of the aspirated stops are Lisker & Abramson's (1964) for English; the rest follow by place.
+Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of parameters: the tract it is made with — F1…F3 and B1…B3 in Hz at an adult man's size, a 0 meaning "the vowel's" — its frication spectrum as Klatt's parallel amplitudes A2…A6 and AB in dB (0 = off), its noise level in dB against the vowel, and its timing in ms: `dur` (a fricative's or an affricate's frication, a nasal's murmur, an approximant's steady state, a tap's closure, a trill's cycle), the burst, the voice onset time, and the formant transition into the next sound. `av` is the voicing during the main part, and FNZ a nasal's zero. Klatt 1980 Table III supplies every row it has (w j r l f v θ ð s z ʃ t͡ʃ d͡ʒ p b t d k g m n); the voice onset times of the aspirated stops are Lisker & Abramson's (1964) for English; [ʈʰ] has [tʰ]'s scaled by the retroflex-to-dental ratio Mikuteit & Reetz (2007) measured in East Bengali (48 ÷ 57), and the breathy-voiced stops their after-closure times (31, 35, 36, 44 ms by place); [sʰ] is Korean ㅅ (Chang 2008: frication ¾ of the tense [s*]'s, then about 53 ms of breath); the rest follow by place. A **voiced stop with a VOT** is breathy-voiced (murmured), its VOT the noisy lag between its burst and its breathy voice; a **voiceless fricative with a VOT** is aspirated, its VOT the breath after its frication. A row marked **breath** ([ʔ͡h]) has its frication as breath: every track it would have as `af` it has as `ah`, and the other way about (the next sound's `nx.af` and `nx.ah` exchanged likewise), so its noise goes through the cascade at the vowel's formants, as [h]'s does.
 
 | Id | IPA | Manner | Voiced | F1 F2 F3 | B1 B2 B3 | A2 A3 A4 A5 A6 AB | Level | dur | burst | VOT | trans | av | FNZ |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -733,6 +735,11 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 14 | pʰ | stop | no | 400 1100 2150 | 300 150 220 | 0 0 0 0 0 63 | -12 | 0 | 5 | 58 | 40 | 0 | 0 |
 | 15 | tʰ | stop | no | 400 1600 2600 | 300 120 250 | 0 30 45 57 63 0 | -10 | 0 | 10 | 70 | 45 | 0 | 0 |
 | 16 | kʰ | stop | no | 300 1990 2850 | 250 160 330 | 0 60 43 45 45 0 | -10 | 0 | 20 | 80 | 50 | 0 | 0 |
+| 17 | ʈʰ | stop | no | 400 1500 1900 | 300 120 250 | 0 50 55 50 45 0 | -10 | 0 | 10 | 60 | 45 | 0 | 0 |
+| 18 | bʱ | stop | yes | 200 1100 2150 | 60 110 130 | 0 0 0 0 0 63 | -14 | 0 | 5 | 31 | 40 | 0 | 0 |
+| 19 | dʱ | stop | yes | 200 1600 2600 | 60 100 170 | 0 47 60 62 60 0 | -12 | 0 | 8 | 35 | 45 | 0 | 0 |
+| 20 | ɖʱ | stop | yes | 200 1500 1900 | 60 100 170 | 0 50 55 50 45 0 | -12 | 0 | 8 | 36 | 45 | 0 | 0 |
+| 21 | ɡʱ | stop | yes | 200 1990 2850 | 60 150 280 | 0 60 43 45 45 0 | -12 | 0 | 15 | 44 | 50 | 0 | 0 |
 | 32 | m | nasal | yes | 480 1270 2130 | 40 200 200 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
 | 33 | ɱ | nasal | yes | 480 1200 2100 | 40 200 200 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
 | 34 | n | nasal | yes | 480 1340 2470 | 40 300 300 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
@@ -773,6 +780,7 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 72 | ɕ | fricative | no | 300 2000 2900 | 200 120 300 | 0 45 57 50 45 0 | -7 | 120 | 0 | 0 | 45 | 0 | 0 |
 | 73 | ʑ | fricative | yes | 240 2000 2900 | 60 120 300 | 0 45 57 50 45 0 | -11 | 90 | 0 | 0 | 45 | 0.35 | 0 |
 | 74 | ʍ | fricative | no | 290 610 2150 | 200 80 60 | 0 0 0 0 0 50 | -22 | 90 | 0 | 0 | 100 | 0 | 0 |
+| 75 | sʰ | fricative | no | 320 1390 2530 | 200 80 200 | 0 0 0 0 52 0 | -8 | 90 | 0 | 53 | 40 | 0 | 0 |
 | 80 | ʋ | approximant | yes | 300 1100 2200 | 60 90 150 | 0 0 0 0 0 0 | 0 | 50 | 0 | 0 | 70 | 0.4 | 0 |
 | 81 | ɹ | approximant | yes | 310 1060 1380 | 70 100 120 | 0 0 0 0 0 0 | 0 | 50 | 0 | 0 | 90 | 0.4 | 0 |
 | 82 | ɻ | approximant | yes | 310 1100 1500 | 70 100 120 | 0 0 0 0 0 0 | 0 | 50 | 0 | 0 | 90 | 0.4 | 0 |
@@ -794,14 +802,20 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 103 | ɖ͡ʐ | affricate | yes | 240 1600 2000 | 60 100 250 | 0 57 50 40 30 0 | -11 | 60 | 10 | 0 | 45 | 0 | 0 |
 | 104 | p͡f | affricate | no | 340 1100 2080 | 200 120 150 | 0 0 0 0 0 57 | -16 | 70 | 5 | 0 | 40 | 0 | 0 |
 | 105 | k͡x | affricate | no | 300 1800 2700 | 250 160 330 | 57 50 40 35 30 0 | -12 | 70 | 20 | 0 | 50 | 0 | 0 |
+| 106 | c͡ç | affricate | no | 300 2100 3000 | 200 150 300 | 0 35 55 50 40 0 | -12 | 70 | 15 | 0 | 45 | 0 | 0 |
+| 107 | ɟ͡ʝ | affricate | yes | 240 2100 3000 | 60 150 300 | 0 35 55 50 40 0 | -16 | 60 | 12 | 0 | 45 | 0 | 0 |
+| 108 | t͡θ | affricate | no | 320 1290 2540 | 200 90 200 | 0 0 0 0 28 48 | -18 | 70 | 8 | 0 | 40 | 0 | 0 |
+| 109 | d͡ð | affricate | yes | 270 1290 2540 | 60 80 170 | 0 0 0 0 28 48 | -22 | 60 | 8 | 0 | 40 | 0 | 0 |
+| 110 | ɡ͡ɣ | affricate | yes | 240 1800 2700 | 60 150 300 | 57 50 40 35 30 0 | -16 | 60 | 15 | 0 | 50 | 0 | 0 |
+| 111 | ʔ͡h | affricate (breath) | no | 0 0 0 | 300 0 0 | 0 0 0 0 0 0 | -16 | 50 | 0 | 0 | 15 | 0 | 0 |
 
-**Velars.** Klatt's table is "appropriate only for consonants before front vowels", and at a velar that shows: the back of the tongue meets the palate wherever the vowel puts it, so a velar has no place of its own. Locus equations (F2 at voicing onset regressed on the vowel's F2) give a velar a slope of about 0.9–1.0 — its F2 starts close to the vowel's — where an alveolar's, about 0.4–0.5, is pulled toward 1.8 kHz (Sussman, McCaffrey & Matthews 1991; Iskarous, Fowler & Whalen 2010). The **velars** — ids 9 [k], 10 [ɡ], 16 [kʰ], 37 [ŋ], 62 [x], 63 [ɣ], 105 [k͡x] — take their F2 and F3 not from the row but from the sound they meet, `N` ([below](#the-tract)), drawn together about their geometric mean as closely as the order rule lets two formants come — the "velar pinch":
+**Velars.** Klatt's table is "appropriate only for consonants before front vowels", and at a velar that shows: the back of the tongue meets the palate wherever the vowel puts it, so a velar has no place of its own. Locus equations (F2 at voicing onset regressed on the vowel's F2) give a velar a slope of about 0.9–1.0 — its F2 starts close to the vowel's — where an alveolar's, about 0.4–0.5, is pulled toward 1.8 kHz (Sussman, McCaffrey & Matthews 1991; Iskarous, Fowler & Whalen 2010). The **velars** — ids 9 [k], 10 [ɡ], 16 [kʰ], 21 [ɡʱ], 37 [ŋ], 62 [x], 63 [ɣ], 105 [k͡x], 110 [ɡ͡ɣ] — take their F2 and F3 not from the row but from the sound they meet, `N` ([below](#the-tract)), drawn together about their geometric mean as closely as the order rule lets two formants come — the "velar pinch":
 
 ```
 P = sqrt(N2 × N3)      C2 = P ÷ sqrt(1.15)      C3 = P × sqrt(1.15)
 ```
 
-A velar's burst excites the resonance of the cavity in front of its closure: F2 before a non-front vowel, where Klatt puts A2 at "about 60 dB", and F3 before a front one. The table's 53 dB for A3 was set on a synthesiser running at 10 kHz, whose output ended at 5 kHz; at the engine's rates the upper resonators' skirts reach past 6 kHz and outweigh it, and the burst would be spread over 3–5 kHz like a [t]'s. So [k], [ɡ] and [kʰ] give the front cavity 60 dB either way: their bank is the row's, A2…AB `0 60 43 45 45 0`, before a front vowel, and `60 53 43 45 45 0` — Klatt's A2 of 60 added, his A3 of 53 kept — before a back one, each gain `gj` ([below](#the-tract)) crossfaded linearly between the two by how back the vowel they meet is:
+A velar's burst excites the resonance of the cavity in front of its closure: F2 before a non-front vowel, where Klatt puts A2 at "about 60 dB", and F3 before a front one. The table's 53 dB for A3 was set on a synthesiser running at 10 kHz, whose output ended at 5 kHz; at the engine's rates the upper resonators' skirts reach past 6 kHz and outweigh it, and the burst would be spread over 3–5 kHz like a [t]'s. So [k], [ɡ], [kʰ] and [ɡʱ] give the front cavity 60 dB either way: their bank is the row's, A2…AB `0 60 43 45 45 0`, before a front vowel, and `60 53 43 45 45 0` — Klatt's A2 of 60 added, his A3 of 53 kept — before a back one, each gain `gj` ([below](#the-tract)) crossfaded linearly between the two by how back the vowel they meet is:
 
 ```
 back = 1 − x ÷ 255                     x = the vowel's frontness — the glide's while it sounds:
@@ -837,6 +851,15 @@ With `k` the timing scale of [File Format §7.6](TAUD_FILE_FORMAT.md), every tim
 | Trill | `c = dur`, `sh = 0.375c`. **av**: (0, 0.12) (sh, 0.12) (sh+3, 0.7) (c−3, 0.7) (c, 0.12) (c+sh, 0.12) (c+sh+3, nx.av). **w**: (0, 1) (c+sh+3, 1) (c+sh+3+trans, 0). **nz** (0, 0) (c+sh+3, 0). **ah**, **af** (0, 0) | c+sh+3+trans |
 | Glottal stop | `g = first ? 0 : 30`. **av**: (0, 0) (g, 0) (g+3, nx.av). **nz** (0, 0) (g, 0). **w**, **ah**, **af** (0, 0) | g+3 |
 
+Two manners have a second form, given a VOT (`SA = 47 ms`, `MA = 0.05`):
+
+| Manner | Onset tracks | end |
+|---|---|---|
+| Breathy-voiced stop | `tb`, `tv` as a stop's, `ts = tv + SA`. **av**: (0, a) (cl, a) (tb, 0.3) (tb+3, MA) (tv, MA) (ts, nx.av), a as a voiced stop's. **ah**: (0, 0) (tb, 0) (tb+3, L) (tv, 0.7L) (ts, nx.ah). **af**, **w**, **nz** as a stop's | max(ts, tb+trans) |
+| Aspirated fricative | `tv = dur + VOT`. **af** as a fricative's. **ah**: (0, 0) (dur−10, 0) (dur, La) (tv, 0.7La) (tv+10, nx.ah). **av**: (0, 0) (tv−5, 0) (tv+15, nx.av). **w** as a fricative's. **nz** (0, 0) (tv, 0) | max(tv+15, dur+trans) |
+
+The breathy release is Mikuteit & Reetz's (2007): a noisy lag after the burst, then a stretch of voice with breath laid over it, about 47 ms. Its voice at `MA` is 26 dB under the vowel's, the breath carrying the lag, the two together about 20 dB under the vowel (Schiefer & Kotten 1983 measured the breathy part 10–30 dB below the steady vowel). **Glottalised**, either is as below: a breathy stop takes the stop's glottalised tracks, an aspirated fricative the fricative's.
+
 An oral consonant's `nz` holds 0 until its own part is over, so a nasalised vowel after it lowers the velum through the transition alone.
 
 The onset's **last** consonant may be **glottalised** ([below](#the-articulations)); its tracks are the table's but for these. It breathes no aspiration: **ah** is (0, 0) — an aspirate's own **ah** excepted. A **stop**'s voicing waits for a lag after the burst, then comes in at once: `tv = tb + min(VOT, 10)`, **av** (0, 0) (tv, 0) (tv+2, nx.av), voiced or not; end max(tv+2, tb+trans). An **affricate**'s, a **fricative**'s or an **aspirate**'s voicing waits through a glottal catch after its own part — `te` = tf, dur, dur: **av** (0, 0) (te+10, 0) (te+12, nx.av); end at least te+12. A **nasal**, **approximant**, **tap** or **trill** is said after a glottal stop: its **av**, built as the table says, is replaced by (0, 0) (10, 0) (12, av(12)) followed by every point of it after 12 ms. A glottal stop is as it is.
@@ -855,7 +878,7 @@ A syllable with no vowel holds its **nucleus** ([below](#the-syllable)) on these
 | Trill | `c = dur`, `sh = 0.375c`. **av**: for n = 0, 1 with o = n·c: (o, 0.12) (o+sh, 0.12) (o+sh+3, 0.7) (o+c−3, 0.7); then (2c, 0.12). **ah**, **af**, **nz** (0, 0) | 2c | c |
 | Glottal stop | **av**, **ah**, **af**, **nz** (0, 0) | 0 | 0 |
 
-A sonorant nucleus voices at the vowel's level, being the syllable's peak. **Glottalised**, a stop nucleus breathes no aspiration and its voicing is **av** (0, 0) (tb+10, 0) (tb+12, voiced ? 1 : 0), end tb+12; an affricate's, a fricative's or an aspirate's voicing is 0; a sonorant's takes the catch above.
+A **breathy-voiced** stop nucleus has the onset's breathy **av** and **ah** with nx.av = 1 and nx.ah = 0, ending at `ts`; an aspirated fricative's nucleus is a fricative's. A sonorant nucleus voices at the vowel's level, being the syllable's peak. **Glottalised**, a stop nucleus breathes no aspiration and its voicing is **av** (0, 0) (tb+10, 0) (tb+12, voiced ? 1 : 0), end tb+12; an affricate's, a fricative's or an aspirate's voicing is 0; a sonorant's takes the catch above.
 
 A CODA starts on the values of the sound before it — for the vowel, voicing `v0 = 1` and nasality `z0 = 0`, or 1 for a nasalised vowel — and ends in silence: every track but `w` closes on 0, and `w` on 1.
 
@@ -869,6 +892,8 @@ A CODA starts on the values of the sound before it — for the vowel, voicing `v
 | Tap | **w**: (0, 0) (trans, 1). **av**: (0, v0) (trans, v0) (trans+3, 0.2) (trans+dur, 0.2) (trans+dur+3, 0.6) (trans+dur+40, 0). **nz** (0, z0) (trans, 0). **ah**, **af** (0, 0) | trans+dur+40 |
 | Trill | `c = dur`, `sh = 0.375c`. **w**: (0, 0) (trans, 1). **av**: (0, v0) (trans, 0.7) (trans+3, 0.12) (trans+sh, 0.12) (trans+sh+3, 0.7) (trans+c−3, 0.7) (trans+c, 0.12) (trans+c+sh, 0.12) (trans+c+sh+3, 0.6) (trans+c+sh+35, 0). **nz** (0, z0) (trans, 0). **ah**, **af** (0, 0) | trans+c+sh+35 |
 | Glottal stop | **w** (0, 0). **av**: (0, v0) (6, 0). **nz** (0, z0) (6, 0). **ah**, **af** (0, 0) | 6 |
+
+A **breathy-voiced** stop's coda breathes on its release as a voiceless aspirated stop's does — **ah** (tb, 0) (tb+2, 0.5La) (tb+30, 0) — with **av** (tb, 0) (tb+2, MA) (tb+30, 0) under it after its own. An **aspirated fricative**'s coda breathes after its frication: **ah** (trans+dur, 0) (trans+dur+10, 0.5La) (trans+dur+VOT+30, 0), ending there.
 
 A coda's **release** ([below](#the-articulations)) changes it so. **Unreleased**, a stop or an affricate has **af** and **ah** (0, 0) and ends when its voicing does — voiced at tc+5, voiceless at trans+8; any other consonant is released as written. **Glottalised**, its voicing stops in 3 ms where it would otherwise fade, and a stop breathes no aspiration: a stop's or an affricate's **av** is (0, v0) (trans, v0) (trans+3, 0); a fricative's (0, v0) (a, v0) (a+3, 0); an aspirate's (0, v0) (3, 0); a nasal's or an approximant's ends (trans+dur, 0.8av) (trans+dur+3, 0), and a tap's (trans+dur, 0.2) (trans+dur+3, 0), a trill's (trans+c+sh, 0.12) (trans+c+sh+3, 0), each ending there; a glottal stop is as it is.
 
@@ -1055,7 +1080,7 @@ and the record's own otherwise: the walk counts among the seven pulses, wrapping
 
 **The LFO origin** is set at every key-on by the oscillator's `X` flag, and is never carried from an earlier note. With `X`, it is the chip sample of the pair's next rendered frame. Without `X`, it is 0, so the LFOs run on the chip clock itself and every such oscillator on the playhead moves together, as on a chip — a lane that changes from an `X` instrument to one without it rejoins the chip clock at that key-on. Either way `lk` is never negative: the chip clock restarts at a play or seek ([§15](#15-transport-reset)), and an origin kept from before it would stand above every `k` the voice then renders.
 
-**`S $Axxx`** on a voice sounding a pair writes a register of that pair's **instrument** ([Note Effects](TAUD_NOTE_EFFECTS.md)): an overlay over the record that every voice of the instrument reads at once, leaves the record untouched, and lasts across notes until the per-instrument runtime state is cleared ([§15](#15-transport-reset)) — invert loop's mask's lifetime ([§8.4](#8-4-invert-loop-and-funk-repeat)). An edit to the record leaves the overlay standing.
+**`S $Axxx`** on a voice sounding a pair — on its own, or as a layer, but not as an FM operator, whose rack takes the command for itself ([§5.5.1](#5-5-1-type-4-fm-racks)) — writes a register of that pair's **instrument** ([Note Effects](TAUD_NOTE_EFFECTS.md)): an overlay over the record that every voice of the instrument reads at once, leaves the record untouched, and lasts across notes until the per-instrument runtime state is cleared ([§15](#15-transport-reset)) — invert loop's mask's lifetime ([§8.4](#8-4-invert-loop-and-funk-repeat)). An edit to the record leaves the overlay standing.
 
 **The end of the note.** After each frame the voice deactivates once neither oscillator can sound again, by §5.5.2's rule for an operator; whether one is muted does not enter into it. A held DC sounds for ever, as a held sample loop does.
 
@@ -1082,7 +1107,7 @@ Types 5…15 never match. Type 4 is Taud's own: it lets an instrument's notes gi
 | Action | Effect on a matching voice |
 |---|---|
 | 0 — note cut | Zero the fadeout multiplier; the voice deactivates this tick |
-| 1 — note off | Set key-off (releasing sustain, applying key lift, and starting the fadeout if one is configured) |
+| 1 — key-off | Set key-off (releasing sustain, applying key lift, and starting the fadeout if one is configured) |
 | 2 — note fade | Begin fading immediately, with no sustain release, so sample and envelope loops continue |
 
 Actions 3…15 do nothing: a voice matched under one is left as it was.
@@ -1102,13 +1127,13 @@ On a metainstrument the override reaches **the whole note**: the foreground voic
 
 | NNA | Behaviour |
 |---|---|
-| 0 — Note Off | The ghost gets key-off, releasing sustain into its release stage |
+| 0 — Key-off | The ghost gets key-off, releasing sustain into its release stage |
 | 1 — Note Cut | The voice stops. The ghost exists only long enough to ramp out ([§8.7](#8-7-the-attack-ramp)) — the incoming note is fading in over the same span, so the pair is a crossfade rather than a splice |
 | 2 — Continue | The ghost keeps playing unchanged |
 | 3 — Note Fade | The ghost begins its fadeout immediately |
-| 4 — Key Lift | Note Off, and the release starts **now**: the volume envelope playhead jumps straight to the sustain-end node rather than walking the remaining pre-sustain nodes ([File Format §byte 186](TAUD_FILE_FORMAT.md)) |
+| 4 — Key Lift | Key-off, and the release starts **now**: the volume envelope playhead jumps straight to the sustain-end node rather than walking the remaining pre-sustain nodes ([File Format §byte 186](TAUD_FILE_FORMAT.md)) |
 
-**There are five actions, not four and a modifier.** Key lift is Taud's own beside ImpulseTracker's four, and an instrument choosing it is choosing *against* cutting, continuing and fading — it cannot cut and lift. The field is one three-bit number whose high bit happens to sit at bit 5 of the record byte; reading that bit separately produces actions the format does not define. The instrument's key-lift answer is consulted wherever a key-off is delivered — the pattern's key-off word, this ghost's release, a Duplicate Check note-off, past-note off — and it is the same question in all four places: *is this instrument's New Note Action 4?*
+**There are five actions, not four and a modifier.** Key lift is Taud's own beside ImpulseTracker's four, and an instrument choosing it is choosing *against* cutting, continuing and fading — it cannot cut and lift. The field is one three-bit number whose high bit happens to sit at bit 5 of the record byte; reading that bit separately produces actions the format does not define. The instrument's key-lift answer is consulted wherever a key-off is delivered — the pattern's key-off word, this ghost's release, a Duplicate Check note-off, past-key-off — and it is the same question in all four places: *is this instrument's New Note Action 4?*
 
 The ghost copy **MUST** carry the full playback state: both active views, both filter topologies' coefficients *and* delay lines, all four envelope playheads, the fadeout multiplier, the swing biases, the auto-vibrato phase, the spatial position and the stereo channel's own DSP history. A partial copy produces a click or a wrong-sounding tail at every NNA event; copying the filter but not its history is the classic instance. On a voice sounding an FM rack the state to copy is the **rack**, operands and feedback taps included, and the action read is operator 0's — [§5.5.1](#5-5-1-type-4-fm-racks) has that case in full.
 
@@ -1202,7 +1227,7 @@ At the boundary that starts tick `t` of a row — `t` at least 1 and below `tick
 
 1. **Scheduled note cut** (`S $Cx`): if `t` is the scheduled tick, zero the note and row volume — leaving lane volume alone — and mark the note cut.
 2. **Note delay** (`S $Dx`): if `t` is the scheduled tick, perform the deferred event. For a pitch, that means the full trigger sequence of [§5.3](#5-3-trigger-sequence), exactly as for a row's own note: its first tick pass is the next one.
-3. **Scheduled follow-up action** (`S $Dxny`): if `t` is the scheduled tick, apply note off, note cut, continue, note fade or forced key lift. Forced key lift overrides the instrument's own New Note Action, exactly as `S $73`…`S $76` override it — and, like them, it commands **the whole note**: on a metainstrument it **MUST** lift every layer child and every operand too, not the foreground voice alone. The per-tick sync cannot deliver this one, because all it hands a child is that child's own instrument's key-lift answer, which is exactly what the command exists to override.
+3. **Scheduled follow-up action** (`S $Dxny`): if `t` is the scheduled tick, apply key-off, note cut, continue, note fade or forced key lift. Forced key lift overrides the instrument's own New Note Action, exactly as `S $73`…`S $76` override it — and, like them, it commands **the whole note**: on a metainstrument it **MUST** lift every layer child and every operand too, not the foreground voice alone. The per-tick sync cannot deliver this one, because all it hands a child is that child's own instrument's key-lift answer, which is exactly what the command exists to override.
 
 An event scheduled for a tick its row does not reach never fires: the next row's reset clears it ([§5.1](#5-1-per-row-reset)). These events **MUST NOT** run inside the tick pass. The tick pass of tick `t` runs when tick `t` *ends*, so an event fired there sounds a tick late, and a delay of `tick_rate − 1` lands on the next row's first tick.
 
@@ -1267,7 +1292,7 @@ Background voices apply both identically — and **MUST** branch on the filter m
 
 ### 7.5 Key lift
 
-An instrument with the key-lift flag treats key-off as a true MIDI key release: the volume envelope playhead jumps straight to the sustain-end node, so the release nodes play at once instead of the playhead first walking the remaining pre-sustain nodes. It applies wherever key-off is delivered — the pattern key-off word, an NNA ghost's release, a Duplicate Check note-off, and past-note off. Instruments with no volume-envelope sustain region are unaffected, since there is no release boundary to jump to.
+An instrument with the key-lift flag treats key-off as a true MIDI key release: the volume envelope playhead jumps straight to the sustain-end node, so the release nodes play at once instead of the playhead first walking the remaining pre-sustain nodes. It applies wherever key-off is delivered — the pattern key-off word, an NNA ghost's release, a Duplicate Check note-off, and past-key-off. Instruments with no volume-envelope sustain region are unaffected, since there is no release boundary to jump to.
 
 ## 8. The sampler
 
@@ -1625,7 +1650,7 @@ One scalar calibrates the set so that a source dead ahead leaves the head carryi
 
 ## 12. Output stage
 
-The mix accumulates in binary64, narrows to binary32, passes through the song's mastering chain, is clamped, and is dithered to 8 bits. The order matters: a chain downstream of the clamp would have nothing left to work on, and a chain upstream of the Amiga filter ([§10.4](#10-4-the-post-mix-amiga-chain)) would be shaping a signal the device never delivers.
+The mix accumulates in binary64 — every instrument with a mixing chain through its own bus first ([§12.4](#12-4-instrument-mixing-chains)) — narrows to binary32, passes through the song's mastering chain, is clamped, and is dithered to 8 bits. The order matters: a chain downstream of the clamp would have nothing left to work on, and a chain upstream of the Amiga filter ([§10.4](#10-4-the-post-mix-amiga-chain)) would be shaping a signal the device never delivers.
 
 ### 12.1 The mastering chain
 
@@ -1706,13 +1731,68 @@ A file with more than two channels is not written from the pair of [§12.1](#12-
 
 **The compressor** runs one detector over **all** channels. In peak mode the frame's level is `max |x_c|` over every channel `c`; in RMS mode it is the one-pole average of `Σ x_c² ÷ N`. The resulting gain multiplies every channel. A per-channel envelope would pull the sound field about whenever one direction got loud — the same objection as the stereo detector's, and a louder one when the channels are speakers.
 
-**Stereo width is skipped.** It is defined on a pair and has no meaning off one; a mid/side round trip over any two channels of a speaker layout or an ambisonic basis would shear the field rather than widen it. A chain whose only engaged stage is width therefore leaves a multichannel file untouched.
+**Width becomes surround width on an ambisonic scene, and is skipped on a speaker layout.** The stereo stage keeps what the pair shares and scales how each side differs from it. An ambisonic scene has the same split of its own: **W** (ACN 0) is what every direction shares, and every other harmonic is direction. So on an ambisonic bus the stage — at the same place in the chain, under the same switch, skipped at exactly 1 — multiplies **every channel but W** by the width: 0 leaves the omnidirectional part alone, 1 is the identity, and above 1 every source is pulled further toward its own direction (as a side boost does on the pair, that puts anti-phase into the decoded feeds opposite each source). Scaling every harmonic of order ≥ 1 alike commutes with any rotation of the scene, and through the coincident pair of [§11.6](#11-6-ambisonic-rendering) — `L = (W + Y) ÷ 2`, `R = (W − Y) ÷ 2` — it **is** §12.1's width, so the scene and its stereo decode agree on it exactly. A speaker layout has no such split: a mid/side round trip over any two of its feeds would shear the field rather than widen it, and a mean over all of them is not a neutral middle on a front-heavy layout, so there the stage is skipped, and a chain whose only engaged stage is width leaves a speaker-layout file untouched.
 
 **The limiter** is the construction of [§12.1](#12-1-the-mastering-chain) with `peak` taken as the largest magnitude over **all** channels — over every channel's oversampled points when the true-peak flag is set — and its gain applied to every channel. So the ceiling is a promise about the samples **in the delivered file**. It is not a promise about any particular decode of them: a decoder that sums channels may exceed it, and an ambisonic file's decoded speaker feeds routinely will. The latency is `2D` frames on every channel, as before.
 
 **Numerically**, the channel bus carries binary64 throughout — [§12.2](#12-2-narrowing-and-dither)'s narrowing exists for the 8-bit device, which a multichannel file is not. The chain runs in binary64 and the samples narrow **once**, where the file is written, at whatever depth it is written in. No clamp is defined here; saturation is the writer's quantiser's business.
 
-A multichannel master is **not** the multichannel form of the stereo master, and an implementation **MUST NOT** present it as one. The static stages do agree — identical linear filters commute with the fold of [§11.3](#11-3-the-stereo-renderer) — but the dynamics cannot: the pair's detector reads the fold, the bus's detector reads the channels, and the two disagree wherever the fold is quieter or louder than the loudest channel. No single set of dynamics serves both deliveries. What a device **plays** is unaffected either way: that is still the pair.
+A multichannel master is **not** the multichannel form of the stereo master, and an implementation **MUST NOT** present it as one. The static stages do agree — identical linear filters commute with the fold of [§11.3](#11-3-the-stereo-renderer), and the width with the coincident decode above — but the dynamics cannot: the pair's detector reads the fold, the bus's detector reads the channels, and the two disagree wherever the fold is quieter or louder than the loudest channel. No single set of dynamics serves both deliveries. What a device **plays** is unaffected either way: that is still the pair.
+
+### 12.4 Instrument mixing chains
+
+An instrument whose record names an `IMix` block (byte 255; **Taud File Format** §9.15) does not mix its voices into the master directly. They sum into a **bus** — the instrument's own, or, in bus mode, the one it shares with every instrument naming the block — the block's chain runs over that bus, and the result joins the master. A conforming player **MUST** honour the chains, as it honours the mastering chain. This section is normative; the parameter ranges are the file format's.
+
+**Engagement.** A block makes a bus only when it is enabled and holds at least one piece of equipment that is known and not bypassed. Any other block — and a byte 255 naming no block, or an invalid one — leaves the instrument on the plain path, and a song whose instruments have no engaged chain **MUST** render bit-for-bit as it would with no `IMix` section. (Routing through a bus changes the order of the additions even when the chain is an identity, which is why engagement is decided by the block's structure and never by its values.)
+
+**Routing.** A voice mixes into the bus of the instrument the **note named**: the slot in the pattern cell (or the lane's last instrument), not the instrument a metainstrument resolved it to. A metainstrument's layer children therefore pass through the metainstrument's chain, an FM rack's patch through the rack's (its operators are operands and are never mixed), a formant instrument's through its own, and an NNA ghost through the chain of the note it was. An instrument played only as a layer never uses its own chain.
+
+**The two modes.** A block's mode decides what its instruments share. In **separate** mode (the status byte's `b` clear) every instrument naming the block has a bus and an instance of the chain of its own, with the same parameters: a compressor on one never reacts to another. In **bus** mode (`b` set) every instrument naming the block mixes into **one** bus, and one instance of the chain runs over their sum — a group bus: the compressor hears all of them together, and they share one delay line and one reverb. A block named by a single instrument sounds the same either way, bit for bit. Each playhead has its own buses and instances in both modes. Changing a block's mode keeps the bus of its lowest-numbered instrument, with its state, so a tail already ringing carries on.
+
+**The gain structure.** A voice adds to its bus exactly what it would add to the master — every per-voice gain, the pan law (or, in a planar or spatial song, its gains into the song's channel layout) and the ramps — **except** the playhead's global × mixing × master volume. The bus's output is multiplied by that product as it is added to the master. The chain is an insert ahead of the master fader.
+
+**The bus** is in the song's channel layout: the stereo pair in a stereo song, the object bus's channels of [§11](#11-the-spatial-model) in a planar or spatial one, filled with the same gains the voice would have put on the master bus. It is **stereo** — the stereo-only behaviour below applies — when it has two channels that are a left/right pair (a stereo song, or the device's own stereo render of a surround one). On any other bus the channel swap, the unison's spread and the delay's ping-pong are skipped, and the mix tool's width is surround width on an ambisonic bus (its channel 0 being W, as on the object bus) and skipped on any other; every filter runs on every channel with identical coefficients; every dynamics detector reads all channels linked, as [§12.3](#12-3-multichannel-delivery)'s do.
+
+**When it runs.** The mixer cuts a chunk into spans at its ticks ([§2.1](#2-1-ticks-and-rows)). For each span, every voice is mixed first; then every bus, in **ascending slot order** — a shared bus at the slot of its **lowest-numbered** instrument — runs its chain over the span and adds its output to the master. A chain's output **MUST NOT** depend on where spans are cut: every state, counter and phase below advances per sample. A note that starts on an instrument (a trigger at the span's first frame) is seen by its bus at the top of that span, which is where a retriggering LFO restarts; on a shared bus, a note on **any** of its instruments restarts it, once however many started in the span.
+
+**Idle.** A chain is **idle** until a voice first writes a non-zero sample into its bus, and processing starts at that sample. After `M + round(0.05 × rate)` consecutive samples whose input is exactly zero and whose output is below 2⁻²⁴ on every channel — `M` being the sum of the delay memory of every piece in circuit (a tape delay's whole 4-second line, a reverb's lines, diffusers and pre-delay, the unison's window, the limiter's look-ahead) — the chain goes idle again: its state is cleared and its output is exactly zero from the next sample until a voice feeds it. While idle, its LFOs and the tape delay's wow and flutter keep time. This is a rule of the engine, not an optimisation: the tail it removes lies below −144 dBFS, and an implementation **MUST** cut it at the same sample.
+
+**Wet/dry.** Where a piece has one, its output is `wet × (1 − d) + dry × d`, `d = dry amount ÷ 255`, where `dry` is the piece's input — except the multiband compressor's, whose dry signal is its bands summed **unprocessed** (the input through every crossover's all-pass), so the mix does not comb at the crossovers.
+
+**Bypass.** Bypassed and absent equipment is not processed at all: its state does not advance. A piece coming (back) into the chain starts from a cleared state.
+
+**Determinism.** Everything that accumulates is integer arithmetic on 16.16 quantities, exact in binary64 (and in a 64-bit integer): LFO phases, the unison's sweeps, the tape delay's glide, its wow and flutter. Filters and envelopes are binary64. Coefficients are recomputed from the binary32 parameters in binary64.
+
+**The LFO.** A U32 phase, 2³² per cycle, advanced every sample by
+
+```
+Hz:    inc = floor(R · 2^16 / fs)                     R the 16.16 rate in hertz
+sync:  inc = floor(2^51 · bpm / (5 · P · fs))          P the 16.16 period in quarter ticks
+```
+
+(the second needs 64-bit integers), capped at 2³¹ − 1. A tick is `fs × 2.5 ÷ bpm` samples and a quarter tick a quarter of it. The waveform at phase `φ = phase ÷ 2³²`: sine `sin 2πφ`; triangle `4φ` / `2 − 4φ` / `4φ − 4` over the quarters; square `+1` then `−1`; saw up `2φ − 1`; saw down `1 − 2φ`; random — a value held for a cycle, drawn at each wrap as `2 · x ÷ 2³² − 1` from the LFO's own xorshift32 (13, 17, 5) seeded with `$9E3779B9` at reset. A retrigger sets the phase to 0. The modulated parameter is `value × (1 + depth × lfo)`, clamped to its range, re-evaluated every **16 samples** on a free-running per-piece counter.
+
+**`itrm`** multiplies by `10^(dB ÷ 20)`.
+
+**`equ1`, `equ2`** are the enabled bands' RBJ sections in band order (Direct Form I, normalised to `a0`, as in §12.1). A bell, a shelf and a notch are one section at the band's Q; a 12 dB/octave cut is one section at the band's Q; a steeper cut is `k = slope + 1` Butterworth sections at `Q_i = 1 ÷ (2 cos((2i − 1)π ÷ 4k))`, the band's Q unused.
+
+**`comp`.** One band: [§12.1](#12-1-the-mastering-chain)'s compressor, its detector linked across the bus ([§12.3](#12-3-multichannel-delivery)), make-up included. `k` bands: band 1 is the Linkwitz–Riley 4th-order low-pass (two RBJ low-pass sections at Q = 1/√2) at crossover 1 of the input; the rest is the matching high-pass; band 2 is the low-pass at crossover 2 of that rest, and so on; band `k` is what remains. Band `j < k − 1` then passes through an RBJ all-pass at Q = 1/√2 at every crossover after `j`'s own, so every band carries the same phase. Each enabled band is compressed by its own detector and gain computer; a disabled band passes unprocessed. The bands are summed.
+
+**`deq1`, `deq2`.** The enabled bands in index order, in series. Each band is a **sensor** and an **actor**. The SENSOR hears its input through an RBJ low-pass (band 0), high-pass (band 1) or constant-peak band-pass (bands 2…5) at the sensor frequency and Q, takes the level `max |s_c|` over the channels, `L = 20 log₁₀ level` (−120 below 10⁻⁶), `amount = min(range, (L − threshold)(1 − 1/ratio))` when positive, else 0, and moves the band's dynamic gain `e` toward `−amount` (a cut) or `+amount` (a boost) through a one-pole — the attack coefficient when the target is farther from 0 than `e`, the release otherwise. The ACTOR — RBJ low shelf, high shelf or bell at the band's frequency and Q — has gain `static + e × 10^(actor ÷ 20)` (`actor` the band's actor gain in dB; at 0 the product is `e` exactly), its coefficients recomputed every 16 samples on the piece's counter, and filters every channel.
+
+**`satu`.** `u = x · 10^((input + drive) ÷ 20) + bias` and the output is `(f(u) − f(bias)) · 10^(output ÷ 20)`, with first-order antiderivative anti-aliasing: `f̄ = (F(u[n]) − F(u[n−1])) ÷ (u[n] − u[n−1])`, or `f((u[n] + u[n−1]) ÷ 2)` when `|u[n] − u[n−1]| ≤ 10⁻⁵` (`u[−1] = bias`). Curves, with `F(0) = 0`: tape `f = tanh u`, `F = ln cosh u`; soft `f = 1.5(u − u³/3)` for `|u| < 1` else `±1`, `F = 1.5(u²/2 − u⁴/12)` inside and `|u| − 0.375` outside; hard `f = clamp(u, −1, 1)`, `F = u²/2` inside and `|u| − 0.5` outside; tube `f = tanh u` (`u ≥ 0`), `½ tanh 2u` (`u < 0`), `F = ln cosh u` and `¼ ln cosh 2u`; fold `f = sin u`, `F = 1 − cos u`. After the tube curve, or any curve with a non-zero bias, a DC blocker `y = x − x₁ + R · y₁`, `R = 1 − 2π · 5 ÷ fs`.
+
+**`unis`.** Voice `k` of `n` sits at `p_k = (1 − s) · v_k + s · b_k`, with `v_k = 2k ÷ (n − 1) − 1` and `b_k` the `k ÷ (n − 1)` quantile of the raised-cosine distribution `F(x) = (x + 1)/2 + sin(πx) ÷ 2π` (found by 64 bisections); below four voices `s` is 0. Every 16 samples, `c = clamp(detune × (1 + depth × lfo), 0, 100)` and `w = clamp(width × (1 + depth × lfo), 0, 1)` from the two LFOs, and voice `k` gets ratio `r = 2^(p_k c ÷ 1200)`, sweep increment `round((1 − r) · 2³² ÷ W)` (a signed integer) and pan `p_k w`, `W = round(0.025 · fs)`. Each voice is a pitch shifter over a delay line holding the bus: a U32 sweep phase `ψ` (initially `k · 2³² ÷ 8`), two taps at delays `2 + W ψ/2³²` and `2 + W ψ'/2³²` (`ψ' = ψ ± 2³¹`), read by 4-point Hermite interpolation and weighted `sin²(πψ/2³²)` and its complement (from a 4097-entry table, linearly interpolated). On a stereo bus a voice at pan `q ≥ 0` gives `(L(1 − q), R + Lq)`, at `q < 0` `(L + R(−q), R(1 + q))`. The voices sum ×`1/√n`.
+
+**`verb`.** Eight delay lines of `round(N_i × (0.15 + 0.85 size) × fs ÷ 48000)` samples (at least 16), `N = 2473, 2767, 3217, 3557, 3907, 4127, 4639, 4999`, each read, damped by a one-pole `z += (v − z) a`, `a = 1 − e^(−2π damping ÷ fs)`, and scaled by `g_i = 10^(−3 len_i ÷ (decay · fs))`, then mixed by the Householder matrix `I − ¼·11ᵀ` and written back with `½ ×` the input. The input first passes a pre-delay of `floor(P · fs ÷ 2^16)` samples and four Schroeder all-passes (`245, 371, 479, 605` samples at 48 kHz, gain ½). A stereo bus feeds L to the even lines and R to the odd ones, each through diffusers of its own, and takes `L = ½(o₀ − o₂ + o₄ − o₆)`, `R = ½(o₁ − o₃ + o₅ − o₇)` from the lines' raw outputs; any other bus feeds the mean of its channels and gives channel `c` `±½ o_(c mod 8)`, negative for `c ≥ 8`.
+
+**`dlay`.** The target delay, in 1/65536 samples, is `T · fs` (seconds) or `floor(P · fs · 5 ÷ (8 · bpm))` (quarter ticks), clamped to 2…(line − 8) samples; the line holds 4 seconds. The current delay `d` glides to it: each sample, `d += trunc((t − d) ÷ 2048)` while `|t − d| ≥ 2048`, then `d = t`. The read position is `d ÷ 65536` plus `wow · (0.002 fs sin 2πθ_w + 0.00015 fs sin 2πθ_f)` (at least 2), `θ_w`, `θ_f` U32 phases at 0.5 and 6.5 Hz (16.16), read by Hermite interpolation. The feedback is the read sample × feedback, through an RBJ high-pass at the low cut and an RBJ low-pass at the high cut (both Q = 1/√2) and `tanh(g x) ÷ g`, `g = 10^(drive ÷ 20)`; each channel writes its input plus its own feedback — or, ping-pong on a stereo bus, L writes `(L + R) ÷ 2 +` R's feedback and R writes L's. The wet output is what was read.
+
+**`limi`** is the input gain, then §12.1's limiter with the declared ceiling, release and peak mode over every channel of the bus. Its `2D` look-ahead delays the instrument by `2D` frames; the engine does **not** compensate the other instruments.
+
+**`mxtl`.** First, when its remove-DC flag is set, every channel passes a DC blocker — the Opus encoder's `dc_reject` at 3 Hz: `y = x − m`, then `m = a · x + (1 − a) · m`, with `a = 6.3 × 3 ÷ fs` (6.3 standing in for 2π, as Opus writes it; the float build's `VERY_SMALL` denormal guard is not part of it) and `m` per channel, cleared at reset. Then, on a stereo bus: swap, then width as §12.1 defines it (skipped at exactly 1), then gain, each channel's negated where its invert flag is set. On an ambisonic bus: surround width as §12.3 defines it (every channel but W × width; skipped at exactly 1), then the gain, negated on every channel when **both** invert flags are set. On any other bus: that gain alone.
+
+What the editor's taps report — a stem export, the master strip's analysis bus — is the voices' dry contribution, before any chain.
 
 ## 13. Determinism
 
@@ -1745,7 +1825,7 @@ A transport reset restores a well-defined starting state, and getting its scope 
 
 A **full reset** sets BPM 125, tick rate 6, global and mixing volume `$80`, clears the tuning, restores the tone and interpolation modes from the file's global behaviour flags, re-installs the surround model, clears the Amiga filter states, returns the mastering chain to neutral, deactivates every voice, empties the background pool, clears every per-voice effect and envelope state (funk repeat's loop window among it), and clears the per-instrument runtime state (invert-loop masks, filter overrides and the PSG instruments' `S $Axxx` overlays).
 
-A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-lane pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, clears the per-instrument runtime state as the full reset does, returns every lane to its song-start position, volume and colouring (the bitcrusher and the overdrive among it), and clears the mastering chain's delay lines and envelopes — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo. The chain's PARAMETERS are the song's and survive, like the tempo; its STATE is per-play, like the ghost pool. A compressor still holding six decibels of reduction from before a seek, and a look-ahead buffer still holding two milliseconds of the previous playback, are both the lingering-state bug this section exists to prevent.
+A **play-from-row** reset is narrower and deliberately so: it resets row, tick and jump state, deactivates every voice, **empties the background pool**, clears the per-lane pattern-loop and Ditto state, reconstructs the Ditto arm state for the starting row, clears the per-instrument runtime state as the full reset does, returns every lane to its song-start position, volume and colouring (the bitcrusher and the overdrive among it), and clears the mastering chain's delay lines and envelopes and every instrument chain's state ([§12.4](#12-4-instrument-mixing-chains)) — but leaves the playhead's tempo and volumes alone, because a replay must keep the song's tempo. The chain's PARAMETERS are the song's and survive, like the tempo; its STATE is per-play, like the ghost pool. A compressor still holding six decibels of reduction from before a seek, and a look-ahead buffer still holding two milliseconds of the previous playback, are both the lingering-state bug this section exists to prevent.
 
 Returning the LANES is not the same thing as leaving the playhead's tempo alone, and both halves matter. Lane volume and every panning axis (lane position and elevation, the note axis, the spherical slide target), glissando, the bitcrusher and overdrive settings (`8 $xyzz` and `9 $x0zz`, the clipper they share included) and the `S $7x` per-note overrides are all written by the song's own effects and reset by nothing else — a trigger deliberately leaves them, since they belong to the lane rather than the note — so a play that does not clear them starts wherever the last one finished. What a reset **MUST NOT** touch is the host's own mixer: per-lane mute and fader levels belong to whoever is listening, not to the song, and a replay that silently unmutes a lane is its own bug.
 
@@ -1753,7 +1833,7 @@ Emptying the background pool is the part that is easy to omit and audible when o
 
 Both resets — and the chase below — also return the playhead's **OPL chip clock** ([§5.5.2](#5-5-2-type-8-opl-instruments)) to 0, so a song played from a row meets the chip's envelope counter and LFOs exactly where a render from that row does.
 
-A host loading a new document **MUST** perform a full reset before uploading it, and **MUST** then upload the song's own mastering chain — or the neutral one when the file declares none. Nothing in a file describes the lane state the previous song left behind, so a document loaded on top of another inherits its panning, its lane volumes and its mastering otherwise.
+A host loading a new document **MUST** perform a full reset before uploading it, and **MUST** then upload the song's own mastering chain — or the neutral one when the file declares none — and the file's instrument chains, or none. A full reset clears every instrument chain's state; their blocks, like the instruments, are the document's. Nothing in a file describes the lane state the previous song left behind, so a document loaded on top of another inherits its panning, its lane volumes and its mastering otherwise.
 
 ### 15.1 The chase
 
@@ -1779,7 +1859,7 @@ Opcodes are base-36 digit values: `0`…`9` are `$00`…`$09` and `A`…`Z` are 
 | `:` | Row | On an interrupt row, that interrupt's argument ([§14](#14-interrupts-and-the-host-interface)); otherwise argument extension — hands its argument to whichever other effect shares the row, resolved once per row before either slot dispatches ([Note Effects](TAUD_NOTE_EFFECTS.md#-xxxx--interrupt-argument-and-argument-extension)), and a bare no-op outside Format 3 |
 | `1` | Playhead | Set the global behaviour flags — tone mode and interpolation — from the argument's high byte |
 | `5` / `6` | Instrument | Cutoff / resonance override, `$FFFF` to clear |
-| `S $Axxx` | Instrument | On a PSG instrument, a register write into the instrument's run-time overlay ([§5.5.4](#5-5-4-type-9-psg-instruments)); on a formant instrument, `S $Afgr`, the note's vowel |
+| `S $Axxx` | Instrument | Instrument Sound Control. On a PSG instrument, a register write into the instrument's run-time overlay ([§5.5.4](#5-5-4-type-9-psg-instruments)); on a formant instrument, `S $Afgr`, the note's vowel; on an FM rack, `S $Apsd`, operator *p*'s auto-vibrato for the note ([§5.5.1](#5-5-1-type-4-fm-racks)) |
 | `7` | Lane, row-time | Pattern Ditto ([§5.9](#5-9-pattern-ditto)) |
 | `8` / `9` | Voice | Bitcrusher / overdrive ([§10.1](#10-1-voice-effects)) |
 | `A` / `T` | Playhead | Tick rate / tempo |
@@ -1809,6 +1889,7 @@ An implementation conforms when all of the following hold.
 - A planar or spatial song that uses only ordinary pan renders bit-identically to the stereo model.
 - The mastering chain runs between the narrowing and the clamp, in the order §12.1 fixes, and a song that declares none renders as though the stage did not exist.
 - The limiter's ceiling is never exceeded, on any material, in either peak mode.
-- A multichannel delivery masters the channel bus per §12.3: identical filtering on every channel, the dynamics detectors linked across all of them, and no stereo width.
+- An instrument whose block is engaged mixes through its bus — its own in separate mode, the block's one in bus mode — ahead of the song's global gain, routed by the instrument the note named; a song with no engaged block renders as though chains did not exist; a chain's output is independent of span boundaries, and it goes idle at the sample §12.4 names.
+- A multichannel delivery masters the channel bus per §12.3: identical filtering on every channel, the dynamics detectors linked across all of them, the width as surround width on an ambisonic scene (every channel but W scaled) and skipped on a speaker layout.
 - The output stage narrows to binary32 before clamping, and runs the dither loop entirely in binary32 against a seeded generator.
 - A play-from-row reset returns every lane to the song's start and keeps the playhead's tempo; a chase walks the song's own path from the song start with every row event and tick pass and nothing mixed, stops at the first arrival, falls back to the cue order when that path never arrives, and keeps the lanes' state while deactivating every voice.

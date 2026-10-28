@@ -13,6 +13,7 @@ migrations/
 .env*
 .wrangler/
 node_modules/
+favicon/
 
 # A local symlink to the full soundfont, over the 25 MiB asset limit (the site
 # ships GeneralUser-GS.taud.sf2.gz instead).

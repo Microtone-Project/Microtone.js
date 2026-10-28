@@ -14,10 +14,12 @@ export { adlibPatch, SINE_PATCH, SQUARE };
  * or {opl: 12 bytes} OPL samples, each with `vol` (0…64), `gv` (0…64) and
  * `c5` (C5Speed). `patterns` are arrays of cells {row, ch, note?, smp?, vol?,
  * cmd?, info?}: `note` is IT's 0…119 (60 = C-5), 254 note cut, 255 note off.
+ * `orders` defaults to every pattern once, in turn.
  */
 export function makeIt({ title = "IT FIXTURE", speed = 6, tempo = 125, channels = 4,
-                         samples, patterns, mixvol = 48 }) {
-  const ordNum = patterns.length + 1;
+                         samples, patterns, mixvol = 48, orders = null }) {
+  const ord = orders ?? patterns.map((_, i) => i);
+  const ordNum = ord.length + 1;
   const head = new Uint8Array(0xc0);
   const dv = new DataView(head.buffer);
   head.set([0x49, 0x4d, 0x50, 0x4d], 0);                    // IMPM
@@ -93,8 +95,8 @@ export function makeIt({ title = "IT FIXTURE", speed = 6, tempo = 125, channels 
   });
   const out = new Uint8Array(at);
   out.set(head, 0);
-  patterns.forEach((_, i) => { out[ordStart + i] = i; });
-  out[ordStart + patterns.length] = 255;
+  ord.forEach((p, i) => { out[ordStart + i] = p; });
+  out[ordStart + ord.length] = 255;
   const pv = new DataView(out.buffer);
   [...smpPtr, ...patPtr].forEach((p, i) => pv.setUint32(ptrStart + 4 * i, p, true));
   for (const [p, bytes] of blobs) out.set(bytes, p);

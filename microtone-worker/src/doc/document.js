@@ -17,6 +17,9 @@ import {
   MASTERING_FOURCC, parseMasteringSection, buildMasteringSection,
 } from "../../core/format/mastering-section.js";
 import { defaultMastering } from "../../core/engine/mastering.js";
+import {
+  IMIX_FOURCC, IMCN_FOURCC, parseImixSection, buildImixSection, freeImixId, imixWithFolded,
+} from "../../core/format/imix-section.js";
 import { parseRegionPayload } from "./sampleregions.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
 import { writeTaud, writeTaudWith } from "../../core/format/taud-write.js";
@@ -172,6 +175,14 @@ export class Song {
   }
 }
 
+/** A name table without its trailing empty entries; null when none is left. */
+function trimNameTable(payload) {
+  let n = payload.length;
+  while (n > 0 && payload[n - 1] === 0x1e) n--;
+  if (n === 0) return null;
+  return n === payload.length ? payload : payload.slice(0, n);
+}
+
 /**
  * Combine a .tpif (patterns/cues/sMet only — the song domain) with an
  * instrument bank into a full parsed shape for `new Document()`. Mirrors the
@@ -183,7 +194,7 @@ export class Song {
  * the combined document never aliases the bank's.
  */
 export function combineTpif(bank, tpif) {
-  const isBankSec = (s) => ["INam", "SNam", "Ixmp", "SRgn"].includes(s.fourcc);
+  const isBankSec = (s) => BANK_SECTIONS.includes(s.fourcc);
   return {
     kind: "taud",
     fmtVer: tpif.fmtVer,
@@ -199,6 +210,14 @@ export function combineTpif(bank, tpif) {
     meta: tpif.meta,
   };
 }
+
+/**
+ * The Project-Data sections that belong to the instrument BANK rather than to
+ * the songs: a .tpif loaded over a bank takes these from the bank, and a bank
+ * taken out of a project takes these with it. `IMix` is one (item 217): an
+ * instrument's byte 255 means nothing without the block it names.
+ */
+export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC]);
 
 export class Document {
   /** Build from the structure parseTaud returns. */
@@ -324,7 +343,7 @@ export class Document {
     }
   }
 
-  /** 0x1E-separated name-table lookup (INam / SNam / pNam). */
+  /** 0x1E-separated name-table lookup (INam / SNam / pNam / IMcn). */
   _nameTable(fourcc) {
     const sec = this.projSections.find((s) => s.fourcc === fourcc);
     if (!sec) return [];
@@ -363,6 +382,8 @@ export class Document {
   instrumentName(slot) { return this._namesOf("INam")[slot] ?? ""; }
   sampleName(index) { return this._namesOf("SNam")[index] ?? ""; }
   patternName(idx) { return this._namesOf("pNam")[idx] ?? ""; }
+  /** Mixing chain `id`'s name (IMcn, item 247), escaped; "" = unnamed. */
+  imixName(id) { return id > 0 ? this._namesOf(IMCN_FOURCC)[id] ?? "" : ""; }
 
   /**
    * One of the four project strings (§9.2): "PNam" / "PCom" / "PCpr" / "PMsg",
@@ -429,6 +450,113 @@ export class Document {
   }
 
   /**
+   * The instruments' mixing chains (item 217, §9.15) as {blocks: Map<id,
+   * block>, problems}. Cached by payload identity like masteringMap(). A block
+   * the section declares INVALID is not in the map — and so is not on any
+   * instrument and is not written back — and `problems` says why.
+   */
+  imixMap() {
+    const sec = this.projSections.find((s) => s.fourcc === IMIX_FOURCC);
+    const payload = sec ? sec.payload : null;
+    if (!this._imixCache || this._imixCache.payload !== payload) {
+      this._imixCache = {
+        payload,
+        ...(payload ? parseImixSection(payload) : { blocks: new Map(), problems: [] }),
+      };
+    }
+    return this._imixCache;
+  }
+
+  /** Every block, ascending by id. */
+  imixBlocks() {
+    return [...this.imixMap().blocks.values()].sort((a, b) => a.id - b.id);
+  }
+
+  /** One block, or null. */
+  imixBlock(id) { return this.imixMap().blocks.get(id) ?? null; }
+
+  /** The `IMix` payload this document would carry with `block` installed under
+   *  its id (null = remove that id). Every other block is kept — retiring the
+   *  ones no instrument names is the SAVE's job, never an edit's. */
+  imixPayloadWith(id, block) {
+    const map = new Map(this.imixMap().blocks);
+    if (block === null) map.delete(id); else map.set(id, block);
+    return buildImixSection(map.values());
+  }
+
+  /**
+   * Fold or unfold piece `fourcc` of block `id` in the editor (§9.15's `f`).
+   * Not an op: folding is how the chain is shown, so it never enters the undo
+   * history — like the beat grid, it only marks the file unsaved. Returns
+   * whether anything changed (false for a piece the block does not hold).
+   */
+  setImixFolded(id, fourcc, folded) {
+    const sec = this.projSections.find((s) => s.fourcc === IMIX_FOURCC);
+    if (!sec) return false;
+    const next = imixWithFolded(sec.payload, id, fourcc, folded);
+    if (next === sec.payload) return false;
+    this.setSection(IMIX_FOURCC, next);
+    this.dirty = true;
+    return true;
+  }
+
+  /** The lowest IMix id no block holds, or 0 when all 255 are taken. */
+  freeImixId() { return freeImixId(new Set(this.imixMap().blocks.keys())); }
+
+  /** Slots (ascending) whose record names block `id`. */
+  imixUsers(id) {
+    const out = [];
+    for (const s of this.usedInstrumentSlots()) if (this.instruments[s].imixId === id) out.push(s);
+    return out;
+  }
+
+  /** Every block id some instrument names. */
+  referencedImixIds() {
+    const ids = new Set();
+    for (const s of this.usedInstrumentSlots()) {
+      const id = this.instruments[s].imixId;
+      if (id !== 0) ids.add(id);
+    }
+    return ids;
+  }
+
+  /**
+   * The `IMix` section as a save writes it: blocks no instrument names are
+   * RETIRED (item 217 — at save time and never sooner, so taking an
+   * instrument off a chain and putting it back within a session finds the
+   * chain intact), and so are blocks the reader found invalid. A section
+   * with nothing to drop is written back byte for byte.
+   */
+  _imixForSave() {
+    const sec = this.projSections.find((s) => s.fourcc === IMIX_FOURCC);
+    if (!sec) return undefined;
+    const { blocks, problems } = this.imixMap();
+    const keep = this.referencedImixIds();
+    const retire = problems.some((p) => p.kind === "invalid") ||
+      [...blocks.keys()].some((id) => !keep.has(id));
+    return retire ? buildImixSection(blocks.values(), keep) : sec.payload;
+  }
+
+  /**
+   * The `IMcn` section as a save writes it: a name goes with its chain, so the
+   * names of the blocks the save retires (and of ids that hold no block) are
+   * blanked. undefined = write the section as it is; null = drop it.
+   */
+  _imixNamesForSave() {
+    const sec = this.projSections.find((s) => s.fourcc === IMCN_FOURCC);
+    if (!sec) return undefined;
+    const { blocks } = this.imixMap();
+    const keep = this.referencedImixIds();
+    const names = this._nameTable(IMCN_FOURCC);
+    let changed = false;
+    for (let id = 0; id < names.length; id++) {
+      if (names[id] !== "" && (id === 0 || !blocks.has(id) || !keep.has(id))) { names[id] = ""; changed = true; }
+    }
+    if (!changed) return undefined;
+    return trimNameTable(new TextEncoder().encode(names.join("\x1e")));
+  }
+
+  /**
    * The keyboard layout the project carries (item 189.1, §9.13) as `.taudkey`
    * TEXT, or null when it carries none.
    *
@@ -483,6 +611,9 @@ export class Document {
   buildSampleNames(index, escaped) { return this._buildNameTable("SNam", index, escaped); }
   buildInstrumentNames(slot, escaped) { return this._buildNameTable("INam", slot, escaped); }
   buildPatternNames(idx, escaped) { return this._buildNameTable("pNam", idx, escaped); }
+  /** The IMcn payload with chain `id` named `escaped` ("" = unnamed), or null
+   *  when no chain would be left with a name. */
+  buildImixNames(id, escaped) { return trimNameTable(this._buildNameTable(IMCN_FOURCC, id, escaped)); }
 
   /**
    * Deduped sample census across base instruments + Ixmp patches, sorted by
@@ -664,6 +795,14 @@ export class Document {
   _writerInput() {
     this._rebuildInstRegion();
     this._rebuildSMet();
+    // The IMix retirement happens on the WRITTEN copy of the section list: the
+    // document keeps every block until it is closed.
+    const imix = this._imixForSave();
+    const imcn = this._imixNamesForSave();
+    const swap = (s, fourcc, payload) => (payload === undefined || s.fourcc !== fourcc ? null
+      : payload === null ? [] : [{ fourcc, payload }]);
+    const projSections = imix === undefined && imcn === undefined ? this.projSections
+      : this.projSections.flatMap((s) => swap(s, IMIX_FOURCC, imix) ?? swap(s, IMCN_FOURCC, imcn) ?? [s]);
     return {
       kind: this.kind,
       // The cell layout the patterns below are encoded in — without it the
@@ -687,7 +826,7 @@ export class Document {
         patterns: s.patterns.map((p) => (p ? encodePattern(p, this.wideCells) : emptyPatternBytes(this.wideCells))),
         cues: s.cues,
       })),
-      projSections: this.projSections,
+      projSections,
     };
   }
 
@@ -745,6 +884,8 @@ export class Document {
       wideCells: this.wideCells,
       sampleInstImage: this.sampleInstImage,
       ixmp: this.ixmp,
+      // The instruments' chains (item 217) are part of what a player renders.
+      imix: this.imixBlocks(),
       songs: this.songs.map((song, i) => i === songIndex ? {
         bpm: s.bpm, tickRate: s.tickRate, globalFlags: s.globalFlags,
         globalVolume: s.globalVolume, mixingVolume: s.mixingVolume,

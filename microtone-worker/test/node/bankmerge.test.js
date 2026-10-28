@@ -121,6 +121,37 @@ test("meta import pulls layer deps, remaps 10-bit indices, zeroes unmapped", () 
   });
 });
 
+test("ticking a sub-instrument too still lands it in $100–$3FF", () => {
+  // The picker's "All" ticks every row, and E1M1 keeps its layers in $01–$FF.
+  const dest = emptyProject();
+  const all = e1m1.usedInstrumentSlots();
+  const subs = new Set(all.flatMap((s) => e1m1.instruments[s].sourceSlots));
+  assert.ok([...subs].some((s) => s <= 0xff), "the source has low sub-instruments");
+  const plan = planImport(dest, e1m1, all);
+  assert.ok(!plan.error, plan.error);
+  for (const it of plan.insts) {
+    if (subs.has(it.srcSlot)) {
+      assert.ok(it.destSlot >= 0x100 && it.destSlot <= 0x3ff, `sub ${it.srcSlot} → ${it.destSlot}`);
+      assert.equal(it.topLevel, false);
+    } else {
+      assert.ok(it.destSlot >= 1 && it.destSlot <= 0xff, `top-level ${it.srcSlot} → ${it.destSlot}`);
+    }
+  }
+  importBankOp(plan).apply(dest);
+  for (const it of plan.insts.filter((x) => x.topLevel && dest.instruments[x.destSlot].isMeta)) {
+    for (const l of dest.instruments[it.destSlot].metaLayers) assert.ok(l.instIdx >= 0x100, "meta points high");
+  }
+});
+
+test("a sub-instrument picked on its own is an instrument to play", () => {
+  const dest = emptyProject();
+  const plan = planImport(dest, e1m1, [1]); // a layer of $06, without $06
+  assert.ok(!plan.error, plan.error);
+  assert.equal(plan.insts.length, 1);
+  assert.equal(plan.insts[0].destSlot, 1);
+  assert.equal(plan.insts[0].topLevel, true);
+});
+
 test("Ixmp blobs: pointers remapped, section round-trips, patches resolve", () => {
   const dest = emptyProject();
   const srcSlot = e1m1.usedInstrumentSlots().find(

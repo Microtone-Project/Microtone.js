@@ -79,10 +79,13 @@ export function fmProgramOf(inst) {
     ? [] : [...inst.fmProgram];
 }
 
-/** Repack a rack — table and algorithm together, since they share the record. */
-export function fmRecordOf(inst, ops, program) {
+/** Repack a rack — table and algorithm together, since they share the record.
+ *  `flags` overrides any of the record's flags ({easy: false} leaves Easy
+ *  Mode). */
+export function fmRecordOf(inst, ops, program, flags = {}) {
   return buildMetaRecord(ops, {
     ...metaFlags(inst),
+    ...flags,
     type: META_TYPE_FM,
     program: Uint16Array.from(program),
   });
@@ -114,7 +117,7 @@ export function fmValidate(program, opCount) {
   return { ok: true, depth, at: -1, error: null };
 }
 
-/** Bytes of the 252 this rack spends, and how many are left. */
+/** Bytes of the 250 this rack spends, and how many are left. */
 export function fmBudget(opCount, programLength) {
   const used = fmRecordBytes(opCount, programLength);
   return { used, total: FM_BUDGET_BYTES, free: FM_BUDGET_BYTES - used };
@@ -300,22 +303,35 @@ export function fmGraph(program, opCount) {
  * carrier beside it. Square brackets are the modulation, because that is what
  * "operator 0, read through 1" is.
  *
+ * Round parentheses appear only where precedence needs them — a sum inside a
+ * product or under a sign. A sum of sums is one sum (`0 + 1 + 2`, however the
+ * program happened to pair the additions), and a bracket already delimits the
+ * modulation inside it.
+ *
  * Returns null when the program does not verify — there is no expression to
  * show, and showing a half-built one would read as a working patch.
  */
 export function fmFormula(program, opCount, name = (k) => String(k)) {
   if (!fmValidate(program, opCount).ok) return null;
+  // Each stack entry is {s, p}: the text and how tightly it binds — 0 a sum,
+  // 1 a product, 2 a sign, 3 an operand.
+  const SUM = 0, PRODUCT = 1, SIGN = 2, ATOM = 3;
+  const wrap = (e, min) => (e.p < min ? `(${e.s})` : e.s);
   const stack = [];
   for (const w of program) {
     const cls = fmWordClass(w);
     const k = fmWordIndex(w);
-    if (cls === FM_CLASS_OSC) { stack.push(name(k)); continue; }
-    if (cls === FM_CLASS_FB) { stack.push(`${name(k)}′`); continue; }
-    if (cls === FM_CLASS_MOD) { stack.push(`${name(k)}[${stack.pop()}]`); continue; }
+    if (cls === FM_CLASS_OSC) { stack.push({ s: name(k), p: ATOM }); continue; }
+    if (cls === FM_CLASS_FB) { stack.push({ s: `${name(k)}′`, p: ATOM }); continue; }
+    if (cls === FM_CLASS_MOD) { stack.push({ s: `${name(k)}[${stack.pop().s}]`, p: ATOM }); continue; }
     switch (w) {
-      case FmOp.ADD: { const b = stack.pop(); stack.push(`(${stack.pop()} + ${b})`); break; }
-      case FmOp.MUL: { const b = stack.pop(); stack.push(`(${stack.pop()} × ${b})`); break; }
-      case FmOp.NEG: stack.push(`−${stack.pop()}`); break;
+      case FmOp.ADD: { const b = stack.pop(), a = stack.pop(); stack.push({ s: `${a.s} + ${b.s}`, p: SUM }); break; }
+      case FmOp.MUL: {
+        const b = stack.pop(), a = stack.pop();
+        stack.push({ s: `${wrap(a, PRODUCT)} × ${wrap(b, PRODUCT)}`, p: PRODUCT });
+        break;
+      }
+      case FmOp.NEG: stack.push({ s: `−${wrap(stack.pop(), PRODUCT)}`, p: SIGN }); break;
       case FmOp.DUP: stack.push(stack[stack.length - 1]); break;
       case FmOp.SWAP: {
         const b = stack.pop(), a = stack.pop();
@@ -325,6 +341,5 @@ export function fmFormula(program, opCount, name = (k) => String(k)) {
       default: break;
     }
   }
-  const out = stack.pop() ?? "";
-  return out.startsWith("(") && out.endsWith(")") ? out.slice(1, -1) : out;
+  return stack.pop()?.s ?? "";
 }

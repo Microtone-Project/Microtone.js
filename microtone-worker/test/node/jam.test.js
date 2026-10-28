@@ -13,6 +13,8 @@ function mkJam(opts = {}) {
     audio: {
       jamNote: (ph, voice, note, inst, audition) => log.push({ t: "on", voice, note, inst, audition }),
       jamStopVoice: (ph, voice) => log.push({ t: "off", voice }),
+      // A lifted key (item 240): the engine keys off a formant coda, else cuts.
+      jamRelease: (ph, voice) => log.push({ t: "off", voice }),
     },
     cursor: { ch: 3 },
     pitchPreset: undefined,

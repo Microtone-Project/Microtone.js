@@ -4,6 +4,138 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## Version 4.0.0 (2026-10-28)
+
+**Every instrument can now have its own mixing chain** — equalisers, dynamics, unison, saturation, tape delay, reverb and a limiter — saved in the song and heard wherever it plays.
+
+- **The Mixing tab**, the last tab of every instrument, builds the chain: input trim, two equalisers, two dynamic EQs, a compressor of one to six bands, unison, a saturator, a tape delay, a reverb, a limiter and a mix tool, in a fixed order, the only choice being whether the delay feeds the reverb or the reverb the delay.
+- **Instruments can share a chain's settings**: *Use chain…* puts an instrument on any chain of the project, and every control then moves for all the instruments on it. *Make independent* splits them again, and a chain left with nobody on it stays in the list until you save.
+- **Separate mode or bus mode**: in *Separate mode* every instrument on a chain runs its own copy — a compressor on the kick never ducks the snare; in *Bus mode* they are summed into one group bus and the chain runs once over the sum, so one compressor glues a whole kit and the instruments share one reverb.
+- **Chains have names**: type one into the field at the left of the chain's bar and the chain lists show it beside the number; unnamed, a chain is *Chain 3*.
+- **Switching a piece on inserts it, switching it off bypasses it**: inserted equipment keeps its settings for good, and the delay, reverb, unison, saturator and compressor each have a wet/dry Mix slider across their titlebar. A piece not yet in the chain still shows its settings, and changing one inserts it switched off.
+- **Every unit folds to its titlebar**, and the chain saves which ones are folded, so the project reopens as you left it; folding takes no undo step.
+- **The units draw what they do**: the equalisers, dynamic EQs and compressor show the spectrum going in and coming out with their response over it — a dynamic EQ's and the compressor's as it moves — the saturator draws its transfer curve, and the unison shows where its copies sit and how far each is detuned.
+- **A dynamic-EQ band is a sensor and an actor**: the sensor hears the level, the actor is the shelf or bell that moves, and besides its static gain each band has an **actor gain** that scales how far the dynamics move it. *Cut* / *Boost* are pushbuttons.
+- **Bands are picked with pushbuttons** in the compressor and the dynamic EQs — one band's controls at a time, a lamp on each button saying which bands are on, and an **On** button for the band you picked.
+- **Thresholds you can see and drag**: the compressor and the dynamic EQs show each band's level against its threshold — the part above it is what the band is acting on — and dragging along a row sets that band's threshold.
+- **The tape delay can count in quarter ticks**, so its echoes follow the tempo — and bend like tape when the tempo changes — and the unison's detune and width each have an LFO that can follow the tempo and restart on every note, its waveform picked with pushbuttons that draw it.
+- **The mix tool can remove DC**: a gentle 3 Hz high-pass, the one the Opus codec uses, takes out any constant offset before the rest of the tool.
+- **Surround width**: in a surround song the mix tool's width and the Mastering tab's width now act on an ambisonic export and the binaural monitor too, widening or narrowing every direction against the scene's omnidirectional part the way stereo width does the side against the middle; speaker-layout exports still leave it out.
+- **Four monitors on the instrument's own bus**: levels before and after the chain, gain reduction for every compressor band, dynamic-EQ band and the limiter, a spectrum with the chain's EQ curve over it, and a goniometer with its correlation, showing how far it magnifies a quiet instrument. Every spectrum is ruled in dB and reads out the frequency and level under a hairline cursor — the Mastering tab's EQ graph now too.
+- **The Mastering tab has a Goniometer too**, beside Bit usage: the stereo pair before or after the chain, drawn by the master strip's CRT beam, with a correlation meter under it.
+- **Surround songs keep their positioning**: the chain runs over the instrument's whole sound field, with the stereo-only controls set aside.
+- A chain no instrument uses is kept while you work and dropped when you save; a project from a newer version with equipment this one does not know says so once, keeps it, and plays the rest of the chain.
+- An FM Rack's operators and algorithm now share 250 bytes of the record rather than 252, which no algorithm the editor builds comes near.
+
+**An FM Rack can now be built and played in Easy Mode**: forty presets, and operators with a level, an octave multiplier, a detune and an envelope each, wired by dragging.
+
+- **Meta… → FM Rack starts in Easy Mode**: choose a preset and the rack makes its own sine operators, with no instruments to pick — so a project with no samples at all can have one. Switch Easy Mode off in the dialog to build one from your instruments as before.
+- **The Easy tab** sits in front of the FM tab and shows the same rack. The preset can be changed at any time, keeping the operators' settings; the wiring can be drawn by hand, dragging an operator onto the one it should modulate, onto itself for feedback or onto OUT to hear it, or pressed into the routing grid beneath.
+- **Each operator** has a level, a multiplier in octaves (1 is +1 octave, −1 is −1 octave), a fine detune of up to half an octave, and its own volume envelope in the usual editor, right below.
+- **Feedback** is counted as on classic FM synths, 0 to 7, from none through π/16 up to 4π.
+- **Output and Shared DSP…**: the instrument's level, and its envelopes, filter, fadeout and note actions, applied to the finished sound.
+- **Any FM Rack can go into Easy Mode** from its Options tab, sounding as it did; one that uses ring modulation or inversion is told why it can't. An edit on the FM tab that the Easy tab could not show is held until you undo it or apply it and leave Easy Mode.
+- **`S $Axxx` is now called Instrument Sound Control**, and an FM Rack takes it too: `S $Apsd` gives operator `p` a vibrato of its own for the note, at speed `s` and depth `d`.
+- The FM tab's formula leaves out the round brackets that changed nothing, so `2[(0 + 1)]` now reads `2[0 + 1]`, and its diagram draws a ring modulation with one operand coming in from the left and the other from below, so wires meeting from the left always mean a sum.
+
+**Songs can be saved as ProTracker modules again**: **Export .MOD…** on the File tab writes every song as a four-channel `.mod`.
+
+- **A module you imported comes back out as the same music** — its samples, finetunes, volumes and loops, every note and every effect — so a `.mod` can make the round trip through Microtone, microtonal ones included.
+- **Songs written here export too**, as long as they keep to what a module holds: four lanes of music, the Amiga period tone-slide mode, and ProTracker's own effects, tempos and speeds. Whatever is in the way is named in a dialog, with where it first happens, and anything that will not come across exactly is listed before you save.
+- **OPL and PSG instruments become samples**, played once through the engine at the level they have in the mix and looped where they sustain; a sample pitched too high or too long for ProTracker is resampled by whole octaves.
+- **Microtonal songs are written as raw Amiga periods**, the nearest the hardware can get to each note. ProTracker plays them, though its editor and some other trackers will not show them right, and the dialog says so.
+- Each song of a project becomes its own module, and several come zipped together.
+
+**A block of music can be rendered into a sample**, ProTracker's pattern-to-sample trick: **To sample…** in the toolbox, or *To sample* in the right-click menu, plays the block into a new sample and puts one note of it where the block was, freeing the lanes it took.
+
+- **On the Timeline** it takes the selected block — Ctrl+A selects a whole lane, Ctrl+→ the lane beside it as well. **In the Patterns tab** it takes the selected rows, or the whole pattern when nothing is selected.
+- **What you see is what is rendered**: the rows are played top to bottom as the grid shows them, with jumps, breaks and pattern loops left out, and every lane arrives at the block with the instrument, volume and effects it would have had playing the song from the start.
+- **The sample replays at the level the block had**, triggered at full volume on a centred lane, and stays in tune in a song tuned away from A = 440. It starts at the block's first note and keeps the last notes' release.
+- **It opens in the Sample Lab** before anything is imported, so you can listen to it, trim it, choose its rate, or make it mono, as with any recording.
+- **The song's own commands stay**: tempo, speed, global volume, jumps, pattern delays and interrupts are left where they were in the cleared cells, and a lane whose next note leans on the instrument it was playing gets that instrument written in.
+- **A chord stack becomes a layered instrument instead**: when the lanes always strike together, always the same chord, Microtone offers one layered metainstrument, each lane's instrument a layer at its interval, played on one lane, with nothing rendered at all.
+- It takes two undo steps: the first Ctrl+Z puts the music back, the second removes the new instrument.
+
+**Microtone can be translated in the browser**: the translation workbench at [microtone.cc/translation](https://microtone.cc/translation/) sets every string of Microtone and Microtone Touch beside its translation.
+
+- **A glossary built from the strings themselves**: it finds the terms the English is made of and proposes, from the translations already written, the word each one is translated as; accepted terms are underlined in the English and checked in every translation.
+- **Suggestions from what is already translated**: the nearest strings translated before, with what differs from them marked, and a search through every string.
+- **Inconsistencies found for you**: the same English translated two ways, a placeholder, key name or "…" lost on the way, a glossary term not used, and translations whose English has changed since they were written, with the change shown.
+- Work stays in your browser until you save, and saving gives you the language files to send in.
+- **Opening Microtone with `?lang=debug`** at the end of its address shows every string as its name followed by the start of its English, so you can tell which string is which on screen; choose a language in the language picker to leave it.
+
+A project can be switched between 32 and 64 lanes from the **Lanes** selector on the Project tab.
+
+- It changes every song at once and moves nothing: going to 64 adds 32 empty lanes, and Ctrl+Z switches back.
+- If a song runs past cue 4096 (the most a 64-lane cue sheet holds), or still has patterns on lanes 33–64 when you go back to 32, a message says which, and nothing changes.
+
+Imported tracker modules now play their volume slides, silent samples and repeated patterns as the originals do.
+
+- **Fixed: volume slides in imported `.mod` and `.xm` files went wrong** — `A $F0` slid up once instead of on every tick, `A $Fx` and `A $xF` became fine slides, and `A $xy` with both digits set did nothing; the importer read them the way ScreamTracker reads its own volume slide.
+- **Fixed: `5 $xy` and `6 $xy` with both digits set slid the volume down** in imported `.mod` and `.xm` files, where ProTracker and FastTracker 2 slide it up.
+- **Fixed: a sample whose default volume is 0 played at full volume** in imported `.mod`, `.s3m`, `.xm` and `.it` files, because a stored 0 means "no default"; it is silent now until the song gives it a volume, as in the original tracker.
+- **Fixed: a pattern played in several places of an imported `.mod`, `.s3m` or `.it` could recall the wrong slide, vibrato or other remembered value** — a command with a `$00` argument took the value from the pattern's first place in the song, and now takes the one played just before it wherever it is.
+
+A stereo WAV export now comes in two bit depths, chosen in the **Export audio…** dialog: **Clean** and **Gritty**.
+
+- **Clean** (the default) is 16-bit as before, now with a light dither, so quiet fades and reverb tails stay smooth instead of breaking into steps.
+- **Gritty** is 8-bit through the Taud device's own noise-shaped dither — the sound of the format's player, and at 48 kHz exactly the bytes it plays.
+- The Mastering tab's **Bit usage** panel counts the same dither, so its 16-bit reading still matches the file you export.
+- The taudplay player library writes both, from JavaScript and from C.
+
+Instruments can be saved as a `.tsii` bank: **Export…** at the foot of the Instruments list.
+
+- **Choose what goes**: every instrument starts ticked, and unticking one leaves it out; a metainstrument always takes the instruments it is built from, and only the samples the chosen instruments play are written, so a bank of three instruments is the size of three.
+- **Instruments keep their numbers**, so the bank still matches the project's patterns, and opening it over a project or importing from it brings back the same instruments, with their patches, names and mixing chains.
+- Recordings in memory go with the bank unless you clear their box; the project itself is not changed.
+
+Importing instruments keeps a metainstrument's building blocks out of the note column's way.
+
+- **Fixed: importing instruments put a metainstrument's building blocks in `$01`–`$FF`**, where they crowded the instruments you play, whenever they were ticked as well (the picker's **All** ticks every row); they now always land in `$100`–`$3FF`.
+
+Motif, Microtone's typeface, tells more of its letters and digits apart.
+
+- **e, 5, 6 and 9 are more open**, their ends stopping further round the curve like C, G and c, so a 6 is not taken for a b or 0, a 9 for a q, a 5 for an S, or an e for an o — even in bold; G opens a little further too.
+- **The capital D has a round bowl**, so it stands apart from both the square O and the narrow, oval zero — in the grid's `D-4` as much as in a hex field reading `0D`.
+- **The z is as wide as the letters beside it**: Chivo Mono's was noticeably narrower than n and x, which left a gap in the middle of words like `nzn`.
+
+**The Timeline can narrow its cells to watch more lanes at once**: the **Cells** button in the toolbox switches between full cells, two slots and one.
+
+- **Two slots**: the first shows the note and instrument, or the effect on a row with neither, or the second effect on a row with none of those; the second shows the volume, or the panning on a row with no volume.
+- **One slot** keeps only the first, and the header drops its lane-state row, so even more lanes fit.
+- **Narrow cells can still be edited**: what you type goes to the column the slot is showing, and in an empty cell to the note or the volume. Moving up and down, the cursor goes back to the column you put it on whenever a row shows it.
+- A narrow header shows the note playing where the pattern name was, a block selection takes whole cells, and the setting is remembered in your browser.
+
+**The Cues tab shows which lanes are playing**: a lamp over each lane number lights whenever a row with anything on it reaches the lane — a row a pattern ditto repeats included — and fades out, with a bar beside it showing the lane's volume.
+
+**The pitch plot follows the pitch you hear**: a note under a tone portamento (`G`) is plotted where the slide still is, not where it is heading, and the curve climbs from there; a note with `E $Fxxx` or `S $2x` is plotted at the pitch it actually starts on.
+
+**Renumber patterns now numbers them lane by lane**, so a pattern's number tells you which lane it belongs to.
+
+- Lane 1's patterns take `0000`, `0001`, … in cue order, and each next lane starts from a round number: the next multiple of `0010` after a lane of up to 16 patterns, of `0100` after a longer one. If the numbers would run out, every lane rounds to `0010`, and failing that nothing is rounded.
+- Blank patterns leave the cues: a lane that played one in a cue now plays nothing there — except where the blank row is what stops a vibrato or slide the lane's previous row left running, which stays, so the song sounds exactly as before.
+- Imported songs (MOD, S3M, XM, IT, MIDI, MON, IMS and SOP) arrive numbered the same way, and a MIDI import no longer sets aside a blank pattern `0000`.
+- The Project tab's song list counts the patterns a song actually plays, not its highest pattern number.
+
+**Fill with effect…** in the right-click menu of a block of effect cells writes one effect, with its argument, into every cell of the block.
+
+**HALT and HALT@ are one command now**: in the Cues tab's command popup, give HALT a row count to stop after that many rows (shown as `HALT·N`), or leave it empty to stop at the end of the pattern.
+
+**On/off switches you can hit while listening**: the small tick boxes on the instrument panels are now pushbuttons with a lamp, and the mixing and mastering units go in and out on a flip switch.
+
+- **Lamp pushbuttons** take the place of the tick boxes in the Mixing and Mastering tabs, the instrument editor (envelopes, flags, the OPL and PSG switches, a layer's *Fixed*), the keymap, the chord and notation makers, the panner, the sample editor and the top bar's *follow*: the whole button is the target, and its lamp lights green while the option is on.
+- **Flip switches** put a piece of equipment in circuit or bypass it, at the right end of every Mixing and Mastering unit's titlebar and on every equaliser band (the Sample Lab's too): filled with the theme's colour while it is in, empty while it is out.
+- In the chord maker, a note's on/off is now the button carrying its number.
+- Fixed: the zoom − and + buttons, the icon buttons and *follow* sat shorter than the other buttons of the top bar; they all stand the same height now.
+
+**Formant instruments learn twelve more consonants**, and the Formant tab shows the vowels a playing song has moved.
+
+- **Breathy-voiced stops** [bʱ] [dʱ] [ɖʱ] [ɡʱ], released with a murmur of breath into the vowel as Hindi says them, and the aspirated retroflex [ʈʰ], in the consonant chart's *Aspirated* row.
+- **[sʰ]**, the Korean ㅅ: its hiss, then a breath before the vowel, in a new *Aspirated fricative* row.
+- **More affricates**: [c͡ç], [ɟ͡ʝ], [t͡θ], [d͡ð], [ɡ͡ɣ] and the glottal [ʔ͡h].
+- **The vowel chart follows the song**: while it plays, every note of the instrument that `S $Afgr` has given a vowel of its own is a dot in the accent colour, with a dashed line to where it is gliding, and the vowels and their commands are named under the readout.
+- **Lifting a piano key lets a syllable finish**: jamming a formant instrument on the computer keyboard, the key-off says the syllable's last consonant before the note stops, as a key-off in a pattern does; a syllable without one stops at once as before.
+
 ## Version 3.13.3 (2026-10-22)
 
 The envelope graphs zoom with a two-finger pinch on a touch screen.

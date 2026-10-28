@@ -64,7 +64,7 @@
         await waitFor(() => iv.panel.querySelector(".opl-edit"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +
-          ok(tabs.join("|") === "OPL|General|Vol env|Pan env|Pitch/Filter" && iv.tab === "opl"));
+          ok(tabs.join("|") === "OPL|General|Vol env|Pan env|Pitch/Filter|Mixing" && iv.tab === "opl"));
         const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
         log(`list badge "${badge()}": ${ok(badge() === "OPL")}`);
         const opGroups = () => iv.panel.querySelectorAll(".opl-op");
@@ -126,9 +126,10 @@
         log(`undo puts 32 back, in the record and on screen: ` +
           ok(+tlInput().value === 32));
 
-        // ── the carrier's sustain switch is a checkbox ──
-        const egBox = opGroups()[1].querySelectorAll(".inst-field input")[10];
-        log(`carrier Sustain is a checked checkbox: ${ok(egBox.type === "checkbox" && egBox.checked)}`);
+        // ── the carrier's sustain switch is a lamp pushbutton ──
+        const egBox = [...opGroups()[1].querySelectorAll(".inst-field")]
+          .find((f) => f.firstChild.textContent === "Sustain")?.querySelector("button.lamp-btn");
+        log(`carrier Sustain is a lit lamp pushbutton: ${ok(!!egBox && egBox.getAttribute("aria-pressed") === "true")}`);
         egBox.click();
         await sleep(30);
         log(`…unticking it clears register 0x20 bit 5: ${ok((inst().oplRaw[11] & 0x20) === 0)}`);

@@ -13,7 +13,12 @@
 // Metainstruments are not offered: the engine resolves layers with triggerNote,
 // which never re-enters the meta branch, so metas can't nest.
 
-import { planCreateMeta, planCreateFm, planCreateOpl, planCreateFormant, planAddMetaLayers } from "../../doc/bankmerge.js";
+import {
+  planCreateMeta, planCreateFm, planCreateOpl, planCreateFormant, planAddMetaLayers, planEasyFm,
+} from "../../doc/bankmerge.js";
+import { EASY_PRESETS, easyNewModel, easyTree } from "../../doc/fmeasy.js";
+import { fmTreeGraph } from "../../doc/fmlayout.js";
+import { fmGraphSvg } from "../fmgraph.js";
 import { defaultOplRecord } from "../../doc/opledit.js";
 import { defaultPsgRecord } from "../../doc/psgedit.js";
 import { defaultFormantRecord, canSourceFormant, FORMANT_RANGE_NONE } from "../../doc/formantedit.js";
@@ -415,7 +420,9 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
     for (const kind of ["meta", "fm", "opl", "psg", "formant"]) {
       const card = el("button", "kind-card");
       card.type = "button";
-      if ((kind === "meta" || kind === "fm") && !haveCandidates) {
+      // An FM rack needs nothing to build from: Easy Mode makes its own
+      // operators (item 247).
+      if (kind === "meta" && !haveCandidates) {
         card.disabled = true;
         card.title = t("newkind.noCandidates");
       }
@@ -501,10 +508,15 @@ export function showAddMetaLayers(store, metaSlot) {
 }
 
 /**
- * New type-4 FM rack (item 159). Same picker as showNewMeta — an operator is an
- * ordinary instrument — but the order is load-bearing here in a way it is not
- * for layers: the FIRST operator picked becomes operator 0, the principal whose
- * envelope is the note's own.
+ * New type-4 FM rack (items 159, 247). Two ways in, one switch apart:
+ *
+ *  - EASY MODE (the default, and the only one when the project has nothing to
+ *    pick): choose one of the forty presets and the rack makes its own
+ *    operators — a sine each, a principal for the shared DSP — and opens on
+ *    its Easy tab, where the preset can be changed at any time.
+ *  - otherwise the instrument picker of showNewMeta, with the order
+ *    load-bearing in a way it is not for layers: the FIRST operator picked
+ *    becomes operator 0, the principal whose envelope is the note's own.
  *
  * Resolves {firstSlot, count} after the rack is created, or null on cancel.
  */
@@ -512,21 +524,103 @@ export function showNewFm(store) {
   const doc = store.doc;
   if (!doc) return Promise.resolve(null);
   const candidates = operatorCandidates(doc);
-  if (candidates.length === 0) {
-    alert(t("newfm.noCandidates"));
-    return Promise.resolve(null);
-  }
-  return pickerModal(store, {
-    title: t("newfm.title"),
-    hint: t("newfm.hint"),
-    candidates,
-    existing: 0,
-    withName: true,
-    okLabel: t("newmeta.create"),
-    cap: FM_MAX_OPERATORS,
-    tally: (total, existing) => fmTallyText(total, existing, total + existing),
-    commit: (picks, name) => planCreateFm(store.doc, picks, name),
-    done: (plan) => ({ firstSlot: plan.metaSlot, count: plan.childSlots.length }),
+  return new Promise((resolve) => {
+    let easy = true;
+    const dlg = document.createElement("dialog");
+    dlg.className = "modal import-modal";
+    const hint = el("p", "dim", "");
+
+    const nameRow = el("div", "import-bar");
+    const nameIn = document.createElement("input");
+    nameIn.type = "text";
+    nameIn.className = "import-filter";
+    nameIn.placeholder = t("newmeta.namePlaceholder");
+    nameRow.append(el("span", "", t("newmeta.name")), nameIn);
+
+    const modeRow = el("div", "import-bar");
+    const toggle = el("button", "toggle", t("easy.mode"));
+    toggle.type = "button";
+    toggle.title = candidates.length === 0 ? t("newfm.easyOnly") : t("newfm.easyTitle");
+    toggle.disabled = candidates.length === 0;
+    modeRow.append(toggle);
+
+    // ── Easy Mode: a preset and its picture ──
+    const easyBox = el("div", "fm-easy-new");
+    const presetRow = el("label", "fm-easy-field", t("easy.preset"));
+    const preset = document.createElement("select");
+    for (const [count, name] of [[2, t("easy.presets2")], [4, t("easy.presets4")], [6, t("easy.presets6")]]) {
+      const g = document.createElement("optgroup");
+      g.label = name;
+      for (const p of EASY_PRESETS) {
+        if (p.count === count) g.append(new Option(`${p.n} · ${p.formula}`, String(p.n), false, p.n === 9));
+      }
+      preset.append(g);
+    }
+    presetRow.append(preset);
+    const picture = el("div", "fm-graph-frame");
+    const draw = () => {
+      picture.replaceChildren(fmGraphSvg(fmTreeGraph(easyTree(easyNewModel(Number(preset.value)))),
+        { outLabel: t("fm.out") }));
+    };
+    preset.addEventListener("change", draw);
+    easyBox.append(presetRow, picture);
+
+    // ── or: the instruments to use as operators ──
+    const pickBox = el("div", "");
+    const bar = el("div", "import-bar");
+    const allBtn = el("button", "", t("common.all"));
+    const noneBtn = el("button", "", t("common.none"));
+    const tally = el("span", "import-tally", "");
+    bar.append(allBtn, noneBtn, tally);
+    const errEl = el("p", "import-error", "");
+    errEl.hidden = true;
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn } =
+      actionRow({ cancel: true, proceed: t("newmeta.create") });
+    const picker = buildPicker(doc, candidates, FM_MAX_OPERATORS, (total) => {
+      tally.textContent = fmTallyText(total, 0, total);
+      if (!easy) okBtn.disabled = total === 0;
+    }, FM_MAX_OPERATORS);
+    pickBox.append(bar, picker.list);
+
+    const setMode = (on) => {
+      easy = on;
+      toggle.setAttribute("aria-pressed", on ? "true" : "false");
+      hint.textContent = t(on ? "newfm.easyHint" : "newfm.hint");
+      easyBox.hidden = !on;
+      pickBox.hidden = on;
+      okBtn.disabled = !on && picker.total() === 0;
+      errEl.hidden = true;
+    };
+    toggle.addEventListener("click", (e) => { e.preventDefault(); setMode(!easy); });
+
+    dlg.append(el("h3", "", t("newfm.title")), hint, nameRow, modeRow, easyBox, pickBox, errEl, btnRow);
+    document.body.appendChild(dlg);
+    picker.sync();
+    draw();
+    setMode(true);
+
+    allBtn.addEventListener("click", (e) => { e.preventDefault(); picker.setAll(1); });
+    noneBtn.addEventListener("click", (e) => { e.preventDefault(); picker.setAll(0); });
+    const finish = (result) => { dlg.close(); dlg.remove(); resolve(result); };
+    cancelBtn.addEventListener("click", (e) => { e.preventDefault(); finish(null); });
+    dlg.addEventListener("cancel", () => finish(null));
+    dlg.addEventListener("keydown", (e) => e.stopPropagation());
+    okBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const name = escapeNonAscii(nameIn.value.trim());
+      const plan = easy
+        ? planEasyFm(store.doc, null, easyNewModel(Number(preset.value)), name)
+        : planCreateFm(store.doc, picker.picks(), name);
+      if (plan.error) {
+        errEl.textContent = plan.error;
+        errEl.hidden = false;
+        return;
+      }
+      store.undo.apply(importBankOp(plan));
+      finish({ firstSlot: plan.metaSlot, count: plan.childSlots.length });
+    });
+    dlg.showModal();
+    nameIn.focus();
   });
 }
 

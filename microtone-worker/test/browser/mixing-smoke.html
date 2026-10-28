@@ -1,0 +1,370 @@
+<!doctype html><meta charset="utf-8"><title>instrument mixing chains (item 217)</title>
+<pre id="out">running… (needs a real audio-capable browser; ~12s)</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/Huygens_clock.taud" style="width:1500px;height:1100px"></iframe>
+<script type="module">
+// Drives the REAL app: the Instruments view's Mixing tab giving an instrument
+// a chain (byte 255 + the IMix section, one undo step), inserting equipment
+// through the titlebar switches, the engine picking the chain up, the meter
+// tap living and dying with the tab, the four monitors painting while the song
+// plays, sharing and un-sharing a chain, and a save retiring the chain nobody
+// uses. The DSP and the codec are unit-tested in test/node/imix*.test.js.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; console.log("IMX: " + s); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+function painted(cv) {
+  if (!cv || !cv.width || !cv.height) return false;
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+  const r0 = d[0], g0 = d[1], b0 = d[2];
+  for (let i = 4; i < d.length; i += 4) {
+    if (d[i] !== r0 || d[i + 1] !== g0 || d[i + 2] !== b0) return true;
+  }
+  return false;
+}
+
+(async () => {
+  try {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone?.store.doc; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); return; }
+  const doc = win.document;
+  const { store } = M;
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
+  const { makeImixMeterReadout, IMX_TAP_STAGES } = await import("../../core/engine/imix.js");
+
+  // ── 1. the tab ───────────────────────────────────────────────────────────
+  doc.querySelector('[data-view="instruments"]').click();
+  await sleep(200);
+  const iv = M.instrumentsView;
+  const slots = store.doc.selectableInstrumentSlots();
+  const slot = slots[0], other = slots[1];
+  iv.selected = slot; iv.refresh();
+  await sleep(50);
+  const tabBtn = [...doc.querySelectorAll(".subtabs button")].find((b) => b.textContent === "Mixing");
+  check(!!tabBtn, "every instrument has a Mixing tab");
+  tabBtn.click();
+  await sleep(100);
+  check(iv.tab === "mixing", "the tab opens");
+  check(store.doc.instruments[slot].imixId === 0, "the demo's instruments start with no chain");
+  const newBtn = [...doc.querySelectorAll(".imx-head button")].find((b) => b.textContent === "New chain");
+  check(!!newBtn, "a chainless instrument offers a new chain");
+
+  // ── 2. a new chain: section + byte 255, one undo step ─────────────────────
+  const undoBefore = store.undo.undoStack.length;
+  newBtn.click();
+  await sleep(80);
+  const id = store.doc.instruments[slot].imixId;
+  check(id === 1, "New chain takes id 1", String(id));
+  check(!!store.doc.imixBlock(1), "…and writes its block");
+  check(store.undo.undoStack.length === undoBefore + 1, "one undo step",
+    `${undoBefore} → ${store.undo.undoStack.length}`);
+  check(doc.querySelectorAll(".imx-unit").length === 12, "twelve pieces of equipment",
+    String(doc.querySelectorAll(".imx-unit").length));
+  check([...doc.querySelectorAll(".imx-unit")].every((u) => u.classList.contains("mst-off")),
+    "…none of them in the chain yet");
+  store.undo.undo();
+  await sleep(80);
+  check(store.doc.instruments[slot].imixId === 0 && !store.doc.imixBlock(1), "undo takes both back");
+  store.undo.redo();
+  await sleep(80);
+  check(store.doc.instruments[slot].imixId === 1 && !!store.doc.imixBlock(1), "redo puts both back");
+
+  // ── 2b. folding, and the settings of a piece not yet inserted ─────────────
+  const unitEl = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"]`);
+  check([...doc.querySelectorAll(".imx-unit")].every((u) => u.classList.contains("folded")),
+    "an untouched unit that is not in the chain starts folded");
+  check(!!unitEl("verb").querySelector(".imx-mix"), "a reverb's Mix slider is in its titlebar even before it is inserted");
+  check(!unitEl("limi").querySelector(".imx-mix"), "a limiter has no Mix slider");
+  unitEl("dlay").querySelector(".fold-toggle").click();
+  await sleep(40);
+  check(!unitEl("dlay").classList.contains("folded") && unitEl("dlay").querySelector(".fold-toggle").getAttribute("aria-expanded") === "true",
+    "the twisty unfolds it");
+  check(!store.doc.imixBlock(1).equipment.dlay, "…which inserts nothing: a piece not in the chain folds for the session");
+  const dlayRows = unitEl("dlay").querySelectorAll(".mst-unit-body .mst-row").length;
+  check(dlayRows >= 6, "an uninserted unit, unfolded, shows its settings", String(dlayRows));
+  const dlayBox = unitEl("dlay");
+  const fb = [...dlayBox.querySelectorAll(".mst-row")].find((r) => r.querySelector(".mst-lab")?.textContent === "Feedback");
+  const fbNum = fb.querySelector("input.mst-num");
+  fbNum.value = "50";
+  fbNum.dispatchEvent(new Event("change"));
+  await sleep(80);
+  const dl = store.doc.imixBlock(1).equipment.dlay;
+  check(!!dl && dl.bypass === true && Math.abs(dl.feedback - 0.5) < 1e-6,
+    "changing a setting inserts the piece switched OFF, with the new value", JSON.stringify(dl && { b: dl.bypass, f: dl.feedback }));
+  check(dl?.folded === false, "…and its record takes the fold it was shown with (open)");
+  check(unitEl("dlay") === dlayBox, "…without rebuilding the rack (a drag in progress survives)");
+  check(unitEl("dlay").classList.contains("mst-off"), "…and the unit still reads as off");
+  const undoBeforeFold = store.undo.undoStack.length;
+  store.doc.dirty = false;
+  unitEl("dlay").querySelector(".mst-unit-name").click();
+  await sleep(40);
+  check(unitEl("dlay").classList.contains("folded"), "the unit's name folds it too");
+  check(store.doc.imixBlock(1).equipment.dlay.folded === true, "…and the fold is the block's: its flag is set");
+  check(store.undo.undoStack.length === undoBeforeFold, "…with no undo step");
+  check(store.doc.dirty === true, "…but the file is unsaved");
+  check(parseTaud(store.doc.toBytes()).imix.find((x) => x.id === 1)?.equipment.dlay.folded === true,
+    "…and a save carries it");
+  unitEl("verb").querySelector(".fold-toggle").click();
+  iv.renderPanel();
+  await sleep(80);
+  check(unitEl("dlay") !== dlayBox && unitEl("dlay").classList.contains("folded") && !unitEl("verb").classList.contains("folded"),
+    "the fold state survives a rebuild of the rack");
+  // The dynamic EQ's band picker: pushbuttons low to high, one band's controls at a time.
+  const deq = unitEl("deq1");
+  const bandBtns = [...deq.querySelectorAll(".imx-bandbar .mst-seg button")];
+  check(bandBtns.map((b) => b.textContent).join(" ") === "LS B1 B2 B3 B4 HS", "the dynamic EQ's band buttons run low shelf to high shelf",
+    bandBtns.map((b) => b.textContent).join(" "));
+  const shown = () => [...deq.querySelectorAll(".mst-band")].filter((x) => !x.hidden).map((x) => x.dataset.band);
+  check(shown().join() === "0", "only the selected band's controls show (the low shelf first)", shown().join());
+  bandBtns[5].click();
+  await sleep(30);
+  check(shown().join() === "1" && bandBtns[5].classList.contains("active"), "pressing HS shows the high shelf's", shown().join());
+  const power = deq.querySelector(".imx-bandbar button.lamp-btn");
+  check(power.getAttribute("aria-pressed") === "false" && !bandBtns[5].querySelector(".seg-lamp").classList.contains("lit")
+    && !power.querySelector(".seg-lamp").classList.contains("lit"),
+    "its On lamp pushbutton and the band's lamp say it is off");
+  power.click();
+  await sleep(60);
+  const hs = store.doc.imixBlock(1).equipment.deq1?.bands[1];
+  check(hs?.on === true && store.doc.imixBlock(1).equipment.deq1.bypass === true,
+    "the lamp pushbutton switches the band on (inserting the dynamic EQ, switched off)");
+  check(power.getAttribute("aria-pressed") === "true" && bandBtns[5].querySelector(".seg-lamp").classList.contains("lit")
+    && power.querySelector(".seg-lamp").classList.contains("lit"),
+    "…and both lamps light");
+  const boxHs = deq.querySelector('.mst-band[data-band="1"]');
+  const boost = [...boxHs.querySelectorAll(".mst-seg button")].find((b) => b.textContent === "Boost");
+  boost.click();
+  await sleep(60);
+  check(store.doc.imixBlock(1).equipment.deq1.bands[1].boost === true && boost.classList.contains("active"),
+    "Cut / Boost are pushbuttons, and Boost takes");
+  const actor = [...boxHs.querySelectorAll(".mst-row")].find((r) => r.querySelector(".mst-lab")?.textContent === "Actor gain");
+  check(!!actor, "a band has an Actor gain");
+  const an = actor.querySelector("input.mst-num");
+  an.value = "-6";
+  an.dispatchEvent(new Event("change"));
+  await sleep(60);
+  check(store.doc.imixBlock(1).equipment.deq1.bands[1].actorDb === -6, "…which the record keeps",
+    String(store.doc.imixBlock(1).equipment.deq1.bands[1].actorDb));
+
+  // ── 3. the titlebar switch inserts, then bypasses ─────────────────────────
+  const sw = (eq) => doc.querySelector(`.imx-unit[data-equipment="${eq}"] .mst-unit-head button.flip-switch`);
+  check(!!sw("verb") && sw("verb").getAttribute("role") === "switch" && sw("verb").getAttribute("aria-checked") === "false"
+    && sw("verb").getAttribute("aria-label") === "Reverb",
+    "a piece's titlebar ends in a flip switch, named for the piece and off", sw("verb")?.getAttribute("aria-label"));
+  check(!doc.querySelector(".mixing-tab input[type=checkbox], .imx-tab input[type=checkbox]"), "the Mixing tab has no checkboxes");
+  sw("verb").click();
+  await sleep(80);
+  check(!!store.doc.imixBlock(1).equipment.verb && sw("verb").getAttribute("aria-checked") === "true",
+    "switching the reverb on inserts it, and the switch shows it on");
+  {
+    const cs = getComputedStyle(sw("verb"));
+    const ink = getComputedStyle(doc.documentElement).getPropertyValue("--accent").trim();
+    const probe = doc.createElement("span");
+    probe.style.color = ink;
+    doc.body.append(probe);
+    const accentRgb = getComputedStyle(probe).color;
+    probe.remove();
+    check(cs.backgroundColor === accentRgb, "ON fills the track with the accent", `${cs.backgroundColor} vs ${accentRgb}`);
+  }
+  sw("verb").click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.verb?.bypass === true && sw("verb").getAttribute("aria-checked") === "false",
+    "switching it off BYPASSES it — the piece stays in the block");
+  {
+    const cs = getComputedStyle(sw("verb"));
+    check(cs.backgroundColor === "rgba(0, 0, 0, 0)", "OFF fills nothing", cs.backgroundColor);
+  }
+  sw("verb").click();
+  sw("satu").click();
+  await sleep(60);
+  sw("dlay").click();
+  await sleep(60);
+  sw("comp").click();
+  await sleep(80);
+  const b = store.doc.imixBlock(1);
+  check(["verb", "satu", "dlay", "comp"].every((k) => b.equipment[k] && !b.equipment[k].bypass),
+    "four pieces in circuit", Object.keys(b.equipment).join(","));
+
+  // ── 3b. item 247: the LFO's waveform pushbuttons and the mix tool's DC ──
+  const waveBtns = [...unitEl("unis").querySelectorAll(".mst-seg button.wave-btn")];
+  check(waveBtns.length === 12, "the unison's two LFOs have six waveform pushbuttons each", String(waveBtns.length));
+  check(waveBtns[1].title === "Triangle" && waveBtns[1].textContent === "\uF045\uF045",
+    "…the second draws a triangle in Motif Grid", waveBtns[1].title);
+  check(win.getComputedStyle(waveBtns[1]).fontFamily.includes("Motif Grid"), "…in the grid's face",
+    win.getComputedStyle(waveBtns[1]).fontFamily);
+  waveBtns[1].click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.unis?.detuneLfo.wave === 1, "pressing it sets the detune LFO to a triangle");
+  check(store.doc.imixBlock(1).equipment.unis?.bypass === true, "…inserting the unison switched off");
+  const waveNow = [...unitEl("unis").querySelectorAll(".mst-seg button.wave-btn")];
+  check(waveNow[1].classList.contains("active") && !waveNow[0].classList.contains("active"), "…and the button is the pressed one");
+  const lampRow = unitEl("mxtl").querySelector(".mst-row-lamps");
+  const lamps = lampRow ? [...lampRow.querySelectorAll("button.lamp-btn")] : [];
+  check(lamps.length === 4, "the mix tool's four options share one row");
+  const tops = lamps.map((b) => Math.round(b.getBoundingClientRect().top));
+  check(tops.length === 4 && tops.every((y) => y === tops[0]), "…side by side", tops);
+  const dcBtn = lamps.find((b) => b.textContent.includes("Remove DC"));
+  check(!!dcBtn, "the mix tool has Remove DC");
+  dcBtn.click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.mxtl?.removeDc === true, "…which the block records");
+
+  // ── 4. sharing ───────────────────────────────────────────────────────────
+  iv.selected = other; iv.refresh();
+  await sleep(80);
+  const sel = [...doc.querySelectorAll(".imx-head select")].find((s) => s.options[0]?.value === "" && s.options.length > 1);
+  check(!!sel, "another instrument can pick the chain up");
+  check([...sel.options].some((o) => o.value === "1" && o.textContent.startsWith("Chain 1")), "the picker lists chains by number");
+  sel.value = "1";
+  sel.dispatchEvent(new Event("change"));
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 1, "…and then names block 1 too");
+  await sleep(40);
+  check(unitEl("dlay").classList.contains("folded") && !unitEl("verb").classList.contains("folded"),
+    "another instrument on the chain sees its units folded as the chain was left");
+  check(doc.querySelector(".imx-head").textContent.includes("Shared with"), "the tab says who shares it");
+
+  // ── 4b. item 247: the chain's name and its two modes ──────────────────────
+  const nameIn = doc.querySelector(".imx-head .imx-name");
+  check(!!nameIn && nameIn.placeholder === "Chain 1" && nameIn.value === "", "an unnamed chain reads Chain 1", nameIn?.placeholder);
+  nameIn.value = "Drums";
+  nameIn.dispatchEvent(new Event("change"));
+  await sleep(80);
+  check(store.doc.imixName(1) === "Drums", "typing a name names the chain (IMcn)", store.doc.imixName(1));
+  check(doc.querySelector(".imx-head .imx-name")?.value === "Drums", "…and the field shows it");
+  const modeBtns = () => [...doc.querySelectorAll(".imx-head .imx-mode button")];
+  check(modeBtns().map((x) => x.textContent).join("|") === "Separate mode|Bus mode", "two mode pushbuttons",
+    modeBtns().map((x) => x.textContent).join("|"));
+  check(modeBtns()[0].classList.contains("active"), "…Separate mode pressed to start");
+  modeBtns()[1].click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === true, "Bus mode puts the block in bus mode");
+  check(modeBtns()[1].classList.contains("active") && !modeBtns()[0].classList.contains("active"), "…and is the pressed one");
+  check(doc.querySelector(".imx-head").textContent.includes("as one bus"), "the tab says they share one bus");
+  modeBtns()[0].click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === false, "Separate mode puts it back");
+  store.undo.undo();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === true, "…one undo step each");
+  store.undo.undo();
+  await sleep(80);
+  check(store.doc.imixBlock(1).bus === false && store.doc.imixName(1) === "Drums", "…back to separate, the name kept");
+  const indep = [...doc.querySelectorAll(".imx-head button")].find((x) => x.textContent === "Make independent");
+  indep.click();
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 2, "Make independent copies it to block 2",
+    String(store.doc.instruments[other].imixId));
+  check(!!store.doc.imixBlock(2)?.equipment.verb, "…settings and all");
+  // Going back to chain 1 leaves chain 2 with nobody on it; it must still be
+  // reachable from the picker until the project is saved.
+  const pick = (v) => {
+    // The chain picker is the select whose first entry is its blank prompt.
+    const s2 = [...doc.querySelectorAll(".imx-head select")].find((x) => x.options[0]?.value === "");
+    if (!s2) return false;
+    s2.value = v;
+    s2.dispatchEvent(new Event("change"));
+    return true;
+  };
+  const opt1 = [...doc.querySelectorAll(".imx-head select")].find((x) => x.options[0]?.value === "")
+    ?.querySelector('option[value="1"]');
+  check(!!opt1 && opt1.textContent.startsWith("Chain 1 · Drums — "), "the picker lists a named chain by number and name", opt1?.textContent);
+  check(pick("1"), "chain 1 is in the picker");
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 1, "…and the instrument goes back to it");
+  const opt2 = [...doc.querySelectorAll(".imx-head select")].find((x) => x.options[0]?.value === "")
+    ?.querySelector('option[value="2"]');
+  check(!!opt2 && opt2.textContent.includes("unused"), "a chain nobody uses is still listed, marked unused", opt2?.textContent ?? "missing");
+  check(pick("2"), "…and can be picked");
+  await sleep(80);
+  check(store.doc.instruments[other].imixId === 2, "…putting the instrument back on it");
+  // A chain nobody uses survives the session, and is retired by the save.
+  [...doc.querySelectorAll(".imx-head button")].find((x) => x.textContent === "Remove chain").click();
+  await sleep(80);
+  check(!!store.doc.imixBlock(2), "removing the instrument from block 2 keeps the block in memory");
+  const saved = parseTaud(store.doc.toBytes());
+  check(saved.imix.map((x) => x.id).join() === "1", "the save retires block 2 and keeps block 1",
+    saved.imix.map((x) => x.id).join());
+  const rec = saved.sampleInstImage.subarray(8 * 1024 * 1024 + slot * 256, 8 * 1024 * 1024 + slot * 256 + 256);
+  check(rec[255] === 1, "byte 255 of the instrument's record names block 1", String(rec[255]));
+
+  // ── 5. the engine hears it, and the monitors paint ────────────────────────
+  iv.selected = slot; iv.refresh();
+  await sleep(100);
+  await win.__microtoneEnsureAudio?.();
+  await sleep(200);
+  check(store.audio.imixMeterSlot === slot, "the meter tap is on the instrument the tab shows",
+    String(store.audio.imixMeterSlot));
+  doc.getElementById("playSong")?.click();
+  await sleep(4000);
+  const r = store.audio.readImixMeter(makeImixMeterReadout());
+  check(r.slot === slot, "the snapshot meters that instrument", String(r.slot));
+  const cvs = ["imx-levels", "imx-spectrum", "imx-gonio"].map((c) => doc.querySelector("canvas." + c));
+  check(cvs.every(painted), "levels, spectrum and goniometer painted", cvs.map((c) => (painted(c) ? "y" : "n")).join(""));
+  check(painted(doc.querySelector("canvas.imx-gr")), "the gain-reduction meter painted");
+  // The instrument rests between notes: watch the ring for a while.
+  let rung = false;
+  for (let i = 0; i < 40 && !rung; i++) {
+    const q = store.audio.readImixMeter(makeImixMeterReadout());
+    rung = !!q.stageRings?.[IMX_TAP_STAGES.indexOf("comp")].some((v) => v !== 0);
+    if (!rung) await sleep(100);
+  }
+  check(rung, "the tap rings the compressor's input");
+  check(r.unisCents === -1, "no unison in the chain: its live reading says so", String(r.unisCents));
+  if (unitEl("comp").classList.contains("folded")) unitEl("comp").querySelector(".fold-toggle").click();
+  if (unitEl("satu").classList.contains("folded")) unitEl("satu").querySelector(".fold-toggle").click();
+  await sleep(300);
+  check(painted(doc.querySelector('canvas.imx-curve[data-curve="comp"]')), "the compressor's spectrum painted");
+  check(painted(doc.querySelector("canvas.imx-transfer")), "the saturator's transfer curve painted");
+  const thr = doc.querySelector('canvas.imx-thresh[data-thresh="comp"]');
+  check(painted(thr), "the compressor's threshold strip painted");
+  check(r.compLvl[0] > -120 || store.audio.readImixMeter(makeImixMeterReadout()).compLvl[0] > -120,
+    "the snapshot carries the compressor's detector level");
+  // Drag its first row to three-quarters of the way along (−60 … 0 dB → about −15 dB).
+  {
+    const rr = thr.getBoundingClientRect();
+    const zoom = rr.width / thr.clientWidth;
+    const xAt = (fr) => rr.left + (30 + fr * (thr.clientWidth - 30 - 62)) * zoom;
+    const y = rr.top + (14 + 9) * zoom;
+    const undoAt = store.undo.undoStack.length;
+    const pe = (type, x) => thr.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 7, button: 0 }));
+    pe("pointerdown", xAt(0.5));
+    pe("pointermove", xAt(0.6));
+    pe("pointermove", xAt(0.75));
+    pe("pointerup", xAt(0.75));
+    await sleep(60);
+    const th = store.doc.imixBlock(1).equipment.comp.bands[0].threshDb;
+    check(Math.abs(th - -15) < 0.6, "dragging a threshold strip sets that band's threshold", String(th));
+    check(store.undo.undoStack.length === undoAt + 1, "…as one undo step", `${undoAt} → ${store.undo.undoStack.length}`);
+  }
+  // The compressor's band picker: its own pushbuttons, and the strip selects too.
+  {
+    const comp = unitEl("comp");
+    const cb = [...comp.querySelectorAll(".imx-bandbar .mst-seg button")];
+    check(cb.length === store.doc.imixBlock(1).equipment.comp.bands.length, "the compressor has a button per band", String(cb.length));
+    check(!!comp.querySelector(".imx-bandbar button.lamp-btn[aria-pressed=\"true\"]"), "…and its band is on");
+  }
+  doc.getElementById("stopBtn")?.click();
+  store.audio.stop(0);
+  await sleep(100);
+
+  // ── 6. the tap dies with the tab ─────────────────────────────────────────
+  [...doc.querySelectorAll(".subtabs button")][0].click();
+  await sleep(120);
+  check(store.audio.imixMeterSlot === -1, "another tab switches the tap off", String(store.audio.imixMeterSlot));
+  doc.querySelector('[data-view="timeline"]').click();
+  await sleep(100);
+  check(store.audio.imixMeterSlot === -1, "…and so does leaving the view");
+  } catch (err) {
+    fails++;
+    log("EXCEPTION " + (err?.stack ?? err));
+  }
+  log(`FAILURES: ${fails}`);
+})();
+</script>

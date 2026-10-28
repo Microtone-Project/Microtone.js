@@ -51,14 +51,19 @@ import {
   SPECTRUM_TILT_DB_PER_OCT,
 } from "../../../core/engine/fft.js";
 import { RAD_BANDS } from "../radiation.js";
+import { drawSpecGround, drawCursor, trackCursor } from "./imixplots.js";
 import { SAMPLING_RATE } from "../../../core/engine/constants.js";
+import { SURROUND_STEREO } from "../../../core/engine/spatial.js";
 import {
   analyseSongAsync, gainForTruePeak, gainForLoudness, trimForLoudness,
 } from "../../audio/master-analysis.js";
 import { setMasteringOp } from "../../doc/ops.js";
 import { themeColors } from "../theme.js";
-import { parseInk, RMS_SLOW_MS } from "./masterstrip.js";
+import { RMS_SLOW_MS, integrateCorrelation, CORR_SLEW_MS } from "./masterstrip.js";
+import { CrtScope, parseInk, slewTowards } from "../crtscope.js";
 import { t } from "../i18n.js";
+import { lampButton } from "../components/lampbutton.js";
+import { flipSwitch } from "../components/flipswitch.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
 /** Metering scale for the level bars, in dBFS. */
@@ -136,6 +141,10 @@ const CLIP_FADE_FRACTION = 0.25;
 /** Spectrometer scale, in dBFS — what the EQ graph's analyser draws between. */
 const SPEC_MIN_DB = -96;
 const SPEC_MAX_DB = -6;
+const EQ_GRAPH_H = 120;
+/** Under the goniometer's square: a gap, the correlation bar and its caption. */
+const GONIO_CORR_H = 26;
+const EQ_GRAPH_DB = 18;   // the response curve's ± axis
 /** Per-column ballistics for it: snap up, fall away. A spectrum that strobes is
  *  unreadable, and one that only ever rises is a peak-hold, not an analyser. */
 const SPEC_ATTACK = 0.55;
@@ -419,6 +428,21 @@ export class MasteringView {
     }
     this.specCols = null;     // per-x smoothed dB, sized to the canvas
     this.specBandOfCol = null;
+    /** The goniometer beside the bit usage (item 257): the master strip's CRT
+     *  beam over the delivered pair. It draws the samples that arrived since
+     *  the last frame, so it remembers where in the ring it stopped (−1 = no
+     *  idea: draw nothing, join nothing), and how long it has been dark. */
+    this.gonio = new CrtScope();
+    this.gonioX = new Float32Array(SPEC_FRAMES);
+    this.gonioY = new Float32Array(SPEC_FRAMES);
+    this._pairWrite = -1;
+    this._gonioQuietMs = Infinity;
+    this._gonioDark = null;
+    /** The correlation under it: the master strip's windowed statistic over
+     *  the samples the beam drew, slewed for display. */
+    this.gonioCorr = 1;
+    this.gonioCorrSums = { ll: 0, rr: 0, lr: 0 };
+    this._gonioStage = -1;
     /** Undo-gesture id for the control being dragged. */
     this.gesture = null;
 
@@ -529,9 +553,8 @@ export class MasteringView {
     title.className = "mst-title";
     title.textContent = t("mst.title");
 
-    const power = this.switchEl(t("mst.chainOn"), () => this.params.on,
+    const power = this.lamp(t("mst.chainOn"), () => this.params.on,
       (on) => this.edit((p) => { p.on = on; }));
-    power.classList.add("mst-power");
 
     const seg = document.createElement("div");
     seg.className = "mst-seg";
@@ -592,8 +615,7 @@ export class MasteringView {
     name.textContent = t(titleKey);
     head.append(name);
     if (power) {
-      const sw = this.switchEl("", power.get, power.set);
-      head.appendChild(sw);
+      head.appendChild(this.flip(t(titleKey), power.get, power.set));
       box.classList.add("mst-switchable");
       this.controls.push({ el: box, refresh: () => box.classList.toggle("mst-off", !power.get()) });
     }
@@ -638,7 +660,8 @@ export class MasteringView {
     // The response curve sits inside the unit: an EQ you cannot see is a set of
     // numbers, and the whole point of four bands is the shape they make.
     this.eqCanvas = document.createElement("canvas");
-    this.eqCanvas.className = "mst-eq-curve";
+    this.eqCanvas.className = "mst-eq-curve mst-eq-graph";
+    this.eqCursor = trackCursor(this.eqCanvas, () => {}); // the frame loop repaints it anyway
     u.body.appendChild(this.eqCanvas);
     for (let i = 0; i < EQ_BANDS; i++) u.body.appendChild(this.eqBand(i));
     return u;
@@ -652,7 +675,7 @@ export class MasteringView {
     const name = document.createElement("span");
     name.textContent = t("mst.band", { n: i + 1 });
     head.append(name,
-      this.switchEl("", () => this.params.eq[i].on,
+      this.flip(t("mst.band", { n: i + 1 }), () => this.params.eq[i].on,
         (on) => this.edit((p) => { p.eq[i].on = on; })));
     box.appendChild(head);
     // Only the outer bands may be shelves (mastering.js normalises the rest),
@@ -705,9 +728,13 @@ export class MasteringView {
   }
 
   unitWidth() {
-    const u = this.unit("mst.width", {
+    // In a surround song the same stage is also SURROUND width (item 247): an
+    // ambisonic export scales every direction against W with it.
+    const song = this.store.doc?.songs[this.store.songIndex];
+    const surround = !!song && song.surroundModel !== SURROUND_STEREO;
+    const u = this.unit(surround ? "mst.widthSurround" : "mst.width", {
       power: { get: () => this.params.widthOn, set: (on) => this.edit((p) => { p.widthOn = on; }) },
-      hint: "mst.widthHint",
+      hint: surround ? "mst.widthHintSurround" : "mst.widthHint",
     });
     u.body.append(this.numRow("mst.widthAmount", "width", "width", {
       digits: 0, scale: 100, unit: "%",
@@ -738,19 +765,18 @@ export class MasteringView {
 
   // ── control widgets ──
 
-  /** A small on/off switch that reads its state from the document. */
-  switchEl(label, get, set) {
-    const wrap = document.createElement("label");
-    wrap.className = "mst-switch";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = !!get();
-    box.addEventListener("change", () => set(box.checked));
-    const txt = document.createElement("span");
-    txt.textContent = label;
-    wrap.append(box, txt);
-    this.controls.push({ el: wrap, refresh: () => { box.checked = !!get(); } });
-    return wrap;
+  /** A lamp pushbutton for an option, kept in step with the document. */
+  lamp(label, get, set, title = "") {
+    const b = lampButton({ label, title, on: get(), onChange: set });
+    this.controls.push({ el: b.button, refresh: () => b.setOn(get()) });
+    return b.button;
+  }
+
+  /** A flip switch putting a unit (or an EQ band) in circuit, kept in step. */
+  flip(label, get, set) {
+    const s = flipSwitch({ label, on: get(), onChange: set });
+    this.controls.push({ el: s.button, refresh: () => s.setOn(get()) });
+    return s.button;
   }
 
   dbRow(labelKey, key, control) {
@@ -844,20 +870,11 @@ export class MasteringView {
     return row;
   }
 
+  /** An option's row: one lamp pushbutton, named for the option. */
   checkRow(labelKey, titleKey, get, set) {
     const row = document.createElement("div");
     row.className = "mst-row mst-row-check";
-    const wrap = document.createElement("label");
-    wrap.className = "mst-check";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.addEventListener("change", () => set(box.checked));
-    const txt = document.createElement("span");
-    txt.textContent = t(labelKey);
-    wrap.append(box, txt);
-    if (titleKey) wrap.title = t(titleKey);
-    row.appendChild(wrap);
-    this.controls.push({ el: row, refresh: () => { box.checked = !!get(); } });
+    row.appendChild(this.lamp(t(labelKey), get, set, titleKey ? t(titleKey) : ""));
     return row;
   }
 
@@ -875,7 +892,7 @@ export class MasteringView {
       this.scopeLoudness(),
       this.scopeLevels(),
       this.scopeReduction(),
-      this.scopeHistogram(),
+      this.scopeRow(this.scopeGonio(), this.scopeHistogram()),
       this.scopeOffline(),
     );
     return panel;
@@ -1080,6 +1097,29 @@ export class MasteringView {
     ]);
     this.bitCells = cells;
     box.body.append(this.histCanvas, grid);
+    return box;
+  }
+
+  /** Instruments side by side, the first at its own width, the last taking
+   *  the rest; they stack when the panel is too narrow for both. */
+  scopeRow(...boxes) {
+    const row = document.createElement("div");
+    row.className = "mst-scoperow";
+    row.append(...boxes);
+    return row;
+  }
+
+  /** The goniometer (item 257): the pair on the side of the chain the
+   *  pre/post switch is on, on the master strip's CRT beam, with its
+   *  correlation under it. */
+  scopeGonio() {
+    const box = this.scope("mst.goniometer");
+    box.classList.add("mst-gonio-unit");
+    this.gonioBox = box;
+    this.gonioCanvas = document.createElement("canvas");
+    this.gonioCanvas.className = "mst-gonio";
+    this.gonioCanvas.title = t("mst.gonioTitle");
+    box.body.append(this.gonioCanvas);
     return box;
   }
 
@@ -1434,6 +1474,7 @@ export class MasteringView {
     this.drawLevels(C, now);
     this.drawReduction(C);
     this.drawHistogram(C);
+    this.drawGonio(C, dt);
     this.drawEqCurve(C, dt);
     // The offline plot only changes when the analysis, the series or the
     // canvas width does — redrawing a five-minute polyline sixty times a
@@ -1790,38 +1831,150 @@ export class MasteringView {
     this.bitCells.ent.textContent = r.histEntropy.toFixed(2);
   }
 
-  drawEqCurve(C, dt) {
-    const box = this.ctxFor(this.eqCanvas, 110);
+  /**
+   * The goniometer (item 257): the master strip's CRT vectorscope over the
+   * pair on the side of the chain the pre/post switch is on — mid up the
+   * middle, the left channel leaning left — auto-gained as the strip's is, and
+   * saying so; under it, the pair's correlation. The ring is the spectrum
+   * rings' cursor; the beam sweeps the samples that arrived since the last
+   * frame and the phosphor holds the rest. A dial that has gone dark is not
+   * repainted until sound comes back.
+   */
+  drawGonio(C, dt) {
+    const cv = this.gonioCanvas;
+    const audio = this.store.audio;
+    if (!cv || !audio) return;
+    const stage = this.stage;
+    if (this.gonioBox) this.gonioBox.stageTag.textContent = this.stageLabel();
+    // The other side of the chain is another signal: forget this one's
+    // statistic (the beam blanks itself, `stage` being its kind).
+    if (stage !== this._gonioStage) {
+      this._gonioStage = stage;
+      this.gonioCorr = 1;
+      this.gonioCorrSums.ll = this.gonioCorrSums.rr = this.gonioCorrSums.lr = 0;
+      this._gonioDark = null;
+    }
+    const ring = audio.masterPairRing(stage);
+    const write = this.readout.specWrite | 0;
+    const fresh = this._pairWrite < 0 ? 0 : (write - this._pairWrite + SPEC_FRAMES) % SPEC_FRAMES;
+    const gap = this._pairWrite < 0 || fresh > SPEC_FRAMES / 2;
+    this._pairWrite = this.readout.frames > 0 || audio.isPlaying() ? write : -1;
+    const n = gap ? 0 : fresh;
+    this._gonioQuietMs = n > 0 ? 0 : this._gonioQuietMs + dt;
+    // Ten phosphor lifetimes and it is black: paint that once and stop (until
+    // the dial is resized or rethemed).
+    const darkKey = `${cv.clientWidth}:${C.cvBg}:${C.accent}`;
+    if (this._gonioQuietMs > 1000 && this._gonioDark === darkKey) return;
+    // The dial is square; the correlation meter and its caption sit under it.
+    const box = this.ctxFor(cv, cv.clientWidth + GONIO_CORR_H);
     if (!box) return;
-    const { ctx, w, h } = box;
+    this._gonioDark = this._gonioQuietMs > 1000 ? darkKey : null;
+    const { ctx, w } = box;
+    const h = w;
     ctx.fillStyle = C.cvBg;
     ctx.fillRect(0, 0, w, h);
-    this.drawSpectrometer(ctx, w, h, C, dt);
-    const SPAN = 18; // ±dB the plot shows
-    const y0 = h / 2;
+    const r = Math.max(8, Math.min(w, h) / 2 - 11);
+    const cx = w / 2, cy = h / 2;
+    // The dial, as the strip draws it: the rim, the axes, the sides named.
     ctx.strokeStyle = C.border;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, y0 + 0.5); ctx.lineTo(w, y0 + 0.5);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = C.dim;
-    ctx.font = "9px system-ui, sans-serif";
-    ctx.textAlign = "left";
-    for (const f of [100, 1000, 10000]) {
-      const x = (Math.log(f / 20) / Math.log(20000 / 20)) * w;
-      ctx.fillRect(x, 0, 1, h);
-      ctx.fillText(f >= 1000 ? `${f / 1000}k` : String(f), x + 2, h - 2);
+    ctx.strokeStyle = C.meterBg;
+    ctx.beginPath();
+    ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r);
+    ctx.stroke();
+    // In the strip's terms the pair is W = (L + R)/√2 up and Y = (L − R)/√2
+    // to the left, which is what its auto-gain is calibrated against.
+    let peak = 0;
+    for (let k = 0; k < SPEC_FRAMES; k++) {
+      const l = ring[k * 2], rr = ring[k * 2 + 1];
+      const a = Math.abs(l + rr) * Math.SQRT1_2, b = Math.abs(l - rr) * Math.SQRT1_2;
+      if (a > peak) peak = a;
+      if (b > peak) peak = b;
     }
+    const g = this.gonio.follow(peak, dt) * Math.SQRT1_2;
+    let ll = 0, rrs = 0, lr = 0;
+    for (let k = 0; k < n; k++) {
+      const j = (write - n + k + SPEC_FRAMES) % SPEC_FRAMES;
+      const l = ring[j * 2], rr = ring[j * 2 + 1];
+      this.gonioX[k] = (rr - l) * g;
+      this.gonioY[k] = (l + rr) * g;
+      ll += l * l; rrs += rr * rr; lr += l * rr;
+    }
+    this.gonio.draw(ctx, cx, cy, r, C.accent, C.cvBg, this.gonioX, this.gonioY, n, dt, gap, stage);
+    if (n > 0) {
+      const want = integrateCorrelation(this.gonioCorrSums, ll, rrs, lr, n);
+      this.gonioCorr = slewTowards(this.gonioCorr, want, dt, CORR_SLEW_MS);
+    }
+    this.drawGonioCorrelation(ctx, C, w, h + 4, this._gonioQuietMs > 1000);
+    ctx.font = "9px system-ui, sans-serif";
+    ctx.fillStyle = C.dim;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.fillText("L", 1, cy);
+    ctx.textAlign = "right";
+    ctx.fillText("R", w - 1, cy);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText("M", cx, 0);
+    this.gonio.drawGain(ctx, C, w - 1, 0);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  /**
+   * The correlation meter under the goniometer, as the Mixing tab draws its
+   * own: −1 … +1 from the centre, the meter's ink for a positive reading and
+   * the error ink for an anti-phase one, its figure under it ("—" once the
+   * dial has gone dark).
+   */
+  drawGonioCorrelation(ctx, C, w, y, idle) {
+    const corr = this.gonioCorr;
+    const bw = w - 4, bx = 2, mid = bx + bw / 2;
+    ctx.fillStyle = C.meterBg;
+    ctx.fillRect(bx, y, bw, 8);
+    if (!idle) {
+      ctx.fillStyle = corr >= 0 ? C.meter : C.errFg;
+      ctx.fillRect(corr >= 0 ? mid : mid + corr * (bw / 2), y, Math.abs(corr) * (bw / 2), 8);
+    }
+    ctx.fillStyle = C.border;
+    ctx.fillRect(mid, y - 1, 1, 10);
+    ctx.font = "9px system-ui, sans-serif";
+    ctx.fillStyle = C.dim;
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
+    ctx.fillText("−1", bx, y + 19);
+    ctx.textAlign = "right";
+    ctx.fillText("+1", bx + bw, y + 19);
+    ctx.textAlign = "center";
+    ctx.fillText(`${t("mst.correlation")} ${idle ? "—" : corr.toFixed(2)}`, mid, y + 19);
+    ctx.textAlign = "left";
+  }
+
+  /** The EQ graph: the spectrometer on the Mixing tab's ground — frequency
+   *  rules, level rules every 12 dB at the left, the curve's ±18 dB at the
+   *  right — the response curve, and the hairline cursor reading the axes. */
+  drawEqCurve(C, dt) {
+    const box = this.ctxFor(this.eqCanvas, EQ_GRAPH_H);
+    if (!box) return;
+    const { ctx, w, h } = box;
+    const axes = { lo: SPEC_MIN_DB, hi: SPEC_MAX_DB, curveDb: EQ_GRAPH_DB, ground: C.cvBg };
+    drawSpecGround(ctx, w, h, C, axes);
+    this.drawSpectrometer(ctx, w, h, C, dt);
     const { freq, db } = responseCurve(this.curveChain, 20, 20000, Math.max(64, Math.round(w)));
     ctx.strokeStyle = this.params.eqOn || this.params.hpOn ? C.accent : C.dim;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (let i = 0; i < freq.length; i++) {
       const x = (i / (freq.length - 1)) * w;
-      const y = y0 - clamp(db[i], -SPAN, SPAN) * (h / 2 / SPAN);
+      const y = h / 2 - clamp(db[i] / EQ_GRAPH_DB, -1, 1) * (h / 2 - 4);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
+    drawCursor(ctx, w, h, C, this.eqCursor, axes);
   }
 
   /**

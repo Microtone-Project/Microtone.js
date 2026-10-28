@@ -50,7 +50,8 @@ import { SAMPLING_RATE } from "../../../core/engine/constants.js";
 import { setSongScalarOp } from "../../doc/ops.js";
 import { themeColors } from "../theme.js";
 import { paintSpatialDot } from "../spatialdot.js";
-import { CrtBeam, beamCoreInk } from "../crtbeam.js";
+import { beamCoreInk } from "../crtbeam.js";
+import { CrtScope, parseInk, slewTowards } from "../crtscope.js";
 import {
   RAD_BANDS, RAD_VIEWS, RadiationField, RadiationView, srgbToLinear,
 } from "../radiation.js";
@@ -58,6 +59,13 @@ import { CloudField, CloudView } from "../cloud.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr, toLayout } from "../zoom.js";
+
+// The vectorscope's helpers live with the panel both scopes draw through
+// (crtscope.js); they are still this module's to export.
+export {
+  scopeAutoGain, parseInk, slewTowards,
+  SCOPE_GAIN_SLEW_MS, SCOPE_GAIN_FILL, SCOPE_GAIN_HEADROOM, SCOPE_GAIN_MAX,
+} from "../crtscope.js";
 
 const PREF_KEY = "microtone-masterstrip";
 
@@ -111,24 +119,6 @@ export const DEFAULT_PANELS = 2;
 /** The strip's own padding, top and bottom (CSS .master-strip). */
 export const STRIP_PAD = 4;
 
-/** Time constant of the vectorscope auto-gain, both directions. Long enough
- *  that the dial BREATHES with the music instead of snapping at every
- *  transient — the trace's shape is the reading, and a gain that jumps makes
- *  shapes impossible to compare from one moment to the next. */
-export const SCOPE_GAIN_SLEW_MS = 300;
-/** How much of the dial's radius the auto-gain aims to fill. */
-export const SCOPE_GAIN_FILL = 0.92;
-/**
- * …taken back by this much, because the peak it divides by is a B-FORMAT
- * COMPONENT and not the delivered mix. A mono full-scale mix peaks at √2 in W,
- * but a hard-panned or wide one peaks at only ~0.71 in W and Y alike — so the
- * bare fill target asks for 1.3× on material that is already clipping, which is
- * the one case where the gain has to be 1. The headroom pulls that back under
- * the floor, and costs every other reading a fifth of its size.
- */
-export const SCOPE_GAIN_HEADROOM = 0.7;
-/** Ceiling, so a near-silent passage does not amplify the dither into a disc. */
-export const SCOPE_GAIN_MAX = 64;
 /**
  * Correlation is a STATISTIC, and one snapshot interval (~16 ms) is far too
  * short a sample of one: read that raw and the bar dances on every transient
@@ -140,16 +130,6 @@ export const CORR_INTEGRATE_MS = 600;
 export const CORR_SLEW_MS = 150;
 
 // ── pure helpers (unit-tested in test/node/analysis.test.js) ───────────────
-
-/**
- * The gain a window that peaked at `peak` asks for: enough to fill the dial,
- * never below 1 (the scope is a magnifier, and shrinking a mix that already
- * fills the dial would only hide how wide it is), never above the ceiling.
- */
-export function scopeAutoGain(peak) {
-  const want = (SCOPE_GAIN_FILL * SCOPE_GAIN_HEADROOM) / Math.max(peak, 1e-4);
-  return Math.max(1, Math.min(want, SCOPE_GAIN_MAX));
-}
 
 /** Amplitude → dBFS, with a floor rather than −Infinity. */
 export function dbfs(v) {
@@ -187,32 +167,6 @@ export function scopePanelHeight(width) {
 export function scopePanelsThatFit(stripH, headH, meterH, panelH) {
   if (!(panelH > 0)) return 0;
   return Math.max(0, Math.floor((stripH - headH - meterH - SPLIT_H) / panelH));
-}
-
-/** "#rgb" / "#rrggbb" / "rgb(…)" → [r, g, b]; anything else → mid grey. */
-export function parseInk(css) {
-  const s = String(css ?? "").trim();
-  if (s.startsWith("#")) {
-    const h = s.slice(1);
-    if (h.length === 3) return [0, 1, 2].map((i) => parseInt(h[i] + h[i], 16));
-    if (h.length >= 6) return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-  }
-  const m = s.match(/rgba?\(([^)]+)\)/);
-  if (m) {
-    const p = m[1].split(",").map((x) => parseInt(x, 10));
-    if (p.length >= 3 && p.every((x) => Number.isFinite(x))) return p.slice(0, 3);
-  }
-  return [128, 128, 128];
-}
-
-/**
- * One display frame of an exponential approach to `want`, so the result after a
- * given stretch of TIME is the same however many frames it was cut into — the
- * display moves at the same speed on a 30 fps machine as on a 144 fps one.
- */
-export function slewTowards(prev, want, dtMs, tauMs) {
-  if (!(dtMs > 0)) return prev;
-  return prev + (want - prev) * (1 - Math.exp(-dtMs / tauMs));
 }
 
 /**
@@ -468,8 +422,8 @@ export class MasterStrip {
     this._kindsSig = null;
     this._prefSig = null;
     this._wasPlaying = false;
-    this.scopeGain = new Array(MAX_SCOPE_PANELS).fill(1); // auto-gain per panel
-    this.beams = new Array(MAX_SCOPE_PANELS).fill(null);  // CRT beam per panel
+    // A CRT beam and its auto-gain per panel (crtscope.js).
+    this.crt = Array.from({ length: MAX_SCOPE_PANELS }, () => new CrtScope());
     // The radiation family (item 129): ONE field, however many cameras are
     // looking at it, and none at all until a panel asks for one.
     this.radField = null;
@@ -755,7 +709,7 @@ export class MasterStrip {
 
   /** Blank every scope's phosphor and forget where in the ring the beam was. */
   resetBeams() {
-    for (const cell of this.beams) cell?.beam.clear();
+    for (const scope of this.crt) scope.clear();
     for (const cell of this.cloudCells) cell?.view.clear();
     this.radField?.reset();
     this.cloudField?.reset();
@@ -1385,10 +1339,14 @@ export class MasterStrip {
     const ring = audio.scopeRing();
     const write = this.readout.ringWrite;
     const hSign = axes.flipH ? 1 : -1; // +Y is LEFT on screen, +X is FRONT (up)
+    const scope = this.crt[slot];
 
     // The gain is a WINDOW statistic, so it reads the whole ring however few
     // samples this frame draws: measured over the 16 ms just gone it would
-    // wobble with every transient.
+    // wobble with every transient. One slew for both directions (~300 ms): a
+    // transient briefly overruns the dial rather than yanking the whole trace
+    // smaller, which is the readable trade — you are looking at the SHAPE, and
+    // it has to hold still enough to be looked at.
     let peak = 0;
     for (let k = 0; k < SCOPE_FRAMES; k++) {
       const o = k * SCOPE_CHANNELS;
@@ -1397,77 +1355,19 @@ export class MasterStrip {
       if (a > peak) peak = a;
       if (b > peak) peak = b;
     }
-    // One slew for both directions (~300 ms): a transient briefly overruns the
-    // dial rather than yanking the whole trace smaller, which is the readable
-    // trade — you are looking at the SHAPE, and it has to hold still enough to
-    // be looked at.
-    this.scopeGain[slot] = slewTowards(
-      this.scopeGain[slot], scopeAutoGain(peak), this.dtMs ?? 16, SCOPE_GAIN_SLEW_MS);
-    const g = this.scopeGain[slot];
+    const g = scope.follow(peak, this.dtMs ?? 16);
 
     // The screen is built in CSS pixels and blitted through the canvas
     // transform, so the trace looks the same on a HiDPI screen as on a plain
     // one (and costs the same) instead of thinning out as the pixels get finer.
-    const size = Math.ceil(2 * r) + 2;
-    const cell = this.beamCell(slot, size, C.accent, C.cvBg, kind);
-    const beam = cell.beam;
-    beam.decay(this.dtMs ?? 16);
-
     const n = this.freshFrames;
-    if (n > 0) {
-      if (this.traceGap) beam.lift();
-      for (let k = 0; k < n; k++) {
-        const o = ((write - n + k + SCOPE_FRAMES * 2) % SCOPE_FRAMES) * SCOPE_CHANNELS;
-        traceX[k] = hSign * ring[o + axes.h] * g;
-        traceY[k] = ring[o + axes.v] * g;
-      }
-      beam.trace(traceX, traceY, n);
+    for (let k = 0; k < n; k++) {
+      const o = ((write - n + k + SCOPE_FRAMES * 2) % SCOPE_FRAMES) * SCOPE_CHANNELS;
+      traceX[k] = hSign * ring[o + axes.h] * g;
+      traceY[k] = ring[o + axes.v] * g;
     }
-    beam.develop(cell.image.data, cell.rgb, cell.core);
-    cell.ctx.putImageData(cell.image, 0, 0);
-    ctx.drawImage(cell.canvas, cx - size / 2, cy - size / 2);
-
-    if (this.scopeGain[slot] > 1.05) {
-      ctx.fillStyle = C.dim;
-      ctx.font = "9px system-ui, sans-serif";
-      ctx.textAlign = "right";
-      ctx.textBaseline = "top";
-      ctx.fillText(`×${this.scopeGain[slot].toFixed(1)}`, cx + r + 10, cy - r - 10);
-    }
-  }
-
-  /**
-   * One panel's beam, its blit canvas and its ImageData. The beam survives a
-   * theme change (only the ink is re-parsed) but not a resize or a change of
-   * view: both of those move every pixel of it, and the phosphor would spend
-   * half a second showing the previous geometry.
-   */
-  beamCell(slot, size, ink, ground, kind) {
-    let c = this.beams[slot];
-    if (c === null || c.size !== size) {
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      const cctx = canvas.getContext("2d");
-      c = this.beams[slot] = {
-        size, ink: null, ground: null, kind, rgb: [128, 128, 128], core: [255, 255, 255],
-        canvas, ctx: cctx,
-        image: cctx.createImageData(size, size), beam: new CrtBeam(size),
-      };
-    }
-    if (c.ink !== ink) {
-      c.ink = ink;
-      c.rgb = parseInk(ink);
-    }
-    if (c.ground !== ground) {
-      c.ground = ground;
-      c.core = beamCoreInk(parseInk(ground));
-    }
-    if (c.kind !== kind) {
-      c.kind = kind;
-      c.beam.clear();
-    }
-    return c;
+    scope.draw(ctx, cx, cy, r, C.accent, C.cvBg, traceX, traceY, n, this.dtMs ?? 16, this.traceGap, kind);
+    scope.drawGain(ctx, C, cx + r + 10, cy - r - 10);
   }
 
   /**

@@ -171,6 +171,7 @@ from taud_common import (
     last_note_cue_index, nearest_minifloat,
     IXMP_PAN_NO_OVERRIDE, IXMP_CHAN_DISCRETE, atten_cb_to_octet,
     TAUD_BPM_MIN, TAUD_BPM_MAX, tempo_effect_arg,
+    renumber_patterns_lane_major,
 )
 
 SIGNATURE = b'midi2taud/TSVM'   # 14 bytes
@@ -3943,50 +3944,6 @@ def _pattern_is_empty(pat_bin: bytes, idx: int) -> bool:
     return True
 
 
-def _blank_pattern() -> bytes:
-    """A pattern of 64 silent cells, in the converter's own filler spelling
-    (vol/pan 0xC0 no-ops, everything else zero) — the same bytes build_pattern_bin
-    lays down for a part that rests through a whole cue."""
-    blank = bytearray(PATTERN_BYTES)
-    for r in range(PATTERN_ROWS):
-        blank[r * 8 + 3] = 0xC0
-        blank[r * 8 + 4] = 0xC0
-    return bytes(blank)
-
-
-def _empty_pattern_first(pat_bin: bytes, remap: dict, n_unique: int,
-                         verbose_note: list) -> tuple:
-    """Put an all-empty pattern on $0000 (item 159).
-
-    Pattern $0000 is what an editor reaches for when a cue gains a channel or a
-    new cue is added, so a converted song where $0000 happens to be real music
-    makes every such gesture blurt out a phrase nobody asked for. Any silent
-    filler pattern the song already carries is SWAPPED to the front (a pure
-    permutation — the cue sheet follows through `remap`); a song that has none
-    gets a fresh blank prepended, if the pattern budget can take one.
-
-    Returns (pat_bin, remap, n_unique).
-    """
-    empty = next((u for u in range(n_unique) if _pattern_is_empty(pat_bin, u)), None)
-    if empty == 0:
-        return pat_bin, remap, n_unique
-    if empty is None:
-        if n_unique >= NUM_PATTERNS_MAX:
-            verbose_note.append("no room for a blank $0000")
-            return pat_bin, remap, n_unique
-        verbose_note.append("blank $0000 added")
-        return (_blank_pattern() + bytes(pat_bin),
-                {k: v + 1 for k, v in remap.items()},
-                n_unique + 1)
-    verbose_note.append(f"blank $0000 (was ${empty:04X})")
-    buf = bytearray(pat_bin)
-    a, b = 0, empty * PATTERN_BYTES
-    buf[a:a + PATTERN_BYTES], buf[b:b + PATTERN_BYTES] = \
-        bytes(buf[b:b + PATTERN_BYTES]), bytes(buf[a:a + PATTERN_BYTES])
-    swap = {0: empty, empty: 0}
-    return bytes(buf), {k: swap.get(v, v) for k, v in remap.items()}, n_unique
-
-
 def build_pattern_bin(cells: dict, n_voices: int,
                       cue_starts: list, cue_lens: list) -> bytes:
     """Pack patterns for cues that may start at arbitrary rows and run fewer
@@ -4210,10 +4167,6 @@ def build_song_section(song: Song, speed: int, rpb: int, src_path: str,
         # --no-dedup-patterns: keep one pattern per cue×voice cell, so no two
         # cues ever share a pattern and editing one leaves the others alone.
         remap, n_unique = {i: i for i in range(n_pats)}, n_pats
-    # Reserve $0000 for silence (item 159) — the index every editor hands out
-    # for a newly-added channel or cue.
-    zero_note = []
-    pat_bin, remap, n_unique = _empty_pattern_first(pat_bin, remap, n_unique, zero_note)
     # The cue-planning guard above counted cues BEFORE loop injection, which may
     # have split one; re-check now that the real pattern count is known.
     if n_unique > NUM_PATTERNS_MAX:
@@ -4223,7 +4176,6 @@ def build_song_section(song: Song, speed: int, rpb: int, src_path: str,
                    if 0 < (ft - shift_ft) // speed < total_rows)
     vprint(f"  patterns: {n_pats} → {n_unique} unique"
            + ("" if args.dedup_patterns else " (de-duplication off)")
-           + (f", {zero_note[0]}" if zero_note else "")
            + f"; {n_cues} cue(s), {n_voices} voice(s), {total_rows} rows"
            + (f"; {n_breaks} time-signature break(s)" if n_breaks > 0 else ""))
 
@@ -4294,6 +4246,10 @@ def build_song_section(song: Song, speed: int, rpb: int, src_path: str,
     title = song.title or os.path.splitext(os.path.basename(src_path))[0]
 
     cue_bytes, n_cues_stored = finalize_cue_sheet(sheet, num_voices=cue_voices)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253):
+    # a part resting through a cue then plays nothing there instead of a blank.
+    pat_bin, cue_bytes, n_unique, n_cues_stored, pattern_names = renumber_patterns_lane_major(
+        pat_bin, cue_bytes, num_voices=cue_voices, pattern_names=pattern_names)
 
     return {
         'pat_comp':  compress_blob(pat_bin,      "pattern bin"),

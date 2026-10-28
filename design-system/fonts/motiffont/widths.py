@@ -11,7 +11,7 @@ the result interpolates like any other master. [stems] compensate in
 motif.toml dials this between none (0) and full (1).
 """
 
-from .geometry import hits, superellipse
+from .geometry import hits, superellipse, superellipse_arc
 from .varglyph import VarGlyph, MASTERS, bounds
 
 
@@ -198,6 +198,39 @@ def hp_capital_o(vg, exponent, exponent_inner, widen, margin, slant=0.0, y0=0.0)
         inner = superellipse(x0 + left, bo[1] + bottom, x1 - right, bo[3] - top, exponent_inner,
                              clockwise=False)
         res = [outer, inner]
+        if slant:
+            res = [[(x + slant * (y - y0), y, on) for x, y, on in c] for c in res]
+        return res
+    return vg.map(master)
+
+
+def round_capital_d(vg, exponent, exponent_inner, bowl, slant=0.0, y0=0.0):
+    """Chivo's D (or a letter built on it: Ð, Đ) with its bowl redrawn as half
+    a superellipse, `bowl` times half the D's height wide (no wider than
+    reaches the counter's left edge), the bars running straight from the stem
+    into it. Every master keeps its own stem, bar and bowl thicknesses and
+    heights, and any further contour (Ð's bar) is kept as it is. Round beside
+    the square O, and with a stem where the zero has none."""
+    # The bowl's two contours, picked at the middle master (at Black, Ð's bar
+    # is as big as the counter); every master has them in the same place.
+    mid = _unslant(vg.masters[0.0], slant, y0)
+    size = lambda i: (lambda b: (b[2] - b[0]) * (b[3] - b[1]))(bounds([mid[i]]))
+    io, ii = sorted(range(len(mid)), key=size, reverse=True)[:2]
+
+    def master(t, outline):
+        flat = _unslant(outline, slant, y0)
+        bo, bi = bounds([flat[io]]), bounds([flat[ii]])
+        b = (bo[3] - bo[1]) / 2
+        xs = bo[2] - min(bowl * b, bo[2] - bi[0])
+        xi = max(xs, bi[0])
+        outer = [(bo[0], bo[1], True), (bo[0], bo[3], True),
+                 *superellipse_arc(xs, bo[1] + b, bo[2] - xs, b, exponent, 90, -90)]
+        inner = [(bi[0], bi[1], True),
+                 *superellipse_arc(xi, (bi[1] + bi[3]) / 2, bi[2] - xi, (bi[3] - bi[1]) / 2,
+                                   exponent_inner, -90, 90),
+                 (bi[0], bi[3], True)]
+        res = list(flat)
+        res[io], res[ii] = outer, inner
         if slant:
             res = [[(x + slant * (y - y0), y, on) for x, y, on in c] for c in res]
         return res

@@ -128,7 +128,7 @@ const S_LAYOUT = {
   0x6: "o1..", // S $6x00  fine pattern delay
   0x7: "o1..", // S $7x00  note/instrument action
   0x8: "o111", // S $80xx  set lane pan (9-bit angle in surround)
-  0xa: "o123", // S $Afgr  formant vowel: openness, frontness, roundness
+  0xa: "o123", // S $Axxx  instrument sound control: formant $Afgr, FM rack $Apsd
   0xb: "o1..", // S $Bx00  pattern loop
   0xc: "o1..", // S $Cx00  note cut
   0xd: "o123", // S $Dxny  note delay, action, action delay

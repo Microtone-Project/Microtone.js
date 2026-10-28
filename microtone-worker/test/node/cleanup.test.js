@@ -12,6 +12,10 @@ import {
   planRenumberInstrument, instrumentCellRefs, planIxmpCleanup, reachablePatchSets,
 } from "../../src/doc/cleanup.js";
 import { TaudPlayData } from "../../core/engine/state.js";
+import { TaudEngine } from "../../core/engine/engine.js";
+import { setSamplingRate } from "../../core/engine/constants.js";
+import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
+import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
 import { EffectOp } from "../../core/engine/tables.js";
 import { remapPatternsOp, cleanupBankOp, renumberInstrumentOp, importBankOp } from "../../src/doc/ops.js";
 import { writePatchesBlob } from "../../core/engine/inst.js";
@@ -46,9 +50,131 @@ test("planCleanupPatterns: only referenced patterns, ascending", () => {
   assert.deepEqual(planCleanupPatterns(synthSong()), [0, 2]);
 });
 
-test("planRenumberPatterns: referenced first (play order), then extras", () => {
-  // referenced 2,0 (appearance) then unreferenced-materialised 1,3
-  assert.deepEqual(planRenumberPatterns(synthSong()), [2, 0, 1, 3]);
+// ── lane-major renumber (item 253) ──
+
+/** A pattern whose row 0 holds `note` (0 = a wholly blank pattern), and an
+ *  effect on row `fxRow` if asked for. */
+function cellPat(note, { fx = 0, fxArg = 0, fxRow = 63 } = {}) {
+  const rows = [];
+  for (let r = 0; r < 64; r++) { const c = new TaudPlayData(); c.volumeEff = 3; c.panEff = 3; rows.push(c); }
+  if (note) { rows[0].note = note; rows[0].instrment = 1; }
+  if (fx) { rows[fxRow].effect = fx; rows[fxRow].effectArg = fxArg; }
+  return rows;
+}
+const E = 0x7fff;
+const cue = (...pats) => { const w = new Uint16Array(64).fill(E); pats.forEach((p, i) => { w[i] = p; }); return w; };
+
+test("planRenumberPatterns: lane-major, each lane from a round number", () => {
+  // Lane 1 plays 3 patterns, lane 2 plays 2 (one of them lane 1's), lane 3 one.
+  const song = {
+    patterns: [cellPat(0x5000), cellPat(0x5100), cellPat(0x5200), cellPat(0x5300), cellPat(0x5400), cellPat(0x5500)],
+    cues: [cue(5, 4, 0), cue(3, 5), cue(1, E)],
+  };
+  const plan = planRenumberPatterns(song, ["", "", "", "", "five"]);
+  // lane 1: 5, 3, 1 → 0000-0002; lane 2: 4 (5 is lane 1's) → 0010; lane 3: 0 → 0020;
+  // pattern 2 plays nowhere but has content → after the last lane, 0030.
+  assert.equal(plan.cues[0][0], 0x0000); assert.equal(plan.cues[1][0], 0x0001); assert.equal(plan.cues[2][0], 0x0002);
+  assert.equal(plan.cues[0][1], 0x0010); assert.equal(plan.cues[1][1], 0x0000, "a pattern keeps lane 1's number in lane 2");
+  assert.equal(plan.cues[0][2], 0x0020);
+  assert.equal(plan.patterns[0x30][0].note, 0x5200, "an unplayed pattern with content is kept");
+  assert.equal(plan.patterns.length, 0x31);
+  assert.equal(plan.patterns[0x0f], null, "the gaps are left unmaterialised");
+  assert.equal(plan.patterns[0x10][0].note, 0x5400);
+  assert.equal(plan.pNam[0x10], "five", "names follow their patterns");
+  assert.deepEqual(plan.rounding, [0x10, 0x100]);
+});
+
+test("planRenumberPatterns: a long lane rounds the next to $100; ends at $000F/$009F/$0103 as specified", () => {
+  for (const [n, next] of [[0x10, 0x10], [0xa0, 0x100], [0x104, 0x200]]) {
+    const pats = [], cues = [];
+    for (let i = 0; i < n; i++) { pats.push(cellPat(0x5000 + i)); cues.push(cue(i)); }
+    pats.push(cellPat(0x4000)); cues[0][1] = n; // lane 2's one pattern
+    const plan = planRenumberPatterns({ patterns: pats, cues });
+    assert.equal(plan.cues[n - 1][0], n - 1);
+    assert.equal(plan.cues[0][1], next, `lane 1 ending at $${(n - 1).toString(16)} → lane 2 at $${next.toString(16)}`);
+  }
+});
+
+test("planRenumberPatterns: rounding falls back to $10, then to none, rather than overflow", () => {
+  // 64 lanes of $180 patterns and $100 nobody plays: lanes $200 apart leave the
+  // unplayed ones no room, lanes $180 apart do. (The last group is never rounded.)
+  const shared = cellPat(0x5000); // one row array is enough — numbering never compares content
+  const build = (perLane, extra) => {
+    const patterns = new Array(64 * perLane + extra).fill(shared);
+    const cues = [];
+    for (let c = 0; c < perLane; c++) {
+      const w = new Uint16Array(64);
+      for (let ch = 0; ch < 64; ch++) w[ch] = ch * perLane + c;
+      cues.push(w);
+    }
+    return { patterns, cues };
+  };
+  let plan = planRenumberPatterns(build(0x180, 0x100));
+  assert.deepEqual(plan.rounding, [0x10, 0x10]);
+  assert.equal(plan.cues[0][1], 0x180);
+  // 64 lanes of $1F1 plus $F unplayed: even $10 rounding runs past $7FFE.
+  plan = planRenumberPatterns(build(0x1f1, 0xf));
+  assert.deepEqual(plan.rounding, [1, 1]);
+  assert.equal(plan.cues[0][1], 0x1f1);
+  assert.equal(plan.patterns.length, 64 * 0x1f1 + 0xf);
+});
+
+test("planRenumberPatterns: a blank pattern leaves the cues as $7FFF where nothing is left running", () => {
+  const song = {
+    patterns: [cellPat(0), cellPat(0x5000), cellPat(0x5100, { fx: EffectOp.OP_D, fxArg: 0x0400 })],
+    // lane 1: note, blank, blank — lane 2: a volume slide on row 63, then blank
+    cues: [cue(1, 2), cue(0, 0), cue(0, E)],
+  };
+  const plan = planRenumberPatterns(song);
+  assert.equal(plan.cues[1][0], E, "after a quiet last row the blank goes");
+  assert.equal(plan.cues[2][0], E);
+  assert.notEqual(plan.cues[1][1], E, "after a lingering slide the blank stays: it is what stops the slide");
+  assert.equal(plan.emptied, 2);
+  assert.ok(plan.patterns[plan.cues[1][1]], "…and keeps a number of its own");
+  // The dirt passes THROUGH an empty slot: blank after (slide, nothing) still stays.
+  const s2 = { patterns: song.patterns, cues: [cue(2), cue(E), cue(0)] };
+  assert.notEqual(planRenumberPatterns(s2).cues[2][0], E);
+  // A named blank is somebody's pattern, not a blank.
+  assert.notEqual(planRenumberPatterns(song, ["intro rest"]).cues[1][0], E);
+});
+
+test("planRenumberPatterns: a B jump or C break makes its row a last row too", () => {
+  const breakAt = cellPat(0x5000, { fx: EffectOp.OP_D, fxArg: 0x0400, fxRow: 10 });
+  breakAt[11].effect = EffectOp.OP_C; // the cue ends after row 11, with row 10's slide…
+  breakAt[10].effect2 = 0;
+  const viaC = { patterns: [cellPat(0), breakAt], cues: [cue(1), cue(0)] };
+  // row 11's own C is an effect, so the row that ends the cue lingers.
+  assert.notEqual(planRenumberPatterns(viaC).cues[1][0], E);
+  // B in another lane jumps from cue 0 to cue 2, past cue 1.
+  const jumper = cellPat(0x5000); jumper[5].effect = EffectOp.OP_B; jumper[5].effectArg = 2;
+  const lingerEarly = cellPat(0x5100, { fx: EffectOp.OP_D, fxArg: 0x0400, fxRow: 5 });
+  const viaB = { patterns: [cellPat(0), jumper, lingerEarly], cues: [cue(2, 1), cue(E), cue(0)] };
+  assert.notEqual(planRenumberPatterns(viaB).cues[2][0], E, "row 5 can be cue 0's last row");
+});
+
+test("renumber: the song sounds the same, and a blank emptied unsafely would not", () => {
+  const doc = new Document(parseTaud(readFileSync(new URL("../../assets/demo_projects/Daisy_bell.taud", import.meta.url))));
+  const song = doc.songs[0];
+  // Lane 1: an 8-row cue whose last row starts a volume slide down, then a
+  // blank cue that HALTs. Word 0 rides the sign bits of lanes 1-16.
+  song.patterns = [cellPat(0x46ab, { fx: EffectOp.OP_D, fxArg: 0x0400, fxRow: 7 }), cellPat(0)];
+  song.cues = [cue(0), cue(1)];
+  for (const ch of [0, 1, 2, 9]) song.cues[0][ch] |= 0x8000; // $0207 = LEN 8
+  song.cues[1][8] |= 0x8000;                                  // $0100 = HALT
+  const render = () => {
+    setSamplingRate(48000); setRandomSource(makeSeededRandom(1));
+    const parsed = parseTaud(doc.toBytes());
+    const eng = new TaudEngine(); loadIntoEngine(eng, parsed, 0);
+    const r = renderSong(eng, 6); setRandomSource(null);
+    return Buffer.from(r.u8).toString("base64");
+  };
+  const before = render();
+  const plan = planRenumberPatterns(song, doc._nameTable("pNam"), doc.wideCells === true);
+  assert.notEqual(plan.cues[1][0] & 0x7fff, E, "the blank after the slide is kept");
+  remapPatternsOp(0, plan.patterns, plan.cues, encodeNameTable(plan.pNam)).apply(doc);
+  assert.equal(render(), before, "renumbered, it sounds the same");
+  song.cues[1][0] = (song.cues[1][0] & 0x8000) | E; // what an unguarded renumber would do
+  assert.notEqual(render(), before, "emptied, the slide runs on through the cue");
 });
 
 test("applyPatternOrder: rewrites cue refs, keeps the instruction sign bit", () => {

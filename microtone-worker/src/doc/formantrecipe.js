@@ -42,7 +42,7 @@ import { Fft } from "../../core/engine/fft.js";
 import { META_MIX_GAIN } from "../../core/engine/tables.js";
 import {
   CONSONANTS, CONSONANT_LIST, consonantNeedsNoise, timingScale, vowelAtPitch, noteHz,
-  MANNER_STOP, MANNER_AFFRICATE, MANNER_ASPIRATE, FORMANT_LEVEL,
+  MANNER_STOP, MANNER_AFFRICATE, MANNER_ASPIRATE, FORMANT_LEVEL, BREATHY_SA,
 } from "../../core/engine/formant.js";
 import { estimatePeriod, resolveLoopRegion } from "./looptune.js";
 import { regionBytes } from "./sampleregions.js";
@@ -402,9 +402,9 @@ function vowelFit(E, V) {
 function noiseMs(row, timing) {
   const k = timingScale(timing);
   switch (row.manner) {
-    case MANNER_STOP: return (row.burst + row.vot + 10) * k;
+    case MANNER_STOP: return (row.burst + row.vot + (row.voiced && row.vot > 0 ? BREATHY_SA : 0) + 10) * k;
     case MANNER_AFFRICATE: return (row.burst + row.dur + 10) * k;
-    default: return (row.dur + 20) * k;
+    default: return (row.dur + row.vot + 20) * k;   // an aspirated fricative breathes on
   }
 }
 

@@ -138,7 +138,7 @@ export async function renderMultichannelAsync(docLike, songIndex, maxSeconds, {
   // loadIntoEngine put whatever the song declared.
   const masterParams = eng.getMastering(0);
   const master = masteringEngaged(masterParams)
-    ? new MasterChain(masterParams, SAMPLING_RATE, channels)
+    ? new MasterChain(masterParams, SAMPLING_RATE, channels, renderer.name.startsWith("ambisonic"))
     : null;
   if (master !== null) eng.setMastering(0, defaultMastering());
   const writer = new WavWriter({

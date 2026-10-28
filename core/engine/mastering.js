@@ -248,7 +248,7 @@ export const gainToDb = (g) => (g > 0 ? 20 * Math.log10(g) : -Infinity);
 // makes a multichannel master well defined: the same filter, coefficient for
 // coefficient, on all of them (§12.3 of the engine spec).
 
-class Biquad {
+export class Biquad {
   constructor(channels = 2) {
     this.b0 = 1; this.b1 = 0; this.b2 = 0; this.a1 = 0; this.a2 = 0;
     this.x1 = new Float64Array(channels); this.x2 = new Float64Array(channels);
@@ -302,6 +302,40 @@ class Biquad {
               (A + 1) + (A - 1) * cw + tsa,
               -2 * ((A - 1) + (A + 1) * cw),
               (A + 1) + (A - 1) * cw - tsa);
+  }
+
+  /** RBJ low-pass (item 217's cut filters and crossovers). */
+  lowPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ band-pass, constant 0 dB peak gain (a dynamic EQ's sensor). */
+  bandPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(alpha, 0, -alpha, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ notch. */
+  notch(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1, -2 * cw, 1, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  /** RBJ all-pass. At Q = 1/√2 it is exactly what a Linkwitz–Riley 4th-order
+   *  low-pass and high-pass at the same frequency sum to — the phase a
+   *  multiband split owes the bands that did not pass through that crossover. */
+  allPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1 - alpha, -2 * cw, 1 + alpha, 1 + alpha, -2 * cw, 1 - alpha);
   }
 
   highShelf(freq, gainDb, q, rate) {
@@ -437,9 +471,10 @@ class EqStage {
  * envelope would pull the whole sound field about whenever one direction got
  * loud.
  */
-class CompressorStage {
+export class CompressorStage {
   constructor() {
     this.grDb = 0;        // current gain reduction, dB (negative)
+    this.levelDb = -120;  // the detector's last reading, dB — for a meter only
     this.rms = 0;         // RMS detector's mean-square state
     this.rmsCoef = 0;
     this.attackCoef = 0; this.releaseCoef = 0;
@@ -458,7 +493,7 @@ class CompressorStage {
     // ignore a single cycle of a bass note, short enough to follow a phrase.
     this.rmsCoef = onePole(10, rate);
   }
-  reset() { this.grDb = 0; this.rms = 0; }
+  reset() { this.grDb = 0; this.rms = 0; this.levelDb = -120; }
 
   /** Update the envelope from the frame's linked detector and return the
    *  linear gain to apply (makeup folded in). */
@@ -506,6 +541,7 @@ class CompressorStage {
     // −120 dBFS floor: below it the gain computer has nothing to say and the
     // logarithm has nowhere to go.
     const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
+    this.levelDb = levelDb;
     const over = levelDb - this.thresh;
     const half = this.knee * 0.5;
     let targetDb;
@@ -545,7 +581,7 @@ class CompressorStage {
  *
  * The cost is 2D of latency, which is why D is one millisecond and not ten.
  */
-class LimiterStage {
+export class LimiterStage {
   constructor(channels = 2) {
     this.nch = channels;
     this.d = 0;
@@ -663,7 +699,7 @@ class LimiterStage {
 }
 
 /** One-pole smoothing coefficient for a time constant in milliseconds. */
-function onePole(ms, rate) {
+export function onePole(ms, rate) {
   const n = (ms / 1000) * rate;
   return n <= 0 ? 1 : 1 - Math.exp(-1 / n);
 }
@@ -681,14 +717,20 @@ function onePole(ms, rate) {
  * a multichannel delivery gets (item 178.1, engine spec §12.3): the same
  * parameters, the same coefficients and the same envelopes, but with every
  * channel filtered identically, ONE dynamics detector reading all of them, and
- * the stereo width stage skipped — a mid/side round trip has no meaning on six
- * speaker feeds or sixteen ambisonic channels, and forcing one would rotate the
- * sound field. Use `processPlanar` for those; `process` is the pair.
+ * the width stage either generalised or skipped. A mid/side round trip has no
+ * meaning on six speaker feeds, and forcing one would rotate the sound field,
+ * so a speaker layout skips it. An AMBISONIC scene (`ambisonic`: channel 0 is
+ * W, the rest the directional harmonics, ACN order) has a mid and a side of its
+ * own: W is what every direction shares, and the width scales every other
+ * channel against it — SURROUND WIDTH (item 247), which is the stereo stage
+ * exactly where the scene is decoded to the coincident pair W ± Y. Use
+ * `processPlanar` for these; `process` is the pair.
  */
 export class MasterChain {
-  constructor(params = null, rate = SAMPLING_RATE, channels = 2) {
+  constructor(params = null, rate = SAMPLING_RATE, channels = 2, ambisonic = false) {
     this.rate = rate;
     this.channels = channels;
+    this.ambisonic = ambisonic && channels > 1;
     this.hp = new HighPassStage(channels);
     this.eq = new EqStage(channels);
     this.comp = new CompressorStage();
@@ -789,7 +831,8 @@ export class MasterChain {
    * for the song; only two things differ from the pair, and both are forced by
    * what a channel bus is:
    *
-   *   * the stereo WIDTH stage is skipped — see the class docstring;
+   *   * the WIDTH stage scales an ambisonic scene's directional channels and
+   *     is skipped on any other bus — see the class docstring;
    *   * the compressor's and the limiter's detectors read every channel, so
    *     one gain moves the whole field and nothing about its geometry changes.
    *
@@ -812,6 +855,8 @@ export class MasterChain {
     const trim = this.trimGain;
     const out = this.outGain;
     const doHp = p.hpOn, doEq = p.eqOn, doComp = p.compOn, doLim = p.limOn;
+    const doWidth = this.ambisonic && p.widthOn && this.width !== 1;
+    const w = this.width;
     let compGr = 0;
     this.lim.grDb = 0;
 
@@ -828,6 +873,7 @@ export class MasterChain {
         for (let c = 0; c < nch; c++) data[c * stride + n] *= g;
         if (this.comp.grDb < compGr) compGr = this.comp.grDb;
       }
+      if (doWidth) for (let c = 1; c < nch; c++) data[c * stride + n] *= w;
       if (doLim) this.lim.stepPlanar(data, n, stride);
       if (out !== 1) for (let c = 0; c < nch; c++) data[c * stride + n] *= out;
     }
@@ -860,7 +906,7 @@ export class MasterChain {
 }
 
 /** |H(e^{jw})| of one configured section, in dB. */
-function biquadDb(s, freq, rate) {
+export function biquadDb(s, freq, rate) {
   const w = (2 * Math.PI * freq) / rate;
   const cw = Math.cos(w), sw = Math.sin(w);
   const c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);

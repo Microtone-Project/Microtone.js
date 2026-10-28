@@ -30,6 +30,7 @@ import struct
 import sys
 
 from taud_common import (
+    dnv_from_volume64,
     set_verbose, vprint,
     TAUD_MAGIC, TAUD_VERSION, TAUD_HEADER_SIZE, TAUD_SONG_ENTRY,
     SAMPLEBIN_SIZE, INSTBIN_SIZE, SAMPLEINST_SIZE,
@@ -39,11 +40,12 @@ from taud_common import (
     TOP_J, TOP_K, TOP_L, TOP_O, TOP_Q, TOP_R, TOP_S, TOP_T, TOP_U, TOP_V, TOP_Y,
     SEL_SET, SEL_UP, SEL_DOWN, SEL_FINE,
     J_SEMI_TABLE,
-    d_arg_to_col, resample_linear, rescale_offset_effects_per_slot, encode_cue, deduplicate_patterns,
+    d_arg_to_col, pt_slide_nibbles, pt_volume_slide, resample_linear, rescale_offset_effects_per_slot, encode_cue, deduplicate_patterns,
     loop_resample_ratio, scale_loop,
     finalize_cue_sheet, set_cue_instruction, CUE_INST_HALT,
     encode_song_entry, compress_blob,
     build_project_data, detect_subsongs,
+    renumber_patterns_lane_major,
 )
 
 
@@ -299,17 +301,19 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0) -> tuple:
         return (TOP_H, ((hi * 0x11) << 8) | (lo * 0x11), None, None)
 
     if cmd == 0x5:
-        # Tone porta + vol slide → Taud L verbatim. PT's 500 recall is already
+        # Tone porta + vol slide → Taud L, the slide nibble that acts. PT's 500 recall is already
         # collapsed by resolve_pt_recalls; if the source had no prior 5xy the
         # resolved arg is 0, which Taud's L $0000 then recalls from L's own
         # private memory. Emitting a real L (rather than the previous
         # G+vol-col split) preserves the slide on rows that also carry a
         # vol-column SET (e.g., a Cxx fold) — see TAUD_NOTE_EFFECTS.md §L.
-        return (TOP_L, (arg & 0xFF) << 8, None, None)
+        return (TOP_L, pt_slide_nibbles(arg) << 8, None, None)
 
     if cmd == 0x6:
-        # Vibrato + vol slide → Taud K verbatim (same rationale as 0x5).
-        return (TOP_K, (arg & 0xFF) << 8, None, None)
+        # Vibrato + vol slide → Taud K (same rationale as 0x5). K and L read
+        # an $F nibble as a speed, as PT does, but let DOWN win where PT lets
+        # up win: only the nibble that acts goes across (pt_slide_nibbles).
+        return (TOP_K, pt_slide_nibbles(arg) << 8, None, None)
 
     if cmd == 0x7:
         hi = (arg >> 4) & 0xF
@@ -325,17 +329,7 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0) -> tuple:
         return (TOP_O, (arg & 0xFF) << 8, None, None)
 
     if cmd == 0xA:
-        # Route Axy via Taud's effect-column D so it can coexist with a Cxx
-        # SET on the same row. (Vol-column slide selectors share the cell with
-        # the SET selector — when both Cxx and Axy land on a trigger row the
-        # vol-col slot can only encode one, and the slide gets dropped, losing
-        # 5 ticks of slide per row.) Resolution-time A00 is already collapsed
-        # to a concrete arg in resolve_pt_recalls; a remaining 0 means truly
-        # no-op (memory was empty), so emit nothing rather than D 00 (which
-        # would recall TSVM's D memory).
-        if arg == 0:
-            return (TOP_NONE, 0, None, None)
-        return (TOP_D, (arg & 0xFF) << 8, None, None)
+        return pt_volume_slide(arg)
 
     if cmd == 0xB:
         return (TOP_B, arg & 0xFF, None, None)
@@ -602,7 +596,7 @@ def build_sample_inst_bin(samples: list) -> tuple:
         inst_bin[base + 182] = 0xFF # filter cutoff = off
         inst_bin[base + 183] = 0xFF # filter resonance = off
         inst_bin[base + 186] = 1 # NNA: note cut
-        inst_bin[base + 196] = min(0xFF, round(min(s.volume, 64) * 255 / 64))       # DNV
+        inst_bin[base + 196] = dnv_from_volume64(s.volume)                                # DNV
 
         vprint(f"  instrument[{taud_idx}] '{s.name}' ptr={ptr} c2spd={s.c2spd} "
                f"vol={s.volume} loop=({ls},{le},{'on' if loop_mode else 'off'})")
@@ -755,25 +749,16 @@ def _build_song_payload_mod(mod: dict, patterns_template: list,
                             *, song_label: str = 'song') -> tuple:
     """Build pattern bin + cue sheet + song-entry kwargs for one MOD subsong.
 
-    `patterns_template` is deep-copied so per-song stateful transforms
-    (recall resolution, late-note-delay relocation, Bxx remap) don't leak
-    into the next subsong.
+    Every cue gets a PRIVATE copy of its pattern, so the stateful walks
+    (recall resolution, late-note-delay relocation, Bxx remap) see each
+    pattern in the context it is played in: a pattern reused after a
+    different 3xx/4xy/7xy/9xx resolves its `00` recalls to what PT would
+    recall THERE, not to what its first visit recalled. deduplicate_patterns
+    then merges the copies that came out alike, so a pattern with no such
+    context costs nothing extra. The copies also keep the template intact
+    for the next subsong.
     """
-    patterns = copy.deepcopy(patterns_template)
     order_list = mod['order_list']
-    virtual_orders = [order_list[pos] for pos in positions]
-
-    vprint(f"  [{song_label}] resolving PT per-effect recalls…")
-    resolve_pt_recalls(patterns, virtual_orders, n_channels)
-
-    init_speed, _ = find_initial_bpm_speed(patterns, virtual_orders)
-    relocate_late_note_delays(patterns, virtual_orders, n_channels, init_speed)
-
-    speed, tempo = find_initial_bpm_speed(patterns, virtual_orders)
-    tempo = max(25, min(280, tempo))
-    bpm_stored = (tempo - 25) & 0xFF
-    vprint(f"  [{song_label}] initial speed={speed}, tempo(BPM)={tempo}")
-
     n_patterns = mod['n_patterns']
 
     # Cue list and pos→cue mapping, skipping orders that aren't valid pattern refs.
@@ -785,26 +770,23 @@ def _build_song_payload_mod(mod: dict, patterns_template: list,
             continue
         pos_to_cue[pos] = len(cue_list)
         cue_list.append(order)
+    patterns = [copy.deepcopy(patterns_template[src]) for src in cue_list]
+    cue_orders = list(range(len(patterns)))
 
-    # Densely renumber the patterns this song uses.
-    used_ordered = []
-    seen = set()
-    for src_pat in cue_list:
-        if src_pat not in seen:
-            used_ordered.append(src_pat)
-            seen.add(src_pat)
-    pat_idx_remap = {src: i for i, src in enumerate(used_ordered)}
-    P_used = len(used_ordered)
+    vprint(f"  [{song_label}] resolving PT per-effect recalls…")
+    resolve_pt_recalls(patterns, cue_orders, n_channels)
 
-    if P_used * n_channels > NUM_PATTERNS_MAX:
-        sys.exit(f"error: [{song_label}] {P_used} patterns × {n_channels} channels = "
-                 f"{P_used*n_channels} > {NUM_PATTERNS_MAX} Taud pattern limit.")
+    init_speed, _ = find_initial_bpm_speed(patterns, cue_orders)
+    relocate_late_note_delays(patterns, cue_orders, n_channels, init_speed)
 
-    # Bxx remap on the patterns this song actually emits.
+    speed, tempo = find_initial_bpm_speed(patterns, cue_orders)
+    tempo = max(25, min(280, tempo))
+    bpm_stored = (tempo - 25) & 0xFF
+    vprint(f"  [{song_label}] initial speed={speed}, tempo(BPM)={tempo}")
+
+    # Bxx remap, cue by cue.
     crossings = 0
-    for src_pat in used_ordered:
-        if src_pat >= len(patterns): continue
-        grid = patterns[src_pat]
+    for grid in patterns:
         for ch in range(min(n_channels, len(grid))):
             for row in grid[ch]:
                 if row.effect == 0xB:
@@ -817,9 +799,9 @@ def _build_song_payload_mod(mod: dict, patterns_template: list,
         vprint(f"  warning: [{song_label}]: {crossings} Bxx target(s) cross "
                f"subsong boundary; clamped to cue 0")
 
+    P_used = len(patterns)
     pat_bin = bytearray()
-    for src_pat in used_ordered:
-        grid = patterns[src_pat]
+    for grid in patterns:
         for ch in range(n_channels):
             default_pan = _default_channel_pan(ch)
             pat_bin += build_pattern(grid, ch, default_pan, inst_vols)
@@ -829,16 +811,18 @@ def _build_song_payload_mod(mod: dict, patterns_template: list,
     pat_bin, pat_remap, num_taud_pats = deduplicate_patterns(pat_bin, orig_count)
     vprint(f"  [{song_label}] patterns: {orig_count} → {num_taud_pats} unique "
            f"({orig_count - num_taud_pats} deduplicated)")
+    if num_taud_pats > NUM_PATTERNS_MAX:
+        sys.exit(f"error: [{song_label}] {num_taud_pats} unique patterns "
+                 f"> {NUM_PATTERNS_MAX} Taud pattern limit.")
 
     sheet = bytearray(NUM_CUES * CUE_SIZE)
     for c in range(NUM_CUES):
         sheet[c*CUE_SIZE:c*CUE_SIZE+CUE_SIZE] = encode_cue([], 0)
 
     last_active = -1
-    for cue_idx, src_pat in enumerate(cue_list):
+    for cue_idx in cue_orders:
         if cue_idx >= NUM_CUES: break
-        new_pat_idx = pat_idx_remap[src_pat]
-        orig_pats = [new_pat_idx * n_channels + v for v in range(n_channels)]
+        orig_pats = [cue_idx * n_channels + v for v in range(n_channels)]
         sheet[cue_idx*CUE_SIZE:(cue_idx+1)*CUE_SIZE] = encode_cue(
             [pat_remap[p] for p in orig_pats], 0)
         last_active = cue_idx
@@ -849,6 +833,8 @@ def _build_song_payload_mod(mod: dict, patterns_template: list,
         set_cue_instruction(sheet, 0, CUE_INST_HALT)
 
     cue_bytes, num_cues = finalize_cue_sheet(sheet)
+    # Number the patterns lane by lane, as Microtone's Renumber does (item 253).
+    pat_bin, cue_bytes, num_taud_pats, num_cues, _ = renumber_patterns_lane_major(pat_bin, cue_bytes)
     pat_comp = compress_blob(bytes(pat_bin), f"[{song_label}] pattern bin")
     cue_comp = compress_blob(cue_bytes,      f"[{song_label}] cue sheet")
 

@@ -102,7 +102,7 @@
         log(`timeline keyboard sub-column select: rows=${tRowsOk} volOnly=${tVolOnly} widened=${tWidened} copyCols=${tCopyCols}`);
         timeline.clearSelection();
 
-        // ── Ctrl+A takes the whole lane column; Ctrl+→ then nudges it ───
+        // ── Ctrl+A takes the whole lane column; Ctrl+↑ then nudges it ───
         // (Ctrl+←/→ widened the column on the Timeline until the 3.0 key
         // scheme gave the chord to transposition; Cues keeps the widening.)
         const totalRows = store.song.songMap().totalRows;
@@ -113,13 +113,13 @@
           timeline.selCols()[0] === 0 && timeline.selCols().at(-1) >= 4; // note … effect
         key(win, "KeyC", "c", { ctrlKey: true });
         const colClipOk = store.clipboard.rows === totalRows && store.clipboard.chans === 1;
-        // Ctrl+→ moves every note in the block up a period, in ONE undo step.
+        // Ctrl+↑ moves every note in the block up a period, in ONE undo step.
         const notesOf = () => { const out = [];
           for (let r = 0; r < totalRows; r++) { const t = timeline.cellAt(r, 3); if (t) out.push(t.cell.note); }
           return out; };
         const before = notesOf();
         const period = store.pitchPreset?.interval || 0x1000;
-        key(win, "ArrowRight", "ArrowRight", { ctrlKey: true });
+        key(win, "ArrowUp", "ArrowUp", { ctrlKey: true });
         const after = notesOf();
         const colNudgeOk = before.every((n, i) => n < 0x20 || after[i] === Math.min(n + period, 0xffff)) &&
           eq(timeline.selBounds() && [timeline.selBounds().c0, timeline.selBounds().c1], [3, 3]);

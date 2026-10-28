@@ -14,9 +14,13 @@ and Microtone Touch both serve it.
 
 In all of them the capital **O is square and wide** and the **zero narrow and
 oval**, the way HP's terminals told them apart — no slashed or dotted zero.
-**C, G and c are opened**: their terminals end further round the bowl than
-Chivo's, so C and G stand apart from O, 0 and 6, and c from e and o, at grid
-sizes and at heavy weights. Every face is variable on weight, 100–900, with
+Between them the **D's bowl is round**, half an ellipse from top bar to bottom
+bar, so the D is neither a square O nor a stemless 0 (Ð and Đ follow it).
+**C, G, c, e, 5, 6 and 9 are opened**: their terminals end further round the
+bowl than Chivo's, so C and G stand apart from O, 0 and 6, c and e from o, and
+5, 6 and 9 from S, 8, 0, b and q, at grid sizes and at heavy weights. The **z
+is drawn wider in its own cell**, as wide as the n and x beside it (Chivo's is
+narrower), its strokes no heavier. Every face is variable on weight, 100–900, with
 Chivo's own three masters (Thin, Medium, Black); the drawn symbols and the lü
 follow the weight too.
 
@@ -40,7 +44,7 @@ and installable `.ttf` copies into `build/` (not committed).
 
 **To try other widths**, change the two numbers at the top of `motif.toml` —
 `[grid] widen` and `[transport] narrow` — rebuild, and reload the app. Every
-other dial (the O's squareness, the apertures of C G c, the code face's
+other dial (the O's squareness, the D's roundness, the apertures of C G c e 5 6 9, the z's width, the code face's
 letters and factors, the symbols' stroke weight, the lü's weights and size) is
 in the same file with a comment. `test/node/motif-font.test.js` (run from
 `microtone-worker/`) reads the shipped fonts and fails if they no longer match
@@ -90,14 +94,24 @@ the release repository can build the code face from the same package.
 - **The O** (`widths.py hp_capital_o`) is redrawn as a superellipse in each
   master's own box, pushed out by `[capital_O] widen`, keeping the master's
   stroke thicknesses; italic O is drawn upright and slanted after.
-- **The apertures** (`apertures.py`): Chivo cuts the arms of C, G and c level,
-  about where the bowl turns vertical. Each cut moves `[apertures]` units
+- **The D** (`widths.py round_capital_d`) keeps Chivo's stem and bars and
+  redraws the bowl as half a superellipse (`[capital_D]`: nearly an ellipse,
+  as wide as half the D is tall), its counter likewise, every master keeping
+  its own stem, bar and bowl thicknesses. Ð and Đ are Chivo's D with a bar
+  laid over it; the bar is kept and the D under it redrawn. Ď is a composite
+  and follows; the narrow digraphs Ǆ ǅ are drawn separately and keep Chivo's.
+- **The apertures** (`apertures.py`): Chivo cuts the arms of C, G, c, e, 5, 6
+  and 9 level, about where the bowl turns vertical. Each cut moves `[apertures]` units
   further from the middle and stays level; the outer and inner curves into it,
   from the bowl's top or bottom, are refitted as the same curves made shorter,
   every spline keeping its points (least squares on the TrueType off-curve
   points, within 1 unit of Chivo's curve), so the masters still interpolate.
   The cuts are found in the outline, not named, and the accented forms follow
-  their letter; ¢ and © are drawn separately in Chivo and keep its closed c.
+  their letter; ¢, ©, æ, œ and the superscript and fraction digits are drawn
+  separately in Chivo and keep its closed forms.
+- **The wider z** (`faces.py Source.letter`, `[in_cell]`) is the same rescale
+  as the grid's widening, about the cell's centre with the advance kept, so its
+  stems keep their thickness; ź ż ž are Chivo's composites over it and follow.
 - **The symbols** (`symbols.py`, `stroke.py`) are centre lines stroked with an
   *elliptical* nib whose axes are Chivo's vertical stem and horizontal bar at
   that weight (times `[symbols] weight`), so a symbol's verticals, horizontals
@@ -133,7 +147,7 @@ the release repository can build the code face from the same package.
 | U+F01B | 2 | the grid's natural: the minus centred on two cells, so a note is one string (`C` + U+F01B + `4`) |
 | U+F019 / U+F01A | 2 | two-cell triple sharp (♯𝄪) and quadruple sharp (𝄪𝄪, the two enlarged and overlapping), which Unicode has no code point for |
 | U+F030–U+F033 | 4 | note sentinels: key-off, note cut (three wedges), fade (three waves), fast fade (sinc with a wedge) |
-| U+F040–U+F044 | 2 | vibrato waveforms: sine, ramp down, square, random, ramp up — one period edge to edge, so `` draws two that join |
+| U+F040–U+F045 | 2 | vibrato and LFO waveforms: sine, ramp down, square, random, ramp up, triangle — one period edge to edge, so `` draws two that join |
 | 黃大太夾姑仲蕤林夷南無應 | 2 | the twelve lü (Grid and Code) |
 
 The grid's natural (the `-` of `C-4`) is U+F01B, the minus sign centred on

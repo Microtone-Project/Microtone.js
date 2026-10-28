@@ -32,6 +32,7 @@ export class DocSync {
           cues: s.cues,
         } : null),
         ixmp: this.doc.ixmp,
+        imix: this.doc.imixBlocks(),
       },
       this.songIndex,
     );
@@ -68,6 +69,12 @@ export class DocSync {
           // that is the whole point of having the meters on screen beside it.
           this.audio.setMastering(0, this.doc.mastering(this.songIndex));
           break;
+        case "imix":
+          // Eager, like the mastering chain: a control moved while the song
+          // plays is heard at once. The engine keeps each surviving bus's
+          // state, so pushing the whole set does not interrupt a tail.
+          this.audio.setImix(this.doc.imixBlocks());
+          break;
         case "inst":
           // Instruments sync eagerly — jam must always hear the current edit.
           this.audio.uploadInstrument(tag.slot, this.doc.instRecordBytes(tag.slot));
@@ -92,6 +99,8 @@ export class DocSync {
               this.audio.uploadInstrumentPatches(e.instId, e.blob);
             }
           }
+          // A bank import can bring chains with it (item 217).
+          this.audio.setImix(this.doc.imixBlocks());
           break;
       }
     }

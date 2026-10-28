@@ -42,7 +42,7 @@ import {
   volumeDialog, panDialog, transposeDialog, instrumentDialog, transposePresetFor,
 } from "../blocktools.js";
 import {
-  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, PLOT_CHARS,
+  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote, PLOT_CHARS,
 } from "../pitchplot.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
@@ -297,7 +297,7 @@ class PatternPane {
     const cols = this.hasSelection() ? this.selCols() : [subToCol(hit.sub)];
     const tools = this.pattern() && cells.length > 0
       ? blockToolItems(cols, { wide: store.doc.wideCells === true,
-          block: this.hasSelection() })
+          block: this.hasSelection(), render: true })
       : [];
 
     const pick = await showContextMenu(e.clientX, e.clientY, [items, tools],
@@ -308,7 +308,7 @@ class PatternPane {
         channel: this.cursor.ch ?? 0, rowLabel: String(cells[0].row),
       };
       if (await runBlockTool(pick, { store, cells, cols, lanes: [cells], anchor,
-        scope: this.toolScope() })) {
+        scope: this.toolScope(), render: this.renderSpec() })) {
         this.refreshHeader();
         this.invalidate();
       }
@@ -369,6 +369,13 @@ class PatternPane {
     const out = [];
     for (let r = rows[0]; r <= rows[1]; r++) out.push({ pat: this.patIdx, row: r });
     return out;
+  }
+
+  /** What To sample renders (item 242): the row selection, else the whole
+   *  pattern. */
+  renderSpec() {
+    const b = this.selRowBounds();
+    return { kind: "pattern", pat: this.patIdx, r0: b ? b.r0 : 0, r1: b ? b.r1 : 63 };
   }
 
   /** Human label for the modals' "this applies to …" line. */
@@ -1012,10 +1019,12 @@ class PatternPane {
     const plotMem = { j: 0, jExt1: 0, jExt2: 0 }; // J's recall, down this pattern
     const want = store.ghosts !== false || plotOn;
     const allGhosts = want ? dittoGhosts(pattern, pattern.length) : EMPTY_GHOSTS;
+    const pitches = []; // what each row SOUNDS at tick 0 — the plot's ticks (item 250)
     const allBends = want ? bendGhosts(pattern, {
       ...bendContext(store.doc, store.song),
       rowLimit: pattern.length,
       ditto: allGhosts,
+      pitches,
     }) : EMPTY_GHOSTS;
     const ghosts = store.ghosts === false ? EMPTY_GHOSTS : allGhosts;
     const bends = store.ghosts === false ? EMPTY_GHOSTS : allBends;
@@ -1026,7 +1035,7 @@ class PatternPane {
         ? { effect: g.fx[0], effectArg: g.fx[1], effect2: 0, effectArg2: 0 }
         : cell;
       return {
-        note: g?.note ?? allBends[r]?.note ?? cell.note,
+        note: plotNote(g?.note ?? allBends[r]?.note ?? cell.note, pitches[r]),
         arp: arpOffsets(fx, this.wide(), plotMem),
       };
     }), store.pitchPreset)) : null;
@@ -1233,6 +1242,7 @@ export class PatternView {
   applyPatternBytes(fn) { return this.active.applyPatternBytes(fn); }
   hasSelection() { return this.active.hasSelection(); }
   clearSelection() { return this.active.clearSelection(); }
+  renderSpec() { return this.active.renderSpec(); }
   selectColumn() { return this.active.selectColumn(); }
   nudge(dir, coarse) { return this.active.nudge(dir, coarse); }
   jumpBeat(dir, extend) { return this.active.jumpBeat(dir, extend); }

@@ -25,6 +25,7 @@
 
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { lampButton } from "../components/lampbutton.js";
 import { showModal } from "../components/modal.js";
 import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
@@ -130,11 +131,11 @@ export function showNotationMaker(store) {
       </div>`;
     // The option rides Save, so it sits with the actions, just before it.
     const foot = document.createElement("template");
-    foot.innerHTML = `<span class="nota-issues dim" data-f="issues"></span>
-      <label class="nota-assign"><input type="checkbox" data-f="assign" checked>
-        ${esc(t("nota.useForSong"))}</label>`;
+    foot.innerHTML = `<span class="nota-issues dim" data-f="issues"></span>`;
+    const assign = lampButton({ label: t("nota.useForSong"), on: true, className: "nota-assign" });
+    assign.button.dataset.f = "assign";
     const acts = actionRow({ cancel: true, proceed: t("nota.save"), className: "nota-btns",
-      extras: [...foot.content.childNodes] });
+      extras: [...foot.content.childNodes, assign.button] });
     acts.cancel.dataset.f = "cancel";
     acts.proceed.dataset.f = "save";
     dlg.append(acts.row);
@@ -572,7 +573,7 @@ export function showNotationMaker(store) {
       if (!same && !(payload === null && cur === null)) {
         store.undo.apply(setSectionOp("nota", payload));
       }
-      if ($("assign").checked && sel >= 0 && defs[sel]) {
+      if (assign.isOn() && sel >= 0 && defs[sel]) {
         const value = notationValueForSlot(defs[sel].slot);
         const sm = doc.meta.songMeta[store.songIndex] ??
           (doc.meta.songMeta[store.songIndex] =
