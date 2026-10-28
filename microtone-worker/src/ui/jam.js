@@ -154,9 +154,10 @@ export class JamKeyboard {
     const voice = this.held.get(code);
     this.held.delete(code);
     // Monophonic mode has every held key on one voice, so the release only
-    // lands when the last of them goes.
+    // lands when the last of them goes. A formant syllable lets its coda be
+    // heard (a key-off); everything else stops (item 240).
     if (voice !== undefined && !this._sounding(voice)) {
-      this.store.audio?.jamStopVoice(0, voice);
+      this.store.audio?.jamRelease(0, voice);
     }
   }
 

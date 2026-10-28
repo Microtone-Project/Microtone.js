@@ -60,7 +60,7 @@ import {
 import { formantBadge } from "../../doc/formantedit.js";
 import { oplGraph, oplGraphCanvas } from "../../doc/oplgraph.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
-import { renderFormantTab } from "./instformant.js";
+import { renderFormantTab, formantTabFrame } from "./instformant.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
 import { renderFmEasyTab } from "./instfmeasy.js";
 import { easyDecode } from "../../doc/fmeasy.js";
@@ -2555,6 +2555,8 @@ export class InstrumentsView {
     // The PSG tab shows the instrument's live overlay while playing, and puts
     // the record's values back once it stops.
     if (!this.advanced && this.tab === "psg") psgTabFrame(this);
+    // The Formant tab likewise shows the vowels S $Afgr gave sounding notes.
+    if (!this.advanced && this.tab === "formant") formantTabFrame(this);
     if (!this.advanced && this.tab === "mixing") this.mixing.frame();
     else this.mixing.syncTap();
     this.updateLiveDots();

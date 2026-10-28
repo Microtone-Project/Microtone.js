@@ -11,6 +11,7 @@
 //    NUM_VOICES-1; jamNote to MAX_VOICES-1).
 
 import { psgCurrentWave } from "./psg.js";
+import { formantEndsOnKeyOff } from "./formant.js";
 import {
   SAMPLE_BIN_TOTAL, NUM_PATTERNS, NUM_CUES, NUM_VOICES, MAX_VOICES,
   JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES,
@@ -32,6 +33,9 @@ import { startCutRamp } from "./sampler.js";
 import { applyKeyLift } from "./envelope.js";
 import { reconstructDittoState } from "./row.js";
 import { chaseSongPath, chaseCueOrder } from "./chase.js";
+
+/** How many sounding voices getInstrumentFormantState reports at most. */
+const FORMANT_LIVE_MAX = 8;
 
 // Scratch instrument slot for the raw-sample preview (jamSample). It sits just
 // past the 1024 addressable bank slots so an audition never borrows a real one;
@@ -710,6 +714,24 @@ export class TaudEngine {
     applyKeyLift(voice, this.instruments[voice.instrumentId]);
   }
 
+  /**
+   * A computer-keyboard piano key LIFTED (the tracker's jam keyboard): a
+   * formant syllable that a key-off ends by itself — it has a coda to speak —
+   * is keyed off, so the coda is heard as a pattern key-off would sound it;
+   * anything else is cut as jamStopVoice cuts, since an ordinary instrument
+   * with no release, or a syllable with no coda, would otherwise sound on.
+   * JS-only (item 240), no Kotlin counterpart.
+   */
+  jamRelease(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const voice = ts.voices[Math.min(Math.max(vi, 0), TOTAL_VOICES - 1)];
+    if (voice.active && !voice.keyOff && voice.formant !== null && formantEndsOnKeyOff(voice.formant)) {
+      this.jamKeyOff(ph, vi);
+    } else {
+      this.jamStopVoice(ph, vi);
+    }
+  }
+
   // ── per-voice readbacks (delegate 144-325; clamps mirror the delegate) ──
 
   _voice(ph, vi) {
@@ -885,6 +907,38 @@ export class TaudEngine {
       rtMute: patch.rtMute,
       wave,
     };
+  }
+
+  /**
+   * A formant instrument's live state, for the Formant tab's playback display
+   * (item 240), or null for any other instrument: every sounding voice of it
+   * — lanes before ghosts, at most FORMANT_LIVE_MAX — whose vowel is its OWN
+   * (an `S $Afgr`, or an instrument change still gliding), as the chart bytes
+   * it stands at now, fractional mid-glide, and where a glide is heading. A
+   * voice singing the record's vowel is not listed: the record shows it.
+   */
+  getInstrumentFormantState(slot) {
+    const patch = this.instruments[slot & 0x3ff].formant;
+    if (patch === null) return null;
+    const voices = [];
+    for (const p of this.playheads) {
+      const ts = p.trackerState;
+      if (ts === null || ts === undefined) continue;
+      for (const list of [ts.voices, ts.backgroundVoices]) {
+        for (const v of list) {
+          if (voices.length >= FORMANT_LIVE_MAX) break;
+          const st = v.formant;
+          if (!v.active || st === null || st.patch !== patch || !st.ownVowel) continue;
+          const gliding = st.glideLeft > 0;
+          voices.push({
+            front: st.vFront, open: st.vOpen, round: st.vRound,
+            toFront: gliding ? st.tFront : st.vFront, toOpen: gliding ? st.tOpen : st.vOpen,
+            toRound: gliding ? st.tRound : st.vRound,
+          });
+        }
+      }
+    }
+    return { voices };
   }
 
   /** The modification's inversion mask, one bit per SAMPLE byte (item 130). */

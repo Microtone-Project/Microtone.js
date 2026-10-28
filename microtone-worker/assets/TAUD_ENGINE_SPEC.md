@@ -715,7 +715,7 @@ NVgoal = clamp(sqrt(Pref ÷ P), 1/256, 16)          (16 when P = 0; 1 when f0 is
 
 ##### The consonants
 
-Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of parameters: the tract it is made with — F1…F3 and B1…B3 in Hz at an adult man's size, a 0 meaning "the vowel's" — its frication spectrum as Klatt's parallel amplitudes A2…A6 and AB in dB (0 = off), its noise level in dB against the vowel, and its timing in ms: `dur` (a fricative's or an affricate's frication, a nasal's murmur, an approximant's steady state, a tap's closure, a trill's cycle), the burst, the voice onset time, and the formant transition into the next sound. `av` is the voicing during the main part, and FNZ a nasal's zero. Klatt 1980 Table III supplies every row it has (w j r l f v θ ð s z ʃ t͡ʃ d͡ʒ p b t d k g m n); the voice onset times of the aspirated stops are Lisker & Abramson's (1964) for English; the rest follow by place.
+Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of parameters: the tract it is made with — F1…F3 and B1…B3 in Hz at an adult man's size, a 0 meaning "the vowel's" — its frication spectrum as Klatt's parallel amplitudes A2…A6 and AB in dB (0 = off), its noise level in dB against the vowel, and its timing in ms: `dur` (a fricative's or an affricate's frication, a nasal's murmur, an approximant's steady state, a tap's closure, a trill's cycle), the burst, the voice onset time, and the formant transition into the next sound. `av` is the voicing during the main part, and FNZ a nasal's zero. Klatt 1980 Table III supplies every row it has (w j r l f v θ ð s z ʃ t͡ʃ d͡ʒ p b t d k g m n); the voice onset times of the aspirated stops are Lisker & Abramson's (1964) for English; [ʈʰ] has [tʰ]'s scaled by the retroflex-to-dental ratio Mikuteit & Reetz (2007) measured in East Bengali (48 ÷ 57), and the breathy-voiced stops their after-closure times (31, 35, 36, 44 ms by place); [sʰ] is Korean ㅅ (Chang 2008: frication ¾ of the tense [s*]'s, then about 53 ms of breath); the rest follow by place. A **voiced stop with a VOT** is breathy-voiced (murmured), its VOT the noisy lag between its burst and its breathy voice; a **voiceless fricative with a VOT** is aspirated, its VOT the breath after its frication. A row marked **breath** ([ʔ͡h]) has its frication as breath: every track it would have as `af` it has as `ah`, and the other way about (the next sound's `nx.af` and `nx.ah` exchanged likewise), so its noise goes through the cascade at the vowel's formants, as [h]'s does.
 
 | Id | IPA | Manner | Voiced | F1 F2 F3 | B1 B2 B3 | A2 A3 A4 A5 A6 AB | Level | dur | burst | VOT | trans | av | FNZ |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -735,6 +735,11 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 14 | pʰ | stop | no | 400 1100 2150 | 300 150 220 | 0 0 0 0 0 63 | -12 | 0 | 5 | 58 | 40 | 0 | 0 |
 | 15 | tʰ | stop | no | 400 1600 2600 | 300 120 250 | 0 30 45 57 63 0 | -10 | 0 | 10 | 70 | 45 | 0 | 0 |
 | 16 | kʰ | stop | no | 300 1990 2850 | 250 160 330 | 0 60 43 45 45 0 | -10 | 0 | 20 | 80 | 50 | 0 | 0 |
+| 17 | ʈʰ | stop | no | 400 1500 1900 | 300 120 250 | 0 50 55 50 45 0 | -10 | 0 | 10 | 60 | 45 | 0 | 0 |
+| 18 | bʱ | stop | yes | 200 1100 2150 | 60 110 130 | 0 0 0 0 0 63 | -14 | 0 | 5 | 31 | 40 | 0 | 0 |
+| 19 | dʱ | stop | yes | 200 1600 2600 | 60 100 170 | 0 47 60 62 60 0 | -12 | 0 | 8 | 35 | 45 | 0 | 0 |
+| 20 | ɖʱ | stop | yes | 200 1500 1900 | 60 100 170 | 0 50 55 50 45 0 | -12 | 0 | 8 | 36 | 45 | 0 | 0 |
+| 21 | ɡʱ | stop | yes | 200 1990 2850 | 60 150 280 | 0 60 43 45 45 0 | -12 | 0 | 15 | 44 | 50 | 0 | 0 |
 | 32 | m | nasal | yes | 480 1270 2130 | 40 200 200 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
 | 33 | ɱ | nasal | yes | 480 1200 2100 | 40 200 200 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
 | 34 | n | nasal | yes | 480 1340 2470 | 40 300 300 | 0 0 0 0 0 0 | 0 | 60 | 0 | 0 | 35 | 0.5 | 450 |
@@ -775,6 +780,7 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 72 | ɕ | fricative | no | 300 2000 2900 | 200 120 300 | 0 45 57 50 45 0 | -7 | 120 | 0 | 0 | 45 | 0 | 0 |
 | 73 | ʑ | fricative | yes | 240 2000 2900 | 60 120 300 | 0 45 57 50 45 0 | -11 | 90 | 0 | 0 | 45 | 0.35 | 0 |
 | 74 | ʍ | fricative | no | 290 610 2150 | 200 80 60 | 0 0 0 0 0 50 | -22 | 90 | 0 | 0 | 100 | 0 | 0 |
+| 75 | sʰ | fricative | no | 320 1390 2530 | 200 80 200 | 0 0 0 0 52 0 | -8 | 90 | 0 | 53 | 40 | 0 | 0 |
 | 80 | ʋ | approximant | yes | 300 1100 2200 | 60 90 150 | 0 0 0 0 0 0 | 0 | 50 | 0 | 0 | 70 | 0.4 | 0 |
 | 81 | ɹ | approximant | yes | 310 1060 1380 | 70 100 120 | 0 0 0 0 0 0 | 0 | 50 | 0 | 0 | 90 | 0.4 | 0 |
 | 82 | ɻ | approximant | yes | 310 1100 1500 | 70 100 120 | 0 0 0 0 0 0 | 0 | 50 | 0 | 0 | 90 | 0.4 | 0 |
@@ -796,14 +802,20 @@ Each consonant id of [File Format §7.6](TAUD_FILE_FORMAT.md) has a row of param
 | 103 | ɖ͡ʐ | affricate | yes | 240 1600 2000 | 60 100 250 | 0 57 50 40 30 0 | -11 | 60 | 10 | 0 | 45 | 0 | 0 |
 | 104 | p͡f | affricate | no | 340 1100 2080 | 200 120 150 | 0 0 0 0 0 57 | -16 | 70 | 5 | 0 | 40 | 0 | 0 |
 | 105 | k͡x | affricate | no | 300 1800 2700 | 250 160 330 | 57 50 40 35 30 0 | -12 | 70 | 20 | 0 | 50 | 0 | 0 |
+| 106 | c͡ç | affricate | no | 300 2100 3000 | 200 150 300 | 0 35 55 50 40 0 | -12 | 70 | 15 | 0 | 45 | 0 | 0 |
+| 107 | ɟ͡ʝ | affricate | yes | 240 2100 3000 | 60 150 300 | 0 35 55 50 40 0 | -16 | 60 | 12 | 0 | 45 | 0 | 0 |
+| 108 | t͡θ | affricate | no | 320 1290 2540 | 200 90 200 | 0 0 0 0 28 48 | -18 | 70 | 8 | 0 | 40 | 0 | 0 |
+| 109 | d͡ð | affricate | yes | 270 1290 2540 | 60 80 170 | 0 0 0 0 28 48 | -22 | 60 | 8 | 0 | 40 | 0 | 0 |
+| 110 | ɡ͡ɣ | affricate | yes | 240 1800 2700 | 60 150 300 | 57 50 40 35 30 0 | -16 | 60 | 15 | 0 | 50 | 0 | 0 |
+| 111 | ʔ͡h | affricate (breath) | no | 0 0 0 | 300 0 0 | 0 0 0 0 0 0 | -16 | 50 | 0 | 0 | 15 | 0 | 0 |
 
-**Velars.** Klatt's table is "appropriate only for consonants before front vowels", and at a velar that shows: the back of the tongue meets the palate wherever the vowel puts it, so a velar has no place of its own. Locus equations (F2 at voicing onset regressed on the vowel's F2) give a velar a slope of about 0.9–1.0 — its F2 starts close to the vowel's — where an alveolar's, about 0.4–0.5, is pulled toward 1.8 kHz (Sussman, McCaffrey & Matthews 1991; Iskarous, Fowler & Whalen 2010). The **velars** — ids 9 [k], 10 [ɡ], 16 [kʰ], 37 [ŋ], 62 [x], 63 [ɣ], 105 [k͡x] — take their F2 and F3 not from the row but from the sound they meet, `N` ([below](#the-tract)), drawn together about their geometric mean as closely as the order rule lets two formants come — the "velar pinch":
+**Velars.** Klatt's table is "appropriate only for consonants before front vowels", and at a velar that shows: the back of the tongue meets the palate wherever the vowel puts it, so a velar has no place of its own. Locus equations (F2 at voicing onset regressed on the vowel's F2) give a velar a slope of about 0.9–1.0 — its F2 starts close to the vowel's — where an alveolar's, about 0.4–0.5, is pulled toward 1.8 kHz (Sussman, McCaffrey & Matthews 1991; Iskarous, Fowler & Whalen 2010). The **velars** — ids 9 [k], 10 [ɡ], 16 [kʰ], 21 [ɡʱ], 37 [ŋ], 62 [x], 63 [ɣ], 105 [k͡x], 110 [ɡ͡ɣ] — take their F2 and F3 not from the row but from the sound they meet, `N` ([below](#the-tract)), drawn together about their geometric mean as closely as the order rule lets two formants come — the "velar pinch":
 
 ```
 P = sqrt(N2 × N3)      C2 = P ÷ sqrt(1.15)      C3 = P × sqrt(1.15)
 ```
 
-A velar's burst excites the resonance of the cavity in front of its closure: F2 before a non-front vowel, where Klatt puts A2 at "about 60 dB", and F3 before a front one. The table's 53 dB for A3 was set on a synthesiser running at 10 kHz, whose output ended at 5 kHz; at the engine's rates the upper resonators' skirts reach past 6 kHz and outweigh it, and the burst would be spread over 3–5 kHz like a [t]'s. So [k], [ɡ] and [kʰ] give the front cavity 60 dB either way: their bank is the row's, A2…AB `0 60 43 45 45 0`, before a front vowel, and `60 53 43 45 45 0` — Klatt's A2 of 60 added, his A3 of 53 kept — before a back one, each gain `gj` ([below](#the-tract)) crossfaded linearly between the two by how back the vowel they meet is:
+A velar's burst excites the resonance of the cavity in front of its closure: F2 before a non-front vowel, where Klatt puts A2 at "about 60 dB", and F3 before a front one. The table's 53 dB for A3 was set on a synthesiser running at 10 kHz, whose output ended at 5 kHz; at the engine's rates the upper resonators' skirts reach past 6 kHz and outweigh it, and the burst would be spread over 3–5 kHz like a [t]'s. So [k], [ɡ], [kʰ] and [ɡʱ] give the front cavity 60 dB either way: their bank is the row's, A2…AB `0 60 43 45 45 0`, before a front vowel, and `60 53 43 45 45 0` — Klatt's A2 of 60 added, his A3 of 53 kept — before a back one, each gain `gj` ([below](#the-tract)) crossfaded linearly between the two by how back the vowel they meet is:
 
 ```
 back = 1 − x ÷ 255                     x = the vowel's frontness — the glide's while it sounds:
@@ -839,6 +851,15 @@ With `k` the timing scale of [File Format §7.6](TAUD_FILE_FORMAT.md), every tim
 | Trill | `c = dur`, `sh = 0.375c`. **av**: (0, 0.12) (sh, 0.12) (sh+3, 0.7) (c−3, 0.7) (c, 0.12) (c+sh, 0.12) (c+sh+3, nx.av). **w**: (0, 1) (c+sh+3, 1) (c+sh+3+trans, 0). **nz** (0, 0) (c+sh+3, 0). **ah**, **af** (0, 0) | c+sh+3+trans |
 | Glottal stop | `g = first ? 0 : 30`. **av**: (0, 0) (g, 0) (g+3, nx.av). **nz** (0, 0) (g, 0). **w**, **ah**, **af** (0, 0) | g+3 |
 
+Two manners have a second form, given a VOT (`SA = 47 ms`, `MA = 0.05`):
+
+| Manner | Onset tracks | end |
+|---|---|---|
+| Breathy-voiced stop | `tb`, `tv` as a stop's, `ts = tv + SA`. **av**: (0, a) (cl, a) (tb, 0.3) (tb+3, MA) (tv, MA) (ts, nx.av), a as a voiced stop's. **ah**: (0, 0) (tb, 0) (tb+3, L) (tv, 0.7L) (ts, nx.ah). **af**, **w**, **nz** as a stop's | max(ts, tb+trans) |
+| Aspirated fricative | `tv = dur + VOT`. **af** as a fricative's. **ah**: (0, 0) (dur−10, 0) (dur, La) (tv, 0.7La) (tv+10, nx.ah). **av**: (0, 0) (tv−5, 0) (tv+15, nx.av). **w** as a fricative's. **nz** (0, 0) (tv, 0) | max(tv+15, dur+trans) |
+
+The breathy release is Mikuteit & Reetz's (2007): a noisy lag after the burst, then a stretch of voice with breath laid over it, about 47 ms. Its voice at `MA` is 26 dB under the vowel's, the breath carrying the lag, the two together about 20 dB under the vowel (Schiefer & Kotten 1983 measured the breathy part 10–30 dB below the steady vowel). **Glottalised**, either is as below: a breathy stop takes the stop's glottalised tracks, an aspirated fricative the fricative's.
+
 An oral consonant's `nz` holds 0 until its own part is over, so a nasalised vowel after it lowers the velum through the transition alone.
 
 The onset's **last** consonant may be **glottalised** ([below](#the-articulations)); its tracks are the table's but for these. It breathes no aspiration: **ah** is (0, 0) — an aspirate's own **ah** excepted. A **stop**'s voicing waits for a lag after the burst, then comes in at once: `tv = tb + min(VOT, 10)`, **av** (0, 0) (tv, 0) (tv+2, nx.av), voiced or not; end max(tv+2, tb+trans). An **affricate**'s, a **fricative**'s or an **aspirate**'s voicing waits through a glottal catch after its own part — `te` = tf, dur, dur: **av** (0, 0) (te+10, 0) (te+12, nx.av); end at least te+12. A **nasal**, **approximant**, **tap** or **trill** is said after a glottal stop: its **av**, built as the table says, is replaced by (0, 0) (10, 0) (12, av(12)) followed by every point of it after 12 ms. A glottal stop is as it is.
@@ -857,7 +878,7 @@ A syllable with no vowel holds its **nucleus** ([below](#the-syllable)) on these
 | Trill | `c = dur`, `sh = 0.375c`. **av**: for n = 0, 1 with o = n·c: (o, 0.12) (o+sh, 0.12) (o+sh+3, 0.7) (o+c−3, 0.7); then (2c, 0.12). **ah**, **af**, **nz** (0, 0) | 2c | c |
 | Glottal stop | **av**, **ah**, **af**, **nz** (0, 0) | 0 | 0 |
 
-A sonorant nucleus voices at the vowel's level, being the syllable's peak. **Glottalised**, a stop nucleus breathes no aspiration and its voicing is **av** (0, 0) (tb+10, 0) (tb+12, voiced ? 1 : 0), end tb+12; an affricate's, a fricative's or an aspirate's voicing is 0; a sonorant's takes the catch above.
+A **breathy-voiced** stop nucleus has the onset's breathy **av** and **ah** with nx.av = 1 and nx.ah = 0, ending at `ts`; an aspirated fricative's nucleus is a fricative's. A sonorant nucleus voices at the vowel's level, being the syllable's peak. **Glottalised**, a stop nucleus breathes no aspiration and its voicing is **av** (0, 0) (tb+10, 0) (tb+12, voiced ? 1 : 0), end tb+12; an affricate's, a fricative's or an aspirate's voicing is 0; a sonorant's takes the catch above.
 
 A CODA starts on the values of the sound before it — for the vowel, voicing `v0 = 1` and nasality `z0 = 0`, or 1 for a nasalised vowel — and ends in silence: every track but `w` closes on 0, and `w` on 1.
 
@@ -871,6 +892,8 @@ A CODA starts on the values of the sound before it — for the vowel, voicing `v
 | Tap | **w**: (0, 0) (trans, 1). **av**: (0, v0) (trans, v0) (trans+3, 0.2) (trans+dur, 0.2) (trans+dur+3, 0.6) (trans+dur+40, 0). **nz** (0, z0) (trans, 0). **ah**, **af** (0, 0) | trans+dur+40 |
 | Trill | `c = dur`, `sh = 0.375c`. **w**: (0, 0) (trans, 1). **av**: (0, v0) (trans, 0.7) (trans+3, 0.12) (trans+sh, 0.12) (trans+sh+3, 0.7) (trans+c−3, 0.7) (trans+c, 0.12) (trans+c+sh, 0.12) (trans+c+sh+3, 0.6) (trans+c+sh+35, 0). **nz** (0, z0) (trans, 0). **ah**, **af** (0, 0) | trans+c+sh+35 |
 | Glottal stop | **w** (0, 0). **av**: (0, v0) (6, 0). **nz** (0, z0) (6, 0). **ah**, **af** (0, 0) | 6 |
+
+A **breathy-voiced** stop's coda breathes on its release as a voiceless aspirated stop's does — **ah** (tb, 0) (tb+2, 0.5La) (tb+30, 0) — with **av** (tb, 0) (tb+2, MA) (tb+30, 0) under it after its own. An **aspirated fricative**'s coda breathes after its frication: **ah** (trans+dur, 0) (trans+dur+10, 0.5La) (trans+dur+VOT+30, 0), ending there.
 
 A coda's **release** ([below](#the-articulations)) changes it so. **Unreleased**, a stop or an affricate has **af** and **ah** (0, 0) and ends when its voicing does — voiced at tc+5, voiceless at trans+8; any other consonant is released as written. **Glottalised**, its voicing stops in 3 ms where it would otherwise fade, and a stop breathes no aspiration: a stop's or an affricate's **av** is (0, v0) (trans, v0) (trans+3, 0); a fricative's (0, v0) (a, v0) (a+3, 0); an aspirate's (0, v0) (3, 0); a nasal's or an approximant's ends (trans+dur, 0.8av) (trans+dur+3, 0), and a tap's (trans+dur, 0.2) (trans+dur+3, 0), a trill's (trans+c+sh, 0.12) (trans+c+sh+3, 0), each ending there; a glottal stop is as it is.
 

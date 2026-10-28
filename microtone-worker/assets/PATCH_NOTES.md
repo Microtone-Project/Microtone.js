@@ -128,6 +128,14 @@ Motif, Microtone's typeface, tells more of its letters and digits apart.
 - In the chord maker, a note's on/off is now the button carrying its number.
 - Fixed: the zoom − and + buttons, the icon buttons and *follow* sat shorter than the other buttons of the top bar; they all stand the same height now.
 
+**Formant instruments learn twelve more consonants**, and the Formant tab shows the vowels a playing song has moved.
+
+- **Breathy-voiced stops** [bʱ] [dʱ] [ɖʱ] [ɡʱ], released with a murmur of breath into the vowel as Hindi says them, and the aspirated retroflex [ʈʰ], in the consonant chart's *Aspirated* row.
+- **[sʰ]**, the Korean ㅅ: its hiss, then a breath before the vowel, in a new *Aspirated fricative* row.
+- **More affricates**: [c͡ç], [ɟ͡ʝ], [t͡θ], [d͡ð], [ɡ͡ɣ] and the glottal [ʔ͡h].
+- **The vowel chart follows the song**: while it plays, every note of the instrument that `S $Afgr` has given a vowel of its own is a dot in the accent colour, with a dashed line to where it is gliding, and the vowels and their commands are named under the readout.
+- **Lifting a piano key lets a syllable finish**: jamming a formant instrument on the computer keyboard, the key-off says the syllable's last consonant before the note stops, as a key-off in a pattern does; a syllable without one stops at once as before.
+
 ## Version 3.13.3 (2026-10-22)
 
 The envelope graphs zoom with a two-finger pinch on a touch screen.

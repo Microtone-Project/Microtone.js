@@ -51,6 +51,7 @@ export const CMD = Object.freeze({
   JAM_STOP: "jamStop",                             // {ph} — every voice (panic)
   JAM_STOP_VOICE: "jamStopVoice",                  // {ph, voice} — one audition voice; voice < 0 = the whole jam bank
   JAM_KEY_OFF: "jamKeyOff",                        // {ph, voice} — RELEASE one audition voice (a key-off, not a cut)
+  JAM_RELEASE: "jamRelease",                       // {ph, voice} — a lifted piano key: key-off for a formant coda, else cut
   SET_VOICE_MUTE: "setVoiceMute",                  // {ph, voice, muted}
   SET_VOICE_FADER: "setVoiceFader",                // {ph, voice, fader}
   QUERY_INVERT_MASK: "queryInvertMask",            // {slot} → MSG.INVERT_MASK

@@ -107,6 +107,7 @@ export function applyAudioCommand(eng, m) {
     case CMD.JAM_STOP: eng.jamStop(m.ph); return true;
     case CMD.JAM_STOP_VOICE: eng.jamStopVoice(m.ph, m.voice); return true;
     case CMD.JAM_KEY_OFF: eng.jamKeyOff(m.ph, m.voice); return true;
+    case CMD.JAM_RELEASE: eng.jamRelease(m.ph, m.voice); return true;
     case CMD.SET_VOICE_MUTE: eng.setVoiceMute(m.ph, m.voice, m.muted); return true;
     case CMD.SET_VOICE_FADER: eng.setVoiceFader(m.ph, m.voice, m.fader); return true;
     default: return false;

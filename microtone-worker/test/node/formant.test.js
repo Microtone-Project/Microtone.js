@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { TaudEngine } from "../../core/engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
+import { TRACKER_CHUNK, SAMPLING_RATE, JAM_VOICE_BASE } from "../../core/engine/constants.js";
 import { TaudInst, buildFormantRecord, DCT_LANE } from "../../core/engine/inst.js";
 import * as F from "../../core/engine/formant.js";
 import { META_TYPE_FORMANT, FORMANT_RECORD_HEADER } from "../../core/engine/formant.js";
@@ -775,6 +775,135 @@ test("every consonant in the table onsets and codas without a step in its tracks
   }
   assert.equal(F.CONSONANT_LIST.length, new Set(F.CONSONANT_LIST.map((r) => r.id)).size, "ids are unique");
   assert.ok(F.CONSONANT_LIST.every((r) => r.id > 0 && r.id < 112));
+});
+
+// ── item 239: aspirated and breathy consonants, and more affricates ──
+
+/** A pool whose noise sample is silence: rendered with it, a consonant is its
+ *  VOICING alone, so when the voice comes in can be read off the level. */
+const quietNoisePool = () => {
+  const bin = new Uint8Array(SAMPLEBIN_SIZE);
+  fillPool(bin);
+  bin.fill(128, NOISE.ptr, NOISE.ptr + NOISE.len);
+  return bin;
+};
+/** The first ms from `t0` at which `a` holds half of `steady` over 8 ms — a
+ *  pitch period at C3, the notes these tests play. */
+const voiceAt = (a, steady, t0 = 0) => {
+  for (let t = t0; t < 400; t++) if (rms(a, t, t + 8) > steady * 0.5) return t;
+  return 999;
+};
+
+test("the new consonants keep their ids, and every one reads its noise", () => {
+  const ids = { "ʈʰ": 17, "bʱ": 18, "dʱ": 19, "ɖʱ": 20, "ɡʱ": 21, "sʰ": 75,
+    "c͡ç": 106, "ɟ͡ʝ": 107, "t͡θ": 108, "d͡ð": 109, "ɡ͡ɣ": 110, "ʔ͡h": 111 };
+  for (const [ipa, n] of Object.entries(ids)) {
+    assert.equal(id(ipa), n, ipa);
+    assert.ok(F.consonantNeedsNoise(F.CONSONANTS[n]), `${ipa} reads noise`);
+  }
+  assert.ok(F.CONSONANTS[21].dorsal && F.CONSONANTS[110].dorsal, "ɡʱ and ɡ͡ɣ are velars");
+  // [ʔ͡h]'s frication is breath: through the cascade, never the bank.
+  const r = F.CONSONANTS[111];
+  for (const t of [F.onsetTracks(r, false, { av: 1, ah: 0, af: 0, nz: 0 }, 1), F.codaTracks(r, 1), F.nucleusTracks(r, true, 1)]) {
+    assert.ok(t.af.every((v, i) => i % 2 === 0 || v === 0), "no frication");
+    assert.ok(t.ah.some((v, i) => i % 2 === 1 && v > 0), "breath");
+  }
+});
+
+test("a breathy-voiced stop is released into a murmur: its breath over a weak voice, then the voice rising through it", () => {
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }];
+  const say = (c, bin = null) => render(formantRecord({ slots: [id(c), 0, 0], generator: !bin }), cells, ms(400), { bin }).res;
+  const quiet = quietNoisePool();
+  const b = say("b", quiet), bh = say("bʱ", quiet);
+  const steady = rms(b, 250, 350);
+  // [b]'s burst is 5 ms; Mikuteit & Reetz's lag is 31 ms after it, then 47 ms
+  // of breathy voice. (Both voice their closure: look from the release on.)
+  const vb = voiceAt(b, steady, 8), vbh = voiceAt(bh, steady, 8);
+  assert.ok(vbh > vb + 30, `full voice at ${vbh} ms against [b]'s ${vb}`);
+  const murmur = rms(bh, 10, 30), plain = rms(b, 10, 30);
+  assert.ok(db(murmur) < db(plain) - 12, `the murmur's voice ${(db(murmur) - db(plain)).toFixed(1)} dB under [b]'s`);
+  // With noise, the lag is breath: louder than its voice alone.
+  const breath = rms(say("bʱ"), 10, 30);
+  assert.ok(db(breath) > db(murmur) + 3, `the breath ${(db(breath) - db(murmur)).toFixed(1)} dB over the murmur's voice`);
+  // Every one of them, onset, nucleus and coda, ends where it should.
+  for (const c of ["bʱ", "dʱ", "ɖʱ", "ɡʱ"]) {
+    const r = F.CONSONANTS[id(c)];
+    const o = F.onsetTracks(r, false, { av: 1, ah: 0, af: 0, nz: 0 }, 1);
+    assert.equal(F.trackAt(o.av, o.end), 1, `${c} onset ends in full voice`);
+    assert.ok(F.trackAt(o.ah, 50 + r.burst + 10) > 0, `${c} breathes after its burst`);
+    const n = F.nucleusTracks(r, true, 1);
+    assert.equal(F.trackAt(n.av, n.end + 100), 1, `${c} nucleus holds its voice`);
+    assert.equal(F.trackAt(n.ah, n.end + 100), 0, `…without the breath`);
+    const cd = F.codaTracks(r, 1);
+    assert.ok(cd.ah.some((v, i) => i % 2 === 1 && v > 0), `${c} coda breathes on its release`);
+  }
+});
+
+test("[ʈʰ] voices sooner than [tʰ], and [sʰ] breathes between its hiss and its vowel", () => {
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }];
+  const quiet = quietNoisePool();
+  const say = (c, bin = null) => render(formantRecord({ slots: [id(c), 0, 0], generator: !bin }), cells, ms(500), { bin }).res;
+  const th = say("tʰ", quiet), rh = say("ʈʰ", quiet), s = say("s", quiet), sh = say("sʰ", quiet);
+  const steady = rms(th, 350, 450);
+  const at = (a) => voiceAt(a, steady);
+  assert.ok(at(rh) < at(th), `[ʈʰ] at ${at(rh)} ms, [tʰ] at ${at(th)}`);
+  // [sʰ]: 90 ms of frication, then 53 ms of breath before the voice — later
+  // than [s]'s, whose 120 ms of frication runs straight into its vowel.
+  assert.ok(at(sh) >= 140 && at(sh) > at(s) + 10, `[sʰ]'s voice at ${at(sh)} ms, [s]'s at ${at(s)}`);
+  const loud = say("sʰ");
+  assert.ok(db(rms(loud, 105, 135)) > db(steady) - 30, "the breath sounds after the hiss");
+  assert.ok(db(rms(loud, 105, 135)) < db(rms(loud, 30, 80)), "…quieter than the hiss itself");
+});
+
+// ── item 240: what the Formant tab is shown, and the jam keyboard's key-off ──
+
+test("the engine reports the vowels S $Afgr gave sounding notes — and only those, and only a formant instrument's", () => {
+  const seen = {};
+  const look = (k) => (eng) => { seen[k] = eng.getInstrumentFormantState(1); };
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0xa0f0 }];
+  // Rows are 120 ms (speed 6, 125 BPM): the S $A lands at 240 ms and glides for 100.
+  const { eng } = render(formantRecord({ glide: 50 }), cells, ms(600),
+    { at: [[150, look("before")], [300, look("gliding")], [500, look("there")]], more: [plainRecord(SAW)] });
+  assert.deepEqual(seen.before.voices, [], "the record's own vowel is not reported");
+  const g = seen.gliding.voices;
+  assert.equal(g.length, 1);
+  assert.deepEqual([g[0].toFront, g[0].toOpen, g[0].toRound], [255, 0, 0], "heading for [i]");
+  assert.ok(g[0].front > 200 && g[0].front < 255 && g[0].open > 0 && g[0].open < 255, "on its way from [a]");
+  const t = seen.there.voices[0];
+  assert.deepEqual([t.front, t.open, t.round, t.toFront, t.toOpen, t.toRound], [255, 0, 0, 255, 0, 0]);
+  assert.equal(eng.getInstrumentFormantState(2), null, "an ordinary instrument has none");
+});
+
+test("a lifted jam key speaks a formant syllable's coda; with no coda to speak, it cuts as before", () => {
+  const eng = new TaudEngine();
+  fillPool(eng.sampleBin);
+  eng.uploadInstrument(1, formantRecord({ slots: [0, 0, id("n")] }));
+  eng.uploadInstrument(2, formantRecord());
+  eng.uploadInstrument(3, plainRecord(SAW));
+  const ts = eng.playheads[0].trackerState;
+  const out = new Uint8Array(TRACKER_CHUNK * 2);
+  const run = (n) => { for (let i = 0; i < n; i++) eng.renderChunk(0, out); };
+  const voice = JAM_VOICE_BASE;
+  const chunks = (t) => Math.ceil(ms(t) / TRACKER_CHUNK);
+
+  eng.jamNote(0, voice, 0x4000, 1);
+  run(chunks(200));
+  eng.jamRelease(0, voice);
+  run(1);
+  const st = ts.voices[voice].formant;
+  assert.ok(ts.voices[voice].keyOff && st.phase === F.PHASE_CODA, "[an]: keyed off, the coda speaking");
+  run(chunks(60));
+  assert.ok(ts.voices[voice].active, "…for as long as the coda lasts");
+  run(chunks(400));
+  assert.equal(ts.voices[voice].active, false, "…and then the coda ends the note");
+
+  for (const inst of [2, 3]) {
+    eng.jamNote(0, voice, 0x4000, inst);
+    run(chunks(200));
+    eng.jamRelease(0, voice);
+    run(1);
+    assert.equal(ts.voices[voice].active, false, `instrument ${inst}: cut at once, as a lifted key always cut`);
+  }
 });
 
 // ── items 224–225: velars, the nucleus, nasalisation, the articulations ──

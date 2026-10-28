@@ -2494,6 +2494,14 @@ button.nota-assign { font-size: 0.85rem; }
 .fmt-mark.off { opacity: 0.4; }
 .fmt-mark.off:hover, .fmt-mark.off:focus-visible { opacity: 1; }
 .fmt-handle { fill: none; stroke: var(--accent); stroke-width: 2.5; pointer-events: none; }
+/* Playback's own vowels (item 240): a sounding note S $Afgr moved, filled in
+   the accent as the PSG tab's live waveforms are drawn, and the line of its
+   glide to a hollow target. */
+.fmt-live { pointer-events: none; }
+.fmt-live-dot { fill: var(--accent); stroke: var(--cv-bg); stroke-width: 1.5; }
+.fmt-live-target { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.fmt-live-path { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.fmt-live-readout { color: var(--accent); }
 .fmt-readout { font-size: 0.85rem; color: var(--dim); font-variant-numeric: tabular-nums; }
 .fmt-note { margin: 0.2rem 0; font-size: 0.85rem; line-height: 1.4; max-width: 560px; }
 .slider-row.fmt-range { grid-template-columns: 10rem 6.2rem auto 6.2rem auto auto; }

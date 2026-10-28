@@ -80,6 +80,7 @@ export class AudioSystem {
     this.invertMasks = new Map(); // slot → Uint8Array (latest queried S$Fx invert mask)
     this.sampleMods = new Map(); // slot → notefx 2/3 modification state (item 130)
     this.psgStates = new Map();  // slot → PSG run-time state (§7.9), null when not PSG
+    this.formantStates = new Map();  // slot → formant voices' own vowels (§7.6), null when not formant
     this.modMasks = new Map();   // slot → Uint8Array (its inversion mask)
     this.wideCells = false; // format v3's 16-byte cell (set by loadDocument)
     this.monitorMode = 0;   // #998.3 fold/binaural — re-sent on every song load
@@ -190,6 +191,7 @@ export class AudioSystem {
       this.invertMasks.set(m.slot, new Uint8Array(m.mask));
       if (m.mod) this.sampleMods.set(m.slot, m.mod);
       this.psgStates.set(m.slot, m.psg ?? null);
+      this.formantStates.set(m.slot, m.formant ?? null);
       if (m.modMask) this.modMasks.set(m.slot, new Uint8Array(m.modMask));
     } else if (m.t === MSG.PROFILE) {
       // Enrich the worklet report with main-side facts it cannot see.
@@ -413,6 +415,9 @@ export class AudioSystem {
   /** Release one audition voice the way a pattern key-off releases a lane:
    *  the envelope's release plays out, where jamStopVoice cuts. */
   jamKeyOff(ph, voice) { this._post({ t: CMD.JAM_KEY_OFF, ph, voice }); }
+  /** A lifted piano key: a formant syllable with a coda to speak is keyed off
+   *  (its coda is heard), anything else cut as jamStopVoice cuts. */
+  jamRelease(ph, voice) { this._post({ t: CMD.JAM_RELEASE, ph, voice }); }
   /** Voice index of jam-bank slot `i` — the audition voices, above every song
    *  lane: no fader, no mute, and never written to by playback. */
   jamVoice(i) { return JAM_VOICE_BASE + (((i | 0) % JAM_VOICES) + JAM_VOICES) % JAM_VOICES; }
@@ -465,6 +470,10 @@ export class AudioSystem {
   /** A PSG instrument's live overlay and waveforms (engine getInstrumentPsgState),
    *  from the last requestInvertMask reply for `slot`; null when none. */
   getPsgState(slot) { return this.psgStates.get(slot) ?? null; }
+  /** A formant instrument's sounding voices that S $Afgr has given a vowel of
+   *  their own (engine getInstrumentFormantState), from the same reply; null
+   *  when none. */
+  getFormantState(slot) { return this.formantStates.get(slot) ?? null; }
   /** …and its inversion mask (Uint8Array; empty when the operation is not one). */
   getModMask(slot) { return this.modMasks.get(slot) ?? null; }
 

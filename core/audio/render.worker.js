@@ -161,6 +161,7 @@ function handleMessage(m) {
         t: MSG.INVERT_MASK, slot: m.slot, mask: buf,
         mod: engine.getInstrumentSampleMod(m.slot), modMask: modBuf,
         psg: engine.getInstrumentPsgState(m.slot),
+        formant: engine.getInstrumentFormantState(m.slot),
       }, [buf, modBuf]);
       break;
     }

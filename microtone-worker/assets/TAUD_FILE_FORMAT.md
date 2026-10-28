@@ -824,13 +824,13 @@ The ids are the format's: a record stores one per slot, and an id never moves or
 
 | Ids | Manner | Consonants |
 |---|---|---|
-| 1…16 | Plosives | 1 [p] · 2 [b] · 3 [t] · 4 [d] · 5 [ʈ] · 6 [ɖ] · 7 [c] · 8 [ɟ] · 9 [k] · 10 [ɡ] · 11 [q] · 12 [ɢ] · 13 [ʔ] · 14 [pʰ] · 15 [tʰ] · 16 [kʰ] |
+| 1…21 | Plosives | 1 [p] · 2 [b] · 3 [t] · 4 [d] · 5 [ʈ] · 6 [ɖ] · 7 [c] · 8 [ɟ] · 9 [k] · 10 [ɡ] · 11 [q] · 12 [ɢ] · 13 [ʔ] · 14 [pʰ] · 15 [tʰ] · 16 [kʰ] · 17 [ʈʰ] · 18 [bʱ] · 19 [dʱ] · 20 [ɖʱ] · 21 [ɡʱ] |
 | 32…38 | Nasals | 32 [m] · 33 [ɱ] · 34 [n] · 35 [ɳ] · 36 [ɲ] · 37 [ŋ] · 38 [ɴ] |
 | 40…42 | Trills | 40 [ʙ] · 41 [r] · 42 [ʀ] |
 | 44…46 | Taps | 44 [ⱱ] · 45 [ɾ] · 46 [ɽ] |
-| 48…74 | Fricatives | 48 [ɸ] · 49 [β] · 50 [f] · 51 [v] · 52 [θ] · 53 [ð] · 54 [s] · 55 [z] · 56 [ʃ] · 57 [ʒ] · 58 [ʂ] · 59 [ʐ] · 60 [ç] · 61 [ʝ] · 62 [x] · 63 [ɣ] · 64 [χ] · 65 [ʁ] · 66 [ħ] · 67 [ʕ] · 68 [h] · 69 [ɦ] · 70 [ɬ] · 71 [ɮ] · 72 [ɕ] · 73 [ʑ] · 74 [ʍ] |
+| 48…75 | Fricatives | 48 [ɸ] · 49 [β] · 50 [f] · 51 [v] · 52 [θ] · 53 [ð] · 54 [s] · 55 [z] · 56 [ʃ] · 57 [ʒ] · 58 [ʂ] · 59 [ʐ] · 60 [ç] · 61 [ʝ] · 62 [x] · 63 [ɣ] · 64 [χ] · 65 [ʁ] · 66 [ħ] · 67 [ʕ] · 68 [h] · 69 [ɦ] · 70 [ɬ] · 71 [ɮ] · 72 [ɕ] · 73 [ʑ] · 74 [ʍ] · 75 [sʰ] |
 | 80…91 | Approximants | 80 [ʋ] · 81 [ɹ] · 82 [ɻ] · 83 [j] · 84 [ɰ] · 85 [w] · 86 [ɥ] · 88 [l] · 89 [ɭ] · 90 [ʎ] · 91 [ʟ] |
-| 96…105 | Affricates | 96 [t͡s] · 97 [d͡z] · 98 [t͡ʃ] · 99 [d͡ʒ] · 100 [t͡ɕ] · 101 [d͡ʑ] · 102 [ʈ͡ʂ] · 103 [ɖ͡ʐ] · 104 [p͡f] · 105 [k͡x] |
+| 96…111 | Affricates | 96 [t͡s] · 97 [d͡z] · 98 [t͡ʃ] · 99 [d͡ʒ] · 100 [t͡ɕ] · 101 [d͡ʑ] · 102 [ʈ͡ʂ] · 103 [ɖ͡ʐ] · 104 [p͡f] · 105 [k͡x] · 106 [c͡ç] · 107 [ɟ͡ʝ] · 108 [t͡θ] · 109 [d͡ð] · 110 [ɡ͡ɣ] · 111 [ʔ͡h] |
 
 What each sounds like — its tract, its timing, its frication — is [Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md).
 
@@ -1718,4 +1718,5 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-21 | Formant instruments: a reference note of 0 is a syllable with **no vowel**, its last consonant held as a syllabic consonant; the reference word's bit 15 **nasalises** the vowel; byte +53's bits 3–4 a **secondary articulation** on the onset (palatalised, velarised/pharyngealised, glottalised) and bits 5–6 the **coda's release** (unreleased, velarised/pharyngealised, glottalised); an empty pool range other than 0…0 is an instrument made from **nothing in the pool** |
 | 2026-10-22 | `IMix` — instrument mixing chains: byte 255 of every record names a block of up to twelve pieces of equipment in a fixed pipeline, and the fourth Project-Data section a player must honour; each piece's common flags carry, beside its bypass, whether an editor shows it folded. An FM rack's operators and algorithm now share bytes 4…253 (250 bytes; was 4…255), leaving byte 255 to every kind |
 | 2026-10-25 | Type-4 racks: byte 0's bit 0 is the **Easy Mode** mark, an editor's note that the rack is laid out as a DSP-only principal, its operators, then the constants that set its feedback depths (§7.7). Players ignore it |
+| 2026-10-28 | Formant instruments: twelve more consonant ids — the aspirated [ʈʰ] and [sʰ], the breathy-voiced [bʱ] [dʱ] [ɖʱ] [ɡʱ], the affricates [c͡ç] [ɟ͡ʝ] [t͡θ] [d͡ð] [ɡ͡ɣ] and the glottal affricate [ʔ͡h] (ids 17…21, 75, 106…111); every id defined before keeps its meaning |
 | 2026-10-28 | `IMix`: the status byte's bit 1 is the block's **mode** — clear, every instrument naming it runs its own instance (as before); set, **bus** mode, they sum into one bus the chain runs over once. The mix tool's flag bit 3 **removes DC** (a one-pole at 3 Hz). `IMcn` — mixing chain names, a name table in block-id order. The `sMst` width and the mix tool's width are **surround width** on an ambisonic scene: every channel but W scaled (Engine Specification §12.3) |
