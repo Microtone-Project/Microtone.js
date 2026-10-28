@@ -788,7 +788,7 @@ def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
     `pat_bin` holds the song's patterns back to back (8-byte cells); `cue_bytes`
     is the finished cue sheet (finalize_cue_sheet's bytes, instructions set),
     `num_voices` channels wide. `pattern_names`, if given, is aligned to the
-    pattern indices; a named pattern is never treated as blank.
+    pattern indices; a blank pattern's name is dropped with it.
 
     Returns (pat_bin, cue_bytes, num_patterns, num_cues, pattern_names), the
     cue sheet trimmed again by finalize_cue_sheet. Patterns no cue plays are
@@ -799,7 +799,7 @@ def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
     cue_size = num_voices * 2
     n_cues = len(cue_bytes) // cue_size
     pats = [bytes(pat_bin[i * PATTERN_BYTES:(i + 1) * PATTERN_BYTES]) for i in range(n_pats)]
-    blank = [p == _BLANK_PATTERN and not (i < len(names) and names[i]) for i, p in enumerate(pats)]
+    blank = [p == _BLANK_PATTERN for p in pats]
     words = [_cue_words(cue_bytes[c * cue_size:(c + 1) * cue_size], num_voices) for c in range(n_cues)]
     slot = lambda c, ch: words[c][ch] & 0x7FFF
 

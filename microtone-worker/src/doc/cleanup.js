@@ -98,9 +98,9 @@ export function planMergeDuplicatePatterns(song, order) {
 // $0200). When that would run past the last pattern number every lane rounds
 // to $10 instead, and when even that does not fit, nothing is rounded.
 //
-// A BLANK pattern (every cell empty, no name) is not given a number at all: a
-// cue slot that played one is emptied to $7FFF — but only where that cannot
-// change the sound. The two are not the same thing to the engine. A blank row
+// A BLANK pattern (every cell empty; a name does not count, and goes with it)
+// is not given a number at all: a cue slot that played one is emptied to
+// $7FFF — but only where that cannot change the sound. The two are not the same thing to the engine. A blank row
 // is still a row: it ends whatever the lane's previous row left running (a
 // vibrato, a slide, a pending note delay), where an empty slot skips the lane
 // and lets it run on. So a slot is emptied only when every row that can be
@@ -146,8 +146,8 @@ export function planRenumberPatterns(song, patternNames = [], wide = false) {
   const isBlank = (idx) => {
     if (blankCache.has(idx)) return blankCache.get(idx);
     const pat = song.patterns[idx];
-    let blank = !patternNames[idx];
-    if (blank && pat) {
+    let blank = true;
+    if (pat) {
       outer: for (const cell of pat) {
         const b = cellToBytes(cell, wide);
         for (let i = 0; i < b.length; i++) if (b[i] !== blankBytes[i]) { blank = false; break outer; }
@@ -231,7 +231,7 @@ export function planRenumberPatterns(song, patternNames = [], wide = false) {
   }
   const extra = [];
   for (let i = 0; i < song.patterns.length; i++) {
-    if (!seen.has(i) && (song.patterns[i] || patternNames[i]) && !isBlank(i)) extra.push(i);
+    if (!seen.has(i) && song.patterns[i] && !isBlank(i)) extra.push(i);
   }
   if (extra.length) groups.push(extra);
 

@@ -134,8 +134,14 @@ test("planRenumberPatterns: a blank pattern leaves the cues as $7FFF where nothi
   // The dirt passes THROUGH an empty slot: blank after (slide, nothing) still stays.
   const s2 = { patterns: song.patterns, cues: [cue(2), cue(E), cue(0)] };
   assert.notEqual(planRenumberPatterns(s2).cues[2][0], E);
-  // A named blank is somebody's pattern, not a blank.
-  assert.notEqual(planRenumberPatterns(song, ["intro rest"]).cues[1][0], E);
+  // A name does not make a blank anything else: it goes, and its name with it.
+  const named = planRenumberPatterns({ patterns: song.patterns, cues: [cue(1, 2), cue(0)] },
+    ["intro rest", "tune", "slide"]);
+  assert.equal(named.cues[1][0], E);
+  assert.ok(!named.pNam.includes("intro rest"), "the emptied blank's name is dropped");
+  assert.equal(named.pNam[named.cues[0][0]], "tune", "other names stay with their patterns");
+  // …but a blank the guard keeps keeps its name too.
+  assert.ok(planRenumberPatterns(song, ["intro rest"]).pNam.includes("intro rest"));
 });
 
 test("planRenumberPatterns: a B jump or C break makes its row a last row too", () => {
