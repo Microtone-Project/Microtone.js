@@ -10,5 +10,10 @@
   },
   "dependencies": {
     "puppeteer": "^25.12.0"
+  },
+  "overrides": {
+    "chromium-bidi": {
+      "zod": "4.6.6"
+    }
   }
 }
