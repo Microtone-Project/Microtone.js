@@ -335,7 +335,7 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
 
 /* ── the closing band ─────────────────────────────────────────────────── */
 .ab-close { padding-top: clamp(3rem, 7vw, 6rem); padding-bottom: clamp(3rem, 6vw, 5rem); border-top: 3px solid var(--fg); }
-.ab-close-line { grid-column: 1 / span 10; font-weight: 400; }
+.ab-close-line { grid-column: 1 / span 11; font-weight: 400; }
 .ab-close-line b { font-weight: 800; }
 
 /* ── fine print ───────────────────────────────────────────────────────── */
