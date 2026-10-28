@@ -83,6 +83,13 @@ tabs above carry its envelopes and its zone map. The badges in the list say
 where an instrument came from — `META` for a metainstrument, `IXMP` for a
 SoundFont patch and the number of pitch × velocity zones it brought with it.
 
+![](Screenshot9.png)
+
+The instrument's **mixing tab** gives it a chain of equipment of its own —
+equaliser, compressor, saturator, unison, delay and reverb here — ahead of the
+master bus, with monitors on the instrument's own signal. Instruments that name
+one chain share its settings.
+
 ![](Screenshot6.png)
 
 The **mastering tab**, metering a song as it plays. Microtone lets you write and
@@ -209,14 +216,14 @@ node tools/compare-pcm.js out.pcm reference.pcm
 
 ## Screenshots
 
-The screenshots in this README (`Screenshot1..8.png`, the first doubling as
+The screenshots in this README (`Screenshot1..9.png`, the first doubling as
 `microtone-worker/screenshot.png`, the site's preview image) and Microtone
 Touch's (`microtone-touch-worker/screenshots/`) are generated, in headless
 Chromium, from scenes in `microtone-worker/tools/shots/`:
 
 ```sh
 cd microtone-worker
-node tools/make-screenshots.js            # the tracker's eight (needs test/corpus/)
+node tools/make-screenshots.js            # the tracker's nine (needs test/corpus/)
 node tools/make-screenshots.js 4          # just one of them
 node tools/make-screenshots.js touch      # Touch's six
 node tools/make-screenshots.js --out /tmp/shots   # look before replacing

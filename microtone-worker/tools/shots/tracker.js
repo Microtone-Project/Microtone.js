@@ -1,9 +1,11 @@
-// The tracker's eight promo shots — README.md's Screenshot1..8.png, in the
-// order its "A look around" walks through them. Run by make-screenshots.js;
+// The tracker's nine promo shots — README.md's Screenshot1..9.png, in the
+// order its "A look around" walks through them (the ninth, the Mixing tab,
+// sits after the fifth there). Run by make-screenshots.js;
 // every function below runs IN THE PAGE (it is sent over CDP as source), so it
 // can reach nothing here but its own argument.
 //
-// The songs are corpus songs (test/corpus/, local-only). All eight are the
+// The songs are corpus songs (test/corpus/, local-only) bar the ninth's demo
+// project. All nine are the
 // dim theme at 1280×800, the size the README was written around.
 
 import { fileURLToPath } from "node:url";
@@ -74,13 +76,16 @@ export default {
         await __shot.until(() => __shot.reached(1, 0x03), 10000, "0001:03");
       },
     },
-    // 2 — Cues: the order list, a pattern number per lane per row.
+    // 2 — Cues: the order list, a pattern number per lane per row, with the
+    // song playing so the lanes' indicators blink. The tab is opened first so
+    // the run-up is spent on a drawn view.
     {
       out: [at("../../../Screenshot2.png")],
       url: song("4THSYM.taud"),
       async stage() {
         __shot.tab("cues");
-        await __shot.frames();
+        await __shot.play(0, 0x2b);
+        await __shot.until(() => __shot.reached(1, 0x01), 10000, "0001:01");
       },
     },
     // 3 — the pattern editor, the song's first patterns side by side.
@@ -163,6 +168,33 @@ export default {
         document.getElementById("stDirty").hidden = true;
         __shot.tab("keymap");
         await __shot.frames();
+      },
+    },
+    // 9 — the Mixing tab of the instrument editor: a chain of its own on the
+    // Marimba of the Huygens' Clock demo, six pieces in circuit (the
+    // compressor open, the rest folded to their titlebars), the song playing
+    // so the monitors move.
+    {
+      out: [at("../../../Screenshot9.png")],
+      url: "index.html?load=assets/demo_projects/Huygens_clock.taud&theme=dim",
+      async stage() {
+        __shot.tab("instruments");
+        const iv = __shot.m.instrumentsView;
+        iv.selected = 4;
+        iv.tab = "mixing";
+        iv.refresh();
+        const mx = iv.mixing;
+        mx.newChain();
+        mx.edit((b) => { b.enabled = true; });
+        for (const id of ["equ1", "comp", "satu", "unis", "dlay", "verb"]) {
+          mx.editEquipment(id, (e) => { e.bypass = false; e.folded = id !== "comp"; });
+        }
+        // A display setting, not an edit the shot should show as unsaved.
+        __shot.store.doc.dirty = false;
+        document.getElementById("stDirty").hidden = true;
+        iv.renderPanel();
+        await __shot.play(0, 0);
+        await __shot.until(() => __shot.reached(0, 0x10), 20000, "0000:10");
       },
     },
   ],
