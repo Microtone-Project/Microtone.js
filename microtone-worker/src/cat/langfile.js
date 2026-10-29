@@ -76,7 +76,7 @@ export function encodeLiteral(value) {
  * trailing comment.
  */
 export function parseLangFile(text) {
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/);
   const entries = new Map();
   const order = [];
   const context = new Map();

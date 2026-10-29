@@ -26,7 +26,7 @@ export const CORPORA = [
 
 /** Every language the apps speak besides English, by its own name — the
  *  union of both apps' LANGS (test/node/cat.test.js keeps it so). */
-export const LANGUAGES = { ko: "한국어" };
+export const LANGUAGES = { es: "Spanish", ko: "한국어" };
 
 /** The workbench's own record per language: the glossary, and what each
  *  translation was last checked against (project.js). */
