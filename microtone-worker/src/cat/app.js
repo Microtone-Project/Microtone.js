@@ -8,6 +8,7 @@
 //   checks.js    what a translation can get wrong that a program can see
 //   strings.js / glossaryview.js / issuesview.js   the three tabs
 //   save.js      writing the files (tools/cat-server.py) or archiving them
+//   guide.js     how to get started (Help; opens by itself on a new language)
 //
 // The theme follows the app's (shared `microtone-theme`, the same cycle and
 // default, as docs.js does). The workbench's own words are English: it is a
@@ -23,6 +24,7 @@ import { createStrings } from "./strings.js";
 import { createGlossaryView } from "./glossaryview.js";
 import { createIssuesView } from "./issuesview.js";
 import { canWrite, writeFiles, zipBlob, tarGzBlob, download } from "./save.js";
+import { showGuide, isFresh, guided, markGuided } from "./guide.js";
 import { h, fill, showText } from "./dom.js";
 
 // ── theme (mirror src/ui/theme.js, standalone — as docs.js) ──
@@ -244,7 +246,20 @@ async function open(lang) {
   showView(ui.view);
   if (!ui.selected && strings.rows.length) strings.select(strings.rows[0].id, { focusEditor: false });
   else if (ui.selected) strings.select(ui.selected, { focusEditor: false });
+  if (isFresh(project) && !guided(lang)) {
+    markGuided(lang);
+    await guide();
+  }
 }
+
+// ── the getting-started guide ──
+async function guide() {
+  if (!ctx.project) return;
+  if (!(await showGuide({ langName: ctx.project.langName }))) return;
+  ui.glossFilter = "proposed";
+  showView("glossary");
+}
+document.getElementById("helpBtn").addEventListener("click", guide);
 
 // ── saving ──
 function describe(file, p) {

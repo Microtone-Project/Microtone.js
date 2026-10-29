@@ -223,6 +223,13 @@ button.cat-link:hover { text-decoration: underline; }
 .cat-files li { padding: 0.15rem 0; }
 .cat-files code { font-family: var(--mono-font); font-size: 0.85rem; }
 .cat-dialog-wide { max-width: min(40rem, calc(100vw - 2rem)); }
+.cat-steps { margin: 0.4rem 0 0.6rem; padding-left: 1.4rem; line-height: 1.45; }
+.cat-steps li { margin: 0 0 0.6rem; padding-left: 0.2rem; }
+.cat-steps li::marker { font-family: var(--mono-font); color: var(--dim); }
+.cat-steps li:first-child::marker, .cat-steps li:first-child b { color: var(--accent); }
+.cat-steps kbd { font-family: var(--mono-font); font-size: 0.85em; padding: 0 0.25rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.cat-guide p { margin-bottom: 0.4rem; }
+.cat-guide a { color: var(--accent-2); }
 pre.cat-cmd { font-family: var(--mono-font); background: var(--panel-2); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; }
 
 /* ── narrow screens: the list over the editor ── */
