@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compilePattern, readPatterns } from "../../../tools/stage-site.js";
 import en from "../../src/ui/lang/en.js";
+import es from "../../src/ui/lang/es.js";
 import ko from "../../src/ui/lang/ko.js";
 
 const SITE = new URL("../../", import.meta.url);
@@ -28,7 +29,7 @@ test("version: About's path to package.json finds it", () => {
 });
 
 test("version: About says it in every language", () => {
-  for (const [name, lang] of [["en", en], ["ko", ko]]) {
+  for (const [name, lang] of [["en", en], ["es", es], ["ko", ko]]) {
     assert.ok(lang["about.version"]?.includes("{version}"), `${name} has about.version with {version}`);
   }
 });

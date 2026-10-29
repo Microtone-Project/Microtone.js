@@ -16,11 +16,12 @@
 // Node, where the tests run — the language is English.
 
 import en from "./lang/en.js";
+import es from "./lang/es.js";
 import ko from "./lang/ko.js";
 
 /** Every language Touch speaks, each by its own name. */
-export const LANGS = Object.freeze({ en: "English", ko: "한국어" });
-const TABLES = { en, ko };
+export const LANGS = Object.freeze({ en: "English", es: "Español", ko: "한국어" });
+const TABLES = { en, es, ko };
 const KEY = "microtone-touch:lang"; // index.html's early script reads it too
 
 let choice = "system";

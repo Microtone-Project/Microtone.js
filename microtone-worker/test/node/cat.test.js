@@ -44,6 +44,12 @@ test("the shipped tables: the parser agrees with import(), and a rewrite with no
   }
 });
 
+test("handle reading translations exported on Windows", () => {
+  const en_with_crlf = parseLangFile(EN.replace(/\n/g, "\r\n"));
+  assert.deepEqual(langValues(EN), langValues(en_with_crlf));
+  assert.deepEqual(parseLangFile(EN).order, en_with_crlf.order);
+});
+
 test("LANGUAGES is every language either app speaks besides English", () => {
   const both = { ...TRACKER_LANGS, ...TOUCH_LANGS };
   delete both.en;
