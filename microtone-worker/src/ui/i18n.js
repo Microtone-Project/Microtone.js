@@ -20,7 +20,7 @@ import { applyIcons } from "./icons.js";
 
 export const LANGS = {
   en: "English",
-  es: "Spanish",
+  es: "Español",
   ko: "한국어",
 };
 

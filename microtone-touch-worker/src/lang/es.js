@@ -1,4 +1,4 @@
-// Spanish — translated from en.js (the reference list) with the Microtone
+// Español — translated from en.js (the reference list) with the Microtone
 // translation workbench (microtone.cc/translation). Keys missing here fall
 // back to English automatically. Register "es" in LANGS (i18n.js) to offer it.
 
