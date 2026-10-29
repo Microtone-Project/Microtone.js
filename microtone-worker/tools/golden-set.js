@@ -53,7 +53,15 @@ export const GOLDEN_SET = {
   // Item 261: the same chains with a three-band transient shaper put in —
   // attack up, sustain down — and its wet/dry.
   "Huygens_clock@imixtsh": { file: "assets/demo_projects/Huygens_clock.taud", imix: "tsh" },
+  // …and with the expander put in: a pure gate (its floor at its threshold)
+  // with hysteresis and hold on the first block; on the second an RMS
+  // expander through its key filter, shutting below a floor of its own.
+  "Huygens_clock@imixexpd": { file: "assets/demo_projects/Huygens_clock.taud", imix: "expd" },
 };
+
+/** The equipment defined after item 217, which joins only the entries made
+ *  for it. */
+const LATER = new Set([IMX.IMX_TSH1, IMX.IMX_EXPD]);
 
 /**
  * The chain the @imix variants install: every piece of equipment, a few
@@ -61,14 +69,14 @@ export const GOLDEN_SET = {
  * a retriggering LFO and the tempo-synced delay are all exercised. Instruments
  * alternate between two blocks, the second with the other pipeline order.
  */
-export function goldenImixBlocks(bus = false, tsh = false) {
+export function goldenImixBlocks(bus = false, tsh = false, expd = false) {
   const make = (id, order) => {
     const b = IMX.defaultImixBlock(id);
     b.order = order;
     b.bus = bus;
     // The equipment item 217 defined; later pieces join only the entries
     // made for them, so these digests keep meaning what they meant.
-    for (const eq of IMX.IMX_EQUIPMENT) if (eq !== IMX.IMX_TSH1) b.equipment[eq] = IMX.defaultEquipment(eq);
+    for (const eq of IMX.IMX_EQUIPMENT) if (!LATER.has(eq)) b.equipment[eq] = IMX.defaultEquipment(eq);
     b.equipment.equ1.bands[1].gainDb = 3;
     b.equipment.equ2.bands[0] = { on: true, shape: IMX.IMX_EQ_HIGH_PASS, slope: 1, freq: 60, gainDb: 0, q: 0.7 };
     b.equipment.comp.bands = [IMX.defaultCompBand(), IMX.defaultCompBand(), IMX.defaultCompBand()];
@@ -94,13 +102,18 @@ export function goldenImixBlocks(bus = false, tsh = false) {
       t.dry = 40;
       b.equipment.tsh1 = t;
     }
+    if (expd) {
+      b.equipment.expd = order === 0
+        ? { ...IMX.defaultEquipment(IMX.IMX_EXPD), threshDb: -30, floorDb: -30, rangeDb: 30, hysteresisDb: 6, holdMs: 30, releaseMs: 80 }
+        : { ...IMX.defaultEquipment(IMX.IMX_EXPD), detector: 1, threshDb: -24, floorDb: -40, ratio: 3, rangeDb: 30, keyFilter: true, keyLowCut: 150, keyHighCut: 6000, dry: 20 };
+    }
     return b;
   };
   return [make(1, 0), make(2, 1)];
 }
 
-function installGoldenImix(eng, bus, tsh) {
-  eng.setImix(goldenImixBlocks(bus, tsh));
+function installGoldenImix(eng, bus, tsh, expd) {
+  eng.setImix(goldenImixBlocks(bus, tsh, expd));
   for (let s = 1; s < 1024; s++) eng.instruments[s].imixId = (s & 1) === 1 ? 1 : 2;
   eng.imixGen++;
 }
@@ -118,7 +131,7 @@ export async function renderGolden(entry) {
     const eng = new TaudEngine();
     loadIntoEngine(eng, doc, 0);
     if (entry.monitor !== undefined) eng.setMonitorMode(0, entry.monitor);
-    if (entry.imix) installGoldenImix(eng, entry.imix === "bus", entry.imix === "tsh");
+    if (entry.imix) installGoldenImix(eng, entry.imix === "bus", entry.imix === "tsh", entry.imix === "expd");
     const r = renderSong(eng, GOLDEN_SECONDS);
     return {
       frames: r.frames,

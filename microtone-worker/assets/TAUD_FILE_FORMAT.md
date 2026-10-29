@@ -1512,7 +1512,7 @@ A file **SHOULD** hold at most one `PMtf`. An editor that does not build Motif p
 
 ### 9.15 `IMix` — instrument mixing chains
 
-The **mixing chains** an instrument's voices pass through before they join the master: equalisers, dynamics, a transient shaper, a saturator, a unison, a tape delay, a reverb, a limiter and a mix tool, in a fixed order. Their behaviour is specified in full in the **Engine Specification** §12.4; this section is the byte layout.
+The **mixing chains** an instrument's voices pass through before they join the master: equalisers, dynamics, an expander or gate, a transient shaper, a saturator, a unison, a tape delay, a reverb, a limiter and a mix tool, in a fixed order. Their behaviour is specified in full in the **Engine Specification** §12.4; this section is the byte layout.
 
 Instrument-scoped (the `I` prefix), so a `.tsii` bank carries the chains of its instruments. An instrument names its chain in **byte 255** of its record ([§7.1](#7-1-byte-map)); 0 there means it has none. Two or more instruments **MAY** name the same block: they then share its **settings**, and the block's **mode** says whether they share its **bus**. In **separate** mode each runs its **own** instance of the chain; in **bus** mode their voices sum into **one** bus and the chain runs once over the sum (Engine Specification §12.4). Like `sMst`, this section is one a conforming *player* **MUST** honour ([§9.8](#9-8-reading-project-data-on-a-device-that-ignores-it)). The blocks' names, which a player never needs, are `IMcn`'s ([§9.16](#9-16-imcn-mixing-chain-names)).
 
@@ -1541,8 +1541,8 @@ Every payload begins with four **common bytes**:
 
 | `nnnn` | Order |
 |---|---|
-| 0 | `itrm` → `equ1` → `deq1` → `tsh1` → `comp` → `equ2` → `deq2` → `unis` → `satu` → `dlay` → `verb` → `limi` → `mxtl` |
-| 1 | `itrm` → `equ1` → `deq1` → `tsh1` → `comp` → `equ2` → `deq2` → `unis` → `satu` → `verb` → `dlay` → `limi` → `mxtl` |
+| 0 | `itrm` → `expd` → `equ1` → `deq1` → `tsh1` → `comp` → `equ2` → `deq2` → `unis` → `satu` → `dlay` → `verb` → `limi` → `mxtl` |
+| 1 | `itrm` → `expd` → `equ1` → `deq1` → `tsh1` → `comp` → `equ2` → `deq2` → `unis` → `satu` → `verb` → `dlay` → `limi` → `mxtl` |
 
 Every other value is **RESERVED**. So is the identifier `tsh2`, for a second transient shaper between `comp` and `equ2`: until it is defined, a reader treats it as unknown equipment (below). A block holds only the equipment that has been **touched** — inserted into the chain at some point; equipment it does not hold is not in the chain. **Equipment does not retire once touched**: a writer **MUST** keep a piece in its block for as long as the block exists, bypassed rather than removed, and an equipment identifier, once defined, is never withdrawn or given another meaning. Blocks, on the other hand, **are** retired: a block no instrument names **SHOULD** be dropped, and an editor **MUST** do so only when it saves — never as a side effect of an edit, so an instrument taken off a chain and put back finds it as it was.
 
@@ -1555,6 +1555,24 @@ All floats are IEEE **binary32**, little-endian; every quantity that **accumulat
 | Offset | Type | Field |
 |---|---|---|
 | +4 | `F32` | Gain, dB — −24…+24 |
+
+**`expd` — downward expander, a gate below its floor** (48 bytes; wet/dry)
+
+| Offset | Type | Field |
+|---|---|---|
+| +4 | `U8` | Flags: bit 0 **key filter** (the detector hears the sound through the two cuts below) |
+| +5 | `U8` | Detector — 0 peak, 1 RMS |
+| +6 | `U16` | **RESERVED** |
+| +8 | `F32` | Threshold, dBFS — −80…0: at or above it the sound passes |
+| +12 | `F32` | Floor, dBFS — −∞, or −80…threshold: below it the sound is shut to the range. −∞ is a pure expander; the threshold itself, a pure gate |
+| +16 | `F32` | Ratio — 1…20: between the floor and the threshold, each dB under the threshold becomes *ratio* dB |
+| +20 | `F32` | Range, dB — 0…80: the most it turns the sound down |
+| +24 | `F32` | Attack, ms — 0.1…300 (opening) |
+| +28 | `F32` | Hold, ms — 0…2000 |
+| +32 | `F32` | Release, ms — 5…3000 (closing) |
+| +36 | `F32` | Hysteresis, dB — 0…12: once shut, the level must climb this far above the floor to reopen |
+| +40 | `F32` | Key low cut, Hz — 20…2000 |
+| +44 | `F32` | Key high cut, Hz — 500…20000 |
 
 **`equ1`, `equ2` — equalisers** (8 + 16 × *k* bytes; no wet/dry)
 
@@ -1663,7 +1681,7 @@ An **LFO** record: `U8` waveform (0 sine, 1 triangle, 2 square, 3 saw up, 4 saw 
 
 #### Reading a block
 
-Any **contradictory** configuration makes a block **INVALID**: an id of 0; two blocks under one id; an undefined pipeline order; an equipment list that names a piece twice or disagrees with the records that follow it; a known payload of the wrong size for its version and counts; a dry amount on equipment that has no wet/dry; an undefined shape, slope, curve, detector or waveform; a slope on a shape that has none; an equaliser of more than 8 bands, a compressor or a transient shaper of 0 or more than 6, a unison of fewer than 2 voices or more than 8; crossovers that are not strictly ascending; a linked dynamic-EQ band whose sense fields differ from its act fields. A reader **MUST NOT** play an invalid block: the instruments that name it play as if they had none, and a reader **SHOULD** say so. A block that cannot even be delimited ends the walk.
+Any **contradictory** configuration makes a block **INVALID**: an id of 0; two blocks under one id; an undefined pipeline order; an equipment list that names a piece twice or disagrees with the records that follow it; a known payload of the wrong size for its version and counts; a dry amount on equipment that has no wet/dry; an undefined shape, slope, curve, detector (the compressor's or the expander's) or waveform; a slope on a shape that has none; an equaliser of more than 8 bands, a compressor or a transient shaper of 0 or more than 6, a unison of fewer than 2 voices or more than 8; crossovers that are not strictly ascending; a linked dynamic-EQ band whose sense fields differ from its act fields; an expander's floor above its threshold. A reader **MUST NOT** play an invalid block: the instruments that name it play as if they had none, and a reader **SHOULD** say so. A block that cannot even be delimited ends the walk.
 
 Equipment a reader does not know — an unknown identifier, or a known one at a payload version above the one it understands — **MUST** be skipped by playback, **SHOULD** be reported once when the file is opened, and **MUST** be written back unchanged by an editor that saves the block. A block holding nothing but unknown or bypassed equipment changes nothing.
 
@@ -1730,3 +1748,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-28 | Formant instruments: twelve more consonant ids — the aspirated [ʈʰ] and [sʰ], the breathy-voiced [bʱ] [dʱ] [ɖʱ] [ɡʱ], the affricates [c͡ç] [ɟ͡ʝ] [t͡θ] [d͡ð] [ɡ͡ɣ] and the glottal affricate [ʔ͡h] (ids 17…21, 75, 106…111); every id defined before keeps its meaning |
 | 2026-10-28 | `IMix`: the status byte's bit 1 is the block's **mode** — clear, every instrument naming it runs its own instance (as before); set, **bus** mode, they sum into one bus the chain runs over once. The mix tool's flag bit 3 **removes DC** (a one-pole at 3 Hz). `IMcn` — mixing chain names, a name table in block-id order. The `sMst` width and the mix tool's width are **surround width** on an ambisonic scene: every channel but W scaled (Engine Specification §12.3) |
 | 2026-10-29 | `IMix`: `tsh1`, a **transient shaper** of one to six bands, between `deq1` and `comp` in both pipelines; the identifier `tsh2` is reserved for a second one after `comp` |
+| 2026-10-29 | `IMix`: `expd`, a **downward expander** that shuts like a **gate** below its **floor** (−∞: a pure expander; the threshold: a pure gate), with hold, hysteresis and a key filter, between `itrm` and `equ1` in both pipelines |

@@ -17,6 +17,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 - **In Motif**, a chain takes `transient_shaper_1` with `attack`, `sustain`, `attack_time`, `sustain_time` and `output`, or a list of `bands` split at `crossovers`.
 - A project with a transient shaper opened in an older version keeps it and saves it back, and plays the rest of the chain without it.
 
+
+**Mixing chains gain an expander / gate**: turn down what is quieter than a threshold, gently or all the way, so hiss, spill and long tails go away while the notes come through.
+
+- **The Expander / gate** sits first in the chain, after the input trim, and is both at once: between its **Floor** and its **Threshold** it pushes the sound down by the **Ratio** (1:2 makes each decibel under the threshold two), never further than the **Range**; under the floor it shuts, and stays shut until the level is back the **Hysteresis** above the floor, so it does not chatter.
+- **No floor makes it a pure expander, a floor at the threshold a pure gate**; the floor never passes the threshold — move either one past the other and the other follows.
+- **Attack**, **Hold** and **Release** set how fast it opens, how long it stays open after the level drops, and how fast it closes; its peak detector holds a low note's level steady instead of flickering with its waves, and an RMS detector is there too.
+- **Key filter**: the gate can listen through a low cut and a high cut of its own, so the kick bleeding into a hi-hat cannot open the hi-hat's gate — the sound itself goes through unfiltered.
+- **A threshold strip to drag**, reaching down to −80 dB, with the threshold and the floor as its two markers: the bar turns the accent colour while the level is under the threshold, the shut region under the floor is shaded, and the Gain reduction monitor shows how far it is turning the sound down. In Motif, a chain takes `expander`.
+
 **Level and gain-reduction bars are ruled inside**, in the Mixing and the Mastering tab alike.
 
 - Every horizontal level bar, gain-reduction bar and threshold-strip row carries a rule every 6 dB across the bar itself, the multiples of 12 dB firmer, so a reading can be taken off the bar without looking up at its scale.

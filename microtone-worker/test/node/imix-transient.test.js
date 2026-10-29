@@ -305,7 +305,7 @@ test("the snapshot carries the shaper's band gains and its input ring", async ()
   let energy = 0;
   for (let i = 0; i < P.SNAP_IM_RING_FRAMES; i++) energy += f[o + i] ** 2;
   assert.ok(energy > 0, "the shaper's input is rung");
-  assert.equal(P.SNAP_FLOATS, P.SNAP_IM_BASE + P.SNAP_IM_TSH1 + M.IMX_TSH_MAX_BANDS, "the gains end the snapshot");
+  assert.equal(P.SNAP_IM_EXPD_GR, P.SNAP_IM_TSH1 + M.IMX_TSH_MAX_BANDS, "the six gains come whole, before the expander's");
 });
 
 // ── TML ─────────────────────────────────────────────────────────────────────

@@ -64,7 +64,7 @@ function painted(cv) {
   check(!!store.doc.imixBlock(1), "…and writes its block");
   check(store.undo.undoStack.length === undoBefore + 1, "one undo step",
     `${undoBefore} → ${store.undo.undoStack.length}`);
-  check(doc.querySelectorAll(".imx-unit").length === 13, "thirteen pieces of equipment",
+  check(doc.querySelectorAll(".imx-unit").length === 14, "fourteen pieces of equipment",
     String(doc.querySelectorAll(".imx-unit").length));
   check([...doc.querySelectorAll(".imx-unit")].every((u) => u.classList.contains("mst-off")),
     "…none of them in the chain yet");
@@ -214,6 +214,60 @@ function painted(cv) {
   dcBtn.click();
   await sleep(80);
   check(store.doc.imixBlock(1).equipment.mxtl?.removeDc === true, "…which the block records");
+
+  // ── 3d. item 261: the expander / gate ────────────────────────────────────
+  check(unitEl("expd")?.previousElementSibling?.dataset.equipment === "itrm"
+    && unitEl("expd")?.nextElementSibling?.dataset.equipment === "equ1",
+    "the expander sits between the input trim and the first equaliser");
+  {
+    if (unitEl("expd").classList.contains("folded")) unitEl("expd").querySelector(".fold-toggle").click();
+    await sleep(60);
+    const labels = () => [...unitEl("expd").querySelectorAll(".mst-lab")].map((x) => x.textContent);
+    const ex = () => store.doc.imixBlock(1).equipment.expd;
+    const numOf = (label) => [...unitEl("expd").querySelectorAll(".mst-row")]
+      .find((r) => r.querySelector(".mst-lab")?.textContent === label)?.querySelector("input.mst-num");
+    const type = async (label, v) => { const n = numOf(label); n.value = String(v); n.dispatchEvent(new Event("change")); await sleep(80); };
+    check(labels().includes("Ratio 1:") && !labels().includes("Floor") && !labels().includes("Hysteresis"),
+      "with no floor it is an expander: a ratio, no floor or hysteresis");
+    const lamp = (text) => [...unitEl("expd").querySelectorAll("button.lamp-btn")].find((x) => x.textContent.includes(text));
+    lamp("Gate below floor").click();
+    await sleep(80);
+    check(ex()?.floorDb === -62 && ex().bypass === true, "Gate below floor sets a floor 12 dB under the threshold, inserted switched off",
+      String(ex()?.floorDb));
+    check(labels().includes("Floor") && labels().includes("Hysteresis"), "…and shows the floor and its hysteresis");
+    await type("Threshold", -70);
+    check(ex().threshDb === -70 && ex().floorDb === -70, "a threshold put under the floor brings the floor with it",
+      `${ex().threshDb} / ${ex().floorDb}`);
+    await type("Floor", -20);
+    check(ex().floorDb === -20 && ex().threshDb === -20, "a floor put over the threshold takes the threshold with it",
+      `${ex().threshDb} / ${ex().floorDb}`);
+    await type("Floor", -60);
+    lamp("Key filter").click();
+    await sleep(80);
+    check(ex().keyFilter === true && labels().includes("Key low cut") && labels().includes("Key high cut"),
+      "Key filter switches the key on and shows its two cuts");
+    const thr = unitEl("expd").querySelector('canvas.imx-thresh[data-thresh="expd"]');
+    const rr = thr.getBoundingClientRect();
+    const zoom = rr.width / thr.clientWidth;
+    const xAt = (fr) => rr.left + (30 + fr * (thr.clientWidth - 30 - 62)) * zoom;
+    const y = rr.top + (14 + 9) * zoom;
+    const drag = async (from, to) => {
+      const pe = (type, x) => thr.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 9, button: 0 }));
+      pe("pointerdown", xAt(from)); pe("pointermove", xAt(to)); pe("pointerup", xAt(to));
+      await sleep(60);
+    };
+    const undoAt = store.undo.undoStack.length;
+    await drag(0.75, 0.5); // the threshold sits at −20 dB, three quarters along −80…0
+    check(Math.abs(ex().threshDb - -40) < 0.6 && ex().floorDb === -60, "a drag by the threshold's marker moves the threshold",
+      `${ex().threshDb} / ${ex().floorDb}`);
+    check(store.undo.undoStack.length === undoAt + 1, "…as one undo step", `${undoAt} → ${store.undo.undoStack.length}`);
+    await drag(0.25, 0.375); // the floor sits at −60 dB
+    check(Math.abs(ex().floorDb - -50) < 0.6 && Math.abs(ex().threshDb - -40) < 0.6, "…and one by the floor's marker moves the floor",
+      `${ex().threshDb} / ${ex().floorDb}`);
+    sw("expd").click();
+    await sleep(80);
+    check(ex().bypass === false, "its switch puts it in circuit");
+  }
 
   // ── 3c. item 261: the transient shaper ───────────────────────────────────
   check(unitEl("tsh1")?.previousElementSibling?.dataset.equipment === "deq1"
@@ -409,6 +463,13 @@ function painted(cv) {
       if (lift <= 0) await sleep(100);
     }
     check(lift > 0, "the snapshot carries the shaper's lift", String(lift));
+    let lvl = -120;
+    for (let i = 0; i < 40 && lvl <= -120; i++) {
+      lvl = store.audio.readImixMeter(makeImixMeterReadout()).expdLvl;
+      if (lvl <= -120) await sleep(100);
+    }
+    check(lvl > -120, "the snapshot carries the expander's detector level", String(lvl));
+    check(painted(doc.querySelector('canvas.imx-thresh[data-thresh="expd"]')), "the expander's threshold strip painted");
   }
   check(painted(doc.querySelector("canvas.imx-transfer")), "the saturator's transfer curve painted");
   const thr = doc.querySelector('canvas.imx-thresh[data-thresh="comp"]');

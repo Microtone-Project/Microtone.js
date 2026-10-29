@@ -272,8 +272,11 @@ export const SNAP_IM_STAGE_WRITE = SNAP_IM_DEQ2_LVL + IMX_DEQ_BANDS;
 export const SNAP_IM_STAGE_RINGS = SNAP_IM_STAGE_WRITE + IMX_TAP_STAGES.length;
 // …then the transient shaper's bands' dynamic gains (dB, signed; item 261).
 export const SNAP_IM_TSH1 = SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RING_FRAMES;
+// …then the expander's deepest gain (dB, ≤ 0) and its loudest detector level.
+export const SNAP_IM_EXPD_GR = SNAP_IM_TSH1 + IMX_TSH_MAX_BANDS;
+export const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
 
-export const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_TSH1 + IMX_TSH_MAX_BANDS;
+export const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_EXPD_LVL + 1;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt

@@ -27,7 +27,7 @@
 
 import {
   IMX_EQUIPMENT, IMX_WET_APPLICABLE, IMX_KNOWN_VERSION, IMX_MAX_ID,
-  IMX_ITRM, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU,
+  IMX_ITRM, IMX_EXPD, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU,
   IMX_UNIS, IMX_VERB, IMX_DLAY, IMX_LIMI, IMX_MXTL,
   IMX_EQ_MAX_BANDS, IMX_EQ_SHAPES, IMX_SLOPES, IMX_COMP_MAX_BANDS, IMX_TSH_MAX_BANDS, IMX_DEQ_BANDS,
   IMX_SAT_CURVES, IMX_UNIS_MIN_VOICES, IMX_UNIS_MAX_VOICES, IMX_LFO_WAVES,
@@ -49,7 +49,7 @@ const DEQ_BAND = 48;
 /** The size of a known version-0 payload, or null when it depends on a count
  *  that has to be read first (equ, comp, tsh). */
 const FIXED_SIZE = {
-  [IMX_ITRM]: 8, [IMX_DEQ1]: 8 + IMX_DEQ_BANDS * DEQ_BAND, [IMX_DEQ2]: 8 + IMX_DEQ_BANDS * DEQ_BAND,
+  [IMX_ITRM]: 8, [IMX_EXPD]: 48, [IMX_DEQ1]: 8 + IMX_DEQ_BANDS * DEQ_BAND, [IMX_DEQ2]: 8 + IMX_DEQ_BANDS * DEQ_BAND,
   [IMX_SATU]: 24, [IMX_UNIS]: 20 + 2 * LFO_BYTES, [IMX_VERB]: 24, [IMX_DLAY]: 32,
   [IMX_LIMI]: 20, [IMX_MXTL]: 16,
 };
@@ -96,6 +96,15 @@ function decodeEquipment(id, p) {
   if (!IMX_WET_APPLICABLE.has(id) && p[1] !== 0) fail(`${id} has no wet/dry, yet carries ${p[1]}`);
   switch (id) {
     case IMX_ITRM: return { ...common, gainDb: f32(4) };
+    case IMX_EXPD:
+      if (p[5] > 1) fail(`expd detector ${p[5]} is undefined`);
+      // A floor above the threshold says the sound is shut where it should pass.
+      if (f32(12) > f32(8)) fail("expd floor is above its threshold");
+      return {
+        ...common, keyFilter: (p[4] & 1) !== 0, detector: p[5],
+        threshDb: f32(8), floorDb: f32(12), ratio: f32(16), rangeDb: f32(20), attackMs: f32(24), holdMs: f32(28),
+        releaseMs: f32(32), hysteresisDb: f32(36), keyLowCut: f32(40), keyHighCut: f32(44),
+      };
     case IMX_EQU1:
     case IMX_EQU2: {
       if (p.length < 8) fail(`${id} payload is too short`);
@@ -330,6 +339,11 @@ export function encodeEquipment(id, eIn) {
   w.zeros(2);
   switch (id) {
     case IMX_ITRM: w.f32(e.gainDb); break;
+    case IMX_EXPD:
+      w.u8(e.keyFilter ? 1 : 0); w.u8(e.detector); w.zeros(2);
+      w.f32(e.threshDb); w.f32(e.floorDb); w.f32(e.ratio); w.f32(e.rangeDb); w.f32(e.attackMs); w.f32(e.holdMs);
+      w.f32(e.releaseMs); w.f32(e.hysteresisDb); w.f32(e.keyLowCut); w.f32(e.keyHighCut);
+      break;
     case IMX_EQU1:
     case IMX_EQU2:
       w.u8(e.bands.length); w.zeros(3);

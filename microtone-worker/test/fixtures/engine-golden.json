@@ -121,6 +121,13 @@
       "frames": 960000,
       "u8": "58da392db2abc1190d44bef5fe7a388bb0d81b9908ad795e91d6435641c65f75",
       "f32": "519d2106663e56dc5434bff63645874d145e8160c8a5fddf6dd276e28461bd59"
+    },
+    "Huygens_clock@imixexpd": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "imix": "expd",
+      "frames": 960000,
+      "u8": "572867b389a57893564eef45f4d9b0334f2f77632fafca11e11d8697c84a4008",
+      "f32": "0b5ac3fb54de32b5283131ec23651ff5d927ede696ab37e1633cfcac5e6fcef9"
     }
   }
 }

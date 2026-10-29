@@ -37,7 +37,7 @@ import {
   SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
   SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
   SNAP_IM_RING_FRAMES, SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS,
-  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1,
+  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1, SNAP_IM_EXPD_GR, SNAP_IM_EXPD_LVL,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -702,6 +702,8 @@ export class AudioSystem {
     out.unisWidth = f[b + SNAP_IM_UNIS_WIDTH];
     for (let i = 0; i < out.compLvl.length; i++) out.compLvl[i] = f[b + SNAP_IM_COMP_LVL + i];
     for (let i = 0; i < out.tsh1.length; i++) out.tsh1[i] = f[b + SNAP_IM_TSH1 + i];
+    out.expd = f[b + SNAP_IM_EXPD_GR];
+    out.expdLvl = f[b + SNAP_IM_EXPD_LVL];
     for (let i = 0; i < out.deq1Lvl.length; i++) {
       out.deq1Lvl[i] = f[b + SNAP_IM_DEQ1_LVL + i];
       out.deq2Lvl[i] = f[b + SNAP_IM_DEQ2_LVL + i];

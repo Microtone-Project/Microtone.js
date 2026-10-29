@@ -1,5 +1,5 @@
 // The Instruments view's MIXING tab (item 217): the instrument's IMix chain —
-// which block it uses, the thirteen pieces of equipment in their fixed order,
+// which block it uses, the fourteen pieces of equipment in their fixed order,
 // and four monitors on the instrument's own bus.
 //
 // The chain is the BLOCK's, not the instrument's: two instruments naming one
@@ -34,7 +34,7 @@
 
 import {
   IMX_PIPELINES, IMX_WET_APPLICABLE, IMX_RANGE, FX16,
-  IMX_ITRM, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU, IMX_UNIS,
+  IMX_ITRM, IMX_EXPD, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU, IMX_UNIS,
   IMX_VERB, IMX_DLAY, IMX_LIMI, IMX_MXTL,
   IMX_EQ_SHAPES, IMX_EQ_MAX_BANDS, IMX_EQ_BELL, IMX_SLOPES, IMX_COMP_MAX_BANDS, IMX_TSH_MAX_BANDS,
   IMX_DEQ_BANDS, IMX_SAT_CURVES, IMX_UNIS_MIN_VOICES, IMX_UNIS_MAX_VOICES,
@@ -92,6 +92,15 @@ const THR_FALL_DB_S = 30;
  *  ballistics come to rest instead of freezing mid-fall. */
 const REST_MS = 2000;
 const frac = (db, lo, hi) => clamp((db - lo) / (hi - lo), 0, 1);
+/** The expander's floor never sits above its threshold: moving either one past
+ *  the other carries the other along, so the one the user touched is the one
+ *  that lands where they put it. */
+const expdThreshold = (x, v) => { x.threshDb = v; if (x.floorDb > v) x.floorDb = v; };
+const expdFloor = (x, v) => { x.floorDb = v; if (v > x.threshDb) x.threshDb = v; };
+/** Where a floor switched on starts: 12 dB under the threshold. */
+const EXPD_FLOOR_GAP_DB = 12;
+/** A threshold strip's scale: the expander's reaches further down. */
+const thresholdRange = (id) => IMX_RANGE[id === IMX_EXPD ? "expdThreshDb" : "compThreshDb"];
 /** The dynamic EQ's bands as the rack lists them: the low shelf, the four
  *  bells, the high shelf — low to high, whatever their slots in the file. */
 const DEQ_ORDER = [IMX_DEQ_LOW_SHELF_BAND, 2, 3, 4, 5, IMX_DEQ_HIGH_SHELF_BAND];
@@ -106,7 +115,7 @@ const LFO_GLYPH = [MOTIF.WAVE_SINE, MOTIF.WAVE_TRIANGLE, MOTIF.WAVE_SQUARE,
 
 /** The unit each equipment's name is looked up under. */
 const NAME_KEY = {
-  [IMX_ITRM]: "imix.itrm", [IMX_EQU1]: "imix.equ1", [IMX_DEQ1]: "imix.deq1",
+  [IMX_ITRM]: "imix.itrm", [IMX_EXPD]: "imix.expd", [IMX_EQU1]: "imix.equ1", [IMX_DEQ1]: "imix.deq1",
   [IMX_TSH1]: "imix.tsh1", [IMX_COMP]: "imix.comp", [IMX_EQU2]: "imix.equ2", [IMX_DEQ2]: "imix.deq2",
   [IMX_UNIS]: "imix.unis", [IMX_SATU]: "imix.satu", [IMX_DLAY]: "imix.dlay",
   [IMX_VERB]: "imix.verb", [IMX_LIMI]: "imix.limi", [IMX_MXTL]: "imix.mxtl",
@@ -127,7 +136,7 @@ export class MixingPanel {
     this.peakHoldUntil = [0, 0, 0, 0];
     this.clipUntil = [0, 0, 0, 0];
     this.gr = { comp: new Float64Array(IMX_COMP_MAX_BANDS), deq1: new Float64Array(IMX_DEQ_BANDS),
-      deq2: new Float64Array(IMX_DEQ_BANDS), tsh1: new Float64Array(IMX_TSH_MAX_BANDS), lim: 0 };
+      deq2: new Float64Array(IMX_DEQ_BANDS), tsh1: new Float64Array(IMX_TSH_MAX_BANDS), expd: 0, lim: 0 };
     this.lastLive = 0;
     this._lastFrame = 0;
     this.fft = new Fft(IMX_RING_FRAMES);
@@ -223,7 +232,7 @@ export class MixingPanel {
     const parts = [b.id, b.order, b.bus];
     for (const id of IMX_PIPELINES[0]) {
       const e = this.eqp(id);
-      parts.push(`${id}:${e.bands?.length ?? 0}:${e.sync ?? ""}:` +
+      parts.push(`${id}:${e.bands?.length ?? 0}:${e.sync ?? ""}:${e.floorDb === -Infinity ? "x" : e.floorDb === undefined ? "" : "f"}${e.keyFilter ?? ""}:` +
         `${e.detuneLfo?.sync ?? ""}${e.widthLfo?.sync ?? ""}:` +
         `${(e.bands ?? []).map((x) => `${x.shape ?? ""}${x.unlinked ? "u" : ""}`).join("")}`);
     }
@@ -504,6 +513,7 @@ export class MixingPanel {
     });
     switch (id) {
       case IMX_ITRM: body.append(this.num(id, "imix.gain", "gainDb", "trimDb", { unit: "dB", digits: 1 })); break;
+      case IMX_EXPD: this.bodyExpd(body); break;
       case IMX_EQU1:
       case IMX_EQU2: this.bodyEq(id, body); break;
       case IMX_TSH1: this.bodyTsh(body); break;
@@ -671,6 +681,50 @@ export class MixingPanel {
     return cur.bands.map((_, i) => [i,
       cur.bands.length === 1 ? t("imix.allShort") : String(i + 1),
       cur.bands.length === 1 ? t("imix.allBands") : t("imix.band", { n: i + 1 })]);
+  }
+
+  /** The expander, and the gate under its floor: a threshold strip to see and
+   *  drag both by, the expander's curve, and the floor (off = −∞, a pure
+   *  expander; at the threshold, a pure gate) with its hysteresis. */
+  bodyExpd(body) {
+    const id = IMX_EXPD;
+    const e = () => this.eqp(id);
+    const hint = document.createElement("p");
+    hint.className = "mst-hint";
+    hint.textContent = t("imix.expdHint");
+    const [lo] = IMX_RANGE.expdThreshDb;
+    body.append(
+      hint,
+      this.thresholdStrip(id),
+      this.choiceRow("imix.detector", [[COMP_PEAK, t("imix.peak")], [COMP_RMS, t("imix.rms")]],
+        () => e()?.detector ?? 0, (v) => this.editEquipment(id, (x) => { x.detector = v; })),
+      this.numRow("imix.threshold", "expdThreshDb", () => e().threshDb,
+        (v) => this.editEquipment(id, (x) => expdThreshold(x, v), "threshDb"), { unit: "dB", digits: 1 }),
+      this.num(id, "imix.expdRatio", "ratio", "compRatio", { digits: 2, log: true }),
+      this.num(id, "imix.range", "rangeDb", "expdRangeDb", { unit: "dB", digits: 1 }),
+      this.num(id, "imix.attack", "attackMs", "compAttackMs", { unit: "ms", digits: 1, log: true }),
+      this.num(id, "imix.hold", "holdMs", "expdHoldMs", { unit: "ms", digits: 0 }),
+      this.num(id, "imix.release", "releaseMs", "compReleaseMs", { unit: "ms", digits: 0, log: true }),
+      this.checkRow("imix.floorOn", "imix.floorOnTitle", () => e()?.floorDb > -Infinity,
+        (on) => this.editEquipment(id, (x) => {
+          x.floorDb = on ? Math.max(lo, x.threshDb - EXPD_FLOOR_GAP_DB) : -Infinity;
+        })),
+    );
+    if (e().floorDb > -Infinity) {
+      body.append(
+        this.numRow("imix.floor", "expdThreshDb", () => (e().floorDb > -Infinity ? e().floorDb : lo),
+          (v) => this.editEquipment(id, (x) => expdFloor(x, v), "floorDb"), { unit: "dB", digits: 1 }),
+        this.num(id, "imix.hysteresis", "hysteresisDb", "expdHysteresisDb", { unit: "dB", digits: 1 }),
+      );
+    }
+    body.append(this.checkRow("imix.keyFilter", "imix.keyFilterTitle", () => e()?.keyFilter ?? false,
+      (on) => this.editEquipment(id, (x) => { x.keyFilter = on; })));
+    if (e().keyFilter) {
+      body.append(
+        this.num(id, "imix.keyLowCut", "keyLowCut", "keyLowCut", { unit: "Hz", digits: 0, log: true }),
+        this.num(id, "imix.keyHighCut", "keyHighCut", "keyHighCut", { unit: "Hz", digits: 0, log: true }),
+      );
+    }
   }
 
   /** The transient shaper: like the compressor, one band or several split at
@@ -1298,6 +1352,7 @@ export class MixingPanel {
     const settle = (cur, tgt) => (Math.abs(tgt) > Math.abs(cur) ? tgt : cur + (tgt - cur) * k);
     for (let i = 0; i < IMX_COMP_MAX_BANDS; i++) this.gr.comp[i] = settle(this.gr.comp[i], fresh ? r.comp[i] : 0);
     for (let i = 0; i < IMX_TSH_MAX_BANDS; i++) this.gr.tsh1[i] = settle(this.gr.tsh1[i], fresh ? r.tsh1[i] : 0);
+    this.gr.expd = settle(this.gr.expd, fresh ? r.expd : 0);
     for (let i = 0; i < IMX_DEQ_BANDS; i++) {
       this.gr.deq1[i] = settle(this.gr.deq1[i], fresh ? r.deq1[i] : 0);
       this.gr.deq2[i] = settle(this.gr.deq2[i], fresh ? r.deq2[i] : 0);
@@ -1350,7 +1405,8 @@ export class MixingPanel {
     const rows = [];
     const e = b?.equipment ?? {};
     const on = (id) => e[id] && !e[id].bypass;
-    // In pipeline order: the transient shaper, then the compressor.
+    // In pipeline order: the expander, the transient shaper, the compressor.
+    if (on(IMX_EXPD)) rows.push([t("imix.expdShort"), this.gr.expd, false]);
     if (on(IMX_TSH1)) {
       e[IMX_TSH1].bands.forEach((band, i) => {
         if (band.on) rows.push([e[IMX_TSH1].bands.length === 1 ? t("imix.tshShort") : t("imix.tshBand", { n: i + 1 }), this.gr.tsh1[i], true]);
@@ -1625,10 +1681,12 @@ export class MixingPanel {
 
   // ── threshold strips ──
 
-  /** The bands a strip shows, as [band index, label]: every compressor band;
-   *  a dynamic EQ's bands that are on, low shelf first, high shelf last. */
+  /** The bands a strip shows, as [band index, label]: the expander's one row;
+   *  every compressor band; a dynamic EQ's bands that are on, low shelf first,
+   *  high shelf last. */
   thresholdRows(id) {
     const e = this.eqp(id);
+    if (id === IMX_EXPD) return [[0, t("imix.allShort")]];
     if (id === IMX_COMP) {
       return e.bands.map((_, k) => [k, e.bands.length === 1 ? t("imix.allShort") : String(k + 1)]);
     }
@@ -1643,6 +1701,11 @@ export class MixingPanel {
    * dynamic EQ marks, dotted, the level where its band reaches its range and
    * moves no further. The level is what the band's own detector hears: a
    * multiband compressor's band, a dynamic EQ band's sense filter.
+   *
+   * The expander has one row on its own scale (−80 … 0 dB) and acts BELOW its
+   * threshold, so its bar is the accent while the level is under it. Its floor
+   * is a second marker, a tab at the foot, with the shut region under it
+   * shaded; dotted is where the expander has moved its full range.
    */
   thresholdStrip(id) {
     const cv = document.createElement("canvas");
@@ -1651,7 +1714,7 @@ export class MixingPanel {
     cv.title = t("imix.threshTitle");
     const plot = { canvas: cv, paint: (C, live, dt) => this.drawThresholds(id, cv, C, live, dt) };
     this.plots.push(plot);
-    const [lo, hi] = IMX_RANGE.compThreshDb;
+    const [lo, hi] = thresholdRange(id);
     let drag = null;
     const at = (ev) => {
       const p = localPoint(cv, ev);
@@ -1660,11 +1723,19 @@ export class MixingPanel {
       const db = lo + clamp((p.x - x0) / span, 0, 1) * (hi - lo);
       return { row: Math.floor((p.y - THR_TOP) / THR_ROW_H), db: Math.round(db * 10) / 10 };
     };
-    const set = (band, db) => this.editEquipment(id, (x) => { x.bands[band].threshDb = db; }, `b${band}threshDb`);
+    // The expander's strip carries two markers: a drag takes the nearer one.
+    let field = "threshDb";
+    const set = id === IMX_EXPD
+      ? (_, db) => this.editEquipment(id, (x) => (field === "floorDb" ? expdFloor : expdThreshold)(x, db), field)
+      : (band, db) => this.editEquipment(id, (x) => { x.bands[band].threshDb = db; }, `b${band}threshDb`);
     cv.addEventListener("pointerdown", (ev) => {
       const { row, db } = at(ev);
       const rows = this.thresholdRows(id);
       if (row < 0 || row >= rows.length) return;
+      if (id === IMX_EXPD) {
+        const e = this.eqp(id);
+        field = e.floorDb > -Infinity && Math.abs(db - e.floorDb) < Math.abs(db - e.threshDb) ? "floorDb" : "threshDb";
+      }
       drag = rows[row][0];
       this.selectBand(id, drag);
       try { cv.setPointerCapture(ev.pointerId); } catch { /* synthetic pointer */ }
@@ -1688,14 +1759,16 @@ export class MixingPanel {
     if (!box) return;
     const { ctx, w } = box;
     const e = this.eqp(id);
-    const [lo, hi] = IMX_RANGE.compThreshDb;
+    const expd = id === IMX_EXPD;
+    const [lo, hi] = thresholdRange(id);
     const x0 = THR_LABEL_W, span = w - THR_LABEL_W - THR_VALUE_W;
     const xOf = (db) => x0 + clamp((db - lo) / (hi - lo), 0, 1) * span;
     // Each band's level: up at once, down at THR_FALL_DB_S, like a peak meter.
     let lv = this._thrLvl?.get(id);
     if (!lv) { lv = new Float64Array(IMX_DEQ_BANDS).fill(-120); (this._thrLvl ??= new Map()).set(id, lv); }
     const src = live && this.inCircuit(id)
-      ? (id === IMX_COMP ? this.readout.compLvl : id === IMX_DEQ1 ? this.readout.deq1Lvl : this.readout.deq2Lvl)
+      ? (expd ? [this.readout.expdLvl] : id === IMX_COMP ? this.readout.compLvl
+        : id === IMX_DEQ1 ? this.readout.deq1Lvl : this.readout.deq2Lvl)
       : null;
     const fall = (THR_FALL_DB_S * dt) / 1000;
     for (let i = 0; i < lv.length; i++) {
@@ -1705,7 +1778,7 @@ export class MixingPanel {
     ctx.font = canvasMonoFont(9);
     ctx.fillStyle = C.dim;
     ctx.textAlign = "center";
-    for (let db = lo; db <= hi; db += 12) {
+    for (let db = hi; db >= lo; db -= 12) {
       const x = xOf(db);
       ctx.fillRect(Math.round(x), THR_TOP - 3, 1, 3);
       ctx.fillText(fmtDb(db, 0), clamp(x, x0 + 8, x0 + span - 6), THR_TOP - 4);
@@ -1717,7 +1790,7 @@ export class MixingPanel {
     }
     const on = this.inCircuit(id);
     rows.forEach(([i, label], r) => {
-      const b = e.bands[i];
+      const b = expd ? { ...e, on: true } : e.bands[i];
       const y = THR_TOP + r * THR_ROW_H;
       const yb = y + 3, hb = THR_ROW_H - 6;
       ctx.fillStyle = b.on ? C.fg : C.dim;
@@ -1735,7 +1808,12 @@ export class MixingPanel {
         ctx.globalAlpha = 1;
       }
       const xl = xOf(lv[i]);
-      if (lv[i] > lo && b.on) {
+      if (expd) {
+        if (lv[i] > lo) {
+          ctx.fillStyle = xl < xt ? C.accent : C.meter;
+          ctx.fillRect(x0, yb + 3, xl - x0, hb - 6);
+        }
+      } else if (lv[i] > lo && b.on) {
         ctx.fillStyle = C.meter;
         ctx.fillRect(x0, yb + 3, Math.min(xl, xt) - x0, hb - 6);
         if (xl > xt) {
@@ -1744,10 +1822,31 @@ export class MixingPanel {
         }
       }
       drawBarRules(ctx, C, lo, hi, xOf, yb, hb);
-      if (id !== IMX_COMP && b.ratio > 1) {
-        // Where the band has moved its full range and stops.
-        const full = b.threshDb + b.rangeDb / (1 - 1 / b.ratio);
-        if (full < hi) {
+      // Where the band has moved its full range and stops — or a gate closes.
+      let full = null;
+      if (expd) {
+        const reach = b.ratio > 1 ? b.threshDb - b.rangeDb / (b.ratio - 1) : null;
+        full = reach !== null && reach > b.floorDb ? reach : null;
+        if (b.floorDb > -Infinity) {
+          // Shut under the floor: the region shaded, the floor a tab at the foot.
+          const xf = xOf(b.floorDb);
+          ctx.fillStyle = C.accent;
+          ctx.globalAlpha = 0.18;
+          ctx.fillRect(x0, yb, xf - x0, hb);
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = on ? C.fg : C.dim;
+          ctx.fillRect(Math.round(xf) - 1, y + 1, 2, THR_ROW_H - 2);
+          ctx.beginPath();
+          ctx.moveTo(xf - 3, y + THR_ROW_H);
+          ctx.lineTo(xf + 3, y + THR_ROW_H);
+          ctx.lineTo(xf, y + THR_ROW_H - 4);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      else if (id !== IMX_COMP && b.ratio > 1) full = b.threshDb + b.rangeDb / (1 - 1 / b.ratio);
+      if (full !== null) {
+        if (full < hi && full > lo) {
           ctx.strokeStyle = C.dim;
           ctx.lineWidth = 1;
           ctx.setLineDash([2, 2]);

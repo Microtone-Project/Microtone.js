@@ -9,7 +9,7 @@
 // program that asks for a 30 dB trim has made a mistake worth hearing about.
 
 import {
-  IMX_ITRM, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU, IMX_UNIS, IMX_VERB, IMX_DLAY,
+  IMX_ITRM, IMX_EXPD, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU, IMX_UNIS, IMX_VERB, IMX_DLAY,
   IMX_LIMI, IMX_MXTL, IMX_RANGE, IMX_EQ_MAX_BANDS, IMX_COMP_MAX_BANDS, IMX_TSH_MAX_BANDS, IMX_UNIS_MIN_VOICES,
   IMX_UNIS_MAX_VOICES, IMX_WET_APPLICABLE, FX16, defaultEquipment, defaultCompBand, defaultTshBand,
   defaultCrossovers, normaliseEquipment, isCutShape,
@@ -19,7 +19,7 @@ import { str, bool, int, num, oneOf, any, readOptions } from "./options.js";
 
 /** The pieces by the name a program gives them, in the chain's own order. */
 export const CHAIN_PIECES = Object.freeze({
-  input_trim: IMX_ITRM, equaliser_1: IMX_EQU1, dynamic_eq_1: IMX_DEQ1, transient_shaper_1: IMX_TSH1, compressor: IMX_COMP,
+  input_trim: IMX_ITRM, expander: IMX_EXPD, equaliser_1: IMX_EQU1, dynamic_eq_1: IMX_DEQ1, transient_shaper_1: IMX_TSH1, compressor: IMX_COMP,
   equaliser_2: IMX_EQU2, dynamic_eq_2: IMX_DEQ2, unison: IMX_UNIS, saturator: IMX_SATU,
   tape_delay: IMX_DLAY, reverb: IMX_VERB, limiter: IMX_LIMI, mix_tool: IMX_MXTL,
 });
@@ -78,6 +78,12 @@ const LFO = {
 };
 const PIECE = {
   [IMX_ITRM]: { on: bool, gain: ranged("trimDb") },
+  [IMX_EXPD]: {
+    on: bool, mix, detector: oneOf({ peak: 0, rms: 1 }),
+    threshold: ranged("expdThreshDb"), floor: ranged("expdThreshDb"), ratio: ranged("compRatio"), range: ranged("expdRangeDb"),
+    attack: ranged("compAttackMs"), hold: ranged("expdHoldMs"), release: ranged("compReleaseMs"),
+    hysteresis: ranged("expdHysteresisDb"), key_low_cut: ranged("keyLowCut"), key_high_cut: ranged("keyHighCut"),
+  },
   [IMX_EQU1]: { on: bool, bands: any },
   [IMX_COMP]: { ...COMP_BAND, on: bool, mix, detector: oneOf({ peak: 0, rms: 1 }), crossovers: any, bands: any },
   [IMX_TSH1]: { ...TSH_BAND, on: bool, mix, crossovers: any, bands: any },
@@ -129,6 +135,16 @@ function pieceOf(id, v, what) {
   if (o.mix !== undefined) e.dry = Math.round(255 * (1 - o.mix));
   switch (id) {
     case IMX_ITRM: if (o.gain !== undefined) e.gainDb = o.gain; break;
+    case IMX_EXPD:
+      for (const [k, to] of [["detector", "detector"], ["threshold", "threshDb"], ["floor", "floorDb"], ["ratio", "ratio"], ["range", "rangeDb"],
+        ["attack", "attackMs"], ["hold", "holdMs"], ["release", "releaseMs"], ["hysteresis", "hysteresisDb"],
+        ["key_low_cut", "keyLowCut"], ["key_high_cut", "keyHighCut"]]) if (o[k] !== undefined) e[to] = o[k];
+      // A key filter written is a key filter switched on.
+      e.keyFilter = o.key_low_cut !== undefined || o.key_high_cut !== undefined;
+      // No floor is −∞, a pure expander; a floor at the threshold is a pure gate.
+      if (e.floorDb > e.threshDb) throw fail(`${what}: the floor (${e.floorDb} dB) must not be above the threshold (${e.threshDb} dB)`);
+      if (o.floor === undefined && o.hysteresis !== undefined) throw fail(`${what}: a hysteresis is the floor's — give it a floor`);
+      break;
     case IMX_EQU1: case IMX_EQU2:
       if (o.bands !== undefined) {
         const list = asList(o.bands, `${what}'s bands`);

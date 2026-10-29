@@ -13,8 +13,8 @@
 // The pipeline is FIXED; a block only says which equipment it holds and how
 // each piece is set, and the order byte picks one of two arrangements:
 //
-//   order 0: itrm → equ1 → deq1 → tsh1 → comp → equ2 → deq2 → unis → satu → dlay → verb → limi → mxtl
-//   order 1: itrm → equ1 → deq1 → tsh1 → comp → equ2 → deq2 → unis → satu → verb → dlay → limi → mxtl
+//   order 0: itrm → expd → equ1 → deq1 → tsh1 → comp → equ2 → deq2 → unis → satu → dlay → verb → limi → mxtl
+//   order 1: itrm → expd → equ1 → deq1 → tsh1 → comp → equ2 → deq2 → unis → satu → verb → dlay → limi → mxtl
 //
 // (`tsh2`, a second transient shaper after the compressor, is a RESERVED
 // identifier and place: no reader knows it yet, so a block holding one keeps
@@ -58,6 +58,7 @@ import {
 /** Every equipment FourCC this engine knows. An identifier is never retired or
  *  reused (§9.15): a block that names one must mean the same thing forever. */
 export const IMX_ITRM = "itrm";
+export const IMX_EXPD = "expd";
 export const IMX_EQU1 = "equ1";
 export const IMX_DEQ1 = "deq1";
 export const IMX_TSH1 = "tsh1";
@@ -73,9 +74,9 @@ export const IMX_MXTL = "mxtl";
 
 /** The two pipelines, indexed by the block's order nibble. */
 export const IMX_PIPELINES = Object.freeze([
-  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_TSH1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
+  Object.freeze([IMX_ITRM, IMX_EXPD, IMX_EQU1, IMX_DEQ1, IMX_TSH1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
     IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB, IMX_LIMI, IMX_MXTL]),
-  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_TSH1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
+  Object.freeze([IMX_ITRM, IMX_EXPD, IMX_EQU1, IMX_DEQ1, IMX_TSH1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
     IMX_UNIS, IMX_SATU, IMX_VERB, IMX_DLAY, IMX_LIMI, IMX_MXTL]),
 ]);
 
@@ -85,7 +86,7 @@ export const IMX_EQUIPMENT = IMX_PIPELINES[0];
 /** Equipment whose wet/dry byte means something. Everything else MUST carry 0
  *  there — a mix control on a trim or a limiter is a contradiction (§9.15). */
 export const IMX_WET_APPLICABLE = Object.freeze(new Set([
-  IMX_TSH1, IMX_COMP, IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB,
+  IMX_EXPD, IMX_TSH1, IMX_COMP, IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB,
 ]));
 
 /** Highest equipment payload version this reader understands (all are 0). */
@@ -120,6 +121,11 @@ export const IMX_TSH_WINDOW_SEC = 0.025;
 /** …and the one-pole its gain glides through, so a step in the envelopes
  *  never steps the sound. */
 export const IMX_TSH_SMOOTH_MS = 1;
+
+/** The expander's detector window, as the transient shaper's (and for the
+ *  same reason: a steady tone is a steady level, so the gate below its floor
+ *  does not chatter on the tone's cycles). */
+export const IMX_EXPD_WINDOW_SEC = 0.025;
 
 /** A dynamic equaliser's six bands, by index. */
 export const IMX_DEQ_BANDS = 6;
@@ -191,6 +197,12 @@ export const IMX_RANGE = Object.freeze({
   tshAttackMs: [1, 300],
   tshReleaseMs: [10, 3000],
   tshOutDb: [-24, 24],
+  expdThreshDb: [-80, 0],
+  expdRangeDb: [0, 80],
+  expdHoldMs: [0, 2000],
+  expdHysteresisDb: [0, 12],
+  keyLowCut: [20, 2000],
+  keyHighCut: [500, 20000],
   deqActorDb: [-24, 24],
   satDriveDb: [0, 36],
   satTrimDb: [-24, 24],
@@ -350,6 +362,11 @@ export function defaultEquipment(id) {
   const base = { bypass: false, dry: DEFAULT_DRY[id] ?? 0 };
   switch (id) {
     case IMX_ITRM: return { ...base, gainDb: 0 };
+    case IMX_EXPD: return {
+      ...base, detector: COMP_PEAK, threshDb: -50, floorDb: -Infinity, ratio: 2, rangeDb: 24,
+      attackMs: 1, holdMs: 20, releaseMs: 150, hysteresisDb: 4,
+      keyFilter: false, keyLowCut: 80, keyHighCut: 12000,
+    };
     case IMX_EQU1:
     case IMX_EQU2: return { ...base, bands: defaultEqBands() };
     case IMX_COMP: return { ...base, detector: COMP_PEAK, crossovers: [], bands: [defaultCompBand()] };
@@ -414,6 +431,24 @@ export function normaliseEquipment(id, e) {
   switch (id) {
     case IMX_ITRM:
       out.gainDb = imxClamp(+e.gainDb, "trimDb", 0);
+      break;
+    case IMX_EXPD:
+      out.detector = e.detector === COMP_RMS ? COMP_RMS : COMP_PEAK;
+      out.threshDb = imxClamp(+e.threshDb, "expdThreshDb", d.threshDb);
+      // No floor is −∞ (a pure expander); one above the threshold is brought
+      // down to it (a pure gate) — the editor raises the threshold instead
+      // when it is the floor that was moved (instmixing.js).
+      out.floorDb = e.floorDb === undefined || e.floorDb === null || e.floorDb === -Infinity || Number.isNaN(+e.floorDb)
+        ? -Infinity : Math.min(imxClamp(+e.floorDb, "expdThreshDb", out.threshDb), out.threshDb);
+      out.ratio = imxClamp(+e.ratio, "compRatio", d.ratio);
+      out.rangeDb = imxClamp(+e.rangeDb, "expdRangeDb", d.rangeDb);
+      out.attackMs = imxClamp(+e.attackMs, "compAttackMs", d.attackMs);
+      out.holdMs = imxClamp(+e.holdMs, "expdHoldMs", d.holdMs);
+      out.releaseMs = imxClamp(+e.releaseMs, "compReleaseMs", d.releaseMs);
+      out.hysteresisDb = imxClamp(+e.hysteresisDb, "expdHysteresisDb", d.hysteresisDb);
+      out.keyFilter = !!e.keyFilter;
+      out.keyLowCut = imxClamp(+e.keyLowCut, "keyLowCut", d.keyLowCut);
+      out.keyHighCut = imxClamp(+e.keyHighCut, "keyHighCut", d.keyHighCut);
       break;
     case IMX_EQU1:
     case IMX_EQU2: {
@@ -776,6 +811,105 @@ class ImxTrim {
       const o = c * stride;
       for (let n = n0; n < n1; n++) data[o + n] *= g;
     }
+  }
+}
+
+/**
+ * Downward expander with a gate below its floor (item 261). At or above the
+ * threshold it leaves the sound alone; between the floor and the threshold it
+ * expands — pushes the level down by (threshold − level) × (ratio − 1) dB, at
+ * most `range`; under the floor it SHUTS, to −range, and stays shut until the
+ * level is back `hysteresis` above the floor, so a level hovering at the floor
+ * does not chatter. A floor of −∞ is a pure expander; a floor at the threshold
+ * a pure gate. The gain moves toward that target at the attack time when it
+ * rises (opening), and at the release time when it falls — but only once the
+ * target has stayed below the gain for `hold`.
+ *
+ * The detector is linked across the bus and reads the sound through the key
+ * filter (a high-pass and a low-pass, 12 dB/octave each) when that is on — so
+ * a kick's boom need not open the hi-hat's gate. Peak detection is the peak
+ * over the last IMX_EXPD_WINDOW_SEC, as the transient shaper's: a steady tone
+ * is a steady level, which neither ripples an expander's gain nor chatters a
+ * gate on the tone's own cycles. RMS is the compressor's 10 ms mean square.
+ */
+class ImxExpander {
+  constructor(nch) {
+    this.nch = nch;
+    this.p = null;
+    this.rate = SAMPLING_RATE;
+    this.win = new ImxPeakWindow(1);
+    this.hp = new Biquad(nch);
+    this.lp = new Biquad(nch);
+    this.atk = 0; this.rel = 0; this.rmsCoef = 0; this.holdN = 0;
+    this.g = 0;        // the gain, dB (≤ 0)
+    this.hold = 0;     // samples of hold left
+    this.shut = false; // under the floor, and not yet back above floor + hysteresis
+    this.ms = 0;       // RMS detector's mean square
+    this.gr = 0;       // reading for the meter: the span's deepest gain, dB
+    this.lvl = -120;   // …and its loudest detector level, dB
+  }
+  configure(p, rate) {
+    this.p = p;
+    const w = Math.max(1, Math.round(IMX_EXPD_WINDOW_SEC * rate));
+    if (w !== this.win.w) this.win = new ImxPeakWindow(w);
+    this.rate = rate;
+    this.atk = onePole(p.attackMs, rate);
+    this.rel = onePole(p.releaseMs, rate);
+    this.rmsCoef = onePole(10, rate);
+    this.holdN = Math.round((p.holdMs * rate) / 1000);
+    this.hp.highPass(p.keyLowCut, Math.SQRT1_2, rate);
+    this.lp.lowPass(p.keyHighCut, Math.SQRT1_2, rate);
+  }
+  reset() {
+    this.win.reset();
+    this.hp.reset(); this.lp.reset();
+    this.g = 0; this.hold = 0; this.shut = false; this.ms = 0;
+    this.gr = 0; this.lvl = -120;
+  }
+  get memory() { return 0; }
+  process(data, stride, n0, n1, ctx) {
+    const nch = ctx.nch;
+    const p = this.p;
+    const dry = ctx.dry;
+    if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+    const key = p.keyFilter, peak = p.detector !== COMP_RMS;
+    const T = p.threshDb, slope = p.ratio - 1, range = p.rangeDb;
+    const floor = p.floorDb, reopen = floor + p.hysteresisDb;
+    let g = this.g, hold = this.hold, shut = this.shut, ms = this.ms;
+    let gr = 0, lvl = -120;
+    for (let i = n0; i < n1; i++) {
+      // The detector: every channel, through the key filter when it is on.
+      let l = 0, sum = 0;
+      for (let c = 0; c < nch; c++) {
+        let x = data[c * stride + i];
+        if (key) x = this.lp.run(c, this.hp.run(c, x));
+        if (peak) { const a = x < 0 ? -x : x; if (a > l) l = a; } else sum += x * x;
+      }
+      let level;
+      if (peak) level = this.win.push(l);
+      else { ms += (sum / nch - ms) * this.rmsCoef; level = Math.sqrt(ms); }
+      const L = level > 1e-6 ? 20 * Math.log10(level) : -120;
+      if (L > lvl) lvl = L;
+      // The gain computer.
+      if (L < floor) shut = true;
+      else if (L >= reopen) shut = false;
+      let target;
+      if (shut) target = -range;
+      else if (L < T) {
+        const under = (T - L) * slope;
+        target = under > range ? -range : -under;
+      } else target = 0;
+      // Opening at the attack; closing at the release, once the hold is over.
+      if (target >= g) { g += (target - g) * this.atk; hold = this.holdN; }
+      else if (hold > 0) hold--;
+      else g += (target - g) * this.rel;
+      if (g < gr) gr = g;
+      const k = dbToGain(g);
+      for (let c = 0; c < nch; c++) data[c * stride + i] *= k;
+    }
+    this.g = g; this.hold = hold; this.shut = shut; this.ms = ms;
+    this.gr = gr; this.lvl = lvl;
+    mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
   }
 }
 
@@ -1181,6 +1315,44 @@ class ImxComp {
 }
 
 /**
+ * The peak of a level over the last W samples, this one included (0 before a
+ * reset) — the detector of the transient shaper and the expander (item 261).
+ * A monotonic deque of the samples that can still be the peak, oldest first,
+ * levels strictly falling: a sample W old leaves at the front, one no louder
+ * than the newest leaves at the back, as it can never be the peak again. Any
+ * way of taking the max over the window gives the same number.
+ */
+class ImxPeakWindow {
+  constructor(w) {
+    this.w = w;
+    this.idx = new Int32Array(w);
+    this.val = new Float64Array(w);
+    this.head = 0; this.len = 0;
+    this.t = 0;          // sample counter, mod 2^31
+  }
+  reset() { this.head = 0; this.len = 0; this.t = 0; }
+  /** Take the next sample's level; return the window's peak. */
+  push(l) {
+    const W = this.w, idx = this.idx, val = this.val;
+    const ix = this.t;
+    this.t = (ix + 1) & 0x7fffffff;
+    let head = this.head, len = this.len;
+    if (len > 0 && ((ix - idx[head]) & 0x7fffffff) >= W) { head = head + 1 === W ? 0 : head + 1; len--; }
+    while (len > 0) {
+      let back = head + len - 1;
+      if (back >= W) back -= W;
+      if (val[back] > l) break;
+      len--;
+    }
+    let at = head + len;
+    if (at >= W) at -= W;
+    idx[at] = ix; val[at] = l;
+    this.head = head; this.len = len + 1;
+    return val[head];
+  }
+}
+
+/**
  * Transient shaper, one to six bands (item 261) — over ImxSplit's bands like
  * the compressor, but blind to LEVEL: it reshapes each note's envelope, the
  * attack louder or softer, the sustain longer or shorter, whatever the note's
@@ -1200,9 +1372,8 @@ class ImxComp {
  *      begins to decay and growing as it does.
  *
  * The band's gain is attack × transient + sustain × sustain (dB), glided
- * through a 1 ms one-pole, plus its output gain. The window is a monotonic
- * deque here; any way of taking the max over the last W samples gives the
- * same P, and everything after it is binary64.
+ * through a 1 ms one-pole, plus its output gain. The window is an
+ * ImxPeakWindow; everything after it is binary64.
  */
 class ImxTransient {
   constructor(nch) {
@@ -1212,13 +1383,8 @@ class ImxTransient {
     this.p = null;
     this.rate = SAMPLING_RATE;
     this.win = 1;
-    // Per band: the detector window (a monotonic deque of sample indices and
-    // their levels), the envelopes and the glided gain.
-    this.dqi = [];
-    this.dqv = [];
-    this.dqHead = new Int32Array(IMX_TSH_MAX_BANDS);
-    this.dqLen = new Int32Array(IMX_TSH_MAX_BANDS);
-    this.t = 0;                                          // sample counter, mod 2^31
+    // Per band: the detector window, the envelopes and the glided gain.
+    this.peak = [];
     this.S = new Float64Array(IMX_TSH_MAX_BANDS);
     this.L = new Float64Array(IMX_TSH_MAX_BANDS);
     this.e = new Float64Array(IMX_TSH_MAX_BANDS);        // glided dynamic gain, dB
@@ -1235,12 +1401,8 @@ class ImxTransient {
     if (this.xo.resize(n) || win !== this.win || rate !== this.rate) {
       this.bandsN = n;
       this.win = win;
-      this.dqi = [];
-      this.dqv = [];
-      for (let k = 0; k < n; k++) {
-        this.dqi.push(new Int32Array(win));
-        this.dqv.push(new Float64Array(win));
-      }
+      this.peak = [];
+      for (let k = 0; k < n; k++) this.peak.push(new ImxPeakWindow(win));
       this._clear();
     }
     this.rate = rate;
@@ -1252,8 +1414,7 @@ class ImxTransient {
     }
   }
   _clear() {
-    this.dqHead.fill(0); this.dqLen.fill(0);
-    this.t = 0;
+    for (const w of this.peak) w.reset();
     this.S.fill(0); this.L.fill(0); this.e.fill(0);
   }
   reset() {
@@ -1262,42 +1423,22 @@ class ImxTransient {
     this.gr.fill(0);
   }
   get memory() { return 0; }
-  /**
-   * Band k over [n0, n1) of `b`, in place. `ix` is the sample counter at n0
-   * (shared by every band: they all see the same samples).
-   */
-  _band(k, b, stride, n0, n1, nch, ix) {
+  /** Band k over [n0, n1) of `b`, in place. */
+  _band(k, b, stride, n0, n1, nch) {
     const band = this.p.bands[k];
-    const W = this.win;
-    const dqi = this.dqi[k], dqv = this.dqv[k];
-    let head = this.dqHead[k], len = this.dqLen[k];
+    const win = this.peak[k];
     let S = this.S[k], L = this.L[k], e = this.e[k];
     const atk = this.atk[k], rel = this.rel[k], sm = this.smooth;
     const ga = band.attackDb, gs = band.sustainDb, out = band.outDb;
     let gr = this.gr[k];
-    for (let i = n0; i < n1; i++, ix = (ix + 1) & 0x7fffffff) {
+    for (let i = n0; i < n1; i++) {
       let l = 0;
       for (let c = 0; c < nch; c++) {
         const x = b[c * stride + i];
         const a = x < 0 ? -x : x;
         if (a > l) l = a;
       }
-      // The window's peak: a deque of the samples that can still be its
-      // maximum, oldest first, levels strictly falling. A sample W old leaves
-      // at the front; one no louder than the newest leaves at the back, as it
-      // can never be the peak again.
-      if (len > 0 && ((ix - dqi[head]) & 0x7fffffff) >= W) { head = head + 1 === W ? 0 : head + 1; len--; }
-      while (len > 0) {
-        let back = head + len - 1;
-        if (back >= W) back -= W;
-        if (dqv[back] > l) break;
-        len--;
-      }
-      let at = head + len;
-      if (at >= W) at -= W;
-      dqi[at] = ix; dqv[at] = l;
-      len++;
-      const P = dqv[head];
+      const P = win.push(l);
       S = P > S ? S + (P - S) * atk : P;
       L = P < L ? L + (P - L) * rel : P;
       const tr = P > 0 ? 1 - S / P : 0;
@@ -1307,7 +1448,6 @@ class ImxTransient {
       const g = dbToGain(e + out);
       for (let c = 0; c < nch; c++) b[c * stride + i] *= g;
     }
-    this.dqHead[k] = head; this.dqLen[k] = len;
     this.S[k] = S; this.L[k] = L; this.e[k] = e;
     this.gr[k] = gr;
   }
@@ -1316,17 +1456,15 @@ class ImxTransient {
     const p = this.p;
     const n = this.bandsN;
     const dry = ctx.dry;
-    const ix = this.t;
     this.gr.fill(0);
     if (n === 1) {
       if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
-      if (p.bands[0].on) this._band(0, data, stride, n0, n1, nch, ix);
+      if (p.bands[0].on) this._band(0, data, stride, n0, n1, nch);
     } else {
       const bufs = this.xo.split(data, stride, n0, n1, nch, dry > 0 ? ctx.dryBuf : null);
-      for (let k = 0; k < n; k++) if (p.bands[k].on) this._band(k, bufs[k], stride, n0, n1, nch, ix);
+      for (let k = 0; k < n; k++) if (p.bands[k].on) this._band(k, bufs[k], stride, n0, n1, nch);
       this.xo.sum(data, stride, n0, n1, nch);
     }
-    this.t = (ix + (n1 - n0)) & 0x7fffffff;
     mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
   }
   /** For a display copy only: the bands' dynamic gains (dB, signed; null =
@@ -2036,6 +2174,7 @@ class ImxMixTool {
 function makeStage(id, nch) {
   switch (id) {
     case IMX_ITRM: return new ImxTrim();
+    case IMX_EXPD: return new ImxExpander(nch);
     case IMX_EQU1: case IMX_EQU2: return new ImxEq(nch);
     case IMX_DEQ1: case IMX_DEQ2: return new ImxDeq(nch);
     case IMX_TSH1: return new ImxTransient(nch);
@@ -2198,13 +2337,17 @@ export class InstrumentChain {
 
   /** Gain-reduction readings of the span just processed (dB), for the meter:
    *  comp bands (≤ 0), the two dynamic EQs' bands (signed), the transient
-   *  shaper's bands (signed, its output gain left out), the limiter (≤ 0);
-   *  and the loudest detector reading of every comp and dynamic-EQ band (dB,
+   *  shaper's bands (signed, its output gain left out), the expander (≤ 0),
+   *  the limiter (≤ 0);
+   *  and the loudest detector reading of the expander and of every comp and
+   *  dynamic-EQ band (dB,
    *  −120 = nothing), which is what each band's threshold is compared with. */
   readGr(out) {
     out.comp.fill(0); out.deq1.fill(0); out.deq2.fill(0); out.tsh1.fill(0); out.lim = 0;
     out.compLvl.fill(-120); out.deq1Lvl.fill(-120); out.deq2Lvl.fill(-120);
+    out.expd = 0; out.expdLvl = -120;
     for (const a of this.active) {
+      if (a.id === IMX_EXPD) { out.expd = a.stage.gr; out.expdLvl = a.stage.lvl; }
       if (a.id === IMX_COMP) { out.comp.set(a.stage.gr); out.compLvl.set(a.stage.lvl); }
       else if (a.id === IMX_TSH1) out.tsh1.set(a.stage.gr);
       else if (a.id === IMX_DEQ1) { out.deq1.set(a.stage.gr); out.deq1Lvl.set(a.stage.lvl); }
@@ -2265,6 +2408,7 @@ export function makeImixGrReadout() {
     deq1: new Float64Array(IMX_DEQ_BANDS),
     deq2: new Float64Array(IMX_DEQ_BANDS),
     tsh1: new Float64Array(IMX_TSH_MAX_BANDS),
+    expd: 0, expdLvl: -120,
     lim: 0,
     compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
     deq1Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
@@ -2460,6 +2604,7 @@ export class ImixMeterTap {
     this.peak.fill(0); this.truePeak.fill(0); this.sumSq.fill(0); this.clip.fill(0);
     this.frames = 0;
     this.gr.comp.fill(0); this.gr.deq1.fill(0); this.gr.deq2.fill(0); this.gr.tsh1.fill(0); this.gr.lim = 0;
+    this.gr.expd = 0; this.gr.expdLvl = -120;
     this.gr.compLvl.fill(-120); this.gr.deq1Lvl.fill(-120); this.gr.deq2Lvl.fill(-120);
     this.unisLive = false;
   }
@@ -2518,6 +2663,8 @@ export class ImixMeterTap {
     }
     for (let i = 0; i < g.tsh1.length; i++) if (Math.abs(g.tsh1[i]) > Math.abs(gr.tsh1[i])) gr.tsh1[i] = g.tsh1[i];
     if (g.lim < gr.lim) gr.lim = g.lim;
+    if (g.expd < gr.expd) gr.expd = g.expd;
+    if (g.expdLvl > gr.expdLvl) gr.expdLvl = g.expdLvl;
     for (const k of ["compLvl", "deq1Lvl", "deq2Lvl"]) {
       const a = g[k], b = gr[k];
       for (let i = 0; i < a.length; i++) if (a[i] > b[i]) b[i] = a[i];
@@ -2535,6 +2682,7 @@ export class ImixMeterTap {
     out.clip.set(this.clip);
     out.comp.set(this.gr.comp); out.deq1.set(this.gr.deq1); out.deq2.set(this.gr.deq2);
     out.tsh1.set(this.gr.tsh1);
+    out.expd = this.gr.expd; out.expdLvl = this.gr.expdLvl;
     out.lim = this.gr.lim;
     out.compLvl.set(this.gr.compLvl); out.deq1Lvl.set(this.gr.deq1Lvl); out.deq2Lvl.set(this.gr.deq2Lvl);
     out.ring = this.ring;
@@ -2558,6 +2706,8 @@ export function makeImixMeterReadout() {
     deq2: new Float64Array(IMX_DEQ_BANDS), lim: 0,
     // The transient shaper's bands' dynamic gains (dB, signed), the extreme.
     tsh1: new Float64Array(IMX_TSH_MAX_BANDS),
+    // The expander's deepest gain (dB, ≤ 0) and its loudest detector level.
+    expd: 0, expdLvl: -120,
     // The loudest detector reading of each band over the interval (dB; −120 =
     // nothing) — what its threshold is compared with.
     compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
