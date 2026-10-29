@@ -1,4 +1,4 @@
-<!doctype html><meta charset="utf-8"><title>instrument mixing chains (item 217)</title>
+<!doctype html><meta charset="utf-8"><title>instrument mixing chains (items 217, 247, 261)</title>
 <pre id="out">running… (needs a real audio-capable browser; ~12s)</pre>
 <img src="/hang" hidden>
 <iframe id="app" src="../../index.html?load=assets/demo_projects/Huygens_clock.taud" style="width:1500px;height:1100px"></iframe>
@@ -64,7 +64,7 @@ function painted(cv) {
   check(!!store.doc.imixBlock(1), "…and writes its block");
   check(store.undo.undoStack.length === undoBefore + 1, "one undo step",
     `${undoBefore} → ${store.undo.undoStack.length}`);
-  check(doc.querySelectorAll(".imx-unit").length === 12, "twelve pieces of equipment",
+  check(doc.querySelectorAll(".imx-unit").length === 13, "thirteen pieces of equipment",
     String(doc.querySelectorAll(".imx-unit").length));
   check([...doc.querySelectorAll(".imx-unit")].every((u) => u.classList.contains("mst-off")),
     "…none of them in the chain yet");
@@ -215,6 +215,84 @@ function painted(cv) {
   await sleep(80);
   check(store.doc.imixBlock(1).equipment.mxtl?.removeDc === true, "…which the block records");
 
+  // ── 3c. item 261: the transient shaper ───────────────────────────────────
+  check(unitEl("tsh1")?.previousElementSibling?.dataset.equipment === "deq1"
+    && unitEl("tsh1")?.nextElementSibling?.dataset.equipment === "comp",
+    "the transient shaper sits between the dynamic EQ and the compressor");
+  {
+    const counts = [...unitEl("tsh1").querySelectorAll(".mst-row-choice select")].find((x) => x.options.length === 6);
+    check(!!counts, "…with a band count of one to six");
+    counts.value = "3";
+    counts.dispatchEvent(new Event("change"));
+    await sleep(80);
+    const t1 = store.doc.imixBlock(1).equipment.tsh1;
+    check(t1?.bands.length === 3 && t1.crossovers.length === 2 && t1.bypass === true,
+      "three bands insert it switched off, split at two crossovers", JSON.stringify(t1?.crossovers));
+    const tb = [...unitEl("tsh1").querySelectorAll(".imx-bandbar .mst-seg button")];
+    check(tb.length === 3, "…a band button each", String(tb.length));
+    // A crossover set by hand survives a band added and one taken away again.
+    const xo = unitEl("tsh1").querySelector(".mst-row input.mst-num");
+    xo.value = "333";
+    xo.dispatchEvent(new Event("change"));
+    await sleep(60);
+    const counts4 = [...unitEl("tsh1").querySelectorAll(".mst-row-choice select")].find((x) => x.options.length === 6);
+    counts4.value = "4";
+    counts4.dispatchEvent(new Event("change"));
+    await sleep(80);
+    const xs4 = store.doc.imixBlock(1).equipment.tsh1.crossovers;
+    check(xs4.length === 3 && xs4[0] === Math.fround(333) && xs4[1] === Math.fround(8000),
+      "adding a band leaves the crossovers it had where they were", JSON.stringify(xs4));
+    const counts3 = [...unitEl("tsh1").querySelectorAll(".mst-row-choice select")].find((x) => x.options.length === 6);
+    counts3.value = "3";
+    counts3.dispatchEvent(new Event("change"));
+    await sleep(80);
+    const xs3 = store.doc.imixBlock(1).equipment.tsh1.crossovers;
+    check(xs3.length === 2 && xs3[0] === Math.fround(333) && xs3[1] === Math.fround(8000),
+      "…and taking it away drops only the top one", JSON.stringify(xs3));
+    // One drag is one undo step even when another slider was touched last: the
+    // browser blurs that one AFTER this one's pointerdown (the order replayed here).
+    {
+      const ranges = [...unitEl("tsh1").querySelectorAll(".mst-row input.mst-range")];
+      const [a, b2] = [ranges[1], ranges[0]];
+      const undoAt = store.undo.undoStack.length;
+      b2.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 3 }));
+      // (dispatched: a page in a frame of a headless window never gets focus to lose)
+      a.dispatchEvent(new FocusEvent("blur"));
+      for (const v of [300, 320, 340, 360]) { b2.value = String(v); b2.dispatchEvent(new Event("input", { bubbles: true })); }
+      b2.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 3 }));
+      await sleep(60);
+      check(store.undo.undoStack.length === undoAt + 1, "a crossover drag right after another slider is one undo step",
+        `${undoAt} → ${store.undo.undoStack.length}`);
+      store.undo.undo();
+      await sleep(60);
+      check(store.doc.imixBlock(1).equipment.tsh1.crossovers[0] === Math.fround(333), "…which puts the crossover back",
+        String(store.doc.imixBlock(1).equipment.tsh1.crossovers[0]));
+    }
+    tb.splice(0, tb.length, ...unitEl("tsh1").querySelectorAll(".imx-bandbar .mst-seg button"));
+    tb[1].click();
+    await sleep(40);
+    const box = unitEl("tsh1").querySelector('.mst-band[data-band="1"]');
+    check(!!box && !box.hidden, "picking band 2 shows its controls");
+    const atk = box.querySelector("input.mst-num");
+    atk.value = "9";
+    atk.dispatchEvent(new Event("change"));
+    await sleep(80);
+    check(store.doc.imixBlock(1).equipment.tsh1.bands[1].attackDb === 9, "its Attack lifts band 2 by 9 dB",
+      String(store.doc.imixBlock(1).equipment.tsh1.bands[1].attackDb));
+    // Every band lifts its notes' starts, so the meter has something to read.
+    for (const i of [0, 2]) {
+      [...unitEl("tsh1").querySelectorAll(".imx-bandbar .mst-seg button")][i].click();
+      await sleep(30);
+      const n2 = unitEl("tsh1").querySelector(`.mst-band[data-band="${i}"] input.mst-num`);
+      n2.value = "9";
+      n2.dispatchEvent(new Event("change"));
+      await sleep(60);
+    }
+    sw("tsh1").click();
+    await sleep(80);
+    check(store.doc.imixBlock(1).equipment.tsh1.bypass === false, "its switch puts it in circuit");
+  }
+
   // ── 4. sharing ───────────────────────────────────────────────────────────
   iv.selected = other; iv.refresh();
   await sleep(80);
@@ -319,8 +397,19 @@ function painted(cv) {
   check(r.unisCents === -1, "no unison in the chain: its live reading says so", String(r.unisCents));
   if (unitEl("comp").classList.contains("folded")) unitEl("comp").querySelector(".fold-toggle").click();
   if (unitEl("satu").classList.contains("folded")) unitEl("satu").querySelector(".fold-toggle").click();
+  if (unitEl("tsh1").classList.contains("folded")) unitEl("tsh1").querySelector(".fold-toggle").click();
   await sleep(300);
   check(painted(doc.querySelector('canvas.imx-curve[data-curve="comp"]')), "the compressor's spectrum painted");
+  check(painted(doc.querySelector('canvas.imx-curve[data-curve="tsh1"]')), "the transient shaper's spectrum painted");
+  {
+    let lift = 0;
+    for (let i = 0; i < 40 && lift <= 0; i++) {
+      const q = store.audio.readImixMeter(makeImixMeterReadout());
+      lift = Math.max(...q.tsh1);
+      if (lift <= 0) await sleep(100);
+    }
+    check(lift > 0, "the snapshot carries the shaper's lift", String(lift));
+  }
   check(painted(doc.querySelector("canvas.imx-transfer")), "the saturator's transfer curve painted");
   const thr = doc.querySelector('canvas.imx-thresh[data-thresh="comp"]');
   check(painted(thr), "the compressor's threshold strip painted");

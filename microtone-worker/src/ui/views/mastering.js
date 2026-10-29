@@ -51,7 +51,7 @@ import {
   SPECTRUM_TILT_DB_PER_OCT,
 } from "../../../core/engine/fft.js";
 import { RAD_BANDS } from "../radiation.js";
-import { drawSpecGround, drawCursor, trackCursor } from "./imixplots.js";
+import { drawSpecGround, drawCursor, trackCursor, drawBarRules } from "./imixplots.js";
 import { SAMPLING_RATE } from "../../../core/engine/constants.js";
 import { SURROUND_STEREO } from "../../../core/engine/spatial.js";
 import {
@@ -839,8 +839,15 @@ export class MasteringView {
       paint();
     });
     range.addEventListener("pointerdown", () => { this._dragging = range; this.beginGesture(); });
+    // Only the slider being dragged ends the drag: pressing another one blurs
+    // the last one touched AFTER its pointerdown began the new gesture, and
+    // ending it then made every step of that drag an undo step of its own.
     for (const ev of ["pointerup", "pointercancel", "blur"]) {
-      range.addEventListener(ev, () => { this._dragging = null; this.endGesture(); });
+      range.addEventListener(ev, () => {
+        if (this._dragging !== range) return;
+        this._dragging = null;
+        this.endGesture();
+      });
     }
     range.addEventListener("input", () => {
       set(round(fromPos(+range.value)));
@@ -1689,6 +1696,7 @@ export class MasteringView {
       ctx.fillRect(22, y + barH - RMS_RAIL_H, fastW, RMS_RAIL_H);
       ctx.fillStyle = C.meter;
       ctx.fillRect(22, bodyY, meterFrac(slowDb) * span, bodyH);
+      drawBarRules(ctx, C, METER_MIN_DB, METER_MAX_DB, (db) => 22 + meterFrac(db) * span, y, barH);
       // The over-scale TIP: everything past 0 dBFS, lit red and LATCHED. The
       // lamp below says "clipping now" and goes out; this says "this take
       // clipped" and stays, because a clip thirty seconds ago is still in the
@@ -1772,6 +1780,7 @@ export class MasteringView {
         ctx.fillStyle = C.accent;
         ctx.fillRect(x0 + span * (1 - frac), y + 2, span * frac, 12);
       }
+      drawBarRules(ctx, C, 0, GR_MAX_DB, (db) => x0 + span * (1 - db / GR_MAX_DB), y + 2, 12);
       ctx.fillStyle = on ? C.fg : C.dim;
       ctx.textAlign = "right";
       ctx.fillText(on ? `−${gr.toFixed(1)} dB` : t("mst.bypassed"), w - 2, y + 12);

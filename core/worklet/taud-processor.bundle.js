@@ -4134,8 +4134,12 @@ function makeMasterMeterReadout() {
 // The pipeline is FIXED; a block only says which equipment it holds and how
 // each piece is set, and the order byte picks one of two arrangements:
 //
-//   order 0: itrm → equ1 → deq1 → comp → equ2 → deq2 → unis → satu → dlay → verb → limi → mxtl
-//   order 1: itrm → equ1 → deq1 → comp → equ2 → deq2 → unis → satu → verb → dlay → limi → mxtl
+//   order 0: itrm → equ1 → deq1 → tsh1 → comp → equ2 → deq2 → unis → satu → dlay → verb → limi → mxtl
+//   order 1: itrm → equ1 → deq1 → tsh1 → comp → equ2 → deq2 → unis → satu → verb → dlay → limi → mxtl
+//
+// (`tsh2`, a second transient shaper after the compressor, is a RESERVED
+// identifier and place: no reader knows it yet, so a block holding one keeps
+// it as unknown equipment.)
 //
 // ── Where it sits in the gain structure ──
 // The bus is fed every per-voice gain the mixer applies (note and lane volume,
@@ -4173,6 +4177,7 @@ function makeMasterMeterReadout() {
 const IMX_ITRM = "itrm";
 const IMX_EQU1 = "equ1";
 const IMX_DEQ1 = "deq1";
+const IMX_TSH1 = "tsh1";
 const IMX_COMP = "comp";
 const IMX_EQU2 = "equ2";
 const IMX_DEQ2 = "deq2";
@@ -4185,9 +4190,9 @@ const IMX_MXTL = "mxtl";
 
 /** The two pipelines, indexed by the block's order nibble. */
 const IMX_PIPELINES = Object.freeze([
-  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
+  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_TSH1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
     IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB, IMX_LIMI, IMX_MXTL]),
-  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
+  Object.freeze([IMX_ITRM, IMX_EQU1, IMX_DEQ1, IMX_TSH1, IMX_COMP, IMX_EQU2, IMX_DEQ2,
     IMX_UNIS, IMX_SATU, IMX_VERB, IMX_DLAY, IMX_LIMI, IMX_MXTL]),
 ]);
 
@@ -4197,7 +4202,7 @@ const IMX_EQUIPMENT = IMX_PIPELINES[0];
 /** Equipment whose wet/dry byte means something. Everything else MUST carry 0
  *  there — a mix control on a trim or a limiter is a contradiction (§9.15). */
 const IMX_WET_APPLICABLE = Object.freeze(new Set([
-  IMX_COMP, IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB,
+  IMX_TSH1, IMX_COMP, IMX_UNIS, IMX_SATU, IMX_DLAY, IMX_VERB,
 ]));
 
 /** Highest equipment payload version this reader understands (all are 0). */
@@ -4221,6 +4226,17 @@ const IMX_SLOPES = 4;
 
 /** Compressor bands: 1 is an ordinary compressor, up to 6 a multiband one. */
 const IMX_COMP_MAX_BANDS = 6;
+
+/** Transient-shaper bands: 1 is the whole signal, up to 6 split like the
+ *  compressor's. */
+const IMX_TSH_MAX_BANDS = 6;
+/** The transient shaper's level detector: the peak over this window, long
+ *  enough to hold across a half-cycle of 20 Hz — so a steady tone reads as a
+ *  steady level, and the shaper leaves it exactly alone. */
+const IMX_TSH_WINDOW_SEC = 0.025;
+/** …and the one-pole its gain glides through, so a step in the envelopes
+ *  never steps the sound. */
+const IMX_TSH_SMOOTH_MS = 1;
 
 /** A dynamic equaliser's six bands, by index. */
 const IMX_DEQ_BANDS = 6;
@@ -4288,6 +4304,10 @@ const IMX_RANGE = Object.freeze({
   compMakeupDb: [-12, 24],
   xover: [20, 20000],
   deqRangeDb: [0, 24],
+  tshGainDb: [-24, 24],
+  tshAttackMs: [1, 300],
+  tshReleaseMs: [10, 3000],
+  tshOutDb: [-24, 24],
   deqActorDb: [-24, 24],
   satDriveDb: [0, 36],
   satTrimDb: [-24, 24],
@@ -4368,6 +4388,55 @@ function defaultCrossovers(n) {
   return out;
 }
 
+/** The closest two neighbouring crossovers may sit (a ratio): the editor keeps
+ *  them 1 % apart, which also keeps them strictly ascending in binary32. */
+const IMX_XOVER_GAP = 1.01;
+
+/**
+ * Give a multiband piece (the compressor, the transient shaper) `n` bands, in
+ * place, WITHOUT moving a crossover it already has. Fewer bands drops the top
+ * ones and the crossovers above them. Each band added splits one, at the
+ * geometric middle of its range: the top band while there is room above the
+ * last crossover, else the widest band; the new band (from `makeBand`) takes
+ * the upper half, and every other band keeps its range. A piece of one band
+ * has no crossovers to keep, and starts from defaultCrossovers.
+ */
+function resizeSplit(e, n, makeBand) {
+  const [lo, hi] = IMX_RANGE.xover;
+  if (n <= e.bands.length) {
+    e.bands.length = n;
+    e.crossovers.length = n - 1;
+    return e;
+  }
+  if (e.bands.length === 1) {
+    while (e.bands.length < n) e.bands.push(makeBand());
+    e.crossovers = defaultCrossovers(n).map(Math.fround);
+    return e;
+  }
+  while (e.bands.length < n) {
+    const xs = e.crossovers;
+    const edge = (k) => (k < 0 ? lo : k >= xs.length ? hi : xs[k]);
+    // Band k spans edge(k − 1) … edge(k); split the top one if it is wide
+    // enough to take a crossover a gap away from both ends, else the widest.
+    const top = xs.length;
+    const fits = (k) => edge(k) / edge(k - 1) > IMX_XOVER_GAP * IMX_XOVER_GAP;
+    let k = top;
+    if (!fits(top)) {
+      for (let j = 0; j <= top; j++) if (edge(j) / edge(j - 1) > edge(k) / edge(k - 1)) k = j;
+      if (!fits(k)) break; // nowhere left to split
+    }
+    xs.splice(k, 0, Math.fround(Math.sqrt(edge(k - 1) * edge(k))));
+    e.bands.splice(k + 1, 0, makeBand());
+  }
+  return e;
+}
+
+/** A transient-shaper band's resting values: neither the attack nor the
+ *  sustain moved, so a fresh shaper changes nothing. */
+function defaultTshBand() {
+  return { on: true, attackDb: 0, sustainDb: 0, attackMs: 20, releaseMs: 250, outDb: 0 };
+}
+
 const DEQ_DEFAULT_FREQS = [100, 8000, 250, 1000, 3000, 6000];
 
 function defaultDeqBands() {
@@ -4401,6 +4470,7 @@ function defaultEquipment(id) {
     case IMX_EQU1:
     case IMX_EQU2: return { ...base, bands: defaultEqBands() };
     case IMX_COMP: return { ...base, detector: COMP_PEAK, crossovers: [], bands: [defaultCompBand()] };
+    case IMX_TSH1: return { ...base, crossovers: [], bands: [defaultTshBand()] };
     case IMX_DEQ1:
     case IMX_DEQ2: return { ...base, bands: defaultDeqBands() };
     case IMX_SATU: return { ...base, curve: IMX_SAT_TAPE, driveDb: 6, inDb: 0, outDb: 0, bias: 0 };
@@ -4491,15 +4561,24 @@ function normaliseEquipment(id, e) {
           makeupDb: imxClamp(+b.makeupDb, "compMakeupDb", db.makeupDb),
         };
       });
-      // n bands, n − 1 crossovers, strictly ascending. A list that is not is
-      // re-spread rather than sorted: sorting would reassign bands' settings to
-      // different frequency ranges without saying so.
-      const n = out.bands.length;
-      let xs = Array.isArray(e.crossovers) ? e.crossovers.slice(0, n - 1) : [];
-      xs = xs.map((x) => imxClamp(+x, "xover", 1000));
-      let ok = xs.length === n - 1;
-      for (let i = 1; ok && i < xs.length; i++) if (!(xs[i] > xs[i - 1])) ok = false;
-      out.crossovers = ok ? xs : defaultCrossovers(n).map(Math.fround);
+      out.crossovers = normCrossovers(e.crossovers, out.bands.length);
+      break;
+    }
+    case IMX_TSH1: {
+      const src = Array.isArray(e.bands) && e.bands.length > 0
+        ? e.bands.slice(0, IMX_TSH_MAX_BANDS) : d.bands;
+      out.bands = src.map((b) => {
+        const db = defaultTshBand();
+        return {
+          on: b.on === undefined ? true : !!b.on,
+          attackDb: imxClamp(+b.attackDb, "tshGainDb", db.attackDb),
+          sustainDb: imxClamp(+b.sustainDb, "tshGainDb", db.sustainDb),
+          attackMs: imxClamp(+b.attackMs, "tshAttackMs", db.attackMs),
+          releaseMs: imxClamp(+b.releaseMs, "tshReleaseMs", db.releaseMs),
+          outDb: imxClamp(+b.outDb, "tshOutDb", db.outDb),
+        };
+      });
+      out.crossovers = normCrossovers(e.crossovers, out.bands.length);
       break;
     }
     case IMX_DEQ1:
@@ -4576,6 +4655,19 @@ function normaliseEquipment(id, e) {
       throw new Error(`imix: unknown equipment ${id}`);
   }
   return out;
+}
+
+/**
+ * n bands, n − 1 crossovers, strictly ascending. A list that is not is
+ * re-spread rather than sorted: sorting would reassign bands' settings to
+ * different frequency ranges without saying so.
+ */
+function normCrossovers(list, n) {
+  let xs = Array.isArray(list) ? list.slice(0, n - 1) : [];
+  xs = xs.map((x) => imxClamp(+x, "xover", 1000));
+  let ok = xs.length === n - 1;
+  for (let i = 1; ok && i < xs.length; i++) if (!(xs[i] > xs[i - 1])) ok = false;
+  return ok ? xs : defaultCrossovers(n).map(Math.fround);
 }
 
 /** True for the two shapes whose slope byte means something. */
@@ -4993,101 +5085,67 @@ class ImxDeq {
 }
 
 /**
- * Compressor, one to six bands. One band is an ordinary compressor (the
- * mastering chain's, with its detector linked across the bus). More is a
- * multiband one: Linkwitz–Riley 4th-order crossovers in a cascade —
- * band k is the low side of crossover k taken from the high side of k − 1 —
- * and each band then passes through the all-pass of every LATER crossover, so
- * all of them carry the same phase and their sum, uncompressed, is the input
- * through one all-pass per crossover. That sum is also what the dry signal is
- * for a multiband compressor's wet/dry: mixing against the untouched input
- * would put notches at every crossover.
+ * The multiband split the compressor and the transient shaper share:
+ * Linkwitz–Riley 4th-order crossovers in a cascade — band k is the low side of
+ * crossover k taken from the high side of k − 1 — and each band then passes
+ * through the all-pass of every LATER crossover, so all of them carry the same
+ * phase and their sum, untouched, is the input through one all-pass per
+ * crossover. That sum is also what the dry signal is for a multiband piece's
+ * wet/dry: mixing against the untouched input would put notches at every
+ * crossover.
  */
-class ImxComp {
+class ImxSplit {
   constructor(nch) {
     this.nch = nch;
     this.bandsN = 0;
     this.lp = []; this.hp = []; this.ap = [];  // per crossover: [s1, s2] / per band: Biquad[]
-    this.comps = [];
     this.bufs = null;                          // per band, channel-major span scratch
     this.cap = 0;
-    this.p = null;
-    this.gr = new Float64Array(IMX_COMP_MAX_BANDS);
-    this.lvl = new Float64Array(IMX_COMP_MAX_BANDS).fill(-120);  // loudest detector reading of the span, dB
-    this.showGr = new Float64Array(IMX_COMP_MAX_BANDS);
   }
-  configure(p, rate) {
-    this.p = p;
-    const n = p.bands.length;
-    if (n !== this.bandsN) {
-      this.bandsN = n;
-      this.lp = []; this.hp = []; this.ap = [];
-      for (let k = 0; k < n - 1; k++) {
-        this.lp.push([new Biquad(this.nch), new Biquad(this.nch)]);
-        this.hp.push([new Biquad(this.nch), new Biquad(this.nch)]);
-      }
-      for (let k = 0; k < n; k++) {
-        const aps = [];
-        for (let j = k + 1; j < n - 1; j++) aps.push(new Biquad(this.nch));
-        this.ap.push(aps);
-      }
-      this.comps = [];
-      for (let k = 0; k < n; k++) this.comps.push(new CompressorStage());
-      this.bufs = null;
-    }
+  /** Make room for n bands; true when the count changed, so the caller's
+   *  per-band state starts again too. */
+  resize(n) {
+    if (n === this.bandsN) return false;
+    this.bandsN = n;
+    this.lp = []; this.hp = []; this.ap = [];
     for (let k = 0; k < n - 1; k++) {
-      const f = p.crossovers[k];
+      this.lp.push([new Biquad(this.nch), new Biquad(this.nch)]);
+      this.hp.push([new Biquad(this.nch), new Biquad(this.nch)]);
+    }
+    for (let k = 0; k < n; k++) {
+      const aps = [];
+      for (let j = k + 1; j < n - 1; j++) aps.push(new Biquad(this.nch));
+      this.ap.push(aps);
+    }
+    this.bufs = null;
+    return true;
+  }
+  configure(crossovers, rate) {
+    const n = this.bandsN;
+    for (let k = 0; k < n - 1; k++) {
+      const f = crossovers[k];
       for (const s of this.lp[k]) s.lowPass(f, Math.SQRT1_2, rate);
       for (const s of this.hp[k]) s.highPass(f, Math.SQRT1_2, rate);
     }
     for (let k = 0; k < n; k++) {
-      for (let j = k + 1; j < n - 1; j++) this.ap[k][j - k - 1].allPass(p.crossovers[j], Math.SQRT1_2, rate);
-      const b = p.bands[k];
-      this.comps[k].configure({
-        compDetector: p.detector, compThreshDb: b.threshDb, compRatio: b.ratio,
-        compAttackMs: b.attackMs, compReleaseMs: b.releaseMs, compKneeDb: b.kneeDb,
-        compMakeupDb: b.makeupDb,
-      }, rate);
+      for (let j = k + 1; j < n - 1; j++) this.ap[k][j - k - 1].allPass(crossovers[j], Math.SQRT1_2, rate);
     }
   }
   reset() {
     for (const pair of this.lp) for (const s of pair) s.reset();
     for (const pair of this.hp) for (const s of pair) s.reset();
     for (const aps of this.ap) for (const s of aps) s.reset();
-    for (const c of this.comps) c.reset();
-    this.gr.fill(0);
   }
-  get memory() { return 0; }
-  _scratch(stride) {
+  /** Split [n0, n1) of `data` into the bands (returned, channel-major, stride
+   *  `stride`), and — when `dryBuf` is given — their untouched sum into it. */
+  split(data, stride, n0, n1, nch, dryBuf) {
+    const n = this.bandsN;
     if (this.bufs === null || this.cap !== stride) {
       this.cap = stride;
       this.bufs = [];
-      for (let k = 0; k < this.bandsN; k++) this.bufs.push(new Float64Array(this.nch * stride));
+      for (let k = 0; k < n; k++) this.bufs.push(new Float64Array(this.nch * stride));
     }
-    return this.bufs;
-  }
-  process(data, stride, n0, n1, ctx) {
-    const nch = ctx.nch;
-    const p = this.p;
-    const n = this.bandsN;
-    const dry = ctx.dry;
-    this.gr.fill(0);
-    this.lvl.fill(-120);
-    if (n === 1) {
-      if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
-      const comp = this.comps[0];
-      if (p.bands[0].on) {
-        for (let i = n0; i < n1; i++) {
-          const g = comp.stepPlanar(data, i, stride, nch);
-          for (let c = 0; c < nch; c++) data[c * stride + i] *= g;
-          if (comp.grDb < this.gr[0]) this.gr[0] = comp.grDb;
-          if (comp.levelDb > this.lvl[0]) this.lvl[0] = comp.levelDb;
-        }
-      }
-      mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
-      return;
-    }
-    const bufs = this._scratch(stride);
+    const bufs = this.bufs;
     // Split: rest ← input; band k ← LR4 low of rest; rest ← LR4 high of rest.
     for (let c = 0; c < nch; c++) {
       const o = c * stride;
@@ -5109,17 +5167,95 @@ class ImxComp {
         }
       }
     }
-    // The dry reference: the bands summed untouched.
-    if (dry > 0) {
-      for (let c = 0; c < nch; c++) {
-        const o = c * stride;
-        for (let i = n0; i < n1; i++) {
-          let s = 0;
-          for (let k = 0; k < n; k++) s += bufs[k][o + i];
-          ctx.dryBuf[o + i] = s;
-        }
+    if (dryBuf !== null) this.sum(dryBuf, stride, n0, n1, nch);
+    return bufs;
+  }
+  /** The bands summed into `out` over [n0, n1). */
+  sum(out, stride, n0, n1, nch) {
+    const n = this.bandsN;
+    const bufs = this.bufs;
+    for (let c = 0; c < nch; c++) {
+      const o = c * stride;
+      for (let i = n0; i < n1; i++) {
+        let s = 0;
+        for (let k = 0; k < n; k++) s += bufs[k][o + i];
+        out[o + i] = s;
       }
     }
+  }
+  /** Band k's crossover magnitude at `freq` (linear). An LR4 section pair is
+   *  one Butterworth section squared. */
+  magnitude(k, freq, rate) {
+    let m = 1;
+    for (let j = 0; j < k; j++) m *= 10 ** (biquadDb(this.hp[j][0], freq, rate) / 10);
+    if (k < this.bandsN - 1) m *= 10 ** (biquadDb(this.lp[k][0], freq, rate) / 10);
+    return m;
+  }
+}
+
+/**
+ * Compressor, one to six bands. One band is an ordinary compressor (the
+ * mastering chain's, with its detector linked across the bus). More is a
+ * multiband one over ImxSplit's bands, each compressed by its own detector and
+ * gain computer and the bands summed.
+ */
+class ImxComp {
+  constructor(nch) {
+    this.nch = nch;
+    this.bandsN = 0;
+    this.xo = new ImxSplit(nch);
+    this.comps = [];
+    this.p = null;
+    this.gr = new Float64Array(IMX_COMP_MAX_BANDS);
+    this.lvl = new Float64Array(IMX_COMP_MAX_BANDS).fill(-120);  // loudest detector reading of the span, dB
+    this.showGr = new Float64Array(IMX_COMP_MAX_BANDS);
+  }
+  configure(p, rate) {
+    this.p = p;
+    const n = p.bands.length;
+    if (this.xo.resize(n)) {
+      this.bandsN = n;
+      this.comps = [];
+      for (let k = 0; k < n; k++) this.comps.push(new CompressorStage());
+    }
+    this.xo.configure(p.crossovers, rate);
+    for (let k = 0; k < n; k++) {
+      const b = p.bands[k];
+      this.comps[k].configure({
+        compDetector: p.detector, compThreshDb: b.threshDb, compRatio: b.ratio,
+        compAttackMs: b.attackMs, compReleaseMs: b.releaseMs, compKneeDb: b.kneeDb,
+        compMakeupDb: b.makeupDb,
+      }, rate);
+    }
+  }
+  reset() {
+    this.xo.reset();
+    for (const c of this.comps) c.reset();
+    this.gr.fill(0);
+  }
+  get memory() { return 0; }
+  process(data, stride, n0, n1, ctx) {
+    const nch = ctx.nch;
+    const p = this.p;
+    const n = this.bandsN;
+    const dry = ctx.dry;
+    this.gr.fill(0);
+    this.lvl.fill(-120);
+    if (n === 1) {
+      if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+      const comp = this.comps[0];
+      if (p.bands[0].on) {
+        for (let i = n0; i < n1; i++) {
+          const g = comp.stepPlanar(data, i, stride, nch);
+          for (let c = 0; c < nch; c++) data[c * stride + i] *= g;
+          if (comp.grDb < this.gr[0]) this.gr[0] = comp.grDb;
+          if (comp.levelDb > this.lvl[0]) this.lvl[0] = comp.levelDb;
+        }
+      }
+      mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+      return;
+    }
+    const bufs = this.xo.split(data, stride, n0, n1, nch, dry > 0 ? ctx.dryBuf : null);
     for (let k = 0; k < n; k++) {
       if (!p.bands[k].on) continue;   // an unused band passes, unprocessed
       const comp = this.comps[k];
@@ -5131,14 +5267,7 @@ class ImxComp {
         if (comp.levelDb > this.lvl[k]) this.lvl[k] = comp.levelDb;
       }
     }
-    for (let c = 0; c < nch; c++) {
-      const o = c * stride;
-      for (let i = n0; i < n1; i++) {
-        let s = 0;
-        for (let k = 0; k < n; k++) s += bufs[k][o + i];
-        data[o + i] = s;
-      }
-    }
+    this.xo.sum(data, stride, n0, n1, nch);
     mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
   }
   /** For a display copy only: the bands' gain reductions (dB, ≤ 0; null = at
@@ -5159,12 +5288,181 @@ class ImxComp {
     if (!p || n === 0) return 0;
     let sum = 0;
     for (let k = 0; k < n; k++) {
-      let m = 1;
-      // An LR4 section pair is one Butterworth section squared.
-      for (let j = 0; j < k; j++) m *= 10 ** (biquadDb(this.hp[j][0], freq, rate) / 10);
-      if (k < n - 1) m *= 10 ** (biquadDb(this.lp[k][0], freq, rate) / 10);
       const b = p.bands[k];
-      sum += (b.on ? dbToGain(this.showGr[k] + b.makeupDb) : 1) * m;
+      sum += (b.on ? dbToGain(this.showGr[k] + b.makeupDb) : 1) * this.xo.magnitude(k, freq, rate);
+    }
+    const d = p.dry / 255;
+    const y = sum * (1 - d) + d;
+    return y > 1e-9 ? 20 * Math.log10(y) : -180;
+  }
+}
+
+/**
+ * Transient shaper, one to six bands (item 261) — over ImxSplit's bands like
+ * the compressor, but blind to LEVEL: it reshapes each note's envelope, the
+ * attack louder or softer, the sustain longer or shorter, whatever the note's
+ * loudness.
+ *
+ * A band's detector is the peak over the last IMX_TSH_WINDOW_SEC (every
+ * channel linked), P. A 25 ms window holds across a half-cycle of any audible
+ * tone, so a steady sound reads as a steady P (to within where its samples
+ * fall on its peaks, a few parts in a million) and the shaper leaves it alone
+ * — the detector has no ripple to turn into distortion. Two envelopes follow P:
+ *
+ *   S  rises toward P at the band's attack time and falls with it at once;
+ *      while it lags a rise, 1 − S/P is the TRANSIENT, 1 at the first sample
+ *      of a note, 0 once it has settled;
+ *   L  rises with P at once and falls toward it at the band's release time;
+ *      while P falls away from it, 1 − P/L is the SUSTAIN, 0 until the sound
+ *      begins to decay and growing as it does.
+ *
+ * The band's gain is attack × transient + sustain × sustain (dB), glided
+ * through a 1 ms one-pole, plus its output gain. The window is a monotonic
+ * deque here; any way of taking the max over the last W samples gives the
+ * same P, and everything after it is binary64.
+ */
+class ImxTransient {
+  constructor(nch) {
+    this.nch = nch;
+    this.bandsN = 0;
+    this.xo = new ImxSplit(nch);
+    this.p = null;
+    this.rate = SAMPLING_RATE;
+    this.win = 1;
+    // Per band: the detector window (a monotonic deque of sample indices and
+    // their levels), the envelopes and the glided gain.
+    this.dqi = [];
+    this.dqv = [];
+    this.dqHead = new Int32Array(IMX_TSH_MAX_BANDS);
+    this.dqLen = new Int32Array(IMX_TSH_MAX_BANDS);
+    this.t = 0;                                          // sample counter, mod 2^31
+    this.S = new Float64Array(IMX_TSH_MAX_BANDS);
+    this.L = new Float64Array(IMX_TSH_MAX_BANDS);
+    this.e = new Float64Array(IMX_TSH_MAX_BANDS);        // glided dynamic gain, dB
+    this.atk = new Float64Array(IMX_TSH_MAX_BANDS);
+    this.rel = new Float64Array(IMX_TSH_MAX_BANDS);
+    this.smooth = onePole(IMX_TSH_SMOOTH_MS, SAMPLING_RATE);
+    this.gr = new Float64Array(IMX_TSH_MAX_BANDS);       // reading for the meter: signed, the span's extreme
+    this.showGr = new Float64Array(IMX_TSH_MAX_BANDS);
+  }
+  configure(p, rate) {
+    this.p = p;
+    const n = p.bands.length;
+    const win = Math.max(1, Math.round(IMX_TSH_WINDOW_SEC * rate));
+    if (this.xo.resize(n) || win !== this.win || rate !== this.rate) {
+      this.bandsN = n;
+      this.win = win;
+      this.dqi = [];
+      this.dqv = [];
+      for (let k = 0; k < n; k++) {
+        this.dqi.push(new Int32Array(win));
+        this.dqv.push(new Float64Array(win));
+      }
+      this._clear();
+    }
+    this.rate = rate;
+    this.smooth = onePole(IMX_TSH_SMOOTH_MS, rate);
+    this.xo.configure(p.crossovers, rate);
+    for (let k = 0; k < n; k++) {
+      this.atk[k] = onePole(p.bands[k].attackMs, rate);
+      this.rel[k] = onePole(p.bands[k].releaseMs, rate);
+    }
+  }
+  _clear() {
+    this.dqHead.fill(0); this.dqLen.fill(0);
+    this.t = 0;
+    this.S.fill(0); this.L.fill(0); this.e.fill(0);
+  }
+  reset() {
+    this.xo.reset();
+    this._clear();
+    this.gr.fill(0);
+  }
+  get memory() { return 0; }
+  /**
+   * Band k over [n0, n1) of `b`, in place. `ix` is the sample counter at n0
+   * (shared by every band: they all see the same samples).
+   */
+  _band(k, b, stride, n0, n1, nch, ix) {
+    const band = this.p.bands[k];
+    const W = this.win;
+    const dqi = this.dqi[k], dqv = this.dqv[k];
+    let head = this.dqHead[k], len = this.dqLen[k];
+    let S = this.S[k], L = this.L[k], e = this.e[k];
+    const atk = this.atk[k], rel = this.rel[k], sm = this.smooth;
+    const ga = band.attackDb, gs = band.sustainDb, out = band.outDb;
+    let gr = this.gr[k];
+    for (let i = n0; i < n1; i++, ix = (ix + 1) & 0x7fffffff) {
+      let l = 0;
+      for (let c = 0; c < nch; c++) {
+        const x = b[c * stride + i];
+        const a = x < 0 ? -x : x;
+        if (a > l) l = a;
+      }
+      // The window's peak: a deque of the samples that can still be its
+      // maximum, oldest first, levels strictly falling. A sample W old leaves
+      // at the front; one no louder than the newest leaves at the back, as it
+      // can never be the peak again.
+      if (len > 0 && ((ix - dqi[head]) & 0x7fffffff) >= W) { head = head + 1 === W ? 0 : head + 1; len--; }
+      while (len > 0) {
+        let back = head + len - 1;
+        if (back >= W) back -= W;
+        if (dqv[back] > l) break;
+        len--;
+      }
+      let at = head + len;
+      if (at >= W) at -= W;
+      dqi[at] = ix; dqv[at] = l;
+      len++;
+      const P = dqv[head];
+      S = P > S ? S + (P - S) * atk : P;
+      L = P < L ? L + (P - L) * rel : P;
+      const tr = P > 0 ? 1 - S / P : 0;
+      const su = L > 0 ? 1 - P / L : 0;
+      e += (ga * tr + gs * su - e) * sm;
+      if ((e < 0 ? -e : e) > (gr < 0 ? -gr : gr)) gr = e;
+      const g = dbToGain(e + out);
+      for (let c = 0; c < nch; c++) b[c * stride + i] *= g;
+    }
+    this.dqHead[k] = head; this.dqLen[k] = len;
+    this.S[k] = S; this.L[k] = L; this.e[k] = e;
+    this.gr[k] = gr;
+  }
+  process(data, stride, n0, n1, ctx) {
+    const nch = ctx.nch;
+    const p = this.p;
+    const n = this.bandsN;
+    const dry = ctx.dry;
+    const ix = this.t;
+    this.gr.fill(0);
+    if (n === 1) {
+      if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
+      if (p.bands[0].on) this._band(0, data, stride, n0, n1, nch, ix);
+    } else {
+      const bufs = this.xo.split(data, stride, n0, n1, nch, dry > 0 ? ctx.dryBuf : null);
+      for (let k = 0; k < n; k++) if (p.bands[k].on) this._band(k, bufs[k], stride, n0, n1, nch, ix);
+      this.xo.sum(data, stride, n0, n1, nch);
+    }
+    this.t = (ix + (n1 - n0)) & 0x7fffffff;
+    mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
+  }
+  /** For a display copy only: the bands' dynamic gains (dB, signed; null =
+   *  at rest) that responseDb draws the shaper at. */
+  showGains(gr) {
+    if (gr) this.showGr.set(gr.subarray ? gr.subarray(0, IMX_TSH_MAX_BANDS) : gr);
+    else this.showGr.fill(0);
+  }
+  /** The shaper's response at `freq` (dB) at those gains: every band at its
+   *  dynamic gain plus its output, weighted by its crossover magnitudes, and
+   *  the wet/dry against the dry sum. */
+  responseDb(freq, rate) {
+    const p = this.p;
+    const n = this.bandsN;
+    if (!p || n === 0) return 0;
+    let sum = 0;
+    for (let k = 0; k < n; k++) {
+      const b = p.bands[k];
+      sum += (b.on ? dbToGain(this.showGr[k] + b.outDb) : 1) * this.xo.magnitude(k, freq, rate);
     }
     const d = p.dry / 255;
     const y = sum * (1 - d) + d;
@@ -5857,6 +6155,7 @@ function makeStage(id, nch) {
     case IMX_ITRM: return new ImxTrim();
     case IMX_EQU1: case IMX_EQU2: return new ImxEq(nch);
     case IMX_DEQ1: case IMX_DEQ2: return new ImxDeq(nch);
+    case IMX_TSH1: return new ImxTransient(nch);
     case IMX_COMP: return new ImxComp(nch);
     case IMX_SATU: return new ImxSat(nch);
     case IMX_UNIS: return new ImxUnison(nch);
@@ -6015,14 +6314,16 @@ class InstrumentChain {
   }
 
   /** Gain-reduction readings of the span just processed (dB), for the meter:
-   *  comp bands (≤ 0), the two dynamic EQs' bands (signed), the limiter (≤ 0);
+   *  comp bands (≤ 0), the two dynamic EQs' bands (signed), the transient
+   *  shaper's bands (signed, its output gain left out), the limiter (≤ 0);
    *  and the loudest detector reading of every comp and dynamic-EQ band (dB,
    *  −120 = nothing), which is what each band's threshold is compared with. */
   readGr(out) {
-    out.comp.fill(0); out.deq1.fill(0); out.deq2.fill(0); out.lim = 0;
+    out.comp.fill(0); out.deq1.fill(0); out.deq2.fill(0); out.tsh1.fill(0); out.lim = 0;
     out.compLvl.fill(-120); out.deq1Lvl.fill(-120); out.deq2Lvl.fill(-120);
     for (const a of this.active) {
       if (a.id === IMX_COMP) { out.comp.set(a.stage.gr); out.compLvl.set(a.stage.lvl); }
+      else if (a.id === IMX_TSH1) out.tsh1.set(a.stage.gr);
       else if (a.id === IMX_DEQ1) { out.deq1.set(a.stage.gr); out.deq1Lvl.set(a.stage.lvl); }
       else if (a.id === IMX_DEQ2) { out.deq2.set(a.stage.gr); out.deq2Lvl.set(a.stage.lvl); }
       else if (a.id === IMX_LIMI) out.lim = a.stage.gr;
@@ -6042,15 +6343,16 @@ class InstrumentChain {
   }
 
   /** For a display copy: give piece `id` the dynamic gains the meter read
-   *  (a dynamic EQ's signed band gains, a compressor's reductions; null =
-   *  at rest) before stageResponseDb draws it. */
+   *  (a dynamic EQ's or a transient shaper's signed band gains, a
+   *  compressor's reductions; null = at rest) before stageResponseDb draws it. */
   showGains(id, gains) {
     const s = this.stages.get(id);
     if (s && s.p && s.showGains) s.showGains(gains);
   }
 
   /** One piece's own magnitude response at `freq` (dB): an equaliser's, a
-   *  dynamic EQ's or a compressor's (at the gains showGains gave them). */
+   *  dynamic EQ's, a transient shaper's or a compressor's (at the gains
+   *  showGains gave them). */
   stageResponseDb(id, freq) {
     const s = this.stages.get(id);
     if (!s || !s.responseDb) return 0;
@@ -6079,6 +6381,7 @@ function makeImixGrReadout() {
     comp: new Float64Array(IMX_COMP_MAX_BANDS),
     deq1: new Float64Array(IMX_DEQ_BANDS),
     deq2: new Float64Array(IMX_DEQ_BANDS),
+    tsh1: new Float64Array(IMX_TSH_MAX_BANDS),
     lim: 0,
     compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
     deq1Lvl: new Float64Array(IMX_DEQ_BANDS).fill(-120),
@@ -6207,7 +6510,7 @@ const IMX_TAP_PRE = 0;
 const IMX_TAP_POST = 1;
 /** The pieces whose INPUT the tap also rings (mono), for the spectra drawn
  *  inside their units — in this order in the readout and the snapshot. */
-const IMX_TAP_STAGES = Object.freeze([IMX_EQU1, IMX_DEQ1, IMX_COMP, IMX_EQU2, IMX_DEQ2]);
+const IMX_TAP_STAGES = Object.freeze([IMX_EQU1, IMX_DEQ1, IMX_TSH1, IMX_COMP, IMX_EQU2, IMX_DEQ2]);
 
 /**
  * Fold one frame of a bus to the stereo pair the meters read: the pair itself,
@@ -6273,7 +6576,7 @@ class ImixMeterTap {
   _clearInterval() {
     this.peak.fill(0); this.truePeak.fill(0); this.sumSq.fill(0); this.clip.fill(0);
     this.frames = 0;
-    this.gr.comp.fill(0); this.gr.deq1.fill(0); this.gr.deq2.fill(0); this.gr.lim = 0;
+    this.gr.comp.fill(0); this.gr.deq1.fill(0); this.gr.deq2.fill(0); this.gr.tsh1.fill(0); this.gr.lim = 0;
     this.gr.compLvl.fill(-120); this.gr.deq1Lvl.fill(-120); this.gr.deq2Lvl.fill(-120);
     this.unisLive = false;
   }
@@ -6330,6 +6633,7 @@ class ImixMeterTap {
       if (Math.abs(g.deq1[i]) > Math.abs(gr.deq1[i])) gr.deq1[i] = g.deq1[i];
       if (Math.abs(g.deq2[i]) > Math.abs(gr.deq2[i])) gr.deq2[i] = g.deq2[i];
     }
+    for (let i = 0; i < g.tsh1.length; i++) if (Math.abs(g.tsh1[i]) > Math.abs(gr.tsh1[i])) gr.tsh1[i] = g.tsh1[i];
     if (g.lim < gr.lim) gr.lim = g.lim;
     for (const k of ["compLvl", "deq1Lvl", "deq2Lvl"]) {
       const a = g[k], b = gr[k];
@@ -6347,6 +6651,7 @@ class ImixMeterTap {
     for (let i = 0; i < 4; i++) out.meanSquare[i] = this.frames > 0 ? this.sumSq[i] / this.frames : 0;
     out.clip.set(this.clip);
     out.comp.set(this.gr.comp); out.deq1.set(this.gr.deq1); out.deq2.set(this.gr.deq2);
+    out.tsh1.set(this.gr.tsh1);
     out.lim = this.gr.lim;
     out.compLvl.set(this.gr.compLvl); out.deq1Lvl.set(this.gr.deq1Lvl); out.deq2Lvl.set(this.gr.deq2Lvl);
     out.ring = this.ring;
@@ -6368,6 +6673,8 @@ function makeImixMeterReadout() {
     meanSquare: new Float64Array(4), clip: new Float64Array(4),
     comp: new Float64Array(IMX_COMP_MAX_BANDS), deq1: new Float64Array(IMX_DEQ_BANDS),
     deq2: new Float64Array(IMX_DEQ_BANDS), lim: 0,
+    // The transient shaper's bands' dynamic gains (dB, signed), the extreme.
+    tsh1: new Float64Array(IMX_TSH_MAX_BANDS),
     // The loudest detector reading of each band over the interval (dB; −120 =
     // nothing) — what its threshold is compared with.
     compLvl: new Float64Array(IMX_COMP_MAX_BANDS).fill(-120),
@@ -21219,7 +21526,7 @@ const SNAP_IM_RING_FRAMES = IMX_RING_FRAMES;
 const SNAP_IM_RING_PRE = SNAP_IM_RING + 2 * IMX_RING_FRAMES;
 // The unison's live detune (cents; −1 = it did not run) and width, then a
 // mono ring at the input of each IMX_TAP_STAGES piece, each with its own
-// write index — 40 KiB more on the wire, and only while the tab is up.
+// write index — 48 KiB more on the wire, and only while the tab is up.
 const SNAP_IM_UNIS_CENTS = SNAP_IM_RING_PRE + IMX_RING_FRAMES;
 const SNAP_IM_UNIS_WIDTH = SNAP_IM_UNIS_CENTS + 1;
 // …then each comp and dynamic-EQ band's loudest detector reading (dB).
@@ -21228,8 +21535,10 @@ const SNAP_IM_DEQ1_LVL = SNAP_IM_COMP_LVL + IMX_COMP_MAX_BANDS;
 const SNAP_IM_DEQ2_LVL = SNAP_IM_DEQ1_LVL + IMX_DEQ_BANDS;
 const SNAP_IM_STAGE_WRITE = SNAP_IM_DEQ2_LVL + IMX_DEQ_BANDS;
 const SNAP_IM_STAGE_RINGS = SNAP_IM_STAGE_WRITE + IMX_TAP_STAGES.length;
+// …then the transient shaper's bands' dynamic gains (dB, signed; item 261).
+const SNAP_IM_TSH1 = SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RING_FRAMES;
 
-const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RING_FRAMES;
+const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_TSH1 + IMX_TSH_MAX_BANDS;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt
@@ -21770,6 +22079,7 @@ function fillImixMeterInto(ts, f) {
   f.set(r.compLvl, b + SNAP_IM_COMP_LVL);
   f.set(r.deq1Lvl, b + SNAP_IM_DEQ1_LVL);
   f.set(r.deq2Lvl, b + SNAP_IM_DEQ2_LVL);
+  f.set(r.tsh1, b + SNAP_IM_TSH1);
   for (let k = 0; k < r.stageRings.length; k++) {
     f[b + SNAP_IM_STAGE_WRITE + k] = r.stageWrite[k];
     f.set(r.stageRings[k], b + SNAP_IM_STAGE_RINGS + k * SNAP_IM_RING_FRAMES);

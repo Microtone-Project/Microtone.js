@@ -50,6 +50,9 @@ export const GOLDEN_SET = {
   // Item 247: the same two chains in BUS mode — every instrument on a block
   // summed into one bus — with the mix tool's DC blocker on.
   "Huygens_clock@imixbus": { file: "assets/demo_projects/Huygens_clock.taud", imix: "bus" },
+  // Item 261: the same chains with a three-band transient shaper put in —
+  // attack up, sustain down — and its wet/dry.
+  "Huygens_clock@imixtsh": { file: "assets/demo_projects/Huygens_clock.taud", imix: "tsh" },
 };
 
 /**
@@ -58,12 +61,14 @@ export const GOLDEN_SET = {
  * a retriggering LFO and the tempo-synced delay are all exercised. Instruments
  * alternate between two blocks, the second with the other pipeline order.
  */
-export function goldenImixBlocks(bus = false) {
+export function goldenImixBlocks(bus = false, tsh = false) {
   const make = (id, order) => {
     const b = IMX.defaultImixBlock(id);
     b.order = order;
     b.bus = bus;
-    for (const eq of IMX.IMX_EQUIPMENT) b.equipment[eq] = IMX.defaultEquipment(eq);
+    // The equipment item 217 defined; later pieces join only the entries
+    // made for them, so these digests keep meaning what they meant.
+    for (const eq of IMX.IMX_EQUIPMENT) if (eq !== IMX.IMX_TSH1) b.equipment[eq] = IMX.defaultEquipment(eq);
     b.equipment.equ1.bands[1].gainDb = 3;
     b.equipment.equ2.bands[0] = { on: true, shape: IMX.IMX_EQ_HIGH_PASS, slope: 1, freq: 60, gainDb: 0, q: 0.7 };
     b.equipment.comp.bands = [IMX.defaultCompBand(), IMX.defaultCompBand(), IMX.defaultCompBand()];
@@ -78,13 +83,24 @@ export function goldenImixBlocks(bus = false) {
     b.equipment.dlay.pingPong = true;
     b.equipment.mxtl.width = 1.2;
     if (bus) b.equipment.mxtl.removeDc = true;
+    if (tsh) {
+      const t = IMX.defaultEquipment(IMX.IMX_TSH1);
+      t.bands = [
+        { ...IMX.defaultTshBand(), attackDb: 6, sustainDb: -4, attackMs: 30 },
+        { ...IMX.defaultTshBand(), attackDb: 9, sustainDb: 3, releaseMs: 600, outDb: -2 },
+        { ...IMX.defaultTshBand(), attackDb: -5, sustainDb: -8, attackMs: 5, releaseMs: 80 },
+      ];
+      t.crossovers = [220, 3000];
+      t.dry = 40;
+      b.equipment.tsh1 = t;
+    }
     return b;
   };
   return [make(1, 0), make(2, 1)];
 }
 
-function installGoldenImix(eng, bus) {
-  eng.setImix(goldenImixBlocks(bus));
+function installGoldenImix(eng, bus, tsh) {
+  eng.setImix(goldenImixBlocks(bus, tsh));
   for (let s = 1; s < 1024; s++) eng.instruments[s].imixId = (s & 1) === 1 ? 1 : 2;
   eng.imixGen++;
 }
@@ -102,7 +118,7 @@ export async function renderGolden(entry) {
     const eng = new TaudEngine();
     loadIntoEngine(eng, doc, 0);
     if (entry.monitor !== undefined) eng.setMonitorMode(0, entry.monitor);
-    if (entry.imix) installGoldenImix(eng, entry.imix === "bus");
+    if (entry.imix) installGoldenImix(eng, entry.imix === "bus", entry.imix === "tsh");
     const r = renderSong(eng, GOLDEN_SECONDS);
     return {
       frames: r.frames,

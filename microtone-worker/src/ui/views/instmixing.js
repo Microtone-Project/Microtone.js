@@ -1,5 +1,5 @@
 // The Instruments view's MIXING tab (item 217): the instrument's IMix chain —
-// which block it uses, the twelve pieces of equipment in their fixed order,
+// which block it uses, the thirteen pieces of equipment in their fixed order,
 // and four monitors on the instrument's own bus.
 //
 // The chain is the BLOCK's, not the instrument's: two instruments naming one
@@ -27,20 +27,20 @@
 // swapped for another — which no drag can do. Inserting a piece is NOT a new
 // shape: its body was already drawn from the same defaults.
 //
-// The plots (the spectra in the equalisers, the dynamic EQs and the
-// compressor, the saturator's transfer, the unison's copies) paint from the
+// The plots (the spectra in the equalisers, the dynamic EQs, the transient
+// shaper and the compressor, the saturator's transfer, the unison's copies) paint from the
 // frame loop while the bus runs and for REST_MS after, on an edit, and when
 // the hairline cursor moves over a spectrum — never on a schedule.
 
 import {
   IMX_PIPELINES, IMX_WET_APPLICABLE, IMX_RANGE, FX16,
-  IMX_ITRM, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_SATU, IMX_UNIS,
+  IMX_ITRM, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU, IMX_UNIS,
   IMX_VERB, IMX_DLAY, IMX_LIMI, IMX_MXTL,
-  IMX_EQ_SHAPES, IMX_EQ_MAX_BANDS, IMX_EQ_BELL, IMX_SLOPES, IMX_COMP_MAX_BANDS,
+  IMX_EQ_SHAPES, IMX_EQ_MAX_BANDS, IMX_EQ_BELL, IMX_SLOPES, IMX_COMP_MAX_BANDS, IMX_TSH_MAX_BANDS,
   IMX_DEQ_BANDS, IMX_SAT_CURVES, IMX_UNIS_MIN_VOICES, IMX_UNIS_MAX_VOICES,
   IMX_LFO_WAVES, IMX_RING_FRAMES, IMX_TAP_STAGES,
   IMX_DEQ_LOW_SHELF_BAND, IMX_DEQ_HIGH_SHELF_BAND,
-  defaultEquipment, defaultImixBlock, defaultCompBand, defaultCrossovers,
+  defaultEquipment, defaultImixBlock, defaultCompBand, defaultTshBand, resizeSplit, IMX_XOVER_GAP,
   normaliseImixBlock, normaliseEquipment, imixBlockEqual, isCutShape, InstrumentChain,
   makeImixMeterReadout, imxSatTransfer, unisonPositions,
 } from "../../../core/engine/imix.js";
@@ -50,7 +50,7 @@ import { SURROUND_STEREO } from "../../../core/engine/spatial.js";
 import { Fft, hannWindow, spectrumDb, tiltDbAt } from "../../../core/engine/fft.js";
 import {
   freqAt, colOfFreq, fmtDb, stepColumns, drawSpecGround, fillBands, strokeColumns,
-  trackCursor, drawCursor,
+  trackCursor, drawCursor, drawBarRules,
 } from "./imixplots.js";
 import { setImixOp, setInstFieldOp, setSectionOp, compositeOp } from "../../doc/ops.js";
 import { IMCN_FOURCC } from "../../../core/format/imix-section.js";
@@ -107,7 +107,7 @@ const LFO_GLYPH = [MOTIF.WAVE_SINE, MOTIF.WAVE_TRIANGLE, MOTIF.WAVE_SQUARE,
 /** The unit each equipment's name is looked up under. */
 const NAME_KEY = {
   [IMX_ITRM]: "imix.itrm", [IMX_EQU1]: "imix.equ1", [IMX_DEQ1]: "imix.deq1",
-  [IMX_COMP]: "imix.comp", [IMX_EQU2]: "imix.equ2", [IMX_DEQ2]: "imix.deq2",
+  [IMX_TSH1]: "imix.tsh1", [IMX_COMP]: "imix.comp", [IMX_EQU2]: "imix.equ2", [IMX_DEQ2]: "imix.deq2",
   [IMX_UNIS]: "imix.unis", [IMX_SATU]: "imix.satu", [IMX_DLAY]: "imix.dlay",
   [IMX_VERB]: "imix.verb", [IMX_LIMI]: "imix.limi", [IMX_MXTL]: "imix.mxtl",
 };
@@ -127,7 +127,7 @@ export class MixingPanel {
     this.peakHoldUntil = [0, 0, 0, 0];
     this.clipUntil = [0, 0, 0, 0];
     this.gr = { comp: new Float64Array(IMX_COMP_MAX_BANDS), deq1: new Float64Array(IMX_DEQ_BANDS),
-      deq2: new Float64Array(IMX_DEQ_BANDS), lim: 0 };
+      deq2: new Float64Array(IMX_DEQ_BANDS), tsh1: new Float64Array(IMX_TSH_MAX_BANDS), lim: 0 };
     this.lastLive = 0;
     this._lastFrame = 0;
     this.fft = new Fft(IMX_RING_FRAMES);
@@ -506,6 +506,7 @@ export class MixingPanel {
       case IMX_ITRM: body.append(this.num(id, "imix.gain", "gainDb", "trimDb", { unit: "dB", digits: 1 })); break;
       case IMX_EQU1:
       case IMX_EQU2: this.bodyEq(id, body); break;
+      case IMX_TSH1: this.bodyTsh(body); break;
       case IMX_COMP: this.bodyComp(body); break;
       case IMX_DEQ1:
       case IMX_DEQ2: this.bodyDeq(id, body); break;
@@ -539,8 +540,15 @@ export class MixingPanel {
       if (val.textContent !== s) val.textContent = s;
     };
     range.addEventListener("pointerdown", () => { this._dragging = range; this.beginGesture(); });
+    // Only the slider being dragged ends the drag: pressing another one blurs
+    // the last one touched AFTER its pointerdown began the new gesture, and
+    // ending it then made every step of that drag an undo step of its own.
     for (const ev of ["pointerup", "pointercancel", "blur"]) {
-      range.addEventListener(ev, () => { this._dragging = null; this.endGesture(); });
+      range.addEventListener(ev, () => {
+        if (this._dragging !== range) return;
+        this._dragging = null;
+        this.endGesture();
+      });
     }
     range.addEventListener("input", () => {
       this.editEquipment(id, (e) => { e.dry = 255 - (+range.value); }, "mix");
@@ -613,31 +621,12 @@ export class MixingPanel {
     const id = IMX_COMP;
     const e = () => this.eqp(id);
     body.append(this.unitPlot(id), this.thresholdStrip(id));
-    const counts = [];
-    for (let n = 1; n <= IMX_COMP_MAX_BANDS; n++) counts.push([n, String(n)]);
     body.append(
       this.choiceRow("imix.detector", [[COMP_PEAK, t("imix.peak")], [COMP_RMS, t("imix.rms")]],
         () => e()?.detector ?? 0, (v) => this.editEquipment(id, (x) => { x.detector = v; })),
-      this.choiceRow("imix.bands", counts, () => e()?.bands.length ?? 1, (n) => this.editEquipment(id, (x) => {
-        while (x.bands.length < n) x.bands.push(defaultCompBand());
-        x.bands.length = n;
-        x.crossovers = defaultCrossovers(n);
-      })),
     );
-    const cur = e();
-    for (let k = 0; k < cur.crossovers.length; k++) {
-      body.appendChild(this.numRow("imix.xover", "xover", () => e()?.crossovers[k] ?? 1000,
-        (v) => this.editEquipment(id, (x) => {
-          // Keep the order: a crossover cannot pass its neighbours.
-          const lo = k > 0 ? x.crossovers[k - 1] * 1.01 : 20;
-          const hi = k < x.crossovers.length - 1 ? x.crossovers[k + 1] / 1.01 : 20000;
-          x.crossovers[k] = clamp(v, lo, hi);
-        }, `x${k}`), { unit: "Hz", digits: 0, log: true, args: { n: k + 1 } }));
-    }
-    const rows = cur.bands.map((_, i) => [i,
-      cur.bands.length === 1 ? t("imix.allShort") : String(i + 1),
-      cur.bands.length === 1 ? t("imix.allBands") : t("imix.band", { n: i + 1 })]);
-    const boxes = cur.bands.map((_, i) => {
+    const rows = this.splitRows(id, body, IMX_COMP_MAX_BANDS, defaultCompBand);
+    const boxes = e().bands.map((_, i) => {
       const box = document.createElement("div");
       box.className = "mst-band";
       box.dataset.band = String(i);
@@ -651,6 +640,63 @@ export class MixingPanel {
         row("imix.release", "releaseMs", "compReleaseMs", { unit: "ms", digits: 0, log: true }),
         row("imix.knee", "kneeDb", "compKneeDb", { unit: "dB", digits: 1 }),
         row("imix.makeup", "makeupDb", "compMakeupDb", { unit: "dB", digits: 1 }),
+      );
+      return box;
+    });
+    body.append(this.bandBar(id, rows, boxes), ...boxes);
+  }
+
+  /**
+   * A multiband piece's split — the band count (one band is the whole signal;
+   * more split the bands it has) and a row per crossover — appended to
+   * `body`. Returns the band picker's rows.
+   */
+  splitRows(id, body, max, defaultBand) {
+    const e = () => this.eqp(id);
+    const counts = [];
+    for (let n = 1; n <= max; n++) counts.push([n, String(n)]);
+    // A band added or taken away leaves every other crossover where it was.
+    body.appendChild(this.choiceRow("imix.bands", counts, () => e()?.bands.length ?? 1,
+      (n) => this.editEquipment(id, (x) => { resizeSplit(x, n, defaultBand); })));
+    const cur = e();
+    for (let k = 0; k < cur.crossovers.length; k++) {
+      body.appendChild(this.numRow("imix.xover", "xover", () => e()?.crossovers[k] ?? 1000,
+        (v) => this.editEquipment(id, (x) => {
+          // Keep the order: a crossover cannot pass its neighbours.
+          const lo = k > 0 ? x.crossovers[k - 1] * IMX_XOVER_GAP : 20;
+          const hi = k < x.crossovers.length - 1 ? x.crossovers[k + 1] / IMX_XOVER_GAP : 20000;
+          x.crossovers[k] = clamp(v, lo, hi);
+        }, `x${k}`), { unit: "Hz", digits: 0, log: true, args: { n: k + 1 } }));
+    }
+    return cur.bands.map((_, i) => [i,
+      cur.bands.length === 1 ? t("imix.allShort") : String(i + 1),
+      cur.bands.length === 1 ? t("imix.allBands") : t("imix.band", { n: i + 1 })]);
+  }
+
+  /** The transient shaper: like the compressor, one band or several split at
+   *  crossovers, each band lifting or lowering the attack and the sustain of
+   *  every note in it, however loud. */
+  bodyTsh(body) {
+    const id = IMX_TSH1;
+    const e = () => this.eqp(id);
+    const hint = document.createElement("p");
+    hint.className = "mst-hint";
+    hint.textContent = t("imix.tshHint");
+    body.append(hint, this.unitPlot(id));
+    const rows = this.splitRows(id, body, IMX_TSH_MAX_BANDS, defaultTshBand);
+    const boxes = e().bands.map((_, i) => {
+      const box = document.createElement("div");
+      box.className = "mst-band";
+      box.dataset.band = String(i);
+      const b = () => e()?.bands[i] ?? defaultTshBand();
+      const row = (lab, key, range, opts) => this.numRow(lab, range, () => b()[key],
+        (v) => this.editEquipment(id, (x) => { x.bands[i][key] = v; }, `b${i}${key}`), opts);
+      box.append(
+        row("imix.tshAttack", "attackDb", "tshGainDb", { unit: "dB", digits: 1 }),
+        row("imix.tshAttackTime", "attackMs", "tshAttackMs", { unit: "ms", digits: 1, log: true }),
+        row("imix.tshSustain", "sustainDb", "tshGainDb", { unit: "dB", digits: 1 }),
+        row("imix.tshSustainTime", "releaseMs", "tshReleaseMs", { unit: "ms", digits: 0, log: true }),
+        row("imix.tshOutput", "outDb", "tshOutDb", { unit: "dB", digits: 1 }),
       );
       return box;
     });
@@ -1022,8 +1068,15 @@ export class MixingPanel {
     };
     num.addEventListener("change", () => { write(round(parseFloat(num.value || "0") / scale)); paint(); });
     range.addEventListener("pointerdown", () => { this._dragging = range; this.beginGesture(); });
+    // Only the slider being dragged ends the drag: pressing another one blurs
+    // the last one touched AFTER its pointerdown began the new gesture, and
+    // ending it then made every step of that drag an undo step of its own.
     for (const ev of ["pointerup", "pointercancel", "blur"]) {
-      range.addEventListener(ev, () => { this._dragging = null; this.endGesture(); });
+      range.addEventListener(ev, () => {
+        if (this._dragging !== range) return;
+        this._dragging = null;
+        this.endGesture();
+      });
     }
     range.addEventListener("input", () => {
       write(round(fromPos(+range.value)));
@@ -1109,7 +1162,8 @@ export class MixingPanel {
     return c;
   }
 
-  /** The spectrum inside an equaliser, a dynamic EQ or the compressor. */
+  /** The spectrum inside an equaliser, a dynamic EQ, the transient shaper or
+   *  the compressor. */
   unitPlot(id) {
     const cv = document.createElement("canvas");
     cv.className = "mst-eq-curve imx-curve";
@@ -1243,6 +1297,7 @@ export class MixingPanel {
     const k = Math.min(1, dt / 120);
     const settle = (cur, tgt) => (Math.abs(tgt) > Math.abs(cur) ? tgt : cur + (tgt - cur) * k);
     for (let i = 0; i < IMX_COMP_MAX_BANDS; i++) this.gr.comp[i] = settle(this.gr.comp[i], fresh ? r.comp[i] : 0);
+    for (let i = 0; i < IMX_TSH_MAX_BANDS; i++) this.gr.tsh1[i] = settle(this.gr.tsh1[i], fresh ? r.tsh1[i] : 0);
     for (let i = 0; i < IMX_DEQ_BANDS; i++) {
       this.gr.deq1[i] = settle(this.gr.deq1[i], fresh ? r.deq1[i] : 0);
       this.gr.deq2[i] = settle(this.gr.deq2[i], fresh ? r.deq2[i] : 0);
@@ -1275,6 +1330,7 @@ export class MixingPanel {
       const rmsDb = ms > 0 ? 10 * Math.log10(ms) : -144;
       ctx.fillStyle = C.meter;
       ctx.fillRect(x0, y, frac(rmsDb, METER_MIN_DB, METER_MAX_DB) * span, barH);
+      drawBarRules(ctx, C, METER_MIN_DB, METER_MAX_DB, (db) => x0 + frac(db, METER_MIN_DB, METER_MAX_DB) * span, y, barH);
       ctx.fillStyle = C.border;
       ctx.fillRect(zero, y, 1, barH);
       ctx.fillStyle = C.accent2;
@@ -1294,6 +1350,12 @@ export class MixingPanel {
     const rows = [];
     const e = b?.equipment ?? {};
     const on = (id) => e[id] && !e[id].bypass;
+    // In pipeline order: the transient shaper, then the compressor.
+    if (on(IMX_TSH1)) {
+      e[IMX_TSH1].bands.forEach((band, i) => {
+        if (band.on) rows.push([e[IMX_TSH1].bands.length === 1 ? t("imix.tshShort") : t("imix.tshBand", { n: i + 1 }), this.gr.tsh1[i], true]);
+      });
+    }
     if (on(IMX_COMP)) {
       e[IMX_COMP].bands.forEach((band, i) => {
         if (band.on) rows.push([e[IMX_COMP].bands.length === 1 ? t("imix.comp") : t("imix.compBand", { n: i + 1 }), this.gr.comp[i], false]);
@@ -1330,12 +1392,15 @@ export class MixingPanel {
         const f = clamp(Math.abs(gr) / GR_MAX_DB, 0, 1) * (span / 2);
         ctx.fillStyle = gr >= 0 ? C.meter : C.accent;
         ctx.fillRect(gr >= 0 ? mid : mid - f, y + 2, f, 10);
+        drawBarRules(ctx, C, -GR_MAX_DB, GR_MAX_DB, (db) => mid + (db / GR_MAX_DB) * (span / 2), y + 2, 10);
         ctx.fillStyle = C.border;
         ctx.fillRect(mid, y + 2, 1, 10);
       } else {
         const f = clamp(-gr / GR_MAX_DB, 0, 1);
         ctx.fillStyle = C.accent;
         ctx.fillRect(x0 + span * (1 - f), y + 2, span * f, 10);
+        // Reduction grows right to left, so 6 dB of it is 6 dB in from the right.
+        drawBarRules(ctx, C, 0, GR_MAX_DB, (db) => x0 + span * (1 - db / GR_MAX_DB), y + 2, 10);
       }
       ctx.fillStyle = C.fg;
       ctx.textAlign = "right";
@@ -1479,13 +1544,14 @@ export class MixingPanel {
   }
 
   /**
-   * The plot inside an equaliser, a dynamic EQ or the compressor: what goes
-   * INTO the piece (a line — the tap rings each one's input), what comes out
-   * (band-inked: the input moved by the piece's response, which for these is
-   * all the piece does to a steady spectrum), and the response itself on a
-   * ±24 dB axis. A dynamic EQ and the compressor draw that response as it
-   * stands this moment — the gains the meter reads — with the resting one
-   * beside it and the difference shaded: that shading IS the dynamics.
+   * The plot inside an equaliser, a dynamic EQ, the transient shaper or the
+   * compressor: what goes INTO the piece (a line — the tap rings each one's
+   * input), what comes out (band-inked: the input moved by the piece's
+   * response, which for these is all the piece does to a steady spectrum),
+   * and the response itself on a ±24 dB axis. The dynamic pieces draw that
+   * response as it stands this moment — the gains the meter reads — with the
+   * resting one beside it and the difference shaded: that shading IS the
+   * dynamics.
    */
   drawUnitSpectrum(id, plot, C, live, dt) {
     const box = this.ctxFor(plot.canvas, UNIT_SPEC_H);
@@ -1513,7 +1579,8 @@ export class MixingPanel {
     const chain = this.unitChain(id);
     const dynamic = id !== IMX_EQU1 && id !== IMX_EQU2;
     const gains = !this.inCircuit(id) ? null
-      : id === IMX_COMP ? this.gr.comp : id === IMX_DEQ1 ? this.gr.deq1 : id === IMX_DEQ2 ? this.gr.deq2 : null;
+      : id === IMX_COMP ? this.gr.comp : id === IMX_TSH1 ? this.gr.tsh1
+        : id === IMX_DEQ1 ? this.gr.deq1 : id === IMX_DEQ2 ? this.gr.deq2 : null;
     const fill = (arr) => {
       // Every other column, joined straight: a response is smooth at this scale.
       for (let x = 0; x < cols; x += 2) arr[x] = chain.stageResponseDb(id, freqAt(x, cols));
@@ -1535,7 +1602,7 @@ export class MixingPanel {
     strokeColumns(ctx, st.cols, yOf, C.dim, 1);
 
     const e = this.eqp(id);
-    if (id === IMX_COMP) this.drawCompBands(ctx, w, h, C, e, gains);
+    if (id === IMX_COMP || id === IMX_TSH1) this.drawCompBands(ctx, w, h, C, e, gains);
     if (dynamic) {
       // The dynamics: from the resting response to the live one.
       ctx.fillStyle = C.accent;
@@ -1676,6 +1743,7 @@ export class MixingPanel {
           ctx.fillRect(xt, yb + 3, xl - xt, hb - 6);
         }
       }
+      drawBarRules(ctx, C, lo, hi, xOf, yb, hb);
       if (id !== IMX_COMP && b.ratio > 1) {
         // Where the band has moved its full range and stops.
         const full = b.threshDb + b.rangeDb / (1 - 1 / b.ratio);
@@ -1707,7 +1775,8 @@ export class MixingPanel {
     });
   }
 
-  /** The compressor's bands: the crossovers, and each band's reduction. */
+  /** A multiband piece's bands: the crossovers, and each band's gain — the
+   *  compressor's reduction, or the transient shaper's lift or cut. */
   drawCompBands(ctx, w, h, C, e, gains) {
     const xs = [0, ...e.crossovers.map((f) => colOfFreq(f, w)), w];
     ctx.font = canvasMonoFont(10);

@@ -9,17 +9,17 @@
 // program that asks for a 30 dB trim has made a mistake worth hearing about.
 
 import {
-  IMX_ITRM, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_SATU, IMX_UNIS, IMX_VERB, IMX_DLAY,
-  IMX_LIMI, IMX_MXTL, IMX_RANGE, IMX_EQ_MAX_BANDS, IMX_COMP_MAX_BANDS, IMX_UNIS_MIN_VOICES, IMX_UNIS_MAX_VOICES,
-  IMX_WET_APPLICABLE, FX16, defaultEquipment, defaultCompBand, defaultCrossovers, normaliseEquipment,
-  isCutShape,
+  IMX_ITRM, IMX_EQU1, IMX_EQU2, IMX_COMP, IMX_DEQ1, IMX_DEQ2, IMX_TSH1, IMX_SATU, IMX_UNIS, IMX_VERB, IMX_DLAY,
+  IMX_LIMI, IMX_MXTL, IMX_RANGE, IMX_EQ_MAX_BANDS, IMX_COMP_MAX_BANDS, IMX_TSH_MAX_BANDS, IMX_UNIS_MIN_VOICES,
+  IMX_UNIS_MAX_VOICES, IMX_WET_APPLICABLE, FX16, defaultEquipment, defaultCompBand, defaultTshBand,
+  defaultCrossovers, normaliseEquipment, isCutShape,
 } from "../../core/engine/imix.js";
 import { asList, fail } from "./values.js";
 import { str, bool, int, num, oneOf, any, readOptions } from "./options.js";
 
 /** The pieces by the name a program gives them, in the chain's own order. */
 export const CHAIN_PIECES = Object.freeze({
-  input_trim: IMX_ITRM, equaliser_1: IMX_EQU1, dynamic_eq_1: IMX_DEQ1, compressor: IMX_COMP,
+  input_trim: IMX_ITRM, equaliser_1: IMX_EQU1, dynamic_eq_1: IMX_DEQ1, transient_shaper_1: IMX_TSH1, compressor: IMX_COMP,
   equaliser_2: IMX_EQU2, dynamic_eq_2: IMX_DEQ2, unison: IMX_UNIS, saturator: IMX_SATU,
   tape_delay: IMX_DLAY, reverb: IMX_VERB, limiter: IMX_LIMI, mix_tool: IMX_MXTL,
 });
@@ -58,6 +58,10 @@ const COMP_BAND = {
   on: bool, threshold: ranged("compThreshDb"), ratio: ranged("compRatio"), attack: ranged("compAttackMs"),
   release: ranged("compReleaseMs"), knee: ranged("compKneeDb"), make_up: ranged("compMakeupDb"),
 };
+const TSH_BAND = {
+  on: bool, attack: ranged("tshGainDb"), sustain: ranged("tshGainDb"), attack_time: ranged("tshAttackMs"),
+  sustain_time: ranged("tshReleaseMs"), output: ranged("tshOutDb"),
+};
 const DEQ_BAND = {
   on: bool, freq: ranged("eqFreq"), q: ranged("eqQ"), gain: ranged("eqGainDb"),
   threshold: ranged("compThreshDb"), ratio: ranged("compRatio"), attack: ranged("compAttackMs"),
@@ -76,6 +80,7 @@ const PIECE = {
   [IMX_ITRM]: { on: bool, gain: ranged("trimDb") },
   [IMX_EQU1]: { on: bool, bands: any },
   [IMX_COMP]: { ...COMP_BAND, on: bool, mix, detector: oneOf({ peak: 0, rms: 1 }), crossovers: any, bands: any },
+  [IMX_TSH1]: { ...TSH_BAND, on: bool, mix, crossovers: any, bands: any },
   [IMX_DEQ1]: { on: bool, ...Object.fromEntries(Object.keys(DEQ_BANDS).map((k) => [k, any])) },
   [IMX_UNIS]: {
     on: bool, mix, voices: int(IMX_UNIS_MIN_VOICES, IMX_UNIS_MAX_VOICES), detune: ranged("unisDetune"),
@@ -104,6 +109,7 @@ PIECE[IMX_EQU2] = PIECE[IMX_EQU1];
 PIECE[IMX_DEQ2] = PIECE[IMX_DEQ1];
 
 const COMP_FIELDS = { threshold: "threshDb", ratio: "ratio", attack: "attackMs", release: "releaseMs", knee: "kneeDb", make_up: "makeupDb" };
+const TSH_FIELDS = { attack: "attackDb", sustain: "sustainDb", attack_time: "attackMs", sustain_time: "releaseMs", output: "outDb" };
 
 function lfoOf(v, what) {
   const o = readOptions(v, LFO, what);
@@ -140,24 +146,13 @@ function pieceOf(id, v, what) {
         });
       }
       break;
-    case IMX_COMP: {
+    case IMX_COMP:
       if (o.detector !== undefined) e.detector = o.detector;
-      const top = Object.keys(COMP_FIELDS).filter((k) => o[k] !== undefined);
-      if (o.bands !== undefined) {
-        if (top.length) throw fail(`${what}: with bands, give ${top[0]} to each band`);
-        const list = asList(o.bands, `${what}'s bands`);
-        if (!list.length || list.length > IMX_COMP_MAX_BANDS) throw fail(`${what} has 1…${IMX_COMP_MAX_BANDS} bands, not ${list.length}`);
-        e.bands = list.map((b, i) => compBand(readOptions(b, COMP_BAND, `${what}'s band ${i + 1}`)));
-      } else e.bands = [compBand({ ...o, on: undefined })]; // a one-band compressor: its `on` is the piece's
-      const n = e.bands.length;
-      if (o.crossovers !== undefined) {
-        const xs = asList(o.crossovers, `${what}'s crossovers`).map((x, i) => ranged("xover")(x, `${what}'s crossover ${i + 1}`));
-        if (xs.length !== n - 1) throw fail(`${what}: ${n} band${n === 1 ? "" : "s"} take${n === 1 ? "s" : ""} ${n - 1} crossover${n === 2 ? "" : "s"}, not ${xs.length}`);
-        for (let i = 1; i < xs.length; i++) if (!(xs[i] > xs[i - 1])) throw fail(`${what}'s crossovers must rise`);
-        e.crossovers = xs;
-      } else e.crossovers = defaultCrossovers(n);
+      multiband(e, o, what, COMP_BAND, COMP_FIELDS, IMX_COMP_MAX_BANDS, defaultCompBand);
       break;
-    }
+    case IMX_TSH1:
+      multiband(e, o, what, TSH_BAND, TSH_FIELDS, IMX_TSH_MAX_BANDS, defaultTshBand);
+      break;
     case IMX_DEQ1: case IMX_DEQ2:
       for (const [name, at] of Object.entries(DEQ_BANDS)) {
         if (o[name] === undefined) continue;
@@ -214,11 +209,32 @@ function pieceOf(id, v, what) {
   return normaliseEquipment(id, e);
 }
 
-function compBand(f) {
-  const b = defaultCompBand();
-  if (f.on !== undefined) b.on = f.on;
-  for (const [k, to] of Object.entries(COMP_FIELDS)) if (f[k] !== undefined) b[to] = f[k];
-  return b;
+/**
+ * The compressor's and the transient shaper's bands: either one band's fields
+ * at the top of the piece's record, or `bands`, a list of such records (each
+ * with `on`), split at `crossovers`.
+ */
+function multiband(e, o, what, bandSpec, fields, max, defaultBand) {
+  const band = (f) => {
+    const b = defaultBand();
+    if (f.on !== undefined) b.on = f.on;
+    for (const [k, to] of Object.entries(fields)) if (f[k] !== undefined) b[to] = f[k];
+    return b;
+  };
+  const top = Object.keys(fields).filter((k) => o[k] !== undefined);
+  if (o.bands !== undefined) {
+    if (top.length) throw fail(`${what}: with bands, give ${top[0]} to each band`);
+    const list = asList(o.bands, `${what}'s bands`);
+    if (!list.length || list.length > max) throw fail(`${what} has 1…${max} bands, not ${list.length}`);
+    e.bands = list.map((b, i) => band(readOptions(b, bandSpec, `${what}'s band ${i + 1}`)));
+  } else e.bands = [band({ ...o, on: undefined })]; // one band: its `on` is the piece's
+  const n = e.bands.length;
+  if (o.crossovers !== undefined) {
+    const xs = asList(o.crossovers, `${what}'s crossovers`).map((x, i) => ranged("xover")(x, `${what}'s crossover ${i + 1}`));
+    if (xs.length !== n - 1) throw fail(`${what}: ${n} band${n === 1 ? "" : "s"} take${n === 1 ? "s" : ""} ${n - 1} crossover${n === 2 ? "" : "s"}, not ${xs.length}`);
+    for (let i = 1; i < xs.length; i++) if (!(xs[i] > xs[i - 1])) throw fail(`${what}'s crossovers must rise`);
+    e.crossovers = xs;
+  } else e.crossovers = defaultCrossovers(n);
 }
 
 /**

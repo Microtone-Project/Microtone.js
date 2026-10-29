@@ -37,7 +37,7 @@ import {
   SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
   SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
   SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS, SNAP_IM_RING_FRAMES,
-  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL,
+  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1,
 } from "./protocol.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, displayPanByte, displayAngles,
@@ -286,6 +286,7 @@ function fillImixMeterInto(ts, f) {
   f.set(r.compLvl, b + SNAP_IM_COMP_LVL);
   f.set(r.deq1Lvl, b + SNAP_IM_DEQ1_LVL);
   f.set(r.deq2Lvl, b + SNAP_IM_DEQ2_LVL);
+  f.set(r.tsh1, b + SNAP_IM_TSH1);
   for (let k = 0; k < r.stageRings.length; k++) {
     f[b + SNAP_IM_STAGE_WRITE + k] = r.stageWrite[k];
     f.set(r.stageRings[k], b + SNAP_IM_STAGE_RINGS + k * SNAP_IM_RING_FRAMES);

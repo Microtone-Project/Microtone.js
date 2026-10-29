@@ -4,6 +4,23 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## Version 4.1.0 (2026-10-29)
+
+**Mixing chains gain a transient shaper**: lift or soften the start of every note, and lengthen or shorten what rings on after it, however loud the note is.
+
+- **The Transient shaper** sits between Dynamic EQ 1 and the compressor. **Attack** lifts or lowers a note's first moments and **Attack time** sets how long they last; **Sustain** lifts or lowers what rings on as the note decays and **Sustain time** how far into the tail it reaches; **Output** evens the level out afterwards.
+- **One band or up to six**, split at crossovers like the compressor's, so a kick's click can be sharpened while its boom is cut short; each band has its own settings, picked with the band pushbuttons.
+- **It hears notes, not loudness**: a soft note and a loud one are shaped alike, and a steady sound passes through untouched.
+- **It shows what it does**: its graph draws the sound going in and coming out with each band's lift or cut above it, the Gain reduction monitor has a row for each band, and its Mix slider blends it with the dry sound for parallel shaping.
+- Fixed: changing the compressor's number of bands put every crossover back at its default. Now a band added — to the compressor or the transient shaper — splits the top band (or the widest, when there is no room above the last crossover), a band taken away removes the top one, and the crossovers you set stay where they are.
+- Fixed: dragging a slider in the Mixing or Mastering tab right after using a different one left an undo step for every movement of the drag instead of one; leaving the first slider ended the new drag's undo step as it began.
+- **In Motif**, a chain takes `transient_shaper_1` with `attack`, `sustain`, `attack_time`, `sustain_time` and `output`, or a list of `bands` split at `crossovers`.
+- A project with a transient shaper opened in an older version keeps it and saves it back, and plays the rest of the chain without it.
+
+**Level and gain-reduction bars are ruled inside**, in the Mixing and the Mastering tab alike.
+
+- Every horizontal level bar, gain-reduction bar and threshold-strip row carries a rule every 6 dB across the bar itself, the multiples of 12 dB firmer, so a reading can be taken off the bar without looking up at its scale.
+
 ## Version 4.0.0 (2026-10-28)
 
 **Every instrument can now have its own mixing chain** — equalisers, dynamics, unison, saturation, tape delay, reverb and a limiter — saved in the song and heard wherever it plays.

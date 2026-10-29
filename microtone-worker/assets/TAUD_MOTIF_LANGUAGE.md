@@ -494,7 +494,7 @@ instrument PAD  { bank: 0, program: 89, chain: ROOM }
 instrument LEAD { wave: "saw", chain: { tape_delay: { time_ticks: 12, feedback: 0.4 }, limiter: {} } }
 ```
 
-A **mixing chain**: the equipment an instrument's sound goes through on its way to the master, as the Instruments view's Mixing tab builds it ([TAUD_FILE_FORMAT.md §9.15](TAUD_FILE_FORMAT.md)). Declaring one binds its name, which an instrument's `chain` takes; every instrument naming it is on the same chain. A record given to `chain` straight away is a chain of that instrument's own. The pieces always run in the chain's fixed order — input trim, equaliser 1, dynamic EQ 1, compressor, equaliser 2, dynamic EQ 2, unison, saturator, tape delay, reverb, limiter, mix tool — whatever order they are written in. A piece written is in the chain, starting from the settings the Mixing tab inserts it with; a piece not written is not in it.
+A **mixing chain**: the equipment an instrument's sound goes through on its way to the master, as the Instruments view's Mixing tab builds it ([TAUD_FILE_FORMAT.md §9.15](TAUD_FILE_FORMAT.md)). Declaring one binds its name, which an instrument's `chain` takes; every instrument naming it is on the same chain. A record given to `chain` straight away is a chain of that instrument's own. The pieces always run in the chain's fixed order — input trim, equaliser 1, dynamic EQ 1, transient shaper 1, compressor, equaliser 2, dynamic EQ 2, unison, saturator, tape delay, reverb, limiter, mix tool — whatever order they are written in. A piece written is in the chain, starting from the settings the Mixing tab inserts it with; a piece not written is not in it.
 
 | Option | Default | |
 |---|---|---|
@@ -502,15 +502,16 @@ A **mixing chain**: the equipment an instrument's sound goes through on its way 
 | `on` | `true` | The whole chain switched in; `false` leaves the instruments sounding as if they had none |
 | `mode` | `"separate"` | `"separate"`: every instrument on the chain runs its own copy of it. `"bus"`: their sounds are summed and the chain runs once over the sum, as a group bus on a desk |
 | `order` | `"delay_reverb"` | Whether the tape delay feeds the reverb or, `"reverb_delay"`, the reverb feeds the delay |
-| the pieces | — | `input_trim`, `equaliser_1`, `dynamic_eq_1`, `compressor`, `equaliser_2`, `dynamic_eq_2`, `unison`, `saturator`, `tape_delay`, `reverb`, `limiter`, `mix_tool`: a record each (below) |
+| the pieces | — | `input_trim`, `equaliser_1`, `dynamic_eq_1`, `transient_shaper_1`, `compressor`, `equaliser_2`, `dynamic_eq_2`, `unison`, `saturator`, `tape_delay`, `reverb`, `limiter`, `mix_tool`: a record each (below) |
 
-Every piece takes `on` (default `true`; `false` keeps it in the chain, bypassed), and the compressor, unison, saturator, tape delay and reverb take `mix`, 0–1: how much of the processed sound replaces the dry one. Each value must lie in the range the Mixing tab offers for it; one outside it is an error. Gains and levels are in dB, frequencies in Hz and times in milliseconds, unless the field says ticks: a time in ticks follows the tempo, in quarter-tick steps.
+Every piece takes `on` (default `true`; `false` keeps it in the chain, bypassed), and the transient shaper, compressor, unison, saturator, tape delay and reverb take `mix`, 0–1: how much of the processed sound replaces the dry one. Each value must lie in the range the Mixing tab offers for it; one outside it is an error. Gains and levels are in dB, frequencies in Hz and times in milliseconds, unless the field says ticks: a time in ticks follows the tempo, in quarter-tick steps.
 
 | Piece | Fields (defaults: the Mixing tab's) |
 |---|---|
 | `input_trim` | `gain` |
 | `equaliser_1`, `equaliser_2` | `bands`: up to eight `{ shape, freq, gain, q, slope, on }`. `shape` (required) is `"high_pass"`, `"low_shelf"`, `"bell"`, `"high_shelf"`, `"low_pass"` or `"notch"`; `slope`, 12, 24, 36 or 48 dB per octave, is the two passes' alone. Without `bands`, the four flat bands the tab starts with |
 | `dynamic_eq_1`, `dynamic_eq_2` | The six bands by name — `low_shelf`, `bell_1` … `bell_4`, `high_shelf` — each `{ freq, q, gain, threshold, ratio, attack, release, range, actor_gain, above, sensor_freq, sensor_q, on }`. A band written is on. `gain` is the static gain; `above`, `"cut"` or `"boost"`, is what the band does above the threshold, and `actor_gain` how strongly; `sensor_freq` or `sensor_q` lets it listen somewhere other than where it acts |
+| `transient_shaper_1` | Either one band's `attack` and `sustain` (dB: what it does to a note's start and to its decay), `attack_time` and `sustain_time` (ms) and `output`, or `bands`, a list of one to six such records (with `on`), split at `crossovers` as the compressor's are |
 | `compressor` | `detector` (`"peak"` or `"rms"`), then either one band's `threshold`, `ratio`, `attack`, `release`, `knee` and `make_up`, or `bands`, a list of one to six such records (with `on`), split at `crossovers` (Hz, rising, one fewer than the bands) |
 | `unison` | `voices` (2–8), `detune` (cents), `width`, `spacing`, and `detune_lfo` and `width_lfo`, each `{ waveform, rate, period_ticks, depth, restart }`: `waveform` `"sine"`, `"triangle"`, `"square"`, `"saw_up"`, `"saw_down"` or `"random"`; `rate` in Hz, or `period_ticks` to follow the tempo; `restart` starts it again at each note |
 | `saturator` | `curve` (`"tape"`, `"soft_clip"`, `"hard_clip"`, `"tube"`, `"wavefolder"`), `drive`, `input`, `output`, `bias` |
@@ -845,3 +846,4 @@ Additions that leave every program building as it did, in either version:
 |---|---|
 | 2026-10-22 | OPL and PSG chip instruments, `opl` and `psg` (§7.3) |
 | 2026-10-28 | Formant instruments, `formant`, their syllables written in the IPA or X-SAMPA (§7.3); mixing chains, `chain` (§7.7) |
+| 2026-10-29 | The transient shaper in a mixing chain, `transient_shaper_1` (§7.7) |

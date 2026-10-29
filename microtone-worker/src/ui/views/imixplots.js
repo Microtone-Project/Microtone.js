@@ -15,6 +15,28 @@ import { t } from "../i18n.js";
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const LOG_SPAN = Math.log(1000);
 
+/** A horizontal meter's in-bar rules: every 6 dB, the multiples of 12 the
+ *  firmer. */
+const BAR_RULE_DB = 6;
+const BAR_RULE_ALPHA_12 = 0.8;
+const BAR_RULE_ALPHA_6 = 0.4;
+
+/**
+ * Rule a horizontal level or gain-reduction bar every 6 dB strictly inside
+ * `lo` … `hi` dB, at the column `xOf(db)`, across rows y … y + h. Drawn over
+ * the bar's fill and under its marks, in the page's own ground, so a rule
+ * reads as a cut in the lit bar and in the empty trough alike, in every theme.
+ */
+export function drawBarRules(ctx, C, lo, hi, xOf, y, h) {
+  const a0 = ctx.globalAlpha;
+  ctx.fillStyle = C.bg;
+  for (let db = Math.floor(lo / BAR_RULE_DB) * BAR_RULE_DB + BAR_RULE_DB; db < hi; db += BAR_RULE_DB) {
+    ctx.globalAlpha = a0 * (db % (2 * BAR_RULE_DB) === 0 ? BAR_RULE_ALPHA_12 : BAR_RULE_ALPHA_6);
+    ctx.fillRect(Math.round(xOf(db)), y, 1, h);
+  }
+  ctx.globalAlpha = a0;
+}
+
 /** The frequency at column x of `cols`. */
 export const freqAt = (x, cols) => 20 * Math.exp((x / (cols - 1)) * LOG_SPAN);
 /** …and the (fractional) column of frequency f. */
