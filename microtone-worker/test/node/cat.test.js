@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +19,8 @@ import { extractTerms, alignTerms, findTerms, targetHasTerm, termKey, targetCand
 import { runChecks } from "../../src/cat/checks.js";
 import { Project, stringifyData, parseData, emptyData } from "../../src/cat/project.js";
 import { CORPORA, LANGUAGES, dataRepoPath } from "../../src/cat/corpora.js";
+import { tarGzBlob } from "../../src/cat/save.js";
+import { gunzipSync, strFromU8 } from "../../core/vendor/fflate.esm.js";
 import { stageTranslation } from "../../../tools/stage-site.js";
 import { LANGS as TRACKER_LANGS } from "../../src/ui/i18n.js";
 import { LANGS as TOUCH_LANGS } from "../../../microtone-touch-worker/src/i18n.js";
@@ -284,6 +286,47 @@ test("project: the glossary and dismissals round-trip through the data file", ()
   assert.deepEqual(q.glossary.map((e) => [e.source, e.status]), [["lane", "accepted"], ["the", "rejected"]]);
   if (issue) assert.ok(q.isDismissed(issue.id));
   assert.equal(stringifyData(parseData(data, "ko")), data, "the data file's text is stable");
+});
+
+test("the .tar.gz download: ustar headers that check out, every file at its path, and tar unpacks it", async () => {
+  const long = "microtone-worker/" + "deep/".repeat(24) + "ko.js"; // over 100 bytes: needs the prefix field
+  const files = [
+    { path: "microtone-worker/src/ui/lang/ko.js", text: "export default {\n  \"a.one\": \"하나\",\n};\n" },
+    { path: "microtone-worker/translation/data/ko.json", text: "{}\n" },
+    { path: long, text: "x".repeat(512) },
+  ];
+  const tgz = new Uint8Array(await tarGzBlob(files, 1_800_000_000).arrayBuffer());
+  const tar = gunzipSync(tgz);
+  assert.equal(tar.length % 512, 0);
+  const field = (b, at, len) => strFromU8(b.subarray(at, at + len)).replace(/\0.*$/s, "");
+  const found = [];
+  let at = 0;
+  while (tar.subarray(at, at + 512).some((b) => b)) {
+    const hd = tar.subarray(at, at + 512);
+    let sum = 0;
+    for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 0x20 : hd[i];
+    assert.equal(parseInt(field(hd, 148, 8), 8), sum, "header checksum");
+    assert.equal(field(hd, 257, 6), "ustar");
+    assert.equal(parseInt(field(hd, 136, 12), 8), 1_800_000_000);
+    const size = parseInt(field(hd, 124, 12), 8);
+    const prefix = field(hd, 345, 155);
+    found.push({ path: (prefix ? prefix + "/" : "") + field(hd, 0, 100), text: strFromU8(tar.subarray(at + 512, at + 512 + size)) });
+    at += 512 + Math.ceil(size / 512) * 512;
+  }
+  assert.deepEqual(found, files);
+  assert.equal(tar.length, at + 1024, "two zero blocks end it");
+  assert.throws(() => tarGzBlob([{ path: "x/" + "y".repeat(101), text: "" }]), /too long/);
+
+  if (spawnSync("tar", ["--version"]).status !== 0) return;
+  const dir = mkdtempSync(join(tmpdir(), "cat-tar-"));
+  try {
+    writeFileSync(join(dir, "t.tar.gz"), tgz);
+    const r = spawnSync("tar", ["-xzf", "t.tar.gz"], { cwd: dir, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    for (const f of files) assert.equal(readFileSync(join(dir, f.path), "utf8"), f.text);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 const freePort = () => new Promise((res) => {

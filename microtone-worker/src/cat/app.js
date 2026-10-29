@@ -7,7 +7,7 @@
 //   glossary.js  term extraction, alignment, term lookup
 //   checks.js    what a translation can get wrong that a program can see
 //   strings.js / glossaryview.js / issuesview.js   the three tabs
-//   save.js      writing the files (tools/cat-server.py) or zipping them
+//   save.js      writing the files (tools/cat-server.py) or archiving them
 //
 // The theme follows the app's (shared `microtone-theme`, the same cycle and
 // default, as docs.js does). The workbench's own words are English: it is a
@@ -22,7 +22,7 @@ import { LANGUAGES, LANG_CODE } from "./corpora.js";
 import { createStrings } from "./strings.js";
 import { createGlossaryView } from "./glossaryview.js";
 import { createIssuesView } from "./issuesview.js";
-import { canWrite, writeFiles, zipBlob, download } from "./save.js";
+import { canWrite, writeFiles, zipBlob, tarGzBlob, download } from "./save.js";
 import { h, fill, showText } from "./dom.js";
 
 // ── theme (mirror src/ui/theme.js, standalone — as docs.js) ──
@@ -277,23 +277,27 @@ async function save() {
   }
   const writable = await canWrite();
   const zipName = `microtone-translation-${p.lang}.zip`;
+  const tarName = `microtone-translation-${p.lang}.tar.gz`;
   const dlg = h("dialog", { className: "modal modal-text cat-dialog-wide" });
   const created = files.filter((f) => f.created);
   const statusLine = h("span", { className: "dim" });
-  const { row, cancel, proceed, alternatives: [discard] } = actionRow({
+  const { row, cancel, proceed, alternatives: [discard, tarGz] } = actionRow({
     cancel: true,
     extras: [statusLine],
-    alternatives: [{ label: "Discard changes…", title: "Forget every change made here since the last save" }],
+    alternatives: [
+      { label: "Discard changes…", title: "Forget every change made here since the last save" },
+      writable ? null : { label: "Download .tar.gz", icon: "download" },
+    ],
     proceed: writable ? "Write files" : { label: "Download .zip", icon: "download" },
   });
   fill(dlg,
     h("h3", {}, `Save the ${p.langName} translation`),
     h("p", { className: "dim" }, writable
       ? "These files in the repository are rewritten in place:"
-      : "These files, at their places in the repository, go into one .zip:"),
+      : "These files, at their places in the repository, go into one .zip or .tar.gz:"),
     h("ul", { className: "cat-files" }, files.map((f) => h("li", {}, h("code", {}, f.path), h("span", { className: "dim" }, ` — ${describe(f, p)}`)))),
     writable ? null : h("p", { className: "dim" }, "Unpack it at the root of the repository, over what is there:"),
-    writable ? null : h("pre", { className: "cat-cmd" }, `unzip -o ${zipName}`),
+    writable ? null : h("pre", { className: "cat-cmd" }, `unzip -o ${zipName}\ntar -xzf ${tarName}`),
     created.length ? h("p", { className: "dim" }, `A new language: to offer it, register “${p.lang}” in ${created.map((f) => p.corpora.find((c) => c.def.id === f.corpus).def.register).join(", and in ")}.`) : null,
     row);
   document.body.append(dlg);
@@ -306,11 +310,15 @@ async function save() {
     const ok = await showModal({ title: `Discard ${p.unsaved()} unsaved change(s)?`, body: "Drafts, confirmations, dismissals and glossary edits made since the last save are forgotten. The files are not touched.", okLabel: "Discard" });
     if (ok) { p.discardLocal(); ctx.changed(); }
   });
+  const handOver = (blob, name) => {
+    download(blob, name);
+    close();
+    showText(document.getElementById("status"), `Downloaded ${name} — your changes stay here until the files say the same.`);
+  };
+  tarGz?.addEventListener("click", () => handOver(tarGzBlob(files), tarName));
   proceed.addEventListener("click", async () => {
     if (!writable) {
-      download(zipBlob(files), zipName);
-      close();
-      showText(document.getElementById("status"), `Downloaded ${zipName} — your changes stay here until the files say the same.`);
+      handOver(zipBlob(files), zipName);
       return;
     }
     proceed.disabled = true;
