@@ -148,7 +148,7 @@ export default {
   "tempo.title": "Tempo",
   "tempo.loop": "At the end of the song, loop back to A",
   "tuning.title": "Temperament",
-  "tuning.moves": "Notes already written move to the nearest step of the new tuning.",
+  "tuning.moves": "Notes already written move to the nearest step of the new tuning system.",
   "theme.title": "Theme",
   "theme.system": "System",
   "theme.dark": "Dark",

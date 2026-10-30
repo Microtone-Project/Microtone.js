@@ -956,7 +956,7 @@ export default {
   "chord.preset.nt.neutraladd9": "중립 add9",
   "chord.preset.nt.neutral9": "중립 9화음",
   "chord.preset.nt.neutralchain": "중립 3도 쌓기",
-  "chord.preset.xc.arto": "아르토 3화음(하단3도)",
+  "chord.preset.xc.arto": "아르토 3화음(아단3도)",
   "chord.preset.xc.tendo": "텐도 3화음(초장3도)",
   "chord.preset.xc.artodim": "아르토 감3화음",
   "chord.preset.xc.tendoaug": "텐도 증3화음",
