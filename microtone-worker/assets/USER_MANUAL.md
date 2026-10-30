@@ -1668,9 +1668,9 @@ instrument plays. Above it:
 
 Two rows of three: the top row fills a slot from outside the project, the bottom row makes something new inside it.
 
-- **New…** — pick presets from the bundled GeneralUser-GS SoundFont (or your own `.sf2`) and merge them in.
+- **New…** — pick presets from the bundled GeneralUser-GS SoundFont and merge them in. Once your [soundfont library](#soundfonts) holds any, a **Soundfont** dropdown at the top of the picker offers them beside the bundled one, with the note you left on each, and New… opens on the one you used last.
 - **Sample…** — build instruments from any audio file (`.wav`, `.mp3`, `.ogg`, `.flac`, …). The audio is decoded to mono and opens in the [Sample Lab](#the-sample-lab) for cropping, EQ and chopping before it is committed to the engine's 8-bit format.
-- **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.tsii`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. The instruments a metainstrument is built from come along with it and land in `$100`–`$3FF`, out of the note column's way, whether or not you tick them; one ticked on its own, without its metainstrument, arrives as an ordinary instrument in `$01`–`$FF`. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes an [OPL instrument](#opl-instruments), playable across the whole keyboard.
+- **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.tsii`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. An instrument or preset with a stereo sample wears an **ST** chip; a soundfont preset comes in stereo only with **Import stereo instruments in stereo** ticked, and is mixed to mono otherwise. The instruments a metainstrument is built from come along with it and land in `$100`–`$3FF`, out of the note column's way, whether or not you tick them; one ticked on its own, without its metainstrument, arrives as an ordinary instrument in `$01`–`$FF`. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes an [OPL instrument](#opl-instruments), playable across the whole keyboard.
 - **Record…** — record from the microphone; the take opens in the Sample Lab.
 - **Paint…** — draw a waveform by hand and add it as an instrument.
 - **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments — or an **OPL** or **PSG instrument**, made out of nothing, or a **formant instrument**, made out of the pool's samples or sung from an OPL or PSG instrument. A chooser asks which first — **Layered**, where every child is heard and the mixer sums them, **FM Rack**, where the children modulate each other and only operator 0 is heard, **OPL instrument**, one channel of the sound chip that played AdLib and Sound Blaster music, **PSG instrument**, two 8-bit-style oscillators, or **Formant instrument**, which sings a syllable. All five are described below.
@@ -2600,7 +2600,8 @@ if you want them changed too.
 ## File (F9)
 
 The File view works even before anything is loaded (**F9** from the empty
-screen).
+screen). It has two tabs: **Projects** (everything below, up to Import and
+export) and **[Soundfonts](#soundfonts)**.
 
 ### Browser storage (OPFS)
 
@@ -2666,6 +2667,21 @@ your account remains active.
   - **One command per row**: a module cell has room for one effect. A volume slide beside a tone portamento or a vibrato becomes `5 $xy` or `6 $xy`; any other volume- or panning-column command that shares a row with an effect is left out, and the dialog counts them. Cue lengths and jumps are written as pattern breaks and position jumps, and the song's starting speed and tempo as `F $xx` on its first row.
   - **Lanes and panning**: lanes 1 to 4 stay where they are, and music on later lanes moves into the free channels. Panning does not survive: a module's channels sit left, right, right, left.
   - **Microtonal songs** are written as raw Amiga periods, the nearest the Amiga can get to each note. ProTracker plays them, but its editor shows those notes wrongly and other trackers that read `.mod` files may not accept them, so the dialog warns you. A 12-tone song uses ProTracker's own period table.
+
+### Soundfonts
+
+The **Soundfonts** tab is a library of soundfonts kept in this browser, beside
+your projects. **Add soundfont…** takes one or more `.sf2` files and converts
+each one for the tracker — the 32 kHz, 8-bit samples its instruments will play,
+stereo pairs kept together — **in the background**: carry on working, and a
+notice at the bottom right says when it is done (**Show** comes back here) or
+why it could not be. A row with a bar stands for a conversion still going; its
+**✕** stops it, and leaving the page asks first while one is running.
+
+- Each soundfont has a **note** of your own — what it is good for, where it came from. Click the field, type, and press **Enter** or click away to keep it (**Esc** puts it back). The note shows in **New…** when you pick that soundfont.
+- **⬇** downloads the converted file (`.taud.sf2.gz`), and **✕** deletes it. A downloaded file can be added again — in another browser, say — and goes straight in without converting again.
+- Very large soundfonts (around a gigabyte) are more than a browser can convert. `sf2taudify.py`, linked under the table, does the same conversion on a computer (it needs Python 3 and numpy); add the `.taud.sf2.gz` it makes here.
+- Like your projects, the library lives in this browser only: clearing the browser's data takes it with it, notes and all.
 
 ## Keymap (Shift+F9)
 

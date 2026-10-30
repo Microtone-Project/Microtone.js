@@ -18,6 +18,8 @@ import { pickFile } from "../../storage/import-export.js";
 import { listSf2Presets, buildSf2Bank, listBnkPresets, buildBnkBank } from "../../convert/convert.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { showModal } from "../components/modal.js";
+import { addSoundfontFiles } from "../sflibrary.js";
 
 const hex3 = (n) => "$" + n.toString(16).toUpperCase().padStart(3, "0");
 
@@ -38,7 +40,7 @@ export async function showImportInstruments(store) {
   const fileBytes = new Uint8Array(await file.arrayBuffer());
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".sf2")) {
-    return importFromSf2(store, file.name, fileBytes);
+    return importFromSf2(store, file.name, fileBytes, { libraryFile: file });
   }
   if (lower.endsWith(".bnk")) {
     return importFromBnk(store, file.name, fileBytes);
@@ -103,6 +105,7 @@ export async function showImportInstruments(store) {
         e.sampleBytes > 0 ? fmtBytes(e.sampleBytes) : "";
       row.append(box, el("span", "idx", hex3(e.slot)),
         el("span", "name", e.name || "(unnamed)"),
+        ...(e.stereo ? [stereoTag()] : []),
         el("span", "badge-sm", badge),
         el("span", "note", note));
       list.appendChild(row);
@@ -164,18 +167,34 @@ function el(tag, cls, text) {
   return e;
 }
 
+/** The Samples list's stereo chip, on an instrument (or preset) that has a
+ *  stereo sample. */
+function stereoTag() {
+  const tag = el("span", "smp-tag", t("smp.stereoTag"));
+  tag.title = t("import.stereoTagTitle");
+  return tag;
+}
+
 /**
  * SF2 source: preset picker (name filter, All/None over visible rows, drums
  * annotated) → build a .tsii from the selection at the destination song's BPM
  * → merge every top-level slot of that bank. Resolves like the main popup.
- * Exported for the Instruments-view Add… shortcut (bundled soundfont).
+ * Exported for the Instruments-view New… shortcut. With `choices`
+ * ([{ id, label, note?, load() → {name, bytes} }]: the bundled soundfont and
+ * the soundfont library) the dialog opens on `initial` and offers the others
+ * in a dropdown, showing each one's note; `onChoose(id)` hears every pick.
+ * With `libraryFile` (the File it was picked as) a Save to library button
+ * also keeps the soundfont in the File view's library — converted in the
+ * background, whether or not anything is imported now.
  */
-export function importFromSf2(store, fileName, sf2Bytes) {
+export function importFromSf2(store, fileName, sf2Bytes,
+                              { choices = null, initial = null, onChoose = null, libraryFile = null } = {}) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
     dlg.className = "modal import-modal";
     const h = document.createElement("h3");
-    h.textContent = `Import instruments from ${fileName}`;
+    const heading = () => { h.textContent = `Import instruments from ${fileName ?? "…"}`; };
+    heading();
 
     const bar = document.createElement("div");
     bar.className = "import-bar";
@@ -192,6 +211,19 @@ export function importFromSf2(store, fileName, sf2Bytes) {
     list.className = "import-list";
     list.append(el("div", "import-row dim", "reading presets…"));
 
+    // Which soundfont, when there is more than one to take from.
+    const source = document.createElement("div");
+    source.className = "import-source";
+    const pick = document.createElement("select");
+    const sourceNote = el("p", "import-source-note dim", "");
+    if (choices) {
+      const lab = el("label", "", t("sf.pickLabel") + " ");
+      for (const c of choices) pick.append(new Option(c.label, c.id));
+      pick.value = initial ?? choices[0].id;
+      lab.append(pick);
+      source.append(lab, sourceNote);
+    }
+
     const statusEl = el("p", "dim", "");
     // Item 90.1: SF2 instruments built from stereo sample pairs can come in as
     // genuine stereo (two pool spans + an Ixmp stereo patch) or be mixed down
@@ -205,10 +237,21 @@ export function importFromSf2(store, fileName, sf2Bytes) {
     stereoLab.append(stereoBox, document.createTextNode(" " + t("import.sf2Stereo")));
     const errEl = el("p", "import-error", "");
     errEl.hidden = true;
-    const { row: btnRow, proceed: okBtn, cancel: cancelBtn } =
-      actionRow({ cancel: true, proceed: { label: "Import", disabled: true } });
+    const { row: btnRow, proceed: okBtn, cancel: cancelBtn, alternatives: [saveBtn] } = actionRow({
+      cancel: true,
+      alternatives: libraryFile ? [{ label: t("sf.saveToLibrary"), title: t("sf.saveToLibraryTitle") }] : [],
+      proceed: { label: "Import", disabled: true },
+    });
+    saveBtn?.addEventListener("click", async () => {
+      saveBtn.disabled = true;
+      const taken = await addSoundfontFiles([libraryFile], {
+        confirmReplace: (title) => showModal({ title: t("sf.replaceAsk", { name: title }), okLabel: t("sf.replace") }),
+      });
+      if (taken) saveBtn.textContent = t("sf.savedToLibrary");
+      else saveBtn.disabled = false;
+    });
 
-    dlg.append(h, bar, list, stereoLab, statusEl, errEl, btnRow);
+    dlg.append(h, ...(choices ? [source] : []), bar, list, stereoLab, statusEl, errEl, btnRow);
     document.body.appendChild(dlg);
     const finish = (result) => { dlg.close(); dlg.remove(); resolve(result); };
     cancelBtn.addEventListener("click", (e) => { e.preventDefault(); finish(null); });
@@ -241,32 +284,76 @@ export function importFromSf2(store, fileName, sf2Bytes) {
     list.addEventListener("change", updateTally);
 
     const status = (line) => { statusEl.textContent = line; };
-    listSf2Presets(sf2Bytes, { onStatus: status }).then((presets) => {
-      list.innerHTML = "";
-      for (const p of presets) {
-        const row = document.createElement("label");
-        row.className = "import-row";
-        const box = document.createElement("input");
-        box.type = "checkbox";
-        row.append(box,
-          el("span", "idx", `${p.bank}:${String(p.program).padStart(3, "0")}`),
-          el("span", "name", p.name),
-          el("span", "note", p.bank === 128 ? "drum kit" : ""));
-        list.appendChild(row);
-        rows.push({ box, row, preset: p });
-      }
-      status(`${presets.length} presets — bank built at ${store.doc.songs[store.songIndex ?? 0]?.bpm ?? 125} BPM (the song's tempo)`);
+    let listing = 0; // the newest listing wins when picks overtake each other
+    const listPresets = () => {
+      const seq = ++listing;
+      rows.length = 0;
+      list.replaceChildren(el("div", "import-row dim", "reading presets…"));
       updateTally();
-      filter.focus();
-    }).catch((err) => {
-      errEl.textContent = `Can't read ${fileName}: ${err.message}`;
-      errEl.hidden = false;
-    });
+      errEl.hidden = true;
+      return listSf2Presets(sf2Bytes, { onStatus: status }).then((presets) => {
+        if (seq !== listing) return;
+        list.innerHTML = "";
+        for (const p of presets) {
+          const row = document.createElement("label");
+          row.className = "import-row";
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          row.append(box,
+            el("span", "idx", `${p.bank}:${String(p.program).padStart(3, "0")}`),
+            el("span", "name", p.name),
+            ...(p.stereo ? [stereoTag()] : []),
+            el("span", "note", p.bank === 128 ? "drum kit" : ""));
+          list.appendChild(row);
+          rows.push({ box, row, preset: p });
+        }
+        applyFilter();
+        status(`${presets.length} presets — bank built at ${store.doc.songs[store.songIndex ?? 0]?.bpm ?? 125} BPM (the song's tempo)`);
+        updateTally();
+        filter.focus();
+      }).catch((err) => {
+        if (seq !== listing) return;
+        errEl.textContent = `Can't read ${fileName}: ${err.message}`;
+        errEl.hidden = false;
+      });
+    };
+    // A pick loads its soundfont (a library one is unzipped from storage) and
+    // lists its presets; the bank is built from whichever is up at Import.
+    const choose = async () => {
+      const c = choices.find((x) => x.id === pick.value);
+      sourceNote.textContent = c.note ?? "";
+      sourceNote.hidden = !c.note;
+      onChoose?.(c.id);
+      const seq = ++listing;
+      sf2Bytes = null;
+      list.replaceChildren(el("div", "import-row dim", "loading the soundfont…"));
+      rows.length = 0;
+      updateTally();
+      try {
+        const sf = await c.load();
+        if (seq !== listing) return;
+        if (!sf) throw new Error("not available");
+        fileName = sf.name;
+        sf2Bytes = sf.bytes;
+        heading();
+        listPresets();
+      } catch (err) {
+        if (seq !== listing) return;
+        errEl.textContent = `Can't read ${c.label}: ${err.message}`;
+        errEl.hidden = false;
+      }
+    };
+    if (choices) {
+      pick.addEventListener("change", choose);
+      choose();
+    } else {
+      listPresets();
+    }
 
     okBtn.addEventListener("click", async (e) => {
       e.preventDefault();
       const selection = picked();
-      if (selection.length === 0) return;
+      if (selection.length === 0 || !sf2Bytes) return;
       okBtn.disabled = true;
       errEl.hidden = true;
       try {

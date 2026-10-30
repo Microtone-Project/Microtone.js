@@ -4,6 +4,27 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## Version 4.2.0 (2026-10-30)
+
+**Soundfonts of your own**: add any `.sf2` in the File view's new Soundfonts tab, and Instruments → New… offers it beside the bundled GeneralUser GS.
+
+- **Converted in the background**: carry on working while a soundfont is made ready for the tracker; a bar in the tab shows how far it has got, and a notice in the corner of the window says when it is done, with a button that takes you back to it.
+- **Leave a note on each soundfont** — what it is good for, where it came from. New… shows the note when you pick that soundfont, and opens on the one you used last.
+- **Import… on the Instruments view can keep the soundfont too**: Save to library, beside Import, adds the `.sf2` you picked to the library while you choose its presets.
+- **Download a converted soundfont** and add it again in another browser; it goes straight in without being converted twice.
+- **Stereo sample pairs stay together** through the conversion, so an instrument imported in stereo keeps both channels the same length and on the same loop.
+- **An ST chip marks stereo instruments** in the import lists — a soundfont preset built from stereo samples, or an instrument in a project or bank that plays one.
+- A soundfont too large to convert in a browser (around a gigabyte) can be converted on a computer with `sf2taudify.py`, linked from the tab, and added afterwards.
+
+**Soundfont instruments start on time.**
+
+- Fixed: instruments with a short attack — FluidR3's pianos among them — came in late and soft, silent for a whole tick before rising, because the volume envelope moves once per tick and cannot draw a rise that short; an attack that would end within the first tick now starts at full level, and a longer one keeps its rise. Instruments already in a project keep the envelope they came in with: import them again for the new one.
+- The Huygens' Clock demo is rebuilt with the fix.
+
+**Microtone habla español**: selecciona «Español» en el selector de idioma para obtener una primera traducción de la interfaz. La traducción no está completa al 100 %; todo lo que aún no se haya traducido permanecerá en inglés.
+
+**The translation workbench shows newcomers where to start**: a short guide opens the first time you start a new language — settle the glossary first, then work through the strings — and the Help button brings it back.
+
 ## Version 4.1.0 (2026-10-29)
 
 **Mixing chains gain a transient shaper**: lift or soften the start of every note, and lengthen or shorten what rings on after it, however loud the note is.

@@ -39,7 +39,8 @@ import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import { showImportInstruments, importFromSf2 } from "../popups/importinst.js";
-import { getSoundfont } from "../soundfont.js";
+import { getSoundfont, getBundledSoundfont } from "../soundfont.js";
+import { librarySoundfonts, loadSoundfont } from "../sflibrary.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
 } from "../../doc/envedit.js";
@@ -241,6 +242,13 @@ export class InstrumentsView {
     addBtn.textContent = t("inst.add");
     addBtn.title = t("inst.addTitle");
     addBtn.addEventListener("click", async () => {
+      const choices = await newInstrumentSoundfonts();
+      if (choices) {
+        adopt(await importFromSf2(this.store, null, null, {
+          choices, initial: lastSoundfontChoice(choices), onChoose: rememberSoundfontChoice,
+        }));
+        return;
+      }
       const sf2 = await getSoundfont();
       if (sf2) adopt(await importFromSf2(this.store, sf2.name, sf2.bytes));
     });
@@ -2603,6 +2611,34 @@ function oplGraphFrame(f) {
 /** What the list row and the detail header say this instrument IS. An FM rack
  *  carries its operator count, because that is the number that tells you what
  *  you are looking at ("FM·4" is a patch; "FM·1" is a sample with extra steps). */
+/** New…'s soundfonts when the File view's library holds any: the bundled
+ *  GeneralUser GS first (when deployed), then the library's, each with its
+ *  note. Null when the library is empty — New… then goes as it always did. */
+async function newInstrumentSoundfonts() {
+  const lib = await librarySoundfonts();
+  if (lib.length === 0) return null;
+  const choices = [];
+  const bundled = await getBundledSoundfont();
+  if (bundled) choices.push({ id: "", label: t("sf.builtIn"), load: async () => bundled });
+  for (const sf of lib) {
+    choices.push({ id: sf.file, label: sf.title, note: sf.note, load: () => loadSoundfont(sf.file) });
+  }
+  return choices;
+}
+
+const SF_CHOICE_KEY = "microtone-new-inst-soundfont";
+
+/** The soundfont New… was last used with, while it is still there. */
+function lastSoundfontChoice(choices) {
+  let id = null;
+  try { id = localStorage.getItem(SF_CHOICE_KEY); } catch { /* a convenience only */ }
+  return choices.some((c) => c.id === id) ? id : choices[0].id;
+}
+
+function rememberSoundfontChoice(id) {
+  try { localStorage.setItem(SF_CHOICE_KEY, id); } catch { /* a convenience only */ }
+}
+
 /** Which tab an instrument opens on: its rack, its layer table, or General. */
 function metaTabKey(inst) {
   return inst?.isFm ? (metaFlags(inst).easy ? "fmeasy" : "fm") : inst?.isMeta ? "meta" : inst?.isOpl ? "opl"

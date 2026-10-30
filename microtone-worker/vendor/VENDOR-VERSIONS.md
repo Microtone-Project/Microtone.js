@@ -16,6 +16,14 @@ never on the normal app path.
 | File | Version | Source |
 |---|---|---|
 | `pyodide/pyodide.js`, `pyodide.asm.js`, `pyodide.asm.wasm`, `python_stdlib.zip`, `pyodide-lock.json` | 314.0.2 (CPython 3.14.2) | https://github.com/pyodide/pyodide/releases/download/314.0.2/pyodide-core-314.0.2.tar.bz2 |
+| `pyodide/numpy-2.4.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl` | numpy 2.4.3 (Pyodide 314.0.2 build) | https://cdn.jsdelivr.net/pyodide/v314.0.2/full/numpy-2.4.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl |
+
+The numpy wheel is for `sf2taudify.py` alone (the File view's Soundfonts tab
+converts a soundfont in the browser; the converters themselves are stdlib-only).
+Pyodide's `loadPackage("numpy")` finds it beside the runtime through
+`pyodide-lock.json`, which pins its SHA-256 (`0cad9c1b…a98e`) — so when Pyodide
+is updated, take the numpy wheel its new lock file names. Under Pyodide it
+builds the same bytes as CPython + numpy (GeneralUser GS and SGM, checked).
 
 To update: extract those five files from the release tarball, then RENAME the
 two module files `pyodide.mjs → pyodide.js` and `pyodide.asm.mjs →

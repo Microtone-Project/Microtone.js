@@ -2394,8 +2394,8 @@ class Patch:
         z, c = self.zone, canonical.zone
         # Effective vol-env: a synthesized-loop sample uses a peak->0 decay (no sustain),
         # else the zone's SF2 ADSR. Emitted only when it differs from the canonical's.
-        vol_self  = _effective_vol_env(z, self.ms)
-        vol_canon = _effective_vol_env(c, canonical.ms)
+        vol_self  = _effective_vol_env(z, self.ms, bpm0)
+        vol_canon = _effective_vol_env(c, canonical.ms, bpm0)
         if vol_self != vol_canon:
             d['vol_env'] = vol_self
         # SF-mode filter: mode flag + 16-bit cutoff cents / Q centibels + filter env.
@@ -2721,7 +2721,7 @@ def _env_seg_count(t_sec: float) -> int:
     return max(3, min(8, 2 + round(t_sec / 2.0)))
 
 
-def _adsr_to_env(z: SFZone):
+def _adsr_to_env(z: SFZone, tick_sec: float = None):
     """SF2 volume-envelope ADSR → (env_points, sustain_idx, release_sec).
 
     env_points is up to 25 (value 0..63, minifloat_idx) pairs; each node's
@@ -2737,16 +2737,32 @@ def _adsr_to_env(z: SFZone):
     — segment count scales with its duration (issue 4) so multi-second decays
     don't collapse to a 2-point line. release_sec (= SF2 releaseVolEnv) is returned
     only to feed the fadeout calc.
+
+    The engine walks a volume envelope once per TICK, first on the tick after
+    the trigger, and spreads each step over the tick that follows (TAUD_ENGINE_
+    SPEC.md §7.2), so a 0-node can never rise in less than a tick and costs a
+    silent tick before it: FluidR3's Yamaha Grand Piano (an 8 ms attack after a
+    1 ms delay) sounded nothing for 21 ms at 120 BPM and reached full level at
+    42 ms. FluidSynth ramps linearly over the attack time itself (fluid_voice.c
+    GEN_VOLENVATTACK, fluid_rvoice.c fluid_rvoice_calc_amp) — full at 9 ms. So,
+    given `tick_sec` (the song's tick, 2.5 / BPM), a delay + attack that ends
+    within the first tick starts at the peak: an instant onset is the nearer of
+    the two shapes the engine can draw, and its own note-start ramp keeps it
+    from clicking. Without `tick_sec`, the legs are kept.
     """
     EPS = 0.004                       # below the minifloat resolution (1/256 s)
     sus_cb = min(z.env_sustain_cb, 1000.0)     # clamp to 100 dB full-scale
     slevel = 10.0 ** (-z.env_sustain_cb / 200.0)
     s63 = max(0, min(63, round(63 * slevel)))
     pts = []                          # (value, delta_sec_to_next)
-    if z.env_delay >= EPS:
-        pts.append((0, z.env_delay))
-    if z.env_attack >= EPS:
-        pts.append((0, z.env_attack))
+    delay = z.env_delay if z.env_delay >= EPS else 0.0
+    attack = z.env_attack if z.env_attack >= EPS else 0.0
+    if tick_sec is not None and delay + attack < tick_sec:
+        delay = attack = 0.0
+    if delay:
+        pts.append((0, delay))
+    if attack:
+        pts.append((0, attack))
     hold = z.env_hold if z.env_hold >= EPS else 0.0
     # Decay leg: peak (63) → sustain (s63), exponential amplitude over `edec` seconds.
     # The peak node carries the hold time. The final decay node is the sustain node
@@ -2788,14 +2804,14 @@ def _atten_gain(atten_cb: float) -> float:
     return 10.0 ** (-max(0.0, atten_cb) / 200.0)
 
 
-def _vol_env_block(z: SFZone):
+def _vol_env_block(z: SFZone, tick_sec: float = None):
     """Taud volume-envelope block dict from a zone's SF2 ADSR — the PURE ADSR shape
     at full 0..63 resolution. initialAttenuation is NO LONGER folded into the node
     peak (it would crush a heavily-attenuated env to peak ~3 and zero its tail, e.g.
     SGM 'Fantasia'); it is now carried as a separate per-voice gain — base record
     bytes 251-252 / Ixmp 'x' block initialAttenuation — applied in the mixer. Returns
     (block_dict, sustain_idx, release_sec)."""
-    env, sidx, rel = _adsr_to_env(z)
+    env, sidx, rel = _adsr_to_env(z, tick_sec)
     nodes = [(max(0, min(63, v)), mf) for (v, mf) in env]
     sustain = ENV_SUS_ENABLE | ((sidx & 0x1F) << 8) | (sidx & 0x1F)
     return {'loop': ENV_PRESENT_BIT, 'sustain': sustain, 'nodes': nodes}, sidx, rel
@@ -3072,13 +3088,13 @@ def _synth_decay_vol_env(decay_sec: float) -> dict:
     return {'loop': ENV_PRESENT_BIT, 'sustain': 0, 'nodes': nodes}
 
 
-def _effective_vol_env(z: SFZone, ms: 'MonoSample') -> dict:
+def _effective_vol_env(z: SFZone, ms: 'MonoSample', bpm0: int = None) -> dict:
     """Volume-envelope block for a (zone, sample): a synthesized-loop sample fades
     from note-on via a peak->0 decay (no sustain), overriding the SF2 ADSR;
-    otherwise the zone's SF2 ADSR shape (_vol_env_block)."""
+    otherwise the zone's SF2 ADSR shape (_vol_env_block) at the song's tick."""
     if ms is not None and ms.synth_decay is not None:
         return _synth_decay_vol_env(ms.synth_decay)
-    blk, _, _ = _vol_env_block(z)
+    blk, _, _ = _vol_env_block(z, 2.5 / bpm0 if bpm0 else None)
     return blk
 
 
@@ -3330,7 +3346,7 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
         # Patch.to_ixmp_dict); the base record is the canonical / fall-through. A
         # synthesized-loop sample instead uses a peak->0 decay envelope (no sustain) so
         # its otherwise-infinite loop fades to silence ~SF2_SYNTH_DECAY_SEC after firing.
-        wenv(15, 189, 21, _effective_vol_env(c.zone, ms))
+        wenv(15, 189, 21, _effective_vol_env(c.zone, ms, bpm0))
         # Pan envelope: none (default unity nodes; P bit clear in LOOP word).
         struct.pack_into('<H', inst_bin, base + 17, 0)
         for k in range(25):

@@ -45,6 +45,7 @@ import { showImportProgress } from "./popups/importlog.js";
 import { showProgress } from "./popups/progress.js";
 import { fetchDemo } from "./demos.js";
 import { getSoundfont, getBundledSoundfont, pickUserSoundfont } from "./soundfont.js";
+import { setShowLibrary } from "./sflibrary.js";
 import { resolveBanks, rememberBank } from "./adlibbank.js";
 import { decodeHandoff, handoffArmed } from "./handoff.js";
 import { presetForNotation } from "../../core/tuning/pitchtables.js";
@@ -1098,6 +1099,13 @@ for (const name of VIEWS) ensureView(0, name);
  *  focused pane switches to it. (A tab CLICK goes through SplitView, which
  *  will happily give both panes the same view.) */
 function showView(name) { split.reveal(name); }
+
+// A soundfont converted in the background says so in a banner; its Show
+// button comes here.
+setShowLibrary(() => {
+  showView("files");
+  viewNamed("files")?.setTab("soundfonts");
+});
 
 /** One view's show/hide, per pane copy. `on` = its pane is showing it. */
 function applyEntry(name, entry, on) {

@@ -553,6 +553,13 @@
  * widget, and never hard-code a slider/checkbox colour that would fight it. */
 :root { accent-color: var(--accent); }
 
+/* Links, everywhere: accent-2 (the links ink), and a visited one in the pan
+ * column's violet so it reads as "been there". Declared this early on
+ * purpose: a later rule of the same weight wins, so a view that gives its
+ * links a colour of its own (the About popup's accent) keeps it. */
+a { color: var(--accent-2); }
+a:visited { color: var(--cv-col-pan); }
+
 /* ── VIEWPORT UNITS AND THE UI ZOOM (item 198.4) ───────────────────────
  * `--ui-zoom` is the interface zoom, set on <html> by src/ui/zoom.js
  * alongside the `zoom` property itself; absent (hence the `, 1` fallback)
@@ -1977,6 +1984,30 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
 .ctxmenu::backdrop { background: transparent; }
+
+/* Banners (components/banner.js): a notice at the bottom-right for something
+   that finished in the background — the desktop app's update notice, drawn by
+   the page. Above the status bar; never modal, so the stack lets the pointer
+   through everywhere but on a banner. */
+.banner-stack {
+  position: fixed; right: 1rem; bottom: 2.6rem; z-index: 900;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;
+  pointer-events: none;
+}
+.banner {
+  pointer-events: auto;
+  max-width: min(27rem, calc(100vw / var(--ui-zoom, 1) - 2rem));
+  padding: 0.7rem 0.85rem;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  font-size: 0.87rem;
+}
+.banner p { margin: 0; overflow-wrap: anywhere; }
+.banner-actions { display: flex; justify-content: flex-end; gap: 0.4rem; margin-top: 0.6rem; }
+.banner-actions .banner-go { border-color: var(--accent); }
 .ctx-grid { display: flex; flex-direction: column; gap: 0.3rem; }
 /* One row per group; the second one (the column tools) is ruled off from the
    first so the two read as "what to do with the block" and "what to do with
@@ -2197,6 +2228,28 @@ button.nota-assign { font-size: 0.85rem; }
 
 /* The online projects (filesonline.js): a second list under the browser's
  * own, set off by a rule, with the account on the right of its own bar. */
+/* The Soundfonts subtab (filessoundfonts.js): the library table, a note to
+   type into on every row, and a bar for each conversion in the background. */
+.files-tabs { margin-bottom: 1rem; }
+.files-blurb { margin: 0 0 0.75rem; color: var(--fg2); max-width: 52rem; }
+.sf-table .sf-name, .sf-table td:nth-child(3), .sf-table td:nth-child(4) { white-space: nowrap; }
+.sf-table td:nth-child(2) { width: 100%; }
+.sf-table .sf-note {
+  width: 100%; min-width: 10rem; box-sizing: border-box;
+  background: transparent; color: var(--fg);
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  padding: 0.15rem 0.35rem; font: inherit;
+}
+.sf-table .sf-note::placeholder { color: var(--dim); }
+.sf-table .sf-note:hover { border-color: var(--border); }
+.sf-table .sf-note:focus { border-color: var(--accent); background: var(--panel-2); outline: none; }
+.sf-table .sf-job progress { width: 10rem; vertical-align: middle; margin-right: 0.6rem; }
+.sf-table .sf-job-state { color: var(--dim); }
+@media (max-width: 600px) {
+  .sf-table th:nth-child(3), .sf-table td:nth-child(3),
+  .sf-table th:nth-child(4), .sf-table tr:not(.sf-job) td:nth-child(4) { display: none; }
+  .sf-table .sf-job progress { width: 5rem; }
+}
 .files-online { margin-top: 2rem; padding-top: 1rem; border-top: 8px solid var(--border); }
 .files-online-head { margin: 0 0 0.75rem; font-size: 1rem; color: var(--fg2); }
 .files-online-count { color: var(--dim); font-size: 0.9rem; font-weight: normal; }
@@ -2281,8 +2334,9 @@ button.nota-assign { font-size: 0.85rem; }
   box-shadow: 0 0 calc(var(--lamp, 0) * 6px) color-mix(in srgb, var(--meter) calc(var(--lamp, 0) * 100%), transparent);
 }
 .side-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Stereo marker on a sample row (item 90) — a quiet chip, not a shout. */
-.side-row .smp-tag {
+/* Stereo marker on a sample row (item 90) — a quiet chip, not a shout — and on
+   an import list's instrument or preset that has a stereo sample. */
+.side-row .smp-tag, .import-row .smp-tag {
   font-size: 0.72em;
   letter-spacing: 0.04em;
   padding: 0 3px;
@@ -2765,6 +2819,9 @@ button.nota-assign { font-size: 0.85rem; }
 .import-row .idx { color: var(--accent); font-family: var(--mono-font); }
 .import-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .import-row .note { color: var(--dim); font-size: 0.78rem; }
+.import-row .smp-tag { align-self: center; }
+.import-source { margin-bottom: 0.6rem; }
+.import-source-note { margin: 0.3rem 0 0; font-style: italic; }
 .import-error { color: var(--err-fg); margin: 0.4rem 0 0; }
 
 /* ── import progress popup (conversion spinner + streaming log) ── */

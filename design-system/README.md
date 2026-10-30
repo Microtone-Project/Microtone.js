@@ -63,7 +63,7 @@ Native checkboxes, radios, sliders and progress bars are themed once, by `:root 
 ### One meaning per hue
 
 - `accent` (amber; burnt orange on light grounds) — focus, hover, "this one is active", and Proceed.
-- `accent-2` (cyan) — instruments, links, selection.
+- `accent-2` (cyan) — instruments, links, selection. A visited link takes `cv-col-pan`; both are set once on `a`, early in the stylesheet, so a view's own link colour (the About popup's accent) still wins.
 - `meter` (green) — level and liveness.
 - `rec-fg` — record armed.
 

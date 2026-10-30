@@ -11,6 +11,19 @@ export function pickFile(accept = ".taud,.tsii,.tpif") {
   });
 }
 
+/** The same, for several files at once: an array (empty on cancel, where the
+ *  browser says so). */
+export function pickFiles(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.multiple = true;
+    input.onchange = () => resolve([...input.files]);
+    input.click();
+  });
+}
+
 export function download(bytes, name) {
   downloadBlob(new Blob([bytes], { type: "application/octet-stream" }), name);
 }

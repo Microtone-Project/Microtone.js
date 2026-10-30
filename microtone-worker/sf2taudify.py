@@ -37,12 +37,21 @@ zones folded down); a start-offset zone whose slice would be eaten by the cap
 is split onto its own new sample record so it keeps the full slice it has
 today (e.g. the GeneralUser Birds offset zone).
 
+Stereo: the samples the converter plays as a stereo pair — sampleLinked L/R
+samples, and mono samples whose zones are hard-panned to opposite sides —
+are transformed together, so they leave with one rate, one length and one
+loop (the converter plays both spans with a single length and loop, mixed to
+mono or, with --stereo, as a real stereo sample). A synthesized loop is
+seam-matched on both sides at once; a split pair's clones stay linked.
+
 Usage:
   python3 sf2taudify.py INPUT.sf2 [-o OUT.taud.sf2] [--no-gz] [--keep-16bit]
-                        [--tail-thresh N] [-v]
+                        [--tail-thresh N] [--progress] [-v]
 
 Output defaults to <input stem>.taud.sf2 plus a deterministic (mtime 0)
 gzip alongside (.gz) — the .gz is what the web app fetches. Requires numpy.
+--progress prints "progress F" lines (F from 0 to 1) for a host to show; the
+app's soundfont manager runs this script under Pyodide and reads them.
 """
 
 import argparse
@@ -84,6 +93,8 @@ G_START_COARSE, G_END_COARSE = 4, 12
 G_STARTLOOP_COARSE, G_ENDLOOP_COARSE = 45, 50
 G_DECAY_VOLENV, G_SUSTAIN_VOLENV = 36, 37
 G_INSTRUMENT, G_SAMPLEID, G_SAMPLEMODES = 41, 53, 54
+G_PAN, G_KEYRANGE, G_VELRANGE, G_ROOTKEY = 17, 43, 44, 58
+FULL_RANGE = 0x7F00                  # keyRange/velRange default: lo 0, hi 127
 ADDR_GENS = (G_START_OFF, G_START_COARSE, G_END_OFF, G_END_COARSE,
              G_STARTLOOP_OFF, G_STARTLOOP_COARSE,
              G_ENDLOOP_OFF, G_ENDLOOP_COARSE)
@@ -219,11 +230,13 @@ def resample_sinc(data, ratio):
     return out
 
 
-def synth_sustain_loop(q8, keep):
-    """Seam-matched forward loop near the end of `q8` (the quantised u8-scale
-    signal — scored in the domain the taud bank actually stores), truncated
-    to `keep`. Port of midi2taud._synth_sustain_loop; loop_end exclusive."""
-    keep = min(len(q8), keep)
+def synth_sustain_loop(q8s, keep):
+    """Seam-matched forward loop near the end of the quantised u8-scale
+    signals `q8s` (scored in the domain the taud bank actually stores),
+    truncated to `keep`. Port of midi2taud._synth_sustain_loop; loop_end
+    exclusive. Every side of a stereo pair is one entry of `q8s`: the seam
+    error is summed over them, so the one loop suits both channels."""
+    keep = min(min(len(q8) for q8 in q8s), keep)
     W = LOOP_MATCH_WIN
     loop_end = keep - W
     p_max = min(LOOP_HINT, loop_end)
@@ -231,12 +244,14 @@ def synth_sustain_loop(q8, keep):
     if loop_end <= p_min:
         return max(0, keep - 2), keep
 
-    tail = q8[loop_end:loop_end + W:LOOP_MATCH_STEP]
+    tails = [q8[loop_end:loop_end + W:LOOP_MATCH_STEP] for q8 in q8s]
 
     def seam_err(p):
-        seg = q8[loop_end - p:loop_end - p + W:LOOP_MATCH_STEP]
-        d = seg - tail
-        return float(np.dot(d, d))
+        err = 0.0
+        for q8, tail in zip(q8s, tails):
+            d = q8[loop_end - p:loop_end - p + W:LOOP_MATCH_STEP] - tail
+            err += float(np.dot(d, d))
+        return err
 
     cands = list(range(p_min, p_max + 1, LOOP_COARSE_STEP))
     errs = [seam_err(p) for p in cands]
@@ -253,19 +268,35 @@ def synth_sustain_loop(q8, keep):
 
 # ------------------------------------------------------------ the transform
 
-def transform_sample(s, smpl16, tail_thresh, quantise):
-    """Fill s.data / s.q / s.new_rate / s.nls / s.nle / s.synth / s.decay."""
-    n = s.frames
-    if n == 0:
-        s.data = np.zeros(0, np.int16)
+def transform_group(group, smpl16, tail_thresh, quantise):
+    """Fill s.data / s.q / s.new_rate / s.nls / s.nle / s.synth / s.decay for
+    each sample of `group`: one sample, or the sides of a stereo pair
+    (stereo_pairs). The converter plays a pair as two spans with ONE
+    length and its first side's loop points, so the sides take one resample
+    ratio, one length and one synthesized loop — transformed one by one, each
+    trimmed its tail and searched its seam on its own and the pair came apart.
+    Only the baked decay stays per side: a looped side that takes the shared
+    synthesized loop keeps sustaining. A group of one is the plain per-sample
+    transform."""
+    live = []
+    for s in group:
+        if s.frames == 0:
+            s.data = np.zeros(0, np.int16)
+        else:
+            live.append(s)
+    if not live:
         return
-    raw = smpl16[s.start:s.end].astype(np.float64)
 
     # loop in the source domain (shdr loop values are junk on unlooped
     # drums — e.g. GeneralUser stores [start+8, end-8] — so gate on modes)
-    ls = max(0, min(s.ls - s.start, n))
-    le = max(0, min(s.le - s.start, n))
-    has_loop = bool(s.modes & {1, 3}) and le - ls >= 2
+    raws, src_loops, has_loop = [], [], []
+    for s in live:
+        n = s.frames
+        raws.append(smpl16[s.start:s.end].astype(np.float64))
+        ls = max(0, min(s.ls - s.start, n))
+        le = max(0, min(s.le - s.start, n))
+        src_loops.append((ls, le))
+        has_loop.append(bool(s.modes & {1, 3}) and le - ls >= 2)
 
     # 1. 32 kHz floor. The resampler scales time by exactly `ratio`, so that is
     # the rate the data now has and the factor every position scales by — not
@@ -276,76 +307,198 @@ def transform_sample(s, smpl16, tail_thresh, quantise):
     # the two loop ends separately instead put a 13-frame single-cycle loop as
     # much as half a semitone out (GeneralUser's synth leads, tine and sine
     # layers). Lowering, never raising, keeps the rate at or under the floor.
-    if s.rate > RATE_FLOOR:
-        ratio = RATE_FLOOR / s.rate
-        if has_loop:
-            # the shortest loop any zone plays out of this sample — a zone's
-            # loop offsets can make it shorter than the header's — is the one
-            # rounding hurts most; every other lands within half a frame
-            loops = [lp for lp in s.zone_loops if lp[1] - lp[0] >= 2] or [(ls, le)]
+    rate = live[0].rate              # a group shares one rate (group_samples)
+    if rate > RATE_FLOOR:
+        ratio = RATE_FLOOR / rate
+        # the shortest loop any zone plays out of any side — a zone's loop
+        # offsets can make it shorter than the header's — is the one rounding
+        # hurts most; every other lands within half a frame
+        loops = []
+        for s, (ls, le), h in zip(live, src_loops, has_loop):
+            if h:
+                loops += [lp for lp in s.zone_loops if lp[1] - lp[0] >= 2] or [(ls, le)]
+        if loops:
             shortest = min(e - b for b, e in loops)
             frames = math.floor(shortest * ratio)
             if frames >= 2:
                 ratio = frames / shortest
-        data = resample_sinc(raw, ratio)
-        s.q = ratio
-        s.new_rate = max(1, round(s.rate * ratio))
+        datas = [resample_sinc(raw, ratio) for raw in raws]
+        for s in live:
+            s.q = ratio
+            s.new_rate = max(1, round(s.rate * ratio))
     else:
-        data = raw
-    n_out = len(data)
+        datas = raws
 
     # the loop in the resampled domain: the start rounds to the nearest frame
     # and the length is carried over whole, so the seam stays where it was in
     # the waveform's own cycle.
-    nls = round(ls * s.q)
-    nle = nls + round((le - ls) * s.q)
-    if nle > n_out:                  # a loop ending on the last frame: slide
-        nls, nle = max(0, nls - (nle - n_out)), n_out    # it back, length kept
-    if has_loop and nle - nls < 2:
-        has_loop = False
+    new_loops = []
+    for i, (s, (ls, le)) in enumerate(zip(live, src_loops)):
+        n_out = len(datas[i])
+        nls = round(ls * s.q)
+        nle = nls + round((le - ls) * s.q)
+        if nle > n_out:              # a loop ending on the last frame: slide
+            nls, nle = max(0, nls - (nle - n_out)), n_out    # it back, length kept
+        if has_loop[i] and nle - nls < 2:
+            has_loop[i] = False
+        new_loops.append((nls, nle))
 
-    # 2./3. length ladder
-    keep = n_out
-    uses_tail = (not has_loop) or bool(s.modes & {0, 3})
-    if has_loop and not uses_tail:
-        keep = min(keep, nle + LOOP_PAD)                     # dead post-loop tail
-    elif uses_tail and tail_thresh > 0:
-        loud = np.nonzero(np.abs(data) >= tail_thresh)[0]
-        last = int(loud[-1]) + 1 if len(loud) else 0
-        keep = min(keep, max(last + LOOP_PAD, 16))
-        if has_loop:
-            keep = max(keep, nle + LOOP_PAD)                 # never cut the loop
+    # 2./3. length ladder — one length for the group: the longest any side
+    # needs, so no side loses a loud tail or a loop to its partner's
+    keep = 0
+    for s, data, (nls, nle), h in zip(live, datas, new_loops, has_loop):
+        k = len(data)
+        uses_tail = (not h) or bool(s.modes & {0, 3})
+        if h and not uses_tail:
+            k = min(k, nle + LOOP_PAD)                       # dead post-loop tail
+        elif uses_tail and tail_thresh > 0:
+            loud = np.nonzero(np.abs(data) >= tail_thresh)[0]
+            last = int(loud[-1]) + 1 if len(loud) else 0
+            k = min(k, max(last + LOOP_PAD, 16))
+            if h:
+                k = max(k, nle + LOOP_PAD)                   # never cut the loop
+        keep = max(keep, k)
+    synth = False
     if keep > CAP:
         keep = CAP
-        if has_loop and nle <= CAP - 2:
-            pass                                             # real loop kept
-        else:
-            s.synth = True
-            if not has_loop:
-                s.decay = True                               # one-shot: bake fade
-    keep = min(keep, n_out)
-    data = data[:keep]
+        for (nls, nle), h in zip(new_loops, has_loop):
+            if h and nle <= CAP - 2:
+                pass                                         # real loop kept
+            else:
+                synth = True                                 # (for every side)
+    decay = [synth and not h for h in has_loop]              # one-shot: bake fade
 
     # 4. top-byte quantise (round beats the pipeline's floor — the converter
     # computes (s>>8)+128 from what we store, so stored round(s/256)<<8 makes
     # the bank byte exactly round(s16/256)+128)
-    if quantise:
+    q8s = []
+    for i, data in enumerate(datas):
+        data = data[:min(keep, len(data))]
         q8 = np.clip(np.round(data / 256.0), -128, 127)
-        data = (q8 * 256.0)
-    else:
-        q8 = np.clip(np.round(data / 256.0), -128, 127)
+        if quantise:
+            data = (q8 * 256.0)
+        datas[i] = data
+        q8s.append(q8)
 
-    if s.synth:
-        nls, nle = synth_sustain_loop(q8, keep)
+    if synth:
+        nls, nle = synth_sustain_loop(q8s, keep)
         # the synth loop is terminal (wraps forever, or mode 1 is being
         # forced): the post-loop seam window is never played — drop it
-        if s.decay or s.modes == {1}:
-            data = data[:nle + LOOP_PAD]
-    else:
-        nls, nle = min(nls, keep), min(nle, keep)   # scaled (junk loops kept)
+        if all(d or s.modes == {1} for s, d in zip(live, decay)):
+            datas = [data[:nle + LOOP_PAD] for data in datas]
+        new_loops = [(nls, nle)] * len(live)
+    else:                                            # scaled (junk loops kept)
+        new_loops = [(min(nls, len(data)), min(nle, len(data)))
+                     for data, (nls, nle) in zip(datas, new_loops)]
 
-    s.nls, s.nle = nls, nle
-    s.data = np.clip(np.round(data), -32768, 32767).astype(np.int16)
+    for s, data, (nls, nle), d in zip(live, datas, new_loops, decay):
+        s.synth, s.decay = synth, d
+        s.nls, s.nle = nls, nle
+        s.data = np.clip(np.round(data), -32768, 32767).astype(np.int16)
+
+
+def stereo_pairs(samples, zone_views, phdr, pbag, pgen, decayed=()):
+    """The samples the converter plays as stereo pairs (midi2taud
+    merge_stereo_zones over a preset's zones, each an instrument zone under a
+    preset zone: rects intersected, pans summed): LINKED — a zone on an
+    L/R-typed sample and a zone on its sampleLink — and PAN — two zones
+    hard-panned (|pan| >= 400) to opposite sides — each pair with the same
+    key/vel rect, sampleModes and root key. The two sides are often two
+    instruments layered by one preset. Plenty of soundfonts carry junk
+    sampleLinks (0 on every L/R sample), which only a partner ZONE confirms.
+    Partners are matched the converter's way — each zone takes the FIRST
+    unused one after it, a linked partner before a panned one — since in a
+    preset layering two stereo instruments an L zone of one also fits the R
+    of the other. The zones of a `decayed` sample are read as sampleModes 1,
+    which the rewrite will give them. -> {(si, sj), ...}"""
+    pairs = set()
+
+    inst_views = {}                  # inst -> [merged instrument zone]
+    for ii, zi, merged in zone_views:
+        if not samples[merged[G_SAMPLEID]].stype & 0x8000:    # ROM: not played
+            inst_views.setdefault(ii, []).append(merged)
+    buckets = {}                     # (preset, rect, modes, rootkey) -> [(si, pan)]
+    for pi in range(len(phdr) // 38 - 1):
+        b0 = struct.unpack_from('<H', phdr, pi*38 + 24)[0]
+        b1 = struct.unpack_from('<H', phdr, (pi+1)*38 + 24)[0]
+        pzones, _ = parse_bag_zones(pbag, pgen, b0, b1)
+        pglob = {}
+        for zi, pz_raw in enumerate(pzones):
+            pz = dict(pz_raw)
+            if G_INSTRUMENT not in pz:
+                if zi == 0:
+                    pglob = pz
+                continue
+            pz = {**pglob, **pz}
+            pk, pv = pz.get(G_KEYRANGE, FULL_RANGE), pz.get(G_VELRANGE, FULL_RANGE)
+            for merged in inst_views.get(pz[G_INSTRUMENT], ()):
+                ik = merged.get(G_KEYRANGE, FULL_RANGE)
+                iv = merged.get(G_VELRANGE, FULL_RANGE)
+                rect = (max(ik & 0xFF, pk & 0xFF), min(ik >> 8 & 0xFF, pk >> 8 & 0xFF),
+                        max(iv & 0xFF, pv & 0xFF), min(iv >> 8 & 0xFF, pv >> 8 & 0xFF))
+                if rect[0] > rect[1] or rect[2] > rect[3]:
+                    continue
+                si = merged[G_SAMPLEID]
+                s = samples[si]
+                rk = merged.get(G_ROOTKEY, -1)
+                rk = rk if 0 <= rk <= 127 else (s.origkey if s.origkey <= 127 else 60)
+                pan = max(-500, min(500, merged.get(G_PAN, 0) + pz.get(G_PAN, 0)))
+                modes = 1 if si in decayed else merged.get(G_SAMPLEMODES, 0) & 3
+                key = (pi, rect, modes, rk)
+                buckets.setdefault(key, []).append((si, pan))
+    for zones in buckets.values():
+        used = set()
+        for a, (si, pan) in enumerate(zones):
+            if a in used:
+                continue
+            s = samples[si]
+            partner = None
+            if s.stype in (2, 4) and 0 <= s.link < len(samples):
+                partner = next((b for b in range(a + 1, len(zones))
+                                if b not in used and zones[b][0] == s.link), None)
+            if partner is None and abs(pan) >= 400:
+                partner = next((b for b in range(a + 1, len(zones))
+                                if b not in used and zones[b][0] != si
+                                and abs(zones[b][1]) >= 400
+                                and (pan < 0) != (zones[b][1] < 0)), None)
+            if partner is not None:
+                used.add(partner)
+                pairs.add((si, zones[partner][0]))
+    return pairs
+
+
+def group_samples(samples, pairs):
+    """Every sample in one transform group: union-find over `pairs`, so a
+    sample paired in two presets ties both partners into one group. A group
+    cannot share a resample across sample rates, so a group of mixed rates is
+    split by rate (the converter plays such a pair's second side at the
+    first's rate in any case). -> ([tuple of sample indices, ...],
+    {warning, ...})"""
+    parent = list(range(len(samples)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for si, sj in pairs:
+        parent[find(sj)] = find(si)
+    groups = {}
+    for i in range(len(samples)):
+        groups.setdefault(find(i), []).append(i)
+    out, warnings = [], set()
+    for g in groups.values():
+        by_rate = {}
+        for i in g:
+            by_rate.setdefault(samples[i].rate, []).append(i)
+        if len(by_rate) > 1:
+            warnings.add("warning: stereo pair " + " / ".join(
+                         repr(samples[i].name.decode('latin-1')) for i in g)
+                         + " differs in sample rate — only same-rate sides "
+                         "are kept aligned")
+        out += [tuple(part) for part in by_rate.values()]
+    return out, warnings
 
 
 def refit_offset(total, q):
@@ -372,10 +525,19 @@ def main():
     ap.add_argument('--tail-thresh', type=int, default=TAIL_THRESH,
                     help=f"sub-floor tail trim threshold on |s16| "
                          f"(default {TAIL_THRESH}; 0 disables)")
+    ap.add_argument('--progress', action='store_true',
+                    help="print 'progress F' lines (0 <= F <= 1) as it works")
     ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
     global VERBOSE
     VERBOSE = args.verbose
+
+    shown = [-1]
+
+    def progress(f):                 # the samples are most of the work: 0 … 0.9
+        if args.progress and int(f * 100) > shown[0]:
+            shown[0] = int(f * 100)
+            print(f"progress {f:.2f}", flush=True)
 
     out_path = args.output or (args.input[:-4] if args.input.lower()
                                .endswith('.sf2') else args.input) + '.taud.sf2'
@@ -391,10 +553,6 @@ def main():
 
     shdr = pd[b'shdr']
     samples = [Sample(shdr[i*46:(i+1)*46]) for i in range(len(shdr)//46 - 1)]
-    if any(s.stype in (2, 4) and not (s.stype & 0x8000) for s in samples):
-        print("warning: stereo-linked samples present — each side is "
-              "transformed independently (the taud converter mixes pairs "
-              "to mono per zone)")
 
     # --- instrument zones (census over ALL instruments; presets only gate
     # the report — samples referenced by no instrument at all are passed
@@ -492,6 +650,24 @@ def main():
         vprint(f"  split: inst {ii} zone {zi} offset {off} on "
                f"'{s.name.decode('latin-1')}' -> sample #{new_si}")
 
+    # a split linked pair stays linked: each side's clone takes the other
+    # side's clone (same offsets) as its sampleLink, and its L/R type back —
+    # a clone left mono-typed would lose its partner in the converter, whose
+    # R zone would then play as a second, centred layer over the L one
+    for (si, *rest), ci in split_cache.items():
+        s = samples[si]
+        if (s.stype not in (2, 4) or not 0 <= s.link < len(samples)
+                or samples[s.link].link != si
+                or samples[s.link].stype != 6 - s.stype):    # junk link
+            continue
+        cj = split_cache.get((s.link, *rest))
+        if cj is None:
+            print(f"warning: '{s.name.decode('latin-1')}' was split for a "
+                  f"start offset but its linked partner was not — the pair "
+                  f"loses its link there")
+            continue
+        samples[ci].link, samples[ci].stype = cj, s.stype
+
     # --- zone loops: every loop a looped zone plays out of each sample, its loop
     # offsets applied (globals folded exactly as the rewrite below folds them),
     # so the 32 kHz resample can keep the shortest one a whole number of frames
@@ -519,10 +695,33 @@ def main():
             if ze - zs >= 2:
                 s.zone_loops.add((zs, ze))
 
-    # --- per-sample transform
+    # --- per-sample transform; the sides of a stereo pair together. A baked
+    # decay rewrites its zones to sampleModes 1, which can pair zones the
+    # converter did not pair before (a one-shot organ beside a looped vibe,
+    # panned apart): so pair again with the modes as they will be written and
+    # redo every group that grew, until none does. Groups only ever merge.
+    pairs, decayed, done = set(), set(), {}
+    frames_done = 0
+    while True:
+        pairs |= stereo_pairs(samples, zone_views, pd[b'phdr'], pd[b'pbag'],
+                              pgen, decayed)
+        groups, warnings = group_samples(samples, pairs)
+        todo = [g for g in groups if any(done.get(i) != g for i in g)]
+        if not todo:
+            break
+        for g in todo:
+            transform_group([samples[i] for i in g], smpl16, args.tail_thresh,
+                            not args.keep_16bit)
+            for i in g:
+                done[i] = g
+            frames_done += sum(samples[i].frames for i in g)
+            progress(0.9 * min(1.0, frames_done / max(1, frames_in)))
+        decayed = {i for i, s in enumerate(samples) if s.decay}
+    for w in sorted(warnings):
+        print(w)
+    stereo = [g for g in groups if len(g) > 1]
     n_synth = n_decay = n_resamp = 0
     for s in samples:
-        transform_sample(s, smpl16, args.tail_thresh, not args.keep_16bit)
         if s.rate != s.new_rate:
             n_resamp += 1
         if s.synth:
@@ -685,9 +884,11 @@ def main():
           f"{frames_in} frames -> {out_path}: {len(out)/1048576:.2f} MiB, "
           f"{frames_out} frames")
     print(f"  {n_resamp} resampled to <= {RATE_FLOOR} Hz, {n_synth} synth "
-          f"loops ({n_decay} with baked decay), {splits} offset zones split")
+          f"loops ({n_decay} with baked decay), {splits} offset zones split, "
+          f"{len(stereo)} stereo groups kept aligned")
 
     if not args.no_gz:
+        progress(0.95)
         gz_path = out_path + '.gz'
         with open(gz_path, 'wb') as fh:      # mtime 0 + no embedded filename:
             with gzip.GzipFile(filename='', fileobj=fh, mode='wb',

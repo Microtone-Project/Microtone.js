@@ -42,6 +42,24 @@ export const CONVERTER_SOURCES = [
  *  alongside the vendored converters; imports midi2taud from the same dir. */
 export const SF2BANK_SOURCE = "sf2bank.py";
 
+/** The soundfont builder (sf2taudify.py, at the app's root): rewrites an
+ *  .sf2 into the shape the bank build reduces it to, and gzips it — what the
+ *  File view's Soundfonts tab keeps. Needs numpy (vendor/pyodide/'s wheel),
+ *  loaded only for this job. */
+export const SF2TAUDIFY_SOURCE = "sf2taudify.py";
+
+/** argv for sf2taudify: the .gz lands beside `outPath` (outPath + ".gz"),
+ *  and --progress streams "progress F" lines (see progressOf). */
+export function taudifyArgv(inPath, outPath) {
+  return [inPath, "-o", outPath, "--progress"];
+}
+
+/** The fraction in one of sf2taudify's "progress F" lines, or null. */
+export function progressOf(line) {
+  const m = /^progress ([0-9.]+)$/.exec(line.trim());
+  return m ? Math.min(1, Number(m[1])) : null;
+}
+
 /** Microtone.js's own BNK→bank driver (src/convert/bnkbank.py) — installed
  *  alongside the vendored converters; imports opl2taud from the same dir. */
 export const BNKBANK_SOURCE = "bnkbank.py";
@@ -91,10 +109,17 @@ export async function loadConverterRuntime({ loadPyodide, indexURL, sources, onS
  * @param inputs   [{path, bytes}] to place on MEMFS
  * @param output   MEMFS path the converter writes (must appear in argv)
  * @param onLog    optional (line) => void for converter output
+ * @param cleanup  other MEMFS paths the run writes, removed afterwards
+ * @param release  drop each input's bytes from its object once it is on MEMFS
+ *                 (the worker's: a 250 MB soundfont would otherwise be held
+ *                 three times over — JS, MEMFS, Python — while it converts)
  * @returns Uint8Array of the produced file
  */
-export function runConverter(py, { script, argv, inputs, output, onLog }) {
-  for (const f of inputs) py.FS.writeFile(f.path, f.bytes);
+export function runConverter(py, { script, argv, inputs, output, onLog, cleanup = [], release = false }) {
+  for (const f of inputs) {
+    py.FS.writeFile(f.path, f.bytes);
+    if (release) f.bytes = null;
+  }
   const log = (line) => { if (line.trim() !== "") onLog?.(line); };
   py.setStdout({ batched: log });
   py.setStderr({ batched: log });
@@ -118,7 +143,9 @@ except SystemExit as e:
     for (const f of inputs) {
       try { py.FS.unlink(f.path); } catch { /* not created */ }
     }
-    try { py.FS.unlink(output); } catch { /* converter failed before writing */ }
+    for (const path of [output, ...cleanup]) {
+      try { py.FS.unlink(path); } catch { /* converter failed before writing */ }
+    }
   }
 }
 

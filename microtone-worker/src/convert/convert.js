@@ -132,3 +132,33 @@ export function buildBnkBank(bnkBytes, selection, { onStatus = null } = {}) {
     onStatus,
   );
 }
+
+/**
+ * Convert an .sf2 with sf2taudify.py → the bytes of its .taud.sf2.gz (the File
+ * view's Soundfonts tab). Each job gets a worker of its OWN, ended when the job
+ * is: a big soundfont takes the best part of a minute, and the shared worker
+ * would make every import wait behind it; and a wasm heap never shrinks, so
+ * ending the worker is what gives the gigabyte back. Aborting `signal` ends it
+ * at once (rejects with an AbortError). `bytes`' buffer is TRANSFERRED when the
+ * view spans it whole — the caller gives it up.
+ */
+export function taudifySoundfont(bytes, { onStatus = null, onProgress = null, signal = null } = {}) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException("cancelled", "AbortError")); return; }
+    const w = new Worker(new URL("./convert.worker.js", import.meta.url), { type: "module" });
+    const end = () => { w.terminate(); signal?.removeEventListener("abort", abort); };
+    const abort = () => { end(); reject(new DOMException("cancelled", "AbortError")); };
+    signal?.addEventListener("abort", abort, { once: true });
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (m.t === "status") onStatus?.(m.line);
+      else if (m.t === "progress") onProgress?.(m.value);
+      else if (m.t === "done") { end(); resolve(new Uint8Array(m.bytes)); }
+      else if (m.t === "error") { end(); reject(new Error(m.message)); }
+    };
+    w.onerror = (e) => { end(); reject(new Error(e.message || "conversion worker failed")); };
+    const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
+    const buf = whole ? bytes.buffer : bytes.slice().buffer;
+    w.postMessage({ t: "taudify", id: 1, bytes: buf }, [buf]);
+  });
+}

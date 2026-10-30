@@ -182,6 +182,18 @@
       "rules": ["panel-switches", "folding", "change-driven"]
     },
     {
+      "name": "Banner",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/banner.js",
+      "exports": ["showBanner"],
+      "summary": "A notice at the bottom-right corner for something that finished in the background — a soundfont converted, a conversion that failed: a panel with a hairline border, a line of text and its buttons. The web app's twin of the desktop app's update notice. Never modal, never takes the keyboard; banners stack upwards.",
+      "api": "showBanner({ text, actions = [{ label, onClick?, primary? }] }) → { element, update({ text, actions }), close() }. A press blurs the button, takes the banner away and runs its action; the primary action (at most one: what the banner is for) wears the accent border.",
+      "example": "showBanner({ text: t(\"sf.ready\", { name }), actions: [{ label: t(\"sf.show\"), onClick: openLibrary, primary: true }, { label: t(\"sf.dismiss\") }] });",
+      "classes": ["banner-stack", "banner", "banner-actions", "banner-go"],
+      "tokens": ["panel", "fg", "border", "accent", "radius-lg"],
+      "rules": ["colour-tokens", "voice"]
+    },
+    {
       "name": "NoteGlyph",
       "kind": "js",
       "module": "microtone-worker/src/ui/components/noteglyph.js",

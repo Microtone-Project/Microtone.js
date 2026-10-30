@@ -115,6 +115,76 @@ export async function removeKeymap(name) {
   } catch { /* absent is fine */ }
 }
 
+// ── soundfont dir (converted .taud.sf2.gz, the File view's Soundfonts tab) ──
+//
+// A soundfont is an instrument SOURCE, not a project, so like a keymap it has
+// its own directory and stays out of the song list. Each file is the gzipped
+// output of sf2taudify.py, kept as it came out; a reader gets the File itself,
+// which can be streamed through a DecompressionStream or downloaded as is.
+
+const SOUNDFONT_DIR = "soundfonts";
+
+export async function writeSoundfont(name, bytes) {
+  const dir = await projectsDir(true, SOUNDFONT_DIR);
+  const handle = await dir.getFileHandle(name, { create: true });
+  if (typeof handle.createWritable === "function") {
+    const w = await handle.createWritable();
+    await w.write(bytes);
+    await w.close();
+  } else {
+    await workerWrite(name, bytes, SOUNDFONT_DIR);
+  }
+}
+
+/** Beside the soundfonts: what is known about each one that its file does not
+ *  say — the note its owner left on it, the .sf2 it was made from — as JSON,
+ *  { "<file name>": { note, source } }. */
+const SOUNDFONT_INDEX = "index.json";
+
+export async function readSoundfontIndex() {
+  try {
+    const dir = await projectsDir(false, SOUNDFONT_DIR);
+    const f = await (await dir.getFileHandle(SOUNDFONT_INDEX)).getFile();
+    const index = JSON.parse(await f.text());
+    return index && typeof index === "object" ? index : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function writeSoundfontIndex(index) {
+  await writeSoundfont(SOUNDFONT_INDEX, new TextEncoder().encode(JSON.stringify(index, null, 1)));
+}
+
+export async function listSoundfonts() {
+  try {
+    const dir = await projectsDir(false, SOUNDFONT_DIR);
+    const out = [];
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind !== "file" || name === SOUNDFONT_INDEX) continue;
+      const f = await handle.getFile();
+      out.push({ name, size: f.size, mtime: f.lastModified });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** The stored file (a File, so it can be streamed or downloaded as is). */
+export async function soundfontFile(name) {
+  const dir = await projectsDir(false, SOUNDFONT_DIR);
+  return (await dir.getFileHandle(name)).getFile();
+}
+
+export async function removeSoundfont(name) {
+  try {
+    const dir = await projectsDir(false, SOUNDFONT_DIR);
+    await dir.removeEntry(name);
+  } catch { /* absent is fine */ }
+}
+
 export async function list() {
   try {
     const dir = await projectsDir(false);

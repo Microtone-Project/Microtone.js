@@ -17,15 +17,16 @@ import { gunzipSync } from "node:zlib";
 
 import { loadPyodide } from "../../vendor/pyodide/pyodide.js";
 import {
-  CONVERTER_SOURCES, SF2BANK_SOURCE, BNKBANK_SOURCE, converterFor,
-  loadConverterRuntime, runConverter, buildArgv,
+  CONVERTER_SOURCES, SF2BANK_SOURCE, BNKBANK_SOURCE, SF2TAUDIFY_SOURCE, converterFor,
+  loadConverterRuntime, runConverter, buildArgv, taudifyArgv, progressOf,
 } from "../../src/convert/convert-core.js";
+import { makeStereoSf2 } from "../fixtures/sf2.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { CUE_EMPTY, NUM_PATTERNS_MAX } from "../../core/format/taud-const.js";
 import { tuningRatioOf } from "../../core/engine/tables.js";
 import { presetForNotation, surveyTuning } from "../../core/tuning/pitchtables.js";
 import { Document, combineTpif, sampleSpans, isStereoSample } from "../../src/doc/document.js";
-import { planImport } from "../../src/doc/bankmerge.js";
+import { planImport, bankInventory } from "../../src/doc/bankmerge.js";
 import { importBankOp } from "../../src/doc/ops.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { loadIntoEngine } from "../../core/audio/offline-render.js";
@@ -2174,4 +2175,98 @@ test("it2taud: an OpenMPT OPL sample becomes an OPL instrument, on OpenMPT's lev
     patterns: [[{ row: 0, ch: 0, note: 60, smp }]] }) })));
   const db = 20 * Math.log10(level(2) / level(1));
   assert.ok(Math.abs(db + 2.90) < 0.3, `OPL ${db.toFixed(2)} dB against the sample, want −2.90`);
+});
+
+
+// ── the soundfont library's conversion (sf2taudify.py under Pyodide) ─────────
+
+/** The shdr records of an SF2: [{ name, frames, loop: [start, end], rate, link, type }]. */
+function sampleHeaders(sf2) {
+  const dv = new DataView(sf2.buffer, sf2.byteOffset, sf2.byteLength);
+  const at = Buffer.from(sf2).indexOf("shdr");
+  const n = dv.getUint32(at + 4, true) / 46 - 1;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const o = at + 8 + i * 46;
+    const start = dv.getUint32(o + 20, true);
+    out.push({
+      name: Buffer.from(sf2.subarray(o, o + 20)).toString("latin1").replace(/\0.*$/, ""),
+      frames: dv.getUint32(o + 24, true) - start,
+      loop: [dv.getUint32(o + 28, true) - start, dv.getUint32(o + 32, true) - start],
+      rate: dv.getUint32(o + 36, true), link: dv.getUint16(o + 42, true), type: dv.getUint16(o + 44, true),
+    });
+  }
+  return out;
+}
+
+const sfInput = () => ({ path: "/sf.sf2", bytes: makeStereoSf2() });
+
+test("sf2taudify under Pyodide: numpy from the vendored wheel, progress lines, stereo pairs kept aligned", async () => {
+  await py.loadPackage("numpy", { messageCallback: () => {} });
+  py.FS.writeFile(`/converters/${SF2TAUDIFY_SOURCE}`, readFileSync(root + SF2TAUDIFY_SOURCE));
+  const progress = [];
+  const gz = runConverter(py, {
+    script: SF2TAUDIFY_SOURCE,
+    argv: taudifyArgv("/sf.sf2", "/out.taud.sf2"),
+    inputs: [sfInput()],
+    output: "/out.taud.sf2.gz",
+    cleanup: ["/out.taud.sf2"],
+    onLog: (line) => { const f = progressOf(line); if (f !== null) progress.push(f); },
+  });
+  assert.throws(() => py.FS.stat("/out.taud.sf2"), "the plain .taud.sf2 is cleaned up");
+  assert.ok(progress.length >= 2 && progress.every((f, i) => f >= 0 && f <= 1 && (i === 0 || f >= progress[i - 1])),
+    `progress climbs from 0 to 1: ${progress}`);
+  const out = gunzipSync(gz);
+  assert.equal(Buffer.from(out.subarray(8, 12)).toString(), "sfbk");
+  assert.ok(Buffer.from(out).includes("sf2taudify:"), "the INFO comment marks it (sflibrary.js taudified)");
+
+  const s = Object.fromEntries(sampleHeaders(out).map((h, i) => [h.name, { ...h, index: i }]));
+  for (const [l, r] of [["B(L)", "B(R)"], ["C(L)", "C(R)"], ["A(L)~slc", "A(R)~slc"]]) {
+    assert.ok(s[l] && s[r], `${l} / ${r} present`);
+    assert.equal(s[l].frames, s[r].frames, `${l} / ${r}: one length`);
+    assert.deepEqual(s[l].loop, s[r].loop, `${l} / ${r}: one loop`);
+    assert.equal(s[l].rate, s[r].rate, `${l} / ${r}: one rate`);
+  }
+  assert.ok(s["B(L)"].frames <= 65535, "the one-shot pair is capped (and given one synthesized loop)");
+  // The split slice of a linked pair stays a linked pair.
+  assert.equal(s["A(L)~slc"].link, s["A(R)~slc"].index);
+  assert.equal(s["A(R)~slc"].link, s["A(L)~slc"].index);
+  assert.deepEqual([s["A(L)~slc"].type, s["A(R)~slc"].type], [4, 2]);
+});
+
+test("sf2bank list: a preset with stereo sample pairs says so (the import list's ST chip)", () => {
+  const presets = JSON.parse(Buffer.from(runConverter(py, {
+    script: SF2BANK_SOURCE, argv: ["list", "/sf.sf2", "/out.json"],
+    inputs: [sfInput()], output: "/out.json", onLog: () => {},
+  })).toString());
+  assert.deepEqual(presets.map((p) => [p.name, p.stereo]),
+    [["split", true], ["oneshot", true], ["panned", true], ["mono", false]]);
+});
+
+test("bankInventory: an instrument with a stereo sample is marked stereo", () => {
+  const tsii = runConverter(py, {
+    script: SF2BANK_SOURCE,
+    argv: ["build", "/sf.sf2", "/sel.json", "/out.tsii", "--bpm", "125", "--stereo"],
+    inputs: [sfInput(), { path: "/sel.json", bytes: new TextEncoder().encode("[[0,2],[0,3]]") }],
+    output: "/out.tsii", onLog: () => {},
+  });
+  const inv = bankInventory(new Document(parseTaud(tsii)));
+  assert.deepEqual(inv.map((e) => [e.name, e.stereo]), [["panned", true], ["mono", false]]);
+});
+
+test("midi2taud: a volume attack shorter than a tick starts at the peak, a longer one keeps its rise", () => {
+  const firstNode = (bpm) => {
+    const tsii = runConverter(py, {
+      script: SF2BANK_SOURCE,
+      argv: ["build", "/sf.sf2", "/sel.json", "/out.tsii", "--bpm", String(bpm)],
+      inputs: [sfInput(), { path: "/sel.json", bytes: new TextEncoder().encode("[[0,3]]") }],
+      output: "/out.tsii", onLog: () => {},
+    });
+    const doc = new Document(parseTaud(tsii));
+    return doc.instruments[doc.usedInstrumentSlots()[0]].volEnvelopes[0].value;
+  };
+  // 15 ms: under a 20 ms tick (125 BPM) — the engine would sound nothing for a
+  // tick and ramp over the next; over an 8.3 ms one (300 BPM) it can be drawn.
+  assert.equal(firstNode(125), 63);
+  assert.equal(firstNode(300), 0);
 });

@@ -3,11 +3,14 @@
 // Reachable WITHOUT a loaded document (browse OPFS / import something); the
 // doc-scoped buttons and the song list only appear once a project is loaded.
 // Under the browser's own list sits the online projects section
-// (filesonline.js), on hosts that have one.
+// (filesonline.js), on hosts that have one. A second subtab holds the
+// soundfont library (filessoundfonts.js); which one is up is the viewer's,
+// remembered per browser.
 
 import * as opfs from "../../storage/opfs.js";
 import { onAuthChange } from "../../../core/storage/online.js";
 import { OnlineSection } from "./filesonline.js";
+import { SoundfontSection } from "./filessoundfonts.js";
 import { pickFile, download, downloadBlob } from "../../storage/import-export.js";
 import { converterFor, CONVERT_ACCEPT } from "../../convert/convert.js";
 import { isImac } from "../../convert/imac.js";
@@ -24,6 +27,13 @@ import { withSaveProgress } from "../saveprogress.js";
 import { showDemoPicker } from "../demos.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
+
+const TAB_KEY = "microtone-files-tab";
+const TABS = ["projects", "soundfonts"];
+
+function storedTab() {
+  try { const v = localStorage.getItem(TAB_KEY); return TABS.includes(v) ? v : "projects"; } catch { return "projects"; }
+}
 
 export class FilesView {
   /**
@@ -50,11 +60,42 @@ export class FilesView {
     this.onlineHost.className = "files-online";
     this.onlineHost.hidden = true;
     this._renderSeq = 0;
+    this.tab = storedTab();
+    this.soundfonts = new SoundfontSection();
     // A sign-in window finishing, or a sign-out in any tab.
     onAuthChange(() => this.refresh());
   }
 
+  /** Bring up a subtab ("projects" | "soundfonts"). */
+  setTab(tab) {
+    if (!TABS.includes(tab)) return;
+    this.tab = tab;
+    try { localStorage.setItem(TAB_KEY, tab); } catch { /* a convenience only */ }
+    this.refresh();
+  }
+
+  _tabBar() {
+    const bar = document.createElement("div");
+    bar.className = "subtabs files-tabs";
+    bar.setAttribute("role", "tablist");
+    for (const [tab, key] of [["projects", "files.tabProjects"], ["soundfonts", "files.tabSoundfonts"]]) {
+      const b = mkBtn(t(key), () => this.setTab(tab));
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(tab === this.tab));
+      if (tab === this.tab) b.className = "active";
+      bar.append(b);
+    }
+    return bar;
+  }
+
   async refresh() {
+    if (this.tab === "soundfonts") {
+      ++this._renderSeq; // a projects refresh still on its way gives way
+      this.root.replaceChildren(this._tabBar(), this.soundfonts.el);
+      await this.soundfonts.render();
+      return;
+    }
+    this.soundfonts.render(false);
     // Refreshes overlap — a sign-out both tells every tab (this one included)
     // and asks for one directly — and each waits on the disk listing half-way.
     // So the page is built off-screen and put up in ONE step, by the newest
@@ -160,7 +201,7 @@ export class FilesView {
     }
 
     if (!newest()) return;
-    this.root.replaceChildren(...page, this.onlineHost);
+    this.root.replaceChildren(this._tabBar(), ...page, this.onlineHost);
 
     // Last, and on its own clock: the local list is already on screen while
     // the server answers, and the same rule keeps a slow answer from painting

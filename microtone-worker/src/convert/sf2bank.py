@@ -10,7 +10,8 @@ functions so there is still exactly one SF2→Taud mapping implementation.
     sf2bank.py list  <in.sf2> <out.json>
     sf2bank.py build <in.sf2> <selection.json> <out.tsii> [--bpm N] [--stereo]
 
-list  → out.json: [{"bank": B, "program": P, "name": "..."}] sorted.
+list  → out.json: [{"bank": B, "program": P, "name": "...", "stereo": bool}]
+        sorted; "stereo" = the preset has stereo sample pairs.
 build → selection.json holds [[bank, program], ...]; emits a .tsii whose
         directly-addressable slots ($01..$FF) are the selected presets in
         order (multi-layer presets become Metainstruments with their layers
@@ -36,14 +37,19 @@ from types import SimpleNamespace
 
 from midi2taud import (
     parse_sf2, key_to_noteval, build_presets, allocate_slots, build_pool,
-    assemble_tsii,
+    assemble_tsii, merge_stereo_zones,
 )
 
 
 def cmd_list(args):
     sf = parse_sf2(args.input)
+    # "stereo": the preset has zones the bank build pairs into a stereo sample
+    # (midi2taud merge_stereo_zones, the pairing --stereo keeps) — what the
+    # import list's ST chip shows.
     out = [
-        {"bank": bank, "program": prog, "name": sf.presets[(bank, prog)][0]}
+        {"bank": bank, "program": prog, "name": sf.presets[(bank, prog)][0],
+         "stereo": any(z.pair is not None
+                       for z in merge_stereo_zones(sf.presets[(bank, prog)][1], sf.shdrs))}
         for (bank, prog) in sorted(sf.presets)
     ]
     sf.file.close()

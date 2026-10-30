@@ -34,7 +34,7 @@
     "cv-caret": "Pattern grid: the sub-column caret in record mode (amber family).",
     "cv-caret-nav": "Pattern grid: the sub-column caret in navigate mode (blue family).",
     "cv-cue-line": "Pattern grid: the rule between cues.",
-    "cv-col-pan": "Pattern grid: pan column ink; also the effect ink in the splash grid.",
+    "cv-col-pan": "Pattern grid: pan column ink; also the effect ink in the splash grid, and a visited link.",
     "cv-sel": "Pattern grid: block selection fill.",
     "cv-ditto": "Pattern grid: ghost cells repeated by a pattern ditto.",
     "cv-fx-op": "Effect column: the opcode letter (and an S/Z sub-command nibble).",

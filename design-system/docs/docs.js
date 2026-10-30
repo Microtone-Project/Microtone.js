@@ -19,6 +19,7 @@ import { dragGrip, focusGrip } from "../../microtone-worker/src/ui/components/dr
 import { makeFoldable } from "../../microtone-worker/src/ui/components/fold.js";
 import { lampButton } from "../../microtone-worker/src/ui/components/lampbutton.js";
 import { flipSwitch } from "../../microtone-worker/src/ui/components/flipswitch.js";
+import { showBanner } from "../../microtone-worker/src/ui/components/banner.js";
 import { noteRun, rangeGlyph } from "../../microtone-worker/src/ui/components/noteglyph.js";
 import { BTN_ICON, ICON, icon } from "../../microtone-worker/src/ui/icons.js";
 import { renderMarkdown } from "../../microtone-worker/src/ui/markdown.js";
@@ -551,6 +552,26 @@ const DEMOS = {
     row.append(flipSwitch({ label: "Disabled, on", on: true, disabled: true }).button,
       flipSwitch({ label: "Disabled, off", disabled: true }).button);
     box.append(col, row, out);
+  },
+
+  Banner(box) {
+    const out = el("div", "ds-out");
+    const row = el("div", "ds-row");
+    const done = el("button", "", "Finish a conversion");
+    done.addEventListener("click", () => showBanner({
+      text: "SGM-V2.01 is converted. Instruments → New… can use it now.",
+      actions: [
+        { label: "Show", primary: true, onClick: () => { out.textContent = "Show: opens the Soundfonts tab"; } },
+        { label: "Dismiss", onClick: () => { out.textContent = "dismissed"; } },
+      ],
+    }));
+    const fail = el("button", "", "Fail one");
+    fail.addEventListener("click", () => showBanner({
+      text: "Musyng Kite is too large to convert in a browser. sf2taudify.py does the same conversion on a computer; add the .taud.sf2.gz it makes here.",
+      actions: [{ label: "Dismiss" }],
+    }));
+    row.append(done, fail);
+    box.append(row, el("p", "dim", "Banners appear at the bottom-right of the window and stack upwards."), out);
   },
 
   NoteGlyph(box) {

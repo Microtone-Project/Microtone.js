@@ -17,7 +17,7 @@ import { SAMPLEBIN_SIZE, ixmpPatchLen, ixmpChanByteOffset } from "../../core/for
 import {
   parsePatchesBlob, TaudInst, buildMetaRecord, makeMetaLayer, META_MAX_LAYERS,
   META_TYPE_FM, FM_MAX_OPERATORS, FM_BUDGET_BYTES, defaultFmProgram, fmRecordBytes,
-  patchChannelPtrs, makeInstPatch, writePatchesBlob, CHAN_MODE_DISCRETE,
+  patchChannelPtrs, patchIsStereo, makeInstPatch, writePatchesBlob, CHAN_MODE_DISCRETE,
 } from "../../core/engine/inst.js";
 import { sampleSpans } from "./document.js";
 import { buildImixSection, freeImixId } from "../../core/format/imix-section.js";
@@ -129,6 +129,9 @@ export function bankInventory(srcDoc) {
       isFm: inst.isFm,
       layerCount: inst.metaLayers?.length ?? 0,
       patchCount: inst.extraPatches?.length ?? 0,
+      // An instrument of its own with a stereo sample (the import list's ST
+      // chip); a meta's layers say so on their own rows.
+      stereo: !inst.isMeta && (inst.extraPatches ?? []).some(patchIsStereo),
       sampleBytes,
       layerOf: layerOf.get(slot) ?? [],
     };
