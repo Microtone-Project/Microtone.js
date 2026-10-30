@@ -2102,8 +2102,12 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 }
 .np-chip.sel { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
 
-.np-notelist { position: relative; flex: 1 1 auto; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--panel-2); max-height: 220px; min-height: 120px; outline: none; }
+/* Basis 0 (not auto): the list's content is every notation preset, so an auto
+   basis would make the right column the tallest and stretch the whole dialog;
+   at 0 it asks for its min-height only and takes whatever the fieldset (which
+   the left column's height decides) has left. */
+.np-notelist { position: relative; flex: 1 1 0; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--panel-2); min-height: 120px; outline: none; }
 .np-notelist:focus-visible { border-color: var(--accent-2); }
 .np-note { display: flex; align-items: center; gap: 0.45rem; padding: 0.15rem 0.5rem; cursor: pointer; font-size: 0.82rem; color: var(--fg); }
 .np-note:hover { background: var(--panel); }
@@ -2125,6 +2129,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 @media (max-width: 620px) {
   .np-grid { flex-direction: column; }
   .np-col-right { flex: 1 1 auto; }
+  /* Stacked, nothing stretches the column, so give the list a height of its own. */
+  .np-notelist { flex-basis: 220px; }
 }
 
 /* ── Notation Maker (item 61) ── */

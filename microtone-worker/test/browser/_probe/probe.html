@@ -1,0 +1,8 @@
+<!doctype html><meta charset=utf-8><link rel=stylesheet href="/microtone-worker/css/microtone.css">
+<body><script type=module>
+import { showNewProject } from "/microtone-worker/src/ui/popups/newproject.js";
+showNewProject({});
+setTimeout(()=>{const l=document.querySelector('.np-notelist'),f=l.closest('fieldset'),lg=f.querySelector('legend');
+const r=e=>e.getBoundingClientRect();
+document.title='';document.body.insertAdjacentHTML('beforeend','<pre id=out>'+JSON.stringify({list:r(l).height,fieldset:r(f).height,legend:r(lg).height,dlg:r(document.querySelector('dialog')).height})+'</pre>');},800);
+</script>
