@@ -97,7 +97,11 @@ the release repository can build the code face from the same package.
 - **The D** (`widths.py round_capital_d`) keeps Chivo's stem and bars and
   redraws the bowl as half a superellipse (`[capital_D]`: nearly an ellipse,
   as wide as half the D is tall), its counter likewise, every master keeping
-  its own stem, bar and bowl thicknesses. Ð and Đ are Chivo's D with a bar
+  its own stem, bar and bowl thicknesses. In the grid face the D is fitted
+  by its stem alone, which lands where the H's does, and the bowl is redrawn
+  to end at the margin: Chivo's D sits right of the cell's middle, so fitted
+  whole it stopped at the bowl and came out narrower than the H beside it —
+  narrower still to the eye, being round. Ð and Đ are Chivo's D with a bar
   laid over it; the bar is kept and the D under it redrawn. Ď is a composite
   and follows; the narrow digraphs Ǆ ǅ are drawn separately and keep Chivo's.
 - **The apertures** (`apertures.py`): Chivo cuts the arms of C, G, c, e, 5, 6

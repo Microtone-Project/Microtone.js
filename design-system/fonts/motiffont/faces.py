@@ -63,15 +63,18 @@ class Source:
         """Whether Motif draws `name` itself (see letter())."""
         return name == "O" or name in self.d_forms or name in self.apertures or name in self.widened
 
+    def round_d(self, vg, cfg, x_max=None):
+        d = cfg["capital_D"]
+        return round_capital_d(vg, d["exponent"], d["exponent_inner"], d["bowl"], self.slant, self.y0,
+                               x_max)
+
     def letter(self, name, cfg):
         """Chivo's glyph, or Motif's own drawing of it: the square O, the
         round D, the opened C G c e 5 6 9, the wider z."""
         if name == "O":
             return capital_o(self, cfg)
         if name in self.d_forms:
-            d = cfg["capital_D"]
-            return round_capital_d(self.glyph(name), d["exponent"], d["exponent_inner"], d["bowl"],
-                                   self.slant, self.y0)
+            return self.round_d(self.glyph(name), cfg)
         vg = self.glyph(name)
         if name in self.apertures:
             vg = open_aperture(vg, self.apertures[name])
@@ -157,7 +160,17 @@ def build_grid(cfg, sources, family, unicodes, scale, fit_margin, extra, centred
         k = scale * zero if name == "zero" else scale
         # Widening keeps the cell; narrowing narrows it with the glyph.
         advance = vg.advance if scale >= 1 else round(vg.advance * scale)
-        if k > 1:
+        if name in src.d_forms and k > 1:
+            # Chivo's D sits right of the cell's middle — its stem on the H's,
+            # its bowl almost at the edge — so fitting it whole stops at the
+            # bowl and leaves the D hardly wider than Chivo's while the H
+            # beside it grows by `widen`; and a round bowl already reads
+            # narrower than a square one. So the D is fitted by its stem
+            # alone, landing where the H's does, and the bowl is redrawn to
+            # end at the margin.
+            vg = src.round_d(fitted_rescale(src.glyph(name), k, advance, src.stems, comp, fit_margin,
+                                            right=False), cfg, advance - fit_margin)
+        elif k > 1:
             vg = fitted_rescale(vg, k, advance, src.stems, comp, fit_margin)
         else:
             vg = rescale(vg, lambda t: k, advance, src.stems, comp)

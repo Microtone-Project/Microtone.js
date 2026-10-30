@@ -147,16 +147,17 @@ def matched_weights(letter, ref, s, height, ref_y, reach):
     return lambda t: out[t]
 
 
-def fitted_rescale(vg, s, advance, stems, compensate, margin, slant=0.0, y0=0.0):
+def fitted_rescale(vg, s, advance, stems, compensate, margin, slant=0.0, y0=0.0, right=True):
     """rescale(), but at each master never wider than leaves `margin` units
-    of the cell clear on either side (and never narrower than it came)."""
+    of the cell clear on either side (and never narrower than it came). With
+    `right` false, only the left side is fitted."""
     if s <= 1.0:
         return rescale(vg, lambda t: s, advance, stems, compensate, slant, y0)
 
     def fits(t, k):
         g = rescale(vg, lambda _t: k, advance, stems, compensate, slant, y0)
         b = bounds(_unslant(g.masters[t], slant, y0))
-        return b is None or (b[0] >= margin - 0.5 and b[2] <= advance - margin + 0.5)
+        return b is None or (b[0] >= margin - 0.5 and (not right or b[2] <= advance - margin + 0.5))
 
     best = {}
     for t in MASTERS:
@@ -204,13 +205,15 @@ def hp_capital_o(vg, exponent, exponent_inner, widen, margin, slant=0.0, y0=0.0)
     return vg.map(master)
 
 
-def round_capital_d(vg, exponent, exponent_inner, bowl, slant=0.0, y0=0.0):
+def round_capital_d(vg, exponent, exponent_inner, bowl, slant=0.0, y0=0.0, x_max=None):
     """Chivo's D (or a letter built on it: Ð, Đ) with its bowl redrawn as half
     a superellipse, `bowl` times half the D's height wide (no wider than
     reaches the counter's left edge), the bars running straight from the stem
     into it. Every master keeps its own stem, bar and bowl thicknesses and
     heights, and any further contour (Ð's bar) is kept as it is. Round beside
-    the square O, and with a stem where the zero has none."""
+    the square O, and with a stem where the zero has none. With `x_max`, the
+    bowl ends no further right than that (the bars shorten, its thickness
+    stays)."""
     # The bowl's two contours, picked at the middle master (at Black, Ð's bar
     # is as big as the counter); every master has them in the same place.
     mid = _unslant(vg.masters[0.0], slant, y0)
@@ -220,6 +223,9 @@ def round_capital_d(vg, exponent, exponent_inner, bowl, slant=0.0, y0=0.0):
     def master(t, outline):
         flat = _unslant(outline, slant, y0)
         bo, bi = bounds([flat[io]]), bounds([flat[ii]])
+        if x_max is not None and bo[2] > x_max:
+            cut = bo[2] - x_max
+            bo, bi = (bo[0], bo[1], bo[2] - cut, bo[3]), (bi[0], bi[1], bi[2] - cut, bi[3])
         b = (bo[3] - bo[1]) / 2
         xs = bo[2] - min(bowl * b, bo[2] - bi[0])
         xi = max(xs, bi[0])
