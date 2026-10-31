@@ -4,6 +4,22 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## Version 4.3.0 (2026-10-31)
+
+**Folders for your projects**: the File view's project list can now be sorted into folders, and projects move between folders, and between this browser and your online projects, several at a time.
+
+- **New folder…** makes a folder; folders are listed before the projects, each with a folder icon, and the path above the list takes you back up.
+- **Select** brings out tick boxes and a bar for what is ticked: Move to folder… puts several projects in another folder at once (keeping any whose name is already taken there where they were), and Delete removes them all after one question. Done puts the boxes away.
+- **Move online** uploads the ticked projects to your online projects and removes them from the browser; **Move to this browser** does the opposite, into the folder on show, freeing their online slots. Online projects can be ticked and deleted together too.
+- A project open while it moves goes with it, so Save keeps saving it in its new place.
+- Save As…, Import and Import MIDI… put the new project into the folder on show, and Download all keeps the folders in its ZIP.
+
+**Envelope cursors follow every part of an instrument.**
+
+- Fixed: the envelope graph showed no playback cursor for an Easy FM operator's envelope, or for a layer's own envelope inside a layered instrument, because playback was only ever reported under the layered or FM instrument itself; every operator and layer now draws its cursor while it sounds.
+- The same goes for every envelope tab of an operator or a layer: volume, pan, pitch and filter.
+- Notes still ringing on after a new one (New Note Action) now show their envelope cursors too.
+
 ## Version 4.2.0 (2026-10-30)
 
 **Soundfonts of your own**: add any `.sf2` in the File view's new Soundfonts tab, and Instruments → New… offers it beside the bundled GeneralUser GS.

@@ -90,9 +90,9 @@ import { EnvAxis, paintEnvGraph, attachEnvGraph } from "../envgraph.js";
 
 const ENV_TABS = [
   { key: "volEnvelopes", loopKey: "volEnvLoop", susKey: "volEnvSustainWord", labelKey: "inst.tabVolEnv",
-    max: 63, liveIdx: "getVoiceEnvVolIndex", liveTime: "getVoiceEnvVolTime" },
+    max: 63, live: "vol" },
   { key: "panEnvelopes", loopKey: "panEnvLoop", susKey: "panEnvSustainWord", labelKey: "inst.tabPanEnv",
-    max: 255, liveIdx: "getVoiceEnvPanIndex", liveTime: "getVoiceEnvPanTime" },
+    max: 255, live: "pan" },
 ];
 
 /**
@@ -124,8 +124,7 @@ function roleTabDef(inst, wantFilter) {
     max: 255,
     role: wantFilter ? "filter" : "pitch",
     roleActive: active,
-    liveIdx: wantFilter ? "getVoiceEnvFilterIndex" : "getVoiceEnvPitchIndex",
-    liveTime: wantFilter ? "getVoiceEnvFilterTime" : "getVoiceEnvPitchTime",
+    live: wantFilter ? "filter" : "pitch",
   };
 }
 
@@ -149,8 +148,7 @@ function onePfTabDef(inst) {
     max: 255,
     role: filter ? "filter" : "pitch",
     roleActive: envPresent(inst.pfEnvLoop),
-    liveIdx: filter ? "getVoiceEnvFilterIndex" : "getVoiceEnvPitchIndex",
-    liveTime: filter ? "getVoiceEnvFilterTime" : "getVoiceEnvPitchTime",
+    live: filter ? "filter" : "pitch",
   };
 }
 
@@ -1485,16 +1483,15 @@ export class InstrumentsView {
   /** Paint the envelope graph in place: a drag step, the wheel, playback. */
   drawEnvGraph() {
     const { canvas, env, tabDef, inst } = this.envCanvas;
-    // live playback cursor for THIS envelope's role — every tab (vol / pan /
-    // pitch / filter) has its own snapshot index+time accessor on tabDef.
-    const live = [];
+    // A live playback cursor for THIS envelope's role (tabDef.live: vol /
+    // pan / pitch / filter) in every voice playing the instrument whose
+    // envelope this is — by the instrument the voice PLAYS, so an Easy FM
+    // operator's envelope and a layer's own find their voices (operator 0 /
+    // the lead layer on the lane, the rest in the background), which the
+    // lanes' pattern-level instrument (the rack's, the layer table's) never
+    // would (item 269).
     const audio = this.store.audio;
-    if (audio && tabDef.liveIdx) {
-      for (let vi = 0; vi < TOTAL_VOICES; vi++) {
-        if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.envSlot) continue;
-        live.push({ idx: audio[tabDef.liveIdx](vi), t: audio[tabDef.liveTime](vi) });
-      }
-    }
+    const live = audio && tabDef.live ? audio.getEnvPlayheads(this.envSlot, tabDef.live) : [];
     paintEnvGraph(canvas, Math.max(200, this.right.clientWidth - 20), 240, {
       env, max: tabDef.max, axis: this.envAxis,
       sus: inst[tabDef.susKey], loop: inst[tabDef.loopKey],

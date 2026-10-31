@@ -38,6 +38,9 @@ import {
   SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
   SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS, SNAP_IM_RING_FRAMES,
   SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1, SNAP_IM_EXPD_GR, SNAP_IM_EXPD_LVL,
+  SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_EP_MAX, SNAP_EP_INST,
+  SNAP_EP_VOL_IDX, SNAP_EP_VOL_TIME, SNAP_EP_PAN_IDX, SNAP_EP_PAN_TIME,
+  SNAP_EP_PITCH_IDX, SNAP_EP_PITCH_TIME, SNAP_EP_FILTER_IDX, SNAP_EP_FILTER_TIME,
 } from "./protocol.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, displayPanByte, displayAngles,
@@ -249,6 +252,35 @@ export function fillSnapshotInto(eng, playhead, f) {
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);
   fillImixMeterInto(ts, f);
+  fillEnvPlayheadsInto(ts, f);
+}
+
+/**
+ * Envelope-playhead block: one entry per active voice, lane voices first,
+ * then background voices (FM operators, layers, NNA ghosts), each tagged with
+ * the instrument it is actually playing (`instrumentId`, never displayInst).
+ */
+function fillEnvPlayheadsInto(ts, f) {
+  let n = 0;
+  for (let vi = 0; vi < SNAP_MAX_VOICES; vi++) n = putEnvPlayhead(f, n, ts.voices[vi]);
+  for (const bg of ts.backgroundVoices) n = putEnvPlayhead(f, n, bg);
+  f[SNAP_EP_COUNT] = n;
+}
+
+/** Write voice `v`'s entry at index `n` if it is sounding; the next index. */
+function putEnvPlayhead(f, n, v) {
+  if (!v.active || n >= SNAP_EP_MAX) return n;
+  const o = SNAP_EP_ENTRIES + n * SNAP_EP_STRIDE;
+  f[o + SNAP_EP_INST] = v.instrumentId & 0x3ff;
+  f[o + SNAP_EP_VOL_IDX] = v.envIndex;
+  f[o + SNAP_EP_VOL_TIME] = v.envTimeSec;
+  f[o + SNAP_EP_PAN_IDX] = v.envPanIndex;
+  f[o + SNAP_EP_PAN_TIME] = v.envPanTimeSec;
+  f[o + SNAP_EP_PITCH_IDX] = v.envPitchIndex;
+  f[o + SNAP_EP_PITCH_TIME] = v.envPitchTimeSec;
+  f[o + SNAP_EP_FILTER_IDX] = v.envFilterIndex;
+  f[o + SNAP_EP_FILTER_TIME] = v.envFilterTimeSec;
+  return n + 1;
 }
 
 /**

@@ -21691,7 +21691,31 @@ const SNAP_IM_TSH1 = SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RING_FRAM
 const SNAP_IM_EXPD_GR = SNAP_IM_TSH1 + IMX_TSH_MAX_BANDS;
 const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
 
-const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_EXPD_LVL + 1;
+// ── Envelope playheads, after the Mixing-tab block ──
+// Every SOUNDING voice's four envelope positions, tagged with the instrument
+// whose envelopes they are — the operator or layer the voice actually plays,
+// not the pattern-level slot SNAP_V_INST reports. The voice array above holds
+// only the lanes' own voices, so an FM rack's other operators, a layered
+// instrument's other layers and an NNA ghost appear nowhere else; the
+// Instruments view's envelope graph draws a hairline per entry whose
+// instrument is the one it shows. Lane voices first, then background voices;
+// SNAP_EP_COUNT says how many entries are filled.
+const SNAP_EP_BASE = SNAP_IM_BASE + SNAP_IM_EXPD_LVL + 1;
+const SNAP_EP_COUNT = SNAP_EP_BASE;
+const SNAP_EP_ENTRIES = SNAP_EP_BASE + 1;
+const SNAP_EP_INST = 0;
+const SNAP_EP_VOL_IDX = 1;
+const SNAP_EP_VOL_TIME = 2;
+const SNAP_EP_PAN_IDX = 3;
+const SNAP_EP_PAN_TIME = 4;
+const SNAP_EP_PITCH_IDX = 5;
+const SNAP_EP_PITCH_TIME = 6;
+const SNAP_EP_FILTER_IDX = 7;
+const SNAP_EP_FILTER_TIME = 8;
+const SNAP_EP_STRIDE = 9;
+const SNAP_EP_MAX = TOTAL_VOICES + MAX_BG_VOICES;
+
+const SNAP_FLOATS = SNAP_EP_ENTRIES + SNAP_EP_MAX * SNAP_EP_STRIDE;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt
@@ -22195,6 +22219,35 @@ function fillSnapshotInto(eng, playhead, f) {
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);
   fillImixMeterInto(ts, f);
+  fillEnvPlayheadsInto(ts, f);
+}
+
+/**
+ * Envelope-playhead block: one entry per active voice, lane voices first,
+ * then background voices (FM operators, layers, NNA ghosts), each tagged with
+ * the instrument it is actually playing (`instrumentId`, never displayInst).
+ */
+function fillEnvPlayheadsInto(ts, f) {
+  let n = 0;
+  for (let vi = 0; vi < SNAP_MAX_VOICES; vi++) n = putEnvPlayhead(f, n, ts.voices[vi]);
+  for (const bg of ts.backgroundVoices) n = putEnvPlayhead(f, n, bg);
+  f[SNAP_EP_COUNT] = n;
+}
+
+/** Write voice `v`'s entry at index `n` if it is sounding; the next index. */
+function putEnvPlayhead(f, n, v) {
+  if (!v.active || n >= SNAP_EP_MAX) return n;
+  const o = SNAP_EP_ENTRIES + n * SNAP_EP_STRIDE;
+  f[o + SNAP_EP_INST] = v.instrumentId & 0x3ff;
+  f[o + SNAP_EP_VOL_IDX] = v.envIndex;
+  f[o + SNAP_EP_VOL_TIME] = v.envTimeSec;
+  f[o + SNAP_EP_PAN_IDX] = v.envPanIndex;
+  f[o + SNAP_EP_PAN_TIME] = v.envPanTimeSec;
+  f[o + SNAP_EP_PITCH_IDX] = v.envPitchIndex;
+  f[o + SNAP_EP_PITCH_TIME] = v.envPitchTimeSec;
+  f[o + SNAP_EP_FILTER_IDX] = v.envFilterIndex;
+  f[o + SNAP_EP_FILTER_TIME] = v.envFilterTimeSec;
+  return n + 1;
 }
 
 /**

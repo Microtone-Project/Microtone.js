@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>File view folders + moves smoke</title></head>
+<body>
+  <!-- Keeps the load event pending so the run is in REAL time
+       (tools/test-server.py /hang) — the File view is all async. -->
+  <img src="/hang" hidden alt="">
+  <pre id="out">running…</pre>
+  <!-- No ?load=: projects are written into OPFS here and opened from the list,
+       which is the path under test. The online API is a fake answered at the
+       frame's fetch(), so both directions of a move run end to end. -->
+  <iframe id="app" src="../../index.html" style="width:1200px;height:800px"></iframe>
+  <script type="module">
+    const out = [];
+    let failures = 0;
+    const log = (l) => { out.push(l); document.getElementById("out").textContent = out.join("\n"); };
+    const check = (label, ok, extra = "") => {
+      if (!ok) failures++;
+      log(`${label}: ${ok ? "ok" : "FAIL"}${extra ? " — " + extra : ""}`);
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const until = async (cond, ms = 4000) => {
+      for (let t = 0; t < ms; t += 50) { if (await cond()) return true; await sleep(50); }
+      return false;
+    };
+
+    /** The online API, as far as the File view uses it. */
+    function fakeOnline(win) {
+      const projects = new Map();
+      let seq = 0;
+      const json = (body, status = 200) => new win.Response(JSON.stringify(body),
+        { status, headers: { "content-type": "application/json" } });
+      const realFetch = win.fetch.bind(win);
+      win.fetch = async (input, init = {}) => {
+        const url = new URL(typeof input === "string" ? input : input.url, win.location.href);
+        if (!url.pathname.startsWith("/api/online")) return realFetch(input, init);
+        const path = url.pathname.slice("/api/online".length);
+        const method = (init.method ?? "GET").toUpperCase();
+        if (path === "/me") return json({ signedIn: true, signIn: "dev", user: { name: "tester" } });
+        if (path === "/projects" && method === "GET") {
+          return json({
+            projects: [...projects.values()].map(({ bytes, ...p }) => p),
+            limit: 8, sizeLimit: 10 * 1048576, sketchLimit: 64,
+          });
+        }
+        if (path === "/projects" && method === "POST") {
+          const name = url.searchParams.get("name");
+          if ([...projects.values()].some((p) => p.name === name)) return json({ error: "exists" }, 409);
+          const bytes = new Uint8Array(await new win.Response(init.body).arrayBuffer());
+          const p = { id: `p${++seq}`, name, size: bytes.length, etag: `e${seq}`, modified: Date.now(), bytes };
+          projects.set(p.id, p);
+          const { bytes: _b, ...meta } = p;
+          return json({ project: meta }, 201);
+        }
+        const id = decodeURIComponent(path.replace(/^\/projects\//, ""));
+        const p = projects.get(id);
+        if (!p) return json({ error: "not-found" }, 404);
+        if (method === "GET") {
+          return new win.Response(p.bytes, { headers: { etag: `"${p.etag}"`, "content-length": String(p.size) } });
+        }
+        if (method === "DELETE") { projects.delete(id); return json({}); }
+        return json({ error: "unsupported" }, 400);
+      };
+      return projects;
+    }
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        await until(() => frame.contentWindow?.__microtone, 20000);
+        const win = frame.contentWindow;
+        const doc = win.document;
+        const store = win.__microtone.store;
+        const opfs = await win.eval('import("/src/storage/opfs.js")');
+        const { t } = await win.eval('import("/src/ui/i18n.js")');
+
+        // A clean disk with three projects at the top.
+        const root = await win.navigator.storage.getDirectory();
+        try { await root.removeEntry("projects", { recursive: true }); } catch { /* none yet */ }
+        const bytes = new Uint8Array(await (await fetch("../../assets/demo_projects/Daisy_bell.taud")).arrayBuffer());
+        for (const n of ["one.taud", "two.taud", "three.taud"]) await opfs.write(n, bytes);
+        const server = fakeOnline(win);
+
+        const host = doc.getElementById("filesHost");
+        const button = (label, within = host) =>
+          [...within.querySelectorAll("button")].find((b) => b.textContent.trim() === label);
+        const modal = () => [...doc.querySelectorAll("dialog[open]")].pop();
+        const proceed = async (fill = null) => {
+          await until(() => modal());
+          const dlg = modal();
+          if (fill) fill(dlg);
+          dlg.querySelector(".modal-buttons .proceed").click();
+          await sleep(50);
+        };
+        const localTable = () => host.querySelector("table.files-local");
+        const rowNames = () => [...localTable().querySelectorAll("tbody tr")]
+          .map((tr) => tr.querySelector("button.files-name")?.textContent.trim() ?? "");
+        const tick = (name) => {
+          const box = [...localTable().querySelectorAll("tbody tr")]
+            .find((tr) => tr.querySelector("button.files-name")?.textContent.trim() === name)
+            ?.querySelector("input[type=checkbox]");
+          box.checked = true;
+          box.dispatchEvent(new win.Event("change"));
+        };
+        const settle = () => sleep(400);
+        const shown = (el) => !!el && el.getClientRects().length > 0;
+
+        doc.querySelector('#tabs button[data-view="files"]').click();
+        await until(() => localTable());
+        await settle();
+
+        // ── a new folder lists first, with its icon ──
+        button(t("files.newFolder")).click();
+        await proceed((dlg) => { dlg.querySelector("input").value = "Album"; });
+        await until(() => rowNames()[0] === "Album");
+        const firstRow = localTable().querySelector("tbody tr");
+        check("new folder lists before the projects, with a folder icon",
+          rowNames().join(",") === "Album,one.taud,three.taud,two.taud" &&
+          firstRow.classList.contains("files-folder") && !!firstRow.querySelector("svg.btn-ico"),
+          rowNames().join(","));
+
+        // ── tick boxes are out only in selection mode ──
+        const selectBtn = () => host.querySelector(".files-crumbs > button");
+        const hiddenAtFirst = !shown(localTable().querySelector("tbody input[type=checkbox]")) &&
+          !shown(host.querySelector(".files-selbar"));
+        selectBtn().click();
+        const outNow = shown(localTable().querySelector("tbody input[type=checkbox]")) &&
+          shown(host.querySelector(".files-selbar")) && selectBtn().textContent === t("files.selectDone");
+        check("tick boxes hidden until Select, shown after", hiddenAtFirst && outNow);
+
+        // ── ticking updates the bar in place; two projects move together ──
+        const before = localTable();
+        tick("one.taud");
+        tick("two.taud");
+        const count = host.querySelector(".files-selcount").textContent;
+        check("ticking does not redraw, and the bar counts", localTable() === before &&
+          count === t("files.selected", { n: 2 }), count);
+        button(t("files.moveTo")).click();
+        await proceed((dlg) => { dlg.querySelector("select").value = "Album"; });
+        await until(async () => (await opfs.list()).length === 3 && (await opfs.exists("Album/two.taud")));
+        await settle();
+        const paths = (await opfs.list()).map((f) => f.name).join(",");
+        check("move to folder", paths === "Album/one.taud,Album/two.taud,three.taud" &&
+          rowNames().join(",") === "Album,three.taud", paths);
+
+        // ── into the folder, open a project from there ──
+        button("Album", localTable()).click();
+        await until(() => rowNames()[0] === "..");
+        const crumbs = [...host.querySelectorAll(".files-crumbs-trail button")].map((b) => b.textContent).join(">");
+        check("folder view: way up first, breadcrumb", rowNames().join(",") === "..,one.taud,two.taud" &&
+          crumbs === `${t("files.folderTop")}>Album`, `${rowNames()} / ${crumbs}`);
+        button("one.taud", localTable()).click();
+        await until(() => store.doc && store.fileName === "one.taud");
+        // Opening shows the Timeline; come back to the File view.
+        doc.querySelector('#tabs button[data-view="files"]').click();
+        await settle();
+        check("opened from a folder", store.folder === "Album" && store.localPath === "Album/one.taud" &&
+          localTable().querySelector("button.files-current")?.textContent.trim() === "one.taud",
+          `${store.folder}/${store.fileName}`);
+
+        // ── local → online (the open one goes with it) ──
+        await until(() => button(t("files.moveOnline")) && !button(t("files.moveOnline")).hidden);
+        const stillOut = shown(localTable().querySelector("tbody input[type=checkbox]"));
+        check("selection mode outlives a move and a change of folder", stillOut);
+        tick("one.taud");
+        button(t("files.moveOnline")).click();
+        await proceed();
+        await until(() => server.size === 1 && store.onlineProject);
+        await settle();
+        check("move online: uploaded, deleted here, the open project follows",
+          [...server.values()][0]?.name === "one.taud" && !(await opfs.exists("Album/one.taud")) &&
+          store.onlineProject?.id === [...server.values()][0]?.id && store.folder === "",
+          `server ${[...server.values()].map((p) => p.name)}, open ${store.localPath}`);
+
+        // ── online → local, into the folder on show ──
+        const onlineHost = host.querySelector(".files-online");
+        await until(() => onlineHost.querySelector("tbody input[type=checkbox]"));
+        await settle();
+        const obox0 = onlineHost.querySelector("tbody input[type=checkbox]");
+        const onlineHidden = !shown(obox0);
+        button(t("files.select"), onlineHost).click();
+        const obox = onlineHost.querySelector("tbody input[type=checkbox]");
+        check("online tick boxes hidden until its own Select", onlineHidden && shown(obox),
+          `hidden first ${onlineHidden}, same box ${obox0 === obox}, shown ${shown(obox)}`);
+        obox.checked = true;
+        obox.dispatchEvent(new win.Event("change"));
+        button(t("files.online.moveLocal"), onlineHost).click();
+        await proceed();
+        await until(async () => server.size === 0 && (await opfs.exists("Album/one.taud")));
+        await settle();
+        check("move to this browser: fetched into the folder, deleted online, open project follows",
+          server.size === 0 && !store.onlineProject && store.localPath === "Album/one.taud",
+          `open ${store.localPath}`);
+
+        // ── Done puts the boxes away and forgets the ticks ──
+        selectBtn().click();
+        check("Done hides the boxes and clears the ticks",
+          !shown(localTable().querySelector("tbody input[type=checkbox]")) &&
+          selectBtn().textContent === t("files.select"),
+          `box shown ${shown(localTable().querySelector("tbody input[type=checkbox]"))}, label ${selectBtn().textContent}`);
+
+        // ── renaming the folder carries the open project and the view ──
+        button("..", localTable()).click();
+        await until(() => rowNames()[0] === "Album");
+        const renameBtn = localTable().querySelector("tbody tr.files-folder td:last-child button:nth-child(2)");
+        renameBtn.click();
+        await proceed((dlg) => { dlg.querySelector("input").value = "Disc"; });
+        await until(async () => await opfs.exists("Disc/one.taud") && !(await opfs.exists("Album")));
+        await settle();
+        check("rename folder", store.localPath === "Disc/one.taud" && rowNames()[0] === "Disc",
+          `${store.localPath} / ${rowNames()}`);
+
+        // ── a name with a slash is refused, not written ──
+        button(t("files.newFolder")).click();
+        await proceed((dlg) => { dlg.querySelector("input").value = "a/b"; });
+        await until(() => modal()?.querySelector(".act-dismiss"));
+        modal().querySelector(".act-dismiss").click();
+        await until(() => modal());
+        modal().querySelector(".act-cancel").click();
+        await settle();
+        check("slash in a name refused", !(await opfs.exists("a")) && rowNames()[0] === "Disc");
+
+        // ── autosaves keep the folder ──
+        await opfs.writeAutosave("Disc/x%y.taud", bytes);
+        const autos = (await opfs.listAutosaves()).map((a) => a.name);
+        const back = (await opfs.readAutosave("Disc/x%y.taud")).length === bytes.length;
+        await opfs.removeAutosave("Disc/x%y.taud");
+        check("autosave path round trip", autos.includes("Disc/x%y.taud") && back &&
+          !(await opfs.listAutosaves()).some((a) => a.name === "Disc/x%y.taud"), autos.join(","));
+
+        // ── deleting a folder takes its projects ──
+        localTable().querySelector("tbody tr.files-folder td:last-child button:nth-child(3)").click();
+        await proceed();
+        await until(async () => !(await opfs.exists("Disc")));
+        await settle();
+        check("delete folder", (await opfs.list()).map((f) => f.name).join(",") === "three.taud" &&
+          rowNames().join(",") === "three.taud");
+
+        // ── Delete in the selection bar: several local projects at once ──
+        for (const n of ["four.taud", "five.taud"]) await opfs.write(n, bytes);
+        doc.querySelector('#tabs button[data-view="timeline"]').click();
+        await sleep(100);
+        doc.querySelector('#tabs button[data-view="files"]').click();
+        await until(() => rowNames().includes("five.taud"));
+        if (selectBtn().textContent !== t("files.selectDone")) selectBtn().click();
+        tick("four.taud");
+        tick("five.taud");
+        button(t("common.delete"), host.querySelector(".files-selbar")).click();
+        await until(() => modal());
+        const askBody = modal().querySelector("p")?.textContent ?? "";
+        await proceed();
+        await until(async () => (await opfs.list()).length === 1);
+        await settle();
+        check("delete the selected local projects", (await opfs.list()).map((f) => f.name).join(",") === "three.taud" &&
+          askBody === "four.taud\nfive.taud" && rowNames().join(",") === "three.taud", askBody);
+
+        // ── …and several online ones ──
+        for (const [id, name] of [["x1", "a.taud"], ["x2", "b.taud"], ["x3", "c.taud"]]) {
+          server.set(id, { id, name, size: bytes.length, etag: id, modified: Date.now(), bytes });
+        }
+        doc.querySelector('#tabs button[data-view="timeline"]').click();
+        await sleep(100);
+        doc.querySelector('#tabs button[data-view="files"]').click();
+        await until(() => onlineHost.querySelectorAll("tbody input[type=checkbox]").length === 3);
+        const oSelect = [...onlineHost.querySelectorAll(".files-online-bar button")]
+          .find((b) => [t("files.select"), t("files.selectDone")].includes(b.textContent));
+        if (oSelect.textContent !== t("files.selectDone")) oSelect.click();
+        const oboxes = [...onlineHost.querySelectorAll("tbody input[type=checkbox]")];
+        for (const box of oboxes.slice(0, 2)) { box.checked = true; box.dispatchEvent(new win.Event("change")); }
+        button(t("common.delete"), onlineHost.querySelector(".files-selbar")).click();
+        await proceed();
+        await until(() => server.size === 1);
+        check("delete the selected online projects", server.size === 1 && [...server.values()][0].name === "c.taud",
+          [...server.values()].map((p) => p.name).join(","));
+      } catch (err) {
+        failures++;
+        log(`EXCEPTION: ${err.stack ?? err}`);
+      }
+      log(`FAILURES: ${failures}`);
+    })();
+  </script>
+</body>
+</html>

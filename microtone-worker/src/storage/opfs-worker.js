@@ -1,9 +1,9 @@
 // OPFS write worker — Safari path: createSyncAccessHandle is worker-only.
 self.onmessage = async (e) => {
-  const { id, name, dirName = "projects", bytes } = e.data;
+  const { id, name, dirPath = ["projects"], bytes } = e.data;
   try {
-    const root = await navigator.storage.getDirectory();
-    const dir = await root.getDirectoryHandle(dirName, { create: true });
+    let dir = await navigator.storage.getDirectory();
+    for (const part of dirPath) dir = await dir.getDirectoryHandle(part, { create: true });
     const handle = await dir.getFileHandle(name, { create: true });
     const access = await handle.createSyncAccessHandle();
     try {

@@ -25,6 +25,11 @@ export class Store {
     this.view = "timeline";
     this.views = ["timeline"];
     this.fileName = null;
+    /** The folder of the File view's local list the open project was opened
+     *  from or saved to ("" the top; "A/B" nested). `fileName` stays the bare
+     *  name, which is what every export and the status bar want; `localPath`
+     *  is the two together, which is what OPFS wants. */
+    this.folder = "";
     /** Where the open document lives online, if it does: { doc, id, etag } —
      *  the project it was opened from or last saved to, and the ETag the next
      *  save must quote. Read it through `onlineProject`, which checks `doc`:
@@ -89,6 +94,12 @@ export class Store {
   /** Cue-word block clipboard (Cues view) — likewise. */
   get cueClipboard() { return this._cueClip.get(); }
   set cueClipboard(b) { this._cueClip.set(b ?? null); }
+
+  /** The open project's path in the local list (null before it has a name). */
+  get localPath() {
+    if (!this.fileName) return null;
+    return this.folder ? `${this.folder}/${this.fileName}` : this.fileName;
+  }
 
   /** `online`, while it still belongs to the open document. */
   get onlineProject() {

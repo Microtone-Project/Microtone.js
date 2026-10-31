@@ -21,6 +21,10 @@ import {
 } from "../../core/engine/inst.js";
 import { fmReferencedOperators } from "../../core/engine/fm.js";
 import { EffectOp } from "../../core/engine/tables.js";
+import { fillSnapshotInto } from "../../core/worklet/engine-commands.js";
+import {
+  SNAP_FLOATS, SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_EP_INST, SNAP_EP_VOL_IDX,
+} from "../../core/worklet/protocol.js";
 
 setSamplingRate(32000);
 
@@ -537,4 +541,45 @@ test("a ghosted rack takes no row-driven effect — it is a background voice", (
   assert.equal(ghost.bitcrusherDepth, 0, "the ghost was not");
   const ghostOp = operators(eng).find((v) => v.fmParent === ghost);
   assert.equal(ghostOp.bitcrusherDepth, 0, "…and neither was its operand");
+});
+
+// ── the snapshot's envelope playheads (item 269) ─────────────────────────
+// The Instruments view draws an operator's (or a layer's) envelope cursor
+// from the snapshot. The lane's voice reports the RACK's slot and operators
+// 1+ are background voices outside the voice array, so the block has to name
+// every sounding voice by the instrument it plays.
+
+function envPlayheadSlots(eng) {
+  const f = new Float32Array(SNAP_FLOATS);
+  fillSnapshotInto(eng, 0, f);
+  const slots = [];
+  for (let k = 0; k < f[SNAP_EP_COUNT]; k++) {
+    const o = SNAP_EP_ENTRIES + k * SNAP_EP_STRIDE;
+    assert.ok(f[o + SNAP_EP_VOL_IDX] >= 0, "a sounding voice has a volume playhead");
+    slots.push(f[o + SNAP_EP_INST]);
+  }
+  return slots.sort((a, b) => a - b);
+}
+
+test("every operator of a sounding rack reports its envelope under its own slot", () => {
+  const eng = makeEngine();
+  eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_FM }));
+  loadSong(eng, [{ row: 0, note: 0x5000, inst: 3 }]);
+  render(eng, 1);
+  assert.deepEqual(envPlayheadSlots(eng), [1, 2], "operator 0 on the lane, operator 1 in the background");
+});
+
+test("every layer of a sounding layered instrument reports its envelope under its own slot", () => {
+  const eng = makeEngine();
+  eng.uploadInstrument(3, buildMetaRecord([op(1), op(2)], { type: META_TYPE_LAYERED }));
+  loadSong(eng, [{ row: 0, note: 0x5000, inst: 3 }]);
+  render(eng, 1);
+  assert.deepEqual(envPlayheadSlots(eng), [1, 2]);
+});
+
+test("nothing sounding, no envelope playheads", () => {
+  const eng = makeEngine();
+  loadSong(eng, []);
+  render(eng, 1);
+  assert.deepEqual(envPlayheadSlots(eng), []);
 });

@@ -2615,6 +2615,34 @@ and **✕** deletes.
 In private-browsing mode OPFS may be unavailable — a warning appears, and you
 should use **Export** to keep your work.
 
+### Folders
+
+The list shows one folder at a time: its folders first, each with a folder
+icon, then its projects. The path above the table (**Projects › Album ›
+Demos**) shows where you are; click any step of it to go back up, or use the
+**..** row at the top of the table. The File view remembers the last folder you
+were in.
+
+- **New folder…** (right of the path) makes a folder inside the one on show.
+- **Click a folder's name** (or **Open**) to go into it. **✎** renames it and **✕** deletes it *with everything in it* — the question says how many projects that is. A folder's size column counts its projects, and its date is that of the newest one.
+- **Save As…**, **Import Taud/Module…** and **Import MIDI…** put the new project into the folder on show; **Save** keeps a project in the folder it came from.
+- Names cannot contain `/` or `\`.
+
+### Moving projects
+
+**Select** (beside **New folder…**) puts a tick box at the start of every
+project's row; tick the ones you want, or use the box in the heading for every
+project in the folder. **Done** puts the boxes away again and forgets what was
+ticked. While the boxes are out, a bar above the table counts what is ticked and
+offers:
+
+- **Move to folder…** — move the selected projects into another folder (or up to the top). A project whose name is already taken there stays where it is, and the app tells you which.
+- **Move online** — while you are signed in to [online projects](#online-projects): upload each selected project as an online project, then delete it from the browser. It needs a free slot for each, and only `.taud` projects go online. The open project goes with it: from then on, Save saves it online.
+- **✕ Delete** — delete the selected projects, after one question that names them.
+
+A move always puts the new copy in place before it deletes the old one, so an
+interrupted move leaves two copies, never none.
+
 **Download all** at the end of the button bar puts *every* project in this
 browser into one dated ZIP — the backup browser storage does not otherwise give
 you, and worth taking before you clear site data. It archives what is on the
@@ -2623,7 +2651,7 @@ current state of it.
 
 ### Saving and autosave
 
-- **Save** (**Ctrl+S**) writes the current project into OPFS — or, for an [online project](#online-projects), back online; **Save As…** writes it into OPFS under a new name.
+- **Save** (**Ctrl+S**) writes the current project into OPFS — or, for an [online project](#online-projects), back online; **Save As…** writes it into OPFS under a new name, in the folder on show.
 - While a project has **unsaved changes**, a dot sits after its name in the status bar. During a save, that dot becomes a **progress bar**; the project is compressed in the background, so you can keep working, and anything you change while the bar is up stays unsaved — the dot comes back — until you save again.
 - The app **autosaves** 45 seconds after your last edit. If the browser closes with unsaved work, the next visit offers to recover it; declining discards the autosave. A clean save removes its autosave.
 
@@ -2640,6 +2668,7 @@ your account remains active.
 - **Sign in with SceneID** opens a small window where you sign in at SceneID; the first time, SceneID asks you to allow Microtone. The window closes itself when you are done, and the project you have open is not touched. If the browser blocks the window, allow pop-ups for the site. Microtone keeps only your SceneID number and display name.
 - **Save online…** puts the open project into a free slot, under a name you choose. From then on the project *belongs* online: the status bar marks it **(online)**, and **Save** (**Ctrl+S**) saves it back there.
 - **Click a name** (or **Open**) to open an online project. **✎** renames it, **⬇** downloads a copy to your computer, and **✕** deletes it.
+- **Move to this browser** — **Select** in the online bar brings out tick boxes there too; tick online projects and move them into the folder the browser's list is showing: each is downloaded there, then deleted online, which frees its slot. **✕ Delete** in the same bar deletes the ticked ones. The open project goes with it, and Save then keeps it in the browser. (Sketches from Touch are not ticked: open one, then save it.)
 - **A save never quietly replaces a newer one.** If the project was saved from another browser after you opened it here, Save asks first — **Replace it** keeps what is open here and discards the other version.
 - **Save As…** always makes a copy in this browser, and the project then belongs to the browser again.
 - If a save cannot reach the server, nothing is lost: the project stays open and unsaved, and **Save As…** keeps a copy in the browser meanwhile.
@@ -2647,8 +2676,8 @@ your account remains active.
 
 ### Import and export
 
-- **Import Taud/Module…** — bring a file from your real disk into OPFS.
-- **Import MIDI…** — convert a MIDI file and save the result straight into OPFS.
+- **Import Taud/Module…** — bring a file from your real disk into OPFS, in the folder on show.
+- **Import MIDI…** — convert a MIDI file and save the result straight into OPFS, in the folder on show.
 - **Demo songs…** — open one of the bundled projects; see [Demo songs](#demo-songs).
 - **Export ⬇** — download the project as a `.taud` file.
 - **Export audio…** — render the current song offline through the same engine. Pick a target from the pictures, a sample rate and a maximum length (songs that never HALT stop at the cap). Every target is the same song re-rendered, not a downmix stage bolted on the end:

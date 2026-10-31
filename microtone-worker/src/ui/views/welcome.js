@@ -232,7 +232,8 @@ export class WelcomeView {
       b.title = e.name;
       const name = document.createElement("span");
       name.className = "wc-file-name";
-      name.textContent = e.name.replace(/\.taud$/, "");
+      // A project in a folder is listed by its own name; the tooltip has the path.
+      name.textContent = e.name.slice(e.name.lastIndexOf("/") + 1).replace(/\.taud$/, "");
       const when = document.createElement("span");
       when.className = "wc-file-meta";
       when.textContent = relTime(e.when);

@@ -14,8 +14,14 @@
 // Sketches sent from Microtone Touch (.mtsk) are listed here too, in slots of
 // their own. One opens as a NEW project made from it, belonging nowhere yet:
 // a sketch slot holds sketches, and the phone may send that one again.
+//
+// Projects MOVE between here and the browser's own list: ticked ones here go
+// into the local folder on show (Move to this browser), ticked ones there come
+// here (adoptLocal). Either way the new copy is made before the old one is
+// deleted, and an open project that moves goes on belonging to its file.
 
 import * as online from "../../../core/storage/online.js";
+import * as opfs from "../../storage/opfs.js";
 import { ZSTD_LEVEL_SAVE } from "../../../core/format/zstd.js";
 import { withSaveProgress } from "../saveprogress.js";
 import { download } from "../../storage/import-export.js";
@@ -39,7 +45,8 @@ const EXPLAINED = new Set([
 export class OnlineSection {
   /**
    * @param callbacks { openBytes(name, bytes), currentDoc() → {doc, fileName},
-   *                    refresh() — redraw the whole File view }
+   *                    refresh() — redraw the whole File view,
+   *                    localFolder() — the local folder on show }
    */
   constructor(store, callbacks) {
     this.store = store;
@@ -56,6 +63,16 @@ export class OnlineSection {
     // waiting on (see waiting()).
     this.host = null;
     this.waits = 0;
+    // Whether the last answer had someone signed in, and how many project
+    // slots it left free — the local list's Move online asks both.
+    this.signedIn = false;
+    this.freeSlots = 0;
+    // The ticked projects (ids), for Move to this browser, and the controls
+    // that show them (syncSelection).
+    this.selected = new Set();
+    this.selUi = null;
+    // Whether the tick column is out (Select … Done), as in the local list.
+    this.selecting = false;
   }
 
   /**
@@ -80,6 +97,7 @@ export class OnlineSection {
     if (!answer) return;
     const { st, listing, failure } = answer;
     this.available = st.available;
+    this.signedIn = st.available && st.signedIn && !!listing;
     host.classList.remove("files-online-pending");
     if (!st.available) {
       host.hidden = true;
@@ -89,6 +107,7 @@ export class OnlineSection {
 
     const sketches = listing ? listing.projects.filter((p) => online.isSketchName(p.name)).length : 0;
     const projects = listing ? listing.projects.length - sketches : 0;
+    this.freeSlots = Math.max(0, this.limit - projects);
     const head = heading(listing
       ? t("files.online.count", { n: projects, limit: this.limit }) +
         (sketches ? " " + t("files.online.countSketches", { n: sketches, limit: this.sketchLimit }) : "")
@@ -115,7 +134,11 @@ export class OnlineSection {
       const who = document.createElement("span");
       who.className = "files-online-who";
       who.textContent = t("files.online.signedInAs", { name: st.user?.name ?? "" });
-      bar.append(saveBtn, who, mkBtn(t("files.online.signOut"), () => this.signOut()));
+      const ui = { boxes: new Map() };
+      ui.selectBtn = mkBtn(t("files.select"), () => this.setSelecting(!this.selecting));
+      ui.selectBtn.hidden = true; // until syncSelection: a listing that failed has nothing to tick
+      ui.selectBtn.title = t("files.selectTitle");
+      bar.append(saveBtn, ui.selectBtn, who, mkBtn(t("files.online.signOut"), () => this.signOut()));
       parts.push(bar);
       if (failure) {
         const warn = document.createElement("p");
@@ -123,7 +146,13 @@ export class OnlineSection {
         warn.textContent = this.message(failure);
         parts.push(warn);
       } else {
-        parts.push(this.table(listing.projects));
+        const ids = new Set(listing.projects.map((p) => p.id));
+        for (const id of this.selected) if (!ids.has(id)) this.selected.delete(id);
+        ui.wrap = document.createElement("div");
+        ui.wrap.className = "files-selwrap";
+        ui.wrap.append(this.selectionBar(listing.projects, ui), this.table(listing.projects, ui));
+        parts.push(ui.wrap);
+        this.selUi = ui;
       }
     }
 
@@ -131,8 +160,10 @@ export class OnlineSection {
     note.className = "files-disclaimer";
     note.textContent = t("files.online.policy", { limit: this.limit, mb: Math.round(this.sizeLimit / MB) });
     parts.push(note);
+    if (!(st.signedIn && !failure)) this.selUi = null;
     host.replaceChildren(...parts);
     host.hidden = false;
+    this.syncSelection();
   }
 
   /** The status, then — when signed in — the listing; null once a newer
@@ -174,17 +205,80 @@ export class OnlineSection {
     }
   }
 
-  table(projects) {
+  /** What to do with the ticked projects: bring them into this browser. */
+  selectionBar(projects, ui) {
+    const bar = document.createElement("div");
+    bar.className = "files-bar files-selbar";
+    ui.count = document.createElement("span");
+    ui.count.className = "files-selcount";
+    ui.count.setAttribute("aria-live", "polite");
+    ui.move = mkBtn(t("files.online.moveLocal"), () => this.moveSelectedLocal(projects));
+    ui.move.title = t("files.online.moveLocalTitle");
+    ui.del = mkBtn("", () => this.deleteSelected(projects));
+    setIconLabel(ui.del, "close", t("common.delete"));
+    ui.del.title = t("files.online.deleteSelectedTitle");
+    bar.append(ui.count, ui.move, ui.del);
+    return bar;
+  }
+
+  /** The selection's controls, brought into line with `selected` in place —
+   *  a tick is not worth asking the server again. */
+  syncSelection() {
+    const ui = this.selUi;
+    if (!ui) return;
+    ui.wrap.classList.toggle("files-selecting", this.selecting);
+    ui.selectBtn.textContent = this.selecting ? t("files.selectDone") : t("files.select");
+    ui.selectBtn.setAttribute("aria-pressed", String(this.selecting));
+    ui.selectBtn.hidden = !this.selecting && ui.boxes.size === 0;
+    const n = this.selected.size;
+    ui.count.textContent = n ? t("files.selected", { n }) : t("files.selectHint");
+    ui.move.disabled = n === 0;
+    ui.del.disabled = n === 0;
+    for (const [id, box] of ui.boxes) box.checked = this.selected.has(id);
+    if (ui.all) {
+      const ticked = [...ui.boxes.keys()].filter((id) => this.selected.has(id)).length;
+      ui.all.checked = ticked > 0 && ticked === ui.boxes.size;
+      ui.all.indeterminate = ticked > 0 && ticked < ui.boxes.size;
+    }
+  }
+
+  /** Selection mode on or off; off forgets the ticks. */
+  setSelecting(on) {
+    this.selecting = on;
+    if (!on) this.selected.clear();
+    this.syncSelection();
+  }
+
+  table(projects, ui) {
     const table = document.createElement("table");
     table.className = "files-table";
-    table.innerHTML =
-      `<thead><tr><th>${t("files.colProject")}</th><th>${t("files.colSize")}</th>` +
-      `<th>${t("files.colModified")}</th><th></th></tr></thead>`;
+    // Sketches stay out of the ticking: one is not a project until it is opened.
+    const movable = projects.filter((p) => !online.isSketchName(p.name));
+    const head = document.createElement("thead");
+    const hr = document.createElement("tr");
+    const allTh = document.createElement("th");
+    allTh.className = "files-check";
+    if (movable.length > 0) {
+      const all = ui.all = checkbox(t("files.selectAll"));
+      all.addEventListener("change", () => {
+        for (const p of movable) all.checked ? this.selected.add(p.id) : this.selected.delete(p.id);
+        this.syncSelection();
+      });
+      allTh.append(all);
+    }
+    hr.append(allTh);
+    for (const key of ["files.colProject", "files.colSize", "files.colModified", null]) {
+      const th = document.createElement("th");
+      if (key) th.textContent = t(key);
+      hr.append(th);
+    }
+    head.append(hr);
+    table.append(head);
     const tbody = document.createElement("tbody");
     if (projects.length === 0) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = 4;
+      td.colSpan = 5;
       td.className = "dim";
       td.textContent = t("files.online.none");
       tr.appendChild(td);
@@ -194,8 +288,20 @@ export class OnlineSection {
     const sorted = [...projects].sort((a, b) => a.name.localeCompare(b.name));
     for (const p of sorted) {
       const tr = document.createElement("tr");
+      const checkTd = document.createElement("td");
+      checkTd.className = "files-check";
+      if (!online.isSketchName(p.name)) {
+        const box = checkbox(t("files.selectOne", { name: p.name }));
+        ui.boxes.set(p.id, box);
+        box.addEventListener("change", () => {
+          box.checked ? this.selected.add(p.id) : this.selected.delete(p.id);
+          this.syncSelection();
+        });
+        checkTd.append(box);
+      }
       const nameTd = document.createElement("td");
-      const nameBtn = mkBtn(p.name, () => this.open(p));
+      const nameBtn = mkBtn("", () => this.open(p));
+      setIconLabel(nameBtn, "file", p.name);
       nameBtn.className = "files-name" + (p.id === currentId ? " files-current" : "");
       nameBtn.title = t("files.openTitle", { name: p.name });
       nameTd.appendChild(nameBtn);
@@ -211,7 +317,7 @@ export class OnlineSection {
       const deleteBtn = iconBtn("close", () => this.remove(p));
       deleteBtn.title = t("common.delete");
       actions.append(mkBtn(t("files.open"), () => this.open(p)), renameBtn, downloadBtn, deleteBtn);
-      tr.append(nameTd, sizeTd, timeTd, actions);
+      tr.append(checkTd, nameTd, sizeTd, timeTd, actions);
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
@@ -417,12 +523,37 @@ export class OnlineSection {
   async remove(p) {
     const yes = await showModal({ title: t("files.online.deleteAsk", { name: p.name }), okLabel: t("common.delete") });
     if (!yes) return;
+    await this.deleteOne(p);
+    this.cb.refresh();
+  }
+
+  /** Delete the ticked online projects, after one question that names them.
+   *  Stops at the first failure (it would most likely fail the rest too). */
+  async deleteSelected(projects) {
+    const chosen = projects.filter((p) => this.selected.has(p.id));
+    if (chosen.length === 0) return;
+    const yes = await showModal({
+      title: t("files.online.deleteManyAsk", { n: chosen.length }),
+      body: nameList(chosen.map((p) => p.name)),
+      okLabel: t("common.delete"),
+    });
+    if (!yes) return;
+    for (const p of chosen) {
+      if (!(await this.deleteOne(p))) break;
+      this.selected.delete(p.id);
+    }
+    this.cb.refresh();
+  }
+
+  /** Delete one online project (gone already counts as deleted). → false if
+   *  it could not be, the person having been told why. */
+  async deleteOne(p) {
     try {
       await this.waiting(online.remove(p.id));
     } catch (err) {
       if (err.code !== "not-found") {
         await this.report(err, p.name);
-        return;
+        return false;
       }
     }
     if (this.store.onlineProject?.id === p.id) {
@@ -432,7 +563,117 @@ export class OnlineSection {
       this.store.doc.dirty = true;
       this.store.emit("status");
     }
+    return true;
+  }
+
+  // ── moving between here and the browser ──
+
+  /**
+   * Move the ticked online projects into the local folder on show: each is
+   * fetched, written there, and only then deleted online. One whose name the
+   * folder already has stays online, and is named afterwards.
+   */
+  async moveSelectedLocal(projects) {
+    const chosen = projects.filter((p) => this.selected.has(p.id));
+    if (chosen.length === 0) return;
+    if (!(await opfs.available())) {
+      await showNotice({ title: t("files.opfsWarn"), okLabel: t("common.ok") });
+      return;
+    }
+    const folder = this.cb.localFolder?.() ?? "";
+    const yes = await showModal({
+      title: t("files.online.moveLocalAsk", { n: chosen.length }),
+      body: t("files.online.moveLocalBody", { folder: folderLabel(folder) }),
+      okLabel: t("files.move"),
+    });
+    if (!yes) return;
+    const skipped = [];
+    for (const p of chosen) {
+      const path = opfs.joinPath(folder, p.name);
+      if (await opfs.exists(path)) { skipped.push(t("files.skipExists", { name: p.name })); continue; }
+      const got = await this.fetchProject(p, "files.online.moving");
+      if (!got) break; // the popup said why; the rest stay where they are
+      await opfs.write(path, got.bytes);
+      try {
+        await this.waiting(online.remove(p.id));
+      } catch (err) {
+        // Not deleted online: the local copy stays, and the person hears why.
+        if (err.code !== "not-found") {
+          await this.report(err, p.name);
+          break;
+        }
+      }
+      this.selected.delete(p.id);
+      if (this.store.onlineProject?.id === p.id) {
+        // Still open: it belongs to the local file now, and Save goes there.
+        this.store.online = null;
+        this.store.fileName = p.name;
+        this.store.folder = folder;
+        this.store.emit("status");
+      }
+    }
     this.cb.refresh();
+    if (skipped.length) await this.reportSkipped(skipped);
+  }
+
+  /**
+   * Move local projects (paths) here: each is uploaded as a new online
+   * project, and deleted from the browser once the server has it. Stops at
+   * the first failure that would fail the rest too (no room, no connection).
+   * → the paths that moved.
+   */
+  async adoptLocal(paths) {
+    const moved = [];
+    if (!this.signedIn) return moved;
+    const yes = await showModal({
+      title: t("files.online.moveOnlineAsk", { n: paths.length }),
+      body: t("files.online.moveOnlineBody", { free: this.freeSlots, limit: this.limit }),
+      okLabel: t("files.move"),
+    });
+    if (!yes) return moved;
+    const skipped = [];
+    for (const path of paths) {
+      const { name } = opfs.splitPath(path);
+      if (!name.endsWith(".taud")) { skipped.push(t("files.skipNotTaud", { name })); continue; }
+      let bytes;
+      try {
+        bytes = await opfs.read(path);
+      } catch {
+        skipped.push(t("files.skipUnreadable", { name }));
+        continue;
+      }
+      if (bytes.length > this.sizeLimit) {
+        skipped.push(t("files.skipTooLarge", { name, mb: Math.round(this.sizeLimit / MB) }));
+        continue;
+      }
+      let project;
+      try {
+        project = await this.waiting(online.create(name, bytes));
+      } catch (err) {
+        if (err instanceof online.OnlineError && err.code === "exists") {
+          skipped.push(t("files.skipExists", { name }));
+          continue;
+        }
+        await this.report(err, name);
+        break;
+      }
+      await opfs.remove(path);
+      moved.push(path);
+      if (!this.store.onlineProject && this.store.localPath === path) {
+        // Still open: it belongs to the online project now, and Save goes there.
+        this.store.online = { doc: this.store.doc, id: project.id, etag: project.etag };
+        this.store.fileName = project.name;
+        this.store.folder = "";
+        this.store.emit("status");
+      }
+    }
+    if (skipped.length) await this.reportSkipped(skipped);
+    return moved;
+  }
+
+  /** Say which projects stayed where they were, and why (one line each). */
+  async reportSkipped(lines) {
+    await showNotice({ title: t("files.moveSkipped", { n: lines.length }), body: lines.join("\n"), okLabel: t("common.ok") });
   }
 
   // ── failures ──
@@ -552,6 +793,27 @@ function sceneIdButton(onClick) {
   b.appendChild(img);
   b.addEventListener("click", onClick);
   return b;
+}
+
+/** Names for a question's body, one a line — the first few, then how many
+ *  more, so a big selection does not make a dialog taller than the window. */
+export function nameList(names, max = 10) {
+  const shown = names.slice(0, max);
+  if (names.length > max) shown.push(t("files.andMore", { n: names.length - max }));
+  return shown.join("\n");
+}
+
+/** A row's tick box, named for the screen reader by `label`. */
+function checkbox(label) {
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.setAttribute("aria-label", label);
+  return box;
+}
+
+/** A local folder path as the dialogs say it. */
+function folderLabel(folder) {
+  return folder ? folder.split("/").join(" › ") : t("files.folderTop");
 }
 
 function iconBtn(name, onClick) {

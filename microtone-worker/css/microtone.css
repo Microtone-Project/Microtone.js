@@ -1905,7 +1905,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* Form dialogs built by components/modal.js: prose sets their width, so cap it at
    a readable measure rather than letting one long paragraph span the viewport. */
 .modal-text { max-width: min(560px, calc(94vw / var(--ui-zoom, 1))); }
-.modal-text p { margin: 0.4rem 0 0.8rem; line-height: 1.45; text-align: justify; hyphens: auto; }
+.modal-text p { margin: 0.4rem 0 0.8rem; line-height: 1.45; text-align: justify; hyphens: auto; white-space: pre-line; }
 .modal::backdrop { background: var(--scrim); }
 .modal h3 { margin-top: 0; }
 .modal-field { display: block; margin: 0.6rem 0; color: var(--dim); }
@@ -2231,6 +2231,34 @@ button.nota-assign { font-size: 0.85rem; }
  * specific than .files-current on its own, so the pairing has to be stated. */
 .files-table td button.files-name.files-current { color: var(--accent); }
 .files-disclaimer { margin-top: 1rem; color: var(--dim); font-size: 0.9rem; }
+
+/* Folders in the local list: a breadcrumb over the table (with New folder… at
+ * its far end), the folders before the projects, each name led by an icon
+ * that says which it is — a folder's in the accent, a project's dim. The tick
+ * column is as narrow as its box; the bar above it says what is ticked. */
+.files-crumbs { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+.files-crumbs-trail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; flex: 1; min-width: 0; }
+.files-crumbs-trail button.files-name {
+  margin: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--fg2); cursor: pointer;
+}
+.files-crumbs-trail button.files-name:hover,
+.files-crumbs-trail button.files-name:focus-visible { color: var(--accent); text-decoration: underline; }
+.files-crumbs-trail button.files-name.files-current { color: var(--fg); }
+.files-crumbs-sep { color: var(--dim); }
+.files-selbar { align-items: center; flex-wrap: wrap; margin-bottom: 0.6rem; }
+/* The tick column and the bar over it are out only in selection mode
+ * (Select … Done), so the lists read as plain lists the rest of the time. */
+.files-selwrap:not(.files-selecting) .files-selbar,
+.files-selwrap:not(.files-selecting) .files-check { display: none; }
+.files-selcount { color: var(--dim); min-width: 9rem; }
+.files-table th.files-check, .files-table td.files-check { width: 1.5rem; padding-right: 0; }
+.files-table td.files-check input { margin: 0; vertical-align: middle; }
+.files-table button.files-name .btn-ico { color: var(--dim); }
+/* The label beside these icons is a text node, which :only-child does not
+ * count — so the gap .btn-ico gives a labelled icon is stated here. */
+.files-table button.files-name .btn-ico, .files-crumbs > button .btn-ico,
+.files-selbar button .btn-ico { margin-right: 0.45em; }
+.files-table .files-folder button.files-name .btn-ico { color: var(--accent); }
 
 /* The online projects (filesonline.js): a second list under the browser's
  * own, set off by a rule, with the account on the right of its own bar. */

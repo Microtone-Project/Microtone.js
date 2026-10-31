@@ -9,7 +9,7 @@
 
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
-import { TOTAL_VOICES, NUM_INTERRUPTS } from "../engine/constants.js";
+import { TOTAL_VOICES, NUM_INTERRUPTS, MAX_BG_VOICES } from "../engine/constants.js";
 import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS, IMX_TSH_MAX_BANDS, IMX_TAP_STAGES } from "../engine/imix.js";
 
 export const CMD = Object.freeze({
@@ -276,7 +276,31 @@ export const SNAP_IM_TSH1 = SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RI
 export const SNAP_IM_EXPD_GR = SNAP_IM_TSH1 + IMX_TSH_MAX_BANDS;
 export const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
 
-export const SNAP_FLOATS = SNAP_IM_BASE + SNAP_IM_EXPD_LVL + 1;
+// ── Envelope playheads, after the Mixing-tab block ──
+// Every SOUNDING voice's four envelope positions, tagged with the instrument
+// whose envelopes they are — the operator or layer the voice actually plays,
+// not the pattern-level slot SNAP_V_INST reports. The voice array above holds
+// only the lanes' own voices, so an FM rack's other operators, a layered
+// instrument's other layers and an NNA ghost appear nowhere else; the
+// Instruments view's envelope graph draws a hairline per entry whose
+// instrument is the one it shows. Lane voices first, then background voices;
+// SNAP_EP_COUNT says how many entries are filled.
+export const SNAP_EP_BASE = SNAP_IM_BASE + SNAP_IM_EXPD_LVL + 1;
+export const SNAP_EP_COUNT = SNAP_EP_BASE;
+export const SNAP_EP_ENTRIES = SNAP_EP_BASE + 1;
+export const SNAP_EP_INST = 0;
+export const SNAP_EP_VOL_IDX = 1;
+export const SNAP_EP_VOL_TIME = 2;
+export const SNAP_EP_PAN_IDX = 3;
+export const SNAP_EP_PAN_TIME = 4;
+export const SNAP_EP_PITCH_IDX = 5;
+export const SNAP_EP_PITCH_TIME = 6;
+export const SNAP_EP_FILTER_IDX = 7;
+export const SNAP_EP_FILTER_TIME = 8;
+export const SNAP_EP_STRIDE = 9;
+export const SNAP_EP_MAX = TOTAL_VOICES + MAX_BG_VOICES;
+
+export const SNAP_FLOATS = SNAP_EP_ENTRIES + SNAP_EP_MAX * SNAP_EP_STRIDE;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt

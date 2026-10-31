@@ -209,12 +209,19 @@ async function pickImacSong(name, bytes) {
 }
 
 // ── document loading ──
+
+/** Load a project of the local list by its path ("A/B/x.taud"). */
+function loadPath(path, bytes) {
+  const { folder, name } = opfs.splitPath(path);
+  return loadBytes(name, bytes, { folder });
+}
+
 async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = false,
                                         rpb = null,
                                         trimPatches = false, stereoSamples = false,
                                         keepDuplicatePatterns = false, realign = null,
                                         quantise = null, quantiseStrength = 100,
-                                        fromMotif = false } = {}) {
+                                        fromMotif = false, folder = "" } = {}) {
   // A Taud Motif Language program is not a project but the recipe for one: it
   // opens in the Motif view, which builds it (and shows where it went wrong
   // when it does not build).
@@ -231,7 +238,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
     if (!pick) return;
     return loadBytes(pick.name, pick.bytes,
       { sf2, bank: pick.bank ?? bank, saveToOpfs, rpb, trimPatches, stereoSamples,
-        keepDuplicatePatterns, realign, quantise, quantiseStrength });
+        keepDuplicatePatterns, realign, quantise, quantiseStrength, folder });
   }
   let converted = false;
   // A Microtone Touch sketch is the Taud song it stands for, with the Touch
@@ -333,6 +340,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   store.clearMutes(); // per-song UI state (taut finishLoadCommon)
   store.clearFx2();   // …and the second effect goes back to hidden
   store.fileName = name;
+  store.folder = folder;
   store.songIndex = 0;
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
   store.pitchPreset = presetForNotation(store.doc.meta.songMeta[0]?.notation ?? 120, store.doc);
@@ -355,7 +363,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
 
   rebuildSongList();
   // the welcome screen's Recent list sorts on this (every copy of it)
-  eachView("timeline", (_obj, entry) => entry.welcome.noteOpened(name));
+  eachView("timeline", (_obj, entry) => entry.welcome.noteOpened(store.localPath));
 
   // Invalidate the views' cached song state (Timeline songMap crop, etc.) for
   // the NEW document BEFORE showView draws — otherwise the first frame paints
@@ -370,12 +378,13 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   if (converted && saveToOpfs && (await opfs.available())) {
     // Files-tab MIDI import: the CONVERSION RESULT lands in OPFS right away.
     const doc = store.doc;
+    const path = store.localPath;
     await withSaveProgress(store, async (progress) => {
       const serial = doc.editSerial;
-      await opfs.write(name, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+      await opfs.write(path, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
       if (doc.editSerial === serial) doc.dirty = false;
     });
-    store.emit("saved", name);
+    store.emit("saved", path);
   }
   updateStatus();
   warnImixProblems(store.doc);
@@ -549,6 +558,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   store.doc.smetEdited = true; // bake the fresh sMet on first save
   store.doc.dirty = true;
   store.fileName = null;
+  store.folder = "";
   store.songIndex = 0;
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
   store.pitchPreset = presetForNotation(result.notation, store.doc);
@@ -593,7 +603,7 @@ $("openBtn").addEventListener("click", () => $("fileInput").click());
 
 /** Pick a .mid + soundfont, convert, load. `toOpfs` (Files-tab button) also
  *  persists the conversion result into OPFS. */
-async function importMidiInteractive({ toOpfs = false } = {}) {
+async function importMidiInteractive({ toOpfs = false, folder = "" } = {}) {
   const file = await pickFile(".mid,.midi");
   if (!file) return;
   const bundledAvail = (await getBundledSoundfont()) !== null;
@@ -699,7 +709,7 @@ async function importMidiInteractive({ toOpfs = false } = {}) {
   if (!sf2) { $("stFile").textContent = t("midi.cancelled"); return; }
   await loadBytes(file.name, new Uint8Array(await file.arrayBuffer()),
     {
-      sf2, saveToOpfs: toOpfs, rpb: choice.rpb,
+      sf2, saveToOpfs: toOpfs, folder, rpb: choice.rpb,
       trimPatches: choice.trim === true,
       stereoSamples: choice.stereo === true,
       keepDuplicatePatterns: choice.nodedup === true,
@@ -837,19 +847,23 @@ function adoptNewInstrument(slot) {
  */
 async function saveProjectCopyAs(name) {
   if (!(await opfs.available())) return; // nothing persists here; keep the edit in memory
+  // Beside the original, in its folder (an online original's copy goes to the top).
+  const folder = store.onlineProject ? "" : store.folder;
   let target = name;
-  for (let n = 2; (await opfs.list()).some((f) => f.name === target); n++) {
+  for (let n = 2; await opfs.exists(opfs.joinPath(folder, target)); n++) {
     target = name.replace(/\.taud$/, `-${n}.taud`);
   }
   const doc = store.doc;
+  const path = opfs.joinPath(folder, target);
   await withSaveProgress(store, async (progress) => {
     const serial = doc.editSerial;
-    await opfs.write(target, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
+    await opfs.write(path, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
     if (doc.editSerial === serial) doc.dirty = false;
   });
   store.fileName = target;
+  store.folder = folder;
   store.online = null; // the copy is local, even if the original was online
-  store.emit("saved", target);
+  store.emit("saved", path);
   updateStatus();
 }
 
@@ -883,7 +897,7 @@ const WELCOME_HOOKS = {
   newProject: () => newProject(),
   open: () => $("fileInput").click(),
   importMidi: () => importMidiInteractive(),
-  openRecent: async (name) => loadBytes(name, await opfs.read(name)),
+  openRecent: async (path) => loadPath(path, await opfs.read(path)),
   browseFiles: () => showView("files"),
   help: () => showHelp(),
   openDemo: (entry) => loadDemo(entry),
@@ -931,10 +945,10 @@ const VIEW_SPEC = {
   files: {
     host: { id: "filesHost", cls: "files-host" },
     make: (el) => new FilesView(store, el, {
-      openBytes: (name, bytes) => loadBytes(name, bytes),
+      openBytes: (name, bytes, opts) => loadBytes(name, bytes, opts),
       currentDoc: () => ({ doc: store.doc, fileName: store.fileName }),
       songIndex: () => store.songIndex,
-      importMidi: () => importMidiInteractive({ toOpfs: true }),
+      importMidi: (folder) => importMidiInteractive({ toOpfs: true, folder }),
       editSong: (i) => editSongInteractive(i),
       openDemo: (entry) => loadDemo(entry),
     }),
@@ -2132,7 +2146,7 @@ store.on("edit", () => {
     autosaveTimer = null;
     if (!store.doc?.dirty) return;
     if (!(await opfs.available())) return;
-    const name = store.fileName ?? "untitled.taud";
+    const name = store.localPath ?? "untitled.taud";
     try {
       await opfs.writeAutosave(name, await store.doc.toSaveBytes(ZSTD_LEVEL_AUTOSAVE));
       console.info(`APP: autosaved ${name}`);
@@ -2155,7 +2169,7 @@ store.on("saved", (name) => opfs.removeAutosave(name)); // clean save supersedes
     okLabel: t("recover.ok"),
   });
   if (result) {
-    await loadBytes(newest.name, await opfs.readAutosave(newest.name));
+    await loadPath(newest.name, await opfs.readAutosave(newest.name));
     store.doc.dirty = true; // recovered content is unsaved by definition
     updateStatus();
   } else {

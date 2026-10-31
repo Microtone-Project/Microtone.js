@@ -38,6 +38,8 @@ import {
   SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
   SNAP_IM_RING_FRAMES, SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS,
   SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1, SNAP_IM_EXPD_GR, SNAP_IM_EXPD_LVL,
+  SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_EP_MAX, SNAP_EP_INST,
+  SNAP_EP_VOL_IDX, SNAP_EP_PAN_IDX, SNAP_EP_PITCH_IDX, SNAP_EP_FILTER_IDX,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -46,6 +48,11 @@ import {
 import { AR_SAB_BYTES, AR_CTRL_LEN, AR_DOORBELL } from "./audio-ring.js";
 import { ANALYSIS_OFF, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { DEFAULT_BIT_DEPTH } from "../engine/loudness.js";
+
+// getEnvPlayheads' role → the entry's index field (its time follows it).
+const ENV_PLAYHEAD_ROLE = {
+  vol: SNAP_EP_VOL_IDX, pan: SNAP_EP_PAN_IDX, pitch: SNAP_EP_PITCH_IDX, filter: SNAP_EP_FILTER_IDX,
+};
 
 const WORKLET_MODULE = new URL("../worklet/taud-processor.js", import.meta.url);
 const WORKLET_BUNDLE = new URL("../worklet/taud-processor.bundle.js", import.meta.url);
@@ -550,6 +557,29 @@ export class AudioSystem {
   getVoiceEnvPitchTime(vi) { return this._v(vi, SNAP_V_ENV_PITCH_TIME); }
   getVoiceEnvFilterIndex(vi) { return this._v(vi, SNAP_V_ENV_FILTER_IDX); }
   getVoiceEnvFilterTime(vi) { return this._v(vi, SNAP_V_ENV_FILTER_TIME); }
+  /**
+   * Where instrument `slot`'s envelope `role` ("vol", "pan", "pitch" or
+   * "filter") is, in every voice sounding it: `{ idx, t }` per voice, the
+   * node index and the seconds into it, as the envelope graph draws them.
+   * Counts the voices the lanes cannot show — an FM rack's operators, a
+   * layered instrument's layers, NNA ghosts — and goes by the instrument the
+   * voice PLAYS, so an operator's or a layer's own envelope finds them where
+   * getVoiceInstrument would answer with the rack's or the layer table's slot.
+   */
+  getEnvPlayheads(slot, role) {
+    const f = this.snapshot;
+    const rel = ENV_PLAYHEAD_ROLE[role];
+    const out = [];
+    if (rel === undefined) return out;
+    const n = Math.min(f[SNAP_EP_COUNT] | 0, SNAP_EP_MAX);
+    for (let k = 0; k < n; k++) {
+      const o = SNAP_EP_ENTRIES + k * SNAP_EP_STRIDE;
+      if (f[o + SNAP_EP_INST] !== slot) continue;
+      out.push({ idx: f[o + rel], t: f[o + rel + 1] });
+    }
+    return out;
+  }
+
   /** #998: where the voice actually sits — 512-unit azimuth (0 left, 128 front,
    *  clockwise) and signed elevation (128 units = 90°). A stereo song reports
    *  its pan byte on the front arc and zero elevation. */

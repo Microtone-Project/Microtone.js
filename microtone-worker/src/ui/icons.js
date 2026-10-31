@@ -320,6 +320,15 @@ export const BTN_ICON = {
   /** Open an existing file — a folder. */
   folder: line('<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.1l2 2.5h8.9A1.5 1.5 0 0 1 21 9v9' +
     'a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z"/>'),
+  /** A project in the File view's list — a sheet with its corner folded. */
+  file: line('<path d="M13.5 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11A1.5 1.5 0 0 0 19 19.5V8.5z"/>' +
+    '<path d="M13.5 3v5.5H19"/>'),
+  /** Make a folder — the folder, with a plus where its label would be. */
+  folderPlus: line('<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.1l2 2.5h8.9A1.5 1.5 0 0 1 21 9v9' +
+    'a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z"/><path d="M12 10.5v6M9 13.5h6"/>'),
+  /** Up to the folder above — the folder, with an arrow out of its top. */
+  folderUp: line('<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.1l2 2.5h8.9A1.5 1.5 0 0 1 21 9v9' +
+    'a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z"/><path d="M12 17v-6.5M9.25 13 12 10.25 14.75 13"/>'),
   /** Import a score — a beamed pair of notes. */
   music: line('<path d="M9 18V5.5l10-2V16"/>' +
     '<ellipse cx="6.4" cy="18" rx="2.6" ry="2.2"/>' +
