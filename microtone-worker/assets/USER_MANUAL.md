@@ -334,7 +334,7 @@ and holding** opens it under your finger. See
 | **Porous paste** | Beside *Paste*: the same paste, but the clipboard's empty cells leave what is under them alone — the same as Shift+Ctrl+V |
 | **Lane left** | Insert an empty lane *before* this one |
 | **Lane right** | Insert an empty lane *after* this one |
-| **New pattern** | Where the cue leaves a lane empty: point the slot at the lowest unused pattern number and put the cursor there. Over a block it fills **every** empty slot the block covers, one fresh pattern each, leaving the slots that already have one alone |
+| **New pattern** | Where the cue leaves a lane empty: point the slot at a new pattern and put the cursor there. The number is the one **Renumber patterns** would give it: the next free number after the lane's own highest, or — on a lane with no patterns yet — a round number after the lanes to its left; it never lands among another lane's patterns, and when the lane has no room left it starts a run of its own after every number in use. Over a block it fills **every** empty slot the block covers, one fresh pattern each, lane by lane, leaving the slots that already have one alone |
 | **Delete pattern** | Where the cue has one: empty the slot — and delete the pattern itself when nothing else in the song still plays it |
 
 A **second row** underneath carries the Patterns-view edit tools, aimed at the
@@ -1194,7 +1194,8 @@ control point either:
 **Effect arguments** are interpolated one effect at a time: a block holding a
 vibrato and then a tremolo gets a curve for each and nothing across the join.
 The arguments that can be ramped are the ones where a value halfway between two
-of them still means something:
+of them still means something, and an argument made of several fields ramps
+each field as an axis of its own:
 
 | Effect | What ramps |
 |---|---|
@@ -1204,10 +1205,11 @@ of them still means something:
 | `O $xxxx` | The sample offset — a sweep down a recording |
 | `M $xx00` `V $xx00` | Lane volume; global volume |
 | `A $xx00` `T $xx00` | Tick speed; tempo, plain set form only |
-| `5 $xxxx` `6 $xxxx` | Filter cutoff; filter resonance |
-| `8 $xyzz` `9 $x0zz` | Bit depth and sample skip; overdrive amount — the shared clipping mode rides along unchanged |
+| `5 $xxxx` `6 $xxxx` | Filter cutoff; filter resonance — as one number, since in SoundFont mode the whole argument is the value |
+| `8 $xyzz` `9 $x0zz` | Clipping mode, bit depth and sample skip; clipping mode and overdrive amount — each on its own |
 | `S $80xx` | Lane pan position |
-| `X $eeaa` `4 $eeaa` | Azimuth and elevation, elevation read as signed so a move across the horizon takes the short way |
+| `S $Axxx` | Whatever the instrument sounding it reads there: a formant instrument's vowel — openness, frontness and roundness, each on its own; an FM rack operator's vibrato speed and depth, one curve per operator; a PSG instrument's auto-advance or level, as a whole byte, one curve per register (its mute writes stay out). The instrument is the last one a note named, above the block or inside it, and a row under an instrument that reads the command differently is left alone |
+| `X $eeaa` `4 $eeaa` | The direction, along the shortest arc between the two — the path a `Z $0xxx` slide takes; two exactly opposite directions turn clockwise |
 
 Everything else stays out. The nibble-packed slide pairs — `D`, `K`, `L`, `N`,
 `P`, `Q`, `W` — pack "up by *x*" and "down by *y*" into one argument, so a value

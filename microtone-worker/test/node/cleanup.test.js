@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   referencedPatterns, planCleanupPatterns, planMergeDuplicatePatterns, planRenumberPatterns,
+  planNewPatternNumbers, renumberIsIdentity,
   applyPatternOrder, encodeNameTable, usedInstrumentSlots,
   planRenumberInstrument, instrumentCellRefs, planIxmpCleanup, reachablePatchSets,
 } from "../../src/doc/cleanup.js";
@@ -82,6 +83,72 @@ test("planRenumberPatterns: lane-major, each lane from a round number", () => {
   assert.equal(plan.patterns[0x10][0].note, 0x5400);
   assert.equal(plan.pNam[0x10], "five", "names follow their patterns");
   assert.deepEqual(plan.rounding, [0x10, 0x100]);
+});
+
+// ── New pattern numbers (item 271) ──
+
+test("planNewPatternNumbers: each lane carries on its own run", () => {
+  // Renumbered shape: lane 1 0000-0002, lane 2 0010-0011, lane 3 0020.
+  const song = { patterns: [], cues: [cue(0, 0x10, 0x20), cue(1, 0x11, E), cue(2, E, E), cue(E, E, E)] };
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 3, ch: 0 }]), [0x0003]);
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 2, ch: 1 }]), [0x0012]);
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 1, ch: 2 }]), [0x0021]);
+  // A lane with nothing yet starts a round number after the nearest lane to its left.
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 0, ch: 3 }]), [0x0030]);
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 0, ch: 5 }]), [0x0030]);
+  // A block: lane by lane, each in cue order, whatever order the slots came in.
+  assert.deepEqual(planNewPatternNumbers(song, [
+    { cue: 3, ch: 1 }, { cue: 3, ch: 0 }, { cue: 2, ch: 1 }, { cue: 2, ch: 2 }, { cue: 3, ch: 2 },
+  ]), [0x0013, 0x0003, 0x0012, 0x0021, 0x0022]);
+});
+
+test("planNewPatternNumbers: never inside another lane's run; a full lane starts a run at the end", () => {
+  // Lane 1 holds 0000-000F (no room before lane 2's 0010); 0025 is materialised, unplayed.
+  const cues = [];
+  for (let i = 0; i < 0x10; i++) cues.push(cue(i, i < 2 ? 0x10 + i : E));
+  const patterns = []; patterns[0x25] = cellPat(0x5000);
+  const song = { patterns, cues };
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 3, ch: 0 }]), [0x0030]);
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 3, ch: 0 }, { cue: 4, ch: 0 }, { cue: 2, ch: 1 }]),
+    [0x0030, 0x0031, 0x0012], "the full lane's run continues where it moved to");
+  // An empty lane 1 with lane 2 starting at 0000 has no room in front of it either.
+  const song2 = { patterns: [], cues: [cue(E, 0, 1)] };
+  assert.deepEqual(planNewPatternNumbers(song2, [{ cue: 0, ch: 0 }]), [0x0010]);
+  // A long lane (more than $10 patterns) leaves the next empty lane a $100 boundary.
+  const long = [];
+  for (let i = 0; i < 0x11; i++) long.push(cue(i));
+  assert.deepEqual(planNewPatternNumbers({ patterns: [], cues: long }, [{ cue: 0, ch: 1 }]), [0x0100]);
+});
+
+test("planNewPatternNumbers: the end of the address space falls back to the lowest free number", () => {
+  const song = { patterns: [], cues: [cue(0x7ffe, 0)] };
+  assert.deepEqual(planNewPatternNumbers(song, [{ cue: 0, ch: 0 }]), [1], "past $7FFE: the lowest free");
+  const full = { patterns: [], cues: [] };
+  for (let n = 0; n <= 0x7ffe; n += 64) {
+    const w = new Uint16Array(64).fill(E);
+    for (let i = 0; i < 64 && n + i <= 0x7ffe; i++) w[i] = n + i;
+    full.cues.push(w);
+  }
+  assert.deepEqual(planNewPatternNumbers(full, [{ cue: 0, ch: 0 }]), [-1]);
+});
+
+test("planNewPatternNumbers: after a renumber, new patterns at each lane's end need no renumbering", () => {
+  const pats = [], cues = [];
+  for (let c = 0; c < 6; c++) cues.push(cue(E, E, E, E));
+  // (A lane with nothing BETWEEN two that play something cannot get Renumber's
+  // number — that would move the lane after it — so the empty one is last.)
+  const lanePlays = [[0, 1, 2], [3, 4], [5, 6, 7, 8], []];
+  lanePlays.forEach((list, ch) => list.forEach((p, c) => { cues[c][ch] = p; pats[p] = cellPat(0x5000 + p); }));
+  const plan = planRenumberPatterns({ patterns: pats, cues });
+  const song = { patterns: plan.patterns, cues: plan.cues };
+  const slots = [{ cue: 3, ch: 0 }, { cue: 2, ch: 1 }, { cue: 4, ch: 2 }, { cue: 5, ch: 2 }, { cue: 1, ch: 3 }];
+  const nums = planNewPatternNumbers(song, slots);
+  slots.forEach((s, i) => {
+    song.cues[s.cue][s.ch] = nums[i];
+    song.patterns[nums[i]] = cellPat(0x4000 + i);
+  });
+  assert.ok(renumberIsIdentity(song, planRenumberPatterns(song)),
+    `numbers ${nums.map((n) => n.toString(16))} are the ones Renumber would give`);
 });
 
 test("planRenumberPatterns: a long lane rounds the next to $100; ends at $000F/$009F/$0103 as specified", () => {

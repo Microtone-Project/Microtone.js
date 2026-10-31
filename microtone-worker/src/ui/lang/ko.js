@@ -106,7 +106,7 @@ export default {
   "ctx.chanRightTitle": "{ch}번 레인 뒤에 빈 레인 삽입 — 오른쪽의 모든 레인이 한 칸씩 밀립니다",
   "ctx.dropLastConfirm": "이 곡은 이미 {ch}개 레인을 모두 사용하고 있어 {ch}번 레인이 끝으로 밀려나며 그 패턴이 사라집니다. 그래도 삽입할까요? 실행 취소할 수 있습니다.",
   "ctx.newPattern": "새 패턴",
-  "ctx.newPatternTitle": "이 빈 칸에 사용되지 않은 가장 낮은 패턴 번호를 지정합니다",
+  "ctx.newPatternTitle": "이 빈 칸에 새 패턴을 넣고, 패턴 번호 다시 매기기처럼 이 레인의 다음 번호를 붙입니다",
   "ctx.moveLeft": "왼쪽으로 이동",
   "ctx.moveLeftTitle": "패턴을 왼쪽 레인의 빈 칸으로 옮깁니다",
   "ctx.moveRight": "오른쪽으로 이동",

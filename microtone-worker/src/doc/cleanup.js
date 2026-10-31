@@ -269,6 +269,83 @@ export function planRenumberPatterns(song, patternNames = [], wide = false) {
   return { patterns, cues, pNam: names, emptied, rounding };
 }
 
+/**
+ * Numbers for brand-new patterns in the empty cue slots `slots` (`[{cue, ch}]`),
+ * chosen the way the lane-major renumber above numbers patterns — but without
+ * moving a single pattern the song already has, so nothing else changes:
+ *
+ *   * A lane carries on its own run: the first free number after the highest
+ *     one it plays. A pattern played on several lanes belongs to the first.
+ *   * A lane that plays nothing yet starts where the renumber would start it:
+ *     the next multiple of $10 after the nearest lane to its left that plays
+ *     something (of $100 when that lane holds more than $10 patterns), or
+ *     $0000 when no lane to its left does.
+ *   * Either way the search stops at the first number another lane owns, so a
+ *     new pattern never lands inside another lane's run. When the lane has no
+ *     room left, the pattern starts a run of its own at the next multiple of
+ *     $10 after every number in use; when even that is past the last pattern
+ *     number, it takes the lowest free one.
+ *
+ * Over a block the slots are numbered lane by lane, each lane in cue order —
+ * the order the renumber visits them — so a block fills each lane's run in
+ * sequence. Returns the numbers aligned to `slots`, -1 where none is left.
+ * Pure — `song` is not touched.
+ */
+export function planNewPatternNumbers(song, slots) {
+  const used = new Uint8Array(PAT_LAST + 1);
+  const owner = new Int16Array(PAT_LAST + 1).fill(-1);
+  const nLanes = song.cues.reduce((n, w) => Math.max(n, w.length), 0);
+  const top = new Array(Math.max(nLanes, 1 + slots.reduce((m, s) => Math.max(m, s.ch), -1))).fill(-1);
+  const count = new Array(top.length).fill(0);
+  let maxUsed = -1;
+  const claim = (n, lane) => {
+    used[n] = 1;
+    if (n > maxUsed) maxUsed = n;
+    if (lane < 0 || owner[n] >= 0) return;
+    owner[n] = lane;
+    count[lane]++;
+    if (n > top[lane]) top[lane] = n;
+  };
+  for (let ch = 0; ch < nLanes; ch++) {
+    for (let c = 0; c < song.cues.length; c++) {
+      const s = (song.cues[c][ch] ?? PAT_MASK) & PAT_MASK;
+      if (s !== PAT_MASK) claim(s, ch);
+    }
+  }
+  for (let p = 0; p < song.patterns.length && p <= PAT_LAST; p++) if (song.patterns[p]) claim(p, -1);
+
+  const freeFrom = (n) => { while (n <= PAT_LAST && used[n]) n++; return n <= PAT_LAST ? n : -1; };
+  const pick = (lane) => {
+    let base = 0;
+    if (top[lane] >= 0) base = top[lane] + 1;
+    else {
+      for (let l = lane - 1; l >= 0; l--) {
+        if (top[l] < 0) continue;
+        const size = count[l] > 0x10 ? 0x100 : 0x10;
+        base = Math.ceil((top[l] + 1) / size) * size;
+        break;
+      }
+    }
+    for (let n = base; n <= PAT_LAST; n++) {
+      if (owner[n] >= 0 && owner[n] !== lane) break; // another lane's run
+      if (!used[n]) return n;
+    }
+    const after = Math.ceil((maxUsed + 1) / 0x10) * 0x10;
+    return after <= PAT_LAST ? freeFrom(after) : freeFrom(0);
+  };
+
+  const out = new Array(slots.length).fill(-1);
+  const order = slots.map((s, i) => i).sort((a, b) =>
+    slots[a].ch - slots[b].ch || slots[a].cue - slots[b].cue);
+  for (const i of order) {
+    const n = pick(slots[i].ch);
+    if (n < 0) break;
+    out[i] = n;
+    claim(n, slots[i].ch);
+  }
+  return out;
+}
+
 /** True when a renumber plan leaves the song exactly as it is. */
 export function renumberIsIdentity(song, plan) {
   if (plan.patterns.length !== song.patterns.length) return false;

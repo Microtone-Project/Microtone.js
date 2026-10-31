@@ -26,6 +26,7 @@ import {
 } from "../../core/tuning/pitchtables.js";
 import { FX_INFO, fxName, fxArg } from "./palette.js";
 import { planInterpolate, INTERP_SHAPES, PITCH_MODES } from "../doc/interpolate.js";
+import { soundControlKind, agreedKind } from "../doc/instcontext.js";
 
 /**
  * The quick effect palette (item 100.5).
@@ -195,7 +196,10 @@ function applyCellBytes(ctx, fn) {
  * the lane the block sits in when the view HAS lanes — a Taud pattern is one
  * lane, so the Patterns view leaves it out and Find & Change works the
  * column out from the cue list instead. `render` is the view's renderSpec() —
- * what To sample renders. Resolves true when the document changed.
+ * what To sample renders. `leadInsts` (optional, aligned with `lanes`) lists
+ * per lane the instrument slots that can be in force just above its first
+ * row — what Interpolate needs to read `S $Axxx` the way that instrument does.
+ * Resolves true when the document changed.
  */
 export async function runBlockTool(id, ctx) {
   if (id.startsWith("fx2:")) return applyQuickFx(ctx, parseInt(id.slice(4), 10), true);
@@ -264,7 +268,16 @@ async function interpolateTool(ctx) {
     const cell = (store.doc.patternAt(store.songIndex, pat) ?? store.doc.emptyPattern())[row];
     return cell ? cellToBytes(cell, wide) : null;
   };
-  const base = { lanes, readCell, kinds, wide };
+  // `S $Axxx` means what the instrument sounding it says, so the plan is told
+  // which instrument each row is under: the views hand over the ones in force
+  // above each lane (`leadInsts`, a list of candidates per lane), and the
+  // notes inside the block take it from there.
+  const instruments = store.doc.instruments;
+  const base = {
+    lanes, readCell, kinds, wide,
+    instKind: (slot) => soundControlKind(instruments, slot),
+    leadKinds: lanes.map((_, k) => agreedKind(instruments, ctx.leadInsts?.[k] ?? [])),
+  };
   const probe = planInterpolate(base);
   if (probe.usable === 0) { alert(t("interp.needTwo")); return false; }
   if (probe.stairs && !confirm(t("interp.stairsWarn"))) return false;

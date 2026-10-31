@@ -36,6 +36,7 @@ import {
   readElev, writeElev,
 } from "./patterntools.js";
 import { EffectOp } from "../../core/engine/tables.js";
+import { directionFromAngles, anglesFromDirection } from "../../core/engine/spatial.js";
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const clamp01 = (v) => clamp(v, 0, 1);
@@ -128,20 +129,35 @@ export function seriesValues(points, shape) {
 // middle one. It rules out the switches (S's other forms, 1, 7). What is left
 // is the depths, speeds, offsets, levels and directions below.
 //
-// `fields` are the argument's sub-fields, low bit first, each `{shift, bits}`
-// (`signed` where the field is an S8, so an elevation crossing zero does not
-// take the long way round through straight-down). Everything OUTSIDE the listed
-// fields is INHERITED from the segment's left control point, which is what
-// keeps `8`'s clipping-mode nibble and `S $80xx`'s form selector intact.
+// `fields` are the argument's sub-fields, each `{shift, bits}` (`signed` where
+// the field is an S8; `wrap` where it is an angle that carries on round the
+// circle). Every field is an AXIS of its own — a track with its own curve —
+// so `H $xxyy` ramps speed and depth independently, and `S $Afgr` moves the
+// vowel's openness, frontness and roundness each on its own. Everything
+// OUTSIDE the listed fields is INHERITED from the segment's left control
+// point, which is what keeps `S $80xx`'s and `S $Axyz`'s form selectors intact.
 //
 // `ok(arg)` rejects arguments that are not values at all: for the effects that
 // recall their last argument (§7 of the effects reference) `$0000` means
 // "carry on with what you had", and reading that as the number zero would
-// interpolate a ramp down to a command that never said so.
+// interpolate a ramp down to a command that never said so. The same test runs
+// on every row the curve WRITES, so a ramp never lands on one of those either.
+//
+// An opcode that multiplexes on its argument (S) lists its `forms`, each with
+// a `match(arg, kind)`; a curve then runs only between points of ONE form.
+// `kind` is how the instrument sounding on that row reads `S $Axxx` (see
+// instcontext.js soundControlKind), null when the caller cannot tell. A form
+// with a `sub(arg)` is split further by it: a curve runs only between points
+// that name the same operator, or the same register. `sphere` marks a
+// direction ($eeaa: signed elevation over a whole-turn azimuth), which is
+// interpolated on the sphere rather than per field (sphereSeries below).
 const F16 = [{ shift: 0, bits: 16 }];
 const F_HI = [{ shift: 8, bits: 8 }];
 const F_LO = [{ shift: 0, bits: 8 }];
 const F_BYTES = [{ shift: 8, bits: 8 }, { shift: 0, bits: 8 }];
+const F_DIRECTION = [{ shift: 8, bits: 8, signed: true }, { shift: 0, bits: 8, wrap: true }];
+const NIBBLES = (...shifts) => shifts.map((shift) => ({ shift, bits: 4 }));
+const isSA = (a) => (a >>> 12) === 0xa;
 const nonZero = (a) => a !== 0;
 
 export const FX_INTERP = {
@@ -170,26 +186,67 @@ export const FX_INTERP = {
   // between. Its low byte must be zero: the ramp inherits it, and a non-zero
   // one would turn a step that lands on $FC…$FF into an extended set.
   [EffectOp.OP_T]: { fields: F_HI, ok: (a) => (a >>> 8) !== 0 && (a & 0xff) === 0 },
-  // Filter cutoff / resonance. `$FFFF` is the reset sentinel, not a value.
+  // Filter cutoff / resonance. ONE number, not two bytes: in SoundFont mode
+  // the whole word is the value (cents, centibels), and a carry from the low
+  // byte into the high one is part of it; ImpulseTracker mode reads only the
+  // high byte, which the whole-word ramp moves just the same. `$FFFF` is the
+  // reset sentinel, not a value.
   [EffectOp.OP_5]: { fields: F16, ok: (a) => a !== 0xffff },
   [EffectOp.OP_6]: { fields: F16, ok: (a) => a !== 0xffff },
-  // Bitcrusher: depth nibble and skip byte sweep, clipping mode inherited.
-  [EffectOp.OP_8]: { fields: [{ shift: 8, bits: 4 }, { shift: 0, bits: 8 }],
+  // Bitcrusher: clipping mode, bit depth and sample skip, each its own axis.
+  // `$x000` only switches the clipping mode, so it is not a setting to ramp.
+  [EffectOp.OP_8]: { fields: [{ shift: 12, bits: 4 }, { shift: 8, bits: 4 }, { shift: 0, bits: 8 }],
     ok: (a) => (a & 0x0fff) !== 0 },
-  // Overdrive: the amplification byte, clipping mode inherited.
-  [EffectOp.OP_9]: { fields: F_LO, ok: (a) => (a & 0x0fff) !== 0 },
-  // S is a family, and only `S $80xx` — set lane pan — carries a byte.
-  [EffectOp.OP_S]: { fields: F_LO, ok: (a) => (a >>> 8) === 0x80 },
-  // The spherical pair: elevation (signed) over azimuth. X places the lane,
-  // 4 places the target a Z slide travels to; both are directions.
-  [EffectOp.OP_X]: { fields: [{ shift: 8, bits: 8, signed: true }, { shift: 0, bits: 8 }] },
-  [EffectOp.OP_4]: { fields: [{ shift: 8, bits: 8, signed: true }, { shift: 0, bits: 8 }] },
+  // Overdrive: clipping mode and amplification; the middle nibble is reserved.
+  [EffectOp.OP_9]: { fields: [{ shift: 12, bits: 4 }, { shift: 0, bits: 8 }],
+    ok: (a) => (a & 0x0fff) !== 0 },
+  // S is a family. `S $80xx` — set lane pan — carries a byte. `S $Axxx` —
+  // instrument sound control — means what the INSTRUMENT sounding it says:
+  [EffectOp.OP_S]: { forms: [
+    { match: (a) => (a >>> 8) === 0x80, fields: F_LO },
+    // a formant instrument's vowel `$Afgr`: openness, frontness, roundness;
+    { match: (a, k) => isSA(a) && k === "formant", fields: NIBBLES(8, 4, 0) },
+    // an FM rack's `$Apsd`: operator p's vibrato speed and depth — p names
+    // WHICH operator, so it is not a quantity, and each operator is a curve;
+    { match: (a, k) => isSA(a) && k === "fm", fields: NIBBLES(4, 0), sub: (a) => (a >>> 8) & 0xf },
+    // a PSG instrument's register write: `$A0xx`/`$A8xx` an oscillator's
+    // auto-advance, `$A1xx`/`$A9xx` its level (up to $3F) — one byte each, a
+    // curve per register; the mute writes `$AF0x` are switches and stay out;
+    { match: (a, k) => isSA(a) && k === "psg" && ((a >>> 8) & 7) === 0 && (a & 0xf00) < 0xf00,
+      fields: F_LO, sub: (a) => (a >>> 8) & 0xf },
+    { match: (a, k) => isSA(a) && k === "psg" && ((a >>> 8) & 7) === 1 && (a & 0xff) <= 0x3f,
+      fields: [{ shift: 0, bits: 8, max: 0x3f }], sub: (a) => (a >>> 8) & 0xf },
+    // and when the caller cannot tell which instrument it is, three digits.
+    // (An instrument that does nothing with it — kind "none", or layers that
+    // disagree, "mixed" — matches no form, so the row is left alone.)
+    { match: (a, k) => isSA(a) && k == null, fields: NIBBLES(8, 4, 0) },
+  ] },
+  // The spherical pair. X places the lane, 4 places the target a Z slide
+  // travels to; both are DIRECTIONS, so they travel the great circle.
+  [EffectOp.OP_X]: { fields: F_DIRECTION, sphere: true },
+  [EffectOp.OP_4]: { fields: F_DIRECTION, sphere: true },
 };
 
-/** True when `op` names an effect whose argument this can interpolate. */
-export function isInterpolatableFx(op, arg) {
-  const spec = FX_INTERP[op];
-  return !!spec && (spec.ok ? spec.ok(arg & 0xffff) : true);
+// Every form gets a key of its own — the curve's group tag — and its opcode.
+for (const [op, entry] of Object.entries(FX_INTERP)) {
+  const forms = entry.forms ?? [entry];
+  forms.forEach((f, k) => { f.code = Number(op); f.key = entry.forms ? `${op}:${k}` : `${op}`; });
+}
+
+/** The FX_INTERP form `arg` is a value of on an instrument of `kind`, or null
+ *  when it is not one. */
+function fxSpec(op, arg, kind = null) {
+  const entry = FX_INTERP[op];
+  if (!entry) return null;
+  const spec = entry.forms ? entry.forms.find((f) => f.match(arg, kind)) : entry;
+  if (!spec || (spec.ok && !spec.ok(arg))) return null;
+  return spec;
+}
+
+/** True when `op` names an effect whose argument this can interpolate — on an
+ *  instrument of `kind` (soundControlKind) where that matters, null unknown. */
+export function isInterpolatableFx(op, arg, kind = null) {
+  return fxSpec(op, arg & 0xffff, kind) !== null;
 }
 
 const fieldGet = (arg, f) => {
@@ -201,13 +258,117 @@ const fieldSet = (arg, f, v) => {
   const mask = (1 << f.bits) - 1;
   return ((arg & ~(mask << f.shift)) | ((v & mask) << f.shift)) & 0xffff;
 };
-const fieldLimit = (f) => (f.signed
-  ? (v) => clamp(v, -(1 << (f.bits - 1)), (1 << (f.bits - 1)) - 1)
+const fieldLimit = (f) => (f.wrap ? (v) => wrapTo(v, 1 << f.bits)
+  : f.max !== undefined ? (v) => clamp(v, 0, f.max)
+  : f.signed ? (v) => clamp(v, -(1 << (f.bits - 1)), (1 << (f.bits - 1)) - 1)
   : (v) => clamp(v, 0, (1 << f.bits) - 1));
+const fieldsArg = (spec, raw, vals) => {
+  let arg = raw;
+  spec.fields.forEach((f, k) => { arg = fieldSet(arg, f, vals[k]); });
+  return arg;
+};
+
+// ── directions ──
+//
+// An `$eeaa` direction is a point on the sphere, and the way from one to the
+// next is the SHORTEST ARC between them — the great circle, as the Z slide
+// itself travels (TAUD_NOTE_EFFECTS.md, Z $0xxx). Ramping elevation and
+// azimuth as two numbers would instead walk a line of latitude, and go the
+// long way round whenever the azimuth crosses $FF → $00.
+//
+// The eases are a slerp at the eased fraction, so `linear` turns at constant
+// angular speed. Hermite is the Catmull-Rom spline taken through the unit
+// vectors and pushed back onto the sphere, which still runs through every
+// control point and is the plain shortest arc when there are only two. An
+// antipodal pair has no shortest arc; it turns CLOCKWISE, the engine's own
+// rule for that case (stepTowardTarget in core/engine/spatial.js, whose axis
+// this copies).
+
+const dirOf = (ee, aa) => directionFromAngles(aa * 2, ee, new Float64Array(3));
+
+function slerpDir(a, b, t, aaStart) {
+  const dot = clamp(a[0] * b[0] + a[1] * b[1] + a[2] * b[2], -1, 1);
+  const omega = Math.acos(dot);
+  if (!(omega > 1e-12)) return [a[0], a[1], a[2]];
+  if (omega > Math.PI - 1e-9) {
+    // Antipodal: the axis whose rotation makes the azimuth increase.
+    let kx = a[2] * a[0], ky = a[2] * a[1], kz = a[2] * a[2] - 1;
+    let len = Math.hypot(kx, ky, kz);
+    if (len < 1e-9) {
+      // Straight up or down: turn through the start's own azimuth instead.
+      const th = (64 - aaStart) * (Math.PI / 128);
+      const hx = Math.cos(th), hy = Math.sin(th);
+      kx = -a[2] * hy; ky = a[2] * hx; kz = a[0] * hy - a[1] * hx;
+      len = Math.hypot(kx, ky, kz);
+    }
+    kx /= len; ky /= len; kz /= len;
+    const c = Math.cos(Math.PI * t), s = Math.sin(Math.PI * t);
+    return [
+      a[0] * c + (ky * a[2] - kz * a[1]) * s,
+      a[1] * c + (kz * a[0] - kx * a[2]) * s,
+      a[2] * c + (kx * a[1] - ky * a[0]) * s,
+    ];
+  }
+  const sin = Math.sin(omega);
+  const c0 = Math.sin((1 - t) * omega) / sin, c1 = Math.sin(t * omega) / sin;
+  return [a[0] * c0 + b[0] * c1, a[1] * c0 + b[1] * c1, a[2] * c0 + b[2] * c1];
+}
+
+/**
+ * The direction counterpart of seriesValues: `points` is `[{i, vals: [ee,
+ * aa]}]`, and the result is the two tracks `[Map ee, Map aa]` the rest of the
+ * pipeline rounds and limits like any other. Straight up or down has no
+ * azimuth, so a row passing through a pole keeps its segment's starting one.
+ */
+export function sphereSeries(points, shape) {
+  const ee = new Map(), aa = new Map();
+  const n = points.length;
+  if (n === 0) return [ee, aa];
+  const dirs = points.map((p) => dirOf(p.vals[0], p.vals[1]));
+  const tmp = new Float64Array(2);
+  const put = (i, v, aaPole) => {
+    const len = Math.hypot(v[0], v[1], v[2]);
+    if (!(len > 1e-9)) return false;
+    anglesFromDirection(v[0] / len, v[1] / len, v[2] / len, tmp);
+    ee.set(i, tmp[1]);
+    aa.set(i, Math.hypot(v[0], v[1]) / len < 1e-9 ? aaPole : tmp[0] / 2);
+    return true;
+  };
+  if (n === 1) { ee.set(points[0].i, points[0].vals[0]); aa.set(points[0].i, points[0].vals[1]); return [ee, aa]; }
+  let m = null;
+  if (shape === "hermite") {
+    m = dirs.map((_, k) => {
+      const a = Math.max(k - 1, 0), b = Math.min(k + 1, n - 1);
+      const di = points[b].i - points[a].i;
+      return [0, 1, 2].map((j) => (di === 0 ? 0 : (dirs[b][j] - dirs[a][j]) / di));
+    });
+  }
+  for (let k = 0; k < n - 1; k++) {
+    const p0 = points[k], p1 = points[k + 1], a = dirs[k], b = dirs[k + 1];
+    const h = p1.i - p0.i;
+    for (let i = p0.i; i <= p1.i; i++) {
+      const t = h === 0 ? 0 : (i - p0.i) / h;
+      if (i === p0.i || i === p1.i) {
+        const p = i === p0.i ? p0 : p1;
+        ee.set(i, p.vals[0]); aa.set(i, p.vals[1]);
+        continue;
+      }
+      if (m) {
+        const t2 = t * t, t3 = t2 * t;
+        const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+        const v = [0, 1, 2].map((j) => h00 * a[j] + h10 * h * m[k][j] + h01 * b[j] + h11 * h * m[k + 1][j]);
+        if (put(i, v, p0.vals[1])) continue;
+      }
+      put(i, slerpDir(a, b, m ? t : easeAt(shape, t), p0.vals[1]), p0.vals[1]);
+    }
+  }
+  return [ee, aa];
+}
 
 // ── per-column access ──
 //
-// `classify(bytes)` sorts a row into one of three states —
+// `classify(bytes, kind)` sorts a row into one of three states (`kind` is how
+// the row's instrument reads `S $Axxx`, which only the effect columns ask) —
 //   "point"    the column holds a number: a control point, carried in `vals`
 //              (one entry per track) with `tag` grouping points that belong to
 //              the same curve (the effect opcode; 0 everywhere else) and `raw`
@@ -278,21 +439,27 @@ export function columnAccess(kind, wide) {
       const op = kind === "fx2" ? 10 : 5;
       const lo = op + 1, hi = op + 2;
       return {
-        classify(b) {
+        classify(b, kind = null) {
           const code = b[op], arg = b[lo] | (b[hi] << 8);
           if (code === 0 && arg === 0) return { state: "empty" };
-          const spec = FX_INTERP[code];
-          if (!spec || (spec.ok && !spec.ok(arg))) return { state: "blocked" };
+          const spec = fxSpec(code, arg, kind);
+          if (!spec) return { state: "blocked" };
           return { state: "point", vals: spec.fields.map((f) => fieldGet(arg, f)),
-            tag: code, raw: arg };
+            tag: spec.sub ? `${spec.key}:${spec.sub(arg)}` : spec.key, raw: arg, spec };
         },
-        // The track count follows the OPCODE, which is not known until a
+        // The track count follows the FORM, which is not known until a
         // control point has been read, so the limits are resolved per group.
-        limitFor: (tag) => FX_INTERP[tag].fields.map(fieldLimit),
+        limitFor: (src) => src.spec.fields.map(fieldLimit),
+        // A ramp must not land on an argument that is not a value — `$0000`
+        // recalling the last one, `8 $x000` switching only the clipping mode.
+        valid: (vals, src) => !src.spec.ok || src.spec.ok(fieldsArg(src.spec, src.raw, vals)),
+        // …nor on a row where the instrument sounding there reads the command
+        // differently from the control points either side (a PSG note struck
+        // in the middle of a formant vowel glide).
+        fits: (src, kind) => !src.spec.match || src.spec.match(src.raw, kind),
         write(b, vals, src) {
-          let arg = src.raw;
-          FX_INTERP[src.tag].fields.forEach((f, k) => { arg = fieldSet(arg, f, vals[k]); });
-          b[op] = src.tag & 0xff;
+          const arg = fieldsArg(src.spec, src.raw, vals);
+          b[op] = src.spec.code & 0xff;
           b[lo] = arg & 0xff;
           b[hi] = (arg >>> 8) & 0xff;
         },
@@ -310,17 +477,19 @@ const sameVals = (a, b) =>
 
 /** Two lanes of a Timeline block can be pointed at the same patterns, which
  *  would make one lane's writes fight the other's over the same cells for no
- *  gain. Identical lanes are one lane. */
+ *  gain. Identical lanes are one lane. Returns the indices of the lanes kept. */
 function dedupeLanes(lanes) {
   const seen = new Set();
-  return lanes.filter((lane) => {
-    if (!lane || lane.length === 0) return false;
-    if (!lane.some((c) => c)) return false;
+  const kept = [];
+  lanes.forEach((lane, li) => {
+    if (!lane || lane.length === 0) return;
+    if (!lane.some((c) => c)) return;
     const k = lane.map((c) => (c ? cellKey(c.pat, c.row) : "-")).join("|");
-    if (seen.has(k)) return false;
+    if (seen.has(k)) return;
     seen.add(k);
-    return true;
+    kept.push(li);
   });
+  return kept;
 }
 
 /**
@@ -333,6 +502,12 @@ function dedupeLanes(lanes) {
  * would let a curve run straight across a stretch of song where the lane is
  * not playing. `readCell(pat, row)` hands back that cell's bytes or null.
  *
+ * `instKind(slot)` says how an instrument reads `S $Axxx` (soundControlKind),
+ * and `leadKinds[k]` the kind in force on lane k just above its first row (null
+ * where it cannot be told). Down the lane, every row that strikes a note with
+ * an instrument changes the kind; without `instKind` every row is null and
+ * `S $Axxx` is read as three plain digits.
+ *
  * Returns `{ writes, usable, stairs, points }`: `writes` is the
  * `[{pat, row, bytes}]` list setCellsBytesOp wants (one entry per cell, however
  * many columns wrote into it), `usable` the number of curves that had two
@@ -344,6 +519,7 @@ export function planInterpolate({
   lanes, readCell, kinds, wide = false,
   shape = "linear", dither = false, pitchMode = "continuous",
   snapNote = null, collapse = false, rng = Math.random,
+  instKind = null, leadKinds = null,
 }) {
   const cache = new Map();
   const dirty = new Map();
@@ -356,7 +532,19 @@ export function planInterpolate({
   };
   const out = { writes: [], usable: 0, stairs: false, points: 0 };
 
-  for (const lane of dedupeLanes(lanes)) {
+  for (const li of dedupeLanes(lanes)) {
+    const lane = lanes[li];
+    // The instrument kind in force on each row: a note that names an
+    // instrument changes it from that row on, its own row included.
+    const rowKinds = new Array(lane.length).fill(null);
+    if (instKind) {
+      let cur = leadKinds?.[li] ?? null;
+      for (let i = 0; i < lane.length; i++) {
+        const b = lane[i] ? cellBytes(lane[i].pat, lane[i].row) : null;
+        if (b && b[2] !== 0 && (b[0] | (b[1] << 8)) >= 0x20) cur = instKind(b[2]);
+        rowKinds[i] = cur;
+      }
+    }
     for (const kind of kinds) {
       const acc = columnAccess(kind, wide);
       if (!acc) continue;
@@ -364,7 +552,7 @@ export function planInterpolate({
       const recs = new Array(n);
       for (let i = 0; i < n; i++) {
         const b = lane[i] ? cellBytes(lane[i].pat, lane[i].row) : null;
-        recs[i] = b ? acc.classify(b) : { state: "blocked" };
+        recs[i] = b ? acc.classify(b, rowKinds[i]) : { state: "blocked" };
       }
 
       let idx = [];
@@ -400,13 +588,12 @@ export function planInterpolate({
       for (const group of groups) {
         if (group.length < 2) continue;
         out.usable++;
-        const tag = recs[group[0]].tag;
-        const limits = acc.limitFor ? acc.limitFor(tag) : acc.limit;
+        const first = recs[group[0]];
+        const limits = acc.limitFor ? acc.limitFor(first) : acc.limit;
         const tracks = limits.length;
-        const series = [];
-        for (let k = 0; k < tracks; k++) {
-          series.push(seriesValues(group.map((i) => ({ i, v: recs[i].vals[k] })), shape));
-        }
+        const series = first.spec?.sphere
+          ? sphereSeries(group.map((i) => ({ i, vals: recs[i].vals })), shape)
+          : limits.map((_, k) => seriesValues(group.map((i) => ({ i, v: recs[i].vals[k] })), shape));
         // Glissando (note column only): the curve is quantised onto the
         // notation's own grid and a row is written only where that grid step
         // CHANGES, so a glide reads as the notes it passes through instead of
@@ -418,6 +605,7 @@ export function planInterpolate({
           if (gliss) last = recs[group[g]].vals[0];
           for (let i = group[g] + 1; i < group[g + 1]; i++) {
             if (recs[i].state === "blocked" || isPoint.has(i)) continue;
+            if (acc.fits && !acc.fits(recs[group[g]], rowKinds[i])) continue;
             const bytes = cellBytes(lane[i].pat, lane[i].row);
             if (!bytes) continue;
             const vals = new Array(tracks);
@@ -438,6 +626,7 @@ export function planInterpolate({
               else { vals[0] = snapped; last = snapped; }
             }
             if (skip) continue;
+            if (acc.valid && !acc.valid(vals, recs[group[g]])) continue;
             acc.write(bytes, vals, recs[group[g]]);
             dirty.set(cellKey(lane[i].pat, lane[i].row), { pat: lane[i].pat, row: lane[i].row, bytes });
           }

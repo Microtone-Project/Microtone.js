@@ -19,6 +19,8 @@ import {
 } from "../edit.js";
 import { setCellOp, setCellsBytesOp, setCellsEachOp, setCuesOp } from "../../doc/ops.js";
 import { dittoGhosts } from "../../doc/ditto.js";
+import { planNewPatternNumbers } from "../../doc/cleanup.js";
+import { instrumentBefore } from "../../doc/instcontext.js";
 import { createBendSim, bendContext } from "../../doc/bendghosts.js";
 import {
   makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols, filledCols,
@@ -758,7 +760,7 @@ export class TimelineView {
     if (isBlockTool(pick)) {
       const anchor = this.toolAnchor(hit, ch);
       if (await runBlockTool(pick, { store, cells, cols, lanes: this.toolLanes(hit, ch),
-        anchor, column: ch, scope: this.toolScope(cells), render: this.renderSpec() })) {
+        leadInsts: this.toolLeadInsts(hit, ch), anchor, column: ch, scope: this.toolScope(cells), render: this.renderSpec() })) {
         this.invalidate();
       }
       return;
@@ -854,6 +856,18 @@ export class TimelineView {
       push(this.cellAt(hit.row, ch));
     }
     return [...seen.values()];
+  }
+
+  /** Per lane of toolLanes(), the instrument in force just above the block's
+   *  first row — walking back through the song as it is laid out here. */
+  toolLeadInsts(hit, ch) {
+    const b = this.selBounds();
+    const r0 = b ? b.r0 : hit?.row;
+    const loc = r0 === undefined ? null : this.locate(r0);
+    if (!loc) return [];
+    const song = this.store.song;
+    const chans = b ? Array.from({ length: b.c1 - b.c0 + 1 }, (_, k) => b.c0 + k) : [ch];
+    return chans.map((c) => [instrumentBefore(song, c, loc.entry.cue, loc.rowInCue)]);
   }
 
   /**
@@ -957,19 +971,21 @@ export class TimelineView {
   }
 
   /** Point every EMPTY cue slot the block covers at a brand-new pattern number,
-   *  one each, lowest first. The patterns themselves materialise on their first
-   *  edit — item 48 — so this is just cue words, in one undo step. */
+   *  one each, numbered the way Renumber would number them
+   *  (planNewPatternNumbers: each lane carries on its own run). The patterns
+   *  themselves materialise on their first edit — item 48 — so this is just
+   *  cue words, in one undo step. */
   createPattern(cue, ch, row, slots = null) {
     const store = this.store;
     const song = store.song;
     const targets = (slots ?? [{ cue, ch }])
       .filter((s) => (song.cues[s.cue][s.ch] & 0x7fff) === PATTERN_EMPTY);
     if (targets.length === 0) return;
-    const nums = song.freePatternNumbers(targets.length);
-    const writes = targets.slice(0, nums.length).map((s, i) => ({
+    const nums = planNewPatternNumbers(song, targets);
+    const writes = targets.flatMap((s, i) => (nums[i] < 0 ? [] : [{
       cue: s.cue, ch: s.ch,
       value: (song.cues[s.cue][s.ch] & 0x8000) | (nums[i] & 0x7fff),
-    }));
+    }]));
     if (!writes.length) return;
     store.undo.apply(setCuesOp(store.songIndex, writes));
     // Land the cursor on what was just created — the point of making it is to

@@ -18,6 +18,9 @@ import { emptyPatternBytes, cellStride, readVol, readPan, readElev } from "../..
 import { interpKinds, blockToolItems, isBlockTool } from "../../src/ui/blocktools.js";
 import { COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2 } from "../../src/ui/edit.js";
 import { EffectOp } from "../../core/engine/tables.js";
+import {
+  soundControlKind, instrumentBefore, patternInstrumentsBefore, agreedKind,
+} from "../../src/doc/instcontext.js";
 import en from "../../src/ui/lang/en.js";
 import ko from "../../src/ui/lang/ko.js";
 
@@ -242,6 +245,196 @@ test("fx: the interpolatable table excludes every nibble-packed slide pair", () 
   assert.equal(isInterpolatableFx(EffectOp.OP_T, 0x8000), true, "T plain set");
   assert.equal(isInterpolatableFx(EffectOp.OP_T, 0xff00), true, "T $FF00 is the plain set of $FF");
   assert.equal(isInterpolatableFx(EffectOp.OP_5, 0xffff), false, "filter reset sentinel");
+});
+
+// ── multi-axis arguments (item 272) ──
+
+/** Interpolate one fx column of `n` rows between `first` and `last` (and any
+ *  `[row, op, arg]` extras), and hand back every row's {op, arg}. */
+function fxRun(n, points, opts = {}) {
+  const b = bench(n);
+  for (const [row, op, arg] of points) setFx(b.at(row), op, arg);
+  const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["fx"], ...opts });
+  b.commit(plan.writes);
+  return { plan, rows: Array.from({ length: n }, (_, r) => getFx(b.at(r))) };
+}
+
+test("fx: S $Axyz moves its three digits as three axes", () => {
+  // Openness F→0, frontness 8→F, roundness 0→8: each digit its own straight line.
+  const { rows } = fxRun(5, [[0, EffectOp.OP_S, 0xaf80], [4, EffectOp.OP_S, 0xa0f8]]);
+  assert.deepEqual(rows.map((r) => r.arg), [0xaf80, 0xaba2, 0xa8c4, 0xa4d6, 0xa0f8]);
+  assert.ok(rows.every((r) => r.op === EffectOp.OP_S));
+  // A digit going down while another goes up is not a carry between them.
+  const { rows: r2 } = fxRun(3, [[0, EffectOp.OP_S, 0xa0f0], [2, EffectOp.OP_S, 0xa10e]]);
+  assert.equal(r2[1].arg, 0xa187, "x 0→1, y F→0, z 0→E — not the whole word's midpoint $A0FF");
+});
+
+test("fx: S forms are separate curves — S $80xx never ramps into S $Axyz", () => {
+  const { plan } = fxRun(9, [[0, EffectOp.OP_S, 0x8000], [4, EffectOp.OP_S, 0x80ff],
+    [5, EffectOp.OP_S, 0xa000], [8, EffectOp.OP_S, 0xa888]]);
+  assert.equal(plan.usable, 2);
+  assert.equal(isInterpolatableFx(EffectOp.OP_S, 0xa123), true);
+  assert.equal(isInterpolatableFx(EffectOp.OP_S, 0xb100), false, "pattern loop is a switch");
+  const { plan: p2 } = fxRun(5, [[0, EffectOp.OP_S, 0x8040], [4, EffectOp.OP_S, 0xa040]]);
+  assert.equal(p2.usable, 0, "two control points of different forms make no curve");
+});
+
+test("fx: 8 $xyzz and 9 $x0zz ramp the clipping mode as an axis of its own", () => {
+  const { rows } = fxRun(5, [[0, EffectOp.OP_8, 0x0110], [4, EffectOp.OP_8, 0x2550]]);
+  assert.deepEqual(rows.map((r) => r.arg), [0x0110, 0x1220, 0x1330, 0x2440, 0x2550]);
+  const { rows: r9 } = fxRun(3, [[0, EffectOp.OP_9, 0x0010], [2, EffectOp.OP_9, 0x2030]]);
+  assert.equal(r9[1].arg, 0x1020, "the reserved middle nibble stays zero");
+  // A ramp that would land on `8 $x000` (only a clip-mode switch) leaves that row alone.
+  const { rows: r8 } = fxRun(3, [[0, EffectOp.OP_8, 0x0001], [2, EffectOp.OP_8, 0x0100]]);
+  assert.equal(r8[1].arg, 0x0101);
+  const { rows: rz } = fxRun(5, [[0, EffectOp.OP_8, 0x0002], [4, EffectOp.OP_8, 0x0100]]);
+  assert.ok(rz.every((r) => r.op === 0 || (r.arg & 0x0fff) !== 0), "no row says $x000");
+});
+
+test("fx: 5 and 6 stay ONE number — a SoundFont cutoff carries across the byte", () => {
+  const { rows } = fxRun(3, [[0, EffectOp.OP_5, 0x13ff], [2, EffectOp.OP_5, 0x1401]]);
+  assert.equal(rows[1].arg, 0x1400);
+});
+
+test("fx: X and 4 travel the shortest arc", () => {
+  const dir = (r) => ({ ee: ((r.arg >>> 8) << 24) >> 24, aa: r.arg & 0xff });
+  // Along the horizon, across $FF → $00: the short way, not back through $80.
+  const { rows } = fxRun(5, [[0, EffectOp.OP_X, 0x00f0], [4, EffectOp.OP_X, 0x0010]]);
+  assert.deepEqual(rows.map((r) => dir(r).aa), [0xf0, 0xf8, 0x00, 0x08, 0x10]);
+  assert.ok(rows.every((r) => dir(r).ee === 0));
+  // Two points at the same height half a turn apart: the great circle runs
+  // over the top, where walking the azimuth would stay on the line of latitude.
+  const { rows: over } = fxRun(5, [[0, EffectOp.OP_4, 0x3c00], [4, EffectOp.OP_4, 0x3c80]]);
+  assert.equal(dir(over[2]).ee, 127, "through the pole");
+  assert.ok(dir(over[1]).ee > 0x3c && dir(over[3]).ee > 0x3c);
+  assert.equal(dir(over[1]).aa, 0x00);
+  assert.equal(dir(over[3]).aa, 0x80);
+  // Antipodal: no shortest arc, so it turns clockwise — front, right, behind —
+  // the engine's own rule for a Z slide.
+  const { rows: anti } = fxRun(3, [[0, EffectOp.OP_X, 0x0040], [2, EffectOp.OP_X, 0x00c0]]);
+  assert.deepEqual(dir(anti[1]), { ee: 0, aa: 0x80 });
+  // Every shape keeps every row on the arc between the two points.
+  for (const shape of INTERP_SHAPES) {
+    const { rows: rs } = fxRun(9, [[0, EffectOp.OP_X, 0x0020], [8, EffectOp.OP_X, 0x0060]], { shape });
+    assert.ok(rs.every((r) => dir(r).ee === 0 && dir(r).aa >= 0x20 && dir(r).aa <= 0x60), shape);
+  }
+});
+
+// ── S $Axxx read the way the instrument reads it (item 272 follow-up) ──
+
+// Slots: 1 formant, 2 PSG, 3 FM rack, 4 plain sample, 5 layers over 1 (formant),
+// 6 layers over 1 and 2 (they disagree).
+const INSTS = [null,
+  { isFormant: true }, { isPsg: true }, { isFm: true, isMeta: true }, {},
+  { isMeta: true, metaLayers: [{ instIdx: 1 }, { instIdx: 4 }] },
+  { isMeta: true, metaLayers: [{ instIdx: 1 }, { instIdx: 2 }] },
+];
+const kindOf = (slot) => soundControlKind(INSTS, slot);
+/** A note with an instrument on `row` of a bench. */
+const strike = (b, row, inst) => { setNote(b.at(row), 0x5000); b.at(row)[2] = inst; };
+
+test("soundControlKind: what each instrument makes of S $Axxx", () => {
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6, 9].map(kindOf),
+    [null, "formant", "psg", "fm", "none", "formant", "mixed", null]);
+});
+
+test("S $Axxx on a formant: three digits; on a plain instrument: left alone", () => {
+  const run = (inst) => {
+    const b = bench(5);
+    strike(b, 0, inst);
+    setFx(b.at(0), EffectOp.OP_S, 0xa000);
+    setFx(b.at(4), EffectOp.OP_S, 0xa888);
+    const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["fx"], instKind: kindOf });
+    b.commit(plan.writes);
+    return { plan, mid: getFx(b.at(2)).arg };
+  };
+  assert.equal(run(1).mid, 0xa444);
+  assert.equal(run(5).mid, 0xa444, "layers over a formant read it as the formant does");
+  for (const inst of [4, 6]) assert.equal(run(inst).plan.usable, 0, `kind ${kindOf(inst)}: not a value`);
+});
+
+test("S $Apsd on an FM rack: speed and depth ramp, each operator its own curve", () => {
+  const b = bench(9);
+  strike(b, 0, 3);
+  setFx(b.at(0), EffectOp.OP_S, 0xa200);
+  setFx(b.at(4), EffectOp.OP_S, 0xa288);
+  setFx(b.at(5), EffectOp.OP_S, 0xa300);
+  setFx(b.at(8), EffectOp.OP_S, 0xa1ff);
+  const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["fx"], instKind: kindOf });
+  assert.equal(plan.usable, 1, "operator 2's pair is a curve; 3 and 1 are two lone points");
+  b.commit(plan.writes);
+  assert.equal(getFx(b.at(2)).arg, 0xa244, "the operator digit is kept, not averaged");
+  assert.deepEqual(getFx(b.at(6)), { op: 0, arg: 0 });
+});
+
+test("S $Axxx on a PSG: one byte per register, levels kept to $3F, mutes left alone", () => {
+  const run = (a0, a4, lead = "psg") => {
+    const b = bench(5);
+    setFx(b.at(0), EffectOp.OP_S, a0);
+    setFx(b.at(4), EffectOp.OP_S, a4);
+    const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["fx"],
+      instKind: kindOf, leadKinds: [lead] });
+    b.commit(plan.writes);
+    return { plan, rows: [1, 2, 3].map((r) => getFx(b.at(r)).arg) };
+  };
+  assert.deepEqual(run(0xa110, 0xa130).rows, [0xa118, 0xa120, 0xa128], "level: a byte, not two digits");
+  assert.deepEqual(run(0xa804, 0xa8fc).rows, [0xa842, 0xa880, 0xa8be], "oscillator B's advance");
+  assert.equal(run(0xa110, 0xa910).plan.usable, 0, "oscillator A's level never ramps into B's");
+  assert.equal(run(0xa010, 0xa110).plan.usable, 0, "advance never ramps into level");
+  assert.equal(run(0xaf00, 0xaf03).plan.usable, 0, "the mutes are switches");
+  assert.equal(run(0xa140, 0xa150).plan.usable, 0, "a level past $3F is no write at all");
+  // Without the instrument the three digits are all there is to go on —
+  // which is exactly what goes wrong on a PSG level.
+  assert.deepEqual(run(0xa110, 0xa130, null).rows, [0xa120, 0xa120, 0xa130]);
+  assert.deepEqual(run(0xa0f0, 0xa10e, null).rows.slice(1, 2), [0xa187]);
+});
+
+test("S $Axxx: the instrument changes where a note names a new one, and a glide skips it", () => {
+  const b = bench(9);
+  strike(b, 0, 1);
+  setFx(b.at(0), EffectOp.OP_S, 0xa000);
+  strike(b, 4, 2); // a PSG note in the middle of the vowel glide
+  strike(b, 6, 1);
+  setFx(b.at(8), EffectOp.OP_S, 0xa888);
+  const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["fx"], instKind: kindOf });
+  b.commit(plan.writes);
+  const args = [1, 2, 3, 4, 5, 6, 7].map((r) => getFx(b.at(r)).arg);
+  assert.deepEqual(args, [0xa111, 0xa222, 0xa333, 0, 0, 0xa666, 0xa777]);
+  // A note WITHOUT an instrument keeps the one before.
+  const c = bench(5);
+  strike(c, 0, 1);
+  setNote(c.at(2), 0x5100);
+  setFx(c.at(0), EffectOp.OP_S, 0xa000);
+  setFx(c.at(4), EffectOp.OP_S, 0xa444);
+  const p2 = planInterpolate({ lanes: [c.lane], readCell: c.readCell, kinds: ["fx"], instKind: kindOf });
+  assert.equal(p2.writes.length, 3);
+});
+
+test("instrumentBefore / patternInstrumentsBefore walk back through the song", () => {
+  const cell = (note = 0, instrment = 0) => ({ note, instrment });
+  const pat = (...cells) => { const p = Array.from({ length: 64 }, () => cell()); cells.forEach(([r, c]) => { p[r] = c; }); return p; };
+  const E = 0x7fff;
+  const w = (...p) => { const a = new Uint16Array(4).fill(E); p.forEach((v, i) => { a[i] = v; }); return a; };
+  const song = {
+    patterns: [
+      pat([3, cell(0x5000, 1)], [10, cell(0, 2)], [12, cell(0x0001, 2)]), // 0: inst 1 at row 3; no-note / key-off rows don't count
+      pat(),                                                                // 1: nothing
+      pat([5, cell(0x5000, 3)]),                                           // 2: inst 3 at row 5
+    ],
+    cues: [w(0, E, 1), w(1, 2), w(E, 1), w(1, E)],
+  };
+  assert.equal(instrumentBefore(song, 0, 0, 3), 0, "the strike's own row is not BEFORE it");
+  assert.equal(instrumentBefore(song, 0, 0, 4), 1);
+  assert.equal(instrumentBefore(song, 0, 1, 20), 1, "through an empty pattern, back to cue 0");
+  assert.equal(instrumentBefore(song, 0, 3, 0), 1, "and through an empty slot");
+  assert.equal(instrumentBefore(song, 1, 2, 0), 3);
+  assert.equal(instrumentBefore(song, 1, 1, 0), 0);
+  assert.deepEqual(patternInstrumentsBefore(song, 0, 40), [1], "inside the pattern first");
+  assert.deepEqual(patternInstrumentsBefore(song, 1, 0), [0, 1, 3], "else every place it plays");
+  assert.equal(agreedKind(INSTS, [1, 5]), "formant", "two instruments that read it alike agree");
+  assert.equal(agreedKind(INSTS, [1, 2]), null);
+  assert.equal(agreedKind(INSTS, [0, 1]), null, "somewhere with no instrument at all");
+  assert.equal(agreedKind(INSTS, []), null);
 });
 
 test("fx2 writes the second effect's slot and leaves the first alone", () => {

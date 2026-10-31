@@ -109,7 +109,7 @@ export default {
   "ctx.chanRightTitle": "Insert an empty lane after lane {ch} — every lane to its right shifts one place along",
   "ctx.dropLastConfirm": "The song already uses all {ch} lanes, so lane {ch} will be pushed off the end and its patterns dropped. Insert anyway? This can be undone.",
   "ctx.newPattern": "New pattern",
-  "ctx.newPatternTitle": "Give this empty slot the lowest unused pattern number",
+  "ctx.newPatternTitle": "Give this empty slot a new pattern, numbered next in its lane as Renumber patterns would",
   "ctx.moveLeft": "Move left",
   "ctx.moveLeftTitle": "Move the pattern one lane to the left, into the empty slot there",
   "ctx.moveRight": "Move right",

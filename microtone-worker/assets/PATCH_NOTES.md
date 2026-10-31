@@ -4,6 +4,23 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
 
+## Version 4.4.0 (2026-11-01)
+
+**New patterns are numbered by lane**: *New pattern* in the Cues tab and the Timeline now gives a pattern the number **Renumber patterns** would give it, instead of the lowest unused one.
+
+- On a lane that already has patterns, the new one takes the next free number after the lane's highest, so a renumbered song stays tidy as it grows: add a cue at the end and its new patterns land in their own lanes' runs.
+- On a lane with no patterns yet, it starts at a round number after the lanes to its left (`0010`, `0020`, … or `0100` after a long lane), as Renumber would.
+- A new pattern never lands among another lane's numbers; a lane with no room left starts a run of its own after every number in use.
+- Over a block, each lane is numbered in cue order, one lane after another.
+
+**Interpolate ramps every part of an effect on its own.**
+
+- `S $Axxx` can now be interpolated, read the way the instrument playing it reads it: a formant instrument's vowel glides in openness, frontness and roundness separately; an FM rack's operator vibrato ramps its speed and depth, each operator on its own; a PSG instrument's auto-advance and level ramp as whole numbers, each register on its own.
+- `8 $xyzz` and `9 $x0zz` now ramp the clipping mode too, instead of keeping the first row's.
+- `X $eeaa` and `4 $eeaa` now travel the shortest arc between two directions, the way a `Z $0xxx` slide does, with every curve shape.
+  - Fixed: a ramp across azimuth `$FF` → `$00` went the long way round the listener, and one between two points at the same height followed the line of latitude instead of the shorter path over the top.
+- A ramp never writes a row that would mean something else — `8 $x000`, which only switches the clipping mode, or `$0000` on an effect that recalls its last argument.
+
 ## Version 4.3.0 (2026-10-31)
 
 **Folders for your projects**: the File view's project list can now be sorted into folders, and projects move between folders, and between this browser and your online projects, several at a time.

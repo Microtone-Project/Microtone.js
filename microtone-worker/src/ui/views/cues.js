@@ -8,6 +8,7 @@ import { cueInstructionWords } from "../../../core/format/taud-parse.js";
 import { cueInfo } from "../../doc/document.js";
 import { INST_NOP, INST_GOBACK, INST_SKIP, INST_JUMP, INST_PATLEN, INST_HALTAT, INST_HALT } from "../../../core/engine/state.js";
 import { setCuesOp } from "../../doc/ops.js";
+import { planNewPatternNumbers } from "../../doc/cleanup.js";
 import {
   lookahead, subIsEmpty, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX2_OP,
 } from "../edit.js";
@@ -748,19 +749,20 @@ export class CuesView {
   }
 
   /** Point every EMPTY slot in `targets` at a brand-new pattern number, one
-   *  each, lowest first — over a block that is one fresh pattern per slot, in a
-   *  single undo step. The patterns themselves materialise on their first edit
-   *  (item 48), so this is only cue words. */
+   *  each, numbered the way Renumber would number them (planNewPatternNumbers:
+   *  each lane carries on its own run) — over a block that is one fresh
+   *  pattern per slot, in a single undo step. The patterns themselves
+   *  materialise on their first edit (item 48), so this is only cue words. */
   createPattern(cue, ch, targets = null) {
     const store = this.store;
     const list = (targets ?? [{ cue, ch }])
       .filter((s) => (this.wordAt(s.cue, s.ch) & 0x7fff) === CUE_EMPTY);
     if (list.length === 0) return;
-    const nums = store.song.freePatternNumbers(list.length);
-    const writes = list.slice(0, nums.length).map((s, i) => ({
+    const nums = planNewPatternNumbers(store.song, list);
+    const writes = list.flatMap((s, i) => (nums[i] < 0 ? [] : [{
       cue: s.cue, ch: s.ch,
       value: (this.wordAt(s.cue, s.ch) & 0x8000) | (nums[i] & 0x7fff),
-    }));
+    }]));
     if (!writes.length) return;
     store.undo.apply(setCuesOp(store.songIndex, writes));
     this.cursor = { cue, col: ch + 2, nib: 0 };

@@ -29,6 +29,7 @@ import {
 } from "../../doc/patterntools.js";
 import { dittoGhosts } from "../../doc/ditto.js";
 import { bendGhosts, bendContext } from "../../doc/bendghosts.js";
+import { patternInstrumentsBefore } from "../../doc/instcontext.js";
 import { CUE_EMPTY } from "../../../core/format/taud-const.js";
 import { SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
 import { themeColors } from "../theme.js";
@@ -308,6 +309,7 @@ class PatternPane {
         channel: this.cursor.ch ?? 0, rowLabel: String(cells[0].row),
       };
       if (await runBlockTool(pick, { store, cells, cols, lanes: [cells], anchor,
+        leadInsts: [patternInstrumentsBefore(store.song, this.patIdx, cells[0].row)],
         scope: this.toolScope(), render: this.renderSpec() })) {
         this.refreshHeader();
         this.invalidate();
