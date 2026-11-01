@@ -4,6 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.5.1 (2026-11-02)
+
+**Invert loop (`S $F0xx`) keeps its inversion when another note of the same instrument is still sounding.**
+
+- Fixed: an inverting loop could lose its inversion part-way while a ghost note of the same instrument was still playing another sample from its key map; reading the inversion for that other sample threw it away.
+- The inversion belongs to the loop it was written over: a note playing another sample of the key map plays that sample untouched, and the note doing the inverting keeps its sweep.
+- A song in which no other sample of the instrument sounds while the effect runs plays exactly as before.
+
 ## Version 4.5.0 (2026-11-02)
 
 **Retriggers can follow the New Note Action**: the Instruments view's Note actions have a new **On Retrigger (effect Q)** row, so a `Q` roll can leave each stroke ringing under the next instead of choking it.

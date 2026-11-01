@@ -1302,7 +1302,7 @@ An instrument with the key-lift flag treats key-off as a true MIDI key release: 
 
 Sample data is unsigned 8-bit with `$80` as zero; a byte converts to `(b − 127.5) ÷ 127.5`. Reads clamp the index into the sample and clamp the pool address into the 8 MiB pool, so a malformed pointer cannot read out of bounds.
 
-If the instrument has an active **invert-loop** mask ([§8.4](#8-4-invert-loop-and-funk-repeat)) and a non-empty loop region, a byte inside the loop whose mask bit is set is XOR-ed with `$FF` before conversion. The loop that indexes the mask is the one the instrument declares; funk repeat's walk does not move it.
+If the instrument has an active **invert-loop** mask ([§8.4](#8-4-invert-loop-and-funk-repeat)) and a non-empty loop region, a byte inside the loop whose mask bit is set is XOR-ed with `$FF` before conversion. The loop that indexes the mask is the voice's active loop ([§8.4](#8-4-invert-loop-and-funk-repeat)); funk repeat's walk does not move it.
 
 A live **sample modification** ([§8.5](#8-5-sample-modifications)) may additionally move *which* byte this read takes and change its value; [§8.5](#8-5-sample-modifications) fixes the order the two features compose in.
 
@@ -1344,7 +1344,7 @@ ProTracker's `EFx` is two effects that were never the same one. **Invert loop** 
 
 **Invert loop** keeps a per-instrument bit mask over the loop region. On each step it toggles the mask bit at the current write position, which advances cyclically through the loop; sample bytes whose mask bit is set read inverted. The write position resets on a fresh trigger; the speed and accumulator persist.
 
-The loop the mask covers is the **active** one — an Ixmp patch replaces the base record's loop points, and the mask is sized and indexed against whichever loop the voice is actually sounding. The mask is instrument-scope runtime state and **MUST** be cleared on a transport reset, or a replay will start from a scrambled sample.
+The loop the mask covers is the **active** one — an Ixmp patch replaces the base record's loop points, and the mask is sized and indexed against whichever loop the voice is actually sounding. A step taken against a loop of another length than the mask's starts a fresh, cleared mask sized for that loop. A **read** against a loop of another length sees no inversion and **MUST NOT** change the mask: reading is free of side effects, so whether an engine visits its voices sample by sample or each voice over a whole span, every voice hears the same bytes. The mask is instrument-scope runtime state and **MUST** be cleared on a transport reset, or a replay will start from a scrambled sample.
 
 **Funk repeat** keeps a per-voice pointer instead. The window `[pointer, pointer + loop_length)` is the loop the voice sounds, and each step moves the pointer by a **hop**: the loop length shifted right by the low two bits of the command's walk selector, so a whole loop length, a half, a quarter or an eighth of one. The pointer lives on the grid of positions `loop_start + k × hop` the hop defines, stopping at the last `k` whose whole window still fits before the sample end, and the selector's high two bits say how it moves over that grid — forward wrapping home, backward wrapping to the top, forward with each landing thrown within an sixteenth of the grid, or a free uniform throw across all of it. `$f = 0` is ProTracker 1.0C's own walk, one whole block forward, and it is what a converted module gets; the argument encoding, the exact draws and the reasons behind them belong to the **Note Effects** reference.
 

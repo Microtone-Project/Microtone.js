@@ -10173,11 +10173,17 @@ class TaudInst {
     mask[idx >> 3] ^= 1 << (idx & 7);
   }
 
+  // A READ never changes the mask: one sized for another loop (a voice on a
+  // different Ixmp patch of this instrument) simply does not apply to this
+  // one. It used to be discarded here, which made what a voice heard depend on
+  // the order the mixer visits voices in — span by span here, sample by sample
+  // in the C and Kotlin ports — and an NNA ghost on another patch could wipe
+  // the inversion out from under the lane that was writing it (item 262).
   invertBit(loopOffset, loopLen = this.sampleLoopEnd - this.sampleLoopStart) {
     const mask = this.invertMask;
     if (mask === null) return false;
     const len = Math.max(loopLen, 1);
-    if (mask.length !== (len + 7) >> 3) { this.invertMask = null; return false; }
+    if (mask.length !== (len + 7) >> 3) return false;
     const idx = Math.min(Math.max(loopOffset, 0), len - 1);
     return ((mask[idx >> 3] >>> (idx & 7)) & 1) !== 0;
   }
