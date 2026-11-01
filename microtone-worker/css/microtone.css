@@ -63,7 +63,7 @@
   --accent-2: #78DCE7;      /* blue: instrument column, links, pan ticks */
   --meter: #8be400;         /* green: VU bars, volume column, live dots */
   --meter-bg: #2a2f3a;      /* meter troughs */
-  --cv-gonio: #f4ce23;      /* yellow: the goniometer's dot cloud */
+  --cv-gonio: #ffc043;      /* yellow: the goniometer's dot cloud */
   --border: #404655;
 
   /* status colours */
@@ -215,7 +215,7 @@
   --accent-2: #78DCE7;
   --meter: #8be400;
   --meter-bg: #4b4f55;
-  --cv-gonio: #f8d224;
+  --cv-gonio: #ffc043;
   --border: #565b62;
 
   /* status colours */
@@ -302,7 +302,7 @@
   --accent-2: #1d66b8;
   --meter: #1c9450;
   --meter-bg: #cfd4dd;
-  --cv-gonio: #a08400;
+  --cv-gonio: #a44500;
   --border: #c2c7d1;
 
   /* status colours */
@@ -403,7 +403,7 @@
   --accent-2: #1a5478;      /* faded ink-blue — the labels round the jacks */
   --meter: #2c6f1f;         /* the green LED, seen through tinted plastic */
   --meter-bg: #ab9c74;
-  --cv-gonio: #6e5c00;
+  --cv-gonio: #93330a;
   --border: #a08f66;        /* mould line / panel gap */
 
   /* status colours */
