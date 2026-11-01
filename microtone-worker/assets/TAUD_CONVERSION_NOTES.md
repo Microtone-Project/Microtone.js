@@ -1,6 +1,6 @@
 # Taud Conversion Notes
 
-This document describes how music in other formats becomes Taud: what maps cleanly, what has to be approximated, and where the traps are. It covers ProTracker (`.mod`), ScreamTracker 3 (`.s3m`), FastTracker 2 (`.xm`), ImpulseTracker (`.it`), Monotone (`.mon`), Standard MIDI plus SoundFont 2 (`.mid` + `.sf2`), and the AdLib music of Iyagi Music Sound (`.ims` + `.bnk`) and the Korean OPL3 tracker (`.sop`).
+This document describes how music in other formats becomes Taud: what maps cleanly, what has to be approximated, and where the traps are. It covers ProTracker (`.mod`), ScreamTracker 3 (`.s3m`), FastTracker 2 (`.xm`), ImpulseTracker (`.it`), Monotone (`.mon`), Standard MIDI plus SoundFont 2 (`.mid` + `.sf2`), and the AdLib music of Iyagi Music Sound (`.ims` + `.bnk`) and the Korean OPL3 sequencer (`.sop`).
 
 It is written for two audiences at once. If you are **using** a converter, the per-format sections tell you what to expect from your file and which options change it. If you are **writing** one, they tell you which decisions are forced by the target format and which are judgement calls that the reference converters have already made one way.
 
@@ -585,7 +585,7 @@ IMS uses 2.6 million pitch-bend events across the reference corpus. They are not
 - **A patch change while a note sounds takes effect at once**, as on the chip, where the driver rewrites the keyed channel's registers and the release then runs at the new patch's rates. The converter writes an instrument byte with no note over the ringing note, which swaps the patch into the sounding channel, and restates the volume, whose curve depends on the new patch.
 - **An unresolved patch name is a silent slot with the name preserved**, never a failed conversion. Resolution is most-specific-first and case-INSENSITIVE: exact matching resolves 29 % of the corpus's references and case-folded matching 99.95 %.
 
-## 9. The Korean OPL3 tracker — `.sop`
+## 9. The Korean OPL3 sequencer — `.sop`
 
 `.sop` is the song format of **Note 1.0 Beta 2**, a Korean OPL3 sequencer by 이호범 (© 1995, 1997), found in the same BBS collections as the `.ims` files of §8 and sharing nothing with them but the chip family. Its magic, `sopepos`, is the author's HiTEL user ID. The structure below is `SOP_FORMAT.en.md` in the [iyagimusic-js](https://github.com/curioustorvald/IyagiMusic.js) repository, checked there against the corpus and corrected against a disassembly of `NOTE.EXE` itself.
 

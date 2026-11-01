@@ -126,7 +126,7 @@ test("renders the real USER_MANUAL.md without throwing + builds a TOC", () => {
 
 // Item 95: the patch notes are a plain assets/*.md served by the same viewer.
 // The invariants worth pinning are the ones a future append can break: every
-// section is a "Version x.y.z (ISO date)" — or, before 3.5.0, a bare ISO date —
+// section is a "Version x.y.z (ISO date)" — or, before 2.0.0, a bare ISO date —
 // and the newest one comes first.
 test("PATCH_NOTES.md: versioned sections, newest first, renders + TOCs", () => {
   const md = readFileSync(fileURLToPath(new URL("../../assets/PATCH_NOTES.md", import.meta.url)), "utf8");

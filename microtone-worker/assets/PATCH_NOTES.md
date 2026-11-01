@@ -1,6 +1,6 @@
 # Patch Notes
 
-Every entry below is one version of Microtone, newest first, with the date it was released; the website follows the newest one, and the desktop app picks each version up in its own updates. Entries from before version 3.5.0 are dated batches of work, as the versions were not yet numbered then.
+Every entry below is one version of Microtone, newest first, with the date it was released; the website follows the newest one, and the desktop app picks each version up in its own updates. Entries from before version 2.0.0 are dated batches of work, as the versions were not yet numbered then. Not every version has an entry: one that changed nothing a user sees is left out, and the versions released on one day share the entry of the day's last.
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
@@ -619,7 +619,7 @@ Microtone now comes as a desktop application for Linux, Windows and macOS, and k
 - **Online projects work in the app too.** **Sign in with SceneID** on the File tab opens your usual browser; sign in there — or do nothing, if you already are — and the browser hands you back to Microtone, which stays signed in until you sign out.
 - **Its projects are its own**, kept apart from any browser's: Export a project in one and open it in the other to move it across, or keep it in your online projects, which both can open.
 
-## 2026-10-01
+## Version 3.4.0 (2026-10-01)
 
 Songs from The IMS Archive open directly, and the game music that adds recorded samples to the SOP format now imports.
 
@@ -636,7 +636,7 @@ Microtone needs much less of your computer: the audio engine renders a quarter t
 - **A stopped song lets the computer rest.** A few seconds after the sound ends, the master strip stops redrawing its empty scopes and meters, and the transport readout no longer makes the toolbar re-lay itself out every frame — laptops and tablets will notice it in their batteries.
 - **The master strip's cloud and radiation scopes draw faster**, with the same picture.
 
-## 2026-09-28
+## Version 3.3.0 (2026-09-28)
 
 Porous paste: **Shift+Ctrl+V** pastes the clipboard but lets its empty cells through, so what is already under them stays.
 
@@ -655,7 +655,7 @@ Online projects: keep the few songs you are working on with your SceneID account
 - **A save never quietly replaces a newer one.** If the project was saved from another browser since you opened it, Save asks before replacing that version.
 - Online projects are associated with your SceneID account and remain available while your account remains active. Microtone keeps only your SceneID number and display name.
 
-## 2026-09-27
+## Version 3.2.0 (2026-09-27)
 
 The key strip under the grids has octave and transpose buttons, so the keyboard can be shifted on a tablet.
 
@@ -670,7 +670,7 @@ The Panner now works in stereo songs too, drawn as a half-circle from hard left,
 - **Two buttons write what a stereo song understands.** **Lane** writes `S $80xx` and moves the whole lane there; **Column** writes a SET into the cell's panning column and places just that note, leaving the effect slot free. Each button shows the exact value it will write, and each write is one undo step.
 - **Reopening the Panner picks the position up from the cell** — from its `S $80xx` or its panning-column SET — so the handle starts where the note already is.
 
-## 2026-09-25
+## Version 3.0.1 (2026-09-25)
 
 The pitch plot's register tabs now mark the notes instead of running the whole height of the lane.
 
@@ -678,7 +678,7 @@ The pitch plot's register tabs now mark the notes instead of running the whole h
 - **Nothing about the registers themselves has changed** — the faint centre line still runs unbroken, because the register is in force between the notes just as much as on them. What has gone is the solid colour that made it hard to see the one row where it changes.
 - **A slide is still marked all the way down.** Rows a portamento travels through sound a pitch even where the note column says nothing, so they take a tab like any other sounding row — and its colour follows the slide into the next register.
 
-## 2026-09-24
+## Version 3.0.0 (2026-09-24)
 
 The arrow keys have a new scheme, one modifier per job, and brackets now set the input step — muscle memory from before will need retraining.
 
@@ -696,7 +696,7 @@ The Cues view now shows you everywhere a pattern is used.
 - **Put the cursor on a pattern number in the Cues view and every other placement of that pattern turns blue**, so you can see at a glance where else an edit to it will be heard.
 - **With the Cues view open beside the Timeline or the Patterns view, it follows whichever one you are working in.** It highlights the pattern under the Timeline's cursor — with a frame round the exact cue slot you are in — or the pattern the Patterns view has open.
 
-## 2026-09-22
+## Version 2.60.0 (2026-09-22)
 
 The Timeline can draw the shape of a melody behind the notes, so a part reads as a line rather than as a column of letters.
 
@@ -727,22 +727,21 @@ The File tab is quicker to get around.
 - **Click a project's name to open it.** The name underlines and turns amber under the pointer; the Open button beside it still works exactly as before.
 - **Download all** puts every project stored in this browser into a single dated ZIP — the backup the browser's own storage does not give you. Anything unsaved is not in it, so save first.
 
-## 2026-09-18
 
 `.sop` files now open in Microtone, and the IyagiMusic player's **Remix in Microtone** button works for them.
 
-- **A `.sop` needs no bank file.** It is the song format of a Korean OPL3 tracker of the mid-to-late 1990s, found in the same BBS collections as the `.ims` files Microtone already read — but unlike an `.ims`, which only *names* its instruments, a `.sop` stores them. Drop one on the window and that is the whole song; Microtone will not ask you for a `.bnk`.
+- **A `.sop` needs no bank file.** It is the song format of a Korean OPL3 sequencer of the mid-to-late 1990s, found in the same BBS collections as the `.ims` files Microtone already read — but unlike an `.ims`, which only *names* its instruments, a `.sop` stores them. Drop one on the window and that is the whole song; Microtone will not ask you for a `.bnk`.
 - **All twenty parts arrive, on their own lanes.** The format is written for a YMF262, which has twenty voices to the YM3812's eleven, and a Taud song has thirty-two lanes — so nothing is shared, stolen or cut, which is not true of playing the same file on an AdLib card.
 - **Four-operator instruments stay four operators.** A `.sop` instrument may be two operator pairs joined into one voice, in any of the chip's four connections; each becomes an FM Rack with all four operators and the right algorithm, editable operator by operator like any other.
 - **Panning survives.** A `.sop` is stereo — it sets each part hard left, centre or right — and that arrives as the lane's own pan position, so it is still a part you can move rather than something baked into the notes.
 - **The song's scrolling credits arrive as the project message**, on the Project tab, and its title as the project name.
-- **The grid is the one it was written on.** `.sop` is a tracker format, so its own 4-to-16 rows a beat are used directly; a bar lands on a bar line and a cue is a whole number of bars.
+- **The grid is the one it was written on.** `.sop` is a sequencer format, so its own 4-to-16 rows a beat are used directly; a bar lands on a bar line and a cue is a whole number of bars.
 - **Fixed: imported AdLib patches with feedback came out gritty.** The brightness fix below doubled how hard a modulator drives its carrier, and the feedback path rides on that same number — so patches using feedback ended up twice as harsh as the chip. Both are correct now, and the strongest feedback setting no longer skips its scaling altogether.
 - **Fixed: imported AdLib songs came out dull and their drums came out quiet.** Two numbers in the OPL instrument compiler were wrong. A modulator was driving its carrier at half the depth the chip drives it, which took the bite off every FM patch — the harmonics an instrument reaches now run roughly twice as high. And the five rhythm drums were 6 dB down, because the chip sums its rhythm channels into the mix twice and the conversion summed them once. Both `.ims` and `.sop` imports are affected and both are fixed; re-import a song to pick it up.
 - **Fixed: the vibrato on imported AdLib songs was far too slow and far too deep.** An instrument that asks for the chip's vibrato was wobbling at 0.8 Hz and three quarters of a semitone, instead of shimmering at 6 Hz and a fifteenth of one — so anything using it sounded like its pitch was dragging. Both `.sop` and `.ims` imports are affected and both are fixed; re-import a song to pick it up.
 - **Songs sent over from the IyagiMusic player** (microtone.cc's "remix this" link) are routed by what the file's bytes say rather than by what it is called, so a `.sop` saved under an `.IMS` name still opens as a `.sop`.
 
-## 2026-09-17
+## Version 2.59.1 (2026-09-17)
 
 Channels and voices are now called LANES, everywhere in the app and in every document — and *voice* and *channel* now each mean one precise thing.
 
@@ -795,7 +794,7 @@ A slide no longer hides where it has got to: the Timeline and Patterns grids now
 - **On the Timeline the trail crosses pattern boundaries.** A portamento still travelling when a cue ends goes on showing where it is in the next one, and so do the volume and panning a lane is holding — the trail follows the song rather than stopping at the join. In the Patterns view a pattern still starts from silence, because a pattern there belongs to no cue in particular.
 - **A new *Ghosts* button in the toolbox turns the grey off** — both the bend trails and the ditto repeats, since both are saying the same thing. It starts on, changes nothing in the song, and is not saved with it.
 
-## 2026-09-16
+## Version 2.57.0 (2026-09-16)
 
 The Mastering view now shows the crest factor and its allpassed twin together, so how much peak the chain has flattened is something you can see rather than something you work out.
 
@@ -839,7 +838,7 @@ A Key Lift NNA action has been re-worked to match the intended specifications pr
 - **Fixed: a forced key lift reached only the first layer of a metainstrument.** `S $D0n1` with action 4 overrides the instrument's own New Note Action for one note, and on a layered kit or an FM Rack it now does that for every voice sounding the note rather than the first one alone. Written on an ordinary instrument it behaves exactly as before.
 - **Key lift is now handled as the fifth New Note Action everywhere it is read**, rather than as a modifier that could be combined with the other four. Nothing you have set changes — every instrument that says *Key lift* still lifts, and every one that says cut, continue, off or fade is untouched. It was described as fifth NNA since the inception but the implementation had been disagreeing.
 
-## 2026-09-15
+## Version 2.54.0 (2026-09-15)
 
 A four-row keymap can now be split between your two hands, and a project can carry the keyboard it was written for.
 
@@ -867,7 +866,7 @@ Bit usage can now be asked about a passage, or about a single moment, rather tha
 - **All four figures follow the choice**, and so does the histogram under them — **Code span**, **Codes used**, **Effective bits** and **Entropy bits** all describe whichever span you picked.
 - **Codes used is the one to watch.** On the whole take it can only climb; on a rolling window it rises and falls with the music, so a passage that is throwing bits away says so while you are listening to it rather than being averaged into everything that came before.
 
-## 2026-09-14
+## Version 2.53.0 (2026-09-14)
 
 The Mastering tab's two meters now draw the statistics they were only ever hinting at: the Levels bars carry both RMS readings and bracket where the level has actually been, and the Loudness bar shows the loudness range as a band rather than only as a number.
 
@@ -878,7 +877,7 @@ The Mastering tab's two meters now draw the statistics they were only ever hinti
 - **The Crest figure stopped flickering.** It is now peak over RMS with both halves measured over the same 100 ms window, instead of over whichever sixteen milliseconds the meter last caught — one kick inside a window that short read 18 dB and the gap after it read 3, so the number was a blur you could only average by eye. The faint ribbon along the top of its cell is the recent windows, so you can see it settling, climbing or collapsing rather than only where it is right now.
 - **The Loudness bar draws LRA where it actually sits.** A blue band lies across the bar from the quiet passages to the loud ones, on the same LUFS axis as everything else there. **LRA** is only how *wide* that band is, which could never tell you whether a mix with 9 LU of range is sitting at −20 or at −11 — the band's two ends do. Hover the **LRA** readout for both of them as figures.
 
-## 2026-09-13
+## Version 2.52.0 (2026-09-13)
 
 The letter keys can now be laid out as an isomorphic keyboard, so a fine tuning is playable instead of merely writable — there is a new **Keymap** tab (**Shift+F9**) to build one in, and layouts travel between machines as `.taudkey` files.
 
@@ -911,7 +910,7 @@ The letter keys can now be laid out as an isomorphic keyboard, so a fine tuning 
 - The wider scopes are offered from the right-click menu's **Find & Change** too, not just the Patterns toolbar. A scope that would mean nothing is not offered at all, and pattern numbers nothing has ever been written to stay out of both the counts and the edit.
 - However far it reaches, the whole edit is still one **Ctrl+Z**.
 
-## 2026-09-12
+## Version 2.50.0 (2026-09-12)
 
 **Delete pattern** takes a pattern out of the song from the grid you are looking at.
 
@@ -939,7 +938,7 @@ A song can now call out to the program playing it: sixteen **interrupts**, writt
 - The same `:` can still extend a `J`, `O`, `2` or `3` sharing the row — the interrupt reads it without taking it away.
 - **taudplay**, the player library, answers them with one callback per interrupt, so a game can flash a light, drop a subtitle or spawn a wave on the beat without ever guessing where the beat is. Markers are saved in the file like any other note, so a song carries its cues with it.
 
-## 2026-09-11
+## Version 2.48.0 (2026-09-11)
 
 Write the start and the end of a move, select the rows in between, and **Interpolate** draws the rest of it for you.
 
@@ -952,7 +951,7 @@ Write the start and the end of a move, select the rows in between, and **Interpo
 - A fade you already stepped in by hand can be smoothed too. When a block is almost entirely full and its values sit in flat runs, Interpolate offers to treat the start of each step as a control point and ramp the stretches between them — it asks first, because unlike everything else here that rewrites cells which already have values.
 - Re-running it on the same block changes nothing the second time: the control points themselves are never rewritten.
 
-## 2026-09-10
+## Version 2.46.0 (2026-09-10)
 
 Open Microtone on a phone and you now land on the player rather than on a tracker you cannot use, and the player itself lays out in two columns when the screen is turned sideways or unfolded.
 
@@ -971,7 +970,7 @@ MIDI import can now put a file back on the grid it was really written on, for th
 - A MIDI that is already on its own grid is left completely alone, and one whose notes sit on no grid at all — a freely played performance — is refused rather than guessed at, and says so.
 - Realignment fixes where the grid is; **Quantise timing** tidies how tightly the notes sit on it. They are separate settings and work together, in that order.
 
-## 2026-09-09
+## Version 2.44.0 (2026-09-09)
 
 Playback got about twice as fast, and not one sample of it sounds different.
 
@@ -1040,7 +1039,7 @@ The extended `2 $sexy : $fuuk` / `3 $sexy : $fuuk` command's invert operations (
 
 - Fixed: invert and jittered invert flipped the bytes they meant to in their own bookkeeping — the sample view's overlay showed it correctly — but the sound you actually heard was the untouched sample the whole time, on both lanes of a stereo sample and on a mono one alike.
 
-## 2026-09-08
+## Version 2.41.3 (2026-09-09)
 
 Paint Waveform gained the eight OPL3 chip waveforms as ready-made presets.
 
@@ -1063,7 +1062,7 @@ The sample view's live modification overlay now draws what the extended `2 $sex
 - Fixed: the sub-range an extended command narrows itself to was drawn as if the narrowing weren't there.
 - Fixed: byte-pair swap, mirror, XOR, bit-rotate and bit-permute operations showed no change on the waveform at all, even though they were audible.
 
-## 2026-09-05
+## Version 2.40.0 (2026-09-05)
 
 Every play-indicator lamp in the app — the instrument lookup panel's own numbers, and the Instruments and Samples tabs' row dots — now brightens with how loud it's actually playing, instead of a flat on/off.
 
@@ -1117,7 +1116,7 @@ Patterns can now say more per row: a new `:` effect extends the argument of anot
 - `2`/`3` paired with `:` open up a much wider set of sample-glitch operations — new rotate, add, XOR and bit-shuffling variants, finer scatter and sub-range choices, and speeds faster than one tick.
 - The pattern grid paints a paired `:` and the command it extends in red, so the pairing reads at a glance.
 
-## 2026-09-04
+## Version 2.35.1 (2026-09-04)
 
 The envelope editor's two node buttons now do what they say, on every tab.
 
@@ -1164,7 +1163,7 @@ A metainstrument layer can now be **non-melodic**: tick *fixed* beside its detun
 - Every instrument, patch and loaded recording that pointed into the moved memory is repointed with it, and samples that share bytes travel together: a defragmented project renders identically, note for note. One undo step.
 - A sample pointing outside the pool stops it, since those addresses are not ours to move — run *Cleanup instruments & samples* first, which drops the junk records that claim them.
 
-## 2026-09-03
+## Version 2.33.0 (2026-09-03)
 
 The marker editor in Instruments can now find a loop for you. Set the loop mode to forward or ping-pong, pick how much of a click you will accept, and it searches the sample for the region that plays cleanest at that setting — then writes the two numbers into the loop start and loop end you were about to type yourself.
 
@@ -1197,7 +1196,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **Fixed: the stereo image collapsed to the centre.** An IT sample can set its own default panning, and the importer was ignoring it and centring everything. One 33-sample song from 1998 had 17 samples panned in the original; all 17 now arrive where they were put.
 - **Fixed: samples lost their auto-vibrato.** The per-sample vibrato speed, depth, rate and waveform now come across, the same as they already did for instrument-mode songs.
 
-## 2026-09-02
+## Version 2.30.0 (2026-09-02)
 
 - **이야기 뮤직 사운드를 FM 랙 그대로.** Microtone now opens **Iyagi Music Sound** files (`.ims`) — the music format of *Iyagi*, the Korean BBS terminal of the early 1990s, which played through an AdLib card. Every instrument the song names is compiled into an **FM Rack**: two operators wired the way the chip wired them, over single-cycle samples of the chip's own four waveforms, with its envelopes in real seconds and its feedback closed through a z⁻¹ tap. What opens is not a recording of the song but the song, editable operator by operator.
   - **Drop the `.bnk` in with it.** These songs *name* their instruments instead of storing them, so a bank file is what makes them audible — drop the pair together, or the pair the song came with, and they are matched up for you. Without one, the general AdLib bank that ships with Microtone resolves nearly every name in the wild.
@@ -1215,7 +1214,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
   - **A note the file writes as zero-length is still dropped** — switched on and off at the same instant. That is a sequencer artefact rather than something anyone played, and rescuing it would add clicks that were never in the music.
 - **The MIDI import dialog reads as a form now.** Its tick boxes sit in a column down the left, where they can be scanned and hit along one edge; its dropdowns share a column and a width; and what each option costs you has moved out of the label into a line of its own underneath. The name of a setting is now the name of the setting, rather than a sentence you have to read to the end of to find the checkbox.
 
-## 2026-09-01
+## Version 2.29.0 (2026-09-02)
 
 - **Quantise timing on the MIDI import dialog.** A new option, **off by default**, that snaps every note onset onto a beat grid. A MIDI that was *played* rather than stepped in carries its performance in exactly the sub-row note delays the converter writes, so quantising throws that away — swing, flams, grace notes and any deliberate push or drag go along with the mistakes, which is why the option is off and why the label says so.
   - *Auto* snaps to the subdivision the piece already uses, *Tracker rows* snaps to the pattern grid itself (after which no note needs a delay at all), and the fractions snap to a fixed division of the beat.
@@ -1228,7 +1227,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **Fixed: an instrument's auto-vibrato went silent on every note a zone covered** — the five auto-vibrato fields share one *inherit* flag, and a zone that said nothing about vibrato was being read as saying "none", so a keyboard-mapped instrument lost its vibrato everywhere a zone matched, which is everywhere. Zones now inherit the whole block, and Advanced Edit has one **Auto-vibrato override** switch over the five fields instead of four number boxes whose zeroes did the damage.
 - **Fixed: the Korean interface failed to load at all** — a missing comma in the translation file, from the note-effect cheat-sheet edit that shipped just before it.
 
-## 2026-08-28
+## Version 2.27.0 (2026-08-28)
 
 - **FM synthesis, out of the samples you already have.** **Meta… → FM Rack** in the Instruments view builds an instrument out of several others, but instead of layering them it wires them into each other: one operator's output bends where in the next one's waveform the sound is being read, and what comes out is a tone neither sample contains. The rack is **one voice** however many operators it holds — the modulators are never heard on their own, only what they did to the carrier. Two operators is already a bell, a bass or a wooden knock, depending entirely on what you point them at.
   - **The oscillator is a whole instrument, not a sine table.** Every operator keeps its own sample, loop, envelopes, filter and auto-vibrato, so an operator can fade in, sweep its own filter or vibrato while it modulates. Give one a per-note envelope and the patch changes colour as it decays, which is the thing FM has always been for.
@@ -1249,7 +1248,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **The Instruments toolbox is two tidy rows.** Seven buttons had grown into a wall down the side of the list; there are now six, three to a row: **New / Sample / Import** are the three ways to fill a slot from outside the project, and **Record / Paint / Meta** are the three that make something new inside it.
   - **Meta… asks which kind first, and explains both.** New metainstrument… and New FM rack… were two labels for the same picker over the same instruments, and nothing on either said what the difference was. One button now opens a chooser with a picture, a heading and a paragraph per kind — *Layered*, where every child is heard and the mixer adds them up, against *FM Rack*, where the children bend each other's pitch and only operator 0 reaches the mixer — and then hands you the picker you already know.
 
-## 2026-08-27
+## Version 2.24.0 (2026-08-27)
 
 - **History-accurate ProTracker 1.x Funk Repeat: rescued from 68000 assembly.** `Z $F0xx` hops the sounding **loop** through the sample, a whole loop length at a time, at the speed `$xx` — `$80` every tick, `$40` every other one, `$00` off. The loop keeps its length, so the note goes on repeating a window of the same size at the same pitch, but every step that window jumps to the next block of the sample and, when the next block would run off the end, snaps back to where the instrument's loop really is. Point it at a short loop inside a long sample and one held note scans the whole waveform in coarse grains and keeps cycling: the material changes, the pitch does not. Nothing is written to the sample, and the next note puts the loop back.
   - **This is not `S $F0xx`, and never was.** ProTracker's `EFx` is one slot that held two entirely different algorithms. 1.0C had Funk Repeat, which moves the loop and leaves the sample alone; 1.1B threw that step away and put Invert Loop in its place, which leaves the loop alone and one's-complements its bytes where they lie. Everything since implements the replacement — and ProTracker never renamed the routine around it, so the code everyone reads calls the *inverter* `mt_FunkIt`. Both are here now, they are independent, and they can run on one voice at once.
@@ -1271,7 +1270,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
   - **…and which "samples" are not samples at all.** Almost every tracker-module conversion leaves a few junk instrument records behind, whose sample pointers land far outside the pool. They sit in the list looking perfectly ordinary and they play nothing. The panel names them, with their impossible addresses. Housekeeping drops them.
   - **Gaps and leftovers are named too.** Deleting or re-fitting a sample leaves a hole; a new sample goes into the first hole it fits, so holes are reused rather than wasted — but a pool full of small ones can refuse a big sample while reporting plenty free, so the panel gives you the largest free run as well as the total. Free space that still holds the audio of something deleted is drawn in its own colour and counted: it travels inside the project file until Housekeeping sweeps it.
 
-## 2026-08-26
+## Version 2.22.0 (2026-08-26)
 
 - **Microtone ships with a demo song now, and the welcome screen hands it to you.** *When the heavens fall* — Purple Motion's 1994 tracker piece, rebuilt here as a four-song ambisonic project — is one click from the welcome screen, or from **Demo songs…** in the File view once you already have something open. It is a whole project, samples and all: play it, pull it apart, and read the arranger's note on the piece in the Project tab's Message. Monitor it on headphones, or export it to ambisonic and let your own decoder place it.
   - Included with the permission of Jonne Valtonen, who wrote it — on the condition that the tracker stays free. So it stays too.
@@ -1289,14 +1288,14 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **The playback cursor over a waveform is no longer the same orange as a modified byte.** With `2` / `3` running, the hairline vanished into exactly the picture it was there to measure; it has a colour of its own now.
 - **Imported MIDI keeps pattern $0000 empty.** Adding a lane or a cue hands out pattern $0000, so a converted song that happened to put real music there blurted out a phrase every time you did. The converter now reserves it for silence.
 
-## 2026-08-25
+## Version 2.19.0 (2026-08-25)
 
 - **The six random sample-modification operations have been rearranged, after living with them.** Effects `2` and `3` keep everything else — region, comb, speed, the crossfade; what changed is which digit does what, so a pattern written last week needs its `$x` digits re-picked.
 - **`$A` `$B` `$C` are now the jumps, and `$B` is new.** `$A` still throws the whole region to a random whole **eighth** of the loop and `$C` is the free throw that used to be `$B`; **`$B` is the same throw quantised to sixteenths**. Eighths suit a backbeat, sixteenths are the grid a busier loop is actually written on — hi-hats, sixteenth-note funk, anything whose hits fall between the eighths `$A` can see. Every eighth is also a sixteenth, so the two differ in grain and in nothing else.
 - **`$D` `$E` `$F` are now the scatters, and they are much narrower: a 512th, a 64th and an eighth of the loop.** The old ladder ran out to the whole region, which turned out to be several settings of the same thing — past about an eighth every byte lands among strangers, the interpolator averages them, and what comes back is white noise at a lower level whatever number you wrote. Kept near home the throw is a glitch *in* the waveform instead of a replacement for it: `$D` roughens it, `$E` breaks it up, `$F` is as far as the effect goes before it stops being the sample.
 - **Fixed: the narrow scatter settings sounded like noise mixed under the sample rather than the sample breaking up.** They had been drawing on a bell curve, which leaves most bytes at home and flings a few a long way — the audible result is a hiss over an intact waveform. Every byte now draws flat within its setting, so the whole waveform moves a little and the glitch is in the sound rather than on top of it.
 
-## 2026-08-22
+## Version 2.18.0 (2026-08-23)
 
 - **Sample modification is now measured against the loop region, not the file.** Effects `2` and `3` used to cut their region out of the whole sample, so the same argument meant a different thing on every instrument you pointed it at. Now the loop region *is* the working area — every selector, every comb, every rotation wrap and `$A`'s eighths are a fraction of it — and a sample with no loop points uses the whole file exactly as before. One consequence worth knowing: `$00` and `$0F` now name the same span, so use whichever reads better. Another: `2` spares the region it names and modifies the rest of the *loop*, no longer the rest of the file.
   - Because the region is stored as a proportion rather than a byte count, an instrument patch that brings its own loop points moves the modification with it — a kit whose samples are all different lengths finally answers one written region the same way.
@@ -1304,7 +1303,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **The comb selector is now a bristle count, and it has a second ladder.** `$F0` is the first half of the region, `$F1` touches `1-3-` of four, `$F2` eight chunks, and so on down to `$FE` at 32768 bristles — where the chunks fall below a byte and you are back at the every-other-byte buzz the old comb started from. **`$E0`–`$ED` are the same combs the other way round**: `$E0` is the second half, `$E1` touches `-2-4`. Because the ladder counts chunks rather than bytes, one comb argument sounds like itself on a 400-byte loop and on a 40000-byte one.
 - **Fixed: sample modifications clicked on every step.** Swapping one read mapping for another between two output samples is a discontinuity by construction, and at full speed that is one per tick — the buzz that made `$A`–`$F` hard to leave running. Each step now crossfades over two milliseconds instead of cutting, which is short enough that a beat repeat still lands on the beat. Turning the effect off, or switching it to another operation, is still an instant change — that one is a deliberate edit.
 
-## 2026-08-18
+## Version 2.17.0 (2026-08-18)
 
 - **Duplicate and delete samples, from the Samples view.** Two new buttons on the toolbar, either way one Ctrl+Z.
   - **Duplicate** copies the selected sample's audio into a sample of its own, with a fresh instrument to play it — so you can chop, filter or repaint the copy without touching the music already written with the original. Loop points, rate and loop mode carry over, and a stereo sample duplicates both lanes. (**New instrument**, next to it, is still the one that *shares* the sample instead of copying it.)
@@ -1317,7 +1316,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
   - **`$C`–`$F` shuffle.** Every byte is thrown its *own* way, within 12.5%, 25%, 50% or all of the region, and thrown afresh from where it belongs each step. What you hear depends on the throw against the sample's own waveform: short throws on a single-cycle wave or a slow tone keep the pitch and roughen the timbre — the SCC trick of rewriting the wavetable under a sounding note — while long throws on a recording land every byte among strangers and return noise made entirely of the sample. `$F` is the far end of that, and it is meant to be.
   - Nothing accumulates in either family: each step measures from where the sample really sits, so `$A` and `$C` stay as gentle as they are named however long you hold them. Speed, region and comb work exactly as they do for the other operations, and no operation digit is reserved any more.
 
-## 2026-08-15
+## Version 2.16.0 (2026-08-15)
 
 - **Find & Change: pick cells by what they hold, then change them.** A new button on the Patterns toolbar, and a new cell closing the right-click menu's tool row in the Timeline and Patterns grids. Say what to look for — *volume at least $30*, *note within C-4‥B-4*, *effect is S*, *row number modulo 4 is 0* — and what to do to what it finds: set a column, add to it, multiply and add, or clear it.
   - **Conditions and terms.** The terms inside a condition all have to hold (*and*); any one condition matching is enough (*or*). With no conditions at all, every cell in range matches.
@@ -1345,7 +1344,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **Fixed: a project named in Korean, or anything else outside plain ASCII, turned to garbled text the next time the file was opened.** It looked right immediately after typing it in the New Project dialog, but that name wasn't carried through the file the same way every other name already was, so saving and reopening decoded it into a string of unrelated accented letters. Naming a new project — or its composer or copyright — now survives a save and reload intact.
 - **The Instruments view's small settings — filter mode, vibrato shape, new-note action, duplicate-check type and action, loop mode — are buttons now instead of dropdown menus**, matching the rest of the app, so picking one is a single click instead of opening and choosing from a list. Percussion is a plain checkbox, beside the tab's other on/off switches.
 
-## 2026-08-14
+## Version 2.13.0 (2026-08-14)
 
 - **Two new sample-modification effects, `2` and `3`.** One command with two spellings: `3 $sexy` names the region to modify, `2 $sexy` names the region to leave alone and works on everything else. Both work the way funk repeat always has — nothing is written to the sample, the change happens as the bytes are read, and stopping the song puts it all back.
   - **`$x` picks the operation.** `1` is funk repeat, the progressive byte inversion `S $Fx` has always ground out of the loop, now pointable anywhere. `2`–`5` rotate the region's bytes left by 1, 2, 4 or 8 bytes a step — the sample keeps its shape but the material under the note keeps sliding. `6`–`9` subtract 2, 8, 32 or 128 from every byte in the region, wrapping through zero: a level slide that folds instead of clipping. `0` switches it off and clears what it had built up.
@@ -1357,7 +1356,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **Tetrachords in the chord menu, for 17-TET, 22-TET and 31-TET.** A tetrachord is the ancient Greeks' unit of scale building: four pitches spanning a perfect fourth, named by the three steps between them — `3-3-1` is the one the major scale is made of. Each tuning divides the fourth its own way, so each has its own vocabulary, and the complete chart of all three is here: 15 tetrachords in 17-TET, 28 in 22-TET, 66 in 31-TET, with the names the Xenharmonic Wiki gives them where it gives any (`3-3-1 · ionian (jins ʻAjam)`, `3-3-3 · diatonic · Porcupine, perfectly even`).
   - They appear **only when the song is in that tuning** — counted in degrees, they would be a different chord in any other — and they are on both chord menus, the sample chord maker and the metainstrument **Chord…** stack. Being a scale segment rather than a voicing, a tetrachord has no inversions.
 
-## 2026-08-13
+## Version 2.11.0 (2026-08-13)
 
 - **The piano keys play chords.** Every key you hold now sounds its own note — up to sixteen at once — and letting one go stops only that note, so a triad can be built up and taken apart under the fingers. It applies wherever the keys audition rather than write: the Timeline and Patterns with record **off**, and the Instruments and Samples views always. With record **on** the keyboard stays one note at a time, because there each key enters a cell.
 - **Fixed: jamming a note on a muted lane made no sound.** Auditions used to play on the lane the cursor sits on, so muting it — or soloing another one — silenced the keyboard along with the music. They now play on voices of their own, off to the side of the song, which the mute and solo buttons do not reach.
@@ -1371,7 +1370,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **Fixed: a lane's header in the Timeline sat two pixels right of the lane it names.** The rule that divides two lanes ran just inside the left one's header block rather than in the gap between the two, and the lane number was a shade out of line with the notes under it. The header now shares its column's rectangle exactly, so the dividing line runs unbroken from the top of the header to the bottom of the grid.
 - **Fixed: notes could pop at the exact instant they started.** A fresh note jumped straight to full volume on its very first output sample, and a loud or DC-offset sample turned that jump into an audible click — worse on fast retriggers and dense chords. Every note attack now fades in from silence over its first two-thirds of a millisecond on a smooth curve, short enough that a real percussive transient still lands where it always did.
 
-## 2026-08-12
+## Version 2.10.0 (2026-08-12)
 
 - **The Timeline's row numbers now select and edit whole song rows.** Drag the numbered trough down the left to select a band of rows across every lane (**Shift+click** extends one), and right-click it for **Rows above**, **Rows below** and **Delete rows**: blank rows go in anywhere in the song, or rows come out of it, with everything below shifting to follow — one **Ctrl+Z** for the lot. It is the spreadsheet gesture, on a tracker, and what it edits is the *song's* rows rather than one pattern's.
   - **The music slides through the cue boundaries, which stay where they are.** Delete four rows in the middle of the second cue and the top of the third moves up into it, the fourth's into the third, all the way down, and the song ends four rows earlier. Every cue keeps its length — only the last is shorter — so a bar line drawn by a cue boundary stays put while the notes move past it. Insert is the same in reverse, the rows pushed off the bottom landing in the last cue or in a new one when it is full.
@@ -1389,7 +1388,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
   - **Depth reads as haze.** A direction pointing away from the camera is drawn dimmer and slightly out of focus, so the far side of the image no longer sits on top of the near side looking identical to it. Hue and distance-from-centre keep their own meanings.
   - The cloud **accumulates and decays**, so a moving image leaves a trail and the shape you see is the last fraction of a second of the mix, not one window of it. Its brightness scale drifts with the music instead of being reset every instant, so the picture stops flickering on busy material. It fades away when the music stops.
 
-## 2026-08-11
+## Version 2.5.1 (2026-08-11)
   
 - **A new scope family: the radiation monitor.** *Radiation (top / front / side)* in any master-strip panel draws the encoded soundfield as a **solid three-dimensional shape** rather than a trace — the surface is pushed out in every direction by however much the field radiates that way, so a mix with no direction to it is a sphere, one leaning forward grows a lobe out of the front, and a cancellation is a dent. The three views are one object seen from three places, on the same axes as the *Blobs* and *Goniometer* panels, so any two panels of the same view agree.
   - **It shows interference, not levels.** The shape is built from the field before anything is squared, so what you see is what the sound actually does: two identical sources 60° apart draw **one** lobe between them — the phantom centre you would hear — and inverting one of them turns that centre into a **null** and throws the two apart. Two sources on opposite sides of you collapse to a plain sphere in phase, and to a figure of eight with a dead plane through the middle out of phase. Nothing in the display is special-cased for any of it.
@@ -1408,7 +1407,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - Fixed: **panning and lane volumes carried over from the last playback, and from the last file.** Nothing put the lanes back where the song starts them, so a take that had used `S $80xx`, `M`, `N`, `P`, `X` or `Z` left those settings in force for the next one — and a project opened on top of another inherited its panning wholesale. Both now begin from the song's own defaults. Your mutes and faders are left alone: they belong to the desk, not to the song.
 - **The manual explains the gap between the meter's two bars.** The fill is a true RMS and the line is a true — that is, inter-sample — peak, so a square wave shows a decibel or two between them even though its RMS and its samples' peak are the same number. The bars were right; the explanation was missing.
 
-## 2026-08-10
+## Version 2.4.2 (2026-08-10)
 
 - **The second effect column is now editable, in version-3 projects.** Every version-3 cell has always carried two effect slots — the second runs straight after the first on every row and every tick — but only converters could write one. It is now a column like any other: same opcode letters, same four argument digits, same command palette and same right-click quick effects.
   - It stays **hidden by default**, because most songs never write one and it is six more characters in the widest column on screen. **2nd FX** in the toolbar shows or hides it everywhere at once; right-clicking a Timeline lane header does that one lane; the **E2** button on a Patterns column does that one column.
@@ -1424,7 +1423,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **The song list shows those credits.** Composer and copyright are columns beside the name, so a project of several songs tells you at a glance who wrote which — no opening each song to find out. The project's own author and copyright, up in the fields at the top of the tab, stay separate: one describes the release, the others describe the tracks.
 - Fixed: **`Q` retrigger commands written the way the manual documents them did nothing.** `Q $xy00` puts its volume-modifier and interval digits in the argument's top byte, but the engine read them from the bottom, so a `$xy00`-shaped command always saw a zero interval and was silently ignored; only the undocumented `$00xy` layout ever retriggered.
 
-## 2026-08-09
+## Version 2.3.2 (2026-08-09)
 
 - **[BREAKING CHANGES] Vibrato, fine vibrato, tremolo and panbrello ran far too fast, and now run at the speed the source module asked for.** A converted module's LFO speed could come out anything up to seventeen times quicker than the tracker that wrote it — a slow pitch sway arriving as a warble, a gentle tremolo as a buzz. All four commands now read their speed byte on a scale that reproduces what IT, ST3, XM and MOD mean by it exactly — a converted module's LFO steps through the same waveform points on the same ticks as the tracker that wrote it.
   - The speed byte is also seventeen times finer than a tracker's speed nibble, so `H $0100` through `H $FF00` walk from one cycle per 1088 ticks up to one per four, with everything in between reachable — worth knowing if you have been fighting the old scale to place a vibrato. `$FF` is exactly a tracker's fastest setting, and every nibble value it could have written sits on an exact multiple of 17.
@@ -1442,7 +1441,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - **Projects carry an author, a copyright notice and a message.** The Project tab has all three beside the project name; the message is a free-text box for liner notes, greetings or a track list. Everything is saved with the file and undoes like any other edit.
   - Importing an **ImpulseTracker** module now brings its song message across into that box, line breaks and all, instead of dropping it.
 
-## 2026-08-08
+## Version 2.3.0 (2026-08-08)
 
 - **Panning now has two independent kinds, the way volume always has.** The **panning column** pans the *note*; **S $80xx** and **P** pan the *lane*; the two add up. Volume has worked like this since the beginning — the volume column sets the note, `M` and `N` set the lane — and panning simply matches it now.
 - **A lane pan rotates an instrument that pans by pitch.** If an instrument spreads across the stereo image — a piano laid out across the keys, a kit with the toms apart, most things imported from a SoundFont — `S $8040` now swings the whole spread left as one instrument, and the low keys stay left of the high ones. Before, the next note simply jumped back to wherever its own zone said, so such an instrument could not be moved at all.
@@ -1461,7 +1460,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
 - Fixed: clearing a cutoff or resonance override (effect `5`/`6` with `$FFFF`) left a zone-mapped instrument on its base filter settings rather than the zone's own, and could switch the filter into the other unit system on the way. Setting an override still applies to the whole instrument, as before — only the *clear* was wrong.
 - Fixed: funk repeat (`S $Fx`) inverted the wrong part of the sample on any instrument whose zones set their own loop points — it worked from the base loop instead of the one actually playing.
 
-## 2026-08-07
+## Version 2.1.0 (2026-08-07)
 
 - **A chorded piano out of one piano.** The New metainstrument picker now has a **count** on every row: leave it at ×1 for an ordinary layer, or raise it to stack the same instrument several times. A count above 1 makes one copy and points that many **linked** layers at it, so the stack stays a single instrument — retune or refilter the piano and all three of its voices follow. Picking three different instruments works exactly as before.
 - **The Layers tab is a real editor at last.** It could only ever nudge mix and detune; now every part of the layer table is editable and undoable.
@@ -1477,7 +1476,7 @@ Impulse Tracker songs come in two shapes — one that names instruments and one 
   - **What you tap is a beat, not a row.** The tapper reads the *Rows/beat* and *Speed* settings and writes whatever BPM makes a beat last as long as you tapped, so the lamp keeps time with you whatever the meter is; on the usual 4 rows/beat at speed 6 that is the tapped tempo unchanged. Change rows/beat or speed while a count is running and the BPM re-derives from the same taps.
   - **The count clears itself** after a pause of a couple of your own beats, so the next tap starts fresh instead of averaging in the tempo you tapped a minute ago. Typing a BPM by hand ends the count as well.
 
-## 2026-08-05
+## Version 2.0.0 (2026-08-05)
 
 - **Surround panning.** A song can now declare a **panning model** in the Project view: *Stereo* as before, *Planar* to pan all the way round the listener, or *Spatial* to place sources anywhere on the sphere. The model is a property of the song — it decides what the pan commands mean.
   - In a surround song `S $8xxx` reads a 9-bit angle: `$000` left, `$080` front, `$100` right, `$180` behind. The low byte is the pan value you already know, so `S $8040` still means half-left, and pan slides now wrap round the circle instead of stopping at the ends.
