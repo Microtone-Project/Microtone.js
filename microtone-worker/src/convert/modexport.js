@@ -65,7 +65,7 @@ const SEL_SET = 0, SEL_UP = 1, SEL_DOWN = 2, SEL_FINE = 3;
 
 // ── findings ────────────────────────────────────────────────────────────────
 
-function findings() {
+export function findings() {
   const map = new Map();
   return {
     add(code, args = {}, where = null) {
@@ -80,17 +80,17 @@ function findings() {
 }
 
 /** The effect's letter as the grid shows it (notenames.js fxOpChar). */
-function opChar(op) {
+export function opChar(op) {
   return op >= 0xa0 ? String.fromCharCode(op - 0x80) : op.toString(36).toUpperCase();
 }
 
-const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, "0");
+export const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, "0");
 
 // ── song structure ──────────────────────────────────────────────────────────
 
 /** The cues the module plays: cue 0 up to the last one with content, or to the
  *  first that halts. One cue is one order. */
-function playedCues(song) {
+export function playedCues(song) {
   const last = song.lastUsedCue();
   for (let c = 0; c <= last; c++) if (cueInfo(song.cues[c]).isHalt) return c + 1;
   return last + 1;
@@ -101,7 +101,7 @@ function playedCues(song) {
  * 7) expanded exactly as core/engine/row.js does it, rows past the cue's
  * length left out. Null when the lane has no pattern there.
  */
-function playedRows(doc, songIndex, word, rowLimit) {
+export function playedRows(doc, songIndex, word, rowLimit) {
   const p = word & 0x7fff;
   if (p === CUE_EMPTY) return null;
   const pat = doc.patternAt(songIndex, p);
@@ -398,7 +398,7 @@ function droppedFeatures(inst) {
     inst.defaultCutoff !== 0xff || inst.imixId !== 0;
 }
 
-function median(values) {
+export function median(values) {
   const s = [...values].sort((x, y) => x - y);
   return s[s.length >> 1];
 }
@@ -599,7 +599,7 @@ function periodFor(note, plan, twelveTone) {
 // ── names ───────────────────────────────────────────────────────────────────
 
 /** A stored name as the Amiga's Latin-1, cut to `n` bytes. */
-function latin1(escaped, n) {
+export function latin1(escaped, n) {
   const s = unescapeName(escaped ?? "");
   const out = new Uint8Array(n);
   for (let i = 0; i < Math.min(n, s.length); i++) {

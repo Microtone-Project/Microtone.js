@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>ProTracker export dialog visual harness (screenshot / layout tuning)</title>
+  <title>Module export dialog visual harness (screenshot / layout tuning)</title>
 </head>
 <body>
   <!-- Leaves the Export .MOD dialog (item 219) open for a screenshot, the same
@@ -11,7 +11,8 @@
            "http://localhost:8932/test/browser/modexport-visual.html?theme=dark"
        The default project fails the prerequisites (the blocked dialog);
        ?load=<path> opens another — a converted .mod with a microtonal or
-       out-of-range note shows the warnings dialog. ?theme=light|dim|warmth. -->
+       out-of-range note shows the warnings dialog. ?theme=light|dim|warmth.
+       ?format=it opens the Export .IT dialog (item 268) instead. -->
   <img src="/hang" hidden>
   <iframe id="app" style="width:1360px;height:940px;border:0"></iframe>
   <script type="module">
@@ -32,7 +33,8 @@
       const doc = win.document;
       doc.querySelector('[data-view="files"]').click();
       await sleep(150);
-      [...doc.querySelectorAll(".files-bar button")].find((b) => /\.MOD/.test(b.textContent)).click();
+      const label = params.get("format") === "it" ? /\.IT/ : /\.MOD/;
+      [...doc.querySelectorAll(".files-bar button")].find((b) => label.test(b.textContent)).click();
     })();
   </script>
 </body>

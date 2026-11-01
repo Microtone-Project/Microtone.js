@@ -497,9 +497,11 @@ test("it2taud under Pyodide → parseable, loadable document", () => {
   assert.equal(doc.kind, "taud");
   assert.ok(doc.songs[0].patterns.length > 0);
   assert.ok(doc.usedInstrumentSlots().length > 0);
-  // #66: 0-based SNam, no leading-empty shift.
+  // #66: 0-based SNam, no leading-empty shift. TUTE.IT's samples 5 and 6
+  // ("Open Hihat", "Bass Drum") are on no instrument's keyboard, so they are
+  // not imported (they used to be, through keyboard entries read 4 bytes late).
   assert.deepEqual(doc.sampleList().map((s) => s.name),
-    ["Aurora", "Synth Pad", "Panflute", "Low Strings", "Open Hihat", "Bass Drum"]);
+    ["Aurora", "Synth Pad", "Panflute", "Low Strings"]);
   // Item 115.2: IT's song message rides across as PMsg, CR-separated lines
   // translated to LF and the editor's trailing padding trimmed.
   const msg = doc.projectString("PMsg");
@@ -511,13 +513,17 @@ test("it2taud under Pyodide → parseable, loadable document", () => {
 });
 
 test("it2taud carries NNA, and sample-mode files get Note Cut", () => {
-  // Instrument mode: TUTE.IT's six instruments are IT NNA 2,2,2,1,3,0 —
+  // Instrument mode: TUTE.IT's first five instruments are IT NNA 2,2,2,1,3 —
   // note off, continue and fade all present. IT numbers them 0=cut,
   // 1=continue, 2=off, 3=fade; Taud numbers them 0=off, 1=cut, 2=continue,
-  // 3=fade, so the mapping is a permutation, not a copy.
+  // 3=fade, so the mapping is a permutation, not a copy. (Its sixth, NNA 0,
+  // maps no key to a sample, so it plays nothing and gets no record; the
+  // importer used to read the keyboard table 4 bytes late and found a sample
+  // there in the volume envelope's node count.)
   const instMode = new Document(parseTaud(convert("TUTE.IT")));
-  assert.deepEqual([1, 2, 3, 4, 5, 6].map((s) => instMode.instruments[s].newNoteAction),
-    [0, 0, 0, 2, 3, 1]);
+  assert.deepEqual([1, 2, 3, 4, 5].map((s) => instMode.instruments[s].newNoteAction),
+    [0, 0, 0, 2, 3]);
+  assert.equal(instMode.instruments[6].sampleLength, 0, "instrument 6 has no sample");
 
   // Sample mode: the same file with the header's "use instruments" flag
   // cleared. IT has no NNA there at all — a new note replaces the lane's
@@ -2096,6 +2102,176 @@ test("s3m2taud and it2taud resolve a shared pattern's recalls in each place it i
   }) })), 0);
   assert.notDeepEqual(want(it)[0], want(it)[1]);
   assert.deepEqual(pick(it), want(it), "IT: each D00 is the D before it");
+});
+
+// The .IT round trip's import faults: the keyboard table's place and its
+// note column, the fine slides' units, the default pan's `p` bit and the
+// envelopes' clock (ITTECH.TXT; Schism fmt/iti.c, player/effects.c).
+const IT_SMP = { data: SQUARE, loop: true, vol: 64, gv: 64, c5: 8363 };
+
+test("it2taud reads the keyboard at IMPI+0x40, and its note column rides a patch's detune", () => {
+  // Keys 0…59 play sample 1 as they are; 60…119 play sample 2 one key up.
+  // The volume envelope's 2 nodes are what +0x44 used to read as key 118's
+  // sample.
+  const doc = new Document(parseTaud(convert("kbd.it", { bytes: makeIt({
+    channels: 1, samples: [IT_SMP, { ...IT_SMP, data: SQUARE.map((v) => v >> 1) }],
+    instruments: [{ keyboard: (k) => (k < 60 ? [k, 1] : [Math.min(k + 1, 119), 2]),
+      vol: [[64, 0], [0, 10]] }],
+    patterns: [[{ row: 0, ch: 0, note: 60, smp: 1 }]],
+  }) })));
+  const inst = doc.instruments[1];
+  const semi = 4096 / 12;
+  const runs = inst.extraPatches.map((p) => [p.pitchStart, p.pitchEnd, p.sampleDetune]);
+  const key = (k) => Math.round(0x5000 + (k - 60) * semi);   // TAUD_C4 = IT C-5
+  // The canonical sample (key 60's, sample 2) is transposed on 60…118, so
+  // those need a patch; key 119 maps to itself, which the base record serves.
+  assert.deepEqual(runs, [
+    [0, key(59), 0],
+    [key(60), key(118), Math.round(semi)],
+  ]);
+  assert.equal(inst.samplePtr, inst.extraPatches[1].samplePtr, "the base record is sample 2");
+});
+
+test("it2taud: an instrument's DfP (bit 7 clear) or a sample's (bit 7 set) sets the `p` bit", () => {
+  const panOf = (inst) => [inst.defaultPan, (inst.panEnvLoop >> 7) & 1];
+  const doc = new Document(parseTaud(convert("pan.it", { bytes: makeIt({
+    channels: 1,
+    samples: [IT_SMP, { ...IT_SMP, dfp: 0x80 | 48 }, { ...IT_SMP, dfp: 48 }],
+    instruments: [
+      { keyboard: (k) => [k, k < 60 ? 2 : 1], dfp: 16 },     // the instrument's wins
+      { keyboard: (k) => [k, 2] },                           // the sample's
+      { keyboard: (k) => [k, 3] },                           // neither: no default pan
+      { keyboard: (k) => [k, 1], dfp: 0x80 | 16 },           // "don't use"
+    ],
+    patterns: [[{ row: 0, ch: 0, note: 60, smp: 1 }]],
+  }) })));
+  assert.deepEqual(panOf(doc.instruments[1]), [64, 1]);
+  assert.deepEqual(doc.instruments[1].extraPatches.map((p) => p.defaultPan), [0xff],
+    "sample 2's own pan must not override the instrument's");
+  assert.deepEqual(panOf(doc.instruments[2]), [191, 1]);
+  assert.equal(panOf(doc.instruments[3])[1], 0);
+  assert.equal(panOf(doc.instruments[4])[1], 0);
+
+  const smpMode = new Document(parseTaud(convert("panS.it", { bytes: makeIt({
+    channels: 1, samples: [IT_SMP, { ...IT_SMP, dfp: 0x80 | 48 }],
+    patterns: [[{ row: 0, ch: 0, note: 60, smp: 2 }]],
+  }) })));
+  assert.deepEqual(panOf(smpMode.instruments[2]), [191, 1]);
+  assert.equal(panOf(smpMode.instruments[1])[1], 0);
+});
+
+test("it2taud: a fine slide is the coarse unit once, an extra-fine a quarter of it", () => {
+  const E = 5, F = 6;
+  const rows = [[E, 0xf2], [E, 0xe2], [F, 0xf1], [F, 0xe3], [E, 0x10]];
+  const song = (linear) => laneCells(parseTaud(convert("fine.it", { bytes: makeIt({
+    channels: 1, samples: [IT_SMP], linear,
+    patterns: [[{ row: 0, ch: 0, note: 60, smp: 1 },
+      ...rows.map(([cmd, info], i) => ({ row: i + 1, ch: 0, cmd, info }))]],
+  }) })), 0).slice(1, 1 + rows.length).map((c) => [c.op, c.arg]);
+  const TE = 0x0e, TF = 0x0f;
+  // Linear: 1/16 semitone = 64/3 units, 1/64 = 16/3.
+  assert.deepEqual(song(true), [[TE, 0xf02b], [TE, 0xf00b], [TF, 0xf015], [TF, 0xf010], [TE, 0x0155]]);
+  // Amiga: whole periods; FE3 (¾) after EE2 (½) nets ¼ up, carried to nothing.
+  assert.deepEqual(song(false), [[TE, 0xf002], [0, 0], [TF, 0xf001], [0, 0], [TE, 0x0010]]);
+});
+
+test("it2taud carries an Amiga-mode run of extra-fine slides as whole periods", () => {
+  const E = 5;
+  const cells = laneCells(parseTaud(convert("efine.it", { bytes: makeIt({
+    channels: 1, samples: [IT_SMP], linear: false,
+    patterns: [[{ row: 0, ch: 0, note: 60, smp: 1 },
+      ...Array.from({ length: 8 }, (_, i) => ({ row: i + 1, ch: 0, cmd: E, info: 0xe1 })),
+      { row: 9, ch: 0, note: 62 },                          // a new note: the sum restarts
+      ...Array.from({ length: 2 }, (_, i) => ({ row: i + 10, ch: 0, cmd: E, info: 0xe1 }))]],
+  }) })), 0);
+  const slid = cells.slice(1, 12).map((c) => (c.op === 0x0e ? c.arg & 0xfff : 0));
+  // ¼ + ¼ + ¼ → 1 period on the third (round half to even keeps ½ at 0).
+  assert.deepEqual(slid, [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0]);
+});
+
+test("it2taud times envelopes at the song's starting BPM, row 0's T over the header's", () => {
+  const env = (tempo, t) => new Document(parseTaud(convert("env.it", { bytes: makeIt({
+    channels: 1, samples: [IT_SMP], tempo,
+    instruments: [{ keyboard: (k) => [k, 1], vol: [[64, 0], [32, 12], [0, 48]] }],
+    patterns: [[{ row: 0, ch: 0, note: 60, smp: 1, ...(t ? { cmd: 20, info: t } : {}) }]],
+  }) })));
+  const a = env(150, null), b = env(125, 150), c = env(150, 0x05);
+  assert.equal(b.songs[0].bpm, 150);
+  assert.equal(c.songs[0].bpm, 150, "T $05 slides the tempo; it does not set it");
+  assert.deepEqual(b.instruments[1].volEnvelopes, a.instruments[1].volEnvelopes);
+  assert.notDeepEqual(env(125, null).instruments[1].volEnvelopes, a.instruments[1].volEnvelopes);
+});
+
+// The .IT round trip's second set (Schism player/effects.c, fmt/s3m.c): the
+// volume column's g0/h0 recalls, sample headers sharing one data block, the
+// channels a subsong leaves empty, and ST3's fine slides and header flags.
+
+test("it2taud resolves a volume-column g0/h0 against the G/H memory it shares", () => {
+  const G = 7, H = 8;
+  const cells = laneCells(parseTaud(convert("vcrecall.it", { bytes: makeIt({
+    channels: 1, samples: [IT_SMP],
+    patterns: [[
+      { row: 0, ch: 0, note: 60, smp: 1, cmd: H, info: 0x81 },
+      { row: 1, ch: 0, vol: 203 },                   // h0: carry on
+      { row: 2, ch: 0, vol: 206 },                   // h3: depth 3, speed kept
+      { row: 3, ch: 0, cmd: H, info: 0 },            // H00: depth 3 now
+      { row: 4, ch: 0, note: 62, cmd: G, info: 4 },
+      { row: 5, ch: 0, vol: 193 },                   // g0
+    ]],
+  }) })), 0).map((c) => [c.op, c.arg]);
+  const TG = 0x10, TH = 0x11;
+  assert.deepEqual(cells[0], [TH, 0x8811]);
+  assert.deepEqual(cells[1], cells[0], "h0 is the H before it");
+  assert.deepEqual(cells[2], [TH, 0x0033]);
+  assert.deepEqual(cells[3], [TH, 0x0033], "H00 recalls the depth h3 set");
+  assert.equal(cells[4][0], TG);
+  assert.deepEqual(cells[5], cells[4], "g0 is the G before it");
+});
+
+test("it2taud pools sample headers that share a data block once, and only those", () => {
+  const doc = new Document(parseTaud(convert("share.it", { bytes: makeIt({
+    channels: 1,
+    samples: [IT_SMP, { ...IT_SMP, shares: 0, c5: 9000 }, { ...IT_SMP, c5: 9000 }],
+    patterns: [[1, 2, 3].map((smp, i) => ({ row: i, ch: 0, note: 60, smp }))],
+  }) })));
+  const [a, b, c] = [1, 2, 3].map((n) => doc.instruments[n]);
+  assert.equal(b.samplePtr, a.samplePtr, "sample 2 plays sample 1's data");
+  assert.equal(b.sampleLength, a.sampleLength);
+  assert.notEqual(c.samplePtr, a.samplePtr, "sample 3 has a block of its own, alike or not");
+  assert.notEqual(b.samplingRate, a.samplingRate);
+});
+
+test("it2taud keeps an empty channel before the last used one, and a volume-only one", () => {
+  const doc = parseTaud(convert("gaps.it", { bytes: makeIt({
+    channels: 5, samples: [IT_SMP],
+    patterns: [[
+      { row: 0, ch: 0, note: 60, smp: 1 },
+      { row: 0, ch: 2, note: 64, smp: 1 },           // channel 1 stays empty
+      { row: 4, ch: 3, vol: 0 },                     // a volume and nothing else
+    ]],                                              // channel 4: empty, at the end
+  }) }));
+  assert.equal(doc.songs[0].numVoices, 4, "IT channel n is lane n; the tail goes");
+  assert.equal(laneCells(doc, 1)[0].inst, 0);
+  assert.equal(laneCells(doc, 2)[0].inst, 1);
+  assert.equal(laneCells(doc, 3)[4].vol & 0x3f, 0);
+});
+
+test("s3m2taud: a fine slide is a whole period once, an extra-fine a quarter, carried", () => {
+  const E = 5, F = 6;
+  // Flag $40 is ST3.00 volume slides (OpenMPT sets it), not linear frequency:
+  // ST3 has no linear slides, so the song stays in period units.
+  const lane = (rows) => laneCells(parseTaud(convert("fine.s3m", { bytes: makeS3m({
+    channels: [0], flags: 0x40,
+    instruments: [{ type: 1, data: SQUARE, loop: true, volume: 64, c2spd: 8363 }],
+    patterns: [[{ row: 0, ch: 0, note: 0x40, inst: 1 },
+      ...rows.map(([cmd, info], i) => ({ row: i + 1, ch: 0, cmd, info }))]],
+  }) })), 0).slice(1, 1 + rows.length);
+  const TE = 0x0e, TF = 0x0f;
+  // FE3 (¾) after EE2 (½) nets ¼ up, carried to nothing.
+  assert.deepEqual(lane([[E, 0xf2], [E, 0xe2], [F, 0xf1], [F, 0xe3], [E, 0x10]]).map((c) => [c.op, c.arg]),
+    [[TE, 0xf002], [0, 0], [TF, 0xf001], [0, 0], [TE, 0x0010]]);
+  const run = lane(Array.from({ length: 8 }, () => [E, 0xe1]));
+  assert.deepEqual(run.map((c) => (c.op === TE ? c.arg & 0xfff : 0)), [0, 0, 1, 0, 0, 0, 1, 0]);
 });
 
 test("s3m2taud: an AdLib instrument becomes an OPL instrument at its C2SPD", () => {

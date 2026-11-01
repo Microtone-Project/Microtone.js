@@ -206,10 +206,13 @@ AdLib instruments become OPL instruments ([§3.5](#3-5-adlib-instruments)).
 
 ST3 backs effects `D`, `E`, `F`, `I`, `J`, `K`, `L`, `Q`, `R` and `S` with a **single per-channel memory slot**, so a `$00` argument on any of them recalls whatever any of them last set. Taud's cohorts are narrower, so the converter resolves every such recall eagerly ([§1.6](#1-6-effect-memory)). A pattern played in several places is resolved in each of them, since the one slot makes the recalled value depend on everything played before it.
 
+**ST3 has no linear slides.** Every S3M slides in periods. Header flag bit 6 (`$40`) is "ST3.00 volume slides", which ModPlug Tracker and OpenMPT set in every S3M they save; read as a linear-slide flag, it turned such a file's slides into semitone fractions. Schism ignores the flags word altogether.
+
 ### 3.3 Numeric quirks
 
 - **`Cxx` is BCD on disk.** `$10` means decimal row 10, not hex row 16. Decode as `(byte >> 4) × 10 + (byte & $F)`; anything decoding to 64 or above clamps to row 0. (IT's `Cxx` is plain binary — the two formats differ here and mixing them up shifts every pattern break.)
-- **The coarse pitch-slide unit is 1/16 semitone**, ≈ 21.33 Taud units, so `E`, `F` and `G` coarse arguments are multiplied by `$0015`. Fine forms are packed into Taud's `$F0xx` fine form after the same per-step scale.
+- **The coarse pitch-slide unit is a period** (ST3's own, a quarter of ProTracker's); `E` and `F` keep it as their argument. `G` is always measured in 1/16 semitone, ≈ 21.33 Taud units.
+- **Fine and extra-fine slides differ by four**, as in IT ([§5.7](#5-7-effects)): `E $Fx` moves `x` whole periods once per row, `E $Ex` a quarter period each; the quarters are summed per lane in play order and written as a whole period on the row the sum reaches one.
 - **Global volume is 0…$40**, scaled to Taud's 0…$FF by ×4 with a clamp.
 - **Tempo** is a raw decimal BPM; Taud's byte is biased −25. The converter also scans row 0 of the order list's first pattern for `A` and `T` and prefers those over the header defaults, because that is where trackers actually put the intended tempo.
 
@@ -284,15 +287,25 @@ IT is the richest source and maps onto Taud most directly, because most of Taud'
 
 ### 5.1 Channels → lanes
 
-The converter takes the non-muted, in-use source channels: 32 or fewer stay in the default layout, 33…64 switch the file to **64-lane mode** (the `xHDR` flag), and only a song exceeding 64 active channels is capped. A lane is "muted" when its pan byte has bit 7 set or reads `$C0`, and "in use" when any cell on it is non-empty.
+The converter takes every non-muted source channel up to the last one in use, so IT channel *n* stays lane *n* through an unused channel between two used ones; unused channels after the last are dropped. 32 or fewer stay in the default layout, 33…64 switch the file to **64-lane mode** (the `xHDR` flag), and only a song exceeding 64 active channels is capped. A lane is "muted" when its pan byte has bit 7 set or reads `$C0`, and "in use" when any cell on it is non-empty, the volume column included.
 
 ### 5.2 Instruments and Ixmp
 
-Each IT instrument becomes **one** Taud instrument, whose base record carries the C5 canonical sample, plus an Ixmp patch list covering every keyboard cell that maps to a different sample. Patch rectangles are contiguous runs of keyboard cells pointing at the same sample, which guarantees the no-overlap rule because the keyboard map is itself a partition.
+Each IT instrument becomes **one** Taud instrument, whose base record carries the C5 canonical sample, plus an Ixmp patch list covering every keyboard cell the base record cannot play: one that maps to a different sample, or one whose note column plays another note. Patch rectangles are contiguous runs of keyboard cells with the same sample and the same transposition, which guarantees the no-overlap rule because the keyboard map is itself a partition.
+
+**The keyboard table starts at `IMPI+$40`**, straight after the MIDI bank word (ITTECH.TXT; Schism `fmt/iti.c`). Read four bytes late, every key split lands two keys low and keys 118–119 take the volume envelope's flags and node count as note/sample pairs — a phantom sample on the topmost keys of every instrument with an envelope.
+
+**The note column transposes the key.** Each table entry is a (note, sample) pair, and the note is the pitch the key plays: an instrument may play every key one up, or pin a whole range to one note. Taud has no per-key note map, so the transposition rides the patch's sample detune (`(note − key) × 4096/12`), which the engine adds to the trigger note; a note outside 0…119 maps the key to itself, as Schism loads it.
 
 Per-patch fields mirror what the base record would have stored for that sample — loop points and mode, default volume and pan, auto-vibrato — so a patched note behaves exactly as a base-record note on the same sample would.
 
+**Default pan: the instrument's wins, and its "use" bit is inverted.** An instrument's `DfP` (`IMPI+$19`) is used when bit 7 is **clear**; a sample's (`IMPS+$2F`) when bit 7 is **set**. When the instrument's is used it overrides every sample's (Schism `csf_set_instrument_panning`), so it goes into the base record and the patches leave the pan to it; otherwise each sample's own pan rides its patch, and the canonical sample's the base record. Either way the base record's pan is applied only under the pan LOOP word's `p` bit, which must be set — byte 177 alone does nothing. One case does not carry: a sample with no pan of its own, under a base record whose canonical sample has one, plays the canonical sample's pan, since a patch cannot say "no default pan".
+
+**Envelope node positions are ticks**, and a tick lasts 2.5 ÷ BPM seconds. Taud's envelopes are timed in seconds, so they are converted at the BPM the song starts at — row 0's `T` where it sets one, not the header's initial tempo, which a song that opens with its own `T` never plays at.
+
 Volume, panning and pitch-or-filter envelopes convert natively, with up to 25 nodes, both sustain and loop regions, and the `P` presence bit set whenever nodes are emitted. Auto-vibrato, fadeout, pitch-pan centre and separation, default pan, volume and pan swing, and initial filter cutoff and resonance all forward to their instrument fields. OpenMPT's OPL samples become OPL instruments ([§5.8](#5-8-opl-samples)).
+
+**Sample headers may share a data block** (two headers pointing at one set of sample data, the C-5 speed being all that differs): such samples are pooled once, as long as their data is still the same after resampling.
 
 IT2.14/IT2.15 **compressed samples** are decoded during conversion. The compression flag is per sample (bit 2 of the sample's `cvt` byte), *not* global via the file's `cwt` — reading it globally mis-decodes mixed files.
 
@@ -341,7 +354,11 @@ A–Z dispatch per the Note Effects reference, with the IT-specific readings:
 | `SAx` | High sample offset — **dropped** |
 | `S7x` | NNA, past-note and envelope toggles; the IT sub-codes match Taud one-to-one |
 
-Memory cohorts are resolved eagerly: `D`, `K` and `L` share one; `E` and `F` optionally link with `G` per the header's flag bit 5. Volume-column pitch-slide, tone-portamento and vibrato sub-commands move to the main effect slot when it is free and are dropped otherwise.
+**Fine and extra-fine pitch slides differ by four.** A coarse `E $xx` moves by `xx` units of 1/16 semitone (or of a period); the fine form `E $Fx` moves by the same unit `x` times, once per row; the extra-fine `E $Ex` by a **quarter** of it (Schism `fx_fine_portamento_*` passes `param × 4` where `fx_extra_fine_portamento_*` passes `param`). In linear-slide songs that is `round(x × 64/3)` and `round(x × 16/3)` Taud units. In Amiga-slide songs the fine form is `x` whole periods; an extra-fine slide is a quarter period, which Taud's whole-period argument cannot hold, so the quarters are summed per lane in play order and a whole period written on the row the sum reaches it — a lane drifting by `E $E1` every other row keeps its drift. A note not tied by a portamento resets the pitch, and the sum with it.
+
+`T $00`…`T $1F` slide the tempo; only `T $20` and up set it, so a slide on row 0 is not the song's starting BPM.
+
+Memory cohorts are resolved eagerly: `D`, `K` and `L` share one; `E` and `F` optionally link with `G` per the header's flag bit 5. Volume-column pitch-slide, tone-portamento and vibrato sub-commands move to the main effect slot when it is free and are dropped otherwise. A volume-column tone portamento or vibrato shares its memory with the effect column's `G` or `H` (a `g0` or `h0` carries on at the speed and depth they last set, and an `h` depth changes the depth a later `H00` carries on with), so the move comes first and the recall is resolved with the rest.
 
 Global and mixing volume are IT's 0…128, scaled by 255/128 and rounded.
 
@@ -353,6 +370,26 @@ Impulse Tracker never had AdLib instruments, but OpenMPT stores its own OPL inst
 - **The filter cutoff is the modulator's level.** OpenMPT reads an instrument's cutoff as "modulator intensity for FM instruments": a set, enabled cutoff is folded into the modulator's total level on the same curve and the instrument's own filter is opened. A pitch/filter envelope in filter mode drove the modulator the same way and has nothing to drive here, so it is dropped rather than turned into a filter sweep.
 - **There is no keyboard map**: an instrument whose sample is OPL plays it on every note.
 - **No extra attenuation.** OpenMPT plays an IT-structured file's OPL at its `VSTV` song setting, 48 unless the file says otherwise, where an S3M gets 36; a full-volume OPL sine sits 2.90 dB under a full-scale square sample there and 2.98 dB under it converted. A file that sets its own `VSTV` is not read.
+
+### 5.9 Back to Impulse Tracker
+
+Microtone also writes `.it` (the File tab's *Export .IT…*, `src/convert/itexport.js`). The Taud instrument record began as IT's, so the exporter is mostly `it2taud.py` read backwards, rounding included: a project exported, imported and exported again comes out as the same bytes, and the test suite pins that. A module that was imported comes back as the same music, less what §5.1–5.7 already changed on the way in (recalls resolved, a portamento's instrument byte dropped, the instrument and sample global volumes folded into one, long samples resampled, muted channels gone, one loop per sample).
+
+**Only two things stop the export**: the surround file format, and tone mode 2 (linear frequency), which IT does not have. Linear and Amiga tone modes become IT's linear-slides flag. Past those, the format's own numbers: 255 orders, 240 patterns (Schism Tracker's and OpenMPT's limit; Impulse Tracker's own is 200, which the export warns of), 255 instruments and 255 samples.
+
+**Lanes are channels**, one to one: IT has 64. A channel after the last one the song writes into keeps the default pan, since the importer drops it (a subsong of a project whose other songs use more lanes). A cue is an order and a pattern of its own row count (1…64); identical ones are shared. A cue's jump becomes `Bxx` on its last row, in the first free effect slot, and the song ends at its first halt. The row-0 pans the importer writes into every pattern are the channel's pan: they go into the header and come off the rows, and a pan column SET that restates the pan the channel already holds is not written either, since IT keeps a channel's pan from note to note.
+
+**Microtones.** An IT note is a whole semitone; a sample's C-5 speed is the only pitch a file can choose freely. Every note is therefore split into the nearest key and the **fraction** left over, and the fraction is folded into the C-5 speed of a copy of the sample header — the copies point at one set of sample data. An instrument's keyboard maps each key to its own sample, so one IT instrument holds one fraction per key; a key the song plays at two fractions makes a second instrument, the commonest fraction staying on the first. A fraction within 1.5 units (the rounding of a 12-tone note) is none. A tone portamento keeps its sample, so its target key is the one whose pitch the sounding instrument reaches nearest. A tuning within 3 cents of C9 @ 8363 Hz (the importer's declaration; A4 @ 440 and C4 @ 262 are within it) is IT's own; any other multiplies every C-5 speed by its ratio.
+
+**Instruments.** NNA (release becomes note off), DCT/DCA (the *lane* check type becomes *instrument*), fadeout, pitch-pan, swings, global volume, auto-vibrato and default pan (only when the pan envelope's `p` bit enables it) map onto their IT fields. Envelope times are seconds in Taud and ticks in IT: each segment is rounded to ticks at the song's starting tempo. IT has one pitch-or-filter envelope: when a record has both, the filter one is kept. A SoundFont-mode filter becomes IT's cutoff by frequency (IT's cutoff `c` is `110 × 2^(c/24 + 1/4)` Hz) and its resonance by decibels (IT's `r` is `r × 24/128` dB); an initial attenuation becomes the sample's global volume. Where Ixmp zones carry their own envelopes, fadeout or filter, the zone the song plays most supplies them. A key the song plays sounds its own zone; any other its own zone too when that costs no new sample or there is room, else its nearest played neighbour's.
+
+**Volume layers.** IT has no velocity axis. An Ixmp list split by volume becomes one IT instrument per band the song plays — the axis cut wherever a patch's range starts or ends, adjacent bands that choose the same patch for every key merged — and each note takes the band its volume falls in (the volume column's SET, else the instrument's default, else the lane's last). When the instruments would pass Impulse Tracker's 99, every instrument plays its loudest band.
+
+**Rendering.** Layered metainstruments, FM racks, formant instruments and the OPL and PSG chips are bounced as for `.mod` (§2.5): once per octave the song plays them in (at most eight), once per key for a percussion instrument, as 16-bit samples on a keyboard map. Each is bounced with the project's key maps loaded and at a note **and volume** the song actually plays, the one nearest the octave's middle, then scaled back up by 63 ÷ volume (the module applies the note's volume again): a SoundFont preset converted for one song keeps only the zones that song plays, at the volumes it plays them, and sounds nothing anywhere else. If that note is silent the next candidate is tried; a bounce that stays silent is reported. The bounce carries the envelopes, so the IT instrument has none; one that sustains fades out over 16 ticks after its release unless the record has a fadeout of its own.
+
+**Running out of numbers.** A song that needs more than 255 samples or instruments is exported again, coarser each time: first the instruments the song never plays stay behind (they come along otherwise, numbered as they were, when every instrument keeps its number), then every volume layer plays its loudest, then fractions are rounded to 2, 5, 10, 25 cents and finally a semitone.
+
+**Effects** are §5.7 in reverse. Taud's `D`, `K` and `L` keep private memories where IT's three share one, so their recalls are resolved in cue order; the others' memories agree and their `00` stays. A coarse `E`/`F` slide in linear mode is `round(x × 3/64)`, never 0; a fine one is IT's fine form (`EFx`, a sixteenth of a semitone) when it is a whole number of them and the extra-fine form (`EEx`) otherwise. `S $80xx` is `S8x` when its byte is nibble-repeated, else `Xxx`; `T` keeps its slide forms; `V` halves; `M $3F` is `M40`; `O` is the nearest `$100` bytes, but never `O00` for a real offset, which IT reads as a recall. An instrument with no sample on any key leaves its default pan unused. A volume slide past the column's 9 takes the effect column when it is free. The volume column holds a volume or a pan: with both, the pan becomes `Xxx`, and with an effect as well it is dropped. A fast fade becomes a note cut. With no IT counterpart — sample modifications, filters, bitcrushers, overdrive, `S $2x`, `S $Axxx`, `S $Fxxx`, the spatial commands — an effect is left out, and counted.
 
 ## 6. Monotone — `.mon`
 

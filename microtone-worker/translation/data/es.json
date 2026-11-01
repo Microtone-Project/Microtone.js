@@ -170,6 +170,8 @@
         "modexport.song": "Song {n} — {title}",
         "modexport.times": " (×{n})",
         "modexport.more": "…and {n} more.",
+        "files.exportIt": "Export .IT…",
+        "itexport.title": "Export as Impulse Tracker module",
         "files.online.head": "Online projects",
         "files.online.countSketches": "· {n} of {limit} sketches from Touch",
         "files.online.loading": "· connecting…",

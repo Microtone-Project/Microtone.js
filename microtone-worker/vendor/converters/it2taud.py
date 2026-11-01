@@ -533,10 +533,12 @@ class ITInstrument:
                  'vol_env_loop', 'pan_env_loop', 'pf_env_loop',
                  'vol_env_sus', 'pan_env_sus', 'pf_env_sus',
                  'ifc', 'ifr', 'fadeout', 'pps', 'ppc', 'rv', 'rp', 'nna',
-                 'dct', 'dca', 'keyboard')
+                 'dct', 'dca', 'keyboard', 'kb_notes')
     # keyboard: list[int], 120 entries — keyboard[it_note] = sample_1based (0 = none).
-    # Carried verbatim from the IT file so the Ixmp emitter can build patches that
-    # cover non-canonical-sample note ranges. terranmon.txt "Ixmp" + Schism iti.c:80.
+    # kb_notes: list[int], 120 entries — the note key it_note PLAYS (the table's
+    # note column; = it_note for an ordinary instrument). Carried verbatim from
+    # the IT file so the Ixmp emitter can build patches that cover non-canonical
+    # samples and transposed keys. terranmon.txt "Ixmp" + Schism iti.c:116.
     # vol_envelope / pan_envelope / pf_envelope: list of 25 (value, minifloat_idx) tuples, or None
     # *_env_sustain: int (16-bit, 0b 0ut sssss pcb eeeee), 0 = no envelope
     # pf_is_filter: bool — pf envelope mode (False = pitch, True = filter)
@@ -546,7 +548,9 @@ class ITInstrument:
     # rv / rp    : random volume swing (0..100) / random pan swing (0..64)
     # nna        : new note action (IT 0=cut, 1=continue, 2=note off, 3=note fade)
 
-def parse_instruments(data: bytes, h: ITHeader) -> list:
+def parse_instruments(data: bytes, h: ITHeader, tempo: int = None) -> list:
+    """`tempo` is the BPM the song starts at (song_start_tempo), which times
+    the envelopes; the header's tempo when not given."""
     insts = []
     for i, ptr in enumerate(h.ins_ptrs):
         if ptr == 0 or ptr + 0x48 > len(data):
@@ -569,17 +573,25 @@ def parse_instruments(data: bytes, h: ITHeader) -> list:
         inst.ppc  = data[ptr + 0x17]
         inst.gv   = data[ptr+0x18]
         dfp_raw   = data[ptr+0x19]
-        inst.dfp  = dfp_raw & 0x7F if (dfp_raw & 0x80) else None  # None = don't use
+        # DfP bit 7 SET = "don't use" (ITTECH; Schism iti.c sets ENV_SETPANNING
+        # when it is clear) — the opposite of a sample's DfP, whose bit 7 means "use".
+        inst.dfp  = None if (dfp_raw & 0x80) else min(dfp_raw, 64)  # None = don't use
         inst.rv   = data[ptr + 0x1A]   # 0..100
         inst.rp   = data[ptr + 0x1B]   # 0..64
 
-        # Keyboard table: 240 bytes at ptr+0x44, 120 pairs of (note, sample_1based)
+        # Keyboard table: 240 bytes at ptr+0x40 (ITTECH; Schism iti.c reads it
+        # straight after mbank), 120 pairs of (note, sample_1based). A note
+        # outside 0..119 maps the key to itself, as Schism loads it.
         keyboard = []
+        kb_notes = []
         for n in range(120):
-            kb_note = data[ptr + 0x44 + n*2]
-            kb_smp  = data[ptr + 0x44 + n*2 + 1]
+            at = ptr + 0x40 + n*2
+            kb_note = data[at]     if at     < len(data) else n
+            kb_smp  = data[at + 1] if at + 1 < len(data) else 0
+            kb_notes.append(kb_note if kb_note < 120 else n)
             keyboard.append(kb_smp)  # 0 = no sample
         inst.keyboard = keyboard
+        inst.kb_notes = kb_notes
 
         # Pick C-5 (note 60) sample; fall back to most-frequent non-zero
         c5_smp = keyboard[60] if 60 < len(keyboard) else 0
@@ -604,7 +616,11 @@ def parse_instruments(data: bytes, h: ITHeader) -> list:
 
         # Parse IT envelopes (new-format only, ≥cmwt 0x200)
         # Vol envelope at ptr+0x130; pan envelope at ptr+0x182; pf envelope at ptr+0x1D4
-        ticks_per_sec = max(h.initial_tempo * 2.0 / 5.0, 1.0)
+        # IT advances an envelope one node position per tick, and a tick lasts
+        # 2.5/BPM s. Taud's envelopes are in seconds, so they are timed at the
+        # BPM the song STARTS at — row 0's T where it has one, as the song's
+        # own starting BPM is (find_initial_bpm_speed), not the header's.
+        ticks_per_sec = max((tempo or h.initial_tempo) * 2.0 / 5.0, 1.0)
         inst.vol_envelope, inst.vol_env_loop, inst.vol_env_sus = _parse_it_envelope(
             data, ptr + 0x130, kind='vol', ticks_per_sec=ticks_per_sec)
         inst.pan_envelope, inst.pan_env_loop, inst.pan_env_sus = _parse_it_envelope(
@@ -918,8 +934,13 @@ def encode_effect_it(cmd: int, arg: int, ch: int = 0, row: int = 0,
     amiga_mode mirrors the inverse of the IT ``linear_slides`` flag.  When
     set, E/F coarse pitch-slide arguments are emitted as raw IT period units
     (the engine applies them directly in period space); when clear they are
-    quantised to 4096-TET units via ``round(× 64/3)``.  Fine/extra-fine
-    slides and tone portamento (G) are always linear regardless of mode.
+    quantised to 4096-TET units via ``round(× 64/3)``.  Tone portamento (G)
+    is always linear regardless of mode.
+
+    IT's fine slide (EFx/FFx) moves by the COARSE unit once, its extra-fine
+    (EEx/FEx) by a quarter of it (Schism effects.c fx_fine_portamento_* pass
+    ``param * 4``, fx_extra_fine_* ``param``, to the same slide function the
+    coarse ``param * 4`` goes to).
     """
     if cmd == 0:
         return (TOP_NONE, 0, None, None)
@@ -943,18 +964,28 @@ def encode_effect_it(cmd: int, arg: int, ch: int = 0, row: int = 0,
         return (TOP_D, (arg & 0xFF) << 8, None, None)
 
     if cmd in (EFF_E, EFF_F):
-        # Coarse: 1/16 semitone = 64/3 Taud units in linear mode; raw IT period
+        # Coarse: 1/16 semitone = 64/3 Taud units in linear mode; raw period
         # units in Amiga mode (engine consumes them in period space).
-        # Fine/extra-fine (Exx with hi ∈ {E,F}): 1/64 semitone = 16/3 Taud units
-        # in linear mode; raw IT period units in Amiga mode (engine consumes
-        # them in period space, applied once per row at tick 0).
+        # Fine (hi = F): the coarse unit, once per row at tick 0 — 64/3 Taud
+        # units in linear mode, one period unit in Amiga mode.
+        # Extra-fine (hi = E): a quarter of that — 1/64 semitone = 16/3 Taud
+        # units in linear mode; a quarter period in Amiga mode, which Taud's
+        # whole-period argument cannot hold: carry_extra_fine_slides has
+        # already turned those into whole periods; this rounding is the
+        # fallback for a cell that did not pass through it.
         op = TOP_E if cmd == EFF_E else TOP_F
         hi = (arg >> 4) & 0xF
         lo = arg & 0xF
         if hi in (0xE, 0xF) and lo > 0:
+            quarters = lo * 4 if hi == 0xF else lo
             if amiga_mode:
-                return (op, 0xF000 | (lo & 0xFFF), None, None)
-            return (op, 0xF000 | (round(lo * 16 / 3) & 0xFFF), None, None)
+                periods = round(quarters / 4)
+                if periods == 0:
+                    vprint(f"    dropped {'EF'[cmd == EFF_F]}E{lo:X} (extra-fine slide "
+                           f"under a period unit) at ch{ch} row{row}")
+                    return (TOP_NONE, 0, None, None)
+                return (op, 0xF000 | (periods & 0xFFF), None, None)
+            return (op, 0xF000 | (round(quarters * 16 / 3) & 0xFFF), None, None)
         if amiga_mode:
             return (op, arg & 0xFFFF, None, None)
         return (op, round(arg * 64 / 3) & 0xFFFF, None, None)
@@ -1059,6 +1090,25 @@ def encode_effect_it(cmd: int, arg: int, ch: int = 0, row: int = 0,
 
 # ── IT recall resolution ──────────────────────────────────────────────────────
 
+def _fold_volcol_motion(cell: 'ITRow') -> None:
+    """A volume-column tone portamento (g) or vibrato (h) on a row whose effect
+    column is empty moves into the effect column, as the G or H build_pattern_it
+    would make of it anyway, so that its zero (g0, h0: carry on at the speed and
+    depth in memory) is resolved with the rest. Both share their memory with
+    the effect-column G and H (Schism player/effects.c: VOLFX_TONEPORTAMENTO
+    reads mem_portanote, VOLFX_VIBRATODEPTH calls fx_vibrato); left as G $0000
+    or H $0000 they played the same, but a re-import of their export resolved
+    them, and an h depth in between was invisible to the next H00."""
+    vc = cell.volcol
+    if VC_TPORTA_LO <= vc <= VC_TPORTA_HI:
+        cell.effect, cell.effect_arg = EFF_G, VC_TPORTA_TABLE[vc - VC_TPORTA_LO]
+    elif VC_VIB_LO <= vc <= VC_VIB_HI:
+        cell.effect, cell.effect_arg = EFF_H, (vc - VC_VIB_LO) & 0x0F
+    else:
+        return
+    cell.volcol = -1
+
+
 def resolve_it_recalls(cue_patterns: list,
                        num_channels: int, link_gef: bool,
                        old_effects: bool = False) -> None:
@@ -1105,6 +1155,8 @@ def resolve_it_recalls(cue_patterns: list,
                 if ch >= len(grid):
                     continue
                 cell = grid[ch][r]
+                if cell.effect == 0:
+                    _fold_volcol_motion(cell)
                 if cell.effect not in IT_MEM_EFFECTS:
                     continue
                 key = cohort_key(cell.effect)
@@ -1133,6 +1185,44 @@ def _row_carries_tone_porta(cell: 'ITRow') -> bool:
     if VC_TPORTA_LO <= cell.volcol <= VC_TPORTA_HI:
         return cell.effect == 0 or (cell.effect == EFF_D and cell.effect_arg != 0)
     return False
+
+
+def carry_extra_fine_slides(cue_patterns: list, num_channels: int) -> int:
+    """Amiga-slide songs: rewrite every extra-fine slide (EEx/FEx) as a
+    whole-period fine slide (EFn/FFn) or nothing, carrying the remainder.
+
+    An extra-fine unit is a QUARTER of the period unit the fine and coarse
+    slides move by (encode_effect_it), and Taud's Amiga-mode argument counts
+    whole periods. Rounding each command alone loses EE1 outright, and a song
+    that drifts a lane with EE1 every other row (4THSYM, alchemist) loses the
+    drift; so the quarters are summed per channel in PLAY order (the cue
+    copies are private per order position) and a whole period is emitted on
+    the row the sum reaches it. A note that is not tied by a tone portamento
+    resets the pitch, and the sum with it. Run after resolve_it_recalls, so a
+    recalled EEx is counted too. Returns the number of commands dropped."""
+    acc = [0] * num_channels      # quarter periods, + = pitch down (E)
+    dropped = 0
+    for grid, rows in cue_patterns:
+        for r in range(rows):
+            for ch in range(min(num_channels, len(grid))):
+                cell = grid[ch][r]
+                if 0 <= cell.note <= 119 and not _row_carries_tone_porta(cell):
+                    acc[ch] = 0
+                if cell.effect not in (EFF_E, EFF_F) or (cell.effect_arg & 0xF0) != 0xE0:
+                    continue
+                q = cell.effect_arg & 0x0F
+                if q == 0:
+                    continue
+                acc[ch] += q if cell.effect == EFF_E else -q
+                n = round(acc[ch] / 4)
+                acc[ch] -= n * 4
+                if n == 0:
+                    cell.effect, cell.effect_arg = 0, 0
+                    dropped += 1
+                else:
+                    cell.effect = EFF_E if n > 0 else EFF_F
+                    cell.effect_arg = 0xF0 | min(abs(n), 0x0F)
+    return dropped
 
 
 def drop_porta_retriggers(cue_patterns: list, num_channels: int) -> int:
@@ -1368,18 +1458,30 @@ def _build_it_stereo_patch(s, sample_ptr, sample_ptr_r) -> list:
 
 def _build_it_ixmp_patches(inst, samples, extras_offsets, extras_offsets_r=None) -> list:
     """For one IT instrument, return a list of Ixmp patch dicts covering every
-    keyboard cell that maps to a NON-canonical sample. The canonical sample is
-    served by the base instrument record so no patch is emitted for it (the
-    engine falls through to the base inst when no patch matches).
+    keyboard cell the base record cannot play: a NON-canonical sample, or a key
+    whose note column transposes it (4THSYM's instrument 11 plays every key one
+    up). The base record serves the canonical sample at its own pitch, so no
+    patch is emitted there (the engine falls through to the base inst when no
+    patch matches). Taud has no per-key note map; the transposition rides the
+    patch's sample detune, which the engine adds to the trigger note.
 
-    Note ranges are contiguous runs of keyboard cells that point at the same
-    sample. Per the Ixmp spec each (pitch_start..pitch_end, volume_start..end)
-    rectangle MUST NOT overlap any other patch on the same instrument; this is
-    guaranteed here because the keyboard mapping itself is a partition."""
+    Note ranges are contiguous runs of keyboard cells with the same sample AND
+    the same transposition. Per the Ixmp spec each (pitch_start..pitch_end,
+    volume_start..end) rectangle MUST NOT overlap any other patch on the same
+    instrument; this is guaranteed here because the keyboard mapping itself is
+    a partition.
+
+    Default pan: IT's instrument DfP, when it is used, wins over every sample's
+    (Schism csf_set_instrument_panning), and the base record already carries it
+    with the `p` bit — so a patch then leaves the pan to the base record. A
+    sample's own pan rides its patch when the instrument has none. (A sample
+    WITHOUT a pan under a base record whose canonical sample has one cannot say
+    "no default pan" in a patch: it plays the canonical sample's.)"""
     canonical = inst.canonical_sample
     kbd = getattr(inst, 'keyboard', None)
     if not kbd:
         return []
+    notes = getattr(inst, 'kb_notes', None) or list(range(120))
     extras_offsets_r = extras_offsets_r or {}
     # A STEREO canonical sample cannot be expressed by the base record (only an
     # Ixmp patch carries the 's' block), so it is treated as non-canonical here
@@ -1387,58 +1489,60 @@ def _build_it_ixmp_patches(inst, samples, extras_offsets, extras_offsets_r=None)
     canon_stereo = (1 <= canonical <= len(samples)
                     and samples[canonical - 1] is not None
                     and ('it_smp', canonical - 1) in extras_offsets_r)
-    # Distinct non-canonical samples referenced.
-    distinct = []
-    seen = set()
-    for kb_smp in kbd:
-        if kb_smp == 0 or (kb_smp == canonical and not canon_stereo):
-            continue
-        if kb_smp not in seen and 1 <= kb_smp <= len(samples) and samples[kb_smp - 1] is not None:
-            seen.add(kb_smp); distinct.append(kb_smp)
-    if not distinct:
-        return []
+    inst_pans = getattr(inst, 'dfp', None) is not None
+
+    def run_key(n):
+        """(sample_1based, transposition) the patch for key n needs, or None
+        when the base record (or nothing) serves it."""
+        smp = kbd[n]
+        if smp == 0 or not (1 <= smp <= len(samples)) or samples[smp - 1] is None:
+            return None
+        shift = notes[n] - n
+        if smp == canonical and not canon_stereo and shift == 0:
+            return None
+        s = samples[smp - 1]
+        if not s.sample_data or extras_offsets.get(('it_smp', smp - 1)) is None:
+            return None   # not in the pool — bin overflow or corrupt source
+        return (smp, shift)
 
     patches = []
-    for smp_1based in distinct:
-        si = smp_1based - 1
+    fields = {}
+
+    def emit(key, lo, hi):
+        smp, shift = key
+        si = smp - 1
         s = samples[si]
-        if not s.sample_data:
-            continue
-        sample_ptr = extras_offsets.get(('it_smp', si))
-        if sample_ptr is None:
-            continue   # not in the pool — bin overflow or corrupt source
-        sample_ptr_r = extras_offsets_r.get(('it_smp', si))
-
+        if smp not in fields:
+            fields[smp] = _it_patch_fields(s)
         (ls, le, loop_mode, default_pan, dnv,
-         vib_speed_taud, vib_depth_taud, vib_rate_taud, vib_wave_taud) = _it_patch_fields(s)
+         vib_speed_taud, vib_depth_taud, vib_rate_taud, vib_wave_taud) = fields[smp]
+        if inst_pans:
+            default_pan = IXMP_PAN_NO_OVERRIDE
+        _emit_patch(patches, lo, hi, extras_offsets[('it_smp', si)], s,
+                    ls, le, loop_mode, default_pan, dnv,
+                    vib_speed_taud, vib_depth_taud, vib_rate_taud, vib_wave_taud,
+                    extras_offsets_r.get(('it_smp', si)),
+                    sample_detune=round(shift * 4096 / 12))
 
-        # Find contiguous IT-note ranges where the keyboard points at this sample.
-        run_start = None
-        for n in range(120):
-            if kbd[n] == smp_1based:
-                if run_start is None:
-                    run_start = n
-            else:
-                if run_start is not None:
-                    _emit_patch(patches, run_start, n - 1, sample_ptr, s,
-                                ls, le, loop_mode, default_pan, dnv,
-                                vib_speed_taud, vib_depth_taud, vib_rate_taud, vib_wave_taud,
-                                sample_ptr_r)
-                    run_start = None
-        if run_start is not None:
-            _emit_patch(patches, run_start, 119, sample_ptr, s,
-                        ls, le, loop_mode, default_pan, dnv,
-                        vib_speed_taud, vib_depth_taud, vib_rate_taud, vib_wave_taud,
-                        sample_ptr_r)
+    run_start = None
+    run = None
+    for n in range(121):
+        key = run_key(n) if n < 120 else None
+        if key != run:
+            if run is not None:
+                emit(run, run_start, n - 1)
+            run, run_start = key, n
     return patches
 
 
 def _emit_patch(patches, it_lo, it_hi, sample_ptr, s,
                 ls, le, loop_mode, default_pan, dnv,
-                vib_speed, vib_depth, vib_rate, vib_wave, sample_ptr_r=None):
+                vib_speed, vib_depth, vib_rate, vib_wave, sample_ptr_r=None,
+                sample_detune=0):
     """Append one patch dict covering IT-note range [it_lo, it_hi] inclusive.
     `sample_ptr_r` makes it a STEREO patch (Ixmp 's'): channel 2's pool span,
-    same length and geometry as channel 1."""
+    same length and geometry as channel 1. `sample_detune` (4096-TET units)
+    carries a keyboard note-column transposition."""
     taud_lo = _it_note_to_taud(it_lo, clamp_low=(it_lo == 0))
     taud_hi = _it_note_to_taud(it_hi, clamp_high=(it_hi == 119))
     patches.append({
@@ -1452,7 +1556,7 @@ def _emit_patch(patches, it_lo, it_hi, sample_ptr, s,
         'loop_start':          ls,
         'loop_end':            le,
         'sampling_rate':       min(getattr(s, 'c5_speed', 8363), 65535),
-        'sample_detune':       0,
+        'sample_detune':       max(-0x8000, min(0x7FFF, sample_detune)),
         'loop_mode':           loop_mode,
         'default_pan':         default_pan,
         'default_note_volume': dnv,
@@ -1560,11 +1664,25 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
     # ascending-offset order — the order taut.js's sample viewer expects SNam to
     # follow (it dedupes instrument records by (ptr,len), sorts by ptr, and
     # matches SNam[i+1] positionally — see taut.js buildSampleIndex).
+    #
+    # Two sample HEADERS may point at one data block too (an export's detuned
+    # copies of a sample, itexport.js): those are pooled once as well, as long
+    # as the PCM is still the same after resampling, so a re-export shares the
+    # block again instead of writing a copy per header.
     written    = {}     # id(sample) -> pool offset already written
     written_r  = {}     # id(sample) -> channel-2 pool offset (stereo samples only)
     offsets_r  = {}     # slot idx -> channel-2 pool offset
     pool_order = []     # distinct sample objects, in pool (ascending-offset) order
+    by_block   = {}     # source data pointer -> sample objects already written from it
     for idx, s in pcm_list:
+        if id(s) not in written and s.sample_data:
+            for t in by_block.get(s.smp_point, ()):
+                if (t.sample_data == s.sample_data
+                        and getattr(t, 'sample_data_r', b'') == getattr(s, 'sample_data_r', b'')):
+                    written[id(s)] = written[id(t)]
+                    if id(t) in written_r:
+                        written_r[id(s)] = written_r[id(t)]
+                    break
         shared = written.get(id(s))
         if shared is not None:
             offsets[idx] = shared
@@ -1579,6 +1697,8 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
         offsets[idx] = pos
         written[id(s)] = pos
         pool_order.append(s)
+        if n == len(s.sample_data):          # a truncated sample is nobody's twin
+            by_block.setdefault(s.smp_point, []).append(s)
         if n < len(s.sample_data):
             vprint(f"  warning: '{s.name}' truncated {len(s.sample_data)} → {n}")
             s.length = n
@@ -2044,13 +2164,33 @@ def find_initial_bpm_speed(cue_patterns: list,
             cell = ch_rows[0]
             if cell.effect == EFF_A and cell.effect_arg > 0:
                 speed = cell.effect_arg
-            if cell.effect == EFF_T and cell.effect_arg > 0:
+            # T $00..$1F slide the tempo (Schism fx_tempo); only $20 and up set it.
+            if cell.effect == EFF_T and cell.effect_arg >= 0x20:
                 tempo = cell.effect_arg
         break
     return speed, tempo
 
+
+def song_start_tempo(h: ITHeader, patterns_rows: list) -> int:
+    """The BPM the (first) song starts at, as its song entry stores it: the
+    first played order's row 0 T, else the header's, clamped to Taud's range.
+    Times the instruments' envelopes (parse_instruments)."""
+    first = []
+    for order in h.order_list:
+        if order == IT_ORD_SKIP:
+            continue
+        if order < IT_ORD_END and order < len(patterns_rows):
+            first = [patterns_rows[order]]
+        break
+    _, tempo = find_initial_bpm_speed(first, h.initial_speed, h.initial_tempo)
+    return max(25, min(280, tempo))
+
 def _active_channels(h: ITHeader, patterns_rows: list) -> list:
-    """Return the non-muted, in-use channel indices (up to MAX_VOICES = 64).
+    """Return the channel indices that become lanes (up to MAX_VOICES = 64):
+    every non-muted channel up to the last one in use, so IT channel n stays
+    lane n through an empty channel in between (a subsong exported alone
+    leaves the lanes only the other subsongs use empty). A channel is in use
+    when a cell holds anything, the volume column included.
 
     A song using 33..64 channels triggers 64-channel Taud mode (see assemble_taud);
     32 or fewer stays in the default 32-channel layout. Only a song exceeding 64
@@ -2067,11 +2207,12 @@ def _active_channels(h: ITHeader, patterns_rows: list) -> list:
         for ch in range(64):
             if ch >= len(grid): continue
             for cell in grid[ch]:
-                if cell.note >= 0 or cell.inst > 0 or cell.effect != 0:
+                if cell.note >= 0 or cell.inst > 0 or cell.effect != 0 or cell.volcol >= 0:
                     in_use.add(ch)
                     break
 
-    active = [i for i in range(64) if i in in_use and i not in muted]
+    last = max((i for i in in_use if i not in muted), default=-1)
+    active = [i for i in range(last + 1) if i not in muted]
     if len(active) > MAX_VOICES:
         vprint(f"  warning: {len(active)} active channels; capping at {MAX_VOICES}")
         active = active[:MAX_VOICES]
@@ -2135,6 +2276,12 @@ def _build_song_payload(h: ITHeader, patterns_rows_template: list,
 
     vprint(f"  [{song_label}] resolving IT recalls…")
     resolve_it_recalls(pats, 64, h.link_gef, old_effects=h.old_effects)
+
+    if not h.linear_slides:
+        n_fine = carry_extra_fine_slides(pats, 64)
+        if n_fine:
+            vprint(f"  [{song_label}] {n_fine} extra-fine slide(s) under a whole "
+                   f"period carried to the next")
 
     n_dropped = drop_porta_retriggers(pats, 64)
     if n_dropped:
@@ -2343,16 +2490,20 @@ def assemble_taud(h: ITHeader, samples: list, instruments: list,
             ppc_taud = TAUD_C4 + (max(0, min(119, inst.ppc)) - 60) * 4096 // 12
 
             # IT default pan: instrumentwise (IMPI+0x19) takes precedence when
-            # its "use" bit is set; otherwise samplewise (IMPS+0x2F) wins when
-            # its "use" bit is set; otherwise centre (0x80). Both fields encode
-            # 0..64 → rescale to Taud's 0..255 range.
+            # it is used (its bit 7 CLEAR); otherwise samplewise (IMPS+0x2F)
+            # when its bit 7 is SET; otherwise none — the channel keeps its pan.
+            # Both fields encode 0..64 → rescale to Taud's 0..255 range. The
+            # engine applies byte 177 only under the pan LOOP word's `p` bit
+            # (bit 7), set below exactly when one of the two is used.
             smp_dfp_raw = getattr(src_smp, 'dfp', 0)
+            uses_pan = True
             if inst.dfp is not None:
                 default_pan = min(255, max(0, round(inst.dfp * 255 / 64)))
             elif smp_dfp_raw & 0x80:
-                default_pan = min(255, max(0, round((smp_dfp_raw & 0x7F) * 255 / 64)))
+                default_pan = min(255, max(0, round(min(smp_dfp_raw & 0x7F, 64) * 255 / 64)))
             else:
                 default_pan = 0x80
+                uses_pan = False
 
             # Auto-vibrato lives on the canonical sample (not the IT instrument).
             # IT samplewise auto-vibrato: Vis (speed 0..64), Vid (depth 0..64),
@@ -2380,7 +2531,7 @@ def assemble_taud(h: ITHeader, samples: list, instruments: list,
                 'vol_env_loop':  inst.vol_env_loop,
                 'vol_env_sus':   inst.vol_env_sus,
                 'pan_env':       inst.pan_envelope,
-                'pan_env_loop':  inst.pan_env_loop,
+                'pan_env_loop':  inst.pan_env_loop | (0x80 if uses_pan else 0),
                 'pan_env_sus':   inst.pan_env_sus,
                 'pf_env':        inst.pf_envelope,
                 'pf_env_loop':   inst.pf_env_loop,
@@ -2478,8 +2629,10 @@ def assemble_taud(h: ITHeader, samples: list, instruments: list,
             smp_dfp = getattr(s, 'dfp', 0)
             instr_data_by_slot[i + 1] = {
                 'nna':        0b01,                    # Note Cut
-                'default_pan': (min(255, max(0, round((smp_dfp & 0x7F) * 255 / 64)))
+                'default_pan': (min(255, max(0, round(min(smp_dfp & 0x7F, 64) * 255 / 64)))
                                 if (smp_dfp & 0x80) else 0x80),
+                # `p` (use default pan): without it the engine ignores byte 177.
+                'pan_env_loop': 0x80 if (smp_dfp & 0x80) else 0,
                 'vib_speed':  min(255, round(getattr(s, 'av_speed', 0) * 255 / 64)),
                 # Vir 0 = IT never ramps the depth in, i.e. no vibrato at all.
                 'vib_depth':  (0 if (getattr(s, 'av_sweep', 0) & 0xFF) == 0
@@ -2669,8 +2822,9 @@ def main():
 
     samples     = parse_samples(data, h, decompress=not args.no_decompress,
                                 keep_stereo=not args.mono_samples)
-    instruments = parse_instruments(data, h) if h.use_instruments else []
     patterns_rows = parse_patterns(data, h)
+    instruments = (parse_instruments(data, h, song_start_tempo(h, patterns_rows))
+                   if h.use_instruments else [])
 
     taud = assemble_taud(h, samples, instruments, patterns_rows,
                          decompress=not args.no_decompress,

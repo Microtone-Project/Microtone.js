@@ -157,6 +157,8 @@ export class FilesView {
     const stemsBtn = mkBtn(t("files.exportStems"), () => this.exportStems());
     const modBtn = mkBtn(t("files.exportMod"), () => this.exportMod());
     modBtn.title = t("files.exportModTitle");
+    const itBtn = mkBtn(t("files.exportIt"), () => this.exportIt());
+    itBtn.title = t("files.exportItTitle");
     // …and the one action that is about the DISK rather than the document
     // (item 198.2): every project in this browser, in one archive. Enabled
     // below, once the listing says there is something to put in it.
@@ -165,8 +167,8 @@ export class FilesView {
     allBtn.title = t("files.downloadAllTitle");
     allBtn.disabled = true;
     // doc-scoped actions grey out until something is loaded
-    for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn, modBtn]) b.disabled = !doc;
-    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, modBtn, allBtn);
+    for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn]) b.disabled = !doc;
+    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn, allBtn);
     page.push(bar);
 
     if (!ok) {
@@ -389,9 +391,14 @@ export class FilesView {
     const td = document.createElement("td");
     const renameBtn = iconBtn("rename", () => this.renameFolder(path));
     renameBtn.title = t("common.rename");
+    // Its projects as one .zip, the way a project row's ⬇ downloads the one.
+    const downloadBtn = iconBtn("download", () => this.downloadFolder(path));
+    downloadBtn.title = t("files.downloadFolderTitle", { name });
+    downloadBtn.disabled = inside.length === 0;
     const deleteBtn = iconBtn("close", () => this.deleteFolder(path, inside.length));
     deleteBtn.title = t("common.delete");
-    td.append(mkBtn(t("files.open"), () => this.openFolder(path)), renameBtn, deleteBtn);
+    // The same order as a project row's: Open, Rename, Download, Delete.
+    td.append(mkBtn(t("files.open"), () => this.openFolder(path)), renameBtn, downloadBtn, deleteBtn);
     tr.append(checkCell(), nameTd, sizeTd, timeTd, td); // a folder is not ticked
     return tr;
   }
@@ -701,13 +708,33 @@ export class FilesView {
   async downloadAll() {
     const entries = await opfs.list();
     if (entries.length === 0) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    await this._zipProjects(entries, "", `microtone-projects-${stamp}.zip`);
+  }
+
+  /**
+   * One folder's projects, its folders' too, zipped as that folder: the
+   * archive's top entry is the folder itself, so unpacking it gives back what
+   * the list showed. The same rules as Download all — stored bytes, saved
+   * copies only.
+   */
+  async downloadFolder(path) {
+    const entries = (await opfs.list()).filter((e) => e.name.startsWith(path + "/"));
+    if (entries.length === 0) return;
+    const { folder: parent, name } = opfs.splitPath(path);
+    await this._zipProjects(entries, parent ? parent + "/" : "", `${sanitiseName(name, "folder")}.zip`);
+  }
+
+  /** Zip `entries` (opfs paths) with `strip` cut off the front of each name,
+   *  behind a cancellable progress bar, and download the archive as `zipName`. */
+  async _zipProjects(entries, strip, zipName) {
     const progress = showProgress(t("files.zipAll", { n: entries.length }), { cancellable: true });
     const zip = new StemZip();
     let chunks;
     try {
       for (let i = 0; i < entries.length; i++) {
         if (progress.signal.aborted) { progress.done(); return; }
-        zip.addFile(entries[i].name, await opfs.read(entries[i].name));
+        zip.addFile(entries[i].name.slice(strip.length), await opfs.read(entries[i].name));
         progress.set((i + 1) / entries.length);
         await new Promise((r) => setTimeout(r, 0)); // let the bar paint
       }
@@ -718,9 +745,7 @@ export class FilesView {
       return;
     }
     progress.done();
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadBlob(new Blob(chunks, { type: "application/zip" }),
-      `microtone-projects-${stamp}.zip`);
+    downloadBlob(new Blob(chunks, { type: "application/zip" }), zipName);
   }
 
   /**
@@ -909,6 +934,31 @@ export class FilesView {
     const zip = new StemZip();
     for (const r of results) zip.addFile(modFileName(base, r.songIndex, results.length), r.bytes);
     downloadBlob(new Blob(zip.finish(), { type: "application/zip" }), `${base}-mod.zip`);
+  }
+
+  /**
+   * Every song as an Impulse Tracker module (item 268), one .it each — zipped
+   * when there is more than one — through the same findings dialog as the
+   * .MOD export: only a surround project or a linear-frequency song stops it.
+   */
+  async exportIt() {
+    const { doc, fileName } = this.cb.currentDoc();
+    if (!doc) return;
+    const { exportItSongs, itFileName } = await import("../../convert/itexport.js");
+    const results = exportItSongs(doc);
+    if (results.some((r) => r.bytes === null || r.warnings.length > 0)) {
+      const { showModExport } = await import("../popups/exportmod.js");
+      if (!(await showModExport(results, "itexport"))) return;
+    }
+    // A project opened from a module may still carry its name.
+    const base = sanitiseName((fileName ?? "untitled.taud").replace(/\.(taud|it)$/i, ""), "song");
+    if (results.length === 1) {
+      download(results[0].bytes, itFileName(base, 0, 1));
+      return;
+    }
+    const zip = new StemZip();
+    for (const r of results) zip.addFile(itFileName(base, r.songIndex, results.length), r.bytes);
+    downloadBlob(new Blob(zip.finish(), { type: "application/zip" }), `${base}-it.zip`);
   }
 }
 

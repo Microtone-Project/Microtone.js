@@ -255,16 +255,17 @@ Coarse and fine modes are distinguished by the high nibble of the argument:
 - `E $F000..$FFFF` — fine slide: on tick 0 only, subtracts `arg & $0FFF` from pitch.
 - `E $0000` — recalls the last E-or-F argument and applies it as a down-slide, preserving the original form (coarse or fine).
 
-**Compatibility.** ST3 pitch slides operate on Amiga periods or linear slide units; Taud's storage depends on the song-table mode flag:
+**Compatibility.** Taud's storage depends on the song-table mode flag:
 
-- **Linear-source ST3 song** (`linear_slides` set in S3M flags → Taud `ff = 0`):
-  - ST3 `Exx` coarse (where `xx < $E0`) → Taud `E round($00xx × 64/3)` (1 ST3 coarse unit = 1/16 semitone = 64/3 ≈ 21.33 Taud units, rounded).
-  - ST3 `EFx` fine → Taud `E $F0 round(x × 16/3)` (1 ST3 fine unit = 1/64 semitone = 16/3 ≈ 5.33 Taud units, applied once per row).
-  - ST3 `EEx` extra-fine → Taud `E $F0 round(x × 16/3)` (same unit as fine, applied once per row).
+- **ST3 / PT song** (Amiga periods → Taud `ff = 1`). ST3 has no linear slides: S3M header flag bit 6 (`$40`) is "ST3.00 volume slides", not a slide mode, and every S3M slides in periods.
+  - ST3 `Exx` coarse (where `xx < $E0`) / PT `2xx` → Taud `E $00xx` **verbatim**, with no `× 64/3` scaling. The engine reads the stored byte as Amiga period units and applies it in period space, recovering the original tracker's exact period-step count.
+  - ST3 `EFx` fine / PT `E2x` → Taud `E $F00x` **verbatim** (raw period-unit nibble in the low 4 bits): the fine form moves by the coarse unit, once per row. The engine performs the fine slide in Amiga period space, mirroring the coarse arithmetic.
+  - ST3 `EEx` extra-fine moves by a **quarter** of that unit (ST3 runs its fine and extra-fine slides through the same arithmetic as IT, below), which the whole-period argument cannot hold: converters **SHOULD** sum the quarters per lane in play order and write `E $F00n` on the row where the sum reaches a whole period (nothing on the others), restarting the sum at every note not tied by a portamento.
 
-- **Amiga-source ST3/PT song** (`linear_slides` clear → Taud `ff = 1`):
-  - ST3 `Exx` coarse / PT `2xx` → Taud `E $00xx` **verbatim**, with no `× 64/3` scaling. The engine reads the stored byte as Amiga period units and applies it in period space, recovering the original tracker's exact period-step count.
-  - ST3 `EFx` fine / `EEx` extra-fine / PT `E2x` → Taud `E $F00x` **verbatim** (raw period-unit nibble in the low 4 bits), with no `× 16/3` scaling. The engine performs the once-per-row fine slide in Amiga period space, mirroring the coarse arithmetic.
+- **Impulse Tracker song** (`linear_slides` set → `ff = 0`, clear → `ff = 1`): IT's fine and extra-fine forms differ by **four** too — the fine form moves by the coarse unit, the extra-fine by a quarter of it:
+  - IT `Exx` coarse → Taud `E round($00xx × 64/3)` in linear songs (1 coarse unit = 1/16 semitone ≈ 21.33 Taud units), `E $00xx` in Amiga songs.
+  - IT `EFx` fine → Taud `E $F0 round(x × 64/3)` in linear songs, `E $F00x` in Amiga songs.
+  - IT `EEx` extra-fine → Taud `E $F0 round(x × 16/3)` in linear songs (1/64 semitone). In Amiga songs it is a quarter period, carried as for ST3 above.
 
 - **MONOTONE source** (Taud `ff = 2`):
   - MONOTONE `2xx` → Taud `E $00xx` **verbatim** (Hz/tick). The engine converts the stored pitch to frequency, subtracts the argument, and converts back. MONOTONE has no fine-slide form; converters never emit `E $Fxxx` for ff=2 sources.
@@ -317,7 +318,7 @@ Glissando control (S $1x) snaps the output pitch to the nearest semitone after e
 
 **Plain.** Raises the lane's pitch by the argument per tick, with the same mode-selection scheme as E. Coarse, fine, memory behaviour, and Amiga / linear-freq mode handling are identical in form but inverted in direction. The same triple-interpretation rule applies to **both** coarse and fine arguments: 4096-TET units in linear mode, raw tracker period units in Amiga mode, Hz/tick in linear-frequency mode.
 
-**Compatibility.** Same as E. In linear-source songs, ST3 `Fxx` coarse converts using `round(x × 64/3)` and `FFx`/`FEx` fine/extra-fine use `round(x × 16/3)`. In Amiga-source songs (PT or S3M with `linear_slides` clear), both forms are stored verbatim: `Fxx` coarse → `F $00xx`, and `FFx`/`FEx` fine/extra-fine / PT `E1x` → `F $F00x`. In MONOTONE-source songs (ff=2), `1xx` → `F $00xx` verbatim (Hz/tick); MONOTONE has no fine-slide form. F and E share one memory slot in Taud. Slide-mode behaviour is controlled by the same `ff` field as E; under any non-linear mode, both coarse (per-tick) and fine (tick-0 only) F slides are applied in the corresponding mode's space.
+**Compatibility.** Same as E. ST3 and PT songs keep periods: `Fxx` coarse → `F $00xx`, ST3 `FFx` fine / PT `E1x` → `F $F00x`, and ST3 `FEx` extra-fine is a quarter period, carried to whole ones. In linear IT songs, `Fxx` coarse and `FFx` fine convert with `round(x × 64/3)`, `FEx` extra-fine with `round(x × 16/3)`. In MONOTONE-source songs (ff=2), `1xx` → `F $00xx` verbatim (Hz/tick); MONOTONE has no fine-slide form. F and E share one memory slot in Taud. Slide-mode behaviour is controlled by the same `ff` field as E; under any non-linear mode, both coarse (per-tick) and fine (tick-0 only) F slides are applied in the corresponding mode's space.
 
 **Implementation.** As for E, but add instead of subtract. No upper pitch cap is defined by the effect itself, but the sample-rate conversion at the mixer will saturate well before arithmetic overflow at reasonable playing ranges.
 

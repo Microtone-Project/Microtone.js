@@ -180,6 +180,7 @@ export default {
   "files.folderOpen": "Abrir la carpeta {name}",
   "files.folderUp": "Subir a {name}",
   "files.folderCount": "{n} proyecto(s)",
+  "files.downloadFolderTitle": "Descargar la carpeta {name} y todos sus proyectos en un solo ZIP",
   "files.folderEmpty": "esta carpeta está vacía — Guardar Como… o Mover a carpeta… pone proyectos aquí",
   "files.newFolder": "Nueva carpeta…",
   "files.newFolderTitle": "Nueva carpeta",
@@ -226,6 +227,10 @@ export default {
   "modexport.song": "Canción {n} — {title}",
   "modexport.times": " (×{n})",
   "modexport.more": "…y {n} más.",
+
+  // ── Impulse Tracker export (item 268) ──
+  "files.exportIt": "Exportar .IT…",
+  "itexport.title": "Exportar como módulo de Impulse Tracker",
 
   // ── online projects (the File tab's second list) ──
   "files.online.head": "Proyectos en línea",

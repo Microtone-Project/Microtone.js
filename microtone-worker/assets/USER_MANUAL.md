@@ -2626,7 +2626,7 @@ Demos**) shows where you are; click any step of it to go back up, or use the
 were in.
 
 - **New folder…** (right of the path) makes a folder inside the one on show.
-- **Click a folder's name** (or **Open**) to go into it. **✎** renames it and **✕** deletes it *with everything in it* — the question says how many projects that is. A folder's size column counts its projects, and its date is that of the newest one.
+- **Click a folder's name** (or **Open**) to go into it. **✎** renames it, **⬇** downloads it as one ZIP (the folder and everything in it, folders inside included), and **✕** deletes it *with everything in it* — the question says how many projects that is. A folder's size column counts its projects, and its date is that of the newest one.
 - **Save As…**, **Import Taud/Module…** and **Import MIDI…** put the new project into the folder on show; **Save** keeps a project in the folder it came from.
 - Names cannot contain `/` or `\`.
 
@@ -2698,6 +2698,14 @@ your account remains active.
   - **One command per row**: a module cell has room for one effect. A volume slide beside a tone portamento or a vibrato becomes `5 $xy` or `6 $xy`; any other volume- or panning-column command that shares a row with an effect is left out, and the dialog counts them. Cue lengths and jumps are written as pattern breaks and position jumps, and the song's starting speed and tempo as `F $xx` on its first row.
   - **Lanes and panning**: lanes 1 to 4 stay where they are, and music on later lanes moves into the free channels. Panning does not survive: a module's channels sit left, right, right, left.
   - **Microtonal songs** are written as raw Amiga periods, the nearest the Amiga can get to each note. ProTracker plays them, but its editor shows those notes wrongly and other trackers that read `.mod` files may not accept them, so the dialog warns you. A 12-tone song uses ProTracker's own period table.
+- **Export .IT…** — save every song as an Impulse Tracker module, one `.it` each (zipped together when the project has more than one song). Impulse Tracker's instruments are close to Microtone's own, so far more comes across than in a `.mod`: up to 64 lanes, envelopes, New Note Actions, filters, key maps, every lane's panning and most effects. A module you imported comes back out as the same music. As with `.mod`, a dialog lists anything that will not come across exactly before saving.
+  - **What stops it**: only the surround file format, and the *Linear frequency* tone-slide mode (Impulse Tracker slides in linear pitch or Amiga periods; the Project tab sets which, and the module keeps it).
+  - **Microtones** are kept. Impulse Tracker writes every note as a whole semitone, so each note is written as the nearest key, and what is left over goes into a copy of the sample tuned by that much. One instrument can hold a different microtone on every key, so a tuning with twelve notes to the octave needs no extra instruments; only a key the song plays at two different pitches turns the instrument into two. A tuning other than standard pitch tunes every sample to match.
+  - **Volume layers**: an instrument whose key map picks a different sample by volume becomes one instrument per layer the song uses, and each note plays the layer its volume chooses — when there is room; otherwise each instrument plays its loudest layer.
+  - **Metainstruments** (layered, FM rack and formant instruments) and OPL and PSG instruments are played through the engine and saved as samples: once per octave the song plays them in, once per key for a drum kit, looped where they sustain.
+  - **SoundFont instruments**: their filters are converted to Impulse Tracker's by the frequencies they mean, and where a SoundFont gives each zone its own envelopes, fadeout or filter, the zone the song plays most speaks for the whole instrument.
+  - **Left out**: mixing chains, the mastering chain, sample modifications, bitcrushers, overdrive and the spatial commands. A row with a volume, a pan and an effect keeps two of them; the dialog counts the rest.
+  - **Too many samples**: a module numbers its samples and instruments up to 255. A song that needs more first leaves out the instruments it never plays, then plays every volume layer at its loudest, then rounds its microtones in steps, and the dialog says how far.
 
 ### Soundfonts
 

@@ -3,7 +3,7 @@
 // into) as an ordinary IMPS header whose `cvt` byte is 0x40 and whose sample
 // pointer leads to the twelve bytes of the patch — the same D00…D0B layout as
 // an S3M AdLib instrument (soundlib/ITTools.cpp, Load_it.cpp). Sample mode
-// only: no instrument headers, a pattern cell names a sample.
+// unless `instruments` is given (IMPI headers laid out as ITTECH.TXT has them).
 
 import { adlibPatch, SINE_PATCH, SQUARE } from "./s3m.js";
 
@@ -14,10 +14,19 @@ export { adlibPatch, SINE_PATCH, SQUARE };
  * or {opl: 12 bytes} OPL samples, each with `vol` (0…64), `gv` (0…64) and
  * `c5` (C5Speed). `patterns` are arrays of cells {row, ch, note?, smp?, vol?,
  * cmd?, info?}: `note` is IT's 0…119 (60 = C-5), 254 note cut, 255 note off.
- * `orders` defaults to every pattern once, in turn.
+ * `orders` defaults to every pattern once, in turn. A sample's `dfp` is its
+ * raw IMPS DfP byte (bit 7 = use); `shares: j` points its header at sample j's
+ * data (0-based) instead of its own. `linear: false` = Amiga slides.
+ *
+ * `instruments` switches the file to instrument mode (a cell's `smp` then
+ * names an instrument): each is {keyboard: (key) => [note, sample], dfp (raw
+ * IMPI byte, bit 7 = DON'T use; default "don't use"), nna, vol: [[value,
+ * tick]…] (a volume envelope, else none)}.
  */
 export function makeIt({ title = "IT FIXTURE", speed = 6, tempo = 125, channels = 4,
-                         samples, patterns, mixvol = 48, orders = null }) {
+                         samples, patterns, mixvol = 48, orders = null,
+                         instruments = null, linear = true }) {
+  const insts = instruments ?? [];
   const ord = orders ?? patterns.map((_, i) => i);
   const ordNum = ord.length + 1;
   const head = new Uint8Array(0xc0);
@@ -26,22 +35,40 @@ export function makeIt({ title = "IT FIXTURE", speed = 6, tempo = 125, channels 
   for (let i = 0; i < Math.min(25, title.length); i++) head[4 + i] = title.charCodeAt(i);
   dv.setUint16(0x1e, 0x0410, true);                        // pattern highlight
   dv.setUint16(0x20, ordNum, true);
-  dv.setUint16(0x22, 0, true);                             // no instruments
+  dv.setUint16(0x22, insts.length, true);
   dv.setUint16(0x24, samples.length, true);
   dv.setUint16(0x26, patterns.length, true);
   dv.setUint16(0x28, 0x0214, true);                        // Cwt/v
   dv.setUint16(0x2a, 0x0214, true);                        // Cmwt
-  dv.setUint16(0x2c, 0x0009, true);                        // stereo, linear slides
+  dv.setUint16(0x2c, 0x0001 | (instruments ? 0x0004 : 0) | (linear ? 0x0008 : 0), true);
   head[0x30] = 128; head[0x31] = mixvol; head[0x32] = speed; head[0x33] = tempo;
   head[0x34] = 128;                                        // pan separation
   for (let c = 0; c < 64; c++) { head[0x40 + c] = c < channels ? 32 : 32 | 128; head[0x80 + c] = 64; }
 
   const ordStart = 0xc0;
   const ptrStart = ordStart + ordNum;
-  let at = ptrStart + 4 * (samples.length + patterns.length);
+  let at = ptrStart + 4 * (insts.length + samples.length + patterns.length);
   const blobs = [];
   const place = (bytes) => { const p = at; blobs.push([p, bytes]); at += bytes.length; return p; };
 
+  const insPtr = insts.map((ins) => {
+    const h = new Uint8Array(0x22a);
+    h.set([0x49, 0x4d, 0x50, 0x49], 0);                     // IMPI
+    h[0x11] = ins.nna ?? 0;
+    h[0x18] = 128;                                          // GbV
+    h[0x19] = ins.dfp ?? (32 | 0x80);
+    for (let k = 0; k < 120; k++) {
+      const [note, smp] = ins.keyboard(k);
+      h[0x40 + 2 * k] = note; h[0x41 + 2 * k] = smp;
+    }
+    if (ins.vol) {
+      h[0x130] = 0x01; h[0x131] = ins.vol.length;
+      ins.vol.forEach(([v, tick], i) => {
+        h[0x136 + 3 * i] = v; h[0x137 + 3 * i] = tick & 0xff; h[0x138 + 3 * i] = tick >> 8;
+      });
+    }
+    return place(h);
+  });
   const smpHeads = samples.map((s) => {
     const h = new Uint8Array(0x50);
     const hv = new DataView(h.buffer);
@@ -57,6 +84,7 @@ export function makeIt({ title = "IT FIXTURE", speed = 6, tempo = 125, channels 
     } else {
       h[0x12] = 0x01 | (s.loop ? 0x10 : 0);
       h[0x2e] = 0x00;                                       // unsigned
+      h[0x2f] = s.dfp ?? 0;
       hv.setUint32(0x30, s.data.length, true);
       hv.setUint32(0x34, 0, true);
       hv.setUint32(0x38, s.loop ? s.data.length : 0, true);
@@ -65,8 +93,10 @@ export function makeIt({ title = "IT FIXTURE", speed = 6, tempo = 125, channels 
     return h;
   });
   const smpPtr = smpHeads.map((h) => place(h));
+  const dataPtr = [];
   samples.forEach((s, i) => {
-    const p = place(Uint8Array.from(s.opl ?? s.data));
+    const p = s.shares !== undefined ? dataPtr[s.shares] : place(Uint8Array.from(s.opl ?? s.data));
+    dataPtr.push(p);
     new DataView(smpHeads[i].buffer).setUint32(0x48, p, true);
   });
   const patPtr = patterns.map((cells) => {
@@ -98,7 +128,7 @@ export function makeIt({ title = "IT FIXTURE", speed = 6, tempo = 125, channels 
   ord.forEach((p, i) => { out[ordStart + i] = p; });
   out[ordStart + ord.length] = 255;
   const pv = new DataView(out.buffer);
-  [...smpPtr, ...patPtr].forEach((p, i) => pv.setUint32(ptrStart + 4 * i, p, true));
+  [...insPtr, ...smpPtr, ...patPtr].forEach((p, i) => pv.setUint32(ptrStart + 4 * i, p, true));
   for (const [p, bytes] of blobs) out.set(bytes, p);
   smpPtr.forEach((p, i) => out.set(smpHeads[i], p));
   return out;

@@ -161,7 +161,11 @@ def parse_s3m(data: bytes) -> S3MHeader:
     h.initial_speed  = data[0x31]          # ticks per row
     h.initial_tempo  = data[0x32]          # BPM
     h.master_vol     = data[0x33]
-    h.linear_slides  = bool(h.flags & 0x40)  # flag bit 6 → linear freq slides
+    # ST3 has no linear slides. Flag bit 6 ($40) is "ST3.00 volume slides"
+    # (fast slides), which ModPlug/OpenMPT set in every S3M they save; it was
+    # once read here as linear frequency slides. Schism ignores the flags word
+    # (fmt/s3m.c: "don't really care") and never sets SONG_LINEARSLIDES.
+    h.linear_slides  = False
     h.default_pan_flag = data[0x35]        # 0xFC → use pan values
 
     # Channel settings: bytes 0x40..0x5F; bit 7 = disabled
@@ -355,18 +359,23 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0,
         return (TOP_D, (arg & 0xFF) << 8, None, None)
 
     if cmd in (EFF_E, EFF_F):
-        # Coarse: 1/16 semitone = 64/3 Taud units in linear mode; raw ST3 period
+        # Coarse: 1/16 semitone = 64/3 Taud units in linear mode; raw period
         # units in Amiga mode (engine consumes them in period space).
-        # Fine/extra-fine (Exx with hi ∈ {E,F}): 1/64 semitone = 16/3 Taud units
-        # in linear mode; raw ST3 period units in Amiga mode (engine consumes
-        # them in period space, applied once per row at tick 0).
+        # Fine (EFx) moves by the COARSE unit once, extra-fine (EEx) by a
+        # quarter of it (Schism player/effects.c runs S3M through the same
+        # fx_fine_portamento_* (param × 4) and fx_extra_fine_* (param) as IT):
+        # linear x × 64/3 and x × 16/3 Taud units; Amiga x whole periods and
+        # x quarters — carry_extra_fine_slides has turned every EEx into an
+        # EFn (or nothing) by now, and the round here is only the fallback.
         op = TOP_E if cmd == EFF_E else TOP_F
         hi = (arg >> 4) & 0xF
         lo = arg & 0xF
         if hi in (0xE, 0xF) and lo > 0:
             if amiga_mode:
-                return (op, 0xF000 | (lo & 0xFFF), None, None)
-            return (op, 0xF000 | (round(lo * 16 / 3) & 0xFFF), None, None)
+                m = lo if hi == 0xF else max(1, round(lo / 4))
+                return (op, 0xF000 | m, None, None)
+            m = round(lo * (64 if hi == 0xF else 16) / 3)
+            return (op, 0xF000 | (m & 0xFFF), None, None)
         if amiga_mode:
             return (op, arg & 0xFFFF, None, None)
         return (op, round(arg * 64 / 3) & 0xFFFF, None, None)
@@ -482,6 +491,40 @@ def resolve_st3_recalls(cue_grids: list, num_channels: int) -> None:
                         row.effect_arg = last_arg[ch]
                     else:
                         last_arg[ch] = row.effect_arg
+
+
+def carry_extra_fine_slides(cue_grids: list, num_channels: int) -> int:
+    """Rewrite every extra-fine slide (EEx/FEx) as a whole-period fine slide
+    (EFn/FFn) or nothing, carrying the remainder — it2taud's function of the
+    same name, for ST3's cells (no volume-column porta; a note is tied only by
+    G or L). An extra-fine unit is a quarter of the period Taud's Amiga-mode
+    argument counts, so the quarters are summed per channel in PLAY order and
+    a period emitted on the row the sum reaches one; a note that is not tied
+    resets the pitch and the sum. Run after resolve_st3_recalls. Returns the
+    number of commands dropped."""
+    acc = [0] * num_channels      # quarter periods, + = pitch down (E)
+    dropped = 0
+    for grid in cue_grids:
+        for r in range(PATTERN_ROWS):
+            for ch in range(min(num_channels, len(grid))):
+                row = grid[ch][r]
+                if row.note < S3M_NOTE_OFF and row.effect not in (EFF_G, EFF_L):
+                    acc[ch] = 0
+                if row.effect not in (EFF_E, EFF_F) or (row.effect_arg & 0xF0) != 0xE0:
+                    continue
+                q = row.effect_arg & 0x0F
+                if q == 0:
+                    continue
+                acc[ch] += q if row.effect == EFF_E else -q
+                n = round(acc[ch] / 4)
+                acc[ch] -= n * 4
+                if n == 0:
+                    row.effect, row.effect_arg = 0, 0
+                    dropped += 1
+                else:
+                    row.effect = EFF_E if n > 0 else EFF_F
+                    row.effect_arg = 0xF0 | min(abs(n), 0x0F)
+    return dropped
 
 
 def warn_st3_quirks(patterns: list, order_list: list, num_channels: int) -> None:
@@ -870,6 +913,11 @@ def _build_song_payload_s3m(h: S3MHeader, patterns_template: list,
 
     vprint(f"  [{song_label}] resolving ST3 shared-memory recalls…")
     resolve_st3_recalls(pats, 32)
+    if not h.linear_slides:
+        n_fine = carry_extra_fine_slides(pats, 32)
+        if n_fine:
+            vprint(f"  [{song_label}] {n_fine} extra-fine slide(s) under a whole "
+                   f"period carried to the next")
     # Read-only, and once per SOURCE pattern: the template serves.
     warn_st3_quirks(patterns_template, virtual_orders, 32)
 

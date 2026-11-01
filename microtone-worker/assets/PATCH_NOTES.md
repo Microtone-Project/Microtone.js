@@ -2,16 +2,34 @@
 
 Every entry below is one version of Microtone, newest first, with the date it was released; the website follows the newest one, and the desktop app picks each version up in its own updates. Entries from before version 3.5.0 are dated batches of work, as the versions were not yet numbered then.
 
-Bug reports and suggestions are welcome on [GitHub](https://github.com/curioustorvald/Microtone.js).
+Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
 ## Version 4.4.0 (2026-11-01)
 
-**New patterns are numbered by lane**: *New pattern* in the Cues tab and the Timeline now gives a pattern the number **Renumber patterns** would give it, instead of the lowest unused one.
+**Export to Impulse Tracker**: the File view's new **Export .IT…** saves every song as an Impulse Tracker module, keeping far more than a ProTracker module can — up to 64 lanes, envelopes, New Note Actions, filters, key maps, panning and most effects.
 
-- On a lane that already has patterns, the new one takes the next free number after the lane's highest, so a renumbered song stays tidy as it grows: add a cue at the end and its new patterns land in their own lanes' runs.
-- On a lane with no patterns yet, it starts at a round number after the lanes to its left (`0010`, `0020`, … or `0100` after a long lane), as Renumber would.
-- A new pattern never lands among another lane's numbers; a lane with no room left starts a run of its own after every number in use.
-- Over a block, each lane is numbered in cue order, one lane after another.
+- Microtonal songs stay microtonal: each note is written as its nearest key, played by a copy of the sample tuned by what is left over, so a tuning with twelve notes to the octave plays from ordinary instruments and only keys played at two different pitches need a second one.
+- A tuning other than standard pitch is kept by retuning every sample.
+- Instruments that choose a sample by volume become one instrument per volume layer, while there is room for them.
+- Layered, FM rack, formant, OPL and PSG instruments are recorded through the engine into samples, once per octave the song uses (once per key for a drum kit).
+- SoundFont filters are converted to Impulse Tracker's by the frequencies they mean.
+- Only a surround project or the linear-frequency slide mode stops an export; anything that will not come across exactly is listed before saving, and a module you imported comes back out as the same music.
+
+**Imported Impulse Tracker songs play closer to the original**: instruments, pitch slides, panning and envelopes now read the module the way Impulse Tracker does.
+
+- Fixed: an instrument with several samples played the wrong sample near each split, two keys off, and its topmost keys could pick up a sample it never had — the key map was read from the wrong place.
+- Keys mapped to a different note now play that note, so an instrument that plays every key a step up, or holds a whole range on one note, sounds as written.
+- Fixed: fine pitch slides (`E $Fx`, `F $Fx`) slid a quarter as far as they should in songs with linear slides, and extra-fine slides (`E $Ex`, `F $Ex`) four times too far in songs with Amiga slides; a run of tiny extra-fine slides now adds up to the same drift.
+- Fixed: the default panning of instruments and samples was ignored, so everything started from the lane's pan; an instrument's own panning also wins over its samples', as in Impulse Tracker.
+- Fixed: envelopes ran slow or fast in a song whose first row sets its own tempo, and a tempo slide on the first row (`T $0x`, `T $1x`) was taken for the starting tempo.
+- Fixed: a vibrato depth set in the volume column was forgotten by a vibrato that carries on after it (`H $0000`).
+- A channel left unused between two used ones now becomes an empty lane, so the lanes keep the module's channel numbers; a channel holding nothing but volumes is kept too.
+- Samples that share one recording in the module now share it in the project too, instead of being stored once each.
+
+**Imported ScreamTracker 3 songs slide the way ScreamTracker does.**
+
+- Fixed: extra-fine pitch slides (`E $Ex`, `F $Ex`) slid four times too far; a run of tiny ones now adds up to the same drift.
+- Fixed: modules saved by ModPlug Tracker or OpenMPT slid their pitches in fractions of a semitone rather than ScreamTracker's own steps — a header flag that means something else was read as a slide mode.
 
 **Interpolate ramps every part of an effect on its own.**
 
@@ -20,6 +38,17 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/curiousto
 - `X $eeaa` and `4 $eeaa` now travel the shortest arc between two directions, the way a `Z $0xxx` slide does, with every curve shape.
   - Fixed: a ramp across azimuth `$FF` → `$00` went the long way round the listener, and one between two points at the same height followed the line of latitude instead of the shorter path over the top.
 - A ramp never writes a row that would mean something else — `8 $x000`, which only switches the clipping mode, or `$0000` on an effect that recalls its last argument.
+
+**New patterns are numbered by lane**: *New pattern* in the Cues tab and the Timeline now gives a pattern the number **Renumber patterns** would give it, instead of the lowest unused one.
+
+- On a lane that already has patterns, the new one takes the next free number after the lane's highest, so a renumbered song stays tidy as it grows: add a cue at the end and its new patterns land in their own lanes' runs.
+- On a lane with no patterns yet, it starts at a round number after the lanes to its left (`0010`, `0020`, … or `0100` after a long lane), as Renumber would.
+- A new pattern never lands among another lane's numbers; a lane with no room left starts a run of its own after every number in use.
+- Over a block, each lane is numbered in cue order, one lane after another.
+
+**Download a whole folder**: each folder in the File view's project list now has its own download button, which saves the folder and everything in it as one ZIP.
+
+- The ZIP opens as the folder itself, with any folders inside it kept as they are; like Download all, it holds the saved copies, so save the open project first.
 
 ## Version 4.3.0 (2026-10-31)
 

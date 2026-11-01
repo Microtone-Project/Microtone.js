@@ -58,7 +58,7 @@ export function referenceSlot(slot) {
   return slot === 255 ? 254 : 255;
 }
 
-function oneNoteSong(song, image, slot, note) {
+function oneNoteSong(song, image, slot, note, ixmp, volume) {
   const pat = new Uint8Array(PATTERN_SIZE);
   for (let r = 0; r < 64; r++) {
     pat[r * 8 + 3] = 0xc0; // volume column: the no-op (selector 3, value 0)
@@ -67,12 +67,12 @@ function oneNoteSong(song, image, slot, note) {
   pat[0] = note & 0xff;
   pat[1] = (note >>> 8) & 0xff;
   pat[2] = slot;
-  pat[3] = 63;             // volume SET 63: the bounce is taken at full note volume
+  pat[3] = volume & 0x3f;  // volume SET: full (63) unless the caller plays it softer
   const words = new Uint16Array(MAX_VOICES).fill(CUE_EMPTY);
   words[0] = 0;
   return {
     is64Channel: false, fmtVer: 2, wideCells: false, sampleInstImage: image,
-    ixmp: [], imix: [], meta: {},
+    ixmp, imix: [], meta: {},
     songs: [{
       bpm: 125, tickRate: 6,
       globalFlags: (song.globalFlags & 3) | NO_INTERP,
@@ -83,10 +83,15 @@ function oneNoteSong(song, image, slot, note) {
   };
 }
 
-/** Mono (L+R)/2 of one held note, BOUNCE_SECONDS long, at the engine rate. */
-function renderNote(song, image, slot, note) {
+/** Mono (L+R)/2 of one held note, BOUNCE_SECONDS long, at the engine rate.
+ *  `ixmp` is the project's key maps (parsed Ixmp entries): a layered
+ *  metainstrument's layers, a SoundFont preset's above all, find their
+ *  samples there and sound nothing without them. The reference slot's own
+ *  entry, if the project has one, is left out — the slot is borrowed. */
+function renderNote(song, image, slot, note, ixmp = [], refSlot = -1, volume = 63) {
   const eng = new TaudEngine();
-  loadIntoEngine(eng, oneNoteSong(song, image, slot, note), 0);
+  const maps = ixmp.filter((e) => (e.instId & 0x3ff) !== refSlot);
+  loadIntoEngine(eng, oneNoteSong(song, image, slot, note, maps, volume), 0);
   const r = renderSong(eng, BOUNCE_SECONDS);
   const n = r.f32.length >>> 1;
   const mono = new Float32Array(n);
@@ -134,14 +139,21 @@ function findLoopStart(buf, minLen, maxLen, win) {
  * takes the middle of the notes the song plays it with, so the timbre is the
  * one heard most); `level` comes from referenceLevel.
  *
- * Returns {pcm: Float32Array in [-1, 1], rate, loopStart, loopEnd} — `rate` is
- * the sampling rate at C4 that plays the bounce back at the pitch it was
- * rendered at, and the loop is -1/-1 for a sound that dies away.
+ * Returns {pcm: Float32Array in [-1, 1], rate, loopStart, loopEnd, silent} —
+ * `rate` is the sampling rate at C4 that plays the bounce back at the pitch it
+ * was rendered at, the loop is -1/-1 for a sound that dies away, and `silent`
+ * says the note made no sound at all (the pcm is then one frame). `ixmp` and
+ * `refSlot` as renderNote's: a metainstrument needs the project's key maps.
+ * `volume` (1…63) is the note volume it is played at — a key map or a layer
+ * split by volume may sound nothing at full — and the bounce is scaled back
+ * up by 63 ÷ volume.
  */
-export function bounceChipInstrument(song, image, slot, note, level) {
+export function bounceChipInstrument(song, image, slot, note, level, ixmp = [], refSlot = -1, volume = 63) {
   const rate = SAMPLING_RATE;
-  const mono = renderNote(song, image, slot, note);
-  const scale = level > 0 ? 1 / level : 1;
+  const mono = renderNote(song, image, slot, note, ixmp, refSlot, volume);
+  // A note played softer is brought back to full: whoever plays the bounce
+  // applies the note's volume again. (Note volume is linear amplitude.)
+  const scale = (level > 0 ? 1 / level : 1) * (volume > 0 ? 63 / volume : 1);
   let peak = 0;
   for (let i = 0; i < mono.length; i++) {
     mono[i] *= scale;
@@ -161,7 +173,7 @@ export function bounceChipInstrument(song, image, slot, note, level) {
   if (rms(mono, mono.length - tail, mono.length) < quiet) {
     let last = mono.length - 1;
     while (last > 0 && Math.abs(mono[last]) < quiet) last--;
-    return { pcm: mono.subarray(0, last + 1), rate: c4Rate, loopStart: -1, loopEnd: -1 };
+    return { pcm: mono.subarray(0, last + 1), rate: c4Rate, loopStart: -1, loopEnd: -1, silent: last === 0 };
   }
   const loopStart = findLoopStart(mono, Math.round(rate * 0.02), Math.round(rate * 0.1),
     Math.round(rate * 0.02));

@@ -1359,7 +1359,7 @@ Patch records are **variable length**. Each begins with a version byte that is r
 | 15 | `U16` | Loop start |
 | 17 | `U16` | Loop end |
 | 19 | `U16` | Sampling rate at C4 — same encoding as base record bytes 6…7 |
-| 21 | `S16` | Sample detune, in 4096-TET units (XM finetune; IT samples leave 0) |
+| 21 | `S16` | Sample detune, in 4096-TET units (XM finetune; an IT key-map note that is not the key's own) |
 | 23 | `U8` | Loop mode and sustain bit — identical to base record byte 14 |
 | 24 | `U8` | Default pan, 0…255; **`$FF` = no override** |
 | 25 | `U8` | Default note volume, 0…255; **0 = no override** |

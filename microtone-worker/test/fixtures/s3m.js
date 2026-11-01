@@ -31,7 +31,7 @@ export const SINE_PATCH = adlibPatch({ tl: 63 }, { tl: 0 });
  */
 export function makeS3m({ title = "S3M FIXTURE", speed = 6, tempo = 125, channels,
                           instruments, patterns, orders = null, cwtv = 0x1320,
-                          master = 0xb0 }) {
+                          master = 0xb0, flags = 0 }) {
   const ord = orders ?? patterns.map((_, i) => i);
   const ordNum = ord.length + 1 + ((ord.length + 1) & 1);   // ST3 keeps it even
   const head = new Uint8Array(0x60);
@@ -41,6 +41,7 @@ export function makeS3m({ title = "S3M FIXTURE", speed = 6, tempo = 125, channel
   dv.setUint16(0x20, ordNum, true);
   dv.setUint16(0x22, instruments.length, true);
   dv.setUint16(0x24, patterns.length, true);
+  dv.setUint16(0x26, flags, true);
   dv.setUint16(0x28, cwtv, true);
   dv.setUint16(0x2a, 2, true);                              // unsigned samples
   head.set([0x53, 0x43, 0x52, 0x4d], 0x2c);                 // SCRM
