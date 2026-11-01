@@ -770,6 +770,7 @@ export class InstrumentsView {
     row.className = "slider-row" + (opts.wide ? " wide" : "");
     const lab = document.createElement("span");
     lab.className = "sl-label"; lab.textContent = label;
+    if (opts.title) lab.title = opts.title;
     const num = document.createElement("input");
     num.type = "number"; num.className = "sl-num";
     num.min = min; num.max = max; num.value = value;
@@ -840,6 +841,7 @@ export class InstrumentsView {
     row.className = "slider-row noslider";
     const lab = document.createElement("span");
     lab.className = "sl-label"; lab.textContent = label;
+    if (opts.title) lab.title = opts.title;
     const num = document.createElement("input");
     num.type = "number"; num.className = "sl-num wide"; num.min = min; num.max = max; num.value = value;
     const ann = document.createElement("span");
@@ -857,11 +859,12 @@ export class InstrumentsView {
   /** label · native <select> row (the spinner enhancer turns it into the app's
    *  own picker). `options` is [[value, text], …]; `groups` optionally splits
    *  them into <optgroup>s as [[caption, [[value, text], …]], …]. */
-  pickRow(label, value, options, onChange, groups = null) {
+  pickRow(label, value, options, onChange, groups = null, title = "") {
     const row = document.createElement("div");
     row.className = "slider-row pick";
     const lab = document.createElement("span");
     lab.className = "sl-label"; lab.textContent = label;
+    if (title) lab.title = title;
     const sel = document.createElement("select");
     sel.className = "sl-pick";
     const addOpt = (parent, [v, text, title]) => {
@@ -942,7 +945,7 @@ export class InstrumentsView {
         const e = census.find((x) => x.ptr === ptr && x.len === len);
         if (e) this.adoptSample(inst, e);
       },
-      regionOpts.length ? [[t("rgn.pickGroup"), regionOpts]] : null);
+      regionOpts.length ? [[t("rgn.pickGroup"), regionOpts]] : null, t("inst.smpPickTitle"));
   }
 
   /** Point the selected instrument at `e` (a census row, or a region window):
@@ -1009,11 +1012,13 @@ export class InstrumentsView {
     return row;
   }
 
-  selectRow(label, value, options, onChange) {
+  /** label · segmented buttons row. `title` explains the field on its label. */
+  selectRow(label, value, options, onChange, title = "") {
     const row = document.createElement("div");
     row.className = "slider-row select";
     const lab = document.createElement("span");
     lab.className = "sl-label"; lab.textContent = label;
+    if (title) lab.title = title;
     const group = document.createElement("div");
     group.className = "sl-buttons";
     // An option may carry {glyph, cls}: the button then shows the glyph and
@@ -1049,7 +1054,7 @@ export class InstrumentsView {
           ? compositeOp([setInstFieldOp(this.selected, "sampleDetune", nv, gid), sync], gid)
           : setInstFieldOp(this.selected, "sampleDetune", nv, gid));
       },
-      { ann, wide: true, signedLog: true });
+      { ann, wide: true, signedLog: true, title: t("inst.detuneTitle") });
   }
 
   /**
@@ -1065,7 +1070,7 @@ export class InstrumentsView {
     if (model === SURROUND_STEREO) {
       return [this.sliderRow(t("inst.defaultPan"), inst.defaultPan, 0, 255,
         (v, gid) => this.applyQuiet(setInstFieldOp(this.selected, "defaultPan", v, gid)),
-        { ann: annHex2 })];
+        { ann: annHex2, title: t("inst.defaultPanTitle") })];
     }
     const rows = [
       // One op for the pair: the azimuth's ninth bit lives in another byte, and
@@ -1074,12 +1079,12 @@ export class InstrumentsView {
         this.applyQuiet(setInstBytesOp(this.selected, [
           [177, v & 0xff],
           [14, (inst.getByteNormal(14) & ~0x20) | (v >= 256 ? 0x20 : 0)],
-        ], gid)), { ann: azimuthLabel }),
+        ], gid)), { ann: azimuthLabel, title: t("inst.defaultAzimuthTitle") }),
     ];
     if (model === SURROUND_SPATIAL) {
       rows.push(this.sliderRow(t("inst.defaultElevation"), inst.defaultElevation, -128, 127,
         (v, gid) => this.applyQuiet(setInstBytesOp(this.selected, [[254, v & 0xff]], gid)),
-        { ann: elevationLabel }));
+        { ann: elevationLabel, title: t("inst.defaultElevationTitle") }));
     }
     return rows;
   }
@@ -1094,40 +1099,40 @@ export class InstrumentsView {
     const nna = ((inst.instrumentFlag >> 5) & 1) ? 4 : (inst.instrumentFlag & 3);
 
     this.group(t("inst.grpVolume"),
-      this.sliderRow(t("inst.globalVol"), inst.instGlobalVolume, 0, 255, fSet("instGlobalVolume"), { ann: annHex2 }),
-      this.sliderRow(t("inst.defaultNoteVol"), inst.defaultNoteVolume, 0, 255, fSet("defaultNoteVolume"), { ann: annHex2 }),
+      this.sliderRow(t("inst.globalVol"), inst.instGlobalVolume, 0, 255, fSet("instGlobalVolume"), { ann: annHex2, title: t("inst.globalVolTitle") }),
+      this.sliderRow(t("inst.defaultNoteVol"), inst.defaultNoteVolume, 0, 255, fSet("defaultNoteVolume"), { ann: annHex2, title: t("inst.defaultNoteVolTitle") }),
       this.sliderRow(t("inst.fadeout"), fadeout, 0, 1024, (v, gid) =>
         this.applyQuiet(setInstBytesOp(this.selected,
           [[172, v & 0xff], [173, (inst.fadeoutHigh & 0x10) | ((v >> 8) & 0x0f)]], gid)),
-        { ann: annFadeout, log: true }),
-      this.sliderRow(t("inst.swing"), inst.volumeSwing, 0, 255, fSet("volumeSwing"), { ann: annHex2 }),
+        { ann: annFadeout, log: true, title: t("inst.fadeoutTitle") }),
+      this.sliderRow(t("inst.swing"), inst.volumeSwing, 0, 255, fSet("volumeSwing"), { ann: annHex2, title: t("inst.swingTitle") }),
     );
 
     this.group(t("inst.grpPanning"),
       ...this.defaultPositionRows(inst),
-      this.sliderRow(t("inst.pitchPanSep"), inst.pitchPanSeparation, -128, 127, fSet("pitchPanSeparation")),
-      this.sliderRow(t("inst.panSwing"), inst.panSwing, 0, 255, fSet("panSwing"), { ann: annHex2 }),
-      this.sliderRow(t("inst.pitchPanCentre"), inst.pitchPanCentre, 0, 0xffff, fSet("pitchPanCentre"), { ann: annHex4 }),
+      this.sliderRow(t("inst.pitchPanSep"), inst.pitchPanSeparation, -128, 127, fSet("pitchPanSeparation"), { title: t("inst.pitchPanSepTitle") }),
+      this.sliderRow(t("inst.panSwing"), inst.panSwing, 0, 255, fSet("panSwing"), { ann: annHex2, title: t("inst.panSwingTitle") }),
+      this.sliderRow(t("inst.pitchPanCentre"), inst.pitchPanCentre, 0, 0xffff, fSet("pitchPanCentre"), { ann: annHex4, title: t("inst.pitchPanCentreTitle") }),
       // Pan LOOP word bit 7 = "use default pan" (engine trigger.js:280).
       this.checkRow(t("inst.useDefaultPan"), ((inst.panEnvLoop >> 7) & 1) !== 0,
-        (on) => this.setEnvWordBit("panEnvLoop", 7, on)),
+        (on) => this.setEnvWordBit("panEnvLoop", 7, on), { title: t("inst.useDefaultPanTitle") }),
     );
 
     this.group(t("inst.grpFilter"),
       this.selectRow(t("inst.filterModeLabel"), sfMode ? 1 : 0, [[0, "ImpulseTracker"], [1, "SoundFont2"]],
-        (v) => this.setField("fadeoutHigh", (inst.fadeoutHigh & 0x0f) | (v << 4))),
+        (v) => this.setField("fadeoutHigh", (inst.fadeoutHigh & 0x0f) | (v << 4)), t("inst.filterModeTitle")),
       sfMode
         // SoundFont: 16-bit cutoff (absolute cents, bytes 182/252) → Hz,
         // resonance (centibels above DC gain, bytes 183/253) → dB.
         ? this.sliderRow(t("inst.cutoff"), inst.defaultCutoff16, 1500, 13500, (v, gid) =>
             this.applyQuiet(setInstBytesOp(this.selected, [[182, (v >> 8) & 0xff], [252, v & 0xff]], gid)),
-            { ann: annSfCutoff })
-        : this.sliderRow(t("inst.cutoff"), inst.defaultCutoff, 0, 255, fSet("defaultCutoff"), { ann: annFilter }),
+            { ann: annSfCutoff, title: t("inst.cutoffTitle") })
+        : this.sliderRow(t("inst.cutoff"), inst.defaultCutoff, 0, 255, fSet("defaultCutoff"), { ann: annFilter, title: t("inst.cutoffTitle") }),
       sfMode
         ? this.sliderRow(t("inst.resonance"), inst.defaultResonance16, 0, 960, (v, gid) =>
             this.applyQuiet(setInstBytesOp(this.selected, [[183, (v >> 8) & 0xff], [253, v & 0xff]], gid)),
-            { ann: annSfReso })
-        : this.sliderRow(t("inst.resonance"), inst.defaultResonance, 0, 255, fSet("defaultResonance"), { ann: annFilter }),
+            { ann: annSfReso, title: t("inst.resonanceTitle") })
+        : this.sliderRow(t("inst.resonance"), inst.defaultResonance, 0, 255, fSet("defaultResonance"), { ann: annFilter, title: t("inst.resonanceTitle") }),
     );
 
     // Each waveform button shows its wave in Motif Grid's waveform glyphs —
@@ -1139,11 +1144,11 @@ export class InstrumentsView {
         [[0, t("inst.vibSine"), wave(MOTIF.WAVE_SINE)], [1, t("inst.vibRampDown"), wave(MOTIF.WAVE_RAMP_DOWN)],
          [2, t("inst.vibSquare"), wave(MOTIF.WAVE_SQUARE)], [3, t("inst.vibRandom"), wave(MOTIF.WAVE_RANDOM)],
          [4, t("inst.vibRampUp"), wave(MOTIF.WAVE_RAMP_UP)]],
-        flagSet(7, 2)),
-      this.sliderRow(t("inst.vibSpeed"), inst.vibratoSpeed, 0, 255, fSet("vibratoSpeed"), { ann: annHex2 }),
-      this.sliderRow(t("inst.vibDepth"), inst.vibratoDepth, 0, 255, fSet("vibratoDepth"), { ann: annHex2 }),
-      this.sliderRow(t("inst.vibSweep"), inst.vibratoSweep, 0, 255, fSet("vibratoSweep"), { ann: annHex2 }),
-      this.sliderRow(t("inst.vibRate"), inst.vibratoRate, 0, 255, fSet("vibratoRate"), { ann: annHex2 }),
+        flagSet(7, 2), t("inst.vibWaveTitle")),
+      this.sliderRow(t("inst.vibSpeed"), inst.vibratoSpeed, 0, 255, fSet("vibratoSpeed"), { ann: annHex2, title: t("inst.vibSpeedTitle") }),
+      this.sliderRow(t("inst.vibDepth"), inst.vibratoDepth, 0, 255, fSet("vibratoDepth"), { ann: annHex2, title: t("inst.vibDepthTitle") }),
+      this.sliderRow(t("inst.vibSweep"), inst.vibratoSweep, 0, 255, fSet("vibratoSweep"), { ann: annHex2, title: t("inst.vibSweepTitle") }),
+      this.sliderRow(t("inst.vibRate"), inst.vibratoRate, 0, 255, fSet("vibratoRate"), { ann: annHex2, title: t("inst.vibRateTitle") }),
     );
 
     this.group(t("inst.grpNoteActions"),
@@ -1155,16 +1160,20 @@ export class InstrumentsView {
           // 0..3 = traditional NNA with bit 5 clear. Preserve vib-waveform bits.
           const base = inst.instrumentFlag & ~0x23;
           this.setField("instrumentFlag", v === 4 ? (base | 0x20) : (base | (v & 3)));
-        }),
+        }, t("inst.nnaTitle")),
       // Byte 195 holds two split nibbles (packDupCheck), so each button
       // re-packs both rather than masking bits in place.
       this.selectRow(t("inst.dct"), inst.duplicateCheckType,
         [[0, t("inst.dctNever")], [1, t("inst.dctNote")], [2, t("inst.dctSample")], [3, t("inst.dctInstrument")],
          [DCT_LANE, t("inst.dctLane")]],
-        (v) => this.setField("dupCheckFlag", packDupCheck(v, inst.duplicateCheckAction))),
+        (v) => this.setField("dupCheckFlag", packDupCheck(v, inst.duplicateCheckAction)), t("inst.dctTitle")),
       this.selectRow(t("inst.dca"), inst.duplicateCheckAction,
         [[0, t("inst.dcaCut")], [1, t("inst.dcaOff")], [2, t("inst.dcaFade")]],
-        (v) => this.setField("dupCheckFlag", packDupCheck(inst.duplicateCheckType, v))),
+        (v) => this.setField("dupCheckFlag", packDupCheck(inst.duplicateCheckType, v)), t("inst.dcaTitle")),
+      // Byte 186 bit 6: what Q's retrigger does to the sound it restarts.
+      this.selectRow(t("inst.retrig"), (inst.instrumentFlag >> 6) & 1,
+        [[0, t("inst.retrigCut")], [1, t("inst.retrigFollow")]],
+        flagSet(1, 6), t("inst.retrigTitle")),
     );
 
     if (inst.isOpl || inst.isPsg) {
@@ -1172,9 +1181,10 @@ export class InstrumentsView {
       // instrument reads its pitch from (its C2SPD) and the percussion flag.
       this.group(t(inst.isPsg ? "psg.grpVoice" : "opl.grpVoice"),
         this.numRow(t("opl.rate"), inst.samplingRate, 0, 65535, (v) => this.setField("samplingRate", v),
-          { ann: (v) => (v === 0 ? t("opl.rateDefault") : v + " Hz") }),
+          { ann: (v) => (v === 0 ? t("opl.rateDefault") : v + " Hz"), title: t("opl.rateTitle") }),
         this.checkRow(t("inst.percussion"), ((inst.loopMode >> 4) & 1) !== 0,
-          (on) => this.setField("loopMode", (inst.loopMode & ~0x10) | (on ? 0x10 : 0))),
+          (on) => this.setField("loopMode", (inst.loopMode & ~0x10) | (on ? 0x10 : 0)),
+          { title: t("inst.percussionTitle") }),
       );
       this.group(t("inst.grpTuning"), this.detuneRow(inst));
       return;
@@ -1187,6 +1197,7 @@ export class InstrumentsView {
     const editLab = document.createElement("span");
     editLab.className = "sl-label";
     editLab.textContent = t("inst.playLoopSustain");
+    editLab.title = t("inst.sampleEditTitle");
     const editBtn = document.createElement("button");
     editBtn.textContent = t("smp.edit");
     editBtn.title = t("inst.sampleEditTitle");
@@ -1199,18 +1210,19 @@ export class InstrumentsView {
     editRow.append(editLab, editBtn);
 
     this.group(t("inst.grpSample"),
-      this.numRow(t("inst.samplePtr"), inst.samplePtr, 0, 8388607, (v) => this.setField("samplePtr", v), { ann: annHex6 }),
+      this.numRow(t("inst.samplePtr"), inst.samplePtr, 0, 8388607, (v) => this.setField("samplePtr", v), { ann: annHex6, title: t("inst.samplePtrTitle") }),
       this.samplePickRow(inst),
-      this.numRow(t("inst.sampleLen"), inst.sampleLength, 0, 65535, (v) => this.setField("sampleLength", v)),
-      this.numRow(t("inst.rateC4"), inst.samplingRate, 0, 65535, (v) => this.setField("samplingRate", v), { ann: (v) => v + " Hz" }),
-      this.numRow(t("inst.playStart"), inst.samplePlayStart, 0, 65535, (v) => this.setField("samplePlayStart", v)),
-      this.numRow(t("inst.loopStart"), inst.sampleLoopStart, 0, 65535, (v) => this.setField("sampleLoopStart", v)),
-      this.numRow(t("inst.loopEnd"), inst.sampleLoopEnd, 0, 65535, (v) => this.setField("sampleLoopEnd", v)),
+      this.numRow(t("inst.sampleLen"), inst.sampleLength, 0, 65535, (v) => this.setField("sampleLength", v), { title: t("inst.sampleLenTitle") }),
+      this.numRow(t("inst.rateC4"), inst.samplingRate, 0, 65535, (v) => this.setField("samplingRate", v), { ann: (v) => v + " Hz", title: t("inst.rateC4Title") }),
+      this.numRow(t("inst.playStart"), inst.samplePlayStart, 0, 65535, (v) => this.setField("samplePlayStart", v), { title: t("inst.playStartTitle") }),
+      this.numRow(t("inst.loopStart"), inst.sampleLoopStart, 0, 65535, (v) => this.setField("sampleLoopStart", v), { title: t("inst.loopPointsTitle") }),
+      this.numRow(t("inst.loopEnd"), inst.sampleLoopEnd, 0, 65535, (v) => this.setField("sampleLoopEnd", v), { title: t("inst.loopPointsTitle") }),
       this.selectRow(t("inst.loopMode"), inst.loopMode & 3,
         [[0, t("smp.loopOff")], [1, t("smp.loopForward")], [2, t("smp.loopPingpong")], [3, t("smp.loopOneshot")]],
-        (v) => this.setField("loopMode", (inst.loopMode & ~3) | v)),
+        (v) => this.setField("loopMode", (inst.loopMode & ~3) | v), t("inst.loopModeTitle")),
       this.checkRow(t("inst.percussion"), ((inst.loopMode >> 4) & 1) !== 0,
-        (on) => this.setField("loopMode", (inst.loopMode & ~0x10) | (on ? 0x10 : 0))),
+        (on) => this.setField("loopMode", (inst.loopMode & ~0x10) | (on ? 0x10 : 0)),
+        { title: t("inst.percussionTitle") }),
       editRow,
     );
 
@@ -1442,7 +1454,8 @@ export class InstrumentsView {
     // sustain point + range
     const susW = inst[tabDef.susKey];
     wrap.appendChild(row(
-      chk(t("env.sustain"), ((susW >> 5) & 1) !== 0, (on) => this.setEnvWordBit(tabDef.susKey, 5, on)),
+      chk(t("env.sustain"), ((susW >> 5) & 1) !== 0, (on) => this.setEnvWordBit(tabDef.susKey, 5, on),
+        t("env.sustainTitle")),
       spin(t("env.start"), (susW >> 8) & 0x1f, 0, active - 1, 1, (v) => this.setEnvWordField(tabDef.susKey, 8, 0x1f, parseInt(v, 10) || 0)),
       spin(t("env.end"), susW & 0x1f, 0, active - 1, 1, (v) => this.setEnvWordField(tabDef.susKey, 0, 0x1f, parseInt(v, 10) || 0)),
     ));
@@ -1450,7 +1463,8 @@ export class InstrumentsView {
     // loop point + range
     const loopW = inst[tabDef.loopKey];
     wrap.appendChild(row(
-      chk(t("env.loop"), ((loopW >> 5) & 1) !== 0, (on) => this.setEnvWordBit(tabDef.loopKey, 5, on)),
+      chk(t("env.loop"), ((loopW >> 5) & 1) !== 0, (on) => this.setEnvWordBit(tabDef.loopKey, 5, on),
+        t("env.loopTitle")),
       spin(t("env.start"), (loopW >> 8) & 0x1f, 0, active - 1, 1, (v) => this.setEnvWordField(tabDef.loopKey, 8, 0x1f, parseInt(v, 10) || 0)),
       spin(t("env.end"), loopW & 0x1f, 0, active - 1, 1, (v) => this.setEnvWordField(tabDef.loopKey, 0, 0x1f, parseInt(v, 10) || 0)),
     ));
@@ -1459,15 +1473,16 @@ export class InstrumentsView {
     // Vol/Pan tabs) the envelope-present toggle. Pitch/Filter presence is the
     // role claim, so those tabs show only the log toggle.
     const logChk = chk(t("env.logTimescale"), this.envAxis.log,
-      (on) => { this.envAxis.setLog(on); this.drawEnvGraph(); });
+      (on) => { this.envAxis.setLog(on); this.drawEnvGraph(); }, t("env.logTimescaleTitle"));
     // "Envelope present" — for Vol/Pan it toggles the LOOP-word P bit directly;
     // for Pitch/Filter (role) tabs it claims/releases the resolved slot's role
     // (item 36), so the lamp tracks roleActive.
     wrap.appendChild(row(
       tabDef.role
-        ? chk(t("env.present"), tabDef.roleActive, (on) => this.setRolePresent(tabDef, on))
+        ? chk(t("env.present"), tabDef.roleActive, (on) => this.setRolePresent(tabDef, on),
+            t("env.presentTitle"))
         : chk(t("env.present"), envPresent(inst[tabDef.loopKey]),
-            (on) => this.setEnvWordBit(tabDef.loopKey, 13, on)),
+            (on) => this.setEnvWordBit(tabDef.loopKey, 13, on), t("env.presentTitle")),
       // Envelope carry (item 169.1) — LOOP-word bit 6, and the reason it sits
       // beside "present" rather than in the loop row: it is not part of the
       // wrap region, it decides whether a NEW NOTE inherits this playhead

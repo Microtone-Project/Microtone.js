@@ -886,6 +886,11 @@ export class TaudInst {
    *  asks — the pattern's key-off word, an NNA ghost's release, a Duplicate
    *  Check note-off, past-note off (spec §7.3). */
   get nnaKeyLift() { return this.newNoteAction === 4; }
+  /** Byte 186 bit 6 — what Q's retrigger does to the sound it restarts:
+   *  clear = cut it in place (the restart itself, ImpulseTracker's Q), set =
+   *  hand it to the background pool as the New Note Action says, the way the
+   *  next note would (spec §5.3 step 13). */
+  get retrigFollowsNna() { return (this.instrumentFlag & 0x40) !== 0; }
   /** 0=sine, 1=ramp-down, 2=square, 3=random, 4=ramp-up (FT2). */
   get vibratoWaveform() { return (this.instrumentFlag >>> 2) & 0x07; }
   get sampleDetuneSigned() {

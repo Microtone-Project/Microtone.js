@@ -424,6 +424,10 @@ export class Voice {
     this.retrigInterval = 0;
     this.retrigVolMod = 0;
     this.retrigActive = false;
+    // Set by retrigHandOff on a voice whose sound Q just ghosted (byte 186
+    // bit 6), read and cleared by the restart: the chip it sounds then keys
+    // on from silence, since the ghost took the envelopes where they stood.
+    this.retrigFresh = false;
 
     // Note delay (S$Dx) + its optional post-trigger action (S$Dxny, item 94;
     // JS-only so far — TSVM has no `n`/`y` handling yet, only `x`).

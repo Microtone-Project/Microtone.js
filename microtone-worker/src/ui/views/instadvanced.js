@@ -847,23 +847,26 @@ export class AdvancedZoneEditor {
 
     const susW = p[kind.susKey];
     this.row(wrap,
-      this.chk(t("env.sustain"), ((susW >> 5) & 1) !== 0, (on) => setWordBit(kind.susKey, 5, on)),
+      this.chk(t("env.sustain"), ((susW >> 5) & 1) !== 0, (on) => setWordBit(kind.susKey, 5, on),
+        t("env.sustainTitle")),
       this.num(t("env.start"), (susW >> 8) & 0x1f, 0, active - 1, (v) => setWordField(kind.susKey, 8, 0x1f, v)),
       this.num(t("env.end"), susW & 0x1f, 0, active - 1, (v) => setWordField(kind.susKey, 0, 0x1f, v)));
     const loopW = p[kind.loopKey];
     this.row(wrap,
-      this.chk(t("env.loop"), ((loopW >> 5) & 1) !== 0, (on) => setWordBit(kind.loopKey, 5, on)),
+      this.chk(t("env.loop"), ((loopW >> 5) & 1) !== 0, (on) => setWordBit(kind.loopKey, 5, on),
+        t("env.loopTitle")),
       this.num(t("env.start"), (loopW >> 8) & 0x1f, 0, active - 1, (v) => setWordField(kind.loopKey, 8, 0x1f, v)),
       this.num(t("env.end"), loopW & 0x1f, 0, active - 1, (v) => setWordField(kind.loopKey, 0, 0x1f, v)));
     this.row(wrap,
-      this.chk(t("env.present"), envPresent(loopW), (on) => setWordBit(kind.loopKey, 13, on)),
+      this.chk(t("env.present"), envPresent(loopW), (on) => setWordBit(kind.loopKey, 13, on),
+        t("env.presentTitle")),
       // The patch's own carry bit (item 169.1): a patch that replaces the base
       // record's envelope replaces its LOOP word too, so it must be able to say
       // this for itself — otherwise a zone could never carry.
       this.chk(t("env.carry"), envCarry(loopW), (on) => setWordBit(kind.loopKey, 6, on),
         t("env.carryTitle")),
       this.chk(t("env.logTimescale"), this.envAxis.log,
-        (on) => { this.envAxis.setLog(on); this.drawEnv(); }));
+        (on) => { this.envAxis.setLog(on); this.drawEnv(); }, t("env.logTimescaleTitle")));
     return wrap;
   }
 

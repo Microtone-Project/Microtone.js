@@ -9870,6 +9870,11 @@ class TaudInst {
    *  asks — the pattern's key-off word, an NNA ghost's release, a Duplicate
    *  Check note-off, past-note off (spec §7.3). */
   get nnaKeyLift() { return this.newNoteAction === 4; }
+  /** Byte 186 bit 6 — what Q's retrigger does to the sound it restarts:
+   *  clear = cut it in place (the restart itself, ImpulseTracker's Q), set =
+   *  hand it to the background pool as the New Note Action says, the way the
+   *  next note would (spec §5.3 step 13). */
+  get retrigFollowsNna() { return (this.instrumentFlag & 0x40) !== 0; }
   /** 0=sine, 1=ramp-down, 2=square, 3=random, 4=ramp-up (FT2). */
   get vibratoWaveform() { return (this.instrumentFlag >>> 2) & 0x07; }
   get sampleDetuneSigned() {
@@ -10951,6 +10956,10 @@ class Voice {
     this.retrigInterval = 0;
     this.retrigVolMod = 0;
     this.retrigActive = false;
+    // Set by retrigHandOff on a voice whose sound Q just ghosted (byte 186
+    // bit 6), read and cleared by the restart: the chip it sounds then keys
+    // on from silence, since the ghost took the envelopes where they stood.
+    this.retrigFresh = false;
 
     // Note delay (S$Dx) + its optional post-trigger action (S$Dxny, item 94;
     // JS-only so far — TSVM has no `n`/`y` handling yet, only `x`).
@@ -16924,15 +16933,70 @@ function maybeSpawnBackgroundForNNA(eng, ts, voice, channel, incomingInst = 0) {
     return;
   }
 
-  const bg = ghostRig(ts, voice, channel);
-  if (nna === 0 || nna === 4) { // Note Off, or its key-lift variant
+  releaseGhost(eng, ghostRig(ts, voice, channel), nna);
+  capBackgroundVoices(ts);
+}
+
+/** Apply New Note Action `nna` to a freshly spawned ghost. */
+function releaseGhost(eng, bg, nna) {
+  if (nna === 1) { // Note Cut — ramped out, the other half of the crossfade
+    startCutRamp(bg);
+  } else if (nna === 0 || nna === 4) { // Note Off, or its key-lift variant
     bg.keyOff = true;
     applyKeyLift(bg, eng.instruments[bg.instrumentId]);
   } else if (nna === 3) { // Note Fade
     bg.noteFading = true;
   }
   // 2 (Continue) — ghost continues unchanged.
-  capBackgroundVoices(ts);
+}
+
+/**
+ * Q's retrigger on lane `vi`, before the restart (TAUD_ENGINE_SPEC §6 step
+ * 13): every sounding voice of the note whose OWN instrument sets byte 186
+ * bit 6 hands its sound to the background pool per the New Note Action — the
+ * lane's `S $73`…`$76` override when there is one, as at a fresh note — and
+ * is then restarted like a fresh trigger (attack ramp, a chip keyed on from
+ * silence). A voice whose instrument leaves the bit clear is restarted in
+ * place, as Q always did, which is what makes the clear bit "note cut".
+ *
+ * Each voice asks its own instrument, as releaseLayerChildren does, since a
+ * metainstrument's layers each carry their own byte 186. An FM rack's
+ * operands go with their carrier (ghostRig) and are never asked separately.
+ * The layer children are handed off before the foreground voice, and the
+ * pool is capped once, at the end, so the scan never sees it shrink.
+ */
+function retrigHandOff(eng, ts, voice, vi) {
+  const override = voice.nnaOverride;
+  const n = ts.backgroundVoices.length;
+  for (let i = 0; i < n; i++) {
+    const bg = ts.backgroundVoices[i];
+    if (bg.fmOperator || !bg.active || !isSoundingChild(ts, bg, vi)) continue;
+    handOffOne(eng, ts, bg, vi, override);
+  }
+  if (voice.active && handOffOne(eng, ts, voice, vi, override) && voice.fmRig !== null) {
+    // The rack's live operands start their note again with it.
+    for (let i = 0; i < n; i++) {
+      const op = ts.backgroundVoices[i];
+      if (!op.fmOperator || !isSoundingChild(ts, op, vi)) continue;
+      op.retrigFresh = true;
+      op.attackRampSamples = eng.instruments[op.instrumentId].chipPatch !== null ? 0 : ATTACK_RAMP_SAMPLES;
+    }
+  }
+  if (ts.backgroundVoices.length > n) capBackgroundVoices(ts);
+}
+
+function handOffOne(eng, ts, v, vi, override) {
+  const inst = eng.instruments[v.instrumentId];
+  if (!inst.retrigFollowsNna) return false;
+  const nna = override >= 0 ? override : inst.newNoteAction;
+  // An OPL or PSG note cut by a note of its own instrument is the chip keying
+  // the same channel on again (maybeSpawnBackgroundForNNA): no ghost, the
+  // envelopes where they stand — exactly the plain restart.
+  if (nna === 1 && (v.opl !== null || v.psg !== null) && v.fmRig === null) return false;
+  releaseGhost(eng, ghostRig(ts, v, vi), nna);
+  v.retrigFresh = true;
+  v.attackRampSamples = inst.chipPatch !== null ? 0 : ATTACK_RAMP_SAMPLES;
+  return true;
 }
 
 /** Snapshot the playback-relevant state of src into a fresh Voice for lane.
@@ -18983,10 +19047,13 @@ function applyTrackerTick(eng, ts, playhead) {
     // together, or the kit would fall apart into layer 0 stuttering over a
     // sustained remainder (item 154). The volume modifier is the lane's, so
     // it is applied once, on the foreground voice the children sync from.
+    // An instrument that sets byte 186 bit 6 first hands the sound being
+    // restarted to the background pool per its New Note Action.
     if (voice.retrigActive && !voice.noteWasCut) {
       voice.retrigCounter++;
       if (voice.retrigCounter >= voice.retrigInterval) {
         voice.retrigCounter = 0;
+        retrigHandOff(eng, ts, voice, vi);
         restartVoice(voice);
         for (const bg of ts.backgroundVoices) {
           if (isSoundingChild(ts, bg, vi)) restartVoice(bg);
@@ -19536,11 +19603,15 @@ function restartVoice(v) {
   v.filterY1 = 0.0; v.filterY2 = 0.0; v.filterX1 = 0.0; v.filterX2 = 0.0;
   v.right.reset();
   // An OPL channel restarts the way the chip re-keys one: the attack begins
-  // from wherever each envelope stands, the phase from zero (§5.5.2).
-  if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, true);
+  // from wherever each envelope stands, the phase from zero (§5.5.2) — unless
+  // retrigHandOff gave its sound to a ghost, which took those envelopes along:
+  // then it keys on from silence, as for a fresh note.
+  const carry = !v.retrigFresh;
+  v.retrigFresh = false;
+  if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, carry);
   // …and a PSG pair the same way; an oscillator with its X flag set restarts
   // its internal status here too, as at any key-on (§5.5.4).
-  if (v.psg !== null && v.psg.patch !== null) psgKeyOn(v.psg, v.psg.patch, true);
+  if (v.psg !== null && v.psg.patch !== null) psgKeyOn(v.psg, v.psg.patch, carry);
   // A voice sounding a formant instrument says its syllable again (item 212).
   if (v.formant !== null) formantRestart(v.formant);
 }

@@ -133,3 +133,77 @@ test("Q memory recall (arg $0000) keeps the last xy00 value, decoded the same wa
   assert.equal(voice0(eng).retrigInterval, 3, "row 1's recall kept y=3 from memory");
   assert.equal(voice0(eng).retrigVolMod, 1, "…and x=1 from memory");
 });
+
+// ── On retrigger: byte 186 bit 6 ──────────────────────────────────────────
+// Clear, Q restarts the note in place (it cuts what it was playing); set, the
+// outgoing sound is ghosted per the New Note Action first, as the next note
+// would ghost it (TAUD_ENGINE_SPEC §5.7).
+
+/** makeEngine's instrument with byte 186 set to `flag`. */
+function flaggedEngine(flag) {
+  const eng = new TaudEngine();
+  for (let i = 0; i < 1000; i++) eng.sampleBin[i] = 128 + ((i % 100) - 50);
+  const rec = new Uint8Array(256);
+  const w16 = (o, v) => { rec[o] = v & 0xff; rec[o + 1] = (v >> 8) & 0xff; };
+  w16(4, 1000); w16(6, 32000); w16(12, 1000);
+  rec[14] = 1; rec[21] = 0x3f; rec[171] = 255; rec[196] = 255;
+  rec[186] = flag;
+  eng.uploadInstrument(1, rec);
+  return eng;
+}
+
+const ghosts = (eng) => eng.playheads[0].trackerState.backgroundVoices.filter((v) => v.active);
+const Q_EVERY_2 = { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_Q, arg: 0x0200 };
+
+test("on retrigger, bit 6 clear: the note restarts in place and nothing is ghosted", () => {
+  const eng = loadSong(flaggedEngine(2 /* NNA continue */), [Q_EVERY_2]);
+  render(eng, 2);
+  assert.ok(voice0(eng).samplePos <= 1, "the retrigger fired");
+  assert.equal(ghosts(eng).length, 0, "Q cut the outgoing sound whatever the New Note Action");
+});
+
+test("on retrigger, bit 6 set + continue: the outgoing sound rings on as a ghost", () => {
+  const eng = loadSong(flaggedEngine(0x40 | 2), [Q_EVERY_2]);
+  render(eng, 2);
+  assert.ok(voice0(eng).samplePos <= 1, "the lane restarted");
+  const g = ghosts(eng);
+  assert.equal(g.length, 1, "one ghost per retrigger");
+  assert.ok(g[0].samplePos > 100, `the ghost kept its place in the sample, got ${g[0].samplePos}`);
+  assert.equal(g[0].keyOff, false, "continue: not released");
+  render(eng, 2);
+  assert.equal(ghosts(eng).length, 2, "and another at the next retrigger");
+});
+
+test("on retrigger, bit 6 set + key-off: the ghost is released", () => {
+  const eng = loadSong(flaggedEngine(0x40 | 0), [Q_EVERY_2]);
+  render(eng, 2);
+  const g = ghosts(eng);
+  assert.equal(g.length, 1);
+  assert.equal(g[0].keyOff, true);
+  assert.equal(voice0(eng).keyOff, false, "the lane's own note is fresh");
+});
+
+test("on retrigger, bit 6 set + note cut: a crossfade, not a splice", () => {
+  const eng = loadSong(flaggedEngine(0x40 | 1), [Q_EVERY_2]);
+  // Stop just after the retrigger: render up to the tick boundary, then one chunk.
+  render(eng, 1);
+  for (let i = 0; i < CHUNKS_PER_TICK - 1; i++) eng.renderChunk(0, new Uint8Array(TRACKER_CHUNK * 2));
+  renderRowTriggerOnly(eng);
+  const bg = eng.playheads[0].trackerState.backgroundVoices;
+  assert.ok(bg.length >= 1, "the cut sound was ghosted to ramp out");
+  assert.ok(voice0(eng).attackRampSamples > 0, "the restarted note fades in over the same span");
+});
+
+test("the S $74 override (continue) is what a following retrigger obeys", () => {
+  // Instrument says note cut; the lane overrides to continue.
+  const eng = loadSong(flaggedEngine(0x40 | 1), [
+    { row: 0, note: 0x5000, inst: 1, effect: EffectOp.OP_Q, arg: 0x0200 },
+  ]);
+  renderRowTriggerOnly(eng);
+  voice0(eng).nnaOverride = 2;
+  render(eng, 2);
+  const g = ghosts(eng);
+  assert.equal(g.length, 1);
+  assert.equal(g[0].keyOff, false);
+  assert.ok(g[0].samplePos > 100, "a continuing ghost, not a ramp-out");
+});

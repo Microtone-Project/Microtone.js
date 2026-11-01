@@ -430,7 +430,7 @@ If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a va
 | 182 | `U8` | Default cutoff — 0…254, 255 = filter off |
 | 183 | `U8` | Default resonance — 0…254, 255 = off |
 | 184 | `S16` | Sample detune, in 4096-TET units |
-| 186 | `U8` | Instrument flag: NNA, vibrato waveform |
+| 186 | `U8` | Instrument flag: NNA, vibrato waveform, retrigger action |
 | 187 | `U8` | Auto-vibrato depth, 0…255 — the source tracker's 0…64 field × 4; 255 is ±1 semitone |
 | 188 | `U8` | Auto-vibrato rate, 0…255 — IT convention, ramp acceleration |
 | 189 | `U16` | Volume envelope SUSTAIN word |
@@ -493,13 +493,14 @@ At the default 50 Hz tick rate: stored 1 ≈ 20.5 s, stored 32 ≈ 640 ms, store
 #### Byte 186 — instrument flag
 
 ```
-0b 00N www nn
+0b 0R N www nn
 ```
 
 | Bits | Field |
 |---|---|
 | `Nnn` (0…1, 5) | New Note Action: 0 = key-off, 1 = note cut, 2 = continue, 3 = note fade, 4 = release (see below) |
 | `www` (2…4) | Auto-vibrato waveform: 0 = sine, 1 = ramp down, 2 = square, 3 = random, 4 = ramp up |
+| `R` (6) | On retrigger (`Q`): 0 = note cut, the note restarts in place; 1 = follow the New Note Action, the outgoing sound ghosted as a fresh note would ghost it ([Engine Specification §5.7](TAUD_ENGINE_SPEC.md)) |
 
 **`Nnn` is ONE three-bit number, not two bits and a flag.** Bit 5 is its high bit, and the auto-vibrato waveform happens to sit between the halves; the five values above are the whole of it. An implementation that reads bit 5 as an independent "release" flag beside a two-bit action mints combinations the format does not define — "note cut with release" — which no editor can show and no writer has any way to mean. Values 5…7 are undefined and **MUST** read as 0, key-off.
 

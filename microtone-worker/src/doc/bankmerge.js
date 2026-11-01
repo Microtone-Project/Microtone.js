@@ -1545,7 +1545,7 @@ export function planEasyConvert(destDoc, metaSlot) {
   copy(21, 120);  // volume and pan nodes
   copy(171, 174); // global volume, fadeout + filter mode, volume swing
   copy(177, 183); // default pan, pitch-pan, pan swing, cutoff, resonance
-  principal[186] = (principal[186] & ~0x23) | (old[186] & 0x23); // the New Note Action
+  principal[186] = (principal[186] & ~0x63) | (old[186] & 0x63); // the New Note Action + Q's
   copy(189, 192); // volume and pan SUSTAIN words
   copy(195, 196); // Duplicate Check, default note volume
   copy(251, 255); // attenuation, SoundFont filter bits, elevation, IMix

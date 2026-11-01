@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>instrument tooltips smoke</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1200px;height:760px"></iframe>
+  <script type="module">
+    // The Instruments view explains its fields on hover:
+    //
+    // - every label on the General tab carries a tooltip, in a stereo song
+    //   and in a spatial one (whose default position is azimuth + elevation);
+    // - the envelope tabs' Sustain, Loop, Envelope present, Carry and Log
+    //   timescale lamps each carry one, on every envelope tab.
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    let failures = 0;
+    const check = (name, ok, detail = "") => {
+      if (!ok) failures++;
+      log(`${name}${detail ? ` (${detail})` : ""}: ${ok ? "ok" : "FAIL"}`);
+    };
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await new Promise((resolve) => {
+          const poll = setInterval(() => {
+            const w = frame.contentWindow;
+            if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+          }, 100);
+        });
+        const { store, instrumentsView: iv } = win.__microtone;
+        const { t } = await import("../../src/ui/i18n.js");
+        log("app loaded, doc ready");
+
+        const slot = store.doc.usedInstrumentSlots().find((s) => !store.doc.instruments[s].isMeta);
+        win.document.querySelector('#tabs button[data-view="instruments"]').click();
+        await new Promise((r) => setTimeout(r, 200));
+        iv.selected = slot;
+
+        const untitled = () => [...iv.panel.querySelectorAll(".slider-row .sl-label")]
+          .filter((l) => !l.title.trim()).map((l) => l.textContent);
+        const labelCount = () => iv.panel.querySelectorAll(".slider-row .sl-label").length;
+
+        iv.tab = "general";
+        iv.refresh();
+        check("General tab: every label has a tooltip", labelCount() >= 20 && untitled().length === 0,
+          `${labelCount()} labels; untitled: ${untitled().join(", ")}`);
+
+        // A spatial song shows the default position as azimuth + elevation.
+        const song = store.doc.songs[store.songIndex];
+        const model = song.surroundModel;
+        song.surroundModel = 2;
+        iv.refresh();
+        const az = [...iv.panel.querySelectorAll(".sl-label")].find((l) => l.textContent === t("inst.defaultAzimuth"));
+        const el = [...iv.panel.querySelectorAll(".sl-label")].find((l) => l.textContent === t("inst.defaultElevation"));
+        check("spatial song: azimuth and elevation have tooltips", !!az?.title && !!el?.title && untitled().length === 0,
+          untitled().join(", "));
+        song.surroundModel = model;
+
+        const lampNames = ["env.sustain", "env.loop", "env.present", "env.carry", "env.logTimescale"];
+        for (const tab of ["env0", "env1", "pitch"]) {
+          iv.tab = tab;
+          iv.refresh();
+          const lamps = [...iv.panel.querySelectorAll(".env-controls .env-chk")];
+          const missing = lampNames.filter((k) => !lamps.find((b) => b.textContent.includes(t(k)) && b.title.trim()));
+          check(`${iv.tab} tab: envelope lamps have tooltips`, missing.length === 0, missing.join(", "));
+        }
+
+        log(`FAILURES: ${failures}`);
+      } catch (e) {
+        log("ERROR: " + (e?.stack ?? e));
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+  <img src="/hang" alt="" hidden />
+</body>
+</html>

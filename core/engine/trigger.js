@@ -988,15 +988,70 @@ export function maybeSpawnBackgroundForNNA(eng, ts, voice, channel, incomingInst
     return;
   }
 
-  const bg = ghostRig(ts, voice, channel);
-  if (nna === 0 || nna === 4) { // Note Off, or its key-lift variant
+  releaseGhost(eng, ghostRig(ts, voice, channel), nna);
+  capBackgroundVoices(ts);
+}
+
+/** Apply New Note Action `nna` to a freshly spawned ghost. */
+function releaseGhost(eng, bg, nna) {
+  if (nna === 1) { // Note Cut — ramped out, the other half of the crossfade
+    startCutRamp(bg);
+  } else if (nna === 0 || nna === 4) { // Note Off, or its key-lift variant
     bg.keyOff = true;
     applyKeyLift(bg, eng.instruments[bg.instrumentId]);
   } else if (nna === 3) { // Note Fade
     bg.noteFading = true;
   }
   // 2 (Continue) — ghost continues unchanged.
-  capBackgroundVoices(ts);
+}
+
+/**
+ * Q's retrigger on lane `vi`, before the restart (TAUD_ENGINE_SPEC §6 step
+ * 13): every sounding voice of the note whose OWN instrument sets byte 186
+ * bit 6 hands its sound to the background pool per the New Note Action — the
+ * lane's `S $73`…`$76` override when there is one, as at a fresh note — and
+ * is then restarted like a fresh trigger (attack ramp, a chip keyed on from
+ * silence). A voice whose instrument leaves the bit clear is restarted in
+ * place, as Q always did, which is what makes the clear bit "note cut".
+ *
+ * Each voice asks its own instrument, as releaseLayerChildren does, since a
+ * metainstrument's layers each carry their own byte 186. An FM rack's
+ * operands go with their carrier (ghostRig) and are never asked separately.
+ * The layer children are handed off before the foreground voice, and the
+ * pool is capped once, at the end, so the scan never sees it shrink.
+ */
+export function retrigHandOff(eng, ts, voice, vi) {
+  const override = voice.nnaOverride;
+  const n = ts.backgroundVoices.length;
+  for (let i = 0; i < n; i++) {
+    const bg = ts.backgroundVoices[i];
+    if (bg.fmOperator || !bg.active || !isSoundingChild(ts, bg, vi)) continue;
+    handOffOne(eng, ts, bg, vi, override);
+  }
+  if (voice.active && handOffOne(eng, ts, voice, vi, override) && voice.fmRig !== null) {
+    // The rack's live operands start their note again with it.
+    for (let i = 0; i < n; i++) {
+      const op = ts.backgroundVoices[i];
+      if (!op.fmOperator || !isSoundingChild(ts, op, vi)) continue;
+      op.retrigFresh = true;
+      op.attackRampSamples = eng.instruments[op.instrumentId].chipPatch !== null ? 0 : ATTACK_RAMP_SAMPLES;
+    }
+  }
+  if (ts.backgroundVoices.length > n) capBackgroundVoices(ts);
+}
+
+function handOffOne(eng, ts, v, vi, override) {
+  const inst = eng.instruments[v.instrumentId];
+  if (!inst.retrigFollowsNna) return false;
+  const nna = override >= 0 ? override : inst.newNoteAction;
+  // An OPL or PSG note cut by a note of its own instrument is the chip keying
+  // the same channel on again (maybeSpawnBackgroundForNNA): no ghost, the
+  // envelopes where they stand — exactly the plain restart.
+  if (nna === 1 && (v.opl !== null || v.psg !== null) && v.fmRig === null) return false;
+  releaseGhost(eng, ghostRig(ts, v, vi), nna);
+  v.retrigFresh = true;
+  v.attackRampSamples = inst.chipPatch !== null ? 0 : ATTACK_RAMP_SAMPLES;
+  return true;
 }
 
 /** Snapshot the playback-relevant state of src into a fresh Voice for lane.

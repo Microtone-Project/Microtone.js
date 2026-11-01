@@ -4,6 +4,21 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.5.0 (2026-11-02)
+
+**Retriggers can follow the New Note Action**: the Instruments view's Note actions have a new **On Retrigger (effect Q)** row, so a `Q` roll can leave each stroke ringing under the next instead of choking it.
+
+- **Note cut**, the default, restarts the note in place, as `Q` always has.
+- **Follow NNA** treats every retrigger as a new note: the sound being restarted carries on in the background exactly as the instrument's New Note Action (or the lane's override) says — continuing, released, faded or cut.
+- With Note Cut as the New Note Action, Follow NNA crossfades each retrigger into the next, which takes the click out of fast rolls.
+- On a layered instrument each layer follows its own setting.
+
+**Every setting on the Instruments view's General tab now explains itself**: hover over a label to see what the setting does to the sound.
+
+- The auto-vibrato settings say what you will hear: **Speed** and **Depth** in wobbles a second and semitones, **Sweep (FT2)** as the time a note takes to grow into its full vibrato, and **Rate (IT)** as the same fade-in done ImpulseTracker's way, where a deeper vibrato takes longer to arrive.
+- New Note Action, Duplicate Check Type and Action, and On Retrigger (effect Q) describe each choice, including that Follow NNA is Microtone's own and other trackers always cut.
+- The envelope editors' **Sustain**, **Loop**, **Envelope present** and **Log timescale** buttons have tooltips too, on every envelope tab and in Advanced Edit.
+
 ## Version 4.4.0 (2026-11-01)
 
 **Export to Impulse Tracker**: the File view's new **Export .IT…** saves every song as an Impulse Tracker module, keeping far more than a ProTracker module can — up to 64 lanes, envelopes, New Note Actions, filters, key maps, panning and most effects.

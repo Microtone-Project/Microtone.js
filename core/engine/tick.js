@@ -23,6 +23,7 @@ import {
 } from "./envelope.js";
 import {
   triggerMetaOrNote, applyDuplicateCheck, maybeSpawnBackgroundForNNA, cutLayerChildren,
+  retrigHandOff,
 } from "./trigger.js";
 import { applyRetrigVolMod } from "./effects.js";
 import {
@@ -444,10 +445,13 @@ export function applyTrackerTick(eng, ts, playhead) {
     // together, or the kit would fall apart into layer 0 stuttering over a
     // sustained remainder (item 154). The volume modifier is the lane's, so
     // it is applied once, on the foreground voice the children sync from.
+    // An instrument that sets byte 186 bit 6 first hands the sound being
+    // restarted to the background pool per its New Note Action.
     if (voice.retrigActive && !voice.noteWasCut) {
       voice.retrigCounter++;
       if (voice.retrigCounter >= voice.retrigInterval) {
         voice.retrigCounter = 0;
+        retrigHandOff(eng, ts, voice, vi);
         restartVoice(voice);
         for (const bg of ts.backgroundVoices) {
           if (isSoundingChild(ts, bg, vi)) restartVoice(bg);
@@ -997,11 +1001,15 @@ function restartVoice(v) {
   v.filterY1 = 0.0; v.filterY2 = 0.0; v.filterX1 = 0.0; v.filterX2 = 0.0;
   v.right.reset();
   // An OPL channel restarts the way the chip re-keys one: the attack begins
-  // from wherever each envelope stands, the phase from zero (§5.5.2).
-  if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, true);
+  // from wherever each envelope stands, the phase from zero (§5.5.2) — unless
+  // retrigHandOff gave its sound to a ghost, which took those envelopes along:
+  // then it keys on from silence, as for a fresh note.
+  const carry = !v.retrigFresh;
+  v.retrigFresh = false;
+  if (v.opl !== null && v.opl.patch !== null) oplKeyOn(v.opl, v.opl.patch, carry);
   // …and a PSG pair the same way; an oscillator with its X flag set restarts
   // its internal status here too, as at any key-on (§5.5.4).
-  if (v.psg !== null && v.psg.patch !== null) psgKeyOn(v.psg, v.psg.patch, true);
+  if (v.psg !== null && v.psg.patch !== null) psgKeyOn(v.psg, v.psg.patch, carry);
   // A voice sounding a formant instrument says its syllable again (item 212).
   if (v.formant !== null) formantRestart(v.formant);
 }
