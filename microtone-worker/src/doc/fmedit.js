@@ -69,7 +69,8 @@ export const FM_OPERATORS = [
 /** Editable copies of a rack's operator table (metaedit.metaLayers' twin). */
 export function fmOperators(inst) {
   return (inst?.metaLayers ?? []).map((l) => makeMetaLayer(
-    l.instIdx, l.mixOctet, l.detune, l.pitchStart, l.pitchEnd, l.volStart, l.volEnd));
+    l.instIdx, l.mixOctet, l.detune, l.pitchStart, l.pitchEnd, l.volStart, l.volEnd,
+    l.fixedPitch === true));
 }
 
 /** …and of its algorithm. Never null: a rack whose program did not verify is
@@ -182,7 +183,7 @@ export function duplicateOperator(ops, program, i) {
   if (i < 0 || i >= ops.length || !fmCanAddOperator(ops, program)) return { ops, program };
   const src = ops[i];
   const copy = makeMetaLayer(src.instIdx, src.mixOctet, src.detune,
-    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd);
+    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd, src.fixedPitch === true);
   const map = ops.map((_, n) => (n <= i ? n : n + 1));
   return {
     ops: [...ops.slice(0, i + 1), copy, ...ops.slice(i + 1)],

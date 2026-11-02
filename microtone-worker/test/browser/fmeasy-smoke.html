@@ -144,6 +144,23 @@
         await sleep(150);
         check("feedback 3 (π/4) sets the loop's octet", decode(slot).model.feedback[0].octet === fe.EASY_FB_OCTETS[3]);
 
+        // ── a fixed-frequency operator (the DX7's FIXED mode) ──
+        const easyRow = (r) => iv.panel.querySelectorAll(".fm-easy-table tbody tr")[r];
+        const det3 = decode(slot).model.ops[3].detune;
+        easyRow(3).querySelector(".fm-easy-freq button.meta-fixed").click();
+        await sleep(150);
+        const mf = decode(slot).model;
+        check("Fixed makes operator 3 fixed-frequency, keeping the note it showed",
+          mf.ops[3].fixedPitch === true && mf.ops[3].detune === 0x5000 + det3 &&
+          mf.ops.every((o, k) => k === 3 || !o.fixedPitch));
+        check("…the rack still reads as preset 9", fe.easyPresetOf(mf) === 9);
+        check("…and the multiplier gives way to a note field",
+          /^\$[0-9A-F]{4}$/.test(easyRow(3).querySelector(".fm-easy-freq input")?.value ?? ""));
+        easyRow(3).querySelector(".fm-easy-freq button.meta-fixed").click();
+        await sleep(150);
+        check("…and switching it off puts the multiplier back",
+          decode(slot).model.ops[3].fixedPitch === false && decode(slot).model.ops[3].detune === det3);
+
         // ── the FM tab holds an edit Easy Mode can't show ──
         iv.tab = "fm";
         iv.renderTabs(); iv.renderPanel();
@@ -166,7 +183,7 @@
         iv.tab = "metaopts";
         iv.renderTabs(); iv.renderPanel();
         await sleep(100);
-        const boxes = [...iv.panel.querySelectorAll(".slider-row.check input")];
+        const boxes = [...iv.panel.querySelectorAll(".slider-row.check button.sl-check")];
         boxes[2].click();
         const notice = await waitFor(() => d.querySelector("dialog.modal-text"));
         check(`conversion refused: "${notice.querySelector("p")?.textContent}"`, /ring-modulates/.test(notice.textContent));

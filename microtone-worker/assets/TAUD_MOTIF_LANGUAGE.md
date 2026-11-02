@@ -323,6 +323,7 @@ A layer over a layered instrument stands in for all of that instrument's layers 
 | `level` | 0 | Its output level, in decibels |
 | `ratio` | 1 | Its frequency ratio: 2 an octave up, 3.5 a minor seventh above that |
 | `detune` | 0 | Added to the ratio, in cents |
+| `fixed` | — | A pitch it always plays, whatever note triggers it — a **fixed-frequency** operator, the DX7's FIXED mode: a modulator that keeps a formant or a noise band in one place on every key (no `ratio` or `detune` then) |
 | `notes`, `vols` | everything | The pitches and volumes it plays for; outside them it is silent (key scaling, velocity-switched brightness) |
 
 The algorithm is written the way the Instruments view's FM tab reads one back: `0` is operator 0 free-running; `0[1]` is operator 0 with its phase modulated by operator 1, so `0[1[2]]` is a chain of three; `1'` is what operator 1 put out one sample before (a feedback tap, so `0[0']` is operator 0 feeding back into itself); `a + b` mixes, `a * b` ring-modulates, `-a` inverts, and parentheses group. Without one, the rack is a chain: the last operator into the one before it, all the way down to operator 0. Operator 0 is the principal — its envelope, its fadeout and its ending are the note's (TAUD_FILE_FORMAT.md §7.7). An algorithm that does not make a playable rack is an error.

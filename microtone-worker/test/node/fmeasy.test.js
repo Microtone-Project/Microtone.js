@@ -16,7 +16,7 @@ import {
   easyDecode, easyCompile, easyFill, easyNeeds, easyNewModel, easyFormula, easyPresetOf,
   easyApplyPreset, easyToggleWire, easyToggleCarrier, easySetFeedback, easyWireKind,
   easySplitDetune, easyJoinDetune, easyFbAmount, easyRemoveOperator, easyAddOperator,
-  easyRecordOf, easyTree,
+  easyRecordOf, easyTree, easyPatchOp,
 } from "../../src/doc/fmeasy.js";
 import { fmValidate, fmOperators, fmProgramOf, fmFormula } from "../../src/doc/fmedit.js";
 import { fmTreeGraph } from "../../src/doc/fmlayout.js";
@@ -68,6 +68,19 @@ test("every preset round-trips: Easy → rack → Easy is the identity, and read
     assert.equal(easyFormula(back.model), p.formula);
     assert.equal(easyPresetOf(back.model), p.n);
   }
+});
+
+test("a FIXED-frequency operator survives Easy → rack → Easy (item 278)", () => {
+  const m = filled(easyNewModel(3));
+  const fixed = easyPatchOp(m, 1, { fixedPitch: true, detune: 0x6000 });
+  const rack = easyCompile(fixed);
+  assert.equal(rack.ops[2].fixedPitch, true, "table entry 2 is operator 1");
+  assert.equal(rack.ops[1].fixedPitch, false);
+  const back = easyDecode(rack.ops, rack.program);
+  assert.ok(back.ok, back.reason);
+  assert.deepEqual(back.model, fixed);
+  assert.equal(back.model.ops[1].detune, 0x6000);
+  assert.equal(easyPresetOf(back.model), 3, "the flag is not a wiring: still preset 3");
 });
 
 test("a shared modulator is one operator, and a formula's spare parentheses mean nothing", () => {

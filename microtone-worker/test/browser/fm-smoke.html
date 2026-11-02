@@ -80,7 +80,7 @@
         // ── the Options tab: a rack has the family's flag, not the stack's ──
         [...iv.tabBar.querySelectorAll("button")][1].click();
         await waitFor(() => iv.panel.querySelector(".slider-row.check"));
-        const flagBoxes = [...iv.panel.querySelectorAll(".slider-row.check input")];
+        const flagBoxes = [...iv.panel.querySelectorAll(".slider-row.check button.sl-check")];
         // The two record flags, then Easy Mode (item 247) in a group of its own.
         log(`two flags and Easy Mode listed: ${ok(flagBoxes.length === 3)}`);
         log(`percussion is offered on a rack: ${ok(!flagBoxes[0].disabled)}`);
@@ -200,6 +200,28 @@
         log(`reorder handles: ${grips} on operators, ${wordGrips} on words: ` +
           ok(grips === 4 && wordGrips === iv.panel.querySelectorAll(".fm-word").length));
 
+        // ── a fixed-frequency operator (the DX7's FIXED mode) ──
+        const fixedBtn = (r) => rackRows()[r].querySelector(".detCell button.meta-fixed");
+        const detIn = (r) => rackRows()[r].querySelector(".detCell input");
+        log(`every operator row carries a Fixed switch: ` +
+          ok([...rackRows()].every((_, r) => !!fixedBtn(r))));
+        const ratioBefore = doc.instruments[slot].metaLayers[1].detune;
+        fixedBtn(1).click();
+        await waitFor(() => doc.instruments[slot].metaLayers[1].fixedPitch === true);
+        iv.renderPanel();
+        await waitFor(() => /^\$[0-9A-F]{4}$/.test(detIn(1)?.value ?? ""));
+        log(`Fixed sets the flag on operator 1 alone, keeping the note it showed: ` +
+          ok(doc.instruments[slot].metaLayers[1].detune === 0x5000 + ratioBefore &&
+             !doc.instruments[slot].metaLayers.some((o, k) => k !== 1 && o.fixedPitch)));
+        log(`…written in the record, entry byte +9 bit 6: ` +
+          ok((doc.instruments[slot].metaRaw[14 + 9] & 0x40) !== 0));
+        detIn(1).value = "A-5";
+        detIn(1).dispatchEvent(new win.Event("change"));
+        await waitFor(() => doc.instruments[slot].metaLayers[1].detune !== 0x5000 + ratioBefore);
+        log(`a note name types the fixed frequency: ` +
+          ok(doc.instruments[slot].metaLayers[1].detune > 0x5000 && doc.instruments[slot].metaLayers[1].fixedPitch));
+        const fixedBytes = doc.toBytes();
+
         // ── the rack survives a save/reload round trip ──
         const bytes = doc.toBytes();
         const { Document } = await import("../../src/doc/document.js");
@@ -210,6 +232,10 @@
           ok(back.isFm && back.metaLayers.length === 4 && back.fmProgram !== null));
         log(`…with the same algorithm: ` +
           ok(String([...back.fmProgram]) === String([...rack.fmProgram])));
+        log(`…and its fixed-frequency operator: ` +
+          ok(back.metaLayers[1].fixedPitch === true &&
+             back.metaLayers[1].detune === doc.instruments[slot].metaLayers[1].detune &&
+             fixedBytes.length === bytes.length));
 
         log("RESULT: " + (out.some((l) => l.includes("FAIL")) ? "FAIL" : "PASS"));
       } catch (e) {

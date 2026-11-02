@@ -142,7 +142,8 @@ export function easyBlankEntry(mixOctet = OCTET_UNITY, detune = 0) {
 
 /** Copy an entry, dropping everything that is not the §7.4 layout's. */
 function entryOf(e) {
-  return makeMetaLayer(e.instIdx, e.mixOctet, e.detune, e.pitchStart, e.pitchEnd, e.volStart, e.volEnd);
+  return makeMetaLayer(e.instIdx, e.mixOctet, e.detune, e.pitchStart, e.pitchEnd, e.volStart, e.volEnd,
+    e.fixedPitch === true);
 }
 
 /** A loop's constant as the model keeps it: its instrument and rectangle.

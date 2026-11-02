@@ -9271,20 +9271,22 @@ function writePatchesBlob(patches) {
 /**
  * One layer of a Metainstrument. mixOctet is the raw PSO-dB octet (159 = unity).
  *
- * `fixedPitch` is the type-0 NON-MELODIC flag (item 179, §7.4 byte +9 bit 6):
- * the layer sounds one pitch whatever key was struck, and `detune` stops being
- * a signed offset and becomes that pitch — an UNSIGNED 4096-TET note word, the
- * same units a pattern cell writes. Everything else about the layer is
- * unchanged, the gating rectangle included: which keys reach the layer is still
- * a question the rectangle answers, and only what it then sounds is fixed.
+ * `fixedPitch` is the NON-MELODIC flag (§7.4 byte +9 bit 6): a type-0 layer
+ * (item 179) or a type-4 operator (item 278, the DX7's FIXED frequency mode)
+ * sounds one pitch whatever key was struck, and `detune` stops being a signed
+ * offset (a rack's frequency ratio) and becomes that pitch — an UNSIGNED
+ * 4096-TET note word, the same units a pattern cell writes. Everything else
+ * about the entry is unchanged, the gating rectangle included: which keys reach
+ * it is still a question the rectangle answers, and only what it then sounds is
+ * fixed.
  */
 function makeMetaLayer(instIdx, mixOctet, detune, pitchStart, pitchEnd, volStart, volEnd,
                               fixedPitch = false) {
   return { instIdx, mixOctet, detune, pitchStart, pitchEnd, volStart, volEnd, fixedPitch };
 }
 
-/** Layer byte +9, bit 6 — the type-0 fixed-pitch flag. RESERVED in every other
- *  kind: a type-4 rack's entries read the bit as nothing at all. */
+/** Entry byte +9, bit 6 — the fixed-pitch flag: a Layered record's layer and
+ *  an FM rack's operator both carry it, the kinds with a table. */
 const META_LAYER_FIXED_PITCH = 0x40;
 
 /**
@@ -9542,10 +9544,8 @@ function buildMetaRecord(layers, {
     // Layer inst index bits 8..9 ride in the vol-start byte's top two bits.
     b[o + 8] = (l.volStart & 0x3f) | (((idx >>> 8) & 0x3) << 6);
     // …and the fixed-pitch flag in the vol-end byte's bit 6, which is where a
-    // type-0 layer says its pitch is its own (item 179). A rack's entries never
-    // carry it: the bit is RESERVED in every kind but Layered, and `fixedPitch`
-    // is false on every operator the editor builds.
-    b[o + 9] = (l.volEnd & 0x3f) | (!fm && l.fixedPitch ? META_LAYER_FIXED_PITCH : 0);
+    // layer (item 179) or an operator (item 278) says its pitch is its own.
+    b[o + 9] = (l.volEnd & 0x3f) | (l.fixedPitch ? META_LAYER_FIXED_PITCH : 0);
     o += 10;
   }
   if (fm) {
@@ -10003,11 +10003,11 @@ class TaudInst {
         const instIdx = (b[o] & 0xff) | (((b[o + 8] >>> 6) & 0x3) << 8);
         const mixOctet = b[o + 1] & 0xff;
         const detRaw = (b[o + 2] & 0xff) | ((b[o + 3] & 0xff) << 8);
-        // A fixed-pitch layer's detune field is an unsigned NOTE WORD, not a
-        // signed offset (item 179), so the sign conversion has to know which it
-        // is looking at. The flag is the Layered kind's alone: in a rack those
-        // bits are reserved and the field stays a frequency ratio.
-        const fixedPitch = !fm && (b[o + 9] & META_LAYER_FIXED_PITCH) !== 0;
+        // A fixed-pitch entry's detune field is an unsigned NOTE WORD, not a
+        // signed offset — a layer's detune (item 179) or an operator's
+        // frequency ratio (item 278) — so the sign conversion has to know
+        // which it is looking at.
+        const fixedPitch = (b[o + 9] & META_LAYER_FIXED_PITCH) !== 0;
         const detune = fixedPitch ? detRaw : (detRaw >= 0x8000 ? detRaw - 0x10000 : detRaw);
         const pStart = (b[o + 4] & 0xff) | ((b[o + 5] & 0xff) << 8);
         const pEnd = (b[o + 6] & 0xff) | ((b[o + 7] & 0xff) << 8);
@@ -16414,6 +16414,11 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     return;
   }
   const referenced = fmReferencedOperators(program, ops.length);
+  // What each operator SOUNDS: the trigger at its frequency ratio, or — a
+  // FIXED-frequency operator (item 278, the DX7's FIXED mode) — its own note
+  // whatever the key. The rectangle above still gated on the trigger; this is
+  // the layered path's pitchOf, for the same reasons.
+  const pitchOf = (o) => clamp(layerNote(o, noteVal), 0x20, 0xffff);
   const rig = new FmRig(ops.length);
   rig.program = program;
   fmSeedGains(rig, ops);
@@ -16424,22 +16429,22 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   const chanPan = voice.channelPan, chanRowPan = voice.rowPan;
   const chanPanbrello = voice.panbrelloOffset;
   const chanAzimuth = voice.panAzimuth, chanElevation = voice.panElevation;
-  triggerNote(eng, ts, voice, clamp(noteVal + ops[0].detune, 0x20, 0xffff),
-    ops[0].instIdx, rowVolOverride);
+  triggerNote(eng, ts, voice, pitchOf(ops[0]), ops[0].instIdx, rowVolOverride);
   // The rack applies every operator's mix level itself, operator 0's included,
   // so the mixer's layer gain stays out of it: leaving operator 0's octet here
   // would scale the whole finished patch by one operand's level.
   voice.layerMixGain = 1.0;
   voice.layerRelDetune = 0;
-  voice.layerFixedNote = -1;
+  // Operator 0 may be the fixed one, exactly as layer 0 may (item 179's third
+  // consequence): recorded the same way, so a later portamento row (row.js)
+  // knows the principal's note does not track the pattern at all.
+  voice.layerFixedNote = ops[0].fixedPitch ? pitchOf(ops[0]) : -1;
   voice.layerRelPan = 0;
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
   voice.metaForeground = true;
   // Same coordinate-shift bookkeeping as the layered path, for operator 0's
-  // own detune (item 176) — a rack's operators never carry the fixed-pitch
-  // flag (it is reserved outside the Layered kind), so no layerFixedNote
-  // handling belongs here.
+  // own detune (item 176).
   voice.metaForegroundDetune = ops[0].detune;
   voice.fmRig = rig;
   rig.voices[0] = voice;
@@ -16459,14 +16464,18 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     op.bitcrusherDepth = voice.bitcrusherDepth;
     op.bitcrusherSkip = voice.bitcrusherSkip;
     op.overdriveAmp = voice.overdriveAmp;
-    triggerNote(eng, ts, op, clamp(noteVal + ops[k].detune, 0x20, 0xffff),
-      ops[k].instIdx, rowVolOverride);
+    triggerNote(eng, ts, op, pitchOf(ops[k]), ops[k].instIdx, rowVolOverride);
     op.isLayerChild = true;
     op.fmOperator = true;
     op.fmParent = voice;
     op.sourceChannel = vi;
     op.displayInst = voice.displayInst;
-    op.layerRelDetune = ops[k].detune - ops[0].detune;
+    // The interval between the two operators' sounding NOTES, before the
+    // clamp — `ops[k].detune - ops[0].detune` while neither is fixed, which is
+    // all it ever was before item 278 — and a fixed operator tracks nothing:
+    // the per-tick sync holds it at its own note (tick.js).
+    op.layerRelDetune = layerNote(ops[k], noteVal) - layerNote(ops[0], noteVal);
+    op.layerFixedNote = ops[k].fixedPitch ? pitchOf(ops[k]) : -1;
     op.layerMixGain = 1.0;
     // An operand has no place of its own: the rack is one signal at the
     // lane's position, so an operator never pulls it sideways.
@@ -16759,7 +16768,7 @@ function principalOf(eng, instId, note) {
   if (!inst.isFm || inst.metaLayers.length === 0) return [instId, note];
   const op0 = inst.metaLayers[0];
   if (op0.instIdx < 1 || op0.instIdx > 1023) return [instId, note];
-  return [op0.instIdx, clamp(note + op0.detune, 0x20, 0xffff)];
+  return [op0.instIdx, clamp(layerNote(op0, note), 0x20, 0xffff)];
 }
 
 /**
@@ -16882,6 +16891,7 @@ function ghostRig(ts, voice, channel) {
     op.fmOperator = true;
     op.fmParent = bg;
     op.layerRelDetune = src.layerRelDetune;
+    op.layerFixedNote = src.layerFixedNote; // a FIXED operand stays fixed (item 278)
     // A detached operand drops the pattern's pitch overlay with its carrier —
     // the ghost finishes at the note it was left on rather than frozen
     // mid-bend, which is the rule every other ghost already follows.
@@ -18315,7 +18325,7 @@ function applyTrackerRow(eng, ts, playhead) {
         // `note` is the pattern's raw note word, but a metainstrument's
         // foreground voice does not sound it directly — triggerMetaOrNote /
         // triggerFmRack seed voice.noteVal from `note + layer0's own detune`
-        // (or, when layer 0 is fixed-pitch, from a pitch that ignores `note`
+        // (or, when layer 0 or operator 0 is fixed-pitch, from a pitch that ignores `note`
         // entirely), so the target has to cross into that same coordinate or
         // the glide chases a point that is a whole detune away from where it
         // actually needs to land — arriving late if at all, so the NEXT G row
@@ -18323,7 +18333,7 @@ function applyTrackerRow(eng, ts, playhead) {
         // (item 176). An ordinary instrument's foreground carries no such
         // offset (metaForegroundDetune stays 0), so this is a no-op for it.
         voice.tonePortaTarget = voice.metaForeground && voice.layerFixedNote >= 0
-          ? -1 // layer 0 is fixed-pitch: its note never tracked the trigger, so there is nothing to glide to
+          ? -1 // layer/operator 0 is fixed-pitch: its note never tracked the trigger, so there is nothing to glide to
           : clamp(note + voice.metaForegroundDetune, 0x20, 0xffff);
         // Inst byte on a porta row reloads the default volume + clears fade state
         // without retriggering (Schism csf_instrument_change semantics), and

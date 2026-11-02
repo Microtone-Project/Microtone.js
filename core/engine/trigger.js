@@ -464,6 +464,11 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     return;
   }
   const referenced = fmReferencedOperators(program, ops.length);
+  // What each operator SOUNDS: the trigger at its frequency ratio, or — a
+  // FIXED-frequency operator (item 278, the DX7's FIXED mode) — its own note
+  // whatever the key. The rectangle above still gated on the trigger; this is
+  // the layered path's pitchOf, for the same reasons.
+  const pitchOf = (o) => clamp(layerNote(o, noteVal), 0x20, 0xffff);
   const rig = new FmRig(ops.length);
   rig.program = program;
   fmSeedGains(rig, ops);
@@ -474,22 +479,22 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   const chanPan = voice.channelPan, chanRowPan = voice.rowPan;
   const chanPanbrello = voice.panbrelloOffset;
   const chanAzimuth = voice.panAzimuth, chanElevation = voice.panElevation;
-  triggerNote(eng, ts, voice, clamp(noteVal + ops[0].detune, 0x20, 0xffff),
-    ops[0].instIdx, rowVolOverride);
+  triggerNote(eng, ts, voice, pitchOf(ops[0]), ops[0].instIdx, rowVolOverride);
   // The rack applies every operator's mix level itself, operator 0's included,
   // so the mixer's layer gain stays out of it: leaving operator 0's octet here
   // would scale the whole finished patch by one operand's level.
   voice.layerMixGain = 1.0;
   voice.layerRelDetune = 0;
-  voice.layerFixedNote = -1;
+  // Operator 0 may be the fixed one, exactly as layer 0 may (item 179's third
+  // consequence): recorded the same way, so a later portamento row (row.js)
+  // knows the principal's note does not track the pattern at all.
+  voice.layerFixedNote = ops[0].fixedPitch ? pitchOf(ops[0]) : -1;
   voice.layerRelPan = 0;
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
   voice.metaForeground = true;
   // Same coordinate-shift bookkeeping as the layered path, for operator 0's
-  // own detune (item 176) — a rack's operators never carry the fixed-pitch
-  // flag (it is reserved outside the Layered kind), so no layerFixedNote
-  // handling belongs here.
+  // own detune (item 176).
   voice.metaForegroundDetune = ops[0].detune;
   voice.fmRig = rig;
   rig.voices[0] = voice;
@@ -509,14 +514,18 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     op.bitcrusherDepth = voice.bitcrusherDepth;
     op.bitcrusherSkip = voice.bitcrusherSkip;
     op.overdriveAmp = voice.overdriveAmp;
-    triggerNote(eng, ts, op, clamp(noteVal + ops[k].detune, 0x20, 0xffff),
-      ops[k].instIdx, rowVolOverride);
+    triggerNote(eng, ts, op, pitchOf(ops[k]), ops[k].instIdx, rowVolOverride);
     op.isLayerChild = true;
     op.fmOperator = true;
     op.fmParent = voice;
     op.sourceChannel = vi;
     op.displayInst = voice.displayInst;
-    op.layerRelDetune = ops[k].detune - ops[0].detune;
+    // The interval between the two operators' sounding NOTES, before the
+    // clamp — `ops[k].detune - ops[0].detune` while neither is fixed, which is
+    // all it ever was before item 278 — and a fixed operator tracks nothing:
+    // the per-tick sync holds it at its own note (tick.js).
+    op.layerRelDetune = layerNote(ops[k], noteVal) - layerNote(ops[0], noteVal);
+    op.layerFixedNote = ops[k].fixedPitch ? pitchOf(ops[k]) : -1;
     op.layerMixGain = 1.0;
     // An operand has no place of its own: the rack is one signal at the
     // lane's position, so an operator never pulls it sideways.
@@ -809,7 +818,7 @@ function principalOf(eng, instId, note) {
   if (!inst.isFm || inst.metaLayers.length === 0) return [instId, note];
   const op0 = inst.metaLayers[0];
   if (op0.instIdx < 1 || op0.instIdx > 1023) return [instId, note];
-  return [op0.instIdx, clamp(note + op0.detune, 0x20, 0xffff)];
+  return [op0.instIdx, clamp(layerNote(op0, note), 0x20, 0xffff)];
 }
 
 /**
@@ -932,6 +941,7 @@ function ghostRig(ts, voice, channel) {
     op.fmOperator = true;
     op.fmParent = bg;
     op.layerRelDetune = src.layerRelDetune;
+    op.layerFixedNote = src.layerFixedNote; // a FIXED operand stays fixed (item 278)
     // A detached operand drops the pattern's pitch overlay with its carrier —
     // the ghost finishes at the note it was left on rather than frozen
     // mid-bend, which is the rule every other ghost already follows.

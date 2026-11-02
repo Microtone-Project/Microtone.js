@@ -87,7 +87,7 @@ const INSTRUMENT = {
   chain: any,                                      // its mixing chain
 };
 const LAYER = { inst: any, gain: num(-86, 24), detune: num(-9600, 9600), notes: any, vols: any, fixed: any };
-const OPERATOR = { inst: any, level: num(-86, 24), ratio: num(1 / 256, 256), detune: num(-9600, 9600), notes: any, vols: any };
+const OPERATOR = { inst: any, level: num(-86, 24), ratio: num(1 / 256, 256), detune: num(-9600, 9600), notes: any, vols: any, fixed: any };
 const FM = { operators: any, algorithm: str };
 
 // The chip instruments, in the Instruments view's own words (its OPL and PSG
@@ -373,10 +373,19 @@ export class Score {
     const ref = instrumentOf(o.inst, `${what}'s inst`);
     const [pitchStart, pitchEnd] = this.noteRange(o.notes, `${what}'s notes`);
     const [volStart, volEnd] = this.volRange(o.vols, `${what}'s vols`);
+    // a FIXED-frequency operator (the DX7's FIXED mode) plays one pitch
+    // whatever the key, and the detune field holds that note
+    if (o.fixed !== undefined) {
+      if (o.ratio !== undefined || o.detune !== undefined) {
+        throw fail(`${what}: a fixed-frequency operator has no ratio or detune`);
+      }
+      const fixed = this.tuning.word(asInt(o.fixed, `${what}'s fixed pitch`));
+      return { ref, level: o.level ?? 0, detune: fixed, fixed: true, pitchStart, pitchEnd, volStart, volEnd };
+    }
     // the operator's frequency ratio is its detune field: +4096 is an octave
     const units = Math.round(4096 * Math.log2(o.ratio ?? 1)) + Math.round(((o.detune ?? 0) * 4096) / 1200);
     if (units < -0x8000 || units > 0x7fff) throw fail(`${what}'s ratio is out of range`);
-    return { ref, level: o.level ?? 0, detune: units, pitchStart, pitchEnd, volStart, volEnd };
+    return { ref, level: o.level ?? 0, detune: units, fixed: false, pitchStart, pitchEnd, volStart, volEnd };
   }
 
   /** An `opl` record → the 54-byte patch block (TAUD_FILE_FORMAT.md §7.8). */

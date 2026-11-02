@@ -21,6 +21,7 @@ import {
   metaLayers, patchLayer, duplicateLayer, stackLayer,
   fixedPitchFields, clampLayerPitch, FIXED_PITCH_ANCHOR,
 } from "../../src/doc/metaedit.js";
+import { fmOperators, fmProgramOf, fmRecordOf, duplicateOperator } from "../../src/doc/fmedit.js";
 
 setSamplingRate(32000);
 
@@ -86,16 +87,27 @@ test("record round-trip: layers rebuild byte-exact through the document layer", 
   assert.deepEqual(Array.from(again), Array.from(rec));
 });
 
-test("the bit is the Layered kind's alone — a rack keeps a signed ratio", () => {
+test("a rack's operator carries the flag too (item 278): its ratio becomes a note word", () => {
+  const ops = [
+    makeMetaLayer(1, 159, -4096, 0x0000, 0xffff, 0, 63),
+    makeMetaLayer(2, 120, 0xa000, 0x1000, 0xf000, 2, 60, true), // above $7FFF
+  ];
+  const rec = buildMetaRecord(ops, { type: META_TYPE_FM, program: defaultFmProgram(2) });
+  assert.equal(rec[14 + 9] & META_LAYER_FIXED_PITCH, META_LAYER_FIXED_PITCH);
+  assert.equal(rec[14 + 9] & 0x3f, 60, "vol range high survives the flag");
+  assert.equal(rec[4 + 9] & META_LAYER_FIXED_PITCH, 0, "a ratio operator sets nothing");
   const inst = new TaudInst(0);
-  const rec = buildMetaRecord(
-    [makeMetaLayer(1, 159, -4096, 0x0000, 0xffff, 0, 63)],
-    { type: META_TYPE_FM, program: defaultFmProgram(1) });
-  rec[4 + 9] |= META_LAYER_FIXED_PITCH; // as a corrupt file might leave it
   inst.loadRecord(rec);
   assert.equal(inst.isFm, true);
-  assert.equal(inst.metaLayers[0].fixedPitch, false, "reserved in a rack: read as nothing");
-  assert.equal(inst.metaLayers[0].detune, -4096, "the ratio stays signed");
+  assert.equal(inst.metaLayers[0].fixedPitch, false);
+  assert.equal(inst.metaLayers[0].detune, -4096, "a ratio stays signed");
+  assert.equal(inst.metaLayers[1].fixedPitch, true);
+  assert.equal(inst.metaLayers[1].detune, 0xa000, "a note word, not −24576");
+  // …and the FM tab's editable copy rebuilds the record byte for byte.
+  const again = fmRecordOf(inst, fmOperators(inst), fmProgramOf(inst));
+  assert.deepEqual(Array.from(again), Array.from(rec));
+  assert.equal(duplicateOperator(fmOperators(inst), fmProgramOf(inst), 1).ops[2].fixedPitch, true,
+    "a duplicated operator keeps the flag");
 });
 
 test("layerNote: the flag decides whether the trigger is added at all", () => {
@@ -226,4 +238,70 @@ test("patchLayer edits a fixed layer's pitch without disturbing its neighbours",
   inst.loadRecord(buildMetaRecord(next));
   assert.equal(inst.metaLayers[1].detune, 0x7000);
   assert.equal(inst.metaLayers[1].fixedPitch, true);
+});
+
+// ── fixed-frequency operators (item 278) ───────────────────────────────────
+
+const ops = (eng) => ts0(eng).backgroundVoices.filter(
+  (v) => v.active && v.fmOperator && v.fmParent === ts0(eng).voices[0]);
+
+/** Operator 1 modulates operator 0 — the default chain. */
+const rack = (op0, op1) => buildMetaRecord([op0, op1], { type: META_TYPE_FM, program: defaultFmProgram(2) });
+
+test("a fixed operator sounds its own note at every key, and holds it through the sync", () => {
+  const eng = makeEngine();
+  eng.uploadInstrument(3, rack(
+    makeMetaLayer(1, 159, 0, 0x0000, 0xffff, 0, 63),
+    makeMetaLayer(2, 159, 0x6000, 0x0000, 0xffff, 0, 63, true)));
+  for (const key of [C4, A4, 0x3000]) {
+    eng.jamNote(0, 0, key, 3);
+    assert.equal(ts0(eng).voices[0].noteVal, key, "operator 0 still plays the key");
+    const m = ops(eng).find((v) => v.instrumentId === 2);
+    assert.ok(m, "the fixed operator sounds");
+    assert.equal(m.noteVal, 0x6000, `fixed at $6000 for key $${key.toString(16)}`);
+    assert.equal(m.layerFixedNote, 0x6000);
+  }
+  const out = new Uint8Array(TRACKER_CHUNK * 2);
+  const chunksPerTick = (SAMPLING_RATE * 2.5) / 125 / TRACKER_CHUNK;
+  for (let i = 0; i < chunksPerTick * 4; i++) eng.renderChunk(0, out);
+  assert.equal(ops(eng).find((v) => v.instrumentId === 2).noteVal, 0x6000,
+    "four ticks later, still its own note");
+});
+
+test("operator 0 fixed: the lane sounds the fixed note, a ratio operator still tracks the key", () => {
+  const eng = makeEngine();
+  eng.uploadInstrument(3, rack(
+    makeMetaLayer(1, 159, 0x6000, 0x0000, 0xffff, 0, 63, true),
+    makeMetaLayer(2, 159, 4096, 0x0000, 0xffff, 0, 63)));
+  eng.jamNote(0, 0, A4, 3);
+  const fg = ts0(eng).voices[0];
+  assert.equal(fg.noteVal, 0x6000, "the principal is the fixed one");
+  assert.equal(fg.layerFixedNote, 0x6000, "…and says so, for a later portamento row");
+  const m = ops(eng).find((v) => v.instrumentId === 2);
+  assert.equal(m.noteVal, A4 + 4096, "the ratio operator plays an octave over the key");
+  assert.equal(m.layerRelDetune, A4 + 4096 - 0x6000, "the interval is between the NOTES");
+  assert.equal(m.layerFixedNote, -1);
+});
+
+test("a rack of ratio operators keeps the relative detune it always had", () => {
+  const eng = makeEngine();
+  eng.uploadInstrument(3, rack(
+    makeMetaLayer(1, 159, -100, 0x0000, 0xffff, 0, 63),
+    makeMetaLayer(2, 159, 6485, 0x0000, 0xffff, 0, 63)));
+  eng.jamNote(0, 0, C4, 3);
+  const m = ops(eng).find((v) => v.instrumentId === 2);
+  assert.equal(m.layerRelDetune, 6485 - -100);
+  assert.equal(m.noteVal, C4 + 6485);
+  assert.equal(ts0(eng).voices[0].layerFixedNote, -1);
+});
+
+test("a fixed operator's rectangle still gates on the KEY", () => {
+  const eng = makeEngine();
+  eng.uploadInstrument(3, rack(
+    makeMetaLayer(1, 159, 0, 0x0000, 0xffff, 0, 63),
+    makeMetaLayer(2, 159, 0x6000, 0x0000, 0x4000, 0, 63, true)));
+  eng.jamNote(0, 0, 0x3000, 3);
+  assert.ok(ops(eng).some((v) => v.instrumentId === 2), "inside the rectangle: sounds");
+  eng.jamNote(0, 0, A4, 3);
+  assert.ok(!ops(eng).some((v) => v.instrumentId === 2), "outside it: silent");
 });

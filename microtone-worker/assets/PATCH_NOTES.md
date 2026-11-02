@@ -4,6 +4,17 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.6.0 (2026-11-02)
+
+**FM racks get fixed-frequency operators**, the *FIXED* mode of the Yamaha DX7: an operator can sound one note whatever key is played, instead of following the key at a ratio.
+
+- The FM tab has a **Fixed** button beside every operator's ratio, and the Easy tab one in front of every multiplier. Switched on, the field takes a note — typed as `C-4` or as a word like `$5000` — and switching it off again keeps the note the row was showing.
+- A fixed modulator puts the same formant, resonance or noise band on every key, which is how the DX7 made struck plates, vocal-sounding pads and drums that keep their colour while the melody moves.
+- Fix operator 0 and the whole rack sounds at one pitch, like a drum; the other operators keep their ratios to the key that was played.
+- The pitch range still decides which keys reach a fixed operator, as it does for a fixed-pitch layer.
+- Motif programs can write one too: `fixed: 'A5'` on an operator, in place of its `ratio`.
+- Racks made before this version sound exactly as they did.
+
 ## Version 4.5.1 (2026-11-02)
 
 **Invert loop (`S $F0xx`) keeps its inversion when another note of the same instrument is still sounding.**

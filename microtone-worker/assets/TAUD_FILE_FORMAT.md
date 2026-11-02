@@ -635,11 +635,13 @@ Each entry — a *layer* in a type-0 record, an *operator* in a type-4 one:
 | +4 | `U16` | Pitch range low (full range = `$0000`) |
 | +6 | `U16` | Pitch range high, inclusive (full range = `$FFFF`) |
 | +8 | `U8` | bits 0…5 = volume range low (0…63); bits 6…7 = entry instrument index bits 8…9 |
-| +9 | `U8` | bits 0…5 = volume range high, inclusive; bit 6 = **fixed pitch** (type 0 only, [§7.5](#7-5-metainstrument-type-0-layered-instruments)); bit 7 **RESERVED** |
+| +9 | `U8` | bits 0…5 = volume range high, inclusive; bit 6 = **fixed pitch** (a layer's, [§7.5](#7-5-metainstrument-type-0-layered-instruments); an operator's fixed frequency, [§7.7](#7-7-metainstrument-type-4-fm-operator-racks)); bit 7 **RESERVED** |
 
 The four range fields define a rectangle over the same pitch × volume space as an Ixmp patch. An entry fires only when the trigger falls inside its rectangle, which is how key- and velocity-conditional layering — and, in a rack, velocity-switched brightness — is expressed.
 
-The two remaining fields are the ones each kind reads its own way: in a Layered record the mix octet is the layer's **mix level** and the detune is its **detune**, while in a rack they are the operator's **output level** and its **frequency ratio** ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)). The bytes are identical; the meaning is the kind's. Byte +9's bit 6 belongs to the Layered kind alone: in every other kind it is **RESERVED**, a reader **MUST** ignore it, and a writer **MUST** write 0.
+The two remaining fields are the ones each kind reads its own way: in a Layered record the mix octet is the layer's **mix level** and the detune is its **detune**, while in a rack they are the operator's **output level** and its **frequency ratio** ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)). The bytes are identical; the meaning is the kind's.
+
+Byte +9's bit 6, **fixed pitch**, means one thing in both: the entry sounds one pitch whatever note triggered it, and its detune field is then not an offset (a layer's detune, an operator's ratio) but that pitch — an **unsigned** `U16` note word on the ordinary 4096-TET grid ([note words](#note-words)), the same units a pattern cell writes. A reader **MUST** read the field as unsigned when the bit is set and as `S16` when it is not; a value below `$0020` is in the cell's sentinel space and is clamped to it. What each kind makes of it is in [§7.5](#7-5-metainstrument-type-0-layered-instruments) and [§7.7](#7-7-metainstrument-type-4-fm-operator-racks).
 
 Two rules hold for **every** kind:
 
@@ -655,7 +657,7 @@ A type-0 Metainstrument is a **Layered** instrument: the first kind of the famil
 - Mix volume **scales** the layer's output; it multiplies with the trigger's velocity rather than replacing it. Sample detune is **added** to the trigger note and to the layer instrument's own detune.
 - A single Layered trigger costs up to *layer count* voices against the mixer's pool.
 
-**Fixed pitch** (entry byte +9, bit 6) makes a layer **non-melodic**: it sounds the same pitch whatever note triggered it, and its sample detune field is then not an offset but that pitch — an **unsigned** `U16` note word on the ordinary 4096-TET grid ([note words](#note-words)), the same units a pattern cell writes. A reader **MUST** read the field as unsigned when the bit is set and as `S16` when it is not; a value below `$0020` is in the cell's sentinel space and is clamped to it.
+**Fixed pitch** (entry byte +9, bit 6, [§7.4](#7-4-metainstrument-records)) makes a layer **non-melodic**: it sounds the same pitch whatever note triggered it, and its sample detune field is then not an offset but that pitch.
 
 What the flag does *not* change is which triggers reach the layer: the rectangle still gates it, so a fixed-pitch layer can be given a key range like any other and simply plays its own note within it. Nor does it change the layer instrument's own patch resolution — the zone that sounds is the one covering the pitch the layer *plays*, not the one the trigger struck.
 
@@ -863,6 +865,8 @@ A type-4 Metainstrument is an **FM Rack**: the third kind of the family defined 
 
 An operator is an ordinary instrument, an OPL instrument ([§7.8](#7-8-metainstrument-type-8-opl-instruments)) or a PSG instrument ([§7.9](#7-9-metainstrument-type-9-psg-instruments)), never a formant instrument ([§7.4](#7-4-metainstrument-records)). The operator's mix octet is its **output level**, and its sample detune is its **frequency ratio** — one octave up is `+4096`, a perfect twelfth `+6485`. Those are the two numbers an FM operator has always had; the pitch and volume rectangles are the third thing, and they gate the operator exactly as they gate a layer: an operator whose rectangle excludes the trigger is **silent** for that note, which is how key scaling and velocity-switched brightness are written.
 
+An operator whose entry sets **fixed pitch** (byte +9, bit 6, [§7.4](#7-4-metainstrument-records)) is a **fixed-frequency** operator — the FIXED mode of the Yamaha DX7 and its kin. It runs at one pitch whatever key is struck, and its detune field is that pitch, an unsigned note word, rather than a ratio. The rectangle still gates it on the trigger, as it gates a fixed-pitch layer, and the operator instrument's own patch resolution is done at the pitch it plays. A fixed modulator puts a formant, a resonance or a noise band in the same place on every key; operator 0 may be fixed too, and then the whole note sounds at its pitch.
+
 Both halves live in the **250 bytes** the record has between its header and its last two bytes — bytes 4…253, 10 an operator, 2 a word, 2 for the terminator. Byte 255 is the instrument's IMix id, as in every record ([§7.1](#7-1-byte-map)), and byte 254 stays clear so no word straddles it. More operators means less room for the algorithm, and an editor **SHOULD** show that as one figure rather than two limits.
 
 #### Words
@@ -910,7 +914,7 @@ Byte 0's bit 0 — strict layering in a type-0 record — is in a rack the **Eas
 | Entries | What they are |
 |---|---|
 | 0 | The **principal**: DSP-only ([Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md)) — the program ends `$0000 $FF01` and names it nowhere else. Its instrument is a constant 1.0, so its envelopes, filter, pan, fadeout and note actions are the whole instrument's, and its output level the instrument's level |
-| 1 … *n* | The **operators**, numbered 0 … *n* − 1 from entry 1: oscillators, each on an instrument of its own, so each has its own volume envelope. An operator's frequency is its detune field, read as a whole number of octaves (`round(detune ÷ 4096)`, −8 … 7) and what is left (−2048 … 2047) |
+| 1 … *n* | The **operators**, numbered 0 … *n* − 1 from entry 1: oscillators, each on an instrument of its own, so each has its own volume envelope. An operator's frequency is its detune field, read as a whole number of octaves (`round(detune ÷ 4096)`, −8 … 7) and what is left (−2048 … 2047) — or, on a fixed-frequency operator, read as the note it plays |
 | after them | The **constants**: one per feedback loop deeper or shallower than one cycle — a constant 1.0 read only as `a′ × c`, the loop from operator *a*. The loop's depth is the constant's level |
 
 A loop's depth is counted in the classic unit — 0, π/16, π/8, π/4, π/2, π, 2π, 4π radians of phase per unit of output, numbered 0…7. The rack measures phase in cycles, so these are 1/32 … 2, and an editor writes the decibel octets nearest them: `$00`, `$39`, `$3F`, `$4B`, `$57`, `$6F`, `$9F`, `$CF` (within 1.2 %). Depth 6 is exactly one cycle and is written as a bare tap, with no constant.
@@ -1750,3 +1754,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-28 | `IMix`: the status byte's bit 1 is the block's **mode** — clear, every instrument naming it runs its own instance (as before); set, **bus** mode, they sum into one bus the chain runs over once. The mix tool's flag bit 3 **removes DC** (a one-pole at 3 Hz). `IMcn` — mixing chain names, a name table in block-id order. The `sMst` width and the mix tool's width are **surround width** on an ambisonic scene: every channel but W scaled (Engine Specification §12.3) |
 | 2026-10-29 | `IMix`: `tsh1`, a **transient shaper** of one to six bands, between `deq1` and `comp` in both pipelines; the identifier `tsh2` is reserved for a second one after `comp` |
 | 2026-10-29 | `IMix`: `expd`, a **downward expander** that shuts like a **gate** below its **floor** (−∞: a pure expander; the threshold: a pure gate), with hold, hysteresis and a key filter, between `itrm` and `equ1` in both pipelines |
+| 2026-11-02 | Type-4 racks: entry byte +9 bit 6, **fixed pitch**, is no longer the Layered kind's alone — on an operator it marks a **fixed-frequency** operator, its detune field read as an unsigned note word instead of a ratio. A rack written before sets the bit nowhere, so it sounds as it did |

@@ -150,6 +150,28 @@ test("instrument declarations say what is wrong with them", () => {
   assert.match(err("instrument S { wave: \"sine\" }\ninstrument X { layers: [{ inst: S, fixed: 'C4', detune: 5 }] }"), /fixed-pitch layer has no detune/);
 });
 
+test("an FM operator can be FIXED-frequency, as on a DX7", async () => {
+  const { doc, score } = await buildProject(`tml 1
+song { bars: 1, tuning: "12-TET" }
+instrument SINE { wave: "sine" }
+instrument GONG { fm: { operators: [{ inst: SINE }, { inst: SINE, fixed: 'A5', level: -6 }], algorithm: "0[1]" } }
+lane a { inst: GONG }
+hit(a, 0, 'C4', 40)`, host);
+  const gong = doc.instruments[score.instruments.find((i) => i.id === "GONG").slot];
+  assert.ok(gong.isFm);
+  assert.equal(gong.metaLayers[0].fixedPitch, false);
+  assert.equal(gong.metaLayers[1].fixedPitch, true);
+  assert.equal(gong.metaLayers[1].detune, score.tuning.word(score.tuning.parse("A5")));
+  const err = (body) => {
+    try { interpret(`tml 1\nsong { bars: 1 }\ninstrument S { wave: "sine" }\n${body}`); } catch (e) { if (e instanceof MotifError) return e.message; throw e; }
+    assert.fail("expected a MotifError");
+  };
+  assert.match(err("instrument X { fm: { operators: [{ inst: S }, { inst: S, fixed: 'C4', ratio: 2 }] } }"),
+    /fixed-frequency operator has no ratio or detune/);
+  assert.match(err("instrument X { fm: { operators: [{ inst: S }, { inst: S, fixed: 'C4', detune: 3 }] } }"),
+    /fixed-frequency operator has no ratio or detune/);
+});
+
 test("a metainstrument cannot be an FM operator", async () => {
   await assert.rejects(buildProject(`tml 1
 song { bars: 1 }

@@ -1775,6 +1775,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* A cell that would close a loop is a FEEDBACK cell: the loop's own ink. */
 .fm-easy-cell.fb.on { color: var(--accent-2); border-color: var(--accent-2); }
 .fm-easy-table tr.fm-easy-sel .idxCell { color: var(--accent); }
+/* A fixed-frequency switch leads the frequency cell (item 266), so its gap sits after it. */
+.fm-easy-table .fm-easy-freq button.meta-fixed { margin: 0 0.4rem 0 0; }
 .fm-easy-ops .meta-bar h4, .fm-easy-fb h4 { margin: 0; }
 .fm-easy-fb { margin: 0.6rem 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; }
 .fm-easy-fb h4, .fm-easy-fb p { flex-basis: 100%; }

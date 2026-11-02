@@ -357,6 +357,24 @@ test("operator 0's New Note Action is the rack's", () => {
   assert.ok(off[0].keyOff);
 });
 
+test("a ghosted rack's FIXED operator stays at its own note (item 278)", () => {
+  const eng = makeEngine();
+  uploadCycle(eng, 1, 0, { nna: 3, fadeout: 8 });
+  eng.uploadInstrument(3, buildMetaRecord(
+    [op(1), makeMetaLayer(2, 159, 0x6000, 0x0000, 0xffff, 0, 63, true)], { type: META_TYPE_FM }));
+  loadSong(eng, [
+    { row: 0, note: 0x5000, inst: 3 },
+    { row: 1, note: 0x5400, inst: 3 },
+  ]);
+  render(eng, CHUNKS_PER_TICK * 8 + 1);
+  const [ghost] = ghostRacks(eng);
+  assert.ok(ghost, "the first note rings on in the background");
+  const held = operators(eng).find((v) => v.fmParent === ghost);
+  assert.ok(held, "with its operand");
+  assert.equal(held.noteVal, 0x6000, "the ghost's fixed operand did not follow anything");
+  assert.equal(liveOperators(eng)[0].noteVal, 0x6000, "nor did the live one follow the new key");
+});
+
 test("a ghosted rack keeps its operands, and keeps them to itself", () => {
   const eng = makeEngine();
   uploadCycle(eng, 1, 0, { nna: 2 }); // Continue

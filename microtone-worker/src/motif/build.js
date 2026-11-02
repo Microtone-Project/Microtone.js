@@ -672,7 +672,8 @@ function rackRecord(work, i) {
     if (ref.isFormant) {
       throw new MotifError(`instrument ${i.id}: operator ${k} reads ${op.ref.id}, a formant instrument — a sound made out of a source rather than one; an operator reads one sample (a wave, usually) or a chip`);
     }
-    return makeMetaLayer(op.ref.slot, dbOctet(op.level), op.detune, op.pitchStart, op.pitchEnd, op.volStart, op.volEnd);
+    return makeMetaLayer(op.ref.slot, dbOctet(op.level), op.detune, op.pitchStart, op.pitchEnd, op.volStart, op.volEnd,
+      op.fixed === true);
   });
   return buildMetaRecord(ops, { type: META_TYPE_FM, percussion: i.percussion, program: i.program === null ? null : Uint16Array.from(i.program) });
 }

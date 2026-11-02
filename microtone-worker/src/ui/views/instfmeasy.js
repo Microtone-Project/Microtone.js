@@ -21,11 +21,13 @@ import {
 } from "../../doc/fmeasy.js";
 import { fmOperators, fmProgramOf, fmBudget } from "../../doc/fmedit.js";
 import { fmTreeGraph } from "../../doc/fmlayout.js";
-import { metaRecordWithFlags } from "../../doc/metaedit.js";
+import { metaRecordWithFlags, fixedPitchFields } from "../../doc/metaedit.js";
 import { setMetaRecordOp, importBankOp } from "../../doc/ops.js";
 import { planEasyFm } from "../../doc/bankmerge.js";
 import { fmGraphSvg } from "../fmgraph.js";
 import { showNotice } from "../components/modal.js";
+import { lampButton } from "../components/lampbutton.js";
+import { noteGlyph } from "../components/noteglyph.js";
 import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
@@ -337,7 +339,9 @@ function routingGrid(model, label, commit) {
   return table;
 }
 
-/** One row per operator: level, multiplier, detune, and what to do with it. */
+/** One row per operator: level, multiplier, detune, and what to do with it —
+ *  or, for a FIXED operator (item 278, the DX7's FIXED mode), the one note it
+ *  sounds whatever the key, in place of the multiplier and the detune. */
 function operatorTable(view, slot, model, label, sel, commit) {
   const wrap = el("div", "fm-easy-ops");
   const bar = el("div", "meta-bar");
@@ -368,17 +372,28 @@ function operatorTable(view, slot, model, label, sel, commit) {
       t("easy.levelTitle")));
     tr.append(lv);
 
-    const { mult, fine } = easySplitDetune(o.detune);
-    const mt = el("td");
-    const multIn = view.metaNumIn(mult, EASY_MULT_MIN, EASY_MULT_MAX,
-      (v) => commit(easyPatchOp(model, i, { detune: easyJoinDetune(v, fine) })), t("easy.multTitle"));
-    mt.append(multIn);
-    tr.append(mt);
-
+    const fixed = o.fixedPitch === true;
+    const mt = el("td", "fm-easy-freq");
     const dt = el("td");
-    dt.append(view.detuneInput(fine, -2048, 2047,
-      (v) => commit(easyPatchOp(model, i, { detune: easyJoinDetune(mult, v) })), t("easy.detuneTitle")));
-    tr.append(dt);
+    // The switch leads the frequency, since it decides how the rest of it
+    // reads; flipping it keeps the pitch the row was showing (fixedPitchFields
+    // reads a ratio against middle C, as the glyph beside a layer's does).
+    mt.append(lampButton({
+      label: t("meta.fixed"), on: fixed, title: t("fm.fixedTitle"), className: "meta-fixed",
+      onChange: (on) => commit(easyPatchOp(model, i, fixedPitchFields(o, on))),
+    }).button);
+    if (fixed) {
+      mt.append(view.fixedNoteInput(o.detune,
+        (v) => commit(easyPatchOp(model, i, { detune: v })), t("fm.fixedNoteTitle")));
+      dt.append(noteGlyph(o.detune & 0xffff, view.store.pitchPreset));
+    } else {
+      const { mult, fine } = easySplitDetune(o.detune);
+      mt.append(view.metaNumIn(mult, EASY_MULT_MIN, EASY_MULT_MAX,
+        (v) => commit(easyPatchOp(model, i, { detune: easyJoinDetune(v, fine) })), t("easy.multTitle")));
+      dt.append(view.detuneInput(fine, -2048, 2047,
+        (v) => commit(easyPatchOp(model, i, { detune: easyJoinDetune(mult, v) })), t("easy.detuneTitle")));
+    }
+    tr.append(mt, dt);
 
     const act = el("td", "advCell");
     const envBtn = el("button", "toggle", t("easy.env"));

@@ -1688,6 +1688,28 @@ export class InstrumentsView {
     return inp;
   }
 
+  /** A FIXED pitch — a fixed-pitch layer's or a fixed-frequency operator's
+   *  note word (items 179, 266) — typed as `$5000` or as `C-4` and stepped by
+   *  degrees of the song's own pitch table, as the detune beside it is. */
+  fixedNoteInput(note, onCommit, title = "") {
+    const preset = this.store.pitchPreset;
+    const inp = document.createElement("input");
+    inp.className = "meta-num";
+    if (title) inp.title = title;
+    inp.dataset.mtDecTitle = t("meta.detuneDownTitle");
+    inp.dataset.mtIncTitle = t("meta.detuneUpTitle");
+    mapSpinner(inp, {
+      toDisplay: (n) => annHex4(n),
+      fromDisplay: (text) => {
+        const v = parseFieldValue("note", text);
+        return clampN(v === null ? ANCHOR_NOTE : v, 0x20, 0xffff);
+      },
+      step: (n, dir) => stepNoteInTable(clampN(n, 0x20, 0xffff), preset, dir),
+    }, note);
+    inp.addEventListener("change", () => onCommit(inp.rawValue));
+    return inp;
+  }
+
   /** The volume envelope editor, at the end of the panel, over another
    *  instrument than the selected one: an Easy rack's operator. */
   renderOperatorEnv(slot) {
@@ -1728,9 +1750,14 @@ export class InstrumentsView {
    * decides whether that goes through patchLayer or patchOperator, and `grip`
    * is the row's drag handle — the tables reorder differently (a rack has to
    * renumber its algorithm), so each caller builds its own.
+   *
+   * `allowFixed` shows the fixed-pitch switch beside the detune — a layer's
+   * (item 179) or an operator's (item 278) — and `fm` says the row is a rack's
+   * operator, whose detune is a frequency ratio, so the words fit it.
    */
   metaEntryRow(entry, i, {
     commit, links = 1, lead = false, leadTitle = "", grip = null, allowFixed = false,
+    fm = false,
   }) {
     const doc = this.store.doc;
     const preset = this.store.pitchPreset;
@@ -1796,34 +1823,34 @@ export class InstrumentsView {
     // (item 156): the pair of arrows this cell used to carry beside the box
     // ARE the spinner's buttons now, with the mapping doing the units.
     //
-    // A FIXED-PITCH layer (item 179) puts a note word in the same field, so the
-    // same control reads it as one: an absolute pitch typed as `$5000` or as
-    // `C-4`, stepping by the same degrees of the same table. Cents would be
-    // nonsense there — the layer is not offset from anything.
+    // A FIXED-PITCH entry — a non-melodic layer (item 179), a fixed-frequency
+    // operator (item 278) — puts a note word in the same field, so the same
+    // control reads it as one: an absolute pitch typed as `$5000` or as `C-4`,
+    // stepping by the same degrees of the same table. Cents would be nonsense
+    // there — the entry is not offset from anything.
     const fixed = allowFixed && entry.fixedPitch === true;
     const detCell = tr.querySelector(".detCell");
-    const centsIn = document.createElement("input");
-    centsIn.className = "meta-num";
-    centsIn.title = t(fixed ? "meta.fixedNoteTitle" : "meta.detuneTitle");
-    centsIn.dataset.mtDecTitle = t("meta.detuneDownTitle");
-    centsIn.dataset.mtIncTitle = t("meta.detuneUpTitle");
-    mapSpinner(centsIn, fixed ? {
-      toDisplay: (note) => annHex4(note),
-      fromDisplay: (text) => {
-        const v = parseFieldValue("note", text);
-        return clampN(v === null ? ANCHOR_NOTE : v, 0x20, 0xffff);
-      },
-      step: (note, dir) => stepNoteInTable(clampN(note, 0x20, 0xffff), preset, dir),
-    } : {
-      toDisplay: (units) => `${centsOfUnits(units).toFixed(1)} ¢`,
-      fromDisplay: (text) => {
-        const c = Number.parseFloat(String(text).replace("−", "-"));
-        return clampDetune(Number.isFinite(c) ? unitsOfCents(c) : 0);
-      },
-      step: (units, dir) => clampDetune(
-        stepNoteInTable(clampN(ANCHOR_NOTE + units, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
-    }, entry.detune);
-    centsIn.addEventListener("change", () => commit({ detune: centsIn.rawValue }));
+    let centsIn;
+    if (fixed) {
+      centsIn = this.fixedNoteInput(entry.detune, (v) => commit({ detune: v }),
+        t(fm ? "fm.fixedNoteTitle" : "meta.fixedNoteTitle"));
+    } else {
+      centsIn = document.createElement("input");
+      centsIn.className = "meta-num";
+      centsIn.title = t(fm ? "fm.ratioTitle" : "meta.detuneTitle");
+      centsIn.dataset.mtDecTitle = t("meta.detuneDownTitle");
+      centsIn.dataset.mtIncTitle = t("meta.detuneUpTitle");
+      mapSpinner(centsIn, {
+        toDisplay: (units) => `${centsOfUnits(units).toFixed(1)} ¢`,
+        fromDisplay: (text) => {
+          const c = Number.parseFloat(String(text).replace("−", "-"));
+          return clampDetune(Number.isFinite(c) ? unitsOfCents(c) : 0);
+        },
+        step: (units, dir) => clampDetune(
+          stepNoteInTable(clampN(ANCHOR_NOTE + units, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
+      }, entry.detune);
+      centsIn.addEventListener("change", () => commit({ detune: centsIn.rawValue }));
+    }
     // The note the detune lands on, spelled in the SONG's notation (the
     // grids' own spelling) rather than in 12-EDO — the − +
     // buttons already step degrees of this table, so the readout has to agree
@@ -1835,10 +1862,10 @@ export class InstrumentsView {
     detCell.append(centsIn, detAnn);
     // The flag itself. It lives beside the field it re-reads, because that is
     // the only thing it changes: the rectangle above still decides which keys
-    // reach this layer.
+    // reach this entry.
     if (allowFixed) {
       detCell.append(lampButton({
-        label: t("meta.fixed"), on: fixed, title: t("meta.fixedTitle"), className: "meta-fixed",
+        label: t("meta.fixed"), on: fixed, title: t(fm ? "fm.fixedTitle" : "meta.fixedTitle"), className: "meta-fixed",
         onChange: (on) => commit(fixedPitchFields(entry, on)),
       }).button);
     }
@@ -1901,7 +1928,7 @@ export class InstrumentsView {
       const { tr, advCell } = this.metaEntryRow(l, i, {
         commit: (fields) => commit(patchLayer(layers, i, fields)),
         links,
-        allowFixed: true, // a rack's entries have no such flag (§7.4)
+        allowFixed: true,
         lead: i === 0,
         leadTitle: t("meta.foregroundTitle"),
         // Order is priority here, so it is dragged rather than stepped: the
@@ -2162,6 +2189,10 @@ export class InstrumentsView {
         links,
         lead: i === 0,
         leadTitle: t("fm.principalTitle"),
+        // A FIXED-frequency operator (item 278, the DX7's FIXED mode): its
+        // frequency field is a note, whatever key strikes the rack.
+        allowFixed: true,
+        fm: true,
         // Dragging an operator renumbers the algorithm with it (moveOperator is
         // a permutation), so the patch sounds the same wherever it lands —
         // what the drag really chooses is which operator is the principal.
