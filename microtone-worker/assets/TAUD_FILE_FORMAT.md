@@ -142,7 +142,7 @@ Present in `.taud` and `.tpif`; the entry count is the header's song count. Each
 | 28 | `U8` | Immutable song flags (below); bit 7 = BPM bit 9 |
 | 29 | `Byte[3]` | **RESERVED** |
 
-The BPM field is split across three bytes — the low 8 bits at offset 7, bit 8 at offset 8, bit 9 at offset 28 — giving a 10-bit range of 25…1048. Values above 280 are reachable only from the file or from the extended set-tempo effect (`T $FFxx` … `T $FCxx`, [Note Effects](TAUD_NOTE_EFFECTS.md#t-xxyy--tempo-set-or-tempo-slide)).
+The BPM field is split across three bytes — the low 8 bits at offset 7, bit 8 at offset 8, bit 9 at offset 28 — giving a 10-bit range of 25…1048. Values above 280 are reachable only from the file or from the extended set-tempo effect (`T $FFxx` … `T $FCxx`, [Note Effects](TAUD_NOTE_EFFECTS.md#t-xxyy-tempo-set-or-tempo-slide)).
 
 Bit 9 came later than the other nine: a reader that predates it ignores it, and so plays a song stored at 537 BPM or faster exactly 512 BPM too slowly.
 

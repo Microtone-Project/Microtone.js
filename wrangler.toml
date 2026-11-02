@@ -15,6 +15,10 @@
 # paths rewritten for the site's layout — tools/stage-site.js), and the
 # translation workbench at /translation/ gets a copy of Microtone Touch's
 # language tables beside it (--translation), since Touch is another site.
+# And the documentation is written out as ready-made pages (--docs): one per
+# document at /docs/<id>/, rendered from the Markdown here rather than in the
+# visitor's browser, docs.html sending its old #addresses on to them, plus
+# sitemap.xml and robots.txt — tools/docs-pages.js.
 #
 # The asset directory is a STAGED COPY, build/microtone-worker, made by the
 # [build] command below before every deploy, upload and `wrangler dev`.
@@ -48,7 +52,7 @@ main = "microtone-worker/server/worker.js"
 compatibility_date = "2026-07-10"
 
 [build]
-command = "node tools/stage-site.js microtone-worker build/microtone-worker --design-system --translation"
+command = "node tools/stage-site.js microtone-worker build/microtone-worker --design-system --translation --docs"
 watch_dir = ["core", "microtone-worker/src", "microtone-worker/css", "microtone-worker/assets", "microtone-worker/server", "microtone-worker/translation", "microtone-touch-worker/src/lang"]
 
 [assets]

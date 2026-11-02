@@ -6,7 +6,17 @@
   <link rel="icon" type="image/png" href="favicon.png"><!-- Website favicon -->
   <link rel="apple-touch-icon" type="image/png" href="favicon.png"> <!-- Apple favicon -->
   <title>Microtone Documentation</title>
+  <meta name="description" content="The documentation of Microtone, the microtonal music tracker: the user manual, the note effects, the Taud engine and file format specifications, the Motif language and the patch notes." />
   <link rel="stylesheet" href="css/microtone.css" />
+  <script>
+    // The theme before the first paint (src/ui/docs.js owns it from there,
+    // the Warmth edition's season included). It matters most on a
+    // pre-rendered page, whose text is on screen before any module has run.
+    try {
+      const t = localStorage.getItem("microtone-theme");
+      document.documentElement.dataset.theme = t === "dark" || t === "dim" || t === "light" ? t : "dim";
+    } catch { document.documentElement.dataset.theme = "dim"; }
+  </script>
   <style>
     html, body { height: 100%; margin: 0; }
     body.docs-body {
@@ -48,12 +58,12 @@
     }
     .toc-section { margin-bottom: 1rem; }
     .toc-headings { border-top: 1px solid var(--border); padding-top: 0.6rem; }
-    .toc-doc {
-      display: block; width: 100%; text-align: left;
-      background: none; color: var(--fg); border: 0;
-      padding: 0.3rem 0.5rem; border-radius: 5px; cursor: pointer; font-size: 0.95rem;
+    /* The documents: links (to their hash here, to their own page on the
+       site — src/ui/doclist.js), set apart from the headings below them. */
+    .docs-toc a.toc-doc {
+      color: var(--fg); padding: 0.3rem 0.5rem; border-radius: 5px; font-size: 0.95rem;
     }
-    .toc-doc:hover { background: var(--panel-2); }
+    .docs-toc a.toc-doc:hover { background: var(--panel-2); color: var(--fg); }
     /* A link out of the viewer, set like the document buttons but marked with
        an arrow: it leaves the page rather than switching documents. */
     .docs-toc a.toc-link {
@@ -61,7 +71,7 @@
     }
     .docs-toc a.toc-link::after { content: " \2197"; color: var(--dim); }
     .docs-toc a.toc-link:hover { background: var(--panel-2); color: var(--fg); }
-    .toc-doc.active { background: var(--panel-2); color: var(--accent); font-weight: 600; }
+    .docs-toc a.toc-doc.active { background: var(--panel-2); color: var(--accent); font-weight: 600; }
     .docs-toc a {
       display: block; color: var(--dim); text-decoration: none;
       padding: 0.12rem 0.5rem; border-radius: 4px; font-size: 0.85rem;

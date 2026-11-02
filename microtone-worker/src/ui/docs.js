@@ -4,15 +4,20 @@
 // matches the main app — shared `microtone-theme` localStorage + data-theme,
 // the same three-way cycle and the same default.
 //
-// Eight documents, all fetched from assets/ and rendered live: the User Manual
-// (USER_MANUAL.md), the Note Effects reference (TAUD_NOTE_EFFECTS.md), the
-// three Taud reference specifications (item 997 — TAUD_ENGINE_SPEC.md,
-// TAUD_FILE_FORMAT.md, TAUD_CONVERSION_NOTES.md; these are the canonical texts,
-// mirrored into the TSVM tree which points at them instead of carrying its own
-// copy), the Microtone Touch sketch format (MICROTONE_SKETCH_FORMAT.md — item
-// 206; Microtone's own, not mirrored) and the Patch Notes (PATCH_NOTES.md —
-// item 95; kept up to date as TODO items land, see CLAUDE.md "Patch notes").
-// Below them the TOC links out to the design system's docs page.
+// The documents are listed in src/ui/doclist.js (DOCS): the User Manual, the
+// Note Effects reference, the three Taud reference specifications (item 997 —
+// the canonical texts, mirrored into the TSVM tree), the Microtone Touch
+// sketch format (item 206), the Motif language and the Patch Notes (item 95).
+// Each is fetched from assets/ and rendered live. Below them the TOC links out
+// to the design system's docs page.
+//
+// The same script runs a PRE-RENDERED page (item 281): the website's build
+// writes each document as a page of its own at docs/<id>/ (tools/docs-pages.js),
+// its contents list and text already in place, marked by `data-doc` on
+// #content. There the script only does what a page cannot do without it — the
+// theme, the drawer, the icons — and the documents are ordinary links. The
+// document list and the contents list's markup are src/ui/doclist.js, shared
+// with that build.
 //
 // On a phone (docs.html's 720px media query) the TOC is a drawer: the ☰
 // button in the top bar slides it over the page, and picking a heading, the
@@ -20,6 +25,7 @@
 // document's headings are right there to pick from.
 
 import { renderMarkdown, extractToc } from "./markdown.js";
+import { DOCS, DEFAULT_DOC, docById, docTarget, docNavHtml, headingsHtml } from "./doclist.js";
 import { applyIcons } from "./icons.js";
 import { warmthInSeason } from "./warmth.js";
 
@@ -54,22 +60,19 @@ function cycleTheme() {
   applyTheme(list[(i + 1) % list.length]);
 }
 
-const fetchDoc = (path) => async () => {
-  const resp = await fetch(path);
+async function loadDoc(doc) {
+  const resp = await fetch(`assets/${doc.file}`);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return resp.text();
-};
+}
 
-const DOCS = [
-  { id: "manual", title: "User Manual", load: fetchDoc("assets/USER_MANUAL.md") },
-  { id: "effects", title: "Note Effects", load: fetchDoc("assets/TAUD_NOTE_EFFECTS.md") },
-  { id: "engine", title: "Engine Spec", load: fetchDoc("assets/TAUD_ENGINE_SPEC.md") },
-  { id: "format", title: "File Format", load: fetchDoc("assets/TAUD_FILE_FORMAT.md") },
-  { id: "conversion", title: "Conversion Notes", load: fetchDoc("assets/TAUD_CONVERSION_NOTES.md") },
-  { id: "sketch", title: "Sketch Format", load: fetchDoc("assets/MICROTONE_SKETCH_FORMAT.md") },
-  { id: "motif", title: "Motif Language", load: fetchDoc("assets/TAUD_MOTIF_LANGUAGE.md") },
-  { id: "patchnotes", title: "Patch Notes", load: fetchDoc("assets/PATCH_NOTES.md") },
-];
+// A link from one document to another (`TAUD_FILE_FORMAT.md#tuning`,
+// `docs.html#motif`, `#effects`) switches documents in place, by hash.
+function linkInViewer(url) {
+  const to = docTarget(url);
+  if (!to) return null;
+  return { href: `#${to.id}${to.slug ? `/${to.slug}` : ""}`, newTab: false };
+}
 
 const tocEl = document.getElementById("toc");
 const contentEl = document.getElementById("content");
@@ -84,41 +87,27 @@ function setTocOpen(open) {
   tocBtn.setAttribute("aria-expanded", String(open));
 }
 
-// Not a document of this viewer but a page of the site: the design system's
-// docs. The absolute URL is deliberate — /design-system/ exists only on the
-// deployed site (the desktop app and a local server do not carry it), and in
-// the desktop app an external link opens in the system browser.
-const DESIGN_SYSTEM_URL = "https://microtone.cc/design-system/";
-
-function docList(activeId) {
-  const items = DOCS.map((d) =>
-    `<button class="toc-doc${d.id === activeId ? " active" : ""}" data-doc="${d.id}">${d.title}</button>`).join("");
-  const external = `<a class="toc-link" href="${DESIGN_SYSTEM_URL}" target="_blank" rel="noopener">Design System</a>`;
-  return `<div class="toc-section">${items}${external}</div>`;
-}
+// The documents are links to their own hashes: picking one is a hash change,
+// which the hashchange handler below turns into selectDoc().
+const docList = (activeId) => docNavHtml(activeId, (id) => `#${id}`);
 
 async function selectDoc(id, anchor) {
-  const doc = DOCS.find((d) => d.id === id) ?? DOCS[0];
+  const doc = docById(id) ?? DOCS[0];
   currentId = doc.id;
   contentEl.innerHTML = `<p class="docs-loading">Loading…</p>`;
   let md;
   try {
-    md = await doc.load();
+    md = await loadDoc(doc);
   } catch (err) {
     contentEl.innerHTML = `<p class="docs-error">Could not load this document (${err.message}).</p>`;
     tocEl.innerHTML = docList(doc.id);
-    wireDocButtons();
     return;
   }
-  contentEl.innerHTML = renderMarkdown(md);
+  if (currentId !== doc.id) return; // another document was picked meanwhile
+  contentEl.innerHTML = renderMarkdown(md, { link: linkInViewer });
   contentEl.scrollTop = 0;
   // TOC = document switcher + this document's h2/h3 headings
-  const toc = extractToc(md);
-  const links = toc.map((e) =>
-    `<a class="toc-h${e.level}" href="#${e.slug}" data-slug="${e.slug}">${escapeText(e.text)}</a>`).join("");
-  tocEl.innerHTML = docList(doc.id) +
-    (links ? `<div class="toc-section toc-headings">${links}</div>` : "");
-  wireDocButtons();
+  tocEl.innerHTML = docList(doc.id) + headingsHtml(extractToc(md));
   for (const a of tocEl.querySelectorAll("a[data-slug]")) {
     a.addEventListener("click", (ev) => {
       ev.preventDefault();
@@ -136,30 +125,15 @@ function scrollToSlug(s) {
   if (el) el.scrollIntoView({ block: "start" });
 }
 
-function wireDocButtons() {
-  for (const b of tocEl.querySelectorAll(".toc-doc")) {
-    b.addEventListener("click", () => {
-      if (b.dataset.doc !== currentId) {
-        history.replaceState(null, "", `#${b.dataset.doc}`);
-        selectDoc(b.dataset.doc);
-      }
-    });
-  }
-}
-
-function escapeText(s) {
-  return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-}
-
 function fromHash() {
   const h = decodeURIComponent(location.hash.replace(/^#/, ""));
-  if (!h) return { id: "manual", anchor: null };
+  if (!h) return { id: DEFAULT_DOC, anchor: null };
   const [id, anchor] = h.split("/");
   // A bare heading slug (an in-content anchor link) stays within the current
   // document; at boot (no current doc yet) it deep-links into the manual.
-  return DOCS.some((d) => d.id === id)
+  return docById(id)
     ? { id, anchor }
-    : { id: currentId ?? "manual", anchor: h };
+    : { id: currentId ?? DEFAULT_DOC, anchor: h };
 }
 
 // ── boot ──
@@ -173,10 +147,18 @@ document.addEventListener("keydown", (ev) => {
   setTocOpen(false);
   tocBtn.focus();
 });
-const start = fromHash();
-selectDoc(start.id, start.anchor);
-window.addEventListener("hashchange", () => {
-  const { id, anchor } = fromHash();
-  if (id !== currentId) selectDoc(id, anchor);
-  else if (anchor) scrollToSlug(anchor);
-});
+if (contentEl.dataset.doc) {
+  // Pre-rendered: the page is already this document. Its headings are plain
+  // `#slug` links the browser follows; picking one puts the drawer away.
+  for (const a of tocEl.querySelectorAll("a[data-slug]")) {
+    a.addEventListener("click", () => setTocOpen(false));
+  }
+} else {
+  const start = fromHash();
+  selectDoc(start.id, start.anchor);
+  window.addEventListener("hashchange", () => {
+    const { id, anchor } = fromHash();
+    if (id !== currentId) selectDoc(id, anchor);
+    else if (anchor) scrollToSlug(anchor);
+  });
+}

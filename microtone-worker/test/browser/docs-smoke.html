@@ -80,11 +80,18 @@
           const h1Ok = h1re.test(doc.querySelector("#content h1")?.textContent || "");
           const tocOk = doc.querySelectorAll(".toc-headings a").length > 10;
           const tableOk = !!doc.querySelector("#content table");
-          // every in-content anchor must land on a heading this doc actually emits
+          // every in-content anchor must land on a heading this doc actually
+          // emits; a link to another document (`#format/9-project-data`, the
+          // viewer's spelling of `TAUD_FILE_FORMAT.md#9-project-data`) is
+          // checked against that document by the site build (docs-pages.test.js)
+          const docIds = [...doc.querySelectorAll(".toc-doc")].map((b) => b.dataset.doc);
           const anchors = [...doc.querySelectorAll("#content a[href^='#']")];
-          const liveAnchors = anchors.every((a) => !!doc.getElementById(a.getAttribute("href").slice(1)));
-          log(`${title}: h1=${h1Ok} toc=${tocOk} table=${tableOk} anchors=${anchors.length}/live=${liveAnchors}`);
-          specsOk = specsOk && h1Ok && tocOk && tableOk && liveAnchors;
+          const crossDoc = anchors.filter((a) => docIds.includes(a.getAttribute("href").slice(1).split("/")[0]));
+          const liveAnchors = anchors.filter((a) => !crossDoc.includes(a))
+            .every((a) => !!doc.getElementById(a.getAttribute("href").slice(1)));
+          const crossSameTab = crossDoc.every((a) => !a.target);
+          log(`${title}: h1=${h1Ok} toc=${tocOk} table=${tableOk} anchors=${anchors.length}/live=${liveAnchors} crossDoc=${crossDoc.length}/sameTab=${crossSameTab}`);
+          specsOk = specsOk && h1Ok && tocOk && tableOk && liveAnchors && crossSameTab;
         }
 
         // patch notes (item 95): reachable by its deep-link hash, versioned h2s

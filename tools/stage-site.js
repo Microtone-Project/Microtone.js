@@ -29,7 +29,9 @@
 // `--design-system` (the tracker's deploy only) also lays the design system's
 // docs page in at /design-system/ — see stageDesignSystem(). `--translation`
 // (the same) lays Microtone Touch's language tables in beside the
-// translation workbench — see stageTranslation().
+// translation workbench — see stageTranslation(). `--docs` (the same) writes
+// the documentation as ready-made pages at /docs/<id>/, with docs.html sending
+// its old addresses on to them, and a sitemap — see tools/docs-pages.js.
 
 import { execFileSync } from "node:child_process";
 import {
@@ -37,6 +39,8 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { stageDocs } from "./docs-pages.js";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE = "core";
@@ -224,9 +228,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const args = process.argv.slice(2);
   const withDesignSystem = args.includes("--design-system");
   const withTranslation = args.includes("--translation");
+  const withDocs = args.includes("--docs");
   const [site, outArg] = args.filter((a) => !a.startsWith("--"));
   if (!site || !outArg) {
-    console.error("usage: node tools/stage-site.js <site-dir> <out-dir> [--design-system] [--translation]");
+    console.error("usage: node tools/stage-site.js <site-dir> <out-dir> [--design-system] [--translation] [--docs]");
     process.exit(2);
   }
   const out = resolve(outArg);
@@ -234,8 +239,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const { files, bytes } = stageSite({ site, out });
     const ds = withDesignSystem ? stageDesignSystem({ out }) : 0;
     const tr = withTranslation ? stageTranslation({ out }) : 0;
-    const extras = [ds ? "/design-system/" : "", tr ? "/translation/touch/" : ""].filter(Boolean).join(", ");
-    console.log(`stage-site: ${files + ds + tr} files, ${(bytes / 1048576).toFixed(1)} MiB → ${relative(ROOT, out) || out}${extras ? ` (with ${extras})` : ""}`);
+    const dp = withDocs ? stageDocs({ out }) : 0;
+    const extras = [ds ? "/design-system/" : "", tr ? "/translation/touch/" : "", dp ? "/docs/" : ""].filter(Boolean).join(", ");
+    console.log(`stage-site: ${files + ds + tr + dp} files, ${(bytes / 1048576).toFixed(1)} MiB → ${relative(ROOT, out) || out}${extras ? ` (with ${extras})` : ""}`);
   } catch (e) {
     console.error(e.message);
     process.exit(1);

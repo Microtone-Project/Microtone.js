@@ -11,6 +11,13 @@ function esc(s) {
   }[c]));
 }
 
+/** esc() undone (a link's URL is matched after the line was escaped). */
+function unesc(s) {
+  return s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({
+    amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'",
+  }[e]));
+}
+
 /** Kebab-ish slug for a heading's anchor id (stable for the TOC links). */
 export function slug(text) {
   return text.toLowerCase().trim()
@@ -20,8 +27,9 @@ export function slug(text) {
     .replace(/^-+|-+$/g, "") || "section";
 }
 
-/** Inline formatting on already-block-split text. */
-function inline(s) {
+/** Inline formatting on already-block-split text. `link` is renderMarkdown's
+ *  option of that name. */
+function inline(s, link) {
   // Pull out code spans first so their contents aren't further formatted.
   const codes = [];
   s = s.replace(/`([^`]+)`/g, (_, c) => {
@@ -29,10 +37,14 @@ function inline(s) {
     return `\u0000${codes.length - 1}\u0000`;
   });
   s = esc(s);
-  // links [text](url) — in-page anchors navigate in place, the rest new-tab
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
-    (_, txt, url) => `<a href="${esc(url)}"${
-      url.startsWith("#") ? "" : ` target="_blank" rel="noopener"`}>${txt}</a>`);
+  // links [text](url) — in-page anchors navigate in place, the rest new-tab,
+  // unless the `link` option says otherwise. (The URL was escaped with the
+  // rest of the line; the option is handed it as written.)
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, txt, url) => {
+    const raw = unesc(url);
+    const to = link?.(raw) ?? { href: raw, newTab: !raw.startsWith("#") };
+    return `<a href="${esc(to.href)}"${to.newTab ? ` target="_blank" rel="noopener"` : ""}>${txt}</a>`;
+  });
   // bold then italic (bold first so ** isn't eaten by * )
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/__([^_]+)__/g, "<strong>$1</strong>");
@@ -64,8 +76,16 @@ function tableRow(line) {
 const INDENTED = /^(?: {4}| {0,3}\t)/;
 const isSeparatorRow = (line) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(line) && line.includes("-");
 
-/** Render Markdown to an HTML string. Headings carry id="<slug>". */
-export function renderMarkdown(md) {
+/**
+ * Render Markdown to an HTML string. Headings carry id="<slug>".
+ *
+ * `link(url)`, if given, places a link: it returns { href, newTab } for a URL
+ * it wants to send somewhere else (the documentation viewer and the site
+ * build send one document's link to another to wherever that document is
+ * shown), or null to leave it to the default — an in-page `#anchor` in place,
+ * anything else in a new tab.
+ */
+export function renderMarkdown(md, { link } = {}) {
   const lines = md.replace(/\r\n?/g, "\n").split("\n");
   const out = [];
   let i = 0;
@@ -101,7 +121,7 @@ export function renderMarkdown(md) {
     if (h) {
       const level = h[1].length;
       const text = h[2];
-      out.push(`<h${level} id="${slug(text)}">${inline(text)}</h${level}>`);
+      out.push(`<h${level} id="${slug(text)}">${inline(text, link)}</h${level}>`);
       i++;
       continue;
     }
@@ -118,9 +138,9 @@ export function renderMarkdown(md) {
       while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
         rows.push(tableRow(lines[i])); i++;
       }
-      const th = header.map((c) => `<th>${inline(c)}</th>`).join("");
+      const th = header.map((c) => `<th>${inline(c, link)}</th>`).join("");
       const trs = rows.map((r) =>
-        `<tr>${header.map((_, ci) => `<td>${inline(r[ci] ?? "")}</td>`).join("")}</tr>`).join("");
+        `<tr>${header.map((_, ci) => `<td>${inline(r[ci] ?? "", link)}</td>`).join("")}</tr>`).join("");
       out.push(`<div class="md-table"><table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table></div>`);
       continue;
     }
@@ -131,13 +151,13 @@ export function renderMarkdown(md) {
       while (i < lines.length && /^\s*>/.test(lines[i])) {
         body.push(lines[i].replace(/^\s*>\s?/, "")); i++;
       }
-      out.push(`<blockquote>${inline(body.join(" "))}</blockquote>`);
+      out.push(`<blockquote>${inline(body.join(" "), link)}</blockquote>`);
       continue;
     }
 
     // list (unordered/ordered, one level of nesting via indent)
     if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
-      i = renderList(lines, i, out);
+      i = renderList(lines, i, out, link);
       continue;
     }
 
@@ -151,14 +171,14 @@ export function renderMarkdown(md) {
            !(lines[i].includes("|") && i + 1 < lines.length && isSeparatorRow(lines[i + 1]))) {
       para.push(lines[i]); i++;
     }
-    out.push(`<p>${inline(para.join(" "))}</p>`);
+    out.push(`<p>${inline(para.join(" "), link)}</p>`);
   }
   return out.join("\n");
 }
 
 /** Render a list starting at `start`; returns the index after it. Supports one
  *  level of nesting by leading-space indent. */
-function renderList(lines, start, out) {
+function renderList(lines, start, out, link) {
   const baseIndent = lines[start].match(/^(\s*)/)[1].length;
   const ordered = /^\s*\d+\.\s/.test(lines[start]);
   const tag = ordered ? "ol" : "ul";
@@ -177,12 +197,12 @@ function renderList(lines, start, out) {
     if (indent > baseIndent) {
       // nested list — attach to the previous item
       const nested = [];
-      i = renderList(lines, i, nested);
+      i = renderList(lines, i, nested, link);
       if (items.length) items[items.length - 1] += nested.join("");
       else items.push(nested.join(""));
       continue;
     }
-    items.push(inline(m[3]));
+    items.push(inline(m[3], link));
     i++;
   }
   out.push(`<${tag}>${items.map((it) => `<li>${it}</li>`).join("")}</${tag}>`);
