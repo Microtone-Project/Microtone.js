@@ -253,6 +253,27 @@ test("saturator: bounded, and every curve's antiderivative path stays finite", (
   }
 });
 
+test("saturator: no DC offset leaves it, whatever the curve, the bias or the input", () => {
+  const FRAMES = 4 * FS;
+  const mean = (out) => { let s = 0; for (let n = FRAMES - FS; n < FRAMES; n++) s += out[n * 2]; return s / FS; };
+  // A biased input through a symmetric curve with no bias of its own…
+  const biased = (n) => { const v = 0.3 + 0.3 * Math.sin((2 * Math.PI * 100 * n) / FS); return [v, v]; };
+  const tape = runOne("satu", (e) => ({ ...e, curve: M.IMX_SAT_TAPE, driveDb: 12, bias: 0 }), biased, FRAMES).out;
+  assert.ok(Math.abs(mean(tape)) < 1e-4, `biased input, tape: ${mean(tape)}`);
+  // …and a clean input through an uneven curve, biased.
+  for (const curve of [M.IMX_SAT_TUBE, M.IMX_SAT_SOFT, M.IMX_SAT_FOLD]) {
+    const out = runOne("satu", (e) => ({ ...e, curve, driveDb: 12, bias: 0.4 }), sine(100, 0.5), FRAMES).out;
+    assert.ok(Math.abs(mean(out)) < 1e-4, `curve ${curve}, bias 0.4: ${mean(out)}`);
+  }
+  // The blocker is the mix tool's dc_reject. A step into the hard curve's
+  // linear part: the anti-aliased shaper gives the mean of f over 0…0.25
+  // first (0.125), then 0.25; the blocker takes y = x − m, m = a·x + (1 − a)·m.
+  const step = runOne("satu", (e) => ({ ...e, curve: M.IMX_SAT_HARD, driveDb: 0, bias: 0 }), () => [0.25, 0.25], 3).out;
+  const a = (M.IMX_DC_K * M.IMX_DC_HZ) / FS;
+  assert.equal(step[0], 0.125, "m = 0 at reset");
+  assert.ok(Math.abs(step[2] - (0.25 - a * 0.125)) < 1e-15, "then the mean follows at a");
+});
+
 test("tape delay: the echo lands on the exact sample, in seconds and in quarter ticks", () => {
   const flat = (e) => ({ ...e, feedback: 0, wow: 0, dry: 0, lowCut: 20, highCut: 20000 });
   const first = (out) => { for (let n = 0; n < out.length / 2; n++) if (Math.abs(out[n * 2]) > 0.1) return n; return -1; };

@@ -12,6 +12,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - That covers the instrument's Detune (Instruments view and its Advanced tab), a layer's or an FM operator's detune (FM and Easy tabs alike), an OPL drum's partner pitch, the chord maker's 4096-TET notes, and the notation maker's interval and degree cents — so a Bohlen–Pierce period is just `3/1`, and a just scale goes in a ratio at a time.
 - Cents and ratios land on the nearest of the 4096 steps per octave: `3/2` becomes 2396 units, 701.95 cents.
 
+**The Saturator in a mixing chain never leaves the sound off-centre**, so a Limiter after it no longer pulls the level down for an offset nobody can hear.
+
+- It now takes out any constant offset itself, with the same gentle 3 Hz filter as the Mix tool's *Remove DC* — whatever the curve, the Bias, or a lopsided sample feeding it.
+- Before, only the Tube curve or a non-zero Bias got this treatment, so a sample with an offset came through a Tape, Soft, Hard or Fold curve still offset, and the Limiter clamped on it.
+- Chains with a Tube curve or a Bias sound very slightly different: their filter now sits at 3 Hz instead of 5 Hz.
+
 ## Version 4.6.0 (2026-11-02)
 
 **FM racks get fixed-frequency operators**, the *FIXED* mode of the Yamaha DX7: an operator can sound one note whatever key is played, instead of following the key at a ratio.

@@ -5667,19 +5667,20 @@ class ImxSat {
   constructor(nch) {
     this.nch = nch;
     this.u1 = new Float64Array(nch);      // previous shaper input, per channel
-    this.dcX = new Float64Array(nch);
-    this.dcY = new Float64Array(nch);
+    this.dcM = new Float64Array(nch);     // the DC blocker's running mean
     this.p = null;
-    this.gIn = 1; this.gOut = 1; this.fb = 0; this.dcR = 0;
+    this.gIn = 1; this.gOut = 1; this.fb = 0; this.dcA = 0;
   }
   configure(p, rate) {
     this.p = p;
     this.gIn = dbToGain(p.inDb) * dbToGain(p.driveDb);
     this.gOut = dbToGain(p.outDb);
     this.fb = satF(p.curve, p.bias);
-    // A 5 Hz DC blocker follows an asymmetric curve: the offset an uneven
-    // shape adds depends on the signal, so f(bias) alone cannot remove it.
-    this.dcR = 1 - (2 * Math.PI * 5) / rate;
+    // The mix tool's DC blocker follows every curve (item 279): the offset an
+    // uneven shape or a bias adds depends on the signal, so f(bias) alone
+    // cannot remove it, and a biased INPUT comes out biased by any curve —
+    // either way an offset would eat the headroom of a limiter after it.
+    this.dcA = (IMX_DC_K * IMX_DC_HZ) / rate;
     if (this._curve !== p.curve || this._bias !== p.bias) {
       this._curve = p.curve; this._bias = p.bias;
       this.u1.fill(p.bias);
@@ -5687,7 +5688,7 @@ class ImxSat {
   }
   reset() {
     this.u1.fill(this.p ? this.p.bias : 0);
-    this.dcX.fill(0); this.dcY.fill(0);
+    this.dcM.fill(0);
   }
   get memory() { return 0; }
   process(data, stride, n0, n1, ctx) {
@@ -5696,13 +5697,12 @@ class ImxSat {
     const dry = ctx.dry;
     if (dry > 0) copySpan(data, ctx.dryBuf, nch, stride, n0, n1);
     const curve = p.curve, bias = p.bias, gIn = this.gIn, gOut = this.gOut, fb = this.fb;
-    const dc = bias !== 0 || curve === IMX_SAT_TUBE;
-    const R = this.dcR;
+    const a = this.dcA, b = 1 - a;
     for (let c = 0; c < nch; c++) {
       const o = c * stride;
       let u1 = this.u1[c];
       let F1 = satAD(curve, u1);
-      let dx = this.dcX[c], dy = this.dcY[c];
+      let m = this.dcM[c];
       for (let n = n0; n < n1; n++) {
         const u = data[o + n] * gIn + bias;
         const d = u - u1;
@@ -5717,14 +5717,13 @@ class ImxSat {
         }
         u1 = u; F1 = F0;
         y -= fb;
-        if (dc) {
-          const yy = y - dx + R * dy;
-          dx = y; dy = yy; y = yy;
-        }
-        data[o + n] = y * gOut;
+        // Opus's dc_reject, as the mix tool runs it (ImxMixTool).
+        const yy = y - m;
+        m = a * y + b * m;
+        data[o + n] = yy * gOut;
       }
       this.u1[c] = u1;
-      this.dcX[c] = dx; this.dcY[c] = dy;
+      this.dcM[c] = m;
     }
     mixDry(data, ctx.dryBuf, nch, stride, n0, n1, dry);
   }
