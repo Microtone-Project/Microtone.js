@@ -228,6 +228,7 @@ export function showNotationMaker(store) {
       intIn.classList.add("nota-num");
       intIn.step = "0.01";
       intIn.dataset.k = "interval";
+      intIn.dataset.mtPitch = "cents"; // 3/1, $1000 and 1200c too
       if (absolute) {
         // No period exists in absolute mode; the field only reads "—".
         intIn.value = "";
@@ -406,6 +407,7 @@ export function showNotationMaker(store) {
         cIn.classList.add("nota-num");
         cIn.step = "0.01";
         cIn.dataset.k = "cents" + i;
+        cIn.dataset.mtPitch = "cents"; // 5/4, $555 too
         cIn.value = unitsToCents(units).toFixed(2);
         cIn.disabled = i === 0; // spec: index 0 is always 0
         cIn.addEventListener("change", () => {

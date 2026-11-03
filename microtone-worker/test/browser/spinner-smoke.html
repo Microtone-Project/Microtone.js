@@ -168,6 +168,29 @@
         const gridOk = upFrom10 === "11" && downFromHex === "15";
         log(`− / + read hex and stay on the step grid: ${gridOk ? "ok" : `FAIL (${upFrom10}, ${downFromHex})`}`);
 
+        // ── a pitch field also takes cents and ratios, in its own unit ──
+        const pitchSeen = [];
+        const pitchField = async (bare) => {
+          const el = doc.createElement("input");
+          el.type = "number";
+          el.min = "-32768"; el.max = "32767"; el.value = "0";
+          el.dataset.mtPitch = bare;
+          host.appendChild(el);
+          await settle();
+          el.addEventListener("change", () => pitchSeen.push(el.value));
+          return (text) => {
+            el.value = text;
+            el.dispatchEvent(new win.Event("change", { bubbles: true }));
+          };
+        };
+        const typeUnits = await pitchField("units");
+        typeUnits("3/2"); typeUnits("700c"); typeUnits("$100"); typeUnits("-5/4"); typeUnits("wat");
+        const typeCents = await pitchField("cents");
+        typeCents("$1000"); typeCents("3/2"); typeCents("700");
+        const pitchOk = pitchSeen.join(",") ===
+          "2396,2389,256,-1319,-1319,1200,701.953125,700";
+        log(`pitch fields read cents, ratios and hex: ${pitchOk ? "ok" : `FAIL (${pitchSeen.join(",")})`}`);
+
         // ── the value is centred, and anchors left only when it overflows ──
         const fitNum = doc.createElement("input");
         fitNum.type = "number";

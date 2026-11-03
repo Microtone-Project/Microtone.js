@@ -168,6 +168,64 @@ export function parseNumberText(text) {
   return Number(t);
 }
 
+// ── reading a PITCH the way a musician writes one ─────────────────────────
+// A field that holds an interval or a detune — 4096-TET units underneath, cents
+// on some of them — also takes the spellings a musician reaches for:
+//
+//   256  -12.5   a plain number, in the field's own unit (units, or cents)
+//   $100 0x100   hexadecimal, always 4096-TET units (the note words' spelling)
+//   700c 701.9¢  cents
+//   3/2  -5/4    a frequency ratio (3:2 too); a sign in front turns it downward
+//
+// Cents and ratios round to the nearest 4096-TET unit, which is all a note can
+// sit on. The `−` minus sign the cents readouts print is read as a minus.
+
+const PITCH_UNITS_PER_OCTAVE = 4096;
+const CENTS_TEXT = /^([+-]?)(\d+(?:\.\d*)?|\.\d+)\s*[c¢]$/i;
+const RATIO_TEXT = /^([+-]?)(\d+(?:\.\d+)?)\s*[/:]\s*(\d+(?:\.\d+)?)$/;
+const DECIMAL_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * A typed pitch as a number in the field's own unit — 4096-TET units when
+ * `bare` is "units", cents when it is "cents" — or NaN if it is not one. A
+ * plain number is taken as it stands; every other spelling lands on a whole
+ * 4096-TET unit first.
+ */
+export function parsePitchText(text, bare = "units") {
+  const t = String(text ?? "").trim().replace(/−/g, "-");
+  if (t === "") return NaN;
+  const toField = (units) => {
+    const u = Math.round(units) + 0; // + 0 folds −0 into 0
+    return bare === "cents" ? (u * 1200) / PITCH_UNITS_PER_OCTAVE : u;
+  };
+  if (DECIMAL_TEXT.test(t)) return Number(t);
+  const hex = HEX_TEXT.exec(t);
+  if (hex !== null) {
+    const v = Number.parseInt(hex[2], 16);
+    return toField(hex[1] === "-" ? -v : v);
+  }
+  const cents = CENTS_TEXT.exec(t);
+  if (cents !== null) {
+    const c = Number(cents[2]) * (cents[1] === "-" ? -1 : 1);
+    return toField((c * PITCH_UNITS_PER_OCTAVE) / 1200);
+  }
+  const ratio = RATIO_TEXT.exec(t);
+  if (ratio !== null) {
+    const n = Number(ratio[2]), d = Number(ratio[3]);
+    if (!(n > 0 && d > 0)) return NaN;
+    const u = PITCH_UNITS_PER_OCTAVE * Math.log2(n / d);
+    return toField(ratio[1] === "-" ? -u : u);
+  }
+  return NaN;
+}
+
+/** How a field reads what is typed into it: a pitch field (data-mt-pitch =
+ *  "units" | "cents") by parsePitchText, anything else by parseNumberText. */
+function parseFieldText(input, text) {
+  const pitch = input.dataset.mtPitch;
+  return pitch ? parsePitchText(text, pitch) : parseNumberText(text);
+}
+
 /** A finite number from an attribute, or NaN. */
 function attrNum(v) {
   const n = Number.parseFloat(v);
@@ -193,7 +251,7 @@ function stepFrom(input, dir) {
   const min = attrNum(input.min);
   const max = attrNum(input.max);
   const base = Number.isFinite(min) ? min : 0;
-  const cur = parseNumberText(input.value);
+  const cur = parseFieldText(input, input.value);
   if (!Number.isFinite(cur)) return Number.isFinite(min) ? min : 0;
   const n = (cur - base) / step;
   // The epsilon is for a value that IS on the grid but lands a hair off it
@@ -213,9 +271,10 @@ const lastGood = new WeakMap();
 /**
  * Settle a hand-typed value, BEFORE the call site's own change listener reads
  * it: `$FF` and `0xFF` become the number they name, so everything downstream
- * sees exactly what a typed 255 would have given it. Text that is not a number
- * at all puts the last good value back — a native number field blanked itself
- * here, and every call site read that blank as 0.
+ * sees exactly what a typed 255 would have given it. A pitch field
+ * (`data-mt-pitch`) settles `700c` and `3/2` the same way, into its own unit.
+ * Text that is not a number at all puts the last good value back — a native
+ * number field blanked itself here, and every call site read that blank as 0.
  *
  * A rewrite is announced with an `input` event, because several fields commit
  * on `input` and never listen for `change` at all (the chord maker's notes,
@@ -225,7 +284,7 @@ const lastGood = new WeakMap();
 function normaliseNumber(input) {
   if (maps.has(input)) return; // a mapping owns its own text
   const before = input.value;
-  const v = parseNumberText(before);
+  const v = parseFieldText(input, before);
   if (Number.isFinite(v)) {
     const text = String(v);
     if (before !== text) input.value = text;
@@ -283,7 +342,7 @@ function upgradeNumber(input) {
   // to the input itself would run after the call site's own (which was bound
   // first, when the field was built), and that one must never see a `$FF`.
   group.addEventListener("change", () => normaliseNumber(input), true);
-  if (Number.isFinite(parseNumberText(input.value))) lastGood.set(input, input.value);
+  if (Number.isFinite(parseFieldText(input, input.value))) lastGood.set(input, input.value);
   sync();
   input.mtSync = sync;
   return group;

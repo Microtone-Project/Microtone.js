@@ -108,9 +108,9 @@
       "name": "ValueControl",
       "kind": "js",
       "module": "microtone-worker/src/ui/components/spinner.js",
-      "exports": ["mapSpinner", "setMapped", "parseNumberText", "enhanceControls", "syncControls", "startControlEnhancer", "stopControlEnhancer"],
+      "exports": ["mapSpinner", "setMapped", "parseNumberText", "parsePitchText", "enhanceControls", "syncControls", "startControlEnhancer", "stopControlEnhancer"],
       "summary": "Every number field and dropdown as a three-segment group: the native control in the middle, − and + (or ‹ and ›) step buttons either side, one hairline round the three that turns accent on focus. The native element is kept, so call sites need nothing.",
-      "api": "Automatic: startControlEnhancer() upgrades every <input type=number> and <select> as views build them; opt one out with data-mt=\"off\". mapSpinner(input, { toDisplay, fromDisplay, step }, raw) shows a stored value in other units (seconds, dB, hex).",
+      "api": "Automatic: startControlEnhancer() upgrades every <input type=number> and <select> as views build them; opt one out with data-mt=\"off\". mapSpinner(input, { toDisplay, fromDisplay, step }, raw) shows a stored value in other units (seconds, dB, hex). A pitch field (an interval or a detune) sets data-mt-pitch=\"units\" or \"cents\" and also takes 700c, 3/2 and $100, settled into its own unit before the call site reads it; parsePitchText(text, bare) is the same reading for a field the enhancer does not own.",
       "classes": ["mt-spin", "mt-pick", "mt-step"],
       "tokens": ["panel-2", "border", "accent", "dim", "fg", "radius-md"],
       "rules": ["native-controls"]

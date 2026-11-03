@@ -44,7 +44,7 @@ import { librarySoundfonts, loadSoundfont } from "../sflibrary.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
 } from "../../doc/envedit.js";
-import { mapSpinner } from "../components/spinner.js";
+import { mapSpinner, parsePitchText } from "../components/spinner.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
 import { lampButton } from "../components/lampbutton.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
@@ -758,7 +758,8 @@ export class InstrumentsView {
 
   /** label · editable number spinner · annotation · range slider. `onChange`
    *  receives (value, gestureId); a range drag reuses one gestureId so it
-   *  collapses to a single undo step. `opts`: {ann, wide, log, signedLog}. When
+   *  collapses to a single undo step. `opts`: {ann, wide, log, signedLog,
+   *  pitch} — `pitch` ("units" | "cents") lets the spinner take 700c and 3/2. When
    *  `log` the slider TRAVEL is logarithmic (fine control at the low end) while
    *  the spinner/annotation still show the real value; slider bottom pins to
    *  `min` (which may be 0 = "off"), the rest spans log(max(min,1))..log(max).
@@ -774,6 +775,7 @@ export class InstrumentsView {
     const num = document.createElement("input");
     num.type = "number"; num.className = "sl-num";
     num.min = min; num.max = max; num.value = value;
+    if (opts.pitch) num.dataset.mtPitch = opts.pitch; // 700c, 3/2, $100 too
     const ann = document.createElement("span");
     ann.className = "sl-ann";
     const range = document.createElement("input");
@@ -1054,7 +1056,7 @@ export class InstrumentsView {
           ? compositeOp([setInstFieldOp(this.selected, "sampleDetune", nv, gid), sync], gid)
           : setInstFieldOp(this.selected, "sampleDetune", nv, gid));
       },
-      { ann, wide: true, signedLog: true, title: t("inst.detuneTitle") });
+      { ann, wide: true, signedLog: true, pitch: "units", title: t("inst.detuneTitle") });
   }
 
   /**
@@ -1679,7 +1681,7 @@ export class InstrumentsView {
     mapSpinner(inp, {
       toDisplay: (u) => `${centsOfUnits(u).toFixed(1)} ¢`,
       fromDisplay: (text) => {
-        const c = Number.parseFloat(String(text).replace("−", "-"));
+        const c = parsePitchText(text, "cents");
         return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
       },
       step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
@@ -1843,7 +1845,7 @@ export class InstrumentsView {
       mapSpinner(centsIn, {
         toDisplay: (units) => `${centsOfUnits(units).toFixed(1)} ¢`,
         fromDisplay: (text) => {
-          const c = Number.parseFloat(String(text).replace("−", "-"));
+          const c = parsePitchText(text, "cents");
           return clampDetune(Number.isFinite(c) ? unitsOfCents(c) : 0);
         },
         step: (units, dir) => clampDetune(
@@ -2429,10 +2431,11 @@ export class InstrumentsView {
       row.append(span, control);
       return row;
     };
-    const num = (value, max, onChange, min = 0) => {
+    const num = (value, max, onChange, min = 0, pitch = "") => {
       const input = document.createElement("input");
       input.type = "number";
       input.min = min; input.max = max; input.value = value;
+      if (pitch) input.dataset.mtPitch = pitch;
       input.addEventListener("change", () => onChange(clampN(Math.round(+input.value || 0), min, max)));
       return input;
     };
@@ -2540,7 +2543,7 @@ export class InstrumentsView {
         // Shown in cents: the field is 4096-TET units from the drum's own pitch.
         box.appendChild(field(t("opl.partnerPitch"),
           num(Math.round((f.partnerDetune * 1200) / 4096), 9600,
-            (v) => apply(oplPartnerDetuneBytes((v * 4096) / 1200), "pdet"), -9600),
+            (v) => apply(oplPartnerDetuneBytes((v * 4096) / 1200), "pdet"), -9600, "cents"),
           t("opl.partnerPitchTitle")));
       }
       return box;

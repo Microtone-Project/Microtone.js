@@ -4,6 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.7.0 (2026-11-03)
+
+**Pitch fields take cents and ratios**: type `700c` or `3/2` straight into a detune or an interval instead of working out its 4096-TET units by hand.
+
+- Every field that holds an interval or a detune understands four spellings: a plain number in the box's own unit, `$100` or `0x100` for 4096-TET units in hex, `700c` for cents, and a frequency ratio such as `3/2`, `3:2` or `81/80` (a minus in front, `-5/4`, goes downward).
+- That covers the instrument's Detune (Instruments view and its Advanced tab), a layer's or an FM operator's detune (FM and Easy tabs alike), an OPL drum's partner pitch, the chord maker's 4096-TET notes, and the notation maker's interval and degree cents — so a Bohlen–Pierce period is just `3/1`, and a just scale goes in a ratio at a time.
+- Cents and ratios land on the nearest of the 4096 steps per octave: `3/2` becomes 2396 units, 701.95 cents.
+
 ## Version 4.6.0 (2026-11-02)
 
 **FM racks get fixed-frequency operators**, the *FIXED* mode of the Yamaha DX7: an operator can sound one note whatever key is played, instead of following the key at a ratio.

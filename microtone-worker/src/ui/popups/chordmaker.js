@@ -27,6 +27,7 @@ import { themeColors } from "../theme.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { lampButton } from "../components/lampbutton.js";
+import { parsePitchText } from "../components/spinner.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr, toLayout } from "../zoom.js";
 
@@ -213,15 +214,11 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       const n = Number(s);
       return Number.isFinite(n) && n > 0 ? n : null;
     }
-    /** "0x100", "256", "-100" — hex is how the note words themselves read. */
+    /** "256", "0x100" / "$100" (how the note words themselves read), "700c",
+     *  "3/2" — every spelling a pitch field takes, as whole 4096-TET units. */
     function parseUnits(str) {
-      const s = String(str).trim();
-      if (/^[+-]?0x[0-9a-f]+$/i.test(s)) {
-        const n = parseInt(s.replace(/0x/i, ""), 16);
-        return s.startsWith("-") ? -n : n;
-      }
-      const n = parseInt(s, 10);
-      return Number.isFinite(n) ? n : 0;
+      const n = parsePitchText(str, "units");
+      return Number.isFinite(n) ? Math.round(n) : 0;
     }
     function clampInt(str, lo, hi) {
       const n = parseInt(str, 10);

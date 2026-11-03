@@ -439,13 +439,15 @@ export class AdvancedZoneEditor {
   }
 
   /** label + number spinner (+ live annotation fn) committing on change. */
-  num(label, value, min, max, onCommit, ann = null, title = "") {
+  num(label, value, min, max, onCommit, ann = null, title = "", pitch = "") {
     const l = document.createElement("label");
     l.className = "env-ctl adv-num";
     if (title) l.title = title;
     l.append(document.createTextNode(label));
     const inp = document.createElement("input");
     inp.type = "number"; inp.value = value; inp.min = min; inp.max = max;
+    // A pitch field ("units" | "cents") also takes 700c, 3/2 and $100.
+    if (pitch) inp.dataset.mtPitch = pitch;
     const annEl = document.createElement("span");
     annEl.className = "sl-ann";
     if (ann) annEl.textContent = ann(value);
@@ -533,7 +535,8 @@ export class AdvancedZoneEditor {
       this.num(t("adv.rate"), p.samplingRate, 0, 0xffff, (v) => this._field("samplingRate", v)),
       this.num(t("adv.detune"), p.sampleDetune, -0x8000, 0x7fff,
         (v) => this._field("sampleDetune", v),
-        (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v * 1200 / 4096).toFixed(0)}c`));
+        (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v * 1200 / 4096).toFixed(0)}c`,
+        "", "units"));
     this.row(smp,
       this.sel(t("smp.loop"), p.loopMode & 0x03, [
         ["0", t("smp.loopOff")], ["1", t("smp.loopForward")],
