@@ -146,7 +146,22 @@ export class FormantPatch {
     this.rangeLo = 0;
     this.rangeHi = 0;
     this.slots = [new FormantSlot(), new FormantSlot(), new FormantSlot()];
+    // A LYRIC SYLLABLE (item 280, lyricSyllable below) times each of its
+    // consonants and its glide by a byte of its own: [onset 1, onset 2, coda,
+    // glide], each a scale read as `timing` is and applied ON TOP of it — 128
+    // is the record's own pace. Null on a record, whose one byte times them all.
+    this.slotTiming = null;
+    // …and the record it is a syllable of (that record's patch), for whoever
+    // asks which instrument a note is singing; null on a record.
+    this.lyricOf = null;
   }
+}
+
+/** The timing scale of slot `i` (0, 1 the onset, 2 the coda, 3 the glide):
+ *  the record's, times a lyric syllable's own for the slot. */
+function slotScale(patch, i) {
+  const k = timingScale(patch.timing);
+  return patch.slotTiming !== null ? k * timingScale(patch.slotTiming[i]) : k;
 }
 
 const fu16 = (b, o) => (b[o] & 0xff) | ((b[o + 1] & 0xff) << 8);
@@ -166,11 +181,7 @@ export function decodeFormantBlock(raw, off, patch = new FormantPatch()) {
   patch.timing = raw[off + FB_TIMING] & 0xff;
   patch.rangeLo = fu24(raw, off + FB_RANGE_LO);
   patch.rangeHi = fu24(raw, off + FB_RANGE_HI);
-  const gr = raw[off + FB_GR] & 0xff;
-  patch.semivowel = (gr & 7) <= 4 ? gr & 7 : 0;
-  patch.secondary = (gr >>> 3) & 3;
-  patch.codaArt = (gr >>> 5) & 3;
-  patch.rhotic = (gr & 0x80) !== 0;
+  decodeGr(patch, raw[off + FB_GR] & 0xff);
   for (let i = 0; i < FORMANT_SLOTS; i++) {
     const o = off + FB_SLOTS + i * FORMANT_SLOT_BYTES;
     const s = patch.slots[i];
@@ -184,6 +195,58 @@ export function decodeFormantBlock(raw, off, patch = new FormantPatch()) {
     s.gain = raw[o + 11] & 0xff;
   }
   return patch;
+}
+
+/** The glide, the articulations and R (the block's +53, a lyric syllable's
+ *  +4) into `patch`; a glide code 5…7 is RESERVED and sounds as none. */
+function decodeGr(patch, gr) {
+  patch.semivowel = (gr & 7) <= 4 ? gr & 7 : 0;
+  patch.secondary = (gr >>> 3) & 3;
+  patch.codaArt = (gr >>> 5) & 3;
+  patch.rhotic = (gr & 0x80) !== 0;
+}
+
+/**
+ * A LYRIC SYLLABLE (item 280; TAUD_ENGINE_SPEC §5.5.3, "Lyric instruments"):
+ * the record's patch `rec` with syllable `syl` of its `ILyr` entry in place —
+ * the vowel, whether there is one and whether it is nasalised, the glide, the
+ * articulations, R, the three consonants with the noise each reads (`recipes`,
+ * a Map consonant id → recipe; a consonant with none sounds the generator)
+ * and the four timing bytes. Everything else is the record's: the source, the
+ * size tracking, the reference note, the vowel glide, the pool range. Written
+ * into `out` IN PLACE, so that a note singing it follows an edit of the record
+ * as a note singing the record does.
+ */
+export function lyricSyllable(rec, syl, recipes, out = new FormantPatch()) {
+  out.srcPtr = rec.srcPtr;
+  out.srcInst = rec.srcInst;
+  out.front = syl.front & 0xff;
+  out.open = syl.open & 0xff;
+  out.round = syl.round & 0xff;
+  out.track = rec.track;
+  out.refNote = syl.vowel ? formantRefNote(rec) : 0;
+  out.nasal = !!syl.nasal;
+  out.glide = rec.glide;
+  out.timing = rec.timing;
+  out.rangeLo = rec.rangeLo;
+  out.rangeHi = rec.rangeHi;
+  decodeGr(out, syl.gr & 0xff);
+  for (let i = 0; i < FORMANT_SLOTS; i++) {
+    const s = out.slots[i];
+    const cons = syl.cons[i] & 0xff;
+    const r = cons !== 0 ? recipes.get(cons) ?? null : null;
+    s.cons = cons;
+    s.ptr = r !== null ? r.ptr & 0xffffff : 0;
+    s.len = r !== null ? r.len & 0xffff : 0;
+    s.offset = r !== null ? r.offset & 0xffff : 0;
+    s.rate = r !== null ? r.rate & 0xffff : 0;
+    s.tilt = r !== null ? r.tilt : 0;
+    s.gain = r !== null ? r.gain & 0xff : 0;
+  }
+  if (out.slotTiming === null) out.slotTiming = new Uint8Array(4);
+  for (let i = 0; i < 4; i++) out.slotTiming[i] = syl.timing[i] & 0xff;
+  out.lyricOf = rec;
+  return out;
 }
 
 /** Write `patch` as a 54-byte block into `out[off…]`. */
@@ -1474,19 +1537,18 @@ export function formantRelatchSource(st, chip) {
  */
 export function formantNoteOn(st, patch) {
   st.patch = patch;
-  const k = timingScale(patch.timing);
   const vowel = formantHasVowel(patch);
   const rows = [];
   for (let i = 0; i < 2; i++) {
     const r = CONSONANTS[patch.slots[i].cons];
-    if (r !== undefined) rows.push([r, patch.slots[i]]);
+    if (r !== undefined) rows.push([r, patch.slots[i], slotScale(patch, i)]);
   }
   // With no vowel, the last onset consonant is the nucleus — or, with no
   // onset, the coda's consonant, which then leaves no coda after it.
   let coda = true;
   if (!vowel && rows.length === 0) {
     const r = CONSONANTS[patch.slots[2].cons];
-    if (r !== undefined) { rows.push([r, patch.slots[2]]); coda = false; }
+    if (r !== undefined) { rows.push([r, patch.slots[2], slotScale(patch, 2)]); coda = false; }
   }
   // The glide, if any: on its semivowel for the approximant's steady time,
   // then into the vowel over its transition, its voicing rising to the
@@ -1495,6 +1557,7 @@ export function formantNoteOn(st, patch) {
   st.sv = sv; st.svT = 0.0;
   if (sv !== null) {
     const r = CONSONANTS[sv.row];
+    const k = slotScale(patch, 3);
     const dur = r.dur * k, tr = r.trans * k;
     st.svEnd = dur + tr;
     st.svW = new FormantTrack().at(0, 1).at(dur, 1).at(dur + tr, 0).close(st.svEnd, 0);
@@ -1510,7 +1573,7 @@ export function formantNoteOn(st, patch) {
     : nasal ? NASAL_VOWEL_START : VOWEL_START;
   let next = null;
   for (let i = rows.length - 1; i >= 0; i--) {
-    const [r, slot] = rows[i];
+    const [r, slot, k] = rows[i];
     const art = i === rows.length - 1 ? patch.secondary : ART_NONE;
     const tracks = !vowel && i === rows.length - 1
       ? nucleusTracks(r, i === 0, k, art) : onsetTracks(r, i === 0, nx, k, art);
@@ -1524,7 +1587,7 @@ export function formantNoteOn(st, patch) {
   st.seg = 0;
   st.nucleus = !vowel && segs.length > 0 ? segs[segs.length - 1] : null;
   st.held = false;
-  st.coda = coda ? buildCoda(st, patch, k) : null;
+  st.coda = coda ? buildCoda(st, patch, slotScale(patch, 2)) : null;
   st.phase = segs.length > 0 ? PHASE_ONSET : PHASE_VOWEL;
   st.t = 0.0;
   st.codaVeto = false;
@@ -1611,7 +1674,7 @@ export function formantRelatch(st, patch) {
   if (st.glideLeft > 0) { st.ownVowel = true; st.rejoin = true; }
   else { st.ownVowel = false; st.rejoin = false; }
   if (st.phase === PHASE_ONSET || st.phase === PHASE_VOWEL) {
-    st.coda = buildCoda(st, patch, timingScale(patch.timing));
+    st.coda = buildCoda(st, patch, slotScale(patch, 2));
   }
 }
 

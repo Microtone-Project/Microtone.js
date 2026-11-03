@@ -34,6 +34,7 @@ import { SAMPLEBIN_SIZE, ixmpChanByteOffset, ixmpPatchLen } from "../../core/for
 import { sampleSpans } from "./document.js";
 import { regionSpans, buildRegionPayload, largestFreeRun } from "./sampleregions.js";
 import { retargetFormantRecord } from "./formantedit.js";
+import { lyricsWithRecipes } from "./lyricedit.js";
 
 /** The pool's address space: [0, POOL_SIZE). */
 export const POOL_SIZE = SAMPLEBIN_SIZE;
@@ -271,6 +272,8 @@ export function planPoolDefrag(doc) {
     ...(regionsMoved > 0
       ? { regionPayload: nextRegions.length > 0 ? buildRegionPayload(nextRegions) : null }
       : {}),
+    // A lyric instrument's recipes move with their samples (item 280).
+    ilyrPayload: lyricsWithRecipes(doc, (p) => map(p)),
     report: {
       movedBytes,
       freedBytes: wasHighWater - usedBytes,

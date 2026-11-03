@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lyric instrument visual: the Lyrics tab, filled in</title>
+  <style>body { margin: 0; } #out { position: absolute; left: -9999px; }</style>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- For a screenshot: the app at 1280×900 with a lyric instrument's Lyrics
+       tab open: Korean lyrics with an English line, drawn 60 % towards the
+       median, the English syllables picked and given a length of their own.
+       ?tab=formant opens its Formant tab instead; ?theme=light|dim|warmth. -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1280px;height:900px;border:0"></iframe>
+  <script type="module">
+    const q = new URLSearchParams(location.search);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = async (fn, ms = 20000) => {
+      const t0 = Date.now();
+      for (;;) { let v; try { v = fn(); } catch { v = null; } if (v) return v; if (Date.now() - t0 > ms) throw new Error("timeout"); await sleep(40); }
+    };
+    (async () => {
+      const frame = document.getElementById("app");
+      const win = await waitFor(() => (frame.contentWindow?.__microtone?.store.doc ? frame.contentWindow : null));
+      if (q.get("theme")) win.document.documentElement.dataset.theme = q.get("theme");
+      const { store, instrumentsView: iv } = win.__microtone;
+      const doc = store.doc;
+      win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "F5", key: "F5", bubbles: true }));
+      await sleep(150);
+      iv.show();
+      const before = new Set(doc.usedInstrumentSlots());
+      [...iv.listEl.querySelectorAll(".side-toolbar-inst button")].find((b) => b.textContent === "Meta…").click();
+      const dlg = await waitFor(() => win.document.querySelector("dialog.kind-modal"));
+      if (q.get("tab") === "chooser") {
+        [...dlg.querySelectorAll(".kind-card")].pop().scrollIntoView();
+        document.getElementById("out").textContent = "READY";
+        return;
+      }
+      [...dlg.querySelectorAll(".kind-card")].pop().click();
+      const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
+      const { setLyricsOp } = await import("../../src/doc/ops.js");
+      const { deriveLyrics } = await import("../../src/doc/lyrics.js");
+      const text = "t͡ɕʌm.nɛ.sʰɐ.ɾɐŋ | bɪ.t͡ɕʌ.d͡ʑʊ.dʌn.nʌn | nɐ.jɛ.ɪ.bjɤl.ɡˀɐ.d͡ʑi | pon.gɤ.jɐ\n" +
+        "jʊ.stɪlˤ.mɐ.nʌm.bɝ.wʌn\nnɐl.t͡ɕɐ.t͡ɕɪ.mɐ.ɾɐ.d͡ʑwʌ | nɐ.jɛ.sʰɯl.pʰɯm.gɐ.ɾjʌ.d͡ʑwʌ";
+      const own = [18, 19, 20, 21, 22, 23].map((index) => ({ index, timing: 108 }));
+      const res = deriveLyrics(doc.instruments[slot].formant,
+        { text, converge: 60, overrides: [], sylOverrides: own }, null);
+      store.undo.apply(setLyricsOp(doc.lyricPayloadWith(slot, res.entry)));
+      if (q.get("tab") !== "formant") {
+        await waitFor(() => iv.panel.querySelectorAll(".lyr-syl").length === 37);
+        const chips = [...iv.panel.querySelectorAll(".lyr-syl")];
+        chips[18].click();
+        chips[23].dispatchEvent(new win.MouseEvent("click", { shiftKey: true, bubbles: true }));
+      }
+      if (q.get("tab") === "formant") {
+        [...iv.tabBar.querySelectorAll("button")].find((b) => b.textContent === "Formant").click();
+      }
+      await sleep(400);
+      if (q.get("scroll")) iv.panel.querySelector(".lyr-syls")?.scrollIntoView({ block: "center" });
+      document.getElementById("out").textContent = "READY";
+    })().catch((e) => { document.getElementById("out").textContent = "EXCEPTION " + e.stack; });
+  </script>
+</body>
+</html>

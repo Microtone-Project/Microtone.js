@@ -195,6 +195,10 @@ export class Voice {
     // every trigger; an NNA ghost takes a copy, so a released syllable finishes
     // its coda in the background while the lane starts the next one.
     this.formant = null;
+    // A lyric instrument's place in its lyrics on this LANE (item 280): the
+    // syllable the lane's next trigger of it sings. Lane state, read and
+    // written on the lane's foreground voice only.
+    this.lyricPos = 0;
 
     // Two-axis volume AND pan model (TAUD_NOTE_EFFECTS.md §3). Both axes work
     // the same way on either side: the instrument seeds the NOTE axis and the

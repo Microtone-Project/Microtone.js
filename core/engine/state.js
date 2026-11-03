@@ -306,6 +306,11 @@ export class TrackerState {
     // Fine pattern delay (S$6x).
     this.finePatternDelayExtra = 0;
 
+    // A lyric instrument jammed (item 280): which one, and the syllable the
+    // next key sings — the jam bank's voices rotate, so it is kept here.
+    this.jamLyricInst = -1;
+    this.jamLyricPos = 0;
+
     // Interrupt-note latch (Int0..IntF). Plain int — the engine is single-threaded
     // inside the worklet; the drain happens in snapshot assembly (edge-triggered,
     // level-collapsed semantics preserved).
@@ -747,6 +752,7 @@ export class Playhead {
       it.layerPitchMod = 0; it.pitchModDelta = 0;
       it.fmRig = null; it.fmOperator = false; it.fmParent = null;
       it.opl = null; it.oplCarry = false; it.psg = null; it.psgCarry = false; it.formant = null;
+      it.lyricPos = 0; // the lane's place in a lyric instrument's lyrics (item 280)
       // "What's playing" state — cleared alongside the volume reset so a stale
       // instrumentId can't survive into a fresh session (AudioAdapter.kt:5130-5142).
       it.instrumentId = 0;

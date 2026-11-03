@@ -21,6 +21,9 @@ import {
   IMIX_FOURCC, IMCN_FOURCC, parseImixSection, buildImixSection, freeImixId, imixWithFolded,
 } from "../../core/format/imix-section.js";
 import { parseRegionPayload } from "./sampleregions.js";
+import {
+  ILYR_FOURCC, parseLyricSection, buildLyricSection, lyricRecipeSpans,
+} from "../../core/format/lyric-section.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
 import { writeTaud, writeTaudWith } from "../../core/format/taud-write.js";
 import { comp } from "../../core/format/compress.js";
@@ -217,7 +220,7 @@ export function combineTpif(bank, tpif) {
  * taken out of a project takes these with it. `IMix` is one (item 217): an
  * instrument's byte 255 means nothing without the block it names.
  */
-export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC]);
+export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC, ILYR_FOURCC]);
 
 export class Document {
   /** Build from the structure parseTaud returns. */
@@ -292,6 +295,21 @@ export class Document {
       }
       this._instruments = insts;
       this._usedSlots = usedSlots;
+      this._lyricsAttached = undefined;
+    }
+    // The lyric instruments' entries ride on the decoded instruments (item
+    // 280), as the Ixmp patches do, so that everything that walks an
+    // instrument's pool spans (formantInstSpans) walks its recipes too. The
+    // section is replaced, never mutated, so its identity says when to redo it.
+    const sec = this.projSections.find((x) => x.fourcc === ILYR_FOURCC);
+    const payload = sec ? sec.payload : null;
+    if (this._lyricsAttached !== payload) {
+      this._lyricsAttached = payload;
+      const entries = this.lyricMap().entries;
+      for (const inst of this._instruments) {
+        const e = entries.get(inst.index) ?? null;
+        if (e !== inst.lyricEntry) inst.setLyric(e);
+      }
     }
     return this._instruments;
   }
@@ -465,6 +483,67 @@ export class Document {
       };
     }
     return this._imixCache;
+  }
+
+  /**
+   * The `ILyr` section (item 280, §9.17) decoded: {entries: Map slot → entry,
+   * problems}, cached against the payload's identity like imixMap. An entry
+   * is the section's (lyric-section.js) — treat it as read-only; an edit
+   * builds a new one and goes through setLyricOp.
+   */
+  lyricMap() {
+    const sec = this.projSections.find((s) => s.fourcc === ILYR_FOURCC);
+    const payload = sec ? sec.payload : null;
+    if (!this._lyricCache || this._lyricCache.payload !== payload) {
+      this._lyricCache = {
+        payload,
+        ...(payload ? parseLyricSection(payload) : { entries: new Map(), problems: [] }),
+      };
+    }
+    return this._lyricCache;
+  }
+
+  /** Slot `slot`'s lyrics, or null — a slot whose record is not a formant
+   *  instrument has none, whatever the section says (it is inert there). */
+  lyricEntry(slot) {
+    const e = this.lyricMap().entries.get(slot & 0x3ff) ?? null;
+    return e !== null && this.instruments[slot & 0x3ff].isFormant ? e : null;
+  }
+
+  /** Is slot `slot` a LYRIC instrument (a formant instrument with lyrics)? */
+  isLyricSlot(slot) { return this.lyricEntry(slot) !== null; }
+
+  /** Every entry whose instrument is a formant instrument, ascending by slot —
+   *  what a player is given. */
+  lyricEntries() {
+    return [...this.lyricMap().entries.values()]
+      .filter((e) => this.instruments[e.instId & 0x3ff].isFormant)
+      .sort((a, b) => a.instId - b.instId);
+  }
+
+  /** The `ILyr` payload with slot `slot`'s entry replaced by `entry` (null =
+   *  removed), every other entry kept; null when none is left. */
+  lyricPayloadWith(slot, entry) {
+    const map = new Map(this.lyricMap().entries);
+    if (entry === null) map.delete(slot & 0x3ff);
+    else map.set(slot & 0x3ff, { ...entry, instId: slot & 0x3ff });
+    return map.size === 0 ? null : buildLyricSection(map.values());
+  }
+
+  /**
+   * The `ILyr` section as a save writes it: an entry whose instrument is no
+   * longer a formant instrument (deleted, or made something else) is RETIRED,
+   * as an IMix block no instrument names is; so are the entries the reader
+   * found invalid. A section with nothing to drop is written back byte for
+   * byte. undefined = as it is; null = drop the section.
+   */
+  _lyricsForSave() {
+    const sec = this.projSections.find((s) => s.fourcc === ILYR_FOURCC);
+    if (!sec) return undefined;
+    const { entries, problems } = this.lyricMap();
+    const keep = this.lyricEntries();
+    if (problems.length === 0 && keep.length === entries.size) return undefined;
+    return keep.length === 0 ? null : buildLyricSection(keep);
   }
 
   /** Every block, ascending by id. */
@@ -661,6 +740,10 @@ export class Document {
           if (sl.len > 0) add(sl.ptr, sl.len, sl.rate, 0, 0, 0, s);
         }
       }
+      // A lyric instrument (item 280) claims the noise its lyrics' consonants
+      // read, as its record's slots do.
+      const lyric = inst.isFormant ? this.lyricMap().entries.get(s) : undefined;
+      if (lyric) for (const sp of lyricRecipeSpans(lyric)) add(sp.ptr, sp.len, sp.rate, 0, 0, 0, s);
       const patches = patchOverrides?.has(s) ? patchOverrides.get(s) : inst.extraPatches;
       if (patches !== null) {
         for (const p of patches) {
@@ -799,10 +882,12 @@ export class Document {
     // document keeps every block until it is closed.
     const imix = this._imixForSave();
     const imcn = this._imixNamesForSave();
+    const ilyr = this._lyricsForSave();
     const swap = (s, fourcc, payload) => (payload === undefined || s.fourcc !== fourcc ? null
       : payload === null ? [] : [{ fourcc, payload }]);
-    const projSections = imix === undefined && imcn === undefined ? this.projSections
-      : this.projSections.flatMap((s) => swap(s, IMIX_FOURCC, imix) ?? swap(s, IMCN_FOURCC, imcn) ?? [s]);
+    const projSections = imix === undefined && imcn === undefined && ilyr === undefined ? this.projSections
+      : this.projSections.flatMap((s) => swap(s, IMIX_FOURCC, imix) ?? swap(s, IMCN_FOURCC, imcn)
+        ?? swap(s, ILYR_FOURCC, ilyr) ?? [s]);
     return {
       kind: this.kind,
       // The cell layout the patterns below are encoded in — without it the
@@ -886,6 +971,8 @@ export class Document {
       ixmp: this.ixmp,
       // The instruments' chains (item 217) are part of what a player renders.
       imix: this.imixBlocks(),
+      // …and so are the lyric instruments' lyrics (item 280).
+      lyrics: this.lyricEntries(),
       songs: this.songs.map((song, i) => i === songIndex ? {
         bpm: s.bpm, tickRate: s.tickRate, globalFlags: s.globalFlags,
         globalVolume: s.globalVolume, mixingVolume: s.mixingVolume,

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lyric instrument smoke: make one, write its lyrics, sing them a syllable a note</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- REAL time: the panel lays itself out and the engine plays. Run with
+         node tools/browser-smoke.js test/browser/lyric-smoke.html 90 -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1280px;height:900px"></iframe>
+  <script type="module">
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = (fn, ms = 8000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 40);
+    });
+    const ok = (cond) => (cond ? "ok" : "FAIL");
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => {
+          const w = frame.contentWindow;
+          return w && w.__microtone?.store.doc ? w : null;
+        }, 20000);
+        win.alert = (m) => log("alert: " + m);
+        const { store, instrumentsView: iv } = win.__microtone;
+        const doc = store.doc;
+        const wdoc = win.document;
+        log("app loaded");
+        win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "F5", key: "F5", bubbles: true }));
+        await sleep(150);
+        iv.show();
+
+        // ── Meta… → Lyric instrument ──
+        const before = new Set(doc.usedInstrumentSlots());
+        [...iv.listEl.querySelectorAll(".side-toolbar-inst button")].find((b) => b.textContent === "Meta…").click();
+        const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
+        const cards = [...dlg.querySelectorAll(".kind-card")];
+        const last = cards[cards.length - 1];
+        log(`the chooser's sixth card is the lyric instrument, enabled: ` +
+          ok(cards.length === 6 && !last.disabled && last.querySelector(".kind-card-name").textContent === "Lyric instrument"));
+        const depth0 = store.undo.undoStack.length;
+        last.click();
+        const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
+        const inst = () => doc.instruments[slot];
+        log(`$${slot.toString(16)} is a formant instrument with lyrics [la], made in one undo step: ` +
+          ok(inst().isFormant && doc.isLyricSlot(slot) && doc.lyricEntry(slot).editor.text === "la" &&
+             store.undo.undoStack.length === depth0 + 1));
+        await waitFor(() => iv.panel.querySelector(".lyr-text"));
+        const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
+        log(`tabs ${tabs.join("|")}: ` +
+          ok(tabs.join("|") === "Lyrics|Formant|General|Vol env|Pan env|Pitch/Filter|Mixing" && iv.tab === "lyrics"));
+        const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
+        log(`list badge "${badge()}": ${ok(badge() === "LYR·1")}`);
+        const heads = () => [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);
+        log(`groups ${heads().join(", ")}: ${ok(heads().join("|") === "Lyrics|Consonant length|Syllables")}`);
+
+        // ── typing: counted as typed, applied on leaving the box ──
+        const area = iv.panel.querySelector(".lyr-text");
+        area.focus();
+        area.value = "de.zi.de.zi gim.mi.jɝ.an.sɝ.du";
+        area.dispatchEvent(new win.Event("input", { bubbles: true }));
+        const status = () => iv.panel.querySelector(".lyr-status").textContent;
+        log(`typed, not yet applied ("${status()}"): ` +
+          ok(/10 syllables/.test(status()) && /not applied/.test(status()) && doc.lyricEntry(slot).syllables.length === 1));
+        area.value += ".zx!";
+        area.dispatchEvent(new win.Event("input", { bubbles: true }));
+        log(`a syllable that cannot be read is pointed at ("${status()}"): ` +
+          ok(/^Syllable 11: \[zx!\]/.test(status()) && iv.panel.querySelector(".lyr-status").classList.contains("bad")));
+        area.dispatchEvent(new win.Event("change", { bubbles: true }));
+        await sleep(100);
+        log(`…and is not applied: ${ok(doc.lyricEntry(slot).syllables.length === 1)}`);
+        const area2 = iv.panel.querySelector(".lyr-text");
+        area2.value = "de.zi.de.zi gim.mi.jɝ.an.sɝ.du";
+        area2.dispatchEvent(new win.Event("input", { bubbles: true }));
+        area2.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+        await waitFor(() => doc.lyricEntry(slot).syllables.length === 10);
+        await waitFor(() => iv.panel.querySelectorAll(".lyr-syl").length === 10);
+        log(`Ctrl+Enter applies them: ten syllables, ten chips, badge "${badge()}": ` +
+          ok(doc.lyricEntry(slot).syllables.length === 10 && badge() === "LYR·10"));
+        const chips = [...iv.panel.querySelectorAll(".lyr-syl-ipa")].map((c) => c.textContent);
+        log(`chips ${chips.join(" ")}: ${ok(chips[0] === "de" && chips[4] === "ɡim" && chips[6] === "jɜ˞")}`);
+
+        // ── the IPA keyboard types at the caret and keeps the focus ──
+        const area3 = iv.panel.querySelector(".lyr-text");
+        area3.focus();
+        area3.setSelectionRange(area3.value.length, area3.value.length);
+        const keys = [...iv.panel.querySelectorAll(".char-pal-key")];
+        const dot = keys.find((k) => k.textContent === ".");
+        const schwa = keys.find((k) => k.textContent === "ə");
+        dot.click(); schwa.click();
+        log(`the keyboard typed ".ə" and the box kept the focus: ` +
+          ok(area3.value.endsWith("du.ə") && win.document.activeElement === area3));
+        area3.dispatchEvent(new win.Event("change", { bubbles: true }));
+        await waitFor(() => doc.lyricEntry(slot).syllables.length === 11);
+        log(`…applied on leaving the box: ${ok(doc.lyricEntry(slot).editor.text.endsWith("du.ə"))}`);
+
+        // ── convergence towards the median ──
+        const conv = iv.panel.querySelector(".lyr-converge .sl-range");
+        conv.dispatchEvent(new win.PointerEvent("pointerdown", { bubbles: true }));
+        conv.value = "100";
+        conv.dispatchEvent(new win.Event("input", { bubbles: true }));
+        conv.dispatchEvent(new win.Event("change", { bubbles: true }));
+        await waitFor(() => doc.lyricEntry(slot).editor.converge === 100);
+        const squeezed = iv.panel.querySelectorAll(".lyr-syl.squeezed").length;
+        const stretched = iv.panel.querySelectorAll(".lyr-syl.stretched").length;
+        log(`convergence 100 % ("${iv.panel.querySelector(".lyr-converge .sl-ann").textContent}"): ` +
+          `${squeezed} shortened, ${stretched} lengthened, the chips repainted during the drag: ` +
+          ok(squeezed > 0 && stretched > 0));
+        // Each consonant's own length is an advanced setting: there, folded away.
+        const consBox = iv.panel.querySelector(".lyr-cons-box");
+        const consRows = [...iv.panel.querySelectorAll(".lyr-cons-row .sl-label")].map((l) => l.textContent);
+        log(`a length row per consonant (${consRows.join(" ")}), folded by default: ` +
+          ok(consRows.includes("[z]") && consRows.includes("[j]") && consBox.classList.contains("folded")));
+
+        // ── a run of syllables with a length of its own ──
+        const chipEls = () => [...iv.panel.querySelectorAll(".lyr-syl")];
+        chipEls()[4].click();
+        chipEls()[6].dispatchEvent(new win.MouseEvent("click", { shiftKey: true, bubbles: true }));
+        const pickedNow = () => chipEls().map((c, i) => (c.classList.contains("picked") ? i : -1)).filter((i) => i >= 0);
+        log(`click + Shift+click picks syllables 5–7 ("${iv.panel.querySelector(".lyr-pick .sl-label")?.textContent}"): ` +
+          ok(pickedNow().join() === "4,5,6" && /5–7/.test(iv.panel.querySelector(".lyr-pick .sl-label").textContent)));
+        const pickNum = iv.panel.querySelector(".lyr-pick .sl-num");
+        pickNum.value = "96";
+        pickNum.dispatchEvent(new win.Event("change", { bubbles: true }));
+        await waitFor(() => doc.lyricEntry(slot).editor.sylOverrides.length === 3);
+        await waitFor(() => iv.panel.querySelectorAll(".lyr-syl.own").length === 3);
+        log(`their own length: ${JSON.stringify(doc.lyricEntry(slot).editor.sylOverrides)}, the pick kept: ` +
+          ok(doc.lyricEntry(slot).editor.sylOverrides.every((o) => o.timing === 96) && pickedNow().join() === "4,5,6"));
+        // Selecting in the lyrics picks the syllables the selection touches.
+        const area4 = iv.panel.querySelector(".lyr-text");
+        const at = area4.value.indexOf("mi.jɝ");
+        area4.focus();
+        area4.setSelectionRange(at + 1, at + 4);
+        area4.dispatchEvent(new win.Event("select", { bubbles: true }));
+        log(`selecting "${area4.value.slice(at + 1, at + 4)}" in the lyrics picks syllables 6–7: ${ok(pickedNow().join() === "5,6")}`);
+        iv.panel.querySelector(".lyr-pick-clear").click();
+        await waitFor(() => doc.lyricEntry(slot).editor.sylOverrides.length === 1);
+        log(`clearing them leaves syllable 5's: ${ok(doc.lyricEntry(slot).editor.sylOverrides[0]?.index === 4)}`);
+        // An edit in front of it carries it along.
+        const area5 = iv.panel.querySelector(".lyr-text");
+        area5.value = "la." + area5.value;
+        area5.dispatchEvent(new win.Event("input", { bubbles: true }));
+        area5.dispatchEvent(new win.Event("change", { bubbles: true }));
+        await waitFor(() => doc.lyricEntry(slot).syllables.length === 12);
+        log(`a syllable typed in front moves it to syllable 6: ${ok(doc.lyricEntry(slot).editor.sylOverrides[0]?.index === 5)}`);
+
+        // ── X-SAMPA: switching rewrites the lyrics ──
+        const xbtn = [...iv.panel.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === "X-SAMPA");
+        const syl0 = JSON.stringify(doc.lyricEntry(slot).syllables);
+        xbtn.click();
+        await waitFor(() => doc.lyricEntry(slot).editor.xsampa);
+        log(`X-SAMPA: "${doc.lyricEntry(slot).editor.text}", the same syllables, the keyboard hidden: ` +
+          ok(doc.lyricEntry(slot).editor.text.includes("j3`") && JSON.stringify(doc.lyricEntry(slot).syllables) === syl0 &&
+             iv.panel.querySelector(".lyr-pal-box").hidden));
+        [...iv.panel.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === "IPA").click();
+        await waitFor(() => !doc.lyricEntry(slot).editor.xsampa);
+
+        // ── the Formant tab holds what is shared ──
+        [...iv.tabBar.querySelectorAll("button")].find((b) => b.textContent === "Formant").click();
+        await waitFor(() => iv.tab === "formant");
+        log(`Formant tab groups ${heads().join(", ")}: ` +
+          ok(heads().join("|") === "Material|Syllables|Pitch and timing"));
+
+        // ── pattern entry: the number on the lane's first note only ──
+        const { interpretEditKey } = await import("../../src/ui/edit.js");
+        const ctx = (cont) => ({ octave: 4, currentInst: slot, preset: store.pitchPreset, lyricContinues: cont });
+        const cell = { note: 0, instrment: 0 };
+        const a = interpretEditKey({ code: "KeyQ", key: "q", repeat: false }, 0, 0, cell, ctx(false));
+        const b = interpretEditKey({ code: "KeyQ", key: "q", repeat: false }, 0, 0, cell, ctx(true));
+        log(`a note starting the lyrics carries $${slot.toString(16)}, one going on does not: ` +
+          ok(a.fields.instrment === slot && b.fields.instrment === undefined));
+
+        // ── it sings: a syllable a note, in the engine ──
+        // (Which syllable each key sings is the engine's, pinned by lyric.test.js;
+        // here only that jamming one through the real audio path throws nothing.)
+        const audio = store.audio;
+        for (let k = 0; k < 3; k++) {
+          audio.jamNote(0, 0, 0x4000 + k * 0x200, slot, true);
+          await sleep(120);
+        }
+        log("three jammed keys went through the audio path: ok");
+
+        // ── save / reload ──
+        const { Document } = await import("../../src/doc/document.js");
+        const { parseTaud } = await import("../../core/format/taud-parse.js");
+        const back = new Document(parseTaud(doc.toBytes()));
+        log(`round trip keeps the lyrics: ` +
+          ok(JSON.stringify(back.lyricEntry(slot)) === JSON.stringify(doc.lyricEntry(slot))));
+
+        // ── undo all the way takes it away ──
+        while (store.undo.undoStack.length > depth0) store.undo.undo();
+        await sleep(100);
+        log(`undone: no instrument, no lyrics: ${ok(!doc.usedInstrumentSlots().includes(slot) && doc.lyricMap().entries.size === 0)}`);
+
+        const failures = out.filter((l) => l.endsWith("FAIL")).length;
+        log("FAILURES: " + failures);
+        log("RESULT: " + (failures > 0 ? "FAIL" : "PASS"));
+      } catch (e) {
+        log("EXCEPTION: " + (e && e.stack ? e.stack : e));
+        log("RESULT: FAIL");
+      }
+    })();
+  </script>
+</body>
+</html>

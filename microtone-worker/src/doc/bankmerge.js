@@ -24,6 +24,8 @@ import { buildImixSection, freeImixId } from "../../core/format/imix-section.js"
 import {
   regionSpans, buildRegionPayload, MAX_REGION_CHANNELS,
 } from "./sampleregions.js";
+import { lyricsEditRecipes } from "./lyricedit.js";
+import { buildLyricSection, cloneLyricEntry } from "../../core/format/lyric-section.js";
 import {
   formantInstSpans, formantRecordSpans, retargetFormantRecord, remapFormantSource,
 } from "./formantedit.js";
@@ -451,12 +453,20 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
   }
   const writeSnam = anySampleName || destSnamPayload !== null;
 
+  // ── lyrics (item 280): an imported lyric instrument brings them, its
+  //    recipes pointing where their samples landed ──
+  const ilyrPayload = lyricsFor(destDoc, insts.map((it) => {
+    const e = srcDoc.instruments[it.srcSlot]?.isFormant ? srcDoc.instruments[it.srcSlot].lyricEntry : null;
+    return e ? [it.destSlot, e, (ptr, len) => sampleMap.get(sampleKey(ptr, len))] : null;
+  }));
+
   return {
     insts,
     samples: newSamples,
     inamPayload,
     imixPayload,
     imcnPayload,
+    ilyrPayload,
     snamNames,
     writeSnam,
     slotMap,
@@ -1071,7 +1081,19 @@ export function planReplaceSample(destDoc, sample, { pcm, pcmR = null, rate, nam
   const name = nameBytes ?? oldName;
   snamNames.set(sampleKey(newPtrs[0], newLen), name);
 
+  // A lyric instrument's recipe reading the sample follows it, as a formant
+  // record's slot does above (item 280).
+  const lyricScale = sample.rate > 0 ? newRate / sample.rate : 1;
+  const ilyrPayload = lyricsEditRecipes(destDoc, (r) => {
+    if (r.ptr !== sample.ptr || r.len !== oldLen) return false;
+    r.ptr = newPtrs[0];
+    r.len = newLen;
+    r.offset = Math.min(newLen - 1, mark(r.offset));
+    r.rate = Math.max(1, Math.min(0xffff, Math.round(r.rate * lyricScale)));
+    return true;
+  });
   return {
+    ilyrPayload,
     insts,
     samples,
     inamPayload: null,
@@ -1136,6 +1158,24 @@ function copyEntry(doc, src, dest, topLevel = false) {
     ixmpBlob: blob ? blob.blob : null,
     ixmpCount: blob ? blob.count : 0,
   };
+}
+
+/**
+ * The `ILyr` payload with lyric entries added (item 280): `adds` is
+ * [[destSlot, entry, mapPtr(ptr, len) → new ptr | undefined] | null, …].
+ * undefined when nothing is added.
+ */
+function lyricsFor(destDoc, adds) {
+  const list = adds.filter(Boolean);
+  if (list.length === 0) return undefined;
+  const map = new Map(destDoc.lyricMap().entries);
+  for (const [dest, e, mapPtr] of list) {
+    const c = cloneLyricEntry(e);
+    c.instId = dest;
+    for (const r of c.recipes) if (r.len > 0) r.ptr = mapPtr(r.ptr, r.len) ?? r.ptr;
+    map.set(dest, c);
+  }
+  return buildLyricSection(map.values());
 }
 
 /** INam payload with `entries` ([[slot, text], …]) spliced in by slot. */
@@ -1916,6 +1956,11 @@ export function planDuplicateInstruments(destDoc, slots) {
   const inamPayload = inamPayloadWith(destDoc, names);
   const hadInam = sectionPayload(destDoc, "INam") !== null;
   return metaPlan(insts, hadInam || inamPayload.length > 0 ? inamPayload : null, {
+    // A copy of a lyric instrument has its lyrics (item 280), on the same samples.
+    ilyrPayload: lyricsFor(destDoc, insts.map((it) => {
+      const e = destDoc.lyricEntry(it.srcSlot);
+      return e ? [it.destSlot, e, () => undefined] : null;
+    })),
     duplicates,
     childSlots: insts.filter((it) => !it.topLevel).map((it) => it.destSlot),
   });
@@ -1983,6 +2028,9 @@ export function applyPlan(doc, plan) {
   // plans that add, rename or drop a region carry the field; `null` removes it,
   // which is what the last region's deletion means.
   if (plan.regionPayload !== undefined) doc.setSection("SRgn", plan.regionPayload);
+  // Lyrics (item 280): an import or a copy brings a lyric instrument's, a
+  // defrag moves their recipes. `undefined` leaves the section alone.
+  if (plan.ilyrPayload !== undefined) doc.setSection("ILyr", plan.ilyrPayload);
   if (plan.writeSnam) {
     const names = doc.sampleList().map((e) =>
       plan.snamNames.get(sampleKey(e.ptr, e.len)) ?? new Uint8Array(0));

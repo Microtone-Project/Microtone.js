@@ -9757,6 +9757,14 @@ class TaudInst {
     // pointer is `samplePtr`, and the block reads it from there.
     this.formantRaw = null;
     this.formant = null;
+    // Lyric instrument (item 280): the instrument's `ILyr` entry as the host
+    // installed it (Engine.setLyrics), kept across record loads, and — while
+    // the record is a formant instrument — one FormantPatch per syllable
+    // (formant.js lyricSyllable), refreshed in place whenever the record
+    // changes. Null for every instrument without lyrics.
+    this.lyricEntry = null;
+    this.lyric = null;
+    this._lyricRecipes = null;
 
     // Invert loop (S $F0xx) XOR bit-mask over the loop region.
     this.invertMask = null;
@@ -10048,6 +10056,32 @@ class TaudInst {
       const n = Math.min(256, b.length);
       for (let i = 0; i < n; i++) this.setByte(i, b[i] & 0xff);
     }
+    this._refreshLyric();
+  }
+
+  /** Install (or, with null, drop) this instrument's `ILyr` entry (item 280). */
+  setLyric(entry) {
+    this.lyricEntry = entry !== null && entry !== undefined && entry.syllables.length > 0 ? entry : null;
+    this._lyricRecipes = null;
+    if (this.lyricEntry !== null) {
+      const m = new Map();
+      for (const r of this.lyricEntry.recipes) if (r.cons !== 0 && !m.has(r.cons)) m.set(r.cons, r);
+      this._lyricRecipes = m;
+    }
+    // Rebuilt in place where the count allows, so a note singing a syllable
+    // hears an edit of it, as a note singing a record hears that record's.
+    this._refreshLyric();
+  }
+
+  /** True for a LYRIC INSTRUMENT: a formant instrument with lyrics (§5.5.3). */
+  get isLyric() { return this.lyric !== null; }
+
+  /** Re-derive the syllables from the record as it now stands, in place. */
+  _refreshLyric() {
+    if (this.formant === null || this.lyricEntry === null) { this.lyric = null; return; }
+    const syl = this.lyricEntry.syllables;
+    if (this.lyric === null || this.lyric.length !== syl.length) this.lyric = syl.map(() => new FormantPatch());
+    for (let i = 0; i < syl.length; i++) lyricSyllable(this.formant, syl[i], this._lyricRecipes, this.lyric[i]);
   }
 
   /**
@@ -10434,10 +10468,12 @@ class TaudInst {
       // carries in byte 1 and byte 0's two low bits (§7.6).
       if (o === 0) {
         this.formant.srcInst = formantSourceInstOf(byte, this.formant.srcInst & 0xff);
+        this._refreshLyric();
         return;
       }
       if (o === 1) {
         this.formant.srcInst = formantSourceInstOf(this.formant.srcInst >>> 8, byte);
+        this._refreshLyric();
         return;
       }
       if (o <= 3) return;
@@ -10452,6 +10488,7 @@ class TaudInst {
         }
         decodeFormantBlock(this.formantRaw, 0, this.formant);
         this.formant.srcPtr = this.samplePtr;
+        this._refreshLyric();
         return;
       }
     }
@@ -10731,6 +10768,10 @@ class Voice {
     // every trigger; an NNA ghost takes a copy, so a released syllable finishes
     // its coda in the background while the lane starts the next one.
     this.formant = null;
+    // A lyric instrument's place in its lyrics on this LANE (item 280): the
+    // syllable the lane's next trigger of it sings. Lane state, read and
+    // written on the lane's foreground voice only.
+    this.lyricPos = 0;
 
     // Two-axis volume AND pan model (TAUD_NOTE_EFFECTS.md §3). Both axes work
     // the same way on either side: the instrument seeds the NOTE axis and the
@@ -11469,6 +11510,11 @@ class TrackerState {
     // Fine pattern delay (S$6x).
     this.finePatternDelayExtra = 0;
 
+    // A lyric instrument jammed (item 280): which one, and the syllable the
+    // next key sings — the jam bank's voices rotate, so it is kept here.
+    this.jamLyricInst = -1;
+    this.jamLyricPos = 0;
+
     // Interrupt-note latch (Int0..IntF). Plain int — the engine is single-threaded
     // inside the worklet; the drain happens in snapshot assembly (edge-triggered,
     // level-collapsed semantics preserved).
@@ -11910,6 +11956,7 @@ class Playhead {
       it.layerPitchMod = 0; it.pitchModDelta = 0;
       it.fmRig = null; it.fmOperator = false; it.fmParent = null;
       it.opl = null; it.oplCarry = false; it.psg = null; it.psgCarry = false; it.formant = null;
+      it.lyricPos = 0; // the lane's place in a lyric instrument's lyrics (item 280)
       // "What's playing" state — cleared alongside the volume reset so a stale
       // instrumentId can't survive into a fresh session (AudioAdapter.kt:5130-5142).
       it.instrumentId = 0;
@@ -12871,7 +12918,22 @@ class FormantPatch {
     this.rangeLo = 0;
     this.rangeHi = 0;
     this.slots = [new FormantSlot(), new FormantSlot(), new FormantSlot()];
+    // A LYRIC SYLLABLE (item 280, lyricSyllable below) times each of its
+    // consonants and its glide by a byte of its own: [onset 1, onset 2, coda,
+    // glide], each a scale read as `timing` is and applied ON TOP of it — 128
+    // is the record's own pace. Null on a record, whose one byte times them all.
+    this.slotTiming = null;
+    // …and the record it is a syllable of (that record's patch), for whoever
+    // asks which instrument a note is singing; null on a record.
+    this.lyricOf = null;
   }
+}
+
+/** The timing scale of slot `i` (0, 1 the onset, 2 the coda, 3 the glide):
+ *  the record's, times a lyric syllable's own for the slot. */
+function slotScale(patch, i) {
+  const k = timingScale(patch.timing);
+  return patch.slotTiming !== null ? k * timingScale(patch.slotTiming[i]) : k;
 }
 
 const fu16 = (b, o) => (b[o] & 0xff) | ((b[o + 1] & 0xff) << 8);
@@ -12891,11 +12953,7 @@ function decodeFormantBlock(raw, off, patch = new FormantPatch()) {
   patch.timing = raw[off + FB_TIMING] & 0xff;
   patch.rangeLo = fu24(raw, off + FB_RANGE_LO);
   patch.rangeHi = fu24(raw, off + FB_RANGE_HI);
-  const gr = raw[off + FB_GR] & 0xff;
-  patch.semivowel = (gr & 7) <= 4 ? gr & 7 : 0;
-  patch.secondary = (gr >>> 3) & 3;
-  patch.codaArt = (gr >>> 5) & 3;
-  patch.rhotic = (gr & 0x80) !== 0;
+  decodeGr(patch, raw[off + FB_GR] & 0xff);
   for (let i = 0; i < FORMANT_SLOTS; i++) {
     const o = off + FB_SLOTS + i * FORMANT_SLOT_BYTES;
     const s = patch.slots[i];
@@ -12909,6 +12967,58 @@ function decodeFormantBlock(raw, off, patch = new FormantPatch()) {
     s.gain = raw[o + 11] & 0xff;
   }
   return patch;
+}
+
+/** The glide, the articulations and R (the block's +53, a lyric syllable's
+ *  +4) into `patch`; a glide code 5…7 is RESERVED and sounds as none. */
+function decodeGr(patch, gr) {
+  patch.semivowel = (gr & 7) <= 4 ? gr & 7 : 0;
+  patch.secondary = (gr >>> 3) & 3;
+  patch.codaArt = (gr >>> 5) & 3;
+  patch.rhotic = (gr & 0x80) !== 0;
+}
+
+/**
+ * A LYRIC SYLLABLE (item 280; TAUD_ENGINE_SPEC §5.5.3, "Lyric instruments"):
+ * the record's patch `rec` with syllable `syl` of its `ILyr` entry in place —
+ * the vowel, whether there is one and whether it is nasalised, the glide, the
+ * articulations, R, the three consonants with the noise each reads (`recipes`,
+ * a Map consonant id → recipe; a consonant with none sounds the generator)
+ * and the four timing bytes. Everything else is the record's: the source, the
+ * size tracking, the reference note, the vowel glide, the pool range. Written
+ * into `out` IN PLACE, so that a note singing it follows an edit of the record
+ * as a note singing the record does.
+ */
+function lyricSyllable(rec, syl, recipes, out = new FormantPatch()) {
+  out.srcPtr = rec.srcPtr;
+  out.srcInst = rec.srcInst;
+  out.front = syl.front & 0xff;
+  out.open = syl.open & 0xff;
+  out.round = syl.round & 0xff;
+  out.track = rec.track;
+  out.refNote = syl.vowel ? formantRefNote(rec) : 0;
+  out.nasal = !!syl.nasal;
+  out.glide = rec.glide;
+  out.timing = rec.timing;
+  out.rangeLo = rec.rangeLo;
+  out.rangeHi = rec.rangeHi;
+  decodeGr(out, syl.gr & 0xff);
+  for (let i = 0; i < FORMANT_SLOTS; i++) {
+    const s = out.slots[i];
+    const cons = syl.cons[i] & 0xff;
+    const r = cons !== 0 ? recipes.get(cons) ?? null : null;
+    s.cons = cons;
+    s.ptr = r !== null ? r.ptr & 0xffffff : 0;
+    s.len = r !== null ? r.len & 0xffff : 0;
+    s.offset = r !== null ? r.offset & 0xffff : 0;
+    s.rate = r !== null ? r.rate & 0xffff : 0;
+    s.tilt = r !== null ? r.tilt : 0;
+    s.gain = r !== null ? r.gain & 0xff : 0;
+  }
+  if (out.slotTiming === null) out.slotTiming = new Uint8Array(4);
+  for (let i = 0; i < 4; i++) out.slotTiming[i] = syl.timing[i] & 0xff;
+  out.lyricOf = rec;
+  return out;
 }
 
 /** Write `patch` as a 54-byte block into `out[off…]`. */
@@ -14199,19 +14309,18 @@ function formantRelatchSource(st, chip) {
  */
 function formantNoteOn(st, patch) {
   st.patch = patch;
-  const k = timingScale(patch.timing);
   const vowel = formantHasVowel(patch);
   const rows = [];
   for (let i = 0; i < 2; i++) {
     const r = CONSONANTS[patch.slots[i].cons];
-    if (r !== undefined) rows.push([r, patch.slots[i]]);
+    if (r !== undefined) rows.push([r, patch.slots[i], slotScale(patch, i)]);
   }
   // With no vowel, the last onset consonant is the nucleus — or, with no
   // onset, the coda's consonant, which then leaves no coda after it.
   let coda = true;
   if (!vowel && rows.length === 0) {
     const r = CONSONANTS[patch.slots[2].cons];
-    if (r !== undefined) { rows.push([r, patch.slots[2]]); coda = false; }
+    if (r !== undefined) { rows.push([r, patch.slots[2], slotScale(patch, 2)]); coda = false; }
   }
   // The glide, if any: on its semivowel for the approximant's steady time,
   // then into the vowel over its transition, its voicing rising to the
@@ -14220,6 +14329,7 @@ function formantNoteOn(st, patch) {
   st.sv = sv; st.svT = 0.0;
   if (sv !== null) {
     const r = CONSONANTS[sv.row];
+    const k = slotScale(patch, 3);
     const dur = r.dur * k, tr = r.trans * k;
     st.svEnd = dur + tr;
     st.svW = new FormantTrack().at(0, 1).at(dur, 1).at(dur + tr, 0).close(st.svEnd, 0);
@@ -14235,7 +14345,7 @@ function formantNoteOn(st, patch) {
     : nasal ? NASAL_VOWEL_START : VOWEL_START;
   let next = null;
   for (let i = rows.length - 1; i >= 0; i--) {
-    const [r, slot] = rows[i];
+    const [r, slot, k] = rows[i];
     const art = i === rows.length - 1 ? patch.secondary : ART_NONE;
     const tracks = !vowel && i === rows.length - 1
       ? nucleusTracks(r, i === 0, k, art) : onsetTracks(r, i === 0, nx, k, art);
@@ -14249,7 +14359,7 @@ function formantNoteOn(st, patch) {
   st.seg = 0;
   st.nucleus = !vowel && segs.length > 0 ? segs[segs.length - 1] : null;
   st.held = false;
-  st.coda = coda ? buildCoda(st, patch, k) : null;
+  st.coda = coda ? buildCoda(st, patch, slotScale(patch, 2)) : null;
   st.phase = segs.length > 0 ? PHASE_ONSET : PHASE_VOWEL;
   st.t = 0.0;
   st.codaVeto = false;
@@ -14336,7 +14446,7 @@ function formantRelatch(st, patch) {
   if (st.glideLeft > 0) { st.ownVowel = true; st.rejoin = true; }
   else { st.ownVowel = false; st.rejoin = false; }
   if (st.phase === PHASE_ONSET || st.phase === PHASE_VOWEL) {
-    st.coda = buildCoda(st, patch, timingScale(patch.timing));
+    st.coda = buildCoda(st, patch, slotScale(patch, 2));
   }
 }
 
@@ -16230,7 +16340,23 @@ function cutLayerChildren(ts, vi) {
  * fans out into layer children. rowVolOverride is the V-column trigger velocity
  * (or -1), used for velocity-conditional layer/patch resolution.
  */
-function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) {
+/**
+ * The syllable a trigger of a LYRIC INSTRUMENT sings on the lane whose
+ * foreground voice is `voice` (item 280, §5.5.3 "Lyric instruments"), or null
+ * for any other instrument. An instrument byte starts the lyrics over; every
+ * trigger sings the syllable at the lane's position and moves it on, back to
+ * the first after the last.
+ */
+function lyricTrigger(voice, inst, instId, lyricReset) {
+  if (inst.lyric === null) return null;
+  const n = inst.lyric.length;
+  if ((instId !== 0 && lyricReset) || voice.lyricPos >= n) voice.lyricPos = 0;
+  const syl = inst.lyric[voice.lyricPos];
+  voice.lyricPos = voice.lyricPos + 1 >= n ? 0 : voice.lyricPos + 1;
+  return syl;
+}
+
+function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride, lyricReset = true) {
   // Remember the pattern-level instrument for the Timeline header (a meta's slot,
   // not the layer child triggerNote resolves it to). A note with no instrument
   // byte keeps the last one, matching what the pattern shows.
@@ -16242,7 +16368,7 @@ function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) 
   dropFmOperators(ts, vi);
   const inst = instId !== 0 ? eng.instruments[instId] : eng.instruments[voice.instrumentId];
   if (!inst.isMeta) {
-    triggerNote(eng, ts, voice, noteVal, instId, rowVolOverride);
+    triggerNote(eng, ts, voice, noteVal, instId, rowVolOverride, lyricTrigger(voice, inst, instId, lyricReset));
     voice.layerMixGain = 1.0;
     voice.layerRelDetune = 0;
     voice.layerFixedNote = -1;
@@ -16499,7 +16625,7 @@ function narrowVolAxis(ts, v) {
   return clamp(ts.wideCells ? v >> 2 : v, 0, 0x3f);
 }
 
-function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
+function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricPatch = null) {
   // Envelope carry (LOOP word bit 6, item 169.1) is decided from the state the
   // voice is in BEFORE this trigger touches any of it. Three things disqualify
   // a carry, all of them IT's own (schismtracker effects.c env_reset, whose
@@ -16739,7 +16865,8 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // and all. The voice object's previous state is reused — a ghost took a copy.
   if (inst.formant !== null) {
     if (voice.formant === null) voice.formant = new FormantState();
-    formantNoteOn(voice.formant, inst.formant);
+    // A lyric instrument's note sings the syllable its trigger chose (item 280).
+    formantNoteOn(voice.formant, lyricPatch ?? inst.formant);
     formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;
@@ -18452,12 +18579,22 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   // re-attack is the envelopes', not the syllable's.
   // Its source follows the record, a chip channel taking a new patch where it
   // stands (formantRelatchSource).
+  //
+  // A LYRIC instrument's byte starts its lyrics over (item 280). The tract it
+  // hands over is the syllable the note is already singing, when that is one
+  // of this instrument's; otherwise its first syllable.
+  let tract = newInst.formant;
+  if (newInst.lyric !== null) {
+    voice.lyricPos = 0;
+    const cur = voice.formant !== null ? voice.formant.patch : null;
+    tract = cur !== null && cur.lyricOf === newInst.formant ? cur : newInst.lyric[0];
+  }
   if (newInst.formant !== null && voice.formant !== null) {
-    formantRelatch(voice.formant, newInst.formant);
+    formantRelatch(voice.formant, tract);
     formantRelatchSource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else if (newInst.formant !== null) {
     voice.formant = new FormantState();
-    formantStartAtVowel(voice.formant, newInst.formant);
+    formantStartAtVowel(voice.formant, tract);
     formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;
@@ -20711,6 +20848,21 @@ class TaudEngine {
   }
 
   /**
+   * Install the project's LYRICS (item 280, the `ILyr` section, §9.17): an
+   * array of decoded entries ({instId, syllables, recipes}, lyric-section.js),
+   * replacing whatever was installed — an instrument no entry names has none.
+   * The entries are the engine's to keep; the host must not mutate them.
+   */
+  setLyrics(entries) {
+    const by = new Map();
+    for (const e of entries ?? []) if (!by.has(e.instId & 0x3ff)) by.set(e.instId & 0x3ff, e);
+    for (const inst of this.instruments) {
+      const e = by.get(inst.index) ?? null;
+      if (e !== inst.lyricEntry) inst.setLyric(e);
+    }
+  }
+
+  /**
    * Upload an Ixmp "extra samples" block for instrument slot. Patches are
    * variable-length: version byte (0b x00Pfpvi) + 30 common bytes + optional
    * x/v/p/f/P blocks in that order (AudioJSR223Delegate.kt:357-430).
@@ -21070,7 +21222,16 @@ class TaudEngine {
     const v = Math.min(Math.max(vi, 0), TOTAL_VOICES - 1);
     note &= 0xffff;
     inst &= 0x3ff;
-    triggerMetaOrNote(this, ts, ts.voices[v], v, note, inst, -1);
+    // A lyric instrument jammed sings its lyrics on, a syllable a key, over
+    // the whole jam bank — the bank rotates voices, so the place is the
+    // playhead's, kept per instrument (item 280).
+    const lyric = this.instruments[inst].lyric !== null;
+    if (lyric) {
+      if (ts.jamLyricInst !== inst) { ts.jamLyricInst = inst; ts.jamLyricPos = 0; }
+      ts.voices[v].lyricPos = ts.jamLyricPos;
+    }
+    triggerMetaOrNote(this, ts, ts.voices[v], v, note, inst, -1, !lyric);
+    if (lyric) ts.jamLyricPos = ts.voices[v].lyricPos;
     // Audition-only (item 51): a STRICT metainstrument only sounds where its
     // Ixmp zones actually place a sample, so an arbitrary jammed pitch is often
     // silent. In pure-audition contexts (Instruments/Samples views) retry at the
@@ -21433,7 +21594,9 @@ class TaudEngine {
         for (const v of list) {
           if (voices.length >= FORMANT_LIVE_MAX) break;
           const st = v.formant;
-          if (!v.active || st === null || st.patch !== patch || !st.ownVowel) continue;
+          if (!v.active || st === null || !st.ownVowel) continue;
+          // A lyric instrument's note sings one of its syllables (item 280).
+          if (st.patch !== patch && (st.patch === null || st.patch.lyricOf !== patch)) continue;
           const gliding = st.glideLeft > 0;
           voices.push({
             front: st.vFront, open: st.vOpen, round: st.vRound,
@@ -21540,6 +21703,7 @@ const CMD = Object.freeze({
   SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
   SET_IMIX: "setImix",                             // {blocks} — item 217, the instruments' IMix chains
   SET_IMIX_METER: "setImixMeter",                  // {ph, slot} — item 217 Mixing-tab tap (slot < 0 = off)
+  SET_LYRICS: "setLyrics",                         // {entries} — item 280, the lyric instruments' ILyr entries
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
   SET_CUE_POSITION: "setCuePosition",              // {ph, pos}
@@ -22150,6 +22314,7 @@ function applyAudioCommand(eng, m) {
     case CMD.SET_MASTER_METER:
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
     case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
+    case CMD.SET_LYRICS: eng.setLyrics(m.entries); return true;
     case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;

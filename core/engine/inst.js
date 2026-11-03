@@ -10,7 +10,7 @@ import {
   PsgPatch, decodePsgPatch, psgClearRuntime, PSG_BLOCK_START, PSG_BLOCK_LEN,
 } from "./psg.js";
 import {
-  FormantPatch, decodeFormantBlock, FORMANT_BLOCK_START, FORMANT_BLOCK_LEN,
+  FormantPatch, decodeFormantBlock, lyricSyllable, FORMANT_BLOCK_START, FORMANT_BLOCK_LEN,
   FORMANT_RECORD_HEADER, META_TYPE_FORMANT, formantSourceInstOf,
 } from "./formant.js";
 
@@ -775,6 +775,14 @@ export class TaudInst {
     // pointer is `samplePtr`, and the block reads it from there.
     this.formantRaw = null;
     this.formant = null;
+    // Lyric instrument (item 280): the instrument's `ILyr` entry as the host
+    // installed it (Engine.setLyrics), kept across record loads, and — while
+    // the record is a formant instrument — one FormantPatch per syllable
+    // (formant.js lyricSyllable), refreshed in place whenever the record
+    // changes. Null for every instrument without lyrics.
+    this.lyricEntry = null;
+    this.lyric = null;
+    this._lyricRecipes = null;
 
     // Invert loop (S $F0xx) XOR bit-mask over the loop region.
     this.invertMask = null;
@@ -1066,6 +1074,32 @@ export class TaudInst {
       const n = Math.min(256, b.length);
       for (let i = 0; i < n; i++) this.setByte(i, b[i] & 0xff);
     }
+    this._refreshLyric();
+  }
+
+  /** Install (or, with null, drop) this instrument's `ILyr` entry (item 280). */
+  setLyric(entry) {
+    this.lyricEntry = entry !== null && entry !== undefined && entry.syllables.length > 0 ? entry : null;
+    this._lyricRecipes = null;
+    if (this.lyricEntry !== null) {
+      const m = new Map();
+      for (const r of this.lyricEntry.recipes) if (r.cons !== 0 && !m.has(r.cons)) m.set(r.cons, r);
+      this._lyricRecipes = m;
+    }
+    // Rebuilt in place where the count allows, so a note singing a syllable
+    // hears an edit of it, as a note singing a record hears that record's.
+    this._refreshLyric();
+  }
+
+  /** True for a LYRIC INSTRUMENT: a formant instrument with lyrics (§5.5.3). */
+  get isLyric() { return this.lyric !== null; }
+
+  /** Re-derive the syllables from the record as it now stands, in place. */
+  _refreshLyric() {
+    if (this.formant === null || this.lyricEntry === null) { this.lyric = null; return; }
+    const syl = this.lyricEntry.syllables;
+    if (this.lyric === null || this.lyric.length !== syl.length) this.lyric = syl.map(() => new FormantPatch());
+    for (let i = 0; i < syl.length; i++) lyricSyllable(this.formant, syl[i], this._lyricRecipes, this.lyric[i]);
   }
 
   /**
@@ -1452,10 +1486,12 @@ export class TaudInst {
       // carries in byte 1 and byte 0's two low bits (§7.6).
       if (o === 0) {
         this.formant.srcInst = formantSourceInstOf(byte, this.formant.srcInst & 0xff);
+        this._refreshLyric();
         return;
       }
       if (o === 1) {
         this.formant.srcInst = formantSourceInstOf(this.formant.srcInst >>> 8, byte);
+        this._refreshLyric();
         return;
       }
       if (o <= 3) return;
@@ -1470,6 +1506,7 @@ export class TaudInst {
         }
         decodeFormantBlock(this.formantRaw, 0, this.formant);
         this.formant.srcPtr = this.samplePtr;
+        this._refreshLyric();
         return;
       }
     }

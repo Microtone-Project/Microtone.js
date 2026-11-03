@@ -337,6 +337,9 @@ export class AudioSystem {
     // a rebuild too.
     this.setImix(doc.imix ?? []);
     if (this.imixMeterSlot >= 0) this.setImixMeter(0, this.imixMeterSlot);
+    // The lyric instruments' lyrics (item 280) — pushed whether the file has
+    // any or not, so a document without them clears the previous one's.
+    this.setLyrics(doc.lyrics ?? []);
 
     for (const entry of doc.ixmp) {
       const bytes = entry.blob.slice().buffer;
@@ -403,6 +406,9 @@ export class AudioSystem {
   /** Item 217: install the project's IMix blocks (an array of decoded blocks;
    *  empty = no instrument has a chain). */
   setImix(blocks) { this._post({ t: CMD.SET_IMIX, blocks: blocks ?? [] }); }
+  /** Item 280: install the project's lyrics (decoded `ILyr` entries; empty =
+   *  no instrument has lyrics). */
+  setLyrics(entries) { this._post({ t: CMD.SET_LYRICS, entries: entries ?? [] }); }
   /** Item 217: meter one instrument's bus for the Mixing tab (slot < 0 = off).
    *  Costs nothing while off; that tab turns it off when it is not on screen. */
   setImixMeter(ph, slot) {

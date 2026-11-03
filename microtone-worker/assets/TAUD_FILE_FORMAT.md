@@ -680,6 +680,8 @@ A type-1 Metainstrument is a **formant instrument**: an ordinary instrument whos
 | 197…250 | — | The **tract block** (below) |
 | 251…255 | — | As [§7.1](#7-1-byte-map) |
 
+A formant instrument that an `ILyr` entry names ([§9.17](#9-17-ilyr-lyric-instruments)) is a **lyric instrument**: it sings that entry's syllables one a note, its record holding what every syllable shares.
+
 The block takes the place of the **second pitch/filter envelope slot**, as an OPL patch does, so a formant instrument has exactly one: bytes 19, 121 and 193, playing the pitch or the filter role as its `m` bit says. A formant instrument has **no Ixmp patch list**: its one source is its sample, and an `Ixmp` entry naming a type-1 instrument is **IGNORED**.
 
 #### The source instrument
@@ -845,7 +847,7 @@ Any other **empty** range — end ≤ start — says the instrument is made from
 
 #### Pool references
 
-A type-1 record points into the pool at up to **four** places — the source and the three slots — where every other record points at one. Each is a span of the census exactly as an instrument's sample is ([§9.4](#9-4-snam-sample-name-table)): a producer deriving the census **MUST** count all four, and an editor that moves, frees or copies pool bytes **MUST** follow all four. Bytes 0…3 are the header, never a pointer: an editor that writes a moved sample's pointer there destroys the record.
+A type-1 record points into the pool at up to **four** places — the source and the three slots — where every other record points at one; a lyric instrument's `ILyr` entry adds one for each of its recipes ([§9.17](#9-17-ilyr-lyric-instruments)). Each is a span of the census exactly as an instrument's sample is ([§9.4](#9-4-snam-sample-name-table)): a producer deriving the census **MUST** count all four, and an editor that moves, frees or copies pool bytes **MUST** follow all four. Bytes 0…3 are the header, never a pointer: an editor that writes a moved sample's pointer there destroys the record.
 
 #### Where a formant instrument may stand
 
@@ -1272,12 +1274,13 @@ If your samples are already pre-tuned for your system, leave the project's tunin
 
 ### 9.8 Reading Project Data on a device that ignores it
 
-Nothing in Project Data is required to play a song correctly, with four exceptions that a conforming *player* **MUST** honour:
+Nothing in Project Data is required to play a song correctly, with five exceptions that a conforming *player* **MUST** honour:
 
 - `xHDR`, because it changes the cue stride.
 - `Ixmp`, because it changes which samples an instrument plays.
 - `sMst`, because it is the chain the song is delivered through ([§9.12](#9-12-smst-song-mastering)).
 - `IMix`, because it is the chains the instruments are mixed through ([§9.15](#9-15-imix-instrument-mixing-chains)).
+- `ILyr`, because it is which syllable a lyric instrument's note sings ([§9.17](#9-17-ilyr-lyric-instruments)).
 
 Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all, and `PMtf` ([§9.14](#9-14-pmtf-motif-source)), the program a project was built from.
 
@@ -1696,6 +1699,68 @@ The names of the `IMix` blocks ([§9.15](#9-15-imix-instrument-mixing-chains)), 
 
 Instrument-scoped, so a `.tsii` bank carries the names with the chains. A name changes nothing about playback. An empty entry, or one past the end of the table, is a block with no name, which an editor **SHOULD** show by its number. A name goes with its block: an editor that retires a block ([§9.15](#9-15-imix-instrument-mixing-chains)) **SHOULD** blank its entry in the same save, and one that moves a block to another id (a bank import) **SHOULD** move its name too.
 
+### 9.17 `ILyr` — lyric instruments
+
+A **lyric instrument** is a formant instrument ([§7.6](#7-6-metainstrument-type-1-formant-instruments)) given **lyrics**: a list of syllables it sings one a note, in order. Its record holds what every syllable shares — the source, the pool range, the size tracking, the reference note, the vowel glide, the consonant timing, and everything an ordinary record holds; this section holds what differs from one syllable to the next. Which syllable a note sings is the engine's ([Engine Specification §5.5.3](TAUD_ENGINE_SPEC.md#lyric-instruments)). A reader that ignores the section plays the instrument as the formant instrument its record is, singing the record's own syllable on every note — which is why [§9.8](#9-8-reading-project-data-on-a-device-that-ignores-it) lists it among the sections a player **MUST** honour.
+
+Instrument-scoped, so a `.tsii` bank carries an instrument's lyrics with it. The payload is a repetition of entries, one per lyric instrument:
+
+| Type | Field |
+|---|---|
+| `U16` | Bits 0…9 the **instrument**, 1…1023; bits 10…15 **RESERVED** (0) |
+| `U32` | `L`, the length in bytes of the rest of the entry |
+| `U16` | `S`, the number of **syllables**, 1…65535 |
+| `U8` | `R`, the number of **recipes**, 0…255 |
+| `U8` | **RESERVED** (0) |
+| 12 bytes × `R` | The recipes |
+| 12 bytes × `S` | The syllables, in the order they are sung |
+| `Byte[*]` | To the end of the `L` bytes: the editor's ([below](#the-editor-s-part)) |
+
+An entry naming an instrument that is not a formant instrument is **IGNORED**, as is an entry with no syllable or one shorter than its counts say, and every entry after the first for one instrument. A reader **MUST** skip an entry by its `L`, so that a later version may add fields after the syllables.
+
+#### The recipes
+
+A recipe is the noise one consonant reads, wherever it is said in the lyrics: 12 bytes laid out as a consonant slot of the tract block ([§7.6](#7-6-metainstrument-type-1-formant-instruments)), its first byte the consonant id it is for — `U8` id, `U24` pool pointer, `U16` length, `U16` offset, `U16` rate, `S8` tilt, `U8` gain — meaning what they mean there: a sample, or with no sample the engine's noise generator through the recipe's tilt and gain. The first recipe for an id is the one read; a consonant with no recipe sounds the generator at unity, untilted. Only the consonants that read noise use one.
+
+The recipes point into the pool like a record's slots: each is a span of the census ([§9.4](#9-4-snam-sample-name-table)), and an editor that moves, frees or copies pool bytes **MUST** follow them as it follows the record's own pointers.
+
+#### The syllables
+
+| Offset | Type | Field |
+|---|---|---|
+| +0 | `U8` | Vowel: **frontness**, as the tract block's +3 |
+| +1 | `U8` | Vowel: **openness**, as +4 |
+| +2 | `U8` | Vowel: **roundness**, as +5 |
+| +3 | `U8` | Bit 0 **V**: the syllable has a vowel; bit 1 **N**: it is nasalised. Bits 2…7 **RESERVED** |
+| +4 | `U8` | The glide, the articulations and R, as the tract block's +53 |
+| +5 | `U8` | Onset 1: consonant id, 0 = none |
+| +6 | `U8` | Onset 2 |
+| +7 | `U8` | Coda |
+| +8 | `U8` | Onset 1's **timing** |
+| +9 | `U8` | Onset 2's timing |
+| +10 | `U8` | The coda's timing |
+| +11 | `U8` | The glide's timing |
+
+A syllable is the record with these fields in its place: its vowel, its three consonants (each reading the recipe for its id), its glide, articulations and R — and with V clear no vowel, the reference word read as 0 ([the nucleus](#the-nucleus)); with V set, the record's reference note, or `$4000` where the record's is 0. N is the reference word's bit 15. A syllable with no vowel keeps its bytes +0…+2 as where the tongue rests, as a record does.
+
+Each **timing** byte scales one consonant's times — or the glide's — on top of the record's consonant timing (tract block +10): the time is multiplied by 2^((record byte − 128) ÷ 64) × 2^((syllable byte − 128) ÷ 64). 128 is the record's own pace, so one consonant can be made longer wherever it is said, or one syllable's onset shorter, without touching the rest. A timing byte for a slot with no consonant, or a syllable with no glide, **SHOULD** be 128.
+
+#### The editor's part
+
+What follows the syllables is the lyrics as an editor keeps them, to edit them again. Players **MUST** ignore it; an editor that does not know it **MUST** keep it byte for byte when it keeps the entry.
+
+| Type | Field |
+|---|---|
+| `U8` | Bit 0: the lyrics are written in X-SAMPA rather than IPA. Bits 1…7 **RESERVED** |
+| `U8` | The **convergence**, 0…100: how far, in percent, each syllable's onset is drawn towards the lyrics' median onset |
+| `U8` | `O`, the number of consonant lengths that follow |
+| 2 bytes × `O` | A consonant id and its timing byte: that consonant's own length, read as a syllable's timing byte is |
+| `U16` | `P`, the number of syllable lengths that follow |
+| 3 bytes × `P` | A `U16` syllable index (0 = the first) and a timing byte: that syllable's own length, which the convergence leaves alone |
+| `Byte[*]` | The lyrics as written, UTF-8, to the end of the entry |
+
+Microtone writes the lyrics as syllables separated by spaces, full stops or hyphens, and derives the rest from them: each consonant at its own length, then every onset (its consonants and glide) moved towards the median of the onsets — of the syllables that have one and no length of their own — by the convergence, shortened or lengthened, and last each syllable with a length of its own scaled by it. A missing or short editor's part is lyrics no editor wrote, which play the same.
+
 ## 10. Validity checklist
 
 A writer producing a file that any conforming reader will accept must satisfy all of the following.
@@ -1715,6 +1780,7 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Every type-8 record's kind is 0…6 and its reserved bytes are zero ([§7.8](#7-8-metainstrument-type-8-opl-instruments)).
 - Every type-9 record's reserved bytes and bits are zero, and no oscillator's tremolo or vibrato depth is 3 ([§7.9](#7-9-metainstrument-type-9-psg-instruments)).
 - Every type-1 record's reserved bytes are zero, its source instrument is 0 or a type-8 or type-9 instrument, an empty pool range other than 0…0 goes with no source sample, its consonant ids are 0 or defined, every slot whose consonant reads noise either has no sample (the generator) or lies inside the pool with its offset inside its sample, and no rack names it as an operator ([§7.6](#7-6-metainstrument-type-1-formant-instruments)).
+- Every `ILyr` entry names a distinct formant instrument, holds at least one syllable and is at least as long as its counts say; every syllable's consonant ids are 0 or defined, and every recipe with a sample lies inside the pool with its offset inside its sample ([§9.17](#9-17-ilyr-lyric-instruments)).
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
 
@@ -1755,3 +1821,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-10-29 | `IMix`: `tsh1`, a **transient shaper** of one to six bands, between `deq1` and `comp` in both pipelines; the identifier `tsh2` is reserved for a second one after `comp` |
 | 2026-10-29 | `IMix`: `expd`, a **downward expander** that shuts like a **gate** below its **floor** (−∞: a pure expander; the threshold: a pure gate), with hold, hysteresis and a key filter, between `itrm` and `equ1` in both pipelines |
 | 2026-11-02 | Type-4 racks: entry byte +9 bit 6, **fixed pitch**, is no longer the Layered kind's alone — on an operator it marks a **fixed-frequency** operator, its detune field read as an unsigned note word instead of a ratio. A rack written before sets the bit nowhere, so it sounds as it did |
+| 2026-11-03 | `ILyr` — lyric instruments: a formant instrument with an entry sings its syllables one a note, each the record with its own vowel, consonants, marks and per-consonant timing, its consonants' noise in recipes; the fifth Project-Data section a player must honour |

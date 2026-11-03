@@ -97,6 +97,7 @@ export function applyAudioCommand(eng, m) {
     case CMD.SET_MASTER_METER:
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
     case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
+    case CMD.SET_LYRICS: eng.setLyrics(m.entries); return true;
     case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;

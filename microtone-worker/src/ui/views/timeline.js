@@ -50,6 +50,7 @@ import {
   narrowCharPos, narrowCharToSub,
 } from "../narrowcell.js";
 import { t } from "../i18n.js";
+import { lyricContinues } from "../../doc/lyrics.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
 const FONT_PX = 13; // family comes from --cv-font via fonts.js
@@ -1513,6 +1514,8 @@ export class TimelineView {
       { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, target.cell,
       { octave: jam.octave, transpose: jam.transpose, currentInst: jam.currentInst, preset: store.pitchPreset,
         rawHex,
+        lyricContinues: jam.currentInst > 0 && !!store.doc?.isLyricSlot(jam.currentInst) &&
+          lyricContinues(store.doc.songs[store.songIndex].patterns[target.pat] ?? [], target.rowInCue, jam.currentInst),
         keymap: store.keymap, quoteKey: store.quoteKey,
         wideCells: store.doc?.wideCells === true });
     if (!action) return false;

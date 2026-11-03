@@ -19,6 +19,7 @@ import { dragGrip, focusGrip } from "../../microtone-worker/src/ui/components/dr
 import { makeFoldable } from "../../microtone-worker/src/ui/components/fold.js";
 import { lampButton } from "../../microtone-worker/src/ui/components/lampbutton.js";
 import { flipSwitch } from "../../microtone-worker/src/ui/components/flipswitch.js";
+import { charPalette } from "../../microtone-worker/src/ui/components/charpalette.js";
 import { showBanner } from "../../microtone-worker/src/ui/components/banner.js";
 import { noteRun, rangeGlyph } from "../../microtone-worker/src/ui/components/noteglyph.js";
 import { BTN_ICON, ICON, icon } from "../../microtone-worker/src/ui/icons.js";
@@ -528,6 +529,25 @@ const DEMOS = {
       lampButton({ label: ["Off", "On"], onChange: (on) => { out.textContent = `percussion ${on ? "on" : "off"}`; } }).button);
     box.append(row, named, out);
     say();
+  },
+
+  CharPalette(box) {
+    // The lyric instrument's IPA keyboard, cut down: a key types at the caret
+    // and the field keeps the focus.
+    const field = el("textarea", "lyr-text ipa");
+    field.rows = 2;
+    field.value = "de.zi ";
+    const pal = charPalette({
+      target: field,
+      groups: [
+        { label: "Vowels", keys: ["i", "e", "ɛ", "a", "ɔ", "o", "u", "ə", "ɚ"] },
+        { label: "Consonants", keys: ["p", "t", "k", "s", "ʃ", "m", "n", "ŋ", "l", "ɾ"] },
+        { label: "Marks", keys: [{ text: "\u0303", title: "nasalised" }, { text: "\u02B2", title: "palatalised" },
+          { text: "\u031A", title: "unreleased" }] },
+        { label: "Breaks", keys: [{ text: ".", title: "next syllable" }, { text: " ", label: "␣", title: "next word" }] },
+      ],
+    });
+    box.append(field, pal.element);
   },
 
   FlipSwitch(box) {

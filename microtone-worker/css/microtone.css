@@ -2626,6 +2626,56 @@ button.nota-assign { font-size: 0.85rem; }
 .fmt-cons.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .fmt-cons-legend { max-width: 60rem; line-height: 1.4; }
 
+/* ── Lyrics tab (item 280, views/instlyrics.js) ──
+   The lyrics and every syllable are IPA, in the face the Formant tab shows IPA
+   in; the box keeps the text as typed (X-SAMPA is plain letters). */
+.lyr-text {
+  width: 100%; max-width: 560px; box-sizing: border-box; resize: vertical;
+  font-size: 1.05rem; line-height: 1.5; padding: 0.3rem 0.45rem;
+  background: var(--cv-bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+.lyr-text.ipa, .lyr-syl-ipa, .lyr-cons-row .sl-label {
+  font-family: "Open Sans", sans-serif;
+  font-variation-settings: "wdth" 100;
+}
+.lyr-status { font-size: 0.85rem; color: var(--dim); }
+.lyr-pal-head { display: flex; align-items: center; gap: 0.2rem; font-size: 0.85rem; color: var(--fg2); }
+.lyr-status.bad { color: var(--err-fg); cursor: pointer; }
+.lyr-syls {
+  list-style: none; margin: 0; padding: 0; max-width: 560px;
+  display: flex; flex-wrap: wrap; gap: 0.25rem;
+}
+.lyr-syl {
+  display: inline-flex; align-items: baseline; gap: 0.3rem; padding: 0.05rem 0.4rem;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.lyr-syl-n, .lyr-syl-ms { font-family: var(--mono-font); font-size: 0.72rem; color: var(--dim); }
+.lyr-syl { cursor: pointer; user-select: none; }
+.lyr-syl:hover { border-color: var(--fg2); }
+/* Drawn towards the median: shortened (solid) or lengthened (dashed). */
+.lyr-syl.squeezed, .lyr-syl.stretched { border-color: var(--accent); }
+.lyr-syl.stretched { border-style: dashed; }
+.lyr-syl.squeezed .lyr-syl-ms, .lyr-syl.stretched .lyr-syl-ms { color: var(--accent); }
+/* A length of its own (the lamp's green), and picked. */
+.lyr-syl.own { border-color: var(--meter); }
+.lyr-syl.own .lyr-syl-ms { color: var(--meter); }
+.lyr-syl.picked { background: var(--cv-sel); box-shadow: inset 0 0 0 1px var(--fg2); }
+.lyr-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; max-width: 560px; }
+.lyr-pick .slider-row { flex: 1 1 22rem; }
+.lyr-cons-box .lyr-pal-head { margin-top: 0.2rem; }
+
+/* A character palette (components/charpalette.js): keys that type what a
+   typing keyboard has not got, in the face the app shows IPA in. */
+.char-palette { display: flex; flex-direction: column; gap: 0.2rem; max-width: 560px; }
+.char-pal-group { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.char-pal-label { font-size: 0.75rem; color: var(--dim); min-width: 5.5rem; }
+.char-pal-key {
+  font-family: "Open Sans", sans-serif; font-variation-settings: "wdth" 100;
+  font-size: 0.95rem; min-width: 1.8rem; padding: 0.05rem 0.2rem;
+  background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.char-pal-key:hover { border-color: var(--accent); }
+
 /* General-tab stacked field rows: label · spinner · annotation · slider. */
 .inst-rows {
   display: flex;
@@ -3281,7 +3331,8 @@ button.nota-assign { font-size: 0.85rem; }
    it stays pinned beneath them however long the list runs. */
 .side-foot-inst {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 0.35rem;
   padding: 0.35rem 0.6rem;
   border-top: 1px solid var(--border);
   position: sticky;
@@ -3289,6 +3340,37 @@ button.nota-assign { font-size: 0.85rem; }
   background: var(--panel);
   z-index: 1;
 }
+/* Select at the left, Export… at the right; in select mode the count takes
+   the room between Done and All / None. */
+.inst-foot-line { display: flex; align-items: center; gap: 0.5rem; }
+.inst-foot-line > :last-child { margin-left: auto; }
+.inst-foot-line .inst-sel-count {
+  flex: 1;
+  margin-left: 0;
+  color: var(--dim);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The three actions on the picked set fill the row, each as wide as its label
+   asks — equal columns cut "Renumber…" short. */
+.inst-foot-acts { display: flex; gap: 0.5rem; }
+.inst-foot-acts button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-inline: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A picked row (select mode) wears the selection hue: a bar down its left edge
+   and a wash, so it still reads over the edited row's cursor colour. */
+.side-row.picked {
+  background: color-mix(in srgb, var(--accent-2) 22%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent-2);
+}
+.side-row.picked.sel { background: color-mix(in srgb, var(--accent-2) 22%, var(--cv-cursor)); }
 
 /* ── "Meta…" kind chooser (popups/newmeta.js) ──
    Four cards, two by two, each a picture, a name and a paragraph: the choice

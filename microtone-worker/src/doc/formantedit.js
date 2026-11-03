@@ -69,6 +69,11 @@ export function formantInstSpans(inst) {
   inst.formant.slots.forEach((s, i) => {
     if (s.len > 0) out.push({ ptr: s.ptr, len: s.len, role: i, rate: s.rate, loopStart: 0, loopEnd: 0, loopMode: 0 });
   });
+  // A lyric instrument's recipes (item 280, the ILyr entry the document
+  // attached): the noise its lyrics' consonants read.
+  for (const r of inst.lyricEntry?.recipes ?? []) {
+    if (r.len > 0) out.push({ ptr: r.ptr, len: r.len, role: "lyric", rate: r.rate, loopStart: 0, loopEnd: 0, loopMode: 0 });
+  }
   return out;
 }
 

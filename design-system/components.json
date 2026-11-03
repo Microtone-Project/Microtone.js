@@ -170,6 +170,18 @@
       "rules": ["panel-switches", "change-driven"]
     },
     {
+      "name": "CharPalette",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/charpalette.js",
+      "exports": ["charPalette"],
+      "summary": "A palette of keys that type what a typing keyboard has not got — the IPA keyboard under a lyric instrument's lyrics. Groups of keys, each typing its text into a field at the caret, replacing the selection, as typing it would; the field keeps the focus, so one that commits on blur is not committed by a key. A combining mark is shown on a dotted circle and types the mark alone.",
+      "api": "charPalette({ groups: [{ label, keys: [string | { text, label?, title? }] }], target: field | () => field, className? }) → { element, setTarget(field) }. A press types into the target and fires its input event.",
+      "example": "const pal = charPalette({ groups: [{ label: t(\"lyr.palVowels\"), keys: [\"i\", \"e\", \"a\", \"o\", \"u\"] }, { label: t(\"lyr.palMarks\"), keys: [{ text: \"\\u0303\", title: t(\"lyr.markNasal\") }] }], target: textarea });\nrow.append(textarea, pal.element);",
+      "classes": ["char-palette", "char-pal-group", "char-pal-label", "char-pal-key"],
+      "tokens": ["panel-2", "fg", "border", "accent", "dim", "radius-sm"],
+      "rules": ["colour-tokens", "voice"]
+    },
+    {
       "name": "FlipSwitch",
       "kind": "js",
       "module": "microtone-worker/src/ui/components/flipswitch.js",

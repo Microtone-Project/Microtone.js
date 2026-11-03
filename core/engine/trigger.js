@@ -281,7 +281,23 @@ export function cutLayerChildren(ts, vi) {
  * fans out into layer children. rowVolOverride is the V-column trigger velocity
  * (or -1), used for velocity-conditional layer/patch resolution.
  */
-export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride) {
+/**
+ * The syllable a trigger of a LYRIC INSTRUMENT sings on the lane whose
+ * foreground voice is `voice` (item 280, §5.5.3 "Lyric instruments"), or null
+ * for any other instrument. An instrument byte starts the lyrics over; every
+ * trigger sings the syllable at the lane's position and moves it on, back to
+ * the first after the last.
+ */
+function lyricTrigger(voice, inst, instId, lyricReset) {
+  if (inst.lyric === null) return null;
+  const n = inst.lyric.length;
+  if ((instId !== 0 && lyricReset) || voice.lyricPos >= n) voice.lyricPos = 0;
+  const syl = inst.lyric[voice.lyricPos];
+  voice.lyricPos = voice.lyricPos + 1 >= n ? 0 : voice.lyricPos + 1;
+  return syl;
+}
+
+export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride, lyricReset = true) {
   // Remember the pattern-level instrument for the Timeline header (a meta's slot,
   // not the layer child triggerNote resolves it to). A note with no instrument
   // byte keeps the last one, matching what the pattern shows.
@@ -293,7 +309,7 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   dropFmOperators(ts, vi);
   const inst = instId !== 0 ? eng.instruments[instId] : eng.instruments[voice.instrumentId];
   if (!inst.isMeta) {
-    triggerNote(eng, ts, voice, noteVal, instId, rowVolOverride);
+    triggerNote(eng, ts, voice, noteVal, instId, rowVolOverride, lyricTrigger(voice, inst, instId, lyricReset));
     voice.layerMixGain = 1.0;
     voice.layerRelDetune = 0;
     voice.layerFixedNote = -1;
@@ -550,7 +566,7 @@ export function narrowVolAxis(ts, v) {
   return clamp(ts.wideCells ? v >> 2 : v, 0, 0x3f);
 }
 
-export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
+export function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricPatch = null) {
   // Envelope carry (LOOP word bit 6, item 169.1) is decided from the state the
   // voice is in BEFORE this trigger touches any of it. Three things disqualify
   // a carry, all of them IT's own (schismtracker effects.c env_reset, whose
@@ -790,7 +806,8 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride) {
   // and all. The voice object's previous state is reused — a ghost took a copy.
   if (inst.formant !== null) {
     if (voice.formant === null) voice.formant = new FormantState();
-    formantNoteOn(voice.formant, inst.formant);
+    // A lyric instrument's note sings the syllable its trigger chose (item 280).
+    formantNoteOn(voice.formant, lyricPatch ?? inst.formant);
     formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;

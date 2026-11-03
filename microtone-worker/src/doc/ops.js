@@ -6,7 +6,7 @@
 // Dirty tags: {kind:"pattern", song, pat} | {kind:"cue", song, cue}
 //           | {kind:"scalar", song, key} | {kind:"inst", slot} | {kind:"bank"}
 //           | {kind:"ixmp", slot} | {kind:"section", fourcc} | {kind:"resync", song}
-//           | {kind:"mastering", song} | {kind:"imix"}
+//           | {kind:"mastering", song} | {kind:"imix"} | {kind:"lyrics"}
 
 import { applyPlan, captureBankState, restoreBankState, buildIxmpSection } from "./bankmerge.js";
 import {
@@ -14,6 +14,7 @@ import {
 } from "../../core/engine/inst.js";
 import { TaudPlayData } from "../../core/engine/state.js";
 import { imixCarryFolds } from "../../core/format/imix-section.js";
+import { swapLyricsSection } from "./lyricedit.js";
 import { CUE_EMPTY, MAX_VOICES, NUM_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
 
 /**
@@ -991,6 +992,29 @@ export function setImixOp(payload, control = null, gestureId = null) {
   };
 }
 
+/**
+ * Replace the `ILyr` section (item 280, §9.17) — every lyric instrument's
+ * lyrics — as one invertible step: the inverse restores the exact previous
+ * bytes (null = no section). Build the payload with doc.lyricPayloadWith().
+ * Which instruments are formant instruments is the records' business; an
+ * edit that makes one is a separate op, composed with this one.
+ */
+export function setLyricsOp(payload, gestureId = null) {
+  return {
+    type: "setLyrics",
+    payload, gestureId,
+    coalesceKey: null,
+    apply(doc) {
+      const i = doc.projSections.findIndex((s) => s.fourcc === "ILyr");
+      const prev = i >= 0 ? doc.projSections[i].payload : null;
+      doc.setSection("ILyr", payload);
+      doc.dirty = true;
+      return setLyricsOp(prev, gestureId);
+    },
+    dirty: () => [{ kind: "lyrics" }],
+  };
+}
+
 /** Refresh the live decoded TaudInst's patches from the (possibly just
  *  swapped) doc.ixmp list — last entry for the slot wins, mirroring the
  *  device upload order. */
@@ -1236,6 +1260,7 @@ export function renumberInstrumentOp(plan, gestureId = null) {
       doc.setSection("Ixmp", "ixmpSection" in plan
         ? plan.ixmpSection
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
+      swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
       doc._resetInstrumentCache();
       for (const w of plan.cells) {
         const cell = doc.songs[w.song].patterns[w.pat]?.[w.row];
@@ -1302,6 +1327,7 @@ export function deleteInstrumentOp(plan, gestureId = null) {
       doc.setSection("Ixmp", "ixmpSection" in plan
         ? plan.ixmpSection
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
+      swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
       doc._resetInstrumentCache();
       for (const w of plan.cells) {
         const cell = doc.songs[w.song].patterns[w.pat]?.[w.row];
@@ -1436,6 +1462,7 @@ export function cleanupBankOp(plan, gestureId = null) {
       doc.setSection("Ixmp", "ixmpSection" in plan
         ? plan.ixmpSection
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
+      swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
       doc._resetInstrumentCache();
       doc.dirty = true;
       return cleanupBankOp(old, gestureId);

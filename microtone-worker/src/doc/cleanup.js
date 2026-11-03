@@ -20,6 +20,7 @@ import { sampleSpans, BANK_SECTIONS, cueInfo } from "./document.js";
 import { buildIxmpSection } from "./bankmerge.js";
 import { regionSpans } from "./sampleregions.js";
 import { formantRecordSpans, remapFormantSource } from "./formantedit.js";
+import { lyricsWithSlots, lyricsWithRecipes } from "./lyricedit.js";
 import { emptyPatternBytes } from "./patterntools.js";
 import { cellToBytes, emptyCellBytes } from "./clipboard.js";
 
@@ -444,6 +445,8 @@ function censusForSlots(instAt, slots, patchOverrides = null) {
     if (!inst) continue;
     if (!inst.isMeta) add(inst.samplePtr, inst.sampleLength);
     if (inst.isFormant) for (const sl of inst.formant.slots) add(sl.ptr, sl.len);
+    // …and a lyric instrument's recipes (item 280).
+    if (inst.isFormant) for (const r of inst.lyricEntry?.recipes ?? []) add(r.ptr, r.len);
     const patches = patchOverrides?.has(s) ? patchOverrides.get(s) : inst.extraPatches;
     if (patches) {
       for (const p of patches) {
@@ -552,6 +555,8 @@ export function planBankCleanup(doc) {
   return {
     image, inam: encodeNameTable(inamArr), snam: encodeNameTable(snamArr),
     ixmp: prune.ixmp, report: prune.report,
+    // A removed instrument's lyrics go with it (item 280).
+    ilyr: lyricsWithSlots(doc, (s) => (used.has(s) ? s : null)),
     removedInstruments: unused.length, freedSampleBytes,
     removedPatches: prune.removedPatches, removedBlobs: prune.removedBlobs,
   };
@@ -711,43 +716,102 @@ export function planRenumberInstrument(doc, from, to, { remapPatterns = false } 
   if (used.has(to)) {
     return { error: `$${to.toString(16).toUpperCase().padStart(2, "0")} is already taken.` };
   }
+  const plan = planRenumberInstruments(doc, [[from, to]], { remapPatterns });
+  return plan.error ? plan : { ...plan, from, to };
+}
+
+/**
+ * Renumber SEVERAL instruments at once — the list's multiple selection, moved
+ * by a constant. `moves` is [[from, to], …]; a move onto its own number is
+ * dropped. Because every record is lifted out before any is written, a target
+ * may be the source of another move (shifting $01–$05 up by one), and the moves
+ * may even swap; a target held by an instrument that is NOT moving is refused,
+ * as are two moves onto one number. Everything else is the single renumber's
+ * rule: wiring always follows, pattern cells only with `remapPatterns`.
+ *
+ * Returns {error} or a renumberInstrumentOp plan with `moves` (the non-identity
+ * [from, to] pairs, in the order given).
+ */
+export function planRenumberInstruments(doc, moves, { remapPatterns = false } = {}) {
+  if (!doc.sampleInstImage) return { error: "This project has no sample+instrument image." };
+  const hex = (x) => "$" + x.toString(16).toUpperCase().padStart(2, "0");
+  const used = new Set(doc.usedInstrumentSlots());
+  const map = new Map();
+  for (const [from, to] of moves) {
+    if (!used.has(from)) return { error: `${hex(from)} is empty.` };
+    if (to < 1 || to > 255) {
+      return { error: `${hex(from)} would become ${to < 1 ? "$00 or below" : hex(to)}: an instrument number must be $01–$FF.` };
+    }
+    if (map.has(from)) return { error: `${hex(from)} is named twice.` };
+    if (from !== to) map.set(from, to);
+  }
+  if (map.size === 0) return { error: "The instruments already have those numbers." };
+  const landed = new Set();
+  for (const to of map.values()) {
+    if (landed.has(to)) return { error: `Two instruments would both become ${hex(to)}.` };
+    landed.add(to);
+    // A target is free once its own instrument moves away; one that STAYS blocks it.
+    if (used.has(to) && !map.has(to)) return { error: `${hex(to)} is already taken.` };
+  }
   doc._rebuildInstRegion(); // flush pending inst edits into the image
 
+  const newSlot = (k) => map.get(k) ?? k;
   const image = doc.sampleInstImage.slice();
   const recOff = (slot) => SAMPLEBIN_SIZE + slot * 256;
-  image.set(image.slice(recOff(from), recOff(from) + 256), recOff(to));
-  image.fill(0, recOff(from), recOff(from) + 256);
+  const lifted = new Map();
+  for (const from of map.keys()) lifted.set(from, image.slice(recOff(from), recOff(from) + 256));
+  for (const from of map.keys()) image.fill(0, recOff(from), recOff(from) + 256);
+  for (const [from, to] of map) image.set(lifted.get(from), recOff(to));
 
   // Metainstrument layers are raw record bytes, so patch them in the image: the
   // layer's low 8 index bits live at its byte 0, bits 8..9 in the top two bits
   // of its vol-start byte (+8). A meta that moved is patched at its NEW record.
   for (const s of used) {
-    const base = recOff(s === from ? to : s);
+    const base = recOff(newSlot(s));
     // A formant instrument names its OPL source in its header (§7.6).
-    remapFormantSource(image.subarray(base, base + 256), (k) => (k === from ? to : k));
+    remapFormantSource(image.subarray(base, base + 256), newSlot);
     const layers = doc.instruments[s].metaLayers;
     if (!layers) continue;
     for (const l of layers) {
-      if ((l.instIdx & 0x3ff) !== from) continue;
+      const to = map.get(l.instIdx & 0x3ff);
+      if (to === undefined) continue;
       image[base + l.rawOffset] = to & 0xff;
       image[base + l.rawOffset + 8] = (l.volStart & 0x3f) | (((to >>> 8) & 0x3) << 6);
     }
   }
 
   const inamArr = doc._nameTable("INam").slice();
-  while (inamArr.length <= Math.max(from, to)) inamArr.push("");
-  inamArr[to] = inamArr[from];
-  inamArr[from] = "";
+  const top = Math.max(...map.keys(), ...map.values());
+  while (inamArr.length <= top) inamArr.push("");
+  const names = new Map([...map.keys()].map((from) => [from, inamArr[from]]));
+  for (const from of map.keys()) inamArr[from] = "";
+  for (const [from, to] of map) inamArr[to] = names.get(from);
   while (inamArr.length && inamArr[inamArr.length - 1] === "") inamArr.pop();
 
   const ixmp = doc.ixmp.map((e) =>
-    (e.instId & 0x3ff) === from ? { instId: to, count: e.count, blob: e.blob } : e);
+    map.has(e.instId & 0x3ff) ? { instId: map.get(e.instId & 0x3ff), count: e.count, blob: e.blob } : e);
 
-  const cells = remapPatterns
-    ? instrumentCellRefs(doc, from).map((r) => ({ ...r, inst: to }))
-    : [];
+  // Every cell is read from the document as it is NOW, so a note moved onto a
+  // number another move vacates is never moved twice.
+  const cells = [];
+  if (remapPatterns) {
+    const low = new Map([...map].filter(([from]) => from <= 0xff));
+    if (low.size > 0) {
+      doc.songs.forEach((song, si) => {
+        song.patterns.forEach((p, pi) => {
+          if (!p) return;
+          p.forEach((cell, row) => {
+            const to = low.get(cell.instrment & 0xff);
+            if (to !== undefined) cells.push({ song: si, pat: pi, row, inst: to });
+          });
+        });
+      });
+    }
+  }
 
-  return { image, inam: encodeNameTable(inamArr), ixmp, cells, from, to };
+  // Their lyrics follow them (item 280).
+  const ilyr = lyricsWithSlots(doc, newSlot);
+  return { image, inam: encodeNameTable(inamArr), ixmp, cells, moves: [...map], ilyr };
 }
 
 // ── Ixmp patch cleanup (item 74) ──
@@ -1274,6 +1338,8 @@ export function planDeleteSample(doc, sample) {
     inam: doc.projSections.find((s) => s.fourcc === "INam")?.payload ?? null,
     snam: encodeNameTable(snamArr),
     ixmp,
+    // A lyric recipe sounding the sample loses its noise to the generator (item 280).
+    ilyr: lyricsWithRecipes(doc, (p, l) => (p === sample.ptr && l === sample.len ? null : undefined)),
     clearedInsts, patchedInsts, removedPatches, removedBlobs, freedSampleBytes,
   };
 }
@@ -1325,21 +1391,35 @@ export function uniqueSampleSpans(doc, slot) {
  * for a non-meta.
  */
 export function classifyMetaChildren(doc, metaSlot) {
-  const m = metaSlot & 0x3ff;
-  const inst = doc.instruments[m];
-  if (!inst || inst.sourceSlots.length === 0) return { autoChildren: [], lowChildren: [] };
+  return classifySetChildren(doc, [metaSlot]);
+}
+
+/**
+ * The same for a SET of instruments deleted together: the children of every
+ * metainstrument in `slots` that are not in the set themselves and that no
+ * metainstrument OUTSIDE the set still uses. One slot gives exactly
+ * classifyMetaChildren's answer.
+ */
+export function classifySetChildren(doc, slots) {
+  const set = new Set([...slots].map((x) => x & 0x3ff));
   const used = doc.usedInstrumentSlots();
-  const kids = [...new Set(inst.sourceSlots)].filter((k) => k !== m);
   const autoChildren = [];
   const lowChildren = [];
-  for (const kid of kids) {
-    const referencedElsewhere = used.some((o) => {
-      if (o === m || o === kid) return false;
-      return doc.instruments[o].sourceSlots.includes(kid);
-    });
-    if (referencedElsewhere) continue; // still a layer of another meta — keep it
-    if (kid >= 0x100) autoChildren.push(kid);
-    else lowChildren.push({ slot: kid, patternRefs: instrumentCellRefs(doc, kid).length });
+  const seen = new Set();
+  for (const m of set) {
+    const inst = doc.instruments[m];
+    if (!inst || inst.sourceSlots.length === 0) continue;
+    for (const kid of inst.sourceSlots) {
+      if (set.has(kid) || seen.has(kid)) continue;
+      seen.add(kid);
+      const referencedElsewhere = used.some((o) => {
+        if (set.has(o) || o === kid) return false;
+        return doc.instruments[o].sourceSlots.includes(kid);
+      });
+      if (referencedElsewhere) continue; // still a layer of another meta — keep it
+      if (kid >= 0x100) autoChildren.push(kid);
+      else lowChildren.push({ slot: kid, patternRefs: instrumentCellRefs(doc, kid).length });
+    }
   }
   return { autoChildren, lowChildren };
 }
@@ -1371,14 +1451,30 @@ export function classifyMetaChildren(doc, metaSlot) {
  * rebuilds the Ixmp SECTION from `ixmp` (like the renumber/cleanup ops), so the
  * delete survives a save.
  */
-export function planDeleteInstrument(doc, slot, { freeSamples = false, reassignTo = null, deleteLowChildren = false } = {}) {
+export function planDeleteInstrument(doc, slot, opts = {}) {
+  const plan = planDeleteInstruments(doc, [slot], opts);
+  return plan.error ? plan : { ...plan, from: slot & 0x3ff };
+}
+
+/**
+ * Delete SEVERAL instruments in one step — the list's multiple selection. The
+ * single delete's rules over a set: the cascade takes the children only the
+ * set's metainstruments use (classifySetChildren), `reassignTo` moves the
+ * notes of every slot in `slots` (and none of a sub-instrument's), and samples
+ * are freed when nothing outside the deleted set plays them. `reassignTo` must
+ * not be one of the instruments going. Same plan shape as planDeleteInstrument,
+ * with `slots` for `from`.
+ */
+export function planDeleteInstruments(doc, slots, { freeSamples = false, reassignTo = null, deleteLowChildren = false } = {}) {
   if (!doc.sampleInstImage) return { error: "This project has no sample+instrument image." };
-  const s = slot & 0x3ff;
-  if (!doc.usedInstrumentSlots().includes(s)) return { error: "That instrument slot is empty." };
+  const primary = [...new Set([...slots].map((x) => x & 0x3ff))];
+  if (primary.length === 0) return { error: "No instruments selected." };
+  const usedNow = new Set(doc.usedInstrumentSlots());
+  if (primary.some((x) => !usedNow.has(x))) return { error: "That instrument slot is empty." };
   doc._rebuildInstRegion(); // flush pending inst edits into the image
 
-  const { autoChildren, lowChildren } = classifyMetaChildren(doc, s);
-  const deleteSet = new Set([s, ...autoChildren]);
+  const { autoChildren, lowChildren } = classifySetChildren(doc, primary);
+  const deleteSet = new Set([...primary, ...autoChildren]);
   if (deleteLowChildren) for (const c of lowChildren) deleteSet.add(c.slot);
 
   const recOff = (x) => SAMPLEBIN_SIZE + x * 256;
@@ -1467,14 +1563,19 @@ export function planDeleteInstrument(doc, slot, { freeSamples = false, reassignT
   // Ixmp: drop every removed slot's patch entries.
   const ixmp = doc.ixmp.filter((e) => !removedSet.has(e.instId & 0x3ff));
 
-  // Note references: reassign only the PRIMARY slot (a deleted low sub-instrument
-  // dangles). $100+ can't be note-referenced.
-  const refs = s <= 0xff ? instrumentCellRefs(doc, s) : [];
-  const doReassign = reassignTo !== null && s <= 0xff;
+  // Note references: reassign only the PRIMARY slots (a deleted low sub-
+  // instrument dangles). $100+ can't be note-referenced.
+  const lowPrimary = primary.filter((x) => x <= 0xff);
+  if (reassignTo !== null && primary.length > 1 && removedSet.has(reassignTo & 0x3ff)) {
+    return { error: "The notes cannot move onto an instrument that is being deleted." };
+  }
+  const refs = lowPrimary.flatMap((x) => instrumentCellRefs(doc, x));
+  const doReassign = reassignTo !== null && lowPrimary.length > 0;
   const cells = doReassign ? refs.map((r) => ({ ...r, inst: reassignTo & 0xff })) : [];
 
   return {
-    image, inam: encodeNameTable(inamArr), snam: encodeNameTable(snamArr), ixmp, cells, from: s,
+    image, inam: encodeNameTable(inamArr), snam: encodeNameTable(snamArr), ixmp, cells, slots: primary,
+    ilyr: lyricsWithSlots(doc, (k) => (deleteSet.has(k) ? null : k)), // its lyrics go with it (item 280)
     freedSamples, freedSampleBytes, rewiredMetas, emptiedMetas,
     autoChildren, deletedLowChildren: deleteLowChildren ? lowChildren.map((c) => c.slot) : [],
     danglingRefs: doReassign ? 0 : refs.length,

@@ -56,8 +56,8 @@
         metaBtn.click();
         const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
         const cards = [...dlg.querySelectorAll(".kind-card")];
-        log(`kind chooser shows five cards, the formant one last and enabled: ` +
-          ok(cards.length === 5 && !cards[4].disabled &&
+        log(`kind chooser shows six cards, the formant one fifth and enabled (the lyric one after it): ` +
+          ok(cards.length === 6 && !cards[4].disabled &&
              cards[4].querySelector(".kind-card-name").textContent === "Formant instrument"));
         cards[4].click();
         const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));

@@ -262,7 +262,7 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   const t12 = hasCheckbox && doc.usedInstrumentSlots().includes(free) &&
     !doc.usedInstrumentSlots().includes(from) && movedRefs.length === 0 &&
     iv.selected === free && jam.currentInst === free;
-  log(`renumber $${from.toString(16)}→$${free.toString(16)}, patterns left alone (${refsBefore.length} refs): ${s4 ? "ok" : "FAIL"}`);
+  log(`renumber $${from.toString(16)}→$${free.toString(16)}, patterns left alone (${refsBefore.length} refs): ${t12 ? "ok" : "FAIL"}`);
   store.undo.undo();
   const t13 = same(doc.toBytes(), baseline);
   log(`undo of the renumber is byte-exact: ${t13 ? "ok" : "FAIL"}`);
@@ -317,6 +317,92 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   iv.refresh();
   const t22 = same(doc.toBytes(), baseline);
   log(`undo of the duplicate is byte-exact: ${t22 ? "ok" : "FAIL"}`);
+
+  // ── select mode: duplicate, renumber and delete several at once ──
+  const footBtn = (cls) => iv.listEl.querySelector(".side-foot-inst " + cls);
+  const rowOf = (s) => iv.rowEls.find((r) => r.slot === s)?.el;
+  iv.refresh();
+  footBtn(".inst-select-btn").click();
+  const m1 = iv.selecting && !!footBtn(".inst-dup-many") && footBtn(".inst-dup-many").disabled;
+  log(`Select shows the bulk actions, disabled with nothing picked: ${m1 ? "ok" : "FAIL"}`);
+  // Three consecutive instruments with free numbers above them.
+  const usedNow = new Set(doc.usedInstrumentSlots());
+  const listed = doc.selectableInstrumentSlots();
+  const runStart = listed.find((s) => s + 2 <= 0xfc && listed.includes(s + 1) && listed.includes(s + 2) &&
+    !usedNow.has(s + 3) && !usedNow.has(s + 4));
+  const run = runStart === undefined ? [] : [runStart, runStart + 1, runStart + 2];
+  const editedBefore = iv.selected;
+  rowOf(run[0]).click();
+  rowOf(run[2]).dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+  const m2 = run.length === 3 && run.every((s) => iv.picked.has(s) && rowOf(s).classList.contains("picked")) &&
+    iv.picked.size === 3 && iv.selected === editedBefore &&
+    /3 selected/.test(iv.listEl.querySelector(".inst-sel-count").textContent);
+  log(`click + Shift+click picks $${runStart?.toString(16)}–$${(runStart + 2).toString(16)}, the edited one stays: ${m2 ? "ok" : "FAIL"}`);
+
+  // Renumber by +2: the run overlaps itself, which a one-at-a-time move would refuse.
+  footBtn(".inst-renum-many").click();
+  await sleep(40);
+  dlg = lastDialog();
+  dlg.querySelector("input[name=by]").value = "+2";
+  btnIn(dlg, "Renumber").click();
+  await sleep(60);
+  const m3 = run.every((s) => doc.usedInstrumentSlots().includes(s + 2)) &&
+    !doc.usedInstrumentSlots().includes(run[0]) && !doc.usedInstrumentSlots().includes(run[1]) &&
+    run.every((s) => iv.picked.has(s + 2));
+  log(`Renumber… +2 moves all three in one go, the picks follow: ${m3 ? "ok" : "FAIL"}`);
+  store.undo.undo();
+  iv.refresh();
+  const m4 = same(doc.toBytes(), baseline);
+  log(`one undo restores the whole renumber byte-exact: ${m4 ? "ok" : "FAIL"}`);
+
+  // A negative amount that would leave $01 is refused.
+  iv.picked = new Set(run);
+  iv.syncPicks();
+  footBtn(".inst-renum-many").click();
+  await sleep(40);
+  dlg = lastDialog();
+  dlg.querySelector("input[name=by]").value = "-" + run[0].toString(16);
+  lastAlert = null;
+  btnIn(dlg, "Renumber").click();
+  await sleep(40);
+  const m5 = /must be/.test(lastAlert ?? "") && same(doc.toBytes(), baseline);
+  log(`a shift below $01 is refused, document untouched: ${m5 ? "ok" : "FAIL"}`);
+
+  // Duplicate the three: the picks move onto the copies.
+  const usedCount = doc.usedInstrumentSlots().length;
+  footBtn(".inst-dup-many").click();
+  await sleep(60);
+  const copies = [...iv.picked];
+  const m6 = doc.usedInstrumentSlots().length === usedCount + 3 && copies.length === 3 &&
+    copies.every((s) => !run.includes(s) && doc.usedInstrumentSlots().includes(s));
+  log(`Duplicate copies all three and picks the copies (${copies.map((s) => "$" + s.toString(16)).join(", ")}): ${m6 ? "ok" : "FAIL"}`);
+
+  // …and Delete… takes the copies away again, in one step.
+  footBtn(".inst-del-many").click();
+  await sleep(40);
+  dlg = lastDialog();
+  const m7 = /Delete 3 instruments/.test(dlg.textContent);
+  btnIn(dlg, "Delete").click();
+  await sleep(60);
+  const m8 = m7 && doc.usedInstrumentSlots().length === usedCount &&
+    copies.every((s) => !doc.usedInstrumentSlots().includes(s)) && iv.picked.size === 0;
+  log(`Delete… removes the three copies in one dialog: ${m8 ? "ok" : "FAIL"}`);
+  store.undo.undo();
+  store.undo.undo();
+  iv.refresh();
+  const m9 = same(doc.toBytes(), baseline);
+  log(`undo, undo: back to the start byte-exact: ${m9 ? "ok" : "FAIL"}`);
+
+  footBtn(".inst-select-btn").click();
+  const m10 = !iv.selecting && !iv.listEl.querySelector(".side-row.picked") &&
+    [...iv.listEl.querySelectorAll(".side-foot-inst button")].some((b) => b.textContent === "Export…");
+  log(`Done leaves select mode, Export… is back: ${m10 ? "ok" : "FAIL"}`);
+  // Ctrl+click starts select mode with the edited instrument already picked.
+  const other = listed.find((s) => s !== iv.selected);
+  rowOf(other).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+  const m11 = iv.selecting && iv.picked.has(other) && iv.picked.has(iv.selected) && iv.picked.size === 2;
+  log(`Ctrl+click starts picking with the edited instrument: ${m11 ? "ok" : "FAIL"}`);
+  iv.setSelecting(false);
 
   // ── item 74: cleanup unreachable instrument patches ──
   pv.visible = true;

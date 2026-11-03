@@ -27,9 +27,9 @@ import {
   FM_MAX_OPERATORS,
 } from "../../doc/fmedit.js";
 import {
-  planRenumberInstrument, instrumentCellRefs,
-  planDeleteInstrument, metainstrumentParents,
-  classifyMetaChildren, uniqueSampleSpansForSet,
+  planRenumberInstrument, planRenumberInstruments, instrumentCellRefs,
+  planDeleteInstrument, planDeleteInstruments, metainstrumentParents,
+  classifyMetaChildren, classifySetChildren, uniqueSampleSpansForSet,
 } from "../../doc/cleanup.js";
 import { planDuplicateInstruments } from "../../doc/bankmerge.js";
 import { showNotice } from "../components/modal.js";
@@ -62,6 +62,7 @@ import { formantBadge } from "../../doc/formantedit.js";
 import { oplGraph, oplGraphCanvas } from "../../doc/oplgraph.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
 import { renderFormantTab, formantTabFrame } from "./instformant.js";
+import { renderLyricsTab } from "./instlyrics.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
 import { renderFmEasyTab } from "./instfmeasy.js";
 import { easyDecode } from "../../doc/fmeasy.js";
@@ -160,6 +161,19 @@ function envHeaderHtml(tabDef, present) {
   return t("inst.envHeaderState", { label: t(tabDef.labelKey), state });
 }
 
+/** "$1F" for a note-addressable slot, "$1F0" for a sub-instrument. */
+function hexSlot(x) {
+  return "$" + x.toString(16).toUpperCase().padStart(x > 0xff ? 3 : 2, "0");
+}
+
+/** "+10", "-$08", "$3", "1F" → a signed amount, hexadecimal; null if it is not one. */
+export function parseHexOffset(text) {
+  const m = /^\s*([+\-\u2212])?\s*\$?([0-9a-f]+)\s*$/i.exec(String(text ?? ""));
+  if (!m) return null;
+  const v = parseInt(m[2], 16);
+  return m[1] && m[1] !== "+" ? -v : v;
+}
+
 export class InstrumentsView {
   constructor(store, host, jam) {
     this.store = store;
@@ -191,6 +205,12 @@ export class InstrumentsView {
     this.root.append(this.listEl, this.right);
     host.appendChild(this.root);
 
+    // Select mode: the list picks a SET of instruments for Duplicate, Renumber…
+    // and Delete… to act on together. Picking never changes the one the panel
+    // edits (`selected`).
+    this.selecting = false;
+    this.picked = new Set();
+    this._pickAnchor = null; // the row a Shift+click range runs from
     this._childSelected = null; // meta-layer child explicitly opened via "Edit…"
     this._childParent = null;   // the metainstrument it was opened from (breadcrumb)
     this._gripFocus = null;     // {list, index}: the drag grip a keyboard move left behind
@@ -201,6 +221,7 @@ export class InstrumentsView {
     store.on("doc", () => {
       this.selected = 1; this.advanced = false;
       this._childSelected = null; this._childParent = null;
+      this.selecting = false; this.picked.clear(); this._pickAnchor = null;
       if (this.visible) this.refresh();
     });
     store.on("edit", (tags) => {
@@ -216,6 +237,7 @@ export class InstrumentsView {
       if (this.dragState || this._quiet) return;
       if (!this.visible) return;
       if (tags?.some?.((t) => t.kind === "bank")) this.refresh(); // import/undo — slots changed
+      else if (tags?.some?.((t) => t.kind === "lyrics")) { this.renderTabs(); this.renderPanel(); } // item 280
       else if (tags?.some?.((t) => t.kind === "inst" || t.kind === "ixmp")) this.renderPanel();
     });
   }
@@ -308,6 +330,9 @@ export class InstrumentsView {
       this._childParent = null;
       if (doc.metaChildSlots().has(this.jam.currentInst)) this.jam.currentInst = slots[0];
     }
+    // An undo, a delete or a renumber elsewhere can take a picked slot away.
+    for (const p of this.picked) if (!slots.includes(p)) this.picked.delete(p);
+    this._listSlots = slots;
     for (const slot of slots) {
       const inst = doc.instruments[slot];
       const row = document.createElement("div");
@@ -318,7 +343,14 @@ export class InstrumentsView {
         `<span class="idx">$${slot.toString(16).toUpperCase().padStart(3, "0")}</span>` +
         `<span class="name">${escape(unescapeName(doc.instrumentName(slot)) || t("inst.unnamed"))}</span>` +
         `<span class="badge-sm">${kind}</span>`;
-      row.addEventListener("click", () => {
+      row.addEventListener("click", (ev) => {
+        // Ctrl/Cmd+click and Shift+click pick, as in any list, and start select
+        // mode on the way — with the instrument being edited already in it.
+        const add = ev.ctrlKey || ev.metaKey;
+        if (this.selecting || add || ev.shiftKey) {
+          this.pickListRow(slot, { range: ev.shiftKey, enter: !this.selecting });
+          return;
+        }
         this.selected = slot;
         this._childSelected = null;
         this._childParent = null;
@@ -329,21 +361,286 @@ export class InstrumentsView {
       this.listEl.appendChild(row);
       this.rowEls.push({ el: row, slot });
     }
-    // The bank goes out from the foot of the list it is made of (item 229).
-    const foot = document.createElement("div");
-    foot.className = "side-foot-inst";
-    const exportBtn = document.createElement("button");
-    exportBtn.textContent = t("inst.export");
-    exportBtn.title = t("inst.exportTitle");
-    exportBtn.disabled = slots.length === 0;
-    exportBtn.addEventListener("click", async () => {
-      const { showExportBank } = await import("../popups/exportbank.js");
-      await showExportBank(this.store, { badgeOf: instKindBadge });
-    });
-    foot.appendChild(exportBtn);
-    this.listEl.appendChild(foot);
+    this.listEl.appendChild(this.renderFoot(slots));
+    this.syncPicks();
     this.renderTabs();
     this.renderPanel();
+  }
+
+  /** The foot of the list: Select and Export… (item 229: the bank goes out
+   *  from the foot of the list it is made of), and in select mode the count,
+   *  All / None and the three actions on the picked set. Built on every
+   *  refresh; a pick changes it in place (syncPicks). */
+  renderFoot(slots) {
+    const foot = document.createElement("div");
+    foot.className = "side-foot-inst";
+    const mk = (label, title, onClick, cls = "") => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.title = title;
+      if (cls) b.className = cls;
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    const ui = this._footUi = {};
+    ui.select = mk(t("inst.select"), t("inst.selectTitle"), () => this.setSelecting(!this.selecting),
+      "toggle inst-select-btn");
+    ui.select.disabled = slots.length === 0 && !this.selecting;
+    const top = document.createElement("div");
+    top.className = "inst-foot-line";
+    if (!this.selecting) {
+      const exportBtn = mk(t("inst.export"), t("inst.exportTitle"), async () => {
+        const { showExportBank } = await import("../popups/exportbank.js");
+        await showExportBank(this.store, { badgeOf: instKindBadge });
+      });
+      exportBtn.disabled = slots.length === 0;
+      top.append(ui.select, exportBtn);
+      foot.appendChild(top);
+      return foot;
+    }
+    foot.classList.add("selecting");
+    ui.count = document.createElement("span");
+    ui.count.className = "inst-sel-count";
+    ui.count.setAttribute("aria-live", "polite");
+    ui.all = mk(t("inst.selectAll"), t("inst.selectAllTitle"), () => {
+      this.picked = new Set(this._listSlots ?? []);
+      this.syncPicks();
+    });
+    ui.none = mk(t("inst.selectNone"), t("inst.selectNoneTitle"), () => {
+      this.picked.clear();
+      this._pickAnchor = null;
+      this.syncPicks();
+    });
+    top.append(ui.select, ui.count, ui.all, ui.none);
+    const acts = document.createElement("div");
+    acts.className = "inst-foot-acts";
+    ui.dup = mk(t("inst.duplicate"), t("inst.duplicateManyTitle"), () => this.duplicatePicked(), "inst-dup-many");
+    ui.renum = mk(t("inst.renumber"), t("inst.renumberManyTitle"), () => this.renumberPicked(), "inst-renum-many");
+    ui.del = mk(t("inst.delete"), t("inst.deleteManyTitle"), () => this.deletePicked(), "inst-del-many");
+    acts.append(ui.dup, ui.renum, ui.del);
+    foot.append(top, acts);
+    return foot;
+  }
+
+  /** Select mode on or off; off forgets the picks. */
+  setSelecting(on) {
+    this.selecting = on;
+    this.picked.clear();
+    this._pickAnchor = null;
+    this.refresh();
+  }
+
+  /** Pick or unpick a row: a plain pick toggles it, a `range` pick takes every
+   *  row from the last one picked through this one. `enter` starts select mode
+   *  first, seeded with the instrument the panel is editing. */
+  pickListRow(slot, { range = false, enter = false } = {}) {
+    const slots = this._listSlots ?? [];
+    if (enter) {
+      this.selecting = true;
+      this.picked.clear();
+      if (slots.includes(this.selected)) {
+        this.picked.add(this.selected);
+        this._pickAnchor = this.selected;
+      }
+    }
+    const a = slots.indexOf(this._pickAnchor);
+    if (range && a >= 0) {
+      const b = slots.indexOf(slot);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) this.picked.add(slots[i]);
+    } else if (this.picked.has(slot) && !(enter && range)) {
+      this.picked.delete(slot);
+    } else {
+      this.picked.add(slot);
+    }
+    this._pickAnchor = slot;
+    if (enter) this.refresh(); // the foot changes shape
+    else this.syncPicks();
+  }
+
+  /** Bring the rows and the foot into line with `picked`, in place — a pick
+   *  changes nothing in the document, so it does not rebuild the view. */
+  syncPicks() {
+    for (const r of this.rowEls ?? []) {
+      const on = this.selecting && this.picked.has(r.slot);
+      if (r.el.classList.contains("picked") !== on) r.el.classList.toggle("picked", on);
+      if (this.selecting) r.el.setAttribute("aria-selected", String(on));
+      else r.el.removeAttribute("aria-selected");
+    }
+    const ui = this._footUi;
+    if (!ui) return;
+    ui.select.textContent = this.selecting ? t("inst.selectDone") : t("inst.select");
+    ui.select.setAttribute("aria-pressed", String(this.selecting));
+    if (!this.selecting) return;
+    const n = this.picked.size;
+    const text = n ? t("inst.selected", { n }) : t("inst.selectHint");
+    if (ui.count.textContent !== text) ui.count.textContent = text;
+    ui.none.disabled = n === 0;
+    ui.all.disabled = n === (this._listSlots?.length ?? 0);
+    ui.dup.disabled = ui.renum.disabled = ui.del.disabled = n === 0;
+  }
+
+  /** The picked slots, in number order. */
+  pickedSlots() {
+    const used = new Set(this.store.doc?.usedInstrumentSlots() ?? []);
+    return [...this.picked].filter((s) => used.has(s)).sort((a, b) => a - b);
+  }
+
+  /** Duplicate every picked instrument (item 114's copy, many at once): one
+   *  undo step, and the picks move onto the copies, so the next action — a
+   *  renumber, most likely — takes them. */
+  duplicatePicked() {
+    const doc = this.store.doc;
+    const slots = this.pickedSlots();
+    if (!doc || slots.length === 0) return;
+    const plan = planDuplicateInstruments(doc, slots);
+    if (plan.error) { alert(plan.error); return; }
+    this.store.undo.apply(importBankOp(plan));
+    this.picked = new Set(plan.duplicates.map((d) => d.destSlot));
+    this._pickAnchor = null;
+    this.selected = plan.duplicates[0].destSlot;
+    this._childSelected = null;
+    this._childParent = null;
+    this.advanced = false;
+    this.jam.currentInst = this.selected;
+    this.store.emit("instsel");
+    this.store.emit("status");
+    this.refresh();
+  }
+
+  /** Move every picked instrument's number by the same amount (planRenumber-
+   *  Instruments): one undo step. Pattern cells follow only when asked, as for
+   *  one instrument. */
+  async renumberPicked() {
+    const doc = this.store.doc;
+    const slots = this.pickedSlots();
+    if (!doc || slots.length === 0) return;
+    const refs = slots.reduce((n, s) => n + instrumentCellRefs(doc, s).length, 0);
+    const res = await showModal({
+      title: t("renum.manyTitle", { n: slots.length }),
+      body: t("del.manyBodyList", { list: slots.map(hexSlot).join(", ") }) + " " +
+        (refs > 0 ? t("renum.manyBodyRefs", { n: refs }) : t("renum.manyBody")),
+      fields: [
+        { name: "by", label: t("renum.offset"), type: "text", value: "+01" },
+        { name: "cells", label: t("renum.manyRemapPatterns"), type: "checkbox", value: false },
+      ],
+      okLabel: t("renum.ok"),
+    });
+    if (!res) return;
+    const by = parseHexOffset(res.by);
+    if (by === null) { alert(t("renum.badOffset")); return; }
+    const plan = planRenumberInstruments(doc, slots.map((s) => [s, s + by]),
+      { remapPatterns: res.cells === true });
+    if (plan.error) { alert(plan.error); return; }
+    // Follow the moves BEFORE applying: the edit refreshes the list on the
+    // spot, and would prune picks and a selection that still name old numbers.
+    const map = new Map(plan.moves);
+    const moved = (s) => map.get(s) ?? s;
+    this.picked = new Set([...this.picked].map(moved));
+    this._pickAnchor = null;
+    this.selected = moved(this.selected);
+    if (this._childSelected !== null) this._childSelected = moved(this._childSelected);
+    if (this._childParent !== null) this._childParent = moved(this._childParent);
+    this.jam.currentInst = moved(this.jam.currentInst);
+    this.store.undo.apply(renumberInstrumentOp(plan));
+    this.store.emit("instsel");
+    this.store.emit("status");
+    this.refresh();
+  }
+
+  /** Delete every picked instrument in one undo step: the single delete's
+   *  dialog, summed over the set (planDeleteInstruments). */
+  async deletePicked() {
+    const doc = this.store.doc;
+    const slots = this.pickedSlots();
+    if (!doc || slots.length === 0) return;
+    if (slots.length === 1) {
+      // One instrument is the ordinary delete, with its own wording.
+      const keep = this.selected;
+      this.selected = slots[0];
+      this._childSelected = null;
+      this._childParent = null;
+      await this.deleteInstrument();
+      if (doc.selectableInstrumentSlots().includes(keep)) this.selected = keep;
+      if (!doc.usedInstrumentSlots().includes(slots[0])) this.picked.clear(); // not on Cancel
+      this.refresh();
+      return;
+    }
+    const set = new Set(slots);
+    const refs = slots.reduce((n, s) => n + instrumentCellRefs(doc, s).length, 0);
+    const parents = [...new Set(slots.flatMap((s) => metainstrumentParents(doc, s).map((p) => p.slot)))]
+      .filter((p) => !set.has(p)).sort((a, b) => a - b);
+    const { autoChildren, lowChildren } = classifySetChildren(doc, slots);
+    const spans = uniqueSampleSpansForSet(doc, [...slots, ...autoChildren]);
+    const uniqueBytes = spans.reduce((n, s) => n + s.len, 0);
+
+    const bodyParts = [t("del.manyBodyList", { list: slots.map(hexSlot).join(", ") })];
+    if (refs > 0) bodyParts.push(t("del.manyBodyRefs", { n: refs }));
+    if (parents.length > 0) {
+      bodyParts.push(t("del.manyBodyMeta", { n: parents.length, metas: parents.map(hexSlot).join(", ") }));
+    }
+    if (autoChildren.length > 0) {
+      bodyParts.push(t("del.manyBodyAutoChildren", { n: autoChildren.length, list: autoChildren.map(hexSlot).join(", ") }));
+    }
+    if (lowChildren.length > 0) {
+      const list = lowChildren.map((c) => t("del.lowChild", { slot: hexSlot(c.slot), n: c.patternRefs })).join(", ");
+      bodyParts.push(t("del.bodyLowChildren", { n: lowChildren.length, list }));
+    }
+    if (bodyParts.length === 1) bodyParts.push(t("del.manyBodyClean"));
+
+    const fields = [];
+    if (refs > 0) {
+      fields.push({ name: "reassign", label: t("del.reassignTo"), type: "text",
+        value: "", placeholder: t("del.reassignPlaceholder") });
+    }
+    if (lowChildren.length > 0) {
+      fields.push({ name: "deleteLow", type: "checkbox", value: false,
+        label: t("del.deleteLow", { n: lowChildren.length }) });
+    }
+    if (spans.length > 0) {
+      fields.push({ name: "free", type: "checkbox", value: true,
+        label: t("del.manyFreeSamples", { n: spans.length, kb: (uniqueBytes / 1024).toFixed(1) }) });
+    }
+    const res = await showModal({
+      title: t("del.manyTitle", { n: slots.length }),
+      body: bodyParts.join(" "),
+      fields,
+      okLabel: t("del.ok"),
+    });
+    if (!res) return;
+
+    let reassignTo = null;
+    if (refs > 0) {
+      const raw = String(res.reassign ?? "").replace(/^\$/, "").trim();
+      if (raw !== "") {
+        reassignTo = parseInt(raw, 16);
+        if (!/^[0-9a-f]+$/i.test(raw) || reassignTo < 1 || reassignTo > 0xff) {
+          alert(t("del.badNumber"));
+          return;
+        }
+        if (set.has(reassignTo)) { alert(t("del.reassignInSet")); return; }
+      }
+    }
+    const plan = planDeleteInstruments(doc, slots, {
+      freeSamples: spans.length > 0 && res.free === true,
+      reassignTo,
+      deleteLowChildren: lowChildren.length > 0 && res.deleteLow === true,
+    });
+    if (plan.error) { alert(plan.error); return; }
+    this.store.undo.apply(deleteInstrumentOp(plan));
+
+    this.picked.clear();
+    this._pickAnchor = null;
+    const used = doc.usedInstrumentSlots();
+    this._childSelected = null;
+    this._childParent = null;
+    if (!doc.selectableInstrumentSlots().includes(this.selected)) {
+      this.selected = doc.selectableInstrumentSlots()[0] ?? 1;
+    }
+    this.advanced = false;
+    if (!used.includes(this.jam.currentInst)) this.jam.currentInst = this.selected;
+    this.store.emit("instsel");
+    this.store.emit("status");
+    this.refresh();
   }
 
   /** Light the list rows of instruments any voice is playing right now — the
@@ -394,8 +691,11 @@ export class InstrumentsView {
         ? [["opl", t("inst.tabOpl")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
         : inst?.isPsg
         ? [["psg", t("inst.tabPsg")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
+        // A lyric instrument (item 280) leads with its lyrics: the Formant tab
+        // then holds what every syllable shares.
         : inst?.isFormant
-          ? [["formant", t("inst.tabFormant")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
+          ? [...(inst.isLyric ? [["lyrics", t("inst.tabLyrics")]] : []),
+            ["formant", t("inst.tabFormant")], ["general", t("inst.tabGeneral")], ...oneSlotTabs]
           : [["general", t("inst.tabGeneral")], ...envTabs, ["zones", t("inst.tabZones")]];
     // Every kind has a mixing chain (item 217): its last tab, after everything
     // that makes the sound, as the chain comes after the voices in the mix.
@@ -453,6 +753,7 @@ export class InstrumentsView {
     else if (this.tab === "opl") this.renderOpl(inst);
     else if (this.tab === "psg") renderPsgTab(this, inst);
     else if (this.tab === "formant") renderFormantTab(this, inst);
+    else if (this.tab === "lyrics") renderLyricsTab(this, inst);
     else if (this.tab === "metaopts") this.renderMetaOptions(inst);
     else if (this.tab === "mixing") this.mixing.render(this.panel);
     this.mixing.syncTap();
@@ -2716,13 +3017,14 @@ function rememberSoundfontChoice(id) {
 /** Which tab an instrument opens on: its rack, its layer table, or General. */
 function metaTabKey(inst) {
   return inst?.isFm ? (metaFlags(inst).easy ? "fmeasy" : "fm") : inst?.isMeta ? "meta" : inst?.isOpl ? "opl"
-    : inst?.isPsg ? "psg" : inst?.isFormant ? "formant" : "general";
+    : inst?.isPsg ? "psg" : inst?.isLyric ? "lyrics" : inst?.isFormant ? "formant" : "general";
 }
 
 function instKindBadge(inst) {
   if (inst.isFm) return `FM·${inst.metaLayers.length}`;
   if (inst.isOpl) return oplBadge(inst);
   if (inst.isPsg) return psgBadge(inst);
+  if (inst.isLyric) return `LYR·${inst.lyric.length}`;
   if (inst.isFormant) return formantBadge(inst);
   if (inst.isMeta) return "META";
   const patches = inst.extraPatches;

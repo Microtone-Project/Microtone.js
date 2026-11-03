@@ -667,8 +667,9 @@ export function capKey(code) {
  *             which the piano keys ignore)
  * @param sub  cursor sub-column, nib nibble index within it
  * @param cell current TaudPlayData (read-only here)
- * @param ctx  {octave, transpose, currentInst, preset, wideCells} — preset = active pitch
- *             table; wideCells marks a format-v3 project
+ * @param ctx  {octave, transpose, currentInst, preset, wideCells, lyricContinues} — preset =
+ *             active pitch table; wideCells marks a format-v3 project; lyricContinues
+ *             says a note here goes on with a lyric instrument's lyrics (no number)
  * @returns null (unhandled) or an action:
  *   {fields, jamNote?, advanceRow?, advanceNib?} — fields go through setCellOp;
  *   advanceRow steps the cursor down (note entry / field completion),
@@ -711,8 +712,10 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
       const note = keymapNote(keymap, code, ctx.octave, ctx.preset, null, ctx.transpose ?? 0);
       const fields = { note };
       // Current-instrument auto-adopt (taut behaviour): note entry stamps the
-      // active instrument unless the cell already carries one.
-      if (ctx.currentInst > 0) fields.instrment = ctx.currentInst;
+      // active instrument unless the cell already carries one — except a note
+      // that goes on with a lyric instrument's lyrics (item 280), whose
+      // instrument number would start them over.
+      if (ctx.currentInst > 0 && !ctx.lyricContinues) fields.instrment = ctx.currentInst;
       return { fields, jamNote: note, advanceRow: true };
     }
 

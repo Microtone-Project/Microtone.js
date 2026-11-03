@@ -6,11 +6,26 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 4.7.0 (2026-11-03)
 
+**Lyric instruments sing words**: give a formant instrument lyrics, and it sings them one syllable a note, so a melody written with one instrument number sings its text.
+
+- **Meta… → Lyric instrument** makes one, and **Sing lyrics…** on a formant instrument's Formant tab turns that one into one. Its new **Lyrics** tab takes the words in IPA or X-SAMPA, one syllable a note, separated by spaces, full stops or hyphens — *de.zi.de.zi gim.mi* — with an IPA keyboard under the box for the symbols a typing keyboard has not got.
+- A note with the instrument number sings the first syllable; every note after it without one sings the next, and after the last the lyrics start over. Tone portamento (G, L) keeps singing the same syllable as it slides, Q says it again, and each lane keeps its own place — playing from mid-song finds it too.
+- A syllable without a vowel holds its consonant, so *n* is a hummed [n̩]; [ɚ], [ɝ] and the ˞ mark r-colour a vowel.
+- **Towards the median** draws every syllable's way to its vowel towards the lyrics' median, from 0 (as spoken) to 100 (all alike), shortening the long and lengthening the short, so the vowels land on their notes as evenly as you like. The noise each consonant hisses with is the best the instrument's pool range has, chosen for it.
+- Pick a run of syllables — on the syllable chips, or by selecting them in the lyrics — and give it a length of its own, such as an English line in a Korean song; each consonant's own length is there too, folded away.
+- Typing notes into a pattern with a lyric instrument selected writes the instrument number on the lane's first note only, so the lyrics carry on; jamming one on the keyboard sings its lyrics on, a syllable a key.
+
 **Pitch fields take cents and ratios**: type `700c` or `3/2` straight into a detune or an interval instead of working out its 4096-TET units by hand.
 
 - Every field that holds an interval or a detune understands four spellings: a plain number in the box's own unit, `$100` or `0x100` for 4096-TET units in hex, `700c` for cents, and a frequency ratio such as `3/2`, `3:2` or `81/80` (a minus in front, `-5/4`, goes downward).
 - That covers the instrument's Detune (Instruments view and its Advanced tab), a layer's or an FM operator's detune (FM and Easy tabs alike), an OPL drum's partner pitch, the chord maker's 4096-TET notes, and the notation maker's interval and degree cents — so a Bohlen–Pierce period is just `3/1`, and a just scale goes in a ratio at a time.
 - Cents and ratios land on the nearest of the 4096 steps per octave: `3/2` becomes 2396 units, 701.95 cents.
+
+**Duplicate, renumber and delete several instruments at once**: Select, at the foot of the instrument list, picks a set of instruments for those three actions to work on together.
+
+- Click rows to pick them, Shift+click for a run, or All; Ctrl+click or Shift+click on a row starts picking without pressing Select first.
+- **Renumber…** moves every picked number by the same amount — `+10`, `-2` — even when the run lands on itself, so a block of instruments makes room for another in one go.
+- **Delete…** asks once for the whole set, and **Duplicate** picks the copies it makes. Each is one undo step.
 
 **The Saturator in a mixing chain never leaves the sound off-centre**, so a Limiter after it no longer pulls the level down for an offset nobody can hear.
 

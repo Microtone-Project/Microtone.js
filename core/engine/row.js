@@ -414,12 +414,22 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   // re-attack is the envelopes', not the syllable's.
   // Its source follows the record, a chip channel taking a new patch where it
   // stands (formantRelatchSource).
+  //
+  // A LYRIC instrument's byte starts its lyrics over (item 280). The tract it
+  // hands over is the syllable the note is already singing, when that is one
+  // of this instrument's; otherwise its first syllable.
+  let tract = newInst.formant;
+  if (newInst.lyric !== null) {
+    voice.lyricPos = 0;
+    const cur = voice.formant !== null ? voice.formant.patch : null;
+    tract = cur !== null && cur.lyricOf === newInst.formant ? cur : newInst.lyric[0];
+  }
   if (newInst.formant !== null && voice.formant !== null) {
-    formantRelatch(voice.formant, newInst.formant);
+    formantRelatch(voice.formant, tract);
     formantRelatchSource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else if (newInst.formant !== null) {
     voice.formant = new FormantState();
-    formantStartAtVowel(voice.formant, newInst.formant);
+    formantStartAtVowel(voice.formant, tract);
     formantKeySource(voice.formant, formantChip !== null ? formantChip.chipPatch : null);
   } else {
     voice.formant = null;

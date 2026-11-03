@@ -206,6 +206,21 @@ export class TaudEngine {
   }
 
   /**
+   * Install the project's LYRICS (item 280, the `ILyr` section, §9.17): an
+   * array of decoded entries ({instId, syllables, recipes}, lyric-section.js),
+   * replacing whatever was installed — an instrument no entry names has none.
+   * The entries are the engine's to keep; the host must not mutate them.
+   */
+  setLyrics(entries) {
+    const by = new Map();
+    for (const e of entries ?? []) if (!by.has(e.instId & 0x3ff)) by.set(e.instId & 0x3ff, e);
+    for (const inst of this.instruments) {
+      const e = by.get(inst.index) ?? null;
+      if (e !== inst.lyricEntry) inst.setLyric(e);
+    }
+  }
+
+  /**
    * Upload an Ixmp "extra samples" block for instrument slot. Patches are
    * variable-length: version byte (0b x00Pfpvi) + 30 common bytes + optional
    * x/v/p/f/P blocks in that order (AudioJSR223Delegate.kt:357-430).
@@ -565,7 +580,16 @@ export class TaudEngine {
     const v = Math.min(Math.max(vi, 0), TOTAL_VOICES - 1);
     note &= 0xffff;
     inst &= 0x3ff;
-    triggerMetaOrNote(this, ts, ts.voices[v], v, note, inst, -1);
+    // A lyric instrument jammed sings its lyrics on, a syllable a key, over
+    // the whole jam bank — the bank rotates voices, so the place is the
+    // playhead's, kept per instrument (item 280).
+    const lyric = this.instruments[inst].lyric !== null;
+    if (lyric) {
+      if (ts.jamLyricInst !== inst) { ts.jamLyricInst = inst; ts.jamLyricPos = 0; }
+      ts.voices[v].lyricPos = ts.jamLyricPos;
+    }
+    triggerMetaOrNote(this, ts, ts.voices[v], v, note, inst, -1, !lyric);
+    if (lyric) ts.jamLyricPos = ts.voices[v].lyricPos;
     // Audition-only (item 51): a STRICT metainstrument only sounds where its
     // Ixmp zones actually place a sample, so an arbitrary jammed pitch is often
     // silent. In pure-audition contexts (Instruments/Samples views) retry at the
@@ -928,7 +952,9 @@ export class TaudEngine {
         for (const v of list) {
           if (voices.length >= FORMANT_LIVE_MAX) break;
           const st = v.formant;
-          if (!v.active || st === null || st.patch !== patch || !st.ownVowel) continue;
+          if (!v.active || st === null || !st.ownVowel) continue;
+          // A lyric instrument's note sings one of its syllables (item 280).
+          if (st.patch !== patch && (st.patch === null || st.patch.lyricOf !== patch)) continue;
           const gliding = st.glideLeft > 0;
           voices.push({
             front: st.vFront, open: st.vOpen, round: st.vRound,

@@ -565,7 +565,7 @@ An OPL voice runs **no attack ramp** ([§8.7](#8-7-the-attack-ramp)): its attack
 
 #### 5.5.3 Type 1 — formant instruments
 
-A **type-1** Metainstrument is a **formant instrument** ([File Format §7.6](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is a glottal source, played through a model of the vocal tract that sings it as one syllable — up to two consonants, a glide, a vowel that may be nasalised or r-coloured (or no vowel, the last consonant held in its place), and a coda consonant spoken on the key-off: CCGVRC. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter, the voice effects, the attack ramp and the whole gain chain — with the tract inserted between the sample fetch and the voice filter. A formant instrument resolves no Ixmp patch.
+A **type-1** Metainstrument is a **formant instrument** ([File Format §7.6](TAUD_FILE_FORMAT.md)): an ordinary instrument whose sample is a glottal source, played through a model of the vocal tract that sings it as one syllable — up to two consonants, a glide, a vowel that may be nasalised or r-coloured (or no vowel, the last consonant held in its place), and a coda consonant spoken on the key-off: CCGVRC. Everything the engine does to an ordinary instrument it does to this one — the trigger, the envelopes, the fadeout, the New Note Action, the Duplicate Check, the auto-vibrato, the filter, the voice effects, the attack ramp and the whole gain chain — with the tract inserted between the sample fetch and the voice filter. A formant instrument resolves no Ixmp patch. One given lyrics sings them a syllable a note ([below](#lyric-instruments)).
 
 The tract is Klatt's cascade/parallel formant synthesiser (D. H. Klatt, *Software for a cascade/parallel formant synthesizer*, JASA 67(3), 1980): a **cascade** of resonators carries everything voiced or aspirated, a **parallel** bank carries frication. Where Klatt's sources are an impulse train and a noise generator, a formant instrument's are samples: its own sample is the voicing, and each consonant slot names a span of the pool as its noise — or, naming none, has Klatt's noise generator after all. One output sample:
 
@@ -1007,6 +1007,23 @@ Either then takes the slot's tilt — for tilt `t` with `c = |t| ÷ 128`, `t > 0
 - **`Q`'s retrigger** says the syllable again from its onset, on the vowel it is singing now — its own, if it has one, staying its own.
 - **An instrument byte without a retrigger** ([§5.2](#5-2-note-events)) hands a sounding formant syllable the new record's tract: its vowel glides to the new record's over the new glide time and from then on follows that record as it is edited (at once, with a glide of 0 or before the note's first update); the source gain is measured again, the pitch rules become the new record's, and a coda that has not begun becomes the new record's; consonants already under way finish as they started, and nothing restarts. A sampled note handed a formant instrument starts its tract at the vowel, its onset long past.
 - A **layer** of a type-0 record may be a formant instrument and sounds like any other; an FM rack's operator may not ([§5.5.1](#5-5-1-type-4-fm-racks)), nor may a formant instrument's own source.
+
+##### Lyric instruments
+
+A formant instrument that an `ILyr` entry names ([File Format §9.17](TAUD_FILE_FORMAT.md#9-17-ilyr-lyric-instruments)) is a **lyric instrument**: it sings the entry's syllables, one a note, in order. Each syllable is the record with the syllable's fields in its place — its vowel, its consonants and the noise each reads, its glide, articulations and R, whether it has a vowel and whether that is nasalised — and every rule of this section applies to a note of it with that syllable in the record's place: the note sings the syllable's vowel until it is given one of its own, its onset, glide and coda are the syllable's, its pitch rules and its source the record's. An edit of the record reaches every syllable, a note already sounding included, as it reaches a note of the record.
+
+A syllable's consonants are timed one by one. Where this section scales a consonant's times by `k`, the scale of the record's timing byte, a syllable's onset consonants, coda and glide are scaled by `k × 2^((b − 128) ÷ 64)`, `b` that slot's own timing byte; with every `b` 128 the syllable is timed as the record is.
+
+Which syllable a note sings is **lane state**: each lane keeps a **lyric position**, the syllable its next note of a lyric instrument sings, 0 when the playhead starts.
+
+- **An instrument byte** naming a lyric instrument — on a row with a note or without one — sets the lane's position to the first syllable.
+- **Every trigger** of a lyric instrument on the lane ([§5.2](#5-2-note-events)), the note-delayed and the note-0-with-a-pitch-effect ones included, sings the syllable at the position and moves the position on by one, back to the first after the last. A position past the end of the lyrics — they were shortened — is the first syllable.
+- **Tone portamento** (`G`, `L` with a note) does not trigger, so it neither sings a syllable nor moves the position: a melisma is written as one syllable gliding. **`Q`'s retrigger** says the syllable the note is singing again, its position unmoved.
+- **An instrument byte without a retrigger** hands a note already singing one of this instrument's syllables that syllable, as an instrument change hands a note its record ([above](#what-reaches-a-formant-instrument)); any other note is handed the first syllable. The position is reset either way, so the lane's next note sings the first syllable.
+- A **layer** that is a lyric instrument sings its record's own syllable, as a reader that ignores `ILyr` would: the position belongs to the lane's own notes.
+- A play that starts mid-song finds every lane at the position a play from the start would have reached ([§15.1](#15-1-the-chase)), the position being row-event state like any other.
+
+A **jammed** note — a host's audition outside the song — sings the lyrics on as well, a syllable a key; the jam bank's voices take turns, so the position is the playhead's, kept for one instrument at a time and started over when another lyric instrument is jammed.
 
 #### 5.5.4 Type 9 — PSG instruments
 

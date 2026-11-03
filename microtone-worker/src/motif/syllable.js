@@ -14,6 +14,7 @@
 // Pure: a string in, fields out, or a MotifError saying what is wrong.
 
 import {
+  CONSONANTS, MANNER_NASAL, MANNER_APPROX, MANNER_TRILL, MANNER_TAP,
   CONSONANT_LIST, SEMIVOWELS, ART_NONE, ART_PALATAL, ART_DARK, ART_GLOTTAL,
   CODA_RELEASED, CODA_UNRELEASED, CODA_DARK, CODA_GLOTTAL,
 } from "../../core/engine/formant.js";
@@ -103,18 +104,31 @@ const aspirated = () => CONSONANT_LIST.filter((r) => r.ipa.endsWith(ASPIRATED) |
 const SECONDARY = { [PALATAL]: ART_PALATAL, [VELAR]: ART_DARK, [PHARYNGEAL]: ART_DARK, [GLOTTAL]: ART_GLOTTAL };
 const RELEASE = { [UNRELEASED]: CODA_UNRELEASED, [VELAR]: CODA_DARK, [PHARYNGEAL]: CODA_DARK, [GLOTTAL]: CODA_GLOTTAL };
 
+/** Manners a syllable's peak can be when it has no vowel, most sonorous first. */
+const SONORANT = new Set([MANNER_NASAL, MANNER_APPROX, MANNER_TRILL, MANNER_TAP]);
+
 /**
  * An IPA syllable → {onset: [id, id?], secondary, glide (SEMIVOWELS code),
  * vowel: {front, open, round} | null, nasal, rhotic, coda: id | 0, release}.
+ *
+ * `lenient` (a lyric instrument's lyrics, item 280) reads a syllable with no
+ * vowel and no syllabic mark as syllabic all the same — "n" is [n̩] — its peak
+ * the last sonorant (nasal, approximant, tap, trill), or with none the last
+ * consonant.
  */
-export function readIpaSyllable(text, what = "the syllable") {
+export function readIpaSyllable(text, what = "the syllable", { lenient = false } = {}) {
   const segs = segments(text, what);
   if (!segs.length) throw fail(`${what} is empty`);
   const vowels = segs.filter((g) => g.v);
   if (vowels.length > 1) {
     throw fail(`${what}: a syllable has one vowel, not ${vowels.length} ([${vowels.map((v) => v.ipa).join("], [")}]) — move a held vowel to another with S $Afgr`);
   }
-  const syllabic = segs.filter((g) => g.c && (g.marks.includes(SYLLABIC) || g.marks.includes(SYLLABIC_ABOVE)));
+  let syllabic = segs.filter((g) => g.c && (g.marks.includes(SYLLABIC) || g.marks.includes(SYLLABIC_ABOVE)));
+  if (lenient && !vowels.length && !syllabic.length) {
+    const cons = segs.filter((g) => g.c);
+    const peak = [...cons].reverse().find((g) => SONORANT.has(CONSONANTS[g.c].manner)) ?? cons[cons.length - 1];
+    if (peak) syllabic = [peak];
+  }
   if (vowels.length && syllabic.length) throw fail(`${what}: a syllable with a vowel has no syllabic consonant`);
   if (syllabic.length > 1) throw fail(`${what}: one consonant can be the syllable's peak, not ${syllabic.length}`);
   const peak = vowels[0] ?? syllabic[0];
@@ -242,4 +256,40 @@ export function xsampaToIpa(text, what = "the syllable") {
     i += sym[0].length;
   }
   return out;
+}
+
+// ── IPA → X-SAMPA (the lyrics editor's notation switch, item 280) ──
+
+/** IPA → X-SAMPA, longest IPA first: the inverse of the table above, the
+ *  first X-SAMPA spelling of each symbol winning, and the diacritics'. */
+const IPA_TO_XSAMPA = (() => {
+  const m = new Map();
+  const byLen = XSAMPA.slice().sort((a, b) => a[0].length - b[0].length);
+  for (const [x, ipa] of byLen) if (!m.has(ipa)) m.set(ipa, x);
+  for (const [x, mark] of [["_h", ASPIRATED], ["_t", BREATHY], ["_t", "̤"], ["_j", PALATAL], ["_G", VELAR],
+    ["_?\\", PHARYNGEAL], ["_?", GLOTTAL], ["_}", UNRELEASED], ["~", NASAL], ["=", SYLLABIC], ["=", SYLLABIC_ABOVE],
+    ["`", RHOTIC], ["_", TIE], ["_", "͜"], ["@`", "ɚ"], ["3`", "ɝ"], ["g", "g"], ['"', "ˈ"], ["%", "ˌ"]]) {
+    if (!m.has(mark)) m.set(mark, x);
+  }
+  return [...m].sort((a, b) => b[0].length - a[0].length);
+})();
+
+/**
+ * IPA text → X-SAMPA, character for character: {text, ok}. Whatever the
+ * table does not know (a space, a hyphen, a symbol no formant instrument has)
+ * is kept as it is, and `ok` is false when that was anything but a separator.
+ */
+export function ipaToXsampa(text) {
+  let out = "";
+  let ok = true;
+  let i = 0;
+  while (i < text.length) {
+    const hit = IPA_TO_XSAMPA.find(([ipa]) => text.startsWith(ipa, i));
+    if (hit) { out += hit[1]; i += hit[0].length; continue; }
+    const ch = text[i];
+    if (!/[\s\-,|]/u.test(ch)) ok = false;
+    out += ch;
+    i++;
+  }
+  return { text: out, ok };
 }

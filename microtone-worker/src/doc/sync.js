@@ -33,6 +33,7 @@ export class DocSync {
         } : null),
         ixmp: this.doc.ixmp,
         imix: this.doc.imixBlocks(),
+        lyrics: this.doc.lyricEntries(),
       },
       this.songIndex,
     );
@@ -79,6 +80,12 @@ export class DocSync {
           // Instruments sync eagerly — jam must always hear the current edit.
           this.audio.uploadInstrument(tag.slot, this.doc.instRecordBytes(tag.slot));
           break;
+        case "lyrics":
+          // Eager, like the instruments: the next note sings the edit. The
+          // whole set goes, as IMix's does; an instrument whose record stopped
+          // being a formant one drops out of it.
+          this.audio.setLyrics(this.doc.lyricEntries());
+          break;
         case "ixmp": {
           // Ixmp patch edit (Advanced Edit): eagerly re-upload the slot's
           // patch blob — an empty blob clears the engine's patch state.
@@ -99,8 +106,9 @@ export class DocSync {
               this.audio.uploadInstrumentPatches(e.instId, e.blob);
             }
           }
-          // A bank import can bring chains with it (item 217).
+          // A bank import can bring chains with it (item 217), and lyrics (item 280).
           this.audio.setImix(this.doc.imixBlocks());
+          this.audio.setLyrics(this.doc.lyricEntries());
           break;
       }
     }

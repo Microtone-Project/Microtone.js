@@ -54,8 +54,8 @@
         const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
         const cards = [...dlg.querySelectorAll(".kind-card")];
         const psgCard = cards.find((c) => c.querySelector(".kind-card-name").textContent === "PSG instrument");
-        log(`kind chooser shows five cards, PSG fourth with its diagram: ` +
-          ok(cards.length === 5 && cards[3] === psgCard && !psgCard.disabled &&
+        log(`kind chooser shows six cards, PSG fourth with its diagram: ` +
+          ok(cards.length === 6 && cards[3] === psgCard && !psgCard.disabled &&
              !!psgCard.querySelector("svg.kind-diagram")));
         psgCard.click();
         const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));

@@ -19,6 +19,7 @@ import {
 import { decomp } from "./compress.js";
 import { parseMasteringSection } from "./mastering-section.js";
 import { IMIX_FOURCC, parseImixSection } from "./imix-section.js";
+import { ILYR_FOURCC, parseLyricSection } from "./lyric-section.js";
 
 function u16(b, o) { return b[o] | (b[o + 1] << 8); }
 function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16)) + b[o + 3] * 0x1000000; }
@@ -140,6 +141,7 @@ export function parseSMetSection(payload) {
  *   meta: { projectName, songMeta: {idx: {...}},  // decoded views of PNam / sMet
  *           mastering: {idx: {...}} },            // …and of sMst (§9.12)
  *   imix: [block], imixProblems: [{kind, id, detail}],  // …and of IMix (§9.15)
+ *   lyrics: [entry],                             // …and of ILyr (§9.17, lyric-section.js)
  * }
  */
 export function parseTaud(file) {
@@ -280,9 +282,12 @@ export function parseTaud(file) {
   const imixSec = findSec(IMIX_FOURCC);
   const imixParsed = imixSec ? parseImixSection(imixSec.payload) : { blocks: new Map(), problems: [] };
   const imix = [...imixParsed.blocks.values()];
+  // …and the lyric instruments' lyrics (item 280, §9.17), for the same reason.
+  const ilyrSec = findSec(ILYR_FOURCC);
+  const lyrics = ilyrSec ? [...parseLyricSection(ilyrSec.payload).entries.values()] : [];
 
   return {
     kind, fmtVer, is64Channel, signature, sampleInstImage, songs, projSections, ixmp, meta,
-    imix, imixProblems: imixParsed.problems,
+    imix, imixProblems: imixParsed.problems, lyrics,
   };
 }

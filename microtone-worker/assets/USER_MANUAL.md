@@ -1676,7 +1676,7 @@ Two rows of three: the top row fills a slot from outside the project, the bottom
 - **Import…** — merge instruments (with their samples and patches) from a `.taud`, `.tsii`, `.sf2` or `.bnk` file. A checkbox picker lets you choose which; SF2 drum kits are the bank-128 presets. An instrument or preset with a stereo sample wears an **ST** chip; a soundfont preset comes in stereo only with **Import stereo instruments in stereo** ticked, and is mixed to mono otherwise. The instruments a metainstrument is built from come along with it and land in `$100`–`$3FF`, out of the note column's way, whether or not you tick them; one ticked on its own, without its metainstrument, arrives as an ordinary instrument in `$01`–`$FF`. An AdLib `.bnk` needs no song alongside it — each patch you pick becomes an [OPL instrument](#opl-instruments), playable across the whole keyboard.
 - **Record…** — record from the microphone; the take opens in the Sample Lab.
 - **Paint…** — draw a waveform by hand and add it as an instrument.
-- **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments — or an **OPL** or **PSG instrument**, made out of nothing, or a **formant instrument**, made out of the pool's samples or sung from an OPL or PSG instrument. A chooser asks which first — **Layered**, where every child is heard and the mixer sums them, **FM Rack**, where the children modulate each other and only operator 0 is heard, **OPL instrument**, one channel of the sound chip that played AdLib and Sound Blaster music, **PSG instrument**, two 8-bit-style oscillators, or **Formant instrument**, which sings a syllable. All five are described below.
+- **Meta…** — build a **metainstrument**: one instrument made out of several of the project's instruments — or an **OPL** or **PSG instrument**, made out of nothing, or a **formant instrument**, made out of the pool's samples or sung from an OPL or PSG instrument. A chooser asks which first — **Layered**, where every child is heard and the mixer sums them, **FM Rack**, where the children modulate each other and only operator 0 is heard, **OPL instrument**, one channel of the sound chip that played AdLib and Sound Blaster music, **PSG instrument**, two 8-bit-style oscillators, **Formant instrument**, which sings a syllable, or **Lyric instrument**, a formant instrument that sings words, a syllable a note. All six are described below.
 
 All imports are single undo steps.
 
@@ -2051,6 +2051,67 @@ a front vowel and low before a back one — which is what tells them apart from 
 A formant instrument may be a **layer** of a Layered metainstrument, but not an
 operator of an FM Rack.
 
+### Lyric instruments
+
+**Meta… → Lyric instrument** makes a formant instrument that **sings words**:
+you give it lyrics, and it sings them **one syllable a note**. Write a melody
+with the instrument number on its first note only, and each note after it sings
+the next syllable:
+
+```
+G-4 23 .....   de
+E-4 .. G $0100   (the glide: still de)
+E-4 .. .....   zi
+C-4 .. .....   de
+G-3 .. .....   zi
+D-4 23 .....   de   (the number again: the lyrics start over)
+```
+
+- A note with the **instrument number** sings the **first** syllable; every note after it **without** one sings the next, and after the last the lyrics start over from the first.
+- **Tone portamento** (`G`, `L`) does not move on — the note keeps singing its syllable as it slides, which is how a melisma is written — and nor does a **retrigger** (`Q`), which says the same syllable again.
+- Each lane keeps its own place in the lyrics, and playing from the middle of the song finds every lane where it would have been.
+
+When you type notes into a pattern with a lyric instrument selected, Microtone
+leaves the instrument number out of every note but the first of the lane, so
+that the lyrics carry on rather than starting over. Jamming one on the keyboard
+sings its lyrics on, a syllable a key.
+
+**The Lyrics tab** holds the words. Write them in **IPA** or in **X-SAMPA**
+(which spells IPA with the letters on a keyboard), one syllable a note,
+separated by spaces, full stops or hyphens: *de.zi.de.zi gim.mi*. Each syllable
+is read as a formant instrument's syllable is — up to two consonants, a glide,
+the vowel with its marks, one consonant after — and a syllable with no vowel
+holds its consonant, so *n* is a hummed [n̩]. Under the box, an **IPA keyboard**
+types the symbols your keyboard has not got. The lyrics are applied when you
+leave the box or press **Ctrl+Enter**; until then the line below them counts
+the syllables, or points at the first one that cannot be read.
+
+**Consonant length.** Every consonant is said at the base length set on the
+Formant tab. Spoken, a [sta] takes far longer to reach its vowel than a [de];
+sung, the vowels want to land on their notes alike. **Towards the median**
+draws every syllable's way to its vowel towards the lyrics' median: at 0 each
+syllable is as it is spoken, at 100 they all take the median — a [sta] squeezed
+and an [a] after a lone [d] stretched — and natural singing lies somewhere
+between, where your ear puts it. Under **Each consonant**, folded away, you can
+make any one consonant longer or shorter wherever it is said.
+
+**A length for some syllables.** Click a syllable under **Syllables** to pick
+it, Shift+click another to pick the run between them, or select them in the
+lyrics, and give the pick a length of its own: a line of English in a Korean
+song, say, whose clusters want their own pace. Those syllables keep that length
+however far the rest are drawn towards the median, and are left out of the
+median themselves; **Clear their length** gives them back. A length stays on
+its syllable when you edit the lyrics around it. Each syllable shows how many
+milliseconds it takes to reach its vowel, outlined when the median moved it
+(solid shortened, dashed lengthened) and green when it has a length of its own.
+
+**The Formant tab** of a lyric instrument holds what every syllable shares: the
+pool range and the source, how the voice follows pitch, the base consonant
+length and the vowel glide. The noise each consonant hisses or pops with is
+chosen from the range, as it is for any formant instrument, and chosen again
+when the range changes. Any formant instrument can be given lyrics there, with
+**Sing lyrics…**, starting from the syllable it says.
+
 ### Duplicating an instrument
 
 The **Duplicate** button beside an instrument's name copies it into the lowest
@@ -2079,6 +2140,23 @@ move — that is internal wiring. Its **pattern cells** are a musical decision, 
 they only follow if you tick *Point those pattern cells at the new number*;
 left unticked, the notes keep naming the old (now empty) number. One undo step
 either way.
+
+### Working on several instruments at once
+
+**Select**, at the foot of the instrument list, lets you pick several
+instruments and duplicate, renumber or delete them together. While it is on, a
+click on a row picks it or lets it go, and **Shift**+click picks every row from
+the last one you clicked; **All** and **None** do what they say. Picking never
+changes the instrument the panel is editing. **Ctrl**+click (**⌘**+click on a
+Mac) or **Shift**+click on a row starts picking straight away, with the
+instrument you were editing already picked. **Done** puts the list back as it
+was.
+
+- **Duplicate** copies every picked instrument, as the Duplicate button does one, and picks the copies instead, so a renumber can follow straight away.
+- **Renumber…** moves every picked number by the same amount, typed in hex: `+10` moves `$03`–`$07` to `$13`–`$17`, and `-2` moves them down to `$01`–`$05`. The run may land on itself, as `+1` does, since every instrument moves at once. A number taken by an instrument that is not moving is refused, and so is a move past `$01` or `$FF`. The pattern cells follow only if you tick the box, as for one instrument.
+- **Delete…** deletes them all in one dialog, which adds up what the single delete would say for each of them: the notes that play them (which can move to one other instrument), the metainstruments to rewire, the sub-instruments that go with them, and the samples nothing else uses.
+
+Each of the three is one undo step, however many instruments it moves.
 
 ### Editing an instrument
 

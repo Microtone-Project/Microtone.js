@@ -26,13 +26,15 @@
 // sounding note hears it at once and one undo takes it back. Drags go through
 // applyQuiet and repaint in place, as the General tab's sliders do.
 
-import { setInstBytesOp, compositeOp, importBankOp } from "../../doc/ops.js";
+import { setInstBytesOp, compositeOp, importBankOp, setLyricsOp } from "../../doc/ops.js";
+import { deriveLyrics } from "../../doc/lyrics.js";
+import { blankLyricEditor } from "../../../core/format/lyric-section.js";
 import { planSetFormantSource } from "../../doc/bankmerge.js";
 import {
   formantFields, formantFieldBytes, formantVowelBytes, formantRangeBytes, formantSlotBytes,
   formantSourceBytes, formantSourceFlagByte, canSourceFormant, slotFromRecipe, slotIsRecipe, VOWEL_MARKS, nearestVowelMark,
   formantGrBytes, rhoticIpa, formantRefBytes, isNoPoolRange, formantPoolFreeBytes, FORMANT_RANGE_NONE,
-  FORMANT_DEFAULT_REF,
+  FORMANT_DEFAULT_REF, formantSyllable,
   vowelEffectArg, vowelF1F2, vowelFormants, vowelCoordsOf, noteHz, timingScale, CONSONANTS,
 } from "../../doc/formantedit.js";
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
@@ -93,7 +95,7 @@ function fingerprint(bin, cands) {
   return h;
 }
 
-function machineFor(doc, lo, hi) {
+export function machineFor(doc, lo, hi) {
   const cands = rangeCandidates(doc, lo, hi);
   const key = `${lo}:${hi}:${fingerprint(doc.sampleBin, cands)}`;
   const had = machines.get(doc);
@@ -399,18 +401,32 @@ export function renderFormantTab(view, inst) {
   const machine = machineFor(doc, lo, hi);
   const vowel = { front: f.front, open: f.open, round: f.round };
   const vowelFor = (v) => ({ ...v, track: f.track, refNote: f.refNote });
+  // A LYRIC instrument (item 280) sings its lyrics' vowels, not the record's:
+  // its source is chosen for no vowel in particular, and its own vowel and
+  // syllable are not shown — what is here is what every syllable shares.
+  const lyric = doc.lyricEntry(slot);
+  /** The op that re-chooses the lyrics' noise from machine `m` (a new range),
+   *  or null for an instrument with no lyrics. */
+  const relyric = (m) => {
+    if (!lyric) return null;
+    const res = deriveLyrics(inst.formant, lyric.editor, m);
+    return res.entry ? setLyricsOp(doc.lyricPayloadWith(slot, res.entry)) : null;
+  };
 
   /** The bytes that make machine `m`'s best source for vowel `v` the record's:
    *  {pairs, best}. Always the same offsets (empty when nothing in the range
    *  can be a source), so every step of a drag coalesces into one undo step. */
   const sourcePairs = (m, v) => {
-    const best = m.bestSource(vowelFor(v));
+    const best = m.bestSource(lyric ? null : vowelFor(v));
     if (!best) return { pairs: [], best: null };
     return { pairs: [...formantSourceBytes(best.cand, best.c4Rate), ...formantSourceFlagByte(inst, best.cand)], best };
   };
   const setRange = (a, b) => {
-    const { pairs } = sourcePairs(machineFor(doc, a, b), vowel);
-    apply([...formantRangeBytes(a, b), ...pairs]);
+    const m = machineFor(doc, a, b);
+    const { pairs } = sourcePairs(m, vowel);
+    const op = setInstBytesOp(slot, [...formantRangeBytes(a, b), ...pairs]);
+    const re = relyric(m);
+    view.store.undo.apply(re ? compositeOp([op, re]) : op);
   };
 
   // The range: one of the pool's samples or recordings, all of them, or two
@@ -431,7 +447,13 @@ export function renderFormantTab(view, inst) {
   const rangePick = view.pickRow(t("fmt.range"), current ? current[0] : "",
     [...(current ? [] : [["", t("fmt.rangeCustom")]]), ...items.map(pick)],
     (v) => {
-      if (v === "none") { if (!noPool) apply(formantPoolFreeBytes(inst)); return; }
+      if (v === "none") {
+        if (noPool) return;
+        const op = setInstBytesOp(slot, formantPoolFreeBytes(inst));
+        const re = relyric(null);
+        view.store.undo.apply(re ? compositeOp([op, re]) : op);
+        return;
+      }
       const it = all.find((x) => x[0] === v);
       if (it && it[3] > it[2]) setRange(it[2], it[3]);
     },
@@ -464,14 +486,14 @@ export function renderFormantTab(view, inst) {
     const e = sourceEntry(machine, inst) ?? (inst.sampleLength > 0 ? null : undefined);
     if (e === undefined) { srcText.textContent = t("fmt.sourceNone"); return; }
     const j = e ? machine.judgeSource({ ...e, loopStart: inst.sampleLoopStart, loopEnd: inst.sampleLoopEnd,
-      loopMode: inst.loopMode }, vowelFor(vowel)) : null;
+      loopMode: inst.loopMode }, lyric ? null : vowelFor(vowel)) : null;
     // No pitch here: the source is tuned to middle C, and a census sample
     // reports its rate as the record has it — a figure that would be the tuned
     // pitch, not the recording's own.
     const where = e ? nameOf(e) : hex6(inst.samplePtr);
     const ipa = nearestVowelMark(vowel.front, vowel.open, vowel.round)?.ipa ?? "?";
     srcText.textContent = `${where} · ${t("fmt.sourceLoop", { a: inst.sampleLoopStart, b: inst.sampleLoopEnd })}` +
-      (j ? ` · ${t("fmt.sourceFor", { ipa, b: fmtBad(j.badness) })}` : "");
+      (j ? ` · ${lyric ? t("fmt.sourceForLyrics", { b: fmtBad(j.badness) }) : t("fmt.sourceFor", { ipa, b: fmtBad(j.badness) })}` : "");
   };
   const againBtn = el("button", "", t("fmt.sourcePick"));
   againBtn.type = "button";
@@ -587,7 +609,7 @@ export function renderFormantTab(view, inst) {
     (v) => { if ((v === 1) !== f.nasal) apply(formantRefBytes(f.refNote, v === 1)); });
   nasalRow.title = t("fmt.nasalTitle");
   if (!f.vowel) disableRow(nasalRow);
-  view.group(t("fmt.grpVowel"), chart.node, roundRow, vowelRow, nasalRow, readout, liveReadout,
+  if (!lyric) view.group(t("fmt.grpVowel"), chart.node, roundRow, vowelRow, nasalRow, readout, liveReadout,
     f.vowel ? null : el("p", "dim fmt-note", t("fmt.noVowelNote")));
 
   // ── Syllable ──
@@ -665,16 +687,36 @@ export function renderFormantTab(view, inst) {
     (v) => { if (v !== f.codaArt) apply(grWith({ codaArt: v })); });
   codaArtRow.classList.add("fmt-sv", "fmt-art");
   codaArtRow.title = t("fmt.codaArtTitle");
-  view.group(t("fmt.grpSyllable"),
-    slotRow(0, "fmt.onset1"), slotRow(1, "fmt.onset2"), secRow, glideRow, rhoticRow, slotRow(2, "fmt.coda"),
-    codaArtRow, el("p", "dim fmt-note", t("fmt.syllableNote")));
+  // A formant instrument can be given lyrics: it then sings one syllable a
+  // note, its own syllable the first of them.
+  const toLyricBtn = el("button", "", t("fmt.toLyric"));
+  toLyricBtn.type = "button";
+  toLyricBtn.title = t("fmt.toLyricTitle");
+  toLyricBtn.addEventListener("click", () => {
+    const text = formantSyllable(inst).replace(/[\s.]/gu, "") || "la";
+    const res = deriveLyrics(inst.formant, { ...blankLyricEditor(), text },
+      noPool ? null : machine);
+    if (!res.entry) return;
+    view.tab = "lyrics";
+    view.store.undo.apply(setLyricsOp(doc.lyricPayloadWith(slot, res.entry)));
+  });
+  const toLyricRow = el("div", "slider-row fmt-to-lyric");
+  toLyricRow.append(el("span", "sl-label", ""), toLyricBtn);
+  if (!lyric) {
+    view.group(t("fmt.grpSyllable"),
+      slotRow(0, "fmt.onset1"), slotRow(1, "fmt.onset2"), secRow, glideRow, rhoticRow, slotRow(2, "fmt.coda"),
+      codaArtRow, el("p", "dim fmt-note", t("fmt.syllableNote")), toLyricRow);
+  } else {
+    view._formantLive = null;
+    view.group(t("fmt.grpLyric"), el("p", "dim fmt-note", t("fmt.lyricNote")));
+  }
 
   // ── Pitch and timing ──
   view.group(t("fmt.grpPitch"),
     view.sliderRow(t("fmt.track"), f.track, 0, 255,
       (v, gid) => applyQuiet(formantFieldBytes("track", v), gid),
       { ann: (v) => t("fmt.trackAnn", { k: (v / 256).toFixed(2) }) }),
-    view.sliderRow(t("fmt.ref"), f.vowel ? f.refNote : FORMANT_DEFAULT_REF, 0x2000, 0x7000,
+    view.sliderRow(t("fmt.ref"), f.vowel && f.refNote !== 0 ? f.refNote : FORMANT_DEFAULT_REF, 0x2000, 0x7000,
       (v, gid) => applyQuiet(formantRefBytes(v, f.nasal), gid),
       { ann: (v) => `${noteToStr(v)} · ${noteHz(v).toFixed(1)} Hz` }),
     view.sliderRow(t("fmt.timing"), f.timing, 0, 255,
@@ -689,9 +731,10 @@ export function renderFormantTab(view, inst) {
   if (last) {
     last.querySelector(".slider-row:nth-child(1)")?.setAttribute("title", t("fmt.trackTitle"));
     const refRow = last.querySelector(".slider-row:nth-child(2)");
-    refRow?.setAttribute("title", t(f.vowel ? "fmt.refTitle" : "fmt.refNoVowelTitle"));
+    refRow?.setAttribute("title", t(f.vowel || lyric ? "fmt.refTitle" : "fmt.refNoVowelTitle"));
     // With no vowel the word holds no note: the consonants are sized at C3.
-    if (refRow && !f.vowel) disableRow(refRow);
+    // A lyric instrument's reference is its syllables', whatever its own is.
+    if (refRow && !f.vowel && !lyric) disableRow(refRow);
     last.querySelector(".slider-row:nth-child(3)")?.setAttribute("title", t("fmt.timingTitle"));
     last.querySelector(".slider-row:nth-child(4)")?.setAttribute("title", t("fmt.glideTitle"));
   }

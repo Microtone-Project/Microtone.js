@@ -46,6 +46,7 @@ import {
   plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote, PLOT_CHARS,
 } from "../pitchplot.js";
 import { t } from "../i18n.js";
+import { lyricContinues } from "../../doc/lyrics.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
@@ -830,6 +831,8 @@ class PatternPane {
       { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, cell,
       { octave: this.jam.octave, transpose: this.jam.transpose, currentInst: this.jam.currentInst, preset: this.store.pitchPreset,
         rawHex,
+        lyricContinues: this.jam.currentInst > 0 && !!this.store.doc?.isLyricSlot(this.jam.currentInst) &&
+          lyricContinues(pattern, c.row, this.jam.currentInst),
         keymap: this.store.keymap, quoteKey: this.store.quoteKey,
         wideCells: this.store.doc?.wideCells === true });
     if (!action) return false;

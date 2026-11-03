@@ -56,6 +56,8 @@ export function loadIntoEngine(eng, doc, songIndex = 0) {
   eng.setMastering(0, song.mastering ?? doc.meta?.mastering?.[songIndex] ?? null);
   // …and the instruments' mixing chains (item 217), for the same reason.
   eng.setImix(doc.imix ?? []);
+  // …and the lyric instruments' lyrics (item 280): which syllable a note sings.
+  eng.setLyrics(doc.lyrics ?? []);
 
   for (const entry of doc.ixmp) eng.uploadInstrumentPatches(entry.instId, entry.blob);
 }

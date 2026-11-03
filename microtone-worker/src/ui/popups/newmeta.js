@@ -23,7 +23,10 @@ import { defaultOplRecord } from "../../doc/opledit.js";
 import { defaultPsgRecord } from "../../doc/psgedit.js";
 import { defaultFormantRecord, canSourceFormant, FORMANT_RANGE_NONE } from "../../doc/formantedit.js";
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
-import { importBankOp } from "../../doc/ops.js";
+import { importBankOp, compositeOp, setLyricsOp } from "../../doc/ops.js";
+import { deriveLyrics } from "../../doc/lyrics.js";
+import { blankLyricEditor } from "../../../core/format/lyric-section.js";
+import { TaudInst } from "../../../core/engine/inst.js";
 import { META_MAX_LAYERS, metaLayers } from "../../doc/metaedit.js";
 import { FM_MAX_OPERATORS, fmProgramOf, fmBudget, fmCanAddOperator } from "../../doc/fmedit.js";
 import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
@@ -277,6 +280,22 @@ function kindDiagram(kind) {
       }),
       line(120, 36, 132, 36), head(134, 36), out(138, 36),
     );
+  } else if (kind === "lyric") {
+    // Syllables in a row, one a note, and a pointer under them moving on to
+    // the next: what reaches the speaker is the one it points at.
+    const xs = [8, 40, 72];
+    xs.forEach((x, i) => svg.appendChild(svgEl("rect", {
+      x, y: 22, width: 26, height: 16, rx: 8, fill: "none", stroke: "currentColor",
+      "stroke-width": i === 1 ? 2 : 1.2, opacity: i === 1 ? 1 : 0.6,
+    })));
+    svg.append(
+      line(53, 58, 53, 42),
+      svgEl("path", { d: "M 50 46 L 53 41 L 56 46", fill: "none", stroke: "currentColor",
+        "stroke-width": 1.2, "stroke-linejoin": "round" }),
+      svgEl("path", { d: "M 21 58 L 85 58", fill: "none", stroke: "currentColor", "stroke-width": 1.2,
+        "stroke-dasharray": "3 2.5", opacity: 0.75 }),
+      line(100, 30, 128, 30), head(130, 30), out(134, 30),
+    );
   } else if (kind === "opl") {
     // One chip channel: a modulator bending a carrier inside the channel's
     // outline, and the channel the only thing that reaches the speaker — no
@@ -346,6 +365,7 @@ export async function showNewMetaKind(store) {
   if (kind === "opl") return createOpl(store);
   if (kind === "psg") return createPsg(store);
   if (kind === "formant") return createFormant(store);
+  if (kind === "lyric") return createFormant(store, true);
   return null;
 }
 
@@ -363,27 +383,41 @@ function chipSources(doc) {
  * instrument, its consonants the noise generator's. Resolves {firstSlot,
  * count} like the pickers.
  */
-function createFormant(store) {
+function createFormant(store, lyric = false) {
   const doc = store.doc;
+  const name = lyric ? "Lyrics" : "Formant";
+  // A LYRIC instrument (item 280) is the same record with lyrics, made in the
+  // same undo step: it starts singing [la], its noise the range's best.
+  const withLyrics = (plan, record, machine) => {
+    if (!lyric) return importBankOp(plan);
+    const inst = new TaudInst(plan.metaSlot);
+    inst.loadRecord(record);
+    const res = deriveLyrics(inst.formant, { ...blankLyricEditor(), text: DEFAULT_LYRICS }, machine);
+    return compositeOp([importBankOp(plan), setLyricsOp(doc.lyricPayloadWith(plan.metaSlot, res.entry))]);
+  };
   if (doc.sampleList().length === 0 && doc.sampleRegions().length === 0) {
     const chip = chipSources(doc)[0];
     if (chip === undefined) return null;
     const record = defaultFormantRecord(null, 0, FORMANT_RANGE_NONE, FORMANT_RANGE_NONE);
-    const plan = planCreateFormant(doc, record, "Formant", chip);
+    const plan = planCreateFormant(doc, record, name, chip);
     if (plan.error) { alert(plan.error); return null; }
-    store.undo.apply(importBankOp(plan));
+    store.undo.apply(withLyrics(plan, record, null));
     return { firstSlot: plan.metaSlot, count: 1 };
   }
   const [lo, hi] = poolSpan(doc);
   const machine = new FormantMachine(doc.sampleBin, rangeCandidates(doc, lo, hi));
-  // Chosen for the vowel a new one sings, [a] at C3 (formant.js FormantPatch).
-  const top = machine.bestSource({ front: 200, open: 255, round: 0, track: 64, refNote: 0x4000 });
+  // Chosen for the vowel a new one sings, [a] at C3 (formant.js FormantPatch);
+  // a lyric instrument's for no vowel in particular.
+  const top = machine.bestSource(lyric ? null : { front: 200, open: 255, round: 0, track: 64, refNote: 0x4000 });
   const record = defaultFormantRecord(top?.cand ?? null, top?.c4Rate ?? 0, lo, hi);
-  const plan = planCreateOpl(doc, record, "Formant");
+  const plan = planCreateOpl(doc, record, name);
   if (plan.error) { alert(plan.error); return null; }
-  store.undo.apply(importBankOp(plan));
+  store.undo.apply(withLyrics(plan, record, machine));
   return { firstSlot: plan.metaSlot, count: 1 };
 }
+
+/** What a new lyric instrument sings until it is given words. */
+const DEFAULT_LYRICS = "la";
 
 /**
  * A new OPL instrument (item 209): IMS Studio's starting patch in the first free
@@ -407,7 +441,7 @@ function createPsg(store) {
   return { firstSlot: plan.metaSlot, count: 1 };
 }
 
-/** Resolves "meta", "fm", "opl", "psg", "formant", or null on cancel. Without
+/** Resolves "meta", "fm", "opl", "psg", "formant", "lyric", or null on cancel. Without
  *  `haveCandidates` the two kinds built from other instruments are shown but
  *  disabled; without `haveSamples`, the one built from the pool. */
 function pickMetaKind(haveCandidates = true, haveSamples = true) {
@@ -417,7 +451,7 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
     const cards = el("div", "kind-cards");
     const finish = (kind) => { dlg.close(); dlg.remove(); resolve(kind); };
 
-    for (const kind of ["meta", "fm", "opl", "psg", "formant"]) {
+    for (const kind of ["meta", "fm", "opl", "psg", "formant", "lyric"]) {
       const card = el("button", "kind-card");
       card.type = "button";
       // An FM rack needs nothing to build from: Easy Mode makes its own
@@ -426,7 +460,7 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
         card.disabled = true;
         card.title = t("newkind.noCandidates");
       }
-      if (kind === "formant" && !haveSamples) {
+      if ((kind === "formant" || kind === "lyric") && !haveSamples) {
         card.disabled = true;
         card.title = t("newkind.noSamples");
       }
