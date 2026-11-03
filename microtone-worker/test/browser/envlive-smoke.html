@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>envelope playhead smoke</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1200px;height:760px"></iframe>
+  <script type="module">
+    // The Instruments view's envelope graph follows a JAMMED note's playhead,
+    // not only the song's: it used to repaint only while the song played, so
+    // a note played on the keyboard left the graph still until the tab was
+    // drawn again. And it stays change-driven — nothing sounding, nothing
+    // painted (CLAUDE.md "UI frame loop").
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    let failures = 0;
+    const check = (name, ok, detail = "") => {
+      if (!ok) failures++;
+      log(`${name}${detail ? ` (${detail})` : ""}: ${ok ? "ok" : "FAIL"}`);
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await new Promise((resolve) => {
+          const poll = setInterval(() => {
+            const w = frame.contentWindow;
+            if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+          }, 100);
+        });
+        const { store, instrumentsView: iv } = win.__microtone;
+        const { setEnvArrayOp, setInstFieldOp } = await import("../../src/doc/ops.js");
+        const { ENV_MAX_NODES, minifloatNearest } = await import("../../src/doc/envedit.js");
+        await win.__microtone.ensureAudio?.();
+        const audio = store.audio;
+        if (!audio) { log("audio unavailable"); log("FAILURES: 1"); return; }
+        log("app loaded, audio up");
+
+        const slot = store.doc.usedInstrumentSlots().find((s) => {
+          const inst = store.doc.instruments[s];
+          return !inst.isMeta && !inst.extraPatches && inst.sampleLength > 0;
+        });
+        // A present volume envelope that takes four seconds, so its playhead
+        // is still on its way while the note is held.
+        const nodes = Array.from({ length: ENV_MAX_NODES }, () => ({ value: 0, offset: 0 }));
+        nodes[0] = { value: 63, offset: minifloatNearest(2, 1) };
+        nodes[1] = { value: 40, offset: minifloatNearest(2, 1) };
+        nodes[2] = { value: 20, offset: 0 };
+        store.undo.apply(setEnvArrayOp(slot, "volEnvelopes", nodes));
+        const loop = store.doc.instruments[slot].volEnvLoop;
+        store.undo.apply(setInstFieldOp(slot, "volEnvLoop", (loop | (1 << 13)) & 0xffff));
+
+        win.document.querySelector('#tabs button[data-view="instruments"]').click();
+        await sleep(200);
+        iv.selected = slot;
+        iv.tab = "env0";
+        iv.refresh();
+        await sleep(200);
+
+        let paints = 0;
+        const draw = iv.drawEnvGraph.bind(iv);
+        iv.drawEnvGraph = () => { paints++; draw(); };
+
+        check("the song is not playing", !audio.isPlaying());
+        paints = 0;
+        await sleep(500);
+        check("nothing sounding paints nothing", paints === 0, `${paints} paints`);
+
+        audio.jamNote(0, 0, 0x5000, slot, true);
+        await sleep(800);
+        const live = audio.getEnvPlayheads(slot, "vol");
+        check("the jammed note has a volume playhead", live.length > 0, `${live.length}`);
+        check("the graph follows it while the song is stopped", paints >= 10, `${paints} paints`);
+        check("…and was painted with it", typeof iv._envLiveKey === "string" && iv._envLiveKey !== "", JSON.stringify(iv._envLiveKey));
+
+        audio.jamStop(0);
+        let gone = false;
+        for (let i = 0; i < 60 && !gone; i++) {
+          await sleep(100);
+          gone = audio.getEnvPlayheads(slot, "vol").length === 0;
+        }
+        await sleep(100);
+        check("the note fell silent", gone);
+        check("the graph took its playhead away", iv._envLiveKey === "", JSON.stringify(iv._envLiveKey));
+        paints = 0;
+        await sleep(500);
+        check("silent again, nothing painted", paints === 0, `${paints} paints`);
+
+        delete iv.drawEnvGraph;
+        store.undo.undo();
+        store.undo.undo();
+        log(`FAILURES: ${failures}`);
+      } catch (err) {
+        log(`ERROR ${err.message}\n${err.stack}`);
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+</body>
+</html>

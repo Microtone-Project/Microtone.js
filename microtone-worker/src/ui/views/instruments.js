@@ -1507,13 +1507,20 @@ export class InstrumentsView {
     // the lead layer on the lane, the rest in the background), which the
     // lanes' pattern-level instrument (the rack's, the layer table's) never
     // would (item 269).
-    const audio = this.store.audio;
-    const live = audio && tabDef.live ? audio.getEnvPlayheads(this.envSlot, tabDef.live) : [];
+    const live = this.envLive();
+    this._envLiveKey = envLiveKey(live);
     paintEnvGraph(canvas, Math.max(200, this.right.clientWidth - 20), 240, {
       env, max: tabDef.max, axis: this.envAxis,
       sus: inst[tabDef.susKey], loop: inst[tabDef.loopKey],
       selected: this.selectedNode, live,
     });
+  }
+
+  /** The open envelope tab's live playheads (see drawEnvGraph). */
+  envLive() {
+    const audio = this.store.audio;
+    const live = this.envCanvas?.tabDef.live;
+    return audio && live ? audio.getEnvPlayheads(this.envSlot, live) : [];
   }
 
   /** A graph node was grabbed: it becomes the spinners' node. Shaping an
@@ -1575,6 +1582,20 @@ export class InstrumentsView {
     this.drawZones();
   }
 
+  /** The zones the selected instrument's sounding voices play, as
+   *  "samplePtr:sampleLength" keys (an Ixmp patch is known by its sample). */
+  zoneLiveKeys() {
+    const audio = this.store.audio;
+    const liveKeys = new Set();
+    if (!audio) return liveKeys;
+    for (let vi = 0; vi < TOTAL_VOICES; vi++) {
+      if (audio.getVoiceActive(vi) && audio.getVoiceInstrument(vi) === this.selected) {
+        liveKeys.add(`${audio.getVoiceSamplePtr(vi)}:${audio.getVoiceSampleLength(vi)}`);
+      }
+    }
+    return liveKeys;
+  }
+
   drawZones() {
     if (!this.zoneCanvas) return;
     const { canvas, inst } = this.zoneCanvas;
@@ -1595,15 +1616,8 @@ export class InstrumentsView {
     const X = (noteVal) => (noteVal / 0xffff) * w;
     const Y = (vol) => h - (vol / 63) * h;
 
-    const audio = this.store.audio;
-    const liveKeys = new Set();
-    if (audio) {
-      for (let vi = 0; vi < TOTAL_VOICES; vi++) {
-        if (audio.getVoiceActive(vi) && audio.getVoiceInstrument(vi) === this.selected) {
-          liveKeys.add(`${audio.getVoiceSamplePtr(vi)}:${audio.getVoiceSampleLength(vi)}`);
-        }
-      }
-    }
+    const liveKeys = this.zoneLiveKeys();
+    this._zoneLiveKey = [...liveKeys].join();
 
     patches.forEach((p, i) => {
       if (i === shadowIdx) return; // item 180 — not a real zone
@@ -2600,11 +2614,17 @@ export class InstrumentsView {
     if (!this.visible) return;
     if (this.advanced) {
       this.advEditor.frame();
-    } else if (this.store.audio?.isPlaying()) {
-      // Every envelope tab, the Pitch/Filter ones included (they used to sit
-      // still while their playheads moved).
-      if (this.envCanvas?.canvas.isConnected) this.drawEnvGraph();
-      if (this.tab === "zones" && this.zoneCanvas) this.drawZones();
+    } else {
+      // Every envelope tab, the Pitch/Filter ones included, repaints when its
+      // playheads MOVE — whatever moves them: the song, a note jammed on the
+      // keyboard (the song is not playing then, and the graph used to sit
+      // still until the tab was drawn again), the last voice falling silent.
+      // Nothing sounding, nothing changed, nothing painted.
+      if (this.envCanvas?.canvas.isConnected && envLiveKey(this.envLive()) !== this._envLiveKey) {
+        this.drawEnvGraph();
+      }
+      if (this.tab === "zones" && this.zoneCanvas?.canvas.isConnected &&
+          [...this.zoneLiveKeys()].join() !== this._zoneLiveKey) this.drawZones();
     }
     // The PSG tab shows the instrument's live overlay while playing, and puts
     // the record's values back once it stops.
@@ -2615,6 +2635,14 @@ export class InstrumentsView {
     else this.mixing.syncTap();
     this.updateLiveDots();
   }
+}
+
+/** What an envelope graph's playheads were painted from: node and time per
+ *  voice, so a moved, a new or a vanished one repaints. */
+function envLiveKey(live) {
+  let key = "";
+  for (const p of live) key += `${p.idx}:${p.t};`;
+  return key;
 }
 
 function escape(s) {

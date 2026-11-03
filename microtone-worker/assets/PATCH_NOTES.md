@@ -18,6 +18,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Before, only the Tube curve or a non-zero Bias got this treatment, so a sample with an offset came through a Tape, Soft, Hard or Fold curve still offset, and the Limiter clamped on it.
 - Chains with a Tube curve or a Bias sound very slightly different: their filter now sits at 3 Hz instead of 5 Hz.
 
+**The envelope graphs follow a note you play on the keyboard**, not only the song: the playhead moves along the Vol env, Pan env, Pitch and Filter tabs while you audition the instrument.
+
+- Fixed: playing a note in the Instruments view left the envelope's playhead where it was until you switched to another tab and back; the graph only redrew itself while the song was playing.
+- Fixed: once a note fell silent its playhead stayed on the graph; it now goes when the sound does. The Zones tab lights the zone you are playing the same way.
+
 ## Version 4.6.0 (2026-11-02)
 
 **FM racks get fixed-frequency operators**, the *FIXED* mode of the Yamaha DX7: an operator can sound one note whatever key is played, instead of following the key at a ratio.
