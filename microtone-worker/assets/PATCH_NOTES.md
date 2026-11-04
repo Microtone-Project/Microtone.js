@@ -13,6 +13,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - A syllable without a vowel holds its consonant, so *n* is a hummed [n̩]; [ɚ], [ɝ] and the ˞ mark r-colour a vowel.
 - **Towards the median** draws every syllable's way to its vowel towards the lyrics' median, from 0 (as spoken) to 100 (all alike), shortening the long and lengthening the short, so the vowels land on their notes as evenly as you like. The noise each consonant hisses with is the best the instrument's pool range has, chosen for it.
 - Pick a run of syllables — on the syllable chips, or by selecting them in the lyrics — and give it a length of its own, such as an English line in a Korean song; each consonant's own length is there too, folded away.
+- While the instrument sings, the syllable it is singing is lit in the lyrics and on its chip, and the lyrics box scrolls to keep it in sight.
 - Typing notes into a pattern with a lyric instrument selected writes the instrument number on the lane's first note only, so the lyrics carry on; jamming one on the keyboard sings its lyrics on, a syllable a key.
 
 **Pitch fields take cents and ratios**: type `700c` or `3/2` straight into a detune or an interval instead of working out its 4096-TET units by hand.
@@ -42,6 +43,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - Fixed: a dialog that opens on a dropdown or a number box, such as Retune, ignored Esc while a block was selected or selection mode was on; the box lost its focus the moment its ◄ ► buttons were added, so the key went to the pattern instead and cleared the selection.
 - Fixed: in the same dialogs, Enter did not confirm, and a note key or Space typed before clicking into the dialog played the piano or started the song behind it.
+
+**Microtone can now be licensed for a closed-source product**, beside the free licence it has always had.
+
+- Building Microtone or one of its players into an app, a game or an instrument whose terms the GPL or the LGPL will not allow? Write to microtone@curioustorvald.com for a proprietary licence. Nothing changes for anyone else: the free licences stay exactly as they are.
+- A proprietary licence covers the code and its English text, in versions already published under the free licence; there is no proprietary-only edition. Translations, demo songs and the fonts are not included.
+- Contributions are now accepted under a Contributor Licence Agreement: you keep your copyright and your work stays free, and translations, songs and font changes need no agreement at all.
 
 ## Version 4.6.0 (2026-11-02)
 

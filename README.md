@@ -145,6 +145,11 @@ against each other gives you contextual scoring for the cost of one file.
 
 `player.html` in this repository is its reference consumer.
 
+The LGPL already lets you link `taudplay` into a closed-source program. Where
+it does not fit — a console title, a static build, changes to the library you
+cannot publish — the same code is available under a proprietary licence; see
+[Licensing](#licensing).
+
 ---
 
 # For developers
@@ -326,7 +331,24 @@ one: `assets/GeneralUser-GS.taud.sf2.gz` (GeneralUser GS, for MIDI) and
 Sound corpus resolves its patch names against, for `.ims`). Neither is used
 unless an import asks for it.
 
-## Copyright
+## Contributing
+
+Bug reports and suggestions are welcome on the
+[issue tracker](https://github.com/Microtone-Project/Microtone.js/issues).
+
+Code and documentation can be merged only once their author has agreed to the
+[Contributor Licence Agreement](CLA.md) — once, for every contribution after,
+by leaving its one sentence in a pull request's description (the template has
+it). It is a licence, not a transfer: you keep your copyright, and everything
+merged stays available under the GPL. What it adds is permission for the
+maintainer — and nobody else — to offer your contribution under the proprietary
+licence below too, only as part of the project and only in versions anyone can
+already get under the GPL. Every contribution is asked for it, however small.
+
+**Translations into a language other than English, songs, and changes to the
+Motif fonts need no agreement**: they are never put under a proprietary licence.
+
+## Licensing
 
 Copyright (C) 2026 CuriousTorvald
 
@@ -342,3 +364,29 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+The players — `taudplay`, [libtaudplay](https://github.com/Microtone-Project/taudplay-c)
+and [Taudplay for Godot](https://github.com/Microtone-Project/taudplay-godot) —
+are under the GNU Lesser General Public License, version 3 or later.
+
+### Proprietary licence
+
+Microtone and its players are also available under a **proprietary licence**,
+for a product whose terms the GPL or the LGPL do not allow: a closed-source
+application or game, a console title, a hardware instrument. Write to
+**<microtone@curioustorvald.com>**. The free licences stay exactly as they are;
+the proprietary one is offered beside them, never instead: it covers only code
+already published here, with no proprietary-only edition and no exclusive deal.
+
+A proprietary licence covers the code and its English text, and nothing else:
+
+- **Languages other than English** are not included. A licensee receives the
+  English language tables only; the other translations stay GPL.
+- **Demo songs** are not included, the maintainer's own among them. Each keeps
+  the terms recorded in `microtone-worker/assets/demo_projects/README.md`.
+- **The Motif fonts** are not included: they are derived from Chivo Mono under
+  the SIL Open Font License 1.1, which already lets you ship them in any
+  product.
+- **Third-party components** — the vendored libraries (`core/vendor/`,
+  `microtone-worker/vendor/`), the bundled sound banks, the binaural filter set
+  — are not the maintainer's to license, and keep their own licences.
