@@ -822,7 +822,8 @@ degree of a larger table, enter a nearby note and step it with the mouse wheel
 | **Delete**, **Backspace** or **.** | — | | Clear the note (and instrument) |
 
 **Delete**, **Backspace** and **.** are interchangeable everywhere on the
-pattern grids: whichever one you reach for erases the column under the caret.
+pattern grids and in the Cues view: whichever one you reach for erases the
+column under the caret.
 
 ### Interrupts
 
@@ -1029,7 +1030,7 @@ lane, each cell holding the pattern number (hex) that lane plays during
 that cue.
 
 - Type **hex digits** to enter a pattern number (`0000`–`7FFE`).
-- **Delete** / **.** empties the slot.
+- **Delete**, **Backspace** or **.** empties the slot (a command too) and steps down, as on the pattern grids. Over a selected block, they empty the whole block.
 - **Space** (or a double-click) opens the command popup for the cell — over a selected block of command words it fills every one of them at once. Commands occupy the slot instead of a pattern:
 
 | Command | Meaning |

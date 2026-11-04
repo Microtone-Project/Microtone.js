@@ -10,7 +10,7 @@ import { INST_NOP, INST_GOBACK, INST_SKIP, INST_JUMP, INST_PATLEN, INST_HALTAT, 
 import { setCuesOp } from "../../doc/ops.js";
 import { planNewPatternNumbers } from "../../doc/cleanup.js";
 import {
-  lookahead, subIsEmpty, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX2_OP,
+  lookahead, subIsEmpty, isClearKey, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX2_OP,
 } from "../edit.js";
 import { dittoGhosts } from "../../doc/ditto.js";
 import { makeCueBlock, cueBlockIndex, mergeCueWord } from "../../doc/clipboard.js";
@@ -783,27 +783,25 @@ export class CuesView {
       case "Enter": this.openCmdEditor(); return true;
     }
     if (!store.record) return false;
-    if (c.col < 2) {
-      // A Cmd word holds no digits to type, so Delete is the only key that
-      // applies: it clears the command, exactly as it empties a pattern slot.
-      if (e.code === "Delete" || e.code === "Period") {
-        if (c.cue < this.numCues()) { // nothing to clear on the phantom row
-          store.undo.apply(setCuesOp(store.songIndex, this.cmdWrites(c.cue, c.col, 0)));
-        }
-        this.moveCursor(1, 0);
-        return true;
+    // Delete, Backspace and '.' clear the cell and step down, as on the pattern
+    // grids (edit.js isClearKey). Backspace used to do nothing here at all. The
+    // digit position goes back to the first, too: a slot cleared halfway
+    // through typing its number left the next row's entry starting mid-word.
+    if (isClearKey(e.code)) {
+      if (c.cue < this.numCues()) { // nothing to clear on the phantom row
+        // A Cmd word holds no digits to type, so clearing is the one edit it
+        // takes from the keyboard; a lane slot keeps its command bit.
+        const ch = c.col - 2;
+        store.undo.apply(setCuesOp(store.songIndex, c.col < 2
+          ? this.cmdWrites(c.cue, c.col, 0)
+          : [{ cue: c.cue, ch, value: (this.wordAt(c.cue, ch) & 0x8000) | CUE_EMPTY }]));
       }
-      return false;
-    }
-    const ch = c.col - 2;
-    if (e.code === "Delete" || e.code === "Period") {
-      if (c.cue < this.numCues()) { // nothing to delete on the phantom row
-        store.undo.apply(setCuesOp(store.songIndex,
-          [{ cue: c.cue, ch, value: (this.wordAt(c.cue, ch) & 0x8000) | 0x7fff }]));
-      }
+      c.nib = 0;
       this.moveCursor(1, 0);
       return true;
     }
+    if (c.col < 2) return false;
+    const ch = c.col - 2;
     const d = parseInt(e.key, 16);
     if (Number.isNaN(d) || e.key.length !== 1) return false;
     // 4-nibble pattern entry (0000..7FFE; the top nibble masks to 15 bits).

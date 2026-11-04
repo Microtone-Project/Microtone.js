@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>cues: grow-past-HALT + block selection + clipboard + command-fill smoke</title>
+  <title>cues: grow-past-HALT + block selection + clipboard + command-fill + clear-key smoke</title>
 </head>
 <body>
   <pre id="out">running…</pre>
@@ -293,6 +293,40 @@
         log(`command space: straddleOut=${noStraddleOut} straddleIn=${noStraddleIn} crossPaste=${spaceSafeOk}`);
         cuesView.clearSelection();
 
+        // ── 8b. Delete / Backspace / '.' clear the slot under the cursor, as on
+        //        the pattern grids — Backspace used to do nothing here — step
+        //        down, and start the next entry from the first digit. ──
+        cuesView.clearSelection();
+        const filled = [];
+        for (let cu = 0; cu < song.cues.length && filled.length < 3; cu++) {
+          for (let ch = 0; ch < store.doc.channelCount; ch++) {
+            if ((song.cues[cu][ch] & 0x7fff) !== CUE_EMPTY) { filled.push({ cu, ch }); break; }
+          }
+        }
+        let clearOk = filled.length === 3;
+        for (const [i, [code, k]] of [["Backspace", "Backspace"], ["Delete", "Delete"], ["Period", "."]].entries()) {
+          if (!clearOk) break;
+          const { cu, ch } = filled[i];
+          const sign = song.cues[cu][ch] & 0x8000;
+          cuesView.cursor = { cue: cu, col: 2 + ch, nib: 2 }; // halfway through a number
+          key(win, code, k);
+          const c = cuesView.cursor;
+          const ok = song.cues[cu][ch] === (sign | CUE_EMPTY) && c.cue === cu + 1 && c.nib === 0;
+          if (!ok) log(`  ${code} at cue ${cu} lane ${ch}: word=${song.cues[cu][ch].toString(16)} cursor=${c.cue}/${c.nib}`);
+          clearOk &&= ok;
+        }
+        for (let i = 0; i < 3; i++) key(win, "KeyZ", "z", { ctrlKey: true });
+        const clearUndoOk = clearOk && filled.every(({ cu, ch }) => (song.cues[cu][ch] & 0x7fff) !== CUE_EMPTY);
+        // …and a command word: Backspace clears it like Delete always did.
+        const cmd0 = instOf(0, 0);
+        cuesView.cursor = { cue: 0, col: 0, nib: 0 };
+        key(win, "Backspace", "Backspace");
+        const cmdClearOk = cmd0.type !== INST_NOP && instOf(0, 0).type === INST_NOP && cuesView.cursor.cue === 1;
+        key(win, "KeyZ", "z", { ctrlKey: true });
+        const cmdBackOk = instOf(0, 0).type === cmd0.type && instOf(0, 0).arg === cmd0.arg;
+        const clearKeysOk = clearOk && clearUndoOk && cmdClearOk && cmdBackOk;
+        log(`clear keys: lanes=${clearOk} undo=${clearUndoOk} cmd=${cmdClearOk}/${cmdBackOk}`);
+
         // ── 9. draw() renders the phantom row + a selection without throwing ──
         let drawOk = true;
         try {
@@ -308,8 +342,8 @@
 
         const pass = editRowsOk && grew && materialised && shrankBack && noBloat && grewFar &&
           farUndo && selOk && clipOk && pasteOk && anchorOk && grewOnPaste && undoGrow && delBlanked &&
-          cmdKept && escOk && kbOk && colOk && cmdOk && drawOk;
-        log(pass ? "RESULT: PASS" : `RESULT: FAIL edit=${editRowsOk}/${grew}/${materialised} undo=${shrankBack} noBloat=${noBloat} grewFar=${grewFar}/${farUndo} sel=${selOk} clip=${clipOk} paste=${pasteOk} anchor=${anchorOk} growPaste=${grewOnPaste}/${undoGrow} del=${delBlanked}/${cmdKept} esc=${escOk} kb=${kbOk} col=${colOk} cmd=${cmdOk} draw=${drawOk}`);
+          cmdKept && escOk && kbOk && colOk && cmdOk && clearKeysOk && drawOk;
+        log(pass ? "RESULT: PASS" : `RESULT: FAIL edit=${editRowsOk}/${grew}/${materialised} undo=${shrankBack} noBloat=${noBloat} grewFar=${grewFar}/${farUndo} sel=${selOk} clip=${clipOk} paste=${pasteOk} anchor=${anchorOk} growPaste=${grewOnPaste}/${undoGrow} del=${delBlanked}/${cmdKept} esc=${escOk} kb=${kbOk} col=${colOk} cmd=${cmdOk} clearKeys=${clearKeysOk} draw=${drawOk}`);
       } catch (err) {
         log(`RESULT: ERROR ${err.message}\n${err.stack}`);
       }

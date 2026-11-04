@@ -617,8 +617,9 @@ function hexDigit(key) {
 }
 
 /** Keys that blank a cell column: Delete, '.', and (item 86) Backspace — one
- *  key for "erase" on the pattern grids, whichever one the hand reaches for. */
-function isClearKey(code) {
+ *  key for "erase" on the grids, whichever one the hand reaches for. The Cues
+ *  grid asks the same question, so the three keys mean the same thing there. */
+export function isClearKey(code) {
   return code === "Delete" || code === "Backspace" || code === "Period";
 }
 
