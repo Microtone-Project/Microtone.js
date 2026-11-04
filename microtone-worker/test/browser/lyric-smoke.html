@@ -158,6 +158,28 @@
         await waitFor(() => doc.lyricEntry(slot).syllables.length === 12);
         log(`a syllable typed in front moves it to syllable 6: ${ok(doc.lyricEntry(slot).editor.sylOverrides[0]?.index === 5)}`);
 
+        // ── the syllable being sung is lit in the text and on its chip ──
+        {
+          const audio = store.audio;
+          const lit = () => {
+            const m = iv.panel.querySelector(".lyr-text-back mark.lyr-now");
+            const c = iv.panel.querySelector(".lyr-syl.now .lyr-syl-n");
+            return m && c ? `${m.textContent}#${c.textContent}` : null;
+          };
+          audio.jamNote(0, 0, 0x4000, slot, true);
+          const first = await waitFor(lit, 4000).catch(() => null);
+          audio.jamNote(0, 0, 0x4200, slot, true);
+          const second = await waitFor(() => (lit() && lit() !== first ? lit() : null), 4000).catch(() => null);
+          log(`jammed: lit ${first}, then ${second}: ${ok(first === "la#1" && second === "de#2")}`);
+          // The layer lies under the box glyph for glyph: same box, same scroll.
+          const area6 = iv.panel.querySelector(".lyr-text"), back = iv.panel.querySelector(".lyr-text-back");
+          const ra = area6.getBoundingClientRect(), rb = back.getBoundingClientRect();
+          log(`the layer is the box's size and font: ` + ok(Math.abs(ra.width - rb.width) < 0.5 && Math.abs(ra.height - rb.height) < 0.5 &&
+            win.getComputedStyle(area6).fontFamily === win.getComputedStyle(back).fontFamily));
+          audio.jamNote(0, 0, 0, slot, true); // let go
+          await sleep(50);
+        }
+
         // ── X-SAMPA: switching rewrites the lyrics ──
         const xbtn = [...iv.panel.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === "X-SAMPA");
         const syl0 = JSON.stringify(doc.lyricEntry(slot).syllables);

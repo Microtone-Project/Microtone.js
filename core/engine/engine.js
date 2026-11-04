@@ -940,11 +940,31 @@ export class TaudEngine {
    * (an `S $Afgr`, or an instrument change still gliding), as the chart bytes
    * it stands at now, fractional mid-glide, and where a glide is heading. A
    * voice singing the record's vowel is not listed: the record shows it.
+   *
+   * A lyric instrument's (item 280) also lists `lyric`: the syllables its
+   * notes are singing now, as indices into its lyrics, ascending, each once —
+   * the lanes' and jammed notes' (a note let go still sings until it is
+   * silent), not the ghosts' an NNA left behind. Empty for any other.
    */
   getInstrumentFormantState(slot) {
-    const patch = this.instruments[slot & 0x3ff].formant;
+    const inst = this.instruments[slot & 0x3ff];
+    const patch = inst.formant;
     if (patch === null) return null;
     const voices = [];
+    const lyric = [];
+    if (inst.lyric !== null) {
+      for (const p of this.playheads) {
+        const ts = p.trackerState;
+        if (ts === null || ts === undefined) continue;
+        for (const v of ts.voices) {
+          const st = v.formant;
+          if (!v.active || st === null || st.patch === null || st.patch.lyricOf !== patch) continue;
+          const k = inst.lyric.indexOf(st.patch);
+          if (k >= 0 && !lyric.includes(k)) lyric.push(k);
+        }
+      }
+      lyric.sort((a, b) => a - b);
+    }
     for (const p of this.playheads) {
       const ts = p.trackerState;
       if (ts === null || ts === undefined) continue;
@@ -964,7 +984,7 @@ export class TaudEngine {
         }
       }
     }
-    return { voices };
+    return { voices, lyric };
   }
 
   /** The modification's inversion mask, one bit per SAMPLE byte (item 130). */

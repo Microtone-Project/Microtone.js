@@ -62,7 +62,7 @@ import { formantBadge } from "../../doc/formantedit.js";
 import { oplGraph, oplGraphCanvas } from "../../doc/oplgraph.js";
 import { oplEnvelopeSvg } from "../oplsketch.js";
 import { renderFormantTab, formantTabFrame } from "./instformant.js";
-import { renderLyricsTab } from "./instlyrics.js";
+import { renderLyricsTab, lyricsTabFrame } from "./instlyrics.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
 import { renderFmEasyTab } from "./instfmeasy.js";
 import { easyDecode } from "../../doc/fmeasy.js";
@@ -2932,6 +2932,8 @@ export class InstrumentsView {
     if (!this.advanced && this.tab === "psg") psgTabFrame(this);
     // The Formant tab likewise shows the vowels S $Afgr gave sounding notes.
     if (!this.advanced && this.tab === "formant") formantTabFrame(this);
+    // The Lyrics tab marks the syllables being sung (item 280).
+    if (!this.advanced && this.tab === "lyrics") lyricsTabFrame(this);
     if (!this.advanced && this.tab === "mixing") this.mixing.frame();
     else this.mixing.syncTap();
     this.updateLiveDots();

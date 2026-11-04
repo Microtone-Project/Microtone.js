@@ -2629,12 +2629,34 @@ button.nota-assign { font-size: 0.85rem; }
 /* ── Lyrics tab (item 280, views/instlyrics.js) ──
    The lyrics and every syllable are IPA, in the face the Formant tab shows IPA
    in; the box keeps the text as typed (X-SAMPA is plain letters). */
-.lyr-text {
-  width: 100%; max-width: 560px; box-sizing: border-box; resize: vertical;
-  font-size: 1.05rem; line-height: 1.5; padding: 0.3rem 0.45rem;
-  background: var(--cv-bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-md);
+/* The box is transparent over a layer laid out exactly as it is (.lyr-text-back:
+   the same box, face, size and wrapping, no kerning or ligatures across the
+   marks), which paints the syllables being sung. */
+.lyr-text-wrap {
+  position: relative; width: 100%; max-width: 560px;
+  background: var(--cv-bg); border-radius: var(--radius-md);
 }
-.lyr-text.ipa, .lyr-syl-ipa, .lyr-cons-row .sl-label {
+.lyr-text, .lyr-text-back {
+  width: 100%; box-sizing: border-box; margin: 0;
+  font-family: var(--mono-font); font-size: 1.05rem; line-height: 1.5; padding: 0.3rem 0.45rem;
+  font-kerning: none; font-variant-ligatures: none; letter-spacing: 0;
+  white-space: pre-wrap; overflow-wrap: break-word;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+.lyr-text {
+  position: relative; z-index: 1; display: block; height: 260px; resize: vertical;
+  background: transparent; color: var(--fg);
+}
+.lyr-text-back {
+  position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; pointer-events: none;
+  color: transparent; border-color: transparent; scrollbar-width: none;
+}
+.lyr-text-back mark.lyr-now {
+  color: transparent; background: var(--cv-playhead); border-radius: var(--radius-sm);
+  box-shadow: inset 0 -2px 0 var(--cv-play-cursor);
+}
+.lyr-syl.now { background: var(--cv-playhead); box-shadow: inset 0 -2px 0 var(--cv-play-cursor); }
+.lyr-text.ipa, .lyr-text-back.ipa, .lyr-syl-ipa, .lyr-cons-row .sl-label {
   font-family: "Open Sans", sans-serif;
   font-variation-settings: "wdth" 100;
 }

@@ -41,14 +41,16 @@
       const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
       const { setLyricsOp } = await import("../../src/doc/ops.js");
       const { deriveLyrics } = await import("../../src/doc/lyrics.js");
-      const text = "t͡ɕʌm.nɛ.sʰɐ.ɾɐŋ | bɪ.t͡ɕʌ.d͡ʑʊ.dʌn.nʌn | nɐ.jɛ.ɪ.bjɤl.ɡˀɐ.d͡ʑi | pon.gɤ.jɐ\n" +
+      let text = "t͡ɕʌm.nɛ.sʰɐ.ɾɐŋ | bɪ.t͡ɕʌ.d͡ʑʊ.dʌn.nʌn | nɐ.jɛ.ɪ.bjɤl.ɡˀɐ.d͡ʑi | pon.gɤ.jɐ\n" +
         "jʊ.stɪlˤ.mɐ.nʌm.bɝ.wʌn\nnɐl.t͡ɕɐ.t͡ɕɪ.mɐ.ɾɐ.d͡ʑwʌ | nɐ.jɛ.sʰɯl.pʰɯm.gɐ.ɾjʌ.d͡ʑwʌ";
+      // ?long=1: the lyrics four times over, so the box has to scroll.
+      if (q.get("long")) text = Array(4).fill(text).join("\n\n");
       const own = [18, 19, 20, 21, 22, 23].map((index) => ({ index, timing: 108 }));
       const res = deriveLyrics(doc.instruments[slot].formant,
         { text, converge: 60, overrides: [], sylOverrides: own }, null);
       store.undo.apply(setLyricsOp(doc.lyricPayloadWith(slot, res.entry)));
       if (q.get("tab") !== "formant") {
-        await waitFor(() => iv.panel.querySelectorAll(".lyr-syl").length === 37);
+        await waitFor(() => iv.panel.querySelectorAll(".lyr-syl").length === res.entry.syllables.length);
         const chips = [...iv.panel.querySelectorAll(".lyr-syl")];
         chips[18].click();
         chips[23].dispatchEvent(new win.MouseEvent("click", { shiftKey: true, bubbles: true }));
@@ -57,6 +59,12 @@
         [...iv.tabBar.querySelectorAll("button")].find((b) => b.textContent === "Formant").click();
       }
       await sleep(400);
+      // ?jam=N: N keys jammed, so the Nth syllable is lit (and scrolled to).
+      for (let k = 0; k < Number(q.get("jam") ?? 0); k++) {
+        store.audio.jamNote(0, 0, 0x4000 + (k % 5) * 0x200, slot, true);
+        await sleep(60);
+      }
+      if (q.get("jam")) await sleep(300);
       if (q.get("scroll")) iv.panel.querySelector(".lyr-syls")?.scrollIntoView({ block: "center" });
       document.getElementById("out").textContent = "READY";
     })().catch((e) => { document.getElementById("out").textContent = "EXCEPTION " + e.stack; });

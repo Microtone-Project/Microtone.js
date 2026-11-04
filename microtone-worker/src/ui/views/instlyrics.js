@@ -9,7 +9,11 @@
 //   Lyrics            the text, in IPA or X-SAMPA, under an IPA keyboard; read
 //                     as it is typed (the count, or the first syllable that
 //                     cannot be read) and applied when the box is left or on
-//                     Ctrl+Enter — a half-typed word never reaches playback
+//                     Ctrl+Enter — a half-typed word never reaches playback.
+//                     While the instrument sings, the syllables it is singing
+//                     are marked in the text (a layer under the transparent
+//                     box, laid out as it is) and on their chips, and the box
+//                     scrolls to keep the mark in sight (lyricsTabFrame)
 //   Consonant length  the convergence (how far every onset is drawn towards
 //                     the lyrics' median, 0…100 %), and — folded away, an
 //                     advanced setting — each consonant's own length
@@ -29,6 +33,7 @@ import {
 import { ipaToXsampa, xsampaToIpa } from "../../motif/syllable.js";
 import { VOWEL_MARKS, SECONDARY_MARKS, syllabicIpa } from "../../doc/formantedit.js";
 import { CONSONANTS, CONSONANT_LIST, SEMIVOWELS, timingScale } from "../../../core/engine/formant.js";
+import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { machineFor } from "./instformant.js";
 import { t } from "../i18n.js";
 import { charPalette } from "../components/charpalette.js";
@@ -146,6 +151,14 @@ export function renderLyricsTab(view, inst) {
   area.title = t("lyr.textTitle");
   area.setAttribute("aria-label", t("lyr.grpLyrics"));
   if (!xsampa) area.classList.add("ipa");
+  // The layer under the box that marks the syllables being sung: the same
+  // text, laid out alike, transparent but for the marks; scrolled with it.
+  const back = el("div", "lyr-text-back");
+  back.setAttribute("aria-hidden", "true");
+  if (!xsampa) back.classList.add("ipa");
+  const textWrap = el("div", "lyr-text-wrap");
+  textWrap.append(back, area);
+  area.addEventListener("scroll", () => { if (back.scrollTop !== area.scrollTop) back.scrollTop = area.scrollTop; });
   const status = el("div", "lyr-status");
   status.setAttribute("aria-live", "polite");
   const paintStatus = () => {
@@ -207,7 +220,7 @@ export function renderLyricsTab(view, inst) {
   palBox.append(palHead, palette.element);
   makeFoldable(palBox, { head: palHead, body: palette.element, name: palName, key: "lyrics-ipa-keyboard", label: t("lyr.paletteFold") });
   palBox.hidden = xsampa;
-  view.group(t("lyr.grpLyrics"), notationRow, area, status, palBox);
+  view.group(t("lyr.grpLyrics"), notationRow, textWrap, status, palBox);
 
   // ── Consonant length ──
   // What the lyrics come to before the convergence and the syllables' own
@@ -355,6 +368,76 @@ export function renderLyricsTab(view, inst) {
   paintChips();
   paintPick();
   view.group(t("lyr.grpSyllables"), list, pickBox, el("p", "dim fmt-note", t("lyr.syllablesNote")));
+
+  // What lyricsTabFrame marks: the applied text's syllables.
+  view._lyricsLive = {
+    slot, area, back, chips: chips.map((c) => c.li), text: ed.text,
+    tokens: lyricTokens(ed.text, ed.xsampa), key: "", now: [], scroll: false,
+  };
+}
+
+/**
+ * Per frame while the Lyrics tab is open: which syllables the instrument is
+ * singing now — asked of the engine only while a voice of it sounds (the
+ * reply lands a frame later) — marked in the text and on the chips, and the
+ * box scrolled to the first of them when it is out of sight. Writes only when
+ * the syllables change; layout is read only at the top of the frame after.
+ */
+export function lyricsTabFrame(view) {
+  const live = view._lyricsLive;
+  if (!live || !live.area.isConnected) return;
+  if (live.scroll) { live.scroll = false; scrollToMark(live); }
+  const audio = view.store.audio;
+  let sounding = false;
+  if (audio) {
+    for (let vi = 0; vi < TOTAL_VOICES && !sounding; vi++) {
+      sounding = audio.getVoiceActive(vi) && audio.getVoiceInstrument(vi) === live.slot;
+    }
+  }
+  if (sounding) audio.requestInvertMask(live.slot);
+  const said = sounding ? (audio.getFormantState(live.slot)?.lyric ?? []) : [];
+  // A draft in the box is not what is sung: nothing is marked in it.
+  const now = live.area.value === live.text ? said.filter((k) => k < live.tokens.length) : [];
+  const key = now.join();
+  if (key === live.key) return;
+  live.key = key;
+  for (const k of live.now) live.chips[k]?.classList.remove("now");
+  for (const k of now) live.chips[k]?.classList.add("now");
+  live.now = now;
+  paintMarks(live);
+  if (now.length > 0) live.scroll = true;
+}
+
+/** The layer under the box: the text with the sung syllables in <mark>s, or
+ *  nothing when none is sung. */
+function paintMarks(live) {
+  const { back, text, tokens, now } = live;
+  if (now.length === 0) { back.replaceChildren(); return; }
+  const parts = [];
+  let at = 0;
+  for (const k of now) {
+    const tok = tokens[k];
+    if (tok.at > at) parts.push(document.createTextNode(text.slice(at, tok.at)));
+    const m = el("mark", "lyr-now", tok.text);
+    parts.push(m);
+    at = tok.at + tok.text.length;
+  }
+  // A last empty line takes a line in the box, so it takes one here too.
+  parts.push(document.createTextNode(text.slice(at) + (text.endsWith("\n") ? "\u200b" : "")));
+  back.replaceChildren(...parts);
+  back.scrollTop = live.area.scrollTop;
+}
+
+/** Bring the first mark into the box's view, a third of the way down, when it
+ *  is out of it. Reads layout: called at the top of a frame. */
+function scrollToMark(live) {
+  const m = live.back.querySelector("mark");
+  if (!m) return;
+  const a = live.area;
+  const top = m.offsetTop, bottom = top + m.offsetHeight;
+  if (top >= a.scrollTop && bottom <= a.scrollTop + a.clientHeight) return;
+  a.scrollTop = Math.max(0, top - a.clientHeight / 3);
+  live.back.scrollTop = a.scrollTop;
 }
 
 /** X-SAMPA text → IPA, syllable by syllable, the breaks kept; a syllable that
