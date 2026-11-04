@@ -2,7 +2,8 @@
 // (TAUD_FILE_FORMAT.md §5, §6). Each lane's slice of each cue becomes one
 // pattern; byte-identical slices share a pattern; a lane with nothing in a
 // cue leaves that cue's word empty. Lane trim and jitter are applied here,
-// to every volume SET a lane writes.
+// to every volume SET a lane writes, and a lyric instrument's number is left
+// off the notes that sing its lyrics on.
 
 import { noise2 } from "./stdlib.js";
 import { opByte } from "./music.js";
@@ -72,6 +73,27 @@ export function emptyPattern(wide) {
   return bytes;
 }
 
+/**
+ * The rows of one lane whose instrument number is left out because the note
+ * there carries on a lyric instrument's lyrics. The engine starts a lyric
+ * instrument's lyrics over at every instrument number naming it (TAUD engine
+ * spec §5.5.3), so its number is written only where the lane comes to it — its
+ * first note, or the first after another instrument — and the notes after
+ * sing on, a syllable each. `cells` is [row, instrument key] in row order (key
+ * undefined where the cell names none); `isLyric(key)` says whether the
+ * instrument sings lyrics.
+ */
+export function continuingLyricRows(cells, isLyric) {
+  const out = new Set();
+  let cur;
+  for (const [row, key] of cells) {
+    if (key === undefined || key === null) continue;
+    if (key === cur && isLyric(key)) out.add(row);
+    cur = key;
+  }
+  return out;
+}
+
 const LEN = 0x0200;  // instruction: the cue plays this many rows (low 6 bits = rows − 1)
 const HALT = 0x0100; // instruction: play the cue, then stop
 
@@ -87,6 +109,9 @@ export function compileScore(score) {
   const names = [];
   const byKey = new Map();
   const cues = [];
+  const singsOn = lanes.map((lane) => continuingLyricRows(
+    [...lane.ev.keys()].sort((a, b) => a - b).map((r) => [r, lane.ev.get(r).inst]),
+    (inst) => inst.lyric === true));
   for (let c = 0; c < nCues; c++) {
     const words = new Uint16Array(64).fill(EMPTY);
     const base = c * cueRows;
@@ -95,7 +120,8 @@ export function compileScore(score) {
       let any = false;
       const bytes = new Uint8Array(64 * size);
       for (let r = 0; r < 64; r++) {
-        const ev = r < rowsHere ? lane.ev.get(base + r) : undefined;
+        let ev = r < rowsHere ? lane.ev.get(base + r) : undefined;
+        if (ev && singsOn[li].has(base + r)) ev = { ...ev, inst: undefined };
         if (ev) any = true;
         // jitter: a fixed nudge per lane and row-in-pattern, so a repeated
         // slice still compiles to one shared pattern

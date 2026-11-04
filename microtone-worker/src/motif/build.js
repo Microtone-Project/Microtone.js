@@ -7,7 +7,8 @@
 //                soundfont presets → a .tsii made by the app's own SF2 driver
 //                (sf2bank.py) at the song's tempo; then instruments imported
 //                from packs, generated waveforms, OPL and PSG chip
-//                instruments, formant instruments, and the metainstruments
+//                instruments, formant instruments (a lyric instrument's
+//                lyrics into ILyr), and the metainstruments
 //                (layers, FM racks) built over them
 //   compile      the score → patterns, cues, pattern names (compile.js)
 //   assemble     bank + song + texts + notation + master → a Document
@@ -39,6 +40,8 @@ import { Document } from "../doc/document.js";
 import { planIxmpCleanup, planBankCleanup, encodeNameTable } from "../doc/cleanup.js";
 import { cleanupBankOp, importBankOp } from "../doc/ops.js";
 import { buildIxmpSection, planImport, planSampleImport, splitNameTable, joinNameTable } from "../doc/bankmerge.js";
+import { deriveLyrics } from "../doc/lyrics.js";
+import { ILYR_FOURCC } from "../../core/format/lyric-section.js";
 import { noise2 } from "./stdlib.js";
 import { emptyPattern } from "./compile.js";
 import { MotifError } from "./lexer.js";
@@ -233,6 +236,7 @@ export async function buildProject(source, host) {
   add("sMet", songMeta(score));
   if (score.tuning.nota) add("nota", score.tuning.nota);
   add("Ixmp", sectionOf(bank, "Ixmp"));
+  add(ILYR_FOURCC, sectionOf(bank, ILYR_FOURCC));
   if (master) add("sMst", buildMasteringSection({ 0: master }));
 
   const doc = new Document({
@@ -523,6 +527,7 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
       i.slot = placeRecord(work, i, record);
     }
     if (i.envelope) giveEnvelope(work, i);
+    if (i.lyrics) giveLyrics(work, i);
   }
 
   // metainstruments, in the order they are declared (one may be made of another)
@@ -533,11 +538,27 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
     i.slot = placeRecord(work, i, record);
   }
   work._rebuildInstRegion();
+  // which instruments sing lyrics — the program's, and any a pack brought
+  // along — for the compiler, which writes their numbers only where the
+  // lyrics start
+  for (const i of score.instruments) i.lyric = work.isLyricSlot(i.slot);
   return {
     sampleInstImage: work.sampleInstImage,
     ixmp: work.ixmp,
-    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix", "IMcn"].includes(x.fourcc)),
+    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix", "IMcn", "ILyr"].includes(x.fourcc)),
   };
+}
+
+/** A lyric instrument's lyrics, into the scratch project's ILyr section: the
+ *  entry the Lyrics tab would derive from the same text and settings. Its
+ *  consonants all sound the noise generator, as a Motif formant
+ *  instrument's do — no pool recipes are chosen. */
+function giveLyrics(work, i) {
+  work._rebuildInstRegion();
+  const rec = work.instruments[i.slot].formant;
+  const res = deriveLyrics(rec, i.lyrics, null);
+  if (!res.entry) throw new MotifError(`instrument ${i.id}'s lyrics: ${res.errors[0]?.message ?? "nothing to sing"}`);
+  work.setSection(ILYR_FOURCC, work.lyricPayloadWith(i.slot, res.entry));
 }
 
 /** A formant instrument's waveform source: one cycle this many frames long. */

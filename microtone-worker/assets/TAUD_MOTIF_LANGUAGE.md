@@ -318,6 +318,7 @@ Declaring an instrument binds its name. A song has at most 255. Each has exactly
 | An OPL chip | `opl` | One channel of a Yamaha YM3812 / YMF262 FM chip, sounding where a sample would: its kind, its connection and its operators, as the Instruments view's OPL tab sets them (below) |
 | A PSG chip | `psg` | Two programmable-sound-generator oscillators, added or multiplied, sounding where a sample would, as the Instruments view's PSG tab sets them (below) |
 | A sung syllable | `formant` | A formant instrument: consonants, a vowel and a consonant spoken on the key-off, sung through a model of the vocal tract — written in the IPA, in X-SAMPA or field by field, as the Instruments view's Formant tab sets it (below) |
+| Sung lyrics | `lyrics` (with or without `formant`) | A lyric instrument: a formant instrument that sings lyrics, one syllable a note, as the Instruments view's Lyrics tab sets them (below) |
 
 Every instrument also takes:
 
@@ -475,6 +476,26 @@ instrument KUK  { formant: { syl_ipa: "kuk̚", consonant_length: 0.8 } }        
 instrument AIR  { formant: { onset: [{ consonant: "s", tilt: 40 }], vowel: [255, 0, 0], round: 120,
   coda: "n", nasalised: true, reference: 'A3' } }
 ```
+
+**Lyric instruments.** `lyrics` makes a formant instrument a **lyric instrument**: it sings its lyrics one syllable a note, as the Instruments view's Lyrics tab has it sing them. Its `formant` record — which may then be left out, for one sung from a saw — says only what every syllable shares: `source`, `size_follows_pitch`, `reference`, `vowel_glide`, and `consonant_length`, the base every consonant is timed from. Each syllable says the rest, so the record's own syllable fields (`syl_ipa`, `onset`, `vowel` and the others) are an error beside `lyrics`.
+
+`lyrics` is the text in the IPA, or a list of strings that are read one after another, or a record. Syllables are separated by spaces, full stops, hyphens, commas or bars, and the stress marks begin one. Each is read as a formant instrument's syllable is (above), with one difference: a syllable with no vowel needs no syllabic mark, so `"n"` is [n̩] and `"s"` a held [s]. A syllable that cannot be read stops the build, which names it, counting from 0. As a record:
+
+| Field | Default | |
+|---|---|---|
+| `ipa` | — | The lyrics in the IPA: a string, or a list of strings |
+| `sampa` | — | The same in X-SAMPA, where `"` and `%` begin a syllable as the stress marks do. One of the two, not both |
+| `towards_median` | 0 | How far, 0–1, each syllable's onset (its consonants and glide, up to the vowel) is drawn towards the lyrics' median onset, shortened or lengthened. At 1 every vowel begins the same time after its note, and the vowels fall on the beat together |
+| `consonant_lengths` | — | A record of consonants, written in the lyrics' alphabet, each given a length that scales the base as `consonant_length` does (0.25–3.96): `{ "s": 1.5, "t͡ʃ": 0.8 }`. Each must be a consonant the lyrics say |
+| `syllable_lengths` | — | A list of `[syllable, length]` pairs, syllables counted from 0: every consonant of that syllable scaled by the length, and the syllable left out of `towards_median`, as a run of foreign words keeps its own pace |
+
+```
+instrument VOX     { lyrics: "twɪŋ.kəl twɪŋ.kəl lɪ.təl stɑɹ" }
+instrument REFRAIN { formant: { source: BUZZ, consonant_length: 0.8 },
+  lyrics: { sampa: ["la la", "l_jA"], towards_median: 0.5, consonant_lengths: { "l": 1.5 } } }
+```
+
+A lane sings the lyrics on. Its first note of the instrument sings the first syllable, each note after that sings the next, and after the last the lyrics start again. The engine starts them over wherever a cell names the instrument, so the build names a lyric instrument only where the lane comes to it — on its first note, or the first after the lane played something else — and leaves the number off the notes that carry on. A note the lane plays with another instrument therefore starts the lyrics over when the lane comes back. That is the way to repeat a refrain: give it a lyric instrument of its own, and each time the lane turns to it, it sings from its first syllable. A `glide` strikes no note, so it sings no syllable: a melisma, one syllable over several pitches, is one note gliding. The lyrics are text, so a program can put them together: `lyrics: [verse_1, refrain, verse_2]`. Every consonant sounds the engine's noise generator, as a formant instrument's do. A preview in the Motif view sings the lyrics from the first syllable at the call's first note, wherever the call lies in the song.
 
 **Slots.** A build gives each instrument its slot: the soundfont presets first (1, 2, … in the order they are written), then the instruments from packs, the waveforms, the OPL and PSG instruments, the formant instruments and the metainstruments, each in the lowest slot free. An instrument used only as a layer or an operator still has a slot of its own.
 
@@ -1647,10 +1668,10 @@ return (((t xor (t >>> 14)) >>> 0) ÷ 2^32) × 2 − 1
 A build turns the song's music into a project in these steps:
 
 1. **Place.** Every cell the program places for certain, then each fitted part against them (§8.6). Each lane's cells are then read in row order — the order the following steps see them in.
-2. **Compile.** Each lane's cells in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
+2. **Compile.** Each lane's cells in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. A lyric instrument's number is written only where a lane comes to it, not on the notes that sing its lyrics on (§7.3). Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
 3. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 63 in format 2 and 255 in format 3 — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
 4. **Pans.** Each lane with a `pan` gets `S $8xxx` on the song's first row, in a pattern of its own when its first pattern is used anywhere else.
-5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, OPL and PSG instruments new records of their own, formant instruments records of their own over a new cycle of their waveform (identical cycles shared) or naming their chip, and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
+5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, OPL and PSG instruments new records of their own, formant instruments records of their own over a new cycle of their waveform (identical cycles shared) or naming their chip — a lyric instrument's lyrics written beside it as the Lyrics tab writes them — and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
 6. **Instruments.** `keep_layers`, `nna` and `fadeout` are applied.
 7. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `keep_layers` left some layers behind, every instrument nothing plays.
 8. **Adjustments.** `min_fadeout`, then `layer_gain`, then the mixing chains (§7.7), each a block of the project's that its instruments name.
@@ -1749,3 +1770,4 @@ Additions that leave every program building as it did, in either version:
 | 2026-10-28 | Formant instruments, `formant`, their syllables written in the IPA or X-SAMPA (§7.3); mixing chains, `chain` (§7.7) |
 | 2026-10-29 | The transient shaper in a mixing chain, `transient_shaper_1`, and the expander / gate, `expander` (§7.7) |
 | 2026-11-04 | `chord_line`, a melody or bass line made from a chord progression (§8.8; TML 2) |
+| 2026-11-05 | Lyric instruments, `lyrics` (§7.3) |

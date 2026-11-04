@@ -36,6 +36,8 @@ import { str, bool, int, num, oneOf, any, suggest, readOptions } from "./options
 import { chainOf } from "./chain.js";
 import { readIpaSyllable, xsampaToIpa, consonantId, vowelOf } from "./syllable.js";
 import { FormantPatch, SEMIVOWELS, CONSONANTS, FORMANT_DEFAULT_REF } from "../../core/engine/formant.js";
+import { readLyrics, timingByteOf } from "../doc/lyrics.js";
+import { LYRIC_MAX_SYLLABLES, LYRIC_CONVERGE_MAX } from "../../core/format/lyric-section.js";
 
 export const KEY_OFF = 0x0001;
 export const NOTE_CUT = 0x0002;
@@ -81,6 +83,7 @@ const INSTRUMENT = {
   layers: any, fm: any,                            // a metainstrument
   opl: any, psg: any,                              // a chip of its own
   formant: any,                                    // a sung syllable
+  lyrics: any,                                     // …or sung lyrics, one syllable a note
   // what it is called and how it plays
   name: str, retune: bool, layer_gain: num(-86, 24), min_fadeout: int(0, 4095), fadeout: int(0, 4095),
   nna: oneOf({ off: 0, cut: 1, continue: 2, fade: 3 }), keep_layers: any,
@@ -139,6 +142,17 @@ const FORMANT = {
   size_follows_pitch: num(0, 255 / 256), reference: any, consonant_length: num(0.25, 2 ** (127 / 64)),
   vowel_glide: num(0, 510),
 };
+/** The fields of `formant` that say the syllable: a lyric instrument's
+ *  syllables are its lyrics', so it takes none of them. */
+const FORMANT_SYLLABLE = ["syl_ipa", "syl_sampa", "onset", "coda", "vowel", "front", "open", "round",
+  "nasalised", "r_coloured", "glide", "secondary", "coda_release"];
+// A lyric instrument's lyrics, in the Lyrics tab's words.
+const LYRICS = {
+  ipa: any, sampa: any, towards_median: num(0, 1), consonant_lengths: any, syllable_lengths: any,
+};
+/** A consonant's or a syllable's length, as a scale of the base: what a
+ *  timing byte holds (2^((b − 128) ÷ 64), b 0…255). */
+const LYRIC_LENGTH = num(0.25, 2 ** (127 / 64));
 const FORMANT_CONSONANT = { consonant: any, tilt: int(-128, 127), gain: num(-86, 24) };
 /** The waveform a formant instrument is sung with when the program names none:
  *  the textbook glottal source. */
@@ -248,10 +262,13 @@ export class Score {
     const kinds = [
       (has("bank") || has("program")) && "sf2", has("pack") && "pack", has("wave") && "wave",
       has("layers") && "layers", has("fm") && "fm", has("opl") && "opl", has("psg") && "psg",
-      has("formant") && "formant",
+      (has("formant") || has("lyrics")) && "formant",
     ].filter(Boolean);
+    if (has("lyrics") && kinds.length > 1) {
+      throw fail(`${what}: lyrics are sung by a formant instrument, so its source is formant: { … } (or nothing: a saw), not ${kinds.filter((k) => k !== "formant").join(" or ")}`);
+    }
     if (!kinds.length) {
-      throw fail(`${what} needs a source: a soundfont preset (bank and program), an instrument from a pack (pack and slot), a waveform (wave), layers of other instruments (layers), an FM rack (fm), an OPL or PSG chip (opl, psg), or a sung syllable (formant)`);
+      throw fail(`${what} needs a source: a soundfont preset (bank and program), an instrument from a pack (pack and slot), a waveform (wave), layers of other instruments (layers), an FM rack (fm), an OPL or PSG chip (opl, psg), a sung syllable (formant) or sung lyrics (lyrics)`);
     }
     if (kinds.length > 1) throw fail(`${what} has more than one source (${kinds.join(" and ")}); give it one`);
     const kind = kinds[0];
@@ -291,7 +308,12 @@ export class Score {
       inst.packSlot = o.slot;
     } else if (kind === "wave" || kind === "opl" || kind === "psg" || kind === "formant") {
       if (kind === "formant") {
-        Object.assign(inst, this.formantOf(o.formant, `${what}'s formant`));
+        Object.assign(inst, this.formantOf(o.formant ?? new Rec(), `${what}'s formant`));
+        if (has("lyrics")) {
+          const said = has("formant") ? FORMANT_SYLLABLE.filter((k) => asRecord(o.formant, `${what}'s formant`).m.has(k)) : [];
+          if (said.length) throw fail(`${what} sings its lyrics, a syllable a note, so its formant says no syllable of its own (${said.join(", ")})`);
+          inst.lyrics = this.lyricsOf(o.lyrics, `${what}'s lyrics`);
+        }
       } else if (kind === "wave") {
         inst.wave = o.wave;
         inst.length = o.length ?? 256;
@@ -549,6 +571,73 @@ export class Score {
       formantSource = { ref };
     }
     return { patch: p, formantSource };
+  }
+
+  /**
+   * `lyrics` → the Lyrics tab's editor state ({text, xsampa, converge,
+   * overrides, sylOverrides}, lyric-section.js), which the build derives the
+   * instrument's ILyr entry from as the tab does. A string is IPA, a list of
+   * strings the syllables (or words, or lines) in order; a record says which
+   * alphabet (`ipa` or `sampa`, either form) and how the consonants are timed.
+   * Every syllable is read here, so a bad one stops the build by name.
+   */
+  lyricsOf(v, what) {
+    const textOf = (x, w) => {
+      if (typeof x === "string") return x;
+      const xs = asList(x, w);
+      return xs.map((s, k) => asString(s, `${w} ${k}`)).join(" ");
+    };
+    let text, xsampa = false, o = {};
+    if (v instanceof Rec) {
+      o = readOptions(v, LYRICS, what);
+      if ((o.ipa === undefined) === (o.sampa === undefined)) throw fail(`${what} needs its text once: as ipa or as sampa`);
+      xsampa = o.sampa !== undefined;
+      text = textOf(xsampa ? o.sampa : o.ipa, `${what}'s ${xsampa ? "sampa" : "ipa"}`);
+    } else {
+      if (typeof v !== "string" && !Array.isArray(v)) throw fail(`${what} is the lyrics: a string of syllables in the IPA, a list of them, or a record ({ ipa: …, sampa: …, … })`);
+      text = textOf(v, what);
+    }
+    const { syllables, errors } = readLyrics(text, xsampa);
+    if (errors.length) {
+      const e = errors[0];
+      throw fail(`${what}: syllable ${e.index} ("${e.text}") — ${e.message}`);
+    }
+    if (!syllables.length) throw fail(`${what} has no syllables`);
+    if (syllables.length > LYRIC_MAX_SYLLABLES) throw fail(`${what}: at most ${LYRIC_MAX_SYLLABLES} syllables, not ${syllables.length}`);
+    const overrides = [];
+    if (o.consonant_lengths !== undefined) {
+      const w = `${what}'s consonant_lengths`;
+      const used = new Set(syllables.flatMap(({ syl }) => [...syl.onset, syl.coda]).filter((c) => c !== 0));
+      const seen = new Map();
+      for (const [k, x] of asRecord(o.consonant_lengths, w).m) {
+        const ipa = xsampa ? xsampaToIpa(k, `${w}'s "${k}"`) : k;
+        const cons = consonantId(ipa, `${w}'s "${k}"`);
+        if (seen.has(cons)) throw fail(`${w}: "${seen.get(cons)}" and "${k}" are one consonant`);
+        seen.set(cons, k);
+        if (!used.has(cons)) throw fail(`${w}: no syllable of the lyrics says [${ipa}]`);
+        overrides.push({ cons, timing: timingByteOf(LYRIC_LENGTH(x, `${w}'s "${k}"`)) });
+      }
+      overrides.sort((a, b) => a.cons - b.cons);
+    }
+    const sylOverrides = [];
+    if (o.syllable_lengths !== undefined) {
+      const w = `${what}'s syllable_lengths`;
+      const seen = new Set();
+      asList(o.syllable_lengths, w).forEach((pair, k) => {
+        const xs = asList(pair, `${w} ${k}`);
+        if (xs.length !== 2) throw fail(`${w} is a list of [syllable, length] pairs`);
+        const index = asInt(xs[0], `${w} ${k}'s syllable`);
+        if (index < 0 || index >= syllables.length) throw fail(`${w}: there is no syllable ${index} (the lyrics have ${syllables.length}, from 0)`);
+        if (seen.has(index)) throw fail(`${w} gives syllable ${index} twice`);
+        seen.add(index);
+        sylOverrides.push({ index, timing: timingByteOf(LYRIC_LENGTH(xs[1], `${w} ${k}'s length`)) });
+      });
+      sylOverrides.sort((a, b) => a.index - b.index);
+    }
+    return {
+      text, xsampa, converge: Math.round((o.towards_median ?? 0) * LYRIC_CONVERGE_MAX),
+      overrides, sylOverrides,
+    };
   }
 
   /** `chain NAME { … }`: a mixing chain instruments can name. */

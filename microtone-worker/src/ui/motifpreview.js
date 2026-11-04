@@ -11,7 +11,7 @@
 // order they are declared in (§7.3), when the open project was built from a
 // program that declares the same instruments.
 
-import { encodeCell } from "../motif/compile.js";
+import { encodeCell, continuingLyricRows } from "../motif/compile.js";
 import { noise2 } from "../motif/stdlib.js";
 import { CUE_EMPTY } from "../../core/format/taud-const.js";
 
@@ -43,6 +43,11 @@ export async function playCapture(store, cap, slotOf) {
   const base = song.patterns.length;
   const slots = [];
   const cues = [];
+  // a lyric instrument sings on from note to note, as in the built song (its
+  // lyrics starting at the call's first note rather than where the song is)
+  const singsOn = new Map(cap.lanes.map((lane) => [lane, continuingLyricRows(
+    [...lane.cells].sort((a, b) => a[0] - b[0]).map(([row, c]) => [row, c.instId ? slotOf(c.instId) ?? 0 : undefined]),
+    (slot) => slot > 0 && store.doc.isLyricSlot(slot))]));
   for (let p = 0; p < pages; p++) {
     const words = new Uint16Array(store.doc.channelCount).fill(CUE_EMPTY);
     for (const lane of cap.lanes) {
@@ -53,7 +58,7 @@ export async function playCapture(store, cap, slotOf) {
       for (const [row, c] of lane.cells) {
         const r = row - r0 - p * 64;
         if (r < 0 || r >= 64) continue;
-        const cell = { ...c, inst: c.instId ? { slot: slotOf(c.instId) ?? 0 } : undefined };
+        const cell = { ...c, inst: c.instId && !singsOn.get(lane).has(row) ? { slot: slotOf(c.instId) ?? 0 } : undefined };
         const jit = lane.jitter ? Math.round(noise2(lane.index, row % cueRows) * lane.jitter) : 0;
         bytes.set(encodeCell(cell, lane.trim, jit, wide), r * size);
         any = true;
