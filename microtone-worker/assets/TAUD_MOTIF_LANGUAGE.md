@@ -142,6 +142,40 @@ No value ever changes. `xs + [v]` is a new list with `v` on the end, `with(xs, i
 
 **Equality.** `==` compares numbers, strings and bools by value; lists, records and ranges by their contents; phrases by the cells they place for certain (and the very same fitted parts); and functions, lanes and instruments by identity.
 
+### 4.1 Builtins and their arguments
+
+§8–§10 list every builtin. Each entry gives the builtin's parameters in order, what it returns, and a table of its arguments: the name, the type it takes, the **default** — or *required* when it has none — and what it does.
+
+- **Giving arguments.** Arguments are given by position, then by name (`hit(lead, 0, 'C4', vol: 40)`); any parameter can be named. A parameter written `name…` takes every positional argument left over, as many as are given, and cannot be named. A required argument left out is an error, and so are two values for one parameter and a name the builtin does not have.
+- **`none` as a default** means the argument was not given, and passing `none` for it is the same as leaving it out. An argument whose default is something else must be given a value of its type: `none` is not one.
+- **Checking.** A builtin checks each argument against its type and range before it does anything, and stops the build with an error that names the argument when one is wrong. Nothing is silently clamped or rounded unless its entry says so.
+
+The types the entries name:
+
+| Type | Takes |
+|---|---|
+| any | Any value |
+| number | Any number |
+| whole number | A number with no fractional part. Where a range is given (0–15), both ends are included |
+| bool | `true` or `false`. Where an entry says *by truth*, any value is taken and read by its truth (§4): `0`, `none` and `""` are off |
+| string | A string |
+| list | A list — or a range, read as the list of its numbers |
+| record | A record |
+| function | A function: `fn(…) => …`, a function named with `fn name`, or a builtin's name (`map(xs, abs)`). Its entry says what it is called with and what it must return |
+| pitch | A whole number of steps of the song's notation (§7.2), usually written `'C4'`. Any whole number is a pitch; one that becomes a note must lie on the pattern grid (4096-TET note words $0020–$FFFF: in 12-TET, C♯−1 to B14) |
+| row | A whole number naming a row of the song: 0 up to the song's length in rows less 1. A row outside the song is an error |
+| end row | A whole number naming the row a span of rows stops *before* (it is not included). It may lie past the song's end: the span stops there |
+| rows | A whole number of rows: a length, or a distance to move |
+| volume | A number, 0–63 in a format-2 song and 0–255 in a format-3 one. It need not be whole: the lane's trim is applied and the result rounded when the song is compiled (§11, step 3) |
+| effect | A one-character string: a digit or a letter (`"S"` and `"s"` are the same effect) or a symbol (`":"`), as the Note Effects reference spells them |
+| effect argument | A whole number, $0000–$FFFF, as the grid writes it |
+| lane | A lane: the name its `lane` declaration gives it, or an item of `lanes()` |
+| instrument | An instrument: the name its `instrument` declaration gives it |
+| music | A phrase; or `none`, which is no music; or a list of these (lists inside lists too), put together as §8.2 says |
+| chord | A record: `root`, a whole number, the chord's root as a degree (§8.8: only its pitch class counts, so 31 is 0 in 31-TET); `ivs`, a list of at least one whole number, the chord's notes as intervals above the root in steps; and, optionally, `name`, any value, which errors call the chord by |
+| direction | A record with the whole-number fields `az` and `el`, as `dir()` makes it (§8.8) |
+| key | What a random choice is for (§10): a whole number, −2147483648 to 4294967295, or a string |
+
 ## 5. Expressions
 
 From the loosest binding to the tightest:
@@ -530,6 +564,31 @@ A chain no instrument names is not saved. The build numbers the chains in the or
 
 Music is placed by **row**, counted from 0 at the start of the song. `at(bar, row)` is the row of a bar (counted from 1) and a row within it (from 0): with 14-row bars, `at(9)` is row 112 and `at(9, 4)` row 116. Music always lies within the song: a row outside it is an error — except that a key-off, cut or fade which moving music (`shift`, `seq`, `loop`) pushes past the song's end is left out, as a melody leaves out the key-off it would write where the song ends: the song is over, and has nothing left to end.
 
+#### `at(bar, row)`
+
+The row of a bar and a row within it: `(bar − 1) × bar_rows + row`. **Returns** a whole number. Nothing is checked against the song: `at(0)` is −`bar_rows`, and `at(1, 20)` with 16-row bars is row 20, in bar 2. The builtin the result is given to checks it.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `bar` | whole number | required | The bar, counted from 1 |
+| `row` | whole number | `0` | The row within the bar, counted from 0 |
+
+#### `bar_of(row)`
+
+The bar a row lies in, counted from 1: `floor(row ÷ bar_rows) + 1`. **Returns** a whole number (0 or less for a negative row).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `row` | whole number | required | A row, counted from the start of the song |
+
+#### `row_in_bar(row)`
+
+Where a row lies within its bar, counted from 0. **Returns** a whole number, 0 to `bar_rows` − 1 (a negative row counts back from the end of the bar before).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `row` | whole number | required | A row, counted from the start of the song |
+
 ### 8.2 Phrases, cells, and how music is put together
 
 A **phrase** is a piece of music: the **cells** it writes, on lanes and rows, and the rows it spans, from its first row up to (not including) the row where it ends — a melody of eight two-row notes spans 16 rows, though the key-off after its last note lies on the row after. A cell is what one row of one lane holds: a note, an instrument, a volume-column command, a panning-column command and one effect (two in a format-3 song).
@@ -540,39 +599,164 @@ These rules do not depend on the order phrases are put together in, so neither d
 
 ### 8.3 The event builtins
 
-Each makes a phrase: one row long, unless it says otherwise — a key-off, cut or fade lasts no rows, since it marks the moment a note ends. Volumes are 0–63 in a format-2 song and 0–255 in a format-3 one. An effect is its letter — `"G"`, `"S"` — or its symbol, and its argument a number written as on the grid: `fx(lane, row, "S", $7300)` is `S $7300`.
+Each makes music: a phrase one row long — a key-off, cut or fade lasts no rows, since it marks the moment a note ends — unless its entry says otherwise. In TML 1 these write straight into the song and return none (§13).
 
-| Builtin | Makes |
-|---|---|
-| `hit(lane, row, pitch, vol, fx, arg, inst, pos, delay)` | A note with the lane's instrument (or `inst`), optionally its volume, an effect, a position (`pos: dir(az, el)`, format 3) and a delay of 1–15 ticks (`S $Dx`) |
-| `keyoff(lane, row)`, `cut(lane, row)`, `fade(lane, row)` | Key-off, note cut, note fade |
-| `fx(lane, row, op, arg)`, `fx2(lane, row, op, arg)` | The effect column; the second effect column (format 3) |
-| `set_vol(lane, row, vol)` | The volume column's SET, with no note |
-| `set_pan(lane, row, pan)` | The panning column's SET: 0–63 in format 2, a `dir(az, el)` in format 3 |
-| `vol_fine(lane, row, delta)` | A one-shot volume change on the row's first tick (up when positive); at most 31 in format 2, 127 in format 3 |
-| `vol_slide(lane, row, per_tick)` | A volume slide on every later tick (up when positive) |
-| `glide(lane, row, pitch, speed)` | A tone portamento to the pitch (`G` with no instrument: no new attack) |
-| `glide_speed(from, to, rows)` | (A number.) The `G` speed that covers `from` → `to` in that many rows |
-| `melody(lane, row, text, …)` | A line from a melody string (§8.4), spanning its notes and rests |
-| `vibrato(lane, from, to, speed, depth)` | `H` on the rows from `from` up to `to`, fitted (§8.6): the first states speed and depth, the rest continue it; a row with another effect is stepped round (the next one states them again), and a key-off ends it |
-| `vol_ramp(lane, from, to, from_vol, to_vol)` | A smooth change of the sounding note's volume over the rows from `from` up to `to`, fitted (§8.6): one fine slide a row, each the rounded share of what is left, in the lane's own units (its trim applies, as to a volume it sets); a row whose volume column is taken is stepped round |
-| `lanes()` | (A list.) Every lane, in order |
+#### `hit(lane, row, pitch, vol, fx, arg, inst, pos, delay)`
+
+A note. **Returns** music spanning its row.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane that plays it |
+| `row` | row | required | Where it is struck |
+| `pitch` | pitch | required | What it plays |
+| `vol` | volume | `none` | Its volume; none writes none, and the note plays at its instrument's default volume |
+| `fx` | effect | `none` | An effect on the note's row |
+| `arg` | effect argument | `0` | The effect's argument; ignored without `fx` |
+| `inst` | instrument | `none` | The instrument it plays; none plays the lane's |
+| `pos` | direction | `none` | Where it sounds, in a format-3 song only (an error in any other) |
+| `delay` | whole number, 0–15 | `0` | Ticks to wait before striking it (`S $Dx`); above 0 it takes the effect column, so it cannot go with `fx` |
+
+#### `keyoff(lane, row)`, `cut(lane, row)`, `fade(lane, row)`
+
+A key-off (the note is let go: its envelopes release), a note cut (it stops at once) and a note fade (it fades out by its instrument's fadeout). **Returns** music spanning no rows, at `row`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane whose note ends |
+| `row` | row | required | Where it ends |
+
+#### `fx(lane, row, op, arg)`, `fx2(lane, row, op, arg)`
+
+An effect with no note: in the effect column, or with `fx2` in the second effect column (a format-3 song only). `fx(lane, row, "S", $7300)` is `S $7300`. **Returns** music spanning its row.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `row` | row | required | The row |
+| `op` | effect | required | The effect |
+| `arg` | effect argument | `0` | Its argument |
+
+#### `set_vol(lane, row, vol)`
+
+The volume column's SET, with no note: the sounding note's volume changes. **Returns** music spanning its row.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `row` | row | required | The row |
+| `vol` | volume | required | The volume (`none` is an error) |
+
+#### `set_pan(lane, row, pan)`
+
+The panning column's SET. **Returns** music spanning its row.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `row` | row | required | The row |
+| `pan` | whole number, 0–63; or a direction | required | In a format-2 song, the note's pan, from 0 far left to 63 far right. In a format-3 song, a direction (`dir(az, el)`) |
+
+#### `vol_fine(lane, row, delta)`
+
+A one-shot volume change on the row's first tick, up when `delta` is positive and down when it is negative. **Returns** music spanning its row (with nothing in it when `delta` is 0).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `row` | row | required | The row |
+| `delta` | whole number, −31–31 (format 2) or −127–127 (format 3) | required | How much the volume changes |
+
+#### `vol_slide(lane, row, per_tick)`
+
+A volume slide on every tick of the row after its first, up when `per_tick` is positive and down when it is negative. **Returns** music spanning its row (with nothing in it when `per_tick` is 0).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `row` | row | required | The row |
+| `per_tick` | whole number, −63–63 (format 2) or −255–255 (format 3) | required | How much the volume changes on each tick |
+
+#### `glide(lane, row, pitch, speed)`
+
+A tone portamento: the sounding note glides to `pitch` with no new attack (`G` with no instrument). **Returns** music spanning its row.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `row` | row | required | Where the glide starts |
+| `pitch` | pitch | required | Where it goes |
+| `speed` | whole number, 1–$FFFF | required | How fast, as `G`'s argument: 4096-TET units a tick. `glide_speed()` works one out |
+
+#### `glide_speed(from, to, rows)`
+
+The `G` speed that covers `from` → `to` in `rows` rows at the song's speed: the distance in 4096-TET units over the ticks that glide (`rows × (speed − 1)`), rounded up, and at least 1. The song's `speed` must be 2 or more. **Returns** a whole number, 1–$FFFF.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `from` | pitch | required | Where the glide starts |
+| `to` | pitch | required | Where it arrives (either way: up or down) |
+| `rows` | whole number, at least 1 | required | How many rows it takes |
+
+#### `vibrato(lane, from, to, speed, depth)`
+
+`H` on the rows from `from` up to `to`, fitted (§8.6): the first row states speed and depth and the rest continue it; a row with another effect is stepped round (the next free one states them again), and a key-off ends it. **Returns** music spanning `from` up to `to` (no rows when `to` is not after `from`).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `from` | row | required | The first row |
+| `to` | end row | required | The row it stops before |
+| `speed` | whole number, 0–255 | required | `H`'s speed (its argument's high byte) |
+| `depth` | whole number, 0–255 | required | `H`'s depth (its low byte) |
+
+#### `vol_ramp(lane, from, to, from_vol, to_vol)`
+
+A smooth change of the sounding note's volume over the rows from `from` up to `to`, fitted (§8.6): one fine slide a row, each the rounded share of what is left. The volumes are in the lane's own units — its trim applies to them, as to a volume it sets — and a row whose volume column is taken is stepped round. **Returns** music spanning `from` up to `to`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane |
+| `from` | row | required | The first row |
+| `to` | end row, not before `from` | required | The row it stops before |
+| `from_vol` | volume | required | The volume it starts from |
+| `to_vol` | volume | required | The volume it reaches |
+
+#### `lanes()`
+
+Takes no arguments. **Returns** a list of every lane, in the order they are declared.
 
 ### 8.4 Melody strings
 
-`melody(lane, row, text, vol, vib, glide_rows, transpose, ring, map)` reads `text` as a run of tokens separated by spaces or line breaks:
+#### `melody(lane, row, text, vol, vib, glide_rows, transpose, ring, map)`
+
+A line written as a string of notes. **Returns** music spanning its notes and rests, from `row`. The last note is keyed off where the line ends, unless the song ends there.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane that plays it |
+| `row` | row | required | Where it starts |
+| `text` | string | required | The notes: tokens, below, separated by spaces or line breaks |
+| `vol` | volume | `none` | The volume of every note without an `@` of its own; none writes none |
+| `vib` | list of two whole numbers, each 0–255 | `none`, which is `[$7D, $14]` | `[speed, depth]` of the `v` vibratos |
+| `glide_rows` | whole number, at least 1 | `1` | How many rows a `~` glide takes to arrive |
+| `transpose` | whole number | `0` | Steps added to every note |
+| `ring` | bool, by truth | `false` | When true, no key-offs at all — for bells and plucks |
+| `map` | function: pitch → pitch | `none` | Every note's pitch, after `transpose`, passes through it; it must return a whole number. `map: fn(p) => mirror(p, 'C4')` turns the line upside down |
+
+The tokens:
 
 | Token | |
 |---|---|
-| `D5:2` | The note D5, lasting 2 rows |
-| `~F5:4` | Glide into F5 from the note before (no new attack), arriving in `glide_rows` rows |
+| `D5:2` | The note D5, lasting 2 rows. The name is a note of the song's notation (§7.2); the length a whole number, at least 1 |
+| `~F5:4` | Glide into F5 from the note before (no new attack), arriving in `glide_rows` rows. With no note before it, it is struck as a note |
 | `r:3` | A rest of 3 rows: the note before is keyed off |
-| `…@40` | This note's volume (else the `vol` argument, else none written) |
-| `…v` | Vibrato from two rows into the note, when it lasts 4 rows or more (`vib: [speed, depth]`, default `[$7D, $14]`) |
+| `…@40` | This note's volume, written in digits (else `vol`) |
+| `…v` | Vibrato from two rows into the note, when it lasts 4 rows or more |
 | `…>` | A tie: no key-off after this note, even before a rest or at the end |
 | `\|` | A bar line: an error unless the notes before it fill whole bars |
 
-The last note is keyed off where the line ends, unless the song ends there. `transpose` adds steps to every note; `map` is a function every pitch passes through (`map: fn(p) => mirror(p, 'C4')` turns the line upside down); `ring: true` writes no key-offs at all, for bells and plucks.
+`@` comes straight after the length, and `v` and `>` after that, in either order: `D5:8@40v>`. A rest takes none of them.
 
 ```
 melody(lead, at(9), """
@@ -583,26 +767,131 @@ melody(lead, at(9), """
 
 ### 8.5 Combining and transforming music
 
-Wherever these take music, a list of phrases will do (it is put together first).
+These are TML 2's alone. Each takes music (§4.1) and makes new music; none changes what it is given. A transformation applies to a phrase's fitted parts as well, so a vibrato moved with its melody still steps round the effects where it now lies.
 
-| Builtin | Makes |
-|---|---|
-| `stack(a, b, …)` | The phrases together, as the lines of a block are |
-| `seq(a, b, …)` | The phrases one after another: each moved to start where the one before ends |
-| `shift(music, rows)` | The music moved later (earlier, for a negative count) |
-| `loop(music, times, every)` | The music `times` times, each `every` rows after the last (its own length, unless given) |
-| `rest(rows)` | Nothing, lasting `rows` rows from row 0: a gap in a `seq`, or a bar's length for `loop` |
-| `slice(music, from, to)` | The cells on rows from `from` up to `to` (the end of the music, unless given) |
-| `on(lane, music)` | The music played on another lane. A note that played the instrument of the lane it came from plays the new lane's; a note given an instrument of its own keeps it |
-| `transpose(music, steps)` | Every note moved by that many steps (glides too; their speeds stay) |
-| `invert(music, axis)` | Every note reflected through the axis: `2 × axis − pitch` |
-| `map_notes(music, f)` | Every note's pitch through `f(pitch)` |
-| `map_vols(music, f)` | Every volume a cell sets through `f(volume)` |
-| `filter(music, f)` | Only the cells `f(cell)` is true for (the cell as `cells` gives it, §8.7) |
-| `reverse(music)` | The music backwards (retrograde): below |
-| `stretch(music, factor)` | The music `factor` times as slow (augmentation; a factor below 1 is diminution), counted from its start: below |
+#### `stack(music…)`
 
-`transpose`, `invert`, `filter`, `slice` and `reverse` take lists too, as §8.8 and §9 say. A transformation applies to a phrase's fitted parts as well, so a vibrato moved with its melody still steps round the effects where it now lies.
+The music together, as the lines of a block are (§8.2). **Returns** music spanning from the earliest start to the latest end of what it is given, or none when it is given no music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music…` | music | none given | The pieces |
+
+#### `seq(music…)`
+
+The music one after another: each piece moved to start where the one before ends (the first stays where it is). A list is taken item by item, and none is skipped. **Returns** music, or none when it is given no music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music…` | music | none given | The pieces, in order |
+
+#### `shift(music, rows)`
+
+The music moved later, or earlier for a negative count. Everything must still lie within the song (§8.1). **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | music | required | What to move |
+| `rows` | rows (negative moves earlier) | required | How far |
+
+#### `loop(music, times, every)`
+
+The music `times` times, each `every` rows after the last. **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | music | required | What to repeat |
+| `times` | whole number, at least 1 | required | How many times it plays, the first included |
+| `every` | whole number, at least 1 | `none`: the music's own length | Rows from each start to the next. Music lasting no rows needs it |
+
+#### `rest(rows)`
+
+Nothing, lasting `rows` rows from row 0: a gap in a `seq`, or a bar's length for `loop`. **Returns** music with no cells.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `rows` | whole number, at least 0 | required | How long |
+
+#### `slice(xs, from, to)`
+
+The cells on the rows from `from` up to `to`. Of its fitted parts, music placed `under` the rest and the music a `follow` makes are cut to the same rows; vibratos and volume ramps are left out. (`slice` of a list or a string: §9.) **Returns** music spanning the rows the music and `from` … `to` share.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | phrase | required | What to cut from (a list or a string: §9) |
+| `from` | whole number | required | The first row kept, counted from the start of the song |
+| `to` | whole number | `none`: the end of the music | The row it stops before |
+
+#### `on(lane, music)`
+
+The music played on another lane: every lane's cells move to `lane`. A note that played the instrument of the lane it came from plays the new lane's; a note given an instrument of its own keeps it. **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | Where it goes |
+| `music` | music | required | What moves |
+
+#### `transpose(x, steps)`
+
+Every note moved by `steps` — glides too; their speeds stay. (`transpose` of a list of pitches: §8.8.) **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | phrase | required | What to move (a list of pitches: §8.8) |
+| `steps` | whole number | required | How far, up when positive |
+
+#### `invert(x, axis)`
+
+Every note reflected through the axis: `2 × axis − pitch`. (`invert` of a list of pitches: §8.8.) **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | phrase | required | What to reflect (a list of pitches: §8.8) |
+| `axis` | pitch | required | The pitch that stays where it is |
+
+#### `map_notes(music, f)`
+
+Every note's pitch through `f`. Key-offs, cuts and fades pass untouched. **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | music | required | The notes |
+| `f` | function: pitch → pitch | required | Called with each note's pitch; must return a whole number |
+
+#### `map_vols(music, f)`
+
+Every volume a cell sets through `f`. Volume-column commands (slides) pass untouched. **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | music | required | The volumes |
+| `f` | function: volume → volume | required | Called with each volume; must return a volume |
+
+#### `filter(xs, f)`
+
+Only the cells `f` is true for. Of its fitted parts, music placed `under` the rest and the music a `follow` makes are filtered by `f` too; vibratos and volume ramps are left out. (`filter` of a list: §9.) **Returns** music with the same span.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | phrase | required | The cells (a list: §9) |
+| `f` | function: cell → any | required | Called with each cell, as the record `cells()` gives (§8.7); the cell is kept when the result is true |
+
+#### `reverse(xs)`
+
+The music backwards (retrograde), as below. (`reverse` of a list or a string: §9.) **Returns** music with the same span.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | phrase | required | What to turn round (a list or a string: §9) |
+
+#### `stretch(music, factor)`
+
+The music `factor` times as slow (augmentation; a factor below 1 is diminution), counted from its start, as below. **Returns** music.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | music | required | What to stretch |
+| `factor` | number, above 0 | required | 2 is half as fast, 0.5 twice as fast. Every moment must land on a whole row |
 
 **Backwards.** A row of a lane is not a note: a note *sounds* from its row until something ends it, a glide carries the sound on to another pitch, and effects and volume commands act on it in between. So `reverse` turns round what the music does rather than its rows. On each lane, the sounds and the silences between them come in the opposite order, each as long as it was, and the phrase keeps its span:
 
@@ -627,14 +916,27 @@ on(bass2, shift(invert(riff, 'D2'), at(5)))    // upside down, from bar 5, on an
 
 ### 8.6 Fitted music
 
-Some music can only be placed once the rest of the song is known. A **fitted** part is placed in the build's second pass, against every cell the song places for certain — never against another fitted part, so two that land on one row of one lane clash like any other cells. So the order the program is written in still does not matter.
+Some music can only be placed once the rest of the song is known. A **fitted** part is placed in the build's second pass, against every cell the song places for certain — never against another fitted part, so two that land on one row of one lane clash like any other cells. So the order the program is written in still does not matter. `vibrato` and `vol_ramp` (§8.3) and the `v` of a melody (§8.4) are fitted, and so are these two, which are TML 2's alone.
 
-| Builtin | Places |
-|---|---|
-| `vibrato(…)`, the `v` of a melody | `H` on the rows whose effect column the song leaves free (§8.3) |
-| `vol_ramp(…)` | Fine slides on the rows whose volume column the song leaves free (§8.3) |
-| `under(music, columns…)` | The music, row by row, only where the rest of the song leaves room: a row of a lane on which the song already writes anything — or, given column names, anything in those columns — is left out, the music's whole row with it. Columns: `"note"`, `"inst"`, `"vol"`, `"pan"`, `"fx"`, `"fx2"` |
-| `follow(lane, from, to, f)` | The music `f(heard)` makes, where `heard` is a list with one item for each row from `from` up to `to`: what the rest of the song writes on that lane there (a record, as `cells` gives it, without `lane` and `row`), or none |
+#### `under(music, columns…)`
+
+The music, row by row, only where the rest of the song leaves room: a row of a lane on which the song already writes anything — or, given column names, anything in those columns — is left out, the music's whole row with it. **Returns** music with the same span.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | music | required | What to place |
+| `columns…` | string: `"note"`, `"inst"`, `"vol"`, `"pan"`, `"fx"` or `"fx2"` | none given: every column | The columns that must be free |
+
+#### `follow(lane, from, to, f)`
+
+The music `f` makes from what the rest of the song writes on `lane` from `from` up to `to`. **Returns** music spanning `from` up to `to` (cut at the song's end).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lane` | lane | required | The lane to listen to |
+| `from` | row | required | The first row heard |
+| `to` | end row, not before `from` | required | The row it stops before |
+| `f` | function: list → music | required | Called once, with a list holding one item for each row heard: that row's cell as a record, as `cell()` gives it (§8.7), or none when the song writes nothing there. It returns music (which may have fitted parts of its own, §12) or none |
 
 ```
 // a ride in eighths, except where a crash is struck
@@ -645,72 +947,603 @@ follow(lead, at(9), at(17), fn(heard) => [hit(harmony, at(9) + i, c.note + 10, 3
 
 ### 8.7 Reading music
 
-A phrase has the fields `from` and `to` (the rows it spans), `rows` (how many) and `lanes` (the lanes it plays on). What it places for certain can be read — its fitted parts are only placed with the whole song:
+A phrase has the fields `from` and `to` (whole numbers: the rows it spans, `to` not included), `rows` (how many: `to − from`) and `lanes` (a list of the lanes it plays on). What it places for certain can be read with these builtins, which are TML 2's alone (TML 1's `cell` and `occupied` read the song so far: §13). Its fitted parts are only placed with the whole song, so they cannot be read.
 
-| Builtin | |
-|---|---|
-| `cells(music, lane)` | Every cell, in lane order and then row order (only that lane's, given one), as a record of the fields it has: `lane`, `row`, `note` (a pitch, or `"off"`, `"cut"`, `"fade"`), `inst`, `vol`, `vol_cmd` (true when the volume column holds a slide), `fx`/`arg`, `fx2`/`arg2`, `pos` |
-| `cell(music, lane, row)` | That row's cell, as the same record (without `lane` and `row`), or none |
-| `occupied(music, lane, row)` | Whether the music writes anything there |
+A cell reads as a record holding only the fields the cell has:
+
+| Field | Type | When |
+|---|---|---|
+| `lane` | lane | From `cells()` only |
+| `row` | whole number | From `cells()` only |
+| `note` | pitch, `"off"`, `"cut"`, `"fade"` or none | A note (its pitch, or none when it lies between the notation's steps), a key-off, a note cut or a note fade |
+| `inst` | instrument | The cell names an instrument (every note does) |
+| `vol` | number | The volume column sets a volume |
+| `vol_cmd` | `true` | The volume column holds a command (a slide or fine slide) instead |
+| `fx`, `arg` | effect, whole number | The effect column is used: its effect, as a capital letter or a symbol, and argument |
+| `fx2`, `arg2` | effect, whole number | The second effect column is used (format 3) |
+| `pos` | direction | The panning column places the note (format 3). A format-2 pan is not shown |
+
+#### `cells(music, lane)`
+
+Every cell the music places for certain, in lane order and then row order. **Returns** a list of records, as above, with `lane` and `row`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | music | required | What to read |
+| `lane` | lane | `none`: every lane | Only this lane's cells |
+
+#### `cell(music, lane, row)`
+
+One row's cell. **Returns** a record, as above, without `lane` and `row`; or none when the music writes nothing there.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | phrase | required | What to read |
+| `lane` | lane | required | The lane |
+| `row` | whole number | required | The row, counted from the start of the song |
+
+#### `occupied(music, lane, row)`
+
+Whether the music writes anything on that row of that lane. **Returns** a bool.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `music` | phrase | required | What to read |
+| `lane` | lane | required | The lane |
+| `row` | whole number | required | The row, counted from the start of the song |
 
 ### 8.8 Pitches and chords
 
-| Builtin | |
-|---|---|
-| `note(name)`, `notes("C4 E4 G4")` | A pitch, or a list of them, from names |
-| `note_name(pitch)` | The name of a pitch: `"Cp4"` |
-| `degree(name)` | A degree name without a period, as its number: `degree("Bb")` is 26 in 31-TET |
-| `period()` | Steps in one period (31 in 31-TET) |
-| `word(pitch)` | The pitch's 4096-TET note word, as the pattern grid stores it |
-| `midi(key)` | The step nearest a MIDI key (60 is C4), a tie going to the lower step — what a General MIDI drum map needs |
-| `mirror(pitch, axis)` | The pitch reflected through the axis: `2 × axis − pitch` |
-| `transpose(pitches, steps)`, `invert(pitches, axis)` | The same over a list (and over music, §8.5) |
-| `dir(az, el)` | A position for a format-3 song, in degrees: azimuth 0 ahead, 90 right, 180 behind; elevation 90 straight up |
-| `dir_arg(az, el)` | The same direction as the argument of `X` and `4` (`$eeaa`: elevation, then the azimuth halved) |
-| `nearest_chord(prev, chord, lo, hi, n, need_root)` | The notes of `chord` that move least from the notes `prev` |
+#### `note(name)`
 
-A **chord** is a record with `root` (a degree number) and `ivs` (its intervals in steps), and optionally a `name` for error messages: `{ root: degree("D"), ivs: [0, 10, 18, 25] }` is D 4:5:6:7 in 31-TET. `nearest_chord` returns `n` pitches (as many as `prev` has, unless given), ascending, every one within `lo`…`hi` and of the chord's pitch classes, covering as many of its classes as `n` allows — the root among them when `need_root` — and moving the least in total from `prev` note by note (what harmony textbooks call smooth voice leading). Ties go to the lower spelling. It is an error when no spelling fits. A chain of chords, each voiced from the one before, is a `scan`:
+**Returns** the pitch a note name names (§7.2): `note("Cp4")` is `'Cp4'`. Unlike `'…'`, the name can be made at run time: `note("C${octave}")`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `name` | string | required | A degree name and a period number, as §7.2 spells them. Case matters |
+
+#### `notes(names)`
+
+**Returns** a list of pitches, one for each name in the string; an empty list for an empty string.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `names` | string | required | Note names separated by spaces or line breaks: `"C4 E4 G4"` |
+
+#### `note_name(pitch)`
+
+**Returns** the name of a pitch, as a string: `"Cp4"`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `pitch` | pitch | required | Any pitch, even one off the pattern grid |
+
+#### `degree(name)`
+
+**Returns** the number of a degree, 0 to `period()` − 1: `degree("Bb")` is 26 in 31-TET.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `name` | string | required | A degree name with no period number |
+
+#### `period()`
+
+Takes no arguments. **Returns** the number of steps in one period of the song's notation: 31 in 31-TET.
+
+#### `word(pitch)`
+
+**Returns** the pitch's 4096-TET note word, as the pattern grid stores it: a whole number, $0020–$FFFF. A pitch off the grid is an error.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `pitch` | pitch | required | The pitch |
+
+#### `midi(key)`
+
+**Returns** the pitch nearest a MIDI key (60 is C4), a tie going to the lower step — what a General MIDI drum map needs.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `key` | whole number, 0–127 | required | The MIDI key |
+
+#### `mirror(pitch, axis)`
+
+**Returns** the pitch reflected through the axis: `2 × axis − pitch`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `pitch` | pitch | required | The pitch |
+| `axis` | pitch | required | The pitch that stays where it is |
+
+#### `transpose(x, steps)`
+
+**Returns** a new list, every pitch moved by `steps`. (`transpose` of music: §8.5.) In TML 1, which has only this form, the first parameter is named `pitches`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | list of pitches | required | The pitches |
+| `steps` | whole number | required | How far, up when positive |
+
+#### `invert(x, axis)`
+
+**Returns** a new list, every pitch reflected through the axis. (`invert` of music: §8.5.) In TML 1 the first parameter is named `pitches`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | list of pitches | required | The pitches |
+| `axis` | pitch | required | The pitch that stays where it is |
+
+#### `dir(az, el)`
+
+A position for a format-3 song. **Returns** a direction: a record with `az`, the azimuth as the engine counts it (0–511, a full turn; 128 is ahead), and `el`, the elevation (−128–127; 128 would be straight up).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `az` | number | required | The azimuth in degrees: 0 ahead, 90 right, 180 behind, −90 (or 270) left. Any number: it is taken round the circle, to the nearest of 512 steps |
+| `el` | number | `0` | The elevation in degrees: 90 straight up, −90 straight down. Rounded to the nearest of 128 steps a quarter-turn, and held within −90 and just under +90 |
+
+#### `dir_arg(az, el)`
+
+The same direction as the argument of the effects `X` and `4`. **Returns** a whole number, $0000–$FFFF: `$eeaa`, the elevation (as a byte, two's complement) and then the azimuth halved.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `az` | number | required | As `dir()` |
+| `el` | number | `0` | As `dir()` |
+
+A **chord** (§4.1) is a record with `root` (a degree number) and `ivs` (its intervals in steps), and optionally a `name` for error messages: `{ root: degree("D"), ivs: [0, 10, 18, 25] }` is D 4:5:6:7 in 31-TET. Its **pitch classes** are its root plus each interval, taken round the period.
+
+#### `nearest_chord(prev, chord, lo, hi, n, need_root)`
+
+The notes of `chord` that move least from the notes `prev`. **Returns** a list of `n` pitches, ascending, every one within `lo`…`hi` and of the chord's pitch classes, covering as many of its classes as `n` allows — the root among them when `need_root` — and moving the least in total from `prev`, note by note (what harmony textbooks call smooth voice leading). Ties go to the lower spelling. It is an error when no spelling fits.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `prev` | list of pitches, at least one | required | The chord to move from. Its pitches are compared in order with the result's, which ascend: its first with the lowest, and so on |
+| `chord` | chord | required | The chord to move to |
+| `lo` | pitch | required | The lowest pitch allowed |
+| `hi` | pitch | required | The highest pitch allowed |
+| `n` | whole number, 1 to `len(prev)` | `none`: `len(prev)` | How many notes. With fewer than `prev` has, the first `n` of `prev` are compared |
+| `need_root` | bool | `false` | When `true`, the root must be among the notes. Only `true` turns it on: any other value leaves it off |
+
+A chain of chords, each voiced from the one before, is a `scan`:
 
 ```
 let voicings = scan(CHORDS, notes("C4 E4 G4"), fn(prev, ch) => nearest_chord(prev, ch, 'G3', 'G4'))
 ```
 
+#### `chord_line(chords, lo, hi, key, per, role, scale, start, end, variety, against)`
+
+A line — a melody, or with `role: "bass"` a bass — over a chord progression, TML 2's alone. **Returns** a list of pitches, `per` for each chord, every one within `lo`…`hi`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `chords` | list of chords, at least one | required | The progression |
+| `lo` | pitch | required | The lowest pitch allowed |
+| `hi` | pitch, not below `lo` | required | The highest pitch allowed |
+| `key` | key, or a list of keys | `none` | What the line is for, as in §10. Required unless `variety` is 0 |
+| `per` | whole number, at least 1; or a list of them, one for each chord | `1` | How many notes each chord gets |
+| `role` | string: `"melody"` or `"bass"` | `"melody"` | How the line moves, below |
+| `scale` | list of whole numbers | `none`: the chords' own pitch classes | The pitch classes (degrees, taken round the period) the line may pass through. The chords' own are always added |
+| `start` | pitch, within `lo`…`hi` | `none` | The first note |
+| `end` | pitch, within `lo`…`hi` | `none` | The last note |
+| `variety` | number, 0 or more | `1` | How much the random material counts, below |
+| `against` | list of pitches and nones, one for each note of the line | `none` | Another line to fit this one to, below; none where it is silent |
+
+It is made in two steps. First every note is drawn at random from what its chord allows, keyed like any random choice (§10) to the song's seed and `key`. Then that material is smoothed: of all the lines the chords allow, the result is the one that keeps the most of it while moving best as a line. The search is exact, so the same program always gives the same line. What a line keeps to and what it prefers:
+
+- The first note over each chord is one of the chord's notes. The others may be any note of `scale`, but a note outside its chord is only ever a passing or neighbour note: it is reached by a step and left by a step, and never ends the line. A *step* is one place along the scale. Unless given, the scale is every pitch class the progression's chords have, which over C, Am, Dm and G7 is the C major scale, so the line works in any tuning.
+- A melody prefers steps to skips and skips to leaps, does not like repeating a note, turns after a leap rather than carrying on the way it leapt, avoids two skips the same way, and avoids leaps wider than the period. A bass leaps more freely and repeats more readily, and takes each chord's root on its first note unless the material strongly says otherwise.
+- The line keeps near the middle of `lo`…`hi`, and ends on the last chord's root unless the material strongly says otherwise.
+- `start` and `end` fix the first and last notes. Given `against`, the line stays on its side — above it, or with `role: "bass"` below — and moves into no unison, period or fifth (3:2, in a tuning whose period is the octave) in parallel with it, and leaps into one by similar motion only reluctantly.
+- `variety` scales the random material: higher gives freer lines, and 0 the smoothest line there is, the same for every seed and key.
+
+```
+fn ch(name, ivs) => { root: degree(name), ivs, name }
+let [MAJ, MIN, DOM7] = [[0, 4, 7], [0, 3, 7], [0, 4, 7, 10]]       // in 12-TET
+let CHORDS = [ch("C", MAJ), ch("A", MIN), ch("D", MIN), ch("G", DOM7), ch("C", MAJ), ch("F", MAJ), ch("G", MAJ), ch("C", MAJ)]
+let TUNE = chord_line(CHORDS, 'C4', 'C6', "tune", per: 4)          // four notes a chord
+let BASS = chord_line(CHORDS, 'C2', 'C4', "bass", per: 2, role: "bass", against: [TUNE[i * 2] for i in 0..<16])
+melody(lead, 0, join(["${note_name(p)}:4" for p in TUNE], " "), vol: 50)
+melody(bass, 0, join(["${note_name(p)}:8" for p in BASS], " "), vol: 50)
+```
+
+The search weighs every three notes in a row, so its work grows with the cube of how many notes the range and scale allow: a line over a whole chromatic scale of a wide range is refused, with a note to narrow one or the other.
+
 ## 9. General builtins
 
-| Numbers | |
-|---|---|
-| `abs` `floor` `ceil` `round` `trunc` `sign` `sqrt` `exp` `log` `log2` `log10` | One number in, one out. `round` takes halves up, towards +∞ |
-| `sin` `cos` `tan` `asin` `acos` `atan` `atan2(y, x)`, `PI` | Angles in radians |
-| `min(…)`, `max(…)` | Of the arguments, or of one list |
-| `clamp(x, lo, hi)` | `x` held within `lo`…`hi` |
-| `db(decibels)` | The gain factor: `db(-6)` is about 0.5 |
+### 9.1 Numbers
 
-| Lists | |
-|---|---|
-| `len(x)` | Items in a list, characters in a string, numbers in a range, fields in a record |
-| `range(n)`, `range(a, b, step)` | `0..<n`, and `a..<b by step` |
-| `list(x)` | A list from a range, a string (its characters), a list (a copy) or a record (its field names) |
-| `repeat(value, n)` | A list of `n` copies |
-| `with(xs, i, v)` | The list with item `i` replaced by `v` (or the record with field `i` set) |
-| `slice(xs, a, b)`, `reverse(xs)`, `rotate(xs, n)`, `sort(xs, key)`, `unique(xs)`, `flatten(xs)`, `zip(a, b)`, `copy(x)` | New lists |
-| `map(xs, f)`, `filter(xs, f)`, `any(xs, f)`, `all(xs, f)`, `sum(xs)` | |
-| `reduce(xs, f, initial)` | `f(f(f(initial, x0), x1), x2)…`: the last value |
-| `scan(xs, initial, f)` | The same, keeping every value on the way: `[f(initial, x0), f(that, x1), …]` |
-| `contains(xs, x)`, `index_of(xs, x)`, `count(xs, x)` | Searches (in a string, `contains` and `index_of` find text) |
+#### `abs(x)`, `floor(x)`, `ceil(x)`, `round(x)`, `trunc(x)`, `sign(x)`, `sqrt(x)`, `exp(x)`, `log(x)`, `log2(x)`, `log10(x)`, `sin(x)`, `cos(x)`, `tan(x)`, `asin(x)`, `acos(x)`, `atan(x)`
 
-| Strings | |
-|---|---|
-| `str(x)`, `num(s)` | A value as text; text as a number (`"$80"` is 128) |
-| `split(s, sep)`, `join(xs, sep)` | Without `sep`, `split` splits at spaces and line breaks |
-| `replace(s, find, with)` | Every occurrence |
-| `trim`, `upper`, `lower`, `starts_with`, `ends_with` | |
+One number in, one out. Each takes one argument, `x`, a number (required).
 
-| Records and the rest | |
+| Builtin | Returns |
 |---|---|
-| `keys(r)`, `values(r)`, `has_key(r, k)`, `get(r, k, default)`, `merge(a, b)` | `merge` is a new record with `b`'s fields over `a`'s |
-| `type(x)` | `"number"`, `"string"`, `"bool"`, `"none"`, `"list"`, `"record"`, `"range"`, `"function"`, `"phrase"`, `"lane"`, `"instrument"` |
-| `print(…)` | A line in the build log |
-| `error(message)`, `assert(condition, message)` | Stop the build with a message |
+| `abs` | `x` without its sign |
+| `floor`, `ceil` | The whole number at or below `x`; at or above it |
+| `round` | The nearest whole number, halves going up (towards +∞): `round(2.5)` is 3, `round(-2.5)` is −2 |
+| `trunc` | `x` with its fractional part dropped (towards 0) |
+| `sign` | −1, 0 or 1 |
+| `sqrt` | The square root |
+| `exp`, `log`, `log2`, `log10` | e to the power `x`; the logarithm of `x` to base e, 2 and 10 |
+| `sin`, `cos`, `tan` | Of an angle in radians |
+| `asin`, `acos`, `atan` | The angle, in radians |
+
+A result that is not a number — `sqrt(-1)`, `log(-1)`, `asin(2)` — is NaN ("not a number"), which is false (§4) and which no builtin takes as an argument; `log(0)` is −∞.
+
+#### `atan2(y, x)`
+
+**Returns** the angle, in radians from −π to π, of the point (`x`, `y`) from the positive `x` axis.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `y` | number | required | The point's height |
+| `x` | number | required | The point's distance along |
+
+#### `PI`
+
+Not a function: the number π.
+
+#### `min(values…)`, `max(values…)`
+
+**Returns** the smallest, or the largest, of the numbers.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `values…` | numbers; or a single list | at least one | The numbers, as arguments or as one list (or range) of them. None at all, or an empty list, is an error |
+
+#### `clamp(x, lo, hi)`
+
+**Returns** `x` held within `lo`…`hi`: `lo` when it is below, `hi` when it is above. When `lo` is above `hi`, the result is `hi`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | number | required | The number |
+| `lo` | number | required | The least it may be |
+| `hi` | number | required | The most it may be |
+
+#### `db(decibels)`
+
+**Returns** the gain factor of a level in decibels: `10 ** (decibels ÷ 20)`. `db(-6)` is about 0.5.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `decibels` | number | required | The level |
+
+### 9.2 Lists
+
+Indexes count from 0, and a negative one counts from the end (−1 is the last item).
+
+#### `len(x)`
+
+**Returns** a whole number: the items in a list, the numbers in a range, the characters in a string, the fields in a record.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | list, range, string or record | required | What to count |
+
+#### `range(a, b, step)`
+
+A range, as `a..<b by step` writes it (§5): `range(n)` is `0..<n`. **Returns** a range.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `a` | whole number | required | With `b`, the first number; alone, where the range stops (it starts at 0) |
+| `b` | whole number | `none` | Where the range stops: it is not included |
+| `step` | whole number, not 0 | `1` | The step; a negative one counts down |
+
+#### `list(x)`
+
+**Returns** a new list: the numbers of a range, the items of a list (a copy), the characters of a string, or the field names of a record.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | range, list, string or record | required | What to list |
+
+#### `repeat(value, n)`
+
+**Returns** a list of `n` copies of `value` (separate copies, when it is a list or a record).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `value` | any | required | What to repeat |
+| `n` | whole number, at least 0 | required | How many |
+
+#### `with(x, key, value)`
+
+**Returns** a new list with one item replaced, or a new record with one field set (added, when it has no such field). TML 2's alone.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | list or record | required | What to start from |
+| `key` | whole number (a list); string (a record) | required | The index of an item that exists, or the name of the field |
+| `value` | any | required | What goes there |
+
+#### `slice(xs, from, to)`
+
+**Returns** a new list, or a new string, of the items from `from` up to `to`. An index past either end stops at it. (`slice` of music: §8.5.)
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list or string | required | What to cut from |
+| `from` | whole number | required | The first index kept |
+| `to` | whole number | `none`: the end | The index it stops before |
+
+#### `reverse(xs)`
+
+**Returns** a new list, or a new string, in the opposite order. (`reverse` of music: §8.5.)
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list or string | required | What to reverse |
+
+#### `rotate(xs, n)`
+
+**Returns** a new list, rotated left by `n`: `rotate([1, 2, 3], 1)` is `[2, 3, 1]`, and a negative `n` rotates right. An empty list stays empty.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The list |
+| `n` | whole number | required | How far |
+
+#### `sort(xs, key)`
+
+**Returns** a new list, ascending. The sort is stable: items that compare equal keep their order.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list of numbers, or of strings | required | What to sort. Numbers and strings cannot be mixed |
+| `key` | function: item → number or string | `none`: the items themselves | Called once for each item; the items are sorted by what it returns |
+
+#### `map(xs, f)`
+
+**Returns** a new list: `f` of each item.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `f` | function: item → any | required | Called with each item; a function of your own with two parameters or more is called with the item and its index |
+
+#### `filter(xs, f)`
+
+**Returns** a new list of the items `f` is true for. (`filter` of music: §8.5.)
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `f` | function: item → any | required | Called with each item; it is kept when the result is true |
+
+#### `reduce(xs, f, initial)`
+
+**Returns** `f(f(f(initial, x0), x1), x2)…`: the last value, or `initial` for an empty list.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `f` | function: (value, item) → value | required | Called with the value so far and each item |
+| `initial` | any | required | The value before the first item |
+
+#### `scan(xs, initial, f)`
+
+As `reduce`, keeping every value on the way. **Returns** a list, `[f(initial, x0), f(that, x1), …]`, as long as `xs`. TML 2's alone.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `initial` | any | required | The value before the first item |
+| `f` | function: (value, item) → value | required | Called with the value so far and each item |
+
+#### `sum(xs)`
+
+**Returns** the sum of the numbers; 0 for an empty list.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list of numbers | required | The numbers |
+
+#### `any(xs, f)`, `all(xs, f)`
+
+**Returns** whether any item — or every item — is true (by `f`, when given). `any` of an empty list is false and `all` of one is true.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `f` | function: item → any | `none`: each item's own truth | Called with each item until the answer is known |
+
+#### `contains(xs, x)`
+
+**Returns** a bool: whether a list holds an item equal to `x` (§4), a string holds the text `x`, or a record has a field named `x`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list, string or record | required | Where to look |
+| `x` | any; a string, for a string or a record | required | What to look for |
+
+#### `index_of(xs, x)`
+
+**Returns** the index of the first item equal to `x`, or of the first place the text `x` starts in a string; −1 when there is none.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list or string | required | Where to look |
+| `x` | any; a string, for a string | required | What to look for |
+
+#### `count(xs, x)`
+
+**Returns** how many items of the list are equal to `x`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `x` | any | required | What to count |
+
+#### `unique(xs)`
+
+**Returns** a new list without repeats: each item the first time it appears.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+
+#### `flatten(xs)`
+
+**Returns** a new list with every item that is a list replaced by its items — one level deep: `flatten([[1, [2]], 3])` is `[1, [2], 3]`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+
+#### `zip(a, b)`
+
+**Returns** a list of pairs, `[a[i], b[i]]`, as long as the shorter list.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `a` | list | required | The first items |
+| `b` | list | required | The second items |
+
+#### `copy(x)`
+
+**Returns** `x`, with every list and record inside it copied: in TML 1 (§13), a list or record that can be changed without changing the original. Any other value comes back as it is.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | any | required | What to copy |
+
+### 9.3 Strings
+
+A string's **characters** are what `len`, `list`, `reverse` and `for` count. Indexing, `slice` and `index_of` count UTF-16 code units, the same thing for every character except those outside the Basic Multilingual Plane (most emoji), which count as two.
+
+#### `str(x)`
+
+**Returns** a value as text: a string as it is, anything else as TML would write it (`str([1, "a"])` is `[1, "a"]`).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | any | required | The value |
+
+#### `num(x)`
+
+**Returns** text as a number: decimal (`"12"`, `"1e3"`), `"$ff"` for tracker hexadecimal, `"0x10"` and `"0b10"`; spaces around it are ignored. A number comes back as it is. Text that is not a number is an error.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | string or number | required | The text |
+
+#### `split(s, sep)`
+
+**Returns** a list of strings: the pieces of `s` between each `sep`. With no `sep`, the words between runs of white space — spaces, tabs, line breaks — and none for blank text; with `sep: ""`, each UTF-16 code unit (above).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `s` | string | required | The text |
+| `sep` | string | `none`: white space | What separates the pieces |
+
+#### `join(xs, sep)`
+
+**Returns** a string: the items, each as `str` writes it, with `sep` between them.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `sep` | string | `""` | What goes between them |
+
+#### `replace(s, find, with)`
+
+**Returns** `s` with every occurrence of `find` replaced by `with`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `s` | string | required | The text |
+| `find` | string | required | What to replace |
+| `with` | string | required | What replaces it |
+
+#### `trim(s)`, `upper(s)`, `lower(s)`
+
+**Returns** `s` without the white space at its ends; in capitals; in small letters (any alphabet that has them: `upper("é")` is `"É"`). Each takes one argument, `s`, a string (required).
+
+#### `starts_with(s, prefix)`, `ends_with(s, suffix)`
+
+**Returns** a bool: whether `s` starts, or ends, with the text. Every string starts and ends with `""`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `s` | string | required | The text |
+| `prefix`, `suffix` | string | required | What to look for |
+
+### 9.4 Records
+
+#### `keys(r)`, `values(r)`
+
+**Returns** a list of the record's field names (strings), or of its values, in the order the fields were first written.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `r` | record | required | The record |
+
+#### `has_key(r, key)`
+
+**Returns** a bool: whether the record has the field.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `r` | record | required | The record |
+| `key` | string | required | The field's name |
+
+#### `get(r, key, default)`
+
+**Returns** the field's value, or `default` when the record has no such field (reading `r.key` would be an error).
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `r` | record | required | The record |
+| `key` | string | required | The field's name |
+| `default` | any | `none` | What to return instead |
+
+#### `merge(a, b)`
+
+**Returns** a new record: `a`'s fields, with `b`'s over them — set where `a` has them, added after where it does not.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `a` | record | required | The record to start from |
+| `b` | record | required | The fields to set |
+
+### 9.5 Checks and output
+
+#### `type(x)`
+
+**Returns** the name of a value's type, as a string: `"number"`, `"string"`, `"bool"`, `"none"`, `"list"`, `"record"`, `"range"`, `"function"`, `"phrase"`, `"lane"` or `"instrument"`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `x` | any | required | The value |
+
+#### `print(values…)`
+
+Writes a line in the build log: the values as `str` writes them, separated by spaces. **Returns** none, which is no music, so it can stand on a line of its own.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `values…` | any | none given: an empty line | What to write |
+
+#### `error(message)`
+
+Stops the build with the message, at the line that called it. It never returns.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `message` | any | required | What to say, as `str` writes it |
+
+#### `assert(condition, message)`
+
+Stops the build with the message when `condition` is false (§4). **Returns** none.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `condition` | any, by truth | required | What must be true |
+| `message` | any | `"assertion failed"` | What to say when it is not, as `str` writes it |
 
 ## 10. Randomness
 
@@ -736,18 +1569,66 @@ return mix(h) ÷ 2^32
 
 (`imul` is the low 32 bits of the product, `>>>` an unsigned shift.) Test vectors: with seed 1, `random(0)` is 0.6445763253141195, `random("walk", 1)` 0.8974380060099065 and `random("héllo, 世界")` 0.9516397698316723; with seed 19, `random("walk", 1)` is 0.4422831176780164.
 
-| Builtin | |
-|---|---|
-| `random(keys…)` | A number in [0, 1) |
-| `random_int(lo, hi, keys…)` | `lo + floor(random(keys…) × (hi − lo + 1))` |
-| `chance(p, keys…)` | `random(keys…) < p` |
-| `choose(xs, keys…)` | `xs[floor(random(keys…) × len(xs))]` |
-| `choose_weighted(xs, weights, keys…)` | An item, each as likely as its weight: `r ← random(keys…) × total`, then the first item whose weight takes `r` below 0 |
-| `shuffle(xs, keys…)` | A shuffled copy: for `i` from the last index down to 1, item `i` swaps with item `floor(random(keys…, i) × (i + 1))` |
+Each of these needs at least one key, and each is TML 2's form (TML 1's, which take no keys: §13).
 
-Each needs at least one key.
+#### `random(keys…)`
 
-`noise(a, b)` is another fixed hash of two whole numbers into [−1, 1), with no seed: the same every time it is asked. It is what lane jitter uses (§11):
+**Returns** a number in [0, 1), computed as above.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `keys…` | key | at least one | What the number is for |
+
+#### `random_int(lo, hi, keys…)`
+
+**Returns** a whole number from `lo` to `hi`, both included: `lo + floor(random(keys…) × (hi − lo + 1))`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `lo` | whole number | required | The least it can be |
+| `hi` | whole number, not below `lo` | required | The most it can be |
+| `keys…` | key | at least one | What the number is for |
+
+#### `chance(p, keys…)`
+
+**Returns** a bool: `random(keys…) < p` — true with probability `p`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `p` | number | required | The probability: 0 (or less) is never, 1 (or more) always |
+| `keys…` | key | at least one | What the choice is for |
+
+#### `choose(xs, keys…)`
+
+**Returns** an item of the list: `xs[floor(random(keys…) × len(xs))]`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list, not empty | required | The items |
+| `keys…` | key | at least one | What the choice is for |
+
+#### `choose_weighted(xs, weights, keys…)`
+
+**Returns** an item of the list, each as likely as its weight: `r ← random(keys…) × total`, then the first item whose weight takes `r` below 0.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list, not empty | required | The items |
+| `weights` | list of numbers, as long as `xs` | required | Each item's weight. A negative weight counts as 0, and at least one must be above 0 |
+| `keys…` | key | at least one | What the choice is for |
+
+#### `shuffle(xs, keys…)`
+
+**Returns** a shuffled copy of the list: for `i` from the last index down to 1, item `i` swaps with item `floor(random(keys…, i) × (i + 1))`.
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `xs` | list | required | The items |
+| `keys…` | key | at least one | What the shuffle is for |
+
+#### `noise(a, b)`
+
+Another fixed hash, with no seed and no keys: the same every time it is asked, in either version of TML. It is what lane jitter uses (§11). **Returns** a number in [−1, 1), computed as:
 
 ```
 t ← (imul(a + 1, 0x9E3779B1) xor imul(b + 7, 0x85EBCA6B)) >>> 0
@@ -755,6 +1636,11 @@ t ← imul(t xor (t >>> 15), t or 1)
 t ← t xor (t + imul(t xor (t >>> 7), t or 61))
 return (((t xor (t >>> 14)) >>> 0) ÷ 2^32) × 2 − 1
 ```
+
+| Argument | Type | Default | |
+|---|---|---|---|
+| `a` | whole number | required | The first number |
+| `b` | whole number | `0` | The second number |
 
 ## 11. Building
 
@@ -825,15 +1711,28 @@ next():
   return ((t xor (t >>> 14)) >>> 0) ÷ 2^32
 ```
 
-| Builtin | Draws |
-|---|---|
-| `random()` | A number in [0, 1) |
-| `random_int(lo, hi)` | `lo + floor(random() × (hi − lo + 1))` |
-| `chance(p)` | `random() < p` |
-| `choose(xs)` | `xs[floor(random() × len(xs))]` |
-| `choose_weighted(xs, weights)` | An item, each as likely as its weight |
-| `shuffle(xs)` | A shuffled copy (Fisher–Yates from the last item down) |
-| `seed(n)` | Restarts the stream at `n` |
+| Builtin | Arguments | Draws |
+|---|---|---|
+| `random()` | none | A number in [0, 1) |
+| `random_int(lo, hi)` | `lo`, `hi`: whole numbers, `lo` ≤ `hi` | `lo + floor(random() × (hi − lo + 1))` |
+| `chance(p)` | `p`: number | `random() < p` |
+| `choose(xs)` | `xs`: list, not empty | `xs[floor(random() × len(xs))]` |
+| `choose_weighted(xs, weights)` | as in TML 2 (§10), without keys | An item, each as likely as its weight |
+| `shuffle(xs)` | `xs`: list | A shuffled copy (Fisher–Yates from the last item down) |
+| `seed(n)` | `n`: whole number | Restarts the stream at `n` (taken as an unsigned 32-bit integer); returns none |
+
+TML 1's other builtins that TML 2 does not have, or has in another form:
+
+| Builtin | Arguments | |
+|---|---|---|
+| `push(list, values…)` | `list`: list (not a range); `values…`: any, none or more | Adds the values to the end of the list. Returns none |
+| `pop(list)` | `list`: list, not empty | Removes the last item, and returns it |
+| `insert(list, index, value)` | `list`: list; `index`: whole number, from −`len(list)` to `len(list)`; `value`: any | Puts `value` at `index`, moving the items from there on along. Returns none |
+| `remove(list, index)` | `list`: list; `index`: whole number, an index the list has | Removes the item at `index`, and returns it |
+| `occupied(lane, row)` | `lane`: lane; `row`: row | Whether anything is written on that row of that lane so far |
+| `cell(lane, row)` | `lane`: lane; `row`: row | What is written there so far, as the record of §8.7 (without `lane` and `row`), or none |
+
+In TML 1 the event builtins and `melody` take the same arguments as in TML 2 and return none (`melody` returns the row after its line); `transpose(pitches, steps)` and `invert(pitches, axis)` take only lists of pitches; `filter`, `slice` and `reverse` only lists and strings.
 
 ## 14. Version history
 
@@ -849,3 +1748,4 @@ Additions that leave every program building as it did, in either version:
 | 2026-10-22 | OPL and PSG chip instruments, `opl` and `psg` (§7.3) |
 | 2026-10-28 | Formant instruments, `formant`, their syllables written in the IPA or X-SAMPA (§7.3); mixing chains, `chain` (§7.7) |
 | 2026-10-29 | The transient shaper in a mixing chain, `transient_shaper_1`, and the expander / gate, `expander` (§7.7) |
+| 2026-11-04 | `chord_line`, a melody or bass line made from a chord progression (§8.8; TML 2) |

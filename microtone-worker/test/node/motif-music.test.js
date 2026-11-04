@@ -241,3 +241,9 @@ test("every whole program in the docs, and the Motif view's example, runs", () =
     assert.ok(score.lanes.some((l) => l.ev.size > 0), `${where}: a program that places nothing`);
   }
 });
+
+test("melody's vib is held to vibrato's 0…255, as vibrato() is", () => {
+  assert.match(err(HEAD("bars: 2") + `melody(a, 0, "C4:8v", vib: [300, 1])`).message, /vib's speed and depth are 0…255/);
+  assert.match(err(HEAD("bars: 2") + `melody(a, 0, "C4:8v", vib: [1, -1])`).message, /vib's speed and depth are 0…255/);
+  run("bars: 2", `melody(a, 0, "C4:8v", vib: [255, 0])`);
+});

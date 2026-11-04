@@ -19,7 +19,8 @@ import {
   Builtin, Handle, Rec, Range, asNumber, asInt, asString, asList, asRecord, asFunction, fail, typeName,
 } from "./values.js";
 import { tuningFrom } from "./tuning.js";
-import { mulberry32 } from "./stdlib.js";
+import { mulberry32, keyedRandom } from "./stdlib.js";
+import { chordLine } from "./chordline.js";
 import { FM_MAX_OPERATORS, META_MAX_LAYERS, FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp } from "../../core/engine/inst.js";
 import { minifloatFromDouble } from "../../core/engine/minifloat.js";
 import { encodeOplPatch, OPL_KIND_OPERATORS } from "../../core/engine/opl.js";
@@ -953,6 +954,7 @@ export function musicBuiltins(score, { version = 1, base = null } = {}) {
     const t = T();
     const vibs = vib === null ? [0x7d, 0x14] : asList(vib, "vib").map((x) => asInt(x, "a vibrato value"));
     if (vibs.length !== 2) throw fail("vib is [speed, depth]");
+    if (vibs.some((x) => x < 0 || x > 255)) throw fail("vib's speed and depth are 0…255, as vibrato's are");
     const gRows = asInt(glideRows, "glide_rows");
     if (gRows < 1) throw fail("glide_rows is at least 1");
     asInt(transpose, "transpose");
@@ -1006,14 +1008,20 @@ export function musicBuiltins(score, { version = 1, base = null } = {}) {
    * classes as there are notes, the root among them when need_root. Ties go to
    * the lower spelling. A brute-force search — the spaces are tiny.
    */
+  /** A chord record → its root degree, its intervals and what to call it. */
+  const chordOf = (v, what) => {
+    const chord = asRecord(v, what);
+    if (!chord.m.has("root") || !chord.m.has("ivs")) throw fail(`${what} must be a chord: a record with root (a degree) and ivs (its intervals in steps)`);
+    const root = asInt(chord.m.get("root"), `${what}'s root`);
+    const ivs = asList(chord.m.get("ivs"), `${what}'s ivs`).map((x) => asInt(x, "an interval"));
+    if (!ivs.length) throw fail(`${what} has no intervals`);
+    return { root, ivs, label: chord.m.has("name") ? String(chord.m.get("name")) : what };
+  };
+
   const nearestChord = (interp, prevV, chordV, loV, hiV, nV, needRoot) => {
     const t = T();
     const prev = asList(prevV, "the chord to move from").map((x) => pitch(x, "a pitch of the chord to move from"));
-    const chord = asRecord(chordV, "the chord");
-    if (!chord.m.has("root") || !chord.m.has("ivs")) throw fail("a chord is a record with root (a degree) and ivs (its intervals in steps)");
-    const root = asInt(chord.m.get("root"), "the chord's root");
-    const ivs = asList(chord.m.get("ivs"), "the chord's ivs").map((x) => asInt(x, "an interval"));
-    const label = chord.m.has("name") ? String(chord.m.get("name")) : "the chord";
+    const { root, ivs, label } = chordOf(chordV, "the chord");
     const lo = pitch(loV, "the lowest pitch"), hi = pitch(hiV, "the highest pitch");
     const n = nV === null ? prev.length : asInt(nV, "n");
     if (n < 1 || n > prev.length) throw fail(`n is 1…${prev.length} (how many notes the chord to move from has)`);
@@ -1381,6 +1389,60 @@ export function musicBuiltins(score, { version = 1, base = null } = {}) {
       if (l === null || r === null) throw fail("occupied() needs the music, a lane and a row");
       return x.cells.get(laneOf(l))?.has(asInt(r, "the row")) ?? false;
     }),
+    new Builtin("chord_line", "chords, lo, hi, key=none, per=1, role=\"melody\", scale=none, start=none, end=none, variety=1, against=none",
+      (ip, chs, loV, hiV, key, perV, roleV, scaleV, startV, endV, varV, againstV) => {
+        const t = T();
+        const P = t.n;
+        const pc = (s) => ((s % P) + P) % P;
+        const chords = asList(chs, "chord_line()'s chords");
+        if (!chords.length) throw fail("chord_line() needs at least one chord");
+        const lo = pitch(loV, "the lowest pitch"), hi = pitch(hiV, "the highest pitch");
+        if (hi < lo) throw fail(`chord_line()'s range runs backwards: ${t.nameOf(lo)}…${t.nameOf(hi)}`);
+        const role = asString(roleV, "role");
+        if (role !== "melody" && role !== "bass") throw fail(`role is "melody" or "bass", not "${role}"`);
+        const variety = asNumber(varV, "variety");
+        if (!(variety >= 0)) throw fail("variety is 0 or more");
+        const keys = key === null ? [] : Array.isArray(key) ? key : [key];
+        if (!keys.length && variety > 0) {
+          throw fail("chord_line() needs a key: what the line is for, as a number, a string or a list of them — chord_line(CHORDS, 'C4', 'C6', \"tune\") — the same key always gives the same line (variety: 0 needs none)");
+        }
+        const pers = typeof perV === "number" ? chords.map(() => perV) : asList(perV, "per");
+        if (pers.length !== chords.length) throw fail(`per gives ${pers.length} counts for ${chords.length} chords`);
+        const slots = [];
+        chords.forEach((cv, k) => {
+          const what = `chord ${k + 1}`;
+          const { root, ivs, label } = chordOf(cv, what);
+          const n = asInt(pers[k], `the notes of ${what}`);
+          if (n < 1) throw fail(`${label} gets ${n} notes: per is at least 1`);
+          const classes = new Set(ivs.map((iv) => pc(root + iv)));
+          for (let j = 0; j < n; j++) slots.push({ classes, root: pc(root), strong: j === 0, label });
+        });
+        const scale = scaleV === null ? [] : asList(scaleV, "scale").map((x) => pc(asInt(x, "a degree of the scale")));
+        const inRange = (v, what) => {
+          if (v === null) return null;
+          const p = pitch(v, what);
+          if (p < lo || p > hi) throw fail(`${what} ${t.nameOf(p)} is outside the range ${t.nameOf(lo)}…${t.nameOf(hi)}`);
+          return p;
+        };
+        const start = inRange(startV, "start"), endP = inRange(endV, "end");
+        let against = null;
+        if (againstV !== null) {
+          against = asList(againstV, "against").map((x) => (x === null ? null : pitch(x, "a pitch of against")));
+          if (against.length !== slots.length) throw fail(`against has ${against.length} notes, and the line ${slots.length}`);
+        }
+        const toCents = 1200 / 4096;
+        return chordLine({
+          slots, scale, lo, hi, P, role, start, end: endP, against, variety,
+          cents: (s) => t.word(s) * toCents,
+          periodCents: t.interval * toCents,
+          noise: (i, s) => keyedRandom(score.seed, [...keys, i, s]),
+          charge: (n) => {
+            if (n > ip.steps) throw fail(`chord_line() would weigh ${n.toLocaleString("en")} ways through its notes, more than the ${Math.max(0, ip.steps).toLocaleString("en")} steps the program has left: narrow its range or its scale`);
+            ip.steps -= n;
+          },
+          name: (s) => t.nameOf(s),
+        });
+      }),
   );
   return new Map(fns.map((f) => [f.name, f]));
 }
