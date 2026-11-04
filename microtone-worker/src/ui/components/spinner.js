@@ -313,6 +313,31 @@ function stepNumber(input, dir) {
   announce(input);
 }
 
+/** Put `el` inside `group` in its place, keeping its focus. Moving a node in
+ *  the DOM blurs it, and the enhancer runs a microtask AFTER the code that
+ *  built the control — which may already have focused it (showModal focuses
+ *  its first field). Left blurred, focus fell onto <body>, out of the dialog:
+ *  Enter no longer confirmed, and keys reached the grids instead. A text
+ *  field's caret goes back where it was; a number field's cannot be read. */
+function wrapInPlace(el, group, before, after) {
+  const focused = el.ownerDocument.activeElement === el;
+  let range = null;
+  if (focused) {
+    try {
+      if (el.selectionStart !== null && el.selectionStart !== undefined) {
+        range = [el.selectionStart, el.selectionEnd, el.selectionDirection];
+      }
+    } catch { /* not a field with a caret */ }
+  }
+  el.replaceWith(group);
+  group.append(before, el, after);
+  if (!focused) return;
+  el.focus({ preventScroll: true });
+  if (range) {
+    try { el.setSelectionRange(...range); } catch { /* type changed */ }
+  }
+}
+
 function upgradeNumber(input) {
   // A native number field cannot HOLD "$FF": its value sanitiser blanks
   // anything that is not a plain decimal number, and there is no way to read
@@ -327,8 +352,7 @@ function upgradeNumber(input) {
   group.className = "mt-spin";
   const dec = stepButton("–", input.dataset.mtDecTitle ?? "");
   const inc = stepButton("+", input.dataset.mtIncTitle ?? "");
-  input.replaceWith(group);
-  group.append(dec, input, inc);
+  wrapInPlace(input, group, dec, inc);
   holdRepeat(dec, () => stepNumber(input, -1));
   holdRepeat(inc, () => stepNumber(input, +1));
   const sync = () => {
@@ -372,14 +396,13 @@ function upgradeSelect(sel) {
   group.className = "mt-pick";
   const prev = stepButton("◄", "");
   const next = stepButton("►", "");
-  sel.replaceWith(group);
+  wrapInPlace(sel, group, prev, next);
   // The select itself is the middle segment — `appearance: none` takes the
   // platform's chrome off it and leaves the app's own type and colours, and it
   // still sizes itself to its widest option, so the group lands exactly where
   // the plain dropdown did. Clicking it opens the real option list, which is
   // the one part of a dropdown nothing hand-built does as well: keyboard
   // navigation, type-ahead, the OS picker on a phone.
-  group.append(prev, sel, next);
   holdRepeat(prev, () => stepSelect(sel, -1));
   holdRepeat(next, () => stepSelect(sel, +1));
   const sync = () => {

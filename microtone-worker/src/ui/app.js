@@ -1753,6 +1753,15 @@ document.addEventListener("click", (e) => {
 // without it the Project tab's message box never sees an Enter, because the
 // dispatch below claims the key first.
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+/** The key belongs to a dialog: typed inside one, or typed while a modal one is
+ *  up. The second case matters because focus can fall out of a dialog onto
+ *  <body> (an element moved in the DOM loses it), and a key aimed at <body>
+ *  would otherwise reach the grids and the piano — and the Escape branch below
+ *  calls preventDefault, which stops the dialog closing. Everything outside a
+ *  modal dialog is inert, so nothing else can want those keys. */
+function inDialog(e) {
+  return !!e.target.closest?.("dialog") || document.querySelector("dialog:modal") !== null;
+}
 function isTypingTarget(el) {
   const tag = el?.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
@@ -1792,7 +1801,7 @@ window.addEventListener("keydown", (e) => {
   // the "?" help popup, and "/" is a note on a Z-row layout.
   if ((e.key === "/" || e.key === "'" || e.code === "Slash" || e.code === "Quote") &&
       !e.ctrlKey && !e.metaKey && !e.altKey &&
-      !isTypingTarget(e.target) && !e.target.closest?.("dialog")) {
+      !isTypingTarget(e.target) && !inDialog(e)) {
     e.preventDefault();
   }
   if (!store.doc) {
@@ -1800,13 +1809,13 @@ window.addEventListener("keydown", (e) => {
     // anything is loaded — and so does the way back (item 104.1). So does the
     // Motif tab (Shift+F7): a program is how a song can begin.
     if ((e.code === "F1" || e.code === "F9" || (e.code === "F7" && e.shiftKey)) && !e.ctrlKey && !e.metaKey && !e.altKey &&
-        !isTypingTarget(e.target) && !e.target.closest?.("dialog")) {
+        !isTypingTarget(e.target) && !inDialog(e)) {
       e.preventDefault();
       showView(e.code === "F1" ? "timeline" : e.code === "F7" ? "motif" : "files");
     }
     return;
   }
-  if (isTypingTarget(e.target) || e.target.closest?.("dialog")) return;
+  if (isTypingTarget(e.target) || inDialog(e)) return;
 
   // global chords
   if ((e.ctrlKey || e.metaKey) && e.key === "z") {
@@ -2106,7 +2115,7 @@ window.addEventListener("keyup", (e) => {
   // any Ctrl/Meta chord that doubles as a piano key (S = Save, A = Select All,
   // G = Goto, Y = Redo) must not count as a piano release.
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (isTypingTarget(e.target) || e.target.closest?.("dialog")) return;
+  if (isTypingTarget(e.target) || inDialog(e)) return;
   jam.up(e.code);
   if (store.view === "keymap") viewNamed("keymap").onJamKeyUp(e.code);
 });

@@ -15,11 +15,13 @@
     // beside Proceed, a lone Dismiss at the right end; Proceed filled apart from
     // every other button, its label 200 heavier and readable on its fill. Then
     // the two dialog helpers, end to end: Enter proceeds, Cancel and Esc
-    // cancel, a notice has one button.
+    // cancel, a dropdown or number field wrapped by the control enhancer keeps
+    // its focus, a notice has one button.
     //
     //   node tools/browser-smoke.js test/browser/actions-smoke.html
     import { actionRow } from "../../src/ui/components/actions.js";
     import { showModal, showNotice } from "../../src/ui/components/modal.js";
+    import { startControlEnhancer, stopControlEnhancer } from "../../src/ui/components/spinner.js";
 
     const out = [];
     let failures = 0;
@@ -120,6 +122,29 @@
         await sleep(20);
         document.querySelector("dialog.modal").dispatchEvent(new Event("cancel"));
         check("showModal: Esc resolves null", (await p) === null);
+
+        // ── the control enhancer keeps the first field focused ──
+        // It wraps a dropdown or a number field in its step buttons a microtask
+        // after showModal has focused it; moving the node used to drop focus
+        // onto <body>, out of the dialog, where Esc met the grids' handler
+        // (which cancels it in selection mode) and Enter confirmed nothing.
+        startControlEnhancer();
+        for (const [kind, field] of [
+          ["dropdown", { name: "pick", label: "Pick", type: "select", value: "b",
+            options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] }],
+          ["number field", { name: "n", label: "N", type: "number", value: "12" }],
+        ]) {
+          p = showModal({ title: "Retune", fields: [field], okLabel: "Go" });
+          await sleep(20);
+          dlg = document.querySelector("dialog.modal");
+          const ctl = dlg.querySelector(`[name="${field.name}"]`);
+          check(`showModal: a ${kind} is wrapped and keeps focus`,
+            ctl.parentElement.matches(".mt-pick, .mt-spin") && document.activeElement === ctl,
+            `focus on ${document.activeElement?.tagName}`);
+          document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+          check(`showModal: Enter on a wrapped ${kind} proceeds`, (await p)?.[field.name] === field.value);
+        }
+        stopControlEnhancer();
 
         // ── showNotice: one button, nothing to cancel ──
         p = showNotice({ title: "That name is taken", okLabel: "OK" });

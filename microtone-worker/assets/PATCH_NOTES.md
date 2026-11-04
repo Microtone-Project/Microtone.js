@@ -38,6 +38,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Fixed: playing a note in the Instruments view left the envelope's playhead where it was until you switched to another tab and back; the graph only redrew itself while the song was playing.
 - Fixed: once a note fell silent its playhead stayed on the graph; it now goes when the sound does. The Zones tab lights the zone you are playing the same way.
 
+**Esc closes every dialog again**, and a key pressed in a dialog stays in the dialog.
+
+- Fixed: a dialog that opens on a dropdown or a number box, such as Retune, ignored Esc while a block was selected or selection mode was on; the box lost its focus the moment its ◄ ► buttons were added, so the key went to the pattern instead and cleared the selection.
+- Fixed: in the same dialogs, Enter did not confirm, and a note key or Space typed before clicking into the dialog played the piano or started the song behind it.
+
 ## Version 4.6.0 (2026-11-02)
 
 **FM racks get fixed-frequency operators**, the *FIXED* mode of the Yamaha DX7: an operator can sound one note whatever key is played, instead of following the key at a ratio.
