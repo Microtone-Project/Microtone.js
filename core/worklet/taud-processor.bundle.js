@@ -20658,8 +20658,11 @@ function generateTrackerAudio(eng, playhead, out) {
 //    (decompression is a format-layer / main-thread concern).
 //  - No PCM/MP2/TAD paths, no MMIO/banked windows: callers address the API,
 //    playback addresses the 8 MB pool directly (as the Kotlin engine does).
-//  - Voice-index clamps mirror the delegate exactly (readbacks clamp to
-//    NUM_VOICES-1; jamNote to MAX_VOICES-1).
+//  - Per-lane calls (mute, fader, readbacks) clamp the voice index to
+//    MAX_VOICES-1: voice storage is always 64 lanes wide, and a 64-lane song's
+//    lanes 33-64 must be reachable (the delegate used to clamp at NUM_VOICES-1,
+//    folding every one of them onto lane 32). jamNote also clamps to
+//    MAX_VOICES-1.
 
 
 
@@ -21401,7 +21404,7 @@ class TaudEngine {
   // ── per-voice readbacks (delegate 144-325; clamps mirror the delegate) ──
 
   _voice(ph, vi) {
-    const v = Math.min(Math.max(vi, 0), NUM_VOICES - 1);
+    const v = Math.min(Math.max(vi, 0), MAX_VOICES - 1);
     return this.playheads[ph].trackerState.voices[v];
   }
 

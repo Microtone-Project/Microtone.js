@@ -4,7 +4,15 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
-## Version 4.7.0 (2026-11-03)
+## Version 4.7.1 (2026-11-04)
+
+**Solo and mute work on every lane of a 64-lane song.**
+
+- Fixed: in a 64-lane song, soloing a lane left lanes 33 to 64 playing; the player only reached the first 32 lanes' mutes.
+- Fixed: muting any of lanes 33 to 64 (clicking its header, or M on the Timeline) silenced lane 32 instead, and soloing one of them soloed lane 32.
+- Notes still ringing out from a muted lane (its new note actions, a layered instrument's layers) fall silent with it on those lanes too, as they always did on the first 32.
+
+## Version 4.7.0 (2026-11-04)
 
 **Lyric instruments sing words**: give a formant instrument lyrics, and it sings them one syllable a note, so a melody written with one instrument number sings its text.
 

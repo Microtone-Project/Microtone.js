@@ -26,7 +26,7 @@
 
 import { readFile, writeFile, mkdir, rm, readdir, copyFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 // A SIBLING of the microtone-js checkout, not a child of it: the library is its
@@ -91,6 +91,7 @@ const REPO_FILES = [
   "core/format/compress.js",
   "core/format/mastering-section.js",
   "core/format/imix-section.js",
+  "core/format/lyric-section.js",
   "core/format/taud-parse.js",
   "src/taudplay/protocol.js",
   "src/taudplay/faders.js",
@@ -407,6 +408,22 @@ async function main() {
     for (const b of await readFile(root + rel)) acc = (acc * 131n + BigInt(b)) & 0xffffffffffffffffn;
   }
   const engineHash = acc.toString(16).padStart(16, "0").slice(0, 12);
+
+  // Every relative import of a copied file must be copied too, or the
+  // generated library cannot even load (4.7.0 shipped without lyric-section.js
+  // that taud-parse.js imports). Checked before anything is written.
+  const copied = new Set([...REPO_FILES, "src/taudplay/worklet.bundle.js"]);
+  const missing = [];
+  for (const rel of REPO_FILES) {
+    const src = await readFile(root + rel, "utf8");
+    for (const m of src.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)"(\.{1,2}\/[^"]+)"/g)) {
+      const target = posix.normalize(posix.join(posix.dirname(rel), m[1]));
+      if (!copied.has(target)) missing.push(`${rel} imports ${target}`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(`make-taudplay: REPO_FILES is missing what its files import:\n  ${missing.join("\n  ")}`);
+  }
 
   for (const sub of ["src", "core", "vendor"]) {
     await rm(join(outDir, sub), { recursive: true, force: true });

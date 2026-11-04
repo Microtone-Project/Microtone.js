@@ -58,10 +58,9 @@ export class FaderBank {
   /**
    * Push the bytes into a TrackerState's voices.
    *
-   * Not through `TaudEngine.setVoiceFader`, which clamps the voice index to
-   * NUM_VOICES-1 (32) because the TSVM delegate clamps its readbacks there. A
-   * fader is a host control rather than a device readback, and a 64-lane
-   * song has 64 lanes to fade, so the byte goes to the voice slot directly.
+   * Straight into the voice slots rather than through
+   * `TaudEngine.setVoiceFader`, one command per lane: all 64 bytes land
+   * together, and only the ones that moved are written.
    */
   writeInto(ts) {
     if (!this.dirty) return;

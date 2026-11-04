@@ -1509,3 +1509,21 @@ test("setBPM clamps to the ten-bit register", () => {
   eng.setBPM(0, 5000); assert.equal(eng.getBPM(0), BPM_MAX);
   eng.setBPM(0, 1);    assert.equal(eng.getBPM(0), BPM_MIN);
 });
+
+// A 64-lane song's lanes 33-64 have mutes of their own: the per-lane calls
+// used to clamp at lane 32, so muting any of them muted lane 32 instead, and
+// solo left every lane above 32 sounding.
+test("mute and fader reach every lane of a 64-lane song", () => {
+  const eng = makeTestEngine();
+  const ts = eng.playheads[0].trackerState;
+  eng.setVoiceMute(0, 40, true);
+  assert.equal(ts.voices[40].fader, 255, "lane 41 muted");
+  assert.equal(ts.voices[31].fader, 0, "lane 32 untouched");
+  assert.equal(eng.getVoiceMute(0, 40), true);
+  assert.equal(eng.getVoiceMute(0, 31), false);
+  eng.setVoiceFader(0, 63, 100);
+  assert.equal(eng.getVoiceFader(0, 63), 100, "lane 64 has its own fader");
+  eng.setVoiceMute(0, 200, true); // out of range clamps to the last lane, never into the jam bank
+  assert.equal(ts.voices[63].fader, 255);
+  assert.equal(ts.voices[64].fader, 0);
+});
