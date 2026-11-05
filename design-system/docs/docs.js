@@ -212,7 +212,10 @@ function renderContrast(tokens) {
 
 /** The faces, each in its own words. */
 const SPECIMENS = {
-  ui: "Import MIDI… · Export audio · Apply — 0123456789",
+  "ui-font": "Import MIDI… · Export audio · Apply — 0123456789",
+  "ui-small-font": "Oct 4 · Inst 01 · Step 1 · Saved 12:04",
+  "ui-full-font": "TIMELINE · PATTERNS · INSTRUMENTS · [ə ã ŋ]",
+  "ui-condensed-font": "1 2 3 4 5 6 7 8 9 10 11 12",
   "mono-font": "$FF $1F80 12.5 dB · O0 Il1 · 0x7F",
   "transport-font": "Oct 4  Inst 01  Step 1  Cue 03  Row 1F  BPM 125  Spd 6",
   "code-font": "lane bass = melody(\"C3 E3 G3\")  // Motif Code",
@@ -238,13 +241,13 @@ function renderType(tokens) {
     } else {
       spec.style.fontFamily = stack;
       spec.textContent = SPECIMENS[key] ?? "";
-      if (key === "ui") spec.style.fontVariationSettings = '"wdth" 86.6667';
     }
     face.append(headRow, spec);
-    if (key !== "ui" && key !== "display") {
+    if (key !== "display") {
+      // Motif is variable, 100–900; Open Sans is baked static at 400–800.
       const w = el("div", "ds-weights");
       w.style.fontFamily = stack;
-      for (const wt of [100, 300, 500, 700, 900]) {
+      for (const wt of key.startsWith("ui-") ? [400, 500, 600, 700, 800] : [100, 300, 500, 700, 900]) {
         const s = el("span", "", `${wt} Ab0`);
         s.style.fontWeight = wt;
         w.append(s);
@@ -257,7 +260,7 @@ function renderType(tokens) {
   for (const g of tokens.type.groups) {
     for (const s of g.styles) {
       const row = el("div", "ds-style");
-      const fam = fams[s.family ?? g.family] ?? fams.ui;
+      const fam = fams[s.family ?? g.family] ?? fams["ui-font"];
       const meta = el("div");
       meta.append(el("div", "", s.name),
         el("div", "ds-meta", [s.fontSize, s.lineHeight && `/${s.lineHeight}`, s.fontWeight, s.fontStyle].filter(Boolean).join(" ")));

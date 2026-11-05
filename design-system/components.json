@@ -39,7 +39,7 @@
     {
       "id": "type-tokens",
       "title": "Faces by token, never by name",
-      "text": "Chrome is Open Sans (narrowed, tabular figures); the wordmark alone is Geist. Every monospace is a Motif face through its token: --cv-font (Motif Grid: grids and notes as symbols), --mono-font (Motif Mono: values someone types or reads), --transport-font (Motif Transport), --code-font (Motif Code). Never a bare `monospace`, Chivo Mono or Roboto Mono."
+      "text": "Chrome is Open Sans through --ui-font (narrowed, tabular figures; --ui-small-font, --ui-full-font and --ui-condensed-font for the other widths — static families, never font-variation-settings); the wordmark alone is Geist. Every monospace is a Motif face through its token: --cv-font (Motif Grid: grids and notes as symbols), --mono-font (Motif Mono: values someone types or reads), --transport-font (Motif Transport), --code-font (Motif Code). Never a bare `monospace`, Chivo Mono or Roboto Mono."
     },
     {
       "id": "notes-as-text",

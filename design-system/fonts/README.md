@@ -159,6 +159,32 @@ the two-cell accidental slot. In Motif Grid, `·`, `-`, `−` and `+` are moved 
 the middle of the capitals (`[grid] centred`), level with the Kite marks and
 the digits, so empty cells, naturals and fine slides line up with the notes.
 
+## Open Sans, baked static
+
+The tracker's chrome is Open Sans (not Motif) at four widths. It is NOT
+built here into a face of our own: `opensans.py` only cuts the variable
+Open Sans into static instances — four families (`Open Sans W75`, `W87`
+(wdth 86.67), `W96`, `W100`) × weights 400–800 × upright and italic, each
+split into a Latin file (every Latin letter, IPA, the combining marks) and an
+"ext" file (Greek, Cyrillic, Hebrew, symbols) — and writes them with their
+`@font-face` rules to `microtone-worker/fonts/` (Microtone Touch has no Open
+Sans). The reason is the desktop app on Linux: Google Fonts sniffs the user
+agent, and WebKitGTK's reads as an old Safari, so it was sent static files at
+three named widths (75, 87.5, 100) with no axes — `font-variation-settings`
+had nothing to vary, and the chrome came out at full width. Self-hosted
+static families give every browser the same files. The stylesheet names a
+width by its token (`--ui-font`, `--ui-small-font`, `--ui-full-font`,
+`--ui-condensed-font`), never by `font-variation-settings`.
+
+```sh
+python3 opensans.py           # about 25 s; deterministic
+```
+
+A new width or weight is an entry in `WIDTHS`/`WEIGHTS` at the top of the
+script and a rebuild (a width also wants a token in `microtone.css`).
+`test/node/opensans-font.test.js` checks the generated stylesheet against the
+files and the table, and that no page reaches for a font variation.
+
 ## Licence
 
 The fonts are under the [SIL Open Font License 1.1](OFL.txt), as their sources
@@ -174,3 +200,9 @@ Sources, as copied in on 2026-10-20:
 | `sources/ChivoMono-VF.ttf` | `ChivoMono[wght].ttf`, Chivo Mono 1.008 | `725256f30b7b1b25dd001a96ff8d4a23773197bb886cd847a97ff8eabc9c1d9d` |
 | `sources/ChivoMono-Italic-VF.ttf` | `ChivoMono-Italic[wght].ttf`, 1.008 | `e6c3e5469d99fee864414845d95ef6aa2fb166121bddd7486d6958c4a54e3aea` |
 | `sources/ChironHeiHK-lu.otf` | cut from `ChironHeiHKVF.otf` 2.609 | (original: `6ae76cc51e033a8ba83d13b8261186706b6019a99ecdd8519500b5dda56ab53e`) |
+| `sources/OpenSans-VF.ttf` | `OpenSans[wdth,wght].ttf`, Open Sans 3.003 (google/fonts `ofl/opensans/` at `db398e70ce14`, copied 2026-11-05) | `36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878` |
+| `sources/OpenSans-Italic-VF.ttf` | `OpenSans-Italic[wdth,wght].ttf`, 3.003 | `fe269381e992f32e135801740998544d6235061e37c93ec067ad2be3edd5b17b` |
+
+Open Sans is © 2020 The Open Sans Project Authors under the OFL 1.1
+(`sources/OpenSans-OFL.txt`, shipped as `microtone-worker/fonts/open-sans/OFL.txt`),
+with no Reserved Font Name.

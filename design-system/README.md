@@ -106,7 +106,8 @@ Four themes, switched by `data-theme` on `<html>` and cycled by the theme button
 
 ### Type
 
-- **Open Sans** sets all chrome, narrowed (`"wdth" 86.67`) with tabular figures so numbers never jitter; compact strips (status bar, palette, hints) open it to `"wdth" 96`.
+- **Open Sans** sets all chrome, narrowed (`--ui-font`, wdth 86.67) with tabular figures so numbers never jitter; compact strips (status bar, palette, hints, uppercase heads) open it to `--ui-small-font` (wdth 96); tab labels, the project title and IPA take `--ui-full-font` (wdth 100); one twelve-digit picker takes `--ui-condensed-font` (wdth 75).
+  - **Never pick a width with `font-variation-settings`**: the faces are static, with no axes to vary. Each width is a family of its own (`Open Sans W87` …), served by the app because Google Fonts sent the Linux desktop app's webview static files at three named widths, without 86.67 or 96. They are baked by `fonts/opensans.py` into `microtone-worker/fonts/` at weights 400–800, upright and italic — a new width or weight is an entry there, a rebuild, and (for a width) a token.
 - **Geist** 900 oblique is for the wordmark only.
 - **Motif** (`fonts/`) is every monospace, always through its token, never by name:
   - `--cv-font` **Motif Grid** — the grids, the chord and notation makers, the keymap, and every note written as a symbol (`noteGlyph()`).

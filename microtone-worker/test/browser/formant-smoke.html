@@ -78,8 +78,8 @@
           ok(heads.join("|") === "Material|Vowel|Syllable|Pitch and timing"));
         const marks = iv.panel.querySelectorAll(".fmt-mark");
         log(`the chart carries ${marks.length} IPA marks: ${ok(marks.length >= 28)}`);
-        const ipaFont = win.getComputedStyle(iv.panel.querySelector(".fmt-mark-ipa")).fontVariationSettings;
-        log(`IPA is set at full width (${ipaFont}): ${ok(/"wdth" 100/.test(ipaFont))}`);
+        const ipaFont = win.getComputedStyle(iv.panel.querySelector(".fmt-mark-ipa")).fontFamily;
+        log(`IPA is set at full width (${ipaFont}): ${ok(/Open Sans W100/.test(ipaFont))}`);
 
         // ── clicking a mark takes that vowel, roundness included ──
         const markOf = (ipa) => [...iv.panel.querySelectorAll(".fmt-mark")]
@@ -207,7 +207,7 @@
           const btns = [...glide.querySelectorAll(".sl-buttons button")].map((b) => b.textContent);
           log(`the Glide row offers ${btns.join(" ")}: ${ok(btns.join(" ") === "— j ɥ ɰ w")}`);
           const ipaFont = win.getComputedStyle(glide.querySelector(".sl-buttons button")).fontFamily;
-          log(`…in the IPA face (${ipaFont}): ${ok(/Open Sans/.test(ipaFont))}`);
+          log(`…in the IPA face (${ipaFont}): ${ok(/Open Sans W100/.test(ipaFont))}`);
           [...glide.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === "w").click();
           await waitFor(() => inst().formant.semivowel === 4);
           const rh = await waitFor(() => rowOf("R-colouring"));
@@ -233,7 +233,7 @@
           const secBtns = [...sec.querySelectorAll(".sl-buttons button")].map((b) => b.textContent);
           log(`the Secondary articulation row offers ${secBtns.join(" ")}: ` +
             ok(secBtns.join(" ") === "— C\u02B2 C\u02E0/\u02E4 C\u02C0" &&
-               /Open Sans/.test(win.getComputedStyle(sec.querySelector(".sl-buttons button")).fontFamily)));
+               /Open Sans W100/.test(win.getComputedStyle(sec.querySelector(".sl-buttons button")).fontFamily)));
           press(sec, "C\u02B2");
           await waitFor(() => inst().formant.secondary === 1);
           press(await waitFor(() => rowOf("Coda release")), "C\u031A");

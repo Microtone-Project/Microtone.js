@@ -89,7 +89,7 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
   padding: 0.55rem 1.3rem;
   border: 2px solid transparent;
   border-radius: 999px;
-  font-family: "Open Sans", sans-serif;
+  font-family: var(--ui-font);
   font-weight: var(--weight-proceed);
   line-height: 1.2;
   text-decoration: none;
@@ -295,7 +295,7 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
 .ab-badge { font-family: var(--mono-font); font-size: var(--ab-small); text-transform: uppercase; letter-spacing: 0.04em; color: var(--brand); margin: 0 0 0.6rem; }
 .ab-price { font-family: "Geist", sans-serif; font-weight: 800; font-size: 2.8rem; line-height: 1; letter-spacing: -0.03em; margin-bottom: 1.4rem; }
 .ab-price span { font-size: 0.4em; vertical-align: 0.95em; margin-right: 0.15em; letter-spacing: 0; }
-.ab-price small { display: block; margin-top: 0.4rem; font-family: "Open Sans", sans-serif; font-weight: 400; font-size: 0.8rem; letter-spacing: 0; color: var(--dim); }
+.ab-price small { display: block; margin-top: 0.4rem; font-family: var(--ui-font); font-weight: 400; font-size: 0.8rem; letter-spacing: 0; color: var(--dim); }
 .ab-price-words { font-size: 2rem; }
 .ab-plan ul { list-style: none; margin: 0 0 1.6rem; padding: 0; flex: 1; }
 .ab-plan li { position: relative; padding: 0.3rem 0 0.3rem 1.6rem; }

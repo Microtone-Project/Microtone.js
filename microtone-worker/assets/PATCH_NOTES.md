@@ -4,6 +4,33 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.7.2 (2026-11-04)
+
+**Motif writes tunes and bass lines from chords**: give `chord_line` a chord progression and a range, and it makes a line over it — a melody, or a bass.
+
+- Each note is first drawn at random from what its chord allows, then the whole line is smoothed into the most singable one that keeps the most of that material: steps rather than leaps, a leap answered by a turn, notes outside the chord only as passing or neighbour notes, and the line kept in the middle of its range.
+- Say how many notes each chord gets (`per`), and whether it is a melody or a bass (`role: "bass"` takes the chords' roots and leaps more freely). `start` and `end` fix its first and last notes, and `scale` the notes it may pass through — otherwise the progression's own notes, so it works in any tuning.
+- Write the melody first and give it to the bass as `against`: the bass stays below it and avoids parallel octaves and fifths with it.
+- Like every random choice in Motif, the line is keyed to the song's seed and to a name you give it, so it comes out the same every build; `variety` makes it freer, or at 0 the smoothest line there is.
+
+**Motif songs can sing words**: give a formant instrument `lyrics` and it becomes a lyric instrument, singing them one syllable a note.
+
+- Write the lyrics in the IPA or X-SAMPA, as one string or a list of them; Motif reads each syllable as the Lyrics tab does, and the build stops at a syllable it cannot read and names it.
+- `towards_median`, `consonant_lengths` and `syllable_lengths` time the consonants the way the Lyrics tab's sliders do.
+- A lane sings the lyrics on from note to note. The build writes the instrument number only where the lane comes to the instrument, since a number there would start the lyrics over. Give a refrain its own lyric instrument, and it sings from its first syllable every time the lane turns to it.
+
+**The Motif Language reference covers every builtin argument by argument**: each builtin now has an entry of its own saying what it returns, and for each argument its type, its default (or that it is required), the values it accepts and what it does.
+
+- The kinds of value builtins take — rows, pitches, volumes, effects, music, chords, directions, random keys — are defined once at the start, with their ranges, and every entry names them.
+- Two builtins the reference left out are in: `bar_of` (the bar a row lies in) and `row_in_bar` (where in its bar). The cell record that `cells`, `cell` and `follow` give is spelt out field by field, and the TML 1 forms of the list builtins have their own table.
+- Each argument is listed under the name it really has, so naming one in a call (`slice(xs: …)`) works as written.
+- Fixed: a melody's `vib:` accepted a vibrato speed or depth above 255 (or below 0) and wrote a different vibrato from the one asked for; it is now an error, as it already was for `vibrato`.
+
+**The interface's typeface now comes with Microtone**: Open Sans is served by the app itself instead of fetched from Google Fonts, at exactly the widths the interface is designed in.
+
+- Fixed: in the desktop app on Linux, every label, button and tab was drawn in full-width Open Sans instead of the narrower cut the interface is laid out for, because Google Fonts sent that system's web view a different set of fonts than other browsers get.
+- The desktop app shows its interface typeface offline too.
+
 ## Version 4.7.1 (2026-11-04)
 
 **Solo and mute work on every lane of a 64-lane song.**

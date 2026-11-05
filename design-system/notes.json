@@ -108,6 +108,10 @@
     "radius-lg": "Modals, context menus, the meters canvas, drop zones.",
     "weight-button": "Every button label.",
     "weight-proceed": "The Proceed button's label. At least weight-button + 200: the rule is the difference, not the number.",
+    "ui-font": "Open Sans at wdth 86.67 (the static family Open Sans W87): all chrome, with tabular figures.",
+    "ui-small-font": "Open Sans at wdth 96 (Open Sans W96): small text and uppercase captions — the status bar, the command palette and its hints, panel and group heads, subtabs.",
+    "ui-full-font": "Open Sans at full width (Open Sans W100): tab labels, the project title, and IPA (the formant and lyric views, the character palette).",
+    "ui-condensed-font": "Open Sans at wdth 75 (Open Sans W75): the one picker that must fit twelve digits (the PSG oscillator's pattern).",
     "cv-font": "Motif Grid: the tracker grids, the chord and notation makers, the keymap, and every note written as a symbol (noteglyph.js).",
     "mono-font": "Motif Mono: what is typed or read as a value — hex and number fields, indexes, readouts, key names, canvas labels (fonts.js canvasMonoFont).",
     "transport-font": "Motif Transport: the transport readouts (Oct, Inst, Step, Cue, Row, BPM, Spd), 10% narrower.",
@@ -232,7 +236,7 @@
     },
     {
       "name": "Interface",
-      "family": "ui",
+      "family": "ui-font",
       "styles": [
         {
           "name": "heading",
@@ -246,7 +250,7 @@
           "fontSize": "0.95rem",
           "fontWeight": 400,
           "sample": "Import MIDI…",
-          "usage": "Default button label at weight-button; 1.1rem for button.big. Open Sans at wdth 86.67 with tabular figures, as everywhere in the chrome."
+          "usage": "Default button label at weight-button; 1.1rem for button.big. ui-font (Open Sans at wdth 86.67) with tabular figures, as everywhere in the chrome."
         },
         {
           "name": "proceed",
@@ -265,10 +269,11 @@
         },
         {
           "name": "compact",
+          "family": "ui-small-font",
           "fontSize": "0.85rem",
           "fontWeight": 400,
           "sample": "Oct 4 · Inst 01 · Step 1",
-          "usage": "Status bar, badges, toolbox and command-palette buttons, find bar fields; wdth 96."
+          "usage": "Status bar, badges, toolbox and command-palette buttons, find bar fields; ui-small-font (wdth 96)."
         },
         {
           "name": "hint",
@@ -279,11 +284,12 @@
         },
         {
           "name": "tab",
+          "family": "ui-full-font",
           "fontSize": "0.8rem",
           "fontWeight": 600,
           "letterSpacing": "0",
           "sample": "TIMELINE",
-          "usage": "Tab labels: uppercase, wdth 100, min-width 72pt."
+          "usage": "Tab labels: uppercase, ui-full-font (wdth 100), min-width 72pt."
         },
         {
           "name": "label",

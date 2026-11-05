@@ -7,7 +7,13 @@
  *  attribute on <html>.
  * ══════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wdth,wght@0,75..100,300..800;1,75..100,300..800&family=Geist:wght@400..900&display=swap');
+/* Open Sans, the chrome's face, is served from fonts/ as static families, one
+ * per width (the --ui-*font stacks below), not from Google Fonts: Google sends
+ * the Linux desktop webview (its user agent reads as an old Safari) static
+ * files at three named widths, so 86.67 and 96 never reached it. Geist (the
+ * wordmark) still comes from Google Fonts: weights it serves to every agent. */
+@import url("../fonts/open-sans.css");
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400..900&display=swap');
 
 /* ── MOTIF: Microtone's own faces (design-system/fonts, item 220) ────────
  * Chivo Mono rebuilt for four jobs, served from core/fonts/ (Microtone
@@ -496,6 +502,16 @@
 }
 
 /* ── FONT STACKS ───────────────────────────────────────────────────────
+ * The chrome is Open Sans, one family per width, each a stack of its own
+ * (fonts/open-sans.css, baked by design-system/fonts/opensans.py). They are
+ * static fonts with no axes, so a width is picked by its token, never by
+ * font-variation-settings (which would have nothing to vary):
+ *   --ui-font            wdth 86.67: all chrome, with tabular figures
+ *   --ui-small-font      wdth 96: small text and uppercase captions (the status
+ *                        bar, the palette, hints, panel and group heads)
+ *   --ui-full-font       wdth 100: tab labels, the project title, and IPA (the
+ *                        formant and lyric views, the character palette)
+ *   --ui-condensed-font  wdth 75: a picker that must fit twelve digits
  * Every monospace in the app is a Motif face, named here once:
  *   --cv-font         Motif Grid: the tracker grids (Timeline / Cues / Patterns
  *                     canvases, the chord and notation makers, the keymap) and
@@ -518,6 +534,10 @@
  * Grid and Transport for the odd one they leave out (ƒ, ‥, –); past it, the
  * platform's own monospace (Hangul, mostly). */
 :root {
+  --ui-font: "Open Sans W87", sans-serif;
+  --ui-small-font: "Open Sans W96", sans-serif;
+  --ui-full-font: "Open Sans W100", sans-serif;
+  --ui-condensed-font: "Open Sans W75", sans-serif;
   --cv-font: "Motif Grid", "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
   --mono-font: "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
   --transport-font: "Motif Transport", "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
@@ -607,11 +627,8 @@ a:visited { color: var(--cv-col-pan); }
 :root, body, button {
   /* The active language may override this via i18n.applyLangChrome (item 52),
      which injects the language's `css.font` snippet after this stylesheet. */
-  font-family: "Open Sans", sans-serif;
-  font-optical-sizing: auto;
+  font-family: var(--ui-font);
   font-style: normal;
-  font-variation-settings:
-    "wdth" 86.6667;
   font-variant-numeric: tabular-nums;
 }
 
@@ -631,10 +648,7 @@ body {
 }
 
 .pal-hint, .cmd-palette, .statusbar, .smol {
-  font-family: "Open Sans", sans-serif;
-  font-optical-sizing: auto;
-  font-variation-settings:
-    "wdth" 96 !important;
+  font-family: var(--ui-small-font) !important;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1030,8 +1044,7 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
   color: var(--dim);
   font-size: 0.80rem;
   font-weight: 600;
-  font-variation-settings:
-    "wdth" 100 !important;
+  font-family: var(--ui-full-font) !important;
   text-transform: uppercase;
   min-width: 72pt;
 }
@@ -1248,8 +1261,7 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  font-variation-settings:
-    "wdth" 96 !important;
+  font-family: var(--ui-small-font) !important;
   letter-spacing: 0.06em;
   color: var(--dim);
 }
@@ -1548,8 +1560,7 @@ a.wc-more:hover, button.wc-more:hover { color: var(--accent); }
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  font-variation-settings:
-    "wdth" 96 !important;
+  font-family: var(--ui-small-font) !important;
   letter-spacing: 0.06em;
 }
 .inst-lookup .il-list { overflow-y: auto; }
@@ -2072,7 +2083,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .np-col-right { flex: 0 0 236px; }
 .np-sec { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.3rem 0.7rem 0.55rem; margin: 0; }
 .np-sec-grow { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.np-sec legend { color: var(--accent); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; font-variation-settings: "wdth" 96 !important; padding: 0 0.35rem; }
+.np-sec legend { color: var(--accent); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; font-family: var(--ui-small-font) !important; padding: 0 0.35rem; }
 .np-field { display: flex; align-items: center; gap: 0.5rem; margin: 0.28rem 0; color: var(--dim); font-size: 0.88rem; }
 .np-field > span:first-child { flex: 0 0 5.5rem; }
 .np-field input[type="number"], .np-field input[type="text"], .np-field select {
@@ -2437,7 +2448,7 @@ button.nota-assign { font-size: 0.85rem; }
 .wave-hint { color: var(--dim); font-size: 0.82rem; margin: 0.4rem 0 0; }
 
 .subtabs { display: flex; gap: 2px; margin-bottom: 0.7rem; }
-.subtabs button { padding: 0.2rem 0.7rem; font-size: 0.85rem; color: var(--dim); font-variation-settings: "wdth" 96 !important; }
+.subtabs button { padding: 0.2rem 0.7rem; font-size: 0.85rem; color: var(--dim); font-family: var(--ui-small-font) !important; }
 .subtabs button.active { color: var(--accent); border-color: var(--accent); }
 
 .inst-grid {
@@ -2451,8 +2462,7 @@ button.nota-assign { font-size: 0.85rem; }
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  font-variation-settings:
-    "wdth" 96 !important;
+  font-family: var(--ui-small-font) !important;
   letter-spacing: 0.06em;
   margin: 0.2rem 0 0.4rem;
   padding-bottom: 0.15rem;
@@ -2552,14 +2562,14 @@ button.nota-assign { font-size: 0.85rem; }
 .psg-wave-label { fill: var(--accent); font-size: 9px; font-family: var(--mono-font); }
 /* Twelve digits of the longest auto-advance pattern, in the picker's width. */
 .psg-edit .psg-pattern .mt-pick, .psg-edit .psg-pattern select {
-  font-variation-settings: "wdth" 75; letter-spacing: -0.01em;
+  font-family: var(--ui-condensed-font); letter-spacing: -0.01em;
 }
 .psg-edit .inst-field input.psg-live { color: var(--accent); border-color: var(--accent); }
 .psg-edit .inst-field button.lamp-btn.psg-live { color: var(--accent); border-color: var(--accent); }
 
 /* ── Formant tab (item 212, views/instformant.js) ──
    The vowel chart is an SVG drawn in theme tokens; every IPA symbol, there and
-   in the consonant picker, is Open Sans at its full width ("wdth" 100), the
+   in the consonant picker, is Open Sans at its full width (--ui-full-font), the
    face's IPA coverage being the reason it is the app's face at all. */
 .fmt-chart { max-width: 560px; margin-bottom: 0.3rem; }
 .fmt-chart-svg {
@@ -2573,8 +2583,7 @@ button.nota-assign { font-size: 0.85rem; }
 .fmt-mark { cursor: pointer; outline: none; }
 .fmt-mark-dot { fill: var(--dim); }
 .fmt-mark-ipa, .fmt-slot-cons, .fmt-cons, .fmt-sv .sl-buttons button {
-  font-family: "Open Sans", sans-serif;
-  font-variation-settings: "wdth" 100;
+  font-family: var(--ui-full-font);
 }
 .fmt-mark-ipa { fill: var(--fg2); font-size: 15px; }
 .fmt-mark:hover .fmt-mark-ipa, .fmt-mark:focus-visible .fmt-mark-ipa { fill: var(--fg); }
@@ -2657,8 +2666,7 @@ button.nota-assign { font-size: 0.85rem; }
 }
 .lyr-syl.now { background: var(--cv-playhead); box-shadow: inset 0 -2px 0 var(--cv-play-cursor); }
 .lyr-text.ipa, .lyr-text-back.ipa, .lyr-syl-ipa, .lyr-cons-row .sl-label {
-  font-family: "Open Sans", sans-serif;
-  font-variation-settings: "wdth" 100;
+  font-family: var(--ui-full-font);
 }
 .lyr-status { font-size: 0.85rem; color: var(--dim); }
 .lyr-pal-head { display: flex; align-items: center; gap: 0.2rem; font-size: 0.85rem; color: var(--fg2); }
@@ -2692,7 +2700,7 @@ button.nota-assign { font-size: 0.85rem; }
 .char-pal-group { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .char-pal-label { font-size: 0.75rem; color: var(--dim); min-width: 5.5rem; }
 .char-pal-key {
-  font-family: "Open Sans", sans-serif; font-variation-settings: "wdth" 100;
+  font-family: var(--ui-full-font);
   font-size: 0.95rem; min-width: 1.8rem; padding: 0.05rem 0.2rem;
   background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
@@ -3308,8 +3316,7 @@ button.nota-assign { font-size: 0.85rem; }
   margin: 0.9rem 0 0.3rem;
   color: var(--accent);
   font-size: 0.8rem;
-  text-transform: uppercase; font-variation-settings:
-"wdth" 96 !important;
+  text-transform: uppercase; font-family: var(--ui-small-font) !important;
   letter-spacing: 0.06em;
 }
 .about-modal a { color: var(--accent); }
@@ -3432,8 +3439,7 @@ button.nota-assign { font-size: 0.85rem; }
 .help-cols dd { margin: 0 0 0 0.2rem; color: var(--dim); font-size: 0.9rem; }
 
 .proj-title {
-  font-variation-settings:
-    "wdth" 100.0;
+  font-family: var(--ui-full-font);
 }
 
 /* The project strings are prose, not spinner values: give the three line-edits
@@ -4304,8 +4310,7 @@ button.nota-assign { font-size: 0.85rem; }
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  font-variation-settings:
-    "wdth" 96 !important;
+  font-family: var(--ui-small-font) !important;
   letter-spacing: 0.06em;
 }
 .mst-eq-curve { width: 100%; display: block; margin-bottom: 0.3rem; }
