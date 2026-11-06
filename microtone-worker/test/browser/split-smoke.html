@@ -166,6 +166,33 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
       "…and the views catch up once the press is over", store.views.join());
   }
 
+  // ── 5c. …and a press into a text box there keeps the box focused ─────────
+  // Only the keyboard moved, so no view is shown again: the Project and
+  // Instruments views rebuild their DOM on show, which used to replace the
+  // box the press had just focused — the first click into it was lost.
+  for (const name of ["project", "instruments"]) {
+    tab(0, name).click();
+    await sleep(200);
+    tab(1, "samples").click(); // pane 1 has the keyboard again
+    await sleep(200);
+    const box = [...hostOf(0, name).querySelectorAll('input[type="text"], input:not([type]), textarea')]
+      .find((b) => !b.disabled && rect(b).width > 0);
+    if (!box) { check(false, `${name}: a text box to press`); continue; }
+    const r = rect(box);
+    const at = { clientX: r.left + 4, clientY: r.top + r.height / 2, bubbles: true, pointerId: 4 };
+    box.dispatchEvent(new win.PointerEvent("pointerdown", at));
+    box.focus(); // what the browser's own mousedown does
+    box.dispatchEvent(new win.PointerEvent("pointerup", at));
+    await sleep(200);
+    check(split.focus === 0 && store.view === name, `${name}: the press hands pane 0 the keyboard`, store.view);
+    check(box.isConnected && doc.activeElement === box,
+      `${name}: …and the box it pressed is still there and still focused`,
+      `${box.isConnected} ${doc.activeElement?.tagName}`);
+  }
+  tab(0, "pattern").click();
+  tab(1, "samples").click();
+  await sleep(200);
+
   // ── 6. the direction follows the shape of the canvas ─────────────────────
   tab(0, "timeline").click(); // Timeline | Samples — the strip is out again
   await sleep(200);

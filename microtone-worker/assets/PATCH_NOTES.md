@@ -4,6 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.7.4 (2026-11-06)
+
+**With the view area split, a first click into the other pane's text boxes types there**: the box you click keeps the keyboard.
+
+- Fixed: with two panes open, the first click into the Lyrics tab's lyrics, in the pane that did not have the keyboard, let go of the box again at once, so it took a second click to type; handing that pane the keyboard drew its view again, replacing the box under the click.
+- Fixed: the same with an instrument's name and the Instruments view's other boxes, and with the Project and Samples views' fields.
+- Handing the other pane the keyboard — a click in it, or Shift+F8 — now leaves what it shows as it was, instead of drawing it again.
+
 ## Version 4.7.3 (2026-11-06)
 
 **A pattern can nasalise a formant instrument's vowel, r-colour it and end the word on cue**: the new `S $9xxx` command says what `S $Afgr` cannot.

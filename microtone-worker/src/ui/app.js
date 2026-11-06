@@ -1018,7 +1018,7 @@ const viewCopies = new Map();
 
 // The view area: one pane or two, each with its own tabs (item 148).
 const split = new SplitView($("splitHost"), {
-  onChange: () => applyViews(),
+  onChange: (how) => applyViews(how),
   // The rest of applyViews waits for the press to end (see _pressFocus).
   onFocus: () => { store.view = split.view; },
   enabled: viewEnabled,
@@ -1145,15 +1145,21 @@ function applyEntry(name, entry, on) {
  * show/hide every copy that exists. Driven by "is THIS pane showing it", so
  * the same view being open in both panes is just two copies both on. Runs
  * after every split change; everything in it is idempotent.
+ *
+ * `focusOnly`: only the keyboard moved between panes, so no pane shows
+ * anything new and the views are left alone — several rebuild their DOM on
+ * show (the Instruments, Project and Samples views), which would replace the
+ * text box the press into that pane had just focused, and the first click
+ * into it would be lost. The docking below still follows the focus.
  */
-function applyViews() {
+function applyViews({ focusOnly = false } = {}) {
   const noDoc = !store.doc;
   const open = split.views; // one or two view names, in pane order
   store.views = open;
   store.view = split.view;
   const has = (v) => open.includes(v);
 
-  for (let i = 0; i < paneViews.length; i++) {
+  for (let i = 0; i < paneViews.length && !focusOnly; i++) {
     const shown = split.paneView(i);
     if (shown) ensureView(i, shown);
     for (const [name, entry] of paneViews[i]) applyEntry(name, entry, name === shown);

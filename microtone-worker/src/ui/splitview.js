@@ -35,7 +35,10 @@ export class SplitView {
   /**
    * @param host  #splitHost, already holding pane 0 (index.html)
    * @param onChange  fired after any change to which pane shows what, or to
-   *                  which pane has the keyboard
+   *                  which pane has the keyboard — with `{ focusOnly: true }`
+   *                  when only the keyboard moved, so the shell can leave the
+   *                  views as they are (re-showing one that rebuilds its DOM
+   *                  on show would take away the field the press focused)
    * @param enabled  (view) => is this view reachable at all right now (no
    *                 document ⇒ everything but the Timeline and the File tab is
    *                 a dead end, item 104.1)
@@ -144,7 +147,7 @@ export class SplitView {
     if (this.focus === i || this.panes[i].view === null) return;
     this.focus = i;
     this.refresh();
-    this.onChange();
+    this.onChange({ focusOnly: true });
   }
 
   /** A press in pane `i` hands it the keyboard — but the press is usually
@@ -163,7 +166,7 @@ export class SplitView {
     const done = () => {
       removeEventListener("pointerup", done, true);
       removeEventListener("pointercancel", done, true);
-      setTimeout(() => this.onChange(), 0); // the click comes right after the pointerup
+      setTimeout(() => this.onChange({ focusOnly: true }), 0); // the click comes right after the pointerup
     };
     addEventListener("pointerup", done, true);
     addEventListener("pointercancel", done, true);
