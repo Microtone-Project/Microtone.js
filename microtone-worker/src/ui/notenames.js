@@ -128,6 +128,7 @@ const S_LAYOUT = {
   0x6: "o1..", // S $6x00  fine pattern delay
   0x7: "o1..", // S $7x00  note/instrument action
   0x8: "o111", // S $80xx  set lane pan (9-bit angle in surround)
+  // 0x9: S $9xxx  formant control — contextual, see fxArgFields
   0xa: "o123", // S $Axxx  instrument sound control: formant $Afgr, FM rack $Apsd
   0xb: "o1..", // S $Bx00  pattern loop
   0xc: "o1..", // S $Cx00  note cut
@@ -249,8 +250,17 @@ function fxLayout(effect, arg, pairedOp = 0) {
       // E / F: $F000..$FFFF is the FINE form — the marker nibble is a field of
       // its own and the magnitude is the low 12 bits.
       return (arg & 0xf000) === 0xf000 ? "1222" : "1111";
-    case 28: // S: high nibble multiplexes; unknown sub-commands stay one field
-      return S_LAYOUT[(arg >> 12) & 0xf] ?? "o111";
+    case 28: { // S: high nibble multiplexes; unknown sub-commands stay one field
+      const sub = (arg >> 12) & 0xf;
+      if (sub === 0x9) {
+        // S $9xxx formant control: the next nibble picks the command too —
+        // $90kx the coda bit k and the nasal/r bits x, $91xx the glide time;
+        // any other is RESERVED and does nothing.
+        const sel = (arg >> 8) & 0xf;
+        return sel === 0 ? "oo12" : sel === 1 ? "oo11" : "o...";
+      }
+      return S_LAYOUT[sub] ?? "o111";
+    }
     case 35:
       // Z: $F multiplexes to funk repeat, whose argument is TWO fields — item
       // 163's walk selector and the ladder speed it drives. Every other

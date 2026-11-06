@@ -1445,3 +1445,160 @@ test("a periodic sample that does not loop is given a loop as a source; noise is
   const n = new FormantMachine(pool(), [{ ...NOISE, index: 1, name: "noise" }]).bestSource();
   assert.equal(n.cand.loopMode & 3, 0, "a noise is not looped into a fake tone");
 });
+
+// ── item 292: S $9xxx, formant control ──────────────────────────────────
+
+test("S $90kx on the trigger row sets the nasalisation and the r-colouring outright: the record with those bits, to the sample", () => {
+  const slots = [id("s"), 0, id("n")];
+  const cells = (arg) => [{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg }, { row: 4, note: 0x0001 }];
+  const same = (a, b, what) => {
+    assert.equal(a.length, b.length);
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) assert.fail(`${what}: differs at sample ${i}`);
+  };
+  const plain = formantRecord({ slots });
+  const both = formantRecord({ slots, nasal: true, rhotic: true });
+  for (const [arg, opts] of [[0x9002, { nasal: true }], [0x9001, { rhotic: true }], [0x9003, { nasal: true, rhotic: true }]]) {
+    same(render(plain, cells(arg), ms(900)).res, render(formantRecord({ slots, ...opts }), cells(0x0000), ms(900)).res,
+      `S $${arg.toString(16).toUpperCase()}`);
+  }
+  same(render(both, cells(0x9000), ms(900)).res, render(plain, cells(0x0000), ms(900)).res, "S $9000 on a nasal, r-coloured record");
+});
+
+test("S $90kx later glides the nasalisation and the r-colouring over the note's glide time, and keeps them through an edit", () => {
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0x9003 }];
+  const seen = {};
+  const look = (k) => (eng) => {
+    const st = eng.playheads[0].trackerState.voices[0].formant;
+    seen[k] = { n: st.nasAmt.v, r: st.rhoAmt.v, F: [...st.F] };
+  };
+  // Rows are 120 ms: the command lands at 240 ms and glides for 100.
+  render(formantRecord({ glide: 50 }), cells, ms(700), {
+    at: [[200, look("before")], [290, look("mid")], [450, look("there")],
+         [500, (eng) => eng.instruments[1].setByte(F.FORMANT_BLOCK_START + F.FB_GR, 0)], [650, look("edited")]],
+  });
+  assert.deepEqual([seen.before.n, seen.before.r], [0, 0]);
+  assert.ok(seen.mid.n > 0.2 && seen.mid.n < 0.8 && seen.mid.r > 0.2 && seen.mid.r < 0.8, `mid-glide ${seen.mid.n}, ${seen.mid.r}`);
+  assert.deepEqual([seen.there.n, seen.there.r], [1, 1]);
+  assert.ok(seen.mid.F[2] < seen.before.F[2] && seen.there.F[2] < seen.mid.F[2], "F3 falls as the r-colouring comes in");
+  assert.deepEqual(seen.edited.F, seen.there.F, "the note's own, an edit to the record notwithstanding");
+  // There, the tract is the nasal, r-coloured record's.
+  const want = tractAt(formantRecord({ nasal: true, rhotic: true }), 450);
+  assert.deepEqual(seen.there.F, want);
+  // A glide of 0 is a jump.
+  const jump = {};
+  render(formantRecord({ glide: 0 }), cells, ms(300), {
+    at: [[250, (eng) => { jump.n = eng.playheads[0].trackerState.voices[0].formant.nasAmt.v; }]],
+  });
+  assert.equal(jump.n, 1);
+});
+
+test("S $9010 moves into the coda and HOLDS its consonant while the key is held; the key-off lets it go", () => {
+  // "nal": rows are 120 ms — S $9010 at 240 ms, the key let go at 960.
+  const rec = formantRecord({ slots: [id("n"), 0, id("l")] });
+  const cells = [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0x9010 }, { row: 8, note: 0x0001 }];
+  const seen = {};
+  const at = (k) => (eng) => {
+    const v = eng.playheads[0].trackerState.voices[0];
+    seen[k] = { phase: v.formant.phase, t: v.formant.t, keyOff: v.keyOff, active: v.active };
+  };
+  const { res, ts } = render(rec, cells, ms(1300), {
+    at: [[200, at("before")], [260, at("moving")], [600, at("held")], [900, at("still")]],
+  });
+  assert.equal(seen.before.phase, F.PHASE_VOWEL);
+  assert.equal(seen.moving.phase, F.PHASE_CODA, "into the coda at once…");
+  assert.equal(seen.moving.keyOff, false, "…with the voice not keyed off");
+  const coda = ts.voices[0].formant.coda;
+  assert.ok(seen.held.active && seen.still.active, "the [l] goes on while the key is held");
+  assert.equal(seen.held.t, coda.hold, "…held at the end of its steady part");
+  assert.equal(seen.still.t, coda.hold);
+  const vowel = rms(res, 120, 220), l = rms(res, 500, 900);
+  assert.ok(l > vowel * 0.1, `…and heard: ${db(l / vowel).toFixed(1)} dB under the vowel`);
+  assert.ok(Math.abs(db(rms(res, 500, 700) / rms(res, 700, 900))) < 0.5, "…steadily");
+  assert.equal(ts.voices[0].active, false, "the key-off: the [l] lets go and the note ends");
+  assert.ok(rms(res, 1100, 1300) === 0, "…within its release");
+  // A trill held goes on trilling; a stop holds its closure, its burst on the key-off.
+  const trill = render(formantRecord({ slots: [0, 0, id("r")] }), cells, ms(900)).res;
+  const env = (a, t0) => { const o = []; for (let t = t0; t < t0 + 120; t += 2) o.push(rms(a, t, t + 2)); return o; };
+  const swing = (e) => Math.max(...e) / Math.max(1e-9, Math.min(...e));
+  assert.ok(swing(env(trill, 700)) > 3, "[r]: still trilling at 700 ms");
+  const stop = render(formantRecord({ slots: [0, 0, id("t")], generator: true }), cells, ms(1200)).res;
+  assert.ok(rms(stop, 500, 900) < rms(stop, 960, 1100) * 0.2, "[t]: the closure held, the burst after the key-off");
+  // Without the coda bit the vowel sings on.
+  const plain = render(rec, [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0x9000 }], ms(900)).ts;
+  assert.ok(plain.voices[0].active && plain.voices[0].formant.phase === F.PHASE_VOWEL, "no coda bit: the vowel sings on");
+  // Called during the onset, the coda waits for the vowel, as a key-off does.
+  const early = render(formantRecord({ slots: [id("s"), 0, id("n")], timing: 255 }),
+    [{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg: 0x9010 }], ms(60));
+  assert.equal(early.ts.voices[0].formant.phase, F.PHASE_ONSET);
+  assert.equal(early.ts.voices[0].formant.codaCall, true);
+  // A key-off with no S $9010 is unchanged: the coda speaks through and ends the note.
+  const off = render(rec, [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, note: 0x0001 }], ms(800)).ts;
+  assert.equal(off.voices[0].active, false);
+});
+
+test("S $9010 from a nasalised vowel leaves it oral: the coda is built from where the vowel is", () => {
+  const rec = formantRecord({ slots: [0, 0, id("t")], nasal: true, glide: 0 });
+  const oral = render(rec, [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0x9010 }], ms(300)).ts;
+  const nasal = render(rec, [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0x9012 }], ms(300)).ts;
+  assert.equal(oral.voices[0].formant.codaZ0, 0);
+  assert.equal(nasal.voices[0].formant.codaZ0, 1);
+});
+
+test("S $91xx is the note's glide time: a glide under way covers the rest in it, and the next trigger has the record's again", () => {
+  const vowelAt = (cells, t, rec = formantRecord({ glide: 255 })) => {
+    let v = null;
+    render(rec, cells, ms(t + 20), { at: [[t, (eng) => {
+      const st = eng.playheads[0].trackerState.voices[0].formant;
+      v = { open: st.vOpen, front: st.vFront, ov: st.glideOv };
+    }]] });
+    return v;
+  };
+  // The record's glide is 510 ms: S $Afgr at 240 ms is far from [i] at 400.
+  const slow = vowelAt([{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0xa0f0 }], 400);
+  assert.ok(slow.open > 100, `still on its way: open ${slow.open}`);
+  // S $9100 at 360 ms: the rest of the way at once.
+  const jumped = vowelAt([{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0xa0f0 },
+    { row: 3, fx: S_FX, arg: 0x9100 }], 400);
+  assert.deepEqual([jumped.open, jumped.front], [0, 255]);
+  // S $9105 first: the next S $Afgr takes 10 ms.
+  const quick = vowelAt([{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg: 0x9105 }, { row: 2, fx: S_FX, arg: 0xa0f0 }], 300);
+  assert.deepEqual([quick.open, quick.front, quick.ov], [0, 255, 5]);
+  // The next note starts from the record again.
+  const next = vowelAt([{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg: 0x9105 }, { row: 2, note: 0x4400, inst: 1 }], 300);
+  assert.equal(next.ov, -1);
+});
+
+test("S $9xxx: Q's retrigger keeps what it gave the note, the next trigger forgets it, reserved arguments and other instruments take nothing", () => {
+  const st = (rec, cells, t = 600) => render(rec, cells, ms(t)).ts.voices[0].formant;
+  const q = st(formantRecord({ glide: 0 }), [{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg: 0x9002 },
+    { row: 2, fx: 0x1a, arg: 0x0200 }]);
+  assert.ok(q.nasAmt.own && q.nasAmt.v === 1, "Q: still the note's own nasality");
+  const next = st(formantRecord({ glide: 0 }), [{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg: 0x9002 },
+    { row: 2, note: 0x4400, inst: 1 }]);
+  assert.ok(!next.nasAmt.own && next.nasAmt.v === 0, "the next note: the record's");
+  for (const arg of [0x9004, 0x9008, 0x9020, 0x9080, 0x9200, 0x9f00]) {
+    const r = st(formantRecord(), [{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg }], 100);
+    assert.ok(!r.nasAmt.own && !r.rhoAmt.own && r.glideOv === -1 && !r.codaCall, `S $${arg.toString(16)} is reserved`);
+  }
+  const a = render(plainRecord(SAW), [{ row: 0, note: 0x4000, inst: 1 }], ms(300)).res;
+  const b = render(plainRecord(SAW), [{ row: 0, note: 0x4000, inst: 1, fx: S_FX, arg: 0x9013 }], ms(300)).res;
+  assert.deepEqual(b, a, "an ordinary instrument hears nothing");
+});
+
+test("the engine reports what S $9xxx gave a sounding note", () => {
+  const seen = {};
+  const look = (k) => (eng) => { seen[k] = eng.getInstrumentFormantState(1).voices; };
+  render(formantRecord({ glide: 50, slots: [0, 0, id("n")], timing: 255 }),
+    [{ row: 0, note: 0x4000, inst: 1 }, { row: 2, fx: S_FX, arg: 0x9132 }, { row: 3, fx: S_FX, arg: 0x9012 }], ms(600),
+    { at: [[150, look("before")], [300, look("glide")], [390, look("set")]] });
+  assert.deepEqual(seen.before, []);
+  assert.equal(seen.glide.length, 1);
+  assert.equal(seen.glide[0].glide, 0x32);
+  assert.equal(seen.glide[0].own, false, "its vowel is still the record's");
+  assert.equal(seen.glide[0].nasal, null);
+  const s = seen.set[0];
+  assert.equal(s.nasal.to, 1);
+  assert.ok(s.nasal.v > 0 && s.nasal.v < 1, "gliding");
+  assert.deepEqual(s.rhotic, { v: 0, to: 0 });
+  assert.equal(s.coda, true);
+});

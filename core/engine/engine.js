@@ -939,10 +939,15 @@ export class TaudEngine {
   /**
    * A formant instrument's live state, for the Formant tab's playback display
    * (item 240), or null for any other instrument: every sounding voice of it
-   * — lanes before ghosts, at most FORMANT_LIVE_MAX — whose vowel is its OWN
-   * (an `S $Afgr`, or an instrument change still gliding), as the chart bytes
-   * it stands at now, fractional mid-glide, and where a glide is heading. A
-   * voice singing the record's vowel is not listed: the record shows it.
+   * — lanes before ghosts, at most FORMANT_LIVE_MAX — that the pattern has
+   * changed: a vowel of its OWN (`own`: an `S $Afgr`, or an instrument change
+   * still gliding), as the chart bytes it stands at now, fractional
+   * mid-glide, and where a glide is heading; and what `S $9xxx` gave it
+   * (item 292) — its nasalisation and r-colouring (`nasal`, `rhotic`: null,
+   * or where each stands, 0…1, and where it is heading), its glide time in
+   * 2 ms units (`glide`, −1 for the record's) and a coda called for while
+   * the key is held (`coda`). A voice singing the record as it is is not
+   * listed: the record shows it.
    *
    * A lyric instrument's (item 280) also lists `lyric`: the syllables its
    * notes are singing now, as indices into its lyrics, ascending, each once —
@@ -975,14 +980,22 @@ export class TaudEngine {
         for (const v of list) {
           if (voices.length >= FORMANT_LIVE_MAX) break;
           const st = v.formant;
-          if (!v.active || st === null || !st.ownVowel) continue;
+          if (!v.active || st === null) continue;
+          const nas = st.nasAmt, rho = st.rhoAmt;
+          if (!st.ownVowel && !nas.own && !rho.own && st.glideOv < 0 && !st.codaCall) continue;
           // A lyric instrument's note sings one of its syllables (item 280).
           if (st.patch !== patch && (st.patch === null || st.patch.lyricOf !== patch)) continue;
           const gliding = st.glideLeft > 0;
           voices.push({
+            own: st.ownVowel,
             front: st.vFront, open: st.vOpen, round: st.vRound,
             toFront: gliding ? st.tFront : st.vFront, toOpen: gliding ? st.tOpen : st.vOpen,
             toRound: gliding ? st.tRound : st.vRound,
+            // What S $9xxx gave it (item 292): null where it has not.
+            nasal: nas.own ? { v: nas.v, to: nas.left > 0 ? nas.to : nas.v } : null,
+            rhotic: rho.own ? { v: rho.v, to: rho.left > 0 ? rho.to : rho.v } : null,
+            glide: st.glideOv,
+            coda: st.codaCall,
           });
         }
       }

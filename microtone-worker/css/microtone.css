@@ -2601,6 +2601,10 @@ button.nota-assign { font-size: 0.85rem; }
 .fmt-live-target { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .fmt-live-path { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
 .fmt-live-readout { color: var(--accent); }
+/* What S $9xxx gave a sounding note: its nasalisation, r-colouring and glide
+   time, shown in their rows as the PSG tab shows its overlay. */
+.slider-row .sl-buttons button.fmt-live-on { color: var(--accent); border-color: var(--accent); }
+.slider-row input.sl-num.fmt-live-on { color: var(--accent); border-color: var(--accent); }
 .fmt-readout { font-size: 0.85rem; color: var(--dim); font-variant-numeric: tabular-nums; }
 .fmt-note { margin: 0.2rem 0; font-size: 0.85rem; line-height: 1.4; max-width: 560px; }
 .slider-row.fmt-range { grid-template-columns: 10rem 6.2rem auto 6.2rem auto auto; }

@@ -13898,12 +13898,18 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
   const tr = r.trans * k, dur = r.dur * k;
   const glot = art === CODA_GLOTTAL;
   const gs = GLOT_STOP * k;
-  let end;
+  // Where the coda HOLDS while the key does, after S $9010 (item 292): the end
+  // of the consonant's steady part — a stop in its closure, before the burst —
+  // and, for a trill, the cycle it repeats there (`loop`).
+  let end, hold, loop = 0;
   switch (r.manner) {
     case MANNER_STOP:
     case MANNER_AFFRICATE: {
       const tc = tr + CLOSURE_MS * k;        // the release
       const tb = tc + r.burst * k;
+      // A ms before the release: AT tc the burst's frication has already
+      // stepped on (the later of two points at one time holds).
+      hold = tc - k;
       w.at(0, 0).at(tr, 0.5).at(tr + 5 * k, 1);
       if (glot) av.at(0, v0).at(tr, v0).at(tr + gs, 0);
       else if (r.voiced) av.at(0, v0).at(tr, v0).at(tr + 8 * k, 0.25).at(tc, 0.2).at(tc + 5 * k, 0);
@@ -13932,6 +13938,7 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
     }
     case MANNER_FRICATIVE: {
       const a = Math.max(tr - 15 * k, 0);
+      hold = tr + dur;
       w.at(0, 0).at(tr, 1);
       if (glot) av.at(0, v0).at(a, v0).at(a + gs, 0);
       else if (r.voiced) av.at(0, v0).at(tr, r.av).at(tr + dur, 0.7 * r.av).at(tr + dur + 30 * k, 0);
@@ -13947,6 +13954,7 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       break;
     }
     case MANNER_ASPIRATE: {
+      hold = dur;
       w.at(0, 0).at(15 * k, 1);
       if (glot) av.at(0, v0).at(gs, 0);
       else if (r.voiced) av.at(0, v0).at(20 * k, r.av).at(dur, 0.5 * r.av).at(dur + 20 * k, 0);
@@ -13957,6 +13965,7 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       break;
     }
     case MANNER_NASAL: {
+      hold = tr + dur;
       w.at(0, 0).at(tr, 1);
       nz.at(0, z0).at(Math.max(tr - 5 * k, 0), z0).at(tr, 1);
       av.at(0, v0).at(tr, r.av).at(tr + dur, 0.8 * r.av);
@@ -13966,6 +13975,7 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       break;
     }
     case MANNER_APPROX: {
+      hold = tr + dur;
       w.at(0, 0).at(tr, 1);
       av.at(0, v0).at(tr, r.av).at(tr + dur, 0.8 * r.av);
       end = tr + dur + (glot ? gs : 40 * k);
@@ -13978,9 +13988,11 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       av.at(0, v0).at(tr, v0).at(tr + 3 * k, 0.2).at(tr + dur, 0.2);
       if (glot) {
         end = tr + dur + gs;
+        hold = tr + dur;
       } else {
         av.at(tr + dur + 3 * k, 0.6);
         end = tr + dur + 40 * k;
+        hold = tr + dur + 3 * k;
       }
       av.at(end, 0);
       ah.at(0, 0); af.at(0, 0); nz.at(0, z0).at(tr, 0);
@@ -13988,6 +14000,9 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
     }
     case MANNER_TRILL: {
       const c = dur, shut = c * 0.375;
+      // [tr + shut, tr + c + shut) is one whole cycle, closure to closure.
+      hold = tr + c + shut;
+      loop = c;
       w.at(0, 0).at(tr, 1);
       av.at(0, v0).at(tr, 0.7).at(tr + 3 * k, 0.12).at(tr + shut, 0.12).at(tr + shut + 3 * k, 0.7)
         .at(tr + c - 3 * k, 0.7).at(tr + c, 0.12).at(tr + c + shut, 0.12);
@@ -14006,10 +14021,14 @@ function codaTracksOf(r, k, v0 = 1, z0 = 0, art = CODA_RELEASED) {
       av.at(0, v0).at(6 * k, 0);
       ah.at(0, 0); af.at(0, 0); nz.at(0, z0).at(6 * k, 0);
       end = 6 * k;
+      hold = end;
       break;
     }
   }
-  return { end, w: w.close(end, 1), av: av.close(end, 0), ah: ah.close(end, 0), af: af.close(end, 0), nz: nz.close(end, 0) };
+  return {
+    end, hold: Math.min(hold, end), loop: hold < end ? loop : 0,
+    w: w.close(end, 1), av: av.close(end, 0), ah: ah.close(end, 0), af: af.close(end, 0), nz: nz.close(end, 0),
+  };
 }
 
 /** The coda tracks — a BREATH row's ([ʔ͡h]) frication is its aspiration. */
@@ -14028,7 +14047,7 @@ function afterRelease(t, rel, v0, a0, h0, z0) {
     return Float64Array.from(o);
   };
   return {
-    end: t.end + rel,
+    end: t.end + rel, hold: t.hold + rel, loop: t.loop,
     w: sh(t.w, [0, 0]), av: sh(t.av, [0, v0]), ah: sh(t.ah, [0, h0]), af: sh(t.af, [0, a0]), nz: sh(t.nz, [0, z0]),
   };
 }
@@ -14151,7 +14170,8 @@ class FormantSegment {
     this.w = tr.w; this.av = tr.av; this.ah = tr.ah; this.af = tr.af; this.nz = tr.nz;
     this.next = null; // the onset consonant that follows, or null for the vowel
     this.art = art;   // its articulation as blendInto reads it: ART_NONE, _PALATAL or _DARK
-    this.loop = tr.loop ?? 0;  // a held nucleus's repeat, ms (a trill's cycle)
+    this.loop = tr.loop ?? 0;  // a held nucleus's repeat, ms (a trill's cycle); a coda's, while held
+    this.hold = tr.hold ?? tr.end;  // a coda: where S $9010 holds it while the key is held
     // A coda after a hissing nucleus: its own noise starts this far in, the
     // nucleus's going on until then through the nucleus's bank (`prevRow`).
     this.noiseAt = 0;
@@ -14164,6 +14184,29 @@ class FormantSegment {
  *  tongue (palatal or dark) — the glottal one changes the tracks, not the
  *  tract. */
 const tractArt = (a) => (a === ART_PALATAL || a === ART_DARK ? a : ART_NONE);
+
+/**
+ * How far the vowel is nasalised, or r-coloured: 0 not at all, 1 fully, and
+ * between while `S $90kx` (item 292), or an instrument change, glides it.
+ * Until the note is given one of its own (`own`) it is the record's bit, read
+ * afresh every update, as the vowel is; `rejoin` is an instrument change's
+ * glide, after which the note follows the new record again.
+ */
+class FormantAmount {
+  constructor() {
+    this.own = false;
+    this.v = 0.0;      // where it stands
+    this.to = 0.0;     // where a glide is heading…
+    this.step = 0.0;   // …per ms…
+    this.left = 0.0;   // …and how long it has to go, ms
+    this.rejoin = false;
+  }
+  copy(src) {
+    this.own = src.own; this.v = src.v; this.to = src.to; this.step = src.step;
+    this.left = src.left; this.rejoin = src.rejoin;
+    return this;
+  }
+}
 
 /** Per-voice tract state — what the record's sample is played through. */
 class FormantState {
@@ -14198,6 +14241,15 @@ class FormantState {
     this.gFront = 0.0; this.gOpen = 0.0; this.gRound = 0.0; // per-ms glide steps
     this.tFront = 0.0; this.tOpen = 0.0; this.tRound = 0.0; // …and where it ends
     this.glideLeft = 0.0;
+    // S $9xxx (item 292): the vowel's nasalisation and r-colouring as the
+    // note has them, the glide time it was given (−1: the record's), and a
+    // coda called for while the key is still held.
+    this.nasAmt = new FormantAmount();
+    this.rhoAmt = new FormantAmount();
+    this.glideOv = -1;
+    this.codaCall = false;
+    this.codaZ0 = 0.0;        // the vowel nasality the coda was built from
+    this.atVowel = false;     // started at the vowel (formantStartAtVowel)
     // Amplitudes, ramped per sample across an update.
     this.av = 0.0; this.avStep = 0.0;
     this.ah = 0.0; this.ahStep = 0.0;
@@ -14228,6 +14280,7 @@ class FormantState {
     // Scratch.
     this.V = new Float64Array(5); this.VB = new Float64Array(5);
     this.F = new Float64Array(5); this.B = new Float64Array(5);
+    this.VR = new Float64Array(5); this.VRB = new Float64Array(5);
   }
 }
 
@@ -14259,6 +14312,9 @@ function cloneFormantState(src, dst = new FormantState()) {
   dst.gFront = src.gFront; dst.gOpen = src.gOpen; dst.gRound = src.gRound;
   dst.tFront = src.tFront; dst.tOpen = src.tOpen; dst.tRound = src.tRound;
   dst.glideLeft = src.glideLeft;
+  dst.nasAmt.copy(src.nasAmt); dst.rhoAmt.copy(src.rhoAmt);
+  dst.glideOv = src.glideOv; dst.codaCall = src.codaCall;
+  dst.codaZ0 = src.codaZ0; dst.atVowel = src.atVowel;
   dst.av = src.av; dst.avStep = src.avStep;
   dst.ah = src.ah; dst.ahStep = src.ahStep;
   dst.af = src.af; dst.afStep = src.afStep;
@@ -14307,9 +14363,24 @@ function formantRelatchSource(st, chip) {
  * Note-on: build the syllable. The onset is slots 0 and 1 in that order,
  * whichever of them name a consonant; the coda is slot 2. Every filter starts
  * from rest — the tract of the note before is not this note's.
+ *
+ * `keep` says the syllable again for the SAME note (Q's retrigger, or an
+ * `S $90kx` on the trigger row that changed the nasality the onset heads
+ * for): what `S $9xxx` gave the note stays its own, its glides stopping where
+ * they stand, as formantRestart keeps the vowel.
  */
-function formantNoteOn(st, patch) {
+function formantNoteOn(st, patch, keep = false) {
   st.patch = patch;
+  if (!keep) {
+    amtReset(st.nasAmt, patch.nasal);
+    amtReset(st.rhoAmt, patch.rhotic);
+    st.glideOv = -1;
+    st.codaCall = false;
+  } else {
+    st.nasAmt.left = 0.0; st.nasAmt.rejoin = false;
+    st.rhoAmt.left = 0.0; st.rhoAmt.rejoin = false;
+  }
+  st.atVowel = false;
   const vowel = formantHasVowel(patch);
   const rows = [];
   for (let i = 0; i < 2; i++) {
@@ -14340,7 +14411,7 @@ function formantNoteOn(st, patch) {
   // last on the glide, when there is one, and a nasalised vowel's velum
   // already lowered. The last consonant carries the secondary articulation;
   // without a vowel it is the nucleus, and holds.
-  const nasal = vowel && patch.nasal;
+  const nasal = vowel && nasalOf(st, patch);
   const segs = new Array(rows.length);
   let nx = sv !== null ? { av: st.svAv[1], ah: 0, af: 0, nz: nasal ? 1 : 0 }
     : nasal ? NASAL_VOWEL_START : VOWEL_START;
@@ -14360,7 +14431,7 @@ function formantNoteOn(st, patch) {
   st.seg = 0;
   st.nucleus = !vowel && segs.length > 0 ? segs[segs.length - 1] : null;
   st.held = false;
-  st.coda = coda ? buildCoda(st, patch, slotScale(patch, 2)) : null;
+  st.coda = coda ? buildCoda(st, patch, slotScale(patch, 2), nasal ? st.nasAmt.v : 0) : null;
   st.phase = segs.length > 0 ? PHASE_ONSET : PHASE_VOWEL;
   st.t = 0.0;
   st.codaVeto = false;
@@ -14385,16 +14456,18 @@ function formantNoteOn(st, patch) {
 /**
  * The coda a record gives a note: slot 2's consonant, from the vowel — or, in
  * a syllable with no vowel, from its nucleus as it holds, a hissing nucleus
- * letting its hiss go first. Null with no coda consonant.
+ * letting its hiss go first. Null with no coda consonant. `vz` is how
+ * nasalised the vowel is as the coda leaves it (0…1), when it has one.
  */
-function buildCoda(st, patch, k) {
+function buildCoda(st, patch, k, vz) {
   const cr = CONSONANTS[patch.slots[2].cons];
   if (cr === undefined) return null;
   const art = patch.codaArt;
   const tract = art === CODA_DARK ? ART_DARK : ART_NONE;
   const nuc = st.nucleus;
   if (nuc === null) {
-    const z0 = patch.nasal && formantHasVowel(patch) ? 1 : 0;
+    const z0 = formantHasVowel(patch) ? vz : 0;
+    st.codaZ0 = z0;
     return new FormantSegment(cr, patch.slots[2], codaTracks(cr, k, 1, z0, art), tract);
   }
   const last = (tr) => tr[tr.length - 1];
@@ -14422,7 +14495,7 @@ function formantRestart(st) {
   if (st.patch === null) return;
   const f = st.vFront, o = st.vOpen, r = st.vRound, own = st.ownVowel;
   const sg = st.sg, sm = st.sm, due = st.sgDue;
-  formantNoteOn(st, st.patch);
+  formantNoteOn(st, st.patch, true);
   st.vFront = f; st.vOpen = o; st.vRound = r; st.ownVowel = own;
   st.sg = sg; st.sm = sm; st.sgDue = due;   // the same sample: the same measurements
   // A chip source is re-keyed as Q re-keys an OPL note: the attack from where
@@ -14446,16 +14519,20 @@ function formantRelatch(st, patch) {
   // Once there, the note sings the new record's vowel as it is edited.
   if (st.glideLeft > 0) { st.ownVowel = true; st.rejoin = true; }
   else { st.ownVowel = false; st.rejoin = false; }
+  // The nasalisation and the r-colouring go with the vowel (item 292).
+  amtRelatch(st, st.nasAmt, patch.nasal);
+  amtRelatch(st, st.rhoAmt, patch.rhotic);
   if (st.phase === PHASE_ONSET || st.phase === PHASE_VOWEL) {
-    st.coda = buildCoda(st, patch, slotScale(patch, 2));
+    st.coda = buildCoda(st, patch, slotScale(patch, 2), st.nasAmt.v);
   }
 }
 
 /** A sampled note handed a formant instrument mid-note: the tract starts at
  *  the vowel — or a syllable with no vowel at its nucleus, holding — with the
  *  coda ready: the note's onset was its sample's. */
-function formantStartAtVowel(st, patch) {
-  formantNoteOn(st, patch);
+function formantStartAtVowel(st, patch, keep = false) {
+  formantNoteOn(st, patch, keep);
+  st.atVowel = true;
   st.sv = null;   // the glide, like the onset, is long past
   if (st.phase === PHASE_CODA) return;   // nothing to say
   if (st.nucleus !== null) {
@@ -14473,8 +14550,58 @@ function formantStartAtVowel(st, patch) {
   st.nOn = false;
 }
 
+/** The note's glide time in ms: what `S $91xx` gave it, or its record's. */
+function glideMsOf(st) {
+  return (st.glideOv >= 0 ? st.glideOv : st.patch !== null ? st.patch.glide : 0) * 2;
+}
+
+/** A note's amount as its trigger starts it: its record's bit. */
+function amtReset(a, on) {
+  a.own = false; a.v = on ? 1 : 0; a.to = a.v; a.step = 0.0; a.left = 0.0; a.rejoin = false;
+}
+
+/** Set an amount gliding to `to` over the note's glide time — at once on the
+ *  note's first row, or with a glide of 0. */
+function amtGlideTo(st, a, to) {
+  const ms = glideMsOf(st);
+  a.to = to;
+  if (st.fresh || ms <= 0) { a.v = to; a.left = 0.0; return; }
+  a.step = (to - a.v) / ms;
+  a.left = ms;
+}
+
+/** An instrument change: the amount glides to the new record's, which the
+ *  note then follows. */
+function amtRelatch(st, a, on) {
+  amtGlideTo(st, a, on ? 1 : 0);
+  if (a.left > 0) { a.own = true; a.rejoin = true; }
+  else { a.own = false; a.rejoin = false; }
+}
+
+/** One control update of an amount: a glide's step (the last landing exactly),
+ *  or the record's bit while the note has none of its own. */
+function amtAdvance(a, dt, on) {
+  if (a.left > 0) {
+    if (a.left <= dt) {
+      a.v = a.to; a.left = 0.0;
+      if (a.rejoin) { a.own = false; a.rejoin = false; }
+    } else {
+      a.v += a.step * dt;
+      a.left -= dt;
+    }
+  } else if (!a.own) {
+    a.v = on ? 1 : 0;
+  }
+}
+
+/** Is the vowel the onset heads for nasalised, at all? The note's own
+ *  nasality when it has one, else its record's bit. */
+function nasalOf(st, patch) {
+  return st.nasAmt.own ? st.nasAmt.v > 0 : patch.nasal;
+}
+
 function formantGlideTo(st, open, front, round) {
-  const ms = (st.patch !== null ? st.patch.glide : 0) * 2;
+  const ms = glideMsOf(st);
   if (st.fresh || ms <= 0) {
     st.vOpen = open; st.vFront = front; st.vRound = round;
     st.glideLeft = 0.0;
@@ -14497,6 +14624,70 @@ function formantSetVowel(st, f, g, r) {
   st.ownVowel = true;
   st.rejoin = false;
   formantGlideTo(st, (f & 15) * 17, (g & 15) * 17, (r & 15) * 17);
+}
+
+/**
+ * S $9xxx, formant control (item 292), `arg` the low twelve bits:
+ *
+ *  - `$0kx`, x = `00nr` — the vowel nasalised (n) and r-coloured (r), SET as
+ *    written, each gliding there over the note's glide time as the vowel does
+ *    (at once on the trigger row); k = 1 also moves into the coda now, as a
+ *    key-off would, without keying the voice off — and HOLDS its consonant
+ *    while the key is held; the key-off then lets it go.
+ *  - `$1xx` — the note's glide time, xx in 2 ms units: every glide still
+ *    under way covers what is left of it in the new time, and every later one
+ *    takes it. The trigger row's own glides are jumps whatever it says.
+ *
+ * Every other argument is RESERVED and does nothing. All of it is the NOTE's:
+ * the next trigger starts from the record again; Q's retrigger keeps it.
+ */
+function formantCommand(st, arg) {
+  if (st.patch === null) return;
+  const sel = (arg >>> 8) & 0xf;
+  if (sel === 1) { formantSetGlide(st, arg & 0xff); return; }
+  if (sel !== 0 || (arg & 0xec) !== 0) return;
+  const was = nasalOf(st, st.patch);
+  st.nasAmt.own = true; st.nasAmt.rejoin = false;
+  amtGlideTo(st, st.nasAmt, (arg & 2) !== 0 ? 1 : 0);
+  st.rhoAmt.own = true; st.rhoAmt.rejoin = false;
+  amtGlideTo(st, st.rhoAmt, (arg & 1) !== 0 ? 1 : 0);
+  // On the trigger row the onset already heads for the vowel it will meet: a
+  // changed nasality builds the syllable again, its velum lowered or not.
+  if (st.fresh && nasalOf(st, st.patch) !== was && formantHasVowel(st.patch)) {
+    const f = st.vFront, o = st.vOpen, r = st.vRound, own = st.ownVowel;
+    if (st.atVowel) formantStartAtVowel(st, st.patch, true);
+    else formantNoteOn(st, st.patch, true);
+    st.vFront = f; st.vOpen = o; st.vRound = r; st.ownVowel = own;
+  }
+  if ((arg & 0x10) !== 0) st.codaCall = true;
+}
+
+/** S $91xx: the note's glide time, re-timing what is under way. */
+function formantSetGlide(st, units) {
+  st.glideOv = units;
+  const ms = units * 2;
+  if (st.glideLeft > 0) {
+    if (ms <= 0) {
+      st.vOpen = st.tOpen; st.vFront = st.tFront; st.vRound = st.tRound;
+      st.glideLeft = 0.0;
+      if (st.rejoin) { st.ownVowel = false; st.rejoin = false; }
+    } else {
+      st.gOpen = (st.tOpen - st.vOpen) / ms;
+      st.gFront = (st.tFront - st.vFront) / ms;
+      st.gRound = (st.tRound - st.vRound) / ms;
+      st.glideLeft = ms;
+    }
+  }
+  for (const a of [st.nasAmt, st.rhoAmt]) {
+    if (a.left <= 0) continue;
+    if (ms <= 0) {
+      a.v = a.to; a.left = 0.0;
+      if (a.rejoin) { a.own = false; a.rejoin = false; }
+    } else {
+      a.step = (a.to - a.v) / ms;
+      a.left = ms;
+    }
+  }
 }
 
 /**
@@ -15016,6 +15207,9 @@ function formantControl(voice, st) {
 
   // A fade before the coda has started takes the coda away for good.
   if (voice.noteFading && st.phase !== PHASE_CODA) st.codaVeto = true;
+  // A coda S $9010 called for HOLDS at its steady part while the key is held;
+  // the key-off lets it go on through its release (item 292).
+  const codaHeld = st.codaCall && !voice.keyOff;
   // Sequencer: walk past finished onset consonants into the vowel. A nucleus
   // never finishes: it holds, a trill's time wrapping back by its cycle.
   while (st.phase === PHASE_ONSET && st.t >= st.onset[st.seg].end) {
@@ -15031,14 +15225,23 @@ function formantControl(voice, st) {
     else startNoise(st, st.onset[st.seg]);
   }
   const holding = st.phase === PHASE_ONSET && st.held;
-  if ((st.phase === PHASE_VOWEL || holding) && voice.keyOff && !st.codaVeto && st.coda !== null) {
+  // A key-off speaks the coda — and so does S $9010 (item 292), with the key
+  // still held.
+  if ((st.phase === PHASE_VOWEL || holding) && (voice.keyOff || st.codaCall) && !st.codaVeto &&
+      st.coda !== null) {
+    // Leaving a vowel nasalised other than as the coda was built for (S $90kx,
+    // an edit, an instrument change gliding): the coda leaves it as it is.
+    if (st.nucleus === null && st.nasAmt.v !== st.codaZ0) {
+      st.coda = buildCoda(st, patch, slotScale(patch, 2), st.nasAmt.v);
+    }
     st.phase = PHASE_CODA;
     st.t = 0.0;
     // After a hissing nucleus the coda's own noise waits for the hiss to go.
     st.codaNoise = st.coda.noiseAt <= 0;
     if (st.codaNoise) startNoise(st, st.coda);
   }
-  if (st.phase === PHASE_CODA && st.t >= st.coda.end) {
+  // (A coda that holds at its very end — silence — is over there as before.)
+  if (st.phase === PHASE_CODA && st.t >= st.coda.end && !(codaHeld && st.coda.hold < st.coda.end)) {
     st.phase = PHASE_DONE;
     st.av = 0; st.avStep = 0; st.ah = 0; st.ahStep = 0; st.af = 0; st.afStep = 0;
     st.nOn = false;
@@ -15065,13 +15268,26 @@ function formantControl(voice, st) {
   } else if (!st.ownVowel) {
     st.vOpen = patch.open; st.vFront = patch.front; st.vRound = patch.round;
   }
+  amtAdvance(st.nasAmt, dt, patch.nasal);
+  amtAdvance(st.rhoAmt, dt, patch.rhotic);
   // A syllable with no vowel still has the tongue's rest — the vowel bytes —
   // for what its consonants take from "the vowel's": F4, F5, [h]'s formants.
   const sung = st.nucleus === null;
   const f0 = voiceF0(voice);
   const V = st.V, VB = st.VB;
   const ref = noteHz(formantRefNote(patch));
-  const s = vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, ref, patch.track, V, VB, sung && patch.rhotic);
+  // R-coloured part of the way (S $90kx gliding): between the plain vowel and
+  // the r-coloured one, in log frequency, as the glide G blends.
+  const ra = sung ? st.rhoAmt.v : 0;
+  const s = vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, ref, patch.track, V, VB, ra >= 1);
+  if (ra > 0 && ra < 1) {
+    const VR = st.VR, VRB = st.VRB;
+    vowelAtPitch(st.vFront, st.vOpen, st.vRound, f0, ref, patch.track, VR, VRB, true);
+    for (let n = 0; n < 5; n++) {
+      V[n] *= (VR[n] / V[n]) ** ra;
+      VB[n] *= (VRB[n] / VB[n]) ** ra;
+    }
+  }
   // The glide: from the semivowel to the vowel, in log frequency. Held on the
   // semivowel through the onset, so the consonants head for it.
   if (st.sv !== null) {
@@ -15090,13 +15306,17 @@ function formantControl(voice, st) {
   // Nasalised, as Klatt makes it: F1 a hundred hertz higher (at a man's
   // size), the order kept, and the nasal zero opened midway between that F1
   // and the nasal pole — a pole-zero pair beside F1 that takes its strength.
-  const nasalV = sung && patch.nasal;
+  // Nasalised part of the way (S $90kx gliding), F1 rises part of its 100 Hz
+  // and the zero opens part of the way from the pole to its place.
+  const na = sung ? st.nasAmt.v : 0;
+  const nasalV = na > 0;
   let vz = fnp;
   if (nasalV) {
-    V[0] = Math.min(V[0] + NASAL_F1 * s, ceil);
+    V[0] = Math.min(V[0] + NASAL_F1 * s * na, ceil);
     VB[0] = Math.max(V[0] / 10, 50);
     for (let n = 1; n < 5; n++) if (V[n] < V[n - 1] * 1.15) V[n] = Math.min(V[n - 1] * 1.15, ceil);
-    vz = (V[0] + fnp) / 2;
+    const mid = (V[0] + fnp) / 2;
+    vz = na >= 1 ? mid : fnp + na * (mid - fnp);
   }
   const nasality = nasalV || (st.nucleus !== null && st.nucleus.row.fnz > 0);
 
@@ -15134,7 +15354,7 @@ function formantControl(voice, st) {
       zf = segZero(seg.row, w, s, met, fnp, ceil);
     }
     segAmps(seg, st.t, ampNow);
-    segAmps(seg, st.t + dt, ampNext);
+    segAmps(seg, codaHeld ? codaHeldTime(seg, st.t + dt) : st.t + dt, ampNext);
   } else {
     F.set(V); B.set(VB);
     const gl = st.sv !== null;
@@ -15200,11 +15420,23 @@ function formantControl(voice, st) {
   st.nvStep = (nvEnd - st.nv) * inv;
   st.fresh = false;
   if (st.phase !== PHASE_VOWEL) st.t += dt;
+  if (st.phase === PHASE_CODA && codaHeld) st.t = codaHeldTime(st.coda, st.t);
   // The glide's clock runs from the end of the onset; past its end it is done.
   if (st.sv !== null && st.phase !== PHASE_ONSET) {
     st.svT += dt;
     if (st.svT >= st.svEnd) st.sv = null;
   }
+}
+
+/** A held coda's time: at its hold point and no further — a trill's taken back
+ *  a cycle at a time, so it goes on trilling. */
+function codaHeldTime(seg, t) {
+  if (t <= seg.hold) return t;
+  if (seg.loop > 0) {
+    while (t >= seg.hold) t -= seg.loop;
+    return t;
+  }
+  return seg.hold;
 }
 
 /** One cascade stage: y = A·x + B·y1 + C·y2. */
@@ -17944,6 +18176,15 @@ function applySEffect(eng, ts, voice, vi, arg) {
       // S$8xxx is a 9-bit angle, $000 left · $080 front · $100 right · $180
       // behind, of which $000..$0FF are exactly the old pan bytes.
       applyPanSet(ts, voice, arg & (ts.surroundModel === SURROUND_STEREO ? 0xff : 0x1ff));
+      break;
+    case 0x9:
+      // S $9xxx — formant control (item 292), on every voice sounding a
+      // formant instrument, layer children included: $90kx sets the vowel's
+      // nasalisation and r-colouring and calls the coda, $91xx the note's
+      // glide time. On any other instrument it does nothing.
+      forEachLayerTarget(ts, voice, vi, (v) => {
+        if (v.formant !== null) formantCommand(v.formant, arg & 0xfff);
+      });
       break;
     case 0xb:
       if (x === 0) voice.loopStartRow = ts.rowIndex;
@@ -21582,10 +21823,15 @@ class TaudEngine {
   /**
    * A formant instrument's live state, for the Formant tab's playback display
    * (item 240), or null for any other instrument: every sounding voice of it
-   * — lanes before ghosts, at most FORMANT_LIVE_MAX — whose vowel is its OWN
-   * (an `S $Afgr`, or an instrument change still gliding), as the chart bytes
-   * it stands at now, fractional mid-glide, and where a glide is heading. A
-   * voice singing the record's vowel is not listed: the record shows it.
+   * — lanes before ghosts, at most FORMANT_LIVE_MAX — that the pattern has
+   * changed: a vowel of its OWN (`own`: an `S $Afgr`, or an instrument change
+   * still gliding), as the chart bytes it stands at now, fractional
+   * mid-glide, and where a glide is heading; and what `S $9xxx` gave it
+   * (item 292) — its nasalisation and r-colouring (`nasal`, `rhotic`: null,
+   * or where each stands, 0…1, and where it is heading), its glide time in
+   * 2 ms units (`glide`, −1 for the record's) and a coda called for while
+   * the key is held (`coda`). A voice singing the record as it is is not
+   * listed: the record shows it.
    *
    * A lyric instrument's (item 280) also lists `lyric`: the syllables its
    * notes are singing now, as indices into its lyrics, ascending, each once —
@@ -21618,14 +21864,22 @@ class TaudEngine {
         for (const v of list) {
           if (voices.length >= FORMANT_LIVE_MAX) break;
           const st = v.formant;
-          if (!v.active || st === null || !st.ownVowel) continue;
+          if (!v.active || st === null) continue;
+          const nas = st.nasAmt, rho = st.rhoAmt;
+          if (!st.ownVowel && !nas.own && !rho.own && st.glideOv < 0 && !st.codaCall) continue;
           // A lyric instrument's note sings one of its syllables (item 280).
           if (st.patch !== patch && (st.patch === null || st.patch.lyricOf !== patch)) continue;
           const gliding = st.glideLeft > 0;
           voices.push({
+            own: st.ownVowel,
             front: st.vFront, open: st.vOpen, round: st.vRound,
             toFront: gliding ? st.tFront : st.vFront, toOpen: gliding ? st.tOpen : st.vOpen,
             toRound: gliding ? st.tRound : st.vRound,
+            // What S $9xxx gave it (item 292): null where it has not.
+            nasal: nas.own ? { v: nas.v, to: nas.left > 0 ? nas.to : nas.v } : null,
+            rhotic: rho.own ? { v: rho.v, to: rho.left > 0 ? rho.to : rho.v } : null,
+            glide: st.glideOv,
+            coda: st.codaCall,
           });
         }
       }

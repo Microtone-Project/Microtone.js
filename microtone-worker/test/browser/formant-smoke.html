@@ -309,7 +309,7 @@
           log(`the engine answers for a formant instrument (${JSON.stringify(st)}): ${ok(!!st && Array.isArray(st.voices))}`);
           const { formantTabFrame } = await import("../../src/ui/views/instformant.js");
           const real = { isPlaying: audio.isPlaying, getFormantState: audio.getFormantState, requestInvertMask: audio.requestInvertMask };
-          let live = [{ front: 230, open: 30, round: 0, toFront: 255, toOpen: 0, toRound: 0 }];
+          let live = [{ own: true, front: 230, open: 30, round: 0, toFront: 255, toOpen: 0, toRound: 0, nasal: null, rhotic: null, glide: -1, coda: false }];
           audio.isPlaying = () => true;
           audio.requestInvertMask = () => {};
           audio.getFormantState = () => ({ voices: live });
@@ -322,14 +322,23 @@
           const fill = win.getComputedStyle(dots()[0]).fill;
           const accent = win.getComputedStyle(wdoc.documentElement).getPropertyValue("--accent").trim();
           log(`…drawn in the accent colour (${fill} / ${accent}): ${ok(fill !== "none" && fill !== "")}`);
-          live = [{ front: 255, open: 0, round: 0, toFront: 255, toOpen: 0, toRound: 0 },
-            { front: 0, open: 0, round: 255, toFront: 0, toOpen: 0, toRound: 255 }];
+          live = [{ own: true, front: 255, open: 0, round: 0, toFront: 255, toOpen: 0, toRound: 0, nasal: null, rhotic: null, glide: -1, coda: false },
+            { own: true, front: 0, open: 0, round: 255, toFront: 0, toOpen: 0, toRound: 255, nasal: null, rhotic: null, glide: -1, coda: false }];
           formantTabFrame(iv);
           log(`two voices, landed: two dots, no path, both named ("${line.textContent}"): ` +
             ok(dots().length === 2 && iv.panel.querySelector(".fmt-live-path").style.display === "none" && /\[u\]/.test(line.textContent)));
+          // item 292: what S $9xxx gave a note — its own row marks, not a dot.
+          live = [{ own: false, front: 0, open: 0, round: 0, toFront: 0, toOpen: 0, toRound: 0,
+            nasal: { v: 0.5, to: 1 }, rhotic: null, glide: 10, coda: true }];
+          formantTabFrame(iv);
+          const marked = [...iv.panel.querySelectorAll(".fmt-live-on")];
+          const glideNum = marked.find((e) => e.matches("input.sl-num"));
+          log(`S $9xxx: no dot, the Nasalised button and the glide field marked, the readout "${line.textContent}": ` +
+            ok(dots().length === 0 && marked.length === 2 && glideNum?.value === "10" &&
+              /S\u00a0\$9012 S\u00a0\$910A/.test(line.textContent)));
           audio.isPlaying = () => false;
           formantTabFrame(iv);
-          log(`stopped: cleared: ${ok(dots().length === 0 && line.hidden)}`);
+          log(`stopped: cleared: ${ok(dots().length === 0 && line.hidden && iv.panel.querySelectorAll(".fmt-live-on").length === 0)}`);
           for (const k of Object.keys(real)) delete audio[k];   // the class's own methods again
         }
 

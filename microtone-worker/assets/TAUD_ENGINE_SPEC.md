@@ -693,13 +693,24 @@ s   = f0 > 0 ? (f0 ÷ ref)^(size_tracking ÷ 256) : 1
 
 A syllable with no vowel ([below](#the-syllable)) reads its vowel the same way, never r-coloured: it is where the tongue rests, what a consonant whose row says "the vowel's" takes, and the source of F4 and F5.
 
-**Nasalised.** With the reference word's bit 15 set and the syllable sung on a vowel, after the glide (below) has been blended in — Klatt's recipe (1980 §V.B), "increasing F1 by about 100 Hz, and … setting the frequency of the nasal zero to be the average of this new F1 value and 270 Hz":
+A sung vowel has two **amounts**, each 0…1: `ρ`, how far it is r-coloured, and `ν`, how far it is nasalised. Each is its record's bit — byte +53's bit 7 and the reference word's bit 15 — as 0 or 1, read afresh at every update, until `S $90kx` or an instrument change moves it ([below](#what-reaches-a-formant-instrument)); with no vowel both are 0.
+
+**R-coloured.** With `ρ = 1` the five formants of step 3 are read r-coloured ([File Format §7.6](TAUD_FILE_FORMAT.md)); with `ρ = 0` they are not. Between, the vowel is read both ways through steps 1–5, `P` plain and `R` r-coloured, and blended in log frequency, as the glide is:
 
 ```
-F1  = min(F1 + 100 × s, 0.45 × rate)          B1 = max(F1 ÷ 10, 50)
-Fn  = min(max(Fn, 1.15 × F(n−1)), 0.45 × rate)   for n = 2…5 in turn
-FNZv = (F1 + FNP) ÷ 2                            the vowel's nasal zero (FNP below)
+Fn = PFn × (RFn ÷ PFn)^ρ        Bn = PBn × (RBn ÷ PBn)^ρ          n = 1…5
 ```
+
+**Nasalised.** With `ν > 0`, after the glide (below) has been blended in — Klatt's recipe (1980 §V.B), "increasing F1 by about 100 Hz, and … setting the frequency of the nasal zero to be the average of this new F1 value and 270 Hz", taken `ν` of the way:
+
+```
+F1  = min(F1 + 100 × s × ν, 0.45 × rate)      B1 = max(F1 ÷ 10, 50)
+Fn  = min(max(Fn, 1.15 × F(n−1)), 0.45 × rate)   for n = 2…5 in turn
+M   = (F1 + FNP) ÷ 2
+FNZv = M when ν = 1, FNP + ν × (M − FNP) otherwise   the vowel's nasal zero (FNP below)
+```
+
+A **nasalised vowel**, below, is one with `ν > 0`.
 
 That vowel is THE vowel for everything after it, as the glide's is.
 
@@ -882,7 +893,7 @@ A syllable with no vowel holds its **nucleus** ([below](#the-syllable)) on these
 
 A **breathy-voiced** stop nucleus has the onset's breathy **av** and **ah** with nx.av = 1 and nx.ah = 0, ending at `ts`; an aspirated fricative's nucleus is a fricative's. A sonorant nucleus voices at the vowel's level, being the syllable's peak. **Glottalised**, a stop nucleus breathes no aspiration and its voicing is **av** (0, 0) (tb+10, 0) (tb+12, voiced ? 1 : 0), end tb+12; an affricate's, a fricative's or an aspirate's voicing is 0; a sonorant's takes the catch above.
 
-A CODA starts on the values of the sound before it — for the vowel, voicing `v0 = 1` and nasality `z0 = 0`, or 1 for a nasalised vowel — and ends in silence: every track but `w` closes on 0, and `w` on 1.
+A CODA starts on the values of the sound before it — for the vowel, voicing `v0 = 1` and nasality `z0 = ν`, the vowel's nasal amount (0 oral, 1 nasalised) — and ends in silence: every track but `w` closes on 0, and `w` on 1.
 
 | Manner | Coda tracks | end |
 |---|---|---|
@@ -911,12 +922,12 @@ The note starts in its onset (or, with none, in its vowel) at time 0, with every
 
 1. If the voice is note-fading and the coda has not begun, the coda is **vetoed** for this note.
 2. While in the onset and the current consonant's time has reached its end, its end is subtracted from the time and the next consonant starts (its noise reader too); after the last, the vowel. The nucleus never ends: once its time reaches its end it is **holding**, and a looped nucleus's time is taken back by its loop while it is at or past its end.
-3. In the vowel, or with the nucleus holding, if the voice is keyed off, the coda is not vetoed and the record has one, the coda starts at time 0, and its noise reader too — except after a nucleus that hisses, when the nucleus's noise goes on and the coda's starts once the coda's time reaches `rel`.
-4. In the coda, once its time reaches its end, the syllable is **over**: from then on the tract outputs 0, and the voice starts its sample-end ramp-out ([§12](#12-output-stage)).
-5. The vowel glide advances (below), the vowel is read at the pitch, the tract is configured, and `NV` updates for it.
-6. The time advances by `dt` — in the onset (the nucleus included) and the coda; the vowel has no clock. The glide's clock advances by `dt` in the vowel and the coda, and once it reaches the glide's end the glide is over.
+3. In the vowel, or with the nucleus holding, if the voice is keyed off or the note has **called for its coda** (`S $901x`), the coda is not vetoed and the record has one, the coda starts at time 0, and its noise reader too — except after a nucleus that hisses, when the nucleus's noise goes on and the coda's starts once the coda's time reaches `rel`. A coda after a vowel whose `ν` is not the `z0` it was built with is built again first, from the `ν` the vowel has now.
+4. In the coda, once its time reaches its end, the syllable is **over**: from then on the tract outputs 0, and the voice starts its sample-end ramp-out ([§12](#12-output-stage)) — unless the coda is **held** (step 6) and its hold point is before its end.
+5. The vowel glide advances (below), and the amounts' glides ([below](#what-reaches-a-formant-instrument)); the vowel is read at the pitch, the tract is configured, and `NV` updates for it.
+6. The time advances by `dt` — in the onset (the nucleus included) and the coda; the vowel has no clock. A coda the note called for is **held** while the voice is not keyed off: its time stops at its **hold point** `H` and goes no further — a trill's is taken back by its loop `c` while it is at or past `H`, so it repeats its last whole cycle — and the update's end values (`ampNext`) are read at the time so held. The key-off lets the time run on from there. The glide's clock advances by `dt` in the vowel and the coda, and once it reaches the glide's end the glide is over.
 
-So **a key-off speaks the coda and ends the note**; a key-off during the onset waits for it, and a syllable with no coda goes on singing its vowel — or holding its nucleus — through its release. A key-off reaches the voice's envelopes and fadeout as on any instrument, at the same moment the coda starts: a fadeout or a release faster than the coda is heard cutting it short. A **note cut** ends the voice outright, and a **note fade** or **fast fade** fades the vowel without ever speaking the coda — a key-off that follows a fade does not bring it back. A note-off New Note Action keys off the ghost, which speaks its coda in the background while the lane starts the next syllable; a ghost carries a copy of the whole tract.
+So **a key-off speaks the coda and ends the note**; a key-off during the onset waits for it, and a syllable with no coda goes on singing its vowel — or holding its nucleus — through its release. A key-off reaches the voice's envelopes and fadeout as on any instrument, at the same moment the coda starts: a fadeout or a release faster than the coda is heard cutting it short. A **note cut** ends the voice outright, and a **note fade** or **fast fade** fades the vowel without ever speaking the coda — a key-off that follows a fade does not bring it back. A note-off New Note Action keys off the ghost, which speaks its coda in the background while the lane starts the next syllable; a ghost carries a copy of the whole tract. **`S $901x`** moves into the coda with the key still held, as a key-off would, and holds it at `H` while the key is held; the voice's envelopes and fadeout are not keyed off. The key-off that comes later lets the coda run on through its release to its end, which ends the note, and reaches the envelopes and fadeout as any key-off does. `H`, in the coda tables' times, with `tc = trans + CL`: a stop or affricate `tc − 1` (times `k`; AT `tc` the release's frication has already stepped on); a fricative or nasal or approximant `trans + dur`; an aspirate `dur`; a tap `trans + dur + 3` (glottalised, `trans + dur`); a trill `trans + c + sh`, with loop `c`; a glottal stop its end. `H` is never past the coda's end (an unreleased voiceless stop's is its end), and after a hissing nucleus it moves `rel` later with the rest. A coda held at its end is over there, as it would be unheld.
 
 ##### The glide
 
@@ -1001,11 +1012,14 @@ Either then takes the slot's tilt — for tilt `t` with `c = |t| ÷ 128`, `t > 0
 
 ##### What reaches a formant instrument
 
-- **The record, as it is edited.** A note sings the RECORD's vowel — bytes +3…+5 as they stand, read afresh at every control update — until it is given one of its own, so an edit is heard on a note already sounding. The pitch rules are read from the record as it stands too; the source gain is not measured again.
-- **`S $Afgr`** gives the note a vowel of its own: openness `f × 17`, frontness `g × 17`, roundness `r × 17`, on every voice sounding the note (layer children included); on any other instrument it does nothing. Before the voice's first control update — on the row that triggered the note — the vowel is set outright, so the note's onset already heads for it. Otherwise it glides there linearly over the record's glide time (2 ms a unit), restarted from wherever it stands by each new `S $Afgr`, the last update landing exactly on the target. A glide of 0 is a jump. The note keeps its own vowel, record edits notwithstanding, until the next trigger, which sings the record's again.
+- **The record, as it is edited.** A note sings the RECORD's vowel — bytes +3…+5 as they stand, read afresh at every control update — until it is given one of its own, so an edit is heard on a note already sounding; its nasalisation and r-colouring likewise, until it is given amounts of its own. The pitch rules are read from the record as it stands too; the source gain is not measured again.
+- **`S $Afgr`** gives the note a vowel of its own: openness `f × 17`, frontness `g × 17`, roundness `r × 17`, on every voice sounding the note (layer children included); on any other instrument it does nothing. Before the voice's first control update — on the row that triggered the note — the vowel is set outright, so the note's onset already heads for it. Otherwise it glides there linearly over the note's **glide time** — the record's (2 ms a unit), or what `S $91xx` gave the note — restarted from wherever it stands by each new `S $Afgr`, the last update landing exactly on the target. A glide of 0 is a jump. The note keeps its own vowel, record edits notwithstanding, until the next trigger, which sings the record's again.
+- **`S $90kx`** gives the note amounts of its own, `ν` = bit 1 and `ρ` = bit 0 (`x` = `00nr`), set as written whatever the record says, on every voice sounding the note (layer children included); on any other instrument it does nothing. Before the voice's first control update each is set outright — and when `ν` moved from 0 or to it, the syllable is built again with the note's `ν` (the onset's last consonant ending on a nasalised vowel's values or an oral one's), its vowel kept; otherwise each glides linearly from where it stands over the note's glide time, as the vowel does, restarted by each new command, the last update landing exactly. Bit 4 (`k`) **calls for the coda** (above). Bits 2, 3 and 5…7 set, the command is RESERVED and does nothing, as is every `S $9xxx` but `$90xx` and `$91xx`.
+- **`S $91xx`** gives the note a glide time of its own, `xx` units of 2 ms, for `S $Afgr`'s and `S $90kx`'s glides — and every glide under way, the vowel's or an amount's, covers what is left of its way in it: from where it stands, `step = (target − now) ÷ (xx × 2)` over `xx × 2` ms, or at once with `xx` = 0.
+- What `S $9xxx` gives a note is the NOTE's: the next trigger starts from the record again — amounts, glide time, no coda called for.
 - **A Duplicate Check** ([§5.6](#5-6-duplicate-check)) treats formant instruments made from one pool range as one voice speaking, and ends the vowel, never a coda.
-- **`Q`'s retrigger** says the syllable again from its onset, on the vowel it is singing now — its own, if it has one, staying its own.
-- **An instrument byte without a retrigger** ([§5.2](#5-2-note-events)) hands a sounding formant syllable the new record's tract: its vowel glides to the new record's over the new glide time and from then on follows that record as it is edited (at once, with a glide of 0 or before the note's first update); the source gain is measured again, the pitch rules become the new record's, and a coda that has not begun becomes the new record's; consonants already under way finish as they started, and nothing restarts. A sampled note handed a formant instrument starts its tract at the vowel, its onset long past.
+- **`Q`'s retrigger** says the syllable again from its onset, on the vowel it is singing now — its own, if it has one, staying its own — and with what `S $9xxx` gave the note: its amounts where they stand (a glide under way stops there, as the vowel's does), its glide time, a coda called for.
+- **An instrument byte without a retrigger** ([§5.2](#5-2-note-events)) hands a sounding formant syllable the new record's tract: its vowel glides to the new record's over the new glide time — the note's own, if `S $91xx` gave it one — and from then on follows that record as it is edited (at once, with a glide of 0 or before the note's first update), and its two amounts glide with it to the new record's bits, which the note then follows likewise; the source gain is measured again, the pitch rules become the new record's, and a coda that has not begun becomes the new record's; consonants already under way finish as they started, and nothing restarts. A sampled note handed a formant instrument starts its tract at the vowel, its onset long past.
 - A **layer** of a type-0 record may be a formant instrument and sounds like any other; an FM rack's operator may not ([§5.5.1](#5-5-1-type-4-fm-racks)), nor may a formant instrument's own source.
 
 ##### Lyric instruments

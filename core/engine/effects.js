@@ -16,7 +16,7 @@ import {
 import { patchAt } from "./inst.js";
 import { isSoundingChild } from "./voice.js";
 import { applyPastNoteAction } from "./trigger.js";
-import { formantSetVowel } from "./formant.js";
+import { formantSetVowel, formantCommand } from "./formant.js";
 import { psgWriteRegister } from "./psg.js";
 import { fmSetOperatorVibrato } from "./fm.js";
 import {
@@ -524,6 +524,15 @@ export function applySEffect(eng, ts, voice, vi, arg) {
       // S$8xxx is a 9-bit angle, $000 left · $080 front · $100 right · $180
       // behind, of which $000..$0FF are exactly the old pan bytes.
       applyPanSet(ts, voice, arg & (ts.surroundModel === SURROUND_STEREO ? 0xff : 0x1ff));
+      break;
+    case 0x9:
+      // S $9xxx — formant control (item 292), on every voice sounding a
+      // formant instrument, layer children included: $90kx sets the vowel's
+      // nasalisation and r-colouring and calls the coda, $91xx the note's
+      // glide time. On any other instrument it does nothing.
+      forEachLayerTarget(ts, voice, vi, (v) => {
+        if (v.formant !== null) formantCommand(v.formant, arg & 0xfff);
+      });
       break;
     case 0xb:
       if (x === 0) voice.loopStartRow = ts.rowIndex;

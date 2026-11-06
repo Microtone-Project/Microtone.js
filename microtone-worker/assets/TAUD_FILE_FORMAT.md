@@ -706,7 +706,7 @@ Offsets are from byte 197.
 | +5 | `U8` | Vowel: **roundness** of the lips — 0 spread, 255 rounded |
 | +6 | `U8` | **Size tracking**: the formants rise with the note as its (byte ÷ 256)th power. 64 is ¼; 0 holds one size at every pitch |
 | +7 | `U16` | **Reference word**. Bits 0–14, the **reference note**: the note word at which the vowels' formants (a man's) are sung unscaled — `$4000` (C3) is a man's speaking pitch — or **0: the syllable has no vowel** ([below](#the-nucleus)). Bit 15, **nasalised**: the vowel is said with the velum lowered ([below](#nasalisation)) |
-| +9 | `U8` | **Vowel glide**, in 2 ms units: how long `S $Afgr`, or an instrument change, takes to move the vowel |
+| +9 | `U8` | **Vowel glide**, in 2 ms units: how long `S $Afgr`, or an instrument change, takes to move the vowel, and `S $90kx` to nasalise it or r-colour it (`S $91xx` sets it for one note) |
 | +10 | `U8` | **Consonant timing**: every consonant time is multiplied by 2^((byte − 128) ÷ 64), so 128 is as written, 64 twice as quick and 192 twice as slow |
 | +11 | `U24` | **Pool range**, start |
 | +14 | `U24` | Pool range, end, exclusive |

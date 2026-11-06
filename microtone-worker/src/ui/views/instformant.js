@@ -585,7 +585,11 @@ export function renderFormantTab(view, inst) {
   const liveReadout = el("div", "fmt-readout fmt-live-readout");
   liveReadout.hidden = true;
   liveReadout.title = t("fmt.liveTitle");
-  view._formantLive = { slot, chart, line: liveReadout, key: "" };
+  view._formantLive = {
+    slot, chart, line: liveReadout, key: "",
+    record: { nasal: f.nasal, rhotic: f.rhotic, glide: f.glide },
+    nasalRow: null, rhoticRow: null, glideRow: null,   // S $9xxx's rows (item 292), below
+  };
   const roundRow = view.sliderRow(t("fmt.round"), f.round, 0, 255, (v, gid) => {
     vowel.round = v;
     chart.update(vowel.front, vowel.open, v);
@@ -609,6 +613,7 @@ export function renderFormantTab(view, inst) {
     (v) => { if ((v === 1) !== f.nasal) apply(formantRefBytes(f.refNote, v === 1)); });
   nasalRow.title = t("fmt.nasalTitle");
   if (!f.vowel) disableRow(nasalRow);
+  if (view._formantLive) view._formantLive.nasalRow = nasalRow;
   if (!lyric) view.group(t("fmt.grpVowel"), chart.node, roundRow, vowelRow, nasalRow, readout, liveReadout,
     f.vowel ? null : el("p", "dim fmt-note", t("fmt.noVowelNote")));
 
@@ -680,6 +685,7 @@ export function renderFormantTab(view, inst) {
     (v) => { if ((v === 1) !== f.rhotic) apply(grWith({ rhotic: v === 1 })); });
   rhoticRow.title = t("fmt.rhoticTitle");
   if (!f.vowel) { disableRow(glideRow); disableRow(rhoticRow); }
+  if (view._formantLive) view._formantLive.rhoticRow = rhoticRow;
   // How the coda lets go.
   const codaArtRow = view.selectRow(t("fmt.codaArt"), f.codaArt,
     [[0, t("fmt.codaReleased"), { glyph: "—" }], [1, t("fmt.codaUnreleased"), { glyph: "C\u031A" }],
@@ -712,6 +718,10 @@ export function renderFormantTab(view, inst) {
   }
 
   // ── Pitch and timing ──
+  const glideTimeRow = view.sliderRow(t("fmt.glide"), f.glide, 0, 255,
+    (v, gid) => applyQuiet(formantFieldBytes("glide", v), gid),
+    { ann: (v) => `${v * 2} ms` });
+  if (view._formantLive) view._formantLive.glideRow = glideTimeRow;
   view.group(t("fmt.grpPitch"),
     view.sliderRow(t("fmt.track"), f.track, 0, 255,
       (v, gid) => applyQuiet(formantFieldBytes("track", v), gid),
@@ -722,9 +732,7 @@ export function renderFormantTab(view, inst) {
     view.sliderRow(t("fmt.timing"), f.timing, 0, 255,
       (v, gid) => applyQuiet(formantFieldBytes("timing", v), gid),
       { ann: (v) => `×${timingScale(v).toFixed(2)}` }),
-    view.sliderRow(t("fmt.glide"), f.glide, 0, 255,
-      (v, gid) => applyQuiet(formantFieldBytes("glide", v), gid),
-      { ann: (v) => `${v * 2} ms` }),
+    glideTimeRow,
   );
   const notes = view.panel.querySelectorAll(".inst-rows");
   const last = notes[notes.length - 1];
@@ -755,19 +763,63 @@ export function formantTabFrame(view) {
   const playing = !!audio?.isPlaying();
   if (playing) audio.requestInvertMask(live.slot);
   const voices = (playing ? audio.getFormantState(live.slot)?.voices : null) ?? [];
+  const amt = (a) => (a ? `${a.v.toFixed(2)}>${a.to}` : "-");
   const key = voices.map((v) => [v.front, v.open, v.round, v.toFront, v.toOpen, v.toRound]
-    .map((x) => x.toFixed(1)).join(",")).join(";");
+    .map((x) => x.toFixed(1)).join(",") + `|${v.own}|${amt(v.nasal)}|${amt(v.rhotic)}|${v.glide}|${v.coda}`).join(";");
   if (key === live.key) return;
   live.key = key;
-  live.chart.live(voices);
+  live.chart.live(voices.filter((v) => v.own));
+  // What S $9xxx (item 292) gave the first voice that has it stands in its
+  // row, in the accent colour, as the PSG tab shows its overlay.
+  const nasal = voices.find((v) => v.nasal)?.nasal ?? null;
+  const rhotic = voices.find((v) => v.rhotic)?.rhotic ?? null;
+  const glide = voices.find((v) => v.glide >= 0)?.glide ?? -1;
+  showLiveChoice(live.nasalRow, nasal === null ? -1 : nasal.to);
+  showLiveChoice(live.rhoticRow, rhotic === null ? -1 : rhotic.to);
+  if (live.glideRow) {
+    const num = live.glideRow.querySelector(".sl-num");
+    const ann = live.glideRow.querySelector(".sl-ann");
+    if (glide >= 0) {
+      if (document.activeElement !== num) num.value = glide;
+      ann.textContent = `${glide * 2} ms`;
+    } else if (num.classList.contains("fmt-live-on")) {
+      num.value = live.record.glide;
+      ann.textContent = `${live.record.glide * 2} ms`;
+    }
+    num.classList.toggle("fmt-live-on", glide >= 0);
+    num.title = glide >= 0 ? t("fmt.liveGlideTitle") : "";
+  }
   live.line.hidden = voices.length === 0;
   if (voices.length === 0) return;
-  // What each voice sings, or is gliding to: the nearest mark and the command.
+  // What each voice sings, or is gliding to — the nearest mark — and the
+  // commands that put it there.
   const said = voices.map((v) => {
-    const m = nearestVowelMark(v.toFront, v.toOpen, v.toRound);
-    const arg = vowelEffectArg(v.toFront, v.toOpen, v.toRound);
-    return `[${m ? m.ipa : "?"}] S\u00a0$${arg.toString(16).toUpperCase().padStart(4, "0")}`;
+    const fx = [];
+    if (v.own) {
+      const m = nearestVowelMark(v.toFront, v.toOpen, v.toRound);
+      fx.push(`[${m ? m.ipa : "?"}] ${fxText(vowelEffectArg(v.toFront, v.toOpen, v.toRound))}`);
+    }
+    if (v.nasal || v.rhotic || v.coda) {
+      const n = v.nasal ? v.nasal.to : live.record.nasal ? 1 : 0;
+      const r = v.rhotic ? v.rhotic.to : live.record.rhotic ? 1 : 0;
+      fx.push(fxText(0x9000 | (v.coda ? 0x10 : 0) | (n ? 2 : 0) | (r ? 1 : 0)));
+    }
+    if (v.glide >= 0) fx.push(fxText(0x9100 | v.glide));
+    return fx.join(" ");
   });
   const text = t("fmt.liveReadout", { list: [...new Set(said)].join(" · ") });
   if (live.line.textContent !== text) live.line.textContent = text;
+}
+
+/** An effect command as the grids spell it, `S $9012`. */
+const fxText = (arg) => `S\u00a0$${arg.toString(16).toUpperCase().padStart(4, "0")}`;
+
+/** A row of off/on buttons showing a sounding note's own value (0 or 1) in
+ *  the accent colour — or, at −1, nothing of the kind. */
+function showLiveChoice(row, value) {
+  if (!row) return;
+  row.querySelectorAll(".sl-buttons button").forEach((b, i) => {
+    b.classList.toggle("fmt-live-on", i === value);
+    b.title = i === value ? t("fmt.liveChoiceTitle") : "";
+  });
 }

@@ -4,6 +4,16 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.7.3 (2026-11-06)
+
+**A pattern can nasalise a formant instrument's vowel, r-colour it and end the word on cue**: the new `S $9xxx` command says what `S $Afgr` cannot.
+
+- `S $9002` nasalises the note's vowel, `S $9001` r-colours it, `S $9003` does both and `S $9000` neither — whatever the instrument says. On the note's first row it is the note's from the very start, so the consonant before a nasal vowel already lowers the velum; later in the note the vowel glides there over its glide time, as it does for `S $Afgr`.
+- `S $9010` to `S $9013` also move into the coda now, with the key still held, and hold its consonant until the key is let go: "nal" goes on singing its [l], "nan" hums its [n], a [t] holds its closure and bursts on the key-off.
+- `S $91xx` sets how long this note's glides take, in steps of 2 ms, in place of the instrument's Vowel glide; a glide already under way finishes in the new time.
+- While the song plays, the Formant tab shows what these commands gave a sounding note in the accent colour: on the Nasalised and R-colouring buttons, in the Vowel glide field, and as the commands under the vowel chart. The pattern grid colours each part of the command, and the effect palette lists it.
+- Changing a formant note's instrument mid-note now glides its nasalisation and r-colouring to the new instrument's along with the vowel, instead of switching them at once.
+
 ## Version 4.7.2 (2026-11-04)
 
 **Motif writes tunes and bass lines from chords**: give `chord_line` a chord progression and a range, and it makes a line over it — a melody, or a bass.

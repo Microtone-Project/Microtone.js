@@ -454,7 +454,7 @@ The syllable is written as text, in either of two alphabets, or field by field, 
 | `size_follows_pitch` | 0.25 | How far the formants rise with the note, as a power of its pitch (0–0.996); 0 keeps one size at every pitch |
 | `reference` | C3 (the note word `$4000`) | The pitch at which the vowel chart's formants (a man's) are sung exactly. A syllable with no vowel has none |
 | `consonant_length` | 1 | Every consonant's timing, longer or shorter: 2 is twice as slow, 0.5 twice as quick (0.25–3.96) |
-| `vowel_glide` | 40 | How long, in milliseconds, `S $Afgr` takes to move the vowel (0–510, in steps of 2) |
+| `vowel_glide` | 40 | How long, in milliseconds, `S $Afgr` takes to move the vowel, and `S $90kx` to nasalise it or r-colour it (0–510, in steps of 2) |
 
 With neither a syllable nor a field, a formant instrument sings [a]. Its New Note Action is `"off"`, and the next note on its lane, whatever plays it, keys off every syllable of it still singing there — each speaks its coda as the next begins; its fadeout is the Formant tab's 256. `nna` and `fadeout` change those. It sings at the note's own pitch, so it has nothing to `retune`. It may be a layer, but never an FM operator: it is a sound made out of a source rather than one.
 
