@@ -28,6 +28,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - Fixed: with the Instruments view's Mixing tab open in both panes on two different instruments, or two instruments with the same chain, the first pane's levels, gain reduction, spectrum and goniometer drew nothing, playing or not; the two panes took turns aiming one shared meter, and the second pane always won.
 - Each pane now meters its own instrument, the live curves in the equipment's own panels included. Two instruments sharing one bus show that bus in both panes.
+
+**The goniometers keep a transient on the dial**: their automatic gain now drops as soon as something loud arrives, and still takes its time coming back up.
+
+- Fixed: in the master strip's and the Mastering view's goniometers, the first moments of a loud attack after a quiet passage were drawn past the rim and lost, because the magnification came down as slowly as it went up.
 - Leaving the Mixing tab in one pane stops only that pane's metering; the other pane's monitors carry on.
 
 ## Version 4.8.0 (2026-11-07)

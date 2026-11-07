@@ -9,11 +9,13 @@
 
 import { CrtBeam, beamCoreInk } from "./crtbeam.js";
 
-/** Time constant of the vectorscope auto-gain, both directions. Long enough
- *  that the dial BREATHES with the music instead of snapping at every
- *  transient — the trace's shape is the reading, and a gain that jumps makes
- *  shapes impossible to compare from one moment to the next. */
-export const SCOPE_GAIN_SLEW_MS = 300;
+/** Time constant of the vectorscope auto-gain on the way UP. Long enough that
+ *  the dial BREATHES back after a loud passage instead of snapping — the
+ *  trace's shape is the reading, and a gain that jumps makes shapes impossible
+ *  to compare from one moment to the next. On the way DOWN there is no slew at
+ *  all (scopeGainStep): a slewed drop let every transient overrun the rim for
+ *  the first frames of it, and those frames are the ones a scope is for. */
+export const SCOPE_GAIN_RELEASE_MS = 300;
 /** How much of the dial's radius the auto-gain aims to fill. */
 export const SCOPE_GAIN_FILL = 0.92;
 /**
@@ -64,9 +66,19 @@ export function slewTowards(prev, want, dtMs, tauMs) {
   return prev + (want - prev) * (1 - Math.exp(-dtMs / tauMs));
 }
 
+/**
+ * One frame of the auto-gain: down AT ONCE to what the window asks for, up at
+ * SCOPE_GAIN_RELEASE_MS. A peak meter's ballistics, for the same reason — the
+ * window's peak already holds a transient for the length of the ring, so the
+ * trace never leaves the dial, and the release keeps it from pumping.
+ */
+export function scopeGainStep(prev, want, dtMs) {
+  return want < prev ? want : slewTowards(prev, want, dtMs, SCOPE_GAIN_RELEASE_MS);
+}
+
 export class CrtScope {
   constructor() {
-    /** The auto-gain, slewed (see follow). */
+    /** The auto-gain (see follow). */
     this.gain = 1;
     this.cell = null;
   }
@@ -75,12 +87,12 @@ export class CrtScope {
   clear() { this.cell?.beam.clear(); }
 
   /**
-   * Slew the gain toward what a window that peaked at `peak` asks for. The
-   * peak is a WINDOW statistic — a caller reads the whole ring for it however
+   * Move the gain toward what a window that peaked at `peak` asks for
+   * (scopeGainStep: down at once, up slewed). The peak is a WINDOW statistic — a caller reads the whole ring for it however
    * few samples this frame draws, or it would wobble with every transient.
    */
   follow(peak, dtMs) {
-    this.gain = slewTowards(this.gain, scopeAutoGain(peak), dtMs, SCOPE_GAIN_SLEW_MS);
+    this.gain = scopeGainStep(this.gain, scopeAutoGain(peak), dtMs);
     return this.gain;
   }
 

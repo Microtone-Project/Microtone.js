@@ -161,7 +161,7 @@ export const RAD_FILL = 0.94;
  */
 export const RAD_SILENCE = 0.00316; // 10^(−50/20)
 /** Peak tracking, so the surface breathes rather than snapping. Matches the
- *  goniometer's auto-gain (SCOPE_GAIN_SLEW_MS) so the two panels agree. */
+ *  goniometer's auto-gain on its way up (SCOPE_GAIN_RELEASE_MS). */
 export const RAD_PEAK_SLEW_MS = 300;
 
 /**

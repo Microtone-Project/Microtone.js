@@ -63,8 +63,8 @@ import { uiDpr, toLayout } from "../zoom.js";
 // The vectorscope's helpers live with the panel both scopes draw through
 // (crtscope.js); they are still this module's to export.
 export {
-  scopeAutoGain, parseInk, slewTowards,
-  SCOPE_GAIN_SLEW_MS, SCOPE_GAIN_FILL, SCOPE_GAIN_HEADROOM, SCOPE_GAIN_MAX,
+  scopeAutoGain, scopeGainStep, parseInk, slewTowards,
+  SCOPE_GAIN_RELEASE_MS, SCOPE_GAIN_FILL, SCOPE_GAIN_HEADROOM, SCOPE_GAIN_MAX,
 } from "../crtscope.js";
 
 const PREF_KEY = "microtone-masterstrip";
@@ -1343,10 +1343,10 @@ export class MasterStrip {
 
     // The gain is a WINDOW statistic, so it reads the whole ring however few
     // samples this frame draws: measured over the 16 ms just gone it would
-    // wobble with every transient. One slew for both directions (~300 ms): a
-    // transient briefly overruns the dial rather than yanking the whole trace
-    // smaller, which is the readable trade — you are looking at the SHAPE, and
-    // it has to hold still enough to be looked at.
+    // wobble with every transient. It comes DOWN at once, so a transient is
+    // drawn inside the dial from its first frame instead of overrunning the rim
+    // while a slew caught up, and goes back UP slowly (~300 ms), so the trace
+    // holds still enough after it to be looked at.
     let peak = 0;
     for (let k = 0; k < SCOPE_FRAMES; k++) {
       const o = k * SCOPE_CHANNELS;

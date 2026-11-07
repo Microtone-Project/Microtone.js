@@ -24,8 +24,8 @@ import {
   dbfs, meterFrac, correlation, availableScopes, effectiveScopes, SCOPE_KINDS,
   scopeAxes, scopeLabels, blobView, radView, MeterBallistics, RMS_SLOW_MS,
   scopePanelHeight, scopePanelsThatFit, parseInk,
-  slewTowards, integrateCorrelation, SCOPE_GAIN_SLEW_MS, CORR_INTEGRATE_MS,
-  scopeAutoGain, SCOPE_GAIN_FILL, SCOPE_GAIN_HEADROOM, SCOPE_GAIN_MAX,
+  slewTowards, integrateCorrelation, SCOPE_GAIN_RELEASE_MS, CORR_INTEGRATE_MS,
+  scopeAutoGain, scopeGainStep, SCOPE_GAIN_FILL, SCOPE_GAIN_HEADROOM, SCOPE_GAIN_MAX,
   METER_MIN_DB, SCOPE_BLOBS, SCOPE_BLOBS_FRONT, SCOPE_BLOBS_SIDE,
   SCOPE_TOP, SCOPE_FRONT, SCOPE_SIDE,
   SCOPE_RAD, SCOPE_RAD_FRONT, SCOPE_RAD_SIDE,
@@ -579,11 +579,16 @@ test("the vectorscope auto-gain leaves headroom for a full-scale mix", () => {
   assert.ok(0.2 * scopeAutoGain(0.2) < 0.92, String(0.2 * scopeAutoGain(0.2)));
 });
 
-test("the vectorscope auto-gain slews in wall time", () => {
-  // One time constant gets ~63% of the way there, in either direction.
-  assert.ok(Math.abs(slewTowards(1, 11, SCOPE_GAIN_SLEW_MS, SCOPE_GAIN_SLEW_MS) - (1 + 10 * 0.6321)) < 0.01);
-  assert.ok(Math.abs(slewTowards(11, 1, SCOPE_GAIN_SLEW_MS, SCOPE_GAIN_SLEW_MS) - (11 - 10 * 0.6321)) < 0.01,
-    "coming down is slewed too — it used to snap");
+test("the vectorscope auto-gain comes down at once and goes up in wall time", () => {
+  // Up: one time constant gets ~63% of the way there.
+  assert.ok(Math.abs(scopeGainStep(1, 11, SCOPE_GAIN_RELEASE_MS) - (1 + 10 * 0.6321)) < 0.01);
+  // Down: a transient must not overrun the dial while the gain catches up, so
+  // the first frame of it is already drawn at the gain it asks for.
+  assert.equal(scopeGainStep(11, 1, 16), 1);
+  assert.equal(scopeGainStep(11, 1, 0), 1, "even on a zero-length frame");
+  let up = 1;
+  for (let i = 0; i < 3; i++) up = scopeGainStep(up, 11, 16);
+  assert.ok(up < 3, `three frames up is still well short of the way: ${up}`);
   // Frame-rate independent: ten small steps land exactly where one big one does.
   let a = 1;
   for (let i = 0; i < 10; i++) a = slewTowards(a, 11, 30, 300);
