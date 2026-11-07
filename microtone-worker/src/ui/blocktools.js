@@ -27,6 +27,9 @@ import {
 import { FX_INFO, fxName, fxArg } from "./palette.js";
 import { planInterpolate, INTERP_SHAPES, PITCH_MODES } from "../doc/interpolate.js";
 import { soundControlKind, agreedKind } from "../doc/instcontext.js";
+import { harmoniseSongNotes } from "../doc/harmonise.js";
+import { CHROMATIC_POLICIES, HARMONISE_DEFAULTS } from "../../core/tuning/harmonise.js";
+import { showBanner } from "./components/banner.js";
 
 /**
  * The quick effect palette (item 100.5).
@@ -476,28 +479,112 @@ export async function panDialog(store, scope, titleArg) {
   return mult === 1 && add === 0 ? null : { mult, add };
 }
 
+/** The transpose dialog's fields — shared with the Project tab's song-wide
+ *  transpose so the two can never offer different things. The fine unit
+ *  follows the song's tuning; the mode picks a plain chromatic shift or a
+ *  HARMONIC one (core/tuning/harmonise.js), where the fine amount is how far
+ *  the base note — the first of the passage — moves, and every other note
+ *  moves the same number of steps along the scale it is in. */
+export function transposeFields(store) {
+  const units = transposeUnitKeys(store.pitchPreset);
+  const harmonicOnly = { field: "mode", is: "harmonic" };
+  return [
+    { name: "fine", label: t(units.fine), type: "number", value: 0, min: -4096, max: 4096 },
+    { name: "coarse", label: t(units.coarse), type: "number", value: 0, min: -10, max: 10 },
+    { name: "mode", label: t("pat.trMode"), type: "select", value: "chromatic",
+      options: [
+        { value: "chromatic", label: t("pat.trModeChromatic") },
+        { value: "harmonic", label: t("pat.trModeHarmonic") },
+      ],
+      hints: { chromatic: t("pat.trModeChromaticHint"), harmonic: t("pat.trModeHarmonicHint") } },
+    { name: "policy", label: t("pat.trPolicy"), type: "select", value: HARMONISE_DEFAULTS.policy,
+      options: CHROMATIC_POLICIES.map((p) => ({ value: p, label: t(`pat.trPolicy.${p}`) })),
+      hints: Object.fromEntries(CHROMATIC_POLICIES.map((p) => [p, t(`pat.trPolicyHint.${p}`)])),
+      enabledWhen: harmonicOnly },
+    { name: "avoidClashes", label: t("pat.trAvoidClashes"), type: "checkbox",
+      value: HARMONISE_DEFAULTS.avoidClashes, hint: t("pat.trAvoidClashesHint"), enabledWhen: harmonicOnly },
+    { name: "raw", label: t("pat.unitRaw4096"), type: "checkbox", value: false },
+  ];
+}
+
+/** Read the transpose fields back: {fine, coarse, raw, harmonic, policy,
+ *  avoidClashes}, or null when nothing would move. */
+export function parseTransposeFields(result) {
+  if (!result) return null;
+  const fine = parseInt(result.fine || "0", 10) | 0;
+  const coarse = parseInt(result.coarse || "0", 10) | 0;
+  if (fine === 0 && coarse === 0) return null;
+  return {
+    fine, coarse,
+    raw: !!result.raw,
+    harmonic: result.mode === "harmonic" && fine !== 0,
+    policy: CHROMATIC_POLICIES.includes(result.policy) ? result.policy : HARMONISE_DEFAULTS.policy,
+    avoidClashes: result.avoidClashes !== false,
+  };
+}
+
 /** The transpose dialog — its unit labels follow the song's tuning, and the
  *  raw checkbox bypasses notation entirely for a straight 4096-TET-unit shift
  *  (fine = note units, coarse = octaves), the same arithmetic the "Raw
  *  format" preset already does, on demand rather than by switching notation.
- *  Resolves {fine, coarse, raw} or null. */
+ *  Resolves the parseTransposeFields shape or null. */
 export async function transposeDialog(store, scope, titleArg) {
-  const units = transposeUnitKeys(store.pitchPreset);
   const result = await showModal({
     title: t("pat.transposeModalTitle", { pat: titleArg }),
     body: t("pat.transposeBody", { scope }),
-    fields: [
-      { name: "fine", label: t(units.fine), type: "number", value: 0, min: -4096, max: 4096 },
-      { name: "coarse", label: t(units.coarse), type: "number", value: 0, min: -10, max: 10 },
-      { name: "raw", label: t("pat.unitRaw4096"), type: "checkbox", value: false },
-    ],
+    fields: transposeFields(store),
     okLabel: t("common.apply"),
   });
-  if (!result) return null;
-  const fine = parseInt(result.fine || "0", 10) | 0;
-  const coarse = parseInt(result.coarse || "0", 10) | 0;
-  const raw = !!result.raw;
-  return fine === 0 && coarse === 0 ? null : { fine, coarse, raw };
+  return parseTransposeFields(result);
+}
+
+/** A scale root as text, in the song's own notation: "E♭", "C𝄲", a Shi'er lü
+ *  character, or the degree number where the notation has no symbols. */
+function rootName(preset, root) {
+  const sym = (preset?.interval === 0 ? pitchTablePresets[120] : preset)?.sym;
+  const tok = sym?.[root];
+  if (!tok) return String(root);
+  if (tok.length === 1) return tok;
+  const acc = { "-": "", "#": "\u266f", b: "\u266d", t: "\ud834\udd32", p: "\ud834\udd33", x: "\ud834\udd2a", B: "\ud834\udd2b" }[tok[2]] ?? tok[2];
+  const tick = { u: "\u2191", d: "\u2193", U: "\u21c8", D: "\u21ca" }[tok[0]] ?? "";
+  return tick + tok[1] + acc;
+}
+
+/**
+ * Run a harmonic transpose over the cells `select(pat, row)` picks, as ONE
+ * undo step, then say what it found: the scale the base note was read in and
+ * how many steps that made — or, when no scale could hold the request, that
+ * it fell back to a plain chromatic shift.
+ */
+export function applyHarmonicTranspose(store, preset, percSlots, select, v) {
+  let report = null;
+  store.undo.apply(bulkNotesOp(store.songIndex, (song) => {
+    const out = harmoniseSongNotes(song, preset, percSlots, select, {
+      fine: v.fine, coarse: v.coarse, policy: v.policy, avoidClashes: v.avoidClashes,
+    });
+    report = out.report;
+    return out.changes;
+  }));
+  if (!report) return;
+  let text;
+  if (report.fallback && report.fallback !== "noPitchSet") {
+    text = t(`pat.trFallback.${report.fallback}`);
+  } else if (report.baseScale) {
+    const scale = report.baseScale.family === "observed"
+      ? t("pat.trScale.observed")
+      : t("pat.trScaleOn", {
+        scale: t(`pat.trScale.${report.baseScale.family.startsWith("mos") ? "mos" : report.baseScale.family}`,
+          { n: report.baseScale.size }),
+        root: rootName(preset, report.baseScale.root),
+      });
+    text = t("pat.trReport", {
+      scale, k: report.k,
+      changes: Math.max(0, report.segments.length - 1), adjusted: report.adjusted,
+    });
+  }
+  if (!text) return;
+  const b = showBanner({ text, actions: [{ label: t("common.ok") }] });
+  setTimeout(() => b.close(), 8000);
 }
 
 /** The preset a transpose should actually compute against: the raw checkbox
@@ -575,6 +662,10 @@ async function transposeTool(ctx) {
     byPattern.get(pat).add(row);
   }
   for (const pat of byPattern.keys()) store.doc.ensurePattern(store.songIndex, pat);
+  if (v.harmonic) {
+    applyHarmonicTranspose(store, preset, perc, (pat, row) => byPattern.get(pat)?.has(row) === true, v);
+    return true;
+  }
   store.undo.apply(bulkNotesOp(store.songIndex, (song) => {
     const changes = [];
     for (const [pat, rows] of byPattern) {

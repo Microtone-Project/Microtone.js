@@ -20,8 +20,9 @@ import {
 import { planPoolDefrag } from "../../doc/pooldefrag.js";
 import {
   pitchTablePresets, presetForNotation, retuneAllPatterns, surveyTuning,
-  transposeAllPatterns, transposeUnitKeys,
+  transposeAllPatterns,
 } from "../../../core/tuning/pitchtables.js";
+import { transposeFields, parseTransposeFields, applyHarmonicTranspose } from "../blocktools.js";
 import { defToPreset } from "../../doc/notation.js";
 import { Song } from "../../doc/document.js";
 import { showModal, showNotice } from "../components/modal.js";
@@ -504,25 +505,24 @@ export class ProjectView {
     const store = this.store;
     if (!store.doc || !store.song) return;
     const notationPreset = store.pitchPreset;
-    const units = transposeUnitKeys(notationPreset);
-    const result = await showModal({
+    const v = parseTransposeFields(await showModal({
       title: t("glob.transposeTitle"),
       body: t("glob.transposeBody", { song: store.songIndex }),
-      fields: [
-        { name: "fine", label: t(units.fine), type: "number", value: 0, min: -4096, max: 4096 },
-        { name: "coarse", label: t(units.coarse), type: "number", value: 0, min: -10, max: 10 },
-        { name: "raw", label: t("pat.unitRaw4096"), type: "checkbox", value: false },
-      ],
+      fields: transposeFields(store),
       okLabel: t("common.apply"),
-    });
-    if (!result) return;
-    const fine = parseInt(result.fine || "0", 10) | 0;
-    const coarse = parseInt(result.coarse || "0", 10) | 0;
-    if (fine === 0 && coarse === 0) return;
-    const preset = result.raw ? pitchTablePresets[0] : notationPreset;
+    }));
+    if (!v) return;
+    const { fine, coarse } = v;
+    const preset = v.raw ? pitchTablePresets[0] : notationPreset;
     const percSlots = this._percSlots();
-    store.undo.apply(bulkNotesOp(store.songIndex,
-      (song) => transposeAllPatterns(song, preset, percSlots, fine, coarse)));
+    if (v.harmonic) {
+      // Every note moves, so the whole song is the passage: the base note is
+      // the song's first, and the key is followed through every modulation.
+      applyHarmonicTranspose(store, preset, percSlots, () => true, v);
+    } else {
+      store.undo.apply(bulkNotesOp(store.songIndex,
+        (song) => transposeAllPatterns(song, preset, percSlots, fine, coarse)));
+    }
     store.emit("doc"); // notes moved across many patterns — full redraw
     this.refresh();
   }
