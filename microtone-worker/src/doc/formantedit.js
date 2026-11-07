@@ -279,20 +279,30 @@ export function formantSourceFlagByte(inst, e) {
 
 /** A new formant instrument's fadeout (defaultFormantRecord). */
 export const FORMANT_DEFAULT_FADEOUT = 256;
+/** Duplicate Check Action 1 (§7.1): release the duplicate. */
+const DCA_KEY_OFF = 1;
+/** The default volume envelope's LOOP word: present (bit 13), no loop. */
+export const FORMANT_DEFAULT_VOL_LOOP = 0x2000;
+/** …and its SUSTAIN word: on (bit 5), start node 1 (bits 8…12), end node 1. */
+export const FORMANT_DEFAULT_VOL_SUSTAIN = (1 << 8) | 0x20 | 1;
 
 /**
  * A new type-1 record: the source (a census entry, or null for none yet), its
  * C4 rate, the pool range, and the vowel [a] with no consonants — a sung "ah"
  * until the editor says otherwise. Note Off is its New Note Action, and its
- * Duplicate Check is Lane → Note Off (item 216): ANY note arriving on the
+ * Duplicate Check is Lane → Key-off (items 216, 300): ANY note arriving on the
  * lane, whatever instrument plays it, keys off every syllable of this one
  * still singing its vowel there, so each speaks its coda in the background
  * while the next begins. A syllable with no coda goes on singing its vowel
- * through its release, so the fadeout is what ends it: 32 = 32 ticks, about
- * 0.64 s at 125 BPM — slow enough that a coda is heard out, at the cost of
- * one ending a little quieter than it began. A record made from nothing in
- * the pool (range FORMANT_RANGE_NONE, no source) is sung from a source
- * instrument its caller names (bankmerge planCreateFormant).
+ * through its release, so the fadeout is what ends it: 256 is a quarter of
+ * the level a tick, four ticks — 80 ms at 125 BPM.
+ *
+ * Its volume envelope rises from 24 to 63 over the shortest segment there is,
+ * 1/256 s (minifloat code 1, about 4 ms), and holds there — sustain on node 1
+ * (item 300) — so a syllable never starts on a step, whatever the source does
+ * at its first sample. A record made from nothing in the pool (range
+ * FORMANT_RANGE_NONE, no source) is sung from a source instrument its caller
+ * names (bankmerge planCreateFormant).
  */
 export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
   const p = new FormantPatch();
@@ -300,7 +310,7 @@ export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
   p.rangeLo = rangeLo;
   p.rangeHi = rangeHi;
   const looped = source && (source.loopMode & 3) !== 0 && (source.loopMode & 3) !== 3;
-  return buildFormantRecord(encodeFormantBlock(p), {
+  const r = buildFormantRecord(encodeFormantBlock(p), {
     ptr: source ? source.ptr : 0,
     len: source ? source.len : 0,
     rate: source ? Math.max(1, Math.min(65535, Math.round(c4Rate))) : 0,
@@ -308,7 +318,15 @@ export function defaultFormantRecord(source, c4Rate, rangeLo, rangeHi) {
     loopStart: looped ? source.loopStart : 0,
     loopEnd: looped ? source.loopEnd : 0,
     loopMode: source ? source.loopMode & 0x07 : 0,
-  }, { nna: 0, dct: DCT_LANE, dca: 0, fadeout: FORMANT_DEFAULT_FADEOUT });
+  }, { nna: 0, dct: DCT_LANE, dca: DCA_KEY_OFF, fadeout: FORMANT_DEFAULT_FADEOUT });
+  // The volume envelope (§7.2): nodes at 21…, a value then the offset to the
+  // next node; node 1's zero offset ends it.
+  r[21] = 24; r[22] = 1;
+  r[23] = 63; r[24] = 0;
+  const w16 = (o, v) => { r[o] = v & 0xff; r[o + 1] = (v >>> 8) & 0xff; };
+  w16(15, FORMANT_DEFAULT_VOL_LOOP);
+  w16(189, FORMANT_DEFAULT_VOL_SUSTAIN);
+  return r;
 }
 
 // ── the chart's marks ──────────────────────────────────────────────────────

@@ -1879,6 +1879,10 @@ export default {
   "env.graphTitle": "Drag a node to shape the envelope; sideways it moves between its neighbours, Shift+drag takes the nodes after it along · wheel or two-finger pinch = zoom · Shift+wheel or drag empty space = scroll · double-click empty space = fit",
   "env.addNode": "＋ Add node",
   "env.removeNode": "－ Remove node",
+  "env.copy": "Copy",
+  "env.copyTitle": "Copy this envelope (Ctrl+C) — its nodes, sustain, loop and carry — to paste onto any envelope of any instrument, in this window or another.",
+  "env.paste": "Paste",
+  "env.pasteTitle": "Replace this envelope with the copied one (Ctrl+V): its nodes, sustain, loop and carry, switched on. A volume shape pasted onto a pan, pitch or filter envelope, or the other way round, is rescaled to fit. One undo takes it back.",
 
   // ── Advanced Edit (Ixmp patch editor) ──
   "meta.edit": "Edit…",
@@ -2727,7 +2731,7 @@ export default {
   "help.arrowsDrag": "arrows · drag",
   "help.selMode": "selection mode on / off — the arrows and Shift+Ctrl(+Alt)+arrows extend the block (Esc ends it too)",
   "help.selExtend": "Timeline/Patterns/Cues: extend a block selection (drag selects sub-columns)",
-  "help.clipboard": "copy / cut / paste the selected block",
+  "help.clipboard": "copy / cut / paste the selected block; on an envelope, copy / paste the envelope",
   "help.pastePorous": "porous paste — the block's empty cells leave what is under them alone",
   "help.selClear": "clear selection · blank the selected block",
   "help.ctxMenu": "Context menu at the cursor (arrows walk it)",

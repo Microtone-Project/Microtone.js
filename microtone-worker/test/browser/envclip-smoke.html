@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>envelope copy/paste smoke</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1200px;height:760px"></iframe>
+  <img src="/hang" alt="" hidden />
+  <script type="module">
+    // Item 300 — the envelope editors' Copy and Paste buttons (envgraph.js
+    // envClipButtons), pressed for real:
+    //
+    // - a volume envelope copied and pasted onto another instrument's volume
+    //   envelope arrives node for node, with its sustain, loop and carry, and
+    //   switched on; one undo takes it back;
+    // - pasted onto a pan envelope its values are rescaled 0…63 → 0…255, and
+    //   the pan envelope keeps its own "use default pan" bit;
+    // - pasted onto an absent Pitch/Filter tab it claims that tab's role;
+    // - the copy sits in the shared slot another browser tab reads;
+    // - Advanced Edit's patch envelopes have the same two buttons.
+    const out = [];
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    let failures = 0;
+    const check = (name, ok, detail = "") => {
+      if (!ok) failures++;
+      log(`${name}${detail ? ` (${detail})` : ""}: ${ok ? "ok" : "FAIL"}`);
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await new Promise((resolve) => {
+          const poll = setInterval(() => {
+            const w = frame.contentWindow;
+            if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+          }, 100);
+        });
+        const { store, instrumentsView: iv } = win.__microtone;
+        const { setEnvArrayOp, setInstFieldOp, compositeOp } = await import("../../src/doc/ops.js");
+        const { ENV_MAX_NODES } = await import("../../src/doc/envedit.js");
+        log("app loaded, doc ready");
+
+        const doc = store.doc;
+        const plain = doc.usedInstrumentSlots().filter((s) => !doc.instruments[s].isMeta);
+        const [A, B] = plain;
+        win.document.querySelector('#tabs button[data-view="instruments"]').click();
+        await sleep(200);
+        const show = (slot, tab) => { iv.selected = slot; iv.advanced = false; iv.tab = tab; iv.refresh(); };
+        const buttons = () => [...iv.panel.querySelectorAll(".env-controls button")];
+        const btn = (word) => buttons().find((b) => b.textContent.trim().endsWith(word));
+        const nodes = (slot, key, n) => doc.instruments[slot][key].slice(0, n).map((x) => [x.value, x.offset]);
+
+        // A's volume envelope: 0 → 63 in 4 ms, down to 20; sustain on node 1,
+        // a loop 1…2 with carry, present.
+        const shape = Array.from({ length: ENV_MAX_NODES }, () => ({ value: 0x3f, offset: 0 }));
+        shape[0] = { value: 0, offset: 1 }; shape[1] = { value: 63, offset: 64 }; shape[2] = { value: 20, offset: 0 };
+        store.undo.apply(compositeOp([
+          setEnvArrayOp(A, "volEnvelopes", shape),
+          setInstFieldOp(A, "volEnvLoop", 0x2000 | 0x40 | 0x20 | (1 << 8) | 2),
+          setInstFieldOp(A, "volEnvSustainWord", 0x20 | (1 << 8) | 1),
+        ]));
+        show(A, "env0");
+        check("the Vol env tab has Copy and Paste", !!btn("Copy") && !!btn("Paste"));
+        try { win.localStorage.removeItem("microtone.envClipboard"); } catch { /* none */ }
+        store.envClipboard = null;
+        show(A, "env0");
+        check("Paste is off with nothing copied", btn("Paste").disabled === true);
+        btn("Copy").click();
+        check("…and on once something is", btn("Paste").disabled === false);
+        let shared = null;
+        try { shared = JSON.parse(win.localStorage.getItem("microtone.envClipboard")); } catch { /* none */ }
+        check("the copy is in the slot other tabs read", shared?.data?.max === 63 && shared.data.nodes.length === 25);
+
+        // Onto B's volume envelope: exactly.
+        const beforeB = { n: nodes(B, "volEnvelopes", 25), loop: doc.instruments[B].volEnvLoop,
+          sus: doc.instruments[B].volEnvSustainWord };
+        show(B, "env0");
+        btn("Paste").click();
+        check("pasted onto another instrument's Vol env, node for node",
+          JSON.stringify(nodes(B, "volEnvelopes", 3)) === JSON.stringify([[0, 1], [63, 64], [20, 0]]),
+          JSON.stringify(nodes(B, "volEnvelopes", 3)));
+        check("…with its sustain, loop and carry, switched on",
+          doc.instruments[B].volEnvLoop === (0x2000 | 0x40 | 0x20 | (1 << 8) | 2) &&
+          doc.instruments[B].volEnvSustainWord === (0x20 | (1 << 8) | 1),
+          `loop $${doc.instruments[B].volEnvLoop.toString(16)} sus $${doc.instruments[B].volEnvSustainWord.toString(16)}`);
+        store.undo.undo();
+        check("one undo takes it back",
+          JSON.stringify(nodes(B, "volEnvelopes", 25)) === JSON.stringify(beforeB.n) &&
+          doc.instruments[B].volEnvLoop === beforeB.loop && doc.instruments[B].volEnvSustainWord === beforeB.sus);
+
+        // Onto B's pan envelope: rescaled, its own p bit kept.
+        store.undo.apply(setInstFieldOp(B, "panEnvLoop", 0x80));
+        show(B, "env1");
+        btn("Paste").click();
+        check("pasted onto a Pan env, rescaled 0…63 → 0…255",
+          JSON.stringify(nodes(B, "panEnvelopes", 3)) === JSON.stringify([[0, 1], [255, 64], [81, 0]]),
+          JSON.stringify(nodes(B, "panEnvelopes", 3)));
+        check("…keeping the pan envelope's own default-pan bit, present",
+          (doc.instruments[B].panEnvLoop & 0x2080) === 0x2080);
+        store.undo.undo();
+        store.undo.undo();
+
+        // Onto an absent Pitch/Filter role: the paste claims it.
+        const onePf = (i) => i.isOpl || i.isPsg || i.isFormant;
+        const absentPf = (i) => !(i.pfEnvLoop & 0x2000) && !(i.pf2EnvLoop & 0x2000);
+        const pfAbsent = plain.find((s) => !onePf(doc.instruments[s]) && absentPf(doc.instruments[s]));
+        if (pfAbsent === undefined) {
+          log("no sampled instrument without a pitch/filter envelope — leg skipped");
+        } else {
+          show(pfAbsent, "filter");
+          btn("Paste").click();
+          const i = doc.instruments[pfAbsent];
+          const claimed = [i.pfEnvLoop, i.pf2EnvLoop].some((w) => (w & 0x2000) && (w & 0x80));
+          check("pasted onto an absent Filter tab, the filter role is claimed", claimed && iv.tab === "filter",
+            `$${i.pfEnvLoop.toString(16)} $${i.pf2EnvLoop.toString(16)}`);
+          store.undo.undo();
+        }
+        // …and on a chip or formant instrument's one Pitch/Filter tab, the
+        // role the tab is showing is the one it keeps.
+        const chip = plain.find((s) => onePf(doc.instruments[s]));
+        if (chip === undefined) {
+          log("no chip or formant instrument — leg skipped");
+        } else {
+          show(chip, "pf");
+          const role = doc.instruments[chip].pfEnvLoop & 0x80;
+          btn("Paste").click();
+          const w = doc.instruments[chip].pfEnvLoop;
+          check("pasted onto a one-slot Pitch/Filter tab, it keeps the tab's role, present",
+            (w & 0x80) === role && (w & 0x2000) !== 0, `$${w.toString(16)}`);
+          store.undo.undo();
+        }
+
+        // Advanced Edit: a patch of A's own, its volume override switched on.
+        const sampled = plain.find((s) => !onePf(doc.instruments[s]));
+        show(sampled, "general");
+        iv.advanced = true;
+        iv.advEditor.selIdx = 0;
+        iv.advEditor.envKind = 0;
+        iv.refresh();
+        const hadPatches = (doc.instruments[sampled].extraPatches ?? []).length;
+        if (hadPatches === 0) iv.advEditor.addPatch();
+        const pi = iv.advEditor.selIdx;
+        const pat = () => doc.instruments[sampled].extraPatches[pi];
+        if (pat().volEnv === null) iv.panel.querySelector(".adv-envbox > button").click();
+        check("Advanced Edit's patch envelope has Copy and Paste", !!btn("Copy") && !!btn("Paste"));
+        btn("Paste").click();
+        const pn = pat().volEnv.slice(0, 3).map((x) => [x.value, x.offset]);
+        check("pasted onto a patch's volume envelope, with its words",
+          JSON.stringify(pn) === JSON.stringify([[0, 1], [63, 64], [20, 0]]) &&
+          pat().volEnvLoop === (0x2000 | 0x40 | 0x20 | (1 << 8) | 2) && pat().volEnvSustain === (0x20 | (1 << 8) | 1),
+          JSON.stringify(pn));
+        // The patch's pitch envelope: rescaled, and the m-bit its kind fixes (pitch = clear).
+        iv.advEditor.envKind = 3;
+        iv.advEditor.render();
+        if (pat().pitchEnv === null) iv.panel.querySelector(".adv-envbox > button").click();
+        btn("Paste").click();
+        check("…and onto its pitch envelope, rescaled, still the pitch role",
+          pat().pitchEnv[1].value === 255 && (pat().pitchEnvLoop & 0x2080) === 0x2000,
+          `$${pat().pitchEnvLoop.toString(16)}`);
+        iv.advanced = false;
+        iv.refresh();
+
+        // Ctrl+C / Ctrl+V do what the buttons do, on whatever envelope is on screen.
+        const key = (k) => {
+          const ev = new win.KeyboardEvent("keydown", { key: k, code: "Key" + k.toUpperCase(),
+            ctrlKey: true, bubbles: true, cancelable: true });
+          win.document.activeElement?.blur?.();
+          win.document.body.dispatchEvent(ev);
+          return ev.defaultPrevented;
+        };
+        store.envClipboard = null;
+        show(A, "env0");
+        const tookC = key("c");
+        check("Ctrl+C on a Vol env tab copies it",
+          tookC && store.envClipboard !== null && store.envClipboard.nodes[1].value === 63 && store.envClipboard.max === 63);
+        show(B, "env0");
+        const beforeKey = JSON.stringify(nodes(B, "volEnvelopes", 25));
+        const tookV = key("v");
+        check("Ctrl+V on another instrument's Vol env pastes it",
+          tookV && JSON.stringify(nodes(B, "volEnvelopes", 3)) === JSON.stringify([[0, 1], [63, 64], [20, 0]]));
+        store.undo.undo();
+        check("…one undo step", JSON.stringify(nodes(B, "volEnvelopes", 25)) === beforeKey);
+        show(B, "general");
+        const tookOff = key("v");
+        check("on a tab with no envelope the keys are left alone",
+          !tookOff && JSON.stringify(nodes(B, "volEnvelopes", 25)) === beforeKey);
+        show(sampled, "general");
+        iv.advanced = true;
+        iv.advEditor.envKind = 1;
+        iv.refresh();
+        if (pat().panEnv === null) iv.panel.querySelector(".adv-envbox > button").click();
+        key("v");
+        check("Ctrl+V in Advanced Edit pastes onto the patch's envelope on screen",
+          pat().panEnv[1].value === 255 && pat().panEnv[2].value === 81);
+        iv.advanced = false;
+        iv.refresh();
+
+        log(`FAILURES: ${failures}`);
+      } catch (err) {
+        log(`ERROR ${err.message}\n${err.stack}`);
+        log("FAILURES: 1");
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1860,6 +1860,10 @@ export default {
   "env.graphTitle": "노드를 드래그해 엔벨로프를 그립니다. 좌우로는 이웃 노드 사이에서만 움직이고, Shift+드래그하면 뒤의 노드들도 함께 움직입니다 · 휠 또는 두 손가락 핀치 = 확대/축소 · Shift+휠 또는 빈 곳 드래그 = 스크롤 · 빈 곳 더블클릭 = 전체 보기",
   "env.addNode": "＋ 노드 추가",
   "env.removeNode": "－ 노드 제거",
+  "env.copy": "복사",
+  "env.copyTitle": "이 엔벨로프의 노드·서스테인·루프·이어가기를 복사합니다 (Ctrl+C). 어느 악기의 어느 엔벨로프에든, 다른 창에서도 붙여넣을 수 있습니다.",
+  "env.paste": "붙여넣기",
+  "env.pasteTitle": "이 엔벨로프를 복사해 둔 엔벨로프로 바꾸고 켭니다 (Ctrl+V). 노드·서스테인·루프·이어가기가 함께 옵니다. 음량 엔벨로프를 팬·음고·필터 엔벨로프에 붙여넣거나 그 반대로 하면 값이 그 범위에 맞게 바뀝니다. 실행 취소 한 번으로 되돌릴 수 있습니다.",
 
   // ── Advanced Edit (Ixmp patch editor) ──
   "meta.edit": "편집…",
@@ -2704,7 +2708,7 @@ export default {
   "help.arrowsDrag": "화살표 · 드래그",
   "help.selMode": "선택 모드 켜기 / 끄기 — 화살표와 Shift+Ctrl(+Alt)+화살표가 블록을 넓힘 (Esc 로도 끝남)",
   "help.selExtend": "타임라인/패턴/큐: 블록 선택 확장 (드래그로 하위 열 선택)",
-  "help.clipboard": "선택 블록 복사 / 잘라내기 / 붙여넣기",
+  "help.clipboard": "선택 블록 복사 / 잘라내기 / 붙여넣기 · 엔벨로프 화면에서는 엔벨로프 복사 / 붙여넣기",
   "help.pastePorous": "투과 붙여넣기 — 블록의 빈 칸은 그 자리의 내용을 건드리지 않음",
   "help.selClear": "선택 해제 · 선택 블록 비우기",
   "help.ctxMenu": "커서 위치의 컨텍스트 메뉴 (화살표로 이동)",

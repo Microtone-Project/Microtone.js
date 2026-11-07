@@ -346,6 +346,13 @@ export const BTN_ICON = {
   coffee: line('<path d="M4 9.5h13v6a4.5 4.5 0 0 1-4.5 4.5h-4A4.5 4.5 0 0 1 4 15.5z"/>' +
     '<path d="M17 11h1.8a2.6 2.6 0 0 1 0 5.2H17"/>' +
     '<path d="M8 3.5V6M12 3v3"/>'),
+  /** Copy — the menus' two stacked sheets (ICON.copy), as a button's. */
+  copy: line('<rect x="8.5" y="2.5" width="13" height="15" rx="2"/>' +
+    '<path d="M15 21.5H4.5a2 2 0 0 1-2-2V6.5"/>'),
+  /** Paste — the menus' clipboard board (ICON.paste), as a button's. */
+  paste: line('<rect x="3.5" y="4.5" width="17" height="17" rx="2"/>' +
+    '<path d="M7.5 11h9M7.5 15.5h6"/>' +
+    '<rect x="8" y="1.8" width="8" height="4.4" rx="1.3" fill="currentColor" stroke="none"/>'),
 };
 
 /** The `<svg>` markup for a button icon — for the HTML-template popups.

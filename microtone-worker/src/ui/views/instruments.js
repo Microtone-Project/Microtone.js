@@ -43,6 +43,7 @@ import { getSoundfont, getBundledSoundfont } from "../soundfont.js";
 import { librarySoundfonts, loadSoundfont } from "../sflibrary.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
+  envClip, envPaste,
 } from "../../doc/envedit.js";
 import { mapSpinner, parsePitchText } from "../components/spinner.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
@@ -87,7 +88,7 @@ import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../../core/engine/spatial.
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr } from "../zoom.js";
-import { EnvAxis, paintEnvGraph, attachEnvGraph } from "../envgraph.js";
+import { EnvAxis, paintEnvGraph, attachEnvGraph, envClipButtons } from "../envgraph.js";
 
 const ENV_TABS = [
   { key: "volEnvelopes", loopKey: "volEnvLoop", susKey: "volEnvSustainWord", labelKey: "inst.tabVolEnv",
@@ -1681,6 +1682,36 @@ export class InstrumentsView {
     return setInstFieldOp(this.envSlot, tabDef.loopKey, (cur | 0x2000) & 0xffff);
   }
 
+  /** Ctrl+C / Ctrl+V on this view (app.js): `op` "copy" or "paste" on the
+   *  envelope on screen — a tab's, an FM Easy operator's, or a patch's in
+   *  Advanced Edit. False when no envelope is showing, so the key is the
+   *  browser's again. */
+  envClipboardKey(op) {
+    const ed = this.advanced ? this.advEditor : this;
+    const clip = ed._envClip;
+    if (!clip || !clip.buttons[0].isConnected) return false;
+    if (op === "copy") clip.copy();
+    else clip.paste();
+    return true;
+  }
+
+  /** Paste `clip` (doc/envedit.js envClip) over this tab's envelope: its
+   *  nodes, sustain, loop and carry, made present — and on a Pitch/Filter tab
+   *  given the tab's role, as any edit there claims it. One undo step. */
+  pasteEnv(tabDef, clip) {
+    const inst = this.store.doc.instruments[this.envSlot];
+    const res = envPaste(clip, inst[tabDef.loopKey], inst[tabDef.susKey], tabDef.max);
+    const loop = tabDef.role
+      ? (res.loop & ~0x80) | (tabDef.role === "filter" ? 0x80 : 0)
+      : res.loop;
+    this.selectedNode = 0;
+    this.store.undo.apply(compositeOp([
+      setEnvArrayOp(this.envSlot, tabDef.key, res.nodes),
+      setInstFieldOp(this.envSlot, tabDef.susKey, res.sus),
+      setInstFieldOp(this.envSlot, tabDef.loopKey, loop & 0xffff),
+    ]));
+  }
+
   /** One node edit from the fields below the graph, with the presence claim
    *  it implies — one undo step either way. */
   applyEnvNodeEdit(tabDef, op) {
@@ -1753,6 +1784,9 @@ export class InstrumentsView {
         () => this.addEnvNode(tabDef, env, sel, max), active >= 25),
       btn(t("env.removeNode"), t("adv.removeNodeTitle"),
         () => this.removeEnvNode(tabDef, env, sel), active <= 1 || sel === 0),
+      ...(this._envClip = envClipButtons(this.store,
+        () => envClip(env, inst[tabDef.loopKey], inst[tabDef.susKey], max),
+        (clip) => this.pasteEnv(tabDef, clip))).buttons,
     ));
 
     // sustain point + range

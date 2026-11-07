@@ -4,6 +4,24 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.8.2 (2026-11-08)
+
+**Lyrics stay in step when you play from the middle**: a lyric instrument now sings the same syllables whether you play the song from its start or from any row.
+
+- Fixed: playing from a row between a sung note and the glide (`G` or `L`) that carries it on made a lyric instrument sing the rest of its lane one syllable early; with nothing sounding, the glide started a new note on the next syllable instead of carrying on the one it glides. It now sings the syllable it glides, as it does when the song plays through.
+
+**Envelopes can be copied and pasted**: every envelope editor has Copy and Paste buttons, so a shape made once can go on any envelope of any instrument.
+
+- Copy takes the nodes together with the sustain, loop and carry settings; Paste puts them on the envelope you are looking at and switches it on, in one undo step.
+- Ctrl+C and Ctrl+V do the same while an envelope is on screen.
+- A volume envelope pasted onto a pan, pitch or filter envelope, or the other way round, is rescaled to fit its range.
+- Works between instruments, in Advanced Edit's patch envelopes, and from one Microtone tab or window to another.
+
+**New formant and lyric instruments start without a click and hand over gently**: they now begin with a 4 ms volume rise, held by the envelope's sustain, and a new syllable releases the one before it rather than cutting it.
+
+- Their Duplicate Check Action is now Key-off: when the next note arrives on the lane, the old syllable is released, so its final consonant starts while the new syllable begins, until its fadeout ends it.
+- Instruments already in your projects are unchanged.
+
 ## Version 4.8.1 (2026-11-07)
 
 **Fadeouts are smooth now**: a note fading out after a Note Off, a Note Fade or a New Note Action no longer clicks on its way down or at its end.

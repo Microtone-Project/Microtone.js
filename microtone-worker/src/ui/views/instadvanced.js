@@ -21,6 +21,7 @@ import { encodeNameTable } from "../../doc/cleanup.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
+  envClip, envPaste,
 } from "../../doc/envedit.js";
 import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { noteToStr, rangeToStr, hex4 } from "../notenames.js";
@@ -34,7 +35,7 @@ import { mapSpinner } from "../components/spinner.js";
 import { lampButton } from "../components/lampbutton.js";
 import { t } from "../i18n.js";
 import { uiDpr, localPoint } from "../zoom.js";
-import { EnvAxis, paintEnvGraph, attachEnvGraph } from "../envgraph.js";
+import { EnvAxis, paintEnvGraph, attachEnvGraph, envClipButtons } from "../envgraph.js";
 
 // The four patch envelope blocks. `mbit` is the LOOP-word role marker written
 // when the editor CREATES the block (bit 7: 1 = filter, 0 = pitch — spec Note
@@ -846,7 +847,10 @@ export class AdvancedZoneEditor {
       })(),
       this.btn("＋", t("adv.addNodeTitle"), () => this.addEnvNode(kind, env, selN), active >= 25),
       this.btn("－", t("adv.removeNodeTitle"), () => this.removeEnvNode(kind, env, selN),
-        active <= 1 || selN === 0));
+        active <= 1 || selN === 0),
+      ...(this._envClip = envClipButtons(this.store,
+        () => envClip(env, p[kind.loopKey], p[kind.susKey], kind.max),
+        (clip) => this.pasteEnv(kind, clip))).buttons);
 
     const susW = p[kind.susKey];
     this.row(wrap,
@@ -871,6 +875,21 @@ export class AdvancedZoneEditor {
       this.chk(t("env.logTimescale"), this.envAxis.log,
         (on) => { this.envAxis.setLog(on); this.drawEnv(); }, t("env.logTimescaleTitle")));
     return wrap;
+  }
+
+  /** Paste `clip` (doc/envedit.js envClip) over the patch's `kind` envelope:
+   *  nodes, sustain, loop and carry, made present, its role bit stamped by its
+   *  kind as setEnvBlock stamps it. */
+  pasteEnv(kind, clip) {
+    this._edit((ps) => {
+      const q = ps[this.selIdx];
+      if (!q || q[kind.key] === null) return;
+      const res = envPaste(clip, q[kind.loopKey], q[kind.susKey], kind.max);
+      q[kind.key] = res.nodes;
+      q[kind.susKey] = res.sus;
+      q[kind.loopKey] = kind.mbit === null ? res.loop : (res.loop & ~0x80) | (kind.mbit ? 0x80 : 0);
+      this.selNode = 0;
+    });
   }
 
   addEnvNode(kind, env, selN) {

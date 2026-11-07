@@ -327,16 +327,35 @@ export function cutLayerChildren(ts, vi) {
  * trigger sings the syllable at the lane's position and moves it on, back to
  * the first after the last.
  */
-function lyricTrigger(voice, inst, instId, lyricReset) {
+function lyricTrigger(voice, inst, instId, lyricReset, glide) {
   if (inst.lyric === null) return null;
   const n = inst.lyric.length;
+  if (glide) {
+    // A tone portamento (G, L) that triggers only because nothing is sounding
+    // on the lane — a play started after the note it glides, or a note that
+    // had run out — is still that note's glide: it says the syllable the
+    // lane's note was singing again and leaves the position where it is, as
+    // a glide from a sounding note does. Otherwise whether a melisma moved the
+    // lyrics on would hang on whether the voice happened to be sounding, and
+    // a play started mid-melisma would sing the rest of the lane one syllable
+    // early. An instrument byte still starts the lyrics over, handing the
+    // note its first syllable when it was singing none of this instrument's
+    // (the porta row's instrument change, row.js applyInstrumentChange).
+    const cur = voice.formant !== null ? voice.formant.patch : null;
+    const k = cur !== null ? inst.lyric.indexOf(cur) : -1;
+    if (instId !== 0 && lyricReset) {
+      voice.lyricPos = 0;
+      return k >= 0 ? cur : inst.lyric[0];
+    }
+    if (k >= 0) return cur;
+  }
   if ((instId !== 0 && lyricReset) || voice.lyricPos >= n) voice.lyricPos = 0;
   const syl = inst.lyric[voice.lyricPos];
   voice.lyricPos = voice.lyricPos + 1 >= n ? 0 : voice.lyricPos + 1;
   return syl;
 }
 
-export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride, lyricReset = true) {
+export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOverride, lyricReset = true, glide = false) {
   // Remember the pattern-level instrument for the Timeline header (a meta's slot,
   // not the layer child triggerNote resolves it to). A note with no instrument
   // byte keeps the last one, matching what the pattern shows.
@@ -348,7 +367,7 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   dropFmOperators(ts, vi);
   const inst = instId !== 0 ? eng.instruments[instId] : eng.instruments[voice.instrumentId];
   if (!inst.isMeta) {
-    triggerNote(eng, ts, voice, noteVal, instId, rowVolOverride, lyricTrigger(voice, inst, instId, lyricReset));
+    triggerNote(eng, ts, voice, noteVal, instId, rowVolOverride, lyricTrigger(voice, inst, instId, lyricReset, glide));
     voice.layerMixGain = 1.0;
     voice.layerRelDetune = 0;
     voice.layerFixedNote = -1;

@@ -1965,7 +1965,7 @@ cut** stops it at once, and a **note fade** or **fast fade** fades the vowel
 away without ever saying the coda.
 
 **Each syllable gives way to the next.** A new formant instrument's New Note
-Action is *Note Off*, and its **Duplicate Check** is *Lane → Off*: whenever
+Action is *Note Off*, and its **Duplicate Check** is *Lane → Key-off*: whenever
 any note arrives on the lane — this instrument's, another formant
 instrument's, or a plain sampled one — every syllable of it still singing its
 vowel there is keyed off. Each speaks its coda while the lane starts the next
@@ -1974,12 +1974,14 @@ already being spoken is left to finish. Words spelt out syllable by syllable,
 an instrument each, run together this way.
 
 A key-off also releases the envelopes and starts the fadeout as on any
-instrument. A new formant instrument's fadeout is 32, about two-thirds of a
-second at 125 BPM: a syllable with no coda fades away under the next one
-rather than singing on beneath it, and a coda is heard out, a little quieter
-at its end. The fadeout is how long such a syllable lingers — shorten it for a
-cleaner join, or lengthen it to let syllables overlap, as a choir's would — and
-a fadeout shorter than a coda cuts the coda short. For a quick crossfade
+instrument. A new formant instrument's fadeout is 256, four ticks — about 80 ms
+at 125 BPM: a syllable with no coda fades away under the next one rather than
+singing on beneath it. The fadeout is how long such a syllable lingers —
+lengthen it to let syllables overlap, as a choir's would — and a fadeout
+shorter than a coda cuts the coda short, so a long coda wants a longer one
+(32 is about two-thirds of a second). A new formant instrument's volume
+envelope rises from silence to full in 4 ms and holds there on its sustain, so
+a syllable never starts with a click whatever its source does. For a quick crossfade
 instead, the vowel ending the moment the next syllable starts and its coda
 unsaid, set the Duplicate Check to *Sample → Cut*: for formant instruments
 "the same sample" means **made from the same pool range**, so any syllable
@@ -2197,6 +2199,7 @@ Each of the three is one undo step, however many instruments it moves.
   - Segment lengths are stored in steps: 1/256 s (about 4 ms) up to an eighth of a second, and twice as long with each doubling of length after that. A dragged node moves in its segment's steps, and the segments either side of it cannot always add up to exactly what they did, so the graph keeps the next node still unless that would put the dragged one more than a few pixels from the pointer. Zoomed in, the dragged node goes exactly where you put it, and the next one gives way by less than half a step.
   - An **OPL**, **PSG** or **formant** instrument has room for only one pitch-or-filter envelope, so it shows a single **Pitch/Filter** tab, with an **Envelope role** switch — **Pitch** or **Filter** — at its top. Switching keeps the nodes and reads them the other way.
   - **＋ Add node** and **－ Remove node** act on the node the spinners point at: adding splits the segment after it, or extends the envelope when that node is the last one, and removing merges its segment into the one before it so the timing after stays put. Node 0 is anchored at t=0 and cannot be removed; removing the last node shortens the envelope.
+  - **Copy** and **Paste** (or **Ctrl+C** and **Ctrl+V** while an envelope is on screen) carry a whole envelope — its nodes with its Sustain, Loop and Carry settings — onto any other envelope: another tab of the same instrument, another instrument, a patch envelope in **Advanced Edit**, or a project open in another tab or window. Paste replaces the envelope you are looking at and switches it on, in one undo step; it leaves alone what belongs to the tab rather than to the shape (Pan env's *use default pan*, the Pitch or Filter role). Between the volume envelope (0–63) and the others (0–255) the values are rescaled, so the shape comes across top to top.
   - **Envelope present** is what makes the envelope sound at all: switch it off and the nodes are kept but ignored — on the Vol env tab the instrument then plays at full level, on Pan env at the lane's own pan. Editing a node switches it back on if it was off, in the same undo step: adding a node, dragging one, or typing its value or segment length — an envelope you are shaping is one you mean to hear. On the Pitch and Filter tabs switching it on is also what claims the record's shared slot for that role. The patch envelopes in **Advanced Edit** work the same way.
   - Switching it on the first time switches **Sustain** on with it and carries its start and end to the new last node, so an envelope you are building arrives holding its final level until key-off rather than needing two more buttons found before any of it is audible. Switch either off and it stays off — the pair is only ever set by the click that brings the envelope into existence.
   - A **Sustain** point sitting on the last node follows it when you add another, so an envelope that holds its final level until key-off keeps doing that instead of turning into a hold halfway through. Sustain and loop points left pointing past the end are pulled back in when the envelope gets shorter.
@@ -2250,7 +2253,7 @@ An instrument may carry a list of **Ixmp patches**: per-zone sample bindings ove
 - **Detail form** — the selected patch's rectangle, sample binding (pick any pooled sample — rate and loop follow), play/loop points, rate, detune, loop mode/sustain; pan / note-volume / auto-vibrato overrides (unchecked = inherit from the base instrument, and *Auto-vibrato override* covers all five of its fields at once — a zone with the box clear plays the instrument's own vibrato); and the *extra block*: per-patch fadeout, filter cutoff/resonance (IT or SF2 units) and SF2 initial attenuation.
   - **Pan** — the override is a *note* pan, so a bank whose zones pan apart keeps its spread wherever the lane is pointed, and `S $80xx` rotates the lot ([note vs lane panning](#note-volume-vs-lane-volume-note-pan-vs-lane-pan)).
   - **Stereo** — makes the patch play a [stereo pair](#stereo-samples): **Ch 2** picks the pooled sample that supplies the second channel (only same-length samples can pair up, since one set of loop points serves both), and **Mode** chooses `L/R` (the channels *are* left and right) or `M/S` (mid/side, decoded to L = M+S, R = M−S at mix time). Binding the patch to a stereo sample sets all of this for you.
-- **Vol / Pan / Filter / Pitch** sub-tabs — per-patch envelope overrides. Ticking *Patch overrides the … envelope* copies the base instrument's envelope as a starting point; the graph then edits exactly like the base envelope tabs (drag nodes, wheel or pinch zoom, add/remove, sustain/loop ranges, log timescale). **Wave** shows the bound sample with live play positions.
+- **Vol / Pan / Filter / Pitch** sub-tabs — per-patch envelope overrides. Ticking *Patch overrides the … envelope* copies the base instrument's envelope as a starting point; the graph then edits exactly like the base envelope tabs (drag nodes, wheel or pinch zoom, add/remove, copy/paste, sustain/loop ranges, log timescale). **Wave** shows the bound sample with live play positions.
 
 Jamming on the piano keys while the panel is open auditions the instrument live; the map, list and envelope graphs all follow the sounding voices. **‹ Back** returns to the normal tabs.
 

@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import {
   ENV_MAX_NODES, ENV_MAX_SEGMENT, envActiveCount, envAddNode, envRemoveNode,
   envFollowTailSustain, envClampWrap, envDragNode, minifloatNearest,
+  envClip, envPaste, envClipToJson, envClipFromJson,
 } from "../../src/doc/envedit.js";
 import { minifloatFromDouble, minifloatToDouble, MINIFLOAT_LUT } from "../../core/engine/minifloat.js";
 
@@ -268,4 +269,46 @@ test("node 0 is anchored, and a node past the end is no node", () => {
   const e = env([63, 0.5], [40, 0]);
   assert.equal(envDragNode(e, 0, 0.3), null);
   assert.equal(envDragNode(e, 2, 0.3), null);
+});
+
+// ── copy and paste (item 300) ──────────────────────────────────────────────
+
+test("a pasted envelope brings its shape, sustain, loop and carry, and keeps the target's role bit", () => {
+  const src = env([0, 0.004], [63, 0.25], [20, 0]);
+  // LOOP: enabled 1…2, carry, present, and a role bit the clipboard must not carry.
+  const srcLoop = word(true, 1, 2) | 0x40 | 0x2000 | 0x80;
+  const clip = envClip(src, srcLoop, word(true, 1, 1), 63);
+  assert.equal(clip.loop & 0x80, 0, "the role bit stays behind");
+  assert.equal(clip.loop & 0x2000, 0, "so does the presence bit");
+  // Onto an absent envelope whose role bit is set: present now, role bit its own.
+  const res = envPaste(clip, 0x80, 0, 63);
+  assert.deepEqual(res.nodes.slice(0, 3), src.slice(0, 3));
+  assert.equal(res.loop, word(true, 1, 2) | 0x40 | 0x2000 | 0x80);
+  assert.equal(res.sus, word(true, 1, 1));
+  // …and onto one without that bit, it stays clear.
+  assert.equal(envPaste(clip, 0, 0, 63).loop & 0x80, 0);
+  // The source is not aliased: editing the clip leaves the instrument alone.
+  clip.nodes[0].value = 9;
+  assert.equal(src[0].value, 0);
+});
+
+test("a paste into another range rescales the values, top to top", () => {
+  const vol = envClip(env([0, 0.1], [63, 0.1], [32, 0]), 0x2000, 0, 63);
+  assert.deepEqual(envPaste(vol, 0, 0, 255).nodes.slice(0, 3).map((n) => n.value), [0, 255, 130]);
+  const pan = envClip(env([0, 0.1], [255, 0.1], [128, 0]), 0x2000, 0, 255);
+  assert.deepEqual(envPaste(pan, 0, 0, 63).nodes.slice(0, 3).map((n) => n.value), [0, 63, 32]);
+  // Same range: values as they were, even an out-of-range one clamped.
+  const odd = envClip(env([80, 0]), 0x2000, 0, 63);
+  assert.equal(envPaste(odd, 0, 0, 63).nodes[0].value, 63);
+});
+
+test("the clipboard's JSON round-trips, and anything else is refused", () => {
+  const clip = envClip(env([0, 0.004], [63, 0]), 0x2000 | word(false, 0, 1), word(true, 1, 1), 63);
+  const back = envClipFromJson(JSON.parse(JSON.stringify(envClipToJson(clip))));
+  assert.deepEqual(back, clip);
+  for (const bad of [null, 7, {}, { ...envClipToJson(clip), max: 100 },
+    { ...envClipToJson(clip), nodes: [[0, 0]] },
+    { ...envClipToJson(clip), nodes: clip.nodes.map(() => [300, 0]) }]) {
+    assert.equal(envClipFromJson(bad), null);
+  }
 });

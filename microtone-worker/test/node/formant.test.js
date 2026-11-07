@@ -31,6 +31,7 @@ import {
   defaultFormantRecord, formantRecordSpans, formantSlotBytes, formantVowelBytes, slotFromRecipe,
   VOWEL_MARKS, nearestVowelMark, vowelEffectArg, formantSyllable, isFormantRecord,
   formantRefBytes, formantGrBytes, formantPoolFreeBytes, isNoPoolRange, FORMANT_RANGE_NONE,
+  FORMANT_DEFAULT_FADEOUT,
 } from "../../src/doc/formantedit.js";
 import { FormantMachine, rangeCandidates, spanOf, poolSpan, gainOctet } from "../../src/doc/formantrecipe.js";
 import { buildRegionPayload } from "../../src/doc/sampleregions.js";
@@ -1199,10 +1200,15 @@ test("a new formant instrument sings [a] on the best source, in a range covering
   assert.equal(inst.formant.rangeHi, NOISE.ptr + NOISE.len > SQUARE.ptr + SQUARE.len ? NOISE.ptr + NOISE.len : SQUARE.ptr + SQUARE.len);
   assert.equal(nearestVowelMark(inst.formant.front, inst.formant.open, inst.formant.round).ipa, "a");
   assert.equal(formantSyllable(inst), "sa");
-  assert.equal(inst.volumeFadeoutLow | ((inst.fadeoutHigh & 0x0f) << 8), 32, "a fadeout, which ends a syllable with no coda");
+  assert.equal(inst.volumeFadeoutLow | ((inst.fadeoutHigh & 0x0f) << 8), FORMANT_DEFAULT_FADEOUT,
+    "a fadeout, which ends a syllable with no coda");
   assert.equal(inst.newNoteAction, 0, "New Note Action: Note Off");
   assert.equal(inst.duplicateCheckType, DCT_LANE, "Duplicate Check: Lane…");
-  assert.equal(inst.duplicateCheckAction, 1, "…→ Note Off");
+  assert.equal(inst.duplicateCheckAction, 1, "…→ Key-off");
+  // A 4 ms rise to full, held by a sustain on its top node (item 300).
+  assert.deepEqual(inst.volEnvelopes.slice(0, 2).map((n) => [n.value, n.offset]), [[0, 1], [63, 0]]);
+  assert.equal(inst.volEnvLoop, 0x2000, "present, no loop");
+  assert.equal(inst.volEnvSustainWord, 0x0121, "sustain on, node 1 to node 1");
   assert.equal(inst.formant.slots[0].ptr, NOISE.ptr);
 });
 

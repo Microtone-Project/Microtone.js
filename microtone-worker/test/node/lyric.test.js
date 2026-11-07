@@ -208,6 +208,28 @@ test("a play started mid-song sings the syllable a play from the start would hav
   assert.deepEqual(chased, whole.slice(7));
 });
 
+test("a play started on a glide sings the syllable it glides, not the next one", () => {
+  // Started at row 2 nothing is sounding, so the G triggers — but it is still
+  // the glide of row 1's z…, and the note after it must sing g…m, as it does
+  // in a play from the start where the G only glides.
+  const cells = [
+    { row: 0, note: 0x4800, inst: 1 },            // d…
+    { row: 1, note: 0x4400 },                     // z…
+    { row: 2, note: 0x4600, fx: G, arg: 0x0100 }, // z… gliding
+    { row: 3, note: 0x4000 },                     // g…m
+    { row: 4, note: 0x3c00 },                     // m…
+  ];
+  const whole = sungPerRow(cells, 5).sung;
+  assert.deepEqual(whole, [0, 1, 1, 2, 3]);
+  assert.deepEqual(sungPerRow(cells, 5, { chaseTo: 2 }).sung, whole.slice(2));
+  // …and with the instrument byte on the glide: the lyrics start over, the
+  // note keeps its syllable, and the next note sings the first.
+  cells[2].inst = 1;
+  const whole2 = sungPerRow(cells, 5).sung;
+  assert.deepEqual(whole2, [0, 1, 1, 0, 1]);
+  assert.deepEqual(sungPerRow(cells, 5, { chaseTo: 2 }).sung, whole2.slice(2));
+});
+
 test("each lane keeps its own place in the lyrics", () => {
   const eng = new TaudEngine();
   fillPool(eng.sampleBin);

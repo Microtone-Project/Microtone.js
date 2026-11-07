@@ -6,6 +6,7 @@ import {
   SharedSlot, encodeBlock, decodeBlock, encodeCueBlock, decodeCueBlock,
 } from "./clipshare.js";
 import { DEFAULT_KEYMAP, QUOTE_DEFAULT } from "./keymap.js";
+import { envClipToJson, envClipFromJson } from "../doc/envedit.js";
 
 /** Panes the Patterns view can hold — the fx2 flags are kept per pane INDEX so
  *  they survive the pane churn a viewport resize causes (pattern.js MAX_PANES).
@@ -83,6 +84,13 @@ export class Store {
     // pastes in another (item 158). They behave like ordinary properties.
     this._clip = new SharedSlot("microtone.clipboard", encodeBlock, decodeBlock);
     this._cueClip = new SharedSlot("microtone.cueClipboard", encodeCueBlock, decodeCueBlock);
+    // The envelope clipboard (item 300): one envelope's shape, pasted onto
+    // any envelope of any instrument — in this tab or another.
+    this._envClip = new SharedSlot("microtone.envClipboard", envClipToJson, (d) => {
+      const clip = envClipFromJson(d);
+      if (clip === null) throw new Error("not an envelope");
+      return clip;
+    });
     this._subs = new Map();
     this.gen = 0; // emit() generation — see emit()
   }
@@ -94,6 +102,10 @@ export class Store {
   /** Cue-word block clipboard (Cues view) — likewise. */
   get cueClipboard() { return this._cueClip.get(); }
   set cueClipboard(b) { this._cueClip.set(b ?? null); }
+
+  /** Envelope clipboard (doc/envedit.js envClip) — likewise. */
+  get envClipboard() { return this._envClip.get(); }
+  set envClipboard(c) { this._envClip.set(c ?? null); }
 
   /** The open project's path in the local list (null before it has a name). */
   get localPath() {

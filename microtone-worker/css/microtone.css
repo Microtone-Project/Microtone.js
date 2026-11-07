@@ -2780,6 +2780,9 @@ button.nota-assign { font-size: 0.85rem; }
 }
 .env-row button.env-chk { font-size: 0.85rem; }
 .env-row button { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
+/* Copy / Paste (item 300): an icon beside a bare text node is not
+   :only-child's to space, so the row says it (as .wc-links does). */
+.env-row button .btn-ico { margin-right: 0.4em; }
 
 /* Advanced Edit (item 49b) — whole-panel Ixmp patch editor over .side-detail. */
 .adv-openbar { margin-bottom: 0.6rem; }

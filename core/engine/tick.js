@@ -234,7 +234,7 @@ export function applyTickEvents(eng, ts, playhead) {
           }
           applyDuplicateCheck(eng, ts, vi, voice.delayedInst, voice.delayedNote);
           maybeSpawnBackgroundForNNA(eng, ts, voice, vi, voice.delayedInst);
-          triggerMetaOrNote(eng, ts, voice, vi, voice.delayedNote, voice.delayedInst, voice.delayedVol);
+          triggerMetaOrNote(eng, ts, voice, vi, voice.delayedNote, voice.delayedInst, voice.delayedVol, true, voice.delayedGlide);
           break;
       }
       voice.noteDelayTick = -1;

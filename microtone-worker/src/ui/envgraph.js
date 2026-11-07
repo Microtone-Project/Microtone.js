@@ -1,7 +1,8 @@
 // Envelope graph (item 227) — the time axis, the painter and the pointer
 // handling shared by the instrument's envelope tabs (views/instruments.js)
 // and Advanced Edit's patch envelopes (views/instadvanced.js), which used to
-// carry a copy each.
+// carry a copy each; and, at the end, the Copy/Paste buttons both put under
+// it (item 300).
 //
 // THE TIME AXIS IS A WINDOW. Unzoomed it FITS the envelope: node 0 at the
 // left, the last node ENV_TIME_FRAC of the way across, and the rest left empty
@@ -25,6 +26,8 @@ import { minifloatToDouble } from "../../core/engine/minifloat.js";
 import { themeColors } from "./theme.js";
 import { canvasMonoFont } from "./fonts.js";
 import { uiDpr, localPoint } from "./zoom.js";
+import { t } from "./i18n.js";
+import { setIconLabel } from "./icons.js";
 
 /** Share of the fitted plot the envelope spans; the rest is headroom. */
 export const ENV_TIME_FRAC = 0.8;
@@ -526,4 +529,41 @@ function timeTicks(t0, t1, log) {
 function secLabel(t, step) {
   const places = Math.min(4, Math.max(t < 1 ? 2 : 1, Math.ceil(-Math.log10(step) - 1e-9)));
   return t.toFixed(places) + "s";
+}
+
+/**
+ * The envelope editors' Copy and Paste buttons (item 300) — the instrument's
+ * tabs (views/instruments.js) and Advanced Edit's patch envelopes
+ * (views/instadvanced.js) alike. `copy()` returns the envelope as envClip,
+ * `paste(clip)` writes one over it. The clipboard is the store's shared slot,
+ * so a copy reaches every instrument, every envelope and every tab.
+ *
+ * Returns `{ buttons, copy, paste }`: the two buttons for the editor's row,
+ * and what pressing each does, for Ctrl+C / Ctrl+V (app.js). Paste reads the
+ * clipboard again when it is asked, since another tab may have copied since
+ * the panel was drawn; it says whether there was anything to paste.
+ */
+export function envClipButtons(store, copy, paste) {
+  const mk = (icon, label, title) => {
+    const b = document.createElement("button");
+    setIconLabel(b, icon, label);
+    b.title = title;
+    return b;
+  };
+  const copyBtn = mk("copy", t("env.copy"), t("env.copyTitle"));
+  const pasteBtn = mk("paste", t("env.paste"), t("env.pasteTitle"));
+  pasteBtn.disabled = store.envClipboard === null;
+  const doCopy = () => {
+    store.envClipboard = copy();
+    pasteBtn.disabled = false;
+  };
+  const doPaste = () => {
+    const clip = store.envClipboard;
+    if (clip === null) return false;
+    paste(clip);
+    return true;
+  };
+  copyBtn.addEventListener("click", doCopy);
+  pasteBtn.addEventListener("click", doPaste);
+  return { buttons: [copyBtn, pasteBtn], copy: doCopy, paste: doPaste };
 }

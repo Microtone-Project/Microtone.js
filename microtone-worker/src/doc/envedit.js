@@ -234,3 +234,71 @@ export function envClampWrap(word, active) {
   const end = Math.min(word & 0x1f, hi);
   return ((word & ~0x1f1f) | (start << 8) | end) & 0xffff;
 }
+
+// ── copy and paste ─────────────────────────────────────────────────────────
+//
+// An envelope on the clipboard is its SHAPE and how it plays: the nodes, the
+// sustain and loop regions with their switches, and the carry bit. It is not
+// where it sits: the LOOP word's presence bit is the paste's to set (a pasted
+// envelope is one you mean to hear, as an edited one is), and its role bit —
+// the pan envelope's "use default pan", the pitch/filter slot's role — belongs
+// to the envelope it lands on, so the paste keeps that one's.
+
+/** LOOP-word bits an envelope carries to the clipboard: end, enable, carry,
+ *  start (§7.2) — not the role bit 7, not the presence bit 13. */
+export const ENV_CLIP_LOOP_BITS = 0x1f7f;
+/** SUSTAIN-word bits it carries: end, enable, start. */
+export const ENV_CLIP_SUS_BITS = 0x1f3f;
+
+/**
+ * An envelope as the clipboard holds it: `{ nodes, loop, sus, max }`, `max`
+ * being the top of the range its values are in (63 for volume, 255 for the
+ * rest), so a paste into another range can rescale them.
+ */
+export function envClip(env, loopWord, susWord, max) {
+  return {
+    nodes: envCopy(env),
+    loop: loopWord & ENV_CLIP_LOOP_BITS,
+    sus: susWord & ENV_CLIP_SUS_BITS,
+    max,
+  };
+}
+
+/**
+ * What pasting `clip` onto an envelope with control words `loopWord`/`susWord`
+ * and value range 0…`max` writes there: `{ nodes, loop, sus }`. The values
+ * are rescaled when the ranges differ (a volume shape pasted onto the pan
+ * keeps its shape, top to top); the LOOP word comes out present, with the
+ * target's own role bit.
+ */
+export function envPaste(clip, loopWord, susWord, max) {
+  const scale = clip.max === max ? 1 : max / clip.max;
+  const nodes = clip.nodes.map((n) => ({
+    value: Math.min(Math.max(Math.round(n.value * scale), 0), max),
+    offset: n.offset & 0xff,
+  }));
+  return {
+    nodes,
+    loop: ((loopWord & ~ENV_CLIP_LOOP_BITS) | (clip.loop & ENV_CLIP_LOOP_BITS) | 0x2000) & 0xffff,
+    sus: ((susWord & ~ENV_CLIP_SUS_BITS) | (clip.sus & ENV_CLIP_SUS_BITS)) & 0xffff,
+  };
+}
+
+/** The clipboard's JSON form, and back — null for anything that is not one
+ *  (storage written by another version, or by hand). */
+export function envClipToJson(clip) {
+  return { nodes: clip.nodes.map((n) => [n.value, n.offset]), loop: clip.loop, sus: clip.sus, max: clip.max };
+}
+
+export function envClipFromJson(d) {
+  const byte = (v) => Number.isInteger(v) && v >= 0 && v <= 255;
+  if (d === null || typeof d !== "object" || !Array.isArray(d.nodes) || d.nodes.length !== ENV_MAX_NODES) return null;
+  if (!d.nodes.every((n) => Array.isArray(n) && byte(n[0]) && byte(n[1]))) return null;
+  if (!Number.isInteger(d.loop) || !Number.isInteger(d.sus) || !(d.max === 63 || d.max === 255)) return null;
+  return {
+    nodes: d.nodes.map(([value, offset]) => ({ value, offset })),
+    loop: d.loop & ENV_CLIP_LOOP_BITS,
+    sus: d.sus & ENV_CLIP_SUS_BITS,
+    max: d.max,
+  };
+}

@@ -1898,6 +1898,16 @@ window.addEventListener("keydown", (e) => {
       return;
     }
   }
+  // Envelope clipboard (item 300): Ctrl+C / Ctrl+V on the Instruments view
+  // copy and paste the envelope on screen, as its Copy and Paste buttons do.
+  // Text selected on the page is still the browser's to copy.
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "c" || e.key === "v") &&
+      store.view === "instruments" && !(e.key === "c" && !(window.getSelection()?.isCollapsed ?? true))) {
+    if (viewNamed("instruments")?.envClipboardKey(e.key === "c" ? "copy" : "paste")) {
+      e.preventDefault();
+      return;
+    }
+  }
   // ` — selection mode on / off (see setSelMode). The key has no other job
   // on the grids: it used to be key-off, which z (Shift+Z under a layout that
   // takes the bottom row) and the ' key still cover.

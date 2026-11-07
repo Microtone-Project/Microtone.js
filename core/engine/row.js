@@ -325,12 +325,15 @@ export function applyTrackerRow(eng, ts, playhead) {
         voice.delayedInst = row.instrment;
         // Only a SEL_SET vol cell is an override on the deferred trigger.
         voice.delayedVol = row.volumeEff === 0 ? row.volume : -1;
+        voice.delayedGlide = toneG; // a G/L on a silent lane: a glide's trigger (lyrics)
         scheduleDxnyAction(voice, sArg, sDelayTick);
       } else {
         applyDuplicateCheck(eng, ts, vi, row.instrment, note);
         maybeSpawnBackgroundForNNA(eng, ts, voice, vi, row.instrment);
         const trigVol = row.volumeEff === 0 ? row.volume : -1;
-        triggerMetaOrNote(eng, ts, voice, vi, note, row.instrment, trigVol);
+        // toneG here = a G/L on a silent lane: it triggers, but as a glide
+        // (a lyric instrument's syllable, trigger.js lyricTrigger).
+        triggerMetaOrNote(eng, ts, voice, vi, note, row.instrment, trigVol, true, toneG);
         scheduleDxnyAction(voice, sArg, sDelayTick);
       }
     }

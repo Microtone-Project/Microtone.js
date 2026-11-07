@@ -453,6 +453,7 @@ export class Voice {
     this.delayedNote = 0;
     this.delayedInst = 0;
     this.delayedVol = -1;
+    this.delayedGlide = false; // the delayed note was a G/L's (a lyric's glide, trigger.js)
     // The argument a DELAYED Int0..IntF marker is holding (item 181).
     // `delayedNote` carries the marker itself, but a note word has no room for
     // a second 16-bit number, so the argument needs its own slot.
