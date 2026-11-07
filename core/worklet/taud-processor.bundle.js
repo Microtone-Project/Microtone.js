@@ -6685,6 +6685,17 @@ function imxMeterPair(bus, n, out) {
  * detune and width. Like every tap here it exists only while the view that
  * reads it is up.
  */
+/** How many Mixing-tab taps the engine keeps at once: one per split pane, so
+ *  two panes can each meter an instrument of their own. */
+const IMX_METER_SEATS = 2;
+
+/** The chain's probe when two taps meter the same bus (two instruments that
+ *  share one in bus mode): each tap rings the stages for itself. */
+class ImixProbeFan {
+  constructor() { this.a = null; this.b = null; }
+  stageIn(id, n0, n1) { this.a.stageIn(id, n0, n1); this.b.stageIn(id, n0, n1); }
+}
+
 class ImixMeterTap {
   constructor(slot) {
     this.slot = slot;
@@ -11471,14 +11482,17 @@ class TrackerState {
     // whenever the engine's blocks or instrument records change (imixGen) or
     // the song's channel layout does. `imixTrig` flags the slots a note
     // started on since their bus last ran — the LFOs that retrigger on a note
-    // read it. `imixMeter` is the Mixing tab's tap, null unless it asked.
+    // read it. `imixMeters` are the Mixing tab's taps, one seat per split
+    // pane, each null unless that pane asked; `imixFan` is the probe that
+    // feeds two of them when they meter one shared bus.
     this.imixGen = -1;
     this.imixRate = 0;
     this.imixBuses = new Map();
     this.imixRoutes = new Array(IMX_ROUTE_SLOTS).fill(null);
     this.imixList = [];
     this.imixTrig = new Uint8Array(IMX_ROUTE_SLOTS);
-    this.imixMeter = null;
+    this.imixMeters = new Array(IMX_METER_SEATS).fill(null);
+    this.imixFan = new ImixProbeFan();
     // Per-voice soundscope ring, ditto (item 179). The Kotlin device fills
     // `Voice.scopeBuffer` unconditionally because a TSVM guest can read the
     // scope window through MMIO whenever it likes; nothing here can, so the
@@ -11625,10 +11639,12 @@ class TrackerState {
   }
 
   /** Install (or drop, with a negative slot) the Mixing tab's tap on one
-   *  instrument's bus (item 217). */
-  setImixMeter(slot) {
-    if (slot < 0) { this.imixMeter = null; return; }
-    if (this.imixMeter === null || this.imixMeter.slot !== slot) this.imixMeter = new ImixMeterTap(slot);
+   *  instrument's bus (item 217), in `seat` (one per split pane). */
+  setImixMeter(slot, seat = 0) {
+    if (!(seat >= 0 && seat < IMX_METER_SEATS)) return;
+    const m = this.imixMeters;
+    if (slot < 0) { m[seat] = null; return; }
+    if (m[seat] === null || m[seat].slot !== slot) m[seat] = new ImixMeterTap(slot);
   }
 
   drainInterrupts() {
@@ -11681,7 +11697,7 @@ class TrackerState {
     // …and the meter's integration describes one playback, so it starts again
     // with it — including the bit histogram, which is cumulative by design.
     this.masterMeter?.resetAll();
-    this.imixMeter?.resetAll();
+    for (const m of this.imixMeters) m?.resetAll();
   }
 }
 
@@ -20594,10 +20610,14 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
  */
 function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
   const spatial = ts.spatial;
-  const meter = ts.imixMeter;
-  // The tap meters the bus its instrument mixes into — in bus mode (item 247)
-  // the one every instrument on the block shares.
-  const meterBus = meter === null ? null : ts.imixRoutes[meter.slot];
+  // Each tap meters the bus its instrument mixes into — in bus mode (item 247)
+  // the one every instrument on the block shares. Two seats (one per split
+  // pane) may meter two buses, or both the same one.
+  const meters = ts.imixMeters;
+  const meterA = meters[0];
+  const meterB = meters[1];
+  const busA = meterA === null ? null : ts.imixRoutes[meterA.slot];
+  const busB = meterB === null ? null : ts.imixRoutes[meterB.slot];
   const trig = ts.imixTrig;
   for (let b = 0; b < buses.length; b++) {
     const bus = buses[b];
@@ -20613,10 +20633,19 @@ function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
       chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, false);
       continue;
     }
-    const metered = meterBus === bus;
-    if (metered) { meter.pushPre(bus, n0, n1); chain.probe = meter; }
+    const a = busA === bus ? meterA : null;
+    const b2 = busB === bus ? meterB : null;
+    if (a !== null) a.pushPre(bus, n0, n1);
+    if (b2 !== null) b2.pushPre(bus, n0, n1);
+    if (a !== null && b2 !== null) {
+      const fan = ts.imixFan;
+      fan.a = a; fan.b = b2;
+      chain.probe = fan;
+    } else chain.probe = a ?? b2;
     chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
-    if (metered) { chain.probe = null; meter.pushPost(bus, n0, n1); }
+    chain.probe = null;
+    if (a !== null) a.pushPost(bus, n0, n1);
+    if (b2 !== null) b2.pushPost(bus, n0, n1);
     const d = bus.data;
     if (spatial === null) {
       const accL = ts.mixAccL;
@@ -21416,8 +21445,9 @@ class TaudEngine {
   }
   getImix() { return [...this.imixBlocks.values()]; }
 
-  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus. */
-  setImixMeter(ph, slot) { this.playheads[ph].trackerState.setImixMeter(slot); }
+  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus,
+   *  in `seat` (one per split pane, < IMX_METER_SEATS). */
+  setImixMeter(ph, slot, seat = 0) { this.playheads[ph].trackerState.setImixMeter(slot, seat); }
 
   /**
    * Install (or drop) the Mastering view's metering tap (loudness.js). Like the
@@ -21979,7 +22009,7 @@ const CMD = Object.freeze({
   SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
   SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
   SET_IMIX: "setImix",                             // {blocks} — item 217, the instruments' IMix chains
-  SET_IMIX_METER: "setImixMeter",                  // {ph, slot} — item 217 Mixing-tab tap (slot < 0 = off)
+  SET_IMIX_METER: "setImixMeter",                  // {ph, slot, seat} — item 217 Mixing-tab tap (slot < 0 = off), one per split pane
   SET_LYRICS: "setLyrics",                         // {entries} — item 280, the lyric instruments' ILyr entries
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
@@ -22188,6 +22218,8 @@ const SNAP_PAIR_BASE = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAMES;
 // (0 = into the chain, 1 = out of it) and channel, the four level figures the
 // Mastering tab's meters use; then a stereo ring after the chain (frame
 // interleaved L, R) and a mono one before it, read backwards from RING_WRITE.
+// One such block per tap seat (one per split pane), SNAP_IM_STRIDE apart:
+// seat k's block starts at SNAP_IM_BASE + k * SNAP_IM_STRIDE.
 const SNAP_IM_BASE = SNAP_PAIR_BASE + SNAP_SPEC_STAGES * 2 * SNAP_SPEC_FRAMES;
 const SNAP_IM_FRAMES = 0;
 const SNAP_IM_SLOT = 1;
@@ -22217,8 +22249,10 @@ const SNAP_IM_TSH1 = SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RING_FRAM
 // …then the expander's deepest gain (dB, ≤ 0) and its loudest detector level.
 const SNAP_IM_EXPD_GR = SNAP_IM_TSH1 + IMX_TSH_MAX_BANDS;
 const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
+const SNAP_IM_STRIDE = SNAP_IM_EXPD_LVL + 1;
+const SNAP_IM_SEATS = IMX_METER_SEATS;
 
-// ── Envelope playheads, after the Mixing-tab block ──
+// ── Envelope playheads, after the Mixing-tab blocks ──
 // Every SOUNDING voice's four envelope positions, tagged with the instrument
 // whose envelopes they are — the operator or layer the voice actually plays,
 // not the pattern-level slot SNAP_V_INST reports. The voice array above holds
@@ -22227,7 +22261,7 @@ const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
 // Instruments view's envelope graph draws a hairline per entry whose
 // instrument is the one it shows. Lane voices first, then background voices;
 // SNAP_EP_COUNT says how many entries are filled.
-const SNAP_EP_BASE = SNAP_IM_BASE + SNAP_IM_EXPD_LVL + 1;
+const SNAP_EP_BASE = SNAP_IM_BASE + SNAP_IM_SEATS * SNAP_IM_STRIDE;
 const SNAP_EP_COUNT = SNAP_EP_BASE;
 const SNAP_EP_ENTRIES = SNAP_EP_BASE + 1;
 const SNAP_EP_INST = 0;
@@ -22592,7 +22626,7 @@ function applyAudioCommand(eng, m) {
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
     case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
     case CMD.SET_LYRICS: eng.setLyrics(m.entries); return true;
-    case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot); return true;
+    case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot, m.seat ?? 0); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
@@ -22779,13 +22813,16 @@ function putEnvPlayhead(f, n, v) {
 }
 
 /**
- * Mixing-tab block (item 217): one instrument bus's levels on both sides of
- * its chain, the chain's gain reductions and the two rings. With the tap off
- * only the "no frames" marker is written.
+ * Mixing-tab blocks (item 217), one per tap seat (split pane): one instrument
+ * bus's levels on both sides of its chain, the chain's gain reductions and the
+ * two rings. With a seat's tap off only the "no frames" marker is written.
  */
 function fillImixMeterInto(ts, f) {
-  const b = SNAP_IM_BASE;
-  const tap = ts.imixMeter;
+  for (let s = 0; s < SNAP_IM_SEATS; s++) fillImixSeatInto(ts.imixMeters[s], f, SNAP_IM_BASE + s * SNAP_IM_STRIDE);
+}
+
+/** One tap seat's block, at `b`. */
+function fillImixSeatInto(tap, f, b) {
   if (tap === null) {
     f[b + SNAP_IM_FRAMES] = 0;
     f[b + SNAP_IM_SLOT] = -1;

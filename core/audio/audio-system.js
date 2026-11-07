@@ -34,7 +34,7 @@ import {
   SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
   SNAP_MM_HIST_ENTROPY,
-  SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
+  SNAP_IM_BASE, SNAP_IM_STRIDE, SNAP_IM_SEATS, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
   SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
   SNAP_IM_RING_FRAMES, SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS,
   SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1, SNAP_IM_EXPD_GR, SNAP_IM_EXPD_LVL,
@@ -95,7 +95,9 @@ export class AudioSystem {
     this.masterMeterOn = false; // item 178 Mastering-view tap; that view owns it
     this.masterMeterDepth = DEFAULT_BIT_DEPTH; // …and which output its census describes
     this.masterMeterSpan = 0;                  // …over the whole take (HIST_SPAN_*), or a rolling window of it
-    this.imixMeterSlot = -1; // item 217 Mixing-tab tap: the instrument it meters (-1 = off)
+    // Item 217 Mixing-tab taps, one seat per split pane: the instrument each
+    // meters (-1 = off).
+    this.imixMeterSlots = new Array(SNAP_IM_SEATS).fill(-1);
     this.profile = null;    // latest worklet profiler report (opt-in; null when off)
     this.onProfile = null;  // optional callback(profile) when a report arrives
   }
@@ -336,7 +338,7 @@ export class AudioSystem {
     // without them clears the previous one's. The Mixing tab's tap survives
     // a rebuild too.
     this.setImix(doc.imix ?? []);
-    if (this.imixMeterSlot >= 0) this.setImixMeter(0, this.imixMeterSlot);
+    this.imixMeterSlots.forEach((slot, seat) => { if (slot >= 0) this.setImixMeter(0, slot, seat); });
     // The lyric instruments' lyrics (item 280) — pushed whether the file has
     // any or not, so a document without them clears the previous one's.
     this.setLyrics(doc.lyrics ?? []);
@@ -409,11 +411,13 @@ export class AudioSystem {
   /** Item 280: install the project's lyrics (decoded `ILyr` entries; empty =
    *  no instrument has lyrics). */
   setLyrics(entries) { this._post({ t: CMD.SET_LYRICS, entries: entries ?? [] }); }
-  /** Item 217: meter one instrument's bus for the Mixing tab (slot < 0 = off).
-   *  Costs nothing while off; that tab turns it off when it is not on screen. */
-  setImixMeter(ph, slot) {
-    if (ph === 0) this.imixMeterSlot = slot;
-    this._post({ t: CMD.SET_IMIX_METER, ph, slot });
+  /** Item 217: meter one instrument's bus for the Mixing tab (slot < 0 = off),
+   *  in `seat` — one per split pane, so each pane's copy of the tab meters its
+   *  own instrument. Costs nothing while off; the tab turns its seat off when
+   *  it is not on screen. */
+  setImixMeter(ph, slot, seat = 0) {
+    if (ph === 0) this.imixMeterSlots[seat] = slot;
+    this._post({ t: CMD.SET_IMIX_METER, ph, slot, seat });
   }
   resetParams(ph = 0) { this._post({ t: CMD.RESET_PARAMS, ph }); }
   resetSampleFxState(ph = 0) { this._post({ t: CMD.RESET_SAMPLE_FX_STATE, ph }); }
@@ -711,11 +715,11 @@ export class AudioSystem {
    * sum before it) are live views into the snapshot, read backwards from
    * `write`; so are `stageRings` (the input of each IMX_TAP_STAGES piece,
    * read back from its `stageWrite`). `frames` is 0 while the tap is off or
-   * the bus did not run.
+   * the bus did not run. `seat` is the tap seat to read (setImixMeter's).
    */
-  readImixMeter(out) {
+  readImixMeter(out, seat = 0) {
     const f = this.snapshot;
-    const b = SNAP_IM_BASE;
+    const b = SNAP_IM_BASE + seat * SNAP_IM_STRIDE;
     out.frames = f[b + SNAP_IM_FRAMES];
     out.slot = f[b + SNAP_IM_SLOT];
     out.write = f[b + SNAP_IM_RING_WRITE] | 0;
@@ -745,7 +749,8 @@ export class AudioSystem {
       out.deq2Lvl[i] = f[b + SNAP_IM_DEQ2_LVL + i];
     }
     const nst = out.stageWrite.length;
-    if (out.stageRings === null || out.stageRings[0].buffer !== f.buffer) {
+    const ring0 = f.byteOffset + (b + SNAP_IM_STAGE_RINGS) * 4;
+    if (out.stageRings === null || out.stageRings[0].buffer !== f.buffer || out.stageRings[0].byteOffset !== ring0) {
       out.stageRings = [];
       for (let k = 0; k < nst; k++) {
         const o = b + SNAP_IM_STAGE_RINGS + k * SNAP_IM_RING_FRAMES;

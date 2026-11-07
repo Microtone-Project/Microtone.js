@@ -929,7 +929,7 @@ const VIEW_SPEC = {
   },
   instruments: {
     host: { id: "instrumentsHost" },
-    make: (el) => new InstrumentsView(store, el, jam),
+    make: (el, copy) => new InstrumentsView(store, el, jam, copy),
   },
   mastering: {
     host: { id: "masteringHost" },

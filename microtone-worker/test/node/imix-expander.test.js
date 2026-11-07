@@ -257,7 +257,8 @@ test("the meter reads the expander's deepest gain and its detector level; the sn
   fillSnapshotInto(eng, 0, f);
   assert.ok(f[P.SNAP_IM_BASE + P.SNAP_IM_EXPD_GR] < 0, `the expander's gain (${f[P.SNAP_IM_BASE + P.SNAP_IM_EXPD_GR]})`);
   assert.ok(f[P.SNAP_IM_BASE + P.SNAP_IM_EXPD_LVL] > -120, "…and its level");
-  assert.equal(P.SNAP_EP_BASE, P.SNAP_IM_BASE + P.SNAP_IM_EXPD_LVL + 1, "they end the Mixing-tab block");
+  assert.equal(P.SNAP_IM_STRIDE, P.SNAP_IM_EXPD_LVL + 1, "they end the Mixing-tab block");
+  assert.equal(P.SNAP_EP_BASE, P.SNAP_IM_BASE + P.SNAP_IM_SEATS * P.SNAP_IM_STRIDE, "…which repeats once per seat");
 });
 
 // ── TML ─────────────────────────────────────────────────────────────────────

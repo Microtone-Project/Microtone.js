@@ -431,8 +431,8 @@ function painted(cv) {
   await sleep(100);
   await win.__microtoneEnsureAudio?.();
   await sleep(200);
-  check(store.audio.imixMeterSlot === slot, "the meter tap is on the instrument the tab shows",
-    String(store.audio.imixMeterSlot));
+  check(store.audio.imixMeterSlots[0] === slot, "the meter tap is on the instrument the tab shows",
+    String(store.audio.imixMeterSlots[0]));
   doc.getElementById("playSong")?.click();
   await sleep(4000);
   const r = store.audio.readImixMeter(makeImixMeterReadout());
@@ -507,10 +507,10 @@ function painted(cv) {
   // ── 6. the tap dies with the tab ─────────────────────────────────────────
   [...doc.querySelectorAll(".subtabs button")][0].click();
   await sleep(120);
-  check(store.audio.imixMeterSlot === -1, "another tab switches the tap off", String(store.audio.imixMeterSlot));
+  check(store.audio.imixMeterSlots[0] === -1, "another tab switches the tap off", String(store.audio.imixMeterSlots[0]));
   doc.querySelector('[data-view="timeline"]').click();
   await sleep(100);
-  check(store.audio.imixMeterSlot === -1, "…and so does leaving the view");
+  check(store.audio.imixMeterSlots[0] === -1, "…and so does leaving the view");
   } catch (err) {
     fails++;
     log("EXCEPTION " + (err?.stack ?? err));

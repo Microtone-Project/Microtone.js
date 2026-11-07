@@ -6686,6 +6686,17 @@ function imxMeterPair(bus, n, out) {
  * detune and width. Like every tap here it exists only while the view that
  * reads it is up.
  */
+/** How many Mixing-tab taps the engine keeps at once: one per split pane, so
+ *  two panes can each meter an instrument of their own. */
+const IMX_METER_SEATS = 2;
+
+/** The chain's probe when two taps meter the same bus (two instruments that
+ *  share one in bus mode): each tap rings the stages for itself. */
+class ImixProbeFan {
+  constructor() { this.a = null; this.b = null; }
+  stageIn(id, n0, n1) { this.a.stageIn(id, n0, n1); this.b.stageIn(id, n0, n1); }
+}
+
 class ImixMeterTap {
   constructor(slot) {
     this.slot = slot;
@@ -11472,14 +11483,17 @@ class TrackerState {
     // whenever the engine's blocks or instrument records change (imixGen) or
     // the song's channel layout does. `imixTrig` flags the slots a note
     // started on since their bus last ran — the LFOs that retrigger on a note
-    // read it. `imixMeter` is the Mixing tab's tap, null unless it asked.
+    // read it. `imixMeters` are the Mixing tab's taps, one seat per split
+    // pane, each null unless that pane asked; `imixFan` is the probe that
+    // feeds two of them when they meter one shared bus.
     this.imixGen = -1;
     this.imixRate = 0;
     this.imixBuses = new Map();
     this.imixRoutes = new Array(IMX_ROUTE_SLOTS).fill(null);
     this.imixList = [];
     this.imixTrig = new Uint8Array(IMX_ROUTE_SLOTS);
-    this.imixMeter = null;
+    this.imixMeters = new Array(IMX_METER_SEATS).fill(null);
+    this.imixFan = new ImixProbeFan();
     // Per-voice soundscope ring, ditto (item 179). The Kotlin device fills
     // `Voice.scopeBuffer` unconditionally because a TSVM guest can read the
     // scope window through MMIO whenever it likes; nothing here can, so the
@@ -11626,10 +11640,12 @@ class TrackerState {
   }
 
   /** Install (or drop, with a negative slot) the Mixing tab's tap on one
-   *  instrument's bus (item 217). */
-  setImixMeter(slot) {
-    if (slot < 0) { this.imixMeter = null; return; }
-    if (this.imixMeter === null || this.imixMeter.slot !== slot) this.imixMeter = new ImixMeterTap(slot);
+   *  instrument's bus (item 217), in `seat` (one per split pane). */
+  setImixMeter(slot, seat = 0) {
+    if (!(seat >= 0 && seat < IMX_METER_SEATS)) return;
+    const m = this.imixMeters;
+    if (slot < 0) { m[seat] = null; return; }
+    if (m[seat] === null || m[seat].slot !== slot) m[seat] = new ImixMeterTap(slot);
   }
 
   drainInterrupts() {
@@ -11682,7 +11698,7 @@ class TrackerState {
     // …and the meter's integration describes one playback, so it starts again
     // with it — including the bit histogram, which is cumulative by design.
     this.masterMeter?.resetAll();
-    this.imixMeter?.resetAll();
+    for (const m of this.imixMeters) m?.resetAll();
   }
 }
 
@@ -20595,10 +20611,14 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
  */
 function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
   const spatial = ts.spatial;
-  const meter = ts.imixMeter;
-  // The tap meters the bus its instrument mixes into — in bus mode (item 247)
-  // the one every instrument on the block shares.
-  const meterBus = meter === null ? null : ts.imixRoutes[meter.slot];
+  // Each tap meters the bus its instrument mixes into — in bus mode (item 247)
+  // the one every instrument on the block shares. Two seats (one per split
+  // pane) may meter two buses, or both the same one.
+  const meters = ts.imixMeters;
+  const meterA = meters[0];
+  const meterB = meters[1];
+  const busA = meterA === null ? null : ts.imixRoutes[meterA.slot];
+  const busB = meterB === null ? null : ts.imixRoutes[meterB.slot];
   const trig = ts.imixTrig;
   for (let b = 0; b < buses.length; b++) {
     const bus = buses[b];
@@ -20614,10 +20634,19 @@ function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
       chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, false);
       continue;
     }
-    const metered = meterBus === bus;
-    if (metered) { meter.pushPre(bus, n0, n1); chain.probe = meter; }
+    const a = busA === bus ? meterA : null;
+    const b2 = busB === bus ? meterB : null;
+    if (a !== null) a.pushPre(bus, n0, n1);
+    if (b2 !== null) b2.pushPre(bus, n0, n1);
+    if (a !== null && b2 !== null) {
+      const fan = ts.imixFan;
+      fan.a = a; fan.b = b2;
+      chain.probe = fan;
+    } else chain.probe = a ?? b2;
     chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
-    if (metered) { chain.probe = null; meter.pushPost(bus, n0, n1); }
+    chain.probe = null;
+    if (a !== null) a.pushPost(bus, n0, n1);
+    if (b2 !== null) b2.pushPost(bus, n0, n1);
     const d = bus.data;
     if (spatial === null) {
       const accL = ts.mixAccL;
@@ -21417,8 +21446,9 @@ class TaudEngine {
   }
   getImix() { return [...this.imixBlocks.values()]; }
 
-  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus. */
-  setImixMeter(ph, slot) { this.playheads[ph].trackerState.setImixMeter(slot); }
+  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus,
+   *  in `seat` (one per split pane, < IMX_METER_SEATS). */
+  setImixMeter(ph, slot, seat = 0) { this.playheads[ph].trackerState.setImixMeter(slot, seat); }
 
   /**
    * Install (or drop) the Mastering view's metering tap (loudness.js). Like the

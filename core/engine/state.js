@@ -12,7 +12,7 @@ import { SURROUND_STEREO, SURROUND_SPATIAL, SpatialBus, StereoRenderer } from ".
 import { MONITOR_FOLD, MONITOR_BINAURAL, BinauralRenderer } from "./binaural.js";
 import { ANALYSIS_OFF, AnalysisTap } from "./analysis.js";
 import { MasterChain, defaultMastering, masteringEngaged } from "./mastering.js";
-import { IMX_ROUTE_SLOTS, ImixMeterTap } from "./imix.js";
+import { IMX_ROUTE_SLOTS, IMX_METER_SEATS, ImixMeterTap, ImixProbeFan } from "./imix.js";
 import {
   MasterMeterTap, DEFAULT_BIT_DEPTH,
   HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT,
@@ -267,14 +267,17 @@ export class TrackerState {
     // whenever the engine's blocks or instrument records change (imixGen) or
     // the song's channel layout does. `imixTrig` flags the slots a note
     // started on since their bus last ran — the LFOs that retrigger on a note
-    // read it. `imixMeter` is the Mixing tab's tap, null unless it asked.
+    // read it. `imixMeters` are the Mixing tab's taps, one seat per split
+    // pane, each null unless that pane asked; `imixFan` is the probe that
+    // feeds two of them when they meter one shared bus.
     this.imixGen = -1;
     this.imixRate = 0;
     this.imixBuses = new Map();
     this.imixRoutes = new Array(IMX_ROUTE_SLOTS).fill(null);
     this.imixList = [];
     this.imixTrig = new Uint8Array(IMX_ROUTE_SLOTS);
-    this.imixMeter = null;
+    this.imixMeters = new Array(IMX_METER_SEATS).fill(null);
+    this.imixFan = new ImixProbeFan();
     // Per-voice soundscope ring, ditto (item 179). The Kotlin device fills
     // `Voice.scopeBuffer` unconditionally because a TSVM guest can read the
     // scope window through MMIO whenever it likes; nothing here can, so the
@@ -421,10 +424,12 @@ export class TrackerState {
   }
 
   /** Install (or drop, with a negative slot) the Mixing tab's tap on one
-   *  instrument's bus (item 217). */
-  setImixMeter(slot) {
-    if (slot < 0) { this.imixMeter = null; return; }
-    if (this.imixMeter === null || this.imixMeter.slot !== slot) this.imixMeter = new ImixMeterTap(slot);
+   *  instrument's bus (item 217), in `seat` (one per split pane). */
+  setImixMeter(slot, seat = 0) {
+    if (!(seat >= 0 && seat < IMX_METER_SEATS)) return;
+    const m = this.imixMeters;
+    if (slot < 0) { m[seat] = null; return; }
+    if (m[seat] === null || m[seat].slot !== slot) m[seat] = new ImixMeterTap(slot);
   }
 
   drainInterrupts() {
@@ -477,7 +482,7 @@ export class TrackerState {
     // …and the meter's integration describes one playback, so it starts again
     // with it — including the bit histogram, which is cumulative by design.
     this.masterMeter?.resetAll();
-    this.imixMeter?.resetAll();
+    for (const m of this.imixMeters) m?.resetAll();
   }
 }
 

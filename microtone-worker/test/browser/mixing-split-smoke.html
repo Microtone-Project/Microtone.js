@@ -1,0 +1,105 @@
+<!doctype html><meta charset="utf-8"><title>the Mixing tab in both split panes (items 148, 217)</title>
+<pre id="out">running… (needs a real audio-capable browser; ~10s)</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/Huygens_clock.taud" style="width:1800px;height:1100px"></iframe>
+<script type="module">
+// Drives the REAL app: the Instruments view open in BOTH split panes, each on
+// its Mixing tab, each on a different instrument with a chain of its own. Each
+// pane's copy meters through its own tap seat, so neither takes the other's
+// over: both snapshots carry their own instrument, and both panes' monitors
+// paint. (Before the seats, the engine had one tap: the second pane re-aimed
+// it every frame and the first pane's monitors never drew.)
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; console.log("IMXS: " + s); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+function painted(cv) {
+  if (!cv || !cv.width || !cv.height) return false;
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+  const r0 = d[0], g0 = d[1], b0 = d[2];
+  for (let i = 4; i < d.length; i += 4) {
+    if (d[i] !== r0 || d[i + 1] !== g0 || d[i + 2] !== b0) return true;
+  }
+  return false;
+}
+
+(async () => {
+  try {
+  const app = document.getElementById("app");
+  await new Promise((r) => app.addEventListener("load", r));
+  const win = app.contentWindow;
+  for (let i = 0; i < 200 && !win.__microtone?.store.doc; i++) await sleep(50);
+  const M = win.__microtone;
+  if (!M) { log("no __microtone"); return; }
+  const { store, split, paneViews } = M;
+  const { makeImixMeterReadout } = await import("../../core/engine/imix.js");
+
+  // The two instruments the demo plays first (4 at once, 5 at 3.5 s).
+  const want = [4, 5];
+  split.setView(0, "instruments");
+  split.split();
+  split.setView(1, "instruments");
+  await sleep(200);
+  const ivs = [0, 1].map((i) => paneViews[i].get("instruments")?.obj);
+  check(ivs.every(Boolean) && ivs[0] !== ivs[1], "each pane has its own copy of the Instruments view");
+  const hosts = [0, 1].map((i) => paneViews[i].get("instruments").el);
+  for (let p = 0; p < 2; p++) {
+    const iv = ivs[p];
+    iv.selected = want[p];
+    iv.tab = "mixing";
+    iv.refresh();
+    await sleep(100);
+    const newBtn = [...hosts[p].querySelectorAll(".imx-head button")].find((b) => b.textContent === "New chain");
+    newBtn?.click();
+    await sleep(80);
+    hosts[p].querySelector('.imx-unit[data-equipment="comp"] .mst-unit-head button.flip-switch')?.click();
+    await sleep(80);
+  }
+  const ids = want.map((s) => store.doc.instruments[s].imixId);
+  check(ids[0] > 0 && ids[1] > 0 && ids[0] !== ids[1], "two instruments, a chain each", ids.join());
+  check(want.every((s, p) => !!store.doc.imixBlock(ids[p])?.equipment.comp), "…with a compressor in each");
+
+  await win.__microtoneEnsureAudio?.();
+  await sleep(200);
+  const seats = ivs.map((iv) => iv.mixing.seat);
+  check(seats[0] !== seats[1], "the two panes meter through different seats", seats.join());
+  check(store.audio.imixMeterSlots[seats[0]] === want[0] && store.audio.imixMeterSlots[seats[1]] === want[1],
+    "each seat is on its own pane's instrument", store.audio.imixMeterSlots.join());
+
+  win.document.getElementById("playSong")?.click();
+  const heard = [false, false];
+  for (let i = 0; i < 80 && !(heard[0] && heard[1]); i++) {
+    for (let p = 0; p < 2; p++) {
+      const r = store.audio.readImixMeter(makeImixMeterReadout(), seats[p]);
+      if (r.slot === want[p] && r.frames > 0) heard[p] = true;
+    }
+    await sleep(100);
+  }
+  check(heard[0], "pane 1's seat reports pane 1's instrument, metered");
+  check(heard[1], "pane 2's seat reports pane 2's instrument, metered");
+  await sleep(300);
+  for (let p = 0; p < 2; p++) {
+    const cvs = ["imx-levels", "imx-spectrum", "imx-gonio"].map((c) => hosts[p].querySelector("canvas." + c));
+    check(cvs.every(painted), `pane ${p + 1}: levels, spectrum and goniometer painted`,
+      cvs.map((c) => (painted(c) ? "y" : "n")).join(""));
+  }
+  win.document.getElementById("stopBtn")?.click();
+  store.audio.stop(0);
+  await sleep(100);
+
+  // Leaving the tab in one pane frees that seat and leaves the other's.
+  ivs[1].tab = "general";
+  ivs[1].refresh();
+  await sleep(150);
+  check(store.audio.imixMeterSlots[seats[1]] === -1, "pane 2 leaving the tab switches its seat off");
+  check(store.audio.imixMeterSlots[seats[0]] === want[0], "…and pane 1's stays on",
+    store.audio.imixMeterSlots.join());
+  } catch (err) {
+    fails++;
+    log("EXCEPTION " + (err?.stack ?? err));
+  }
+  log(`FAILURES: ${fails}`);
+})();
+</script>

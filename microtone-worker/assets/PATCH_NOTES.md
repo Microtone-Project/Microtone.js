@@ -4,6 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.8.1 (2026-11-07)
+
+**With the view area split, the Mixing tab's monitors draw in both panes**, each for the instrument that pane shows.
+
+- Fixed: with the Instruments view's Mixing tab open in both panes on two different instruments, or two instruments with the same chain, the first pane's levels, gain reduction, spectrum and goniometer drew nothing, playing or not; the two panes took turns aiming one shared meter, and the second pane always won.
+- Each pane now meters its own instrument, the live curves in the equipment's own panels included. Two instruments sharing one bus show that bus in both panes.
+- Leaving the Mixing tab in one pane stops only that pane's metering; the other pane's monitors carry on.
+
 ## Version 4.8.0 (2026-11-07)
 
 **Transpose can follow the key**: in its new Harmonic mode the first note moves by the interval you give, and every other note moves the same number of steps along the scale it is in, so a third stays a third — major or minor as the key decides.

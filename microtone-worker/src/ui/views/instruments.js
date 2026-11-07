@@ -175,10 +175,11 @@ export function parseHexOffset(text) {
 }
 
 export class InstrumentsView {
-  constructor(store, host, jam) {
+  constructor(store, host, jam, copy = 0) {
     this.store = store;
     this.host = host;
     this.jam = jam;
+    this.copy = copy; // 0 = the first copy, 1 = the other split pane's (item 148.1)
     this.selected = 1;
     this.tab = "general";
     this.visible = false;

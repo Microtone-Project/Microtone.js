@@ -476,10 +476,14 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
  */
 function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
   const spatial = ts.spatial;
-  const meter = ts.imixMeter;
-  // The tap meters the bus its instrument mixes into — in bus mode (item 247)
-  // the one every instrument on the block shares.
-  const meterBus = meter === null ? null : ts.imixRoutes[meter.slot];
+  // Each tap meters the bus its instrument mixes into — in bus mode (item 247)
+  // the one every instrument on the block shares. Two seats (one per split
+  // pane) may meter two buses, or both the same one.
+  const meters = ts.imixMeters;
+  const meterA = meters[0];
+  const meterB = meters[1];
+  const busA = meterA === null ? null : ts.imixRoutes[meterA.slot];
+  const busB = meterB === null ? null : ts.imixRoutes[meterB.slot];
   const trig = ts.imixTrig;
   for (let b = 0; b < buses.length; b++) {
     const bus = buses[b];
@@ -495,10 +499,19 @@ function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
       chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, false);
       continue;
     }
-    const metered = meterBus === bus;
-    if (metered) { meter.pushPre(bus, n0, n1); chain.probe = meter; }
+    const a = busA === bus ? meterA : null;
+    const b2 = busB === bus ? meterB : null;
+    if (a !== null) a.pushPre(bus, n0, n1);
+    if (b2 !== null) b2.pushPre(bus, n0, n1);
+    if (a !== null && b2 !== null) {
+      const fan = ts.imixFan;
+      fan.a = a; fan.b = b2;
+      chain.probe = fan;
+    } else chain.probe = a ?? b2;
     chain.process(bus.data, TRACKER_CHUNK, n0, n1, playhead.bpm, bus.fed);
-    if (metered) { chain.probe = null; meter.pushPost(bus, n0, n1); }
+    chain.probe = null;
+    if (a !== null) a.pushPost(bus, n0, n1);
+    if (b2 !== null) b2.pushPost(bus, n0, n1);
     const d = bus.data;
     if (spatial === null) {
       const accL = ts.mixAccL;

@@ -533,8 +533,9 @@ export class TaudEngine {
   }
   getImix() { return [...this.imixBlocks.values()]; }
 
-  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus. */
-  setImixMeter(ph, slot) { this.playheads[ph].trackerState.setImixMeter(slot); }
+  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus,
+   *  in `seat` (one per split pane, < IMX_METER_SEATS). */
+  setImixMeter(ph, slot, seat = 0) { this.playheads[ph].trackerState.setImixMeter(slot, seat); }
 
   /**
    * Install (or drop) the Mastering view's metering tap (loudness.js). Like the

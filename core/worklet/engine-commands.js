@@ -34,7 +34,7 @@ import {
   SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
   SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
   SNAP_MM_HIST_ENTROPY,
-  SNAP_IM_BASE, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
+  SNAP_IM_BASE, SNAP_IM_STRIDE, SNAP_IM_SEATS, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
   SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
   SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS, SNAP_IM_RING_FRAMES,
   SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1, SNAP_IM_EXPD_GR, SNAP_IM_EXPD_LVL,
@@ -98,7 +98,7 @@ export function applyAudioCommand(eng, m) {
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
     case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
     case CMD.SET_LYRICS: eng.setLyrics(m.entries); return true;
-    case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot); return true;
+    case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot, m.seat ?? 0); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
     case CMD.SET_CUE_POSITION: eng.setCuePosition(m.ph, m.pos); return true;
@@ -285,13 +285,16 @@ function putEnvPlayhead(f, n, v) {
 }
 
 /**
- * Mixing-tab block (item 217): one instrument bus's levels on both sides of
- * its chain, the chain's gain reductions and the two rings. With the tap off
- * only the "no frames" marker is written.
+ * Mixing-tab blocks (item 217), one per tap seat (split pane): one instrument
+ * bus's levels on both sides of its chain, the chain's gain reductions and the
+ * two rings. With a seat's tap off only the "no frames" marker is written.
  */
 function fillImixMeterInto(ts, f) {
-  const b = SNAP_IM_BASE;
-  const tap = ts.imixMeter;
+  for (let s = 0; s < SNAP_IM_SEATS; s++) fillImixSeatInto(ts.imixMeters[s], f, SNAP_IM_BASE + s * SNAP_IM_STRIDE);
+}
+
+/** One tap seat's block, at `b`. */
+function fillImixSeatInto(tap, f, b) {
   if (tap === null) {
     f[b + SNAP_IM_FRAMES] = 0;
     f[b + SNAP_IM_SLOT] = -1;

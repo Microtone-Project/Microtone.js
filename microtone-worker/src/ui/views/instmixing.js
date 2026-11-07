@@ -42,7 +42,7 @@ import {
   IMX_DEQ_LOW_SHELF_BAND, IMX_DEQ_HIGH_SHELF_BAND,
   defaultEquipment, defaultImixBlock, defaultCompBand, defaultTshBand, resizeSplit, IMX_XOVER_GAP,
   normaliseImixBlock, normaliseEquipment, imixBlockEqual, isCutShape, InstrumentChain,
-  makeImixMeterReadout, imxSatTransfer, unisonPositions,
+  makeImixMeterReadout, imxSatTransfer, unisonPositions, IMX_METER_SEATS,
 } from "../../../core/engine/imix.js";
 import { COMP_PEAK, COMP_RMS } from "../../../core/engine/mastering.js";
 import { SAMPLING_RATE } from "../../../core/engine/constants.js";
@@ -132,6 +132,9 @@ export class MixingPanel {
     this._shape = "";
     this.stage = 1;          // the level meter's side: 0 pre, 1 post
     this.readout = makeImixMeterReadout();
+    // The engine's tap seat this copy meters through: each split pane's copy
+    // has its own, so two panes can meter two instruments at once.
+    this.seat = Math.min(view.copy ?? 0, IMX_METER_SEATS - 1);
     this.peakHold = [-144, -144, -144, -144];
     this.peakHoldUntil = [0, 0, 0, 0];
     this.clipUntil = [0, 0, 0, 0];
@@ -1288,13 +1291,14 @@ export class MixingPanel {
     return col;
   }
 
-  /** The engine meters this instrument's bus only while this tab is up. */
+  /** The engine meters this instrument's bus only while this tab is up — in
+   *  this copy's own seat, so the other pane's copy never takes it over. */
   syncTap() {
     const audio = this.store.audio;
     if (!audio) return;
     const want = this.root?.isConnected && this.view.visible && this.view.tab === "mixing" && this.block
       ? this.slot : -1;
-    if (audio.imixMeterSlot !== want) audio.setImixMeter(0, want);
+    if (audio.imixMeterSlots[this.seat] !== want) audio.setImixMeter(0, want, this.seat);
   }
 
   ctxFor(canvas, cssHeight) {
@@ -1320,7 +1324,7 @@ export class MixingPanel {
     const now = performance.now();
     const dt = this._lastFrame ? Math.min(100, now - this._lastFrame) : 16;
     this._lastFrame = now;
-    const r = audio.readImixMeter(this.readout);
+    const r = audio.readImixMeter(this.readout, this.seat);
     const fresh = r.frames > 0 && r.slot === this.slot;
     if (fresh) this.lastLive = now;
     // Change-driven: paint while the bus runs, and for a moment after so the

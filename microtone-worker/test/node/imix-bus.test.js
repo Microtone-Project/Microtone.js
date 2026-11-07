@@ -223,6 +223,82 @@ test("the Mixing tab's tap on any instrument of a shared bus meters that bus", a
   assert.ok(f[P.SNAP_IM_BASE + P.SNAP_IM_FRAMES] > 0, "the shared bus ran and was metered");
 });
 
+test("two tap seats (two split panes) meter two instruments at once", async () => {
+  const { fillSnapshotInto } = await import("../../core/worklet/engine-commands.js");
+  const P = await import("../../core/worklet/protocol.js");
+  const dev = new Uint8Array(TRACKER_CHUNK * 2);
+  const seatAt = (s) => P.SNAP_IM_BASE + s * P.SNAP_IM_STRIDE;
+  // Which instruments sound early in the demo.
+  const probe = new TaudEngine();
+  loadIntoEngine(probe, parseTaud(await readFile(DEMO)), 0);
+  probe.setCuePosition(0, 0);
+  probe.play(0);
+  const heard = new Set();
+  let until = 0;
+  for (let i = 0; i < 20000 && heard.size < 2; i++, until = i) {
+    probe.renderChunk(0, dev);
+    for (const v of probe.playheads[0].trackerState.voices) {
+      if (v.active) heard.add((v.displayInst || v.instrumentId) & 0x3ff);
+    }
+  }
+  const [x, y] = [...heard];
+  assert.ok(x > 0 && y > 0 && x !== y, `two instruments sound (${x}, ${y})`);
+
+  // Separate mode: a bus each, a seat each — neither takes the other's over.
+  const sep = M.defaultImixBlock(1);
+  sep.equipment.comp = M.defaultEquipment("comp");
+  const eng = new TaudEngine();
+  loadIntoEngine(eng, parseTaud(await readFile(DEMO)), 0);
+  allOn(sep)(eng);
+  eng.setImixMeter(0, x, 0);
+  eng.setImixMeter(0, y, 1);
+  eng.setCuePosition(0, 0);
+  eng.play(0);
+  const f = new Float32Array(P.SNAP_FLOATS);
+  const frames = [0, 0];
+  for (let i = 0; i < until + 600; i++) {
+    eng.renderChunk(0, dev);
+    if (i % 8 === 7) {
+      fillSnapshotInto(eng, 0, f);
+      assert.equal(f[seatAt(0) + P.SNAP_IM_SLOT], x);
+      assert.equal(f[seatAt(1) + P.SNAP_IM_SLOT], y);
+      for (const s of [0, 1]) frames[s] += f[seatAt(s) + P.SNAP_IM_FRAMES];
+    }
+  }
+  assert.ok(frames[0] > 0 && frames[1] > 0, `both buses were metered (${frames})`);
+
+  // Bus mode: both seats on one shared bus read the same figures, the chain's
+  // stage rings included (the probe feeds both).
+  const shared = { ...sep, bus: true };
+  const eng2 = new TaudEngine();
+  loadIntoEngine(eng2, parseTaud(await readFile(DEMO)), 0);
+  allOn(shared)(eng2);
+  eng2.setCuePosition(0, 0);
+  eng2.play(0);
+  for (let i = 0; i < 200; i++) eng2.renderChunk(0, dev);
+  eng2.setImixMeter(0, 63, 0);
+  eng2.setImixMeter(0, 2, 1);
+  for (let i = 0; i < 40; i++) eng2.renderChunk(0, dev);
+  fillSnapshotInto(eng2, 0, f);
+  assert.equal(f[seatAt(0) + P.SNAP_IM_SLOT], 63);
+  assert.equal(f[seatAt(1) + P.SNAP_IM_SLOT], 2);
+  assert.ok(f[seatAt(0) + P.SNAP_IM_FRAMES] > 0, "the shared bus ran and was metered");
+  const ring = P.SNAP_IM_STAGE_RINGS + M.IMX_TAP_STAGES.indexOf("comp") * P.SNAP_IM_RING_FRAMES;
+  let e = 0;
+  for (let i = 0; i < P.SNAP_IM_RING_FRAMES; i++) e += f[seatAt(0) + ring + i] ** 2;
+  assert.ok(e > 0, "the compressor's input is rung");
+  for (let k = 0; k < P.SNAP_IM_STRIDE; k++) {
+    if (k === P.SNAP_IM_SLOT) continue;
+    if (!Object.is(f[seatAt(0) + k], f[seatAt(1) + k])) assert.fail(`the seats differ at offset ${k}`);
+  }
+  // Dropping one seat leaves the other.
+  eng2.setImixMeter(0, -1, 0);
+  for (let i = 0; i < 8; i++) eng2.renderChunk(0, dev);
+  fillSnapshotInto(eng2, 0, f);
+  assert.equal(f[seatAt(0) + P.SNAP_IM_FRAMES], 0);
+  assert.ok(f[seatAt(1) + P.SNAP_IM_FRAMES] > 0);
+});
+
 // ── the chains' names ───────────────────────────────────────────────────────
 
 test("IMcn names chains by id, falls back to nothing, and loses a name with its chain", async () => {

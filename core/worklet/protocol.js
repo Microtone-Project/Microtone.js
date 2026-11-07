@@ -10,7 +10,7 @@
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
 import { TOTAL_VOICES, NUM_INTERRUPTS, MAX_BG_VOICES } from "../engine/constants.js";
-import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS, IMX_TSH_MAX_BANDS, IMX_TAP_STAGES } from "../engine/imix.js";
+import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS, IMX_TSH_MAX_BANDS, IMX_TAP_STAGES, IMX_METER_SEATS } from "../engine/imix.js";
 
 export const CMD = Object.freeze({
   INIT: "init",
@@ -38,7 +38,7 @@ export const CMD = Object.freeze({
   SET_MASTERING: "setMastering",                   // {ph, params} — item 178, the song's sMst chain
   SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
   SET_IMIX: "setImix",                             // {blocks} — item 217, the instruments' IMix chains
-  SET_IMIX_METER: "setImixMeter",                  // {ph, slot} — item 217 Mixing-tab tap (slot < 0 = off)
+  SET_IMIX_METER: "setImixMeter",                  // {ph, slot, seat} — item 217 Mixing-tab tap (slot < 0 = off), one per split pane
   SET_LYRICS: "setLyrics",                         // {entries} — item 280, the lyric instruments' ILyr entries
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
@@ -247,6 +247,8 @@ export const SNAP_PAIR_BASE = SNAP_SPEC_BASE + SNAP_SPEC_STAGES * SNAP_SPEC_FRAM
 // (0 = into the chain, 1 = out of it) and channel, the four level figures the
 // Mastering tab's meters use; then a stereo ring after the chain (frame
 // interleaved L, R) and a mono one before it, read backwards from RING_WRITE.
+// One such block per tap seat (one per split pane), SNAP_IM_STRIDE apart:
+// seat k's block starts at SNAP_IM_BASE + k * SNAP_IM_STRIDE.
 export const SNAP_IM_BASE = SNAP_PAIR_BASE + SNAP_SPEC_STAGES * 2 * SNAP_SPEC_FRAMES;
 export const SNAP_IM_FRAMES = 0;
 export const SNAP_IM_SLOT = 1;
@@ -276,8 +278,10 @@ export const SNAP_IM_TSH1 = SNAP_IM_STAGE_RINGS + IMX_TAP_STAGES.length * IMX_RI
 // …then the expander's deepest gain (dB, ≤ 0) and its loudest detector level.
 export const SNAP_IM_EXPD_GR = SNAP_IM_TSH1 + IMX_TSH_MAX_BANDS;
 export const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
+export const SNAP_IM_STRIDE = SNAP_IM_EXPD_LVL + 1;
+export const SNAP_IM_SEATS = IMX_METER_SEATS;
 
-// ── Envelope playheads, after the Mixing-tab block ──
+// ── Envelope playheads, after the Mixing-tab blocks ──
 // Every SOUNDING voice's four envelope positions, tagged with the instrument
 // whose envelopes they are — the operator or layer the voice actually plays,
 // not the pattern-level slot SNAP_V_INST reports. The voice array above holds
@@ -286,7 +290,7 @@ export const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
 // Instruments view's envelope graph draws a hairline per entry whose
 // instrument is the one it shows. Lane voices first, then background voices;
 // SNAP_EP_COUNT says how many entries are filled.
-export const SNAP_EP_BASE = SNAP_IM_BASE + SNAP_IM_EXPD_LVL + 1;
+export const SNAP_EP_BASE = SNAP_IM_BASE + SNAP_IM_SEATS * SNAP_IM_STRIDE;
 export const SNAP_EP_COUNT = SNAP_EP_BASE;
 export const SNAP_EP_ENTRIES = SNAP_EP_BASE + 1;
 export const SNAP_EP_INST = 0;

@@ -2568,6 +2568,17 @@ function imxMeterPair(bus, n, out) {
  * detune and width. Like every tap here it exists only while the view that
  * reads it is up.
  */
+/** How many Mixing-tab taps the engine keeps at once: one per split pane, so
+ *  two panes can each meter an instrument of their own. */
+export const IMX_METER_SEATS = 2;
+
+/** The chain's probe when two taps meter the same bus (two instruments that
+ *  share one in bus mode): each tap rings the stages for itself. */
+export class ImixProbeFan {
+  constructor() { this.a = null; this.b = null; }
+  stageIn(id, n0, n1) { this.a.stageIn(id, n0, n1); this.b.stageIn(id, n0, n1); }
+}
+
 export class ImixMeterTap {
   constructor(slot) {
     this.slot = slot;
