@@ -800,6 +800,7 @@ export class Playhead {
       it.tonePortaTarget = -1; it.tonePortaSpeed = 0;
       it.filterY1 = 0.0; it.filterY2 = 0.0; it.filterX1 = 0.0; it.filterX2 = 0.0;
       it.filterCutoffCached = -1; it.filterResonanceCached = -1;
+      it.sfCents = NaN; it.sfCentsLeft = 0; it.sfQLeft = 0;
       it.currentCutoff = 0xff; it.currentResonance = 0xff;
       it.nesDpcmCounter = 63;
       it.right.reset();

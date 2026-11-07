@@ -19,6 +19,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Muting, soloing and the lane faders glide over 2 ms, so muting a lane while it plays no longer clicks.
 - In 3D songs, elevation changes (`X`) glide like azimuth changes already did.
 
+**SoundFont filters sweep smoothly**: an instrument whose filter is in SoundFont mode now glides to each new cutoff and resonance the way FluidSynth does, so filter envelopes and cutoff changes no longer zipper.
+
+- Fixed: resonant SoundFont-style filter sweeps had a buzzy, stepped edge; the filter jumped to its new setting once a tick, where FluidSynth moves it a sample at a time.
+- Instruments imported from SoundFonts with a filter envelope sound slightly smoother as a result; tracker-style (ImpulseTracker) filters are unchanged, as on the originals.
+
 **With the view area split, the Mixing tab's monitors draw in both panes**, each for the instrument that pane shows.
 
 - Fixed: with the Instruments view's Mixing tab open in both panes on two different instruments, or two instruments with the same chain, the first pane's levels, gain reduction, spectrum and goniometer drew nothing, playing or not; the two panes took turns aiming one shared meter, and the second pane always won.

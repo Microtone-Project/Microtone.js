@@ -368,6 +368,11 @@ export class Voice {
     this.filterX1 = 0.0;
     this.filterX2 = 0.0;
     this.filterCutoffCached = -1;
+    // SoundFont-mode filter glide (filter.js advanceFilterGlide): where the
+    // cutoff (cents) and Q stand, their per-sample steps and how many remain,
+    // and the refresh's targets. sfCents NaN = the next refresh lands at once.
+    this.sfCents = NaN; this.sfCentsIncr = 0.0; this.sfCentsLeft = 0; this.sfCentsAim = 0; this.sfHzAim = 0.0;
+    this.sfQ = 0.0; this.sfQIncr = 0.0; this.sfQLeft = 0; this.sfQAim = 0.0;
     this.filterResonanceCached = -1;
 
     // Per-trigger random vol/pan swing biases.

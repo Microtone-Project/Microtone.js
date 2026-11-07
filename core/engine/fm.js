@@ -26,7 +26,7 @@ import {
 } from "./inst.js";
 import { META_MIX_GAIN } from "./tables.js";
 import { fetchTrackerSample, advanceVolumeRamp, advancePitchRamp, advanceFadeout } from "./sampler.js";
-import { applyVoiceFilter } from "./filter.js";
+import { applyVoiceFilter, advanceFilterGlide } from "./filter.js";
 import { oplRender, oplChannelAlive } from "./opl.js";
 import { psgRender, psgChannelAlive } from "./psg.js";
 
@@ -190,6 +190,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
     // that here would apply them twice. Every other operator is invisible to the
     // mixer and gets the same per-sample maintenance here, in the same order.
     s = applyVoiceFilter(v, s);
+    advanceFilterGlide(v);
     v.envVolMix += v.envVolStep;
     const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     advanceVolumeRamp(v, ts.volDiv);

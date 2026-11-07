@@ -7,7 +7,7 @@
 //  - filterSfMode path: FluidSynth's RBJ biquad (reference_materials/fluidsynth/)
 //    with cents→Hz cutoff, −3.01 dB Butterworth Q offset and 1/√Q gain-norm.
 
-import { SAMPLING_RATE } from "./constants.js";
+import { SAMPLING_RATE, SF_FILTER_GLIDE_SAMPLES } from "./constants.js";
 
 /** Recompute filter coefficients when cutoff/resonance changed since last refresh. */
 export function refreshVoiceFilter(voice) {
@@ -20,7 +20,7 @@ export function refreshVoiceFilter(voice) {
   const nyquist = SAMPLING_RATE * 0.5 - 1.0;
   if (voice.filterSfMode) {
     // SoundFont mode: cutoff = absolute cents, resonance = centibels above DC gain.
-    if (cut >= 0xffff) { voice.filterActive = false; return; }
+    if (cut >= 0xffff) { voice.filterActive = false; stopSfGlide(voice); return; }
     const fres = Math.min(Math.max(8.176 * 2 ** (cut / 1200.0), 5.0), 0.45 * SAMPLING_RATE);
 
     // SF2 Q (cB) → linear, with FluidSynth's −3.01 dB offset (Q=0 cB ⇒ Butterworth).
@@ -28,22 +28,53 @@ export function refreshVoiceFilter(voice) {
     const qDb = Math.min(Math.max(qcb / 10.0, 0.0), 96.0) - 3.01;
     const qLin = Math.max(10 ** (qDb / 20.0), 0.001);
 
-    // RBJ cookbook low-pass, normalised to a0; SF2 §2.01 p.59 1/√Q gain-norm.
-    const omega = (2.0 * Math.PI * fres) / SAMPLING_RATE;
-    const sinC = Math.sin(omega);
-    const cosC = Math.cos(omega);
-    const alpha = sinC / (2.0 * qLin);
-    const a0inv = 1.0 / (1.0 + alpha);
-    const gain = a0inv / Math.sqrt(qLin);
-    voice.filterBqB1 = (1.0 - cosC) * gain;
-    voice.filterBqB02 = voice.filterBqB1 * 0.5;
-    voice.filterBqA1 = -2.0 * cosC * a0inv;
-    voice.filterBqA2 = (1.0 - alpha) * a0inv;
+    // Where the filter stands, the coefficients follow it there a sample at a
+    // time (advanceFilterGlide), as FluidSynth's do: a cutoff stepped once a
+    // tick zippers on a resonant sweep. A voice's first refresh — and one that
+    // turns the biquad on — lands at once, as FluidSynth's filter_startup does.
+    //
+    // The glide runs in the cutoff's own cents — no logarithm, so no round
+    // trip for two implementations to disagree on — and is clamped as Hz at
+    // every step, exactly as a cutoff set outright is.
+    const fresh = voice.sfCents !== voice.sfCents || !voice.filterActive || !voice.filterIsBiquad;
+    voice.sfHzAim = fres;
+    voice.sfCentsAim = cut;
     voice.filterIsBiquad = true;
     voice.filterActive = true;
+    if (fresh) {
+      voice.sfCents = cut;
+      voice.sfQ = qLin;
+      voice.sfQAim = qLin;
+      voice.sfCentsLeft = 0;
+      voice.sfQLeft = 0;
+      sfBiquad(voice, fres, qLin);
+      return;
+    }
+    // Q (fluid_iir_filter_set_q): linear, over the glide's base length.
+    if (qLin !== voice.sfQAim) {
+      voice.sfQAim = qLin;
+      voice.sfQIncr = (qLin - voice.sfQ) / SF_FILTER_GLIDE_SAMPLES;
+      voice.sfQLeft = SF_FILTER_GLIDE_SAMPLES;
+    }
+    // Cutoff (fluid_iir_filter_calc): in cents, over the base length times the
+    // Q it stands at, clipped to 1…5 — a steep resonance needs the slower move
+    // — when the move is more than a cent; a cent or less is taken at once.
+    const diff = cut - voice.sfCents;
+    if (Math.abs(diff) > 1.0) {
+      const count = SF_FILTER_GLIDE_SAMPLES * Math.min(Math.max(voice.sfQ, 1.0), 5.0);
+      voice.sfCentsIncr = diff / count;
+      voice.sfCentsLeft = Math.round(count);
+    } else {
+      voice.sfCents = cut;
+      voice.sfCentsLeft = 0;
+    }
+    // Nothing gliding: the coefficients are the target's, exactly. Otherwise
+    // they stay where they stand until the first sample steps them.
+    if (voice.sfCentsLeft === 0 && voice.sfQLeft === 0) sfBiquad(voice, fres, qLin);
     return;
   }
 
+  stopSfGlide(voice);
   if (Math.min(Math.max(cut, 0), 255) >= 255) { voice.filterActive = false; return; }
   const itCutoff = Math.min(Math.max(cut, 0), 254) * 0.5; // 0..127
   const itResonance = res >= 255 ? 0.0 : Math.min(Math.max(res, 0), 254) * 0.5;
@@ -60,6 +91,56 @@ export function refreshVoiceFilter(voice) {
   voice.filterB1 = -e / denom;
   voice.filterIsBiquad = false;
   voice.filterActive = true;
+}
+
+/** RBJ cookbook low-pass, normalised to a0; SF2 §2.01 p.59 1/√Q gain-norm. */
+function sfBiquad(voice, fres, qLin) {
+  const omega = (2.0 * Math.PI * fres) / SAMPLING_RATE;
+  const sinC = Math.sin(omega);
+  const cosC = Math.cos(omega);
+  const alpha = sinC / (2.0 * qLin);
+  const a0inv = 1.0 / (1.0 + alpha);
+  const gain = a0inv / Math.sqrt(qLin);
+  voice.filterBqB1 = (1.0 - cosC) * gain;
+  voice.filterBqB02 = voice.filterBqB1 * 0.5;
+  voice.filterBqA1 = -2.0 * cosC * a0inv;
+  voice.filterBqA2 = (1.0 - alpha) * a0inv;
+}
+
+/** Forget a SoundFont-mode glide: the filter is off, or in IT mode, and the
+ *  biquad that comes back will start where it is put. */
+function stopSfGlide(voice) {
+  voice.sfCents = NaN;
+  voice.sfCentsLeft = 0;
+  voice.sfQLeft = 0;
+}
+
+/**
+ * One frame of a SoundFont-mode filter glide, AFTER the frame is filtered —
+ * every channel of it with the same coefficients — as FluidSynth steps its
+ * cutoff and Q after each output sample and recomputes the biquad from them.
+ * The last step lands on the refresh's own target, so a glide ends on exactly
+ * the coefficients a filter set there outright would have.
+ */
+export function advanceFilterGlide(voice) {
+  if (voice.sfCentsLeft === 0 && voice.sfQLeft === 0) return;
+  if (voice.sfCentsLeft > 0) {
+    voice.sfCents += voice.sfCentsIncr;
+    voice.sfCentsLeft--;
+  }
+  if (voice.sfQLeft > 0) {
+    voice.sfQLeft--;
+    voice.sfQ = voice.sfQLeft === 0 ? voice.sfQAim : voice.sfQ + voice.sfQIncr;
+  }
+  if (voice.sfCentsLeft === 0 && voice.sfQLeft === 0) {
+    voice.sfCents = voice.sfCentsAim;
+    sfBiquad(voice, voice.sfHzAim, voice.sfQAim);
+    return;
+  }
+  const hz = voice.sfCentsLeft === 0
+    ? voice.sfHzAim
+    : Math.min(Math.max(8.176 * 2 ** (voice.sfCents / 1200.0), 5.0), 0.45 * SAMPLING_RATE);
+  sfBiquad(voice, hz, voice.sfQ);
 }
 
 /**

@@ -792,6 +792,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricP
   voice.filterY1 = 0.0; voice.filterY2 = 0.0; voice.filterX1 = 0.0; voice.filterX2 = 0.0;
   voice.filterCutoffCached = -1;
   voice.filterResonanceCached = -1;
+  voice.sfCents = NaN; voice.sfCentsLeft = 0; voice.sfQLeft = 0; // a new note's filter lands at once
   voice.noteVal = noteVal;
   voice.basePitch = noteVal;
   voice.renderPitch = noteVal; // display tap: seed before the first tick runs
@@ -1206,6 +1207,9 @@ export function ghostVoice(src, channel) {
   v.filterX2 = src.filterX2;
   v.filterCutoffCached = src.filterCutoffCached;
   v.filterResonanceCached = src.filterResonanceCached;
+  v.sfCents = src.sfCents; v.sfCentsIncr = src.sfCentsIncr; v.sfCentsLeft = src.sfCentsLeft;
+  v.sfCentsAim = src.sfCentsAim; v.sfHzAim = src.sfHzAim; v.sfQ = src.sfQ; v.sfQIncr = src.sfQIncr; v.sfQLeft = src.sfQLeft;
+  v.sfQAim = src.sfQAim;
   v.randomVolBias = src.randomVolBias;
   v.randomPanBias = src.randomPanBias;
   // A ghost runs no effects, so its panbrello freezes at the offset it had when

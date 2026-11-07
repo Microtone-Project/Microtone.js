@@ -1477,7 +1477,7 @@ Two requirements:
 
 Two topologies, both mandatory. Which one a voice uses is decided by its instrument's (or patch's) filter mode.
 
-Coefficients are recomputed only when cutoff or resonance has changed since the last refresh, which is checked once per tick.
+Coefficients are recomputed only when cutoff or resonance has changed since the last refresh, which is checked once per tick. What happens between refreshes is the topology's lineage: the ImpulseTracker filter holds its coefficients until the next one, the SoundFont filter glides to them ([§9.2](#9-2-the-soundfont-filter)).
 
 ### 9.1 The ImpulseTracker filter
 
@@ -1504,6 +1504,8 @@ The recurrence, with the history taps clipped to ±2.0 (OpenMPT's `ClipFilter`, 
 y[n] = a0·x[n] + b0·clamp(y[n−1], ±2) + b1·clamp(y[n−2], ±2)
 ```
 
+The coefficients hold from one refresh to the next, so a sweep — the filter envelope, a cutoff slide — moves in one step a tick. That is the lineage, not an omission: Schism Tracker and OpenMPT both set the filter once a tick and mix the whole tick with it.
+
 ### 9.2 The SoundFont filter
 
 FluidSynth's RBJ biquad, with cutoff in absolute cents and resonance in centibels above the DC gain. Cutoff `$FFFF` or above turns the filter off.
@@ -1520,6 +1522,14 @@ y[n] = b02·(x[n] + x[n−2]) + b1·x[n−1] − a1·y[n−1] − a2·y[n−2]
 ```
 
 Direct Form I, unclamped — the gain normalisation bounds it. The −3.01 dB offset is what makes a SoundFont's declared Q = 0 cB come out Butterworth.
+
+**The glide.** FluidSynth never steps this filter: a new cutoff or Q is reached a sample at a time, the coefficients recomputed after every sample, and the engine **MUST** do the same, because a resonant sweep stepped once a tick zippers. With `G` = 64 samples at 44 100 Hz (FluidSynth's block at its default rate) carried as a time — `round(64 ÷ 44 100 × rate)` samples:
+
+- A voice's **first** refresh after a trigger, and one that turns the biquad on (from off, or from the ImpulseTracker topology), sets the filter outright, as FluidSynth's `filter_startup` does.
+- A **cutoff** more than one cent from where the filter stands glides there in a straight line in cents, over `G × clamp(Q, 1, 5)` samples (rounded) with `Q` where it stands — a steep resonance needs the slower move. A move of a cent or less is taken at once. The glide runs in the cutoff's own cents, never through a logarithm, and every step is clamped as `fc` above.
+- A **Q** that changed glides in a straight line in linear Q over `G` samples.
+- Each frame is filtered — every channel of it with the same coefficients — and only then are the cutoff and Q stepped and the coefficients recomputed from them by the formulae above. The last step of each glide lands on its target exactly, so a glide ends on the coefficients a filter set there outright has.
+- A refresh during a glide starts the next one from wherever the filter stands. An NNA ghost carries the glide with it ([§5.7](#5-7-new-note-actions)).
 
 ### 9.3 Runtime overrides
 

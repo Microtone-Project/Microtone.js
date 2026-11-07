@@ -90,6 +90,15 @@ const VOL_RAMP_SEC = 0.002;
 export let ATTACK_RAMP_SAMPLES = 32;
 const ATTACK_RAMP_SEC = 32 / 48000;
 
+// SoundFont-mode filter glide (item 297): FluidSynth moves a voice filter's
+// cutoff to a new value over FLUID_BUFSIZE (64) samples times its Q clipped to
+// 1…5, and its Q over 64 (reference_materials/fluidsynth/src/rvoice/
+// fluid_iir_filter_impl.cpp fluid_iir_filter_calc, fluid_iir_filter.c
+// fluid_iir_filter_set_q). Its 64 are samples at its default 44.1 kHz; carried
+// as a time so the glide is the same length at any rate, as the ramps above are.
+export let SF_FILTER_GLIDE_SAMPLES = 70;
+const SF_FILTER_GLIDE_SEC = 64 / 44100;
+
 // Pitch-glide budget (item 144). The per-sample pitch glide spreads a tick's
 // pitch change across the tick, which is what a CONTROL move wants — a vibrato
 // or an ordinary slide moves a cent or two per tick and the spreading is what
@@ -131,6 +140,7 @@ export function setSamplingRate(rate) {
   RAMP_OUT_SAMPLES = Math.round(RAMP_OUT_SEC * rate);
   VOL_RAMP_SAMPLES = Math.round(VOL_RAMP_SEC * rate);
   ATTACK_RAMP_SAMPLES = Math.round(ATTACK_RAMP_SEC * rate);
+  SF_FILTER_GLIDE_SAMPLES = Math.round(SF_FILTER_GLIDE_SEC * rate);
   for (const fn of rateListeners) fn(rate);
 }
 

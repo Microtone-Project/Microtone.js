@@ -96,6 +96,15 @@ const VOL_RAMP_SEC = 0.002;
 let ATTACK_RAMP_SAMPLES = 32;
 const ATTACK_RAMP_SEC = 32 / 48000;
 
+// SoundFont-mode filter glide (item 297): FluidSynth moves a voice filter's
+// cutoff to a new value over FLUID_BUFSIZE (64) samples times its Q clipped to
+// 1…5, and its Q over 64 (reference_materials/fluidsynth/src/rvoice/
+// fluid_iir_filter_impl.cpp fluid_iir_filter_calc, fluid_iir_filter.c
+// fluid_iir_filter_set_q). Its 64 are samples at its default 44.1 kHz; carried
+// as a time so the glide is the same length at any rate, as the ramps above are.
+let SF_FILTER_GLIDE_SAMPLES = 70;
+const SF_FILTER_GLIDE_SEC = 64 / 44100;
+
 // Pitch-glide budget (item 144). The per-sample pitch glide spreads a tick's
 // pitch change across the tick, which is what a CONTROL move wants — a vibrato
 // or an ordinary slide moves a cent or two per tick and the spreading is what
@@ -137,6 +146,7 @@ function setSamplingRate(rate) {
   RAMP_OUT_SAMPLES = Math.round(RAMP_OUT_SEC * rate);
   VOL_RAMP_SAMPLES = Math.round(VOL_RAMP_SEC * rate);
   ATTACK_RAMP_SAMPLES = Math.round(ATTACK_RAMP_SEC * rate);
+  SF_FILTER_GLIDE_SAMPLES = Math.round(SF_FILTER_GLIDE_SEC * rate);
   for (const fn of rateListeners) fn(rate);
 }
 
@@ -10954,6 +10964,11 @@ class Voice {
     this.filterX1 = 0.0;
     this.filterX2 = 0.0;
     this.filterCutoffCached = -1;
+    // SoundFont-mode filter glide (filter.js advanceFilterGlide): where the
+    // cutoff (cents) and Q stand, their per-sample steps and how many remain,
+    // and the refresh's targets. sfCents NaN = the next refresh lands at once.
+    this.sfCents = NaN; this.sfCentsIncr = 0.0; this.sfCentsLeft = 0; this.sfCentsAim = 0; this.sfHzAim = 0.0;
+    this.sfQ = 0.0; this.sfQIncr = 0.0; this.sfQLeft = 0; this.sfQAim = 0.0;
     this.filterResonanceCached = -1;
 
     // Per-trigger random vol/pan swing biases.
@@ -12026,6 +12041,7 @@ class Playhead {
       it.tonePortaTarget = -1; it.tonePortaSpeed = 0;
       it.filterY1 = 0.0; it.filterY2 = 0.0; it.filterX1 = 0.0; it.filterX2 = 0.0;
       it.filterCutoffCached = -1; it.filterResonanceCached = -1;
+      it.sfCents = NaN; it.sfCentsLeft = 0; it.sfQLeft = 0;
       it.currentCutoff = 0xff; it.currentResonance = 0xff;
       it.nesDpcmCounter = 63;
       it.right.reset();
@@ -15680,7 +15696,7 @@ function refreshVoiceFilter(voice) {
   const nyquist = SAMPLING_RATE * 0.5 - 1.0;
   if (voice.filterSfMode) {
     // SoundFont mode: cutoff = absolute cents, resonance = centibels above DC gain.
-    if (cut >= 0xffff) { voice.filterActive = false; return; }
+    if (cut >= 0xffff) { voice.filterActive = false; stopSfGlide(voice); return; }
     const fres = Math.min(Math.max(8.176 * 2 ** (cut / 1200.0), 5.0), 0.45 * SAMPLING_RATE);
 
     // SF2 Q (cB) → linear, with FluidSynth's −3.01 dB offset (Q=0 cB ⇒ Butterworth).
@@ -15688,22 +15704,53 @@ function refreshVoiceFilter(voice) {
     const qDb = Math.min(Math.max(qcb / 10.0, 0.0), 96.0) - 3.01;
     const qLin = Math.max(10 ** (qDb / 20.0), 0.001);
 
-    // RBJ cookbook low-pass, normalised to a0; SF2 §2.01 p.59 1/√Q gain-norm.
-    const omega = (2.0 * Math.PI * fres) / SAMPLING_RATE;
-    const sinC = Math.sin(omega);
-    const cosC = Math.cos(omega);
-    const alpha = sinC / (2.0 * qLin);
-    const a0inv = 1.0 / (1.0 + alpha);
-    const gain = a0inv / Math.sqrt(qLin);
-    voice.filterBqB1 = (1.0 - cosC) * gain;
-    voice.filterBqB02 = voice.filterBqB1 * 0.5;
-    voice.filterBqA1 = -2.0 * cosC * a0inv;
-    voice.filterBqA2 = (1.0 - alpha) * a0inv;
+    // Where the filter stands, the coefficients follow it there a sample at a
+    // time (advanceFilterGlide), as FluidSynth's do: a cutoff stepped once a
+    // tick zippers on a resonant sweep. A voice's first refresh — and one that
+    // turns the biquad on — lands at once, as FluidSynth's filter_startup does.
+    //
+    // The glide runs in the cutoff's own cents — no logarithm, so no round
+    // trip for two implementations to disagree on — and is clamped as Hz at
+    // every step, exactly as a cutoff set outright is.
+    const fresh = voice.sfCents !== voice.sfCents || !voice.filterActive || !voice.filterIsBiquad;
+    voice.sfHzAim = fres;
+    voice.sfCentsAim = cut;
     voice.filterIsBiquad = true;
     voice.filterActive = true;
+    if (fresh) {
+      voice.sfCents = cut;
+      voice.sfQ = qLin;
+      voice.sfQAim = qLin;
+      voice.sfCentsLeft = 0;
+      voice.sfQLeft = 0;
+      sfBiquad(voice, fres, qLin);
+      return;
+    }
+    // Q (fluid_iir_filter_set_q): linear, over the glide's base length.
+    if (qLin !== voice.sfQAim) {
+      voice.sfQAim = qLin;
+      voice.sfQIncr = (qLin - voice.sfQ) / SF_FILTER_GLIDE_SAMPLES;
+      voice.sfQLeft = SF_FILTER_GLIDE_SAMPLES;
+    }
+    // Cutoff (fluid_iir_filter_calc): in cents, over the base length times the
+    // Q it stands at, clipped to 1…5 — a steep resonance needs the slower move
+    // — when the move is more than a cent; a cent or less is taken at once.
+    const diff = cut - voice.sfCents;
+    if (Math.abs(diff) > 1.0) {
+      const count = SF_FILTER_GLIDE_SAMPLES * Math.min(Math.max(voice.sfQ, 1.0), 5.0);
+      voice.sfCentsIncr = diff / count;
+      voice.sfCentsLeft = Math.round(count);
+    } else {
+      voice.sfCents = cut;
+      voice.sfCentsLeft = 0;
+    }
+    // Nothing gliding: the coefficients are the target's, exactly. Otherwise
+    // they stay where they stand until the first sample steps them.
+    if (voice.sfCentsLeft === 0 && voice.sfQLeft === 0) sfBiquad(voice, fres, qLin);
     return;
   }
 
+  stopSfGlide(voice);
   if (Math.min(Math.max(cut, 0), 255) >= 255) { voice.filterActive = false; return; }
   const itCutoff = Math.min(Math.max(cut, 0), 254) * 0.5; // 0..127
   const itResonance = res >= 255 ? 0.0 : Math.min(Math.max(res, 0), 254) * 0.5;
@@ -15720,6 +15767,56 @@ function refreshVoiceFilter(voice) {
   voice.filterB1 = -e / denom;
   voice.filterIsBiquad = false;
   voice.filterActive = true;
+}
+
+/** RBJ cookbook low-pass, normalised to a0; SF2 §2.01 p.59 1/√Q gain-norm. */
+function sfBiquad(voice, fres, qLin) {
+  const omega = (2.0 * Math.PI * fres) / SAMPLING_RATE;
+  const sinC = Math.sin(omega);
+  const cosC = Math.cos(omega);
+  const alpha = sinC / (2.0 * qLin);
+  const a0inv = 1.0 / (1.0 + alpha);
+  const gain = a0inv / Math.sqrt(qLin);
+  voice.filterBqB1 = (1.0 - cosC) * gain;
+  voice.filterBqB02 = voice.filterBqB1 * 0.5;
+  voice.filterBqA1 = -2.0 * cosC * a0inv;
+  voice.filterBqA2 = (1.0 - alpha) * a0inv;
+}
+
+/** Forget a SoundFont-mode glide: the filter is off, or in IT mode, and the
+ *  biquad that comes back will start where it is put. */
+function stopSfGlide(voice) {
+  voice.sfCents = NaN;
+  voice.sfCentsLeft = 0;
+  voice.sfQLeft = 0;
+}
+
+/**
+ * One frame of a SoundFont-mode filter glide, AFTER the frame is filtered —
+ * every channel of it with the same coefficients — as FluidSynth steps its
+ * cutoff and Q after each output sample and recomputes the biquad from them.
+ * The last step lands on the refresh's own target, so a glide ends on exactly
+ * the coefficients a filter set there outright would have.
+ */
+function advanceFilterGlide(voice) {
+  if (voice.sfCentsLeft === 0 && voice.sfQLeft === 0) return;
+  if (voice.sfCentsLeft > 0) {
+    voice.sfCents += voice.sfCentsIncr;
+    voice.sfCentsLeft--;
+  }
+  if (voice.sfQLeft > 0) {
+    voice.sfQLeft--;
+    voice.sfQ = voice.sfQLeft === 0 ? voice.sfQAim : voice.sfQ + voice.sfQIncr;
+  }
+  if (voice.sfCentsLeft === 0 && voice.sfQLeft === 0) {
+    voice.sfCents = voice.sfCentsAim;
+    sfBiquad(voice, voice.sfHzAim, voice.sfQAim);
+    return;
+  }
+  const hz = voice.sfCentsLeft === 0
+    ? voice.sfHzAim
+    : Math.min(Math.max(8.176 * 2 ** (voice.sfCents / 1200.0), 5.0), 0.45 * SAMPLING_RATE);
+  sfBiquad(voice, hz, voice.sfQ);
 }
 
 /**
@@ -15995,6 +16092,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
     // that here would apply them twice. Every other operator is invisible to the
     // mixer and gets the same per-sample maintenance here, in the same order.
     s = applyVoiceFilter(v, s);
+    advanceFilterGlide(v);
     v.envVolMix += v.envVolStep;
     const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     advanceVolumeRamp(v, ts.volDiv);
@@ -17226,6 +17324,7 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricPatch = 
   voice.filterY1 = 0.0; voice.filterY2 = 0.0; voice.filterX1 = 0.0; voice.filterX2 = 0.0;
   voice.filterCutoffCached = -1;
   voice.filterResonanceCached = -1;
+  voice.sfCents = NaN; voice.sfCentsLeft = 0; voice.sfQLeft = 0; // a new note's filter lands at once
   voice.noteVal = noteVal;
   voice.basePitch = noteVal;
   voice.renderPitch = noteVal; // display tap: seed before the first tick runs
@@ -17640,6 +17739,9 @@ function ghostVoice(src, channel) {
   v.filterX2 = src.filterX2;
   v.filterCutoffCached = src.filterCutoffCached;
   v.filterResonanceCached = src.filterResonanceCached;
+  v.sfCents = src.sfCents; v.sfCentsIncr = src.sfCentsIncr; v.sfCentsLeft = src.sfCentsLeft;
+  v.sfCentsAim = src.sfCentsAim; v.sfHzAim = src.sfHzAim; v.sfQ = src.sfQ; v.sfQIncr = src.sfQIncr; v.sfQLeft = src.sfQLeft;
+  v.sfQAim = src.sfQAim;
   v.randomVolBias = src.randomVolBias;
   v.randomPanBias = src.randomPanBias;
   // A ghost runs no effects, so its panbrello freezes at the offset it had when
@@ -20392,6 +20494,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderFmVoice(eng, ts, voice, interpMode, spt, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   // An OPL channel (item 209) replaces the sample fetch the same way, and
@@ -20403,6 +20506,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderOplVoice(voice, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   // A PSG pair (§7.9) on the same chip clock. Unlike OPL it leaves the note
@@ -20413,6 +20517,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderPsgVoice(voice, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   // A voice sounding a formant instrument (item 212) fetches its sample — or
@@ -20424,6 +20529,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderFormantVoice(eng, voice, inst, interpMode, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   if (voice.activeChanCount !== 2) {
@@ -20431,6 +20537,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       fetchTrackerSample(eng, voice, inst, interpMode)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   fetchTrackerSampleStereo(eng, voice, inst, interpMode, out);
@@ -20442,6 +20549,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
   }
   out[0] = applyTaudVoiceFx(voice, applyVoiceFilter(voice, c0));
   out[1] = applyTaudVoiceFx(voice, applyVoiceFilter(voice, c1, voice.right), voice.right);
+  advanceFilterGlide(voice);
   return out;
 }
 

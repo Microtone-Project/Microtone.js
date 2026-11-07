@@ -18,7 +18,7 @@ import {
   fetchTrackerSample, fetchTrackerSampleStereo, advanceVolumeRamp, advanceFadeout,
   advancePitchRamp, advancePanRamp, advanceFaderRamp, advanceElevRamp,
 } from "./sampler.js";
-import { applyVoiceFilter, applyTaudVoiceFx } from "./filter.js";
+import { applyVoiceFilter, applyTaudVoiceFx, advanceFilterGlide } from "./filter.js";
 import { renderFmVoice } from "./fm.js";
 import { renderOplVoice } from "./opl.js";
 import { renderPsgVoice } from "./psg.js";
@@ -65,6 +65,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderFmVoice(eng, ts, voice, interpMode, spt, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   // An OPL channel (item 209) replaces the sample fetch the same way, and
@@ -76,6 +77,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderOplVoice(voice, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   // A PSG pair (§7.9) on the same chip clock. Unlike OPL it leaves the note
@@ -86,6 +88,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderPsgVoice(voice, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   // A voice sounding a formant instrument (item 212) fetches its sample — or
@@ -97,6 +100,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       renderFormantVoice(eng, voice, inst, interpMode, ts.oplFrame + n)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   if (voice.activeChanCount !== 2) {
@@ -104,6 +108,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
       fetchTrackerSample(eng, voice, inst, interpMode)));
     out[0] = s;
     out[1] = s;
+    advanceFilterGlide(voice);
     return out;
   }
   fetchTrackerSampleStereo(eng, voice, inst, interpMode, out);
@@ -115,6 +120,7 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
   }
   out[0] = applyTaudVoiceFx(voice, applyVoiceFilter(voice, c0));
   out[1] = applyTaudVoiceFx(voice, applyVoiceFilter(voice, c1, voice.right), voice.right);
+  advanceFilterGlide(voice);
   return out;
 }
 
