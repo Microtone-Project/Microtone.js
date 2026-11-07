@@ -1101,7 +1101,19 @@ editing a shared pattern changes every place it plays.
 
 - **▶ Preview** plays just this pattern in a loop-free scratch cue.
 - **Duplicate** copies the pattern into a fresh slot.
-- **Transpose…** shifts every note, notation-aware: the fine unit is semitones / steps / note units depending on the preset, the coarse unit octaves (or periods for non-octave tunings). Percussion instruments and sentinels are skipped.
+- **Transpose…** shifts every note, notation-aware: the fine unit is semitones / steps / note units depending on the preset, the coarse unit octaves (or periods for non-octave tunings). Percussion instruments and sentinels are skipped. Its **Mode** is *Chromatic* (every note moves by exactly the interval) or *Harmonic*, described below.
+
+  **Harmonic transpose** is the arranger's harmoniser. Say how far the *first* note of the passage should move (up 4 semitones, say), and every other note moves the same number of steps *along the scale it is in*. In C major, C goes up to E, but D goes to F rather than F♯, and B goes to D. A third stays a third, major or minor as the key decides. The scale is never something you pick. It is read from the passage and from everything sounding with it in the other lanes, so the following happen without being asked for:
+  - A melody on C D E G A, which fits C major and G major alike, is settled by the accompaniment. If F sounds, D goes to F; if F♯ sounds, D goes to F♯.
+  - The harmony beats the key signature. Over the E7 in A minor, the passage is read in harmonic minor, so G♯ (not G) is the scale's seventh degree.
+  - Modulations are followed. When the music moves from C major into G major, the harmony line moves with it. A bar or less in another scale (the E7 above) counts as a passing *detour* rather than a change of key, and a single chromatic note changes nothing.
+  - The key is read from the music, never from your request, and it reads the same whichever lanes you select. Parts that ignore the key don't get a vote. A pitched part stuck on one note (a hi-hat sample tuned to C♯, say) is set aside, and a part that wanders off the key (a chromatic riser) counts for little.
+  - Tone portamento is read the way it sounds. A note that slides into the next one within a beat (`G` on the next row) is a scoop or a bend, not a note of its own. It counts for little when the key is read, it is never the "first note", and it keeps its exact distance from the note it slides into: a semitone scoop stays a semitone scoop.
+  - The key is a pitch *set*, not a mode, so the seven diatonic modes need no separate handling. The same reasoning runs in every tuning. It covers the diatonic family and the scales built on a generator chain (moment-of-symmetry scales, such as meantone in 19-, 31- or 17-TET, porcupine, or Bohlen–Pierce's nine-note Lambda over its tritave). It also covers the maqamat (Rast, Bayati, Saba, Sikah, Hijaz) wherever the tuning has neutral steps (17-, 24- or 31-TET, for example), slendro and pelog. Melodic minor and Rast read a rising note in their ascending form and a falling one in their descending form. With the Raw notation the scale is the set of pitches the song actually plays.
+  - Some requests aren't a step of the passage's own scale, such as a semitone up over C major, or E up to G♯ in G major. These are carried out as an exact chromatic shift, and a notice says so.
+  - The notice afterwards names the key or keys the passage was read in (for example "G major → A♭ major"), how many scale steps your interval made, how many passing detours were followed, and how many notes were moved off a clash. Strong beats and bar lines come from the song's own row highlights in the Project tab.
+
+  *Notes outside the scale* (passing notes, blue notes) have four options. *Keep their offset* keeps them the same number of steps from the scale degree beside them. *Move with their neighbour* moves them by the same real interval as that degree. *Snap onto the scale* lands them on the degree. *Move by the exact interval* moves them chromatically. With *Avoid clashes with the other lanes* on, a scale step that would grind on a strong beat against what is sounding with it (judged by harmonic entropy, which works in any tuning) may be swapped for a nearby chord tone or the exact interval. The first note always lands exactly where you asked.
 - **Lengthen… / Shorten…** stretch or squeeze the rows by given amount (Impulse Tracker's Alt-F/Alt-G maps).
 - **Volume…** rescales set volumes (`new = old × multiply + add`).
 - **Pan…** widens/narrows around centre and shifts (`new = 20 + (old − 20) × widen + shift`); a negative widen mirrors left/right.
@@ -2693,7 +2705,7 @@ each a single undo step. They stop at the song's edge: the other songs of a
 multi-song project are never touched — switch songs and run the operation again
 if you want them changed too.
 
-- **Transpose** — the [Patterns](#patterns-f3) tab's Transpose applied song-wide: the same notation-aware fine/coarse units, and the same skipping of sentinels and percussion instruments.
+- **Transpose** — the [Patterns](#patterns-f3) tab's Transpose applied song-wide: the same notation-aware fine/coarse units, and the same skipping of sentinels and percussion instruments. In *Harmonic* mode the whole song is the passage. The song's first note is the one that moves by the interval you enter, and the key is followed through every modulation.
 - **Change instrument** — changes every note referencing one instrument to another.
 
 ## File (F9)

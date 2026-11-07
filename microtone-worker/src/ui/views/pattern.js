@@ -41,6 +41,7 @@ import { clipboardItems, openMenuAtCursor } from "../gridmenu.js";
 import {
   blockToolItems, runBlockTool, isBlockTool,
   volumeDialog, panDialog, transposeDialog, instrumentDialog, transposePresetFor,
+  applyHarmonicTranspose,
 } from "../blocktools.js";
 import {
   plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote, PLOT_CHARS,
@@ -676,6 +677,12 @@ class PatternPane {
     // Honour a row-range block selection (item 58); else the whole pattern.
     const b = this.selRowBounds();
     const [rowLo, rowHi] = b ? [b.r0, b.r1] : [0, 63];
+    if (v.harmonic) {
+      applyHarmonicTranspose(store, preset, percSlots,
+        (pat, row) => pat === patIdx && row >= rowLo && row <= rowHi, v);
+      this.invalidate();
+      return;
+    }
     store.undo.apply(bulkNotesOp(store.songIndex,
       (song) => transposePatternNotes(song, patIdx, preset, percSlots, fine, coarse, rowLo, rowHi)));
     this.invalidate();
