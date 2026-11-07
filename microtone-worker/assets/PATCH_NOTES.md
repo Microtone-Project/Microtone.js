@@ -4,6 +4,20 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.8.0 (2026-11-07)
+
+**Transpose can follow the key**: in its new Harmonic mode the first note moves by the interval you give, and every other note moves the same number of steps along the scale it is in, so a third stays a third — major or minor as the key decides.
+
+- Choose *Harmonic* under **Mode** in any Transpose dialog: the Patterns tab's, the Note column's in the grid's right-click menu, and the Project tab's song-wide one. In C major, moving C up to E takes D to F rather than F♯, and B to D.
+- You never pick the scale: it is read from the passage and from everything sounding with it in the other lanes. A melody that fits C major and G major alike is settled by the accompaniment (D goes to F over an F, to F♯ over an F♯), and over the E7 in A minor the seventh is G♯, not G.
+- Modulations are followed: a song that moves from G major into A-flat major is transposed in each key in turn, and a short chord-scale detour is followed without taking over the rest of the passage.
+- The reading is the same whatever you select, and a part that ignores the key — a pitched hi-hat held on one note through both keys — does not sway it. A note that bends into the next keeps its exact distance from it.
+- It works in every tuning: major and minor (harmonic and melodic too), scales built on a chain of one interval (meantone in 19-, 31- or 17-TET, porcupine, Bohlen–Pierce's nine-note Lambda), the maqamat Rast, Bayati, Saba, Sikah and Hijaz wherever the tuning has neutral steps, slendro and pelog. Melodic minor and Rast take a rising note in their ascending form and a falling one in their descending form. With the Raw notation the scale is the set of pitches the song plays.
+- Notes outside the scale (passing notes, blue notes) can keep their offset from the scale degree beside them, move with that neighbour, snap onto the scale, or move by the exact interval.
+- *Avoid clashes with the other lanes* lets a scale step that would grind against what sounds with it on a strong beat become a nearby chord tone, or the exact interval, instead. The first note always lands where you asked.
+- A notice afterwards names the key or keys it read and how many scale steps the first note's move made. A move the passage's scale cannot make, such as a semitone up in C major, is carried out as an exact shift, and the notice says so.
+- Key-offs and percussion instruments are left alone, as in Chromatic mode, and the whole transpose is one undo step.
+
 ## Version 4.7.4 (2026-11-06)
 
 **With the view area split, a first click into the other pane's text boxes types there**: the box you click keeps the keyboard.
