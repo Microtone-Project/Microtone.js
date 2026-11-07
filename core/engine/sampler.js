@@ -723,6 +723,106 @@ export function advancePanRamp(voice, target, wrap = false) {
   return voice.currentPan;
 }
 
+/** Per-sample fadeout glide: walk fadeoutMix down the slope the tick set
+ *  (fadeoutMixStep) and return it. Never below the tick's own multiplier — that
+ *  is where the glide ends, and a reset to 1 (a trigger, a re-attack) lands at
+ *  once rather than gliding up. A fadeout only ever falls, so this floor is
+ *  the whole rule. */
+export function advanceFadeout(voice) {
+  const m = voice.fadeoutMix + voice.fadeoutMixStep;
+  voice.fadeoutMix = m > voice.fadeoutVolume ? m : voice.fadeoutVolume;
+  return voice.fadeoutMix;
+}
+
+/**
+ * A level the HOST or the song sets outright — the song's global volume, the
+ * mixing and master volumes (one ByteGlide each, on the TrackerState) — walked
+ * to its new value over the volume ramp's 2 ms rather than stepped there, as a
+ * volume-column change is. Re-aimed whenever the value moves, so a slide that
+ * outruns the ramp still glides. Byte units (0…255): a value that has not
+ * moved is the very number the gain chain always used, to the bit.
+ *
+ * `cur` NaN means "not started": the first sample snaps (a play starts AT the
+ * song's volume; it does not fade in from the last one).
+ */
+export class ByteGlide {
+  constructor() {
+    this.cur = NaN;
+    this.aim = 0;
+    this.step = 0.0;
+    this.left = 0;
+  }
+
+  /** Walk toward `target` over frames [n0, n1), writing value ÷ `div`. */
+  fill(target, out, n0, n1, div) {
+    if (this.cur !== this.cur) { this.cur = target; this.aim = target; this.left = 0; }
+    if (target !== this.aim) {
+      this.aim = target;
+      this.step = (target - this.cur) / VOL_RAMP_SAMPLES;
+      this.left = VOL_RAMP_SAMPLES;
+    }
+    if (this.left === 0) {
+      const v = this.cur / div;
+      for (let n = n0; n < n1; n++) out[n] = v;
+      return;
+    }
+    for (let n = n0; n < n1; n++) {
+      if (this.left > 0) {
+        this.left--;
+        this.cur = this.left === 0 ? target : this.cur + this.step;
+      }
+      out[n] = this.cur / div;
+    }
+  }
+}
+
+/**
+ * Per-sample glide of a voice's lane FADER (0 = unity, 255 = silent; mute and
+ * solo are 255 and 0) toward `target`, over the volume ramp's 2 ms. The host
+ * sets a fader outright, between chunks; stepping the gain there clicked on
+ * every mute. Returns the fader value to use this sample; `faderCur` NaN snaps
+ * (a new voice, a play start).
+ */
+export function advanceFaderRamp(voice, target) {
+  if (voice.faderCur !== voice.faderCur) {
+    voice.faderCur = target; voice.faderAim = target; voice.faderLeft = 0;
+    return target;
+  }
+  if (target !== voice.faderAim) {
+    voice.faderAim = target;
+    voice.faderStep = (target - voice.faderCur) / VOL_RAMP_SAMPLES;
+    voice.faderLeft = VOL_RAMP_SAMPLES;
+  }
+  if (voice.faderLeft > 0) {
+    voice.faderLeft--;
+    voice.faderCur = voice.faderLeft === 0 ? target : voice.faderCur + voice.faderStep;
+  }
+  return voice.faderCur;
+}
+
+/**
+ * Per-sample glide of a voice's ELEVATION (effect X's units) toward `target`,
+ * over the volume ramp's 2 ms — the azimuth's twin (advancePanRamp), which a
+ * position needs both halves of: a stepped elevation stepped every speaker's
+ * gain at once. `elevCur` NaN snaps (a fresh trigger starts AT its position).
+ */
+export function advanceElevRamp(voice, target) {
+  if (voice.elevCur !== voice.elevCur) {
+    voice.elevCur = target; voice.elevAim = target; voice.elevLeft = 0;
+    return target;
+  }
+  if (target !== voice.elevAim) {
+    voice.elevAim = target;
+    voice.elevStep = (target - voice.elevCur) / VOL_RAMP_SAMPLES;
+    voice.elevLeft = VOL_RAMP_SAMPLES;
+  }
+  if (voice.elevLeft > 0) {
+    voice.elevLeft--;
+    voice.elevCur = voice.elevLeft === 0 ? target : voice.elevCur + voice.elevStep;
+  }
+  return voice.elevCur;
+}
+
 /** Per-sample volume-ramp tick toward (rowVolume/max)·(channelVolume/max).
  *  `div` is the volume column's ceiling: 63 as ever, 255 for a wide cell. */
 export function advanceVolumeRamp(voice, div = 63.0) {

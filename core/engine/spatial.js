@@ -502,7 +502,7 @@ export function voiceElevation(voice) {
 /** A voice's share of the lane's output, as the mixer weights it. */
 function displayWeight(v) {
   const env = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
-  return env * v.fadeoutVolume * v.currentMixVolume * v.layerMixGain *
+  return env * v.fadeoutMix * v.currentMixVolume * v.layerMixGain *
     ((255 - v.fader) / 255.0);
 }
 
@@ -568,7 +568,8 @@ function voiceGainsCache(bus, voice, sc) {
   // and the stereo path is smoothing the very same number, which is what keeps a
   // planar song rendering identically to its stereo twin.
   const az = voice.currentPan;
-  const el = voiceElevation(voice);
+  // …and the ramped elevation (advanceElevRamp), for the same reason.
+  const el = voice.elevCur === voice.elevCur ? voice.elevCur : voiceElevation(voice);
   if (sc === null || sc.gains.length < nc * MAX_SAMPLE_CHANNELS) {
     sc = {
       az: NaN, el: NaN, chans: 0, renderer: null,

@@ -777,7 +777,7 @@ export class TaudEngine {
     if (!v.active) return 0.0;
     const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     const faderGain = (255 - v.fader) / 255.0;
-    return Math.min(Math.max(effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain, 0.0), 1.0);
+    return Math.min(Math.max(effEnvVol * v.fadeoutMix * v.currentMixVolume * faderGain, 0.0), 1.0);
   }
 
   /** Pan as the stereo meters want it: a surround voice reports where the

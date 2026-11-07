@@ -494,14 +494,19 @@ export function applyTrackerTick(eng, ts, playhead) {
     // Refresh filter coefficients once per tick (recomputes only when changed).
     refreshVoiceFilter(voice);
 
-    // Volume fadeout: after key-off OR Note-Fade NNA, decrement per tick.
+    // Volume fadeout: after key-off OR Note-Fade NNA, decrement per tick. The
+    // mixer glides fadeoutMix to the new value across the tick, so the voice
+    // ends on the tick AFTER the multiplier reaches 0 — the tick that glided
+    // it there. Ending it on the same tick cut it from fadeStep/1024 to
+    // silence in one sample, and that was a click on every fade.
     if (voice.keyOff || voice.noteFading) {
       const fadeStep = voice.activeFadeoutStep;
       if (fadeStep > 0) {
-        voice.fadeoutVolume = Math.max(voice.fadeoutVolume - fadeStep / 1024.0, 0.0);
         if (voice.fadeoutVolume <= 0.0) voice.active = false;
+        else voice.fadeoutVolume = Math.max(voice.fadeoutVolume - fadeStep / 1024.0, 0.0);
       }
     }
+    voice.fadeoutMixStep = spt > 0.0 ? (voice.fadeoutVolume - voice.fadeoutMix) / spt : 0.0;
 
     advanceEnvelope(voice, tickSec);
     // Per-sample slope so envVolMix walks smoothly to the new envVolume.
@@ -679,12 +684,16 @@ export function applyTrackerTick(eng, ts, playhead) {
     bg.envVolStep = spt > 0.0 ? (bg.envVolume - bg.envVolMix) / spt : 0.0;
     advancePitchEnvelope(bg, tickSec);
     advanceFilterEnvelope(bg, tickSec);
+    // Faded out on an EARLIER tick: this tick's mix has already glided it to
+    // silence, so it is reaped below (see the foreground fadeout).
+    const fadedOut = (bg.keyOff || bg.noteFading) && bg.fadeoutVolume <= 0.0;
     if (bg.keyOff || bg.noteFading) {
       const fadeStep = bg.activeFadeoutStep;
       if (fadeStep > 0) {
         bg.fadeoutVolume = Math.max(bg.fadeoutVolume - fadeStep / 1024.0, 0.0);
       }
     }
+    bg.fadeoutMixStep = spt > 0.0 ? (bg.fadeoutVolume - bg.fadeoutMix) / spt : 0.0;
     // Auto-vibrato keeps running on backgrounds.
     const autoVibDelta = advanceAutoVibrato(bg, inst);
     const pitchEnvDelta = bg.hasPitchEnv && bg.pitchEnvOn
@@ -706,7 +715,7 @@ export function applyTrackerTick(eng, ts, playhead) {
     }
     refreshVoiceFilter(bg);
     // Reap fully-faded ghosts.
-    if ((bg.keyOff || bg.noteFading) && bg.fadeoutVolume <= 0.0) {
+    if (fadedOut) {
       bg.active = false;
       ts.backgroundVoices.splice(i, 1);
     }
@@ -996,6 +1005,8 @@ function restartVoice(v) {
     v.envFilterValue = 0.5; v.envFilterIndex = 0; v.envFilterTimeSec = 0.0;
   }
   v.fadeoutVolume = 1.0;
+  v.fadeoutMix = 1.0;
+  v.fadeoutMixStep = 0.0;
   v.autoVibPhase = 0;
   v.autoVibTicksSinceTrigger = 0;
   v.filterY1 = 0.0; v.filterY2 = 0.0; v.filterX1 = 0.0; v.filterX2 = 0.0;

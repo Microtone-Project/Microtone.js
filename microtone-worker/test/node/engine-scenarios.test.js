@@ -1527,3 +1527,50 @@ test("mute and fader reach every lane of a 64-lane song", () => {
   assert.equal(ts.voices[63].fader, 255);
   assert.equal(ts.voices[64].fader, 0);
 });
+
+test("a fadeout glides per sample and ends on silence, not on a step", () => {
+  // A DC sample, so the mix bus IS the voice's gain. Before the fadeout was
+  // smoothed it fell fadeout_step/1024 in ONE sample every tick, and the voice
+  // was dropped the tick it reached 0: at $400 that was the whole level in one
+  // sample — the click on every fade.
+  const spt = 640; // 32 kHz, 125 BPM
+  for (const fade of [0x40, 0x100, 0x400]) {
+    const eng = makeTestEngine();
+    for (let i = 0; i < 1000; i++) eng.sampleBin[i] = 228;
+    const rec = new Uint8Array(256);
+    const w16 = (o, v) => { rec[o] = v & 0xff; rec[o + 1] = (v >> 8) & 0xff; };
+    w16(4, 1000); w16(6, 32000); w16(12, 1000); rec[14] = 1; rec[21] = 0x3f;
+    rec[171] = 255; rec[196] = 255;
+    rec[172] = fade & 0xff; rec[173] = fade >> 8;
+    eng.uploadInstrument(1, rec);
+    const pat = new Uint8Array(512);
+    for (let r = 0; r < 64; r++) { pat[r * 8 + 3] = 0xc0; pat[r * 8 + 4] = 0xc0; }
+    pat[0] = 0x00; pat[1] = 0x50; pat[2] = 1; // row 0: C4, inst 1
+    pat[8] = 0x01; pat[9] = 0x00;             // row 1: key-off
+    eng.uploadPattern(0, pat);
+    const cue = new Uint8Array(64);
+    for (let ch = 0; ch < 32; ch++) { cue[ch * 2] = 0xff; cue[ch * 2 + 1] = 0x7f; }
+    cue[0] = 0x00; cue[1] = 0x00;
+    eng.uploadCue(0, cue);
+    eng.setBPM(0, 125); eng.setTickRate(0, 6); eng.setMasterVolume(0, 255);
+    eng.setCuePosition(0, 0); eng.play(0);
+    const ts = eng.playheads[0].trackerState;
+    const out = new Uint8Array(TRACKER_CHUNK * 2);
+    const L = [];
+    while (L.length < 32000) {
+      eng.renderChunk(0, out);
+      for (let n = 0; n < TRACKER_CHUNK; n++) L.push(ts.mixLeft[n]);
+    }
+    let peak = 0;
+    for (let i = 1000; i < 6 * spt; i++) peak = Math.max(peak, Math.abs(L[i]));
+    assert.ok(peak > 0.1, "the held note sounds");
+    // The largest one-sample move is one tick's fall spread over the tick.
+    const perSample = (fade / 1024) * peak / spt;
+    for (let i = 6 * spt + 64; i < L.length; i++) {
+      assert.ok(Math.abs(L[i] - L[i - 1]) <= perSample * 1.01 + 1e-6,
+        `$${fade.toString(16)}: a ${Math.abs(L[i] - L[i - 1])} step at sample ${i}`);
+    }
+    assert.equal(L[L.length - 1], 0, "the fade ends");
+    assert.equal(ts.voices[0].active, false, "and the voice with it");
+  }
+});

@@ -196,33 +196,69 @@ export function rowVolumeFromDefault(inst, patch = null, volMax = 0x3f) {
   return volMax === 0xff ? dnv : Math.trunc((dnv * 63 + 127) / 255);
 }
 
-/** Cap backgroundVoices to MAX_BG_VOICES, preferring to evict the oldest NON-layer ghost. */
+/**
+ * Cap backgroundVoices at MAX_BG_VOICES SOUNDING voices, preferring to evict
+ * the oldest NON-layer ghost.
+ *
+ * An evicted voice is ramped out (startCutRamp) rather than dropped: dropping
+ * it stepped its waveform to zero, a click every time a dense song overflowed
+ * the pool. So a voice already ramping out — and an operand of one, which its
+ * carrier reads to the end of the ramp — no longer counts, and leaves the pool
+ * when it falls silent (the tick pass reaps inactive voices). The pool can
+ * therefore run past the cap for the ~0.7 ms a ramp lasts; at twice the cap
+ * the oldest are dropped outright, as they always were, so it stays bounded.
+ */
 export function capBackgroundVoices(ts) {
-  while (ts.backgroundVoices.length > MAX_BG_VOICES) {
+  const pool = ts.backgroundVoices;
+  const leaving = (v) => !v.active || v.rampOutSamples > 0 ||
+    (v.fmOperator && v.fmParent !== null && v.fmParent.rampOutSamples > 0);
+  let live = 0;
+  for (const v of pool) if (!leaving(v)) live++;
+  while (live > MAX_BG_VOICES) {
     // Plain NNA ghosts go first, then layer children. An FM operator goes LAST
-    // and, when it does go, is deactivated rather than merely dropped: its rack
-    // still holds a reference to it, and a culled operand that kept sounding
-    // would be an operand nothing was ageing any more.
-    let idx = ts.backgroundVoices.findIndex((v) => !v.isLayerChild && !v.fmOperator);
-    if (idx < 0) idx = ts.backgroundVoices.findIndex((v) => !v.fmOperator);
-    if (idx < 0) idx = 0;
-    const culled = ts.backgroundVoices[idx];
-    culled.active = false;
-    ts.backgroundVoices.splice(idx, 1);
-    // Culling a ghosted rack (item 191) frees its operands too, here rather
-    // than a tick later in the reaper: they are nothing but operands of the
-    // voice just taken out, and leaving them in the pool would make the cull
-    // take several carriers to win back the room one note was using.
+    // and, when it does go, is deactivated outright: it is never heard by
+    // itself, only through the rack that reads it.
+    let idx = pool.findIndex((v) => !leaving(v) && !v.isLayerChild && !v.fmOperator);
+    if (idx < 0) idx = pool.findIndex((v) => !leaving(v) && !v.fmOperator);
+    if (idx < 0) idx = pool.findIndex((v) => !leaving(v));
+    const culled = pool[idx];
+    if (culled.fmOperator) {
+      dropBackgroundVoice(ts, idx);
+      live--;
+      continue;
+    }
+    startCutRamp(culled);
+    live--;
+    // A ghosted rack (item 191) takes its operands with it: they stop counting
+    // now and go when the carrier does.
     if (culled.fmRig !== null) {
-      for (let i = ts.backgroundVoices.length - 1; i >= 0; i--) {
-        const bg = ts.backgroundVoices[i];
-        if (!bg.fmOperator || bg.fmParent !== culled) continue;
-        bg.active = false;
-        bg.fmOperator = false;
-        bg.fmParent = null;
-        bg.isLayerChild = false;
-        ts.backgroundVoices.splice(i, 1);
-      }
+      for (const bg of pool) if (bg.fmOperator && bg.fmParent === culled && bg.active) live--;
+    }
+  }
+  while (pool.length > 2 * MAX_BG_VOICES) {
+    let idx = pool.findIndex((v) => !v.isLayerChild && !v.fmOperator);
+    if (idx < 0) idx = pool.findIndex((v) => !v.fmOperator);
+    if (idx < 0) idx = 0;
+    dropBackgroundVoice(ts, idx);
+  }
+}
+
+/** Drop pool[idx] on the spot — and, for a ghosted rack, its operands too: they
+ *  are nothing but operands of the voice just taken out. */
+function dropBackgroundVoice(ts, idx) {
+  const pool = ts.backgroundVoices;
+  const culled = pool[idx];
+  culled.active = false;
+  pool.splice(idx, 1);
+  if (culled.fmRig !== null) {
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const bg = pool[i];
+      if (!bg.fmOperator || bg.fmParent !== culled) continue;
+      bg.active = false;
+      bg.fmOperator = false;
+      bg.fmParent = null;
+      bg.isLayerChild = false;
+      pool.splice(i, 1);
     }
   }
 }
@@ -256,7 +292,10 @@ export function releaseLayerChildren(eng, ts, vi) {
       case 4:
         if (!bg.keyOff) { bg.keyOff = true; applyKeyLift(bg, eng.instruments[bg.instrumentId]); }
         break;
-      case 1: bg.active = false; break; // note cut
+      // Note cut — ramped out like every other cut. Layer 0 goes the same way
+      // through its ghost (maybeSpawnBackgroundForNNA); dropping the other
+      // layers on the spot clicked on every note of a layered instrument.
+      case 1: startCutRamp(bg); break;
       case 3: bg.noteFading = true; break; // note fade
       // 2 = continue
     }
@@ -644,6 +683,8 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricP
     voice.envFilterTimeSec = pfTimeBox[0];
   }
   voice.fadeoutVolume = 1.0;
+  voice.fadeoutMix = 1.0;
+  voice.fadeoutMixStep = 0.0;
   // Cancel any leftover sample-end ramp — a fresh attack must not be muted.
   voice.rampOutSamples = 0;
   voice.rampOutGain = 0.0;
@@ -770,6 +811,10 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricP
   // in from whatever the lane was last playing (item 141).
   voice.snapPlaybackRate = true;
   voice.snapPan = true;
+  // …and at its lane's fader and elevation: a fresh note has no waveform yet
+  // for a jump to click in, and gliding would fade it in from the last note's.
+  voice.elevCur = NaN;
+  voice.faderCur = NaN;
   voice.noteWasCut = false;
   voice.noteFading = false;
   // S $73..$7E per-note overrides reset on each fresh trigger.
@@ -868,7 +913,9 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
 
   const isDuplicate = (v) => {
     const existInst = eng.instruments[v.instrumentId];
-    if (v.formant !== null && (v.formant.phase >= PHASE_CODA || v.rampOutSamples > 0)) return false;
+    // A voice already ramping out is already gone.
+    if (v.rampOutSamples > 0) return false;
+    if (v.formant !== null && v.formant.phase >= PHASE_CODA) return false;
     if (bare && existInst.duplicateCheckType !== DCT_LANE) return false;
     switch (existInst.duplicateCheckType) {
       case 1: return v.noteVal === newNote && v.instrumentId === newInstId;
@@ -890,14 +937,12 @@ export function applyDuplicateCheck(eng, ts, channel, instId, note) {
     const existInst = eng.instruments[v.instrumentId];
     switch (existInst.duplicateCheckAction) {
       case 0:
-        if (v.formant !== null) {
-          // Ramped out over the incoming note's attack: the foreground voice
-          // through a ghost, since the note is about to reuse it.
-          startCutRamp(isFg ? ghostRig(ts, v, channel) : v);
-          if (isFg) { v.active = false; capBackgroundVoices(ts); }
-          break;
-        }
-        v.fadeoutVolume = 0.0; v.active = false; break;
+        // Ramped out over the incoming note's attack — the foreground voice
+        // through a ghost, since the note is about to reuse it — as a New Note
+        // Action's cut is. Dropping it on the spot clicked.
+        startCutRamp(isFg ? ghostRig(ts, v, channel) : v);
+        if (isFg) { v.active = false; capBackgroundVoices(ts); }
+        break;
       case 1: v.keyOff = true; applyKeyLift(v, existInst); break;
       case 2: v.noteFading = true; break;
     }
@@ -1088,6 +1133,10 @@ export function ghostVoice(src, channel) {
   const v = new Voice();
   v.active = true;
   v.fader = src.fader;
+  v.faderCur = src.faderCur; v.faderAim = src.faderAim;
+  v.faderStep = src.faderStep; v.faderLeft = src.faderLeft;
+  v.elevCur = src.elevCur; v.elevAim = src.elevAim;
+  v.elevStep = src.elevStep; v.elevLeft = src.elevLeft;
   v.instrumentId = src.instrumentId;
   v.displayInst = src.displayInst;       // export/display tap: the ghost is still "that" instrument
   v.samplePos = src.samplePos;
@@ -1135,6 +1184,8 @@ export function ghostVoice(src, channel) {
   v.envFilterTimeSec = src.envFilterTimeSec;
   v.envFilterValue = src.envFilterValue;
   v.fadeoutVolume = src.fadeoutVolume;
+  v.fadeoutMix = src.fadeoutMix;
+  v.fadeoutMixStep = src.fadeoutMixStep;
   v.autoVibPhase = src.autoVibPhase;
   v.autoVibTicksSinceTrigger = src.autoVibTicksSinceTrigger;
   v.currentCutoff = src.currentCutoff;
@@ -1242,12 +1293,14 @@ export function ghostVoice(src, channel) {
 /** Past-note action (S $70..$72) on all background voices spawned by lane. */
 export function applyPastNoteAction(eng, ts, channel, action) {
   switch (action) {
-    case 0: { // Past Note Cut — drop them.
-      for (let i = ts.backgroundVoices.length - 1; i >= 0; i--) {
-        if (ts.backgroundVoices[i].sourceChannel === channel) ts.backgroundVoices.splice(i, 1);
+    case 0: // Past Note Cut — ramped out, as every cut is (dropping them clicked).
+      // An FM operand is not a note: it ends with the carrier that reads it
+      // (the tick pass retires an operand whose parent has gone), and cutting
+      // it ahead of the carrier would change the sound of the ramp.
+      for (const bg of ts.backgroundVoices) {
+        if (bg.sourceChannel === channel && !bg.fmOperator) startCutRamp(bg);
       }
       break;
-    }
     case 1: // Past Note Off — sustain release.
       for (const bg of ts.backgroundVoices) {
         if (bg.sourceChannel === channel) {

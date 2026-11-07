@@ -440,6 +440,8 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   voice.keyOff = false;
   voice.noteFading = false;
   voice.fadeoutVolume = 1.0;
+  voice.fadeoutMix = 1.0;
+  voice.fadeoutMixStep = 0.0;
   if (!reAttack) return;
   if (!(mayCarry && envCarry(voice.activeVolEnvLoop))) {
     voice.envIndex = 0;

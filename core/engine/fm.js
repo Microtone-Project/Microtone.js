@@ -25,7 +25,7 @@ import {
   FmOp, FM_STACK_MAX,
 } from "./inst.js";
 import { META_MIX_GAIN } from "./tables.js";
-import { fetchTrackerSample, advanceVolumeRamp, advancePitchRamp } from "./sampler.js";
+import { fetchTrackerSample, advanceVolumeRamp, advancePitchRamp, advanceFadeout } from "./sampler.js";
 import { applyVoiceFilter } from "./filter.js";
 import { oplRender, oplChannelAlive } from "./opl.js";
 import { psgRender, psgChannelAlive } from "./psg.js";
@@ -201,7 +201,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
     // make an operator's modulation INDEX follow the volume column, so playing
     // a patch quietly would also play it duller. An operator's level is its
     // index; the note's volume belongs to the note.
-    g *= effEnvVol * v.fadeoutVolume * v.activeAttenGain *
+    g *= effEnvVol * advanceFadeout(v) * v.activeAttenGain *
       (inst.instGlobalVolume / 255.0);
     if (v.rampOutSamples > 0) {
       g *= v.rampOutGain;

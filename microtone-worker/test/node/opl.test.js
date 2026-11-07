@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 
 import { TaudEngine } from "../../core/engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
+import { TRACKER_CHUNK, SAMPLING_RATE, VOL_RAMP_SAMPLES } from "../../core/engine/constants.js";
 import {
   TaudInst, buildOplRecord, META_TYPE_OPL, OPL_RECORD_HEADER,
 } from "../../core/engine/inst.js";
@@ -277,7 +277,12 @@ test("a muted lane's channel is frozen rather than caught up", () => {
   const k = v.opl.k;
   v.fader = 255;
   renderLeft(eng, 48000);
-  assert.equal(v.opl.k, k, "nothing rendered while muted");
+  // The mute glides the lane down over the volume ramp's 2 ms (a muted lane
+  // would otherwise click), and the channel freezes where the glide ends.
+  const frozen = v.opl.k;
+  assert.ok(frozen - k <= Math.ceil(VOL_RAMP_SAMPLES * 1.04) + 1, `rendered through the glide only (${frozen - k})`);
+  renderLeft(eng, 48000);
+  assert.equal(v.opl.k, frozen, "nothing rendered while muted");
   v.fader = 0;
   renderLeft(eng, 128);
   assert.ok(v.opl.k > k + 48000, "back on the playhead's clock");

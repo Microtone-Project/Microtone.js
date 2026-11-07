@@ -192,7 +192,7 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
       // point: a game fading a lane out watches its own fade on this probe.
       const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
       const faderGain = (255 - v.fader) / 255.0;
-      const ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
+      const ev = effEnvVol * v.fadeoutMix * v.currentMixVolume * faderGain;
       f[o + SNAP_V_VOLUME] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
       // Where it SOUNDS in the stereo image: a surround lane reports where the
       // monitor downmix puts it, and a metainstrument the mix-weighted mean of

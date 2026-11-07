@@ -128,7 +128,7 @@ export class TaudRenderer {
     if (!voice || !voice.active) return 0;
     const effEnvVol = voice.volEnvOn ? voice.envVolMix : 1.0;
     const faderGain = (255 - voice.fader) / 255.0;
-    const ev = effEnvVol * voice.fadeoutVolume * voice.currentMixVolume * faderGain;
+    const ev = effEnvVol * voice.fadeoutMix * voice.currentMixVolume * faderGain;
     return ev < 0 ? 0 : ev > 1 ? 1 : ev;
   }
 

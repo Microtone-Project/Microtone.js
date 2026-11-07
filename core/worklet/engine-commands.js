@@ -188,7 +188,7 @@ export function fillSnapshotInto(eng, playhead, f) {
     if (active) {
       const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
       const faderGain = (255 - v.fader) / 255.0;
-      let ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
+      let ev = effEnvVol * v.fadeoutMix * v.currentMixVolume * faderGain;
       f[o + SNAP_V_EFF_VOL] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
       // Where the lane SOUNDS — the same sum the mixer pans by (pan swing
       // included, item 155), and for a metainstrument the mix-weighted mean of

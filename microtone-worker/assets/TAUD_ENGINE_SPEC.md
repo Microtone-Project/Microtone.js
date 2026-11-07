@@ -31,6 +31,8 @@ Beyond the foreground voices, each playhead keeps a mixer-private pool of **back
 
 When the pool overflows, the implementation **MUST** evict the **oldest non-layer ghost**; only if every entry is a layer child does it evict the outright oldest. Layer children are protected because dropping one silences part of a chord that is still being played, whereas dropping a ghost only shortens a tail.
 
+An evicted voice is **ramped out** over the cut ramp ([§8.7](#8-7-the-attack-ramp)), as every cut is — dropping it mid-waveform is a click each time a dense song overflows the pool. A voice already ramping out, and an FM operand of one, no longer counts towards the 64 and leaves the pool when it falls silent, so the pool may hold more than 64 voices for the length of a ramp. At 128 the oldest are dropped outright, by the same preference, so it stays bounded. An FM operand that has to be evicted is still dropped outright: it is never heard by itself.
+
 Background voices are not addressable from the pattern. They receive no row events; they run envelopes, fadeout, auto-vibrato and filters, and layer children additionally re-synchronise to their parent every tick ([§5.5](#5-5-metainstruments)).
 
 ### 1.3 Output
@@ -347,7 +349,7 @@ A type the engine does not know **MUST** sound nothing rather than fall back to 
 
 The rules below are written for the Layered kind, where they are easiest to state, but not all of them stop there: [§5.5.1](#5-5-1-type-4-fm-racks) says which a rack inherits **unchanged** — the release of the previous note, the per-tick sync of a child to its parent, and the pattern's reach over every voice sounding one note — and which are the Layered kind's own, the soundfield below being the plainest of them.
 
-If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the lane's existing layer children: each is detached from the parent and given its own instrument's New Note Action (key-off with release, cut, continue, or fade).
+If the trigger's instrument is a Layered Metainstrument, the engine first **releases** the lane's existing layer children: each is detached from the parent and given its own instrument's New Note Action (key-off with release, cut, continue, or fade). A cut child is ramped out over the cut ramp ([§8.7](#8-7-the-attack-ramp)), exactly as layer 0's ghost is ([§5.7](#5-7-new-note-actions)): a layer stopped dead clicks while the rest of the note crossfades.
 
 Then it collects every layer whose rectangle contains the trigger, in record order. Under **strict layering** it additionally drops any layer whose own instrument resolves no patch at the (detuned) trigger. If nothing survives, the lane goes **silent** for this note — that is the correct outcome, not a fallback.
 
@@ -1139,7 +1141,7 @@ Types 5…15 never match. Type 4 is Taud's own: it lets an instrument's notes gi
 
 | Action | Effect on a matching voice |
 |---|---|
-| 0 — note cut | Zero the fadeout multiplier; the voice deactivates this tick |
+| 0 — note cut | Ramp the voice out over the cut ramp ([§8.7](#8-7-the-attack-ramp)) — the foreground voice through a ghost, since the incoming note reuses it — so the pair crossfades as a New Note Action's cut does |
 | 1 — key-off | Set key-off (releasing sustain, applying key lift, and starting the fadeout if one is configured) |
 | 2 — note fade | Begin fading immediately, with no sustain release, so sample and envelope loops continue |
 
@@ -1172,7 +1174,7 @@ The ghost copy **MUST** carry the full playback state: both active views, both f
 
 **A retrigger can follow the New Note Action too.** `Q` ordinarily restarts the sounding note in place, which cuts what it was playing — ImpulseTracker's retrigger. An instrument that sets **bit 6 of byte 186** ([File Format §byte 186](TAUD_FILE_FORMAT.md)) asks instead that each retrigger treat the outgoing sound as a fresh note would: it is copied into the background pool and given the New Note Action — the instrument's, or the lane's `S $73`…`S $76` override — exactly as in the table above, and the voice then restarts as a fresh trigger does, with the attack ramp ([§8.7](#8-7-the-attack-ramp)) and, on an OPL channel or a PSG pair the ghost has taken, envelopes keyed on from silence. A note-cut action with the bit set therefore crossfades where the plain retrigger splices; an OPL or PSG voice whose action is note cut hands its channel over exactly as the plain retrigger does, so the bit changes nothing there. On a metainstrument every voice asks **its own instrument's** bit, as each layer child asks its own New Note Action on release ([§5.5](#5-5-metainstruments)); an FM rack's operands go with their carrier and are never asked. The volume modifier, the counter and the interval are unchanged.
 
-Past-note actions (`S $70`…`S $72`) act on *all* background voices a lane spawned: cut removes them outright, off releases them with key lift, fade starts their fadeout.
+Past-note actions (`S $70`…`S $72`) act on *all* background voices a lane spawned: cut ramps them out over the cut ramp ([§8.7](#8-7-the-attack-ramp)), off releases them with key lift, fade starts their fadeout. An FM operand is not cut by itself: it ends with the carrier that reads it.
 
 ### 5.8 Volume and panning columns
 
@@ -1215,7 +1217,7 @@ The tick pass runs once per tick, per voice, and is where everything continuous 
 15. **Pitch envelope** contribution ([§7.4](#7-4-pitch-and-filter-envelope-application)).
 16. Compute the final pitch, clamp it to `$0020`…`$FFFF`, and update the playback rate.
 17. **Filter envelope** applied to the cutoff, then refresh the filter coefficients if cutoff or resonance changed.
-18. **Fadeout**: while key-off or note-fading, subtract `fadeout_step ÷ 1024` from the fadeout multiplier, clamped at 0; at 0 the voice deactivates. A `fadeout_step` of 0 never fades.
+18. **Fadeout**: while key-off or note-fading, subtract `fadeout_step ÷ 1024` from the fadeout multiplier, clamped at 0. A voice whose multiplier was already 0 when this tick began deactivates instead: the mixer glides the multiplier across the tick ([§10.2](#10-2-the-gain-chain)), so the voice ends one tick after it reaches 0, once the glide has carried it to silence. A `fadeout_step` of 0 never fades.
 19. **Advance the volume and pan envelopes**, then set the per-sample envelope slope for the coming tick.
 20. **Advance the pitch and filter envelopes**.
 
@@ -1544,7 +1546,7 @@ Per voice, per frame:
 
 ```
 per_voice = envelope_volume            (1.0 when the volume envelope is absent or toggled off)
-          × fadeout_multiplier
+          × fadeout_multiplier         (smoothed per sample, below)
           × current_mix_volume         (the ramped row × channel volume)
           × (1 + volume_swing_bias ÷ 255)
           × instrument_global_volume ÷ 255
@@ -1561,7 +1563,13 @@ sample_out = sample × per_voice × global × pan_gain × ramp_gain
 
 The envelope volume is likewise smoothed per sample: at each tick the engine computes a slope `(new_envelope_value − current) ÷ samples_per_tick` and adds it once per frame. Without this, a 50 Hz envelope staircase is audible on sustained material.
 
+The fadeout multiplier is smoothed the same way: at each tick the engine computes a slope `(new_fadeout_multiplier − current) ÷ samples_per_tick` and adds it once per frame, never taking the smoothed value below the tick's own multiplier — which is where the glide ends, and which makes a reset to 1 (a trigger, a re-attack, a retrigger) land at once. Without this a fadeout is a staircase of `fadeout_step ÷ 1024` steps, one per tick, and its last step — down to silence — is a click; a step of `$400` or more is the whole level in one sample. A voice that is copied (a New Note Action ghost) carries the smoothed value and its slope with it.
+
 The **fader** is a host-owned 256-step attenuator per lane (0 = unity, 255 = muted) used for mute and solo. Muting a lane **MUST** also silence the ghosts and layer children it spawned: a background voice's effective fader is the larger of its own and its source lane's.
+
+The host sets a fader outright, so each voice **glides** its effective fader to the new value over the volume-change ramp (2 ms), re-aimed whenever the value moves; a step there clicks on every mute and solo. A voice that is not sounding, and a fresh trigger, take the lane's fader at once, since there is no waveform for a jump to click in. A voice whose effective fader is 255 and whose glide has reached it is **frozen**: from that sample on it is not rendered at all — its sample position and its chip stand still — until the fader moves again.
+
+The song-level gains — global volume, mixing volume and master volume — glide the same way: each walks to its new value over the volume-change ramp, re-aimed whenever it moves, so `V` lands on its value 2 ms after its row instead of in one sample, and a `W` slide is a ramp per tick instead of a staircase. A play starts at the song's levels rather than gliding in from the last play's. A value that has not moved is applied exactly as written above, to the bit.
 
 ### 10.3 Panning
 
@@ -1623,6 +1631,8 @@ with the same addends as the stereo law, wrapping where that one clamps.
 **Elevation** is effect `X`'s signed byte: 128 units to 90°, −128 below, +127 ≈ above.
 
 Both are continuous doubles, because the `Z` slide moves through them smoothly. Direction vectors use the AmbiX axes: +x front, +y left, +z up.
+
+Each voice **glides** both, per sample, to the composed value above over the volume-change ramp (2 ms), as the stereo model does its pan: the azimuth the short way round the circle, the elevation in a straight line and re-aimed whenever its value moves. A step in either steps every channel's gain at once and clicks. A fresh trigger snaps both, so a note starts where it is placed.
 
 Two folds matter and are **not** the same operation:
 

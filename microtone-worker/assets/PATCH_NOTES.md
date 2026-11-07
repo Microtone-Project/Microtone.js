@@ -6,6 +6,19 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 4.8.1 (2026-11-07)
 
+**Fadeouts are smooth now**: a note fading out after a Note Off, a Note Fade or a New Note Action no longer clicks on its way down or at its end.
+
+- Fixed: sounds fading through their instrument's fadeout crackled as they faded and clicked as they ended; the level dropped once a tick in a single step, and the note was cut off at whatever level its last step had left it, so a fast fadeout ended with a loud click.
+- The fade now glides smoothly across each tick, and a note ends once it has reached silence, so each fade lasts one tick longer than before.
+- Songs whose instruments use a fadeout sound slightly different at each note's tail; songs that never fade a note are unchanged.
+- Fixed: the upper layers of a layered instrument clicked when the next note cut them (New Note Action Note Cut); they now fade out together with the first layer.
+- Fixed: Duplicate Check's Note Cut clicked on every instrument except formant ones; the old note now crossfades into the new one.
+- Fixed: `S $70` (cut the lane's past notes) clicked; the notes now fade out quickly instead of stopping dead.
+- Fixed: very busy songs clicked when more than 64 notes were left ringing and the oldest had to make room; it now fades out.
+- `V` and `W` (global volume) glide to their new level instead of jumping, so a global volume slide no longer crackles.
+- Muting, soloing and the lane faders glide over 2 ms, so muting a lane while it plays no longer clicks.
+- In 3D songs, elevation changes (`X`) glide like azimuth changes already did.
+
 **With the view area split, the Mixing tab's monitors draw in both panes**, each for the instrument that pane shows.
 
 - Fixed: with the Instruments view's Mixing tab open in both panes on two different instruments, or two instruments with the same chain, the first pane's levels, gain reduction, spectrum and goniometer drew nothing, playing or not; the two panes took turns aiming one shared meter, and the second pane always won.

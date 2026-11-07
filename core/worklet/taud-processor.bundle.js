@@ -1161,7 +1161,7 @@ function voiceElevation(voice) {
 /** A voice's share of the lane's output, as the mixer weights it. */
 function displayWeight(v) {
   const env = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
-  return env * v.fadeoutVolume * v.currentMixVolume * v.layerMixGain *
+  return env * v.fadeoutMix * v.currentMixVolume * v.layerMixGain *
     ((255 - v.fader) / 255.0);
 }
 
@@ -1227,7 +1227,8 @@ function voiceGainsCache(bus, voice, sc) {
   // and the stereo path is smoothing the very same number, which is what keeps a
   // planar song rendering identically to its stereo twin.
   const az = voice.currentPan;
-  const el = voiceElevation(voice);
+  // …and the ramped elevation (advanceElevRamp), for the same reason.
+  const el = voice.elevCur === voice.elevCur ? voice.elevCur : voiceElevation(voice);
   if (sc === null || sc.gains.length < nc * MAX_SAMPLE_CHANNELS) {
     sc = {
       az: NaN, el: NaN, chans: 0, renderer: null,
@@ -10861,7 +10862,16 @@ class Voice {
     this.envFilterTimeSec = 0.0;
     this.envFilterValue = 0.5;
 
+    // fadeoutVolume is the fadeout multiplier as the TICK sets it; fadeoutMix is
+    // what the mixer multiplies by, walked to it a sample at a time (the same
+    // shape as envVolMix) so a fadeout is a slope and not a 50 Hz staircase.
     this.fadeoutVolume = 1.0;
+    this.fadeoutMix = 1.0;
+    this.fadeoutMixStep = 0.0;
+    // The lane fader and the elevation as the mixer has glided them
+    // (advanceFaderRamp / advanceElevRamp); NaN = snap on the next sample.
+    this.faderCur = NaN; this.faderAim = 0; this.faderStep = 0.0; this.faderLeft = 0;
+    this.elevCur = NaN; this.elevAim = 0.0; this.elevStep = 0.0; this.elevLeft = 0;
 
     // MilkyTracker-style anti-click ramp-out.
     this.rampOutSamples = 0;
@@ -11547,6 +11557,17 @@ class TrackerState {
     // voice that started it.
     this.mixAccL = new Float64Array(TRACKER_CHUNK);
     this.mixAccR = new Float64Array(TRACKER_CHUNK);
+    // The song's global volume, the mixing volume and the master volume as the
+    // mixer glides them (sampler.js ByteGlide), and their per-frame values for
+    // the span being mixed: the first two as fractions, the master as a byte,
+    // `gainSpan` the three combined — exactly the factors the gain chain uses.
+    this.gvolGlide = new ByteGlide();
+    this.mvolGlide = new ByteGlide();
+    this.masterGlide = new ByteGlide();
+    this.gvolSpan = new Float64Array(TRACKER_CHUNK);
+    this.mvolSpan = new Float64Array(TRACKER_CHUNK);
+    this.masterSpan = new Float64Array(TRACKER_CHUNK);
+    this.gainSpan = new Float64Array(TRACKER_CHUNK);
 
     // Mixer-private background voices (NNA ghosts); index 0 = oldest.
     this.backgroundVoices = [];
@@ -11682,7 +11703,11 @@ class TrackerState {
     this.finePatternDelayExtra = 0;
     this.pendingInterrupts = 0;
     this.interruptArgs.fill(0);
-    for (const v of this.voices) v.active = false;
+    // A play starts AT its levels: nothing glides in from the last one.
+    for (const v of this.voices) { v.active = false; v.faderCur = NaN; }
+    this.gvolGlide.cur = NaN;
+    this.mvolGlide.cur = NaN;
+    this.masterGlide.cur = NaN;
     this.backgroundVoices.length = 0; // drop lingering NNA ghosts from a prior play
     // The mastering chain (item 178) is per-PLAY transient in exactly the sense
     // the ghost pool is: a compressor still holding six decibels of reduction
@@ -11961,6 +11986,7 @@ class Playhead {
       it.modWritePos = 0;
       it.modXfade = 0;
       it.fader = 0;
+      it.faderCur = NaN;
       it.nnaOverride = -1;
       it.volEnvOn = true; it.panEnvOn = true; it.pitchEnvOn = true; it.filterEnvOn = true;
       it.metaForeground = false;
@@ -11991,7 +12017,7 @@ class Playhead {
       it.envPitchIndex = 0; it.envPitchTimeSec = 0.0; it.envPitchValue = 0.5;
       it.envFilterIndex = 0; it.envFilterTimeSec = 0.0; it.envFilterValue = 0.5;
       it.hasPitchEnv = false; it.hasFilterEnv = false;
-      it.fadeoutVolume = 1.0;
+      it.fadeoutVolume = 1.0; it.fadeoutMix = 1.0; it.fadeoutMixStep = 0.0;
       it.rampOutSamples = 0; it.rampOutGain = 0.0; it.rampOutStep = 0.0;
       it.attackRampSamples = 0;
       it.noteVal = 0x0000; it.basePitch = 0x4000;
@@ -12765,6 +12791,106 @@ function advancePanRamp(voice, target, wrap = false) {
     else if (voice.currentPan >= 512) voice.currentPan -= 512;
   }
   return voice.currentPan;
+}
+
+/** Per-sample fadeout glide: walk fadeoutMix down the slope the tick set
+ *  (fadeoutMixStep) and return it. Never below the tick's own multiplier — that
+ *  is where the glide ends, and a reset to 1 (a trigger, a re-attack) lands at
+ *  once rather than gliding up. A fadeout only ever falls, so this floor is
+ *  the whole rule. */
+function advanceFadeout(voice) {
+  const m = voice.fadeoutMix + voice.fadeoutMixStep;
+  voice.fadeoutMix = m > voice.fadeoutVolume ? m : voice.fadeoutVolume;
+  return voice.fadeoutMix;
+}
+
+/**
+ * A level the HOST or the song sets outright — the song's global volume, the
+ * mixing and master volumes (one ByteGlide each, on the TrackerState) — walked
+ * to its new value over the volume ramp's 2 ms rather than stepped there, as a
+ * volume-column change is. Re-aimed whenever the value moves, so a slide that
+ * outruns the ramp still glides. Byte units (0…255): a value that has not
+ * moved is the very number the gain chain always used, to the bit.
+ *
+ * `cur` NaN means "not started": the first sample snaps (a play starts AT the
+ * song's volume; it does not fade in from the last one).
+ */
+class ByteGlide {
+  constructor() {
+    this.cur = NaN;
+    this.aim = 0;
+    this.step = 0.0;
+    this.left = 0;
+  }
+
+  /** Walk toward `target` over frames [n0, n1), writing value ÷ `div`. */
+  fill(target, out, n0, n1, div) {
+    if (this.cur !== this.cur) { this.cur = target; this.aim = target; this.left = 0; }
+    if (target !== this.aim) {
+      this.aim = target;
+      this.step = (target - this.cur) / VOL_RAMP_SAMPLES;
+      this.left = VOL_RAMP_SAMPLES;
+    }
+    if (this.left === 0) {
+      const v = this.cur / div;
+      for (let n = n0; n < n1; n++) out[n] = v;
+      return;
+    }
+    for (let n = n0; n < n1; n++) {
+      if (this.left > 0) {
+        this.left--;
+        this.cur = this.left === 0 ? target : this.cur + this.step;
+      }
+      out[n] = this.cur / div;
+    }
+  }
+}
+
+/**
+ * Per-sample glide of a voice's lane FADER (0 = unity, 255 = silent; mute and
+ * solo are 255 and 0) toward `target`, over the volume ramp's 2 ms. The host
+ * sets a fader outright, between chunks; stepping the gain there clicked on
+ * every mute. Returns the fader value to use this sample; `faderCur` NaN snaps
+ * (a new voice, a play start).
+ */
+function advanceFaderRamp(voice, target) {
+  if (voice.faderCur !== voice.faderCur) {
+    voice.faderCur = target; voice.faderAim = target; voice.faderLeft = 0;
+    return target;
+  }
+  if (target !== voice.faderAim) {
+    voice.faderAim = target;
+    voice.faderStep = (target - voice.faderCur) / VOL_RAMP_SAMPLES;
+    voice.faderLeft = VOL_RAMP_SAMPLES;
+  }
+  if (voice.faderLeft > 0) {
+    voice.faderLeft--;
+    voice.faderCur = voice.faderLeft === 0 ? target : voice.faderCur + voice.faderStep;
+  }
+  return voice.faderCur;
+}
+
+/**
+ * Per-sample glide of a voice's ELEVATION (effect X's units) toward `target`,
+ * over the volume ramp's 2 ms — the azimuth's twin (advancePanRamp), which a
+ * position needs both halves of: a stepped elevation stepped every speaker's
+ * gain at once. `elevCur` NaN snaps (a fresh trigger starts AT its position).
+ */
+function advanceElevRamp(voice, target) {
+  if (voice.elevCur !== voice.elevCur) {
+    voice.elevCur = target; voice.elevAim = target; voice.elevLeft = 0;
+    return target;
+  }
+  if (target !== voice.elevAim) {
+    voice.elevAim = target;
+    voice.elevStep = (target - voice.elevCur) / VOL_RAMP_SAMPLES;
+    voice.elevLeft = VOL_RAMP_SAMPLES;
+  }
+  if (voice.elevLeft > 0) {
+    voice.elevLeft--;
+    voice.elevCur = voice.elevLeft === 0 ? target : voice.elevCur + voice.elevStep;
+  }
+  return voice.elevCur;
 }
 
 /** Per-sample volume-ramp tick toward (rowVolume/max)·(channelVolume/max).
@@ -15879,7 +16005,7 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
     // make an operator's modulation INDEX follow the volume column, so playing
     // a patch quietly would also play it duller. An operator's level is its
     // index; the note's volume belongs to the note.
-    g *= effEnvVol * v.fadeoutVolume * v.activeAttenGain *
+    g *= effEnvVol * advanceFadeout(v) * v.activeAttenGain *
       (inst.instGlobalVolume / 255.0);
     if (v.rampOutSamples > 0) {
       g *= v.rampOutGain;
@@ -16503,33 +16629,69 @@ function rowVolumeFromDefault(inst, patch = null, volMax = 0x3f) {
   return volMax === 0xff ? dnv : Math.trunc((dnv * 63 + 127) / 255);
 }
 
-/** Cap backgroundVoices to MAX_BG_VOICES, preferring to evict the oldest NON-layer ghost. */
+/**
+ * Cap backgroundVoices at MAX_BG_VOICES SOUNDING voices, preferring to evict
+ * the oldest NON-layer ghost.
+ *
+ * An evicted voice is ramped out (startCutRamp) rather than dropped: dropping
+ * it stepped its waveform to zero, a click every time a dense song overflowed
+ * the pool. So a voice already ramping out — and an operand of one, which its
+ * carrier reads to the end of the ramp — no longer counts, and leaves the pool
+ * when it falls silent (the tick pass reaps inactive voices). The pool can
+ * therefore run past the cap for the ~0.7 ms a ramp lasts; at twice the cap
+ * the oldest are dropped outright, as they always were, so it stays bounded.
+ */
 function capBackgroundVoices(ts) {
-  while (ts.backgroundVoices.length > MAX_BG_VOICES) {
+  const pool = ts.backgroundVoices;
+  const leaving = (v) => !v.active || v.rampOutSamples > 0 ||
+    (v.fmOperator && v.fmParent !== null && v.fmParent.rampOutSamples > 0);
+  let live = 0;
+  for (const v of pool) if (!leaving(v)) live++;
+  while (live > MAX_BG_VOICES) {
     // Plain NNA ghosts go first, then layer children. An FM operator goes LAST
-    // and, when it does go, is deactivated rather than merely dropped: its rack
-    // still holds a reference to it, and a culled operand that kept sounding
-    // would be an operand nothing was ageing any more.
-    let idx = ts.backgroundVoices.findIndex((v) => !v.isLayerChild && !v.fmOperator);
-    if (idx < 0) idx = ts.backgroundVoices.findIndex((v) => !v.fmOperator);
-    if (idx < 0) idx = 0;
-    const culled = ts.backgroundVoices[idx];
-    culled.active = false;
-    ts.backgroundVoices.splice(idx, 1);
-    // Culling a ghosted rack (item 191) frees its operands too, here rather
-    // than a tick later in the reaper: they are nothing but operands of the
-    // voice just taken out, and leaving them in the pool would make the cull
-    // take several carriers to win back the room one note was using.
+    // and, when it does go, is deactivated outright: it is never heard by
+    // itself, only through the rack that reads it.
+    let idx = pool.findIndex((v) => !leaving(v) && !v.isLayerChild && !v.fmOperator);
+    if (idx < 0) idx = pool.findIndex((v) => !leaving(v) && !v.fmOperator);
+    if (idx < 0) idx = pool.findIndex((v) => !leaving(v));
+    const culled = pool[idx];
+    if (culled.fmOperator) {
+      dropBackgroundVoice(ts, idx);
+      live--;
+      continue;
+    }
+    startCutRamp(culled);
+    live--;
+    // A ghosted rack (item 191) takes its operands with it: they stop counting
+    // now and go when the carrier does.
     if (culled.fmRig !== null) {
-      for (let i = ts.backgroundVoices.length - 1; i >= 0; i--) {
-        const bg = ts.backgroundVoices[i];
-        if (!bg.fmOperator || bg.fmParent !== culled) continue;
-        bg.active = false;
-        bg.fmOperator = false;
-        bg.fmParent = null;
-        bg.isLayerChild = false;
-        ts.backgroundVoices.splice(i, 1);
-      }
+      for (const bg of pool) if (bg.fmOperator && bg.fmParent === culled && bg.active) live--;
+    }
+  }
+  while (pool.length > 2 * MAX_BG_VOICES) {
+    let idx = pool.findIndex((v) => !v.isLayerChild && !v.fmOperator);
+    if (idx < 0) idx = pool.findIndex((v) => !v.fmOperator);
+    if (idx < 0) idx = 0;
+    dropBackgroundVoice(ts, idx);
+  }
+}
+
+/** Drop pool[idx] on the spot — and, for a ghosted rack, its operands too: they
+ *  are nothing but operands of the voice just taken out. */
+function dropBackgroundVoice(ts, idx) {
+  const pool = ts.backgroundVoices;
+  const culled = pool[idx];
+  culled.active = false;
+  pool.splice(idx, 1);
+  if (culled.fmRig !== null) {
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const bg = pool[i];
+      if (!bg.fmOperator || bg.fmParent !== culled) continue;
+      bg.active = false;
+      bg.fmOperator = false;
+      bg.fmParent = null;
+      bg.isLayerChild = false;
+      pool.splice(i, 1);
     }
   }
 }
@@ -16563,7 +16725,10 @@ function releaseLayerChildren(eng, ts, vi) {
       case 4:
         if (!bg.keyOff) { bg.keyOff = true; applyKeyLift(bg, eng.instruments[bg.instrumentId]); }
         break;
-      case 1: bg.active = false; break; // note cut
+      // Note cut — ramped out like every other cut. Layer 0 goes the same way
+      // through its ghost (maybeSpawnBackgroundForNNA); dropping the other
+      // layers on the spot clicked on every note of a layered instrument.
+      case 1: startCutRamp(bg); break;
       case 3: bg.noteFading = true; break; // note fade
       // 2 = continue
     }
@@ -16951,6 +17116,8 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricPatch = 
     voice.envFilterTimeSec = pfTimeBox[0];
   }
   voice.fadeoutVolume = 1.0;
+  voice.fadeoutMix = 1.0;
+  voice.fadeoutMixStep = 0.0;
   // Cancel any leftover sample-end ramp — a fresh attack must not be muted.
   voice.rampOutSamples = 0;
   voice.rampOutGain = 0.0;
@@ -17077,6 +17244,10 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricPatch = 
   // in from whatever the lane was last playing (item 141).
   voice.snapPlaybackRate = true;
   voice.snapPan = true;
+  // …and at its lane's fader and elevation: a fresh note has no waveform yet
+  // for a jump to click in, and gliding would fade it in from the last note's.
+  voice.elevCur = NaN;
+  voice.faderCur = NaN;
   voice.noteWasCut = false;
   voice.noteFading = false;
   // S $73..$7E per-note overrides reset on each fresh trigger.
@@ -17175,7 +17346,9 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
 
   const isDuplicate = (v) => {
     const existInst = eng.instruments[v.instrumentId];
-    if (v.formant !== null && (v.formant.phase >= PHASE_CODA || v.rampOutSamples > 0)) return false;
+    // A voice already ramping out is already gone.
+    if (v.rampOutSamples > 0) return false;
+    if (v.formant !== null && v.formant.phase >= PHASE_CODA) return false;
     if (bare && existInst.duplicateCheckType !== DCT_LANE) return false;
     switch (existInst.duplicateCheckType) {
       case 1: return v.noteVal === newNote && v.instrumentId === newInstId;
@@ -17197,14 +17370,12 @@ function applyDuplicateCheck(eng, ts, channel, instId, note) {
     const existInst = eng.instruments[v.instrumentId];
     switch (existInst.duplicateCheckAction) {
       case 0:
-        if (v.formant !== null) {
-          // Ramped out over the incoming note's attack: the foreground voice
-          // through a ghost, since the note is about to reuse it.
-          startCutRamp(isFg ? ghostRig(ts, v, channel) : v);
-          if (isFg) { v.active = false; capBackgroundVoices(ts); }
-          break;
-        }
-        v.fadeoutVolume = 0.0; v.active = false; break;
+        // Ramped out over the incoming note's attack — the foreground voice
+        // through a ghost, since the note is about to reuse it — as a New Note
+        // Action's cut is. Dropping it on the spot clicked.
+        startCutRamp(isFg ? ghostRig(ts, v, channel) : v);
+        if (isFg) { v.active = false; capBackgroundVoices(ts); }
+        break;
       case 1: v.keyOff = true; applyKeyLift(v, existInst); break;
       case 2: v.noteFading = true; break;
     }
@@ -17395,6 +17566,10 @@ function ghostVoice(src, channel) {
   const v = new Voice();
   v.active = true;
   v.fader = src.fader;
+  v.faderCur = src.faderCur; v.faderAim = src.faderAim;
+  v.faderStep = src.faderStep; v.faderLeft = src.faderLeft;
+  v.elevCur = src.elevCur; v.elevAim = src.elevAim;
+  v.elevStep = src.elevStep; v.elevLeft = src.elevLeft;
   v.instrumentId = src.instrumentId;
   v.displayInst = src.displayInst;       // export/display tap: the ghost is still "that" instrument
   v.samplePos = src.samplePos;
@@ -17442,6 +17617,8 @@ function ghostVoice(src, channel) {
   v.envFilterTimeSec = src.envFilterTimeSec;
   v.envFilterValue = src.envFilterValue;
   v.fadeoutVolume = src.fadeoutVolume;
+  v.fadeoutMix = src.fadeoutMix;
+  v.fadeoutMixStep = src.fadeoutMixStep;
   v.autoVibPhase = src.autoVibPhase;
   v.autoVibTicksSinceTrigger = src.autoVibTicksSinceTrigger;
   v.currentCutoff = src.currentCutoff;
@@ -17549,12 +17726,14 @@ function ghostVoice(src, channel) {
 /** Past-note action (S $70..$72) on all background voices spawned by lane. */
 function applyPastNoteAction(eng, ts, channel, action) {
   switch (action) {
-    case 0: { // Past Note Cut — drop them.
-      for (let i = ts.backgroundVoices.length - 1; i >= 0; i--) {
-        if (ts.backgroundVoices[i].sourceChannel === channel) ts.backgroundVoices.splice(i, 1);
+    case 0: // Past Note Cut — ramped out, as every cut is (dropping them clicked).
+      // An FM operand is not a note: it ends with the carrier that reads it
+      // (the tick pass retires an operand whose parent has gone), and cutting
+      // it ahead of the carrier would change the sound of the ramp.
+      for (const bg of ts.backgroundVoices) {
+        if (bg.sourceChannel === channel && !bg.fmOperator) startCutRamp(bg);
       }
       break;
-    }
     case 1: // Past Note Off — sustain release.
       for (const bg of ts.backgroundVoices) {
         if (bg.sourceChannel === channel) {
@@ -18862,6 +19041,8 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   voice.keyOff = false;
   voice.noteFading = false;
   voice.fadeoutVolume = 1.0;
+  voice.fadeoutMix = 1.0;
+  voice.fadeoutMixStep = 0.0;
   if (!reAttack) return;
   if (!(mayCarry && envCarry(voice.activeVolEnvLoop))) {
     voice.envIndex = 0;
@@ -19504,14 +19685,19 @@ function applyTrackerTick(eng, ts, playhead) {
     // Refresh filter coefficients once per tick (recomputes only when changed).
     refreshVoiceFilter(voice);
 
-    // Volume fadeout: after key-off OR Note-Fade NNA, decrement per tick.
+    // Volume fadeout: after key-off OR Note-Fade NNA, decrement per tick. The
+    // mixer glides fadeoutMix to the new value across the tick, so the voice
+    // ends on the tick AFTER the multiplier reaches 0 — the tick that glided
+    // it there. Ending it on the same tick cut it from fadeStep/1024 to
+    // silence in one sample, and that was a click on every fade.
     if (voice.keyOff || voice.noteFading) {
       const fadeStep = voice.activeFadeoutStep;
       if (fadeStep > 0) {
-        voice.fadeoutVolume = Math.max(voice.fadeoutVolume - fadeStep / 1024.0, 0.0);
         if (voice.fadeoutVolume <= 0.0) voice.active = false;
+        else voice.fadeoutVolume = Math.max(voice.fadeoutVolume - fadeStep / 1024.0, 0.0);
       }
     }
+    voice.fadeoutMixStep = spt > 0.0 ? (voice.fadeoutVolume - voice.fadeoutMix) / spt : 0.0;
 
     advanceEnvelope(voice, tickSec);
     // Per-sample slope so envVolMix walks smoothly to the new envVolume.
@@ -19689,12 +19875,16 @@ function applyTrackerTick(eng, ts, playhead) {
     bg.envVolStep = spt > 0.0 ? (bg.envVolume - bg.envVolMix) / spt : 0.0;
     advancePitchEnvelope(bg, tickSec);
     advanceFilterEnvelope(bg, tickSec);
+    // Faded out on an EARLIER tick: this tick's mix has already glided it to
+    // silence, so it is reaped below (see the foreground fadeout).
+    const fadedOut = (bg.keyOff || bg.noteFading) && bg.fadeoutVolume <= 0.0;
     if (bg.keyOff || bg.noteFading) {
       const fadeStep = bg.activeFadeoutStep;
       if (fadeStep > 0) {
         bg.fadeoutVolume = Math.max(bg.fadeoutVolume - fadeStep / 1024.0, 0.0);
       }
     }
+    bg.fadeoutMixStep = spt > 0.0 ? (bg.fadeoutVolume - bg.fadeoutMix) / spt : 0.0;
     // Auto-vibrato keeps running on backgrounds.
     const autoVibDelta = advanceAutoVibrato(bg, inst);
     const pitchEnvDelta = bg.hasPitchEnv && bg.pitchEnvOn
@@ -19716,7 +19906,7 @@ function applyTrackerTick(eng, ts, playhead) {
     }
     refreshVoiceFilter(bg);
     // Reap fully-faded ghosts.
-    if ((bg.keyOff || bg.noteFading) && bg.fadeoutVolume <= 0.0) {
+    if (fadedOut) {
       bg.active = false;
       ts.backgroundVoices.splice(i, 1);
     }
@@ -20006,6 +20196,8 @@ function restartVoice(v) {
     v.envFilterValue = 0.5; v.envFilterIndex = 0; v.envFilterTimeSec = 0.0;
   }
   v.fadeoutVolume = 1.0;
+  v.fadeoutMix = 1.0;
+  v.fadeoutMixStep = 0.0;
   v.autoVibPhase = 0;
   v.autoVibTicksSinceTrigger = 0;
   v.filterY1 = 0.0; v.filterY2 = 0.0; v.filterX1 = 0.0; v.filterX2 = 0.0;
@@ -20339,9 +20531,15 @@ function extModClockLive(eng, voices, bgVoices) {
  * later frame: a tick that changes the tempo fires at the top of its frame,
  * but that frame was always rendered with the rate read before the tick.
  */
-function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRest, globalGain) {
+function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRest) {
   const scopeOn = ts.scopeOn;
-  if (!voice.active || voice.fader === 255) {
+  if (!voice.active || voice.faderCur !== voice.faderCur) {
+    // Nothing sounding (or nothing glided yet): the fader is simply where the
+    // host put it — there is no waveform for a jump to click in.
+    voice.faderCur = voice.fader; voice.faderAim = voice.fader; voice.faderLeft = 0;
+  }
+  // Muted, and the fader's glide down to silence has finished.
+  if (!voice.active || (voice.fader === 255 && voice.faderCur === 255)) {
     // A voice that is silent at the top of a span stays silent to its end:
     // only a tick or a host command can start one.
     if (scopeOn) { // keep the soundscope flat between notes / while muted
@@ -20362,7 +20560,7 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
   const voiceInst = eng.instruments[voice.instrumentId];
   const instGv = voiceInst.instGlobalVolume / 255.0;
   const swingScale = 1.0 + voice.randomVolBias / 255.0;
-  const faderGain = (255 - voice.fader) / 255.0;
+  const gainSpan = ts.gainSpan;
   // An instrument with a mixing chain (item 217) mixes into its own bus,
   // ahead of the song's global gain — which the bus's output gets instead.
   const route = ts.imixRoutes[(voice.displayInst || voice.instrumentId) & 0x3ff];
@@ -20371,7 +20569,9 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
   if (route !== null) route.fed = true;
 
   for (let n = n0; n < n1; n++) {
-    if (!voice.active) { // ramped out earlier in this span
+    // Ramped out earlier in this span, or muted and glided all the way down:
+    // a muted voice is FROZEN, not rendered silently, from that sample on.
+    if (!voice.active || (voice.fader === 255 && voice.faderCur === 255)) {
       if (scopeOn) {
         voice.scopeBuffer[voice.scopeWritePos] = 0;
         voice.scopeWritePos = (voice.scopeWritePos + 1) & (SCOPE_BUFFER_SIZE - 1);
@@ -20400,9 +20600,11 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
     // operator 0 of a rack, which reads it at unity and leaves the note's
     // volume to the finished patch, as for any rack (§5.5.1).
     const mixVol = voice.opl !== null && voice.fmRig === null ? 1.0 : voice.currentMixVolume;
-    const perVoiceGain = effEnvVol * voice.fadeoutVolume * mixVol *
+    const fade = advanceFadeout(voice);
+    const faderGain = (255 - advanceFaderRamp(voice, voice.fader)) / 255.0;
+    const perVoiceGain = effEnvVol * fade * mixVol *
       swingScale * instGv * faderGain * voice.layerMixGain * voice.activeAttenGain;
-    const vol = perVoiceGain * globalGain;
+    const vol = perVoiceGain * gainSpan[n];
     // ONE pan ramp, above the branch, because both paths smooth the same
     // composed number: every input to it moves once a TICK while the pan law
     // (and the ambisonic encode) is evaluated every sample, so without this
@@ -20424,6 +20626,7 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
       rGain = voice.panLawR;
     } else {
       advancePanRamp(voice, voiceAzimuth(voice), true);
+      advanceElevRamp(voice, voiceElevation(voice));
     }
     // Sample-end ramp-out.
     let rampGain;
@@ -20486,7 +20689,7 @@ function mixForegroundSpan(eng, ts, playhead, voice, vi, n0, n1, sptFirst, sptRe
  * voices have always had (their gain chain folds the globals in left to right,
  * so it is written out whole, not shared).
  */
-function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvol, mvol) {
+function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest) {
   // An FM operator is an OPERAND, not a sound: the rack that owns it read
   // it (and aged it) in the foreground pass, so summing it here would
   // put the modulators into the mix beside the note they shaped.
@@ -20496,7 +20699,11 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
   // own, so a lane mute/solo covers everything that came from it.
   const srcVoice = ts.voices[bg.sourceChannel];
   const bgFader = srcVoice && srcVoice.fader > bg.fader ? srcVoice.fader : bg.fader;
-  if (!bg.active || bgFader === 255) return;
+  if (!bg.active) return;
+  if (bg.faderCur !== bg.faderCur) { // a new voice starts AT the lane's fader
+    bg.faderCur = bgFader; bg.faderAim = bgFader; bg.faderLeft = 0;
+  }
+  if (bgFader === 255 && bg.faderCur === 255) return; // muted, glide finished
   const stems = eng.stemBus;
   const spatial = ts.spatial;
   const abus = ts.analysis === null ? null : ts.analysis.bus;
@@ -20507,7 +20714,9 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
   const bgInst = eng.instruments[bg.instrumentId];
   const instGv = bgInst.instGlobalVolume / 255.0;
   const swingScale = 1.0 + bg.randomVolBias / 255.0;
-  const faderGain = (255 - bgFader) / 255.0;
+  const gvolSpan = ts.gvolSpan;
+  const mvolSpan = ts.mvolSpan;
+  const masterSpan = ts.masterSpan;
   // A ghost and a layer child mix through the chain of the instrument the
   // NOTE named — a metainstrument's, not its layer's (item 217).
   const route = ts.imixRoutes[(bg.displayInst || bg.instrumentId) & 0x3ff];
@@ -20516,7 +20725,8 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
   if (route !== null) route.fed = true;
 
   for (let n = n0; n < n1; n++) {
-    if (!bg.active) continue; // ramped out earlier in this span
+    // Ramped out earlier in this span, or muted and glided down (frozen).
+    if (!bg.active || (bgFader === 255 && bg.faderCur === 255)) continue;
     const spt = n === n0 ? sptFirst : sptRest;
     // A metainstrument's layer children carry the sample-mod clock too
     // (item 154) — mirrors applyTrackerTick's own `if (bg.isLayerChild)`
@@ -20529,10 +20739,12 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
     const effEnvVol = bg.hasVolEnv && bg.volEnvOn ? bg.envVolMix : 1.0;
     advanceVolumeRamp(bg, volDiv);
     advancePitchRamp(bg, spt);
-    const vol = (effEnvVol * bg.fadeoutVolume *
+    const fade = advanceFadeout(bg);
+    const faderGain = (255 - advanceFaderRamp(bg, bgFader)) / 255.0;
+    const vol = (effEnvVol * fade *
       (bg.opl !== null && bg.fmRig === null ? 1.0 : bg.currentMixVolume) *
-      swingScale * gvol * mvol * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain *
-      playhead.masterVolume) / 255.0;
+      swingScale * gvolSpan[n] * mvolSpan[n] * instGv * faderGain * bg.layerMixGain *
+      bg.activeAttenGain * masterSpan[n]) / 255.0;
     let lGain = 0.0;
     let rGain = 0.0;
     if (spatial === null) {
@@ -20546,6 +20758,7 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
       rGain = bg.panLawR;
     } else {
       advancePanRamp(bg, voiceAzimuth(bg), true);
+      advanceElevRamp(bg, voiceElevation(bg));
     }
     let rampGain;
     if (bg.rampOutSamples > 0) {
@@ -20568,7 +20781,7 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
     }
     if (busData !== null) {
       // The same chain without the three song-level gains the bus is ahead of.
-      const bvol = effEnvVol * bg.fadeoutVolume *
+      const bvol = effEnvVol * fade *
         (bg.opl !== null && bg.fmRig === null ? 1.0 : bg.currentMixVolume) *
         swingScale * instGv * faderGain * bg.layerMixGain * bg.activeAttenGain;
       if (busSpace === null) {
@@ -20608,7 +20821,8 @@ function mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvo
  * whose chain is idle and was not fed is skipped outright: its output is the
  * silence already in the buffer.
  */
-function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
+function runImixBuses(ts, playhead, buses, n0, n1) {
+  const gainSpan = ts.gainSpan;
   const spatial = ts.spatial;
   // Each tap meters the bus its instrument mixes into — in bus mode (item 247)
   // the one every instrument on the block shares. Two seats (one per split
@@ -20651,15 +20865,15 @@ function runImixBuses(ts, playhead, buses, n0, n1, globalGain) {
       const accL = ts.mixAccL;
       const accR = ts.mixAccR;
       for (let n = n0; n < n1; n++) {
-        accL[n] += d[n] * globalGain;
-        accR[n] += d[TRACKER_CHUNK + n] * globalGain;
+        accL[n] += d[n] * gainSpan[n];
+        accR[n] += d[TRACKER_CHUNK + n] * gainSpan[n];
       }
     } else {
       const sd = spatial.data;
       const nch = bus.nch;
       for (let c = 0; c < nch; c++) {
         const o = c * TRACKER_CHUNK;
-        for (let n = n0; n < n1; n++) sd[o + n] += d[o + n] * globalGain;
+        for (let n = n0; n < n1; n++) sd[o + n] += d[o + n] * gainSpan[n];
       }
     }
   }
@@ -20773,10 +20987,18 @@ function generateTrackerAudio(eng, playhead, out) {
       n1++;
     }
 
-    const gvol = playhead.globalVolume / 255.0;
-    const mvol = playhead.mixingVolume / 255.0;
-    // Every voice is scaled by it, and nothing inside a span can change it.
-    const globalGain = (gvol * mvol * playhead.masterVolume) / 255.0;
+    // The song-level gains, per frame: a tick or the host can move them only
+    // between spans, and each glides to its new value over 2 ms (ByteGlide) —
+    // stepping them clicked on every V and stair-stepped every W slide. Held
+    // still, they are the very numbers the chain always used.
+    const gvolSpan = ts.gvolSpan;
+    const mvolSpan = ts.mvolSpan;
+    const masterSpan = ts.masterSpan;
+    const gainSpan = ts.gainSpan;
+    ts.gvolGlide.fill(playhead.globalVolume, gvolSpan, n0, n1, 255.0);
+    ts.mvolGlide.fill(playhead.mixingVolume, mvolSpan, n0, n1, 255.0);
+    ts.masterGlide.fill(playhead.masterVolume, masterSpan, n0, n1, 1.0);
+    for (let n = n0; n < n1; n++) gainSpan[n] = (gvolSpan[n] * mvolSpan[n] * masterSpan[n]) / 255.0;
 
     if (spatial === null) {
       accL.fill(0.0, n0, n1);
@@ -20785,27 +21007,27 @@ function generateTrackerAudio(eng, playhead, out) {
     for (let b = 0; b < nBuses; b++) buses[b].clear(n0, n1);
     if (!extModClockLive(eng, voices, bgVoices)) {
       for (let vi = 0; vi < nVoices; vi++) {
-        mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n0, n1, sptFirst, sptRest, globalGain);
+        mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n0, n1, sptFirst, sptRest);
       }
       // Background (NNA-ghost + metainstrument layer-child) voices.
       for (const bg of bgVoices) {
-        mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest, gvol, mvol);
+        mixBackgroundSpan(eng, ts, playhead, bg, n0, n1, sptFirst, sptRest);
       }
     } else {
       for (let n = n0; n < n1; n++) {
         const spt = n === n0 ? sptFirst : sptRest;
         for (let vi = 0; vi < nVoices; vi++) {
-          mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n, n + 1, spt, spt, globalGain);
+          mixForegroundSpan(eng, ts, playhead, voices[vi], vi, n, n + 1, spt, spt);
         }
         for (const bg of bgVoices) {
-          mixBackgroundSpan(eng, ts, playhead, bg, n, n + 1, spt, spt, gvol, mvol);
+          mixBackgroundSpan(eng, ts, playhead, bg, n, n + 1, spt, spt);
         }
       }
     }
 
     // Every instrument bus runs its chain over the span and joins the mix,
     // scaled by the song's global gain, in ascending slot order.
-    if (nBuses > 0) runImixBuses(ts, playhead, buses, n0, n1, globalGain);
+    if (nBuses > 0) runImixBuses(ts, playhead, buses, n0, n1);
 
     for (let n = n0; n < n1; n++) {
       let mixL;
@@ -21689,7 +21911,7 @@ class TaudEngine {
     if (!v.active) return 0.0;
     const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     const faderGain = (255 - v.fader) / 255.0;
-    return Math.min(Math.max(effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain, 0.0), 1.0);
+    return Math.min(Math.max(effEnvVol * v.fadeoutMix * v.currentMixVolume * faderGain, 0.0), 1.0);
   }
 
   /** Pan as the stereo meters want it: a surround voice reports where the
@@ -22716,7 +22938,7 @@ function fillSnapshotInto(eng, playhead, f) {
     if (active) {
       const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
       const faderGain = (255 - v.fader) / 255.0;
-      let ev = effEnvVol * v.fadeoutVolume * v.currentMixVolume * faderGain;
+      let ev = effEnvVol * v.fadeoutMix * v.currentMixVolume * faderGain;
       f[o + SNAP_V_EFF_VOL] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
       // Where the lane SOUNDS — the same sum the mixer pans by (pan swing
       // included, item 155), and for a metainstrument the mix-weighted mean of
