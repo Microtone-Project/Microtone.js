@@ -165,7 +165,10 @@ test("modulation is followed: C major while F sounds, then G major", () => {
   assert.deepEqual(report.segments.map((s) => `${s.family}@${s.root}`), ["diatonic@0", "diatonic@7"]);
   assert.equal(out[3], "A4", "F → A in C major");
   assert.equal(out[11], "A4", "F# → A in G major");
-  assert.equal(out[7], "F#4", "D → F# once in G");
+  // the switch falls between the last F (row 16) and the first F# (row 44);
+  // the bars between fit both keys, so exactly where is not the music's to say
+  const sw = report.segments[1].t0;
+  assert.ok(sw >= 16 && sw <= 44, `switch at ${sw}`);
 });
 
 test("chromatic notes: each policy", () => {
@@ -268,8 +271,8 @@ function mkSong(patterns, cueLanes) {
     return w;
   });
   const pats = patterns.map((rows) => {
-    const cells = Array.from({ length: 64 }, () => ({ note: 0, instrment: 0 }));
-    for (const [row, note, inst = 0] of rows) cells[row] = { note, instrment: inst };
+    const cells = Array.from({ length: 64 }, () => ({ note: 0, instrment: 0, effect: 0, effect2: 0 }));
+    for (const [row, note, inst = 0, effect = 0] of rows) cells[row] = { note, instrment: inst, effect, effect2: 0 };
     return cells;
   });
   return { patterns: pats, cues };
@@ -334,4 +337,115 @@ test("song walker: a pattern no cue places still transposes", () => {
   const { changes } = harmoniseSongNotes(song, p12, null, (pat) => pat === 1, { fine: 4 });
   assert.equal(changes.length, 3);
   assert.deepEqual([0, 4, 8].map((r) => spell(song.patterns[1][r].note)), ["E4", "F4", "G4"]);
+});
+
+// ── real-song robustness (a song in G major, then A♭ major, with bends, a
+//    pitched hi-hat and a chromatic riser — the shapes that made the first
+//    version flicker between keys) ──────────────────────────────────────────
+
+const G_PORTA = 0x10;
+const keysOf = (report) => report.keys.map((k) => `${k.family}@${k.root}`);
+
+/** Block chords over `bars` bars of 16 rows, from a list of chords that repeats. */
+function progression(chordList, bars, t0 = 0, src = 1) {
+  const out = [];
+  for (let b = 0; b < bars; b++) {
+    const ch = chordList[b % chordList.length];
+    for (const d of ch) out.push({ pitch: c12(d), t: t0 + b * 16, dur: 16, beat: 1.5, src });
+  }
+  return out;
+}
+
+test("a key that holds for a shorter time is not swallowed by the longer one", () => {
+  // 8 bars of G major, then 16 of A♭ major — the A♭ half outweighs the G half
+  const g = progression([[-17, -13, -10], [-12, -8, -5], [-10, -6, -3], [-15, -12, -8]], 8);
+  const ab = progression([[-16, -12, -9], [-11, -7, -4], [-9, -5, -2], [-14, -11, -7]], 16, 128);
+  // the melody runs through both sections
+  const mel = line(p12, [7, 9, 11, 7, 12, 11, 9, 7, 8, 10, 12, 8, 13, 12, 10, 8, 15, 13, 12, 10, 8, 7, 8, 8], { dur: 16 });
+  const { report } = run(p12, mel, [...g, ...ab], { fine: 4, avoidClashes: false });
+  assert.deepEqual(keysOf(report), ["diatonic@7", "diatonic@8"]);
+  assert.equal(report.baseScale.family, "diatonic");
+  assert.equal(report.baseScale.root, 7, "the base note's key is G major, not a scale nearer A♭");
+  assert.equal(report.keys[1].t0, 128, "the modulation is found where it happens");
+});
+
+test("a part stuck on one pitch class says nothing about the key", () => {
+  // G major, with a 'hi-hat' sample on C# every two rows (not flagged percussion)
+  const acc = progression([[-17, -13, -10], [-12, -8, -5], [-10, -6, -3]], 6);
+  const hat = Array.from({ length: 48 }, (_, i) => ({ pitch: c12(13), t: i * 2, dur: 2, beat: 1, src: 17 }));
+  const mel = line(p12, [7, 11, 14, 12, 11, 9, 7, 9], { dur: 12 });
+  const { report } = run(p12, mel, [...acc, ...hat], { fine: 4, avoidClashes: false });
+  assert.deepEqual(report.fixedPitchParts, [17]);
+  assert.deepEqual(keysOf(report), ["diatonic@7"], "not D major, not E melodic minor");
+});
+
+test("one passing note is a chromatic note, not a change of scale", () => {
+  const acc = progression([[-12, -8, -5], [-7, -3, 0], [-5, -1, 2]], 6);
+  const mel = line(p12, [0, 2, 4, 5, 6, 7, 9, 11, 12, 11, 9, 7], { dur: 8 }); // one F# passing
+  const { report, out } = run(p12, mel, acc, { fine: 4, avoidClashes: false });
+  assert.deepEqual(keysOf(report), ["diatonic@0"]);
+  assert.equal(report.detours, 0);
+  assert.equal(out[4], "A#4", "F# keeps its offset from F: F → A, so F# → A#");
+});
+
+test("a whole bar of a secondary dominant is followed, and reported as a detour", () => {
+  // C major — C, F, then a bar of E7 (G#) leading to Am, and home
+  const acc = progression([[-12, -8, -5], [-7, -3, 0], [-8, -4, -1, 2], [-3, 0, 4], [-12, -8, -5]], 5);
+  const mel = line(p12, [0, 4, 7, 4, 5, 9, 12, 9, 8, 11, 8, 4, 9, 12, 9, 4, 7, 4, 0, 4], { dur: 4 });
+  const { report, out } = run(p12, mel, acc, { fine: 4, avoidClashes: false });
+  assert.deepEqual(keysOf(report), ["diatonic@0"]);
+  assert.ok(report.detours >= 1);
+  assert.equal(out[8], "B4", "G# over E7 → B, the harmonic-minor third, not C");
+});
+
+test("the reading does not depend on which lanes are selected", () => {
+  const acc = progression([[-17, -13, -10], [-12, -8, -5], [-10, -6, -3], [-15, -12, -8]], 8);
+  const ab = progression([[-16, -12, -9], [-11, -7, -4]], 8, 128);
+  const lead = line(p12, [7, 9, 11, 12, 14, 12, 11, 9], { dur: 16, lane: 0, id: "a" });
+  const alto = line(p12, [2, 4, 7, 9, 7, 6, 4, 2], { dur: 16, lane: 1, id: "b", t0: 3 });
+  const all = [...lead, ...alto];
+  const asFixed = (ms) => ms.map((m) => ({ pitch: m.pitch, ...m.occ[0] }));
+  const r1 = harmoniseTranspose(p12, { moving: lead, fixed: [...acc, ...ab, ...asFixed(alto)] }, { fine: 4 }).report;
+  const r2 = harmoniseTranspose(p12, { moving: alto, fixed: [...acc, ...ab, ...asFixed(lead)] }, { fine: 4 }).report;
+  const r3 = harmoniseTranspose(p12, { moving: all, fixed: [...acc, ...ab] }, { fine: 4 }).report;
+  // each selection only spans its own notes, so compare where they overlap
+  assert.equal(keysOf(r1)[0], "diatonic@7");
+  assert.equal(keysOf(r2)[0], "diatonic@7");
+  assert.equal(keysOf(r3)[0], "diatonic@7");
+});
+
+test("a bend is an ornament: the base note is its target, and the bend keeps its size", () => {
+  // [B4] then [C5 G-slide] a row later: a scoop into C, then D E
+  const moving = [
+    { id: "scoop", pitch: c12(11), lane: 0, src: 1, bendTo: "c", occ: [{ t: 0, dur: 1, beat: 1.5, w: 0.25 }] },
+    { id: "c", pitch: c12(12), lane: 0, src: 1, occ: [{ t: 1, dur: 7, beat: 1 }] },
+    { id: "d", pitch: c12(14), lane: 0, src: 1, occ: [{ t: 8, dur: 8, beat: 1.2 }] },
+    { id: "e", pitch: c12(16), lane: 0, src: 1, occ: [{ t: 16, dur: 8, beat: 1.5 }] },
+  ];
+  const acc = progression([[-12, -8, -5, -1]], 2);
+  const { pitches, report } = harmoniseTranspose(p12, { moving, fixed: acc }, { fine: 4, avoidClashes: false });
+  assert.equal(report.baseId, "c", "the scoop is not the first note");
+  assert.equal(spell(pitches.get("c")), "E5");
+  assert.equal(spell(pitches.get("scoop")), "D#5", "a semitone scoop into E, not D (B's own diatonic third)");
+  assert.deepEqual(["d", "e"].map((id) => spell(pitches.get(id))), ["F5", "G5"]);
+});
+
+test("song walker: G-slides make ornaments only within a beat; the lane's instrument carries over", () => {
+  const perc = new Uint8Array(1024);
+  perc[9] = 1;
+  const song = mkSong([
+    // lane 0, pattern 0: scoop B→C (a row apart), then a held D gliding to E a bar later
+    [[0, c12(11), 1], [1, c12(12), 0, G_PORTA], [8, c12(14)], [24, c12(16), 0, G_PORTA]],
+    // lane 1: pattern 1 sets the drum kit; pattern 2 (next cue) sets nothing
+    [[0, c12(0), 9]],
+    [[0, c12(5)], [8, c12(7)]],
+  ], [[0, 1], [null, 2]]);
+  const { moving } = collectHarmoniseInput(song, perc, () => true);
+  const byId = Object.fromEntries(moving.map((m) => [m.id, m]));
+  assert.equal(byId["0:0"].bendTo, "0:1", "B scoops into C");
+  assert.equal(byId["0:0"].occ[0].w, 0.25);
+  assert.equal(byId["0:8"].bendTo, undefined, "a note held two beats before gliding is a note");
+  assert.equal(byId["0:8"].occ[0].w, undefined);
+  assert.ok(!("2:0" in byId) && !("2:8" in byId), "pattern 2 plays the kit lane 1 set in pattern 1");
+  assert.equal(byId["0:0"].src, 1);
 });

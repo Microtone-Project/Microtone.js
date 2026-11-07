@@ -172,7 +172,11 @@ function diatonicShapes(space) {
   add("diatonic", [T, T, L, T, T, T, L], 0);
   add("harmonicMinor", [T, L, T, T, L, T + A, L], -2);
   add("harmonicMajor", [T, T, L, T, L, T + A, L], -3);
-  add("melodicMinor", [T, L, T, T, T, T, L], -2.5, [T, L, T, T, L, T, T]);
+  // Its nine-note union could explain almost any diatonic passage with one
+  // accidental; it is earned by DIRECTION (harmonise.js reads evidence rising
+  // and falling separately): raised degrees on the way up, natural on the way
+  // down.
+  add("melodicMinor", [T, L, T, T, T, T, L], -3, [T, L, T, T, L, T, T]);
   return out;
 }
 

@@ -557,34 +557,45 @@ function rootName(preset, root) {
  * it fell back to a plain chromatic shift.
  */
 export function applyHarmonicTranspose(store, preset, percSlots, select, v) {
+  const beats = store.beats?.() ?? { pri: 4, sec: 16 };
   let report = null;
   store.undo.apply(bulkNotesOp(store.songIndex, (song) => {
     const out = harmoniseSongNotes(song, preset, percSlots, select, {
       fine: v.fine, coarse: v.coarse, policy: v.policy, avoidClashes: v.avoidClashes,
+      rowsPerBeat: beats.pri, barRows: beats.sec,
     });
     report = out.report;
     return out.changes;
   }));
-  if (!report) return;
-  let text;
-  if (report.fallback && report.fallback !== "noPitchSet") {
-    text = t(`pat.trFallback.${report.fallback}`);
-  } else if (report.baseScale) {
-    const scale = report.baseScale.family === "observed"
-      ? t("pat.trScale.observed")
-      : t("pat.trScaleOn", {
-        scale: t(`pat.trScale.${report.baseScale.family.startsWith("mos") ? "mos" : report.baseScale.family}`,
-          { n: report.baseScale.size }),
-        root: rootName(preset, report.baseScale.root),
-      });
-    text = t("pat.trReport", {
-      scale, k: report.k,
-      changes: Math.max(0, report.segments.length - 1), adjusted: report.adjusted,
-    });
-  }
+  const text = report ? harmonicReportText(report, preset) : null;
   if (!text) return;
   const b = showBanner({ text, actions: [{ label: t("common.ok") }] });
-  setTimeout(() => b.close(), 8000);
+  setTimeout(() => b.close(), 10000);
+}
+
+/** One scale, as the banner names it: "diatonic (major) on G". */
+function scaleText(s, preset) {
+  if (s.family === "observed") return t("pat.trScale.observed");
+  return t("pat.trScaleOn", {
+    scale: t(`pat.trScale.${s.family.startsWith("mos") ? "mos" : s.family}`, { n: s.size }),
+    root: rootName(preset, s.root),
+  });
+}
+
+/** What the banner says after a harmonic transpose: the key(s) the passage was
+ *  read in — "G major → A♭ major", the brief chord-scale detours counted rather
+ *  than listed — the scale steps the request made, and how many notes moved off
+ *  a clash; or, when it fell back to a plain shift, why. */
+export function harmonicReportText(report, preset) {
+  const keys = (report.keys?.length ? report.keys : report.baseScale ? [report.baseScale] : [])
+    .map((k) => scaleText(k, preset));
+  const path = keys.length > 4 ? [...keys.slice(0, 4), "\u2026"].join(" \u2192 ") : keys.join(" \u2192 ");
+  if (report.fallback === "noPitchSet") return null;
+  if (report.fallback) return t(`pat.trFallback.${report.fallback}`, { key: path });
+  if (!keys.length) return null;
+  return t("pat.trReport", {
+    keys: path, k: report.k, detours: report.detours ?? 0, adjusted: report.adjusted,
+  });
 }
 
 /** The preset a transpose should actually compute against: the raw checkbox
