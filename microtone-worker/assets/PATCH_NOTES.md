@@ -10,6 +10,8 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - The lower piano's black keys are S D, G H J and L ;, the upper one's are on the number row; A, F and K play nothing.
 - If Piano was your layout, the keyboard now comes up on Double-Deck Piano 12. Layouts of your own are untouched.
+- Fixed: opening a 12-TET song switched the keyboard to Double-Deck Piano 12 whatever layout you had chosen; it was tied to 12-TET, and as the default it is now tied to no tuning. Double-Deck Piano 24 still comes up with 24-TET songs.
+- Fixed: embedding the layout you were playing in a project could swap the keyboard to a layout tied to the song's tuning; a project's own layout now always comes first, as the manual says.
 - Because the new layout takes the bottom row, key-off, cut, fade, fast fade and the interrupt marker are now Shift+Z, X, C, V and B on the note column, and mute and solo are Shift+M and Shift+N. A layout that leaves the bottom row free (Octave rows, Chromatic run, or one of your own) keeps them on the plain keys, and the ' key still writes your chosen sentinel without Shift.
 - On the note column, . now plays a note; Delete and Backspace still clear the cell.
 - The half-sharp keys Q, R and I went with the old layout; Double-Deck Piano 24 has a whole piano of quarter tones on its upper rows.
@@ -20,6 +22,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Double-Deck Piano 12's upper deck is now an octave above the lower one in every tuning, and Double-Deck Piano 24's two decks a quarter tone apart, landing on real notes wherever the tuning has quarter tones.
 - On 12-TET and 24-TET every key plays what it always did.
 - Shift+Alt+← and → now move these layouts a semitone at a time.
+
+**Closing a split pane takes one click in the Linux desktop app**: the close button on the pane you are not working in now answers the first press.
+
+- Fixed: in the desktop app on Linux, closing the other half of a split view needed two clicks; the first click moved the focus to that pane and redrew the button's icon under the pointer, and the Linux webview drops a click when that happens. The icon is now redrawn only when it actually changes.
 
 ## Version 4.8.3 (2026-11-08)
 

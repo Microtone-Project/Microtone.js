@@ -229,3 +229,25 @@ test("keymap library: a remembered two-row Piano boots on the default", async ()
     if (prev === undefined) delete globalThis.localStorage; else globalThis.localStorage = prev;
   }
 });
+
+test("PKey: no tuning binding displaces the project's layout, even when it is the chosen one", () => {
+  // Embedding the layout you are playing names the same layout twice — chosen
+  // and project — and a layout bound to the song's tuning must not slip in
+  // between them (the Keymap tab's Embed button used to swap the keyboard).
+  const shier = builtinKeymap("Shi'er lü (十二律)");
+  const doc = loadWhen();
+  doc.setSection(KEYMAP_FOURCC, encode(SPLIT));
+  const lib = readyLibrary(fakeStore(doc), SPLIT.name);
+  lib.user.set(SPLIT.name, SPLIT);
+  assert.equal(lib.applyForPreset(P12, shier.notation).name, SPLIT.name);
+});
+
+test("keymap library: no built-in volunteers for a 12-TET song", () => {
+  // Double-Deck Piano 12 is the default, and bound to no tuning: a binding
+  // would have put it over every chosen layout on most songs.
+  assert.equal(builtinKeymap("Double-Deck Piano 12").notation, null);
+  assert.equal(builtinKeymap("Double-Deck Piano 24").notation, 240, "its 24-TET twin keeps its binding");
+  const lib = readyLibrary(fakeStore());
+  assert.deepEqual(lib.forNotation(120), []);
+  assert.equal(lib.applyForPreset(P12, 120).name, CHOSEN, "the chosen layout stays");
+});

@@ -393,10 +393,13 @@ export const BUILTIN_KEYMAPS = Object.freeze([
   // DEFAULT: a piano on Z…/ (white) and A…; (black), another an octave up on
   // Q…P and the numbers. It takes the bottom row, so on a fresh install the
   // note column's sentinels answer to Shift (keymapClaimsZRow).
+  //
+  // It is bound to NO tuning: a `notation: 120` would make it volunteer for
+  // every 12-TET song (most songs) over whatever layout the user had chosen —
+  // which is exactly what the binding means, and exactly wrong for a default.
   normaliseKeymap({
     name: "Double-Deck Piano 12", unit: "semi", rows: ["N", "Q", "A", "Z"],
     origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
-    notation: 120,
     overrides: {
       Digit1: null, Digit2: 13, Digit3: 15, Digit4: null, Digit5: 18, Digit6: 20, Digit7: 22, Digit8: null, Digit9: 25, Digit0: 27,
       KeyQ: 12, KeyW: 14, KeyE: 16, KeyR: 17, KeyT: 19, KeyY: 21, KeyU: 23, KeyI: 24, KeyO: 26, KeyP: 28,

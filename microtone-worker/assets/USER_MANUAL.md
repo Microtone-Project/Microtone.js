@@ -2902,7 +2902,7 @@ take a built-in's name, and then it is the one you get.
 
 | Layout | Sideways | Up a row | Good for |
 |---|---|---|---|
-| Double-Deck Piano 12 | — | — | The default, and the classic tracker keyboard: a piano on the bottom two rows and another an octave up on the top two; comes up with 12-TET |
+| Double-Deck Piano 12 | — | — | The default, and the classic tracker keyboard: a piano on the bottom two rows and another an octave up on the top two |
 | Double-Deck Piano 24 | — | — | Two pianos a quarter tone apart, the upper one on the top two rows; comes up with 24-TET |
 | Bosanquet–Wilson | whole tone | chromatic semitone | The classic generalised keyboard |
 | Wicki–Hayden | whole tone | fourth | Fifths and fourths under one hand |
@@ -2938,9 +2938,9 @@ the part worth reading:
 the layout comes up by itself, so the 41-TET song brings the 41-TET keyboard
 without you going to fetch it. The shipped **Shi'er lü** layout works that way:
 it is placed by hand across four rows for that tuning's twelve unequal degrees,
-with the keys it has nothing to put under left silent. The two **Double-Deck**
-pianos are bound the same way, to 12-TET and 24-TET, so a 12-TET song comes up
-on Double-Deck Piano 12. Leave that tuning and the keyboard goes back to the
+with the keys it has nothing to put under left silent. **Double-Deck Piano 24**
+is bound the same way, to 24-TET, so a 24-TET song comes up on it. Leave that
+tuning and the keyboard goes back to the
 layout you chose — a layout only volunteers for its own songs, and never
 displaces a choice you made.
 

@@ -279,7 +279,10 @@ export class KeymapLibrary {
     // whoever wrote the piece, and it is the more specific statement of the two
     // — "this song plays on THIS keyboard", not "this tuning suits that one".
     const project = this.projectKeymap();
-    if (project && chosen.name !== project.name) return this.setActive(project, preset, false);
+    // When the chosen layout IS the project's (by name), play the chosen one —
+    // it may be being edited past the embedded copy — but either way no tuning
+    // binding gets past a project that carries a layout.
+    if (project) return this.setActive(chosen.name === project.name ? chosen : project, preset, false);
     if (notation !== null && chosen.notation !== notation) {
       const volunteer = this.forNotation(notation)[0];
       if (volunteer) return this.setActive(volunteer, preset, false);
