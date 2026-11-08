@@ -25,7 +25,7 @@ export function showHelp() {
     ["Ctrl+↑ ↓", t("help.nudgeFine")],
     ["Shift+Ctrl+← →", t("help.navLane")],
     ["Shift+Ctrl+↑ ↓", t("help.navBeat")],
-    ["M / N", t("help.muteSolo")],
+    ["Shift+M / N", t("help.muteSolo")],
     ["Ctrl+Z / Ctrl+Y", t("help.undoRedo")],
     ["Ctrl+S", t("help.save")],
     ["Ctrl+G", t("help.goto")],
@@ -38,11 +38,14 @@ export function showHelp() {
     ["\\", t("help.ctxMenu")],
   ];
   const col2 = [
-    ["A S D F G H J K L ;", t("help.whiteKeys")],
-    ["W E · T Y U · O P", t("help.blackKeys")],
-    ["Q · R · I", t("help.microKeys")],
-    ["z x c v", t("help.sentinels")],
-    ["b", t("help.interrupt")],
+    // The note keys as the DEFAULT layout (Double-Deck Piano 12) has them; the
+    // Shift+F9 line says what moves on a layout that leaves the bottom row free.
+    ["z x c v b n m , . /", t("help.whiteKeys")],
+    ["s d · g h j · l ;", t("help.blackKeys")],
+    ["q…p · 2 3 · 5 6 7 · 9 0", t("help.upperKeys")],
+    ["Shift+z x c v", t("help.sentinels")],
+    ["Shift+b", t("help.interrupt")],
+    ["Shift+F9", t("help.keymapTab")],
     ["0-9 A-F", t("help.hexEntry")],
     ["0-Z", t("help.fxOpcode")],
     ["^ v < > u d l r", t("help.slideSel")],

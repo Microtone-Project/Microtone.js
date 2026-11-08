@@ -270,7 +270,7 @@ export class KeymapLibrary {
    */
   applyForPreset(preset, notation = null) {
     // A ?load= boot reaches here before init() has read the saved choice, and
-    // acting on an unknown name would answer "Piano" for a moment and — worse,
+    // acting on an unknown name would answer the default for a moment and — worse,
     // before the persist rule above — write it over the real one. Hold the
     // request instead; init() replays it once it knows what was chosen.
     if (!this._ready) { this._pending = { preset, notation }; return null; }
@@ -302,6 +302,10 @@ export class KeymapLibrary {
   async init(preset) {
     await this.refresh();
     this.chosenName = loadPref(KEYMAP_PREF) ?? DEFAULT_KEYMAP.name;
+    // A remembered layout that no longer exists — a deleted one, or the
+    // retired two-row "Piano" — is the default now, not a name left dangling
+    // for a later layout of that name to pick up.
+    if (!this.find(this.chosenName)) this.chosenName = DEFAULT_KEYMAP.name;
     this.setQuoteKey(loadPref(QUOTE_PREF) ?? QUOTE_DEFAULT);
     this.setOrtho(loadPref(ORTHO_PREF) === "1");
     this.setActive(this.find(this.chosenName) ?? DEFAULT_KEYMAP, preset, false);

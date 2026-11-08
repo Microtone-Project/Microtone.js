@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { JamKeyboard } from "../../src/ui/jam.js";
-import { semiToNoteInTable, JAM_SEMIS } from "../../src/ui/edit.js";
+import { semiToNoteInTable } from "../../src/ui/edit.js";
+import { TWO_ROW_SEMIS as JAM_SEMIS, TWO_ROW_PIANO } from "../fixtures/tworowpiano.js";
+import { MIDDLE_C } from "../../core/engine/constants.js";
 import { JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES } from "../../core/engine/constants.js";
 
 /** `view`/`record` decide chording (item 140.1): the default is the Timeline
@@ -20,6 +22,9 @@ function mkJam(opts = {}) {
     pitchPreset: undefined,
     view: opts.view ?? "timeline",
     record: opts.record ?? false,
+    // The voice bookkeeping is tested on the two-row piano fixture (its keys
+    // are the ones these tests press); `keymap: null` means the default.
+    keymap: opts.keymap === undefined ? TWO_ROW_PIANO : opts.keymap,
   };
   return { jam: new JamKeyboard(store), log };
 }
@@ -191,7 +196,7 @@ test("jam: non-piano keys are not consumed", () => {
   assert.equal(log.length, 0);
 });
 
-test("jam: the whole extended region plays, half-sharps included (item 133)", () => {
+test("jam: a semitone layout plays every key, half-sharps included (item 133)", () => {
   const { jam, log } = mkJam({ record: true }); // mono: one voice, twenty keys
   // Both physical rows, in pitch order — every key sounds, and the three
   // half-sharp keys fall between the white keys they sit between.
@@ -210,4 +215,13 @@ test("jam: the whole extended region plays, half-sharps included (item 133)", ()
   assert.ok(!log.some((e) => e.t === "off"), "still sounding while any key is held");
   jam.up(codes.at(-1));
   assert.equal(log.at(-1).t, "off");
+});
+
+test("jam: a store with no layout plays the default, Double-Deck Piano 12", () => {
+  const { jam, log } = mkJam({ keymap: null });
+  assert.ok(jam.down("KeyZ", false), "z is a piano key");
+  assert.equal(log.at(-1).note, MIDDLE_C, "…C of the lower deck");
+  assert.ok(jam.down("KeyQ", false));
+  assert.equal(log.at(-1).note, MIDDLE_C + 0x1000, "q is C of the upper deck, an octave up");
+  assert.equal(jam.down("KeyA", false), false, "a is a gap between black keys: not consumed");
 });

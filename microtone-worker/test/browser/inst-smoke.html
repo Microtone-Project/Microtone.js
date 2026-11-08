@@ -382,7 +382,7 @@
         store.record = true;
         store.cursor = { row: 5, ch: 0, sub: 0, nib: 0 };
         const tgt = timeline.cursorCell();
-        timeline.processEditKey({ code: "KeyS", key: "s" }, jam); // semitone 2
+        timeline.processEditKey({ code: "KeyX", key: "x" }, jam); // semitone 2 (default layout)
         const entered = store.song.patterns[tgt.pat][tgt.rowInCue].note;
         const off = (entered - 0x5000) % p5.interval;
         const notOk = entered === semiToNoteInTable(4, 2, p5) &&

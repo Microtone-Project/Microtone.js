@@ -6,8 +6,8 @@
 //           while that column is exposed (§5.5; see the `fx2` flag below).
 // The vol and pan columns are three positions wide: the SYMBOL cell (which
 // operation the column carries) followed by the two argument digits — item 87.
-// The jam map mirrors taut.js SC_JAM: physical-position piano on the A-row
-// (KeyA..KeyK white, KeyW/E/T/Y/U black) — layout-independent via e.code.
+// Which key plays which note is the active keymap's business (keymap.js);
+// keys are physical positions (e.code), so it holds on any keyboard layout.
 //
 // Every geometry table below is a FUNCTION of two document/view properties —
 // `wide` (the v3 cell) and `fx2` (its second effect column exposed) — so one
@@ -421,26 +421,6 @@ export function volPanSymbolKey(isPan, code, key) {
   if (code === "Delete" || code === "Backspace" || code === "Period") return "set";
   return null;
 }
-
-// Physical piano rows (KeyboardEvent.code → semitone offset from C), item 133:
-//
-//   (q) w e (r) t y u (i) o p
-//      a s d   f g h j | k l ;
-//
-// White: a s d f g h j k l ; → C D E F G A B +C +D +E; black: w e t y u o p.
-// The three keys the piano has no room for — q, r and i, sitting where a black
-// key would be if B–C and E–F had one — are the MICROTONAL keys: the half-sharp
-// (demisharp) of the white key to their left, so a quarter-tone-bearing table
-// is reachable from the keyboard instead of only by wheel-stepping a neighbour.
-// Fractional offsets are fine: semiToNote/semiToNoteInTable both round into the
-// 4096-per-octave note grid, so on a 12-TET song these sound (and display, with
-// a cents marker) as true quarter-tones.
-export const JAM_SEMIS = Object.freeze({
-  KeyQ: -0.5,
-  KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyR: 4.5, KeyF: 5, KeyT: 6,
-  KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyI: 11.5, KeyK: 12,
-  KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16,
-});
 
 /** Whether the note column is showing raw hex words (the Raw toggle is on, or
  *  the notation preset is Raw — no degree table). When true the note column

@@ -1,7 +1,7 @@
 // Isomorphic keymaps — the QWERTY as a mini Lumatone.
 //
-// The jam keyboard used to be one frozen table of 12-EDO semitones (JAM_SEMIS,
-// edit.js), snapped to the nearest degree of whatever tuning was loaded. That
+// The jam keyboard used to be one frozen table of 12-EDO semitones (the old
+// two-row piano, retired in 4.8.4), snapped to the nearest degree of whatever tuning was loaded. That
 // makes a PIANO APPROXIMATION of a tuning: on 41-TET it offers 21 keys that all
 // land on 12-EDO positions, so most of the tuning's own degrees cannot be
 // played at all. This module replaces the unit of that lookup — degrees of the
@@ -173,8 +173,8 @@ export function upperRows(rows) {
  * Resolve a spec to `Map<code, value>` — the generator over every key of every
  * active row, with overrides replacing individual entries outright. The value's
  * meaning is the spec's `unit`: degrees of the active table, or 12-EDO
- * semitones (which may be fractional — that is how the Piano map keeps its
- * quarter-tone keys).
+ * semitones (which may be fractional — that is how Double-Deck Piano 24 keeps
+ * its quarter-tone deck).
  */
 export function resolveKeymap(spec) {
   const s = normaliseKeymap(spec);
@@ -242,8 +242,8 @@ export function keymapClaimsZRow(spec) {
 /**
  * Note word key `code` plays at `octave` under `spec`, or null when the map
  * does not claim that key. `deg` goes through the tuning's own degrees; `semi`
- * through the old snap-a-semitone path, which is what keeps the Piano built-in
- * bit-for-bit what the keyboard has always done.
+ * through the snap-a-semitone path (semiToNoteInTable), which is what makes the
+ * Double-Deck pianos pianos in any tuning.
  *
  * `shift` is the keyboard's own transposition (Shift+Alt+←/→), in the layout's
  * unit: a degree of the tuning on a `deg` layout, a semitone on a `semi` one.
@@ -376,25 +376,45 @@ export function nearestRatio(cents) {
 // why the axes are what they are; keymapStats is how you check the same holds
 // in any other tuning. The numbers written here are the 12-TET ones: the three
 // generalised keyboards are re-derived for the song's tuning when they are
-// applied (fitKeymapToPreset). The ones that are not generated — Piano, Shi’er
-// lü and the Double-Deck pianos — are placed key by key, and say why in their
-// own comments.
-
-/** The keyboard as it has always been — a piano, not a lattice. Kept as the
- *  default so nothing changes for anyone who does not go looking, and expressed
- *  as explicit overrides because a piano's black keys are not isomorphic. */
-const PIANO_OVERRIDES = {
-  KeyQ: -0.5,
-  KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyR: 4.5, KeyF: 5, KeyT: 6,
-  KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyI: 11.5, KeyK: 12,
-  KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16,
-};
+// applied (fitKeymapToPreset). The ones that are not generated — the two
+// Double-Deck pianos and Shi'er lü — are placed key by key, and say why in
+// their own comments; the pianos are in semitones, so they follow any tuning.
 
 export const BUILTIN_KEYMAPS = Object.freeze([
+  // The keyboard, as a piano. The old default was a single piano on the two
+  // middle rows (A…; white, Q…P black and half-sharp); it was retired for these
+  // two, which are the same idea four rows tall. Both are written in SEMITONES
+  // (unit "semi") so they are notation-aware: each key plays the degree of the
+  // song's tuning nearest to where a piano puts it, rather than a run of that
+  // tuning's degrees. On their own tunings (12- and 24-TET) that is exactly one
+  // degree per semitone (per quarter tone).
+  //
+  // Double-Deck Piano 12 is the classic FT2/IT tracker keyboard and the
+  // DEFAULT: a piano on Z…/ (white) and A…; (black), another an octave up on
+  // Q…P and the numbers. It takes the bottom row, so on a fresh install the
+  // note column's sentinels answer to Shift (keymapClaimsZRow).
   normaliseKeymap({
-    name: "Piano", unit: "semi", rows: ["Q", "A"],
+    name: "Double-Deck Piano 12", unit: "semi", rows: ["N", "Q", "A", "Z"],
     origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
-    overrides: PIANO_OVERRIDES,
+    notation: 120,
+    overrides: {
+      Digit1: null, Digit2: 13, Digit3: 15, Digit4: null, Digit5: 18, Digit6: 20, Digit7: 22, Digit8: null, Digit9: 25, Digit0: 27,
+      KeyQ: 12, KeyW: 14, KeyE: 16, KeyR: 17, KeyT: 19, KeyY: 21, KeyU: 23, KeyI: 24, KeyO: 26, KeyP: 28,
+      KeyA: null, KeyS: 1, KeyD: 3, KeyF: null, KeyG: 6, KeyH: 8, KeyJ: 10, KeyK: null, KeyL: 13, Semicolon: 15,
+      KeyZ: 0, KeyX: 2, KeyC: 4, KeyV: 5, KeyB: 7, KeyN: 9, KeyM: 11, Comma: 12, Period: 14, Slash: 16,
+    },
+  }),
+  // The same lower piano, and an upper one a quarter tone above it.
+  normaliseKeymap({
+    name: "Double-Deck Piano 24", unit: "semi", rows: ["N", "Q", "A", "Z"],
+    origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
+    notation: 240,
+    overrides: {
+      Digit1: null, Digit2: 1.5, Digit3: 3.5, Digit4: null, Digit5: 6.5, Digit6: 8.5, Digit7: 10.5, Digit8: null, Digit9: 13.5, Digit0: 15.5,
+      KeyQ: 0.5, KeyW: 2.5, KeyE: 4.5, KeyR: 5.5, KeyT: 7.5, KeyY: 9.5, KeyU: 11.5, KeyI: 12.5, KeyO: 14.5, KeyP: 16.5,
+      KeyA: null, KeyS: 1, KeyD: 3, KeyF: null, KeyG: 6, KeyH: 8, KeyJ: 10, KeyK: null, KeyL: 13, Semicolon: 15,
+      KeyZ: 0, KeyX: 2, KeyC: 4, KeyV: 5, KeyB: 7, KeyN: 9, KeyM: 11, Comma: 12, Period: 14, Slash: 16,
+    },
   }),
   // Sheet 1 of the Lumatone presets: semitones on one axis, whole tones on the
   // other. The classic generalised keyboard, and the gentlest for a pianist.
@@ -448,22 +468,6 @@ export const BUILTIN_KEYMAPS = Object.freeze([
       KeyZ: -12, KeyX: -10, KeyC: -8, KeyV: -7, KeyB: -5, KeyN: -3, KeyM: -2, Comma: 0, Period: 2, Slash: 4,
     },
   }),
-  normaliseKeymap({
-    name: "Double-Deck Piano 24", unit: "deg", rows: ["N", "Q", "A", "Z"],
-    origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
-    notation: 240,
-    overrides: {
-      Comma: 24, Digit0: 31, Digit1: null, Digit2: 3, Digit3: 7, Digit4: null, Digit5: 13, Digit6: 17, Digit7: 21, Digit8: null, Digit9: 27, KeyA: null, KeyB: 14, KeyC: 8, KeyD: 6, KeyE: 9, KeyF: null, KeyG: 12, KeyH: 16, KeyI: 25, KeyJ: 20, KeyK: null, KeyL: 26, KeyM: 22, KeyN: 18, KeyO: 29, KeyP: 33, KeyQ: 1, KeyR: 11, KeyS: 2, KeyT: 15, KeyU: 23, KeyV: 10, KeyW: 5, KeyX: 4, KeyY: 19, KeyZ: 0, Period: 28, Semicolon: 30, Slash: 32
-    },
-  }),
-  normaliseKeymap({
-    name: "Double-Deck Piano 12", unit: "deg", rows: ["N", "Q", "A", "Z"],
-    origin: { code: "KeyA", value: 0 }, x: 0, y: 0,
-    notation: 120,
-    overrides: {
-      Comma: 12, Digit0: 27, Digit1: null, Digit2: 13, Digit3: 15, Digit4: null, Digit5: 18, Digit6: 20, Digit7: 22, Digit8: null, Digit9: 25, KeyA: null, KeyB: 7, KeyC: 4, KeyD: 3, KeyE: 16, KeyF: null, KeyG: 6, KeyH: 8, KeyI: 24, KeyJ: 10, KeyK: null, KeyL: 13, KeyM: 11, KeyN: 9, KeyO: 26, KeyP: 28, KeyQ: 12, KeyR: 17, KeyS: 1, KeyT: 19, KeyU: 23, KeyV: 5, KeyW: 14, KeyX: 2, KeyY: 21, KeyZ: 0, Period: 14, Semicolon: 15, Slash: 16
-    },
-  }),
 ]);
 
 /** Built-in named `name`, or null. Names are the library's identity. */
@@ -471,19 +475,10 @@ export function builtinKeymap(name) {
   return BUILTIN_KEYMAPS.find((k) => k.name === name) ?? null;
 }
 
-/** The default map — what a fresh install jams with. */
-/**
- * The piano layout, by identity rather than by name — a saved layout the user
- * has called "Piano" is a different object and correctly is not this one.
- * Anything asking "are the letter keys still arranged as a piano?" (the note
- * column's hint, which names actual rows of keys) must ask for THIS, not for
- * DEFAULT_KEYMAP: the two happen to be the same layout today, but shipping a
- * different default must not turn that hint into a lie.
- */
-export const PIANO_KEYMAP = BUILTIN_KEYMAPS[0];
-
-/** What a fresh install jams with, before anyone has chosen anything. */
-export const DEFAULT_KEYMAP = BUILTIN_KEYMAPS[0];
+/** What a fresh install jams with, before anyone has chosen anything — and
+ *  what a remembered choice falls back to when that layout no longer exists
+ *  (a pre-4.8.4 "Piano"). */
+export const DEFAULT_KEYMAP = builtinKeymap("Double-Deck Piano 12");
 
 // ── fitting a built-in to the tuning ──
 //
@@ -630,7 +625,7 @@ export function buildTaudkey(spec) {
   return out.join("\n") + "\n";
 }
 
-/** Fractions survive the round trip (the Piano map's quarter-tone keys). */
+/** Fractions survive the round trip (Double-Deck Piano 24's quarter tones). */
 const fmt = (v) => String(v);
 
 /**

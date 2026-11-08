@@ -116,7 +116,7 @@ export function paintKeymapBoard(ctx, opts) {
   const layout = new Map();
   const resolved = resolveKeymap(spec);
   // What the generator ALONE would give, so a cap is marked only where it
-  // really departs from the lattice. The Piano layout is nothing but overrides
+  // really departs from the lattice. A piano layout is nothing but overrides
   // — it is not a lattice at all — so marking every one of its keys would be
   // true and useless; an inert generator marks nothing.
   const inert = spec.x === 0 && spec.y === 0;

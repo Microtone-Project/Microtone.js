@@ -19,7 +19,7 @@ import { setSectionOp } from "../../src/doc/ops.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { KeymapLibrary } from "../../src/ui/keymaplib.js";
 import {
-  BUILTIN_KEYMAPS, buildTaudkey, normaliseKeymap, resolveKeymap, builtinKeymap,
+  BUILTIN_KEYMAPS, buildTaudkey, normaliseKeymap, resolveKeymap, builtinKeymap, DEFAULT_KEYMAP,
 } from "../../src/ui/keymap.js";
 import { pitchTablePresets } from "../../core/tuning/pitchtables.js";
 
@@ -50,10 +50,13 @@ function fakeStore(doc = null) {
   };
 }
 
+/** What the user picked in these tests: a built-in no tuning is bound to. */
+const CHOSEN = "Wicki–Hayden";
+
 /** A library that has finished booting, with no OPFS and no saved layouts —
  *  `init()` needs both, and every rule under test is about what the DOCUMENT
  *  carries rather than about what is on disk. */
-function readyLibrary(store, chosen = "Piano") {
+function readyLibrary(store, chosen = CHOSEN) {
   const lib = new KeymapLibrary(store);
   lib._ready = true;
   lib.chosenName = chosen;
@@ -123,17 +126,17 @@ test("PKey: the project's layout takes the keyboard, and gives it back", () => {
   const doc = loadWhen();
   doc.setSection(KEYMAP_FOURCC, encode(SPLIT));
   const store = fakeStore(doc);
-  const lib = readyLibrary(store, "Piano");
+  const lib = readyLibrary(store);
 
   lib.applyForPreset(P12, null);
   assert.equal(lib.activeName, SPLIT.name, "opening the project brings up its layout");
-  assert.equal(lib.chosenName, "Piano", "…without changing what the user picked");
+  assert.equal(lib.chosenName, CHOSEN, "…without changing what the user picked");
 
   // Close the project and the keyboard goes back to the chosen layout — the
   // same bargain a tuning-bound layout makes.
   store.doc = null;
   lib.applyForPreset(P12, null);
-  assert.equal(lib.activeName, "Piano");
+  assert.equal(lib.activeName, CHOSEN);
 });
 
 test("PKey: the project's layout outranks one bound to the tuning", () => {
@@ -143,7 +146,7 @@ test("PKey: the project's layout outranks one bound to the tuning", () => {
   const shier = builtinKeymap("Shi'er lü (十二律)");
   const doc = loadWhen();
   doc.setSection(KEYMAP_FOURCC, encode(SPLIT));
-  const lib = readyLibrary(fakeStore(doc), "Piano");
+  const lib = readyLibrary(fakeStore(doc));
 
   lib.applyForPreset(P12, shier.notation);
   assert.equal(lib.activeName, SPLIT.name);
@@ -159,13 +162,13 @@ test("PKey: a section edit re-applies the keyboard, undo included", () => {
   // tag rather than trusting the Keymap tab to tell it.
   const doc = loadWhen();
   const store = fakeStore(doc);
-  const lib = readyLibrary(store, "Piano");
+  const lib = readyLibrary(store);
   const undo = new UndoStack(doc, (dirty) => store.emit("edit", dirty));
 
   undo.apply(setSectionOp(KEYMAP_FOURCC, encode(SPLIT)));
   assert.equal(lib.activeName, SPLIT.name, "embedding puts it on the keyboard");
   undo.undo();
-  assert.equal(lib.activeName, "Piano", "and undoing takes it off again");
+  assert.equal(lib.activeName, CHOSEN, "and undoing takes it off again");
 
   // An unrelated section edit must not disturb the keyboard at all.
   lib.activeName = "sentinel";
@@ -176,12 +179,12 @@ test("PKey: a section edit re-applies the keyboard, undo included", () => {
 test("PKey: a layout this build cannot read is ignored, not fatal", () => {
   const doc = loadWhen();
   const store = fakeStore(doc);
-  const lib = readyLibrary(store, "Piano");
+  const lib = readyLibrary(store);
 
   for (const bad of ["TAUDKEY 99\nname  From the future\n", "not a keymap at all", ""]) {
     doc.setSection(KEYMAP_FOURCC, new TextEncoder().encode(bad));
     assert.equal(lib.projectKeymap(), null, JSON.stringify(bad));
-    assert.equal(lib.applyForPreset(P12, null).name, "Piano", "the chosen layout still plays");
+    assert.equal(lib.applyForPreset(P12, null).name, CHOSEN, "the chosen layout still plays");
     // …and the bytes are left exactly where they were, so a round trip through
     // this build does not throw away a layout a later one would understand.
     assert.equal(doc.embeddedKeymap(), bad);
@@ -201,4 +204,28 @@ test("PKey: isEmbedded compares what would be WRITTEN, not object identity", () 
   assert.equal(lib.isEmbedded(normaliseKeymap({ ...SPLIT, upper: 21 })), false,
     "one nudge and the song's copy is no longer this layout");
   assert.equal(lib.isEmbedded(BUILTIN_KEYMAPS[0]), false);
+});
+
+test("keymap library: a remembered two-row Piano boots on the default", async () => {
+  // Retired in 4.8.4: a choice saved before then names a layout that no
+  // longer ships, and has to land on the default rather than dangle.
+  const saved = new Map([["microtone-keymap", "Piano"]]);
+  const prev = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (k) => saved.get(k) ?? null,
+    setItem: (k, v) => saved.set(k, String(v)),
+  };
+  try {
+    const lib = new KeymapLibrary(fakeStore());
+    await lib.init(P12);
+    assert.equal(lib.chosenName, DEFAULT_KEYMAP.name);
+    assert.equal(lib.activeName, DEFAULT_KEYMAP.name);
+    // A layout that still exists is kept, of course.
+    saved.set("microtone-keymap", CHOSEN);
+    const kept = new KeymapLibrary(fakeStore());
+    await kept.init(P12);
+    assert.equal(kept.chosenName, CHOSEN);
+  } finally {
+    if (prev === undefined) delete globalThis.localStorage; else globalThis.localStorage = prev;
+  }
 });

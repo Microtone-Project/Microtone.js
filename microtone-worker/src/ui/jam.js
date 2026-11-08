@@ -74,8 +74,7 @@ export class JamKeyboard {
   }
 
   /** The active keymap — which keys are piano keys and what they play. A store
-   *  that never set one (tests, boot) gets the shipped Piano map, i.e. exactly
-   *  the keyboard this class has always had. */
+   *  that never set one (tests, boot) gets the default, Double-Deck Piano 12. */
   get keymap() { return this.store.keymap ?? DEFAULT_KEYMAP; }
 
   /** keydown → true when consumed (a piano key). */

@@ -65,11 +65,11 @@
         store.cursor = { row: 1, ch: 0, sub: 0, nib: 0 };
         M.timeline.moveCursor(0, 0);
         const t0 = M.timeline.cursorCell();
-        key("KeyA", { key: "a" });
+        key("KeyZ", { key: "z" });
         const entered = store.song.patterns[t0.pat][t0.rowInCue].note;
         const { keymapNote } = await import("../../src/ui/keymap.js");
-        const want = keymapNote(store.keymap, "KeyA", jam.octave, store.pitchPreset, null, 2);
-        ok(entered === want && want !== keymapNote(store.keymap, "KeyA", jam.octave, store.pitchPreset),
+        const want = keymapNote(store.keymap, "KeyZ", jam.octave, store.pitchPreset, null, 2);
+        ok(entered === want && want !== keymapNote(store.keymap, "KeyZ", jam.octave, store.pitchPreset),
           `a transposed keyboard enters the transposed note (0x${entered.toString(16)})`);
         key("ArrowLeft", { altKey: true, shiftKey: true });
         key("ArrowLeft", { altKey: true, shiftKey: true });
@@ -93,7 +93,7 @@
         ok(store.editStep === 3 && jam.octave === octNow && jam.currentInst === instNow, "{ does nothing");
         store.cursor = { row: 4, ch: 0, sub: 0, nib: 0 };
         M.timeline.moveCursor(0, 0);
-        key("KeyA", { key: "a" });
+        key("KeyZ", { key: "z" });
         ok(store.cursor.row === 7, `note entry advances by the step (row ${store.cursor.row})`);
         key("ArrowDown");
         ok(store.cursor.row === 8, "a plain arrow still moves one row");

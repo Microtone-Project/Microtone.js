@@ -41,7 +41,7 @@
         const before = { note: target.cell.note, inst: target.cell.instrment };
         jam.currentInst = 0x05;
 
-        key(win, "KeyA", "a"); // enter C-4 with inst 05
+        key(win, "KeyZ", "z"); // enter C-4 with inst 05 (z = C on the default layout)
         const after = timeline.cursorCell.call(timeline); // cursor moved; re-read pat
         const cell = store.song.patterns[target.pat][target.rowInCue];
         log(`note entry: note=0x${cell.note.toString(16)} inst=${cell.instrment} cursorRow=${store.cursor.row}`);
@@ -52,8 +52,8 @@
         const rowAfterEntry = store.cursor.row;
         const nextTarget = timeline.cursorCell();          // where a repeat would land
         const noteBefore = nextTarget.cell.note;
-        for (let i = 0; i < 6; i++) keyDown(win, "KeyA", "a", { repeat: true });
-        win.dispatchEvent(new win.KeyboardEvent("keyup", { code: "KeyA", key: "a", bubbles: true }));
+        for (let i = 0; i < 6; i++) keyDown(win, "KeyZ", "z", { repeat: true });
+        win.dispatchEvent(new win.KeyboardEvent("keyup", { code: "KeyZ", key: "z", bubbles: true }));
         const noteAfter = store.song.patterns[nextTarget.pat][nextTarget.rowInCue].note;
         log(`autorepeat: cursorRow ${rowAfterEntry} → ${store.cursor.row}, next cell note 0x${noteBefore.toString(16)} → 0x${noteAfter.toString(16)}`);
         const repeatOk = store.cursor.row === rowAfterEntry && noteAfter === noteBefore;

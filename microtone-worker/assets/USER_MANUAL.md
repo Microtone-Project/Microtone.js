@@ -315,8 +315,10 @@ row shows that column again. A block selection is always whole cells here.
 
 ### Mute and solo
 
-In navigate mode (record **off**), **M** mutes and **N** solos the cursor
-lane; pressing solo again unmutes everything. With the mouse: click a
+In navigate mode (record **off**), **Shift+M** mutes and **Shift+N** solos the
+cursor lane; pressing solo again unmutes everything. On a keyboard layout that
+leaves the bottom row free, plain **M** and **N** do it (see
+[The bottom row](#the-bottom-row)). With the mouse: click a
 lane header to mute, **Ctrl+click** (⌘+click) to solo. Mutes are per-song
 and cleared when a file loads.
 
@@ -767,30 +769,35 @@ lift it to hear the coda.
 
 ### Entering notes
 
-The note column uses two physical piano rows (layout-independent — they follow
-key position, not labels):
+The keyboard plays as a piano, laid out by key position rather than by the
+letters printed on the keys, so it is the same on any keyboard layout. The
+default, **Double-Deck Piano 12**, is the classic tracker keyboard: two pianos,
+one above the other.
 
 ```
- micro:  Q         R             I
- black:     W   E     T   Y   U     O   P
- white:   A   S   D F   G   H   J K   L   ;
-  note:   C   D   E F   G   A   B C   D   E
+ black:    2   3       5   6   7       9   0
+ white:  Q   W   E   R   T   Y   U   I   O   P     (an octave up)
+ black:    S   D       G   H   J       L   ;
+ white:  Z   X   C   V   B   N   M   ,   .   /
+  note:  C   D   E   F   G   A   B   C   D   E
 ```
 
-The white row runs from **A** = C of the jam octave to **;** = E of the one
-above, with the black keys where a piano puts them. **Q**, **R** and **I** sit
-where a piano has *no* black key — the two places a scale step is only a
-semitone wide — and play the **half-sharp** (demisharp) of the white key to
-their left: B half-sharp of the octave below, E half-sharp, and B half-sharp.
-They are quarter-tone keys, so in a 12-TET song they enter a note that lands
-between two piano keys and the cell shows it with a cents marker.
+The lower piano's white keys run from **Z** = C of the jam octave to **/** = E
+of the one above, with its black keys on the row above them where a piano puts
+them; **A**, **F** and **K** sit where a piano has no black key and play
+nothing. The upper piano is the same an octave higher: white keys on **Q…P**,
+black keys on the number row. Because the piano takes the bottom row, the note
+column's markers — key-off, cut, fade and the interrupt — are typed with
+**Shift** (see [Note sentinels](#note-sentinels)). The keyboard can be laid out
+other ways on the [Keymap](#keymap-shift-f9) tab, among them Double-Deck Piano
+24, whose upper piano sits a quarter tone above the lower one.
 
 **Alt+↑** and **Alt+↓** shift the octave, and **Alt+←** / **Alt+→** pick the
 previous or next instrument. Entering a note also stamps the current
 instrument into the cell (unless the cell already has one).
 
 **Shift+Alt+←** and **Shift+Alt+→** transpose the whole keyboard one step at a
-time — a degree of the song's tuning, or a semitone on the Piano layout —
+time — a degree of the song's tuning, or a semitone on the piano layouts —
 without touching the octave, so a tune that sits awkwardly across the rows can
 be moved until it falls under the hand. The top bar shows it beside the octave:
 **Oct 4+3** is octave 4, three steps up. **Shift+Alt+↑** and **Shift+Alt+↓**
@@ -805,25 +812,32 @@ one row, whatever the step.
 
 Entry is **notation-aware**: in a non-12-TET song, the keyboard's positions map
 to the nearest degrees of the song's pitch table, so you play that tuning's
-scale rather than fixed 12-EDO — and in a table that has quarter-tones (24-TET,
-31-TET, 41-TET…) the three half-sharp keys land on real degrees. To reach every
+scale rather than fixed 12-EDO — and on Double-Deck Piano 24, the quarter-tone
+keys land on real degrees in a table that has them (24-TET, 31-TET, 41-TET…).
+To reach every
 degree of a larger table, enter a nearby note and step it with the mouse wheel
 (one wheel click = one table degree).
 
 ### Note sentinels
 
+On the default layout the bottom row is piano keys, so the sentinels are typed
+with **Shift**. On a layout that leaves the bottom row free (see
+[The bottom row](#the-bottom-row)) they are the plain letters, without Shift.
+
 | Keys | Word | Symbol | Meaning |
 |---|---|---|---|
-| **z** | `0001` | `===` | Key-off — release the note (envelopes enter their release phase) |
-| **x** | `0002` | `^^^` | Note cut — stop immediately |
-| **c** | `0003` | `~~~` | Note fade — fade out at the instrument's fade rate |
-| **v** | `0004` | `~^~` | Fast fade |
-| **b** | `0010`–`001F` | `I·0`–`I·F` | Interrupt marker — see [Interrupts](#interrupts) |
+| **Shift+Z** | `0001` | `===` | Key-off — release the note (envelopes enter their release phase) |
+| **Shift+X** | `0002` | `^^^` | Note cut — stop immediately |
+| **Shift+C** | `0003` | `~~~` | Note fade — fade out at the instrument's fade rate |
+| **Shift+V** | `0004` | `~^~` | Fast fade |
+| **Shift+B** | `0010`–`001F` | `I·0`–`I·F` | Interrupt marker — see [Interrupts](#interrupts) |
 | **Delete**, **Backspace** or **.** | — | | Clear the note (and instrument) |
 
 **Delete**, **Backspace** and **.** are interchangeable everywhere on the
 pattern grids and in the Cues view: whichever one you reach for erases the
-column under the caret.
+column under the caret. The one exception is the note column under a layout
+that takes the bottom row, the default included: there **.** is a piano key, so
+use **Delete** or **Backspace**.
 
 ### Interrupts
 
@@ -832,7 +846,8 @@ in time with the music, without that program having to guess where the beat is.
 A lighting cue on the downbeat, a subtitle that lands with the line, an enemy
 wave that arrives on the fill: the composer places them, the game answers them.
 
-Press **b** on the note column to place `I·0`, then **Ctrl+←** / **Ctrl+→** or
+Press **Shift+B** on the note column (just **b** on a layout that leaves the
+bottom row free) to place `I·0`, then **Ctrl+←** / **Ctrl+→** or
 the mouse wheel to pick which of the sixteen it is, `I·0` through `I·F`. The marker makes
 no sound at all and disturbs nothing on its lane — a note already ringing
 there carries on ringing.
@@ -2836,9 +2851,9 @@ why it could not be. A row with a bar stands for a conversion still going; its
 
 ## Keymap (Shift+F9)
 
-The letter keys play notes. On a 12-note tuning they are laid out like a piano,
-which is what most people want and what Microtone has always done — but a piano
-has twelve keys to the octave and 41-TET has forty-one, so on a fine tuning that
+The letter keys play notes. By default they are laid out as two pianos, one
+above the other, which is what most people want and what trackers have long
+done — but a piano has twelve keys to the octave and 41-TET has forty-one, so on a fine tuning that
 layout can only reach a fraction of the notes the song can hold. The Keymap tab
 is where you change what the keys play.
 
@@ -2875,27 +2890,29 @@ height and without the editing furniture.
 
 - It shows the active layout in the song's notation, and **keys light up as they sound** — whatever played them, the letter keys or a click on the board itself.
 - Clicking a key on the strip plays it, so it is a small instrument as well as a reminder. In **record mode** it also enters the note at the cursor, exactly as typing that key would — the current instrument with it, and the cursor stepping on by the input step — so a tablet with no keyboard can write a whole part. A click always writes the **note** column, whichever column the cursor is in; a key the layout leaves silent writes nothing.
-- The **+** and **−** buttons at either end move the whole board: on the left, **Transp.** transposes it a step (a degree of the tuning, or a semitone on the Piano layout); on the right, **Oct** shifts it an octave. They do what **Shift+Alt+←/→** and **Alt+↑/↓** do, for when there is no keyboard to press them on, such as on a tablet. A button greys out at the end of its range.
+- The **+** and **−** buttons at either end move the whole board: on the left, **Transp.** transposes it a step (a degree of the tuning, or a semitone on the piano layouts); on the right, **Oct** shifts it an octave. They do what **Shift+Alt+←/→** and **Alt+↑/↓** do, for when there is no keyboard to press them on, such as on a tablet. A button greys out at the end of its range.
 - It is off until you ask for it, stays off until you do, and is only on screen where the letter keys are notes — the Timeline and Patterns.
 
 ### Choosing a layout
 
-Nine come with Microtone, and they are read-only — **Duplicate** one to get a
+Eight come with Microtone, and they are read-only — **Duplicate** one to get a
 copy you can change, which is also the only way to rename or delete one of them.
 Your own layouts can be renamed, deleted and exported freely; a saved layout may
 take a built-in's name, and then it is the one you get.
 
 | Layout | Sideways | Up a row | Good for |
 |---|---|---|---|
-| Piano | — | — | The familiar one. 12-note tunings |
+| Double-Deck Piano 12 | — | — | The default, and the classic tracker keyboard: a piano on the bottom two rows and another an octave up on the top two; comes up with 12-TET |
+| Double-Deck Piano 24 | — | — | Two pianos a quarter tone apart, the upper one on the top two rows; comes up with 24-TET |
 | Bosanquet–Wilson | whole tone | chromatic semitone | The classic generalised keyboard |
 | Wicki–Hayden | whole tone | fourth | Fifths and fourths under one hand |
 | Harmonic Table | minor third | major third | Triads as a single shape |
 | Octave rows | one degree | one octave | 5-, 7- and other small tunings |
 | Chromatic run | one degree | ten degrees | Reaching *every* degree of a big tuning |
 | Shi'er lü (十二律) | — | — | Placed by hand for that tuning; comes up with it |
-| Double-Deck Piano 12 | — | — | The classic tracker keyboard: a piano on the bottom two rows and another an octave up on the top two; comes up with 12-TET |
-| Double-Deck Piano 24 | — | — | Two pianos a quarter tone apart, the upper one on the top two rows; comes up with 24-TET |
+
+The two-row **Piano** layout of earlier versions is gone: if it was the one you
+had chosen, the keyboard now comes up on Double-Deck Piano 12.
 
 **Bosanquet–Wilson, Wicki–Hayden and the Harmonic Table follow the tuning.**
 They are written as intervals, not as numbers of keys, so each is worked out
@@ -2926,6 +2943,11 @@ pianos are bound the same way, to 12-TET and 24-TET, so a 12-TET song comes up
 on Double-Deck Piano 12. Leave that tuning and the keyboard goes back to the
 layout you chose — a layout only volunteers for its own songs, and never
 displaces a choice you made.
+
+The Double-Deck pianos work in any tuning: they are laid out as a piano, so
+each key plays the tuning's note nearest to where it sits on a piano, and the keyboard you play is the same in 31-TET as
+in 12-TET. Both decks of Double-Deck Piano 24 are quarter tones apart in any
+tuning, and land on real notes wherever the tuning has quarter tones.
 
 ### Unequal temperaments
 
@@ -2999,16 +3021,18 @@ three. Close the project and your own layout comes back.
 
 ### The bottom row
 
-The bottom row — **z x c v b** and the keys beside it — is the note column's
-own on the Piano layout: key-off, cut, fade, fast fade and the interrupt marker.
-Tick **Z…/** and a layout takes that row too, which buys ten more keys: four
-full rows is forty keys, near enough a whole period of 41-TET under both hands
-at once. Bosanquet–Wilson, Wicki–Hayden, the Harmonic Table, Shi'er lü and both
-Double-Deck pianos come with it ticked.
+The bottom row — **z x c v b** and the keys beside it — is where the note
+column keeps its own keys: key-off, cut, fade, fast fade and the interrupt
+marker. Tick **Z…/** and a layout takes that row for notes too, which buys ten
+more keys: four full rows is forty keys, near enough a whole period of 41-TET
+under both hands at once. Both Double-Deck pianos (the default among them),
+Bosanquet–Wilson, Wicki–Hayden, the Harmonic Table and Shi'er lü come with it
+ticked; Octave rows and Chromatic run leave it free.
 
 What it costs is spelled out on the panel when you tick it: key-off, cut, fade
 and the interrupt move to **Shift** plus the same letter, and so do **mute** and
-**solo**. **Delete** still clears a cell.
+**solo**. **Delete** still clears a cell; **.** becomes a note on the note
+column.
 
 ### The `'` key
 
@@ -3470,7 +3494,7 @@ centre of the scale.
 | Shift+Alt+↑ / ↓ | Previous / next keyboard layout |
 | Shift+Ctrl+← / → | Previous / next lane (Patterns: column); add Alt for four |
 | Shift+Ctrl+↑ / ↓ | Previous / next beat; add Alt for the previous / next cue (Patterns: pattern) |
-| M / N | Mute / solo the cursor lane (navigate mode; Shift+M / Shift+N under a bottom-row layout) |
+| Shift+M / Shift+N | Mute / solo the cursor lane (navigate mode; plain M / N on a layout that leaves the bottom row free) |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+S | Save to browser storage |
 | Ctrl+G | Go to cue:row |
@@ -3488,20 +3512,19 @@ centre of the scale.
 
 | Keys | Action |
 |---|---|
-| A S D F G H J K L ; | Piano white keys (C D E F G A B C D E) |
-| W E · T Y U · O P | Piano black keys |
-| Q · R · I | Half-sharps where a piano has no black key |
-| 1…0 · z…/ | Two more rows of notes, on a layout that asks for them (see [Keymap](#keymap-shift-f9)) |
-| z x c v | Key-off `===` · cut `^^^` · fade `~~~` · fast-fade `~^~` |
-| Shift+z x c v b | The same, on a layout that has taken the bottom row |
+| z x c v b n m , . / | Piano white keys (C D E F G A B C D E), on the default layout |
+| s d · g h j · l ; | Piano black keys |
+| q…p · 2 3 · 5 6 7 · 9 0 | The same piano an octave up (other layouts: see [Keymap](#keymap-shift-f9)) |
+| Shift+z x c v | Key-off `===` · cut `^^^` · fade `~~~` · fast-fade `~^~` |
+| z x c v b | The same, and the interrupt marker, without Shift on a layout that leaves the bottom row free |
 | ' | Whichever sentinel you set it to on the Keymap tab |
-| b | Interrupt marker `I·0` — Ctrl+← → or the wheel pick its number |
+| Shift+b | Interrupt marker `I·0` — Ctrl+← → or the wheel pick its number |
 | 0–9 A–F | Hex entry (instrument / volume / pan / fx argument) |
 | 1–Z | Effect opcode (base-36) |
 | ^ v / u d | Volume symbol cell: slide up / down |
 | > < / r l | Panning symbol cell: slide right / left |
 | + = / - | Symbol cell: fine slide up / down (right / left) |
-| Delete / Backspace / . | Clear the field — on a symbol cell, plain set |
+| Delete / Backspace / . | Clear the field — on a symbol cell, plain set (on the note column, . is a piano key on the default layout) |
 | ← → / Tab | Sub-column / next lane |
 | wheel · Shift+wheel | Scroll rows · lanes |
 | wheel on cursor cell | Step the hovered column (notes by one table degree) |

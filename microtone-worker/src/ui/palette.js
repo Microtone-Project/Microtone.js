@@ -9,7 +9,7 @@ import {
   volPanOp, volPanSelect,
 } from "./edit.js";
 import { t } from "./i18n.js";
-import { PIANO_KEYMAP } from "./keymap.js";
+import { DEFAULT_KEYMAP, keymapClaimsZRow } from "./keymap.js";
 import { EffectOp, EXT_CAPABLE_OPS } from "../../core/engine/tables.js";
 import { MOTIF } from "../../core/fonts/motifglyphs.js";
 
@@ -184,14 +184,15 @@ export class CommandPalette {
           this.lastKey = null;
           this.refresh();
         }, intNote >= 0);
-        // The hint describes the KEYBOARD, so it has to follow the active
-        // layout: the piano rows it names are only true of the piano layout
-        // (item 187). Asked of PIANO_KEYMAP rather than of whatever is default,
-        // so shipping a different default cannot turn this into a lie; and by
-        // identity, so a user layout called "Piano" is correctly not it.
-        hint(ctx.keymap && ctx.keymap !== PIANO_KEYMAP
-          ? t("pal.noteHintKeymap", { name: ctx.keymap.name })
-          : t("pal.noteHint"));
+        // The hint describes the KEYBOARD, so it follows the active layout:
+        // its name, and where the interrupt marker went — a layout that takes
+        // the bottom row moves it to Shift+B with the other sentinels.
+        {
+          const km = ctx.keymap ?? DEFAULT_KEYMAP;
+          hint(t("pal.noteHintKeymap", {
+            name: km.name, interrupt: keymapClaimsZRow(km) ? "Shift+B" : "b",
+          }));
+        }
         break;
       case SUB_INST:
         label(t("pal.instrument"));

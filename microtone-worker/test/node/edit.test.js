@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   interpretEditKey, capKey, nudgeColumn, nudgeColumns, nudgeCursor, gridStepRow, lookahead, rawNoteView, semiToNote, semiToNoteInTable,
   subIsEmpty, subCharPos, charToSub, subToCol, SUB_POSITIONS, SUB_NIBBLES, stepNoteCell,
-  volPanOp, volPanArg, volPanStep, fineSigned, fineValue, JAM_SEMIS,
+  volPanOp, volPanArg, volPanStep, fineSigned, fineValue,
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX,
 } from "../../src/ui/edit.js";
@@ -12,9 +12,13 @@ import { volToStr, panToStr, rangeToStr, noteCentsOff } from "../../src/ui/noten
 import { TaudPlayData } from "../../core/engine/state.js";
 import { MIDDLE_C } from "../../core/engine/constants.js";
 import { pitchTablePresets } from "../../core/tuning/pitchtables.js";
-import { normaliseKeymap } from "../../src/ui/keymap.js";
+import { normaliseKeymap, DEFAULT_KEYMAP } from "../../src/ui/keymap.js";
+import { TWO_ROW_SEMIS, TWO_ROW_PIANO } from "../fixtures/tworowpiano.js";
 
-const ctx = { octave: 4, currentInst: 0x12 };
+// Most of this file exercises the interpreter under a layout that leaves the
+// bottom row to the sentinels (the retired two-row piano, now a fixture); the
+// default layout, which takes it, has its own tests below.
+const ctx = { octave: 4, currentInst: 0x12, keymap: TWO_ROW_PIANO };
 
 test("semiToNote: C4 = MIDDLE_C, octave steps are 4096", () => {
   assert.equal(semiToNote(4, 0), MIDDLE_C);
@@ -62,26 +66,12 @@ test("semiToNoteInTable: absolute (ProTracker, interval 0) snaps without looping
   assert.equal(Math.abs(c4 - MIDDLE_C), dist, "C4 key picks the nearest degree");
 });
 
-// ── item 133: the extended jam region (Q..; , with the three half-sharp keys) ──
-
-test("JAM_SEMIS: two full physical rows, ordered and gapless", () => {
-  // The layout drawn in edit.js: (q) w e (r) t y u (i) o p / a s d f g h j k l ;
-  assert.deepEqual(Object.entries(JAM_SEMIS).sort((a, b) => a[1] - b[1]), [
-    ["KeyQ", -0.5], ["KeyA", 0], ["KeyW", 1], ["KeyS", 2], ["KeyE", 3], ["KeyD", 4],
-    ["KeyR", 4.5], ["KeyF", 5], ["KeyT", 6], ["KeyG", 7], ["KeyY", 8], ["KeyH", 9],
-    ["KeyU", 10], ["KeyJ", 11], ["KeyI", 11.5], ["KeyK", 12], ["KeyO", 13],
-    ["KeyL", 14], ["KeyP", 15], ["Semicolon", 16],
-  ]);
-  // The note sentinels keep their keys — a piano row must never eat z/x/c/v.
-  for (const code of ["KeyZ", "KeyX", "KeyC", "KeyV", "Backquote"]) {
-    assert.ok(!(code in JAM_SEMIS), `${code} stays a sentinel`);
-  }
-});
+// ── semitone layouts: the two-row piano fixture, with its three half-sharp keys ──
 
 test("semiToNote: the half-sharp keys land midway between their neighbours", () => {
-  const q = semiToNote(4, JAM_SEMIS.KeyQ);   // B half-sharp, octave below
-  const r = semiToNote(4, JAM_SEMIS.KeyR);   // E half-sharp
-  const i = semiToNote(4, JAM_SEMIS.KeyI);   // B half-sharp
+  const q = semiToNote(4, TWO_ROW_SEMIS.KeyQ);   // B half-sharp, octave below
+  const r = semiToNote(4, TWO_ROW_SEMIS.KeyR);   // E half-sharp
+  const i = semiToNote(4, TWO_ROW_SEMIS.KeyI);   // B half-sharp
   assert.equal(r, MIDDLE_C + Math.round((4.5 * 4096) / 12));
   assert.equal(i, MIDDLE_C + Math.round((11.5 * 4096) / 12));
   // Strictly between the white keys they sit between, a quarter-tone from each.
@@ -95,7 +85,7 @@ test("semiToNote: the half-sharp keys land midway between their neighbours", () 
 });
 
 test("semiToNoteInTable: every jam key rises, and Q borrows the period below", () => {
-  const codes = Object.entries(JAM_SEMIS).sort((a, b) => a[1] - b[1]).map((e) => e[0]);
+  const codes = Object.entries(TWO_ROW_SEMIS).sort((a, b) => a[1] - b[1]).map((e) => e[0]);
   // 12-TET/Raw fall through to semiToNote; the rest go through the lattice snap.
   // [preset, Q is STRICTLY below C] — a table too coarse to hold a quarter-tone
   // (5-TET) snaps Q onto C itself, which is the nearest degree it HAS; keys may
@@ -107,13 +97,13 @@ test("semiToNoteInTable: every jam key rises, and Q borrows the period below", (
     const name = preset?.name ?? "raw";
     let prev = -Infinity;
     for (const code of codes) {
-      const note = semiToNoteInTable(4, JAM_SEMIS[code], preset);
+      const note = semiToNoteInTable(4, TWO_ROW_SEMIS[code], preset);
       assert.ok(note >= prev, `${name} ${code}: ${note} >= ${prev}`);
       prev = note;
     }
     // Q is BELOW the octave root: the lattice walk has to borrow a period
     // rather than leave pos negative (which used to make Q sound as plain C).
-    const q = semiToNoteInTable(4, JAM_SEMIS.KeyQ, preset);
+    const q = semiToNoteInTable(4, TWO_ROW_SEMIS.KeyQ, preset);
     const c = semiToNoteInTable(4, 0, preset);
     assert.ok(strictQ ? q < c : q <= c, `${name}: Q (${q}) is not above C (${c})`);
   }
@@ -121,7 +111,7 @@ test("semiToNoteInTable: every jam key rises, and Q borrows the period below", (
 
 test("semiToNoteInTable: half-sharp keys reach the quarter-tone degrees", () => {
   const p24 = pitchTablePresets[240]; // 24-TET: the degrees ARE quarter-tones
-  for (const semi of [JAM_SEMIS.KeyQ, JAM_SEMIS.KeyR, JAM_SEMIS.KeyI]) {
+  for (const semi of [TWO_ROW_SEMIS.KeyQ, TWO_ROW_SEMIS.KeyR, TWO_ROW_SEMIS.KeyI]) {
     const note = semiToNoteInTable(4, semi, p24);
     const off = ((note - MIDDLE_C) % p24.interval + p24.interval) % p24.interval;
     assert.ok(p24.table.includes(off), `offset ${off.toString(16)} is a 24-TET degree`);
@@ -131,13 +121,13 @@ test("semiToNoteInTable: half-sharp keys reach the quarter-tone degrees", () => 
   // In 12-TET the key still sounds the quarter-tone; the cell shows it as a
   // cents deviation off the nearest named degree (E+50 = F-50, same pitch).
   assert.equal(
-    Math.abs(noteCentsOff(semiToNoteInTable(4, JAM_SEMIS.KeyR, pitchTablePresets[120]))), 50);
+    Math.abs(noteCentsOff(semiToNoteInTable(4, TWO_ROW_SEMIS.KeyR, pitchTablePresets[120]))), 50);
 });
 
 test("semiToNoteInTable: absolute (ProTracker) survives the extended region", () => {
   const pt = pitchTablePresets[1];
   for (let oct = 0; oct <= 9; oct++) {
-    for (const semi of Object.values(JAM_SEMIS)) {
+    for (const semi of Object.values(TWO_ROW_SEMIS)) {
       const note = semiToNoteInTable(oct, semi, pt);
       assert.ok(pt.table.some((off) => pt.base + off === note),
         `oct ${oct} semi ${semi} → ${note.toString(16)} is a ProTracker degree`);
@@ -149,7 +139,7 @@ test("note column: the new keys enter notes, ` z x c v still don't", () => {
   const cell = new TaudPlayData();
   for (const code of ["KeyQ", "KeyR", "KeyI", "KeyO", "KeyP", "KeyL", "Semicolon"]) {
     const a = interpretEditKey({ code, key: code.slice(-1).toLowerCase() }, SUB_NOTE, 0, cell, ctx);
-    assert.equal(a.fields.note, semiToNote(4, JAM_SEMIS[code]), code);
+    assert.equal(a.fields.note, semiToNote(4, TWO_ROW_SEMIS[code]), code);
     assert.equal(a.jamNote, a.fields.note, `${code} auditions what it writes`);
   }
   const z = interpretEditKey({ code: "KeyZ", key: "z" }, SUB_NOTE, 0, cell, ctx);
@@ -159,9 +149,10 @@ test("note column: the new keys enter notes, ` z x c v still don't", () => {
 test("note column: entry follows the active notation preset", () => {
   const cell = new TaudPlayData();
   const p24 = pitchTablePresets[240];
-  const a = interpretEditKey({ code: "KeyE", key: "e" }, SUB_NOTE, 0, cell,
+  // No keymap in the context = the default, Double-Deck Piano 12.
+  const a = interpretEditKey({ code: "KeyD", key: "d" }, SUB_NOTE, 0, cell,
     { octave: 4, currentInst: 0, preset: p24 });
-  assert.equal(a.fields.note, semiToNoteInTable(4, 3, p24)); // KeyE = semitone 3
+  assert.equal(a.fields.note, semiToNoteInTable(4, 3, p24)); // KeyD = semitone 3
 });
 
 test("note column: piano key writes note + adopts current inst + jams", () => {
@@ -196,6 +187,27 @@ test("note column specials: keyoff/clear (Digit1/2/3 removed, item 47.3)", () =>
   assert.equal(interpretEditKey({ code: "Digit3", key: "3" }, SUB_NOTE, 0, cell, ctx), null);
   const clr = interpretEditKey({ code: "Delete", key: "Delete" }, SUB_NOTE, 0, cell, ctx);
   assert.deepEqual(clr.fields, { note: 0, instrment: 0 });
+});
+
+test("note column: the default layout is Double-Deck Piano 12, sentinels on Shift", () => {
+  const cell = new TaudPlayData();
+  const dctx = { octave: 4, currentInst: 0x12 };   // no keymap: the default
+  assert.equal(DEFAULT_KEYMAP.name, "Double-Deck Piano 12");
+  // z is C of the lower deck, q C of the upper one, an octave up.
+  const z = interpretEditKey({ code: "KeyZ", key: "z" }, SUB_NOTE, 0, cell, dctx);
+  assert.equal(z.fields.note, MIDDLE_C);
+  assert.equal(z.jamNote, MIDDLE_C);
+  const q = interpretEditKey({ code: "KeyQ", key: "q" }, SUB_NOTE, 0, cell, dctx);
+  assert.equal(q.fields.note, semiToNote(5, 0));
+  // a, f and k are the gaps between the black keys: they play nothing.
+  for (const code of ["KeyA", "KeyF", "KeyK"]) {
+    assert.equal(interpretEditKey({ code, key: code.slice(3).toLowerCase() }, SUB_NOTE, 0, cell, dctx), null, code);
+  }
+  // The sentinels answer to Shift.
+  for (const [code, note] of [["KeyZ", 1], ["KeyX", 2], ["KeyC", 3], ["KeyV", 4], ["KeyB", 0x10]]) {
+    const a = interpretEditKey({ code, key: code.slice(3), shiftKey: true }, SUB_NOTE, 0, cell, dctx);
+    assert.equal(a.fields.note, note, `Shift+${code}`);
+  }
 });
 
 test("note column: taut z/x/c/v sentinels, inserted not auditioned", () => {

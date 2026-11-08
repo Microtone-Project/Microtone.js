@@ -5,10 +5,11 @@ import {
   ROW_CODES, ROW_INDEX, rowOfCode, resolveKeymap, keymapNote, keymapStats,
   normaliseKeymap, BUILTIN_KEYMAPS, builtinKeymap, DEFAULT_KEYMAP, fitKeymapToPreset,
   parseTaudkey, buildTaudkey, quoteKeyFields, QUOTE_ACTIONS, QUOTE_DEFAULT,
-  nearestRatio, unitsToCents, keymapHas, keymapClaimsZRow, PIANO_KEYMAP, upperRows,
+  nearestRatio, unitsToCents, keymapHas, keymapClaimsZRow, upperRows,
 } from "../../src/ui/keymap.js";
 import { boardExtent, defaultLegend, BOARD_SIZES } from "../../src/ui/keymapboard.js";
-import { JAM_SEMIS, semiToNoteInTable } from "../../src/ui/edit.js";
+import { semiToNoteInTable } from "../../src/ui/edit.js";
+import { TWO_ROW_PIANO } from "../fixtures/tworowpiano.js";
 import { pitchTablePresets, noteForDegree } from "../../core/tuning/pitchtables.js";
 import { MIDDLE_C } from "../../core/engine/constants.js";
 
@@ -18,45 +19,37 @@ const P5 = pitchTablePresets[50];
 const PT = pitchTablePresets[1];   // ProTracker — absolute, interval 0
 const RAW = pitchTablePresets[0];  // no table at all
 
-// ── the regression lock ──
-// The Piano built-in must BE the old keyboard, not a re-creation of it: same
-// keys, same notes, in every tuning. If this fails, existing users' keyboards
-// have changed under them.
+// ── the default ──
+// Double-Deck Piano 12, since the two-row Piano was retired (4.8.4). Its keys
+// are pinned here: if this fails, every fresh install's keyboard has changed.
 
-test("keymap: the Piano built-in is exactly JAM_SEMIS", () => {
-  const piano = builtinKeymap("Piano");
-  assert.equal(DEFAULT_KEYMAP, piano, "and it is what a fresh install jams with");
-  // Two names for the same layout today, but they answer different questions:
-  // "what do we start on" and "are the keys still arranged as a piano". Shipping
-  // a different default must only move the first.
-  assert.equal(PIANO_KEYMAP, piano, "and it is the one the note-column hint describes");
-  const map = resolveKeymap(piano);
-
-  assert.deepEqual(
-    [...map.keys()].sort(),
-    Object.keys(JAM_SEMIS).sort(),
-    "claims exactly the keys the old table did — no more, no fewer",
-  );
-  for (const [code, semi] of Object.entries(JAM_SEMIS)) {
-    assert.equal(map.get(code), semi, `${code} carries its old semitone`);
-  }
+test("keymap: the default is Double-Deck Piano 12, and Piano is gone", () => {
+  const dd12 = builtinKeymap("Double-Deck Piano 12");
+  assert.equal(DEFAULT_KEYMAP, dd12, "it is what a fresh install jams with");
+  assert.equal(builtinKeymap("Piano"), null, "the two-row Piano no longer ships");
+  assert.ok(keymapClaimsZRow(DEFAULT_KEYMAP), "it takes the bottom row");
+  const map = resolveKeymap(dd12);
+  const lower = { KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6, KeyB: 7, KeyH: 8,
+    KeyN: 9, KeyJ: 10, KeyM: 11, Comma: 12, KeyL: 13, Period: 14, Semicolon: 15, Slash: 16 };
+  const upper = { KeyQ: 12, Digit2: 13, KeyW: 14, Digit3: 15, KeyE: 16, KeyR: 17, Digit5: 18, KeyT: 19,
+    Digit6: 20, KeyY: 21, Digit7: 22, KeyU: 23, KeyI: 24, Digit9: 25, KeyO: 26, Digit0: 27, KeyP: 28 };
+  const want = { ...lower, ...upper };
+  assert.deepEqual([...map.keys()].sort(), Object.keys(want).sort(), "claims these keys, no more, no fewer");
+  for (const [code, semi] of Object.entries(want)) assert.equal(map.get(code), semi, code);
   for (const preset of [undefined, RAW, P12, P41, P5, PT]) {
     for (const octave of [0, 4, 9]) {
-      for (const [code, semi] of Object.entries(JAM_SEMIS)) {
-        assert.equal(
-          keymapNote(piano, code, octave, preset),
-          semiToNoteInTable(octave, semi, preset),
-          `${code} at octave ${octave} on ${preset?.name ?? "no preset"}`,
-        );
+      for (const [code, semi] of Object.entries(want)) {
+        assert.equal(keymapNote(dd12, code, octave, preset), semiToNoteInTable(octave, semi, preset),
+          `${code} at octave ${octave} on ${preset?.name ?? "no preset"}`);
       }
     }
   }
 });
 
 test("keymap: an unclaimed key resolves to null, never to a note", () => {
-  const piano = builtinKeymap("Piano");
-  for (const code of ["Quote", "KeyZ", "Digit1", "Backquote", "Minus", "Equal"]) {
-    assert.equal(keymapNote(piano, code, 4, P12), null, code);
+  const dd12 = builtinKeymap("Double-Deck Piano 12");
+  for (const code of ["Quote", "KeyA", "KeyF", "KeyK", "Digit1", "Digit4", "Digit8", "Backquote", "Minus", "Equal"]) {
+    assert.equal(keymapNote(dd12, code, 4, P12), null, code);
   }
 });
 
@@ -343,7 +336,7 @@ test("keymap: a chromatic run reaches degrees 12-EDO snapping cannot", () => {
   for (const code of resolveKeymap(run).keys()) {
     reached.add(keymapNote(run, code, 4, P41));
   }
-  const piano = builtinKeymap("Piano");
+  const piano = TWO_ROW_PIANO;
   const pianoReach = new Set();
   for (const code of resolveKeymap(piano).keys()) {
     pianoReach.add(keymapNote(piano, code, 4, P41));
@@ -375,10 +368,11 @@ test("taudkey: round-trips a spec unchanged", () => {
   assert.deepEqual(parseTaudkey(buildTaudkey(spec)), spec);
 });
 
-test("taudkey: fractional values survive (the Piano map's quarter-tones)", () => {
-  const back = parseTaudkey(buildTaudkey(builtinKeymap("Piano")));
-  assert.deepEqual(back, builtinKeymap("Piano"));
-  assert.equal(back.overrides.KeyQ, -0.5);
+test("taudkey: fractional values survive (Double-Deck Piano 24's quarter tones)", () => {
+  const back = parseTaudkey(buildTaudkey(builtinKeymap("Double-Deck Piano 24")));
+  assert.deepEqual(back, builtinKeymap("Double-Deck Piano 24"));
+  assert.equal(back.overrides.KeyQ, 0.5);
+  assert.equal(parseTaudkey(buildTaudkey(TWO_ROW_PIANO)).overrides.KeyQ, -0.5, "and negative ones");
 });
 
 test("taudkey: comments, blank lines and unknown directives are tolerated", () => {
@@ -607,11 +601,8 @@ test("keymap: Shi'er lü ships as a hand-placed layout bound to its tuning", () 
   assert.deepEqual(parseTaudkey(buildTaudkey(spec)), spec);
 });
 
-test("keymap: Piano stays first, whatever else ships", () => {
-  // DEFAULT_KEYMAP and PIANO_KEYMAP are both BUILTIN_KEYMAPS[0]; adding layouts
-  // must not disturb that, and nothing may shadow the piano's name.
-  assert.equal(BUILTIN_KEYMAPS[0].name, "Piano");
-  assert.equal(BUILTIN_KEYMAPS.filter((k) => k.name === "Piano").length, 1);
+test("keymap: the default leads the list, whatever else ships", () => {
+  assert.equal(BUILTIN_KEYMAPS[0], DEFAULT_KEYMAP);
   assert.equal(new Set(BUILTIN_KEYMAPS.map((k) => k.name)).size, BUILTIN_KEYMAPS.length,
     "and every shipped layout has its own name — the library keys on it");
 });
@@ -721,4 +712,37 @@ test("taudkey: a split file says version 2, and only a split file does", () => {
   }
   // An older file has no split, and reads as one without.
   assert.equal(parseTaudkey(buildTaudkey(BUILTIN_KEYMAPS[1])).upper, 0);
+});
+
+// ── the Double-Deck pianos ──
+// A piano four rows tall, notation-aware: semitones, so a key plays the tuning's degree nearest to where a piano puts it. On their own
+// tunings that is exactly one degree per semitone (per quarter tone on 24).
+
+test("keymap: the Double-Deck pianos are pianos in every tuning", () => {
+  const P24 = pitchTablePresets[240];
+  const P31 = pitchTablePresets[310];
+  const piano = TWO_ROW_PIANO;   // the retired two-row piano, as a fixture
+  for (const [name, home, perSemi] of [["Double-Deck Piano 12", P12, 1], ["Double-Deck Piano 24", P24, 2]]) {
+    const dd = builtinKeymap(name);
+    assert.equal(dd.unit, "semi", name);
+    // At home: the same degree each key has always played.
+    for (const [code, v] of resolveKeymap(dd)) {
+      for (const oct of [0, 3, 4, 7]) {
+        assert.equal(keymapNote(dd, code, oct, home), noteForDegree(oct, v * perSemi, home), `${name} ${code} ${oct}`);
+      }
+    }
+    // Elsewhere: the lower deck is the two-row piano's white and black keys, a row down.
+    const lower = { KeyZ: "KeyA", KeyX: "KeyS", KeyC: "KeyD", KeyV: "KeyF", KeyB: "KeyG", KeyN: "KeyH",
+      KeyM: "KeyJ", Comma: "KeyK", Period: "KeyL", Slash: "Semicolon",
+      KeyS: "KeyW", KeyD: "KeyE", KeyG: "KeyT", KeyH: "KeyY", KeyJ: "KeyU", KeyL: "KeyO", Semicolon: "KeyP" };
+    for (const P of [P31, P41, P5]) {
+      for (const [code, pianoCode] of Object.entries(lower)) {
+        assert.equal(keymapNote(dd, code, 4, P), keymapNote(piano, pianoCode, 4, P), `${name} ${code} in ${P.index}`);
+      }
+    }
+  }
+  // Double-Deck 12's upper deck is its lower one an octave up, whatever the tuning.
+  const dd12 = builtinKeymap("Double-Deck Piano 12");
+  assert.equal(keymapNote(dd12, "KeyQ", 4, P31), keymapNote(dd12, "KeyZ", 5, P31));
+  assert.equal(keymapNote(dd12, "KeyP", 4, P31), keymapNote(dd12, "Slash", 5, P31));
 });

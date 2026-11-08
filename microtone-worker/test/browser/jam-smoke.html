@@ -58,7 +58,7 @@
 
         // 1 — jam WITHOUT pressing Play, on a MUTED cursor channel (item 140).
         store.setVoiceMute(0, true);
-        jam.down("KeyA", false);
+        jam.down("KeyZ", false);
         const live1 = await until(() => bankVoices(audio));
         const stillNotPlaying = !audio.isPlaying();
         const chan0Idle = !audio.getVoiceActive(0);
@@ -66,24 +66,24 @@
         log(`transport idle throughout: ${notPlaying && stillNotPlaying}`);
 
         // 2 — chord: three held keys, three bank voices (item 140.1).
-        jam.down("KeyS", false);
-        jam.down("KeyD", false);
+        jam.down("KeyX", false);
+        jam.down("KeyC", false);
         const live3 = await until(() => { const v = bankVoices(audio); return v.length >= 3 ? v : null; });
         log(`three held keys → ${live3?.length ?? 0} sounding bank voices`);
 
         // 3 — releasing ONE key leaves the others sounding.
         jam.releaseGraceMs = 0;
-        jam.up("KeyS");
+        jam.up("KeyX");
         await sleep(120);
         const live2 = bankVoices(audio);
         log(`after one release: ${live2.length} still sounding`);
 
         // 4 — record mode is monophonic: two keys, one voice.
-        jam.up("KeyA"); jam.up("KeyD");
+        jam.up("KeyZ"); jam.up("KeyC");
         await sleep(150);
         store.record = true;
-        jam.down("KeyA", false);
-        jam.down("KeyS", false);
+        jam.down("KeyZ", false);
+        jam.down("KeyX", false);
         const mono = await until(() => bankVoices(audio));
         log(`record mode → ${mono.length} sounding voice (mono entry)`);
         jam.allUp();
@@ -109,7 +109,7 @@
         const stoppedQuiet = !Array.from({ length: 32 }, (_, ch) => ch)
           .some((ch) => audio.getVoiceActive(ch));
         log(`after Stop: every channel silent: ${stoppedQuiet}`);
-        jam.down("KeyA", false);
+        jam.down("KeyZ", false);
         const live5 = await until(() => bankVoices(audio));
         const noRevival = !Array.from({ length: 32 }, (_, ch) => ch)
           .some((ch) => audio.getVoiceActive(ch));

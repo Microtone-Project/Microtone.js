@@ -50,10 +50,11 @@ const ARB = 0x0500; // far beyond WHEN's materialised patterns
   try { timeline.draw(-1); } catch (e) { drew = false; log("draw threw: " + e.message); }
   check(drew, "Timeline paints a cue pointing at an unmaterialised pattern");
 
-  // 3. Editing it must materialise + stick ('z' = key-off sentinel, note 0x0001).
+  // 3. Editing it must materialise + stick (Shift+Z = key-off sentinel, note 0x0001;
+  // the default layout takes the bottom row, so the sentinels are on Shift).
   store.cursor.row = 0; store.cursor.ch = 0; store.cursor.sub = 0; store.cursor.nib = 0;
   store.record = true;
-  const consumed = timeline.processEditKey({ code: "KeyZ", key: "z" }, M.jam);
+  const consumed = timeline.processEditKey({ code: "KeyZ", key: "Z", shiftKey: true }, M.jam);
   check(consumed, "record-mode key is consumed on an unmaterialised pattern");
   const mat = store.doc.patternAt(0, ARB);
   check(mat !== null, "the edit materialised the pattern");

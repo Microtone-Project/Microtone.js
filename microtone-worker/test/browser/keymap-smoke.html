@@ -59,7 +59,8 @@
     // ── the library ──
     const lib = M.keymapLib;
     const names = lib.entries().map((e) => e.name);
-    ok(names[0] === "Piano", `Piano leads the library (${names.length} layouts)`);
+    ok(names[0] === "Double-Deck Piano 12" && !names.includes("Piano"),
+       `the default, Double-Deck Piano 12, leads the library; the two-row Piano is gone (${names.length} layouts)`);
     ok(names.includes("Harmonic Table") && names.includes("Bosanquet–Wilson"),
        "the Lumatone layouts ship");
 
@@ -83,7 +84,7 @@
     const notes = codes.map((c) => keymapNote(store.keymap, c, jam.octave, preset));
     ok(new Set(notes).size === codes.length,
        `ten adjacent keys, ten distinct notes (${new Set(notes).size})`);
-    const pianoNotes = codes.map((c) => keymapNote(lib.find("Piano"), c, jam.octave, preset));
+    const pianoNotes = codes.map((c) => keymapNote(lib.find("Double-Deck Piano 12"), c, jam.octave, preset));
     ok(JSON.stringify(notes) !== JSON.stringify(pianoNotes),
        "and they are not the notes the piano layout gives");
 
@@ -353,7 +354,7 @@
       return ev.defaultPrevented;
     };
     M.split.reveal("timeline");
-    lib.setActive(lib.find("Piano"));   // a layout that claims NEITHER key
+    lib.setActive(lib.find("Octave rows"));   // a layout that claims NEITHER key
     await sleep(150);
     ok(press("Slash", "/"), "\"/\" is swallowed under a layout that does not claim it");
     ok(press("Quote", "'"), "…and so is the ' key");
@@ -367,7 +368,7 @@
 
     // ── the shipped Shi'er lü layout volunteers for its own tuning ──
     const pt = await import("../../core/tuning/pitchtables.js");
-    lib.setActive(lib.find("Piano"));               // an explicit, unbound choice
+    lib.setActive(lib.find("Wicki–Hayden"));        // an explicit, unbound choice
     store.pitchPreset = pt.pitchTablePresets[10123];
     lib.applyForPreset(store.pitchPreset, 10123);   // what a song load does
     await sleep(150);
@@ -422,7 +423,7 @@
     ok(!!lib.find(newName) && !lib.find(oldName), "the file on disk moved with it");
 
     // A built-in cannot be renamed, and shadowing one deliberately is allowed.
-    ok(!(await lib.rename("Piano", "nope")), "built-ins refuse to be renamed");
+    ok(!(await lib.rename("Double-Deck Piano 12", "nope")), "built-ins refuse to be renamed");
     ok(!lib.savedNameTaken("Harmonic Table"), "shadowing a built-in's name is allowed");
     const clash = lib.uniqueName("clash");
     await lib.save({ ...lib.find("Chromatic run"), name: clash });
@@ -545,7 +546,7 @@
     ok(projBtn().textContent === "Embed in project", "and the button offers it again");
     await lib.remove(splitName);
     await lib.refresh();
-    lib.setActive(lib.find("Piano"));
+    lib.setActive(lib.find("Double-Deck Piano 12"));
 
     log(failures === 0 ? "ALL OK" : `${failures} FAILURE(S)`);
     log(`FAILURES: ${failures}`);

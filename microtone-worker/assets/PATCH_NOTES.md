@@ -4,6 +4,23 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.8.4 (2026-11-08)
+
+**The two-row Piano keyboard is retired, and Microtone now starts on Double-Deck Piano 12**: two pianos, one above the other, with the lower one's white keys on Z to / and the upper one an octave higher on Q to P.
+
+- The lower piano's black keys are S D, G H J and L ;, the upper one's are on the number row; A, F and K play nothing.
+- If Piano was your layout, the keyboard now comes up on Double-Deck Piano 12. Layouts of your own are untouched.
+- Because the new layout takes the bottom row, key-off, cut, fade, fast fade and the interrupt marker are now Shift+Z, X, C, V and B on the note column, and mute and solo are Shift+M and Shift+N. A layout that leaves the bottom row free (Octave rows, Chromatic run, or one of your own) keeps them on the plain keys, and the ' key still writes your chosen sentinel without Shift.
+- On the note column, . now plays a note; Delete and Backspace still clear the cell.
+- The half-sharp keys Q, R and I went with the old layout; Double-Deck Piano 24 has a whole piano of quarter tones on its upper rows.
+
+**The Double-Deck pianos follow the song's notation**: in any tuning, each key now plays the note nearest to where it sits on a piano.
+
+- Before, on any tuning other than their own (12-TET and 24-TET), the two Double-Deck layouts played a plain run of the tuning's notes, one key after another, so in 31-TET they no longer looked like a piano at all.
+- Double-Deck Piano 12's upper deck is now an octave above the lower one in every tuning, and Double-Deck Piano 24's two decks a quarter tone apart, landing on real notes wherever the tuning has quarter tones.
+- On 12-TET and 24-TET every key plays what it always did.
+- Shift+Alt+← and → now move these layouts a semitone at a time.
+
 ## Version 4.8.3 (2026-11-08)
 
 **The tape delay's ping-pong can start on the right**: in an instrument's mixing chain, Ping-pong now offers Off, Left first and Right first.

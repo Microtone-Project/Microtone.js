@@ -54,21 +54,26 @@
         log(`About popup opens + closes (patch-notes link ${patchLinkOk}): ${aboutOk && patchLinkOk && aboutClosed ? "ok" : "FAIL"}`);
 
         // ── mute/solo keys (navigate mode; taut M/N semantics) ──
+        // The default layout takes the bottom row, so M and N are piano keys
+        // and mute/solo answer to Shift+M / Shift+N.
         store.record = false;
         store.cursor.ch = 2;
+        const shifted = { shiftKey: true };
         key("KeyM");
+        const bareInert = store.voiceMutes[2] !== true;
+        key("KeyM", shifted);
         const muteOn = store.voiceMutes[2] === true;
-        key("KeyM");
+        key("KeyM", shifted);
         const muteOff = store.voiceMutes[2] === false;
-        log(`M toggles mute: ${muteOn && muteOff ? "ok" : "FAIL"}`);
-        key("KeyN");
+        log(`Shift+M toggles mute, bare M does not: ${bareInert && muteOn && muteOff ? "ok" : "FAIL"}`);
+        key("KeyN", shifted);
         const n = store.doc.channelCount;
         let soloOk = store.voiceMutes[2] === false;
         for (let i = 0; i < n; i++) if (i !== 2 && !store.voiceMutes[i]) soloOk = false;
-        key("KeyN");
+        key("KeyN", shifted);
         let unmutedAll = true;
         for (let i = 0; i < n; i++) if (store.voiceMutes[i]) unmutedAll = false;
-        log(`N solos then clears: ${soloOk && unmutedAll ? "ok" : "FAIL"}`);
+        log(`Shift+N solos then clears: ${soloOk && unmutedAll ? "ok" : "FAIL"}`);
         store.record = true;
         key("KeyM");
         log(`record mode keeps M as piano: ${store.voiceMutes[2] === false ? "ok" : "FAIL"}`);
@@ -747,7 +752,8 @@
         // ── item 24: piano keys are inert on Cues / Project / File ──
         {
           const { jam } = win.__microtone;
-          const pressA = () => key(win, "KeyA", "a");
+          // s: a piano key on the default layout (a is a gap there).
+          const pressA = () => key("KeyS", { key: "s" });
           jam.held.clear();
           win.document.querySelector('#tabs button[data-view="project"]').click();
           pressA();
@@ -760,9 +766,9 @@
           const filesInert = jam.held.size === 0;
           // instruments view still auditions (key registers as held)
           win.document.querySelector('#tabs button[data-view="instruments"]').click();
-          win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "KeyA", key: "a", bubbles: true }));
-          const instJams = jam.held.has("KeyA");
-          win.dispatchEvent(new win.KeyboardEvent("keyup", { code: "KeyA", key: "a", bubbles: true }));
+          win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "KeyS", key: "s", bubbles: true }));
+          const instJams = jam.held.has("KeyS");
+          win.dispatchEvent(new win.KeyboardEvent("keyup", { code: "KeyS", key: "s", bubbles: true }));
           win.document.querySelector('#tabs button[data-view="timeline"]').click();
           log(`jam disabled on Cues/Project/File, on in Instruments: ${projInert && cuesInert && filesInert && instJams ? "ok" : `FAIL proj=${projInert} cues=${cuesInert} files=${filesInert} inst=${instJams}`}`);
         }
