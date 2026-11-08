@@ -4,7 +4,7 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
-## Version 4.8.4 (2026-11-08)
+## Version 4.8.4 (2026-11-09)
 
 **The two-row Piano keyboard is retired, and Microtone now starts on Double-Deck Piano 12**: two pianos, one above the other, with the lower one's white keys on Z to / and the upper one an octave higher on Q to P.
 
@@ -26,6 +26,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 **Closing a split pane takes one click in the Linux desktop app**: the close button on the pane you are not working in now answers the first press.
 
 - Fixed: in the desktop app on Linux, closing the other half of a split view needed two clicks; the first click moved the focus to that pane and redrew the button's icon under the pointer, and the Linux webview drops a click when that happens. The icon is now redrawn only when it actually changes.
+
+**36-TET (Kite) joins the tunings, in the tracker and in Microtone Touch**: thirds of a semitone, written with Kite's up and down ticks.
+
+- **36-TET (Kite) is a new tuning** in the Project view's tuning list, with Kite note names for all 36 steps: every third step is a plain 12-TET note, and the steps between are that note ticked up, or the next one ticked down.
+- The chord maker offers it the same chords as any equal tuning of its size, higher-limit and extraclassical ones included.
+- In Microtone Touch it plays on the degree-run keyboard whichever layout you choose, as 24-TET does: its fifth is 12-TET's, so Wicki–Hayden, Bosanquet and the harmonic table would reach only every third note.
 
 ## Version 4.8.3 (2026-11-08)
 

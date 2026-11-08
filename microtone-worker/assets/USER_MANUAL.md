@@ -3205,8 +3205,8 @@ grid):
 | Octave only | 1 | octave |
 | 2- to 10-TET | 2–10 | octave |
 | 12-TET | 12 | octave |
-| 15-, 16-, 17-, 19-, 22-, 24-, 31-TET | as named | octave |
-| 41-TET (Kite), 53-TET (Kite) | 41 / 53, Kite up/down tick notation | octave |
+| 13-, 15-, 16-, 17-, 19-, 22-, 23-, 24-, 26-, 31-TET | as named | octave |
+| 36-, 41-, 43-, 53-TET (Kite) | 36 / 41 / 43 / 53, Kite up/down tick notation | octave |
 | 53-TET (Pythagorean) | 53, letters with stacked sharps/flats | octave |
 | 96-TET (Kite) | 96 | octave |
 | Pythagorean dim. 5th / aug. 4th | 12, just fifths | octave |

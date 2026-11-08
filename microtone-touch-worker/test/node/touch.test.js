@@ -133,12 +133,15 @@ test("lattice: every offered tuning gets a layout that works, whichever is asked
 
 test("lattice: a layout that cannot reach every degree falls back to the degree run", () => {
   // 24-TET's patent fifth is 12-TET's: those three only ever reach even degrees.
-  for (const id of ["wicki", "bosanquet", "harmonic"]) {
-    assert.equal(reachesAll(layoutSteps(id, 24), 24), false, id);
-    assert.equal(fitLayout(id, 24), "step");
+  // 36-TET's is too, so they reach every third one.
+  for (const n of [24, 36]) {
+    for (const id of ["wicki", "bosanquet", "harmonic"]) {
+      assert.equal(reachesAll(layoutSteps(id, n), n), false, `${n}-TET / ${id}`);
+      assert.equal(fitLayout(id, n), "step");
+    }
   }
   for (const n of [12, 17, 19, 22, 31, 41, 43, 53]) assert.equal(fitLayout("wicki", n), "wicki", `${n}-TET`);
-  for (const n of [12, 24, 53]) assert.ok(reachesAll(layoutSteps("step", n), n));
+  for (const n of [12, 24, 36, 53]) assert.ok(reachesAll(layoutSteps("step", n), n));
   assert.deepEqual(LAYOUTS.map((l) => l.id), ["wicki", "bosanquet", "harmonic", "step"]);
 });
 
@@ -572,7 +575,7 @@ test("sketch: junk from storage is dropped, not trusted", () => {
   assert.ok(isBlank(normaliseSketch(null)));
   assert.ok(isBlank(normaliseSketch({ v: 999, sections: [{ cells: [[{ n: 0x5000 }]] }] })));
   const s = normaliseSketch({
-    v: 1, name: "x".repeat(200), bpm: 9999, tuning: "11", lanes: [{ preset: "theremin" }, { preset: "pad", mute: true }],
+    v: 1, name: "x".repeat(200), bpm: 9999, tuning: "14", lanes: [{ preset: "theremin" }, { preset: "pad", mute: true }],
     sections: [{ cells: [[{ n: 0x5000, fx: "warp" }, { n: 5 }, { n: NOTE_OFF, d: 3 }, { n: 0x5000, d: 99, fx: "roll", lv: 7 }]] }],
   });
   assert.equal(s.name.length, 64);
@@ -758,7 +761,8 @@ test("sketch: A-ak and Hyang-ak are Shi'er lü at their own reference pitch", ()
   }
   assert.equal(tuningById("nonsense").id, "12");
   assert.deepEqual(TUNINGS.map((t) => t.id), [
-    "4", "5", "6", "7", "8", "9", "10", "12", "15", "16", "17", "19", "22", "24", "31", "41", "43", "53", "bp", "aak", "hyangak",
+    "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "17", "19", "22", "23", "24", "26", "31", "36", "41",
+    "43", "53", "bp", "aak", "hyangak",
   ]);
 });
 
@@ -842,6 +846,8 @@ test("notes: labels follow the tuning's own notation", () => {
   assert.equal(at(240, 1), `C${MUSIC.HALF_SHARP}4`, "24-TET's half-sharp, in Motif Grid's own sign");
   assert.equal(at(240, 3), `D${MUSIC.REVERSED_FLAT}4`, "…and half-flat");
   assert.equal(at(410, 1), `${MOTIF.KITE_UP}C4`, "41-TET's Kite up-tick");
+  assert.equal(at(360, 10), `${MOTIF.KITE_UP}E${MUSIC.FLAT}4`, "36-TET's Kite tick on a flat");
+  assert.equal(at(360, 9), `E${MUSIC.FLAT}4`, "…and its big dot, unmarked");
   assert.equal(noteLabel(NOTE_OFF, pitchTablePresets[120]), "off");
   assert.equal(at(10123, 0), "\u9EC34", "Shi'er lü's own names: 黃 (huangzhong)");
   assert.equal(at(35130, 7), "H4", "Bohlen–Pierce's H");
