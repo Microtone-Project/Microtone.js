@@ -27,11 +27,9 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - Fixed: in the desktop app on Linux, closing the other half of a split view needed two clicks; the first click moved the focus to that pane and redrew the button's icon under the pointer, and the Linux webview drops a click when that happens. The icon is now redrawn only when it actually changes.
 
-**36-TET (Kite) joins the tunings, in the tracker and in Microtone Touch**: thirds of a semitone, written with Kite's up and down ticks.
-
-- **36-TET (Kite) is a new tuning** in the Project view's tuning list, with Kite note names for all 36 steps: every third step is a plain 12-TET note, and the steps between are that note ticked up, or the next one ticked down.
+**18-TET, 36-TET (Kite), 72-TET (Kite) joins the tunings**.
 - The chord maker offers it the same chords as any equal tuning of its size, higher-limit and extraclassical ones included.
-- In Microtone Touch it plays on the degree-run keyboard whichever layout you choose, as 24-TET does: its fifth is 12-TET's, so Wicki–Hayden, Bosanquet and the harmonic table would reach only every third note.
+- In Microtone Touch it plays on the degree-run keyboard whichever layout you choose, as 24-TET does: its fifth is 12-TET's, so Wicki–Hayden, Bosanquet and the harmonic table would reach only every third note. **72-TET is not provided as it's impractical for finger-tapping.**
 
 ## Version 4.8.3 (2026-11-08)
 

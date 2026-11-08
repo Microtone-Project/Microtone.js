@@ -761,7 +761,7 @@ test("sketch: A-ak and Hyang-ak are Shi'er lü at their own reference pitch", ()
   }
   assert.equal(tuningById("nonsense").id, "12");
   assert.deepEqual(TUNINGS.map((t) => t.id), [
-    "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "17", "19", "22", "23", "24", "26", "31", "36", "41",
+    "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "17", "18", "19", "22", "23", "24", "26", "31", "36", "41",
     "43", "53", "bp", "aak", "hyangak",
   ]);
 });
