@@ -2278,7 +2278,7 @@ Every instrument can have a **mixing chain**: its notes sum into a bus of their 
 | **Equaliser 2**, **Dynamic EQ 2** | a second pair, after the compressor |
 | **Unison** | two to eight copies, detuned and — in a stereo song — spread across the width, each with an LFO that can follow the tempo and restart on every note; the LFO's waveform is picked with pushbuttons that draw it |
 | **Saturator** | tape, soft clip, hard clip, tube or wavefolder, with drive, bias and trims — and the Mix tool's *Remove DC* built in, so neither the bias, a lopsided curve nor a lopsided input leaves the sound off-centre for a limiter further down to clamp on |
-| **Tape delay** | in milliseconds, or in quarter ticks so it follows the tempo — a tempo change bends the echoes as tape would — with feedback through a high and a low cut, wow and flutter, drive and ping-pong |
+| **Tape delay** | in milliseconds, or in quarter ticks so it follows the tempo — a tempo change bends the echoes as tape would — with feedback through a high and a low cut, wow and flutter, drive, and ping-pong starting from either the left or the right |
 | **Reverb** | size, decay, damping and pre-delay |
 | **Limiter** | a look-ahead brickwall, the Mastering tab's, with an input gain |
 | **Mix tool** | gain, stereo width (*Surround width* in a surround song), swap, polarity and *Remove DC* — a gentle 3 Hz high-pass, the one the Opus codec uses, that takes out any constant offset (a lopsided sample, say) before the rest |

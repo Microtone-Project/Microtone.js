@@ -1659,7 +1659,7 @@ An **LFO** record: `U8` waveform (0 sine, 1 triangle, 2 square, 3 saw up, 4 saw 
 
 | Offset | Type | Field |
 |---|---|---|
-| +4 | `U8` | Flags: bit 0 **sync** (the time is in quarter ticks), bit 1 **ping-pong** |
+| +4 | `U8` | Flags: bit 0 **sync** (the time is in quarter ticks), bit 1 **ping-pong**, bit 2 **right first** (with ping-pong: the first echo is on the right, R-L-R-L, instead of the left; ignored without it, and written clear). A reader that does not know bit 2 plays the left-first mirror image |
 | +5 | `Byte[3]` | **RESERVED** |
 | +8 | `U32` | Time — 16.16 seconds (0.001…4) when not synced, 16.16 quarter ticks (0.25…1024) when synced; never longer than 4 seconds at playback |
 | +12 | `F32` | Feedback — 0…1.2 |

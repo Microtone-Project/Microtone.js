@@ -1037,9 +1037,19 @@ export class MixingPanel {
       this.num(id, "imix.lowCut", "lowCut", "dlayLowCut", { unit: "Hz", digits: 0, log: true }),
       this.num(id, "imix.wow", "wow", "dlayWow", { unit: "%", digits: 0, scale: 100 }),
       this.num(id, "imix.drive", "driveDb", "dlayDriveDb", { unit: "dB", digits: 1 }),
-      this.checkRow("imix.pingPong", "imix.pingPongTitle", () => e()?.pingPong ?? false,
-        (on) => this.editEquipment(id, (x) => { x.pingPong = on; })),
+      this.pingRow(e),
     );
+  }
+
+  /** The delay's ping-pong: off, or the echoes alternating from the left or
+   *  from the right (0, 1, 2 here; `pingPong` + `pingRight` in the piece). */
+  pingRow(e) {
+    const row = this.segRow("imix.pingPong", [
+      [0, t("common.off")], [1, t("imix.pingLeft")], [2, t("imix.pingRight")],
+    ], () => (e()?.pingPong ? (e().pingRight ? 2 : 1) : 0),
+    (v) => this.editEquipment(IMX_DLAY, (x) => { x.pingPong = v !== 0; x.pingRight = v === 2; }));
+    row.title = t("imix.pingPongTitle");
+    return row;
   }
 
   bodyLim(body) {

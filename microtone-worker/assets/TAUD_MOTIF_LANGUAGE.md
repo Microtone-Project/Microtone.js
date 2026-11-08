@@ -572,7 +572,7 @@ Every piece takes `on` (default `true`; `false` keeps it in the chain, bypassed)
 | `compressor` | `detector` (`"peak"` or `"rms"`), then either one band's `threshold`, `ratio`, `attack`, `release`, `knee` and `make_up`, or `bands`, a list of one to six such records (with `on`), split at `crossovers` (Hz, rising, one fewer than the bands) |
 | `unison` | `voices` (2–8), `detune` (cents), `width`, `spacing`, and `detune_lfo` and `width_lfo`, each `{ waveform, rate, period_ticks, depth, restart }`: `waveform` `"sine"`, `"triangle"`, `"square"`, `"saw_up"`, `"saw_down"` or `"random"`; `rate` in Hz, or `period_ticks` to follow the tempo; `restart` starts it again at each note |
 | `saturator` | `curve` (`"tape"`, `"soft_clip"`, `"hard_clip"`, `"tube"`, `"wavefolder"`), `drive`, `input`, `output`, `bias` |
-| `tape_delay` | `time` (ms) or `time_ticks`, `feedback`, `high_cut`, `low_cut`, `wow`, `drive`, `ping_pong` |
+| `tape_delay` | `time` (ms) or `time_ticks`, `feedback`, `high_cut`, `low_cut`, `wow`, `drive`, `ping_pong` (`"left"` or `true`: the echoes alternate, the first on the left; `"right"`: the first on the right; `false`, the default: none) |
 | `reverb` | `size`, `decay` (seconds), `damping` (Hz), `pre_delay` (ms) |
 | `limiter` | `ceiling`, `release` (ms), `gain`, `true_peak` |
 | `mix_tool` | `gain`, `width`, `swap`, `invert_left`, `invert_right`, `remove_dc` |

@@ -4,6 +4,18 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.8.3 (2026-11-08)
+
+**The tape delay's ping-pong can start on the right**: in an instrument's mixing chain, Ping-pong now offers Off, Left first and Right first.
+
+- With Right first the echoes go right, left, right, left — the mirror image of the left-first ping-pong, which is unchanged.
+- In Motif, a `tape_delay` takes `ping_pong: "right"` (and `"left"`, the same as `true`).
+- Older versions of Microtone play a right-first delay starting on the left.
+
+**The panner's buttons answer every click in the Linux desktop app**: Lane, Column, Place, Target and Slide now write their command each time you press them.
+
+- Fixed: in the desktop app on Linux, the panner's command buttons only worked now and then; the panner rewrote their labels on every screen refresh, and the Linux webview drops a click when the text under the pointer is replaced between pressing and releasing the button. Labels now change only when the position does.
+
 ## Version 4.8.2 (2026-11-08)
 
 **Lyrics stay in step when you play from the middle**: a lyric instrument now sings the same syllables whether you play the song from its start or from any row.

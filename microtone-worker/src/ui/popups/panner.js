@@ -534,6 +534,15 @@ export function showPanner(store, target) {
       drag(sideCv, DIAL / 2, DIAL / 2, (dx, dy) => { el = pointerElevation(dx, dy); });
     }
 
+    /** Write a label only when it reads differently. refresh() runs every
+     *  animation frame, and a textContent write replaces the text node even
+     *  with the same string: WebKit (the Linux desktop's webview, Safari)
+     *  drops a click whose pressed node was removed before the release, so
+     *  rewriting the buttons every frame swallowed nearly every click that
+     *  landed on their text. It also restyled the dialog for nothing. */
+    const show = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+    const showValue = (inp, text) => { if (inp.value !== text) inp.value = text; };
+
     /** Repaint; `live` = a frame of the animation loop (leaves fields alone
      *  while they are being typed into). */
     function refresh(live) {
@@ -541,31 +550,31 @@ export function showPanner(store, target) {
       else paintTop(topCv);
       if (spatial) paintSide(sideCv);
       if (!live || document.activeElement !== azField.inp) {
-        azField.inp.value = String(Math.round(az));
+        showValue(azField.inp, String(Math.round(az)));
       }
-      azField.read.textContent = stereo ? panLabel(az) : azimuthLabel(az);
+      show(azField.read, stereo ? panLabel(az) : azimuthLabel(az));
       if (elField) {
         if (!live || document.activeElement !== elField.inp) {
-          elField.inp.value = String(Math.round(el));
+          showValue(elField.inp, String(Math.round(el)));
         }
-        elField.read.textContent = elevationLabel(el);
+        show(elField.read, elevationLabel(el));
       }
       const arg = spatialArgFromAngles(az, spatial ? el : 0);
       const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, "0");
-      if (placeBtn) placeBtn.textContent = `${t("panner.place")}  X $${hex(arg, 4)}`;
-      if (targetBtn) targetBtn.textContent = `${t("panner.target")}  4 $${hex(arg, 4)}`;
-      if (slideBtn) slideBtn.textContent = `${t("panner.slide")}  Z $${hex(zSpeed & 0xfff, 4)}`;
-      if (laneBtn) laneBtn.textContent = `${t("panner.lane")}  S $80${hex(Math.round(az), 2)}`;
+      if (placeBtn) show(placeBtn, `${t("panner.place")}  X $${hex(arg, 4)}`);
+      if (targetBtn) show(targetBtn, `${t("panner.target")}  4 $${hex(arg, 4)}`);
+      if (slideBtn) show(slideBtn, `${t("panner.slide")}  Z $${hex(zSpeed & 0xfff, 4)}`);
+      if (laneBtn) show(laneBtn, `${t("panner.lane")}  S $80${hex(Math.round(az), 2)}`);
       if (columnBtn && !wide) {
-        columnBtn.textContent = `${t("panner.column")}  0 ${hex(panColumnValue(Math.round(az)), 2)}`;
+        show(columnBtn, `${t("panner.column")}  0 ${hex(panColumnValue(Math.round(az)), 2)}`);
       } else if (columnBtn) {
         const azi = Math.round(wrapAzimuth(az)) & 0x1ff;
         const elv = (spatial ? Math.max(-128, Math.min(127, Math.round(el))) : 0) & 0xff;
-        columnBtn.textContent = `${t("panner.column")}  ${hex(elv, 2)} ${hex(azi, 3)}`;
+        show(columnBtn, `${t("panner.column")}  ${hex(elv, 2)} ${hex(azi, 3)}`);
       }
-      info.textContent = target
+      show(info, target
         ? t("panner.writesTo", { ch: target.channel + 1, row: target.rowLabel })
-        : t("panner.watchOnly");
+        : t("panner.watchOnly"));
     }
 
     let raf = 0;

@@ -100,6 +100,25 @@ function painted(cv) {
   check(dl?.folded === false, "…and its record takes the fold it was shown with (open)");
   check(unitEl("dlay") === dlayBox, "…without rebuilding the rack (a drag in progress survives)");
   check(unitEl("dlay").classList.contains("mst-off"), "…and the unit still reads as off");
+  // Ping-pong (item 301): Off / Left first / Right first, one segmented row.
+  const ping = [...dlayBox.querySelectorAll(".mst-row")].find((r) => r.querySelector(".mst-lab")?.textContent === "Ping-pong");
+  const pingBtns = ping ? [...ping.querySelectorAll(".mst-seg button")] : [];
+  check(pingBtns.length === 3 && pingBtns[0].getAttribute("aria-pressed") === "true",
+    "ping-pong is a row of three choices, Off pressed", pingBtns.map((b) => b.textContent).join("|"));
+  pingBtns[2]?.click();
+  await sleep(80);
+  const dlR = store.doc.imixBlock(1).equipment.dlay;
+  check(dlR.pingPong === true && dlR.pingRight === true && pingBtns[2].getAttribute("aria-pressed") === "true",
+    "Right first sets ping-pong from the right", JSON.stringify({ p: dlR.pingPong, r: dlR.pingRight }));
+  check(parseTaud(store.doc.toBytes()).imix.find((x) => x.id === 1)?.equipment.dlay.pingRight === true,
+    "…and a save carries it");
+  pingBtns[1]?.click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.dlay.pingRight === false && store.doc.imixBlock(1).equipment.dlay.pingPong === true,
+    "Left first is the old ping-pong");
+  pingBtns[0]?.click();
+  await sleep(80);
+  check(store.doc.imixBlock(1).equipment.dlay.pingPong === false, "Off switches it off");
   const undoBeforeFold = store.undo.undoStack.length;
   store.doc.dirty = false;
   unitEl("dlay").querySelector(".mst-unit-name").click();

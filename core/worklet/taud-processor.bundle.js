@@ -4508,7 +4508,7 @@ function defaultEquipment(id) {
     };
     case IMX_VERB: return { ...base, size: 0.5, decay: 1.8, damping: 8000, preDelay: 1311 };
     case IMX_DLAY: return {
-      ...base, sync: true, pingPong: false, time: 48 * FX16, feedback: 0.35,
+      ...base, sync: true, pingPong: false, pingRight: false, time: 48 * FX16, feedback: 0.35,
       highCut: 6000, lowCut: 120, wow: 0.2, driveDb: 3,
     };
     case IMX_LIMI: return { ...base, truePeak: false, ceilingDb: -1, releaseMs: 60, gainDb: 0 };
@@ -4676,6 +4676,7 @@ function normaliseEquipment(id, e) {
     case IMX_DLAY:
       out.sync = !!e.sync;
       out.pingPong = !!e.pingPong;
+      out.pingRight = out.pingPong && !!e.pingRight;   // which side the first echo takes
       out.time = imxClampFx(e.time, out.sync ? "dlayQt" : "dlaySec", out.sync ? d.time : FX16 / 4);
       out.feedback = imxClamp(+e.feedback, "dlayFeedback", d.feedback);
       out.highCut = imxClamp(+e.highCut, "dlayHighCut", d.highCut);
@@ -6084,7 +6085,9 @@ const GLIDE_SHIFT = 2048;
  * them — by an integer 1/2048 of the remaining distance every sample, held in
  * 1/65536-sample units. The feedback path runs through a low cut, a high cut
  * and a soft saturator (tanh(g·x)/g); ping-pong crosses the feedback between
- * the channels of a stereo pair and feeds the pair's mid into the left.
+ * the channels of a stereo pair and feeds the pair's mid into the left — or,
+ * `pingRight`, into the right, so the echoes go R-L-R-L instead of L-R-L-R
+ * (the mirror image to the bit: the two channels' filters are identical).
  */
 class ImxDelay {
   constructor(nch) {
@@ -6162,6 +6165,8 @@ class ImxDelay {
     const wowAmp = p.wow * WOW_SEC * fs;
     const flutAmp = p.wow * FLUTTER_SEC * fs;
     const pingPong = p.pingPong && ctx.stereo && nch === 2;
+    // The line the mid goes into (0 left, 1 right) and the other one.
+    const pa = pingPong && p.pingRight ? 1 : 0, pb = 1 - pa;
     const fbs = this.fbs, xs = this.xs;
     for (let n = n0; n < n1; n++) {
       // Glide (integer arithmetic on exact binary64 integers).
@@ -6190,8 +6195,8 @@ class ImxDelay {
       }
       if (pingPong) {
         const mid = (xs[0] + xs[1]) * 0.5;
-        buf[w] = mid + fbs[1];
-        buf[len + w] = fbs[0];
+        buf[pa * len + w] = mid + fbs[pb];
+        buf[pb * len + w] = fbs[pa];
       } else {
         for (let c = 0; c < nch; c++) buf[c * len + w] = xs[c] + fbs[c];
       }

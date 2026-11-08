@@ -30,7 +30,7 @@ instrument SAW  { wave: "saw", envelope: [[0, 63], [0.5, 0]], chain: {
   unison: { voices: 6, detune: 22, mix: 0.5, detune_lfo: { waveform: "triangle", rate: 0.25, depth: 0.5 },
     width_lfo: { period_ticks: 24, restart: true, depth: 1 } },
   saturator: { curve: "tube", drive: 12, bias: 0.25 },
-  tape_delay: { time: 375, feedback: 0.5, ping_pong: true, on: false },
+  tape_delay: { time: 375, feedback: 0.5, ping_pong: "right", on: false },
   limiter: { ceiling: -2, true_peak: true },
   mix_tool: { width: 1.5, remove_dc: true, invert_left: true },
 } }
@@ -90,7 +90,7 @@ test("chains are saved as the Mixing tab saves them", async () => {
       detuneLfo: { wave: 1, retrigger: false, sync: false, rate: FX16 / 4, depth: 0.5 },
       widthLfo: { wave: 0, retrigger: true, sync: true, rate: 96 * FX16, depth: 1 } }), "SAW");
     same(saw, IMX_SATU, piece(IMX_SATU, { curve: 3, driveDb: 12, bias: 0.25 }), "SAW");
-    same(saw, IMX_DLAY, piece(IMX_DLAY, { bypass: true, sync: false, time: Math.round(0.375 * FX16), feedback: 0.5, pingPong: true }), "SAW");
+    same(saw, IMX_DLAY, piece(IMX_DLAY, { bypass: true, sync: false, time: Math.round(0.375 * FX16), feedback: 0.5, pingPong: true, pingRight: true }), "SAW");
     same(saw, IMX_LIMI, piece(IMX_LIMI, { ceilingDb: -2, truePeak: true }), "SAW");
     same(saw, IMX_MXTL, piece(IMX_MXTL, { width: 1.5, removeDc: true, invL: true }), "SAW");
     same(back.imixBlock(3), IMX_VERB, piece(IMX_VERB, { preDelay: Math.round(0.02 * FX16) }), "TRI");
@@ -135,6 +135,7 @@ test("chain declarations say what is wrong with them", () => {
   assert.match(c(`input_trim: { gain: 30 }`), /gain must be -24…24, not 30/);
   assert.match(c(`tape_delay: { time: 5000 }`), /time must be 1\.01…4000 ms, not 5000 ms/);
   assert.match(c(`tape_delay: { time: 300, time_ticks: 12 }`), /in ms or in ticks, not both/);
+  assert.match(c(`tape_delay: { ping_pong: "centre" }`), /ping_pong must be true, false, "left" or "right"/);
   assert.match(c(`mode: "group"`), /must be one of "separate", "bus"/);
   assert.match(c(`equaliser_1: { bands: [{ freq: 100 }] }`), /needs a shape/);
   assert.match(c(`equaliser_1: { bands: [{ shape: "bell", slope: 12 }] }`), /only a high_pass or a low_pass has a slope/);

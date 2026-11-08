@@ -41,6 +41,14 @@ const ranged = (key, scale = 1, unit = "") => (v, what) => {
   if (x < lo - 1e-9 || x > hi + 1e-9) throw fail(`${what} must be ${fmt(lo)}…${fmt(hi)}${unit}, not ${v}${unit}`);
   return x;
 };
+/** The tape delay's ping-pong: true (= "left") or "left", the echoes going
+ *  L-R-L-R; "right", R-L-R-L; false, none. Read as [pingPong, pingRight]. */
+const pingSide = (v, what) => {
+  if (v === true || v === "left") return [true, false];
+  if (v === "right") return [true, true];
+  if (v === false) return [false, false];
+  throw fail(`${what} must be true, false, "left" or "right"`);
+};
 const MS_FX = FX16 / 1000;          // milliseconds → 16.16 seconds
 const TICK_QT = 4 * FX16;           // ticks → 16.16 quarter ticks
 /** The titlebar's Mix: how much of the processed sound replaces the dry one. */
@@ -99,7 +107,7 @@ const PIECE = {
   [IMX_DLAY]: {
     on: bool, mix, time: ranged("dlaySec", MS_FX, " ms"), time_ticks: ranged("dlayQt", TICK_QT, " ticks"),
     feedback: ranged("dlayFeedback"), high_cut: ranged("dlayHighCut"), low_cut: ranged("dlayLowCut"),
-    wow: ranged("dlayWow"), drive: ranged("dlayDriveDb"), ping_pong: bool,
+    wow: ranged("dlayWow"), drive: ranged("dlayDriveDb"), ping_pong: pingSide,
   },
   [IMX_VERB]: {
     on: bool, mix, size: ranged("verbSize"), decay: ranged("verbDecay"), damping: ranged("verbDamping"),
@@ -204,7 +212,8 @@ function pieceOf(id, v, what) {
       if (o.time !== undefined) { e.sync = false; e.time = Math.round(o.time); }
       if (o.time_ticks !== undefined) { e.sync = true; e.time = Math.round(o.time_ticks); }
       for (const [k, to] of [["feedback", "feedback"], ["high_cut", "highCut"], ["low_cut", "lowCut"], ["wow", "wow"],
-        ["drive", "driveDb"], ["ping_pong", "pingPong"]]) if (o[k] !== undefined) e[to] = o[k];
+        ["drive", "driveDb"]]) if (o[k] !== undefined) e[to] = o[k];
+      if (o.ping_pong !== undefined) [e.pingPong, e.pingRight] = o.ping_pong;
       break;
     case IMX_VERB:
       for (const [k, to] of [["size", "size"], ["decay", "decay"], ["damping", "damping"]]) if (o[k] !== undefined) e[to] = o[k];

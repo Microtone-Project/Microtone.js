@@ -193,7 +193,8 @@ function decodeEquipment(id, p) {
       return { ...common, size: f32(8), decay: f32(12), damping: f32(16), preDelay: dv.getUint32(20, true) };
     case IMX_DLAY:
       return {
-        ...common, sync: (p[4] & 1) !== 0, pingPong: (p[4] & 2) !== 0, time: dv.getUint32(8, true),
+        ...common, sync: (p[4] & 1) !== 0, pingPong: (p[4] & 2) !== 0, pingRight: (p[4] & 6) === 6,
+        time: dv.getUint32(8, true),
         feedback: f32(12), highCut: f32(16), lowCut: f32(20), wow: f32(24), driveDb: f32(28),
       };
     case IMX_LIMI:
@@ -392,7 +393,7 @@ export function encodeEquipment(id, eIn) {
       w.zeros(4); w.f32(e.size); w.f32(e.decay); w.f32(e.damping); w.u32(e.preDelay);
       break;
     case IMX_DLAY:
-      w.u8((e.sync ? 1 : 0) | (e.pingPong ? 2 : 0)); w.zeros(3);
+      w.u8((e.sync ? 1 : 0) | (e.pingPong ? (e.pingRight ? 6 : 2) : 0)); w.zeros(3);
       w.u32(e.time); w.f32(e.feedback); w.f32(e.highCut); w.f32(e.lowCut); w.f32(e.wow); w.f32(e.driveDb);
       break;
     case IMX_LIMI:

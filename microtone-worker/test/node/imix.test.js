@@ -72,6 +72,7 @@ test("a full block round-trips through the section, every field binary32-stable"
   b.equipment.deq2.bands[3] = { ...b.equipment.deq2.bands[3], on: true, unlinked: true, senseFreq: 5000, senseQ: 2 };
   b.equipment.unis.widthLfo = { wave: M.IMX_LFO_RANDOM, retrigger: true, sync: true, rate: 24 * M.FX16, depth: 0.3 };
   b.equipment.dlay.pingPong = true;
+  b.equipment.dlay.pingRight = true;
   b.equipment.satu.dry = 40;
   const payload = buildImixSection([b]);
   const { blocks, problems } = parseImixSection(payload);
@@ -281,6 +282,31 @@ test("tape delay: the echo lands on the exact sample, in seconds and in quarter 
   // 48 quarter ticks at 125 BPM: a tick is 960 samples, so 11520.
   assert.equal(first(runOne("dlay", flat, impulse, 24000).out), 11520);
   assert.equal(first(runOne("dlay", flat, impulse, 24000, 128, { bpm: 250 }).out), 5760, "…and halves at twice the tempo");
+});
+
+test("tape delay: ping-pong goes L-R-L-R, and right first is its mirror image to the bit", () => {
+  const set = (right) => (e) => ({ ...e, pingPong: true, pingRight: right, sync: false, time: M.FX16 / 10, dry: 0, wow: 0.5 });
+  // An uneven input, so a mirror image is not the same signal by accident.
+  const sig = (n) => [0.5 * Math.sin(n * 0.031), n < 2400 ? 0.3 * Math.sin(n * 0.17) : 0];
+  const left = runOne("dlay", set(false), sig, FS).out;
+  const right = runOne("dlay", set(true), sig, FS).out;
+  for (let n = 0; n < FS; n++) {
+    if (right[n * 2] !== left[n * 2 + 1] || right[n * 2 + 1] !== left[n * 2]) assert.fail(`frame ${n} is not the mirror`);
+  }
+  // An impulse on both sides: the first echo (4800) on one side, the second on the other.
+  const flat = (right) => (e) => ({ ...set(right)(e), feedback: 0.5, wow: 0, lowCut: 20, highCut: 20000 });
+  const at = (out, n) => [Math.abs(out[n * 2]), Math.abs(out[n * 2 + 1])];
+  const l = runOne("dlay", flat(false), impulse, 12000).out, r = runOne("dlay", flat(true), impulse, 12000).out;
+  assert.ok(at(l, 4800)[0] > 0.4 && at(l, 4800)[1] === 0 && at(l, 9600)[1] > 0.1 && at(l, 9600)[0] === 0, "L-R");
+  assert.ok(at(r, 4800)[1] > 0.4 && at(r, 4800)[0] === 0 && at(r, 9600)[0] > 0.1 && at(r, 9600)[1] === 0, "R-L");
+  // The flags byte: bit 1 ping-pong, bit 2 right first. Right first means
+  // nothing without ping-pong: normalised away, and not written.
+  const flags = (e) => encodeEquipment(M.IMX_DLAY, { ...M.defaultEquipment(M.IMX_DLAY), sync: false, time: M.FX16 / 4, ...e })[4];
+  assert.equal(flags({ pingPong: true, pingRight: false }), 2);
+  assert.equal(flags({ pingPong: true, pingRight: true }), 6);
+  assert.equal(flags({ pingPong: false, pingRight: true }), 0);
+  const n = M.normaliseEquipment(M.IMX_DLAY, { ...M.defaultEquipment(M.IMX_DLAY), pingPong: false, pingRight: true });
+  assert.equal(n.pingRight, false);
 });
 
 test("reverb: the tail decays at the requested RT60", () => {

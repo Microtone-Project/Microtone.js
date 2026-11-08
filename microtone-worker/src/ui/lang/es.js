@@ -534,6 +534,8 @@ export default {
   "imix.time": "Tiempo",
   "imix.feedback": "Retroalimentación",
   "imix.pingPong": "Ping-pong",
+  "imix.pingLeft": "Izquierda primero",
+  "imix.pingRight": "Derecha primero",
   "imix.levels": "Niveles",
   "imix.pre": "Pre",
   "imix.post": "Post",
