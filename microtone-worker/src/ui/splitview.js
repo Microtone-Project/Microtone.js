@@ -235,7 +235,16 @@ export class SplitView {
         btn.classList.toggle("active", btn.dataset.view === pane.view);
         btn.disabled = !this.enabled(btn.dataset.view);
       }
-      setIconLabel(pane.btn, split ? "close" : "split");
+      // Only when it changes: refresh() runs on the pointerdown that moves the
+      // focus (_pressFocus), and replacing the svg under the pointer means
+      // WebKitGTK (Tauri on Linux) never delivers the click — so the close
+      // button on the unfocused pane took two presses. Chromium retargets the
+      // click to the button and hid this.
+      const icon = split ? "close" : "split";
+      if (pane.btn.dataset.paneIcon !== icon) {
+        pane.btn.dataset.paneIcon = icon;
+        setIconLabel(pane.btn, icon);
+      }
       pane.btn.title = t(split ? "pane.closeTitle" : "pane.splitTitle");
     }
     this._layout();
