@@ -31,6 +31,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The chord maker offers it the same chords as any equal tuning of its size, higher-limit and extraclassical ones included.
 - In Microtone Touch it plays on the degree-run keyboard whichever layout you choose, as 24-TET does: its fifth is 12-TET's, so Wicki–Hayden, Bosanquet and the harmonic table would reach only every third note. **72-TET is not provided as it's impractical for finger-tapping.**
 
+**A new demo song, Eighteenfold Euphonic DisOrder, in 18-TET and 18/8**: open it from the welcome screen's Demo songs, or File → Demo songs….
+
+- 18-TET is famously bad at the harmonic series and has no usable perfect fifth, so the piece is built on arto and tendo chords, which in 18-TET come out as accurate septimal harmony, over the eight-note oneirotonic scale.
+- Every bar holds eighteen eighths and eight even beats at once, an 18:8 polyrhythm; each section groups the eighteen its own way (2+2+3+2+2+2+3+2, 4+4+3+4+3, 5+4+5+4).
+- Like Huygens' Clock, it is built by a Motif program that travels inside the project, and this one shows off the newer parts of the language: only the theme is written out, while the second theme, the bass lines and a counter-melody are composed from the chords by `chord_line`, the flute harmonises whatever the lead plays, and the reprise and the closing runs are the theme moved, reversed, mirrored and stretched.
+- The vibraphone's echo is a mixing chain timed to land exactly one of the eight beats later.
+- The Project message explains the piece bar by bar; open the Motif view to read the program, change it and build it again.
+
 ## Version 4.8.3 (2026-11-08)
 
 **The tape delay's ping-pong can start on the right**: in an instrument's mixing chain, Ping-pong now offers Off, Left first and Right first.

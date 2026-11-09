@@ -128,6 +128,12 @@
       "frames": 960000,
       "u8": "1f491ffab4e7d7058a09fc58e944847d00f15ff0a34603ce13d31765229b5c7a",
       "f32": "57b90347a1ca3d8722a2fb575891a3f9d6835d1397391587e9e7a04bc2234c7c"
+    },
+    "Zeta_valley": {
+      "file": "assets/demo_projects/Zeta_valley.taud",
+      "frames": 960000,
+      "u8": "73b96f8f91792d207ddcf5a30c1ae8acc4656e8d9a77ab2e7eb38e02278980b0",
+      "f32": "a0a1e9ae1883bead618e8504ab9475ef5165a983dfc0f017fc735adf09f17b68"
     }
   }
 }

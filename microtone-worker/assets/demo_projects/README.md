@@ -45,3 +45,20 @@ arranger's note on the piece travels with it, in the project's Message
 
 The note on how the piece is built travels with it, in the project's Message
 (`PMsg`) — open the Project tab after loading it.
+
+## Zeta_valley.taud — "Eighteenfold Euphonic DisOrder"
+
+- **Built by Motif:** every note, the instrument bank, the zone re-tuning, the
+  mix and the mastering chain are computed by the Taud Motif Language program
+  `Zeta_valley.tml` beside it, written by Claude in 2026: 18-TET in 18/8, with
+  an 18:8 polyrhythm, on arto and tendo chords over the oneirotonic scale.
+  This file is the program's output, and carries the program in its `PMtf`
+  section: rebuild it with `make` in this directory, or with Build in the
+  Motif view. It is a generated artefact: change the program and rebuild
+  rather than editing the file by hand.
+- **Instruments:** General MIDI patches from GeneralUser GS by S. Christian
+  Collins, the soundfont Microtone bundles.
+- **Copyright line in the project:** (c) 2026 CuriousTorvald.
+
+The note on how the piece is built travels with it, in the project's Message
+(`PMsg`) — open the Project tab after loading it.

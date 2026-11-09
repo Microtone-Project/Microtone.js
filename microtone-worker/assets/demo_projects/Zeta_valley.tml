@@ -1,0 +1,576 @@
+tml 2
+// "Eighteenfold Euphonic DisOrder" — 18-tone equal temperament in 18/8, with
+// eight even beats running against the eighteen eighths of every bar.
+//
+// Form (bars): 1–4 intro · 5–12 theme · 13–20 second theme · 21–29 the climb ·
+// 30–33 the valley · 34–41 theme again · 42–44 coda.
+//
+// Every pitch is a step of 18-TET counted from C0 ('C4' is 72, and +18 is an
+// octave up), named as the Timeline names it: C Ct Dp D Dt Ep E Et Ft F# Gp Gt
+// G# Ap At A# Bp Bt. A row is a sixteenth: two rows to the eighth, thirty-six
+// to the bar.
+//
+// Only the theme is written out note by note. The program composes
+// the rest from the harmony: chord_line() writes the second theme, both bass
+// lines and the vibes' counter-line; follow() harmonises whatever the lead
+// plays; the reprise, the valley's runs and the coda are the theme and the
+// runs moved, reversed, mirrored and stretched as values; the drums vary bar
+// by bar by keyed chance.
+
+song {
+  title: "Eighteenfold Euphonic DisOrder"
+  composer: "CuriousTorvald via Motif"
+  copyright: "(c) 2026 CuriousTorvald"
+  message: ABOUT              // the Project message, written at the end of this file
+  tuning: "18-TET"
+  tempo: 150
+  speed: 6                    // even, so half a row is a whole number of ticks
+  bars: 44
+  bar_rows: 36                // 18/8 at two rows to the eighth
+  beat_rows: 2                // a beat band every eighth
+  cue_bars: 1
+  global_volume: 255
+  mixing_volume: 100
+  seed: 18
+  // GeneralUser GS's samples are tuned for twelve-tone music, a few cents
+  // either way; measure every zone the song plays and move it onto the grid.
+  retune: true
+}
+
+// trim → high-pass → EQ → compressor → width → limiter, as Huygens' Clock.
+master {
+  trim_db: -2
+  hp_on: true, hp_freq: 25, hp_slope: 12
+  eq_on: true
+  eq: [
+    { on: true, type: "low_shelf",  freq: 100,  gain_db: 2.5,  q: 0.707 },
+    { on: true, type: "peak",       freq: 320,  gain_db: -1.5, q: 0.9 },
+    { on: true, type: "peak",       freq: 3000, gain_db: 1,    q: 0.8 },
+    { on: true, type: "high_shelf", freq: 7000, gain_db: 2.5,  q: 0.707 },
+  ]
+  comp_on: true, comp_detector: "rms", comp_thresh_db: -20, comp_ratio: 2
+  comp_attack_ms: 25, comp_release_ms: 220, comp_knee_db: 6, comp_makeup_db: 5
+  width_on: true, width: 1.3
+  lim_on: true, lim_true_peak: false, lim_ceiling_db: -0.2, lim_release_ms: 20
+  out_gain_db: 0
+}
+
+// ── mixing chains ────────────────────────────────────────────────────────────
+// One room for everything that sustains, run once over their sum.
+chain ROOM { name: "Room", mode: "bus", reverb: { size: 0.55, decay: 2.4, damping: 7000, mix: 0.2 } }
+// The vibes echo one beat of the eight later: 4½ rows, 27 ticks at speed 6, so
+// every eighth they strike comes back between two eighths, on the other metre.
+chain ECHO { name: "Echo on the eight", tape_delay: { time_ticks: 27, feedback: 0.35, high_cut: 6000, ping_pong: true, mix: 0.3 } }
+
+// ── instruments: General MIDI presets from the bundled GeneralUser GS ──────────
+instrument KIT     { bank: 128, program: 0, name: "Standard Kit", retune: false }
+instrument BASS    { bank: 0, program: 33 }
+instrument EP      { bank: 0, program: 5 }
+instrument KALIMBA { bank: 0, program: 108, chain: ROOM }
+instrument VIB     { bank: 0, program: 11, chain: ECHO }
+instrument PAD     { bank: 0, program: 89, chain: ROOM }
+instrument STR     { bank: 0, program: 49, layer_gain: -3, chain: ROOM }
+instrument LEAD    { bank: 0, program: 80 }
+instrument FLUTE   { bank: 0, program: 73, chain: ROOM }
+
+// ── lanes: pan $00 left … $80 centre … $100 right ─────────────────────────────
+lane kick   { inst: KIT,     pan: $80, label: "Kick",      jitter: 2 }
+lane snare  { inst: KIT,     pan: $78, label: "Snare",     jitter: 2 }
+lane hat    { inst: KIT,     pan: $A8, label: "Hats",      jitter: 2 }
+lane cym    { inst: KIT,     pan: $64, label: "Cymbals",   jitter: 3 }
+lane tom    { inst: KIT,     pan: $80, label: "Toms" }
+lane perc   { inst: KIT,     pan: $C0, label: "Eight",     jitter: 2 }   // the eight-beat claves
+lane shk    { inst: KIT,     pan: $50, label: "Shaker",    jitter: 3 }
+lane bass   { inst: BASS,    pan: $80, label: "Bass",      trim: 1.15 }
+lane kal    { inst: KALIMBA, pan: $5C, label: "Kalimba" }
+lane vib    { inst: VIB,     pan: $A8, label: "Vibes" }
+lane ep1    { inst: EP,      pan: $50, label: "EP 1", trim: db(2) }
+lane ep2    { inst: EP,      pan: $70, label: "EP 2", trim: db(2) }
+lane ep3    { inst: EP,      pan: $90, label: "EP 3", trim: db(2) }
+lane ep4    { inst: EP,      pan: $B0, label: "EP 4", trim: db(2) }
+lane pad1   { inst: PAD,     pan: $40, label: "Pad 1", trim: db(3) }
+lane pad2   { inst: PAD,     pan: $6A, label: "Pad 2", trim: db(3) }
+lane pad3   { inst: PAD,     pan: $96, label: "Pad 3", trim: db(3) }
+lane pad4   { inst: PAD,     pan: $C0, label: "Pad 4", trim: db(3) }
+lane str1   { inst: STR,     pan: $48, label: "Strings 1", trim: db(2.5) }
+lane str2   { inst: STR,     pan: $6C, label: "Strings 2", trim: db(2.5) }
+lane str3   { inst: STR,     pan: $94, label: "Strings 3", trim: db(2.5) }
+lane str4   { inst: STR,     pan: $B8, label: "Strings 4", trim: db(2.5) }
+lane lead   { inst: LEAD,    pan: $88, label: "Lead",      trim: 0.9 }
+lane flute  { inst: FLUTE,   pan: $74, label: "Flute" }
+
+let EPS = [ep1, ep2, ep3, ep4]
+let PADS = [pad1, pad2, pad3, pad4]
+let STRS = [str1, str2, str3, str4]
+
+// ── the arrangement ──────────────────────────────────────────────────────────
+section "intro"   1..4
+section "theme"   5..12
+section "second"  13..20
+section "climb"   21..29
+section "valley"  30..33
+section "reprise" 34..41
+section "coda"    42..44
+
+// ── time: 18/8, grouped differently in each section ─────────────────────────
+let E = 2                                  // rows to the eighth
+// The eighteen eighths of a bar, in groups (lengths in eighths):
+let THEME_GROUPS  = [2, 2, 3, 2, 2, 2, 3, 2]    // eight uneven groups against the eight even beats
+let SECOND_GROUPS = [4, 4, 3, 4, 3]             // 11 + 7: cut where the bar's chord changes
+let CLIMB_GROUPS  = [5, 4, 5, 4]                // one group for each of the bar's four chords
+fn starts(groups) => [0] + scan(groups[0..<len(groups) - 1], 0, fn(a, g) => a + g)
+let GA = starts(THEME_GROUPS)              // 0 2 4 7 9 11 13 16
+let GB = starts(SECOND_GROUPS)             // 0 4 8 11 15
+let GC = starts(CLIMB_GROUPS)              // 0 5 9 14
+// The eight even beats of a bar: beat k falls 2¼ eighths after the one before,
+// on row 4½·k — every odd one half a row late, which is three ticks at speed 6.
+fn beat_row(k) => (9 * k) >> 1
+fn beat_delay(k) => if k % 2 == 1 then 3 else 0
+fn hit8(lane, bar, k, pitch, vol) => hit(lane, at(bar, beat_row(k)), pitch, vol, delay: beat_delay(k))
+// Which chord of a bar a moment (in eighths) falls under, the bar cut at `cuts`.
+fn part_at(cuts, eighth) => len([c for c in cuts if eighth >= c])
+// Music padded to a whole bar, so that seq() lays bars end to end.
+fn whole_bar(m) => stack(m, rest(36))
+
+// ── pitch: the oneirotonic scale (5L 3s, steps 3 1 3 3 1 3 3 1) on C ─────────
+let SC = [0, 3, 4, 7, 10, 11, 14, 17]      // C D Dt Et Gp Gt At Bt
+fn deg(d) => 'C4' + 18 * floor(d / 8) + SC[d % 8]
+// …and back: the degree a pitch of the scale is.
+fn sdeg(p) => 8 * floor((p - 'C4') / 18) + index_of(SC, (p - 'C4') % 18)
+// A degree-third up: 7 steps (467 c, the tendo third) from seven notes of the
+// scale, 5 steps from the eighth.
+fn up3(p) => deg(sdeg(p) + 3)
+// The scale upside down, degree by degree (C5 ↔ C6, D5 ↔ Bt5 …). invert()
+// would mirror the PITCHES, and the oneirotonic scale mirrored about C is
+// another scale.
+fn dmirror(p) => deg(24 - sdeg(p))
+
+// A tune in degrees. Tokens: DEGREE:EIGHTHS, with ~ before the degree for a
+// glide and @vol, v, > after the length as melody() takes them; r:EIGHTHS is
+// a rest, | a bar line (checked), / the cut between a bar's two chords (for
+// the eye only).
+fn is_digit(c) => c >= "0" and c <= "9"
+fn digits(s, i = 0) => if i < len(s) and is_digit(s[i]) then digits(s, i + 1) else i
+fn dtok(t, shift) =>
+  if t == "|" then t
+  else if t == "/" then ""
+  else if starts_with(t, "r:") then "r:${num(slice(t, 2)) * E}"
+  else dnote(split(t, ":"), shift)
+fn dnote(parts, shift) {
+  let gl = starts_with(parts[0], "~")
+  let d = num(if gl then slice(parts[0], 1) else parts[0])
+  let n = digits(parts[1])
+  return "${if gl then "~" else ""}${note_name(deg(d + shift))}:${num(slice(parts[1], 0, n)) * E}${slice(parts[1], n)}"
+}
+fn dm(text, shift = 0) =>
+  join([x for x in [dtok(t, shift) for t in split(replace(text, "\n", " "), " ") if t != ""] if x != ""], " ")
+// A line of pitches set to a rhythm: one length (in eighths) and one volume per
+// note, `marks` added to every note at least `long` eighths long.
+fn set_rhythm(ps, lens, vols, marks = "", long = 99) =>
+  join(["${note_name(p)}:${lens[i % len(lens)] * E}@${vols[i % len(vols)]}${if lens[i % len(lens)] >= long then marks else ""}" for i, p in ps], " ")
+
+// ── harmony: arto and tendo ──────────────────────────────────────────────────
+// Tendo: root, 7 steps (467 c, 21/16) and 11 steps (733 c). Arto: root, 4 steps
+// (267 c, 7/6) and 11. Within five cents they are 32:42:49 and 42:49:64, the
+// one the other upside down; X sounds both thirds at once, 96:112:126:147.
+fn T(r) => { root: r % 18, ivs: [0, 7, 11], name: "tendo ${r % 18}" }
+fn A(r) => { root: r % 18, ivs: [0, 4, 11], name: "arto ${r % 18}" }
+fn X(r) => { root: r % 18, ivs: [0, 4, 7, 11], name: "arto-tendo ${r % 18}" }
+
+// Two chords a bar, the second from the twelfth eighth on (11 + 7). The dominant is tendo on Gp (10, the FLAT fifth, 667 c), and it
+// resolves by moving every note up one step, 67 c, onto C.
+let THEME_PROG = [
+  [X(0), X(0)], [T(7), A(7)], [T(14), A(14)], [T(3), T(10)],
+  [X(0), X(0)], [T(7), T(14)], [A(17), T(10)], [T(10), A(0)],
+]
+let SECOND_PROG = [
+  [A(14), A(14)], [A(7), T(7)], [A(0), T(0)], [A(17), T(11)],
+  [A(14), A(3)], [A(10), T(10)], [X(7), T(3)], [T(10), T(10)],
+]
+// The climb, 5 + 4 + 5 + 4 eighths: up a sharp fifth (11 steps), down a flat
+// one (10), up, down — two steps higher every bar, round all eighteen keys in
+// nine bars and home.
+fn climb_prog(k) => [T(2 * k), T(2 * k + 11), T(2 * k + 1), T(2 * k + 12)]
+let CODA_PROG = [[T(3), T(10)], [X(0), X(0)], [X(0), X(0)]]
+
+let HALF = [11]                            // the cut of the two-chord bars
+fn bar_chord(prog, i, eighth) => prog[i][part_at(HALF, eighth)]
+fn flat(prog) => [c for pair in prog for c in pair]
+
+// A voicing for each of `chords`, each moving as little as it can from the one
+// before it, the first from `start`.
+fn voicings(start, chords, lo, hi) => scan(chords, start, fn(v, c) => nearest_chord(v, c, lo, hi))
+// The pitch classes of a chord inside lo…hi, ascending.
+fn tones_in(ch, lo, hi) => [p for p in lo..hi if contains([(ch.root + i) % 18 for i in ch.ivs], p % 18)]
+
+// What a lane of some music is sounding at a row: the last note struck at or
+// before it, or none after a key-off. Read from the music itself (cells()).
+fn sounding(cs, row) {
+  let before = [c for c in cs if c.row <= row and has_key(c, "note")]
+  return if len(before) == 0 then none else if type(before[-1].note) == "number" then before[-1].note else none
+}
+
+// ── sustained parts ──────────────────────────────────────────────────────────
+fn hold_chord(ids, row, steps, vol) => [hit(ids[i], row, s, vol) for i, s in steps]
+fn glide_chord(ids, row, from, to, rows) =>
+  [glide(ids[i], row, s, glide_speed(from[i], s, rows)) for i, s in to if s != from[i]]
+// Strike the first chord of `events` ({ row, ch }), then glide into every other.
+fn morph(ids, events, start, lo, hi, vol, rows = 2) {
+  let vs = voicings(start, [e.ch for e in events], lo, hi)
+  hold_chord(ids, events[0].row, vs[0], vol)
+  for i in 1..<len(events) { glide_chord(ids, events[i].row, vs[i - 1], vs[i], rows) }
+}
+// The chord changes of two-chord bars, as events.
+fn changes(prog, first_bar) {
+  let evs = [{ row: at(first_bar + i, if h == 0 then 0 else 11 * E), ch: pair[h] } for i, pair in prog for h in 0..1]
+  return [e for i, e in evs if i == 0 or e.ch != evs[i - 1].ch]
+}
+
+// ── drums ────────────────────────────────────────────────────────────────────
+let GM = {
+  kick: 36, rim: 37, snare: 38, hatC: 42, hatP: 44, hatO: 46, crash: 49, crash2: 57,
+  ride: 51, bell: 53, splash: 55, tomHi: 50, tomHM: 48, tomLM: 47, tomLo: 45,
+  flHi: 43, flLo: 41, tamb: 54, shaker: 82, claves: 75, chimes: 84,
+}
+fn dr(lane, bar, row, name, vol, op = none, arg = 0) => hit(lane, at(bar, row), midi(GM[name]), vol, op, arg)
+// A drum on beat k of the eight.
+fn dr8(lane, bar, k, name, vol) => hit8(lane, bar, k, midi(GM[name]), vol)
+// The next hat or ride stroke on the lane cuts this one (S $73).
+fn open_hat(bar, row, vol) => dr(hat, bar, row, "hatO", vol, "S", $7300)
+fn ride(bar, row, name, vol) => dr(cym, bar, row, name, vol, "S", $7300)
+// A hand that is never quite the same twice: ±3, keyed to what it is and where.
+fn feel(what, bar, row) => random_int(-3, 3, what, bar, row)
+
+// The claves keep the eight even beats in every groove.
+fn claves(bar, vol) => [dr8(perc, bar, k, "claves", vol + (if k == 0 then 6 else if k == 4 then 3 else 0)) for k in 0..<8]
+
+// Theme groove, 2+2+3+2+2+2+3+2: eight uneven groups against the eight beats.
+fn groove_a(bar, fill_from = 18, tamb = false) {
+  let ok = fn(e) => e < fill_from
+  for [e, v] in [[0, 54], [7, 44], [11, 50]] if ok(e) { dr(kick, bar, e * E, "kick", v) }
+  if chance(0.5, "pickup kick", bar) and ok(16) { dr(kick, bar, 16 * E, "kick", 38) }
+  for [e, v] in [[4, 50], [13, 52]] if ok(e) { dr(snare, bar, e * E, "snare", v) }
+  for e in [9, 17] if ok(e) and chance(0.6, "ghost", bar, e) { dr(snare, bar, e * E, "snare", 14 + feel("ghost", bar, e)) }
+  let open_at = choose([none, 10, 15], "open hat", bar)
+  for e in 0..<18 if ok(e) {
+    if e == open_at { open_hat(bar, e * E, 40) }
+    else { dr(hat, bar, e * E, "hatC", (if contains(GA, e) then 46 else 30) + feel("hat", bar, e)) }
+  }
+  claves(bar, 26)
+  if tamb { for e in [4, 13] if ok(e) { dr(shk, bar, e * E, "tamb", 28) } }
+}
+
+// Second-theme groove, 4+4+3+4+3: the ride in eighths, the pedal hat on the groups.
+fn groove_b(bar, fill_from = 18) {
+  let ok = fn(e) => e < fill_from
+  for [e, v] in [[0, 54], [8, 44], [11, 50]] if ok(e) { dr(kick, bar, e * E, "kick", v) }
+  for [e, v] in [[4, 50], [15, 52]] if ok(e) { dr(snare, bar, e * E, "snare", v) }
+  if chance(0.4, "rim", bar) and ok(10) { dr(snare, bar, 10 * E, "rim", 26) }
+  for e in 0..<18 if ok(e) {
+    under(ride(bar, e * E, if e == 0 then "bell" else "ride", (if contains(GB, e) then 46 else 32) + feel("ride", bar, e)))
+  }
+  for e in GB if ok(e) and e != 0 { dr(hat, bar, e * E, "hatP", 36) }
+  claves(bar, 24)
+}
+
+// Climb groove, 5+4+5+4: hats in sixteenths, the shaker on the eight beats.
+fn groove_c(bar, lift = 0) {
+  for [e, v] in [[0, 54], [9, 50], [3, 34], [12, 34]] { dr(kick, bar, e * E, "kick", v + lift) }
+  for [e, v] in [[5, 50], [14, 52]] { dr(snare, bar, e * E, "snare", v + lift) }
+  for r in 0..<36 {
+    dr(hat, bar, r, "hatC", (if r % 2 == 0 then (if contains(GC, r >> 1) then 44 else 32) else 20) + lift + feel("hat16", bar, r))
+  }
+  for k in 0..<8 { dr8(shk, bar, k, "shaker", (if k % 2 == 0 then 34 else 26) + lift) }
+}
+
+// Fills, from the eighth `from` to the bar's end; a section's last bar picks one.
+fn fill_toms(bar, from) {
+  let strokes = [["tomHi", 44], ["tomHi", 40], ["tomHM", 48], ["tomHM", 44], ["tomLM", 50], ["tomLM", 46], ["flHi", 54], ["flLo", 58]]
+  for i in 0..<18 - from {
+    let [n, v] = strokes[max(0, len(strokes) - (18 - from) + i)]
+    dr(tom, bar, (from + i) * E, n, v)
+  }
+}
+fn fill_snare(bar, from) => [dr(snare, bar, e * E + h, "snare", 22 + (e - from) * 4 + h * 2) for e in from..<18 for h in 0..1]
+fn fill_eight(bar, from) =>
+  [dr8(tom, bar, k, ["tomHi", "tomHM", "tomLM", "flHi", "flLo"][min(4, max(0, k - 3))], 40 + k * 2) for k in 0..<8 if beat_row(k) >= from * E]
+let FILLS = [fill_toms, fill_snare, fill_eight]
+fn fill(bar, from) => choose(FILLS, "fill", bar)(bar, from)
+
+// ── keys and mallets ─────────────────────────────────────────────────────────
+fn ep_hits(bar, prog_i, prog, plan, start, vol) {
+  // plan: [eighth, length in eighths, volume offset] for each stroke
+  let chords = [bar_chord(prog, prog_i, p[0]) for p in plan]
+  let vs = voicings(start, chords, 'Gp3', 'Ct5')
+  for i, p in plan {
+    for j, s in vs[i] {
+      hit(EPS[j], at(bar, p[0] * E), s, vol + p[2] - (if j == 0 then 2 else 0))
+      keyoff(EPS[j], at(bar, (p[0] + p[1]) * E))
+    }
+  }
+}
+let EP_START = notes("Et3 C4 Dt4 Gt4")
+let EP_THEME = [[0, 3, 0], [4, 3, -8], [7, 2, -3], [11, 2, 0], [13, 3, -8], [16, 2, -6]]
+let EP_SECOND = [[0, 4, 0], [8, 3, -4], [11, 4, 0], [15, 3, -4]]
+
+// The kalimba is the clock: eight even beats a bar over the chord's tones, in
+// one of three figures, chosen bar by bar.
+let KAL_FIGURES = [[0, 2, 1, 3, 2, 1, 3, 4], [0, 1, 2, 3, 4, 3, 2, 1], [2, 0, 3, 1, 4, 2, 3, 0]]
+fn kalimba_bar(bar, chord_at, base) {
+  let fig = choose(KAL_FIGURES, "kalimba", bar)
+  for k in 0..<8 {
+    let ts = tones_in(chord_at((9 * k) / 4), 'C5', 'C6')     // the chord under the beat
+    hit8(kal, bar, k, ts[fig[k] % len(ts)], base + (if k == 0 then 6 else if k == 4 then 3 else 0))
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 1–4  INTRO — the eight-beat clock alone, then the eighteen eighths under it
+// ═════════════════════════════════════════════════════════════════════════════
+for b in 1..4 { kalimba_bar(b, fn(e) => X(0), [28, 32, 36, 38][b - 1]) }
+// One bar of shakers in the theme's grouping, three times.
+shift(loop(stack([dr(shk, 1, e * E, "shaker", if contains(GA, e) then 30 else 20) for e in 0..<18]), 3, 36), at(2))
+for b in 3..4 { claves(b, 20 + (b - 3) * 4) }
+hold_chord(PADS, at(2), notes("C3 Gt3 Dt4 Et4"), 12)
+for p in PADS { vol_ramp(p, at(2, 1), at(4), 12, 40); keyoff(p, at(5)) }
+melody(bass, at(3), "C2:36@44 | C2:22@46 Gt2:14@40")
+dr(kick, 3, 0, "kick", 46)
+dr(kick, 4, 0, "kick", 50)
+dr(kick, 4, 22, "kick", 46)
+fill(4, 12)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5–12  THEME — the lead in oneirotonic, two chords a bar; the one line in the
+// song written out note by note
+// ═════════════════════════════════════════════════════════════════════════════
+let THEME = """
+  8:2 10:2 11:3 13:2 12:2v   / 13:2 11:3v 10:2 |
+  14:4v 16:3 14:2 13:2       / 13:5v 11:2 |
+  14:2 11:2 9:3 11:2 14:2    / 16:2 14:5v |
+  12:2 14:2 12:3 9:2 12:2    / 15:2 12:3 9:2 |
+  8:2 10:2 11:3 13:2 12:2v   / 13:2 ~16:5v |
+  16:2 14:2 11:3 14:2 16:2   / 17:2 14:3v 11:2 |
+  15:2 12:2 9:3 12:2 15:2    / 17:2 15:3 12:2 |
+  15:2 12:2 9:3 7:2 9:2      / 8:7v
+  """
+let THEME_TUNE = melody(lead, at(5), dm(THEME), vol: 50, vib: [$70, $10])
+let THEME_CELLS = cells(THEME_TUNE, lead)
+
+// The bass: a line chord_line() makes from the progression, on the theme's
+// eight groups, kept below the tune and out of parallels with it.
+let THEME_BASS = chord_line(flat(THEME_PROG), 'C2', 'Gt3', "theme bass", role: "bass", scale: SC,
+  per: flatten([[5, 3] for i in 0..<8]),
+  against: [sounding(THEME_CELLS, at(5 + i, e * E)) for i in 0..<8 for e in GA])
+let THEME_BASS_TUNE = melody(bass, at(5), set_rhythm(THEME_BASS, THEME_GROUPS, [52, 34, 46, 38, 36, 50, 40, 36]))
+
+THEME_TUNE
+THEME_BASS_TUNE
+dr(cym, 5, 0, "crash", 52)
+morph(PADS, changes(THEME_PROG, 5), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 30)
+for p in PADS { keyoff(p, at(13)) }
+for i, pair in THEME_PROG {
+  let b = 5 + i
+  groove_a(b, fill_from: if b == 12 then 14 else 18)
+  ep_hits(b, i, THEME_PROG, EP_THEME, EP_START, 34)
+  kalimba_bar(b, fn(e) => bar_chord(THEME_PROG, i, e), 30)
+}
+fill(12, 14)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 13–20  SECOND THEME — 4+4+3 | 4+3, the arto side. The flute's tune is made
+// by chord_line() from the chords: three notes on the first, two on the second.
+// ═════════════════════════════════════════════════════════════════════════════
+let SECOND_LINE = chord_line(flat(SECOND_PROG), deg(5), deg(17), "second theme", scale: SC, variety: 4,
+  per: flatten([[3, 2] for i in 0..<8]), start: deg(14), end: deg(9))
+let SECOND_TUNE = melody(flute, at(13), set_rhythm(SECOND_LINE, SECOND_GROUPS, [44, 40, 42, 44, 40], "v", 4),
+  glide_rows: 2, vib: [$70, $14])
+let SECOND_BASS = chord_line(flat(SECOND_PROG), 'C2', 'Gt3', "second bass", role: "bass", scale: SC,
+  per: 2, against: [sounding(cells(SECOND_TUNE, flute), at(13 + i, e * E)) for i in 0..<8 for e in [0, 8, 11, 15]])
+
+SECOND_TUNE
+// the lead doubles it an octave down, at half the volume
+on(lead, map_vols(transpose(SECOND_TUNE, -18), fn(v) => v / 2))
+melody(bass, at(13), set_rhythm(SECOND_BASS, [8, 3, 4, 3], [52, 42, 50, 38]))
+dr(cym, 13, 0, "crash2", 46)
+morph(STRS, changes(SECOND_PROG, 13), notes("Et3 C4 Et4 At4"), 'C3', 'C5', 30, rows: 3)
+for s in STRS { keyoff(s, at(21)) }
+for i, pair in SECOND_PROG {
+  let b = 13 + i
+  groove_b(b, fill_from: if b == 20 then 11 else 18)
+  ep_hits(b, i, SECOND_PROG, EP_SECOND, EP_START, 30)
+  kalimba_bar(b, fn(e) => bar_chord(SECOND_PROG, i, e), 28)
+}
+fill(20, 11)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 21–29  THE CLIMB — tendo chords up 733 c, down 667 c: up two steps a bar,
+// through every key of the eighteen, back to C an octave higher. Strings and
+// pad glide from chord to chord; nothing is struck twice.
+// ═════════════════════════════════════════════════════════════════════════════
+{
+  let events = [{ row: at(21 + k, GC[h] * E), ch: climb_prog(k)[h] } for k in 0..<9 for h in 0..<4]
+  morph(PADS, events, notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'D5', 28)
+  morph(STRS, events, notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 26)
+  for l in PADS + STRS { keyoff(l, at(30)) }
+  // The lead rides the top string an octave up, gliding with it.
+  let tops = [v[3] + 18 for v in voicings(notes("Et4 Gt4 C5 Et5"), [e.ch for e in events], 'C4', 'Gt5')]
+  hit(lead, at(21), tops[0], 44)
+  for i in 1..<len(events) if tops[i] != tops[i - 1] { glide(lead, events[i].row, tops[i], glide_speed(tops[i - 1], tops[i], 2)) }
+  keyoff(lead, at(29, 34))
+}
+for k in 0..<9 {
+  let b = 21 + k
+  let base = 'C2' + 2 * k
+  melody(bass, at(b), "${note_name(base)}:10@52 ${note_name(base + 11)}:8@46 ${note_name(base + 1)}:10@50 ${note_name(base + 12)}:8@46")
+  groove_c(b, lift: if k < 4 then -6 else if k < 8 then 0 else 4)
+  kalimba_bar(b, fn(e) => climb_prog(k)[part_at(slice(GC, 1), e)], 26 + k)
+}
+dr(cym, 21, 0, "crash", 50)
+dr(cym, 25, 0, "crash2", 50)
+dr(cym, 29, 0, "crash", 54)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 30–33  THE VALLEY — the octave two ways at once: all eighteen steps in
+// eighths on the vibes, the eight notes of the oneirotonic scale in even beats
+// on the kalimba. They meet on every octave.
+// ═════════════════════════════════════════════════════════════════════════════
+{
+  hold_chord(PADS, at(30), notes("C3 Gt3 Dt4 Et4"), 34)
+  for p in PADS { keyoff(p, at(34)) }
+  // The eighteen: up, then the same run backwards, up, backwards.
+  let RUN = melody(vib, 0, join(["${note_name('C5' + e)}:2@${if e % 9 == 0 then 38 else 28}" for e in 0..<18], " "), ring: true)
+  shift(seq(RUN, reverse(RUN), map_vols(RUN, fn(v) => v + 4), map_vols(reverse(RUN), fn(v) => v + 6)), at(30))
+  // The eight: up, then mirrored degree by degree (down), down, up. (Not
+  // reverse(): it turns rows round, and the half-row beats would not land
+  // back on the beat.)
+  let UP = whole_bar([hit8(kal, 1, k, deg(8 + k), if k == 0 then 42 else 34) for k in 0..<8])
+  let DOWN = map_notes(UP, dmirror)
+  let EIGHT = seq(UP, map_vols(DOWN, fn(v) => v + 2), map_vols(DOWN, fn(v) => v + 4), map_vols(UP, fn(v) => v + 6))
+  shift(EIGHT, at(30))
+}
+for b in 30..33 { claves(b, 18 + (b - 30) * 4) }
+for b in 32..33 {
+  for k in 0..<8 {
+    dr8(kick, b, k, "kick", 34 + (b - 32) * 8 + k)
+    hit8(bass, b, k, 'C2', 36 + (b - 32) * 8 + k)
+  }
+}
+keyoff(bass, at(34))
+// A snare roll through the last bar: 32nds (a retrigger every 3 ticks), swelling.
+for r in 0..<36 {
+  let row = at(33) + r
+  let vol = round(10 + r * 46 / 35)
+  if r == 0 { hit(snare, row, midi(GM.snare), vol, "Q", $0300) }
+  else { fx(snare, row, "Q", $0300); set_vol(snare, row, vol) }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 34–41  THEME AGAIN — the theme and its bass moved to bar 34; the flute
+// harmonises whatever the lead plays a degree-third up (467 c, the tendo
+// third, for seven notes of the scale out of eight); the vibes add a line of
+// chord_line()'s above them both.
+// ═════════════════════════════════════════════════════════════════════════════
+let REPRISE = at(34) - at(5)
+shift(THEME_TUNE, REPRISE)
+shift(THEME_BASS_TUNE, REPRISE)
+follow(lead, at(34), at(42), fn(heard) {
+  let last = scan(heard, none, fn(acc, c) => if c != none and type(get(c, "note", none)) == "number" then c.note else acc)
+  for i, c in heard if c != none and has_key(c, "note") {
+    let row = at(34) + i
+    if c.note == "off" { keyoff(flute, row) }
+    else if type(c.note) == "number" {
+      if get(c, "fx", none) == "G" { glide(flute, row, up3(c.note), glide_speed(up3(last[i - 1]), up3(c.note), 1)) }
+      else { hit(flute, row, up3(c.note), round(get(c, "vol", 50) * 0.7)) }
+    }
+  }
+})
+{
+  let line = chord_line(flat(THEME_PROG), deg(10), deg(24), "vibes", scale: SC, variety: 1.5,
+    per: flatten([[5, 3] for i in 0..<8]),
+    against: [sounding(THEME_CELLS, at(5 + i, e * E)) for i in 0..<8 for e in GA])
+  for i, p in line { hit(vib, at(34 + floor(i / 8), GA[i % 8] * E), p, 20 + (if i % 8 == 0 then 4 else 0)) }
+}
+dr(cym, 34, 0, "crash", 58)
+dr(cym, 38, 0, "crash2", 50)
+morph(PADS, changes(THEME_PROG, 34), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 32)
+morph(STRS, changes(THEME_PROG, 34), notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 22, rows: 3)
+for l in PADS + STRS { keyoff(l, at(42)) }
+for i, pair in THEME_PROG {
+  let b = 34 + i
+  groove_a(b, tamb: true, fill_from: if b == 41 then 11 else 18)
+  ep_hits(b, i, THEME_PROG, EP_THEME, EP_START, 34)
+  kalimba_bar(b, fn(e) => bar_chord(THEME_PROG, i, e), 30)
+}
+fill(41, 11)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 42–44  CODA — the cadence once more; then the theme's first half-bar at half
+// speed, over the vibes running down the eighteen while the kalimba runs up
+// the eight, both landing on C
+// ═════════════════════════════════════════════════════════════════════════════
+let CODA = "12:2 14:2 12:3 9:2 12:2 / 15:2 12:3 ~9:2"
+melody(lead, at(42), dm(CODA), vol: 48, vib: [$60, $14])
+melody(flute, at(42), dm(CODA + " | 8:36v", shift: 3), vol: 32, vib: [$60, $14])
+// The theme's opening, cut from the tune itself and stretched to twice its length.
+stretch(shift(slice(THEME_TUNE, at(5), at(5, 22)), at(43) - at(5)), 2)
+hit(lead, at(44, 8), 'C5', 44)
+dr(cym, 42, 0, "crash", 54)
+groove_a(42, fill_from: 11)
+melody(bass, at(42), set_rhythm(notes("D2 Dt2 D3 Gp2 Bt2 D3 Gp2 Ft2"), THEME_GROUPS, [52, 34, 46, 38, 36, 50, 40, 36]))
+ep_hits(42, 0, CODA_PROG, EP_THEME, EP_START, 34)
+kalimba_bar(42, fn(e) => bar_chord(CODA_PROG, 0, e), 32)
+morph(PADS, changes(CODA_PROG, 42), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 34)
+morph(STRS, changes(CODA_PROG, 42), notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 26, rows: 3)
+fill(42, 14)
+// 43: the chord, struck by everyone.
+dr(kick, 43, 0, "kick", 60)
+dr(cym, 43, 0, "crash", 58)
+dr(perc, 43, 0, "splash", 40)
+melody(bass, at(43), "C2:72@54")
+hold_chord(EPS, at(43), notes("Et3 C4 Dt4 Gt4"), 38)
+for e in 0..<18 { hit(vib, at(43, e * E), 'C6' - e, 30 - (e >> 2)) }
+for k in 0..<8 { hit8(kal, 43, k, deg(8 + k), 34 - k) }
+hit(vib, at(44), 'C5', 32)
+hit(kal, at(44), deg(16), 36)
+dr(cym, 44, 0, "crash2", 34)
+for l in EPS + PADS + STRS + [bass, lead, flute] {
+  vol_ramp(l, at(43, 8), at(44, 30), 40, 10)
+  keyoff(l, at(44, 34))
+}
+keyoff(vib, at(44, 34))
+keyoff(kal, at(44, 34))
+
+// ── the Project message ──────────────────────────────────────────────────────
+let ABOUT = """
+  Eighteenfold Euphonic DisOrder is a piece in 18-tone equal temperament and 18/8 time, with eight even beats running against the eighteen eighths of every bar. It is generated procedurally, by a program written in Microtone's own music language; the last paragraph of this note says where to find it.
+
+  A step of 18-TET is 66.7 cents, a third of a semitone. Measured by the Riemann zeta function, the yardstick xenharmonic theory uses for how well an equal tuning plays the harmonic series, 18 is a "zeta valley": it does worse than every equal tuning with fewer steps, and none does worse until 39. It has no perfect fifth. Its two candidates are 733 cents and 667, 31 and 35 cents out either way, and its major third is twelve-tone's.
+
+  So the piece never asks for a fifth. Its chords are arto and tendo triads, the extreme cousins of minor and major: root, 267 cents and 733 cents (arto), and root, 467 cents and 733 cents (tendo). Heard as fifths, those 733 cents are badly out of tune; heard as what they are, both chords are septimal and accurate. Tendo is 32:42:49 and arto 42:49:64, each the other upside down, and every interval in them is within five cents. The arto third is a 7/6 within a fifth of a cent. Played together on one root they make a fourth chord, 96:112:126:147, that the piece comes home to.
+
+  The scale is oneirotonic: eight notes, steps of 3, 1, 3, 3, 1, 3, 3 and 1 (on C, the Timeline names them C, D, Dt, Et, Gp, Gt, At and Bt). It holds both fifths over its tonic, and on five of its eight notes it holds an arto and a tendo chord at once, so a chord can turn from one to the other on the same root without leaving the key. Its strongest close goes from tendo on Gp, the flat fifth, to C: every note of the chord rises by a single step, 67 cents.
+
+  Each section groups the bar's eighteen eighths its own way: the theme as 2+2+3+2+2+2+3+2, eight uneven groups against the eight even beats the claves and the kalimba keep; the second theme as 4+4+3+4+3, cut 11 + 7 where its chord changes; the climb as 5+4+5+4, a group for each of its four chords a bar. The eight beats fall every two and a quarter eighths, so every other one lands between two rows of the grid and is played three ticks late.
+
+  Bars 1–4: the clock alone, then the eighteen under it.
+
+  Bars 5–12: the theme, two chords a bar.
+
+  Bars 13–20: the second theme, on the arto side, on flute.
+
+  Bars 21–29: the climb. Up a 733-cent fifth, down a 667-cent one: the two are not the same size, so every round trip ends one step higher. Four chords a bar, two steps a bar, through all eighteen keys and back to C. The strings and the pad glide from chord to chord and never strike twice.
+
+  Bars 30–33: the valley. The octave two ways at once: all eighteen steps of it in eighths on the vibraphone, the eight notes of the oneirotonic scale in even beats on the kalimba. Each crosses one octave in one bar, so they meet on every C. The vibraphone's echo comes back one beat of the eight later, so its eighteen are heard on both grids at once.
+
+  Bars 34–41: the theme again, the flute harmonising the lead a scale-third above (467 cents, the tendo third, on seven notes out of eight) and the vibraphone adding a line above them both.
+
+  Bars 42–44: the close once more; then the theme's first half-bar at half speed, while the vibraphone runs down all eighteen steps and the kalimba runs up its eight, landing on C together.
+
+  How it is made: only the theme is written out note by note. The second theme, both bass lines and the vibraphone's line are composed by the program from the chord progression, each bass kept under the tune it plays against and out of parallels with it; the flute's harmony in the reprise is worked out from whatever the lead plays; the reprise, the valley's runs and the close are the theme and the runs moved, reversed, mirrored and stretched; and the drums and the kalimba vary from bar to bar by chance, the same chance every time the song is built.
+
+  Every note sits on the 18-TET grid, and the Timeline is set to 18-TET notation, so the names you read are the notes you hear. t marks a note a little sharp of its twelve-tone name and p a little flat: a third of a semitone on C, D and E, a sixth on F, G, A and B, which 18-TET passes between. The beat bands are set for eighths, a bar every thirty-six rows.
+
+  The instruments are General MIDI patches from the GeneralUser GS soundfont by S. Christian Collins, the one Microtone bundles. Its samples are tuned for twelve-tone music, a few cents either way, so the program measures where every zone the song plays really sounds and re-tunes it onto the grid. The corrections are ordinary per-zone detune: open the Instruments view to see them. The room and the echo are mixing chains: open the Mixing tab.
+
+  Nothing in this project was played or placed by hand. The notes, the instrument bank, the re-tuning, the mix and the master are all computed by a program in Taud Motif Language, and this project is its output: the same program always builds the same song. The program travels inside the project. Open the Motif view to read it, change it and build the song again.
+  """

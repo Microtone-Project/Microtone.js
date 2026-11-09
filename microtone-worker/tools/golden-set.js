@@ -40,6 +40,7 @@ export const GOLDEN_SET = {
   "16uba_baion": { file: "assets/demo_projects/16uba_baion.taud" },
   "Temjin_speaki": { file: "assets/demo_projects/Temjin_speaki.taud" },
   "Huygens_clock": { file: "assets/demo_projects/Huygens_clock.taud" },
+  "Zeta_valley": { file: "assets/demo_projects/Zeta_valley.taud" },
   "WHEN_AMBI": { file: "assets/demo_projects/WHEN_AMBI.taud" },
   "WHEN_AMBI@binaural": { file: "assets/demo_projects/WHEN_AMBI.taud", monitor: MONITOR_BINAURAL },
   // Item 217: a mixing chain with every piece of equipment in it on every

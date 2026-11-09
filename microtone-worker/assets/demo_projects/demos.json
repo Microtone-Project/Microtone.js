@@ -11,16 +11,6 @@
       "permission": true
     },
     {
-      "file": "16uba_baion.taud",
-      "title": "Cuba Baion in 16-TET",
-      "composer": "CuriousTorvald",
-      "year": 2026,
-      "songs": 1,
-      "surroundModel": 0,
-      "bytes": 1593951,
-      "permission": null
-    },
-    {
       "file": "Huygens_clock.taud",
       "title": "Huygens' Clock",
       "composer": "CuriousTorvald via Motif",
@@ -31,6 +21,26 @@
       "permission": null
     },
     {
+      "file": "Zeta_valley.taud",
+      "title": "Eighteenfold Euphonic DisOrder",
+      "composer": "CuriousTorvald via Motif",
+      "year": 2026,
+      "songs": 1,
+      "surroundModel": 0,
+      "bytes": 1594542,
+      "permission": null
+    },
+    {
+      "file": "16uba_baion.taud",
+      "title": "Cuba Baion in 16-TET",
+      "composer": "CuriousTorvald",
+      "year": 2026,
+      "songs": 1,
+      "surroundModel": 0,
+      "bytes": 1593951,
+      "permission": null
+    },
+    {
       "file": "Daisy_bell.taud",
       "title": "Daisy Bell",
       "composer": "CuriousTorvald",
@@ -38,16 +48,6 @@
       "songs": 1,
       "surroundModel": 0,
       "bytes": 3036,
-      "permission": null
-    },
-    {
-      "file": "Temjin_speaki.taud",
-      "title": "(音MAD) 스피키의 해커에 대한 격노",
-      "composer": "CuriousTorvald",
-      "year": 2026,
-      "songs": 1,
-      "surroundModel": 0,
-      "bytes": 253947,
       "permission": null
     }
   ]
