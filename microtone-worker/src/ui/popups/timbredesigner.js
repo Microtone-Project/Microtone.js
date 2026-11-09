@@ -38,9 +38,13 @@ function el(tag, cls, text) {
   return e;
 }
 
-/** A labelled form row, as showModal lays one out. */
+/** A labelled form row, as showModal lays one out. Only a single field sits
+ *  in a <label>: a label's control is its FIRST labelable descendant, so a
+ *  segmented row inside one would light its first button whenever any of the
+ *  row is hovered, and a click on the row's words would press it. A group
+ *  names itself (aria-label) and sits in a plain div. */
 function row(label, control, title = "") {
-  const r = el("label", "modal-field");
+  const r = el(control.matches("input, select, textarea") ? "label" : "div", "modal-field");
   r.append(el("span", "modal-label", label), control);
   if (title) r.title = title;
   return r;

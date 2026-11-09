@@ -1671,8 +1671,6 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .note-glyph .ng-sentinel { color: var(--fg2); }
 .note-glyph .ng-dim, .note-glyph .ng-sep { color: var(--dim); }
 .note-glyph .ng-faint { opacity: 0.4; }
-.meta-table .rngCell .meta-num,
-.meta-table .velCell .meta-num { width: 4em; margin-right: 0.25rem; }
 /* The fixed-pitch switch (item 179) sits under the field it re-reads, small
    enough not to compete with it and close enough to belong to it. */
 .meta-table button.meta-fixed { margin-left: 0.5rem; min-height: 1.6rem; font-size: 0.8rem; }
@@ -3810,6 +3808,15 @@ button.nota-assign { font-size: 0.85rem; }
  * as its widest option, which is where the plain dropdown sat. */
 .mt-spin { width: 7rem; }
 
+/* The three segments touch, wherever the group sits. A panel's rule for ITS
+ * buttons and fields — `.files-table td button`'s gap, `.env-row button
+ * :not(:last-child)`'s — matches a segment too, often at a higher specificity
+ * than anything here, and a margin from one opened a strip of bare frame
+ * inside the group. Margin is the one property no panel may set on a piece of
+ * a group, hence the !important; the panels size the GROUP instead. */
+.mt-spin > .mt-step, .mt-pick > .mt-step,
+.mt-spin > [data-mt], .mt-pick > [data-mt] { margin: 0 !important; }
+
 /* The step buttons: square-cornered, flush against the value, no border of
  * their own except the hairline that separates them from it. */
 .mt-spin > .mt-step, .mt-pick > .mt-step {
@@ -3839,10 +3846,10 @@ button.nota-assign { font-size: 0.85rem; }
   background: var(--panel-2);
   color: var(--dim);
 }
-.mt-spin > .mt-step:first-child { border-right: 1px solid var(--border); }
-.mt-spin > .mt-step:last-child { border-left: 1px solid var(--border); }
-.mt-pick > .mt-step:first-child { border-right: 1px solid var(--border); }
-.mt-pick > .mt-step:last-child { border-left: 1px solid var(--border); }
+/* The control is FIRST in the DOM (spinner.js wrapInPlace: so a <label> round
+ * the group means the field, not the − button), and − is drawn before it. */
+.mt-spin > .mt-dec, .mt-pick > .mt-dec { order: -1; border-right: 1px solid var(--border); }
+.mt-spin > .mt-inc, .mt-pick > .mt-inc { border-left: 1px solid var(--border); }
 
 /* The value itself. Its own width is handed to the GROUP (below), so here it
  * only has to fill what is left over after the two buttons. */
@@ -3889,9 +3896,6 @@ button.nota-assign { font-size: 0.85rem; }
 .meta-table .detCell .mt-spin { width: 9.5em; }
 .meta-table .rngCell .mt-spin { width: 8.5em; margin-right: 0.25rem; }
 .meta-table .velCell .mt-spin { width: 7em; margin-right: 0.25rem; }
-/* The step buttons run in the table's own smaller type, so they need less air
- * round the glyph than the ones in a panel. */
-.meta-table .mt-step { min-width: 1.2rem; padding: 0 0.3rem; }
 .np-freq .mt-spin { width: 9rem; }
 .nota-field .mt-spin { width: 9rem; }
 /* A fixed width: at 100% the cell took the field's intrinsic twenty characters

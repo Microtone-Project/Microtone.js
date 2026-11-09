@@ -86,10 +86,10 @@ export function setMapped(input, raw) {
 
 // ── the two groups ────────────────────────────────────────────────────────
 
-function stepButton(label, title) {
+function stepButton(label, title, side) {
   const b = document.createElement("button");
   b.type = "button";
-  b.className = "mt-step";
+  b.className = `mt-step ${side}`;
   b.textContent = label;
   // Not a tab stop: the field between them already steps on ↑ / ↓, so putting
   // the arrows in the tab order would only make every form twice as long to
@@ -313,9 +313,20 @@ function stepNumber(input, dir) {
   announce(input);
 }
 
-/** Put `el` inside `group` in its place, keeping its focus. Moving a node in
- *  the DOM blurs it, and the enhancer runs a microtask AFTER the code that
- *  built the control — which may already have focused it (showModal focuses
+/** Put `el` inside `group` in its place, keeping its focus, with the two step
+ *  buttons beside it.
+ *
+ *  The control goes FIRST in the DOM and the `.mt-dec` button is drawn before
+ *  it by CSS `order`. A group often sits inside a <label>, and a label's
+ *  control is its first labelable descendant: were that the − button, the
+ *  browser would light − whenever any of the row is hovered (+ included), and
+ *  a click on the row's words would land on − instead of the field. With the
+ *  field first, the label means the field, exactly as it did before the
+ *  upgrade. The buttons are aria-hidden and never tab stops, so this order is
+ *  not one a keyboard or a screen reader can see.
+ *
+ *  Moving a node in the DOM blurs it, and the enhancer runs a microtask AFTER
+ *  the code that built the control — which may already have focused it (showModal focuses
  *  its first field). Left blurred, focus fell onto <body>, out of the dialog:
  *  Enter no longer confirmed, and keys reached the grids instead. A text
  *  field's caret goes back where it was; a number field's cannot be read. */
@@ -330,7 +341,7 @@ function wrapInPlace(el, group, before, after) {
     } catch { /* not a field with a caret */ }
   }
   el.replaceWith(group);
-  group.append(before, el, after);
+  group.append(el, before, after);
   if (!focused) return;
   el.focus({ preventScroll: true });
   if (range) {
@@ -350,8 +361,8 @@ function upgradeNumber(input) {
   }
   const group = document.createElement("span");
   group.className = "mt-spin";
-  const dec = stepButton("–", input.dataset.mtDecTitle ?? "");
-  const inc = stepButton("+", input.dataset.mtIncTitle ?? "");
+  const dec = stepButton("–", input.dataset.mtDecTitle ?? "", "mt-dec");
+  const inc = stepButton("+", input.dataset.mtIncTitle ?? "", "mt-inc");
   wrapInPlace(input, group, dec, inc);
   holdRepeat(dec, () => stepNumber(input, -1));
   holdRepeat(inc, () => stepNumber(input, +1));
@@ -394,8 +405,8 @@ function stepSelect(sel, dir) {
 function upgradeSelect(sel) {
   const group = document.createElement("span");
   group.className = "mt-pick";
-  const prev = stepButton("◄", "");
-  const next = stepButton("►", "");
+  const prev = stepButton("◄", "", "mt-dec");
+  const next = stepButton("►", "", "mt-inc");
   wrapInPlace(sel, group, prev, next);
   // The select itself is the middle segment — `appearance: none` takes the
   // platform's chrome off it and leaves the app's own type and colours, and it

@@ -52,19 +52,22 @@
 
         const numGroup = num.closest(".mt-spin");
         const selGroup = sel.closest(".mt-pick");
+        // The step buttons by ROLE: the control is first in the DOM (so a
+        // <label> round the group means the field) and − is drawn before it.
+        const seg = (group, i) => group.querySelector(i === 0 ? ":scope > .mt-dec" : ":scope > .mt-inc");
         const shapeOk = !!numGroup && !!selGroup &&
           numGroup.children.length === 3 &&
-          numGroup.children[0].classList.contains("mt-step") &&
-          numGroup.children[1] === num &&
-          numGroup.children[2].classList.contains("mt-step") &&
-          selGroup.children[1] === sel;
+          numGroup.children[0] === num &&
+          seg(numGroup, 0)?.classList.contains("mt-step") &&
+          seg(numGroup, 2)?.classList.contains("mt-step") &&
+          selGroup.children[0] === sel;
         log(`late controls upgraded, native element kept: ${shapeOk ? "ok" : "FAIL"}`);
 
         // ── the buttons step, and fire what a typed edit fires ──
         let changes = 0;
         num.addEventListener("change", () => changes++);
         const press = (group, i) => {
-          const b = group.children[i];
+          const b = seg(group, i);
           b.dispatchEvent(new win.PointerEvent("pointerdown", { bubbles: true, button: 0 }));
           b.dispatchEvent(new win.PointerEvent("pointerup", { bubbles: true, button: 0 }));
         };
@@ -73,6 +76,10 @@
         press(numGroup, 0); // –
         press(numGroup, 0);
         const stepOk = up === "2" && num.value === "0" && changes === 3;
+        // − is drawn at the left, + at the right, the value between them
+        const xs = [seg(numGroup, 0), num, seg(numGroup, 2)].map((e) => e.getBoundingClientRect().left);
+        log(`− | value | + left to right: ${xs[0] < xs[1] && xs[1] < xs[2] ? "ok" : `FAIL (${xs.join(", ")})`}`);
+
         log(`− / + step and announce: ${stepOk ? "ok" : `FAIL (${up} → ${num.value}, ${changes} changes)`}`);
 
         // min/max still hold, and the arrow that cannot move goes nowhere
@@ -84,12 +91,12 @@
         let selChanges = 0;
         sel.addEventListener("change", () => selChanges++);
         await settle();
-        const startDead = selGroup.children[0].disabled && !selGroup.children[2].disabled;
+        const startDead = seg(selGroup, 0).disabled && !seg(selGroup, 2).disabled;
         press(selGroup, 2);
         press(selGroup, 2);
         await settle();
-        const endOk = sel.value === "c" && selGroup.children[2].disabled &&
-          !selGroup.children[0].disabled && selChanges === 2;
+        const endOk = sel.value === "c" && seg(selGroup, 2).disabled &&
+          !seg(selGroup, 0).disabled && selChanges === 2;
         log(`◄ ► walk the list, ends disable: ${startDead && endOk ? "ok" : `FAIL (${sel.value})`}`);
 
         // ── options replaced under it: the arrows re-read on the next frame ──
@@ -98,7 +105,7 @@
         only.value = "z"; only.textContent = "Zeta";
         sel.appendChild(only);
         await settle();
-        const reOk = selGroup.children[0].disabled && selGroup.children[2].disabled;
+        const reOk = seg(selGroup, 0).disabled && seg(selGroup, 2).disabled;
         log(`a rebuilt option list re-syncs the arrows: ${reOk ? "ok" : "FAIL"}`);
 
         // ── mapped spinner: stored units under the buttons, prose in the box ──
@@ -244,6 +251,42 @@
         const back = !numGroup.hidden &&
           win.getComputedStyle(numGroup).display !== "none";
         log(`hiding the control hides its group: ${gone && back ? "ok" : `FAIL (${gone}/${back})`}`);
+
+        // ── inside a <label>, the label means the FIELD ──
+        // A label's control is its first labelable descendant; were that the −
+        // button, the browser would light − while any of the row is hovered
+        // (+ included) and a click on the label's words would land on −.
+        const lab = doc.createElement("label");
+        const labText = doc.createElement("span");
+        labText.textContent = "Label ";
+        const labNum = doc.createElement("input");
+        labNum.type = "number"; labNum.value = "3";
+        const labSel = doc.createElement("label");
+        const labPick = doc.createElement("select");
+        labPick.append(new win.Option("a"), new win.Option("b"));
+        lab.append(labText, labNum);
+        labSel.append(labPick);
+        host.append(lab, labSel);
+        await settle();
+        log(`a label round a group labels its field: ${lab.control === labNum && labSel.control === labPick ? "ok" : `FAIL (${lab.control?.className}, ${labSel.control?.className})`}`);
+
+        // ── a panel's rule for its own buttons does not reach a segment ──
+        // `.files-table td button` gives every button in the table a gap on
+        // its right; a step button carrying it opened a strip inside the frame.
+        const table = doc.createElement("table");
+        table.className = "files-table meta-table";
+        const td = table.insertRow().insertCell();
+        const tdNum = doc.createElement("input");
+        tdNum.type = "number"; tdNum.value = "1";
+        td.appendChild(tdNum);
+        host.appendChild(table);
+        await settle();
+        const tdGroup = tdNum.closest(".mt-spin");
+        const flushOk = !!tdGroup && [...tdGroup.children].every((c) => {
+          const cs = win.getComputedStyle(c);
+          return cs.marginLeft === "0px" && cs.marginRight === "0px";
+        }) && Math.abs(tdGroup.getBoundingClientRect().right - seg(tdGroup, 2).getBoundingClientRect().right - 1) < 0.6;
+        log(`segments stay flush inside a table cell: ${flushOk ? "ok" : "FAIL"}`);
 
         // ── opt-out is honoured ──
         const optOut = doc.createElement("input");

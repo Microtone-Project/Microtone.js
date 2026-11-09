@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body>
+<pre id="out">running…</pre><img src="/hang" hidden>
+<iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1400px;height:950px"></iframe>
+<script type="module">
+const out = []; const log = (l) => { out.push(l); document.getElementById("out").textContent = out.join("\n"); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const waitFor = (fn, ms = 8000) => new Promise((res, rej) => { const t0 = Date.now(); const p = setInterval(() => { let v; try { v = fn(); } catch { v = null; } if (v) { clearInterval(p); res(v); } else if (Date.now() - t0 > ms) { clearInterval(p); rej(new Error("timeout")); } }, 50); });
+const seen = new Set();
+const sig = (win, e) => { const c = win.getComputedStyle(e); return `w=${Math.round(e.getBoundingClientRect().width)} h=${e.getBoundingClientRect().height.toFixed(1)} pad=${c.paddingLeft}/${c.paddingRight} m=${c.marginLeft}/${c.marginRight}/${c.marginTop}/${c.marginBottom} fs=${c.fontSize} ff=${c.fontFamily.slice(0,20)} bwT=${c.borderTopWidth} bg=${c.backgroundColor} col=${c.color} minW=${c.minWidth}`; };
+const sweep = (where, root, win) => {
+  log(`${where}: ${[...root.querySelectorAll(".mt-spin, .mt-pick")].filter((g) => g.offsetParent).length} groups`);
+  for (const g of root.querySelectorAll(".mt-spin, .mt-pick")) {
+    if (!g.offsetParent) continue;
+    const a = g.querySelector(":scope > .mt-dec"), b = g.querySelector(":scope > .mt-inc"), f = g.querySelector(":scope > [data-mt]");
+    const lab = g.closest("label");
+    const sa = sig(win, a), sb = sig(win, b);
+    const kind = g.className;
+    const key = `${kind} | ${sa}`;
+    const issues = [];
+    if (sa !== sb) issues.push(`dec≠inc: ${sa} VS ${sb}`);
+    if (lab && lab.control !== f) issues.push(`label control is ${lab.control?.className || lab.control?.tagName}`);
+    const fc = win.getComputedStyle(f); if (fc.marginLeft !== "0px" || fc.marginRight !== "0px") issues.push("field margin");
+    const gb = g.getBoundingClientRect(), bb = b.getBoundingClientRect(), ab = a.getBoundingClientRect();
+    if (Math.abs(gb.right - 1 - bb.right) > 0.6 || Math.abs(ab.left - gb.left - 1) > 0.6) issues.push(`gap at ends L=${(ab.left-gb.left).toFixed(1)} R=${(gb.right-bb.right).toFixed(1)}`);
+    const k = `${key} ${issues.join("; ")}`;
+    if (seen.has(k)) continue; seen.add(k);
+    const path = []; for (let p = g.parentElement; p && path.length < 3; p = p.parentElement) path.push(p.tagName.toLowerCase() + (p.className && typeof p.className === "string" ? "." + p.className.split(" ").join(".") : ""));
+    log(`[${where}] ${kind} ${sa}${issues.length ? "  !! " + issues.join("; ") : ""}  @ ${path.join(" < ")}`);
+  }
+};
+(async () => { try {
+  const frame = document.getElementById("app");
+  const win = await waitFor(() => { const w = frame.contentWindow; return w && w.__microtone?.store.doc ? w : null; });
+  const d = win.document; const { instrumentsView: iv } = win.__microtone;
+  sweep("start", d, win);
+  for (const t of [...d.querySelectorAll("#tabs button[data-view]")]) {
+    t.click(); await sleep(500); sweep(t.dataset.view, d, win);
+    if (t.dataset.view === "instruments") {
+      for (let i = 0; i < 6; i++) {
+        const rows = d.querySelectorAll(".inst-list .inst-row, .side-list [data-slot], .inst-item"); rows[i]?.click(); await sleep(200);
+        for (const st of [...iv.tabBar.querySelectorAll("button")]) { st.click(); await sleep(250); sweep(`inst${i}:${st.textContent}`, d, win); }
+      }
+    }
+  }
+  log("DONE");
+} catch (e) { log("ERR " + e.stack); } })();
+</script></body></html>
