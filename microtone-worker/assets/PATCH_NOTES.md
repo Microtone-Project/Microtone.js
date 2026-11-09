@@ -13,6 +13,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Listen writes the sound into the rack and plays it, the root and then that triad; Cancel takes it back out, and Apply keeps it as one undo step. A rack not in Easy Mode is turned into one.
 - Fixed: the Sethares measure in Harmonic transpose weighed two overtones by the product of their levels rather than the quieter of the two, as Sethares' own model does, so it underrated the roughness of quiet overtones.
 
+**The Keymap Maker: a keyboard made from a scale.** Keymap Maker…, at the top of the Keymap tab's layout list, makes a layout in which every key plays a note of a scale and each row runs up the scale, so the notes outside the scale are not on the board.
+
+- Pentatonic (major or minor) and heptatonic scales in all seven modes, from Ionian to Locrian, are built on the tuning system's own fifths. MOS scales take any pattern of large and small steps, with the two step sizes and the mode of your choice.
+- Make it for the song's own tuning system and it is written in that tuning system's degrees, exactly; whatever the tuning system cannot play is greyed out. Make it for any tuning system and it is written in semitones, like the Double-Deck pianos, and plays the nearest note wherever it is used. A MOS there names the equal tuning its step sizes make, such as 17-TET for 5L 2s at 3:1.
+- You choose the tonic, how far apart the rows are (an octave, or carrying on so that no note repeats) and which rows to use. A picture of the board shows what each key will play, and you can click a key to hear it. The result is saved as a new layout of your own.
+
 **The two-row Piano keyboard is retired, and Microtone now starts on Double-Deck Piano 12**: two pianos, one above the other, with the lower one's white keys on Z to / and the upper one an octave higher on Q to P.
 
 - The lower piano's black keys are S D, G H J and L ;, the upper one's are on the number row; A, F and K play nothing.

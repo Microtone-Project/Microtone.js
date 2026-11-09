@@ -2982,6 +2982,18 @@ each key plays the tuning's note nearest to where it sits on a piano, and the ke
 in 12-TET. Both decks of Double-Deck Piano 24 are quarter tones apart in any
 tuning, and land on real notes wherever the tuning has quarter tones.
 
+### Making a layout from a scale
+
+A generalised keyboard puts every note of the tuning under your hands, which is more than a tune in one key needs: on 31-TET a lattice gives you thirty-one pitch classes, and most of them are not in C major. **Keymap Maker…**, at the top of the layout list, makes the other kind of keyboard. Every key plays a note of a **scale**, each row runs up the scale one key at a time, and the notes outside the scale are not on the board at all, so you cannot play a wrong one.
+
+- **Made for** decides what the layout is written in. Choose the **song's own tuning system** and the layout is written in its degrees, so it is exact; only the scales that tuning system really has are on offer, and the rest are greyed out rather than hidden, so you can see what it lacks. 13-TET, for instance, has no pentatonic or heptatonic scale, and Bohlen–Pierce, which repeats at the tritave rather than the octave, has only MOS scales. Choose **Any tuning system** and the layout is written in semitones, like the Double-Deck pianos: it works in every tuning system, each key playing the nearest note.
+- **Pentatonic** and **Heptatonic** are built on the tuning system's own fifths, so D Dorian in 31-TET is the meantone Dorian and in 17-TET the much brighter one that 17-TET's fifths give. Pentatonic comes as major or minor. Heptatonic comes in all seven modes: Ionian (major), Dorian, Phrygian, Lydian, Mixolydian, Aeolian (minor) and Locrian.
+- **MOS** (moment of symmetry) scales are any number of large and small steps, spread as evenly as they will go: the major scale is the MOS with five large steps and two small ones, *5L 2s*. Pick the pattern, then how wide the two steps are. In a tuning system the sizes have to fill its octave exactly, so the list shows just the sizes that do: 5L 2s in 31-TET is 5 and 3 degrees, and nothing else. In any tuning system you pick a ratio instead, and every ratio makes an equal tuning of its own: 5L 2s at 2:1 is 12-TET, at 3:1 17-TET, at 3:2 19-TET. **Mode** says which note of the pattern the scale starts on, from the brightest (large steps first; for 5L 2s, Lydian) to the darkest.
+- **Tonic** is the note the scale starts on. The A row starts on it, in the keyboard's current octave. **Up a row** is how many notes of the scale each row starts above the one below it. The default is a whole octave, so every row starts on the tonic; set it to 10 and each row carries on where the one below ends, so no note is doubled. **Rows** picks the rows the layout uses, the bottom one included.
+- The picture shows the board as it will play, in the song's notation. Click a key to hear it. Below the picture are the scale's notes, its steps, and how many degrees the board reaches.
+
+**Make layout** saves the result as a new layout of your own, named after its scale, and puts it on the keyboard. It is an ordinary layout from then on: nudge single keys, rename it, export it or embed it in the project like any other. A layout made in the song's own tuning system is named after that tuning system too, since its degrees mean something only there; you can tie it to that tuning system with **Use for**.
+
 ### Unequal temperaments
 
 A lattice is the right way to describe a keyboard for an **equal** tuning: one

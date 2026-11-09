@@ -4690,6 +4690,9 @@ button.flip-switch:disabled { opacity: 0.45; cursor: default; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The Keymap Maker sits above the six, across the whole bar: it is the one
+   that makes a layout from scratch, and its name would not fit a third. */
+.keymap-btn.keymap-btn-wide { grid-column: 1 / -1; }
 
 .keymap-stage { position: relative; overflow: hidden; }
 .keymap-board { display: block; }
@@ -4845,3 +4848,18 @@ button.flip-switch:disabled { opacity: 0.45; cursor: default; }
    as holding a value. */
 .keymanual-cell.off { opacity: 0.55; }
 .keymanual-cell.off .keymanual-note { color: var(--dim); font-style: italic; }
+/* The Keymap Maker: a form over a picture of the board it makes, painted by
+   the tab's own painter so the preview is the keyboard. */
+.kmaker-modal { width: min(720px, calc(96vw / var(--ui-zoom, 1))); }
+.kmaker-modal > p { margin: 0.3rem 0 0.6rem; line-height: 1.4; }
+.kmaker-form .modal-field { margin: 0.35rem 0; }
+.kmaker-form .modal-field[hidden] { display: none; }
+.kmaker-form .mst-seg { flex-wrap: wrap; }
+.kmaker-modal .kmaker-hint { margin: 0 0 0.4rem; }
+.kmaker-step { display: inline-flex; align-items: center; gap: 0.5rem; }
+.kmaker-step input[type="number"] { width: 5rem; }
+.kmaker-rows { justify-content: flex-start; }
+.kmaker-stage { margin: 0.6rem 0 0.3rem; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.kmaker-board { display: block; cursor: pointer; }
+.kmaker-modal .kmaker-notes { margin: 0.3rem 0 0.1rem; }
+.kmaker-modal .kmaker-reach { font-size: 0.85rem; margin: 0 0 0.5rem; }

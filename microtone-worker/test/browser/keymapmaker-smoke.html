@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>keymap maker smoke</title></head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- real-time recipe (see keymap-smoke.html). Run with:
+         python3 microtone-worker/tools/test-server.py      (from the repo root)
+         chromium --headless=new --disable-gpu --no-sandbox \
+           --autoplay-policy=no-user-gesture-required --dump-dom --timeout=40000 \
+           http://localhost:8932/microtone-worker/test/browser/keymapmaker-smoke.html -->
+  <img src="http://localhost:8932/hang" hidden>
+  <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1280px;height:900px"></iframe>
+  <script type="module">
+    // The Keymap Maker, driven through the real Keymap tab: the button opens
+    // the dialog, the form greys what the tuning cannot play (and only that),
+    // and Make layout saves a new layout of the user's own whose keys are the
+    // scale's notes.
+    import { keymapNote } from "../../src/ui/keymap.js";
+    import { nearestDegreeIndex, pitchTablePresets } from "../../core/tuning/pitchtables.js";
+
+    const out = [];
+    const log = (l) => { out.push(l); console.log("SMOKE: " + l); document.getElementById("out").textContent = out.join("\n"); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let failures = 0;
+    const ok = (cond, what) => { log(`${cond ? "PASS" : "FAIL"} ${what}`); if (!cond) failures++; };
+
+    const frame = document.getElementById("app");
+    const win = await new Promise((resolve) => {
+      const poll = setInterval(() => {
+        const w = frame.contentWindow;
+        if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+      }, 100);
+    });
+    const M = win.__microtone;
+    const { store } = M;
+    const doc = win.document;
+    win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "F9", key: "F9", shiftKey: true, bubbles: true }));
+    await sleep(300);
+    ok(store.view === "keymap", "Shift+F9 opens the Keymap tab");
+    const view = M.keymapView;
+    const lib = M.keymapLib;
+    const preset = store.pitchPreset;
+    log(`tuning: ${preset.name}`);
+
+    const makerBtn = [...view.root.querySelectorAll(".keymap-libactions button")]
+      .find((b) => b.textContent.startsWith("Keymap Maker"));
+    ok(!!makerBtn && !makerBtn.disabled, "the library offers the Keymap Maker, on a built-in too");
+    makerBtn.click();
+    await sleep(250);
+    const dlg = doc.querySelector("dialog.kmaker-modal");
+    ok(!!dlg && dlg.open, "the dialog opens");
+
+    const segButtons = (i) => [...dlg.querySelectorAll(".kmaker-form > .modal-field .mst-seg")][i]
+      .querySelectorAll("button");
+    const [tuningBtn, anyBtn] = segButtons(0);
+    ok(tuningBtn.textContent === preset.name && !tuningBtn.disabled, `the song's tuning is offered by name (${tuningBtn.textContent})`);
+    ok(tuningBtn.classList.contains("active"), "and is where it starts");
+    const kinds = [...segButtons(1)];
+    ok(kinds.every((b) => !b.disabled), "12-TET plays all three kinds");
+    ok(kinds[1].classList.contains("active"), "heptatonic is the first choice");
+
+    // Dorian on D, rows A and Q only.
+    const heptaSel = dlg.querySelectorAll(".kmaker-form select")[0];
+    heptaSel.value = "dorian"; heptaSel.dispatchEvent(new win.Event("change"));
+    const selects = [...dlg.querySelectorAll(".kmaker-form select")];
+    const tonicSel = selects.find((s) => s.options.length === 12);
+    tonicSel.value = "2"; tonicSel.dispatchEvent(new win.Event("change"));
+    const lamps = [...dlg.querySelectorAll(".kmaker-rows button")];
+    for (const b of lamps) {
+      const want = b.textContent === "Q…P" || b.textContent === "A…;";
+      if ((b.getAttribute("aria-pressed") === "true") !== want) b.click();
+    }
+    await sleep(100);
+    const name = dlg.querySelector("input.kmaker-name").value;
+    ok(name === "D Dorian (12-TET)", `the name follows the choice (${name})`);
+    ok(dlg.querySelector(".kmaker-notes").textContent.includes("2 1 2 2 2 1 2"), "the steps are Dorian's");
+    ok(dlg.querySelector(".kmaker-board").width > 0, "the board preview painted");
+    const shot1 = dlg.querySelector(".kmaker-board").toDataURL();
+
+    // Any tuning: everything on offer; MOS 5L 2s at 3:1.
+    anyBtn.click();
+    await sleep(50);
+    segButtons(1)[2].click();
+    await sleep(50);
+    const [patternSel, sizeSel] = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"));
+    ok([...patternSel.options].every((o) => !o.disabled), "in any tuning every pattern is open");
+    patternSel.value = "5,2"; patternSel.dispatchEvent(new win.Event("change"));
+    sizeSel.value = "3,1"; sizeSel.dispatchEvent(new win.Event("change"));
+    await sleep(50);
+    ok(dlg.querySelector(".kmaker-notes").textContent.includes("17-TET"), "3:1 names the tuning it is exact in");
+
+    // Back to the song's tuning: 12-TET has 5L 2s only at 2:1, so the size follows.
+    tuningBtn.click();
+    await sleep(50);
+    const sizeNow = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"))[1];
+    ok(sizeNow.options.length === 1 && sizeNow.value === "2,1", `12-TET's 5L 2s is 2:1 alone (${sizeNow.value})`);
+    const pat12 = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"))[0];
+    const greyed = [...pat12.options].filter((o) => o.disabled).length;
+    ok(greyed > 0 && greyed < pat12.options.length, `patterns 12-TET cannot play are greyed, not hidden (${greyed} of ${pat12.options.length})`);
+
+    // Back to the heptatonic and make it.
+    segButtons(1)[1].click();
+    await sleep(50);
+    dlg.querySelector(".modal-buttons .proceed").click();
+    await sleep(400);
+    ok(!doc.querySelector("dialog.kmaker-modal"), "Make layout closes the dialog");
+    const made = view.draft;
+    ok(made.name === "D Dorian (12-TET)" && lib.user.has(made.name), `saved as a layout of its own (${made.name})`);
+    ok(!view.draftIsBuiltin, "and it is editable");
+    ok(store.keymap.name === made.name, "and on the keyboard");
+    ok(made.rows.join() === "A,Q", `on the rows chosen (${made.rows})`);
+    const degs = new Set(["KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyQ", "KeyP"]
+      .map((c) => nearestDegreeIndex(keymapNote(made, c, 4, preset), preset).index));
+    ok([...degs].every((d) => [2, 4, 5, 7, 9, 11, 0].includes(d)), `every key is a note of D Dorian (${[...degs]})`);
+
+    // A tuning with no diatonic: the dialog opened against 13-TET greys the two.
+    const { showKeymapMaker } = await import("../../src/ui/popups/keymapmaker.js");
+    const p = showKeymapMaker({ preset: pitchTablePresets[130], hasSong: true, octave: 4, rows: ["A"] });
+    await sleep(150);
+    const d13 = document.querySelector("dialog.kmaker-modal");
+    const k13 = [...d13.querySelectorAll(".kmaker-form > .modal-field .mst-seg")][1].querySelectorAll("button");
+    ok(k13[0].disabled && k13[1].disabled && !k13[2].disabled, "13-TET greys pentatonic and heptatonic, keeps MOS");
+    ok(k13[2].classList.contains("active"), "and moves the choice onto MOS");
+    d13.querySelector(".act-cancel").click();
+    ok((await p) === null, "Cancel makes nothing");
+
+    await lib.remove(made.name);
+    await lib.refresh();
+    lib.setActive(lib.find("Double-Deck Piano 12"));
+    log(`preview bytes ${shot1.length}`);
+    log(failures === 0 ? "ALL OK" : `${failures} FAILURE(S)`);
+    log(`FAILURES: ${failures}`);
+    document.title = failures === 0 ? "keymapmaker-smoke: ok" : "keymapmaker-smoke: FAIL";
+  </script>
+</body>
+</html>

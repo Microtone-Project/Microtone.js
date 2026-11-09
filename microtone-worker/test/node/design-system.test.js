@@ -151,6 +151,7 @@ test("the instrument panels make no checkboxes: an on/off is a lamp pushbutton o
   const PANELS = [
     "views/instmixing.js", "views/mastering.js", "views/instruments.js", "views/instadvanced.js",
     "views/instpsg.js", "views/keymap.js", "popups/chordmaker.js", "popups/notationmaker.js",
+    "popups/keymapmaker.js",
     "popups/panner.js", "popups/sampleeditor.js",
   ].map((f) => `microtone-worker/src/ui/${f}`);
   for (const f of PANELS) {

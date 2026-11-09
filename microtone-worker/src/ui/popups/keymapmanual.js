@@ -37,14 +37,19 @@ const ACC_TEXT = {
 
 /** What a cell prints under its number: the notation's own name for the note,
  *  falling back to the 12-EDO name, with a cents marker when it sits between
- *  the degrees that notation can spell. */
-function noteLabel(note, preset) {
+ *  the degrees that notation can spell. `octave: false` names the pitch class
+ *  alone — the Keymap Maker's tonic list. */
+export function noteLabel(note, preset, { octave = true } = {}) {
   const sym = resolveNoteSymbol(note, preset);
   const cents = noteCentsOff(note);
   const tail = cents === 0 ? "" : ` ${cents > 0 ? "+" : ""}${cents}\u00A2`;
-  if (!sym) return noteToStr(note) + tail;
-  if (sym.cjk) return `${sym.cjk}${sym.octave}`;
-  return `${TICK_TEXT[sym.tick] ?? ""}${sym.letter}${ACC_TEXT[sym.acc] ?? ""}${sym.octave}`;
+  if (!sym) {
+    const name = noteToStr(note);
+    return (octave ? name : name.slice(0, 2).replace("-", "")) + tail;
+  }
+  const oct = octave ? String(sym.octave) : "";
+  if (sym.cjk) return `${sym.cjk}${oct}`;
+  return `${TICK_TEXT[sym.tick] ?? ""}${sym.letter}${ACC_TEXT[sym.acc] ?? ""}${oct}`;
 }
 
 function el(tag, cls, text) {

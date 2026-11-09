@@ -29,6 +29,7 @@ import { KEYMAP_FOURCC } from "../keymaplib.js";
 import { showModal, showNotice } from "../components/modal.js";
 import { lampButton } from "../components/lampbutton.js";
 import { showKeymapManual } from "../popups/keymapmanual.js";
+import { showKeymapMaker } from "../popups/keymapmaker.js";
 import {
   resolveKeymap, keymapNote, keymapStats,
   normaliseKeymap, buildTaudkey, parseTaudkey, nearestRatio, upperRows,
@@ -159,7 +160,13 @@ export class KeymapView {
     const rename = mkBtn(t("keymap.rename"), () => this._rename());
     const del = mkBtn(t("keymap.delete"), () => this._delete());
     rename.disabled = del.disabled = this.draftIsBuiltin;
+    // The Keymap Maker makes a NEW layout, so like New it is open whatever
+    // is in hand — a built-in included.
+    const maker = mkBtn(t("kmaker.open"), () => this._maker());
+    maker.title = t("kmaker.openTitle");
+    maker.classList.add("keymap-btn-wide");
     this.libActions.replaceChildren(
+      maker,
       mkBtn(t("keymap.new"), () => this._new()),
       mkBtn(t("keymap.duplicate"), () => this._duplicate()),
       rename,
@@ -401,6 +408,26 @@ export class KeymapView {
       this.draft, this.preset, this.jam.octave, (c) => this.legend(c));
     if (!next) return;
     this.draft = normaliseKeymap({ ...next, name: this.draft.name });
+    await this._commit();
+  }
+
+  /** Build a layout from a scale (the Keymap Maker) — saved as a new layout
+   *  of the user's own and put on the keyboard. */
+  async _maker() {
+    const spec = await showKeymapMaker({
+      preset: this.preset,
+      hasSong: !!this.store.doc,
+      octave: this.jam.octave,
+      rows: this.draft.rows,
+      ortho: this.store.keymapOrtho === true,
+      legend: (c) => this.legend(c),
+      play: (code, note) => this.jam.hold(code, note),
+      stop: (code) => this.jam.up(code),
+    });
+    if (!spec) return;
+    this.draft = normaliseKeymap({ ...spec, name: this.lib.uniqueName(spec.name) });
+    this.draftIsBuiltin = false;
+    this.selected = null;
     await this._commit();
   }
 
