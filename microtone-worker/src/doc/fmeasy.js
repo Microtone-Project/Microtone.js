@@ -66,6 +66,11 @@ function nearestOctet(g) {
   return best;
 }
 
+/** The octet nearest a linear gain (by ratio), 0 (silence) for none. */
+export function easyOctetForGain(g) {
+  return g > 0 ? nearestOctet(g) : 0;
+}
+
 /**
  * The constant's octet for each feedback amount 0…7 — 0 is silence, 6 is
  * unity (one cycle = 2π), and each step between doubles.

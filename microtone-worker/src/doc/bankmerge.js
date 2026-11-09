@@ -34,8 +34,9 @@ import {
 } from "./metaedit.js";
 import {
   easyNeeds, easyFill, easyCompile, easyDecode, easySinePcm, easyDcPcm, easyCycleTuning,
-  EASY_SINE_FRAMES, EASY_PRINCIPAL_FADEOUT, OCTET_UNITY,
+  easyBlankEntry, easyOctetForGain, EASY_SINE_FRAMES, EASY_PRINCIPAL_FADEOUT, OCTET_UNITY,
 } from "./fmeasy.js";
+import { minifloatFromDouble } from "../../core/engine/minifloat.js";
 import { fmValidate, fmOperators, fmProgramOf } from "./fmedit.js";
 import { FM_WORD_OSC, FmOp } from "../../core/engine/inst.js";
 
@@ -1532,6 +1533,157 @@ export function planEasyFm(destDoc, metaSlot, model, name = "") {
     metaSlot: slot,
     childSlots: insts.filter((it) => !it.topLevel).map((it) => it.destSlot),
     model: filled,
+  };
+}
+
+/**
+ * `rec` (an instrument record) with its volume envelope replaced by `env`
+ * ({ points: [[seconds, 0…63], …], sustain: index | null }, or null to leave
+ * it) and, when `fadeout` is a number, its fadeout. Everything else is kept.
+ * Points become envelope nodes the way a Motif `envelope` does: a value and
+ * the minifloat time to the next point, the last held.
+ */
+export function recordWithVolEnvelope(rec, env, fadeout = null) {
+  const inst = new TaudInst(0);
+  for (let i = 0; i < 256; i++) inst.setByte(i, rec[i]);
+  if (env) {
+    const pts = env.points.slice(0, 25);
+    for (let k = 0; k < 25; k++) {
+      const i = Math.min(k, pts.length - 1);
+      const dt = k + 1 < pts.length ? pts[k + 1][0] - pts[k][0] : 0;
+      inst.volEnvelopes[k] = {
+        value: Math.max(0, Math.min(63, Math.round(pts[i][1]))),
+        offset: k < pts.length - 1 && dt > 0 ? Math.max(1, minifloatFromDouble(Math.min(15.75, dt))) : 0,
+      };
+    }
+    inst.volEnvLoop = 0x2000; // present, no loop
+    const s = env.sustain;
+    inst.volEnvSustainWord = s === null || s === undefined ? 0 : (s << 8) | 0x20 | s;
+  }
+  const out = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) out[i] = inst.getByteNormal(i);
+  if (typeof fadeout === "number") {
+    out[172] = fadeout & 0xff;
+    out[173] = (out[173] & 0xf0) | ((fadeout >>> 8) & 0x0f);
+  }
+  return out;
+}
+
+/**
+ * Plan the Timbre designer's rack (doc/timbredesign.js timbreSpec) into the FM
+ * rack in `metaSlot`, as Easy Mode: a principal carrying the note's envelope
+ * and release, every partial a sine operator summed into the output with its
+ * own envelope, and the bite, if any, a sine modulating the first partial.
+ *
+ * The rack's old operators go. An operator instrument that only this rack
+ * used (a sub-instrument, $100 and up, no other metainstrument naming it) is
+ * REWRITTEN as one of the new partials rather than left behind; an Easy
+ * rack's principal keeps its instrument, with only its volume envelope and
+ * fadeout replaced, so its filter, pan and the rest of the shared DSP stay. A
+ * rack that was not in Easy Mode gets a fresh principal. One undo step.
+ * Returns {error} or a planImport-shaped plan with `metaSlot` and `model`.
+ */
+export function planTimbreFm(destDoc, metaSlot, spec) {
+  if (destDoc.sampleInstImage === null) return { error: "This project has no sample+instrument image." };
+  const inst = destDoc.instruments[metaSlot];
+  if (!inst?.isFm) return { error: "Not an FM rack." };
+  const nOps = spec.ops.length + (spec.bite ? 1 : 0);
+  if (nOps + 1 > FM_MAX_OPERATORS) return { error: "This sound has more operators than a rack holds." };
+
+  const used = new Set(destDoc.usedInstrumentSlots());
+  const taken = new Set(used);
+  const decoded = metaFlags(inst).easy ? easyDecode(fmOperators(inst), fmProgramOf(inst)) : { ok: false };
+  const principalSlot = decoded.ok ? decoded.model.principal.instIdx & 0x3ff : 0;
+  // Sub-instruments only this rack names: the new operators may take them.
+  const ownedByRack = (s) => {
+    if (s < 0x100) return false;
+    for (const other of used) {
+      if (other === metaSlot) continue;
+      const o = destDoc.instruments[other];
+      if (o && o.sourceSlots.includes(s)) return false;
+    }
+    return true;
+  };
+  const reusable = [...new Set(inst.sourceSlots)].filter((s) => s !== principalSlot && ownedByRack(s));
+  const keepPrincipal = principalSlot >= 0x100 && ownedByRack(principalSlot);
+
+  const pool = poolPlacer(destDoc);
+  const place = (pcm) => {
+    const r = pool.place(pcm, new Uint8Array(0));
+    if (r.error) throw new Error(r.error);
+    return r.ptr;
+  };
+  const insts = [];
+  const names = [];
+  const write = (slot, record, label, ixmp = null) => {
+    insts.push({
+      srcSlot: -(insts.length + 1), destSlot: slot, topLevel: false, record,
+      ixmpBlob: ixmp ? ixmp.blob : null, ixmpCount: ixmp ? ixmp.count : 0,
+    });
+    if (label) names.push([slot, label]);
+    return slot;
+  };
+  const nextSlot = () => {
+    if (reusable.length > 0) return reusable.shift();
+    const c = allocChildSlot(taken);
+    if (c < 0) throw new Error("No free sub-instrument slots left in $100–$3FF.");
+    return c;
+  };
+  const detuneOf = (ratio) => Math.max(-32768, Math.min(32767, Math.round(4096 * Math.log2(ratio))));
+
+  let model;
+  try {
+    const sinePtr = place(easySinePcm(EASY_SINE_FRAMES));
+    const opEntry = (o, label) => {
+      const slot = write(nextSlot(), recordWithVolEnvelope(easyCycleRecord(sinePtr, EASY_SINE_FRAMES), o.env), label);
+      return makeMetaLayer(slot, easyOctetForGain(o.gain), detuneOf(o.ratio), 0x0000, 0xffff, 0, 63);
+    };
+    const ops = spec.ops.map((o) => opEntry(o, o.name));
+    if (spec.bite) ops.push(opEntry(spec.bite, "FM bite"));
+    let principal;
+    if (keepPrincipal) {
+      // The principal's keymap patches, if it has any, are its own and stay.
+      const ixmp = [...destDoc.ixmp].reverse().find((e) => (e.instId & 0x3ff) === principalSlot) ?? null;
+      write(principalSlot, recordWithVolEnvelope(destDoc.instRecordBytes(principalSlot), spec.principal.env, spec.principal.fadeout), null, ixmp);
+      principal = { ...decoded.model.principal };
+    } else {
+      const dcPtr = place(easyDcPcm(EASY_DC_FRAMES));
+      const slot = write(nextSlot(), recordWithVolEnvelope(easyPrincipalRecord(dcPtr), spec.principal.env, spec.principal.fadeout), "FM out");
+      principal = { ...easyBlankEntry(), instIdx: slot };
+    }
+    const P = spec.ops.length;
+    model = {
+      principal,
+      ops,
+      labels: ops.map((_, i) => i),
+      mods: ops.map((_, i) => (i === 0 && spec.bite ? [P] : [])),
+      carriers: spec.ops.map((_, i) => i),
+      feedback: [],
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+
+  const { ops, program } = easyCompile(model);
+  const verdict = fmValidate(program, ops.length);
+  if (ops.length > FM_MAX_OPERATORS || !verdict.ok) return { error: "This sound does not fit in an FM rack's record." };
+  const flags = metaFlags(inst);
+  insts.push({
+    srcSlot: -1000, destSlot: metaSlot, topLevel: true,
+    record: buildMetaRecord(ops, { type: META_TYPE_FM, program, easy: true, percussion: flags.percussion, imixId: flags.imixId }),
+    ixmpBlob: null, ixmpCount: 0,
+  });
+  return {
+    insts,
+    samples: pool.samples,
+    inamPayload: inamPayloadWith(destDoc, names),
+    ...pool.snam(false),
+    slotMap: new Map(insts.map((it) => [it.srcSlot, it.destSlot])),
+    newSampleBytes: pool.newSampleBytes(),
+    dedupedSamples: pool.dedupedSamples(),
+    metaSlot,
+    childSlots: insts.filter((it) => !it.topLevel).map((it) => it.destSlot),
+    model,
   };
 }
 

@@ -1830,6 +1830,39 @@ Easy tab numbers them) a vibrato of its own for the note: speed `s` and depth `d
 each 0…F. On a modulator it is heard as the tone shimmering rather than the pitch
 wobbling.
 
+### The Timbre designer
+
+**Design timbre…**, on the toolbar of an FM Rack's **FM** and **Easy** tabs, is a
+small sound designer for additive sounds: you say how many partials, how bright,
+how the note is shaped and where it should sound best, and it writes the rack — a
+sine operator for every partial, all heard together, each with its own decay. A
+rack not yet in Easy Mode is turned into one. Applying replaces the rack's
+operators, and **Undo** brings them back.
+
+What makes it more than a sound designer is that it knows the song's tuning. In a
+tuning whose steps are all equal — 8-TET, 31-TET, Bohlen–Pierce and the rest — the
+partials can be put **on its steps**. Two notes of such a sound, a step of the
+tuning apart, then have overtones that meet instead of beating, and the tuning's
+intervals become the smooth ones. That is how an 8-TET chord, rough on any
+ordinary instrument, can be made to sound settled.
+
+- **Partials**: 2 to 14. Each is an operator, and a sounding note takes one of the engine's 64 background voices for each, so a chord of a 14-partial sound is expensive.
+- **Spectrum**: *Bright* (every harmonic, falling off as a sawtooth's do), *Soft*, *Mellow*, *Hollow* (odd harmonics only, as a clarinet's) and *Bell* (free to choose its partials and to move them further: glassy).
+- **Placement**: *Harmonic* is the harmonic series as it is, what an ordinary instrument has. *On the grid* moves every harmonic to the nearest step of the tuning. *Smoothest* then moves a partial a step further wherever that makes the tuning's simple intervals smoother — but only where the gain is worth bending the sound for. The two are offered only when the tuning has equal steps.
+- **Best around**: roughness depends on pitch, so a sound meant for the bass is designed with its partials further apart than one meant for a melody.
+- **Shape**: *Held* rises over the attack and holds while the key is down; *Struck* dies away from the start, its upper partials faster by the **Brightness fall**; *Plucked* falls to its **Sustain** level and holds it. **Release** is how long the note fades for after the key is let go, at 125 BPM (it follows the tempo).
+- **Attack bite** adds a real FM modulator on the fundamental for the first few milliseconds of every note, for a click or a bark.
+
+The picture shows how rough two notes of the sound are, by the interval between
+them, across one period: the designed sound in colour over the plain harmonic one
+in grey, the tuning's steps ruled, and a mark under each step that came out as a
+valley floor. Below it are the smoothest triad the sound makes in this tuning, and
+every partial: the harmonic it stands for, its step, how far it is from that
+harmonic in cents, and its level.
+
+**Listen** writes the sound into the rack and plays it on the audition voices —
+the root, then that triad. **Cancel** takes it back out; **Apply** keeps it.
+
 ### OPL instruments
 
 **Meta… → OPL instrument** makes an instrument with **no sample at all**: one

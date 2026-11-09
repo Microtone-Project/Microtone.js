@@ -2910,6 +2910,32 @@ button.nota-assign { font-size: 0.85rem; }
 
 /* ── import-instruments popup ── */
 .import-modal { max-width: 560px; }
+
+/* The Timbre designer (item 307): a form over a picture of the sound's
+   roughness and a table of its partials. Wide enough for the five-way
+   segmented rows; the picture spans the dialog. */
+.timbre-modal { width: min(640px, calc(94vw / var(--ui-zoom, 1))); }
+.timbre-modal > p { margin: 0.3rem 0 0.6rem; line-height: 1.4; }
+.timbre-form .modal-field { margin: 0.35rem 0; }
+.timbre-shape-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 1.2rem; }
+.timbre-shape-grid .modal-field > .modal-label { min-width: 7.5rem; }
+.timbre-curve-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin: 0.7rem 0 0.2rem;
+}
+.timbre-curve { display: block; }
+.timbre-modal .timbre-legend { font-size: 0.82rem; margin: 0.2rem 0 0.4rem; }
+.timbre-modal .timbre-summary { font-size: 0.85rem; margin: 0.3rem 0; }
+/* One column a partial — up to fourteen — so the columns share the width
+   rather than pushing the dialog wider. */
+.timbre-table { font-size: 0.82rem; margin: 0.3rem 0 0.6rem; width: 100%; table-layout: fixed; }
+.timbre-table th, .timbre-table td { padding: 0.15rem 0.25rem; overflow: hidden; text-overflow: clip; }
+.timbre-table thead th:first-child, .timbre-table tbody th { width: 8rem; }
+.timbre-table td { font-family: var(--mono-font); text-align: right; }
+.timbre-table th { text-align: right; font-weight: normal; color: var(--dim); }
+.timbre-table tbody th { text-align: left; white-space: nowrap; }
 .import-bar { display: flex; gap: 0.5rem; align-items: baseline; margin: 0.4rem 0; }
 /* Import options row (SF2 mono/stereo, item 90.1). */
 .import-opt { display: flex; align-items: center; gap: 0.35rem; margin: 0.4rem 0 0; }

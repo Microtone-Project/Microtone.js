@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Timbre designer smoke: open it from the Easy and FM tabs, design, listen, cancel, apply</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1280px;height:900px"></iframe>
+  <script type="module">
+    // Item 307, end to end through the real UI: an Easy rack's toolbar opens
+    // the Timbre designer; its controls redesign the sound and repaint the
+    // picture and the table; Cancel after Listen leaves the rack as it was;
+    // Apply writes it as Easy Mode; the FM tab's toolbar opens it too, on a
+    // rack that is not in Easy Mode, and turns it into one.
+    // ?shot holds the dialog open for a while, for a screenshot.
+    const out = [];
+    let failures = 0;
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const check = (what, cond) => { if (!cond) failures++; log(`${what}: ${cond ? "ok" : "FAIL"}`); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = (fn, ms = 8000) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v) { clearInterval(poll); resolve(v); }
+        else if (Date.now() - t0 > ms) { clearInterval(poll); reject(new Error("timeout")); }
+      }, 50);
+    });
+    const shot = new URLSearchParams(location.search).has("shot");
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => {
+          const w = frame.contentWindow;
+          return w && w.__microtone?.store.doc ? w : null;
+        });
+        const { store, instrumentsView: iv } = win.__microtone;
+        const d = win.document;
+        const fe = await import("../../src/doc/fmeasy.js");
+        const fmedit = await import("../../src/doc/fmedit.js");
+        const bm = await import("../../src/doc/bankmerge.js");
+        const ops = await import("../../src/doc/ops.js");
+        const decode = (slot) => {
+          const inst = store.doc.instruments[slot];
+          return fe.easyDecode(fmedit.fmOperators(inst), fmedit.fmProgramOf(inst));
+        };
+        log("app loaded");
+
+        // An Easy rack, made the way the New FM dialog makes one.
+        d.querySelector('#tabs button[data-view="instruments"]').click();
+        await sleep(300);
+        const plan = bm.planEasyFm(store.doc, null, fe.easyNewModel(9), "Timbre smoke");
+        store.undo.apply(ops.importBankOp(plan));
+        const slot = plan.metaSlot;
+        iv.selected = slot;
+        iv.tab = "fmeasy";
+        iv.refresh();
+        await waitFor(() => iv.panel.querySelector(".fm-easy-bar"));
+
+        // ── open it from the Easy tab ──
+        const openBtn = [...iv.panel.querySelectorAll(".fm-easy-bar button")].find((b) => /Design timbre/.test(b.textContent));
+        check("the Easy tab's toolbar has Design timbre…", !!openBtn);
+        openBtn.click();
+        const dlg = await waitFor(() => d.querySelector("dialog.timbre-modal"));
+        check("the designer opens", !!dlg);
+        check("it knows the song's tuning is an equal grid", /12 equal steps/.test(dlg.textContent));
+        const segs = [...dlg.querySelectorAll(".mst-seg")];
+        check(`five segmented rows (spectrum, placement, register, shape, bite): ${segs.length}`, segs.length === 5);
+        check("a register is spelt as a note", segs[2].querySelector(".note-glyph") !== null);
+        await sleep(300);
+        const tableRows = () => dlg.querySelectorAll(".timbre-table thead td").length; // a column a partial
+        check(`the table lists six partials: ${tableRows()}`, tableRows() === 6);
+        const canvas = dlg.querySelector("canvas.timbre-curve");
+        const inked = () => {
+          const g = canvas.getContext("2d");
+          const px = g.getImageData(0, 0, canvas.width, canvas.height).data;
+          const bg = [px[0], px[1], px[2]];
+          let n = 0;
+          for (let i = 0; i < px.length; i += 4) if (px[i] !== bg[0] || px[i + 1] !== bg[1] || px[i + 2] !== bg[2]) n++;
+          return n;
+        };
+        check(`the picture is drawn (${inked()} inked pixels)`, inked() > 500);
+        check(`the summary counts valleys: "${dlg.querySelector(".timbre-summary").textContent}"`,
+          /Valleys on \d+ of the 12 steps/.test(dlg.querySelector(".timbre-summary").textContent));
+
+        // ── redesign: more partials, hollow, plucked ──
+        // (the value controls are text fields with − and + once enhanced)
+        const partialsIn = (dl) => [...dl.querySelectorAll(".modal-field")].find((r) => /^Partials/.test(r.textContent)).querySelector("input");
+        const num = partialsIn(dlg);
+        num.value = "8";
+        num.dispatchEvent(new win.Event("input"));
+        [...segs[0].querySelectorAll("button")][3].click(); // Hollow
+        [...segs[3].querySelectorAll("button")][2].click(); // Plucked
+        await sleep(400);
+        check(`eight partials now: ${tableRows()}`, tableRows() === 8);
+        const harmonics = [...dlg.querySelectorAll(".timbre-table tbody tr:first-child td")].map((td) => td.textContent);
+        check(`hollow is odd harmonics only [${harmonics.join(" ")}]`, harmonics.every((h) => Number(h) % 2 === 1));
+        const sustain = [...dlg.querySelectorAll(".modal-field")].find((r) => /Sustain/.test(r.textContent));
+        const attack = [...dlg.querySelectorAll(".modal-field")].find((r) => /Attack \(s\)/.test(r.textContent));
+        check("plucked lights Sustain and dims Attack", !sustain.classList.contains("modal-disabled") &&
+          attack.classList.contains("modal-disabled") && attack.querySelector("input").disabled);
+
+        if (shot) { log("SHOT READY"); await sleep(6000); }
+
+        // ── Listen, then Cancel: the rack is as it was ──
+        const before = store.doc.instRecordBytes(slot).slice();
+        const listen = dlg.querySelector(".modal-buttons .act-alt");
+        if (store.audio && !listen.disabled) {
+          listen.click();
+          await sleep(200);
+          check("Listen writes the design in", !store.doc.instRecordBytes(slot).every((b, i) => b === before[i]));
+        } else {
+          log("no audio here: Listen skipped");
+        }
+        dlg.querySelector(".modal-buttons .act-cancel").click();
+        await waitFor(() => !d.querySelector("dialog.timbre-modal"));
+        check("Cancel leaves the rack as it was", store.doc.instRecordBytes(slot).every((b, i) => b === before[i]));
+
+        // ── Apply ──
+        [...iv.panel.querySelectorAll(".fm-easy-bar button")].find((b) => /Design timbre/.test(b.textContent)).click();
+        const dlg2 = await waitFor(() => d.querySelector("dialog.timbre-modal"));
+        await sleep(300);
+        check("the dialog remembers the last settings", partialsIn(dlg2).value === "8");
+        dlg2.querySelector(".modal-buttons .proceed").click();
+        await waitFor(() => !d.querySelector("dialog.timbre-modal"));
+        const dec = decode(slot);
+        check(`Apply writes an Easy rack of eight partials, all heard (${dec.ok && dec.model.carriers.join(",")})`,
+          dec.ok && dec.model.ops.length === 8 && dec.model.carriers.length === 8);
+        check("…and the Easy tab shows it", iv.tab === "fmeasy" && iv.panel.querySelector(".fm-easy-routing") !== null);
+        store.undo.undo();
+        iv.refresh();
+        await sleep(100);
+        check("one undo step takes it back", store.doc.instRecordBytes(slot).every((b, i) => b === before[i]));
+
+        // ── the FM tab, on a rack not in Easy Mode ──
+        const cands = store.doc.selectableInstrumentSlots().filter((s) => !store.doc.instruments[s].isMeta && !store.doc.instruments[s].isHighMeta);
+        const raw = bm.planCreateFm(store.doc, [{ slot: cands[0], count: 2 }], "Raw rack");
+        store.undo.apply(ops.importBankOp(raw));
+        iv.selected = raw.metaSlot;
+        iv.tab = "fm";
+        iv.refresh();
+        await waitFor(() => iv.panel.querySelector(".meta-bar"));
+        const fmBtn = [...iv.panel.querySelectorAll(".meta-bar button")].find((b) => /Design timbre/.test(b.textContent));
+        check("the FM tab's toolbar has Design timbre…", !!fmBtn);
+        fmBtn.click();
+        const dlg3 = await waitFor(() => d.querySelector("dialog.timbre-modal"));
+        check("it warns that the rack becomes Easy Mode", /turns this rack into Easy Mode/.test(dlg3.textContent));
+        await sleep(300);
+        dlg3.querySelector(".modal-buttons .proceed").click();
+        await waitFor(() => !d.querySelector("dialog.timbre-modal"));
+        check("Apply turns it into an Easy rack", (store.doc.instruments[raw.metaSlot].metaRaw[0] & 1) === 1 && decode(raw.metaSlot).ok);
+      } catch (e) {
+        failures++;
+        log(`EXCEPTION ${e.stack ?? e}`);
+      }
+      log(`FAILURES: ${failures}`);
+    })();
+  </script>
+  <img src="/hang" style="display:none" />
+</body>
+</html>

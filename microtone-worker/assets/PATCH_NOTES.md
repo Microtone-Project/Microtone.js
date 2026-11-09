@@ -4,7 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
-## Version 4.8.4 (2026-11-09)
+## Version 4.9.0 (2026-11-09)
+
+**The Timbre designer: a small sound designer for FM racks that knows the song's tuning.** Design timbre…, on the FM and Easy tabs, builds a sound out of sine partials — how many, how bright, held, struck or plucked, and where it should sound best — and writes it as an Easy Mode rack, every partial with its own decay.
+
+- In a tuning with equal steps (8-TET, 31-TET, Bohlen–Pierce and the rest) it can put every partial on the tuning's steps, so two notes a step apart have overtones that meet instead of beating: chords of tunings that grind on ordinary instruments come out smooth. Smoothest goes further and moves a partial a step where that helps the tuning's simple intervals, but only where the gain is worth it.
+- A picture shows how rough the sound is against itself at every interval across the period, against the plain harmonic sound, with the tuning's steps that came out smooth marked, the smoothest triad the sound makes, and every partial's step and level.
+- Listen writes the sound into the rack and plays it, the root and then that triad; Cancel takes it back out, and Apply keeps it as one undo step. A rack not in Easy Mode is turned into one.
+- Fixed: the Sethares measure in Harmonic transpose weighed two overtones by the product of their levels rather than the quieter of the two, as Sethares' own model does, so it underrated the roughness of quiet overtones.
 
 **The two-row Piano keyboard is retired, and Microtone now starts on Double-Deck Piano 12**: two pianos, one above the other, with the lower one's white keys on Z to / and the upper one an octave higher on Q to P.
 

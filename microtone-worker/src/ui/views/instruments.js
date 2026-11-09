@@ -2500,6 +2500,14 @@ export class InstrumentsView {
       const { showAddFmOperators } = await import("../popups/newmeta.js");
       if ((await showAddFmOperators(this.store, slot)) !== null) this.refresh();
     });
+    // The Timbre designer (item 307) writes the whole rack, as Easy Mode.
+    const designBtn = document.createElement("button");
+    setIconLabel(designBtn, "music", t("timbre.open"));
+    designBtn.title = t("timbre.openTitle");
+    designBtn.addEventListener("click", async () => {
+      const { showTimbreDesigner } = await import("../popups/timbredesigner.js");
+      await showTimbreDesigner(this, slot);
+    });
     const tally = document.createElement("span");
     tally.className = "dim meta-tally";
     tally.textContent = t("fm.tally", { n: ops.length, max: FM_MAX_OPERATORS });
@@ -2516,7 +2524,7 @@ export class InstrumentsView {
     const meterTxt = document.createElement("span");
     meterTxt.className = "dim fm-meter-text";
     meterTxt.textContent = t("fm.bytes", { used: budget.used, total: budget.total });
-    bar.append(addBtn, tally, meter, meterTxt);
+    bar.append(addBtn, designBtn, tally, meter, meterTxt);
     this.panel.appendChild(bar);
     if (!verdict.ok) this.panel.appendChild(this.fmWarning(verdict, draft !== null));
     else if (draft?.easyReason) this.panel.appendChild(this.fmEasyWarning(draft));

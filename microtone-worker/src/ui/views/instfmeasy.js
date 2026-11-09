@@ -164,6 +164,14 @@ function toolbar(view, slot, inst, model, commit) {
   outLab.append(view.levelInput(model.principal.mixOctet, (octet) =>
     commit({ ...model, principal: { ...model.principal, mixOctet: octet } }), t("easy.outputTitle")));
 
+  const design = el("button", "");
+  setIconLabel(design, "music", t("timbre.open"));
+  design.title = t("timbre.openTitle");
+  design.addEventListener("click", async () => {
+    const { showTimbreDesigner } = await import("../popups/timbredesigner.js");
+    await showTimbreDesigner(view, slot);
+  });
+
   const dsp = el("button", "");
   setIconLabel(dsp, "instrument", t("easy.shared"));
   dsp.title = t("easy.sharedTitle");
@@ -174,7 +182,7 @@ function toolbar(view, slot, inst, model, commit) {
     `${t("easy.tally", { n: model.ops.length, max: EASY_MAX_OPERATORS })} · ` +
     `${t("fm.bytes", { used: budget.used, total: budget.total })}`);
 
-  bar.append(presetLab, outLab, dsp, tally);
+  bar.append(presetLab, outLab, design, dsp, tally);
   return bar;
 }
 
