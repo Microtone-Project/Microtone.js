@@ -7,12 +7,12 @@
   <link rel="apple-touch-icon" type="image/png" href="../favicon.png"> <!-- Apple favicon -->
   <title>Microtone — the creative suite for one</title>
   <link rel="canonical" href="https://microtone.cc/about/">
-  <meta name="description" content="Microtone: the industry-standard music tracker for tunings nobody asked for. Free, no account, no subscription, no AI, one developer.">
+  <meta name="description" content="Microtone: a music tracker in your browser, with patterns, samples, synthesis, mixing and mastering. Free, no account, no subscription, no AI, one developer.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Microtone">
   <meta property="og:url" content="https://microtone.cc/about/">
   <meta property="og:title" content="Microtone — the creative suite for one">
-  <meta property="og:description" content="The industry-standard music tracker for tunings nobody asked for. Free, no account, no subscription, no AI, one developer.">
+  <meta property="og:description" content="A music tracker in the Impulse Tracker tradition, in a browser tab: patterns, samples, synthesis, mixing and mastering. Free, no account, no subscription, no AI, one developer.">
   <meta property="og:image" content="https://microtone.cc/screenshot.png">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="../css/microtone.css" />
@@ -59,26 +59,26 @@
 <section class="ab-hero ab-grid" id="top">
   <div class="ab-hero-copy">
     <p class="ab-kicker" data-version>Microtone</p>
-    <h1 class="ab-display">The industry standard for music in <span id="ab-tuning"><span class="ab-nowrap">43-tone</span> equal temperament</span>.<a class="ab-ref" href="#fine-2">2</a></h1>
+    <h1 class="ab-display">The industry standard for <span id="ab-industry">music written in hexadecimal</span>.<a class="ab-ref" href="#fine-2">2</a></h1>
     <script>
       // A different industry to lead on every visit — never the last one's.
-      // Run here, before the first paint, so the 43 above never flashes.
+      // Run here, before the first paint, so the default above never flashes.
       (function () {
-        var edo = function (n) { return '<span class="ab-nowrap">' + n + "-tone</span> equal temperament"; };
-        var TUNINGS = [
-          edo(43), edo(19), edo(31), edo(53), edo(22), edo(13), edo(5), edo(41), edo(17), edo(24),
-          "the Bohlen–Pierce scale", "the twelve lü", "just intonation", "quarter tones",
-          "a temperament you drew yourself", edo(12) + " (also)",
+        var INDUSTRIES = [
+          "music written in hexadecimal", "tracker music", "chiptune", "64-row patterns",
+          "music made one cell at a time", "music made in a browser tab", "eight-bit audio, on purpose",
+          "ProTracker’s Funk Repeat", "game soundtracks", "chopping breakbeats", "synthesisers that sing",
+          "the effect column", "music in a tuning you drew yourself",
         ];
         var last = -1;
-        try { last = Number(localStorage.getItem("microtone-about:tuning") ?? -1); } catch (e) {}
-        var i = Math.floor(Math.random() * (TUNINGS.length - 1));
+        try { last = Number(localStorage.getItem("microtone-about:industry") ?? -1); } catch (e) {}
+        var i = Math.floor(Math.random() * (INDUSTRIES.length - 1));
         if (i >= last && last >= 0) i += 1;
-        document.getElementById("ab-tuning").innerHTML = TUNINGS[i];
-        try { localStorage.setItem("microtone-about:tuning", String(i)); } catch (e) {}
+        document.getElementById("ab-industry").innerHTML = INDUSTRIES[i];
+        try { localStorage.setItem("microtone-about:industry", String(i)); } catch (e) {}
       })();
     </script>
-    <p class="ab-lead">A music tracker for the notes a piano cannot play. Every pitch sits on a grid of 4096 steps per octave, so 19-TET, 31-TET, Bohlen–Pierce and the twelve lü are as at home as twelve. It runs in a browser tab, and that is the entire install.</p>
+    <p class="ab-lead">A music tracker in the Impulse Tracker tradition: patterns, samples, instruments and an effect column, with a mixing chain on every instrument and a mastering chain on the lot. It runs in a browser tab, and that is the entire install.</p>
     <div class="ab-actions">
       <a class="ab-btn ab-btn-buy" href="#plans">Buy now</a>
       <a class="ab-btn ab-btn-quiet" href="../">Start free trial</a>
@@ -99,13 +99,13 @@
     <li>One ambisonic enthusiast</li>
     <li>A TSVM virtual machine</li>
     <li>Your browser, probably</li>
-    <li>Owners of a 19-TET guitar (both)</li>
+    <li>Gravis Ultrasound owners, in spirit</li>
   </ul>
 </section>
 
 <!-- ── the numbers ───────────────────────────────────────────────────── -->
 <section class="ab-stats ab-grid" aria-label="In numbers" style="grid-template-columns: repeat(12, minmax(0, 1fr))">
-  <div class="ab-stat"><span class="ab-num">4096</span><span class="ab-what">pitch steps per octave</span></div>
+  <div class="ab-stat"><span class="ab-num">64</span><span class="ab-what">lanes, one note at a time each</span></div>
   <div class="ab-stat"><span class="ab-num">0</span><span class="ab-what">piano rolls</span></div>
   <div class="ab-stat"><span class="ab-num">0</span><span class="ab-what">bytes of telemetry</span></div>
   <div class="ab-stat"><span class="ab-num">1</span><span class="ab-what">developer, in their spare time</span></div>
@@ -123,7 +123,7 @@
     <li class="ab-app">
       <span class="ab-app-icon ab-ink-brand" aria-hidden="true">Mt</span>
       <h3>Microtone</h3>
-      <p>The tracker. Patterns, cues, a mastering chain and a keyboard laid out as a hexagonal lattice, in a browser tab.</p>
+      <p>The tracker. Patterns and cues, samples and instruments, a mixing chain on each and a mastering chain on the lot, in a browser tab.</p>
       <a href="../">Open</a>
     </li>
     <li class="ab-app">
@@ -159,26 +159,131 @@
 <section class="ab-section ab-grid ab-feature">
   <header class="ab-sec-head">
     <p class="ab-sec-no">02</p>
-    <h2 class="ab-h2">Any tuning.<br>Including that one.</h2>
+    <h2 class="ab-h2">Rows, columns, hexadecimal.<br>Right where you left them.</h2>
   </header>
   <div class="ab-feature-copy">
-    <p class="ab-lead">Pick 12, 19, 24, 31 or 41-TET, Shi’er lü or Bohlen–Pierce, or draw your own in the Notation Maker, and the editor writes, shows and steps in its degrees. Retune a whole song from one tuning to another without rewriting a note.</p>
-    <p>Your computer keyboard becomes a forty-key isomorphic instrument — Bosanquet–Wilson, Wicki–Hayden, Harmonic Table — fitted to whatever the song is in. We cannot, however, guarantee that your audience will remain in the room.</p>
+    <p class="ab-lead">Write each part a row at a time — note, instrument, volume, pan, effect — and arrange the song as a list of cues. A pattern belongs to one lane, so a bassline written once plays under every cue that names it.</p>
+    <p>The effect column speaks Impulse Tracker: slides, vibrato, tremolo, arpeggio, retrigger, sample offset, tempo and speed. Record from the keyboard while the song plays, transpose or interpolate a block, find and change across the whole song, or render a pattern into a sample and play that instead. Undo goes back further than you will want to admit.</p>
   </div>
   <figure class="ab-shot ab-feature-shot">
-    <img src="shot-8.webp" width="1280" height="800" loading="lazy" alt="The Keymap tab: the computer keyboard drawn as forty coloured hexagons, Bosanquet–Wilson fitted to 19-TET, each key naming its note and its distance from twelve-tone tuning.">
-    <figcaption>Fig. 2 — Bosanquet–Wilson in 19-TET. All nineteen degrees under the fingers, and every one of them labelled with how far it is from a piano.</figcaption>
+    <img src="shot-3.webp" width="1280" height="800" loading="lazy" alt="The Patterns view: five single-lane patterns side by side, each a column of notes, instrument numbers, volumes and effect commands.">
+    <figcaption>Fig. 2 — The Patterns view. Five lanes abreast, every mark in every cell a character of a typeface drawn for the purpose.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">03</p>
+    <h2 class="ab-h2">Record&nbsp;it. Chop&nbsp;it.<br>Make it <span class="ab-nowrap">eight-bit</span>.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">The Sample Lab takes audio from a file or a microphone: crop, fade, normalise, equalise, then chop a breakbeat at its transients into one instrument per hit, in a single undo step.</p>
+    <p>Draw a waveform with the mouse, stack a chord into one sample, loop it where it sustains. The pool keeps every sample at eight bits, as the format intends; the grit is a feature, and the manual says so in writing.</p>
+  </div>
+  <figure class="ab-shot ab-feature-shot">
+    <img src="shot-4.webp" width="1280" height="800" loading="lazy" alt="The Samples view: a module's sample list on the left, one sample's eight-bit waveform drawn large on the right.">
+    <figcaption>Fig. 3 — A chiptune by 4mat, whose sample names ask for 100% ProTracker compatibility. We did our best.</figcaption>
   </figure>
 </section>
 
 <section class="ab-section ab-grid ab-feature ab-feature-text">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">03</p>
-    <h2 class="ab-h2">Immersive audio.<br>Weird, now in three dimensions.</h2>
+    <p class="ab-sec-no">04</p>
+    <h2 class="ab-h2">Synthesis.<br>From 1987 onwards.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Not every instrument needs a sample. Wire FM operators into one another in a rack, or play an FM sound chip of the AdLib era and the sound generators of 8-bit consoles, set field for field.</p>
+    <p>Formant instruments sing through a model of the vocal tract; lyric instruments sing actual words, one syllable a note. Layer instruments side by side, and bring in SoundFonts with every zone they came with — a General MIDI bank ships with the app, so it makes a sound before you go looking for one.</p>
+  </div>
+  <dl class="ab-spec">
+    <div><dt>Without samples</dt><dd>FM racks · OPL · PSG</dd></div>
+    <div><dt>Singing</dt><dd>Formant · lyrics</dd></div>
+    <div><dt>Banks</dt><dd>SoundFont 2, converted in your browser</dd></div>
+    <div><dt>Sound card required</dt><dd>No. We brought one</dd></div>
+  </dl>
+</section>
+
+<section class="ab-section ab-grid ab-feature">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">05</p>
+    <h2 class="ab-h2">Studio-grade mixing.<a class="ab-ref" href="#fine-3">3</a></h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Every instrument gets a chain of its own — equaliser, dynamic EQ, compressor, saturator, unison, delay, reverb — ahead of the master bus, with meters on its own signal. Instruments that name one chain share it.</p>
+    <p>Envelopes, filters, panning and note-stealing per instrument, and a key map that gives every note its own sample if it wants one.</p>
+  </div>
+  <figure class="ab-shot ab-feature-shot">
+    <img src="shot-9.webp" width="1280" height="800" loading="lazy" alt="An instrument's Mixing tab: a chain of input trim, equaliser, dynamic EQ and compressor, with level, gain-reduction and spectrum meters beside it.">
+    <figcaption>Fig. 4 — A marimba with a compressor on it, for reasons.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature ab-flip">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">06</p>
+    <h2 class="ab-h2">Write&nbsp;it. Master&nbsp;it.<br>Blame one person for both.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Trim, high-pass, EQ, compressor and limiter, metered the way a mastering engineer asks for: short-term and integrated loudness, loudness range, true peak, crest, gain reduction. The chain you hear is the chain the export renders through.</p>
+    <p>There is an offline analysis of the whole song as well, so you can learn exactly how loud your four-lane chiptune is before anyone else has to.</p>
+  </div>
+  <figure class="ab-shot ab-feature-shot">
+    <img src="shot-6.webp" width="1280" height="800" loading="lazy" alt="The Mastering tab metering a song: the delivery chain down the left, loudness, levels and gain reduction on the right.">
+    <figcaption>Fig. 5 — −11.7 LUFS integrated. Broadcast-ready, should anyone ever broadcast it.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature ab-feature-text">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">07</p>
+    <h2 class="ab-h2">Seamless interoper­ability<br>with 1997.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">MOD, S3M, XM and IT open as projects, down to minute details; so do AdLib’s .ims and .mon. Import MIDI renders a .mid through a SoundFont, and the song goes back out as a ProTracker or Impulse Tracker module when you are done.</p>
+    <p>If your module uses an obscure feature from an obscure tracker released by three people in 1997, please consider preserving that tracker as a virtual machine. Invert Loop and Funk Repeat, however, work exactly as they do in ProTracker, so there’s that.</p>
+  </div>
+  <dl class="ab-spec">
+    <div><dt>Opens</dt><dd>.taud · .mod · .s3m · .xm · .it · .ims · .sop · .mon · .mid</dd></div>
+    <div><dt>Exports</dt><dd>WAV · stems · .mod · .it · instrument banks</dd></div>
+    <div><dt>Runs on</dt><dd>Your own computer. All of it.</dd></div>
+    <div><dt>Server required</dt><dd>No</dd></div>
+  </dl>
+</section>
+
+<section class="ab-section ab-grid ab-feature">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">08</p>
+    <h2 class="ab-h2">Songs as programs.<br>Same source, same bytes.</h2>
+  </header>
+  <div class="ab-feature-copy">
+    <p class="ab-lead">Motif builds a whole project — instruments, lanes, patterns, the master chain — from a program in the Taud Motif Language. Music is a value; a song is what its lines say, in any order.</p>
+    <p>A build is deterministic: the same program makes the same file, byte for byte, in your browser and on a server. Its randomness is seeded and written down. This makes Motif the most reproducible part of the whole process, the composer included.</p>
+    <p><a href="../docs.html#motif">The language, all of it</a></p>
+  </div>
+  <figure class="ab-code ab-feature-shot">
+<pre><code><span class="c">// Troll Chord — 4/4, an OPL chip and a PSG</span>
+<span class="c">// The Famicom's 4-bit triangle, held.</span>
+<span class="k">instrument</span> SUB { name: <span class="s">"Tri Sub"</span>, nna: <span class="s">"off"</span>, psg: {
+  a: { waveform: <span class="s">"triangle4"</span>, attack: <span class="n">13</span>, release: <span class="n">6</span> } } }
+
+<span class="c">// A kick on every quarter, sliding down as it goes.</span>
+<span class="k">fn</span> kick4(bar, vol, rows = [<span class="n">0</span>, <span class="n">4</span>, <span class="n">8</span>, <span class="n">12</span>]) {
+  <span class="k">for</span> r <span class="k">in</span> rows {
+    hit(kick, at(bar, r), <span class="s">'G2'</span>, vol, fx: <span class="s">"E"</span>, arg: <span class="n">$0180</span>)
+  }
+}</code></pre>
+    <figcaption>Fig. 6 — From a demo song, abridged. <code>E</code> is the same pitch slide you would type into the effect column; Motif writes the cells you would have.</figcaption>
+  </figure>
+</section>
+
+<section class="ab-section ab-grid ab-feature ab-feature-text">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">09</p>
+    <h2 class="ab-h2">Immersive audio.<br>Now in three dimensions.</h2>
   </header>
   <div class="ab-feature-copy">
     <p class="ab-lead">A song chooses stereo, the full circle or the full sphere, and the pan column carries a real angle. Each lane is a source at an azimuth and a height, auditioned over headphones as you write.</p>
-    <p>Export stereo, quadraphonic, 5.1, 7.1 or ambisonic B-format from first to third order — or stems, one WAV per lane in a ZIP. The music is still in 43-TET. It is merely coming from above you now.</p>
+    <p>Export stereo, quadraphonic, 5.1, 7.1 or ambisonic B-format from first to third order — or stems, one WAV per instrument or per lane in a ZIP. It is still a tracker. It is merely coming from above you now.</p>
   </div>
   <dl class="ab-spec">
     <div><dt>Panning models</dt><dd>Stereo · planar 360° · sphere</dd></div>
@@ -190,75 +295,17 @@
 
 <section class="ab-section ab-grid ab-feature">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">04</p>
-    <h2 class="ab-h2">Studio-grade mixing.<a class="ab-ref" href="#fine-3">3</a></h2>
+    <p class="ab-sec-no">10</p>
+    <h2 class="ab-h2">Any tuning.<br>Including that one.</h2>
   </header>
   <div class="ab-feature-copy">
-    <p class="ab-lead">Every instrument gets a chain of its own — equaliser, dynamic EQ, compressor, saturator, unison, delay, reverb — ahead of the master bus, with meters on its own signal. Instruments that name one chain share it.</p>
-    <p>Envelopes, filters, panning and note-stealing per instrument, plus metainstruments: a layered kit that sounds several instruments side by side, or an FM rack that wires them into one another. SoundFont patches come in with every zone they brought.</p>
+    <p class="ab-lead">Twelve-tone equal temperament is where every new song starts, not where the tracker stops. Pick 19, 24 or 31-TET, Shi’er lü or Bohlen–Pierce, or draw your own in the Notation Maker, and the editor writes, shows and steps in its degrees.</p>
+    <p>Retune a whole song from one tuning to another without rewriting a note, and lay the computer keyboard out as an isomorphic instrument — Bosanquet–Wilson, Wicki–Hayden, Harmonic Table — fitted to whatever the song is in. Or leave it all in twelve. Nobody will check.</p>
   </div>
   <figure class="ab-shot ab-feature-shot">
-    <img src="shot-9.webp" width="1280" height="800" loading="lazy" alt="An instrument's Mixing tab: a chain of input trim, equaliser, dynamic EQ and compressor, with level, gain-reduction and spectrum meters beside it.">
-    <figcaption>Fig. 3 — A marimba with a compressor on it, for reasons.</figcaption>
+    <img src="shot-8.webp" width="1280" height="800" loading="lazy" alt="The Keymap tab: the computer keyboard drawn as forty coloured hexagons, Bosanquet–Wilson fitted to 19-TET, each key naming its note and its distance from twelve-tone tuning.">
+    <figcaption>Fig. 7 — Bosanquet–Wilson in 19-TET. All nineteen degrees under the fingers, and every one of them labelled with how far it is from a piano.</figcaption>
   </figure>
-</section>
-
-<section class="ab-section ab-grid ab-feature ab-flip">
-  <header class="ab-sec-head">
-    <p class="ab-sec-no">05</p>
-    <h2 class="ab-h2">Write&nbspit. Master&nbspit.<br>Blame one person for both.</h2>
-  </header>
-  <div class="ab-feature-copy">
-    <p class="ab-lead">Trim, high-pass, EQ, compressor and limiter, metered the way a mastering engineer asks for: short-term and integrated loudness, loudness range, true peak, crest, gain reduction. The chain you hear is the chain the export renders through.</p>
-    <p>There is an offline analysis of the whole song as well, so you can learn exactly how loud your 31-TET waltz is before anyone else has to.</p>
-  </div>
-  <figure class="ab-shot ab-feature-shot">
-    <img src="shot-6.webp" width="1280" height="800" loading="lazy" alt="The Mastering tab metering a song: the delivery chain down the left, loudness, levels and gain reduction on the right.">
-    <figcaption>Fig. 4 — −11.7 LUFS integrated. Broadcast-ready, should anyone ever broadcast it.</figcaption>
-  </figure>
-</section>
-
-<section class="ab-section ab-grid ab-feature">
-  <header class="ab-sec-head">
-    <p class="ab-sec-no">06</p>
-    <h2 class="ab-h2">Songs as programs.<br>Same source, same bytes.</h2>
-  </header>
-  <div class="ab-feature-copy">
-    <p class="ab-lead">Motif builds a whole project — instruments, lanes, patterns, the master chain — from a program in the Taud Motif Language. Music is a value; a song is what its lines say, in any order.</p>
-    <p>A build is deterministic: the same program makes the same file, byte for byte, in your browser and on a server. Its randomness is seeded and written down. This makes Motif the most reproducible part of the whole process, the composer included.</p>
-    <p><a href="../docs.html#motif">The language, all of it</a></p>
-  </div>
-  <figure class="ab-code ab-feature-shot">
-<pre><code><span class="c">// Huygens' Clock — 31-TET, 7/8 (2+2+3)</span>
-<span class="k">let</span> THEME_MINOR = <span class="s">"""
-  D5:2 Fp5:2 G5:2 A5:2 ~Cp5:6v |
-  A5:3 G5:1 Fp5:4v D5:4v E5:2 |
-  F5:2 D5:2 G#5:6v F5:2 G#5:2 |
-  A5:4v Gp5:4v E5:2 C#5:2 E5:2
-  """</span>
-melody(lead, at(<span class="n">9</span>), THEME_MINOR, vol: <span class="n">55</span>)
-
-<span class="k">let</span> THEME_MAJOR = replace(THEME_MINOR, <span class="s">"Fp5"</span>, <span class="s">"F#5"</span>)
-melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class="n">31</span>)</code></pre>
-    <figcaption>Fig. 5 — From the demo song. <code>Fp5</code> is a note a piano does not have. That is the point.</figcaption>
-  </figure>
-</section>
-
-<section class="ab-section ab-grid ab-feature ab-feature-text">
-  <header class="ab-sec-head">
-    <p class="ab-sec-no">07</p>
-    <h2 class="ab-h2">Seamless interoper­ability<br>with 1997.</h2>
-  </header>
-  <div class="ab-feature-copy">
-    <p class="ab-lead">MOD, S3M, XM and IT open as projects, down to minute details; so do AdLib’s .ims and .mon. Import MIDI renders a .mid through a SoundFont, and a General MIDI bank ships with the app so it sounds before you go looking for one.</p>
-    <p>If your module uses an obscure feature from an obscure tracker released by three people in 1997, please consider preserving that tracker as a virtual machine. Invert Loop and Funk Repeat, however, work exactly as they do in ProTracker, so there’s that.</p>
-  </div>
-  <dl class="ab-spec">
-    <div><dt>Opens</dt><dd>.taud · .mod · .s3m · .xm · .it · .ims · .sop · .mon · .mid</dd></div>
-    <div><dt>Exports</dt><dd>WAV · stems · .mod · .it · instrument banks</dd></div>
-    <div><dt>Runs on</dt><dd>Your own computer. All of it.</dd></div>
-    <div><dt>Server required</dt><dd>No</dd></div>
-  </dl>
 </section>
 
 </div>
@@ -266,7 +313,7 @@ melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class
 <!-- ── the AI section ────────────────────────────────────────────────── -->
 <section class="ab-section ab-ai ab-grid" id="intelligence">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">08</p>
+    <p class="ab-sec-no">11</p>
     <p class="ab-label">New</p>
   </header>
   <div class="ab-ai-body">
@@ -288,7 +335,7 @@ melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class
 <!-- ── plans ─────────────────────────────────────────────────────────── -->
 <section class="ab-section ab-grid" id="plans">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">09</p>
+    <p class="ab-sec-no">12</p>
     <h2 class="ab-h2">Plans &amp; pricing.<br>Find the one that is free.</h2>
   </header>
   <div class="ab-plans">
@@ -329,9 +376,9 @@ melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class
         <p class="ab-plan-sub">Phone plan</p>
         <p class="ab-price"><span>US$</span>0.00<small>/mo incl. VAT</small></p>
         <ul>
-          <li>4- to 53-tone equal temperaments</li>
           <li>Eight lanes, preset instruments</li>
           <li>Sends the sketch on to the tracker</li>
+          <li>Twelve tones to the octave, or anything from 4 to 53</li>
         </ul>
         <a class="ab-btn ab-btn-buy" href="https://touch.microtone.cc/">Buy now</a>
       </article>
@@ -413,7 +460,7 @@ melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class
 <!-- ── the FAQ (why_microtone.md) ────────────────────────────────────── -->
 <section class="ab-section ab-grid" id="why">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">10</p>
+    <p class="ab-sec-no">13</p>
     <h2 class="ab-h2">Why Microtone?</h2>
   </header>
   <div class="ab-faq">
@@ -421,14 +468,14 @@ melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class
       <p>You don’t. Existing products like <i>Renoise</i> offer a much more modernised workflow. Microtone’s workflow is stuck firmly in the <i>Impulse Tracker</i> era, and we see no compelling reason to fix what wasn’t broken in 1995.</p></details>
     <details open><summary>Does Microtone have a piano roll?</summary>
       <p>No. We believe in the freedom to make your own mistakes, one cell at a time.</p></details>
-    <details open><summary>Can I use it to make music in any tuning system?</summary>
-      <p>Yes. Microtone supports an absurd variety of equal divisions of the octave, including ones you probably won’t enjoy listening to. Whether you’re composing in 19-EDO or 43-EDO, we’ve got you covered. We cannot, however, guarantee that your audience will remain in the room.</p></details>
-    <details open><summary>Why would I need 43-tone equal temperament?</summary>
-      <p>We don’t know. But we made it work anyway.</p></details>
     <details open><summary>Does Microtone support modern audio effects?</summary>
-      <p>Yes. You can build mixing chains, tweak your instruments, and route audio in all sorts of interesting ways. We even support ambisonics, in case you want to make your weird music weird in three dimensions.</p></details>
+      <p>Yes. You can build mixing chains, tweak your instruments, and route audio in all sorts of interesting ways. We even support ambisonics, in case you want your music to be weird in three dimensions.</p></details>
     <details open><summary>Can I import my existing tracker modules?</summary>
       <p>Probably. We support several familiar module formats, namely IT, S3M, MOD and XM, down to minute details. If your module uses an obscure feature from an obscure tracker released by three people in 1997, please consider preserving that tracker as a virtual machine. Invert Loop (PT 1.2+) and Funk Repeat (~PT 1.1), however, work identically to <i>ProTracker</i>, so there’s that.</p></details>
+    <details open><summary>Can I make chiptune with it?</summary>
+      <p>Yes. Draw a waveform, play a sound chip, or open a module from 1992 and carry on where its author stopped. Every sample is eight-bit anyway; you are halfway there.</p></details>
+    <details open><summary>Can I use it to make music in any tuning system?</summary>
+      <p>Yes. Microtone supports an absurd variety of equal divisions of the octave, including ones you probably won’t enjoy listening to. Whether you’re composing in 19-EDO or 31-EDO, we’ve got you covered. We cannot, however, guarantee that your audience will remain in the room.</p></details>
     <details open><summary>Is Microtone easy to learn?</summary>
       <p>If you learned Impulse Tracker in 1997, welcome home. If you didn’t, our 1.3-megabyte, text-only documentation <em>might</em> help. We wrote it in an attempt to spare you from learning everything the <em>harder</em> way, which is how we did it.</p></details>
     <details open><summary>Does Microtone require an account?</summary>
@@ -446,9 +493,9 @@ melody(flute, at(<span class="n">49</span>), THEME_MAJOR, transpose: <span class
     <details open><summary>Can I contribute?</summary>
       <p>Yes. Agree to our <a href="https://github.com/Microtone-Project/Microtone.js/blob/master/CLA.md">Contributor Licence Agreement</a> once, by leaving one sentence in your pull request. You keep your copyright, your work stays free for everyone, and we — only we — may also offer it under the proprietary licence, as part of Microtone and never on its own. Translations, songs and font changes need no agreement at all.</p></details>
     <details open><summary>Is Microtone revolutionary?</summary>
-      <p>Absolutely not. We combined a workflow from the 1990s, a browser, some modern audio technology, and an unreasonable interest in alternative tuning systems. Then we spent a frankly disproportionate amount of time making the whole thing work.</p></details>
+      <p>Absolutely not. We combined a workflow from the 1990s, a browser, some modern audio technology, a few sound chips and an unreasonable interest in tuning systems. Then we spent a frankly disproportionate amount of time making the whole thing work.</p></details>
     <details open><summary>Who is Microtone for, then?</summary>
-      <p>People who want to make music in unusual tuning systems, tracker enthusiasts who prefer patterns to piano rolls, and anyone who has ever thought, “Surely someone has made a native n-EDO tracker at some point.”</p></details>
+      <p>Tracker enthusiasts who prefer patterns to piano rolls, chiptune and game composers who like their files small, people who want to make music in unusual tuning systems, and anyone who has ever thought, “Surely someone has put a tracker in a browser tab by now.”</p></details>
     <details open><summary>And if I don’t care about any of that?</summary>
       <p>There are plenty of excellent alternatives. Go use them. We’ll be fine.</p></details>
   </div>
