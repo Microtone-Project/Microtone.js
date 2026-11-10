@@ -1787,6 +1787,13 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* A fixed-frequency switch leads the frequency cell (item 266), so its gap sits after it. */
 .fm-easy-table .fm-easy-freq button.meta-fixed { margin: 0 0.4rem 0 0; }
 .fm-easy-ops .meta-bar h4, .fm-easy-fb h4 { margin: 0; }
+/* An operator's phase (item 310): a slider over its oscillator's play start,
+   the figure beside it in the readouts' face so it does not jump as it moves. */
+.fm-phase { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+.fm-phase input[type="range"] { width: 6.5rem; }
+.fm-phase-val { font-family: var(--mono-font); font-size: 0.85rem; min-width: 3.6em; text-align: right; }
+/* A harmonic the oscillator's rate carries (item 315), on the FM tab. */
+.fm-harmonic { font-family: var(--mono-font); margin-left: 0.35rem; }
 .fm-easy-fb { margin: 0.6rem 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; }
 .fm-easy-fb h4, .fm-easy-fb p { flex-basis: 100%; }
 .fm-easy-loop { font-family: var(--mono-font); }

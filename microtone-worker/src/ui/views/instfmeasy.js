@@ -17,12 +17,13 @@ import {
   easyApplyPreset, easyToggleWire, easyToggleCarrier, easyWired, easyWireKind,
   easySetFeedback, easyPatchOp, easyAddOperator, easyRemoveOperator, easyCanRemoveOperator,
   easySplitDetune, easyJoinDetune, easyFbAmount, EASY_FB_OCTETS, EASY_PRESETS,
-  EASY_MULT_MIN, EASY_MULT_MAX, EASY_MAX_OPERATORS,
+  EASY_MAX_OPERATORS, easyOscOf, easyHarmonicBytes, easyMultipliers, easyMultiplierText,
+  easyMultiplierKey, easyMultiplierOf,
 } from "../../doc/fmeasy.js";
 import { fmOperators, fmProgramOf, fmBudget } from "../../doc/fmedit.js";
 import { fmTreeGraph } from "../../doc/fmlayout.js";
 import { metaRecordWithFlags, fixedPitchFields } from "../../doc/metaedit.js";
-import { setMetaRecordOp, importBankOp } from "../../doc/ops.js";
+import { setMetaRecordOp, importBankOp, setInstBytesOp, compositeOp } from "../../doc/ops.js";
 import { planEasyFm } from "../../doc/bankmerge.js";
 import { fmGraphSvg } from "../fmgraph.js";
 import { showNotice } from "../components/modal.js";
@@ -68,6 +69,26 @@ function commitModel(view, slot, next) {
     if (record === null) { showNotice({ title: t("easy.cantTitle"), body: t("easy.noFit") }); return; }
     view.store.undo.apply(setMetaRecordOp(slot, record));
   }
+  view.refresh();
+}
+
+/**
+ * Retune an operator's oscillator (`osc` patch on instrument `oscSlot`) and,
+ * when `next` differs from `model`, write the rack too — one undo step. A
+ * multiplier with an odd factor is both: the factor in the oscillator's rate,
+ * the octaves in the entry (items 315).
+ */
+function commitWithOsc(view, slot, model, next, oscSlot, pairs) {
+  const doc = view.store.doc;
+  const ops = [];
+  if (pairs.length > 0) ops.push(setInstBytesOp(oscSlot, pairs));
+  if (next !== model) {
+    const record = easyRecordOf(doc.instruments[slot], next);
+    if (record === null) { showNotice({ title: t("easy.cantTitle"), body: t("easy.noFit") }); return; }
+    ops.push(setMetaRecordOp(slot, record));
+  }
+  if (ops.length === 0) return;
+  view.store.undo.apply(ops.length === 1 ? ops[0] : compositeOp(ops));
   view.refresh();
 }
 
@@ -364,7 +385,7 @@ function operatorTable(view, slot, model, label, sel, commit) {
 
   const table = el("table", "files-table meta-table fm-easy-table");
   const hr = el("tr");
-  for (const k of ["easy.colOp", "fm.level", "easy.colMult", "easy.colDetune", ""]) {
+  for (const k of ["easy.colOp", "fm.level", "easy.colMult", "easy.colDetune", "fm.phase", ""]) {
     hr.append(el("th", "", k ? t(k) : ""));
   }
   const thead = el("thead");
@@ -381,27 +402,51 @@ function operatorTable(view, slot, model, label, sel, commit) {
     tr.append(lv);
 
     const fixed = o.fixedPitch === true;
+    const oscSlot = o.instIdx & 0x3ff;
+    const osc = oscSlot !== 0 ? easyOscOf(view.store.doc.instruments[oscSlot]) : null;
+    // The oscillator's own tuning, against the painter's rule: a harmonic and
+    // the octaves it carries besides (both 1 and 0 for every sine Easy made),
+    // or null for a tuning set by hand on its instrument.
+    const h = osc?.harmonic ?? null;
     const mt = el("td", "fm-easy-freq");
     const dt = el("td");
     // The switch leads the frequency, since it decides how the rest of it
     // reads; flipping it keeps the pitch the row was showing (fixedPitchFields
-    // reads a ratio against middle C, as the glyph beside a layer's does).
+    // reads a ratio against middle C, as the glyph beside a layer's does). A
+    // fixed note has no ratio to carry a harmonic in, so going fixed folds the
+    // oscillator's harmonic into the note and puts its tuning back to plain.
     mt.append(lampButton({
       label: t("meta.fixed"), on: fixed, title: t("fm.fixedTitle"), className: "meta-fixed",
-      onChange: (on) => commit(easyPatchOp(model, i, fixedPitchFields(o, on))),
+      onChange: (on) => {
+        const folds = on && h !== null && (h.k !== 1 || h.octaves !== 0);
+        if (!folds) { commit(easyPatchOp(model, i, fixedPitchFields(o, on))); return; }
+        const shift = Math.round(4096 * Math.log2(h.k * 2 ** h.octaves));
+        const fields = fixedPitchFields({ ...o, detune: o.detune + shift }, true);
+        commitWithOsc(view, slot, model, easyPatchOp(model, i, fields), oscSlot, easyHarmonicBytes(osc, 1) ?? []);
+      },
     }).button);
     if (fixed) {
       mt.append(view.fixedNoteInput(o.detune,
         (v) => commit(easyPatchOp(model, i, { detune: v })), t("fm.fixedNoteTitle")));
       dt.append(noteGlyph(o.detune & 0xffff, view.store.pitchPreset));
     } else {
-      const { mult, fine } = easySplitDetune(o.detune);
-      mt.append(view.metaNumIn(mult, EASY_MULT_MIN, EASY_MULT_MAX,
-        (v) => commit(easyPatchOp(model, i, { detune: easyJoinDetune(v, fine) })), t("easy.multTitle")));
+      const { fine } = easySplitDetune(o.detune);
+      mt.append(multiplierSelect(o, osc, (m) => {
+        // The entry takes the octaves; the oscillator the odd factor, and
+        // loses any octaves its own tuning carried, so the two never add up
+        // to a multiplier the row did not choose.
+        const pairs = osc !== null && (h === null || h.k !== m.k || h.octaves !== 0)
+          ? easyHarmonicBytes(osc, m.k) ?? [] : [];
+        const next = easyPatchOp(model, i, { detune: easyJoinDetune(m.mult, fine) });
+        commitWithOsc(view, slot, model, next.ops[i].detune === o.detune ? model : next, oscSlot, pairs);
+      }));
+      const { mult } = easySplitDetune(o.detune);
       dt.append(view.detuneInput(fine, -2048, 2047,
         (v) => commit(easyPatchOp(model, i, { detune: easyJoinDetune(mult, v) })), t("easy.detuneTitle")));
     }
-    tr.append(mt, dt);
+    const ph = el("td");
+    ph.append(view.phaseControl(oscSlot));
+    tr.append(mt, dt, ph);
 
     const act = el("td", "advCell");
     const envBtn = el("button", "toggle", t("easy.env"));
@@ -419,6 +464,45 @@ function operatorTable(view, slot, model, label, sel, commit) {
   table.append(tbody);
   wrap.append(table);
   return wrap;
+}
+
+/**
+ * The multiplier as a ratio (item 315): ×1/256 … ×1/2, every whole number
+ * ×1 … ×31, then ×32 … ×256. An odd factor is carried by the operator's
+ * oscillator, so an operator without one (an OPL or PSG instrument, a
+ * one-shot) is offered octaves alone. A multiplier the list does not have —
+ * ×3/2, ×48, or an oscillator tuned by hand — is shown as it is and kept until
+ * another is chosen.
+ */
+function multiplierSelect(o, osc, onPick) {
+  const s = document.createElement("select");
+  s.className = "fm-easy-mult";
+  s.title = t("easy.multTitle");
+  const list = easyMultipliers(osc?.reach ?? 1);
+  const byKey = new Map(list.map((m) => [easyMultiplierKey(m), m]));
+  const h = osc?.harmonic;
+  if (osc !== null && h === null) {
+    // A tuning of its own: the octaves are still the entry's.
+    const { mult } = easySplitDetune(o.detune);
+    s.append(new Option(t("easy.multOwn", { ratio: easyMultiplierText({ k: 1, mult }) }), "", true, true));
+    for (const m of list) s.append(new Option(easyMultiplierText(m), easyMultiplierKey(m)));
+  } else {
+    const cur = easyMultiplierOf(o.detune, osc);
+    const key = easyMultiplierKey(cur);
+    if (!byKey.has(key)) {
+      s.append(new Option(easyMultiplierText(cur), key, true, true));
+      byKey.set(key, cur);
+    }
+    for (const m of list) {
+      const k = easyMultiplierKey(m);
+      s.append(new Option(easyMultiplierText(m), k, false, k === key));
+    }
+  }
+  s.addEventListener("change", () => {
+    const m = byKey.get(s.value);
+    if (m) onPick(m);
+  });
+  return s;
 }
 
 /** Every feedback loop and its depth. */

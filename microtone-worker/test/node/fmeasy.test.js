@@ -16,12 +16,14 @@ import {
   easyDecode, easyCompile, easyFill, easyNeeds, easyNewModel, easyFormula, easyPresetOf,
   easyApplyPreset, easyToggleWire, easyToggleCarrier, easySetFeedback, easyWireKind,
   easySplitDetune, easyJoinDetune, easyFbAmount, easyRemoveOperator, easyAddOperator,
-  easyRecordOf, easyTree, easyPatchOp,
+  easyRecordOf, easyTree, easyPatchOp, easyCycleTuning, easyHarmonicTuning, easyHarmonicOf,
+  easyOscOf, easyPhaseBytes, easyHarmonicBytes, easyMultipliers, easyMultiplierText,
+  easyMultiplierOf, easyHarmonicReach, EASY_HARMONIC_MAX, EASY_SINE_FRAMES,
 } from "../../src/doc/fmeasy.js";
 import { fmValidate, fmOperators, fmProgramOf, fmFormula } from "../../src/doc/fmedit.js";
 import { fmTreeGraph } from "../../src/doc/fmlayout.js";
 import { planEasyFm, planEasyConvert, planCreateFm } from "../../src/doc/bankmerge.js";
-import { importBankOp } from "../../src/doc/ops.js";
+import { importBankOp, setInstBytesOp, setMetaRecordOp, compositeOp } from "../../src/doc/ops.js";
 import { Document } from "../../src/doc/document.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { TaudEngine } from "../../core/engine/engine.js";
@@ -338,4 +340,108 @@ test("the Easy Mode bit survives a flag edit and reads as nothing to the engine"
   inst.loadRecord(rec);
   assert.equal(inst.metaStrict, false);
   assert.ok(inst.isFm);
+});
+
+// ── the oscillator: harmonic and phase (items 315, 310) ─────────────────────
+
+test("every odd harmonic to 31 is EXACT in the rate, for every power-of-two cycle", () => {
+  for (const frames of [16, 32, 64, 128, 256, 512, 1024]) {
+    const base = easyCycleTuning(frames);
+    for (let k = 1; k <= EASY_HARMONIC_MAX; k += 2) {
+      const { samplingRate, detune } = easyHarmonicTuning(frames, k);
+      assert.ok(samplingRate >= 1 && samplingRate <= 0xffff, `${frames}/${k} fits the field`);
+      assert.equal((detune - base.detune) % 4096, 0, "the detune takes whole octaves only");
+      const ratio = (samplingRate / base.samplingRate) * 2 ** ((detune - base.detune) / 4096);
+      assert.equal(ratio, k, `${frames} frames ×${k}`);
+      assert.deepEqual(easyHarmonicOf(ratio), { k, octaves: 0 });
+    }
+  }
+  // What cannot be exact is not offered, rather than rounded.
+  assert.equal(easyHarmonicTuning(2048, 31), null, "the detune would pass its field");
+  assert.equal(easyHarmonicTuning(100, 3), null, "the halved rate is not a whole number");
+  assert.equal(easyHarmonicReach(1024), 31);
+  assert.equal(easyHarmonicReach(100), 1);
+  assert.ok(easyMultipliers(easyHarmonicReach(100)).every((m) => m.k === 1));
+  assert.deepEqual(easyHarmonicOf(6), { k: 3, octaves: 1 });
+  assert.deepEqual(easyHarmonicOf(0.75), { k: 3, octaves: -2 });
+  assert.equal(easyHarmonicOf(2 ** (1 / 4096)), null, "a unit of detune is no harmonic");
+  assert.equal(easyHarmonicOf(33), null, "past 31");
+  assert.equal(easyHarmonicOf(0), null);
+});
+
+test("the multiplier list: every whole number to ×31, octaves from ×1/256 to ×256", () => {
+  const all = easyMultipliers().map(easyMultiplierText);
+  for (let n = 1; n <= 31; n++) assert.ok(all.includes(`×${n}`), `×${n}`);
+  for (const t of ["×1/256", "×1/2", "×32", "×256"]) assert.ok(all.includes(t), t);
+  assert.equal(new Set(all).size, all.length, "no ratio twice");
+  const octaves = easyMultipliers(1);
+  assert.ok(octaves.every((m) => m.k === 1), "no odd factor without an oscillator to carry it");
+  assert.equal(octaves.length, 17);
+  assert.equal(easyMultiplierText({ k: 3, mult: -1 }), "×3/2");
+  // The row shows the entry's octaves and the oscillator's harmonic together.
+  assert.deepEqual(easyMultiplierOf(4096 * 2 + 5, { harmonic: { k: 3, octaves: 0 } }), { k: 3, mult: 2 });
+  assert.deepEqual(easyMultiplierOf(-4096, null), { k: 1, mult: -1 });
+});
+
+/** An Easy rack in a fresh copy of the demo: {doc, slot, osc(i)} where osc(i)
+ *  is operator i's oscillator slot. */
+function easyRack(preset) {
+  const doc = demo();
+  const a = planEasyFm(doc, null, easyNewModel(preset), "Easy");
+  importBankOp(a).apply(doc);
+  const inst = doc.instruments[a.metaSlot];
+  const model = easyDecode(fmOperators(inst), fmProgramOf(inst)).model;
+  return { doc, slot: a.metaSlot, model, osc: (i) => model.ops[i].instIdx & 0x3ff };
+}
+
+test("an Easy sine reads as one cycle, harmonic ×1, phase 0; a principal or a one-shot has no phase", () => {
+  const { doc, model, osc } = easyRack(1);
+  const o = easyOscOf(doc.instruments[osc(0)]);
+  assert.deepEqual(o, { cycle: EASY_SINE_FRAMES, phase: 0, harmonic: { k: 1, octaves: 0 }, reach: 31 });
+  // The principal is a constant at rate 0: it never leaves its first frame.
+  assert.equal(easyOscOf(doc.instruments[model.principal.instIdx & 0x3ff]), null);
+  const oneShot = new TaudInst(7);
+  oneShot.sampleLength = 100; oneShot.sampleLoopEnd = 100; oneShot.loopMode = 0;
+  assert.equal(easyOscOf(oneShot), null);
+});
+
+test("×3 on an operator sounds EXACTLY three times its neighbour, in one undo step with the rack", () => {
+  const { doc, slot, model, osc } = easyRack(2);
+  const o = easyOscOf(doc.instruments[osc(1)]);
+  // ×6 = harmonic 3 in the oscillator, one octave in the entry.
+  const next = easyPatchOp(model, 1, { detune: easyJoinDetune(1, 0) });
+  compositeOp([
+    setInstBytesOp(osc(1), easyHarmonicBytes(o, 3)),
+    setMetaRecordOp(slot, easyRecordOf(doc.instruments[slot], next)),
+  ]).apply(doc);
+  const read = easyOscOf(doc.instruments[osc(1)]);
+  assert.deepEqual(read.harmonic, { k: 3, octaves: 0 });
+  const inst = doc.instruments[slot];
+  const back = easyDecode(fmOperators(inst), fmProgramOf(inst)).model;
+  assert.deepEqual(easyMultiplierOf(back.ops[1].detune, read), { k: 3, mult: 1 });
+
+  const { eng } = renderNote(doc, slot, 2);
+  const rig = eng.playheads[0].trackerState.voices[0].fmRig;
+  assert.ok(rig.voices[1] && rig.voices[2], "both operators sound");
+  const ratio = rig.voices[2].currentPlaybackRate / rig.voices[1].currentPlaybackRate;
+  assert.ok(Math.abs(ratio - 6) < 1e-12, `×6, got ${ratio}`);
+});
+
+test("phase is the oscillator's play start: a note starts that far into the cycle", () => {
+  const { doc, slot, osc } = easyRack(2);
+  const o = easyOscOf(doc.instruments[osc(0)]);
+  const bytes = easyPhaseBytes(o, 64);
+  assert.deepEqual(bytes, [[8, 64], [9, 0]]);
+  assert.deepEqual(easyPhaseBytes(o, 256 + 3), [[8, 3], [9, 0]], "a whole cycle wraps");
+  setInstBytesOp(osc(0), bytes).apply(doc);
+  assert.equal(easyOscOf(doc.instruments[osc(0)]).phase, 64);
+
+  const pos = (d) => {
+    const rig = renderNote(d, slot, 1).eng.playheads[0].trackerState.voices[0].fmRig;
+    return [rig.voices[1].samplePos, rig.voices[2].samplePos];
+  };
+  const [p0, p1] = pos(doc);
+  // Both operators run at the same pitch, so after the same run of samples
+  // they are apart by exactly the phase.
+  assert.ok(Math.abs(((p0 - p1) % 256 + 256) % 256 - 64) < 1e-6, `${p0} − ${p1}`);
 });

@@ -66,7 +66,9 @@ import { renderFormantTab, formantTabFrame } from "./instformant.js";
 import { renderLyricsTab, lyricsTabFrame } from "./instlyrics.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
 import { renderFmEasyTab } from "./instfmeasy.js";
-import { easyDecode } from "../../doc/fmeasy.js";
+import {
+  easyDecode, easyOscOf, easyPhaseBytes, easyMultiplierText,
+} from "../../doc/fmeasy.js";
 import { planEasyConvert } from "../../doc/bankmerge.js";
 import { MixingPanel } from "./instmixing.js";
 import { psgBadge } from "../../doc/psgedit.js";
@@ -2080,6 +2082,51 @@ export class InstrumentsView {
     return i;
   }
 
+  /**
+   * An FM operator's PHASE (item 310): where in its cycle every note starts,
+   * 0 … 100 %, as a slider over the oscillator's play start (fmeasy.js
+   * easyOscOf) — the value lives on the operator's own instrument, so the
+   * rack's record has nothing to hold. An operator that is not one looped
+   * cycle (an OPL or PSG operator, a one-shot) has no phase to set, and says
+   * so. The slider only reports when it is let go: every report rewrites a
+   * record and redraws the tab under it.
+   */
+  phaseControl(oscSlot) {
+    const inst = oscSlot > 0 ? this.store.doc.instruments[oscSlot & 0x3ff] : null;
+    const osc = easyOscOf(inst);
+    const wrap = document.createElement("span");
+    wrap.className = "fm-phase";
+    const val = document.createElement("span");
+    val.className = "fm-phase-val";
+    const pct = (frames) => `${((frames / (osc?.cycle ?? 1)) * 100).toFixed(1)}%`;
+    if (osc === null) {
+      wrap.classList.add("dim");
+      val.textContent = "—";
+      wrap.title = t("fm.phaseNone");
+      wrap.append(val);
+      return wrap;
+    }
+    const range = document.createElement("input");
+    range.type = "range";
+    range.min = 0; range.max = osc.cycle - 1; range.step = 1;
+    range.value = String(osc.phase);
+    range.title = t("fm.phaseTitle");
+    range.setAttribute("aria-label", t("fm.phase"));
+    val.textContent = pct(osc.phase);
+    range.addEventListener("input", () => {
+      const s = pct(+range.value);
+      if (val.textContent !== s) val.textContent = s;
+    });
+    range.addEventListener("change", () => {
+      const p = +range.value;
+      if (p === osc.phase) return;
+      this.store.undo.apply(setInstBytesOp(oscSlot & 0x3ff, easyPhaseBytes(osc, p)));
+      this.refresh();
+    });
+    wrap.append(range, val);
+    return wrap;
+  }
+
   /** A small row-action button. */
   metaIconBtn(name, label, title, onClick, disabled = false) {
     const b = document.createElement("button");
@@ -2116,8 +2163,8 @@ export class InstrumentsView {
     const tr = document.createElement("tr");
     tr.innerHTML =
       `<td class="idxCell"></td><td class="nameCell"></td><td class="mixCell"></td>` +
-      `<td class="detCell"></td><td class="rngCell"></td><td class="velCell"></td>` +
-      `<td class="advCell"></td>`;
+      `<td class="detCell"></td>${fm ? `<td class="phaseCell"></td>` : ""}` +
+      `<td class="rngCell"></td><td class="velCell"></td><td class="advCell"></td>`;
 
     // Entry 0 leads: for a layer table that is priority (the first layer that
     // COVERS a trigger plays on the lane itself and the rest spawn
@@ -2220,6 +2267,23 @@ export class InstrumentsView {
         label: t("meta.fixed"), on: fixed, title: t(fm ? "fm.fixedTitle" : "meta.fixedTitle"), className: "meta-fixed",
         onChange: (on) => commit(fixedPitchFields(entry, on)),
       }).button);
+    }
+
+    // An operator's oscillator carries two things the entry does not (items
+    // 310, 315): where in its cycle a note starts, and a whole-number harmonic
+    // in its sampling rate, which the ratio above does not show — so it is
+    // badged, as a link is.
+    if (fm) {
+      tr.querySelector(".phaseCell").append(this.phaseControl(entry.instIdx & 0x3ff));
+      const osc = easyOscOf(doc.instruments[entry.instIdx & 0x3ff]);
+      const h = osc?.harmonic;
+      if (h && (h.k !== 1 || h.octaves !== 0)) {
+        const badge = document.createElement("span");
+        badge.className = "badge-sm fm-harmonic";
+        badge.textContent = easyMultiplierText({ k: h.k, mult: h.octaves });
+        badge.title = t("fm.harmonicTitle", { ratio: badge.textContent });
+        detCell.append(badge);
+      }
     }
 
     // Gating rectangle. The new-meta hint has always told people to "narrow
@@ -2538,7 +2602,8 @@ export class InstrumentsView {
     table.className = "files-table meta-table";
     table.innerHTML =
       `<thead><tr><th>#</th><th>${escape(t("meta.subInst"))}</th><th>${escape(t("fm.level"))}</th>` +
-      `<th>${escape(t("fm.ratio"))}</th><th>${escape(t("meta.pitchRange"))}</th>` +
+      `<th>${escape(t("fm.ratio"))}</th><th>${escape(t("fm.phase"))}</th>` +
+      `<th>${escape(t("meta.pitchRange"))}</th>` +
       `<th>${escape(t("meta.vel"))}</th><th></th></tr></thead>`;
     const tbody = document.createElement("tbody");
 

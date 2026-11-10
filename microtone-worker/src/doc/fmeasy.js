@@ -764,3 +764,170 @@ export function easyCycleTuning(frames) {
  * envelope would hold every note for ever after its key was let go.
  */
 export const EASY_PRINCIPAL_FADEOUT = 48;
+
+// ── the oscillator: its harmonic and its phase (items 315, 310) ─────────────
+//
+// Two things an operator has that the rack's entry has no room for, and that
+// need none: both live on the operator's own OSCILLATOR, the looped cycle its
+// instrument plays, in fields that instrument has always had.
+//
+//   harmonic  an odd whole number k, 1…31, carried by the oscillator's
+//             SAMPLING RATE: the cycle is tuned k times as high as the
+//             painter's rule tunes it (easyCycleTuning). The entry's detune
+//             takes the octaves as before, so a multiplier is k × 2^octaves —
+//             ×3, ×5, ×6, ×31 as exactly as ×2. A ratio written as detune
+//             alone is a whole number of 4096ths of an octave and never
+//             exactly 3; the rate is. The base rates are 2093 × 2^n for every
+//             power-of-two cycle (256 frames: 33488 = 2093 × 16), so k × rate
+//             ÷ 2^e is a whole number — exact — for every odd k up to 31.
+//   phase     where in the cycle a note starts: the oscillator's PLAY START,
+//             0 … cycle − 1 frames into a loop that starts at frame 0.
+//
+// Both are read off any instrument that is one looped cycle — the Easy sines,
+// a painted waveform, anything looping forward from frame 0 with no Ixmp
+// patches to override its fields — and written as a byte patch on it.
+
+/** The largest odd harmonic an oscillator's rate carries. */
+export const EASY_HARMONIC_MAX = 31;
+
+/** How close (by ratio) a tuning must be to k × 2^j to read as it: well under
+ *  one 4096th of an octave (1.7e-4), well over the rate's rounding. */
+const HARMONIC_TOLERANCE = 5e-5;
+
+/** `ratio` as {k, octaves} — k odd, 1 … EASY_HARMONIC_MAX, ratio = k × 2^octaves
+ *  — or null when it is no such number. */
+export function easyHarmonicOf(ratio) {
+  if (!(ratio > 0) || !Number.isFinite(ratio)) return null;
+  for (let j = -24; j <= 24; j++) {
+    const q = ratio / 2 ** j;
+    const k = Math.round(q);
+    if (k < 1 || k > EASY_HARMONIC_MAX || (k & 1) === 0) continue;
+    if (Math.abs(q / k - 1) <= HARMONIC_TOLERANCE) return { k, octaves: j };
+  }
+  return null;
+}
+
+/**
+ * The rate and detune that tune a looped cycle of `frames` to `k` times the
+ * painter's pitch (easyCycleTuning): the rate multiplied by k and halved as
+ * often as the 16-bit field needs, the detune taking those halvings back as
+ * whole octaves — or null when that is not EXACT: the halved rate not a whole
+ * number (a cycle whose base rate lacks the factors of two), or the detune
+ * past its field (a cycle of 2048 frames and more, high harmonics). Every
+ * power-of-two cycle from 16 to 1024 frames carries every odd k to 31.
+ */
+export function easyHarmonicTuning(frames, k = 1) {
+  const base = easyCycleTuning(frames);
+  const odd = Math.round(k);
+  if (odd === 1) return base;
+  if (odd < 1 || odd > EASY_HARMONIC_MAX || (odd & 1) === 0) return null;
+  let rate = base.samplingRate * odd;
+  let e = 0;
+  while (rate > 0xffff) { rate /= 2; e++; }
+  const detune = base.detune + 4096 * e;
+  if (!Number.isInteger(rate) || detune > 32767) return null;
+  return { samplingRate: rate, detune };
+}
+
+/** The largest odd harmonic a cycle of `frames` carries exactly (1 for none). */
+export function easyHarmonicReach(frames) {
+  for (let k = EASY_HARMONIC_MAX; k > 1; k -= 2) {
+    // A harmonic past the reach may still fit (a rate that divides once more);
+    // the reach is where every one below it does.
+    let all = true;
+    for (let j = 3; j <= k && all; j += 2) all = easyHarmonicTuning(frames, j) !== null;
+    if (all) return k;
+  }
+  return 1;
+}
+
+/**
+ * An operator's oscillator as the Easy tab reads it — {cycle, phase,
+ * harmonic, reach} — or null when `inst` is not one looped cycle (an OPL or
+ * PSG operator, a one-shot, a loop after an attack, a constant at rate 0, an
+ * instrument with keymap patches whose own fields would override these).
+ *
+ *   cycle     the loop's length in frames
+ *   phase     the play start, 0 … cycle − 1 (a start past the loop reads 0)
+ *   harmonic  {k, octaves} the oscillator's tuning is, against the painter's
+ *             rule (octaves 0 for one Easy wrote), or null for a tuning of
+ *             its own — set on its instrument's tabs
+ *   reach     the largest odd harmonic its cycle can carry exactly
+ */
+export function easyOscOf(inst) {
+  if (!inst || inst.isMeta || inst.isHighMeta) return null;
+  // A constant (rate 0: the principal, a loop's depth) never leaves its first
+  // frame, so it has no cycle to start anywhere in.
+  if ((inst.loopMode & 3) !== 1 || inst.samplingRate === 0) return null;
+  if ((inst.extraPatches?.length ?? 0) > 0) return null;
+  const cycle = inst.sampleLoopEnd | 0;
+  if ((inst.sampleLoopStart | 0) !== 0 || cycle < 2 || cycle > (inst.sampleLength | 0)) return null;
+  const start = inst.samplePlayStart | 0;
+  const base = easyCycleTuning(cycle);
+  const ratio = (inst.samplingRate / base.samplingRate) *
+    2 ** ((inst.sampleDetuneSigned - base.detune) / 4096);
+  return {
+    cycle, phase: start < cycle ? start : 0, harmonic: easyHarmonicOf(ratio),
+    reach: easyHarmonicReach(cycle),
+  };
+}
+
+/** The phase as a fraction of the cycle, 0 ≤ p < 1. */
+export function easyPhaseFraction(osc) {
+  return osc ? osc.phase / osc.cycle : 0;
+}
+
+/** The record byte patch (setInstBytesOp pairs) that starts `osc`'s
+ *  instrument `phase` frames into its cycle. */
+export function easyPhaseBytes(osc, phase) {
+  const p = ((Math.round(phase) % osc.cycle) + osc.cycle) % osc.cycle;
+  return [[8, p & 0xff], [9, (p >>> 8) & 0xff]];
+}
+
+/** The byte patch that tunes `osc`'s instrument to harmonic `k` (octaves 0),
+ *  or null when its cycle cannot carry k exactly. */
+export function easyHarmonicBytes(osc, k) {
+  const tuning = easyHarmonicTuning(osc.cycle, k);
+  if (tuning === null) return null;
+  const { samplingRate, detune } = tuning;
+  const d = detune & 0xffff;
+  return [[6, samplingRate & 0xff], [7, (samplingRate >>> 8) & 0xff], [184, d & 0xff], [185, d >>> 8]];
+}
+
+// ── the multiplier: harmonic × octaves ──────────────────────────────────────
+
+/**
+ * A multiplier as the Easy tab offers it: {k, mult}, the ratio k × 2^mult.
+ * The list is the DX7's coarse ratios and more — every whole number 1 … 31,
+ * the octaves down to 1/256 and up to 256 — and a multiplier with an odd
+ * factor needs an oscillator to carry it: `reach` is the largest odd factor
+ * the operator's can (easyOscOf), 1 for octaves alone.
+ */
+export function easyMultipliers(reach = EASY_HARMONIC_MAX) {
+  const out = [];
+  for (let m = EASY_MULT_MIN; m < 0; m++) out.push({ k: 1, mult: m });
+  for (let n = 1; n <= EASY_HARMONIC_MAX; n++) {
+    let k = n, m = 0;
+    while ((k & 1) === 0) { k >>= 1; m++; }
+    if (k <= reach) out.push({ k, mult: m });
+  }
+  for (let m = 5; m <= EASY_MULT_MAX; m++) out.push({ k: 1, mult: m });
+  return out;
+}
+
+/** The multiplier `{k, mult}` as a ratio's words: ×3, ×1/4, ×48, ×3/2. */
+export function easyMultiplierText({ k, mult }) {
+  if (mult >= 0) return `×${k * 2 ** mult}`;
+  return `×${k}/${2 ** -mult}`;
+}
+
+/** A multiplier's key, for a select's value. */
+export const easyMultiplierKey = ({ k, mult }) => `${k}:${mult}`;
+
+/** The multiplier an operator's row shows: its entry's octaves, plus the
+ *  oscillator's harmonic and whatever octaves its tuning carries besides. */
+export function easyMultiplierOf(detune, osc) {
+  const { mult } = easySplitDetune(detune);
+  const h = osc?.harmonic ?? { k: 1, octaves: 0 };
+  return { k: h.k, mult: mult + h.octaves };
+}

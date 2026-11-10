@@ -13,6 +13,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Listen writes the sound into the rack and plays it, the root and then that triad; Cancel takes it back out, and Apply keeps it as one undo step. A rack not in Easy Mode is turned into one.
 - Fixed: the Sethares measure in Harmonic transpose weighed two overtones by the product of their levels rather than the quieter of the two, as Sethares' own model does, so it underrated the roughness of quiet overtones.
 
+**FM operators take every whole-number multiplier, exactly, and a phase.** The Easy tab's multiplier is now a ratio of the key's frequency, as on a DX7: ×1 to ×31 and octaves from ×1/256 to ×256, where it used to offer octaves only.
+
+- ×3, ×5, ×7 and the rest are exact: a ×3 modulator stays locked to its carrier for as long as the note rings, which a ratio typed in cents could only come within a hair of. Existing racks sound as they did; their octave multipliers now read as ×2, ×4 and so on.
+- Every operator has a phase slider, on the Easy tab and the FM tab: where in its cycle the operator starts each note, from 0 to just under 100%. A modulator starting at the top of its wave colours the attack differently from one starting at zero, and two carriers at the same pitch add up or cancel.
+
 **The Keymap Maker: a keyboard made from a scale.** Keymap Maker…, at the top of the Keymap tab's layout list, makes a layout from a scale: laid out like a piano, with the scale on the white keys and a black key in each of its large steps, or with every key a note of the scale and the notes outside it left off the board.
 
 - Pentatonic (major or minor) and heptatonic scales in all seven modes, from Ionian to Locrian, are built on the tuning system's own fifths. MOS scales take any pattern of large and small steps, with the two step sizes and the mode of your choice, including patterns that repeat within the octave, such as 4L 2s, or 12-TET's augmented (3L 3s) and octatonic (4L 4s) scales. A MOS can repeat at the tritave or the fifth instead of the octave, such as 6L 3s⟨3/1⟩, which at 2:1 is 15 equal steps of the tritave.

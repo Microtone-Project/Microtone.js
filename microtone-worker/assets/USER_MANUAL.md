@@ -1814,13 +1814,18 @@ you change on one is there on the other.
 
 - **Preset** rewires the rack to one of the forty: two of two operators, six of four, and the thirty-two six-operator algorithms. It can be changed at any time; the operators keep their levels, frequencies and envelopes, extra ones are dropped and missing ones are added.
 - **Routing** draws the wiring and lets you change it by hand. Drag an operator onto another to make it modulate that one, onto itself for feedback, or onto **OUT** to hear it; drag the same way again to undo it. A connection that would close a loop becomes a feedback loop. The grid under the picture says the same thing — a row per operator, a column per place its output can go — and pressing a cell connects or disconnects it.
-- Each **operator** has a **level**, a **multiplier** and a **detune**. The multiplier is in octaves: 1 is +1 octave, 0 no change, −1 is −1 octave, −2 is −2 octaves. The detune is a finer shift on top of it, up to half an octave either way. **Fixed**, in front of the multiplier, is the DX7's fixed-frequency mode: the operator plays one note whatever the key, typed in place of the multiplier, and the FM tab's **Fixed** is the same switch. **Envelope** shows the operator's own volume envelope below the table, in the same editor as an instrument's.
+- Each **operator** has a **level**, a **multiplier**, a **detune** and a **phase**. The multiplier is the operator's frequency as a multiple of the key's: ×2 is an octave up, ×3 an octave and a fifth, ×1/2 an octave down. Every whole number from ×1 to ×31 is there, as on the DX7, and octaves reach from ×1/256 to ×256. They are exact: ×3 is three times the key's frequency to the last digit, so a ×3 modulator never drifts against its carrier, which a ratio written in cents cannot quite do. The detune is a finer shift on top of it, up to half an octave either way. **Fixed**, in front of the multiplier, is the DX7's fixed-frequency mode: the operator plays one note whatever the key, typed in place of the multiplier, and the FM tab's **Fixed** is the same switch. **Envelope** shows the operator's own volume envelope below the table, in the same editor as an instrument's.
+- **Phase** is where in its cycle the operator starts every note, from 0 to just under 100 %. It is heard where operators meet: a modulator that starts at the top of its wave bends the attack differently from one that starts at zero, and two carriers at the same pitch add up at 0 % and cancel at 50 %. The FM tab has the same slider for every operator that is a looped single cycle.
 - **Feedback** is counted as on those synths: 0 is none, then 1…7 doubles each step from π/16 up to 4π.
 - **Output** is the whole instrument's level, and **Shared DSP…** opens the *principal* — the one part of the rack that is not an oscillator. Its volume and pan envelopes, filter, fadeout and New Note Action are the instrument's own, applied to the finished sound of all the operators together.
 
 On the FM tab the Easy rack is an ordinary one: the principal is operator 0,
 multiplying everything else (`… × 0` in the formula), the operators follow it, and
-each feedback depth is one more operator, a constant. An edit there that the Easy
+each feedback depth is one more operator, a constant. A multiplier with an odd
+factor in it, such as ×3 or ×6, is kept partly in the operator's own waveform:
+the waveform is tuned three times as high, and the FM tab marks the operator
+**×3** beside its ratio, which shows only the octaves. Phase is likewise the
+waveform's own play start, so it is there on the waveform's instrument too. An edit there that the Easy
 tab could not show — a ring modulation, say — is held with a note above it, until
 you either undo it or choose **Apply and leave Easy Mode**. Turning Easy Mode off
 in Options changes nothing but the tabs.
