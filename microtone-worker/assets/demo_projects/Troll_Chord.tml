@@ -1,0 +1,499 @@
+tml 2
+// "Troll Chord" — xenharmonic music in plain 12-TET. 4/4 at ♩ = 120, 92 bars;
+// a row is a sixteenth, four bars to a cue. An out-of-tree experiment, not a
+// demo song.
+//
+// Every chord here is a stretch of the harmonic series high enough to reach
+// the 17th and 19th harmonics, rounded to the nearest semitone and stood on C.
+// Each has a tame lower-limit reading in some other key; on C, in C, they are
+// what they are: harmonics 16, 17 and 19 of C are C, Db and Eb, and nothing
+// lower explains them. Seven chords make the song. The eighth, 16:17:18:19 —
+// C Db D Eb in root position, the Troll Chord — is kept for the last bar, and
+// D, its 18th harmonic, is heard nowhere before it. E, the fifth harmonic,
+// the note a theorist would reach for, is heard nowhere at all.
+//
+// The rhythm is 7 against 4: four quarters (kick, bass, hats, clap) against
+// seven septuplets (the arpeggio, the metal ticks). Speed 14 makes a 16-row bar
+// 224 ticks long, which 7 and 4 both divide: a quarter is four rows, a
+// septuplet 32 ticks — two rows and a note delay.
+//
+// Form: 1–8 Overtones · 9–24 A · 25–40 B · 41–48 The Seven (7 chords in 4
+//       bars) · 49–64 A with the hook · 65–80 B with the leads · 81–88 the
+//       seven again, 4 bars, then 2, 1 and ½ · 89 the Troll Chord
+//
+// The instruments are OPL and PSG chips, declared here field for field.
+
+song {
+  title: "Troll Chord"
+  composer: "CuriousTorvald via Motif"
+  copyright: "(c) 2026 CuriousTorvald"
+  message: about()
+  tempo: 280                  // 112 Hz ticks
+  speed: 14                   // a row is 14 ticks, 0.125 s; a bar 224 ticks, 2 s
+  bars: 92
+  bar_rows: 16
+  beat_rows: 4
+  cue_bars: 4
+  global_volume: 128
+  mixing_volume: 128
+}
+
+master {
+  trim_db: 3
+  hp_on: true, hp_freq: 24, hp_slope: 24
+  eq_on: true
+  eq: [
+    { on: true, type: "low_shelf",  freq: 80,   gain_db: 2.0,  q: 0.6 },
+    { on: true, type: "peak",       freq: 320,  gain_db: -1.5, q: 0.9 },
+    { on: true, type: "peak",       freq: 3200, gain_db: 1.0,  q: 0.8 },
+    { on: true, type: "high_shelf", freq: 9000, gain_db: 1.5,  q: 0.707 },
+  ]
+  comp_on: true, comp_detector: "rms", comp_thresh_db: -14, comp_ratio: 2.0
+  comp_attack_ms: 12, comp_release_ms: 180, comp_knee_db: 6, comp_makeup_db: 2
+  width_on: true, width: 1.15
+  lim_on: true, lim_true_peak: true, lim_ceiling_db: -1.0, lim_release_ms: 80
+  out_gain_db: 0
+}
+
+// ── instruments: an OPL and a PSG, declared field for field ─────────────────
+// Every field is the register value the Instruments view's OPL and PSG tabs
+// edit. An operator or oscillator says only what differs from a held tone at
+// full level (attack 15, decay 0, sustain level 0, release 7, sustain on); a
+// struck one decays through sustain level 15 with sustain off. Held voices let
+// go of a note when the lane's next one comes (nna "off": the chip's own
+// release on a voice of its own); struck ones ring on under it.
+fn struck(decay, release = 0, more = {}) => merge({ decay, release, sustain_level: 15, sustain: false }, more)
+
+// Four operators, the 1+2>3+4 chain: three drawbars — 8' (×1), 4' (×2) and
+// 2⅔' (×3, the third harmonic) — with a quick ×4 modulator on the 4' for the
+// key click, decaying to a faint edge.
+instrument DRAWBAR { name: "Drawbar", nna: "off", opl: { kind: "4op", connection: "1+2>3+4", operators: [
+  {}, { multiple: 4, level: 30, decay: 5, sustain_level: 7 }, { multiple: 2, level: 5 }, { multiple: 3, level: 10 },
+] } }
+// The same three drawbars, softer and darker, slower to speak.
+instrument FLUTE { name: "Flute Organ", nna: "off", opl: { kind: "4op", connection: "1+2>3+4", operators: [
+  { attack: 9, release: 5 }, { level: 63, attack: 9, release: 5 },
+  { multiple: 2, level: 10, attack: 9, release: 5 }, { multiple: 4, level: 22, attack: 9, release: 5 },
+] } }
+// A reed: operator 1 feeding back into itself and modulating 2, brightest at
+// the attack. The final blow is played on it.
+instrument REED { name: "Reed", nna: "off", opl: { feedback: 5, operators: [
+  { level: 20, decay: 3, sustain_level: 3, key_scale_level: 1 }, { decay: 1, sustain_level: 1, release: 6 },
+] } }
+// FM bass: a bright pluck that settles to a round tone.
+instrument FMBASS { name: "FM Bass", nna: "off", opl: { feedback: 4, operators: [
+  { level: 24, decay: 6, sustain_level: 8, release: 9 }, { decay: 3, sustain_level: 2, release: 9 },
+] } }
+// Lead: a ×2 modulator for a hollow, clarinet-like tone, with the chip's vibrato.
+instrument FMLEAD { name: "FM Lead", nna: "off", opl: { feedback: 2, operators: [
+  { multiple: 2, level: 30, decay: 2, sustain_level: 4, vibrato: true }, { decay: 1, sustain_level: 1, release: 6, vibrato: true },
+] } }
+// A glass bell: a ×7 modulator over a ×2 carrier — the sidebands land on
+// harmonics, so the bell is in tune with the chords it rings over.
+instrument BELL { name: "Glass Bell", nna: "continue", opl: { operators: [
+  struck(6, 0, { multiple: 7, level: 26 }), struck(4, 4, { multiple: 2 }),
+] } }
+// The chip's rhythm mode, one drum each. The kick's pitch drop is the song's
+// (a pitch slide on every hit); the noise drums read their partner channel.
+instrument KICK   { name: "OPL Kick", nna: "off", opl: { kind: "bass_drum", feedback: 4, operators: [
+  struck(8, 15, { multiple: 0, level: 18 }), struck(7, 10),
+] } }
+instrument SNARE  { name: "OPL Snare",  nna: "off",      opl: { kind: "snare",  operators: [struck(8, 8)] } }
+instrument OHAT   { name: "OPL Hat",    nna: "off",      opl: { kind: "hi_hat", operators: [struck(10, 10)] } }
+instrument CYMBAL { name: "OPL Cymbal", nna: "continue", opl: { kind: "cymbal", operators: [struck(4, 4)] } }
+instrument TOM    { name: "OPL Tom",    nna: "off",      opl: { kind: "tom",    operators: [struck(7, 7)] } }
+
+// A 25% pulse plucked, with a quiet triangle an octave up for body.
+instrument PLUCK { name: "Pulse Pluck", nna: "continue", psg: {
+  a: struck(6, 8, { waveform: "pulse6", level: 4, reset: true }),
+  b: struck(6, 8, { waveform: "triangle", multiple: 2, level: 14, reset: true }),
+} }
+// A lead whose pulse width walks: the auto-advance steps it through all seven
+// widths and back every 28 ticks, the poor man's PWM; an octave-up
+// square under it, quietly.
+instrument PWM { name: "PWM Lead", nna: "off", psg: {
+  a: { waveform: "pulse1", level: 2, attack: 14, decay: 2, sustain_level: 3, vibrato: 1, advance: 14 },
+  b: { multiple: 2, level: 18, attack: 14, decay: 2, sustain_level: 3 },
+} }
+// Ring modulation: a triangle times a square three times as fast. Harmonic
+// ratios in, harmonic sidebands out: a bell that ticks the sevens.
+instrument RING { name: "Ring Clock", nna: "continue", psg: { mix: "multiplicative",
+  a: struck(7, 8, { waveform: "triangle", reset: true }),
+  b: struck(6, 8, { multiple: 3, reset: true }),
+} }
+// Noises: the long sequence (white) for hats, the mid one for the clap, the
+// short one — metallic — for the septuplet ticks. A noise is clocked sixteen
+// steps a cycle, so its note is its colour.
+instrument HAT   { name: "Noise Hat",  nna: "off", psg: { a: struck(10, 10, { waveform: "noise32767", level: 4, reset: true }) } }
+instrument OPEN  { name: "Noise Open", nna: "off", psg: { a: struck(7, 8, { waveform: "noise32767", level: 4, reset: true }) } }
+instrument CLAP  { name: "Clap",       nna: "off", psg: { a: struck(8, 8, { waveform: "noise2047", level: 2, reset: true }) } }
+instrument TICK  { name: "Metal Tick", nna: "off", psg: { a: struck(9, 9, { waveform: "noise127", level: 6, reset: true }) } }
+// The Famicom's 4-bit triangle, held: the fundamental under everything.
+instrument SUB   { name: "Tri Sub", nna: "off", psg: { a: { waveform: "triangle4", attack: 13, release: 6 } } }
+// A noise that swells in while held: the riser.
+instrument RISER { name: "Riser", nna: "off", psg: { a: { waveform: "noise32767", attack: 4, release: 6 } } }
+
+// ── lanes: the four on the right, the seven on the left ──────────────────────
+lane kick  { inst: KICK,    pan: $80, label: "Kick", trim: db(1) }
+lane snare { inst: SNARE,   pan: $88, label: "Snare", trim: db(2.5) }
+lane clap  { inst: CLAP,    pan: $78, label: "Clap", trim: db(3) }
+lane hat   { inst: HAT,     pan: $B8, label: "Hat (4)", trim: db(4.5),       jitter: 3 }
+lane ohat  { inst: OHAT,    pan: $D0, label: "Shimmer",       jitter: 4 }
+lane cym   { inst: CYMBAL,  pan: $A0, label: "Cymbal" }
+lane tom   { inst: TOM,     pan: $90, label: "Tom" }
+lane tick  { inst: TICK,    pan: $48, label: "Tick (7)", trim: db(5),      jitter: 3 }
+lane ring  { inst: RING,    pan: $30, label: "Ring clock", trim: db(4) }
+lane bass  { inst: FMBASS,  pan: $80, label: "FM bass", trim: db(-1) }
+lane sub   { inst: SUB,     pan: $80, label: "Sub", trim: db(-9) }
+lane arp   { inst: PLUCK,   pan: $50, label: "Arp (7)", trim: db(1.5),       jitter: 2 }
+lane echo  { inst: PLUCK,   pan: $C8, label: "Arp echo" }
+lane org1  { inst: DRAWBAR, pan: $60, label: "Organ 1", trim: db(-9) }
+lane org2  { inst: DRAWBAR, pan: $74, label: "Organ 2", trim: db(-9) }
+lane org3  { inst: DRAWBAR, pan: $8C, label: "Organ 3", trim: db(-9) }
+lane org4  { inst: DRAWBAR, pan: $A0, label: "Organ 4", trim: db(-9) }
+lane reed1 { inst: REED,    pan: $68, label: "Reed 1", trim: db(-3) }
+lane reed2 { inst: REED,    pan: $78, label: "Reed 2", trim: db(-3) }
+lane reed3 { inst: REED,    pan: $88, label: "Reed 3", trim: db(-3) }
+lane reed4 { inst: REED,    pan: $98, label: "Reed 4", trim: db(-3) }
+lane lead  { inst: PWM,     pan: $70, label: "PWM lead", trim: db(-3) }
+lane lead2 { inst: FMLEAD,  pan: $90, label: "FM lead", trim: db(-4) }
+lane bell  { inst: BELL,    pan: $B0, label: "Glass bell" }
+lane riser { inst: RISER,   pan: $80, label: "Riser", trim: db(-6) }
+
+let ORG = [org1, org2, org3, org4]
+let REEDS = [reed1, reed2, reed3, reed4]
+
+section "overtones" 1..8
+section "A"         9..24
+section "B"         25..40
+section "seven"     41..48
+section "hook"      49..64
+section "leads"     65..80
+section "converge"  81..88
+section "troll"     89..92
+
+// ── time: the four and the seven ─────────────────────────────────────────────
+let TPR = 14                 // ticks a row
+let BAR = 16 * TPR           // ticks a bar
+/** The row a tick of a bar falls on, and the note delay that reaches it. */
+fn tick_row(bar, t) => at(bar) + floor(t / TPR)
+fn tick_delay(t) => t % TPR
+/** A note `t` ticks into a bar (t may run past the bar's end). */
+fn hit_t(l, bar, t, p, vol, inst = none) =>
+  hit(l, tick_row(bar, t), p, vol, inst: inst, delay: tick_delay(t))
+/** The ticks of `n` even strokes over `span` ticks. */
+fn evenly(n, span) {
+  assert(span % n == 0, "${n} strokes do not divide ${span} ticks")
+  return [k * span / n for k in 0..<n]
+}
+let SEPT = evenly(7, BAR)    // 0 32 64 96 128 160 192: rows 0 2 4 6 9 11 13, ticks in 0 4 8 12 2 6 10
+
+// ── harmony ──────────────────────────────────────────────────────────────────
+/** A chord from harmonic numbers: each rounded to the nearest semitone above
+ *  the lowest, which stands on C. */
+fn harmonic(ratio) => {
+  name: join([str(r) for r in ratio], ":"),
+  ratio,
+  ivs: [round(12 * log2(r / ratio[0])) for r in ratio],
+}
+let H16_17_19    = harmonic([16, 17, 19])        // C Db Eb
+let H17_18_27    = harmonic([17, 18, 27])        // C Db Ab
+let H16_17_27    = harmonic([16, 17, 27])        // C Db A
+let H9_12_16_17  = harmonic([9, 12, 16, 17])     // C F Bb B
+let H17_24_27    = harmonic([17, 24, 27])        // C F# Ab
+let H12_16_17_19 = harmonic([12, 16, 17, 19])    // C F F# Ab
+let H12_17_18_19 = harmonic([12, 17, 18, 19])    // C F# G Ab
+let TROLL        = harmonic([16, 17, 18, 19])    // C Db D Eb
+assert(H9_12_16_17.ivs == [0, 5, 10, 11] and H12_17_18_19.ivs == [0, 6, 7, 8] and TROLL.ivs == [0, 1, 2, 3],
+  "the chords round as the plan says")
+let SEVEN = [H16_17_19, H17_18_27, H16_17_27, H9_12_16_17, H17_24_27, H12_16_17_19, H12_17_18_19]
+let PROG_A = [H16_17_19, H17_18_27, H16_17_27, H9_12_16_17]     // two bars each
+let PROG_B = [H17_24_27, H12_16_17_19, H12_17_18_19, H17_18_27]
+
+/** The chord as written, its lowest note on `base`; a three-note chord takes
+ *  the lowest an octave up as a fourth note (twice a harmonic is a harmonic). */
+fn voicing(ch, base = 'C4') {
+  let tones = [base + iv for iv in ch.ivs]
+  return if len(tones) == 3 then tones + [base + 12] else tones
+}
+/** The chord on four lanes, struck where a lane's note changes. */
+fn chord_on(lanes, row, ch, vol, prev = none, base = 'C4', inst = none, delay = 0) {
+  let v = voicing(ch, base)
+  for i, l in lanes if prev == none or voicing(prev, base)[i] != v[i] {
+    hit(l, row, v[i], vol, inst: inst, delay: delay)
+  }
+}
+/** A progression on four lanes, `bars_each` bars a chord. */
+fn chords(lanes, bar0, prog, bars_each, vol, base = 'C4', inst = none) {
+  for k, ch in prog {
+    chord_on(lanes, at(bar0 + k * bars_each), ch, vol, if k == 0 then none else prog[k - 1], base, inst)
+  }
+}
+fn release(lanes, row) { for l in lanes { keyoff(l, row) } }
+
+// ── the seven: arpeggio and ticks ────────────────────────────────────────────
+/** Seven notes a bar from the chord's tones over two octaves: up on a chord's
+ *  first bar, down on its second. */
+fn arp_tones(ch) {
+  return unique(sort(voicing(ch, 'C5') + voicing(ch, 'C6') + ['C7']))
+}
+fn arp_bar(l, bar, ch, vol, down = false) {
+  let t = arp_tones(ch)
+  let seven = if down then reverse(t)[0..<7] else t[0..<7]
+  for k, tt in SEPT { hit_t(l, bar, tt, seven[k], if k == 0 then vol else round(vol * 0.78)) }
+}
+fn arpeggio(bar0, prog, vol, echo_vol = 0) {
+  let music = [arp_bar(arp, bar0 + 2 * k + j, ch, vol, j == 1) for k, ch in prog for j in 0..<2]
+  music
+  // a dotted-eighth echo: six rows on, the same ticks — a 3/16 delay of the seven
+  if echo_vol { on(echo, map_vols(shift(music, 6), fn(v) => max(1, round(v * echo_vol / vol)))) }
+}
+fn ticks7(bar, vol) { for k, t in SEPT { hit_t(tick, bar, t, 'G6', if k == 0 then vol else round(vol * 0.6)) } }
+
+// ── the four: drums and bass ─────────────────────────────────────────────────
+/** A kick on every quarter: the chip's bass drum, its pitch slid down a
+ *  little over a semitone a tick, more than an octave over the row. */
+fn kick4(bar, vol, rows = [0, 4, 8, 12]) {
+  for r in rows { hit(kick, at(bar, r), 'G2', vol, fx: "E", arg: $0180) }
+}
+fn backbeat(bar, vol) {
+  for r in [4, 12] { hit(snare, at(bar, r), 'C4', vol); hit(clap, at(bar, r), 'C5', round(vol * 0.8)) }
+}
+fn hats(bar, vol, open_last = false) {
+  for r in [2, 6, 10, 14] {
+    hit(hat, at(bar, r), 'C7', vol, inst: if open_last and r == 14 then OPEN else none)
+  }
+}
+fn shimmer(bar, vol) { for r in 0..<16 { hit(ohat, at(bar, r), 'C5', if r % 4 == 2 then vol else round(vol * 0.55)) } }
+
+/** The bass: C, its octave, and on a chord's second bar the chord's own colour
+ *  note — the harmonic that names it. */
+let COLOUR = [[H16_17_19, 'D#2'], [H17_18_27, 'G#1'], [H16_17_27, 'A1'], [H9_12_16_17, 'A#1'],
+  [H17_24_27, 'F#2'], [H12_16_17_19, 'F2'], [H12_17_18_19, 'G2']]
+fn colour(ch) => [c[1] for c in COLOUR if c[0] == ch][0]
+fn bass_bar(bar, ch, vol, second = false) {
+  let turn = if second then note_name(colour(ch)) else "C2"
+  melody(bass, at(bar), "C2:2 r:1 C2:1 C3:1 r:1 C2:2 r:2 C2:1 r:1 ${turn}:2 C3:1 r:1", vol: vol)
+}
+fn bassline(bar0, prog, vol) { for k, ch in prog { for j in 0..<2 { bass_bar(bar0 + 2 * k + j, ch, vol, j == 1) } } }
+
+/** Every part of the four and the seven over one 8-bar phrase. */
+fn groove(bar0, prog, v) {
+  for b in bar0..<bar0 + 8 {
+    if v.kick { kick4(b, v.kick) }
+    if v.back { backbeat(b, v.back) }
+    if v.hat { hats(b, v.hat, (b - bar0) % 2 == 1) }
+    if v.shim { shimmer(b, v.shim) }
+    if v.tick { ticks7(b, v.tick) }
+  }
+  if v.bass { bassline(bar0, prog, v.bass) }
+  if v.arp { arpeggio(bar0, prog, v.arp, get(v, "echo", 0)) }
+  if v.org { chords(ORG, bar0, prog, 2, v.org) }
+}
+fn crash(bar, vol) { hit(cym, at(bar), 'C5', vol) }
+
+// ── melodies ─────────────────────────────────────────────────────────────────
+// No D and no E anywhere: D is the Troll Chord's, and E is the lower limit.
+// The hook, over PROG_A: 3+3+2 against the four.
+let HOOK = [
+  "D#5:3 C#5:3 C5:2 C#5:4 D#5:4",     // 16:17:19
+  "C#5:6 C5:2 r:2 D#5:2 C#5:4",
+  "G#5:3 C#6:3 C6:2 G#5:4 C#6:4",     // 17:18:27
+  "C6:12 r:4",
+  "A5:3 C#6:3 C6:2 A5:4 C#6:4",       // 16:17:27
+  "C#6:6 C6:2 A5:8",
+  "B5:3 A#5:3 F5:2 A#5:4 B5:4",       // 9:12:16:17
+  "C6:16",
+]
+let HOOK_2 = HOOK[0..<6] + ["B5:3 A#5:3 F5:2 B5:4 C#6:4", "C6:12 r:4"]
+// The tritone tune, over PROG_B: it lands on C#6, the 17th harmonic, and holds.
+let TUNE = [
+  "G#5:4 G5:2 F#5:2 r:2 C6:2 G#5:4",  // 17:24:27
+  "F#5:12 r:4",
+  "F5:2 F#5:2 G#5:4 C6:4 F6:4",       // 12:16:17:19
+  "F#6:8 F6:4 C6:4",
+  "G5:3 G#5:3 G5:2 F#5:4 C6:4",       // 12:17:18:19
+  "G#5:12 r:4",
+  "C#6:4 C6:2 G#5:2 C#6:4 D#6:4",     // 17:18:27
+  "C#6:16",
+]
+let TUNE_2 = TUNE[0..<6] + ["C#6:4 C6:2 G#5:2 D#6:4 F6:4", "F#6:4 D#6:4 C#6:8"]
+fn bars(list) => join(list, " | ")
+
+// ── the seven chords, evenly over a span ─────────────────────────────────────
+/** All seven chords, one each 1/7 of `span` ticks from bar `bar0`: on the
+ *  organ (and the reeds an octave down when `reed`), the ring clock and the
+ *  bell giving each its top note. 7 chords in 4 bars is 7:4 again, a level up. */
+fn seven_chords(bar0, span, order, vol, reed = 0, bell_vol = 0) {
+  let ts = evenly(7, span)
+  for k, ch in order {
+    let row = tick_row(bar0, ts[k])
+    let d = tick_delay(ts[k])
+    chord_on(ORG, row, ch, vol, if k == 0 then none else order[k - 1], delay: d)
+    if reed { chord_on(REEDS, row, ch, reed, if k == 0 then none else order[k - 1], 'C3', delay: d) }
+    if bell_vol { hit(bell, row, voicing(ch, 'C6')[len(ch.ivs) - 1], bell_vol, delay: d) }
+    hit(ring, row, 'C5' + ch.ivs[1], round(vol * 0.8), delay: d)
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 1–8  OVERTONES — a C, and its harmonics arriving
+// ═════════════════════════════════════════════════════════════════════════════
+hit(sub, at(1), 'C1', 20)
+vol_ramp(sub, at(1, 1), at(3), 20, 52)
+for b in 1..8 { ticks7(b, min(40, 18 + 3 * b)) }
+// harmonic 16, alone; then 17 and 19 join it: the first chord
+hit(org1, at(1), 'C5', 10, inst: FLUTE)
+vol_ramp(org1, at(1, 1), at(3), 10, 40)
+hit(org2, at(3), 'C#5', 10, inst: FLUTE)
+vol_ramp(org2, at(3, 1), at(5), 10, 36)
+hit(org3, at(5), 'D#5', 10, inst: FLUTE)
+vol_ramp(org3, at(5, 1), at(7), 10, 36)
+for b in 3..8 { kick4(b, if b < 5 then 34 else 44, if b < 5 then [0, 8] else [0, 4, 8, 12]) }
+for b in 5..8 { hats(b, 26) }
+hit(bell, at(6), 'C#6', 34)
+hit(bell, at(6, 9), 'D#6', 28, delay: 1)
+hit(bell, at(7, 13), 'C#7', 22, delay: 5)
+hit(riser, at(7), 'C4', 6)
+vol_ramp(riser, at(7, 1), at(9), 6, 34)
+glide(riser, at(7, 1), 'C6', glide_speed('C4', 'C6', 30))
+release([org1, org2, org3], at(9))
+cut(riser, at(9))
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 9–24  A — the four and the seven together, on PROG_A
+// ═════════════════════════════════════════════════════════════════════════════
+crash(9, 40)
+groove(9, PROG_A, { kick: 50, back: 0, hat: 30, shim: 0, tick: 30, bass: 46, arp: 44, echo: 22, org: 0 })
+groove(17, PROG_A, { kick: 52, back: 42, hat: 32, shim: 0, tick: 32, bass: 48, arp: 46, echo: 24, org: 30 })
+hit(sub, at(9), 'C1', 50)
+// the bell rings each chord's highest harmonic, high above
+for k, ch in PROG_A + PROG_A {
+  hit(bell, at(9 + 2 * k, 2), voicing(ch, 'C6')[3], 30)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 25–40  B — the tritone chords; the PWM lead
+// ═════════════════════════════════════════════════════════════════════════════
+crash(25, 44)
+groove(25, PROG_B, { kick: 52, back: 44, hat: 32, shim: 18, tick: 30, bass: 48, arp: 40, echo: 20, org: 32 })
+groove(33, PROG_B, { kick: 54, back: 46, hat: 34, shim: 20, tick: 32, bass: 50, arp: 42, echo: 22, org: 34 })
+melody(lead, at(25), bars(TUNE), vol: 44)
+melody(lead, at(33), bars(TUNE_2), vol: 46)
+release(ORG, at(41))
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 41–48  THE SEVEN — all seven chords in four bars, the four only on the bars
+// ═════════════════════════════════════════════════════════════════════════════
+seven_chords(41, 4 * BAR, SEVEN, 40, bell_vol: 30)
+seven_chords(45, 4 * BAR, reverse(SEVEN), 42, bell_vol: 32)
+for b in 41..48 {
+  hit(clap, at(b), 'C5', 40)
+  ticks7(b, 26)
+}
+for b in 45..48 { kick4(b, 40, [0]) }
+for b in 47..48 { arp_bar(arp, b, H16_17_19, 30 + 6 * (b - 47), b == 48) }
+release(ORG, at(49))
+hit(riser, at(47), 'C4', 6)
+vol_ramp(riser, at(47, 1), at(49), 6, 36)
+glide(riser, at(47, 1), 'C6', glide_speed('C4', 'C6', 30))
+cut(riser, at(49))
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 49–64  THE HOOK — PROG_A in full; at 57 the hats take the seven and the
+// ticks the four
+// ═════════════════════════════════════════════════════════════════════════════
+crash(49, 50)
+crash(57, 46)
+groove(49, PROG_A, { kick: 56, back: 46, hat: 34, shim: 20, tick: 32, bass: 52, arp: 42, echo: 22, org: 30 })
+groove(57, PROG_A, { kick: 56, back: 48, hat: 0, shim: 22, tick: 0, bass: 52, arp: 44, echo: 24, org: 32 })
+for b in 57..64 {
+  for k, t in SEPT { hit_t(hat, b, t, 'C7', if k == 0 then 36 else 28) }
+  for r in [2, 6, 10, 14] { hit(tick, at(b, r), 'G6', 30) }
+}
+hit(sub, at(49), 'C1', 52)
+melody(lead2, at(49), bars(HOOK), vol: 48)
+melody(lead2, at(57), bars(HOOK_2), vol: 50)
+melody(bell, at(57), bars(HOOK_2), vol: 18, transpose: 12, ring: true)
+release(ORG, at(65))
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 65–80  THE LEADS — PROG_B, both leads, the reeds under the organ
+// ═════════════════════════════════════════════════════════════════════════════
+crash(65, 52)
+crash(73, 52)
+groove(65, PROG_B, { kick: 58, back: 48, hat: 36, shim: 22, tick: 34, bass: 54, arp: 40, echo: 22, org: 30 })
+groove(73, PROG_B, { kick: 58, back: 50, hat: 36, shim: 24, tick: 34, bass: 54, arp: 42, echo: 24, org: 32 })
+chords(REEDS, 65, PROG_B + PROG_B, 2, 30, 'C3')
+melody(lead, at(65), bars(TUNE), vol: 46)
+melody(lead2, at(65), bars(TUNE), vol: 40, transpose: -12)
+melody(lead, at(73), bars(TUNE_2), vol: 48)
+melody(lead2, at(73), bars(TUNE_2), vol: 42, transpose: -12)
+// a fill into the convergence: the tom in sevens, falling (round D and E)
+for k, p in notes("C4 A#3 G#3 F#3 F3 C#3 C3") { hit_t(tom, 80, SEPT[k], p, 36 + 3 * k) }
+release(ORG + REEDS, at(81))
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 81–88  CONVERGE — the seven chords in 4 bars, then 2, 1 and ½: a snare roll
+// in sevens doubling under them
+// ═════════════════════════════════════════════════════════════════════════════
+crash(81, 50)
+seven_chords(81, 4 * BAR, SEVEN, 40, reed: 32, bell_vol: 30)
+seven_chords(85, 2 * BAR, SEVEN, 44, reed: 36, bell_vol: 32)
+seven_chords(87, BAR, SEVEN, 48, reed: 40, bell_vol: 34)
+seven_chords(88, BAR / 2, SEVEN, 52, reed: 44, bell_vol: 36)
+release(ORG + REEDS, at(88, 8))
+for b in 81..87 { kick4(b, 56) }
+kick4(88, 58, [0, 4])
+for b in 81..84 { for k, t in SEPT { hit_t(snare, b, t, 'C4', 26 + 2 * (b - 81) + (if k == 0 then 6 else 0)) } }
+for b in 85..86 { for k, t in evenly(14, BAR) { hit_t(snare, b, t, 'C4', 32 + 3 * (b - 85)) } }
+for k, t in evenly(14, BAR) { hit_t(snare, 87, t, 'C4', 40); hit_t(clap, 87, t + 8, 'C5', 30) }
+for k, t in evenly(7, BAR / 2) { hit_t(snare, 88, t, 'C4', 46); hit_t(clap, 88, t + 8, 'C5', 36) }
+for b in 81..86 { bass_bar(b, H16_17_19, 52) }
+hit(sub, at(81), 'C1', 54)
+keyoff(sub, at(88, 8))
+hit(riser, at(85), 'C3', 8)
+vol_ramp(riser, at(85, 1), at(88, 15), 8, 52)
+glide(riser, at(85, 1), 'C7', glide_speed('C3', 'C7', 60))
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 89  THE TROLL CHORD — 16:17:18:19, root position, everything at once
+// ═════════════════════════════════════════════════════════════════════════════
+cut(riser, at(89))
+// what holds, and how loud: the reeds on C4, the organ on C5, and the same four
+// an octave up on the voices that played the seven and the leads
+let HOLD = [
+  [reed1, 'C4', 60], [reed2, 'C#4', 60], [reed3, 'D4', 60], [reed4, 'D#4', 60],
+  [org1, 'C5', 56], [org2, 'C#5', 56], [org3, 'D5', 56], [org4, 'D#5', 56],
+  [echo, 'C6', 50], [arp, 'C#6', 50], [lead2, 'D6', 46], [lead, 'D#6', 46],
+  [bass, 'C2', 60], [sub, 'C1', 60],
+]
+for [l, p, v] in HOLD {
+  hit(l, at(89), p, v)
+  vol_ramp(l, at(90), at(92, 8), v, 6)
+  keyoff(l, at(92, 10))
+}
+hit(kick, at(89), 'G2', 63, fx: "E", arg: $0180)
+hit(snare, at(89), 'C4', 56)
+hit(clap, at(89), 'C5', 50)
+crash(89, 60)
+hit(tom, at(89), 'C3', 50)
+// the bell spells it, harmonics 32, 34, 36, 38 — the only D the song has
+for k, p in notes("C7 C#7 D7 D#7") { hit_t(bell, 89, SEPT[k], p, 40 - 3 * k) }
+
+// ── the Project message ──────────────────────────────────────────────────────
+fn about() {
+  return """
+    Troll Chord is an out-of-tree experiment, not a demo song: about three minutes of clean electro in plain 12-tone equal temperament, played entirely on two chips, an OPL FM synthesiser and a PSG.
+
+    Every chord is a piece of the harmonic series high enough to reach the 17th and 19th harmonics, rounded to the nearest semitone and stood on C. Harmonics 16, 17 and 19 of C are C, D flat and E flat; harmonics 12, 17, 18 and 19 of F, read up from C, are C, F sharp, G and A flat. In some other key each of these has a perfectly ordinary name. On C, in C, nothing lower than the 17th harmonic explains them.
+
+    Seven chords make the song: 16:17:19, 17:18:27, 16:17:27, 9:12:16:17, 17:24:27, 12:16:17:19 and 12:17:18:19. The eighth, 16:17:18:19, C D flat D E flat in root position, is the Troll Chord, and it is kept for the last bar. Its D, the 18th harmonic, is heard nowhere before it. E, the 5th harmonic, the note a theorist would reach for first, is heard nowhere at all. A low C sounds under everything, so the harmonics have a fundamental to belong to.
+
+    The rhythm is seven against four. The kick, the bass, the hats and the clap play four to the bar; the arpeggio and the metal ticks play seven, evenly, against them. The song runs at speed 14, so a bar is 224 ticks, which both divide: a septuplet is two rows and a note delay. When the drums drop out, the seven chords play seven in four bars, the same polyrhythm a level up. At the end they come round again in four bars, then two, then one, then half of one, and the Troll Chord lands.
+
+    The instruments are OPL and PSG chip instruments, declared in the program itself: a four-operator drawbar organ, an FM reed, bass, lead and a glass bell whose sidebands fall on harmonics, and the OPL's own rhythm-mode kick, snare, hi-hat, cymbal and tom. The PSG plays a pulse pluck, a lead whose pulse width walks with the auto-advance, a ring-modulated clock, three noises and the Famicom's 4-bit triangle as the sub-bass.
+
+    Nothing here was played by hand. The song is a program in Taud Motif Language, which this project carries: open the Motif view to read it.
+    """
+}

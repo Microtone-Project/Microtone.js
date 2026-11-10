@@ -58,8 +58,14 @@
     const kinds = [...segButtons(1)];
     ok(kinds.every((b) => !b.disabled), "12-TET plays all three kinds");
     ok(kinds[1].classList.contains("active"), "heptatonic is the first choice");
+    const segNamed = (label) => dlg.querySelector(`.mst-seg[aria-label="${label}"]`);
+    const [pianoBtn, inkeyBtn] = segNamed("Keys").querySelectorAll("button");
+    ok(pianoBtn.classList.contains("active"), "a piano is the first arrangement");
+    const blackRow = () => segNamed("Black keys").closest(".modal-field");
+    ok(blackRow().hidden, "12-TET's sharps and flats are one key: no choice offered");
 
-    // Dorian on D, rows A and Q only.
+    // Dorian on D, scale only, rows A and Q only.
+    inkeyBtn.click();
     const heptaSel = dlg.querySelectorAll(".kmaker-form select")[0];
     heptaSel.value = "dorian"; heptaSel.dispatchEvent(new win.Event("change"));
     const selects = [...dlg.querySelectorAll(".kmaker-form select")];
@@ -72,7 +78,7 @@
     }
     await sleep(100);
     const name = dlg.querySelector("input.kmaker-name").value;
-    ok(name === "D Dorian (12-TET)", `the name follows the choice (${name})`);
+    ok(name === "D Dorian, scale only (12-TET)", `the name follows the choice (${name})`);
     ok(dlg.querySelector(".kmaker-notes").textContent.includes("2 1 2 2 2 1 2"), "the steps are Dorian's");
     ok(dlg.querySelector(".kmaker-board").width > 0, "the board preview painted");
     const shot1 = dlg.querySelector(".kmaker-board").toDataURL();
@@ -82,19 +88,44 @@
     await sleep(50);
     segButtons(1)[2].click();
     await sleep(50);
-    const [patternSel, sizeSel] = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"));
+    const [equaveSel, patternSel, sizeSel, mosModeSel] = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"));
+    ok(equaveSel.value === "octave" && [...equaveSel.options].map((o) => o.value).join() === "octave,tritave,fifth",
+      `the equave starts on the octave (${equaveSel.value})`);
     ok([...patternSel.options].every((o) => !o.disabled), "in any tuning every pattern is open");
     patternSel.value = "5,2"; patternSel.dispatchEvent(new win.Event("change"));
     sizeSel.value = "3,1"; sizeSel.dispatchEvent(new win.Event("change"));
     await sleep(50);
     ok(dlg.querySelector(".kmaker-notes").textContent.includes("17-TET"), "3:1 names the tuning it is exact in");
+    ok([...mosModeSel.options].every((o) => !/bright|dark/i.test(o.textContent)), "modes are numbered, not called bright or dark");
+
+    // The tritave: 6L 3s⟨3/1⟩ at 2:1 is 15-EDT.
+    equaveSel.value = "tritave"; equaveSel.dispatchEvent(new win.Event("change"));
+    patternSel.value = "6,3"; patternSel.dispatchEvent(new win.Event("change"));
+    sizeSel.value = "2,1"; sizeSel.dispatchEvent(new win.Event("change"));
+    await sleep(50);
+    ok(dlg.querySelector(".kmaker-notes").textContent.includes("15-EDT"), "6L 3s⟨3/1⟩ at 2:1 is exact in 15-EDT");
+    ok(mosModeSel.options.length === 3, `and has three modes (${mosModeSel.options.length})`);
+    ok(dlg.querySelector("input.kmaker-name").value.includes("6L 3s<3/1>"), `the name carries the equave (${dlg.querySelector("input.kmaker-name").value})`);
+    equaveSel.value = "octave"; equaveSel.dispatchEvent(new win.Event("change"));
+    patternSel.value = "5,2"; patternSel.dispatchEvent(new win.Event("change"));
+    sizeSel.value = "3,1"; sizeSel.dispatchEvent(new win.Event("change"));
+    await sleep(50);
+    pianoBtn.click();
+    await sleep(50);
+    ok(!blackRow().hidden, "at 3:1 a sharp and a flat differ, so the black keys can be either");
+    ok(dlg.querySelector("input.kmaker-name").value.indexOf("scale only") < 0, "a piano is not named scale-only");
+    inkeyBtn.click();
+    await sleep(50);
 
     // Back to the song's tuning: 12-TET has 5L 2s only at 2:1, so the size follows.
     tuningBtn.click();
     await sleep(50);
-    const sizeNow = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"))[1];
+    const sizeNow = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"))[2];
+    const eq12 = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"))[0];
+    const tritaveOpt = [...eq12.options].find((o) => o.value === "tritave");
+    ok(tritaveOpt.textContent.includes("19") && tritaveOpt.textContent.includes("flat"), `12-TET's tritave is 19 degrees, flat (${tritaveOpt.textContent})`);
     ok(sizeNow.options.length === 1 && sizeNow.value === "2,1", `12-TET's 5L 2s is 2:1 alone (${sizeNow.value})`);
-    const pat12 = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"))[0];
+    const pat12 = [...dlg.querySelectorAll(".kmaker-form select")].filter((s) => !s.closest("[hidden]"))[1];
     const greyed = [...pat12.options].filter((o) => o.disabled).length;
     ok(greyed > 0 && greyed < pat12.options.length, `patterns 12-TET cannot play are greyed, not hidden (${greyed} of ${pat12.options.length})`);
 
@@ -105,7 +136,7 @@
     await sleep(400);
     ok(!doc.querySelector("dialog.kmaker-modal"), "Make layout closes the dialog");
     const made = view.draft;
-    ok(made.name === "D Dorian (12-TET)" && lib.user.has(made.name), `saved as a layout of its own (${made.name})`);
+    ok(made.name === "D Dorian, scale only (12-TET)" && lib.user.has(made.name), `saved as a layout of its own (${made.name})`);
     ok(!view.draftIsBuiltin, "and it is editable");
     ok(store.keymap.name === made.name, "and on the keyboard");
     ok(made.rows.join() === "A,Q", `on the rows chosen (${made.rows})`);

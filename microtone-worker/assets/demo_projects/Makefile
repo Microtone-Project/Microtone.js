@@ -12,7 +12,7 @@
 MOTIF   := node ../../tools/motif.js
 SIGN    := --signature "Microtone Demo"
 FONT    := ../GeneralUser-GS.taud.sf2.gz
-DEMOS   := Huygens_clock.taud Zeta_valley.taud
+DEMOS   := Huygens_clock.taud Troll_Chord.taud Zeta_valley.taud
 
 all: $(DEMOS)
 	node ../../tools/demo-manifest.js

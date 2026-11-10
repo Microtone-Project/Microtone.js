@@ -13,11 +13,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Listen writes the sound into the rack and plays it, the root and then that triad; Cancel takes it back out, and Apply keeps it as one undo step. A rack not in Easy Mode is turned into one.
 - Fixed: the Sethares measure in Harmonic transpose weighed two overtones by the product of their levels rather than the quieter of the two, as Sethares' own model does, so it underrated the roughness of quiet overtones.
 
-**The Keymap Maker: a keyboard made from a scale.** Keymap Maker…, at the top of the Keymap tab's layout list, makes a layout in which every key plays a note of a scale and each row runs up the scale, so the notes outside the scale are not on the board.
+**The Keymap Maker: a keyboard made from a scale.** Keymap Maker…, at the top of the Keymap tab's layout list, makes a layout from a scale: laid out like a piano, with the scale on the white keys and a black key in each of its large steps, or with every key a note of the scale and the notes outside it left off the board.
 
-- Pentatonic (major or minor) and heptatonic scales in all seven modes, from Ionian to Locrian, are built on the tuning system's own fifths. MOS scales take any pattern of large and small steps, with the two step sizes and the mode of your choice.
+- Pentatonic (major or minor) and heptatonic scales in all seven modes, from Ionian to Locrian, are built on the tuning system's own fifths. MOS scales take any pattern of large and small steps, with the two step sizes and the mode of your choice, including patterns that repeat within the octave, such as 4L 2s, or 12-TET's augmented (3L 3s) and octatonic (4L 4s) scales. A MOS can repeat at the tritave or the fifth instead of the octave, such as 6L 3s⟨3/1⟩, which at 2:1 is 15 equal steps of the tritave.
 - Make it for the song's own tuning system and it is written in that tuning system's degrees, exactly; whatever the tuning system cannot play is greyed out. Make it for any tuning system and it is written in semitones, like the Double-Deck pianos, and plays the nearest note wherever it is used. A MOS there names the equal tuning its step sizes make, such as 17-TET for 5L 2s at 3:1.
+- As a piano, the rows pair up into two keyboards, white keys below and black above, just like Double-Deck Piano 12: the major scale made this way in any tuning system IS Double-Deck Piano 12. It works for every MOS scale too, a black key in each large step; where a sharp and a flat are different notes (C♯ and D♭ in 31-TET) you choose which the black keys play.
 - You choose the tonic, how far apart the rows are (an octave, or carrying on so that no note repeats) and which rows to use. A picture of the board shows what each key will play, and you can click a key to hear it. The result is saved as a new layout of your own.
+
+**The Notation Maker can repeat a notation at the fifth**: a 3/2 button sits beside Octave and Tritave, for equal divisions of the fifth and other scales that repeat every 3/2 rather than every octave.
 
 **The two-row Piano keyboard is retired, and Microtone now starts on Double-Deck Piano 12**: two pianos, one above the other, with the lower one's white keys on Z to / and the upper one an octave higher on Q to P.
 

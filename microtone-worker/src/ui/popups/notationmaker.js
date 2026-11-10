@@ -62,6 +62,7 @@ const NBSP = "\u00A0";
 const signLabel = (sign, name) => sign + NBSP.repeat(3 - [...sign].length) + name;
 const tickLabel = (o) => signLabel(TICK_SIGNS[o], t(`nota.tick.${TICK_NAMES[o]}`));
 const accLabel = (o) => signLabel(ACC_SIGNS[o], t(`nota.acc.${ACC_NAMES[o]}`));
+const FIFTH = 0x95c;    // 3/2: round(4096·log2 1.5) — the tritave less an octave
 const OCTAVE = 0x1000;
 const TRITAVE = 0x195c;
 const TETRAVE = 0x2000;
@@ -73,6 +74,7 @@ const NONAVE = 0x32B8;
 const DECAVE = 0x3527;
 
 const INTERVAL_OPTIONS = [
+[t("nota.fifth"), FIFTH],
 [t("nota.octave"), OCTAVE],
 [t("nota.tritave"), TRITAVE],
 [t("nota.tetrave"), TETRAVE],

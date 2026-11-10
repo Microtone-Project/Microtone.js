@@ -13,7 +13,7 @@
     {
       "file": "Huygens_clock.taud",
       "title": "Huygens' Clock",
-      "composer": "CuriousTorvald via Motif",
+      "composer": "CuriousTorvald",
       "year": 2026,
       "songs": 1,
       "surroundModel": 0,
@@ -21,19 +21,29 @@
       "permission": null
     },
     {
-      "file": "Zeta_valley.taud",
-      "title": "Eighteenfold Euphonic DisOrder",
-      "composer": "CuriousTorvald via Motif",
+      "file": "Troll_Chord.taud",
+      "title": "Troll Chord",
+      "composer": "CuriousTorvald",
       "year": 2026,
       "songs": 1,
       "surroundModel": 0,
-      "bytes": 1594829,
+      "bytes": 41245,
+      "permission": null
+    },
+    {
+      "file": "Zeta_valley.taud",
+      "title": "Eighteenfold Euphonic DisOrder",
+      "composer": "CuriousTorvald",
+      "year": 2026,
+      "songs": 1,
+      "surroundModel": 0,
+      "bytes": 1594833,
       "permission": null
     },
     {
       "file": "16uba_baion.taud",
       "title": "Cuba Baion in 16-TET",
-      "composer": "CuriousTorvald",
+      "composer": "Kurt Drabek/CuriousTorvald",
       "year": 2026,
       "songs": 1,
       "surroundModel": 0,
@@ -43,7 +53,7 @@
     {
       "file": "Daisy_bell.taud",
       "title": "Daisy Bell",
-      "composer": "CuriousTorvald",
+      "composer": "Harry Dacre/CuriousTorvald",
       "year": 2026,
       "songs": 1,
       "surroundModel": 0,

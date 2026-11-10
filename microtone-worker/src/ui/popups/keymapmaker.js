@@ -11,6 +11,10 @@
 // has none — and any tuning system, in semitones, where everything is on offer
 // and the board plays the nearest note of whatever tuning it lands in.
 //
+// Two arrangements (keymapscale.js makeScaleKeymap): a piano — the scale on a
+// white row, a black key over every large step — or the scale only, every key
+// in key. A scale with one step size has no black keys, so Piano greys out.
+//
 // The result is a NEW layout of the user's own (the tab names it uniquely and
 // saves it); nothing here touches the document.
 
@@ -23,8 +27,9 @@ import { paintKeymapBoard, boardExtent, defaultLegend } from "../keymapboard.js"
 import { keymapNote, keymapStats } from "../keymap.js";
 import {
   makerFrame, kindAvailable, scaleOf, scaleOffsets, makeScaleKeymap, rowStepOf,
-  mosPatterns, mosModes, mosSizes, defaultMosSize,
-  SCALE_KINDS, PENTA_MODES, HEPTA_MODES,
+  mosPatterns, mosModes, mosSizes, defaultMosSize, scaleChroma, pianoAvailable, arrangementOf,
+  equaveChoices, equaveOf, equaveSteps, equaveCents,
+  SCALE_KINDS, PENTA_MODES, HEPTA_MODES, ARRANGEMENTS, BLACK_KEYS,
 } from "../keymapscale.js";
 import {
   noteForDegree, semiToNote, semiToNoteInTable, pitchTablePresets,
@@ -32,7 +37,8 @@ import {
 import { uiDpr, toLayout } from "../zoom.js";
 
 const TET12 = pitchTablePresets[120];
-/** 5L 2s's modes, brightest first, by the names the major scale's modes have. */
+/** 5L 2s's modes in mosModes' order, by the names the major scale's modes
+ *  have — only in the octave: 5L 2s⟨3/1⟩ has no Lydian. */
 const DIATONIC_BRIGHTNESS = ["lydian", "ionian", "mixolydian", "dorian", "aeolian", "phrygian", "locrian"];
 const ROWS = ["N", "Q", "A", "Z"];
 
@@ -105,7 +111,9 @@ function defaultSettings(rows) {
     kind: "hepta",
     penta: "major",
     hepta: "ionian",
-    mos: { a: 5, b: 2, L: 2, s: 1, mode: 1 },
+    mos: { a: 5, b: 2, L: 2, s: 1, mode: 1, equave: null },
+    arrangement: "piano",
+    blackKeys: "sharp",
     tonic: 0,
     rowStep: null,
     rows: rows.slice(),
@@ -128,7 +136,7 @@ export function showKeymapMaker({
   preset, hasSong, octave, rows, ortho = false, legend = defaultLegend, play = null, stop = null,
 }) {
   const tuningUsable = hasSong && makerFrame("tuning", preset).usable;
-  const s = lastSettings ? structuredClone(lastSettings) : defaultSettings(rows);
+  const s = lastSettings ? { ...defaultSettings(rows), ...structuredClone(lastSettings) } : defaultSettings(rows);
   if (!tuningUsable) s.mode = "any";
   let nameEdited = false;
 
@@ -160,6 +168,9 @@ export function showKeymapMaker({
     heptaSel.addEventListener("change", () => { s.hepta = heptaSel.value; update(); });
     const heptaRow = row(t("kmaker.mode"), heptaSel);
 
+    const equaveSel = el("select");
+    equaveSel.addEventListener("change", () => { s.mos = { ...s.mos, equave: equaveSel.value }; update(); });
+    const equaveRow = row(t("kmaker.equave"), equaveSel, t("kmaker.equaveTitle"));
     const patternSel = el("select");
     patternSel.addEventListener("change", () => {
       const [a, b] = patternSel.value.split(",").map(Number);
@@ -177,9 +188,17 @@ export function showKeymapMaker({
     const mosModeSel = el("select");
     mosModeSel.addEventListener("change", () => { s.mos = { ...s.mos, mode: Number(mosModeSel.value) }; update(); });
     const mosModeRow = row(t("kmaker.mode"), mosModeSel, t("kmaker.mosModeTitle"));
-    form.append(pentaRow, heptaRow, patternRow, sizeRow, mosModeRow);
+    form.append(pentaRow, heptaRow, equaveRow, patternRow, sizeRow, mosModeRow);
 
-    // ── where it sits on the board ──
+    // ── how it sits on the board ──
+    const arrSeg = segmented(ARRANGEMENTS.map((a) => [a, t(`kmaker.arr.${a}`), t(`kmaker.arrTitle.${a}`)]),
+      (v) => { s.arrangement = v; update(); }, t("kmaker.arrangement"));
+    form.append(row(t("kmaker.arrangement"), arrSeg.seg));
+    const blackSeg = segmented(BLACK_KEYS.map((b) => [b, t(`kmaker.black.${b}`)]),
+      (v) => { s.blackKeys = v; update(); }, t("kmaker.blackKeys"));
+    const blackRow = row(t("kmaker.blackKeys"), blackSeg.seg, t("kmaker.blackKeysTitle"));
+    form.append(blackRow);
+
     const tonicSel = el("select");
     tonicSel.addEventListener("change", () => { s.tonic = Number(tonicSel.value); update(); });
     form.append(row(t("kmaker.tonic"), tonicSel));
@@ -195,7 +214,8 @@ export function showKeymapMaker({
     const stepWrap = el("span", "kmaker-step");
     stepWrap.append(stepInput, el("span", "dim", t("kmaker.rowStepUnit")));
     const stepNote = el("p", "modal-hint kmaker-hint", "");
-    form.append(row(t("kmaker.rowStep"), stepWrap), stepNote);
+    const stepRow = row(t("kmaker.rowStep"), stepWrap);
+    form.append(stepRow, stepNote);
 
     const rowWrap = el("span", "keymap-rows kmaker-rows");
     const lamps = new Map();
@@ -256,20 +276,32 @@ export function showKeymapMaker({
 
       pentaRow.hidden = s.kind !== "penta";
       heptaRow.hidden = s.kind !== "hepta";
-      patternRow.hidden = sizeRow.hidden = mosModeRow.hidden = s.kind !== "mos";
+      equaveRow.hidden = patternRow.hidden = sizeRow.hidden = mosModeRow.hidden = s.kind !== "mos";
       pentaSeg.set(s.penta);
       heptaSel.value = s.hepta;
       if (s.kind === "mos") updateMos(frame);
 
       updateTonic(frame);
       const scale = scaleOf(s, frame);
+      // Piano needs large steps for its black keys; the setting is kept, and
+      // comes back with the next scale that has them.
+      const arr = scale ? arrangementOf(s, scale) : s.arrangement;
+      arrSeg.enable("piano", !scale || pianoAvailable(scale));
+      arrSeg.set(arr);
+      const ch = scale && scaleChroma(scale);
+      blackRow.hidden = arr !== "piano" || !ch || ch.c === ch.s;
+      blackSeg.set(s.blackKeys);
       const k = scale?.steps.length ?? 7;
       stepInput.value = String(rowStepOf(s, k));
       const rs = rowStepOf(s, k);
-      stepNote.textContent = rs === k ? t("kmaker.rowStepNote.period")
-        : rs === 10 ? t("kmaker.rowStepNote.run")
-        : rs < 10 ? t("kmaker.rowStepNote.overlap", { n: 10 - rs })
-        : t("kmaker.rowStepNote.gap", { n: rs - 10 });
+      const unit = arr === "piano" ? "deck" : "row";
+      stepRow.querySelector(".modal-label").textContent = t(`kmaker.${unit}Step`);
+      stepNote.textContent = rs === k ? (s.kind === "mos" && scale
+        ? t(`kmaker.${unit}StepNote.equave`, { equave: t(`kmaker.equaveNoun.${scale.equave}`) })
+        : t(`kmaker.${unit}StepNote.period`))
+        : rs === 10 ? t(`kmaker.${unit}StepNote.run`)
+        : rs < 10 ? t(`kmaker.${unit}StepNote.overlap`, { n: 10 - rs })
+        : t(`kmaker.${unit}StepNote.gap`, { n: rs - 10 });
       for (const [name, lamp] of lamps) lamp.setOn(s.rows.includes(name));
 
       if (!nameEdited) nameInput.value = autoName(frame, scale);
@@ -279,13 +311,31 @@ export function showKeymapMaker({
       paint();
     }
 
+    /** An equal division's name: n-TET of the octave, n-EDT, n-EDF. */
+    const etName = (equave, n) => t(`kmaker.et.${equave}`, { n });
+
     function updateMos(frame) {
+      // The equave first: what is playable depends on it. One with nothing
+      // playable stays listed, greyed; the choice moves off it to the
+      // tuning's own, else the first that has something.
       const patterns = mosPatterns();
+      const playableIn = (e) => (p) => mosSizes(p.a, p.b, frame, e).length > 0;
+      const choices = equaveChoices(frame);
+      fillSelect(equaveSel, choices.map((e) => [e, equaveLabel(e, frame), patterns.some(playableIn(e))]));
+      let eq = equaveOf(s.mos.equave, frame);
+      if (!patterns.some(playableIn(eq))) {
+        const own = equaveOf(null, frame);
+        eq = patterns.some(playableIn(own)) ? own : choices.find((e) => patterns.some(playableIn(e))) ?? eq;
+      }
+      s.mos = { ...s.mos, equave: eq };
+      equaveSel.value = eq;
+
+      const playable = playableIn(eq);
       fillSelect(patternSel, patterns.map((p) => [`${p.a},${p.b}`,
-        t("kmaker.patternOption", { a: p.a, b: p.b }),
-        mosSizes(p.a, p.b, frame).length > 0,
+        p.periods > 1 ? t("kmaker.patternOptionMulti", { a: p.a, b: p.b, n: p.periods })
+          : t("kmaker.patternOption", { a: p.a, b: p.b }),
+        playable(p),
         t("kmaker.patternGroup", { n: p.size })]));
-      const playable = (p) => mosSizes(p.a, p.b, frame).length > 0;
       if (!patterns.some((p) => p.a === s.mos.a && p.b === s.mos.b && playable(p))) {
         // The diatonic pattern where the tuning has it, else the first it has.
         const pick = patterns.find((p) => p.a === 5 && p.b === 2 && playable(p)) ?? patterns.find(playable);
@@ -293,9 +343,9 @@ export function showKeymapMaker({
       }
       patternSel.value = `${s.mos.a},${s.mos.b}`;
 
-      const sizes = mosSizes(s.mos.a, s.mos.b, frame);
+      const sizes = mosSizes(s.mos.a, s.mos.b, frame, eq);
       fillSelect(sizeSel, sizes.map(([L, sm]) => [`${L},${sm}`, frame.mode === "any"
-        ? t("kmaker.sizeOption.any", { L, s: sm, n: s.mos.a * L + s.mos.b * sm })
+        ? t("kmaker.sizeOption.any", { L, s: sm, et: etName(eq, s.mos.a * L + s.mos.b * sm) })
         : t("kmaker.sizeOption.tuning", { L, s: sm })]));
       if (!sizes.some(([L, sm]) => L === s.mos.L && sm === s.mos.s)) {
         const d = defaultMosSize(sizes);
@@ -303,15 +353,26 @@ export function showKeymapMaker({
       }
       sizeSel.value = `${s.mos.L},${s.mos.s}`;
 
+      // Numbered, not called bright or dark: outside the diatonic those words
+      // describe nothing anyone hears. The diatonic's own modes keep their names.
       const modes = mosModes(s.mos.a, s.mos.b);
-      const diatonic = s.mos.a === 5 && s.mos.b === 2;
+      const diatonic = s.mos.a === 5 && s.mos.b === 2 && eq === "octave";
       fillSelect(mosModeSel, modes.map((w, i) => [i, diatonic
         ? t("kmaker.mosModeNamed", { i: i + 1, word: w, name: t(`kmaker.hepta.${DIATONIC_BRIGHTNESS[i]}`) })
-        : i === 0 ? t("kmaker.mosModeBrightest", { i: i + 1, word: w })
-        : i === modes.length - 1 ? t("kmaker.mosModeDarkest", { i: i + 1, word: w })
         : t("kmaker.mosModeOption", { i: i + 1, word: w })]));
       s.mos.mode = Math.min(s.mos.mode, modes.length - 1);
       mosModeSel.value = String(s.mos.mode);
+    }
+
+    /** "Tritave (3/1)", and in a tuning how many of its degrees that is and
+     *  how far off. */
+    function equaveLabel(e, frame) {
+      const name = t(`kmaker.equave.${e}`, { cents: (Math.round(equaveCents(e, frame) * 10) / 10).toString() });
+      const st = equaveSteps(e, frame);
+      if (!st) return name;
+      const c = Math.abs(st.error).toFixed(1);
+      return c === "0.0" ? t("kmaker.equaveExact", { name, n: st.n })
+        : t(st.error < 0 ? "kmaker.equaveFlat" : "kmaker.equaveSharp", { name, n: st.n, c });
     }
 
     /** The tonic list: the tuning's degrees by their own names, or the twelve
@@ -341,7 +402,20 @@ export function showKeymapMaker({
       let name;
       if (s.kind === "penta") name = t(`kmaker.name.penta.${s.penta}`, { tonic });
       else if (s.kind === "hepta") name = t(`kmaker.name.hepta.${s.hepta}`, { tonic });
-      else name = t("kmaker.name.mos", { tonic, a: s.mos.a, b: s.mos.b, L: s.mos.L, s: s.mos.s, mode: s.mos.mode + 1 });
+      else {
+        // The wiki's ⟨equave⟩ suffix, spelt with ASCII brackets: a layout name
+        // is drawn in fonts that may not carry ⟨ ⟩. Nothing for the octave.
+        const eq = scale?.equave ?? "octave";
+        const equave = eq === "octave" ? ""
+          : eq === "period" ? `<${Math.round(frame.cents * 10) / 10}c>`
+          : `<${{ tritave: "3/1", fifth: "3/2" }[eq]}>`;
+        name = t("kmaker.name.mos", { tonic, a: s.mos.a, b: s.mos.b, L: s.mos.L, s: s.mos.s, mode: s.mos.mode + 1, equave });
+      }
+      if (scale && arrangementOf(s, scale) === "inkey") name = t("kmaker.name.inKey", { name });
+      else if (scale && s.blackKeys === "flat") {
+        const ch = scaleChroma(scale);
+        if (ch.c !== ch.s) name = t("kmaker.name.flats", { name });
+      }
       // A layout in degrees is only right in its own tuning, so it says which.
       return s.mode === "tuning" && scale ? t("kmaker.name.inTuning", { name, tuning: preset.name }) : name;
     }
@@ -361,7 +435,7 @@ export function showKeymapMaker({
       }
       const steps = s.kind === "mos" ? scale.word.split("").join(" ") : scale.steps.join(" ");
       parts.push(el("span", "dim", ` · ${t("kmaker.steps")} ${steps}`));
-      if (frame.mode === "any") parts.push(el("span", "dim", ` · ${t("kmaker.exactIn", { n: scale.period })}`));
+      if (frame.mode === "any") parts.push(el("span", "dim", ` · ${t("kmaker.exactIn", { et: etName(scale.equave, scale.period) })}`));
       notesLine.replaceChildren(...parts);
       const st = keymapStats(spec, preset, octave);
       reachLine.textContent = st.total > 0
