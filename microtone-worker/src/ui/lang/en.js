@@ -316,7 +316,7 @@ export default {
   "status.tpifNeedsBank": "{name} carries patterns only — pick its companion .tsii bank",
   "status.noBankIn": "{name} carries no sample+instrument bank",
   // ── welcome screen (item 104) ──
-  "welcome.tagline": "A music tracker for the notes a piano cannot play.",
+  "welcome.tagline": "A tracker workstation for any sound, in any tuning.",
   "welcome.desktop": "Get the desktop app",
   "welcome.desktopOs": "for Linux, Windows and macOS",
   "welcome.touchFor": "a sketchpad for phones and tablets",
@@ -385,7 +385,7 @@ export default {
   // are what items 998.3–.6 ship, and the same wording is mirrored in
   // index.html's description/og:description and manifest.webmanifest. Keep all
   // four in step with what actually ships.
-  "about.blurb1": "Microtone is a music tracker for the notes a piano cannot play. Every pitch sits on a grid of 4096 steps per octave, so 19-TET, 31-TET, Bohlen–Pierce, just intonation and the twelve lü are all first-class — written in their own notation, not as detuned semitones.",
+  "about.blurb1": "Microtone is a tracker workstation for any sound, in any tuning: patterns and an effect column, samples you record, chop or draw, instruments from FM, sound chips and SoundFonts, and a mixing chain on every instrument. Twelve-tone is where a song starts; 19-TET, 31-TET, Bohlen–Pierce, just intonation and the twelve lü are first-class too — written in their own notation, not as detuned semitones.",
   "about.blurb2": "It runs entirely in your browser. No install, no account, no server: your projects stay in your machine's private storage, and module and MIDI conversion, SoundFont loading, sample editing and WAV export all happen on your own hardware.",
   "about.blurb3": "Notes are placed, not just panned: each lane is a source at an angle and a height, auditioned over headphones as you write, and a finished song exports as ambisonic B-format as readily as stereo.",
   "about.license": "Microtone is free software distributed under the terms of the GNU General Public License version 3.",

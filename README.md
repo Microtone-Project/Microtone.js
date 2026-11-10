@@ -2,12 +2,14 @@
 
 ![Microtone screenshot](Screenshot1.png)
 
-**Microtone** is a music tracker for the notes a piano cannot play. Every pitch
-sits on a grid of 4096 steps per octave, so 12-TET, 19-TET, 31-TET,
-Bohlen–Pierce and a temperament you drew yourself are all the same kind of thing
-to it. Sources can be placed anywhere on the sphere and delivered as ambisonic
-B-format as readily as stereo. It runs in a browser tab, and that is the entire
-install.
+**Microtone** is a tracker workstation for any sound, in any tuning. Write a
+song in patterns, the way Impulse Tracker taught a generation to; record, chop
+and draw samples, or build instruments from FM, sound chips and SoundFonts; give
+every instrument a mixing chain and the song a mastering chain. Twelve-tone is
+where a song starts, and 19-TET, 31-TET, Bohlen–Pierce or a temperament you drew
+yourself are a setting away. Sources can be placed anywhere on the sphere and
+delivered as ambisonic B-format as readily as stereo. It runs in a browser tab,
+and that is the entire install.
 
 ## Try it
 

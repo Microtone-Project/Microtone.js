@@ -28,8 +28,8 @@
     "license": "GPL-3.0-or-later",
     "licenseFile": "../COPYING",
     "category": "Music",
-    "shortDescription": "A music tracker for the notes a piano cannot play",
-    "longDescription": "Microtone is a music tracker for microtonal and spatial music: any tuning on a 4096-step pitch grid, sources placed anywhere on the sphere, ambisonic B-format and stereo export.",
+    "shortDescription": "A tracker workstation for any sound, in any tuning",
+    "longDescription": "Microtone is a tracker workstation for any sound, in any tuning: patterns, samples, FM and sound-chip instruments, a mixing chain on every instrument and a mastering chain on the song, with stereo, surround and ambisonic export.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

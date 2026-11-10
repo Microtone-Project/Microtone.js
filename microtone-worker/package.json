@@ -1,7 +1,7 @@
 {
   "name": "microtone-js",
   "version": "4.9.0",
-  "description": "A music tracker for the notes a piano cannot play. Any tuning on a 4096-step pitch grid, sources placed anywhere on the sphere, ambisonic B-format and stereo export. Free software, no install, no account.",
+  "description": "A tracker workstation for any sound, in any tuning. Patterns, samples, synthesis, mixing and mastering, with stereo, surround and ambisonic export. Free software, no install, no account.",
   "type": "module",
   "private": true,
   "scripts": {

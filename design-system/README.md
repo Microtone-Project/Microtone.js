@@ -1,6 +1,6 @@
 # Microtone design system
 
-Microtone is a music tracker for the notes a piano cannot play, and Microtone Touch is its pocket sketchpad. Their interface is a working instrument panel: dense, flat, hairline-ruled, lit by a few saturated inks that each mean one thing. Build anything new for them so that it looks like the tracker, never like a landing page.
+Microtone is a tracker workstation for any sound, in any tuning, and Microtone Touch is its pocket sketchpad. Their interface is a working instrument panel: dense, flat, hairline-ruled, lit by a few saturated inks that each mean one thing. Build anything new for them so that it looks like the tracker, never like a landing page.
 
 This directory is the system's home. Start here, whether you are a person or a program.
 

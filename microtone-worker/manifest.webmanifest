@@ -1,7 +1,7 @@
 {
   "name": "Microtone",
   "short_name": "Microtone",
-  "description": "A music tracker for microtonal and spatial music — any tuning on a 4096-step pitch grid, sources anywhere on the sphere, ambisonic and stereo export.",
+  "description": "A tracker workstation for any sound, in any tuning: patterns, samples, synthesis, mixing and mastering, with stereo, surround and ambisonic export.",
   "lang": "en",
   "dir": "ltr",
   "start_url": "./",
