@@ -193,3 +193,18 @@ test("the ghosted note is the note the ENGINE actually plays", () => {
   assert.equal(v.noteVal, 0x5000, "engine plays the ghosted note");
   assert.ok(v.samplePos < posBeforeRow1, "the ditto row RETRIGGERED the sample");
 });
+
+test("a wide cell's ghost carries the azimuth and the elevation", () => {
+  // Every project is format 3: the panning column is the azimuth and the
+  // elevation, blank only when both are (FINE by zero, §5.5).
+  const pat = Array.from({ length: 64 }, () => {
+    const c = new TaudPlayData();
+    c.volumeEff = 3; c.panEff = 3;
+    return c;
+  });
+  pat[0].panEff = 0; pat[0].azimuth = 300; pat[0].elevation = -20;
+  pat[1].effect = OP_DITTO; pat[1].effectArg = 0x0101; // repeat row 0 once
+  const g = dittoGhosts(pat, 64, true);
+  assert.deepEqual(g[1].pan, [300, 0]);
+  assert.equal(g[1].elev, -20);
+});

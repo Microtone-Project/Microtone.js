@@ -319,13 +319,12 @@ export function showNewProject({ fromBank = null, bankName = null } = {}) {
     function curPan() {
       return +(dlg.querySelector("[data-pan].sel")?.dataset.pan ?? 0);
     }
-    /** A surround project is born in format version 3 (the wide cell, §5.5),
-     *  which nothing can read back down to version 2 — say so BEFORE creating
-     *  it rather than in a dialog afterwards. */
+    /** Every project is format 3; the model only says how the panning column
+     *  and the spatial effects read — which a surround choice explains. */
     function selectPan(v) {
       dlg.querySelectorAll("[data-pan]").forEach((el) =>
         el.classList.toggle("sel", el.dataset.pan === String(v)));
-      inp("panhint").textContent = +v === 0 ? "" : t("np.panHintV3");
+      inp("panhint").textContent = +v === 0 ? "" : t("proj.surroundHint");
     }
 
     // ── wiring ──

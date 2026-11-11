@@ -116,6 +116,18 @@
       "rules": ["native-controls"]
     },
     {
+      "name": "HertzSpinner",
+      "kind": "js",
+      "module": "microtone-worker/src/ui/components/hzspinner.js",
+      "exports": ["hzSpinner", "hzSpinnerMap", "hzOfCents", "centsOfHz", "formatHz", "parseHzText", "HZ_AT_ZERO_CENTS"],
+      "summary": "A frequency field: a value stored in absolute cents (SoundFont's cutoff unit, 8.176 Hz × 2^(cents/1200)) read and typed in hertz, − and + a semitone apart. It is a ValueControl mapping, so it looks and steps like every other spinner.",
+      "api": "hzSpinner(input, cents, { min = 1500, max = 13500, step = 100, off?, offLabel? }) → input; read input.rawValue (cents) on change. hzSpinnerMap(opts) is the same mapping for a row builder that calls mapSpinner itself. Typing takes 440, 440 Hz, 1.2k, 1.2 kHz and 6900c. With `off` (the stored value meaning no filter, $FFFF for a cutoff) the box reads offLabel there, + past the top turns it off and − from off comes back to the top.",
+      "example": "hzSpinner(inp, patch.extraCutoff, { off: 0xffff, offLabel: t(\"inst.annOff\") });\ninp.addEventListener(\"change\", () => commit(inp.rawValue));",
+      "classes": ["mt-spin"],
+      "tokens": ["panel-2", "border", "accent"],
+      "rules": ["native-controls"]
+    },
+    {
       "name": "ContextMenu",
       "kind": "js",
       "module": "microtone-worker/src/ui/components/contextmenu.js",

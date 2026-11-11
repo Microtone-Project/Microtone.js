@@ -87,26 +87,27 @@
         const useDefOk = !!useDefChk && ((inst.panEnvLoop >> 7) & 1) === (useDefBefore ? 0 : 1);
         log(`use default pan: bit7 ${useDefBefore}→${(inst.panEnvLoop >> 7) & 1} (${useDefOk ? "ok" : "FAIL"})`);
 
-        // Filter: switch to SoundFont2, verify 16-bit + Hz/dB annotations, edit cutoff.
+        // Filter: switch to SoundFont2, verify 16-bit + Hz/dB in the fields, edit cutoff.
         const findBtn = (row, text) =>
           [...row.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === text);
         findBtn(findRow("Mode"), "SoundFont2").click(); // re-renders the panel
         const sfMode = inst.filterSfMode;
         const cutRow = findRow("Cutoff");
-        const cutAnn = cutRow.querySelector(".sl-ann").textContent;
+        const cutAnn = cutRow.querySelector(".sl-num").value; // the Hertz spinner
         const cutRange = cutRow.querySelector(".sl-range");
         cutRange.value = 7000; fire(cutRange, "input");
         const cut16 = inst.defaultCutoff16;
         const cutBytesOk = inst.getByteNormal(182) === ((7000 >> 8) & 0xff) &&
                            inst.getByteNormal(252) === (7000 & 0xff);
-        const cutOk = sfMode && cut16 === 7000 && cutBytesOk && /Hz|kHz/.test(cutAnn);
+        const cutOk = sfMode && cut16 === 7000 && cutBytesOk && /Hz|kHz/.test(cutAnn) &&
+          /Hz|kHz/.test(cutRow.querySelector(".sl-num").value);
         log(`SF filter: mode=${sfMode} cutoff16=${cut16} ann="${cutAnn}" bytesOk=${cutBytesOk} (${cutOk ? "ok" : "FAIL"})`);
 
         const resRow = findRow("Resonance");
-        const resAnn = resRow.querySelector(".sl-ann").textContent;
+        const resAnn = resRow.querySelector(".sl-num").value; // a dB spinner
         const resRange = resRow.querySelector(".sl-range");
         resRange.value = 240; fire(resRange, "input");
-        const resOk = inst.defaultResonance16 === 240 && /dB/.test(resRow.querySelector(".sl-ann").textContent);
+        const resOk = inst.defaultResonance16 === 240 && /dB/.test(resRow.querySelector(".sl-num").value);
         log(`SF reso: reso16=${inst.defaultResonance16} ann0="${resAnn}" (${resOk ? "ok" : "FAIL"})`);
 
         // NNA key-lift as the 5th option → flag bit 5 set, bits 0-1 clear.
@@ -143,16 +144,17 @@
         // symlog fix: -1, 0, +1 must occupy DISTINCT, visibly-separated slider
         // positions (a pure log collapsed |v|<=1 onto the centre), and 0 must be
         // reachable at the exact centre position.
-        detNum.value = 0; fire(detNum, "change"); const posZero = Number(detRange.value);
-        detNum.value = 1; fire(detNum, "change"); const posP1 = Number(detRange.value);
-        detNum.value = -1; fire(detNum, "change"); const posN1 = Number(detRange.value);
+        // The box reads cents; `$1` is one 4096-TET unit, as hex always is.
+        detNum.value = "0"; fire(detNum, "change"); const posZero = Number(detRange.value);
+        detNum.value = "$1"; fire(detNum, "change"); const posP1 = Number(detRange.value);
+        detNum.value = "-$1"; fire(detNum, "change"); const posN1 = Number(detRange.value);
         const spreadOk = posZero === 0 && posP1 === -posN1 && posP1 >= 10;
         detRange.value = 0; fire(detRange, "input");
         const zeroReachOk = inst.sampleDetuneSigned === 0;
-        // The spinner still sets an exact signed value; the annotation shows cents.
-        detNum.value = -2048; fire(detNum, "change");
-        const spinnerOk = inst.sampleDetuneSigned === -2048 &&
-          /cents/.test(detRow.querySelector(".sl-ann").textContent);
+        // The spinner reads cents (−600 ¢ is −2048 units); the stored word is beside it.
+        detNum.value = "-600"; fire(detNum, "change");
+        const spinnerOk = inst.sampleDetuneSigned === -2048 && /¢/.test(detNum.value) &&
+          /\$F800/.test(detRow.querySelector(".sl-ann").textContent);
         const detOk = detWide && axisOk && maxV === 0x7fff && minV === -0x8000 &&
           zeroV === 0 && detLogOk && spreadOk && zeroReachOk && spinnerOk;
         log(`detune: wide=${detWide} axis=${axisOk} max=${maxV} min=${minV} zero=${zeroV} ` +
@@ -358,7 +360,9 @@
         const r = cv.getBoundingClientRect();
         const h = parseFloat(cv.style.height); // the painted height (envgraph.js)
         const want = node0 === 30 ? 31 : 30;
-        const at = { clientX: r.left + 10, clientY: r.top + (h - 14 - (want / 63) * (h - 28)), pointerId: 1 };
+        // The graph's top is the envelope's full volume: 255 in an opened project.
+        const full = volInst().volEnv8 ? 255 : 63;
+        const at = { clientX: r.left + 10, clientY: r.top + (h - 14 - (want / full) * (h - 28)), pointerId: 1 };
         const depth = store.undo.undoStack.length;
         const ptr = (type, o) => cv.dispatchEvent(new win.PointerEvent(type, { ...o, button: 0 }));
         ptr("pointerdown", at);

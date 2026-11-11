@@ -36,6 +36,10 @@ function recorder(ctx) {
 
   const { store, timeline, patternView } = M;
   const ops = await import("../../src/doc/ops.js");
+  // The pattern below is written as version-2 cells; every project is format 3,
+  // so it widens as an opened file does: v20 reads $82 and p10 $41 (§5.5).
+  const { widenPattern } = await import("../../src/doc/upgrade.js");
+  const V20 = "82", P10 = "41";
   const { dittoGhosts } = await import("../../src/doc/ditto.js");
   // Read the ink from the APP frame — a theme.js imported here would resolve
   // the variables against this harness page, which carries no theme.
@@ -56,7 +60,7 @@ function recorder(ctx) {
   bytes[1 * 8 + 5] = 0x07; bytes[1 * 8 + 6] = 0x02; bytes[1 * 8 + 7] = 0x01;
   // row 2: an explicit instrument — must stay in its own colour, not ghosted
   bytes[2 * 8 + 2] = 0x09;
-  store.undo.apply(ops.setPatternBytesOp(0, PAT, bytes));
+  store.undo.apply(ops.setPatternBytesOp(0, PAT, widenPattern(bytes)));
   store.emit("edit");
   await frames(win, 3);
 
@@ -83,8 +87,8 @@ function recorder(ctx) {
   check(inkOf(t1, "05") === DITTO, "row 1 instrument ghosted", `ink=${inkOf(t1, "05")}`);
   // vol/pan paint as [symbol][2 digits] since item 87; a plain SET draws no
   // symbol at all, so the ghosted text is the bare argument.
-  check(inkOf(t1, "20") === DITTO, "row 1 volume ghosted", `ink=${inkOf(t1, "20")}`);
-  check(inkOf(t1, "10") === DITTO, "row 1 pan ghosted", `ink=${inkOf(t1, "10")}`);
+  check(inkOf(t1, V20) === DITTO, "row 1 volume ghosted", `ink=${inkOf(t1, V20)}`);
+  check(inkOf(t1, P10) === DITTO, "row 1 pan ghosted", `ink=${inkOf(t1, P10)}`);
   check(t1.some((c) => c.text === "70102"), "row 1 keeps its own visible 7$llrr command");
   check(!t1.some((c) => c.text === "10123"), "the arming row's fx is NOT overpainted by a ghost");
 
@@ -92,7 +96,7 @@ function recorder(ctx) {
     `ink=${inkOf(t2, "09")}`);
   check(inkOf(t2, "10123") === DITTO, "row 2's blank fx column shows the ghosted effect",
     `ink=${inkOf(t2, "10123")}`);
-  check(inkOf(t2, "20") === DITTO, "row 2 volume ghosted");
+  check(inkOf(t2, V20) === DITTO, "row 2 volume ghosted");
 
   check(t3.every((c) => c.ink !== DITTO), "row 3 (outside the region) has no ghost ink");
   check(t3.some((c) => c.text === "··"), "row 3 still paints the empty-instrument dots");
@@ -118,7 +122,7 @@ function recorder(ctx) {
   const p3 = prec.calls.filter((c) => prowOf(c) === 3);
   check(p1.find((c) => c.text === "05")?.ink === DITTO, "Patterns: row 1 instrument ghosted",
     `ink=${p1.find((c) => c.text === "05")?.ink}`);
-  check(p1.find((c) => c.text === "20")?.ink === DITTO, "Patterns: row 1 volume ghosted");
+  check(p1.find((c) => c.text === V20)?.ink === DITTO, "Patterns: row 1 volume ghosted");
   check(p3.every((c) => c.ink !== DITTO), "Patterns: row 3 has no ghost ink");
 
   // ── undo restores the pre-ditto painting ────────────────────────────────
@@ -128,6 +132,6 @@ function recorder(ctx) {
   const g2 = dittoGhosts(store.doc.patternAt(0, PAT), 64).filter(Boolean).length;
   check(g2 === origGhosts, "undo restores the original ghost map", `${g2} vs ${origGhosts}`);
 
-  log(fails === 0 ? "\nALL PASS" : `\n${fails} FAILED`);
+  log(fails === 0 ? "\nALL PASS\nRESULT: PASS" : `\n${fails} FAILED\nRESULT: FAIL`);
 })();
 </script>

@@ -267,9 +267,39 @@ test("the prerequisites stop an export, and say where", () => {
   assert.deepEqual(err.where, { cue: 0, lane: 1, row: 5 });
   assert.equal(exportModSong(m, 0).bytes, null, "nothing is written");
 
-  const wide = project({ patterns: { 0: busy }, cues: [[0]], instruments: [inst1] });
-  wide.wideCells = true;
-  assert.ok(codes(exportModSong(wide, 0).errors).includes("format"));
+});
+
+test("a format-3 project exports the module its version-2 original did", () => {
+  // The editor holds every project in format 3; the export reads it through
+  // the narrow view (doc/upgrade.js narrowedForExport), the inverse of the
+  // widening, so the module comes out byte for byte — but for a volume SET,
+  // which says the LEVEL the song plays at: round(v × 64 ÷ 255) of the wide
+  // volume (modexport vol64), the exact inverse of the converters' own
+  // round(V × 255 ÷ 64). Version 2's 32 widens to 130 of 255 (0.510), which a
+  // module says as C21 (0.516) rather than the C20 (0.500) version 2 wrote.
+  const pats = { 0: { 0: { note: note(0), inst: 1, vol: [0, 0x20] }, 1: { note: note(4), pan: [0, 0x10] },
+                      2: { note: note(7) }, 3: { vol: [3, 0x25] } } };
+  const narrow = project({ patterns: pats, cues: [[0]], instruments: [inst1] });
+  const wide = project({ patterns: pats, cues: [[0]], instruments: [inst1] });
+  wide.upgradeToWideCells();
+  const a = exportModSong(narrow, 0), b = exportModSong(wide, 0);
+  assert.deepEqual(b.errors, []);
+  assert.deepEqual(b.warnings, a.warnings);
+  assert.deepEqual([cellOf(a.bytes, 0, 0, 0).fx, cellOf(a.bytes, 0, 0, 0).arg], [0xc, 0x20]);
+  assert.deepEqual([cellOf(b.bytes, 0, 0, 0).fx, cellOf(b.bytes, 0, 0, 0).arg], [0xc, 0x21]);
+  const sameBut = Uint8Array.from(b.bytes);
+  const at = 1084 + b.bytes[952] * 1024 + 3;   // row 0, channel 0: the Cxx argument
+  sameBut[at] = a.bytes[at];
+  assert.deepEqual(sameBut, a.bytes, "everything else byte for byte");
+
+  // What a module cannot say is counted, not refused.
+  const cell = wide.songs[0].patterns[0][2];
+  cell.effect2 = 0x0d; cell.effectArg2 = 0x0400;
+  const behind = wide.songs[0].patterns[0][1];
+  behind.panEff = 0; behind.azimuth = 384; behind.elevation = 0;
+  const r = exportModSong(wide, 0);
+  assert.notEqual(r.bytes, null);
+  assert.deepEqual(codes(r.warnings).filter((c) => c === "effect2" || c === "position"), ["effect2", "position"]);
 });
 
 test("a 12-tone song takes ProTracker's own periods, a microtonal one raw periods", () => {

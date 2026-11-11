@@ -328,6 +328,9 @@ export class Voice {
 
     // Active-envelope view (snapshot by resolveActiveEnvelopes at trigger).
     this.activeVolEnv = makeActiveEnv(0x3f);
+    // A node value's full volume: 63, or 255 for an instrument whose byte 14
+    // bit 6 says its volume envelopes are 8-bit (resolveActiveEnvelopes).
+    this.activeVolEnvMax = 63;
     this.activeVolEnvLoop = 0;
     this.activeVolEnvSustain = 0;
     this.activePanEnv = makeActiveEnv(0x80);

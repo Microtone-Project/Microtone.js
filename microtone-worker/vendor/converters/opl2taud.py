@@ -37,6 +37,7 @@ import struct
 import sys
 
 from taud_common import (
+    INST_VOLENV8, note_pitch, vol_from_unit,
     set_verbose, vprint,
     TAUD_MAGIC, TAUD_VERSION, TAUD_HEADER_SIZE, TAUD_KIND_SAMPLEINST,
     SAMPLEBIN_SIZE, INSTBIN_SIZE, SAMPLEINST_SIZE, INST_RECORD_SIZE,
@@ -207,7 +208,7 @@ def tl_gain(total_level: int) -> float:
 
 
 def volume_column(vol: int, total_level: int, atten_db: float = 0.0) -> int:
-    """An OPL channel volume (0…127) → Taud's 6-bit LINEAR volume axis.
+    """An OPL channel volume (0…127) → the wide cell's LINEAR volume axis, 0…255.
 
     AdLib's volume is not a linear gain: the driver scales the operator's
     6-bit AMPLITUDE — a 0.75 dB-per-step logarithmic quantity — so volume 64 is
@@ -217,22 +218,23 @@ def volume_column(vol: int, total_level: int, atten_db: float = 0.0) -> int:
     the patch currently on the channel.  The engine puts the result back into
     the operators as attenuation (TAUD_ENGINE_SPEC.md §5.5.2), so what reaches
     the chip is the level the driver would have written, to the nearest step
-    the 6-bit column can say.  `atten_db` takes a further fixed amount off —
+    the 8-bit column can say.  `atten_db` takes a further fixed amount off —
     the caller's, for something the chip does that Taud's mixer does not."""
     tl = total_level & 63
     full = ((63 - tl) * 127 + 64) >> 7
     here = ((63 - tl) * max(0, min(127, vol)) + 64) >> 7
     if full <= 0:
-        return 63
+        return 255
     gain = 10.0 ** (-(TL_STEP_DB * (full - here) + atten_db) / 20.0)
-    return max(0, min(63, round(63.0 * gain)))
+    return vol_from_unit(gain)
 
 
 # ── Taud note words ──────────────────────────────────────────────────────────
 
-def note_word(chip_note: int) -> int:
-    """Chip note (MIDI − 12) → Taud 4096-TET note word, C4 = $5000."""
-    return round(chip_note * 4096 / 12) + 4096
+def note_word(chip_note: int) -> float:
+    """Chip note (MIDI − 12) → Taud pitch, C4 = $5000, to the sixteenth of a
+    4096-TET unit a format-3 cell holds (the 12-TET notation's fine table)."""
+    return note_pitch(chip_note * 4096 / 12 + 4096)
 
 
 def note_word_bent(chip_note: int, bend_256ths: int) -> int:
@@ -242,7 +244,7 @@ def note_word_bent(chip_note: int, bend_256ths: int) -> int:
     t = (chip_note * 256 + bend_256ths + 8) >> 4
     limit = CHIP_NOTES * SUBSTEPS - 1
     t = 0 if t < 0 else (limit if t > limit else t)
-    return round(t * 4096 / 192) + 4096
+    return note_pitch(t * 4096 / 192 + 4096)
 
 
 #: 12-TET concert middle C — the pitch the song is tuned to.
@@ -420,8 +422,9 @@ class BankBuilder:
         struct.pack_into('<I', r, 0, off)
         struct.pack_into('<H', r, 4, len(data))
         struct.pack_into('<H', r, 6, rate & 0xFFFF)
+        r[14] = INST_VOLENV8                 # 8-bit volume envelope (§7.2)
         for i in range(25):
-            r[21 + 2 * i] = 0x3F
+            r[21 + 2 * i] = 0xFF
         r[171] = 0xFF
         r[177] = 0x80
         r[182] = 0xFF

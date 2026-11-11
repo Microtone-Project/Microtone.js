@@ -186,7 +186,9 @@ export function openInstSampleEditor(store, slot) {
       // the edited marker wins; the other loop end follows to keep start ≤ end
       if ("loopStart" in change && f.loopStart > f.loopEnd) f.loopEnd = f.loopStart;
       if ("loopEnd" in change && f.loopEnd < f.loopStart) f.loopStart = f.loopEnd;
-      const modeByte = (inst().loopMode & 0x10) | (f.sustain ? 4 : 0) | (f.loopMode & 3);
+      // Only the loop bits are this editor's: percussion, the azimuth's ninth bit
+      // and the volume envelope's units ride along.
+      const modeByte = (inst().loopMode & ~0x07) | (f.sustain ? 4 : 0) | (f.loopMode & 3);
       const pairs = [
         [8, f.playStart & 0xff], [9, (f.playStart >>> 8) & 0xff],
         [10, f.loopStart & 0xff], [11, (f.loopStart >>> 8) & 0xff],

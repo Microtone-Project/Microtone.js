@@ -264,6 +264,9 @@ test("an export imported back by it2taud exports as the same bytes", async () =>
     25: { fx: 0x22, arg: 0x3355 },                   // Y
     26: { vol: [1, 4] }, 27: { vol: [2, 7] }, 28: { vol: [3, 0x20 | 3] }, 29: { vol: [3, 5] },
     30: { note: 1 }, 31: { note: note(-5), inst: 2 }, 32: { note: 3 }, 33: { note: C4 }, 34: { note: 2 },
+    // Loud volumes and lane volumes, where a 6-bit reading of a native 0…255
+    // one would land a step low (it2taud's round(v × 255 ÷ 64) narrows to v − 1).
+    35: { vol: [0, 62] }, 36: { vol: [0, 58] }, 37: { fx: 0x16, arg: 0x3e00 }, 38: { fx: 0x16, arg: 0x3500 },
   };
   const doc = project({
     patterns: {
@@ -552,14 +555,18 @@ test("the cue sheet: a cue's rows are its pattern's, a jump a B in a free channe
 
 // ── prerequisites and files ─────────────────────────────────────────────────
 
-test("only a surround project or a linear-frequency song stops the export", () => {
+test("only a linear-frequency song stops the export", () => {
   const busy = { 0: { note: C4, inst: 1 } };
   const freq = project({ patterns: { 0: busy }, cues: [[0]], instruments: [inst1], flags: 2 });
   assert.deepEqual(codes(exportItSong(freq, 0).errors), ["toneMode"]);
   assert.equal(exportItSong(freq, 0).bytes, null, "nothing is written");
+  // A format-3 project (every project the editor holds) exports the module its
+  // version-2 original did: the export reads it through the narrow view.
+  const narrow = project({ patterns: { 0: busy }, cues: [[0]], instruments: [inst1] });
   const wide = project({ patterns: { 0: busy }, cues: [[0]], instruments: [inst1] });
-  wide.wideCells = true;
-  assert.deepEqual(codes(exportItSong(wide, 0).errors), ["format"]);
+  wide.upgradeToWideCells();
+  assert.deepEqual(exportItSong(wide, 0).errors, []);
+  assert.deepEqual(exportItSong(wide, 0).bytes, exportItSong(narrow, 0).bytes);
   for (const flags of [0, 1]) {
     const ok = exportItSong(project({ patterns: { 0: busy }, cues: [[0]], instruments: [inst1], flags }), 0);
     assert.deepEqual(ok.errors, []);

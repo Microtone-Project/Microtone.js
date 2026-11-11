@@ -18,6 +18,8 @@ import {
   duplicateLayer, removeLayer, moveLayer, patchLayer,
   linkCount, clampDetune, fixedPitchFields, META_MAX_LAYERS,
 } from "../../doc/metaedit.js";
+import { VEL_SHOWN_MAX, velShown, velStored } from "../../doc/velaxis.js";
+import { volEnvMaxOf } from "../../doc/volenv.js";
 import {
   fmOperators, fmProgramOf, fmRecordOf, fmValidate, fmBudget, fmFormula, fmGraph,
   fmWord, fmWordClass, fmWordIndex, fmOperatorsNamed, fmCanAddOperator, fmCanAddWord,
@@ -35,7 +37,6 @@ import { planDuplicateInstruments } from "../../doc/bankmerge.js";
 import { showNotice } from "../components/modal.js";
 import { showModal } from "../components/modal.js";
 import { AdvancedZoneEditor } from "./instadvanced.js";
-import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import { showImportInstruments, importFromSf2 } from "../popups/importinst.js";
@@ -45,7 +46,11 @@ import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
   envClip, envPaste,
 } from "../../doc/envedit.js";
-import { mapSpinner, parsePitchText } from "../components/spinner.js";
+import { mapSpinner, setMapped, parsePitchText } from "../components/spinner.js";
+import { hzSpinnerMap } from "../components/hzspinner.js";
+import {
+  MIX_DB_MAP, centsMap, pitchHexMap, hexMap, sfResoDbMap, centsOfUnits, unitsOfCents,
+} from "../spinmaps.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
 import { lampButton } from "../components/lampbutton.js";
 import { envPresent, envCarry } from "../../../core/engine/envelope.js";
@@ -73,7 +78,6 @@ import { planEasyConvert } from "../../doc/bankmerge.js";
 import { MixingPanel } from "./instmixing.js";
 import { psgBadge } from "../../doc/psgedit.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
-import { UNITS_PER_OCTAVE } from "../../doc/chord.js";
 // A fixed-pitch layer's field takes a note WORD, and the query parser is
 // already the app's one place that reads "$5000" and "C-4" as the same thing.
 import { parseFieldValue } from "../../doc/patternquery.js";
@@ -83,7 +87,7 @@ import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
 import { isStereoSample } from "../../doc/document.js";
 import { baseStereoPatchIndex, packDupCheck, DCT_LANE } from "../../../core/engine/inst.js";
 import {
-  annHex2, annFilter, annFadeout, annSfCutoff, annSfReso, azimuthLabel, elevationLabel,
+  annHex2, annFilter, annFadeout, azimuthLabel, elevationLabel,
   SEG_MINIFLOAT_MAP,
 } from "../units.js";
 import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../../core/engine/spatial.js";
@@ -1081,6 +1085,9 @@ export class InstrumentsView {
     num.type = "number"; num.className = "sl-num";
     num.min = min; num.max = max; num.value = value;
     if (opts.pitch) num.dataset.mtPitch = opts.pitch; // 700c, 3/2, $100 too
+    // A mapped field (spinmaps.js, components/hzspinner.js) shows the value in
+    // its own units — cents, dB, Hz, $hex — and steps the stored ones.
+    if (opts.map) mapSpinner(num, opts.map, value);
     const ann = document.createElement("span");
     ann.className = "sl-ann";
     const range = document.createElement("input");
@@ -1123,20 +1130,26 @@ export class InstrumentsView {
     range.step = 1;
     range.value = toPos(clampN(value, min, max));
 
-    const paint = (v) => { if (opts.ann) ann.textContent = opts.ann(v); };
+    // `annNode` hands back an element (a note glyph) where `ann` hands back text.
+    const paint = (v) => {
+      if (opts.annNode) ann.replaceChildren(opts.annNode(v));
+      else if (opts.ann) ann.textContent = opts.ann(v);
+    };
     paint(value);
 
     let gid = null;
     const commit = (v, g) => {
       v = clampN(Math.round(v), min, max);
-      num.value = v; range.value = toPos(v); paint(v);
+      if (opts.map) setMapped(num, v); else num.value = v;
+      range.value = toPos(v); paint(v);
       onChange(v, g);
     };
     range.addEventListener("pointerdown", () => { gid = "sl" + Date.now() + Math.random(); });
     range.addEventListener("keydown", () => { if (!gid) gid = "sl" + Date.now(); });
     range.addEventListener("input", () => commit(fromPos(parseFloat(range.value)), gid ?? ("sl" + Date.now())));
     range.addEventListener("change", () => { gid = null; });
-    num.addEventListener("change", () => commit(parseInt(num.value || "0", 10), null));
+    num.addEventListener("change", () =>
+      commit(opts.map ? num.rawValue : parseInt(num.value || "0", 10), null));
 
     row.append(lab, num, ann, range);
     return row;
@@ -1151,12 +1164,14 @@ export class InstrumentsView {
     if (opts.title) lab.title = opts.title;
     const num = document.createElement("input");
     num.type = "number"; num.className = "sl-num wide"; num.min = min; num.max = max; num.value = value;
+    if (opts.map) mapSpinner(num, opts.map, value);
     const ann = document.createElement("span");
     ann.className = "sl-ann";
     if (opts.ann) ann.textContent = opts.ann(value);
     num.addEventListener("change", () => {
-      const v = clampN(parseInt(num.value || "0", 10), min, max);
-      num.value = v; if (opts.ann) ann.textContent = opts.ann(v);
+      const v = clampN(opts.map ? num.rawValue : parseInt(num.value || "0", 10), min, max);
+      if (opts.map) setMapped(num, v); else num.value = v;
+      if (opts.ann) ann.textContent = opts.ann(v);
       onChange(v);
     });
     row.append(lab, num, ann);
@@ -1350,9 +1365,9 @@ export class InstrumentsView {
   detuneRow(inst) {
     const min = -0x8000, max = 0x7fff;
     const value = inst.sampleDetuneSigned;
-    const ann = (v) =>
-      `$${(v & 0xffff).toString(16).toUpperCase().padStart(4, "0")} · ` +
-      `${((v * 1200) / 4096).toFixed(1)} cents, 4096-TET`;
+    // The box reads cents and steps degrees of the song's notation (spinmaps
+    // centsMap); the stored word, in 4096-TET units, is the readout beside it.
+    const ann = (v) => `$${(v & 0xffff).toString(16).toUpperCase().padStart(4, "0")} · 4096-TET`;
     return this.sliderRow(t("inst.detune"), value, min, max,
       (v, gid) => {
         const nv = v & 0xffff;
@@ -1361,7 +1376,7 @@ export class InstrumentsView {
           ? compositeOp([setInstFieldOp(this.selected, "sampleDetune", nv, gid), sync], gid)
           : setInstFieldOp(this.selected, "sampleDetune", nv, gid));
       },
-      { ann, wide: true, signedLog: true, pitch: "units", title: t("inst.detuneTitle") });
+      { ann, wide: true, signedLog: true, map: centsMap(this.store.pitchPreset, min, max), title: t("inst.detuneTitle") });
   }
 
   /**
@@ -1419,7 +1434,10 @@ export class InstrumentsView {
       ...this.defaultPositionRows(inst),
       this.sliderRow(t("inst.pitchPanSep"), inst.pitchPanSeparation, -128, 127, fSet("pitchPanSeparation"), { title: t("inst.pitchPanSepTitle") }),
       this.sliderRow(t("inst.panSwing"), inst.panSwing, 0, 255, fSet("panSwing"), { ann: annHex2, title: t("inst.panSwingTitle") }),
-      this.sliderRow(t("inst.pitchPanCentre"), inst.pitchPanCentre, 0, 0xffff, fSet("pitchPanCentre"), { ann: annHex4, title: t("inst.pitchPanCentreTitle") }),
+      this.sliderRow(t("inst.pitchPanCentre"), inst.pitchPanCentre, 0, 0xffff, fSet("pitchPanCentre"), {
+        map: pitchHexMap(this.store.pitchPreset), title: t("inst.pitchPanCentreTitle"),
+        annNode: (v) => noteGlyph(clampN(v, 0x20, 0xffff), this.store.pitchPreset),
+      }),
       // Pan LOOP word bit 7 = "use default pan" (engine trigger.js:280).
       this.checkRow(t("inst.useDefaultPan"), ((inst.panEnvLoop >> 7) & 1) !== 0,
         (on) => this.setEnvWordBit("panEnvLoop", 7, on), { title: t("inst.useDefaultPanTitle") }),
@@ -1433,12 +1451,12 @@ export class InstrumentsView {
         // resonance (centibels above DC gain, bytes 183/253) → dB.
         ? this.sliderRow(t("inst.cutoff"), inst.defaultCutoff16, 1500, 13500, (v, gid) =>
             this.applyQuiet(setInstBytesOp(this.selected, [[182, (v >> 8) & 0xff], [252, v & 0xff]], gid)),
-            { ann: annSfCutoff, title: t("inst.cutoffTitle") })
+            { map: hzSpinnerMap(), wide: true, title: t("inst.cutoffTitle") })
         : this.sliderRow(t("inst.cutoff"), inst.defaultCutoff, 0, 255, fSet("defaultCutoff"), { ann: annFilter, title: t("inst.cutoffTitle") }),
       sfMode
         ? this.sliderRow(t("inst.resonance"), inst.defaultResonance16, 0, 960, (v, gid) =>
             this.applyQuiet(setInstBytesOp(this.selected, [[183, (v >> 8) & 0xff], [253, v & 0xff]], gid)),
-            { ann: annSfReso, title: t("inst.resonanceTitle") })
+            { map: sfResoDbMap(), wide: true, title: t("inst.resonanceTitle") })
         : this.sliderRow(t("inst.resonance"), inst.defaultResonance, 0, 255, fSet("defaultResonance"), { ann: annFilter, title: t("inst.resonanceTitle") }),
     );
 
@@ -1517,7 +1535,7 @@ export class InstrumentsView {
     editRow.append(editLab, editBtn);
 
     this.group(t("inst.grpSample"),
-      this.numRow(t("inst.samplePtr"), inst.samplePtr, 0, 8388607, (v) => this.setField("samplePtr", v), { ann: annHex6, title: t("inst.samplePtrTitle") }),
+      this.numRow(t("inst.samplePtr"), inst.samplePtr, 0, 8388607, (v) => this.setField("samplePtr", v), { map: hexMap(6, 0, 8388607), title: t("inst.samplePtrTitle") }),
       this.samplePickRow(inst),
       this.numRow(t("inst.sampleLen"), inst.sampleLength, 0, 65535, (v) => this.setField("sampleLength", v), { title: t("inst.sampleLenTitle") }),
       this.numRow(t("inst.rateC4"), inst.samplingRate, 0, 65535, (v) => this.setField("samplingRate", v), { ann: (v) => v + " Hz", title: t("inst.rateC4Title") }),
@@ -1560,6 +1578,9 @@ export class InstrumentsView {
   get envSlot() { return this._envSlot ?? this.selected; }
 
   renderEnv(inst, tabDef) {
+    // The volume envelope's range is the instrument's own (byte 14 bit 6):
+    // 0…255 in every instrument a format-3 project holds, 0…63 in an old one.
+    if (tabDef.key === "volEnvelopes") tabDef = { ...tabDef, max: volEnvMaxOf(inst.loopMode) };
     const env = inst[tabDef.key];
     // Pitch/Filter "present" is whether THIS tab currently holds the role
     // (tabDef.roleActive) — the raw loop-key P bit belongs to whichever
@@ -2023,21 +2044,12 @@ export class InstrumentsView {
    *  stepping by degrees of the song's own pitch table, as the layer table's
    *  does — for the Easy tab. */
   detuneInput(units, min, max, onCommit, title = "") {
-    const preset = this.store.pitchPreset;
-    const clampU = (u) => clampN(Math.round(u), min, max);
     const inp = document.createElement("input");
     inp.className = "meta-num";
     if (title) inp.title = title;
     inp.dataset.mtDecTitle = t("meta.detuneDownTitle");
     inp.dataset.mtIncTitle = t("meta.detuneUpTitle");
-    mapSpinner(inp, {
-      toDisplay: (u) => `${centsOfUnits(u).toFixed(1)} ¢`,
-      fromDisplay: (text) => {
-        const c = parsePitchText(text, "cents");
-        return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
-      },
-      step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
-    }, units);
+    mapSpinner(inp, centsMap(this.store.pitchPreset, min, max), units);
     inp.addEventListener("change", () => onCommit(inp.rawValue));
     return inp;
   }
@@ -2071,14 +2083,40 @@ export class InstrumentsView {
     this.renderEnv(this.store.doc.instruments[slot], ENV_TABS[0]);
   }
 
-  /** A committing number input for the layer / operator tables. */
-  metaNumIn(value, min, max, onCommit, title = "") {
+  /** One end of a layer's or operator's pitch range, as `$xxxx` (spinmaps
+   *  pitchHexMap): typed in hex or as a note name, stepped by degrees of the
+   *  song's own notation; 0 and $FFFF stay reachable past every note. */
+  metaPitchIn(word, onCommit, title = "") {
     const i = document.createElement("input");
-    i.type = "number"; i.min = min; i.max = max; i.value = value;
     i.className = "meta-num";
     if (title) i.title = title;
-    i.addEventListener("change", () =>
-      onCommit(clampN(Math.round(Number(i.value) || 0), min, max)));
+    i.dataset.mtDecTitle = t("meta.detuneDownTitle");
+    i.dataset.mtIncTitle = t("meta.detuneUpTitle");
+    mapSpinner(i, pitchHexMap(this.store.pitchPreset), word);
+    i.addEventListener("change", () => onCommit(i.rawValue));
+    return i;
+  }
+
+  /**
+   * One bound of a volume gate — a layer's, an operator's or (through the
+   * Advanced tab) an Ixmp patch's — shown in note-volume units (0…255) over
+   * the record's 0…63 (doc/velaxis.js): the low bound reads the first volume
+   * of its step, the high bound the last, and ∓ moves one step (4). A typed
+   * volume settles on the step it falls in, and the field shows that step's
+   * bound at once, whether or not the record changed.
+   */
+  velBoundIn(stored, high, onCommit, title = "", className = "meta-num") {
+    const i = document.createElement("input");
+    i.type = "number";
+    i.min = high ? 3 : 0; i.max = high ? VEL_SHOWN_MAX : VEL_SHOWN_MAX - 3; i.step = 4;
+    i.value = velShown(stored, high);
+    if (className) i.className = className;
+    if (title) i.title = title;
+    i.addEventListener("change", () => {
+      const k = velStored(i.value);
+      i.value = velShown(k, high);
+      onCommit(k);
+    });
     return i;
   }
 
@@ -2292,16 +2330,14 @@ export class InstrumentsView {
     const rngAnn = Object.assign(document.createElement("span"), { className: "dim meta-rng-ann" });
     rngAnn.append(rangeGlyph(entry.pitchStart, entry.pitchEnd, preset, t("range.whole")));
     rngCell.append(
-      this.metaNumIn(entry.pitchStart, 0, 0xffff, (v) => commit({ pitchStart: v }),
-        t("meta.pitchLoTitle")),
-      this.metaNumIn(entry.pitchEnd, 0, 0xffff, (v) => commit({ pitchEnd: v }),
-        t("meta.pitchHiTitle")),
+      this.metaPitchIn(entry.pitchStart, (v) => commit({ pitchStart: v }), t("meta.pitchLoTitle")),
+      this.metaPitchIn(entry.pitchEnd, (v) => commit({ pitchEnd: v }), t("meta.pitchHiTitle")),
       rngAnn);
 
     const velCell = tr.querySelector(".velCell");
     velCell.append(
-      this.metaNumIn(entry.volStart, 0, 63, (v) => commit({ volStart: v }), t("meta.velLoTitle")),
-      this.metaNumIn(entry.volEnd, 0, 63, (v) => commit({ volEnd: v }), t("meta.velHiTitle")));
+      this.velBoundIn(entry.volStart, false, (v) => commit({ volStart: v }), t("meta.velLoTitle")),
+      this.velBoundIn(entry.volEnd, true, (v) => commit({ volEnd: v }), t("meta.velHiTitle")));
 
     return { tr, advCell: tr.querySelector(".advCell") };
   }
@@ -3147,39 +3183,5 @@ function instKindBadge(inst) {
   return shadowIdx >= 0 ? t("smp.stereoTag") : "";
 }
 
-// Meta layer detune is a signed 4096-TET offset; the Layers tab shows cents.
-const centsOfUnits = (units) => (units * 1200) / UNITS_PER_OCTAVE;
-const unitsOfCents = (cents) => (cents * UNITS_PER_OCTAVE) / 1200;
-
-/** Meta mix octet → a dB readout (159 = 0 dB unity; 0 = silence). */
-function mixDbLabel(octet) {
-  const g = META_MIX_GAIN[octet & 0xff];
-  if (!(g > 0)) return "−∞ dB";
-  const db = 20 * Math.log10(g);
-  return (db >= 0 ? "+" : "−") + Math.abs(db).toFixed(1) + " dB";
-}
-
-/** …and back: the octet whose gain is nearest the decibels someone typed. */
-function mixOctetOfDb(text) {
-  const str = String(text).replace("−", "-").trim();
-  if (str === "" || /-\s*(∞|inf)/i.test(str)) return 0;
-  const db = parseFloat(str);
-  if (!Number.isFinite(db)) return 0;
-  const want = 10 ** (db / 20);
-  let best = 0, bestErr = Infinity;
-  for (let o = 0; o < 256; o++) {
-    const err = Math.abs(META_MIX_GAIN[o] - want);
-    if (err < bestErr) { bestErr = err; best = o; }
-  }
-  return best;
-}
-
-/** The mix field's spinner mapping (item 156.2): decibels on screen, one raw
- *  PSO octet per press of − / +. */
-const MIX_DB_MAP = {
-  toDisplay: mixDbLabel,
-  fromDisplay: mixOctetOfDb,
-  step: (octet, dir) => Math.min(Math.max((octet | 0) + dir, 0), 255),
-};
 const annHex4 = (v) => "$" + (v & 0xffff).toString(16).toUpperCase().padStart(4, "0");
 const annHex6 = (v) => "$" + (v & 0xffffff).toString(16).toUpperCase().padStart(6, "0");

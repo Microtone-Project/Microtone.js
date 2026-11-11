@@ -221,7 +221,8 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
                                         trimPatches = false, stereoSamples = false,
                                         keepDuplicatePatterns = false, realign = null,
                                         quantise = null, quantiseStrength = 100,
-                                        fromMotif = false, folder = "" } = {}) {
+                                        fromMotif = false, folder = "",
+                                        quietUpgrade = false } = {}) {
   // A Taud Motif Language program is not a project but the recipe for one: it
   // opens in the Motif view, which builds it (and shows where it went wrong
   // when it does not build).
@@ -241,6 +242,9 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
         keepDuplicatePatterns, realign, quantise, quantiseStrength, folder });
   }
   let converted = false;
+  // Only a Taud file the user opens is told it was widened (below): a sketch,
+  // a module or MIDI conversion and a Motif build are new projects anyway.
+  let foreign = fromMotif || quietUpgrade;
   // A Microtone Touch sketch is the Taud song it stands for, with the Touch
   // instrument pack built in — opened as a new project, never bound to the
   // sketch it came from (core/sketch/mtsk.js).
@@ -253,6 +257,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
     }
     name = name.replace(/\.[^.]+$/, "") + ".taud";
     converted = true;
+    foreign = true;
   } else if (converterFor(name)) {
     bytes = await convertImport(name, bytes,
       { sf2, bank, rpb, trimPatches, stereoSamples, keepDuplicatePatterns,
@@ -260,6 +265,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
     if (bytes === null) return;
     name = name.replace(/\.[^.]+$/, "") + ".taud";
     converted = true;
+    foreign = true;
   }
 
   let parsed;
@@ -337,6 +343,14 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   }
   store.audio?.stop(0);
   store.doc = new Document(parsed);
+  // Format 3 is the only format the editor writes (file format §5.5): a
+  // version-1/2 project widens as it opens, its notes onto the 65536-TET grid.
+  // The file itself is untouched until it is saved.
+  const openedVersion = store.doc.fmtVer ?? 2;
+  if (!store.doc.wideCells) store.doc.upgradeToWideCells();
+  // …and its instruments' volume envelopes go to 0…255 like its other volumes
+  // (§7.2, byte 14 bit 6), an old format-3 project's included.
+  store.doc.upgradeVolEnvelopes();
   store.clearMutes(); // per-song UI state (taut finishLoadCommon)
   store.clearFx2();   // …and the second effect goes back to hidden
   store.fileName = name;
@@ -387,6 +401,9 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
     store.emit("saved", path);
   }
   updateStatus();
+  if (openedVersion < 3 && !foreign) {
+    showNotice({ title: t("fmt3.title"), body: t("fmt3.body", { name, ver: openedVersion }) });
+  }
   warnImixProblems(store.doc);
 }
 
@@ -488,10 +505,10 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   const is64 = result.channels === 64;
   const chans = is64 ? 64 : 32;
   const projName = result.name || "untitled";
-  // A surround project is born in format version 3 — the wide cell (§5.5) is
-  // what makes its panning column able to say where a source is at all.
+  // Every project is born in format version 3 — the wide cell (§5.5); the
+  // surround model only chooses how its panning column reads.
   const surroundModel = result.surroundModel ?? 0;
-  const wide = surroundModel !== 0;
+  const wide = true;
 
   // Empty pattern: FINE-by-zero in both columns (the converter convention),
   // which in the wide cell is one selector byte instead of two.
@@ -555,6 +572,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   };
   store.audio?.stop(0);
   store.doc = new Document(parsedShape);
+  store.doc.upgradeVolEnvelopes(); // a starting bank's envelopes, as on open
   store.doc.smetEdited = true; // bake the fresh sMet on first save
   store.doc.dirty = true;
   store.fileName = null;
@@ -840,34 +858,6 @@ function adoptNewInstrument(slot) {
 }
 
 /**
- * Save the upgraded project under a NEW name and continue working on that
- * one (format v3, §5.5). The original file is left alone deliberately: the
- * upgrade has no defined way back, so the version-2 copy stays readable by
- * anything that reads version 2 — including the TSVM device.
- */
-async function saveProjectCopyAs(name) {
-  if (!(await opfs.available())) return; // nothing persists here; keep the edit in memory
-  // Beside the original, in its folder (an online original's copy goes to the top).
-  const folder = store.onlineProject ? "" : store.folder;
-  let target = name;
-  for (let n = 2; await opfs.exists(opfs.joinPath(folder, target)); n++) {
-    target = name.replace(/\.taud$/, `-${n}.taud`);
-  }
-  const doc = store.doc;
-  const path = opfs.joinPath(folder, target);
-  await withSaveProgress(store, async (progress) => {
-    const serial = doc.editSerial;
-    await opfs.write(path, await doc.toSaveBytes(ZSTD_LEVEL_SAVE, progress));
-    if (doc.editSerial === serial) doc.dirty = false;
-  });
-  store.fileName = target;
-  store.folder = folder;
-  store.online = null; // the copy is local, even if the original was online
-  store.emit("saved", path);
-  updateStatus();
-}
-
-/**
  * Load one of the bundled demo songs (item 163). Half a megabyte over the
  * network, so it gets a real progress bar rather than a silent pause; the
  * bytes then go through the ordinary load path, which means the
@@ -887,7 +877,7 @@ async function loadDemo(entry) {
     return;
   }
   progress.done();
-  await loadBytes(entry.file, bytes);
+  await loadBytes(entry.file, bytes, { quietUpgrade: true });
 }
 
 /** Welcome screen (item 104) — the Timeline tab's content before a project is
@@ -939,7 +929,6 @@ const VIEW_SPEC = {
     host: { id: "projectHost" },
     make: (el) => new ProjectView(store, el, {
       editSong: (i) => editSongInteractive(i),
-      saveCopyAs: saveProjectCopyAs,
     }),
   },
   files: {
@@ -2225,7 +2214,8 @@ const bootParams = new URLSearchParams(location.search);
 if (bootParams.has("load")) {
   const url = bootParams.get("load");
   fetch(url).then(async (resp) => {
-    await loadBytes(url.split("/").pop(), new Uint8Array(await resp.arrayBuffer()));
+    // A link opens its song as a demo does: widened to format 3 without a word.
+    await loadBytes(url.split("/").pop(), new Uint8Array(await resp.arrayBuffer()), { quietUpgrade: true });
     console.info(`APP: loaded ${url} songs=${store.doc?.songs.length}`);
     if (bootParams.has("view")) showView(bootParams.get("view"));
     if (bootParams.has("autoplay")) {

@@ -13,8 +13,10 @@ import { TaudEngine } from "../../core/engine/engine.js";
 import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
 import { SAMPLING_RATE, MIDDLE_C } from "../../core/engine/constants.js";
 import { tuningRatioOf } from "../../core/engine/tables.js";
+import { wideNoteWord, wideNoteFine } from "../../core/engine/state.js";
+import { widenVolume } from "../doc/upgrade.js";
 import {
-  SAMPLEBIN_SIZE, INST_RECORD_SIZE, PATTERN_SIZE, CUE_EMPTY, MAX_VOICES,
+  SAMPLEBIN_SIZE, INST_RECORD_SIZE, PATTERN_SIZE_WIDE, CUE_EMPTY, MAX_VOICES,
 } from "../../core/format/taud-const.js";
 
 /** How long a note is held for its bounce. */
@@ -58,20 +60,28 @@ export function referenceSlot(slot) {
   return slot === 255 ? 254 : 255;
 }
 
+/**
+ * The song a bounce renders: one note, held. It is a format-3 song (the wide
+ * cell, file format §5.5) so the note keeps its sixteenths — a 31-TET song's
+ * pitches are rarely whole 4096-TET words, and a key map trimmed to the
+ * pitches played answers only at the exact one — and its volume is `volume`
+ * (1…63, the 6-bit step a key map or a layer split is gated on) widened the
+ * way the engine reads it back: widenVolume(v) >> 2 is v.
+ */
 function oneNoteSong(song, image, slot, note, ixmp, volume) {
-  const pat = new Uint8Array(PATTERN_SIZE);
-  for (let r = 0; r < 64; r++) {
-    pat[r * 8 + 3] = 0xc0; // volume column: the no-op (selector 3, value 0)
-    pat[r * 8 + 4] = 0xc0; // panning column: likewise
-  }
-  pat[0] = note & 0xff;
-  pat[1] = (note >>> 8) & 0xff;
+  const pat = new Uint8Array(PATTERN_SIZE_WIDE);
+  for (let r = 0; r < 64; r++) pat[r * 16 + 8] = 0x33; // both columns: the no-op FINE
+  const word = wideNoteWord(note);
+  pat[0] = word & 0xff;
+  pat[1] = (word >>> 8) & 0xff;
+  pat[13] = wideNoteFine(note) << 4;
   pat[2] = slot;
-  pat[3] = volume & 0x3f;  // volume SET: full (63) unless the caller plays it softer
+  pat[3] = bounceVolume(volume);
+  pat[8] = 0x03;           // volume SET (selector 0), panning the no-op
   const words = new Uint16Array(MAX_VOICES).fill(CUE_EMPTY);
   words[0] = 0;
   return {
-    is64Channel: false, fmtVer: 2, wideCells: false, sampleInstImage: image,
+    is64Channel: false, fmtVer: 3, wideCells: true, sampleInstImage: image,
     ixmp, imix: [], meta: {},
     songs: [{
       bpm: 125, tickRate: 6,
@@ -81,6 +91,11 @@ function oneNoteSong(song, image, slot, note, ixmp, volume) {
       patterns: [pat], cues: [words],
     }],
   };
+}
+
+/** The wide note volume a bounce at 6-bit `volume` plays at. */
+function bounceVolume(volume) {
+  return widenVolume(Math.max(0, Math.min(63, volume | 0)));
 }
 
 /** Mono (L+R)/2 of one held note, BOUNCE_SECONDS long, at the engine rate.
@@ -146,14 +161,15 @@ function findLoopStart(buf, minLen, maxLen, win) {
  * `refSlot` as renderNote's: a metainstrument needs the project's key maps.
  * `volume` (1…63) is the note volume it is played at — a key map or a layer
  * split by volume may sound nothing at full — and the bounce is scaled back
- * up by 63 ÷ volume.
+ * up by the inverse of the level it was played at.
  */
 export function bounceChipInstrument(song, image, slot, note, level, ixmp = [], refSlot = -1, volume = 63) {
   const rate = SAMPLING_RATE;
   const mono = renderNote(song, image, slot, note, ixmp, refSlot, volume);
   // A note played softer is brought back to full: whoever plays the bounce
   // applies the note's volume again. (Note volume is linear amplitude.)
-  const scale = (level > 0 ? 1 / level : 1) * (volume > 0 ? 63 / volume : 1);
+  const played = bounceVolume(volume);
+  const scale = (level > 0 ? 1 / level : 1) * (played > 0 ? 255 / played : 1);
   let peak = 0;
   for (let i = 0; i < mono.length; i++) {
     mono[i] *= scale;

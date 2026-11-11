@@ -43,10 +43,12 @@ import { patchVibratoInherits, patchIsStereo } from "../../core/engine/inst.js";
 import { unescapeName } from "../../core/format/names.js";
 import { isDefaultMastering } from "../../core/format/mastering-section.js";
 import { cueInfo } from "../doc/document.js";
+import { narrowedForExport } from "../doc/upgrade.js";
 import {
-  findings, opChar, hex, playedCues, playedRows, median, latin1,
+  findings, opChar, hex, playedCues, playedRows, median, latin1, vol64,
 } from "./modexport.js";
 import { bounceImage, referenceSlot, referenceLevel, bounceChipInstrument } from "./modchip.js";
+import { volEnvValue63 } from "../doc/volenv.js";
 
 export const IT_CHANNELS = 64;
 /** Orders a module plays; the list carries one more, the end marker. */
@@ -236,7 +238,11 @@ function effectColumn(cell, st, ctx) {
       return { fx: fx("J"), arg };
     }
     case OP.OP_M:
-      // Taud's 63 is IT's 64: both are the six-bit ceiling.
+      // A format-3 lane volume is 0…255: IT's 0…64 is round(v × 64 ÷ 255) of
+      // it, the exact inverse of it2taud's; a 6-bit one's 63 is IT's 64.
+      if (cell.lane8 !== null && cell.lane8 !== undefined) {
+        return { fx: fx("M"), arg: Math.min(0x40, Math.round((cell.lane8 * 64) / 255)) };
+      }
       return { fx: fx("M"), arg: hi >= 0x3f ? 0x40 : hi };
     case OP.OP_N: return { fx: fx("N"), arg: hi };
     case OP.OP_P: return { fx: fx("P"), arg: hi };
@@ -302,7 +308,7 @@ function volumeColumn(cell) {
   const v = cell.vol;
   switch (cell.volEff) {
     case SEL_SET:
-      return { vc: v >= 63 ? 64 : v };
+      return { vc: vol64(cell) };
     case SEL_UP:
       if (v === 0) return null;
       return v <= 9 ? { vc: 85 + v } : { vc: 94, alt: { fx: fx("D"), arg: Math.min(v, 15) << 4 } };
@@ -590,6 +596,11 @@ const cents = (units) => {
  * .it, or null when any error stands (nothing is written then).
  */
 export function exportItSong(doc, songIndex, opts = {}) {
+  // A module is a version-2 world (one effect a row, a 6-bit volume, a front-arc
+  // panning column): read the format-3 project through its narrow view, and
+  // say what it could not carry.
+  const narrowed = narrowedForExport(doc, songIndex);
+  doc = narrowed.doc;
   opts.bounces ??= new Map();     // one render per instrument and note, whatever the attempt
   const song = doc.songs[songIndex];
   const stepUnits = opts.coarsen ? (FRACTION_STEPS_CENTS[opts.coarsen - 1] * 4096) / 1200 : 0;
@@ -603,7 +614,8 @@ export function exportItSong(doc, songIndex, opts = {}) {
   const title = unescapeName(storedTitle);
 
   // ── the song's own settings ──
-  if (doc.wideCells) errors.add("format");
+  if (narrowed.lost.effect2 > 0) warnings.add("effect2", { n: narrowed.lost.effect2 });
+  if (narrowed.lost.position > 0) warnings.add("position", { n: narrowed.lost.position });
   const toneMode = song.globalFlags & 3;
   if (toneMode > 1) errors.add("toneMode");
   const linear = toneMode === 0;
@@ -659,12 +671,17 @@ export function exportItSong(doc, songIndex, opts = {}) {
           const inst = doc.instruments[st.slot];
           const vol = cell.volEff === SEL_SET ? cell.vol
             : cell.inst !== 0 ? defaultVolume(inst) : st.vol;
+          // The IT volume it stands for, kept from the wide SET where there is one.
+          const v64 = cell.volEff === SEL_SET ? vol64(cell)
+            : cell.inst !== 0 ? vol64({ vol: defaultVolume(inst) }) : st.v64;
           it.taudNote = cell.note;
           it.slot = st.slot;
           it.vol = vol;
+          it.v64 = v64;
           // A tone portamento slides to the note; it plays nothing new.
           it.porta = cell.fx === OP.OP_G || cell.fx === OP.OP_L;
           st.vol = vol;
+          st.v64 = v64;
           // An instrument with a pan of its own sets the channel's at the note.
           if (!it.porta && pansItself(inst)) st.pan = null;
           if (st.slot !== 0) {
@@ -678,8 +695,11 @@ export function exportItSong(doc, songIndex, opts = {}) {
         else if (cell.note === NOTE_CUT) it.note = IT_NOTE_CUT;
         else if (cell.note === NOTE_FADE) it.note = IT_NOTE_FADE;
         else if (cell.note === NOTE_FAST_FADE) { it.note = IT_NOTE_CUT; counts.fastFade++; }
-        if (cell.inst !== 0 && cell.note < 0x20) st.vol = defaultVolume(doc.instruments[cell.inst]);
-        if (cell.volEff === SEL_SET && cell.note < 0x20) st.vol = cell.vol;
+        if (cell.inst !== 0 && cell.note < 0x20) {
+          st.vol = defaultVolume(doc.instruments[cell.inst]);
+          st.v64 = vol64({ vol: st.vol });
+        }
+        if (cell.volEff === SEL_SET && cell.note < 0x20) { st.vol = cell.vol; st.v64 = vol64(cell); }
 
         let main = effectColumn(cell, st, ctx);
         const vol = volumeColumn(cell);
@@ -825,7 +845,7 @@ export function exportItSong(doc, songIndex, opts = {}) {
             if (it.inst !== 0 || entry !== held) {
               // A new instrument number sets the sample's default volume; a
               // bare note in Taud kept the lane's, so the volume column says so.
-              if (it.inst === 0 && it.vc < 0) it.vc = Math.min(64, it.vol >= 63 ? 64 : it.vol);
+              if (it.inst === 0 && it.vc < 0) it.vc = it.v64 ?? Math.min(64, it.vol >= 63 ? 64 : it.vol);
               it.inst = entry.number;
             }
             held = entry;
@@ -1016,9 +1036,13 @@ export function exportItSong(doc, songIndex, opts = {}) {
       fadeout = fadeoutOf(inst) > 0 ? fadeoutOf(inst) : sustains ? RENDERED_FADEOUT : 0;
       filter = { ifc: 0, ifr: 0 };
     } else {
+      // IT's volume envelope is Taud's 0…63 one: an 8-bit envelope narrows
+      // back (exactly, for one that was widened from 0…63).
+      const vol63 = (nodes) => (inst.volEnv8
+        ? nodes.map((n) => ({ value: volEnvValue63(n.value, true), offset: n.offset })) : nodes);
       volEnv = zone?.volEnv
-        ? itEnvelope(zone.volEnv, zone.volEnvLoop, zone.volEnvSustain, "vol", tpsOf, counts)
-        : itEnvelope(inst.volEnvelopes, inst.volEnvLoop, inst.volEnvSustainWord, "vol", tpsOf, counts);
+        ? itEnvelope(vol63(zone.volEnv), zone.volEnvLoop, zone.volEnvSustain, "vol", tpsOf, counts)
+        : itEnvelope(vol63(inst.volEnvelopes), inst.volEnvLoop, inst.volEnvSustainWord, "vol", tpsOf, counts);
       panEnv = zone?.panEnv
         ? itEnvelope(zone.panEnv, zone.panEnvLoop, zone.panEnvSustain, "pan", tpsOf, counts)
         : itEnvelope(inst.panEnvelopes, inst.panEnvLoop, inst.panEnvSustainWord, "pan", tpsOf, counts);

@@ -34,6 +34,7 @@ from taud_common import (
     NOTE_NOP, NOTE_KEYOFF, NOTE_CUT, TAUD_C4,
     TOP_NONE, TOP_A, TOP_B, TOP_C, TOP_E, TOP_F, TOP_G, TOP_H, TOP_J,
     SEL_SET, SEL_FINE,
+    COL_EMPTY, INST_VOLENV8, pcol_set, note_pitch, put_cell, blank_pattern,
     J_SEMI_TABLE,
     encode_cue, deduplicate_patterns, encode_song_entry, compress_blob,
     finalize_cue_sheet, set_cue_instruction, CUE_INST_HALT,
@@ -151,8 +152,7 @@ def mon_note_to_taud(mon_note: int) -> int:
         return NOTE_NOP
     if mon_note == 0x7F:
         return NOTE_CUT
-    val = TAUD_C4 + round((mon_note - MON_NOTE_C4) * 4096.0 / 12.0)
-    return max(0x20, min(0xFFFF, val))
+    return note_pitch(TAUD_C4 + (mon_note - MON_NOTE_C4) * 4096.0 / 12.0)
 
 
 # ── Effect mapping (Monotone 3-bit code + 6-bit data → Taud) ─────────────────
@@ -221,11 +221,11 @@ def build_sample_inst_bin() -> bytes:
     struct.pack_into('<H', inst_bin, base + 8,  0)                       # play start
     struct.pack_into('<H', inst_bin, base + 10, 0)                       # loop start
     struct.pack_into('<H', inst_bin, base + 12, len(SQUARE_SAMPLE))      # loop end
-    inst_bin[base + 14] = 0x01                                           # forward loop
+    inst_bin[base + 14] = 0x01 | INST_VOLENV8                            # forward loop; 8-bit volume envelope
     struct.pack_into('<H', inst_bin, base + 15, 0x2020)                  # vol-env: P (bit 13) | b (bit 5)
     struct.pack_into('<H', inst_bin, base + 17, 0)                       # pan-env flags (P=0 → mixer skips)
     struct.pack_into('<H', inst_bin, base + 19, 0)                       # pitch-env flags (P=0 → mixer skips)
-    inst_bin[base + 21] = 63                                             # vol env pt 0 = full
+    inst_bin[base + 21] = 0xFF                                           # vol env pt 0 = full
     inst_bin[base + 22] = 0
     inst_bin[base + 171] = 0xA0                                          # IGV (square-wave headroom)
     inst_bin[base + 177] = 0x80                                          # default pan = centre
@@ -243,8 +243,8 @@ def build_sample_inst_bin() -> bytes:
 # ── Pattern build ────────────────────────────────────────────────────────────
 
 def build_taud_pattern(grid: list, voice: int) -> bytes:
-    """Build one 512-byte Taud pattern from one Monotone voice's 64 rows."""
-    out = bytearray(PATTERN_BYTES)
+    """Build one Taud pattern (wide cells) from one Monotone voice's 64 rows."""
+    out = blank_pattern()
     rows = grid[voice]
     for r, row in enumerate(rows):
         note_taud = mon_note_to_taud(row.note)
@@ -254,20 +254,9 @@ def build_taud_pattern(grid: list, voice: int) -> bytes:
         op, arg = encode_effect(row.effect, row.effect_arg)
 
         # Volume column: Monotone has none → permanent no-op (FINE 0).
-        vol_byte = (SEL_FINE << 6) | 0
-        # Pan column: SET centre on row 0, no-op afterwards.
-        if r == 0:
-            pan_byte = (SEL_SET << 6) | 32
-        else:
-            pan_byte = (SEL_FINE << 6) | 0
-
-        base = r * 8
-        struct.pack_into('<H', out, base + 0, note_taud)
-        out[base + 2] = 1 if triggers else 0
-        out[base + 3] = vol_byte
-        out[base + 4] = pan_byte
-        out[base + 5] = op & 0xFF
-        struct.pack_into('<H', out, base + 6, arg & 0xFFFF)
+        # Pan column: SET the centre (azimuth 128) on row 0, no-op afterwards.
+        pan = pcol_set(128) if r == 0 else COL_EMPTY
+        put_cell(out, r, note=note_taud, inst=1 if triggers else 0, pan=pan, fx=op, arg=arg)
 
     return bytes(out)
 

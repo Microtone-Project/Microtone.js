@@ -77,6 +77,8 @@ from taud_common import (
     TOP_NONE, TOP_A, TOP_B, TOP_C, TOP_D, TOP_E, TOP_F, TOP_G, TOP_H, TOP_I,
     TOP_J, TOP_K, TOP_L, TOP_M, TOP_N, TOP_O, TOP_P, TOP_Q, TOP_R, TOP_S, TOP_T, TOP_U, TOP_V, TOP_W, TOP_Y,
     SEL_SET, SEL_UP, SEL_DOWN, SEL_FINE,
+    COL_EMPTY, INST_VOLENV8, vcol_set, vcol_fine64, vol_from64, vol_from_unit, vol_step64,
+    pcol_set, pan_from64, note_pitch, put_cell, blank_pattern,
     EFF_A, EFF_B, EFF_C, EFF_D, EFF_E, EFF_F, EFF_G, EFF_H, EFF_I, EFF_J,
     EFF_K, EFF_L, EFF_M, EFF_N, EFF_O, EFF_P, EFF_Q, EFF_R, EFF_S, EFF_T,
     EFF_U, EFF_V, EFF_W, EFF_X, EFF_Y, EFF_Z,
@@ -646,7 +648,7 @@ def _parse_it_envelope(data: bytes, env_ptr: int, kind: str,
     region is not enabled.
 
     kind:
-      'vol'    — IT 0..64    →  Taud 0..63
+      'vol'    — IT 0..64    →  Taud 0..255 (8-bit, byte 14 bit 6)
       'pan'    — IT -32..+32 →  Taud 0..255 (0x80 = centre)
       'pitch'  — IT -32..+32 →  Taud 0..255 (0x80 = unity)
       'filter' — IT -32..+32 →  Taud 0..255 (0x80 = unity cutoff)
@@ -690,12 +692,12 @@ def _parse_it_envelope(data: bytes, env_ptr: int, kind: str,
 
     def _to_taud_val(it_val: int) -> int:
         if kind == 'vol':
-            return min(63, max(0, round(it_val * 63 / 64)))
+            return vol_from64(it_val)
         if kind == 'pan':
             return min(255, max(0, round((it_val + 32) * 255 / 64)))
         return min(255, max(0, round((it_val + 32) * 255 / 64)))
 
-    pad_value = (63 if kind == 'vol' else 0x80)
+    pad_value = (0xFF if kind == 'vol' else 0x80)
 
     # Build Taud envelope points with delta-time minifloats. We keep all
     # IT nodes verbatim (up to 25), so loop indices stay valid.
@@ -754,7 +756,7 @@ class ITRow:
         self.effect     = 0
         self.effect_arg = 0
         self.volcol     = -1        # raw IT vol-col byte, -1 = not set
-        self.pan_set    = None      # 0..63 from vol-col, or None
+        self.pan_set    = None      # an azimuth 0..255 from vol-col, or None
         self.aux_effect = None      # (cmd,arg) from vol-col, or None
 
 def _parse_one_pattern(data: bytes, ptr: int) -> tuple:
@@ -835,15 +837,16 @@ def encode_note_it(it_note: int) -> int:
         # IT middle C is C-5 (note 60); Taud reference is C-4 (TAUD_C4 = 0x5000).
         # IT C-5 anchors to Taud C-4, so offset = it_note - 60.
         semis = it_note - 60
-        val = round(TAUD_C4 + semis * 4096 / 12)
-        return max(0x20, min(0xFFFF, val))
+        return note_pitch(TAUD_C4 + semis * 4096 / 12)
     return NOTE_NOP
 
 
 # ── Vol-column decoder ────────────────────────────────────────────────────────
 
 def decode_volcol(vc: int, recall_volslide: int = 0):
-    """Return (vol_sel, vol_value, pan_set, aux_effect) or None for each field.
+    """Return (vol, pan_set, aux_effect): the volume column in the wide cell's
+    units (COL_EMPTY for none), an azimuth 0..255 for the pan column or None,
+    and an IT effect (letter, arg) the column carries, or None.
 
     IT vol-col x=0 means "recall last value" for the relevant memory cohort
     (Schism player/effects.c:2097-2137 — Ax/Bx/Cx/Dx share `mem_vc_volslide`,
@@ -857,66 +860,61 @@ def decode_volcol(vc: int, recall_volslide: int = 0):
     substitutes it when x=0.
     """
     if vc < 0:   # not set
-        return SEL_FINE, 0, None, None
+        return COL_EMPTY, None, None
     if vc <= VC_VOL_HI:
-        return SEL_SET, min(vc, 0x3F), None, None
+        return vcol_set(vol_from64(vc)), None, None
     if VC_FVUP_LO <= vc <= VC_FVUP_HI:
         mag = vc - VC_FVUP_LO            # 0..9 — Schism fmt/it.c:234
         if mag == 0:
             mag = recall_volslide
-        if mag == 0:
-            return SEL_FINE, 0, None, None
-        return SEL_FINE, (mag & 0x1F) | 0x20, None, None   # fine up
+        return vcol_fine64(mag), None, None                  # fine up
     if VC_FVDN_LO <= vc <= VC_FVDN_HI:
         mag = vc - VC_FVDN_LO
         if mag == 0:
             mag = recall_volslide
-        if mag == 0:
-            return SEL_FINE, 0, None, None
-        return SEL_FINE, mag & 0x1F, None, None              # fine down
+        return vcol_fine64(-mag), None, None                 # fine down
     if VC_VUP_LO <= vc <= VC_VUP_HI:
         mag = vc - VC_VUP_LO
         if mag == 0:
             mag = recall_volslide
         if mag == 0:
-            return SEL_FINE, 0, None, None
-        return SEL_UP, mag, None, None
+            return COL_EMPTY, None, None
+        return (SEL_UP, vol_step64(mag)), None, None
     if VC_VDN_LO <= vc <= VC_VDN_HI:
         mag = vc - VC_VDN_LO
         if mag == 0:
             mag = recall_volslide
         if mag == 0:
-            return SEL_FINE, 0, None, None
-        return SEL_DOWN, mag, None, None
+            return COL_EMPTY, None, None
+        return (SEL_DOWN, vol_step64(mag)), None, None
     if VC_PDN_LO <= vc <= VC_PDN_HI:
         # IT vol-col Ex slides pitch down by 4×e raw IT period units (Schism
         # player/effects.c:294-298). e=0 recalls mem_pitchslide; emit
         # E $0000 so Taud's E/F-cohort memory supplies the value.
         e = vc - VC_PDN_LO
         units = e * 4
-        return SEL_FINE, 0, None, (EFF_E, units & 0xFF)
+        return COL_EMPTY, None, (EFF_E, units & 0xFF)
     if VC_PUP_LO <= vc <= VC_PUP_HI:
         f = vc - VC_PUP_LO
         units = f * 4
-        return SEL_FINE, 0, None, (EFF_F, units & 0xFF)
+        return COL_EMPTY, None, (EFF_F, units & 0xFF)
     if VC_PAN_LO <= vc <= VC_PAN_HI:
         pan64 = vc - VC_PAN_LO   # 0..64
-        pan6  = min(0x3F, round(pan64 * 63 / 64))
-        return SEL_FINE, 0, pan6, None
+        return COL_EMPTY, pan_from64(pan64), None
     if VC_TPORTA_LO <= vc <= VC_TPORTA_HI:
         # IT Gg tone-porta speed: VC_TPORTA_TABLE[0]=0 → g=0 recalls
         # mem_portanote. Emit G $0000; Taud's private G memory recalls.
         g = vc - VC_TPORTA_LO
         spd = VC_TPORTA_TABLE[g]
-        return SEL_FINE, 0, None, (EFF_G, spd & 0xFF)
+        return COL_EMPTY, None, (EFF_G, spd & 0xFF)
     if VC_VIB_LO <= vc <= VC_VIB_HI:
         # IT Hh sets vibrato depth (low nybble only) and runs vibrato with
         # the channel's current vibrato_speed (Schism player/effects.c:391-398
         # via fx_vibrato). h=0 keeps the existing depth; emit H $0000 so
         # Taud's H/U cohort memory supplies both speed and depth.
         h = vc - VC_VIB_LO
-        return SEL_FINE, 0, None, (EFF_H, h & 0x0F)
-    return SEL_FINE, 0, None, None
+        return COL_EMPTY, None, (EFF_H, h & 0x0F)
+    return COL_EMPTY, None, None
 
 
 # ── Effect translator ─────────────────────────────────────────────────────────
@@ -1014,8 +1012,9 @@ def encode_effect_it(cmd: int, arg: int, ch: int = 0, row: int = 0,
         return (TOP_L, (arg & 0xFF) << 8, None, None)
 
     if cmd == EFF_M:
-        # M = set channel volume; literal byte (no recall). Clamp IT $40 → $3F.
-        return (TOP_M, (min(arg, 0x3F) & 0xFF) << 8, None, None)
+        # M = set channel volume; literal byte (no recall). IT's 0…64 is a
+        # format-3 lane volume's 0…255.
+        return (TOP_M, vol_from64(arg) << 8, None, None)
 
     if cmd == EFF_N:
         # N = channel volume slide; D-style encoding.
@@ -1771,7 +1770,7 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
             loop_mode = 1   # forward loop
         else:
             loop_mode = 0   # no loop
-        flags_byte = (loop_mode & 0x3) | sustain_bit
+        flags_byte = (loop_mode & 0x3) | sustain_bit | INST_VOLENV8   # 8-bit volume envelope
 
         base = taud_idx * INST_STRIDE
         struct.pack_into('<I', inst_bin, base + 0,  ptr)
@@ -1830,7 +1829,7 @@ def build_sample_inst_bin_it(samples_or_proxy: list,
         else:
             # Single-point envelope held at full-scale; the per-sample level is
             # carried by IGV (byte 171), so the envelope must be a unit multiplier.
-            inst_bin[base + 21] = 63
+            inst_bin[base + 21] = 0xFF
             inst_bin[base + 22] = 0
             # Force engine to use this single point — set the b bit on the LOOP
             # word so the envelope is evaluated even though no wrap region exists.
@@ -1954,9 +1953,9 @@ def opl_record_it(rec: bytes, s) -> bytes:
     on_curve = lambda v255: round(255 * tracker_opl_gain(round(v255 * 64 / 255), tl))
     r[196] = on_curve(r[196])
     r[171] = on_curve(r[171])
-    for k in range(25):                       # volume envelope node values, 0…63
+    for k in range(25):                       # volume envelope node values, 0…255
         o = 21 + 2 * k
-        r[o] = round(63 * tracker_opl_gain(round(r[o] * 64 / 63), tl))
+        r[o] = vol_from_unit(tracker_opl_gain(round(r[o] * 64 / 255), tl))
     ops = [(d[0], d[2], d[4], d[6], d[8]), (d[1], d[3], d[5], d[7], d[9])]
     block = opl_block(OPL_KIND_2OP, ops, feedback=(d[10] >> 1) & 7, cnt_a=d[10] & 1)
     out = bytearray(make_opl_record(bytes(r), block, rate=min(s.c5_speed, 0xFFFF)))
@@ -1967,16 +1966,16 @@ def opl_record_it(rec: bytes, s) -> bytes:
 # ── Pattern builder ───────────────────────────────────────────────────────────
 
 def _it_default_pan(raw_pan: int) -> int:
-    """Convert raw IT channel-pan byte to Taud 0..63."""
+    """Convert a raw IT channel-pan byte (0..64, 100 = surround) to an azimuth
+    0..255 (128 the centre)."""
     if raw_pan == 100:   # surround → centre
-        return 31
-    p = raw_pan & 0x7F
-    return min(0x3F, round(p * 63 / 64))
+        return 128
+    return pan_from64(raw_pan & 0x7F)
 
 def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
                      inst_vols: dict, amiga_mode: bool = False,
                      opl_tl: dict = None, entry_inst: int = 0) -> bytes:
-    """Build a 512-byte Taud pattern for one IT channel from a 64-row chunk grid.
+    """Build a Taud pattern (wide cells) for one IT channel from a 64-row chunk grid.
 
     `opl_tl` maps the Taud slot of every OPL instrument to its carrier's total
     level, so a volume SET on one goes through the chip's curve; `entry_inst`
@@ -1984,7 +1983,7 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
     if opl_tl is None:
         opl_tl = {}
     last_inst = entry_inst
-    out = bytearray(PATTERN_BYTES)
+    out = blank_pattern()
     rows = chunk_grid[ch_idx] if ch_idx < len(chunk_grid) else [ITRow()] * PATTERN_ROWS
     last_note_it = -1
     # IT shares one mem_vc_volslide across A/B/C/D vol-col commands (Schism
@@ -2002,7 +2001,7 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
             raw_mag = (cell.volcol - VC_FVUP_LO) % 10
             if raw_mag != 0:
                 mem_vc_volslide = raw_mag
-        vs, vv, pan_from_vc, aux_eff = decode_volcol(cell.volcol, mem_vc_volslide)
+        vc_vol, pan_from_vc, aux_eff = decode_volcol(cell.volcol, mem_vc_volslide)
 
         # ── Slot juggling: combine D + G/H into L/K when both are present ──
         # When the main effect is a pure vol-slide (D) and the vol-col aux is
@@ -2025,13 +2024,10 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
                     vprint(f"    ch{ch_idx} row{r}: D+Hh→K, depth update "
                            f"{aux_arg & 0xF} folded into K vibrato recall")
 
-        # If vol-col provides an aux effect and cell has no main effect, use it
+        # If vol-col provides an aux effect and cell has no main effect, use it;
+        # otherwise it becomes the second effect (format 3) — below.
         if aux_eff is not None and cell.effect == 0:
             cell.effect, cell.effect_arg = aux_eff
-            aux_eff = None
-        elif aux_eff is not None:
-            vprint(f"    ch{ch_idx} row{r}: dropped vol-col aux effect "
-                   f"(main effect slot occupied: cmd={cell.effect:02X} arg={cell.effect_arg:02X})")
             aux_eff = None
 
         # If vol-col has a pan override
@@ -2041,6 +2037,20 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
         # Encode main effect
         op, arg16, vol_override, pan_override = encode_effect_it(
             cell.effect, cell.effect_arg, ch_idx, r, amiga_mode=amiga_mode)
+        # The vol-col aux beside a main effect: the second effect. A tone
+        # portamento takes slot 1 — only there does a G keep the row from
+        # retriggering — and the main effect moves after it, which is IT's
+        # order too (the volume column first).
+        op2, arg2 = TOP_NONE, 0
+        if aux_eff is not None:
+            aop, aarg, _, _ = encode_effect_it(aux_eff[0], aux_eff[1], ch_idx, r,
+                                               amiga_mode=amiga_mode)
+            if aop == TOP_G and op not in (TOP_G, TOP_L):
+                op2, arg2 = op, arg16
+                op, arg16 = aop, aarg
+            else:
+                op2, arg2 = aop, aarg
+            aux_eff = None
 
         # ── Note ────────────────────────────────────────────────────────────
         note_taud = NOTE_NOP
@@ -2056,43 +2066,35 @@ def build_pattern_it(chunk_grid: list, ch_idx: int, default_pan: int,
         # noteVolume from it when this row has no V column, so the converter
         # still doesn't need to emit SEL_SET=Sv on plain trigger rows.
         if cell.volcol >= 0 and cell.volcol <= VC_VOL_HI:
-            vol_sel, vol_value = SEL_SET, (
-                round(63 * tracker_opl_gain(cell.volcol, opl_tl[last_inst]))
-                if last_inst in opl_tl else min(cell.volcol, 0x3F))
-        elif vs != SEL_FINE or vv != 0:
-            vol_sel, vol_value = vs, vv
+            vol = vcol_set(
+                vol_from_unit(tracker_opl_gain(cell.volcol, opl_tl[last_inst]))
+                if last_inst in opl_tl else vol_from64(cell.volcol))
+        elif vc_vol != COL_EMPTY:
+            vol = vc_vol
         elif vol_override is not None:
-            vol_sel, vol_value = vol_override
+            vol = vol_override
         else:
-            vol_sel, vol_value = SEL_FINE, 0
+            vol = COL_EMPTY
 
         if cell.note is not None and 0 <= (cell.note if cell.note >= 0 else -1) <= 119:
             last_note_it = cell.note
 
         # ── Pan column ───────────────────────────────────────────────────────
         if cell.pan_set is not None:
-            pan_sel, pan_value = SEL_SET, cell.pan_set
+            pan = pcol_set(cell.pan_set)
         elif pan_override is not None:
-            pan_sel, pan_value = pan_override
+            pan = pan_override
         elif r == 0:
-            pan_sel, pan_value = SEL_SET, default_pan & 0x3F
+            pan = pcol_set(default_pan)
         else:
-            pan_sel, pan_value = SEL_FINE, 0
-
-        vol_byte = (vol_value & 0x3F) | ((vol_sel & 0x3) << 6)
-        pan_byte = (pan_value & 0x3F) | ((pan_sel & 0x3) << 6)
+            pan = COL_EMPTY
 
         # Preserve cell.inst==0 verbatim — IT semantics: a note row with no
         # explicit instrument byte retriggers the channel's currently-loaded
         # instrument. Filling in last_inst converts that into an explicit
         # instrument-change, which can break NNA / envelope-reset behaviour.
-        base = r * 8
-        struct.pack_into('<H', out, base + 0, note_taud)
-        out[base + 2] = cell.inst & 0xFF
-        out[base + 3] = vol_byte
-        out[base + 4] = pan_byte
-        out[base + 5] = op & 0xFF
-        struct.pack_into('<H', out, base + 6, arg16 & 0xFFFF)
+        put_cell(out, r, note=note_taud, inst=cell.inst, vol=vol, pan=pan,
+                 fx=op, arg=arg16, fx2=op2, arg2=arg2)
 
     return bytes(out)
 

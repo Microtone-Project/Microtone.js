@@ -36,7 +36,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
 
   // ── 1. a stereo song gets the half-dial ──────────────────────────────────
   check(!doc.getElementById("tbPanner").hidden, "Panner offered for a stereo song");
-  check(store.doc.wideCells !== true, "the corpus song is a version-2 (narrow-cell) project");
+  check(store.doc.wideCells === true, "the corpus song opened as format 3, as every project does");
   store.cursor = { row: 4, ch: 2, sub: 0, nib: 0 };
   doc.getElementById("tbPanner").click();
   let sdlg = null;
@@ -84,8 +84,8 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     sdlg.__panner.column();
     await sleep(40);
     sc = cellAt(4, 2);
-    check(sc.panEff === 0 && sc.pan === 0x10, "Column writes a v2 panning SET 0 10",
-      `${sc.panEff}/${sc.pan.toString(16)}`);
+    check(sc.panEff === 0 && sc.azimuth === 0x40, "Column writes a panning SET of the azimuth byte, 40",
+      `${sc.panEff}/${sc.azimuth.toString(16)}`);
     sdlg.__panner.close();
     await sleep(60);
     // Reopening reads the handle back off the cell it wrote.

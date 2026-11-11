@@ -12,7 +12,7 @@ import {
   buildTaudnot, parseTaudnot, symTokenToTaud, taudToSymToken, autoAssignSyms,
   defToPreset, validateDef, notationValueForSlot, slotForNotationValue,
 } from "../../src/doc/notation.js";
-import { pitchTablePresets, presetForNotation, resolveNoteSymbol, stepNoteInTable, ANCHOR_NOTE }
+import { pitchTablePresets, presetForNotation, resolveNoteSymbol, stepNoteInTable, ANCHOR_NOTE, finePreset }
   from "../../core/tuning/pitchtables.js";
 import { setSectionOp } from "../../src/doc/ops.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
@@ -71,7 +71,10 @@ test("parseScl + sclToDef: Bohlen-Pierce matches the shipped 35130 preset exactl
   const def = sclToDef(parseScl(BP_SCL), 0);
   const shipped = pitchTablePresets[35130];
   assert.equal(def.interval, 0x195c, "3/1 tritave in 4096-TET");
-  assert.deepEqual(def.table, shipped.table, "13 degrees identical to the preset");
+  // A Scala file reads at 65536-TET, the resolution a format-3 note holds:
+  // the preset's precise view, and its 4096-TET table once rounded.
+  assert.deepEqual(def.table, finePreset(shipped).table, "13 degrees identical to the preset");
+  assert.deepEqual(defToPreset(def).table, shipped.table, "…and to its 4096-TET table");
   assert.deepEqual(validateDef(def), []);
   assert.equal(def.name, "13-tone equal division of 3/1. Bohlen-Pierce equal approximation");
 });
@@ -133,10 +136,15 @@ test(".taudnot wrapper: magic + version guard", () => {
   const file = buildTaudnot([def]);
   assert.deepEqual([...file.subarray(0, 8)],
     [0x1e, 0x54, 0x61, 0x75, 0x64, 0x6e, 0x6f, 0x74], "\\x1ETaudnot magic");
-  assert.equal(file[8], 0x61, "version 'a'");
+  assert.equal(file[8], 0x62, "version 'b': the degrees carry 65536-TET fractions");
   const back = parseTaudnot(file);
   assert.equal(back.length, 1);
   assert.deepEqual(back[0].table, def.table);
+  // A notation of whole units stays version 'a', readable by an 'a' reader.
+  const whole = { ...def, table: def.table.map(Math.round) };
+  const fileA = buildTaudnot([whole]);
+  assert.equal(fileA[8], 0x61, "version 'a'");
+  assert.deepEqual(parseTaudnot(fileA)[0].table, whole.table);
   assert.equal(parseTaudnot(new Uint8Array([1, 2, 3])), null);
   assert.equal(parseTaudnot(readFileSync(corpusDir + "WHEN.taud").subarray(0, 64)), null);
 });
@@ -406,4 +414,36 @@ test("Document: nota section via setSectionOp — resolve, undo byte-exact, relo
   assert.ok(Buffer.from(doc.toBytes()).equals(before), "undo byte-exact");
   undo.redo();
   assert.equal(doc.customPreset(0xffff)?.name, "BP test", "redo restores");
+});
+
+test("nota version 'b': a 65536-TET definition round-trips, and 'a' stays where it fits", () => {
+  const fine = { slot: 3, flags: 0, interval: 0x1000, base: 0, name: "31 exact",
+    table: Array.from({ length: 31 }, (_, k) => Math.round((k * 65536) / 31) / 16), syms: [] };
+  fine.syms = autoAssignSyms(fine, "nearest");
+  const payload = buildNotaPayload([fine]);
+  assert.equal(payload[5] & 0x1f, 20, "flags bits 0–4: 20 bits, 65536-TET");
+  const [back] = parseNotaPayload(payload);
+  assert.deepEqual(back.table, fine.table);
+  assert.equal(back.interval, 0x1000);
+  assert.equal(back.flags, 0, "the resolution is not a flag the definition keeps");
+  // The preset is the whole-unit form; its fine view is the definition.
+  const p = defToPreset(back);
+  assert.ok(p.table.every(Number.isInteger));
+  assert.deepEqual(finePreset(p).table, fine.table);
+  // A whole-unit definition is written as version 'a', byte for byte the old layout.
+  const whole = { ...fine, table: fine.table.map(Math.round) };
+  assert.equal(buildNotaPayload([whole])[5] & 0x1f, 0);
+});
+
+test("the built-in notations' 65536-TET tables come from their definitions", () => {
+  const p31 = finePreset(pitchTablePresets[310]);
+  assert.equal(p31.table[1], Math.round(65536 / 31) / 16, "31-TET, exactly");
+  assert.equal(finePreset(p31), p31, "the view of a view is itself");
+  // Every precise degree is within half a unit of the 4096-TET word it replaces…
+  for (const p of Object.values(pitchTablePresets)) {
+    const f = finePreset(p);
+    f.table.forEach((v, i) => assert.ok(Math.abs(v - p.table[i]) <= 0.5, `${p.name} degree ${i}`));
+  }
+  // …and the Pythagorean twelve are their ratios: 3/2 is 2396 − 1/16.
+  assert.equal(finePreset(pitchTablePresets[10121]).table[7], Math.round(65536 * Math.log2(1.5)) / 16);
 });

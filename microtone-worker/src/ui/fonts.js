@@ -38,6 +38,12 @@ export function canvasMonoFont(px) {
   return `${px}px ${familyOf("--mono-font")}`;
 }
 
+/** ctx.font string for the transport face at `px` (Motif Transport) — also the
+ *  wide note cell's octave digit, which has three quarters of a cell to sit in. */
+export function canvasTransportFont(px) {
+  return `${px}px ${familyOf("--transport-font")}`;
+}
+
 /** ctx.font string for a canvas's labels and numbers at `px` (Motif Code). */
 export function canvasCodeFont(px) {
   return `${px}px ${familyOf("--code-font")}`;
@@ -56,7 +62,7 @@ export function refreshCanvasFont() {
  */
 export async function loadCanvasFonts(sizes, onReady) {
   try {
-    await Promise.all(sizes.flatMap((px) => [canvasFont(px), canvasMonoFont(px), canvasCodeFont(px)].map((f) => document.fonts.load(f))));
+    await Promise.all(sizes.flatMap((px) => [canvasFont(px), canvasMonoFont(px), canvasCodeFont(px), canvasTransportFont(px)].map((f) => document.fonts.load(f))));
     await document.fonts.ready;
   } catch { /* no Font Loading API / blocked fetch — the fallback stack stands */ }
   onReady?.();

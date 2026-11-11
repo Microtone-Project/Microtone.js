@@ -17,6 +17,8 @@ import {
   duplicateLayer, removeLayer, moveLayer, patchLayer, appendLayers, repointLayer,
   stackLayer,
 } from "../../src/doc/metaedit.js";
+import { velShown, velStored, velRangeText } from "../../src/doc/velaxis.js";
+import { narrowVolAxis } from "../../core/engine/trigger.js";
 import {
   planCreateMeta, planAddMetaLayers, planUnlinkMetaLayer,
 } from "../../src/doc/bankmerge.js";
@@ -436,4 +438,28 @@ test("a rack keeps its type and its algorithm when a flag is flipped", () => {
   assert.equal(metaFlags(next).percussion, true);
   assert.deepEqual(next.fmProgram, program, "the algorithm rides along untouched");
   assert.equal(next.metaLayers.length, 2);
+});
+
+test("a volume gate (layer, operator, Ixmp patch) shows the gate a wide song's volume really meets", () => {
+  // The record keeps 0…63; a format-3 volume is gated by narrowVolAxis. Every
+  // stored step k shows as 4k…4k+3, and exactly the volumes in that span pass.
+  const wide = { wideCells: true };
+  for (let k = 0; k <= 63; k++) {
+    const lo = velShown(k, false), hi = velShown(k, true);
+    assert.equal(lo, 4 * k);
+    assert.equal(hi, 4 * k + 3);
+    for (let w = 0; w <= 255; w++) {
+      assert.equal(narrowVolAxis(wide, w) === k, w >= lo && w <= hi, `step ${k}, volume ${w}`);
+    }
+    assert.equal(velStored(lo), k, "the low bound reads back as itself");
+    assert.equal(velStored(hi), k, "the high bound reads back as itself");
+  }
+  assert.equal(velShown(63, true), 255, "the whole range reads 0…255");
+  assert.equal(velShown(0, false), 0);
+  assert.equal(velRangeText(0, 63), "0‥255", "an Ixmp zone's list row reads the same");
+  // A typed volume settles on the step it falls in, so the layer answers it.
+  assert.equal(velStored(101), 25);
+  assert.equal(velStored(300), 63);
+  assert.equal(velStored(-5), 0);
+  assert.equal(velStored("junk"), 0);
 });

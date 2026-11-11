@@ -102,7 +102,7 @@ export function fieldsFor(wide, forWriting = false) {
  *  a 6-bit arc there and a 9-bit angle here (§5.5). */
 export function fieldRange(id, wide) {
   switch (id) {
-    case "note": return { min: 0, max: 0xffff };
+    case "note": return { min: 0, max: wide ? 0xffff + 15 / 16 : 0xffff };
     case "vol": return { min: 0, max: wide ? 0xff : 0x3f };
     case "pan": return { min: 0, max: wide ? 0x1ff : 0x3f };
     case "fx1": case "fx2": return { min: 0, max: 0xff };
@@ -194,7 +194,7 @@ function vpCode({ value, sel }, isPan, wide) {
  */
 export function readField(bytes, wide, id, ctx = {}) {
   switch (id) {
-    case "note": return bytes[0] | (bytes[1] << 8);
+    case "note": return readNote(bytes, wide);
     case "inst": return bytes[2];
     case "vol": return readVol(bytes, 0, wide).value;
     case "volop": return vpCode(readVol(bytes, 0, wide), false, wide);
@@ -209,6 +209,13 @@ export function readField(bytes, wide, id, ctx = {}) {
     case "cell": return cellHasContent(bytes, wide) ? 1 : 0;
     default: return null;
   }
+}
+
+/** The note in 4096-TET units: a wide cell's carries the sixteenths byte 13's
+ *  high nibble holds (65536-TET, §5.5) — never under a sentinel. */
+function readNote(bytes, wide) {
+  const word = bytes[0] | (bytes[1] << 8);
+  return wide && word >= 0x20 ? word + (bytes[13] >>> 4) / 16 : word;
 }
 
 /** Does this cell say anything at all? The engine's own reading of a blank
@@ -270,9 +277,12 @@ export function evalTerm(bytes, wide, term, ctx = {}) {
   const v = readField(bytes, wide, term.field, ctx);
   if (v === null) return false;
   const a = Number(term.a ?? 0), b = Number(term.b ?? 0);
+  // A note is the same note within half a 4096-TET unit: C#4 named in a query
+  // is a whole word, and the song may hold it at 65536-TET, a fraction away.
+  const same = term.field === "note" ? Math.abs(v - a) < 0.5 : v === a;
   switch (term.op) {
-    case "eq": return v === a;
-    case "ne": return v !== a;
+    case "eq": return same;
+    case "ne": return !same;
     case "lt": return v < a;
     case "le": return v <= a;
     case "gt": return v > a;
@@ -309,6 +319,8 @@ const clampTo = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 function fit(id, wide, v) {
   const { min, max } = fieldRange(id, wide);
   if (id === "pan" && wide) return ((Math.round(v) % 512) + 512) % 512;
+  // A wide cell's note keeps sixteenths of a unit (65536-TET).
+  if (id === "note" && wide) return clampTo(Math.round(v * 16) / 16, min, max);
   return clampTo(Math.round(v), min, max);
 }
 
@@ -318,7 +330,9 @@ export function writeField(bytes, wide, id, value) {
   switch (id) {
     case "note": {
       const v = fit("note", wide, value);
-      bytes[0] = v & 0xff; bytes[1] = (v >>> 8) & 0xff;
+      const word = Math.floor(v);
+      bytes[0] = word & 0xff; bytes[1] = (word >>> 8) & 0xff;
+      if (wide) bytes[13] = (bytes[13] & 0x0f) | (word >= 0x20 ? Math.round((v - word) * 16) << 4 : 0);
       break;
     }
     case "inst": bytes[2] = fit("inst", wide, value) & 0xff; break;
@@ -414,7 +428,10 @@ function writeVpOp(bytes, wide, isPan, code) {
 function clearField(bytes, wide, id) {
   const before = snapshot(bytes);
   switch (id) {
-    case "note": bytes[0] = 0; bytes[1] = 0; break;
+    case "note":
+      bytes[0] = 0; bytes[1] = 0;
+      if (wide) bytes[13] &= 0x0f;
+      break;
     case "inst": bytes[2] = 0; break;
     case "vol": case "volop":
       writeVol(bytes, 0, wide, 0);
@@ -465,7 +482,7 @@ export function applyAction(bytes, wide, action) {
   if (!Number.isFinite(mult) || !Number.isFinite(add)) return false;
   let next = cur * mult + add;
   // A note must not land IN the sentinels — $0020 is the floor for a pitch.
-  if (f.id === "note") next = clampTo(Math.round(next), NOTE_MIN, 0xffff);
+  if (f.id === "note") next = clampTo(next, NOTE_MIN, 0xffff + 15 / 16); // writeField rounds to the cell
   return writeField(bytes, wide, f.id, next);
 }
 
@@ -638,6 +655,10 @@ export function parseFieldValue(id, text) {
   if (f.kind === "note") {
     const named = parseNoteName(s);
     if (named !== null) return named;
+    // A hex point is sixteenths of a unit, as a wide cell holds them:
+    // $5155.5 = $5155 and 5/16.
+    const m = /^(\$|0x|0X)?([0-9a-fA-F]{1,4})\.([0-9a-fA-F])$/.exec(s);
+    if (m) return parseInt(m[2], 16) + parseInt(m[3], 16) / 16;
   }
   if (f.kind === "fxop" && /^[0-9A-Za-z]$/.test(s)) {
     const op = parseInt(s, 36);
@@ -664,7 +685,11 @@ export function formatFieldValue(id, value, wide) {
   if (!f.hex) return String(value);
   const digits = fieldDigits(id, wide);
   const neg = value < 0;
-  return (neg ? "-$" : "$") + Math.abs(value).toString(16).toUpperCase().padStart(digits, "0");
+  const mag = Math.abs(value);
+  const whole = Math.floor(mag);
+  // A note's sixteenths, as one hex digit after the point ($5155.5).
+  const frac = mag - whole > 0 ? "." + Math.round((mag - whole) * 16).toString(16).toUpperCase() : "";
+  return (neg ? "-$" : "$") + whole.toString(16).toUpperCase().padStart(digits, "0") + frac;
 }
 
 // ── a query as a whole ─────────────────────────────────────────────────────

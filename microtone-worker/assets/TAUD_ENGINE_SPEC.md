@@ -113,6 +113,8 @@ A note word is an unsigned 16-bit value on a grid of **4096 steps per octave**. 
 
 One 12-TET semitone is `4096 ÷ 12` ≈ 341.33 units, and one cent is `4096 ÷ 1200` ≈ 3.41 units. Note words are not required to land on any particular grid — that is the entire point of the format — so an engine **MUST NOT** quantise them except where a command says so (glissando, `S $1x`).
 
+A format-3 cell carries four more bits of pitch, its **fine nibble** (File Format §5.5): its pitch is `word + fine ÷ 16` in these same units — 65536 steps to the octave. The engine takes that number wherever it would have taken the word — the trigger, a tone portamento's target, a delayed note, a duplicate check — and every pitch it computes from it carries the fraction along; slides, arpeggio offsets, vibrato and every effect argument keep their 4096-TET units. A note word below `$0020` is a sentinel, and takes no fraction.
+
 ### 3.2 Playback rate
 
 A sounding voice reads its sample at
@@ -209,7 +211,7 @@ This is how a SoundFont instrument — whose single modulation envelope drives p
 |---|---|
 | Instrument global volume | A continuous multiplier on every output sample of the voice. Orthogonal to the volume column and to `Mxx`/`Nxx` |
 | Default note volume | Seeds the per-note volume axis at trigger, unless the row carries a volume-column SET. A stored 0 means "not present" and falls back to 63 |
-| Initial attenuation | A velocity-independent amplitude multiplier from the decibel octet table. Deliberately **not** folded into the envelope, so the envelope keeps its full 0…63 resolution |
+| Initial attenuation | A velocity-independent amplitude multiplier from the decibel octet table. Deliberately **not** folded into the envelope, so the envelope keeps its full resolution (0…63, or 0…255 with byte 14 bit 6) |
 | Volume swing / pan swing | A random bias drawn **once per trigger**: `⌊random × (2·swing + 1)⌋ − swing`. Volume swing scales output by `1 + bias ÷ 255`; pan swing adds `bias` to the pan sum |
 | Default pan | Applied at trigger to the NOTE-pan axis, but only when the row carried an instrument byte **and** either the pan envelope's LOOP word has the `p` bit set or the resolved patch supplies its own pan ([§5.3.1](#5-3-1-the-default-position)) |
 | Pitch-pan centre / separation | Also trigger-time, also only with an instrument byte: `pan_shift = ⌊((note − centre) ÷ 4096) × separation × 4⌋`, applied as a slide on the note-pan axis. It ACCUMULATES across notes on an instrument that brings no default pan of its own, which is IT's arithmetic |
@@ -1293,7 +1295,7 @@ For the volume and pan envelopes — each evaluated whenever its `P` presence bi
 - If the current node's duration is 0: **freeze** here and take its value.
 - Otherwise: accumulate the tick into the time carry; when it passes the node's duration, subtract the duration and step (to the wrap start if wrapping at the end, else to the next node, capped at 24). Between nodes, the value is linearly interpolated on the time fraction.
 
-Volume values scale as `clamp(value ÷ 63, 0, 1)`; pan values as `value ÷ 255`.
+Volume values scale as `clamp(value ÷ 63, 0, 1)` — or `value ÷ 255` when the instrument's byte 14 has its bit 6 set ([File Format §7.2](TAUD_FILE_FORMAT.md#7-2-envelopes)); pan values as `value ÷ 255`. The bit is the **instrument's**, read at trigger: it applies to the base record's volume envelope and to every Ixmp patch's alike, and a voice that is ghosted keeps the scale its note was triggered with. The divisor is exactly 63 or 255, never a rounded reciprocal, so a 6-bit envelope renders as it always has.
 
 An **absent** volume envelope (`P = 0`) is not read at all: the voice plays at unity envelope volume whatever the node array holds, and the cut rule below cannot fire on it. The bit is resolved from the *active* envelope — an Ixmp patch's own `v` block when the patch carries one — exactly as the pan, pitch and filter envelopes' are.
 
@@ -1953,3 +1955,4 @@ An implementation conforms when all of the following hold.
 - A multichannel delivery masters the channel bus per §12.3: identical filtering on every channel, the dynamics detectors linked across all of them, the width as surround width on an ambisonic scene (every channel but W scaled) and skipped on a speaker layout.
 - The output stage narrows to binary32 before clamping, and runs the dither loop entirely in binary32 against a seeded generator.
 - A play-from-row reset returns every lane to the song's start and keeps the playhead's tempo; a chase walks the song's own path from the song start with every row event and tick pass and nothing mixed, stops at the first arrival, falls back to the cue order when that path never arrives, and keeps the lanes' state while deactivating every voice.
+- A format-3 note sounds at its word plus its fine nibble in sixteenths of a unit (§3.1); a sentinel word takes no fraction.

@@ -60,6 +60,10 @@ export function makeInstPatch(fields) {
 }
 
 /** 's' block channel modes (low nibble of the count/mode byte). */
+/** Byte 14 bit 6: the volume envelopes (the record's and its Ixmp patches')
+ *  are 8-bit, a node's full volume 255 instead of 63 (file format §7.2). */
+export const INST_VOLENV8 = 0x40;
+
 export const CHAN_MODE_DISCRETE = 0; // XY stereo, 4-track quad — one channel per speaker feed
 export const CHAN_MODE_MATRIX = 1;   // M/S stereo, ambisonic B-format — decoded before panning
 
@@ -704,7 +708,8 @@ export class TaudInst {
     this.sampleLoopStart = 0;
     this.sampleLoopEnd = 0;
     this.loopMode = 0;            // byte 14: bits 0-1 mode, bit 2 sustain, bit 4 percussion,
-                                  //          bit 5 spatial azimuth MSB (#998)
+                                  //          bit 5 spatial azimuth MSB (#998),
+                                  //          bit 6 8-bit volume envelopes (INST_VOLENV8)
     this.volEnvLoop = 0;          // bytes 15-16 (LOOP word)
     this.panEnvLoop = 0;          // bytes 17-18
     this.pfEnvLoop = 0;           // bytes 19-20
@@ -853,6 +858,9 @@ export class TaudInst {
   }
 
   get sampleLoopSustain() { return (this.loopMode & 0x04) !== 0; }
+  /** Byte 14 bit 6: this instrument's volume envelopes — its own and its Ixmp
+   *  patches' — hold 0…255 rather than 0…63 (file format §7.2). */
+  get volEnv8() { return (this.loopMode & INST_VOLENV8) !== 0; }
   get isPercussion() {
     return this.metaRaw !== null
       ? (this.metaRaw[0] & 0x02) !== 0
@@ -1438,7 +1446,7 @@ export class TaudInst {
       case 11: return (this.sampleLoopStart >>> 8) & 0xff;
       case 12: return this.sampleLoopEnd & 0xff;
       case 13: return (this.sampleLoopEnd >>> 8) & 0xff;
-      case 14: return this.loopMode & 0x37;
+      case 14: return this.loopMode & 0x77;
       case 15: return this.volEnvLoop & 0xff;
       case 16: return (this.volEnvLoop >>> 8) & 0xff;
       case 17: return this.panEnvLoop & 0xff;
@@ -1546,7 +1554,7 @@ export class TaudInst {
       case 11: this.sampleLoopStart = (this.sampleLoopStart & 0x00ff) | (byte << 8); break;
       case 12: this.sampleLoopEnd = (this.sampleLoopEnd & 0xff00) | byte; break;
       case 13: this.sampleLoopEnd = (this.sampleLoopEnd & 0x00ff) | (byte << 8); break;
-      case 14: this.loopMode = byte & 0x37; break;
+      case 14: this.loopMode = byte & 0x77; break;
       case 15: this.volEnvLoop = (this.volEnvLoop & 0xff00) | byte; break;
       case 16: this.volEnvLoop = (this.volEnvLoop & 0x00ff) | (byte << 8); break;
       case 17: this.panEnvLoop = (this.panEnvLoop & 0xff00) | byte; break;

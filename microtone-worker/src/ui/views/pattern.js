@@ -13,7 +13,7 @@ import { transposePatternNotes, transposeUnitKeys } from "../../../core/tuning/p
 import {
   interpretEditKey, capKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
-  subCharPos, charToSub, cellChars, lookahead, wheelStep, stepNoteCell,
+  subCharPos, charToSub, cellChars, cellGeom, lookahead, wheelStep, stepNoteCell,
   colsForSubs, subToCol, ALL_COLS, colCharRange, subIsEmpty, volPanStep, elevationStep,
   subPositions, nudgeColumns, nudgeCursor, gridStepRow,
 } from "../edit.js";
@@ -86,13 +86,16 @@ class PatternPane {
    *  geometry read below goes through these, so the two flags drive the
    *  painter, the cursor walk and hit-testing alike. */
   wide() { return this.store.doc?.wideCells === true; }
+  /** The song's surround model, which sets the wide panning column's width. */
+  surround() { return this.store.doc?.songs[this.store.songIndex]?.surroundModel ?? 0; }
+  geom() { return cellGeom(this.wide(), this.fx2(), this.surround()); }
   /** …and which of the store's per-pane flags is ours: a second Patterns view
    *  in the other split pane (item 148.1) indexes from its own fx2Base, so the
    *  two copies do not toggle each other's columns. */
   fx2Slot() { return this.container.fx2Base + this.index; }
   fx2() { return this.store.fx2Pane(this.fx2Slot()); }
-  subPos() { return subPositions(this.wide(), this.fx2()); }
-  cellChars() { return cellChars(this.wide(), this.fx2()); }
+  subPos() { return subPositions(this.wide(), this.fx2(), this.surround()); }
+  cellChars() { return cellChars(this.wide(), this.fx2(), this.surround()); }
   /** The last logical column this pane shows (what "the whole cell" means). */
   lastCol() { return this.fx2() ? COL_FX2 : COL_FX; }
 
@@ -347,7 +350,7 @@ class PatternPane {
     const y0 = Math.max(0, r0 - this.scrollRow) * ROW_H;
     const y1 = Math.min(vis, r1 - this.scrollRow + 1) * ROW_H;
     if (y1 <= y0) return null;
-    const chars = cellChars(this.wide(), this.fx2());
+    const chars = this.cellChars();
     return { x: GUTTER_W, y: y0, w: chars * CHAR_W + 4, h: y1 - y0 };
   }
 
@@ -357,7 +360,7 @@ class PatternPane {
     if (!this.store.doc) return null;
     this._followCursor();
     this.invalidate();
-    const [cs, ce] = colCharRange(this.wide(), this.fx2())[subToCol(this.cursor.sub)];
+    const [cs, ce] = colCharRange(this.wide(), this.fx2(), this.surround())[subToCol(this.cursor.sub)];
     return {
       x: GUTTER_W + 4 + ((cs + ce) / 2) * CHAR_W,
       y: (this.cursor.row - this.scrollRow) * ROW_H + ROW_H / 2,
@@ -769,7 +772,7 @@ class PatternPane {
     const row = this.scrollRow + Math.floor(y / ROW_H);
     if (row < 0 || row > 63 || x < GUTTER_W) return null;
     const charX = (x - GUTTER_W - 4) / CHAR_W;
-    const [sub, nib] = charToSub(charX, this.wide(), this.fx2());
+    const [sub, nib] = charToSub(charX, this.wide(), this.fx2(), this.surround());
     return { row: clampInt(row, 0, 63), sub, nib };
   }
 
@@ -841,7 +844,7 @@ class PatternPane {
         lyricContinues: this.jam.currentInst > 0 && !!this.store.doc?.isLyricSlot(this.jam.currentInst) &&
           lyricContinues(pattern, c.row, this.jam.currentInst),
         keymap: this.store.keymap, quoteKey: this.store.quoteKey,
-        wideCells: this.store.doc?.wideCells === true });
+        wideCells: this.store.doc?.wideCells === true, surround: this.surround() });
     if (!action) return false;
     if (action.fields) {
       this.store.undo.apply(setCellOp(this.store.songIndex, this.patIdx, c.row, action.fields));
@@ -861,7 +864,7 @@ class PatternPane {
     const store = this.store;
     const pattern = this.pattern();
     if (!pattern) return false;
-    const ctx = { preset: store.pitchPreset, wide: this.wide() };
+    const ctx = { preset: store.pitchPreset, wide: this.wide(), surround: this.surround() };
     const b = this.selRowBounds();
     const writes = [];
     if (b) {
@@ -925,9 +928,9 @@ class PatternPane {
         // the HIT, like the sub does — this pane has no cursor variable in
         // scope, and reading one that wasn't there threw on every wheel tick
         // over a v3 panning column.
-        fields = this.wide() && hit.nib >= 1 && hit.nib <= 2
+        fields = this.wide() && this.surround() === 2 && hit.nib >= 1 && hit.nib <= 2
           ? elevationStep(cell, dir)
-          : volPanStep(true, cell, dir, this.wide());
+          : volPanStep(true, cell, dir, this.wide(), this.surround());
         break;
       case SUB_FX_OP: fields = { effect: clampInt(cell.effect + dir, 0, 35) }; break;
       case SUB_FX_ARG: fields = { effectArg: clampInt(cell.effectArg + dir, 0, 0xffff) }; break;
@@ -1006,6 +1009,7 @@ class PatternPane {
     const vis = Math.floor(H / ROW_H) + 1;
     const x0 = GUTTER_W + 4;
     const fx2 = this.fx2(); // is this column showing its second effect (§5.5)?
+    const g = this.geom(); // every column origin, read once per paint
     // Pattern-ditto (effect 7) ghosts: the would-be-repeated values, painted
     // grey in whatever sub-columns the repeated rows leave blank. The Patterns
     // view has no cue context, so the full 64 rows are assumed.
@@ -1030,7 +1034,7 @@ class PatternPane {
     const plotOn = store.pitchPlot === true;
     const plotMem = { j: 0, jExt1: 0, jExt2: 0 }; // J's recall, down this pattern
     const want = store.ghosts !== false || plotOn;
-    const allGhosts = want ? dittoGhosts(pattern, pattern.length) : EMPTY_GHOSTS;
+    const allGhosts = want ? dittoGhosts(pattern, pattern.length, this.wide()) : EMPTY_GHOSTS;
     const pitches = []; // what each row SOUNDS at tick 0 — the plot's ticks (item 250)
     const allBends = want ? bendGhosts(pattern, {
       ...bendContext(store.doc, store.song),
@@ -1079,13 +1083,13 @@ class PatternPane {
         if (sb.colLo === 0 && sb.colHi >= this.lastCol()) {
           ctx.fillRect(GUTTER_W, y, this.cellChars() * CHAR_W + 8, ROW_H);
         } else {
-          const ccr = colCharRange(this.wide(), fx2);
+          const ccr = colCharRange(this.wide(), fx2, this.surround());
           const cs = ccr[sb.colLo][0], ce = ccr[Math.min(sb.colHi, this.lastCol())][1];
           ctx.fillRect(x0 + cs * CHAR_W - 1, y, (ce - cs) * CHAR_W + 2, ROW_H);
         }
       }
       if (row === this.cursor.row) {
-        const [cpos, cw] = subCharPos(this.cursor.sub, this.cursor.nib, this.wide());
+        const [cpos, cw] = subCharPos(this.cursor.sub, this.cursor.nib, this.wide(), this.surround());
         // Amber record caret only on the active column; reference panes show
         // a plain cursor so it's clear which one edits will land in.
         ctx.fillStyle = (store.record && active) ? C.caret : C.cursor;
@@ -1102,7 +1106,7 @@ class PatternPane {
       // place in the song.
       if (plot !== null) {
         paintPitchPlot(ctx, plot[row], plot[row + 1] ?? null,
-          { x: x0, y, w: PLOT_CHARS * CHAR_W, rowH: ROW_H }, C);
+          { x: x0, y, w: (g.inst + PLOT_CHARS - 5) * CHAR_W, rowH: ROW_H }, C);
       }
       const cell = pattern[row];
       const ghost = ghosts[row] ?? null;
@@ -1112,31 +1116,31 @@ class PatternPane {
       const ghostNote = ghost?.note ?? bend?.note ?? null;
       if (ghostNote !== null) {
         paintNoteCell(ctx, ghostNote, store.pitchPreset, x0, y, CHAR_W, ROW_H,
-          dittoPal, store.rawNoteView);
+          dittoPal, store.rawNoteView, g.wide);
       } else {
         paintNoteCell(ctx, cell.note, store.pitchPreset, x0, y, CHAR_W, ROW_H,
           { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent },
-          store.rawNoteView);
+          store.rawNoteView, g.wide);
       }
       const instS = ghost?.inst != null ? hex2(ghost.inst)
         : cell.instrment !== 0 ? hex2(cell.instrment) : "··";
       ctx.fillStyle = ghost?.inst != null ? C.ditto
         : cell.instrment !== 0 ? C.accent2 : C.dim;
-      ctx.fillText(instS, x0 + 5 * CHAR_W, y + ROW_H / 2);
+      ctx.fillText(instS, x0 + g.inst * CHAR_W, y + ROW_H / 2);
       // vol/pan: symbol cell (vector ticks) + argument digits — item 87
       const wide = this.wide();
       // A bend ghost reports the value itself, so it paints as a plain SET —
       // which is what typing that number into the cell would mean.
       const ghostVol = ghost?.vol ?? (bend?.vol != null ? [bend.vol, 0] : null);
       const vol = ghostVol ?? [cell.volume, cell.volumeEff];
-      paintVolPanCell(ctx, vol[0], vol[1], false, x0 + 8 * CHAR_W, y, CHAR_W, ROW_H,
+      paintVolPanCell(ctx, vol[0], vol[1], false, x0 + g.vol * CHAR_W, y, CHAR_W, ROW_H,
         { ink: ghostVol ? C.ditto : C.meter, dim: C.dim, wide });
       const ghostPan = ghost?.pan ?? (bend?.pan != null ? [bend.pan, 0] : null);
       const pan = ghostPan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
-      paintVolPanCell(ctx, pan[0], pan[1], true, x0 + 12 * CHAR_W, y, CHAR_W, ROW_H,
-        { ink: ghostPan ? C.ditto : C.colPan, dim: C.dim, wide,
-          elevation: bend?.pan != null ? bend.elev : (wide ? cell.elevation : 0),
-          elevationInk: bend?.pan != null ? C.ditto : C.accent2,
+      paintVolPanCell(ctx, pan[0], pan[1], true, x0 + g.pan * CHAR_W, y, CHAR_W, ROW_H,
+        { ink: ghostPan ? C.ditto : C.colPan, dim: C.dim, wide, panChars: g.panChars,
+          elevation: ghost?.pan != null ? (ghost.elev ?? 0) : bend?.pan != null ? bend.elev : (wide ? cell.elevation : 0),
+          elevationInk: ghost?.pan != null || bend?.pan != null ? C.ditto : C.accent2,
         // On the sphere, ear level is a stated position, not an absent one.
         spatial: (store.doc?.songs[store.songIndex]?.surroundModel ?? 0) === SURROUND_SPATIAL });
       // Effect column: one shade of amber per argument field (item 120), or —
@@ -1147,14 +1151,14 @@ class PatternPane {
       // leave the winning one painting normally.
       const warn = wide ? fxColonWarns(cell.effect, cell.effect2, ghost?.note ?? cell.note) : 0;
       const fx = ghost?.fx ?? [cell.effect, cell.effectArg];
-      paintFxCell(ctx, fx[0], fx[1], x0 + (wide ? 19 : 16) * CHAR_W, y, CHAR_W, ROW_H,
+      paintFxCell(ctx, fx[0], fx[1], x0 + g.fx * CHAR_W, y, CHAR_W, ROW_H,
         ghost?.fx ? dittoPal : fxPal, (warn & 1) !== 0, cell.effect2);
       // …and the second effect in the same inks (§5.5). Ditto never reaches it:
       // effect 7 repeats the SOURCE row's first effect, so the ghost map has no
       // second slot to fill.
       if (fx2) {
         paintFxCell(ctx, cell.effect2, cell.effectArg2,
-          x0 + 25 * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect);
+          x0 + g.fx2At * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect);
       }
     }
 
@@ -1384,7 +1388,11 @@ export class PatternView {
    * the widest requirement is the one that has to fit.
    */
   paneBudget() {
-    const chars = cellChars(this.store.doc?.wideCells === true, this.store.fx2Any());
+    // The widest panning column the project's songs use: the panes are equal
+    // flex children, and switching song must not clip the grid.
+    const doc = this.store.doc;
+    const model = Math.max(0, ...(doc?.songs ?? []).map((s) => s.surroundModel ?? 0));
+    const chars = cellChars(doc?.wideCells === true, this.store.fx2Any(), model);
     return Math.max(MIN_PANE_W, Math.ceil(chars * CHAR_W) + GUTTER_W + PANE_PAD);
   }
 

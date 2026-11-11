@@ -72,7 +72,9 @@ TAUD_MAGIC       = bytes([0x1F,0x54,0x53,0x56,0x4D,0x61,0x75,0x64])
 #       cues with sign-bit instructions; song-table reserved[0:2] carries the cue
 #       count. See terranmon.txt §"Cue sheet". Loaders branch on this to pick the
 #       cue-image layout; a v1 file must be re-converted for full 32-channel range.
-TAUD_VERSION     = 2
+TAUD_VERSION     = 3        # format 3, the wide cell (TAUD_FILE_FORMAT.md §5.5): every
+                            # converter writes it — 16-byte cells, 0…255 volumes, 65536-TET
+                            # pitches, a whole spherical position, a second effect
 TAUD_HEADER_SIZE = 32       # magic(8)+ver(1)+numSongs(1)+compSize(4)+projOff(4)+sig(14)
 TAUD_SONG_ENTRY  = 32       # full spec entry (see encode_song_entry)
 
@@ -103,7 +105,8 @@ SAMPLEBIN_SIZE   = SAMPLE_BANK_SIZE * SAMPLE_BANK_COUNT   # 8 MB
 INSTBIN_SIZE     = INST_RECORD_SIZE * 1024   # 262144 = 256K
 SAMPLEINST_SIZE  = SAMPLEBIN_SIZE + INSTBIN_SIZE          # 8650752 = 8448 kB
 PATTERN_ROWS     = 64
-PATTERN_BYTES    = PATTERN_ROWS * 8     # 512
+CELL_BYTES       = 16                   # the wide cell (format 3, §5.5)
+PATTERN_BYTES    = PATTERN_ROWS * CELL_BYTES   # 1024
 # Extended cue sheet (terranmon.txt §"Cue sheet", 2026-07-01). Pattern numbers are now
 # 15-bit (0..0x7FFE; 0x7FFF = "no pattern on this channel"), so a song may carry up to
 # 32767 distinct patterns. Cues are 64 bytes = 32 little-endian Sint16 (one per channel);
@@ -196,11 +199,160 @@ def tempo_effect_arg(bpm: int) -> int:
     return ((0xFF - k) << 8) | (bpm - 280 - 255 * k)
 
 
-# Volume / pan column selectors (2-bit field at top of vol/pan byte)
-SEL_SET  = 0     # 6-bit value: set vol / pan
-SEL_UP   = 1     # 6-bit per-tick slide up / right
-SEL_DOWN = 2     # 6-bit per-tick slide down / left
-SEL_FINE = 3     # 1-bit dir + 5-bit magnitude, fired on tick 0
+# Volume / pan column selectors (byte 8 of the wide cell: vvv = volume, pppp = pan)
+SEL_SET  = 0     # set the note volume (0…255) / the note's position
+SEL_UP   = 1     # per-tick slide up / right
+SEL_DOWN = 2     # per-tick slide down / left
+SEL_FINE = 3     # a one-shot delta on tick 0; FINE by 0 is the empty column
+
+
+# ── The wide cell (TAUD_FILE_FORMAT.md §5.5) ─────────────────────────────────
+#
+#   0  U16  note word        8  U8  0b A vvv pppp — A = azimuth bit 8, the
+#   2  U8   instrument               volume selector, the panning selector
+#   3  U8   volume value     9  S8  elevation
+#   4  U8   azimuth, low 8   10 U8  effect 2 opcode, 11 U16 its argument
+#   5  U8   effect 1 opcode  13 U8  bits 4…7 the pitch's fine nibble
+#   6  U16  its argument     14 Byte[2] reserved
+#
+# A COLUMN is a pair (selector, value) in the cell's own units:
+#   volume — SET 0…255; UP / DOWN a per-tick step 0…255; FINE bit 7 = up,
+#            bits 0…6 the magnitude.
+#   pan    — SET an azimuth 0…511 (0 left, 128 front, 256 right, 384 behind;
+#            a stereo song reads 0…255, 255 ≈ right); UP / DOWN a per-tick
+#            step 0…255; FINE the magnitude 0…255 with bit 8 = right (the A
+#            bit). An optional third item is the elevation (SET only).
+# Volumes and steps of a tracker's 0…64 scale cross as round(v × 255 ÷ 64) and
+# 4 × step — the engine's own scaling of the effect column's nibble slides
+# (VOLUME_STEP_WIDE), so a column slide and a `D` of one speed agree.
+
+VOL_MAX = 255
+COL_EMPTY = (SEL_FINE, 0)
+INST_VOLENV8 = 0x40   # instrument byte 14 bit 6: the volume envelopes are 0…255 (§7.2)
+
+
+def half_up(x: float) -> int:
+    """Round half up — JavaScript's Math.round, which the app's tables use."""
+    return math.floor(x + 0.5)
+
+
+def vol_from64(v) -> int:
+    """A tracker volume 0…64 as a wide note volume 0…255."""
+    return max(0, min(VOL_MAX, half_up(max(0.0, min(64.0, v)) * 255 / 64)))
+
+
+def vol_from_unit(f) -> int:
+    """A linear level 0…1 as a wide note volume 0…255."""
+    return max(0, min(VOL_MAX, half_up(f * 255)))
+
+
+def vol_step64(x) -> int:
+    """A per-tick volume step on a tracker's 0…64 scale, in wide units."""
+    return max(0, min(VOL_MAX, 4 * int(x)))
+
+
+def vcol_set(v255) -> tuple:
+    return (SEL_SET, max(0, min(VOL_MAX, int(v255))))
+
+
+def vcol_fine(delta255) -> tuple:
+    """A one-shot volume delta (wide units); 0 is the empty column."""
+    m = min(0x7F, abs(int(delta255)))
+    if m == 0:
+        return COL_EMPTY
+    return (SEL_FINE, m | (0x80 if delta255 > 0 else 0))
+
+
+def vcol_fine64(delta) -> tuple:
+    """A tracker fine volume slide (0…64 scale, signed) as a volume column."""
+    return vcol_fine(4 * int(delta))
+
+
+def pan_from64(p) -> int:
+    """A tracker pan 0…64 (32 the centre) as an azimuth 0…255."""
+    return max(0, min(255, half_up(max(0, min(64, p)) * 255 / 64)))
+
+
+def pcol_set(az, el=0) -> tuple:
+    return (SEL_SET, int(az) & 0x1FF, int(el))
+
+
+def pcol_fine(delta) -> tuple:
+    """A one-shot pan delta (azimuth units, + = right); 0 is the empty column."""
+    m = min(0xFF, abs(int(delta)))
+    if m == 0:
+        return COL_EMPTY
+    return (SEL_FINE, m | (0x100 if delta > 0 else 0))
+
+
+def note_pitch(exact) -> float:
+    """An exact pitch (4096-TET units, fractions welcome) as the wide cell holds
+    it: to the nearest sixteenth, half up, as the app's fine tables round
+    (pitchtables.js quantiseNote). A sentinel word below $20 passes as is."""
+    if exact < 0x20:
+        return int(exact)
+    return max(0x20, min(0xFFFF + 15 / 16, half_up(exact * 16) / 16))
+
+
+def put_cell(out, row: int, note=0, inst: int = 0, vol=COL_EMPTY, pan=COL_EMPTY,
+             fx: int = 0, arg: int = 0, fx2: int = 0, arg2: int = 0) -> None:
+    """Write one wide cell at `row` of the pattern buffer `out`."""
+    base = row * CELL_BYTES
+    if note >= 0x20:
+        pitch = max(0x200, min(0xFFFFF, half_up(note * 16)))
+        word, fine = pitch >> 4, pitch & 0xF
+    else:
+        word, fine = int(note) & 0xFFFF, 0
+    vsel, vval = vol[0], vol[1]
+    psel, paz = pan[0], pan[1]
+    pel = pan[2] if len(pan) > 2 and psel == SEL_SET else 0
+    struct.pack_into('<H', out, base, word)
+    out[base + 2] = inst & 0xFF
+    out[base + 3] = int(vval) & 0xFF
+    out[base + 4] = int(paz) & 0xFF
+    out[base + 5] = fx & 0xFF
+    struct.pack_into('<H', out, base + 6, arg & 0xFFFF)
+    out[base + 8] = (((int(paz) >> 8) & 1) << 7) | ((vsel & 7) << 4) | (psel & 0xF)
+    out[base + 9] = int(pel) & 0xFF
+    out[base + 10] = fx2 & 0xFF
+    struct.pack_into('<H', out, base + 11, arg2 & 0xFFFF)
+    out[base + 13] = fine << 4
+    out[base + 14] = 0
+    out[base + 15] = 0
+
+
+def blank_pattern() -> bytearray:
+    """A pattern of empty cells: both columns FINE by 0 (byte 8 = $33)."""
+    out = bytearray(PATTERN_BYTES)
+    for r in range(PATTERN_ROWS):
+        out[r * CELL_BYTES + 8] = 0x33
+    return out
+
+
+# Readers, for the passes that walk finished pattern bytes.
+def cell_word(b, base) -> int:
+    return b[base] | (b[base + 1] << 8)
+
+
+def cell_fx(b, base, slot: int = 1) -> int:
+    return b[base + (5 if slot == 1 else 10)]
+
+
+def cell_arg(b, base, slot: int = 1) -> int:
+    o = base + (6 if slot == 1 else 11)
+    return b[o] | (b[o + 1] << 8)
+
+
+def set_cell_arg(b, base, value: int, slot: int = 1) -> None:
+    struct.pack_into('<H', b, base + (6 if slot == 1 else 11), value & 0xFFFF)
+
+
+def cell_vol_sel(b, base) -> int:
+    return (b[base + 8] >> 4) & 7
+
+
+def cell_pan_sel(b, base) -> int:
+    return b[base + 8] & 0xF
 
 # 12-TET semitone → Taud J-arpeggio byte (high byte of pitch delta).
 # byte = round(semitone * 4096 / 12 / 256) = round(semitone * 4 / 3).
@@ -281,27 +433,29 @@ def nearest_minifloat(sec: float) -> int:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def d_arg_to_col(arg: int):
-    """Convert a two-nibble D-style vol/pan slide arg into a column override.
+def d_arg_to_col(arg: int, pan: bool = False):
+    """Convert a two-nibble D-style vol/pan slide arg into a column override,
+    in the wide cell's units (see the wide cell above): a volume step is the
+    tracker's ×4, a pan step an azimuth step as it stands.
 
-    Returns (selector, value) or None for no-op. Volume column treats
-    selector 1 as up / 2 as down; pan column reuses 1 = right, 2 = left.
-    Both-nibbles-non-zero (and neither $F) is ambiguous; ST3/PT/IT all
-    prefer up.
+    Returns the column or None for no-op. The volume column treats selector 1
+    as up / 2 as down; the pan column reuses 1 = right, 2 = left. Both nibbles
+    non-zero (and neither $F) is ambiguous; ST3/PT/IT all prefer up.
     """
     if arg == 0:
         return None
     hi = (arg >> 4) & 0xF
     lo = arg & 0xF
-    if hi == 0xF and lo > 0:
-        return (SEL_FINE, lo & 0x1F)              # fine slide down (dir bit 0)
-    if lo == 0xF and hi > 0:
-        return (SEL_FINE, (hi & 0x1F) | 0x20)     # fine slide up (dir bit 1)
+    if hi == 0xF and lo > 0:                       # fine slide down / left
+        return pcol_fine(-lo) if pan else vcol_fine64(-lo)
+    if lo == 0xF and hi > 0:                       # fine slide up / right
+        return pcol_fine(hi) if pan else vcol_fine64(hi)
+    step = (lambda x: x) if pan else vol_step64
     if hi > 0 and lo == 0:
-        return (SEL_UP, hi)
+        return (SEL_UP, step(hi))
     if lo > 0 and hi == 0:
-        return (SEL_DOWN, lo)
-    return (SEL_UP, hi)
+        return (SEL_DOWN, step(lo))
+    return (SEL_UP, step(hi))
 
 
 
@@ -339,7 +493,7 @@ def pt_volume_slide(arg: int) -> tuple:
     """
     xy = pt_slide_nibbles(arg)
     if xy == 0xF0:
-        return (TOP_NONE, 0, (SEL_UP, 0xF), None)
+        return (TOP_NONE, 0, (SEL_UP, vol_step64(0xF)), None)
     if xy:
         return (TOP_D, xy << 8, None, None)
     return (TOP_NONE, 0, None, None)
@@ -499,21 +653,20 @@ def scale_loop(begin: int, end: int, ratio: float, length: int) -> tuple:
 def rescale_offset_effects(pat_bin: bytes, ratio: float) -> bytes:
     """Scale TOP_O sample-offset args in raw pattern bytes by `ratio`.
 
-    Each row is 8 bytes; byte 5 is the effect opcode, bytes 6-7 are the
-    little-endian 16-bit arg (= byte offset into the sample). When the
-    sample bin overflows and every sample is downsampled globally, the
-    offset commands must shrink the same amount or O-jumps land past
-    the new end of sample.
+    Each row is a wide cell; either effect slot may hold the O (opcode at
+    byte 5 / 10, its little-endian arg at 6 / 11 = byte offset into the
+    sample). When the sample bin overflows and every sample is downsampled
+    globally, the offset commands must shrink the same amount or O-jumps land
+    past the new end of sample.
     """
     if ratio == 1.0 or not pat_bin:
         return pat_bin
     out = bytearray(pat_bin)
-    for i in range(0, len(out) - 7, 8):
-        if out[i + 5] == TOP_O:
-            arg = out[i + 6] | (out[i + 7] << 8)
-            arg = max(0, min(0xFFFF, int(arg * ratio + 0.5)))
-            out[i + 6] = arg & 0xFF
-            out[i + 7] = (arg >> 8) & 0xFF
+    for i in range(0, len(out) - CELL_BYTES + 1, CELL_BYTES):
+        for slot in (1, 2):
+            if cell_fx(out, i, slot) == TOP_O:
+                arg = cell_arg(out, i, slot)
+                set_cell_arg(out, i, max(0, min(0xFFFF, int(arg * ratio + 0.5))), slot)
     return bytes(out)
 
 
@@ -524,7 +677,7 @@ def rescale_offset_effects_per_slot(pat_bin: bytes,
     """Scale TOP_O args using a per-slot ratio map.
 
     `pat_bin` is laid out as `num_cues × num_channels` consecutive
-    PATTERN_BYTES (=512) blocks, channel-minor within each cue. For each
+    PATTERN_BYTES blocks, channel-minor within each cue. For each
     channel, walk the rows in cue order and track the most recently
     written slot byte (row offset 2). When a TOP_O effect appears, scale
     its arg by `slot_ratios[active_slot]`, falling back to ratio 1.0 if
@@ -541,17 +694,16 @@ def rescale_offset_effects_per_slot(pat_bin: bytes,
         for ch in range(num_channels):
             block = (cue * num_channels + ch) * PATTERN_BYTES
             for row in range(PATTERN_ROWS):
-                rb = block + row * 8
+                rb = block + row * CELL_BYTES
                 inst = out[rb + 2]
                 if inst != 0:
                     active[ch] = inst
-                if out[rb + 5] == TOP_O:
-                    ratio = slot_ratios.get(active[ch], 1.0)
-                    if ratio != 1.0:
-                        arg = out[rb + 6] | (out[rb + 7] << 8)
-                        arg = max(0, min(0xFFFF, int(arg * ratio + 0.5)))
-                        out[rb + 6] = arg & 0xFF
-                        out[rb + 7] = (arg >> 8) & 0xFF
+                for slot in (1, 2):
+                    if cell_fx(out, rb, slot) == TOP_O:
+                        ratio = slot_ratios.get(active[ch], 1.0)
+                        if ratio != 1.0:
+                            arg = cell_arg(out, rb, slot)
+                            set_cell_arg(out, rb, max(0, min(0xFFFF, int(arg * ratio + 0.5))), slot)
     return bytes(out)
 
 
@@ -686,7 +838,7 @@ def last_note_cue_index(pat_bin: bytes, num_cues: int, num_channels: int) -> int
     `pat_bin` is the raw (pre-dedup) pattern binary, laid out as
     `num_cues × num_channels` consecutive PATTERN_BYTES blocks, channel-minor
     within each cue (block = (cue*num_channels + ch)*PATTERN_BYTES; each row is
-    8 bytes, note = little-endian u16 at offset 0). Special notes — NOP,
+    a wide cell, its note word the little-endian u16 at offset 0). Special notes — NOP,
     key-off, cut, note-fade, fast-fade (values 0..NOTE_FASTFADE) — are not
     notes; only pitches above that count. Used to trim trailing note-free cues
     (e.g. a MIDI conversion's final all-key-off release cue).
@@ -695,15 +847,14 @@ def last_note_cue_index(pat_bin: bytes, num_cues: int, num_channels: int) -> int
         for ch in range(num_channels):
             block = (cue * num_channels + ch) * PATTERN_BYTES
             for row in range(PATTERN_ROWS):
-                rb = block + row * 8
-                note = pat_bin[rb] | (pat_bin[rb + 1] << 8)
-                if note > NOTE_FASTFADE:
+                rb = block + row * CELL_BYTES
+                if cell_word(pat_bin, rb) > NOTE_FASTFADE:
                     return cue
     return -1
 
 
 def deduplicate_patterns(pat_bin: bytes, num_pats: int) -> tuple:
-    """Consolidate identical 512-byte Taud patterns into a single copy.
+    """Consolidate identical Taud patterns into a single copy.
 
     Returns (deduped_bin, remap, num_unique) where remap[original_idx] =
     canonical_idx.
@@ -742,7 +893,7 @@ def deduplicate_patterns(pat_bin: bytes, num_pats: int) -> tuple:
 # that cue — through the cue flow, B jumps and C breaks, and any empty slots
 # in between — leaves nothing running.
 
-_BLANK_CELL = bytes([0, 0, 0, 0xC0, 0xC0, 0, 0, 0])
+_BLANK_CELL = bytes([0, 0, 0, 0, 0, 0, 0, 0, 0x33, 0, 0, 0, 0, 0, 0, 0])
 _BLANK_PATTERN = _BLANK_CELL * PATTERN_ROWS
 _FX_B, _FX_C, _FX_DITTO = 0x0B, 0x0C, 0x07
 _RENUMBER_ROUNDING = ((0x10, 0x100), (0x10, 0x10), (1, 1))
@@ -774,9 +925,10 @@ def _decode_inst(w: int):
 
 
 def _lingering_row(cell: bytes) -> bool:
-    """Does this row leave something running into the next one — an effect, or
-    a volume/panning column slide (selectors 1 and 2)?"""
-    return cell[5] != 0 or (cell[3] >> 6) in (1, 2) or (cell[4] >> 6) in (1, 2)
+    """Does this row leave something running into the next one — an effect in
+    either slot, or a volume/panning column slide (selectors 1 and 2)?"""
+    return (cell[5] != 0 or cell[10] != 0
+            or cell_vol_sel(cell, 0) in (1, 2) or cell_pan_sel(cell, 0) in (1, 2))
 
 
 def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
@@ -785,7 +937,7 @@ def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
     """Renumber a finished song lane-major (see above) and empty the cue slots
     of blank patterns where that is safe.
 
-    `pat_bin` holds the song's patterns back to back (8-byte cells); `cue_bytes`
+    `pat_bin` holds the song's patterns back to back (wide cells); `cue_bytes`
     is the finished cue sheet (finalize_cue_sheet's bytes, instructions set),
     `num_voices` channels wide. `pattern_names`, if given, is aligned to the
     pattern indices; a blank pattern's name is dropped with it.
@@ -804,7 +956,7 @@ def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
     slot = lambda c, ch: words[c][ch] & 0x7FFF
 
     def cell(p, r):
-        return pats[p][r * 8:(r + 1) * 8]
+        return pats[p][r * CELL_BYTES:(r + 1) * CELL_BYTES]
 
     # Per cue: the rows that can be its last, and the cues that can follow it.
     finals, succ = [], []
@@ -827,11 +979,12 @@ def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
                 continue
             for r in range(limit):
                 cl = cell(s, r)
-                if cl[5] == _FX_B:
-                    rows.add(r)
-                    nxt.add(cl[6] | (cl[7] << 8))
-                elif cl[5] == _FX_C:
-                    rows.add(r)
+                for k in (1, 2):
+                    if cell_fx(cl, 0, k) == _FX_B:
+                        rows.add(r)
+                        nxt.add(cell_arg(cl, 0, k))
+                    elif cell_fx(cl, 0, k) == _FX_C:
+                        rows.add(r)
         if not is_halt:
             if flow is None:
                 nxt.add(c + 1)
@@ -845,8 +998,8 @@ def renumber_patterns_lane_major(pat_bin: bytes, cue_bytes: bytes,
         succ.append([n for n in nxt if n < n_cues])
 
     def lingers(p, c):
-        if any(pats[p][r * 8 + 5] == _FX_DITTO and (pats[p][r * 8 + 6] or pats[p][r * 8 + 7])
-               for r in range(PATTERN_ROWS)):
+        if any(cell_fx(pats[p], r * CELL_BYTES, k) == _FX_DITTO and cell_arg(pats[p], r * CELL_BYTES, k)
+               for r in range(PATTERN_ROWS) for k in (1, 2)):
             return True
         return any(_lingering_row(cell(p, r)) for r in finals[c])
 
@@ -1199,7 +1352,8 @@ def opl_block(kind: int, ops, *, feedback: int = 0, cnt_a: int = 0, cnt_b: int =
     b[1] = ((feedback & 7) << 1) | (cnt_a & 1)
     b[2] = cnt_b & 1
     b[3] = partner_mult & 0x0F
-    struct.pack_into('<h', b, 4, max(-32768, min(32767, int(partner_detune))))
+    # Whole 4096-TET units: a format-3 note's sixteenths round off here.
+    struct.pack_into('<h', b, 4, max(-32768, min(32767, half_up(partner_detune))))
     for i, regs in enumerate(ops[:4]):
         o = 6 + 5 * i
         b[o] = regs[0] & 0xFF
@@ -1220,7 +1374,7 @@ def make_opl_record(base: bytes, block: bytes, rate: int = OPL_C4_RATE) -> bytes
     struct.pack_into('<H', r, 4, 0)
     struct.pack_into('<H', r, 6, rate & 0xFFFF)
     struct.pack_into('<HHH', r, 8, 0, 0, 0)
-    r[14] &= 0x30                     # keep percussion and the azimuth MSB
+    r[14] &= 0x70                     # keep percussion, the azimuth MSB, the envelope's units
     r[OPL_BLOCK_START:OPL_BLOCK_START + OPL_BLOCK_LEN] = block
     return bytes(r)
 
@@ -1235,10 +1389,10 @@ def build_opl_record(block: bytes, *, rate: int = OPL_C4_RATE, detune: int = 0,
     envelopes carried, as the chip does (TAUD_ENGINE_SPEC.md §5.5.2)."""
     r = bytearray(256)
     for i in range(25):
-        r[21 + 2 * i] = 0x3F
+        r[21 + 2 * i] = 0xFF            # 8-bit volume envelope (byte 14 bit 6), full
         r[71 + 2 * i] = 0x80
         r[121 + 2 * i] = 0x80
-    r[14] = 0x10 if percussion else 0
+    r[14] = (0x10 if percussion else 0) | INST_VOLENV8
     r[171] = global_volume & 0xFF
     r[172] = fadeout & 0xFF
     r[173] = (fadeout >> 8) & 0x0F

@@ -162,12 +162,13 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   check("interval input disabled in absolute mode",
     dlg.querySelector('[data-k="interval"]').disabled);
   let baseIn = dlg.querySelector('[data-k="base"]');
-  check("base field appears, default C4", !!baseIn && baseIn.value === "$5000");
-  baseIn.value = "$3000";
+  // The maker writes pitches in 65536-TET hex ($10000 an octave): C4 is $50000.
+  check("base field appears, default C4", !!baseIn && baseIn.value === "$50000");
+  baseIn.value = "$30000";
   baseIn.dispatchEvent(new Event("change"));
   await sleep(30);
   baseIn = dlg.querySelector('[data-k="base"]');
-  check("base accepts $3000", baseIn.value === "$3000");
+  check("base accepts $30000", baseIn.value === "$30000");
   check("base annotation names C2", baseIn.parentElement.textContent.includes("C2"));
   check("save still enabled (base valid on interval 0)",
     !dlg.querySelector('[data-f="save"]').disabled);
@@ -185,16 +186,16 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   const absRows = dlg.querySelectorAll(".nota-degrees tbody tr");
   check("24 absolute degrees (12 × 2 octaves)", absRows.length === 24);
   check("degrees run past one octave absolutely",
-    absRows[23].children[2].textContent === "$1EAB");
+    absRows[23].children[2].textContent === "$1EAAB");
 
   // Add degree in absolute mode extends upward by the last gap (the interval
   // midpoint rule would have halved the top degree)
   dlg.querySelector('[data-k="add"]').click();
   await sleep(30);
   const grown = dlg.querySelectorAll(".nota-degrees tbody tr");
-  // $1EAB + the last gap ($1EAB − $1D55 = 342) = $2001
+  // $1EAAB + the last gap ($1EAAB − $1D555, 341⅜ units) = $20001
   check("add degree extends the absolute table upward",
-    grown.length === 25 && grown[24].children[2].textContent === "$2001");
+    grown.length === 25 && grown[24].children[2].textContent === "$20001");
 
   // Chip toggling parks and restores the base (interval systems must have 0).
   // The 25 degrees span past one octave, so Octave mode is legitimately
@@ -210,7 +211,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   dlg.querySelector('[data-k="chip0"]').click();
   await sleep(30);
   check("switching back restores the stashed base",
-    dlg.querySelector('[data-k="base"]')?.value === "$3000");
+    dlg.querySelector('[data-k="base"]')?.value === "$30000");
   check("save re-enabled in absolute mode",
     !dlg.querySelector('[data-f="save"]').disabled);
 

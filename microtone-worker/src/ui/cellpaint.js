@@ -13,10 +13,17 @@
 //   [ lü, 2 cells ][octave][ ]                Shi'er lü
 //   [ sentinel, all 4 cells    ]              key-off / cut / fade / fast fade
 //   [ IntH ] / [ hex4 ]                       interrupts / raw mode & no-preset
+//
+// A format-3 (wide) cell opens with a PITCH PREFIX ¾ of a cell wide: blank,
+// except where the column shows raw hex — then it holds the octave digit of the
+// 65536-TET pitch in Motif Transport, and the four cells the pitch within the
+// octave: $50000 reads [5][0000].
 
 import { resolveNoteSymbol } from "../../core/tuning/pitchtables.js";
 import { hex2, hex4, fxArgFields, fxOpChar } from "./notenames.js";
-import { volPanOp, volPanArg } from "./edit.js";
+import { volPanOp, volPanArg, NOTE_PREFIX_CHARS } from "./edit.js";
+import { canvasTransportFont } from "./fonts.js";
+import { wideNotePitch } from "../../core/engine/state.js";
 import { MOTIF, MUSIC, motifCells } from "../../core/fonts/motifglyphs.js";
 
 export const NOTE_CELL_CHARS = 4;
@@ -77,7 +84,14 @@ export function monoPalette(colour) {
  * preset's grid), "sentinel" or "dim"; `faint` is the empty cell's 40%.
  * rawMode forces hex4 for playable notes (the taut rawNoteView toggle).
  */
-export function noteCellText(note, preset, rawMode = false) {
+export function noteCellText(note, preset, rawMode = false, wide = false) {
+  // Five raw digits typed into a wide cell pass through pitches below $20 on
+  // their way (5, 50, 500, 5000, 50000): mid-entry, that is a number being
+  // written, not a sentinel.
+  if (wide && note < 0x20 && note !== Math.floor(note)) {
+    const p = wideNotePitch(note);
+    return { text: hex4(p & 0xffff), octave: (p >>> 16).toString(16).toUpperCase(), ink: "note" };
+  }
   if (note === 0x0000) return { text: "····", ink: "dim", faint: true };
   if (note >= 0x0001 && note <= 0x0004) return { text: SENTINEL[note], ink: "sentinel" };
   if (note >= 0x0005 && note <= 0x000f) return { text: "rsvd", ink: "dim" };
@@ -86,7 +100,13 @@ export function noteCellText(note, preset, rawMode = false) {
     return { text: "Int" + (note - 0x0010).toString(16).toUpperCase(), ink: "sentinel" };
   }
   const symb = rawMode ? null : resolveNoteSymbol(note, preset);
-  if (symb === null) return { text: hex4(note), ink: rawMode ? "note" : "dim" };
+  if (symb === null) {
+    const ink = rawMode ? "note" : "dim";
+    if (!wide) return { text: hex4(Math.round(note) & 0xffff), ink };
+    // 65536-TET: the octave digit goes in the prefix, the rest in the cells.
+    const p = wideNotePitch(note);
+    return { text: hex4(p & 0xffff), octave: (p >>> 16).toString(16).toUpperCase(), ink };
+  }
   const ink = symb.offGrid ? "offGrid" : "note";
   if (symb.cjk) return { text: symb.cjk + symb.octave, ink, glyphs: true };
   const text = symb.tick !== " "
@@ -100,10 +120,22 @@ export function noteCellText(note, preset, rawMode = false) {
  * palette: {note, sentinel, dim, offGrid} — off-grid ("out of tune") notes
  * paint in palette.offGrid (taut's yellow).
  */
-export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, rawMode = false) {
+export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, rawMode = false, wide = false) {
   const midY = y + rowH / 2;
-  const { text, ink, faint, glyphs } = noteCellText(note, preset, rawMode);
+  const { text, ink, faint, glyphs, octave } = noteCellText(note, preset, rawMode, wide);
   ctx.fillStyle = palette[ink];
+  if (wide) {
+    // The prefix: the octave digit of a raw pitch, else nothing at all — not
+    // even the empty cell's dots, which belong to the four cells after it.
+    if (octave !== undefined) {
+      const font = ctx.font;
+      ctx.font = canvasTransportFont(parseFloat(font) || 13);
+      const w = ctx.measureText(octave).width;
+      ctx.fillText(octave, x + (NOTE_PREFIX_CHARS * charW - w) / 2, midY);
+      ctx.font = font;
+    }
+    x += NOTE_PREFIX_CHARS * charW;
+  }
   if (faint) ctx.globalAlpha = 0.4;
   if (glyphs || (ink === "sentinel" && text.length === 1)) {
     // Glyph by glyph, each centred in its own cells, so a caller's cell a
@@ -134,14 +166,18 @@ export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, raw
  */
 export function paintVolPanCell(ctx, value, sel, isPan, x, y, charW, rowH, palette) {
   const wide = palette.wide === true;
-  const digits = wide && isPan ? 3 : 2;
+  // A wide panning column is as wide as the surround model needs (edit.js
+  // cellGeom): stereo [symbol][FF], planar [symbol][1FF], spatial
+  // [symbol][elevation][1FF].
+  const panChars = wide && isPan ? (palette.panChars ?? 6) : 3;
+  const showsElevation = panChars === 6;
+  const digits = panChars === 3 ? 2 : 3;
   const op = volPanOp(value, sel, isPan, wide);
   const midY = y + rowH / 2;
-  if (op === "none" && !(wide && isPan && palette.elevation)) {
+  if (op === "none" && !(showsElevation && palette.elevation)) {
     ctx.fillStyle = palette.dim;
     ctx.globalAlpha = 0.4;
-    // A wide panning column is symbol + elevation + azimuth: six dots, not three.
-    ctx.fillText(wide && isPan ? "······" : "···", x, midY);
+    ctx.fillText("·".repeat(panChars), x, midY);
     ctx.globalAlpha = 1;
     return;
   }
@@ -153,11 +189,11 @@ export function paintVolPanCell(ctx, value, sel, isPan, x, y, charW, rowH, palet
     case "fineDown": ctx.fillText("−", x, midY); break;
     default: break; // "set" — a deliberate blank
   }
-  // The wide panning column carries the ELEVATION between the symbol and the
-  // azimuth, in its own ink: the two numbers are different quantities and must
-  // not read as one six-digit field.
+  // The spatial panning column carries the ELEVATION between the symbol and
+  // the azimuth, in its own ink: the two numbers are different quantities and
+  // must not read as one five-digit field.
   let argX = x + charW;
-  if (wide && isPan) {
+  if (showsElevation) {
     const el = palette.elevation | 0;
     const txt = elevationCellText(el, op, palette.spatial === true);
     const stated = txt !== "··";
@@ -169,7 +205,9 @@ export function paintVolPanCell(ctx, value, sel, isPan, x, y, charW, rowH, palet
     argX += 2 * charW;
   }
   const arg = volPanArg(value, sel, isPan, wide);
-  ctx.fillText(digits === 3 ? hex3(arg) : hex2(arg), argX, midY);
+  // A stereo column shows the azimuth's byte: 00 left … FF right (a slide's or a
+  // fine step's magnitude is that byte too).
+  ctx.fillText(digits === 3 ? hex3(arg) : hex2(Math.min(arg, 0xff)), argX, midY);
 }
 
 /**

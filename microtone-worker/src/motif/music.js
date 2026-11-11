@@ -235,10 +235,13 @@ export class Score {
       throw fail(`a cue holds at most 64 rows: ${cueBars} bars of ${barRows} rows is ${barRows * cueBars} (lower cue_bars)`);
     }
     const surround = o.surround ?? 0;
-    const format = o.format ?? (surround ? 3 : 2);
-    if (format === 3 && surround === 0) throw fail("format 3 (the wide cell) is for surround songs: set surround to \"planar\" or \"spatial\"");
+    // TML 2 builds format 3, the only format the editor writes (its pitches
+    // 65536-TET, its volumes a byte); TML 1 keeps the format 2 its programs
+    // always built, unless the song is surround.
+    const format = o.format ?? (this.version >= 2 || surround ? 3 : 2);
     const rec = value.m.get("tuning");
     this.tuning = tuningFrom(rec instanceof Rec ? null : (o.tuning ?? "12-TET"), rec instanceof Rec ? rec.m : null);
+    this.tuning.setFine(format === 3);
     this.song = {
       title: o.title ?? "", composer: o.composer ?? "", copyright: o.copyright ?? "", message: o.message ?? "",
       a4: o.a4 ?? 440, tempo: o.tempo ?? 125, speed: o.speed ?? 6,
@@ -359,7 +362,13 @@ export class Score {
     return [this.tuning.word(lo), this.tuning.word(hi)];
   }
 
-  /** A volume range → [low, high], 0…63 (a rectangle's units in every format). */
+  /**
+   * A volume range → [low, high] in the RECORD's units, 0…63 (instrument data
+   * is format-neutral, file format §5.5). It is written in the song's volume
+   * units: 0…63 in a format-2 song, 0…255 in a format-3 one, where a volume v
+   * is gated as v >> 2 — so each end is the step its volume falls in, as the
+   * Layers tab reads it (doc/velaxis.js).
+   */
   volRange(v, what) {
     if (v === undefined) return [0, 63];
     let lo, hi;
@@ -369,8 +378,9 @@ export class Score {
       if (xs.length !== 2) throw fail(`${what} is a range of volumes, like 0..40`);
       lo = asInt(xs[0], what); hi = asInt(xs[1], what);
     }
-    if (lo < 0 || hi > 63 || hi < lo) throw fail(`${what} is a range within 0…63`);
-    return [lo, hi];
+    const max = this.volMax;
+    if (lo < 0 || hi > max || hi < lo) throw fail(`${what} is a range within 0…${max}`);
+    return this.wide ? [lo >> 2, hi >> 2] : [lo, hi];
   }
 
   layerOf(v, what) {
@@ -657,9 +667,12 @@ export class Score {
     throw fail(`${what} is a chain (declared with chain NAME { … }) or a record of the pieces it holds, not ${typeName(v)}`);
   }
 
-  /** [[seconds, value 0…63], …] → envelope nodes (each node's offset is the
-   *  time to the next; the last holds), plus the sustain word. */
+  /** [[seconds, volume], …] → envelope nodes (each node's offset is the
+   *  time to the next; the last holds), plus the sustain word. The volumes are
+   *  the song's: 0…63 in a format-2 song, 0…255 in a format-3 one, whose
+   *  envelopes are 8-bit (file format §7.2, byte 14 bit 6). */
   envelopeOf(v, sustain, what) {
+    const max = this.volMax;
     const pts = asList(v, `${what}'s envelope`).map((p, i) => {
       const xy = asList(p, `point ${i} of ${what}'s envelope`);
       if (xy.length !== 2) throw fail(`point ${i} of ${what}'s envelope is [seconds, volume]`);
@@ -667,7 +680,7 @@ export class Score {
     });
     if (!pts.length || pts.length > 25) throw fail(`${what}'s envelope has 1…25 points, not ${pts.length}`);
     const nodes = pts.map(([t, val], i) => {
-      if (val < 0 || val > 63) throw fail(`${what}'s envelope volumes are 0…63`);
+      if (val < 0 || val > max) throw fail(`${what}'s envelope volumes are 0…${max}`);
       const dt = i + 1 < pts.length ? pts[i + 1][0] - t : 0;
       if (dt < 0) throw fail(`${what}'s envelope goes back in time at point ${i + 1}`);
       if (dt > 15.75) throw fail(`${what}'s envelope: the points are at most 15.75 s apart`);
@@ -681,7 +694,7 @@ export class Score {
       if (a < 0 || b >= nodes.length || b < a) throw fail(`${what}'s sustain names points 0…${nodes.length - 1}`);
       susWord = (a << 8) | 0x20 | b;
     }
-    return { nodes, susWord };
+    return { nodes, susWord, eightBit: max === 255 };
   }
 
   declareLane(name, value, index = null) {
@@ -1033,7 +1046,7 @@ export function musicBuiltins(score, { version = 1, base = null } = {}) {
     if (v < 0 || v > 0xffff) throw fail(`${what} is $0000…$FFFF, not ${v}`);
     return v;
   };
-  const wideOnly = (what) => { if (!score.wide) throw fail(`${what} needs a format-3 song (surround: "planar" or "spatial")`); };
+  const wideOnly = (what) => { if (!score.wide) throw fail(`${what} needs a format-3 song`); };
   const callTml = (interp, f, args) => interp.call(f, args, null, null);
 
   const melody = (interp, laneV, start, text, v, vib, glideRows, transpose, ring, map) => {

@@ -30,7 +30,7 @@ function isNoOp(value, eff) { return eff === 3 && value === 0; }
  *   field is null unless that sub-column is inherited from `srcRow`
  *   (vol/pan/fx carry [value, eff] / [effect, arg] pairs).
  */
-export function dittoGhosts(pattern, rowLimit = 64) {
+export function dittoGhosts(pattern, rowLimit = 64, wide = false) {
   if (!pattern) return [];
   const out = new Array(pattern.length).fill(null);
   const n = Math.min(rowLimit, pattern.length);
@@ -63,7 +63,12 @@ export function dittoGhosts(pattern, rowLimit = 64) {
     if (isNoOp(raw.volume, raw.volumeEff) && !isNoOp(src.volume, src.volumeEff)) {
       g.vol = [src.volume, src.volumeEff];
     }
-    if (isNoOp(raw.pan, raw.panEff) && !isNoOp(src.pan, src.panEff)) {
+    // A wide cell's panning column is the azimuth AND the elevation (§5.5):
+    // blank only when both are, and the ghost carries the pair.
+    if (wide) {
+      const blank = (c) => c.panEff === 3 && c.azimuth === 0 && c.elevation === 0;
+      if (blank(raw) && !blank(src)) { g.pan = [src.azimuth, src.panEff]; g.elev = src.elevation; }
+    } else if (isNoOp(raw.pan, raw.panEff) && !isNoOp(src.pan, src.panEff)) {
       g.pan = [src.pan, src.panEff];
     }
     if (raw.effect === 0 && raw.effectArg === 0 &&

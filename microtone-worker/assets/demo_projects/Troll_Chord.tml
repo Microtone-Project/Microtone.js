@@ -25,6 +25,7 @@ tml 2
 
 song {
   title: "Troll Chord"
+  format: 3                   // volumes 0–255, the volume column's own units
   composer: "CuriousTorvald via Motif"
   copyright: "(c) 2026 CuriousTorvald"
   message: about()
@@ -137,15 +138,15 @@ instrument RISER { name: "Riser", nna: "off", psg: { a: { waveform: "noise32767"
 lane kick  { inst: KICK,    pan: $80, label: "Kick", trim: db(1) }
 lane snare { inst: SNARE,   pan: $88, label: "Snare", trim: db(2.5) }
 lane clap  { inst: CLAP,    pan: $78, label: "Clap", trim: db(3) }
-lane hat   { inst: HAT,     pan: $B8, label: "Hat (4)", trim: db(4.5),       jitter: 3 }
-lane ohat  { inst: OHAT,    pan: $D0, label: "Shimmer",       jitter: 4 }
+lane hat   { inst: HAT,     pan: $B8, label: "Hat (4)", trim: db(4.5),       jitter: 12 }
+lane ohat  { inst: OHAT,    pan: $D0, label: "Shimmer",       jitter: 16 }
 lane cym   { inst: CYMBAL,  pan: $A0, label: "Cymbal" }
 lane tom   { inst: TOM,     pan: $90, label: "Tom" }
-lane tick  { inst: TICK,    pan: $48, label: "Tick (7)", trim: db(5),      jitter: 3 }
+lane tick  { inst: TICK,    pan: $48, label: "Tick (7)", trim: db(5),      jitter: 12 }
 lane ring  { inst: RING,    pan: $30, label: "Ring clock", trim: db(4) }
 lane bass  { inst: FMBASS,  pan: $80, label: "FM bass", trim: db(-1) }
 lane sub   { inst: SUB,     pan: $80, label: "Sub", trim: db(-9) }
-lane arp   { inst: PLUCK,   pan: $50, label: "Arp (7)", trim: db(1.5),       jitter: 2 }
+lane arp   { inst: PLUCK,   pan: $50, label: "Arp (7)", trim: db(1.5),       jitter: 8 }
 lane echo  { inst: PLUCK,   pan: $C8, label: "Arp echo" }
 lane org1  { inst: DRAWBAR, pan: $60, label: "Organ 1", trim: db(-9) }
 lane org2  { inst: DRAWBAR, pan: $74, label: "Organ 2", trim: db(-9) }
@@ -246,7 +247,7 @@ fn arpeggio(bar0, prog, vol, echo_vol = 0) {
   let music = [arp_bar(arp, bar0 + 2 * k + j, ch, vol, j == 1) for k, ch in prog for j in 0..<2]
   music
   // a dotted-eighth echo: six rows on, the same ticks — a 3/16 delay of the seven
-  if echo_vol { on(echo, map_vols(shift(music, 6), fn(v) => max(1, round(v * echo_vol / vol)))) }
+  if echo_vol { on(echo, map_vols(shift(music, 6), fn(v) => max(4, round(v * echo_vol / vol)))) }
 }
 fn ticks7(bar, vol) { for k, t in SEPT { hit_t(tick, bar, t, 'G6', if k == 0 then vol else round(vol * 0.6)) } }
 
@@ -339,23 +340,23 @@ fn seven_chords(bar0, span, order, vol, reed = 0, bell_vol = 0) {
 // ═════════════════════════════════════════════════════════════════════════════
 // 1–8  OVERTONES — a C, and its harmonics arriving
 // ═════════════════════════════════════════════════════════════════════════════
-hit(sub, at(1), 'C1', 20)
-vol_ramp(sub, at(1, 1), at(3), 20, 52)
-for b in 1..8 { ticks7(b, min(40, 18 + 3 * b)) }
+hit(sub, at(1), 'C1', 81)
+vol_ramp(sub, at(1, 1), at(3), 81, 210)
+for b in 1..8 { ticks7(b, min(162, 73 + 12 * b)) }
 // harmonic 16, alone; then 17 and 19 join it: the first chord
-hit(org1, at(1), 'C5', 10, inst: FLUTE)
-vol_ramp(org1, at(1, 1), at(3), 10, 40)
-hit(org2, at(3), 'C#5', 10, inst: FLUTE)
-vol_ramp(org2, at(3, 1), at(5), 10, 36)
-hit(org3, at(5), 'D#5', 10, inst: FLUTE)
-vol_ramp(org3, at(5, 1), at(7), 10, 36)
-for b in 3..8 { kick4(b, if b < 5 then 34 else 44, if b < 5 then [0, 8] else [0, 4, 8, 12]) }
-for b in 5..8 { hats(b, 26) }
-hit(bell, at(6), 'C#6', 34)
-hit(bell, at(6, 9), 'D#6', 28, delay: 1)
-hit(bell, at(7, 13), 'C#7', 22, delay: 5)
-hit(riser, at(7), 'C4', 6)
-vol_ramp(riser, at(7, 1), at(9), 6, 34)
+hit(org1, at(1), 'C5', 40, inst: FLUTE)
+vol_ramp(org1, at(1, 1), at(3), 40, 162)
+hit(org2, at(3), 'C#5', 40, inst: FLUTE)
+vol_ramp(org2, at(3, 1), at(5), 40, 146)
+hit(org3, at(5), 'D#5', 40, inst: FLUTE)
+vol_ramp(org3, at(5, 1), at(7), 40, 146)
+for b in 3..8 { kick4(b, if b < 5 then 138 else 178, if b < 5 then [0, 8] else [0, 4, 8, 12]) }
+for b in 5..8 { hats(b, 105) }
+hit(bell, at(6), 'C#6', 138)
+hit(bell, at(6, 9), 'D#6', 113, delay: 1)
+hit(bell, at(7, 13), 'C#7', 89, delay: 5)
+hit(riser, at(7), 'C4', 24)
+vol_ramp(riser, at(7, 1), at(9), 24, 138)
 glide(riser, at(7, 1), 'C6', glide_speed('C4', 'C6', 30))
 release([org1, org2, org3], at(9))
 cut(riser, at(9))
@@ -363,39 +364,39 @@ cut(riser, at(9))
 // ═════════════════════════════════════════════════════════════════════════════
 // 9–24  A — the four and the seven together, on PROG_A
 // ═════════════════════════════════════════════════════════════════════════════
-crash(9, 40)
-groove(9, PROG_A, { kick: 50, back: 0, hat: 30, shim: 0, tick: 30, bass: 46, arp: 44, echo: 22, org: 0 })
-groove(17, PROG_A, { kick: 52, back: 42, hat: 32, shim: 0, tick: 32, bass: 48, arp: 46, echo: 24, org: 30 })
-hit(sub, at(9), 'C1', 50)
+crash(9, 162)
+groove(9, PROG_A, { kick: 202, back: 0, hat: 121, shim: 0, tick: 121, bass: 186, arp: 178, echo: 89, org: 0 })
+groove(17, PROG_A, { kick: 210, back: 170, hat: 130, shim: 0, tick: 130, bass: 194, arp: 186, echo: 97, org: 121 })
+hit(sub, at(9), 'C1', 202)
 // the bell rings each chord's highest harmonic, high above
 for k, ch in PROG_A + PROG_A {
-  hit(bell, at(9 + 2 * k, 2), voicing(ch, 'C6')[3], 30)
+  hit(bell, at(9 + 2 * k, 2), voicing(ch, 'C6')[3], 121)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 25–40  B — the tritone chords; the PWM lead
 // ═════════════════════════════════════════════════════════════════════════════
-crash(25, 44)
-groove(25, PROG_B, { kick: 52, back: 44, hat: 32, shim: 18, tick: 30, bass: 48, arp: 40, echo: 20, org: 32 })
-groove(33, PROG_B, { kick: 54, back: 46, hat: 34, shim: 20, tick: 32, bass: 50, arp: 42, echo: 22, org: 34 })
-melody(lead, at(25), bars(TUNE), vol: 44)
-melody(lead, at(33), bars(TUNE_2), vol: 46)
+crash(25, 178)
+groove(25, PROG_B, { kick: 210, back: 178, hat: 130, shim: 73, tick: 121, bass: 194, arp: 162, echo: 81, org: 130 })
+groove(33, PROG_B, { kick: 219, back: 186, hat: 138, shim: 81, tick: 130, bass: 202, arp: 170, echo: 89, org: 138 })
+melody(lead, at(25), bars(TUNE), vol: 178)
+melody(lead, at(33), bars(TUNE_2), vol: 186)
 release(ORG, at(41))
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 41–48  THE SEVEN — all seven chords in four bars, the four only on the bars
 // ═════════════════════════════════════════════════════════════════════════════
-seven_chords(41, 4 * BAR, SEVEN, 40, bell_vol: 30)
-seven_chords(45, 4 * BAR, reverse(SEVEN), 42, bell_vol: 32)
+seven_chords(41, 4 * BAR, SEVEN, 162, bell_vol: 121)
+seven_chords(45, 4 * BAR, reverse(SEVEN), 170, bell_vol: 130)
 for b in 41..48 {
-  hit(clap, at(b), 'C5', 40)
-  ticks7(b, 26)
+  hit(clap, at(b), 'C5', 162)
+  ticks7(b, 105)
 }
-for b in 45..48 { kick4(b, 40, [0]) }
-for b in 47..48 { arp_bar(arp, b, H16_17_19, 30 + 6 * (b - 47), b == 48) }
+for b in 45..48 { kick4(b, 162, [0]) }
+for b in 47..48 { arp_bar(arp, b, H16_17_19, 121 + 24 * (b - 47), b == 48) }
 release(ORG, at(49))
-hit(riser, at(47), 'C4', 6)
-vol_ramp(riser, at(47, 1), at(49), 6, 36)
+hit(riser, at(47), 'C4', 24)
+vol_ramp(riser, at(47, 1), at(49), 24, 146)
 glide(riser, at(47, 1), 'C6', glide_speed('C4', 'C6', 30))
 cut(riser, at(49))
 
@@ -403,57 +404,57 @@ cut(riser, at(49))
 // 49–64  THE HOOK — PROG_A in full; at 57 the hats take the seven and the
 // ticks the four
 // ═════════════════════════════════════════════════════════════════════════════
-crash(49, 50)
-crash(57, 46)
-groove(49, PROG_A, { kick: 56, back: 46, hat: 34, shim: 20, tick: 32, bass: 52, arp: 42, echo: 22, org: 30 })
-groove(57, PROG_A, { kick: 56, back: 48, hat: 0, shim: 22, tick: 0, bass: 52, arp: 44, echo: 24, org: 32 })
+crash(49, 202)
+crash(57, 186)
+groove(49, PROG_A, { kick: 227, back: 186, hat: 138, shim: 81, tick: 130, bass: 210, arp: 170, echo: 89, org: 121 })
+groove(57, PROG_A, { kick: 227, back: 194, hat: 0, shim: 89, tick: 0, bass: 210, arp: 178, echo: 97, org: 130 })
 for b in 57..64 {
-  for k, t in SEPT { hit_t(hat, b, t, 'C7', if k == 0 then 36 else 28) }
-  for r in [2, 6, 10, 14] { hit(tick, at(b, r), 'G6', 30) }
+  for k, t in SEPT { hit_t(hat, b, t, 'C7', if k == 0 then 146 else 113) }
+  for r in [2, 6, 10, 14] { hit(tick, at(b, r), 'G6', 121) }
 }
-hit(sub, at(49), 'C1', 52)
-melody(lead2, at(49), bars(HOOK), vol: 48)
-melody(lead2, at(57), bars(HOOK_2), vol: 50)
-melody(bell, at(57), bars(HOOK_2), vol: 18, transpose: 12, ring: true)
+hit(sub, at(49), 'C1', 210)
+melody(lead2, at(49), bars(HOOK), vol: 194)
+melody(lead2, at(57), bars(HOOK_2), vol: 202)
+melody(bell, at(57), bars(HOOK_2), vol: 73, transpose: 12, ring: true)
 release(ORG, at(65))
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 65–80  THE LEADS — PROG_B, both leads, the reeds under the organ
 // ═════════════════════════════════════════════════════════════════════════════
-crash(65, 52)
-crash(73, 52)
-groove(65, PROG_B, { kick: 58, back: 48, hat: 36, shim: 22, tick: 34, bass: 54, arp: 40, echo: 22, org: 30 })
-groove(73, PROG_B, { kick: 58, back: 50, hat: 36, shim: 24, tick: 34, bass: 54, arp: 42, echo: 24, org: 32 })
-chords(REEDS, 65, PROG_B + PROG_B, 2, 30, 'C3')
-melody(lead, at(65), bars(TUNE), vol: 46)
-melody(lead2, at(65), bars(TUNE), vol: 40, transpose: -12)
-melody(lead, at(73), bars(TUNE_2), vol: 48)
-melody(lead2, at(73), bars(TUNE_2), vol: 42, transpose: -12)
+crash(65, 210)
+crash(73, 210)
+groove(65, PROG_B, { kick: 235, back: 194, hat: 146, shim: 89, tick: 138, bass: 219, arp: 162, echo: 89, org: 121 })
+groove(73, PROG_B, { kick: 235, back: 202, hat: 146, shim: 97, tick: 138, bass: 219, arp: 170, echo: 97, org: 130 })
+chords(REEDS, 65, PROG_B + PROG_B, 2, 121, 'C3')
+melody(lead, at(65), bars(TUNE), vol: 186)
+melody(lead2, at(65), bars(TUNE), vol: 162, transpose: -12)
+melody(lead, at(73), bars(TUNE_2), vol: 194)
+melody(lead2, at(73), bars(TUNE_2), vol: 170, transpose: -12)
 // a fill into the convergence: the tom in sevens, falling (round D and E)
-for k, p in notes("C4 A#3 G#3 F#3 F3 C#3 C3") { hit_t(tom, 80, SEPT[k], p, 36 + 3 * k) }
+for k, p in notes("C4 A#3 G#3 F#3 F3 C#3 C3") { hit_t(tom, 80, SEPT[k], p, 146 + 12 * k) }
 release(ORG + REEDS, at(81))
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 81–88  CONVERGE — the seven chords in 4 bars, then 2, 1 and ½: a snare roll
 // in sevens doubling under them
 // ═════════════════════════════════════════════════════════════════════════════
-crash(81, 50)
-seven_chords(81, 4 * BAR, SEVEN, 40, reed: 32, bell_vol: 30)
-seven_chords(85, 2 * BAR, SEVEN, 44, reed: 36, bell_vol: 32)
-seven_chords(87, BAR, SEVEN, 48, reed: 40, bell_vol: 34)
-seven_chords(88, BAR / 2, SEVEN, 52, reed: 44, bell_vol: 36)
+crash(81, 202)
+seven_chords(81, 4 * BAR, SEVEN, 162, reed: 130, bell_vol: 121)
+seven_chords(85, 2 * BAR, SEVEN, 178, reed: 146, bell_vol: 130)
+seven_chords(87, BAR, SEVEN, 194, reed: 162, bell_vol: 138)
+seven_chords(88, BAR / 2, SEVEN, 210, reed: 178, bell_vol: 146)
 release(ORG + REEDS, at(88, 8))
-for b in 81..87 { kick4(b, 56) }
-kick4(88, 58, [0, 4])
-for b in 81..84 { for k, t in SEPT { hit_t(snare, b, t, 'C4', 26 + 2 * (b - 81) + (if k == 0 then 6 else 0)) } }
-for b in 85..86 { for k, t in evenly(14, BAR) { hit_t(snare, b, t, 'C4', 32 + 3 * (b - 85)) } }
-for k, t in evenly(14, BAR) { hit_t(snare, 87, t, 'C4', 40); hit_t(clap, 87, t + 8, 'C5', 30) }
-for k, t in evenly(7, BAR / 2) { hit_t(snare, 88, t, 'C4', 46); hit_t(clap, 88, t + 8, 'C5', 36) }
-for b in 81..86 { bass_bar(b, H16_17_19, 52) }
-hit(sub, at(81), 'C1', 54)
+for b in 81..87 { kick4(b, 227) }
+kick4(88, 235, [0, 4])
+for b in 81..84 { for k, t in SEPT { hit_t(snare, b, t, 'C4', 105 + 8 * (b - 81) + (if k == 0 then 24 else 0)) } }
+for b in 85..86 { for k, t in evenly(14, BAR) { hit_t(snare, b, t, 'C4', 130 + 12 * (b - 85)) } }
+for k, t in evenly(14, BAR) { hit_t(snare, 87, t, 'C4', 162); hit_t(clap, 87, t + 8, 'C5', 121) }
+for k, t in evenly(7, BAR / 2) { hit_t(snare, 88, t, 'C4', 186); hit_t(clap, 88, t + 8, 'C5', 146) }
+for b in 81..86 { bass_bar(b, H16_17_19, 210) }
+hit(sub, at(81), 'C1', 219)
 keyoff(sub, at(88, 8))
-hit(riser, at(85), 'C3', 8)
-vol_ramp(riser, at(85, 1), at(88, 15), 8, 52)
+hit(riser, at(85), 'C3', 32)
+vol_ramp(riser, at(85, 1), at(88, 15), 32, 210)
 glide(riser, at(85, 1), 'C7', glide_speed('C3', 'C7', 60))
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -463,23 +464,23 @@ cut(riser, at(89))
 // what holds, and how loud: the reeds on C4, the organ on C5, and the same four
 // an octave up on the voices that played the seven and the leads
 let HOLD = [
-  [reed1, 'C4', 60], [reed2, 'C#4', 60], [reed3, 'D4', 60], [reed4, 'D#4', 60],
-  [org1, 'C5', 56], [org2, 'C#5', 56], [org3, 'D5', 56], [org4, 'D#5', 56],
-  [echo, 'C6', 50], [arp, 'C#6', 50], [lead2, 'D6', 46], [lead, 'D#6', 46],
-  [bass, 'C2', 60], [sub, 'C1', 60],
+  [reed1, 'C4', 243], [reed2, 'C#4', 243], [reed3, 'D4', 243], [reed4, 'D#4', 243],
+  [org1, 'C5', 227], [org2, 'C#5', 227], [org3, 'D5', 227], [org4, 'D#5', 227],
+  [echo, 'C6', 202], [arp, 'C#6', 202], [lead2, 'D6', 186], [lead, 'D#6', 186],
+  [bass, 'C2', 243], [sub, 'C1', 243],
 ]
 for [l, p, v] in HOLD {
   hit(l, at(89), p, v)
-  vol_ramp(l, at(90), at(92, 8), v, 6)
+  vol_ramp(l, at(90), at(92, 8), v, 24)
   keyoff(l, at(92, 10))
 }
-hit(kick, at(89), 'G2', 63, fx: "E", arg: $0180)
-hit(snare, at(89), 'C4', 56)
-hit(clap, at(89), 'C5', 50)
-crash(89, 60)
-hit(tom, at(89), 'C3', 50)
+hit(kick, at(89), 'G2', 255, fx: "E", arg: $0180)
+hit(snare, at(89), 'C4', 227)
+hit(clap, at(89), 'C5', 202)
+crash(89, 243)
+hit(tom, at(89), 'C3', 202)
 // the bell spells it, harmonics 32, 34, 36, 38 — the only D the song has
-for k, p in notes("C7 C#7 D7 D#7") { hit_t(bell, 89, SEPT[k], p, 40 - 3 * k) }
+for k, p in notes("C7 C#7 D7 D#7") { hit_t(bell, 89, SEPT[k], p, 162 - 12 * k) }
 
 // ── the Project message ──────────────────────────────────────────────────────
 fn about() {

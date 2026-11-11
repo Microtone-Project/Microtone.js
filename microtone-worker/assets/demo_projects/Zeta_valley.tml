@@ -19,6 +19,7 @@ tml 2
 
 song {
   title: "Eighteenfold Euphonic DisOrder"
+  format: 3                   // volumes 0–255, the volume column's own units
   composer: "CuriousTorvald via Motif"
   copyright: "(c) 2026 CuriousTorvald"
   message: ABOUT              // the Project message, written at the end of this file
@@ -74,13 +75,13 @@ instrument LEAD    { bank: 0, program: 80 }
 instrument FLUTE   { bank: 0, program: 73, chain: ROOM }
 
 // ── lanes: pan $00 left … $80 centre … $100 right ─────────────────────────────
-lane kick   { inst: KIT,     pan: $80, label: "Kick",      jitter: 2 }
-lane snare  { inst: KIT,     pan: $78, label: "Snare",     jitter: 2 }
-lane hat    { inst: KIT,     pan: $A8, label: "Hats",      jitter: 2 }
-lane cym    { inst: KIT,     pan: $64, label: "Cymbals",   jitter: 3 }
+lane kick   { inst: KIT,     pan: $80, label: "Kick",      jitter: 8 }
+lane snare  { inst: KIT,     pan: $78, label: "Snare",     jitter: 8 }
+lane hat    { inst: KIT,     pan: $A8, label: "Hats",      jitter: 8 }
+lane cym    { inst: KIT,     pan: $64, label: "Cymbals",   jitter: 12 }
 lane tom    { inst: KIT,     pan: $80, label: "Toms" }
-lane perc   { inst: KIT,     pan: $C0, label: "Eight",     jitter: 2 }   // the eight-beat claves
-lane shk    { inst: KIT,     pan: $50, label: "Shaker",    jitter: 3 }
+lane perc   { inst: KIT,     pan: $C0, label: "Eight",     jitter: 8 }   // the eight-beat claves
+lane shk    { inst: KIT,     pan: $50, label: "Shaker",    jitter: 12 }
 lane bass   { inst: BASS,    pan: $80, label: "Bass",      trim: 1.15 }
 lane kal    { inst: KALIMBA, pan: $5C, label: "Kalimba" }
 lane vib    { inst: VIB,     pan: $A8, label: "Vibes" }
@@ -239,61 +240,61 @@ fn dr8(lane, bar, k, name, vol) => hit8(lane, bar, k, midi(GM[name]), vol)
 fn open_hat(bar, row, vol) => dr(hat, bar, row, "hatO", vol, "S", $7300)
 fn ride(bar, row, name, vol) => dr(cym, bar, row, name, vol, "S", $7300)
 // A hand that is never quite the same twice: ±3, keyed to what it is and where.
-fn feel(what, bar, row) => random_int(-3, 3, what, bar, row)
+fn feel(what, bar, row) => 4 * random_int(-3, 3, what, bar, row)
 
 // The claves keep the eight even beats in every groove.
-fn claves(bar, vol) => [dr8(perc, bar, k, "claves", vol + (if k == 0 then 6 else if k == 4 then 3 else 0)) for k in 0..<8]
+fn claves(bar, vol) => [dr8(perc, bar, k, "claves", vol + (if k == 0 then 24 else if k == 4 then 12 else 0)) for k in 0..<8]
 
 // Theme groove, 2+2+3+2+2+2+3+2: eight uneven groups against the eight beats.
 fn groove_a(bar, fill_from = 18, tamb = false) {
   let ok = fn(e) => e < fill_from
-  for [e, v] in [[0, 54], [7, 44], [11, 50]] if ok(e) { dr(kick, bar, e * E, "kick", v) }
-  if chance(0.5, "pickup kick", bar) and ok(16) { dr(kick, bar, 16 * E, "kick", 38) }
-  for [e, v] in [[4, 50], [13, 52]] if ok(e) { dr(snare, bar, e * E, "snare", v) }
-  for e in [9, 17] if ok(e) and chance(0.6, "ghost", bar, e) { dr(snare, bar, e * E, "snare", 14 + feel("ghost", bar, e)) }
+  for [e, v] in [[0, 219], [7, 178], [11, 202]] if ok(e) { dr(kick, bar, e * E, "kick", v) }
+  if chance(0.5, "pickup kick", bar) and ok(16) { dr(kick, bar, 16 * E, "kick", 154) }
+  for [e, v] in [[4, 202], [13, 210]] if ok(e) { dr(snare, bar, e * E, "snare", v) }
+  for e in [9, 17] if ok(e) and chance(0.6, "ghost", bar, e) { dr(snare, bar, e * E, "snare", 57 + feel("ghost", bar, e)) }
   let open_at = choose([none, 10, 15], "open hat", bar)
   for e in 0..<18 if ok(e) {
-    if e == open_at { open_hat(bar, e * E, 40) }
-    else { dr(hat, bar, e * E, "hatC", (if contains(GA, e) then 46 else 30) + feel("hat", bar, e)) }
+    if e == open_at { open_hat(bar, e * E, 162) }
+    else { dr(hat, bar, e * E, "hatC", (if contains(GA, e) then 186 else 121) + feel("hat", bar, e)) }
   }
-  claves(bar, 26)
-  if tamb { for e in [4, 13] if ok(e) { dr(shk, bar, e * E, "tamb", 28) } }
+  claves(bar, 105)
+  if tamb { for e in [4, 13] if ok(e) { dr(shk, bar, e * E, "tamb", 113) } }
 }
 
 // Second-theme groove, 4+4+3+4+3: the ride in eighths, the pedal hat on the groups.
 fn groove_b(bar, fill_from = 18) {
   let ok = fn(e) => e < fill_from
-  for [e, v] in [[0, 54], [8, 44], [11, 50]] if ok(e) { dr(kick, bar, e * E, "kick", v) }
-  for [e, v] in [[4, 50], [15, 52]] if ok(e) { dr(snare, bar, e * E, "snare", v) }
-  if chance(0.4, "rim", bar) and ok(10) { dr(snare, bar, 10 * E, "rim", 26) }
+  for [e, v] in [[0, 219], [8, 178], [11, 202]] if ok(e) { dr(kick, bar, e * E, "kick", v) }
+  for [e, v] in [[4, 202], [15, 210]] if ok(e) { dr(snare, bar, e * E, "snare", v) }
+  if chance(0.4, "rim", bar) and ok(10) { dr(snare, bar, 10 * E, "rim", 105) }
   for e in 0..<18 if ok(e) {
-    under(ride(bar, e * E, if e == 0 then "bell" else "ride", (if contains(GB, e) then 46 else 32) + feel("ride", bar, e)))
+    under(ride(bar, e * E, if e == 0 then "bell" else "ride", (if contains(GB, e) then 186 else 130) + feel("ride", bar, e)))
   }
-  for e in GB if ok(e) and e != 0 { dr(hat, bar, e * E, "hatP", 36) }
-  claves(bar, 24)
+  for e in GB if ok(e) and e != 0 { dr(hat, bar, e * E, "hatP", 146) }
+  claves(bar, 97)
 }
 
 // Climb groove, 4+5+4+5: hats in sixteenths, the shaker on the eight beats.
 fn groove_c(bar, lift = 0) {
-  for [e, v] in [[0, 54], [9, 50], [3, 34], [12, 34]] { dr(kick, bar, e * E, "kick", v + lift) }
-  for [e, v] in [[5, 50], [14, 52]] { dr(snare, bar, e * E, "snare", v + lift) }
+  for [e, v] in [[0, 219], [9, 202], [3, 138], [12, 138]] { dr(kick, bar, e * E, "kick", v + lift) }
+  for [e, v] in [[5, 202], [14, 210]] { dr(snare, bar, e * E, "snare", v + lift) }
   for r in 0..<36 {
-    dr(hat, bar, r, "hatC", (if r % 2 == 0 then (if contains(GC, r >> 1) then 44 else 32) else 20) + lift + feel("hat16", bar, r))
+    dr(hat, bar, r, "hatC", (if r % 2 == 0 then (if contains(GC, r >> 1) then 178 else 130) else 81) + lift + feel("hat16", bar, r))
   }
-  for k in 0..<8 { dr8(shk, bar, k, "shaker", (if k % 2 == 0 then 34 else 26) + lift) }
+  for k in 0..<8 { dr8(shk, bar, k, "shaker", (if k % 2 == 0 then 138 else 105) + lift) }
 }
 
 // Fills, from the eighth `from` to the bar's end; a section's last bar picks one.
 fn fill_toms(bar, from) {
-  let strokes = [["tomHi", 44], ["tomHi", 40], ["tomHM", 48], ["tomHM", 44], ["tomLM", 50], ["tomLM", 46], ["flHi", 54], ["flLo", 58]]
+  let strokes = [["tomHi", 178], ["tomHi", 162], ["tomHM", 194], ["tomHM", 178], ["tomLM", 202], ["tomLM", 186], ["flHi", 219], ["flLo", 235]]
   for i in 0..<18 - from {
     let [n, v] = strokes[max(0, len(strokes) - (18 - from) + i)]
     dr(tom, bar, (from + i) * E, n, v)
   }
 }
-fn fill_snare(bar, from) => [dr(snare, bar, e * E + h, "snare", 22 + (e - from) * 4 + h * 2) for e in from..<18 for h in 0..1]
+fn fill_snare(bar, from) => [dr(snare, bar, e * E + h, "snare", 89 + (e - from) * 16 + h * 8) for e in from..<18 for h in 0..1]
 fn fill_eight(bar, from) =>
-  [dr8(tom, bar, k, ["tomHi", "tomHM", "tomLM", "flHi", "flLo"][min(4, max(0, k - 3))], 40 + k * 2) for k in 0..<8 if beat_row(k) >= from * E]
+  [dr8(tom, bar, k, ["tomHi", "tomHM", "tomLM", "flHi", "flLo"][min(4, max(0, k - 3))], 162 + k * 8) for k in 0..<8 if beat_row(k) >= from * E]
 let FILLS = [fill_toms, fill_snare, fill_eight]
 fn fill(bar, from) => choose(FILLS, "fill", bar)(bar, from)
 
@@ -304,14 +305,14 @@ fn ep_hits(bar, prog_i, prog, plan, start, vol) {
   let vs = voicings(start, chords, 'Gp3', 'Ct5')
   for i, p in plan {
     for j, s in vs[i] {
-      hit(EPS[j], at(bar, p[0] * E), s, vol + p[2] - (if j == 0 then 2 else 0))
+      hit(EPS[j], at(bar, p[0] * E), s, vol + p[2] - (if j == 0 then 8 else 0))
       keyoff(EPS[j], at(bar, (p[0] + p[1]) * E))
     }
   }
 }
 let EP_START = notes("Et3 C4 Dt4 Gt4")
-let EP_THEME = [[0, 3, 0], [4, 3, -8], [7, 2, -3], [11, 2, 0], [13, 3, -8], [16, 2, -6]]
-let EP_SECOND = [[0, 4, 0], [8, 3, -4], [11, 4, 0], [15, 3, -4]]
+let EP_THEME = [[0, 3, 0], [4, 3, -32], [7, 2, -12], [11, 2, 0], [13, 3, -32], [16, 2, -24]]
+let EP_SECOND = [[0, 4, 0], [8, 3, -16], [11, 4, 0], [15, 3, -16]]
 
 // The kalimba is the clock: eight even beats a bar over the chord's tones, in
 // one of three figures, chosen bar by bar.
@@ -320,23 +321,23 @@ fn kalimba_bar(bar, chord_at, base) {
   let fig = choose(KAL_FIGURES, "kalimba", bar)
   for k in 0..<8 {
     let ts = tones_in(chord_at((9 * k) / 4), 'C5', 'C6')     // the chord under the beat
-    hit8(kal, bar, k, ts[fig[k] % len(ts)], base + (if k == 0 then 6 else if k == 4 then 3 else 0))
+    hit8(kal, bar, k, ts[fig[k] % len(ts)], base + (if k == 0 then 24 else if k == 4 then 12 else 0))
   }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1–4  INTRO — the eight-beat clock alone, then the eighteen eighths under it
 // ═════════════════════════════════════════════════════════════════════════════
-for b in 1..4 { kalimba_bar(b, fn(e) => X(0), [28, 32, 36, 38][b - 1]) }
+for b in 1..4 { kalimba_bar(b, fn(e) => X(0), [113, 130, 146, 154][b - 1]) }
 // One bar of shakers in the theme's grouping, three times.
-shift(loop(stack([dr(shk, 1, e * E, "shaker", if contains(GA, e) then 30 else 20) for e in 0..<18]), 3, 36), at(2))
-for b in 3..4 { claves(b, 20 + (b - 3) * 4) }
-hold_chord(PADS, at(2), notes("C3 Gt3 Dt4 Et4"), 12)
-for p in PADS { vol_ramp(p, at(2, 1), at(4), 12, 40); keyoff(p, at(5)) }
-melody(bass, at(3), "C2:36@44 | C2:22@46 Gt2:14@40")
-dr(kick, 3, 0, "kick", 46)
-dr(kick, 4, 0, "kick", 50)
-dr(kick, 4, 22, "kick", 46)
+shift(loop(stack([dr(shk, 1, e * E, "shaker", if contains(GA, e) then 121 else 81) for e in 0..<18]), 3, 36), at(2))
+for b in 3..4 { claves(b, 81 + (b - 3) * 16) }
+hold_chord(PADS, at(2), notes("C3 Gt3 Dt4 Et4"), 49)
+for p in PADS { vol_ramp(p, at(2, 1), at(4), 49, 162); keyoff(p, at(5)) }
+melody(bass, at(3), "C2:36@178 | C2:22@186 Gt2:14@162")
+dr(kick, 3, 0, "kick", 186)
+dr(kick, 4, 0, "kick", 202)
+dr(kick, 4, 22, "kick", 186)
 fill(4, 12)
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -353,7 +354,7 @@ let THEME = """
   15:2 12:2 9:3 12:2 15:2    / 17:2 15:3 12:2 |
   15:2 12:2 9:3 7:2 9:2      / 8:7v
   """
-let THEME_TUNE = melody(lead, at(5), dm(THEME), vol: 50, vib: [$70, $10])
+let THEME_TUNE = melody(lead, at(5), dm(THEME), vol: 202, vib: [$70, $10])
 let THEME_CELLS = cells(THEME_TUNE, lead)
 
 // The bass: a line chord_line() makes from the progression, on the theme's
@@ -361,18 +362,18 @@ let THEME_CELLS = cells(THEME_TUNE, lead)
 let THEME_BASS = chord_line(flat(THEME_PROG), 'C2', 'Gt3', "theme bass", role: "bass", scale: SC,
   per: flatten([[5, 3] for i in 0..<8]),
   against: [sounding(THEME_CELLS, at(5 + i, e * E)) for i in 0..<8 for e in GA])
-let THEME_BASS_TUNE = melody(bass, at(5), set_rhythm(THEME_BASS, THEME_GROUPS, [52, 34, 46, 38, 36, 50, 40, 36]))
+let THEME_BASS_TUNE = melody(bass, at(5), set_rhythm(THEME_BASS, THEME_GROUPS, [210, 138, 186, 154, 146, 202, 162, 146]))
 
 THEME_TUNE
 THEME_BASS_TUNE
-dr(cym, 5, 0, "crash", 52)
-morph(PADS, changes(THEME_PROG, 5), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 30)
+dr(cym, 5, 0, "crash", 210)
+morph(PADS, changes(THEME_PROG, 5), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 121)
 for p in PADS { keyoff(p, at(13)) }
 for i, pair in THEME_PROG {
   let b = 5 + i
   groove_a(b, fill_from: if b == 12 then 14 else 18)
-  ep_hits(b, i, THEME_PROG, EP_THEME, EP_START, 34)
-  kalimba_bar(b, fn(e) => bar_chord(THEME_PROG, i, e), 30)
+  ep_hits(b, i, THEME_PROG, EP_THEME, EP_START, 138)
+  kalimba_bar(b, fn(e) => bar_chord(THEME_PROG, i, e), 121)
 }
 fill(12, 14)
 
@@ -382,7 +383,7 @@ fill(12, 14)
 // ═════════════════════════════════════════════════════════════════════════════
 let SECOND_LINE = chord_line(flat(SECOND_PROG), deg(5), deg(17), "second theme", scale: SC, variety: 4,
   per: flatten([[3, 2] for i in 0..<8]), start: deg(14), end: deg(9))
-let SECOND_TUNE = melody(flute, at(13), set_rhythm(SECOND_LINE, SECOND_GROUPS, [44, 40, 42, 44, 40], "v", 4),
+let SECOND_TUNE = melody(flute, at(13), set_rhythm(SECOND_LINE, SECOND_GROUPS, [178, 162, 170, 178, 162], "v", 4),
   glide_rows: 2, vib: [$70, $14])
 let SECOND_BASS = chord_line(flat(SECOND_PROG), 'C2', 'Gt3', "second bass", role: "bass", scale: SC,
   per: 2, against: [sounding(cells(SECOND_TUNE, flute), at(13 + i, e * E)) for i in 0..<8 for e in [0, 8, 11, 15]])
@@ -390,15 +391,15 @@ let SECOND_BASS = chord_line(flat(SECOND_PROG), 'C2', 'Gt3', "second bass", role
 SECOND_TUNE
 // the lead doubles it an octave down, at half the volume
 on(lead, map_vols(transpose(SECOND_TUNE, -18), fn(v) => v / 2))
-melody(bass, at(13), set_rhythm(SECOND_BASS, [8, 3, 4, 3], [52, 42, 50, 38]))
-dr(cym, 13, 0, "crash2", 46)
-morph(STRS, changes(SECOND_PROG, 13), notes("Et3 C4 Et4 At4"), 'C3', 'C5', 30, rows: 3)
+melody(bass, at(13), set_rhythm(SECOND_BASS, [8, 3, 4, 3], [210, 170, 202, 154]))
+dr(cym, 13, 0, "crash2", 186)
+morph(STRS, changes(SECOND_PROG, 13), notes("Et3 C4 Et4 At4"), 'C3', 'C5', 121, rows: 3)
 for s in STRS { keyoff(s, at(21)) }
 for i, pair in SECOND_PROG {
   let b = 13 + i
   groove_b(b, fill_from: if b == 20 then 11 else 18)
-  ep_hits(b, i, SECOND_PROG, EP_SECOND, EP_START, 30)
-  kalimba_bar(b, fn(e) => bar_chord(SECOND_PROG, i, e), 28)
+  ep_hits(b, i, SECOND_PROG, EP_SECOND, EP_START, 121)
+  kalimba_bar(b, fn(e) => bar_chord(SECOND_PROG, i, e), 113)
 }
 fill(20, 11)
 
@@ -409,25 +410,25 @@ fill(20, 11)
 // ═════════════════════════════════════════════════════════════════════════════
 {
   let events = [{ row: at(21 + k, GC[h] * E), ch: climb_prog(k)[h] } for k in 0..<9 for h in 0..<4]
-  morph(PADS, events, notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'D5', 28)
-  morph(STRS, events, notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 26)
+  morph(PADS, events, notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'D5', 113)
+  morph(STRS, events, notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 105)
   for l in PADS + STRS { keyoff(l, at(30)) }
   // The lead rides the top string an octave up, gliding with it.
   let tops = [v[3] + 18 for v in voicings(notes("Et4 Gt4 C5 Et5"), [e.ch for e in events], 'C4', 'Gt5')]
-  hit(lead, at(21), tops[0], 44)
+  hit(lead, at(21), tops[0], 178)
   for i in 1..<len(events) if tops[i] != tops[i - 1] { glide(lead, events[i].row, tops[i], glide_speed(tops[i - 1], tops[i], 2)) }
   keyoff(lead, at(29, 34))
 }
 for k in 0..<9 {
   let b = 21 + k
   let base = 'C2' + 2 * k
-  melody(bass, at(b), "${note_name(base)}:10@52 ${note_name(base + 11)}:8@46 ${note_name(base + 1)}:10@50 ${note_name(base + 12)}:8@46")
-  groove_c(b, lift: if k < 4 then -6 else if k < 8 then 0 else 4)
-  kalimba_bar(b, fn(e) => climb_prog(k)[part_at(slice(GC, 1), e)], 26 + k)
+  melody(bass, at(b), "${note_name(base)}:10@210 ${note_name(base + 11)}:8@186 ${note_name(base + 1)}:10@202 ${note_name(base + 12)}:8@186")
+  groove_c(b, lift: if k < 4 then -24 else if k < 8 then 0 else 16)
+  kalimba_bar(b, fn(e) => climb_prog(k)[part_at(slice(GC, 1), e)], 105 + 4 * k)
 }
-dr(cym, 21, 0, "crash", 50)
-dr(cym, 25, 0, "crash2", 50)
-dr(cym, 29, 0, "crash", 54)
+dr(cym, 21, 0, "crash", 202)
+dr(cym, 25, 0, "crash2", 202)
+dr(cym, 29, 0, "crash", 219)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 30–33  THE VALLEY — the octave two ways at once: all eighteen steps in
@@ -435,31 +436,31 @@ dr(cym, 29, 0, "crash", 54)
 // on the kalimba. They meet on every octave.
 // ═════════════════════════════════════════════════════════════════════════════
 {
-  hold_chord(PADS, at(30), notes("C3 Gt3 Dt4 Et4"), 34)
+  hold_chord(PADS, at(30), notes("C3 Gt3 Dt4 Et4"), 138)
   for p in PADS { keyoff(p, at(34)) }
   // The eighteen: up, then the same run backwards, up, backwards.
-  let RUN = melody(vib, 0, join(["${note_name('C5' + e)}:2@${if e % 9 == 0 then 38 else 28}" for e in 0..<18], " "), ring: true)
-  shift(seq(RUN, reverse(RUN), map_vols(RUN, fn(v) => v + 4), map_vols(reverse(RUN), fn(v) => v + 6)), at(30))
+  let RUN = melody(vib, 0, join(["${note_name('C5' + e)}:2@${if e % 9 == 0 then 154 else 113}" for e in 0..<18], " "), ring: true)
+  shift(seq(RUN, reverse(RUN), map_vols(RUN, fn(v) => v + 16), map_vols(reverse(RUN), fn(v) => v + 24)), at(30))
   // The eight: up, then mirrored degree by degree (down), down, up. (Not
   // reverse(): it turns rows round, and the half-row beats would not land
   // back on the beat.)
-  let UP = whole_bar([hit8(kal, 1, k, deg(8 + k), if k == 0 then 42 else 34) for k in 0..<8])
+  let UP = whole_bar([hit8(kal, 1, k, deg(8 + k), if k == 0 then 170 else 138) for k in 0..<8])
   let DOWN = map_notes(UP, dmirror)
-  let EIGHT = seq(UP, map_vols(DOWN, fn(v) => v + 2), map_vols(DOWN, fn(v) => v + 4), map_vols(UP, fn(v) => v + 6))
+  let EIGHT = seq(UP, map_vols(DOWN, fn(v) => v + 8), map_vols(DOWN, fn(v) => v + 16), map_vols(UP, fn(v) => v + 24))
   shift(EIGHT, at(30))
 }
-for b in 30..33 { claves(b, 18 + (b - 30) * 4) }
+for b in 30..33 { claves(b, 73 + (b - 30) * 16) }
 for b in 32..33 {
   for k in 0..<8 {
-    dr8(kick, b, k, "kick", 34 + (b - 32) * 8 + k)
-    hit8(bass, b, k, 'C2', 36 + (b - 32) * 8 + k)
+    dr8(kick, b, k, "kick", 138 + (b - 32) * 32 + 4 * k)
+    hit8(bass, b, k, 'C2', 146 + (b - 32) * 32 + 4 * k)
   }
 }
 keyoff(bass, at(34))
 // A snare roll through the last bar: 32nds (a retrigger every 3 ticks), swelling.
 for r in 0..<36 {
   let row = at(33) + r
-  let vol = round(10 + r * 46 / 35)
+  let vol = round(40 + r * 186 / 35)
   if r == 0 { hit(snare, row, midi(GM.snare), vol, "Q", $0300) }
   else { fx(snare, row, "Q", $0300); set_vol(snare, row, vol) }
 }
@@ -480,7 +481,7 @@ follow(lead, at(34), at(42), fn(heard) {
     if c.note == "off" { keyoff(flute, row) }
     else if type(c.note) == "number" {
       if get(c, "fx", none) == "G" { glide(flute, row, up3(c.note), glide_speed(up3(last[i - 1]), up3(c.note), 1)) }
-      else { hit(flute, row, up3(c.note), round(get(c, "vol", 50) * 0.7)) }
+      else { hit(flute, row, up3(c.note), round(get(c, "vol", 202) * 0.7)) }
     }
   }
 })
@@ -488,18 +489,18 @@ follow(lead, at(34), at(42), fn(heard) {
   let line = chord_line(flat(THEME_PROG), deg(10), deg(24), "vibes", scale: SC, variety: 1.5,
     per: flatten([[5, 3] for i in 0..<8]),
     against: [sounding(THEME_CELLS, at(5 + i, e * E)) for i in 0..<8 for e in GA])
-  for i, p in line { hit(vib, at(34 + floor(i / 8), GA[i % 8] * E), p, 20 + (if i % 8 == 0 then 4 else 0)) }
+  for i, p in line { hit(vib, at(34 + floor(i / 8), GA[i % 8] * E), p, 81 + (if i % 8 == 0 then 16 else 0)) }
 }
-dr(cym, 34, 0, "crash", 58)
-dr(cym, 38, 0, "crash2", 50)
-morph(PADS, changes(THEME_PROG, 34), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 32)
-morph(STRS, changes(THEME_PROG, 34), notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 22, rows: 3)
+dr(cym, 34, 0, "crash", 235)
+dr(cym, 38, 0, "crash2", 202)
+morph(PADS, changes(THEME_PROG, 34), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 130)
+morph(STRS, changes(THEME_PROG, 34), notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 89, rows: 3)
 for l in PADS + STRS { keyoff(l, at(42)) }
 for i, pair in THEME_PROG {
   let b = 34 + i
   groove_a(b, tamb: true, fill_from: if b == 41 then 11 else 18)
-  ep_hits(b, i, THEME_PROG, EP_THEME, EP_START, 34)
-  kalimba_bar(b, fn(e) => bar_chord(THEME_PROG, i, e), 30)
+  ep_hits(b, i, THEME_PROG, EP_THEME, EP_START, 138)
+  kalimba_bar(b, fn(e) => bar_chord(THEME_PROG, i, e), 121)
 }
 fill(41, 11)
 
@@ -509,32 +510,32 @@ fill(41, 11)
 // the eight, both landing on C
 // ═════════════════════════════════════════════════════════════════════════════
 let CODA = "12:2 14:2 12:3 9:2 12:2 / 15:2 12:3 ~9:2"
-melody(lead, at(42), dm(CODA), vol: 48, vib: [$60, $14])
-melody(flute, at(42), dm(CODA + " | 8:36v", shift: 3), vol: 32, vib: [$60, $14])
+melody(lead, at(42), dm(CODA), vol: 194, vib: [$60, $14])
+melody(flute, at(42), dm(CODA + " | 8:36v", shift: 3), vol: 130, vib: [$60, $14])
 // The theme's opening, cut from the tune itself and stretched to twice its length.
 stretch(shift(slice(THEME_TUNE, at(5), at(5, 22)), at(43) - at(5)), 2)
-hit(lead, at(44, 8), 'C5', 44)
-dr(cym, 42, 0, "crash", 54)
+hit(lead, at(44, 8), 'C5', 178)
+dr(cym, 42, 0, "crash", 219)
 groove_a(42, fill_from: 11)
-melody(bass, at(42), set_rhythm(notes("D2 Dt2 D3 Gp2 Bt2 D3 Gp2 Ft2"), THEME_GROUPS, [52, 34, 46, 38, 36, 50, 40, 36]))
-ep_hits(42, 0, CODA_PROG, EP_THEME, EP_START, 34)
-kalimba_bar(42, fn(e) => bar_chord(CODA_PROG, 0, e), 32)
-morph(PADS, changes(CODA_PROG, 42), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 34)
-morph(STRS, changes(CODA_PROG, 42), notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 26, rows: 3)
+melody(bass, at(42), set_rhythm(notes("D2 Dt2 D3 Gp2 Bt2 D3 Gp2 Ft2"), THEME_GROUPS, [210, 138, 186, 154, 146, 202, 162, 146]))
+ep_hits(42, 0, CODA_PROG, EP_THEME, EP_START, 138)
+kalimba_bar(42, fn(e) => bar_chord(CODA_PROG, 0, e), 130)
+morph(PADS, changes(CODA_PROG, 42), notes("C3 Gt3 Dt4 Et4"), 'Gt2', 'G#4', 138)
+morph(STRS, changes(CODA_PROG, 42), notes("Et4 Gt4 C5 Et5"), 'C4', 'Gt5', 105, rows: 3)
 fill(42, 14)
 // 43: the chord, struck by everyone.
-dr(kick, 43, 0, "kick", 60)
-dr(cym, 43, 0, "crash", 58)
-dr(perc, 43, 0, "splash", 40)
-melody(bass, at(43), "C2:72@54")
-hold_chord(EPS, at(43), notes("Et3 C4 Dt4 Gt4"), 38)
-for e in 0..<18 { hit(vib, at(43, e * E), 'C6' - e, 30 - (e >> 2)) }
-for k in 0..<8 { hit8(kal, 43, k, deg(8 + k), 34 - k) }
-hit(vib, at(44), 'C5', 32)
-hit(kal, at(44), deg(16), 36)
-dr(cym, 44, 0, "crash2", 34)
+dr(kick, 43, 0, "kick", 243)
+dr(cym, 43, 0, "crash", 235)
+dr(perc, 43, 0, "splash", 162)
+melody(bass, at(43), "C2:72@219")
+hold_chord(EPS, at(43), notes("Et3 C4 Dt4 Gt4"), 154)
+for e in 0..<18 { hit(vib, at(43, e * E), 'C6' - e, 121 - 4 * (e >> 2)) }
+for k in 0..<8 { hit8(kal, 43, k, deg(8 + k), 138 - 4 * k) }
+hit(vib, at(44), 'C5', 130)
+hit(kal, at(44), deg(16), 146)
+dr(cym, 44, 0, "crash2", 138)
 for l in EPS + PADS + STRS + [bass, lead, flute] {
-  vol_ramp(l, at(43, 8), at(44, 30), 40, 10)
+  vol_ramp(l, at(43, 8), at(44, 30), 162, 40)
   keyoff(l, at(44, 34))
 }
 keyoff(vib, at(44, 34))

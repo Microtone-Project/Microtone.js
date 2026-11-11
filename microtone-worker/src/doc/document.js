@@ -11,7 +11,10 @@ import {
   SAMPLEBIN_SIZE, TAUD_VERSION_WIDE,
 } from "../../core/format/taud-const.js";
 import { emptyPatternBytes } from "./patterntools.js";
+import { presetForNotation, legacyToFine } from "../../core/tuning/pitchtables.js";
 import { widenPattern } from "./upgrade.js";
+import { widenInstrumentVolEnv } from "./volenv.js";
+import { buildIxmpSection } from "./ixmpsection.js";
 import { parseNotaPayload, defToPreset, slotForNotationValue } from "./notation.js";
 import {
   MASTERING_FOURCC, parseMasteringSection, buildMasteringSection,
@@ -818,23 +821,69 @@ export class Document {
   }
 
   /**
-   * Widen every pattern in the project to the version-3 cell (§5.5). Called
-   * when the project first declares a surround model — see upgradeCellFormatOp,
-   * which wraps this so it can be undone within the session.
+   * Widen every pattern in the project to the version-3 cell (§5.5) — what
+   * opening a format-1/2 project does, since format 3 is the only one the
+   * editor writes (app.js loadBytes; upgradeCellFormatOp wraps it for a
+   * document already open).
+   *
+   * Each song's notes are moved onto its notation's 65536-TET grid as they
+   * widen: a word sitting exactly on a degree of the 4096-TET table becomes
+   * that degree's precise pitch (at most half a 4096-TET unit, 0.15 cent, away),
+   * so the old notes and the ones typed from now on are one grid, not two that
+   * differ by a rounding. Anything off the grid keeps its word.
    */
   upgradeToWideCells() {
     if (this.wideCells) return 0;
     let n = 0;
-    for (const song of this.songs) {
+    this.songs.forEach((song, si) => {
+      // Still narrow here, so this is the notation's 4096-TET form.
+      const preset = presetForNotation(this.meta.songMeta[si]?.notation ?? 120, this);
       song.patterns = song.patterns.map((rows) => {
         if (!rows) return rows;
         n++;
-        return decodePattern(widenPattern(encodePattern(rows, false)), true);
+        const wide = decodePattern(widenPattern(encodePattern(rows, false)), true);
+        for (const cell of wide) cell.note = legacyToFine(cell.note, preset);
+        return wide;
       });
-    }
+    });
     this.fmtVer = TAUD_VERSION_WIDE;
     this.wideCells = true;
     this._emptyPattern = null; // its width just changed
+    return n;
+  }
+
+  /**
+   * Bring every instrument's volume envelopes to 8 bits (file format §7.2,
+   * byte 14 bit 6) — what opening a project does, after upgradeToWideCells: a
+   * format-3 project's volumes are 0…255 everywhere, its envelopes included.
+   * A record already 8-bit, a table metainstrument and an empty slot are left
+   * as they are; an Ixmp patch's envelope follows its instrument. Works on the
+   * image and the patch blobs, before anything is decoded or edited, and does
+   * not mark the project changed: the file is untouched until it is saved.
+   * Returns how many instruments it converted.
+   */
+  upgradeVolEnvelopes() {
+    if (!this.wideCells || this.sampleInstImage === null) return 0;
+    this._rebuildInstRegion();
+    const region = this.sampleInstImage.subarray(SAMPLEBIN_SIZE);
+    const blobs = new Map(this.ixmp.map((e, i) => [e.instId & 0x3ff, i]));
+    let n = 0;
+    for (let s = 0; s < 1024; s++) {
+      const rec = region.subarray(s * 256, (s + 1) * 256);
+      if (rec.every((b) => b === 0)) continue;
+      const at = blobs.get(s);
+      const out = widenInstrumentVolEnv(rec, at === undefined ? null : this.ixmp[at].blob);
+      if (out.record === rec) continue;
+      rec.set(out.record);
+      if (at !== undefined) this.ixmp[at] = { ...this.ixmp[at], blob: out.blob };
+      n++;
+    }
+    if (n > 0) {
+      if (this.ixmp.length > 0 && this.projSections.some((x) => x.fourcc === "Ixmp")) {
+        this.setSection("Ixmp", buildIxmpSection(this.ixmp));
+      }
+      this._resetInstrumentCache();
+    }
     return n;
   }
 

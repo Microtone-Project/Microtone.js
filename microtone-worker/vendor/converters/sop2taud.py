@@ -71,6 +71,7 @@ from taud_common import (
     NOTE_NOP, NOTE_KEYOFF, NOTE_CUT,
     TOP_NONE, TOP_A, TOP_E, TOP_F, TOP_G, TOP_S, TOP_T, TOP_V,
     SEL_SET, SEL_FINE,
+    CELL_BYTES, put_cell, note_pitch, vol_from64,
     encode_cue, finalize_cue_sheet, set_cue_instruction,
     cue_instruction_len, cue_instruction_halt_at,
     deduplicate_patterns, encode_song_entry, compress_blob, build_project_data,
@@ -637,7 +638,7 @@ def sop_note_word(chip_note: int, pitch: int = CENTRE_PITCH) -> int:
         semitone, row = 1, row - SOP_PITCH_STEPS
     n = max(0, min(CHIP_TOP_NOTE, chip_note + semitone))
     freq = SOP_FNUM_TABLE[row * 12 + n % 12] * (1 << (n // 12))
-    return round(_C4_WORD + 4096 * math.log2(freq / _C4_FREQ))
+    return note_pitch(_C4_WORD + 4096 * math.log2(freq / _C4_FREQ))
 
 
 #: §10.6: the note at which a WAV track plays its sample at the recorded rate.
@@ -668,7 +669,7 @@ def sample_note_word(note: int, pitch: int = CENTRE_PITCH) -> int:
     of a percent of it — and notes outside the table's 12…71 keep their own
     pitch rather than the nearest end's, which no known file plays."""
     word = 0x5000 + (note - 60) * 4096 / 12 + sample_cents(pitch) * 4096 / 1200
-    return max(0x20, min(0xFFFF, round(word)))
+    return note_pitch(word)
 
 
 # ── Tempo ────────────────────────────────────────────────────────────────────
@@ -805,17 +806,17 @@ def sample_pan(value: int) -> int:
 
 
 def sample_volume(value: int) -> int:
-    """§10.6: a WAV track's volume onto Taud's linear 0…63 axis.  The game
+    """§10.6: a WAV track's volume onto the wide cell's linear 0…255 axis.  The game
     makes it `(v >> 1) + 1` of 64 and its mixer is linear in that, so 127 is
     full, 96 is 2.3 dB down and 0 is 1/64 rather than silence.  The library's
     `sopSampleGain`."""
-    return round(63 * ((max(0, min(127, value)) >> 1) + 1) / 64)
+    return vol_from64((max(0, min(127, value)) >> 1) + 1)
 
 
 # ── Cells ────────────────────────────────────────────────────────────────────
 
 class Cell:
-    __slots__ = ('note', 'inst', 'vol_sel', 'vol_val', 'eff', 'arg')
+    __slots__ = ('note', 'inst', 'vol_sel', 'vol_val', 'eff', 'arg', 'eff2', 'arg2')
 
     def __init__(self):
         self.note = NOTE_NOP
@@ -824,11 +825,14 @@ class Cell:
         self.vol_val = 0
         self.eff = TOP_NONE
         self.arg = 0
+        self.eff2 = TOP_NONE          # format 3's second effect
+        self.arg2 = 0
 
     def pack(self) -> bytes:
-        return struct.pack('<HBBBBH', self.note, self.inst,
-                           (self.vol_sel << 6) | (self.vol_val & 0x3F),
-                           (SEL_FINE << 6), self.eff, self.arg)
+        b = bytearray(CELL_BYTES)
+        put_cell(b, 0, note=self.note, inst=self.inst, vol=(self.vol_sel, self.vol_val),
+                 fx=self.eff, arg=self.arg, fx2=self.eff2, arg2=self.arg2)
+        return bytes(b)
 
 
 #: Roles whose pitch the SOP's pitch events move: every melodic voice and the
@@ -1074,12 +1078,12 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices,
                     and cell.note in (NOTE_NOP, NOTE_KEYOFF) and cell.eff == TOP_NONE:
                 want = want_pitch(v)
                 delta = want - cur_pitch[v]
+                step = min(FINE_SLIDE_MAX, round(abs(delta)))   # a slide moves whole units
                 if cell.note == NOTE_NOP and abs(delta) > FINE_SLIDE_MAX:
                     cell.note = want
                     cell.eff, cell.arg = TOP_G, 0xFFFF
                     cur_pitch[v] = want
-                elif delta:
-                    step = min(FINE_SLIDE_MAX, abs(delta))
+                elif step:
                     cell.eff = TOP_F if delta > 0 else TOP_E
                     cell.arg = 0xF000 | step
                     cur_pitch[v] += step if delta > 0 else -step
@@ -1087,9 +1091,15 @@ def build_cells(song, seq, speed, slot_of, level_of, fallback, num_voices,
             # Panning is the LANE's, not the note's: a SOP sets it per track and
             # it survives every note after it, which is exactly what `S $80xx`
             # means and what the panning column does not.
-            if pan[v] is not None and written_pan[v] != pan[v] and cell.eff == TOP_NONE:
-                written_pan[v] = pan[v]
-                cell.eff, cell.arg = TOP_S, 0x8000 | pan[v]
+            if pan[v] is not None and written_pan[v] != pan[v]:
+                # The first free effect: slot 1, or — beside a pitch slide —
+                # the second effect (format 3), so the pan is no longer late.
+                if cell.eff == TOP_NONE:
+                    written_pan[v] = pan[v]
+                    cell.eff, cell.arg = TOP_S, 0x8000 | pan[v]
+                elif cell.eff2 == TOP_NONE:
+                    written_pan[v] = pan[v]
+                    cell.eff2, cell.arg2 = TOP_S, 0x8000 | pan[v]
         last_row = max(last_row, row)
 
         # A slide or a pan that lost its row for want of an effect column is

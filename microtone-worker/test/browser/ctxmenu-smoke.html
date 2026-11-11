@@ -438,7 +438,8 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   store.syncVoiceMutes();
   await sleep(60);
   dlg = await rightClick(colX(2), 10);
-  check(rowIds(dlg, 2).join() === "solo,mute",
+  // (Every project is format 3, so the second-effect switches ride the row too.)
+  check(rowIds(dlg, 2).join() === "solo,mute,fx2Show,fx2ShowAll",
     "an unmuted header offers Solo and Mute, and no Unmute all", rowIds(dlg, 2).join());
   const muteDepth = store.undo.undoStack.length;
   cell(dlg, "mute").click();
@@ -448,7 +449,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(store.undo.undoStack.length === muteDepth, "…without touching the undo stack");
 
   dlg = await rightClick(colX(2), 10);
-  check(rowIds(dlg, 2).join() === "solo,mute,unmuteAll",
+  check(rowIds(dlg, 2).join() === "solo,mute,unmuteAll,fx2Show,fx2ShowAll",
     "a muted song's header gains Unmute all", rowIds(dlg, 2).join());
   check(cell(dlg, "mute").textContent.toLowerCase().includes("unmute"),
     "…and the same cell now reads Unmute", cell(dlg, "mute").textContent);

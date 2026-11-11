@@ -79,7 +79,9 @@
       pat[0] = 0x00; pat[1] = 0x40;          // note C-4
       pat[2] = instId & 0xff;
       pat[5] = 0x23; pat[6] = 0x20; pat[7] = 0xf0;   // Z $F020
-      store.audio.uploadPattern(PAT, pat);
+      // The engine reads every project's cells wide (format 3): widen this one.
+      const { widenPattern } = await import("../../src/doc/upgrade.js");
+      store.audio.uploadPattern(PAT, widenPattern(pat));
       const cue = new Uint8Array(64);
       for (let ch = 0; ch < 32; ch++) { cue[ch * 2] = 0xff; cue[ch * 2 + 1] = 0x7f; }
       cue[0] = PAT & 0xff; cue[1] = (PAT >> 8) & 0xff;

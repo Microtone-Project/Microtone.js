@@ -383,15 +383,23 @@ export function columnAccess(kind, wide) {
   switch (kind) {
     case "note": return {
       classify(b) {
-        const note = b[0] | (b[1] << 8);
-        if (note === 0) return { state: "empty" };
+        const word = b[0] | (b[1] << 8);
+        if (word === 0) return { state: "empty" };
         // $0001…$001F are the sentinels — key-off, cut, fade, the interrupt
         // markers. None of them is a pitch, and a glide must not eat one.
-        if (note < 0x20) return { state: "blocked" };
+        if (word < 0x20) return { state: "blocked" };
+        // A wide cell's pitch is 65536-TET: its sixteenths ride byte 13.
+        const note = wide ? word + (b[13] >>> 4) / 16 : word;
         return { state: "point", vals: [note], tag: 0, raw: note };
       },
+      // …so a glide in one is drawn in sixteenths of a unit, not whole ones.
+      unit: wide ? 1 / 16 : 1,
       limit: [(v) => clamp(v, 0x20, 0xffff)],
-      write(b, vals) { b[0] = vals[0] & 0xff; b[1] = (vals[0] >>> 8) & 0xff; },
+      write(b, vals) {
+        const word = Math.floor(vals[0]);
+        b[0] = word & 0xff; b[1] = (word >>> 8) & 0xff;
+        if (wide) b[13] = (b[13] & 0x0f) | (Math.round((vals[0] - word) * 16) << 4);
+      },
     };
     case "vol": return {
       classify(b) {
@@ -617,7 +625,9 @@ export function planInterpolate({
               // with the probability its fraction says. A ramp shallower than
               // one step per row then tracks the true line on average instead
               // of laying down a fresh staircase of its own.
-              const q = dither ? Math.floor(raw + rng()) : Math.round(raw);
+              // (In the column's own unit: a wide cell's note is sixteenths.)
+              const u = acc.unit ?? 1;
+              const q = (dither ? Math.floor(raw / u + rng()) : Math.round(raw / u)) * u;
               vals[k] = limits[k](q);
             }
             if (gliss) {

@@ -163,6 +163,7 @@ from taud_common import (
     NOTE_NOP, NOTE_KEYOFF, NOTE_FASTFADE, TAUD_C4,
     TOP_B, TOP_C, TOP_G, TOP_M, TOP_S, TOP_T,
     SEL_SET, SEL_FINE,
+    CELL_BYTES, COL_EMPTY, INST_VOLENV8, vcol_set, pcol_set, note_pitch, put_cell, blank_pattern,
     CUE_INST_NOP, CUE_INST_HALT,
     resample_linear, loop_resample_ratio, scale_loop,
     encode_cue, deduplicate_patterns, encode_song_entry,
@@ -203,9 +204,10 @@ PRIO_DELAY = 3
 PRIO_TEMPO = 4
 
 
-def key_to_noteval(key: float) -> int:
-    """MIDI key (float, 60 = middle C) → Taud 4096-TET noteVal (C4 = 0x5000)."""
-    return max(0x20, min(0xFFFF, round(TAUD_C4 + (key - 60.0) * UNITS_PER_SEMI)))
+def key_to_noteval(key: float) -> float:
+    """MIDI key (float, 60 = middle C) → Taud pitch (C4 = 0x5000), to the
+    sixteenth of a 4096-TET unit a format-3 cell holds (65536-TET)."""
+    return note_pitch(TAUD_C4 + (key - 60.0) * UNITS_PER_SEMI)
 
 
 # ── MIDI parser ───────────────────────────────────────────────────────────────
@@ -367,7 +369,7 @@ def parse_midi(path: str):
 class Note:
     __slots__ = ('ch', 'key', 'vel', 'start_ft', 'end_ft', 'inst_key',
                  'bend0', 'slot', 'voice', 'drum', 'pedal_ft', 'excl_cut_ft',
-                 'start_tick', 'vol6')
+                 'start_tick', 'vol6', 'vol8')
     def __init__(self, ch, key, vel, start_ft, inst_key, bend0, start_tick=0):
         self.ch       = ch
         self.key      = key
@@ -385,7 +387,8 @@ class Note:
         self.drum     = (inst_key[0] == 'd')
         self.pedal_ft = None     # physical key-up time when only the pedal holds it
         self.excl_cut_ft = None  # ft at which a same-exclusiveClass note chokes this one
-        self.vol6     = None     # note volume 0..63 the velocity plays at (assign_note_volumes)
+        self.vol6     = None     # the 6-bit step the velocity selects zones at (assign_note_volumes)
+        self.vol8     = None     # the note volume 0..255 a format-3 cell carries (inside vol6's step)
 
 
 class _ChState:
@@ -1748,6 +1751,17 @@ def _cc_gain(val: float) -> float:
     return 10.0 ** (-960.0 * _mod_src_transform(0x0500, val) / 200.0)
 
 
+def _gain_to_v8(level: float) -> int:
+    """A linear level on the 0..255 note-volume scale → the nearest note volume 1..255
+    in decibels, as _gain_to_v6 does on 0..63 (the lane volume `M` of a format-3 song)."""
+    x = int(level)
+    if x < 1:
+        return 1
+    if x >= 255:
+        return 255
+    return x + 1 if level * level >= x * (x + 1) else x
+
+
 def _gain_to_v6(level: float) -> int:
     """A linear level on the 0..63 note-volume scale → the nearest note volume 1..63 IN
     DECIBELS (the crossover between x and x + 1 is their geometric mean). Never 0: a
@@ -1773,7 +1787,7 @@ class VelAxis:
     velocity-adjacent zones meet without gap or overlap, and a note written at
     fwd[vel] selects the zone FluidSynth selects — unless the velocities sharing its x
     straddle a zone boundary and it is on the minority side."""
-    __slots__ = ('att', 'fwd', 'rep')
+    __slots__ = ('att', 'fwd', 'fwd8', 'rep')
 
     def __init__(self, mods):
         att = [_mod_sum_at(mods, v) for v in range(1, 128)]
@@ -1781,6 +1795,13 @@ class VelAxis:
         self.att = [0.0] + [a - top for a in att]
         lvl = [0.0] + [63.0 * 10.0 ** (-a / 200.0) for a in self.att[1:]]
         self.fwd = [0] + [_gain_to_v6(lvl[v]) for v in range(1, 128)]
+        # fwd8[vel] is the note volume a format-3 cell carries: the level on 0..255,
+        # kept inside the 6-bit step fwd[vel] selects (the engine gates v >> 2 against
+        # the zones' 0..63 ranges), so every note picks the layer it did and plays at
+        # up to four times the resolution within it.
+        self.fwd8 = [0] + [max(4 * self.fwd[v], min(4 * self.fwd[v] + 3,
+                                                   round(lvl[v] * 255 / 63)))
+                           for v in range(1, 128)]
         rep = []
         for x in range(64):
             pre = [v for v in range(1, 128) if self.fwd[v] == x]
@@ -2203,7 +2224,10 @@ def assign_note_volumes(song, sf, perc_force) -> None:
         if axes is None:
             res = resolve_preset(sf, n.inst_key, perc_force)
             axes = axes_of[n.inst_key] = _preset_vel_axes(res[1] if res else [])
-        n.vol6 = axes[max(0, min(127, n.key))].fwd[max(1, min(127, n.vel))]
+        ax = axes[max(0, min(127, n.key))]
+        v = max(1, min(127, n.vel))
+        n.vol6 = ax.fwd[v]
+        n.vol8 = ax.fwd8[v]
 
 
 def _rects_of_zone(z: SFZone, axes: list) -> list:
@@ -2753,7 +2777,7 @@ def _adsr_to_env(z: SFZone, tick_sec: float = None):
     EPS = 0.004                       # below the minifloat resolution (1/256 s)
     sus_cb = min(z.env_sustain_cb, 1000.0)     # clamp to 100 dB full-scale
     slevel = 10.0 ** (-z.env_sustain_cb / 200.0)
-    s63 = max(0, min(63, round(63 * slevel)))
+    s63 = max(0, min(ENV_FULL, round(ENV_FULL * slevel)))      # the sustain node, 0..255
     pts = []                          # (value, delta_sec_to_next)
     delay = z.env_delay if z.env_delay >= EPS else 0.0
     attack = z.env_attack if z.env_attack >= EPS else 0.0
@@ -2767,18 +2791,18 @@ def _adsr_to_env(z: SFZone, tick_sec: float = None):
     # Decay leg: peak (63) → sustain (s63), exponential amplitude over `edec` seconds.
     # The peak node carries the hold time. The final decay node is the sustain node
     # (appended below), so the in-between nodes are f = 1/n .. (n-1)/n.
-    if s63 < 63:
+    if s63 < ENV_FULL:
         edec = z.env_decay * sus_cb / 1000.0
         if edec >= EPS:
             n = _env_seg_count(edec)
             seg = edec / n
-            pts.append((63, hold + seg))                       # peak, held then 1st seg
+            pts.append((ENV_FULL, hold + seg))                 # peak, held then 1st seg
             for i in range(1, n):                              # f = 1/n .. (n-1)/n
                 f = i / n
-                v = round(63 * 10.0 ** (-(sus_cb * f) / 200.0))
-                pts.append((max(s63, min(63, v)), seg))
+                v = round(ENV_FULL * 10.0 ** (-(sus_cb * f) / 200.0))
+                pts.append((max(s63, min(ENV_FULL, v)), seg))
         else:
-            pts.append((63, hold))
+            pts.append((ENV_FULL, hold))
     sustain_idx = len(pts)            # the node appended next is the sustain node
     rel = z.env_release
     # No release leg: the sustain node is the terminal node. While the key is held the
@@ -2793,6 +2817,9 @@ def _adsr_to_env(z: SFZone, tick_sec: float = None):
     return env, min(sustain_idx, 24), rel
 
 
+# A volume envelope's full scale: 8-bit, the record's byte 14 bit 6 (format 3).
+ENV_FULL = 255
+
 # Envelope LOOP-word bits (terranmon.txt base byte 15/17/19).
 ENV_PRESENT_BIT = 0x2000          # P — envelope present in source (LOOP-word bit 13)
 ENV_SUS_ENABLE  = 0x0020          # b — enable the SUSTAIN wrap (SUSTAIN-word bit 5)
@@ -2806,13 +2833,13 @@ def _atten_gain(atten_cb: float) -> float:
 
 def _vol_env_block(z: SFZone, tick_sec: float = None):
     """Taud volume-envelope block dict from a zone's SF2 ADSR — the PURE ADSR shape
-    at full 0..63 resolution. initialAttenuation is NO LONGER folded into the node
+    at full 8-bit resolution (0..255, byte 14 bit 6). initialAttenuation is NO LONGER folded into the node
     peak (it would crush a heavily-attenuated env to peak ~3 and zero its tail, e.g.
     SGM 'Fantasia'); it is now carried as a separate per-voice gain — base record
     bytes 251-252 / Ixmp 'x' block initialAttenuation — applied in the mixer. Returns
     (block_dict, sustain_idx, release_sec)."""
     env, sidx, rel = _adsr_to_env(z, tick_sec)
-    nodes = [(max(0, min(63, v)), mf) for (v, mf) in env]
+    nodes = [(max(0, min(ENV_FULL, v)), mf) for (v, mf) in env]
     sustain = ENV_SUS_ENABLE | ((sidx & 0x1F) << 8) | (sidx & 0x1F)
     return {'loop': ENV_PRESENT_BIT, 'sustain': sustain, 'nodes': nodes}, sidx, rel
 
@@ -3074,13 +3101,13 @@ def _synth_decay_vol_env(decay_sec: float) -> dict:
     once it reaches the terminal 0 node, ~decay_sec after firing, regardless of
     key state. The drop spans the representable 63->1 range (~36 dB); the final
     node is a true 0 terminator."""
-    DROP_CB = 360.0                            # 63 -> 1 fills the whole decay span
+    DROP_CB = 360.0                            # the ~36 dB the 6-bit 63 -> 1 spanned
     n   = _env_seg_count(decay_sec)
     seg = decay_sec / n
-    pts = [(63, seg)]                          # peak, held one segment then decays
+    pts = [(ENV_FULL, seg)]                    # peak, held one segment then decays
     for i in range(1, n):
-        v = round(63 * 10.0 ** (-(DROP_CB * (i / n)) / 200.0))
-        pts.append((max(1, min(63, v)), seg))
+        v = round(ENV_FULL * 10.0 ** (-(DROP_CB * (i / n)) / 200.0))
+        pts.append((max(1, min(ENV_FULL, v)), seg))
     pts.append((0, 0.0))                       # terminal 0 node => fall-through cut
     nodes = [(v, nearest_minifloat(d)) for v, d in pts[:25]]
     while len(nodes) < 25:
@@ -3326,7 +3353,7 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
         # editor's retuner/transposer leaves their notes alone (terranmon.txt:2127-2132).
         if ti.inst_key is not None and ti.inst_key[0] == 'd':
             lm_w |= PERCUSSION_FLAG
-        inst_bin[base + 14] = lm_w
+        inst_bin[base + 14] = lm_w | INST_VOLENV8   # 8-bit volume envelopes (§7.2)
 
         def wenv(loop_off, sus_off, nodes_off, blk):
             struct.pack_into('<H', inst_bin, base + loop_off, blk['loop'] & 0xFFFF)
@@ -3440,8 +3467,8 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
 def _cell(cells: dict, v: int, row: int) -> dict:
     c = cells.get((v, row))
     if c is None:
-        c = {'note': NOTE_NOP, 'inst': 0, 'vol': (SEL_FINE, 0),
-             'pan': (SEL_FINE, 0), 'eff': None, 'prio': PRIO_FREE}
+        c = {'note': NOTE_NOP, 'inst': 0, 'vol': COL_EMPTY,
+             'pan': COL_EMPTY, 'eff': None, 'eff2': None, 'prio': PRIO_FREE}
         cells[(v, row)] = c
     return c
 
@@ -3674,11 +3701,11 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
         nv = key_to_noteval(n.key + n.bend0)
         c['note'] = nv
         c['inst'] = n.slot
-        c['vol']  = (SEL_SET, n.vol6)
+        c['vol']  = vcol_set(n.vol8)
         st = song.channels[n.ch]
         if st.cc10_ft:
             pan = _curve_at(st.cc10_ft, st.cc10_val, n.start_ft + shift_ft, 64)
-            c['pan'] = (SEL_SET, round(pan * 63 / 127))
+            c['pan'] = pcol_set(max(0, min(255, round(pan * 2))))   # 64 → 128, the centre
         if tick > 0:
             c['eff']  = (TOP_S, 0xD000 | (tick << 8))
             c['prio'] = PRIO_DELAY
@@ -3764,7 +3791,7 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
                     continue
                 if (n.voice, r) in cells:
                     continue
-                step = -(-abs(target - cur) // (speed - 1))
+                step = math.ceil(abs(target - cur) / (speed - 1))
                 c = _cell(cells, n.voice, r)
                 c['note'] = target
                 c['eff']  = (TOP_G, min(0xFFFF, step))
@@ -3785,22 +3812,25 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
     m_emitted = 0
     for v, vnotes in by_voice.items():
         vnotes.sort(key=lambda n: n.start_ft)
-        m_state = 0x3F                            # engine channel_vol default
+        m_state = 0xFF                            # engine channel_vol default (format 3)
         for n in vnotes:
             st = song.channels[n.ch]
             for r in range(n.start_ft // speed, n.end_ft // speed + 1):
                 ftr = r * speed + shift_ft
                 c7  = _curve_at(st.cc7_ft,  st.cc7_val,  ftr, 100)
                 c11 = _curve_at(st.cc11_ft, st.cc11_val, ftr, 127)
-                m = (_gain_to_v6(63 * _cc_gain(c7) * _cc_gain(c11))
+                m = (_gain_to_v8(255 * _cc_gain(c7) * _cc_gain(c11))
                      if c7 > 0 and c11 > 0 else 0)
                 if m == m_state:
                     continue
                 c = _cell(cells, v, r)
-                if c['eff'] is not None:
-                    continue                      # slot busy — retry next row
-                c['eff']  = (TOP_M, (m & 0x3F) << 8)
-                c['prio'] = PRIO_M
+                if c['eff'] is None:
+                    c['eff']  = (TOP_M, (m & 0xFF) << 8)
+                    c['prio'] = PRIO_M
+                elif c.get('eff2') is None:
+                    c['eff2'] = (TOP_M, (m & 0xFF) << 8)   # format 3: the second effect
+                else:
+                    continue                      # both slots busy — retry next row
                 m_state = m
                 m_emitted += 1
     if m_emitted:
@@ -3950,12 +3980,14 @@ def plan_cues(timesig_ft: list, timesig: list, total_rows: int,
 def _pattern_is_empty(pat_bin: bytes, idx: int) -> bool:
     """True when unique pattern `idx` carries no note / instrument / effect on any
     row — the shared silent filler emitted for a part that rests through a cue.
-    (Only the vol/pan bytes are 0xC0 in a filler cell; note, inst and eff-op are
-    all zero. A key-off/cut cell has a nonzero note value, so it is NOT empty.)"""
+    (Only the selector byte is non-zero in a filler cell; note, inst and both
+    effect opcodes are zero. A key-off/cut cell has a nonzero note value, so it
+    is NOT empty.)"""
     base = idx * PATTERN_BYTES
     for r in range(PATTERN_ROWS):
-        o = base + r * 8
-        if pat_bin[o] or pat_bin[o + 1] or pat_bin[o + 2] or pat_bin[o + 5]:
+        o = base + r * CELL_BYTES
+        if (pat_bin[o] or pat_bin[o + 1] or pat_bin[o + 2] or pat_bin[o + 5]
+                or pat_bin[o + 10]):
             return False
     return True
 
@@ -3966,28 +3998,19 @@ def build_pattern_bin(cells: dict, n_voices: int,
     than 64 rows (bar-aligned / time-signature-broken cues). Rows past a cue's
     length are silent padding (the LEN cue instruction stops playback there)."""
     n_cues = len(cue_starts)
-    out = bytearray(n_cues * n_voices * PATTERN_BYTES)
-    pos = 0
+    out = bytearray()
     for ci, (start, length) in enumerate(zip(cue_starts, cue_lens)):
         for v in range(n_voices):
-            for r in range(PATTERN_ROWS):
-                base = pos + r * 8
-                c = cells.get((v, start + r)) if r < length else None
+            pat = blank_pattern()
+            for r in range(min(length, PATTERN_ROWS)):
+                c = cells.get((v, start + r))
                 if c is None:
-                    out[base + 3] = 0xC0
-                    out[base + 4] = 0xC0
                     continue
-                struct.pack_into('<H', out, base, c['note'] & 0xFFFF)
-                out[base + 2] = c['inst'] & 0xFF
-                vs, vv = c['vol']
-                ps, pv = c['pan']
-                out[base + 3] = (vv & 0x3F) | ((vs & 3) << 6)
-                out[base + 4] = (pv & 0x3F) | ((ps & 3) << 6)
-                if c['eff'] is not None:
-                    op, arg = c['eff']
-                    out[base + 5] = op & 0xFF
-                    struct.pack_into('<H', out, base + 6, arg & 0xFFFF)
-            pos += PATTERN_BYTES
+                op, arg = c['eff'] if c['eff'] is not None else (0, 0)
+                op2, arg2 = c['eff2'] if c.get('eff2') is not None else (0, 0)
+                put_cell(pat, r, note=c['note'], inst=c['inst'], vol=c['vol'], pan=c['pan'],
+                         fx=op, arg=arg, fx2=op2, arg2=arg2)
+            out += pat
     return bytes(out)
 
 
@@ -4034,33 +4057,38 @@ def _inject_loop(pat_bin: bytes, cue_starts: list, cue_lens: list, n_voices: int
     buf = bytearray(pat_bin)
 
     def free_voice(skip):
-        # Prefer a fully-empty cell, then any cell without an effect.
+        # Prefer a fully-empty cell, then any cell with an effect slot free —
+        # the first, else the second (format 3). Returns (voice, cell offset,
+        # opcode offset).
         for want_empty in (True, False):
             for v in range(n_voices):
                 if v in skip:
                     continue
-                off = (ce * n_voices + v) * PATTERN_BYTES + re_off * 8
-                if buf[off + 5] != 0:
+                off = (ce * n_voices + v) * PATTERN_BYTES + re_off * CELL_BYTES
+                if want_empty and (buf[off] != 0 or buf[off + 1] != 0 or buf[off + 5] != 0
+                                   or buf[off + 10] != 0):
                     continue
-                if want_empty and (buf[off] != 0 or buf[off + 1] != 0):
-                    continue
-                return v, off
-        return None, None
+                if buf[off + 5] == 0:
+                    return v, off, off + 5
+                if buf[off + 10] == 0:
+                    return v, off, off + 10
+        return None, None, None
 
-    vb, ob = free_voice(set())
-    if vb is None:                       # every cell on this row already has an effect
-        vb, ob = 0, (ce * n_voices) * PATTERN_BYTES + re_off * 8
+    vb, ob, fb = free_voice(set())
+    if vb is None:                       # every cell on this row already has two effects
+        vb, ob = 0, (ce * n_voices) * PATTERN_BYTES + re_off * CELL_BYTES
+        fb = ob + 5
         vprint("  warning: loop-end row crowded — overwriting an effect with the B jump")
-    buf[ob + 5] = TOP_B
-    struct.pack_into('<H', buf, ob + 6, cs & 0xFFFF)
+    buf[fb] = TOP_B
+    struct.pack_into('<H', buf, fb + 1, cs & 0xFFFF)
     if rs_off > 0:
-        vc, oc = free_voice({vb})
+        vc, oc, fc = free_voice({vb})
         if vc is None:
             vprint("  warning: no free slot for the C row-jump — looping to the "
                    "loop-start cue's first row instead")
         else:
-            buf[oc + 5] = TOP_C
-            struct.pack_into('<H', buf, oc + 6, rs_off & 0xFFFF)
+            buf[fc] = TOP_C
+            struct.pack_into('<H', buf, fc + 1, rs_off & 0xFFFF)
     return bytes(buf), cue_starts, cue_lens, None
 
 

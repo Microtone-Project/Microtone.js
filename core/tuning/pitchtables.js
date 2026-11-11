@@ -117,6 +117,116 @@ export const pitchTablePresets = {
   35130: { index: 35130, name: "Equal-Tempered Bohlen-Pierce", table: [0x0, 0x1f3, 0x3e7, 0x5da, 0x7ce, 0x9c1, 0xbb4, 0xda8, 0xf9b, 0x118e, 0x1382, 0x1575, 0x1769], interval: 0x195c, t: "M", sym: [" C-", " C#", " D-", " E-", " F-", " F#", " G-", " H-", " H#", " J-", " A-", " A#", " B-"] },
 };
 
+// ── 65536-TET: the precise twin of every table ──
+//
+// A format-3 cell carries four more bits of pitch than a note word (file
+// format §5.5: 65536-TET), so a notation can be stated at that resolution
+// rather than rounded to 4096-TET — 31-TET's degree 1 is 132.129 units, not
+// 132. Each preset therefore has two forms:
+//
+//   preset            `table` in whole 4096-TET units, exactly as it has
+//                     always been: what a narrow (format 1/2) cell can hold,
+//                     and what Microtone Touch, a TML 1 build and every
+//                     other 4096-TET writer go on producing byte for byte
+//   finePreset(p)     the SAME preset with `table` (and `interval`) at
+//                     65536-TET — sixteenths of a unit — for the format-3
+//                     tracker, whose notes may carry the fraction
+//
+// The precise values come from each tuning's definition — an equal division,
+// ProTracker's periods, the Pythagorean ratios — never from the rounded table.
+// Rounding a precise value is NOT always the old word (17-, 19-, 23-, 31-, 41-,
+// 43- and 53-TET each have a degree within 1/32 of a half unit, where rounding
+// twice lands on the other side), which is why the two forms are both kept
+// rather than one derived from the other: `legacyToFine` maps a word the 4096
+// table holds onto its precise twin by DEGREE, not by nearness.
+
+/** Round a pitch in 4096-TET units to the nearest sixteenth (65536-TET). */
+export function quantiseNote(v) {
+  return Math.round(v * 16) / 16;
+}
+
+const LOG2_3 = Math.log2(3);
+const ratioUnits = (r) => 4096 * Math.log2(r);
+// Pythagorean twelve, C up: Db/Gb or C#/F# per the preset (dim. 5th = 1024/729,
+// aug. 4th = 729/512), every other degree shared.
+const PYTH_DIM5 = [1, 256 / 243, 9 / 8, 32 / 27, 81 / 64, 4 / 3, 1024 / 729, 3 / 2, 128 / 81, 27 / 16, 16 / 9, 243 / 128];
+const PYTH_AUG4 = PYTH_DIM5.map((r, i) => (i === 6 ? 729 / 512 : r));
+// Shi'er lü by sanfen sunyi: eleven fifths up from huangzhong, folded into the octave.
+const LU_RATIOS = [1, 2187 / 2048, 9 / 8, 19683 / 16384, 81 / 64, 177147 / 131072,
+  729 / 512, 3 / 2, 6561 / 4096, 27 / 16, 59049 / 32768, 243 / 128];
+
+/** The exact (unrounded) offsets a built-in preset is defined by, or null when
+ *  its table is the definition (Raw, a custom notation). */
+function exactOffsets(preset) {
+  const n = preset.table.length;
+  if (n === 0) return null;
+  switch (preset.index) {
+    case 1: return PT_PERIODS.map((p) => ANCHOR_NOTE + ratioUnits(PT_REFERENCE_PERIOD / p) - PT_BASE);
+    case 10121: return PYTH_DIM5.map(ratioUnits);
+    case 10122: return PYTH_AUG4.map(ratioUnits);
+    case 10123: return LU_RATIOS.map(ratioUnits);
+    default: break;
+  }
+  // Every other built-in is an equal division of its interval: the octave, or
+  // Bohlen-Pierce's tritave (stored as 0x195C, exactly 4096·log2 3 rounded).
+  const period = preset.interval === 0x195c ? 4096 * LOG2_3 : preset.interval;
+  return Array.from({ length: n }, (_, i) => (i * period) / n);
+}
+
+const fineCache = new WeakMap();
+
+/**
+ * The 65536-TET view of a preset: a new object sharing every field but
+ * `table` (each degree to the nearest sixteenth of a unit) and `interval`, with
+ * `fine: true` and `legacy` pointing back. Idempotent — the view of a view is
+ * itself — and cached per preset. A custom notation whose definition is
+ * already 65536-TET (nota 'b', `exact` set by defToPreset) and one stated in
+ * 4096-TET alike come back with a table the format-3 tracker can write.
+ */
+export function finePreset(preset) {
+  if (!preset || preset.fine) return preset;
+  let v = fineCache.get(preset);
+  if (v) return v;
+  const exact = preset.exact ?? (preset.custom ? null : exactOffsets(preset));
+  const table = exact ? exact.map(quantiseNote) : preset.table.slice();
+  // A built-in's period is a whole unit at both resolutions (the octave; the
+  // tritave, 4096·log2 3 = 6491.99, quantises to 0x195C either way); a custom
+  // notation stated at 65536-TET may carry a fraction of its own.
+  const interval = preset.exactInterval !== undefined ? quantiseNote(preset.exactInterval) : preset.interval;
+  v = { ...preset, table, interval, fine: true, legacy: preset };
+  fineCache.set(preset, v);
+  return v;
+}
+
+/** The 4096-TET form of a preset (itself when it already is one). */
+export function legacyPreset(preset) {
+  return preset?.fine ? preset.legacy : preset;
+}
+
+/**
+ * Where a note word of a format-1/2 song lands when its song is widened
+ * (§5.5 upgrade): a word that sits EXACTLY on a degree of the notation's
+ * 4096-TET table moves to that degree's 65536-TET pitch; anything else — a
+ * deliberate detune, a pitch from a slide, a sentinel — keeps its word. Exact
+ * equality, by degree, because the precise value does not always round back
+ * to the old word (see above).
+ */
+export function legacyToFine(note, preset) {
+  const legacy = legacyPreset(preset);
+  if (!legacy || legacy.table.length === 0 || note < 0x20 || note !== Math.floor(note)) return note;
+  const fine = finePreset(legacy);
+  if (isAbsolute(legacy)) {
+    const i = legacy.table.indexOf(note - presetBase(legacy));
+    return i < 0 ? note : Math.min(presetBase(legacy) + fine.table[i], 0xffff + 15 / 16);
+  }
+  const rel = note - ANCHOR_NOTE;
+  const k = Math.floor(rel / legacy.interval);
+  const i = legacy.table.indexOf(rel - k * legacy.interval);
+  if (i < 0) return note;
+  const out = ANCHOR_NOTE + k * fine.interval + fine.table[i];
+  return out < 0x20 || out > 0xffff + 15 / 16 ? note : out;
+}
+
 /** True for an `interval: 0` preset: `table` is the complete, absolute note
  *  list rather than one period of a lattice (terranmon.txt §nota). */
 export function isAbsolute(preset) {
@@ -160,11 +270,11 @@ function absOctave(note) {
  *  custom range (65520..65535) resolve against `doc`'s "nota" section when a
  *  document is given (item 61 Notation Maker). */
 export function presetForNotation(notation, doc = null) {
-  if (doc && notation >= 0xfff0) {
-    const p = doc.customPreset?.(notation);
-    if (p) return p;
-  }
-  return pitchTablePresets[notation] ?? pitchTablePresets[120];
+  let p = null;
+  if (doc && notation >= 0xfff0) p = doc.customPreset?.(notation) ?? null;
+  p ??= pitchTablePresets[notation] ?? pitchTablePresets[120];
+  // A format-3 document writes and reads its notes at 65536-TET.
+  return doc?.wideCells ? finePreset(p) : p;
 }
 
 /**
@@ -283,7 +393,9 @@ export function semiToNote(octave, semi) {
  * keyboard that APPROXIMATES a tuning and one that plays its actual degrees.
  */
 export function semiToNoteInTable(octave, semi, preset) {
-  if (!preset || preset.table.length === 0 || preset.index === 120) {
+  // 12-TET's 4096-TET table IS semiToNote's rounding; its 65536-TET view is
+  // not, so that one goes through the table like any other tuning.
+  if (!preset || preset.table.length === 0 || (preset.index === 120 && !preset.fine)) {
     return semiToNote(octave, semi);
   }
   // An absolute (`interval: 0`) table — e.g. ProTracker pitch — has no period
@@ -597,7 +709,7 @@ export function retuneAllPatterns(song, newPreset, srcPreset, percSlots, method 
         newAbs = bestAbs;
       }
 
-      newAbs = Math.min(Math.max(newAbs, 0), 0xffff) & 0xffff;
+      newAbs = quantiseNote(Math.min(Math.max(newAbs, 0), 0xffff));
       if (newAbs !== note) {
         changes.push({ pat: p, row, prev: note });
         cell.note = newAbs;
@@ -675,7 +787,7 @@ export function transposePatternNotes(song, patIdx, preset, percSlots, fine, coa
       idx = ((idx % table.length) + table.length) % table.length;
       out = ANCHOR_NOTE + k * interval + table[idx];
     }
-    out = Math.min(Math.max(Math.round(out), 0x20), 0xffff);
+    out = Math.min(Math.max(quantiseNote(out), 0x20), 0xffff);
     if (out !== note) {
       changes.push({ pat: patIdx, row, prev: note });
       cell.note = out;

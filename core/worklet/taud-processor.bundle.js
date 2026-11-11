@@ -9069,6 +9069,10 @@ function makeInstPatch(fields) {
 }
 
 /** 's' block channel modes (low nibble of the count/mode byte). */
+/** Byte 14 bit 6: the volume envelopes (the record's and its Ixmp patches')
+ *  are 8-bit, a node's full volume 255 instead of 63 (file format §7.2). */
+const INST_VOLENV8 = 0x40;
+
 const CHAN_MODE_DISCRETE = 0; // XY stereo, 4-track quad — one channel per speaker feed
 const CHAN_MODE_MATRIX = 1;   // M/S stereo, ambisonic B-format — decoded before panning
 
@@ -9713,7 +9717,8 @@ class TaudInst {
     this.sampleLoopStart = 0;
     this.sampleLoopEnd = 0;
     this.loopMode = 0;            // byte 14: bits 0-1 mode, bit 2 sustain, bit 4 percussion,
-                                  //          bit 5 spatial azimuth MSB (#998)
+                                  //          bit 5 spatial azimuth MSB (#998),
+                                  //          bit 6 8-bit volume envelopes (INST_VOLENV8)
     this.volEnvLoop = 0;          // bytes 15-16 (LOOP word)
     this.panEnvLoop = 0;          // bytes 17-18
     this.pfEnvLoop = 0;           // bytes 19-20
@@ -9862,6 +9867,9 @@ class TaudInst {
   }
 
   get sampleLoopSustain() { return (this.loopMode & 0x04) !== 0; }
+  /** Byte 14 bit 6: this instrument's volume envelopes — its own and its Ixmp
+   *  patches' — hold 0…255 rather than 0…63 (file format §7.2). */
+  get volEnv8() { return (this.loopMode & INST_VOLENV8) !== 0; }
   get isPercussion() {
     return this.metaRaw !== null
       ? (this.metaRaw[0] & 0x02) !== 0
@@ -10447,7 +10455,7 @@ class TaudInst {
       case 11: return (this.sampleLoopStart >>> 8) & 0xff;
       case 12: return this.sampleLoopEnd & 0xff;
       case 13: return (this.sampleLoopEnd >>> 8) & 0xff;
-      case 14: return this.loopMode & 0x37;
+      case 14: return this.loopMode & 0x77;
       case 15: return this.volEnvLoop & 0xff;
       case 16: return (this.volEnvLoop >>> 8) & 0xff;
       case 17: return this.panEnvLoop & 0xff;
@@ -10555,7 +10563,7 @@ class TaudInst {
       case 11: this.sampleLoopStart = (this.sampleLoopStart & 0x00ff) | (byte << 8); break;
       case 12: this.sampleLoopEnd = (this.sampleLoopEnd & 0xff00) | byte; break;
       case 13: this.sampleLoopEnd = (this.sampleLoopEnd & 0x00ff) | (byte << 8); break;
-      case 14: this.loopMode = byte & 0x37; break;
+      case 14: this.loopMode = byte & 0x77; break;
       case 15: this.volEnvLoop = (this.volEnvLoop & 0xff00) | byte; break;
       case 16: this.volEnvLoop = (this.volEnvLoop & 0x00ff) | (byte << 8); break;
       case 17: this.panEnvLoop = (this.panEnvLoop & 0xff00) | byte; break;
@@ -10928,6 +10936,9 @@ class Voice {
 
     // Active-envelope view (snapshot by resolveActiveEnvelopes at trigger).
     this.activeVolEnv = makeActiveEnv(0x3f);
+    // A node value's full volume: 63, or 255 for an instrument whose byte 14
+    // bit 6 says its volume envelopes are 8-bit (resolveActiveEnvelopes).
+    this.activeVolEnvMax = 63;
     this.activeVolEnvLoop = 0;
     this.activeVolEnvSustain = 0;
     this.activePanEnv = makeActiveEnv(0x80);
@@ -11353,6 +11364,19 @@ function rowsOf(inst) {
   return inst.type === INST_PATLEN || inst.type === INST_HALTAT ? inst.rows : 64;
 }
 
+/** A wide cell's pitch in 65536-TET: `note` (4096-TET units, sixteenths
+ *  allowed) times 16, rounded and clamped to 20 bits. */
+function wideNotePitch(note) {
+  return Math.min(Math.max(Math.round(note * 16), 0), 0xfffff);
+}
+/** The 16-bit word a wide cell stores at bytes 0–1. */
+function wideNoteWord(note) { return wideNotePitch(note) >>> 4; }
+/** The fine nibble a wide cell stores at byte 13's high nibble (0 under a sentinel). */
+function wideNoteFine(note) {
+  const p = wideNotePitch(note);
+  return (p >>> 4) >= 0x20 ? p & 0xf : 0;
+}
+
 // ── TaudPlayData — one pattern cell (5210-5244) ──
 // Two wire layouts share these fields: the 8-byte cell of format versions 1-2
 // (getByte/setByte) and version 3's 16-byte WIDE cell (getByteWide/setByteWide).
@@ -11362,7 +11386,13 @@ function rowsOf(inst) {
 // untouched, which is what keeps it bit-exact.
 class TaudPlayData {
   constructor() {
-    this.note = 0;       // 0..65535
+    // 0..65535, a note word in 4096-TET units. In a wide cell it may carry a
+    // fraction in sixteenths — byte 13's high nibble, the four bits that make
+    // the wide cell's pitch 65536-TET (file format §5.5) — so `note` is a
+    // number, not a word: every pitch path takes it as it stands, and a
+    // sentinel (< $20) never has one.
+    this.note = 0;
+    this.noteFine = 0;   // wide decode only: byte 13's nibble as it arrived
     this.instrment = 0;  // 0..255 (sic — Kotlin field name kept for diffability)
     this.volume = 0;     // 0..63, or 0..255 in a wide cell
     this.volumeEff = 0;  // 0..3, or 0..7 in a wide cell
@@ -11377,11 +11407,13 @@ class TaudPlayData {
     this.effectArg2 = 0;
   }
 
-  /** Wide-cell byte view — see the file format's §5.5 table. */
+  /** Wide-cell byte view — see the file format's §5.5 table. The three pitch
+   *  bytes (0, 1 and 13's high nibble) are all read off `note`, so code that
+   *  writes `note` needs to know nothing about where the fraction goes. */
   getByteWide(offset) {
     switch (offset) {
-      case 0: return this.note & 0xff;
-      case 1: return (this.note >>> 8) & 0xff;
+      case 0: return wideNoteWord(this.note) & 0xff;
+      case 1: return (wideNoteWord(this.note) >>> 8) & 0xff;
       case 2: return this.instrment & 0xff;
       case 3: return this.volume & 0xff;
       case 4: return this.azimuth & 0xff;
@@ -11394,15 +11426,16 @@ class TaudPlayData {
       case 10: return this.effect2 & 0xff;
       case 11: return this.effectArg2 & 0xff;
       case 12: return (this.effectArg2 >>> 8) & 0xff;
-      case 13: case 14: case 15: return 0; // RESERVED
+      case 13: return wideNoteFine(this.note) << 4; // low nibble RESERVED
+      case 14: case 15: return 0; // RESERVED
       default: throw new Error(`Bad offset ${offset}`);
     }
   }
 
   setByteWide(offset, byte) {
     switch (offset) {
-      case 0: this.note = (this.note & 0xff00) | byte; break;
-      case 1: this.note = (this.note & 0x00ff) | (byte << 8); break;
+      case 0: this._setWideNote((this.note & 0xff00) | byte); break;
+      case 1: this._setWideNote((this.note & 0x00ff) | (byte << 8)); break;
       case 2: this.instrment = byte; break;
       case 3: this.volume = byte & 0xff; break;
       case 4: this.azimuth = (this.azimuth & 0x100) | byte; break;
@@ -11418,15 +11451,25 @@ class TaudPlayData {
       case 10: this.effect2 = byte; break;
       case 11: this.effectArg2 = (this.effectArg2 & 0xff00) | byte; break;
       case 12: this.effectArg2 = (this.effectArg2 & 0x00ff) | (byte << 8); break;
-      case 13: case 14: case 15: break; // RESERVED
+      case 13: this.noteFine = byte >>> 4; this._setWideNote(this.note & 0xffff); break;
+      case 14: case 15: break; // RESERVED
       default: throw new Error(`Bad offset ${offset}`);
     }
   }
 
+  /** The note from its word and the fine nibble last decoded; a sentinel word
+   *  takes no fraction (§5.5: the nibble is RESERVED under one). */
+  _setWideNote(word) {
+    this.note = word >= 0x20 ? word + this.noteFine / 16 : word;
+  }
+
+  // The 8-byte cell has no room for a fraction: a note that carries one (a
+  // pitch computed at 65536-TET and written into a narrow song) rounds to the
+  // nearest word, never truncates.
   getByte(offset) {
     switch (offset) {
-      case 0: return this.note & 0xff;
-      case 1: return (this.note >>> 8) & 0xff;
+      case 0: return Math.round(this.note) & 0xff;
+      case 1: return (Math.round(this.note) >>> 8) & 0xff;
       case 2: return this.instrment & 0xff;
       case 3: return (this.volume | (this.volumeEff << 6)) & 0xff;
       case 4: return (this.pan | (this.panEff << 6)) & 0xff;
@@ -16321,7 +16364,7 @@ function jumpToSustainEnd(voice) {
   if (voice.envIndex >= susEnd) return;
   voice.envIndex = susEnd;
   voice.envTimeSec = 0.0;
-  voice.envVolume = Math.min(Math.max(voice.activeVolEnv[susEnd].value / 63.0, 0.0), 1.0);
+  voice.envVolume = Math.min(Math.max(voice.activeVolEnv[susEnd].value / voice.activeVolEnvMax, 0.0), 1.0);
 }
 
 /**
@@ -16352,6 +16395,8 @@ function advanceEnvelope(voice, tickSec) {
   // gate WRAPPING, not whether the envelope runs (Schism player/sndmix.c:470-
   // 502). An absent envelope never walks, so it can never fire the cut rule.
   const volEnv = voice.activeVolEnv;
+  // 63 or 255: what a node value of full volume is (byte 14 bit 6, §7.2).
+  const vMax = voice.activeVolEnvMax;
   if (voice.hasVolEnv && voice.volEnvOn) {
     resolveEnvWrap(voice.activeVolEnvLoop, voice.activeVolEnvSustain, voice.keyOff, volWrap);
     const wStart = volWrap[0];
@@ -16360,14 +16405,14 @@ function advanceEnvelope(voice, tickSec) {
 
     if (wrapping && voice.envIndex === wEnd && wStart === wEnd) {
       // Hold at the wrap point (FT2 single-point sustain).
-      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / 63.0, 0.0), 1.0);
+      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / vMax, 0.0), 1.0);
     } else if (wrapping && voice.envIndex === wEnd) {
       voice.envTimeSec = 0.0;
       voice.envIndex = wStart;
-      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / 63.0, 0.0), 1.0);
+      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / vMax, 0.0), 1.0);
     } else if (voice.envIndex >= maxIdx) {
       const vEnd = volEnv[maxIdx].value;
-      voice.envVolume = Math.min(Math.max(vEnd / 63.0, 0.0), 1.0);
+      voice.envVolume = Math.min(Math.max(vEnd / vMax, 0.0), 1.0);
       // Schism's "envelope-end + last-value-0 ⇒ cut" rule — fall-through only.
       if (vEnd === 0 && !wrapping) startRampOut(voice);
     } else {
@@ -16375,7 +16420,7 @@ function advanceEnvelope(voice, tickSec) {
       const vCurValue = volEnv[voice.envIndex].value;
       if (vOffset === 0.0) {
         // Reached a terminator point — envelope holds here (IT semantics).
-        voice.envVolume = Math.min(Math.max(vCurValue / 63.0, 0.0), 1.0);
+        voice.envVolume = Math.min(Math.max(vCurValue / vMax, 0.0), 1.0);
         if (vCurValue === 0 && !wrapping) startRampOut(voice);
       } else {
         voice.envTimeSec += tickSec;
@@ -16385,11 +16430,11 @@ function advanceEnvelope(voice, tickSec) {
             ? wStart
             : Math.min(voice.envIndex + 1, maxIdx);
           voice.envIndex = nextIdx;
-          voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / 63.0, 0.0), 1.0);
+          voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / vMax, 0.0), 1.0);
         } else {
-          const cur = Math.min(Math.max(vCurValue / 63.0, 0.0), 1.0);
+          const cur = Math.min(Math.max(vCurValue / vMax, 0.0), 1.0);
           const nxt = Math.min(
-            Math.max(volEnv[Math.min(voice.envIndex + 1, maxIdx)].value / 63.0, 0.0), 1.0);
+            Math.max(volEnv[Math.min(voice.envIndex + 1, maxIdx)].value / vMax, 0.0), 1.0);
           voice.envVolume = cur + (nxt - cur) * (voice.envTimeSec / vOffset);
         }
       }
@@ -16659,6 +16704,9 @@ function resolveActiveEnvelopes(voice, inst, patch) {
     voice.activeVolEnvLoop = inst.volEnvLoop;
     voice.activeVolEnvSustain = inst.volEnvSustainWord;
   }
+  // An Ixmp patch's volume envelope is in its instrument's units: byte 14's
+  // bit 6 says whether a node's full volume is 63 or 255 (file format §7.2).
+  voice.activeVolEnvMax = inst.volEnv8 ? 255 : 63;
   // The volume envelope answers to its P bit like every other envelope (spec
   // §7.2): a record that says "absent" plays at unity whatever its nodes hold.
   // Resolved here, beside the envelope it describes, so the two never disagree.
@@ -17206,7 +17254,7 @@ function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricPatch = 
   if (!(mayCarry && envCarry(voice.activeVolEnvLoop))) {
     voice.envIndex = 0;
     voice.envTimeSec = 0.0;
-    voice.envVolume = clamp(voice.activeVolEnv[0].value / 63.0, 0.0, 1.0);
+    voice.envVolume = clamp(voice.activeVolEnv[0].value / voice.activeVolEnvMax, 0.0, 1.0);
     // Snap the per-sample-smoothed envelope so attacks land at node-0 immediately.
     voice.envVolMix = voice.envVolume;
     voice.envVolStep = 0.0;
@@ -17825,6 +17873,7 @@ function ghostVoice(src, channel) {
   v.activeVolEnv = src.activeVolEnv;
   v.activeVolEnvLoop = src.activeVolEnvLoop;
   v.activeVolEnvSustain = src.activeVolEnvSustain;
+  v.activeVolEnvMax = src.activeVolEnvMax;
   v.activePanEnv = src.activePanEnv;
   v.activePanEnvLoop = src.activePanEnvLoop;
   v.activePanEnvSustain = src.activePanEnvSustain;
@@ -19177,7 +19226,7 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   if (!(mayCarry && envCarry(voice.activeVolEnvLoop))) {
     voice.envIndex = 0;
     voice.envTimeSec = 0.0;
-    voice.envVolume = clamp(voice.activeVolEnv[0].value / 63.0, 0.0, 1.0);
+    voice.envVolume = clamp(voice.activeVolEnv[0].value / voice.activeVolEnvMax, 0.0, 1.0);
   }
   // envVolMix is deliberately NOT snapped here (item 142). This re-attack does
   // not restart the sample and arms no attack ramp, so snapping the smoothed

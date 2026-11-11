@@ -81,33 +81,23 @@ export class ProjectView {
   }
 
   /**
-   * The surround model is an ordinary song scalar — except the first time a
-   * project declares one, because that is also what upgrades the file to format
-   * version 3 (the wide cell, §5.5). That upgrade cannot be undone in the FILE,
-   * so it is explained first and lands in a COPY: the original stays on disk
-   * exactly as it was, readable by anything that reads version 2.
+   * The song's panning model (stereo, planar, spatial). Every project the
+   * editor holds is format 3 — it widens whatever it opens — so this only says
+   * how the panning column and the spatial effects read. A narrow document
+   * (nothing makes one now) widens with it, as one undo step.
    */
   async setSurroundModel(value) {
     const doc = this.store.doc;
-    if (value === 0 || !doc || doc.wideCells) {
+    if (!doc) return;
+    if (doc.wideCells) {
       this.op("surroundModel", value);
       return;
     }
-    const base = (this.store.fileName ?? "untitled.taud").replace(/\.taud$/, "");
-    const copyName = `${base}-surround.taud`;
-    const ok = await showModal({
-      title: t("proj.upgradeTitle"),
-      body: t("proj.upgradeBody", { name: copyName }),
-      okLabel: t("proj.upgradeOk"),
-    });
-    if (!ok) { this.refresh(); return; } // put the selector back
-    // One op, so one Ctrl+Z takes the project back to where it was — the
-    // widening and the flag are one action.
     this.store.undo.apply(upgradeCellFormatOp(this.store.songIndex, value));
     this.store.emit("format");
-    await this.cb?.saveCopyAs?.(copyName);
     this.refresh();
   }
+
 
   /**
    * 32 or 64 lanes — a whole-project property, so it changes every song at
@@ -376,10 +366,8 @@ export class ProjectView {
     surroundHint.className = "dim";
     surroundHint.style.margin = "0.1rem 0 0.4rem";
     surroundHint.style.fontSize = "0.8rem";
-    surroundHint.textContent = doc.wideCells
-      ? `${t("proj.surroundHint")} ${t("proj.surroundHintV3")}`
-      : t("proj.surroundHint");
-    if ((song.surroundModel ?? 0) === 0 && !doc.wideCells) surroundHint.hidden = true;
+    surroundHint.textContent = t("proj.surroundHint");
+    if ((song.surroundModel ?? 0) === 0) surroundHint.hidden = true;
     this.root.appendChild(surroundHint);
 
     this.root.appendChild(this.buildMessage());

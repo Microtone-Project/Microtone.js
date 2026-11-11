@@ -20,6 +20,8 @@ import {
   patchChannelPtrs, patchIsStereo, makeInstPatch, writePatchesBlob, CHAN_MODE_DISCRETE,
 } from "../../core/engine/inst.js";
 import { sampleSpans } from "./document.js";
+import { buildIxmpSection } from "./ixmpsection.js";
+import { widenInstrumentVolEnv, volEnvFrom63, volEnvMaxOf } from "./volenv.js";
 import { buildImixSection, freeImixId } from "../../core/format/imix-section.js";
 import {
   regionSpans, buildRegionPayload, MAX_REGION_CHANNELS,
@@ -75,21 +77,7 @@ function sectionPayload(doc, fc) {
   return doc.projSections.find((s) => s.fourcc === fc)?.payload ?? null;
 }
 
-/** Ixmp section payload from decoded entries (inverse of parseIxmpSection). */
-export function buildIxmpSection(entries) {
-  const total = entries.reduce((n, e) => n + 4 + e.blob.length, 0);
-  const out = new Uint8Array(total);
-  let o = 0;
-  for (const e of entries) {
-    out[o] = e.instId & 0xff;
-    out[o + 1] = e.count & 0xff;
-    out[o + 2] = (e.count >>> 8) & 0xff;
-    out[o + 3] = (e.instId >>> 8) & 0x03;
-    out.set(e.blob, o + 4);
-    o += 4 + e.blob.length;
-  }
-  return out;
-}
+export { buildIxmpSection };
 
 /** Slots a metainstrument names as sources — its layer table, or a formant
  *  instrument's OPL source (used slots only). */
@@ -1546,13 +1534,16 @@ export function planEasyFm(destDoc, metaSlot, model, name = "") {
 export function recordWithVolEnvelope(rec, env, fadeout = null) {
   const inst = new TaudInst(0);
   for (let i = 0; i < 256; i++) inst.setByte(i, rec[i]);
+  // The points are on the 0…63 scale; the nodes are in the record's own units
+  // (byte 14 bit 6 — an instrument already in the project is 8-bit).
+  const max = volEnvMaxOf(rec[14]);
   if (env) {
     const pts = env.points.slice(0, 25);
     for (let k = 0; k < 25; k++) {
       const i = Math.min(k, pts.length - 1);
       const dt = k + 1 < pts.length ? pts[k + 1][0] - pts[k][0] : 0;
       inst.volEnvelopes[k] = {
-        value: Math.max(0, Math.min(63, Math.round(pts[i][1]))),
+        value: volEnvFrom63(pts[i][1], max),
         offset: k < pts.length - 1 && dt > 0 ? Math.max(1, minifloatFromDouble(Math.min(15.75, dt))) : 0,
       };
     }
@@ -1732,7 +1723,8 @@ export function planEasyConvert(destDoc, metaSlot) {
   // The new principal: a constant carrying everything shared.
   const principal = easyConstRecord(dc.ptr);
   const copy = (from, to) => { for (let b = from; b <= to; b++) principal[b] = old[b]; };
-  principal[14] = (principal[14] & 0x0f) | (old[14] & 0x30); // percussion, azimuth
+  // percussion, azimuth, and the volume envelope's units (bit 6: its nodes are copied below)
+  principal[14] = (principal[14] & 0x0f) | (old[14] & 0x70);
   copy(15, 18);   // volume and pan LOOP words
   copy(21, 120);  // volume and pan nodes
   copy(171, 174); // global volume, fadeout + filter mode, volume swing
@@ -2158,15 +2150,21 @@ export function applyPlan(doc, plan) {
   for (const s of plan.samples) doc.sampleBin.set(s.bytes, s.ptr);
   for (const it of plan.insts) {
     const inst = doc.instruments[it.destSlot];
-    inst.loadRecord(it.record);
+    // A format-3 project's instruments have 8-bit volume envelopes (§7.2): one
+    // arriving from a bank, a converter or a planner that wrote 0…63 is
+    // converted on the way in. The plan itself is left as it was, so a redo
+    // converts the same bytes again.
+    const { record, blob } = doc.wideCells
+      ? widenInstrumentVolEnv(it.record, it.ixmpBlob) : { record: it.record, blob: it.ixmpBlob };
+    inst.loadRecord(record);
     // Mirror the instruments-getter decode: the live TaudInst carries the
     // patches (census, zones view, jam) — loadRecord alone leaves them stale.
-    const patches = it.ixmpBlob !== null ? parsePatchesBlob(it.ixmpBlob) : [];
+    const patches = blob !== null ? parsePatchesBlob(blob) : [];
     inst.extraPatches = patches.length > 0 ? patches : null;
     doc.markInstUsed(it.destSlot);
     doc.ixmp = doc.ixmp.filter((e) => (e.instId & 0x3ff) !== it.destSlot);
-    if (it.ixmpBlob !== null) {
-      doc.ixmp.push({ instId: it.destSlot, count: it.ixmpCount, blob: it.ixmpBlob });
+    if (blob !== null) {
+      doc.ixmp.push({ instId: it.destSlot, count: it.ixmpCount, blob });
     }
   }
   if (plan.insts.some((it) => it.ixmpBlob !== null) || sectionPayload(doc, "Ixmp") !== null) {

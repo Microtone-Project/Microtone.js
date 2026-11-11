@@ -9,14 +9,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { interpret, evaluate, captureCall } from "../../src/motif/build.js";
+import { interpret, evaluate, captureCall, buildProject } from "../../src/motif/build.js";
 import { compileScore } from "../../src/motif/compile.js";
 import { keyedRandom } from "../../src/motif/stdlib.js";
 import { analyze, planRename } from "../../src/motif/analysis.js";
 import { MotifError } from "../../src/motif/lexer.js";
+import { widenPattern } from "../../src/doc/upgrade.js";
+import { TaudPlayData } from "../../core/engine/state.js";
+import { pitchTablePresets, legacyToFine } from "../../core/tuning/pitchtables.js";
 
+// The expectations below are written in format 2's units (volumes 0–63), so
+// the song says so: TML 2's own default is format 3 (its test is below).
 const HEAD = (song = "bars: 2, bar_rows: 16") => `tml 2
-song { ${song}, tuning: "12-TET" }
+song { ${song}, tuning: "12-TET", format: 2 }
 instrument P { bank: 0, program: 0 }
 instrument Q { bank: 0, program: 1 }
 lane a { inst: P }
@@ -279,15 +284,43 @@ print(sort(shuffle([1, 2, 3, 4, 5], "deal")), choose_weighted(["a", "b"], [0, 1]
   assert.match(err(HEAD() + "print(random(1.5))").message, /whole number/);
 });
 
-test("Huygens' Clock in TML 2 is the song TML 1 wrote, cell for cell", () => {
+test("Huygens' Clock in TML 2 is the song TML 1 wrote, widened as the editor widens it", () => {
+  // The TML 1 original writes format 2 (volumes 0…63, 4096-TET); the demo is
+  // format 3, its volumes rewritten in 0…255. So the pin goes through the
+  // editor's own widening (doc/upgrade.js widenPattern, legacyToFine): the
+  // same cues, the same notes on the same degrees, every field but the volume
+  // the same, and the volume within the rounding its lane trim and jitter
+  // make of the larger units (measured: ±3 of 255).
   const v1 = evaluate(readFileSync(new URL("../fixtures/huygens-clock-tml1.tml", import.meta.url), "utf8"));
   const v2 = evaluate(readFileSync(new URL("../../assets/demo_projects/Huygens_clock.tml", import.meta.url), "utf8"));
   assert.match(readFileSync(new URL("../../assets/demo_projects/Huygens_clock.tml", import.meta.url), "utf8"), /^tml 2\n/);
-  assert.deepEqual(song(v2), song(v1));
+  assert.equal(v1.song.format, 2);
+  assert.equal(v2.song.format, 3);
   const a = compileScore(v1), b = compileScore(v2);
-  assert.deepEqual(b.names, a.names);
-  assert.deepEqual(b.patterns.map((p) => Array.from(p)), a.patterns.map((p) => Array.from(p)));
   assert.deepEqual(b.cues.map((c) => Array.from(c)), a.cues.map((c) => Array.from(c)));
+  assert.equal(b.patterns.length, a.patterns.length);
+  const preset = pitchTablePresets[310]; // 31-TET, at 4096-TET: the TML 1 song's
+  const cellsOf = (bytes, wide) => {
+    const size = wide ? 16 : 8;
+    return Array.from({ length: 64 }, (_, r) => {
+      const c = new TaudPlayData();
+      for (let k = 0; k < size; k++) {
+        if (wide) c.setByteWide(k, bytes[r * size + k]); else c.setByte(k, bytes[r * size + k]);
+      }
+      return c;
+    });
+  };
+  const same = ["instrment", "volumeEff", "panEff", "pan", "effect", "effectArg", "effect2", "effectArg2", "azimuth", "elevation"];
+  let worst = 0;
+  a.patterns.forEach((pa, i) => {
+    const x = cellsOf(widenPattern(pa), true), y = cellsOf(b.patterns[i], true);
+    for (let r = 0; r < 64; r++) {
+      assert.equal(y[r].note, legacyToFine(x[r].note, preset), `pattern ${i} row ${r}: note`);
+      for (const k of same) assert.equal(y[r][k], x[r][k], `pattern ${i} row ${r}: ${k}`);
+      worst = Math.max(worst, Math.abs(y[r].volume - x[r].volume));
+    }
+  });
+  assert.ok(worst <= 3, `volumes within ±3 of the widened TML 1 song (worst ${worst})`);
   assert.equal(v2.song.message, v1.song.message);
 });
 
@@ -344,4 +377,50 @@ song { bars: 1 }
   assert.ok(r.source.includes("fn top() => floor_note + 2") && r.source.includes("let floor_note ="));
   // a new name that a block already defines (anywhere in it) is a clash
   assert.equal(planRename(src, src.indexOf("base"), "top").error, "conflict");
+});
+
+test("a TML 2 song is format 3 unless it says otherwise, its pitches 65536-TET", () => {
+  const src = (fmt) => `tml 2
+song { bars: 1, bar_rows: 16, tuning: "31-TET"${fmt} }
+instrument P { bank: 0, program: 0 }
+lane a { inst: P }
+hit(a, 0, 'C#4', 40)
+`;
+  const wide = interpret(src(""));
+  assert.equal(wide.song.format, 3);
+  const narrow = interpret(src(", format: 2"));
+  assert.equal(narrow.song.format, 2);
+  // 31-TET's degree 2 (C#) is 264.258 units: a sixteenth-exact pitch in format
+  // 3, the whole word it has always been in format 2.
+  const note = (score) => [...score.lanes[0].ev.values()][0].note;
+  assert.equal(note(wide), 0x5000 + Math.round((2 * 65536) / 31) / 16);
+  assert.equal(note(narrow), 0x5000 + Math.round((2 * 4096) / 31));
+  // …and a TML 1 song keeps format 2.
+  assert.equal(interpret(`tml 1
+song { bars: 1, bar_rows: 16 }`).song.format, 2);
+});
+
+test("a format-3 song's envelopes and layer volumes are 0…255, as the editor's are", async () => {
+  const src = `tml 2
+song { bars: 1, bar_rows: 16, tuning: "12-TET" }
+instrument SINE  { wave: "sine", envelope: [[0, 255], [0.3, 160], [2, 0]], sustain: 1 }
+instrument SQ    { wave: "square", length: 64 }
+instrument STACK { layers: [{ inst: SINE }, { inst: SQ, gain: -12, vols: 64..191 }] }
+lane a { inst: STACK }
+hit(a, 0, 'C4', 200)
+hit(a, 4, 'C#4', 200)
+`;
+  const { doc, score } = await buildProject(src, {});
+  // a 12-TET C# lies between two 4096-TET words: the wide cell keeps its sixteenths
+  const sharp = doc.songs[0].patterns.flatMap((p) => p ?? []).find((c) => c.note > 0x5000 && c.note < 0x5400);
+  assert.ok(sharp && sharp.note % 1 !== 0, `C#4 keeps its fraction (${sharp?.note})`);
+  assert.equal(score.song.format, 3, "TML 2 builds format 3");
+  const slot = (id) => score.instruments.find((i) => i.id === id).slot;
+  const sine = doc.instruments[slot("SINE")];
+  assert.equal(sine.volEnv8, true, "the envelope is 8-bit (byte 14 bit 6)");
+  assert.deepEqual(sine.volEnvelopes.slice(0, 3).map((n) => n.value), [255, 160, 0], "written as the program says");
+  const layer = doc.instruments[slot("STACK")].metaLayers[1];
+  assert.deepEqual([layer.volStart, layer.volEnd], [16, 47], "64..191 is the steps those volumes fall in");
+  assert.throws(() => interpret(src.replace("[0, 255]", "[0, 256]")), /0…255/);
+  assert.throws(() => interpret(src.replace("vols: 64..191", "vols: 64..300")), /0…255/);
 });

@@ -16,6 +16,7 @@
 // cell has no second effect to show.
 
 import { EffectOp } from "../../core/engine/tables.js";
+import { wideNotePitch } from "../../core/engine/state.js";
 import { stepNoteInTable, semiToNote, semiToNoteInTable } from "../../core/tuning/pitchtables.js";
 import {
   DEFAULT_KEYMAP, keymapHas, keymapNote, keymapClaimsZRow,
@@ -31,34 +32,89 @@ export const SUB_FX_ARG = 5;
 export const SUB_FX2_OP = 6;
 export const SUB_FX2_ARG = 7;
 export const NUM_SUBS = 8;
-// vol/pan: [symbol][argument hi][argument lo]
-export const SUB_NIBBLES = [1, 2, 3, 3, 1, 4];
-// Format version 3's WIDE cell (file format §5.5) spends the extra room on the
-// panning column: [symbol][elevation hi][elevation lo][azimuth ×3]. The volume
-// column keeps its three positions — its value simply became a whole byte.
-export const SUB_NIBBLES_WIDE = [1, 2, 3, 6, 1, 4];
-// …and with the second effect exposed, one more opcode + 4-nibble argument.
-export const SUB_NIBBLES_WIDE_FX2 = [1, 2, 3, 6, 1, 4, 1, 4];
+// ── the cell's geometry ──────────────────────────────────────────────────
+// "♯C-4 01 v3F p20 A0F00": note glyphs 0-3, inst 5-6, vol 8-10, pan 12-14,
+// fx 16-20 → 21 characters: the 8-byte cell of format versions 1–2.
+//
+// Format 3's wide cell (file format §5.5) — every project the editor holds —
+// changes three things:
+//   · the note column opens with a PITCH PREFIX three quarters of a character
+//     wide, which holds the octave digit of the 65536-TET pitch when the column
+//     shows raw hex ($50000 = octave 5, then 0000) and nothing otherwise;
+//   · the panning column is as wide as the song's surround model needs —
+//     stereo [symbol][FF], planar [symbol][1FF] (a nine-bit azimuth), spatial
+//     [symbol][elevation FF][azimuth 1FF];
+//   · exposing the second effect appends a sixth group after a space.
+// Everything after the note column moves with the prefix and the panning
+// width, so every offset below is read off cellGeom() and nothing else.
 
-/** Sub-column widths for the cell format + column set in play. */
-export function subNibbles(wide, fx2 = false) {
-  if (!wide) return SUB_NIBBLES;
-  return fx2 ? SUB_NIBBLES_WIDE_FX2 : SUB_NIBBLES_WIDE;
+/** Panning-column characters in a wide cell, per surround model. */
+export const PAN_CHARS_WIDE = Object.freeze([3, 4, 6]);
+/** The wide cell's pitch prefix, in characters. */
+export const NOTE_PREFIX_CHARS = 0.75;
+/** The model a caller that does not say gets: the widest panning column. */
+const MODEL_DEFAULT = 2;
+
+const geomCache = new Map();
+
+/**
+ * The cell geometry for a format, column set and surround model, in
+ * characters: `{wide, fx2, surround, prefix, panChars, noteChars, inst, vol,
+ * pan, fx, fx2At, chars}` — every column's ORIGIN, the note column's whole
+ * width (prefix + four glyph cells) and the cell's. Frozen and shared.
+ */
+export function cellGeom(wide, fx2 = false, surround = MODEL_DEFAULT) {
+  const w = wide === true;
+  const f = w && fx2 === true;
+  const m = w ? (PAN_CHARS_WIDE[surround] !== undefined ? surround : MODEL_DEFAULT) : 0;
+  const key = (w ? 1 : 0) | (f ? 2 : 0) | (m << 2);
+  let g = geomCache.get(key);
+  if (g) return g;
+  const prefix = w ? NOTE_PREFIX_CHARS : 0;
+  const panChars = w ? PAN_CHARS_WIDE[m] : 3;
+  const inst = prefix + 5, vol = prefix + 8, pan = prefix + 12;
+  const fx = pan + panChars + 1;
+  const fx2At = fx + 6;
+  g = Object.freeze({
+    wide: w, fx2: f, surround: m, prefix, panChars, noteChars: prefix + 4,
+    inst, vol, pan, fx, fx2At, chars: f ? fx2At + 5 : fx + 5,
+  });
+  geomCache.set(key, g);
+  return g;
 }
 
-// ── shared cell layout (Timeline + Pattern views) ──
-// "♯C-4 01 v3F p20 A0F00": note glyphs 0-3, inst 5-6, vol 8-10, pan 12-14,
-// fx 16-20 → 21 chars per cell. The wide cell inserts three more characters in
-// the panning column: "♯C-4 01 vFF p40 180 A0F00" → 24, and exposing the second
-// effect appends a sixth group after a separating space: "… A0F00 M8000" → 30.
-export const CELL_CHARS = 21;
-export const CELL_CHARS_WIDE = 24;
-export const CELL_CHARS_WIDE_FX2 = 30;
+/** Sub-column widths (cursor positions per column) for the cell in play. */
+export function subNibbles(wide, fx2 = false, surround = MODEL_DEFAULT) {
+  const g = cellGeom(wide, fx2, surround);
+  return g.fx2 ? [1, 2, 3, g.panChars, 1, 4, 1, 4] : [1, 2, 3, g.panChars, 1, 4];
+}
+// The 8-byte cell's, and the wide spatial cell's (the widest), for callers
+// that name a layout outright.
+export const SUB_NIBBLES = subNibbles(false);
+export const SUB_NIBBLES_WIDE = subNibbles(true);
+export const SUB_NIBBLES_WIDE_FX2 = subNibbles(true, true);
 
-/** Characters per cell for the format + column set in play. */
-export function cellChars(wide, fx2 = false) {
-  if (!wide) return CELL_CHARS;
-  return fx2 ? CELL_CHARS_WIDE_FX2 : CELL_CHARS_WIDE;
+/** Characters per cell for the format, column set and surround model in play.
+ *  A wide cell's is not a whole number: the pitch prefix is ¾ of one. */
+export function cellChars(wide, fx2 = false, surround = MODEL_DEFAULT) {
+  return cellGeom(wide, fx2, surround).chars;
+}
+export const CELL_CHARS = cellChars(false);
+export const CELL_CHARS_WIDE = cellChars(true);
+export const CELL_CHARS_WIDE_FX2 = cellChars(true, true);
+
+/**
+ * Where typing in a wide cell's panning column lands, as the SPATIAL column's
+ * nibble: [symbol][elevation hi, lo][azimuth A, hi, lo] = 0, 1–2, 3–5. A
+ * planar column has no elevation (its 1–3 are 3–5), a stereo one shows the
+ * azimuth's low byte alone (its 1–2 are 4–5). The editing rules below are all
+ * written against the spatial nibbles.
+ */
+export function spatialPanNib(nib, surround = MODEL_DEFAULT) {
+  if (nib === 0) return 0;
+  if (surround === 0) return nib + 3;
+  if (surround === 1) return nib + 2;
+  return nib;
 }
 
 /**
@@ -94,15 +150,18 @@ function buildPositions(nibbles) {
   }
   return out;
 }
-export const SUB_POSITIONS = buildPositions(SUB_NIBBLES);
-export const SUB_POSITIONS_WIDE = buildPositions(SUB_NIBBLES_WIDE);
-export const SUB_POSITIONS_WIDE_FX2 = buildPositions(SUB_NIBBLES_WIDE_FX2);
+const posCache = new Map();
 
-/** Walk order for the format + column set in play. */
-export function subPositions(wide, fx2 = false) {
-  if (!wide) return SUB_POSITIONS;
-  return fx2 ? SUB_POSITIONS_WIDE_FX2 : SUB_POSITIONS_WIDE;
+/** Walk order for the format, column set and surround model in play. */
+export function subPositions(wide, fx2 = false, surround = MODEL_DEFAULT) {
+  const g = cellGeom(wide, fx2, surround);
+  let p = posCache.get(g);
+  if (!p) { p = buildPositions(subNibbles(wide, fx2, surround)); posCache.set(g, p); }
+  return p;
 }
+export const SUB_POSITIONS = subPositions(false);
+export const SUB_POSITIONS_WIDE = subPositions(true);
+export const SUB_POSITIONS_WIDE_FX2 = subPositions(true, true);
 
 /** The LAST sub-column of a cell — what a "whole cell" selection reaches to.
  *  A hidden second effect is outside the selection, and stays untouched by the
@@ -139,22 +198,19 @@ export function subIsEmpty(sub, cell) {
   }
 }
 
-// The second effect's character group sits after the first one's, separated by
-// the same single space every other group is: fx1 is 19…23 in a wide cell, so
-// fx2 is 25…29.
-const FX2_OP_CHAR = 25;
-
-/** Character offset + width of a sub-position inside the cell. */
-export function subCharPos(sub, nib, wide = false) {
+/** Character offset + width of a sub-position inside the cell. The note
+ *  column's caret covers the prefix and the four glyph cells alike. */
+export function subCharPos(sub, nib, wide = false, surround = MODEL_DEFAULT) {
+  const g = cellGeom(wide, true, surround);
   switch (sub) {
-    case SUB_NOTE: return [0, 4];         // 4 glyph slots
-    case SUB_INST: return [5 + nib, 1];
-    case SUB_VOL: return [8 + nib, 1];    // char 8 is the symbol cell
-    case SUB_PAN: return [12 + nib, 1];   // char 12 is the symbol cell
-    case SUB_FX_OP: return [(wide ? 19 : 16), 1];
-    case SUB_FX_ARG: return [(wide ? 20 : 17) + nib, 1];
-    case SUB_FX2_OP: return [FX2_OP_CHAR, 1];
-    case SUB_FX2_ARG: return [FX2_OP_CHAR + 1 + nib, 1];
+    case SUB_NOTE: return [0, g.noteChars];
+    case SUB_INST: return [g.inst + nib, 1];
+    case SUB_VOL: return [g.vol + nib, 1];    // the column's first char is the symbol cell
+    case SUB_PAN: return [g.pan + nib, 1];
+    case SUB_FX_OP: return [g.fx, 1];
+    case SUB_FX_ARG: return [g.fx + 1 + nib, 1];
+    case SUB_FX2_OP: return [g.fx2At, 1];
+    case SUB_FX2_ARG: return [g.fx2At + 1 + nib, 1];
     default: return [0, 1];
   }
 }
@@ -176,7 +232,7 @@ export const COL_BYTES = [[0, 1], [2], [3], [4], [5, 6, 7], []];
 export function colByteMasks(wide) {
   if (!wide) return COL_BYTES.map((bs) => bs.map((b) => [b, 0xff]));
   return [
-    [[0, 0xff], [1, 0xff]],                       // note
+    [[0, 0xff], [1, 0xff], [13, 0xf0]],           // note: the word + its 65536-TET nibble
     [[2, 0xff]],                                  // instrument
     [[3, 0xff], [8, 0x70]],                       // volume value + its selector
     [[4, 0xff], [9, 0xff], [8, 0x8f]],            // azimuth low + elevation + A/selector
@@ -184,20 +240,19 @@ export function colByteMasks(wide) {
     [[10, 0xff], [11, 0xff], [12, 0xff]],         // effect 2 (§5.5)
   ];
 }
-/** Inclusive [startChar, endChar] span of each column within the cell (for the
- *  selection highlight); contiguous, covering all CELL_CHARS. The last entry is
+/** [startChar, endChar] span of each column within the cell (for the
+ *  selection highlight); contiguous, covering the whole cell. The last entry is
  *  degenerate wherever the second effect has no characters of its own, so
  *  `range[colHi][1]` is safe to read whatever the layout. */
-export const COL_CHAR_RANGE = [[0, 5], [5, 8], [8, 12], [12, 16], [16, 21], [21, 21]];
-export const COL_CHAR_RANGE_WIDE = [[0, 5], [5, 8], [8, 12], [12, 19], [19, 24], [24, 24]];
-export const COL_CHAR_RANGE_WIDE_FX2 =
-  [[0, 5], [5, 8], [8, 12], [12, 19], [19, 24], [24, 30]];
-
-/** Column spans for the format + column set in play. */
-export function colCharRange(wide, fx2 = false) {
-  if (!wide) return COL_CHAR_RANGE;
-  return fx2 ? COL_CHAR_RANGE_WIDE_FX2 : COL_CHAR_RANGE_WIDE;
+export function colCharRange(wide, fx2 = false, surround = MODEL_DEFAULT) {
+  const g = cellGeom(wide, fx2, surround);
+  const fxEnd = g.fx + 5;
+  return [[0, g.inst], [g.inst, g.vol], [g.vol, g.pan], [g.pan, g.fx], [g.fx, fxEnd],
+    [fxEnd, g.fx2 ? g.chars : fxEnd]];
 }
+export const COL_CHAR_RANGE = colCharRange(false);
+export const COL_CHAR_RANGE_WIDE = colCharRange(true);
+export const COL_CHAR_RANGE_WIDE_FX2 = colCharRange(true, true);
 
 /** Logical column of a sub-cursor position (each effect's op and arg collapse
  *  onto that effect's column). */
@@ -215,23 +270,20 @@ export function colsForSubs(subA, subB) {
 }
 
 /** Map a character offset within a cell to [sub, nib]. */
-export function charToSub(charX, wide = false, fx2 = false) {
+export function charToSub(charX, wide = false, fx2 = false, surround = MODEL_DEFAULT) {
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-  const fxOp = wide ? 19 : 16;
-  const panWidth = wide ? 6 : 3;
-  if (wide && fx2) {
+  const g = cellGeom(wide, fx2, surround);
+  if (g.fx2) {
     // The space between the two effect groups belongs to the first one, so a
     // click that lands just past effect 1's last digit stays on it.
-    if (charX >= FX2_OP_CHAR + 1) {
-      return [SUB_FX2_ARG, clamp(Math.floor(charX - FX2_OP_CHAR - 1), 0, 3)];
-    }
-    if (charX >= FX2_OP_CHAR) return [SUB_FX2_OP, 0];
+    if (charX >= g.fx2At + 1) return [SUB_FX2_ARG, clamp(Math.floor(charX - g.fx2At - 1), 0, 3)];
+    if (charX >= g.fx2At) return [SUB_FX2_OP, 0];
   }
-  if (charX >= fxOp + 1) return [SUB_FX_ARG, clamp(Math.floor(charX - fxOp - 1), 0, 3)];
-  if (charX >= fxOp) return [SUB_FX_OP, 0];
-  if (charX >= 12) return [SUB_PAN, clamp(Math.floor(charX - 12), 0, panWidth - 1)];
-  if (charX >= 8) return [SUB_VOL, clamp(Math.floor(charX - 8), 0, 2)];
-  if (charX >= 5) return [SUB_INST, clamp(Math.floor(charX - 5), 0, 1)];
+  if (charX >= g.fx + 1) return [SUB_FX_ARG, clamp(Math.floor(charX - g.fx - 1), 0, 3)];
+  if (charX >= g.fx) return [SUB_FX_OP, 0];
+  if (charX >= g.pan) return [SUB_PAN, clamp(Math.floor(charX - g.pan), 0, g.panChars - 1)];
+  if (charX >= g.vol) return [SUB_VOL, clamp(Math.floor(charX - g.vol), 0, 2)];
+  if (charX >= g.inst) return [SUB_INST, clamp(Math.floor(charX - g.inst), 0, 1)];
   return [SUB_NOTE, 0];
 }
 
@@ -363,9 +415,9 @@ export function volPanDigit(isPan, cell, nib, d, wide = false) {
 /** Wheel/step the column by `dir`: the signed delta for a fine slide (it never
  *  steps through zero — that direction is the symbol cell's business), the
  *  plain value otherwise. Null when nothing moves. */
-export function volPanStep(isPan, cell, dir, wide = false) {
+export function volPanStep(isPan, cell, dir, wide = false, surround = 2) {
   const st = volPanState(isPan, cell, wide);
-  const sp = colSpec(isPan, wide);
+  const sp = stereoSpec(colSpec(isPan, wide), isPan && wide && surround === 0);
   if (st.sel === SEL_FINE) {
     const signed = fineSigned(st.value, st.sel, isPan, wide) + dir;
     if (signed === 0 || Math.abs(signed) > sp.mag) return null;
@@ -373,6 +425,19 @@ export function volPanStep(isPan, cell, dir, wide = false) {
   }
   const value = Math.min(Math.max(st.value + dir, 0), sp.max);
   return value === st.value ? null : vpFields(isPan, value, st.sel, wide);
+}
+
+/** A stereo panning column's value stops at FF, the most it shows. */
+function stereoSpec(sp, stereo) {
+  return stereo ? { ...sp, max: 0xff } : sp;
+}
+
+/** A stereo song's panning column shows the azimuth's low byte alone, 00 (left)
+ *  … FF: a digit typed there writes that byte and leaves the ninth bit clear,
+ *  so the column never holds a position it cannot show. */
+function stereoAzimuth(fields, stereo) {
+  if (stereo && fields?.azimuth !== undefined && fields.panEff !== 3) fields.azimuth &= 0xff;
+  return fields;
 }
 
 // ── the wide cell's elevation field (§5.5) ───────────────────────────────
@@ -466,10 +531,10 @@ export const NUDGE_COARSE = 16;
  * business — and at the field's magnitude at the other end. Everything else
  * steps the plain value, clamped. Null when nothing moves.
  */
-function volPanNudge(isPan, cell, delta, wide) {
+function volPanNudge(isPan, cell, delta, wide, surround = 2) {
   const st = volPanState(isPan, cell, wide);
   if (st.empty) return null;
-  const sp = colSpec(isPan, wide);
+  const sp = stereoSpec(colSpec(isPan, wide), isPan && wide && surround === 0);
   if (st.sel === SEL_FINE) {
     const signed = fineSigned(st.value, st.sel, isPan, wide);
     const sign = Math.sign(signed);
@@ -521,7 +586,7 @@ export function nudgeColumn(col, cell, dir, coarse, ctx = {}) {
       if (wide && ctx.elevation) {
         return subIsEmpty(SUB_PAN, cell) ? null : elevationStep(cell, amount);
       }
-      return volPanNudge(true, cell, amount, wide);
+      return volPanNudge(true, cell, amount, wide, ctx.surround ?? 2);
     case COL_FX: {
       if (cell.effect === 0 && cell.effectArg === 0) return null;
       const effectArg = Math.min(Math.max(cell.effectArg + amount, 0), 0xffff);
@@ -551,7 +616,7 @@ export function nudgeColumns(cols, cell, dir, coarse, ctx = {}) {
  *  a wide cell's panning column the elevation digits (nibbles 1–2) nudge the
  *  height rather than the azimuth — the same split the wheel makes. */
 export function nudgeCursor(sub, nib, cell, dir, coarse, ctx = {}) {
-  const elevation = ctx.wide === true && sub === SUB_PAN && nib >= 1 && nib <= 2;
+  const elevation = ctx.wide === true && sub === SUB_PAN && (ctx.surround ?? 2) === 2 && nib >= 1 && nib <= 2;
   return nudgeColumn(subToCol(sub), cell, dir, coarse, { ...ctx, elevation });
 }
 
@@ -672,6 +737,10 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
       }
       const d = hexDigit(key);
       if (d < 0) return { consumed: true }; // swallow (no jam / no sentinel), no edit
+      // A wide cell's pitch is five digits, 65536-TET ($50000 = C4): the digit
+      // shifts into all twenty bits, and the note is that pitch in 4096-TET
+      // units, sixteenths and all.
+      if (wide) return { fields: { note: (((wideNotePitch(cell.note) << 4) | d) & 0xfffff) / 16 } };
       return { fields: { note: ((cell.note << 4) | d) & 0xffff } };
     }
     const keymap = ctx.keymap ?? DEFAULT_KEYMAP;
@@ -738,10 +807,14 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
 
   if (sub === SUB_VOL || sub === SUB_PAN) {
     const isPan = sub === SUB_PAN;
-    // The wide cell's panning column is [symbol][elevation ×2][azimuth ×3]; the
-    // narrow one (and the volume column in both) is [symbol][value ×2].
+    // The wide cell's panning column is as wide as the surround model needs
+    // (cellGeom): read the caret as the spatial column's nibble —
+    // [symbol][elevation ×2][azimuth ×3] — and the rules are one set. The
+    // narrow cell's (and the volume column in both) is [symbol][value ×2].
+    const model = ctx.surround ?? 2;
+    if (wide && isPan) nib = spatialPanNib(nib, model);
     const elevationNib = wide && isPan && nib >= 1 && nib <= 2;
-    const lastNib = (wide && isPan ? 5 : 2);
+    const lastSpatial = wide && isPan ? 5 : 2;
 
     // nib 0 — the symbol cell: pick the operation, then step onto its argument.
     if (nib === 0) {
@@ -752,9 +825,10 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
         // the down-slide key above, and never a hex digit here.)
         const d = hexDigit(key);
         if (d < 0) return null;
-        const fields = wide && isPan
+        const first = wide && isPan ? spatialPanNib(1, model) : 1;
+        const fields = first === 1 && wide && isPan
           ? elevationDigit(cell, 0, d)
-          : volPanDigit(isPan, cell, 1, d, wide);
+          : stereoAzimuth(volPanDigit(isPan, cell, wide && isPan ? first - 2 : 1, d, wide), isPan && wide && model === 0);
         return { fields, advanceNib: true };
       }
       const fields = volPanSelect(isPan, op, cell, wide);
@@ -774,8 +848,8 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
     if (d < 0) return null;
     const fields = elevationNib
       ? elevationDigit(cell, nib - 1, d)
-      : volPanDigit(isPan, cell, wide && isPan ? nib - 2 : nib, d, wide);
-    return nib === lastNib ? { fields, advanceRow: true } : { fields, advanceNib: true };
+      : stereoAzimuth(volPanDigit(isPan, cell, wide && isPan ? nib - 2 : nib, d, wide), isPan && wide && model === 0);
+    return nib === lastSpatial ? { fields, advanceRow: true } : { fields, advanceNib: true };
   }
 
   // Both effect columns are the same column twice over — same base-36 opcode,

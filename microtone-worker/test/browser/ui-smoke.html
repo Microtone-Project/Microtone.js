@@ -518,8 +518,9 @@
 
           patternView.setPattern(2);
           const { expandPatternBytes } = await win.eval('import("/src/doc/patterntools.js")');
-          const want = expandPatternBytes(store.doc.patternBytes(0, 2));
-          patternView.applyPatternBytes(expandPatternBytes);
+          // Every project is format 3: the transforms take the wide stride.
+          const want = expandPatternBytes(store.doc.patternBytes(0, 2), 2, true);
+          patternView.applyPatternBytes((src) => expandPatternBytes(src, 2, true));
           const exOk = JSON.stringify([...store.doc.patternBytes(0, 2)]) === JSON.stringify([...want]);
           store.undo.undo();
           const barLabels = [...patternView.bar.querySelectorAll("button")].map((b) => b.textContent);
@@ -530,9 +531,11 @@
           log(`pattern Lengthen via bar (+ all eight buttons): ${exOk && barOk ? "ok" : "FAIL"}`);
 
           // ── item 22: volume / pan / instrument bulk popups ──
-          // seed pattern 2 row 0 with vol 20 / pan 40 / inst 05, then drive each popup
+          // seed pattern 2 row 0 with vol 20 / pan 40 / inst 05 (a wide cell: the
+          // azimuth at byte 4, both columns SET in the selector byte 8), then
+          // drive each popup
           const seed = new Uint8Array(store.doc.patternBytes(0, 2));
-          seed[3] = 20; seed[4] = 40; seed[2] = 0x05;
+          seed[3] = 20; seed[4] = 40; seed[8] = 0x00; seed[2] = 0x05;
           const { setPatternBytesOp } = await win.eval('import("/src/doc/ops.js")');
           store.undo.apply(setPatternBytesOp(0, 2, seed));
           patternView.setPattern(2);
@@ -551,7 +554,7 @@
           await runPopup("Volume…", { mult: "2", add: "0" });
           const volOk = cell().volume === 40;
           await runPopup("Pan…", { mult: "1", shift: "-8" });
-          const panOk = cell().pan === 32; // 40 shifted −8
+          const panOk = cell().azimuth === 32; // 40 shifted −8
           await runPopup("Instrument…", { from: "05", to: "0A" });
           const instOk = cell().instrment === 0x0a;
           store.undo.undo(); store.undo.undo(); store.undo.undo(); store.undo.undo();
@@ -734,14 +737,15 @@
           if (target0) {
             const depth0 = store.undo.undoStack.length;
             kd("Delete", "Delete");
-            kd("Digit5", "5"); kd("Digit0", "0"); kd("Digit0", "0"); kd("Digit0", "0");
+            // A wide cell's raw pitch is five digits, 65536-TET: $50000 = C4.
+            kd("Digit5", "5"); kd("Digit0", "0"); kd("Digit0", "0"); kd("Digit0", "0"); kd("Digit0", "0");
             noteOk = timeline.cursorCell().cell.note === 0x5000;
             const before = timeline.cursorCell().cell.note;
             win.__microtone.jam.held.clear();
             kd("KeyS", "s"); // non-hex jam key → swallowed, no jam, no edit
             jamOverridden = win.__microtone.jam.held.size === 0 && timeline.cursorCell().cell.note === before;
             kd("KeyA", "a"); // 'a' = hex A, NOT jam C
-            hexA = timeline.cursorCell().cell.note === (((before << 4) | 0xa) & 0xffff);
+            hexA = timeline.cursorCell().cell.note === ((((before * 16) << 4) | 0xa) & 0xfffff) / 16;
             while (store.undo.undoStack.length > depth0) store.undo.undo();
           }
           store.record = false; store.rawNoteView = rawWas;

@@ -8,7 +8,7 @@ TML is a small language of its own rather than JavaScript, so that a program can
 
 Companion documents: the **Taud File Format** defines the project a build writes, and the **Note Effects** reference what the effect letters in a program mean.
 
-- **Created** by CuriousTorvald, 2026-10-11. Language version 2; programs written in version 1 still build, as §13 describes.
+- **Created** by CuriousTorvald, 2026-10-11. Language version 2.
 - **Files** — UTF-8 text with the extension `.tml`, at most 2 MiB.
 - **Determinism** — the same program, built against the same soundfont by the same version of Microtone, makes the same project byte for byte, in the app and on the command line alike. Nothing in a program depends on the time, the machine, or chance that is not keyed to the song's seed.
 
@@ -54,7 +54,7 @@ A program is made of **definitions** — the song and its parts (`song`, `instru
 Three rules make a program declarative:
 
 - **Order does not matter.** A name can be used anywhere in the block that defines it, above its own line as well as below, and the song's music is put together by rules (§8.2) that give the same result whatever order its pieces come in. The song's declaration can come last, its instruments after its lanes, and its helper functions before or after the music that uses them.
-- **Nothing changes.** A name keeps the value it is given; lists and records are never changed, only used to make new ones. There is no assignment and no loop that runs "until": a value that a TML 1 program would build step by step is built in one go (a comprehension, `map`, `scan`).
+- **Nothing changes.** A name keeps the value it is given; lists and records are never changed, only used to make new ones. There is no assignment and no loop that runs "until": a value is built in one go (a comprehension, `map`, `scan`).
 - **Music is a value.** The event builtins (`hit`, `melody`, `keyoff`…) do not write anything anywhere: they *make* music, which a program can name, move, repeat, transform and combine before it becomes part of the song.
 
 Some music can only be placed once the rest of the song is known: a vibrato that steps round the effects of its lane, a volume ramp that steps round the volumes, music placed `under` the rest or made to `follow` another lane. These are **fitted** parts (§8.6). A build places the song in two passes: every cell that is placed for certain, then each fitted part against those.
@@ -116,7 +116,7 @@ A name is ASCII letters, digits and `_`, not starting with a digit; case matters
 
 `tml` `let` `fn` `for` `in` `while` `if` `then` `else` `return` `break` `continue` `and` `or` `not` `true` `false` `none`
 
-(`while`, `break` and `continue` belong to TML 1, §13.) `song`, `instrument`, `lane`, `chain`, `master` and `section` are declarations only at the start of a statement, and `by` only after a range, so all seven may still be used as names (`fn dr(lane, bar)` is fine).
+`song`, `instrument`, `lane`, `chain`, `master` and `section` are declarations only at the start of a statement, and `by` only after a range, so all seven may still be used as names (`fn dr(lane, bar)` is fine).
 
 ## 4. Values
 
@@ -238,9 +238,9 @@ The body of a function, a branch of an `if`, the body of a `for` and a bare `{ }
 
 **Blocks after conditions.** The `{` after the condition of `if` and after the list of `for` (or its `if` condition) starts the block, so a record written there needs parentheses: `for k, v in ({ a: 1 }) { … }`.
 
-**What TML 2 leaves out.** TML 1 (§13) had statements that changed things, and a program that uses them is told what to write instead:
+**What the language leaves out.** Nothing in it changes a thing once made, and a program that writes such a statement is told what to write instead:
 
-| TML 1 | TML 2 |
+| Not in the language | Write instead |
 |---|---|
 | `x = x + 1`, `x += 1`, `xs[i] = v`, `r.f = v` | a new name: `let y = x + 1`, `with(xs, i, v)`, `merge(r, { f: v })` |
 | a value built up in a loop | a comprehension, `map`, `filter` or `scan` |
@@ -299,7 +299,7 @@ Notations that list a fixed set of notes rather than repeating a period, such as
 
 ```
 instrument EP   { bank: 0, program: 4, layer_gain: 3 }
-instrument SINE { wave: "sine", envelope: [[0, 63], [0.4, 30], [2, 0]] }
+instrument SINE { wave: "sine", envelope: [[0, 255], [0.4, 120], [2, 0]] }
 instrument BELL { fm: { operators: [{ inst: SINE }, { inst: SINE, ratio: 3.5, level: -6 }], algorithm: "0[1]" } }
 instrument HAT  { opl: { kind: "hi_hat", operators: [{ decay: 10, sustain_level: 15, sustain: false, release: 10 }] } }
 instrument BUZZ { psg: { a: { waveform: "pulse2", decay: 6, sustain_level: 15, sustain: false } } }
@@ -331,7 +331,7 @@ Every instrument also takes:
 | `min_fadeout` | — | Every zone fades out at least this fast (in the engine's fadeout units, which a soundfont's release becomes at the song's tempo) |
 | `fadeout` | — | Every layer and zone fades out at exactly this rate |
 | `nna` | — | The New Note Action: `"off"`, `"cut"`, `"continue"` or `"fade"` |
-| `envelope` | — | (A waveform, an OPL, a PSG or a formant instrument.) Its volume envelope: up to 25 `[seconds, volume]` points, volume 0–63, the last held; at most 15.75 s between two points |
+| `envelope` | — | (A waveform, an OPL, a PSG or a formant instrument.) Its volume envelope: up to 25 `[seconds, volume]` points, the last held; at most 15.75 s between two points. The volumes are the song's: 0–63 in a format-2 song, 0–255 in a format-3 one |
 | `sustain` | — | (One with an envelope.) The point it holds while the key is down (`sustain: 1`), or a range of points it loops through (`sustain: 1..3`) |
 | `percussion` | `false` | (Layers, an FM rack, an OPL, a PSG or a formant instrument.) Marks the instrument as percussion |
 | `strict` | `false` | (Layers.) Strict layering: a layer whose own zones do not cover a note stays silent for it, rather than falling back to its base sample (TAUD_FILE_FORMAT.md §7.5) |
@@ -345,7 +345,7 @@ Every instrument also takes:
 | `gain` | 0 | Its level, in decibels |
 | `detune` | 0 | Its detune, in cents |
 | `notes` | every pitch | The pitches it answers: a range such as `'C3'..'C5'` |
-| `vols` | 0..63 | The volumes it answers (0–63) |
+| `vols` | every volume | The volumes it answers, in the song's units (0–63, or 0–255 in a format-3 song). The instrument keeps them in steps of four in a format-3 song: each end answers the whole step its volume falls in, so `64..127` answers 64 to 127 and `65..126` the same |
 | `fixed` | — | A pitch it always plays, whatever note triggers it — a click, a breath, a noise bed (no `detune` then) |
 
 A layer over a layered instrument stands in for all of that instrument's layers (a layer cannot hold a metainstrument): each keeps its own layer, with the two gains and the two detunes added and the two ranges narrowed to where they overlap. So `layers: [{ inst: PIANO }, { inst: STRINGS, gain: -6 }]` stacks two soundfont presets whatever they are made of. A metainstrument holds at most 25 layers.
@@ -513,7 +513,7 @@ A lane is one of the song's monophonic parts; declaring one binds its name. Lane
 | `pan` | — | The lane's starting pan, written as `S $8xxx` on the song's first row: 0 left, 128 ($80) centre, 256 ($100) right, and round the circle past that in a surround song |
 | `label` | the lane's name | What the lane's patterns are named after |
 | `trim` | 1 | Every volume the lane sets is multiplied by this (`db(-3)` is a trim of −3 dB) |
-| `jitter` | 0 | Every volume the lane sets moves by up to this much either way, by a fixed noise (§11) |
+| `jitter` | 0 | Every volume the lane sets moves by up to this much either way, by a fixed noise (§11), in the song's volume units |
 
 ### 7.5 `section`
 
@@ -620,7 +620,7 @@ These rules do not depend on the order phrases are put together in, so neither d
 
 ### 8.3 The event builtins
 
-Each makes music: a phrase one row long — a key-off, cut or fade lasts no rows, since it marks the moment a note ends — unless its entry says otherwise. In TML 1 these write straight into the song and return none (§13).
+Each makes music: a phrase one row long — a key-off, cut or fade lasts no rows, since it marks the moment a note ends — unless its entry says otherwise.
 
 #### `hit(lane, row, pitch, vol, fx, arg, inst, pos, delay)`
 
@@ -968,7 +968,7 @@ follow(lead, at(9), at(17), fn(heard) => [hit(harmony, at(9) + i, c.note + 10, 3
 
 ### 8.7 Reading music
 
-A phrase has the fields `from` and `to` (whole numbers: the rows it spans, `to` not included), `rows` (how many: `to − from`) and `lanes` (a list of the lanes it plays on). What it places for certain can be read with these builtins, which are TML 2's alone (TML 1's `cell` and `occupied` read the song so far: §13). Its fitted parts are only placed with the whole song, so they cannot be read.
+A phrase has the fields `from` and `to` (whole numbers: the rows it spans, `to` not included), `rows` (how many: `to − from`) and `lanes` (a list of the lanes it plays on). What it places for certain can be read with these builtins. Its fitted parts are only placed with the whole song, so they cannot be read.
 
 A cell reads as a record holding only the fields the cell has:
 
@@ -1078,7 +1078,7 @@ Takes no arguments. **Returns** the number of steps in one period of the song's 
 
 #### `transpose(x, steps)`
 
-**Returns** a new list, every pitch moved by `steps`. (`transpose` of music: §8.5.) In TML 1, which has only this form, the first parameter is named `pitches`.
+**Returns** a new list, every pitch moved by `steps`. (`transpose` of music: §8.5.)
 
 | Argument | Type | Default | |
 |---|---|---|---|
@@ -1087,7 +1087,7 @@ Takes no arguments. **Returns** the number of steps in one period of the song's 
 
 #### `invert(x, axis)`
 
-**Returns** a new list, every pitch reflected through the axis. (`invert` of music: §8.5.) In TML 1 the first parameter is named `pitches`.
+**Returns** a new list, every pitch reflected through the axis. (`invert` of music: §8.5.)
 
 | Argument | Type | Default | |
 |---|---|---|---|
@@ -1426,7 +1426,7 @@ As `reduce`, keeping every value on the way. **Returns** a list, `[f(initial, x0
 
 #### `copy(x)`
 
-**Returns** `x`, with every list and record inside it copied: in TML 1 (§13), a list or record that can be changed without changing the original. Any other value comes back as it is.
+**Returns** `x`, with every list and record inside it copied. Any other value comes back as it is.
 
 | Argument | Type | Default | |
 |---|---|---|---|
@@ -1590,7 +1590,7 @@ return mix(h) ÷ 2^32
 
 (`imul` is the low 32 bits of the product, `>>>` an unsigned shift.) Test vectors: with seed 1, `random(0)` is 0.6445763253141195, `random("walk", 1)` 0.8974380060099065 and `random("héllo, 世界")` 0.9516397698316723; with seed 19, `random("walk", 1)` is 0.4422831176780164.
 
-Each of these needs at least one key, and each is TML 2's form (TML 1's, which take no keys: §13).
+Each of these needs at least one key.
 
 #### `random(keys…)`
 
@@ -1684,7 +1684,7 @@ The project is new and unsaved when the build finishes; save it like any other.
 
 The **Motif** tab (Shift+F7) holds a program and builds it. When the open project was built by Motif, the tab shows its program; otherwise it holds a draft of your own, kept in the browser. **Build** (Ctrl+Enter) runs the program away from the page, so a long one never freezes the app, and **Cancel** stops it. An error stops the build and is shown with its line and column — click the position to go there — and, inside a function, the calls that led to it. Opening a `.tml` file anywhere a project can be opened puts it in the tab and builds it. The editor colours the program as it is typed — keywords, declarations, numbers, strings, pitches, comments, calls, fields, and each name by what it refers to: a parameter, a lane, an instrument or a chain, or a local variable (underlined) — in the Syntello scheme on the light themes and Dimtello (a grey page) on the dark ones, and lights the line the caret is on. A song that plays a soundfont other than the bundled one, or instruments from a pack, asks for that file the first time a build needs it.
 
-The editor reads the program as it is typed, by the scope rules of §6 (or, for a TML 1 program, of §13): the caret in a name marks the other places it is used, and right-clicking a name offers **Rename**, which changes the name wherever it refers to the same definition — named arguments and `{ name }` shorthands included — and refuses a new name that would make any name in the program refer to something else. A side panel outlines the program (**Structure**) and shows what calls a function and what it calls (**Call hierarchy**). **Preview**, on a call, runs the program and plays only what that call makes — each time it is made, as the song plays it — through the open project's instruments.
+The editor reads the program as it is typed, by the scope rules of §6: the caret in a name marks the other places it is used, and right-clicking a name offers **Rename**, which changes the name wherever it refers to the same definition — named arguments and `{ name }` shorthands included — and refuses a new name that would make any name in the program refer to something else. A side panel outlines the program (**Structure**) and shows what calls a function and what it calls (**Call hierarchy**). **Preview**, on a call, runs the program and plays only what that call makes — each time it is made, as the song plays it — through the open project's instruments.
 
 ### On the command line
 
@@ -1708,61 +1708,16 @@ node tools/motif.js song.tml [out.taud] [-v] [--check] [--no-source] [--signatur
 | Source | 2 MiB |
 | Lanes, instruments, mixing chains | 64, 255, 255 |
 
-Every error names its line and column, and a mistake inside a function also lists the calls that led to it, innermost first. Errors are written to be acted on: a misspelt option suggests the one that was probably meant; a clash names the lane, the bar, the row and both values, at the line that brought the second; a bar line that falls mid-bar says how many rows in it falls; a TML 1 statement in a TML 2 program says what to write instead.
+Every error names its line and column, and a mistake inside a function also lists the calls that led to it, innermost first. Errors are written to be acted on: a misspelt option suggests the one that was probably meant; a clash names the lane, the bar, the row and both values, at the line that brought the second; a bar line that falls mid-bar says how many rows in it falls; a statement the language does not have says what to write instead.
 
-## 13. TML 1
-
-A program that starts `tml 1` is read as the first version of the language was, and builds exactly the project it always built. TML 1 runs a program once, from the top to the bottom, like a script, and its music builtins write into the song as they run. Everything in §3–§12 holds for it, except:
-
-- **Order.** The song is declared first, before anything that needs its tuning or its length, and the instruments before the first lane. A name can be used only below its own line — except inside a function (which runs later) and for a named function, which can be used anywhere in its block. Declarations may also stand inside blocks.
-- **Changing things.** `name = value`, `xs[i] = value` and `r.f = value` change an existing name, item or field, as do `+=`, `-=`, `*=` and `/=`. Lists and records are shared, not copied, when assigned or passed: changing one changes it for every name that refers to it (`copy` makes a separate one). `push(xs, …)`, `pop(xs)`, `insert(xs, i, v)` and `remove(xs, i)` change a list in place. A `for` over a list walks a copy of it.
-- **Loops.** `while c { … }` repeats while `c` is true; `break` leaves the loop and `continue` goes on to its next round.
-- **Music.** The music builtins return none (`melody` returns the row after its line); a line's value is not music and is not checked. `occupied(lane, row)` says whether anything is written on that row yet, and `cell(lane, row)` what is written there so far (as the record of §8.7). `vibrato`, the `v` of a melody and `vol_ramp` step round what is written so far. There are no phrases, so none of §8.5's builtins, nor `under`, `follow`, `cells`, comprehensions, `for … if`, `fn name() =>`, `scan` or `with`.
-- **Merging.** A key-off, cut or fade writes nothing on a row that already holds a note or another of them: the first written stays. A volume and a volume-column command may meet on one row, and the command is what the pattern keeps.
-- **Event order.** A lane's rows are read in the order the program first wrote to each, which re-tuning (§11) groups and averages in, so moving a statement can move a detune by a unit.
-- **Randomness.** `random()` and everything built on it draw from one stream, seeded by the song's `seed` and restarted by `seed(n)`, so each draw depends on every draw before it. The stream is **Mulberry32**, which an implementation **MUST** follow exactly:
-
-```
-state ← seed (as an unsigned 32-bit integer)
-next():
-  state ← (state + 0x6D2B79F5) mod 2^32
-  t ← state
-  t ← imul(t xor (t >>> 15), t or 1)
-  t ← t xor (t + imul(t xor (t >>> 7), t or 61))
-  return ((t xor (t >>> 14)) >>> 0) ÷ 2^32
-```
-
-| Builtin | Arguments | Draws |
-|---|---|---|
-| `random()` | none | A number in [0, 1) |
-| `random_int(lo, hi)` | `lo`, `hi`: whole numbers, `lo` ≤ `hi` | `lo + floor(random() × (hi − lo + 1))` |
-| `chance(p)` | `p`: number | `random() < p` |
-| `choose(xs)` | `xs`: list, not empty | `xs[floor(random() × len(xs))]` |
-| `choose_weighted(xs, weights)` | as in TML 2 (§10), without keys | An item, each as likely as its weight |
-| `shuffle(xs)` | `xs`: list | A shuffled copy (Fisher–Yates from the last item down) |
-| `seed(n)` | `n`: whole number | Restarts the stream at `n` (taken as an unsigned 32-bit integer); returns none |
-
-TML 1's other builtins that TML 2 does not have, or has in another form:
-
-| Builtin | Arguments | |
-|---|---|---|
-| `push(list, values…)` | `list`: list (not a range); `values…`: any, none or more | Adds the values to the end of the list. Returns none |
-| `pop(list)` | `list`: list, not empty | Removes the last item, and returns it |
-| `insert(list, index, value)` | `list`: list; `index`: whole number, from −`len(list)` to `len(list)`; `value`: any | Puts `value` at `index`, moving the items from there on along. Returns none |
-| `remove(list, index)` | `list`: list; `index`: whole number, an index the list has | Removes the item at `index`, and returns it |
-| `occupied(lane, row)` | `lane`: lane; `row`: row | Whether anything is written on that row of that lane so far |
-| `cell(lane, row)` | `lane`: lane; `row`: row | What is written there so far, as the record of §8.7 (without `lane` and `row`), or none |
-
-In TML 1 the event builtins and `melody` take the same arguments as in TML 2 and return none (`melody` returns the row after its line); `transpose(pitches, steps)` and `invert(pitches, axis)` take only lists of pitches; `filter`, `slice` and `reverse` only lists and strings.
-
-## 14. Version history
+## 13. Version history
 
 | Version | Date | |
 |---|---|---|
 | 2 | 2026-10-14 | Declarative: music is a value (phrases, §8.2) that can be combined and transformed — played backwards and stretched among the rest — names can be used anywhere in their block, nothing changes once made, fitted music (§8.6), keyed randomness (§10), comprehensions, `for … if` and `fn name() =>` |
 | 1 | 2026-10-11 | The first version |
 
-Additions that leave every program building as it did, in either version:
+Additions that leave every program building as it did:
 
 | Date | |
 |---|---|

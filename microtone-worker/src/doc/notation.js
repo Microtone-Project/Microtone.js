@@ -150,6 +150,20 @@ export function taudToSymToken(bytes) {
 const te = new TextEncoder();
 const td = new TextDecoder();
 
+/** Pitch resolution of a definition (flags bits 0–4, the field that was
+ *  RESERVED in version 'a'): 0 = version 'a', the 16-bit layout in 4096-TET
+ *  units; n = 16…31 = version 'b', every pitch field a U32 in 2^(n−4)-TET
+ *  units — sixteen octaves of n bits. Microtone writes 20 (65536-TET, the
+ *  format-3 cell's own resolution) whenever a definition needs it. */
+export const NOTA_BITS_MASK = 0x1f;
+export const NOTA_FINE_BITS = 20;
+
+/** True when any pitch of `def` (4096-TET units) has a fractional part. */
+function needsFine(def) {
+  const frac = (v) => v !== Math.floor(v);
+  return frac(def.interval) || frac(def.base ?? 0) || def.table.some(frac);
+}
+
 function encodeDef(def) {
   const name = te.encode(def.name ?? "");
   const symBytes = [];
@@ -159,26 +173,42 @@ function encodeDef(def) {
     symBytes.push(...symTokenToTaud(syms[i] ?? FALLBACK_SYM));
   }
   symBytes.push(0x00);
-  const size = 2 + 2 + 2 + 2 + 8 + name.length + 1 + symBytes.length + def.table.length * 2;
+  // Version 'a' whenever the definition fits it, so a whole-unit notation
+  // stays readable by everything that only knows 'a'.
+  const bits = needsFine(def) ? NOTA_FINE_BITS : 0;
+  const scale = bits ? 2 ** (bits - 16) : 1;
+  const w = bits ? 4 : 2; // bytes per pitch field and per table entry
+  const size = 2 + 2 + 2 + 2 + 8 + name.length + 1 + symBytes.length + def.table.length * w;
   const out = new Uint8Array(1 + 4 + size);
+  const dv = new DataView(out.buffer);
   let o = 0;
   out[o++] = def.slot & 0xff;
-  out[o++] = size & 0xff; out[o++] = (size >>> 8) & 0xff;
-  out[o++] = (size >>> 16) & 0xff; out[o++] = (size >>> 24) & 0xff;
-  out[o++] = (def.flags ?? 0) & 0xff; out[o++] = ((def.flags ?? 0) >>> 8) & 0xff;
-  out[o++] = def.interval & 0xff; out[o++] = (def.interval >>> 8) & 0xff;
-  out[o++] = 0; out[o++] = 0; // reserved float32-interval field
+  dv.setUint32(o, size, true); o += 4;
+  const flags = ((def.flags ?? 0) & ~NOTA_BITS_MASK) | bits;
+  dv.setUint16(o, flags, true); o += 2;
+  const unit = (v) => Math.round(v * scale);
   const nm1 = def.table.length - 1;
-  out[o++] = nm1 & 0xff; out[o++] = (nm1 >>> 8) & 0xff;
   // Base note: 0 means "the default C4", so an unset base stays byte-for-byte
   // what this field held while it was reserved.
-  const base = (def.base ?? 0) & 0xffff;
-  out[o++] = base & 0xff; out[o++] = (base >>> 8) & 0xff;
-  o += 6; // reserved
+  if (bits) {
+    dv.setUint32(o, unit(def.interval), true); o += 4; // over the old float32 slot
+    dv.setUint16(o, nm1, true); o += 2;
+    dv.setUint32(o, unit(def.base ?? 0), true); o += 4;
+    o += 4; // reserved
+  } else {
+    dv.setUint16(o, def.interval & 0xffff, true); o += 2;
+    o += 2; // reserved float32-interval field
+    dv.setUint16(o, nm1, true); o += 2;
+    dv.setUint16(o, (def.base ?? 0) & 0xffff, true); o += 2;
+    o += 6; // reserved
+  }
   out.set(name, o); o += name.length;
   out[o++] = 0;
   out.set(Uint8Array.from(symBytes), o); o += symBytes.length;
-  for (const v of def.table) { out[o++] = v & 0xff; out[o++] = (v >>> 8) & 0xff; }
+  for (const v of def.table) {
+    if (bits) { dv.setUint32(o, unit(v), true); o += 4; }
+    else { dv.setUint16(o, v & 0xffff, true); o += 2; }
+  }
   return out;
 }
 
@@ -202,14 +232,19 @@ export function parseNotaPayload(u8) {
   let o = 0;
   while (o + 5 <= u8.length) {
     const slot = u8[o];
-    const size = u8[o + 1] | (u8[o + 2] << 8) | (u8[o + 3] << 16) | (u8[o + 4] << 24);
+    const size = (u8[o + 1] | (u8[o + 2] << 8) | (u8[o + 3] << 16) | (u8[o + 4] << 24)) >>> 0;
     const body = u8.subarray(o + 5, o + 5 + size);
     o += 5 + size;
     if (body.length < 16) break;
-    const flags = body[0] | (body[1] << 8);
-    const interval = body[2] | (body[3] << 8);
-    const count = (body[6] | (body[7] << 8)) + 1;
-    const base = body[8] | (body[9] << 8); // 0 = default C4
+    const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+    const flags = dv.getUint16(0, true);
+    const bits = flags & NOTA_BITS_MASK;
+    // Pitches come back in 4096-TET units: whole in 'a', with the fraction a
+    // finer 'b' definition states (65536-TET: sixteenths).
+    const scale = bits ? 2 ** (16 - bits) : 1;
+    const interval = bits ? dv.getUint32(2, true) * scale : dv.getUint16(2, true);
+    const count = dv.getUint16(6, true) + 1;
+    const base = bits ? dv.getUint32(8, true) * scale : dv.getUint16(8, true); // 0 = default C4
     let p = 16;
     const nameEnd = body.indexOf(0, p);
     if (nameEnd < 0) break;
@@ -227,11 +262,12 @@ export function parseNotaPayload(u8) {
     }
     while (syms.length < count) syms.push(null);
     const table = [];
-    for (let i = 0; i < count && p + 2 <= body.length; i++, p += 2) {
-      table.push(body[p] | (body[p + 1] << 8));
+    const w = bits ? 4 : 2;
+    for (let i = 0; i < count && p + w <= body.length; i++, p += w) {
+      table.push(bits ? dv.getUint32(p, true) * scale : dv.getUint16(p, true));
     }
     while (table.length < count) table.push(0);
-    defs.push({ slot, flags, interval, base, name, table, syms });
+    defs.push({ slot, flags: flags & ~NOTA_BITS_MASK, interval, base, name, table, syms });
   }
   return defs;
 }
@@ -239,13 +275,16 @@ export function parseNotaPayload(u8) {
 // ── .taudnot standalone file ──
 
 const TAUDNOT_MAGIC = [0x1e, 0x54, 0x61, 0x75, 0x64, 0x6e, 0x6f, 0x74]; // \x1ETaudnot
-const TAUDNOT_VERSION = 0x61; // 'a'
+const TAUDNOT_VERSION_A = 0x61; // 'a' — every definition in 4096-TET
+const TAUDNOT_VERSION_B = 0x62; // 'b' — a definition may state its resolution
 
+/** A .taudnot: version 'b' only when some definition needs it, so a file of
+ *  whole-unit notations stays readable by an 'a' reader. */
 export function buildTaudnot(defs) {
   const payload = buildNotaPayload(defs);
   const out = new Uint8Array(9 + payload.length);
   out.set(TAUDNOT_MAGIC, 0);
-  out[8] = TAUDNOT_VERSION;
+  out[8] = defs.some(needsFine) ? TAUDNOT_VERSION_B : TAUDNOT_VERSION_A;
   out.set(payload, 9);
   return out;
 }
@@ -254,7 +293,7 @@ export function buildTaudnot(defs) {
 export function parseTaudnot(bytes) {
   if (bytes.length < 9) return null;
   for (let i = 0; i < 8; i++) if (bytes[i] !== TAUDNOT_MAGIC[i]) return null;
-  if (bytes[8] !== TAUDNOT_VERSION) return null;
+  if (bytes[8] !== TAUDNOT_VERSION_A && bytes[8] !== TAUDNOT_VERSION_B) return null;
   return parseNotaPayload(bytes.subarray(9));
 }
 
@@ -299,8 +338,9 @@ export function parseScl(text) {
   return { name, cents };
 }
 
-/** Cents → 4096-TET units (0x1000 per octave). */
-export function centsToUnits(cents) { return Math.round((cents * 4096) / 1200); }
+/** Cents → 4096-TET units (0x1000 per octave), to the nearest sixteenth: the
+ *  65536-TET resolution a format-3 note and a version-'b' definition hold. */
+export function centsToUnits(cents) { return Math.round((cents * 65536) / 1200) / 16; }
 export function unitsToCents(units) { return (units * 1200) / 4096; }
 
 /**
@@ -536,10 +576,14 @@ export function defToPreset(def) {
   const density = absolute && def.table.length > 1 && last > 0
     ? Math.round((def.table.length - 1) / (last / 0x1000))
     : def.table.length;
+  // A definition may be stated at 65536-TET (version 'b'): the preset is its
+  // whole-unit form, as every 4096-TET writer needs it, and finePreset()
+  // reads the fraction back out of `exact`.
+  const fine = needsFine(def);
   const p = {
     index, name,
-    table: def.table.slice(),
-    interval: def.interval,
+    table: fine ? def.table.map(Math.round) : def.table.slice(),
+    interval: Math.round(def.interval),
     t: density === 12 && (absolute || def.interval === 0x1000) ? "d"
       : density <= 10 ? "M" : "m",
     sym: def.syms.map((s) => s ?? FALLBACK_SYM),
@@ -548,6 +592,11 @@ export function defToPreset(def) {
   // Only carry a base when the definition declares one — 0 means "default C4",
   // which presetBase already supplies, and interval presets never use it.
   if (absolute && def.base) p.base = def.base;
+  if (fine) {
+    p.exact = def.table.slice();
+    if (def.interval !== Math.round(def.interval)) p.exactInterval = def.interval;
+    if (absolute && def.base) p.base = Math.round(def.base); // the fine view keeps it whole
+  }
   return p;
 }
 

@@ -2,13 +2,14 @@
 // every builtin, with its parameters in order under their real names — any
 // argument can be given by name, so a name the document gets wrong is a
 // program that fails. TML 2's builtins are the `#### name(…)` entries of
-// §8–§10; TML 1's own forms are the tables of §13.
+// §8–§10. (A `tml 1` program still builds, but the reference no longer
+// documents that first version.)
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { stdlib, stdlib2 } from "../../src/motif/stdlib.js";
+import { stdlib2 } from "../../src/motif/stdlib.js";
 import { Score, musicBuiltins } from "../../src/motif/music.js";
 import { Builtin } from "../../src/motif/values.js";
 
@@ -36,7 +37,6 @@ const v2 = (() => {
   const base = stdlib2({ seed: () => 1, log: () => {} });
   return new Map([...base, ...musicBuiltins(new Score({ version: 2 }), { version: 2, base })]);
 })();
-const v1 = new Map([...stdlib({ random: () => 0, reseed: () => {}, log: () => {} }), ...musicBuiltins(new Score())]);
 // TML 2 keeps these names only to say what to write instead (§6)
 const REFUSED_IN_V2 = new Set(["push", "pop", "insert", "remove", "seed"]);
 
@@ -51,25 +51,6 @@ test("every TML 2 builtin has a reference entry, its parameters named as the cod
   }
   for (const name of byName.keys()) assert.ok(v2.has(name), `the reference has an entry for ${name}(), which TML 2 does not have`);
   assert.match(DOC, /^#### `PI`$/m);
-});
-
-test("TML 1's own forms are in §13, named as the code names them", () => {
-  const sigs = sigsIn(section("## 13. TML 1", "## 14. Version history").filter((l) => l.startsWith("| `")).map((l) => l.split(" | ")[0]));
-  const seen = new Set();
-  for (const s of sigs) {
-    const f = v1.get(s.name);
-    assert.ok(f, `§13 lists ${s.name}(), which TML 1 does not have`);
-    assert.deepEqual(s.params, codeSig(f), `§13 names ${s.name}()'s parameters wrongly`);
-    seen.add(s.name);
-  }
-  for (const [name, f] of v1) {
-    if (!(f instanceof Builtin)) continue;
-    const g = v2.get(name);
-    const same = g && !REFUSED_IN_V2.has(name) && JSON.stringify(codeSig(g)) === JSON.stringify(codeSig(f));
-    // a builtin TML 2 lacks or takes differently is in §13 — except transpose and
-    // invert, whose TML 1 form (a list of pitches) is TML 2's list form
-    if (!same && !["transpose", "invert"].includes(name)) assert.ok(seen.has(name), `${name}() in TML 1 differs from TML 2 and is not in §13`);
-  }
 });
 
 test("every entry's argument table lists the parameters of its signature, in order", () => {

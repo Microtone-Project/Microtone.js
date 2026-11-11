@@ -924,7 +924,7 @@ export class CuesView {
       if (!pattern) continue;
       let ditto = this._lampDitto.get(pat);
       if (ditto === undefined) {
-        ditto = dittoGhosts(pattern, pattern.length);
+        ditto = dittoGhosts(pattern, pattern.length, this.store.doc?.wideCells === true);
         this._lampDitto.set(pat, ditto);
       }
       for (let r = Math.max(from, row - LAMP_CATCH_UP + 1); r <= row; r++) {

@@ -12,6 +12,7 @@
 
 import { PATTERN_SIZE, PATTERN_SIZE_WIDE } from "../../core/format/taud-const.js";
 import { EffectOp } from "../../core/engine/tables.js";
+import { TaudPlayData } from "../../core/engine/state.js";
 
 /** A 6-bit column value in the wide cell's 8-bit units: 0x3F ↦ 255, exactly. */
 export function widenVolume(v6) {
@@ -100,4 +101,100 @@ export function upgradeParsedToWide(parsed) {
   }
   parsed.fmtVer = 3;
   return n;
+}
+
+// ── Format 3 → a version-2 READING, for the module exporters ──
+//
+// Format 3 is the only format the editor holds, but a .mod or an .it is a
+// version-2 world: a 6-bit volume column, a front-arc panning column, one
+// effect a row. There is no downgrade of the FILE (§5.5), and this is not one:
+// it is a view an exporter reads — exactly the inverse of widenPattern, so a
+// song that came from version 2 reads back as the cells it was — and it counts
+// what the wide cell said that a narrow one cannot, for the export to report.
+// Notes keep their 65536-TET fraction; the exporters take pitch as a number.
+
+
+const SEL_FINE = 3;
+
+/**
+ * An 8-bit column value back in 6-bit units: `v8 >> 2`, the engine's own
+ * reading of a wide volume against 6-bit data (trigger.js narrowVolAxis), so an
+ * exporter that picks a key-map zone or a layer by the narrowed volume picks
+ * the one Microtone plays. It is also the exact inverse of widenVolume:
+ * round(v × 255 ÷ 63) lies in 4v…4v+3 for every v of 0…63.
+ */
+export function narrowVolume(v8) {
+  return Math.min(63, Math.max(0, v8 | 0) >> 2);
+}
+
+/** One wide cell → its version-2 reading; `lost` counts what did not fit. */
+export function narrowCell(w, lost) {
+  const c = new TaudPlayData();
+  c.note = w.note;
+  c.instrment = w.instrment;
+
+  if (w.volumeEff > SEL_FINE) { c.volumeEff = SEL_FINE; c.volume = 0; } // RESERVED: the no-op
+  else if (w.volumeEff === SEL_FINE) {
+    const mag = Math.min(31, narrowVolume(w.volume & 0x7f));
+    c.volumeEff = SEL_FINE;
+    c.volume = mag === 0 ? 0 : ((w.volume & 0x80) !== 0 ? 0x20 : 0) | mag;
+  } else {
+    c.volumeEff = w.volumeEff;
+    c.volume = narrowVolume(w.volume);
+  }
+  // The wide SET as it stands, for a format whose own volume is finer than
+  // 0…63 (an IT or MOD volume of 0…64 is round(v × 64 ÷ 255) of it, exactly
+  // the inverse of a converter's round(v × 255 ÷ 64)).
+  c.volume8 = c.volumeEff === 0 ? w.volume : null;
+
+  const az = w.azimuth & 0x1ff;
+  if (w.panEff > SEL_FINE) { c.panEff = SEL_FINE; c.pan = 0; }
+  else if (w.panEff === SEL_FINE) {
+    const mag = Math.min(31, az & 0xff);
+    c.panEff = SEL_FINE;
+    c.pan = mag === 0 ? 0 : ((az & 0x100) !== 0 ? 0x20 : 0) | mag;
+  } else if (w.panEff === 0) {
+    // The front arc is 0 (left) … 256 (right); behind folds onto it the way a
+    // stereo song hears it (the left–right component), above is dropped.
+    let front = az;
+    if (az > 256) front = 512 - az;
+    if (az > 256 || w.elevation !== 0) lost.position++;
+    c.panEff = 0;
+    c.pan = Math.min(63, front >>> 2);
+  } else {
+    c.panEff = w.panEff;
+    c.pan = Math.min(63, az & 0xff);
+  }
+
+  c.effect = w.effect;
+  c.effectArg = w.effectArg;
+  if (w.effect === EffectOp.OP_M) {
+    c.effectArg = (narrowVolume((w.effectArg >>> 8) & 0xff) << 8) | (w.effectArg & 0xff);
+    c.lane8 = (w.effectArg >>> 8) & 0xff;   // the wide lane volume, as volume8 is the note's
+  }
+  if (w.effect2 !== 0 || w.effectArg2 !== 0) lost.effect2++;
+  return c;
+}
+
+/**
+ * A read-only version-2 view of a format-3 document for an exporter: the same
+ * document (instruments, names, cues, every method) with each song's patterns
+ * narrowed. Returns {doc, lost: {effect2, position}} — counted over song
+ * `countSong` alone when given (the one being exported); a narrow document
+ * comes back as itself with nothing lost.
+ */
+export function narrowedForExport(doc, countSong = -1) {
+  const lost = { effect2: 0, position: 0 };
+  if (!doc.wideCells) return { doc, lost };
+  const view = Object.create(doc);
+  view.wideCells = false;
+  view.fmtVer = 2;
+  const scratch = { effect2: 0, position: 0 };
+  view.songs = doc.songs.map((song, i) => {
+    const s = Object.create(song);
+    const tally = countSong < 0 || i === countSong ? lost : scratch;
+    s.patterns = song.patterns.map((rows) => rows && rows.map((cell) => narrowCell(cell, tally)));
+    return s;
+  });
+  return { doc: view, lost };
 }

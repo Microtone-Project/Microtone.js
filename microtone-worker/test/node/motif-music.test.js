@@ -167,7 +167,8 @@ vol_fine(a, 1, 100)
   assert.equal(p[16 + 3], 0x80 | 100, "fine up 100");
   assert.equal(p[16 + 8], 0x33);
   assert.match(err(HEAD("bars: 1") + "fx2(a, 0, \"X\", 1)").message, /format-3/);
-  assert.match(err('tml 1\nsong { bars: 1, format: 3 }').message, /surround/);
+  // Format 3 no longer needs a surround song: it is every song's format in the editor.
+  assert.equal(interpret('tml 1\nsong { bars: 1, format: 3 }').song.format, 3);
 });
 
 test("declarations say what is wrong with them", () => {

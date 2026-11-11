@@ -61,6 +61,8 @@ from taud_common import (
     TOP_NONE, TOP_A, TOP_B, TOP_C, TOP_D, TOP_E, TOP_F, TOP_G, TOP_H, TOP_I,
     TOP_J, TOP_K, TOP_L, TOP_O, TOP_Q, TOP_R, TOP_S, TOP_T, TOP_U, TOP_V, TOP_W, TOP_Y,
     SEL_SET, SEL_UP, SEL_DOWN, SEL_FINE,
+    COL_EMPTY, INST_VOLENV8, vcol_set, vcol_fine64, vol_from64, vol_step64, pcol_set,
+    note_pitch, put_cell, blank_pattern,
     J_SEMI_TABLE,
     d_arg_to_col, resample_linear, rescale_offset_effects_per_slot,
     loop_resample_ratio, scale_loop,
@@ -395,17 +397,16 @@ def encode_note_xm(xm_note: int) -> int:
         return NOTE_KEYOFF
     if 1 <= xm_note <= 96:
         semis = xm_note - XM_RELNOTE_C4
-        val = round(TAUD_C4 + semis * 4096 / 12)
-        return max(0x20, min(0xFFFF, val))
+        return note_pitch(TAUD_C4 + semis * 4096 / 12)
     return NOTE_NOP
 
 
 def decode_volcol_xm(vc: int):
     """Decode XM volume column byte.
 
-    Returns (vol_sel, vol_value, pan_set, aux_effect):
-      vol_sel/vol_value : Taud volume column override (or SEL_FINE/0)
-      pan_set           : 0..63 pan-column override, or None
+    Returns (vol, pan_set, aux_effect):
+      vol               : the Taud volume column (wide units; COL_EMPTY for none)
+      pan_set           : an azimuth 0..255 for the pan column, or None
       aux_effect        : (Taud op, arg) folded into main effect slot if
                           unoccupied, dropped otherwise
 
@@ -423,42 +424,37 @@ def decode_volcol_xm(vc: int):
       0xF0..0xFF  Tone portamento (nybble × 16)
     """
     if vc == 0:
-        return SEL_FINE, 0, None, None
+        return COL_EMPTY, None, None
     if 0x10 <= vc <= 0x50:
-        # Set volume 0..64 → 0..63 (clamp)
-        return SEL_SET, min(vc - 0x10, 0x3F), None, None
+        # Set volume 0..64 → the wide column's 0..255
+        return vcol_set(vol_from64(vc - 0x10)), None, None
     nybble = vc & 0xF
     if 0x60 <= vc <= 0x6F:
-        return SEL_DOWN, nybble, None, None
+        return (SEL_DOWN, vol_step64(nybble)), None, None
     if 0x70 <= vc <= 0x7F:
-        return SEL_UP, nybble, None, None
+        return (SEL_UP, vol_step64(nybble)), None, None
     if 0x80 <= vc <= 0x8F:
-        # Fine slide down: dir bit 0 = down; magnitude in low 5 bits.
-        return SEL_FINE, (nybble & 0x1F), None, None
+        return vcol_fine64(-nybble), None, None          # fine slide down
     if 0x90 <= vc <= 0x9F:
-        # Fine slide up: dir bit 5 set.
-        return SEL_FINE, (nybble & 0x1F) | 0x20, None, None
+        return vcol_fine64(nybble), None, None           # fine slide up
     if 0xA0 <= vc <= 0xAF:
         # Set vibrato speed → fold as TOP_H with speed in high byte.
-        return SEL_FINE, 0, None, (TOP_H, (nybble * 0x11) << 8)
+        return COL_EMPTY, None, (TOP_H, (nybble * 0x11) << 8)
     if 0xB0 <= vc <= 0xBF:
         # Vibrato with depth → TOP_H with depth in low byte.
-        return SEL_FINE, 0, None, (TOP_H, nybble * 0x11)
+        return COL_EMPTY, None, (TOP_H, nybble * 0x11)
     if 0xC0 <= vc <= 0xCF:
-        # Set panning: nybble × 17 = 0..255; convert to 6-bit.
-        pan8 = nybble * 17
-        pan6 = min(0x3F, round(pan8 * 63 / 255))
-        return SEL_FINE, 0, pan6, None
+        # Set panning: nybble × 17 = 0..255, the azimuth as it stands.
+        return COL_EMPTY, nybble * 17, None
     if 0xD0 <= vc <= 0xDF:
-        # Pan slide left: SEL_DOWN on pan column.
-        return SEL_FINE, 0, None, None  # consumed via pan_override below
+        return COL_EMPTY, None, None  # pan slide left: consumed via pan_override below
     if 0xE0 <= vc <= 0xEF:
-        return SEL_FINE, 0, None, None
+        return COL_EMPTY, None, None
     if 0xF0 <= vc <= 0xFF:
         # Tone portamento: nybble × 16 → TOP_G argument in linear units.
         spd_period = nybble * 16
-        return SEL_FINE, 0, None, (TOP_G, round(spd_period * 64 / 3) & 0xFFFF)
-    return SEL_FINE, 0, None, None
+        return COL_EMPTY, None, (TOP_G, round(spd_period * 64 / 3) & 0xFFFF)
+    return COL_EMPTY, None, None
 
 
 def _xm_volcol_pan_override(vc: int):
@@ -527,9 +523,8 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
         return (TOP_R, ((hi * 0x11) << 8) | (lo * 0x11), None, None)
 
     if cmd == 0x08:
-        # Set panning 0..255 → Taud pan column 0..63.
-        pan6 = min(0x3F, round((arg & 0xFF) * 63 / 255))
-        return (TOP_NONE, 0, None, (SEL_SET, pan6))
+        # Set panning 0..255 → the pan column's azimuth, as it stands.
+        return (TOP_NONE, 0, None, pcol_set(arg & 0xFF))
 
     if cmd == 0x09:
         return (TOP_O, (arg & 0xFF) << 8, None, None)
@@ -546,8 +541,8 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
         return (TOP_B, arg & 0xFF, None, None)
 
     if cmd == 0x0C:
-        # Set volume 0..64 → vol column SEL_SET.
-        return (TOP_NONE, 0, (SEL_SET, min(arg, 0x3F)), None)
+        # Set volume 0..64 → vol column SEL_SET (0..255).
+        return (TOP_NONE, 0, vcol_set(vol_from64(arg)), None)
 
     if cmd == 0x0D:
         # Pattern break: XM stores BCD row number.
@@ -580,7 +575,7 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
             # EC0 cuts at tick 0 in FastTracker 2 and leaves the channel at
             # volume 0. S $C0 is ScreamTracker's no-op, so the cut becomes the
             # volume it leaves behind (build_pattern lets it beat the column).
-            return (TOP_NONE, 0, (SEL_SET, 0), None)
+            return (TOP_NONE, 0, vcol_set(0), None)
         if sub in (0x3, 0x4, 0x7, 0xC, 0xD, 0xE):
             return (TOP_S, (sub << 12) | (val << 8), None, None)
         if sub == 0x5:
@@ -594,18 +589,16 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
             return (TOP_S, 0xB000 | (val << 8), None, None)
         if sub == 0x8:
             # Pan position 0..15 → set pan column (XM nybble × 17 → 8-bit).
-            pan8 = (val << 4) | val
-            pan6 = min(0x3F, round(pan8 * 63 / 255))
-            return (TOP_NONE, 0, None, (SEL_SET, pan6))
+            return (TOP_NONE, 0, None, pcol_set((val << 4) | val))
         if sub == 0x9:
             # Retrig with vol 0 → multi-retrig speed; map to TOP_Q.
             return (TOP_Q, (val & 0xF) << 8, None, None)
         if sub == 0xA:
             # Fine vol up: vol col fine slide
-            return (TOP_NONE, 0, (SEL_FINE, (val & 0x1F) | 0x20), None)
+            return (TOP_NONE, 0, vcol_fine64(val & 0xF), None)
         if sub == 0xB:
             # Fine vol down
-            return (TOP_NONE, 0, (SEL_FINE, val & 0x1F), None)
+            return (TOP_NONE, 0, vcol_fine64(-(val & 0xF)), None)
         if sub == 0xF:
             # E$Fx in XM is unused (or "Funk repeat" in old PT) — drop.
             vprint(f"    dropped EF{val:X} (unused / funk) at ch{ch} row{row}")
@@ -652,8 +645,8 @@ def encode_effect_xm(cmd: int, arg: int, ch: int = 0, row: int = 0,
 
     if cmd == 0x19:
         # Pan slide → TOP_S not appropriate; use pan-column slide via
-        # d_arg_to_col interpreted as pan.
-        return (TOP_NONE, 0, None, d_arg_to_col(arg))
+        # d_arg_to_col interpreted as pan (steps in azimuth units, as FT2's).
+        return (TOP_NONE, 0, None, d_arg_to_col(arg, pan=True))
 
     if cmd == 0x1B:
         # Multi retrig with volume change → TOP_Q.
@@ -835,7 +828,7 @@ def _xm_envelope_to_taud(env_pts: list, num_pts: int, env_type: int,
     Returns (points, loop_word, sus_word).
 
     XM envelope value ranges:
-      'vol' — 0..64  → Taud 0..63
+      'vol' — 0..64  → Taud 0..255 (8-bit, byte 14 bit 6)
       'pan' — 0..64  → Taud 0..255 (32 = centre → 0x80)
 
     XM single-point sustain becomes the SUSTAIN word with start == end.
@@ -856,10 +849,10 @@ def _xm_envelope_to_taud(env_pts: list, num_pts: int, env_type: int,
     def _to_taud_val(xm_val: int) -> int:
         v = max(0, min(64, xm_val))
         if kind == 'vol':
-            return min(63, round(v * 63 / 64))
+            return vol_from64(v)
         return min(255, max(0, round(v * 255 / 64)))
 
-    pad_value = (63 if kind == 'vol' else 0x80)
+    pad_value = (0xFF if kind == 'vol' else 0x80)
 
     points = []
     for k in range(25):
@@ -1068,7 +1061,7 @@ def build_sample_inst_bin_xm(proxies: list) -> tuple:
         loop_mode = 0
         if s.flags & 1:
             loop_mode = 2 if s.pingpong else 1
-        flags_byte = loop_mode & 0x3
+        flags_byte = (loop_mode & 0x3) | INST_VOLENV8   # 8-bit volume envelope
 
         # Resolve envelope LOOP / SUSTAIN words from the proxy. When XM has no
         # envelope, fall back to a single-point unit envelope (vol LOOP word
@@ -1106,9 +1099,9 @@ def build_sample_inst_bin_xm(proxies: list) -> tuple:
         struct.pack_into('<H', inst_bin, base + 19, 0)         # pf envelope: off
 
         if vol_env:
-            _write_env(inst_bin, base + 21, vol_env, pad_value=63)
+            _write_env(inst_bin, base + 21, vol_env, pad_value=0xFF)
         else:
-            inst_bin[base + 21] = 63
+            inst_bin[base + 21] = 0xFF
             inst_bin[base + 22] = 0
 
         if pan_env:
@@ -1170,7 +1163,7 @@ def build_sample_inst_bin_xm(proxies: list) -> tuple:
 def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
                      inst_to_taud_slot: dict, amiga_mode: bool = False,
                      keyoff_zero_rows: set = None) -> bytes:
-    """Render one Taud channel's 512-byte pattern from a 64-row chunk grid.
+    """Render one Taud channel's pattern (wide cells) from a 64-row chunk grid.
 
     `keyoff_zero_rows`: optional set of row indices on this channel whose key-off
     cells should be paired with `SEL_SET vol=0` (FT2 vol-env-off gating — see
@@ -1178,7 +1171,7 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
     """
     if keyoff_zero_rows is None:
         keyoff_zero_rows = frozenset()
-    out = bytearray(PATTERN_BYTES)
+    out = blank_pattern()
     if ch_idx >= len(chunk_grid):
         rows = [XMRow()] * PATTERN_ROWS
     else:
@@ -1186,7 +1179,7 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
 
     for r, cell in enumerate(rows[:PATTERN_ROWS]):
         # ── Volume column → vol/pan/aux-effect overrides ────────────────────
-        vs, vv, pan_from_vc, aux_eff = decode_volcol_xm(cell.volcol)
+        vc_vol, pan_from_vc, aux_eff = decode_volcol_xm(cell.volcol)
         # Pan slide via vol-col D/E (encoded as pan_override below)
         vc_pan_override = _xm_volcol_pan_override(cell.volcol)
 
@@ -1227,14 +1220,20 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
         if cell.effect == 0x14 and cell.effect_arg == 0:
             cell.note = XM_NOTE_OFF
 
-        # Fold vol-col aux into main slot if free
+        # The vol-col aux takes the main slot if it is free, and the second
+        # effect if it is not (format 3). A tone portamento always takes slot 1
+        # — only there does a G keep the row from retriggering — and the main
+        # effect moves after it, which is FT2's order too (volume column first).
+        op2, arg2 = TOP_NONE, 0
         if aux_eff is not None:
             if op == TOP_NONE:
                 op, arg16 = aux_eff
-                aux_eff = None
+            elif aux_eff[0] == TOP_G and op not in (TOP_G, TOP_L):
+                op2, arg2 = op, arg16
+                op, arg16 = aux_eff
             else:
-                vprint(f"    ch{ch_idx} row{r}: dropped vol-col aux effect "
-                       f"(main effect slot occupied: cmd={cell.effect:02X} arg={cell.effect_arg:02X})")
+                op2, arg2 = aux_eff
+            aux_eff = None
 
         # ── Note ────────────────────────────────────────────────────────────
         note_taud = NOTE_NOP
@@ -1257,9 +1256,9 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
         # ── Volume column resolution ────────────────────────────────────────
         if cell.effect == 0x0E and cell.effect_arg == 0xC0:
             # The effect runs after the column, so EC0's volume of 0 wins.
-            vol_sel, vol_value = vol_override
-        elif vs != SEL_FINE or vv != 0:
-            vol_sel, vol_value = vs, vv
+            vol = vol_override
+        elif vc_vol != COL_EMPTY:
+            vol = vc_vol
             if (vol_override is not None and cell.effect == 0x0A
                     and op == TOP_NONE):
                 # A$F0 (up 15) beside a volume-column command: the column
@@ -1269,21 +1268,21 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
                 vprint(f"    ch{ch_idx} row{r}: A F0 beside a volume-column "
                        f"command → D $E000 (up 14)")
         elif vol_override is not None:
-            vol_sel, vol_value = vol_override
+            vol = vol_override
         else:
-            vol_sel, vol_value = SEL_FINE, 0
+            vol = COL_EMPTY
 
         # ── Pan column resolution ───────────────────────────────────────────
         if pan_from_vc is not None:
-            pan_sel, pan_value = SEL_SET, pan_from_vc
+            pan = pcol_set(pan_from_vc)
         elif vc_pan_override is not None:
-            pan_sel, pan_value = vc_pan_override
+            pan = vc_pan_override
         elif pan_override is not None:
-            pan_sel, pan_value = pan_override
+            pan = pan_override
         elif r == 0:
-            pan_sel, pan_value = SEL_SET, default_pan & 0x3F
+            pan = pcol_set(default_pan)
         else:
-            pan_sel, pan_value = SEL_FINE, 0
+            pan = COL_EMPTY
 
         # FT2 vol-env-off key-off gating: pair the key-off with SEL_SET vol=0
         # so a later vol-col SET on the channel restores audibility (see
@@ -1291,10 +1290,10 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
         # already has — FT2 zeros realVol/outVol after vol-col is applied
         # (ft2_replayer.c:411-428), so a SET on the same row would be clobbered.
         if r in keyoff_zero_rows and note_taud == NOTE_KEYOFF:
-            if not (vol_sel == SEL_FINE and vol_value == 0):
+            if vol != COL_EMPTY:
                 vprint(f"    ch{ch_idx} row{r}: FT2 key-off zero overrides "
-                       f"vol-col (sel={vol_sel}, val={vol_value})")
-            vol_sel, vol_value = SEL_SET, 0
+                       f"vol-col (sel={vol[0]}, val={vol[1]})")
+            vol = vcol_set(0)
         elif r in keyoff_zero_rows and cell.effect == 0x14:
             # Delayed Kxx (arg>0) on a vol-env-off instrument: the row-start
             # zero pairing above can't apply without also zeroing the delay
@@ -1306,16 +1305,8 @@ def build_pattern_xm(chunk_grid: list, ch_idx: int, default_pan: int,
                    f"vol-env-off instrument — FT2 zero-on-keyoff quirk not "
                    f"replicated for the deferred case")
 
-        vol_byte = (vol_value & 0x3F) | ((vol_sel & 0x3) << 6)
-        pan_byte = (pan_value & 0x3F) | ((pan_sel & 0x3) << 6)
-
-        base = r * 8
-        struct.pack_into('<H', out, base + 0, note_taud)
-        out[base + 2] = taud_slot & 0xFF
-        out[base + 3] = vol_byte
-        out[base + 4] = pan_byte
-        out[base + 5] = op & 0xFF
-        struct.pack_into('<H', out, base + 6, arg16 & 0xFFFF)
+        put_cell(out, r, note=note_taud, inst=taud_slot, vol=vol, pan=pan,
+                 fx=op, arg=arg16, fx2=op2, arg2=arg2)
 
     return bytes(out)
 
@@ -1551,9 +1542,11 @@ def assemble_taud(h: XMHeader, patterns: list, instruments: list,
         sys.exit("error: no active channels found")
 
     # Default pan per active channel: alternate L/R FT2-style (0,12,12,0,...).
+    # Kept from format 2 (6-bit 16 / 47) as the azimuths the format-2 engine
+    # made of those (v << 2 | v >> 4).
     def _xm_default_pan(idx: int) -> int:
         side = idx % 4
-        return 16 if side in (0, 3) else 47
+        return 65 if side in (0, 3) else 190
     default_pans = [_xm_default_pan(i) for i in range(C)]
 
     # ── Detect subsongs ──────────────────────────────────────────────────────

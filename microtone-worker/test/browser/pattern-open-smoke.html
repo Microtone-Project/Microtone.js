@@ -32,7 +32,8 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(doc.querySelectorAll("#patternHost canvas").length > 0, "…and paints a pane");
   const pane = M.patternView.panes?.[0];
   check(!!pane, "…which the view exposes");
-  check(pane?.cellChars() === 21, "…in the narrow cell layout", String(pane?.cellChars?.()));
+  // WHEN opens as format 3: a stereo wide cell, ¾ of a character more than the old one
+  check(pane?.cellChars() === 21.75, "…in the stereo wide cell layout", String(pane?.cellChars?.()));
 
   // Every tab, in fact: a layout helper on the wrong class breaks exactly one.
   for (const v of ["timeline", "cues", "samples", "instruments", "project", "files"]) {

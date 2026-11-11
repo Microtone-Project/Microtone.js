@@ -39,6 +39,8 @@ from taud_common import (
     TOP_NONE, TOP_A, TOP_B, TOP_C, TOP_D, TOP_E, TOP_F, TOP_G, TOP_H, TOP_I,
     TOP_J, TOP_K, TOP_L, TOP_O, TOP_Q, TOP_R, TOP_S, TOP_T, TOP_U, TOP_V, TOP_Y,
     SEL_SET, SEL_UP, SEL_DOWN, SEL_FINE,
+    COL_EMPTY, INST_VOLENV8, vcol_set, vcol_fine64, vol_from64, pcol_set, note_pitch,
+    put_cell, blank_pattern,
     J_SEMI_TABLE,
     d_arg_to_col, pt_slide_nibbles, pt_volume_slide, resample_linear, rescale_offset_effects_per_slot, encode_cue, deduplicate_patterns,
     loop_resample_ratio, scale_loop,
@@ -257,11 +259,13 @@ def _signed4(nibble: int) -> int:
 
 # ── Note encoding (period → Taud) ────────────────────────────────────────────
 
-def period_to_taud_note(period: int) -> int:
+def period_to_taud_note(period: int) -> float:
+    """A period as a pitch, to the sixteenth of a unit a format-3 cell holds —
+    exactly the ProTracker notation's fine table (pitchtables.js exactOffsets,
+    quantiseNote) for a period on it, and the nearest sixteenth off it."""
     if period <= 0:
         return NOTE_NOP
-    val = round(TAUD_C4 + 4096.0 * math.log2(PT_REFERENCE_PERIOD / period))
-    return max(0x20, min(0xFFFF, val))
+    return note_pitch(TAUD_C4 + 4096.0 * math.log2(PT_REFERENCE_PERIOD / period))
 
 
 # ── PT effect → Taud effect ──────────────────────────────────────────────────
@@ -321,9 +325,9 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0) -> tuple:
         return (TOP_R, ((hi * 0x11) << 8) | (lo * 0x11), None, None)
 
     if cmd == 0x8:
-        # PT 8xx is fine pan (or unused/sync in some trackers). Map to pan
-        # column 0.$yy where yy is the upper 6 bits of the 8-bit pan.
-        return (TOP_NONE, 0, None, (SEL_SET, (arg >> 2) & 0x3F))
+        # PT 8xx is fine pan (or unused/sync in some trackers): the pan
+        # column's azimuth takes the whole byte (0 left, $80 centre, $FF right).
+        return (TOP_NONE, 0, None, pcol_set(arg & 0xFF))
 
     if cmd == 0x9:
         return (TOP_O, (arg & 0xFF) << 8, None, None)
@@ -337,7 +341,7 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0) -> tuple:
     if cmd == 0xC:
         # Caller folds Cxx into vol_set during parsing; this branch is a
         # safety net in case a Cxx slips through.
-        return (TOP_NONE, 0, (SEL_SET, min(arg, 0x3F)), None)
+        return (TOP_NONE, 0, vcol_set(vol_from64(arg)), None)
 
     if cmd == 0xD:
         # PT pattern break is BCD on disk.
@@ -369,23 +373,23 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0) -> tuple:
         if sub == 0x7:
             return (TOP_S, 0x4000 | (x << 8), None, None)
         if sub == 0x8:
-            # Coarse pan (4-bit). Map nibble 0..15 to pan 0..63 via × 4.2.
-            return (TOP_NONE, 0, None, (SEL_SET, round(x * 4.2)))
+            # Coarse pan (4-bit): nibble 0..15 across the whole 0..255.
+            return (TOP_NONE, 0, None, pcol_set(x * 17))
         if sub == 0x9:
             return (TOP_Q, (x & 0xF) << 8, None, None)
         if sub == 0xA:
             # Fine vol slide up.
-            return (TOP_NONE, 0, (SEL_FINE, (x & 0xF) | 0x20), None)
+            return (TOP_NONE, 0, vcol_fine64(x & 0xF), None)
         if sub == 0xB:
             # Fine vol slide down.
-            return (TOP_NONE, 0, (SEL_FINE, x & 0xF), None)
+            return (TOP_NONE, 0, vcol_fine64(-(x & 0xF)), None)
         if sub == 0xC:
             if x == 0:
                 # EC0 cuts at tick 0 in ProTracker (the note is silent from the
                 # first sample, and the lane stays at volume 0 until a sample
                 # number sets it again). S $C0 is ScreamTracker's no-op, so the
                 # cut becomes the volume it leaves behind: volume column SET 0.
-                return (TOP_NONE, 0, (SEL_SET, 0), None)
+                return (TOP_NONE, 0, vcol_set(0), None)
             return (TOP_S, 0xC000 | (x << 8), None, None)
         if sub == 0xD:
             return (TOP_S, 0xD000 | (x << 8), None, None)
@@ -562,11 +566,11 @@ def build_sample_inst_bin(samples: list) -> tuple:
         ls       = min(s.loop_begin, 65535)
         le       = min(s.loop_end,   65535)
         loop_mode = 1 if (s.flags & 1) else 0
-        flags_byte = loop_mode & 0x3
-        # Envelope first point is full-scale; per-trigger initial level is
-        # carried by Default Note Volume (byte 196) so the envelope must
-        # contribute a unit multiplier.
-        env_vol   = 63
+        flags_byte = (loop_mode & 0x3) | INST_VOLENV8
+        # Envelope first point is full-scale (8-bit, byte 14 bit 6); per-trigger
+        # initial level is carried by Default Note Volume (byte 196) so the
+        # envelope must contribute a unit multiplier.
+        env_vol   = 0xFF
         # MOD has no envelopes; vol LOOP word b=1 just so the engine evaluates
         # the unit envelope, plus P=1 (envelope present) for consistency with
         # the new gate spec (terranmon.txt byte 16/18/20 bit 5). Pan/PF stay
@@ -606,10 +610,13 @@ def build_sample_inst_bin(samples: list) -> tuple:
 
 # ── Pattern build ────────────────────────────────────────────────────────────
 
-# PT hard-pans channels in LRRL order: 0=L 1=R 2=R 3=L (and tile for >4).
+# PT hard-pans channels in LRRL order: 0=L 1=R 2=R 3=L (and tile for >4). The
+# separation is this converter's own choice, kept from format 2 (6-bit 8 / 55),
+# as azimuths: the bytes the format-2 engine — and the editor's widening — made
+# of those (v << 2 | v >> 4).
 def _default_channel_pan(ch_idx: int) -> int:
     side = (ch_idx % 4)
-    return 8 if side in (0, 3) else 55
+    return 32 if side in (0, 3) else 223
 
 
 def build_pattern(grid: list, ch_idx: int, default_pan: int,
@@ -621,7 +628,7 @@ def build_pattern(grid: list, ch_idx: int, default_pan: int,
     (byte 196) and is consulted by the engine when the trigger row has no V
     column — the converter doesn't need to emit SEL_SET=Sv on plain triggers.
     """
-    out = bytearray(PATTERN_BYTES)
+    out = blank_pattern()
     rows = grid[ch_idx] if ch_idx < len(grid) else [ModRow()] * MOD_PATTERN_ROWS
     last_inst = 0
     last_period = 0
@@ -637,36 +644,27 @@ def build_pattern(grid: list, ch_idx: int, default_pan: int,
 
         # ── Volume column ──
         if row.vol_set >= 0:
-            vol_sel, vol_value = SEL_SET, min(row.vol_set, 0x3F)
+            vol = vcol_set(vol_from64(row.vol_set))
             if vol_override is not None and vol_override[0] != SEL_SET:
                 vprint(f"    ch{ch_idx} row{r}: dropped vol slide "
                        f"(cell already carries explicit Cxx volume)")
         elif vol_override is not None:
-            vol_sel, vol_value = vol_override
+            vol = vol_override
         else:
-            vol_sel, vol_value = SEL_FINE, 0
+            vol = COL_EMPTY
 
         if note_triggers:
             last_period = row.period
 
         # ── Pan column ──
         if pan_override is not None:
-            pan_sel, pan_value = pan_override
+            pan = pan_override
         elif r == 0:
-            pan_sel, pan_value = SEL_SET, default_pan & 0x3F
+            pan = pcol_set(default_pan)
         else:
-            pan_sel, pan_value = SEL_FINE, 0
+            pan = COL_EMPTY
 
-        vol_byte = (vol_value & 0x3F) | ((vol_sel & 0x3) << 6)
-        pan_byte = (pan_value & 0x3F) | ((pan_sel & 0x3) << 6)
-
-        base = r * 8
-        struct.pack_into('<H', out, base + 0, note_taud)
-        out[base + 2] = row.inst & 0xFF
-        out[base + 3] = vol_byte
-        out[base + 4] = pan_byte
-        out[base + 5] = op & 0xFF
-        struct.pack_into('<H', out, base + 6, arg & 0xFFFF)
+        put_cell(out, r, note=note_taud, inst=row.inst, vol=vol, pan=pan, fx=op, arg=arg)
     return bytes(out)
 
 
@@ -875,7 +873,7 @@ def assemble_taud(mod: dict, with_project_data: bool = True) -> bytes:
         for ch in range(min(n_channels, len(grid))):
             for row in grid[ch]:
                 if row.effect == 0xC:
-                    row.vol_set = min(row.effect_arg, 0x3F)
+                    row.vol_set = min(row.effect_arg, 64)
                     row.effect = 0
                     row.effect_arg = 0
 

@@ -54,6 +54,7 @@ function loadWideSong(eng, rows) {
   for (const c of rows) {
     const o = c.row * CELL_BYTES_WIDE;
     if (c.note !== undefined) { pat[o] = c.note & 0xff; pat[o + 1] = (c.note >>> 8) & 0xff; }
+    if (c.fine !== undefined) pat[o + 13] = (c.fine & 0xf) << 4;
     if (c.inst !== undefined) pat[o + 2] = c.inst;
     let sel = pat[o + 8];
     if (c.vol !== undefined) {
@@ -139,6 +140,43 @@ test("an untouched wide cell is FINE-by-zero in both columns", () => {
 });
 
 // ── volume ───────────────────────────────────────────────────────────────
+
+test("byte 13's high nibble makes the wide cell's pitch 65536-TET", () => {
+  // $50003 = C4 and three sixteenths of a 4096-TET unit.
+  const cell = new TaudPlayData();
+  const bytes = [0x00, 0x50, 1, 0, 0, 0, 0, 0, 0x33, 0, 0, 0, 0, 0x3a, 0, 0];
+  bytes.forEach((b, i) => cell.setByteWide(i, b));
+  assert.equal(cell.note, 0x5000 + 3 / 16);
+  assert.deepEqual(bytes.map((_, i) => cell.getByteWide(i)),
+    [0x00, 0x50, 1, 0, 0, 0, 0, 0, 0x33, 0, 0, 0, 0, 0x30, 0, 0],
+    "the nibble round-trips; the low nibble stays RESERVED (written zero)");
+
+  // Any `note` written by an editor reaches the right three bytes.
+  cell.note = 0x5c00 + 15 / 16;
+  assert.deepEqual([0, 1, 13].map((i) => cell.getByteWide(i)), [0x00, 0x5c, 0xf0]);
+
+  // A sentinel carries no fraction, whatever the nibble holds.
+  const off = new TaudPlayData();
+  [0x01, 0x00, 0, 0, 0, 0, 0, 0, 0x33, 0, 0, 0, 0, 0xf0, 0, 0].forEach((b, i) => off.setByteWide(i, b));
+  assert.equal(off.note, 0x0001);
+  assert.equal(off.getByteWide(13), 0);
+
+  // A decode into a reused cell takes the new nibble, not the old one.
+  [0x00, 0x60, 0, 0, 0, 0, 0, 0, 0x33, 0, 0, 0, 0, 0x00, 0, 0].forEach((b, i) => cell.setByteWide(i, b));
+  assert.equal(cell.note, 0x6000);
+
+  // The narrow cell has no room: a fraction rounds to the nearest word.
+  const narrow = new TaudPlayData();
+  narrow.note = 0x5000 + 9 / 16;
+  assert.deepEqual([narrow.getByte(0), narrow.getByte(1)], [0x01, 0x50]);
+});
+
+test("the fine nibble reaches the voice's pitch", () => {
+  const eng = makeWideEngine();
+  loadWideSong(eng, [{ row: 0, note: 0x5000, fine: 5, inst: 1, vol: 255, volEff: 0 }]);
+  render(eng, 2);
+  assert.equal(voice0(eng).noteVal, 0x5000 + 5 / 16);
+});
 
 test("the volume column is eight bits and the state widens with it", () => {
   const eng = makeWideEngine();
@@ -495,10 +533,15 @@ test("a widened song sounds like the one it came from", async () => {
   const { Document } = await import("../../src/doc/document.js");
   const { renderToWav } = await import("../../core/audio/offline-render.js");
 
+  const { upgradeParsedToWide } = await import("../../src/doc/upgrade.js");
+
   const path = fileURLToPath(new URL("../corpus/WHEN.taud", import.meta.url));
   const narrow = new Document(parseTaud(readFileSync(path)));
-  const wide = new Document(parseTaud(readFileSync(path)));
-  wide.upgradeToWideCells();
+  // The cell mapping alone: Document.upgradeToWideCells also moves the notes
+  // onto the 65536-TET grid, a deliberate pitch change pinned by the next test.
+  const parsedWide = parseTaud(readFileSync(path));
+  upgradeParsedToWide(parsedWide);
+  const wide = new Document(parsedWide);
 
   const a = renderToWav(narrow.toRenderable(0), 0, 4);
   const b = renderToWav(wide.toRenderable(0), 0, 4);
@@ -526,6 +569,39 @@ test("a widened song sounds like the one it came from", async () => {
   assert.ok(worst < 0.02, `sample-level difference too large (${worst.toFixed(4)})`);
 });
 
+test("widening moves on-grid notes onto the 65536-TET grid, and nothing else", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { parseTaud } = await import("../../core/format/taud-parse.js");
+  const { Document } = await import("../../src/doc/document.js");
+  const { presetForNotation, finePreset, resolveNoteSymbol } = await import("../../core/tuning/pitchtables.js");
+
+  const path = fileURLToPath(new URL("../corpus/WHEN.taud", import.meta.url));
+  const narrow = new Document(parseTaud(readFileSync(path)));
+  const wide = new Document(parseTaud(readFileSync(path)));
+  const legacy = presetForNotation(narrow.meta.songMeta[0]?.notation ?? 120, narrow);
+  wide.upgradeToWideCells();
+  const fine = presetForNotation(wide.meta.songMeta[0]?.notation ?? 120, wide);
+  assert.equal(fine, finePreset(legacy), "a wide document reads its notation at 65536-TET");
+
+  let moved = 0, notes = 0;
+  narrow.songs[0].patterns.forEach((rows, p) => {
+    if (!rows) return;
+    rows.forEach((cell, r) => {
+      const was = cell.note, now = wide.songs[0].patterns[p][r].note;
+      if (was < 0x20) { assert.equal(now, was, "sentinels never move"); return; }
+      notes++;
+      assert.ok(Math.abs(now - was) <= 0.5, `row ${r}: ${was} → ${now} moved more than half a unit`);
+      if (now !== was) {
+        moved++;
+        assert.equal(resolveNoteSymbol(now, fine).offGrid, false);
+        assert.equal(now * 16, Math.round(now * 16), "a sixteenth of a unit, exactly");
+      }
+    });
+  });
+  assert.ok(notes > 0 && moved > 0, `WHEN's 12-TET notes moved (${moved} of ${notes})`);
+});
+
 // ── the editor's wide columns (stage 3) ─────────────────────────────────
 
 test("the cursor walks the wide cell's extra panning digits", async () => {
@@ -535,19 +611,48 @@ test("the cursor walks the wide cell's extra panning digits", async () => {
   assert.equal(E.subPositions(false).length, 14);
   assert.equal(E.subPositions(true).length, 17);
   assert.equal(E.cellChars(false), 21);
-  assert.equal(E.cellChars(true), 24);
+  // The wide cell opens with the ¾-character pitch prefix (the octave digit of
+  // a raw 65536-TET pitch), so everything after the note column sits ¾ right.
+  assert.equal(E.cellChars(true), 24.75);
 
   // Clicking maps to the same places the painter draws.
-  assert.deepEqual(E.charToSub(12, true), [E.SUB_PAN, 0], "symbol");
-  assert.deepEqual(E.charToSub(13, true), [E.SUB_PAN, 1], "elevation hi");
-  assert.deepEqual(E.charToSub(15, true), [E.SUB_PAN, 3], "azimuth hi");
-  assert.deepEqual(E.charToSub(17, true), [E.SUB_PAN, 5], "azimuth lo");
-  assert.deepEqual(E.charToSub(19, true), [E.SUB_FX_OP, 0], "the effect moved right");
-  assert.deepEqual(E.charToSub(20, true), [E.SUB_FX_ARG, 0]);
+  assert.deepEqual(E.charToSub(12.75, true), [E.SUB_PAN, 0], "symbol");
+  assert.deepEqual(E.charToSub(13.75, true), [E.SUB_PAN, 1], "elevation hi");
+  assert.deepEqual(E.charToSub(15.75, true), [E.SUB_PAN, 3], "azimuth hi");
+  assert.deepEqual(E.charToSub(17.75, true), [E.SUB_PAN, 5], "azimuth lo");
+  assert.deepEqual(E.charToSub(19.75, true), [E.SUB_FX_OP, 0], "the effect moved right");
+  assert.deepEqual(E.charToSub(20.75, true), [E.SUB_FX_ARG, 0]);
+  assert.deepEqual(E.charToSub(0.2, true), [E.SUB_NOTE, 0], "the prefix is the note column's");
+  assert.deepEqual(E.subCharPos(E.SUB_NOTE, 0, true), [0, 4.75]);
   // …and the narrow layout is untouched.
   assert.deepEqual(E.charToSub(16, false), [E.SUB_FX_OP, 0]);
-  assert.deepEqual(E.subCharPos(E.SUB_FX_OP, 0, true), [19, 1]);
+  assert.deepEqual(E.subCharPos(E.SUB_FX_OP, 0, true), [19.75, 1]);
   assert.deepEqual(E.subCharPos(E.SUB_FX_OP, 0, false), [16, 1]);
+});
+
+test("the panning column is as wide as the surround model needs", async () => {
+  const E = await import("../../src/ui/edit.js");
+  // stereo ">FF", planar ">1FF", spatial ">FF1FF"
+  assert.deepEqual([0, 1, 2].map((m) => E.subNibbles(true, false, m)[E.SUB_PAN]), [3, 4, 6]);
+  assert.deepEqual([0, 1, 2].map((m) => E.cellChars(true, false, m)), [21.75, 22.75, 24.75]);
+  assert.deepEqual([0, 1, 2].map((m) => E.subCharPos(E.SUB_FX_OP, 0, true, m)[0]), [16.75, 17.75, 19.75]);
+  assert.deepEqual(E.charToSub(14.75, true, false, 0), [E.SUB_PAN, 2]);
+  assert.deepEqual(E.charToSub(16.75, true, false, 0), [E.SUB_FX_OP, 0]);
+
+  // Typing reaches the azimuth's digits whatever the width: stereo's two are
+  // its low byte, planar's three the whole nine bits.
+  const cell = { azimuth: 0, elevation: 0, panEff: 3, volume: 0, volumeEff: 3 };
+  const type = (model, nib, key) =>
+    E.interpretEditKey({ code: "Digit" + key, key }, E.SUB_PAN, nib, cell, { wideCells: true, surround: model });
+  assert.deepEqual(type(0, 1, "8").fields, { azimuth: 0x80, panEff: 0 }, "stereo: high digit of FF");
+  assert.equal(type(0, 2, "8").advanceRow, true, "stereo: the low digit ends the column");
+  assert.deepEqual(type(1, 1, "1").fields, { azimuth: 0x100, panEff: 0 }, "planar: the ninth bit");
+  assert.equal(type(1, 3, "1").advanceRow, true);
+  assert.deepEqual(type(2, 1, "1").fields, { elevation: 0x10, panEff: 0 }, "spatial: elevation first");
+  // A stereo column never holds a ninth bit it cannot show.
+  const planarHigh = { ...cell, azimuth: 0x140, panEff: 0 };
+  const r = E.interpretEditKey({ code: "Digit3", key: "3" }, E.SUB_PAN, 2, planarHigh, { wideCells: true, surround: 0 });
+  assert.equal(r.fields.azimuth, 0x43);
 });
 
 test("typing an 8-bit volume into a wide cell", async () => {
@@ -648,33 +753,33 @@ test("exposing the second effect appends a sixth column group", async () => {
   // Hidden, the wide cell is what it always was — this is the guarantee that
   // turning the column off leaves every other geometry read untouched.
   assert.deepEqual(E.subNibbles(true, false), [1, 2, 3, 6, 1, 4]);
-  assert.equal(E.cellChars(true, false), 24);
+  assert.equal(E.cellChars(true, false), 24.75);
   assert.equal(E.subPositions(true, false).length, 17);
   // …and shown, one opcode + a 4-nibble argument more.
   assert.deepEqual(E.subNibbles(true, true), [1, 2, 3, 6, 1, 4, 1, 4]);
-  assert.equal(E.cellChars(true, true), 30);
+  assert.equal(E.cellChars(true, true), 30.75);
   assert.equal(E.subPositions(true, true).length, 22);
   // The 8-byte cell has no second effect, so the flag cannot widen it.
   assert.equal(E.cellChars(false, true), 21, "a v2 cell has no second effect");
   assert.deepEqual(E.subNibbles(false, true), [1, 2, 3, 3, 1, 4]);
 
-  // Clicking maps to the same places the painter draws: fx1 19…23, then a
-  // separating space, then fx2 25…29.
-  assert.deepEqual(E.subCharPos(E.SUB_FX2_OP, 0, true), [25, 1]);
-  assert.deepEqual(E.subCharPos(E.SUB_FX2_ARG, 3, true), [29, 1]);
-  assert.deepEqual(E.charToSub(25, true, true), [E.SUB_FX2_OP, 0]);
-  assert.deepEqual(E.charToSub(26, true, true), [E.SUB_FX2_ARG, 0]);
-  assert.deepEqual(E.charToSub(29.5, true, true), [E.SUB_FX2_ARG, 3]);
-  assert.deepEqual(E.charToSub(24.5, true, true), [E.SUB_FX_ARG, 3],
+  // Clicking maps to the same places the painter draws: fx1 19¾…23¾, then a
+  // separating space, then fx2 25¾…29¾.
+  assert.deepEqual(E.subCharPos(E.SUB_FX2_OP, 0, true), [25.75, 1]);
+  assert.deepEqual(E.subCharPos(E.SUB_FX2_ARG, 3, true), [29.75, 1]);
+  assert.deepEqual(E.charToSub(25.75, true, true), [E.SUB_FX2_OP, 0]);
+  assert.deepEqual(E.charToSub(26.75, true, true), [E.SUB_FX2_ARG, 0]);
+  assert.deepEqual(E.charToSub(30.25, true, true), [E.SUB_FX2_ARG, 3]);
+  assert.deepEqual(E.charToSub(25.25, true, true), [E.SUB_FX_ARG, 3],
     "the gap between the groups belongs to the first one");
   // With the column hidden, those characters do not exist: a click that far
   // right stays on the first effect's last digit rather than falling off.
-  assert.deepEqual(E.charToSub(26, true, false), [E.SUB_FX_ARG, 3]);
+  assert.deepEqual(E.charToSub(26.75, true, false), [E.SUB_FX_ARG, 3]);
 
   // The selection highlight has a span for it, and a degenerate one when it is
   // hidden — so `range[colHi][1]` is always readable.
-  assert.deepEqual(E.colCharRange(true, true)[E.COL_FX2], [24, 30]);
-  assert.deepEqual(E.colCharRange(true, false)[E.COL_FX2], [24, 24]);
+  assert.deepEqual(E.colCharRange(true, true)[E.COL_FX2], [24.75, 30.75]);
+  assert.deepEqual(E.colCharRange(true, false)[E.COL_FX2], [24.75, 24.75]);
   assert.deepEqual(E.colCharRange(false)[E.COL_FX2], [21, 21]);
 
   assert.equal(E.lastSub(true), E.SUB_FX2_ARG);
@@ -1114,4 +1219,27 @@ test("2/3 extended: $11x (invert, jittered) is audible the same way $101 is", ()
   const expected = ((raw ^ 0xff) - 127.5) / 127.5;
   assert.ok(Math.abs(played - expected) < 1e-9,
     `byte ${toggled}: engine must PLAY the inverted byte (raw ${raw}), got ${played} not ${expected}`);
+});
+
+test("raw entry in a wide cell takes the five digits of a 65536-TET pitch", async () => {
+  const E = await import("../../src/ui/edit.js");
+  let cell = new TaudPlayData();
+  for (const k of ["5", "1", "5", "5", "8"]) {
+    const a = E.interpretEditKey({ code: "Key" + k, key: k }, E.SUB_NOTE, 0, cell, { wideCells: true, rawHex: true });
+    const next = new TaudPlayData();
+    Object.assign(next, cell, a.fields);
+    cell = next;
+  }
+  assert.equal(cell.note, 0x5155 + 8 / 16, "$51558 = $5155 and a half");
+  assert.deepEqual([0, 1, 13].map((i) => cell.getByteWide(i)), [0x55, 0x51, 0x80]);
+  // …and the narrow cell keeps its four.
+  const a = E.interpretEditKey({ code: "Digit7", key: "7" }, E.SUB_NOTE, 0, { note: 0x5155 }, { rawHex: true });
+  assert.equal(a.fields.note, 0x1557);
+});
+
+test("the grid spells a wide raw pitch as an octave digit and four more", async () => {
+  const { noteCellText } = await import("../../src/ui/cellpaint.js");
+  assert.deepEqual(noteCellText(0x5155 + 8 / 16, null, true, true), { text: "1558", octave: "5", ink: "note" });
+  assert.equal(noteCellText(0x5155 + 8 / 16, null, true, false).text, "5156", "a narrow cell rounds");
+  assert.equal(noteCellText(0, null, true, true).octave, undefined, "an empty cell's prefix is blank");
 });

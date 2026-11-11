@@ -31,7 +31,7 @@ import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
 import { noteGlyph } from "../components/noteglyph.js";
 import { MOTIF, MUSIC } from "../../../core/fonts/motifglyphs.js";
-import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol } from "../../../core/tuning/pitchtables.js";
+import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol, quantiseNote, finePreset } from "../../../core/tuning/pitchtables.js";
 import {
   NOTA_SLOTS, notationValueForSlot, buildNotaPayload, parseTaudnot, buildTaudnot,
   parseScl, sclToDef, centsToUnits, unitsToCents, autoAssignSyms, defToPreset,
@@ -62,16 +62,23 @@ const NBSP = "\u00A0";
 const signLabel = (sign, name) => sign + NBSP.repeat(3 - [...sign].length) + name;
 const tickLabel = (o) => signLabel(TICK_SIGNS[o], t(`nota.tick.${TICK_NAMES[o]}`));
 const accLabel = (o) => signLabel(ACC_SIGNS[o], t(`nota.acc.${ACC_NAMES[o]}`));
-const FIFTH = 0x95c;    // 3/2: round(4096·log2 1.5) — the tritave less an octave
+// Periods to the nearest 65536-TET step (4096·log2 r, in sixteenths of a
+// 4096-TET unit) — what a version-'b' definition holds. The octave's powers and
+// the tritave come out whole, so a notation on them stays a version-'a' one.
+const period = (r) => quantiseNote(4096 * Math.log2(r));
+const FIFTH = period(3 / 2);
 const OCTAVE = 0x1000;
-const TRITAVE = 0x195c;
+const TRITAVE = period(3);
 const TETRAVE = 0x2000;
-const PENTAVE = 0x2527;
-const HEXAVE = 0x295C;
-const HEPTAVE = 0x2CEB;
+const PENTAVE = period(5);
+const HEXAVE = period(6);
+const HEPTAVE = period(7);
 const EIGHTVE = 0x3000;
-const NONAVE = 0x32B8;
-const DECAVE = 0x3527;
+const NONAVE = period(9);
+const DECAVE = period(10);
+/** A pitch in 4096-TET units as 65536-TET hex: `$1000` reads `$10000`. */
+const fineHex = (units, digits) =>
+  "$" + Math.round(units * 16).toString(16).toUpperCase().padStart(digits, "0");
 
 const INTERVAL_OPTIONS = [
 [t("nota.fifth"), FIFTH],
@@ -103,7 +110,7 @@ function defBase(def) {
 /** A fresh definition seed: 12 equal divisions of the octave, nearest-named. */
 function seedDef(slot) {
   const table = [];
-  for (let i = 0; i < 12; i++) table.push(Math.round((i * OCTAVE) / 12));
+  for (let i = 0; i < 12; i++) table.push(quantiseNote((i * OCTAVE) / 12));
   const def = { slot, flags: 0, interval: OCTAVE, base: 0, name: "", table, syms: [] };
   def.syms = autoAssignSyms(def, "nearest");
   return def;
@@ -178,7 +185,7 @@ export function showNotationMaker(store) {
     // ── glyph preview cell: the degree spelled as the grids spell it ──
     function previewGlyph(def, idx) {
       const note = Math.min(Math.max(defBase(def) + def.table[idx], 0x20), 0xffff);
-      const g = noteGlyph(note, defToPreset(def));
+      const g = noteGlyph(note, finePreset(defToPreset(def)));
       g.classList.add("nota-preview");
       return g;
     }
@@ -248,7 +255,7 @@ export function showNotationMaker(store) {
       intLb.append(" " + t("nota.cents") + " ");
       const intHex = document.createElement("span");
       intHex.className = "dim nota-num";
-      intHex.textContent = `($${def.interval.toString(16).toUpperCase()})`;
+      intHex.textContent = `(${fineHex(def.interval, 5)})`;
       intLb.appendChild(intHex);
       // The 0 chip is absolute mode. Switching away parks the base note in a
       // dialog-local stash (the field must be 0 for an interval system) and
@@ -258,7 +265,10 @@ export function showNotationMaker(store) {
         b.textContent = label;
         b.dataset.k = "chip" + units;
         if (units === 0) b.title = t("nota.noIntervalTitle");
-        b.className = "nota-chip" + (def.interval === units ? " sel" : "");
+        // A definition saved in 4096-TET holds its period rounded to a whole
+        // unit: it still names the chip it was made from.
+        const on = units === 0 ? def.interval === 0 : Math.abs(def.interval - units) < 1;
+        b.className = "nota-chip" + (on ? " sel" : "");
         b.addEventListener("click", () => {
           if (units === 0) {
             def.base = def._stashBase ?? def.base ?? 0;
@@ -286,9 +296,10 @@ export function showNotationMaker(store) {
         baseIn.size = 6;
         baseIn.dataset.k = "base";
         const eff = defBase(def);
-        baseIn.value = "$" + eff.toString(16).toUpperCase().padStart(4, "0");
+        baseIn.value = fineHex(eff, 5);
         baseIn.addEventListener("change", () => {
-          const v = parseInt(baseIn.value.replace(/^\$/, ""), 16);
+          // 65536-TET hex, as shown: five digits, $50000 = C4.
+          const v = parseInt(baseIn.value.replace(/^\$/, ""), 16) / 16;
           if (Number.isFinite(v) && v >= 0 && v <= 0xffff) {
             // C4 is what an empty field means — store the canonical 0 so an
             // untouched def stays byte-identical on disk.
@@ -337,7 +348,7 @@ export function showNotationMaker(store) {
           if (!Number.isFinite(m) || m < 1 || m > 15) return;
           const count = Math.min(n * m, 4096);
           def.table = [];
-          for (let i = 0; i < count; i++) def.table.push(Math.round((i * OCTAVE) / n));
+          for (let i = 0; i < count; i++) def.table.push(quantiseNote((i * OCTAVE) / n));
           def.syms = autoAssignSyms(def, "nearest");
           renderAll();
           return;
@@ -350,7 +361,7 @@ export function showNotationMaker(store) {
         const n = parseInt(r?.n, 10);
         if (!Number.isFinite(n) || n < 1 || n > 4096) return;
         def.table = [];
-        for (let i = 0; i < n; i++) def.table.push(Math.round((i * def.interval) / n));
+        for (let i = 0; i < n; i++) def.table.push(quantiseNote((i * def.interval) / n));
         def.syms = autoAssignSyms(def, "nearest");
         renderAll();
       }, "equalDiv");
@@ -419,10 +430,10 @@ export function showNotationMaker(store) {
         });
         tdC.appendChild(cIn);
         tr.appendChild(tdC);
-        // 4096-TET units
+        // 65536-TET steps
         const tdU = document.createElement("td");
         tdU.className = "dim nota-num";
-        tdU.textContent = "$" + units.toString(16).toUpperCase().padStart(3, "0");
+        tdU.textContent = fineHex(units, 4);
         tr.appendChild(tdU);
         // symbol pickers — a decoded 3-char DSL token, or a raw single char
         // (imported CJK / escape) shown read-only until a picker replaces it.
@@ -499,7 +510,7 @@ export function showNotationMaker(store) {
           units = Math.min(last + (prev != null ? last - prev : 0x155), 0xffff);
         } else {
           // Midpoint between the last degree and the period top.
-          units = Math.min(Math.round((last + def.interval) / 2), 0xffff);
+          units = Math.min(quantiseNote((last + def.interval) / 2), 0xffff);
         }
         def.table.push(units);
         const named = autoAssignSyms({ table: [units], interval: def.interval }, "nearest");

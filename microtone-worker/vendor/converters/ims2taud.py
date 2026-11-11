@@ -47,6 +47,7 @@ from taud_common import (
     NOTE_NOP, NOTE_KEYOFF,
     TOP_NONE, TOP_A, TOP_E, TOP_F, TOP_T,
     SEL_SET, SEL_FINE,
+    CELL_BYTES, put_cell,
     encode_cue, finalize_cue_sheet, set_cue_instruction,
     cue_instruction_len, cue_instruction_halt_at,
     deduplicate_patterns, encode_song_entry, compress_blob, build_project_data,
@@ -373,7 +374,7 @@ def voice_role(song: dict, voice: int) -> str:
 # ── Cells ────────────────────────────────────────────────────────────────────
 
 class Cell:
-    __slots__ = ('note', 'inst', 'vol_sel', 'vol_val', 'eff', 'arg')
+    __slots__ = ('note', 'inst', 'vol_sel', 'vol_val', 'eff', 'arg', 'eff2', 'arg2')
 
     def __init__(self):
         self.note = NOTE_NOP
@@ -382,11 +383,14 @@ class Cell:
         self.vol_val = 0
         self.eff = TOP_NONE
         self.arg = 0
+        self.eff2 = TOP_NONE          # format 3's second effect
+        self.arg2 = 0
 
     def pack(self) -> bytes:
-        return struct.pack('<HBBBBH', self.note, self.inst,
-                           (self.vol_sel << 6) | (self.vol_val & 0x3F),
-                           (SEL_FINE << 6), self.eff, self.arg)
+        b = bytearray(CELL_BYTES)
+        put_cell(b, 0, note=self.note, inst=self.inst, vol=(self.vol_sel, self.vol_val),
+                 fx=self.eff, arg=self.arg, fx2=self.eff2, arg2=self.arg2)
+        return bytes(b)
 
 
 def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
@@ -514,8 +518,8 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
                     and role in ('melodic', 'bd'):
                 want = opl.note_word_bent(note[v], bend_offset(song, bend[v]))
                 delta = want - cur_pitch[v]
-                if delta and cell.eff == TOP_NONE:
-                    step = min(0xFFF, abs(delta))
+                step = min(0xFFF, round(abs(delta)))     # a slide moves whole units
+                if step and cell.eff == TOP_NONE:
                     cell.eff = TOP_F if delta > 0 else TOP_E
                     cell.arg = 0xF000 | step
                     cur_pitch[v] += step if delta > 0 else -step
@@ -540,6 +544,8 @@ def build_cells(song, seq, row_ticks, speed, slot_of, level_of, num_voices):
             cell = cells.setdefault((v, row), Cell())
             if cell.eff == TOP_NONE:
                 cell.eff, cell.arg = writes.pop(0)
+            if writes and cell.eff2 == TOP_NONE:      # format 3: the second effect too
+                cell.eff2, cell.arg2 = writes.pop(0)
         if writes:
             vprint(f"  warning: row {row} had no free effect column for a "
                    f"tempo change")

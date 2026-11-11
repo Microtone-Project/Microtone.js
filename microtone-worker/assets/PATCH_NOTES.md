@@ -4,6 +4,28 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 4.10.0 (2026-11-11)
+
+**Every project is now in format 3, and every note can be tuned to a 65536th of an octave.** Format 3's wider pattern cell used to be for surround songs only; now it is the format every project is written in, stereo ones included, and its note column carries four more bits of pitch: sixteen times finer than before.
+
+- Opening a project saved in an older format converts it as it opens, with one short notice; the file itself is unchanged until you save. Its notes move onto the exact pitches of the song's tuning system, at most 0.15 cent away, so the notes already there and the ones you type next are one grid.
+- The built-in tuning systems (31-TET, 53-TET, the Pythagorean and Shi'er lü tunings and the rest) are now stated at 65536 steps an octave, worked out from their definitions instead of rounded to 4096.
+- Stereo, planar and spatial now only choose how the panning column reads: switching no longer upgrades the project or saves a copy, and a new project is format 3 whichever you pick. Every project has the 8-bit volume column and can show the second effect column.
+- The note column has a narrow cell in front of it. With raw notes on, it holds the octave digit of the five-digit pitch ($50000 is C4, and raw entry takes all five digits); otherwise it is blank.
+- The panning column is as wide as the song needs: two digits in a stereo song, three in a planar one, and the elevation and the angle in a spatial one.
+- The Notation Maker and Scala import keep a notation's degrees at 65536 steps an octave; a notation that needs that is saved in a new version of the notation format, and one of whole steps is saved as before.
+- Find & Change, interpolation, harmonic transpose and copy and paste keep a note's fine pitch.
+- Volume envelopes go from 0 to 255 too, the volume column's own scale: a node can sit four times more finely than before. Instruments with the old 0 to 63 envelopes are converted when a project is opened or an instrument is imported, and sound the same to within a tenth of a decibel; MOD and Impulse Tracker export convert them back exactly.
+- Fixed: changing a sample's loop in the marker editor moved an instrument whose default position was behind the listener round to the front; it rewrote the flag byte that holds that position's ninth bit.
+- A metainstrument's layers, an FM rack's operators and the zones in Advanced Edit show their volume range in note volumes, 0 to 255, like the volume column. The file still keeps it in steps of four, so the low end reads the first volume of its step and the high end the last.
+- The instrument panels read more of their numbers in the units you think in: detune in cents, every pitch range and the pitch-pan centre as a hex note word that also takes a note name like C-4, the sample pointer in hex, and in SoundFont filter mode the cutoff in Hz and the resonance and attenuation in dB. Each steps by what it stores: a degree of the song's tuning system, a semitone of cutoff, a decibel of resonance.
+- Importing a module, a MIDI file or an AdLib song makes a format 3 project directly, at the resolution the source has: tracker volumes and pans no longer pass through 0 to 63, every note and MIDI pitch bend keeps its exact pitch, and instruments' volume envelopes are 8-bit. A module's volume 63 is now a shade under its 64, as the trackers play it, where it used to be the same.
+- A command the import used to drop or delay because the row's one effect column was taken now goes in the second effect column: an XM or IT volume-column vibrato or tone portamento beside another effect, a SOP lane pan beside a pitch slide, a MIDI channel-volume change, an AdLib song's tempo change.
+- MOD and Impulse Tracker export write a volume as the level the song plays at, so a module imported and exported again keeps its volumes exactly.
+- MOD and Impulse Tracker export work on every project: what a module cannot hold, a second effect or a position behind or above the listener, is listed in the export's notes instead of stopping it.
+- Motif: a TML 2 program builds a format 3 project unless its song says `format: 2`, with its notes at 65536 steps an octave and its volumes 0 to 255, its instruments' envelope volumes and layer volume ranges included. The language reference now describes TML 2 alone.
+- The demo songs are written in format 3 now, their volumes in 0 to 255.
+
 ## Version 4.9.0 (2026-11-09)
 
 **The Timbre designer: a small sound designer for FM racks that knows the song's tuning.** Design timbre…, on the FM and Easy tabs, builds a sound out of sine partials — how many, how bright, held, struck or plucked, and where it should sound best — and writes it as an Easy Mode rack, every partial with its own decay.

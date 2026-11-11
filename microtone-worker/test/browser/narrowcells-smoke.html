@@ -32,7 +32,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     const ops = await import("../../src/doc/ops.js");
     const E = await import("../../src/ui/edit.js");
     const wide = store.doc.wideCells === true;
-    const STRIDE = wide ? 13 : 8;
+    const STRIDE = wide ? 16 : 8; // the wide cell is 16 bytes (§5.5)
 
     // ── a known pattern on cue 0, lane 0 ────────────────────────────────
     const PAT = store.song.cues[0][0] & 0x7fff;

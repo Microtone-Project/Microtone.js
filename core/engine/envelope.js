@@ -69,7 +69,7 @@ function jumpToSustainEnd(voice) {
   if (voice.envIndex >= susEnd) return;
   voice.envIndex = susEnd;
   voice.envTimeSec = 0.0;
-  voice.envVolume = Math.min(Math.max(voice.activeVolEnv[susEnd].value / 63.0, 0.0), 1.0);
+  voice.envVolume = Math.min(Math.max(voice.activeVolEnv[susEnd].value / voice.activeVolEnvMax, 0.0), 1.0);
 }
 
 /**
@@ -100,6 +100,8 @@ export function advanceEnvelope(voice, tickSec) {
   // gate WRAPPING, not whether the envelope runs (Schism player/sndmix.c:470-
   // 502). An absent envelope never walks, so it can never fire the cut rule.
   const volEnv = voice.activeVolEnv;
+  // 63 or 255: what a node value of full volume is (byte 14 bit 6, §7.2).
+  const vMax = voice.activeVolEnvMax;
   if (voice.hasVolEnv && voice.volEnvOn) {
     resolveEnvWrap(voice.activeVolEnvLoop, voice.activeVolEnvSustain, voice.keyOff, volWrap);
     const wStart = volWrap[0];
@@ -108,14 +110,14 @@ export function advanceEnvelope(voice, tickSec) {
 
     if (wrapping && voice.envIndex === wEnd && wStart === wEnd) {
       // Hold at the wrap point (FT2 single-point sustain).
-      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / 63.0, 0.0), 1.0);
+      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / vMax, 0.0), 1.0);
     } else if (wrapping && voice.envIndex === wEnd) {
       voice.envTimeSec = 0.0;
       voice.envIndex = wStart;
-      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / 63.0, 0.0), 1.0);
+      voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / vMax, 0.0), 1.0);
     } else if (voice.envIndex >= maxIdx) {
       const vEnd = volEnv[maxIdx].value;
-      voice.envVolume = Math.min(Math.max(vEnd / 63.0, 0.0), 1.0);
+      voice.envVolume = Math.min(Math.max(vEnd / vMax, 0.0), 1.0);
       // Schism's "envelope-end + last-value-0 ⇒ cut" rule — fall-through only.
       if (vEnd === 0 && !wrapping) startRampOut(voice);
     } else {
@@ -123,7 +125,7 @@ export function advanceEnvelope(voice, tickSec) {
       const vCurValue = volEnv[voice.envIndex].value;
       if (vOffset === 0.0) {
         // Reached a terminator point — envelope holds here (IT semantics).
-        voice.envVolume = Math.min(Math.max(vCurValue / 63.0, 0.0), 1.0);
+        voice.envVolume = Math.min(Math.max(vCurValue / vMax, 0.0), 1.0);
         if (vCurValue === 0 && !wrapping) startRampOut(voice);
       } else {
         voice.envTimeSec += tickSec;
@@ -133,11 +135,11 @@ export function advanceEnvelope(voice, tickSec) {
             ? wStart
             : Math.min(voice.envIndex + 1, maxIdx);
           voice.envIndex = nextIdx;
-          voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / 63.0, 0.0), 1.0);
+          voice.envVolume = Math.min(Math.max(volEnv[voice.envIndex].value / vMax, 0.0), 1.0);
         } else {
-          const cur = Math.min(Math.max(vCurValue / 63.0, 0.0), 1.0);
+          const cur = Math.min(Math.max(vCurValue / vMax, 0.0), 1.0);
           const nxt = Math.min(
-            Math.max(volEnv[Math.min(voice.envIndex + 1, maxIdx)].value / 63.0, 0.0), 1.0);
+            Math.max(volEnv[Math.min(voice.envIndex + 1, maxIdx)].value / vMax, 0.0), 1.0);
           voice.envVolume = cur + (nxt - cur) * (voice.envTimeSec / vOffset);
         }
       }

@@ -239,7 +239,8 @@ export function showPanner(store, target) {
           return;
         }
         target.apply({
-          azimuth: Math.round(wrapAzimuth(az)) & 0x1ff,
+          // A stereo song's column shows the azimuth's byte, 00 … FF.
+          azimuth: stereo ? Math.min(0xff, Math.round(az)) : Math.round(wrapAzimuth(az)) & 0x1ff,
           elevation: spatial ? Math.max(-128, Math.min(127, Math.round(el))) : 0,
           panEff: 0, // SET
         });

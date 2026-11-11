@@ -449,7 +449,7 @@ function applyInstrumentChange(eng, ts, voice, newInst, newPatch,
   if (!(mayCarry && envCarry(voice.activeVolEnvLoop))) {
     voice.envIndex = 0;
     voice.envTimeSec = 0.0;
-    voice.envVolume = clamp(voice.activeVolEnv[0].value / 63.0, 0.0, 1.0);
+    voice.envVolume = clamp(voice.activeVolEnv[0].value / voice.activeVolEnvMax, 0.0, 1.0);
   }
   // envVolMix is deliberately NOT snapped here (item 142). This re-attack does
   // not restart the sample and arms no attack ramp, so snapping the smoothed

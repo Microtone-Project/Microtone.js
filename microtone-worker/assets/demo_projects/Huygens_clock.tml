@@ -18,6 +18,7 @@ tml 2
 
 song {
   title: "Huygens' Clock"
+  format: 3                   // volumes 0–255, the volume column's own units
   composer: "CuriousTorvald via Motif"
   copyright: "(c) 2026 CuriousTorvald"
   message: ABOUT              // the Project message, written at the end of this file
@@ -72,18 +73,18 @@ instrument GTR      { bank: 0,   program: 27 }
 instrument VIB      { bank: 0,   program: 11 }
 
 // ── lanes: pan $00 left … $80 centre … $100 right ─────────────────────────────
-lane kick  { inst: KIT,      pan: $80, label: "Kick",       jitter: 2 }
-lane snare { inst: KIT,      pan: $7A, label: "Snare",      jitter: 2 }
-lane hat   { inst: KIT,      pan: $A6, label: "Hats",       jitter: 4 }
-lane cym   { inst: KIT,      pan: $66, label: "Cymbals",    jitter: 3 }
+lane kick  { inst: KIT,      pan: $80, label: "Kick",       jitter: 8 }
+lane snare { inst: KIT,      pan: $7A, label: "Snare",      jitter: 8 }
+lane hat   { inst: KIT,      pan: $A6, label: "Hats",       jitter: 16 }
+lane cym   { inst: KIT,      pan: $66, label: "Cymbals",    jitter: 12 }
 lane tom   { inst: KIT,      pan: $80, label: "Toms" }
-lane perc  { inst: KIT,      pan: $9C, label: "Percussion", jitter: 3 }
+lane perc  { inst: KIT,      pan: $9C, label: "Percussion", jitter: 12 }
 lane bass  { inst: FRETLESS, pan: $80, label: "Fretless",   trim: 1.2 }
 lane ep1   { inst: EP,       pan: $4A, label: "Tines 1" }
 lane ep2   { inst: EP,       pan: $6E, label: "Tines 2" }
 lane ep3   { inst: EP,       pan: $92, label: "Tines 3" }
 lane ep4   { inst: EP,       pan: $B5, label: "Tines 4" }
-lane mar   { inst: MAR,      pan: $56, label: "Marimba",    jitter: 2 }
+lane mar   { inst: MAR,      pan: $56, label: "Marimba",    jitter: 8 }
 lane vib   { inst: VIB,      pan: $AE, label: "Vibes" }
 lane pad1  { inst: PAD,      pan: $40, label: "Pad 1" }
 lane pad2  { inst: PAD,      pan: $6A, label: "Pad 2" }
@@ -95,7 +96,7 @@ lane str3  { inst: STR,      pan: $94, label: "Strings 3" }
 lane str4  { inst: STR,      pan: $B6, label: "Strings 4" }
 lane lead  { inst: LEAD,     pan: $8A, label: "Lead" }
 lane flute { inst: FLUTE,    pan: $72, label: "Flute" }
-lane gtr   { inst: GTR,      pan: $B2, label: "Guitar",     jitter: 2 }
+lane gtr   { inst: GTR,      pan: $B2, label: "Guitar",     jitter: 8 }
 
 let EPS = [ep1, ep2, ep3, ep4]
 let PADS = [pad1, pad2, pad3, pad4]
@@ -169,62 +170,62 @@ fn ride(bar, row, name, vol) => dr(cym, bar, row, name, vol, "S", $7300)
 fn groove_a(bar, variant = 0, tamb = false, open = false, fill_from = 14) {
   fn k(row, name, vol) { if row < fill_from { dr(kick, bar, row, name, vol) } }
   fn sn(row, name, vol) { if row < fill_from { dr(snare, bar, row, name, vol) } }
-  k(0, "kick", 54)
-  k(6, "kick", 41)
-  k(8, "kick", 50)
-  if variant & 1 != 0 { k(11, "kick", 38) }
-  sn(4, "snare", 49)
-  sn(10, "snare", 53)
-  sn(7, "snare", 13)
-  if variant & 1 == 0 { sn(13, "snare", 17) }
+  k(0, "kick", 219)
+  k(6, "kick", 166)
+  k(8, "kick", 202)
+  if variant & 1 != 0 { k(11, "kick", 154) }
+  sn(4, "snare", 198)
+  sn(10, "snare", 215)
+  sn(7, "snare", 53)
+  if variant & 1 == 0 { sn(13, "snare", 69) }
   // closed hats, the two off-beat ones only in the odd variant; an open one on 12
-  let hv = [60, 0, 44, 0, 56, 0, 44, 0, 58, 30, 44, 32, 50, 0]
+  let hv = [243, 0, 178, 0, 227, 0, 178, 0, 235, 121, 178, 130, 202, 0]
   for r in 0..<14 if hv[r] != 0 and r < fill_from and not ((r == 9 or r == 11) and variant & 1 == 0) {
-    if r == 12 and open { open_hat(bar, 12, 46) }
+    if r == 12 and open { open_hat(bar, 12, 186) }
     else { dr(hat, bar, r, "hatC", hv[r]) }
   }
   if tamb {
-    dr(perc, bar, 4, "tamb", 26)
-    if 10 < fill_from { dr(perc, bar, 10, "tamb", 30) }
+    dr(perc, bar, 4, "tamb", 105)
+    if 10 < fill_from { dr(perc, bar, 10, "tamb", 121) }
   }
 }
 
 fn groove_solo(bar, variant = 0) {
-  dr(kick, bar, 0, "kick", 54)
-  dr(kick, bar, 6, "kick", 41)
-  dr(kick, bar, 8, "kick", 49)
-  dr(kick, bar, 11, "kick", 39)
-  dr(snare, bar, 4, "snare", 50)
-  dr(snare, bar, 10, "snare", 53)
-  dr(snare, bar, 2, "snare", 12)
-  dr(snare, bar, 7, "snare", 14)
-  if variant & 1 != 0 { dr(snare, bar, 13, "snare", 18) }
+  dr(kick, bar, 0, "kick", 219)
+  dr(kick, bar, 6, "kick", 166)
+  dr(kick, bar, 8, "kick", 198)
+  dr(kick, bar, 11, "kick", 158)
+  dr(snare, bar, 4, "snare", 202)
+  dr(snare, bar, 10, "snare", 215)
+  dr(snare, bar, 2, "snare", 49)
+  dr(snare, bar, 7, "snare", 57)
+  if variant & 1 != 0 { dr(snare, bar, 13, "snare", 73) }
   // the ride in eighths — under() whatever else strikes the cymbal there
-  let rv = [58, 0, 44, 0, 52, 0, 44, 0, 54, 0, 44, 0, 48, 0]
-  for r in 0..<14 by 2 { under(ride(bar, r, if r == 8 then "bell" else "ride", if r == 8 then 44 else rv[r])) }
-  dr(hat, bar, 4, "hatP", 50)
-  dr(hat, bar, 10, "hatP", 50)
+  let rv = [235, 0, 178, 0, 210, 0, 178, 0, 219, 0, 178, 0, 194, 0]
+  for r in 0..<14 by 2 { under(ride(bar, r, if r == 8 then "bell" else "ride", if r == 8 then 178 else rv[r])) }
+  dr(hat, bar, 4, "hatP", 202)
+  dr(hat, bar, 10, "hatP", 202)
 }
 
 // Half time for the chain: kick on one, snare on the three-group, ride and shaker moving.
 fn groove_half(bar, second) {
-  dr(kick, bar, 0, "kick", if second then 46 else 52)
-  if not second { dr(kick, bar, 11, "kick", 36) }
-  else { dr(kick, bar, 6, "kick", 34) }
-  dr(snare, bar, 8, "snare", 48)
-  if second { dr(snare, bar, 4, "rim", 30) }
+  dr(kick, bar, 0, "kick", if second then 186 else 210)
+  if not second { dr(kick, bar, 11, "kick", 146) }
+  else { dr(kick, bar, 6, "kick", 138) }
+  dr(snare, bar, 8, "snare", 194)
+  if second { dr(snare, bar, 4, "rim", 121) }
   for r in 0..<14 by 2 {
-    under(ride(bar, r, if r == 0 and not second then "bell" else "ride", if r % 4 == 0 or r == 8 then 46 else 36))
+    under(ride(bar, r, if r == 0 and not second then "bell" else "ride", if r % 4 == 0 or r == 8 then 186 else 146))
   }
-  dr(hat, bar, 4, "hatP", 42)
-  dr(hat, bar, 12, "hatP", 38)
+  dr(hat, bar, 4, "hatP", 170)
+  dr(hat, bar, 12, "hatP", 154)
   for r in 0..<14 {
-    under(dr(perc, bar, r, "shaker", [34, 20, 28, 20][r % 4] - (if r >= 8 and r % 2 == 1 then 2 else 0)))
+    under(dr(perc, bar, r, "shaker", [138, 81, 113, 81][r % 4] - (if r >= 8 and r % 2 == 1 then 8 else 0)))
   }
 }
 
 fn fill_toms(bar, from = 8) {
-  let strokes = [["tomHi", 46], ["tomHi", 40], ["tomHM", 50], ["tomLM", 48], ["flHi", 54], ["flLo", 58]]
+  let strokes = [["tomHi", 186], ["tomHi", 162], ["tomHM", 202], ["tomLM", 194], ["flHi", 219], ["flLo", 235]]
   for i in 0..<14 - from {
     let [n, v] = strokes[max(0, len(strokes) - (14 - from) + i)]
     dr(tom, bar, from + i, n, v)
@@ -237,12 +238,12 @@ fn snare_fill(bar, from, vols) {
 
 // ── bass ─────────────────────────────────────────────────────────────────────
 let BASS = {
-  Dsub7a: "D2:3@54 D2:1@28 D3:2@46 Cp2:2@48 A2:3@52 A2:1@26 G2:2@44"
-  Dsub7b: "D2:3@54 D2:1@28 D3:2@46 Cp2:2@48 A2:2@50 Fp2:2@44 D2:2@46"
-  Bb7h: "Bb1:3@54 Bb1:1@28 Bb2:2@46 G#2:2@48 F2:3@52 F2:1@26 Bb1:1@44 ~A1:1"
-  A7h: "A1:3@54 A1:1@28 A2:2@46 Gp2:2@48 E2:3@52 E2:1@26 C#2:2@46"
-  D7a: "D2:3@54 D2:1@28 D3:2@46 Cp2:2@48 A2:3@52 A2:1@26 G2:2@44"
-  D7b: "D2:3@54 D2:1@28 D3:2@46 Cp2:2@48 A2:2@50 F#2:2@44 D2:2@46"
+  Dsub7a: "D2:3@219 D2:1@113 D3:2@186 Cp2:2@194 A2:3@210 A2:1@105 G2:2@178"
+  Dsub7b: "D2:3@219 D2:1@113 D3:2@186 Cp2:2@194 A2:2@202 Fp2:2@178 D2:2@186"
+  Bb7h: "Bb1:3@219 Bb1:1@113 Bb2:2@186 G#2:2@194 F2:3@210 F2:1@105 Bb1:1@178 ~A1:1"
+  A7h: "A1:3@219 A1:1@113 A2:2@186 Gp2:2@194 E2:3@210 E2:1@105 C#2:2@186"
+  D7a: "D2:3@219 D2:1@113 D3:2@186 Cp2:2@194 A2:3@210 A2:1@105 G2:2@178"
+  D7b: "D2:3@219 D2:1@113 D3:2@186 Cp2:2@194 A2:2@202 F#2:2@178 D2:2@186"
 }
 fn bass_bar(bar, key) => melody(bass, at(bar), BASS[key], glide_rows: 1)
 
@@ -255,14 +256,14 @@ let EPV = {
 }
 fn ep_chord(bar, row, steps, vol, len) {
   for i, s in steps {
-    hit(EPS[i], at(bar, row), s, vol - (if i == 0 then 2 else 0))
+    hit(EPS[i], at(bar, row), s, vol - (if i == 0 then 8 else 0))
     if len { keyoff(EPS[i], at(bar, row) + len) }
   }
 }
 // A two-bar comping cell in 2+2+3.
 fn ep_comp(bar, voicing, alt) {
-  if not alt { ep_chord(bar, 0, voicing, 36, 4); ep_chord(bar, 6, voicing, 27, 2); ep_chord(bar, 10, voicing, 32, 4) }
-  else { ep_chord(bar, 0, voicing, 35, 3); ep_chord(bar, 3, voicing, 26, 2); ep_chord(bar, 8, voicing, 32, 6) }
+  if not alt { ep_chord(bar, 0, voicing, 146, 4); ep_chord(bar, 6, voicing, 109, 2); ep_chord(bar, 10, voicing, 130, 4) }
+  else { ep_chord(bar, 0, voicing, 142, 3); ep_chord(bar, 3, voicing, 105, 2); ep_chord(bar, 8, voicing, 130, 6) }
 }
 
 let MARV = {
@@ -273,10 +274,10 @@ let MARV = {
   Doton: notes("D3 A3 Cp3 D4 F#4 Gt4")
 }
 let MAR_IDX = [0, 1, 3, 1, 2, 1, 4, 1, 3, 1, 4, 3, 5, 4]
-let MAR_ACC = [8, -4, 2, -4, 7, -4, 2, -4, 7, -4, 2, -2, 3, -4]
+let MAR_ACC = [32, -16, 8, -16, 28, -16, 8, -16, 28, -16, 8, -8, 12, -16]
 // The clock: a 14-sixteenth ostinato round a pivot tone.
 fn marimba_bar(bar, voicing, base, upto = 14) {
-  for r in 0..<upto { hit(mar, at(bar, r), voicing[MAR_IDX[r]], max(4, round(base + MAR_ACC[r]))) }
+  for r in 0..<upto { hit(mar, at(bar, r), voicing[MAR_IDX[r]], max(16, round(base + MAR_ACC[r]))) }
 }
 
 let GTRV = {
@@ -287,7 +288,7 @@ let GTRV = {
 }
 let GTR_ROWS = [0, 2, 3, 5, 6, 8, 10, 11, 13]
 let GTR_IDX = [0, 1, 2, 1, 3, 0, 2, 1, 3]
-let GTR_VOL = [42, 32, 30, 28, 38, 40, 32, 28, 34]
+let GTR_VOL = [170, 130, 121, 113, 154, 162, 130, 113, 138]
 fn guitar_bar(bar, voicing, lift = 0) {
   for i, r in GTR_ROWS { hit(gtr, at(bar, r), voicing[GTR_IDX[i]], GTR_VOL[i] + lift) }
 }
@@ -296,7 +297,7 @@ fn guitar_bar(bar, voicing, lift = 0) {
 fn vibes_bar(bar, tones, idx, base) {
   for i, k in idx {
     let r = i * 2
-    hit(vib, at(bar, r), tones[k], base + (if r == 0 or r == 4 or r == 8 then 5 else 0))
+    hit(vib, at(bar, r), tones[k], base + (if r == 0 or r == 4 or r == 8 then 20 else 0))
   }
 }
 
@@ -316,30 +317,30 @@ fn glide_chord(ids, row, from, to, rows) {
 // 1–8  INTRO — the clock alone, then the band arriving
 // ═════════════════════════════════════════════════════════════════════════════
 for b in 1..8 {
-  let base = if b <= 2 then 26 + b * 3 else if b <= 4 then 34 + (b - 3) * 2 else 40
+  let base = if b <= 2 then 105 + b * 12 else if b <= 4 then 138 + (b - 3) * 8 else 162
   marimba_bar(b, MARV[CH[b].name], base)
 }
 // Pad from bar 3, swelling in: a new voicing at every change of chord.
 {
   let bars = changes(3..8)
   let v = voicings(notes("D3 A3 Fp4 Cp4"), [CH[b] for b in bars], 'C3', 'D5')
-  for i, b in bars { hold_chord(PADS, b, 0, v[i], if b == 3 then 16 else 32, 0) }
-  for p in PADS { for r in 1..5 { vol_slide(p, at(3, r), 1) } }
+  for i, b in bars { hold_chord(PADS, b, 0, v[i], if b == 3 then 65 else 130, 0) }
+  for p in PADS { for r in 1..5 { vol_slide(p, at(3, r), 4) } }
   for p in PADS { keyoff(p, at(9)) }
 }
 // Bass, hats and tines from bar 5; toms into the theme.
 for b in 5..8 {
   let c = CH[b].name
-  if b == 5 or b == 6 { melody(bass, at(b), if b == 5 then "D2:8@46 A2:4@40 Cp2:2@40" else "D2:6@46 D3:2@36 A2:4@40 Cp1:2@40") }
-  else if b == 7 { melody(bass, at(b), "Bb1:6@46 Bb2:2@36 F2:4@40 Bb1:1@40 ~A1:1") }
-  else { melody(bass, at(b), "A1:6@48 A2:2@38 E2:2@42 Gp2:2@42 C#2:2@44") }
-  ep_chord(b, 0, EPV[c], 30, if b == 8 then 8 else 13)
-  for r in 0..<14 by 2 { dr(hat, b, r, "hatC", (if r == 0 or r == 4 or r == 8 then 44 else 32) + (b - 5) * 3) }
-  if b >= 6 { dr(snare, b, 4, "rim", 30); dr(snare, b, 10, "rim", 34) }
+  if b == 5 or b == 6 { melody(bass, at(b), if b == 5 then "D2:8@186 A2:4@162 Cp2:2@162" else "D2:6@186 D3:2@146 A2:4@162 Cp1:2@162") }
+  else if b == 7 { melody(bass, at(b), "Bb1:6@186 Bb2:2@146 F2:4@162 Bb1:1@162 ~A1:1") }
+  else { melody(bass, at(b), "A1:6@194 A2:2@154 E2:2@170 Gp2:2@170 C#2:2@178") }
+  ep_chord(b, 0, EPV[c], 121, if b == 8 then 8 else 13)
+  for r in 0..<14 by 2 { dr(hat, b, r, "hatC", (if r == 0 or r == 4 or r == 8 then 178 else 130) + (b - 5) * 12) }
+  if b >= 6 { dr(snare, b, 4, "rim", 121); dr(snare, b, 10, "rim", 138) }
 }
-dr(kick, 7, 0, "kick", 48)
-dr(kick, 8, 0, "kick", 54)
-dr(kick, 8, 8, "kick", 50)
+dr(kick, 7, 0, "kick", 194)
+dr(kick, 8, 0, "kick", 219)
+dr(kick, 8, 8, "kick", 202)
 fill_toms(8, 8)
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -355,16 +356,16 @@ let THEME_MINOR = """
   Bb5:4v G#5:2 F5:2 D5:2 F5:2 G#5:2 |
   A5:6v E5:2 C#5:2 Gp5:4v
   """
-melody(lead, at(9), THEME_MINOR, vol: 55)
-dr(cym, 9, 0, "crash", 54)
+melody(lead, at(9), THEME_MINOR, vol: 223)
+dr(cym, 9, 0, "crash", 219)
 for b in 9..16 {
   let c = CH[b].name
   groove_a(b, variant: b % 2, open: b % 4 == 0 and b != 16, fill_from: if b == 16 then 8 else 14)
   bass_bar(b, if c == "Dsub7" then (if (b - 9) % 4 == 0 then "Dsub7a" else "Dsub7b") else c)
   ep_comp(b, EPV[c], b % 2 == 0)
-  marimba_bar(b, MARV[c], 22)
+  marimba_bar(b, MARV[c], 89)
 }
-snare_fill(16, 8, [30, 34, 40, 44, 50, 56])
+snare_fill(16, 8, [121, 138, 162, 178, 202, 227])
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 17–24  SOLO — lead synth over the same loop, ride cymbal, guitar figure
@@ -379,8 +380,8 @@ let SOLO = """
   D6:2 F6:2 ~G#6:6v F6:2 D6:2 |
   C#6:2 E6:2 Gp6:4v E6:1 C#6:1 A5:2 Gp5:2
   """
-melody(lead, at(17), SOLO, vol: 55, vib: [$80, $18])
-dr(perc, 17, 0, "crash2", 52)
+melody(lead, at(17), SOLO, vol: 223, vib: [$80, $18])
+dr(perc, 17, 0, "crash2", 210)
 for b in 17..24 {
   let c = CH[b].name
   groove_solo(b, b % 2)
@@ -397,14 +398,14 @@ fill_toms(24, 8)
 {
   // Pad: one attack at bar 25, then the triads MORPH — every change is a glide.
   let pv = [notes("Bb3 D4 F4")] + voicings(notes("Bb3 D4 F4"), CHAIN[1..<8], 'D3', 'A4')
-  hold_chord(PADS, 25, 0, pv[0], 48, 0)
+  hold_chord(PADS, 25, 0, pv[0], 194, 0)
   for k in 1..<8 { glide_chord(PADS, at(25 + 2 * k), pv[k - 1], pv[k], 4) }
   for p in PADS[0..<3] { keyoff(p, at(41)) }
   // Strings join at bar 33 an octave up, gliding the same way.
   let first = nearest_chord(notes("E4 G4 C5 E5"), CHAIN[4], 'C4', 'G5')
   let sv = [first] + voicings(first, CHAIN[5..<8], 'A3', 'G5')
-  hold_chord(STRS, 33, 0, sv[0], 10, 0)
-  for s in STRS { for r in 1..3 by 2 { vol_slide(s, at(33, r), 1) } }   // a milder swell
+  hold_chord(STRS, 33, 0, sv[0], 40, 0)
+  for s in STRS { for r in 1..3 by 2 { vol_slide(s, at(33, r), 4) } }   // a milder swell
   for k in 5..<8 { glide_chord(STRS, at(25 + 2 * k), sv[k - 5], sv[k - 4], 4) }
   for s in STRS { keyoff(s, at(41)) }
 }
@@ -417,13 +418,13 @@ fill_toms(24, 8)
     let high = r0 >= 'G2'
     let fifth = if high then r0 - 13 else r0 + 18
     let oct = if high then r0 - 31 else r0 + 31
-    melody(bass, at(b), "${note_name(r0)}:8@52 ${note_name(fifth)}:3@40 ${note_name(oct)}:3@36 | ${note_name(r0)}:8@48 ${note_name(fifth)}:4@42")
+    melody(bass, at(b), "${note_name(r0)}:8@210 ${note_name(fifth)}:3@162 ${note_name(oct)}:3@146 | ${note_name(r0)}:8@194 ${note_name(fifth)}:4@170")
     let resets = k == 3 or k == 7   // the line drops back an octave here
     if not resets {
-      hit(bass, at(b + 1, 12), r0, 44)
+      hit(bass, at(b + 1, 12), r0, 178)
       glide(bass, at(b + 1, 13), roots[k + 1], glide_speed(r0, roots[k + 1], 1))
     } else {
-      hit(bass, at(b + 1, 12), oct, 42)
+      hit(bass, at(b + 1, 12), oct, 170)
     }
   }
   keyoff(bass, at(41))
@@ -433,8 +434,8 @@ for k in 0..<8 {
   let low = period() * 3 + CHAIN[k].root
   let rs = if low < 'Ab3' then low + period() else low
   let tones = [rs, rs + 18, rs + 31, rs + 41, rs + 49]
-  vibes_bar(25 + 2 * k, tones, [0, 1, 2, 3, 4, 3, 2], 19)
-  vibes_bar(26 + 2 * k, tones, [1, 2, 3, 4, 2, 3, 1], 18)
+  vibes_bar(25 + 2 * k, tones, [0, 1, 2, 3, 4, 3, 2], 77)
+  vibes_bar(26 + 2 * k, tones, [1, 2, 3, 4, 2, 3, 1], 73)
 }
 keyoff(vib, at(41))
 // Flute: each long note slides one diesis as the harmony turns under it.
@@ -456,16 +457,16 @@ let CHAIN_FLUTE = """
   ~Bp5:14v |
   Dt6:2 Ft6:4v Dt6:2 Bp5:4v A5:22v
   """
-melody(flute, at(25), CHAIN_FLUTE, vol: 29, glide_rows: 3, vib: [$70, $10])
-for r in at(41, 4)..<at(42, 8) { vol_fine(flute, r, -2) }
+melody(flute, at(25), CHAIN_FLUTE, vol: 117, glide_rows: 3, vib: [$70, $10])
+for r in at(41, 4)..<at(42, 8) { vol_fine(flute, r, -8) }
 // Drums
-dr(cym, 25, 0, "crash", 40)
-dr(perc, 25, 0, "chimes", 30)
-dr(cym, 33, 0, "crash", 48)
-dr(perc, 33, 0, "chimes", 26)
+dr(cym, 25, 0, "crash", 162)
+dr(perc, 25, 0, "chimes", 121)
+dr(cym, 33, 0, "crash", 194)
+dr(perc, 33, 0, "chimes", 105)
 for b in 25..40 { groove_half(b, (b - 25) % 2 == 1) }
-snare_fill(32, 10, [26, 32, 38, 44])
-for [r, n, v] in [[8, "tomHM", 34], [10, "tomLM", 30], [12, "flHi", 28], [13, "flLo", 26]] { dr(tom, 40, r, n, v) }
+snare_fill(32, 10, [105, 130, 154, 178])
+for [r, n, v] in [[8, "tomHM", 138], [10, "tomLM", 121], [12, "flHi", 113], [13, "flLo", 105]] { dr(tom, 40, r, n, v) }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 41–48  THE FIVE THIRDS — over D, the third climbs one diesis a bar:
@@ -475,7 +476,7 @@ for [r, n, v] in [[8, "tomHM", 34], [10, "tomLM", 30], [12, "flHi", 28], [13, "f
   let third = notes("Fp4 F4 Ft4 F#4 Gb4 F#4 F#4 F#4")
   let seventh = notes("Cp4 C5 Ct5 C#5 C#5 Cp4 Cp4 Cp4")
   // Pad: D and A held, the third and seventh glide.
-  hold_chord(PADS, 41, 0, ['D3', 'A3', third[0], seventh[0]], 54, 0)
+  hold_chord(PADS, 41, 0, ['D3', 'A3', third[0], seventh[0]], 219, 0)
   for b in 42..48 {
     let k = b - 41
     if third[k] != third[k - 1] { glide(pad3, at(b), third[k], glide_speed(third[k - 1], third[k], 3)) }
@@ -484,19 +485,19 @@ for [r, n, v] in [[8, "tomHM", 34], [10, "tomLM", 30], [12, "flHi", 28], [13, "f
   // Tines re-strike every bar so each quality is heard on its own.
   for b in 41..48 {
     let k = b - 41
-    ep_chord(b, 0, ['D4', third[k], 'A4', seventh[k]], if b <= 45 then 36 else 40, if b >= 47 then 8 else 12)
-    if b >= 47 { ep_chord(b, 8, ['D4', third[k], 'A4', seventh[k]], 32, 6) }
+    ep_chord(b, 0, ['D4', third[k], 'A4', seventh[k]], if b <= 45 then 146 else 162, if b >= 47 then 8 else 12)
+    if b >= 47 { ep_chord(b, 8, ['D4', third[k], 'A4', seventh[k]], 130, 6) }
   }
   // Strings from bar 43, an octave over the pad's moving notes; then the 9th and 11th.
-  hold_chord(STRS, 43, 0, ['D4', third[2] + 31, 'A4', seventh[2]], 10, 0)
-  for s in STRS { for r in 1..4 by 2 { vol_slide(s, at(43, r), 1) } }   // a milder swell
+  hold_chord(STRS, 43, 0, ['D4', third[2] + 31, 'A4', seventh[2]], 40, 0)
+  for s in STRS { for r in 1..4 by 2 { vol_slide(s, at(43, r), 4) } }   // a milder swell
   for b in 44..46 {
     let k = b - 41
     if third[k] != third[k - 1] { glide(str2, at(b), third[k] + 31, glide_speed(third[k - 1], third[k], 3)) }
     if seventh[k] != seventh[k - 1] { glide(str4, at(b), seventh[k], glide_speed(seventh[k - 1], seventh[k], 3)) }
   }
-  hit(str1, at(47), 'E5', 40)    // the 9th harmonic
-  hit(str3, at(48), 'Gt5', 42)   // the 11th harmonic
+  hit(str1, at(47), 'E5', 162)    // the 9th harmonic
+  hit(str3, at(48), 'Gt5', 170)   // the 11th harmonic
   for s in STRS { keyoff(s, at(49)) }
   for p in PADS { keyoff(p, at(49)) }
   // Vibes: soft eighths through each chord, the 9th and the 11th joining.
@@ -504,25 +505,25 @@ for [r, n, v] in [[8, "tomHM", 34], [10, "tomLM", 30], [12, "flHi", 28], [13, "f
     let k = b - 41
     let tones = ['D4', 'A4', seventh[k], third[k] + 31] + (if b == 47 then ['E5'] else if b == 48 then ['E5', 'Gt5'] else [])
     let idx = if b < 47 then [0, 1, 2, 3, 2, 1, 3] else if b == 47 then [0, 1, 2, 3, 4, 3, 4] else [1, 2, 3, 4, 5, 4, 5]
-    vibes_bar(b, tones, idx, if b < 45 then 19 else 22)
+    vibes_bar(b, tones, idx, if b < 45 then 77 else 89)
   }
   keyoff(vib, at(49))
 }
 // Bass pedal, then driving eighths into the return.
-melody(bass, at(41), "D2:28@44 | | D2:28@44 | | D2:14@46 | D2:14@48 |")
+melody(bass, at(41), "D2:28@178 | | D2:28@178 | | D2:14@186 | D2:14@194 |")
 for b in 47..48 {
-  for r in 0..<14 by 2 { hit(bass, at(b, r), if r % 4 == 0 or r == 8 then 'D2' else 'D3', 42 + (b - 47) * 6 + (if r == 0 then 4 else 0)) }
+  for r in 0..<14 by 2 { hit(bass, at(b, r), if r % 4 == 0 or r == 8 then 'D2' else 'D3', 170 + (b - 47) * 24 + (if r == 0 then 16 else 0)) }
 }
 // Drums: silence, then the build.
 for b in 45..46 {
-  for r in 0..<14 by 2 { ride(b, r, "ride", if r == 0 or r == 4 or r == 8 then 24 else 16) }
-  dr(hat, b, 4, "hatP", 22); dr(hat, b, 10, "hatP", 22)
+  for r in 0..<14 by 2 { ride(b, r, "ride", if r == 0 or r == 4 or r == 8 then 97 else 65) }
+  dr(hat, b, 4, "hatP", 89); dr(hat, b, 10, "hatP", 89)
 }
-for b in 47..48 { for r in 0..<14 by 2 { dr(kick, b, r, "kick", 40 + (b - 47) * 10 + r) } }
+for b in 47..48 { for r in 0..<14 by 2 { dr(kick, b, r, "kick", 162 + (b - 47) * 40 + 4 * r) } }
 // Snare roll: 32nds (retrigger every 3 ticks) swelling over two bars.
 for r in 0..<24 {
   let row = at(47) + r
-  let vol = round(14 + r * 40 / 23)
+  let vol = round(57 + r * 162 / 23)
   if r == 0 { hit(snare, row, midi(GM.snare), vol, "Q", $0300) }
   else { fx(snare, row, "Q", $0300); set_vol(snare, row, vol) }
 }
@@ -532,17 +533,17 @@ fill_toms(48, 10)
 // 49–56  THEME IN THE MAJOR — the subminor third becomes 5/4; 4:5:6:7 tonic
 // ═════════════════════════════════════════════════════════════════════════════
 let THEME_MAJOR = replace(THEME_MINOR, "Fp5", "F#5")
-melody(lead, at(49), THEME_MAJOR, vol: 56)
-melody(flute, at(49), THEME_MAJOR, vol: 17, transpose: 31, vib: [$70, $10])
-dr(cym, 49, 0, "crash", 58)
-dr(cym, 53, 0, "crash2", 50)
+melody(lead, at(49), THEME_MAJOR, vol: 227)
+melody(flute, at(49), THEME_MAJOR, vol: 69, transpose: 31, vib: [$70, $10])
+dr(cym, 49, 0, "crash", 235)
+dr(cym, 53, 0, "crash2", 202)
 for b in 49..56 {
   let c = CH[b].name
   groove_a(b, variant: b % 2, tamb: true, open: b % 2 == 0 and b != 56, fill_from: if b == 56 then 10 else 14)
   bass_bar(b, if c == "D7h" then (if (b - 49) % 4 == 0 then "D7a" else "D7b") else c)
   ep_comp(b, EPV[c], b % 2 == 0)
-  marimba_bar(b, MARV[c], 24)
-  guitar_bar(b, GTRV[c], -4)
+  marimba_bar(b, MARV[c], 97)
+  guitar_bar(b, GTRV[c], -16)
 }
 // Strings and pad move at each change of chord: the strings voice-led from a
 // 4:5:6:7 on D, the pad's three notes voiced afresh from the same open triad.
@@ -550,11 +551,11 @@ for b in 49..56 {
   let bars = changes(49..56)
   let sv = [notes("D4 F#4 A4 Cp4")] + voicings(notes("D4 F#4 A4 Cp4"), [CH[b] for b in slice(bars, 1)], 'A3', 'A5')
   for i, b in bars {
-    hold_chord(STRS, b, 0, sv[i], 24, 0)
-    hold_chord(PADS[0..<3], b, 0, nearest_chord(notes("D3 A3 F#4"), CH[b], 'C3', 'C5', n: 3), 35, 0)
+    hold_chord(STRS, b, 0, sv[i], 97, 0)
+    hold_chord(PADS[0..<3], b, 0, nearest_chord(notes("D3 A3 F#4"), CH[b], 'C3', 'C5', n: 3), 142, 0)
   }
 }
-snare_fill(56, 10, [36, 42, 48, 54])
+snare_fill(56, 10, [146, 170, 194, 219])
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 57–64  CODA — German sixth and dominant, both harmonic sevenths, then the
@@ -567,10 +568,10 @@ let TAG = """
   A6:4v Gp6:2 E6:2 C#6:2 E6:2 Gp6:2 |
   ~F#6:28v
   """
-melody(lead, at(57), TAG, vol: 54, glide_rows: 3)
-melody(flute, at(57), replace(TAG, "~F#6:28v", "D7:28v"), vol: 24, transpose: -31, glide_rows: 3)
-for r in at(62)..<at(63) { vol_fine(lead, r, -3); vol_fine(flute, r, -2) }
-dr(cym, 57, 0, "crash", 54)
+melody(lead, at(57), TAG, vol: 219, glide_rows: 3)
+melody(flute, at(57), replace(TAG, "~F#6:28v", "D7:28v"), vol: 97, transpose: -31, glide_rows: 3)
+for r in at(62)..<at(63) { vol_fine(lead, r, -12); vol_fine(flute, r, -8) }
+dr(cym, 57, 0, "crash", 219)
 {
   let sv = voicings(notes("D4 F#4 A4 Cp4"), [CH[b] for b in 57..60], 'A3', 'A5')
   for b in 57..60 {
@@ -578,38 +579,38 @@ dr(cym, 57, 0, "crash", 54)
     groove_a(b, variant: b % 2, tamb: true, open: b == 58, fill_from: if b == 60 then 4 else 14)
     bass_bar(b, c)
     ep_comp(b, EPV[c], b % 2 == 0)
-    marimba_bar(b, MARV[c], 26)
-    guitar_bar(b, GTRV[c], -2)
-    hold_chord(STRS, b, 0, sv[b - 57], 28, 0)
-    hold_chord(PADS[0..<3], b, 0, nearest_chord(notes("D3 A3 F#4"), CH[b], 'C3', 'C5', n: 3), 38, 0)
+    marimba_bar(b, MARV[c], 105)
+    guitar_bar(b, GTRV[c], -8)
+    hold_chord(STRS, b, 0, sv[b - 57], 113, 0)
+    hold_chord(PADS[0..<3], b, 0, nearest_chord(notes("D3 A3 F#4"), CH[b], 'C3', 'C5', n: 3), 154, 0)
   }
 }
-snare_fill(60, 4, [v for v in [30, 0, 34, 38, 0, 42, 46, 50, 54, 58] if v != 0])
-for [r, n, v] in [[5, "tomHi", 44], [8, "tomHM", 48], [11, "flHi", 52]] { dr(tom, 60, r, n, v) }
+snare_fill(60, 4, [v for v in [121, 0, 138, 154, 0, 170, 186, 202, 219, 235] if v != 0])
+for [r, n, v] in [[5, "tomHi", 178], [8, "tomHM", 194], [11, "flHi", 210]] { dr(tom, 60, r, n, v) }
 
 // 61: the chord. Everyone strikes; then it rings down and the marimba keeps time.
-dr(kick, 61, 0, "kick", 62)
-dr(cym, 61, 0, "crash", 60)
-dr(perc, 61, 0, "splash", 40)
-hit(bass, at(61), 'D2', 56)
+dr(kick, 61, 0, "kick", 251)
+dr(cym, 61, 0, "crash", 243)
+dr(perc, 61, 0, "splash", 162)
+hit(bass, at(61), 'D2', 227)
 keyoff(bass, at(63, 8))
-hold_chord(STRS, 61, 0, notes("D4 Cp4 E5 Gt5"), 34, 0)
-hold_chord(PADS, 61, 0, notes("D3 A3 F#4 A4"), 48, 0)
-ep_chord(61, 0, notes("F#4 A4 Cp4 E5"), 40, 20)
+hold_chord(STRS, 61, 0, notes("D4 Cp4 E5 Gt5"), 138, 0)
+hold_chord(PADS, 61, 0, notes("D3 A3 F#4 A4"), 194, 0)
+ep_chord(61, 0, notes("F#4 A4 Cp4 E5"), 162, 20)
 for l in STRS + PADS {
-  for r in at(61, 6)..<at(64, 10) { vol_fine(l, r, if r < at(63) then -1 else -2) }
+  for r in at(61, 6)..<at(64, 10) { vol_fine(l, r, if r < at(63) then -4 else -8) }
   keyoff(l, at(64, 10))
 }
-vibes_bar(61, notes("D4 A4 Cp4 E5 F#5 Gt5"), [0, 1, 2, 3, 4, 5, 4], 30)
-vibes_bar(62, notes("D4 A4 Cp4 E5 F#5 Gt5"), [3, 2, 1, 2, 3, 4, 3], 24)
+vibes_bar(61, notes("D4 A4 Cp4 E5 F#5 Gt5"), [0, 1, 2, 3, 4, 5, 4], 121)
+vibes_bar(62, notes("D4 A4 Cp4 E5 F#5 Gt5"), [3, 2, 1, 2, 3, 4, 3], 97)
 keyoff(vib, at(63, 4))
 for b in 61..64 {
-  marimba_bar(b, MARV.Doton, [36, 31, 26, 20][b - 61], upto: if b == 64 then 4 else 14)
+  marimba_bar(b, MARV.Doton, [146, 125, 105, 81][b - 61], upto: if b == 64 then 4 else 14)
 }
-hit(mar, at(64, 4), 'D3', 22)
+hit(mar, at(64, 4), 'D3', 89)
 keyoff(mar, at(64, 12))
 for b in 62..64 {
-  for r in 0..<(if b == 64 then 6 else 14) by 2 { dr(hat, b, r, "hatC", [30, 24, 18][b - 62] + (if r % 4 == 0 then 4 else 0)) }
+  for r in 0..<(if b == 64 then 6 else 14) by 2 { dr(hat, b, r, "hatC", [121, 97, 73][b - 62] + (if r % 4 == 0 then 16 else 0)) }
 }
 
 // ── the Project message ──────────────────────────────────────────────────────

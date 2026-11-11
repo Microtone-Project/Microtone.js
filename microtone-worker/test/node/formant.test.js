@@ -1206,7 +1206,7 @@ test("a new formant instrument sings [a] on the best source, in a range covering
   assert.equal(inst.duplicateCheckType, DCT_LANE, "Duplicate Check: Lane…");
   assert.equal(inst.duplicateCheckAction, 1, "…→ Key-off");
   // A 4 ms rise to full, held by a sustain on its top node (item 300).
-  assert.deepEqual(inst.volEnvelopes.slice(0, 2).map((n) => [n.value, n.offset]), [[0, 1], [63, 0]]);
+  assert.deepEqual(inst.volEnvelopes.slice(0, 2).map((n) => [n.value, n.offset]), [[24, 1], [63, 0]]);
   assert.equal(inst.volEnvLoop, 0x2000, "present, no loop");
   assert.equal(inst.volEnvSustainWord, 0x0121, "sustain on, node 1 to node 1");
   assert.equal(inst.formant.slots[0].ptr, NOISE.ptr);

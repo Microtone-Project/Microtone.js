@@ -32,7 +32,19 @@
           }, 100);
         });
         const { store, timeline, patternView } = win.__microtone;
-        const { cellToBytes } = await import("../../src/doc/clipboard.js");
+        const clip = await import("../../src/doc/clipboard.js");
+        // Every project is format 3. These cells are written as version-2 cells
+        // and read back the version-2 way — widened on the way in exactly as an
+        // opened file is, narrowed on the way out by the exact inverse — so the
+        // byte expectations below stay in the 8-byte layout they were written in.
+        const { widenPattern, narrowCell } = await import("../../src/doc/upgrade.js");
+        const wideCell = (b8) => {
+          const p = new Uint8Array(512);
+          for (let r = 0; r < 64; r++) { p[r * 8 + 3] = 0xc0; p[r * 8 + 4] = 0xc0; }
+          p.set(b8, 0);
+          return widenPattern(p).slice(0, 16);
+        };
+        const cellToBytes = (cell) => clip.cellToBytes(narrowCell(cell, { effect2: 0, position: 0 }), false);
         const { SUB_VOL, SUB_FX_ARG, COL_VOL, COL_PAN } = await import("../../src/ui/edit.js");
         const cap = (t) => (t ? [...cellToBytes(t.cell)] : null);
         log("app loaded, doc ready");
@@ -162,10 +174,10 @@
           [0x00, 0x4a, 0x04, 0x38, 0x2c, 0x0b, 0xee, 0x00],
         ];
         store.undo.apply(setCellsBytesOp(store.songIndex, [
-          { pat, row: 0, bytes: Uint8Array.from(srcBytes[0]) },
-          { pat, row: 1, bytes: Uint8Array.from(srcBytes[1]) },
-          { pat, row: 40, bytes: Uint8Array.from(dstBytes[0]) },
-          { pat, row: 41, bytes: Uint8Array.from(dstBytes[1]) },
+          { pat, row: 0, bytes: wideCell(srcBytes[0]) },
+          { pat, row: 1, bytes: wideCell(srcBytes[1]) },
+          { pat, row: 40, bytes: wideCell(dstBytes[0]) },
+          { pat, row: 41, bytes: wideCell(dstBytes[1]) },
         ]));
         // select rows 0..1, columns inst(sub1)..vol(sub2)
         patternView.sel = { aRow: 0, row: 1, aSub: 1, sub: 2 };
@@ -247,8 +259,8 @@
         const pSrc = [srcBytes[0], blankCell, [0x01, 0x00, 0x00, 0xc0, 0xc0, 0x00, 0x00, 0x00]];
         const pDst = [dstBytes[0], dstBytes[1], [0x00, 0x4c, 0x09, 0x21, 0x12, 0x0c, 0x33, 0x00]];
         store.undo.apply(setCellsBytesOp(store.songIndex, [
-          ...pSrc.map((b, r) => ({ pat, row: 48 + r, bytes: Uint8Array.from(b) })),
-          ...pDst.map((b, r) => ({ pat, row: 56 + r, bytes: Uint8Array.from(b) })),
+          ...pSrc.map((b, r) => ({ pat, row: 48 + r, bytes: wideCell(b) })),
+          ...pDst.map((b, r) => ({ pat, row: 56 + r, bytes: wideCell(b) })),
         ]));
         patternView.clearSelection();
         patternView.sel = { aRow: 48, row: 50, aSub: 0, sub: SUB_FX_ARG };
@@ -276,7 +288,7 @@
         let tlPorousOk = false;
         if (tDistinct) {
           store.undo.apply(setCellsBytesOp(store.songIndex, [srcBytes[1], blankCell, dstBytes[0], dstBytes[1]]
-            .map((b, i) => ({ pat: tSlots[i].pat, row: tSlots[i].rowInCue, bytes: Uint8Array.from(b) }))));
+            .map((b, i) => ({ pat: tSlots[i].pat, row: tSlots[i].rowInCue, bytes: wideCell(b) }))));
           timeline.sel = { aRow: 6, aCh: 0, aSub: 0, row: 6, ch: 1, sub: SUB_FX_ARG };
           key(win, "KeyC", "c", { ctrlKey: true });
           timeline.clearSelection();

@@ -47,12 +47,16 @@ home. If not, here is the vocabulary this manual uses:
 | **Sample** | Raw 8-bit audio data in the shared sample pool. Several instruments may use the same sample. |
 | **Note word** | A 16-bit pitch value; see the pitch system below. |
 
-### The pitch system: 4096-TET
+### The pitch system: 4096-TET, and 65536-TET in the note column
 
-Every note is a 16-bit word on a grid of **4096 steps per octave** — fine
-enough to represent any practical tuning. `0x5000` is middle C (C4) and each
-`0x1000` is one octave. Values `0x0000`–`0x001F` are reserved for sentinels
-(key-off, note cut, fades) and [interrupts](#interrupts).
+Pitch is counted on a grid of **4096 steps per octave**: `0x5000` is middle C
+(C4) and each `0x1000` is one octave, and every pitch slide, arpeggio and
+detune in Microtone counts in those units. A note in the pattern goes sixteen
+times finer: it is a 20-bit pitch, **65536 steps per octave**, so a tuning
+system's degrees sit exactly where its definition puts them rather than on the
+nearest 4096th. Written in hex that pitch reads `0x50000` for C4 — the octave
+digit, then the place within it. Note words `0x0000`–`0x001F` are reserved for
+sentinels (key-off, note cut, fades) and [interrupts](#interrupts).
 
 You almost never type raw note words. Instead each song carries a **pitch
 table** (a notation preset such as 12-TET, 19-TET, 31-TET, Bohlen-Pierce…)
@@ -190,7 +194,7 @@ Every number field and dropdown in the panels is a value between two buttons:
 - **The middle is a real field.** Click it and type, or use **↑ / ↓** on a number; click a dropdown and its full list opens. The value sits centred between the two buttons, and shuffles left only when it is too long for the box — so what gets cut off is the end of it, never the start.
 - **Hex is understood everywhere a number is.** Type `$FF` or `0xFF` into any spinner and it becomes 255 — handy when the annotation beside the field, the effect argument you are matching, or the pattern you are reading it off is written in hex. The box settles on the decimal it landed on, and `–` / `+` step from a hex value just as readily. A sign goes in front of either spelling (`-$10`). Anything that is not a number at all leaves the field as it was rather than quietly becoming zero.
 - **Pitch fields also take cents and ratios.** Wherever a field holds an interval or a detune — an instrument's detune, a layer's or an FM operator's, the chord maker's 4096-TET notes, the notation maker's cents — you can type it the way you think of it: `700c` for 700 cents, `3/2` (or `3:2`) for a just fifth, `-5/4` for a major third down, or `$100` / `0x100` for 4096-TET units in hex. A plain number still means whatever the box shows, units or cents. Cents and ratios land on the nearest of the 4096 steps per octave, so `3/2` becomes 2396 units (701.95 cents).
-- **Some fields read in one unit and step in another**, because the file stores something else. An envelope segment shows **seconds** and steps one storable length at a time; a metainstrument layer's mix shows **decibels** and steps one mix level, with the raw byte beside it; a layer's detune shows **cents** and steps a whole degree of the song's own notation. Typing works in whatever the box shows, and the value settles on the nearest one the file can hold.
+- **Some fields read in one unit and step in another**, because the file stores something else. An envelope segment shows **seconds** and steps one storable length at a time; a metainstrument layer's mix shows **decibels** and steps one mix level, with the raw byte beside it; a layer's detune shows **cents** and steps a whole degree of the song's own notation; a layer's or a zone's volume range shows **note volumes** (0–255) but the file keeps it in steps of four, so the low end reads the first volume of its step, the high end the last, and ∓ moves a whole step. A **pitch** — a layer's or a zone's pitch range, the pitch-pan centre — reads as its hex word (`$5000`), takes a note name too (`C-4`), and steps a degree of the song's notation; an instrument's **detune** reads in **cents** and steps the same way; the **sample pointer** reads in hex; and in SoundFont filter mode the **cutoff** reads in **Hz** (and takes `1.2k`) and steps a semitone, while the **resonance** and an Advanced Edit zone's **attenuation** read in **dB**. Typing works in whatever the box shows, and the value settles on the nearest one the file can hold.
 
 ### Two views at once
 
@@ -246,14 +250,14 @@ note's own panning offsets it.
 Each cell is five columns:
 
 ```
- C--4   01    3F   20  A0F00
-└note┘└inst┘└vol┘└pan┘└─fx─┘
+  C--4   01    FF   80  A0F00
+└─note┘└inst┘└vol┘└pan┘└─fx─┘
 ```
 
-- **Note** — the pitch in the song's notation (or a sentinel symbol: `===` key-off, `^^^` cut, `~~~` fade, `~^~` fast fade, `I·0`–`I·F` interrupt marker). Notes that don't sit on the current pitch table are shown snapped to the nearest degree and painted **yellow**. The toolbox **Raw** toggle switches to 4-digit hex words.
+- **Note** — the pitch in the song's notation (or a sentinel symbol: `===` key-off, `^^^` cut, `~~~` fade, `~^~` fast fade, `I·0`–`I·F` interrupt marker). Notes that don't sit on the current pitch table are shown snapped to the nearest degree and painted **yellow**. The narrow cell in front of the note is blank; with the toolbox **Raw** toggle on it holds the octave digit of the five-digit hex pitch, and the four cells after it the rest (`5` `0000` is C4). In raw mode you type all five digits.
 - **Instrument** — two hex digits, `01`–`FF`.
 - **Volume** — a **symbol** cell + two hex digits. The symbol says what the column *does*; the digits are its argument.
-- **Pan** — the same shape, with sideways symbols (00 = left, 20 = centre, 3F = right). It pans the *note*, not the lane — see [Note volume vs lane volume, note pan vs lane pan](#note-volume-vs-lane-volume-note-pan-vs-lane-pan).
+- **Pan** — the same shape, with sideways symbols (00 = left, 80 = centre, FF = right in a stereo song; a surround song's column is wider, see [The wide pattern cell](#the-wide-pattern-cell)). It pans the *note*, not the lane — see [Note volume vs lane volume, note pan vs lane pan](#note-volume-vs-lane-volume-note-pan-vs-lane-pan).
 - **Effect** — a base-36 opcode letter and a 16-bit argument in four hex digits. See [Effect commands](#effect-commands).
 
 #### The volume and panning symbols
@@ -866,7 +870,7 @@ Everything else on the row is the interrupt's business not at all. The
 instrument, volume and panning columns, and any other effect, are ignored by
 the marker and still do exactly what they always do — so an interrupt can share
 a row with a lane-volume change or a pan slide without either getting in the
-other's way. In a wide (version 3) song a row has two effect slots: if you put
+other's way. A row has two effect slots: if you put
 a `:` in **both**, the left one is the argument and the right one is painted
 **red** to say it is being ignored.
 
@@ -2246,13 +2250,14 @@ Each of the three is one undo step, however many instruments it moves.
 
 - **General** — hover over any label to see what that setting does to the sound. Global volume, volume swing, fadeout; default pan (which becomes **default azimuth**, and on a spatial song **default elevation**, once the song has a surround model — see [Surround panning](#surround-panning)), pan swing, pitch-pan separation and centre; wide-range detune (with hex-word and cents readouts); **New Note Action** (cut / continue / off / fade / release), Duplicate Check Type (never / note / sample / instrument / **lane** — any note arriving on the lane, whatever plays it) and Action (cut / off / fade); **On Retrigger (effect Q)** — *Note cut*, the default, restarts the note in place; *Follow NNA* treats every retrigger as a new note, so the sound being restarted rings on, releases or fades as the New Note Action says (with Note Cut as the action, each retrigger crossfades instead of restarting abruptly); filter mode (**ImpulseTracker** or **SoundFont2**) with cutoff and resonance shown in Hz/dB for SF2 mode. The Sample section binds the sample and opens the **play/loop/sustain marker editor** — draggable play-start, loop-start and loop-end markers, loop mode (off / forward / ping-pong / one-shot) and sustain, affecting this instrument slot only. Play start, loop start and loop end are all spinners here too, so a number read off the waveform's hairline can simply be typed in. **Auto loop** searches the sample for a loop region that plays without an audible click and writes the two markers for you: pick *cleanest*, *balanced* or *longest* (how much of a tick you will accept in exchange for keeping more of the sample) and it reports how long the loop is and how loud its seam is, in dB below the sound carrying it. It searches for whichever loop mode is set — forward and ping-pong click in different ways and want different loop points — and it only ever writes when you ask, so the numbers stay yours to adjust afterwards.
   - **From the list**, under *Sample ptr*, is the same binding as a list rather than an address: every sample in the pool, plus the [recordings loaded into memory](#long-recordings-in-memory) in a group of their own. Choosing one writes its pointer, length, rate and loop into this record in a single undo step; choosing a recording points the instrument at its first 65535 bytes, which the spinners then move. It is a copy, not a link — the list is *derived* from what the instruments point at, so a row can appear or disappear as you use it, and the row shown is always the one this record's own pointer lands on.
-- **Vol env / Pan env / Pitch / Filter** — envelope graphs. Drag nodes vertically for values, horizontally for timing; the **Log timescale** button switches to a logarithmic timescale. The pitch/filter tab follows the instrument's envelope role.
+- **Vol env / Pan env / Pitch / Filter** — envelope graphs. Drag nodes vertically for values, horizontally for timing; the **Log timescale** button switches to a logarithmic timescale. The pitch/filter tab follows the instrument's envelope role. Every envelope reads 0–255: on Vol env that is the same scale as the volume column, 255 being full volume.
+  - **Volume envelopes from older projects** were 0–63. An instrument that comes in with one, in a project you open or one you import from a bank, a soundfont or another tracker's file, has its volume envelopes (and those of its Advanced Edit patches) converted to 0–255 as it arrives; it sounds the same, within a tenth of a decibel. MOD and Impulse Tracker export convert them back, exactly.
   - **Dragging a node sideways** moves it between its neighbours: the nodes after it stay where they are, so the envelope keeps its length. Hold **Shift** to take the nodes after it along instead, as changing the **Seg** of the node before it does. The last node lengthens or shortens the envelope by exactly as far as you drag it — the graph's scale holds still until you let go, and the empty strip on the right is room to drag it into. A node stops one step short of its neighbour, since a segment of zero would end the envelope there.
   - **The mouse wheel zooms** the time axis about the pointer, and on a touch screen **two fingers pinch** it, zooming about the fingers and scrolling as they slide (a pinch that comes close to the whole envelope snaps to it). **Shift+wheel**, a sideways wheel, or dragging empty graph scrolls it, and a **double-click** on empty graph shows the whole envelope again. Zooming back out stops once on the whole envelope, then goes further out — room to drag the last node a long way. While zoomed, a thin bar along the top shows which part you are looking at.
   - Segment lengths are stored in steps: 1/256 s (about 4 ms) up to an eighth of a second, and twice as long with each doubling of length after that. A dragged node moves in its segment's steps, and the segments either side of it cannot always add up to exactly what they did, so the graph keeps the next node still unless that would put the dragged one more than a few pixels from the pointer. Zoomed in, the dragged node goes exactly where you put it, and the next one gives way by less than half a step.
   - An **OPL**, **PSG** or **formant** instrument has room for only one pitch-or-filter envelope, so it shows a single **Pitch/Filter** tab, with an **Envelope role** switch — **Pitch** or **Filter** — at its top. Switching keeps the nodes and reads them the other way.
   - **＋ Add node** and **－ Remove node** act on the node the spinners point at: adding splits the segment after it, or extends the envelope when that node is the last one, and removing merges its segment into the one before it so the timing after stays put. Node 0 is anchored at t=0 and cannot be removed; removing the last node shortens the envelope.
-  - **Copy** and **Paste** (or **Ctrl+C** and **Ctrl+V** while an envelope is on screen) carry a whole envelope — its nodes with its Sustain, Loop and Carry settings — onto any other envelope: another tab of the same instrument, another instrument, a patch envelope in **Advanced Edit**, or a project open in another tab or window. Paste replaces the envelope you are looking at and switches it on, in one undo step; it leaves alone what belongs to the tab rather than to the shape (Pan env's *use default pan*, the Pitch or Filter role). Between the volume envelope (0–63) and the others (0–255) the values are rescaled, so the shape comes across top to top.
+  - **Copy** and **Paste** (or **Ctrl+C** and **Ctrl+V** while an envelope is on screen) carry a whole envelope — its nodes with its Sustain, Loop and Carry settings — onto any other envelope: another tab of the same instrument, another instrument, a patch envelope in **Advanced Edit**, or a project open in another tab or window. Paste replaces the envelope you are looking at and switches it on, in one undo step; it leaves alone what belongs to the tab rather than to the shape (Pan env's *use default pan*, the Pitch or Filter role). A copy made by an older version, from a 0–63 volume envelope, is rescaled when it is pasted, so the shape comes across top to top.
   - **Envelope present** is what makes the envelope sound at all: switch it off and the nodes are kept but ignored — on the Vol env tab the instrument then plays at full level, on Pan env at the lane's own pan. Editing a node switches it back on if it was off, in the same undo step: adding a node, dragging one, or typing its value or segment length — an envelope you are shaping is one you mean to hear. On the Pitch and Filter tabs switching it on is also what claims the record's shared slot for that role. The patch envelopes in **Advanced Edit** work the same way.
   - Switching it on the first time switches **Sustain** on with it and carries its start and end to the new last node, so an envelope you are building arrives holding its final level until key-off rather than needing two more buttons found before any of it is audible. Switch either off and it stays off — the pair is only ever set by the click that brings the envelope into existence.
   - A **Sustain** point sitting on the last node follows it when you add another, so an envelope that holds its final level until key-off keeps doing that instead of turning into a hold halfway through. Sustain and loop points left pointing past the end are pulled back in when the envelope gets shorter.
@@ -2677,22 +2682,23 @@ a busy song makes the dial hard to read.
 
 ### The wide pattern cell
 
-Turning a project surround also **upgrades its file format** — to version 3,
-whose pattern cells are twice as wide. The editor tells you before it happens
-and writes the upgraded project to a **new file**, leaving the original exactly
-as it was; there is no way back, and the TSVM device cannot play a version-3
-file. A project created as Planar or Spatial in the **New…** wizard starts out
-this way.
+Every project is saved in **format 3**, whose pattern cells are twice as wide
+as the old format's. A project saved in an older format is converted as it
+opens — one short notice says so — and its notes move onto the exact pitches
+of the song's tuning system (at most 0.15 cent away); the file itself is
+unchanged until you save. Stereo, planar and spatial only choose how the
+panning column reads.
 
 What the extra room buys you:
 
 - **An 8-bit volume column.** Volumes run 00–FF instead of 00–3F, so the column has four times the resolution — and its own slides can move by a single unit per tick. Effect-column volume slides (`D`, `K`, `L`, `N`) keep their old arguments and their old speed.
-- **A panning column that holds a position.** Instead of one front-arc value, it carries the **height** (two digits, signed: `00` ear level, `40` = +45°, `C0` = −45°) followed by the **angle** (three digits: `000` left, `080` front, `100` right, `180` behind). The height is drawn in its own colour so the two numbers never read as one, and in a **spatial** song a placed source states its height even when it is `00` — on the sphere, ear level is a position you chose, not an absent value (a planar song has no height to state, and a slide leaves the field unused, so both show dots there). A `Z` slide on the same row turns the column into that slide's *target*, so the source travels there instead of jumping.
+- **A finer note.** Four more bits of pitch: 65536 steps per octave (see [The pitch system](#the-pitch-system-4096-tet-and-65536-tet-in-the-note-column)).
+- **A panning column as wide as the song needs.** In a stereo song it is two digits, `00` left to `FF` right. In a planar song it is the **angle**, three digits: `000` left, `080` front, `100` right, `180` behind. In a spatial song it carries the **height** (two digits, signed: `00` ear level, `40` = +45°, `C0` = −45°) followed by the **angle** (three digits: `000` left, `080` front, `100` right, `180` behind). The height is drawn in its own colour so the two numbers never read as one, and in a **spatial** song a placed source states its height even when it is `00` — on the sphere, ear level is a position you chose, not an absent value (a planar song has no height to state, and a slide leaves the field unused, so both show dots there). A `Z` slide on the same row turns the column into that slide's *target*, so the source travels there instead of jumping.
 - **A second effect column.** Every cell carries two effect slots instead of one, and the second runs straight after the first on every row and every tick — so two commands that used to fight over one column can both be written. Converters use it so nothing from a source file has to be discarded; you can write it yourself the same way you write the first one.
 
 #### Showing the second effect
 
-The second effect column is **hidden by default**: most songs never write one, and it is six more characters in the widest column on the screen. Three ways to bring it out, all of them in version-3 projects only:
+The second effect column is **hidden by default**: most songs never write one, and it is six more characters in the widest column on the screen. Three ways to bring it out only:
 
 - **2nd FX** in the toolbar shows or hides it on *every* lane and every pattern column at once.
 - **Right-click a lane header** in the Timeline for that one lane — the menu's second row carries **2nd effect** beside the mute controls.
@@ -3132,7 +3138,7 @@ A program is **declarative**: it describes the song rather than giving orders in
 
 ### Finding your way around a program
 
-- **The uses of a name.** Put the caret in a name and every other place the program uses it is marked; the places that set it (its definition, or in a `tml 1` program an `=` or a `+=`) are marked in a second colour. The selection is drawn under the text, so the colours stay readable inside it.
+- **The uses of a name.** Put the caret in a name and every other place the program uses it is marked; the places that set it (its definition) are marked in a second colour. The selection is drawn under the text, so the colours stay readable inside it.
 - **Right-click a name or a call** for its menu: **Rename…**, **Declaration**, **Call hierarchy** and **Preview**. The keys are the ones most code editors use: Shift+F6 renames, Ctrl+B goes to the declaration, Ctrl+Alt+H shows the call hierarchy, and the menu key or Shift+F10 opens the menu at the caret.
 - **Rename** changes a name everywhere it means the same thing, and nowhere else: not a field that happens to be spelt the same, not a different variable of the same name in another function. A `{ name }` shorthand keeps its field and becomes `{ name: new_name }`. When the new name would change what the program does (it would clash with another name, hide a builtin, or be taken for a closer variable), nothing is renamed and the message names the line where it would happen. One undo takes the whole rename back. A lane, a waveform or a metainstrument with no `label` or `name` of its own is called by its name in the project, so renaming one renames it there too at the next build.
 - **The side panel** on the right folds away to a strip of tabs at the edge: click the open tab, or the arrow, to fold it, and a tab to bring it back. On a narrow screen it opens over the program. **Structure** is always there: the song, its sections, mixing chains, instruments, lanes, functions and variables, each a click away from its declaration. While the program has a mistake in it, Structure keeps the outline it had before and says so.

@@ -7,6 +7,7 @@
 
 import { noise2 } from "./stdlib.js";
 import { opByte } from "./music.js";
+import { wideNoteWord, wideNoteFine } from "../../core/engine/state.js";
 
 const EMPTY = 0x7fff;
 
@@ -33,8 +34,12 @@ function cell16(c, trim, jit) {
   const b = new Uint8Array(16);
   b[8] = 0x33; // FINE / FINE: the empty columns
   if (!c) return b;
+  // A wide cell's pitch is 20 bits: the word at bytes 0–1 and four more bits,
+  // sixteenths of a unit, in byte 13's high nibble (file format §5.5).
   const note = c.note ?? 0;
-  b[0] = note & 0xff; b[1] = note >>> 8;
+  const word = wideNoteWord(note);
+  b[0] = word & 0xff; b[1] = word >>> 8;
+  b[13] = wideNoteFine(note) << 4;
   b[2] = c.inst ? c.inst.slot : 0;
   let volSel = 3, volVal = 0;
   if (c.volSel !== undefined) { volSel = c.volSel; volVal = c.volRaw; }

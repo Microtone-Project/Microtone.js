@@ -29,6 +29,7 @@ import { CUE_EMPTY } from "../../core/format/taud-const.js";
 import { PT_PERIODS } from "../../core/tuning/pitchtables.js";
 import { unescapeName } from "../../core/format/names.js";
 import { cueInfo } from "../doc/document.js";
+import { narrowedForExport } from "../doc/upgrade.js";
 import { resample } from "../doc/wavelab.js";
 import { bounceImage, referenceSlot, referenceLevel, bounceChipInstrument } from "./modchip.js";
 
@@ -101,6 +102,14 @@ export function playedCues(song) {
  * 7) expanded exactly as core/engine/row.js does it, rows past the cue's
  * length left out. Null when the lane has no pattern there.
  */
+/** A volume SET as a tracker's 0…64: from the wide cell's 0…255 when there is
+ *  one (round(v × 64 ÷ 255), the exact inverse of the converters'), else from
+ *  the 6-bit value, 63 being full. */
+export function vol64(cell) {
+  if (cell.vol8 !== null && cell.vol8 !== undefined) return Math.min(64, Math.round((cell.vol8 * 64) / 255));
+  return cell.vol >= 63 ? 64 : cell.vol;
+}
+
 export function playedRows(doc, songIndex, word, rowLimit) {
   const p = word & 0x7fff;
   if (p === CUE_EMPTY) return null;
@@ -123,7 +132,9 @@ export function playedRows(doc, songIndex, word, rowLimit) {
     }
     let cell = {
       note: raw.note, inst: raw.instrment, vol: raw.volume, volEff: raw.volumeEff,
+      vol8: raw.volume8 ?? null,
       pan: raw.pan, panEff: raw.panEff, fx: raw.effect, arg: raw.effectArg,
+      lane8: raw.lane8 ?? null,
     };
     if (active && n >= srcStart + len && n <= endRow) {
       const src = pat[srcStart + ((n - srcStart) % len)];
@@ -132,16 +143,18 @@ export function playedRows(doc, songIndex, word, rowLimit) {
       const destOp = isArmer ? 0 : raw.effect;
       const destArg = isArmer ? 0 : raw.effectArg;
       let fx = 0, arg = 0;
-      if (destOp !== 0) { fx = destOp; arg = destArg; }
-      else if (src.effect !== OP.OP_7) { fx = src.effect; arg = src.effectArg; }
+      let lane8 = null;
+      if (destOp !== 0) { fx = destOp; arg = destArg; lane8 = raw.lane8 ?? null; }
+      else if (src.effect !== OP.OP_7) { fx = src.effect; arg = src.effectArg; lane8 = src.lane8 ?? null; }
       cell = {
         note: raw.note !== 0 ? raw.note : src.note,
         inst: raw.instrment !== 0 ? raw.instrment : src.instrment,
         vol: volSet ? raw.volume : src.volume,
         volEff: volSet ? raw.volumeEff : src.volumeEff,
+        vol8: (volSet ? raw.volume8 : src.volume8) ?? null,
         pan: panSet ? raw.pan : src.pan,
         panEff: panSet ? raw.panEff : src.panEff,
-        fx, arg,
+        fx, arg, lane8,
       };
     }
     // A ditto command plays nothing of its own once it has been expanded.
@@ -348,7 +361,7 @@ function volumeColumn(cell, rounded) {
   switch (cell.volEff) {
     case SEL_SET:
       // Taud's 63 is ProTracker's 64: both are the six-bit ceiling.
-      return { fx: 0xc, arg: v >= 63 ? 64 : v };
+      return { fx: 0xc, arg: vol64(cell) };
     case SEL_UP:
       if (v === 0) return null;
       if (v > 0xf) rounded();
@@ -385,8 +398,9 @@ function releases(inst) {
 /** A volume envelope that is more than the unit one mod2taud writes. */
 function shapedVolumeEnvelope(inst) {
   if (!envPresent(inst.volEnvLoop)) return false;
+  const full = inst.volEnv8 ? 255 : 63;
   for (const p of inst.volEnvelopes) {
-    if (p.value !== 63) return true;
+    if (p.value !== full) return true;
     if (p.offset === 0) break;
   }
   return false;
@@ -617,6 +631,11 @@ export function latin1(escaped, n) {
  * say why).
  */
 export function exportModSong(doc, songIndex) {
+  // A module is a version-2 world (one effect a row, a 6-bit volume, a front-arc
+  // panning column): read the format-3 project through its narrow view, and
+  // say what it could not carry.
+  const narrowed = narrowedForExport(doc, songIndex);
+  doc = narrowed.doc;
   const song = doc.songs[songIndex];
   const errors = findings();
   const warnings = findings();
@@ -624,7 +643,8 @@ export function exportModSong(doc, songIndex) {
   const title = unescapeName(storedTitle);
 
   // ── the song's own settings ──
-  if (doc.wideCells) errors.add("format");
+  if (narrowed.lost.effect2 > 0) warnings.add("effect2", { n: narrowed.lost.effect2 });
+  if (narrowed.lost.position > 0) warnings.add("position", { n: narrowed.lost.position });
   if ((song.globalFlags & 3) !== 1) errors.add("toneMode");
   if (song.tickRate < 1 || song.tickRate > SPEED_MAX) errors.add("speed", { n: song.tickRate });
   if (song.bpm < BPM_MIN || song.bpm > BPM_MAX) errors.add("tempo", { bpm: song.bpm });

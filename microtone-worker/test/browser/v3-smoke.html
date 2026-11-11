@@ -1,12 +1,11 @@
-<!doctype html><meta charset="utf-8"><title>format v3 upgrade + new-project surround (item 999 stage 2)</title>
+<!doctype html><meta charset="utf-8"><title>format 3 everywhere: widen on open + new projects (item 314)</title>
 <pre id="out">running…</pre>
 <img src="/hang" hidden>
 <iframe id="app" src="../../index.html?load=test/corpus/WHEN.taud" style="width:1200px;height:700px"></iframe>
 <script type="module">
-// Drives the REAL app through the one-way door: switching a version-2 project
-// to surround must explain itself, widen every pattern, keep the ORIGINAL file
-// untouched on disk, save the upgraded project under a new name, and still be
-// undoable inside the session.
+// Drives the REAL app: format 3 is the only format the editor holds. A
+// version-2 project widens as it opens (saying so, once), the surround model
+// only picks the panning, and a new project is born wide whatever it picks.
 const out = document.getElementById("out");
 const log = (s) => { out.textContent += "\n" + s; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -23,78 +22,42 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
   const doc = win.document;
   const { store, projectView } = M;
-  const opfs = await import("../../src/storage/opfs.js");
 
-  // Save the loaded project first, so the "original stays untouched" claim has
-  // something to be true about.
-  store.fileName = "v3smoke.taud";
-  await opfs.write("v3smoke.taud", store.doc.toBytes());
-  const originalBytes = await opfs.read("v3smoke.taud");
-  check((originalBytes[8] & 0x1f) === 2, "the original file is format version 2",
-    String(originalBytes[8] & 0x1f));
-  check(store.doc.wideCells === false, "…with narrow cells");
-  const patBefore = store.doc.patternBytes(0, 0);
-  check(patBefore.length === 512, "…512-byte pattern images");
-
-  // ── 1. the switch asks first, and cancelling changes nothing ─────────────
-  doc.querySelector('[data-view="project"]').click();
-  await sleep(150);
-  projectView.setSurroundModel(2);
-  let dlg = null;
-  for (let i = 0; i < 100 && !dlg; i++) { dlg = doc.querySelector("dialog.modal"); await sleep(30); }
-  check(!!dlg, "switching to spatial opens a dialog first");
-  check(/version 3/i.test(dlg.textContent), "…which names the format change",
-    dlg.querySelector("p")?.textContent?.slice(0, 60));
-  check(/v3smoke-surround\.taud/.test(dlg.textContent), "…and the copy it will write");
-  dlg.querySelector(".modal-buttons .act-cancel").click();
-  await sleep(120);
-  check(store.doc.wideCells === false, "cancelling leaves the project alone");
-  check((store.song.surroundModel ?? 0) === 0, "…and the model unchanged");
-
-  // ── 2. confirming upgrades the project ──────────────────────────────────
-  projectView.setSurroundModel(2);
-  dlg = null;
-  for (let i = 0; i < 100 && !dlg; i++) { dlg = doc.querySelector("dialog.modal"); await sleep(30); }
-  dlg.querySelector(".modal-buttons .proceed").click(); // Upgrade and continue
-  for (let i = 0; i < 100 && !store.doc.wideCells; i++) await sleep(30);
-  check(store.doc.wideCells === true, "the project is now wide-celled");
-  check(store.doc.fmtVer === 3, "…format version 3", String(store.doc.fmtVer));
-  check(store.song.surroundModel === 2, "…and spatial");
-  const patAfter = store.doc.patternBytes(0, 0);
-  check(patAfter.length === 1024, "…with 1024-byte pattern images", String(patAfter.length));
-
-  // The music survived: the first cell's note and instrument are where they were.
-  check(patAfter[0] === patBefore[0] && patAfter[1] === patBefore[1] && patAfter[2] === patBefore[2],
-    "note + instrument carried across the widening");
-
-  // ── 3. the copy is on disk and the original is untouched ────────────────
-  for (let i = 0; i < 100 && store.fileName === "v3smoke.taud"; i++) await sleep(30);
-  check(store.fileName === "v3smoke-surround.taud", "editing continues in the copy",
-    String(store.fileName));
-  const list = await opfs.list();
-  check(list.some((f) => f.name === "v3smoke-surround.taud"), "…which was written to storage");
-  const stillThere = await opfs.read("v3smoke.taud");
-  check(stillThere.length === originalBytes.length, "the original file is still there");
-  let same = true;
-  for (let i = 0; i < stillThere.length; i++) if (stillThere[i] !== originalBytes[i]) { same = false; break; }
-  check(same, "…byte for byte, as version 2");
-  const copy = await opfs.read("v3smoke-surround.taud");
-  check((copy[8] & 0x1f) === 3, "…and the copy declares version 3", String(copy[8] & 0x1f));
-
-  // ── 4. the engine was told before it read another pattern ───────────────
-  check(store.audio ? store.audio.wideCells === true : true, "the audio system switched layout",
+  // ── 1. a version-2 file widens as it opens, and says so once ────────────
+  const original = new Uint8Array(await (await fetch("../corpus/WHEN.taud")).arrayBuffer());
+  check((original[8] & 0x1f) < 3, "the file on disk is an older format (WHEN is version 1)", String(original[8] & 0x1f));
+  check(store.doc.wideCells === true && store.doc.fmtVer === 3, "…and opens as format 3",
+    `${store.doc.wideCells}/${store.doc.fmtVer}`);
+  check(store.doc.patternBytes(0, 0).length === 1024, "…its patterns 1024-byte images");
+  check(store.audio ? store.audio.wideCells === true : true, "…and the engine reads the wide layout",
     String(store.audio?.wideCells));
+  check(!doc.querySelector("dialog.modal"), "a ?load= link opens it without a word, as a demo does");
+  // Opened as a file is (the Files tab, a drop, the Open dialog all come here):
+  // the notice.
+  M.loadBytes("WHEN.taud", original);
+  let notice = null;
+  for (let i = 0; i < 100 && !notice; i++) { notice = doc.querySelector("dialog.modal"); await sleep(30); }
+  check(!!notice && /format 3/i.test(notice.textContent), "one short notice says it was converted",
+    notice?.textContent?.slice(0, 60));
+  check(notice?.querySelectorAll("button").length === 1, "…with a single dismiss");
+  notice?.querySelector(".act-dismiss")?.click();
+  await sleep(60);
+  check(!store.doc.dirty, "opening does not dirty the project");
+  check((store.doc.toBytes()[8] & 0x1f) === 3, "saving writes format 3");
 
-  // ── 5. one Ctrl+Z takes the whole thing back ────────────────────────────
+  // ── 2. the surround model only chooses the panning ──────────────────────
+  doc.querySelector('[data-view="project"]').click();
+  await sleep(120);
+  await projectView.setSurroundModel(2);
+  await sleep(60);
+  check(!doc.querySelector("dialog.modal"), "switching to spatial asks nothing");
+  check(store.song.surroundModel === 2 && store.doc.wideCells, "…and the song is spatial, still format 3");
+  const spatialW = M.timeline.colWFor(0);
   store.undo.undo();
-  await sleep(80);
-  check(store.doc.wideCells === false, "undo narrows the project again");
-  check((store.song.surroundModel ?? 0) === 0, "…and clears the surround model");
-  check(store.doc.patternBytes(0, 0).length === 512, "…restoring 512-byte patterns");
-  let restored = true;
-  const now = store.doc.patternBytes(0, 0);
-  for (let i = 0; i < 512; i++) if (now[i] !== patBefore[i]) { restored = false; break; }
-  check(restored, "…byte for byte");
+  await sleep(60);
+  check((store.song.surroundModel ?? 0) === 0 && store.doc.wideCells, "undo puts it back to stereo, still wide");
+  check(M.timeline.colWFor(0) < spatialW,
+    "a stereo song's lanes are narrower than a spatial one's", `${M.timeline.colWFor(0)} < ${spatialW}`);
 
   // ── 6. a new SURROUND project is born wide ──────────────────────────────
   store.doc.dirty = false; // skip the discard confirm
@@ -107,10 +70,11 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(panChips.length === 3, "…offering stereo / planar / spatial", String(panChips.length));
   panChips[2].click(); // Spatial
   await sleep(30);
-  check(/version 3/i.test(np.querySelector('[data-f="panhint"]').textContent),
-    "…and warning about the format before creating anything");
+  check(np.querySelector('[data-f="panhint"]').textContent.length > 0,
+    "…and explaining what a surround song's panning does");
+  const before = store.doc;
   np.querySelector(".np-ok").click();
-  for (let i = 0; i < 100 && !store.doc?.wideCells; i++) await sleep(30);
+  for (let i = 0; i < 100 && store.doc === before; i++) await sleep(30);
   check(store.doc.wideCells === true, "the new project is wide-celled from birth");
   check(store.doc.fmtVer === 3 && store.song.surroundModel === 2, "…v3 + spatial",
     `${store.doc.fmtVer}/${store.song.surroundModel}`);
@@ -166,7 +130,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   check(errs.length === 0, "the Patterns tab opens on a wide project", errs[0] ?? "");
   check(doc.querySelectorAll("#patternHost canvas").length > 0, "…and paints a pane");
   const pane = M.patternView.panes?.[0];
-  check(pane ? pane.cellChars() === 24 : false, "…with the wide cell layout",
+  check(pane ? pane.cellChars() === 24.75 : false, "…with the wide cell layout",
     String(pane?.cellChars?.()));
   // ── 7c. the Patterns view's BULK TOOLS on a wide pattern ────────────────
   // These are pure byte transforms over a whole pattern image, so they have to
@@ -275,8 +239,6 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     `${c2?.azimuth}/${c2?.panEff}`);
   check(c2?.effect === 0, "…leaving the effect slot free");
 
-  await opfs.remove("v3smoke.taud").catch(() => {});
-  await opfs.remove("v3smoke-surround.taud").catch(() => {});
-  log(fails === 0 ? "\nALL PASS" : `\n${fails} FAILED`);
+  log(fails === 0 ? "\nALL PASS\nRESULT: PASS" : `\n${fails} FAILED\nRESULT: FAIL`);
 })();
 </script>

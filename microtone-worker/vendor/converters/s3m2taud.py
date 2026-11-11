@@ -63,6 +63,8 @@ from taud_common import (
     TOP_NONE, TOP_A, TOP_B, TOP_C, TOP_D, TOP_E, TOP_F, TOP_G, TOP_H, TOP_I,
     TOP_J, TOP_K, TOP_L, TOP_M, TOP_N, TOP_O, TOP_P, TOP_Q, TOP_R, TOP_S, TOP_T, TOP_U, TOP_V, TOP_W, TOP_Y,
     SEL_SET, SEL_UP, SEL_DOWN, SEL_FINE,
+    COL_EMPTY, INST_VOLENV8, vcol_set, vol_from64, vol_from_unit, pcol_set, note_pitch,
+    put_cell, blank_pattern,
     EFF_A, EFF_B, EFF_C, EFF_D, EFF_E, EFF_F, EFF_G, EFF_H, EFF_I, EFF_J,
     EFF_K, EFF_L, EFF_M, EFF_N, EFF_O, EFF_P, EFF_Q, EFF_R, EFF_S, EFF_T,
     EFF_U, EFF_V, EFF_W, EFF_X, EFF_Y, EFF_Z,
@@ -106,8 +108,8 @@ opl_gain = tracker_opl_gain
 
 
 def opl_volume(vol: int, total_level: int) -> int:
-    """`opl_gain` on Taud's 6-bit linear volume axis."""
-    return max(0, min(63, round(63.0 * opl_gain(vol, total_level))))
+    """`opl_gain` on the wide cell's linear volume axis, 0…255."""
+    return vol_from_unit(opl_gain(vol, total_level))
 
 
 def opl_carrier_tl(inst) -> int:
@@ -318,8 +320,7 @@ def encode_note(s3m_note: int) -> int:
     if pitch > 11:
         return NOTE_NOP
     semitones = (octave - 4) * 12 + pitch
-    val = round(TAUD_C4 + semitones * 4096 / 12)
-    return max(0x20, min(0xFFFF, val))
+    return note_pitch(TAUD_C4 + semitones * 4096 / 12)
 
 
 def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0,
@@ -405,8 +406,9 @@ def encode_effect(cmd: int, arg: int, ch: int = 0, row: int = 0,
         return (TOP_L, (arg & 0xFF) << 8, None, None)
 
     if cmd == EFF_M:
-        # M = set channel volume; literal byte (no recall). Clamp ST3/IT $40 → $3F.
-        return (TOP_M, (min(arg, 0x3F) & 0xFF) << 8, None, None)
+        # M = set channel volume; literal byte (no recall). ST3/IT's 0…64 is a
+        # format-3 lane volume's 0…255.
+        return (TOP_M, vol_from64(arg) << 8, None, None)
 
     if cmd == EFF_N:
         # N = channel volume slide; D-style encoding.
@@ -627,12 +629,12 @@ def build_sample_inst_bin(instruments: list) -> tuple:
         ls       = min(inst.loop_begin, 65535)
         le       = min(inst.loop_end,   65535)
         loop_mode = 1 if (inst.flags & 1) else 0
-        flags_byte = loop_mode & 0x3   # 0b 0000 00pp
+        flags_byte = (loop_mode & 0x3) | INST_VOLENV8   # 0b 0V00 00pp: 8-bit envelope
 
         # Volume envelope first point is full-scale; per-trigger initial level
         # is carried by Default Note Volume (byte 196), so the envelope
         # contributes a unit multiplier.
-        env_vol = 63
+        env_vol = 0xFF
         # Vol LOOP word: P=1 (envelope present) | b=1 (use envelope) — no actual
         # loop / sustain. P added 2026-05-06 alongside the pan/pf gate spec
         # change (terranmon.txt byte 16/18/20 bit 5); informational for vol but
@@ -674,22 +676,23 @@ def build_sample_inst_bin(instruments: list) -> tuple:
 
 
 def _default_channel_pan(ch_setting: int) -> int:
-    """Return Taud pan 0..63 from S3M channel-setting byte."""
-    # Bits 4-7 of channel setting are ignored; left/right from bit 3
-    # Actually the channel type (0-7 left, 8-15 right) encodes stereo side
+    """The lane's azimuth (0 left … 255 right) from the S3M channel-setting
+    byte: the channel type (0-7 left, 8-15 right) is its stereo side. The
+    separation is this converter's own, kept from format 2 (6-bit 16 / 47 / 31)
+    as the azimuths the format-2 engine made of those (v << 2 | v >> 4)."""
     ch_type = ch_setting & 0x7F
     if 0 <= ch_type <= 7:
-        return 16   # left
+        return 65    # left   (16)
     elif 8 <= ch_type <= 15:
-        return 47   # right
-    return 31   # centre
+        return 190   # right  (47)
+    return 125   # centre (31)
 
 
 def build_pattern(s3m_grid: list, ch_idx: int, default_pan: int,
                   linear_slides: bool, inst_vols: dict = None,
                   amiga_mode: bool = False, opl_tl: dict = None,
                   entry_inst: int = 0) -> bytes:
-    """Build a 512-byte Taud pattern for one S3M channel.
+    """Build a Taud pattern (wide cells) for one S3M channel.
 
     Volume column: explicit S3M cell vol -> SEL_SET; M/N/K/L vol slides folded
     by encode_effect -> vol_override; otherwise SEL_FINE/0 (no-op). Per-
@@ -708,7 +711,7 @@ def build_pattern(s3m_grid: list, ch_idx: int, default_pan: int,
         inst_vols = {}
     if opl_tl is None:
         opl_tl = {}
-    out = bytearray(PATTERN_BYTES)
+    out = blank_pattern()
     rows = s3m_grid[ch_idx] if ch_idx < len(s3m_grid) else [S3MRow()] * PATTERN_ROWS
     last_inst = entry_inst    # 1-based; tracks which instrument is loaded on this channel
     for r, row in enumerate(rows[:PATTERN_ROWS]):
@@ -728,35 +731,26 @@ def build_pattern(s3m_grid: list, ch_idx: int, default_pan: int,
 
         # -- Volume column --
         if row.vol >= 0:
-            vol_sel, vol_value = SEL_SET, (opl_volume(row.vol, opl_tl[last_inst]) if adlib
-                                           else min(row.vol, 0x3F))
+            vol = vcol_set(opl_volume(row.vol, opl_tl[last_inst]) if adlib
+                           else vol_from64(row.vol))
             if vol_override is not None and vol_override[0] != SEL_SET:
                 vprint(f"    ch{ch_idx} row{r}: dropped vol slide "
                        f"(cell already carries explicit volume)")
         elif vol_override is not None:
-            vol_sel, vol_value = vol_override
+            vol = vol_override
         else:
-            vol_sel, vol_value = SEL_FINE, 0   # no-op fine slide
+            vol = COL_EMPTY   # no-op fine slide
 
         # ── Pan column ──
         if pan_override is not None:
-            pan_sel, pan_value = pan_override
+            pan = pan_override
         elif r == 0:
             # Position channel to its default pan once per pattern (row 0).
-            pan_sel, pan_value = SEL_SET, default_pan & 0x3F
+            pan = pcol_set(default_pan)
         else:
-            pan_sel, pan_value = SEL_FINE, 0
+            pan = COL_EMPTY
 
-        vol_byte = (vol_value & 0x3F) | ((vol_sel & 0x3) << 6)
-        pan_byte = (pan_value & 0x3F) | ((pan_sel & 0x3) << 6)
-
-        base = r * 8
-        struct.pack_into('<H', out, base + 0, note)
-        out[base + 2] = inst & 0xFF
-        out[base + 3] = vol_byte
-        out[base + 4] = pan_byte
-        out[base + 5] = op & 0xFF
-        struct.pack_into('<H', out, base + 6, arg & 0xFFFF)
+        put_cell(out, r, note=note, inst=inst, vol=vol, pan=pan, fx=op, arg=arg)
     return bytes(out)
 
 

@@ -39,6 +39,7 @@ import { SAMPLEBIN_SIZE, SAMPLEINST_SIZE, CAPTURE_SIGNATURE } from "../../core/f
 import { Document } from "../doc/document.js";
 import { planIxmpCleanup, planBankCleanup, encodeNameTable } from "../doc/cleanup.js";
 import { cleanupBankOp, importBankOp } from "../doc/ops.js";
+import { volEnvFrom63, INST_VOLENV8 } from "../doc/volenv.js";
 import { buildIxmpSection, planImport, planSampleImport, splitNameTable, joinNameTable } from "../doc/bankmerge.js";
 import { deriveLyrics } from "../doc/lyrics.js";
 import { ILYR_FOURCC } from "../../core/format/lyric-section.js";
@@ -584,7 +585,15 @@ function placeRecord(work, i, record) {
 function giveEnvelope(work, i) {
   work._rebuildInstRegion();
   const inst = work.instruments[i.slot];
-  for (let k = 0; k < 25; k++) inst.volEnvelopes[k] = i.envelope.nodes[Math.min(k, i.envelope.nodes.length - 1)];
+  // A format-3 program writes its envelope 8-bit, and the record says so
+  // (byte 14 bit 6); a format-2 one writes 0…63, in the record's own units.
+  const eight = i.envelope.eightBit === true;
+  if (eight) inst.loopMode |= INST_VOLENV8;
+  const max = inst.volEnv8 ? 255 : 63;
+  for (let k = 0; k < 25; k++) {
+    const n = i.envelope.nodes[Math.min(k, i.envelope.nodes.length - 1)];
+    inst.volEnvelopes[k] = { value: eight ? n.value : volEnvFrom63(n.value, max), offset: n.offset };
+  }
   inst.volEnvLoop = 0x2000; // P: present
   inst.volEnvSustainWord = i.envelope.susWord;
   writeRecord(work, i.slot, inst);
@@ -721,8 +730,10 @@ function retuneUses(score) {
       if (!c.inst.retune) continue;
       let vol = 63;
       if (c.vol !== undefined) {
-        const v = c.vol * lane.trim;
-        vol = Math.max(0, Math.min(63, Math.round(wide ? (v * 63) / 255 : v)));
+        // The step the engine gates a zone on: a wide volume reads as v >> 2
+        // against the 6-bit rectangles (trigger.js narrowVolAxis).
+        const v = Math.round(c.vol * lane.trim);
+        vol = Math.max(0, Math.min(63, wide ? Math.min(255, v) >> 2 : v));
       }
       if (!uses.has(c.inst.slot)) uses.set(c.inst.slot, []);
       uses.get(c.inst.slot).push({ word: c.note, vol });

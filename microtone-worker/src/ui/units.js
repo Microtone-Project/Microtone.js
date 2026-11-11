@@ -6,6 +6,7 @@
 
 import { t } from "./i18n.js";
 import { minifloatToDouble, minifloatFromDouble } from "../../core/engine/minifloat.js";
+import { formatHz, hzOfCents } from "./components/hzspinner.js";
 
 /**
  * Envelope segment length, as a spinner mapping (item 156.2). The record stores
@@ -40,10 +41,7 @@ export function annFadeout(v) {
 // clamps too), and the raw Hz/dB would otherwise read as an absurd number.
 export function annSfCutoff(v) {
   if (v >= 0xffff) return t("inst.annOff");
-  const hz = 8.176 * Math.pow(2, Math.min(Math.max(v, 1500), 13500) / 1200);
-  if (hz >= 10000) return Math.round(hz / 1000) + " kHz";
-  if (hz >= 1000) return (hz / 1000).toFixed(2) + " kHz";
-  return Math.round(hz) + " Hz";
+  return formatHz(hzOfCents(Math.min(Math.max(v, 1500), 13500)));
 }
 export function annSfReso(v) {
   if (v >= 0xffff) return t("inst.annFlat");

@@ -61,6 +61,21 @@ const py = await loadConverterRuntime({
   sources,
 });
 
+/** Row `r` of a format-3 pattern (16-byte cells, §5.5): the word and the fine
+ *  pitch, the columns' selectors and values, both effects. */
+function wideCell(pat, r) {
+  const o = r * 16;
+  const word = pat[o] | (pat[o + 1] << 8);
+  return {
+    word, note: word >= 0x20 ? word + (pat[o + 13] >> 4) / 16 : word,
+    inst: pat[o + 2],
+    volSel: (pat[o + 8] >> 4) & 7, vol: pat[o + 3],
+    panSel: pat[o + 8] & 0xf, az: pat[o + 4] | ((pat[o + 8] >> 7) << 8), el: (pat[o + 9] << 24) >> 24,
+    op: pat[o + 5], arg: pat[o + 6] | (pat[o + 7] << 8),
+    op2: pat[o + 10], arg2: pat[o + 11] | (pat[o + 12] << 8),
+  };
+}
+
 function convert(fileName, opts = {}) {
   const conv = converterFor(fileName);
   const inPath = "/in." + fileName.toLowerCase().split(".").pop();
@@ -293,11 +308,11 @@ test("mod2taud turns EC0 into a volume of 0, since S $C0 is ScreamTracker's no-o
     onLog: () => {},
   });
   const [c0, , c2] = laneCells(parseTaud(out), 0);
-  const SEL_SET = 0, SEL_FINE = 3;       // the column's selector, top two bits
+  const SEL_SET = 0, SEL_FINE = 3;       // the column's selector (byte 8 of the wide cell)
   assert.equal(c0.op, 0, "EC0 must not leave an S command the engine ignores");
-  assert.equal(c0.vol >> 6, SEL_SET, "EC0 is the volume column's SET");
-  assert.equal(c0.vol & 0x3f, 0, "to 0");
-  assert.equal(c2.vol >> 6, SEL_FINE, "ECx for x > 0 leaves the volume column alone");
+  assert.equal(c0.volSel, SEL_SET, "EC0 is the volume column's SET");
+  assert.equal(c0.vol, 0, "to 0");
+  assert.equal(c2.volSel, SEL_FINE, "ECx for x > 0 leaves the volume column alone");
   assert.equal(c2.op, 0x1c, "ECx stays S $Cx00");  // TOP_S
   assert.equal(c2.arg, 0xC300);
 });
@@ -352,7 +367,7 @@ test("mod2taud reads Axy, 5xy and 6xy as ProTracker does: up wins, and $F is a s
   }], [0])), 0);
   for (const r of [0, 1]) {
     assert.equal(cells[r].op, 0, `A${r ? "F3" : "F0"} leaves the effect slot empty`);
-    assert.deepEqual([cells[r].vol >> 6, cells[r].vol & 0x3f], [SEL_UP, 15], "and slides up 15 per tick");
+    assert.deepEqual([cells[r].volSel, cells[r].vol], [SEL_UP, 60], "and slides up 15 per tick (×4 on 0…255)");
   }
   assert.deepEqual([cells[2].op, cells[2].arg], [TOP_D, 0x3000], "A3F slides up 3, not a fine slide");
   assert.deepEqual([cells[3].op, cells[3].arg], [TOP_D, 0x3000], "A35 slides up 3, not nothing");
@@ -360,7 +375,7 @@ test("mod2taud reads Axy, 5xy and 6xy as ProTracker does: up wins, and $F is a s
   assert.deepEqual([cells[5].op, cells[5].arg], [TOP_D, 0x0400]);
   assert.deepEqual([cells[6].op, cells[6].arg], [TOP_L, 0x3000], "535: up 3, where L would let down win");
   assert.deepEqual([cells[7].op, cells[7].arg], [TOP_K, 0xf000], "6F2: up 15");
-  assert.equal(cells[2].vol >> 6, SEL_FINE, "the volume column stays empty beside a D");
+  assert.equal(cells[2].volSel, SEL_FINE, "the volume column stays empty beside a D");
 });
 
 test("mod2taud gives a sample of volume 0 a default note volume that is silent", () => {
@@ -424,11 +439,11 @@ test("xm2taud turns EC0 into a volume of 0, and it beats the volume column", () 
   const SEL_SET = 0, SEL_FINE = 3;
   const cells = run({ 0: [49, 1, 0, 0x0e, 0xc0], 1: [49, 1, 0x50, 0x0e, 0xc0], 2: [49, 1, 0, 0x0e, 0xc3] });
   assert.equal(cells[0].op, 0, "EC0 must not leave an S command the engine ignores");
-  assert.equal(cells[0].vol >> 6, SEL_SET);
-  assert.equal(cells[0].vol & 0x3f, 0);
-  assert.equal(cells[1].vol >> 6, SEL_SET, "a volume-column 64 beside EC0 loses to it");
-  assert.equal(cells[1].vol & 0x3f, 0);
-  assert.equal(cells[2].vol >> 6, SEL_FINE, "ECx for x > 0 leaves the volume column alone");
+  assert.equal(cells[0].volSel, SEL_SET);
+  assert.equal(cells[0].vol, 0);
+  assert.equal(cells[1].volSel, SEL_SET, "a volume-column 64 beside EC0 loses to it");
+  assert.equal(cells[1].vol, 0);
+  assert.equal(cells[2].volSel, SEL_FINE, "ECx for x > 0 leaves the volume column alone");
   assert.equal(cells[2].op, 0x1c, "and stays S $Cx00");
   assert.equal(cells[2].arg, 0xc300);
 });
@@ -444,8 +459,8 @@ test("xm2taud reads Axy as FastTracker 2 does, and up-by-15 beside a volume colu
   const SEL_SET = 0, SEL_UP = 1, TOP_D = 0x0d;
   const cells = run({ 0: [49, 1, 0, 0x0a, 0xf0], 1: [0, 0, 0x30, 0x0a, 0xf0], 2: [0, 0, 0, 0x0a, 0x35] });
   assert.equal(cells[0].op, 0);
-  assert.deepEqual([cells[0].vol >> 6, cells[0].vol & 0x3f], [SEL_UP, 15], "AF0: the volume column slides up 15");
-  assert.equal(cells[1].vol >> 6, SEL_SET, "a volume-column SET keeps its column");
+  assert.deepEqual([cells[0].volSel, cells[0].vol], [SEL_UP, 60], "AF0: the volume column slides up 15 (×4 on 0…255)");
+  assert.equal(cells[1].volSel, SEL_SET, "a volume-column SET keeps its column");
   assert.deepEqual([cells[1].op, cells[1].arg], [TOP_D, 0xe000], "and AF0 beside it is the nearest D, up 14");
   assert.deepEqual([cells[2].op, cells[2].arg], [TOP_D, 0x3000], "A35 slides up 3");
 });
@@ -587,10 +602,9 @@ function triggerCells(doc) {
   for (const song of doc.songs) {
     for (const pat of song.patterns) {
       for (let r = 0; r < 64; r++) {
-        const o = r * 8;
-        const note = pat[o] | (pat[o + 1] << 8);
-        if (note < 0x20) continue;                // not a pitch trigger
-        out.push({ note, inst: pat[o + 2], op: pat[o + 5], arg: pat[o + 6] | (pat[o + 7] << 8) });
+        const c = wideCell(pat, r);
+        if (c.word < 0x20) continue;              // not a pitch trigger
+        out.push({ note: c.note, inst: c.inst, op: c.op, arg: c.arg, op2: c.op2, arg2: c.arg2 });
       }
     }
   }
@@ -860,15 +874,18 @@ test("midi2taud writes the volume FluidSynth plays a velocity at (skips without 
     for (const song of parseTaud(out).songs) {
       for (const pat of song.patterns) {
         for (let r = 0; r < 64; r++) {
-          const o = r * 8;
-          if ((pat[o] | (pat[o + 1] << 8)) >= 0x20) vols.push(pat[o + 3]);
-          if (pat[o + 5] === 0x16) lane.push(pat[o + 7]);
+          const c = wideCell(pat, r);
+          if (c.word >= 0x20) vols.push(c.vol);
+          for (const [op, arg] of [[c.op, c.arg], [c.op2, c.arg2]]) if (op === 0x16) lane.push(arg >> 8);
         }
       }
     }
-    assert.deepEqual(vols.sort((a, b) => a - b), [6, 20, 42, 63],
-      "63 x (vel/127)^(1600/960) — not the linear 16 / 32 / 50 / 63");
-    assert.deepEqual(lane, [39], "CC7 100 is M $2700: (100/127)^2, not 100/127");
+    // A format-3 note volume is 0…255, kept inside the 6-bit step the zones gate
+    // on (v >> 2: the old 6, 20, 42 and 63): 255 × (vel/127)^(1600/960).
+    assert.deepEqual(vols.sort((a, b) => a - b), [26, 81, 171, 255],
+      "255 x (vel/127)^(1600/960), each inside its 6-bit step — not the linear curve");
+    assert.deepEqual(vols.map((v) => v >> 2), [6, 20, 42, 63], "the zones' steps, as before");
+    assert.deepEqual(lane, [158], "CC7 100 is M $9E00 of 255: (100/127)^2, not 100/127");
   });
 
 // Resampling a looped sample (pool overflow, length cap, the soundfont's 32 kHz
@@ -1038,7 +1055,7 @@ function laneMajorFirsts(song) {
   }
   return order;
 }
-const isBlankPat = (bytes) => bytes.every((b, i) => b === (i % 8 === 3 || i % 8 === 4 ? 0xc0 : 0));
+const isBlankPat = (bytes) => bytes.every((b, i) => b === (i % 16 === 8 ? 0x33 : 0));
 
 test("tracker converters number their patterns lane by lane (item 253)", () => {
   for (const f of ["milky.xm", "TUTE.IT", "alternate past (31edo).mod"]) {
@@ -1208,13 +1225,11 @@ function noteCells(doc) {
   for (const song of doc.songs) {
     for (const pat of song.patterns) {
       for (let r = 0; r < 64; r++) {
-        const o = r * 8;
-        const note = pat[o] | (pat[o + 1] << 8);
-        if (note === 0) continue;
-        const arg = pat[o + 6] | (pat[o + 7] << 8);
-        const delay = pat[o + 5] === 0x1c && ((arg >>> 12) & 0xf) === 0xd
-          ? (arg >>> 8) & 0xf : 0;
-        out.push({ note, delay, keyoff: note === 1, trigger: note >= 0x20 });
+        const c = wideCell(pat, r);
+        if (c.word === 0) continue;
+        const sd = (op, arg) => (op === 0x1c && ((arg >>> 12) & 0xf) === 0xd ? (arg >>> 8) & 0xf : 0);
+        const delay = sd(c.op, c.arg) || sd(c.op2, c.arg2);
+        out.push({ note: c.note, delay, keyoff: c.word === 1, trigger: c.word >= 0x20 });
       }
     }
   }
@@ -1761,9 +1776,10 @@ test("sop2taud: panning moves the LANE, not the note", () => {
   const pans = [];
   for (const pat of doc.songs[0].patterns) {
     for (let r = 0; r < 64; r++) {
-      const o = r * 8;
-      const arg = pat[o + 6] | (pat[o + 7] << 8);
-      if (pat[o + 5] === 28 && (arg & 0xff00) === 0x8000) pans.push(arg & 0xff);
+      const c = wideCell(pat, r);
+      for (const [op, arg] of [[c.op, c.arg], [c.op2, c.arg2]]) {
+        if (op === 28 && (arg & 0xff00) === 0x8000) pans.push(arg & 0xff);
+      }
     }
   }
   assert.deepEqual(pans.sort(), [0x00, 0xff], "hard left, then hard right");
@@ -1812,8 +1828,9 @@ test("sop2taud: rhythm mode puts the drums on tracks 6…10", () => {
   assert.equal(struck(7).note, struck(10).note, "the snare and the hi-hat share a channel");
   assert.ok(Math.abs(struck(7).note - tom - 2389) < 40, "seven semitones above the tom, on Note's table");
   const hh = d.instruments[struck(10).inst].opl, tc = d.instruments[struck(9).inst].opl;
-  assert.equal(hh.partnerDetune, tom - struck(10).note, "the hi-hat's partner is the tom's channel");
-  assert.equal(tc.partnerDetune, struck(7).note - tom, "…the cymbal's the snare's");
+  // A partner detune is whole 4096-TET units; the notes carry sixteenths.
+  assert.equal(hh.partnerDetune, Math.round(tom - struck(10).note), "the hi-hat's partner is the tom's channel");
+  assert.equal(tc.partnerDetune, Math.round(struck(7).note - tom), "…the cymbal's the snare's");
   const peak = renderPeak(doc);
   assert.ok(peak > 0.02, `converted SOP drums rendered silence (peak ${peak})`);
 });
@@ -1849,8 +1866,8 @@ test("sop2taud: the chip's vibrato is the patch's own bit, not an auto-vibrato",
   }
 });
 
-/** One lane's cells in song order, as {note, inst, vol, op, arg}. A cue's rows
- *  past its LEN are blank on disk, so reading all 64 of each adds nothing. */
+/** One lane's cells in song order, as wideCell's records. A cue's rows past its
+ *  LEN are blank on disk, so reading all 64 of each adds nothing. */
 function laneCells(doc, lane) {
   const song = doc.songs[0];
   const out = [];
@@ -1859,11 +1876,7 @@ function laneCells(doc, lane) {
     // of the pattern number.
     const pat = song.patterns[cue[lane] & 0x7fff];
     if (!pat) continue;
-    for (let r = 0; r < 64; r++) {
-      const o = r * 8;
-      out.push({ note: pat[o] | (pat[o + 1] << 8), inst: pat[o + 2], vol: pat[o + 3],
-                 op: pat[o + 5], arg: pat[o + 6] | (pat[o + 7] << 8) });
-    }
+    for (let r = 0; r < 64; r++) out.push(wideCell(pat, r));
   }
   return out;
 }
@@ -1882,7 +1895,8 @@ test("sop2taud: a version-0.2 WAV track becomes a lane of recorded samples", () 
   // §10.6: note 24 plays a sample as recorded. Taud plays an instrument at its
   // rate on C4 — SOP note 60 — so the instrument is detuned up three octaves.
   assert.equal(blip.sampleDetune, 3 * 4096);
-  assert.equal(blip.loopMode, 0, "one-shot: nothing loops in the game's mixer");
+  assert.equal(blip.loopMode & 0x07, 0, "one-shot: nothing loops in the game's mixer");
+  assert.ok(blip.volEnv8, "its volume envelope is 8-bit, as every format-3 instrument's is");
   // The file's samples are signed; Taud's pool is unsigned about $80.
   const pool = doc.sampleInstImage.subarray(blip.samplePtr, blip.samplePtr + blip.sampleLength);
   assert.deepEqual([...pool.subarray(0, 3)], SOP_BLIP.slice(0, 3).map((v) => (v & 0xff) ^ 0x80));
@@ -1893,8 +1907,8 @@ test("sop2taud: a version-0.2 WAV track becomes a lane of recorded samples", () 
   // §10.6: the note struck while FM slot 0 was selected is silence — no trigger
   // at all — and the two after the sample is selected are note 24 (C1) and 36.
   assert.deepEqual(triggers.map((c) => [c.note, c.inst]), [[0x2000, slot], [0x3000, slot]]);
-  // `(v >> 1) + 1` of 64, linear: volume 127 is the whole of Taud's 0…63.
-  assert.equal(triggers[0].vol, 63);
+  // `(v >> 1) + 1` of 64, linear: volume 127 is the whole of a format-3 cell's 0…255.
+  assert.equal(triggers[0].vol, 255);
   // §10.6: a note's length is how long its sample plays — the first is cut
   // four rows in, and a sample has no release to play, so it is a CUT.
   const first = cells.findIndex((c) => c.note === 0x2000);
@@ -1911,7 +1925,7 @@ test("sop2taud: a version-0.2 pan of 64 is the centre, not silence", () => {
   const lead = laneCells(doc, 0);
   assert.ok(lead.some((c) => c.op === 28 && c.arg === 0x8080), "S $8080: the lane, centred");
   const strike = lead.find((c) => c.note >= 0x20);
-  assert.ok((strike.vol & 0x3f) > 0 && (strike.vol >> 6) === 0, "struck at a volume, not muted");
+  assert.ok(strike.vol > 0 && strike.volSel === 0, "struck at a volume, not muted");
 });
 
 test("sop2taud: the version-0.2 sample actually sounds", () => {
@@ -1944,7 +1958,7 @@ test("sop2taud: a control-track code on a sequenced track is read as Note reads 
   // takes the note from volume 96 to 48, which the curve makes 39 total-level
   // steps under full rather than 16 — 17 dB, not the 6 a linear `V` would.
   assert.ok(!laneCells(doc, 0).some((c) => c.op === 31), "no V: it is not a linear gain");
-  const second = (cells) => cells.filter((c) => c.note >= 0x20)[1].vol & 0x3f;
+  const second = (cells) => cells.filter((c) => c.note >= 0x20)[1].vol;
   const quiet = second(laneCells(doc, 0)), loud = second(laneCells(plain, 0));
   const db = 20 * Math.log10(quiet / loud);
   assert.ok(db < -15 && db > -21, `the second note ${db.toFixed(1)} dB under the plain song's`);
@@ -2016,7 +2030,7 @@ test("ims2taud: a patch change over a ringing note reaches it", () => {
   const swap = laneCells(doc, 0).find((c) => c.note === 0 && c.inst !== 0);
   assert.ok(swap, "an instrument byte with no note");
   assert.equal(d.instruments[swap.inst].opl.feedback, 0, "the BASS patch, not LEAD");
-  assert.equal(swap.vol >> 6, 0, "…restating the channel's volume, which the byte would re-seed");
+  assert.equal(swap.volSel, 0, "…restating the channel's volume, which the byte would re-seed");
 });
 
 test("ims2taud: a drum sounds at its channel's pitch", () => {
@@ -2045,8 +2059,9 @@ test("ims2taud: a drum sounds at its channel's pitch", () => {
   const hit = (lane) => laneCells(doc, lane).find((c) => c.note >= 0x20);
   const tom = hit(8).note;
   assert.equal(tom, 0x5000, "the tom plays its note");
-  assert.equal(hit(7).note, tom + 2389, "the snare, seven semitones up");
-  assert.equal(hit(10).note, tom + 2389, "the hi-hat on the snare's channel");
+  // Seven 12-TET semitones, to the sixteenth a format-3 cell holds: 2389⁵⁄₁₆.
+  assert.equal(hit(7).note, tom + 2389.3125, "the snare, seven semitones up");
+  assert.equal(hit(10).note, tom + 2389.3125, "the hi-hat on the snare's channel");
   assert.equal(hit(9).note, tom, "the cymbal on the tom's");
   const op = (lane) => d.instruments[hit(lane).inst].opl;
   assert.equal(op(7).kind, OPL_KIND_SD);
@@ -2253,7 +2268,7 @@ test("it2taud keeps an empty channel before the last used one, and a volume-only
   assert.equal(doc.songs[0].numVoices, 4, "IT channel n is lane n; the tail goes");
   assert.equal(laneCells(doc, 1)[0].inst, 0);
   assert.equal(laneCells(doc, 2)[0].inst, 1);
-  assert.equal(laneCells(doc, 3)[4].vol & 0x3f, 0);
+  assert.equal(laneCells(doc, 3)[4].vol, 0);
 });
 
 test("s3m2taud: a fine slide is a whole period once, an extra-fine a quarter, carried", () => {
@@ -2310,6 +2325,50 @@ test("s3m2taud: ^^^ keys an AdLib channel off, and still cuts a sample", () => {
   assert.equal(laneCells(doc, 1)[4].note, 0x0001, "the AdLib channel is keyed off");
 });
 
+test("every converter writes format 3, its instruments' volume envelopes 8-bit", () => {
+  // TAUD_FILE_FORMAT §5.5 and §7.2: the wide cell, and byte 14 bit 6 on every
+  // instrument with an envelope — what the editor would otherwise have to
+  // convert on opening.
+  const files = {
+    "mod": () => convert("f.mod", { bytes: makeMod([428, 381, 339]) }),
+    "s3m": () => convert("f.s3m", { bytes: makeS3m({ channels: [16], instruments: [{ type: 2, patch: SINE_PATCH }],
+      patterns: [[{ row: 0, ch: 0, note: 0x40, inst: 1, vol: 32 }]] }) }),
+    "xm": () => runConverter(py, { script: "xm2taud.py", argv: ["/in.xm", "/out.taud"],
+      inputs: [{ path: "/in.xm", bytes: makeXm({ 0: [49, 1, 0x30, 0, 0] }) }], output: "/out.taud", onLog: () => {} }),
+    "it": () => convert("f.it", { bytes: makeIt({ samples: [{ data: SQUARE, loop: true }],
+      patterns: [[{ row: 0, ch: 0, note: 60, smp: 1, vol: 32 }]] }) }),
+    "ims": () => convert("song.ims", { bytes: IMS_SONG, banks: [IMS_BANK] }),
+    "sop": () => convert("song.sop", { bytes: SOP_SONG }),
+  };
+  for (const [kind, make] of Object.entries(files)) {
+    const parsed = parseTaud(make());
+    assert.equal(parsed.fmtVer, 3, `${kind}: format 3`);
+    const doc = new Document(parsed);
+    const plain = doc.usedInstrumentSlots().filter((k) => !doc.instruments[k].isMeta);
+    assert.ok(plain.length > 0, kind);
+    for (const k of plain) assert.ok(doc.instruments[k].volEnv8, `${kind}: instrument ${k} 8-bit`);
+    assert.equal(doc.upgradeVolEnvelopes(), 0, `${kind}: nothing left for the editor to convert`);
+  }
+});
+
+test("xm2taud and it2taud carry a volume-column effect beside the main one as effect 2", () => {
+  // A converter no longer drops one of two simultaneous commands (§5.5): the
+  // column's vibrato rides the second effect. A tone portamento must stay in
+  // slot 1 — only there does a G keep the row from retriggering — so the main
+  // effect moves after it, which is the trackers' own order (column first).
+  const TOP_G = 0x10, TOP_H = 0x11, TOP_R = 0x1b;
+  const xm = laneCells(parseTaud(runConverter(py, { script: "xm2taud.py", argv: ["/in.xm", "/out.taud"],
+    inputs: [{ path: "/in.xm", bytes: makeXm({ 0: [49, 1, 0, 0, 0], 2: [0, 0, 0xb4, 0x07, 0x44], 4: [61, 0, 0xf3, 0x07, 0x44] }) }],
+    output: "/out.taud", onLog: () => {} })), 0);
+  assert.deepEqual([xm[2].op, xm[2].op2], [TOP_R, TOP_H], "XM: 7xy, then the column's vibrato");
+  assert.deepEqual([xm[4].op, xm[4].op2], [TOP_G, TOP_R], "XM: the column's portamento first, 7xy after");
+  const it = laneCells(parseTaud(convert("vc.it", { bytes: makeIt({ samples: [{ data: SQUARE, loop: true }],
+    patterns: [[{ row: 0, ch: 0, note: 60, smp: 1 }, { row: 2, ch: 0, vol: 207, cmd: 18, info: 0x44 },
+      { row: 4, ch: 0, note: 72, vol: 197, cmd: 18, info: 0x44 }]] }) })), 0);
+  assert.deepEqual([it[2].op, it[2].op2], [TOP_R, TOP_H], "IT: R, then the column's Hx");
+  assert.deepEqual([it[4].op, it[4].op2], [TOP_G, TOP_R], "IT: the column's Gx first, R after");
+});
+
 test("s3m2taud: an AdLib volume goes through the chip's total-level curve", () => {
   // openmpt123: volume 32 on a full-level carrier is 23.3 dB down.
   const song = makeS3m({
@@ -2318,7 +2377,7 @@ test("s3m2taud: an AdLib volume goes through the chip's total-level curve", () =
     patterns: [[{ row: 0, ch: 0, note: 0x40, inst: 1, vol: 32 }]],
   });
   const cell = laneCells(parseTaud(convert("vol.s3m", { bytes: song })), 0)[0];
-  assert.equal(cell.vol, Math.round(63 * 10 ** (-23.25 / 20)), "SET, on the curve");
+  assert.equal(cell.vol, Math.round(255 * 10 ** (-23.25 / 20)), "SET, on the curve (0…255)");
 });
 
 test("s3m2taud: an AdLib voice sits against a sample where OpenMPT puts it", () => {
@@ -2344,7 +2403,7 @@ test("it2taud: an OpenMPT OPL sample becomes an OPL instrument, on OpenMPT's lev
   const d = new Document(doc);
   assert.ok(d.instruments[2].isOpl);
   assert.equal(d.instruments[2].opl.feedback, 5);
-  assert.equal(laneCells(doc, 0)[0].vol, Math.round(63 * 10 ** (-0.75 * 29 / 20)),
+  assert.equal(laneCells(doc, 0)[0].vol, Math.round(255 * 10 ** (-0.75 * 29 / 20)),
     "volume 32 on a TL-4 carrier: 63 − 59·33/64 = 33, 29 total-level steps down");
   const level = (smp) => midRms(parseTaud(convert("lvl.it", { bytes: makeIt({
     samples: [{ data: SQUARE, loop: true }, { opl: SINE_PATCH }],
@@ -2443,6 +2502,6 @@ test("midi2taud: a volume attack shorter than a tick starts at the peak, a longe
   };
   // 15 ms: under a 20 ms tick (125 BPM) — the engine would sound nothing for a
   // tick and ramp over the next; over an 8.3 ms one (300 BPM) it can be drawn.
-  assert.equal(firstNode(125), 63);
+  assert.equal(firstNode(125), 255, "the peak, on the 8-bit envelope");
   assert.equal(firstNode(300), 0);
 });

@@ -25,6 +25,7 @@
 
 import { CUE_EMPTY, MAX_VOICES } from "../../core/format/taud-const.js";
 import { harmoniseTranspose } from "../../core/tuning/harmonise.js";
+import { quantiseNote } from "../../core/tuning/pitchtables.js";
 import { cueInfo } from "./document.js";
 
 const NOTE_FIRST_PITCH = 0x20;
@@ -180,7 +181,9 @@ export function harmoniseSongNotes(song, preset, percSlots, select, opts = {}) {
   for (const [id, note] of pitches) {
     const { pat, row } = input.cells.get(id);
     const cell = song.patterns[pat][row];
-    const out = Math.min(Math.max(Math.round(note), NOTE_FIRST_PITCH), 0xffff);
+    // To the nearest sixteenth (65536-TET): a format-3 cell holds it, and
+    // a narrow one rounds it on the way out (TaudPlayData.getByte).
+    const out = Math.min(Math.max(quantiseNote(note), NOTE_FIRST_PITCH), 0xffff);
     if (out !== cell.note) {
       changes.push({ pat, row, prev: cell.note });
       cell.note = out;

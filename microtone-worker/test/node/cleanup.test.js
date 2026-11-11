@@ -653,6 +653,38 @@ test("planIxmpCleanup prunes patches no pattern cell actually plays (usage-based
   assert.ok(Buffer.from(doc.toBytes()).equals(Buffer.from(baseline)), "undo byte-exact");
 });
 
+test("planIxmpCleanup reads a format-3 note's sixteenths as pitch, not as volume", () => {
+  // A 31-TET song's notes sit between 4096-TET words. The demand packing once
+  // took the bare number, so the fraction spilled into the volume and a
+  // velocity-split kit kept the zones for the wrong volumes (Huygens' Clock's
+  // kick went silent at the volumes it is played at).
+  const doc = loadWhen();
+  if (!doc.wideCells) doc.upgradeToWideCells();
+  const slot = doc.selectableInstrumentSlots().find((s) => !doc.instruments[s].isMeta);
+  for (const song of doc.songs) for (const p of song.patterns) if (p) {
+    for (const cell of p) if ((cell.instrment & 0xff) === slot) cell.instrment = 0;
+  }
+  const soft = 902000, loud = 903000;
+  doc.sampleInstImage.fill(0x33, soft, soft + 500);
+  doc.sampleInstImage.fill(0x44, loud, loud + 500);
+  const patches = [
+    mkPatch(0x0f00, 0x1100, 0, 31, { samplePtr: soft, sampleLength: 500 }),
+    mkPatch(0x0f00, 0x1100, 32, 63, { samplePtr: loud, sampleLength: 500 }),
+  ];
+  doc.ixmp = [{ instId: slot, count: 2, blob: writePatchesBlob(patches) }];
+  doc.setSection("Ixmp", buildIxmpSection(doc.ixmp));
+  doc._resetInstrumentCache();
+  const pat = doc.songs[0].patterns.find((p) => p);
+  pat[0].note = 0x1000 + 6 / 16;      // between two words
+  pat[0].instrment = slot;
+  pat[0].volumeEff = 0;
+  pat[0].volume = 0xf0;               // gates as 60: the loud zone
+  const plan = planIxmpCleanup(doc);
+  assert.equal(plan.removedPatches, 1, "the soft zone, which nothing plays, goes");
+  cleanupBankOp(plan).apply(doc);
+  assert.deepEqual(doc.instruments[slot].extraPatches.map((p) => p.volumeStart), [32], "the loud zone stays");
+});
+
 test("planIxmpCleanup leaves a slot's patches untouched by usage-pruning when a trigger row is ambiguous", () => {
   // An instrument-byte-only row (no note) resolves its pitch from whatever the
   // lane was already holding — not statically knowable from the cell alone

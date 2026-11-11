@@ -122,6 +122,9 @@ export function resolveActiveEnvelopes(voice, inst, patch) {
     voice.activeVolEnvLoop = inst.volEnvLoop;
     voice.activeVolEnvSustain = inst.volEnvSustainWord;
   }
+  // An Ixmp patch's volume envelope is in its instrument's units: byte 14's
+  // bit 6 says whether a node's full volume is 63 or 255 (file format §7.2).
+  voice.activeVolEnvMax = inst.volEnv8 ? 255 : 63;
   // The volume envelope answers to its P bit like every other envelope (spec
   // §7.2): a record that says "absent" plays at unity whatever its nodes hold.
   // Resolved here, beside the envelope it describes, so the two never disagree.
@@ -669,7 +672,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricP
   if (!(mayCarry && envCarry(voice.activeVolEnvLoop))) {
     voice.envIndex = 0;
     voice.envTimeSec = 0.0;
-    voice.envVolume = clamp(voice.activeVolEnv[0].value / 63.0, 0.0, 1.0);
+    voice.envVolume = clamp(voice.activeVolEnv[0].value / voice.activeVolEnvMax, 0.0, 1.0);
     // Snap the per-sample-smoothed envelope so attacks land at node-0 immediately.
     voice.envVolMix = voice.envVolume;
     voice.envVolStep = 0.0;
@@ -1288,6 +1291,7 @@ export function ghostVoice(src, channel) {
   v.activeVolEnv = src.activeVolEnv;
   v.activeVolEnvLoop = src.activeVolEnvLoop;
   v.activeVolEnvSustain = src.activeVolEnvSustain;
+  v.activeVolEnvMax = src.activeVolEnvMax;
   v.activePanEnv = src.activePanEnv;
   v.activePanEnvLoop = src.activePanEnvLoop;
   v.activePanEnvSustain = src.activePanEnvSustain;

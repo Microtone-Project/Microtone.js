@@ -31,7 +31,8 @@ if (!page) {
   process.exit(2);
 }
 const budgetMs = (secondsArg ? Number(secondsArg) : 60) * 1000;
-const PORT = 8932;
+// SMOKE_PORT moves the run off 8932 when something else is serving there.
+const PORT = Number(process.env.SMOKE_PORT) || 8932;
 const DEBUG_PORT = 9333;
 
 /** How a smoke page says it has finished. The pages here use one of three
@@ -52,7 +53,7 @@ async function cdpTarget() {
 
 const chrome = await findChrome();
 const profile = await mkdtemp(join(tmpdir(), "taud-browser-"));
-const server = spawn("python3", [join(root, "tools/test-server.py")], { cwd: root, stdio: "ignore" });
+const server = spawn("python3", [join(root, "tools/test-server.py"), String(PORT)], { cwd: root, stdio: "ignore" });
 await sleep(800);
 
 const browser = spawn(chrome, [

@@ -22,8 +22,13 @@
 // rather than wandering off into the effect for good.
 //
 // A slot is 7 characters, the width of "♯C-4 01" — an effect ("A0F00") fits
-// inside it — and slot B starts after a space, 3 characters (6 in a wide cell,
-// whose panning column carries the elevation too).
+// inside it — and slot B starts after a space, 3 characters, or as wide as a
+// wide cell's panning column is for the song's surround model (3, 4 or 6).
+// A slot shows the note in its four cells alone: the wide cell's pitch prefix
+// stays in the full cell.
+//
+// Every `wide` below is that panning width: false (the 8-byte cell, 3), a
+// number of characters, or true for the widest (6).
 
 import {
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG, SUB_FX2_OP, SUB_FX2_ARG,
@@ -45,7 +50,12 @@ const SLOT_B_CHAR = SLOT_A_CHARS + 1;
 
 /** Characters per cell in a narrow mode (mode 0 keeps edit.js cellChars). */
 export function narrowCellChars(mode, wide) {
-  return mode === CELLS_TWO ? SLOT_B_CHAR + (wide ? 6 : 3) : SLOT_A_CHARS;
+  return mode === CELLS_TWO ? SLOT_B_CHAR + panChars(wide) : SLOT_A_CHARS;
+}
+
+/** The panning column's characters for a `wide` argument (see above). */
+function panChars(wide) {
+  return typeof wide === "number" ? wide : wide ? 6 : 3;
 }
 
 /**
@@ -80,7 +90,7 @@ function elementWalk(el, slotChar, wide) {
     case EL_FX: return [[SUB_FX_OP, 0, slotChar], ...[0, 1, 2, 3].map((n) => [SUB_FX_ARG, n, slotChar + 1 + n])];
     case EL_FX2: return [[SUB_FX2_OP, 0, slotChar], ...[0, 1, 2, 3].map((n) => [SUB_FX2_ARG, n, slotChar + 1 + n])];
     case EL_VOL: return [0, 1, 2].map((n) => [SUB_VOL, n, slotChar + n]);
-    case EL_PAN: return Array.from({ length: wide ? 6 : 3 }, (_, n) => [SUB_PAN, n, slotChar + n]);
+    case EL_PAN: return Array.from({ length: panChars(wide) }, (_, n) => [SUB_PAN, n, slotChar + n]);
     default: return [];
   }
 }

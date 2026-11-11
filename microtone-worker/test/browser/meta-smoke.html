@@ -123,10 +123,14 @@
         check("…and the glyph is not blank", in24.split("|")[1].trim().length > 0);
 
         // ── the gating rectangle is editable at last ──
-        nums(0)[4].value = "16";             // volStart
+        // It reads in note volumes (0…255) over the record's 0…63: a typed 66
+        // is in step 16 (64…67), so the record takes 16 and the field 64.
+        check("velocity range reads 0…255", nums(0)[4].value === "0" && nums(0)[5].value === "255");
+        nums(0)[4].value = "66";             // volStart
         fire(nums(0)[4]);
         await sleep(20);
         check("velocity floor edits", layers()[0].volStart === 16);
+        check("…and shows its step's first volume", nums(0)[4].value === "64");
 
         // ── duplicate is LINKED: one more layer on the SAME sub-instrument ──
         const countBefore = layers().length;

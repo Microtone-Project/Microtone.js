@@ -14,6 +14,7 @@
 import { actionRow } from "../../microtone-worker/src/ui/components/actions.js";
 import { showModal, showNotice } from "../../microtone-worker/src/ui/components/modal.js";
 import { startControlEnhancer } from "../../microtone-worker/src/ui/components/spinner.js";
+import { hzSpinner } from "../../microtone-worker/src/ui/components/hzspinner.js";
 import { showContextMenu } from "../../microtone-worker/src/ui/components/contextmenu.js";
 import { dragGrip, focusGrip } from "../../microtone-worker/src/ui/components/dragsort.js";
 import { makeFoldable } from "../../microtone-worker/src/ui/components/fold.js";
@@ -404,6 +405,23 @@ const DEMOS = {
     n.addEventListener("change", say);
     s.addEventListener("change", say);
     row.append(n, s);
+    box.append(row, out);
+    say();
+  },
+
+  HertzSpinner(box) {
+    // A SoundFont cutoff: stored in absolute cents, read and typed in Hz; the
+    // second field's top step is Off, as an Ixmp patch's cutoff has.
+    const row = el("div", "ds-row");
+    const a = el("input");
+    const b = el("input");
+    hzSpinner(a, 6900);
+    hzSpinner(b, 13500, { off: 0xffff, offLabel: "Off" });
+    const out = el("div", "ds-out");
+    const say = () => { out.textContent = `stored ${a.rawValue} ¢ · ${b.rawValue === 0xffff ? "off" : `${b.rawValue} ¢`}`; };
+    a.addEventListener("change", say);
+    b.addEventListener("change", say);
+    row.append(a, b);
     box.append(row, out);
     say();
   },

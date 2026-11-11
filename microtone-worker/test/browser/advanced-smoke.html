@@ -80,14 +80,37 @@ const setLamp = (b, on) => { if (lampOn(b) !== !!on) b.click(); };
   const numInput = (label) => [...iv.panel.querySelectorAll(".adv-num")]
     .find((l) => l.textContent.startsWith(label))?.querySelector("input");
   const before = doc.instruments[slot].extraPatches[0].pitchEnd;
+  let check0 = false;
   const inp = numInput("Pitch hi");
-  inp.value = 0x1234; fire(inp, "change");
+  // The field reads a note word in hex (typed as $1234 or as a note name).
+  check0 = /^\$[0-9A-F]{4}$/.test(inp.value);
+  inp.value = "$1234"; fire(inp, "change");
   const t4 = doc.instruments[slot].extraPatches[0].pitchEnd === 0x1234;
+  log(`Pitch hi reads $hex (${check0 ? "yes" : "no"}): ${check0 ? "ok" : "FAIL"}`);
   log(`Pitch hi edit hits the patch blob (${before}→${doc.instruments[slot].extraPatches[0].pitchEnd}): ${t4 ? "ok" : "FAIL"}`);
   store.undo.undo();
   const t5 = doc.instruments[slot].extraPatches[0].pitchEnd === before &&
     !!iv.panel.querySelector(".adv-head");
   log(`undo restores + panel stays advanced: ${t5 ? "ok" : "FAIL"}`);
+
+  // Vel lo/hi read note volumes (0…255) over the record's 0…63: a typed 130
+  // is in step 32 (128…131), so the record takes 32 and the field 128; the
+  // list row reads the same units.
+  {
+    const p = () => doc.instruments[slot].extraPatches[0];
+    const lo0 = p().volumeStart, hi0 = p().volumeEnd;
+    const shown = numInput("Vel lo").value === String(lo0 * 4) &&
+      numInput("Vel hi").value === String(hi0 * 4 + 3);
+    log(`Vel lo/hi read 0…255 (${numInput("Vel lo").value}‥${numInput("Vel hi").value}): ${shown ? "ok" : "FAIL"}`);
+    const vlo = numInput("Vel lo");
+    vlo.value = "130"; fire(vlo, "change");
+    const stored = p().volumeStart === 32 && numInput("Vel lo").value === "128";
+    log(`Vel lo 130 → step 32, field 128 (${p().volumeStart}, ${numInput("Vel lo").value}): ${stored ? "ok" : "FAIL"}`);
+    const listed = rows()[0].querySelector(".adv-range").textContent.endsWith(`128‥${hi0 * 4 + 3}`);
+    log(`list row reads the same units (${rows()[0].querySelector(".adv-range").textContent}): ${listed ? "ok" : "FAIL"}`);
+    store.undo.undo();
+    log(`undo restores Vel lo: ${p().volumeStart === lo0 ? "ok" : "FAIL"}`);
+  }
 
   // Add / delete patches (badge follows).
   const headBtn = (label) => [...iv.panel.querySelectorAll(".adv-head button")]
@@ -216,7 +239,12 @@ const setLamp = (b, on) => { if (lampOn(b) !== !!on) b.click(); };
     .find((l) => l.textContent.includes("Extra block present"));
   setLamp(extraChk, true);
   const p0e = doc.instruments[slot].extraPatches[0];
-  const annOf = (s) => numLabelStarting(s)?.querySelector(".sl-ann")?.textContent ?? "";
+  // SoundFont mode puts the units IN the field (Hz, dB); IT mode annotates.
+  const annOf = (s) => {
+    const l = numLabelStarting(s);
+    const a = l?.querySelector(".sl-ann")?.textContent ?? "";
+    return a !== "" ? a : (l?.querySelector("input")?.value ?? "");
+  };
   const modeLbl = numLabelStarting("Mode"); // renamed from "Filter units"
   const fadeAnn = annOf("Fadeout");
   const cutAnn = annOf("Cutoff");

@@ -107,6 +107,19 @@ function rowsOf(inst) {
   return inst.type === INST_PATLEN || inst.type === INST_HALTAT ? inst.rows : 64;
 }
 
+/** A wide cell's pitch in 65536-TET: `note` (4096-TET units, sixteenths
+ *  allowed) times 16, rounded and clamped to 20 bits. */
+export function wideNotePitch(note) {
+  return Math.min(Math.max(Math.round(note * 16), 0), 0xfffff);
+}
+/** The 16-bit word a wide cell stores at bytes 0–1. */
+export function wideNoteWord(note) { return wideNotePitch(note) >>> 4; }
+/** The fine nibble a wide cell stores at byte 13's high nibble (0 under a sentinel). */
+export function wideNoteFine(note) {
+  const p = wideNotePitch(note);
+  return (p >>> 4) >= 0x20 ? p & 0xf : 0;
+}
+
 // ── TaudPlayData — one pattern cell (5210-5244) ──
 // Two wire layouts share these fields: the 8-byte cell of format versions 1-2
 // (getByte/setByte) and version 3's 16-byte WIDE cell (getByteWide/setByteWide).
@@ -116,7 +129,13 @@ function rowsOf(inst) {
 // untouched, which is what keeps it bit-exact.
 export class TaudPlayData {
   constructor() {
-    this.note = 0;       // 0..65535
+    // 0..65535, a note word in 4096-TET units. In a wide cell it may carry a
+    // fraction in sixteenths — byte 13's high nibble, the four bits that make
+    // the wide cell's pitch 65536-TET (file format §5.5) — so `note` is a
+    // number, not a word: every pitch path takes it as it stands, and a
+    // sentinel (< $20) never has one.
+    this.note = 0;
+    this.noteFine = 0;   // wide decode only: byte 13's nibble as it arrived
     this.instrment = 0;  // 0..255 (sic — Kotlin field name kept for diffability)
     this.volume = 0;     // 0..63, or 0..255 in a wide cell
     this.volumeEff = 0;  // 0..3, or 0..7 in a wide cell
@@ -131,11 +150,13 @@ export class TaudPlayData {
     this.effectArg2 = 0;
   }
 
-  /** Wide-cell byte view — see the file format's §5.5 table. */
+  /** Wide-cell byte view — see the file format's §5.5 table. The three pitch
+   *  bytes (0, 1 and 13's high nibble) are all read off `note`, so code that
+   *  writes `note` needs to know nothing about where the fraction goes. */
   getByteWide(offset) {
     switch (offset) {
-      case 0: return this.note & 0xff;
-      case 1: return (this.note >>> 8) & 0xff;
+      case 0: return wideNoteWord(this.note) & 0xff;
+      case 1: return (wideNoteWord(this.note) >>> 8) & 0xff;
       case 2: return this.instrment & 0xff;
       case 3: return this.volume & 0xff;
       case 4: return this.azimuth & 0xff;
@@ -148,15 +169,16 @@ export class TaudPlayData {
       case 10: return this.effect2 & 0xff;
       case 11: return this.effectArg2 & 0xff;
       case 12: return (this.effectArg2 >>> 8) & 0xff;
-      case 13: case 14: case 15: return 0; // RESERVED
+      case 13: return wideNoteFine(this.note) << 4; // low nibble RESERVED
+      case 14: case 15: return 0; // RESERVED
       default: throw new Error(`Bad offset ${offset}`);
     }
   }
 
   setByteWide(offset, byte) {
     switch (offset) {
-      case 0: this.note = (this.note & 0xff00) | byte; break;
-      case 1: this.note = (this.note & 0x00ff) | (byte << 8); break;
+      case 0: this._setWideNote((this.note & 0xff00) | byte); break;
+      case 1: this._setWideNote((this.note & 0x00ff) | (byte << 8)); break;
       case 2: this.instrment = byte; break;
       case 3: this.volume = byte & 0xff; break;
       case 4: this.azimuth = (this.azimuth & 0x100) | byte; break;
@@ -172,15 +194,25 @@ export class TaudPlayData {
       case 10: this.effect2 = byte; break;
       case 11: this.effectArg2 = (this.effectArg2 & 0xff00) | byte; break;
       case 12: this.effectArg2 = (this.effectArg2 & 0x00ff) | (byte << 8); break;
-      case 13: case 14: case 15: break; // RESERVED
+      case 13: this.noteFine = byte >>> 4; this._setWideNote(this.note & 0xffff); break;
+      case 14: case 15: break; // RESERVED
       default: throw new Error(`Bad offset ${offset}`);
     }
   }
 
+  /** The note from its word and the fine nibble last decoded; a sentinel word
+   *  takes no fraction (§5.5: the nibble is RESERVED under one). */
+  _setWideNote(word) {
+    this.note = word >= 0x20 ? word + this.noteFine / 16 : word;
+  }
+
+  // The 8-byte cell has no room for a fraction: a note that carries one (a
+  // pitch computed at 65536-TET and written into a narrow song) rounds to the
+  // nearest word, never truncates.
   getByte(offset) {
     switch (offset) {
-      case 0: return this.note & 0xff;
-      case 1: return (this.note >>> 8) & 0xff;
+      case 0: return Math.round(this.note) & 0xff;
+      case 1: return (Math.round(this.note) >>> 8) & 0xff;
       case 2: return this.instrment & 0xff;
       case 3: return (this.volume | (this.volumeEff << 6)) & 0xff;
       case 4: return (this.pan | (this.panEff << 6)) & 0xff;

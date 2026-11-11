@@ -23,13 +23,16 @@ import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
   envClip, envPaste,
 } from "../../doc/envedit.js";
-import { META_MIX_GAIN } from "../../../core/engine/tables.js";
 import { noteToStr, rangeToStr, hex4 } from "../notenames.js";
+import { velRangeText } from "../../doc/velaxis.js";
+import { hzSpinnerMap } from "../components/hzspinner.js";
+import { ATTEN_DB_MAP, centsMap, pitchHexMap, sfResoDbMap } from "../spinmaps.js";
+import { volEnvMaxOf } from "../../doc/volenv.js";
 import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
 import { unescapeName } from "../../../core/format/names.js";
 import {
-  annFadeout, annFilter, annSfCutoff, annSfReso, SEG_MINIFLOAT_MAP,
+  annFadeout, annFilter, SEG_MINIFLOAT_MAP,
 } from "../units.js";
 import { mapSpinner } from "../components/spinner.js";
 import { lampButton } from "../components/lampbutton.js";
@@ -79,16 +82,7 @@ function escape(s) {
 function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 const annHex4 = (v) => "$" + hex4(v & 0xffff);
-const noteAnn = (v) => `${noteToStr(v)} ${annHex4(v)}`;
-
-/** PSO attenuation octet → dB label (159 = 0 dB; 0 = unity sentinel). */
-function attenLabel(octet) {
-  if ((octet & 0xff) === 0) return t("adv.attenUnset");
-  const g = META_MIX_GAIN[octet & 0xff];
-  if (!(g > 0)) return "−∞ dB";
-  const db = 20 * Math.log10(g);
-  return (db >= 0 ? "+" : "−") + Math.abs(db).toFixed(1) + " dB";
-}
+const noteName = (v) => noteToStr(v);
 
 export class AdvancedZoneEditor {
   constructor(iv) {
@@ -249,6 +243,16 @@ export class AdvancedZoneEditor {
     return name || `$${ptr.toString(16).toUpperCase()}·${len}`;
   }
 
+  /** ENV_KINDS[i] as this instrument reads it: a patch's volume envelope is in
+   *  its instrument's units (byte 14 bit 6), 0…255 or 0…63, full volume the
+   *  value a fresh block holds. */
+  envKindDef(i) {
+    const kind = ENV_KINDS[i];
+    if (kind.key !== "volEnv") return kind;
+    const max = volEnvMaxOf(this.inst.loopMode);
+    return { ...kind, max, defVal: max };
+  }
+
   /** True when patch `i`'s rectangle intersects an EARLIER patch's (spec Note
    *  1: overlapping zones are invalid — first match wins at trigger time).
    *  The hidden base stereo patch (item 180) is excluded — it isn't a real
@@ -287,7 +291,7 @@ export class AdvancedZoneEditor {
       if (i === this.shadowIdx) return; // item 180 — not a real zone
       mkRow(i, this.sampleLabel(p.samplePtr, p.sampleLength) +
         (p.hasChanBlock && p.chanCount > 1 ? ` [${t("smp.stereoTag")}]` : ""),
-        `${rangeToStr(p.pitchStart, p.pitchEnd)} · ${p.volumeStart}‥${p.volumeEnd}`,
+        `${rangeToStr(p.pitchStart, p.pitchEnd)} · ${velRangeText(p.volumeStart, p.volumeEnd)}`,
         this.overlapsEarlier(patches, i));
     });
     mkRow(patches.length,
@@ -440,7 +444,7 @@ export class AdvancedZoneEditor {
   }
 
   /** label + number spinner (+ live annotation fn) committing on change. */
-  num(label, value, min, max, onCommit, ann = null, title = "", pitch = "") {
+  num(label, value, min, max, onCommit, ann = null, title = "", pitch = "", map = null) {
     const l = document.createElement("label");
     l.className = "env-ctl adv-num";
     if (title) l.title = title;
@@ -449,16 +453,32 @@ export class AdvancedZoneEditor {
     inp.type = "number"; inp.value = value; inp.min = min; inp.max = max;
     // A pitch field ("units" | "cents") also takes 700c, 3/2 and $100.
     if (pitch) inp.dataset.mtPitch = pitch;
+    // A mapped field (spinmaps.js, components/hzspinner.js) shows its own units
+    // — $hex, cents, dB, Hz — and steps the stored ones.
+    if (map) mapSpinner(inp, map, value);
+    const read = () => clampN(Math.round(map ? inp.rawValue : (Number(inp.value) || 0)), min, max);
     const annEl = document.createElement("span");
     annEl.className = "sl-ann";
     if (ann) annEl.textContent = ann(value);
     inp.addEventListener("input", () => {
-      if (ann) annEl.textContent = ann(clampN(Math.round(Number(inp.value) || 0), min, max));
+      if (ann && !map) annEl.textContent = ann(read());
     });
-    inp.addEventListener("change", () =>
-      onCommit(clampN(Math.round(Number(inp.value) || 0), min, max)));
+    inp.addEventListener("change", () => {
+      if (ann) annEl.textContent = ann(read());
+      onCommit(read());
+    });
     l.append(inp);
     if (ann) l.append(annEl);
+    return l;
+  }
+
+  /** A volume-gate bound, labelled like num(): the Layers tab's field
+   *  (InstrumentsView.velBoundIn), reading 0…255 over the record's 0…63. */
+  velNum(label, stored, high, onCommit) {
+    const l = document.createElement("label");
+    l.className = "env-ctl adv-num";
+    l.append(document.createTextNode(label),
+      this.iv.velBoundIn(stored, high, onCommit, t(high ? "adv.volHiTitle" : "adv.volLoTitle"), ""));
     return l;
   }
 
@@ -495,11 +515,13 @@ export class AdvancedZoneEditor {
     // Zone rectangle
     const zone = this.group(host, t("adv.zoneGroup"));
     this.row(zone,
-      this.num(t("adv.pitchLo"), p.pitchStart, 0, 0xffff, (v) => this._field("pitchStart", v), noteAnn),
-      this.num(t("adv.pitchHi"), p.pitchEnd, 0, 0xffff, (v) => this._field("pitchEnd", v), noteAnn));
+      this.num(t("adv.pitchLo"), p.pitchStart, 0, 0xffff, (v) => this._field("pitchStart", v), noteName,
+        "", "", pitchHexMap(this.store.pitchPreset)),
+      this.num(t("adv.pitchHi"), p.pitchEnd, 0, 0xffff, (v) => this._field("pitchEnd", v), noteName,
+        "", "", pitchHexMap(this.store.pitchPreset)));
     this.row(zone,
-      this.num(t("adv.volLo"), p.volumeStart, 0, 63, (v) => this._field("volumeStart", v)),
-      this.num(t("adv.volHi"), p.volumeEnd, 0, 63, (v) => this._field("volumeEnd", v)));
+      this.velNum(t("adv.volLo"), p.volumeStart, false, (v) => this._field("volumeStart", v)),
+      this.velNum(t("adv.volHi"), p.volumeEnd, true, (v) => this._field("volumeEnd", v)));
 
     // Sample binding
     const smp = this.group(host, t("adv.sampleGroup"));
@@ -535,9 +557,8 @@ export class AdvancedZoneEditor {
       this.num(t("adv.playStart"), p.playStart, 0, 0xffff, (v) => this._field("playStart", v)),
       this.num(t("adv.rate"), p.samplingRate, 0, 0xffff, (v) => this._field("samplingRate", v)),
       this.num(t("adv.detune"), p.sampleDetune, -0x8000, 0x7fff,
-        (v) => this._field("sampleDetune", v),
-        (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v * 1200 / 4096).toFixed(0)}c`,
-        "", "units"));
+        (v) => this._field("sampleDetune", v), null,
+        "", "", centsMap(this.store.pitchPreset)));
     this.row(smp,
       this.sel(t("smp.loop"), p.loopMode & 0x03, [
         ["0", t("smp.loopOff")], ["1", t("smp.loopForward")],
@@ -656,12 +677,18 @@ export class AdvancedZoneEditor {
           [["0", "ImpulseTracker"], ["1", "SoundFont2"]],
           (v) => this._field("filterSfMode", v === "1")),
         this.num(t("adv.fadeout"), p.fadeoutStep, 0, 0xffff, (v) => this._field("fadeoutStep", v), annFadeout),
-        this.num(t("adv.cutoff"), p.extraCutoff, 0, 0xffff, (v) => this._field("extraCutoff", v),
-          p.filterSfMode ? annSfCutoff : annFilter),
-        this.num(t("adv.resonance"), p.extraResonance, 0, 0xffff, (v) => this._field("extraResonance", v),
-          p.filterSfMode ? annSfReso : annFilter),
+        // SoundFont mode reads the filter in Hz and dB (IT mode keeps its
+        // 0…254 bytes); the attenuation is decibels in either.
+        p.filterSfMode
+          ? this.num(t("adv.cutoff"), p.extraCutoff, 0, 0xffff, (v) => this._field("extraCutoff", v), null,
+            "", "", hzSpinnerMap({ off: 0xffff, offLabel: t("inst.annOff") }))
+          : this.num(t("adv.cutoff"), p.extraCutoff, 0, 0xffff, (v) => this._field("extraCutoff", v), annFilter),
+        p.filterSfMode
+          ? this.num(t("adv.resonance"), p.extraResonance, 0, 0xffff, (v) => this._field("extraResonance", v), null,
+            "", "", sfResoDbMap())
+          : this.num(t("adv.resonance"), p.extraResonance, 0, 0xffff, (v) => this._field("extraResonance", v), annFilter),
         this.num(t("adv.atten"), p.extraInitialAttenOctet, 0, 255,
-          (v) => this._field("extraInitialAttenOctet", v), attenLabel));
+          (v) => this._field("extraInitialAttenOctet", v), null, "", "", ATTEN_DB_MAP));
     }
   }
 
@@ -719,7 +746,7 @@ export class AdvancedZoneEditor {
       return;
     }
     this.waveCanvas = null;
-    const kind = ENV_KINDS[this.envKind];
+    const kind = this.envKindDef(this.envKind);
     if (!p) {
       // base row: read-only pointer to the normal tabs
       const note = document.createElement("div");

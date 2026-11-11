@@ -57,10 +57,13 @@
         const btn = (word) => buttons().find((b) => b.textContent.trim().endsWith(word));
         const nodes = (slot, key, n) => doc.instruments[slot][key].slice(0, n).map((x) => [x.value, x.offset]);
 
-        // A's volume envelope: 0 → 63 in 4 ms, down to 20; sustain on node 1,
-        // a loop 1…2 with carry, present.
-        const shape = Array.from({ length: ENV_MAX_NODES }, () => ({ value: 0x3f, offset: 0 }));
-        shape[0] = { value: 0, offset: 1 }; shape[1] = { value: 63, offset: 64 }; shape[2] = { value: 20, offset: 0 };
+        // A's volume envelope: 0 → full in 4 ms, down to 81 (20 of the old 63);
+        // sustain on node 1, a loop 1…2 with carry, present. An opened
+        // project's volume envelopes are 8-bit (file format §7.2).
+        check("the project's volume envelopes are 8-bit", doc.instruments[A].volEnv8 && doc.instruments[B].volEnv8);
+        const shape = Array.from({ length: ENV_MAX_NODES }, () => ({ value: 0xff, offset: 0 }));
+        shape[0] = { value: 0, offset: 1 }; shape[1] = { value: 255, offset: 64 }; shape[2] = { value: 81, offset: 0 };
+        const SHAPE3 = JSON.stringify([[0, 1], [255, 64], [81, 0]]);
         store.undo.apply(compositeOp([
           setEnvArrayOp(A, "volEnvelopes", shape),
           setInstFieldOp(A, "volEnvLoop", 0x2000 | 0x40 | 0x20 | (1 << 8) | 2),
@@ -76,7 +79,7 @@
         check("…and on once something is", btn("Paste").disabled === false);
         let shared = null;
         try { shared = JSON.parse(win.localStorage.getItem("microtone.envClipboard")); } catch { /* none */ }
-        check("the copy is in the slot other tabs read", shared?.data?.max === 63 && shared.data.nodes.length === 25);
+        check("the copy is in the slot other tabs read", shared?.data?.max === 255 && shared.data.nodes.length === 25);
 
         // Onto B's volume envelope: exactly.
         const beforeB = { n: nodes(B, "volEnvelopes", 25), loop: doc.instruments[B].volEnvLoop,
@@ -84,7 +87,7 @@
         show(B, "env0");
         btn("Paste").click();
         check("pasted onto another instrument's Vol env, node for node",
-          JSON.stringify(nodes(B, "volEnvelopes", 3)) === JSON.stringify([[0, 1], [63, 64], [20, 0]]),
+          JSON.stringify(nodes(B, "volEnvelopes", 3)) === SHAPE3,
           JSON.stringify(nodes(B, "volEnvelopes", 3)));
         check("…with its sustain, loop and carry, switched on",
           doc.instruments[B].volEnvLoop === (0x2000 | 0x40 | 0x20 | (1 << 8) | 2) &&
@@ -95,12 +98,12 @@
           JSON.stringify(nodes(B, "volEnvelopes", 25)) === JSON.stringify(beforeB.n) &&
           doc.instruments[B].volEnvLoop === beforeB.loop && doc.instruments[B].volEnvSustainWord === beforeB.sus);
 
-        // Onto B's pan envelope: rescaled, its own p bit kept.
+        // Onto B's pan envelope: the same range now, top to top; its own p bit kept.
         store.undo.apply(setInstFieldOp(B, "panEnvLoop", 0x80));
         show(B, "env1");
         btn("Paste").click();
-        check("pasted onto a Pan env, rescaled 0…63 → 0…255",
-          JSON.stringify(nodes(B, "panEnvelopes", 3)) === JSON.stringify([[0, 1], [255, 64], [81, 0]]),
+        check("pasted onto a Pan env, top to top",
+          JSON.stringify(nodes(B, "panEnvelopes", 3)) === SHAPE3,
           JSON.stringify(nodes(B, "panEnvelopes", 3)));
         check("…keeping the pan envelope's own default-pan bit, present",
           (doc.instruments[B].panEnvLoop & 0x2080) === 0x2080);
@@ -153,7 +156,7 @@
         btn("Paste").click();
         const pn = pat().volEnv.slice(0, 3).map((x) => [x.value, x.offset]);
         check("pasted onto a patch's volume envelope, with its words",
-          JSON.stringify(pn) === JSON.stringify([[0, 1], [63, 64], [20, 0]]) &&
+          JSON.stringify(pn) === SHAPE3 &&
           pat().volEnvLoop === (0x2000 | 0x40 | 0x20 | (1 << 8) | 2) && pat().volEnvSustain === (0x20 | (1 << 8) | 1),
           JSON.stringify(pn));
         // The patch's pitch envelope: rescaled, and the m-bit its kind fixes (pitch = clear).
@@ -161,7 +164,7 @@
         iv.advEditor.render();
         if (pat().pitchEnv === null) iv.panel.querySelector(".adv-envbox > button").click();
         btn("Paste").click();
-        check("…and onto its pitch envelope, rescaled, still the pitch role",
+        check("…and onto its pitch envelope, still the pitch role",
           pat().pitchEnv[1].value === 255 && (pat().pitchEnvLoop & 0x2080) === 0x2000,
           `$${pat().pitchEnvLoop.toString(16)}`);
         iv.advanced = false;
@@ -179,14 +182,25 @@
         show(A, "env0");
         const tookC = key("c");
         check("Ctrl+C on a Vol env tab copies it",
-          tookC && store.envClipboard !== null && store.envClipboard.nodes[1].value === 63 && store.envClipboard.max === 63);
+          tookC && store.envClipboard !== null && store.envClipboard.nodes[1].value === 255 && store.envClipboard.max === 255);
         show(B, "env0");
         const beforeKey = JSON.stringify(nodes(B, "volEnvelopes", 25));
         const tookV = key("v");
         check("Ctrl+V on another instrument's Vol env pastes it",
-          tookV && JSON.stringify(nodes(B, "volEnvelopes", 3)) === JSON.stringify([[0, 1], [63, 64], [20, 0]]));
+          tookV && JSON.stringify(nodes(B, "volEnvelopes", 3)) === SHAPE3);
         store.undo.undo();
         check("…one undo step", JSON.stringify(nodes(B, "volEnvelopes", 25)) === beforeKey);
+        // A copy an older version left in storage is in 0…63: onto an 8-bit
+        // volume envelope it is rescaled, top to top.
+        const { envClip } = await import("../../src/doc/envedit.js");
+        const old = Array.from({ length: ENV_MAX_NODES }, () => ({ value: 63, offset: 0 }));
+        old[0] = { value: 0, offset: 1 }; old[1] = { value: 63, offset: 64 }; old[2] = { value: 20, offset: 0 };
+        store.envClipboard = envClip(old, 0x2000, 0, 63);
+        show(B, "env0");
+        btn("Paste").click();
+        check("a 0…63 copy pasted onto an 8-bit Vol env is rescaled 0…63 → 0…255",
+          JSON.stringify(nodes(B, "volEnvelopes", 3)) === SHAPE3, JSON.stringify(nodes(B, "volEnvelopes", 3)));
+        store.undo.undo();
         show(B, "general");
         const tookOff = key("v");
         check("on a tab with no envelope the keys are left alone",

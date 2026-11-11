@@ -26,6 +26,9 @@
       for (let i = 0; i < 200 && !M.store.song; i++) await sleep(50);
       const { store } = M;
       const ops = await import("../../src/doc/ops.js");
+      // Written as version-2 cells; every project is format 3, so they widen
+      // as an opened file does.
+      const { widenPattern } = await import("../../src/doc/upgrade.js");
       // The theme button is the only public switch (applyTheme also drops a
       // colour cache the harness realm cannot reach), so cycle it to the one
       // asked for.
@@ -72,7 +75,7 @@
       const pats = [pitch, porta, vol, pan];
       for (let ch = 0; ch < pats.length; ch++) {
         const patNum = store.song.cues[0][ch] & 0x7fff;
-        store.undo.apply(ops.setPatternBytesOp(0, patNum, pats[ch]));
+        store.undo.apply(ops.setPatternBytesOp(0, patNum, widenPattern(pats[ch])));
       }
       // ?cross=1 — a bend still travelling when cue 0 ends, and an empty cue 1
       // under it, for looking at what the trail does over a pattern boundary.
@@ -82,9 +85,9 @@
           const head = blank();
           note(head, lim - 3, 0x4000, 5);
           note(head, lim - 2, 0x6000, 0); fx(head, lim - 2, OP.G, 0x0020);
-          store.undo.apply(ops.setPatternBytesOp(0, store.song.cues[0][ch] & 0x7fff, head));
+          store.undo.apply(ops.setPatternBytesOp(0, store.song.cues[0][ch] & 0x7fff, widenPattern(head)));
           const next = store.song.cues[1][ch] & 0x7fff;
-          if (next !== 0x7fff) store.undo.apply(ops.setPatternBytesOp(0, next, blank()));
+          if (next !== 0x7fff) store.undo.apply(ops.setPatternBytesOp(0, next, widenPattern(blank())));
         }
       }
       store.emit("edit");

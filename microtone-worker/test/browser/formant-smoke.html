@@ -66,9 +66,9 @@
           ok(inst().isFormant && !inst().isMeta && inst().sampleLength > 0));
         const fade = inst().volumeFadeoutLow | ((inst().fadeoutHigh & 0x0f) << 8);
         const v = inst().volEnvelopes;
-        log(`…fadeout 256, Duplicate Check Lane → Key-off, a 4 ms rise held by its sustain: ` +
+        log(`…fadeout 256, Duplicate Check Lane → Key-off, a 4 ms rise from 97 (24 of 63) to full, held by its sustain, in 8-bit units: ` +
           ok(fade === 256 && inst().duplicateCheckType === 4 && inst().duplicateCheckAction === 1 &&
-             v[0].value === 0 && v[0].offset === 1 && v[1].value === 63 && v[1].offset === 0 &&
+             v[0].value === 97 && v[0].offset === 1 && v[1].value === 255 && v[1].offset === 0 && inst().volEnv8 &&
              inst().volEnvLoop === 0x2000 && inst().volEnvSustainWord === 0x0121));
         await waitFor(() => iv.panel.querySelector(".fmt-chart-svg"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);

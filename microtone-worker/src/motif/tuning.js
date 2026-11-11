@@ -4,7 +4,7 @@
 // Timeline's own spelling of that notation, with the period number after them:
 // "Cp4" is degree 30 of period 4, just below C5.
 
-import { pitchTablePresets, ANCHOR_NOTE } from "../../core/tuning/pitchtables.js";
+import { pitchTablePresets, ANCHOR_NOTE, finePreset, quantiseNote } from "../../core/tuning/pitchtables.js";
 import { autoAssignSyms, buildNotaPayload, notationValueForSlot, validateDef } from "../doc/notation.js";
 import { MotifError } from "./lexer.js";
 
@@ -21,17 +21,25 @@ export function symName(tok) {
 
 export class Tuning {
   /**
+   * A tuning reads its notes at either resolution (setFine): 4096-TET words,
+   * what a format-2 song holds, or 65536-TET pitches — sixteenths of a unit —
+   * in a format-3 one. A built-in notation's two tables are its two forms
+   * (pitchtables.js finePreset); a custom one keeps its exact degrees and
+   * rounds them either way, its nota definition with them.
+   *
    * @param notation  the sMet notation value (310 = 31-TET; 0xFFFF = custom slot 0)
-   * @param preset    {name, table, interval, sym}
-   * @param nota      the nota section payload a custom tuning needs, or null
+   * @param preset    {name, table, interval, sym} — a built-in, or a custom
+   *                  notation's exact degrees (4096-TET units, unrounded)
+   * @param def       a custom tuning's nota definition (its table and interval
+   *                  exact), or null for a built-in
    */
-  constructor(notation, preset, nota = null) {
+  constructor(notation, preset, def = null) {
     this.notation = notation;
     this.name = preset.name;
-    this.table = preset.table.slice();
-    this.interval = preset.interval;
-    this.n = this.table.length;
-    this.nota = nota;
+    this.preset = preset;
+    this.def = def;
+    this.n = preset.table.length;
+    this.setFine(false);
     this.names = preset.sym.map(symName);
     this.byName = new Map();
     this.ambiguous = new Set();
@@ -41,6 +49,22 @@ export class Tuning {
       else this.byName.set(nm, d);
     });
     this.longest = Math.max(1, ...this.names.map((nm) => (nm ? nm.length : 0)));
+  }
+
+  /** Read notes at 65536-TET (`fine`, a format-3 song) or 4096-TET. */
+  setFine(fine) {
+    this.fine = fine === true;
+    const round = this.fine ? quantiseNote : Math.round;
+    if (this.def) {
+      this.table = this.preset.table.map(round);
+      this.interval = round(this.preset.interval);
+      this.nota = buildNotaPayload([{ ...this.def, table: this.table, interval: this.interval }]);
+    } else {
+      const p = this.fine ? finePreset(this.preset) : this.preset;
+      this.table = p.table.slice();
+      this.interval = p.interval;
+      this.nota = null;
+    }
   }
 
   /** "Cp4" → its step. */
@@ -71,7 +95,8 @@ export class Tuning {
     return (this.names[d] ?? `#${d}`) + p;
   }
 
-  /** step → its 4096-TET note word, exactly on the notation's grid. */
+  /** step → its note, exactly on the notation's grid: a 4096-TET word, or a
+   *  65536-TET pitch (sixteenths of a unit) in a format-3 song. */
   word(step) {
     if (!Number.isInteger(step)) throw new MotifError(`a pitch is a whole number of steps, not ${step}`);
     const p = Math.floor(step / this.n);
@@ -130,18 +155,20 @@ const EDO_NAME = /^(\d+)[- ]?(?:tet|edo)$/i;
 function customEdo(n, name) {
   if (!Number.isInteger(n) || n < 1 || n > 4096) throw new MotifError(`an equal temperament needs 1 to 4096 steps, not ${n}`);
   const table = [];
-  for (let k = 0; k < n; k++) table.push(Math.round((k * 4096) / n));
+  for (let k = 0; k < n; k++) table.push((k * 4096) / n); // exact: setFine rounds
   return customDef(name ?? `${n}-TET`, table, 0x1000, null);
 }
 
 function customDef(name, table, interval, names) {
-  const def = { slot: 0, flags: 0, interval, base: 0, name, table, syms: [] };
-  const issues = validateDef(def);
+  // Checked, and its names chosen, in the whole units a format-2 song holds;
+  // the exact degrees ride along for setFine to round.
+  const whole = { slot: 0, flags: 0, interval: Math.round(interval), base: 0, name, table: table.map(Math.round), syms: [] };
+  const issues = validateDef(whole);
   if (issues.length) throw new MotifError(`the tuning "${name}" is not valid (${issues.join(", ")})`);
-  def.syms = names ? names.map(nameToSym) : autoAssignSyms(def, "nearest");
-  if (def.syms.length !== table.length) throw new MotifError(`the tuning "${name}" has ${table.length} degrees but ${def.syms.length} names`);
+  whole.syms = names ? names.map(nameToSym) : autoAssignSyms(whole, "nearest");
+  if (whole.syms.length !== table.length) throw new MotifError(`the tuning "${name}" has ${table.length} degrees but ${whole.syms.length} names`);
   const notation = notationValueForSlot(0);
-  return new Tuning(notation, { name, table, interval, sym: def.syms }, buildNotaPayload([def]));
+  return new Tuning(notation, { name, table, interval, sym: whole.syms }, whole);
 }
 
 /** "C#" → " C#", "uD" → "uD-", "C" → " C-" (the notation table's own tokens). */
@@ -186,7 +213,7 @@ export function tuningFrom(spec, rec = null) {
       const cents = rec.get("cents");
       if (!Array.isArray(cents) || !cents.length) throw new MotifError("a tuning's cents is a list of the degrees' offsets, starting at 0");
       const period = rec.get("period") ?? 1200;
-      const toUnits = (c) => Math.round((c * 4096) / 1200);
+      const toUnits = (c) => (c * 4096) / 1200; // exact: setFine rounds
       const names = rec.get("names") ?? null;
       return customDef(name, cents.map(toUnits), toUnits(period), names);
     }

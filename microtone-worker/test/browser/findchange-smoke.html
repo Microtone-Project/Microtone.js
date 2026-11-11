@@ -86,10 +86,10 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
     "a fresh query is one condition of one term, and one change");
   check(okBtn().disabled, "…with Apply off until something would actually change");
 
-  // ── 2. columns and operators follow the FORMAT (WHEN is a v2 project) ───
+  // ── 2. columns and operators follow the FORMAT (WHEN opens as format 3) ─
   const fieldOpts = opts(termRow(0, 0).querySelector(".fc-field"));
-  check(!fieldOpts.includes("elev") && !fieldOpts.includes("fx2") && !fieldOpts.includes("fx2arg"),
-    "a version-2 project offers no elevation and no second effect", fieldOpts.join());
+  check(fieldOpts.includes("elev") && fieldOpts.includes("fx2") && fieldOpts.includes("fx2arg"),
+    "a format-3 project offers the elevation and the second effect", fieldOpts.join());
   check(fieldOpts.includes("row") && fieldOpts.includes("cell"),
     "…but does offer the row number and the whole-cell test");
   const actFieldOpts = opts(actRow(0).querySelector(".fc-field"));
