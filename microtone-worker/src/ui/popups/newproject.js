@@ -26,7 +26,7 @@ const BASE_NOTES = [
   { label: "A4", note: 0x5c00, freq: 440.0 },
 ];
 const DEN_OPTIONS = [1, 2, 4, 8, 16, 32];
-const NOTATION_DEFAULT = 240; // 24-TET
+const NOTATION_DEFAULT = 120; // 12-TET
 
 const NOTE_PRESETS = Object.values(pitchTablePresets).sort((a, b) => a.index - b.index);
 // Notation-type badge colours (mirrors taut's list palette): d diatonic-ish,
