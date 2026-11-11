@@ -1,0 +1,263 @@
+/* The promo director's page: the stage (filmed) and the strip beside it (not).
+   Colours and faces are the app's own tokens, from microtone.css. Sizes on
+   the stage scale with it: --u is the stage's width over 1600. */
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  background: #000; /* outside the stage: nothing worth filming */
+  color: var(--fg);
+  font-family: var(--ui-font);
+  overflow: hidden;
+}
+
+/* ── stage ───────────────────────────────────────────────────────────── */
+.stage {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  background: var(--bg);
+  --u: 1;
+}
+.stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.overlay { position: absolute; inset: 0; pointer-events: none; }
+.shield { position: absolute; inset: 0; display: none; cursor: none; }
+.shield.on { display: block; }
+
+/* the drawn cursor */
+.cursor {
+  position: absolute; left: 0; top: 0;
+  width: 42px; height: 42px;
+  margin: -3.5px 0 0 -5.25px; /* the arrow's tip on the point */
+  opacity: 0;
+  transition: opacity 0.35s;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.55));
+  will-change: transform;
+  z-index: 6;
+}
+.cursor svg { display: block; transition: transform 0.08s; transform-origin: 5.25px 3.5px; }
+.cursor.on { opacity: 1; }
+.cursor.down svg { transform: scale(0.86); }
+.ripple {
+  position: absolute; left: -33px; top: -33px;
+  width: 66px; height: 66px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  z-index: 5;
+}
+.ripple.go { animation: ripple 0.5s ease-out; }
+@keyframes ripple {
+  from { opacity: 0.9; scale: 0.3; }
+  to { opacity: 0; scale: 1.2; }
+}
+
+/* a ring round whatever the caption is talking about */
+.ring-layer { position: absolute; inset: 0; z-index: 3; }
+.ring {
+  position: absolute;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent),
+              0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+.ring.on { opacity: 1; }
+.ring span {
+  position: absolute; left: 8px; top: -0.75em;
+  padding: 0 6px;
+  background: var(--accent); color: var(--bg);
+  font: 700 12px var(--ui-font);
+  border-radius: 3px;
+}
+
+/* the lower-third caption */
+.caption {
+  position: absolute;
+  left: calc(var(--u) * 28px);
+  bottom: calc(var(--u) * 58px);
+  max-width: 62%;
+  padding: calc(var(--u) * 14px) calc(var(--u) * 22px) calc(var(--u) * 15px);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  backdrop-filter: blur(6px);
+  border-left: calc(var(--u) * 5px) solid var(--accent);
+  border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
+  box-shadow: 0 6px 28px rgb(0 0 0 / 0.45);
+  opacity: 0;
+  translate: 0 calc(var(--u) * 14px);
+  transition: opacity 0.4s, translate 0.4s;
+  z-index: 4;
+}
+.caption.on { opacity: 1; translate: 0 0; }
+.caption p {
+  margin: 0;
+  font: 600 calc(var(--u) * 25px) / 1.3 var(--ui-font);
+  color: var(--fg);
+}
+.caption small {
+  display: block;
+  margin-top: calc(var(--u) * 4px);
+  font: 400 calc(var(--u) * 21px) / 1.35 var(--ui-font);
+  color: color-mix(in srgb, var(--fg) 82%, var(--dim));
+}
+
+/* the section of the song, and the address, lower right */
+.section-tag {
+  position: absolute;
+  right: calc(var(--u) * 24px);
+  bottom: calc(var(--u) * 58px);
+  display: flex; align-items: baseline; gap: calc(var(--u) * 10px);
+  padding: calc(var(--u) * 8px) calc(var(--u) * 14px);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-md, 6px);
+  font-family: var(--mono-font);
+  opacity: 0;
+  transition: opacity 0.5s;
+  z-index: 4;
+}
+.section-tag.on { opacity: 1; }
+.section-tag b { font-size: calc(var(--u) * 20px); color: var(--accent); font-weight: 700; }
+.section-tag span { font-size: calc(var(--u) * 15px); color: var(--dim); }
+.section-tag i {
+  font-style: normal; font-size: calc(var(--u) * 15px); color: var(--fg);
+  padding-left: calc(var(--u) * 10px); border-left: 1px solid var(--border);
+}
+.section-tag i.alone { padding-left: 0; border-left: 0; }
+
+/* the title card (below the top bar) and the end card (everything) */
+.card {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  top: var(--chrome-top, 0px);
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(5px);
+  opacity: 0;
+  transition: opacity 0.6s;
+  z-index: 4;
+}
+.card.full { top: 0; background: color-mix(in srgb, var(--bg) 96%, transparent); }
+.card.on { opacity: 1; }
+.card.instant { transition: none; }
+.card-in { text-align: center; max-width: 82%; }
+.card .wordmark {
+  font-family: "Geist", sans-serif;
+  font-weight: 900; font-style: oblique;
+  font-size: calc(var(--u) * 96px);
+  line-height: 1.05;
+}
+.card .wordmark .brand-tm { font-size: 0.2em; top: -3.2em; }
+.card .kicker {
+  margin-top: calc(var(--u) * 6px);
+  font: 400 calc(var(--u) * 26px) var(--ui-font);
+  color: var(--dim);
+}
+.card .title {
+  margin-top: calc(var(--u) * 46px);
+  font: 700 calc(var(--u) * 44px) / 1.15 var(--ui-full-font, var(--ui-font));
+  color: var(--fg);
+}
+.card .sub {
+  margin-top: calc(var(--u) * 12px);
+  font: 400 calc(var(--u) * 24px) var(--ui-font);
+  color: var(--accent);
+}
+.card ul {
+  list-style: none; padding: 0;
+  margin: calc(var(--u) * 34px) 0 0;
+  font: 400 calc(var(--u) * 23px) / 1.65 var(--ui-font);
+  color: var(--fg);
+}
+.card li::before { content: "·  "; color: var(--accent); }
+.card .foot {
+  margin-top: calc(var(--u) * 40px);
+  font: 400 calc(var(--u) * 18px) var(--ui-font);
+  color: var(--dim);
+}
+.card.full .title { margin-top: calc(var(--u) * 26px); font-family: var(--mono-font); color: var(--accent-2); }
+
+/* the slate before a take: lit and framed, so the recorder can be cropped to
+   it — and still dark enough for cut.py to see the white flash come after it */
+.standby {
+  position: absolute; inset: 0;
+  display: none; place-items: center;
+  background: #3a3e46;
+  box-shadow: inset 0 0 0 3px var(--accent);
+  z-index: 7;
+}
+.standby.on { display: grid; }
+.standby .mark { position: absolute; width: 48px; height: 48px; border: 0 solid var(--accent); }
+.standby .mark.tl { left: 12px; top: 12px; border-width: 6px 0 0 6px; }
+.standby .mark.tr { right: 12px; top: 12px; border-width: 6px 6px 0 0; }
+.standby .mark.bl { left: 12px; bottom: 12px; border-width: 0 0 6px 6px; }
+.standby .mark.br { right: 12px; bottom: 12px; border-width: 0 6px 6px 0; }
+.standby-in { display: grid; gap: 10px; text-align: center; font-family: var(--mono-font); color: #c9ced8; }
+.standby-in b { font-size: calc(var(--u) * 40px); letter-spacing: 0.3em; color: var(--accent); }
+.flash { position: absolute; inset: 0; background: #fff; display: none; z-index: 8; }
+.flash.on { display: block; }
+
+/* ── strip (never filmed) ────────────────────────────────────────────── */
+.strip {
+  flex: 1 0 280px;
+  max-width: 420px;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 14px 16px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 10px;
+  font-size: 13px;
+}
+.strip h1 { margin: 0; font-size: 15px; font-weight: 700; color: var(--accent); }
+.state { font-family: var(--mono-font); font-size: 13px; color: var(--fg); }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.checks li::before { content: "✓ "; color: var(--meter); font-weight: 700; }
+.checks li.bad { color: var(--err-fg); }
+.checks li.bad::before { content: "! "; color: var(--err-fg); }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.field input {
+  width: 6em; padding: 3px 6px;
+  font-family: var(--mono-font);
+  color: var(--fg); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm, 4px);
+}
+.check { display: flex; gap: 6px; align-items: center; }
+.row-actions { display: flex; justify-content: space-between; gap: 8px; }
+.row-actions button { flex: 1; min-height: 2.2rem; }
+.obs summary { cursor: pointer; color: var(--dim); }
+.obs p { margin: 6px 0 0; color: var(--fg); line-height: 1.45; font-size: 12px; }
+.cut { display: grid; gap: 6px; }
+.cut-head { color: var(--dim); }
+.cut code {
+  display: block; padding: 6px 8px;
+  font-family: var(--mono-font); font-size: 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px);
+  word-break: break-all; user-select: all;
+}
+.log {
+  flex: 1 1 auto; min-height: 120px; margin: 0;
+  overflow-y: auto;
+  padding: 6px 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px);
+  font: 11px/1.45 var(--mono-font); color: var(--dim);
+  white-space: pre-wrap;
+}
+.hint { margin: 0; font-size: 11px; color: var(--dim); }
+
+/* the stop cue: the take is over, the end card is held — stop the recorder */
+.stop-cue {
+  padding: 18px 12px;
+  text-align: center;
+  font: 800 22px var(--ui-font);
+  color: #fff;
+  background: var(--rec-fg);
+  border-radius: var(--radius-md, 6px);
+  animation: stop-blink 0.8s steps(2, jump-none) infinite;
+}
+@keyframes stop-blink { 50% { background: var(--rec-bg); } }
+body.stop .strip { background: color-mix(in srgb, var(--rec-bg) 70%, var(--panel)); }

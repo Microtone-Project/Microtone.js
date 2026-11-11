@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Promo Director</title>
+<!-- The app's own stylesheet: its theme tokens and its typefaces (Motif, Open
+     Sans, the Geist wordmark), so the overlay speaks the app's design language. -->
+<link rel="stylesheet" href="../../microtone-worker/css/microtone.css" />
+<link rel="stylesheet" href="promo.css" />
+</head>
+<body>
+  <!-- The stage: what the recorder films. The app fills it, unscaled; the
+       overlay draws the cursor, the captions and the cards over it, and the
+       shield keeps the real mouse out of the app while a take runs. -->
+  <div id="stage" class="stage">
+    <iframe id="app" title="Microtone" allow="autoplay; fullscreen"></iframe>
+    <div id="overlay" class="overlay"></div>
+    <div id="shield" class="shield"></div>
+  </div>
+
+  <!-- Off the stage: the transport for whoever is recording. -->
+  <aside id="strip" class="strip">
+    <h1>Promo director</h1>
+    <div id="stopCue" class="stop-cue" hidden>■ Stop the recording</div>
+    <div id="state" class="state">loading…</div>
+    <ul id="checks" class="checks"></ul>
+
+    <div class="field">
+      <label for="fromBar">Start at bar</label>
+      <input id="fromBar" type="number" min="1" value="1" />
+    </div>
+    <label class="check"><input id="sync" type="checkbox" checked /> Sync cue (white flash + beep)</label>
+
+    <div class="row-actions">
+      <button id="abortBtn" disabled>Abort</button>
+      <button id="startBtn" class="proceed" disabled>Start ▶</button>
+    </div>
+
+    <details id="obsBox" class="obs" open>
+      <summary>Recorder set-up</summary>
+      <p id="obsText"></p>
+    </details>
+
+    <div id="cutBox" class="cut" hidden>
+      <div class="cut-head">Cut it with</div>
+      <code id="cutCmd"></code>
+      <button id="copyBtn">Copy</button>
+    </div>
+
+    <pre id="log" class="log"></pre>
+    <p class="hint">Esc aborts a take. Reload the page after resizing the window: the stage is sized once, at load.</p>
+  </aside>
+
+<script type="module">
+import { Director } from "./director.js";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const STRIP_W = 300;
+
+// ── the stage's size: ?stage=WxH, else the largest 16:9 that leaves room for
+//    the strip (at most 1920×1080). Even numbers keep the encoder happy.
+let [W, H] = (params.get("stage") ?? "").split("x").map(Number);
+if (!(W > 0 && H > 0)) {
+  const aw = Math.min(innerWidth - STRIP_W - 8, 1920), ah = Math.min(innerHeight, 1080);
+  W = Math.min(aw, Math.floor(ah * 16 / 9));
+  H = Math.floor(W * 9 / 16);
+}
+W &= ~1; H &= ~1;
+const stage = $("stage");
+stage.style.width = `${W}px`;
+stage.style.height = `${H}px`;
+stage.style.setProperty("--u", String(W / 1600));
+
+const sceneName = (params.get("scene") ?? "eighth").replace(/[^\w-]/g, "");
+const scene = (await import(`./${sceneName}.js`)).default;
+document.documentElement.dataset.theme = scene.theme ?? "dark";
+
+const fmtChecks = (list) => {
+  $("checks").replaceChildren(...list.map(({ good, text }) => {
+    const li = document.createElement("li");
+    li.className = good ? "good" : "bad";
+    li.textContent = text;
+    return li;
+  }));
+};
+
+const log = (line) => {
+  const el = $("log");
+  el.textContent += line + "\n";
+  el.scrollTop = el.scrollHeight;
+};
+
+const director = new Director(
+  { stage, frame: $("app"), overlay: $("overlay"), shield: $("shield") },
+  scene,
+  {
+    onLog: log,
+    onTick: (pos, t) => {
+      const s = pos.playing ? `bar ${pos.bar.toFixed(1)}` : `${t.toFixed(1)} s`;
+      if ($("state").dataset.tick !== s) { $("state").dataset.tick = s; $("state").textContent = `running · ${s}`; }
+    },
+    onState: (state, detail) => {
+      const running = state === "running";
+      $("startBtn").disabled = running || state === "loading";
+      $("abortBtn").disabled = !running;
+      $("stopCue").hidden = state !== "done";
+      document.body.classList.toggle("stop", state === "done");
+      if (state === "ready") {
+        $("state").textContent = "ready — start the recorder, then press Start";
+        fmtChecks(detail);
+      } else if (state === "done") {
+        $("state").textContent = "done";
+        $("cutBox").hidden = !detail;
+        $("cutCmd").textContent = detail;
+      } else if (state === "failed") {
+        $("state").textContent = `failed: ${detail}`;
+      } else if (state === "aborted") {
+        $("state").textContent = "aborted — press Start for another take";
+      } else if (!running) {
+        $("state").textContent = detail || state;
+      }
+      if (running) $("cutBox").hidden = true;
+    },
+  },
+);
+
+// ── the recorder's crop
+const dpr = devicePixelRatio;
+const px = (n) => Math.round(n * dpr);
+$("obsText").innerHTML =
+  `The stage is <b>${W}×${H}</b> CSS px at the page's top-left corner, ` +
+  `<b>${px(W)}×${px(H)}</b> screen px at this zoom (×${dpr}). ` +
+  `Capture the window (or the screen with the browser in F11 full screen) and crop to that rectangle; ` +
+  `in full screen it starts at the screen's top-left. Output at ${px(W)}×${px(H)}, 30 or 60 fps, desktop audio on, ` +
+  `and the cursor can stay captured: over the stage it is hidden while a take runs.`;
+
+$("startBtn").addEventListener("click", () => {
+  // Everything that needs the click's user activation happens synchronously in
+  // run() before its first await: the audio contexts start from this click.
+  $("log").textContent = "";
+  const fromBar = Math.max(1, Number($("fromBar").value) || 1);
+  director.run({ fromBar, sync: $("sync").checked });
+});
+$("abortBtn").addEventListener("click", () => director.abort());
+addEventListener("keydown", (e) => { if (e.key === "Escape") director.abort(); });
+$("copyBtn").addEventListener("click", () => navigator.clipboard?.writeText($("cutCmd").textContent));
+addEventListener("pagehide", () => director.restoreStorage());
+
+window.__promo = director; // for poking at from the console
+director.boot().catch((e) => { $("state").textContent = `could not load: ${e.message}`; log(e.stack ?? String(e)); });
+</script>
+</body>
+</html>
