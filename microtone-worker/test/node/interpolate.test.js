@@ -138,17 +138,142 @@ test("reject: one control point is not enough to interpolate between", () => {
   assert.equal(plan.writes.length, 0);
 });
 
-test("volume: a slide is blocked — never a control point, never overwritten", () => {
+test("volume: a lone slide between two SETs is an obstacle, not a join", () => {
   const b = bench(9);
   setVol(b.at(0), 0x08, false);
   b.at(4)[3] = 0x40 | 0x04;           // selector 1 = slide up by 4
   setVol(b.at(8), 0x20, false);
   const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["vol"] });
-  assert.equal(plan.points, 2);
+  assert.equal(plan.points, 3);
+  assert.equal(plan.usable, 1, "one SET curve, running past the slide");
   b.commit(plan.writes);
   assert.deepEqual(readVol(b.at(4), 0, false), { value: 4, sel: 1 }, "the slide is intact");
   assert.deepEqual(readVol(b.at(2), 0, false), { value: 0x0e, sel: 0 });
   assert.deepEqual(readVol(b.at(6), 0, false), { value: 0x1a, sel: 0 });
+});
+
+/** A volume column command of any selector, in whichever format the buffer is. */
+function setVolSel(b, sel, v, wide) {
+  if (wide) { b[3] = v & 0xff; b[8] = ((b[8] & ~0x70) | (sel << 4)) & 0xff; }
+  else b[3] = (sel << 6) | (v & 0x3f);
+}
+
+test("volume: slides ramp their rate as one signed number, up +, down −", () => {
+  for (const wide of [false, true]) {
+    const b = bench(9, wide);
+    setVolSel(b.at(0), 2, 8, wide);     // slide down 8
+    setVolSel(b.at(8), 1, 8, wide);     // slide up 8
+    const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["vol"], wide });
+    assert.equal(plan.usable, 1, `${wide}: one curve across the change of direction`);
+    b.commit(plan.writes);
+    assert.deepEqual(readVol(b.at(2), 0, wide), { value: 4, sel: 2 }, `${wide}: down 8 → down 4`);
+    assert.deepEqual(readVol(b.at(4), 0, wide), { value: 0, sel: 3 }, `${wide}: zero is left empty`);
+    assert.deepEqual(readVol(b.at(6), 0, wide), { value: 4, sel: 1 }, `${wide}: → up 4`);
+    // A slide is still not a level: nothing runs between a slide and a SET.
+    const c = bench(5, wide);
+    setVolSel(c.at(0), 1, 4, wide);
+    setVolSel(c.at(4), 0, 40, wide);
+    assert.equal(planInterpolate({ lanes: [c.lane], readCell: c.readCell, kinds: ["vol"], wide }).usable, 0);
+  }
+});
+
+test("volume: fine steps ramp as one signed number, +10 to −30 through zero", () => {
+  // Narrow: bit 5 is the direction; wide: bit 7.
+  for (const [wide, dir, max] of [[false, 0x20, 31], [true, 0x80, 127]]) {
+    const b = bench(9, wide);
+    setVolSel(b.at(0), 3, 1, wide);              // fine down 1
+    setVolSel(b.at(8), 3, 9, wide);              // fine down 9
+    const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["vol"], wide });
+    b.commit(plan.writes);
+    for (let r = 1; r < 8; r++) {
+      assert.deepEqual(readVol(b.at(r), 0, wide), { value: 1 + r, sel: 3 }, `${wide} row ${r}`);
+    }
+    // Fine up 10 → fine down 30 over eight rows: +10, +5, 0, −5, … −30.
+    const c = bench(9, wide);
+    setVolSel(c.at(0), 3, dir | 10, wide);
+    setVolSel(c.at(8), 3, 30, wide);
+    const pc = planInterpolate({ lanes: [c.lane], readCell: c.readCell, kinds: ["vol"], wide });
+    assert.equal(pc.usable, 1);
+    assert.equal(pc.writes.length, 6, `${wide}: the zero row is not written`);
+    c.commit(pc.writes);
+    assert.deepEqual(readVol(c.at(1), 0, wide), { value: dir | 5, sel: 3 }, `${wide}: up 5`);
+    assert.deepEqual(readVol(c.at(2), 0, wide), { value: 0, sel: 3 }, `${wide}: zero = empty`);
+    assert.deepEqual(readVol(c.at(3), 0, wide), { value: 5, sel: 3 }, `${wide}: down 5`);
+    assert.deepEqual(readVol(c.at(7), 0, wide), { value: 25, sel: 3 }, `${wide}: down 25`);
+    // Idempotent: the empty zero row is filled with nothing again.
+    assert.equal(planInterpolate({ lanes: [c.lane], readCell: c.readCell, kinds: ["vol"], wide })
+      .writes.length, 0);
+    // A spline's overshoot is clamped to the field.
+    const d = bench(5, wide);
+    setVolSel(d.at(0), 3, dir | max, wide);
+    setVolSel(d.at(1), 3, dir | max, wide);
+    setVolSel(d.at(4), 3, dir | 1, wide);
+    const pd = planInterpolate({ lanes: [d.lane], readCell: d.readCell, kinds: ["vol"], wide,
+      shape: "hermite" });
+    d.commit(pd.writes);
+    for (let r = 2; r < 4; r++) {
+      const { value, sel } = readVol(d.at(r), 0, wide);
+      assert.ok(sel === 3 && (value & (dir - 1)) <= max, `${wide} row ${r}: ${value}`);
+    }
+  }
+});
+
+test("panning: slides and fine steps ramp too, in both cell widths", () => {
+  // Narrow: slide right 2 → 8 (selector 1), fine left 1 → 5 (selector 3, bit 5 clear).
+  const n = bench(11);
+  n.at(0)[4] = 0x40 | 2; n.at(4)[4] = 0x40 | 8;
+  n.at(6)[4] = 0xc0 | 1; n.at(10)[4] = 0xc0 | 5;
+  const pn = planInterpolate({ lanes: [n.lane], readCell: n.readCell, kinds: ["pan"] });
+  assert.equal(pn.usable, 2);
+  n.commit(pn.writes);
+  assert.deepEqual(readPan(n.at(2), 0, false), { value: 5, sel: 1 });
+  assert.deepEqual(readPan(n.at(5), 0, false), { value: 0, sel: 3 }, "the join is left empty");
+  assert.deepEqual(readPan(n.at(8), 0, false), { value: 3, sel: 3 });
+
+  // Wide: slide left 4 → 64 by the low byte; fine RIGHT (the A bit) 2 → 10.
+  const w = bench(11, true);
+  const panSel = (b, sel, az) => {
+    b[4] = az & 0xff; b[8] = ((b[8] & 0x70) | ((az >>> 8) & 1) << 7 | sel) & 0xff; b[9] = 0;
+  };
+  panSel(w.at(0), 2, 4); panSel(w.at(4), 2, 64);
+  panSel(w.at(6), 3, 0x100 | 2); panSel(w.at(10), 3, 0x100 | 10);
+  const pw = planInterpolate({ lanes: [w.lane], readCell: w.readCell, kinds: ["pan"], wide: true });
+  assert.equal(pw.usable, 2);
+  w.commit(pw.writes);
+  assert.deepEqual(readPan(w.at(2), 0, true), { value: 34, sel: 2 });
+  assert.equal(readElev(w.at(2), 0, true), 0, "a slide's elevation byte stays reserved");
+  assert.deepEqual(readPan(w.at(8), 0, true), { value: 0x100 | 6, sel: 3 });
+
+  // Slide left 1 → slide right 1, both widths: left, nothing, right.
+  for (const wide of [false, true]) {
+    const x = bench(3, wide);
+    if (wide) { panSel(x.at(0), 2, 1); panSel(x.at(2), 1, 1); }
+    else { x.at(0)[4] = 0x80 | 1; x.at(2)[4] = 0x40 | 1; }
+    const shape = "linear";
+    const px = planInterpolate({ lanes: [x.lane], readCell: x.readCell, kinds: ["pan"], wide, shape });
+    assert.equal(px.usable, 1, `${wide}: one curve`);
+    assert.equal(px.writes.length, 0, `${wide}: its middle is zero — left empty`);
+    const y = bench(5, wide);
+    if (wide) { panSel(y.at(0), 2, 2); panSel(y.at(4), 1, 2); }
+    else { y.at(0)[4] = 0x80 | 2; y.at(4)[4] = 0x40 | 2; }
+    y.commit(planInterpolate({ lanes: [y.lane], readCell: y.readCell, kinds: ["pan"], wide }).writes);
+    assert.deepEqual(readPan(y.at(1), 0, wide), { value: 1, sel: 2 }, `${wide}: left 1`);
+    assert.deepEqual(readPan(y.at(2), 0, wide), { value: 0, sel: 3 }, `${wide}: empty`);
+    assert.deepEqual(readPan(y.at(3), 0, wide), { value: 1, sel: 1 }, `${wide}: right 1`);
+  }
+});
+
+test("fx: a lone effect between two of another is an obstacle the curve runs past", () => {
+  const b = bench(9);
+  setFx(b.at(0), EffectOp.OP_H, 0x1010);
+  setFx(b.at(4), EffectOp.OP_R, 0x2020);   // tremolo — interpolatable, but alone
+  setFx(b.at(8), EffectOp.OP_H, 0x5050);
+  const plan = planInterpolate({ lanes: [b.lane], readCell: b.readCell, kinds: ["fx"] });
+  assert.equal(plan.usable, 1);
+  b.commit(plan.writes);
+  assert.deepEqual(getFx(b.at(4)), { op: EffectOp.OP_R, arg: 0x2020 }, "left as written");
+  assert.deepEqual(getFx(b.at(2)), { op: EffectOp.OP_H, arg: 0x2020 });
+  assert.deepEqual(getFx(b.at(6)), { op: EffectOp.OP_H, arg: 0x4040 });
 });
 
 test("volume + panning: one pass, one write list, both columns", () => {

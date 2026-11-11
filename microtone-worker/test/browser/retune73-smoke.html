@@ -41,7 +41,11 @@ const clickDismiss = (dlg) => dlg.querySelector(".modal-buttons .act-dismiss").c
   const doc = win.document;
   win.alert = () => {};
   const { surveyTuning, presetForNotation } = await import("../../core/tuning/pitchtables.js");
-  const p12 = presetForNotation(120);
+  // The song is format 3, so its grid is the tunings' 65536-TET view — the
+  // one the app itself reads (presetForNotation with the document).
+  const p12 = presetForNotation(120, store.doc);
+  const p19 = presetForNotation(190, store.doc);
+  check("the open song is format 3 and its grid the fine one", store.doc.wideCells === true && p12.fine === true);
 
   // ── 1. WHEN is on-grid: the same-table cleanup has nothing to do, and says so ──
   const clean = surveyTuning(store.song, p12, null);
@@ -126,6 +130,20 @@ const clickDismiss = (dlg) => dlg.querySelector(".modal-buttons .act-dismiss").c
   check("Retune anyway applies the retune",
         store.doc.meta.songMeta[store.songIndex].notation === 190,
         `notation=${store.doc.meta.songMeta[store.songIndex]?.notation}`);
+
+  // ── 5. The retune snapped onto 19-TET's 65536-TET degrees, not the 4096-TET
+  //       table's rounded words: every note on the fine grid, and 19-TET's
+  //       degrees are not whole units, so the notes carry their sixteenths ──
+  const on19 = surveyTuning(store.song, p19, null);
+  check("every note sits exactly on the fine 19-TET grid", on19.total > 0 && on19.wouldChange === 0,
+        `wouldChange=${on19.wouldChange}/${on19.total}`);
+  let fractional = 0;
+  for (const ptn of store.song.patterns) {
+    if (!ptn) continue;
+    for (const c of ptn) if (c.note >= 0x20 && c.note !== Math.floor(c.note)) fractional++;
+  }
+  check("…and the notes keep their sixteenths", fractional > 0, `fractional=${fractional}`);
+  check("the song's preset is the fine view", store.pitchPreset?.fine === true && store.pitchPreset.index === 190);
 
   log(ok ? "\nRESULT: ALL PASS" : "\nRESULT: FAIL");
  } catch (e) { log("THREW: " + e.message + "\n" + e.stack); log("RESULT: FAIL"); }

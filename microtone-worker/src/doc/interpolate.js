@@ -14,9 +14,15 @@
 //
 //   * Nothing is ever stamped over a command. A row whose column carries
 //     something interpolation cannot speak for — a key-off in the note column,
-//     a volume SLIDE, an effect that is not in FX_INTERP — is BLOCKED: it is
-//     not a control point and it is never written. A pitch glide with a
-//     key-off in the middle of it keeps the key-off and leaves that row alone.
+//     an effect that is not in FX_INTERP — is BLOCKED: it is not a control
+//     point and it is never written. A pitch glide with a key-off in the
+//     middle of it keeps the key-off and leaves that row alone.
+//   * A curve runs between control points of ONE kind: one effect opcode, or
+//     one kind of volume/panning command (a SET, a slide, a fine step — a
+//     slide or a fine step is SIGNED, so its curve may cross from up to down),
+//     so ramping slides accelerates a slide and never turns one into a level. A
+//     lone point of another kind between two of a kind is an interruption, not
+//     a curve of its own: the curve runs past it and leaves it as it was.
 //   * Only the gaps are written. Between two control points the rows that were
 //     already empty get the curve; the control points themselves are left
 //     exactly as they were typed, so re-interpolating a block is idempotent.
@@ -371,11 +377,12 @@ export function sphereSeries(points, shape) {
 // the row's instrument reads `S $Axxx`, which only the effect columns ask) —
 //   "point"    the column holds a number: a control point, carried in `vals`
 //              (one entry per track) with `tag` grouping points that belong to
-//              the same curve (the effect opcode; 0 everywhere else) and `raw`
-//              whatever else the write has to inherit;
+//              the same curve (the effect form, the volume/panning kind;
+//              0 for a note) and `raw` whatever else the write has to inherit;
 //   "blocked"  the column holds something interpolation must not speak for;
 //   "empty"    the column is the format's own no-op — a gap to fill.
-// `limit[k]` quantises track k after rounding, and `write` puts a whole row's
+// `limit[k]` (or `limitFor(point)`, where the tracks depend on the kind of
+// point) quantises track k after rounding, and `write` puts a whole row's
 // worth of already-quantised tracks back into the cell.
 
 /** The column accessor for `kind` ("note"/"vol"/"pan"/"fx"/"fx2"). */
@@ -401,47 +408,8 @@ export function columnAccess(kind, wide) {
         if (wide) b[13] = (b[13] & 0x0f) | (Math.round((vals[0] - word) * 16) << 4);
       },
     };
-    case "vol": return {
-      classify(b) {
-        const { value, sel } = readVol(b, 0, wide);
-        if (sel === 3 && value === 0) return { state: "empty" };
-        // A slide or a fine delta is a MOVE, not a level: there is no number
-        // here for a curve to pass through, and overwriting one would silently
-        // turn a ramp the composer wrote by hand into a jump.
-        if (sel !== 0) return { state: "blocked" };
-        return { state: "point", vals: [value], tag: 0, raw: value };
-      },
-      limit: [(v) => clamp(v, 0, wide ? 0xff : 0x3f)],
-      write(b, vals) { writeVol(b, 0, wide, vals[0]); writeVolSel(b, 0, wide, 0); },
-    };
-    case "pan": return wide ? {
-      classify(b) {
-        const { value, sel } = readPan(b, 0, true);
-        if (sel === 3 && value === 0 && readElev(b, 0, true) === 0) return { state: "empty" };
-        if (sel !== 0) return { state: "blocked" };
-        return { state: "point", vals: [value, readElev(b, 0, true)], tag: 0, raw: 0 };
-      },
-      // The azimuth is an ANGLE, so an overshooting spline carries on round the
-      // listener rather than piling up on hard left; elevation is a segment
-      // from pole to pole and clamps.
-      limit: [(v) => wrapTo(v, 512), (v) => clamp(v, -128, 127)],
-      write(b, vals) {
-        writePan(b, 0, true, vals[0]);
-        writeElev(b, 0, true, vals[1]);
-        writePanSel(b, 0, true, 0);
-      },
-    } : {
-      classify(b) {
-        const { value, sel } = readPan(b, 0, false);
-        if (sel === 3 && value === 0) return { state: "empty" };
-        if (sel !== 0) return { state: "blocked" };
-        return { state: "point", vals: [value], tag: 0, raw: value };
-      },
-      // The narrow column is a front ARC, not a circle: past its ends there is
-      // nothing, so it clamps (the same split transformPanAt already makes).
-      limit: [(v) => clamp(v, 0, 0x3f)],
-      write(b, vals) { writePan(b, 0, false, vals[0]); writePanSel(b, 0, false, 0); },
-    };
+    case "vol": return selectorColumn(volColumn(wide));
+    case "pan": return selectorColumn(wide ? panColumnWide() : panColumnNarrow());
     case "fx":
     case "fx2": {
       const op = kind === "fx2" ? 10 : 5;
@@ -475,6 +443,139 @@ export function columnAccess(kind, wide) {
     }
     default: return null;
   }
+}
+
+// ── the volume and panning columns ──
+//
+// Both columns are a value under a SELECTOR (TAUD_FILE_FORMAT.md §5.4–§5.5):
+// SET, SLIDE UP, SLIDE DOWN, FINE. There are three kinds of control point in
+// them, and a curve runs between points of one kind (`tag`):
+//
+//   "set"    the level (or, in a wide panning column, the direction);
+//   "slide"  ONE signed rate per tick — slide up / right is +, slide down /
+//            left is −, so slide left 1 → slide right 1 passes through zero;
+//   "fine"   ONE signed step — fine up / right +, fine down / left −.
+//
+// Where a signed curve lands on zero the row is left EMPTY: the engine clears
+// the column slides at every row (row.js), so a slide of 0 does exactly what
+// an empty cell does, and a fine step of 0 IS the empty encoding. A fine step
+// whose direction bit is set over a zero magnitude is the same nothing, read
+// as 0. Reserved selectors (≥ 4) are blocked.
+//
+// `form(b)` reads a row as `{tag, vals}` (or "empty" / null = blocked);
+// `limits(src)` and `put(b, vals, src)` speak for one kind.
+
+const SEL_UP = 1, SEL_DOWN = 2, FINE = 3;
+
+function selectorColumn(col) {
+  return {
+    classify(b) {
+      const f = col.form(b);
+      if (f === "empty") return { state: "empty" };
+      if (!f) return { state: "blocked" };
+      return { state: "point", vals: f.vals, tag: f.tag, raw: f.vals[0] };
+    },
+    limitFor: (src) => col.limits(src),
+    // A signed curve's zero is an empty row, which the gap already is.
+    valid: (vals, src) => src.tag === "set" || vals[0] !== 0,
+    write(b, vals, src) { col.put(b, vals, src); },
+  };
+}
+
+/** A selector + magnitude as one signed number, and back. */
+const signedOf = (sel, mag) => (sel === SEL_DOWN ? -mag : mag);
+const signedClamp = (max) => (v) => clamp(v, -max, max);
+
+function volColumn(wide) {
+  const top = wide ? 0xff : 0x3f;
+  const dirBit = wide ? 0x80 : 0x20;   // FINE's direction: the field's top bit
+  return {
+    form(b) {
+      const { value, sel } = readVol(b, 0, wide);
+      if (sel === 0) return { tag: "set", vals: [value] };
+      if (sel === FINE) {
+        if (value === 0) return "empty";
+        const mag = value & (dirBit - 1);
+        return { tag: "fine", vals: [(value & dirBit) !== 0 ? mag : -mag] };
+      }
+      return sel <= SEL_DOWN ? { tag: "slide", vals: [signedOf(sel, value)] } : null;
+    },
+    limits: (src) => [src.tag === "set" ? (v) => clamp(v, 0, top)
+      : signedClamp(src.tag === "fine" ? dirBit - 1 : top)],
+    put(b, [v], src) {
+      if (src.tag === "set") { writeVol(b, 0, wide, v); writeVolSel(b, 0, wide, 0); }
+      else if (src.tag === "slide") {
+        writeVol(b, 0, wide, Math.abs(v)); writeVolSel(b, 0, wide, v > 0 ? SEL_UP : SEL_DOWN);
+      } else {
+        writeVol(b, 0, wide, Math.abs(v) | (v > 0 ? dirBit : 0)); writeVolSel(b, 0, wide, FINE);
+      }
+    },
+  };
+}
+
+// The wide column's SET is a direction on the sphere (azimuth over the `A`
+// bit, signed elevation); its slides and fine steps rotate the azimuth by the
+// LOW byte, `A` being FINE's direction (set = right), and leave the elevation
+// byte reserved.
+function panColumnWide() {
+  return {
+    form(b) {
+      const { value, sel } = readPan(b, 0, true);
+      const el = readElev(b, 0, true);
+      if (sel === 0) return { tag: "set", vals: [value, el] };
+      if (sel === FINE) {
+        if (value === 0 && el === 0) return "empty";
+        if (el !== 0) return null;
+        return { tag: "fine", vals: [(value & 0x100) !== 0 ? value & 0xff : -(value & 0xff)] };
+      }
+      return sel <= SEL_DOWN && value <= 0xff && el === 0
+        ? { tag: "slide", vals: [signedOf(sel, value)] } : null;
+    },
+    // The azimuth is an ANGLE, so an overshooting spline carries on round the
+    // listener rather than piling up on hard left; elevation is a segment
+    // from pole to pole and clamps.
+    limits: (src) => (src.tag === "set" ? [(v) => wrapTo(v, 512), (v) => clamp(v, -128, 127)]
+      : [signedClamp(0xff)]),
+    put(b, vals, src) {
+      if (src.tag === "set") {
+        writePan(b, 0, true, vals[0]);
+        writeElev(b, 0, true, vals[1]);
+        writePanSel(b, 0, true, 0);
+        return;
+      }
+      const v = vals[0];
+      const fine = src.tag === "fine";
+      writePan(b, 0, true, Math.abs(v) | (fine && v > 0 ? 0x100 : 0));
+      writeElev(b, 0, true, 0);
+      writePanSel(b, 0, true, fine ? FINE : v > 0 ? SEL_UP : SEL_DOWN);
+    },
+  };
+}
+
+// The narrow column is a front ARC, not a circle: past its ends there is
+// nothing, so a SET clamps (the same split transformPanAt already makes).
+function panColumnNarrow() {
+  return {
+    form(b) {
+      const { value, sel } = readPan(b, 0, false);
+      if (sel === 0) return { tag: "set", vals: [value] };
+      if (sel === FINE) {
+        if (value === 0) return "empty";
+        return { tag: "fine", vals: [(value & 0x20) !== 0 ? value & 0x1f : -(value & 0x1f)] };
+      }
+      return { tag: "slide", vals: [signedOf(sel, value)] };
+    },
+    limits: (src) => [src.tag === "set" ? (v) => clamp(v, 0, 0x3f)
+      : signedClamp(src.tag === "fine" ? 0x1f : 0x3f)],
+    put(b, [v], src) {
+      if (src.tag === "set") { writePan(b, 0, false, v); writePanSel(b, 0, false, 0); }
+      else if (src.tag === "slide") {
+        writePan(b, 0, false, Math.abs(v)); writePanSel(b, 0, false, v > 0 ? SEL_UP : SEL_DOWN);
+      } else {
+        writePan(b, 0, false, Math.abs(v) | (v > 0 ? 0x20 : 0)); writePanSel(b, 0, false, FINE);
+      }
+    },
+  };
 }
 
 // ── the plan ──
@@ -586,11 +687,28 @@ export function planInterpolate({
       // A curve runs between control points that mean the same thing — for an
       // effect column that is the same OPCODE, so a block holding vibrato and
       // then tremolo interpolates each of them and nothing across the join.
-      const groups = [];
-      for (const i of idx) {
-        const g = groups.length ? groups[groups.length - 1] : null;
-        if (g && recs[g[g.length - 1]].tag === recs[i].tag) g.push(i);
-        else groups.push([i]);
+      // A LONE point of another kind between two of a kind — a slide between
+      // two volume SETs, a tremor between two vibratos — has no curve of its
+      // own, so it interrupts rather than joins: it becomes an obstacle (kept
+      // as written, like a blocked row) and the curve either side runs past.
+      const groupsOf = (list) => {
+        const gs = [];
+        for (const i of list) {
+          const g = gs.length ? gs[gs.length - 1] : null;
+          if (g && recs[g[g.length - 1]].tag === recs[i].tag) g.push(i);
+          else gs.push([i]);
+        }
+        return gs;
+      };
+      let groups = groupsOf(idx);
+      for (let k = 1; k < groups.length - 1; k++) {
+        if (groups[k].length !== 1) continue;
+        const prev = groups[k - 1], next = groups[k + 1];
+        if (recs[prev[0]].tag !== recs[next[0]].tag) continue;
+        recs[groups[k][0]] = { state: "blocked" };
+        groups[k - 1] = [...prev, ...next];
+        groups.splice(k, 2);
+        k -= 1;   // the merged group may now sit beside another lone point
       }
 
       for (const group of groups) {

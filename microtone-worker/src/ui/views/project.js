@@ -838,8 +838,12 @@ export class ProjectView {
       okLabel: t("retune.ok"),
     });
     if (!result) return;
-    const newPreset = presetPool.find((p) => p.index === parseInt(result.preset, 10));
-    if (!newPreset) return;
+    const picked = presetPool.find((p) => p.index === parseInt(result.preset, 10));
+    if (!picked) return;
+    // The pool lists each tuning as it is stated, at 4096-TET; a format-3 song
+    // writes its notes at 65536-TET, so the grid to snap onto is the tuning's
+    // fine view — the one the song's display and the next retune read.
+    const newPreset = presetForNotation(picked.index, store.doc);
     const method = result.method || "pitch";
 
     // Percussion slots: inst byte14 bit4 / meta byte0 bit1 (isPercussion getter).

@@ -1221,8 +1221,10 @@ interpolation cannot speak for is left exactly as it is, and is not treated as a
 control point either:
 
 - note sentinels — key off, note cut, note fade, fast fade, the interrupt markers — so a glide with a key-off in the middle keeps the key-off and runs either side of it;
-- volume and panning **slides** and **fine** deltas, which are moves rather than levels: there is no number there for a curve to pass through;
-- effects whose argument is not a quantity (see below), and any row whose effect is simply a different one from the control points around it.
+- effects whose argument is not a quantity (see below);
+- a **lone** command of another kind between two of a kind — a volume slide between two volume sets, a tremolo between two vibratos. It has no partner to make a curve with, so it is an interruption rather than a join: the curve runs past it and leaves it as written.
+
+**Volume and panning** columns are interpolated one kind of command at a time, like effects: sets ramp between sets, slides between slides, fine steps between fine steps, and nothing across the join between two kinds. A slide ramps its **speed** — slide down 2 to slide down 10 writes a slide that gets faster row by row — and a fine step ramps its **size**. Slides and fine steps count up (or right) as plus and down (or left) as minus, so the ramp can change direction: fine up 10 to fine down 30 passes through fine up 5, nothing, fine down 5 and on, and slide left 1 to slide right 1 slides left, then stops, then slides right. The row where the ramp crosses zero is left empty, which is what a slide or a fine step of zero would do anyway.
 
 **Effect arguments** are interpolated one effect at a time: a block holding a
 vibrato and then a tremolo gets a curve for each and nothing across the join.

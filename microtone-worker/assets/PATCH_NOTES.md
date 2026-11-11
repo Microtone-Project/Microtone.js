@@ -14,7 +14,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The note column has a narrow cell in front of it. With raw notes on, it holds the octave digit of the five-digit pitch ($50000 is C4, and raw entry takes all five digits); otherwise it is blank.
 - The panning column is as wide as the song needs: two digits in a stereo song, three in a planar one, and the elevation and the angle in a spatial one.
 - The Notation Maker and Scala import keep a notation's degrees at 65536 steps an octave; a notation that needs that is saved in a new version of the notation format, and one of whole steps is saved as before.
-- Find & Change, interpolation, harmonic transpose and copy and paste keep a note's fine pitch.
+- Find & Change, interpolation, harmonic transpose, Retune and copy and paste keep a note's fine pitch: Retune snaps onto a tuning system's exact pitches, not the old 4096-step ones.
 - Volume envelopes go from 0 to 255 too, the volume column's own scale: a node can sit four times more finely than before. Instruments with the old 0 to 63 envelopes are converted when a project is opened or an instrument is imported, and sound the same to within a tenth of a decibel; MOD and Impulse Tracker export convert them back exactly.
 - Fixed: changing a sample's loop in the marker editor moved an instrument whose default position was behind the listener round to the front; it rewrote the flag byte that holds that position's ninth bit.
 - A metainstrument's layers, an FM rack's operators and the zones in Advanced Edit show their volume range in note volumes, 0 to 255, like the volume column. The file still keeps it in steps of four, so the low end reads the first volume of its step and the high end the last.
@@ -25,6 +25,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - MOD and Impulse Tracker export work on every project: what a module cannot hold, a second effect or a position behind or above the listener, is listed in the export's notes instead of stopping it.
 - Motif: a TML 2 program builds a format 3 project unless its song says `format: 2`, with its notes at 65536 steps an octave and its volumes 0 to 255, its instruments' envelope volumes and layer volume ranges included. The language reference now describes TML 2 alone.
 - The demo songs are written in format 3 now, their volumes in 0 to 255.
+
+**Interpolate now ramps volume and panning slides and fine steps, not just set values.** Write a slide at each end of a block and the rows between get a slide whose speed changes row by row; the same goes for fine steps.
+
+- Each kind ramps between its own: sets between sets, slides between slides, fine steps between fine steps, and nothing across the join between two kinds.
+- A ramp can change direction: fine up 10 to fine down 30, or slide left 1 to slide right 1, passes through zero, and the row where it does is left empty.
+- A single command of another kind between two of a kind, such as one volume slide between two volume sets or a tremolo between two vibratos, no longer splits the curve: the curve runs past it and leaves it as written.
 
 ## Version 4.9.0 (2026-11-09)
 
