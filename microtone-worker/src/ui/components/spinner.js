@@ -38,7 +38,8 @@ const maps = new WeakMap();
  * about. Typing goes the other way through `fromDisplay`.
  *
  *   toDisplay(raw)        → the string to show (required)
- *   fromDisplay(text)     → the raw value a typed string means (required)
+ *   fromDisplay(text)     → the raw value a typed string means, or NaN to
+ *                           keep the one the field held (required)
  *   step(raw, dir)        → the raw value one press of ∓ lands on (required)
  *
  * The input's own `value` is the DISPLAY text throughout, so existing readers
@@ -69,7 +70,10 @@ export function mapSpinner(input, map, raw) {
       // would round-trip through the display's precision and could land on a
       // neighbouring code. Only a HAND edit needs mapping back.
       if (input.value === m.toDisplay(input.rawValue)) return;
-      setMapped(input, m.fromDisplay(input.value));
+      // A map may answer NaN for text that names nothing: the box then goes
+      // back to the value it held, as an unmapped field does.
+      const v = m.fromDisplay(input.value);
+      setMapped(input, Number.isFinite(v) ? v : input.rawValue);
     });
   }
   return input;
@@ -173,12 +177,14 @@ export function parseNumberText(text) {
 // on some of them — also takes the spellings a musician reaches for:
 //
 //   256  -12.5   a plain number, in the field's own unit (units, or cents)
-//   $100 0x100   hexadecimal, always 4096-TET units (the note words' spelling)
+//   $100 0x100   hexadecimal, in steps of the field's GRID (the note words'
+//                spelling: 4096-TET for an instrument field, 65536-TET —
+//                `$095C0`, five digits — for a notation definition)
 //   700c 701.9¢  cents
 //   3/2  -5/4    a frequency ratio (3:2 too); a sign in front turns it downward
 //
-// Cents and ratios round to the nearest 4096-TET unit, which is all a note can
-// sit on. The `−` minus sign the cents readouts print is read as a minus.
+// Cents and ratios round to the nearest step of that grid, which is all the
+// field can hold. The `−` minus sign the cents readouts print is read as a minus.
 
 const PITCH_UNITS_PER_OCTAVE = 4096;
 const CENTS_TEXT = /^([+-]?)(\d+(?:\.\d*)?|\.\d+)\s*[c¢]$/i;
@@ -186,17 +192,18 @@ const RATIO_TEXT = /^([+-]?)(\d+(?:\.\d+)?)\s*[/:]\s*(\d+(?:\.\d+)?)$/;
 const DECIMAL_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /**
- * A typed pitch as a number in the field's own unit — 4096-TET units when
- * `bare` is "units", cents when it is "cents" — or NaN if it is not one. A
- * plain number is taken as it stands; every other spelling lands on a whole
- * 4096-TET unit first.
+ * A typed pitch as a number in the field's own unit — steps of `grid` (steps
+ * per octave: 4096, or 65536 for a notation definition) when `bare` is
+ * "units", cents when it is "cents" — or NaN if it is not one. A plain number
+ * is taken as it stands; every other spelling (hex included, which counts
+ * steps of `grid`) lands on a whole step of `grid` first.
  */
-export function parsePitchText(text, bare = "units") {
+export function parsePitchText(text, bare = "units", grid = PITCH_UNITS_PER_OCTAVE) {
   const t = String(text ?? "").trim().replace(/−/g, "-");
   if (t === "") return NaN;
-  const toField = (units) => {
-    const u = Math.round(units) + 0; // + 0 folds −0 into 0
-    return bare === "cents" ? (u * 1200) / PITCH_UNITS_PER_OCTAVE : u;
+  const toField = (steps) => {
+    const u = Math.round(steps) + 0; // + 0 folds −0 into 0
+    return bare === "cents" ? (u * 1200) / grid : u;
   };
   if (DECIMAL_TEXT.test(t)) return Number(t);
   const hex = HEX_TEXT.exec(t);
@@ -207,13 +214,13 @@ export function parsePitchText(text, bare = "units") {
   const cents = CENTS_TEXT.exec(t);
   if (cents !== null) {
     const c = Number(cents[2]) * (cents[1] === "-" ? -1 : 1);
-    return toField((c * PITCH_UNITS_PER_OCTAVE) / 1200);
+    return toField((c * grid) / 1200);
   }
   const ratio = RATIO_TEXT.exec(t);
   if (ratio !== null) {
     const n = Number(ratio[2]), d = Number(ratio[3]);
     if (!(n > 0 && d > 0)) return NaN;
-    const u = PITCH_UNITS_PER_OCTAVE * Math.log2(n / d);
+    const u = grid * Math.log2(n / d);
     return toField(ratio[1] === "-" ? -u : u);
   }
   return NaN;

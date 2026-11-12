@@ -30,11 +30,13 @@ import { showModal } from "../components/modal.js";
 import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
 import { noteGlyph } from "../components/noteglyph.js";
+import { mapSpinner } from "../components/spinner.js";
+import { fineCentsMap } from "../spinmaps.js";
 import { MOTIF, MUSIC } from "../../../core/fonts/motifglyphs.js";
 import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol, quantiseNote, finePreset } from "../../../core/tuning/pitchtables.js";
 import {
   NOTA_SLOTS, notationValueForSlot, buildNotaPayload, parseTaudnot, buildTaudnot,
-  parseScl, sclToDef, centsToUnits, unitsToCents, autoAssignSyms, defToPreset,
+  parseScl, sclToDef, autoAssignSyms, defToPreset,
   validateDef, FALLBACK_SYM,
 } from "../../doc/notation.js";
 
@@ -235,20 +237,19 @@ export function showNotationMaker(store) {
       const intIn = document.createElement("input");
       intIn.type = "number";
       intIn.classList.add("nota-num");
-      intIn.step = "0.01";
       intIn.dataset.k = "interval";
-      intIn.dataset.mtPitch = "cents"; // 3/1, $1000 and 1200c too
       if (absolute) {
         // No period exists in absolute mode; the field only reads "—".
         intIn.value = "";
         intIn.placeholder = "—";
         intIn.disabled = true;
       } else {
-        intIn.value = unitsToCents(def.interval).toFixed(2);
+        // Cents over the 65536-TET value; 3/1, $18000 and 1200c too.
+        mapSpinner(intIn, fineCentsMap(1 / 16, 0xffff), def.interval);
       }
       intIn.addEventListener("change", () => {
-        const c = parseFloat(intIn.value);
-        if (Number.isFinite(c) && c > 0) def.interval = centsToUnits(c);
+        const u = intIn.rawValue;
+        if (Number.isFinite(u) && u > 0) def.interval = u;
         renderAll();
       });
       intLb.appendChild(intIn);
@@ -416,16 +417,14 @@ export function showNotationMaker(store) {
         // cents
         const tdC = document.createElement("td");
         const cIn = document.createElement("input");
-        cIn.type = "number";
         cIn.classList.add("nota-num");
-        cIn.step = "0.01";
         cIn.dataset.k = "cents" + i;
-        cIn.dataset.mtPitch = "cents"; // 5/4, $555 too
-        cIn.value = unitsToCents(units).toFixed(2);
+        // Cents over the 65536-TET value; 5/4, $05550 too.
+        mapSpinner(cIn, fineCentsMap(0, 0xffff), units);
         cIn.disabled = i === 0; // spec: index 0 is always 0
         cIn.addEventListener("change", () => {
-          const c = parseFloat(cIn.value);
-          if (Number.isFinite(c)) def.table[i] = centsToUnits(c);
+          const u = cIn.rawValue;
+          if (Number.isFinite(u)) def.table[i] = u;
           renderAll();
         });
         tdC.appendChild(cIn);

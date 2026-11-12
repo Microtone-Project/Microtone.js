@@ -87,6 +87,21 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   check("letter select edits the symbol",
     dlg.querySelectorAll(".nota-degrees tbody tr")[1].querySelectorAll("select")[1].value === "Q");
 
+  // ── a degree's cents field is 65536-TET: `$095C0` is the fifth, + one step ──
+  const row11 = () => dlg.querySelectorAll(".nota-degrees tbody tr")[11];
+  const c11 = row11().querySelector('input[data-k="cents11"]');
+  c11.value = "$095C0";
+  c11.dispatchEvent(new Event("change", { bubbles: true }));
+  await sleep(30);
+  check("$095C0 typed into a degree is a fifth (701.95 c, $095C0)",
+    row11().querySelector('input[data-k="cents11"]').value === "701.95"
+    && row11().querySelectorAll("td")[2].textContent === "$95C0");
+  row11().querySelector(".mt-inc").dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
+  win.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  await sleep(30);
+  check("+ moves the degree one 65536-TET step ($95C1)",
+    row11().querySelectorAll("td")[2].textContent === "$95C1");
+
   // ── save with assign ──
   check("the Use for this song lamp starts lit", dlg.querySelector('[data-f="assign"]').getAttribute("aria-pressed") === "true");
   const saveBtn = dlg.querySelector('[data-f="save"]');

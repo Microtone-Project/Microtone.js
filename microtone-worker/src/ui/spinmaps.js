@@ -1,5 +1,5 @@
 // Spinner mappings (components/spinner.js mapSpinner) for the instrument
-// panels: what a stored number means, shown in the units someone thinks in.
+// panels and the notation maker: what a stored number means, shown in the units someone thinks in.
 //
 // Each map is { toDisplay(raw), fromDisplay(text), step(raw, dir) }: − and +
 // walk the STORED units (a mix octet, a table degree, one hex count), while the
@@ -103,6 +103,27 @@ export function centsMap(preset, min = -0x8000, max = 0x7fff) {
       return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
     },
     step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
+  };
+}
+
+/**
+ * A notation definition's pitch (a degree, the period) as cents over its
+ * 65536-TET value: raw is 4096-TET units in sixteenths (what the definition
+ * holds, file format §9.7), one press is one 65536-TET step, and `$095C0`,
+ * `701.955c` and `3/2` all land on the nearest 65536-TET step. Text that
+ * names no pitch keeps the value the field held.
+ */
+export function fineCentsMap(min = 0, max = 0xffff) {
+  const clampU = (u) => clampN(u, min, max);
+  const ofCents = (c) => Math.round((c * UNITS_PER_OCTAVE * 16) / 1200) / 16;
+  return {
+    toDisplay: (u) => ((u * 1200) / UNITS_PER_OCTAVE).toFixed(2),
+    fromDisplay: (text) => {
+      const c = parsePitchText(text, "cents", UNITS_PER_OCTAVE * 16);
+      return Number.isFinite(c) ? clampU(ofCents(c)) : NaN;
+    },
+    step: (u, dir) => clampU(Math.round(u * 16 + dir) / 16),
+    inputMode: "text",
   };
 }
 
