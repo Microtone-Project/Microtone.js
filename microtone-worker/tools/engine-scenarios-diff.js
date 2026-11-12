@@ -16,7 +16,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { parseTaud } from "../core/format/taud-parse.js";
-import { TaudEngine } from "../core/engine/engine.js";
+import { TaudEngine } from "../core/engine/engine-js.js";
 import { WasmTaudEngine } from "../core/engine/wasm-engine.js";
 import { TaudInst } from "../core/engine/inst.js";
 import { setSamplingRate, TRACKER_CHUNK, SAMPLE_BIN_TOTAL } from "../core/engine/constants.js";

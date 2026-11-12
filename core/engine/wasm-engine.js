@@ -29,15 +29,13 @@ import {
   SAMPLE_BIN_TOTAL, SAMPLING_RATE, TRACKER_CHUNK, MAX_VOICES, NUM_VOICES, CUE_BYTES, CUE_BYTES_64,
   JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES,
 } from "./constants.js";
-import {
-  SNAP_FLOATS, SNAP_AN_METERS, SNAP_HEADER_SIZE, SNAP_METER_BASE, SNAP_IM_BASE, SNAP_INTERRUPT_MASK,
-} from "../worklet/protocol.js";
 import { engineSeed } from "./rng.js";
 import { AnalysisTap, ANALYSIS_OFF } from "./analysis.js";
 import {
   MasterMeterTap, TAP_PRE, TAP_POST, DEFAULT_BIT_DEPTH, HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT,
 } from "./loudness.js";
 import { IMX_METER_SEATS } from "./imix.js";
+import { defaultMastering } from "./mastering.js";
 import { SPEAKER_LAYOUT_NAMES } from "./speakers.js";
 import { buildMasteringBlock } from "../format/mastering-section.js";
 import { buildImixSection } from "../format/imix-section.js";
@@ -87,7 +85,7 @@ function lyricEntryBytes(instId, syllables, recipes) {
 
 /** The one playhead's readable state, in the shape callers reach for
  *  (`eng.playheads[0].trackerState.mixLeft`). */
-class WasmTrackerState {
+export class WasmTrackerState {
   constructor(eng) {
     this._eng = eng;
     // The metering taps (analysis.js, loudness.js) run here in JavaScript, on
@@ -128,10 +126,10 @@ class WasmTrackerState {
   get tuningRatio() { return this._eng._x.tw_get_tuning_ratio(this._eng._e); }
 }
 
-class WasmPlayhead {
-  constructor(eng) {
+export class WasmPlayhead {
+  constructor(eng, trackerState = new WasmTrackerState(eng)) {
     this._eng = eng;
-    this.trackerState = new WasmTrackerState(eng);
+    this.trackerState = trackerState;
   }
   get isPlaying() { return this._eng._x.tw_is_playing(this._eng._e) !== 0; }
   get jamActive() { return this._eng._x.tw_jam_active(this._eng._e) !== 0; }
@@ -160,10 +158,18 @@ export class WasmTaudEngine {
     this._scratchPtr = 0;
     this._scratchLen = 0;
     this._snapPtr = 0;
+    this._snapLen = 0;
+    this._mastering = defaultMastering();
+    this._stemBus = null;
+    this._stemVoices = null;
     this._chunkPtr = x.malloc(TRACKER_CHUNK * 2) >>> 0;
     this.rate = rate;
-    this.playheads = [new WasmPlayhead(this)];
+    this.playheads = [this._makePlayhead()];
   }
+
+  /** The playhead object (a subclass that can see inside the engine makes a
+   *  fuller one: core/engine/engine.js). */
+  _makePlayhead() { return new WasmPlayhead(this); }
 
   // ── memory ──
 
@@ -287,6 +293,7 @@ export class WasmTaudEngine {
 
   /** The song's mastering chain: the decoded `sMst` record, or null. */
   setMastering(ph, params) {
+    this._mastering = params ?? null;
     if (params === null || params === undefined) {
       this._x.tw_set_mastering(this._e, 0, 0);
       return;
@@ -294,6 +301,9 @@ export class WasmTaudEngine {
     const block = buildMasteringBlock(params);
     this._x.tw_set_mastering(this._e, this._put(block), block.length);
   }
+
+  /** The chain's parameters as they were given (neutral until a host gives some). */
+  getMastering(ph) { return this._mastering; }
 
   /** The project's instrument mixing chains: every IMix block (an array or a
    *  Map by id). Replaces the whole set; a block that keeps its id keeps its
@@ -429,6 +439,40 @@ export class WasmTaudEngine {
    *  the chain it meters; fillSnapshot writes its block. */
   setImixMeter(ph, slot, seat = 0) { this._x.tw_set_imix_meter(this._e, slot, seat); }
   getSurroundModel(ph) { return this._x.tw_get_surround_model(this._e); }
+  /**
+   * Swap the render target the object bus feeds: null = the device's own
+   * monitor; an exporter passes one of spatial.js's or speakers.js's renderers
+   * (a stereo fold, an ambisonic basis, a speaker layout). The renderer object
+   * only NAMES the target — the engine has its own of each kind — and the bus
+   * is `spatialBus()`. No-op for a stereo song.
+   */
+  setSpatialRenderer(ph, renderer) {
+    const x = this._x;
+    if (renderer === null || renderer === undefined) {
+      x.tw_set_spatial_renderer(this._e, -1, 0, 0, 0);
+    } else {
+      const name = String(renderer.name);
+      const ambi = name.match(/^ambisonic(2d|3d)-o(\d)$/);
+      const spk = name.match(/^speakers-(.+)$/);
+      if (name === "stereo") x.tw_set_spatial_renderer(this._e, 0, 0, 0, 0);
+      else if (ambi) x.tw_set_spatial_renderer(this._e, 3, +ambi[2], ambi[1] === "2d" ? 1 : 0, 0);
+      else if (spk && SPEAKER_LAYOUT_NAMES.includes(spk[1])) {
+        x.tw_set_spatial_renderer(this._e, 4, 0, 0, SPEAKER_LAYOUT_NAMES.indexOf(spk[1]) + 1);
+      } else throw new Error(`taud engine: no render target "${name}"`);
+    }
+    // Re-applying the surround model starts the tap afresh, as it always has.
+    this.setAnalysis(0, this.playheads[0].trackerState.analysisTarget);
+  }
+
+  /** The object bus of the chunk just rendered — channel-major, TRACKER_CHUNK
+   *  frames a channel, a view of the module's memory — or null for a stereo
+   *  song. */
+  spatialBus() {
+    const p = this._x.tw_spatial_bus(this._e) >>> 0;
+    if (!p) return null;
+    return new Float64Array(this._x.memory.buffer, p, this._x.tw_spatial_bus_channels(this._e) * TRACKER_CHUNK);
+  }
+
   setMonitorMode(ph, mode) {
     this._x.tw_set_monitor_mode(this._e, mode);
     // Re-applying the surround model starts the tap afresh, as it always has.
@@ -444,6 +488,7 @@ export class WasmTaudEngine {
   resetSampleFxState(ph) { this._x.tw_reset_sample_fx_state(this._e); }
   resetParams(ph) {
     this._x.tw_reset_params(this._e);
+    this._mastering = defaultMastering(); // the reset puts the chain back to neutral
     const ts = this.playheads[0].trackerState;
     this.setAnalysis(0, ts.analysisTarget); // the reset re-applies the surround model
     ts.masterMeter?.resetAll();
@@ -509,25 +554,23 @@ export class WasmTaudEngine {
   // ── what the page draws from ──
 
   /**
-   * Write the playhead, every voice's block, the Mixing tab's meter blocks and
-   * the envelope playheads into `f` at protocol.js's offsets. The strip's and
-   * the Mastering view's blocks and the interrupt latch are not touched: the
-   * host fills those (engine-commands.js).
+   * Have the engine write its part of a snapshot — the playhead, every voice's
+   * block, the Mixing tab's meter blocks and the envelope playheads — into a
+   * buffer of `floats` floats in the module's memory, at the offsets the build
+   * took from core/worklet/protocol.js, and return that buffer (valid until
+   * the next call into the engine). The host copies what it wants out of it
+   * (core/worklet/engine-commands.js); everything else in it is untouched.
    */
-  fillSnapshot(f) {
+  snapshotView(floats) {
     const x = this._x;
-    if (!this._snapPtr) {
-      this._snapPtr = x.malloc(SNAP_FLOATS * 4) >>> 0;
+    if (!this._snapPtr || this._snapLen < floats) {
+      if (this._snapPtr) x.free(this._snapPtr);
+      this._snapPtr = x.malloc(floats * 4) >>> 0;
+      this._snapLen = floats;
       if (!this._snapPtr) throw new Error("taud engine: out of memory");
     }
     x.tw_fill_snapshot(this._e, this._snapPtr);
-    const v = new Float32Array(x.memory.buffer, this._snapPtr, SNAP_FLOATS);
-    // The playhead's fields sit either side of the interrupt latch's slot,
-    // which is the host's (drainInterruptsInto) and must not be written over.
-    f.set(v.subarray(0, SNAP_INTERRUPT_MASK), 0);
-    f.set(v.subarray(SNAP_INTERRUPT_MASK + 1, SNAP_AN_METERS), SNAP_INTERRUPT_MASK + 1);
-    f.set(v.subarray(SNAP_HEADER_SIZE, SNAP_METER_BASE), SNAP_HEADER_SIZE);
-    f.set(v.subarray(SNAP_IM_BASE, SNAP_FLOATS), SNAP_IM_BASE); // the Mixing-tab seats, then the envelope playheads
+    return new Float32Array(x.memory.buffer, this._snapPtr, floats);
   }
 
   /** A copy of instrument `slot`'s S $Fx invert-loop bit mask (empty = none). */
@@ -648,6 +691,47 @@ export class WasmTaudEngine {
     x.tw_pcm8(this._e, this._chunkPtr);
     out.set(this._u8().subarray(this._chunkPtr, this._chunkPtr + TRACKER_CHUNK * 2));
     if (meter !== null) meter.binOutput(out, this._mixView(0), this._mixView(1), TRACKER_CHUNK);
+    if (this._stemBus !== null) this._feedStems();
     return out;
+  }
+
+  /**
+   * Stem-export tap: an object with `add(voice, lane, frame, sample)`, or null.
+   * While one is set the engine logs every voice's pre-pan mono contribution
+   * to each frame of a chunk, and after the chunk they are handed to `add` in
+   * the order the mixer made them. `voice` there is not an engine voice but a
+   * stand-in carrying what a stem is routed by — displayInst, instrumentId,
+   * activePatchIndex — and whatever the tap memoises on it.
+   */
+  get stemBus() { return this._stemBus; }
+  set stemBus(bus) {
+    this._stemBus = bus ?? null;
+    this._stemVoices = new Map();
+    this._x.tw_set_stem_tap(this._e, this._stemBus !== null ? 1 : 0);
+  }
+
+  _feedStems() {
+    const x = this._x;
+    const count = x.tw_stem_count(this._e);
+    if (count === 0) return;
+    const p = x.tw_stem_log(this._e) >>> 0;
+    const buf = x.memory.buffer;
+    const ints = new Int32Array(buf, p, count * 8);
+    const vals = new Float64Array(buf, p, count * 4);
+    const bus = this._stemBus;
+    const voices = this._stemVoices;
+    for (let i = 0; i < count; i++) {
+      const o = i * 8;
+      const lane = ints[o + 1], top = ints[o + 2], sub = ints[o + 3], patch = ints[o + 4];
+      // One stand-in per (lane, instrument, sub-instrument, patch): what a
+      // voice IS, as far as a stem's routing can tell.
+      const key = ((lane + 1) * 1025 + top) * 1025 * 256 + sub * 256 + (patch + 1);
+      let v = voices.get(key);
+      if (v === undefined) {
+        v = { displayInst: top, instrumentId: sub, activePatchIndex: patch, stemKey: -1, stemIndex: -1 };
+        voices.set(key, v);
+      }
+      bus.add(v, lane, ints[o], vals[i * 4 + 3]);
+    }
   }
 }

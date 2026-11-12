@@ -132,7 +132,7 @@ test("bus mode gives every instrument on a block ONE bus, at the first one's pla
   eng.setCuePosition(0, 0);
   eng.play(0);
   const ts = eng.playheads[0].trackerState;
-  M.syncImixRoutes(eng, ts);
+  eng.syncImixRoutes();
   const shared = ts.imixRoutes[3];
   assert.ok(shared !== null);
   assert.equal(ts.imixRoutes[5], shared);
@@ -144,7 +144,7 @@ test("bus mode gives every instrument on a block ONE bus, at the first one's pla
   // Switching the mode keeps the first slot's bus (and its tails).
   b.bus = false;
   eng.setImix([b, c]);
-  M.syncImixRoutes(eng, ts);
+  eng.syncImixRoutes();
   assert.equal(ts.imixRoutes[3], shared);
   assert.deepEqual(shared.slots, [3]);
   assert.notEqual(ts.imixRoutes[5], shared);

@@ -134,8 +134,7 @@ test("engine: setTuning drives the playhead, zero fields resolve to the default"
   eng.setTuning(0, 0, 0);
   assert.equal(eng.getTuningRatio(0), tuningRatioOf(C9, 8363), "zero pair → tracker default");
 
-  // Per-playhead, like bpm — playhead 1 must be untouched.
-  assert.equal(eng.getTuningRatio(1), 1.0);
+  // (The engine has ONE playhead now: there is no second one to leave untouched.)
 
   eng.resetParams(0);
   assert.equal(eng.getTuningRatio(0), 1.0, "resetParams returns to untuned");
@@ -185,7 +184,9 @@ test("an EXPORT sees the song's tuning, not the tracker default", async () => {
 
   const eng = new TaudEngine();
   loadIntoEngine(eng, doc.toRenderable(0), 0);
-  assert.equal(eng.getTuningRatio(0), tuningRatioOf(A4, 415));
+  // To the last bit but one: the engine carries its own pow, tables.js's
+  // tuningRatioOf uses the platform's, and the two may round differently.
+  assert.ok(Math.abs(eng.getTuningRatio(0) / tuningRatioOf(A4, 415) - 1) < 1e-15);
   assert.ok(Math.abs(cents(eng.getTuningRatio(0)) - -101.2706) < 1e-3);
 
   // …and it reaches the sounding voice, not just the readback.

@@ -24,6 +24,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <stddef.h>
+
 #include "taud_internal.h"
 
 #define PI 3.141592653589793
@@ -1776,12 +1778,15 @@ static void delay_init(ImxDelay *s, int nch, int rate)
 static void delay_configure(ImxDelay *s, const TaudImxEquipment *p, double rate)
 {
     s->p = *p;
-    if ((int)rate != s->rate || s->buf == NULL) {
+    if ((int)rate != s->rate || s->len == 0) {
         s->rate = (int)rate;
         s->len = (int)ceil(IMX_DELAY_MAX_SEC * rate) + 16;
+        /* The line itself — four seconds a channel, most of what a chain
+         * weighs — is made when the first sample has to go into it
+         * (delay_process): an instrument that names a chain and never sounds
+         * holds none. A line not yet made is a line of silence. */
         free(s->buf);
-        s->buf = (double *)calloc((size_t)s->nch * s->len, sizeof(double));
-        if (s->buf == NULL) s->oom = true;
+        s->buf = NULL;
         s->w = 0;
         s->started = false;
     }
@@ -1837,6 +1842,10 @@ static void delay_process(ImxDelay *s, double *data, int stride, int n0, int n1,
     int pa = pingPong && s->p.u.dlay.pingRight ? 1 : 0, pb = 1 - pa;
     if (ctx->dry > 0) copy_span(data, ctx->dryBuf, nch, stride, n0, n1);
     if (s->oom) return;
+    if (buf == NULL) {
+        buf = s->buf = (double *)calloc((size_t)s->nch * s->len, sizeof(double));
+        if (buf == NULL) { s->oom = true; return; }
+    }
     s->t = delay_target(s, ctx->bpm);
     if (!s->started) { s->d = s->t; s->started = true; }
     for (n = n0; n < n1; n++) {
@@ -2237,7 +2246,7 @@ void te_imx_chain_process(TaudImxChain *c, double *data, int stride, int n0, int
 static uintptr_t current_renderer(const TaudEngine *e)
 {
     if (e->spatial == NULL) return 0;
-    if (e->spatial->kind == 1) return (uintptr_t)e->spatial->bin;
+    if (e->spatial->kind == RENDER_BINAURAL) return (uintptr_t)e->spatial->bin;
     return ((uintptr_t)e->rendererGen << 1) | 1;
 }
 
@@ -2275,13 +2284,13 @@ static TaudImixBus *bus_new(TaudEngine *e, int slot, const TaudImixBlock *block)
         bus->stereo = true;
         scene = false;
     } else {
-        bus->sb.kind = e->spatial->kind;
-        bus->sb.bin = e->spatial->bin;
+        /* The same render target as the master bus, less its data. */
+        memcpy(&bus->sb, e->spatial, offsetof(TaudSpatialBus, data));
         bus->nch = e->spatial->numChannels;
         /* The device renders a surround song through a stereo fold: its two
          * channels ARE a left/right pair. */
-        bus->stereo = bus->nch == 2 && e->spatial->kind == 0;
-        scene = e->spatial->kind == 1;
+        bus->stereo = bus->nch == 2 && e->spatial->kind == RENDER_STEREO;
+        scene = e->spatial->kind == RENDER_BINAURAL || e->spatial->kind == RENDER_AMBISONIC;
     }
     bus->sb.numChannels = bus->nch;
     bus->chain = te_imx_chain_new(block, e->rate, bus->nch, bus->stereo, scene);

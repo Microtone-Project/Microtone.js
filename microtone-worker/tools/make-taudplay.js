@@ -56,18 +56,20 @@ const ENGINE = [
   "core/engine/chip.js",       // …the two chip kinds as one, for formant.js
   "core/engine/inst.js",
   "core/engine/voice.js",
-  "core/engine/state.js",
   "core/engine/sampler.js",
   "core/engine/formant.js",
-  "core/engine/filter.js",
-  "core/engine/fm.js",
-  "core/engine/envelope.js",
-  "core/engine/trigger.js",
-  "core/engine/effects.js",
-  "core/engine/row.js",
-  "core/engine/tick.js",
-  "core/engine/chase.js",
-  "core/engine/mixer.js",
+  // The engine itself (item 312): the C engine built as WebAssembly, what its
+  // JavaScript half builds its uploads with, and the views engine.js reads its
+  // state through. The JavaScript modules above are what the page and the
+  // player still compute with (record codecs, the pan law, the WAV dither, the
+  // metering taps) — none of the old JavaScript render engine is among them.
+  "core/format/mastering-section.js",
+  "core/format/imix-section.js",
+  "core/engine/taud-engine.wasm.js",
+  "core/engine/wasm-module.js",
+  "core/engine/wasm-engine.js",
+  "core/engine/taud-engine.layout.js",
+  "core/engine/wasm-reflect.js",
   "core/engine/engine.js",
 ];
 
@@ -84,13 +86,10 @@ const WORKLET_BUNDLE = [
 /** Everything the standalone repo carries, verbatim, at the same paths. */
 const REPO_FILES = [
   ...ENGINE,
-  "core/engine/fft.js",           // analysis.js imports it
   "core/audio/resampler.js",
   "core/audio/offline-render.js",
   "core/format/taud-const.js",
   "core/format/compress.js",
-  "core/format/mastering-section.js",
-  "core/format/imix-section.js",
   "core/format/lyric-section.js",
   "core/format/taud-parse.js",
   "src/taudplay/protocol.js",
@@ -356,6 +355,17 @@ made. This library only plays them.
 Songs are made with **Microtone** — a tracker for the notes a piano cannot
 play, free and in your browser at [microtone.cc](https://microtone.cc).
 
+## The engine inside
+
+The engine is Microtone's own, written in C (\`core/engine/c/\`) and compiled
+to WebAssembly. The compiled module rides, base64'd, in
+\`core/engine/taud-engine.wasm.js\` — an ES module like every other file here —
+so there is still no build step, nothing to fetch and nothing to configure: it
+loads wherever the library does, an AudioWorklet included, and renders the same
+bits on every machine. The source it was built from is beside it;
+\`node tools/make-engine-wasm.js\` rebuilds it (clang with the wasm32 target, a
+matching wasm-ld, and wasi-libc).
+
 ## Format support
 
 Full \`.taud\` files, any format version the engine reads, 32- or 64-lane,
@@ -434,6 +444,18 @@ async function main() {
     await rm(join(outDir, sub), { recursive: true, force: true });
   }
   for (const rel of REPO_FILES) {
+    const dest = join(outDir, rel);
+    await mkdir(dirname(dest), { recursive: true });
+    await copyFile(root + rel, dest);
+  }
+  // The engine's SOURCE goes with the module built from it (the library is
+  // LGPL: what it runs must be rebuildable from what it ships): the C files,
+  // the tool that compiles them, and the one file that tool reads besides.
+  const sources = ["core/worklet/protocol.js", "tools/make-engine-wasm.js", "tools/engine-layout.js"];
+  for (const dir of ["core/engine/c/src", "core/engine/c/include"]) {
+    for (const f of (await readdir(root + dir)).sort()) if (/\.[ch]$/.test(f)) sources.push(`${dir}/${f}`);
+  }
+  for (const rel of sources) {
     const dest = join(outDir, rel);
     await mkdir(dirname(dest), { recursive: true });
     await copyFile(root + rel, dest);

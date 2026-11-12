@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import { parseTaud } from "../core/format/taud-parse.js";
 import { TaudEngine } from "../core/engine/engine.js";
-import { WasmTaudEngine } from "../core/engine/wasm-engine.js";
+import { TaudEngine as JsTaudEngine } from "../core/engine/engine-js.js";
 import { setSamplingRate } from "../core/engine/constants.js";
 import { setRandomSource, makeSeededRandom } from "../core/engine/rng.js";
 import { MONITOR_BINAURAL } from "../core/engine/binaural.js";
@@ -125,15 +125,16 @@ const sha256 = (u8) => createHash("sha256").update(u8).digest("hex");
 
 /**
  * Render one golden entry and return the PCM itself: { frames, u8, f32 }.
- * `engine` picks who renders it — "js" (core/engine/engine.js) or "wasm" (the
- * C engine, core/engine/wasm-engine.js) — from the same uploads either way.
+ * `engine` picks who renders it — "wasm" (the engine: core/engine/engine.js,
+ * the C engine built as WebAssembly) or "js" (the JavaScript engine it was
+ * ported from, core/engine/engine-js.js) — from the same uploads either way.
  */
-export async function renderGoldenPcm(entry, engine = "js") {
+export async function renderGoldenPcm(entry, engine = "wasm") {
   setSamplingRate(GOLDEN_RATE);
   setRandomSource(makeSeededRandom(GOLDEN_SEED));
   try {
     const doc = parseTaud(await readFile(goldenPath(entry)));
-    const eng = engine === "wasm" ? new WasmTaudEngine(GOLDEN_RATE) : new TaudEngine();
+    const eng = engine === "js" ? new JsTaudEngine() : new TaudEngine(GOLDEN_RATE);
     loadIntoEngine(eng, doc, 0);
     if (entry.monitor !== undefined) eng.setMonitorMode(0, entry.monitor);
     if (entry.imix) installGoldenImix(eng, entry.imix === "bus", entry.imix === "tsh", entry.imix === "expd");
@@ -144,7 +145,7 @@ export async function renderGoldenPcm(entry, engine = "js") {
 }
 
 /** Render one golden entry; returns the digests the fixture records. */
-export async function renderGolden(entry, engine = "js") {
+export async function renderGolden(entry, engine = "wasm") {
   const r = await renderGoldenPcm(entry, engine);
   return {
     frames: r.frames,

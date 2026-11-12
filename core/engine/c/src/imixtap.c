@@ -28,6 +28,17 @@ static void meter_pair(const TaudImixBus *bus, int n, double out[2])
     if (bus->stereo || bus->nch == 2) {
         out[0] = d[n];
         out[1] = d[TRACKER_CHUNK + n];
+    } else if (bus->sb.kind == RENDER_SPEAKERS) {
+        /* A speaker layout's own monitor fold (stateless). */
+        double l = 0.0, r = 0.0;
+        int c;
+        for (c = 0; c < bus->nch; c++) {
+            double v = d[c * TRACKER_CHUNK + n];
+            l += v * bus->sb.monitorGains[c * 2];
+            r += v * bus->sb.monitorGains[c * 2 + 1];
+        }
+        out[0] = l;
+        out[1] = r;
     } else {
         double w = d[n], y = d[TRACKER_CHUNK + n];
         out[0] = 0.5 * (w + y);

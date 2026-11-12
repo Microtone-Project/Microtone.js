@@ -1004,15 +1004,28 @@ typedef struct {
 #define SCOPE_CHANNELS 9        /* second-order ACN/SN3D (analysis.js) */
 #define SPEAKER_MAX 8
 
+/* The render targets an object bus can feed (spatial.js's renderers). */
+#define RENDER_STEREO 0         /* the device's fold onto the stereo pan law */
+#define RENDER_BINAURAL 1       /* the head model */
+#define RENDER_ANALYSIS 2       /* the master strip's: scope harmonics + speakers */
+#define RENDER_AMBISONIC 3      /* SN3D to an order, the export basis */
+#define RENDER_SPEAKERS 4       /* a speaker layout's feeds */
+
 typedef struct {
-    int kind;                   /* 0 = stereo fold, 1 = binaural, 2 = analysis */
+    int kind;                   /* RENDER_* */
     TaudBinaural *bin;
     int numChannels;
-    /* kind 2's speaker layout (speakers.js SpeakerRenderer): the non-LFE
-     * speakers as a ring sorted by azimuth; spkCount 0 = harmonics only. */
+    /* A speaker layout (speakers.js SpeakerRenderer; kinds 2 and 4): the
+     * non-LFE speakers as a ring sorted by azimuth, and each speaker folded
+     * to stereo as if it were itself a source. spkCount 0 = no layout. */
     int spkCount, ringSize;
     int ringChannel[SPEAKER_MAX];
     double ringAz[SPEAKER_MAX];
+    double monitorGains[SPEAKER_MAX * 2];
+    /* An ambisonic target (kind 3): its order and the ACN of each channel —
+     * a planar one drops the harmonics a horizontal song cannot excite. */
+    int order;
+    int acn[16];
     double data[SPATIAL_MAX_CHANNELS * TRACKER_CHUNK];
 } TaudSpatialBus;
 
@@ -1193,6 +1206,14 @@ typedef struct {
 } TaudImixBlock;
 
 typedef struct TaudImxChain TaudImxChain;
+
+/* One voice's contribution to one frame, as the stem exporter routes it: the
+ * lane it belongs to (a ghost's is the lane that spawned it), the instrument
+ * the pattern named and the one actually sounding, and its Ixmp patch. */
+typedef struct TaudStemEntry {
+    int32_t frame, lane, top, sub, patch, pad;
+    double value;
+} TaudStemEntry;
 
 /* ── the Mixing tab's meter tap (imix.js ImixMeterTap; imixtap.c) ── */
 
@@ -1381,6 +1402,10 @@ typedef struct TaudEngine {
     TaudSpatialBus *spatial;    /* NULL for the stereo model */
     TaudBinaural *binaural;     /* kept across model switches */
     unsigned rendererGen;
+    /* A render target an exporter installed in place of the device's monitor
+     * (setSpatialRenderer): its kind, or −1 for none, and its parameters. */
+    int rendererKind, rendererOrder, rendererLayout;
+    bool rendererPlanar;
     /* The master strip's analysis bus (item 98): a SECOND object bus through
      * the analysis target, fed with every voice the monitor's is while a
      * surround song's strip is on screen; NULL otherwise. */
@@ -1441,6 +1466,12 @@ typedef struct TaudEngine {
     TaudImixBus **imixList;     /* ascending by slot */
     int imixCount, imixCap;
     uint8_t imixTrig[IMX_ROUTE_SLOTS];  /* a note started on the slot since its bus last ran */
+    /* The stem-export tap (item 93): while on, the mixer logs every voice's
+     * PRE-PAN mono contribution to each frame of the chunk, in the order it
+     * mixes them, and nothing else about the render changes. */
+    bool stemTap;
+    struct TaudStemEntry *stemLog;
+    int stemCount, stemCap;
     /* The Mixing tab's taps (item 217), one per split pane; NULL = off. */
     TaudImixTap *imixMeters[IMX_METER_SEATS];
     /* The frame accumulators the buses join (mixAccL/R): a span's frames are
@@ -1765,6 +1796,12 @@ void te_display_angles(TaudEngine *e, int vi, const TaudVoice *v, double out[2])
 /** Install the analysis bus: layout −1 = none, 0 = the scope harmonics alone,
  *  1 quad, 2 5.1, 3 7.1 (speakers.js). */
 void te_set_analysis_bus(TaudEngine *e, int layout);
+/** Make `bus` a render target of `kind`: an ambisonic one of `order` (planar
+ *  or full sphere), or speaker layout 1 quad / 2 5.1 / 3 7.1. Sets its
+ *  channel count; false for a kind or a layout it does not know. */
+bool te_spatial_bus_configure(TaudSpatialBus *bus, int kind, int order, bool planar, int layout);
+/** Install (kind ≥ 0) or remove (−1) an exporter's render target. */
+void te_set_spatial_renderer(TaudEngine *e, int kind, int order, bool planar, int layout);
 const double *te_analysis_voice_gains(TaudEngine *e, TaudVoice *v);
 
 /* snapshot.c — what the page draws from */

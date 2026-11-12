@@ -3,6 +3,7 @@
  * object bus the binaural monitor decodes). */
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "taud_internal.h"
 
@@ -211,11 +212,19 @@ static void speaker_channel_gains(const TaudSpatialBus *bus, double az, double e
 
 static void bus_channel_gains(const TaudSpatialBus *bus, double az, double el, double *out, int off)
 {
-    if (bus->kind == 1) te_binaural_channel_gains(bus->bin, az, el, out, off);
-    else if (bus->kind == 2) {
+    if (bus->kind == RENDER_BINAURAL) te_binaural_channel_gains(bus->bin, az, el, out, off);
+    else if (bus->kind == RENDER_ANALYSIS) {
         /* analysis.js AnalysisRenderer: the scope harmonics, then the feeds. */
         te_encode_sn3d(az, el, 2, out + off);
         if (bus->spkCount > 0) speaker_channel_gains(bus, az, el, out, off + SCOPE_CHANNELS);
+    } else if (bus->kind == RENDER_AMBISONIC) {
+        /* spatial.js AmbisonicRenderer: the harmonics its channel list keeps. */
+        double sh[16];
+        int c;
+        te_encode_sn3d(az, el, bus->order, sh);
+        for (c = 0; c < bus->numChannels; c++) out[off + c] = sh[bus->acn[c]];
+    } else if (bus->kind == RENDER_SPEAKERS) {
+        speaker_channel_gains(bus, az, el, out, off);
     }
     else stereo_channel_gains(az, el, out, off);
 }
@@ -230,6 +239,31 @@ static const int SPEAKER_DEG[3][SPEAKER_MAX] = {
 };
 static const int SPEAKER_COUNT[3] = { 4, 6, 8 };
 
+/* Give `bus` speaker layout 1 quad / 2 5.1 / 3 7.1: the ring, and each
+ * speaker's own stereo fold for a monitor. */
+static void speaker_layout(TaudSpatialBus *bus, int layout)
+{
+    const int *deg = SPEAKER_DEG[layout - 1];
+    int n = SPEAKER_COUNT[layout - 1], i, k, size = 0;
+    bus->spkCount = n;
+    memset(bus->monitorGains, 0, sizeof bus->monitorGains);
+    for (i = 0; i < n; i++) {
+        double az;
+        if (deg[i] == SPK_LFE) continue;
+        az = te_wrap_azimuth(128 + deg[i] * (AZIMUTH_TURN / 360.0));
+        stereo_channel_gains(az, 0, bus->monitorGains, i * 2);
+        /* Sorted by azimuth as it goes in (no two speakers share one). */
+        for (k = size; k > 0 && bus->ringAz[k - 1] > az; k--) {
+            bus->ringAz[k] = bus->ringAz[k - 1];
+            bus->ringChannel[k] = bus->ringChannel[k - 1];
+        }
+        bus->ringAz[k] = az;
+        bus->ringChannel[k] = i;
+        size++;
+    }
+    bus->ringSize = size;
+}
+
 void te_set_analysis_bus(TaudEngine *e, int layout)
 {
     TaudSpatialBus *bus;
@@ -239,28 +273,42 @@ void te_set_analysis_bus(TaudEngine *e, int layout)
     if (layout < 0 || layout > 3) return;
     bus = (TaudSpatialBus *)calloc(1, sizeof *bus);
     if (bus == NULL) { e->oom = true; return; }
-    bus->kind = 2;
-    if (layout >= 1) {
-        const int *deg = SPEAKER_DEG[layout - 1];
-        int n = SPEAKER_COUNT[layout - 1], i, k, size = 0;
-        bus->spkCount = n;
-        for (i = 0; i < n; i++) {
-            double az;
-            if (deg[i] == SPK_LFE) continue;
-            az = te_wrap_azimuth(128 + deg[i] * (AZIMUTH_TURN / 360.0));
-            /* Sorted by azimuth as it goes in (no two speakers share one). */
-            for (k = size; k > 0 && bus->ringAz[k - 1] > az; k--) {
-                bus->ringAz[k] = bus->ringAz[k - 1];
-                bus->ringChannel[k] = bus->ringChannel[k - 1];
-            }
-            bus->ringAz[k] = az;
-            bus->ringChannel[k] = i;
-            size++;
-        }
-        bus->ringSize = size;
-    }
+    bus->kind = RENDER_ANALYSIS;
+    if (layout >= 1) speaker_layout(bus, layout);
     bus->numChannels = SCOPE_CHANNELS + bus->spkCount;
     e->analysisBus = bus;
+}
+
+bool te_spatial_bus_configure(TaudSpatialBus *bus, int kind, int order, bool planar, int layout)
+{
+    if (kind == RENDER_AMBISONIC) {
+        int l, m, n = 0;
+        if (order < 0) order = 0;
+        if (order > 3) order = 3;
+        /* acnChannelList: a planar target keeps the horizontal (|m| = l) set. */
+        for (l = 0; l <= order; l++) {
+            for (m = -l; m <= l; m++) {
+                if (!planar || (m < 0 ? -m : m) == l) bus->acn[n++] = l * l + l + m;
+            }
+        }
+        bus->kind = kind;
+        bus->order = order;
+        bus->numChannels = n;
+        return true;
+    }
+    if (kind == RENDER_SPEAKERS) {
+        if (layout < 1 || layout > 3) return false;
+        speaker_layout(bus, layout);
+        bus->kind = kind;
+        bus->numChannels = bus->spkCount;
+        return true;
+    }
+    if (kind == RENDER_STEREO) {
+        bus->kind = kind;
+        bus->numChannels = 2;
+        return true;
+    }
+    return false;
 }
 
 void te_spatial_bus_add_source(TaudSpatialBus *bus, int n, double value, const double *gains, int off, double ramp)
@@ -271,8 +319,25 @@ void te_spatial_bus_add_source(TaudSpatialBus *bus, int n, double value, const d
 
 void te_spatial_bus_stereo_at(TaudSpatialBus *bus, int n, double out[2])
 {
-    if (bus->kind == 1) {
+    if (bus->kind == RENDER_BINAURAL) {
         te_binaural_monitor_stereo(bus->bin, bus->data, TRACKER_CHUNK, n, out);
+    } else if (bus->kind == RENDER_AMBISONIC) {
+        /* Coincident cardioid pair at ±90° — W ± Y (ACN 1 is channel 1 in
+         * both bases). */
+        double w = bus->data[n], y = bus->data[TRACKER_CHUNK + n];
+        out[0] = 0.5 * (w + y);
+        out[1] = 0.5 * (w - y);
+    } else if (bus->kind == RENDER_SPEAKERS) {
+        /* Each speaker folded as if it were itself a source. */
+        double l = 0.0, r = 0.0;
+        int c;
+        for (c = 0; c < bus->numChannels; c++) {
+            double v = bus->data[c * TRACKER_CHUNK + n];
+            l += v * bus->monitorGains[c * 2];
+            r += v * bus->monitorGains[c * 2 + 1];
+        }
+        out[0] = l;
+        out[1] = r;
     } else {
         out[0] = bus->data[n];
         out[1] = bus->data[TRACKER_CHUNK + n];

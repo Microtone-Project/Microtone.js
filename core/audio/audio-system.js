@@ -55,6 +55,8 @@ const ENV_PLAYHEAD_ROLE = {
 };
 
 const WORKLET_MODULE = new URL("../worklet/taud-processor.js", import.meta.url);
+import { prepareEngineModule } from "../engine/wasm-module.js";
+
 const WORKLET_BUNDLE = new URL("../worklet/taud-processor.bundle.js", import.meta.url);
 
 /** `?engine=js` on the page's address runs the JavaScript engine instead of
@@ -123,6 +125,12 @@ export class AudioSystem {
     engine = ENGINE_FROM_URL,
   } = {}) {
     this.engineKind = engine === "js" ? "js" : "wasm";
+    // The page builds engines of its own later (an export, a pattern rendered
+    // to a sample): have the module compiled off the main thread by then, so
+    // `new TaudEngine()` only has to instantiate it. Not awaited — the audio
+    // thread compiles its own copy — and a failure here is that later
+    // construction's to report.
+    prepareEngineModule().catch(() => {});
     let ctx;
     try {
       ctx = new AudioContext({ sampleRate, latencyHint: "interactive" });

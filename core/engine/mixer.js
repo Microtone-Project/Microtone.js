@@ -6,6 +6,7 @@
 // Math.fround at every arithmetic step, and draws its TPDF dither from the
 // engine's seeded xorshift32 stream — so the U8 output is deterministic.
 
+import { pcm32fToPcm8 } from "./dither.js";
 import {
   SAMPLING_RATE, TRACKER_CHUNK, SCOPE_BUFFER_SIZE,
   INTERP_A500, INTERP_A1200, ATTACK_RAMP_SAMPLES,
@@ -124,58 +125,6 @@ function renderVoicePair(eng, ts, voice, inst, interpMode, spt, out, n) {
   return out;
 }
 
-/** urand: (xorshift32() & 0xFFFFFF) / 16777216 — exact in Float32. */
-function urand(eng) {
-  return (eng.xorshift32() & 0xffffff) / 16777216.0;
-}
-
-/** TPDF noise in [-1, +1) — difference of two urands, exact in Float32. */
-function tpdf1(eng) {
-  return urand(eng) - urand(eng);
-}
-
-/**
- * Noise-shaped dither 32f → interleaved U8, writing into out (length ≥ 2·sampleCount).
- * State: eng.ditherError = Float32Array(4) [L0, L1, R0, R1].
- */
-export function pcm32fToPcm8(eng, fleft, fright, sampleCount, out) {
-  const b1 = 1.5;
-  const b2 = -0.75;
-  const scale = 127.5;
-  const bias = 128;
-  const ditherScale = 0.2; // fround(0.2) applied at the multiply below
-  const err = eng.ditherError;
-
-  for (let i = 0; i < sampleCount; i++) {
-    // --- LEFT channel ---
-    const feedbackL = fround(fround(b1 * err[0]) + fround(b2 * err[1]));
-    const ditherL = fround(fround(ditherScale) * tpdf1(eng));
-    let shapedL = fround(fround(fleft[i] + feedbackL) + fround(ditherL / scale));
-    shapedL = shapedL < -1.0 ? -1.0 : shapedL > 1.0 ? 1.0 : shapedL;
-
-    let qL = Math.round(fround(shapedL * scale));
-    qL = qL < -128 ? -128 : qL > 127 ? 127 : qL;
-    out[i * 2] = (qL + bias) & 0xff;
-
-    const qerrL = fround(shapedL - fround(qL / scale));
-    err[1] = err[0];
-    err[0] = qerrL;
-
-    // --- RIGHT channel ---
-    const feedbackR = fround(fround(b1 * err[2]) + fround(b2 * err[3]));
-    const ditherR = fround(fround(ditherScale) * tpdf1(eng));
-    let shapedR = fround(fround(fright[i] + feedbackR) + fround(ditherR / scale));
-    shapedR = shapedR < -1.0 ? -1.0 : shapedR > 1.0 ? 1.0 : shapedR;
-
-    let qR = Math.round(fround(shapedR * scale));
-    qR = qR < -128 ? -128 : qR > 127 ? 127 : qR;
-    out[i * 2 + 1] = (qR + bias) & 0xff;
-
-    const qerrR = fround(shapedR - fround(qR / scale));
-    err[3] = err[2];
-    err[2] = qerrR;
-  }
-}
 
 /**
  * True while any voice in the playhead runs an extended 2/3 on its per-SAMPLE

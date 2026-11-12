@@ -25,7 +25,6 @@ import { isImac } from "../../convert/imac.js";
 import { isSketch } from "../../../core/sketch/mtsk.js";
 import { showModal, showNotice } from "../components/modal.js";
 import { renderToWavAsync } from "../../../core/audio/offline-render.js";
-import { createEngine, ENGINE_JS, ENGINE_WASM } from "../../../core/engine/create.js";
 import { prepareEngineModule } from "../../../core/engine/wasm-module.js";
 import {
   renderStemsAsync, labelStems, encodeWav24Mono, stemFileName, sanitiseName, StemZip,
@@ -789,16 +788,13 @@ export class FilesView {
     if (choice.format === "stereo") {
       let wav;
       try {
-        // The stereo WAV is rendered by the engine that plays the song — the
-        // WebAssembly one, compiled off the page's thread before it is needed
-        // (a browser may refuse to compile a module this size synchronously
-        // here); `?engine=js` renders with the JavaScript engine instead.
-        const js = this.store.audio?.engineKind === ENGINE_JS;
-        if (!js) await prepareEngineModule();
+        // The module is compiled off the page's thread before the render
+        // builds its engine (a browser may refuse to compile one this size
+        // synchronously here).
+        await prepareEngineModule();
         wav = await renderToWavAsync(doc.toRenderable(songIndex), songIndex, choice.cap, {
           outRate: choice.outRate, monitor: choice.monitor, quality: choice.quality,
           onProgress: (f) => progress.set(f), signal: progress.signal,
-          makeEngine: () => createEngine(js ? ENGINE_JS : ENGINE_WASM),
         });
       } catch (err) {
         progress.fail(err.message ?? String(err));

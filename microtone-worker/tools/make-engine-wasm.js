@@ -43,6 +43,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dumpEngineLayout } from "./engine-layout.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const C_DIR = join(root, "core/engine/c");
@@ -62,6 +63,7 @@ export const ENGINE_LDFLAGS = [
 ];
 
 const SNAP_HEADER = join(C_DIR, "src/snap_layout.h");
+const LAYOUT_OUT = join(root, "core/engine/taud-engine.layout.js");
 
 /**
  * The snapshot's wire layout as a C header: every numeric SNAP_* export of
@@ -267,6 +269,25 @@ export const ENGINE_WASM_BASE64 = "${b64}";
   writeFileSync(OUT, js);
   console.log(`core/engine/taud-engine.wasm.js: wasm ${wasm.length} bytes, module ${js.length} bytes, ` +
     `sha256 ${sha256}\n  built with ${toolchain}`);
+
+  // ── the struct layouts the module was compiled with (tools/engine-layout.js) ──
+  const layout = dumpEngineLayout({ clang, sysroot, cDir: C_DIR });
+  const records = Object.keys(layout).length;
+  const layoutJs = `// GENERATED FILE — do not edit. Written with the module by (from microtone-worker/):
+//   node tools/make-engine-wasm.js
+//
+// Where every field of the C engine's records (core/engine/c/src/taud_internal.h)
+// sits in the WebAssembly module's memory, as the compiler laid them out:
+// { Type: { size, fields: { name: [offset, kind, dims?] } } } — see
+// tools/engine-layout.js for the kinds. core/engine/wasm-reflect.js reads it;
+// the audio thread never does.
+
+// The digest of the sources these layouts belong to: the module's own.
+export const ENGINE_LAYOUT_SOURCE_SHA256 = "${digest}";
+export const ENGINE_LAYOUT = ${JSON.stringify(layout)};
+`;
+  writeFileSync(LAYOUT_OUT, layoutJs);
+  console.log(`core/engine/taud-engine.layout.js: ${records} records, ${layoutJs.length} bytes`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

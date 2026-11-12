@@ -634,6 +634,11 @@ static void apply_surround_model(TaudEngine *e)
     if (model == SURROUND_STEREO) return;
     e->spatial = (TaudSpatialBus *)calloc(1, sizeof *e->spatial);
     if (e->spatial == NULL) { e->oom = true; e->ts_surroundModel = SURROUND_STEREO; return; }
+    /* An exporter's render target stands in for the device's monitor. */
+    if (e->rendererKind >= 0 &&
+        te_spatial_bus_configure(e->spatial, e->rendererKind, e->rendererOrder, e->rendererPlanar, e->rendererLayout)) {
+        return;
+    }
     if (e->monitorMode == MONITOR_BINAURAL) {
         bool sphere = model == SURROUND_SPATIAL;
         if (e->binaural == NULL || e->binaural->sphere != sphere) {
@@ -662,6 +667,17 @@ void te_set_surround_model(TaudEngine *e, int model)
 void te_set_monitor_mode(TaudEngine *e, int mode)
 {
     e->monitorMode = mode & 1;
+    apply_surround_model(e);
+}
+
+/* Swap the render target the object bus feeds (setSpatialRenderer): −1 is the
+ * device's own monitor again. No-op for a stereo song, which has no bus. */
+void te_set_spatial_renderer(TaudEngine *e, int kind, int order, bool planar, int layout)
+{
+    e->rendererKind = kind;
+    e->rendererOrder = order;
+    e->rendererPlanar = planar;
+    e->rendererLayout = layout;
     apply_surround_model(e);
 }
 
@@ -896,6 +912,7 @@ TaudEngine *te_engine_new(int rate)
     }
     e->retireSweepAt = RETIRE_SWEEP_COUNT;
     e->jamLyricInst = -1;
+    e->rendererKind = -1;
     for (i = 0; i < ROWS_PER_PATTERN; i++) e->emptyPattern[i].pan = 32;
     cue_init(&e->emptyCue);
 
@@ -947,6 +964,7 @@ void te_engine_free(TaudEngine *e)
     free(e->spatial);
     free(e->analysisBus);
     for (i = 0; i < IMX_METER_SEATS; i++) free(e->imixMeters[i]);
+    free(e->stemLog);
     te_binaural_free(e->binaural);
     te_master_chain_free(e->mastering);
     te_imix_free_routes(e);

@@ -3,6 +3,7 @@
  * The voices sum in binary64; the pair narrows to binary32 (the mix bus)
  * exactly once per frame, then mastering, clamp and (optionally) dither. */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "taud_internal.h"
@@ -248,6 +249,27 @@ static inline TaudImixBus *voice_route(const TaudEngine *e, const TaudVoice *v)
     return e->imixRoutes[(v->displayInst != 0 ? v->displayInst : v->instrumentId) & 0x3ff];
 }
 
+/* The stem tap: one more entry in the chunk's log. */
+static void stem_push(TaudEngine *e, int frame, int lane, const TaudVoice *v, double value)
+{
+    TaudStemEntry *it;
+    if (e->stemCount == e->stemCap) {
+        int nc = e->stemCap ? e->stemCap * 2 : 4096;
+        TaudStemEntry *nl = (TaudStemEntry *)realloc(e->stemLog, sizeof *nl * (size_t)nc);
+        if (nl == NULL) { e->oom = true; return; }
+        e->stemLog = nl;
+        e->stemCap = nc;
+    }
+    it = &e->stemLog[e->stemCount++];
+    it->frame = frame;
+    it->lane = lane;
+    it->top = v->displayInst != 0 ? v->displayInst : v->instrumentId;
+    it->sub = v->instrumentId;
+    it->patch = v->activePatchIndex;
+    it->pad = 0;
+    it->value = value;
+}
+
 /* Render one TRACKER_CHUNK into mixLeft/mixRight. */
 bool te_generate_tracker_audio(TaudEngine *e)
 {
@@ -264,6 +286,7 @@ bool te_generate_tracker_audio(TaudEngine *e)
     /* The master strip's analysis bus (item 98): an accumulator like the
      * monitor's, fed with the same sources. */
     if (abus != NULL) memset(abus->data, 0, sizeof(double) * (size_t)(abus->numChannels * TRACKER_CHUNK));
+    e->stemCount = 0;
 
     if (advancing && e->firstRow) {
         e->firstRow = false;
@@ -382,6 +405,9 @@ bool te_generate_tracker_audio(TaudEngine *e)
                 rampGain *= attack_gain(e, voice->attackRampSamples);
                 voice->attackRampSamples--;
             }
+            if (e->stemTap) {
+                stem_push(e, n, vi, voice, (voice->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain);
+            }
             /* An instrument with a mixing chain mixes into its own bus, ahead of
              * the song's global gain — which the bus's output gets instead. */
             route = voice_route(e, voice);
@@ -471,6 +497,10 @@ bool te_generate_tracker_audio(TaudEngine *e)
             if (bg->attackRampSamples > 0) {
                 rampGain *= attack_gain(e, bg->attackRampSamples);
                 bg->attackRampSamples--;
+            }
+            /* Ghosts and layer children belong to the stem of the lane that spawned them. */
+            if (e->stemTap) {
+                stem_push(e, n, bg->sourceChannel, bg, (bg->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain);
             }
             route = voice_route(e, bg);
             if (route != NULL) {

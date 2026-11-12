@@ -50,7 +50,7 @@ const FILES = [
   "core/engine/tick.js",
   "core/engine/chase.js",
   "core/engine/mixer.js",
-  "core/engine/engine.js",
+  "core/engine/engine-js.js",  // the JavaScript engine (`?engine=js`)
   // The C engine as WebAssembly (item 312) and what its JavaScript half builds
   // its uploads with: the mastering and mixing-chain codecs, which cross the
   // boundary as the file's own bytes.

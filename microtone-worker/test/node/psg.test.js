@@ -552,5 +552,7 @@ test("a PSG instrument sounds as a layer, as a rack operator and as a formant so
   eng3.uploadInstrument(3, buildFormantRecord(F.encodeFormantBlock(fp), SAW, { sourceInst: 0x101 }));
   loadSong(eng3, [{ row: 0, note: 0x5000, inst: 3 }]);
   assert.ok(rms(renderLeft(eng3, 24000), 9600) > 0.001, "a formant instrument sings from it");
-  assert.ok(ts0(eng3).voices[0].formant.src instanceof P.PsgState, "the pair is the source");
+  // (the JavaScript engine's PsgState object, or the C engine's record of the same name)
+  const src = ts0(eng3).voices[0].formant.src;
+  assert.ok(src instanceof P.PsgState || src?.constructor.typeName === "TaudPsgState", "the pair is the source");
 });

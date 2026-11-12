@@ -5,8 +5,7 @@
 import { TaudEngine } from "../engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE, MAX_VOICES, NUM_VOICES } from "../engine/constants.js";
 import { MONITOR_BINAURAL } from "../engine/binaural.js";
-import { pcm32fToPcm8 } from "../engine/mixer.js";
-import { makeDither16, ditherS16 } from "../engine/dither.js";
+import { pcm32fToPcm8, makeDither16, ditherS16 } from "../engine/dither.js";
 import { makeXorshift32 } from "../engine/rng.js";
 import { resampleInterleaved } from "./resampler.js";
 

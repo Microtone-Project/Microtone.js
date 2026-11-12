@@ -8,14 +8,11 @@
 // on this machine keep their recorded digests.
 //
 // Usage: node tools/make-golden.js [label …]   (no labels = every present song)
-//        node tools/make-golden.js --wasm [label …]
 //
-// --wasm records what the C engine built as WebAssembly renders
-// (core/engine/wasm-engine.js) into test/fixtures/engine-golden-wasm.json,
-// the gate test/node/engine-wasm.test.js holds it to. Those digests are the
-// same on every machine: the module carries its own pow, where the JavaScript
-// engine's is the platform's (a last-bit difference that reaches the f32 bus
-// of a few songs and never the 8-bit output).
+// What is recorded is what THE engine renders — the C engine built as
+// WebAssembly (core/engine/engine.js). Its digests are the same on every
+// machine: the module carries its own pow, where the JavaScript engine it was
+// ported from used the platform's.
 
 import { readFile, writeFile, access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -23,11 +20,8 @@ import {
   GOLDEN_SET, GOLDEN_RATE, GOLDEN_SECONDS, GOLDEN_SEED, goldenPath, renderGolden,
 } from "./golden-set.js";
 
-const wasm = process.argv.includes("--wasm");
-const engine = wasm ? "wasm" : "js";
-const OUT = fileURLToPath(new URL(
-  wasm ? "../test/fixtures/engine-golden-wasm.json" : "../test/fixtures/engine-golden.json", import.meta.url));
-const want = process.argv.slice(2).filter((a) => a !== "--wasm");
+const OUT = fileURLToPath(new URL("../test/fixtures/engine-golden.json", import.meta.url));
+const want = process.argv.slice(2);
 
 let fixture = { rate: GOLDEN_RATE, seconds: GOLDEN_SECONDS, seed: GOLDEN_SEED, songs: {} };
 try { fixture = JSON.parse(await readFile(OUT, "utf8")); } catch { /* first run */ }
@@ -38,7 +32,7 @@ for (const [label, entry] of Object.entries(GOLDEN_SET)) {
   if (want.length && !want.includes(label)) continue;
   try { await access(goldenPath(entry)); } catch { console.log(`${label}: not on this machine — kept`); continue; }
   const t0 = performance.now();
-  const d = await renderGolden(entry, engine);
+  const d = await renderGolden(entry);
   const prev = fixture.songs[label];
   const moved = prev && (prev.u8 !== d.u8 || prev.f32 !== d.f32 || prev.frames !== d.frames);
   fixture.songs[label] = { file: entry.file, ...(entry.monitor !== undefined ? { monitor: entry.monitor } : {}), ...(entry.imix ? { imix: entry.imix } : {}), ...d };

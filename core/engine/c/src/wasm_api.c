@@ -121,6 +121,88 @@ void tw_set_instrument_imix_id(TaudEngine *e, int slot, int id)
     e->imixGen++;
 }
 
+/** Count a change the host made to an instrument's chain id or to a block
+ *  behind the engine's back (a view of the records): the route table is
+ *  rebuilt before the next chunk. */
+TW_EXPORT(tw_bump_imix_gen)
+void tw_bump_imix_gen(TaudEngine *e) { e->imixGen++; }
+
+/** Grow the engine's own sample pool to the full SAMPLE_BIN_TOTAL bytes (the
+ *  tail zero) and return it, writable: for a host that writes samples in
+ *  place. NULL when there is no memory for it. */
+TW_EXPORT(tw_sample_pool_full)
+uint8_t *tw_sample_pool_full(TaudEngine *e)
+{
+    if (e->ownPool == NULL || e->samplePoolLen < SAMPLE_BIN_TOTAL || e->sampleBin != e->ownPool) {
+        uint8_t *full = (uint8_t *)calloc(1, SAMPLE_BIN_TOTAL);
+        if (full == NULL) { e->oom = true; return NULL; }
+        if (e->sampleBin != NULL && e->samplePoolLen > 0) {
+            memcpy(full, e->sampleBin, e->samplePoolLen < SAMPLE_BIN_TOTAL ? e->samplePoolLen : SAMPLE_BIN_TOTAL);
+        }
+        free(e->ownPool);
+        e->ownPool = full;
+        e->sampleBin = full;
+        e->samplePoolLen = SAMPLE_BIN_TOTAL;
+    }
+    return e->ownPool;
+}
+
+/* ── an instrument's runtime state, as its JavaScript methods wrote it ── */
+
+#define TW_INST(e, slot) (&(e)->instruments[(slot) < 0 ? 0 : (slot) >= NUM_INST_SLOTS ? NUM_INST_SLOTS - 1 : (slot)])
+
+TW_EXPORT(tw_inst_toggle_invert_bit)
+void tw_inst_toggle_invert_bit(TaudEngine *e, int slot, int off, int len) { te_inst_toggle_invert_bit(TW_INST(e, slot), off, len); }
+
+TW_EXPORT(tw_inst_invert_bit)
+int tw_inst_invert_bit(TaudEngine *e, int slot, int off, int len) { return te_inst_invert_bit(TW_INST(e, slot), off, len) ? 1 : 0; }
+
+TW_EXPORT(tw_inst_toggle_mod_bit)
+void tw_inst_toggle_mod_bit(TaudEngine *e, int slot, int i, int sampleLen) { te_inst_toggle_mod_bit(TW_INST(e, slot), i, sampleLen); }
+
+TW_EXPORT(tw_inst_mod_bit)
+int tw_inst_mod_bit(const TaudEngine *e, int slot, int i) { return te_inst_mod_bit(TW_INST(e, slot), i) ? 1 : 0; }
+
+TW_EXPORT(tw_inst_set_mod_region)
+int tw_inst_set_mod_region(TaudEngine *e, int slot, double from, double to) { return te_inst_set_mod_region(TW_INST(e, slot), from, to) ? 1 : 0; }
+
+TW_EXPORT(tw_inst_set_mod_comb)
+int tw_inst_set_mod_comb(TaudEngine *e, int slot, int bits, int odd) { return te_inst_set_mod_comb(TW_INST(e, slot), bits, odd != 0) ? 1 : 0; }
+
+TW_EXPORT(tw_inst_set_mod_op)
+int tw_inst_set_mod_op(TaudEngine *e, int slot, int op, int invert) { return te_inst_set_mod_op(TW_INST(e, slot), op, invert != 0) ? 1 : 0; }
+
+TW_EXPORT(tw_inst_set_mod_op_ext)
+int tw_inst_set_mod_op_ext(TaudEngine *e, int slot, int code, int invert, int f) { return te_inst_set_mod_op_ext(TW_INST(e, slot), code, invert != 0, f) ? 1 : 0; }
+
+TW_EXPORT(tw_inst_clear_mod_state)
+void tw_inst_clear_mod_state(TaudEngine *e, int slot) { te_inst_clear_mod_state(TW_INST(e, slot)); }
+
+TW_EXPORT(tw_inst_reset_mod)
+void tw_inst_reset_mod(TaudEngine *e, int slot) { te_inst_reset_mod(TW_INST(e, slot)); }
+
+/** The 64 cells of pattern `idx` as the engine holds them (TaudCell records;
+ *  the shared empty pattern for a slot never written). */
+TW_EXPORT(tw_pattern_read)
+const TaudCell *tw_pattern_read(const TaudEngine *e, int idx) { return te_pattern_read(e, idx); }
+
+/** Bring the instruments' route table up to date now (the mixer does it at
+ *  the top of a chunk): for a host that wants to look at the buses first. */
+TW_EXPORT(tw_sync_imix_routes)
+void tw_sync_imix_routes(TaudEngine *e) { if (e->imixSyncedGen != e->imixGen) te_sync_imix_routes(e); }
+
+/** The empty pattern every unwritten slot reads as. */
+TW_EXPORT(tw_empty_pattern)
+const TaudCell *tw_empty_pattern(const TaudEngine *e) { return e->emptyPattern; }
+
+/** Run the row event at the playhead's position now, as the mixer's clock
+ *  would at the top of the row (a test stepping the song by hand). */
+TW_EXPORT(tw_apply_tracker_row)
+void tw_apply_tracker_row(TaudEngine *e) { te_apply_tracker_row(e); }
+
+TW_EXPORT(tw_apply_tracker_tick)
+void tw_apply_tracker_tick(TaudEngine *e) { te_apply_tracker_tick(e); }
+
 TW_EXPORT(tw_upload_pattern)
 void tw_upload_pattern(TaudEngine *e, int slot, const uint8_t *bytes, uint32_t len) { te_upload_pattern(e, slot, bytes, len); }
 
@@ -227,6 +309,23 @@ void tw_set_tracker_mixer_flags(TaudEngine *e, int flags) { te_set_tracker_mixer
 
 TW_EXPORT(tw_set_surround_model)
 void tw_set_surround_model(TaudEngine *e, int model) { te_set_surround_model(e, model); }
+
+/** Install an exporter's render target in place of the device's monitor:
+ *  kind 0 a stereo fold, 3 ambisonic (`order`, `planar`), 4 a speaker layout
+ *  (1 quad, 2 5.1, 3 7.1); −1 removes it. The bus is tw_spatial_bus. */
+TW_EXPORT(tw_set_spatial_renderer)
+void tw_set_spatial_renderer(TaudEngine *e, int kind, int order, int planar, int layout)
+{
+    te_set_spatial_renderer(e, kind, order, planar != 0, layout);
+}
+
+/** The object bus's data — numChannels × TRACKER_CHUNK doubles, channel-major,
+ *  the chunk just rendered — or NULL for a stereo song. */
+TW_EXPORT(tw_spatial_bus)
+const double *tw_spatial_bus(const TaudEngine *e) { return e->spatial != NULL ? e->spatial->data : NULL; }
+
+TW_EXPORT(tw_spatial_bus_channels)
+int tw_spatial_bus_channels(const TaudEngine *e) { return e->spatial != NULL ? e->spatial->numChannels : 0; }
 
 TW_EXPORT(tw_set_monitor_mode)
 void tw_set_monitor_mode(TaudEngine *e, int mode) { te_set_monitor_mode(e, mode); }
@@ -380,6 +479,19 @@ const double *tw_set_analysis_bus(TaudEngine *e, int layout)
 
 TW_EXPORT(tw_analysis_bus_channels)
 int tw_analysis_bus_channels(const TaudEngine *e) { return e->analysisBus != NULL ? e->analysisBus->numChannels : 0; }
+
+/** Switch the stem-export tap on or off. While on, each rendered chunk
+ *  leaves a log of every voice's pre-pan mono contribution to every frame —
+ *  tw_stem_log, tw_stem_count entries of {i32 frame, lane, top, sub, patch,
+ *  pad; f64 value} — in the order the mixer added them. */
+TW_EXPORT(tw_set_stem_tap)
+void tw_set_stem_tap(TaudEngine *e, int on) { e->stemTap = on != 0; e->stemCount = 0; }
+
+TW_EXPORT(tw_stem_log)
+const TaudStemEntry *tw_stem_log(const TaudEngine *e) { return e->stemLog; }
+
+TW_EXPORT(tw_stem_count)
+int tw_stem_count(const TaudEngine *e) { return e->stemCount; }
 
 /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus,
  *  in `seat` (one per split pane). tw_fill_snapshot writes its block. */

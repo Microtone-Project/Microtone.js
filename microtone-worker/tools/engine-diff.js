@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// The JavaScript engine against the C engine built as WebAssembly, over the
+// The JavaScript engine the C engine was ported from (core/engine/engine-js.js)
+// against the C engine built as WebAssembly, over the
 // golden set, SAMPLE FOR SAMPLE — the f32 mix bus and the 8-bit device output
 // both. Exits 1 on the first entry that differs anywhere.
 //
