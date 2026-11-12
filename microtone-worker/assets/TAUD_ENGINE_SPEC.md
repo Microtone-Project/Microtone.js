@@ -2,7 +2,7 @@
 
 This document defines the **Taud playback engine**: how a conforming implementation turns the structures of a Taud file into audio. It covers timing, pitch, the trigger path, envelopes, the sampler, filters, mixing, the spatial model and the output stage. It does **not** define the file layout (see the **Taud File Format Specification**) or the effect column (see the **Note Effects** reference); it defines everything those two documents assume.
 
-The **reference implementation** is the Microtone web engine. Its renders are the worked examples conformance is measured against ([§13](#13-determinism)), and where it and this document disagree, one of the two has a defect to fix — neither is a licence for an implementation to differ. The TSVM Audio Adapter's engine follows the reference implementation.
+The **reference implementation** is the Microtone web engine. Its renders are the worked examples conformance is measured against ([§13](#13-determinism)), and where it and this document disagree, one of the two has a defect to fix — neither is a licence for an implementation to differ. It is written in C — compiled to WebAssembly for the browser, and the same sources are the `libtaudplay` player library — and carries its own `pow`, so its renders are the same bits on every machine. The TSVM Audio Adapter's engine follows the reference implementation.
 
 Taud is a ScreamTracker 3-lineage tracker extended with 16-bit effect arguments and a 4096 tone-equal-temperament pitch grid. Where behaviour has an ancestor, this document names it — ImpulseTracker (via Schism Tracker's mixer), FastTracker 2 (via MilkyTracker), ProTracker, SoundFont 2 (via FluidSynth). Those lineages are the *reason* for many rules that would otherwise look arbitrary, and an implementation that follows the rule but not the lineage will drift on real songs.
 
@@ -1365,7 +1365,7 @@ The interpolation mode comes from the global behaviour flags and applies to ever
 
 | Mode | Algorithm |
 |---|---|
-| 0 — default | Windowed sinc: a Hann-windowed sinc kernel over ±3 taps, tabulated at 1024 sub-sample positions and linearly interpolated between table entries |
+| 0 — default | Windowed sinc: a Hann-windowed sinc kernel three samples wide each way, tabulated at 1024 sub-sample phases and read at the phase the position falls in ([below](#the-windowed-sinc)) |
 | 1 — none | Zero-order hold — take the sample under the integer position |
 | 2 — Amiga 500 | Zero-order hold, plus a post-mix one-pole low-pass at 4420.971 Hz and the optional LED filter |
 | 3 — Amiga 1200 | Zero-order hold, plus the optional LED filter only: the A1200's own one-pole sits at ~34 kHz, above Nyquist at any rate the engine runs at, and is bypassed |
@@ -1375,6 +1375,27 @@ The interpolation mode comes from the global behaviour flags and applies to ever
 The Amiga LED filter is a second-order section at 3090.533 Hz with Q = 0.660225, toggled by `S $00` / `S $01` and applied to the **stereo mix**, not per voice. It is available only in the two Amiga modes.
 
 SNES and NES DPCM modes carry per-voice state (the DPCM counter), and a stereo voice keeps a separate counter per channel.
+
+#### The windowed sinc
+
+The kernel is a table, and a voice reads it **without interpolating between its entries**. `T(i)` is the kernel `i ÷ 1024` samples from its centre:
+
+```
+T(0) = 1
+T(i) = sin(π i ÷ 1024) ÷ (π i ÷ 1024) × (0.5 + 0.5 cos(π i ÷ 3072)),   i = 1…3071
+T(i) = 0,                                                             i ≥ 3072
+```
+
+A voice at sample position `pos` takes `i0 = trunc(pos)` clamped to the sample (`0`…`length − 1`) and the **phase** `q = floor((pos − i0) × 1024)`, and sounds
+
+```
+out = Σ s(i0 + j) × T(|1024 j − q|),   j = −3, −2, … +3
+```
+
+- `s(n)` is the sample's byte `n` as a number, `(byte − 127.5) ÷ 127.5`; an `n` outside the sample reads the nearest byte it has.
+- The terms are added in ascending `j`, starting from zero — the order is part of the result ([§13](#13-determinism)).
+- Inside a sample `q` is 0…1023 and tap −3 lies where the kernel is zero, so six bytes are read, with the six coefficients of that phase. A position past the sample's end (a funk-repeat window may reach there) has a larger `q` and reaches only the taps still within three samples of it; past those the voice is silent.
+- The phase is taken **downwards**: not rounded, and not blended with the next one. What that costs is a timing error of under 1⁄1024 of a sample, some 70 dB below the signal — beneath the noise an 8-bit sample carries — and what it buys is a kernel of six table reads.
 
 ### 8.4 Invert loop and funk repeat
 

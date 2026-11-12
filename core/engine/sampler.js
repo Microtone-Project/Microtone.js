@@ -7,12 +7,12 @@
 // concern that does not exist here).
 
 import {
-  SAMPLING_RATE, MIDDLE_C, SAMPLE_BIN_TOTAL,
+  SAMPLING_RATE, MIDDLE_C, SAMPLE_BIN_TOTAL, FUNK_XFADE_SAMPLES,
   INTERP_DEFAULT, INTERP_NONE, INTERP_A500, INTERP_A1200, INTERP_SNES, INTERP_NES_DPCM,
-  SINC_WIDTH, RAMP_OUT_SAMPLES, ATTACK_RAMP_SAMPLES, FAST_FADE_SEC, VOL_RAMP_SAMPLES,
+  SINC_WIDTH, SINC_PRECISION, RAMP_OUT_SAMPLES, ATTACK_RAMP_SAMPLES, FAST_FADE_SEC, VOL_RAMP_SAMPLES,
   PITCH_GLIDE_FULL_RATIO,
 } from "./constants.js";
-import { sincTap, SNES_GAUSS } from "./tables.js";
+import { SINC_TABLE, SINC_TABLE_SIZE, SINC_PHASE, SINC_TAPS, SNES_GAUSS } from "./tables.js";
 import {
   MOD_OFF, MOD_XFADE_SAMPLES, modTouches, modAddress, resolveModGeom,
   extModTouches, modAddressExt, applyExtLevel, applyExtLevelPrev, isExtFunkOp,
@@ -200,43 +200,40 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
 
   switch (interpMode) {
     case INTERP_DEFAULT: {
+      // The windowed sinc of spec §8.3: the position's fraction picks one of
+      // SINC_PRECISION phases (downwards — the kernel is not interpolated
+      // between them), and the phase's coefficients weigh the bytes around
+      // the position.
       let acc = 0.0;
       if (plain) {
-        // Interior kernel: when the whole 2·SINC_WIDTH+1 window sits inside
-        // both the sample and the pool, every clamp poolPoint would apply is
-        // the identity, so the taps become plain indexed loads off one base.
-        // That is the case for all but the first and last few frames of a
-        // sample, which is to say almost always.
-        //
-        // In here i0 IS trunc(samplePos) (both clamps are the identity), so
-        // frac lies in [0,1) and the first tap, j = -SINC_WIDTH, sits at
-        // |x| >= SINC_WIDTH·SINC_PRECISION — past the end of the table, where
-        // sincTap answers 0 and the generic loop below skips it. So the sum
-        // starts one tap in, unrolled (SINC_WIDTH is 3, asserted at load), and
-        // without that loop's `coeff !== 0` test: a zero coefficient makes a
-        // ±0 term, and adding ±0 to a sum that began at +0 changes nothing, so
-        // this is the same sum of the same terms in the same order — bit for
-        // bit — with a seventh of the kernel evaluations and every branch gone.
+        // The interior, which is nearly always: every tap is inside the
+        // sample and the pool, and i0 was not clamped, so frac is in [0, 1)
+        // and the phase is a row of the table.
         const base = basePtr + i0;
         if (i0 >= SINC_WIDTH && i0 + SINC_WIDTH <= sampleLen - 1 && base + SINC_WIDTH <= binMax) {
           const bin = eng.sampleBin;
-          acc += PCM_U8[bin[base - 2]] * sincTap(frac, -2);
-          acc += PCM_U8[bin[base - 1]] * sincTap(frac, -1);
-          acc += PCM_U8[bin[base]] * sincTap(frac, 0);
-          acc += PCM_U8[bin[base + 1]] * sincTap(frac, 1);
-          acc += PCM_U8[bin[base + 2]] * sincTap(frac, 2);
-          acc += PCM_U8[bin[base + 3]] * sincTap(frac, 3);
+          const k = SINC_TAPS * Math.trunc(frac * SINC_PRECISION);
+          acc += PCM_U8[bin[base - 2]] * SINC_PHASE[k];
+          acc += PCM_U8[bin[base - 1]] * SINC_PHASE[k + 1];
+          acc += PCM_U8[bin[base]] * SINC_PHASE[k + 2];
+          acc += PCM_U8[bin[base + 1]] * SINC_PHASE[k + 3];
+          acc += PCM_U8[bin[base + 2]] * SINC_PHASE[k + 4];
+          acc += PCM_U8[bin[base + 3]] * SINC_PHASE[k + 5];
           return acc;
         }
-        for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-          const coeff = sincTap(frac, j);
-          if (coeff !== 0.0) acc += poolPoint(eng, sampleLen, binMax, basePtr, i0 + j) * coeff;
-        }
-        return acc;
       }
+      // The same sum where a tap may fall off the sample (it reads the
+      // nearest byte the sample has), where the position itself has left it
+      // (frac is then outside [0, 1), and the taps it still reaches are the
+      // ones within SINC_WIDTH of it), or where the instrument's bytes are
+      // being modified as they are read.
+      const q = Math.floor(frac * SINC_PRECISION);
+      if (!(q >= -2 * SINC_TABLE_SIZE && q <= 2 * SINC_TABLE_SIZE)) return 0.0; // out of every tap's reach
       for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-        const coeff = sincTap(frac, j);
-        if (coeff !== 0.0) acc += readSamplePoint(eng, voice, inst, i0 + j, sampleLen, binMax, basePtr) * coeff;
+        const idx = Math.abs(j * SINC_PRECISION - q);
+        if (idx >= SINC_TABLE_SIZE) continue;
+        acc += (plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0 + j)
+          : readSamplePoint(eng, voice, inst, i0 + j, sampleLen, binMax, basePtr)) * SINC_TABLE[idx];
       }
       return acc;
     }
@@ -304,7 +301,6 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
  * $40, $80 bytes — a fixed 2 ms would span several grains and smear the walk
  * into a comb filter instead of smoothing it.
  */
-export const FUNK_XFADE_SAMPLES = 64;
 
 /** Arm the seam crossfade. `offset` is (old window − new window) in bytes, so
  *  the ghost read is just `samplePos + offset`, and 0 (the window did not move)

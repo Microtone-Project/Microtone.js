@@ -24,8 +24,7 @@ import assert from "node:assert/strict";
 
 import { TaudEngine } from "../../core/engine/engine.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
-import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
-import { FUNK_XFADE_SAMPLES } from "../../core/engine/sampler.js";
+import { TRACKER_CHUNK, setSamplingRate, FUNK_XFADE_SAMPLES } from "../../core/engine/constants.js";
 import { SURROUND_SPATIAL } from "../../core/engine/spatial.js";
 import { INTERP_NONE } from "../../core/engine/constants.js";
 import { TOTAL_VOICES } from "../../core/engine/constants.js";

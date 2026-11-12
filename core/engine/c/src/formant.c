@@ -1481,7 +1481,7 @@ static void start_noise(const TaudEngine *e, TaudFormantState *st, const TaudFor
     st->nZ = 0.0;
 }
 
-static double pcm_u8(const TaudEngine *e, int64_t p) { return (te_pool_at(e, p) - 127.5) / 127.5; }
+static double pcm_u8(const TaudEngine *e, int64_t p) { return e->pcmU8[te_pool_at(e, p)]; }
 
 static double read_noise(const TaudEngine *e, TaudFormantState *st)
 {

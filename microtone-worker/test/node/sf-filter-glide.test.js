@@ -11,16 +11,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { setSamplingRate, SF_FILTER_GLIDE_SAMPLES } from "../../core/engine/constants.js";
-import { Voice } from "../../core/engine/voice.js";
-import { refreshVoiceFilter, advanceFilterGlide } from "../../core/engine/filter.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 
 setSamplingRate(48000);
+const P = engineParts();
+const refreshVoiceFilter = (v) => P.refreshVoiceFilter(v);
+const advanceFilterGlide = (v) => P.advanceFilterGlide(v);
 
 const coeffs = (v) => [v.filterBqB02, v.filterBqB1, v.filterBqA1, v.filterBqA2];
 
 /** A voice in SoundFont mode, its filter refreshed at (cents, cB). */
 function sfVoice(cut, res = 0) {
-  const v = new Voice();
+  const v = P.voice();
   v.filterSfMode = true;
   v.currentCutoff = cut;
   v.currentResonance = res;

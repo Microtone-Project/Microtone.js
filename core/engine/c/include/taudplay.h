@@ -32,7 +32,10 @@
 extern "C" {
 #endif
 
-#define TAUDPLAY_VERSION "2.60.1"
+/** The version of Microtone this engine belongs to. Here it is whatever it was
+ *  when the line was last touched; the copy in a released library is stamped
+ *  with the release's (tools/make-taudplay-c.js). Nothing in the engine reads it. */
+#define TAUDPLAY_VERSION "5.0.0"
 
 /** Frames per rendered block. Tick and row timing are per SAMPLE, so this is
  *  pure batching granularity and never changes what a song sounds like. */

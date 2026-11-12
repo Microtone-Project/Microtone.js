@@ -24,12 +24,6 @@
 
 #include "taud_internal.h"
 
-#if defined(__wasm__)
-#define TW_EXPORT(name) __attribute__((export_name(#name)))
-#else
-#define TW_EXPORT(name)
-#endif
-
 /* ── lifetime ── */
 
 TW_EXPORT(tw_new)

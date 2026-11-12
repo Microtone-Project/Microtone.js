@@ -16,9 +16,8 @@ import {
 } from "../../core/engine/constants.js";
 import { TaudPlayData } from "../../core/engine/state.js";
 import { EffectOp } from "../../core/engine/tables.js";
-import { applyEffectRow } from "../../core/engine/effects.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { SURROUND_PLANAR, SURROUND_SPATIAL } from "../../core/engine/spatial.js";
-import { readSamplePoint } from "../../core/engine/sampler.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
 
 // Pinned to the Kotlin engine's 32 kHz (item 108 moved the web default to
@@ -982,27 +981,23 @@ test("O extended: a 32-bit offset, O's own argument the HIGH word", () => {
   // playhead reads), and normal playback keeps advancing samplePos every
   // output sample once set — a chunk-quantised render() would drift a few
   // hundred samples past the value O just wrote before a test could see it.
-  const voice = {
-    activeLoopMode: 0, activeSampleLoopStart: 0, activeSampleLoopEnd: 0,
-    samplePos: 0, mem: { o: 0, oExt: 0 },
-  };
-  applyEffectRow(null, null, null, voice, 0, EffectOp.OP_O, 0x0001, 0x0002);
+  const P = engineParts();
+  const voice = P.voice(); // no loop, at the start, no memory of an offset
+  P.applyEffectRow(voice, 0, EffectOp.OP_O, 0x0001, 0x0002);
   assert.equal(voice.samplePos, 1 * 65536 + 2, "O's arg is the high word, `:`'s the low word");
 
   // Recall: a combined argument of $00000000 recalls the last 32-bit value —
   // separately from the classic 16-bit memory (different units, item 162).
-  applyEffectRow(null, null, null, voice, 0, EffectOp.OP_O, 0x0000, 0x0000);
+  P.applyEffectRow(voice, 0, EffectOp.OP_O, 0x0000, 0x0000);
   assert.equal(voice.samplePos, 1 * 65536 + 2, "recalled the extended memory");
 });
 
 test("O extended combines arithmetically, not with a 32-bit shift (no signed overflow)", () => {
   // rawArg's top bit set is exactly where `high << 16` would overflow a
   // signed 32-bit int; `high * 65536 + low` must not.
-  const voice = {
-    activeLoopMode: 0, activeSampleLoopStart: 0, activeSampleLoopEnd: 0,
-    samplePos: 0, mem: { o: 0, oExt: 0 },
-  };
-  applyEffectRow(null, null, null, voice, 0, EffectOp.OP_O, 0x8001, 0x0002);
+  const P = engineParts();
+  const voice = P.voice();
+  P.applyEffectRow(voice, 0, EffectOp.OP_O, 0x8001, 0x0002);
   assert.equal(voice.samplePos, 0x8001 * 65536 + 2);
   assert.ok(voice.samplePos > 0, "positive, not wrapped negative");
 });
@@ -1186,7 +1181,7 @@ test("2/3 extended: $101 invert toggles the byte in what the voice actually PLAY
   }
   assert.ok(toggled >= 0, "found a toggled byte to check");
   const raw = eng.sampleBin[voice.activeSamplePtr + toggled];
-  const played = readSamplePoint(eng, voice, inst, toggled, 1000,
+  const played = engineParts(eng).readSamplePoint(voice, inst, toggled, 1000,
     eng.sampleBin.length - 1, voice.activeSamplePtr);
   const expected = ((raw ^ 0xff) - 127.5) / 127.5;
   assert.ok(Math.abs(played - expected) < 1e-9,
@@ -1214,7 +1209,7 @@ test("2/3 extended: $11x (invert, jittered) is audible the same way $101 is", ()
   }
   assert.ok(toggled >= 0, "found a toggled byte to check");
   const raw = eng.sampleBin[voice.activeSamplePtr + toggled];
-  const played = readSamplePoint(eng, voice, inst, toggled, 1000,
+  const played = engineParts(eng).readSamplePoint(voice, inst, toggled, 1000,
     eng.sampleBin.length - 1, voice.activeSamplePtr);
   const expected = ((raw ^ 0xff) - 127.5) / 127.5;
   assert.ok(Math.abs(played - expected) < 1e-9,

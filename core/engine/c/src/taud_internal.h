@@ -81,6 +81,7 @@
 #define SINC_WIDTH 3
 #define SINC_PRECISION 1024
 #define SINC_TABLE_SIZE (SINC_PRECISION * SINC_WIDTH)
+#define SINC_TAPS (SINC_WIDTH * 2)   /* the taps a phase in [0, 1) reaches: −2…+3 */
 
 #define NUM_INTERRUPTS 16
 #define AUDITION_SLOT 1024
@@ -178,6 +179,15 @@ double js_fdlibm_pow(double x, double y);
 
 /** Math.fround. */
 static inline double fround(double x) { return (double)(float)x; }
+
+/* A function the WebAssembly module exports under `name` (wasm_api.c, the
+ * host's calls; wasm_parts.c, the engine's parts for the tests). Nothing
+ * elsewhere. */
+#if defined(__wasm__)
+#define TW_EXPORT(name) __attribute__((export_name(#name)))
+#else
+#define TW_EXPORT(name)
+#endif
 
 /* ── instrument model (inst.js) ────────────────────────────────────────── */
 
@@ -1449,7 +1459,16 @@ typedef struct TaudEngine {
     uint32_t mulberry;
 
     /* Tables. */
-    double sincTable[SINC_TABLE_SIZE];
+    /* The sinc kernel (engine spec §8.3): sincTable[i] is the Hann-windowed
+     * sinc at i ÷ SINC_PRECISION samples from the centre, and 0 at the last
+     * entry, where the window ends. sincPhase is the same numbers laid out
+     * for the sampler: row p holds the six coefficients of sub-sample phase
+     * p, for the taps −2…+3. */
+    double sincTable[SINC_TABLE_SIZE + 1];
+    double sincPhase[SINC_PRECISION * SINC_TAPS];
+    /* An unsigned 8-bit sample as the mixer's number, (b − 127.5) / 127.5,
+     * for every b: the division done once (sampler.js PCM_U8). */
+    double pcmU8[256];
     TaudFormantTables formantTables;
     /* The PSG noises: one period of each shift register's output. */
     uint8_t psgNoiseLong[PSG_NOISE_LONG_LEN];
@@ -1569,7 +1588,6 @@ extern const int32_t MOD_SIN_TABLE[64];
 extern const int32_t FINETUNE_OFFSET[16];
 extern const double META_MIX_GAIN[256];
 void te_build_tables(TaudEngine *e);
-double te_sinc_tap(const TaudEngine *e, double frac, int tap);
 int te_advance_lfo_phase(int pos, int speed);
 int te_lfo_sample(TaudEngine *e, int pos, int wave);
 int te_lfo_sample_wide(TaudEngine *e, int pos, int wave);
@@ -1847,6 +1865,13 @@ void te_apply_pan_column_wide(TaudEngine *e, TaudVoice *v, const TaudCell *row);
 
 /* effects.c */
 void te_apply_effect_row(TaudEngine *e, TaudVoice *v, int vi, int op, int rawArg, int ext, bool hasExt);
+void te_apply_filter_param_effect(TaudEngine *e, TaudVoice *voice, int vi, int rawArg, bool isResonance);
+void te_resolve_active_envelopes(TaudVoice *v, const TaudInst *inst, const TaudPatch *patch);
+TaudVoice *te_ghost_voice(TaudEngine *e, const TaudVoice *src, int channel);
+double te_advance_pf_role(const TaudEnvPoint *env, int loopWord, int susWord, bool keyOff,
+                          double tickSec, int *idxBox, double *timeBox);
+double te_read_sample_point(TaudEngine *e, TaudVoice *v, TaudInst *inst, int idx,
+                            int sampleLen, int binMax, uint32_t basePtr);
 int te_apply_retrig_vol_mod(int vol, int x, int step, int max);
 
 /* row.c */

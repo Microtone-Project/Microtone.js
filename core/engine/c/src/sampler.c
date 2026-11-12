@@ -1,5 +1,7 @@
 /* Sample fetch + interpolators + anti-click ramps — port of sampler.js. */
 
+#include <stdlib.h>
+
 #include "taud_internal.h"
 
 #define FUNK_XFADE_SAMPLES 64
@@ -33,7 +35,7 @@ static inline double pool_point(const TaudEngine *e, int sampleLen, int binMax, 
     int hi = sampleLen - 1;
     int i = idx < 0 ? 0 : idx > hi ? hi : idx;
     int64_t p = (int64_t)basePtr + i;
-    return (te_pool_at(e, p > binMax ? binMax : p) - 127.5) / 127.5;
+    return e->pcmU8[te_pool_at(e, p > binMax ? binMax : p)];
 }
 
 static double read_modified_sample_point(TaudEngine *e, TaudVoice *v, TaudInst *inst, int idx,
@@ -50,7 +52,7 @@ static double read_modified_sample_point(TaudEngine *e, TaudVoice *v, TaudInst *
     int i;
     double b;
     if (!g->live || !touches) {
-        return (pool_byte(e, inst, i0, binMax, basePtr, ls, le) - 127.5) / 127.5;
+        return e->pcmU8[pool_byte(e, inst, i0, binMax, basePtr, ls, le) & 0xff];
     }
     i = extended ? te_mod_address_ext(g, i0, inst)
                  : te_mod_address(g, i0, inst->modRot, inst->modScatter, inst->modSeed);
@@ -91,6 +93,10 @@ static int pcm_to_15bit(double x)
 #define READ(ix) (plain ? pool_point(e, sampleLen, binMax, basePtr, (ix)) \
                         : read_sample_point(e, v, inst, (ix), sampleLen, binMax, basePtr))
 
+#if SINC_WIDTH != 3
+#error "interpolate_channel's sinc path is written out for a kernel of width 3"
+#endif
+
 /* Interpolate ONE channel at the voice's current position WITHOUT advancing it. */
 static double interpolate_channel(TaudEngine *e, TaudVoice *v, TaudInst *inst, int interpMode,
                                   int sampleLen, int binMax, uint32_t basePtr, int *dpcm)
@@ -101,8 +107,13 @@ static double interpolate_channel(TaudEngine *e, TaudVoice *v, TaudInst *inst, i
 
     switch (interpMode) {
     case INTERP_DEFAULT: {
+        /* The windowed sinc of spec §8.3: the position's fraction picks one
+         * of SINC_PRECISION phases (downwards — the kernel is not
+         * interpolated between them), and the phase's coefficients weigh the
+         * bytes around the position. */
         double acc = 0.0;
-        int j;
+        double qd;
+        int q, j;
         if (plain) {
             int64_t base = (int64_t)basePtr + i0;
             /* The JS guard is `base + SINC_WIDTH <= binMax`; a trimmed pool
@@ -110,22 +121,34 @@ static double interpolate_channel(TaudEngine *e, TaudVoice *v, TaudInst *inst, i
              * clamped path below reads the same zeros the full pool holds. */
             if (i0 >= SINC_WIDTH && i0 + SINC_WIDTH <= sampleLen - 1 && base + SINC_WIDTH <= binMax &&
                 (uint64_t)(base + SINC_WIDTH) < e->samplePoolLen) {
-                const uint8_t *bin = e->sampleBin;
-                for (j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-                    double coeff = te_sinc_tap(e, frac, j);
-                    if (coeff != 0.0) acc += ((bin[base + j] - 127.5) / 127.5) * coeff;
-                }
+                /* The interior, which is nearly always: every tap is inside
+                 * the sample and the pool, and i0 was not clamped, so frac is
+                 * in [0, 1) and the phase is a row of the table. */
+                const uint8_t *bin = e->sampleBin + base;
+                const double *pcm = e->pcmU8;
+                const double *k = e->sincPhase + SINC_TAPS * (int)(frac * SINC_PRECISION);
+                acc += pcm[bin[-2]] * k[0];
+                acc += pcm[bin[-1]] * k[1];
+                acc += pcm[bin[0]] * k[2];
+                acc += pcm[bin[1]] * k[3];
+                acc += pcm[bin[2]] * k[4];
+                acc += pcm[bin[3]] * k[5];
                 return acc;
             }
-            for (j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-                double coeff = te_sinc_tap(e, frac, j);
-                if (coeff != 0.0) acc += pool_point(e, sampleLen, binMax, basePtr, i0 + j) * coeff;
-            }
-            return acc;
         }
+        /* The same sum where a tap may fall off the sample (it reads the
+         * nearest byte the sample has), where the position itself has left
+         * it (frac is then outside [0, 1), and the taps it still reaches are
+         * the ones within SINC_WIDTH of it), or where the instrument's bytes
+         * are being modified as they are read. */
+        qd = floor(frac * SINC_PRECISION);
+        if (!(qd >= -2.0 * SINC_TABLE_SIZE && qd <= 2.0 * SINC_TABLE_SIZE)) return 0.0; /* out of every tap's reach */
+        q = (int)qd;
         for (j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-            double coeff = te_sinc_tap(e, frac, j);
-            if (coeff != 0.0) acc += read_sample_point(e, v, inst, i0 + j, sampleLen, binMax, basePtr) * coeff;
+            int idx = abs(j * SINC_PRECISION - q);
+            if (idx >= SINC_TABLE_SIZE) continue;
+            acc += (plain ? pool_point(e, sampleLen, binMax, basePtr, i0 + j)
+                          : read_sample_point(e, v, inst, i0 + j, sampleLen, binMax, basePtr)) * e->sincTable[idx];
         }
         return acc;
     }
@@ -521,4 +544,11 @@ double te_advance_elev_ramp(const TaudEngine *e, TaudVoice *v, double target)
         v->elevCur = v->elevLeft == 0 ? target : v->elevCur + v->elevStep;
     }
     return v->elevCur;
+}
+
+/* One point of a voice's sample, modifications and all (wasm_parts.c). */
+double te_read_sample_point(TaudEngine *e, TaudVoice *v, TaudInst *inst, int idx,
+                            int sampleLen, int binMax, uint32_t basePtr)
+{
+    return read_sample_point(e, v, inst, idx, sampleLen, binMax, basePtr);
 }

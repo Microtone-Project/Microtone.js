@@ -1,5 +1,7 @@
 /* Lookup tables + pitch math — port of tables.js and minifloat.js. */
 
+#include <stdlib.h>
+
 #include "taud_internal.h"
 
 /* ── SNES BRR 4-tap gaussian table (512 entries) ── */
@@ -120,6 +122,16 @@ void te_build_tables(TaudEngine *e)
         double win = 0.5 + 0.5 * js_cos(winFreq * i);
         e->sincTable[i] = (js_sin(t) / t) * win;
     }
+    e->sincTable[SINC_TABLE_SIZE] = 0.0;
+    /* Tap j of phase p sits |j·SINC_PRECISION − p| table steps from the centre. */
+    for (i = 0; i < SINC_PRECISION; i++) {
+        int j;
+        for (j = 1 - SINC_WIDTH; j <= SINC_WIDTH; j++) {
+            e->sincPhase[i * SINC_TAPS + (j + SINC_WIDTH - 1)] = e->sincTable[abs(j * SINC_PRECISION - i)];
+        }
+    }
+
+    for (i = 0; i < 256; i++) e->pcmU8[i] = (i - 127.5) / 127.5;
 
     e->a500B1 = js_exp((-2.0 * pi * AMIGA_A500_LP_FC) / rate);
     e->a500A0 = 1.0 - e->a500B1;
@@ -131,18 +143,6 @@ void te_build_tables(TaudEngine *e)
     e->ledB2 = (1.0 - bBase * aBase + aBase * aBase) * e->ledA1;
 }
 
-/** Windowed-sinc kernel value for fractional offset frac ∈ [0,1) and signed tap. */
-double te_sinc_tap(const TaudEngine *e, double frac, int tap)
-{
-    double x = (tap - frac) * SINC_PRECISION;
-    double ax = fabs(x);
-    int idx;
-    double f;
-    if (!(ax < SINC_PRECISION * SINC_WIDTH - 1)) return 0.0;
-    idx = (int)ax;
-    f = ax - idx;
-    return e->sincTable[idx] * (1.0 - f) + e->sincTable[idx + 1] * f;
-}
 
 /* ── command LFOs (H, U, R, Y) — 64 entries × 17 steps ── */
 

@@ -1133,3 +1133,14 @@ void te_apply_pan_column_wide(TaudEngine *e, TaudVoice *v, const TaudCell *row)
     default: break;
     }
 }
+
+/* Two of the trigger's steps on their own (wasm_parts.c). */
+void te_resolve_active_envelopes(TaudVoice *v, const TaudInst *inst, const TaudPatch *patch)
+{
+    resolve_active_envelopes(v, inst, patch);
+}
+
+TaudVoice *te_ghost_voice(TaudEngine *e, const TaudVoice *src, int channel)
+{
+    return ghost_voice(e, src, channel);
+}

@@ -19,7 +19,7 @@ import {
   TaudInst, FmOp, FM_WORD_MOD, FM_WORD_FB, FM_MAX_OPERATORS, FM_BUDGET_BYTES,
   META_TYPE_FM, META_TYPE_LAYERED,
 } from "../../core/engine/inst.js";
-import { fmReferencedOperators } from "../../core/engine/fm.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { EffectOp } from "../../core/engine/tables.js";
 import { fillSnapshotInto } from "../../core/worklet/engine-commands.js";
 import {
@@ -207,7 +207,7 @@ test("the rack and the algorithm share one 250-byte budget", () => {
 test("only $00xx and $04xx make an operator sound", () => {
   // A feedback tap reads what an operator left LAST sample, so it can never be
   // the thing that brings one to life.
-  const used = fmReferencedOperators(
+  const used = engineParts().fmReferencedOperators(
     Uint16Array.from([FM_WORD_FB | 2, FM_WORD_MOD | 1, 0, FmOp.ADD]), 3);
   assert.deepEqual([...used], [1, 1, 0]);
 });

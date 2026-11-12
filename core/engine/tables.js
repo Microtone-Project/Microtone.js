@@ -9,10 +9,13 @@ import {
 } from "./constants.js";
 import { random } from "./rng.js";
 
-// ── Fast Sinc: 6-tap windowed sinc, 1024 sub-sample positions (251-273) ──
+// ── The sinc kernel (engine spec §8.3) ──
+// SINC_TABLE[i] is the Hann-windowed sinc at i ÷ SINC_PRECISION samples from
+// the centre, and 0 at the last entry, where the window ends.
+export const SINC_TABLE_SIZE = SINC_PRECISION * SINC_WIDTH;
 export const SINC_TABLE = (() => {
-  const n = SINC_PRECISION * SINC_WIDTH;
-  const out = new Float64Array(n);
+  const n = SINC_TABLE_SIZE;
+  const out = new Float64Array(n + 1);
   const winFreq = Math.PI / SINC_WIDTH / SINC_PRECISION;
   out[0] = 1.0;
   for (let i = 1; i < n; i++) {
@@ -23,15 +26,19 @@ export const SINC_TABLE = (() => {
   return out;
 })();
 
-/** Windowed-sinc kernel value for fractional offset frac ∈ [0,1) and signed tap. */
-export function sincTap(frac, tap) {
-  const x = (tap - frac) * SINC_PRECISION;
-  const ax = Math.abs(x);
-  const idx = Math.trunc(ax);
-  if (idx >= SINC_PRECISION * SINC_WIDTH - 1) return 0.0;
-  const f = ax - idx;
-  return SINC_TABLE[idx] * (1.0 - f) + SINC_TABLE[idx + 1] * f;
-}
+// The same numbers laid out for the sampler: row p holds the six coefficients
+// of sub-sample phase p, for the taps −2…+3 (tap j of phase p sits
+// |j·SINC_PRECISION − p| table steps from the centre).
+export const SINC_TAPS = SINC_WIDTH * 2;
+export const SINC_PHASE = (() => {
+  const out = new Float64Array(SINC_PRECISION * SINC_TAPS);
+  for (let p = 0; p < SINC_PRECISION; p++) {
+    for (let j = 1 - SINC_WIDTH; j <= SINC_WIDTH; j++) {
+      out[p * SINC_TAPS + (j + SINC_WIDTH - 1)] = SINC_TABLE[Math.abs(j * SINC_PRECISION - p)];
+    }
+  }
+  return out;
+})();
 
 // ── SNES BRR 4-tap gaussian table (512 entries; AudioAdapter.kt:283-316) ──
 // The quad {gauss[i], gauss[0xff-i], gauss[0x100+i], gauss[0x1ff-i]} is meant to

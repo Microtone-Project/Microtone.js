@@ -21,19 +21,19 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { Voice } from "../../core/engine/voice.js";
-import { advanceAutoVibrato } from "../../core/engine/envelope.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 
 setSamplingRate(32000);
+const P = engineParts();
 
 const UNITS_PER_SEMITONE = 4096 / 12;          // 4096-TET, one octave per 4096
 const cents = (units) => (units / 4096) * 1200;
 
 /** A bare voice carrying nothing but an auto-vibrato setting. */
 function voiceWith({ speed, depth, sweep = 0, rate = 0, wave = 0 }) {
-  const v = new Voice();
+  const v = P.voice();
   v.activeVibratoSpeed = speed;
   v.activeVibratoDepth = depth;
   v.activeVibratoSweep = sweep;
@@ -46,7 +46,7 @@ function voiceWith({ speed, depth, sweep = 0, rate = 0, wave = 0 }) {
 function deltas(cfg, ticks) {
   const v = voiceWith(cfg);
   const out = [];
-  for (let t = 0; t < ticks; t++) out.push(advanceAutoVibrato(v, null));
+  for (let t = 0; t < ticks; t++) out.push(P.advanceAutoVibrato(v));
   return out;
 }
 

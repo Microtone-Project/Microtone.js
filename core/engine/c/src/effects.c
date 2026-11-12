@@ -610,3 +610,9 @@ int te_apply_retrig_vol_mod(int vol, int x, int step, int max)
     }
     return iclamp(v, 0, max);
 }
+
+/* The cutoff / resonance override on its own (wasm_parts.c). */
+void te_apply_filter_param_effect(TaudEngine *e, TaudVoice *voice, int vi, int rawArg, bool isResonance)
+{
+    apply_filter_param_effect(e, voice, vi, rawArg, isResonance);
+}

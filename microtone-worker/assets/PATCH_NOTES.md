@@ -4,6 +4,16 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.0 (2026-11-13)
+
+**Microtone has a new engine: the same one, rewritten in C and run as WebAssembly, and faster in every browser.** Everything that makes sound goes through it: playback, jamming, every preview, audio export, stems and surround, Pattern to Sample and Motif builds. This version adds no features; the engine is the change.
+
+- Playing a song takes less of the processor: measured on the demo songs, the engine is at least one and a half times as fast as before in Chrome, two and a half times in Firefox, and a little faster in the desktop app on Linux. A dense song that crackled on a slow machine has that much more room.
+- Songs sound as they did. One thing is computed differently on purpose: the default (sinc) interpolation now reads its table at the nearest of 1024 positions below the playhead instead of blending two entries, which is where part of the speed comes from. The difference is some 70 dB below the music, under the noise of an 8-bit sample.
+- The engine is the same bits everywhere now. It carries its own mathematics instead of the browser's, so a song renders to the identical file in Chrome, Firefox, Safari, the desktop app and the player libraries, whatever the machine.
+- Microtone Touch and the desktop app run the same engine.
+- The `taudplay` JavaScript library is version 5.0.0 and runs this engine too, with the API it had; `libtaudplay`, the C library, is no longer a port of the engine but its source.
+
 ## Version 4.10.0 (2026-11-11)
 
 **Every project is now in format 3, and every note can be tuned to a 65536th of an octave.** Format 3's wider pattern cell used to be for surround songs only; now it is the format every project is written in, stereo ones included, and its note column carries four more bits of pitch: sixteen times finer than before.

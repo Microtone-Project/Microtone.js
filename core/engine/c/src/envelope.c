@@ -236,3 +236,10 @@ int te_advance_auto_vibrato(TaudEngine *e, TaudVoice *v)
     v->autoVibPhase = (v->autoVibPhase + v->activeVibratoSpeed) & (AUTOVIB_PHASE_STEPS - 1);
     return pitchDelta;
 }
+
+/* The walk on its own (wasm_parts.c). */
+double te_advance_pf_role(const TaudEnvPoint *env, int loopWord, int susWord, bool keyOff,
+                          double tickSec, int *idxBox, double *timeBox)
+{
+    return advance_pf_role(env, loopWord, susWord, keyOff, tickSec, idxBox, timeBox);
+}
