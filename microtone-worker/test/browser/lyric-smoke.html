@@ -51,7 +51,7 @@
         const cards = [...dlg.querySelectorAll(".kind-card")];
         const last = cards[cards.length - 1];
         log(`the chooser's sixth card is the lyric instrument, enabled: ` +
-          ok(cards.length === 6 && !last.disabled && last.querySelector(".kind-card-name").textContent === "Lyric instrument"));
+          ok(cards.length === 6 && !last.classList.contains("unavailable") && last.querySelector(".kind-card-name").textContent === "Lyric instrument"));
         const depth0 = store.undo.undoStack.length;
         last.click();
         const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));

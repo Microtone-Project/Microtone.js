@@ -225,7 +225,7 @@
       <span class="wheelable-dummy">BPM <b id="posBpm">–</b></span>
       <span id="spdCtl" class="wheelable" data-i18n-title="topbar.spdTitle">Spd <b id="posSpd">–</b></span>
     </div>
-    <div>
+    <div id="songCtl" hidden>
       <label><span data-i18n="topbar.song">Song </span><select id="songSel"></select></label>
     </div>
     <div>
@@ -248,19 +248,26 @@
   </header>
 
   <div id="toolbox" class="toolbox" hidden>
-    <button id="tbRetune" data-i18n="toolbox.retune">Retune…</button>
+    <!-- Four groups (item 324): the instrument panel on the left; what the
+         grid shows; the tools that open a dialog; the master strip and what
+         is heard through it. Radar draws, so it sits with the drawing
+         toggles; Binaural is a way of listening, so it sits beside Master. -->
+    <button id="tbInstList" data-i18n="toolbox.instList" data-i18n-title="toolbox.instListTitle">Instruments</button>
+    <span class="tb-sep"></span>
+    <button id="tbFx2" data-i18n-title="toolbox.fx2Title" hidden>2nd FX: off</button>
+    <button id="tbCells" data-i18n-title="toolbox.cellsTitle" hidden>Cells: full</button>
+    <button id="tbKeymapBar" data-i18n-title="toolbox.keymapBarTitle">Keys: off</button>
+    <button id="tbPitchPlot" data-i18n-title="toolbox.pitchPlotTitle">Pitch: on</button>
     <button id="tbRaw" data-i18n-title="toolbox.rawTitle">Raw: off</button>
     <button id="tbGhosts" data-i18n-title="toolbox.ghostsTitle">Ghosts: on</button>
-    <button id="tbPitchPlot" data-i18n-title="toolbox.pitchPlotTitle">Pitch: off</button>
-    <button id="tbCells" data-i18n-title="toolbox.cellsTitle" hidden>Cells: full</button>
-    <button id="tbInstList" data-i18n="toolbox.instList" data-i18n-title="toolbox.instListTitle">Instruments</button>
-    <button id="tbKeymapBar" data-i18n-title="toolbox.keymapBarTitle">Keys: off</button>
+    <button id="tbRadar" data-i18n-title="toolbox.radarTitle" hidden>Radar: off</button>
+    <span class="tb-sep"></span>
     <button id="tbPanner" data-i18n="toolbox.panner" data-i18n-title="toolbox.pannerTitle" hidden>Panner…</button>
     <button id="tbToSample" data-i18n="toolbox.toSample" data-i18n-title="toolbox.toSampleTitle" hidden>To sample…</button>
-    <button id="tbRadar" data-i18n-title="toolbox.radarTitle" hidden>Radar: off</button>
-    <button id="tbFx2" data-i18n-title="toolbox.fx2Title" hidden>2nd FX: off</button>
+    <button id="tbRetune" data-i18n="toolbox.retune">Retune…</button>
+    <span class="tb-sep" id="tbMasterSep"></span>
     <button id="tbBinaural" data-i18n-title="toolbox.binauralTitle" hidden>Binaural: on</button>
-    <button id="tbMaster" data-i18n-title="toolbox.masterTitle">Master: on</button>
+    <button id="tbMaster" data-i18n="toolbox.master" data-i18n-title="toolbox.masterTitle">Master</button>
   </div>
 
   <!-- The view area splits in two (item 148). Each pane carries its own tab

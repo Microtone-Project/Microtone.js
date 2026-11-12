@@ -113,6 +113,7 @@ class PatternPane {
     this.previewing = false;
     this.previewStarted = false; // set once the worklet confirms playback
     this.needsRedraw = true;
+    this._playRow = -1; // the playhead row last painted (frame)
 
     this.el = document.createElement("div");
     this.el.className = "pattern-pane";
@@ -967,7 +968,14 @@ class PatternPane {
    *  the shared button). */
   frame() {
     const audio = this.store.audio;
-    if (this.previewing && audio?.isPlaying()) this.needsRedraw = true; // playhead row
+    // The playhead row: repainted when it moves, and with Follow on, the
+    // column centres it (item 324) — the Timeline's rule, for a pane.
+    const playRow = this.playRow();
+    if (playRow !== this._playRow) {
+      this._playRow = playRow;
+      this.needsRedraw = true;
+      if (playRow >= 0 && this.store.follow) this.centreRow(playRow);
+    }
     if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
     let changed = false;
     // Auto-reset when the preview ends — but only AFTER we've actually seen it
@@ -979,6 +987,33 @@ class PatternPane {
     }
     if (this.needsRedraw) { this.needsRedraw = false; this.draw(); }
     return changed;
+  }
+
+  /**
+   * The row of this column's pattern the playhead is on, or −1. Its own
+   * preview plays it in the scratch cue; otherwise the song plays it wherever
+   * the playing cue places it on a lane — every lane of a cue is on the same
+   * row, so any one will do.
+   */
+  playRow() {
+    const audio = this.store.audio;
+    if (!audio?.isPlaying()) return -1;
+    const cue = audio.getCuePosition();
+    if (this.previewing) return cue === PREVIEW_CUE ? audio.getTrackerRow() : -1;
+    const words = cue === PREVIEW_CUE ? undefined : this.store.song?.cues[cue];
+    if (!words) return -1;
+    const chans = this.store.doc.channelCount;
+    for (let ch = 0; ch < chans; ch++) {
+      if ((words[ch] & 0x7fff) === this.patIdx) return audio.getTrackerRow();
+    }
+    return -1;
+  }
+
+  /** Scroll so `row` sits in the middle of the column (Follow). */
+  centreRow(row) {
+    const vis = Math.floor(this.canvas.clientHeight / ROW_H);
+    if (vis <= 0) return;
+    this.scrollRow = clampInt(row - Math.floor(vis / 2), 0, Math.max(0, 64 - vis));
   }
 
   draw() {
@@ -1001,9 +1036,7 @@ class PatternPane {
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
 
-    const audio = store.audio;
-    const playRow = this.previewing && audio?.isPlaying() &&
-      audio.getCuePosition() === PREVIEW_CUE ? audio.getTrackerRow() : -1;
+    const playRow = this.playRow();
     const active = this.isActive();
 
     const vis = Math.floor(H / ROW_H) + 1;

@@ -596,12 +596,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
     store.sync = new DocSync(store.audio, store.doc, 0);
     store.sync.loadAll();
   }
-  const sel = $("songSel");
-  sel.innerHTML = "";
-  const opt = document.createElement("option");
-  opt.value = 0;
-  opt.textContent = `0: ${projName}`;
-  sel.appendChild(opt);
+  rebuildSongList();
   store.emit("doc"); // invalidate view caches before the first draw (item 49a)
   showView("timeline"); // hides the welcome screen: a document is loaded now
   updateStatus();
@@ -777,6 +772,9 @@ function rebuildSongList() {
     sel.appendChild(opt);
   });
   sel.value = store.songIndex;
+  // A project of one song has nothing to choose between (item 323): the
+  // picker appears once a second song is added, and goes with it.
+  $("songCtl").hidden = store.doc.songs.length < 2;
 }
 
 function selectSong(index) {
@@ -982,8 +980,12 @@ function refreshToolbox() {
   // Master strip (item 98) — a Timeline fixture, so the button only means
   // anything while a pane is showing one (item 148).
   $("tbMaster").hidden = !store.viewOpen("timeline");
+  // The last group's separator goes when the whole group has (a Patterns
+  // view on its own, in a stereo song).
+  $("tbMasterSep").hidden = $("tbMaster").hidden && $("tbBinaural").hidden;
   refreshCellsBtn();
-  $("tbMaster").textContent = t(masterStrip.visible ? "toolbox.masterOn" : "toolbox.masterOff");
+  // A plain "Master", lit while the strip is open — as Instruments is at the
+  // toolbox's other end (item 324).
   $("tbMaster").classList.toggle("active", masterStrip.visible);
 }
 
@@ -1362,18 +1364,18 @@ $("tbGhosts").addEventListener("click", () => {
   invalidateGrids();
 });
 // Absolute-pitch plot (item 198.5) — the melodic contour drawn behind the note
-// and instrument cells, with a register tab in their left gutter. OFF by
-// default: it answers "what shape did I write", which is a question you ask
-// some of the time, and it costs the busiest part of the grid the rest of it.
+// and instrument cells, with a register tab in their left gutter. ON by
+// default since item 324 (it was off: "what shape did I write" turned out to
+// be a question asked most of the time).
 //
-// …but REMEMBERED, unlike the other drawing toggles, because it is the one
-// that is off to begin with: a preference you have to re-assert every visit is
-// not a preference. Per browser, like the theme and the zoom, and never part
-// of a song.
+// REMEMBERED, unlike the other drawing toggles: a preference you have to
+// re-assert every visit is not a preference. Per browser, like the theme and
+// the zoom, and never part of a song. Only "off" is stored ("0"); the "1" an
+// earlier version stored for "on" reads as on, as nothing does.
 const PITCH_PLOT_KEY = "microtone-pitchplot";
 try {
-  store.pitchPlot = localStorage.getItem(PITCH_PLOT_KEY) === "1";
-} catch { /* private mode — it simply starts off, as it would anyway */ }
+  store.pitchPlot = localStorage.getItem(PITCH_PLOT_KEY) !== "0";
+} catch { /* private mode — it simply starts on, as it would anyway */ }
 function refreshPitchPlotBtn() {
   const btn = $("tbPitchPlot");
   btn.textContent = t(store.pitchPlot ? "toolbox.pitchPlotOn" : "toolbox.pitchPlotOff");
@@ -1383,8 +1385,8 @@ refreshPitchPlotBtn();
 $("tbPitchPlot").addEventListener("click", () => {
   store.pitchPlot = !store.pitchPlot;
   try {
-    if (store.pitchPlot) localStorage.setItem(PITCH_PLOT_KEY, "1");
-    else localStorage.removeItem(PITCH_PLOT_KEY); // off is the default: store nothing
+    if (store.pitchPlot) localStorage.removeItem(PITCH_PLOT_KEY); // on is the default: store nothing
+    else localStorage.setItem(PITCH_PLOT_KEY, "0");
   } catch { /* private mode */ }
   refreshPitchPlotBtn();
   invalidateGrids();

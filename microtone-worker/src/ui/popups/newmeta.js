@@ -32,6 +32,7 @@ import { FM_MAX_OPERATORS, fmProgramOf, fmBudget, fmCanAddOperator } from "../..
 import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { showNotice } from "../components/modal.js";
 
 const hex3 = (n) => "$" + n.toString(16).toUpperCase().padStart(3, "0");
 
@@ -395,21 +396,36 @@ function createFormant(store, lyric = false) {
     const res = deriveLyrics(inst.formant, { ...blankLyricEditor(), text: DEFAULT_LYRICS }, machine);
     return compositeOp([importBankOp(plan), setLyricsOp(doc.lyricPayloadWith(plan.metaSlot, res.entry))]);
   };
-  if (doc.sampleList().length === 0 && doc.sampleRegions().length === 0) {
+  // Sung from a chip instrument: the first OPL or PSG one, its consonants'
+  // noise from the pool range given (none, with an empty pool).
+  const fromChip = (lo, hi, machine) => {
     const chip = chipSources(doc)[0];
     if (chip === undefined) return null;
-    const record = defaultFormantRecord(null, 0, FORMANT_RANGE_NONE, FORMANT_RANGE_NONE);
+    const record = defaultFormantRecord(null, 0, lo, hi);
     const plan = planCreateFormant(doc, record, name, chip);
     if (plan.error) { alert(plan.error); return null; }
-    store.undo.apply(withLyrics(plan, record, null));
+    store.undo.apply(withLyrics(plan, record, machine));
     return { firstSlot: plan.metaSlot, count: 1 };
+  };
+  // Nothing to sing with is said, not swallowed (item 322): the chooser
+  // offers the card only when the pool or a chip instrument has something,
+  // but a pool of recordings can hold no steady tone at all.
+  const refuse = (key) => {
+    showNotice({ title: t(lyric ? "newkind.lyric" : "newkind.formant"), body: t(key) });
+    return null;
+  };
+  if (doc.sampleList().length === 0 && doc.sampleRegions().length === 0) {
+    return fromChip(FORMANT_RANGE_NONE, FORMANT_RANGE_NONE, null) ?? refuse("newkind.noSamples");
   }
   const [lo, hi] = poolSpan(doc);
   const machine = new FormantMachine(doc.sampleBin, rangeCandidates(doc, lo, hi));
   // Chosen for the vowel a new one sings, [a] at C3 (formant.js FormantPatch);
   // a lyric instrument's for no vowel in particular.
   const top = machine.bestSource(lyric ? null : { front: 200, open: 255, round: 0, track: 64, refNote: 0x4000 });
-  const record = defaultFormantRecord(top?.cand ?? null, top?.c4Rate ?? 0, lo, hi);
+  // No tone in the pool to be the voice (only regions, none of them
+  // steady): a chip instrument sings instead, the pool still its noise.
+  if (top === null) return fromChip(lo, hi, machine) ?? refuse("newkind.noSource");
+  const record = defaultFormantRecord(top.cand, top.c4Rate, lo, hi);
   const plan = planCreateOpl(doc, record, name);
   if (plan.error) { alert(plan.error); return null; }
   store.undo.apply(withLyrics(plan, record, machine));
@@ -442,8 +458,8 @@ function createPsg(store) {
 }
 
 /** Resolves "meta", "fm", "opl", "psg", "formant", "lyric", or null on cancel. Without
- *  `haveCandidates` the two kinds built from other instruments are shown but
- *  disabled; without `haveSamples`, the one built from the pool. */
+ *  `haveCandidates` the layered kind is shown dimmed, and pressing it says why;
+ *  without `haveSamples`, the two built from the pool. */
 function pickMetaKind(haveCandidates = true, haveSamples = true) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
@@ -456,13 +472,17 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
       card.type = "button";
       // An FM rack needs nothing to build from: Easy Mode makes its own
       // operators (item 247).
-      if (kind === "meta" && !haveCandidates) {
-        card.disabled = true;
-        card.title = t("newkind.noCandidates");
-      }
-      if ((kind === "formant" || kind === "lyric") && !haveSamples) {
-        card.disabled = true;
-        card.title = t("newkind.noSamples");
+      const why = kind === "meta" && !haveCandidates ? t("newkind.noCandidates")
+        : (kind === "formant" || kind === "lyric") && !haveSamples ? t("newkind.noSamples")
+        : null;
+      // A card that cannot be made is dimmed but still pressable, and the
+      // press says why (item 322): a disabled button explained only by its
+      // tooltip explains nothing on a touch screen, and shows no reason at all
+      // to someone who just presses it and sees nothing happen.
+      if (why !== null) {
+        card.classList.add("unavailable");
+        card.setAttribute("aria-disabled", "true");
+        card.title = why;
       }
       card.append(
         kindDiagram(kind),
@@ -470,7 +490,11 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
         el("span", "kind-card-sub", t(`newkind.${kind}Sub`)),
         el("p", "kind-card-body", t(`newkind.${kind}Body`)),
       );
-      card.addEventListener("click", (e) => { e.preventDefault(); finish(kind); });
+      card.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (why !== null) showNotice({ title: t(`newkind.${kind}`), body: why }).then(() => card.focus());
+        else finish(kind);
+      });
       cards.appendChild(card);
     }
 
@@ -483,7 +507,7 @@ function pickMetaKind(haveCandidates = true, haveSamples = true) {
     dlg.addEventListener("cancel", () => finish(null));
     dlg.addEventListener("keydown", (e) => e.stopPropagation());
     dlg.showModal();
-    (cards.querySelector(".kind-card:not(:disabled)") ?? cancelBtn).focus();
+    (cards.querySelector(".kind-card:not(.unavailable)") ?? cancelBtn).focus();
   });
 }
 

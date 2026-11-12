@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Follow smoke: Cues and Patterns centre the playhead; the song picker; unavailable kinds say why</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <!-- REAL time: the follow legs need the audio thread playing. Run with
+         node tools/browser-smoke.js test/browser/follow-smoke.html 90 -->
+  <img src="/hang" hidden>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/16uba_baion.taud" style="width:1280px;height:900px"></iframe>
+  <script type="module">
+    const out = [];
+    let failures = 0;
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const check = (label, cond) => { if (!cond) failures++; log(`${label}: ${cond ? "ok" : "FAIL"}`); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = (fn, ms = 8000) => new Promise((resolve) => {
+      const t0 = Date.now();
+      const poll = setInterval(() => {
+        let v; try { v = fn(); } catch { v = null; }
+        if (v || Date.now() - t0 > ms) { clearInterval(poll); resolve(v); }
+      }, 40);
+    });
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await waitFor(() => {
+          const w = frame.contentWindow;
+          return w && w.__microtone?.store.doc ? w : null;
+        }, 20000);
+        win.confirm = () => true;
+        win.alert = (m) => log("alert: " + m);
+        const { store } = win.__microtone;
+        const doc = store.doc;
+        const wdoc = win.document;
+        const fkey = (code) => {
+          win.dispatchEvent(new win.KeyboardEvent("keydown", { code, key: code, bubbles: true }));
+          win.dispatchEvent(new win.KeyboardEvent("keyup", { code, key: code, bubbles: true }));
+        };
+        log("app loaded");
+
+        // ── the toolbox in its four groups, Pitch on in a fresh browser ──
+        const order = [...wdoc.getElementById("toolbox").children].map((e) => e.id || e.className).join(",");
+        check(`toolbox order (${order})`, order ===
+          "tbInstList,tb-sep,tbFx2,tbCells,tbKeymapBar,tbPitchPlot,tbRaw,tbGhosts,tbRadar,tb-sep," +
+          "tbPanner,tbToSample,tbRetune,tbMasterSep,tbBinaural,tbMaster");
+        const seps = [...wdoc.querySelectorAll("#toolbox .tb-sep")];
+        check("…its three separators are drawn", seps.length === 3 &&
+          seps.every((e) => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0));
+        check("the pitch plot starts on", store.pitchPlot === true &&
+          wdoc.getElementById("tbPitchPlot").classList.contains("active"));
+        wdoc.getElementById("tbPitchPlot").click();
+        check("…turning it off is what is remembered", store.pitchPlot === false &&
+          win.localStorage.getItem("microtone-pitchplot") === "0");
+        wdoc.getElementById("tbPitchPlot").click();
+        check("…and on again stores nothing", store.pitchPlot === true &&
+          win.localStorage.getItem("microtone-pitchplot") === null);
+
+        const master = wdoc.getElementById("tbMaster");
+        const wasLit = master.classList.contains("active");
+        master.click();
+        await sleep(100);
+        const nowLit = master.classList.contains("active");
+        master.click();
+        await sleep(100);
+        check(`Master reads plainly ("${master.textContent}") and is lit while the strip shows`,
+          master.textContent === "Master" && wasLit && !nowLit && master.classList.contains("active"));
+
+        // ── the song picker shows only when there is a choice ──
+        const songCtl = wdoc.getElementById("songCtl");
+        check("one song: the transport has no song picker", doc.songs.length === 1 && songCtl.hidden &&
+          songCtl.getBoundingClientRect().width === 0);
+        win.__microtone.projectView.addSong();
+        await sleep(100);
+        check("a second song: the picker appears with both", !songCtl.hidden &&
+          wdoc.getElementById("songSel").options.length === 2 && songCtl.getBoundingClientRect().width > 0);
+        win.__microtone.projectView.removeSong(1);
+        await sleep(100);
+        check("back to one: the picker goes", doc.songs.length === 1 && songCtl.hidden);
+
+        // ── follow: Cues and the Patterns columns centre the playhead ──
+        await win.__microtoneEnsureAudio();
+        for (let i = 0; i < 50 && !store.audio?.running; i++) await sleep(50);
+        const audio = store.audio;
+        const song = store.song;
+        const cues = song.cues.length;
+        log(`song has ${cues} cues`);
+        const playAt = async (cue, row) => {
+          store.sync.flushPatterns();
+          audio.chaseTrackerRow(0, cue, row);
+          audio.play(0);
+          await waitFor(() => audio.isPlaying() && audio.getCuePosition() === cue);
+          await sleep(200);
+        };
+
+        fkey("F2");
+        await sleep(200);
+        const cv = win.__microtone.cuesView;
+        const target = Math.max(0, cues - 3);
+        store.follow = true;
+        cv.scrollCue = 0;
+        await playAt(target, 0);
+        const vis = cv.visibleRows();
+        const want = Math.max(0, Math.min(target - Math.floor(vis / 2), cv.maxScrollCue()));
+        check(`Cues + Follow: playing cue ${target} is centred (scroll ${cv.scrollCue}, want ${want})`,
+          cv.scrollCue === want && target - cv.scrollCue >= 0 && target - cv.scrollCue < vis);
+        audio.stop(0);
+        await sleep(150);
+        store.follow = false;
+        cv.scrollCue = 0;
+        await playAt(target, 0);
+        check("Cues, Follow off: the list stays where it was", cv.scrollCue === 0);
+        audio.stop(0);
+        await sleep(150);
+
+        fkey("F3");
+        await sleep(200);
+        const pv = win.__microtone.patternView;
+        const pane = pv.panes[0];
+        const playing = [...song.cues[target]].slice(0, doc.channelCount).map((w) => w & 0x7fff)
+          .filter((w) => w !== 0x7fff);
+        const pat = playing[0];
+        pane.setPattern(pat);
+        // …and beside it a pattern this cue does not play at all
+        let spare = 0;
+        while (playing.includes(spare)) spare++;
+        pv.panes[1]?.setPattern(spare);
+        const other = pv.panes[1];
+        const otherPlays = other && [...song.cues[target]].slice(0, doc.channelCount)
+          .some((w) => (w & 0x7fff) === other.patIdx);
+        store.follow = true;
+        pane.scrollRow = 0;
+        if (other) other.scrollRow = 0;
+        await playAt(target, 40);
+        const prow = audio.getTrackerRow();
+        const pvis = Math.floor(pane.canvas.clientHeight / 17);
+        const pwant = Math.max(0, Math.min(pane._playRow - Math.floor(pvis / 2), Math.max(0, 64 - pvis)));
+        check(`Patterns + Follow: the column showing pattern ${pat.toString(16)} centres row ${pane._playRow} ` +
+          `(scroll ${pane.scrollRow}, want ${pwant}; now on row ${prow})`,
+          pane._playRow >= 40 && pane.scrollRow === pwant && pane.scrollRow > 0);
+        if (other && !otherPlays) {
+          check("…a column showing a pattern the cue does not play keeps its place", other.scrollRow === 0 &&
+            other._playRow === -1);
+        }
+        audio.stop(0);
+        await sleep(150);
+        store.follow = false;
+        pane.scrollRow = 0;
+        await playAt(target, 40);
+        check("Patterns, Follow off: the column shows the playhead but does not scroll",
+          pane._playRow >= 40 && pane.scrollRow === 0);
+        audio.stop(0);
+        store.follow = true;
+        await sleep(150);
+
+        // ── a kind that cannot be made says why ──
+        fkey("F5");
+        await sleep(150);
+        const iv = win.__microtone.instrumentsView;
+        iv.show();
+        // A project with nothing to sing with: no samples, no regions, no chip.
+        const saved = { list: doc.sampleList, regions: doc.sampleRegions };
+        doc.sampleList = () => [];
+        doc.sampleRegions = () => [];
+        const chips = doc.selectableInstrumentSlots().filter((s) => doc.instruments[s]?.isOpl || doc.instruments[s]?.isPsg);
+        log(`chip instruments in the project: ${chips.length}`);
+        const before = doc.usedInstrumentSlots().length;
+        [...iv.listEl.querySelectorAll(".side-toolbar-inst button")].find((b) => b.textContent === "Meta…").click();
+        const dlg = await waitFor(() => wdoc.querySelector("dialog.kind-modal"));
+        const cards = [...dlg.querySelectorAll(".kind-card")];
+        check("nothing to sing with: the formant and lyric cards are dimmed, not disabled",
+          cards[4].classList.contains("unavailable") && cards[5].classList.contains("unavailable") &&
+          !cards[4].disabled && cards[4].getAttribute("aria-disabled") === "true" &&
+          !cards[0].classList.contains("unavailable"));
+        check("…and the chooser starts on a card it can make", wdoc.activeElement === cards[0]);
+        cards[4].click();
+        const notice = await waitFor(() => [...wdoc.querySelectorAll("dialog.modal-text")].find((d) => d.open));
+        check("pressing the formant card says why", !!notice &&
+          notice.querySelector("h3")?.textContent === "Formant instrument" &&
+          /nothing for it to sing with/.test(notice.textContent));
+        notice?.querySelector(".act-dismiss")?.click();
+        await sleep(100);
+        check("…and dismissing it leaves the chooser open, nothing made",
+          dlg.open && doc.usedInstrumentSlots().length === before && wdoc.activeElement === cards[4]);
+        cards[5].click();
+        const notice2 = await waitFor(() => [...wdoc.querySelectorAll("dialog.modal-text")].find((d) => d.open));
+        check("the lyric card says so too", notice2?.querySelector("h3")?.textContent === "Lyric instrument");
+        notice2?.querySelector(".act-dismiss")?.click();
+        await sleep(100);
+        dlg.querySelector(".act-cancel").click();
+        await sleep(100);
+        doc.sampleList = saved.list;
+        doc.sampleRegions = saved.regions;
+        check("cancel closes the chooser", !wdoc.querySelector("dialog.kind-modal"));
+      } catch (e) {
+        failures++;
+        log("ERROR: " + (e?.stack ?? e));
+      }
+      log(`FAILURES: ${failures}`);
+    })();
+  </script>
+</body>
+</html>

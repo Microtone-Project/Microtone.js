@@ -32,6 +32,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - A ramp can change direction: fine up 10 to fine down 30, or slide left 1 to slide right 1, passes through zero, and the row where it does is left empty.
 - A single command of another kind between two of a kind, such as one volume slide between two volume sets or a tremolo between two vibratos, no longer splits the curve: the curve runs past it and leaves it as written.
 
+**Follow now keeps the playhead in view in the Cues and Patterns views too.** With the **follow** lamp lit, the Cues view centres each cue as it starts, and a Patterns column centres the playing row.
+
+- A Patterns column shows the playhead whenever the song is playing the pattern it shows, not only while you preview it.
+- The song selector in the top bar is shown only when the project has more than one song.
+- The Timeline and Patterns toolbox is laid out in groups: the Instruments panel, then what the grid shows (2nd FX, Cells, Keys, Pitch, Raw, Ghosts), then the tools that open a dialog (Panner, To sample, Retune), then Master, which now reads just "Master" and lights up while the strip is open, as Instruments does.
+- The pitch plot is on by default; turning it off is remembered as before.
+- The New instrument chooser's formant and lyric cards, and its layered card, no longer just grey out when the project has nothing to make them from: pressing one says what is missing.
+- Fixed: a formant or lyric instrument made in a project whose pool holds only recordings with no steady tone was made with no voice to sing with; it is now sung from an OPL or PSG instrument if there is one, and otherwise you are told why it cannot be made.
+
 ## Version 4.9.0 (2026-11-09)
 
 **The Timbre designer: a small sound designer for FM racks that knows the song's tuning.** Design timbre…, on the FM and Easy tabs, builds a sound out of sine partials — how many, how bright, held, struck or plucked, and where it should sound best — and writes it as an Easy Mode rack, every partial with its own decay.

@@ -85,6 +85,7 @@ export class CuesView {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.scrollCue = 0;
+    this._followCue = -1; // the cue Follow last centred (followPlayhead)
     this.scrollCh = 0;
     this.cursor = { cue: 0, col: 0, nib: 0 }; // col: 0/1 = cmd words, 2+ = lane-2
     // Block selection {aCue, aCh, cue, ch, cmd}. The grid has TWO spaces and a
@@ -888,6 +889,7 @@ export class CuesView {
     if (!this.store.doc) return;
     const playing = this.store.audio?.isPlaying() === true;
     if (playing) this.needsRedraw = true; // playhead marker
+    this.followPlayhead(playing);
     this.watchLamps(playing);
     // Stopped, the lamps still fade out and a jammed note still moves its
     // lane's meter — repainted when what they show has changed, not on spec.
@@ -895,6 +897,21 @@ export class CuesView {
     if (key !== this._meterKey) { this._meterKey = key; this.needsRedraw = true; }
     if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
     if (this.needsRedraw) { this.needsRedraw = false; this.draw(); }
+  }
+
+  /**
+   * Follow (item 324): each time the playhead reaches another cue, scroll so
+   * that cue sits in the middle of the list — on the change only, so the list
+   * can be wheeled about while a cue plays. Turning Follow on mid-song
+   * centres at once; a pattern preview's scratch cue is no cue of the list.
+   */
+  followPlayhead(playing) {
+    if (!playing || !this.store.follow || !this.dpr) { this._followCue = -1; return; }
+    const cue = this.store.audio.getCuePosition();
+    if (cue === this._followCue) return;
+    this._followCue = cue;
+    if (cue >= this.numCues()) return;
+    this.scrollCue = clampInt(cue - Math.floor(this.visibleRows() / 2), 0, this.maxScrollCue());
   }
 
   /**

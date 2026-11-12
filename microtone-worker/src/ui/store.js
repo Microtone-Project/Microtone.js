@@ -56,11 +56,10 @@ export class Store {
      *  on, and a view preference like the rest — never saved with the song. */
     this.ghosts = true;
     /** Absolute-pitch plot in the two grids (item 198.5): the contour behind
-     *  the note and instrument cells, plus the register tab beside them. OFF by
-     *  default — it is a reading aid for shaping a melody, not part of the
-     *  notation, and a grid that shows it unasked is a busier grid. A view
-     *  preference like `ghosts`: never saved with the song. */
-    this.pitchPlot = false;
+     *  the note and instrument cells, plus the register tab beside them. ON by
+     *  default (item 324; app.js reads the browser's remembered choice over
+     *  it). A view preference like `ghosts`: never saved with the song. */
+    this.pitchPlot = true;
     /** The Timeline's cell width (item 254): 0 the full cell, 1 two slots
      *  (note/effect, volume/panning), 2 one (note/effect) — narrowcell.js. A
      *  view preference for MONITORING many lanes at once; never saved. */

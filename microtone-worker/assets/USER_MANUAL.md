@@ -108,7 +108,7 @@ The app warns before discarding unsaved changes, and autosaves your work — see
 | **Shift+Enter** | Play from the start |
 | **▶ Song** button | Play from the start |
 | **▶ Cue** button | Play from the cue under the cursor |
-| **follow** button | Scroll the view with playback (its lamp is lit while it does) |
+| **follow** button | Keep the playhead in the middle of the view (its lamp is lit while it does): the Timeline row by row, the Cues view each time a new cue starts, and every Patterns column showing a pattern the playing cue uses |
 
 Playing from the middle picks the song up as it stands there. Before the first row sounds, Microtone runs silently through everything that comes before it — in the song's own order, jumps and loops included — so every lane starts with the volume, panning, bitcrusher and overdrive settings, instrument and effect memory it would have had if you had played from the start, and the tempo, speed and global volume are the song's at that point too. Notes still ringing from earlier rows are not restarted: each lane is silent until its next note. A row the song never reaches when played from the start — after a halt, past a pattern break, or beyond a loop that never ends — is picked up by going through the cues in order instead.
 
@@ -121,9 +121,9 @@ without pressing Play.
 
 From top to bottom:
 
-- **Top bar** — transport, record toggle, undo/redo, octave / instrument / speed displays (hover and use the mouse wheel to change them), song selector, file buttons, the zoom control, language / theme / help buttons. Click the **Microtone** logo for the About box.
+- **Top bar** — transport, record toggle, undo/redo, octave / instrument / speed displays (hover and use the mouse wheel to change them), song selector (only in a project with more than one song), file buttons, the zoom control, language / theme / help buttons. Click the **Microtone** logo for the About box.
 - **Tabs** — the eight views, on **F1**–**F7** and **F9**. The strip belongs to the pane below it, so a split screen has one per pane, each ending in the button that splits the view (**⊞**) or closes that pane (**✕**).
-- **Toolbox** (Timeline and Patterns only) — **Retune…**, the **Raw** hex-note toggle, the **Ghosts** and **Pitch** drawing toggles, the Timeline's **Cells** width, and the quick **Instruments** lookup panel.
+- **Toolbox** (Timeline and Patterns only), in four groups: the quick **Instruments** lookup panel; what the grid shows — the **2nd FX** column, the Timeline's **Cells** width, the **Keys** strip, the **Pitch** plot, the **Raw** hex-note toggle and the **Ghosts**; the tools that open a dialog — **Panner…**, **To sample…** and **Retune…**; and the **Master** strip.
 - **The main view.**
 - **Command palette** — a context strip above the status bar showing the actions and documentation for the column under the cursor while recording.
 - **Status bar** — file name, project name, dirty marker, cue/row/BPM/speed position, and links to these docs.
@@ -2658,8 +2658,8 @@ below it and softening as it climbs. A dial drawn from above cannot otherwise
 tell you whether a source is over your head or under your feet.
 
 **Hearing it: the head model.** A surround song is monitored through a
-**binaural** head model by default — the **Binaural** toggle sits next to Radar
-in the toolbox. It gives each ear its own arrival time and its own shading of
+**binaural** head model by default — the **Binaural** toggle sits next to
+**Master** in the toolbox. It gives each ear its own arrival time and its own shading of
 the sound, so on headphones a source behind you sounds behind you and one above
 you sounds above you, which is the only way to compose a position you can hear.
 The filters are *measured* — the SADIE project's set, recorded from a real head
@@ -3487,8 +3487,8 @@ Things worth knowing about what the grey does NOT say:
 
 **Pitch** in the toolbox draws the shape of each lane's melody behind its note
 and instrument cells. It changes nothing in the song — it is a reading aid. It
-starts off, and unlike the other drawing toggles your choice is **remembered**
-by this browser, so once it is on it stays on.
+starts on, and unlike the other drawing toggles your choice is **remembered**
+by this browser, so once it is off it stays off.
 
 Every sounding note gets a **tick** on a horizontal scale running across those
 cells, and consecutive ticks are **joined into a contour**, so a part reads as a

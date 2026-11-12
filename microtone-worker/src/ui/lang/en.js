@@ -98,8 +98,7 @@ export default {
   "keymapbar.trUpTitle": "Transpose the keyboard up a step — a degree, or a semitone on the piano layouts (Shift+Alt+→)",
   "toolbox.instList": "Instruments",
   "toolbox.instListTitle": "Toggle the quick instrument lookup panel",
-  "toolbox.masterOn": "Master: on",
-  "toolbox.masterOff": "Master: off",
+  "toolbox.master": "Master",
   "toolbox.masterTitle": "Toggle the master strip — vectorscopes, RMS/peak meters and the global-volume fader",
   // ── Timeline right-click menu ──
   "ctx.empty": "Nothing to do here",
@@ -1346,6 +1345,7 @@ export default {
   "newkind.formantSub": "type 1 — a sung syllable, from the pool or an OPL or PSG instrument",
   "newkind.formantBody": "Sings: a sample from the pool — or the voice of an OPL or PSG instrument — is the buzz of the vocal folds, and a model of the vocal tract shapes it into a vowel, with up to two consonants before it and one after, spoken when the key is let go. The consonants' hiss and pop come from a built-in noise generator or from the pool's samples — the Formant tab lists what each one can sound like, best first. It costs ONE voice. It starts as a sung [a] on the sample that suits it best; with no samples at all, on the first OPL or PSG instrument.",
   "newkind.noSamples": "This project has nothing for it to sing with. Add or record a sample — a looped, sawtooth-like tone is ideal — or make an OPL or PSG instrument for it to sing from.",
+  "newkind.noSource": "Nothing in the pool can be its voice: the recordings there hold no steady tone to sing on. Add or record a sample — a looped, sawtooth-like tone is ideal — or make an OPL or PSG instrument for it to sing from.",
   "newkind.lyric": "Lyric instrument",
   "newkind.lyricSub": "type 1 with lyrics — a formant instrument that sings words",
   "newkind.lyricBody": "A formant instrument given lyrics: it sings them one syllable a note, so a melody written with one instrument number sings its words. The note that names the instrument sings the first syllable; every note after it sings the next, back to the first after the last. The lyrics are written in IPA or X-SAMPA on its Lyrics tab; the source, the pool range and how the voice follows pitch are shared by every syllable, on its Formant tab. It costs ONE voice. It starts singing [la].",
