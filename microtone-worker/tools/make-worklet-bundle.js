@@ -51,6 +51,15 @@ const FILES = [
   "core/engine/chase.js",
   "core/engine/mixer.js",
   "core/engine/engine.js",
+  // The C engine as WebAssembly (item 312) and what its JavaScript half builds
+  // its uploads with: the mastering and mixing-chain codecs, which cross the
+  // boundary as the file's own bytes.
+  "core/format/mastering-section.js",
+  "core/format/imix-section.js",
+  "core/engine/taud-engine.wasm.js",
+  "core/engine/wasm-module.js",
+  "core/engine/wasm-engine.js",
+  "core/engine/create.js",
   "core/worklet/protocol.js",
   "core/audio/audio-ring.js",
   "core/audio/resampler.js",

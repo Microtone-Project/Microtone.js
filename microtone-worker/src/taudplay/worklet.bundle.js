@@ -297,16 +297,32 @@ function setRandomSource(fn) {
   _random = fn ?? Math.random;
 }
 
-/** Simple seedable mulberry32 for tests. */
+/** Simple seedable mulberry32 for tests. Its `state()` is where the stream
+ *  stands — what a WebAssembly engine continues it from (engineSeed). */
 function makeSeededRandom(seed = 1) {
   let a = seed >>> 0;
-  return function mulberry32() {
+  function mulberry32() {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  }
+  mulberry32.state = () => a;
+  return mulberry32;
+}
+
+/**
+ * The 32-bit state a WebAssembly engine starts its own generator from. The
+ * module imports nothing, so it cannot call the source installed here; it runs
+ * the same mulberry32 inside instead. With a makeSeededRandom source installed
+ * the engine continues THAT stream from where it stands, so a seeded render is
+ * the same render in either engine; otherwise the seed is one draw from the
+ * source in force (Math.random in production).
+ */
+function engineSeed() {
+  if (typeof _random.state === "function") return _random.state() >>> 0;
+  return Math.floor(_random() * 4294967296) >>> 0;
 }
 
 // ══ core/engine/dither.js ══
@@ -21570,6 +21586,14 @@ class TaudEngine {
     this.instruments[slot & 0x3ff].extraPatches = null;
   }
 
+  /** Name the mixing chain an instrument runs through, overriding byte 255 of
+   *  its record without rewriting it (the WebAssembly engine has the same
+   *  call; a host must not reach into `instruments` for this). */
+  setInstrumentImixId(slot, id) {
+    this.instruments[slot & 0x3ff].imixId = id & 0xff;
+    this.imixGen++;
+  }
+
   /** Deallocate pattern slot back to unallocated (patternRead then falls back
    *  to emptyPattern, same as a slot that was never written) — used to blank
    *  the persistent pattern store's stale tail when a shorter song loads over
@@ -22828,8 +22852,8 @@ function applyMonitor(eng, monitor) {
  *  (default 48 kHz), taken from the pre-dither float mix bus and quantised as
  *  `quality` says (encodeWav). Returns {bytes, seconds, halted}. */
 function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold",
-                            quality = WAV_CLEAN) {
-  const eng = new TaudEngine();
+                            quality = WAV_CLEAN, makeEngine = null) {
+  const eng = makeEngine !== null ? makeEngine() : new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = renderSong(eng, maxSeconds);
@@ -22841,8 +22865,11 @@ function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = 
  *  plus `aborted`; `bytes` is null when aborted. */
 async function renderToWavAsync(docLike, songIndex, maxSeconds,
                                        { outRate = 48000, onProgress = null, signal = null,
-                                         monitor = "fold", quality = WAV_CLEAN } = {}) {
-  const eng = new TaudEngine();
+                                         monitor = "fold", quality = WAV_CLEAN, makeEngine = null } = {}) {
+  // `makeEngine` lets a host render with the engine of its choice — the
+  // tracker passes the WebAssembly one (core/engine/create.js); with none
+  // given this module needs nothing beyond the JavaScript engine it imports.
+  const eng = makeEngine !== null ? makeEngine() : new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = await renderSongAsync(eng, maxSeconds, { onProgress, signal });

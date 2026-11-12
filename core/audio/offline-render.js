@@ -216,8 +216,8 @@ function applyMonitor(eng, monitor) {
  *  (default 48 kHz), taken from the pre-dither float mix bus and quantised as
  *  `quality` says (encodeWav). Returns {bytes, seconds, halted}. */
 export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold",
-                            quality = WAV_CLEAN) {
-  const eng = new TaudEngine();
+                            quality = WAV_CLEAN, makeEngine = null) {
+  const eng = makeEngine !== null ? makeEngine() : new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = renderSong(eng, maxSeconds);
@@ -229,8 +229,11 @@ export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, mon
  *  plus `aborted`; `bytes` is null when aborted. */
 export async function renderToWavAsync(docLike, songIndex, maxSeconds,
                                        { outRate = 48000, onProgress = null, signal = null,
-                                         monitor = "fold", quality = WAV_CLEAN } = {}) {
-  const eng = new TaudEngine();
+                                         monitor = "fold", quality = WAV_CLEAN, makeEngine = null } = {}) {
+  // `makeEngine` lets a host render with the engine of its choice — the
+  // tracker passes the WebAssembly one (core/engine/create.js); with none
+  // given this module needs nothing beyond the JavaScript engine it imports.
+  const eng = makeEngine !== null ? makeEngine() : new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = await renderSongAsync(eng, maxSeconds, { onProgress, signal });

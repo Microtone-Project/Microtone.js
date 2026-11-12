@@ -250,6 +250,14 @@ export class TaudEngine {
     this.instruments[slot & 0x3ff].extraPatches = null;
   }
 
+  /** Name the mixing chain an instrument runs through, overriding byte 255 of
+   *  its record without rewriting it (the WebAssembly engine has the same
+   *  call; a host must not reach into `instruments` for this). */
+  setInstrumentImixId(slot, id) {
+    this.instruments[slot & 0x3ff].imixId = id & 0xff;
+    this.imixGen++;
+  }
+
   /** Deallocate pattern slot back to unallocated (patternRead then falls back
    *  to emptyPattern, same as a slot that was never written) — used to blank
    *  the persistent pattern store's stale tail when a shorter song loads over

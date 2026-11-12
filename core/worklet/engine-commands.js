@@ -172,6 +172,16 @@ export function drainInterruptsInto(eng, playhead, f, i32 = null) {
 export function fillSnapshotInto(eng, playhead, f) {
   const ph = eng.playheads[playhead];
   const ts = ph.trackerState;
+  if (typeof eng.fillSnapshot === "function") {
+    // The WebAssembly engine writes the playhead, the voice blocks, the
+    // Mixing tab's meter blocks and the envelope playheads itself (snapshot.c,
+    // imixtap.c — the same offsets); the strip's and the Mastering view's taps
+    // are the same JavaScript objects either way.
+    eng.fillSnapshot(f);
+    fillAnalysisInto(ts, f);
+    fillMasterMeterInto(ts, f);
+    return;
+  }
   f[SNAP_CUE_POS] = ts.cuePos;
   f[SNAP_ROW_INDEX] = ts.rowIndex;
   f[SNAP_TICK_IN_ROW] = ts.tickInRow;

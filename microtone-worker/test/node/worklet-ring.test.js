@@ -38,14 +38,19 @@ const NUM_PATTERNS_EMPTY = [0xff, 0x7f]; // PATTERN_EMPTY sentinel, LE
  *  shape as engine-scenarios.test.js's makeTestEngine — byte 21 = 0x3F keeps
  *  the vol-env terminator non-zero, else the Schism cut rule ramps it out). */
 function uploadLoudInstrument(eng) {
-  for (let i = 0; i < 1000; i++) eng.sampleBin[i] = 255; // max positive u8 → loudest constant tone
-  const rec = new Uint8Array(256);
+  // Through the upload every host uses (a whole sample+instrument image), so
+  // the processor is tested with whichever engine it runs — the WebAssembly
+  // one by default — rather than by writing into the JavaScript engine's pool.
+  const SAMPLES = 8388608;
+  const image = new Uint8Array(SAMPLES + 1024 * 256);
+  for (let i = 0; i < 1000; i++) image[i] = 255; // max positive u8 → loudest constant tone
+  const rec = image.subarray(SAMPLES + 256, SAMPLES + 512); // slot 1
   const w16 = (o, v) => { rec[o] = v & 0xff; rec[o + 1] = (v >> 8) & 0xff; };
   w16(4, 1000); w16(6, 32000); w16(12, 1000);
   rec[14] = 1;    // forward loop
   rec[21] = 0x3f; // vol env node 0 = full
   rec[171] = 255; rec[196] = 255;
-  eng.uploadInstrument(1, rec);
+  eng.uploadSampleInstBlob(image);
 }
 
 function makeLoudPattern() {
@@ -65,6 +70,7 @@ function makeCue(patSlot) {
 
 function setup() {
   const p = new TaudProcessor({ processorOptions: {} });
+  p.onCommand({ t: CMD.INIT }); // the engine is built at INIT (the WebAssembly one unless asked otherwise)
   uploadLoudInstrument(p.engine);
   p.engine.uploadPattern(0, makeLoudPattern());     // pattern 0: the loud tone
   p.engine.uploadPattern(1, new Uint8Array(512));   // pattern 1: all-zero = silent (no note)

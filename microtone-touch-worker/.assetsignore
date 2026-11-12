@@ -9,3 +9,7 @@ README.md
 # Promo shots (microtone-worker/tools/make-screenshots.js touch): for the
 # README and store listings, not for the site.
 screenshots/
+
+# The engine's C sources. The site ships what they compile to
+# (core/engine/taud-engine.wasm.js); the sources are for building it.
+core/engine/c/
