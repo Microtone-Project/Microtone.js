@@ -4,7 +4,7 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
-## Version 5.0.0 (2026-11-13)
+## Version 5.0.0 (2026-11-14)
 
 **Microtone has a new engine: the same one, rewritten in C and run as WebAssembly, and faster in every browser.** Everything that makes sound goes through it: playback, jamming, every preview, audio export, stems and surround, Pattern to Sample and Motif builds.
 
@@ -51,7 +51,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - A row without a note shows its effect in the same five places, its letter narrowed to sit where a raw pitch's first digit does, so effects and raw pitches line up down the lane.
 - The instrument is shown beside the note or the effect on every row. A row with an instrument and an effect but no note now shows the effect, where it used to show an empty note.
 
-## Version 4.10.0 (2026-11-11)
+## Version 4.10.0 (2026-11-13)
 
 **Every project is now in format 3, and every note can be tuned to a 65536th of an octave.** Format 3's wider pattern cell used to be for surround songs only; now it is the format every project is written in, stereo ones included, and its note column carries four more bits of pitch: sixteen times finer than before.
 
